@@ -1,0 +1,275 @@
+{
+  "release": "r2117",
+  "upstream": "https://github.com/vgmstream/vgmstream",
+  "zipSha256": "6c4a8a3813864fefed081bbd337dbc0ad93bf88e0b92f5db98d7ab258b22dc6c",
+  "runtimeFiles": [
+    {
+      "sha256": "4D6CF54E7B3C26EF06E95BDB515A10D1E1BED3EC1FFD87EC3E5C4FBCD2A883F6",
+      "name": "avcodec-vgmstream-59.dll",
+      "bytes": 2450432
+    },
+    {
+      "sha256": "0DDE66EA268CCCB67B1AA219C1CE879602B839E561A79A00C8215E2688F1A4B2",
+      "name": "avformat-vgmstream-59.dll",
+      "bytes": 1305600
+    },
+    {
+      "sha256": "A999856C17CFDCE3C22B92B6640A7ADA6C4AB4C3C6841A863770B72FA0BC19B4",
+      "name": "avutil-vgmstream-57.dll",
+      "bytes": 1792000
+    },
+    {
+      "sha256": "FE82F1AE13A798337E03942C35351997C23CAADB5EB0C6B7A2DC2A521ED8B02E",
+      "name": "libatrac9.dll",
+      "bytes": 308736
+    },
+    {
+      "sha256": "542254723D9100F91CBF18E41C4AFF80287C22A9859E9E545C413D984DF440AD",
+      "name": "libcelt-0061.dll",
+      "bytes": 110628
+    },
+    {
+      "sha256": "BFCC51D865BB3B6A2793381BF535F23EC423FEB722B46333FA8556CCDCAFA61A",
+      "name": "libcelt-0110.dll",
+      "bytes": 105132
+    },
+    {
+      "sha256": "AAD61F205CE1F1B61285F6B37B90A331EC8C6AE2F94F361714DC21A12C236960",
+      "name": "libg719_decode.dll",
+      "bytes": 156160
+    },
+    {
+      "sha256": "DB9EB1D91B8EB9F47B0968201DBF6C51A9627E539A78AFD9AD5F59C5D18FE4DF",
+      "name": "libmpg123-0.dll",
+      "bytes": 420235
+    },
+    {
+      "sha256": "04DBC85FCEC6C54671535BF39937A70F2DD040A81AD670A0B84DE6CA17B39BFF",
+      "name": "libspeex-1.dll",
+      "bytes": 129630
+    },
+    {
+      "sha256": "5F330A20B19B3C70DC43EEDCC95891E65940FCA04A77155C573EFCDD4C2CA665",
+      "name": "libvorbis.dll",
+      "bytes": 287232
+    },
+    {
+      "sha256": "688A81D31EF98A9A6143E1075B2F4C5B79BDFA51E7A14D50D662A0E916DAC739",
+      "name": "swresample-vgmstream-4.dll",
+      "bytes": 729600
+    },
+    {
+      "sha256": "29DF08C557ADA8269C92A6ABFE3886AD2F65849B0B26BA78A0819B363BBC5B85",
+      "name": "vgmstream-cli.exe",
+      "bytes": 2876928
+    }
+  ],
+  "sourceCommit": "71e2361042531fe767fb98300cf8c1ee95e539a0",
+  "ffmpegRuntimeLicenses": [
+    {
+      "name": "avcodec-vgmstream-59.dll",
+      "license": "LGPL version 2.1 or later",
+      "configuration": "--build-suffix=-vgmstream --disable-pthreads --disable-w32threads --disable-os2threads --disable-static --enable-shared --disable-programs --disable-doc --disable-avdevice --disable-swresample --disable-swscale --disable-postproc --disable-avfilter --disable-network --disable-everything --disable-autodetect --disable-iconv --disable-mediafoundation --disable-schannel --disable-sdl2 --disable-zlib --disable-swscale-alpha --disable-amf --disable-cuda --disable-cuvid --disable-d3d11va --disable-dxva2 --disable-ffnvcodec --disable-nvenc --disable-nvdec --disable-vdpau --enable-swresample --enable-libopus --enable-demuxer='ac3,eac3,spdif,asf,xwma,mov,oma,xmv,ogg,flac,wav,aac,mp3,smacker,bink,binka,caf,mpc,mpc8,tak,ape' --enable-parser='ac3,mpegaudio,xma,vorbis,opus' --enable-decoder='ac3,eac3,wmapro,wmav1,wmav2,xma1,xma2,aac,atrac3,atrac3p,mp2float,mp3float,smackaud,binkaudio_dct,binkaudio_rdft,pcm_s16be,pcm_s16be_planar,pcm_s16le,pcm_s16le_planar,pcm_s8,pcm_s8_planar,flac,vorbis,libopus,mpc7,mpc8,alac,adpcm_ima_qt,adpcm_ima_dk3,adpcm_ima_dk4,tak,ape' --target-os=win64 --toolchain=msvc --arch=x86_64 --extra-ldflags=opus.lib --prefix=/c/vgmstream-dlls/out/ffmpeg-64"
+    },
+    {
+      "name": "avformat-vgmstream-59.dll",
+      "license": "LGPL version 2.1 or later",
+      "configuration": "--build-suffix=-vgmstream --disable-pthreads --disable-w32threads --disable-os2threads --disable-static --enable-shared --disable-programs --disable-doc --disable-avdevice --disable-swresample --disable-swscale --disable-postproc --disable-avfilter --disable-network --disable-everything --disable-autodetect --disable-iconv --disable-mediafoundation --disable-schannel --disable-sdl2 --disable-zlib --disable-swscale-alpha --disable-amf --disable-cuda --disable-cuvid --disable-d3d11va --disable-dxva2 --disable-ffnvcodec --disable-nvenc --disable-nvdec --disable-vdpau --enable-swresample --enable-libopus --enable-demuxer='ac3,eac3,spdif,asf,xwma,mov,oma,xmv,ogg,flac,wav,aac,mp3,smacker,bink,binka,caf,mpc,mpc8,tak,ape' --enable-parser='ac3,mpegaudio,xma,vorbis,opus' --enable-decoder='ac3,eac3,wmapro,wmav1,wmav2,xma1,xma2,aac,atrac3,atrac3p,mp2float,mp3float,smackaud,binkaudio_dct,binkaudio_rdft,pcm_s16be,pcm_s16be_planar,pcm_s16le,pcm_s16le_planar,pcm_s8,pcm_s8_planar,flac,vorbis,libopus,mpc7,mpc8,alac,adpcm_ima_qt,adpcm_ima_dk3,adpcm_ima_dk4,tak,ape' --target-os=win64 --toolchain=msvc --arch=x86_64 --extra-ldflags=opus.lib --prefix=/c/vgmstream-dlls/out/ffmpeg-64"
+    },
+    {
+      "name": "avutil-vgmstream-57.dll",
+      "license": "LGPL version 2.1 or later",
+      "configuration": "--build-suffix=-vgmstream --disable-pthreads --disable-w32threads --disable-os2threads --disable-static --enable-shared --disable-programs --disable-doc --disable-avdevice --disable-swresample --disable-swscale --disable-postproc --disable-avfilter --disable-network --disable-everything --disable-autodetect --disable-iconv --disable-mediafoundation --disable-schannel --disable-sdl2 --disable-zlib --disable-swscale-alpha --disable-amf --disable-cuda --disable-cuvid --disable-d3d11va --disable-dxva2 --disable-ffnvcodec --disable-nvenc --disable-nvdec --disable-vdpau --enable-swresample --enable-libopus --enable-demuxer='ac3,eac3,spdif,asf,xwma,mov,oma,xmv,ogg,flac,wav,aac,mp3,smacker,bink,binka,caf,mpc,mpc8,tak,ape' --enable-parser='ac3,mpegaudio,xma,vorbis,opus' --enable-decoder='ac3,eac3,wmapro,wmav1,wmav2,xma1,xma2,aac,atrac3,atrac3p,mp2float,mp3float,smackaud,binkaudio_dct,binkaudio_rdft,pcm_s16be,pcm_s16be_planar,pcm_s16le,pcm_s16le_planar,pcm_s8,pcm_s8_planar,flac,vorbis,libopus,mpc7,mpc8,alac,adpcm_ima_qt,adpcm_ima_dk3,adpcm_ima_dk4,tak,ape' --target-os=win64 --toolchain=msvc --arch=x86_64 --extra-ldflags=opus.lib --prefix=/c/vgmstream-dlls/out/ffmpeg-64"
+    },
+    {
+      "name": "swresample-vgmstream-4.dll",
+      "license": "LGPL version 2.1 or later",
+      "configuration": "--build-suffix=-vgmstream --disable-pthreads --disable-w32threads --disable-os2threads --disable-static --enable-shared --disable-programs --disable-doc --disable-avdevice --disable-swresample --disable-swscale --disable-postproc --disable-avfilter --disable-network --disable-everything --disable-autodetect --disable-iconv --disable-mediafoundation --disable-schannel --disable-sdl2 --disable-zlib --disable-swscale-alpha --disable-amf --disable-cuda --disable-cuvid --disable-d3d11va --disable-dxva2 --disable-ffnvcodec --disable-nvenc --disable-nvdec --disable-vdpau --enable-swresample --enable-libopus --enable-demuxer='ac3,eac3,spdif,asf,xwma,mov,oma,xmv,ogg,flac,wav,aac,mp3,smacker,bink,binka,caf,mpc,mpc8,tak,ape' --enable-parser='ac3,mpegaudio,xma,vorbis,opus' --enable-decoder='ac3,eac3,wmapro,wmav1,wmav2,xma1,xma2,aac,atrac3,atrac3p,mp2float,mp3float,smackaud,binkaudio_dct,binkaudio_rdft,pcm_s16be,pcm_s16be_planar,pcm_s16le,pcm_s16le_planar,pcm_s8,pcm_s8_planar,flac,vorbis,libopus,mpc7,mpc8,alac,adpcm_ima_qt,adpcm_ima_dk3,adpcm_ima_dk4,tak,ape' --target-os=win64 --toolchain=msvc --arch=x86_64 --extra-ldflags=opus.lib --prefix=/c/vgmstream-dlls/out/ffmpeg-64"
+    }
+  ],
+  "verifiedAgainstOfficialDigest": true,
+  "assetUrl": "https://github.com/vgmstream/vgmstream/releases/download/r2117/vgmstream-win64.zip",
+  "codecLicenseSources": {
+    "vgmstreamCommit": "71e2361042531fe767fb98300cf8c1ee95e539a0",
+    "buildDocumentationUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/doc/BUILD.md",
+    "components": [
+      {
+        "noticeBytes": 1089,
+        "exactWindowsBinaryBuildRevision": "not established",
+        "officialNoticeGitBlobSha1": "9e73e2a1829530430878f5a0ed5d59830063a415",
+        "declaredSourceRef": "6a9e00f6c7abd74d037fd210b6670d3cdb313049",
+        "component": "LibAtrac9",
+        "binary": "libatrac9.dll",
+        "sourceEvidenceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/doc/BUILD.md",
+        "noticeSha256": "06A7E63D1E48754E925339E0DF0ABC62F0AC828196C0783CB156FF69334FA737",
+        "license": "MIT",
+        "licenseUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_libs/licenses/LibAtrac9.LICENSE",
+        "sourceUrl": "https://github.com/Thealexbarney/LibAtrac9",
+        "notice": "LibAtrac9.LICENSE"
+      },
+      {
+        "noticeBytes": 1536,
+        "exactWindowsBinaryBuildRevision": "not established",
+        "noticeSha256": "6913F9754C576D04E2C7452202AEFF5910BA9B8DD29AC6949926A6D12F33C0B2",
+        "declaredSourceRef": "v0.6.1",
+        "component": "CELT 0.6.1",
+        "binary": "libcelt-0061.dll",
+        "sourceEvidenceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/doc/BUILD.md",
+        "licenseUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_libs/licenses/celt-0.6.1.COPYING",
+        "license": "BSD-3-Clause",
+        "sourceArchive": "http://downloads.us.xiph.org/releases/celt/celt-0.6.1.tar.gz",
+        "officialNoticeGitBlobSha1": "5e54c85660b32dfb3be2e10bff7127a219e711b5",
+        "sourceUrl": "https://gitlab.xiph.org/xiph/celt",
+        "notice": "celt-0.6.1.COPYING"
+      },
+      {
+        "noticeBytes": 1536,
+        "exactWindowsBinaryBuildRevision": "not established",
+        "noticeSha256": "6913F9754C576D04E2C7452202AEFF5910BA9B8DD29AC6949926A6D12F33C0B2",
+        "declaredSourceRef": "v0.11",
+        "component": "CELT 0.11.0",
+        "binary": "libcelt-0110.dll",
+        "sourceEvidenceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/doc/BUILD.md",
+        "licenseUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_libs/licenses/celt-0.11.0.COPYING",
+        "license": "BSD-3-Clause",
+        "sourceArchive": "http://downloads.xiph.org/releases/celt/celt-0.11.0.tar.gz",
+        "officialNoticeGitBlobSha1": "5e54c85660b32dfb3be2e10bff7127a219e711b5",
+        "sourceUrl": "https://gitlab.xiph.org/xiph/celt",
+        "notice": "celt-0.11.0.COPYING"
+      },
+      {
+        "noticeBytes": 40718,
+        "exactWindowsBinaryBuildRevision": "not established",
+        "versionCaveat": "Fixed BUILD.md names Windows versions 1.32.0 / 1.31.1 and supplied license file mpg123-1.31.1.COPYING; exact compiled revision was not determined.",
+        "declaredSourceRef": "aec901b7a636b6eb61e03a87ff3547c787e8c693",
+        "component": "mpg123",
+        "declaredSourceMirror": "https://github.com/madebr/mpg123",
+        "sourceEvidenceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/doc/BUILD.md",
+        "noticeSha256": "C22482728A634A8DFDB4FF72A96D4C1ED64CD8F3E79335C401751AC591609366",
+        "license": "LGPL-2.1 (per supplied COPYING)",
+        "licenseUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_libs/licenses/mpg123-1.31.1.COPYING",
+        "officialNoticeGitBlobSha1": "14e14f01cfc70ab24e95ad6be4fd7d6bbc1126de",
+        "sourceUrl": "https://sourceforge.net/projects/mpg123/files/mpg123/1.31.1/mpg123-1.31.1.tar.bz2",
+        "binary": "libmpg123-0.dll",
+        "notice": "mpg123-1.31.1.COPYING"
+      },
+      {
+        "noticeBytes": 1773,
+        "exactWindowsBinaryBuildRevision": "not established",
+        "noticeSha256": "2654A4264B2BFE298DEDC508748D140111840C315CC8EB646A3A68C13FA75B01",
+        "declaredSourceRef": "Speex-1.2.1",
+        "component": "Speex 1.2.1",
+        "binary": "libspeex-1.dll",
+        "sourceEvidenceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/doc/BUILD.md",
+        "licenseUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_libs/licenses/speex-1.2.1.COPYING",
+        "license": "BSD-3-Clause (Xiph.Org variant)",
+        "sourceArchive": "http://downloads.us.xiph.org/releases/speex/speex-1.2.1.tar.gz",
+        "officialNoticeGitBlobSha1": "7d6dc4aabd38f6e184028ff871744ac6b71b63ae",
+        "sourceUrl": "https://gitlab.xiph.org/xiph/speex",
+        "notice": "speex-1.2.1.COPYING"
+      },
+      {
+        "noticeBytes": 1470,
+        "exactWindowsBinaryBuildRevision": "not established",
+        "officialNoticeGitBlobSha1": "fb456a87bdfafe2cab7de982e8ce11204933ec5c",
+        "declaredSourceRef": "2eac96b03ff67953354cb0a649c08aa3a23267ef",
+        "component": "libvorbis + libvorbisfile 1.3.7",
+        "binary": "libvorbis.dll",
+        "sourceEvidenceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/doc/BUILD.md",
+        "noticeSha256": "EC1815DB59FCD302846DF949D7424876CB2E2DC5ED1606C5FB0B36787B1CF43A",
+        "license": "BSD-3-Clause",
+        "declaredSourceRepository": "https://gitlab.xiph.org/xiph/vorbis",
+        "licenseUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_libs/licenses/libvorbis-1.3.7.COPYING",
+        "sourceUrl": "http://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.zip",
+        "notice": "libvorbis-1.3.7.COPYING"
+      },
+      {
+        "noticeSha256": "D2AB5758336489DA61C12CC5BB757DA5339C4AE9001F9BB0562B4370249AF814",
+        "exactWindowsBinaryBuildRevision": "not established",
+        "licenseUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_libs/licenses/libogg-1.3.5.COPYING",
+        "notice": "libogg-1.3.5.COPYING",
+        "officialNoticeGitBlobSha1": "6111c6c5a6b95057e43d36b7c217b073bf5f9b22",
+        "sourceEvidenceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/doc/BUILD.md",
+        "sourceUrl": "http://downloads.xiph.org/releases/ogg/libogg-1.3.5.zip",
+        "component": "libogg 1.3.5 (merged in libvorbis.dll per BUILD.md)",
+        "noticeBytes": 1466,
+        "binary": "libvorbis.dll",
+        "license": "BSD-3-Clause"
+      },
+      {
+        "binary": "FFmpeg DLLs (actual --enable-libopus configuration)",
+        "component": "Opus 1.3.1",
+        "license": "BSD-3-Clause variant, plus referenced royalty-free patent licenses",
+        "notice": "opus-1.3.1.COPYING",
+        "sourceUrl": "https://github.com/xiph/opus",
+        "sourceArchive": "https://archive.mozilla.org/pub/opus/opus-1.3.1.tar.gz",
+        "declaredSourceRef": "v1.3.1",
+        "licenseUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_libs/licenses/opus-1.3.1.COPYING",
+        "noticeBytes": 1928,
+        "noticeSha256": "8338CE8D922BB4416CE3DD1E5680173332435E3F0755007AC7801CCD674FE682",
+        "officialNoticeGitBlobSha1": "9c739c34a3a9dd39729587eb6b1f9dd4344e58f6",
+        "sourceEvidenceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/doc/BUILD.md",
+        "exactWindowsBinaryBuildRevision": "not established"
+      }
+    ],
+    "officialRuntimeBlobs": [
+      {
+        "name": "libatrac9.dll",
+        "gitBlobSha1": "7f0b06ab90c8959013e6c0f7cde0f39d50ad4a40",
+        "path": "ext_libs/dll-x64/libatrac9.dll",
+        "matchesFixedUpstreamCommit": true
+      },
+      {
+        "name": "libcelt-0061.dll",
+        "gitBlobSha1": "1680764d4db9a1446cabdfd2da334aca3a1f4f47",
+        "path": "ext_libs/dll-x64/libcelt-0061.dll",
+        "matchesFixedUpstreamCommit": true
+      },
+      {
+        "name": "libcelt-0110.dll",
+        "gitBlobSha1": "88883fbb79efc2a776e0d1e08e6604a5a00d5034",
+        "path": "ext_libs/dll-x64/libcelt-0110.dll",
+        "matchesFixedUpstreamCommit": true
+      },
+      {
+        "name": "libg719_decode.dll",
+        "gitBlobSha1": "4a4e8e78b83600e50f8212fbe8288cf63986f7aa",
+        "path": "ext_libs/dll-x64/libg719_decode.dll",
+        "matchesFixedUpstreamCommit": true
+      },
+      {
+        "name": "libmpg123-0.dll",
+        "gitBlobSha1": "f0e308521678f0f9f62fb6201ea0821d64829f83",
+        "path": "ext_libs/dll-x64/libmpg123-0.dll",
+        "matchesFixedUpstreamCommit": true
+      },
+      {
+        "name": "libspeex-1.dll",
+        "gitBlobSha1": "acc05ff1d4135c54b06edf768890401945a8f67c",
+        "path": "ext_libs/dll-x64/libspeex-1.dll",
+        "matchesFixedUpstreamCommit": true
+      },
+      {
+        "name": "libvorbis.dll",
+        "gitBlobSha1": "b5fb43226f9473f0cc1decfb532ad3d63caf94c2",
+        "path": "ext_libs/dll-x64/libvorbis.dll",
+        "matchesFixedUpstreamCommit": true
+      }
+    ],
+    "licenseCaveats": [
+      "Fixed BUILD.md calls CELT MIT, but both bundled full COPYING texts are 3-clause BSD. Use the original COPYING texts.",
+      "Source refs are declared dependency source refs; they do not prove the exact Windows DLL compilation revision."
+    ],
+    "g719": {
+      "binary": "libg719_decode.dll",
+      "component": "libg719_decode",
+      "sourceUrl": "https://github.com/kode54/libg719_decode",
+      "declaredSourceRef": "da90ad8a676876c6c47889bcea6a753f9bbf7a73",
+      "sourceEvidenceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/cmake/dependencies/g719.cmake",
+      "buildLicenseEvidenceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/doc/BUILD.md",
+      "license": "unknown; no full component redistribution grant located",
+      "fileScopedLicense": "Only stack_alloc.h has a BSD-2-Clause style full permission header. It does not license the wrapper or reference decoder."
+    },
+    "firstSourceSnapshotAudioBinaries": "excluded; local files retained while libg719_decode redistribution terms remain unresolved"
+  }
+}

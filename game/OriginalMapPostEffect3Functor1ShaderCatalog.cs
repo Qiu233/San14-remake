@@ -1,0 +1,67 @@
+using San14.Data;
+
+/// <summary>Sealed source-wrapper identities backed by actual created shader
+/// objects in this one library. Source Select availability and the eventual
+/// known-null/backend draw variant are separate identities.</summary>
+internal sealed class OriginalMapPostEffect3Functor1ShaderCatalog
+{
+    internal sealed class Entry
+    {
+        internal Entry(OriginalMapPostEffect3Functor1ShaderCatalog owner,OriginalMapPostEffect3Functor1WrapperRecipe recipe,
+            OriginalMapPostEffect3CompiledPass actual)=>(Owner,Recipe,ActualOrdinaryProgram)=(owner,recipe,actual);
+        internal readonly OriginalMapPostEffect3Functor1ShaderCatalog Owner;
+        internal readonly OriginalMapPostEffect3Functor1WrapperRecipe Recipe;
+        internal readonly OriginalMapPostEffect3CompiledPass ActualOrdinaryProgram;
+        internal OriginalMapPostEffect3CompiledStage? SourceCsWrapper=>ActualOrdinaryProgram.Stages.SingleOrDefault(s=>s.Source.StageCode==5);
+        internal OriginalMapPostEffect3CompiledStage? SourcePsWrapper=>ActualOrdinaryProgram.Stages.SingleOrDefault(s=>s.Source.StageCode==0);
+        internal byte EvaluateActualSelectionAl()
+        {
+            Owner.Library.RequireOwnedDirectoryProgram(ActualOrdinaryProgram);
+            //Original1161DCF CS pointer, otherwise1161DE9 PS pointer.
+            //The AL follows actual owned pointer availability, not a mask.
+            return SourceCsWrapper is not null||SourcePsWrapper is not null?(byte)1:(byte)0;
+        }
+    }
+    private readonly OriginalMapPostEffect3WorldControlledFactoryFrame frame;
+    private readonly Dictionary<int,Entry> entries=[];
+    internal OriginalMapPostEffect3ProgramLibrary Library{get;}
+    private OriginalMapPostEffect3Functor1ShaderCatalog(OriginalMapPostEffect3WorldControlledFactoryFrame frame,
+        OriginalMapPostEffect3ProgramLibrary library)=>(this.frame,Library)=(frame,library);
+    internal static async Task<OriginalMapPostEffect3Functor1ShaderCatalog> CaptureCreatedAsync(
+        OriginalMapPostEffect3WorldControlledFactoryFrame frame,OriginalMapPostEffect3ProgramLibrary library,Action<string>? checkpoint)
+    {
+        frame.RequireCurrent();
+        if(library.SourceSha256!=frame.WrapperDirectory.ModuleSourceSha256||frame.WrapperDirectory.Wrappers.Count!=72)
+            throw new InvalidDataException("Program catalog differs from this actual complete directory.");
+        var result=new OriginalMapPostEffect3Functor1ShaderCatalog(frame,library);
+        foreach(var recipe in frame.WrapperDirectory.Wrappers)
+        {
+            var program=await library.GetCompiledPassAsync(recipe.SourcePassIndex);
+            library.RequireOwnedDirectoryProgram(program);
+            if(program.Source.Index!=recipe.SourcePassIndex||program.ContainerSha256!=frame.Camera.Allocation.Source.Sha256||
+                !program.Source.RawBytes.Span.SequenceEqual(recipe.Pass.Pass.RawBytes.Span))
+                throw new InvalidDataException("Actual program catalog did not create the exact source wrapper.");
+            var entry=new Entry(result,recipe,program);
+            if(entry.EvaluateActualSelectionAl()==0)throw new NotSupportedException("Native Select lacks its actual CS/PS wrapper: "+recipe.SourcePassIndex);
+            result.entries.Add(recipe.SourcePassIndex,entry);checkpoint?.Invoke("controlled-source-program"+recipe.SourcePassIndex+"-created");
+        }
+        return result;
+    }
+    internal Entry RequireEntry(OriginalMapPostEffect3Functor1WrapperRecipe recipe)
+    {
+        frame.RequireCurrent();
+        if(!entries.TryGetValue(recipe.SourcePassIndex,out var entry)||!ReferenceEquals(entry.Recipe,recipe)||!ReferenceEquals(entry.Owner,this))
+            throw new InvalidDataException("Select does not belong to this actual frame's shader catalog.");
+        Library.RequireOwnedDirectoryProgram(entry.ActualOrdinaryProgram);return entry;
+    }
+    internal void RequireActualVariant(Entry entry,OriginalMapPostEffect3CompiledPass actual)
+    {
+        if(!ReferenceEquals(entry.Owner,this)||!ReferenceEquals(RequireEntry(entry.Recipe),entry))
+            throw new InvalidDataException("Bind used a foreign source Select identity.");
+        Library.RequireOwnedDirectoryProgram(actual);
+        if(actual.Source.Index!=entry.Recipe.SourcePassIndex||!ReferenceEquals(actual.Source,entry.ActualOrdinaryProgram.Source)||
+            !actual.Stages.Select(s=>(s.Source.StageCode,s.Source.StageIndex,s.Source.Sha256)).SequenceEqual(
+                entry.ActualOrdinaryProgram.Stages.Select(s=>(s.Source.StageCode,s.Source.StageIndex,s.Source.Sha256))))
+            throw new InvalidDataException("Backend variant replaced the source selected shader tuple.");
+    }
+}

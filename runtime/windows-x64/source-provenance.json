@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "upstream": "Wine vkd3d 2.1",
+  "officialSourceUrl": "https://dl.winehq.org/vkd3d/source/vkd3d-2.1.tar.xz",
+  "archiveBytes": 1486656,
+  "archiveSha256": "7510146AFF2ADFB4AE07AB890701A607E5FF7C66E57100CFC9F630EC92EEDA6A",
+  "sourceFiles": [
+    {
+      "path": "include/vkd3d_shader.h",
+      "bytes": 137398,
+      "sha256": "27BB621F86F2D4B2BD0AA1EFE169C88551DC3A0F2914196617D74ACC3798C89C",
+      "matchesOfficialReleaseArchive": true
+    },
+    {
+      "path": "include/vkd3d_types.h",
+      "bytes": 2649,
+      "sha256": "C3E55C06F6FBFE9523D3A35B0ECAD474FCDC20FD8DFB077DECF951E4659128D2",
+      "matchesOfficialReleaseArchive": true
+    },
+    {
+      "path": "libs/vkd3d-shader/vkd3d_shader_main.c",
+      "bytes": 83726,
+      "sha256": "7CB33F12549F22F20717575AA0FE11BD363231DF8351B5CF3942B90DF9F1BE24",
+      "matchesOfficialReleaseArchive": true
+    },
+    {
+      "path": "libs/vkd3d-shader/spirv.c",
+      "bytes": 440596,
+      "sha256": "8B3AAA79D65011D9F4A3E190A6E4DEA4DAB80F696F43C7B0C89F3A9147DAB41E",
+      "matchesOfficialReleaseArchive": true
+    },
+    {
+      "path": "COPYING",
+      "bytes": 786,
+      "sha256": "1F69ABFAEEE0131BBA28AD72D87683A223743D8C9EE1DA113FDE10CB082F3C91",
+      "matchesOfficialReleaseArchive": true
+    },
+    {
+      "path": "AUTHORS",
+      "bytes": 699,
+      "sha256": "0CE4D5C704E7C3261735A39E6CE8879CC4806C97953E5DE61D99B48180B29243",
+      "matchesOfficialReleaseArchive": true
+    },
+    {
+      "path": "configure.ac",
+      "bytes": 11126,
+      "sha256": "42322BA6AD10F6D461FFA62CCFBD651E5B0CE7F28FF245D8EAEBF3FB81343B11",
+      "matchesOfficialReleaseArchive": true
+    },
+    {
+      "path": "Makefile.am",
+      "bytes": 30310,
+      "sha256": "C7FF97AB1A46DF7B4D26BAE9FBA017DFF19C8570C21E7192E7E679C3B59CCE04",
+      "matchesOfficialReleaseArchive": true
+    }
+  ],
+  "dllPath": "libvkd3d-shader-1.dll",
+  "dllSha256": "37885422AD210365C8FFCDA9F40A7F321842139698C6E1E6134DB20BA5D65780",
+  "licensing": "LGPL-2.1-or-later",
+  "sourcePatchObservedInListedCoreFiles": false,
+  "sourceArchiveFileName": "vkd3d-2.1.tar.xz",
+  "buildRecordHashes": [
+    {
+      "name": "config.log",
+      "bytes": 123529,
+      "sha256": "9D1B637E169A6B28C59B69E4EEAC343DFE82DA4F76757434E4C0C1A9F90BA9CE"
+    },
+    {
+      "name": "configure.stdout.log",
+      "bytes": 11807,
+      "sha256": "36CE3C15759CFC6CE9DB7F1E84D73219FA8014E886EFB061500DC19508F62122"
+    },
+    {
+      "name": "configure.stderr.log",
+      "bytes": 146,
+      "sha256": "8C58016CD5D37E2B7A23D47ACE2442A2E2D096E22811E6EEA3634EC66CEC0A7E"
+    },
+    {
+      "name": "build.stdout.log",
+      "bytes": 1689,
+      "sha256": "D98A2CEB9ACD22DC5627024FDF58202E21C823D7A296460EFF1BE9425D65BE0C"
+    },
+    {
+      "name": "build.stderr.log",
+      "bytes": 305,
+      "sha256": "F9A81BB56CD78907C332AA26AC7E2E499288EF585EDA2546DBC10F1DFE6BE8E6"
+    }
+  ],
+  "build": {
+    "toolchain": "Debian MinGW-w64 x86-64 POSIX C",
+    "libgcc": "static",
+    "sourceRelease": "vkd3d-2.1",
+    "sourceFilesModified": false
+  }
+}

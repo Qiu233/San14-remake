@@ -1,0 +1,252 @@
+using San14.Core;
+
+namespace San14.Data;
+
+public sealed record OriginalPersonFreedomHomeReceipt(int InitialCityPhysical, int[] CandidateCityOrder,
+    int[] ShuffledCityOrder, int[] SortedCityOrder, int[] CandidateAreaOrder, int[] ShuffledAreaOrder,
+    int CityDescriptor, int? AreaDescriptor);
+public sealed record OriginalPersonFreedomHomeResult(int? NativeReturn, OriginalBaseReference? City,
+    OriginalAreaReference? Area, OriginalPersonFreedomHomeReceipt? Receipt, string? UnresolvedOwner);
+
+/// <summary>265250's null placement argument:22F430,1D7220,24DB90/254F70,
+/// then managerB0 Area selection. Uses the operation's actual shared pool.
+/// It does not write Person fields or publish the pool; a failed caller must
+/// discard its operation-local context.</summary>
+public sealed class OriginalPersonFreedomHomeSource
+{
+    private readonly Dictionary<OriginalBaseReference, byte[]> links = [];
+
+    public OriginalPersonFreedomHomeSource(LoadedScenario source)
+    {
+        if (source.Metadata.FormatMarker != 0x66 || source.Snapshot.Cities.Count != 52 || source.Snapshot.Gates.Count != 11)
+            throw Missing("source.265250_CE_fixed_Base_links");
+        foreach (var city in source.Snapshot.Cities)
+            links.Add(new(OriginalBaseKind.City, city.Slot), LinkWindow(city.LinkedLocationSlots));
+        foreach (var gate in source.Snapshot.Gates)
+            links.Add(new(OriginalBaseKind.Gate, gate.Slot), LinkWindow(gate.LinkedLocationSlots));
+    }
+
+    public OriginalPersonFreedomHomeResult Resolve(GameState state, OriginalEventInitializationContext current,
+        int personPhysical, OriginalBaseReference oldHome, OriginalTacticSourceSamplerWorld sampler)
+    {
+        OriginalHexListHandle? cities = null, areas = null;
+        try
+        {
+            var oldArea = FindBaseArea229FD0(current, oldHome);
+            byte rawCity = Need(current.ReadAreaCitySlot(oldArea), "current.265250_old_Area35");
+            var initial = current.ReadCityTableReference(rawCity < 52 ? rawCity : 0)
+                ?? throw Missing("current.265250_initial_City_pointer");
+            cities = Temporary(current);
+            FillCities22F430(current, initial, cities);
+            var candidateCities = Read(current, cities);
+            int[] cityOrder = candidateCities.Select(x => Physical(x.Payload)).ToArray();
+            int initialPhysical = Need(initial.PhysicalSlot, "current.initial_City_ordinal");
+            if (candidateCities.Count == 0)
+                return new(0, null, null, new(initialPhysical, [], [], [], [], [], cities.Identity!.Value, null), null);
+
+            Shuffle(current, candidateCities, sampler);
+            var shuffled = candidateCities.Select(x => Physical(x.Payload)).ToArray();
+            var ordinal = candidateCities.Select((x, i) => (x.Payload, i)).ToDictionary(x => x.Payload, x => x.i);
+            //24DB90 moves nodes, whereas1D7220 swaps only their payloads.
+            //Stable insertion preserves the source's strict comparator ties.
+            for (int index = 1; index < candidateCities.Count; index++)
+            {
+                var value = candidateCities[index]; int at = index;
+                while (at > 0 && Preferred(current, state, personPhysical, value.Payload, candidateCities[at - 1].Payload, ordinal))
+                { candidateCities[at] = candidateCities[at - 1]; at--; }
+                candidateCities[at] = value;
+            }
+            Relink(current, cities, candidateCities);
+            var chosenCity = Base(candidateCities[0].Payload);
+            int chosenPhysical = Need(chosenCity.PhysicalSlot, "current.selected_City_ordinal");
+
+            areas = Temporary(current);
+            foreach (var entry in current.ReadRegistryReferences(OriginalRegistryKind.Area)
+                ?? throw Missing("current.managerB0_Area_chain"))
+            {
+                var area = Area(entry ?? throw Missing("current.managerB0_Area_payload"));
+                if (Need(current.ReadAreaCitySlot(area), "current.Area35") == chosenPhysical ||
+                    (Need(current.ReadAreaValidityCode(area), "current.Area34") == chosenPhysical &&
+                     Need(current.ReadAreaCurrentForceSlot(area), "current.22CD40_Area3A_Hex14") == 0))
+                    Append(current, areas, new(OriginalRegistryKind.Area, area.PhysicalSlot));
+            }
+            var candidateAreas = Read(current, areas);
+            int[] areaOrder = candidateAreas.Select(x => Physical(x.Payload)).ToArray();
+            Shuffle(current, candidateAreas, sampler);
+            if (candidateAreas.Count == 0) throw Missing("branch.265250_empty_selected_Area_native_head_dereference");
+            var chosenArea = Area(candidateAreas[0].Payload);
+            //265C50 first places E4 at Area. Its final Home uses Area35's
+            //City if valid, otherwise Area34, without a second validity gate.
+            byte homeSlot = Need(current.ReadAreaCitySlot(chosenArea), "current.selected_Area35");
+            var homeCity = current.ReadCityTableReference(homeSlot < 52 ? homeSlot : 0)
+                ?? throw Missing("current.selected_Area35_City_pointer");
+            if (!Need(current.ReadBaseNativeValidity(homeCity), "current.selected_Area35_City_validity"))
+            {
+                byte fallback = Need(current.ReadAreaValidityCode(chosenArea), "current.selected_Area34");
+                homeCity = current.ReadCityTableReference(fallback < 52 ? fallback : 0)
+                    ?? throw Missing("current.selected_Area34_City_pointer");
+            }
+            return new(1, homeCity, chosenArea, new(initialPhysical,
+                cityOrder, shuffled,
+                candidateCities.Select(x => Physical(x.Payload)).ToArray(), areaOrder,
+                candidateAreas.Select(x => Physical(x.Payload)).ToArray(), cities.Identity!.Value, areas.Identity), null);
+        }
+        catch (InvalidDataException error) { return new(null, null, null, null, error.Message); }
+        finally
+        {
+            //265250 destroys Area temporary before its City list.
+            if (areas is not null) ClearRelease(current, areas);
+            if (cities is not null) ClearRelease(current, cities);
+        }
+    }
+
+    public static OriginalAreaReference FindBaseArea229FD0(OriginalEventInitializationContext current, OriginalBaseReference home)
+    {
+        var hex = current.FindBaseHex(home) ?? throw Missing("current.22D640_Base_Hex");
+        if (hex.PhysicalSlot is null)
+            return current.ReadAreaTableReference(0) ?? throw Missing("current.Area0_pointer");
+        ushort raw = Need(current.ReadHexAreaSlot(hex), "current.229FD0_Hex12");
+        return current.ReadAreaTableReference(raw <= 500 ? raw : 0) ?? throw Missing("current.229FD0_Area_pointer");
+    }
+
+    private void FillCities22F430(OriginalEventInitializationContext current, OriginalBaseReference initial, OriginalHexListHandle output)
+    {
+        current.ClearTemporaryHexList(output);
+        foreach (var city in CandidateReferences(current, initial))
+        {
+            //Native pointer de-duplication only considers successful appends.
+            if (!Read(current, output).Any(x => x.Payload == city)) Append(current, output, city);
+        }
+    }
+
+    private IEnumerable<OriginalRegistryObjectReference> CandidateReferences(OriginalEventInitializationContext current, OriginalBaseReference initial)
+    {
+        ushort origin = Need(current.ReadBaseObjectLink(initial), "current.22F430_origin4E");
+        foreach (byte first in Links(initial))
+        {
+            if (first == 0 || first == origin) continue;
+            var firstBase = OriginalBaseLookup.Find(first, current);
+            if (!Need(current.ReadBaseNativeValidity(firstBase), "current.22F430_first_Base_validity")) continue;
+            if (Need(current.ReadBaseObjectLink(firstBase), "current.22F430_first4E") < 52)
+            { yield return Registry(firstBase); continue; }
+            foreach (byte second in Links(firstBase))
+            {
+                if (second == 0 || second == origin) continue;
+                var secondBase = OriginalBaseLookup.Find(second, current);
+                if (!Need(current.ReadBaseNativeValidity(secondBase), "current.22F430_second_Base_validity")) continue;
+                if (Need(current.ReadBaseObjectLink(secondBase), "current.22F430_second4E") < 52)
+                { yield return Registry(secondBase); continue; }
+                ushort firstLocation = Need(current.ReadBaseObjectLink(firstBase), "current.22F430_first_Gate4E");
+                foreach (byte third in Links(secondBase))
+                {
+                    if (third == 0 || third == origin || third == firstLocation) continue;
+                    var thirdBase = OriginalBaseLookup.Find(third, current);
+                    if (Need(current.ReadBaseNativeValidity(thirdBase), "current.22F430_third_Base_validity") &&
+                        Need(current.ReadBaseObjectLink(thirdBase), "current.22F430_third4E") < 52)
+                        yield return Registry(thirdBase);
+                }
+            }
+        }
+    }
+
+    private static bool Preferred(OriginalEventInitializationContext current, GameState state, int person,
+        OriginalRegistryObjectReference left, OriginalRegistryObjectReference right,
+        IReadOnlyDictionary<OriginalRegistryObjectReference, int> ordinal)
+    {
+        int leftForce = Need(current.ReadBaseForceSlot(Base(left)), "current.254F70_left_Force");
+        int rightForce = Need(current.ReadBaseForceSlot(Base(right)), "current.254F70_right_Force");
+        int leftRuler = Ruler(leftForce), rightRuler = Ruler(rightForce);
+        bool leftSpecial = leftForce is >= 46 and <= 50, rightSpecial = rightForce is >= 46 and <= 50;
+        if (leftSpecial != rightSpecial) return !leftSpecial;
+        ushort targetId = Need(current.ReadPersonDestructionWord19A(person), "current.254F70_Person162");
+        int target = Person(targetId);
+        if (Need(current.ReadPersonNativeValidity(target), "current.254F70_Person162_validity") && (leftRuler == target) != (rightRuler == target))
+            return leftRuler != target;
+        if (Need(current.ReadPersonNativeValidity(leftRuler), "current.254F70_left_ruler_validity") &&
+            Need(current.ReadPersonNativeValidity(rightRuler), "current.254F70_right_ruler_validity"))
+        {
+            var relations = OriginalOwnedPersonRelationInputs.ReadCurrentPersonFields(state, person)
+                ?? throw Missing("current.254F70_PersonD0_eight_ids");
+            bool hatesLeft = relations.D0.Contains(Need(current.ReadPersonIdentity(leftRuler), "current.left_ruler_ID10"));
+            bool hatesRight = relations.D0.Contains(Need(current.ReadPersonIdentity(rightRuler), "current.right_ruler_ID10"));
+            if (hatesLeft != hatesRight) return !hatesLeft;
+        }
+        byte leftFlags = 0, rightFlags = 0;
+        foreach (var entry in current.ReadRegistryReferences(OriginalRegistryKind.Area) ?? throw Missing("current.254F70_managerB0"))
+        {
+            var area = Area(entry ?? throw Missing("current.managerB0_Area_payload"));
+            byte city = Need(current.ReadAreaValidityCode(area), "current.254F70_Area34");
+            if (city == Physical(left)) leftFlags |= Need(current.ReadAreaFlags38(area), "current.254F70_left_Area38");
+            else if (city == Physical(right)) rightFlags |= Need(current.ReadAreaFlags38(area), "current.254F70_right_Area38");
+        }
+        if ((leftFlags & 1) != (rightFlags & 1)) return (leftFlags & 1) == 0;
+        if ((leftFlags & 4) != (rightFlags & 4)) return (leftFlags & 4) == 0;
+        return ordinal[left] < ordinal[right];
+
+        int Person(int id) => Need((id <= 6000 ? current.ReadPersonLookupReference(id) : current.ReadTransferPersonTableReference(0))?.PhysicalSlot,
+            "current.254F70_Person_lookup_pointer");
+        int Ruler(int force)
+        {
+            ushort id = current.ReadForceRecord(force)?.RawRuler10 ?? throw Missing("current.254F70_Force10");
+            return Person(id);
+        }
+    }
+
+    private static void Shuffle(OriginalEventInitializationContext current, List<Entry> nodes, OriginalTacticSourceSamplerWorld sampler)
+    {
+        int salt = 0, count = nodes.Count;
+        for (int rounds = (count / 2) * count; rounds > 0; rounds--)
+        {
+            int first = OriginalTacticEffectSourceSamplerMath.Sample(count, 1, salt, 0, 0, 0, sampler);
+            int second = count - 1 - OriginalTacticEffectSourceSamplerMath.Sample(count, 1, salt + 1, 0, 0, 0, sampler);
+            salt = unchecked(salt + 2);
+            if (first == second) continue;
+            var left = nodes[first]; var right = nodes[second];
+            current.WriteRegistryNodePayload(new(left.Node.Identity), right.Payload);
+            current.WriteRegistryNodePayload(new(right.Node.Identity), left.Payload);
+            nodes[first] = left with { Payload = right.Payload }; nodes[second] = right with { Payload = left.Payload };
+        }
+    }
+
+    private static List<Entry> Read(OriginalEventInitializationContext current, OriginalHexListHandle list)
+    {
+        var result = new List<Entry>();
+        var node = current.ReadRegistryHead(new(list.Identity)) ?? throw Missing("current.265250_temporary_head");
+        while (node.Identity is int)
+        {
+            result.Add(new(new(node.Identity), current.ReadRegistryNodePayload(node) ?? throw Missing("current.265250_temporary_payload")));
+            node = current.ReadRegistryNodeNext(node) ?? throw Missing("current.265250_temporary_next");
+        }
+        return result;
+    }
+    private static void Append(OriginalEventInitializationContext current, OriginalHexListHandle list, OriginalRegistryObjectReference payload)
+    {
+        var node = current.AllocateRegistryNode(new(list.Identity)) ?? throw Missing("current.265250_node_allocation");
+        if (node.Identity is not null) current.WriteRegistryNodePayload(node, payload);
+    }
+    private static void Relink(OriginalEventInitializationContext current, OriginalHexListHandle list, List<Entry> nodes)
+    {
+        current.SetHexListHead(list, nodes[0].Node); current.SetHexListTail(list, nodes[^1].Node);
+        for (int i = 0; i < nodes.Count; i++)
+        {
+            current.SetHexListNodePrevious(nodes[i].Node, i == 0 ? new(null) : nodes[i - 1].Node);
+            current.SetHexListNodeNext(nodes[i].Node, i + 1 == nodes.Count ? new(null) : nodes[i + 1].Node);
+        }
+    }
+    private byte[] Links(OriginalBaseReference reference) => links.GetValueOrDefault(reference) ?? throw Missing("source.Base58_static_link_window");
+    private static byte[] LinkWindow(IReadOnlyList<byte> values)
+    { var result = new byte[10]; for (int i = 0; i < Math.Min(10, values.Count); i++) result[i] = values[i]; return result; }
+    private static OriginalHexListHandle Temporary(OriginalEventInitializationContext current) =>
+        current.CreateTemporaryHexList() ?? throw Missing("current.265250_temporary_allocation");
+    private static void ClearRelease(OriginalEventInitializationContext current, OriginalHexListHandle list)
+    { current.ClearTemporaryHexList(list); current.ReleaseTemporaryHexList(list); }
+    private static OriginalRegistryObjectReference Registry(OriginalBaseReference value) => new(value.Kind == OriginalBaseKind.City ? OriginalRegistryKind.City : OriginalRegistryKind.Gate, value.PhysicalSlot);
+    private static OriginalBaseReference Base(OriginalRegistryObjectReference value) => value.Kind == OriginalRegistryKind.City
+        ? new(OriginalBaseKind.City, value.PhysicalSlot) : throw Missing("current.265250_candidate_not_City");
+    private static OriginalAreaReference Area(OriginalRegistryObjectReference value) => value.Kind == OriginalRegistryKind.Area
+        ? new(value.PhysicalSlot) : throw Missing("current.265250_candidate_not_Area");
+    private static int Physical(OriginalRegistryObjectReference value) => Need(value.PhysicalSlot, "current.265250_pointer_ordinal");
+    private static T Need<T>(T? value, string owner) where T : struct => value ?? throw Missing(owner);
+    private static InvalidDataException Missing(string owner) => new(owner);
+    private sealed record Entry(OriginalHexListNodeReference Node, OriginalRegistryObjectReference Payload);
+}

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "originalWorldMappingVerified": false,
+  "profiles": [
+    {
+      "sceneFileId": "0449AC47",
+      "overviewTexture": { "image": 2, "layer": 0, "extentX": 204800, "extentZ": 204800 },
+      "projection": {
+        "id": "ce-source-hex-world-v1",
+        "sourceFormulaId": "ce-20260928-hex-world",
+        "width": 220,
+        "height": 220,
+        "mapSha256": "CDD492F47A83E53532FD185CCD64C8C62800A09F01011BE11DA181C0B517EB19",
+        "fieldResourceUri": "san14://rdb/FieldEditor4/F7C960B0",
+        "fieldDecodedSha256": "0BEB24328A0DD813F072B8DD0AB3C2D6B16E6ABAD36F97A764E5230A31723FD0",
+        "originX": 37594,
+        "originZ": 13335.2998046875,
+        "columnStep": 702,
+        "rowStep": 810.5997924804688,
+        "evenColumnRowOffset": 0.5
+      }
+    }
+  ],
+  "calibration": "Current CE SC executable Hex-to-world X/Z code and float32 operation order; scene selection, height sampling and exact GPU display remain separate."
+}

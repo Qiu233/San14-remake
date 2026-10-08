@@ -1,0 +1,484 @@
+using System.Buffers.Binary;
+using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.X86;
+
+namespace San14.Data;
+
+/// <summary>The ShaderManager module+30 linear and +38 point 8x8 M1
+/// sampler carriers. Original11443A0/1145960 create both and114AAD0 installs
+/// them. They are independent of Camera LUT assets and named texture slots.
+/// The positional legacy names remain compatible with existing clients.</summary>
+public sealed record OriginalMapPostEffect3Composite2ModuleLuts(long FrameNumber,string ContextOwnerIdentity,
+    OriginalMapPostEffect3ApplyView ActualHdrWrapper30,OriginalMapPostEffect3ApplyView? ActualLdrWrapper38,
+    ushort ActualHdrSampler48,string SourceEvidence)
+{
+    public OriginalMapPostEffect3ApplyView ActualLinearWrapper30=>ActualHdrWrapper30;
+    public OriginalMapPostEffect3ApplyView ActualPointWrapper38=>ActualLdrWrapper38??
+        throw new InvalidDataException("The actual ShaderManager point carrier38 must exist.");
+    public ushort ActualLinearSampler48=>ActualHdrSampler48;
+}
+
+public sealed class OriginalMapPostEffect3Composite2TextureAlias
+{
+    private readonly OriginalMapPostEffect3TextureParameterState table;
+    private readonly OriginalMapPostEffect3ResolvedTextureParameter? source;
+    private readonly long? nullRevision;
+    internal OriginalMapPostEffect3Composite2TextureAlias(OriginalMapPostEffect3TextureParameterState table,int from,int to,
+        uint writer,string evidence,string locale="TC")
+    {
+        this.table=table;SourceParameterIndex=from;DestinationParameterIndex=to;WriterRva=writer;SourceEvidence=evidence;Locale=locale;
+        if(table.ReadKnownNullablePointer(from) is null)nullRevision=table.CaptureKnownNullRevision(from);
+        else source=table.Require(from);
+    }
+    public int SourceParameterIndex{get;}
+    public int DestinationParameterIndex{get;}
+    public uint WriterRva{get;}
+    public string Locale{get;}
+    public string SourceEvidence{get;}
+    public OriginalMapPostEffect3ResolvedTextureParameter? ActualCopiedSource=>source;
+    public bool CopiesKnownNull=>source is null;
+    public bool CopiesActualSelectedSide=>true;
+    public bool ClearsAlternateRuntimePointer=>WriterRva==checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",0x115A14C));
+    internal void ValidateSource(OriginalMapPostEffect3TextureParameterState actualTable)
+    {
+        if(!ReferenceEquals(table,actualTable))throw new InvalidDataException("Composite2 alias uses another actual texture table.");
+        if(source is null)table.ValidateKnownNullRevision(SourceParameterIndex,nullRevision!.Value);else table.ValidateCurrent(source);
+    }
+    internal void ValidateCopiedDestination(OriginalMapPostEffect3TextureParameterState actualTable)
+    {
+        if(!ReferenceEquals(table,actualTable)||!ReferenceEquals(table.ReadKnownNullablePointer(DestinationParameterIndex),source?.Reference))
+            throw new InvalidDataException("Composite2 Init must copy the accepted native wrapper and side, including null.");
+    }
+}
+
+/// <summary>115C890 writes bytes0..147 of the160B CB23. Its twelve padding
+/// bytes receive no native write. A consumer supplies actual mapped/staging
+/// bytes to preserve them; zero padding is never inferred from this writer.</summary>
+public sealed class OriginalMapPostEffect3Composite2CrossFilterPatch
+{
+    private readonly OriginalMapPostEffect3Composite2ExecutionFrame frame;
+    private readonly byte[] written;
+    internal OriginalMapPostEffect3Composite2CrossFilterPatch(OriginalMapPostEffect3Composite2ExecutionFrame frame,int phase,byte[] bytes)
+        =>(this.frame,NativePhase, written)=(frame,phase,bytes.ToArray());
+    public int NativePhase{get;}
+    public uint WriterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(frame.Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",0x115C890));
+    public int ConstantBufferParameterIndex=>23;
+    public int NativeDeclaredByteCount=>160;
+    public int ActualWrittenByteCount=>148;
+    public ReadOnlyMemory<byte> WrittenBytes=>written.ToArray();
+    public OriginalMapPostEffect3ParameterConstantBuffer CompleteWithActualMappedBytes(
+        ReadOnlyMemory<byte> actualMapped160,string actualMappedProducerEvidence)
+    {
+        frame.RequireCurrent();ArgumentException.ThrowIfNullOrWhiteSpace(actualMappedProducerEvidence);
+        if(actualMapped160.Length!=160)throw new InvalidDataException("CrossFilter needs its actual160B mapped/staging allocation.");
+        byte[] bytes=actualMapped160.ToArray();written.CopyTo(bytes,0);
+        return new(frame.State,frame.Allocation.ConstantBufferParameters[23],WriterRva,bytes,frame.Locale);
+    }
+}
+
+public sealed class OriginalMapPostEffect3Composite2ExecutionFrame
+{
+    private readonly LoadedOriginalMapPostEffect3Composite2ExecutionSource source;
+    private readonly OriginalMapPostEffect3TextureParameterState table;
+    private readonly IReadOnlyDictionary<string,byte[]> values;
+    private OriginalMapPostEffect3ResolvedTextureParameter? initialized79,initialized78;
+    private long? null79,null78;
+    private bool initialized;
+    private readonly OriginalMapPostEffect3ResolvedTextureParameter? preparedBloom74;
+    private readonly long? preparedNull74;
+    private ushort savedHdrSamplerLow4;
+    internal OriginalMapPostEffect3Composite2ExecutionFrame(LoadedOriginalMapPostEffect3Composite2ExecutionSource source,
+        OriginalMapPostEffect3ParameterState state,OriginalMapPostEffect3AllocationPlan allocation,
+        OriginalMapPostEffect3TextureParameterState table,OriginalMapPostEffect3ParameterComposite2Update update,
+        OriginalMapPostEffect3Composite2ModuleLuts luts,IReadOnlyDictionary<string,byte[]> values,
+        IReadOnlyList<OriginalMapPostEffect3Composite2TextureAlias> aliases,
+        OriginalMapPostEffect3ParameterConstantBuffer? hdr)
+    {this.source=source;State=state;Allocation=allocation;this.table=table;Prepared=update;ActualInitialModuleLuts=luts;
+        this.values=values;InitializationAliases=aliases;HdrRemakeConstants=hdr;savedHdrSamplerLow4=(ushort)(luts.ActualLinearSampler48&15);
+        if(table.ReadKnownNullablePointer(74) is null)preparedNull74=table.CaptureKnownNullRevision(74);else preparedBloom74=table.Require(74);}
+    public OriginalMapPostEffect3ParameterState State{get;}
+    public OriginalMapPostEffect3AllocationPlan Allocation{get;}
+    public OriginalMapPostEffect3ParameterComposite2Update Prepared{get;}
+    public OriginalMapPostEffect3ParameterComposite2Update OriginalUpdate=>Prepared;
+    public object ActualFrameIdentity=>this;
+    internal OriginalMapPostEffect3TextureParameterState CurrentTextureTable=>table;
+    internal ushort SavedHdrSamplerLow4=>savedHdrSamplerLow4;
+    internal void CaptureCross0Sampler(ushort actualSampler48)=>savedHdrSamplerLow4=(ushort)(actualSampler48&15);
+    public OriginalMapPostEffect3Composite2ModuleLuts ActualInitialModuleLuts{get;}
+    public OriginalMapPostEffect3Composite2ModuleLuts InitialModuleSamplerWrappers=>ActualInitialModuleLuts;
+    public long FrameNumber=>State.FrameNumber;
+    public string OwnerIdentity=>State.OwnerIdentity;
+    public string SourceSha256=>State.SourceSha256;
+    public uint NativeCapability1F0=>Prepared.NativeCapability1F0;
+    public IReadOnlyList<OriginalMapPostEffect3Composite2TextureAlias> InitializationAliases{get;}
+    public OriginalMapPostEffect3ParameterConstantBuffer? HdrRemakeConstants{get;}
+    public OriginalMapPostEffect3Composite2CrossFilterPatch? InitialCrossFilterConstants{get;private set;}
+    internal ushort ActualBloomWidth40{get;private set;}
+    internal ushort ActualBloomHeight42{get;private set;}
+    internal OriginalMapPostEffect3ResolvedTextureParameter ActualInputBloom74=>preparedBloom74??
+        throw new InvalidDataException("Positive native CrossFilter dereferences its nonnull InputBloom74 wrapper.");
+    internal void AcceptInitialCrossFilter(OriginalMapPostEffect3Composite2CrossFilterPatch? patch,ushort width,ushort height)
+    {InitialCrossFilterConstants=patch;ActualBloomWidth40=width;ActualBloomHeight42=height;}
+    public bool HasAppliedInitialization=>initialized;
+    public bool RequiresCrossFilterConstants=>Float("CrossFilterWeight")>0;
+    public bool RequiresHdrRemakeConstants=>Word("EnableSeparateHdrLut")!=0;
+    public byte NativeInitializeReturnAl=>1;
+    public byte NativeAfterReturnAl=>1;
+    public byte NativeFinishReturnAl=>1;
+    public uint NativeAfterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",0xBF9280));
+    public bool AfterWritesState=>false;
+    public bool ProvesGpuExecution=>false;
+    public string SourceEvidence=>source.SourceEvidence;
+    public string Locale=>source.Locale;
+    internal float Float(string name,int word=0)=>BinaryPrimitives.ReadSingleLittleEndian(values[name].AsSpan(word*4));
+    internal int Word(string name)=>BinaryPrimitives.ReadInt32LittleEndian(values[name]);
+    internal ReadOnlyMemory<byte> Value(string name)=>values[name].ToArray();
+    public void ValidateInitializationFor(OriginalMapPostEffect3TextureParameterState actualTable)
+    {
+        if(initialized)throw new InvalidOperationException("Composite2 current Init aliases were already applied.");
+        RequireTable(actualTable);Prepared.RequireCurrent();ValidateScalars();
+        foreach(var alias in InitializationAliases)alias.ValidateSource(actualTable);
+    }
+    /// <summary>Called by the typed table immediately after its ordered native
+    /// pointer setters. Prepare's CB22 remains the pre-Init source snapshot.</summary>
+    internal void AcceptInitialization(OriginalMapPostEffect3TextureParameterState actualTable)
+    {
+        RequireTable(actualTable);
+        if(initialized)throw new InvalidOperationException("Composite2 Init was already accepted.");
+        foreach(var alias in InitializationAliases)alias.ValidateCopiedDestination(actualTable);
+        Capture(79,out initialized79,out null79);
+        if(InitializationAliases.Any(a=>a.DestinationParameterIndex==78))Capture(78,out initialized78,out null78);
+        initialized=true;
+        void Capture(int index,out OriginalMapPostEffect3ResolvedTextureParameter? pointer,out long? revision)
+        {pointer=table.ReadKnownNullablePointer(index) is null?null:table.Require(index);revision=pointer is null?table.CaptureKnownNullRevision(index):null;}
+    }
+    public OriginalMapPostEffect3ResolvedTextureParameter? ValidateInitializationOutput79(OriginalMapPostEffect3TextureParameterState actualTable)
+    {
+        RequireTable(actualTable);RequireInitialized();return initialized79;
+    }
+    internal long InitializedNull79Revision=>null79??throw new InvalidDataException("Composite2 output79 is not null.");
+    public void RequireCurrent()
+    {
+        ValidateScalars();
+        if(preparedBloom74 is null)table.ValidateKnownNullRevision(74,preparedNull74!.Value);else table.ValidateCurrent(preparedBloom74);
+        if(!initialized){Prepared.RequireCurrent();return;}
+        if(initialized79 is null)table.ValidateKnownNullRevision(79,null79!.Value);else table.ValidateCurrent(initialized79);
+        if(InitializationAliases.Any(a=>a.DestinationParameterIndex==78))
+        {if(initialized78 is null)table.ValidateKnownNullRevision(78,null78!.Value);else table.ValidateCurrent(initialized78);}
+    }
+    internal void RequireInitialized(){RequireCurrent();if(!initialized)throw new InvalidDataException("Composite2 needs its actual ordered Init pointer setters first.");}
+    internal void RequireTable(OriginalMapPostEffect3TextureParameterState actualTable)
+    {if(!ReferenceEquals(actualTable,table))throw new InvalidDataException("Composite2 execution uses another current texture table.");}
+    private void ValidateScalars()
+    {foreach(var v in values)if(!State.RequireValue(v.Key).Span.SequenceEqual(v.Value))throw new InvalidDataException("Composite2 scalar changed after native Prepare: "+v.Key);}
+}
+
+public sealed class OriginalMapPostEffect3Composite2BeforeBindings
+{
+    internal OriginalMapPostEffect3Composite2BeforeBindings(OriginalMapPostEffect3Composite2ExecutionFrame frame,
+        int pass,int ordinal,OriginalMapPostEffect3Composite2ModuleLuts luts,ushort? sampler,bool clear,int? clearMask,
+        OriginalMapPostEffect3Composite2CrossFilterPatch? cross,string evidence)
+        =>(Frame,SourcePassIndex,NativeCachedPassOrdinal,ActualModuleLuts,NativeHdrSampler48AfterWrite,ClearsNativeTarget0,
+            NativeContext1C18Write,CrossFilterConstants,SourceEvidence)=(frame,pass,ordinal,luts,sampler,clear,clearMask,cross,evidence);
+    public OriginalMapPostEffect3Composite2ExecutionFrame Frame{get;}
+    public int SourcePassIndex{get;}
+    public int NativeCachedPassOrdinal{get;}
+    public OriginalMapPostEffect3Composite2ModuleLuts ActualModuleLuts{get;}
+    public OriginalMapPostEffect3Composite2ModuleLuts ModuleSamplerWrappers=>ActualModuleLuts;
+    public ushort? NativeHdrSampler48AfterWrite{get;}
+    public ushort? NativeLinearSampler48AfterWrite=>NativeHdrSampler48AfterWrite;
+    public bool ClearsNativeTarget0{get;}
+    public int? NativeContext1C18Write{get;}
+    public OriginalMapPostEffect3Composite2CrossFilterPatch? CrossFilterConstants{get;}
+    public string SourceEvidence{get;}
+    public byte NativeBeforeReturnAl=>1;
+    public int NativePixelStage=>2;
+    public int NativeHdrSamplerRegister=>7;
+    public int NativeLinearSamplerRegister=>7;
+    public int NativeLdrSamplerRegister=>8;
+    public int NativePointSamplerRegister=>8;
+    public bool OverridesActualHdrAndLdrSamplers=>true;
+    public bool OverridesActualModuleCarrierSamplers=>true;
+    public bool IsCompute=>NativeCachedPassOrdinal==10;
+    public bool ChangesScissor=>!IsCompute&&Frame.NativeCapability1F0>=4;
+    public bool ChangesBlend=>NativeCachedPassOrdinal is 0 or 1 or 12 or 13;
+    public bool UsesViewportScalarForScissor=>NativeCachedPassOrdinal is 0 or 1 or 7 or 8 or 9 or 12 or 13 or 14 or 15 or 16;
+    public bool RequiresPriorTargetContents=>ChangesBlend;
+    public uint? TemporaryNativeColorStateF4=>ChangesBlend?0x111100u:null;
+    public byte? TemporaryNativeRt0BlendEnable1C0=>ChangesBlend?(byte)1:null;
+    public bool RequiresActualPostBindingTarget=>!IsCompute;
+    public void RequireCurrent()=>Frame.RequireInitialized();
+}
+
+public sealed class OriginalMapPostEffect3Composite2GraphicsRecipe
+{
+    private readonly OriginalMapPostEffect3TextureParameterState table;
+    internal OriginalMapPostEffect3Composite2GraphicsRecipe(OriginalMapPostEffect3Composite2BeforeBindings before,
+        OriginalMapPostEffect3TextureParameterState table,OriginalMapPostEffect3EyeGraphicsCurrentState current,
+        OriginalMapPostEffect3EyeGraphicsSelectedTarget target,int targetCount,OriginalFinalEffectScissor? scissor)
+    {Before=before;this.table=table;ActualCurrentState=current;ActualSelectedTarget=target;ActualEffectiveTargetCount=targetCount;DrawScissor=scissor;}
+    public OriginalMapPostEffect3Composite2BeforeBindings Before{get;}
+    public OriginalMapPostEffect3EyeGraphicsCurrentState ActualCurrentState{get;}
+    public OriginalMapPostEffect3EyeGraphicsSelectedTarget ActualSelectedTarget{get;}
+    public int ActualEffectiveTargetCount{get;}
+    public OriginalMapPostEffect3EyeNativeViewport DrawViewport=>ActualCurrentState.ActualViewport;
+    public OriginalFinalEffectScissor? DrawScissor{get;}
+    public bool DrawScissorEnabled=>Before.ChangesScissor||ActualCurrentState.ActualScissor is not null;
+    public uint DrawNativeColorStateF4=>Before.TemporaryNativeColorStateF4??ActualCurrentState.ActualNativeColorStateF4;
+    public byte DrawNativeRt0BlendEnable1C0=>Before.TemporaryNativeRt0BlendEnable1C0??ActualCurrentState.ActualNativeRt0BlendEnable1C0;
+    public OriginalMapPostEffect3EyeGraphicsCurrentState RestoreExecuteState=>ActualCurrentState;
+    public bool ExecuteChangesViewport=>false;
+    public bool PreservesActualRemainingRasterFields=>true;
+    public uint NativeCurrentViewportGetterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Before.Frame.Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",0x963D80));
+    public uint NativePreviousScissorGetterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Before.Frame.Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",0x963D30));
+    public uint NativeScissorSetterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Before.Frame.Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",0x95BC90));
+    public uint NativeScissorEnableOpcode=>0x10013;
+    public uint NativeScissorRectangleOpcode=>0x10014;
+    public uint NativeColorStateSetterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Before.Frame.Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",0x999BA0));
+    public IReadOnlyList<int> NativeColorStateAffectedSlots=>Array.AsReadOnly(Enumerable.Range(0,8).ToArray());
+    public uint NativeRt0BlendEnableOpcode=>0x100000B;
+    public ReadOnlyMemory<byte> NativeDrawCommand=>Convert.FromHexString("2D0003000000000003000000");
+    public byte NativeExecuteReturnAl=>1;
+    public bool ProvesGpuExecution=>false;
+    public void RequireCurrent()
+    {Before.Frame.RequireCurrent();if(ActualSelectedTarget.ActualTexture is{} target)table.ValidateCurrent(target);}
+}
+
+public sealed class LoadedOriginalMapPostEffect3Composite2ExecutionSource
+{
+    private readonly OriginalSkyWeatherNativePowerSource power;
+    private readonly float degreesToRadians;
+    private readonly byte[] aberrationColors;
+    internal LoadedOriginalMapPostEffect3Composite2ExecutionSource(string evidence,OriginalSkyWeatherNativePowerSource power,float angle,byte[] colors)
+        =>(SourceEvidence,this.power,degreesToRadians,aberrationColors)=(evidence,power,angle,colors.ToArray());
+    public string SourceEvidence{get;}
+    public string Locale=>power.Locale;
+    public OriginalMapPostEffect3Composite2ExecutionFrame PrepareInitialization(
+        OriginalMapPostEffect3ParameterState state,OriginalMapPostEffect3AllocationPlan allocation,
+        OriginalMapPostEffect3TextureParameterState table,OriginalMapPostEffect3ParameterComposite2Update actualPrepared,
+        OriginalMapPostEffect3Composite2ModuleLuts actualModuleLuts,OriginalMapPostEffect3ParameterAliasMode actualAliasMode,
+        OriginalMapPostEffect3Composite2ExternalExtent? actualBloomExtent=null)
+    {
+        ArgumentNullException.ThrowIfNull(state);ArgumentNullException.ThrowIfNull(allocation);ArgumentNullException.ThrowIfNull(table);
+        ArgumentNullException.ThrowIfNull(actualPrepared);ArgumentNullException.ThrowIfNull(actualModuleLuts);actualPrepared.RequireCurrent();
+        actualPrepared.RequireOwnedLifecycle(state,allocation,table);
+        OriginalMapPostEffect3ParameterState.ValidateSource(allocation.Source);state.BindOwnedAllocation(allocation);
+        if(actualPrepared.ConstantBuffer.Locale!=Locale||!ReferenceEquals(table.Allocation,allocation)||table.FrameNumber!=state.FrameNumber||state.OwnerIdentity!=actualPrepared.OwnerIdentity||
+            state.FrameNumber!=actualPrepared.FrameNumber||actualPrepared.ConstantBuffer.SourceSha256!=state.SourceSha256||actualPrepared.NativeCapability1F0!=5)
+            throw new InvalidDataException("Composite2 lifecycle requires this actual capability5 controller/scalar/table invocation.");
+        ValidateLuts(state.FrameNumber,state.OwnerIdentity,actualModuleLuts);
+        var values=OriginalMapPostEffect3ApplyCompleteInitialScalars.Composite2Defaults.ToDictionary(d=>d.Name,d=>state.RequireValue(d.Name).ToArray(),StringComparer.Ordinal);
+        int Find(string name,int expected)
+        {int index=state.FindResourceIndex(OriginalMapPostEffect3ParameterResourceTable.Texture,name,actualAliasMode)
+            ??throw new InvalidDataException("Composite2 native Init texture name missing: "+name);
+         if(index!=expected)throw new InvalidDataException("Composite2 source name/index changed: "+name);return index;}
+        var aliases=new List<OriginalMapPostEffect3Composite2TextureAlias>
+        {new(table,Find("PRECMP2InputColor",68),Find("PRECMP2OutputAddBloom",79),checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",0x115A08B)),SourceEvidence+";Init-D72210-current68-to79",Locale)};
+        uint mask=actualPrepared.PassSelection.NativeMask64;
+        if((mask&0x3003)!=0)
+        {
+            bool cross=(mask&0x10200)!=0;
+            aliases.Add(new(table,cross?Find("PRECMP2TargetBloom",77):Find("PRECMP2InputBloom",74),
+                Find("PRECMP2InputAddBloom",78),checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",0x115A14C)),SourceEvidence+";Init1159BB0-copy-current-wrapper/side-reset-alternate",Locale));
+        }
+        var hdr=PrepareHdrRemake(state,allocation,values);
+        var frame=new OriginalMapPostEffect3Composite2ExecutionFrame(this,state,allocation,table,actualPrepared,actualModuleLuts,values,aliases.AsReadOnly(),hdr);
+        if(frame.RequiresCrossFilterConstants)
+        {
+            var bloom=frame.ActualInputBloom74;ushort width,height;
+            if(bloom.Reference.PhysicalAllocationParameterIndex is int physical)
+            {var a=allocation.TextureAllocations.Single(t=>t.Parameter.Index==physical);width=a.Width16;height=a.Height16;}
+            else
+            {
+                if(actualBloomExtent is null||actualBloomExtent.ActualTexture!=bloom||string.IsNullOrWhiteSpace(actualBloomExtent.SourceEvidence))
+                    throw new NotSupportedException("Positive Composite2 CrossFilter needs its actual external Bloom74 wrapper40/42 extent.");
+                width=actualBloomExtent.Width40;height=actualBloomExtent.Height42;
+            }
+            frame.AcceptInitialCrossFilter(PrepareCrossFilterWithActualBloomExtent(frame,0,bloom,width,height,"actual Prepare InputBloom wrapper40/42"),width,height);
+        }
+        return frame;
+    }
+    public OriginalMapPostEffect3Composite2BeforeBindings PrepareBefore(
+        OriginalMapPostEffect3Composite2ExecutionFrame frame,int actualSourcePassIndex,
+        OriginalMapPostEffect3Composite2ModuleLuts actualCurrentModuleLuts)
+    {
+        ArgumentNullException.ThrowIfNull(frame);frame.RequireInitialized();ValidateLuts(frame.FrameNumber,frame.OwnerIdentity,actualCurrentModuleLuts);
+        if(actualCurrentModuleLuts.ActualLinearWrapper30!=frame.ActualInitialModuleLuts.ActualLinearWrapper30||
+            actualCurrentModuleLuts.ActualPointWrapper38!=frame.ActualInitialModuleLuts.ActualPointWrapper38)
+            throw new InvalidDataException("Composite2 current ShaderManager carrier pointers changed after Init.");
+        int ordinal=Array.IndexOf(DirectoryByCachedOrdinal,actualSourcePassIndex);
+        if(ordinal<0||!frame.Prepared.PassSelection.OrderedFactory9Passes.Contains(actualSourcePassIndex))
+            throw new InvalidDataException("Composite2 Before rejects an unselected native cached pass.");
+        bool cross0=ordinal is 7 or 14,addBloom=ordinal is 0 or 1 or 12 or 13;
+        if(cross0)frame.CaptureCross0Sampler(actualCurrentModuleLuts.ActualLinearSampler48);
+        ushort? sampler=cross0?(ushort)(actualCurrentModuleLuts.ActualLinearSampler48|15):addBloom?
+            (ushort)((actualCurrentModuleLuts.ActualLinearSampler48&0xFFF0)|frame.SavedHdrSamplerLow4):null;
+        bool clear=(ordinal is 2 or 11)&&(frame.Prepared.PassSelection.NativeMask64&0x1E0078)==0;
+        OriginalMapPostEffect3Composite2CrossFilterPatch? patch=ordinal is 8 or 15?
+            PrepareCrossFilterWithActualBloomExtent(frame,1,frame.ActualInputBloom74,frame.ActualBloomWidth40,frame.ActualBloomHeight42,frame.SourceEvidence):
+            ordinal is 9 or 16?PrepareCrossFilterWithActualBloomExtent(frame,2,frame.ActualInputBloom74,frame.ActualBloomWidth40,frame.ActualBloomHeight42,frame.SourceEvidence):null;
+        return new(frame,actualSourcePassIndex,ordinal,actualCurrentModuleLuts,sampler,clear,cross0?15:null,patch,
+            SourceEvidence+";Before-t7/t8-current-ShaderManager-linear/point-carriers;Select-then-Before-then-Bind;RT0-null-precedes-effective-target-list");
+    }
+    public OriginalMapPostEffect3Composite2CrossFilterPatch? PrepareCrossFilter(
+        OriginalMapPostEffect3Composite2ExecutionFrame frame,int nativePhase)
+    {
+        ArgumentNullException.ThrowIfNull(frame);frame.RequireCurrent();
+        if(nativePhase is <0 or >2)throw new InvalidDataException("Composite2 CrossFilter phase is outside its actual0/1/2 calls.");
+        if(!frame.RequiresCrossFilterConstants)return null;
+        // 115C890 dereferences the actual PRECMP2InputBloom wrapper. It is
+        // independent of Init78's selected77 result in the positive branch.
+        var table=GetCurrentTable(frame);var bloom=table.Require(74);ushort width,height;
+        if(bloom.Reference.PhysicalAllocationParameterIndex is not int physical)
+            throw new NotSupportedException("Positive CrossFilter needs its actual current Bloom wrapper40/42 extent producer.");
+        var texture=frame.Allocation.TextureAllocations.Single(t=>t.Parameter.Index==physical);width=texture.Width16;height=texture.Height16;
+        if(width==0||height==0)throw new InvalidDataException("Composite2 CrossFilter wrapper extent is zero.");
+        return PrepareCrossFilterWithActualBloomExtent(frame,nativePhase,bloom,width,height,"actual source-owned selected wrapper40/42");
+    }
+    public OriginalMapPostEffect3Composite2CrossFilterPatch? PrepareCrossFilterWithActualBloomExtent(
+        OriginalMapPostEffect3Composite2ExecutionFrame frame,int nativePhase,
+        OriginalMapPostEffect3ResolvedTextureParameter actualBloom,ushort actualWidth40,ushort actualHeight42,string actualExtentEvidence)
+    {
+        frame.RequireCurrent();ArgumentException.ThrowIfNullOrWhiteSpace(actualExtentEvidence);
+        if(nativePhase is <0 or >2||actualBloom.ParameterIndex!=74||actualWidth40==0||actualHeight42==0)
+            throw new InvalidDataException("Composite2 CrossFilter needs its actual phase and InputBloom74 dimensions.");
+        GetCurrentTable(frame).ValidateCurrent(actualBloom);
+        if(!frame.RequiresCrossFilterConstants)return null;
+        RequireCb(frame.Allocation,23,0xE9A98E0A,160);
+        float M(float a,float b)=>OriginalNativeFloat.Multiply(a,b);
+        float D(float a,float b)=>OriginalNativeLogarithm.Divide(a,b);
+        float A(float a,float b)=>OriginalNativeFloat.Add(a,b);
+        float S(float a,float b)=>OriginalNativeFloat.Subtract(a,b);
+        var direction=OriginalNativeTrigonometry.SinCos014590(M(frame.Float("CrossFilterInclination"),degreesToRadians));
+        float rate=OriginalSkyWeatherNativePower.PowSse(6,nativePhase,power);
+        float dx=M(M(direction.Sin,D(frame.Float("CrossFilterLength"),actualWidth40)),rate);
+        float dy=M(M(direction.Cos,D(frame.Float("CrossFilterLength"),actualHeight42)),rate);
+        byte[] bytes=new byte[148];frame.Value("CrossFilterWeight").Span.CopyTo(bytes.AsSpan(144,4));
+        for(int sample=0;sample<6;sample++)
+        {
+            float strength=OriginalSkyWeatherNativePower.PowSse(frame.Float("CrossFilterAttenuation"),M(sample,rate),power);
+            float aberration=frame.Float("CrossFilterAberration");
+            for(int lane=0;lane<4;lane++)
+            {
+                float color=aberration>0&&nativePhase==1?
+                    A(M(BinaryPrimitives.ReadSingleLittleEndian(aberrationColors.AsSpan((sample%6)*16+lane*4)),aberration),S(1,aberration)):1;
+                BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(sample*16+lane*4),M(strength,color));
+            }
+            BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(96+sample*8),M(sample,dx));
+            BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(100+sample*8),M(sample,dy));
+        }
+        return new(frame,nativePhase,bytes);
+    }
+    public OriginalMapPostEffect3Composite2GraphicsRecipe PrepareGraphics(
+        OriginalMapPostEffect3Composite2BeforeBindings before,OriginalMapPostEffect3TextureParameterState actualTable,
+        OriginalMapPostEffect3EyeGraphicsCurrentState actualAfterBindingState,
+        OriginalMapPostEffect3EyeGraphicsSelectedTarget actualAfterBindingTarget,int actualEffectiveTargetCount)
+    {
+        ArgumentNullException.ThrowIfNull(before);ArgumentNullException.ThrowIfNull(actualTable);
+        ArgumentNullException.ThrowIfNull(actualAfterBindingState);ArgumentNullException.ThrowIfNull(actualAfterBindingTarget);
+        var frame=before.Frame;frame.RequireInitialized();frame.RequireTable(actualTable);
+        if(!Sse.IsSupported||before.IsCompute||actualEffectiveTargetCount is <0 or >4||
+            actualAfterBindingState.FrameNumber!=frame.FrameNumber||actualAfterBindingState.ContextOwnerIdentity!=frame.OwnerIdentity||
+            string.IsNullOrWhiteSpace(actualAfterBindingState.OwnedFrontendIdentity)||string.IsNullOrWhiteSpace(actualAfterBindingState.ViewIdentity)||
+            string.IsNullOrWhiteSpace(actualAfterBindingState.SourceEvidence)||string.IsNullOrWhiteSpace(actualAfterBindingTarget.SourceEvidence)||
+            string.IsNullOrWhiteSpace(actualAfterBindingTarget.ActualTargetViewIdentity)||actualAfterBindingTarget.NativeCurrentWidth50<=0||
+            actualAfterBindingTarget.NativeCurrentHeight54<=0||actualAfterBindingTarget.ActualInstanceIndex<0)
+            throw new InvalidDataException("Composite2 graphics requires actual post-Bind target topology and frontend state.");
+        var viewport=actualAfterBindingState.ActualViewport;
+        if(new[]{viewport.Left,viewport.Top,viewport.Width,viewport.Height,viewport.MinimumDepth,viewport.MaximumDepth}.Any(x=>!float.IsFinite(x))||
+            viewport.Width<=0||viewport.Height<=0)
+            throw new InvalidDataException("Composite2 actual target viewport/depth range is invalid.");
+        if(actualAfterBindingTarget.ActualTexture is{} target)
+        {
+            actualTable.ValidateCurrent(target);
+            if(target.Reference.InstanceIndex!=actualAfterBindingTarget.ActualInstanceIndex)
+                throw new InvalidDataException("Composite2 bound target side differs from its current wrapper.");
+        }
+        var directoryTarget=frame.Allocation.Passes.Single(p=>p.Pass.Index==before.SourcePassIndex).ActiveBindings
+            .Where(b=>b.Role==OriginalMapPostEffect3BindingRole.RenderTargetWrite&&b.RegisterIndex==0).DistinctBy(b=>b.ParameterIndex).ToArray();
+        if(directoryTarget.Length>1)throw new InvalidDataException("Composite2 native directory has multiple RT0 pointers.");
+        if(!before.ClearsNativeTarget0&&directoryTarget.Length==1)
+        {
+            var expected=actualTable.Require(directoryTarget[0].ParameterIndex);
+            if(actualEffectiveTargetCount==0||!ReferenceEquals(actualAfterBindingTarget.ActualTexture?.Reference,expected.Reference))
+                throw new InvalidDataException("Composite2 actual Bind did not select the source directory's current RT0.");
+        }
+        // A cleared RT0 is not proof that RT1..3 are also empty. The caller
+        // supplies the actual effective target count and complete raster state.
+        OriginalFinalEffectScissor? scissor=actualAfterBindingState.ActualScissor;
+        if(before.ChangesScissor)
+        {
+            string scalar=before.UsesViewportScalarForScissor?"Viewport":"CompositeLastViewport";
+            int X(int extent,int lane)=>Sse.ConvertToInt32WithTruncation(Vector128.CreateScalar(NativeFloor(
+                OriginalNativeFloat.Multiply(extent,frame.Float(scalar,lane)))));
+            scissor=new(X(actualAfterBindingTarget.NativeCurrentWidth50,0),X(actualAfterBindingTarget.NativeCurrentHeight54,1),
+                X(actualAfterBindingTarget.NativeCurrentWidth50,2),X(actualAfterBindingTarget.NativeCurrentHeight54,3));
+        }
+        return new(before,actualTable,actualAfterBindingState,actualAfterBindingTarget,actualEffectiveTargetCount,scissor);
+    }
+    private static OriginalMapPostEffect3TextureParameterState GetCurrentTable(OriginalMapPostEffect3Composite2ExecutionFrame frame)=>frame.CurrentTextureTable;
+    private OriginalMapPostEffect3ParameterConstantBuffer? PrepareHdrRemake(OriginalMapPostEffect3ParameterState state,
+        OriginalMapPostEffect3AllocationPlan allocation,IReadOnlyDictionary<string,byte[]> values)
+    {
+        if(BinaryPrimitives.ReadInt32LittleEndian(values["EnableSeparateHdrLut"])==0)return null;
+        RequireCb(allocation,25,0x257141D7,48);byte[] bytes=new byte[48];
+        float Unsigned(string n)=>BinaryPrimitives.ReadUInt32LittleEndian(values[n]);
+        BinaryPrimitives.WriteSingleLittleEndian(bytes,OriginalNativeLogarithm.Divide(Unsigned("HdrTvNit"),100));
+        BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(4),OriginalNativeLogarithm.Divide(Unsigned("BaseTvNit"),100));
+        BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(8),Unsigned("TonemapType"));
+        BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(12),Unsigned("ColorGamut"));
+        values["NeutralTonemapParams0"].CopyTo(bytes,16);values["NeutralTonemapParams1"].CopyTo(bytes,32);
+        return new(state,allocation.ConstantBufferParameters[25],checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",0x115CD10)),bytes,Locale);
+    }
+    private static void RequireCb(OriginalMapPostEffect3AllocationPlan allocation,int index,uint hash,uint size)
+    {var cb=allocation.ConstantBufferParameters[index];if(cb.Index!=index||cb.NameHash!=hash||cb.ByteCount!=size||
+        cb.Ownership!=OriginalMapPostEffect3AllocationOwnership.OwnedDeclaration)throw new InvalidDataException("Composite2 native CB declaration differs.");}
+    private static void ValidateLuts(long frame,string owner,OriginalMapPostEffect3Composite2ModuleLuts luts)
+    {if(luts.FrameNumber!=frame||luts.ContextOwnerIdentity!=owner||luts.ActualLinearWrapper30.FrameNumber!=frame||
+        string.IsNullOrWhiteSpace(luts.ActualLinearWrapper30.OwnerIdentity)||string.IsNullOrWhiteSpace(luts.SourceEvidence)||
+        luts.ActualLdrWrapper38 is null||luts.ActualPointWrapper38.FrameNumber!=frame||
+        string.IsNullOrWhiteSpace(luts.ActualPointWrapper38.OwnerIdentity))
+        throw new InvalidDataException("Composite2 needs both actual same-frame ShaderManager linear/point sampler carriers.");}
+    private static float NativeFloor(float value)
+    {
+        uint bits=BitConverter.SingleToUInt32Bits(value),magnitude=bits&0x7FFFFFFF;bool negative=(bits&0x80000000)!=0;
+        if(magnitude>=0x4B800000){if(magnitude>0x7F800000)throw new NotSupportedException("Composite2 native NaN floor needs its actual exception producer.");return value;}
+        if(magnitude<0x3F800000)return magnitude==0?value:negative?-1:0;
+        int shift=(0x96-(int)(bits>>23))&31;uint truncated=bits&~((1u<<shift)-1);float result=BitConverter.UInt32BitsToSingle(truncated);
+        return negative&&truncated!=bits?OriginalNativeFloat.Subtract(result,1):result;
+    }
+    private static readonly int[] DirectoryByCachedOrdinal=[98,100,108,109,110,111,112,92,94,96,106,107,99,101,93,95,97,113,114,115,116];
+}
+
+public static class OriginalMapPostEffect3Composite2ExecutionSource
+{
+    public static LoadedOriginalMapPostEffect3Composite2ExecutionSource Load(OriginalGameRepository repository,string locale="TC")
+    {ArgumentNullException.ThrowIfNull(repository);return OriginalDeferredSamplerSources.ReadComposite2ExecutionSource(
+        OriginalDeferredSamplerSources.Load(repository.SourceDirectory,locale),OriginalSkyWeatherNativePowerSource.Load(repository,locale));}
+}
+
+public static partial class OriginalDeferredSamplerSources
+{
+    internal static LoadedOriginalMapPostEffect3Composite2ExecutionSource ReadComposite2ExecutionSource(
+        LoadedOriginalDeferredSamplerNativeSource native,OriginalSkyWeatherNativePowerSource power)
+    {
+        if(native.Locale is not ("TC" or "SC")||power.Locale!=native.Locale)throw new NotSupportedException("Composite2 lifecycle and power require the same verified SC/TC source.");
+        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"Composite2 execution executable");
+        var image=new NativeImage(exe);byte[] code=image.DecodeText(out int start);VerifyHash(code,native.DecodedTextSha256,"Composite2 execution text");
+        foreach(var w in new (int Rva,int Count,string Sha)[]{
+            (0x1159BB0,241,"541AAE89F4E1C11B617855812BA3F34E64C8D0E203CAD8E002E590238F5FEC6D"),
+            (0x1159DD0,588,"52A867136CF0A14353EDDCF8425FBE61F0AB1AA72D425553DE3BD7BE39F28888"),
+            (0x115A020,328,"56C71AFF9A466B55B7C288DEA4970D294D440D5A8FFA2C927838A88F63828BF8"),
+            (0x115B750,1101,"8D49711CA686E9B60C7D6C8C677104193720893902AFA0535404E3551EA95EA3"),
+            (0x115C890,1149,"8120D9A4B8B41AFBE167AA83B88AB661F27DB2DD3974A1287924D984756C4064"),
+            (0x115CD10,624,"07C28C4375D05A0CA0D48202CED42C826D1C64DA82336E1761113BEDFC88869B"),
+            (0xBF9280,3,"E18AACCE29AFFCDDDAA5F641AC1EC12552E0FE9D066E6408941B1792818B8619"),
+            (0x101EB80,130,"9531ABA453E83197FA4A071AF66A84E6E10F4F95571FD688A997AB798819D6BC")})
+            { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",w.Rva,w.Count,w.Sha);
+              VerifyHash(code.AsSpan(actual.Rva-start,w.Count),actual.Sha,"Composite2 lifecycle source"+w.Rva.ToString("X")); }
+        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+";TC-factory9-Prepare/Init/Before/Execute/literal-After;typed-current-wrapper/side;"+
+            "68-to79;74-or77-to78;CB23-written148-of160;CB25-48;scissor-not-viewport;no-GPU-claim",power,
+            BitConverter.UInt32BitsToSingle(BinaryPrimitives.ReadUInt32LittleEndian(image.Raw(OriginalMapPostEffect3NativeSourceProfile.DataRva(native.Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",0x13A191C),4))),
+            image.Raw(OriginalMapPostEffect3NativeSourceProfile.DataRva(native.Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",0x173C040),96).ToArray());
+    }
+}

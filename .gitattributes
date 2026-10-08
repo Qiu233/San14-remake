@@ -1,0 +1,18 @@
+* text=auto eol=lf
+runtime/windows-x64/notices/* -text -whitespace
+runtime/windows-x64/audio/COPYING -text -whitespace
+runtime/windows-x64/audio/licenses/* -text -whitespace
+
+runtime/windows-x64/libvkd3d-shader-1.dll filter=lfs diff=lfs merge=lfs -text
+runtime/windows-x64/audio/avcodec-vgmstream-59.dll filter=lfs diff=lfs merge=lfs -text
+runtime/windows-x64/audio/avformat-vgmstream-59.dll filter=lfs diff=lfs merge=lfs -text
+runtime/windows-x64/audio/avutil-vgmstream-57.dll filter=lfs diff=lfs merge=lfs -text
+runtime/windows-x64/audio/libatrac9.dll filter=lfs diff=lfs merge=lfs -text
+runtime/windows-x64/audio/libcelt-0061.dll filter=lfs diff=lfs merge=lfs -text
+runtime/windows-x64/audio/libcelt-0110.dll filter=lfs diff=lfs merge=lfs -text
+runtime/windows-x64/audio/libg719_decode.dll filter=lfs diff=lfs merge=lfs -text
+runtime/windows-x64/audio/libmpg123-0.dll filter=lfs diff=lfs merge=lfs -text
+runtime/windows-x64/audio/libspeex-1.dll filter=lfs diff=lfs merge=lfs -text
+runtime/windows-x64/audio/libvorbis.dll filter=lfs diff=lfs merge=lfs -text
+runtime/windows-x64/audio/swresample-vgmstream-4.dll filter=lfs diff=lfs merge=lfs -text
+runtime/windows-x64/audio/vgmstream-cli.exe filter=lfs diff=lfs merge=lfs -text

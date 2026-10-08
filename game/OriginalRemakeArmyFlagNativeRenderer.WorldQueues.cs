@@ -1,0 +1,196 @@
+using San14.Data;
+using San14.Data.Formats;
+
+public sealed partial class OriginalRemakeArmyFlagNativeRenderer
+{
+    private readonly OriginalArmyWorldQueueSourceCache _worldSources = new();
+    private readonly OriginalArmyWorldPreparedTableSource _worldTableSources = new();
+    private readonly Dictionary<(int Category,int Draw,int ForceVariant,OriginalNativeWorldShaderTableState Table),OriginalRemakeArmyFlagVariantGbufferSource> _worldFinalVariants=[];
+    private readonly Dictionary<uint,OriginalNativeArmyFlagMaterialTextureGroupRecord> _worldTextureGroups=[];
+    private OriginalArmyWorldQueuePreparedPackets? _worldPackets;
+
+    /// <summary>Requires every actual pole/cloth material and producer image.
+    /// Missing cloth fails this complete preparation instead of returning a
+    /// partial successful World inventory. Each actual final full table selects
+    /// its own49/50 partition and the corresponding native alpha input.</summary>
+    public Task<OriginalArmyWorldQueuePreparedPackets> PrepareWorldQueuePacketsAsync(
+        OriginalNativeMapArmyPreparedFrame actualArmy,
+        IReadOnlyList<OriginalModelBlendAttachment> actualNativeSixColorStates,
+        OriginalNativeWorldShaderTableRegistry actualSharedTableRegistry,
+        IOriginalArmyWorldFlagMaterialTablePublication? actualMaterialPublication)
+    {
+        OriginalArmyWorldQueuePreparedPackets.RequireFrame(actualArmy);
+        ArgumentNullException.ThrowIfNull(actualSharedTableRegistry);
+        OriginalArmyWorldQueuePreparedPackets.RequireColorInputScope(actualArmy, actualNativeSixColorStates);
+        if (actualArmy.SourceMaterials is null && actualArmy.FlagActors != 0)
+            throw new InvalidDataException("Army World flag queues need the actual current source force/text/material provider.");
+        if (actualMaterialPublication is null && (actualArmy.FlagActors != 0 || actualArmy.Flags.Count != 0))
+            throw new NotSupportedException("Nonempty Army flag preparation requires its actual current material publication.");
+        actualMaterialPublication?.RequireCurrent(actualArmy);
+        Accept(); return PrepareWorldAcceptedAsync(actualArmy, actualNativeSixColorStates, actualSharedTableRegistry, actualMaterialPublication);
+    }
+    private async Task<OriginalArmyWorldQueuePreparedPackets> PrepareWorldAcceptedAsync(
+        OriginalNativeMapArmyPreparedFrame actualArmy, IReadOnlyList<OriginalModelBlendAttachment> actualNativeSixColorStates,
+        OriginalNativeWorldShaderTableRegistry actualSharedTableRegistry,
+        IOriginalArmyWorldFlagMaterialTablePublication? actualMaterialPublication)
+    {
+        await _gate.WaitAsync();
+        try
+        {
+            _worldPackets = null;
+            var packets = new List<OriginalModelGbufferInstancePacket>();
+            var selections = new List<OriginalArmyWorldQueuePrimitiveSource>();
+            var tables = new List<OriginalArmyWorldPrimitiveTableRow>();
+            OriginalModelRasterInputs? raster = null;
+            float seconds = actualArmy.Animation.CallerSeconds;
+            foreach (var (unit, frame) in actualArmy.Flags)
+            foreach (var actor in frame.Actors)
+            {
+                var materialPublication = actualMaterialPublication ?? throw new NotSupportedException("An actual flag actor needs its current material publication.");
+                if (!_epochs.TryGetValue(unit, out var epoch) || !ReferenceEquals(epoch.Initialization, actor.Initialization))
+                    _epochs[unit] = epoch = (actor.Initialization, seconds);
+                foreach (var draw in G1ModelDrawReader.Read(actor.Source.Model.Geometry).Draws)
+                {
+                    raster ??= OriginalArmyWorldQueuePreparedPackets.PreparationRaster(actualNativeSixColorStates);
+                    var key = (actor.Category, draw.Index);
+                    if (!_draws.TryGetValue(key, out var source))
+                    {
+                        _objects ??= _repository.LoadObjects("system", 0x718CCB8B);
+                        _graph ??= _repository.LoadRenderGraph("system", 0x024496EE);
+                        _draws.Add(key, source = OriginalRemakeArmyFlagGbufferSource.Load(_repository,
+                            actor.Source, _objects, _graph, draw.Index));
+                    }
+                    if (source.Source.Model.Source.DecodedSha256 != actor.Source.Model.Source.DecodedSha256 ||
+                        source.Source.Model.Source.ResourceUri != actor.Source.Model.Source.ResourceUri)
+                        throw new InvalidDataException("Army flag model source generation changed; rebuild its renderer.");
+                    string packet = actor.InstanceKey + $"/draw{draw.Index}";
+                    string writer = _worldTableSources.ImportFreshNullWrapper(actor.Source.Catalog, actor.Category, actor.Source.Model.Geometry, draw.Index);
+                    _materials.TryGetValue(packet, out var previous);
+                    if (source.RequiredRuntimeProxyIds.Count == 0)
+                    {
+                        materialPublication.RequireCurrent(actualArmy);
+                        var poleMaterial = materialPublication.ReadActualFinalTable(actor, draw.Index, null);
+                        var finalPoleTable = poleMaterial.FinalTable;
+                        actualSharedTableRegistry.RequireCurrent(finalPoleTable);
+                        var actualPoleInterface=actualSharedTableRegistry.ReadSelectedInterface(finalPoleTable,18);
+                        if(string.IsNullOrWhiteSpace(materialPublication.SourceEvidence)||
+                            !ReferenceEquals(poleMaterial.ActualActor,actor)||poleMaterial.SourceRawDrawIndex!=draw.Index||
+                            string.IsNullOrWhiteSpace(poleMaterial.SourceWriterEvidence)||
+                            actualPoleInterface.Provider?.ShaderFileHash!=source.Shader.Source.FileId)
+                            throw new NotSupportedException("Flag pole current full table needs its actual matching program/inputs producer.");
+                        if(poleMaterial.ActualParameterRoute==OriginalArmyWorldPrimitiveParameterRoute.Unknown)
+                            throw new NotSupportedException("Flag pole needs the actual prior/current28/40 parameter selection.");
+                        if(poleMaterial.ActualParameterRoute==OriginalArmyWorldPrimitiveParameterRoute.ActualCurrentMaterial&&
+                            (poleMaterial.ActualMaterialRecord64 is null||poleMaterial.ActualMaterialId is null||poleMaterial.ActualCurrentTextures is null))
+                            throw new NotSupportedException("Flag pole current material path needs the actual28/40 and38 records.");
+                        var selection = _worldSources.Read(packet, source.GraphSource.Graph,
+                            actor.Source.ShaderBindings, draw.Index, actualPoleInterface, source.Shader);
+                        if (!selection.Opaque49.SourceQueueSelectsShader)
+                            throw new NotSupportedException("Source flag pole did not select original opaque queue49.");
+                        var pole = source.Prepare(packet, new(seconds - epoch.Start, actor.World,
+                            actualArmy.Context.PreparedCamera!, new byte[6256], previous.Pixel ?? new byte[80],
+                            previous.Flags, raster, new Dictionary<uint,OriginalRemakeArmyFlagRuntimeTexture>())
+                            {ActualCurrentTextureGroup=poleMaterial.ActualCurrentTextures,
+                                ActualMaterialRecord64=poleMaterial.ActualParameterRoute==OriginalArmyWorldPrimitiveParameterRoute.ActualCurrentMaterial?poleMaterial.ActualMaterialRecord64:null,
+                                ActualMaterialId=poleMaterial.ActualParameterRoute==OriginalArmyWorldPrimitiveParameterRoute.ActualCurrentMaterial?poleMaterial.ActualMaterialId:null,
+                                ActualBackendAlphaEnabled=selection.Opaque49.Queue.BackendAlphaEnabled});
+                        packets.Add(pole.Packet); selections.Add(selection);
+                        tables.Add(new(packet, finalPoleTable, writer + ";" + materialPublication.SourceEvidence + ";" + poleMaterial.SourceWriterEvidence +
+                            ";group=" + poleMaterial.ActualContainerGroupOrdinal + ";material=" + poleMaterial.ActualMaterialObjectId.ToString("X8") +
+                            ";actual-pole-final-full-table;WorldPQ-default-container-materials-not-assumed-null") { ActualFlagMaterial = poleMaterial });
+                        _materials[packet] = (pole.NextCachedMaterialFlags, pole.Packet.Pixel.Constants[0].ToArray());
+                        continue;
+                    }
+                    var input = actualArmy.SourceMaterials!.Select(actor);
+                    var variantKey = (actor.Category, draw.Index, input.ExplicitOwnedForceVariant);
+                    if (!_variants.TryGetValue(variantKey, out var variant))
+                        _variants.Add(variantKey, variant = OriginalRemakeArmyFlagVariantGbufferSource.Load(_repository,
+                            actor.Source, draw.Index, input.ExplicitOwnedForceVariant));
+                    string locale = actor.Initialization.CodeSource.Language;
+                    if (!_paneProducers.TryGetValue(locale, out var producer))
+                        _paneProducers.Add(locale, producer = new(_repository, locale,_borrowedPaneCompiler));
+                    var primary = await producer.PrepareAsync(variant.Variation, input.SourcePane);
+                    if(!_worldTextureGroups.TryGetValue(variant.Variation.TextureGroup.ObjectId,out var regularGroup))
+                        _worldTextureGroups.Add(variant.Variation.TextureGroup.ObjectId,regularGroup=
+                            OriginalNativeArmyFlagMaterialTextureGroupRecord.LoadComplete(_repository,variant.Variation,
+                                new Dictionary<uint,OriginalRemakeArmyFlagRuntimeTexture>{[primary.ProxyObjectId]=primary}));
+                    regularGroup.RequireCurrent();
+                    if(materialPublication is IOriginalArmyWorldFlagMaterialResourceReceiver reachedMaterialResources)
+                        reachedMaterialResources.ReceiveActualReadyRegularTextureGroup(actualArmy,actor,draw.Index,variant.Variation,regularGroup);
+                    materialPublication.RequireCurrent(actualArmy);
+                    var currentMaterial = materialPublication.ReadActualFinalTable(actor, draw.Index, variant.Variation);
+                    var finalTable = currentMaterial.FinalTable;
+                    actualSharedTableRegistry.RequireCurrent(finalTable);
+                    if (string.IsNullOrWhiteSpace(materialPublication.SourceEvidence) ||
+                        !ReferenceEquals(currentMaterial.ActualActor, actor) || currentMaterial.SourceRawDrawIndex != draw.Index ||
+                        currentMaterial.ActualMaterialObjectId != variant.Variation.SelectedMaterialObjectId ||
+                        string.IsNullOrWhiteSpace(currentMaterial.SourceWriterEvidence) ||
+                        currentMaterial.ActualContainerGroupOrdinal != actor.Source.ReadDeclaredMaterialGroups(_repository).ReadDeclaredDraw(draw.Index).DeclaredContainerGroupOrdinal)
+                        throw new InvalidDataException("Flag final Material78/80 publication belongs to another current actor/draw/group/material.");
+                    var actualTextureGroup=currentMaterial.ActualCurrentTextures??
+                        throw new NotSupportedException("Flag current material requires its actual E0 texture-group record; C0 or a primary image is not an inferred replacement.");
+                    var finalSourceKey=(actor.Category,draw.Index,input.ExplicitOwnedForceVariant,finalTable);
+                    if(!_worldFinalVariants.TryGetValue(finalSourceKey,out var actualVariant))
+                        _worldFinalVariants.Add(finalSourceKey,actualVariant=OriginalRemakeArmyFlagVariantGbufferSource.LoadForActualFinalTable(
+                            _repository,actor.Source,draw.Index,variant.Variation,finalTable));
+                    var selected=actualSharedTableRegistry.ReadSelectedInterface(finalTable,18);
+                    var clothSelection = _worldSources.Read(packet, source.GraphSource.Graph,
+                        actor.Source.ShaderBindings, draw.Index, selected, actualVariant.Shader);
+                    if (clothSelection.Alpha50.SourceQueueSelectsShader == clothSelection.Opaque49.SourceQueueSelectsShader ||
+                        input.ExplicitForcedAlphaReference is not null)
+                        throw new NotSupportedException("Actual final flag shader needs exactly one original49/50 partition and an unforced native alpha reference.");
+                    bool actualAlpha=clothSelection.Alpha50.SourceQueueSelectsShader;
+                    if(currentMaterial.ActualParameterRoute==OriginalArmyWorldPrimitiveParameterRoute.ActualPriorRetained)
+                    {
+                        var prior=_worldTableSources.ReadActualFreshPriorTable(actor.Source.Catalog,actor.Category,actor.Source.Model.Geometry,draw.Index,
+                            actualSharedTableRegistry.RetainImportedTable(source.GraphSource.Draw.Binding.Shader));
+                        if(!ReferenceEquals(prior,finalTable)||actualVariant.Shader.Source.FileId!=source.Shader.Source.FileId)
+                            throw new InvalidDataException("Flag prior28/40 route must retain its actual fresh prior full table/program.");
+                        var prepared=source.Prepare(packet,new(seconds-epoch.Start,actor.World,actualArmy.Context.PreparedCamera!,
+                            new byte[6256],previous.Pixel??new byte[80],previous.Flags,raster,
+                            new Dictionary<uint,OriginalRemakeArmyFlagRuntimeTexture>())
+                            {ActualCurrentTextureGroup=actualTextureGroup,
+                                ActualBackendAlphaEnabled=actualAlpha?clothSelection.Alpha50.Queue.BackendAlphaEnabled:clothSelection.Opaque49.Queue.BackendAlphaEnabled});
+                        packets.Add(prepared.Packet);selections.Add(clothSelection);
+                        tables.Add(new(packet,finalTable,writer+";"+materialPublication.SourceEvidence+";"+currentMaterial.SourceWriterEvidence+
+                            ";DB8BBB-actual-prior18/28/40-retained;actual-current38-textures") {ActualFlagMaterial=currentMaterial});
+                        _materials[packet]=(prepared.NextCachedMaterialFlags,prepared.Packet.Pixel.Constants[0].ToArray());
+                        continue;
+                    }
+                    if(currentMaterial.ActualParameterRoute!=OriginalArmyWorldPrimitiveParameterRoute.ActualCurrentMaterial)
+                        throw new NotSupportedException("Flag needs its actual prior/current28/40 parameter selection.");
+                    var actualMaterialRecord=currentMaterial.ActualMaterialRecord64??
+                        throw new NotSupportedException("Flag current primitive28 requires its actual type12 material parameter record.");
+                    var actualMaterialId=currentMaterial.ActualMaterialId??
+                        throw new NotSupportedException("Flag current primitive40 material ID requires its actual type15 property mapping.");
+                    var cloth = actualVariant.Prepare(packet, new(seconds - epoch.Start, actor.World,
+                        actualArmy.Context.PreparedCamera!, new byte[6256], previous.Pixel ?? new byte[80],
+                        previous.Flags, raster, new Dictionary<uint,OriginalRemakeArmyFlagRuntimeTexture>
+                            { [primary.ProxyObjectId] = primary }, input.ExplicitSpecularW, input.ExplicitSpecularSource,
+                        actualAlpha ? clothSelection.Alpha50.Queue.BackendAlphaEnabled : clothSelection.Opaque49.Queue.BackendAlphaEnabled)
+                        {ActualCurrentTextureGroup=actualTextureGroup,ActualMaterialRecord64=actualMaterialRecord,ActualMaterialId=actualMaterialId,
+                            ActualMaterialParameterSource=currentMaterial.SourceWriterEvidence});
+                    packets.Add(cloth.Packet); selections.Add(clothSelection);
+                    tables.Add(new(packet, finalTable, writer + ";" + materialPublication.SourceEvidence + ";" + currentMaterial.SourceWriterEvidence +
+                        ";group=" + currentMaterial.ActualContainerGroupOrdinal +
+                        ";actual-force-row=" + variant.Variation.SelectedSourceVariationRow +
+                        ";material=" + variant.Variation.SelectedMaterialObjectId.ToString("X8") + ";actual-final-full-table;Primitive50-source-null") { ActualFlagMaterial = currentMaterial });
+                    _materials[packet] = (cloth.NextCachedMaterialFlags, cloth.Packet.Pixel.Constants[0].ToArray());
+                }
+            }
+            var keep = packets.Select(p => p.InstanceKey).ToHashSet(StringComparer.Ordinal);
+            foreach (string old in _materials.Keys.Where(k => !keep.Contains(k)).ToArray()) _materials.Remove(old);
+            foreach (int old in _epochs.Keys.Where(k => !actualArmy.Flags.ContainsKey(k)).ToArray()) _epochs.Remove(old);
+            OriginalArmyWorldQueuePreparedPackets? result = null;
+            result = new(actualArmy, "ArmyFlag", packets, selections, tables, () =>
+            {
+                ObjectDisposedException.ThrowIf(_retiring, this);
+                actualMaterialPublication?.RequireCurrent(actualArmy);
+                if (!ReferenceEquals(_worldPackets, result))
+                    throw new InvalidDataException("Army flag packet preparation was superseded or retired.");
+            });
+            return _worldPackets = result;
+        }
+        finally { _gate.Release(); CompleteAccepted(); }
+    }
+}

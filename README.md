@@ -1,0 +1,47 @@
+# San14 Remake
+
+三国志14传承版的独立 Windows x64 复原项目。C# 模拟核心、原生 D3D11 地图渲染与 Godot .NET 客户端分离；支持简体和繁体中文，资源从用户本机的原版安装读取。
+
+## 当前阶段
+
+这是开发中的首次源码快照，尚未完成端到端复原。已接通原版地形、水面、势力覆盖、六边形网格、城市、植被和地图标签的连续渲染；游戏骨架可下令、推进时间并保存，机制覆盖仍在扩充。
+
+**完整地图首次资源准备尚未接通。** 当前开发运行仍需要本机私有 `source_package` 及同级输入。仓库不包含这些原版资源缓存，因此干净克隆可以构建源码，但还不能独立生成完整地图启动输入。后续会将全部准备接入正式程序；不会要求发布用户运行私有研究工具。
+
+## 代码结构
+
+- `src/San14.Core`：状态、命令、模拟与存档。
+- `src/San14.Data`：原安装读取、资源定位、格式解析及原机制适配。
+- `game`：Godot 客户端、地图控件与界面配置。
+- `native/San14.Render.D3D11`：原生地图渲染与共享纹理桥。
+- `build`：正式 Windows 构建及运行依赖安装。
+- `runtime/windows-x64`：第三方运行组件的来源与许可；已纳入的二进制按具体路径使用 Git LFS。
+
+## 构建
+
+当前工具链固定为 .NET SDK 9、Godot **4.7.2 .NET**、Visual Studio 2022 C++ x64 工具和 Windows SDK。Godot 需配套 Windows .NET 导出模板。原版安装不参与编译，运行时用于读取资源。
+
+在仓库根目录执行：
+
+```powershell
+dotnet build .\San14Remake.sln -c Release
+pwsh -File .\native\San14.Render.D3D11\build-product.ps1
+```
+
+Godot 编辑器打开 `game/project.godot`。正式 Windows 导出入口：
+
+```powershell
+pwsh -File .\build\Export-Windows.ps1 -GodotConsole 'C:\path\to\Godot_console.exe'
+```
+
+导出入口构建客户端及 Native DLL，并安装第三方运行组件。默认产物写入 `.local/build-windows`。首次源码快照暂不包含音频二进制套件，当前所用套件中一项依赖的再分发许可尚未确认；完整导出需本机已有对应套件，缺失时安装步骤会提示。源码构建不需要这套音频二进制。
+
+这些命令完成构建，不代表完整资源准备或全游戏验收通过。
+
+## 资源与发布边界
+
+仅提交项目源码、正式构建文件和允许发布的非原版资源。原版素材、转换缓存、原程序反汇编、私人研究文档、独立实验、离线工具和一次性脚本均不进入仓库或程序发布包。读取原版安装为只读操作。
+
+游戏存档使用独立的带版本格式。与原版存档互转、多人与地图扩展保留架构可能性，尚未实现。
+
+第三方来源和许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。

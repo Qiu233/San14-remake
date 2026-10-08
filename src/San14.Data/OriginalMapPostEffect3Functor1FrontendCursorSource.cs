@@ -1,0 +1,98 @@
+namespace San14.Data;
+
+public sealed record OriginalMapPostEffect3FrontendCountedSetter(OriginalMapPostEffect3Binding Binding,int NativeStageOrdinal);
+
+/// <summary>Original Select/Reset/Finalize CPU operations. Availability must
+/// come from an actual program catalog; this source supplies no device proof.</summary>
+public sealed class LoadedOriginalMapPostEffect3Functor1FrontendCursorSource
+{
+    internal LoadedOriginalMapPostEffect3Functor1FrontendCursorSource(string evidence,string locale="TC")=>(SourceEvidence,Locale)=(evidence,locale);
+    public string SourceEvidence{get;}
+    public string Locale{get;}
+    public int FreshNativeMode1C04=>-1;
+    public int FirstSourcePass=>45;
+    public int LastSourcePass=>116;
+    public uint NativeCsGetterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3Functor1FrontendCursorSource.cs",0x11618B0));
+    public uint NativePsGetterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3Functor1FrontendCursorSource.cs",0x11619D0));
+    public IReadOnlyList<OriginalMapPostEffect3FrontendCountedSetter> ReadCountedSetters(
+        OriginalMapPostEffect3AllocationPlan allocation,int pass)
+    {
+        OriginalMapPostEffect3ParameterState.ValidateSource(allocation.Source);
+        if(pass is <45 or >116)throw new InvalidDataException("Cursor setter is outside the source Functor1 directory.");
+        var selected=allocation.Passes[pass];var result=new List<OriginalMapPostEffect3FrontendCountedSetter>();
+        //1161EA0 texture loop,116211D buffer loop,11622E3 CB loop; within
+        //each original row11620E7/11622B0/116237C visits six stage bits.
+        foreach(var span in selected.Spans)
+        foreach(var row in span.Bindings)
+        for(int stage=0;stage<6;stage++)
+            if((row.StageMask&selected.NativeActiveStageMask&(1<<stage))!=0)
+            {
+                if(row.RegisterIndex<0||row.RegisterIndex>=(row.Role==OriginalMapPostEffect3BindingRole.RenderTargetWrite?4:16))
+                    throw new InvalidDataException("Counted setter exceeds its actual native cache group.");
+                result.Add(new(row,stage));
+            }
+        return result.AsReadOnly();
+    }
+    public byte ReadReturningBefore(OriginalMapPostEffect3Functor1WrapperRecipe recipe,
+        OriginalMapPostEffect3EyeAdaptation2Frame? eye=null,OriginalMapPostEffect3EyeBeforeBindings? eyeBefore=null)
+    {
+        if(recipe.Locale!=Locale)throw new InvalidDataException("Cursor and wrapper source locale differ.");
+        if(recipe.NativeWrapperLoopBound==0)throw new InvalidDataException("An empty native repeat must not invoke Before.");
+        if(!recipe.MaskAdmitsBefore)return 0;
+        if(recipe.FactoryIndex!=8)return recipe.UnconditionalSourceBeforeReturnAl
+            ??throw new InvalidDataException("Selected source Before is not its proved literal body.");
+        if(eye is null||eyeBefore is null||!ReferenceEquals(recipe.SourcePreparedIdentity,eye)||
+            !eye.OrderedIterations.Contains(eyeBefore.Iteration)||eyeBefore.Iteration.SourcePassIndex!=recipe.SourcePassIndex)
+            throw new InvalidDataException("Returning Eye Before needs its exact actual CPU writer packet.");
+        eye.RequireCurrent();
+        if(eye.State.FindScalarIndex("Enable4KCBFix") is null||eye.State.RequireValue("Enable4KCBFix").Length!=4)
+            throw new InvalidDataException("Eye native capability>=3 named scalar lookup did not return its source value.");
+        if(eyeBefore.ActualSourceWidth40!=0||eyeBefore.ActualSourceHeight42!=0)
+        {
+            var cb=eyeBefore.BloomLoopConstants;
+            if(cb is null||cb.Locale!=Locale||cb.WriterRva!=checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3Functor1FrontendCursorSource.cs",0x11592F0))||cb.Declaration.Index!=20||cb.Bytes.Length!=32)
+                throw new InvalidDataException("Eye source loop writer did not return its exact complete CB20 packet.");
+        }
+        return 1; //1157D6C/78 scalar getter bit0 &115801F returned writer AL.
+    }
+    public byte ReturnFinalize(OriginalMapPostEffect3Functor1WrapperRecipe recipe)
+    {if(recipe.Locale!=Locale||recipe.SourceFinalizeRva!=checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3Functor1FrontendCursorSource.cs",0xBF9280)))throw new InvalidDataException("Foreign v58 callback.");return recipe.SourceFinalizeReturnAl;}
+    public byte ReadBindReturnAfterReturning()=>1; //1162A93 B0 01, after actual Bind and flush return.
+}
+
+public static class OriginalMapPostEffect3Functor1FrontendCursorSource
+{
+    public static LoadedOriginalMapPostEffect3Functor1FrontendCursorSource Load(OriginalGameRepository repository,string locale="TC")
+        =>OriginalDeferredSamplerSources.ReadFunctor1FrontendCursorSource(OriginalDeferredSamplerSources.Load(repository.SourceDirectory,locale));
+}
+public static partial class OriginalDeferredSamplerSources
+{
+    internal static LoadedOriginalMapPostEffect3Functor1FrontendCursorSource ReadFunctor1FrontendCursorSource(LoadedOriginalDeferredSamplerNativeSource native)
+    {
+        if(native.Locale is not ("TC" or "SC"))throw new NotSupportedException("Functor1 cursor source requires a verified SC/TC profile.");
+        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"Cursor executable");
+        var image=new NativeImage(exe);byte[] text=image.DecodeText(out int start);VerifyHash(text,native.DecodedTextSha256,"Cursor text");
+        foreach(var w in new (int Rva,int Count,string Sha)[]{
+            (0x1145E70,456,"E33E730AB6F099D838D2AD86D6422C9D96952998CC7793B37C2A56FA26A747CF"),
+            (0x11618B0,44,"8CBA1105A65992A286A750C0FA90C012237118316C1258F5C8AE65D62F0D5084"),
+            (0x11619D0,44,"8234C69B456F0CA2368CE075E1911CA1C2DD92E457D1BD9677B55FA72CC020C6"),
+            (0x1161D40,1773,"57B3E131B5FEAA2CC5DFC7318AD910B987B26478F475619E5ADB679F020B770A"),
+            (0x1162610,1195,"0F382035B15FA1F73D25ECB7E99E5C778B48C8C68C21B4D20FB4B90DD0458AAB"),
+            (0x1162AC0,412,"46E9460069251E5C46491B69D5FBB5237562CD5B3273C516CFDFCF7DD6D76FBC"),
+            (0x1163460,426,"26428584698B46F67D86E7816F3EC7897A27BA3284E80895B037F7538B8A17A7"),
+            (0x1161B60,32,"FCCFBCD6F9658B1751A1A846BE046DE122162EC55980789EAA0D76D41EF25749"),
+            (0x1163690,176,"38D880D9C6A6C89321375A8E50DFDD5C9114F2270334E200ACF95DA4128ADB34"),
+            (0x1163800,208,"23BE6A18FBE9C36F5873CFDE127B27AE9818139563C02C969F0FC2DD6A4BED5C"),
+            (0x11638D0,160,"30DA6BCF9C7570AA5B215BA8876E4BFE67C558DB414A38F9DC8E5BF36A6C941B"),
+            (0x1163970,160,"56A610CB33AF1FF48AD2F7FBE8AF4F28B0447753C0096A53AE7E376C42B7BF3D"),
+            (0x1163D10,176,"0BB46FCB3E3A2AC5156ADDC41B2DDE833EC60142AE151E35E4C826A0D5F8B1C5"),
+            (0x1163DC0,192,"23B8FBC803CFA603843AC09F522F7282F1789F2C4F7506B4162D02359CA53C0E"),
+            (0xBF9280,3,"E18AACCE29AFFCDDDAA5F641AC1EC12552E0FE9D066E6408941B1792818B8619")})
+            { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3Functor1FrontendCursorSource.cs",w.Rva,w.Count,w.Sha);
+              VerifyHash(text.AsSpan(actual.Rva-start,w.Count),actual.Sha,"Cursor source"+w.Rva.ToString("X")); }
+        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+"@"+native.ExecutableSha256+
+            ";11618B0=CS/pass2C/tableA0;11619D0=PS/pass30/tableB0;1161D40-CS-first-else-PS;"+
+            "1145EF7-mode=-1/292-null-borrowed-retained-dirty0/type-byte0=FF/unwritten-selector-bytes1/2;Select-counted-texture-buffer-CB/stage0..5;"+
+            "1163460-groupSRV-UAV-CB-for-each-stage-thenRT/flush1162AC0;1162A93-Bind-return-literal1-after-flush;1161B60-clear-descriptor;v58=BF9280-literal1",native.Locale);
+    }
+}

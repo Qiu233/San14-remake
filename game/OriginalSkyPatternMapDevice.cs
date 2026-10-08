@@ -1,0 +1,57 @@
+using Godot;
+using San14.Data;
+
+/// <summary>Own exact source R8 SkyPatternMap target. Allocation supplies no
+/// source contents, sky constants or implicit sampler.</summary>
+public sealed class OriginalSkyPatternMapDevice : IAsyncDisposable
+{
+    public OriginalRenderTextureDefinition Source { get; }
+    public Rid TextureRid { get; }
+    public Rid Framebuffer { get; }
+    private Task? _disposal;
+
+    private OriginalSkyPatternMapDevice(OriginalRenderTextureDefinition source, Rid texture, Rid framebuffer)
+        => (Source, TextureRid, Framebuffer) = (source, texture, framebuffer);
+
+    public static Task<OriginalSkyPatternMapDevice> BuildAsync(OriginalRenderTextureDefinition source, bool allowReadback = false)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (source.Kind != OriginalRenderTextureKind.Texture2D || source.Width <= 0 || source.Height <= 0 ||
+            source.LevelNum != 1 || source.MinMipLevel != 0 || source.MultiSample != 0 ||
+            OriginalRenderTextureFormatMath.Resolve(source) != new OriginalRenderTextureFormats(61,61,61))
+            throw new InvalidDataException("SkyPatternMap adapter requires the exact finite single-mip/sample R8 source recipe.");
+        return OriginalTerrainDeviceTexture.OnRenderThreadAsync(rd =>
+        {
+            Rid texture = default, framebuffer = default;
+            try
+            {
+                var usage = RenderingDevice.TextureUsageBits.SamplingBit | RenderingDevice.TextureUsageBits.ColorAttachmentBit;
+                if (allowReadback) usage |= RenderingDevice.TextureUsageBits.CanCopyFromBit;
+                if (!rd.TextureIsFormatSupportedForUsage(RenderingDevice.DataFormat.R8Unorm, usage))
+                    throw new NotSupportedException("Device does not support the exact original R8 target and sampling usage.");
+                using var format = new RDTextureFormat { Format = RenderingDevice.DataFormat.R8Unorm,
+                    Width = (uint)source.Width, Height = (uint)source.Height, Depth = 1, ArrayLayers = 1, Mipmaps = 1,
+                    TextureType = RenderingDevice.TextureType.Type2D, Samples = RenderingDevice.TextureSamples.Samples1,
+                    UsageBits = usage };
+                using var view = new RDTextureView();
+                texture = rd.TextureCreate(format,view);
+                if (!texture.IsValid) throw new InvalidDataException("Device rejected original SkyPatternMap texture.");
+                framebuffer = rd.FramebufferCreate([texture]);
+                if (!framebuffer.IsValid || !rd.FramebufferIsValid(framebuffer))
+                    throw new InvalidDataException("Device rejected original SkyPatternMap framebuffer.");
+                return new OriginalSkyPatternMapDevice(source,texture,framebuffer);
+            }
+            catch
+            {
+                if (framebuffer.IsValid) rd.FreeRid(framebuffer);
+                if (texture.IsValid) rd.FreeRid(texture);
+                throw;
+            }
+        });
+    }
+
+    public ValueTask DisposeAsync() => new(_disposal ??= OriginalTerrainDeviceTexture.OnRenderThreadAsync(rd =>
+    {
+        rd.FreeRid(Framebuffer); rd.FreeRid(TextureRid); return true;
+    }));
+}

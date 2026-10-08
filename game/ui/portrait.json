@@ -1,0 +1,9 @@
+{
+  "layoutId": "F8115B8B",
+  "rootNode": "chara_B",
+  "layers": [
+    { "node": "face_0001_w_633x900_a_99_b", "suffix": "b" },
+    { "node": "face_0001_w_633x900_a_99_a", "suffix": "a" },
+    { "node": "face_0001_w_633x900_a_99_c", "suffix": "c" }
+  ]
+}

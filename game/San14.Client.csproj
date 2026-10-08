@@ -1,0 +1,16 @@
+<Project Sdk="Godot.NET.Sdk/4.7.2">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Parallel probes may put generated assemblies in ordinary obj/bin.
+         Godot's normal build uses .godot; neither directory is source. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj/**;bin/**</DefaultItemExcludes>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="TerrainArraySmoke.cs" />
+    <ProjectReference Include="../src/San14.Data/San14.Data.csproj" />
+    <ProjectReference Include="../src/San14.Core/San14.Core.csproj" />
+  </ItemGroup>
+</Project>
