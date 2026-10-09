@@ -35,7 +35,7 @@ public sealed class OriginalOwnedArmyCityReturnResourceStage : IPlayableCityEntr
         if (city.ForceId != army.ForceId || city.HexId != army.HexId) return Missing("branch.not_friendly_city_arrival");
         if (state.NativeArmySimulation?.Parameters is not { } parameters ||
             army.NativeArmyOrigin is not { NativeSlotIndex: >= 1 and <= 500 } origin ||
-            origin.Language != parameters.Language || origin.ExecutableSha256 != parameters.ExecutableSha256 ||
+            origin.Language != parameters.Language || origin.RuleVersion != parameters.RuleVersion ||
             army.NativeTacticRuntime is not { Status10: 1 } runtime) return Missing("current.ordinary_source_Army");
         NativeArmyReturnResources? resources = army.NativeReturnResources;
         if (state.NativeArmyLifecycle is { } lifecycle)

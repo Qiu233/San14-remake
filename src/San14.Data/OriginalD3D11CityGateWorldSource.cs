@@ -76,7 +76,7 @@ public sealed class OriginalD3D11CityGateWorldSource
         foreach(var city in world.Cities.Values.OrderBy(c=>c.Id)){
             var row=Read("city:"+city.Id,new(OriginalBaseKind.City,city.Id),city.Durability,true);
             if(row is not null)city66.Add(city.Id,CityVisualDamageInput.FromTier(row.Flag66,new("actual-current-Base/Object14/268230/2AA9B0",
-                Primaries.Variants.ExecutableSha256,"Actual current size/HP/district/policy32/settings; no retained opening tier")));
+                world.MapSha256,"Actual current size/HP/district/policy32/settings; no retained opening tier")));
         }
         foreach(var gate in world.Gates.Values.OrderBy(g=>g.Id)){
             var definition=actualGateDefinitions?.GetValueOrDefault(gate.Id)??Primaries.GateDefinitions[gate.Id];

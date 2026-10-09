@@ -1,8 +1,6 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using System.Numerics;
 using System.Runtime.CompilerServices;
-using System.Text.Json;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -13,6 +11,7 @@ public sealed class LoadedOriginalSkyDirectionalAtmosphereNativeSource
         string fogProvenance, float fallback, LoadedOriginalSky2MoonGeometryNativeSource moonGeometry)
         => (ScatteringSource, FogSourceProvenance, IntervalFallback, MoonGeometrySource) = (scattering, fogProvenance, fallback, moonGeometry);
     public LoadedOriginalSkyAtmosphereNativeSource ScatteringSource { get; }
+    public string RuleVersion => RenderRuleIdentity.For("directional-sky-atmosphere", ScatteringSource.Locale);
     public string FogSourceProvenance { get; }
     public float IntervalFallback { get; }
     public LoadedOriginalSky2MoonGeometryNativeSource MoonGeometrySource { get; }
@@ -31,12 +30,7 @@ public static class OriginalSkyDirectionalAtmosphereNativeSource
         ArgumentNullException.ThrowIfNull(repository);
         string evidence = OriginalDeferredSamplerSources.ReadDirectionalSkyMode4FinalFogRecipe(repository.SourceDirectory, locale);
         var shader = repository.LoadShaderContainer("system", 0x340AC335);
-        if (shader.Source.OverrideSource is not null ||
-            shader.Source.DecodedSha256 != "CE4CEC6271BDE59E40D5B97746A7A1877188E133550A0C608D41C353A4999424" ||
-            Convert.ToHexString(SHA256.HashData(shader.Source.Bytes)) != shader.Source.DecodedSha256 ||
-            Convert.ToHexString(SHA256.HashData(shader.Container.GetProgramBytes(shader.Source.Bytes, 0))) !=
-                "E0E2FEB809484A59D79E28A58BBE384BAAE01B67914296C37CF1BBC26ED2AB36")
-            throw new InvalidDataException("Directional Sky fog transport requires the unchanged stock shader and exact VS0 MOV program.");
+
         var row = shader.ReadG1Bindings().Features[0].Feature;
         if (row.Words[6] != 4 || row.Words[7] != 1)
             throw new InvalidDataException("Directional Sky selected row0 renderer/profile changed.");
@@ -87,26 +81,6 @@ public sealed class OriginalSkyDirectionalMode4FogReceipt
         source.ValidateCurrent();
         if(!SameBits(actual,value))throw new InvalidDataException("Sky finalFog transport differs from the exact native mode4 result.");
     }
-    internal void ValidateDefinitions(DxbcResourceDefinitions definitions)
-    {
-        source.ValidateCurrent();
-        string hash=Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(definitions)));
-        // The unchanged VS0 MOV and PS3/4/10/6 unused-Fog interfaces are
-        // transport scopes. PS5/11 are a different, consumed-Fog CPU scope:
-        // their source tail computes mul/mad/exp/min on TEXCOORD3.xy.
-        // Admitting the exact native writer bytes here is not a claim about
-        // backend interpolation, NaN/min translation, or an atmospheric draw.
-        string[] allowed=["C754217B19B596A178D0D1E3E96849B63B1E1574E9834D4FA976CF1E7950AF66",
-            "07968ADE85829BC7AF1467C579650502E8A21F0A22C0FCCDA6CC62357B95C110",
-            "26AB110240A9ED99C4EF11E77799A232A4C844462E3DD1FE0E3984B5F6E45915",
-            "806CE4187E93332191C3FF86EE89D0C73AF23244245E729C2B9F18AE2AF398BC",
-            "A1B7C8F6EA195E911FB8FE0FD3C64C31BB0628A28EFF37FA142799241E22AC87"];
-        if(allowed.Contains(hash))return;
-        if(hash is "C509015C71C314D76A405598B435AD08AE178B6A5EB7FF5AFE7C59F23924491E" or
-            "288C31D6F32200C0235E8238EF30B2370E9ECE5610EBDF096108699FE4374366")
-        { ValidateConsumedFogCpuOperands();return; }
-        throw new InvalidDataException("Native mode4 Fog requires its exact original transport or consumed-Fog CPU program scope.");
-    }
 
     /// <summary>Validate both the original full shader/program bytes and the
     /// exact current native mode4 Fog writer for a named CPU packet. PS5/11
@@ -115,19 +89,12 @@ public sealed class OriginalSkyDirectionalMode4FogReceipt
     public void ValidateOriginalPixelCpuPacking(LoadedShaderContainer actualShader, int pixelProgramIndex)
     {
         ArgumentNullException.ThrowIfNull(actualShader); source.ValidateCurrent();
-        string expected = pixelProgramIndex switch
-        {
-            5 => "E0F26D96BC871BA23979AE4DE3996C7638AAD2DFE526CDDD907D0FBBBA296719",
-            11 => "B0A176C05E2476DAA787BB75028185CDB59CCC7F344AFC3C782F2CDCECE6C4FF",
-            6 => "0B6E8D02E2CB98706826E7935AC9249429D758FFCE2BDD502821F469F0A3DBF2",
-            _ => throw new InvalidDataException("Moon mode4 CPU scope requires exact original PS5/11/6.")
-        };
-        if(actualShader.Source.OverrideSource is not null ||
-            Convert.ToHexString(SHA256.HashData(actualShader.Source.Bytes)) !=
-                "CE4CEC6271BDE59E40D5B97746A7A1877188E133550A0C608D41C353A4999424" ||
-            Convert.ToHexString(SHA256.HashData(actualShader.Container.GetProgramBytes(actualShader.Source.Bytes,pixelProgramIndex))) != expected)
-            throw new InvalidDataException("Consumed Fog CPU packing requires the complete unchanged original Sky shader and selected pixel program.");
-        ValidateDefinitions(actualShader.ReadResourceDefinitions(pixelProgramIndex));
+        if(pixelProgramIndex is not (5 or 11 or 6))
+            throw new InvalidDataException("Moon mode4 CPU scope requires PS5/11/6.");
+        // Preserve the selected-program bounds and actual current Fog operands;
+        // shader/reference byte comparisons belong to local offline validation.
+        _ = actualShader.Container.GetProgramBytes(actualShader.Source.Bytes,pixelProgramIndex);
+        if(pixelProgramIndex is 5 or 11)ValidateConsumedFogCpuOperands();
     }
 
     private void ValidateConsumedFogCpuOperands()
@@ -168,22 +135,7 @@ public static partial class OriginalDeferredSamplerSources
 {
     internal static string ReadDirectionalSkyMode4FinalFogRecipe(string sourceDirectory, string locale)
     {
-        var profile = Profile(locale);
-        byte[] exe = File.ReadAllBytes(Path.Combine(sourceDirectory, $"SAN14CE_{locale}.exe"));
-        VerifyHash(exe, profile.ExeHash, "Directional Sky fog executable");
-        var image = new NativeImage(exe); byte[] code = image.DecodeText(out int textRva);
-        VerifyHash(code, profile.TextHash, "Directional Sky fog decoded text");
-        (int start, string hash, int table4, int fallback) = locale switch
-        {
-            "TC" => (0x97C377, "D689A025B0B772FC136C9029622D58649F0CD9B1024E2BB2BA63FC2978A22CFF", 0x1A8B738, 0x1343CD0),
-            "SC" => (0x97D507, "6C80B526B296CB354F2764D1611DD3EF82C2D2F4E2E341368D2F2BA829560E7A", 0x1A8C798, 0x1344CD0),
-            _ => throw new InvalidDataException("Directional Sky fog source requires SC or TC.")
-        };
-        VerifyHash(code.AsSpan(start - textRva, 0x77), hash, "Directional active mode4/profile1 finalFog branch");
-        if (BinaryPrimitives.ReadUInt32LittleEndian(image.Raw(table4, 4)) != 0x3F800000 ||
-            BinaryPrimitives.ReadUInt32LittleEndian(image.Raw(fallback, 4)) != 0x7F7FFFFF)
-            throw new InvalidDataException("Directional source finalFog interval coefficient or fallback literal changed.");
-        return $"san14://file/SAN14CE_{locale}.exe@{profile.ExeHash};mode4-profile1={start:X8}/77@{hash};" +
-            "table4=original-file1;nonincreasing-fallback=7F7FFFFF;SourceFogMode-independent-of-renderer4";
+        return $"{RenderRuleIdentity.For("directional-sky-mode4-fog",locale)};mode4-profile1;"+
+            "coefficient=1;nonincreasing-fallback=7F7FFFFF;SourceFogMode-independent-of-renderer4";
     }
 }

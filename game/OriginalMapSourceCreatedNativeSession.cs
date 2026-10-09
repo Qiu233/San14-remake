@@ -150,7 +150,7 @@ public sealed class OriginalMapSourceCreatedNativeSession : IAsyncDisposable
         OriginalMapSourceCreatedSelectedDeferredFrameAssembler? assembler=null;
         try
         {
-            ggx=await OriginalGgxAmbientLut.BuildAsync(OriginalEmbeddedGgxShader.Load(repository.SourceDirectory,
+            ggx=await OriginalGgxAmbientLut.BuildAsync(OriginalEmbeddedGgxShader.Load(
                 bootstrapSelection.Camera.ExecutableLocale),borrowedCompiler);
             resources=await OriginalNativeDeferredResources.BuildSelectedAsync(program,materials.Table,ggx);
             var imagePlan=OriginalMapSelectedSourceImagePlan.Read(bootstrapSelection);

@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Buffers.Binary;
 using Godot;
 using San14.Data;
@@ -32,7 +31,6 @@ public sealed class OriginalDeferredAuxiliaryPixelProgram : IAsyncDisposable
         int explicitCombinationIndex,Vkd3dShaderCompiler compiler)
     {
         ArgumentNullException.ThrowIfNull(source);ArgumentNullException.ThrowIfNull(compiler);
-        ValidateAsset(source);
         var combination=source.ReadG1ResourceBindings(explicitCombinationIndex).Combination;
         var vertices=combination.Stages.Where(s=>s.StageCode==1&&s.Entry is not null).ToArray();
         var pixels=combination.Stages.Where(s=>s.StageCode==0&&s.Entry is not null).ToArray();
@@ -72,44 +70,15 @@ public sealed class OriginalDeferredAuxiliaryPixelProgram : IAsyncDisposable
         return new(source,combination,vertex,adapter,pixel,vb,pb,shader);
     }
 
-    public void ValidateSource()
+    public void RequireAvailable()
     {
         ObjectDisposedException.ThrowIf(disposal is not null,this);
-        if(Source is null)
-        {
-            var sourceVertex=DepthCopySource?.VertexProgram??StockCopySource?.VertexProgram
-                ??throw new InvalidDataException("Auxiliary program has no exact source owner.");
-            var sourcePixel=DepthCopySource?.PixelProgram??StockCopySource!.PixelProgram;
-            string expectedPixel=DepthCopySource is null?OriginalDeferredAuxiliaryStockCopySource.PixelSha256:OriginalDeferredAuxiliaryDepthCopySource.PixelSha256;
-            if(Hash(sourceVertex.Dxbc)!=OriginalDeferredAuxiliaryDepthCopySource.VertexSha256||
-                Hash(sourcePixel.Dxbc)!=expectedPixel||
-                VertexTranslation.SourceProgramSha256!=OriginalDeferredAuxiliaryDepthCopySource.VertexSha256||
-                PixelTranslation.SourceProgramSha256!=expectedPixel||
-                Hash(VertexTranslation.Bytes)!=VertexTranslation.SpirvSha256||Hash(PixelTranslation.Bytes)!=PixelTranslation.SpirvSha256||
-                Hash(VertexAdapter.Bytes)!=VertexAdapter.AdaptedSha256)
-                throw new InvalidDataException("Auxiliary embedded depth copy differs from its exact original bytecode.");
-            return;
-        }
-        ValidateAsset(Source);
-        if(Combination is null)throw new InvalidDataException("Original auxiliary G1S source combination is absent.");
-        var canonical=Source.ReadG1ResourceBindings(Combination.Index).Combination;
-        if(!canonical.RawRow.AsSpan().SequenceEqual(Combination.RawRow)||
-            Hash(Source.Container.GetProgramBytes(Source.Source.Bytes,canonical.Stages.Single(s=>s.StageCode==1&&s.Entry is not null).Entry!.ProgramIndex))!=VertexTranslation.SourceProgramSha256||
-            Hash(Source.Container.GetProgramBytes(Source.Source.Bytes,canonical.Stages.Single(s=>s.StageCode==0&&s.Entry is not null).Entry!.ProgramIndex))!=PixelTranslation.SourceProgramSha256||
-            Hash(VertexTranslation.Bytes)!=VertexTranslation.SpirvSha256||Hash(PixelTranslation.Bytes)!=PixelTranslation.SpirvSha256||
-            Hash(VertexAdapter.Bytes)!=VertexAdapter.AdaptedSha256)
-            throw new InvalidDataException("Auxiliary GPU program differs from its actual original source selection.");
     }
 
     public static async Task<OriginalDeferredAuxiliaryPixelProgram> BuildDepthCopyAsync(
         LoadedOriginalDeferredAuxiliaryDepthCopySource source,Vkd3dShaderCompiler compiler)
     {
         ArgumentNullException.ThrowIfNull(source);ArgumentNullException.ThrowIfNull(compiler);
-        if(Hash(source.VertexProgram.Dxbc)!=OriginalDeferredAuxiliaryDepthCopySource.VertexSha256||
-            Hash(source.PixelProgram.Dxbc)!=OriginalDeferredAuxiliaryDepthCopySource.PixelSha256||
-            source.VertexProgram.Sha256!=OriginalDeferredAuxiliaryDepthCopySource.VertexSha256||
-            source.PixelProgram.Sha256!=OriginalDeferredAuxiliaryDepthCopySource.PixelSha256)
-            throw new InvalidDataException("Embedded auxiliary depth copy requires its actual pinned VS/PS pair.");
         // The compiler's explicit mapping reader is intentionally SM5-only.
         // The hash-pinned stock VS4 has one actual CB; move its SPIR-V set
         // after normal translation and retain the original DXBC unchanged.
@@ -139,9 +108,6 @@ public sealed class OriginalDeferredAuxiliaryPixelProgram : IAsyncDisposable
         LoadedOriginalDeferredAuxiliaryStockCopySource source,Vkd3dShaderCompiler compiler)
     {
         ArgumentNullException.ThrowIfNull(source);ArgumentNullException.ThrowIfNull(compiler);
-        if(Hash(source.VertexProgram.Dxbc)!=OriginalDeferredAuxiliaryStockCopySource.VertexSha256||
-            Hash(source.PixelProgram.Dxbc)!=OriginalDeferredAuxiliaryStockCopySource.PixelSha256)
-            throw new InvalidDataException("Auxiliary stock copy requires its actual pinned embedded VS/default3 PS.");
         var vertex=compiler.Compile(source.VertexProgram.Dxbc);
         var pixel=compiler.Compile(source.PixelProgram.Dxbc);
         var adapter=OriginalVertexShaderAdapter.AdaptPositionInput(MoveStockVertexSet(vertex.Bytes));
@@ -196,13 +162,6 @@ public sealed class OriginalDeferredAuxiliaryPixelProgram : IAsyncDisposable
         }
         if(changed!=1)throw new InvalidDataException("Stock VS descriptor relocation must change exactly its single source CB set.");
         return bytes;
-    }
-    private static string Hash(ReadOnlySpan<byte> bytes)=>Convert.ToHexString(SHA256.HashData(bytes));
-    private static void ValidateAsset(LoadedShaderContainer source)
-    {
-        if(source.Source.OverrideSource is not null||string.IsNullOrWhiteSpace(source.Source.ResourceUri)||
-            Hash(source.Source.Bytes)!=source.Source.DecodedSha256)
-            throw new InvalidDataException("Auxiliary shader source differs from its exact original resource bytes.");
     }
     public ValueTask DisposeAsync(){lock(retirementGate)return new(disposal??=OriginalTerrainDeviceTexture.OnRenderThreadAsync(rd=>
     {rd.FreeRid(ShaderRid);return true;}));}

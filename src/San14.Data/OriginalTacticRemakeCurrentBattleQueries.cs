@@ -132,7 +132,7 @@ public sealed class OriginalTacticRemakeCurrentBattleQueries :
         if (context.ArmyValid(state, army) != true || state.NativeArmySimulation?.Parameters is not { } parameters ||
             state.Officers.GetValueOrDefault(army.OfficerId)?.NativeAbilityRuntime is not { } commander ||
             commander.Revision != OriginalTacticRemakeCurrentAbilities.ProfileId ||
-            commander.Language != parameters.Language || commander.ExecutableSha256 != parameters.ExecutableSha256 ||
+            commander.Language != parameters.Language || commander.RuleVersion != parameters.RuleVersion ||
             definitions.StaticSource is not { } source || commander.SourceScenarioUri != source.ResourceUri ||
             commander.SourceScenarioSha256 != source.Sha256 || definitions.ReadPersonIdentity(commander.PhysicalSlot) != army.OfficerId) return null;
         return commander;

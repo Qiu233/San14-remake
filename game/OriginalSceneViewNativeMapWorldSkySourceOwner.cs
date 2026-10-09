@@ -57,7 +57,7 @@ public sealed class OriginalSceneViewNativeMapWorldSkySourceOwner : IAsyncDispos
         var stages = OriginalSkyAppliedSourceStageOwner.CreateFresh(repo, locale, identity,
             source.AcceptedLighting.Binding.CameraOwnerIdentity);
         var firstStages = stages.PrepareCurrent(bootstrap.Present, source.AcceptedLighting);
-        var raster = OriginalSkyFirstGraphicsPrefixSource.ReadFresh(repo, locale,
+        var raster = OriginalSkyFirstGraphicsPrefixSource.ReadFresh(locale,
             identity + "/bootstrap-pipeline-plan", source.AcceptedLighting.Binding.ViewIdentity)
             .PrepareFirstPrefix(new(bootstrap.First.FrameNumber, source.AcceptedLighting.Binding.ViewIdentity,
                 true, "original fresh frontend pipeline plan; no WORK submission or Host acknowledgement"));
@@ -71,9 +71,6 @@ public sealed class OriginalSceneViewNativeMapWorldSkySourceOwner : IAsyncDispos
                 source, firstStages, raster.ColorWriteMask, identity, clock, optional.BuildAsync, allowReadback);
             var native = OriginalSkyDirectionalAtmosphereNativeSource.Load(repo, locale, OriginalNativeLogDispatch.Sse);
             var shader = repo.LoadShaderContainer("system", 0x340AC335);
-            if (lighting.RetainedNormalization is { } normalization)
-                ValidateSkyConsumers(normalization, normalization.CreateCurrentReceipt(source.AcceptedLighting),
-                    source, device.InitialSourceFrame, native, shader, device.DesiredSelectionReceipt);
             if (configureBeforeStartup is not null) await configureBeforeStartup(device);
             await device.PrepareInitialGeneratedTargetsAsync(source, firstStages, device.InitialSourceFrame,
                 optional.RequireInitialProducerFrame().Producers);
@@ -173,13 +170,6 @@ public sealed class OriginalSceneViewNativeMapWorldSkySourceOwner : IAsyncDispos
         var currentStages = stages.PrepareCurrent(world.Present, source.AcceptedLighting);
         var sourceFrame = Device.PrepareCurrentSourceFrame(source, currentStages);
         Mark("current-source-preparation");
-        if (lighting.RetainedNormalization is { } normalization)
-        {
-            if (consumer is null) throw new InvalidDataException("World Sky needs its actual normalized consumer receipt.");
-            ValidateSkyConsumers(normalization, consumer, source, sourceFrame, atmosphere, shader,
-                Device.DesiredSelectionReceipt);
-        }
-        Mark("current-consumer-validation");
         var actualHistory = history ?? throw new InvalidDataException("World Sky needs this Host's actual final graphics history.");
         prefix = actualHistory.PrepareCurrentSkyPrefix(frame.Context, frame.Lighting.Binding.ViewIdentity,
             "actual World Directional WORK before model/Terrain/Aux; complete final history");
@@ -195,31 +185,6 @@ public sealed class OriginalSceneViewNativeMapWorldSkySourceOwner : IAsyncDispos
         Mark("current-device-submission");
         completed = frame.Context;
         LastCurrentTimings=timings.AsReadOnly();
-    }
-
-    private static void ValidateSkyConsumers(OriginalDirectionalLightRetainedNormalization normalization,
-        OriginalDirectionalLightRetainedConsumerReceipt receipt, OriginalSkyDirectionalSelectedLightSource source,
-        OriginalSkySceneSourceFramePacket frame, LoadedOriginalSkyDirectionalAtmosphereNativeSource native,
-        LoadedShaderContainer shader, OriginalSkyDirectionalDesiredSelectionReceipt selection)
-    {
-        var draws = OriginalSkySceneFramePreparation.PrepareFreshDirectionalFullyWritten(frame.SourceFrame, source);
-        selection.ValidateCurrent(source);selection.ValidateAppliedFrame(frame);
-        selection.ValidateSelectedMoonProgramScope();
-        foreach (bool atmospherePass in new[] { true, false })
-        {
-            int pixel=selection.GetSelection(atmospherePass).Combination.Stages
-                .Single(stage=>stage.StageCode==0&&stage.Entry is not null).Entry!.ProgramIndex;
-            int vertexProgram=selection.GetSelection(atmospherePass).Combination.Stages
-                .Single(stage=>stage.StageCode==1&&stage.Entry is not null).Entry!.ProgramIndex;
-            var definitions=shader.ReadResourceDefinitions(pixel);
-            var vertexDefinitions=shader.ReadResourceDefinitions(vertexProgram);
-            foreach (var draw in draws.DrawPackets)
-            {
-                var vertex = OriginalSky2Constants.Vertex(vertexDefinitions, new byte[vertexDefinitions.Buffers.Single().ByteSize], draw.Vertex);
-                var fragment = OriginalSky2Constants.Pixel(definitions, new byte[definitions.Buffers.Single().ByteSize], draw.Pixel);
-                normalization.ValidateSkyNamed(receipt, source, native, draw, frame, selection, pixel, vertex.Bytes, fragment.Bytes);
-            }
-        }
     }
 
     public OriginalSkyDirectionalAmbientDeviceBinding SelectCurrentAmbient(

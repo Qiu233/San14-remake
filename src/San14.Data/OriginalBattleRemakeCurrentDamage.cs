@@ -54,7 +54,7 @@ public sealed class OriginalBattleRemakeCurrentDamage
         source = imageSource ?? throw new ArgumentNullException(nameof(imageSource));
         queries = currentQueries ?? throw new ArgumentNullException(nameof(currentQueries));
         if (!imageSource.IsImageInitial || string.IsNullOrWhiteSpace(revision) || imageSource.Fields.Count != 12 ||
-            imageSource.Source.Sha256 != OriginalBattleUnitSourceCodeSources.ForLanguage(imageSource.Language).ExecutableSha256)
+            imageSource.Source.RuleVersion != OriginalBattleUnitSourceCodeSources.ForLanguage(imageSource.Language).RuleVersion)
             throw new InvalidDataException("Current ordinary damage needs the paired immutable source profile and a revision.");
         Revision = revision;
     }
@@ -103,7 +103,7 @@ public sealed class OriginalBattleRemakeCurrentDamage
     public OriginalBattleDamageSourceParameters? CurrentParameters(GameState state)
     {
         if (state.NativeArmySimulation?.Parameters is not { } parameters || parameters.Language != source.Language ||
-            parameters.ExecutableSha256 != source.Source.Sha256 || string.IsNullOrWhiteSpace(parameters.Revision)) return null;
+            parameters.RuleVersion != source.Source.RuleVersion || string.IsNullOrWhiteSpace(parameters.Revision)) return null;
         var current = new int[12];
         for (int index = 0; index < current.Length; index++)
         {
@@ -116,11 +116,11 @@ public sealed class OriginalBattleRemakeCurrentDamage
 
     private bool Bound(GameState state, UnitState caster, UnitState target) =>
         state.NativeClock is not null && state.NativeArmySimulation?.Parameters is { } parameters &&
-        parameters.Language == source.Language && parameters.ExecutableSha256 == source.Source.Sha256 &&
+        parameters.Language == source.Language && parameters.RuleVersion == source.Source.RuleVersion &&
         state.Units.GetValueOrDefault(caster.Id) == caster && state.Units.GetValueOrDefault(target.Id) == target &&
         caster.NativeArmyOrigin is { } a && target.NativeArmyOrigin is { } b &&
-        a.Language == source.Language && b.Language == source.Language && a.ExecutableSha256 == source.Source.Sha256 &&
-        b.ExecutableSha256 == source.Source.Sha256 && a.NativeSlotIndex is >= 1 and <= 500 && b.NativeSlotIndex is >= 1 and <= 500 &&
+        a.Language == source.Language && b.Language == source.Language && a.RuleVersion == source.Source.RuleVersion &&
+        b.RuleVersion == source.Source.RuleVersion && a.NativeSlotIndex is >= 1 and <= 500 && b.NativeSlotIndex is >= 1 and <= 500 &&
         caster.NativeTacticRuntime is not null && target.NativeTacticRuntime is not null &&
         caster.Troops is >= 0 and <= ushort.MaxValue && target.Troops is >= 0 and <= ushort.MaxValue;
 }

@@ -1,7 +1,6 @@
 using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 
 namespace San14.Data;
 
@@ -162,10 +161,7 @@ public static class OriginalArmyFlagPoolPublication
         var native = OriginalArmyInstancePoseCodeSources.FlagRecordIndices;
         byte[] raw = new byte[native.Count * 4];
         for (int i = 0; i < native.Count; i++) BinaryPrimitives.WriteInt32LittleEndian(raw.AsSpan(i * 4), native[i]);
-        var source = OriginalArmyInstancePoseCodeSources.FlagDataWindows.Single(w => w.Name == "FlagRecordIndices");
-        if (raw.Length != source.Bytes || Convert.ToHexString(SHA256.HashData(raw)) != source.Sha256)
-            throw Error("pinned default record-index source bytes differ from their paired data contract");
-        return new(raw, "pinned SC/TC three-entry native flag table; flag-contract.json");
+        return new(raw, "project Army flag record-index rules; " + OriginalArmyInstancePoseCodeSources.Sc.RuleVersion);
     }
 
     private static void ValidateRecord(OriginalArmyInstancePoseRecord record, int index)

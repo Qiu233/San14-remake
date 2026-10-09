@@ -1,74 +1,62 @@
-using System.Buffers.Binary;
-using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 
 namespace San14.Data;
 
-/// <summary>The original positive finite SSE pow kernel's literal and table
-/// storage. The original executable is read as data; no native code executes.</summary>
+/// <summary>Project-owned scalar power rules and mathematical anchor tables.</summary>
 public sealed class OriginalSkyWeatherNativePowerSource
 {
-    private readonly double[] reciprocal, logarithms, exponentials, constants;
-    internal OriginalSkyWeatherNativePowerSource(string locale,string provenance,
-        double[] reciprocal,double[] logarithms,double[] exponentials,double[] constants)
-    {Locale=locale;SourceProvenance=provenance;this.reciprocal=reciprocal;
-        this.logarithms=logarithms;this.exponentials=exponentials;this.constants=constants;}
-    public string Locale {get;}
-    public string SourceProvenance {get;}
-    internal double Reciprocal(int i)=>reciprocal[i];
-    internal double Logarithm(int i)=>logarithms[i];
-    internal double Exponential(int i)=>exponentials[i];
-    internal double Constant(int i)=>constants[i];
+    private static readonly OriginalSkyWeatherNativePowerSource simplified = new("SC");
+    private static readonly OriginalSkyWeatherNativePowerSource traditional = new("TC");
+    private OriginalSkyWeatherNativePowerSource(string locale) => Locale = locale;
+    public string Locale { get; }
+    public string RuleVersion => "binary64-sse-power-256-log-64-exp-v1";
+    public string SourceProvenance => "san14-remake:" + RuleVersion + ";finite-nonnegative-binary32-input";
+    internal double Reciprocal(int index) => 512d / (256 + index);
+    internal double Logarithm(int index) => OriginalSkyWeatherPowerTables.Logarithm(index);
+    internal double Exponential(int index) => OriginalSkyWeatherPowerTables.Exponential(index);
+    internal double Constant(int index) => OriginalSkyWeatherNativePower.Constant(index);
 
-    public static OriginalSkyWeatherNativePowerSource Load(OriginalGameRepository repository,string locale)
+    public static OriginalSkyWeatherNativePowerSource Create(string locale) => locale switch
+    {
+        "SC" => simplified,
+        "TC" => traditional,
+        _ => throw new ArgumentOutOfRangeException(nameof(locale), locale, "Power parameter language must be SC or TC.")
+    };
+    public static OriginalSkyWeatherNativePowerSource Load(OriginalGameRepository repository, string locale)
     {
         ArgumentNullException.ThrowIfNull(repository);
-        (string expected,int shift)=locale switch{
-            "TC"=>("0751B4FED7A5783371B9541674C0587A6AFD3140E60E706E32EAF35A9432F464",0),
-            "SC"=>("CEEE6A94EB939B40C329B8EC5AECD938E9D3A51A6663E8E7D27A1498627AFB88",0xC60),
-            _=>throw new ArgumentOutOfRangeException(nameof(locale))};
-        string path=Path.Combine(repository.SourceDirectory,$"SAN14CE_{locale}.exe");
-        byte[] exe=File.ReadAllBytes(path);
-        if(Convert.ToHexString(SHA256.HashData(exe))!=expected)
-            throw new InvalidDataException("Sky weather native power requires its pinned original executable revision.");
-        using var pe=new PEReader(new MemoryStream(exe,false));
-        if(pe.PEHeaders.PEHeader?.Magic!=PEMagic.PE32Plus||
-            pe.PEHeaders.CoffHeader.Machine!=Machine.Amd64)
-            throw new InvalidDataException("Sky weather power requires original AMD64 PE32+ data.");
-        var proofs=new List<string>();
-        double[] Read(int rva,int count,string role)
-        {
-            int length=checked(count*8);rva+=shift;
-            var section=pe.PEHeaders.SectionHeaders.Single(s=>s.Name==".rdata"&&
-                rva>=s.VirtualAddress&&(long)rva+length<=(long)s.VirtualAddress+s.SizeOfRawData);
-            var bytes=exe.AsSpan(section.PointerToRawData+rva-section.VirtualAddress,length);
-            var result=new double[count];
-            for(int i=0;i<count;i++)result[i]=BinaryPrimitives.ReadDoubleLittleEndian(bytes.Slice(i*8,8));
-            if(result.Any(x=>!double.IsFinite(x)))throw new InvalidDataException("Native power literal/table contains nonfinite data.");
-            proofs.Add($"{role}={rva:X}/{length}@{Convert.ToHexString(SHA256.HashData(bytes))}");
-            return result;
-        }
-        var reciprocal=Read(0x1729A30,257,"reciprocal");
-        var logarithms=Read(0x1724330,257,"logarithm");
-        var exponentials=Read(0x1729830,64,"exponential");
-        var constants=new[]{Read(0x1724264,1,"third")[0],Read(0x172426C,1,"ln2")[0],
-            Read(0x1724274,1,"upper")[0],Read(0x172427C,1,"lower")[0],
-            Read(0x1724284,1,"ln2-over64")[0],Read(0x172428C,1,"sixth")[0],
-            Read(0x17242F0,1,"64-over-ln2")[0],Read(0x17242C0,2,"near-cubic")[0],
-            Read(0x17242C0,2,"near-cubic")[1],Read(0x17242D0,2,"near-linear")[0],
-            Read(0x17242D0,2,"near-linear")[1]};
-        return new(locale,$"san14://file/SAN14CE_{locale}.exe@{expected};"+
-            "original-SSE-pow-positive-finite;"+string.Join(";",proofs),
-            reciprocal,logarithms,exponentials,constants);
+        return Create(locale);
     }
 }
 
-/// <summary>Scalar port of actual SSE pow. Each original binary64 arithmetic
-/// operation rounds independently. AVX/FMA, NaN, negative bases and native
-/// overflow/underflow reporting require their own source branches.</summary>
+/// <summary>Scalar SSE power with independently rounded binary64 operations.
+/// AVX/FMA, NaN, negative bases and overflow/underflow reporting are separate branches.</summary>
 public static class OriginalSkyWeatherNativePower
 {
+    private const double Third = 1d / 3, Sixth = 1d / 6;
+    private const double Ln2 = 0.6931471805599453d;
+    private const double UpperLogLimit = 88.72283935546875d, LowerLogLimit = -103.2789306640625d;
+    private const double Ln2Over64 = 0.010830424696249145d, SixtyFourOverLn2 = 92.33248261689366d;
+    private const double NearCubicA = 0.012500000003771751d, NearCubicB = 0.00043488777770761457d;
+    private const double NearLinearA = 0.083333333333331788d, NearLinearB = 0.0022321399879194482d;
+
+    // The Native power input packet uses this coefficient order.
+    internal static double Constant(int index) => index switch
+    {
+        0 => Third,
+        1 => Ln2,
+        2 => UpperLogLimit,
+        3 => LowerLogLimit,
+        4 => Ln2Over64,
+        5 => Sixth,
+        6 => SixtyFourOverLn2,
+        7 => NearCubicA,
+        8 => NearCubicB,
+        9 => NearLinearA,
+        10 => NearLinearB,
+        _ => throw new ArgumentOutOfRangeException(nameof(index))
+    };
+
     public static float PowSse(float value,float exponent,OriginalSkyWeatherNativePowerSource source)
     {
         ArgumentNullException.ThrowIfNull(source);
@@ -84,14 +72,14 @@ public static class OriginalSkyWeatherNativePower
         }
         double x=value,log;
         double t=S(x,1);
-        // 101EE15: the near-one threshold is double binary64 .0625.
+        // The near-one threshold is binary64 1/16.
         if(value<1.0625f&&Math.Abs(t)<.0625)
         {
             double ratio=D(t,A(t,2)),product=M(ratio,t);
             ratio=A(ratio,ratio);
             double square=M(ratio,ratio),cube=M(ratio,square),fifth=M(M(square,square),cube);
-            double p=M(square,source.Constant(7)),q=M(square,source.Constant(8));
-            p=A(p,source.Constant(9));q=A(q,source.Constant(10));
+            double p=M(square,NearCubicA),q=M(square,NearCubicB);
+            p=A(p,NearLinearA);q=A(q,NearLinearB);
             double correction=A(M(cube,p),M(fifth,q));
             correction=S(correction,product);log=A(t,correction);
         }
@@ -103,18 +91,18 @@ public static class OriginalSkyWeatherNativePower
             double normalized=BitConverter.UInt64BitsToDouble(mantissa|0x3FE0000000000000ul);
             double center=BitConverter.UInt64BitsToDouble(((ulong)i|0x3FE00ul)<<44);
             double r=M(S(center,normalized),source.Reciprocal(i));
-            double poly=M(r,source.Constant(0));poly=A(poly,.5);
+            double poly=M(r,Third);poly=A(poly,.5);
             poly=M(M(r,r),poly);poly=A(poly,r);
             int e=(int)(bits>>52)-1023;
-            log=S(A(M(e,source.Constant(1)),source.Logarithm(i)),poly);
+            log=S(A(M(e,Ln2),source.Logarithm(i)),poly);
         }
         double y=M(exponent,log);
-        if(y>source.Constant(2)||y<=source.Constant(3))
+        if(y>UpperLogLimit||y<=LowerLogLimit)
             throw new NotSupportedException("Sky weather power reaches its separately unported overflow/underflow branch.");
-        double scaled=M(y,source.Constant(6));
+        double scaled=M(y,SixtyFourOverLn2);
         int n=checked((int)Math.Round(scaled,MidpointRounding.ToEven));
-        double remainder=S(y,M(n,source.Constant(4)));
-        double ep=M(remainder,source.Constant(5));ep=A(ep,.5);
+        double remainder=S(y,M(n,Ln2Over64));
+        double ep=M(remainder,Sixth);ep=A(ep,.5);
         ep=M(M(remainder,remainder),ep);ep=A(ep,remainder);
         double centerExp=source.Exponential(n&63);
         double result=A(M(ep,centerExp),centerExp);

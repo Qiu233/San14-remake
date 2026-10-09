@@ -2,7 +2,7 @@ namespace San14.Core;
 
 /// <summary>Proof of a source construction performed for this game's own Army.
 /// It does not identify a record in an original running process.</summary>
-public sealed record NativeArmyOrigin(string Revision, string Language, string ExecutableSha256)
+public sealed record NativeArmyOrigin(string Revision, string Language, string RuleVersion)
 {
     public int? NativeSlotIndex { get; init; }
 }
@@ -132,7 +132,7 @@ public static class PlayableArmyCreation
             throw new InvalidDataException("Current native Army position Hex is outside the source map.");
         if (army.NativeArmyOrigin is not { } origin) return;
         if (string.IsNullOrWhiteSpace(origin.Revision) || origin.Language is not ("SC" or "TC") ||
-            origin.ExecutableSha256 is not { Length: 64 } hash || !hash.All(Uri.IsHexDigit) ||
+            string.IsNullOrWhiteSpace(origin.RuleVersion) ||
             origin.NativeSlotIndex is null or < 1 or > 500 ||
             state.NativeClock is null || army.NativeTacticRuntime is null || army.NativeArmyConfiguration is null ||
             army.WoundedTroops is null || army.FormationId is null ||

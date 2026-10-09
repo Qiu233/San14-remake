@@ -64,7 +64,7 @@ internal partial class OriginalD3D11ArmyMapLabels : Control
         _repository = repository; _assets = assets; _font = font; _queries = queries;
         _colors = colors; _palettes = palettes; _bars = bars; _barPanel = barPanel;
         _source = OriginalArmyMapMarkerSources.Load(repository);
-        _ui = OriginalArmyMapUiSources.LoadCurrentTc(repository);
+        _ui = OriginalArmyMapUiSources.Create();
         _currentSource = new(scenario, repository.LoadTerrainTypes(scenario.FixedDataPath));
         _geometry = _source.NormalRestGeometry();
         _groupGeometry = _source.GroupRestGeometry();

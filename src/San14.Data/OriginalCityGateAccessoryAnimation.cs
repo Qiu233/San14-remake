@@ -63,7 +63,7 @@ public sealed class LoadedOriginalCityGateAccessoryAnimation
         var root=OriginalUnitWorldTransform.ConstructDefinition(catalog.Catalog,definition.Definition);
         root=root with {Quaternion24=OriginalCityGateAccessoryJointOffsets.NormalizeFactoryQuaternion(root.Quaternion24)};
         OriginalArmyAnimationHierarchySources.ReadJointRuns(model.Transforms);
-        uint[] fps=ReadFpsTable(repo.SourceDirectory);
+        uint[] fps=OriginalD3D11TimingInputPreparation.CreateFpsModeTable();
         float duration=D(clip.Clip.FrameCount,clip.Clip.FrameRate);
         duration=A(duration,end);if(duration<1.1920929e-05f)duration=1.1920929e-05f;
         return new(model,action,new(action.Setting.ObjectId,obj.ObjectId,actualActionId,clip.Source.FileId,
@@ -81,8 +81,6 @@ public sealed class LoadedOriginalCityGateAccessoryAnimation
         Func<OriginalUnitWorldTransformState,OriginalUnitWorldTransformState> actualUnitPosePublisher)
         => new(this,actualUnitPosePublisher(DefinitionRoot));
 
-    static uint[] ReadFpsTable(string sourceDirectory)
-        => OriginalD3D11TimingInputPreparation.ReadTcFpsTable(sourceDirectory);
     static float F(DokObject o,uint key)=>BinaryPrimitives.ReadSingleLittleEndian(o.Properties.Single(p=>p.NameHash==key).RawValue);
     static int I(DokObject o,uint key)=>BinaryPrimitives.ReadInt32LittleEndian(o.Properties.Single(p=>p.NameHash==key).RawValue);
     [MethodImpl(MethodImplOptions.NoInlining)] internal static float A(float a,float b)=>a+b;

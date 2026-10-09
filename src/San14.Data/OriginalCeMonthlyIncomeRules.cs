@@ -128,7 +128,7 @@ public sealed class OriginalCeMonthlyIncomeRules : IPlayableMonthlyIncomeQuoteRu
     private MonthlyIncomeQuote Result(PeriodEconomyCalculationStatus status, string[] missing,
         MonthlyIncomeAreaReceipt[] receipts, int month) => new(status,
             OriginalCeAreaIncomeMath.FormulaId, missing, receipts)
-        { SourceExecutableSha256 = _rates.SourceExecutableSha256, SettlementMonth = month };
+        { RuleVersion = _rates.RuleVersion, SettlementMonth = month };
 
     private (MonthlyIncomeAreaReceipt Receipt, int Gold, int Supplies) QuoteArea(GameState state,
         CityState city, AreaState area, int month, int goldPercent, int suppliesPercent)

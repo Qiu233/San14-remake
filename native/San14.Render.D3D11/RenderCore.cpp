@@ -18,6 +18,7 @@
 #include <chrono>
 #include <stdexcept>
 #include "ArmyUnitHeight.h"
+#include "MainCameraInitialNumeric.h"
 using Microsoft::WRL::ComPtr;
 namespace fs = std::filesystem;
 static void check(HRESULT h, const char* what) {
@@ -270,6 +271,9 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     constexpr UINT64 maximumRequests=0;
     constexpr bool oceanFftContinuation=true,fullMainContinuation=true,wantsContinuation=true;
     constexpr bool oceanEffects=true,oceanNormal=true,oceanLighting=true,oceanEnabled=true,sourceHdr=true;
+    // The product has no live particle owner yet. The saved particle cohort
+    // belongs to the offline renderer experiment, not campaign state.
+    constexpr bool observedParticleExperiment=false;
     constexpr bool saveImage=false,fullMode=false;
 #else
 int main(int argc,char**argv) try {
@@ -309,6 +313,7 @@ int main(int argc,char**argv) try {
     bool fullMainContinuation=argc>=7&&(std::string(argv[6])=="ocean-continuous"||oceanFftContinuation||sourceStaticModels);
     bool wantsContinuation=historyContinuation||fullMainContinuation;
     bool oceanEffects=argc>=7&&(std::string(argv[6])=="ocean-effects"||wantsContinuation);
+    const bool observedParticleExperiment=oceanEffects;
     bool oceanNormal=argc>=7&&(std::string(argv[6])=="ocean-normal"||oceanEffects);
     bool oceanLighting=argc>=7&&(std::string(argv[6])=="ocean-lighting"||oceanNormal);
     bool oceanEnabled=oceanGbuffer||oceanLighting;
@@ -437,7 +442,6 @@ int main(int argc,char**argv) try {
     }
     NativeEffectInputs effects;NativeFogAcceleration fogAcceleration;NativeSpecialEffects specialEffects;
     NativeMapExposure mapExposure;
-    std::array<uint8_t,0x10C0> selectedExposureLight{};
     NormalPostSurface retainedNormalExposure;
     UINT64 mapExposurePublicationDraws=0,mapExposureHalfDraws=0;
     std::vector<ComPtr<ID3D11Texture2D>> mapExposureBeforeMainReceipts,mapExposureAfterApplyReceipts;
@@ -593,20 +597,15 @@ int main(int argc,char**argv) try {
             auto result=source_camera::qualifyTerrainPitch(cameraGround,{band,candidate,minimum,maximum,requested});pitch=result.pitch;return result.accepted;
         };
         cameraClock=prepareNativeCameraClock();
-        // Current experiment holds the source-created prepared Main tail while
-        // publishing the ordinary camera/weather prefix normally each request.
-        currentMain18C0=load(input.parent_path()/"map-camera-input"/"source-default"/"water-main"/"main-current-prepared-numeric-18C0.bin");
-        if(currentMain18C0.size()!=0x18c0)throw std::runtime_error("Source prepared Main tail extent differs");
+        // Initialize only this renderer's consumed fields from project rules
+        // and the current resource declarations; season publishes live fields.
+        currentMain18C0=own_main_init::decode(load(input.parent_path()/"main-camera-initial-input"/"profile.bin"));
         heldMainB1C=source_camera::get<float>(reinterpret_cast<const uint8_t*>(currentMain18C0.data())+0xb1c);
         territoryControls.providerFlags=1; // Actual original node60 graph flag.
         territoryZoneProfile=source_zone::load(input.parent_path()/"territory-zone-source-input");
         // The source map reaches a settled display via its first-dirty updater.
         // Prepare the held World once; accepted camera requests reuse this owner.
         territoryZoneInitialUpdates=source_zone::updateUntilSettled(territoryZoneProfile,territoryZoneOwner,territoryZoneCurrent);
-        // Actual unmodified selected1B20 baseline; not the later F103/H copy.
-        const auto exposureLight=load(input.parent_path()/"selected-exposure-source-input"/"initial"/"selected-baseline10C0.bin");
-        if(exposureLight.size()!=selectedExposureLight.size())throw std::runtime_error("Selected Exposure baseline requires the complete source10C0");
-        std::memcpy(selectedExposureLight.data(),exposureLight.data(),exposureLight.size());
         staticCatalog=prepareNativeModelContinuous(modelSource);
         cityModels=prepareNativeCityPopulation(device.Get(),currentPrimaryInput);
 #ifdef SAN14_RENDER_SESSION
@@ -724,10 +723,6 @@ int main(int argc,char**argv) try {
         diffuseView.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;
         diffuseView.Texture2D.MipLevels=1;
         check(device->CreateShaderResourceView(diffuse.Get(),&diffuseView,&directionalDiffuse),"Normal source K1890 white80F9 owner");
-        const auto initialCamera=source_camera::prepareCurrent(staticCameraProfile,staticCameraRuntime);
-        const auto importedCamera=load(input/"camera-prefix.bin");
-        if(importedCamera.size()!=initialCamera.prefix.size()||std::memcmp(importedCamera.data(),initialCamera.prefix.data(),importedCamera.size())!=0)
-            throw std::runtime_error("Source static Model scope needs the same imported Main camera");
     }
     auto requestSourceCamera=[&](double deltaX,double deltaZ,bool reset,double distance=-1.) {
         const auto& pose=reset?staticCameraProfile.initial:staticCameraRuntime.pose;
@@ -1179,7 +1174,11 @@ int main(int argc,char**argv) try {
             ComPtr<ID3D11RasterizerState> priorRaster;context->RSGetState(&priorRaster);
             source_map_exposure::Selection exposureSelection;
             exposureSelection.applyReferencePresent=true; // This normal pipeline owns the Apply/Exposure module.
-            exposureSelection.selectedLightData10C0=selectedExposureLight.data();
+            source_map_exposure::SelectedLight exposureLight;
+            if(currentSeason&&currentSeason->exposure.present){
+                exposureLight={currentSeason->exposure.type,currentSeason->exposure.flags,currentSeason->exposure.rgb};
+                exposureSelection.selectedLight=&exposureLight;
+            }
             if(currentSeason)mapExposure.profile.cameraSpecial1510=source_camera::get<uint32_t>(
                 reinterpret_cast<const uint8_t*>(currentMain18C0.data())+0x1510);
             const auto packet=executeNativeMapExposure(context.Get(),mapExposure,mainDirectPrefix,exposureSelection);
@@ -1200,7 +1199,9 @@ int main(int argc,char**argv) try {
         if(oceanLighting) {
             float currentPlanet=0;
             if(currentSeason) {
-                if(!currentCloudWeather)currentCloudWeather=readNativeCurrentCloudWeather(
+                if(!currentCloudWeather || std::none_of(currentCloudWeather->profiles.seasons.begin(),
+                    currentCloudWeather->profiles.seasons.end(),[&](const auto& profile){return profile.season==currentSeason->season;}))
+                    currentCloudWeather=readNativeCurrentCloudWeather(
                     input.parent_path()/"current-cloud-weather-input");
                 const auto weather=publishNativeCurrentCloudWeatherBeforeClock(*currentCloudWeather,*currentSeason,mainCloud,environmentCloud);
                 currentPlanet=weather.input[0x228/4];
@@ -1261,14 +1262,18 @@ int main(int argc,char**argv) try {
         } else ambient=produceAmbientCube(device.Get(),context.Get(),input.parent_path()/"ambient-input",output);
         context->ClearState(); // Bootstrap ends before any Main entry; not a per-request operation.
         if(oceanEffects) {
-            effects=loadNativeEffectInputs(device.Get(),input.parent_path()/"effect-consumer-input"/"source-main");
-            if(sourceStaticModels){
-                effectCamera=prepareNativeEffectCameraContinuous(device.Get(),input.parent_path()/"effect-camera-continuous-input",effects);
-                fieldEffects.emplace(farMainProfile,effectCamera.profile,
-                    source_field_effect::loadProfile(input.parent_path()/"effect-field-admission-input/profile.bin"));
+            if(observedParticleExperiment) {
+                effects=loadNativeEffectInputs(device.Get(),input.parent_path()/"effect-consumer-input"/"source-main");
+                if(sourceStaticModels){
+                    effectCamera=prepareNativeEffectCameraContinuous(device.Get(),input.parent_path()/"effect-camera-continuous-input",effects);
+                    fieldEffects.emplace(farMainProfile,effectCamera.profile,
+                        source_field_effect::loadProfile(input.parent_path()/"effect-field-admission-input/profile.bin"));
+                }
             }
-            specialEffects=loadNativeSpecialEffects(input.parent_path()/"effect-consumer-input"/"specialized141-147");
-            if(specialEffects.hostFlags!=sourceHostFlags3E4)throw std::runtime_error("D33 and Main entry use different original Host fields");
+            if(observedParticleExperiment) {
+                specialEffects=loadNativeSpecialEffects(input.parent_path()/"effect-consumer-input"/"specialized141-147");
+                if(specialEffects.hostFlags!=sourceHostFlags3E4)throw std::runtime_error("D33 and Main entry use different original Host fields");
+            } else specialEffects=createNativeSpecialEffectsWithoutParticleOwner(sourceHostFlags3E4);
             fogAcceleration=prepareNativeFogAcceleration(device.Get(),input.parent_path()/"fog-accel-input");
             if(sourceStaticModels)fogCamera=prepareNativeFogAccelerationCamera(device.Get(),input.parent_path()/"fog-accel-input",fogAcceleration);
         }
@@ -2012,14 +2017,14 @@ int main(int argc,char**argv) try {
                     drawCurrentPrimaryForward(); //184..187, before Effects188 and mirror191.
                     //188 reads160.189's independent View1 remains outside this
                     //cohort; do not duplicate View0's population into it.
-                    if(oceanEffects) {
+                    if(observedParticleExperiment) {
                         if(sourceStaticModels)prepareCurrentEffects();
                         std::cout<<"source D32 Effect188 sections="<<((specialEffects.queueFlags&0x40)?"head-only":"tail/head/extra")
                             <<" current packet=head148/tail0/extra0 Q="<<std::hex<<specialEffects.queueFlags<<std::dec<<'\n';
                         drawNativeEffects188(device.Get(),context.Get(),sourceDepth,effects,mainDepth.depth.Get(),fogAcceleration.view.Get());
                         traceNativeDepthState(context.Get(),"188 Effect exit");
                     }
-                    updateNativeDepthMirror(context.Get(),mainDepth,oceanEffects?"191 after Effects188":"191 before normal post; Effects pending");
+                    updateNativeDepthMirror(context.Get(),mainDepth,observedParticleExperiment?"191 after Effects188":"191 before normal post; particle owner pending");
                     if(sourceStaticModels)groundDetails.finishRenderNode();
                     callerTargets.restore(context.Get());
                     D3D11_SHADER_RESOURCE_VIEW_DESC sv{};sv.Format=lightingShaderFormat;sv.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;sv.Texture2D.MipLevels=1;
@@ -2243,9 +2248,12 @@ int main(int argc,char**argv) try {
         executeSourceHdrPasses(device.Get(),context.Get(),sourceDepth,hdr166,mainDepth.depth.Get(),dsv.Get(),ambient.Get(),refractionDepth.view.Get(),refractionColors.scene97.view.Get(),refractionColors.specular.view.Get(),refractionColors.blurredDepth.view.Get(),
             currentClock,currentView.flags19AC,currentView.ocean19B0);
         drawCurrentPrimaryForward();
-        if(sourceStaticModels)prepareCurrentEffects();
-        mainTargets.restore(context.Get());drawNativeEffects188(device.Get(),context.Get(),sourceDepth,effects,mainDepth.depth.Get(),fogAcceleration.view.Get());
-        updateNativeDepthMirror(context.Get(),mainDepth,"191 new Main Effects");callerTargets.restore(context.Get());
+        if(observedParticleExperiment) {
+            if(sourceStaticModels)prepareCurrentEffects();
+        }
+        mainTargets.restore(context.Get());
+        if(observedParticleExperiment)drawNativeEffects188(device.Get(),context.Get(),sourceDepth,effects,mainDepth.depth.Get(),fogAcceleration.view.Get());
+        updateNativeDepthMirror(context.Get(),mainDepth,observedParticleExperiment?"191 new Main Effects":"191 new Main; particle owner pending");callerTargets.restore(context.Get());
         if(sourceStaticModels)groundDetails.finishRenderNode();
         context->End(mainEnd.Get());context->End(mainInterval.Get());
         const double mainSubmitMs=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-renderStart).count();
@@ -2485,7 +2493,6 @@ int main(int argc,char**argv) try {
             save("territory-zone-layers.bin",territoryZoneOwner.zones.data(),territoryZoneOwner.zones.size());
             save("territory-region-colors.bin",territoryZoneProfile.regionColors.data(),sizeof(territoryZoneProfile.regionColors));
             save("map-exposure-packet32.bin",mapExposure.current.texels.data(),sizeof(mapExposure.current.texels));
-            save("selected-exposure-baseline10C0.bin",selectedExposureLight.data(),selectedExposureLight.size());
             save("ordinary-record-counts.bin",ordinaryPopulationCounts.data(),ordinaryPopulationCounts.size()*sizeof(unsigned));
             std::ofstream actualCasterRaster(directory/"shadow-caster-raster.txt");
             for(unsigned pass=0;pass<unsigned(shadowCameraFrame.passCount);++pass) {

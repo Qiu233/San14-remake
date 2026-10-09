@@ -42,9 +42,8 @@ public sealed class OriginalOrdinaryRs4CpuParameterSourceOwner
         currentView1540=readActualSelectedView1540??throw new ArgumentNullException(nameof(readActualSelectedView1540));
         currentFlags3F0=readActualContextFlags3F0??throw new ArgumentNullException(nameof(readActualContextFlags3F0));
         currentHostQ88=readActualHostQ88??throw new ArgumentNullException(nameof(readActualHostQ88));
-        if(loadedEffects.Native.Locale!=source.Source.Native.Locale ||
-            loadedEffects.Native.ExecutableSha256!=source.Source.Native.ExecutableSha256)
-            throw new InvalidDataException("Earlier RS4 parameter/native sources belong to different loaded profiles.");
+        if(loadedEffects.Native.Locale!=source.Source.Native.Locale)
+            throw new InvalidDataException("Earlier RS4 parameter rules use a different rendering layout.");
         aux=loadedEffects.ReadSourceCreatedAux(world.Passes[0].Frame.Common);
         RequireCurrent(actual43,actualGeometryWorld);
     }

@@ -40,25 +40,21 @@ public sealed record OriginalArmyMaterialParameterAggregate15(
     public int ReadOrdinal(int row,int parameter) => ShaderParameterOrdinals.Span[row*ScalarRecords.Count+parameter];
 }
 
-/// <summary>Once-loaded native constructor/caller source and the source
-/// values it actually reads. The two ready callers supply different specular
-/// W values. No source file or integrity hash is read during construction.</summary>
+/// <summary>Project material constructor rules. The two ready phases supply
+/// different specular W values; material declarations remain resource data.</summary>
 public sealed class LoadedOriginalArmyMaterialParameterNativeSource
 {
-    internal LoadedOriginalArmyMaterialParameterNativeSource(string locale,string executableHash,string textHash,
-        IReadOnlyDictionary<string,string> windows,float stage1,float stage2)
-    { Locale=locale;ExecutableSha256=executableHash;DecodedTextSha256=textHash;WindowSha256=windows;
+    internal LoadedOriginalArmyMaterialParameterNativeSource(string locale,float stage1,float stage2)
+    { Locale=locale;
       Stage1SpecularW=stage1;Stage2SpecularW=stage2; }
     public string Locale { get; }
-    public string ExecutableSha256 { get; }
-    public string DecodedTextSha256 { get; }
-    public IReadOnlyDictionary<string,string> WindowSha256 { get; }
+    public string RuleVersion => RenderRuleIdentity.Version;
     public float Stage1SpecularW { get; }
     public float Stage2SpecularW { get; }
-    public string SourceEvidence => $"SAN14CE_{Locale}.exe@{ExecutableSha256};"+
-        "D9D3C0-phase1/2-caller;D9C5D0-type12;D9C840-type15;D60030-retain-enqueue";
+    public string SourceEvidence => $"{RuleVersion}/army-material/{Locale};"+
+        "phase1/2-parameters;material-record12;scalar-aggregate15;retain-enqueue";
     public static LoadedOriginalArmyMaterialParameterNativeSource Load(OriginalGameRepository repository,string locale)
-        => OriginalDeferredSamplerSources.LoadArmyMaterialParameterNativeSource(repository.SourceDirectory,locale);
+        => ArmyMaterialParameterRules.Create(locale);
     public LoadedOriginalArmyMaterialParameterSource ReadMaterial(LoadedOriginalArmyMaterialReadySource actualMaterial)
         => new(this,actualMaterial,OriginalArmyFlagMaterialVariations.ReadUserParameters(actualMaterial.Material));
 }

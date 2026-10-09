@@ -80,7 +80,7 @@ public sealed partial class OriginalMapSourceCreatedWorldNativeSession : IAsyncD
             var native=OriginalDeferredSamplerSources.Load(repo.SourceDirectory,selected.Camera.ExecutableLocale);
             var sky=OriginalSkyAmbientResources.Load(repo,repo.LoadObjects("system",0xDAB638B2),0x910603AC,
                 repo.LoadObjects("system",0x718CCB8B),repo.LoadObjects("system",0x93FB3280));
-            ggx=await OriginalGgxAmbientLut.BuildAsync(OriginalEmbeddedGgxShader.Load(repo.SourceDirectory,selected.Camera.ExecutableLocale),compiler);
+            ggx=await OriginalGgxAmbientLut.BuildAsync(OriginalEmbeddedGgxShader.Load(selected.Camera.ExecutableLocale),compiler);
             resources=await OriginalNativeDeferredResources.BuildSelectedAsync(program,materials.Table,ggx);
             var imagePlan=OriginalMapSelectedSourceImagePlan.Read(selected);
             var filters=OriginalMapCommonViewFilterSource.LoadGameDefault(repo);

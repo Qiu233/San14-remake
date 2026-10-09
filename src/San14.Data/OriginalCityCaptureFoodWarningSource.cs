@@ -1,6 +1,3 @@
-using System.Buffers.Binary;
-using System.Reflection.PortableExecutable;
-using System.Security.Cryptography;
 using San14.Core;
 
 namespace San14.Data;
@@ -23,39 +20,30 @@ public static class OriginalCityCaptureFoodWarningSource
     public const string VersionKey = "ce-city-capture-food-quote:version";
     public static string ParameterKey(int tcRva) => "ce-city-capture-food-quote:parameter:" + tcRva.ToString("X");
     private const int PositiveCorrection = 0x27D3824, NegativeCorrection = 0x27D3828;
+    private const int GarrisonFoodExpenseNumerator = 10;
+    private const int GarrisonFoodExpenseDivisor = 30;
+    private const int GovernorFoodExpenseEffectScale = 1;
+    private const int CityRepairQuoteGoldFee = 100;
+    private const int InitialPositiveFoodCorrection = 0;
+    private const int InitialNegativeFoodCorrection = 0;
     private static readonly int[] DataRvas = [0x1A4AF04, 0x1A4AEF8, 0x1A4B17C, 0x1A4A9B4];
 
-    /// <summary>Explicit fresh data/BSS source import. Ordinary quote calls
-    /// never open/hash the executable or seed a missing legacy bank.</summary>
+    /// <summary>Explicit fresh installation of project food quote rules.
+    /// Ordinary quote calls consume the current saved parameter bank.</summary>
     public static GameState InstallFreshInputs(GameState state, OriginalGameRepository repository)
     {
+        ArgumentNullException.ThrowIfNull(repository);
         var owner = state.NativeArmySimulation?.Parameters ?? throw Missing("fresh_parameter_owner");
         if (state.Units.Count != 0 || state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } ||
-            owner.Int32Values.ContainsKey(VersionKey) || owner.Language is not ("SC" or "TC"))
+            owner.Int32Values.ContainsKey(VersionKey) || owner.Language is not ("SC" or "TC") ||
+            owner.RuleVersion != SimulationRuleIdentity.ForLocale(owner.Language))
             throw Missing("fresh_unused_food_quote_owner");
-        string expected = owner.Language == "SC" ? OriginalCeHexWorldCoordinates.VerifiedScExecutableSha256 : OriginalCeHexWorldCoordinates.VerifiedTcExecutableSha256;
-        byte[] bytes = File.ReadAllBytes(Path.Combine(repository.SourceDirectory, $"SAN14CE_{owner.Language}.exe"));
-        if (owner.ExecutableSha256 != expected || Convert.ToHexString(SHA256.HashData(bytes)) != expected)
-            throw Missing("fresh_pinned_executable");
-        using var pe = new PEReader(new MemoryStream(bytes, false));
+        int[] rules = [GarrisonFoodExpenseNumerator, GarrisonFoodExpenseDivisor,
+            GovernorFoodExpenseEffectScale, CityRepairQuoteGoldFee];
         var values = new Dictionary<string, int>(owner.Int32Values) { [VersionKey] = 1 };
-        foreach (int tc in DataRvas)
-        {
-            int physical = owner.Language == "TC" ? tc : tc + 0x1030;
-            var section = pe.PEHeaders.SectionHeaders.Single(x => x.Name == ".data" && physical >= x.VirtualAddress &&
-                (long)physical + 4 <= (long)x.VirtualAddress + x.SizeOfRawData);
-            int offset = section.PointerToRawData + physical - section.VirtualAddress;
-            values.Add(ParameterKey(tc), BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(offset, 4)));
-        }
-        foreach (int tc in new[] { PositiveCorrection, NegativeCorrection })
-        {
-            int physical = owner.Language == "TC" ? tc : tc + 0x1060;
-            if (pe.PEHeaders.SectionHeaders.Count(x => physical >= (long)x.VirtualAddress + x.SizeOfRawData &&
-                (long)physical + 4 <= (long)x.VirtualAddress + x.VirtualSize) != 1)
-                throw Missing("fresh_food_correction_loader_zero_fill");
-                //Existing CE typed has reads only: loader allocation is zero.
-            values.Add(ParameterKey(tc), 0);
-        }
+        for (int i = 0; i < DataRvas.Length; i++) values.Add(ParameterKey(DataRvas[i]), rules[i]);
+        values.Add(ParameterKey(PositiveCorrection), InitialPositiveFoodCorrection);
+        values.Add(ParameterKey(NegativeCorrection), InitialNegativeFoodCorrection);
         return state with { NativeArmySimulation = state.NativeArmySimulation! with
             { Parameters = owner with { Int32Values = values } } };
     }

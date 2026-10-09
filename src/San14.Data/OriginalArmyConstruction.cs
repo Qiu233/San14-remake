@@ -27,8 +27,7 @@ public sealed class OriginalArmyConstruction : IPlayableArmyCreationRules
     private readonly OriginalArmyFormationWriterSource _formations;
     private readonly OriginalArmyCreationConfiguration _configuration;
     public string Language => _formations.CodeSource.Language;
-    public string ExecutableSha256 => _formations.CodeSource.ExecutableSha256;
-    public SourceProvenance ExecutableSource { get; }
+    public string RuleVersion => _formations.CodeSource.RuleVersion;
     public OriginalArmyCreationConfiguration Configuration => _configuration;
     internal OriginalArmyFormationWriterSource FormationWriterSource => _formations;
 
@@ -50,23 +49,22 @@ public sealed class OriginalArmyConstruction : IPlayableArmyCreationRules
     }
 
     private OriginalArmyConstruction(OriginalArmyFormationWriterSource formations,
-        OriginalArmyCreationConfiguration configuration, SourceProvenance executableSource)
-    { _formations = formations; _configuration = configuration; ExecutableSource = executableSource; }
+        OriginalArmyCreationConfiguration configuration)
+    { _formations = formations; _configuration = configuration; }
 
     public static OriginalArmyConstruction LoadCurrent(OriginalGameRepository repository,
         string language, OriginalArmyCreationConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(configuration);
-        OriginalTacticRemakeParameterSeed seed = OriginalTacticRemakeParameterSeed.LoadPinnedSeed(repository, language);
         var formations = OriginalArmyFormationWriter.ReadSource(
             repository.LoadSkillDefinitions($"0010_{language}/fixdataexce.s14"), language);
-        return new(formations, configuration with { }, seed.Source);
+        return new(formations, configuration with { });
     }
 
     public PlayableArmyCreationResolution? Create(GameState state, PreparedDeployment deployment, UnitState army)
     {
         if (state.NativeClock is not { } clock || state.NativeArmySimulation is not { } simulation ||
-            simulation.Parameters.Language != Language || simulation.Parameters.ExecutableSha256 != ExecutableSha256 ||
+            simulation.Parameters.Language != Language || simulation.Parameters.RuleVersion != RuleVersion ||
             state.ContentHashes.GetValueOrDefault(_formations.Source.ResourceUri) != _formations.Source.Sha256 ||
             simulation.Forces.GetValueOrDefault(army.ForceId)?.Flags193 is not byte forceFlags ||
             army.OfficerId is < 1 or > 6000 || army.Id < 0 || state.Units.ContainsKey(army.Id) ||
@@ -134,7 +132,7 @@ public sealed class OriginalArmyConstruction : IPlayableArmyCreationRules
         var runtime = new NativeArmyTacticRuntime(1, flags, primary,
             CreationCounter(cap1.Value, cap1.Value), CreationCounter(cap2.Value, cap2.Value),
             0, 0, 0, new sbyte[6], new byte[6], null, primary == 0 ? clock.UpdateOrdinal : null);
-        return new(runtime, 0, new(ProfileId, Language, ExecutableSha256) { NativeSlotIndex = slot }, state.RandomState)
+        return new(runtime, 0, new(ProfileId, Language, RuleVersion) { NativeSlotIndex = slot }, state.RandomState)
         { NativeReturnResources = returnResources, NativeOverrideTarget = overrideTarget,
           NativeRouteHold56 = _configuration.RouteHold40Input is int hold ? (byte)Math.Clamp(hold, 0, 9) : null,
           Configuration = new(formation.Bytes.Byte1B, formation.Bytes.Byte1C,

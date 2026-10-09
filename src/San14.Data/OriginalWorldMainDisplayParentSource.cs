@@ -40,13 +40,12 @@ public sealed record OriginalWorldMainDisplayExitRecipe(int TargetStackIndex,
 /// supply device surfaces or claim the Windows device.v2C8 implementation.</summary>
 public sealed class LoadedOriginalWorldMainDisplayParentSource
 {
-    internal LoadedOriginalWorldMainDisplayParentSource(string locale, string exe, string text,
+    internal LoadedOriginalWorldMainDisplayParentSource(string locale, string ruleVersion,
         int entry, int refresh, int exit, int pop, string evidence)
-        => (Locale, ExecutableSha256, DecodedTextSha256, EntryRva, RefreshRva, ExitRva, PopRva, SourceEvidence) =
-            (locale, exe, text, entry, refresh, exit, pop, evidence);
+        => (Locale, RuleVersion, EntryRva, RefreshRva, ExitRva, PopRva, SourceEvidence) =
+            (locale, ruleVersion, entry, refresh, exit, pop, evidence);
     public string Locale { get; }
-    public string ExecutableSha256 { get; }
-    public string DecodedTextSha256 { get; }
+    public string RuleVersion { get; }
     public int EntryRva { get; }
     public int RefreshRva { get; }
     public int ExitRva { get; }

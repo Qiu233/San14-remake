@@ -56,7 +56,7 @@ public sealed class OriginalTerritorySceneProvider:IAsyncDisposable
         var samplerSource=OriginalDeferredSamplerSources.Load(repository.SourceDirectory,locale);
         var samplers=OriginalTerritoryStyleSources.ReadSamplers(source,samplerSource);
         var styles=OriginalTerritoryStyleSources.LoadCurrent(repository,source,locale);
-        var palette=OriginalCeForceMapPalette.LoadCurrent(repository.SourceDirectory,locale);
+        var palette=OriginalCeForceMapPalette.LoadCurrent(locale);
         var eligible=OriginalTerritoryOwnership.ReadSourceTintEligibility(map,terrain);
         var renderer=await OriginalTerritoryRenderer.BuildAsync(source,compiler);
         return new(renderer,styles,palette,map.Source.Sha256,eligible,current,sourceExposure,samplers,samplerSource);

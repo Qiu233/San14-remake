@@ -162,39 +162,9 @@ public static partial class OriginalDeferredSamplerSources
 {
     internal static LoadedOriginalMapPostEffect3ControlledFreshCallerSource ReadControlledFreshCallerSource(LoadedOriginalDeferredSamplerNativeSource native)
     {
-        const string sourceScope="OriginalMapPostEffect3ControlledFreshCallerSource.cs";
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"controlled caller executable");
-        var image=new NativeImage(exe);byte[] text=image.DecodeText(out int start);
-        VerifyHash(text,native.DecodedTextSha256,"controlled caller decoded text");
-        // The complete baseline hash also pins all pointer/property bindings.
-        foreach(var (at,length,hash) in new (int,int,string)[]{
-            (0xEB5F0A,31,"4B1CBE2E54AAF26449D9A805A6A67A7493CE74E1A920B48938EABAC6EBDA7FC9"),
-            (0xEB6CDF,33,"2C6CBAB847E841437A0A38C7AE2966CCB10C0EABEBE29E3D4878735871FD2100"),
-            (0xEB7110,35,"7E0DC36637F14A9D1EAD526A72F29EC798DD886212B3CF1B26B5D3402F5D8A3A"),
-            (0xEB73D3,116,"2CAAAD8E88A11E54FF0D1A6FFA17FB5E4F9EA3F13717FEBEF3EC4ADC7E2BF0B0"),
-            (0xC57C81,148,"2DEFDE7F3403E423A65B73215D9CCA98AD6AE4B6FC7348EE9CF79FF303CEB9F7"),
-            (0xCAB28C,28,"B3E3554C4F618118206AFA6CD4112119EC897E326725A8C563E0F8FEE67D8525"),
-            (0xEB7516,164,"0A91B963EC223F406B8E50A6C5585011E35F47DBA0D66586F06DE6A13F11B5D4"),
-            (0xEB7614,116,"D9957F3F2899BF250F64C0F02C545CF1DC085758EF25B19949F99B9F0E8A3D33"),
-            (0xC38BAB,45,"56E397F309882473E97DE15FA2E501218928EEAC0E43061B144DE2845AE75239"),
-            (0xC43CA6,48,"922D9964E85FC2B4B7D1016884543E5E0CD587107D589BC84C92D8EB1EBF9B2B"),
-            (0xE6BA99,138,"A1EB2264F865ED971E8490A2CC0408AE18EC40B1E440341B3C178964ECA99E74"),
-            (0xD0176F,32,"6A1178DF08AEF9B686F5D1DD8FA2D448BEBACE70FECA0A660E65FE26998B1A1F"),
-            (0xD01AE1,21,"516E936B719503A55CB74A7697777CE3DFF8A8C035DBB5E92569418C91408167"),
-            (0xF40628,140,"BA6390EF11DABDA0C9EEB82ECA4E001A368FA0EF20759FF6E4D0FA179528BF6C"),
-            (0xD12AB6,65,"1228E6E26E3694D02705736F5003D2C80F17DA385831141E108CB1335CF47502"),
-            (0xD61BA6,89,"41AB48E41AD9C3041E478EB920A23DCD5881346196DC4156F36B9A05191D7765")})
-        {
-            var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,sourceScope,at,length,hash);
-            VerifyHash(text.AsSpan(actual.Rva-start,length),actual.Sha,"controlled fresh caller window");
-        }
-        int qualityRva=OriginalMapPostEffect3NativeSourceProfile.DataRva(native.Locale,sourceScope,0x1A8C788);
-        int conventionRva=OriginalMapPostEffect3NativeSourceProfile.DataRva(native.Locale,sourceScope,0x1A8BE70);
-        int quality=BinaryPrimitives.ReadInt32LittleEndian(image.Raw(qualityRva,4));
-        int convention=BinaryPrimitives.ReadInt32LittleEndian(image.Raw(conventionRva,4));
-        if(quality!=7||convention!=2)throw new InvalidDataException("Original native graphics configuration initializers changed.");
-        return new(native,quality,convention,native.ResourceUri+"@"+native.ExecutableSha256+
-            ";pinned-actual-gather/LDR/external-resource/controller/adaptation/clock-writers;"+
-            $"Quality{qualityRva:X8}-source7;ProjectionConvention{conventionRva:X8}-source2;new-owned-configuration-only");
+        const int defaultQuality=7,defaultProjectionConvention=2;
+        return new(native,defaultQuality,defaultProjectionConvention,
+            RenderRuleIdentity.For("controlled-fresh-configuration",native.Locale)+
+            ";fresh-owned-configuration;quality7;projection-convention2;current-writers-retain-normal-revisions");
     }
 }

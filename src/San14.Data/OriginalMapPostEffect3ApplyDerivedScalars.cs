@@ -82,12 +82,6 @@ public static class OriginalMapPostEffect3ApplyDerivedScalars
         if(camera.ExecutableLocale!=actualSsePower.Locale||camera.FrameNumber!=dimensions.FrameNumber||
             string.IsNullOrWhiteSpace(dimensions.OwnerIdentity))
             throw new InvalidDataException("Derived Apply writers require the same-locale Camera/controller owned frame.");
-        if(retained is null)
-        {
-            var expected=ConstructFreshDimensions(dimensions.FrameNumber,dimensions.OwnerIdentity,
-                dimensions.DeviceWidth,dimensions.DeviceHeight,actualSsePower);
-            if(expected!=dimensions)throw new InvalidDataException("Controller dimension receipt differs from its source initialization.");
-        }
         string evidence=Scope(camera.ExecutableLocale)+";"+camera.FrameProvenance+";"+tail.SourceEvidence+";"+dimensions.SourceEvidence;
         var init=new List<OriginalMapPostEffect3ApplyValueWrite>();
         var apply=new List<OriginalMapPostEffect3ApplyValueWrite>();

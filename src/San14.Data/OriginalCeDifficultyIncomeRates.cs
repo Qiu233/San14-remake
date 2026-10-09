@@ -12,12 +12,12 @@ public sealed class OriginalCeDifficultyIncomeRates : IPlayableMonthlyIncomeRate
     private readonly int _computerGoldPercent;
     private readonly int _computerSuppliesPercent;
 
-    public string SourceExecutableSha256 { get; }
+    public string RuleVersion { get; }
     public string DifficultyId { get; }
     public string Locale { get; }
 
     private OriginalCeDifficultyIncomeRates(string difficultyId, string locale,
-        string sourceExecutableSha256, IReadOnlySet<int> humanForceIds)
+        string sourceRuleVersion, IReadOnlySet<int> humanForceIds)
     {
         // The original has distinct gold and supplies branches. Their current
         // tables happen to agree, but keep their values independent here.
@@ -42,17 +42,16 @@ public sealed class OriginalCeDifficultyIncomeRates : IPlayableMonthlyIncomeRate
         if (humanForceIds.Any(id => id < 1))
             throw new ArgumentOutOfRangeException(nameof(humanForceIds));
         _humanForceIds = humanForceIds.ToHashSet();
-        (DifficultyId, Locale, SourceExecutableSha256) =
-            (difficultyId, locale, sourceExecutableSha256);
+        (DifficultyId, Locale, RuleVersion) =
+            (difficultyId, locale, sourceRuleVersion);
     }
 
     public static OriginalCeDifficultyIncomeRates LoadCurrent(string sourceDirectory,
         string locale, string difficultyId, IReadOnlySet<int> humanForceIds)
     {
         ArgumentNullException.ThrowIfNull(humanForceIds);
-        string sha = OriginalCeHexWorldCoordinates.VerifyInstalledExecutable(
-            sourceDirectory, locale);
-        return new(difficultyId, locale, sha, humanForceIds);
+        string version = SimulationRuleIdentity.ForLocale(locale);
+        return new(difficultyId, locale, version, humanForceIds);
     }
 
     public (int GoldPercent, int SuppliesPercent) ForForce(int forceId)

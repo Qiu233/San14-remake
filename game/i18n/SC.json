@@ -202,7 +202,7 @@
   "date_line": "{0} 年 {1} 月 {2} 日",
   "scenario_item": "{0:000}  {1}{2}",
   "force_item": "{0:00} {1} ({2} {3})",
-  "loaded_status": "原版：{0}；{1} 个剧本，已核对 {2} 个完整文件，当前覆盖 {3} 项，{4} 个原版文件与冻结基准不同。",
+  "loaded_status": "已载入 {0} 个剧本。",
   "load_error": "无法载入原版安装数据：{0}",
   "detail_city_open": "都市详情（复原中）",
   "detail_city_title": "都市详情",

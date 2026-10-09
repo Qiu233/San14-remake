@@ -64,15 +64,9 @@ internal sealed class OriginalMapPostEffect3OwnedMainHostCallbackScope
     private static void RequireSource(OriginalMainMapContextCurrentSource source)
     {
         var host=source.Host;
-        var expected=host.Locale switch
-        {
-            "TC"=>(0x13C4ED0u,"0751B4FED7A5783371B9541674C0587A6AFD3140E60E706E32EAF35A9432F464"),
-            "SC"=>(0x13C5CF0u,"CEEE6A94EB939B40C329B8EC5AECD938E9D3A51A6663E8E7D27A1498627AFB88"),
-            _=>throw new NotSupportedException("Owned Host callback scope has no exact native profile.")
-        };
-        if(host.ContextOwnerVtableRva!=expected.Item1||host.ExecutableSha256!=expected.Item2||
+        if(host.Locale is not("SC" or "TC") || host.RuleVersion!=RenderRuleIdentity.Version ||
             host.ContextFlags3E4!=OriginalMainMapContextOwnerSource.FreshHostFlags3E4)
-            throw new InvalidDataException("Owned Host callback scope requires the actual final constructor/vtable source.");
+            throw new InvalidDataException("Owned Host callback scope requires the current context rules.");
     }
 }
 

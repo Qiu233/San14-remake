@@ -36,6 +36,19 @@ public sealed class OriginalMapSourceCreatedSeasonLightingFrame
     public string SourceProvenance { get; }
     public OriginalMapLightingRuntimeTable RuntimeTable=>OriginalMapLightingRuntimeTable.Present;
 
+    /// <summary>The Camera after this same frame's completed owned seasonal
+    /// prefix and post-scalar writers. Geometry still owns its earlier stage.</summary>
+    public OriginalMapCameraConstructionPacket CapturePreparedCamera()
+    {
+        var inputs=AcceptedSeasonCamera.Inputs;
+        var main=inputs.MainFrame.Camera;
+        var optics=inputs.Source.PostEffectScalarSource.CaptureActualMainPreparation(inputs,main);
+        return new(current.ToArray(),main.Source,main.CurrentPose,main.Lens,main.Matrices,
+            main.ImageBase,main.ExecutableLocale,FrameNumber,
+            main.FrameProvenance+";"+SourceProvenance+";owned-current-season-post-Camera",
+            optics.Scalars,optics);
+    }
+
     /// <summary>The two actual source producers must share the same accepted
     /// Main frame. Their private successful raw table owner supplies Present;
     /// no lookup-key or retained-native-wrapper inference is used.</summary>

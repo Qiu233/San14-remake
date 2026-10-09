@@ -272,7 +272,7 @@ public partial class OriginalSceneView
                 ["formation_uri"] = selection.Creation.FormationSource.ResourceUri,
                 ["formation_sha256"] = selection.Creation.FormationSource.Sha256,
                 ["formation_decoded_sha256"] = selection.Creation.FormationDecodedSha256,
-                ["source_executable_sha256"] = selection.Creation.CodeSource.ExecutableSha256,
+                ["source_rule_version"] = selection.Creation.CodeSource.RuleVersion,
                 ["possible_modes"] = selection.Descriptors.PossibleModes.ToArray(),
                 ["descriptors"] = descriptors,
                 ["current_native_army_bytes_verified"] = false,

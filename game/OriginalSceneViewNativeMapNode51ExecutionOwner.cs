@@ -32,7 +32,7 @@ public sealed class OriginalSceneViewNativeMapNode51ExecutionOwner
         ArgumentNullException.ThrowIfNull(context);
         ArgumentException.ThrowIfNullOrWhiteSpace(currentOwnedCollectionIdentity);
         var source = OriginalMainSceneNode51Source.Load(repository, locale, sourceNodeIndex);
-        if (context.Host.Locale != source.Locale || context.Host.ExecutableSha256 != source.ExecutableSha256)
+        if (context.Host.Locale != source.Locale || context.Host.RuleVersion != source.RuleVersion)
             throw new InvalidDataException("Single-View selection must use this exact fresh Host constructor and node51 executable source.");
         return new(source, context, currentOwnedCollectionIdentity);
     }

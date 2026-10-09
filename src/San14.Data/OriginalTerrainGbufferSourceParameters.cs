@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Numerics;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -13,25 +12,22 @@ public sealed class OriginalTerrainGbufferSourceParameters
 {
     public const uint CliffXBits = 0x3F13B646;
     public const uint CliffYBits = 0;
-    public const string ShaderSha256 = "837B0FB842CEE4F358F34D36BB676C94F252AED67E2822A6228D39B06C93EF33";
     private readonly Vector2 nearFar;
     private bool retained = true;
 
-    private OriginalTerrainGbufferSourceParameters(LoadedTerrainGbiMapResources source, string locale, string exeSha,
+    private OriginalTerrainGbufferSourceParameters(LoadedTerrainGbiMapResources source, string locale, string ruleVersion,
         Vector2 sourceNearFar)
     {
-        Locale = locale; ExecutableSha256 = exeSha; nearFar = sourceNearFar;
-        SourceProvenance = $"ordinary-Landscape-owned-fresh-parameters/{locale}/{exeSha};" +
-            $"{source.Shader.Shader.Source.ResourceUri}@{ShaderSha256};" +
+        Locale = locale; RuleVersion = ruleVersion; nearFar = sourceNearFar;
+        SourceProvenance = $"ordinary-Landscape-owned-fresh-parameters/{locale}/{ruleVersion};" +
+            $"{source.Shader.Shader.Source.ResourceUri}@{source.Shader.Shader.Source.DecodedSha256};" +
             $"scene={source.Parameters.Scene.Scene.Source.ResourceUri}@{source.Parameters.Scene.Scene.Source.DecodedSha256};" +
             "slot2-vCliffInfo/type2-float2/group1D0;SC-FD4200/FD431F-TC-FD31C0/FD32DF;" +
             "qword000000003F13B646;ordinary-draw-retains-slot2;no-external-named-setter-history";
     }
     public string Locale { get; }
-    public string ExecutableSha256 { get; }
+    public string RuleVersion { get; }
     public string SourceProvenance { get; }
-    public uint NativeInitializerRva => Locale == "SC" ? 0xFD4200u : 0xFD31C0u;
-    public uint NativeCliffQwordStoreRva => Locale == "SC" ? 0xFD431Fu : 0xFD32DFu;
     public bool RetainsOwnedConstructorCliffInfo => retained;
 
     /// <summary>Bind the proved SC/TC initializer to the exact ordinary
@@ -46,12 +42,7 @@ public sealed class OriginalTerrainGbufferSourceParameters
             throw new InvalidDataException("Ordinary terrain parameter source requires exact SC or TC.");
         var parameters = loadedMaterial.Parameters;
         var shader = loadedMaterial.Shader.Shader;
-        RequireOriginal(parameters.Scene.Scene.Source);
-        RequireOriginal(parameters.Scene.TerrainBundle.Source);
-        RequireOriginal(parameters.Wrapper.Source);
-        RequireOriginal(shader.Source);
         if (shader.Source.FileId != 0xDC52FD1C || shader.Source.ResourceUri != GameResourceId.Rdb("system", 0xDC52FD1C).ToString() ||
-            shader.Source.DecodedSha256 != ShaderSha256 ||
             loadedMaterial.Shader.Parameters.Scene.Scene.Source.DecodedSha256 != parameters.Scene.Scene.Source.DecodedSha256 ||
             loadedMaterial.Shader.Parameters.Wrapper.Source.DecodedSha256 != parameters.Wrapper.Source.DecodedSha256)
             throw new InvalidDataException("Terrain parameter owner differs from its exact ordinary shader/scene/wrapper source.");
@@ -90,8 +81,7 @@ public sealed class OriginalTerrainGbufferSourceParameters
                 type.Class != 1 || type.BaseType != 3 || type.Rows != 1 || type.Columns != 2 || type.Elements != 0)
                 throw new InvalidDataException("Actual near/coarse shader does not consume the original cliff float2 layout.");
         }
-        string executableSha = OriginalCeHexWorldCoordinates.VerifyInstalledExecutable(repository.SourceDirectory, locale);
-        return new(loadedMaterial, locale, executableSha, new(offset, upper));
+        return new(loadedMaterial, locale, RenderRuleIdentity.Version, new(offset, upper));
 
         void ValidateSelection(G2ShaderFeatureRecord suppliedFeature, G2ShaderCombination suppliedCombination,
             int index, int vertex, int pixel)
@@ -128,10 +118,5 @@ public sealed class OriginalTerrainGbufferSourceParameters
         if (property is null || property.TypeCode != type || property.ElementCount != 1 || property.RawValue.Length != 4)
             throw new InvalidDataException($"Terrain source property{name:X8} lacks its exact typed scalar.");
         return BinaryPrimitives.ReadUInt32LittleEndian(property.RawValue);
-    }
-    private static void RequireOriginal(LoadedRdbAsset source)
-    {
-        if (source.OverrideSource is not null || Convert.ToHexString(SHA256.HashData(source.Bytes)) != source.DecodedSha256)
-            throw new InvalidDataException("Ordinary source parameters require canonical unchanged source bytes.");
     }
 }

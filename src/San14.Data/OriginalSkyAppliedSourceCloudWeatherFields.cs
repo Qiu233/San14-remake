@@ -39,7 +39,7 @@ public sealed class OriginalSkyAppliedSourceCloudWeatherFields
     public static OriginalSkyAppliedSourceCloudWeatherFields PrepareCurrent(OriginalMapSourceCreatedSeasonLightingFrame present)
     {
         ArgumentNullException.ThrowIfNull(present);present.AcceptedWeather.RequireCurrent(present.AcceptedSeasonCamera);
-        var source=present.AcceptedSeasonCamera.Inputs.Source;source.Selection.Validate();source.SceneClockSeed.Validate();
+        var source=present.AcceptedSeasonCamera.Inputs.Source;source.Selection.Validate();
         if(!source.UsesSourceCreatedEmptyAxes||source.Selection.SecondPackage is not null||source.Selection.FirstPackage.Camera.ObjectId!=OriginalMapSeasonCameraApplication.RootCameraObjectId)
             throw new NotSupportedException("Cloud weather continuation requires the actual source-created direct Root package; edited weather/interpolated packages require their own writer.");
         var camera=OriginalSkySeasonPackageTextures.Read(source.Selection.FirstPackage).Package.Camera;

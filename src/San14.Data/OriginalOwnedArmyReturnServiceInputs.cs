@@ -27,6 +27,5 @@ public static class OriginalOwnedArmyReturnServiceInputs
     public static void BindCurrent(GameState state, OriginalEventInitializationContext current) =>
         current.RawTransferServiceFlags16A8 = ReadCurrent(state);
     private static bool Bound(GameState state) => state.NativeArmySimulation?.Parameters is { } parameters &&
-        (parameters.Language == "SC" && parameters.ExecutableSha256 == OriginalCeHexWorldCoordinates.VerifiedScExecutableSha256 ||
-         parameters.Language == "TC" && parameters.ExecutableSha256 == OriginalCeHexWorldCoordinates.VerifiedTcExecutableSha256);
+        (parameters.Language is ("SC" or "TC"));
 }

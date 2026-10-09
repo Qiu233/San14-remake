@@ -64,7 +64,7 @@ public static class OriginalTerrainGbiMapResources
             OriginalTerrainTextureResources.LoadGroup(repository, terrain, TerrainTextureGroupKind.Auxiliary);
         if (auxiliary is not null && (auxiliary.Bindings.Count != 1 || auxiliary.Bindings[0].Slot != 0))
             throw new InvalidDataException("Original ExAlbedo binding requires exactly one slot0 descriptor.");
-        LoadedTerrainInitialControlResources control = OriginalTerrainInitialControlResources.LoadStockDefault(repository, field, locale);
+        LoadedTerrainInitialControlResources control = OriginalTerrainInitialControlResources.LoadStockDefault(field);
         TerrainRendererPaletteProjection palette = OriginalTerrainRendererPalette.Project(parameters.DetailPaletteEntries);
         if (!palette.Resolved || palette.Entries.Count == 0)
             throw new InvalidDataException("GBI renderer palette is unresolved: " + string.Join(" ", palette.UnresolvedInputs));

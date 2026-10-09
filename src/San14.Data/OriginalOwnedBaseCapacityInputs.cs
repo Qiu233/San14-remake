@@ -21,14 +21,12 @@ public sealed class OriginalOwnedBaseCapacityInputs
 
     public static OriginalOwnedBaseCapacityInputs Load(OriginalGameRepository repository, LoadedScenario scenario, string language)
     {
-        var source = repository.LoadBaseParameters($"SAN14CE_{language}.exe");
+        var source = repository.LoadBaseParameters(language);
         var panels = repository.LoadDoctrinePanels(scenario.FixedDataSource.SourcePath);
-        string? expected = language switch { "SC" => OriginalCeHexWorldCoordinates.VerifiedScExecutableSha256,
-            "TC" => OriginalCeHexWorldCoordinates.VerifiedTcExecutableSha256, _ => null };
-        if (expected is null || source.Source.Sha256 != expected || scenario.Snapshot.Locale != language ||
+        if (language is not ("SC" or "TC") || scenario.Snapshot.Locale != language ||
             panels.Source.Sha256 != scenario.FixedDataSource.Sha256 || panels.Catalog.Panels.Count != 80 ||
             panels.Catalog.Panels.Where((row, i) => row.Slot != i).Any() || source.Catalog.RuntimeTroopsExtraInitial is null)
-            throw new InvalidDataException("Owned Base inputs require coherent current CE PE and fixed-data sources.");
+            throw new InvalidDataException("Owned Base inputs require supported CE rules and coherent fixed-data sources.");
         return new(source, panels, scenario, language);
     }
 
@@ -94,7 +92,6 @@ public sealed class OriginalOwnedBaseCapacityInputs
 
     private bool Bound(GameState state) => state.NativeClock is not null &&
         state.NativeArmySimulation?.Parameters is { } parameters && parameters.Language == _language &&
-        parameters.ExecutableSha256 == _base.Source.Sha256 &&
         state.ContentHashes.GetValueOrDefault(_scenario.ScenarioSource.ResourceUri) == _scenario.ScenarioSource.Sha256 &&
         state.ContentHashes.GetValueOrDefault(_scenario.FixedDataSource.ResourceUri) == _scenario.FixedDataSource.Sha256;
     private static int? Parameter(GameState state, string key) =>

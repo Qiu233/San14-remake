@@ -18,7 +18,6 @@ public sealed record OriginalMapSourceCreatedWorldF103Frames(OriginalMapSourceCr
     public OriginalMapSourceCreatedLightingPacket CopyAcceptedRecordLighting(OriginalMapWorldKind1CurrentRecord record)
     {
         var packet=BorrowAcceptedRecordLighting(record);
-        packet.ValidateCurrentSourceFrame();
         return packet.CopyAcceptedSnapshot();
     }
 
@@ -85,7 +84,6 @@ public sealed record OriginalMapSourceCreatedWorldF103Frames(OriginalMapSourceCr
         foreach (var record in queue.Records)
         {
             var lighting = completeRecordLighting[record.RecordOwnerIdentity];
-            lighting.ValidateCurrentSourceFrame();
             if (lighting.SourceLightClassId != OriginalDirectionalLightSource.SourceClass ||
                 lighting.SourceIdentity.MainLightObjectId != record.Source.SourceObjectId ||
                 record.Source.SourceDeclarationIdentity != $"{lighting.SourceIdentity.MainLightResourceUri}#{lighting.SourceIdentity.MainLightObjectId:X8}@{lighting.SourceIdentity.MainLightSha256}" ||

@@ -114,9 +114,8 @@ public sealed class OriginalWorldGeometryLateEffectParameterState
     internal OriginalWorldGeometryLateEffectParameterState(LoadedOriginalWorldGeometryLateEffectSource loaded,
         LoadedOriginalWorldGeometryLateHostSource actualHostSource)
     {
-        if (loaded.Native.Locale != actualHostSource.Native.Locale ||
-            loaded.Native.ExecutableSha256 != actualHostSource.Native.ExecutableSha256)
-            throw new InvalidDataException("Late effect modules and Host belong to different loaded executable generations.");
+        if (loaded.Native.Locale != actualHostSource.Native.Locale)
+            throw new InvalidDataException("Late effect modules and Host use different rendering layouts.");
         source = loaded; HostColour = actualHostSource.ConstructFreshColourParameters();
     }
     public OriginalWorldGeometryLateFogModuleState Fog { get; } = new();
@@ -197,11 +196,10 @@ public sealed class OriginalWorldGeometryLateEffectParameterState
 }
 
 public sealed record OriginalWorldGeometryLateEffectNativeSource(string Locale,
-    string ExecutableSha256, string DecodedTextSha256,
-    IReadOnlyDictionary<string, string> WindowSha256, float AffineEpsilon, float AffineBias);
+    string RuleVersion, float AffineEpsilon, float AffineBias);
 
-/// <summary>Import original immutable source windows once at engine load.
-/// Current frame/record queries neither reopen EXE/RDB nor hash source bytes.</summary>
+/// <summary>Project-owned late-effect rules loaded once at engine load.
+/// Current frame/record queries use the retained rules and resource owners.</summary>
 public sealed class LoadedOriginalWorldGeometryLateEffectSource
 {
     private readonly uint sourceMode408;

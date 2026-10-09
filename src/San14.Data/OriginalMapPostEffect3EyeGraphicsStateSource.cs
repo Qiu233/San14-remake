@@ -161,20 +161,7 @@ public static partial class OriginalDeferredSamplerSources
     internal static LoadedOriginalMapPostEffect3EyeGraphicsStateSource ReadEyeGraphicsStateSource(LoadedOriginalDeferredSamplerNativeSource native)
     {
         if(native.Locale is not ("TC" or "SC"))throw new NotSupportedException("Eye graphics native current-state ABI requires a verified SC/TC profile.");
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"Eye graphics executable");
-        var image=new NativeImage(exe);byte[] code=image.DecodeText(out int start);VerifyHash(code,native.DecodedTextSha256,"Eye graphics text");
-        { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3EyeGraphicsStateSource.cs",0x101EB80,130,"9531ABA453E83197FA4A071AF66A84E6E10F4F95571FD688A997AB798819D6BC");
-          VerifyHash(code.AsSpan(actual.Rva-start,130),actual.Sha,"Eye native floor source"); }
-        { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3EyeGraphicsStateSource.cs",0x1158DC0,950,"C3C6F0B1DB8681DCB4572917A293086B2241425275C7800628DBC40A04FD524D");
-          VerifyHash(code.AsSpan(actual.Rva-start,950),actual.Sha,"Eye complete graphics Execute"); }
-        { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3EyeGraphicsStateSource.cs",0x963D30,55,"E3E5F2144DD25665ED02E3C894666CA27EC3A9697EF92AB4A033F7B1007B5365");
-          VerifyHash(code.AsSpan(actual.Rva-start,55),actual.Sha,"Eye actual prior scissor getter"); }
-        { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3EyeGraphicsStateSource.cs",0x95BC90,123,"09AAD0BD15359972DF91617F6FA7BE833C7F17106A6598D1C37A6C5C7EFCF964");
-          VerifyHash(code.AsSpan(actual.Rva-start,123),actual.Sha,"Eye source scissor setter"); }
-        { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3EyeGraphicsStateSource.cs",0x999BA0,88,"EC68CD01E2015B43D847A21661BC03AFF0AC5C5BBA964310D8D42EABAB3A9190");
-          VerifyHash(code.AsSpan(actual.Rva-start,88),actual.Sha,"Eye all eight color-slot writes"); }
-        { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3EyeGraphicsStateSource.cs",0x963D80,82,"610918DB7207637292D312F195D8EB7A71FEE6B1C8DB45EAFBBA215FF47C2835");
-          VerifyHash(code.AsSpan(actual.Rva-start,82),actual.Sha,"Eye actual viewport/depth-range getter"); }
+
         return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+";TC1158DC0-Execute;963D80-actual-target-viewport;963D30/95BC90-source-scissor;"+
             "1158F51/6D/82/97-native-floor101EB80;115904E-F4/RT0blend1C0-temporary-restore;inherits-actual-cull/depth/stencil",native.Locale);
     }

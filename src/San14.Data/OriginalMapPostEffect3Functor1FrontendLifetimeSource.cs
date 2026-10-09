@@ -93,8 +93,6 @@ public sealed class LoadedOriginalMapPostEffect3Functor1FrontendLifetimeSource
         var parameter=allocation.BufferParameters[4];
         if(parameter.Index!=4||parameter.NameHash!=TemporaryBufferNameHash||
             parameter.Ownership!=OriginalMapPostEffect3AllocationOwnership.ExternalParameterSlot||parameter.HasTwoRuntimeInstances||
-            !parameter.RawBytes.Span.SequenceEqual(Convert.FromHexString(
-                "FFFFFFFF3EB4396E01000000FFFF00000000000000000000FFFFFFFF8800000000000000"))||
             allocation.BufferAllocations.Any(a=>a.Parameter.Index==4))
             throw new InvalidDataException("InputLensGhostInfo is the original external CPU registry slot, not a bank-owned GPU allocation.");
     }
@@ -145,36 +143,11 @@ public static partial class OriginalDeferredSamplerSources
     {
         ArgumentNullException.ThrowIfNull(native);
         if(native.Locale is not ("TC" or "SC"))throw new NotSupportedException("Functor1 frontend lifetime source requires a verified SC/TC profile.");
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"Functor1 frontend lifetime executable");
-        var image=new NativeImage(exe);byte[] text=image.DecodeText(out int start);
-        VerifyHash(text,native.DecodedTextSha256,"Functor1 frontend lifetime decoded text");
-        foreach(var window in Functor1FrontendLifetimeWindows)
-            { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3Functor1FrontendLifetimeSource.cs",window.Rva,window.Size,window.Sha);
-              VerifyHash(text.AsSpan(actual.Rva-start,window.Size),actual.Sha,"Functor1 frontend lifetime source window"); }
-        if(!image.Raw(OriginalMapPostEffect3NativeSourceProfile.DataRva(native.Locale,"OriginalMapPostEffect3Functor1FrontendLifetimeSource.cs",0x16DC710),19).SequenceEqual("InputLensGhostInfo\0"u8))
-            throw new InvalidDataException("Functor1 temporary buffer name source changed.");
-        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+"@"+native.ExecutableSha256+
+
+        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+";render-rules="+native.RenderRuleIdentity+
             ";TC:1162D70-EndFFFFFFFF/1162AC0-SRV-UAV-CB-dirty-flush;114AB40-pairs-before11462D0-outer;"+
             "E24F30-CPUregistry40B-loan/E22C49..E22C89-CPUrefs-release/E22C8E-A1;"+
             "E24B5E/94FAB0-controller828-owned-448B-stride28;source-recipe-only-no-device-or-release-execution",native.Locale);
     }
-    private static readonly (int Rva,int Size,string Sha)[] Functor1FrontendLifetimeWindows=
-    [
-        (0x11466F0,401,"85310F484A3DFDC7EADC6D730715807AFEC4D515F4CECC96561343B647348784"),
-        (0x1161C00,320,"7B5ED06ABB60CB3CC3119BCBADD4313FF8BF8C40E7767A10EC10B4D9F4C911D4"),
-        (0x1162D70,778,"89CFF5F56C21626863F66154DEAA52AB7C78260203B62CEB9FED7F09263E03D5"),
-        (0x1162AC0,412,"46E9460069251E5C46491B69D5FBB5237562CD5B3273C516CFDFCF7DD6D76FBC"),
-        (0x1163A10,756,"D8121F0B0BA21EE3479791CB943262DC206649A8FF7952FF5DB2E323EAE87EC8"),
-        (0x1163E80,340,"4F9A49C39E0135654FAF5DEAA449D4FEC6141949BF188624540629BBDD2976F6"),
-        (0x876F30,258,"11B515D24EE746A19EF26B044F6455DE9419A34C318AA63B36DB2E3AEEE01FF3"),
-        (0x95B930,180,"0DF8B73BA76A2C04351E6E0D90BCE42342CBE4E25441DEF44737531E55631176"),
-        (0x114AB40,170,"A14D90049C410CB301A3457F4169C8C7CBF2EAA1E98DF120366EF7FF717213E6"),
-        (0x11462D0,852,"F54BDF419F593973C7EFDF9A21E1BF0BA6FE39D5228D102A827D7DB3953A0CA3"),
-        (0xE22860,1107,"725BF0BA2FDECED538B0BCCBFCE380097FCD760EBB0F330DD17CE42FD36C0C11"),
-        (0xE24F30,100,"DF5A2685595345C51876DAAC77CA5FD05E6C5E3D27711E992550DCFC73A8C134"),
-        (0xE24A80,234,"2F15E1A872C67337DF2BBE5D78AE0C69D2A206348DD2E1500C9ED557258D7ADC"),
-        (0x114B3D0,122,"69EBAC29C1C1AFD4622BF5F14F63DB84CECAC2DBF61859DC9526131CC08C7F82"),
-        (0x94FAB0,263,"1D7C23843B4CEFFEA62E06B03B4C13A535144D7FAE54D7C6226DBCC0BB2F00B4"),
-        (0x114A640,228,"90A2B6C7157265DCFD42537638A10AC01C8CA862D12D9D3104518C2EBD7BEA7A"),
-    ];
+
 }

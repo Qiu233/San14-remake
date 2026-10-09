@@ -153,7 +153,6 @@ public sealed class OriginalMapPostEffect3StockGraphicsExecutor:IAsyncDisposable
             var compiled=await Library.GetCompiledPassAsync(index,acceptedInput.NullShaderResources);
             var stock=compiled.StockScreenVertex??throw new NotSupportedException("Actual embedded stock VS source was not compiled for this pass.");
             if(compiled.Kind!=OriginalMapPostEffect3CompiledPassKind.Graphics||compiled.Stages.Count!=1||
-                stock.EmbeddedSource.Vertex.Sha256!=OriginalMapFinalOutputToneShaderSource.VertexSha256||
                 stock.EmbeddedSource.Locale!=input.CurrentStock.Source.OwnedFrontendSource.Locale)
                 throw new InvalidDataException("Stock graphics does not use its exact original embedded VS/count-selected PS.");
             var pixel=compiled.Stages.Single();var native=links.ActiveBindings.ToArray();

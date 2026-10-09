@@ -1,6 +1,3 @@
-using System.Buffers.Binary;
-using System.IO.Compression;
-
 namespace San14.Data;
 
 public static partial class OriginalDeferredSamplerSources
@@ -8,77 +5,12 @@ public static partial class OriginalDeferredSamplerSources
     internal static LoadedOriginalMainMapRawCameraNumericConstructionSource LoadRawCameraNumericConstructionSource(
         string directory,string locale)
     {
-        var profile=Profile(locale);
-        byte[] executable=File.ReadAllBytes(Path.Combine(directory,$"SAN14CE_{locale}.exe"));
-        VerifyHash(executable,profile.ExeHash,"raw Camera numeric constructor executable");
-        var image=new NativeImage(executable);
-        byte[] text=image.DecodeText(out int textRva);
-        VerifyHash(text,profile.TextHash,"raw Camera numeric constructor decoded text");
-        bool tc=locale=="TC";
-        void Check(int tcRva,int scRva,int count,string tcHash,string scHash)
-            =>VerifyHash(text.AsSpan((tc?tcRva:scRva)-textRva,count),tc?tcHash:scHash,"complete raw Camera initialization writer");
-        Check(0x00C3BF60,0x00C3D610,12446,
-            "157D48A9DF2DFBE2137F6E6390F6A2D96DA94C34DD5D8E8BB6417CA1168C2630","7EBF234E50BBE1FD0FC31BC8142306880A44C596B5666F086334054ACF18A1F8");
-        Check(0x00C4F6F0,0x00C50CF0,35591,
-            "E0A5FB47D17D9F33E29ADE0F40DEC46285DED7672F4576BE01D2BBD3F97B42A3","1DBA09CFD207CF5D9EBD99E9D20C6561858493FA6736640554D20F5E520108A9");
-        Check(0x00CAEEF0,0x00CB0630,310,
-            "E3AC8C1F071AF78919DC1EC48A06CC20D1706A55D41708236A4AE4B49E26BF30","908BD610B642A4EDB400E145266BB97BFE9DA12F62242B34F46B180C15874295");
-        Check(0x00CAF170,0x00CB08B0,175,
-            "B53E5D063F6E331E0AECB870F4D2F3010616DE9211BFA1F46EF5308485B1143B","1321A7E121E8F1CED368A9532E7C741010B87EAE01D9D56A6F89901D2C562295");
-        Check(0x00CAB4E0,0x00CACC20,14337,
-            "081B995EFC8BEF99083221A394084FEE92B55646656477DE77BAF41F6AA1D997","081B995EFC8BEF99083221A394084FEE92B55646656477DE77BAF41F6AA1D997");
-        byte[] fields=InflateRawCameraConstructor(RawCameraConstructorLiteralFields);
-        byte[] written=InflateRawCameraConstructor(RawCameraConstructorWrittenBytes);
-        W(0x0,tc?0x1416B42E0UL:0x1416B4F90UL);
-        W(0x1330,tc?0x141343398UL:0x141344398UL);
-        W(0x2BF0,tc?0x1416B3DE8UL:0x1416B4A98UL);
-        W(0x2C28,tc?0x1416B3DE8UL:0x1416B4A98UL);
-        W(0x2C60,tc?0x14178A510UL:0x1416E59C0UL);
-        W(0x2C78,tc?0x14178A510UL:0x1416E59C0UL);
-        W(0x2C90,tc?0x14178A510UL:0x1416E59C0UL);
-        return new(locale,$"raw-Camera4260/{locale}@{profile.ExeHash};original-C3BF60/SC-C3D610-fixed-stores;"+
-            "C4F6F0-original1111-table/1023-directCPU-bindings;unbound-pose/focal-fragment;"+
-            "CAB4E0-1212-words/one-byte-current-backup;no-resource-key-to-pointer/no-whole-loader-return",
-            fields,written,RawCameraDirectCpuBindings,RawCameraBackupRanges);
-        void W(int offset,ulong value)=>BinaryPrimitives.WriteUInt64LittleEndian(fields.AsSpan(offset),value);
+        var ruleVersion=RenderRuleIdentity.For("raw-camera-numeric-construction",locale);
+        return new(locale,$"{ruleVersion};typed-fresh-camera-defaults;"+
+            "declared1111-table/1023-directCPU-bindings;unbound-pose/focal-fields;"+
+            "1212-word/one-byte-current-backup;resource-handles-resolved-by-own-loader",
+            RawCameraDirectCpuBindings,RawCameraBackupRanges);
     }
-    internal static void VerifyRawCameraNumericDeclaration(byte[] source)
-        =>VerifyHash(source,OriginalMapCameraConstructionSource.SourceSha256,"loaded raw Camera numeric declaration");
-    private static byte[] InflateRawCameraConstructor(string text)
-    {
-        using var bytes=new MemoryStream(Convert.FromBase64String(text));
-        using var zlib=new ZLibStream(bytes,CompressionMode.Decompress);
-        byte[] result=new byte[LoadedOriginalMainMapRawCameraNumericConstructionSource.NativeAllocationByteLength];
-        zlib.ReadExactly(result);
-        return result;
-    }
-
-    // Source-port constants obtained by complete original constructor execution
-    // on explicit CC-filled allocation. Only the original written-byte mask is
-    // applied. Seven VT words are paired metadata relocations above. Immutable
-    // literal stores are compressed only to keep this generated source readable;
-    // this is not a serialized active Camera or a resolved resource bank.
-    private const string RawCameraConstructorLiteralFields=
-        "eJztWl1oXEUUnsTQ1FIhFASDfbhiKA31RW7Fmmbv397NblAkIgiCSAQNYoINREGWgBeLiE+KD6WbBlwILVh9syBYMCkpsg8b0KdAn/JUa5Q2YH"+
-        "wwgjpnzpw7M/fe3SSGPojzwWHmzt85Z87MOWc22Yimwx7WDYm/1j4aLDRe9vlHkO0roj7e47qu77pz/Hs2/PWFM95au13ifQEvR3m3v9BoeFAy"+
-        "1gx5m9eNf4bfstYZytJ/fRCKegxrrbWf0+RRaww9M3Ma6/WYsQsx++GPCmM1yb9Yl7ye4jsYnrt4ltp+vvZS6dQHvvfRyNOl2689hrr0mVr0cu"+
-        "q+z510TuFLAp0Davzpz2HvycZVvreBDzweyMlLa4HOO2VVMgY2ADvJ9QLQy6zT2ETaj2lrrviaTL7Z14lWMpTtDwKTCtYIFqtH1pfgDIn9pD0d"+
-        "kPXDBWTuq74nCDjbrvsi8kuu8zNRrwIfczzfB2gLFseQP66x0BiE8+bRN6+X1pdmZR3OYtujMVNTJ8TdGCiUx7ST3O88Jt+qvvnt5SqUNG8bFJ"+
-        "8/ViOeUDq0QTBmaLtG9iaZ4I5MTU35Ds4RvPrk+nh/2HJq06HtcfboN+Oi1BEs8r3aiVNdQIaJ1aoo5z+rsolyFUquv497pGHlFuzzTTqLyhY0"+
-        "Vth6TFAK4LWzKsrkeizKoXfGUU4BOossufDIs0BscrMC3+iPXFhb0JH1x0eB1NrKBnSmYDzsEdSvXIpHB2X7+tKW9+EvP3rDr3widPqt76nUJ/"+
-        "F67nwxthWCH+ziY0L0s2eihcYbEWMzUVamPFoRSz6O0zqbhTk+7J+80/5ufT0pj6LyoG0k3/1ev5uO94N3kU34nd34slJsW/KhdE8Uzh07P9KN"+
-        "JD9+tmpct40A7uchOZd831/9SMKWh9U31PV+cobpN9MW6lNnfo8y5fwW+BDpVzyKK7KtJGO/Pqc8/flVX8brEtjM9H+ckrMVjEEOvxvvxqIUvl"+
-        "feW+gXY2A835+TzpggKYu5pm7LjP2C42OSF2+rlc2xmTnEsxOBvwOC+CGoiG/uPqdtq7+3tDhY6Cd2mffpnuepnAd41eNe1g2mj9476rEpB9iy"+
-        "GeI+N8kfBp3tRPW9ohV17xdrBcgTfK4TUi6Bba3o7vz7BfxMGR6+tyr8/qvnZ7R2ylkoJ93g9WZQJAXGlROcbqu8E85hJiaYuexe88es7Snu1G"+
-        "Ndj5PTbz8vq75cV8Z7QCvqmH8oGGfrbwmMfwioQ/wk4vGypHLOZJnr9l132xd9k42dG0AoO/hH9S4g2TF2O+n7hkpwheBHH8J1QvKlRLjnTugw"+
-        "zKMc5FvuHL8TH/Wa8x805M7CbEvtyfOoK5du8nziXFA4fnIz40tYug648iaTDwLjzdFZ1g4+Yp+07/X3CfRR2v2EO1LBvPwat3d/Wb/vfP9GgG"+
-        "QuUOZ1/j7bGUOqS4I+R/M/VCrIPFXoeOsrHqMgv+SEZ8nUCc4ZtItxYl0nFGeP32XI+VFOhXyeSKqKXLaCH1mZASDj0Sj/PiJ5E8/cY6hvSb1A"+
-        "Bl3uWtSbjkkoLxcl6pFouTrcqZ0y3Ou888EYlb5lwDbc37nu10Ku3lP9JXyTAx+0E94tw68Ar5Jqw/UOafKps5nI3yBIz4kbKp40tX1W94Ny/q"+
-        "yNTeB6d/jD+YkefKcroE0XGl8EWFfje3JrYHsmjtJ+ylzI1BXPNLyhknzcCha/F7kE5BWTm/wddLxq8kIC2+j+TacMfDwnLPtbh4f2Af8mYqMv"+
-        "339MncU8gO9oUUc3tNtt9aH5BRH7nEjFqa2Q7Ijvd/K9oh6ZuUGxj6G4mX/n7R89KLrARff0Lr+XWRwIdnMtLCwsLCwsLCwsLCwsLCwsLCwsLC"+
-        "ws9o07pfz/+7aNv8sUt//beQOX30vnHaTdwsLCwsLCwsLCwsLCwsLCwsLCwuJ/gf/I76Lw++0/l+Qu3Q==";
-    private const string RawCameraConstructorWrittenBytes=
-        "eJzt2UkKACAMA8D2/58Wwau4IIgycywUck4yAQAAAOCQiLgdYVc0t3MAAAAAAADM6O0ao71j9e/UHQAAAADgW4/0orW/LUGBQjM=";
 
     // Exact source-native loader table. Stack bindings and78 resource keys are
     // deliberately absent: they never become raw CPU numerical destinations.

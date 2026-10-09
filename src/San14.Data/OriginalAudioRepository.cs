@@ -23,7 +23,7 @@ public sealed record LoadedOriginalAudioStream(OriginalAudioDirectory Directory,
     byte[] Bytes, string ResourceUri, string EncodedSha256)
 {
     /// <summary>The selected encoded byte range, rather than an invented full-container hash.</summary>
-    public SourceProvenance EncodedSource => new(ResourceUri, Bytes.Length, EncodedSha256, null)
+    public SourceProvenance EncodedSource => new(ResourceUri, Bytes.Length, EncodedSha256)
     {
         ResourceUri = this.ResourceUri, PhysicalPath = Directory.PhysicalPath,
         IsOverride = Directory.IsOverride
@@ -242,7 +242,7 @@ public sealed class OriginalAudioRepository
         if (file.Length is < 24 or > 16 * 1024 * 1024) throw new InvalidDataException("Audio RDB index exceeds the read budget.");
         byte[] bytes = new byte[checked((int)file.Length)]; file.ReadExactly(bytes);
         RdbIndex index = RdbIndexReader.Read(bytes);
-        _indexSource = new(id.Key, bytes.Length, Convert.ToHexString(SHA256.HashData(bytes)), null)
+        _indexSource = new(id.Key, bytes.Length, Convert.ToHexString(SHA256.HashData(bytes)))
         { ResourceUri = id.ToString(), PhysicalPath = file.Name, IsOverride = over is not null };
         _index = index;
         }

@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -43,29 +42,23 @@ public sealed class OriginalMapOwnedGraphicsMaskPrefix
 /// the scope. Only RT0 is claimed; other model MRT masks are not inferred.</summary>
 public sealed partial class OriginalMapOwnedGraphicsColorMaskHistorySource
 {
-    private readonly (LoadedRdbAsset Source, byte[] Bytes)[] assets;
+    private readonly LoadedRdbAsset[] assets;
     private OriginalMapOwnedGraphicsMaskPrefix? pending;
     private OriginalMapOwnedGraphicsMaskPrefix? lastCompletedPrefix;
     private bool valid=true,started;
-    private OriginalMapOwnedGraphicsColorMaskHistorySource(string locale,string executable,
+    private OriginalMapOwnedGraphicsColorMaskHistorySource(string locale,string ruleVersion,
         string frontend,string view,LoadedOriginalMapFinalOutputResources final,
         IEnumerable<LoadedRdbAsset> actual)
-    { Locale=locale; ExecutableSha256=executable; OwnedFrontendIdentity=frontend; OwnedViewIdentity=view;
-      FinalSource=final; assets=actual.Select(s=>
-      {
-          byte[] snapshot=s.Bytes.ToArray();
-          if(Convert.ToHexString(SHA256.HashData(snapshot))!=s.DecodedSha256)
-              throw new InvalidDataException("Mask source changed while its private immutable bytes were captured.");
-          return(s,snapshot);
-      }).ToArray(); }
+    { Locale=locale; RuleVersion=ruleVersion; OwnedFrontendIdentity=frontend; OwnedViewIdentity=view;
+      FinalSource=final; assets=actual.ToArray(); }
     public string Locale { get; }
-    public string ExecutableSha256 { get; }
+    public string RuleVersion { get; }
     public string OwnedFrontendIdentity { get; }
     public string OwnedViewIdentity { get; }
     public LoadedOriginalMapFinalOutputResources FinalSource { get; }
     public long CompletedSourceFrameNumber { get; private set; }
     public bool WorkSubmissionStarted => started;
-    public string SourceProvenance => $"owned-source-RT0-mask/{Locale}/{ExecutableSha256};"+
+    public string SourceProvenance => $"owned-source-RT0-mask/{Locale}/{RuleVersion};"+
         "Ctor95DC10/966EA0-RGBA15;SkyD3A850-Cull1;"+
         "Stars7180A527/Cloud42ED52ED/WORK19DBE085-zero-config-no-extra-hooks;"+
         "Sky2340AC335-HeightFog-v28/v38/v48-mask-preserving;"+
@@ -79,28 +72,25 @@ public sealed partial class OriginalMapOwnedGraphicsColorMaskHistorySource
         ArgumentException.ThrowIfNullOrWhiteSpace(ownedFrontendIdentity);ArgumentException.ThrowIfNullOrWhiteSpace(ownedViewIdentity);
         if(locale is not("SC" or "TC"))throw new InvalidDataException("Owned graphics history requires SC or TC source.");
         var actual=new List<LoadedRdbAsset>();
-        foreach(var (id,sha,count) in new[]{
-            (0x7180A527u,"0918D4ABA52CC627D454C7376A8E72645ABF56B8194481193B938AE5CD9CF918",0),
-            (0x340AC335u,"CE4CEC6271BDE59E40D5B97746A7A1877188E133550A0C608D41C353A4999424",1),
-            (0x42ED52EDu,"C1B780D8074F46C2C90BCB3800D941024ECAEDC9C784FD9F7C12B54B5D34A2F9",0),
-            (0x19DBE085u,"A23C9FCE094C7FA40D8E173D96A48D33D043A4D31D8D8A146DB965D44A31A102",0)})
+        foreach(var (id,count) in new[]{
+            (0x7180A527u,0), (0x340AC335u,1), (0x42ED52EDu,0), (0x19DBE085u,0)})
         {
-            var shader=repository.LoadShaderContainer("system",id);Exact(shader.Source,$"san14://rdb/system/{id:X8}",sha);
+            var shader=repository.LoadShaderContainer("system",id);Exact(shader.Source,$"san14://rdb/system/{id:X8}");
             var records=G1ShaderConfigurationReader.Read(shader.Source.Bytes).Records;
             if(records.Count!=count || (count==1 && (records[0].Name!="HeightFog" || records[0].RawSecondWord!=2)))
                 throw new InvalidDataException("Owned Sky mask history requires the exact empty/HeightFog source configuration chains.");
             actual.Add(shader.Source);
         }
-        Exact(actualFinalSource.Graph.Source,"san14://rdb/system/024496EE",OriginalDeferredAuxiliaryPixelSourceRecipes.GraphSha256);
-        Exact(actualFinalSource.PostEffect.Source,"san14://rdb/system/A1C83E34",OriginalMapFinalOutputResources.PostEffectSha256);
+        Exact(actualFinalSource.Graph.Source,"san14://rdb/system/024496EE");
+        Exact(actualFinalSource.PostEffect.Source,"san14://rdb/system/A1C83E34");
         foreach(var source in new[]{actualFinalSource.TextureObjects.Source,actualFinalSource.Parameters.Source,
             actualFinalSource.AuxiliaryShader.Source,actualFinalSource.StockScreen.Graph.Source})
-        { Canonical(source);actual.Add(source); }
+        { actual.Add(source); }
         actual.Add(actualFinalSource.Graph.Source);actual.Add(actualFinalSource.PostEffect.Source);
         var graph=OriginalMapFinalOutputPassGraph.Read(actualFinalSource);
         if(graph.Passes.Count!=29 || graph.Passes[28].Program.VertexProgramIndex!=7 || graph.Passes[28].Program.PixelProgramIndex!=28)
             throw new InvalidDataException("Owned mask history requires the exact source Host SPK final pass.");
-        return new(locale,OriginalCeHexWorldCoordinates.VerifyInstalledExecutable(repository.SourceDirectory,locale),
+        return new(locale,RenderRuleIdentity.Version,
             ownedFrontendIdentity,ownedViewIdentity,actualFinalSource,actual);
     }
 
@@ -188,10 +178,6 @@ public sealed partial class OriginalMapOwnedGraphicsColorMaskHistorySource
         if(acceptedSources is{} accepted){accepted.RequireCurrent();return;}
         RequireMutableSourceBoundary();
     }
-    private static void Canonical(LoadedRdbAsset source)
-    { if(source.OverrideSource is not null || source.IndexSource is null || source.IndexSource.IsOverride ||
-        Convert.ToHexString(SHA256.HashData(source.Bytes))!=source.DecodedSha256)
-        throw new InvalidDataException("Mask history requires canonical retained source assets."); }
-    private static void Exact(LoadedRdbAsset source,string uri,string hash)
-    { Canonical(source);if(source.ResourceUri!=uri || source.DecodedSha256!=hash)throw new InvalidDataException("Mask source identity changed."); }
+    private static void Exact(LoadedRdbAsset source,string uri)
+    { if(source.ResourceUri!=uri)throw new InvalidDataException("Mask source resource reference differs."); }
 }

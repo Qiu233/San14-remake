@@ -40,7 +40,7 @@ internal sealed class PreviewText
             byte[] data = File.ReadAllBytes(overridePath);
             overrideJson = new UTF8Encoding(false, true).GetString(data);
             OverrideSource = new SourceProvenance(resourceId.OverrideRelativePath,
-                data.LongLength, Convert.ToHexString(SHA256.HashData(data)), null)
+                data.LongLength, Convert.ToHexString(SHA256.HashData(data)))
             {
                 ResourceUri = resourceId.ToString(),
                 PhysicalPath = overridePath,
@@ -345,8 +345,6 @@ internal sealed class PreviewText
         _text.Format("scenario_item", number, date, title);
     public string ForceItem(int slot, string ruler, int cities) =>
         _text.Format("force_item", slot, ruler, cities, CitiesUnit);
-    public string LoadedStatus(string source, int scenarios, int readFiles,
-        int overrides, int changed) => _text.Format("loaded_status", source,
-            scenarios, readFiles, overrides, changed);
+    public string LoadedStatus(int scenarios) => _text.Format("loaded_status", scenarios);
     public string LoadError(string detail) => _text.Format("load_error", detail);
 }

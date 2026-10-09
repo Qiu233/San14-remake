@@ -1,14 +1,12 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using Godot;
 using San14.Data;
 using San14.Data.Formats;
 
-/// <summary>Original native-generated Ggx ambient lookup. The original pixel
-/// bytecode integrates 256 samples per pixel; no replacement LUT is supplied.</summary>
+/// <summary>Generates the GGX ambient lookup with the project's HLSL integral,
+/// retaining the map's 256 samples, two-channel format and consumer sampler.</summary>
 public sealed class OriginalGgxAmbientLut : IAsyncDisposable
 {
-    public const string PixelSourceSha256 = "7F0EB8A2088E538097C17E7E48ECF80441CAE5D5E18B43BA6175FEEF5E980E5A";
     public Rid TextureRid { get; }
     public Rid SamplerRid { get; }
     public byte[] OriginalSamplerKey { get; } = Convert.FromHexString("1514300000000000");
@@ -39,22 +37,20 @@ public sealed class OriginalGgxAmbientLut : IAsyncDisposable
         Vkd3dShaderCompiler compiler)
     {
         ArgumentNullException.ThrowIfNull(compiler);
-        if (Convert.ToHexString(SHA256.HashData(originalPixel.Span)) != PixelSourceSha256)
-            throw new InvalidDataException("Ggx lookup generator differs from the recovered native pixel program.");
         var translated = compiler.Compile(originalPixel.Span);
         var definitions = DxbcResourceDefinitionReader.Read(originalPixel.Span);
         var module = SpirvShaderInterfaceReader.Read(translated.Bytes);
-        // RDEF preserves two unused thread variables in a 32B buffer, while the
-        // executable dcl_constantbuffer only consumes one 16B register. Keep both.
+        // The HLSL declaration retains two unused thread variables in a 32B
+        // buffer, while the program consumes only the first 16B register.
         if (definitions.Buffers.Count != 1 || definitions.Buffers[0].ByteSize != 32 ||
             definitions.Bindings.Count != 1 || definitions.Bindings[0].InputType != 0 ||
             definitions.Bindings[0].BindPoint != 0 || module.Descriptors.Count != 1)
-            throw new InvalidDataException("Ggx generator interface differs from its single constant-buffer contract.");
+            throw new InvalidDataException("Ggx generator requires one 32B constant buffer.");
         var descriptor = module.Descriptors[0];
         if (module.EntryPoints[0].ExecutionModel != 4 || descriptor.DescriptorSet != 0 ||
             descriptor.Binding != 0 || descriptor.Name != "cb0_0" || descriptor.RequiredBufferBytes != 16 ||
             descriptor.Type is not { Kind: "struct", Block: true })
-            throw new InvalidDataException("Ggx generator device interface differs from the original consumed register.");
+            throw new InvalidDataException("Ggx generator requires the first 16B constant register.");
         byte[] constants = new byte[32];
         BinaryPrimitives.WriteSingleLittleEndian(constants.AsSpan(0, 4), 256);
         BinaryPrimitives.WriteSingleLittleEndian(constants.AsSpan(4, 4), 256);

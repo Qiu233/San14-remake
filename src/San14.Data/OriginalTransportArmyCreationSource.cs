@@ -39,7 +39,7 @@ public sealed class OriginalTransportArmyCreationSource
         try
         {
             if (state.NativeArmySimulation?.Parameters is not { } parameters ||
-                parameters.Language != _formations.CodeSource.Language || parameters.ExecutableSha256 != _formations.CodeSource.ExecutableSha256 ||
+                parameters.Language != _formations.CodeSource.Language || parameters.RuleVersion != _formations.CodeSource.RuleVersion ||
                 state.ContentHashes.GetValueOrDefault(_formations.Source.ResourceUri) != _formations.Source.Sha256)
                 return Missing("current.transport_formation_source");
             if (state.NativeArmyLifecycle is not { Slots.Length: 501 } arena ||

@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -33,15 +32,12 @@ public sealed class OriginalDeferredFullscreenRasterDefinition
 /// no-op geometry, other source factories, or a source graph's final state.</summary>
 public sealed class OriginalDeferredFullscreenRasterSources
 {
-    private readonly (LoadedRdbAsset Source, byte[] Bytes)[] sources;
     private readonly OriginalDeferredFullscreenRasterDefinition f103,copy,filter;
     private bool retained=true;
-    private OriginalDeferredFullscreenRasterSources(string locale,string executable,
-        params LoadedRdbAsset[] actual)
+    private OriginalDeferredFullscreenRasterSources(string locale,string ruleVersion)
     {
-        Locale=locale; ExecutableSha256=executable;
-        sources=actual.Select(s=>(s,s.Bytes.ToArray())).ToArray();
-        string prefix=$"fullscreen-source/{locale}/{executable};024496EE;canonical-owned-hooks;";
+        Locale=locale; RuleVersion=ruleVersion;
+        string prefix=$"fullscreen-source/{locale}/{ruleVersion};024496EE;owned-hooks;";
         f103=new(OriginalDeferredFullscreenRasterSourceKind.F103,166,
             OriginalDeferredFullscreenRasterExitKind.SourceShaderCleanupAndStencilRestore,
             prefix+"F103-EADC55-D712F0-blendOff;EAEB34-Cull1-opcode1D;"+
@@ -55,32 +51,31 @@ public sealed class OriginalDeferredFullscreenRasterSources
             "v70-1056800-restores-prior-Cull/blend");
     }
     public string Locale { get; }
-    public string ExecutableSha256 { get; }
+    public string RuleVersion { get; }
 
     public static OriginalDeferredFullscreenRasterSources ReadSource(OriginalGameRepository repository,
         string locale, LoadedRenderGraph actualGraph)
     {
         ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(actualGraph);
         if(locale is not("SC" or "TC"))throw new InvalidDataException("Fullscreen raster requires exact SC or TC.");
-        Exact(actualGraph.Source,"san14://rdb/system/024496EE",OriginalDeferredAuxiliaryPixelSourceRecipes.GraphSha256);
+        Exact(actualGraph.Source,"san14://rdb/system/024496EE");
         var graph=actualGraph with{Document=RenderGraphReader.Read(actualGraph.Source.Bytes)};
         if(graph.Document.Nodes[166].Call.FactoryClassId!=0xF103DB00 ||
             graph.Document.Nodes[97].Call.FactoryClassId!=0xFD1176C6 ||
             graph.Document.Nodes[137].Call.FactoryClassId!=OriginalDeferredAuxiliaryPixelSourceRecipes.FactoryClassId)
             throw new InvalidDataException("Fullscreen raster source nodes differ from the actual166/97/137 factories.");
         var objects=repository.LoadObjects("system",0x718CCB8B);
-        Exact(objects.Source,OriginalDeferredAuxiliaryPixelSourceRecipes.ShaderObjectsResourceUri,
-            OriginalDeferredAuxiliaryPixelSourceRecipes.ShaderObjectsSha256);
+        Exact(objects.Source,OriginalDeferredAuxiliaryPixelSourceRecipes.ShaderObjectsResourceUri);
         objects=objects with{Document=DokReader.Read(objects.Source.Bytes)};
         var deferred=repository.LoadShaderContainer("system",0x9D8E811F);
-        Exact(deferred.Source,"san14://rdb/system/9D8E811F",OriginalMapSourceCreatedShaderSelection.ShaderSha256);
+        Exact(deferred.Source,"san14://rdb/system/9D8E811F");
         var reference=OriginalRenderGraphShaderReferences.Read(graph,objects).References.Single(r=>r.Node.Index==166);
         if(reference.ShaderFileHash!=deferred.Source.FileId || reference.ShaderObject.ClassId!=0x8687085E)
             throw new InvalidDataException("F103 raster requires its actual class868 source shader owner.");
         var specular=repository.LoadShaderContainer("system",OriginalDeferredAuxiliaryPixelSourceRecipes.FilterShaderFileId);
         var depth=repository.LoadShaderContainer("system",OriginalDeferredAuxiliaryPixelSourceRecipes.DepthFilterShaderFileId);
-        Exact(specular.Source,"san14://rdb/system/EC36DC74",OriginalDeferredAuxiliaryPixelSourceRecipes.FilterShaderSha256);
-        Exact(depth.Source,"san14://rdb/system/98327BB0",OriginalDeferredAuxiliaryPixelSourceRecipes.DepthFilterShaderSha256);
+        Exact(specular.Source,"san14://rdb/system/EC36DC74");
+        Exact(depth.Source,"san14://rdb/system/98327BB0");
         foreach(var (id,file) in new[]{(0xB208D0BAu,0xEC36DC74u),(0x5929A0F6u,0x98327BB0u)})
         {
             var provider=objects.Document.Objects.Single(o=>o.ObjectId==id);
@@ -89,8 +84,7 @@ public sealed class OriginalDeferredFullscreenRasterSources
                 System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(field.RawValue)!=file)
                 throw new InvalidDataException("Node137 raster requires its actual filter provider/kernel family.");
         }
-        return new(locale,OriginalCeHexWorldCoordinates.VerifyInstalledExecutable(repository.SourceDirectory,locale),
-            actualGraph.Source,objects.Source,deferred.Source,specular.Source,depth.Source);
+        return new(locale,RenderRuleIdentity.Version);
     }
 
     public OriginalDeferredFullscreenRasterDefinition PrepareF103SourceDefinition()
@@ -105,8 +99,8 @@ public sealed class OriginalDeferredFullscreenRasterSources
     public OriginalDeferredFullscreenRasterDefinition PrepareF103(OriginalDeferredF103SelectedSource current)
     {
         ArgumentNullException.ThrowIfNull(current);RequireRetained();current.Validate();
-        if(current.SourcePlan.Node.Index!=166 || current.SourcePlan.Shader.Source.DecodedSha256!=OriginalMapSourceCreatedShaderSelection.ShaderSha256 ||
-            current.SourcePlan.Graph.Source.DecodedSha256!=OriginalDeferredAuxiliaryPixelSourceRecipes.GraphSha256)
+        if(current.SourcePlan.Node.Index!=166 || current.SourcePlan.Shader.Source.ResourceUri!="san14://rdb/system/9D8E811F" ||
+            current.SourcePlan.Graph.Source.ResourceUri!="san14://rdb/system/024496EE")
             throw new InvalidDataException("Current F103 source key is foreign to this raster owner.");
         return f103;
     }
@@ -114,13 +108,12 @@ public sealed class OriginalDeferredFullscreenRasterSources
     { ArgumentException.ThrowIfNullOrWhiteSpace(actualWriter);retained=false; }
     private void RequireRetained()
     {
-        if(!retained || sources.Any(s=>!s.Source.Bytes.AsSpan().SequenceEqual(s.Bytes)))
+        if(!retained)
             throw new InvalidDataException("Fullscreen raster source bytes/hooks were replaced, imported or edited.");
     }
-    private static void Exact(LoadedRdbAsset source,string uri,string hash)
+    private static void Exact(LoadedRdbAsset source,string uri)
     {
-        if(source.OverrideSource is not null || source.IndexSource is null || source.IndexSource.IsOverride ||
-            source.ResourceUri!=uri || source.DecodedSha256!=hash || Convert.ToHexString(SHA256.HashData(source.Bytes))!=hash)
-            throw new InvalidDataException("Fullscreen raster needs canonical unchanged source resources.");
+        if(source.ResourceUri!=uri)
+            throw new InvalidDataException("Fullscreen raster source resource reference differs.");
     }
 }

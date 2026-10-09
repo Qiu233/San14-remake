@@ -1,6 +1,3 @@
-using System.Buffers.Binary;
-using System.Reflection.PortableExecutable;
-using System.Security.Cryptography;
 using San14.Core;
 
 namespace San14.Data;
@@ -11,31 +8,41 @@ public sealed class OriginalNormalArmyAftermathInputs
 {
     public const string VersionKey = "ce-normal-army-aftermath-current:version";
     public const string Revision = "san14:ce-normal-army-aftermath-current-20261007";
+    private const int AreaDevelopmentReduction = 1;
+    private const int SecurityLossProbabilityNumerator = 40;
+    private const int SecurityLossProbabilityDivisor = 40;
+    private const int SecurityLossBaseMultiplier = 3;
+    private const int SecurityLossDenominatorOffset = 30;
+    private const int AreaQuantityFixedReduction = 50;
+    private const int AreaQuantityRandomReductionBound = 50;
+    private const int HostileRelationCeiling = 15;
+    private const int HostileRelationAdjustment = -1;
+    private const int RelationBandOneMinimum = 1;
+    private const int RelationBandTwoMinimum = 30;
+    private const int RelationBandThreeMinimum = 50;
+    private const int RelationBandFourMinimum = 70;
+    private const int RelationBandFiveMinimum = 100;
     private static readonly int[] TcRvas = [0x1A49964, 0x1A49970, 0x1A4997C,
         0x1A4AF78, 0x1A4AF84, 0x1A49988, 0x1A49994, 0x1A499B4, 0x1A499C0,
         0x1A491D8, 0x1A491B4, 0x1A491BC, 0x1A491C4, 0x1A491D0, 0x1A49844];
-    private readonly string language, hash;
+    private readonly string language, ruleVersion;
     private readonly int[] initial;
     public OriginalCeInitialAreaDevelopment Development { get; }
 
-    private OriginalNormalArmyAftermathInputs(string locale, string executableHash, int[] values,
-        OriginalCeInitialAreaDevelopment development) => (language, hash, initial, Development) =
-        (locale, executableHash, values, development);
+    private OriginalNormalArmyAftermathInputs(string locale, string version, int[] values,
+        OriginalCeInitialAreaDevelopment development) => (language, ruleVersion, initial, Development) =
+        (locale, version, values, development);
 
     public static OriginalNormalArmyAftermathInputs Load(OriginalGameRepository repository, string language)
     {
+        ArgumentNullException.ThrowIfNull(repository);
         var development = OriginalCeInitialAreaDevelopment.LoadCurrent(repository.SourceDirectory, language);
-        byte[] image = File.ReadAllBytes(Path.Combine(repository.SourceDirectory, $"SAN14CE_{language}.exe"));
-        if (Convert.ToHexString(SHA256.HashData(image)) != development.SourceExecutableSha256)
-            throw new InvalidDataException("Normal aftermath source differs from its inspected CE executable.");
-        using var pe = new PEReader(new MemoryStream(image, false));
-        int[] values = TcRvas.Select(tc => {
-            int rva = tc + (language == "SC" ? 0x1030 : 0);
-            var section = pe.PEHeaders.SectionHeaders.Single(s => s.Name == ".data" && rva >= s.VirtualAddress &&
-                (long)rva + 4 <= (long)s.VirtualAddress + s.SizeOfRawData);
-            return BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(section.PointerToRawData + rva - section.VirtualAddress, 4));
-        }).ToArray();
-        return new(language, development.SourceExecutableSha256, values, development);
+        int[] values = [AreaDevelopmentReduction, SecurityLossProbabilityNumerator, SecurityLossProbabilityDivisor,
+            SecurityLossBaseMultiplier, SecurityLossDenominatorOffset, AreaQuantityFixedReduction,
+            AreaQuantityRandomReductionBound, HostileRelationCeiling, HostileRelationAdjustment,
+            RelationBandOneMinimum, RelationBandTwoMinimum, RelationBandThreeMinimum, RelationBandFourMinimum,
+            RelationBandFiveMinimum, development.ImageInitialLevelChangeCoefficient];
+        return new(language, development.RuleVersion, values, development);
     }
 
     public GameState InstallFresh(GameState state, LoadedScenario scenario)
@@ -84,5 +91,5 @@ public sealed class OriginalNormalArmyAftermathInputs
         parameters.Int32Values.TryGetValue(Key(rva), out int value) ? value : null;
     public static string Key(int tcRva) => OriginalTacticRemakeParameterSeed.Key(checked(tcRva + 0x1030));
     private bool Bound(GameState state) => state.NativeArmySimulation?.Parameters is { } p &&
-        p.Language == language && p.ExecutableSha256 == hash;
+        p.Language == language && p.RuleVersion == ruleVersion;
 }

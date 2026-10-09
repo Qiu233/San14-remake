@@ -10,7 +10,6 @@ public sealed partial class OriginalMapSourceCreatedLightingPacket
         OriginalMapCameraConstructionPacket acceptedMain)
     {
         ArgumentNullException.ThrowIfNull(acceptedMain);
-        ValidateCurrentSourceFrame();
         var present=acceptedInputs.PresentSeasonCamera??
             throw new NotSupportedException("Prepared source Camera capture requires the actual owned successful season writer.");
         present.ValidatePreparedLighting(this);

@@ -1,6 +1,3 @@
-using System.Buffers.Binary;
-using System.Security.Cryptography;
-using System.Text;
 using San14.Core;
 using San14.Data.Formats;
 
@@ -15,7 +12,6 @@ public static class OriginalBattleRemakeCurrentSettings
     private const string Prefix = "ce-battle-current-settings:";
     public const string VersionKey = Prefix + "profile-version";
     private const string FieldCountKey = Prefix + "source-field-count";
-    private static string SourceWordKey(string component, int ordinal) => $"{Prefix}source:{component}:{ordinal}";
     public static string FieldKey(int nativeMemberOffset) => $"{Prefix}field:{nativeMemberOffset:X3}";
     private static string WidthKey(int nativeMemberOffset) => $"{Prefix}width:{nativeMemberOffset:X3}";
     //Actual61-entry SC3EC0C4 / TC3EBA84 dispatch. Values include the
@@ -38,34 +34,19 @@ public static class OriginalBattleRemakeCurrentSettings
             source.Snapshot.WorldParameters?.SourceBoundary is not { Settings: { } settings } boundary ||
             settings.Offset != boundary.SettingsOffset || settings.RawBytes.Length != S14ScenarioSettingsReader.SerializedBytes ||
             settings.Fields.Count != S14ScenarioSettingsReader.FieldCount ||
-            !settings.RawBytes.SequenceEqual(boundary.RawSettingsBytes) ||
-            Convert.ToHexString(SHA256.HashData(settings.RawBytes)) != settings.RawSha256 || settings.RawSha256 != boundary.SettingsSha256 ||
             string.IsNullOrWhiteSpace(source.ScenarioSource.ResourceUri) ||
             state.ContentHashes.GetValueOrDefault(source.ScenarioSource.ResourceUri) != source.ScenarioSource.Sha256 ||
             state.NativeArmySimulation.Parameters.Int32Values.Keys.Concat(state.NativeArmySimulation.Parameters.Float32Values.Keys)
                 .Any(key => key.StartsWith(Prefix, StringComparison.Ordinal)))
             throw new InvalidDataException("Fresh current settings require a complete new ordinary CE source owner.");
 
-        S14ScenarioSettingsDocument parsed = S14ScenarioSettingsReader.Read(settings.RawBytes, settings.Offset);
-        if (!parsed.Fields.SequenceEqual(settings.Fields))
-            throw new InvalidDataException("Current settings projection differs from its complete source bytes.");
         int difficulty = options.DifficultyId switch
         { "beginner" => 0, "intermediate" => 1, "advanced" => 2, "super" => 3, "top" => 4,
           _ => throw new InvalidDataException("Current ordinary difficulty has no proved native setting identity.") };
-        byte[]? sourceHash = HashBytes(source.ScenarioSource.Sha256);
-        if (sourceHash is null) throw new InvalidDataException("Current settings source hash is malformed.");
         NativeArmySimulationState simulation = state.NativeArmySimulation!;
         var values = new Dictionary<string, int>(simulation.Parameters.Int32Values)
         { [VersionKey] = 1, [FieldCountKey] = S14ScenarioSettingsReader.FieldCount };
-        byte[] uriHash = SHA256.HashData(Encoding.UTF8.GetBytes(source.ScenarioSource.ResourceUri));
-        byte[] settingsHash = SHA256.HashData(settings.RawBytes);
-        for (int ordinal = 0; ordinal < 8; ordinal++)
-        {
-            values.Add(SourceWordKey("uri", ordinal), I32(uriHash, ordinal));
-            values.Add(SourceWordKey("file", ordinal), I32(sourceHash, ordinal));
-            values.Add(SourceWordKey("settings", ordinal), I32(settingsHash, ordinal));
-        }
-        foreach (S14ScenarioSettingsField field in parsed.Fields)
+        foreach (S14ScenarioSettingsField field in settings.Fields)
         {
             values.Add(FieldKey(field.NativeMemberOffset), field.Width == 1 ? (byte)field.RawValue : unchecked((int)field.RawValue));
             values.Add(WidthKey(field.NativeMemberOffset), field.Width);
@@ -130,7 +111,7 @@ public static class OriginalBattleRemakeCurrentSettings
     public static bool? ReadAlternateMoraleGlobals(GameState state, UnitState army) =>
         state.Units.GetValueOrDefault(army.Id) == army &&
         army.NativeArmyOrigin is { } origin && origin.Language == state.NativeArmySimulation?.Parameters.Language &&
-        origin.ExecutableSha256 == state.NativeArmySimulation?.Parameters.ExecutableSha256
+        origin.RuleVersion == state.NativeArmySimulation?.Parameters.RuleVersion
             ? ReadAlternateMoraleGlobals(state) : null;
 
     /// <summary>Raw current owner field; width4 preserves every signed i32.</summary>
@@ -147,23 +128,9 @@ public static class OriginalBattleRemakeCurrentSettings
         Dictionary<string, int> values = state.NativeArmySimulation!.Parameters.Int32Values;
         if (values.GetValueOrDefault(VersionKey) != 1 ||
             values.GetValueOrDefault(FieldCountKey) != S14ScenarioSettingsReader.FieldCount) return null;
-        foreach (var pair in state.ContentHashes)
-        {
-            byte[]? sourceHash = HashBytes(pair.Value);
-            if (sourceHash is null) continue;
-            byte[] uriHash = SHA256.HashData(Encoding.UTF8.GetBytes(pair.Key));
-            if (Enumerable.Range(0, 8).All(index =>
-                values.TryGetValue(SourceWordKey("uri", index), out int uri) && uri == I32(uriHash, index) &&
-                values.TryGetValue(SourceWordKey("file", index), out int file) && file == I32(sourceHash, index) &&
-                values.ContainsKey(SourceWordKey("settings", index)))) return values;
-        }
-        return null;
+        return values;
     }
-    private static int I32(byte[] hash, int ordinal) => BinaryPrimitives.ReadInt32LittleEndian(hash.AsSpan(ordinal * 4, 4));
-    private static byte[]? HashBytes(string hash) => hash is { Length: 64 } && hash.All(Uri.IsHexDigit) ? Convert.FromHexString(hash) : null;
     private static bool Bound(GameState state) => state.NativeClock is not null &&
         state.NativeArmySimulation?.Parameters is { } parameters && !string.IsNullOrWhiteSpace(parameters.Revision) &&
-        parameters.ExecutableSha256 == (parameters.Language switch
-        { "SC" => OriginalCeHexWorldCoordinates.VerifiedScExecutableSha256,
-          "TC" => OriginalCeHexWorldCoordinates.VerifiedTcExecutableSha256, _ => null });
+        parameters.Language is ("SC" or "TC");
 }

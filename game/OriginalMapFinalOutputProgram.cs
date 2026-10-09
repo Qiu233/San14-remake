@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Buffers.Binary;
 using Godot;
 using San14.Data;
@@ -37,12 +36,10 @@ public sealed class OriginalMapFinalOutputProgram : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(source);ArgumentNullException.ThrowIfNull(compiler);
         var vs=source.VertexBytes.ToArray();var ps=source.PixelBytes.ToArray();
-        if(string.IsNullOrWhiteSpace(source.SourceResourceUri)||Convert.ToHexString(SHA256.HashData(vs))!=source.VertexSha256||
-            Convert.ToHexString(SHA256.HashData(ps))!=source.PixelSha256)
-            throw new InvalidDataException("Final map shader bytes differ from their explicit original source identity.");
+        if(string.IsNullOrWhiteSpace(source.SourceResourceUri)||source.Kind==OriginalMapFinalOutputProgramKind.Unspecified)
+            throw new InvalidDataException("Final map shader needs its selected original source and program kind.");
         var canonical=source with{VertexBytes=vs,PixelBytes=ps};
-        bool stockTone=source.VertexSha256==OriginalMapFinalOutputToneShaderSource.VertexSha256&&
-            source.PixelSha256==OriginalMapFinalOutputToneShaderSource.PixelSha256;
+        bool stockTone=source.Kind==OriginalMapFinalOutputProgramKind.EmbeddedTone;
         if(sourceDeadToneLut is not null&&(!stockTone||sourceDeadColorCorrection is not null))
             throw new InvalidDataException("Tone source-dead LUT profile belongs only to the exact embedded pair, independently of the A1 profile.");
         var vertex=stockTone?compiler.Compile(vs):compiler.Compile(vs,1);var pixel=compiler.Compile(ps);
@@ -60,7 +57,7 @@ public sealed class OriginalMapFinalOutputProgram : IAsyncDisposable
         }
         if(sourceDeadToneLut is not null)
         {
-            toneSpecialization=OriginalMapFinalOutputDeadToneLutAdapter.Adapt(pixel,pb,sourceDeadToneLut);
+            toneSpecialization=OriginalMapFinalOutputDeadToneLutAdapter.Adapt(pixel,pb,sourceDeadToneLut,canonical);
             pb=OriginalMapFinalOutputDeadToneLutAdapter.ReadDeviceBindings(pb,toneSpecialization);
         }
         if(vb.Bindings.Any(b=>b.Device.DescriptorSet!=1)||pb.Bindings.Any(b=>b.Device.DescriptorSet!=0)||

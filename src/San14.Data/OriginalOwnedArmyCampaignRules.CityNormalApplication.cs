@@ -110,7 +110,7 @@ public sealed partial class OriginalOwnedArmyCampaignRules
             int? advanced = selector == 0
                 ? Known(OriginalBattleRemakeCurrentSettings.ReadAdvancedParameter(working, 7), "advanced_wounded7") : null;
             bool channel = selector != 0 ? cc == 0 : advanced > 0;
-            var abilities = new OriginalTacticRemakeCurrentAbilities(current, _scenario, Seed.Language, Seed.Source.Sha256);
+            var abilities = new OriginalTacticRemakeCurrentAbilities(current, _scenario, Seed.Language, SimulationRuleIdentity.ForLocale(Seed.Language));
             int? governorPhysical = null; bool? governorValid = null;
             int added = 0, adjusted = 0, subtracted = 0;
             OriginalNormalArmyCombatWoundedRatioInput? ratioInput = null; float? ratio = null;

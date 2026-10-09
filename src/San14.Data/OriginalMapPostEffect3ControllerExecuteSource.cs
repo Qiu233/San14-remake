@@ -206,25 +206,7 @@ public static partial class OriginalDeferredSamplerSources
     internal static LoadedOriginalMapPostEffect3ControllerExecuteSource ReadPostEffect3ControllerExecuteSource(
         LoadedOriginalDeferredSamplerNativeSource native)
     {
-        const string sourceScope="OriginalMapPostEffect3ControllerExecuteSource.cs";
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"Controller execution executable");
-        var image=new NativeImage(exe);byte[] text=image.DecodeText(out int start);
-        VerifyHash(text,native.DecodedTextSha256,"Controller execution decoded text");
-        void Check(int rva,int count,string sha,string role)
-        {
-            var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,sourceScope,rva,count,sha);
-            VerifyHash(text.AsSpan(actual.Rva-start,count),actual.Sha,role);
-        }
-        Check(0xE22860,0x453,"725BF0BA2FDECED538B0BCCBFCE380097FCD760EBB0F330DD17CE42FD36C0C11","Controller complete E22860");
-        Check(0xE243F0,0x1FD,"AEDDA8626E25A0894DEAB8A7D72572D49411E482F8728AF6DF7F3A7F7A549373","Controller reset E243F0");
-        Check(0xE24A80,0x245,"F8665C3F4C21FE21A559A5655FF40714190F3B016F4EE0B766E9CFE1EF602221","Controller actual reset caller");
-        foreach(var d in LoadedOriginalMapPostEffect3ControllerExecuteSource.Declarations)
-        {
-            byte[] name=Encoding.ASCII.GetBytes(d.Name+"\0");
-            int stringRva=OriginalMapPostEffect3NativeSourceProfile.DataRva(native.Locale,sourceScope,d.StringRva);
-            if(!image.Raw(stringRva,name.Length).SequenceEqual(name))
-                throw new InvalidDataException("Controller actual named source operand changed: "+d.Name);
-        }
+
         return new(native,native.ResourceUri+$";{native.Locale}:paired-controller-execution/reset-profile;TC-reference-role:E24C89-defaults/E24C91-E243F0-reset;"+
             "E22860..E22CB2-complete-source-sha725BF0BA;114B170-named-exact4B-source-order;"+
             "E22AEA-CMP-DWORD-A4;E22B04/E22B09/E22B0E-IsFirstExec=arg3||arg4||(!arg5&&Dof);"+

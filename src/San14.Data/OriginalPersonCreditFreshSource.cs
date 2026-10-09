@@ -39,7 +39,7 @@ public static class OriginalPersonCreditFreshSource
         {
             if (person.NativeAbilityRuntime is not { } ability || person.NativeGrowthRuntime is not { } growth ||
                 ability.Revision != OriginalTacticRemakeCurrentAbilities.ProfileId ||
-                ability.Language != parameters.Language || ability.ExecutableSha256 != parameters.ExecutableSha256 ||
+                ability.Language != parameters.Language || ability.RuleVersion != parameters.RuleVersion ||
                 ability.SourceScenarioUri != source.ScenarioSource.ResourceUri || ability.SourceScenarioSha256 != source.ScenarioSource.Sha256 ||
                 ability.PhysicalSlot is < 1 or > 1850 ||
                 current.ReadPersonLookupReference(person.Id)?.PhysicalSlot != ability.PhysicalSlot ||

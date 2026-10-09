@@ -44,23 +44,9 @@ public static partial class OriginalDeferredSamplerSources
         OriginalGameRepository repository,LoadedOriginalDeferredSamplerNativeSource native)
     {
         if(native.Locale is not ("TC" or "SC"))throw new NotSupportedException("Apply InputDepth factory/getter windows are verified for SC/TC.");
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"InputDepth executable");
-        var image=new NativeImage(exe);byte[] text=image.DecodeText(out int start);
-        VerifyHash(text,native.DecodedTextSha256,"InputDepth decoded text");
-        void Check(int rva,int n,string hash)
-        {
-            var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3InputDepthSource.cs",rva,n,hash);
-            VerifyHash(text.AsSpan(actual.Rva-start,n),actual.Sha,"InputDepth source route");
-        }
-        Check(0xE7C0B6,0x31,"632027A3F1A61FF152F696F0C034A24F8736B2E5CACF4E3AA63AE79A0ACCACC7");
-        Check(0xE7C054,0x62,"321F8D2E1ABD6CBE764EFDE7FB7B16D736014C6CBBF42C3E1516011845C944EE");
-        Check(0xE7C3ED,0x6F,"7A5C3850086B70B0AE5E123BBDB3CB7057EF86179B6FBEA1CA8F65203C55EFFA");
-        Check(0xE6BA2E,0x3A,"28739B785C5D5F41952E576C88F3B7BE7960ACD7F5AE454D348F2D0B0792976C");
-        Check(0xEB67EC,0x8C,"C7141684155DF5231CB555EF20BE18F91C10B07B3434F7DF8BCF3538E1A8E36B");
-        Check(0xEB69F5,0x33,"BAE6990B2D9A455EE1B8592B593305C99797DE57AF71614FB0E9DE513801FB80");
+
         var graph=repository.LoadRenderGraph("system",0x024496EE);
-        if(graph.Source.OverrideSource is not null||graph.Source.DecodedSha256!="B9AE1EC8209C067DBC73084CDC0EB149A65E282C25D4B8AD398F43071072971D"||
-            graph.Document.Nodes.Count<=193||graph.Document.Nodes[193].Call.FactoryClassId!=0xB2D30063)
+        if(graph.Document.Nodes.Count<=193||graph.Document.Nodes[193].Call.FactoryClassId!=0xB2D30063)
             throw new InvalidDataException("Apply InputDepth needs the original node193 source graph.");
         var args=graph.Document.Nodes[193].Call.Arguments;
         uint Word(int index,uint name)

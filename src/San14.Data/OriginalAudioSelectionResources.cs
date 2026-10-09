@@ -25,7 +25,7 @@ public sealed record OriginalAudioSelectedInternalSample(string Name, uint Sampl
     byte[] DecoderBytes, string DecoderSha256, string DecoderExtension, string Codec,
     int SampleRate, int Channels, long Samples, bool HasLoop, long LoopStartSample, long LoopEndSample)
 {
-    public SourceProvenance EncodedSource { get; init; } = new("", 0, "", null);
+    public SourceProvenance EncodedSource { get; init; } = new("", 0, "");
     public OriginalAudioDecodeInput AsDecodeInput() => new(DecoderBytes, DecoderExtension, Codec,
         DecoderSha256, EncodedSource, new(SampleRate, Channels, Samples),
         HasLoop ? LoopStartSample : null, HasLoop ? LoopEndSample : null)
@@ -182,7 +182,7 @@ public static class OriginalAudioSelectionResources
             loop, loop ? h.LoopStartSample : 0, loop ? h.DeclaredSamples : 0)
         {
             EncodedSource = new(bank.Source.SourceContainerPath + $"#decoded-range={selected.SectionOffset},{selected.SectionBytes}",
-                selected.SectionBytes, Convert.ToHexString(SHA256.HashData(section)), null)
+                selected.SectionBytes, Convert.ToHexString(SHA256.HashData(section)))
             {
                 ResourceUri = bank.Source.ResourceUri + $"#sound={selected.SampleId:X8}",
                 PhysicalPath = bank.PhysicalPath ?? bank.Source.OverrideSource?.PhysicalPath ?? "",

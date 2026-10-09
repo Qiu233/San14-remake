@@ -8,20 +8,19 @@ public sealed class OriginalMainMapCameraModeOwner
     private long revision;
     private OriginalMainMapCameraModePacket? current;
     private int override28C=-1;
-    private OriginalMainMapCameraModeOwner(string locale,string sha,string owner)
-    {Locale=locale;ExecutableSha256=sha;OwnedMainIdentity=owner;}
+    private OriginalMainMapCameraModeOwner(string locale,string owner)
+    {Locale=locale;OwnedMainIdentity=owner;}
     public string Locale{get;}
-    public string ExecutableSha256{get;}
+    public string RuleVersion=>RenderRuleIdentity.Version;
     public string OwnedMainIdentity{get;}
     public int CurrentOverride28C=>override28C;
     public int CurrentMode288{get;private set;} //10D22 reset0; subsequently17D3D.
-    public string SourceProvenance=>$"Main10CF0-reset/17BD0-primary-ECb0-mode288;{Locale}@{ExecutableSha256};owner={OwnedMainIdentity};optional280-cleared-by-CTitleState133C0";
-    public static OriginalMainMapCameraModeOwner CreateFresh(OriginalGameRepository repository,string locale,string ownedMainIdentity)
+    public string SourceProvenance=>$"{RenderRuleIdentity.For("main-camera-mode",Locale)};owner={OwnedMainIdentity};optional280-cleared-by-title;primary-ECb0-mode288";
+    public static OriginalMainMapCameraModeOwner CreateFresh(string locale,string ownedMainIdentity)
     {
-        ArgumentNullException.ThrowIfNull(repository);ArgumentException.ThrowIfNullOrWhiteSpace(ownedMainIdentity);
-        string sha=OriginalCeHexWorldCoordinates.VerifyInstalledExecutable(repository.SourceDirectory,locale);
-        _=OriginalDeferredSamplerSources.ReadMainModeNativeRecipe(repository.SourceDirectory,locale);
-        return new(locale,sha,ownedMainIdentity);
+        ArgumentException.ThrowIfNullOrWhiteSpace(ownedMainIdentity);
+        _=RenderRuleIdentity.For("main-camera-mode",locale);
+        return new(locale,ownedMainIdentity);
     }
     /// <summary>Explicit remake edit of the override read by17D0B. Negative
     /// values select the source automatic branch; nonnegative values are copied

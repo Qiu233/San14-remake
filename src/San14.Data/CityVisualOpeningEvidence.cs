@@ -15,13 +15,13 @@ public sealed class CityVisualOpeningEvidence
     public string EvidenceUri { get; }
     public string EvidenceSha256 { get; }
     public string CaptureSha256 { get; }
-    public string ExecutableSha256 { get; }
+    public string ImplementationVersion { get; }
     public IReadOnlyDictionary<int, CityVisualOpeningRecord> Cities { get; }
 
     private CityVisualOpeningEvidence(string uri, string evidenceSha, string captureSha,
-        string executableSha, Dictionary<int, CityVisualOpeningRecord> cities)
-        => (EvidenceUri, EvidenceSha256, CaptureSha256, ExecutableSha256, Cities) =
-            (uri, evidenceSha, captureSha, executableSha,
+        string implementationVersion, Dictionary<int, CityVisualOpeningRecord> cities)
+        => (EvidenceUri, EvidenceSha256, CaptureSha256, ImplementationVersion, Cities) =
+            (uri, evidenceSha, captureSha, implementationVersion,
                 new ReadOnlyDictionary<int, CityVisualOpeningRecord>(cities));
 
     public static CityVisualOpeningEvidence? LoadJson(string json, string evidenceUri,
@@ -47,8 +47,6 @@ public sealed class CityVisualOpeningEvidence
         string uri = profile.GetProperty("scenarioUri").GetString()!;
         if (uri != GameResourceId.File(source.SourcePath).ToString() ||
             !scenarioSourceSha256.Equals(profile.GetProperty("scenarioSha256").GetString(),
-                StringComparison.OrdinalIgnoreCase) ||
-            !variants.ExecutableSha256.Equals(profile.GetProperty("executableSha256").GetString(),
                 StringComparison.OrdinalIgnoreCase) ||
             root.GetProperty("capturedLocale").GetString() != source.Locale)
             throw new InvalidDataException("City opening visual observation differs from the active original source.");
@@ -89,13 +87,13 @@ public sealed class CityVisualOpeningEvidence
         if (!cities.Keys.Order().SequenceEqual(Enumerable.Range(1, 51)))
             throw new InvalidDataException("City opening visual observation omits one of the 51 source cities.");
         return new(evidenceUri, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))),
-            captureHash, variants.ExecutableSha256, cities);
+            captureHash, variants.ImplementationVersion, cities);
     }
 
-    public bool TryMatch(CityVisualState city, string executableSha256,
+    public bool TryMatch(CityVisualState city, string implementationVersion,
         out CityVisualOpeningRecord record)
     {
-        if (ExecutableSha256.Equals(executableSha256, StringComparison.OrdinalIgnoreCase) &&
+        if (ImplementationVersion.Equals(implementationVersion, StringComparison.Ordinal) &&
             Cities.TryGetValue(city.Slot, out record) && record.HexId == city.HexId &&
             record.SizeCode == city.SizeCode && record.Durability == city.Durability &&
             (record.ForceSlot == 0 ? null : record.ForceSlot) == city.ForceId)

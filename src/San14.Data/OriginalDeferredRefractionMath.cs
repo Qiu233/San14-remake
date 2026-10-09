@@ -10,6 +10,12 @@ namespace San14.Data;
 /// discovery; absent texture or disabled plugin preparation retains cache.</summary>
 public static class OriginalDeferredRefractionMath
 {
+    /// <summary>Independent LocalAO module9967E0: uint157C=2 and scale1580=1.
+    /// These fields are not similarly numbered Camera or Main fields.</summary>
+    public static OriginalDeferredLocalAmbientOcclusionInputs PrepareFreshLocalAmbientOcclusion(
+        int currentColorWidth,int currentColorHeight)
+        => PrepareLocalAmbientOcclusion(2,currentColorWidth,currentColorHeight);
+    public static float FreshLocalAmbientOcclusionStepScale => 1;
     /// <summary>Original F103 temporary named override. Null means no setter;
     /// scratchA/B semantic size roles are not inferred. Installed overrides
     /// must be followed by the original hardcoded postdraw restore.</summary>

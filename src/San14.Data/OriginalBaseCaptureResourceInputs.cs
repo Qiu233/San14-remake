@@ -1,15 +1,18 @@
-using System.Buffers.Binary;
-using System.Reflection.PortableExecutable;
-using System.Security.Cryptography;
 using San14.Core;
 
 namespace San14.Data;
 
-/// <summary>Fresh numeric fields used by ordinary26DA10. The source PE is
-/// read at package load; current capture operations read the saved bank.</summary>
+/// <summary>Project capture resource rules, installed once in a fresh parameter
+/// bank. Current capture operations continue to read saved values.</summary>
 public sealed class OriginalBaseCaptureResourceInputs
 {
     public const string VersionKey = "ce-base-capture-resources:version";
+    private const int MinimumResourceKeepPercent = 10;
+    private const int CommanderCharmDivisor = 3;
+    private const int CapturedCityGoldFloor = 5000;
+    private const int CentralTerritoryRadius = 3;
+    private const int CapturedCitySuppliesFloor = 20000;
+    private const int CapturedWallFloorPercent = 40;
     public static readonly int[] TcRvas = [0x1A4A784, 0x1A4A790, 0x1A4A79C, 0x1A4A7A8, 0x1A4A7B4, 0x1A4A7CC];
     public string Language { get; }
     public SourceProvenance Source { get; }
@@ -19,38 +22,24 @@ public sealed class OriginalBaseCaptureResourceInputs
 
     public static OriginalBaseCaptureResourceInputs Load(OriginalGameRepository repository, string language)
     {
-        string expected = language switch
-        {
-            "SC" => OriginalCeHexWorldCoordinates.VerifiedScExecutableSha256,
-            "TC" => OriginalCeHexWorldCoordinates.VerifiedTcExecutableSha256,
-            _ => throw new InvalidDataException("Base capture requires an SC or TC CE profile.")
-        };
-        string relative = $"SAN14CE_{language}.exe", path = Path.Combine(repository.SourceDirectory, relative);
-        byte[] bytes = File.ReadAllBytes(path);
-        if (Convert.ToHexString(SHA256.HashData(bytes)) != expected)
-            throw new InvalidDataException("Base capture parameters require the pinned CE executable.");
-        using var pe = new PEReader(new MemoryStream(bytes, false));
-        if (pe.PEHeaders.PEHeader is not { Magic: PEMagic.PE32Plus, ImageBase: 0x140000000UL } ||
-            pe.PEHeaders.CoffHeader.Machine != Machine.Amd64)
-            throw new InvalidDataException("Base capture parameter PE has another ABI.");
-        var fields = TcRvas.Select(tc =>
+        ArgumentNullException.ThrowIfNull(repository);
+        var source = SimulationRuleSources.Provenance("san14-rule://simulation/base-capture-resources", language);
+        int[] rules = [MinimumResourceKeepPercent, CommanderCharmDivisor, CapturedCityGoldFloor,
+            CentralTerritoryRadius, CapturedCitySuppliesFloor, CapturedWallFloorPercent];
+        // Legacy addresses retain the existing saved parameter keys.
+        var fields = TcRvas.Select((tc, index) =>
         {
             int semantic = tc + 0x1030, physical = language == "SC" ? semantic : tc;
-            var section = pe.PEHeaders.SectionHeaders.Single(s => s.Name == ".data" && physical >= s.VirtualAddress &&
-                (long)physical + 4 <= (long)s.VirtualAddress + s.SizeOfRawData);
-            ReadOnlySpan<byte> raw = bytes.AsSpan(section.PointerToRawData + physical - section.VirtualAddress, 4);
-            return new OriginalBattleRemakeCurrentParameterField(semantic, physical,
-                BinaryPrimitives.ReadInt32LittleEndian(raw), Convert.ToHexString(SHA256.HashData(raw)));
+            return new OriginalBattleRemakeCurrentParameterField(semantic, physical, rules[index], string.Empty);
         }).ToArray();
-        return new(language, new(relative, bytes.LongLength, expected, expected)
-            { PhysicalPath = path, ResourceUri = GameResourceId.File(relative).ToString() }, fields);
+        return new(language, source, fields);
     }
 
     public GameState InstallFresh(GameState state)
     {
         if (state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } || state.Units.Count != 0 ||
             state.NativeArmySimulation is not { } simulation || simulation.Parameters.Language != Language ||
-            simulation.Parameters.ExecutableSha256 != Source.Sha256 || simulation.Parameters.Int32Values.ContainsKey(VersionKey))
+            simulation.Parameters.RuleVersion != Source.RuleVersion || simulation.Parameters.Int32Values.ContainsKey(VersionKey))
             throw new InvalidDataException("Fresh Base capture parameters cannot replace current saved values.");
         var integers = new Dictionary<string, int>(simulation.Parameters.Int32Values) { [VersionKey] = 1 };
         foreach (var field in Fields)

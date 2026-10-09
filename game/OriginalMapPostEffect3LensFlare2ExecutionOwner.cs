@@ -210,7 +210,7 @@ public sealed class OriginalMapPostEffect3LensFlare2ExecutionOwner:IAsyncDisposa
     private async Task<OriginalMapPostEffect3LensFlare2MipCompletedDraw> DrawAfterMipAsync(
         OriginalMapPostEffect3LensFlare2MipPlan plan,OriginalMapPostEffect3LensFlare2MipStep step,IOriginalMapPostEffect3LensFlare2AfterStockLease state)
     {
-        using var scope=await Bank.AcquireBufferExecutionScopeAsync();plan.ValidateCurrent();state.RequireCurrentAfterMip(plan,step);stock.ValidateSource();
+        using var scope=await Bank.AcquireBufferExecutionScopeAsync();plan.ValidateCurrent();state.RequireCurrentAfterMip(plan,step);stock.RequireAvailable();
         var context=state.ActualDrawContext;context.RequireCurrentForPass(plan.SourcePassIndex);
         var raster=context.ActualRaster;var targetExtent=new Vector2I((int)step.DestinationWidth,(int)step.DestinationHeight);
         if(context.FrameNumber!=plan.FrameNumber||context.ContextOwnerIdentity!=plan.ContextOwnerIdentity||

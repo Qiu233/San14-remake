@@ -16,7 +16,7 @@ public sealed record SaveEnvelope(int SchemaVersion, string FormatId, GameState 
 /// <summary>Local save format. A future original-save adapter can implement ISaveCodec.</summary>
 public sealed class JsonGzipSaveCodec : ISaveCodec
 {
-    public const int CurrentSchemaVersion = 57;
+    public const int CurrentSchemaVersion = 59;
     public string FormatId => "san14-remake-json-gzip";
 
     public byte[] Encode(GameState state)
@@ -167,6 +167,8 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
         //free receivers. Missing older values stay unknown on decoding.
         //Schema56 preserves separate native changed-Army work/pending owners
         //and optional current transport48. Older saves are not reinitialized.
+        //Schema58 removes the calendar writer code-window proof stamp. Prior
+        //saves retain the same cursor fields; the obsolete extra is ignored.
         //Schema57 preserves independent nullable native route56/1F8 on units
         //and free receivers. Decode never synthesizes a path or fresh reset.
         if (version is < 1 or > CurrentSchemaVersion ||
@@ -174,6 +176,9 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
             throw new InvalidDataException("Save format or schema version is unsupported.");
         if (document["State"] is not JsonObject)
             throw new InvalidDataException("Saved game state is missing or invalid.");
+        // Schema59 replaces EXE proof hashes with the version of our own rules.
+        // Migrate identity metadata only; all current field values and owner links remain untouched.
+        if (version < 59) MigrateRuleIdentities((JsonObject)document["State"]!);
         ValidateModuleSnapshotShape((JsonObject)document["State"]!, version);
         // A present options record must contain all choices. JSON constructor
         // defaults must not turn a missing boolean into a confirmed false choice.
@@ -222,6 +227,24 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
         GameState state = version < 23 ? MigrateCombatFood(envelope.State) : envelope.State;
         StateValidator.Validate(state);
         return state;
+    }
+
+    private static void MigrateRuleIdentities(JsonNode node)
+    {
+        if (node is JsonObject owner)
+        {
+            foreach (string oldKey in new[] { "ExecutableSha256", "SourceExecutableSha256" })
+                if (owner.ContainsKey(oldKey))
+                {
+                    owner["RuleVersion"] = owner[oldKey] is null ? null : SimulationRuleIdentity.Version;
+                    owner.Remove(oldKey);
+                }
+            foreach (JsonNode? child in owner.Select(pair => pair.Value).ToArray())
+                if (child is not null) MigrateRuleIdentities(child);
+        }
+        else if (node is JsonArray children)
+            foreach (JsonNode? child in children)
+                if (child is not null) MigrateRuleIdentities(child);
     }
 
     // An absent nullable module is legacy/unknown. A present module is a complete
@@ -293,7 +316,7 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
                 if (officerNode is JsonObject freedomOwner && freedomOwner["NativeFreedomRuntime"] is JsonNode freedom)
                     _ = Require(freedom, "current Person freedom", "Revision", "Qword18A", "Dword192", "Word19E");
                 if (officerNode is JsonObject officer && officer["NativeAbilityRuntime"] is JsonNode person)
-                    _ = Require(person, "owned Person ability runtime", "Revision", "Language", "ExecutableSha256",
+                    _ = Require(person, "owned Person ability runtime", "Revision", "Language", "RuleVersion",
                         "SourceScenarioUri", "SourceScenarioSha256", "PhysicalSlot", "Status11E", "Office11F",
                         "Doctrine184", "Flags196", "Health199", "Secondary1F4", "Extra1FD",
                         "EncodedOrdinaryCap224", "EncodedCharmCap225");
@@ -326,7 +349,7 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
             {
                 JsonObject report = Require(reportNode, "monthly income report", "CityId", "ForceId", "Period", "Quote");
                 JsonObject quote = Require(report["Quote"], "monthly income quote", "Status", "RuleId", "MissingInputs", "Areas",
-                    "Gold", "Supplies", "SourceExecutableSha256", "SettlementMonth", "CityId",
+                    "Gold", "Supplies", "RuleVersion", "SettlementMonth", "CityId",
                     "GrossGold", "GrossSupplies", "GoldCapacity", "SuppliesCapacity", "CurrentGoldStock",
                     "CurrentSuppliesStock", "NextGoldStock", "NextSuppliesStock");
                 if (quote["Areas"] is not JsonArray receipts)
@@ -352,7 +375,7 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
                 "ForceRankings", "ForceResetImages", "PlaceholderRelations13", "PlaceholderRelationsEA", "OtherForce1657");
         if (state["NativeArmyLifecycle"] is JsonNode lifecycleNode)
         {
-            JsonObject lifecycle = Require(lifecycleNode, "native Army lifecycle", "Revision", "Language", "ExecutableSha256",
+            JsonObject lifecycle = Require(lifecycleNode, "native Army lifecycle", "Revision", "Language", "RuleVersion",
                 "SourceScenarioUri", "SourceScenarioSha256", "Pool", "Slots", "RegistryDescriptors",
                 "Pending70Descriptor", "BaseRegistryDescriptor", "BaseLists", "HexRaw1C");
             CheckSavedPoolShape(lifecycle["Pool"], "native shared pool");
@@ -394,7 +417,7 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
             }
             if (lifecycle["DeferredDestructionQueue"] is JsonNode destructionNode)
             {
-                JsonObject queue = Require(destructionNode, "native destruction queue", "Revision", "Language", "ExecutableSha256",
+                JsonObject queue = Require(destructionNode, "native destruction queue", "Revision", "Language", "RuleVersion",
                     "SourceScenarioUri", "SourceScenarioSha256", "Manager140DescriptorKey", "DescriptorFreeHead",
                     "DescriptorLiveHead", "DescriptorLiveTail", "DescriptorLiveCount", "Descriptors", "Heads10", "Tails18",
                     "Counts28", "FreeNodeHead20", "ActiveNodeCount30", "Nodes");
@@ -512,7 +535,7 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
                         _ = Require(owner, "native provocation owner", "ForceId", "Kind", "Id");
                 }
                 if (unit["NativeArmyOrigin"] is JsonNode armyOrigin)
-                    _ = Require(armyOrigin, "source-created Army origin", "Revision", "Language", "ExecutableSha256", "NativeSlotIndex");
+                    _ = Require(armyOrigin, "source-created Army origin", "Revision", "Language", "RuleVersion", "NativeSlotIndex");
                 if (unit["NativeOverrideTarget"] is JsonNode overrideTarget)
                     _ = Require(overrideTarget, "current native Army override target", "Kind3C", "Identity3E");
                 if (unit["NativeMarch"] is JsonNode nativeMarch)
@@ -541,7 +564,7 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
         if (state["NativeArmySimulation"] is JsonNode nativeSimulationNode)
         {
             JsonObject simulation = Require(nativeSimulationNode, "owned native Army simulation", "Parameters", "Forces", "World");
-            _ = Require(simulation["Parameters"], "owned native parameters", "Revision", "Language", "ExecutableSha256",
+            _ = Require(simulation["Parameters"], "owned native parameters", "Revision", "Language", "RuleVersion",
                 "Int32Values", "Float32Values");
             if (simulation["Forces"] is not JsonObject forceFields)
                 throw new InvalidDataException("Owned native force field collection is invalid.");
@@ -576,7 +599,7 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
         {
             JsonObject cursor = Require(combatCalendarNode, "normal Army combat calendar cursor",
                 "ProfileId", "SourceScenarioUri", "SourceScenarioSha256", "SourceWorldSha256", "NativeClockRevision",
-                "CalendarWriterSha256", "StartCalendarCycleOrdinal", "NextCalendarCycleOrdinal", "ReachedDuePhaseCount",
+                "StartCalendarCycleOrdinal", "NextCalendarCycleOrdinal", "ReachedDuePhaseCount",
                 "LastAdvanceDiagnostics", "Revision");
             if (cursor["LastAdvanceDiagnostics"] is not JsonArray diagnostics)
                 throw new InvalidDataException("Normal Army phase diagnostics are invalid.");

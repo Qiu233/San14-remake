@@ -1,7 +1,4 @@
 using System.Buffers.Binary;
-using System.Reflection.PortableExecutable;
-using System.Security.Cryptography;
-using System.Text;
 using San14.Core;
 using San14.Data.Formats;
 
@@ -16,6 +13,10 @@ public sealed record OriginalGrowthAdvantageReceipt(int Value, int[] QualifiedSt
 public sealed class OriginalPersonGrowthCurrentQueries
 {
     private const string Prefix = "ce-growth-current:";
+    private const int TraitGrowthScale = 1;
+    private const int ProvinceAdvantageGrowthScale = 1;
+    private const int DoctrineGrowthScale = 5;
+    private const int PolicyGrowthScale = 1;
     public static string VersionKey => Prefix + "version";
     public static string WorldMode40Key => Prefix + "world:40";
     public static string StateAdvantageKey(int slot) => Prefix + $"state:{slot}:30";
@@ -24,47 +25,30 @@ public sealed class OriginalPersonGrowthCurrentQueries
     public static string RequirementKey(int slot) => Prefix + $"advantage:{slot}:B3";
     public static string EffectKey(int slot, int index) => Prefix + $"advantage:{slot}:effect:{index}";
     public static string MagnitudeKey(int slot, int index) => Prefix + $"advantage:{slot}:magnitude:{index}";
-    private static string SourceKey(string part, int index) => Prefix + $"source:{part}:{index}";
     private static readonly int[] Globals = [0x1A4C1D8, 0x1A4ABF4, 0x1A4A7D0, 0x1A4C1CC];
     private readonly LoadedScenario _scenario;
     private readonly LoadedGrowthModifierDefinitions _definitions;
-    private readonly string _language, _executableHash;
+    private readonly string _language, _ruleVersion;
     private readonly int[] _initialGlobals;
 
     private OriginalPersonGrowthCurrentQueries(LoadedScenario scenario, LoadedGrowthModifierDefinitions definitions,
-        string language, string executableHash, int[] initialGlobals)
-        => (_scenario, _definitions, _language, _executableHash, _initialGlobals) =
-            (scenario, definitions, language, executableHash, initialGlobals);
+        string language, string ruleVersion, int[] initialGlobals)
+        => (_scenario, _definitions, _language, _ruleVersion, _initialGlobals) =
+            (scenario, definitions, language, ruleVersion, initialGlobals);
 
     public static OriginalPersonGrowthCurrentQueries Load(OriginalGameRepository repository, LoadedScenario scenario, string language)
     {
         var definitions = repository.LoadGrowthModifierDefinitions(scenario.FixedDataSource.SourcePath);
         if (scenario.Snapshot.Locale != language || definitions.Source.Sha256 != scenario.FixedDataSource.Sha256)
             throw new InvalidDataException("Growth modifier source identities differ.");
-        string expected = language switch { "SC" => OriginalCeHexWorldCoordinates.VerifiedScExecutableSha256,
-            "TC" => OriginalCeHexWorldCoordinates.VerifiedTcExecutableSha256,
-            _ => throw new InvalidDataException("Growth modifier language is unsupported.") };
-        byte[] exe = File.ReadAllBytes(Path.Combine(repository.SourceDirectory, $"SAN14CE_{language}.exe"));
-        if (Convert.ToHexString(SHA256.HashData(exe)) != expected)
-            throw new InvalidDataException("Growth globals require the pinned current executable.");
-        using var pe = new PEReader(new MemoryStream(exe, false));
-        if (pe.PEHeaders.PEHeader is not { Magic: PEMagic.PE32Plus, ImageBase: 0x140000000UL } ||
-            pe.PEHeaders.CoffHeader.Machine != Machine.Amd64)
-            throw new InvalidDataException("Growth globals have a different ABI.");
-        int[] globals = Globals.Select(semantic => {
-            int rva = language == "SC" ? semantic : semantic - 0x1030;
-            var section = pe.PEHeaders.SectionHeaders.Single(value => value.Name == ".data" &&
-                rva >= value.VirtualAddress && (long)rva + 4 <= (long)value.VirtualAddress + value.SizeOfRawData);
-            return BinaryPrimitives.ReadInt32LittleEndian(exe.AsSpan(section.PointerToRawData + rva - section.VirtualAddress, 4));
-        }).ToArray();
-        return new(scenario, definitions, language, expected, globals);
+        return new(scenario, definitions, language, SimulationRuleIdentity.ForLocale(language),
+            [TraitGrowthScale, ProvinceAdvantageGrowthScale, DoctrineGrowthScale, PolicyGrowthScale]);
     }
 
     public GameState InstallFresh(GameState state)
     {
         if (!Bound(state) || state.Units.Count != 0 || state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } ||
             _scenario.Snapshot.WorldParameters is not { RawBytes.Length: >= 51 } world ||
-            Convert.ToHexString(SHA256.HashData(world.RawBytes)) != world.WorldSha256 ||
             state.NativeArmySimulation!.Parameters.Int32Values.Keys.Concat(state.NativeArmySimulation.Parameters.Float32Values.Keys)
                 .Any(key => key.StartsWith(Prefix, StringComparison.Ordinal)) ||
             !state.Cities.Keys.Order().SequenceEqual(_scenario.Snapshot.Cities.Where(c => c.Slot != 0).Select(c => c.Slot).Order()))
@@ -73,13 +57,6 @@ public sealed class OriginalPersonGrowthCurrentQueries
         var floats = state.NativeArmySimulation.Parameters.Float32Values;
         values.Add(VersionKey, 1);
         values.Add(WorldMode40Key, BinaryPrimitives.ReadInt32LittleEndian(world.RawBytes.AsSpan(47, 4)));
-        byte[] uri = SHA256.HashData(Encoding.UTF8.GetBytes(_definitions.Source.ResourceUri));
-        byte[] hash = Convert.FromHexString(_definitions.Source.Sha256);
-        for (int i = 0; i < 8; i++)
-        {
-            values.Add(SourceKey("uri", i), BinaryPrimitives.ReadInt32LittleEndian(uri.AsSpan(i * 4, 4)));
-            values.Add(SourceKey("file", i), BinaryPrimitives.ReadInt32LittleEndian(hash.AsSpan(i * 4, 4)));
-        }
         foreach (var row in _definitions.Catalog.States) values.Add(StateAdvantageKey(row.Slot), row.RawAdvantage30);
         foreach (var row in _definitions.Catalog.Advantages)
         {
@@ -160,18 +137,10 @@ public sealed class OriginalPersonGrowthCurrentQueries
         ? ReadInt(state, OriginalTacticRemakeParameterSeed.Key(Globals[ordinal])) : null;
 
     private bool Bound(GameState state) => state.NativeArmySimulation?.Parameters is { } p &&
-        p.Language == _language && p.ExecutableSha256 == _executableHash &&
+        p.Language == _language && p.RuleVersion == _ruleVersion &&
         state.ContentHashes.GetValueOrDefault(_scenario.ScenarioSource.ResourceUri) == _scenario.ScenarioSource.Sha256 &&
         state.ContentHashes.GetValueOrDefault(_definitions.Source.ResourceUri) == _definitions.Source.Sha256;
-    private bool SavedBank(GameState state)
-    {
-        if (!Bound(state) || ReadInt(state, VersionKey) != 1) return false;
-        byte[] uri = SHA256.HashData(Encoding.UTF8.GetBytes(_definitions.Source.ResourceUri));
-        byte[] hash = Convert.FromHexString(_definitions.Source.Sha256);
-        return Enumerable.Range(0, 8).All(i =>
-            ReadInt(state, SourceKey("uri", i)) == BinaryPrimitives.ReadInt32LittleEndian(uri.AsSpan(i * 4, 4)) &&
-            ReadInt(state, SourceKey("file", i)) == BinaryPrimitives.ReadInt32LittleEndian(hash.AsSpan(i * 4, 4)));
-    }
+    private bool SavedBank(GameState state) => Bound(state) && ReadInt(state, VersionKey) == 1;
     private static int? ReadInt(GameState state, string key) => state.NativeArmySimulation?.Parameters is { } p &&
         !p.Float32Values.ContainsKey(key) && p.Int32Values.TryGetValue(key, out int value) ? value : null;
     private static byte? ReadByte(GameState state, string key) => ReadInt(state, key) is int value && value is >= 0 and <= 255 ? (byte)value : null;

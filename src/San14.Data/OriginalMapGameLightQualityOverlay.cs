@@ -13,7 +13,6 @@ public static class OriginalMapGameLightQualityOverlay
     public const uint TcPrimaryQualityRva=0x1A47CEC;
     public const string ConfigSection="Configs";
     public const string ConfigQualityName="CG_QUALITY";
-    public const string NativeWriterSha256="5E901D59891295D836CD7FE48F2CACA0EB3893250FC5C7113649B21AE30CF00C";
 
     public static OriginalMapGameLightQualityWrites ReadWrites(int currentCgQualityOption18,int currentMainMode288)
     {
@@ -76,15 +75,14 @@ public sealed class OriginalMapGameLightQualityOwner
     private readonly LoadedOriginalMapGameLightQualitySource source;
     private OriginalMapGameLightQualityOwner(string identity,LoadedOriginalMapGameLightQualitySource source)
     {
-        this.source=source;OwnedEnvironmentIdentity=identity;ExecutableSha256=source.ExecutableSha256;
+        this.source=source;OwnedEnvironmentIdentity=identity;RuleVersion=source.RuleVersion;
         CurrentQualityOption18=source.FreshQuality;SourceProvenance=source.SourceProvenance+";owner="+identity;
     }
     public string OwnedEnvironmentIdentity{get;}
-    public string ExecutableSha256{get;}
+    public string RuleVersion{get;}
     public string Locale=>source.Locale;
     public int InitializerRva=>source.InitializerRva;
     public int NativeWriterRva=>source.WriterRva;
-    public string NativeWriterSha256=>source.WriterSha256;
     public int CurrentQualityOption18{get;private set;}
     public bool SavedConfigurationOrOwnedEditApplied{get;private set;}
     public string SourceProvenance{get;private set;}

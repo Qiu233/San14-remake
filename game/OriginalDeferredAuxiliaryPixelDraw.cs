@@ -39,7 +39,7 @@ public sealed class OriginalDeferredAuxiliaryPixelDraw : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(program);ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(completeConstants);ArgumentNullException.ThrowIfNull(explicitPixelInputs);
-        program.ValidateSource();OriginalDeferredAuxiliaryTargetSources.Validate(target.Construction);
+        program.RequireAvailable();OriginalDeferredAuxiliaryTargetSources.Validate(target.Construction);
         var surface=target.Surfaces.SingleOrDefault(s=>s.Source.SurfaceId==surfaceId)
             ??throw new InvalidDataException("Original auxiliary target surface is absent.");
         var viewport=sourceViewport??surface.Source.Extent;

@@ -20,8 +20,6 @@
 
 ## 格式研究参考
 
-DirectionalLight 的本机 x64 指令解码使用 [Iced 1.21.0](https://github.com/icedland/iced)（MIT License），作为正式 NuGet 依赖由构建解析。其许可随 NuGet 包提供；原程序的指令内容从用户本机读取，不随项目源码发布。
-
 本项目独立实现了 RDB 索引、G1T 纹理等读取代码，参考了 [Cethleann](https://github.com/neptuwunium/Cethleann) 对相关格式的公开研究及其《三国志14》文件名表。Cethleann 版权所有 © 2019 HealingBrew，采用 MIT License：
 
 > Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:

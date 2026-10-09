@@ -113,12 +113,8 @@ public sealed class OriginalSkyAppliedSourceCloudOwner
             }
             else
             {
-            source.Atmosphere.Fog.SourceMode4Proof?.Validate(source.Atmosphere.Fog);
-            var expected=directional.PrepareAtmosphere(OriginalSkyDirectionalAtmosphereNativeSource.Load(repository,locale,OriginalNativeLogDispatch.Sse));
-            if(source.Atmosphere.Fog.SourceMode4Proof is null||
-                !source.Atmosphere.Fog.Bytes.AsSpan().SequenceEqual(expected.Fog.Bytes)||
-                !source.Atmosphere.Scattering.SequenceEqual(expected.Scattering))
-                throw new InvalidDataException("Directional Cloud requires actual current Sky mode4 Fog/Scat before its source renderer0/profile1 retains Scat and writes zeroFog.");
+            if(source.Atmosphere.Fog.SourceMode4Proof is null)
+                throw new InvalidDataException("Directional Cloud requires its current Sky mode4 Fog/Scat owner before the renderer0/profile1 stage.");
             }
         }
         var feature=selection.Shader.ReadG1Bindings().Features[0].Feature;

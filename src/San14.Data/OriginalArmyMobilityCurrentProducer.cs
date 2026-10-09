@@ -35,7 +35,7 @@ public sealed class OriginalArmyMobilityCurrentProducer
         LoadedMap ownedMap, OriginalArmyMobilityParameterSeed nativeSource)
     {
         package = ownedPackage; source = nativeSource; map = ownedMap;
-        if (package.Seed.Language != source.Language || package.Seed.Source.Sha256 != source.Source.Sha256)
+        if (package.Seed.Language != source.Language || package.Seed.Source.RuleVersion != source.Source.RuleVersion)
             throw new InvalidDataException("Mobility and current Army package belong to different pinned source profiles.");
         var skills = repository.LoadSkillDefinitions($"0010_{package.Seed.Language}/fixdataexce.s14");
         terrain = repository.LoadTerrainTypes($"0010_{package.Seed.Language}/fixdataexce.s14");
@@ -47,12 +47,12 @@ public sealed class OriginalArmyMobilityCurrentProducer
         var definitions = package.CaptureCurrentDefinitions(state);
         if (definitions is null) return Missing("current.Base_Hex_Person_definition_capture");
         var context = new OriginalTacticRemakeCurrentContext(definitions, catalog, map, terrain,
-            new(package.Seed.Language, package.Seed.Source.Sha256), package.Revision);
+            new(package.Seed.Language, SimulationRuleIdentity.ForLocale(package.Seed.Language)), package.Revision);
         if (context.ArmyValid(state, army) != true) return Missing("current.Army_validity");
         if (army.NativeTacticRuntime is not { Status10: 1 or 2, StatModifiers4A.Length: 6 } runtime)
             return Missing("Status10_ordinary_Army1_or2_branch");
         var parameters = state.NativeArmySimulation!.Parameters;
-        if (parameters.Language != source.Language || parameters.ExecutableSha256 != source.Source.Sha256)
+        if (parameters.Language != source.Language || parameters.RuleVersion != source.Source.RuleVersion)
             return Missing("current.native_parameter_generation");
         if (!parameters.Int32Values.TryGetValue(OriginalTacticRemakeCurrentBattleControl.VersionKey, out int tutorialVersion) || tutorialVersion != 1 ||
             !parameters.Int32Values.TryGetValue(OriginalTacticRemakeCurrentBattleControl.HeaderKey, out int tutorialHeader))
@@ -159,7 +159,7 @@ public sealed class OriginalArmyMobilityCurrentProducer
         if (!float.IsFinite(result)) return Missing("nonfinite_current_mobility_branch");
         return new(new(result, formation, coefficient, percent.Value, runtime.Status10, trait, traitFactor, modifierFactor, baselineFactor,
             formationTerrain, forceTerrain, environment, policy, policyValue, advanced,
-            $"{Revision};{source.Source.ResourceUri}@{source.Source.Sha256};{parameters.Revision};owned-clock={state.NativeClock!.UpdateOrdinal}"), null);
+            $"{Revision};{source.Source.ResourceUri}@{source.Source.RuleVersion};{parameters.Revision};owned-clock={state.NativeClock!.UpdateOrdinal}"), null);
 
         int? Parameter(int rva) => parameters.Int32Values.TryGetValue(OriginalTacticRemakeParameterSeed.Key(rva), out int value) ? value : null;
         int? ForceFormationPercent(int physical)

@@ -37,8 +37,7 @@ public sealed class OriginalSceneViewNativeMapTerrainRasterSourceOwner
     {
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(actualHost);
         _ = OriginalTerrainGbufferSourceParameters.ReadSourceDefaults(repository, locale, actualMaterial);
-        if (actualHost.Locale != locale || actualHost.ExecutableSha256 !=
-            OriginalCeHexWorldCoordinates.VerifyInstalledExecutable(repository.SourceDirectory, locale))
+        if (actualHost.Locale != locale || actualHost.RuleVersion != RenderRuleIdentity.Version)
             throw new InvalidDataException("Terrain inherited raster requires its exact current source Host.");
         return new(repository, locale, actualHost,
             OriginalTerrainGbufferColorMaskSource.ReadSource(repository, locale, actualMaterial));
@@ -58,7 +57,7 @@ public sealed class OriginalSceneViewNativeMapTerrainRasterSourceOwner
             throw new InvalidDataException("Terrain inheritance requires this actual same-frame complete static/Army preparation.");
         if (accepted.ActualGeometrySourceFrame is not { } source || accepted.PreparedSourceFrame is not { } current ||
             !ReferenceEquals(actualModels.Frame.Visibility, source.CpuPopulation?.Visibility) ||
-            source.Context.Source.Host.Locale != locale || source.Context.Source.Host.ExecutableSha256 != host.ExecutableSha256 ||
+            source.Context.Source.Host.Locale != locale || source.Context.Source.Host.RuleVersion != host.RuleVersion ||
             source.Context.Source.Host.ContextFlags3E4 != accepted.Lighting.ContextFlags3E4)
             throw new InvalidDataException("Terrain raster inheritance needs this source graph/Host and nonempty actual class18 submitted geometry.");
         OriginalWorldGeometryShadingPhase.RequireSameGeometrySnapshot(source, current);

@@ -140,18 +140,13 @@ public sealed class LoadedOriginalMapPostEffect3ControlledOpticsSource
     private readonly LoadedOriginalNativeSkyAtanSource atan;
     private readonly LoadedOriginalNativeCameraTangentSource tangent;
     private readonly OriginalNativeLogTables log;
-    private readonly float starFactor,starSize,distanceScale,focalScale;
-    private readonly byte[] haloWaves,anamorphicCoat;
-    private readonly byte[] lensRows,ghostRows;
+    private const float StarFactor=3.8e-7f,StarSize=1024,DistanceScale=.01f,FocalScale=.001f;
     internal LoadedOriginalMapPostEffect3ControlledOpticsSource(LoadedOriginalDeferredSamplerNativeSource native,
         OriginalSkyWeatherNativePowerSource power,LoadedOriginalNativeSkyAtanSource atan,
-        LoadedOriginalNativeCameraTangentSource tangent,OriginalNativeLogTables log,
-        float starFactor,float starSize,float distanceScale,float focalScale,byte[] haloWaves,byte[] anamorphicCoat,string evidence)
+        LoadedOriginalNativeCameraTangentSource tangent,OriginalNativeLogTables log,string evidence)
     {
         Native=native;this.power=power;this.atan=atan;this.tangent=tangent;this.log=log;
-        this.starFactor=starFactor;this.starSize=starSize;this.distanceScale=distanceScale;this.focalScale=focalScale;SourceEvidence=evidence;
-        this.haloWaves=haloWaves;this.anamorphicCoat=anamorphicCoat;
-        lensRows=Convert.FromHexString(LensRowHex);ghostRows=Convert.FromHexString(GhostRowHex);
+        SourceEvidence=evidence;
     }
     public LoadedOriginalDeferredSamplerNativeSource Native{get;}
     public string SourceEvidence{get;}
@@ -167,10 +162,10 @@ public sealed class LoadedOriginalMapPostEffect3ControlledOpticsSource
             throw new NotSupportedException("Fresh controlled optics requires the same-locale source owner/frame and explicitly owned SSE log dispatch.");
         var raw=OriginalMapPostEffect3ApplyUncontrolledCameraInputs.ConstructFreshSource(camera,actualControllerScalarOwner+"/controlled-optics-fields");
         var tail=OriginalMapPostEffect3ApplyFreshCameraScalars.ConstructFreshSource(camera,actualControllerScalarOwner+"/controlled-optics-tail");
-        float distance=M(raw.Float(0x12FC),distanceScale);
+        float distance=M(raw.Float(0x12FC),DistanceScale);
         // EB7509 performs Camera1300*10 before E25830 applies .001. Retain
         // both binary32 multiplications instead of combining their factors.
-        float focal=M(M(raw.Float(0x1300),10),focalScale),stop=raw.Float(0x1304);
+        float focal=M(M(raw.Float(0x1300),10),FocalScale),stop=raw.Float(0x1304);
         float limbStart=raw.Float(0x7A8);
         float limbEnd=A(limbStart,raw.Float(0x7AC));
         bool anamorphic=raw.Word(0x131C)!=0;
@@ -195,8 +190,8 @@ public sealed class LoadedOriginalMapPostEffect3ControlledOpticsSource
             camera.ExtraScalars.LimbDarkeningWeight7B0,tail.Int(0x1344),anamorphic,
             dimensions,actualOwnedLogDispatch,dirty);
         current.AcceptFreshInitialization(initial,Array.AsReadOnly(new[]{
-            new OriginalMapPostEffect3ApplyValueWrite("HaloAberrationWavesRateRB",Code(0xE24592),Code(0xE243F0),haloWaves,SourceEvidence+";fresh-E243F0-two-float-source-writer"),
-            new OriginalMapPostEffect3ApplyValueWrite("AnamorphicCoatColor",Code(0xE245BC),Code(0xE243F0),anamorphicCoat,SourceEvidence+";fresh-E243F0-three-float-source-writer")}));
+            new OriginalMapPostEffect3ApplyValueWrite("HaloAberrationWavesRateRB",Code(0xE24592),Code(0xE243F0),PackFloats(.98f,1.02f),SourceEvidence+";fresh-two-float-writer"),
+            new OriginalMapPostEffect3ApplyValueWrite("AnamorphicCoatColor",Code(0xE245BC),Code(0xE243F0),PackFloats(.000075f,.000125f,.0005f),SourceEvidence+";fresh-three-float-writer")}));
         return current;
     }
 
@@ -228,13 +223,14 @@ public sealed class LoadedOriginalMapPostEffect3ControlledOpticsSource
         }
         float log2=Log(2),c0=D(Log(const20),log2),c4=D(c0,D(Log(32),log2));
         float stopPoly=S(1,S(D(c0,D(Log(stop),log2)),c4));
-        float starSample=D(M(M(stop,starFactor),starSize),const14);
+        float starSample=D(M(M(stop,StarFactor),StarSize),const14);
         bool fcEnabled=dimensions.ApplyWrites.Any(w=>w.Name=="Enable4KResFix"&&BinaryPrimitives.ReadInt32LittleEndian(w.Bytes.Span)!=0);
         // E246B0's five-element local lens array starts with an actual zero.
         float[] lens=new float[5];float previousDelta=0;
         for(int j=0;j<4;j++)
         {
-            float original=M(Log(M(focal,ReadF(lensRows,j*16+12))),ReadF(lensRows,j*16+8)),adjusted=original;
+            var response=LensResponses[j];
+            float original=M(Log(M(focal,response.FocalScale)),response.LogScale),adjusted=original;
             if(j==0)adjusted=M(adjusted,powerB4);
             else if(j==1)adjusted=A(adjusted,previousDelta);
             lens[j+1]=adjusted;previousDelta=S(original,adjusted);
@@ -242,13 +238,12 @@ public sealed class LoadedOriginalMapPostEffect3ControlledOpticsSource
         byte[] allGhosts=new byte[16*28];
         for(int j=0;j<16;j++)
         {
-            int at=j*36,index=BinaryPrimitives.ReadInt32LittleEndian(ghostRows.AsSpan(at));
-            float relative=M(S(B(0x3F4CCCCD),D(A(lens[index],ReadF(ghostRows,at+8)),b8)),ReadF(ghostRows,at+4)<0?-1:1);
+            var ghost=GhostDefinitions[j];
+            float relative=M(S(B(0x3F4CCCCD),D(A(lens[ghost.LensIndex],ghost.LensOffset),b8)),ghost.ScreenPosition<0?-1:1);
             float width=M(relative,fcEnabled?1080:dimensions.EffectiveHeight84);
-            float scale=M(MathF.Abs(D(1,width)),ReadF(ghostRows,at+12));
-            float[] record=[A(ReadF(ghostRows,at+4),relative),relative,M(ReadF(ghostRows,at+16),scale),
-                M(ReadF(ghostRows,at+20),scale),M(ReadF(ghostRows,at+24),scale),1,
-                BinaryPrimitives.ReadInt32LittleEndian(ghostRows.AsSpan(at+32))];
+            float scale=M(MathF.Abs(D(1,width)),ghost.RadiusScale);
+            float[] record=[A(ghost.ScreenPosition,relative),relative,M(ghost.Red,scale),
+                M(ghost.Green,scale),M(ghost.Blue,scale),1,ghost.SpriteType];
             for(int lane=0;lane<7;lane++)BinaryPrimitives.WriteSingleLittleEndian(allGhosts.AsSpan(j*28+lane*4),record[lane]);
         }
         int count=requestedGhosts<4?0:Math.Min(requestedGhosts,16);
@@ -292,31 +287,49 @@ public sealed class LoadedOriginalMapPostEffect3ControlledOpticsSource
     }
     private uint Code(uint rva)=>(uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Native.Locale,"OriginalMapPostEffect3ControlledOpticsPreparation.cs",(int)rva);
     private static float ReadF(byte[] bytes,int at)=>BinaryPrimitives.ReadSingleLittleEndian(bytes.AsSpan(at));
+    private static byte[] PackFloats(params float[] values)
+    {
+        byte[] bytes=new byte[values.Length*4];
+        for(int i=0;i<values.Length;i++)BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(i*4),values[i]);
+        return bytes;
+    }
     private static float B(uint bits)=>BitConverter.UInt32BitsToSingle(bits);
     [MethodImpl(MethodImplOptions.NoInlining)]private static float A(float a,float b)=>a+b;
     [MethodImpl(MethodImplOptions.NoInlining)]private static float S(float a,float b)=>a-b;
     [MethodImpl(MethodImplOptions.NoInlining)]private static float M(float a,float b)=>a*b;
     [MethodImpl(MethodImplOptions.NoInlining)]private static float D(float a,float b)=>a/b;
-    private const string LensRowHex="27A0093B95D4893D7FD9BD3CB34C73424C37093D6F12033B6D6F37BC696F32406C09F93BA69BC43A01150EBBDC9DD53F77BE1F3DF5DBD73DCA54C13C77FE9043";
-    // Only 36 consumed bytes of each original48B row. Its12 unknown padding
-    // bytes are omitted because E246B0 never reads them as ghost inputs.
-    private const string GhostRowHex=
-        "00000000000080BF499D803C0AD7A33C7574DC3D9AB6B73EAB745C3D0000000001000000"+
-        "000000000000403F45D8703C0AD7A33C7574DC3D9AB6B73EAB745C3D0000000000000000"+
-        "01000000000020C0F775603C0AD7A33C9A99193E0000803E0000803F0000000001000000"+
-        "010000009A9999BECA54413C0AD7A33C9A99193E0000803E0000803F0000000001000000"+
-        "010000000000803EBC74133C0AD7A33C9A99193E0000803E0000803F0000000000000000"+
-        "01000000000000BFDDB5043C0AD7A33C9A99193E0000803E0000803F0000000000000000"+
-        "020000006666E6BFD734EF3B0AD7A33C7574DC3D9AB6B73EAB745C3D0000000001000000"+
-        "02000000295CCF3F89D2DE3B0AD7A33C7574DC3D9AB6B73EAB745C3D0000000000000000"+
-        "020000003333B3BF17B7D13B0AD7A33C7574DC3D9AB6B73EAB745C3D0000000000000000"+
-        "020000009A99993F96430B3C0AD7A33C7574DC3D9AB6B73EAB745C3D0000000000000000"+
-        "020000000000A0BFDDB5043C0AD7A33C7574DC3D9AB6B73EAB745C3D0000000000000000"+
-        "020000006666A63F2497FF3B0AD7A33C7574DC3D9AB6B73EAB745C3D0000000000000000"+
-        "020000009A9919BE2497FF3B0AD7A33C7574DC3D9AB6B73EAB745C3D0000000000000000"+
-        "03000000CDCC4C3FE02D903B0AD7A33C7574DC3D9AB6B73EAB745C3D0000000000000000"+
-        "030000003333D3BF17B7D13B0AD7A33C7574DC3D9AB6B73EAB745C3D0000000000000000"+
-        "03000000CDCC1CC01EA768BC0AD7A33C9A99193E0000803E0000803F0000000001000000";
+    private readonly record struct LensResponse(float LogScale,float FocalScale);
+    private readonly record struct GhostDefinition(int LensIndex,float ScreenPosition,float LensOffset,
+        float RadiusScale,float Red,float Green,float Blue,int SpriteType);
+    // Logarithmic lens response; unused source-row padding has no runtime role.
+    private static readonly LensResponse[] LensResponses=
+    [
+        new(0.0231749993f,60.8249016f),
+        new(-0.0111959996f,2.78804994f),
+        new(-0.00216799998f,1.66887999f),
+        new(0.0236000009f,289.988007f),
+    ];
+    // Signed position, lens displacement, radius and RGB weight for each ghost.
+    private static readonly GhostDefinition[] GhostDefinitions=
+    [
+        new(0,-1f,0.0156999994f,0.0199999996f,0.107643999f,0.358815014f,0.0538222007f,1),
+        new(0,0.75f,0.0147000002f,0.0199999996f,0.107643999f,0.358815014f,0.0538222007f,0),
+        new(1,-2.5f,0.0137f,0.0199999996f,0.150000006f,0.25f,1f,1),
+        new(1,-0.300000012f,0.0118000004f,0.0199999996f,0.150000006f,0.25f,1f,1),
+        new(1,0.25f,0.00899999961f,0.0199999996f,0.150000006f,0.25f,1f,0),
+        new(1,-0.5f,0.00810000021f,0.0199999996f,0.150000006f,0.25f,1f,0),
+        new(2,-1.79999995f,0.00730000017f,0.0199999996f,0.107643999f,0.358815014f,0.0538222007f,1),
+        new(2,1.62f,0.00680000009f,0.0199999996f,0.107643999f,0.358815014f,0.0538222007f,0),
+        new(2,-1.39999998f,0.00639999984f,0.0199999996f,0.107643999f,0.358815014f,0.0538222007f,0),
+        new(2,1.20000005f,0.00850000046f,0.0199999996f,0.107643999f,0.358815014f,0.0538222007f,0),
+        new(2,-1.25f,0.00810000021f,0.0199999996f,0.107643999f,0.358815014f,0.0538222007f,0),
+        new(2,1.29999995f,0.00779999979f,0.0199999996f,0.107643999f,0.358815014f,0.0538222007f,0),
+        new(2,-0.150000006f,0.00779999979f,0.0199999996f,0.107643999f,0.358815014f,0.0538222007f,0),
+        new(3,0.800000012f,0.00439999998f,0.0199999996f,0.107643999f,0.358815014f,0.0538222007f,0),
+        new(3,-1.64999998f,0.00639999984f,0.0199999996f,0.107643999f,0.358815014f,0.0538222007f,0),
+        new(3,-2.45000005f,-0.0142000001f,0.0199999996f,0.150000006f,0.25f,1f,1),
+    ];
+
 }
 
 public static partial class OriginalDeferredSamplerSources
@@ -325,28 +338,9 @@ public static partial class OriginalDeferredSamplerSources
         LoadedOriginalDeferredSamplerNativeSource native,OriginalSkyWeatherNativePowerSource power,
         LoadedOriginalNativeSkyAtanSource atan,LoadedOriginalNativeCameraTangentSource tangent,OriginalNativeLogTables log)
     {
-        const string sourceScope="OriginalMapPostEffect3ControlledOpticsPreparation.cs";
-        if(power.Locale!=native.Locale||atan.Locale!=native.Locale||tangent.Language!=native.Locale||log.ExecutableSha256!=native.ExecutableSha256)
+        if(power.Locale!=native.Locale||atan.Locale!=native.Locale||tangent.Language!=native.Locale||log.Locale!=native.Locale)
             throw new NotSupportedException("Controlled optics math and complete controller bodies must use the same original source generation.");
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"Controlled optics executable");
-        var image=new NativeImage(exe);byte[] code=image.DecodeText(out int start);VerifyHash(code,native.DecodedTextSha256,"Controlled optics text");
-        void Check(int rva,int count,string hash)
-        {
-            var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,sourceScope,rva,count,hash);
-            VerifyHash(code.AsSpan(actual.Rva-start,count),actual.Sha,"Controlled optics complete body");
-        }
-        Check(0xE1F990,0x2BD,"F5EB73737EB683303606CBD9A1B0CE15384EA293B7DECCEEC5B8895C221350DC");
-        Check(0xE25EB0,0x160,"6C1D3939BE7B5FEF916BEEC261B4A719B44F496500E9DFE0927FF1133113C9B4");
-        Check(0xE246B0,0x354,"CE420CE2E090C662367CF6A5F16C630C23B341C4B429D13D8F19313B6D3DB348");
-        Check(0xE26010,0x140,"4852F410D8A2455B23A316CEF51756BD70EDCEFE1738D733BE019939A0ED4E44");
-        Check(0xE23DB0,0x63B,"5A81E97F84B044914E2789376ECF6A70CAF1F5F4BEA598BA816CF134995BB4A5");
-        Check(0xD7B4D0,0x45,"7D9D9828C35B068E26EAFEC15FBB28B91198CB992AEEE26EBDAD7B1416680E0C");
-        int Data(int rva)=>OriginalMapPostEffect3NativeSourceProfile.DataRva(native.Locale,sourceScope,rva);
-        float Literal(int rva)=>BinaryPrimitives.ReadSingleLittleEndian(image.Raw(Data(rva),4));
-        byte[] waves=new byte[8];image.Raw(Data(0x1688A48),4).CopyTo(waves);image.Raw(Data(0x14B4560),4).CopyTo(waves.AsSpan(4));
-        return new(native,power,atan,tangent,log,Literal(0x16DCB74),Literal(0x16DCBCC),Literal(0x13948B8),Literal(0x1343B5C),
-            waves,image.Raw(Data(0x16DCC00),12).ToArray(),
-            native.ResourceUri+$";{native.Locale}:paired-controlled-optics-source-profile;TC-reference-role:E24C99-unconditional-source-initial-E1F990/AF0;actual-EB-setters;D7B4D0-DeltaTime/AF/literalAL1;"+
-            "complete-E1F990/E25EB0/E246B0..E24A03/E26010;actual36B-of48B-source-ghost-inputs;28B-packed-output;owned-SSE-math/no-GPU-claim");
+        return new(native,power,atan,tangent,log,RenderRuleIdentity.For("post-effect3-controlled-optics",native.Locale)+
+            ";fresh-initialization/current-dirty-setters;typed-lens-and-ghost-rules;28B-packed-output;owned-SSE-math");
     }
 }

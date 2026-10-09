@@ -69,7 +69,7 @@ public sealed partial class OriginalOwnedArmyCampaignRules
         return current;
     }
     private OriginalArmyMapGroupingProfile? MapArmyGroupingProfile() => Seed.Language is "SC" or "TC"
-        ? _mapArmyGroupingProfile ??= OriginalArmyMapGroupingProfile.Load(_repository.SourceDirectory, Seed.Language) : null;
+        ? _mapArmyGroupingProfile ??= OriginalArmyMapGroupingProfile.Create() : null;
     private OriginalArmyMapGroupingCurrentQueries MapArmyGroupingQueries(GameState state, OriginalEventInitializationContext current)
-        => new(state, current, _scenario, _governorInputs, Seed.Language, Seed.Source.Sha256);
+        => new(state, current, _scenario, _governorInputs, Seed.Language, SimulationRuleIdentity.ForLocale(Seed.Language));
 }

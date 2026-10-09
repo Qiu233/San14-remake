@@ -10,16 +10,13 @@ public sealed class OriginalTacticRemakeCurrentAbilities : IEffectiveOfficerAbil
     public const string ProfileId = "san14:ce-owned-person-ability-20261002";
     private readonly OriginalEventInitializationContext _current;
     private readonly LoadedScenario _source;
-    private readonly string _language, _executableSha256;
+    private readonly string _language, _ruleVersion;
 
     public OriginalTacticRemakeCurrentAbilities(OriginalEventInitializationContext current,
-        LoadedScenario source, string language, string executableSha256)
+        LoadedScenario source, string language, string ruleVersion)
     {
-        _current = current; _source = source; _language = language; _executableSha256 = executableSha256;
-        string expected = language switch { "SC" => OriginalCeHexWorldCoordinates.VerifiedScExecutableSha256,
-            "TC" => OriginalCeHexWorldCoordinates.VerifiedTcExecutableSha256,
-            _ => throw new InvalidDataException("Owned Person ability language is unsupported.") };
-        if (executableSha256 != expected || source.Metadata.FormatMarker != 0x66 ||
+        _current = current; _source = source; _language = language; _ruleVersion = ruleVersion;
+        if (language is not ("SC" or "TC") || source.Metadata.FormatMarker != 0x66 ||
             source.Snapshot.Characters.Count != 1851)
             throw new InvalidDataException("Owned Person abilities require the current paired CE source profile.");
     }
@@ -47,7 +44,7 @@ public sealed class OriginalTacticRemakeCurrentAbilities : IEffectiveOfficerAbil
             var normalized = new OfficerAbilities(Read(0x124), Read(0x125), Read(0x126), Read(0x127), Read(0x128));
             if (officer.BaseAbilities != normalized)
                 throw new InvalidDataException("Fresh current base abilities differ from the actual source normalization.");
-            officers[officer.Id] = officer with { NativeAbilityRuntime = new(ProfileId, _language, _executableSha256,
+            officers[officer.Id] = officer with { NativeAbilityRuntime = new(ProfileId, _language, _ruleVersion,
                 _source.ScenarioSource.ResourceUri, _source.ScenarioSource.Sha256, physical,
                 raw.StatusCode, raw.RawOfficeId, raw.RawDoctrineId, raw.CreditReference.RawFlagsWord,
                 0, raw.CreditReference.RawStageCode, raw.CreditReference.RawTailCode,
@@ -63,7 +60,7 @@ public sealed class OriginalTacticRemakeCurrentAbilities : IEffectiveOfficerAbil
     {
         if (!Bound(state) || !state.Officers.TryGetValue(officerId, out OfficerState? officer) ||
             officer.NativeAbilityRuntime is not { } person || person.Revision != ProfileId ||
-            person.Language != _language || person.ExecutableSha256 != _executableSha256 ||
+            person.Language != _language || person.RuleVersion != _ruleVersion ||
             person.SourceScenarioUri != _source.ScenarioSource.ResourceUri ||
             person.SourceScenarioSha256 != _source.ScenarioSource.Sha256 ||
             _current.ReadPersonLookupReference(officerId)?.PhysicalSlot != person.PhysicalSlot ||
@@ -147,7 +144,7 @@ public sealed class OriginalTacticRemakeCurrentAbilities : IEffectiveOfficerAbil
     }
 
     private bool Bound(GameState state) => state.NativeArmySimulation?.Parameters is { } parameters &&
-        parameters.Language == _language && parameters.ExecutableSha256 == _executableSha256 &&
+        parameters.Language == _language && parameters.RuleVersion == _ruleVersion &&
         state.ContentHashes.GetValueOrDefault(_source.ScenarioSource.ResourceUri) == _source.ScenarioSource.Sha256 &&
         state.ContentHashes.GetValueOrDefault(_source.FixedDataSource.ResourceUri) == _source.FixedDataSource.Sha256;
     private int? Parameter(GameState state, int rva) => state.NativeArmySimulation!.Parameters.Int32Values

@@ -41,10 +41,7 @@ public sealed class OriginalMainMapViewportDepthPacket
     }
 }
 
-/// <summary>Source-created backend depth owner. Its initial words are read
-/// from the verified95DC10/966EA0 constructor recipe. D75E50 copies the current
-/// getter24B and changes only XYWH before95C070, preserving these two words.
-/// Every later depth setter must be recorded, or this owner invalidated.</summary>
+/// <summary>Owned backend depth defaults and current setter state. Viewport crop changes XYWH and preserves depth.</summary>
 public sealed class OriginalMainMapViewportDepthSource
 {
     private uint minimum, maximum;
@@ -52,16 +49,16 @@ public sealed class OriginalMainMapViewportDepthSource
     private long revision, lastPublishedFrame;
     private string writerProvenance;
 
-    private OriginalMainMapViewportDepthSource(OriginalMainViewportNativeRecipe recipe, string identity)
+    private OriginalMainMapViewportDepthSource(OriginalMainViewportDepthDefaults recipe, string identity)
     {
-        Locale = recipe.Locale; BackendOwnerIdentity = identity; NativeSourceProvenance = recipe.SourceProvenance;
+        Locale = recipe.Locale; BackendOwnerIdentity = identity; RuleVersion = recipe.RuleVersion;
         minimum = recipe.MinimumBits; maximum = recipe.MaximumBits;
-        writerProvenance = "fresh-owned-backend-construction;" + recipe.SourceProvenance;
+        writerProvenance = "fresh-owned-backend-construction;" + recipe.RuleVersion;
     }
 
     public string Locale { get; }
     public string BackendOwnerIdentity { get; }
-    public string NativeSourceProvenance { get; }
+    public string RuleVersion { get; }
     public bool CurrentDepthKnown => known;
 
     internal void ValidateCurrentRevision(long packetRevision, uint packetMinimum, uint packetMaximum)
@@ -70,14 +67,13 @@ public sealed class OriginalMainMapViewportDepthSource
             throw new InvalidDataException("Viewport depth packet predates the current backend word revision.");
     }
 
-    /// <summary>Create a new owned source backend generation, with no inherited
-    /// current original-process state. This reads inert source bytes only.</summary>
+    /// <summary>Create a new backend generation with depth endpoints zero and one.</summary>
     public static OriginalMainMapViewportDepthSource CreateFreshBackend(
         OriginalGameRepository repository, string locale, string ownedBackendId)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentException.ThrowIfNullOrWhiteSpace(ownedBackendId);
-        return new(OriginalDeferredSamplerSources.LoadMainViewportNativeRecipe(repository.SourceDirectory, locale), ownedBackendId);
+        return new(new(OriginalMainMapCameraRules.Language(locale),0,0x3F800000,OriginalMainMapCameraRules.Version),ownedBackendId);
     }
 
     /// <summary>Record the exact native24B Width/Height/X/Y/min/max setter
@@ -127,54 +123,5 @@ public sealed class OriginalMainMapViewportDepthSource
     }
 }
 
-internal sealed record OriginalMainViewportNativeRecipe(string Locale, uint MinimumBits, uint MaximumBits,
-    string SourceProvenance);
-
-public static partial class OriginalDeferredSamplerSources
-{
-    // Reuse the existing inert PE decoder inside this partial type. Each
-    // viewport window is independently pinned by the paired static audit.
-    internal static OriginalMainViewportNativeRecipe LoadMainViewportNativeRecipe(string sourceDirectory, string locale)
-    {
-        var profile = Profile(locale);
-        string path = Path.GetFullPath(Path.Combine(sourceDirectory, $"SAN14CE_{locale}.exe"));
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        if (stream.Length is < 4096 or > 128 * 1024 * 1024)
-            throw new InvalidDataException("Main viewport source executable size differs.");
-        byte[] exe = new byte[checked((int)stream.Length)]; stream.ReadExactly(exe);
-        VerifyHash(exe, profile.ExeHash, "viewport executable");
-        byte[] code = new NativeImage(exe).DecodeText(out int textRva);
-        VerifyHash(code, profile.TextHash, "viewport decoded text");
-        (int Constructor, int Reset, int Crop, int Setter, int Getter, string ConstructorHash, string CropHash) p = locale switch
-        {
-            "TC" => (0x95DC10, 0x966EA0, 0xD75E50, 0x95C070, 0x963D80,
-                "A072EF4A3E3E0A814D48B99FA052561066929C9898277595C0C86BED9E8AF7A7",
-                "E0BE331D2C448928336000A45B69CFB316EFE1FCA2FEF2057BEDE69F7530B9C8"),
-            "SC" => (0x95ECC0, 0x968020, 0xD76C10, 0x95D140, 0x964E30,
-                "4CA5B91FA5A658D32875107CA149593A5173BC976095CD7FDE0E859DA6296342",
-                "FB713A719A83B017B29F2EC5D306FB940D69ECCCD66B3C1A9E5C56F293122732"),
-            _ => throw new InvalidDataException("Main viewport requires a pinnedSC/TC profile.")
-        };
-        void Window(int rva, int count, string hash) => VerifyHash(code.AsSpan(checked(rva - textRva), count), hash, "viewport window");
-        Window(p.Constructor, 1220, p.ConstructorHash);
-        Window(p.Reset, 730, "96CF43A335C06277B910CA515C71D79FD79311D253EFBD351A227C2EE1BA2C9E");
-        Window(p.Crop, 614, p.CropHash);
-        Window(p.Setter, 244, "510DA55498D60ACD0BE1E3C51B7CA72E6713AD605AF1B09ACE46B99C9C02ECFF");
-        Window(p.Getter, 82, "610918DB7207637292D312F195D8EB7A71FEE6B1C8DB45EAFBBA215FF47C2835");
-        var minWriter = code.AsSpan(p.Reset - textRva + 0xFC, 11);
-        var maxWriter = code.AsSpan(p.Reset - textRva + 0x18E, 10);
-        if (!minWriter[..7].SequenceEqual(Convert.FromHexString("48C78138010000")) ||
-            !maxWriter[..6].SequenceEqual(Convert.FromHexString("C7817C010000")))
-            throw new InvalidDataException("Main viewport constructor endpoint writer operands differ.");
-        // MOV qword[138], imm32 sign-extends. Minimum at13C is its upper word.
-        long qword = BinaryPrimitives.ReadInt32LittleEndian(minWriter[7..]);
-        uint minimum = unchecked((uint)((ulong)qword >> 32));
-        uint maximum = BinaryPrimitives.ReadUInt32LittleEndian(maxWriter[6..]);
-        if (minimum != 0 || maximum != 0x3F800000)
-            throw new InvalidDataException("Main viewport constructor depth words differ.");
-        return new(locale, minimum, maximum,
-            $"san14://file/SAN14CE_{locale}.exe@{profile.ExeHash};decoded-text={profile.TextHash};" +
-            $"backend-ctor={p.Constructor:X8};reset={p.Reset:X8};min-write={p.Reset + 0xFC:X8};max-write={p.Reset + 0x18E:X8};" +
-            "proof=ce-main-viewport-depth-source-20261003;owned-source-generation");
-    }
-}
+internal sealed record OriginalMainViewportDepthDefaults(string Locale, uint MinimumBits, uint MaximumBits,
+    string RuleVersion);

@@ -89,14 +89,8 @@ public sealed class LoadedOriginalMapPostEffect3EyeComputeExecutionSource
                 if(!cb.Bytes.Span.Slice(pair.Offset,4).SequenceEqual(frame.Values[pair.Name].AsSpan(0,4)))
                     throw new InvalidDataException("Eye compute CB24 was produced for different current scalar values.");
         }
-        var sha=pass switch
-        {
-            102=>"04A6897BAD89D45E45F69CE3F8DA444975F5D693906D810059879EBEADD46D63",
-            103=>"761B0FCD3090CEB80F40B94774C72098076BD1110E996D4E96D6D4CF71093A28",
-            104=>"E2F1509897906E4C3C753EF5C8AF470AE3E0CD4666B82751B3D8529EFB276FE1",
-            _=>throw new InvalidDataException("Unknown Eye automatic compute ordinal.")
-        };
-        _=OriginalMapPostEffect3Functor1FootprintSource.RequireProgram(allocation,pass,5,pass-52,sha);
+        var program=OriginalMapPostEffect3Functor1FootprintSource.RequireProgram(allocation,pass,5,pass-52);
+        string sha=program.Sha256;
         if(allocation.Passes[pass].DispatchExtent is not{X:>0,Y:>0,Z:1} dispatch)
             throw new InvalidDataException("Eye selected generic dispatch lacks its actual positive source context extent.");
         if((pass is 102 or 104)&&dispatch!=new OriginalMapPostEffect3DispatchExtent(1,1,1))
@@ -118,16 +112,7 @@ public static partial class OriginalDeferredSamplerSources
 {
     internal static LoadedOriginalMapPostEffect3EyeComputeExecutionSource ReadEyeComputeExecutionSource(LoadedOriginalDeferredSamplerNativeSource native)
     {
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"Eye compute executable");
-        var image=new NativeImage(exe);byte[] text=image.DecodeText(out int start);VerifyHash(text,native.DecodedTextSha256,"Eye compute decoded source");
-        void Pin(int rva,int count,string hash,string role)
-        {
-            var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3EyeComputeExecutionSource.cs",rva,count,hash);
-            VerifyHash(text.AsSpan(actual.Rva-start,count),actual.Sha,role);
-        }
-        Pin(0x1157CB0,909,"1C6187E908374993AA3E7624A283557CD43EB7FD8727B1E1CA5F2967C89E4009","Eye Before actual mask/no AutoExposure gate");
-        Pin(0x1157A20,326,"48A3E39E4134C3912C9377A266FD51C5394BAC6F98D6BB50E4992A5B008CA807","Eye actual single iteration and generic execute wrapper");
-        Pin(0x1158DC0,950,"C3C6F0B1DB8681DCB4572917A293086B2241425275C7800628DBC40A04FD524D","Eye custom Execute compute ordinals AL1");
+
         return new(native,native.ResourceUri+";TC1159A40-mask-unconditional-E0;1157CB0-Before-mask-and-4Klookup-only;"+
             "1158DDD..1158E27-compute5/6/7→1159172-AL1;1157B21→1163170-generic-CS-after-ExecuteAL1;"+
             "counted-pass102/103/104-native-dispatch-context;no-AutoExposure-skip/no-GPU-claim");

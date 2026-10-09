@@ -44,7 +44,7 @@ public sealed partial class OriginalOwnedArmyCampaignRules : IPlayableTransportC
             {
                 Troops = fields.Troops16, Supplies = fields.Supplies60, Morale = fields.Morale1A,
                 WoundedTroops = fields.Wounded18, FormationId = fields.Formation1B, TacticIds = [],
-                NativeArmyOrigin = new(TransportCreationRevision, Seed.Language, Seed.Source.Sha256)
+                NativeArmyOrigin = new(TransportCreationRevision, Seed.Language, SimulationRuleIdentity.ForLocale(Seed.Language))
                     { NativeSlotIndex = fields.NativeSlot },
                 NativeArmyConfiguration = new(fields.Formation1B, fields.Formation1C, fields.Action37, fields.Category40)
                     { TraitSlots64 = new ushort[36] },

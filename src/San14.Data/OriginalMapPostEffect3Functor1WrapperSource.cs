@@ -164,32 +164,8 @@ public static partial class OriginalDeferredSamplerSources
     internal static LoadedOriginalMapPostEffect3Functor1WrapperSource ReadPostEffect3Functor1WrapperSource(LoadedOriginalDeferredSamplerNativeSource native)
     {
         if(native.Locale is not ("TC" or "SC"))throw new NotSupportedException("Functor1 wrapper source requires a verified SC/TC profile.");
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"Functor1 wrapper executable");
-        var image=new NativeImage(exe);byte[] code=image.DecodeText(out int start);VerifyHash(code,native.DecodedTextSha256,"Functor1 wrapper decoded text");
-        foreach(var w in new (int Rva,int Count,string Sha)[]{
-            (0x114CD40,152,"15A81E37172F430508849084B0C0F18A32F61EF5AD8A2ED2939464BC68AF20A9"),
-            (0x1157A20,326,"48A3E39E4134C3912C9377A266FD51C5394BAC6F98D6BB50E4992A5B008CA807"),
-            (0x1161D40,1773,"57B3E131B5FEAA2CC5DFC7318AD910B987B26478F475619E5ADB679F020B770A"),
-            (0x1163170,751,"521950BFFD2C49366ACAF604363A74BDB91126F20BC422F31370E925794C5DA3"),
-            (0x1163080,28,"98DED7630F7B1079FB54BAD0024AC6EF05F24ADC41481D36BEF7135CED74AC80"),
-            (0x114B450,170,"214B18CAFFAB679177C23D8DA4A88816DE78B7A2908B8C00E019366ED8693863"),
-            (0x114C350,586,"BFD8C2D94C30825F8771F3F6E1AE82FC1ED1623F540454C89C973A2ABAA29484"),
-            (0x114BEA0,1194,"BFDC89EDCA1363CC6755EB01070A1E7ED3D09C49E68171436B8FFFC48E1BEC2A"),
-            (0x1154DC0,883,"B7D2C93150508BEADA08F35D346DA55113204A7966C559C495DD8F793FCB324B"),
-            (0x1155CF0,1943,"C967847CFF3FE30B1F599E6D596E0690D5E2729929B17CB8B8871FEF5B03F30A"),
-            (0x1157CB0,909,"1C6187E908374993AA3E7624A283557CD43EB7FD8727B1E1CA5F2967C89E4009"),
-            (0x1158DC0,956,"975632AA78E57E1DA37C17BECDF3C5A914D89794359C58D8EE800D7D847AF859"),
-            (0x1159DD0,588,"52A867136CF0A14353EDDCF8425FBE61F0AB1AA72D425553DE3BD7BE39F28888"),
-            (0x115B750,1101,"8D49711CA686E9B60C7D6C8C677104193720893902AFA0535404E3551EA95EA3"),
-            (0x1164140,367,"42AAAE035916B91AF03ADF1C3A99CB1596F9A566E6466C864D7C12E40803538E"),
-            (0xBF9280,3,"E18AACCE29AFFCDDDAA5F641AC1EC12552E0FE9D066E6408941B1792818B8619")})
-            { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3Functor1WrapperSource.cs",w.Rva,w.Count,w.Sha);
-              VerifyHash(code.AsSpan(actual.Rva-start,w.Count),actual.Sha,"Functor1 wrapper/callback source"+w.Rva.ToString("X")); }
-        foreach(var f in OriginalMapPostEffect3PassStateReader.FactoriesForLocale(native.Locale).Skip(6))
-        foreach(var slot in new (int Offset,uint Rva)[]{(8,f.PassWrapper),(0x40,f.BeforeHook),(0x48,f.ExecuteHook),(0x50,f.AfterHook),(0x58,f.FinalizeHook)})
-            if(System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(image.Raw(checked((int)f.Vtable+slot.Offset),8))!=0x140000000UL+slot.Rva)
-                throw new InvalidDataException("Functor1 wrapper callback vtable join changed.");
-        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+"@"+native.ExecutableSha256+
+
+        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+";render-rules="+native.RenderRuleIdentity+
             ";114CD40/1157A20-source-Before-masks/repeats/Execute/After/Reset;v58=BF9280-literal1;no-native-live-program-or-device-observation",native.Locale);
     }
 }

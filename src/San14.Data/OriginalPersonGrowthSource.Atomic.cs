@@ -30,7 +30,7 @@ public sealed partial class OriginalPersonGrowthSource
         if (!input.Officers.TryGetValue(personId, out OfficerState? person) || abilityIndex is < 0 or > 4 ||
             person.NativeAbilityRuntime is not { } owner || person.NativeGrowthRuntime is not { } growth ||
             input.NativeArmySimulation?.Parameters is not { } parameters || owner.Language != parameters.Language ||
-            owner.ExecutableSha256 != parameters.ExecutableSha256 || owner.Revision != OriginalTacticRemakeCurrentAbilities.ProfileId ||
+            owner.RuleVersion != parameters.RuleVersion || owner.Revision != OriginalTacticRemakeCurrentAbilities.ProfileId ||
             current.StaticSource is not { } source || owner.SourceScenarioUri != source.ResourceUri ||
             owner.SourceScenarioSha256 != source.Sha256 || input.ContentHashes.GetValueOrDefault(source.ResourceUri) != source.Sha256 ||
             growth.Revision != ProfileId || growth.SourceExperienceUri != _source.ResourceUri ||

@@ -41,7 +41,7 @@ public sealed class OriginalBattleRemakeCurrentBaseAttributes
         OriginalBaseReference actualCity, byte finalDescriptorDivisor14)
     {
         if (state.NativeArmySimulation?.Parameters is not { } parameters ||
-            parameters.Language != seed.Language || parameters.ExecutableSha256 != seed.Source.Sha256 ||
+            parameters.Language != seed.Language || parameters.RuleVersion != seed.Source.RuleVersion ||
             definitions.StaticSource is not { } source ||
             state.ContentHashes.GetValueOrDefault(source.ResourceUri) != source.Sha256 ||
             actualCity.Kind != OriginalBaseKind.City || actualCity.PhysicalSlot is not >= 1 or > 51 ||

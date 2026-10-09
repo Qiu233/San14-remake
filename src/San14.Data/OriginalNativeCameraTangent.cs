@@ -47,8 +47,7 @@ public static class OriginalNativeCameraTangent
         return Convert(Divide(c.NegativeOne,tangent));
     }
 
-    /// <summary>The optional installed source binds the paired executable and
-    /// exact coefficient bytes to the same finite arithmetic implementation.</summary>
+    /// <summary>Apply the immutable tangent rule set with the requested rounding path.</summary>
     public static float Tangent1020A90(float halfFovRadians,LoadedOriginalNativeCameraTangentSource source,
         OriginalNativeCameraTangentDispatch dispatch)
     {

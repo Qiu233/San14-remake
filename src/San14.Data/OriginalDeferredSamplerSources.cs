@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -7,9 +6,9 @@ namespace San14.Data;
 /// <summary>A final source descriptor key, after its selected producer and
 /// plugin writes. It is not an observation of a current original GPU state.</summary>
 public sealed record OriginalDeferredSamplerSourceInput(uint Register,string ResourceName,
-    string SourceResourceUri,string SourceSha256,byte[] OriginalKey);
+    string SourceResourceUri,string SourceIdentity,byte[] OriginalKey);
 public sealed record OriginalDeferredSamplerSourceBinding(uint Register,string SamplerName,
-    uint TextureRegister,string TextureName,string SourceResourceUri,string SourceSha256,
+    uint TextureRegister,string TextureName,string SourceResourceUri,string SourceIdentity,
     G1TextureSamplerRecipe Recipe);
 public sealed record LoadedOriginalDeferredSamplerSources(LoadedShaderContainer Shader,
     LoadedOriginalDeferredSamplerNativeSource Native,LoadedOriginalDeferredTexturePlan TexturePlan,
@@ -36,7 +35,7 @@ public static partial class OriginalDeferredSamplerSources
     public static OriginalDeferredSamplerSourceInput FromRetainedImage(LoadedOriginalDeferredSamplerNativeSource native,
         uint register,LoadedTextureContainer source,int imageIndex)
     {
-        ArgumentNullException.ThrowIfNull(source);VerifyAsset(source.Source);
+        ArgumentNullException.ThrowIfNull(source);RequireResourceIdentity(source.Source);
         var container=G1TextureContainerReader.Read(source.Source.Bytes);
         if((uint)imageIndex>=container.Textures.Count)throw new InvalidDataException("Deferred source sampler image is absent.");
         G1TextureImage image=container.Textures[imageIndex];
@@ -54,7 +53,7 @@ public static partial class OriginalDeferredSamplerSources
     public static OriginalDeferredSamplerSourceInput FromRenderTexture(LoadedOriginalDeferredSamplerNativeSource native,
         uint register,OriginalRenderTextureDefinition source)
     {
-        ArgumentNullException.ThrowIfNull(source);VerifyAsset(source.Source.Source);
+        ArgumentNullException.ThrowIfNull(source);RequireResourceIdentity(source.Source.Source);
         var original=new LoadedObjects(DokReader.Read(source.Source.Source.Bytes),source.Source.Source);
         OriginalRenderTextureDefinition parsed=OriginalRenderTextureResources.Read(original,source.Object.ObjectId);
         if(parsed.Object.ClassId!=source.Object.ClassId||parsed.Object.Kind!=source.Object.Kind||
@@ -69,7 +68,7 @@ public static partial class OriginalDeferredSamplerSources
     public static OriginalDeferredSamplerSourceInput FromAmbientCube(LoadedOriginalDeferredSamplerNativeSource native,
         OriginalCubeRenderTextureDefinition source)
     {
-        ArgumentNullException.ThrowIfNull(source);VerifyAsset(source.Source.Source);
+        ArgumentNullException.ThrowIfNull(source);RequireResourceIdentity(source.Source.Source);
         var original=new LoadedObjects(DokReader.Read(source.Source.Source.Bytes),source.Source.Source);
         var parsed=OriginalCubeRenderTextureResources.Read(original,source.Object.ObjectId);
         if(parsed.Object.ClassId!=source.Object.ClassId||parsed.Object.Kind!=source.Object.Kind||
@@ -85,7 +84,7 @@ public static partial class OriginalDeferredSamplerSources
     public static OriginalDeferredSamplerSourceInput FromProducerKey(LoadedOriginalDeferredSamplerNativeSource native,
         uint register,LoadedRdbAsset source,string sourceFragment,ReadOnlySpan<byte> originalFinalKey)
     {
-        ArgumentNullException.ThrowIfNull(source);VerifyAsset(source);
+        ArgumentNullException.ThrowIfNull(source);RequireResourceIdentity(source);
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceFragment);
         _=DecodeKey(native,originalFinalKey);
         return Input(register,source.ResourceUri+"#"+sourceFragment,source.DecodedSha256,originalFinalKey);
@@ -141,7 +140,7 @@ public static partial class OriginalDeferredSamplerSources
         foreach(var proof in nulls)proof.Validate();
         var removed=nulls.Select(n=>n.PixelRegister).ToHashSet();
         if(explicitSourceIesNull is not null){explicitSourceIesNull.Validate();removed.Add(0);}
-        if(textures.Shader.Source.ResourceUri!=shader.Source.ResourceUri||textures.Shader.Source.DecodedSha256!=ShaderSourceSha256||
+        if(textures.Shader.Source.ResourceUri!=shader.Source.ResourceUri||textures.Shader.Source.FileId!=shader.Source.FileId||
             textures.ResourceBindings.Combination.Index!=0||textures.Inputs.Count!=5)
             throw new InvalidDataException("Deferred sampler texture plan differs from the exact original combo0 source.");
         uint[] external=new uint[]{0,1,2,3,4,6,7,8,9,10}.Where(r=>!removed.Contains(r)).ToArray();
@@ -160,7 +159,7 @@ public static partial class OriginalDeferredSamplerSources
         var depth=DepthOrRr("D1",8,11,0xE13DDB4F);var rr=DepthOrRr("RR",131,15,0x85C125A6);
         input.Add(11,FromRenderTexture(native,11,depth.Texture));
         input.Add(15,FromRenderTexture(native,15,rr.Texture));
-        input.Add(5,Input(5,native.ResourceUri+"/generated-ggx-wrapper/mip1",native.ExecutableSha256,RenderTextureKey(native,1)));
+        input.Add(5,Input(5,native.ResourceUri+"/generated-ggx-wrapper/mip1",native.RenderRuleIdentity,RenderTextureKey(native,1)));
         var declarations=shader.ReadResourceDefinitions(1).Bindings.Where(b=>b.InputType==3).ToArray();
         var mappings=shader.ReadG1ResourceBindings(0);var output=new List<OriginalDeferredSamplerSourceBinding>(13);
         foreach(var row in ConsumerRows)
@@ -173,39 +172,37 @@ public static partial class OriginalDeferredSamplerSources
                 mapping is null||mapping.PrimaryEncoded!=row.Encoded||mapping.SlotIndex!=(short)row.Register)
                 throw new InvalidDataException("Deferred sampler original name/register/encoded preparation mapping differs.");
             var chosen=input[row.Register];
-            if(chosen.ResourceName!=row.Texture||string.IsNullOrWhiteSpace(chosen.SourceResourceUri)||chosen.SourceSha256.Length!=64)
+            if(chosen.ResourceName!=row.Texture||string.IsNullOrWhiteSpace(chosen.SourceResourceUri)||string.IsNullOrWhiteSpace(chosen.SourceIdentity))
                 throw new InvalidDataException("Deferred sampler selected producer identity differs from its source consumer.");
             var recipe=DecodeKey(native,chosen.OriginalKey);
             if(((recipe.Filter&0x80)!=0)!=(row.Register is 3 or 4))
                 throw new InvalidDataException("Deferred source sampler comparison enable differs from its executable declaration.");
-            output.Add(new(row.Register,name,row.Register,row.Texture,chosen.SourceResourceUri,chosen.SourceSha256,recipe));
+            output.Add(new(row.Register,name,row.Register,row.Texture,chosen.SourceResourceUri,chosen.SourceIdentity,recipe));
         }
         return new(shader,native,textures,output.AsReadOnly()){
             SourceNulls=Array.AsReadOnly(nulls),FreshSourceIesNull=explicitSourceIesNull};
     }
 
-    private static OriginalDeferredSamplerSourceInput Input(uint register,string uri,string hash,ReadOnlySpan<byte> key)
+    private static OriginalDeferredSamplerSourceInput Input(uint register,string uri,string identity,ReadOnlySpan<byte> key)
     {
         var row=Row(register);if(key.Length!=8)throw new InvalidDataException("Deferred sampler source key is incomplete.");
-        return new(register,row.Texture,uri,hash,key.ToArray());
+        return new(register,row.Texture,uri,identity,key.ToArray());
     }
     private static (uint Register,string Texture,uint Dimension,short Encoded) Row(uint register)
     {
         foreach(var row in ConsumerRows)if(row.Register==register)return row;
         throw new InvalidDataException("Register is outside the complete original deferred sampler inventory.");
     }
-    private static void VerifyAsset(LoadedRdbAsset source)
+    private static void RequireResourceIdentity(LoadedRdbAsset source)
     {
-        if(source.OverrideSource is not null||string.IsNullOrWhiteSpace(source.ResourceUri)||
-            !Convert.ToHexString(SHA256.HashData(source.Bytes)).Equals(source.DecodedSha256,StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Deferred sampler source bytes differ from their original declared identity.");
+        if(source.OverrideSource is not null||string.IsNullOrWhiteSpace(source.ResourceUri))
+            throw new InvalidDataException("Deferred sampler resource requires its original source URI.");
     }
     private static void ValidateShader(LoadedShaderContainer source)
     {
-        VerifyAsset(source.Source);
-        if(source.Source.FileId!=0x9D8E811F||source.Source.DecodedSha256!=ShaderSourceSha256||
-            source.Source.ResourceUri!="san14://rdb/system/9D8E811F"||
-            Convert.ToHexString(SHA256.HashData(source.Container.GetProgramBytes(source.Source.Bytes,1)))!=PixelSourceSha256||
+        RequireResourceIdentity(source.Source);
+        if(source.Source.FileId!=0x9D8E811F||source.Source.ResourceUri!="san14://rdb/system/9D8E811F"||
+            !source.Container.StageTables.Single(t=>t.StageCode==0).Entries.Any(e=>e.ProgramIndex==1)||
             source.ReadResourceDefinitions(1).Bindings.Count!=42)
             throw new InvalidDataException("Deferred sampler source differs from the exact original PS1 identity.");
     }

@@ -70,10 +70,7 @@ public static partial class OriginalDeferredSamplerSources
         LoadedOriginalDeferredSamplerNativeSource native)
     {
         if(native.Locale is not ("TC" or "SC"))throw new NotSupportedException("LensFlare2 controller texture source requires a verified SC/TC profile.");
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"LensFlare2 controller executable");
-        var image=new NativeImage(exe);byte[] code=image.DecodeText(out int start);VerifyHash(code,native.DecodedTextSha256,"LensFlare2 controller text");
-        { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3LensFlare2ControllerTextures.cs",0xE22860,0x15F,"E935DC89448F6C32083CE6591C6F9C4E5D9F0E5EC6604CCA4F96C0A4D2CF1B84");
-          VerifyHash(code.AsSpan(actual.Rva-start,0x15F),actual.Sha,"LensFlare2 E22860 internal texture choices"); }
+
         return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+";TC:E22860..E229BE;E22919-copy-owned50-to51-if-Diaphragm9C!=2;"+
             "E229BA-copy-owned55-to56-if-ExternalStarA0=0;no-LF2OutputColor57-alias",native.Locale);
     }

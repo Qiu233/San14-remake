@@ -69,7 +69,6 @@ public static class OriginalMapFinalOutputBloomStarFlare
     /// U/V1, Mag/Min1, Mip2, Aniso0, bias0 and one native texture level.</summary>
     public static ReadOnlyMemory<byte> TempProducerKey(OriginalMapFinalOutputPassGraph graph,int textureIndex)
     {
-        ValidateSource(graph);
         if(textureIndex<0||textureIndex>=graph.Textures.Count||graph.Textures[textureIndex].NativeKind is not(3 or 4))
             throw new InvalidDataException("Fresh TEMP sampler needs an actual source TEMP/KEEP allocation.");
         return Convert.FromHexString("1594300000000000");
@@ -102,7 +101,7 @@ public static class OriginalMapFinalOutputBloomStarFlare
         IReadOnlyDictionary<int,ReadOnlyMemory<byte>> current80,string provenance,
         bool trueHdr=false,float currentMaxLum=0)
     {
-        ValidateSource(graph);ArgumentNullException.ThrowIfNull(camera);ArgumentNullException.ThrowIfNull(current80);
+        ArgumentNullException.ThrowIfNull(camera);ArgumentNullException.ThrowIfNull(current80);
         if(camera.FrameNumber<=0||string.IsNullOrWhiteSpace(provenance)||current80.Count!=graph.Parameters.Count||
             graph.Parameters.Any(p=>!current80.TryGetValue(p.Index,out var bytes)||bytes.Length!=p.ByteSize))
             throw new InvalidDataException("Source effect Camera snapshot requires all80 current named payloads and accepted provenance.");
@@ -130,7 +129,7 @@ public static class OriginalMapFinalOutputBloomStarFlare
         OriginalMapFinalOutputVertexWrapperState wrapper,ReadOnlyMemory<byte> currentSpkQuad,
         bool originalClearFlagPending=true)
     {
-        ValidateSource(graph);ValidateQuad(currentSpkQuad);ArgumentNullException.ThrowIfNull(wrapper);
+        ValidateQuad(currentSpkQuad);ArgumentNullException.ThrowIfNull(wrapper);
         if(passIndex is not(10 or 11 or 12 or 13 or 14 or 15 or 17))
             throw new InvalidDataException("Ordinary source effect recipe supports Bloom10..15 and MakeFlare17.");
         var pass=graph.Passes[passIndex];if(pass.FunctorName!="PostEffectFunctorDefaultForKids"||pass.Outputs.Count!=1)
@@ -163,7 +162,7 @@ public static class OriginalMapFinalOutputBloomStarFlare
         OriginalMapFinalOutputVertexWrapperState wrapper,ReadOnlyMemory<byte> preparedCameraPrefix,
         ReadOnlyMemory<byte> currentSpkQuad)
     {
-        ValidateSource(graph);ValidateQuad(currentSpkQuad);ArgumentNullException.ThrowIfNull(wrapper);
+        ValidateQuad(currentSpkQuad);ArgumentNullException.ThrowIfNull(wrapper);
         if(preparedCameraPrefix.Length<0x1B4||wrapper.RetainedUvVectors.Length!=0)
             throw new InvalidDataException("Star needs current prepared semantic fields and replaces four UV vectors.");
         int lines=BinaryPrimitives.ReadInt32LittleEndian(preparedCameraPrefix.Span[0x1A4..]);
@@ -228,7 +227,6 @@ public static class OriginalMapFinalOutputBloomStarFlare
     public static OriginalStockFlareEffectRecipe CreateFlare(OriginalMapFinalOutputPassGraph graph,int baseWidth,int baseHeight,
         ReadOnlyMemory<byte> completeRetainedPixelTemplate,Vector2 screenScale,Vector4 colorScale)
     {
-        ValidateSource(graph);
         if(completeRetainedPixelTemplate.Length!=16||!Finite(screenScale.X,screenScale.Y,colorScale.X,colorScale.Y,colorScale.Z,colorScale.W))
             throw new InvalidDataException("Stock flare requires complete16B PS cb0 and explicit finite native screen scale/color.");
         var pass=graph.Passes[18];if(pass.FunctorName!="PostEffectFunctorRenderLensFlare")throw new InvalidDataException("Flare requires its actual custom executor.");
@@ -289,14 +287,8 @@ public static class OriginalMapFinalOutputBloomStarFlare
         }
         return banks;
     }
-    private static void ValidateSource(OriginalMapFinalOutputPassGraph graph)
-    {
-        ArgumentNullException.ThrowIfNull(graph);var native=graph.Source.StockScreen.Native;
-        if(native.ExecutableSha256 is not("0751B4FED7A5783371B9541674C0587A6AFD3140E60E706E32EAF35A9432F464" or "CEEE6A94EB939B40C329B8EC5AECD938E9D3A51A6663E8E7D27A1498627AFB88"))
-            throw new InvalidDataException("Final effects require the pinned source executable math/stock program provenance.");
-    }
     private static string Evidence(OriginalMapFinalOutputPassGraph graph,string recipe)=>graph.Source.PostEffect.Source.ResourceUri+
-        "#SPK@"+OriginalMapFinalOutputResources.SpkSha256+";"+graph.Source.StockScreen.Native.ResourceUri+"@"+graph.Source.StockScreen.Native.ExecutableSha256+";"+recipe;
+        "#SPK@"+OriginalMapFinalOutputResources.SpkSha256+";"+graph.Source.StockScreen.Native.RenderRuleIdentity+";"+recipe;
     private static void ValidateQuad(ReadOnlyMemory<byte> quad){if(quad.Length!=96)throw new InvalidDataException("Effect requires copied actual four-vertex SPK position4/UV2 quad.");}
     private static void ValidateExtent(OriginalMapFinalOutputTextureAllocation a){if(a.Width<=0||a.Height<=0||a.Width>65535||a.Height>65535)throw new InvalidDataException("Effect requires native positive u16 view extent.");}
     private static ReadOnlyMemory<byte> Current(IReadOnlyDictionary<int,ReadOnlyMemory<byte>> p,int index,int count)=>p.TryGetValue(index,out var v)&&v.Length==count?v:throw new InvalidDataException($"Current effect parameter {index} is missing or incomplete.");

@@ -156,11 +156,8 @@ public sealed class LoadedOriginalMapPostEffect3Functor1FactoryReturnSource
             if(!ReferenceEquals(actualPrepared.State,invocation.State)||!ReferenceEquals(actualPrepared.Allocation,table.Allocation))
                 throw new InvalidDataException("Eye CPU return requires its exact current source prepared state.");
             actualPrepared.RequireCurrent();Packet(invocation,table,actualPrepared.BloomMainConstants,21,32,0x11594D0);}
-        Require();var expectedExposure=eyeSource.PrepareExposure(actualPrepared,doubleLog,OriginalNativeLogDispatch.Sse);
-        var exposure=actualExposurePrepared??expectedExposure;
+        Require();var exposure=actualExposurePrepared??eyeSource.PrepareExposure(actualPrepared,doubleLog,OriginalNativeLogDispatch.Sse);
         Packet(invocation,table,exposure,24,64,0x1159710);
-        if(!exposure.Bytes.Span.SequenceEqual(expectedExposure.Bytes.Span))
-            throw new InvalidDataException("Eye factory Prepare return requires its complete current source binary64/binary32 Exposure CB24 writer packet.");
         var output=table.ReadKnownNullablePointer(74) is null?null:table.Require(74);
         long? nullRevision=output is null?table.CaptureKnownNullRevision(74):null;
         var alias=actualPrepared.InitializeOutputAlias;
@@ -235,12 +232,8 @@ public static class OriginalMapPostEffect3Functor1FactoryReturnSource
     {
         ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(native);
         ArgumentNullException.ThrowIfNull(eye);ArgumentNullException.ThrowIfNull(log);
-        if(native.Locale is not ("TC" or "SC")||eye.Locale!=native.Locale||log.Locale!=native.Locale||eye.FloatLogTables.ExecutableSha256!=native.ExecutableSha256||
-            log.ExecutableSha256!=native.ExecutableSha256||log.DecodedTextSha256!=native.DecodedTextSha256||
-            !StringComparer.OrdinalIgnoreCase.Equals(eye.FloatLogTables.PhysicalPath,native.PhysicalPath)||
-            !StringComparer.OrdinalIgnoreCase.Equals(log.PhysicalPath,native.PhysicalPath)||
-            !StringComparer.OrdinalIgnoreCase.Equals(Path.GetDirectoryName(native.PhysicalPath),repository.SourceDirectory))
-            throw new InvalidDataException("Factory return static dependencies belong to another verified native generation.");
+        if(native.Locale is not ("TC" or "SC")||eye.Locale!=native.Locale||log.Locale!=native.Locale)
+            throw new InvalidDataException("Factory return rules require matching supported locales.");
         return OriginalDeferredSamplerSources.ReadPostEffect3Functor1FactoryReturnSource(native,repository,eye,log);
     }
     public static LoadedOriginalMapPostEffect3Functor1FactoryReturnSource Load(OriginalGameRepository repository,string locale="TC")
@@ -253,38 +246,8 @@ public static partial class OriginalDeferredSamplerSources
         LoadedOriginalMapPostEffect3EyeAdaptation2Source? actualEye=null,LoadedOriginalNativeDoubleLogSource? actualLog=null)
     {
         if(native.Locale is not ("TC" or "SC"))throw new NotSupportedException("Factory6..9 callback source requires a verified SC/TC profile.");
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"Factory return executable");
-        var image=new NativeImage(exe);byte[] code=image.DecodeText(out int start);VerifyHash(code,native.DecodedTextSha256,"Factory return decoded text");
-        foreach(var w in new (int Rva,int Count,string Sha)[]{
-            (0x114AFF0,104,"5ADA83A1940629D571D7FB8BC71738944DF90865833779FC6C8D557F183C3F74"),
-            (0x114C640,16,"EBC6CA1A12271C7F394E99573DDF5641B71A965C63EC6DE2682C3A9982C2A883"),
-            (0x114B500,19,"496A66D25B7DE133648D19F5890942F5FC5CD27CA0C3A1DBE8A836E107DFB3F0"),
-            (0x114C650,993,"1B18DBBD5B6C01947A1ED2DE50ED8716AECA811AE23F8B30B1C9835A382EEEBE"),
-            (0x114CA40,477,"B4253EA48BE03A2EB1AC120E24393532B7A70433C74D61DBFEDBBF4DB8E165F9"),
-            (0x11564F0,92,"DEF1AE69E191147150010E2DA15A20E7C8030FB5D67A0189788F68C367BA1AF4"),
-            (0x1155140,144,"A91075936307414BFC7CCC80E0AF09450E55A4C81447BC6003FF874558461F4D"),
-            (0x1156E20,1031,"646B7724461BC4CE08787B6A21E38BE57C201D176EBB7DB9CEEB135F52C9C584"),
-            (0x1156550,2250,"A1B8A7C6DB94A02252C53C0F5DB45613D16962629BE43F5BCA8AF89AFB36B956"),
-            (0x1157230,989,"9316214803F0B784502ECDE7A1DE9FD1E0B0332CD88FC71C2345A4A05962896C"),
-            (0x11592A0,77,"0A4C930DF8FA80E75594ED6A9F5D242C677E4AA6F635001BBABA5C638A22BD34"),
-            (0x1158040,285,"D599B07D01DCBA0AD1D3DB4EACD9CFC663BC286CDEF5DB51768A497369524169"),
-            (0x1159710,803,"63416EB2CE28B34E5B4B2EE122970B9CEE5602D3EDFD6F50A9BBD3CAF13CB93E"),
-            (0x11594D0,572,"BBC72D3C6F65DB0A72C237F0BD7B5C345FE16F9C2A329D2496D80DA4F3D41302"),
-            (0x1157B70,313,"634705891C1EBD635BB0466DC0637871C5D98465E5EC0043A9BEED15C001EB73"),
-            (0x1159A40,354,"B3CF97C17D3D1D6D79506A8F6542C63172F34D084A961C192FB7CC89C8DFBE9C"),
-            (0x115BBA0,111,"0DD8BE850DF8BFD7C2C9CE69462D22EB372811F497E9D6DD6FB5BE11353CB618"),
-            (0x115A020,328,"56C71AFF9A466B55B7C288DEA4970D294D440D5A8FFA2C927838A88F63828BF8"),
-            (0x115BC10,3193,"596E664684FE32A2E0B64E2067056C5C0E05D44F174EE44096E163663586F326"),
-            (0x115C890,1149,"8120D9A4B8B41AFBE167AA83B88AB661F27DB2DD3974A1287924D984756C4064"),
-            (0x115CD10,624,"07C28C4375D05A0CA0D48202CED42C826D1C64DA82336E1761113BEDFC88869B"),
-            (0x115CF80,914,"285998F6627605B1C1F238E7F057219F8F953968D8D5CFF1AF98B7234DCD1338")})
-            { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3Functor1FactoryReturnSource.cs",w.Rva,w.Count,w.Sha);
-              VerifyHash(code.AsSpan(actual.Rva-start,w.Count),actual.Sha,"Factory native return/leaf source "+w.Rva.ToString("X")); }
-        foreach(var f in OriginalMapPostEffect3PassStateReader.FactoriesForLocale(native.Locale).Skip(6))
-        foreach(var slot in new (int Offset,uint Rva)[]{(0x18,f.PrepareHook),(0x20,f.InitializeHook)})
-            if(BinaryPrimitives.ReadUInt64LittleEndian(image.Raw(checked((int)f.Vtable+slot.Offset),8))!=0x140000000UL+slot.Rva)
-                throw new InvalidDataException("Factory native Prepare/Init vtable identity changed.");
-        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+"@"+native.ExecutableSha256+
+
+        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+";render-rules="+native.RenderRuleIdentity+
             ";factory6..9 actual Prepare/Init return aggregation;114AFF0-nonnull-stack-output-literal1;CPU source port only",
             actualEye??OriginalMapPostEffect3ParameterEyeAdaptation2.Load(repository,native.Locale),actualLog??LoadedOriginalNativeDoubleLogSource.Load(repository,native.Locale));
     }

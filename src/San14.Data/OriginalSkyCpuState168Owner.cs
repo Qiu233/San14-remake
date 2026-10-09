@@ -239,25 +239,9 @@ public static partial class OriginalDeferredSamplerSources
 {
     internal static string ReadSkyCpuState168NativeSource(string sourceDirectory,string locale)
     {
-        var profile=Profile(locale);byte[] exe=File.ReadAllBytes(Path.Combine(sourceDirectory,$"SAN14CE_{locale}.exe"));
-        VerifyHash(exe,profile.ExeHash,"SkyCPU168 executable");var image=new NativeImage(exe);
-        byte[] code=image.DecodeText(out int textRva);VerifyHash(code,profile.TextHash,"SkyCPU168 decoded text");
-        (int Rva,int Count,string Hash)[] windows=locale switch{
-            "TC"=>[(0xE38440,359,"0C3A7CF2C98C6FAFBDC83D0B1F7D5FF5CDB7508199B04F941FCB23BA56AD3DBD"),
-                (0xE46810,1707,"0D1166B27B95DFFC08490F75479EC849202483D251457B8FAD9A26BEF2BC0BDA"),
-                (0xEA3CF7,383,"6DDF24EB68A4C39D23E8D679751D82256603E46024FE2F15427A8A7A76A8EA64"),
-                (0xE6C040,36,"924AC6C9DF003FD9573F5C0E204BDB57F9F6D43265D2B981A784289547137E56"),
-                (0xE45940,64,"CD67C4B37284D6834FB0F9176A2693E663FFBE6D5D11330A3A6B1AB8ADB0BF57")],
-            "SC"=>[(0xE392C0,359,"2244594010ADF27505592B624081F0DEEF1C53F59BC5ECCB6F4A2FA4867615C4"),
-                (0xE47810,1707,"03709654303625CE0F5DC1A350E0749B1524C85EDE8558174C10642FAE9F23E5"),
-                (0xEA4CE7,383,"880E575E61B16910402CD0BB6C1B50AA39275FE17F0730690BEB4A5338E64053"),
-                (0xE6D0F0,36,"1D807BBB6ED3E15F123D8FE64051F698883FE84E57A855E6D1916C0451AE9372"),
-                (0xE46940,64,"CD67C4B37284D6834FB0F9176A2693E663FFBE6D5D11330A3A6B1AB8ADB0BF57")],
-            _=>throw new InvalidDataException("SkyCPU168 requires pinned SC or TC source.")};
-        foreach(var w in windows)VerifyHash(code.AsSpan(w.Rva-textRva,w.Count),w.Hash,"SkyCPU168 lifecycle source");
-        if(BinaryPrimitives.ReadUInt32LittleEndian(image.Raw(locale=="TC"?0x1343B98:0x1344B98,4))!=0x3F800000)
-            throw new InvalidDataException("SkyCPU168 interpolation1 threshold changed.");
-        return $"SAN14CE_{locale}.exe@{profile.ExeHash};decodedText={profile.TextHash};"+
+        _ = RenderRuleIdentity.For("SkyCpuState168Owner",locale);
+
+        return $"{RenderRuleIdentity.For("SkyCpuState168Owner",locale)};"+
             "source-constructor-state0;E46810-lowK/progress/phase-independent-output8..9;enable-bit30;ready-bit31;EA3-elapsed20-after-return;reset-only-ready";
     }
 }

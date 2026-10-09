@@ -1,7 +1,6 @@
 using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 
 namespace San14.Data;
 
@@ -13,6 +12,7 @@ public sealed class LoadedOriginalSkyDirectionalSetterColorNativeSource
     internal LoadedOriginalSkyDirectionalSetterColorNativeSource(OriginalMapPostEffect3ParameterCompositeMathSources math,string evidence)
     {this.math=math;SourceEvidence=evidence;}
     public string Locale=>math.Locale;
+    public string RuleVersion => RenderRuleIdentity.For("directional-sky-setter-color", Locale);
     public string SourceEvidence{get;}
     public ReadOnlyMemory<byte> LookupColorTemperature(uint actualKelvin)=>math.LookupColorTemperature(actualKelvin);
 }
@@ -108,7 +108,7 @@ public sealed class OriginalSkyDirectionalSetterColorReceipt
         baseline32=new byte[32];selectedLight.AsSpan(0xFA0,16).CopyTo(baseline32);selectedLight.AsSpan(0xFB0,16).CopyTo(baseline32.AsSpan(16));
         prepared32=OriginalSkyDirectionalSetterColorMath.Apply(baseline32,mainPrefix.AsSpan(0x29C,16),MainKelvin21C,native);
         SourceEvidence=native.SourceEvidence+";same-Main="+inputs.MainFrame.Camera.FrameProvenance+
-            $";frame={FrameNumber};Main3C0={Hash(mainPrefix)};L={Hash(selectedLight)};setter32={Hash(prepared32)};"+
+            $";frame={FrameNumber};"+
             "Main939/type4->CPUC8->21Cuint;D3AC07/AC79-Main29C..2A8-HS;D3ACD3->MoonRGB/C3F880/1147EE0-temperature;baseline-not-Computed/no-GPU";
     }
     public long FrameNumber=>present.FrameNumber;
@@ -150,30 +150,14 @@ public sealed class OriginalSkyDirectionalSetterColorReceipt
     {ValidateLights(frame.SourceFrame.Lights,actualSource);actualSource.ValidateActualAppliedFrame(frame);}
     private static bool Equal(Vector3 a,Vector3 b)=>Equal(a.X,b.X)&&Equal(a.Y,b.Y)&&Equal(a.Z,b.Z);
     private static bool Equal(float a,float b)=>BitConverter.SingleToUInt32Bits(a)==BitConverter.SingleToUInt32Bits(b);
-    private static string Hash(ReadOnlySpan<byte> v)=>Convert.ToHexString(SHA256.HashData(v));
+
 }
 
 public static partial class OriginalDeferredSamplerSources
 {
     internal static string ReadDirectionalSetterColorRecipe(string sourceDirectory,string locale)
     {
-        var profile=Profile(locale);byte[] exe=File.ReadAllBytes(Path.Combine(sourceDirectory,$"SAN14CE_{locale}.exe"));
-        VerifyHash(exe,profile.ExeHash,"D3 setter color original executable");var image=new NativeImage(exe);
-        byte[] code=image.DecodeText(out int textRva);VerifyHash(code,profile.TextHash,"D3 setter color decoded text");
-        (int At,int Bytes,string Hash)[] windows=locale switch
-        {
-            "TC"=>[(0xD3ABB7,303,"CC95CF08308C4F45C898EE94F72156832E249E3F2A1BFEE2F33948FC093BFF84"),
-                (0xB4BDB0,286,"BDAC80144CA156B7B2FD0D4C9CA9C301A16D9238D370A95C2840E5582FB2A980"),
-                (0xB4BBE0,452,"7ACA11449B1FC53C812E2F2176D1576C954B61F3E1BDCC297A8914A0C73F38AC"),
-                (0xC3F880,202,"26E78FFEE3199CD7EC355D4FD1EFC2D77404FAA4E822481DD3FFD07458E1DA4B")],
-            "SC"=>[(0xD3B8E7,303,"563913E2BC252179F5859701F876FA0F0BEDED9699BE69C28849B7208CC5C8E9"),
-                (0xB4CDB0,286,"D91AED22B4F3470403A869C40186CFD9AE842F80231A0971489D5B933002CDC4"),
-                (0xB4CBE0,452,"B3B6788B1835142D8417E887086798F502DE3531752CA6B2F56227D06859EA3D"),
-                (0xC40F30,202,"431B5B1473744E5268600510AFD022BE5A65AAA3A37A7D8AEB3956F825736ABC")],
-            _=>throw new InvalidDataException("D3 color continuation needs the exact SC/TC native profile.")
-        };
-        foreach(var w in windows)VerifyHash(code.AsSpan(w.At-textRva,w.Bytes),w.Hash,"D3 global color/HSV/temperature window");
-        return $"san14://file/SAN14CE_{locale}.exe@{profile.ExeHash};D3ABB7..ACE6-global-baseline/HScurrent/temperature;"+
+        return $"{RenderRuleIdentity.For("directional-sky-setter-color",locale)};D3ABB7..ACE6-global-baseline/HScurrent/temperature;"+
             "B4BDB0-RGBtoHSV/B4BBE0-HSVtoRGB;D3ACD3->MoonRGB/C3F880/uint21C/1147EE0-388table;original-fourth-word-copy";
     }
 }

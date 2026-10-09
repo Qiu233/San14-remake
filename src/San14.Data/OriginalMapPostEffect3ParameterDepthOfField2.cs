@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
@@ -359,13 +358,15 @@ public sealed class LoadedOriginalMapPostEffect3DepthOfField2Source
     internal LoadedOriginalMapPostEffect3DepthOfField2Source(string evidence,string locale="TC")=>(SourceEvidence,Locale)=(evidence,locale);
     public string Locale{get;}
     public string SourceEvidence{get;}
+    public string RuleVersion=>OriginalMapPostEffect3ParameterDepthOfField2.RuleVersion;
     public OriginalMapPostEffect3DepthOfField2Controller ConstructFreshController(
         OriginalMapPostEffect3ParameterState actualState,OriginalMapPostEffect3AllocationPlan allocation)
     {
         Validate(actualState,allocation);ReadScalars(actualState);
-        return new(allocation,0,2,false,0,false,false,1080,false,false,1080,false,
-            SourceEvidence+";TC1154C00-count10=2/flip16=0/side28=0;1155290-all-typed-lookups-capability2;"+
-            "PE-fresh-zero-fill27F3D90..93;source1A8FBF8/1A8FBFC=1080",Locale);
+        return new(allocation,0,OriginalMapPostEffect3ParameterDepthOfField2.FreshHistoryCount,false,0,
+            false,false,OriginalMapPostEffect3ParameterDepthOfField2.FreshShapeHeight,
+            false,false,OriginalMapPostEffect3ParameterDepthOfField2.FreshInitializeHeight,false,
+            SourceEvidence+";fresh-controller;typed-scalars;capability2",Locale);
     }
     public OriginalMapPostEffect3DepthOfField2Inputs CaptureCurrentInputs(
         OriginalMapPostEffect3ParameterState state,OriginalMapPostEffect3AllocationPlan allocation,
@@ -539,6 +540,12 @@ public sealed class LoadedOriginalMapPostEffect3DepthOfField2Source
 
 public static class OriginalMapPostEffect3ParameterDepthOfField2
 {
+    public const string ResourceUri="san14://rules/post/depth-of-field2";
+    public const string RuleVersion="depth-of-field2-v1";
+    internal const uint FreshHistoryCount=2;
+    internal const uint FreshShapeHeight=1080;
+    internal const uint FreshInitializeHeight=1080;
+
     public static LoadedOriginalMapPostEffect3DepthOfField2Source Load(OriginalGameRepository repository,string locale="TC")
     {
         ArgumentNullException.ThrowIfNull(repository);
@@ -550,45 +557,9 @@ public static partial class OriginalDeferredSamplerSources
 {
     internal static LoadedOriginalMapPostEffect3DepthOfField2Source ReadPostEffect3DepthOfField2Source(LoadedOriginalDeferredSamplerNativeSource native)
     {
-        if(native.Locale is not ("TC" or "SC"))throw new NotSupportedException("Complete DOF2 capability2 ABI is verified for SC/TC.");
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"DOF2 executable");
-        var image=new NativeImage(exe);byte[] text=image.DecodeText(out int start);VerifyHash(text,native.DecodedTextSha256,"DOF2 text");
-        { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3ParameterDepthOfField2.cs",0x1156550,2250,"A1B8A7C6DB94A02252C53C0F5DB45613D16962629BE43F5BCA8AF89AFB36B956");
-          VerifyHash(text.AsSpan(actual.Rva-start,2250),actual.Sha,"DOF2 CB18 writer"); }
-        { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3ParameterDepthOfField2.cs",0x1156E20,1031,"646B7724461BC4CE08787B6A21E38BE57C201D176EBB7DB9CEEB135F52C9C584");
-          VerifyHash(text.AsSpan(actual.Rva-start,1031),actual.Sha,"DOF2 actual shape capability2 path"); }
-        { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3ParameterDepthOfField2.cs",0x1157230,989,"9316214803F0B784502ECDE7A1DE9FD1E0B0332CD88FC71C2345A4A05962896C");
-          VerifyHash(text.AsSpan(actual.Rva-start,989),actual.Sha,"DOF2 actual31 pass mask writer"); }
-        { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3ParameterDepthOfField2.cs",0x1154C00,254,"B97C0F941CC21321AA8AD0E66C540E77ACAE67FCD5DA39AE7E9CBE896E4E529E");
-          VerifyHash(text.AsSpan(actual.Rva-start,254),actual.Sha,"DOF2 fresh controller"); }
-        { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3ParameterDepthOfField2.cs",0x114AFF0,104,"5ADA83A1940629D571D7FB8BC71738944DF90865833779FC6C8D557F183C3F74");
-          VerifyHash(text.AsSpan(actual.Rva-start,104),actual.Sha,"DOF2 actual cached getter"); }
-        { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3ParameterDepthOfField2.cs",0x1154DC0,883,"B7D2C93150508BEADA08F35D346DA55113204A7966C559C495DD8F793FCB324B");
-          VerifyHash(text.AsSpan(actual.Rva-start,883),actual.Sha,"DOF2 exact ordered Before/history/readback"); }
-        { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3ParameterDepthOfField2.cs",0x1155140,144,"A91075936307414BFC7CCC80E0AF09450E55A4C81447BC6003FF874558461F4D");
-          VerifyHash(text.AsSpan(actual.Rva-start,144),actual.Sha,"DOF2 initialize output alias"); }
-        { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3ParameterDepthOfField2.cs",0x1155280,15,"E5CFE291762B06858BD508B730799BAD87F2F4EF3CEC2DFD138C24498A1A6528");
-          VerifyHash(text.AsSpan(actual.Rva-start,15),actual.Sha,"DOF2 finish count10"); }
-        { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3ParameterDepthOfField2.cs",0x1155CF0,1943,"C967847CFF3FE30B1F599E6D596E0690D5E2729929B17CB8B8871FEF5B03F30A");
-          VerifyHash(text.AsSpan(actual.Rva-start,1943),actual.Sha,"DOF2 triangle/indirect/copy/scissor/blend Execute"); }
-        { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3ParameterDepthOfField2.cs",0x1162300,1280,"4ED96135FDC4A166009F1B6EDB22FD37460F6E9A08BB5C30BF4FF89B9ED98219");
-          VerifyHash(text.AsSpan(actual.Rva-start,1280),actual.Sha,"DOF2 shared Bind clear-mask/color transfer"); }
-        { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3ParameterDepthOfField2.cs",0x959740,272,"FA2A6C751BBAE0620825C17E5999118E02A92958BE74ECE203D82D42C4AF0A1C");
-          VerifyHash(text.AsSpan(actual.Rva-start,272),actual.Sha,"DOF2 target push clear fields"); }
-        { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3ParameterDepthOfField2.cs",0x9599E0,1120,"5970FFA718727B4931E36F2B4180DCF3FE026B89C3C473FA2E1492567DBA2754");
-          VerifyHash(text.AsSpan(actual.Rva-start,1120),actual.Sha,"DOF2 target command2 clear fields"); }
-        { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3ParameterDepthOfField2.cs",0x957AF0,491,"B6461222F120A9CF690BE7FD87168FE3CE02460F0AE369039391F40DFEB59A9C");
-          VerifyHash(text.AsSpan(actual.Rva-start,491),actual.Sha,"DOF2 target backend clear dispatch"); }
-        { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3ParameterDepthOfField2.cs",0x95EDB0,608,"4D375F47994EC9C292228006B10C5F0668A154C8050CADBBE26A7B9FA7961019");
-          VerifyHash(text.AsSpan(actual.Rva-start,608),actual.Sha,"DOF2 full-target native RGBA8 clear"); }
-        if(BinaryPrimitives.ReadUInt32LittleEndian(image.Raw(OriginalMapPostEffect3NativeSourceProfile.DataRva(native.Locale,"OriginalMapPostEffect3ParameterDepthOfField2.cs",0x1A8FBF8),4))!=1080||BinaryPrimitives.ReadUInt32LittleEndian(image.Raw(OriginalMapPostEffect3NativeSourceProfile.DataRva(native.Locale,"OriginalMapPostEffect3ParameterDepthOfField2.cs",0x1A8FBFC),4))!=1080)
-            throw new InvalidDataException("DOF2 original two global source heights differ.");
-        using var reader=new PEReader(new MemoryStream(exe,false));
-        int flags=OriginalMapPostEffect3NativeSourceProfile.DataRva(native.Locale,"OriginalMapPostEffect3ParameterDepthOfField2.cs",0x27F3D90);
-        if(!reader.PEHeaders.SectionHeaders.Any(s=>flags>=(long)s.VirtualAddress+s.SizeOfRawData&&
-            flags+4<=(long)s.VirtualAddress+s.VirtualSize))
-            throw new InvalidDataException("DOF2 fresh four global flags are not original PE virtual zero-fill.");
-        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+";TC11564F0-shape-then-CB18/1155140-init/1157230-native31-mask;"+
-            "actual-cached114AFF0;source-capability2-only;no-CB19-zero-or-GPU-completion",native.Locale);
+        if(native.Locale is not ("TC" or "SC"))throw new NotSupportedException("DOF2 capability2 rules support SC/TC.");
+        return new(OriginalMapPostEffect3ParameterDepthOfField2.ResourceUri+"@"+
+            OriginalMapPostEffect3ParameterDepthOfField2.RuleVersion+$";locale={native.Locale};"+
+            "shape-then-CB18;initialize-alias;factory7-pass-mask;capability2",native.Locale);
     }
 }

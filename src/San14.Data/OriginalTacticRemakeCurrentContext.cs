@@ -107,7 +107,7 @@ public sealed partial class OriginalTacticRemakeCurrentContext : IOriginalTactic
         OriginalTacticEffectUsageSource result = _usage.ResolveNative(program, waiting, new(true, native.Status10, available.Length != 0,
             available.Contains(source.Slot), native.Waiting20, native.Abnormal23, native.Abnormal25,
             provocationMatches, outer.Value, (native.Flags26 & 2) != 0, false, rate)) with
-            { Revision = $"{_usage.Language}:{_usage.ExecutableSha256}:{state.NativeArmySimulation.Parameters.Revision}:{Revision}" };
+            { Revision = $"{_usage.Language}:{_usage.RuleVersion}:{state.NativeArmySimulation.Parameters.Revision}:{Revision}" };
         return primaryCandidates is null ? result : result with
         {
             PrimaryGeometry = new(PlayableTacticTargetRelation.Hostile, primaryCandidates.RangeHexes,
@@ -255,7 +255,7 @@ public sealed partial class OriginalTacticRemakeCurrentContext : IOriginalTactic
     private bool Bound(GameState state) => state.MapWidth == 220 && state.MapHeight == 220 &&
         state.MapSha256.Equals(_map.Source.Sha256, StringComparison.OrdinalIgnoreCase) &&
         state.NativeClock is not null && state.NativeArmySimulation?.Parameters is { } parameters &&
-        parameters.Language == _usage.Language && parameters.ExecutableSha256.Equals(_usage.ExecutableSha256,
+        parameters.Language == _usage.Language && parameters.RuleVersion.Equals(_usage.RuleVersion,
             StringComparison.OrdinalIgnoreCase) && state.ContentHashes.GetValueOrDefault(_catalog.Source.ResourceUri)
             ?.Equals(_catalog.Source.Sha256, StringComparison.OrdinalIgnoreCase) == true;
 
@@ -267,7 +267,7 @@ public sealed partial class OriginalTacticRemakeCurrentContext : IOriginalTactic
             origin.Revision != OriginalArmyConstruction.ProfileId &&
                 (origin.Revision != OriginalOwnedArmyCampaignRules.TransportCreationRevision ||
                  unit.Mission?.Kind != UnitMissionKind.Transport || unit.NativeTransport is null) ||
-            origin.Language != _usage.Language || !origin.ExecutableSha256.Equals(_usage.ExecutableSha256, StringComparison.OrdinalIgnoreCase) ||
+            origin.Language != _usage.Language || !origin.RuleVersion.Equals(_usage.RuleVersion, StringComparison.OrdinalIgnoreCase) ||
             unit.NativeTacticRuntime is not { } native || unit.NativeArmyConfiguration is null)
             return null;
         if (origin.NativeSlotIndex is not >= 1 or > 500) return null;

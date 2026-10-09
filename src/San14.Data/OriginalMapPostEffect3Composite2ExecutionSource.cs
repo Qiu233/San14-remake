@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Numerics;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -248,8 +249,8 @@ public sealed class LoadedOriginalMapPostEffect3Composite2ExecutionSource
 {
     private readonly OriginalSkyWeatherNativePowerSource power;
     private readonly float degreesToRadians;
-    private readonly byte[] aberrationColors;
-    internal LoadedOriginalMapPostEffect3Composite2ExecutionSource(string evidence,OriginalSkyWeatherNativePowerSource power,float angle,byte[] colors)
+    private readonly Vector4[] aberrationColors;
+    internal LoadedOriginalMapPostEffect3Composite2ExecutionSource(string evidence,OriginalSkyWeatherNativePowerSource power,float angle,Vector4[] colors)
         =>(SourceEvidence,this.power,degreesToRadians,aberrationColors)=(evidence,power,angle,colors.ToArray());
     public string SourceEvidence{get;}
     public string Locale=>power.Locale;
@@ -361,7 +362,7 @@ public sealed class LoadedOriginalMapPostEffect3Composite2ExecutionSource
             for(int lane=0;lane<4;lane++)
             {
                 float color=aberration>0&&nativePhase==1?
-                    A(M(BinaryPrimitives.ReadSingleLittleEndian(aberrationColors.AsSpan((sample%6)*16+lane*4)),aberration),S(1,aberration)):1;
+                    A(M(ColorComponent(aberrationColors[sample%6],lane),aberration),S(1,aberration)):1;
                 BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(sample*16+lane*4),M(strength,color));
             }
             BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(96+sample*8),M(sample,dx));
@@ -369,6 +370,8 @@ public sealed class LoadedOriginalMapPostEffect3Composite2ExecutionSource
         }
         return new(frame,nativePhase,bytes);
     }
+    private static float ColorComponent(Vector4 color,int lane)=>lane switch
+        {0=>color.X,1=>color.Y,2=>color.Z,_=>color.W};
     public OriginalMapPostEffect3Composite2GraphicsRecipe PrepareGraphics(
         OriginalMapPostEffect3Composite2BeforeBindings before,OriginalMapPostEffect3TextureParameterState actualTable,
         OriginalMapPostEffect3EyeGraphicsCurrentState actualAfterBindingState,
@@ -462,23 +465,12 @@ public static partial class OriginalDeferredSamplerSources
     internal static LoadedOriginalMapPostEffect3Composite2ExecutionSource ReadComposite2ExecutionSource(
         LoadedOriginalDeferredSamplerNativeSource native,OriginalSkyWeatherNativePowerSource power)
     {
-        if(native.Locale is not ("TC" or "SC")||power.Locale!=native.Locale)throw new NotSupportedException("Composite2 lifecycle and power require the same verified SC/TC source.");
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"Composite2 execution executable");
-        var image=new NativeImage(exe);byte[] code=image.DecodeText(out int start);VerifyHash(code,native.DecodedTextSha256,"Composite2 execution text");
-        foreach(var w in new (int Rva,int Count,string Sha)[]{
-            (0x1159BB0,241,"541AAE89F4E1C11B617855812BA3F34E64C8D0E203CAD8E002E590238F5FEC6D"),
-            (0x1159DD0,588,"52A867136CF0A14353EDDCF8425FBE61F0AB1AA72D425553DE3BD7BE39F28888"),
-            (0x115A020,328,"56C71AFF9A466B55B7C288DEA4970D294D440D5A8FFA2C927838A88F63828BF8"),
-            (0x115B750,1101,"8D49711CA686E9B60C7D6C8C677104193720893902AFA0535404E3551EA95EA3"),
-            (0x115C890,1149,"8120D9A4B8B41AFBE167AA83B88AB661F27DB2DD3974A1287924D984756C4064"),
-            (0x115CD10,624,"07C28C4375D05A0CA0D48202CED42C826D1C64DA82336E1761113BEDFC88869B"),
-            (0xBF9280,3,"E18AACCE29AFFCDDDAA5F641AC1EC12552E0FE9D066E6408941B1792818B8619"),
-            (0x101EB80,130,"9531ABA453E83197FA4A071AF66A84E6E10F4F95571FD688A997AB798819D6BC")})
-            { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",w.Rva,w.Count,w.Sha);
-              VerifyHash(code.AsSpan(actual.Rva-start,w.Count),actual.Sha,"Composite2 lifecycle source"+w.Rva.ToString("X")); }
-        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+";TC-factory9-Prepare/Init/Before/Execute/literal-After;typed-current-wrapper/side;"+
-            "68-to79;74-or77-to78;CB23-written148-of160;CB25-48;scissor-not-viewport;no-GPU-claim",power,
-            BitConverter.UInt32BitsToSingle(BinaryPrimitives.ReadUInt32LittleEndian(image.Raw(OriginalMapPostEffect3NativeSourceProfile.DataRva(native.Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",0x13A191C),4))),
-            image.Raw(OriginalMapPostEffect3NativeSourceProfile.DataRva(native.Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",0x173C040),96).ToArray());
+        if(power.Locale!=native.Locale)throw new NotSupportedException("Composite2 lifecycle and power require the same locale.");
+        const float degreesToRadians=.017453292f;
+        Vector4[] aberrationColors=[new(1,0,0,0),new(.5f,0,.5f,0),new(0,0,1,0),
+            new(0,.5f,.5f,0),new(0,1,0,0),new(.5f,.5f,0,0)];
+        return new(RenderRuleIdentity.For("composite2-execution",native.Locale)+
+            ";current-wrapper-and-initialization-order;cross-filter-six-colors;scissor-not-viewport",
+            power,degreesToRadians,aberrationColors);
     }
 }

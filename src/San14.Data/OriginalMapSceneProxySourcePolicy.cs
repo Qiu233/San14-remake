@@ -19,7 +19,7 @@ public sealed class OriginalMapSceneProxySourcePolicy
     { flags8=f8;flags0C=f0C;cameraUri=uri;cameraSha=sha;
       this.native=native;SelectedTerminalObjectId=selected;Resolutions=resolutions;SourceEvidence=evidence; }
     public string Locale=>native.Locale;
-    public string ExecutableSha256=>native.ExecutableSha256;
+    public string RuleVersion=>native.RuleVersion;
     public uint? SelectedTerminalObjectId { get; }
     public OriginalRenderTextureResolutionFrame Resolutions { get; }
     public string SourceEvidence { get; }

@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -53,13 +52,12 @@ public sealed class OriginalMainSceneNode51Execution
 /// different callback and must not be used to infer this execution route.</summary>
 public sealed class OriginalMainSceneNode51Source
 {
-    public const string GraphSha256 = "B9AE1EC8209C067DBC73084CDC0EB149A65E282C25D4B8AD398F43071072971D";
     private readonly LoadedRenderGraph graph;
-    private OriginalMainSceneNode51Source(LoadedRenderGraph graph, string locale, string executableSha256,
+    private OriginalMainSceneNode51Source(LoadedRenderGraph graph, string locale, string ruleVersion,
         int nodeIndex, uint lookupKey, uint factoryClass, uint[] edges,
         OriginalGeneralSceneSourceArgument[] arguments, LoadedOriginalGeneralSceneTerrainCallerSource caller)
     {
-        this.graph = graph; Locale = locale; ExecutableSha256 = executableSha256;
+        this.graph = graph; Locale = locale; RuleVersion = ruleVersion;
         NodeIndex = nodeIndex; LookupKey = lookupKey; FactoryClassId = factoryClass;
         ConnectedNodeIndices = Array.AsReadOnly(edges); Arguments = Array.AsReadOnly(arguments);
         ViewCollectionSourceNameHash = arguments[0].Value;
@@ -69,7 +67,7 @@ public sealed class OriginalMainSceneNode51Source
         CallerSource = caller;
     }
     public string Locale { get; }
-    public string ExecutableSha256 { get; }
+    public string RuleVersion { get; }
     public int NodeIndex { get; }
     public uint LookupKey { get; }
     public uint FactoryClassId { get; }
@@ -81,39 +79,32 @@ public sealed class OriginalMainSceneNode51Source
     public uint SourceStateCollectionNameHash { get; }
     public uint Flag2 { get; }
     public LoadedOriginalGeneralSceneTerrainCallerSource CallerSource { get; }
-    public uint CreatedCpuVtableRva => Locale == "TC" ? 0x16E68D8u : 0x16E7508u;
-    public uint CpuExecutionRva => Locale == "TC" ? 0xEA4520u : 0xEA5510u;
-    public string SourceProvenance => $"{graph.Source.ResourceUri}@{GraphSha256};{Locale}:{ExecutableSha256};" +
-        $"node{NodeIndex}/{LookupKey:X8}/factory{FactoryClassId:X8};createdCPU={CreatedCpuVtableRva:X8}/v8={CpuExecutionRva:X8};" +
+    public string SourceProvenance => $"{graph.Source.ResourceUri}@{graph.Source.DecodedSha256};{Locale}:{RuleVersion};" +
+        $"node{NodeIndex}/{LookupKey:X8}/factory{FactoryClassId:X8};" +
         $"ViewID{SourceViewId}/flags{InitialCallFlags:X2}/Flag2={Flag2:X8};" +
         "Models-before-Terrain-caller;F8-arg9-bit0-skip;" + CallerSource.SourceProvenance;
 
     public static OriginalMainSceneNode51Source Load(OriginalGameRepository repository, string locale, int nodeIndex = 51)
     {
         ArgumentNullException.ThrowIfNull(repository);
-        var caller = OriginalGeneralSceneTerrainCallerSource.Load(repository, locale);
-        return ReadCore(repository.LoadRenderGraph("system", 0x024496EE), locale, caller.ExecutableSha256, nodeIndex, caller);
+        var caller = OriginalGeneralSceneTerrainCallerSource.Create(locale);
+        return ReadCore(repository.LoadRenderGraph("system", 0x024496EE), locale, nodeIndex, caller);
     }
 
-    public static OriginalMainSceneNode51Source Read(LoadedRenderGraph graph, string locale, string executableSha256, int nodeIndex = 51)
-        => ReadCore(graph, locale, executableSha256, nodeIndex,
-            OriginalGeneralSceneTerrainCallerSource.ReadForVerifiedExecutable(locale, executableSha256));
+    public static OriginalMainSceneNode51Source Read(LoadedRenderGraph graph, string locale, int nodeIndex = 51)
+        => ReadCore(graph, locale, nodeIndex, OriginalGeneralSceneTerrainCallerSource.Create(locale));
 
-    private static OriginalMainSceneNode51Source ReadCore(LoadedRenderGraph graph, string locale, string executableSha256,
+    private static OriginalMainSceneNode51Source ReadCore(LoadedRenderGraph graph, string locale,
         int nodeIndex, LoadedOriginalGeneralSceneTerrainCallerSource caller)
     {
         ArgumentNullException.ThrowIfNull(graph);
         if (nodeIndex is not (51 or 56))
             throw new NotSupportedException("GeneralScene source closes the actual original nodes51 and56 only.");
-        string required = locale switch {
-            "TC" => "0751B4FED7A5783371B9541674C0587A6AFD3140E60E706E32EAF35A9432F464",
-            "SC" => "CEEE6A94EB939B40C329B8EC5AECD938E9D3A51A6663E8E7D27A1498627AFB88",
-            _ => throw new InvalidDataException("Node51 source requires the paired SC or TC executable.") };
-        if (executableSha256 != required || graph.Source.OverrideSource is not null ||
+        _ = RenderRuleIdentity.For("general-scene", locale);
+        if (
             graph.Source.ResourceUri != GameResourceId.Rdb("system", 0x024496EE).ToString() ||
-            graph.Source.FileId != 0x024496EE || graph.Source.DecodedSha256 != GraphSha256 ||
-            Convert.ToHexString(SHA256.HashData(graph.Source.Bytes)) != GraphSha256)
-            throw new InvalidDataException("Node51 needs its canonical graph and verified executable source.");
+            graph.Source.FileId != 0x024496EE)
+            throw new InvalidDataException("Node51 source graph resource reference differs.");
         // Reparse bytes instead of trusting a caller's independently supplied metadata.
         var document = RenderGraphReader.Read(graph.Source.Bytes);
         var call = document.Nodes.Single(n => n.Index == nodeIndex).Call;
@@ -135,7 +126,7 @@ public sealed class OriginalMainSceneNode51Source
             arguments[i] = new(i, a.NameHash, a.DescriptorWord, Convert.ToHexString(a.RawValue),
                 small ? a.RawValue[0] : BinaryPrimitives.ReadUInt32LittleEndian(a.RawValue));
         }
-        return new(graph, locale, executableSha256, nodeIndex, call.LookupKey, call.FactoryClassId,
+        return new(graph, locale, RenderRuleIdentity.Version, nodeIndex, call.LookupKey, call.FactoryClassId,
             call.ConnectedNodeIndices.ToArray(), arguments, caller);
     }
 

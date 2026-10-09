@@ -15,11 +15,12 @@ public sealed class OriginalD3D11CurrentSeasonResources
     public OriginalMapSeasonSelection Selection => Source.Selection;
     public OriginalD3D11CurrentSeasonCpuResources? CpuResources { get; private set; }
     public float ControllerGeometry40 { get; }
+    public byte FreshExposureSelector { get; }
 
     private OriginalD3D11CurrentSeasonResources(
-        OriginalSceneViewNativeMapSeasonResourceBundle source, Light[] lights)
+        OriginalSceneViewNativeMapSeasonResourceBundle source, Light[] lights, byte exposureSelector)
     {
-        Source = source; Lights = lights;
+        Source = source; Lights = lights; FreshExposureSelector = exposureSelector;
         if (source.CameraSource.Selection.SecondPackage is not null)
             throw new NotSupportedException("Current Main needs its actual paired selection writer.");
         var selected = source.CameraSource.Selection.FirstPackage;
@@ -61,7 +62,7 @@ public sealed class OriginalD3D11CurrentSeasonResources
         var lights = actualOrderedRoots.Select(root => new Light(root.SourceObjectId,
             root.Metadata.SourceGroupMask,
             OriginalDirectionalLightConstruction.ConstructProviderRootZeroPairTemporary(root))).ToArray();
-        return new(source, lights);
+        return new(source, lights, common.CurrentViewAux3F2 ?? 0);
     }
 
     /// <summary>Load at initial creation or a real World-third-date season

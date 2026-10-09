@@ -31,7 +31,7 @@ public sealed class OriginalSceneViewNativeMapCpuSourceOwner
             GameResourceId.File(s.SourcePath).ToString() == loaded.InitialFrame.World.ScenarioKey && s.Locale == locale);
         scenario = repository.LoadScenario(metadata);
         map = repository.LoadCeMap();
-        var variants = OriginalCeCityVariantTable.LoadCurrent(repository.SourceDirectory, locale);
+        var variants = OriginalCeCityVariantTable.LoadCurrent(locale);
         if(openingDescriptorJson is not null)opening = CityVisualOpeningEvidence.LoadJson(openingDescriptorJson,
             "caller://native-city-opening-descriptors", loaded.Scenario,
             scenario.ScenarioSource.Sha256, loaded.InitialFrame.World.NewGameOptions, variants) ??

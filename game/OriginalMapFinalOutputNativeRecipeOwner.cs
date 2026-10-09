@@ -64,10 +64,8 @@ public sealed partial class OriginalMapFinalOutputPassOwner
                     else if(source.Kind is OriginalMapFinalOutputNativeProgramKind.StockScreenDefault3 or OriginalMapFinalOutputNativeProgramKind.StockScreenDefault1)
                     {
                         var stock=graph.Source.StockScreen;var vs=compiler.Compile(stock.VertexProgram.Span);
-                        byte[] pixelBytes=source.Kind==OriginalMapFinalOutputNativeProgramKind.StockScreenDefault1?OriginalMapFinalOutputStockScreenPrograms.ReadMode1(stock.Native):stock.PixelProgram.ToArray();
-                        var ps=compiler.Compile(pixelBytes);string expected=source.Kind==OriginalMapFinalOutputNativeProgramKind.StockScreenDefault1?OriginalTerrainInitialControlResources.PixelSha256:OriginalMapExposureSource.PixelSha256;
-                        if(vs.SourceProgramSha256!=OriginalMapExposureSource.VertexSha256||ps.SourceProgramSha256!=expected)
-                            throw new InvalidDataException("Native stock recipe program identity changed.");
+                        byte[] pixelBytes=source.Kind==OriginalMapFinalOutputNativeProgramKind.StockScreenDefault1?OriginalMapFinalOutputStockScreenPrograms.ReadMode1():stock.PixelProgram.ToArray();
+                        var ps=compiler.Compile(pixelBytes);
                         var vertex=OriginalVertexShaderAdapter.AdaptPositionInput(MoveStockVertexSet(vs.Bytes));
                         var vi=SpirvShaderInterfaceReader.Read(vertex.Bytes);var pi=SpirvShaderInterfaceReader.Read(ps.Bytes);
                         if(vi.Descriptors.Count!=1||vi.Descriptors[0] is not{StorageClass:2,RequiredBufferBytes:32,DescriptorSet:1}||

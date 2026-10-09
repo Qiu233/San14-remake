@@ -1,26 +1,12 @@
-using System.Buffers.Binary;
-using System.Reflection.PortableExecutable;
 namespace San14.Data;
 public static partial class OriginalDeferredSamplerSources
 {
  internal static string ReadAppliedStarNativeRecipe(string directory,string locale)
  {
-  var profile=Profile(locale);byte[] exe=File.ReadAllBytes(Path.Combine(directory,$"SAN14CE_{locale}.exe"));
-  VerifyHash(exe,profile.ExeHash,"Applied Star executable");var image=new NativeImage(exe);
-  byte[] code=image.DecodeText(out int textRva);VerifyHash(code,profile.TextHash,"Applied Star decoded text");
-  (int Rva,int Count,string Hash)[] windows=locale switch{
-            "TC"=>[(0x118F040,1183,"8ACE3F37FE5F137289285C872ACA6D4D5888089F8CD9E5FEFC8B67B89BDC6C21"),(0x11902E0,1662,"32E5427DD3298CFB196104409109B73ADF691B8F4687C662C15F96DAA2F385D6"),(0x118FCD0,675,"9B71C242BF316CCF0D2CCADCC4B7A9ACD8FB54892EA61B61F3244EF1671E267A"),(0x197420,308,"BD659877071F1383DC061BD64A5C0CD0D67196659833A272C24D221296752FF9"),(0x17B070,331,"E12AFDE597794034EA4B0D8AFA3EC24CD35616EC3272C41A5AB159875C3D52BB"),(0xC5197F,112,"0BA634BEACF53F04D09623C6CCFBEB492F4BE1089D955354E9D9549623A89441"),(0xC419B7,90,"DC18EBEB8999BC947F14EE7AF423BA58D94BF5878C42234380961178423AB4DD"),(0xB9A55D,106,"C2774EC77ACF15A0FC7909E2BA36D6EBBFA1BAC1F28D7BE8CADBA3097FEC7ADA"),(0xD4C6E7,160,"3732B9CE22D78F8826B5D904DD17A2F04C447AE69F399FBA230214D56BB08C7A"),(0xD7CEAD,45,"43D0108B5C917D846140BADC5C2A63BD2093EB950B578D392B68914010CE5385")],
-            "SC"=>[(0x1190070,1183,"8BDB8F00A410849D6871E59C3C8ED86E81D4A6655C90987BFC984D96609E6F4F"),(0x1191310,1662,"1CB19FB67DE3C8330BF53C8634E4F9FD092576A0C18580B816A1A608CDA58ADC"),(0x1190D00,675,"90C6E0B991082B8766B8F8282D40F3E84D2916DE8907DBC0F3BB01C82450E05B"),(0x197410,308,"1D2A6A3283DF383D0F8FDFB21709688A35FCDB5FB4865FCE8AA9A835F5936C9A"),(0x17ADD0,331,"E12AFDE597794034EA4B0D8AFA3EC24CD35616EC3272C41A5AB159875C3D52BB"),(0xC52F7F,112,"0BA634BEACF53F04D09623C6CCFBEB492F4BE1089D955354E9D9549623A89441"),(0xC43067,90,"DC18EBEB8999BC947F14EE7AF423BA58D94BF5878C42234380961178423AB4DD"),(0xB9B51D,106,"C2774EC77ACF15A0FC7909E2BA36D6EBBFA1BAC1F28D7BE8CADBA3097FEC7ADA"),(0xD4D417,160,"3732B9CE22D78F8826B5D904DD17A2F04C447AE69F399FBA230214D56BB08C7A"),(0xD7DC6D,45,"6958A5A89F57613DC0B30A5EA6F0EA137E7B8CC5BEB157AD1C74094E204E8C7E")],
-   _=>throw new InvalidDataException("Applied Star requires pinned SC or TC.")};
-  foreach(var w in windows)VerifyHash(code.AsSpan(w.Rva-textRva,w.Count),w.Hash,"Applied Star current named writer");
-  foreach(var l in new (int Tc,int Sc,uint Bits)[]{(0x1343C04,0x1344C04,0x40490FDBu),(0x17414F8,0x17423B8,0x42400000u),(0x1343BE0,0x1344BE0,0x40000000u),(0x13FE268,0x13FF088,0x3D75C28Fu),(0x1395CE0,0x1396CE0,0x3F4CCCCDu),(0x16C9150,0x16C9DF0,0x3F59999Au),(0x174220C,0x17430CC,0xC10126EAu),(0x14D4788,0x14D5308,0x43800000u),(0x17421F0,0x17430B0,0x3B000000u),(0x17421F8,0x17430B8,0x3FA2F983u),(0x16C9144,0x16C9DE4,0x3E5EDC7Fu)})
-   if(BinaryPrimitives.ReadUInt32LittleEndian(image.Raw(locale=="TC"?l.Tc:l.Sc,4))!=l.Bits)
-    throw new InvalidDataException("Applied Star original scalar/table literal changed.");
+        _ = RenderRuleIdentity.For("SkyAppliedSourceStarNative",locale);
+
   int phase=locale=="TC"?0x27F3E00:0x27F4FC0;
-  using var pe=new PEReader(new MemoryStream(exe,false));
-  var section=pe.PEHeaders.SectionHeaders.Single(s=>s.Name==".data"&&phase>=s.VirtualAddress&&phase+4<=s.VirtualAddress+s.VirtualSize);
-  if(phase<section.VirtualAddress+section.SizeOfRawData)
-   throw new InvalidDataException("Original Star fresh static phase is not in the PE zero-initialized virtual tail.");
-  return $"{locale}@{profile.ExeHash};fresh-static-phase={phase:X}/PE-.data-zero-virtual-tail;118F040-table->11902E0-current-Star-writes;C5197F/C419BD=614->7F8;621->814;explicit-owned-clock-input-not-originalClock254";
+
+  return $"{RenderRuleIdentity.For("SkyAppliedSourceStarNative",locale)};fresh-static-phase={phase:X}/PE-.data-zero-virtual-tail;118F040-table->11902E0-current-Star-writes;C5197F/C419BD=614->7F8;621->814;explicit-owned-clock-input-not-originalClock254";
  }
 }

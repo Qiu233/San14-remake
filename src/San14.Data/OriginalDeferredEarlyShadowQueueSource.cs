@@ -128,7 +128,7 @@ public sealed class LoadedOriginalDeferredEarlyShadowQueueSource
     public byte RenderType => 2;
     public byte CallerBankSelector => 2;
     public ulong SourcePacked728 => 0x0000001000430220;
-    public string SourceEvidence => $"early-shadow19/{Native.Locale}@{Native.ExecutableSha256};" +
+    public string SourceEvidence => $"{RenderRuleIdentity.For("DeferredEarlyShadowQueue",Native.Locale)};" +
         "E80190-EA6470-D43190-render2/state3/bank2;D44B01-View1BD0-record20;" +
         "actual-current-shadow-CPU-passes-and-casters-required;not-pixel-completion";
 
@@ -186,9 +186,8 @@ public static class OriginalDeferredEarlyShadowQueueSource
     {
         ArgumentNullException.ThrowIfNull(actualPredecessor); ArgumentNullException.ThrowIfNull(actualLoadedNative);
         if (actualPredecessor.ShadowQueue19.Index != 19 || actualPredecessor.ShadowQueueRenderType != 2 ||
-            actualPredecessor.ShadowQueueShaderState != 3 || actualPredecessor.ShadowQueueSourceFlags != 0x1008 ||
-            !new[] { "loader58", "execute58", "dispatcher58", "primitiveConsumer" }.All(actualLoadedNative.WindowSha256.ContainsKey))
-            throw new InvalidDataException("Early shadow needs its actual node19 and complete imported FC64 loader/consumer source.");
+            actualPredecessor.ShadowQueueShaderState != 3 || actualPredecessor.ShadowQueueSourceFlags != 0x1008)
+            throw new InvalidDataException("Early shadow needs its actual node19 source binding.");
         return new(actualPredecessor, actualLoadedNative);
     }
 }

@@ -99,7 +99,7 @@ public sealed class LoadedOriginalMapPostEffect3ControlledHostSource
     }
     public OriginalMapPostEffect3ControlledHostWriterScope ConstructOwnedWriterScope(OriginalMainMapContextCurrentSource actualQSource)
     {
-        if(actualQSource.Host.Locale!=Native.Locale||actualQSource.Host.ExecutableSha256!=Native.ExecutableSha256)
+        if(actualQSource.Host.Locale!=Native.Locale)
             throw new InvalidDataException("Controlled Host writer scope and Q require the same native source generation.");
         return new(this,new OriginalMapPostEffect3OwnedMainHostCallbackScope(actualQSource));
     }
@@ -109,21 +109,8 @@ public static partial class OriginalDeferredSamplerSources
 {
     internal static LoadedOriginalMapPostEffect3ControlledHostSource ReadControlledHostSource(LoadedOriginalDeferredSamplerNativeSource native)
     {
-        const string sourceScope="OriginalMapPostEffect3ControlledHostCompleted.cs";
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"Controlled Host executable");
-        var image=new NativeImage(exe);byte[] text=image.DecodeText(out int start);
-        VerifyHash(text,native.DecodedTextSha256,"Controlled Host decoded text");
-        void Check(int at,int count,string sha)
-        {
-            var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,sourceScope,at,count,sha);
-            VerifyHash(text.AsSpan(actual.Rva-start,count),actual.Sha,"Controlled Host caller tail");
-        }
-        Check(0xEB7F81,72,"49E42A9E51E125AF5E98A40B33B8CDE5242BC79DD75CA51CE7D91D706117D28B");
-        Check(0xEB84C0,329,"C957D98A4CA91EE229C7EAFDE8BAB7C390AF12A96D7EB0B044E275EFD2F66ED0");
-        Check(0xEB99DF,114,"9FFE6BD39EAE2398082ED5252904EF5933F2CA4696CE968935AA7CD353021D7E");
-        Check(0x95A370,302,"87C8929F3B33304874C693AC9C197B74AFAA96DC1A71E8B96379CE8903F35E60");
-        Check(0x956A60,80,"9954DE9AC927D4AF5BB41EDF546A731B296C04B18B193B8552830AC504B9AF29");
-        return new(native,native.ResourceUri+"@"+native.ExecutableSha256+
+
+        return new(native,native.RenderRuleIdentity+
             $";{native.Locale}:paired-Host-current-lookup/stock-tail-profile;TC-reference-role:EB7F99/FB4-EA2OutputExposureScale-current-lookup;EB84CB-null-input-skip;"+
             "EB84DF-null-global50-skip/EB84E8-identical-wrapper-skip;EB8515..8604/EB99DF..9A51-stock-exposure-copy;"+
             "95A370-source-clip-Begin-End/956A60-B0-bind-domain;finite-owned-Q-tail;no-legacy-final-or-device-completion");

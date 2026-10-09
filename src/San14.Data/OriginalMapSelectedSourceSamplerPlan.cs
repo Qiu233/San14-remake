@@ -8,7 +8,7 @@ namespace San14.Data;
 /// <summary>Complete key from one explicitly selected current producer. The
 /// encoded role is semantic; a PS1 register is deliberately not accepted.</summary>
 public sealed record OriginalMapSelectedSamplerSourceInput(short EncodedParameter, string TextureName,
-    string SourceResourceUri, string SourceSha256, byte[] OriginalKey,
+    string SourceResourceUri, string SourceIdentity, byte[] OriginalKey,
     long FrameNumber, string CurrentProducerProvenance);
 
 public sealed class OriginalMapSelectedSourceSamplerPlan
@@ -136,7 +136,7 @@ public sealed class OriginalMapSelectedSourceSamplerPlan
             p with {OriginalKey=p.OriginalKey.ToArray()}).ToArray();
         if (inputs.Select(i => i.EncodedParameter).Distinct().Count() != inputs.Length || inputs.Any(i =>
             i.FrameNumber != imagePlan.FrameNumber || i.CurrentProducerProvenance != imagePlan.CurrentProducerProvenance ||
-            string.IsNullOrWhiteSpace(i.SourceResourceUri) || i.SourceSha256 is not {Length:64} hash || !hash.All(Uri.IsHexDigit)))
+            string.IsNullOrWhiteSpace(i.SourceResourceUri) || string.IsNullOrWhiteSpace(i.SourceIdentity)))
             throw Error("selected sampler producers are duplicated, incomplete or from an older Camera/season frame");
         var selected = inputs.ToDictionary(i => i.EncodedParameter);
         var used = new HashSet<short>();
@@ -155,31 +155,31 @@ public sealed class OriginalMapSelectedSourceSamplerPlan
                 continue;
             }
             var keySource = consumer.KeySource;
-            byte[] key; string uri, hash;
+            byte[] key; string uri, identity;
             if (keySource.Role == "GGX")
             {
                 key = OriginalDeferredSamplerSources.RenderTextureKey(native,1);
-                uri = native.ResourceUri + "/generated-ggx-wrapper/mip1"; hash = native.ExecutableSha256;
+                uri = native.ResourceUri + "/generated-ggx-wrapper/mip1"; identity = native.RenderRuleIdentity;
             }
             else if (keySource.Role is "GBufferDepth" or "GBufferRR")
             {
                 var target = imagePlan.TexturePlan.Inputs.Single(i => i.EncodedParameter == keySource.EncodedParameter);
                 var sourceInput = FromRenderTexture(imagePlan, native, keySource.EncodedParameter!.Value, target.Texture);
-                key = sourceInput.OriginalKey; uri = sourceInput.SourceResourceUri; hash = sourceInput.SourceSha256;
+                key = sourceInput.OriginalKey; uri = sourceInput.SourceResourceUri; identity = sourceInput.SourceIdentity;
             }
             else
             {
                 if (keySource.EncodedParameter is not short encoded || !selected.TryGetValue(encoded, out var sourceInput) ||
                     sourceInput.TextureName != keySource.Declaration.Name.Text)
                     throw Error("active declared sampler requires its exact current source producer key");
-                used.Add(encoded); key = sourceInput.OriginalKey; uri = sourceInput.SourceResourceUri; hash = sourceInput.SourceSha256;
+                used.Add(encoded); key = sourceInput.OriginalKey; uri = sourceInput.SourceResourceUri; identity = sourceInput.SourceIdentity;
             }
             var recipe = OriginalDeferredSamplerSources.DecodeKey(native,key);
             if (((recipe.Filter & 0x80) != 0) != (keySource.Role is "PointShadow" or "SpotShadow"))
                 throw Error("comparison mode differs from the selected native shadow role");
             descriptors.Add(register, recipe.EncodeD3D11Descriptor());
             bindings.Add(new(register,consumer.Declaration.Name.Text,keySource.Declaration.BindPoint,
-                keySource.Declaration.Name.Text,uri,hash,recipe));
+                keySource.Declaration.Name.Text,uri,identity,recipe));
         }
         if (used.Count != inputs.Length || active.Length != bindings.Count)
             throw Error("producer keys override an absent, removed or independently owned sampler");

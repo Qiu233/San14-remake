@@ -50,8 +50,8 @@ public sealed class OriginalOrdinaryRs4CpuDispatcherOwner
         State=actualFrontend??throw new ArgumentNullException(nameof(actualFrontend));
         parameters=actualParameters??throw new ArgumentNullException(nameof(actualParameters));
         current=readActualCurrent??throw new ArgumentNullException(nameof(readActualCurrent));
-        if(colors.Locale!=source.Source.Native.Locale||colors.ExecutableSha256!=source.Source.Native.ExecutableSha256)
-            throw new InvalidDataException("Earlier RS4 colors belong to another loaded source profile.");
+        if(colors.Locale!=source.Source.Native.Locale)
+            throw new InvalidDataException("Earlier RS4 colors use a different rendering layout.");
         RequireCurrent();
     }
     public OriginalOrdinaryRs4CpuFrontendState State{get;}

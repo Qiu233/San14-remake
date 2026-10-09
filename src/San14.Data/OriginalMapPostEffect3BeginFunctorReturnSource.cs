@@ -54,19 +54,8 @@ public static partial class OriginalDeferredSamplerSources
     internal static LoadedOriginalMapPostEffect3BeginFunctorReturnSource ReadPostEffect3BeginFunctorReturnSource(
         LoadedOriginalDeferredSamplerNativeSource native)
     {
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"Functor0 return executable");
-        var image=new NativeImage(exe);byte[] text=image.DecodeText(out int start);
-        VerifyHash(text,native.DecodedTextSha256,"Functor0 return decoded text");
-        void Check(int rva,int count,string hash)
-        {
-            var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3BeginFunctorReturnSource.cs",rva,count,hash);
-            VerifyHash(text.AsSpan(actual.Rva-start,count),actual.Sha,"Functor0 return source window");
-        }
-        Check(0x1161C00,0x140,"7B5ED06ABB60CB3CC3119BCBADD4313FF8BF8C40E7767A10EC10B4D9F4C911D4");
-        Check(0x11466F0,0x191,"85310F484A3DFDC7EADC6D730715807AFEC4D515F4CECC96561343B647348784");
-        Check(0x1164140,0x16F,"42AAAE035916B91AF03ADF1C3A99CB1596F9A566E6466C864D7C12E40803538E");
-        Check(0xBF9280,3,"E18AACCE29AFFCDDDAA5F641AC1EC12552E0FE9D066E6408941B1792818B8619");
-        return new(native,native.ResourceUri+"@"+native.ExecutableSha256+
+
+        return new(native,native.RenderRuleIdentity+
             ";TC:1161C00-full-context-save/CPU1BF0;all-branches-join1161D33-literalAL1;"+
             "1146823-call/1146828-test;1164140-nonempty45-Functor0;1164278-AL1/"+
             "1164285-source-finish-v28=BF9280-B001C3;11642A0-return-final-AL;"+

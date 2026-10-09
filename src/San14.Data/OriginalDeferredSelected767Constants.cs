@@ -25,24 +25,24 @@ public sealed class OriginalDeferredSelected767HatchingIeeeProof
     private readonly uint[] words;
     private readonly int[] offsets=[464,468,472,476,480,484,488,492,496,500,504,512,516,520];
     private OriginalDeferredSelected767HatchingIeeeProof(OriginalDeferredHatchingInputs source,string provenance,
-        long frameNumber,string effectiveLightDataSha256)
-    { words=Bits(source);CurrentProducerProvenance=provenance;FrameNumber=frameNumber;EffectiveLightDataSha256=effectiveLightDataSha256; }
+        long frameNumber,string effectiveLightOwnerIdentity)
+    { words=Bits(source);CurrentProducerProvenance=provenance;FrameNumber=frameNumber;EffectiveLightOwnerIdentity=effectiveLightOwnerIdentity; }
     public string CurrentProducerProvenance { get; }
     public long FrameNumber { get; }
-    public string EffectiveLightDataSha256 { get; }
+    public string EffectiveLightOwnerIdentity { get; }
     internal static OriginalDeferredSelected767HatchingIeeeProof FromSuccessfulOwnedSource(
-        OriginalDeferredHatchingInputs source,string provenance,long frameNumber,string effectiveLightDataSha256)
+        OriginalDeferredHatchingInputs source,string provenance,long frameNumber,string effectiveLightOwnerIdentity)
     {
         ArgumentNullException.ThrowIfNull(source);ArgumentException.ThrowIfNullOrWhiteSpace(provenance);
-        ArgumentException.ThrowIfNullOrWhiteSpace(effectiveLightDataSha256);
-        if(frameNumber<1||effectiveLightDataSha256.Length!=64||!effectiveLightDataSha256.All(Uri.IsHexDigit))
+        ArgumentException.ThrowIfNullOrWhiteSpace(effectiveLightOwnerIdentity);
+        if(frameNumber<1)
             throw new InvalidDataException("Hatching IEEE authority requires its exact accepted source frame and effective light generation.");
-        return new(source,provenance,frameNumber,effectiveLightDataSha256);
+        return new(source,provenance,frameNumber,effectiveLightOwnerIdentity);
     }
     internal void ValidateCurrent(OriginalDeferredF103SelectedSource selected)
     {
         if(selected.Current.FrameNumber!=FrameNumber||selected.OwnedFeatureSource is not { } feature||
-            feature.FrameNumber!=FrameNumber||feature.EffectiveLightDataSha256!=EffectiveLightDataSha256)
+            feature.FrameNumber!=FrameNumber||feature.EffectiveLightOwnerIdentity!=EffectiveLightOwnerIdentity)
             throw new InvalidDataException("Hatching IEEE authority belongs to another source frame or effective light generation.");
     }
     internal void Validate(OriginalDeferredHatchingInputs? input)

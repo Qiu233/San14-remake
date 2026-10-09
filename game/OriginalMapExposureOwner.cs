@@ -39,8 +39,6 @@ public sealed class OriginalMapExposureOwner:IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(source);ArgumentNullException.ThrowIfNull(compiler);
         var vertex=compiler.Compile(source.VertexProgram.Span);var pixel=compiler.Compile(source.PixelProgram.Span);
-        if(vertex.SourceProgramSha256!=OriginalMapExposureSource.VertexSha256||pixel.SourceProgramSha256!=OriginalMapExposureSource.PixelSha256)
-            throw new InvalidDataException("Exposure source stock program hashes differ.");
         // SM4 has no RD11 RDEF header. Inspect the translated fixed interface
         // directly; only the one source VS cb0 is moved to descriptor set1.
         var adapter=OriginalVertexShaderAdapter.AdaptPositionInput(MoveVertexSet(vertex.Bytes));

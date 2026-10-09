@@ -79,9 +79,8 @@ public sealed class OriginalMapPostEffect3DepthOfField2GraphicsSource
             state.OwnerIdentity!=before.ContextOwnerIdentity||state.SourceSha256!=update.ConstantBuffer.SourceSha256||
             !update.PassSelection.OrderedFactory7Passes.Contains(pass)||!Profiles.TryGetValue(pass,out var profile))
             throw new NotSupportedException("DOF2 ordinary source proof requires its actual selected fullscreen profile.");
-        var vertex=OriginalMapPostEffect3Functor1FootprintSource.RequireProgram(allocation,pass,1,profile.Vertex,
-            "6247ACDB399903435E4F66904BF3EF605ADBCFBD3EB642EE2B867C0497AD5C2E");
-        var pixel=OriginalMapPostEffect3Functor1FootprintSource.RequireProgram(allocation,pass,0,profile.Pixel,profile.Hash);
+        var vertex=OriginalMapPostEffect3Functor1FootprintSource.RequireProgram(allocation,pass,1,profile.Vertex);
+        var pixel=OriginalMapPostEffect3Functor1FootprintSource.RequireProgram(allocation,pass,0,profile.Pixel);
         OriginalMapPostEffect3Functor1FootprintSource.RequireFiniteRgbaOutput(pixel,pass is not(68 or 69 or 70 or 71));
         var overrides=before.OrderedPixelTextureSetters.Select(s=>new OriginalMapPostEffect3Binding(-1,
             OriginalMapPostEffect3BindingTable.TextureParameters,s.ActualTexture.ParameterIndex,1,
@@ -113,30 +112,30 @@ public sealed class OriginalMapPostEffect3DepthOfField2GraphicsSource
         float result=BitConverter.UInt32BitsToSingle(truncated);
         return negative&&truncated!=bits?OriginalNativeFloat.Subtract(result,1):result;
     }
-    private sealed record Profile(int Vertex,int Pixel,string Hash);
+    private sealed record Profile(int Vertex,int Pixel);
     private static readonly IReadOnlyDictionary<int,Profile> Profiles=new Dictionary<int,Profile>
     {
-        [53]=new(5,8,"CDD93F1CF8E8824CBF4F7BE7D29DF575671EB7B02042C236311CB43E79973D12"),
-        [54]=new(6,9,"700A40E5A5F65AF68A5FE2783A687D481C1CB0BB241C3108203B8F0528114783"),
-        [55]=new(7,10,"8FAF7FE2EB81CFF5906BAF6A69E78DCFA1621642B92473DC1E210FED5B8BD731"),
-        [56]=new(8,11,"443BCD4B03CD6FAAB34AE24F3F82E18B2D656291D0F25862B0413E6C0430A3BA"),
-        [66]=new(13,16,"BEDB100FC0A11542296B691EA355B6EC06361164F4A93514AAB806FD9D4DF3AE"),
-        [67]=new(14,17,"45F60D012CAEB93FDA2595D1B92ED2EBB16251B0D557564731F3210D889CB9EC"),
-        [68]=new(15,18,"D90637325C5769C494FA8DFFF985DC09DA6E8C42EA1DB3476F1452066A8CE354"),
-        [69]=new(16,19,"E03C8801E1D337C775BD30D348C70DBCFBA5CEF15F4D398CA2C8CE1DE1156055"),
-        [70]=new(17,20,"41E9DA3ECCD2088C16269C8FC200E9CC23E0F42A053FAB676D4E6CB2A96CBCE2"),
-        [71]=new(18,21,"730BF6A4246F347CC0EE981527C8CBFADF1829A5A610D59DB34DA15977488A78"),
-        [72]=new(19,22,"548C4BFD79C6914B4FA425FFB41F6F7C0836A6A28EC000301F3E78BB82360CF3"),
-        [73]=new(20,23,"0501D33F68695832C44231E5704E7558524ECD2B4A5A07EA89795AE1120D30F6"),
-        [74]=new(21,24,"C0020F73E9C8F185A3DEE1801DAF31CAC5EDA137DBF0CF54045B8280929253D1"),
-        [75]=new(22,25,"E3380B5C8439DFB66CF33AD7C649AF34DE62103BC76ECAF308A0D0B1A10D6CE8"),
-        [76]=new(23,26,"77921479D01C1DBAB289E608D10A3F997B42E814611A196875B439CCA4F8238F"),
-        [77]=new(24,27,"12E7CC376341F1836333F233B0D069CDC9733EF18A92FBCFEA36179D8928E745"),
-        [78]=new(25,28,"6F36A14F6036F94DEB77804CBA7E2150C8889506CE7667BDDD4F0D59CD971650"),
-        [79]=new(26,29,"6295A69A65FB68D6F7CCEAA6EF0294F8AB03E1E147D8C7935D1F12A4732D3EC5"),
-        [80]=new(27,30,"2FA5D91AB21C8C6EFC39F0DB5EDFD76E4ACD779C78F851B7AFC17FA5C3616EA1"),
-        [81]=new(28,31,"77756118AB74E398E02F61580C70F767BF24FAC7BAB2F8C8DE6D9E877B0A722B"),
-        [82]=new(29,32,"02F65447BE5CCF241D8A2054B98658E39E5BA0ED79D4C9A3E3833FE51A35C31A"),
-        [83]=new(30,33,"9A1E32859E4F7D591FAB519D3601A18084CD2CDE89E6DCFA0EDA2854F6A01640")
+        [53]=new(5,8),
+        [54]=new(6,9),
+        [55]=new(7,10),
+        [56]=new(8,11),
+        [66]=new(13,16),
+        [67]=new(14,17),
+        [68]=new(15,18),
+        [69]=new(16,19),
+        [70]=new(17,20),
+        [71]=new(18,21),
+        [72]=new(19,22),
+        [73]=new(20,23),
+        [74]=new(21,24),
+        [75]=new(22,25),
+        [76]=new(23,26),
+        [77]=new(24,27),
+        [78]=new(25,28),
+        [79]=new(26,29),
+        [80]=new(27,30),
+        [81]=new(28,31),
+        [82]=new(29,32),
+        [83]=new(30,33)
     };
 }

@@ -47,8 +47,7 @@ public sealed class OriginalMapExposureSelectedLightReceipt
         string ownedApplyReferenceIdentity)
     {
         ArgumentNullException.ThrowIfNull(selected);ArgumentNullException.ThrowIfNull(lighting);
-        ArgumentException.ThrowIfNullOrWhiteSpace(ownedApplyReferenceIdentity);lighting.ValidateCurrentSourceFrame();
-        if(selected.Identity.FrameNumber!=lighting.FrameNumber||selected.Identity.SelectedViewOwner!=lighting.Binding.ViewIdentity||
+        ArgumentException.ThrowIfNullOrWhiteSpace(ownedApplyReferenceIdentity);if(selected.Identity.FrameNumber!=lighting.FrameNumber||selected.Identity.SelectedViewOwner!=lighting.Binding.ViewIdentity||
             selected.Identity.ProviderPacketOwner!=lighting.Binding.LightOwnerIdentity||
             string.IsNullOrWhiteSpace(selected.Identity.ProviderRecordOwner)||
             selected.Identity.ProviderRecordOwner==lighting.Binding.LightOwnerIdentity||
@@ -59,8 +58,7 @@ public sealed class OriginalMapExposureSelectedLightReceipt
     }
     public void ValidateFor(OriginalMapSourceCreatedLightingPacket current)
     {
-        ArgumentNullException.ThrowIfNull(current);lighting.ValidateCurrentSourceFrame();current.ValidateCurrentSourceFrame();
-        if(current.FrameNumber!=FrameNumber||current.Binding!=lighting.Binding||current.SourceIdentity!=lighting.SourceIdentity||
+        ArgumentNullException.ThrowIfNull(current);if(current.FrameNumber!=FrameNumber||current.Binding!=lighting.Binding||current.SourceIdentity!=lighting.SourceIdentity||
             !current.PreparedCameraPrefix.Span.SequenceEqual(lighting.PreparedCameraPrefix.Span)||
             !current.LocalLightData.Span.SequenceEqual(selectedData)||
             OriginalMapExposureSource.ResolveSelectedLuminance(true,selectedData)!=SelectedExternalLuminance)

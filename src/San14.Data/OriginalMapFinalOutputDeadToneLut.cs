@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -39,13 +38,12 @@ public sealed record OriginalMapFinalOutputDeadToneLutSpirv(byte[] Bytes,string 
 /// verbatim. The frame owner must continuously enforce proof.ValidateFrame.</summary>
 public static class OriginalMapFinalOutputDeadToneLutAdapter
 {
-    public const string PixelTranslationSha256="5AEB02D783E45E2BD02622743A8B8AF5011A2F448825DDDAC176E8F17CFCAE05";
     public static OriginalMapFinalOutputDeadToneLutSpirv Adapt(OriginalShaderSpirv pixel,
-        OriginalTranslatedShaderBindings source,OriginalMapFinalOutputDeadToneLut proof)
+        OriginalTranslatedShaderBindings source,OriginalMapFinalOutputDeadToneLut proof,
+        OriginalMapFinalOutputProgramSource actualProgram)
     {
         ArgumentNullException.ThrowIfNull(pixel);ArgumentNullException.ThrowIfNull(source);ArgumentNullException.ThrowIfNull(proof);
-        if(pixel.SourceProgramSha256!=OriginalMapFinalOutputToneShaderSource.PixelSha256||pixel.SpirvSha256!=PixelTranslationSha256||
-            Convert.ToHexString(SHA256.HashData(pixel.Bytes))!=PixelTranslationSha256||source.Interface.Sha256!=PixelTranslationSha256||source.Bindings.Count!=7)
+        if(actualProgram.Kind!=OriginalMapFinalOutputProgramKind.EmbeddedTone||source.Bindings.Count!=7)
             throw new InvalidDataException("Dead tone LUT requires the exact embedded original PS and default compiler translation.");
         var image=source.Bindings.Single(b=>b.DescriptorKind=="Texture"&&b.Source.BindPoint==2);
         var sampler=source.Bindings.Single(b=>b.DescriptorKind=="Sampler"&&b.Source.BindPoint==2);
@@ -93,8 +91,7 @@ public static class OriginalMapFinalOutputDeadToneLutAdapter
     public static OriginalTranslatedShaderBindings ReadDeviceBindings(OriginalTranslatedShaderBindings original,
         OriginalMapFinalOutputDeadToneLutSpirv adapted)
     {
-        if(original.Interface.Sha256!=PixelTranslationSha256||adapted.OriginalTranslationSha256!=PixelTranslationSha256||
-            Convert.ToHexString(SHA256.HashData(adapted.Bytes))!=adapted.Sha256||adapted.UnexecutedSamplesReplaced!=1)
+        if(original.Interface.Sha256!=adapted.OriginalTranslationSha256||adapted.UnexecutedSamplesReplaced!=1)
             throw new InvalidDataException("Tone bindings require the exact source-dead adapted profile.");
         var subset=original.OriginalDefinitions with{Bindings=Array.AsReadOnly(original.OriginalDefinitions.Bindings.Where(b=>b.InputType is not(2 or 3)||b.BindPoint!=2).ToArray())};
         return OriginalTranslatedShaderBindingReader.Read(subset,adapted.Bytes) with{OriginalDefinitions=original.OriginalDefinitions};

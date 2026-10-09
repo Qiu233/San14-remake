@@ -3,27 +3,23 @@ using San14.Data.Formats;
 
 namespace San14.Data;
 
-/// <summary>The original main parameter-group names, imported once from native
-/// constructor directories. These are unrelated to physical shader RDEF ordinals.
-/// The narrow imported query below is nMtrID; conditional lighting group lengths
+/// <summary>Project-owned main parameter-group name definitions.
+/// These are unrelated to physical shader RDEF ordinals.
+/// The narrow query below is nMtrID; conditional lighting group lengths
 /// stay unspecified. The caller supplies a successfully created fresh full table.</summary>
 public sealed class LoadedOriginalModelNativeParameterDirectorySource
 {
     private readonly IReadOnlyDictionary<string,IReadOnlyList<string>> directories;
-    internal LoadedOriginalModelNativeParameterDirectorySource(string locale,string executableHash,
-        string textHash,IReadOnlyDictionary<string,string> windows,
+    internal LoadedOriginalModelNativeParameterDirectorySource(string locale,string ruleVersion,
         IReadOnlyDictionary<string,IReadOnlyList<string>> actualDirectories)
-    { Locale=locale;ExecutableSha256=executableHash;DecodedTextSha256=textHash;
-      WindowSha256=windows;directories=actualDirectories; }
+    { Locale=locale;RuleVersion=ruleVersion;directories=actualDirectories; }
     public string Locale { get; }
-    public string ExecutableSha256 { get; }
-    public string DecodedTextSha256 { get; }
-    public IReadOnlyDictionary<string,string> WindowSha256 { get; }
+    public string RuleVersion { get; }
     /// <summary>Native local backing arrays. Conditional plugins may expose a
     /// prefix of these names or preserve the preceding directory. Their array
     /// lengths are not a claim about the current constructed Group54 count.</summary>
     public IReadOnlyDictionary<string,IReadOnlyList<string>> ActualLocalDirectoryNames => directories;
-    public string SourceEvidence => $"SAN14CE_{Locale}.exe@{ExecutableSha256};"+
+    public string SourceEvidence => $"{RenderRuleIdentity.For("ModelNativeParameterDirectory",Locale)};"+
         "J30/Group40/Group54;97E1C0-source-order/97E190-inherited-append/970810-exact-name;"+
         "fresh-successful-created-row;nMtrID-only;conditional-lighting-lengths-preserved";
     public static LoadedOriginalModelNativeParameterDirectorySource Load(

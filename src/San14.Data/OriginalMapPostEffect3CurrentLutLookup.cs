@@ -84,8 +84,6 @@ public sealed class OriginalMapPostEffect3CurrentLutLookup
     {
         ArgumentNullException.ThrowIfNull(transfer);transfer.ValidateSameCamera(camera);ValidateSameCamera(camera);
         if(transfer.Native.Native.Locale!=selector.Native.Native.Locale||
-            transfer.Native.Native.ExecutableSha256!=selector.Native.Native.ExecutableSha256||
-            transfer.Native.Native.DecodedTextSha256!=selector.Native.Native.DecodedTextSha256||
             transfer.SourceRestoresPreviousPreparedPrimaryHandles)
             throw new InvalidDataException("Prepared LUT lookup and Main selector use different native source routes.");
         return new(camera,hdr,ResolvedDeclaration,selector,SelectedStaticTexture,transfer,failedLookupEvidence);

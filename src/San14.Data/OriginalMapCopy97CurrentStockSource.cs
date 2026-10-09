@@ -70,7 +70,7 @@ public sealed partial class OriginalMapCopy97CurrentStockSource
     public string ViewIdentity => frontend.OwnedViewIdentity;
     public OriginalMapOwnedGraphicsColorMaskHistorySource OwnedFrontendSource => frontend;
     public long CompletedSourceFrameNumber { get; private set; }
-    public string SourceProvenance => $"owned-Copy97-current-stock-history/{frontend.Locale}/{frontend.ExecutableSha256};"+
+    public string SourceProvenance => $"owned-Copy97-current-stock-history/{frontend.Locale}/{frontend.RuleVersion};"+
         "95DC10/966EA0-B0-null/29E0-29F0-six-3F800000;"+
         "opcode47/62/64-separate-from-ordinary-shader-binding;"+
         "canonical-SkyWORK/HeightFog/class18-GBuffer/TerrainF8/early78-hooks-retain;"+
@@ -78,8 +78,8 @@ public sealed partial class OriginalMapCopy97CurrentStockSource
         OwnedFrontendIdentity;
 
     /// <summary>Borrow the exact existing owned frontend; this creates no
-    /// replacement frontend or constructor reset. Its canonical Sky/final
-    /// generation and executable identity were verified by ReadFresh.</summary>
+    /// replacement frontend or constructor reset. Its Sky/final declarations
+    /// and current owner generation were established by ReadFresh.</summary>
     public static OriginalMapCopy97CurrentStockSource ReadFresh(
         OriginalMapOwnedGraphicsColorMaskHistorySource actualOwnedFrontend)
     {

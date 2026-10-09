@@ -117,7 +117,8 @@ public static class OriginalOrdinaryRsLayerSource
         string evidence = OriginalDeferredSamplerSources.LoadOrdinaryRsLayerNativeSource(repository.SourceDirectory, locale);
         var graph = repository.LoadRenderGraph("system", 0x024496EE);
         var objects = repository.LoadObjects("system", 0x93FB3280);
-        Require(graph.Source, GameResourceId.Rdb("system", 0x024496EE).ToString(), OriginalTerrainGbufferTargetSources.GraphSha256);
+        if (graph.Source.ResourceUri != GameResourceId.Rdb("system", 0x024496EE).ToString())
+            throw new InvalidDataException("Ordinary RS3 graph resource reference differs.");
         Require(objects.Source, OriginalDeferredAuxiliaryTargetSources.ActualObjectsResourceUri,
             OriginalDeferredAuxiliaryTargetSources.ActualObjectsSha256);
         graph = graph with { Document = RenderGraphReader.Read(graph.Source.Bytes) };

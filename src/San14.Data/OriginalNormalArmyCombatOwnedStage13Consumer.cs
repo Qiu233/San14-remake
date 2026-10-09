@@ -21,9 +21,9 @@ public static class OriginalNormalArmyCombatOwnedStage13Consumer
             var definitions = package.CaptureCurrentDefinitions(captured);
             if (definitions is null) return null;
             var context = new OriginalTacticRemakeCurrentContext(definitions, catalog, map, terrain,
-                new(package.Seed.Language, package.Seed.Source.Sha256), package.Revision);
+                new(package.Seed.Language, SimulationRuleIdentity.ForLocale(package.Seed.Language)), package.Revision);
             return new OriginalNormalArmyCombatSourcePlanner(new OriginalNormalArmyCombatCurrentQueries(context),
-                package.Seed.Language, package.Seed.Source.Sha256, revision);
+                package.Seed.Language, SimulationRuleIdentity.ForLocale(package.Seed.Language), revision);
         }, revision);
     }
 }

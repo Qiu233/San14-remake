@@ -84,7 +84,7 @@ public sealed class OriginalTerrainModelRasterInheritanceSource
             actualSelected.Graph.Source,actualShader.Source}) RequireCanonical(source);
         var queue=OriginalModelRendererStateSourceReader.ReadQueue(actualSelected.Graph,actualSelected.Node.Index);
         if(queue.Node.Index is not (54 or 55) || queue.ShaderStateOffset!=18 || queue.Flag2!=0 ||
-            queue.Graph.Source.DecodedSha256!=OriginalTerrainGbufferTargetSources.GraphSha256)
+            queue.Graph.Source.ResourceUri!="san14://rdb/system/024496EE")
             throw new InvalidDataException("Terrain raster inheritance requires the actual node53's ordinary54/55 source queue.");
         var geometry=G1ModelGeometryReader.Read(actualModel.Model.Source.Bytes,actualModel.Model.Source.Bytes.LongLength);
         var canonicalModel=actualModel with
@@ -109,8 +109,7 @@ public sealed class OriginalTerrainModelRasterInheritanceSource
         // The previous four-argument reader retains its original TC source
         // contract. A loaded SC/TC GeneralScene owner supplies its same caller
         // here; importing native executable windows belongs to that owner load.
-        callerSource ??= OriginalGeneralSceneTerrainCallerSource.ReadForVerifiedExecutable("TC",
-            "0751B4FED7A5783371B9541674C0587A6AFD3140E60E706E32EAF35A9432F464");
+        callerSource ??= OriginalGeneralSceneTerrainCallerSource.Create("TC");
         return new(queue,modelSource,group,callerSource);
     }
 

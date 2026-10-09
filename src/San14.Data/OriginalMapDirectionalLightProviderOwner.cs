@@ -16,30 +16,19 @@ public sealed record OriginalDirectionalProviderSelection(uint RegisteredRootObj
 public sealed class OriginalDirectionalProviderCurrentFrame
 {
     private readonly OriginalMapDirectionalLightProviderOwner owner;
-    private readonly OriginalDirectionalProviderControls controls;
-    private readonly byte[] camera;
     internal OriginalDirectionalProviderCurrentFrame(OriginalMapDirectionalLightProviderOwner source,
         OriginalDirectionalLightConstructionPacket root, OriginalDirectionalProviderControls input,
         OriginalDirectionalProviderSelection selection, OriginalDirectionalLightConstructionPacket selected,
         ReadOnlySpan<byte> preparedCamera)
     {
-        owner=source;RegisteredRoot=root;controls=input;Selection=selection;SelectedConstruction=selected;
-        camera=preparedCamera.ToArray();CurrentCamera=OriginalDirectionalLightConstruction.ApplyCurrentCamera(selected,camera);
+        owner=source;RegisteredRoot=root;Selection=selection;SelectedConstruction=selected;
+        CurrentCamera=OriginalDirectionalLightConstruction.ApplyCurrentCamera(selected,preparedCamera);
     }
     public OriginalDirectionalLightConstructionPacket RegisteredRoot {get;}
     public OriginalDirectionalLightConstructionPacket SelectedConstruction {get;}
     public OriginalDirectionalProviderSelection Selection {get;}
     public OriginalDirectionalLightCurrentCameraPacket CurrentCamera {get;}
     public string ProviderSourceProvenance=>owner.SourceProvenance;
-    public void ValidateCurrentSourceFrame()
-    {
-        var rebuilt=owner.Select(RegisteredRoot,controls);
-        if(rebuilt!=Selection||owner.SelectedConstruction(RegisteredRoot,rebuilt).PreparedSha256!=SelectedConstruction.PreparedSha256)
-            throw new InvalidDataException("Directional provider selection differs from its owned source and ready child generation.");
-        CurrentCamera.ValidateCurrentSourceFrame();
-        if(!ReferenceEquals(CurrentCamera.Construction,SelectedConstruction))
-            throw new InvalidDataException("Directional provider Camera application uses a different selected constructor.");
-    }
 }
 
 /// <summary>Actual seasonal provider ListContainer, typed selector, and raw

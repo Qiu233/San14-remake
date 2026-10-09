@@ -120,7 +120,7 @@ public static class OriginalMapSeasonResourceConsumer
             EffectInfoRelativePath.Replace('/', Path.DirectorySeparatorChar)));
         byte[] bytes = File.ReadAllBytes(path);
         var source = new SourceProvenance(EffectInfoRelativePath, bytes.Length,
-            Convert.ToHexString(SHA256.HashData(bytes)), overridePath is null ? OriginalEffectInfoSha256 : null)
+            Convert.ToHexString(SHA256.HashData(bytes)))
         {
             ResourceUri = id.ToString(), PhysicalPath = path, IsOverride = overridePath is not null
         };

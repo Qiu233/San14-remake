@@ -44,6 +44,5 @@ public static class OriginalTacticRemakeCurrentBattleControl
 
     private static bool Bound(GameState state) => state.NativeClock is not null &&
         state.NativeArmySimulation?.Parameters is { } parameters && !string.IsNullOrWhiteSpace(parameters.Revision) &&
-        (parameters.Language == "SC" && parameters.ExecutableSha256 == OriginalCeHexWorldCoordinates.VerifiedScExecutableSha256 ||
-         parameters.Language == "TC" && parameters.ExecutableSha256 == OriginalCeHexWorldCoordinates.VerifiedTcExecutableSha256);
+        (parameters.Language is ("SC" or "TC"));
 }

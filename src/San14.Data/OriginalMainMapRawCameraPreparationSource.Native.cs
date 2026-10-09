@@ -7,42 +7,16 @@ public static partial class OriginalDeferredSamplerSources
     internal static LoadedOriginalMainMapRawCameraPreparationSource LoadMainMapRawCameraPreparationSource(
         string directory,string locale)
     {
-        var profile=Profile(locale);
-        byte[] executable=File.ReadAllBytes(Path.Combine(directory,$"SAN14CE_{locale}.exe"));
-        VerifyHash(executable,profile.ExeHash,"raw Main Camera executable");
-        var image=new NativeImage(executable);
-        byte[] text=image.DecodeText(out int textRva);
-        VerifyHash(text,profile.TextHash,"raw Main Camera decoded text");
-        bool tc=locale=="TC";
-        void Check(int tcRva,int scRva,int count,string tcHash,string scHash)
-            =>VerifyHash(text.AsSpan((tc?tcRva:scRva)-textRva,count),tc?tcHash:scHash,"complete raw Camera source");
-        Check(0xC40870,0xC41F20,95,
-            "0DE79B1A83169641B8D03ED1241EB4CC626E097A9603D89982D5514B5CAD112D","778B0BD36BD55CC70D8BB9F378A3D814AB21506C0945F7C088B809DD43CE700D");
-        Check(0xC409C0,0xC42070,14824,
-            "A828CFACB82D0351866B45358A998E5567B39058B435BFDDB1A0360136634EFA","F12F0E6520F264D435422735E1042756AFF066A46436502839A6CE1A0AB78ABA");
-        Check(0xC44480,0xC45B30,246,
-            "B05F784FF5982D3EC0E7655A0BB59E96A048D9290C9B324C22C64375620EC315","6EEE37C52A9904908E71E0DD4CE5AC82EE9C60ABA00D63F58D0B301E2C348104");
-        Check(0xC9AE30,0xC9C450,356,
-            "90A4012FD16C667F0F842B170818BCEC3F51B2199B3CF242EAF1119986E7B4C0","6C7E470EC8D275CEF80904A2EF68771DBEA8656D51248D7E9ABE44BCB6036E35");
-        Check(0xC9B180,0xC9C7A0,141,
-            "B1AB891CE1105BD218913B25FAA4A57FA05BA0FA92FA413BFDBCB348EF72FC5B","C62B0E05914494502933DBEDFB993910F2AF1282D1F216F463E67256694020B2");
-        Check(0xC9B230,0xC9C850,61,
-            "73C788B8B15E24CDA286220A200FC33B1DEE9219D99060D3EFC76A9CFD8D86A8","73C788B8B15E24CDA286220A200FC33B1DEE9219D99060D3EFC76A9CFD8D86A8");
-        Check(0xAB5BD0,0xAB6C60,159,
-            "C317077D2982D01ECE8AB91B43A0513A776D8E112C5D4C44B0E68E7A8A21EDC6","61175236ACE3C603011B2DD46495AD21F6F40B5F1359C76C854C595B383DDD5A");
-        int vt=tc?0x16B42E0:0x16B4F90;
-        foreach(var member in new(int Slot,int Target)[]{
-            (0x80,tc?0xC9AE30:0xC9C450),(0x88,tc?0xC9B180:0xC9C7A0),
-            (0x90,tc?0xC9B230:0xC9C850),(0x418,tc?0xC40870:0xC41F20)})
-            if(BinaryPrimitives.ReadUInt64LittleEndian(image.Raw(vt+member.Slot,8))!=0x140000000UL+(uint)member.Target)
-                throw new InvalidDataException("Raw Camera getter/preparation vtable differs from its original source.");
-        return new(locale,$"rawMain.V418/{locale}@{profile.ExeHash};C409C0-1186-bulk+126C-byte;"+
+        if(locale is not ("TC" or "SC"))throw new NotSupportedException("This source layout requires SC or TC.");
+        var ruleVersion=RenderRuleIdentity.For("raw-camera-preparation",locale);
+
+        return new(locale,$"{ruleVersion};C409C0-1186-bulk+126C-byte;"+
             "loop7B8-16words;current-null/actualData-Lens;conditional262C-tail;geometry/C44480/forced-AB5BD0;"+
             "same-currentCPU-header-lower31;no-V460;no-resource-key-to-pointer",RawMainCameraNumericRanges);
     }
 
     // Exact original instruction order, grouped only where both offsets
-    // advance by4. Source verification occurs at Load, never per getter/frame.
+    // advance by4. The loaded plan is retained without per getter/frame source reads.
     private static readonly OriginalMainMapRawCameraWordRange[] RawMainCameraNumericRanges=
     [
         new(0x18,0x1480,1),

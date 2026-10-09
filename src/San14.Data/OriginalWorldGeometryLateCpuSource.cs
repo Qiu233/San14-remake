@@ -28,7 +28,7 @@ public sealed class LoadedOriginalWorldGeometryLateCpuSource
     public OriginalModelQueueStateSource Queue58 { get; }
     public int ShaderStateIndex => 2;
     public int OrdinaryBankSelector => 0;
-    public string SourceEvidence => $"geometry57/58/{Native.Locale}@{Native.ExecutableSha256};" +
+    public string SourceEvidence => $"{RenderRuleIdentity.For("WorldGeometryLateCpu",Native.Locale)};" +
         "TC:E9D280-D33F00/EA6470-D43190-D362B0;SC:E9E270-D34C30/EA7460-D43EC0-D36FE0;" +
         "state2-separate-from-bank0;source-only-no-GPU-or-node-return";
 
@@ -78,8 +78,7 @@ public static class OriginalWorldGeometryLateCpuSource
         ArgumentNullException.ThrowIfNull(repository);
         var native = OriginalDeferredSamplerSources.LoadWorldGeometryLateCpuNativeSource(repository.SourceDirectory, locale);
         var graph = repository.LoadRenderGraph("system", 0x024496EE);
-        if (graph.Source.OverrideSource is not null || graph.Source.DecodedSha256 != OriginalTerrainGbufferTargetSources.GraphSha256 ||
-            Convert.ToHexString(SHA256.HashData(graph.Source.Bytes)) != OriginalTerrainGbufferTargetSources.GraphSha256)
+        if (graph.Source.OverrideSource is not null || graph.Source.ResourceUri != "san14://rdb/system/024496EE")
             throw new InvalidDataException("Late geometry CPU source requires its original graph at import.");
         graph = graph with { Document = RenderGraphReader.Read(graph.Source.Bytes) };
         var n57 = graph.Document.Nodes[57]; var n58 = graph.Document.Nodes[58];

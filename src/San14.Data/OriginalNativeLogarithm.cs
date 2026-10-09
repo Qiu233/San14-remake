@@ -4,8 +4,8 @@ namespace San14.Data;
 
 public enum OriginalNativeLogDispatch { Sse, AvxFma }
 
-/// <summary>Finite positive-input port of the two original logarithm kernels.
-/// The caller selects dispatch explicitly; no current native flag is inferred.</summary>
+/// <summary>Finite positive binary32 logarithm with separately rounded SSE
+/// and fused AVX/FMA operation ordering. Dispatch is an explicit caller choice.</summary>
 public static class OriginalNativeLogarithm
 {
     public static float Log(float value,OriginalNativeLogTables tables,OriginalNativeLogDispatch dispatch)
@@ -24,8 +24,8 @@ public static class OriginalNativeLogarithm
         {
             float t=Sub(value,1),r=Divide(t,Add(2,t)),product=Mul(t,r);
             r=Add(r,r);float z=Mul(r,r),cube=Mul(r,z);
-            float polynomial=fused?MathF.FusedMultiplyAdd(z,F(0x3C4CCCCD),F(0x3DAAAAAB)):
-                Add(Mul(z,F(0x3C4CCCCD)),F(0x3DAAAAAB));
+            float polynomial=fused?MathF.FusedMultiplyAdd(z,1f/80,1f/12):
+                Add(Mul(z,1f/80),1f/12);
             float tail=fused?MathF.FusedMultiplyAdd(polynomial,cube,-product):Sub(Mul(polynomial,cube),product);
             return Add(t,tail);
         }
@@ -40,17 +40,17 @@ public static class OriginalNativeLogarithm
         float correction,tailPart,head;
         if(fused)
         {
-            float coefficient=MathF.FusedMultiplyAdd(F(0x3EAAAAAB),ratio,0.5f);
+            float coefficient=MathF.FusedMultiplyAdd(1f/3,ratio,0.5f);
             correction=MathF.FusedMultiplyAdd(coefficient,Mul(ratio,ratio),ratio);
-            tailPart=MathF.FusedMultiplyAdd(F(0x3805FDF4),exponent,-correction);
-            head=MathF.FusedMultiplyAdd(F(0x3F317000),exponent,F(tables.LogHigh[index]));
+            tailPart=MathF.FusedMultiplyAdd(F(tables.LogLow[128]),exponent,-correction);
+            head=MathF.FusedMultiplyAdd(F(tables.LogHigh[128]),exponent,F(tables.LogHigh[index]));
         }
         else
         {
-            float polynomial=Mul(Add(Mul(ratio,F(0x3EAAAAAB)),0.5f),Mul(ratio,ratio));
+            float polynomial=Mul(Add(Mul(ratio,1f/3),0.5f),Mul(ratio,ratio));
             correction=Add(ratio,polynomial);
-            tailPart=Sub(Mul(exponent,F(0x3805FDF4)),correction);
-            head=Add(Mul(exponent,F(0x3F317000)),F(tables.LogHigh[index]));
+            tailPart=Sub(Mul(exponent,F(tables.LogLow[128])),correction);
+            head=Add(Mul(exponent,F(tables.LogHigh[128])),F(tables.LogHigh[index]));
         }
         tailPart=Add(tailPart,F(tables.LogLow[index]));
         return Add(head,tailPart);

@@ -27,27 +27,23 @@ public sealed class OriginalSkyFirstGraphicsPrefixSource
 {
     private OriginalSkyFirstGraphicsPrefix? prepared;
     private bool valid=true,started;
-    private OriginalSkyFirstGraphicsPrefixSource(string locale,string executable,
-        string frontend,string view)
-    { Locale=locale; ExecutableSha256=executable; OwnedFrontendIdentity=frontend; OwnedViewIdentity=view; }
+    private OriginalSkyFirstGraphicsPrefixSource(string locale,string frontend,string view)
+    { Locale=locale; OwnedFrontendIdentity=frontend; OwnedViewIdentity=view; }
     public string Locale { get; }
-    public string ExecutableSha256 { get; }
+    public string RuleVersion => RenderRuleIdentity.Version;
     public string OwnedFrontendIdentity { get; }
     public string OwnedViewIdentity { get; }
     public bool WorkSubmissionStarted => started;
-    public string SourceProvenance => $"first-source-GraphicsContext/{Locale}/{ExecutableSha256};"+
+    public string SourceProvenance => RenderRuleIdentity.For("first-graphics-prefix",Locale)+";"+
         "95DC10-95DF26-966EA0;8slots-RGB7/Alpha1=15;CtorCull2-is-not-SkyCull;"+
         "D3A850-D3AB5F-D3AB7D-opcode1D-Cull1;E40540-11979F0-118EF80;"+OwnedFrontendIdentity;
 
-    public static OriginalSkyFirstGraphicsPrefixSource ReadFresh(OriginalGameRepository repository,
-        string locale,string ownedFrontendIdentity,string ownedViewIdentity)
+    public static OriginalSkyFirstGraphicsPrefixSource ReadFresh(string locale,string ownedFrontendIdentity,string ownedViewIdentity)
     {
-        ArgumentNullException.ThrowIfNull(repository);
         ArgumentException.ThrowIfNullOrWhiteSpace(ownedFrontendIdentity);
         ArgumentException.ThrowIfNullOrWhiteSpace(ownedViewIdentity);
         if(locale is not("SC" or "TC"))throw new InvalidDataException("Sky graphics prefix requires exact SC or TC.");
-        return new(locale,OriginalCeHexWorldCoordinates.VerifyInstalledExecutable(repository.SourceDirectory,locale),
-            ownedFrontendIdentity,ownedViewIdentity);
+        return new(locale,ownedFrontendIdentity,ownedViewIdentity);
     }
 
     /// <summary>Resource upload and cached draw construction do not consume

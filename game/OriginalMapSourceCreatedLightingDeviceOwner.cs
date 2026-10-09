@@ -27,7 +27,7 @@ public sealed class OriginalMapSourceCreatedLightingDeviceOwner : IAsyncDisposab
     {
         ArgumentNullException.ThrowIfNull(repository);
         if(setterCameraSlot is not(3 or 4))throw new ArgumentOutOfRangeException(nameof(setterCameraSlot));
-        var context=OriginalMainMapContextOwnerSource.LoadFreshHostDefaults(repository,executableLocale);
+        var context=OriginalMainMapContextOwnerSource.LoadFreshHostDefaults(executableLocale);
         var normalization=OriginalMapSourceCreatedLightingRetainedNormalization.LoadKnownConsumers(
             repository,ownedBackendIdentity,includeOrdinaryEarly126:true);
         var cube=await SourceResourceRegistrationAmbientCubeDevice.BuildAsync(
@@ -58,7 +58,7 @@ public sealed class OriginalMapSourceCreatedLightingDeviceOwner : IAsyncDisposab
         IReadOnlyList<OriginalMapSourceCreatedLightingRetainedRange> explicitRetained210,
         string retainedProvenance, string executableLocale, bool allowReadback=false)
     {
-        var context=OriginalMainMapContextOwnerSource.LoadFreshHostDefaults(repository,executableLocale);
+        var context=OriginalMainMapContextOwnerSource.LoadFreshHostDefaults(executableLocale);
         return CreateGameDefaultAsync(repository,setterCameraSlot,explicitRetained210,
             retainedProvenance+";"+context.SourceProvenance,context.ContextFlags3E4,allowReadback);
     }
@@ -79,7 +79,7 @@ public sealed class OriginalMapSourceCreatedLightingDeviceOwner : IAsyncDisposab
         OriginalMapSourceCreatedLightingRetainedAllocation retained,string executableLocale,bool allowReadback=false)
     {
         ArgumentNullException.ThrowIfNull(retained);
-        var context=OriginalMainMapContextOwnerSource.LoadFreshHostDefaults(repository,executableLocale);
+        var context=OriginalMainMapContextOwnerSource.LoadFreshHostDefaults(executableLocale);
         if(retained.ContextFlags3E4!=context.ContextFlags3E4)
             throw new InvalidDataException("Current retained allocation belongs to a different context than the fresh source Host.");
         return CreateGameDefaultAsync(repository,setterCameraSlot,retained.RetainedRanges,

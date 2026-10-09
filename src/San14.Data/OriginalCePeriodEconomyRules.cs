@@ -7,14 +7,14 @@ namespace San14.Data;
 public sealed class OriginalCePeriodEconomyRules : IPlayablePeriodEconomyRules
 {
     public const string RuleId = "san14:ce-period-economy-source-20261002";
-    public string SourceExecutableSha256 { get; }
+    public string RuleVersion { get; }
     public string Locale { get; }
 
-    private OriginalCePeriodEconomyRules(string sha, string locale) =>
-        (SourceExecutableSha256, Locale) = (sha, locale);
+    private OriginalCePeriodEconomyRules(string version, string locale) =>
+        (RuleVersion, Locale) = (version, locale);
 
     public static OriginalCePeriodEconomyRules LoadCurrent(string sourceDirectory, string locale) =>
-        new(OriginalCeHexWorldCoordinates.VerifyInstalledExecutable(sourceDirectory, locale), locale);
+        new(SimulationRuleIdentity.ForLocale(locale), locale);
 
     public PeriodEconomyQuote QuoteDevelopment(GameState state, CityState city,
         AreaState area, OfficerState officer)

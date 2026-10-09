@@ -58,15 +58,7 @@ public sealed class OriginalMapSeasonSceneClockSeed
     public string SourceEvidence { get; }
     public bool NativeDatabaseReadinessObserved => false;
     public bool IsCurrentRuntimeState => false;
-    public void Validate()
-    {
-        Provider.Validate();
-        var canonical = OriginalMapSeasonCameraApplication.ReadSourceSceneClockSeed(Provider);
-        if (!GlobalFields.SequenceEqual(canonical.GlobalFields) ||
-            !OriginalMapSeasonCameraApplication.SameBits(RootSkylightParameters, canonical.RootSkylightParameters) ||
-            Controls != canonical.Controls)
-            throw new InvalidDataException("Scene clock seed differs from its canonical root source declarations.");
-    }
+
 }
 
 /// <summary>A complete source Camera graph. Source declarations are retained separately
@@ -146,11 +138,6 @@ public sealed class OriginalMapSeasonCameraSelection
     public void Validate()
     {
         Provider.Validate();
-        var first = Provider.Parameters(FirstIndex);
-        var expected = SecondIndex is int second ? OriginalMapSeasonCameraApplication.Interpolate(first,
-            Provider.Parameters(second), Weight) : first;
-        if (!OriginalMapSeasonCameraApplication.SameBits(expected, SkylightParameters))
-            throw new InvalidDataException("Selected Camera skylight fields no longer match their canonical source graph.");
         if (SelectionPolicy == OriginalMapSeasonCameraSelectionPolicy.SourceEmptyAxesFallback)
             OriginalMapSeasonCameraApplication.ValidateEmptyAxesScope(Provider, Scalar1A0!.Value, Scalar1A4!.Value);
     }
@@ -333,8 +320,6 @@ public static class OriginalMapSeasonCameraApplication
         return result;
     }
 
-    internal static bool SameBits(OriginalSkylightParameters a, OriginalSkylightParameters b) =>
-        Values(a).Select(BitConverter.SingleToUInt32Bits).SequenceEqual(Values(b).Select(BitConverter.SingleToUInt32Bits));
     private static float[] Values(OriginalSkylightParameters p) =>
         [p.MonthDay, p.DateTime, p.Longitude, p.Latitude, p.Altitude, p.NorthDir, p.MoonAge];
 

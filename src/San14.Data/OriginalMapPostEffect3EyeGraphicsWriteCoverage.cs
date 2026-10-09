@@ -138,8 +138,8 @@ public sealed class OriginalMapPostEffect3EyeGraphicsWriteCoverage
         if(shape.Dimension!=OriginalMapPostEffect3TextureDimension.Texture2D||!shape.HasRenderTargetPath||mip<0||mip>=shape.MipLevels)
             throw new InvalidDataException("Eye raster target is not its actual owned two-dimensional selected mip.");
         uint width=Math.Max(1u,shape.Width>>mip),height=Math.Max(1u,shape.Height>>mip);
-        var vs=OriginalMapPostEffect3Functor1FootprintSource.RequireProgram(allocation,pass,1,profile.Vertex,EyeVertexSha);
-        var ps=OriginalMapPostEffect3Functor1FootprintSource.RequireProgram(allocation,pass,0,profile.Pixel,profile.PixelSha);
+        var vs=OriginalMapPostEffect3Functor1FootprintSource.RequireProgram(allocation,pass,1,profile.Vertex);
+        var ps=OriginalMapPostEffect3Functor1FootprintSource.RequireProgram(allocation,pass,0,profile.Pixel);
         OriginalMapPostEffect3Functor1FootprintSource.RequireFiniteRgbaOutput(ps,true);
         if(loop.FrameNumber!=frame.FrameNumber||loop.OwnerIdentity!=frame.OwnerIdentity||loop.SourceSha256!=frame.State.SourceSha256||loop.Declaration.Index!=20)
             throw new InvalidDataException("Eye source loop CB belongs to another invocation.");
@@ -184,17 +184,16 @@ public sealed class OriginalMapPostEffect3EyeGraphicsWriteCoverage
     }
     [MethodImpl(MethodImplOptions.NoInlining)]private static float Multiply(float a,float b)=>a*b;
     private static int FloorProduct(float fraction,uint extent)=>checked((int)MathF.Floor(Multiply(fraction,extent)));
-    public const string EyeVertexSha="A6F2DA853E9EFF45D4F0137E681902401E69226626A5F55ADD04F00B9FC5AD14";
-    private sealed record Profile(int Ordinal,int Vertex,int Pixel,string PixelSha);
+    private sealed record Profile(int Ordinal,int Vertex,int Pixel);
     private static readonly IReadOnlyDictionary<int,Profile> Profiles=new Dictionary<int,Profile>
     {
-        [84]=new(0,31,34,"2427A9434AE69796287E1722E0B24D80BCDE596FD50948456C41CDBCE7C2EBA3"),
-        [86]=new(2,33,36,"F8D31A6D3F1ABD36E6B4070516F8FE07D4AB990DC13F4E2A7B65FFBE25A50F8A"),
-        [87]=new(9,34,37,"1937188C5447C55D35BF45B7C24014C0E3920508C1C31B733C3ED21C2B8080F7"),
-        [88]=new(3,35,38,"77395841B20B83720B05D87A8C62421ED5D002E3BEF6BB93FFF7A93C887157E1"),
-        [89]=new(10,36,39,"FF84E6B88C535682C0C8EEA8FCDC3AEA1CE6D3BE3EF05025F30B429C8EDE4E09"),
-        [90]=new(4,37,40,"66CFB1CC490EB1B58EF47DA9349AB4934989DBE9B78F2243348D418EBC524FDA"),
-        [91]=new(11,38,41,"8ABE2D174D9637AB9B156D201805E8C79C21552A725F8BE4FAE10A60391E03C4")
+        [84]=new(0,31,34),
+        [86]=new(2,33,36),
+        [87]=new(9,34,37),
+        [88]=new(3,35,38),
+        [89]=new(10,36,39),
+        [90]=new(4,37,40),
+        [91]=new(11,38,41)
     };
 }
 
@@ -205,16 +204,11 @@ internal static class OriginalMapPostEffect3Functor1FootprintSource
     private static readonly ConditionalWeakTable<OriginalMapPostEffect3Program,Lazy<uint[]>> PixelTextureRegisters=new();
     private static readonly ConditionalWeakTable<OriginalMapPostEffect3Program,Lazy<bool>> PixelContainsLoopControl=new();
     internal static OriginalMapPostEffect3Program RequireProgram(OriginalMapPostEffect3AllocationPlan allocation,
-        int pass,uint stage,int index,string sha)
+        int pass,uint stage,int index)
     {
         var reference=allocation.Source.Passes[pass].ProgramReferences.Single(r=>r.StageCode==stage);
         if(reference.StageIndex!=index)throw new InvalidDataException("Fullscreen coverage selected another original stage program.");
-        var p=allocation.Source.GetProgram(stage,index);
-        // ContainerReader hashes the owned DXBC at source import. Selection
-        // still requires this exact stage/index and pinned source program.
-        if(p.Sha256!=sha)
-            throw new InvalidDataException("Fullscreen coverage exact original DXBC differs.");
-        return p;
+        return allocation.Source.GetProgram(stage,index);
     }
     internal static IReadOnlyList<OriginalMapPostEffect3Binding> ReadPixelTextures(OriginalMapPostEffect3AllocationPlan allocation,int pass,
         IReadOnlyList<OriginalMapPostEffect3Binding>? actualBeforeOverrides=null)

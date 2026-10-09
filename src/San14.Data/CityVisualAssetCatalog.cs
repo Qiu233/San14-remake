@@ -32,7 +32,7 @@ public sealed class CityVisualAssetCatalog
     public CityVisualAsset Load(CityVisualSelection selection)
     {
         ArgumentNullException.ThrowIfNull(selection);
-        if (!selection.ExecutableSha256.Equals(_variants.ExecutableSha256, StringComparison.OrdinalIgnoreCase) ||
+        if (!selection.ImplementationVersion.Equals(_variants.ImplementationVersion, StringComparison.Ordinal) ||
             selection.Slot is < 1 or > 51 ||
             selection.Variant != _variants.VariantForCitySlot(selection.Slot) ||
             selection.Category != OriginalCeCityModels.CategoryFor(selection.Variant,

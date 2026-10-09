@@ -65,8 +65,7 @@ public sealed partial class OriginalMapFirstWorldNativeSamplerState
                 // Early/Aux/Late/Exposure/LightScene prefix cannot overwrite it.
                 var sampler=owner.RequirePixelSampler7(accepted.Submitted,accepted.Exposure);
                 var lateRaster=accepted.Submitted.RequireLastSubmittedRaster(owner.host.Session);
-                if(lateRaster.Cull!=RenderingDevice.PolygonCullMode.Disabled||lateRaster.EnableBlend||
-                    owner.host.Final.Chain.Exposure.PixelTranslation.SourceProgramSha256!=OriginalMapExposureSource.PixelSha256)
+                if(lateRaster.Cull!=RenderingDevice.PolygonCullMode.Disabled||lateRaster.EnableBlend)
                     throw new NotSupportedException("Fresh source draw evaluator requires its actual CullNONE opaque F103 and stock Exposure PS.");
                 var result=new OwnedDrawContext(owner,accepted,prefix,source,sampler,lateRaster);
                 result.RequireCurrent();return result;

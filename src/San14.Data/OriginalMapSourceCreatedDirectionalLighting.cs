@@ -13,9 +13,9 @@ public sealed partial class OriginalMapSourceCreatedLightingPacket
     {
         var present = input.PresentSeasonCamera!;
         var actualCamera = present.AcceptedSeasonCamera.Inputs.MainFrame.Camera;
-        directionalConstruction = source; SourceLightClassId = OriginalDirectionalLightSource.SourceClass;
+        directionalConstruction = source;
         directionalProviderFrame=providerFrame;
-        constructedLightData = source.Bytes.ToArray();
+        SourceLightClassId = OriginalDirectionalLightSource.SourceClass;
         FrameNumber = input.FrameNumber; Binding = input.Binding;
         string provenance = OriginalMapSourceCreatedDirectionalLightingSource.DescribeConstruction(source);
         SourceIdentity = OriginalMapSourceCreatedDirectionalLightingSource.CreateIdentity(actualCamera.Source, source);
@@ -29,16 +29,6 @@ public sealed partial class OriginalMapSourceCreatedLightingPacket
         acceptedInputs = OriginalMapSourceCreatedLighting.SnapshotInputs(input);
     }
 
-    private void ValidateDirectionalCurrentSourceFrame()
-    {
-        if(directionalProviderFrame is { } provider)
-        {
-            if(!ReferenceEquals(provider.RegisteredRoot,directionalConstruction))
-                throw new InvalidDataException("Directional provider current frame has another physical root constructor.");
-            provider.RequireCamera(camera);
-            provider.Caller.RequireSameMain(acceptedInputs.PresentSeasonCamera!.AcceptedSeasonCamera.Inputs.MainFrame);
-        }
-    }
 }
 
 public static partial class OriginalMapSourceCreatedLighting

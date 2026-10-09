@@ -39,7 +39,7 @@ public sealed class OriginalDeferredSourceViewFamilyOwner
     {
         this.native = native; this.binding = binding; ViewGenerationIdentity = generation;
         cameraSource = source.Resource.Source.Bytes.ToArray();
-        SourceProvenance = native.ResourceUri + "@" + native.ExecutableSha256 + ";Main38D/source-Camera1550-zero-retained;" +
+        SourceProvenance = native.RenderRuleIdentity + ";Main38D/source-Camera1550-zero-retained;" +
             "TC:C3E1AD/C3E1BF/C3E1C6/C3F000/AB5990/C409C0/D05D54/D05D5A;" +
             "View1C18-null=TC:D072CB;fresh-owned/no-external-family-assignments;ViewGeneration=" + generation;
     }
@@ -52,13 +52,7 @@ public sealed class OriginalDeferredSourceViewFamilyOwner
         ArgumentNullException.ThrowIfNull(binding); ArgumentException.ThrowIfNullOrWhiteSpace(actualViewGenerationIdentity);
         if (scope != OriginalDeferredSourceViewFamilyScope.FreshSourceMainNoExternalFamilyAssignments)
             throw new NotSupportedException("Imported or edited View families require their current source publishers.");
-        string exe = native.Locale switch
-        {
-            "SC" => "CEEE6A94EB939B40C329B8EC5AECD938E9D3A51A6663E8E7D27A1498627AFB88",
-            "TC" => "0751B4FED7A5783371B9541674C0587A6AFD3140E60E706E32EAF35A9432F464",
-            _ => throw new InvalidDataException("View families require the current pinned SC/TC native source.")
-        };
-        if (native.ExecutableSha256 != exe || source.Camera.ObjectId != 0x38D04576 ||
+        if (source.Camera.ObjectId != 0x38D04576 ||
             source.Resource.Source.ResourceUri != "san14://rdb/system/908AB6E2" || source.Resource.Source.OverrideSource is not null ||
             source.Resource.Source.DecodedSha256 != OriginalDeferredAuxiliaryPrefixSource.CameraSha256 ||
             Hash(source.Resource.Source.Bytes) != source.Resource.Source.DecodedSha256 ||

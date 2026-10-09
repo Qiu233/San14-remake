@@ -106,19 +106,7 @@ public static partial class OriginalDeferredSamplerSources
         LoadedOriginalDeferredSamplerNativeSource native)
     {
         if(native.Locale is not ("TC" or "SC"))throw new NotSupportedException("BeginFunctor source requires its verified SC/TC module creator.");
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"BeginFunctor executable");
-        var image=new NativeImage(exe);byte[] text=image.DecodeText(out int start);
-        VerifyHash(text,native.DecodedTextSha256,"BeginFunctor decoded text");
-        void Check(int rva,int size,string hash)
-        {
-            var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3BeginFunctorCounterSource.cs",rva,size,hash);
-            VerifyHash(text.AsSpan(actual.Rva-start,size),actual.Sha,"BeginFunctor source window");
-        }
-        Check(0x1145D90,0xE0,"597B8224C2A09CF53C7A8AD11B400B57640B8B0F3B632BD722D73490E01B8342");
-        Check(0x1147378,0x1A2,"8EA6625A4CABBED62614A2CD861256BC4D3246C67D094490A1A93955EF80C25C");
-        Check(0x11466F0,0x11C,"C3F836385B4CEC37786D224DA89984870ED33D84409BA7A3144E75C65C9CAA0D");
-        Check(0x114680C,0x33,"AB6227DAA7B6028290279BD6E647446AC9DA42E40610A4983277CD33EF923B3B");
-        Check(0x1161C00,0x1E,"51B2BA133887DD4FEAED03CB6A147871E610F82DB24281365A0859CFCC02088E");
+
         return new(native.Locale,native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+
             ";TC:1147378-allocate/114739D-moduleCtor1145D90;1145DAA-xorECX;1145DD1-qwordCPU50-zero-coversCPU54;"+
             "11474D8-dwordCPU50-count-preservesCPU54;11466F0-module-BeginFunctor;114681D-INC-dwordCPU54;"+

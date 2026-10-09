@@ -75,7 +75,7 @@ public sealed class OriginalArmyMarchSourceRuntime : IPlayableNativeArmyMovement
         foreach (var actor in chain)
         {
             UnitState army = state.Units[actor.UnitId];
-            if (!PinnedArmy(army)) return null;
+            if (!HasCurrentRules(army)) return null;
             if (army.NativeArmyOrigin?.NativeSlotIndex != actor.NativePoolSlot)
                 throw new InvalidDataException("Source stage7 chain names another native Army owner.");
             bool? eligible = queries.ReadSourceMovementEligibility2C7350(state, army, moment);
@@ -95,7 +95,7 @@ public sealed class OriginalArmyMarchSourceRuntime : IPlayableNativeArmyMovement
             throw new InvalidDataException("Ordinary source march requires its reached stage8.");
         ValidateCurrentMoment(state, moment);
         if (state.Units.GetValueOrDefault(army.Id) != army || army.NativeArmyOrigin is null ||
-            !PinnedArmy(army) ||
+            !HasCurrentRules(army) ||
             army.NativeMarch is not { } fields || army.NativeArmyConfiguration?.Action37 is not byte action ||
             fields.CurrentHex2A > 48399 ||
             fields.CurrentHex2A != army.HexId || fields.OverrideTargetType3C != 0xFF ||
@@ -115,9 +115,8 @@ public sealed class OriginalArmyMarchSourceRuntime : IPlayableNativeArmyMovement
         if (credit >= input.DestinationTerrainCostBDDD0) return null;
         return new(fields with { Credit14 = credit }, Revision + ";" + input.SourceProvenance);
     }
-    private static bool PinnedArmy(UnitState army) => army.NativeArmyOrigin is { } origin && origin.ExecutableSha256 == (origin.Language switch {
-        "SC" => "CEEE6A94EB939B40C329B8EC5AECD938E9D3A51A6663E8E7D27A1498627AFB88",
-        "TC" => "0751B4FED7A5783371B9541674C0587A6AFD3140E60E706E32EAF35A9432F464", _ => "" });
+    private static bool HasCurrentRules(UnitState army) => army.NativeArmyOrigin is { } origin &&
+        origin.Language is "SC" or "TC" && origin.RuleVersion == SimulationRuleIdentity.Version;
     private static void ValidateCurrentMoment(GameState state, NativeArmyProgressStageMoment moment)
     {
         if (state.NativeMapSeason is not { } season || moment.CycleWithinAtomicBlock is < 0 or > 2 ||

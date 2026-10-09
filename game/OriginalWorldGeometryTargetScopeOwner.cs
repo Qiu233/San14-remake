@@ -153,7 +153,7 @@ public sealed class OriginalWorldGeometryTargetScopeOwner : IAsyncDisposable
         if (actualSharedFrames.Rs4 is { } rs4)
         {
             if (rs4.Source.Native.Locale != source.Native.Locale ||
-                rs4.Source.Native.ExecutableSha256 != source.Native.ExecutableSha256)
+                rs4.Source.Native.RuleVersion != source.Native.RuleVersion)
                 throw new InvalidDataException("RS4 target prefix and geometry scope need the same loaded executable profile.");
             ValidateFrame(OriginalWorldGeometryStageSource.ReadLoadedBindDeclaration(rs4.Source.Targets43), rs4.Frame);
             rs4.RequireCurrent(actualSharedFrames.OrdinaryFrame);
@@ -334,7 +334,6 @@ public sealed class OriginalWorldGeometryTargetScopeOwner : IAsyncDisposable
             !frame.Source.ColorTargets.Select(t => (t.Slot, t.ObjectNameHash, t.SurfaceId))
                 .SequenceEqual(node.Colors.Select(t => (t.Slot, t.ObjectNameHash, t.SurfaceId))) ||
             frame.Source.Graph.Source.ResourceUri != GameResourceId.Rdb("system", 0x024496EE).ToString() ||
-            frame.Source.Graph.Source.DecodedSha256 != OriginalTerrainGbufferTargetSources.GraphSha256 ||
             frame.Source.TextureObjects.Source.ResourceUri != node.Depth.Texture.Source.Source.ResourceUri ||
             frame.Source.TextureObjects.Source.DecodedSha256 != node.Depth.Texture.Source.Source.DecodedSha256 ||
             frame.Source.DepthObjectNameHash != DepthName || frame.Source.DepthSurfaceId != 0)

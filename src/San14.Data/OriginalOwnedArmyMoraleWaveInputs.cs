@@ -20,15 +20,12 @@ public sealed class OriginalOwnedArmyMoraleWaveInputs
     public static string PostVectorCountKey(int p) => Prefix + $"post:{p}:vector-count";
     public static string PostVectorEntry1Key(int p) => Prefix + $"post:{p}:vector-entry1";
     private readonly LoadedScenario _source;
-    private readonly string _language, _executableHash;
+    private readonly string _language, _ruleVersion;
 
     private OriginalOwnedArmyMoraleWaveInputs(LoadedScenario source, string language)
     {
         _source = source; _language = language;
-        _executableHash = language switch
-        { "SC" => OriginalCeHexWorldCoordinates.VerifiedScExecutableSha256,
-          "TC" => OriginalCeHexWorldCoordinates.VerifiedTcExecutableSha256,
-          _ => throw new InvalidDataException("Morale wave inputs require CE SC/TC.") };
+        _ruleVersion = SimulationRuleIdentity.ForLocale(language);
         if (source.Snapshot.Locale != language || source.Snapshot.RankParameters is not
             { FormatMarker: 0x66, RankRecordStride: 166, OfficeRecordStride: 46 } table ||
             table.Ranks.Count != 13 || table.Offices.Count != 256 || source.Snapshot.Forces.Count != 52 ||
@@ -53,7 +50,7 @@ public sealed class OriginalOwnedArmyMoraleWaveInputs
     public GameState InstallFresh(GameState state)
     {
         if (state.NativeArmySimulation is not { } simulation || simulation.Parameters.Language != _language ||
-            simulation.Parameters.ExecutableSha256 != _executableHash || state.Units.Count != 0 ||
+            simulation.Parameters.RuleVersion != _ruleVersion || state.Units.Count != 0 ||
             state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } ||
             state.ContentHashes.GetValueOrDefault(_source.FixedDataSource.ResourceUri) != _source.FixedDataSource.Sha256 ||
             state.ContentHashes.GetValueOrDefault(_source.ScenarioSource.ResourceUri) != _source.ScenarioSource.Sha256 ||

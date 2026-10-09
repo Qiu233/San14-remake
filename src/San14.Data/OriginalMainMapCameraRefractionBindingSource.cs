@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -44,18 +43,12 @@ public sealed class OriginalMainMapCameraRefractionBindingSource
             reference.G1SReference.TypeCode!=5||reference.G1SReference.ElementCount!=1||
             reference.G1SReference.RawValue.Length!=4||
             BinaryPrimitives.ReadUInt32LittleEndian(reference.G1SReference.RawValue)!=0x9D8E811F||
-            plan.Shader.Source.OverrideSource is not null||plan.Shader.Source.ResourceUri!="san14://rdb/system/9D8E811F"||
-            plan.Shader.Source.DecodedSha256!=OriginalDeferredSamplerSources.ShaderSourceSha256)
+            plan.Shader.Source.OverrideSource is not null||plan.Shader.Source.ResourceUri!="san14://rdb/system/9D8E811F")
             throw new InvalidDataException("Refraction binding source requires the actual source-created Main38D/View0/Class868/Color60 frame.");
         // The graph, DOK and selected program declarations belong to their
         // loaded asset lifetime. Camera/frame/descriptor readiness is current;
         // unchanged loaded bytes do not need a second import on every request.
-        var loaded=LoadedDeclarations.GetValue(plan.Shader.Source, source=>
-        {
-            if(Convert.ToHexString(SHA256.HashData(source.Bytes))!=OriginalDeferredSamplerSources.ShaderSourceSha256)
-                throw new InvalidDataException("Refraction shader bytes differ from the loaded original source.");
-            return new();
-        });
+        var loaded=LoadedDeclarations.GetValue(plan.Shader.Source, static _=>new());
         OriginalDeferredTargetImageSource depth;
         lock(loaded.Gate)
         {

@@ -7,7 +7,13 @@ using San14.Data.Formats;
 public sealed record OriginalD3D11CurrentHdrWrite(string Name, int Offset, int SourceOffset, int Bytes);
 public sealed record OriginalD3D11CurrentHdrRoute(string Identity, int Node, int Slot,
     int ConstantBytes, uint OuterMask, uint InnerMask, bool Arg18,
-    bool FogOwnerEnabled, IReadOnlyList<OriginalD3D11CurrentHdrWrite> Writes);
+    bool FogOwnerEnabled, IReadOnlyList<OriginalD3D11CurrentHdrWrite> Writes)
+{
+    public string ResourceDirectory { get; init; } = "";
+    public string CameraResourceDirectory { get; init; } = "";
+    public int PixelProgramIndex { get; init; }
+    public DxbcResourceDefinitions? PixelDefinitions { get; init; }
+}
 
 /// <summary>Actual imported HDR directories + their selected DXBC layouts.
 /// Parse once at load; ordinary requests use current light owners and retain
@@ -64,8 +70,7 @@ public sealed class OriginalD3D11CurrentHdrCatalog
                 var globals = definitions.Buffers.Single(buffer => buffer.Name.Text == "$Globals");
                 int slot = checked((int)definitions.Bindings.Single(binding => binding.InputType == 0 &&
                     binding.Name.Text == "$Globals").BindPoint);
-                int constantBytes = File.ReadAllBytes(Path.Combine(pass, "ps-b0.bin")).Length;
-                if (constantBytes != globals.ByteSize) throw new InvalidDataException("Imported HDR CB and selected RDEF differ.");
+                int constantBytes = globals.ByteSize;
                 bool normalized383 = node == 166 && metadata.GetProperty("PixelProgramIndex").GetInt32() == 383;
                 var active = normalized383 ? OriginalDeferredSelected383Constants.ActiveScalarByteOffsets.ToHashSet() : null;
                 var writes = new List<OriginalD3D11CurrentHdrWrite>();
@@ -83,7 +88,11 @@ public sealed class OriginalD3D11CurrentHdrCatalog
                     }
                 }
                 routes.Add(new(identity.Trim(), node, slot, constantBytes, outerMask, inner,
-                    common.NativeArg18, fogOwner, writes.AsReadOnly()));
+                    common.NativeArg18, fogOwner, writes.AsReadOnly())
+                { ResourceDirectory = pass, PixelProgramIndex = metadata.GetProperty("PixelProgramIndex").GetInt32(),
+                    CameraResourceDirectory = accessory ? Path.Combine(directory,"camera-source",identity.Trim())
+                        : Path.Combine(parent,"deferred-camera-continuous-input",identity.Trim()),
+                    PixelDefinitions = definitions });
             }
         }
         string early = Path.Combine(parent, "early-hdr-input");

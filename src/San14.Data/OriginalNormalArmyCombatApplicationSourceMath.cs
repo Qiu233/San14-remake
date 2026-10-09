@@ -1,6 +1,3 @@
-using System.Buffers.Binary;
-using System.Reflection.PortableExecutable;
-using System.Security.Cryptography;
 using San14.Core;
 
 namespace San14.Data;
@@ -91,62 +88,17 @@ public static class OriginalNormalArmyCombatApplicationSourceMath
     {
         ArgumentNullException.ThrowIfNull(repository);
         OriginalBattleUnitSourceProfile profile = ForLanguage(language);
-        string relative = $"SAN14CE_{language}.exe";
-        string path = Path.GetFullPath(Path.Combine(repository.SourceDirectory, relative));
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        if (stream.Length is < 4096 or > 128 * 1024 * 1024)
-            throw new InvalidDataException("Normal application executable exceeds its inspected bound.");
-        byte[] bytes = new byte[(int)stream.Length]; stream.ReadExactly(bytes);
-        string hash = Convert.ToHexString(SHA256.HashData(bytes));
-        if (hash != profile.ExecutableSha256)
-            throw new InvalidDataException("Normal application executable differs from the inspected source.");
-        using var pe = new PEReader(new MemoryStream(bytes, writable: false));
-        if (pe.PEHeaders.PEHeader is not { Magic: PEMagic.PE32Plus, ImageBase: 0x140000000UL } ||
-            pe.PEHeaders.CoffHeader.Machine != Machine.Amd64)
-            throw new InvalidDataException("Normal application needs the inspected AMD64 PE32+ ABI.");
-        var fields = new List<OriginalNormalArmyCombatApplicationSourceField>();
-        foreach ((string name, int semantic, int expected) in FieldDefinitions)
-        {
-            int physical = semantic - (language == "TC" ? 0x1030 : 0);
-            ReadOnlySpan<byte> raw = Read(physical, ".data");
-            int value = BinaryPrimitives.ReadInt32LittleEndian(raw);
-            if (value != expected)
-                throw new InvalidDataException("Normal application global differs from its inspected initial value.");
-            fields.Add(new(name, semantic, physical, value, Convert.ToHexString(SHA256.HashData(raw))));
-        }
-        int terrain1 = language == "TC" ? Terrain1TcRva : Terrain1ScRva;
-        if (pe.PEHeaders.SectionHeaders.Count(section => section.Name == ".data" &&
-            terrain1 >= (long)section.VirtualAddress + section.SizeOfRawData &&
-            (long)terrain1 + 4 <= (long)section.VirtualAddress + section.VirtualSize) != 1)
-            throw new InvalidDataException("Terrain1 wounded input is not its pinned PE loader zero-fill allocation.");
-        //17D260/17CFD0 read this allocation; the paired source has no explicit
-        //writer. Install its loader value once, never as a current-query fallback.
-        fields.Add(new("terrain1LoaderZero", Terrain1ScRva, terrain1, 0,
-            Convert.ToHexString(SHA256.HashData(new byte[4]))));
-        foreach ((int semantic, float expected) in new[] { (0x1344B98, 1f), (0x1344C4C, 100f), (0x1344C8C, 10000f) })
-        {
-            ReadOnlySpan<byte> raw = Read(semantic - (language == "TC" ? 0x1000 : 0), ".rdata");
-            if (BinaryPrimitives.ReadInt32LittleEndian(raw) != BitConverter.SingleToInt32Bits(expected))
-                throw new InvalidDataException("Normal application literal differs from its inspected identity.");
-        }
-        var provenance = new SourceProvenance(relative, bytes.Length, hash, profile.ExecutableSha256)
-        { ResourceUri = GameResourceId.File(relative).ToString(), PhysicalPath = path, IsOverride = false };
-        return new(language, provenance, profile, fields.ToArray(), Values(fields.Select(field => field.Value).ToArray()));
-
-        ReadOnlySpan<byte> Read(int rva, string name)
-        {
-            var sections = pe.PEHeaders.SectionHeaders.Where(section => section.Name == name &&
-                rva >= section.VirtualAddress && (long)rva + 4 <= (long)section.VirtualAddress + section.SizeOfRawData).ToArray();
-            if (sections.Length != 1)
-                throw new InvalidDataException("Normal application numeric input is not backed by its expected PE section.");
-            long offset = (long)sections[0].PointerToRawData + rva - sections[0].VirtualAddress;
-            if (offset < 0 || offset > bytes.Length - 4)
-                throw new InvalidDataException("Normal application numeric input exceeds the source bytes.");
-            return bytes.AsSpan((int)offset, 4);
-        }
+        int delta = language == "TC" ? 0x1030 : 0;
+        var fields = FieldDefinitions.Select(field => new OriginalNormalArmyCombatApplicationSourceField(
+            field.Name, field.Rva, field.Rva - delta, field.Value, string.Empty)).Append(
+                new("terrain1LoaderZero", Terrain1ScRva,
+                    language == "TC" ? Terrain1TcRva : Terrain1ScRva, 0, string.Empty)).ToArray();
+        return new(language, SimulationRuleSources.Provenance(
+            "san14-remake://rules/normal-army-application/v1", language), profile, fields,
+            Values(fields.Select(field => field.Value).ToArray()));
     }
 
-    /// <summary>Append nineteen backed globals and the proved terrain1 loader
+    /// <summary>Append nineteen rule defaults and the initial terrain1
     /// allocation to a fresh owner. Old/current saved values are never repaired.</summary>
     public static GameState InstallFresh(GameState state,
         OriginalNormalArmyCombatApplicationSourceParameters source, string revision)
@@ -157,7 +109,7 @@ public static class OriginalNormalArmyCombatApplicationSourceMath
             clock.AnchorDate != state.Date || state.Units is null || state.Units.Count != 0 ||
             state.NativeArmySimulation is not { Parameters: { } parameters } simulation ||
             parameters.Language != source.Language ||
-            !string.Equals(parameters.ExecutableSha256, source.Source.Sha256, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(parameters.RuleVersion, source.Source.RuleVersion, StringComparison.OrdinalIgnoreCase) ||
             parameters.Int32Values is null || parameters.Float32Values is null ||
             string.IsNullOrWhiteSpace(parameters.Revision))
             throw new InvalidDataException("Normal application seed requires a fresh matching empty simulation owner.");
@@ -175,7 +127,7 @@ public static class OriginalNormalArmyCombatApplicationSourceMath
         {
             Int32Values = integers,
             Float32Values = new(parameters.Float32Values, parameters.Float32Values.Comparer),
-            Revision = $"{parameters.Revision}|{revision}:normal-application-source:{source.Source.Sha256}"
+            Revision = $"{parameters.Revision}|{revision}:normal-application-rules:{source.Source.RuleVersion}"
         };
         GameState result = state with { NativeArmySimulation = simulation with { Parameters = current } };
         NativeSubdayStateValidation.Validate(result);
@@ -190,7 +142,7 @@ public static class OriginalNormalArmyCombatApplicationSourceMath
         if (state.NativeArmySimulation?.Parameters is not { } parameters ||
             parameters.Language != source.Language || parameters.Int32Values is null ||
             parameters.Float32Values is null || string.IsNullOrWhiteSpace(parameters.Revision) ||
-            !string.Equals(parameters.ExecutableSha256, source.Source.Sha256, StringComparison.OrdinalIgnoreCase)) return null;
+            !string.Equals(parameters.RuleVersion, source.Source.RuleVersion, StringComparison.OrdinalIgnoreCase)) return null;
         var values = new int[FieldDefinitions.Length];
         for (int index = 0; index < values.Length; index++)
         {
@@ -375,38 +327,49 @@ public static class OriginalNormalArmyCombatApplicationSourceMath
             values[8], values[9], values[10], values[11], values[12], values[13], values[14],
             values[15], values[16], values[17], values[18]);
 
-    private static readonly (string Name, int Rva, int Expected)[] FieldDefinitions =
+    private const int CharmScaleDefault = 30;
+    private const int CharmDenominatorDefault = 100;
+    private const int MoraleScaleDefault = 10;
+    private const int MoraleDenominatorDefault = 100;
+    private const int AdjacentAddendDefault = 15;
+    private const int Terrain2AddendDefault = 5;
+    private const int Terrain3AddendDefault = 5;
+    private const int Terrain4AddendDefault = -50;
+    private const int Terrain5AddendDefault = -20;
+    private const int Terrain6AddendDefault = -50;
+    private const int Terrain7AddendDefault = 5;
+    private const int Terrain8AddendDefault = 5;
+    private const int Terrain9AddendDefault = 5;
+    private const int Terrain10AddendDefault = 5;
+    private const int DifficultyPlayerAddendDefault = -20;
+    private const int SpecialForceAddendDefault = -20;
+    private const int WoundedSubtractionPercentDefault = 15;
+    private const int MoraleProbabilityScaleDefault = 125;
+    private const int MoraleLossSamplerBoundDefault = 3;
+
+    private static readonly (string Name, int Rva, int Value)[] FieldDefinitions =
     [
-        ("charmScale", 0x1A4C3DC, 30), ("charmDenominator", 0x1A4C3E8, 100),
-        ("moraleScale", 0x1A4C3F4, 10), ("moraleDenominator", 0x1A4C400, 100),
-        ("adjacentAddend", 0x1A4C40C, 15), ("terrain2Addend", 0x1A4C420, 5),
-        ("terrain3Addend", 0x1A4C42C, 5), ("terrain4Addend", 0x1A4C438, -50),
-        ("terrain5Addend", 0x1A4C444, -20), ("terrain6Addend", 0x1A4C450, -50),
-        ("terrain7Addend", 0x1A4C45C, 5), ("terrain8Addend", 0x1A4C468, 5),
-        ("terrain9Addend", 0x1A4C474, 5), ("terrain10Addend", 0x1A4C480, 5),
-        ("difficultyPlayerAddend", 0x1A4C498, -20), ("specialForceAddend", 0x1A4C4A4, -20),
-        ("woundedSubtractionPercent", 0x1A4C48C, 15), ("moraleProbabilityScale", 0x1A4C3AC, 125),
-        ("moraleLossSamplerBound", 0x1A4C3A0, 3),
+        ("charmScale", 0x1A4C3DC, CharmScaleDefault),
+        ("charmDenominator", 0x1A4C3E8, CharmDenominatorDefault),
+        ("moraleScale", 0x1A4C3F4, MoraleScaleDefault),
+        ("moraleDenominator", 0x1A4C400, MoraleDenominatorDefault),
+        ("adjacentAddend", 0x1A4C40C, AdjacentAddendDefault),
+        ("terrain2Addend", 0x1A4C420, Terrain2AddendDefault),
+        ("terrain3Addend", 0x1A4C42C, Terrain3AddendDefault),
+        ("terrain4Addend", 0x1A4C438, Terrain4AddendDefault),
+        ("terrain5Addend", 0x1A4C444, Terrain5AddendDefault),
+        ("terrain6Addend", 0x1A4C450, Terrain6AddendDefault),
+        ("terrain7Addend", 0x1A4C45C, Terrain7AddendDefault),
+        ("terrain8Addend", 0x1A4C468, Terrain8AddendDefault),
+        ("terrain9Addend", 0x1A4C474, Terrain9AddendDefault),
+        ("terrain10Addend", 0x1A4C480, Terrain10AddendDefault),
+        ("difficultyPlayerAddend", 0x1A4C498, DifficultyPlayerAddendDefault),
+        ("specialForceAddend", 0x1A4C4A4, SpecialForceAddendDefault),
+        ("woundedSubtractionPercent", 0x1A4C48C, WoundedSubtractionPercentDefault),
+        ("moraleProbabilityScale", 0x1A4C3AC, MoraleProbabilityScaleDefault),
+        ("moraleLossSamplerBound", 0x1A4C3A0, MoraleLossSamplerBoundDefault),
     ];
 
-    public static OriginalBattleUnitSourceProfile ForLanguage(string language) => language switch
-    {
-        "SC" => new("SC", "CEEE6A94EB939B40C329B8EC5AECD938E9D3A51A6663E8E7D27A1498627AFB88",
-            "D7F3831C369A76148D87370D91EF0A8A43487D5E13A383886C68A6D50591E8F6",
-            Array.AsReadOnly<OriginalBattleUnitSourceWindow>([
-                new("application", 0x178C20, 0x179685, "022A1053C095F074839C0D038C09843C566461D48228433488CB7F8FD245EB9F"),
-                new("woundedRatio", 0x17CFD0, 0x17D2EA, "2526FBE66B9D8C9F0F95D8E81BF4F7F0044B2C23119E5F88F5A6E5A03D44DE10"),
-                new("moraleLoss", 0x17D2F0, 0x17D446, "6FA9AF431563ADC096BCDF45015EE176A5596E128D4673160F3CFC596B3E7B04"),
-                new("normalFrameWords", 0x174856, 0x174891, "E7BBAFC73A16AFDAE22FCCF8CF8A55F1C0CF6995E699694E1DD07C7AF0024CC9")
-            ])),
-        "TC" => new("TC", "0751B4FED7A5783371B9541674C0587A6AFD3140E60E706E32EAF35A9432F464",
-            "FFBD504FC3DEA6A218EF4E8530A65761296C17191F7D675AB3C49DF64D950766",
-            Array.AsReadOnly<OriginalBattleUnitSourceWindow>([
-                new("application", 0x178EC0, 0x179925, "4DB0B4E900E61A88DFB378CF3A15033E73C3C6D30F632CF7E7F0C0401A6A390F"),
-                new("woundedRatio", 0x17D260, 0x17D57A, "11136077A2DEC9BB59343213FB429D3D10074C493C71841E91E8D38506098ADA"),
-                new("moraleLoss", 0x17D580, 0x17D6D6, "069AAF24F8800672DF012D72AEFE0288269B5F4A39AB71995197B65B7E7E3F2D"),
-                new("normalFrameWords", 0x174AF6, 0x174B31, "E7BBAFC73A16AFDAE22FCCF8CF8A55F1C0CF6995E699694E1DD07C7AF0024CC9")
-            ])),
-        _ => throw new InvalidDataException("Normal application supports only the pinned SC/TC source profiles.")
-    };
+    public static OriginalBattleUnitSourceProfile ForLanguage(string language)
+        => new(language, SimulationRuleIdentity.ForLocale(language));
 }

@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -23,25 +22,22 @@ public sealed record OriginalTerrainInitialDepthStencilClearSource(long FrameNum
 /// extent producer. This supplies no raster or successful allocation receipt.</summary>
 public sealed class OriginalTerrainGbufferTargetSources
 {
-    public const string GraphSha256 = "B9AE1EC8209C067DBC73084CDC0EB149A65E282C25D4B8AD398F43071072971D";
     private readonly LoadedRenderGraph graph;
     private readonly LoadedObjects textures;
-    private readonly byte[] graphBytes, textureBytes;
     private bool retained = true;
     private OriginalTerrainGbufferTargetSources(LoadedRenderGraph actualGraph, LoadedObjects actualTextures,
-        string locale, string executableSha256, LoadedRenderGraphTargets geometry, LoadedRenderGraphTargets output)
+        string locale, string ruleVersion, LoadedRenderGraphTargets geometry, LoadedRenderGraphTargets output)
     {
-        graph = actualGraph; textures = actualTextures; Locale = locale; ExecutableSha256 = executableSha256;
+        graph = actualGraph; textures = actualTextures; Locale = locale; RuleVersion = ruleVersion;
         GeometryTargets = geometry; OutputTargets = output;
-        graphBytes = actualGraph.Source.Bytes.ToArray(); textureBytes = actualTextures.Source.Bytes.ToArray();
     }
     public string Locale { get; }
-    public string ExecutableSha256 { get; }
+    public string RuleVersion { get; }
     public LoadedRenderGraphTargets GeometryTargets { get; }
     public LoadedRenderGraphTargets OutputTargets { get; }
     public uint AttachmentSwitchClearFlags => 0;
-    public string SourceProvenance => $"ordinary-terrain-target-source/{Locale}/{ExecutableSha256};" +
-        $"system/024496EE@{GraphSha256};system/93FB3280@{OriginalDeferredAuxiliaryTargetSources.ActualObjectsSha256};" +
+    public string SourceProvenance => $"ordinary-terrain-target-source/{Locale}/{RuleVersion};" +
+        $"system/024496EE@{graph.Source.DecodedSha256};system/93FB3280@{textures.Source.DecodedSha256};" +
         "E2C-CPU-v8-E931A0;node53-five-MRT/node73-output;E9334A-clearFlags0;" +
         "node32-depth-only/node33-Target70-without40;current-extent-Q3E8/3EC;Main996-retained";
 
@@ -51,9 +47,8 @@ public sealed class OriginalTerrainGbufferTargetSources
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(graph);
         ArgumentNullException.ThrowIfNull(textures);
         if (locale is not ("SC" or "TC")) throw new InvalidDataException("Terrain targets require exact SC or TC.");
-        RequireSource(graph.Source, GameResourceId.Rdb("system", 0x024496EE).ToString(), GraphSha256);
-        RequireSource(textures.Source, OriginalDeferredAuxiliaryTargetSources.ActualObjectsResourceUri,
-            OriginalDeferredAuxiliaryTargetSources.ActualObjectsSha256);
+        RequireSource(graph.Source, GameResourceId.Rdb("system", 0x024496EE).ToString());
+        RequireSource(textures.Source, OriginalDeferredAuxiliaryTargetSources.ActualObjectsResourceUri);
         var canonicalGraph = graph with { Document = RenderGraphReader.Read(graph.Source.Bytes) };
         var canonicalTextures = textures with { Document = DokReader.Read(textures.Source.Bytes) };
         var geometry = OriginalRenderGraphTargetResources.Read(canonicalGraph, 53, canonicalTextures);
@@ -87,8 +82,7 @@ public sealed class OriginalTerrainGbufferTargetSources
             U(clear, 0x349AC1A4, 0x04000001) != 0 || U(clear, 0x51332A47, 0x05000001) != 0 ||
             U(clear, 0x05D92ACC, 0x05000001) != 0 || U(clear, 0x39E192FF, 0x04000001) != uint.MaxValue)
             throw new InvalidDataException("Terrain initial depth/stencil clear differs from actual node32/33 source.");
-        string sha = OriginalCeHexWorldCoordinates.VerifyInstalledExecutable(repository.SourceDirectory, locale);
-        return new(canonicalGraph, canonicalTextures, locale, sha, geometry, output);
+        return new(canonicalGraph, canonicalTextures, locale, RenderRuleIdentity.Version, geometry, output);
     }
 
     /// <summary>Current dimensions are explicit values published by the owned
@@ -149,8 +143,7 @@ public sealed class OriginalTerrainGbufferTargetSources
     { ArgumentException.ThrowIfNullOrWhiteSpace(actualWriter); retained = false; }
     private void RequireRetained()
     {
-        if (!retained || !graph.Source.Bytes.AsSpan().SequenceEqual(graphBytes) ||
-            !textures.Source.Bytes.AsSpan().SequenceEqual(textureBytes))
+        if (!retained)
             throw new InvalidDataException("Terrain target source was replaced/imported/edited; current source preparation is required.");
     }
     private static byte[] Arg(CompiledGraphNode node, uint name, uint word, int count)
@@ -161,10 +154,9 @@ public sealed class OriginalTerrainGbufferTargetSources
         return row.RawValue;
     }
     private static uint U(CompiledGraphNode node, uint name, uint word) => BinaryPrimitives.ReadUInt32LittleEndian(Arg(node, name, word, 4));
-    private static void RequireSource(LoadedRdbAsset source, string uri, string sha)
+    private static void RequireSource(LoadedRdbAsset source, string uri)
     {
-        if (source.OverrideSource is not null || source.ResourceUri != uri || source.DecodedSha256 != sha ||
-            Convert.ToHexString(SHA256.HashData(source.Bytes)) != sha)
-            throw new InvalidDataException("Terrain frame rules require exact canonical unchanged source bytes.");
+        if (source.ResourceUri != uri)
+            throw new InvalidDataException("Terrain frame source resource reference differs.");
     }
 }

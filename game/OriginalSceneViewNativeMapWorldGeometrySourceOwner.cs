@@ -125,7 +125,7 @@ public sealed class OriginalSceneViewNativeMapWorldGeometrySourceOwner : IAsyncD
         OriginalMapSourceCreatedWorldPlayableCurrentSources existing)
         =>existing with
         {
-            AfterCurrentPreparedWithConsumerProof=PrepareArmyCurrentAsync,
+            AfterCurrentPreparedWithLighting=PrepareArmyCurrentAsync,
             SubmitWorldGeometryBeforeTerrain=SubmitBeforeTerrainAsync,
             CompleteGeometryAndPrepareShading=CompleteAfterTerrainAsync,
             RequireGeometryDepthSampling=frame=>

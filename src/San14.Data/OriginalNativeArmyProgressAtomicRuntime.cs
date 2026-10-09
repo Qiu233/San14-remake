@@ -53,7 +53,7 @@ public static class OriginalNativeArmyProgressAtomicRuntime
             throw new InvalidDataException("Completed native period must pass through its existing period finalizer before another stage block.");
         var cursor = input.NativeNormalArmyCombatCalendar ?? new(OriginalNormalArmyCombatSourcePlanner.ProfileId,
             season.SourceScenarioUri, season.SourceScenarioSha256, season.SourceWorldSha256, clock.Revision,
-            OriginalMapSeasonNativeSource.CalendarWriterSha256, season.AdvancedCalendarSteps,
+            season.AdvancedCalendarSteps,
             season.AdvancedCalendarSteps, 0, [], OriginalNormalArmyCombatCalendarRuntime.Revision);
         GameState working = Detach(input);
         var captures = new List<OriginalNormalArmyCombatPhaseLocalCapture>();
@@ -74,7 +74,7 @@ public static class OriginalNativeArmyProgressAtomicRuntime
                 {
                     var normalMoment = new OriginalNormalArmyCombatPhaseMoment(ordinal, date, 13,
                         season.SourceScenarioUri, season.SourceScenarioSha256, season.SourceWorldSha256,
-                        OriginalMapSeasonNativeSource.CalendarWriterSha256, OriginalNormalArmyCombatCalendarRuntime.Revision);
+                        OriginalNormalArmyCombatCalendarRuntime.Revision);
                     if (OriginalNormalArmyCombatSourcePlanner.IsDueAtSourceCalendarPhase(normalMoment))
                         captures.Add(new(normalMoment, Detach(working), Revision));
                 }
@@ -175,8 +175,7 @@ public static class OriginalNativeArmyProgressAtomicRuntime
     private static void ValidateCursor(NativeNormalArmyCombatCalendarState? cursor)
     {
         if (cursor is not null && (cursor.ProfileId != OriginalNormalArmyCombatSourcePlanner.ProfileId ||
-            cursor.Revision != OriginalNormalArmyCombatCalendarRuntime.Revision ||
-            cursor.CalendarWriterSha256 != OriginalMapSeasonNativeSource.CalendarWriterSha256))
+            cursor.Revision != OriginalNormalArmyCombatCalendarRuntime.Revision))
             throw new InvalidDataException("Source stage cursor names another scheduler generation.");
     }
     private static GameState Detach(GameState state) => JsonSerializer.Deserialize<GameState>(JsonSerializer.SerializeToUtf8Bytes(state))

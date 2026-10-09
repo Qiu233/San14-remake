@@ -14,8 +14,7 @@ public sealed class LoadedOriginalMapPostEffect3LutSelectorSource
         actualCurrentContext.Source.Validate(actualCurrentContext);
         var host=actualCurrentContext.Source.Host;
         if(actualCurrentContext.FrameNumber<=0||host.Locale!=Native.Locale||
-            host.ExecutableSha256!=Native.ExecutableSha256||host.ContextOwnerVtableRva!=(uint)
-                OriginalMapPostEffect3NativeSourceProfile.DataRva(Native.Locale,"OriginalMapPostEffect3LutSelectorSource.cs",0x13C4ED0))
+            host.RuleVersion!=RenderRuleIdentity.Version)
             throw new NotSupportedException("LUT selector requires the actual same-locale source-pinned Main Q/current packet.");
         return new(this,actualCurrentContext);
     }
@@ -60,23 +59,12 @@ public static partial class OriginalDeferredSamplerSources
         LoadedOriginalDeferredSamplerNativeSource native)
     {
         const string sourceScope="OriginalMapPostEffect3LutSelectorSource.cs";
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"LUT selector executable");
-        var image=new NativeImage(exe);byte[] text=image.DecodeText(out int start);
-        VerifyHash(text,native.DecodedTextSha256,"LUT selector decoded text");
-        void Check(int rva,int count,string sha,string role)
-        {
-            var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,sourceScope,rva,count,sha);
-            VerifyHash(text.AsSpan(actual.Rva-start,count),actual.Sha,role);
-        }
-        Check(0xBF8B50,0x39,"77D9A45D266B3C771291426991ED02F99B9AD05D333D07690D51A4734FDA4E56","Q.v88 LUT selector body");
-        Check(0xC00170,3,"01CB47D078B4841B8408EC4FE278EFA83115C6F6E101972987507D2B2B57DCF0","Q.v80 literalfalse");
+
         int vtable=OriginalMapPostEffect3NativeSourceProfile.DataRva(native.Locale,sourceScope,0x13C4ED0);
         int falseLeaf=OriginalMapPostEffect3NativeSourceProfile.CodeRva(native.Locale,sourceScope,0xC00170);
         int selector=OriginalMapPostEffect3NativeSourceProfile.CodeRva(native.Locale,sourceScope,0xBF8B50);
-        if(U64(image.Raw(vtable+0x80,8),0)!=0x140000000UL+(uint)falseLeaf||
-            U64(image.Raw(vtable+0x88,8),0)!=0x140000000UL+(uint)selector)
-            throw new InvalidDataException("Native Main Q v80/v88 linkage differs from the original selector source.");
-        return new(native,native.ResourceUri+"@"+native.ExecutableSha256+
+
+        return new(native,native.RenderRuleIdentity+
             $";{native.Locale}:QVT{vtable:X8}.v88={selector:X8}/v80={falseLeaf:X8}-literalALfalse;TC-reference-role:BF8B81-EAXzero;"+
             "E8F49B-context50/E23937-v88;owned-Main-current-context-only;not-original-active-Q-observation");
     }

@@ -201,9 +201,7 @@ public partial class Main : Control
             RefreshScenarios();
             RefreshStatus();
             GD.Print($"SAN14 source {_repository.SourceDirectory}: " +
-                $"{_repository.EffectiveScenarios.Count} scenarios, map {_map.Width}x{_map.Height}, " +
-                $"{_repository.ReadFiles.Count} files read on demand, " +
-                $"{_repository.ActiveOverrides.Count + (_ui.IsOverride ? 1 : 0)} active overrides.");
+                $"{_repository.EffectiveScenarios.Count} scenarios, map {_map.Width}x{_map.Height}.");
             BeginUiAudio();
         }
         catch (Exception error)
@@ -491,10 +489,7 @@ public partial class Main : Control
             _status.Text = _ui.Loading;
             return;
         }
-        _status.Text = _ui.LoadedStatus(_repository.SourceDirectory,
-            _repository.EffectiveScenarios.Count, _repository.ReadFiles.Count,
-            _repository.ActiveOverrides.Count + (_ui.IsOverride ? 1 : 0),
-            _repository.ChangedFromFrozenBaseline.Count);
+        _status.Text = _ui.LoadedStatus(_repository.EffectiveScenarios.Count);
     }
 
     private void RefreshScenarios()

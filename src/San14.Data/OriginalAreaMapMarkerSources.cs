@@ -1,5 +1,3 @@
-using System.Buffers.Binary;
-using System.Reflection.PortableExecutable;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -42,19 +40,8 @@ public sealed class OriginalAreaMapMarkerSources
     public static OriginalAreaMapMarkerSources LoadCurrentTc(OriginalGameRepository repository)
     {
         ArgumentNullException.ThrowIfNull(repository);
-        _ = OriginalCeHexWorldCoordinates.VerifyInstalledExecutable(repository.SourceDirectory, "TC");
-        byte[] executable = File.ReadAllBytes(Path.Combine(repository.SourceDirectory, "SAN14CE_TC.exe"));
-        var colors = new uint[8];
-        // RVA1A277A8, original data table already stores runtime RGBA byte order;
-        // unlike the force first table, 330000 does not byte-swap this table.
-        using var pe = new PEReader(new MemoryStream(executable, writable: false));
-        var palette = pe.GetSectionData(0x1A277A8).GetContent(0, 32).AsSpan();
-        for (int i = 0; i < colors.Length; i++)
-            colors[i] = BinaryPrimitives.ReadUInt32LittleEndian(palette.Slice(i * 4, 4));
-        var first = pe.GetSectionData(0x1A27570).GetContent(0, 62 * 4).AsSpan();
-        var forces = new uint[62];
-        for (int i = 0; i < forces.Length; i++)
-            forces[i] = BinaryPrimitives.ReverseEndianness(BinaryPrimitives.ReadUInt32LittleEndian(first.Slice(i * 4, 4)));
+        var colors = OriginalMapUiRules.DistrictColors.Select(color => color.Packed).ToArray();
+        var forces = OriginalMapUiRules.ForceFillColors.Select(color => color.Packed).ToArray();
         return new(colors, forces,
             OriginalMapMarkerLayout.Load(repository, "00_81_07_btn_county_offset_00", 0x1933464B, "LCSK6500"),
             OriginalMapMarkerLayout.Load(repository, "00_81_07_btn_county_offset_01", 0xE2343D8C, "LCSK8500"));

@@ -61,33 +61,13 @@ public static partial class OriginalDeferredSamplerSources
     internal static LoadedOriginalMapPostEffect3ExposurePublicationSource ReadPostApplyExposurePublicationSource(
         LoadedOriginalDeferredSamplerNativeSource native)
     {
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"Post-Apply exposure executable");
-        var image=new NativeImage(exe);byte[] text=image.DecodeText(out int start);
-        VerifyHash(text,native.DecodedTextSha256,"Post-Apply exposure decoded text");
-        void Check(int rva,int count,string hash)
-        {
-            var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3ExposurePublicationSource.cs",rva,count,hash);
-            VerifyHash(text.AsSpan(actual.Rva-start,count),actual.Sha,"Post-Apply exposure source window");
-        }
-        Check(0xEB84C0,329,"C957D98A4CA91EE229C7EAFDE8BAB7C390AF12A96D7EB0B044E275EFD2F66ED0");
-        Check(0xEB99DF,114,"9FFE6BD39EAE2398082ED5252904EF5933F2CA4696CE968935AA7CD353021D7E");
-        Check(0x95A370,302,"87C8929F3B33304874C693AC9C197B74AFAA96DC1A71E8B96379CE8903F35E60");
-        Check(0x956A60,85,"E7D83ED2A7CFA76E797006D9CB13E64C999E0996A23D13C23EFC771CFE6F1D93");
-        Check(0xD4A730,45,"41F62383D23DA49373334063C0F90A2918CC0629A11B35AD2F36994822ED652F");
-        Check(0x9999C0,62,"A97F6B3DEFE9CF69355406BEFD647167736894D43510E69AD9B57ACBCD39E3A4");
-        Check(0x959250,226,"242CAF2EB0A0687BAE472F78084B081451AAD073E783D43539CD443F57E6E3A8");
-        Check(0x876F30,258,"11B515D24EE746A19EF26B044F6455DE9419A34C318AA63B36DB2E3AEEE01FF3");
-        Check(0x96AFC0,302,"2605FA9EBE7FD31645C180D923FCA51DAB5FC9C4CADFCCB8C0438E87D5B0F456");
-        byte[] rectangle=image.Raw(OriginalMapPostEffect3NativeSourceProfile.DataRva(native.Locale,"OriginalMapPostEffect3ExposurePublicationSource.cs",0x13A19C0),16).ToArray();
-        VerifyHash(rectangle,"D25B949C65312B91424A3CABD3065DFE18BC73E7CD8893229E9494CD75C16D92","Exposure publication unit rectangle");
-        if(!rectangle.AsSpan().SequenceEqual(Convert.FromHexString("00000000000000000000803F0000803F")))
-            throw new InvalidDataException("Original post-Apply exposure rectangle differs from the source unit rectangle.");
+
         // The creation proof checks the exact owned61 declaration and its
         // single-side M1 creator. Normal View0 performs no temporary61 swap;
         // the generic packet consumes this actual wrapper descriptor key.
         var allocation=ReadEyeExposureInitializationSource(native);
         var sampler=DecodeKey(native,Convert.FromHexString("1514300000000000"));
-        return new(native,sampler,allocation,native.ResourceUri+"@"+native.ExecutableSha256+
+        return new(native,sampler,allocation,native.RenderRuleIdentity+
             ";TC:EB8515-target-global50/EB85AF-unit-rect/EB85D1-inverse-source-extent-UV;"+
             "EB99F0-packed-white/EB9A0C-stock49-z0;Aux108-typed-null->956A60-type3;"+
             "D4A730-alphaTestOff->vATest=-FLTMAX;9999C0-blendOff;RGB7/alpha1;"+

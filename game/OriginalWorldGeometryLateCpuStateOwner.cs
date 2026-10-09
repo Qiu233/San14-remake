@@ -143,8 +143,8 @@ public sealed class OriginalWorldGeometryLateCpuStateOwner
         ArgumentNullException.ThrowIfNull(actualParameters);
         source = loadedSource; colorSource = loadedColorSource; binding = actual53; State = actualState;
         current = readActualCurrentContext; parameters = actualParameters;
-        if (colorSource.Locale != source.Native.Locale || colorSource.ExecutableSha256 != source.Native.ExecutableSha256)
-            throw new InvalidDataException("Late CPU/color source imports belong to different executable profiles.");
+        if (colorSource.Locale != source.Native.Locale)
+            throw new InvalidDataException("Late CPU/color rules use different rendering layouts.");
         RequireCurrent();
     }
     public OriginalWorldGeometryLateCpuState State { get; }

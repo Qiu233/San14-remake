@@ -12,9 +12,6 @@ public sealed record SourceManifest(
     DateTimeOffset CapturedAtUtc,
     IReadOnlyList<SourceFile> Files);
 
-public sealed record SourceBaseline(string Edition, DateTimeOffset CapturedAtUtc,
-    IReadOnlyList<SourceFile> Files);
-
 public sealed record MapEntry(string SourcePath, int Width, int Height,
     IReadOnlyDictionary<byte, int> SurfaceCodes);
 

@@ -10,11 +10,11 @@ public partial class OriginalSceneView
     public static OriginalSceneViewSourceCameraInputs CreateFreshOriginalSourceCameraInputs(
         OriginalGameRepository repository,string locale)
     {
-        var context=OriginalMainMapContextOwnerSource.LoadFreshHostDefaults(repository,locale);
+        var context=OriginalMainMapContextOwnerSource.LoadFreshHostDefaults(locale);
         var startup=OriginalMainMapCameraStartupSource.Load(repository,locale);
         return new(System.Numerics.Vector3.One,context.ContextOwner3E4Bit29,startup.StaticProjectionProfile,
             OriginalNativeCameraTangentDispatch.Sse,startup.OwnerFovOverride290AfterReset,
-            startup.MaximumYOverrideAfterControllerReset,startup.ImageBase,
+            startup.MaximumYOverrideAfterControllerReset,startup.CpuAddressBase,
             $"{context.SourceProvenance};{startup.SourceEvidence};"+
             "unparented-source-getter90-fallbackOne;remake-owned-SSE-tangent-dispatch");
     }

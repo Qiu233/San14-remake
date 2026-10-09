@@ -63,7 +63,7 @@ public sealed class OriginalRemakeArmyFlagCaoPaneProducer:IAsyncDisposable
         {
             _stock??=OriginalMapExposureSource.Load(_repository,_locale);
             _font??=OriginalArmyFlagFontSources.LoadFreshHostDefault(_repository,true,"owned fresh native Host/UIprefix selector+460=0; source-created flag pane");
-            _colors??=OriginalArmyFlagPaneColors.LoadCurrent(_repository.SourceDirectory,_locale);
+            _colors??=OriginalArmyFlagPaneColors.LoadCurrent(_locale);
             if(input.SelectedSourceText.Length==0||input.SelectedSourceText[0]=='\0')
                 return await PrepareEmptyAsync(material,input);
             ushort code=input.SelectedSourceText[0];

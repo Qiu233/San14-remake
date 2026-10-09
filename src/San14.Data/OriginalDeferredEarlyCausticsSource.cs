@@ -24,7 +24,7 @@ public sealed class OriginalDeferredEarlyCausticsSourceNull
         FrameNumber=selected.Current.FrameNumber;SourceOwnerIdentity=sourceOwnerIdentity;SourceProvenance=provenance;
         ShaderSourceSha256=selected.SourcePlan.Shader.Source.DecodedSha256;PixelProgramSha256=selected.PixelProgramSha256;
         AcceptedCameraPrefixSha256=Hash(selected.Camera.Prefix.Span);
-        EffectiveLightDataSha256=selected.OwnedFeatureSource!.EffectiveLightDataSha256;
+        EffectiveLightOwnerIdentity=selected.OwnedFeatureSource!.EffectiveLightOwnerIdentity;
         Binding=selected.OwnedFeatureSource.Binding;
         CurrentViewProducerProvenance=selected.OwnedFeatureSource.CurrentView.CurrentProducerProvenance;
         QueryD5BeA0=selected.Current.QueryD5BeA0;
@@ -36,7 +36,7 @@ public sealed class OriginalDeferredEarlyCausticsSourceNull
     public string ShaderSourceSha256 { get; }
     public string PixelProgramSha256 { get; }
     public string AcceptedCameraPrefixSha256 { get; }
-    public string EffectiveLightDataSha256 { get; }
+    public string EffectiveLightOwnerIdentity { get; }
     public OriginalMapLightingBinding Binding { get; }
     public string CurrentViewProducerProvenance { get; }
     /// <summary>The actual A40 reader result. False skips the active Caustics
@@ -50,7 +50,7 @@ public sealed class OriginalDeferredEarlyCausticsSourceNull
         if(selected.Current.FrameNumber!=FrameNumber||selected.SourcePlan.Shader.Source.DecodedSha256!=ShaderSourceSha256||
             selected.Current.ContextFlags3F0!=context.ContextFlags3F0||
             selected.PixelProgramSha256!=PixelProgramSha256||Hash(selected.Camera.Prefix.Span)!=AcceptedCameraPrefixSha256||
-            selected.OwnedFeatureSource?.EffectiveLightDataSha256!=EffectiveLightDataSha256||
+            selected.OwnedFeatureSource?.EffectiveLightOwnerIdentity!=EffectiveLightOwnerIdentity||
             selected.OwnedFeatureSource?.Binding!=Binding||
             selected.Current.QueryD5BeA0!=QueryD5BeA0||
             selected.OwnedFeatureSource?.CurrentView.CurrentProducerProvenance!=CurrentViewProducerProvenance)

@@ -53,7 +53,7 @@ public sealed class LoadedOriginalOrdinaryRs4Source
     public LoadedRenderGraphTargets ComparisonTargets150 { get; }
     public IReadOnlyDictionary<int, OriginalModelQueueStateSource> Queues { get; }
     public OriginalWorldGeometryPopNode Pop47 { get; }
-    public string SourceEvidence => $"RS4/{Native.Locale}@{Native.ExecutableSha256};" +
+    public string SourceEvidence => $"{RenderRuleIdentity.For("OrdinaryRs4",Native.Locale)};" +
         "graph43-seven-MRT/44-45-state22/46-state13/47;EA6470-D43190-D362B0;" +
         "actual-View0/current-first-bank/final-type16;150-state23-separate;no-pixel-ready-claim";
 
@@ -146,8 +146,7 @@ public static class OriginalOrdinaryRs4Source
     {
         ArgumentNullException.ThrowIfNull(graph); ArgumentNullException.ThrowIfNull(textures); ArgumentNullException.ThrowIfNull(native);
         if (graph.Source.ResourceUri != "san14://rdb/system/024496EE" ||
-            graph.Source.DecodedSha256 != OriginalTerrainGbufferTargetSources.GraphSha256 || graph.Source.OverrideSource is not null ||
-            Convert.ToHexString(SHA256.HashData(graph.Source.Bytes)) != graph.Source.DecodedSha256)
+            graph.Source.OverrideSource is not null)
             throw new InvalidDataException("RS4 import requires the exact original graph.");
         graph = graph with { Document = RenderGraphReader.Read(graph.Source.Bytes) };
         var targets = OriginalRenderGraphTargetResources.Read(graph, 43, textures);

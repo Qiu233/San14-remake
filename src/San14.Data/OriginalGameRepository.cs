@@ -1,17 +1,14 @@
 using System.Security.Cryptography;
-using System.Text.Json;
 using San14.Data.Formats;
 
 namespace San14.Data;
 
-public sealed record SourceProvenance(string SourcePath, long Bytes, string Sha256,
-    string? FrozenSha256)
+public sealed record SourceProvenance(string SourcePath, long Bytes, string Sha256)
 {
     public string ResourceUri { get; init; } = "";
     public string PhysicalPath { get; init; } = "";
     public bool IsOverride { get; init; }
-    public bool MatchesFrozenBaseline => FrozenSha256 is not null &&
-        Sha256.Equals(FrozenSha256, StringComparison.OrdinalIgnoreCase);
+    public string? RuleVersion { get; init; }
 }
 
 public sealed record LoadedMap(MapDocument Map, SourceProvenance Source);
@@ -131,15 +128,13 @@ public sealed record LoadedMessages(OriginalMessageDocument Messages, Zp1Documen
     SourceProvenance Source, string DecodedSha256);
 
 /// <summary>
-/// Read-only, on-demand view of an installed game. Decoded game resources stay in memory;
-/// the frozen baseline is diagnostic so a compatible Steam update can still be parsed.
+/// Read-only, on-demand view of an installed game. Decoded game resources stay in memory.
 /// </summary>
 public sealed class OriginalGameRepository
 {
     public const string DefaultSource =
         @"C:\Program Files (x86)\Steam\steamapps\common\Romance_of_the_Three_Kingdoms_14";
 
-    private readonly Dictionary<string, SourceFile> _baseline;
     private readonly ResourceOverrides _overrides;
     private readonly Dictionary<string, SourceProvenance> _readFiles =
         new(StringComparer.OrdinalIgnoreCase);
@@ -158,9 +153,6 @@ public sealed class OriginalGameRepository
     public IReadOnlyList<SourceProvenance> ActiveOverrides =>
         _readFiles.Values.Where(item => item.IsOverride)
             .OrderBy(item => item.ResourceUri, StringComparer.OrdinalIgnoreCase).ToArray();
-    public IReadOnlyList<SourceProvenance> ChangedFromFrozenBaseline =>
-        _readFiles.Values.Where(item => !item.IsOverride && !item.MatchesFrozenBaseline)
-            .OrderBy(item => item.SourcePath, StringComparer.OrdinalIgnoreCase).ToArray();
 
     public OriginalGameRepository(string? sourceDirectory = null, string? overridesDirectory = null)
     {
@@ -178,13 +170,6 @@ public sealed class OriginalGameRepository
             if (!File.Exists(path) && !Directory.Exists(path))
                 throw new FileNotFoundException($"Original game source is missing: {relative}", path);
         }
-        using Stream baselineStream = typeof(OriginalGameRepository).Assembly
-            .GetManifestResourceStream("San14.Data.FrozenBaseline.json")
-            ?? throw new InvalidDataException("Frozen source baseline metadata is missing.");
-        SourceBaseline baseline = JsonSerializer.Deserialize<SourceBaseline>(baselineStream)
-            ?? throw new InvalidDataException("Frozen source baseline metadata is empty.");
-        _baseline = baseline.Files.ToDictionary(item => item.Path,
-            StringComparer.OrdinalIgnoreCase);
     }
 
     public IReadOnlyList<S14Entry> ScenarioDocuments
@@ -345,20 +330,18 @@ public sealed class OriginalGameRepository
         }
     }
 
-    public LoadedRankPersonCapacities LoadRankPersonCapacities(string relativePath="SAN14CE_SC.exe")
+    /// <summary>Owned CE rank rules for the selected language.</summary>
+    public LoadedRankPersonCapacities LoadRankPersonCapacities(string locale = "SC")
     {
-        (byte[] bytes,SourceProvenance source)=ReadSource(relativePath);
-        try{return new(OriginalRankPersonCapacityReader.Read(bytes),source);}
-        catch(InvalidDataException error)
-        {throw new InvalidDataException($"Original rank person capacities failed to load: {source.ResourceUri} ({source.PhysicalPath}). {error.Message}",error);}
+        var catalog = OriginalRankPersonCapacityReader.ReadDefaults(locale);
+        return new(catalog, SimulationRuleSources.Provenance(OriginalRankPersonCapacityReader.ResourceUri, locale));
     }
 
-    public LoadedBaseParameters LoadBaseParameters(string relativePath = "SAN14CE_SC.exe")
+    /// <summary>Owned CE defaults. No file or imported executable data is read.</summary>
+    public LoadedBaseParameters LoadBaseParameters(string locale = "SC")
     {
-        (byte[] bytes, SourceProvenance source) = ReadSource(relativePath);
-        try { return new(OriginalBaseParameterReader.Read(bytes, source.Sha256), source); }
-        catch (InvalidDataException error)
-        { throw new InvalidDataException($"Original base parameters failed to load: {source.ResourceUri} ({source.PhysicalPath}). {error.Message}", error); }
+        var catalog = OriginalBaseParameterReader.ReadDefaults(locale);
+        return new(catalog, SimulationRuleSources.Provenance(OriginalBaseParameterReader.ResourceUri, locale));
     }
 
     /// <summary>Loads one fixed-data policy catalog through the original-file URI and override resolver.</summary>
@@ -841,7 +824,7 @@ public sealed class OriginalGameRepository
         if (overridePath is not null)
         {
             overrideSource = new SourceProvenance(resourceId.OverrideRelativePath,
-                decoded.LongLength, hash, null)
+                decoded.LongLength, hash)
             {
                 ResourceUri = resourceId.ToString(),
                 PhysicalPath = overridePath,
@@ -892,9 +875,7 @@ public sealed class OriginalGameRepository
         string physicalPath = overridePath ?? SourcePath(relative);
         byte[] data = File.ReadAllBytes(physicalPath);
         string hash = Convert.ToHexString(SHA256.HashData(data));
-        _baseline.TryGetValue(relative, out SourceFile? expected);
-        var provenance = new SourceProvenance(relative, data.LongLength, hash,
-            overridePath is null ? expected?.Sha256 : null)
+        var provenance = new SourceProvenance(relative, data.LongLength, hash)
         {
             ResourceUri = resourceId.ToString(),
             PhysicalPath = physicalPath,

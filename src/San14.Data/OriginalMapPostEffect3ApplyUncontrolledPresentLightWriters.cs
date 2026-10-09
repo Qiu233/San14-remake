@@ -26,7 +26,6 @@ public sealed class OriginalMapPostEffect3ApplyUncontrolledPresentLightInputs
         ArgumentNullException.ThrowIfNull(actualSelectedLight);
         ArgumentException.ThrowIfNullOrWhiteSpace(actualLookupOwnerIdentity);
         ArgumentException.ThrowIfNullOrWhiteSpace(actualSuccessfulContextAndViewMaskLookupEvidence);
-        actualSelectedLight.ValidateCurrentSourceFrame();
         if(actualSelectedLight.FrameNumber<=0||actualSelectedLight.LocalLightData.Length!=0x10C0)
             throw new InvalidDataException("Present light requires its actual same-frame complete selected LightData.");
         return new(actualSelectedLight,actualLookupOwnerIdentity,actualSuccessfulContextAndViewMaskLookupEvidence,actualLightShaftArgument);
@@ -50,7 +49,6 @@ public static class OriginalMapPostEffect3ApplyUncontrolledPresentLightWriters
         ArgumentNullException.ThrowIfNull(math);ArgumentNullException.ThrowIfNull(tangent);
         if(selection.Variant!=OriginalMapPostEffect3ApplyUncontrolledVariant.NativeE71690)
             throw new NotSupportedException("Present light preparation requires the actual E71690 descriptor route.");
-        input.Light.ValidateCurrentSourceFrame();
         if(input.FrameNumber!=camera.FrameNumber||math.Locale!=camera.ExecutableLocale||tangent.Language!=camera.ExecutableLocale||
             input.Light.SourceIdentity.CameraObjectId!=camera.Source.Camera.ObjectId||
             !input.Light.PreparedCameraPrefix.Span.SequenceEqual(camera.Prefix.Span))

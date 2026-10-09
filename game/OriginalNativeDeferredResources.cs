@@ -100,9 +100,7 @@ public sealed partial class OriginalNativeDeferredResources : IAsyncDisposable
                 throw new InvalidDataException("Native deferred G-buffer plan differs from its pixel declarations.");
         }
         var native=borrowedNativeGgx.NativeSource;
-        if(native is null||native.ShaderSha256!=OriginalGgxAmbientLut.PixelSourceSha256||
-            borrowedNativeGgx.Translation.SourceProgramSha256!=OriginalGgxAmbientLut.PixelSourceSha256||
-            Convert.ToHexString(SHA256.HashData(native.Dxbc))!=OriginalGgxAmbientLut.PixelSourceSha256||
+        if(native is null||
             !borrowedNativeGgx.OriginalSamplerKey.AsSpan().SequenceEqual(Convert.FromHexString("1514300000000000")))
             throw new InvalidDataException("Native deferred GGX source lacks the recovered generator and sampler provenance.");
         uint[] expectedSampler=[0x14,3,3,3,0,1,4,0,0,0,0,0,0];

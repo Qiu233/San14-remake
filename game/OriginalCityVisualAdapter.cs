@@ -88,7 +88,7 @@ public sealed class OriginalCityVisualAdapter : IDisposable
         foreach(CityVisualSelection source in sourceSelections)
         {
             if(_previous.ContainsKey(source.Slot))continue;
-            if(source.ExecutableSha256!=_variants.ExecutableSha256||
+            if(source.ImplementationVersion!=_variants.ImplementationVersion||
                source.Variant!=_variants.VariantForCitySlot(source.Slot)||
                source.Category!=OriginalCeCityModels.CategoryFor(source.Variant,source.SizeCode,source.DamageTier))
                 throw new InvalidDataException("Seeded city display differs from the selected source variant table.");
@@ -108,7 +108,7 @@ public sealed class OriginalCityVisualAdapter : IDisposable
             catch{mesh.Mesh.Dispose();throw;}
             _displays.Add(selection.Category,display);
         }
-        return new(display,selection.Category,selection.Variant,selection.DamageTier,selection.ExecutableSha256,
+        return new(display,selection.Category,selection.Variant,selection.DamageTier,selection.ImplementationVersion,
             asset.SceneUri,asset.SceneSha256,asset.CatalogUri,asset.CatalogSha256,selection.Evidence.Uri,selection.Evidence.Sha256)
         {SelectionBasis=selection.SelectionBasis,RuntimeCaptureSha256=selection.RuntimeCaptureSha256,
          CurrentCategoryObserved=selection.CurrentCategoryObserved};
@@ -165,7 +165,7 @@ public sealed class OriginalCityVisualAdapter : IDisposable
             node.SetMeta("source_city_damage_tier", display.DamageTier);
             node.SetMeta("city_category_selection_basis", display.SelectionBasis);
             node.SetMeta("original_city_current_category_observed", display.CurrentCategoryObserved);
-            node.SetMeta("source_variant_executable_sha256", display.ExecutableSha256);
+            node.SetMeta("city_variant_rule_version", display.ImplementationVersion);
             node.SetMeta("scene_resource_uri", display.SceneUri);
             node.SetMeta("scene_decoded_sha256", display.SceneSha256);
             node.SetMeta("catalog_resource_uri", display.CatalogUri);

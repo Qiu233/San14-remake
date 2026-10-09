@@ -18,7 +18,7 @@ public sealed record NativeNormalArmyCombatPhaseDiagnostic(long CalendarCycleOrd
 /// inferred from a period-end Army snapshot.</summary>
 public sealed record NativeNormalArmyCombatCalendarState(string ProfileId,
     string SourceScenarioUri, string SourceScenarioSha256, string SourceWorldSha256,
-    string NativeClockRevision, string CalendarWriterSha256, long StartCalendarCycleOrdinal,
+    string NativeClockRevision, long StartCalendarCycleOrdinal,
     long NextCalendarCycleOrdinal, long ReachedDuePhaseCount,
     NativeNormalArmyCombatPhaseDiagnostic[] LastAdvanceDiagnostics, string Revision);
 
@@ -37,7 +37,6 @@ public static class NativeNormalArmyCombatCalendarStateValidation
             string.IsNullOrWhiteSpace(cursor.ProfileId) || string.IsNullOrWhiteSpace(cursor.Revision) ||
             cursor.SourceScenarioUri != season.SourceScenarioUri || cursor.SourceScenarioSha256 != season.SourceScenarioSha256 ||
             cursor.SourceWorldSha256 != season.SourceWorldSha256 || cursor.NativeClockRevision != clock.Revision ||
-            cursor.CalendarWriterSha256 is not { Length: 64 } || !cursor.CalendarWriterSha256.All(Uri.IsHexDigit) ||
             cursor.StartCalendarCycleOrdinal < 0 || cursor.NextCalendarCycleOrdinal < cursor.StartCalendarCycleOrdinal ||
             cursor.NextCalendarCycleOrdinal != season.AdvancedCalendarSteps || cursor.ReachedDuePhaseCount < 0 ||
             cursor.ReachedDuePhaseCount > cursor.NextCalendarCycleOrdinal - cursor.StartCalendarCycleOrdinal ||

@@ -92,7 +92,7 @@ public static class OriginalBattleRemakeCurrentForcePolicies
             OfficerState person = state.Officers[row.CharacterId];
             if (person.Id != row.CharacterId || person.NativeAbilityRuntime is not { } runtime ||
                 runtime.Revision != OriginalTacticRemakeCurrentAbilities.ProfileId ||
-                runtime.Language != simulation.Parameters.Language || runtime.ExecutableSha256 != simulation.Parameters.ExecutableSha256 ||
+                runtime.Language != simulation.Parameters.Language || runtime.RuleVersion != simulation.Parameters.RuleVersion ||
                 runtime.SourceScenarioUri != source.ScenarioSource.ResourceUri || runtime.SourceScenarioSha256 != source.ScenarioSource.Sha256 ||
                 runtime.PhysicalSlot != row.Slot || row.Slot is < 1 or > 1850 || row.RawPolicySlot is not byte policy ||
                 row.RawPolicyBaseCost is not byte rawBase || person.PolicyId != (policy is >= 1 and <= 120 ? policy : null) ||
@@ -199,7 +199,7 @@ public static class OriginalBattleRemakeCurrentForcePolicies
                 values.GetValueOrDefault(PersonProfileKey(personId)) != Version ||
                 !values.TryGetValue(PersonIdentityKey(personId), out int personPhysical) || personPhysical is < 1 or > 1850 ||
                 person.NativeAbilityRuntime is not { } runtime || runtime.Revision != OriginalTacticRemakeCurrentAbilities.ProfileId ||
-                runtime.Language != simulation.Parameters.Language || runtime.ExecutableSha256 != simulation.Parameters.ExecutableSha256 ||
+                runtime.Language != simulation.Parameters.Language || runtime.RuleVersion != simulation.Parameters.RuleVersion ||
                 state.ContentHashes.GetValueOrDefault(runtime.SourceScenarioUri) != runtime.SourceScenarioSha256 ||
                 runtime.PhysicalSlot != personPhysical) return false;
             if (operationCurrent is not null && operationCurrent.ReadPersonIdentity(personPhysical) != person.Id)
@@ -248,7 +248,5 @@ public static class OriginalBattleRemakeCurrentForcePolicies
     }
 
     private static bool ProfileMatches(NativeArmyParameterState parameters) =>
-        parameters.ExecutableSha256 == (parameters.Language switch
-        { "SC" => OriginalCeHexWorldCoordinates.VerifiedScExecutableSha256,
-          "TC" => OriginalCeHexWorldCoordinates.VerifiedTcExecutableSha256, _ => null });
+        parameters.Language is ("SC" or "TC");
 }

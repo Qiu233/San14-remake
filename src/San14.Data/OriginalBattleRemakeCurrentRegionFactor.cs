@@ -51,10 +51,10 @@ public sealed class OriginalBattleRemakeCurrentRegionFactor
     private OriginalBattleRemakeCurrentRegionReceipt? ResolveReceiptCore(GameState state, UnitState army, bool useCurrentHex)
     {
         if (state.NativeArmySimulation?.Parameters is not { } parameters || parameters.Language != seed.Language ||
-            parameters.ExecutableSha256 != seed.Source.Sha256 || context.ArmyValid(state, army) != true ||
+            parameters.RuleVersion != seed.Source.RuleVersion || context.ArmyValid(state, army) != true ||
             state.Officers.GetValueOrDefault(army.OfficerId)?.NativeAbilityRuntime is not { } person ||
             person.Revision != OriginalTacticRemakeCurrentAbilities.ProfileId || person.Language != parameters.Language ||
-            person.ExecutableSha256 != parameters.ExecutableSha256 || definitions.StaticSource is not { } source ||
+            person.RuleVersion != parameters.RuleVersion || definitions.StaticSource is not { } source ||
             person.SourceScenarioUri != source.ResourceUri || person.SourceScenarioSha256 != source.Sha256 ||
             state.ContentHashes.GetValueOrDefault(source.ResourceUri) != source.Sha256 || person.PhysicalSlot is < 1 or > 1850 ||
             definitions.ReadPersonLookupReference(army.OfficerId)?.PhysicalSlot != person.PhysicalSlot ||
@@ -85,7 +85,7 @@ public sealed class OriginalBattleRemakeCurrentRegionFactor
         int nativeForceSlot, ushort? currentHex)
     {
         if (state.NativeArmySimulation?.Parameters is not { } parameters || parameters.Language != seed.Language ||
-            parameters.ExecutableSha256 != seed.Source.Sha256 || !context.IsBoundCurrentState(state) ||
+            parameters.RuleVersion != seed.Source.RuleVersion || !context.IsBoundCurrentState(state) ||
             definitions.StaticSource is not { } source ||
             state.ContentHashes.GetValueOrDefault(source.ResourceUri) != source.Sha256) return null;
         return ResolveHexForceCore(state, nativeForceSlot, currentHex,

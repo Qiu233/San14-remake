@@ -7,7 +7,7 @@ namespace San14.Data;
 /// independent of NativeClock's forty waiting-manager updates per period.</summary>
 public sealed record OriginalNormalArmyCombatPhaseMoment(long CalendarCycleOrdinal,
     NativeMapSeasonDate WorldThirdDate, byte SchedulerStageIndex, string SourceScenarioUri,
-    string SourceScenarioSha256, string SourceWorldSha256, string CalendarWriterSha256,
+    string SourceScenarioSha256, string SourceWorldSha256,
     string Revision);
 
 /// <summary>16FFA0/170660 beginning-of-phase descriptor, not current UI stats.
@@ -68,17 +68,17 @@ public sealed class OriginalNormalArmyCombatSourcePlanner
     public const string ProfileId = "san14:ce-normal-army-phase13-20261003";
     private readonly IOriginalNormalArmyCombatCurrentQueries queries;
     public string Language { get; }
-    public string ExecutableSha256 { get; }
+    public string RuleVersion { get; }
     public string Revision { get; }
     public OriginalNormalArmyCombatSourcePlanner(IOriginalNormalArmyCombatCurrentQueries currentQueries,
-        string language, string executableSha256, string revision)
+        string language, string ruleVersion, string revision)
     {
         queries = currentQueries ?? throw new ArgumentNullException(nameof(currentQueries));
         if (language is not ("SC" or "TC") ||
-            executableSha256 != OriginalBattleUnitSourceCodeSources.ForLanguage(language).ExecutableSha256 ||
+            ruleVersion != OriginalBattleUnitSourceCodeSources.ForLanguage(language).RuleVersion ||
             string.IsNullOrWhiteSpace(revision))
-            throw new InvalidDataException("Normal combat planner requires its actual paired executable identity and revision.");
-        Language = language; ExecutableSha256 = executableSha256; Revision = revision;
+            throw new InvalidDataException("Normal combat planner requires its compatible project rule version and revision.");
+        Language = language; RuleVersion = ruleVersion; Revision = revision;
     }
 
     /// <summary>The source branch is signedSubday/2==5. Ordinary calendar
@@ -93,7 +93,7 @@ public sealed class OriginalNormalArmyCombatSourcePlanner
     {
         ArgumentNullException.ThrowIfNull(state); ValidateMoment(moment);
         if (state.NativeArmySimulation?.Parameters is not { } parameters ||
-            parameters.Language != Language || parameters.ExecutableSha256 != ExecutableSha256 ||
+            parameters.Language != Language || parameters.RuleVersion != RuleVersion ||
             state.NativeMapSeason is not { } season ||
             season.SourceScenarioUri != moment.SourceScenarioUri ||
             season.SourceScenarioSha256 != moment.SourceScenarioSha256 ||
@@ -107,7 +107,7 @@ public sealed class OriginalNormalArmyCombatSourcePlanner
         foreach (UnitState army in state.Units.Values)
         {
             if (army.NativeArmyOrigin is not { } origin || origin.Language != Language ||
-                origin.ExecutableSha256 != ExecutableSha256 || origin.NativeSlotIndex is not int slot ||
+                origin.RuleVersion != RuleVersion || origin.NativeSlotIndex is not int slot ||
                 queries.ReadDescriptor(state, army) is not { } descriptor ||
                 queries.ReadCompletePrimaryArmyIds(state, army) is not { } ids) return null;
             if (descriptor.ArmyId != army.Id || descriptor.NativePoolSlot != slot ||
@@ -167,7 +167,6 @@ public sealed class OriginalNormalArmyCombatSourcePlanner
             moment.WorldThirdDate is not { Month: >= 1 and <= 12, Day: >= 1 and <= 30, Hour: >= 0 and <= 22 } date ||
             (date.Hour & 1) != 0 || string.IsNullOrWhiteSpace(moment.SourceScenarioUri) ||
             !Hash(moment.SourceScenarioSha256) || !Hash(moment.SourceWorldSha256) ||
-            moment.CalendarWriterSha256 != OriginalMapSeasonNativeSource.CalendarWriterSha256 ||
             string.IsNullOrWhiteSpace(moment.Revision))
             throw new InvalidDataException("Normal combat needs its reached pre-calendar stage13 cursor, source epoch, and ordinary native two-hour date.");
     }

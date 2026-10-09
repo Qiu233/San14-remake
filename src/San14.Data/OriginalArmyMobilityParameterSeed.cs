@@ -1,14 +1,20 @@
-using System.Buffers.Binary;
-using System.Reflection.PortableExecutable;
-using System.Security.Cryptography;
 using San14.Core;
 
 namespace San14.Data;
 
-/// <summary>Explicit new current scalar allocation for the paired ordinary
-///2B0660 producer. Queries never read these image values to repair a save.</summary>
+/// <summary>Project mobility rules for a fresh saved Army parameter allocation. Current queries continue to read their saved values.</summary>
 public sealed class OriginalArmyMobilityParameterSeed
 {
+    private const int FormationFiveMobilityBonus = 2;
+    private const int TraitMobilityLimit = 10;
+    private const int TraitMobilityStep = 5;
+    private const int ForceTerrainPercent = 200;
+    private const int EnvironmentTerrainPercent = 130;
+    private const int FormationTerrainPercent = 150;
+    private const int FormationSixTerrainPercent = 150;
+    private const float TerrainNormalization = 240f;
+    private const float PercentDenominator = 100f;
+    private const float MultiplicativeIdentity = 1f;
     public const string ProfileId = "san14:ce-owned-army-mobility-parameters-20261003";
     public string Language { get; }
     public SourceProvenance Source { get; }
@@ -23,42 +29,25 @@ public sealed class OriginalArmyMobilityParameterSeed
 
     public static OriginalArmyMobilityParameterSeed Load(OriginalGameRepository repository, string language)
     {
-        // Reuse the existing exact executable/literal verification. The seven
-        // additional mutable fields are absent from the older battle installer.
-        var shared = OriginalBattleRemakeCurrentParameterSeed.Load(repository, language);
-        byte[] bytes = File.ReadAllBytes(shared.Source.PhysicalPath);
-        if (Convert.ToHexString(SHA256.HashData(bytes)) != shared.Source.Sha256)
-            throw new InvalidDataException("Mobility source changed during pinned image reads.");
-        using var pe = new PEReader(new MemoryStream(bytes, writable: false));
-        var fields = new List<OriginalBattleRemakeCurrentParameterField>();
-        foreach (int canonical in new[] { 0x1A4AB98, 0x1A49C40, 0x1A4A8F4, 0x1A49C58,
-            0x1A49C64, 0x1A49C4C, 0x1A4C6EC })
-        {
-            int physical = canonical - (language == "TC" ? 0x1030 : 0);
-            var raw = Read(physical, ".data");
-            fields.Add(new(canonical, physical, BinaryPrimitives.ReadInt32LittleEndian(raw),
-                Convert.ToHexString(SHA256.HashData(raw))));
-        }
-        var literal = Read(0x13B0914 - (language == "TC" ? 0x1000 : 0), ".rdata");
-        float normalization = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(literal));
-        if (normalization != 240f) throw new InvalidDataException("Pinned mobility Terrain normalization differs.");
-        return new(language, shared.Source, fields.ToArray(), normalization, shared.PercentDenominator, shared.One);
-
-        ReadOnlySpan<byte> Read(int rva, string expectedSection)
-        {
-            var matches = pe.PEHeaders.SectionHeaders.Where(s => s.Name == expectedSection &&
-                rva >= s.VirtualAddress && (long)rva + 4 <= (long)s.VirtualAddress + s.SizeOfRawData).ToArray();
-            if (matches.Length != 1) throw new InvalidDataException("Pinned mobility field is outside its source section.");
-            long offset = (long)matches[0].PointerToRawData + rva - matches[0].VirtualAddress;
-            if (offset < 0 || offset > bytes.Length - 4) throw new InvalidDataException("Pinned mobility field exceeds source bytes.");
-            return bytes.AsSpan((int)offset, 4);
-        }
+        ArgumentNullException.ThrowIfNull(repository);
+        var source = SimulationRuleSources.Provenance("san14-remake://rules/army-mobility/v1", language);
+        // Legacy addresses identify existing saved keys; the values are project rules.
+        OriginalBattleRemakeCurrentParameterField[] fields = [
+            new(0x1A4AB98, language == "TC" ? 0x1A49B68 : 0x1A4AB98, FormationFiveMobilityBonus, string.Empty),
+            new(0x1A49C40, language == "TC" ? 0x1A48C10 : 0x1A49C40, TraitMobilityLimit, string.Empty),
+            new(0x1A4A8F4, language == "TC" ? 0x1A498C4 : 0x1A4A8F4, TraitMobilityStep, string.Empty),
+            new(0x1A49C58, language == "TC" ? 0x1A48C28 : 0x1A49C58, ForceTerrainPercent, string.Empty),
+            new(0x1A49C64, language == "TC" ? 0x1A48C34 : 0x1A49C64, EnvironmentTerrainPercent, string.Empty),
+            new(0x1A49C4C, language == "TC" ? 0x1A48C1C : 0x1A49C4C, FormationTerrainPercent, string.Empty),
+            new(0x1A4C6EC, language == "TC" ? 0x1A4B6BC : 0x1A4C6EC, FormationSixTerrainPercent, string.Empty)
+        ];
+        return new(language, source, fields, TerrainNormalization, PercentDenominator, MultiplicativeIdentity);
     }
 
     public GameState InstallFresh(GameState state)
     {
         if (state.NativeArmySimulation is not { } simulation || state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } ||
-            state.Units.Count != 0 || simulation.Parameters.Language != Language || simulation.Parameters.ExecutableSha256 != Source.Sha256 ||
+            state.Units.Count != 0 || simulation.Parameters.Language != Language || simulation.Parameters.RuleVersion != Source.RuleVersion ||
             Fields.Any(f => simulation.Parameters.Int32Values.ContainsKey(OriginalTacticRemakeParameterSeed.Key(f.SemanticScRva)) ||
                 simulation.Parameters.Float32Values.ContainsKey(OriginalTacticRemakeParameterSeed.Key(f.SemanticScRva))))
             throw new InvalidDataException("Fresh mobility scalars cannot replace a current owner or repair omitted saved values.");

@@ -1,122 +1,24 @@
-using System.Collections.ObjectModel;
-using System.Security.Cryptography;
+using System.Numerics;
 
 namespace San14.Data;
 
-/// <summary>Verified immutable source Caustics constructors, setters and current
-/// gate kernels. This contains no current texture handle or original-process state.</summary>
+/// <summary>Project caustics initialization rules. Current texture handles and
+/// transforms remain owned by the caller.</summary>
 public sealed class LoadedOriginalDeferredEarlyCausticsSource
 {
-    internal LoadedOriginalDeferredEarlyCausticsSource(string path,string locale,string exe,string text,
-        IReadOnlyDictionary<string,string> windows,byte[] identity)
-    { PhysicalPath=path;Locale=locale;ExecutableSha256=exe;DecodedTextSha256=text;WindowSha256=windows;IdentityBytes=identity.ToArray(); }
-    public string PhysicalPath { get; }
+    internal LoadedOriginalDeferredEarlyCausticsSource(string locale,string ruleVersion,Matrix4x4 initialTransform)
+    {
+        Locale=locale;RuleVersion=ruleVersion;
+        IdentityBytes=RenderRuleNumericEncoding.Matrix(initialTransform);
+    }
     public string Locale { get; }
-    public string ExecutableSha256 { get; }
-    public string DecodedTextSha256 { get; }
-    public IReadOnlyDictionary<string,string> WindowSha256 { get; }
+    public string RuleVersion { get; }
     internal byte[] IdentityBytes { get; }
-    public string SourceProvenance=>GameResourceId.File($"SAN14CE_{Locale}.exe")+"#source-Caustics@"+ExecutableSha256;
+    public string SourceProvenance=>RuleVersion;
 }
 
 public static partial class OriginalDeferredSamplerSources
 {
-    private sealed record CausticsSourceWindow(string Name,int Rva,int Bytes,string Sha256);
-    private static CausticsSourceWindow[] EarlyCausticsWindows(string locale)=>locale switch
-    {
-        "TC"=>[
-            new("registry",0x009BF0A0,124,"201817143FC021B1C7F8234E9E8B041B3CA0F9044246A267CEDDE6816FC3007C"),
-            new("create",0x009BF070,36,"8ECFCBA7C4BB0D8A433197FA5ED4A947C27E1E117B047DEC64404ED42ED42C17"),
-            new("descriptor",0x009BF120,45,"E8764DF26478404B179B8A400394D24C0DA1331404064FA554E53E261EFC2E33"),
-            new("initializer",0x009BF150,225,"8BA7DD4CC5CDB2B348486D00F80DA0F180FB4C21928F738645763AD198D12761"),
-            new("prepare",0x009BF240,190,"97FE8A9656E97417A17D98878F287D3F6C3038609D8C18887AFB78EF8CEBCF45"),
-            new("rangeSetter",0x009BF350,9,"223037D92255B6D6A065865B44010D10A81E92FA5E3A805A4BC843931F651F85"),
-            new("scalerSetter",0x009BF360,6,"218DFC438F5AF887D24E83CD0B09AE5786808965F7CE5A68A52CB5F7EF39139F"),
-            new("matrixSetter",0x009BF370,41,"F0DA9951116DC81DB97A4BCA92C0C6F593BA03B7070E7433E311E5F236EF90D4"),
-            new("imageParameterToken",0x009BF300,65,"372AC3F30F97F28938068730164ABB40F88B78844F7FB71BD49DEA5B9A12429D"),
-            new("imageSetter",0x009BF3A0,83,"00521533788EF2D2B62C5CCF289FC5A4C247AD4DDA4CA09816A76036F4AF6C62"),
-            new("reset",0x00C12B60,315,"950F87244160BA67617C3C3B3DE43629BE518A4004BE99DC87EBE92BFF05D101"),
-            new("sourceScratchCopy",0x00D5BEA0,177,"9B6602A52080FDBD0A0AE0E2537FA116FAA47510C9C49A007450D252883A6070"),
-            new("sourceScratchCopyCall",0x00EAD5D9,29,"6F37B99D29170AEA7250A4573C9E6C3EE6E113F3B8230AA10B6C20403218A0A0"),
-            new("sourceScratchLoads",0x00EADABC,130,"880D832DD48F361657B5E6F64E8A3615E0D060329844475B5EBB359B50F74B5A"),
-            new("activeGate",0x00EAE37E,95,"BD70E8B8246A44327DF9DBABBDD90AB692C2A295E504B010122CC0E364EA8449"),
-            new("activeImageSelect",0x00EAE3DD,152,"69481B0F4A714F15BB7CA4FFA7A7F3562B7DFD60AF1C6AD91F370B04B40E306F"),
-            new("activeRangeWriter",0x00EAE475,92,"C653D40A56CF615D48C881C891FD491A9616DB76FCD27086D40ADAC0473A5F33"),
-            new("activeMatrixScalerWriter",0x00EAE4D1,242,"6344D975F3485EFBF29490E886F14BB62E81CAF995607622B3BBC3898C83C0A4"),
-            new("resetCall",0x00EAECBC,13,"0448179E670476BBFDCCB66CCCCDF23F4FA1C3D7928F2F3E0AA19DCE109423D2"),
-            new("sourceMapPropertyPointer",0x00C51CAB,11,"33E08B278354780B40CC7CAC3E87ACDDE8A70C9FBCA800F975809C4BB5DC7767"),
-            new("sourceZeroMapLookupAndStore",0x00C56D2F,125,"2E7EC26896DEA4EF919C02414EE5E125341E69E36C96CEB08CA6650ACCF5BA11"),
-            new("sourceMapCopyToEmbeddedCamera",0x00CAB03E,14,"D58B7D578D85C8DAE973A9D3E2D5555378C72BBF394FC9ECDE894A29D41F9DDB"),
-            new("destructor",0x009BED20,98,"3638F49C4CD4C85B9B3347EBF3A3B536CD7618F002E6CCCBC1EABE73F9A6F5FB"),
-            new("virtual10",0x00F21680,3,"4BC724F3B1D0CAF4FE369C18CBA3102E6C4EA057F63FE1587E3973134A7F755E"),
-            new("virtual20And28",0x00BF9280,3,"E18AACCE29AFFCDDDAA5F641AC1EC12552E0FE9D066E6408941B1792818B8619"),
-            new("virtual30And38And40",0x00A624F0,3,"B6CBECECF1B07E74F37D57710C68C31F0B92CB08D51093252B321B07542E177B"),
-            new("virtual60",0x009FEEE0,61,"C4F90934C8824B7DEE9FE08C00D27D4D659FE2B07446C0BE055521D4EEC59E45"),
-            new("sourceMapLocalViewClone",0x00B9CEB2,14,"66FB70E28937CA7D7B4B92BB4A2CAF362CEB3B921D1AB8B329551935EE85830F"),
-            new("sourceMapPreparedViewClone",0x00D0606D,14,"12C698CD4AB342B7A691B3FB10542387D60EB47EC3FBC1D53C54152CB3B33823"),
-            new("sourceMapPacketAssembly",0x00D4C59A,80,"1A8BEC4A38F29A69407A70470E29E810326C02F474D81E4C1842A77FF63D174C"),
-            new("sourceZeroSizeToEmbeddedView",0x00C4293E,24,"0BFFBFE8FE0EB531A6A215251DA49667C815E1BEE6C9B149FE8A0FBBF1EBA17A"),
-            new("sourceSizePacketAssembly",0x00D4C519,43,"F0B537A8421D4C93A6E2FBF399146B8E2CBFA1C3C467D663C388BB91EE6F7E0D"),
-            new("sourceSizeLocalViewClone",0x00B9B366,24,"4D67B4447371A0D60682366A211CACD6A390BD9599B1FE2C3E2A1158520868DB"),
-            new("sourceSizePreparedViewClone",0x00D04773,24,"A290391D14E27EF09A2F53B6C9366CD5BFCB6A98104D776A16B042A846B75D48"),
-        ],
-        "SC"=>[
-            new("registry",0x009C0030,124,"14597D50C8F8430EA074BEBE531477C3015BAB08A567E7DA7E1304274B6C0F8E"),
-            new("create",0x009C0000,36,"08A9B93A1CF8A28168B3369BD4D8D03952619561C6BBAE5A77794E0496A95B17"),
-            new("descriptor",0x009C00B0,45,"EB080DA0E3D8B2D732C9C6DE0AACCC48A4C0B5872B39F724B1050F84FBDBF13D"),
-            new("initializer",0x009C00E0,225,"07AA2E42A97AC0B8A722470EB9D5C463468A8D4E8821EC93110F2F2B7AEA3628"),
-            new("prepare",0x009C01D0,190,"17FBB63CF8C70CE60EBD735C4D3C080415EE369992BCB571342B9F03D816C0F7"),
-            new("rangeSetter",0x009C02E0,9,"223037D92255B6D6A065865B44010D10A81E92FA5E3A805A4BC843931F651F85"),
-            new("scalerSetter",0x009C02F0,6,"218DFC438F5AF887D24E83CD0B09AE5786808965F7CE5A68A52CB5F7EF39139F"),
-            new("matrixSetter",0x009C0300,41,"F0DA9951116DC81DB97A4BCA92C0C6F593BA03B7070E7433E311E5F236EF90D4"),
-            new("imageParameterToken",0x009C0290,65,"372AC3F30F97F28938068730164ABB40F88B78844F7FB71BD49DEA5B9A12429D"),
-            new("imageSetter",0x009C0330,83,"00521533788EF2D2B62C5CCF289FC5A4C247AD4DDA4CA09816A76036F4AF6C62"),
-            new("reset",0x00C14090,315,"79B5DC5EC8173FA377F55F53F5E99732A02D610986BC334CEB06B7B6B585AE9A"),
-            new("sourceScratchCopy",0x00D5CBD0,177,"9B6602A52080FDBD0A0AE0E2537FA116FAA47510C9C49A007450D252883A6070"),
-            new("sourceScratchCopyCall",0x00EAE5C9,29,"979D6510A76B84F53611A5B741DD974072BEDB5FE48278E45A82822B875BDCFD"),
-            new("sourceScratchLoads",0x00EAEAAC,130,"8ECCBF85C8A36144C457A258CEDB7F0064A048617030C7983436D554BA8299FD"),
-            new("activeGate",0x00EAF36E,95,"59A6453626AA98365362985E240EA3E33A5E17ECB667D6DD25B727521DC4D41E"),
-            new("activeImageSelect",0x00EAF3CD,152,"496F36ED5D5B827FF473C10641889544F606A3C0FC0A7CAAB1D5AB14F91B6C92"),
-            new("activeRangeWriter",0x00EAF465,92,"623760C05D2BEDE572C32A804D2186EE7F8AAA5AC7D7196C69E0636C4D11BDBE"),
-            new("activeMatrixScalerWriter",0x00EAF4C1,242,"EC6AE6853152822C150EC134903D7372BD31D964621BBB58D91715BC721DE5F9"),
-            new("resetCall",0x00EAFCAC,13,"A2467B805C6612A151A30C002DC35CD3A4274ADE0B435FD0B96B11336985D8AC"),
-            new("sourceMapPropertyPointer",0x00C532AB,11,"33E08B278354780B40CC7CAC3E87ACDDE8A70C9FBCA800F975809C4BB5DC7767"),
-            new("sourceZeroMapLookupAndStore",0x00C5832F,125,"61573BD4874B7A5BC373254AE5B2EB3C0C8D7AF6449669DB0893E9094B7A8C8B"),
-            new("sourceMapCopyToEmbeddedCamera",0x00CAC70E,14,"D58B7D578D85C8DAE973A9D3E2D5555378C72BBF394FC9ECDE894A29D41F9DDB"),
-            new("destructor",0x009BFCB0,98,"F131EA8729E43DC2359C9B3CE1E33DC3D5E4398BE018A8C6EE6D01C2D1DDD4CD"),
-            new("virtual10",0x00A63DB0,3,"4BC724F3B1D0CAF4FE369C18CBA3102E6C4EA057F63FE1587E3973134A7F755E"),
-            new("virtual20And28",0x0093AA60,3,"E18AACCE29AFFCDDDAA5F641AC1EC12552E0FE9D066E6408941B1792818B8619"),
-            new("virtual30And38And40",0x00A90880,3,"B6CBECECF1B07E74F37D57710C68C31F0B92CB08D51093252B321B07542E177B"),
-            new("virtual60",0x009FFF00,61,"C4F90934C8824B7DEE9FE08C00D27D4D659FE2B07446C0BE055521D4EEC59E45"),
-            new("sourceMapLocalViewClone",0x00B9DE72,14,"66FB70E28937CA7D7B4B92BB4A2CAF362CEB3B921D1AB8B329551935EE85830F"),
-            new("sourceMapPreparedViewClone",0x00D06D2D,14,"12C698CD4AB342B7A691B3FB10542387D60EB47EC3FBC1D53C54152CB3B33823"),
-            new("sourceMapPacketAssembly",0x00D4D2CA,80,"1A8BEC4A38F29A69407A70470E29E810326C02F474D81E4C1842A77FF63D174C"),
-            new("sourceZeroSizeToEmbeddedView",0x00C43FEE,24,"0BFFBFE8FE0EB531A6A215251DA49667C815E1BEE6C9B149FE8A0FBBF1EBA17A"),
-            new("sourceSizePacketAssembly",0x00D4D249,43,"F0B537A8421D4C93A6E2FBF399146B8E2CBFA1C3C467D663C388BB91EE6F7E0D"),
-            new("sourceSizeLocalViewClone",0x00B9C326,24,"4D67B4447371A0D60682366A211CACD6A390BD9599B1FE2C3E2A1158520868DB"),
-            new("sourceSizePreparedViewClone",0x00D05433,24,"A290391D14E27EF09A2F53B6C9366CD5BFCB6A98104D776A16B042A846B75D48"),
-        ],
-        _=>throw new ArgumentOutOfRangeException(nameof(locale))
-    };
-
-    /// <summary>Read inert installed source bytes, pinning both executable and
-    /// decoded text plus the bounded Caustics windows. No native code executes.</summary>
     public static LoadedOriginalDeferredEarlyCausticsSource LoadEarlyCaustics(string sourceDirectory,string locale)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(sourceDirectory);
-        var profile=Profile(locale);string path=Path.GetFullPath(Path.Combine(sourceDirectory,$"SAN14CE_{locale}.exe"));
-        byte[] exe=File.ReadAllBytes(path);VerifyHash(exe,profile.ExeHash,"Caustics executable");
-        var image=new NativeImage(exe);byte[] code=image.DecodeText(out int textRva);VerifyHash(code,profile.TextHash,"Caustics decoded text");
-        var verified=new Dictionary<string,string>(StringComparer.Ordinal);
-        foreach(var window in EarlyCausticsWindows(locale))
-        {
-            if(window.Rva<textRva||window.Rva-textRva>code.Length-window.Bytes)
-                throw new InvalidDataException("Caustics source window is outside decoded text.");
-            VerifyHash(code.AsSpan(window.Rva-textRva,window.Bytes),window.Sha256,window.Name);verified.Add(window.Name,window.Sha256);
-        }
-        int literal=locale=="TC"?0x014BB860:0x014BC740;
-        byte[] identity=image.Raw(literal,64).ToArray();
-        VerifyHash(identity,"5998E9D1DD9BF48AF6AF87A1EF8C7783B818AC8329637ADA08CC5FB329042376","Caustics initializer matrix literal");
-        return new(path,locale,profile.ExeHash,profile.TextHash,new ReadOnlyDictionary<string,string>(verified),identity);
-    }
+        => new(locale,RenderRuleIdentity.For("caustics",locale),Matrix4x4.Identity);
 }

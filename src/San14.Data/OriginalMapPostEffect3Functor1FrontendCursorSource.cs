@@ -70,27 +70,8 @@ public static partial class OriginalDeferredSamplerSources
     internal static LoadedOriginalMapPostEffect3Functor1FrontendCursorSource ReadFunctor1FrontendCursorSource(LoadedOriginalDeferredSamplerNativeSource native)
     {
         if(native.Locale is not ("TC" or "SC"))throw new NotSupportedException("Functor1 cursor source requires a verified SC/TC profile.");
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"Cursor executable");
-        var image=new NativeImage(exe);byte[] text=image.DecodeText(out int start);VerifyHash(text,native.DecodedTextSha256,"Cursor text");
-        foreach(var w in new (int Rva,int Count,string Sha)[]{
-            (0x1145E70,456,"E33E730AB6F099D838D2AD86D6422C9D96952998CC7793B37C2A56FA26A747CF"),
-            (0x11618B0,44,"8CBA1105A65992A286A750C0FA90C012237118316C1258F5C8AE65D62F0D5084"),
-            (0x11619D0,44,"8234C69B456F0CA2368CE075E1911CA1C2DD92E457D1BD9677B55FA72CC020C6"),
-            (0x1161D40,1773,"57B3E131B5FEAA2CC5DFC7318AD910B987B26478F475619E5ADB679F020B770A"),
-            (0x1162610,1195,"0F382035B15FA1F73D25ECB7E99E5C778B48C8C68C21B4D20FB4B90DD0458AAB"),
-            (0x1162AC0,412,"46E9460069251E5C46491B69D5FBB5237562CD5B3273C516CFDFCF7DD6D76FBC"),
-            (0x1163460,426,"26428584698B46F67D86E7816F3EC7897A27BA3284E80895B037F7538B8A17A7"),
-            (0x1161B60,32,"FCCFBCD6F9658B1751A1A846BE046DE122162EC55980789EAA0D76D41EF25749"),
-            (0x1163690,176,"38D880D9C6A6C89321375A8E50DFDD5C9114F2270334E200ACF95DA4128ADB34"),
-            (0x1163800,208,"23BE6A18FBE9C36F5873CFDE127B27AE9818139563C02C969F0FC2DD6A4BED5C"),
-            (0x11638D0,160,"30DA6BCF9C7570AA5B215BA8876E4BFE67C558DB414A38F9DC8E5BF36A6C941B"),
-            (0x1163970,160,"56A610CB33AF1FF48AD2F7FBE8AF4F28B0447753C0096A53AE7E376C42B7BF3D"),
-            (0x1163D10,176,"0BB46FCB3E3A2AC5156ADDC41B2DDE833EC60142AE151E35E4C826A0D5F8B1C5"),
-            (0x1163DC0,192,"23B8FBC803CFA603843AC09F522F7282F1789F2C4F7506B4162D02359CA53C0E"),
-            (0xBF9280,3,"E18AACCE29AFFCDDDAA5F641AC1EC12552E0FE9D066E6408941B1792818B8619")})
-            { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3Functor1FrontendCursorSource.cs",w.Rva,w.Count,w.Sha);
-              VerifyHash(text.AsSpan(actual.Rva-start,w.Count),actual.Sha,"Cursor source"+w.Rva.ToString("X")); }
-        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+"@"+native.ExecutableSha256+
+
+        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+";render-rules="+native.RenderRuleIdentity+
             ";11618B0=CS/pass2C/tableA0;11619D0=PS/pass30/tableB0;1161D40-CS-first-else-PS;"+
             "1145EF7-mode=-1/292-null-borrowed-retained-dirty0/type-byte0=FF/unwritten-selector-bytes1/2;Select-counted-texture-buffer-CB/stage0..5;"+
             "1163460-groupSRV-UAV-CB-for-each-stage-thenRT/flush1162AC0;1162A93-Bind-return-literal1-after-flush;1161B60-clear-descriptor;v58=BF9280-literal1",native.Locale);

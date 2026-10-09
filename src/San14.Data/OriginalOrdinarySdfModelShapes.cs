@@ -6,16 +6,23 @@ namespace San14.Data;
 public sealed record OriginalOrdinarySdfDualSphere(Vector4 First, Vector4 Second, float ExtraRadius20);
 public sealed record OriginalOrdinarySdfModelShapeRecords(uint Profile,
     IReadOnlyList<Vector4> Spheres, IReadOnlyList<OriginalOrdinarySdfDualSphere> DualSpheres);
+public sealed record OriginalOrdinarySdfShapeRule(int FirstBoneKey, int? SecondBoneKey,
+    float FirstRadiusScale, float SecondRadiusScale, Vector4 FirstOffset, Vector4 SecondOffset);
+public sealed record OriginalOrdinarySdfProfileRule(int SphereCount, int DualSphereCount,
+    uint ShapeMask, float RadiusScale);
 
 /// <summary>Original D65F30's 30 literal shapes and 11 profile masks. This
 /// consumes the actual World150 selected 48B S/Q/T array, not shader matrices
 /// and not an unproven model-space animation array.</summary>
 public sealed partial class OriginalOrdinarySdfModelShapeCatalog
 {
-    private readonly byte[] shapeBytes, profileBytes;
     private readonly uint[] boneNameHashes;
-    internal OriginalOrdinarySdfModelShapeCatalog(byte[] shapes, byte[] profiles, uint[] names)
-        => (shapeBytes, profileBytes, boneNameHashes) = (shapes, profiles, names);
+    internal OriginalOrdinarySdfModelShapeCatalog(OriginalOrdinarySdfShapeRule[] shapes,
+        OriginalOrdinarySdfProfileRule[] profiles, uint[] names)
+        => (ShapeRules, ProfileRules, boneNameHashes) =
+            (Array.AsReadOnly(shapes), Array.AsReadOnly(profiles), names);
+    public IReadOnlyList<OriginalOrdinarySdfShapeRule> ShapeRules { get; }
+    public IReadOnlyList<OriginalOrdinarySdfProfileRule> ProfileRules { get; }
     public IReadOnlyList<uint> BoneNameHashes => Array.AsReadOnly(boneNameHashes);
 
     /// <summary>DBC560 preserves the original signed lookup. A missing name
@@ -53,7 +60,7 @@ public sealed partial class OriginalOrdinarySdfModelShapeCatalog
                 throw new NotSupportedException("Current SDF mapped joint requires source bytes outside this supplied pose array.");
             return V(pose, index * 48 + offset);
         }
-        ReadOnlySpan<byte> recipe = profileBytes.AsSpan(checked((int)profile) * 16, 16);
+        OriginalOrdinarySdfProfileRule recipe = ProfileRules[(int)profile];
         float radiusBase = 0;
         if (actualJointMap[3] != -1 && actualJointMap[4] != -1)
         {
@@ -62,21 +69,21 @@ public sealed partial class OriginalOrdinarySdfModelShapeCatalog
             float squares = x * x + y * y; squares += z * z;
             radiusBase = MathF.Sqrt(squares) * .5f;
         }
-        radiusBase = MathF.Abs(radiusBase) * F(recipe, 12);
-        uint mask = BinaryPrimitives.ReadUInt32LittleEndian(recipe[8..]);
-        var spheres = new List<Vector4>(); var pairs = new List<OriginalOrdinarySdfDualSphere>();
+        radiusBase = MathF.Abs(radiusBase) * recipe.RadiusScale;
+        uint mask = recipe.ShapeMask;
+        var spheres = new List<Vector4>(recipe.SphereCount);
+        var pairs = new List<OriginalOrdinarySdfDualSphere>(recipe.DualSphereCount);
         for (int i = 0; i < 30; i++, mask >>= 1)
         {
             if ((mask & 1) == 0) continue;
-            ReadOnlySpan<byte> raw = shapeBytes.AsSpan(i * 48, 48);
-            int first = BinaryPrimitives.ReadInt32LittleEndian(raw);
-            int second = BinaryPrimitives.ReadInt32LittleEndian(raw[4..]);
+            OriginalOrdinarySdfShapeRule shape = ShapeRules[i];
+            int first = shape.FirstBoneKey;
             Vector4 qa = Pose(first, 16), pa = Pose(first, 32);
-            Vector4 a = OriginalOrdinarySdfMath.RotateQuaternion16700(qa, V(raw, 16));
-            a = new(a.X + pa.X, a.Y + pa.Y, a.Z + pa.Z, radiusBase * F(raw, 8));
-            if (second == -1) { spheres.Add(a); continue; }
+            Vector4 a = OriginalOrdinarySdfMath.RotateQuaternion16700(qa, shape.FirstOffset);
+            a = new(a.X + pa.X, a.Y + pa.Y, a.Z + pa.Z, radiusBase * shape.FirstRadiusScale);
+            if (shape.SecondBoneKey is not int second) { spheres.Add(a); continue; }
             Vector4 qb = Pose(second, 16), pb = Pose(second, 32);
-            Vector4 b = OriginalOrdinarySdfMath.RotateQuaternion16700(qb, V(raw, 32));
+            Vector4 b = OriginalOrdinarySdfMath.RotateQuaternion16700(qb, shape.SecondOffset);
             float bx = b.X + pb.X, by = b.Y + pb.Y, bz = b.Z + pb.Z;
             // D66BBB / D66BFC apply these exact original second-center offsets
             // through the first quaternion, after both ordinary centers.
@@ -90,7 +97,7 @@ public sealed partial class OriginalOrdinarySdfModelShapeCatalog
                 Vector4 extra = OriginalOrdinarySdfMath.RotateQuaternion16700(qa, new(-5, 0, 0, 1));
                 bx += extra.X; by += extra.Y; bz += extra.Z;
             }
-            pairs.Add(new(a, new(bx, by, bz, radiusBase * F(raw, 12)), a.W));
+            pairs.Add(new(a, new(bx, by, bz, radiusBase * shape.SecondRadiusScale), a.W));
         }
         return new(profile, spheres.AsReadOnly(), pairs.AsReadOnly());
     }

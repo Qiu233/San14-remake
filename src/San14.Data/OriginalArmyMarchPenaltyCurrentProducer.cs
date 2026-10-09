@@ -33,7 +33,7 @@ public sealed class OriginalArmyMarchPenaltyCurrentProducer
         OriginalArmyMarchPenaltyParameterSeed nativeSource, IOriginalArmyMarchPenaltyCurrentOwnerQueries? currentOwners = null)
     {
         package = ownedPackage; map = ownedMap; source = nativeSource; owners = currentOwners;
-        if (package.Seed.Language != source.Language || package.Seed.Source.Sha256 != source.Source.Sha256)
+        if (package.Seed.Language != source.Language || package.Seed.Source.RuleVersion != source.Source.RuleVersion)
             throw new InvalidDataException("Penalty and current Army source profiles differ.");
         var skills = repository.LoadSkillDefinitions($"0010_{source.Language}/fixdataexce.s14");
         terrain = repository.LoadTerrainTypes($"0010_{source.Language}/fixdataexce.s14");
@@ -45,7 +45,7 @@ public sealed class OriginalArmyMarchPenaltyCurrentProducer
         var definitions = package.CaptureCurrentDefinitions(state);
         if (definitions is null) return Missing("current.Base_Hex_Person_definition_capture");
         var context = new OriginalTacticRemakeCurrentContext(definitions, catalog, map, terrain,
-            new(source.Language, source.Source.Sha256), Revision);
+            new(source.Language, SimulationRuleIdentity.ForLocale(source.Language)), Revision);
         if (context.ArmyValid(state, army) != true || army.NativeTacticRuntime?.Status10 != 1)
             return Missing("current.ordinary_Army_validity_Status10");
         if (state.Officers.GetValueOrDefault(army.OfficerId)?.NativeAbilityRuntime is not { } commander ||
@@ -138,7 +138,7 @@ public sealed class OriginalArmyMarchPenaltyCurrentProducer
             OriginalTacticRemakeParameterSeed.Key(rva), out int weight) ? weight : null;
         OriginalArmyMarchPenaltyCurrentResolution Result(int value, int? center, bool immune,
             int n1, int n2, int n3, int territoryCount, string owner) => new(new(value, center, immune, n1, n2, n3, territoryCount,
-                $"{Revision};{source.Source.ResourceUri}@{source.Source.Sha256};owned-clock={state.NativeClock!.UpdateOrdinal};{owner}"), null);
+                $"{Revision};{source.Source.ResourceUri}@{source.Source.RuleVersion};owned-clock={state.NativeClock!.UpdateOrdinal};{owner}"), null);
     }
 
     private static bool? ReadActiveCommanderEffect51(OriginalEventInitializationContext definitions, int person)

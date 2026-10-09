@@ -159,7 +159,8 @@ public static class OriginalDeferredEarlyIndirectSource
     {
         ArgumentNullException.ThrowIfNull(repository);
         var graph = repository.LoadRenderGraph("system", 0x024496EE);
-        Verify(graph.Source, OriginalTerrainGbufferTargetSources.GraphSha256);
+        if (graph.Source.ResourceUri != "san14://rdb/system/024496EE")
+            throw new InvalidDataException("Early68 graph resource reference differs.");
         graph = graph with { Document = RenderGraphReader.Read(graph.Source.Bytes) };
         var node = graph.Document.Nodes[68];
         uint Word(uint name)

@@ -44,7 +44,7 @@ public sealed class OriginalMapPostEffect3Composite2ReadFootprint
             throw new InvalidDataException("Composite2 read footprint needs its current native selected pass/allocation.");
         if(!Profiles.TryGetValue(sourcePassIndex,out var profile))
             throw new NotSupportedException("This footprint closes original AddBloom and final Composite2; cross-filter/FXAA/Remake need separate producers.");
-        var program=OriginalMapPostEffect3Functor1FootprintSource.RequireProgram(allocation,sourcePassIndex,0,profile.Pixel,profile.Sha);
+        var program=OriginalMapPostEffect3Functor1FootprintSource.RequireProgram(allocation,sourcePassIndex,0,profile.Pixel);
         var bindings=OriginalMapPostEffect3Functor1FootprintSource.ReadPixelTextures(allocation,sourcePassIndex);
         var cb=update.ConstantBuffer;
         if(cb.WriterRva!=checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(
@@ -91,14 +91,14 @@ public sealed class OriginalMapPostEffect3Composite2ReadFootprint
         if(reads.Count!=(final?5:2))throw new InvalidDataException("Composite2 source original texture register set changed.");
         return new(update,sourcePassIndex,program.Sha256,reads.AsReadOnly());
     }
-    private sealed record Profile(int Pixel,string Sha);
+    private sealed record Profile(int Pixel);
     private static readonly IReadOnlyDictionary<int,Profile> Profiles=new Dictionary<int,Profile>
     {
-        [98]=new(48,"27C96832F1BF193688D1968C294096BA8770710492FAF22D0105E5794B8E199F"),
-        [99]=new(49,"BCA0210D29BD60F43C2FFBE158ADF38B8593E57CF0465977562930EED91701FA"),
-        [100]=new(50,"289138938C03716F6C03CB061548F722F124D423BC88CA3770EB8C5F8A6B2411"),
-        [101]=new(51,"0BEDA5871170FCE6FEEF933E5D5BBA9D1DC2A3640B835D4BE2AEF2C4A2252B3D"),
-        [107]=new(53,"B057989157C2D9C7DDEA234F6A0C6D3A8B65B933539C5F607FC318A760591977"),
-        [108]=new(54,"B057989157C2D9C7DDEA234F6A0C6D3A8B65B933539C5F607FC318A760591977")
+        [98]=new(48),
+        [99]=new(49),
+        [100]=new(50),
+        [101]=new(51),
+        [107]=new(53),
+        [108]=new(54)
     };
 }

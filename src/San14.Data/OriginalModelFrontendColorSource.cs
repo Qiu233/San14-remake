@@ -55,16 +55,16 @@ public sealed record OriginalModelLateRecordActiveColorTransition(int SourceMask
 /// through Sky/graph/current writers; no frame number selects a recipe.</summary>
 public sealed class LoadedOriginalModelFrontendColorSource
 {
-    internal LoadedOriginalModelFrontendColorSource(string locale,string executable,
+    internal LoadedOriginalModelFrontendColorSource(string locale,string ruleVersion,
         uint initialFactor,byte rgb,byte alpha,uint[] color,uint[] alphaTable,uint[] ops)
-    {Locale=locale;ExecutableSha256=executable;this.initialFactor=initialFactor;initialRgb=rgb;initialAlpha=alpha;
+    {Locale=locale;RuleVersion=ruleVersion;this.initialFactor=initialFactor;initialRgb=rgb;initialAlpha=alpha;
         colorFactors=color;alphaFactors=alphaTable;operations=ops;}
     private readonly uint initialFactor;
     private readonly byte initialRgb,initialAlpha;
     private readonly uint[] colorFactors,alphaFactors,operations;
     public string Locale{get;}
-    public string ExecutableSha256{get;}
-    public string SourceProvenance=>$"SAN14CE_{Locale}.exe@{ExecutableSha256};"+
+    public string RuleVersion{get;}
+    public string SourceProvenance=>$"{RenderRuleIdentity.For("ModelFrontendColor",Locale)};"+
         "frontend966EA0-eightSlots;D712F0-currentBoundSlots/enable/RGB/alpha/conditionalF4-broadcast;"+
         "D43190-ordinary-entry/D48709-AuxC8..D4/D48742-currentMask/D48CB8-exitMask;"+
         "D223C0-loaded-FFFFFFFF/D1E410-current-copy-and-overlay;not-GPU-completion";
@@ -225,40 +225,13 @@ public static partial class OriginalDeferredSamplerSources
 {
     internal static LoadedOriginalModelFrontendColorSource LoadModelFrontendColorSource(string directory,string locale)
     {
-        var profile=Profile(locale);bool tc=locale=="TC";
-        byte[] exe=File.ReadAllBytes(Path.Combine(directory,$"SAN14CE_{locale}.exe"));
-        VerifyHash(exe,profile.ExeHash,"Model color source executable");
-        var image=new NativeImage(exe);byte[] text=image.DecodeText(out int start);
-        VerifyHash(text,profile.TextHash,"Model color source decoded text");
-        void Check(int tcRva,int scRva,int size,string tcHash,string scHash,string name)
-            =>VerifyHash(text.AsSpan((tc?tcRva:scRva)-start,size),tc?tcHash:scHash,name);
-        Check(0x95DC10,0x95ECC0,1220,"A072EF4A3E3E0A814D48B99FA052561066929C9898277595C0C86BED9E8AF7A7",
-            "4CA5B91FA5A658D32875107CA149593A5173BC976095CD7FDE0E859DA6296342","Common frontend constructor");
-        Check(0x966EA0,0x968020,730,"96CF43A335C06277B910CA515C71D79FD79311D253EFBD351A227C2EE1BA2C9E",
-            "96CF43A335C06277B910CA515C71D79FD79311D253EFBD351A227C2EE1BA2C9E","Eight-slot native state constructor");
-        Check(0xD712F0,0xD720F0,527,"8ED195AEB40A5A22887F1130F770628E34D6F9B5A06AC5A9D805EF755345084A",
-            "E7A87DFAAB492CB37D5E0FFDEA8CCA3C663974D5755230603E66CCF784122C9A","Current blend/write-mask writer");
-        Check(0x94AF20,0x94BFF0,816,"829C6848FFFE0E90CB41F745A68433CE3874808DEA0833070834CBDBDCEE88CB",
-            "31377E7521E83D47FECE2A426CC211421508A36E04ABA113F7EADE8427B5DFCB","Actual native blend descriptor creator");
-        Check(0xD223C0,0xD230F0,4119,"BDC9FB792C97082D61388427ED00F53EEF05FEACD18055B7EB313892B6B3F3E4",
-            "B680E06461F0AE39C0315D7D8E1ED4D64BE1089FF64B11B4B62C66DD8342EDF6","Loaded Common per-record masks");
-        Check(0xD1E410,0xD1F140,3293,"6BCDC7C8BBAEAE375183BFCCF8C4B3634DFB00BBAF7A3D1BD782D93963C270B3",
-            "6BCDC7C8BBAEAE375183BFCCF8C4B3634DFB00BBAF7A3D1BD782D93963C270B3","Current Aux copy/overlay");
-        Check(0xD43190,0xD43EC0,23680,"343F81F8CDED4A7E61F0A06A5C607F020DC9A64821E1F597E245C6BC2F8BDF64",
-            "6C98D5E3A7D6B1213B1DA767C730C7CC4439CCCB844839C79C22227CA83917D0","Complete current ordinary dispatcher color branches");
-        uint[] Table(int tcRva,int scRva,int count,string hash)
-        {
-            var bytes=image.Raw(tc?tcRva:scRva,count*4);VerifyHash(bytes,hash,"Native color enum table");
-            var values=new uint[count];for(int i=0;i<count;i++)values[i]=BinaryPrimitives.ReadUInt32LittleEndian(bytes.Slice(i*4,4));
-            return values;
-        }
-        uint[] color=Table(0x14BF7E0,0x14C06C0,12,"AEB7EA75E3369453455A6072886ECC7A087D7456FD8C780A6C8BC955B0200C81");
-        uint[] alpha=Table(0x14BF810,0x14C06F0,12,"22D23E8B591347069F01771E826DD614BF0E1A0A35671E7A5CA0D41E0BDD3C2F");
-        uint[] op=Table(0x14BEEA8,0x14BFD88,6,"C26517843D03C38E647B461BCAB86969D57485FA643636BC0C06E491DD05D057");
-        int constructor=tc?0x966EA0:0x968020;
-        uint factor=BinaryPrimitives.ReadUInt32LittleEndian(text.AsSpan(constructor-start+0x65+6,4));
-        byte rgb=text[constructor-start+0x50+3],alphaEnable=text[constructor-start+0x54+2];
-        if(factor!=0x1100||rgb!=7||alphaEnable!=1)throw new InvalidDataException("Actual frontend color constructor literals changed.");
-        return new(locale,profile.ExeHash,factor,rgb,alphaEnable,color,alpha,op);
+        _ = RenderRuleIdentity.For("ModelFrontendColor",locale);
+        const uint initialFactorWord=0x1100;
+        const byte initialRgbWriteMask=7,initialAlphaWriteEnabled=1;
+        uint[] colorBlendFactorCodes=[1,2,3,4,5,6,9,10,7,8,11,0];
+        uint[] alphaBlendFactorCodes=[1,2,5,6,5,6,7,8,7,8,11,0];
+        uint[] blendOperationCodes=[1,2,3,4,5,0];
+        return new(locale,RenderRuleIdentity.Version,initialFactorWord,initialRgbWriteMask,initialAlphaWriteEnabled,
+            colorBlendFactorCodes,alphaBlendFactorCodes,blendOperationCodes);
     }
 }

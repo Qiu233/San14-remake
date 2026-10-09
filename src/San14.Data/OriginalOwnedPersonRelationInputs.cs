@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using San14.Core;
 using San14.Data.Formats;
 
@@ -19,31 +18,24 @@ public sealed class OriginalOwnedPersonRelationInputs
     public static string PersonFieldKey(int physical, int tcField) => Prefix + $"person:{physical}:{tcField:X}";
     public static string Force178Key(int physical) => Prefix + $"force:{physical}:178";
     private readonly LoadedScenario _source;
-    private readonly string _language, _executableHash;
+    private readonly string _language, _ruleVersion;
     private readonly OriginalPersonRelationFields[] _people;
 
     private OriginalOwnedPersonRelationInputs(LoadedScenario source, string language,
         string hash, OriginalPersonRelationFields[] people)
-        => (_source, _language, _executableHash, _people) = (source, language, hash, people);
+        => (_source, _language, _ruleVersion, _people) = (source, language, hash, people);
 
     public static OriginalOwnedPersonRelationInputs Load(OriginalGameRepository repository,
         LoadedScenario source, string language)
     {
-        string expected = language switch
-        {
-            "SC" => OriginalCeHexWorldCoordinates.VerifiedScExecutableSha256,
-            "TC" => OriginalCeHexWorldCoordinates.VerifiedTcExecutableSha256,
-            _ => throw new InvalidDataException("Person relation inputs require CE SC/TC.")
-        };
+        string identity = SimulationRuleIdentity.ForLocale(language);
         if (source.Metadata.FormatMarker != 0x66 || source.Snapshot.Locale != language)
             throw new InvalidDataException("Person relation inputs require coherent CE marker66 source.");
         string path = string.IsNullOrWhiteSpace(source.ScenarioSource.PhysicalPath)
             ? Path.Combine(repository.SourceDirectory, source.ScenarioSource.SourcePath)
             : source.ScenarioSource.PhysicalPath;
         byte[] bytes = File.ReadAllBytes(path);
-        if (Convert.ToHexString(SHA256.HashData(bytes)) != source.ScenarioSource.Sha256)
-            throw new InvalidDataException("Person relation source changed during load.");
-        return new(source, language, expected, ReadSourceRows(S14Reader.Read(bytes, true), language));
+        return new(source, language, identity, ReadSourceRows(S14Reader.Read(bytes, true), language));
     }
 
     public static OriginalPersonRelationFields[] ReadSourceRows(S14Document document, string language)
@@ -76,7 +68,7 @@ public sealed class OriginalOwnedPersonRelationInputs
     public GameState InstallFresh(GameState state)
     {
         if (state.NativeArmySimulation is not { } simulation || simulation.Parameters.Language != _language ||
-            simulation.Parameters.ExecutableSha256 != _executableHash || state.Units.Count != 0 ||
+            simulation.Parameters.RuleVersion != _ruleVersion || state.Units.Count != 0 ||
             state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } ||
             state.ContentHashes.GetValueOrDefault(_source.ScenarioSource.ResourceUri) != _source.ScenarioSource.Sha256 ||
             simulation.Parameters.Int32Values.Keys.Any(k => k.StartsWith(Prefix, StringComparison.Ordinal)) ||

@@ -177,7 +177,6 @@ public sealed partial class OriginalSkyDirectionalAmbientDeviceOwner : IAsyncDis
                 actualProducerFrame.StarFaces?.Count!=6||actualProducerFrame.StarGate is null||actualProducerFrame.CloudFaces?.Count!=6)
                 throw new InvalidDataException("Backend startup requires this exact untouched actual factory source and all actual optional packets.");
             source.ValidatePreparedLights(actualSameSourceFrame.SourceFrame.Lights);
-            _=OriginalSkySceneFramePreparation.PrepareFreshDirectionalFullyWritten(actualSameSourceFrame.SourceFrame,source);
             var before=state.CaptureForConsumer(actualSameSourceFrame.FrameNumber);
             var progress=await Scene.GetProgressAsync();
             if(before.State168!=0||generated.Any(x=>x)||progress.Phase!=OriginalSkyScenePhase.Idle||progress.CompletedGenerations!=0)
@@ -243,7 +242,6 @@ public sealed partial class OriginalSkyDirectionalAmbientDeviceOwner : IAsyncDis
             source.ValidatePreparedLights(frame.SourceFrame.Lights);
             if(frame.FrameNumber!=source.AcceptedLighting.FrameNumber||frame.Binding!=Binding)
                 throw new InvalidDataException("Directional optional/current Sky packets belong to different source frames.");
-            _=OriginalSkySceneFramePreparation.PrepareFreshDirectionalFullyWritten(frame.SourceFrame,source);
             var call=state.BeginCurrentBackendBatch(present,enable,actualClock254,43,"actual-complete-GPU-batch6+1+36");
             callStarted=true;
             Mark("current-source-and-work-plan");

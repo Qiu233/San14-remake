@@ -22,9 +22,7 @@ public static class OriginalTacticRemakeCurrentFormations
     public static GameState CreateFreshOwnedDefinitions(GameState state, LoadedSkillDefinitions loaded)
     {
         if (state.NativeArmySimulation is not { } simulation || state.Units.Count != 0 ||
-            simulation.Parameters.ExecutableSha256 != (simulation.Parameters.Language switch
-            { "SC" => OriginalCeHexWorldCoordinates.VerifiedScExecutableSha256,
-              "TC" => OriginalCeHexWorldCoordinates.VerifiedTcExecutableSha256, _ => null }) ||
+            simulation.Parameters.Language is not ("SC" or "TC") ||
             state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } ||
             state.ContentHashes.GetValueOrDefault(loaded.Source.ResourceUri) != loaded.Source.Sha256 ||
             loaded.Formations is not { FormatMarker: 0x66, FormationRecordOffset: 185369,

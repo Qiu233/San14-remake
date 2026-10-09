@@ -1,14 +1,15 @@
-using System.Buffers.Binary;
-using System.Reflection.PortableExecutable;
-using System.Security.Cryptography;
 using San14.Core;
 
 namespace San14.Data;
 
-/// <summary>Actual2AEB30/187B90 route parameters. Image values are installed
-/// once for a new campaign; a query never repairs omitted saved fields.</summary>
+/// <summary>Project transport route rules. Installation never repairs omitted saved fields.</summary>
 public sealed class OriginalTransportArmyRouteInputs
 {
+    private const int WallPenaltyPercent = 5000;
+    private const int BlockingAbnormalThreshold = 20;
+    private const int FriendlyOccupantPenalty = 1000;
+    private const int NonblockingOccupantPenalty = 100;
+    private const int BlockingOccupantPenalty = 1500;
     public const string VersionKey = "ce-transport-route-current:version";
     public static readonly int[] TcRvas = [0x1A4B1BC, 0x1A4B1C8, 0x1A4B1D4, 0x1A4B1E0, 0x1A4B1EC];
     public string Language { get; }
@@ -19,32 +20,24 @@ public sealed class OriginalTransportArmyRouteInputs
 
     public static OriginalTransportArmyRouteInputs Load(OriginalGameRepository repository, string language)
     {
-        string expected = language switch {
-            "SC" => OriginalCeHexWorldCoordinates.VerifiedScExecutableSha256,
-            "TC" => OriginalCeHexWorldCoordinates.VerifiedTcExecutableSha256,
-            _ => throw new InvalidDataException("Transport route requires the SC or TC CE profile.") };
-        string relative = $"SAN14CE_{language}.exe", path = Path.Combine(repository.SourceDirectory, relative);
-        byte[] bytes = File.ReadAllBytes(path);
-        if (Convert.ToHexString(SHA256.HashData(bytes)) != expected)
-            throw new InvalidDataException("Transport route parameters need the pinned CE executable.");
-        using var pe = new PEReader(new MemoryStream(bytes, false));
-        var fields = TcRvas.Select(tc => {
-            int semantic = tc + 0x1030, rva = language == "SC" ? semantic : tc;
-            var section = pe.PEHeaders.SectionHeaders.Single(s => s.Name == ".data" && rva >= s.VirtualAddress &&
-                (long)rva + 4 <= (long)s.VirtualAddress + s.SizeOfRawData);
-            ReadOnlySpan<byte> raw = bytes.AsSpan(section.PointerToRawData + rva - section.VirtualAddress, 4);
-            return new OriginalBattleRemakeCurrentParameterField(semantic, rva,
-                BinaryPrimitives.ReadInt32LittleEndian(raw), Convert.ToHexString(SHA256.HashData(raw)));
-        }).ToArray();
-        return new(language, new(relative, bytes.LongLength, expected, expected) {
-            PhysicalPath = path, ResourceUri = GameResourceId.File(relative).ToString() }, fields);
+        ArgumentNullException.ThrowIfNull(repository);
+        var source = SimulationRuleSources.Provenance("san14-remake://rules/transport-route/v1", language);
+        // Legacy addresses identify existing saved keys; the values are project rules.
+        OriginalBattleRemakeCurrentParameterField[] fields = [
+            new(0x1A4C1EC, language == "TC" ? 0x1A4B1BC : 0x1A4C1EC, WallPenaltyPercent, string.Empty),
+            new(0x1A4C1F8, language == "TC" ? 0x1A4B1C8 : 0x1A4C1F8, BlockingAbnormalThreshold, string.Empty),
+            new(0x1A4C204, language == "TC" ? 0x1A4B1D4 : 0x1A4C204, FriendlyOccupantPenalty, string.Empty),
+            new(0x1A4C210, language == "TC" ? 0x1A4B1E0 : 0x1A4C210, NonblockingOccupantPenalty, string.Empty),
+            new(0x1A4C21C, language == "TC" ? 0x1A4B1EC : 0x1A4C21C, BlockingOccupantPenalty, string.Empty)
+        ];
+        return new(language, source, fields);
     }
 
     public GameState InstallFresh(GameState state)
     {
         if (state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } || state.Units.Count != 0 ||
             state.NativeArmySimulation is not { } simulation || simulation.Parameters.Language != Language ||
-            simulation.Parameters.ExecutableSha256 != Source.Sha256 || simulation.Parameters.Int32Values.ContainsKey(VersionKey))
+            simulation.Parameters.RuleVersion != Source.RuleVersion || simulation.Parameters.Int32Values.ContainsKey(VersionKey))
             throw new InvalidDataException("Fresh transport route fields cannot replace a saved owner.");
         var values = new Dictionary<string, int>(simulation.Parameters.Int32Values) { [VersionKey] = 1 };
         foreach (var field in Fields) {

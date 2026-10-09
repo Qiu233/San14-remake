@@ -1,6 +1,3 @@
-using System.Buffers.Binary;
-using System.Reflection.PortableExecutable;
-using System.Security.Cryptography;
 using System.Text.Json;
 using San14.Core;
 
@@ -21,46 +18,38 @@ public sealed class OriginalPersonPendingMeritSource
     public const string ProfileId = "san14:ce-owned-pending-merit-20261003";
     public const string VersionKey = "ce-pending-merit-current:version";
     public const string Panel50Key = "ce-pending-merit-current:panel50:7C";
+    private const int TraitPendingMeritScale = 1;
+    private const int DoctrinePendingMeritBonusPercent = 10;
+    private const int StageOnePendingMeritBonusPercent = 10;
+    private const int CreditModeOnePendingMeritPercent = 150;
+    private const int CreditModeZeroPendingMeritPercent = 100;
     private static readonly int[] SemanticGlobals = [0x1A4BFE8, 0x1A4A7DC, 0x1A4C00C, 0x1A4C000, 0x1A4BFF4];
     public static string GlobalKey(int ordinal) => ordinal is >= 0 and < 5
         ? OriginalTacticRemakeParameterSeed.Key(SemanticGlobals[ordinal])
         : throw new ArgumentOutOfRangeException(nameof(ordinal));
     private readonly LoadedScenario _source;
-    private readonly string _language, _executableHash;
+    private readonly string _language, _ruleVersion;
     private readonly int[] _initial;
     private readonly short _panel50;
 
-    private OriginalPersonPendingMeritSource(LoadedScenario source, string language, string hash,
-        int[] initial, short panel50) => (_source, _language, _executableHash, _initial, _panel50) =
-            (source, language, hash, initial, panel50);
+    private OriginalPersonPendingMeritSource(LoadedScenario source, string language, string ruleVersion,
+        int[] initial, short panel50) => (_source, _language, _ruleVersion, _initial, _panel50) =
+            (source, language, ruleVersion, initial, panel50);
 
     public static OriginalPersonPendingMeritSource Load(OriginalGameRepository repository, LoadedScenario source, string language)
     {
-        string expected = language switch { "SC" => OriginalCeHexWorldCoordinates.VerifiedScExecutableSha256,
-            "TC" => OriginalCeHexWorldCoordinates.VerifiedTcExecutableSha256,
-            _ => throw new InvalidDataException("Pending merit requires CE SC/TC.") };
+        ArgumentNullException.ThrowIfNull(repository);
+        string ruleVersion = SimulationRuleIdentity.ForLocale(language);
         var panels = repository.LoadDoctrinePanels(source.FixedDataSource.SourcePath);
         if (source.Metadata.FormatMarker != 0x66 || source.Snapshot.Locale != language ||
             panels.Source.Sha256 != source.FixedDataSource.Sha256 || panels.Catalog.Panels.Count != 80)
             throw new InvalidDataException("Pending merit requires the actual complete CE panel source.");
         var panel = panels.Catalog.Panels.Single(row => row.Slot == 50);
-        if (panel.RawBytes.Length != 33 || BinaryPrimitives.ReadInt16LittleEndian(panel.RawBytes.AsSpan(23, 2)) != panel.RawValue ||
-            Convert.ToHexString(SHA256.HashData(panel.RawBytes)) != panel.RawSha256)
-            throw new InvalidDataException("Pending merit panel50 projection differs from its native serializer.");
-        byte[] exe = File.ReadAllBytes(Path.Combine(repository.SourceDirectory, $"SAN14CE_{language}.exe"));
-        if (Convert.ToHexString(SHA256.HashData(exe)) != expected)
-            throw new InvalidDataException("Pending merit globals require the pinned executable.");
-        using var pe = new PEReader(new MemoryStream(exe, false));
-        if (pe.PEHeaders.PEHeader is not { Magic: PEMagic.PE32Plus, ImageBase: 0x140000000UL } ||
-            pe.PEHeaders.CoffHeader.Machine != Machine.Amd64)
-            throw new InvalidDataException("Pending merit source has a different ABI.");
-        int[] initial = SemanticGlobals.Select(semantic => {
-            int rva = language == "SC" ? semantic : semantic - 0x1030;
-            var section = pe.PEHeaders.SectionHeaders.Single(s => s.Name == ".data" &&
-                rva >= s.VirtualAddress && (long)rva + 4 <= (long)s.VirtualAddress + s.SizeOfRawData);
-            return BinaryPrimitives.ReadInt32LittleEndian(exe.AsSpan(section.PointerToRawData + rva - section.VirtualAddress, 4));
-        }).ToArray();
-        return new(source, language, expected, initial, panel.RawValue);
+        if (panel.RawBytes.Length != 33)
+            throw new InvalidDataException("Pending merit panel50 record has a different schema.");
+        return new(source, language, ruleVersion, [TraitPendingMeritScale, DoctrinePendingMeritBonusPercent,
+            StageOnePendingMeritBonusPercent, CreditModeOnePendingMeritPercent, CreditModeZeroPendingMeritPercent],
+            panel.RawValue);
     }
 
     /// <summary>One new owned source allocation. Current globals/panel value
@@ -92,7 +81,7 @@ public sealed class OriginalPersonPendingMeritSource
         if (!Bound(input) || !input.Officers.TryGetValue(personId, out var person) ||
             person.NativeAbilityRuntime is not { } ability || person.NativeGrowthRuntime is not { } growth ||
             ability.Revision != OriginalTacticRemakeCurrentAbilities.ProfileId ||
-            ability.Language != _language || ability.ExecutableSha256 != _executableHash ||
+            ability.Language != _language || ability.RuleVersion != _ruleVersion ||
             ability.SourceScenarioUri != _source.ScenarioSource.ResourceUri || ability.SourceScenarioSha256 != _source.ScenarioSource.Sha256 ||
             current.StaticSource?.ResourceUri != ability.SourceScenarioUri || current.StaticSource.Sha256 != ability.SourceScenarioSha256 ||
             current.ReadPersonLookupReference(personId)?.PhysicalSlot != ability.PhysicalSlot ||
@@ -206,7 +195,7 @@ public sealed class OriginalPersonPendingMeritSource
             p.Int32Values.TryGetValue(key, out int value) ? value : null;
     }
     private bool Bound(GameState state) => state.NativeClock is not null && state.NativeArmySimulation?.Parameters is { } p &&
-        p.Language == _language && p.ExecutableSha256 == _executableHash &&
+        p.Language == _language && p.RuleVersion == _ruleVersion &&
         state.ContentHashes.GetValueOrDefault(_source.ScenarioSource.ResourceUri) == _source.ScenarioSource.Sha256 &&
         state.ContentHashes.GetValueOrDefault(_source.FixedDataSource.ResourceUri) == _source.FixedDataSource.Sha256;
 }

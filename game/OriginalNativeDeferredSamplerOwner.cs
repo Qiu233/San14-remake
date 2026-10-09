@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using Godot;
 using San14.Data;
 
@@ -29,8 +28,8 @@ public sealed class OriginalNativeDeferredSamplerOwner : IAsyncDisposable
         var removed=source.SourceNulls.Select(n=>n.PixelRegister).ToHashSet();
         if(source.FreshSourceIesNull is not null){source.FreshSourceIesNull.Validate();removed.Add(0);}
         uint[] registers=new uint[]{0,1,2,3,4,5,6,7,8,9,10,11,15}.Where(r=>!removed.Contains(r)).ToArray();
-        if(source.Shader.Source.DecodedSha256!=OriginalDeferredSamplerSources.ShaderSourceSha256||
-            Convert.ToHexString(SHA256.HashData(source.Shader.Source.Bytes))!=OriginalDeferredSamplerSources.ShaderSourceSha256||
+        if(source.Shader.Source.FileId!=0x9D8E811F||
+            source.Shader.Source.ResourceUri!="san14://rdb/system/9D8E811F"||
             source.TexturePlan.ResourceBindings.Combination.Index!=0||source.Bindings.Count!=registers.Length||
             !source.Bindings.Select(b=>b.Register).Order().SequenceEqual(registers))
             throw new InvalidDataException("Native deferred sampler owner requires the complete original PS1 source plan.");

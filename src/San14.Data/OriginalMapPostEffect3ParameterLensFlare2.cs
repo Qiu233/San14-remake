@@ -163,6 +163,7 @@ public sealed class LoadedOriginalMapPostEffect3LensFlare2Source
         =>(fixedSampleScreenScale,heightFactor,heightNumerator,SourceEvidence,Locale)=(fixedScale,factor,numerator,evidence,locale);
     public string SourceEvidence{get;}
     public string Locale{get;}
+    public string RuleVersion=>OriginalMapPostEffect3ParameterLensFlare2.RuleVersion;
 
     public OriginalMapPostEffect3LensFlare2Inputs CaptureCurrentInputs(
         OriginalMapPostEffect3ParameterState state,OriginalMapPostEffect3AllocationPlan allocation,
@@ -283,6 +284,12 @@ public sealed class LoadedOriginalMapPostEffect3LensFlare2Source
 
 public static class OriginalMapPostEffect3ParameterLensFlare2
 {
+    public const string ResourceUri="san14://rules/post/lens-flare2";
+    public const string RuleVersion="lens-flare2-v1";
+    internal const float FixedSampleScreenScale=270f;
+    internal const float ScreenHeightFactor=.25f;
+    internal const float OutputHeightNumerator=2f;
+
     public static LoadedOriginalMapPostEffect3LensFlare2Source Load(OriginalGameRepository repository,string locale="TC")
         =>OriginalDeferredSamplerSources.ReadPostEffect3LensFlare2Source(OriginalDeferredSamplerSources.Load(repository.SourceDirectory,locale));
 }
@@ -291,26 +298,12 @@ public static partial class OriginalDeferredSamplerSources
 {
     internal static LoadedOriginalMapPostEffect3LensFlare2Source ReadPostEffect3LensFlare2Source(LoadedOriginalDeferredSamplerNativeSource native)
     {
-        if(native.Locale is not ("TC" or "SC"))throw new NotSupportedException("Complete LensFlare2 source ABI is verified for SC/TC.");
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"LensFlare2 executable");
-        var image=new NativeImage(exe);byte[] code=image.DecodeText(out int start);VerifyHash(code,native.DecodedTextSha256,"LensFlare2 decoded text");
-        void Check(int rva,int count,string hash)
-        {
-            var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3ParameterLensFlare2.cs",rva,count,hash);
-            VerifyHash(code.AsSpan(actual.Rva-start,count),actual.Sha,"LensFlare2 complete source function");
-        }
-        Check(0x114B1D0,156,"747F3D0BDD2521ECC46D1B489EBAA2AAF405FCA36102DBBF41BCB5A83092845D");
-        Check(0x114B520,496,"CFA3B2F450C13417AB77A3A29D80129DF966F942E33AF8782BAE51047D020CCB");
-        Check(0x114B710,1936,"6D26E8CC3FE8DBD5D02192ED81C099A2357E805CAA8E3DEF3DBFB200518EAFF4");
-        Check(0x114CA40,477,"B4253EA48BE03A2EB1AC120E24393532B7A70433C74D61DBFEDBBF4DB8E165F9");
-        Check(0x114C650,993,"1B18DBBD5B6C01947A1ED2DE50ED8716AECA811AE23F8B30B1C9835A382EEEBE");
-        Check(0x114B450,170,"214B18CAFFAB679177C23D8DA4A88816DE78B7A2908B8C00E019366ED8693863");
-        Check(0x114C350,586,"BFD8C2D94C30825F8771F3F6E1AE82FC1ED1623F540454C89C973A2ABAA29484");
-        Check(0x114BEA0,1194,"BFDC89EDCA1363CC6755EB01070A1E7ED3D09C49E68171436B8FFFC48E1BEC2A");
-        return new(BitConverter.UInt32BitsToSingle(BinaryPrimitives.ReadUInt32LittleEndian(image.Raw(OriginalMapPostEffect3NativeSourceProfile.DataRva(native.Locale,"OriginalMapPostEffect3ParameterLensFlare2.cs",0x173A6CC),4))),
-            BitConverter.UInt32BitsToSingle(BinaryPrimitives.ReadUInt32LittleEndian(image.Raw(OriginalMapPostEffect3NativeSourceProfile.DataRva(native.Locale,"OriginalMapPostEffect3ParameterLensFlare2.cs",0x1395CDC),4))),
-            BitConverter.UInt32BitsToSingle(BinaryPrimitives.ReadUInt32LittleEndian(image.Raw(OriginalMapPostEffect3NativeSourceProfile.DataRva(native.Locale,"OriginalMapPostEffect3ParameterLensFlare2.cs",0x1343BE0),4))),
-            native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+";TC:114B520-v38-real-owned50/55-mipViews;114CA40-maskF4;114C650-completeCB17-96B;"+
-            "114B450-before-samplers7/8;114C350-draw2D/31;114BEA0-after-mips;no-GPU-completion",native.Locale);
+        if(native.Locale is not ("TC" or "SC"))throw new NotSupportedException("LensFlare2 rules support SC/TC.");
+        return new(OriginalMapPostEffect3ParameterLensFlare2.FixedSampleScreenScale,
+            OriginalMapPostEffect3ParameterLensFlare2.ScreenHeightFactor,
+            OriginalMapPostEffect3ParameterLensFlare2.OutputHeightNumerator,
+            OriginalMapPostEffect3ParameterLensFlare2.ResourceUri+"@"+
+            OriginalMapPostEffect3ParameterLensFlare2.RuleVersion+$";locale={native.Locale};"+
+            "owned50/55-mipViews;factory6-pass-mask;CB17/96B",native.Locale);
     }
 }

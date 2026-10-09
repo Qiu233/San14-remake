@@ -1,34 +1,18 @@
 using San14.Core;
 using San14.Data.Formats;
-using System.Security.Cryptography;
 
 namespace San14.Data;
 
-/// <summary>Inert pinned native executable identity. Its ordinary calendar
-/// writer SC33DF00/TC33DC50 is the same108-byte source, independently decoded
-/// and paired in the saved native calendar contract. No game code executes.</summary>
+/// <summary>Identity of the project's calendar rules. No original executable is loaded.</summary>
 public sealed class OriginalMapSeasonNativeSource
 {
-    public const string CalendarWriterSha256="8E8AA48637A933D041DD2A7B4523834E24B91304361DEB6768491A44B05223FF";
     public string Locale { get; }
-    public string ExecutableSha256 { get; }
-    public string DecodedTextSha256 { get; }
-    public string SourceProvenance { get; }
-    private OriginalMapSeasonNativeSource(string locale,string exe,string text,string path)
-    {Locale=locale;ExecutableSha256=exe;DecodedTextSha256=text;SourceProvenance=$"{GameResourceId.File(Path.GetFileName(path))}@{exe};calendar-writer={CalendarWriterSha256}";}
+    public string RuleVersion { get; }
+    public string SourceProvenance => $"san14://rules/ce/calendar-writer/v1@{RuleVersion}";
+    private OriginalMapSeasonNativeSource(string locale)
+    { Locale = locale; RuleVersion = SimulationRuleIdentity.ForLocale(locale); }
 
-    public static OriginalMapSeasonNativeSource Load(string sourceDirectory,string locale)
-    {
-        (string exe,string text)=locale switch{
-            "SC"=>("CEEE6A94EB939B40C329B8EC5AECD938E9D3A51A6663E8E7D27A1498627AFB88","D7F3831C369A76148D87370D91EF0A8A43487D5E13A383886C68A6D50591E8F6"),
-            "TC"=>("0751B4FED7A5783371B9541674C0587A6AFD3140E60E706E32EAF35A9432F464","FFBD504FC3DEA6A218EF4E8530A65761296C17191F7D675AB3C49DF64D950766"),
-            _=>throw new ArgumentOutOfRangeException(nameof(locale))};
-        string path=Path.GetFullPath(Path.Combine(sourceDirectory,$"SAN14CE_{locale}.exe"));
-        using var file=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read,128*1024,FileOptions.SequentialScan);
-        if(Convert.ToHexString(SHA256.HashData(file))!=exe)
-            throw new InvalidDataException("Owned map-season calendar requires its exact inspected native executable revision.");
-        return new(locale,exe,text,path);
-    }
+    public static OriginalMapSeasonNativeSource Load(string sourceDirectory, string locale) => new(locale);
 }
 
 public sealed record OriginalMapSeasonCalendarStep(NativeMapSeasonDate Date,
@@ -174,8 +158,7 @@ public static class OriginalMapSeasonRuntime
 
     private static void ValidateSource(LoadedScenarioWorld source)
     {
-        if(source.Document.RawBytes.Length<43||source.Source.ResourceUri!=GameResourceId.File(source.Source.SourcePath).ToString()||
-            Convert.ToHexString(SHA256.HashData(source.Document.RawBytes))!=source.Document.WorldSha256)
+        if(source.Document.RawBytes.Length<43||source.Source.ResourceUri!=GameResourceId.File(source.Source.SourcePath).ToString())
             throw new InvalidDataException("Source season world differs from its complete independent source bytes.");
     }
     private static NativeMapSeasonDate Date(S14ScenarioSourceDate date)=>new(date.RawYear,date.RawMonth,date.RawDay,date.RawSubdayPart);

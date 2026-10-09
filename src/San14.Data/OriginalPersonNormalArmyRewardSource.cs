@@ -1,6 +1,3 @@
-using System.Buffers.Binary;
-using System.Reflection.PortableExecutable;
-using System.Security.Cryptography;
 using System.Text.Json;
 using San14.Core;
 
@@ -22,34 +19,31 @@ public sealed class OriginalPersonNormalArmyRewardSource
 {
     public const string ProfileId = "san14:ce-owned-normal-person-reward-20261003";
     public const string VersionKey = "ce-normal-person-reward-current:version";
+    private const int KindZeroLeadershipPercent = 50;
+    private const int KindZeroPendingMeritPercent = 4;
+    private const int KindOneLeadershipPercent = 640;
+    private const int KindOnePendingMeritPercent = 18;
+    private const int KindTwoLeadershipGrowth = 750;
+    private const int KindTwoPendingMerit = 100;
+    private const int KindThreeLeadershipGrowth = 2000;
     private static readonly int[] Globals = [0x1A4BDB4, 0x1A4BD50, 0x1A4BDC0, 0x1A4BD5C, 0x1A4BDCC, 0x1A4BD68, 0x1A4BDA8];
     public static string GlobalKey(int ordinal) => ordinal is >= 0 and < 7
         ? OriginalTacticRemakeParameterSeed.Key(Globals[ordinal]) : throw new ArgumentOutOfRangeException(nameof(ordinal));
     private readonly LoadedScenario _source;
-    private readonly string _language, _hash;
+    private readonly string _language, _ruleVersion;
     private readonly int[] _initial;
-    private OriginalPersonNormalArmyRewardSource(LoadedScenario source, string language, string hash, int[] initial)
-        => (_source, _language, _hash, _initial) = (source, language, hash, initial);
+    private OriginalPersonNormalArmyRewardSource(LoadedScenario source, string language, string ruleVersion, int[] initial)
+        => (_source, _language, _ruleVersion, _initial) = (source, language, ruleVersion, initial);
 
     public static OriginalPersonNormalArmyRewardSource Load(OriginalGameRepository repository, LoadedScenario source, string language)
     {
-        string hash = language switch { "SC" => OriginalCeHexWorldCoordinates.VerifiedScExecutableSha256,
-            "TC" => OriginalCeHexWorldCoordinates.VerifiedTcExecutableSha256,
-            _ => throw new InvalidDataException("Normal Person reward needs SC/TC.") };
+        ArgumentNullException.ThrowIfNull(repository);
+        string ruleVersion = SimulationRuleIdentity.ForLocale(language);
         if (source.Metadata.FormatMarker != 0x66 || source.Snapshot.Locale != language)
             throw new InvalidDataException("Normal Person reward source is not the selected CE scenario.");
-        byte[] exe = File.ReadAllBytes(Path.Combine(repository.SourceDirectory, $"SAN14CE_{language}.exe"));
-        if (Convert.ToHexString(SHA256.HashData(exe)) != hash) throw new InvalidDataException("Normal reward EXE identity differs.");
-        using var pe = new PEReader(new MemoryStream(exe, false));
-        if (pe.PEHeaders.PEHeader is not { Magic: PEMagic.PE32Plus, ImageBase: 0x140000000UL } ||
-            pe.PEHeaders.CoffHeader.Machine != Machine.Amd64) throw new InvalidDataException("Normal reward ABI differs.");
-        int[] values = Globals.Select(semantic => {
-            int rva = semantic - (language == "TC" ? 0x1030 : 0);
-            var section = pe.PEHeaders.SectionHeaders.Single(s => s.Name == ".data" && rva >= s.VirtualAddress &&
-                (long)rva + 4 <= (long)s.VirtualAddress + s.SizeOfRawData);
-            return BinaryPrimitives.ReadInt32LittleEndian(exe.AsSpan(section.PointerToRawData + rva - section.VirtualAddress, 4));
-        }).ToArray();
-        return new(source, language, hash, values);
+        int[] values = [KindZeroLeadershipPercent, KindZeroPendingMeritPercent, KindOneLeadershipPercent,
+            KindOnePendingMeritPercent, KindTwoLeadershipGrowth, KindTwoPendingMerit, KindThreeLeadershipGrowth];
+        return new(source, language, ruleVersion, values);
     }
 
     public GameState InstallFresh(GameState input)
@@ -78,7 +72,7 @@ public sealed class OriginalPersonNormalArmyRewardSource
         int personId, int kind, int amount, bool validateWorld)
     {
         if (!Bound(input) || !current.IsBoundCurrentState(input) || !input.Officers.TryGetValue(personId, out var person) ||
-            person.NativeAbilityRuntime is not { } ability || ability.Language != _language || ability.ExecutableSha256 != _hash ||
+            person.NativeAbilityRuntime is not { } ability || ability.Language != _language || ability.RuleVersion != _ruleVersion ||
             ability.Revision != OriginalTacticRemakeCurrentAbilities.ProfileId ||
             ability.SourceScenarioUri != _source.ScenarioSource.ResourceUri || ability.SourceScenarioSha256 != _source.ScenarioSource.Sha256 ||
             definitions.StaticSource?.ResourceUri != ability.SourceScenarioUri || definitions.StaticSource.Sha256 != ability.SourceScenarioSha256 ||
@@ -176,7 +170,7 @@ public sealed class OriginalPersonNormalArmyRewardSource
             3 => new(kind, amount, growth, 0),
             _ => throw new InvalidDataException("Normal reward kind is outside the source switch.") };
     private bool Bound(GameState input) => input.NativeClock is not null && input.NativeArmySimulation?.Parameters is { } p &&
-        p.Language == _language && p.ExecutableSha256 == _hash &&
+        p.Language == _language && p.RuleVersion == _ruleVersion &&
         input.ContentHashes.GetValueOrDefault(_source.ScenarioSource.ResourceUri) == _source.ScenarioSource.Sha256 &&
         input.ContentHashes.GetValueOrDefault(_source.FixedDataSource.ResourceUri) == _source.FixedDataSource.Sha256;
 }

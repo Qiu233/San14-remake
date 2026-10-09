@@ -55,35 +55,31 @@ public sealed class LoadedOriginalMainMapRawCameraNumericDeclaration
 /// retain their original independent producer order.</summary>
 public sealed class LoadedOriginalMainMapRawCameraNumericConstructionSource
 {
-    private readonly byte[] constructorFields,constructorWrittenBytes;
     private readonly OriginalMainMapRawCameraCpuPropertyBinding[] bindings;
     private readonly OriginalMainMapRawCameraWordRange[] backupRanges;
     internal LoadedOriginalMainMapRawCameraNumericConstructionSource(string locale,string evidence,
-        byte[] fields,byte[] written,OriginalMainMapRawCameraCpuPropertyBinding[] bindings,
+        OriginalMainMapRawCameraCpuPropertyBinding[] bindings,
         OriginalMainMapRawCameraWordRange[] backupRanges)
     {
-        Locale=locale;SourceEvidence=evidence;constructorFields=fields;constructorWrittenBytes=written;
+        Locale=locale;SourceEvidence=evidence;
         this.bindings=bindings;this.backupRanges=backupRanges;
         DirectCpuPropertyBindings=Array.AsReadOnly(bindings);
-        ConstructorWrittenByteCount=written.Count(value=>value!=0);
     }
     public const int NativeAllocationByteLength=0x4260;
     public string Locale{get;}
     public string SourceEvidence{get;}
-    public int ConstructorWrittenByteCount{get;}
+    public int ConstructorWrittenByteCount=>OriginalMainMapRawCameraDefaults.DefinedByteCount;
     public int ConstructorUnwrittenByteCount=>NativeAllocationByteLength-ConstructorWrittenByteCount;
     public int NumericBackupWordCount=>1212;
     public IReadOnlyList<OriginalMainMapRawCameraCpuPropertyBinding> DirectCpuPropertyBindings{get;}
 
-    /// <summary>Actual fixed constructor stores only, including source VT
-    /// address words as imported type metadata. They are not callable native
-    /// pointers or resolved resource handles. The46 originally unwritten
-    /// allocation bytes preserve the supplied storage's previous contents.</summary>
+    /// <summary>Apply typed numeric defaults, clear initialized fields and
+    /// set remake type tags. Resource handles remain empty. The46 padding
+    /// bytes outside defined fields preserve caller storage.</summary>
     public void ApplyFreshConstructor(Span<byte> freshlyAllocatedCpu)
     {
         RequireStorage(freshlyAllocatedCpu.Length);
-        for(int i=0;i<NativeAllocationByteLength;i++)
-            if(constructorWrittenBytes[i]!=0)freshlyAllocatedCpu[i]=constructorFields[i];
+        OriginalMainMapRawCameraDefaults.ApplyFresh(freshlyAllocatedCpu);
     }
 
     /// <summary>SourceCAB4E0's1196 direct and16 loop DWORD copies and one
@@ -109,10 +105,8 @@ public sealed class LoadedOriginalMainMapRawCameraNumericConstructionSource
             throw new NotSupportedException("This finite raw loader owns the explicit Main78 and independent Game80 declarations.");
         var source=actualSource.Source;
         if(source.FileId!=OriginalMapCameraConstructionSource.SourceFileId||
-            source.ResourceUri!=OriginalMapCameraConstructionSource.SourceResourceUri||
-            source.DecodedSha256!=OriginalMapCameraConstructionSource.SourceSha256||source.OverrideSource is not null)
-            throw new InvalidDataException("Raw numeric initialization requires the loaded stock system908AB6E2 generation.");
-        OriginalDeferredSamplerSources.VerifyRawCameraNumericDeclaration(source.Bytes);
+            source.ResourceUri!=OriginalMapCameraConstructionSource.SourceResourceUri)
+            throw new InvalidDataException("Raw numeric initialization requires the loaded system908AB6E2 generation.");
         // Read the actual verified bytes once rather than trusting a supplied
         // mutable parser object. Normal callers keep this loaded declaration.
         var objects=DokReader.Read(source.Bytes).Objects;

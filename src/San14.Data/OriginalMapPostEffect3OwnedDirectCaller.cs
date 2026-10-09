@@ -1,7 +1,5 @@
 using System.Buffers.Binary;
-using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 
 namespace San14.Data;
 
@@ -21,24 +19,11 @@ public sealed class OriginalMapPostEffect3FreshGraphicsConfiguration
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentException.ThrowIfNullOrWhiteSpace(actualOwnedGraphicsConfigurationIdentity);
-        // This separate legacy F0 initializer remains scoped to TC. Ordinary
-        // F1 uses its actual same-locale ControlledFreshCaller configuration.
         const string locale="TC";
-        var native=OriginalDeferredSamplerSources.Load(repository.SourceDirectory,locale);
-        string expected=native.ExecutableSha256;
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);
-        if(Convert.ToHexString(SHA256.HashData(exe))!=expected)
-            throw new InvalidDataException("Fresh PostEffect3 graphics configuration requires its actual pinned executable.");
-        using var pe=new PEReader(new MemoryStream(exe,false));
-        const int rva=0x1A8C934;
-        if(pe.PEHeaders.PEHeader?.ImageBase!=0x140000000UL)
-            throw new InvalidDataException("Fresh graphics initializer has the wrong native image base.");
-        var section=pe.PEHeaders.SectionHeaders.Single(s=>s.Name==".data"&&rva>=s.VirtualAddress&&
-            (long)rva+4<=(long)s.VirtualAddress+s.SizeOfRawData);
-        uint value=BinaryPrimitives.ReadUInt32LittleEndian(exe.AsSpan(section.PointerToRawData+rva-section.VirtualAddress,4));
-        if(value!=1)throw new InvalidDataException("Original fresh GammaEnable initializer changed.");
-        return new(actualOwnedGraphicsConfigurationIdentity,native.ResourceUri+"@"+expected+
-            $";file-backed-data-initializer{rva:X8}=1;original-GammaEnable;explicit-fresh-owned-configuration;no-original-current-state",value,locale);
+        const uint defaultGammaEnable=1;
+        return new(actualOwnedGraphicsConfigurationIdentity,
+            RenderRuleIdentity.For("fresh-graphics-configuration",locale)+";fresh-owned-default-gamma-enable1",
+            defaultGammaEnable,locale);
     }
 }
 
@@ -93,8 +78,7 @@ public sealed class OriginalMapPostEffect3OwnedDirectCaller
             current.FrameNumber<=0||actualWorldFrame.FrameNumber!=common.FrameNumber||
             actualOutputTarget.FrameNumber!=current.FrameNumber||actualWorldFrame.Context.FrameNumber!=current.FrameNumber||
             actualOutputTarget.ContextOwnerIdentity!=actualWorldFrame.Context.Source.OwnedHostIdentity||
-            actualWorldFrame.Context.Source.Host.ContextOwnerVtableRva!=(uint)OriginalMapPostEffect3NativeSourceProfile.DataRva(
-                current.ExecutableLocale,"OriginalMapPostEffect3OwnedDirectCaller.cs",0x13C4ED0)||actualOutputTarget.ContextVirtual80Result||
+            actualWorldFrame.Context.Source.Host.RuleVersion!=RenderRuleIdentity.Version||actualOutputTarget.ContextVirtual80Result||
             common.Scope!=OriginalMapFreshCommonResourceScope.SourceCreatedNoCallbackBeforeAmbientPublication||
             !common.CommonViewResource240Present||common.CommonViewFlags8!=sourceCommon.Flags8||
             common.CurrentViewAux3F2!=sourceCommon.ViewAux3F2||actualResolvedApplyViewIndex is <0 or >=32||

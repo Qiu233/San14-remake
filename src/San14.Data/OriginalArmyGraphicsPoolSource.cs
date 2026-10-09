@@ -1,52 +1,44 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 
 namespace San14.Data;
 
 public readonly record struct OriginalArmyGraphicsPoolBank(uint Category, uint Capacity,
     uint Kind, uint Flags);
 
-/// <summary>Requested graphics banks from the original 4C-byte manager
-/// table. This once-loaded source owns no model slots or allocation policy.</summary>
+/// <summary>Graphics bank allocation rules. This descriptor owns no model
+/// slots or current allocation state.</summary>
 public sealed class OriginalArmyGraphicsPoolSource
 {
     public string Language { get; }
-    public string ExecutableSha256 { get; }
-    public uint TableRva { get; }
-    public string TableSha256 { get; }
+    public string RuleVersion => RenderRuleIdentity.Version;
     public IReadOnlyList<OriginalArmyGraphicsPoolBank> Banks { get; }
 
-    internal OriginalArmyGraphicsPoolSource(string language, string executableSha256,
-        uint tableRva, ReadOnlySpan<byte> table)
+    private OriginalArmyGraphicsPoolSource(string language, int categoryCount)
     {
         Language = language;
-        ExecutableSha256 = executableSha256;
-        TableRva = tableRva;
-        TableSha256 = Convert.ToHexString(SHA256.HashData(table));
-        var banks = new OriginalArmyGraphicsPoolBank[table.Length / 0x4C];
-        for (int category = 0; category < banks.Length; category++)
-        {
-            ReadOnlySpan<byte> row = table.Slice(category * 0x4C, 0x4C);
-            banks[category] = new((uint)category,
-                BinaryPrimitives.ReadUInt32LittleEndian(row[0x40..]),
-                BinaryPrimitives.ReadUInt32LittleEndian(row[0x48..]),
-                BinaryPrimitives.ReadUInt32LittleEndian(row[0x44..]));
-        }
-        Banks = Array.AsReadOnly(banks);
+        Banks = Array.AsReadOnly(ArmyGraphicsRules.PoolBanks.Take(categoryCount).ToArray());
     }
 
     public static OriginalArmyGraphicsPoolSource Load(OriginalGameRepository repository,
         string language) => Load(repository,language,4);
     public static OriginalArmyGraphicsPoolSource Load(OriginalGameRepository repository,
-        string language, int categoryCount) => LoadSourceDirectory(repository.SourceDirectory, language, categoryCount);
+        string language, int categoryCount) => Create(language, categoryCount);
 
     public static OriginalArmyGraphicsPoolSource LoadSourceDirectory(string sourceDirectory,
         string language) => LoadSourceDirectory(sourceDirectory,language,4);
     public static OriginalArmyGraphicsPoolSource LoadSourceDirectory(string sourceDirectory,
-        string language, int categoryCount) => OriginalDeferredSamplerSources.ReadArmyGraphicsPoolSource(sourceDirectory, language, categoryCount);
+        string language, int categoryCount) => Create(language, categoryCount);
+
+    public static OriginalArmyGraphicsPoolSource Create(string language, int categoryCount = 4)
+    {
+        RenderRuleIdentity.For("army-pools", language);
+        if (categoryCount < 1 || categoryCount > ArmyGraphicsRules.PoolBanks.Count)
+            throw new ArgumentOutOfRangeException(nameof(categoryCount));
+        return new(language, categoryCount);
+    }
 
     /// <summary>ARMYPOL1, count, then category/capacity/kind/flags DWORDs.
-    /// Source hash and RVA belong in the import metadata, outside this packet.</summary>
+    /// The packet contains allocation rules, not current model slots.</summary>
     public byte[] Encode()
     {
         byte[] result = new byte[12 + Banks.Count * 16];
@@ -62,26 +54,5 @@ public sealed class OriginalArmyGraphicsPoolSource
             BinaryPrimitives.WriteUInt32LittleEndian(row[12..], bank.Flags);
         }
         return result;
-    }
-}
-
-public static partial class OriginalDeferredSamplerSources
-{
-    internal static OriginalArmyGraphicsPoolSource ReadArmyGraphicsPoolSource(
-        string sourceDirectory, string language, int categoryCount)
-    {
-        if (categoryCount < 1 || categoryCount > OriginalCeArmyModels.KnownSourceCategories.Count)
-            throw new ArgumentOutOfRangeException(nameof(categoryCount));
-        var profile = Profile(language);
-        byte[] exe = File.ReadAllBytes(Path.Combine(sourceDirectory, $"SAN14CE_{language}.exe"));
-        VerifyHash(exe, profile.ExeHash, "Army graphics pool executable");
-        var image = new NativeImage(exe);
-        int rva = language switch
-        {
-            "TC" => 0x1A22000,
-            "SC" => 0x1A23000,
-            _ => throw new InvalidDataException("Army graphics pools require the pinned SC or TC source.")
-        };
-        return new(language, profile.ExeHash, (uint)rva, image.Raw(rva, categoryCount * 0x4C));
     }
 }

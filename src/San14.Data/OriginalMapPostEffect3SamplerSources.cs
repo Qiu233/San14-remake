@@ -32,18 +32,7 @@ public static partial class OriginalDeferredSamplerSources
         LoadedOriginalDeferredSamplerNativeSource native)
     {
         if(native.Locale is not ("TC" or "SC"))throw new NotSupportedException("3SPK manager sampler writers are verified for SC/TC.");
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);
-        VerifyHash(exe,native.ExecutableSha256,"3SPK sampler executable");
-        var image=new NativeImage(exe);byte[] text=image.DecodeText(out int start);
-        VerifyHash(text,native.DecodedTextSha256,"3SPK sampler decoded text");
-        void Check(int rva,int size,string hash)
-        {
-            var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3SamplerSources.cs",rva,size,hash);
-            VerifyHash(text.AsSpan(actual.Rva-start,size),actual.Sha,"3SPK manager sampler writer");
-        }
-        Check(0x11443A0,0x11D,"3343B12E7E72AB01BA83BD12091F31CD6034160A7C946F59A8C1E6E207728422");
-        Check(0x1145960,0x108,"AF2D17C5632CADBBB5E63C8668863E311C480FA1D5BDFB90B154D487B32970C7");
-        Check(0x114AAD0,0x6A,"B6CAF2744BB7ABFB40D7388540C58869356FBC0BDB0321AE15978DE913A4D52D");
+
         // Creator requests level1; preserve constructor high word and bias.
         byte[] linear=RenderTextureKey(native,1),point=RenderTextureKey(native,1);
         void Write(byte[] key,ushort filter)

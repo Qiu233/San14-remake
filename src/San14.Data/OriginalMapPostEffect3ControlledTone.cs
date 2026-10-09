@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 
 namespace San14.Data;
 
@@ -14,13 +13,12 @@ public sealed class OriginalMapPostEffect3ControlledToneMetadata
     private OriginalMapPostEffect3ControlledToneMetadata(OriginalMapPostEffect3ParameterState state,
         OriginalMapPostEffect3AllocationPlan allocation,OriginalMapPostEffect3ApplyView view,
         string textureIdentity,string textureSourceIdentity,string callerEvidence,bool nullPointer,
-        byte[]? chain,int? offset,int type,int gamut,byte[] p0,byte[] p1,string evidence)
+        int? offset,int type,int gamut,byte[] p0,byte[] p1,string evidence)
     {
         this.state=state;this.allocation=allocation;FrameNumber=view.FrameNumber;
         ContextOwnerIdentity=view.OwnerIdentity;OwnedTextureIdentity=textureIdentity;
         TextureSourceIdentity=textureSourceIdentity;CallerTextureSourceEvidence=callerEvidence;
         SourceMetadataPointerWasNull=nullPointer;Metadata16ValueByteOffset=offset;
-        MetadataChainSha256=chain is null?null:Convert.ToHexString(SHA256.HashData(chain));
         TonemapType=type;ColorGamut=gamut;neutral0=p0;neutral1=p1;SourceEvidence=evidence;
     }
     public long FrameNumber{get;}
@@ -32,7 +30,6 @@ public sealed class OriginalMapPostEffect3ControlledToneMetadata
     public bool SourceMetadataPointerWasNull{get;}
     public int? Metadata16ValueByteOffset{get;}
     public bool NativeReaderReturnedTrue=>Metadata16ValueByteOffset is not null;
-    public string? MetadataChainSha256{get;}
     public int TonemapType{get;}
     public int ColorGamut{get;}
     public ReadOnlyMemory<byte> NeutralTonemapParams0=>neutral0.ToArray();
@@ -42,10 +39,10 @@ public sealed class OriginalMapPostEffect3ControlledToneMetadata
     internal static OriginalMapPostEffect3ControlledToneMetadata CaptureValidated(
         OriginalMapPostEffect3ParameterState state,OriginalMapPostEffect3AllocationPlan allocation,
         OriginalMapPostEffect3ApplyView view,string textureIdentity,string textureSourceIdentity,
-        string callerEvidence,bool nullPointer,byte[]? chain,int? offset,int type,int gamut,
+        string callerEvidence,bool nullPointer,int? offset,int type,int gamut,
         byte[] p0,byte[] p1,string evidence)
         =>new(state,allocation,view,textureIdentity,textureSourceIdentity,callerEvidence,nullPointer,
-            chain,offset,type,gamut,p0,p1,evidence);
+            offset,type,gamut,p0,p1,evidence);
     public void ValidateCurrent(OriginalMapPostEffect3ParameterState actualState,
         OriginalMapPostEffect3AllocationPlan actualAllocation)
     {
@@ -57,7 +54,7 @@ public sealed class OriginalMapPostEffect3ControlledToneMetadata
     }
 }
 
-/// <summary>Pinned 1147F60 / 96C650 / E25A00. The caller supplies the actual
+/// <summary>Owned tone metadata rules. The caller supplies the actual
 /// selected texture snapshot, rather than inferring metadata absence from G1T
 /// readers or an unrelated resource. Does not select HDR textures or execute.</summary>
 public sealed class OriginalMapPostEffect3ControlledToneSource
@@ -121,7 +118,7 @@ public sealed class OriginalMapPostEffect3ControlledToneSource
             p0=chain.AsSpan(o+8,16).ToArray();p1=chain.AsSpan(o+24,16).ToArray();
         }
         return OriginalMapPostEffect3ControlledToneMetadata.CaptureValidated(state,allocation,actualView,actualOwnedTextureIdentity,actualTextureSourceIdentity,
-            actualTextureSourceEvidence,chain is null,chain,found,type,gamut,p0,p1,SourceEvidence+
+            actualTextureSourceEvidence,chain is null,found,type,gamut,p0,p1,SourceEvidence+
             (found is null?";actual-texture28-ID16-absent-native-fallback":";actual-texture28-first-ID16-present")+
             ";caller-selected-owned-texture-snapshot;no-texture-selection-or-GPU-completion");
     }
@@ -141,7 +138,7 @@ public sealed class OriginalMapPostEffect3ControlledToneSource
     {
         ArgumentNullException.ThrowIfNull(metadata);metadata.ValidateCurrent(actualState,actualAllocation);
         if(!metadata.SourceEvidence.StartsWith(SourceEvidence,StringComparison.Ordinal))
-            throw new InvalidDataException("Controlled Tone reader and writer use different pinned source profiles.");
+            throw new InvalidDataException("Controlled Tone reader and writer use different tone rules.");
         (string name,uint hash,uint type,int bytes)[] targets=
         [("TonemapType",0x87D299B0,6,4),("ColorGamut",0x0F58CE72,6,4),
          ("NeutralTonemapParams0",0xB6001D47,4,16),("NeutralTonemapParams1",0x3C85D7E6,4,16)];
@@ -168,22 +165,22 @@ public static partial class OriginalDeferredSamplerSources
     internal static OriginalMapPostEffect3ControlledToneSource ReadControlledToneSource(
         OriginalGameRepository repository,string locale)
     {
-        ArgumentNullException.ThrowIfNull(repository);var profile=Profile(locale);
-        var executable=OriginalNativeCameraTangentSource.Load(repository,locale);
-        byte[] exe=File.ReadAllBytes(executable.PhysicalPath);VerifyHash(exe,profile.ExeHash,"Controlled Tone executable");
-        var image=new NativeImage(exe);byte[] code=image.DecodeText(out int textRva);
-        VerifyHash(code,profile.TextHash,"Controlled Tone decoded text");bool tc=locale=="TC";
-        int reader=tc?0x1147F60:0x1148FE0,lookup=tc?0x96C650:0x96D7E0,writer=tc?0xE25A00:0xE26980;
-        var raw=code.AsSpan(reader-textRva,0xF1);
-        VerifyHash(raw,tc?"3B3D0F8F516120AFA0576FC5E631BDD8114F9C4A80FE505C93794CEED08A17AC":
-            "731BC3F13D9BA0BB67A6E29CFB53DFEF42E2190FF882D3D457746A3FAAF4D7A0","Controlled Tone complete reader");
-        VerifyHash(code.AsSpan(lookup-textRva,0x36),"C67B21A2F7BEDD892915F5B540DF49D079E33460C2E6A86584A0732F85BB1A64","Controlled Tone complete metadata lookup");
-        VerifyHash(code.AsSpan(writer-textRva,0x9A),tc?"8FB72F0371607D1EA80154CB961D88A5FD8A25D97E5206698A2D855ABAD8FE45":
-            "092423E64F68F5A1A35BEA466F8B78ABEBE898C826151EEE3443807E08D81745","Controlled Tone complete four writes");
-        byte[] p0=new byte[16],p1=new byte[16];int[] o0=[0x3F,0x46,0x4D,0x54],o1=[0x5F,0x66,0x6D,0x74];
-        for(int i=0;i<4;i++){raw.Slice(o0[i],4).CopyTo(p0.AsSpan(i*4));raw.Slice(o1[i],4).CopyTo(p1.AsSpan(i*4));}
-        return new(locale,BinaryPrimitives.ReadInt32LittleEndian(raw[0x33..]),
-            BinaryPrimitives.ReadInt32LittleEndian(raw[0x39..]),p0,p1,executable.ResourceUri+
-            ";paired-complete-TC1147F60/SC1148FE0;metadataID16-96C650;E25A00-four-writes;CVTTSS2SI-RAX-low32");
+        ArgumentNullException.ThrowIfNull(repository);if(locale is not ("TC" or "SC"))throw new NotSupportedException("This source layout requires SC or TC.");
+        // Defaults are rules of the owned tone implementation. ID16, when
+        // present on the selected texture, still replaces all four values.
+        const int defaultTonemapType=2,defaultColorGamut=1;
+        byte[] Pack(float x,float y,float z,float w)
+        {
+            byte[] bytes=new byte[16];
+            BinaryPrimitives.WriteSingleLittleEndian(bytes,x);
+            BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(4),y);
+            BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(8),z);
+            BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(12),w);
+            return bytes;
+        }
+        return new(locale,defaultTonemapType,defaultColorGamut,
+            Pack(.2f,.37f,.24f,.2f),Pack(.02f,.3f,5.3f,10),
+            RenderRuleIdentity.For("post-effect3-controlled-tone",locale)+
+            ";selected-texture-ID16-or-neutral-defaults;float-type-truncate64-low32");
     }
 }

@@ -4,12 +4,10 @@ internal sealed record OriginalNativeCameraTangentConstantValues(double QuarterP
     double HalfPiHigh,double HalfPiLow,double Numerator2,double Numerator0,double Denominator2,double Denominator1,
     double Denominator0,double NegativeOne,double OneThird,double SmallInputThreshold);
 
-/// <summary>Exact original binary64 words. Source RVAs and executable guards
-/// are retained by OriginalNativeCameraTangentSource, independently validated
-/// against original instruction operands by the offline opcode oracle.</summary>
+/// <summary>Binary64 coefficients of the remake's finite tangent approximation.</summary>
 internal static class OriginalNativeCameraTangentConstants
 {
-    internal const uint TinyInputThresholdBits=0x32000000; // Source double threshold2^-27; verified loader below.
+    internal const uint TinyInputThresholdBits=0x32000000; // 2^-27, represented as binary32.
     internal static readonly IReadOnlyDictionary<string,ulong> Words=new Dictionary<string,ulong>
     {
         ["QuarterPi"]=0x3FE921FB54442D18UL,["TwoOverPi"]=0x3FE45F306DC9C883UL,["Half"]=0x3FE0000000000000UL,

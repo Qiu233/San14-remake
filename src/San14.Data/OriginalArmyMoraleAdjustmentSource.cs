@@ -38,7 +38,7 @@ public sealed class OriginalArmyMoraleAdjustmentSource(
         {
             if (input.Officers.GetValueOrDefault(army.OfficerId)?.NativeAbilityRuntime is not { } person ||
                 person.Revision != OriginalTacticRemakeCurrentAbilities.ProfileId || person.Language != parameters.Language ||
-                person.ExecutableSha256 != parameters.ExecutableSha256 || person.SourceScenarioUri != source.ResourceUri ||
+                person.RuleVersion != parameters.RuleVersion || person.SourceScenarioUri != source.ResourceUri ||
                 person.SourceScenarioSha256 != source.Sha256 || definitions.ReadPersonIdentity(person.PhysicalSlot) != army.OfficerId ||
                 OriginalTacticRemakeCurrentTraits.ArmyContributions(definitions, person.PhysicalSlot,
                     army.NativeArmyConfiguration?.TraitSlots64) is not { Length: 127 } contributions)

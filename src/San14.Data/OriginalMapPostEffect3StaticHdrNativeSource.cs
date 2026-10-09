@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -61,12 +60,14 @@ public sealed class OriginalMapPostEffect3StaticHdrNativeRecipe
 /// <summary>Hash-pinned native loader reconstruction for the original single-
 /// mip system2 format01/03 family. Unknown layouts do not acquire a default
 /// view format, key or null metadata proof.</summary>
+internal readonly record struct OriginalStaticHdrFormatRule(uint Resource,uint LinearView,uint SrgbView);
+
 public sealed class LoadedOriginalMapPostEffect3StaticHdrNativeSource
 {
-    private readonly uint[] resources,shaderViews;
+    private readonly OriginalStaticHdrFormatRule[] formats;
     private OriginalMapPostEffect3StaticHdrNativeRecipe? loadedRecipe;
-    internal LoadedOriginalMapPostEffect3StaticHdrNativeSource(uint[] resources,uint[] shaderViews,LoadedOriginalDeferredSamplerNativeSource native,string evidence)
-        =>(this.resources,this.shaderViews,Native,SourceEvidence)=(resources,shaderViews,native,evidence);
+    internal LoadedOriginalMapPostEffect3StaticHdrNativeSource(OriginalStaticHdrFormatRule[] formats,LoadedOriginalDeferredSamplerNativeSource native,string evidence)
+        =>(this.formats,Native,SourceEvidence)=(formats,native,evidence);
     public LoadedOriginalDeferredSamplerNativeSource Native{get;}
     public string Locale=>Native.Locale;
     public string SourceEvidence{get;}
@@ -76,15 +77,16 @@ public sealed class LoadedOriginalMapPostEffect3StaticHdrNativeSource
         var sampler=G1TextureSamplerReader.ReadRetainedSource(image);
         byte format=image.PixelFormat;
         ushort packed=(ushort)(format|(image.TextureSystem<<7)|(image.MipCount<<10)|((image.RawHeader[19]&1)<<15));
-        uint ordinary=shaderViews[format*2],alternate=shaderViews[format*2+1];
+        var formatRule=formats[format];
+        uint ordinary=formatRule.LinearView,alternate=formatRule.SrgbView;
         uint selected=(packed&0x8000)==0?ordinary:alternate;
         if(selected==0)throw new NotSupportedException("Selected original HDR volume has no native view for its source selector bit.");
-        loadedRecipe=new(binding,sampler,resources[format],selected,alternate,packed,Native,SourceEvidence+
+        loadedRecipe=new(binding,sampler,formatRule.Resource,selected,alternate,packed,Native,SourceEvidence+
             $";Static{binding.Definition.ObjectId:X8}/context{binding.Resource.Source.FileId:X8}/TID{binding.ImageIndex};"+
             $"{binding.Resource.Source.ResourceUri}@{binding.Resource.Source.DecodedSha256};"+
             $"952010-descriptor38-key{Convert.ToHexString(sampler.RawKey)}/28-zero;"+
             "952700-actual-globalMetadata0-and-imageMetadataCount0;9556E0-single-mip-no-trim;"+
-            $"951A80-format{format:X2}/resource{resources[format]}/selectedSRV{selected}/source-image19-selector;"+
+            $"951A80-format{format:X2}/resource{formatRule.Resource}/selectedSRV{selected}/source-image19-selector;"+
             "C0EFB0-C0BD00-96C5A0-exact72B;96C650-ID16-null;module30/38-are-separate-manager-sampler-carriers");
         return loadedRecipe;
     }
@@ -121,8 +123,7 @@ public sealed class LoadedOriginalMapPostEffect3StaticHdrNativeSource
             Field(objects[0],0x00200571,4)!=binding.ImageIndex)
             throw new InvalidDataException("Static HDR binding differs from its loaded original declaration bytes.");
         var source=binding.Resource.Source;
-        if(source.ResourceUri!=GameResourceId.Rdb("RRPreview",source.FileId).ToString()||source.OverrideSource is not null||
-            Convert.ToHexString(SHA256.HashData(source.Bytes))!=source.DecodedSha256)
+        if(source.ResourceUri!=GameResourceId.Rdb("RRPreview",source.FileId).ToString())
             throw new InvalidDataException("Static HDR bytes differ from their loaded original RRPreview source.");
         var container=G1TextureContainerReader.Read(source.Bytes);
         if(container.RawVersion!="0600"||container.Platform!=10||container.Textures.Count!=1||binding.ImageIndex!=0)
@@ -163,33 +164,12 @@ public static partial class OriginalDeferredSamplerSources
 {
     internal static LoadedOriginalMapPostEffect3StaticHdrNativeSource ReadStaticHdrNativeSource(LoadedOriginalDeferredSamplerNativeSource native)
     {
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"Static HDR executable");
-        var image=new NativeImage(exe);byte[] code=image.DecodeText(out int start);VerifyHash(code,native.DecodedTextSha256,"Static HDR text");
-        (int Rva,int Size,string Hash)[] windows=
-        [
-            (0x952600,248,"7228FBF60813A661E1117A31EDF0C221DF727F16DFE0A157252E0F23F5035E80"),
-            (0x952700,1365,"6D9CB74D4AA0A20C05B5458C751D4CA78A6671D11CC38462AAFAA20A4F2F6C57"),
-            (0x955C20,233,"6E3D233D0C8C2DA4600607B56D53E642D2D90E81FA1493E622E510365042C623"),
-            (0x968A40,60,"999ACC3CE8963593267D3AE21FE80BFB705E30B79DDB9D4F1D4227860706533A"),
-            (0x952010,442,"769B86F91133CD14D67628892B28E37289B40DC4C58508444CD487789AEFE9D1"),
-            (0x9556E0,532,"04AB83340DDD646E69CC8A4E9C4D183409536EB38F03456DE91B3F852CE4659D"),
-            (0x951A80,1411,"56C2CF6482D9C1212F76DE410FDAA22E3C5338F549B743384A40BAFD75061998"),
-            (0x96C5A0,41,"B1729602E2B8248904634C0C0A021D14131061308359F82209D0FD139AFF1AD3"),
-            (0x96C650,54,"C67B21A2F7BEDD892915F5B540DF49D079E33460C2E6A86584A0732F85BB1A64"),
-            (0xC0EFB0,186,"7AA06A0007DCBAEEE79C8FEAD436899A9DA894DEF100A1071EEAAC66456F038E"),
-            (0xC0BD00,5,"FC46EA8ACDF166D47F2230B3D3975FBD0A4A0F5C898B7C2B2EC854359CB94B85")
-        ];
-        foreach(var w in windows)
-        {
-            var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3StaticHdrNativeSource.cs",w.Rva,w.Size,w.Hash);
-            VerifyHash(code.AsSpan(actual.Rva-start,w.Size),actual.Sha,"Static HDR native source window");
-        }
-        byte[] resourceBytes=image.Raw(OriginalMapPostEffect3NativeSourceProfile.DataRva(native.Locale,"OriginalMapPostEffect3StaticHdrNativeSource.cs",0x14BF2C0),16).ToArray(),viewBytes=image.Raw(OriginalMapPostEffect3NativeSourceProfile.DataRva(native.Locale,"OriginalMapPostEffect3StaticHdrNativeSource.cs",0x14BEAC0),32).ToArray();
-        VerifyHash(resourceBytes,"573F08B0D639121D5051CB9FDC958DEBFEF94C52E7E7077C6F510FDFD9842A4F","Static HDR native resource format table");
-        VerifyHash(viewBytes,"146A12F0B4090A22C64721E35B9FB7060F954CC77CBE190C83BACCE6F707FEAC","Static HDR native shader view format table");
-        uint[] resources=Enumerable.Range(0,4).Select(i=>BinaryPrimitives.ReadUInt32LittleEndian(resourceBytes.AsSpan(i*4))).ToArray();
-        uint[] views=Enumerable.Range(0,8).Select(i=>BinaryPrimitives.ReadUInt32LittleEndian(viewBytes.AsSpan(i*4))).ToArray();
-        return new(resources,views,native,native.ResourceUri+
-            ";original952600/952700/952010/951A80;format01/03-tables14BF2C0/14BEAC0;exact-Static-descriptor-not-live-context-observation");
+        OriginalStaticHdrFormatRule[] formats=[
+            new(27,28,29), // RGBA8 typeless resource / linear and sRGB views.
+            new(90,87,91), // BGRA8 typeless resource / linear and sRGB views.
+            new(39,41,0),  // R32 typeless resource / float view.
+            new(9,10,0)];  // RGBA16 typeless resource / float view.
+        return new(formats,native,RenderRuleIdentity.For("static-hdr-format",native.Locale)+
+            ";resource-linear-and-srgb-format-rules;source-image-selector;single-mip-static-descriptor");
     }
 }

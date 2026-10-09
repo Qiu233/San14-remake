@@ -50,7 +50,7 @@ public sealed class OriginalSceneViewNativeMapSkyWorkSourceOwner : IAsyncDisposa
         // Separate unconsumed bootstrap source plan for cached GPU pipeline
         // construction. The actual attempt's typed prefix is published later,
         // matched to these scalars and consumed immediately before submission.
-        var prototype = OriginalSkyFirstGraphicsPrefixSource.ReadFresh(loaded.Repository, locale,
+        var prototype = OriginalSkyFirstGraphicsPrefixSource.ReadFresh(locale,
             workIdentity + "/bootstrap-source-plan-not-GPU-publication", first.Source.Lighting.Binding.ViewIdentity);
         var plan = prototype.PrepareFirstPrefix(new(first.FrameNumber, first.Source.Lighting.Binding.ViewIdentity, true,
             "bootstrap-original-constructor-and-D3A850-draw-state-plan;cached-pipeline-only-no-WORK-submit"));

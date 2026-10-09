@@ -21,14 +21,11 @@ public sealed class OriginalPersonAssignmentPrecallInputs
     public static string PersonResetWord1FFKey(int physical) => Prefix + $"person:{physical}:1FF";
     public static string PersonResetByte1FEKey(int physical) => Prefix + $"person:{physical}:1FE";
     private readonly LoadedScenario _source;
-    private readonly string _executableHash;
+    private readonly string _ruleVersion;
     private OriginalPersonAssignmentPrecallInputs(LoadedScenario source, string language)
     {
         _source = source;
-        _executableHash = language switch
-        { "SC" => OriginalCeHexWorldCoordinates.VerifiedScExecutableSha256,
-          "TC" => OriginalCeHexWorldCoordinates.VerifiedTcExecutableSha256,
-          _ => throw new InvalidDataException("Assignment precalls require the CE SC/TC source.") };
+        _ruleVersion = SimulationRuleIdentity.ForLocale(language);
         if (source.Metadata.FormatMarker != 0x66 || source.Snapshot.Locale != language ||
             source.Snapshot.Cities.Count != 52 || source.Snapshot.Areas.Count != 501 || source.Snapshot.Forces.Count != 52 || source.Snapshot.Characters.Count != 1851 ||
             !source.Snapshot.Cities.Select(x => x.Slot).SequenceEqual(Enumerable.Range(0, 52)) ||
@@ -41,7 +38,7 @@ public sealed class OriginalPersonAssignmentPrecallInputs
     public GameState InstallFresh(GameState state)
     {
         if (state.NativeArmySimulation is not { } simulation || simulation.Parameters.Language != _source.Snapshot.Locale ||
-            simulation.Parameters.ExecutableSha256 != _executableHash || state.Units.Count != 0 ||
+            simulation.Parameters.RuleVersion != _ruleVersion || state.Units.Count != 0 ||
             state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } ||
             state.ContentHashes.GetValueOrDefault(_source.ScenarioSource.ResourceUri) != _source.ScenarioSource.Sha256 ||
             simulation.Parameters.Int32Values.Keys.Any(x => x.StartsWith(Prefix, StringComparison.Ordinal)))

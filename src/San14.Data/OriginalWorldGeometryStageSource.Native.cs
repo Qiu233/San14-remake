@@ -1,13 +1,10 @@
-using System.Buffers.Binary;
 
 namespace San14.Data;
 
-public sealed record OriginalWorldGeometryStageNativeSource(string Locale, string ExecutableSha256,
-    string DecodedTextSha256, int TargetExecuteRva, int PopExecuteRva, int PreRendererRva,
-    int ModelsRva, int LocalCameraCopyRva, int LocalCameraCleanupRva,
-    IReadOnlyDictionary<string, string> WindowSha256)
+public sealed record OriginalWorldGeometryStageNativeSource(string Locale, string RuleVersion, int TargetExecuteRva, int PopExecuteRva, int PreRendererRva,
+    int ModelsRva, int LocalCameraCopyRva, int LocalCameraCleanupRva)
 {
-    public string SourceProvenance => $"geometry48/52/53/59/{Locale}@{ExecutableSha256};" +
+    public string SourceProvenance => $"{RenderRuleIdentity.For("WorldGeometryStage",Locale)};" +
         "loaded-whole-native-callers;HostQ7F8-ctor0;View1B80/1BB0-ctor/reset0;" +
         "9599E0-push-row;E96F30-FCFFFFFF-mask;963060-copy-before-pop;no-GPU-state-claim";
 }
@@ -16,78 +13,13 @@ public static partial class OriginalDeferredSamplerSources
 {
     internal static OriginalWorldGeometryStageNativeSource LoadWorldGeometryStageNativeSource(string directory, string locale)
     {
-        var profile = Profile(locale);
-        byte[] exe = File.ReadAllBytes(Path.Combine(directory, $"SAN14CE_{locale}.exe"));
-        VerifyHash(exe, profile.ExeHash, "Geometry stage executable");
-        var image = new NativeImage(exe); byte[] text = image.DecodeText(out int textRva);
-        VerifyHash(text, profile.TextHash, "Geometry stage decoded text");
+        _ = RenderRuleIdentity.For("WorldGeometryStage",locale);
+
         bool tc = locale == "TC";
-        var windows = new Dictionary<string, string>(StringComparer.Ordinal);
-        void Check(string name, int tcRva, int scRva, int count, string tcHash, string scHash)
-        {
-            string hash = tc ? tcHash : scHash;
-            VerifyHash(text.AsSpan((tc ? tcRva : scRva) - textRva, count), hash, name);
-            windows.Add(name, hash);
-        }
-        Check("targetLoader", 0xE75060, 0xE76110, 497,
-            "DF524E8E29B21D9E340A2FBD6657BAB65D4442AA2E65795B2B286CE9514B5DBC", "F87E696F777A18DABDCC688828AC7785AD325905694B8654AB95F98BE100F8E4");
-        Check("targetExecute", 0xE931A0, 0xE94190, 716,
-            "00EFC2B722903CAC4A068D5B6CA6373634FFDA3EF916B69D635A612E773EE173", "C2147DBA768703575739E57D385B2B7CDEC5C31AD44DFD217385074E6DCD0058");
-        Check("popLoader", 0xE78570, 0xE79620, 139,
-            "FEEC4B7CD6A9F6D4CFB4A9000594602F7F8B9E5DA6CDECBECBBBB13980E61F6A", "57C288E4254D1064DD217DDAF123C1B8AA2AF675F803266EE6F55982D0D7A29C");
-        Check("popExecute", 0xE96F30, 0xE97F20, 100,
-            "A76BA379E542886D5A33CE4926FA0857CBFA2BC3A2BA2C44517D138E47302ADB", "548FCD73538FD479237EA032064D6A63B436EE25F290D037CE7F28BBDF3D7BFD");
-        Check("hostConstructor", 0xBF58A0, 0xBF6DC0, 1837,
-            "EEFB20465AA0E0C1A201F35E0C25078514469D562675FF20B62EF84D964D1105", "73B0DA72E31B0A773F2AF02B203D05F53AD924A15D38C976D426CF162148A02C");
-        Check("viewConstructor", 0xD06FA0, 0xD07C60, 1535,
-            "52B3CF89C881199C34AC426041204D077E59671A1C80208C319F9F8D884ABCA8", "08D8AB562A6774D7FFE1D21E51A8298EF1C01CCCEFCDC281E0E0DC40667B34DB");
-        Check("viewReset", 0xD520A0, 0xD52DD0, 840,
-            "FCFE56242EB9739FE7B5C89FFDCD86BAFBBF43CF9F5C060113F1BF4294841974", "FCFE56242EB9739FE7B5C89FFDCD86BAFBBF43CF9F5C060113F1BF4294841974");
-        Check("preRendererCaller", 0xD42610, 0xD43340, 2933,
-            "068740B4A645AA764693FEE1FE83CB86B7D82DBA38CFDE46473B00AC9F626100", "273FC52B76B2F8B379E11E996D1AB9E2D86030F715C4920B0933675BB049D9D8");
-        Check("modelsCaller", 0xD2B110, 0xD2BE40, 2783,
-            "B82D46953147A237ECC35DE9A07B98E038DD03CF7A4926D03A8DEEC0C3F7EBE2", "61595CA544A061355848778726F8A4022CF47E6DAED6754E2EB293478D625823");
-        Check("optionalTarget3B8", 0xBF8B90, 0xBFA070, 94,
-            "E20D05DF11205B9402547D5141F1DE08F983014E884A2BF321E72B5945A76893", "E20D05DF11205B9402547D5141F1DE08F983014E884A2BF321E72B5945A76893");
-        Check("optionalTarget3C0", 0xBF8BF0, 0xBFA0D0, 94,
-            "F35B290CC01EA1F4A9007DA779E458496C7414F38BA0922F93DF7DEE2E584B99", "F35B290CC01EA1F4A9007DA779E458496C7414F38BA0922F93DF7DEE2E584B99");
-        Check("pushTargets", 0x959850, 0x95A920, 286,
-            "6F06282558D2737F3B9CD6B6016C3B9623A3A28778765D21E03A66FB088C7D00", "0B2BE466881914862837DDB296CF127DE719CDA075C085DAFB491C842ECC99CE");
-        Check("pushTargetRow", 0x9599E0, 0x95AAB0, 498,
-            "DEFC58D0CE9CA7914C3B562F9E6051739620D88C75E6BF9690DD2DCBB2A07EFB", "B24808CFEEA1A9425B150D9A63A74F5012C92F9F844DB7FE0A32FBC87736C8E8");
-        Check("backendPush", 0x9650F0, 0x966270, 149,
-            "589CB1F0E963493BCA54C0221A1771DC37069B732258FE7C7FA84981BA749FBC", "3F4F2DE58FF4DDA02D6AE0914CE3FE8B8A9FADD279E7D512A363D684C97AAC30");
-        Check("backendRowConstruction", 0x9665A0, 0x967720, 132,
-            "C25572398C8EFC2703C630710A7F4CF7BCE19DC61EE8DD6595F79F8D32676023", "C25572398C8EFC2703C630710A7F4CF7BCE19DC61EE8DD6595F79F8D32676023");
-        Check("popTargets", 0x95AB00, 0x95BBD0, 183,
-            "EE9A7E36C0B6E8F5C5FA2C22AD9AF347745279124423DB90DD73451ECE48FB26", "CA8D02E261C14C3FBE3CCD27049CAE83BFD3C2C6B043C6B02BA30715EC586B80");
-        Check("backendPopDepthCopy", 0x963060, 0x964110, 510,
-            "9B16DBA6898B93E444771F62A49434128703688EAB478F302C660CEA763A057B", "D85EC7B224963EC4E15464C633404506519F24FF7339CFAEB2E9A878C39704C5");
-        Check("targetSurfaceGetter", 0xC0BE90, 0xC0D350, 160,
-            "D23ACB2DBD674EB937091198D9D4F98D5300FB664CA8E887A18BC169B30AC800", "5C453104EB4A82B568DCEC7E6CE4442B83A97148605562741EB849DFD0813D09");
-        Check("twoDLoader", 0xC06D40, 0xC081E0, 1924,
-            "B52685F6491CB704F5FC55799FC34D5EE1F0125286AF999DE85CC67E9AA68F07", "8C036FCC7618260AFAE3C8CE471C0DD178404CFB4CACEF0504CE053A28FA526D");
-        Check("primaryAndInternalTexture", 0x94EA60, 0x94FB30, 2494,
-            "0DBE261643DECC6977C59E64DA1B31089D3BC9F47260B8541AE4AE50D5EC8A86", "AE4F40BC64A2862A61ED715CC487EBBEBD6C80B6657A177D70EF99D9485C1DB4");
-        Check("depthSurface", 0x95D440, 0x95E4F0, 228,
-            "2A29EDE1A80D69C222AE8E685C403B5EF15ABCE06E0087E2FE033A48D9558DB7", "90B05910272C5349C43B353CAA4C0BE2905575083FD791E3F4BE15F385B9319C");
-        Check("localCameraCopy", 0xB992A0, 0xB9A260, 16204,
-            "103404D99316AF885F6D731C66838C603CAC197058D58DEB3A813D48BF9D640E", "45CB30F91FAA7BACE057CC1012991CA29A16699EF2B5C4D66F7D222098C83E09");
-        Check("localCameraCleanup", 0xD81A00, 0x9390A0, 11,
-            "FF5BB201FDC0A13B8C02277021442405267C37590363108F003E6E60A9999A13", "F0EE146CAD5D191E494B9C59597F52A9E6BC36ECA6E5BDC521985CCA2FD523E0");
-        Check("defaultDepthDescription", 0x9539D0, 0x954AA0, 103,
-            "DA1FC913F455AC40F39C73DBBA99584BAC5B7F6256B0B5AE7B1996AD140F06E2", "DA1FC913F455AC40F39C73DBBA99584BAC5B7F6256B0B5AE7B1996AD140F06E2");
-        int popTableLea = (tc ? 0xE78570 : 0xE79620) + 0x65;
-        int popTableRva = popTableLea + 7 + BinaryPrimitives.ReadInt32LittleEndian(text.AsSpan(popTableLea - textRva + 3, 4));
-        if (BinaryPrimitives.ReadUInt64LittleEndian(image.Raw((tc ? 0x16E60B8 : 0x16E6CE8) + 8, 8)) !=
-                0x140000000UL + (uint)(tc ? 0xE931A0 : 0xE94190) ||
-            BinaryPrimitives.ReadUInt64LittleEndian(image.Raw(popTableRva + 8, 8)) !=
-                0x140000000UL + (uint)(tc ? 0xE96F30 : 0xE97F20))
-            throw new InvalidDataException("Geometry attachment/pop CPU.v8 differs from its loaded source execution.");
-        return new(locale, profile.ExeHash, profile.TextHash,
+
+        return new(locale, RenderRuleIdentity.Version,
             tc ? 0xE931A0 : 0xE94190, tc ? 0xE96F30 : 0xE97F20,
             tc ? 0xD42610 : 0xD43340, tc ? 0xD2B110 : 0xD2BE40,
-            tc ? 0xB992A0 : 0xB9A260, tc ? 0xD81A00 : 0x9390A0,
-            new System.Collections.ObjectModel.ReadOnlyDictionary<string, string>(windows));
+            tc ? 0xB992A0 : 0xB9A260, tc ? 0xD81A00 : 0x9390A0);
     }
 }

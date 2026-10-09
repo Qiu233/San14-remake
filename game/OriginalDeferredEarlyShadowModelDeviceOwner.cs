@@ -98,8 +98,6 @@ public sealed partial class OriginalDeferredEarlyShadowModelDeviceOwner : IAsync
     {
         (this.repository, Source, compiler) = (repository ?? throw new ArgumentNullException(nameof(repository)),
             source ?? throw new ArgumentNullException(nameof(source)), borrowedCompiler ?? throw new ArgumentNullException(nameof(borrowedCompiler)));
-        if (!Source.Predecessor.NativeSourceEvidence.Contains("/" + Source.Native.Locale + "@" + Source.Native.ExecutableSha256 + ";", StringComparison.Ordinal))
-            throw new InvalidDataException("Early19 queue and predecessor use different imported native profiles.");
         selectionSource=LoadedOriginalDeferredEarlyShadowSelectionSource.Load(repository,Source.Native.Locale);
     }
     public LoadedOriginalDeferredEarlyShadowQueueSource Source { get; }

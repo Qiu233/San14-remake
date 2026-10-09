@@ -134,7 +134,7 @@ public sealed class OriginalArmyCurrentPrimitivePublication
         ArgumentNullException.ThrowIfNull(lighting); ArgumentNullException.ThrowIfNull(common);
         ArgumentNullException.ThrowIfNull(queue); ArgumentNullException.ThrowIfNull(completeCurrentActors);
         ArgumentException.ThrowIfNullOrWhiteSpace(currentPublicationIdentity);
-        lighting.ValidateCurrentSourceFrame(); queue.ValidateSources();
+        queue.ValidateSources();
         common.ValidateFrame(lighting.FrameNumber, common.CommonTableOwnerIdentity, lighting.Binding.ViewIdentity);
         if (completeCurrentActors.Count != 0)
             throw new NotSupportedException("Nonempty World Army publication needs actual per-record primitive admission.");

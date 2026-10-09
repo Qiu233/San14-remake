@@ -1,5 +1,4 @@
-using System.Buffers.Binary;
-using System.Security.Cryptography;
+using San14.Core;
 
 namespace San14.Data;
 
@@ -36,26 +35,26 @@ public sealed record OriginalCeAreaDevelopmentWriteResult(ushort Progress, int? 
 public sealed class OriginalCeInitialAreaDevelopment
 {
     public const string ProfileId = "san14:ce-area-development-writers-20261002";
-    public const string VerifiedScDecodedTextSha256 =
-        "D7F3831C369A76148D87370D91EF0A8A43487D5E13A383886C68A6D50591E8F6";
-    public const string VerifiedTcDecodedTextSha256 =
-        "FFBD504FC3DEA6A218EF4E8530A65761296C17191F7D675AB3C49DF64D950766";
+    private const int LevelOneThreshold = 100;
+    private const int LevelTwoThreshold = 300;
+    private const int LevelThreeThreshold = 600;
+    private const int LevelFourThreshold = 1000;
+    private const int InitialForceDevelopmentLevelChangeCoefficient = 1;
     private readonly int[] _thresholds;
 
     public string Locale { get; }
-    public string SourceExecutableSha256 { get; }
-    public string DecodedTextSha256 => Locale == "SC" ? VerifiedScDecodedTextSha256 : VerifiedTcDecodedTextSha256;
+    public string RuleVersion { get; }
     public uint AreaResetRva => Locale == "SC" ? 0x226BC0u : 0x226950u;
     public uint StrategyWorkerRva => Locale == "SC" ? 0x4C6F50u : 0x4C6F20u;
     public uint LevelChangeCoefficientRva => Locale == "SC" ? 0x1A4A874u : 0x1A49844u;
-    /// <summary>Image initial value only. A write consumes the context's current
-    /// value, because the parameter may have changed after image loading.</summary>
+    /// <summary>Fresh rule initial value only. A write consumes the context's
+    /// current value, because the saved parameter may have changed.</summary>
     public int ImageInitialLevelChangeCoefficient { get; }
     public IReadOnlyList<int> LevelThresholds { get; }
 
-    private OriginalCeInitialAreaDevelopment(string locale, string sha, int[] thresholds, int coefficient)
+    private OriginalCeInitialAreaDevelopment(string locale, string ruleVersion, int[] thresholds, int coefficient)
     {
-        Locale = locale; SourceExecutableSha256 = sha; _thresholds = thresholds;
+        Locale = locale; RuleVersion = ruleVersion; _thresholds = thresholds;
         ImageInitialLevelChangeCoefficient = coefficient;
         LevelThresholds = Array.AsReadOnly(_thresholds);
     }
@@ -63,42 +62,9 @@ public sealed class OriginalCeInitialAreaDevelopment
     public static OriginalCeInitialAreaDevelopment LoadCurrent(string sourceDirectory, string locale)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceDirectory);
-        (string file, string expected, uint thresholds, uint coefficient) = locale switch
-        {
-            "SC" => ("SAN14CE_SC.exe", OriginalCeHexWorldCoordinates.VerifiedScExecutableSha256, 0x13A8DACu, 0x1A4A874u),
-            "TC" => ("SAN14CE_TC.exe", OriginalCeHexWorldCoordinates.VerifiedTcExecutableSha256, 0x13A7DACu, 0x1A49844u),
-            _ => throw new ArgumentOutOfRangeException(nameof(locale), "Area development writers are verified only for current CE SC/TC.")
-        };
-        byte[] image = File.ReadAllBytes(Path.Combine(sourceDirectory, file));
-        string actual = Convert.ToHexString(SHA256.HashData(image));
-        if (!actual.Equals(expected, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException($"Installed {file} SHA-256 changed: {actual}; {ProfileId} requires its verified executable.");
-        int pe = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(0x3C, 4));
-        if (BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(pe, 4)) != 0x4550 ||
-            BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(pe + 4, 2)) != 0x8664 ||
-            BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(pe + 24, 2)) != 0x20B ||
-            BinaryPrimitives.ReadUInt64LittleEndian(image.AsSpan(pe + 48, 8)) != 0x140000000)
-            throw new InvalidDataException("Area development source is not the verified AMD64 PE32+ image.");
-        int[] limits = Enumerable.Range(0, 4).Select(index => ReadInt32(thresholds + (uint)(index * 4))).ToArray();
-        if (!limits.SequenceEqual(new[] { 100, 300, 600, 1000 }))
-            throw new InvalidDataException("Current area development source threshold table differs from its verified bytes.");
-        return new(locale, actual, limits, ReadInt32(coefficient));
-
-        int ReadInt32(uint rva)
-        {
-            int optionalSize = BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(pe + 20, 2));
-            int count = BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(pe + 6, 2));
-            for (int index = 0; index < count; index++)
-            {
-                int at = pe + 24 + optionalSize + index * 40;
-                uint start = BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(at + 12, 4));
-                uint rawSize = BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(at + 16, 4));
-                if (rva < start || (ulong)rva + 4 > (ulong)start + rawSize) continue;
-                uint offset = BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(at + 20, 4));
-                return BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(checked((int)(offset + rva - start)), 4));
-            }
-            throw new InvalidDataException($"Area development source RVA {rva:X} has no raw PE section.");
-        }
+        return new(locale, SimulationRuleIdentity.ForLocale(locale),
+            [LevelOneThreshold, LevelTwoThreshold, LevelThreeThreshold, LevelFourThreshold],
+            InitialForceDevelopmentLevelChangeCoefficient);
     }
 
     public uint SetterRva(OriginalCeAreaDevelopmentField field) => (Locale, field) switch

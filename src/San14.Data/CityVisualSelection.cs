@@ -38,7 +38,7 @@ public readonly record struct CityVisualState(int Slot, int? HexId, int? SizeCod
 
 public sealed record CityVisualSelection(int Slot, int HexId, int SizeCode,
     int? ForceId, int Variant, int DamageTier, int Category,
-    string ExecutableSha256, CityVisualEvidence Evidence, string SelectionBasis)
+    string ImplementationVersion, CityVisualEvidence Evidence, string SelectionBasis)
 {
     public string? RuntimeCaptureSha256 { get; init; }
     public bool CurrentCategoryObserved { get; init; }
@@ -96,7 +96,7 @@ public static class CityVisualSelector
             else return Missing("current-damage-input-incomplete");
             evidence = currentDamage.Evidence;
         }
-        else if (opening is not null && opening.TryMatch(city, variants.ExecutableSha256,
+        else if (opening is not null && opening.TryMatch(city, variants.ImplementationVersion,
                      out CityVisualOpeningRecord record))
         {
             tier = record.DamageTier;
@@ -109,7 +109,7 @@ public static class CityVisualSelector
 
         int variant = variants.VariantForCitySlot(city.Slot);
         return new(new(city.Slot, hex, size, city.ForceId, variant, tier,
-            OriginalCeCityModels.CategoryFor(variant, size, tier), variants.ExecutableSha256,
+            OriginalCeCityModels.CategoryFor(variant, size, tier), variants.ImplementationVersion,
             evidence, basis)
         { RuntimeCaptureSha256 = capture, CurrentCategoryObserved = observed }, null);
     }

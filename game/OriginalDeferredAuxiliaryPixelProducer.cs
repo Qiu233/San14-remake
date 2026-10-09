@@ -213,7 +213,7 @@ public sealed class OriginalDeferredAuxiliaryPixelProducer : IAsyncDisposable
             var target=devices[0];ValidateTargetOwner(target);
             if(target.Source with{Source=sourceTarget.Texture.Source,Object=sourceTarget.Texture.Object}!=sourceTarget.Texture)
                 throw new InvalidDataException("Specular target differs from its selected original source declaration.");
-            var program=ggxPrograms[current.CurrentFilterType90];program.ValidateSource();
+            var program=ggxPrograms[current.CurrentFilterType90];program.RequireAvailable();
             byte[] nativeDescriptor=OriginalDeferredSamplerSources.DecodeKey(NativeSamplers,
                 OriginalDeferredSamplerSources.FinalRenderTextureKey(NativeSamplers,target.Source)).EncodeD3D11Descriptor();
             Rid sampler=await GetSamplerAsync(nativeDescriptor);

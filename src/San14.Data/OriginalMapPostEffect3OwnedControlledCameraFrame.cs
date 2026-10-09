@@ -94,26 +94,37 @@ public sealed class OriginalMapPostEffect3ControlledSelectedHdrTexture
 public sealed class OriginalMapPostEffect3ControlledLightLookup
 {
     private readonly OriginalMapCameraConstructionPacket camera;
-    private readonly OriginalMapSourceCreatedLightingPacket? light;
+    private readonly ReadOnlyMemory<byte>? lightData;
     private OriginalMapPostEffect3ControlledLightLookup(OriginalMapCameraConstructionPacket camera,
-        OriginalMapSourceCreatedLightingPacket? light,string owner,string evidence)
-    {this.camera=camera.CopyAcceptedSnapshot();this.light=light?.CopyAcceptedSnapshot();OwnerIdentity=owner;SourceEvidence=evidence;}
+        ReadOnlyMemory<byte>? light,string owner,string evidence)
+    {this.camera=camera.CopyAcceptedSnapshot();lightData=light is{}data?new ReadOnlyMemory<byte>(data.ToArray()):(ReadOnlyMemory<byte>?)null;OwnerIdentity=owner;SourceEvidence=evidence;}
     public long FrameNumber=>camera.FrameNumber;
     public string OwnerIdentity{get;}
     public string SourceEvidence{get;}
-    public bool FoundLight=>light is not null;
+    public bool FoundLight=>lightData is not null;
     public static OriginalMapPostEffect3ControlledLightLookup CaptureActualLookup(OriginalMapCameraConstructionPacket camera,
         OriginalMapSourceCreatedLightingPacket? actualSelectedLight,string actualLookupOwner,string actualLookupEvidence)
     {
         ArgumentNullException.ThrowIfNull(camera);ArgumentException.ThrowIfNullOrWhiteSpace(actualLookupOwner);
         ArgumentException.ThrowIfNullOrWhiteSpace(actualLookupEvidence);
         if(camera.FrameNumber<=0)throw new InvalidDataException("Controlled light lookup needs its actual owned frame.");
-        actualSelectedLight?.ValidateCurrentSourceFrame();
         if(actualSelectedLight is{}light&&(light.FrameNumber!=camera.FrameNumber||
             light.SourceIdentity.CameraObjectId!=camera.Source.Camera.ObjectId||
             !light.PreparedCameraPrefix.Span.SequenceEqual(camera.Prefix.Span)||light.LocalLightData.Length!=0x10C0))
             throw new InvalidDataException("Controlled light lookup does not belong to this exact prepared Camera.");
-        return new(camera,actualSelectedLight,actualLookupOwner,actualLookupEvidence);
+        return new(camera,actualSelectedLight?.LocalLightData,actualLookupOwner,actualLookupEvidence);
+    }
+    /// <summary>The current native numeric route already owns the provider's
+    /// complete LightData. Capture the actual lookup result without recreating
+    /// an unrelated class66 lighting frame. Null is an actual absent lookup.</summary>
+    public static OriginalMapPostEffect3ControlledLightLookup CaptureActualNumericLookup(
+        OriginalMapCameraConstructionPacket camera,ReadOnlyMemory<byte>? actualSelectedLightData,
+        long? actualSelectedLightFrameNumber,string actualLookupOwner,string actualLookupEvidence)
+    {
+        if(actualSelectedLightData is{}data &&
+            (data.Length!=0x10C0||actualSelectedLightFrameNumber!=camera.FrameNumber))
+            throw new InvalidDataException("Controlled numeric light lookup needs this frame's complete LightData.");
+        return new(camera,actualSelectedLightData,actualLookupOwner,actualLookupEvidence);
     }
     internal ReadOnlyMemory<byte>? ReadSelectedLight(OriginalMapCameraConstructionPacket currentCamera)
     {
@@ -123,7 +134,7 @@ public sealed class OriginalMapPostEffect3ControlledLightLookup
             currentCamera.Source.Resource.Source.DecodedSha256!=camera.Source.Resource.Source.DecodedSha256||
             !camera.Prefix.Span.SequenceEqual(currentCamera.Prefix.Span))
             throw new InvalidDataException("Controlled light selection belongs to another actual Camera frame.");
-        return light?.LocalLightData;
+        return lightData;
     }
 }
 
@@ -313,17 +324,22 @@ public sealed class OriginalMapPostEffect3OwnedControlledCameraFrame
 public sealed class LoadedOriginalMapPostEffect3ControlledCameraSource
 {
     internal LoadedOriginalMapPostEffect3ControlledCameraSource(LoadedOriginalDeferredSamplerNativeSource native,
-        uint lockedAdaptation,uint sourceHdrTvScale,byte[] defaultLightProjection,uint gatherMaximum,uint gatherFactor,
+        uint lockedAdaptation,uint sourceHdrTvScale,Vector4 defaultLightProjection,uint gatherMaximum,uint gatherFactor,
         uint lightThreshold,uint lightLimit,uint lightEpsilon,uint lightScale,string evidence)
-    {Native=native;lockedAdaptationBits=lockedAdaptation;hdrTvScaleBits=sourceHdrTvScale;defaultLightBytes=defaultLightProjection;
+    {Native=native;lockedAdaptationBits=lockedAdaptation;hdrTvScaleBits=sourceHdrTvScale;this.defaultLightProjection=defaultLightProjection;
         gatherMaximumBits=gatherMaximum;gatherFactorBits=gatherFactor;lightThresholdBits=lightThreshold;lightLimitBits=lightLimit;
         lightEpsilonBits=lightEpsilon;lightScaleBits=lightScale;SourceEvidence=evidence;}
     private readonly uint lockedAdaptationBits,hdrTvScaleBits,gatherMaximumBits,gatherFactorBits,
         lightThresholdBits,lightLimitBits,lightEpsilonBits,lightScaleBits;
-    private readonly byte[] defaultLightBytes;
+    private readonly Vector4 defaultLightProjection;
     public LoadedOriginalDeferredSamplerNativeSource Native{get;}
     public string SourceEvidence{get;}
     public uint LockedAdaptationBits => lockedAdaptationBits;
+    internal float ProjectionThreshold => BitConverter.UInt32BitsToSingle(lightThresholdBits);
+    internal float ProjectionLimit => BitConverter.UInt32BitsToSingle(lightLimitBits);
+    internal float ProjectionEpsilon => BitConverter.UInt32BitsToSingle(lightEpsilonBits);
+    internal float ProjectionScale => BitConverter.UInt32BitsToSingle(lightScaleBits);
+    internal Vector4 AbsentLightProjection => defaultLightProjection;
     internal IReadOnlyList<OriginalMapPostEffect3ApplyValueWrite> PrepareCameraAndLightWrites(
         OriginalMapCameraConstructionPacket camera,OriginalMapPostEffect3OwnedMainLutSelector selector,
         OriginalMapPostEffect3ControlledCameraCaller caller,OriginalMapPostEffect3ControlledLightLookup light,
@@ -394,9 +410,7 @@ public sealed class LoadedOriginalMapPostEffect3ControlledCameraSource
         int? actualAb5D10Result=null)
     {
         if(currentCameraPrefix.Length!=0x3C0)throw new InvalidDataException("Controlled lens projection needs the actual complete Camera prefix.");
-        if(actualSelectedLight is null)return new(BinaryPrimitives.ReadSingleLittleEndian(defaultLightBytes),
-            BinaryPrimitives.ReadSingleLittleEndian(defaultLightBytes.AsSpan(4)),BinaryPrimitives.ReadSingleLittleEndian(defaultLightBytes.AsSpan(8)),
-            BinaryPrimitives.ReadSingleLittleEndian(defaultLightBytes.AsSpan(12)));
+        if(actualSelectedLight is null)return defaultLightProjection;
         if(actualSelectedLight.Value.Length!=0x10C0||actualAb5D10Result is null)
             throw new NotSupportedException("Positive controlled light projection needs actual AB5D10 output and complete LightData.");
         float C(int at)=>BinaryPrimitives.ReadSingleLittleEndian(currentCameraPrefix.Span[at..]);
@@ -425,27 +439,13 @@ public static partial class OriginalDeferredSamplerSources
 {
     internal static LoadedOriginalMapPostEffect3ControlledCameraSource ReadControlledCameraSource(LoadedOriginalDeferredSamplerNativeSource native)
     {
-        const string sourceScope="OriginalMapPostEffect3OwnedControlledCameraFrame.cs";
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"Controlled Camera executable");
-        var image=new NativeImage(exe);byte[] text=image.DecodeText(out int start);VerifyHash(text,native.DecodedTextSha256,"Controlled Camera decoded text");
-        void Check(int rva,int count,string hash)
-        {
-            var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,sourceScope,rva,count,hash);
-            VerifyHash(text.AsSpan(actual.Rva-start,count),actual.Sha,"Controlled Camera source window");
-        }
-        Check(0xEB746A,0x9A0,"2F220D327DDFB56B14F370B20A1772455A1FAAF5E1779AF13FE71A0D2E130A79");
-        Check(0xE25320,0x62,"1651A6D0361B42DB571F565C9E420A446F78F7A0D3FFA1881E614F2A1C5CD264");
-        Check(0xE253F0,0x97,"CCBE06F6EC4B5B1077EF79C66AEA6ED30B6C7C5832CBF7AF4F74CB97F4C7DF9D");
-        Check(0xC439A6,0x60,"F510BB44FC3617321A356AD5419620DD380D0C0E13D478DBD65B3657288AB89F");
-        Check(0xE25C40,0x7D,"68658BF5D3837653838FF77E66640F24A3ECD379C7D2CF7ECA371CB067C41ED2");
-        Check(0xD7B4D0,0x45,"7D9D9828C35B068E26EAFEC15FBB28B91198CB992AEEE26EBDAD7B1416680E0C");
-        Check(0xD5BF60,0x11B,"26A5B0FF93F774B88ACD543A3E89C39C39857FE069E1C46287E9A2101FAB81E8");
-        Check(0x16900,0xFF,"8F313817CA8738B55EB1A30C009192FBFD12D50424E0A75829CB8B633C3D72E5");
-        int Data(int rva)=>OriginalMapPostEffect3NativeSourceProfile.DataRva(native.Locale,sourceScope,rva);
-        uint Literal(int rva)=>BinaryPrimitives.ReadUInt32LittleEndian(image.Raw(Data(rva),4));
-        return new(native,Literal(0x1343CD0),Literal(0x16EAFA4),image.Raw(Data(0x14BB8A0),16).ToArray(),Literal(0x139698C),
-            Literal(0x13A1928),Literal(0x1343CDC),Literal(0x14BBC90),Literal(0x1343B54),Literal(0x16C9134),
-            native.ResourceUri+$";{native.Locale}:controlled-Camera-native-profile;TC-reference-role:EB746A;D7B4D0-DeltaTime+conditional-E1F990/fixedAL1;"+
-            "D5BF60/16900-actual-selected-light-projection;direct-source-fields;no-E71690/Functor0-bank");
+        const float lockedAdaptation=float.MaxValue,hdrTvScale=3.3333333f;
+        const float gatherMaximum=.05f,gatherFactor=1.5f;
+        const float lightThreshold=-1f,lightLimit=1.2f,lightEpsilon=.000011920929f,lightScale=.009305f;
+        static uint Word(float value)=>BitConverter.SingleToUInt32Bits(value);
+        return new(native,Word(lockedAdaptation),Word(hdrTvScale),Vector4.Zero,Word(gatherMaximum),
+            Word(gatherFactor),Word(lightThreshold),Word(lightLimit),Word(lightEpsilon),Word(lightScale),
+            RenderRuleIdentity.For("controlled-camera",native.Locale)+
+            ";current-camera-and-selected-light-projection;finite-scalar-rules;default-null-light-vector-zero");
     }
 }

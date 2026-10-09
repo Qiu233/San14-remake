@@ -135,7 +135,7 @@ public sealed class LoadedOriginalMapPostEffect3EyeAdaptation2Source
         OriginalNativeLogDispatch actualDispatch)
     {
         ArgumentNullException.ThrowIfNull(frame);ArgumentNullException.ThrowIfNull(actualDoubleLog);frame.RequireCurrent();
-        if(actualDoubleLog.Locale!=Locale||frame.Locale!=Locale||actualDoubleLog.ExecutableSha256!=FloatLogTables.ExecutableSha256||
+        if(actualDoubleLog.Locale!=Locale||frame.Locale!=Locale||
             actualDispatch!=OriginalNativeLogDispatch.Sse)
             throw new InvalidDataException("Eye binary64/binary32 math source or actual owned dispatch differs.");
         var state=frame.State;var allocation=frame.Allocation;
@@ -385,28 +385,12 @@ public static partial class OriginalDeferredSamplerSources
     internal static LoadedOriginalMapPostEffect3EyeAdaptation2Source ReadPostEffect3EyeAdaptation2Source(
         LoadedOriginalDeferredSamplerNativeSource native,OriginalNativeLogTables log)
     {
-        if(native.Locale is not ("TC" or "SC")||log.ExecutableSha256!=native.ExecutableSha256)
+        if(native.Locale is not ("TC" or "SC")||log.Locale!=native.Locale)
             throw new NotSupportedException("EyeAdaptation2 source code and log tables need the inspected same SC/TC source.");
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"EyeAdaptation2 executable");
-        var image=new NativeImage(exe);byte[] text=image.DecodeText(out int start);VerifyHash(text,native.DecodedTextSha256,"EyeAdaptation2 decoded code");
-        Pin(0x1157810,295,"870A1051E1E05D8873EA75AB4BE886E728F88EB07A487325E9732B52E275A312","fresh controller294");
-        Pin(0x1157B70,313,"634705891C1EBD635BB0466DC0637871C5D98465E5EC0043A9BEED15C001EB73","level count");
-        Pin(0x1157A20,326,"48A3E39E4134C3912C9377A266FD51C5394BAC6F98D6BB50E4992A5B008CA807","iteration wrapper");
-        Pin(0x1159A40,354,"B3CF97C17D3D1D6D79506A8F6542C63172F34D084A961C192FB7CC89C8DFBE9C","Init mask");
-        Pin(0x1158160,630,"46BDCBE8EA025C2B10FC0321B35D32990782AC23B3D2440854748CE283C9DBA5","resource mip views");
-        Pin(0x1157CB0,909,"1C6187E908374993AA3E7624A283557CD43EB7FD8727B1E1CA5F2967C89E4009","ordered Before and mode cache");
-        Pin(0x1158040,285,"D599B07D01DCBA0AD1D3DB4EACD9CFC663BC286CDEF5DB51768A497369524169","Init current output alias");
-        Pin(0x968F40,242,"6342AA92EBF6F2C8ED2A6A7B0A66CB805FC73D93B7DD68D48DE6731884BBC1AB","single mip view handle replacement");
-        Pin(0x11594D0,572,"BBC72D3C6F65DB0A72C237F0BD7B5C345FE16F9C2A329D2496D80DA4F3D41302","Bloom main CB");
-        Pin(0x11592F0,471,"6F76AAF7C6DB10CA9D0DCDE9FE2940EC484EB9807DEC730951344C8D9418DC1C","Bloom loop CB");
-        Pin(0x1159710,803,"63416EB2CE28B34E5B4B2EE122970B9CEE5602D3EDFD6F50A9BBD3CAF13CB93E","Exposure complete64B writer");
+
         return new(log,native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+";TC:11583E0-capability4-all20typedscalars;1157B70-logSSE-layercount;"+
             "1159A40-original-mask;1157A20-counted-repetitions;1158160-existingphysical85/86-mipviews;"+
             "1157CB0-Before;11594D0-main/11592F0-loop;requires-separate-doublelog-Exposure64B/source-mode-cache;no-GPU-claim",native.Locale);
-        void Pin(int rva,int n,string hash,string name)
-        {
-            var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3ParameterEyeAdaptation2.cs",rva,n,hash);
-            VerifyHash(text.AsSpan(actual.Rva-start,n),actual.Sha,"EyeAdaptation2 "+name);
-        }
+
     }
 }

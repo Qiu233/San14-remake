@@ -71,7 +71,7 @@ public sealed partial class OriginalPersonGrowthSource
         {
             if (officer.NativeAbilityRuntime is not { } owner ||
                 owner.Revision != OriginalTacticRemakeCurrentAbilities.ProfileId ||
-                owner.Language != parameters.Language || owner.ExecutableSha256 != parameters.ExecutableSha256 ||
+                owner.Language != parameters.Language || owner.RuleVersion != parameters.RuleVersion ||
                 owner.SourceScenarioUri != scenario.ScenarioSource.ResourceUri ||
                 owner.SourceScenarioSha256 != scenario.ScenarioSource.Sha256 ||
                 owner.PhysicalSlot is < 1 or > 1850 ||

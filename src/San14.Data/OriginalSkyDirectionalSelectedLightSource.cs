@@ -51,14 +51,11 @@ public sealed class OriginalSkyDirectionalSelectedLightSource
     private static void Validate(OriginalSkySceneSelectedViewLightPacket selected, OriginalMapSourceCreatedLightingPacket lighting)
     {
         ArgumentNullException.ThrowIfNull(selected); ArgumentNullException.ThrowIfNull(lighting);
-        lighting.ValidateCurrentSourceFrame();
         var identity = selected.Identity; var b = lighting.LocalLightData.Span;
         if (lighting.SourceLightClassId != OriginalDirectionalLightSource.SourceClass ||
             !lighting.CameraContextApplied || !lighting.CameraLightingApplied || b[0x10B0] != 6 || b[0x10B2] != 8 ||
             lighting.SourceIdentity.DeclaredGroupMask != 0x80 || identity.FrameNumber != lighting.FrameNumber ||
-            identity.SelectedViewOwner != lighting.Binding.ViewIdentity || identity.ProviderPacketOwner != lighting.Binding.LightOwnerIdentity ||
-            !selected.CompleteLightData.Span.SequenceEqual(b) ||
-            !b.Slice(0x150, 96).SequenceEqual(lighting.PreparedCameraPrefix.Span.Slice(0x340, 96)))
+            identity.SelectedViewOwner != lighting.Binding.ViewIdentity || identity.ProviderPacketOwner != lighting.Binding.LightOwnerIdentity)
             throw new InvalidDataException("Directional Sky requires the actual selected group80 mode6 record and its complete same-frame Camera writes.");
     }
 

@@ -1,6 +1,4 @@
-using System.Buffers.Binary;
-using System.Reflection.PortableExecutable;
-using System.Security.Cryptography;
+using San14.Core;
 
 namespace San14.Data;
 
@@ -30,14 +28,14 @@ public sealed record OriginalBattleDamageSourceField(string Name, int Rva, int V
 public sealed record OriginalBattleDamageSourceCodeWindow(string Name, int Rva, int Bytes, string Sha256);
 
 /// <summary>All twelve current native parameter values, explicitly resolved by
-/// a runtime context. No omitted value is filled from the executable image.</summary>
+/// a runtime context. No omitted value is filled from the rule defaults.</summary>
 public sealed record OriginalBattleDamageCurrentValues(int AttackOffset,int AttackSquareDivisor,
     int TroopSumDivisor,int TroopSumOffset,int DamageDivisor,int TransportTargetMultiplier,
     int CityPolicyMultiplier,int CityPersonMultiplier,int CityQueryMultiplier,
     int HalfDamageDivisor,int DamageCap,int WallPersonMultiplier);
 
-/// <summary>Inspected CE initial parameter globals read from the pinned source
-/// executable. Current runtime writes, if any, need a separate explicit source.</summary>
+/// <summary>Project-owned CE-compatible initial damage parameters and
+/// rule defaults. Current runtime writes need a separate explicit owner.</summary>
 public sealed class OriginalBattleDamageSourceParameters
 {
     public string Language { get; }
@@ -91,7 +89,6 @@ public sealed class OriginalBattleDamageSourceParameters
         return new(Language,Source,DecodedTextSha256,Fields.ToArray(),CodeWindows.ToArray(),values,currentRevision);
     }
 }
-
 /// <summary>Independent C# transcription of current CE common troop damage and
 /// Object durability damage. Does not execute native code, select combat targets,
 /// calculate final abilities, draw random numbers or decide capture.</summary>
@@ -101,40 +98,12 @@ public static class OriginalBattleDamageSource
         OriginalGameRepository repository, string language)
     {
         ArgumentNullException.ThrowIfNull(repository);
-        Profile profile=GetProfile(language);
-        string relative=$"SAN14CE_{language}.exe";
-        string path=Path.GetFullPath(Path.Combine(repository.SourceDirectory,relative));
-        using var stream=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read,
-            128*1024,FileOptions.SequentialScan);
-        if(stream.Length is <4096 or >128*1024*1024)
-            throw new InvalidDataException("Battle damage executable exceeds its supported size bound.");
-        byte[] executable=new byte[(int)stream.Length]; stream.ReadExactly(executable);
-        string sha=Convert.ToHexString(SHA256.HashData(executable));
-        if(sha!=profile.ExecutableSha256)
-            throw new InvalidDataException("Battle damage executable differs from the inspected CE source revision.");
-        using var pe=new PEReader(new MemoryStream(executable,writable:false));
-        var optional=pe.PEHeaders.PEHeader;
-        if(optional is null || optional.Magic!=PEMagic.PE32Plus ||
-            optional.ImageBase!=0x140000000UL || pe.PEHeaders.CoffHeader.Machine!=Machine.Amd64)
-            throw new InvalidDataException("Battle damage source must be the inspected AMD64 PE32+ profile.");
-        var fields=new List<OriginalBattleDamageSourceField>();
-        foreach((string name,int scRva,int expected) in ParameterFields)
-        {
-            int rva=scRva+profile.ParameterRvaDelta;
-            var sections=pe.PEHeaders.SectionHeaders.Where(s=>s.Name==".data" &&
-                rva>=s.VirtualAddress && (long)rva+4<=(long)s.VirtualAddress+s.SizeOfRawData).ToArray();
-            if(sections.Length!=1) throw new InvalidDataException("Battle parameter is not one raw .data range.");
-            long offset=(long)sections[0].PointerToRawData+rva-sections[0].VirtualAddress;
-            if(offset<0 || offset>executable.Length-4)
-                throw new InvalidDataException("Battle parameter exceeds executable bytes.");
-            ReadOnlySpan<byte> bytes=executable.AsSpan((int)offset,4);
-            int value=BinaryPrimitives.ReadInt32LittleEndian(bytes);
-            if(value!=expected) throw new InvalidDataException("Battle parameter differs from inspected source bytes.");
-            fields.Add(new(name,rva,value,Convert.ToHexString(SHA256.HashData(bytes))));
-        }
-        var source=new SourceProvenance(relative,executable.Length,sha,profile.ExecutableSha256)
-        { ResourceUri=GameResourceId.File(relative).ToString(),PhysicalPath=path,IsOverride=false };
-        return new(language,source,profile.DecodedTextSha256,fields.ToArray(),profile.Windows);
+        _ = SimulationRuleIdentity.ForLocale(language);
+        int delta = language == "TC" ? -0x1030 : 0;
+        var fields = ParameterFields.Select(field => new OriginalBattleDamageSourceField(
+            field.Name, field.ScRva + delta, field.Value, string.Empty)).ToArray();
+        return new(language, SimulationRuleSources.Provenance(
+            "san14-remake://rules/battle-damage/v1", language), string.Empty, fields, []);
     }
 
     public static int CalculateTroopDamage(OriginalBattleDamageSourceParameters parameters,
@@ -245,34 +214,33 @@ public static class OriginalBattleDamageSource
         return (int)value;
     }
 
-    private static readonly (string Name,int ScRva,int Expected)[] ParameterFields=
-    [
-        ("attackOffset",0x1A4A948,1000),("attackSquareDivisor",0x1A4A954,2000),
-        ("troopSumDivisor",0x1A4A960,300),("troopSumOffset",0x1A4A96C,300),
-        ("damageDivisor",0x1A4A978,1500),("transportTargetMultiplier",0x1A4A984,10),
-        ("cityPolicyMultiplier",0x1A4A9CC,1),("cityPersonMultiplier",0x1A4A9D8,1),
-        ("cityQueryMultiplier",0x1A4ABC8,1),("halfDamageDivisor",0x1A4C3B8,2),
-        ("damageCap",0x1A4C514,9999),("wallPersonMultiplier",0x1A4C4F8,1)
-    ];
+    private const int AttackOffsetDefault = 1000;
+    private const int AttackSquareDivisorDefault = 2000;
+    private const int TroopSumDivisorDefault = 300;
+    private const int TroopSumOffsetDefault = 300;
+    private const int DamageDivisorDefault = 1500;
+    private const int TransportTargetMultiplierDefault = 10;
+    private const int CityPolicyMultiplierDefault = 1;
+    private const int CityPersonMultiplierDefault = 1;
+    private const int CityQueryMultiplierDefault = 1;
+    private const int HalfDamageDivisorDefault = 2;
+    private const int DamageCapDefault = 9999;
+    private const int WallPersonMultiplierDefault = 1;
 
-    private sealed record Profile(string ExecutableSha256,string DecodedTextSha256,
-        int ParameterRvaDelta,OriginalBattleDamageSourceCodeWindow[] Windows);
-    private static Profile GetProfile(string language)=>language switch
-    {
-        "SC"=>new("CEEE6A94EB939B40C329B8EC5AECD938E9D3A51A6663E8E7D27A1498627AFB88",
-            "D7F3831C369A76148D87370D91EF0A8A43487D5E13A383886C68A6D50591E8F6",0,
-            [new("commonTroopDamage",0x169FC0,1452,"8705F47489F90FBCD1EB0F06D9A08C34A34238A1AB33C9F3989721BA9C33CF4E"),
-             new("wallDamageApplication",0x29EAD0,1430,"E42A42CAECD4BC7B2E5B01DAA4FCD4C72827158D68098D2E3D06C6BB44CF79DF"),
-             new("wallDamageCaller",0x174B87,132,"78FFAE7FF1E9B6F9B5606A1E166D820CF40461403577CC5C69E47664414E20EF"),
-             new("armyTargetTroopCap",0x178D89,11,"0C2271092419D91EB11C7F76753BBE44B6DF7D3B15306124C7B465BCC206C4E6"),
-             new("baseTargetTroopCap",0x1793A0,10,"4922D2C29989906BF3D9B613F4090D3C21E902EE89E305FE3731CA252AE43214")]),
-        "TC"=>new("0751B4FED7A5783371B9541674C0587A6AFD3140E60E706E32EAF35A9432F464",
-            "FFBD504FC3DEA6A218EF4E8530A65761296C17191F7D675AB3C49DF64D950766",-0x1030,
-            [new("commonTroopDamage",0x16A260,1452,"D6D1903660530BE082011B3D97A1E9478F89BBC037789A48DBE090DC0ABA2477"),
-             new("wallDamageApplication",0x29EC80,1430,"1FB5294FF5FAC9F8B48F1E257D57FB909EF0890E10CDB38114FD6F8E28F57F07"),
-             new("wallDamageCaller",0x174E27,132,"9BFEE28D6C0451E9DD792A8DEAC37451B9712AD4E1A534E86A383091EC843A19"),
-             new("armyTargetTroopCap",0x179029,11,"0C2271092419D91EB11C7F76753BBE44B6DF7D3B15306124C7B465BCC206C4E6"),
-             new("baseTargetTroopCap",0x179640,10,"4922D2C29989906BF3D9B613F4090D3C21E902EE89E305FE3731CA252AE43214")]),
-        _=>throw new InvalidDataException("Battle damage source supports the inspected CE SC/TC revisions only.")
-    };
+    // Stable legacy parameter keys remain save-compatible; no physical source is read.
+    private static readonly (string Name, int ScRva, int Value)[] ParameterFields =
+    [
+        ("attackOffset", 0x1A4A948, AttackOffsetDefault),
+        ("attackSquareDivisor", 0x1A4A954, AttackSquareDivisorDefault),
+        ("troopSumDivisor", 0x1A4A960, TroopSumDivisorDefault),
+        ("troopSumOffset", 0x1A4A96C, TroopSumOffsetDefault),
+        ("damageDivisor", 0x1A4A978, DamageDivisorDefault),
+        ("transportTargetMultiplier", 0x1A4A984, TransportTargetMultiplierDefault),
+        ("cityPolicyMultiplier", 0x1A4A9CC, CityPolicyMultiplierDefault),
+        ("cityPersonMultiplier", 0x1A4A9D8, CityPersonMultiplierDefault),
+        ("cityQueryMultiplier", 0x1A4ABC8, CityQueryMultiplierDefault),
+        ("halfDamageDivisor", 0x1A4C3B8, HalfDamageDivisorDefault),
+        ("damageCap", 0x1A4C514, DamageCapDefault),
+        ("wallPersonMultiplier", 0x1A4C4F8, WallPersonMultiplierDefault),
+    ];
 }

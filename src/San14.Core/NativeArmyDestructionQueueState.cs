@@ -21,7 +21,7 @@ public sealed record NativeArmyDestructionQueueDescriptor(int Key, int? Next8, i
 /// and 64 descriptor wrappers are independent of the primary shared-node pool.
 /// Array positions are physical node/key identities, never process pointers.</summary>
 public sealed record NativeArmyDestructionQueueState(string Revision, string Language,
-    string ExecutableSha256, string SourceScenarioUri, string SourceScenarioSha256,
+    string RuleVersion, string SourceScenarioUri, string SourceScenarioSha256,
     int? Manager140DescriptorKey, int? DescriptorFreeHead, int? DescriptorLiveHead,
     int? DescriptorLiveTail, int DescriptorLiveCount,
     NativeArmyDestructionQueueDescriptor[] Descriptors,
@@ -38,7 +38,7 @@ public static class NativeArmyDestructionQueueStateValidation
     public static void Validate(NativeArmyLifecycleState lifecycle)
     {
         if (lifecycle.DeferredDestructionQueue is not { } queue) return;
-        if (queue.Language != lifecycle.Language || queue.ExecutableSha256 != lifecycle.ExecutableSha256 ||
+        if (queue.Language != lifecycle.Language || queue.RuleVersion != lifecycle.RuleVersion ||
             queue.SourceScenarioUri != lifecycle.SourceScenarioUri || queue.SourceScenarioSha256 != lifecycle.SourceScenarioSha256)
             throw new InvalidDataException("Native destruction queue belongs to a different current world.");
         Validate(queue);
@@ -50,7 +50,7 @@ public static class NativeArmyDestructionQueueStateValidation
     {
         const int descriptorCapacity = 64, nodeCapacity = 128;
         if (string.IsNullOrWhiteSpace(value.Revision) || value.Language is not ("SC" or "TC") ||
-            value.ExecutableSha256 is not { Length: 64 } || value.SourceScenarioSha256 is not { Length: 64 } ||
+            string.IsNullOrWhiteSpace(value.RuleVersion) || value.SourceScenarioSha256 is not { Length: 64 } ||
             string.IsNullOrWhiteSpace(value.SourceScenarioUri) ||
             value.Descriptors is not { Length: descriptorCapacity } || value.Heads10 is not { Length: descriptorCapacity } ||
             value.Tails18 is not { Length: descriptorCapacity } || value.Counts28 is not { Length: descriptorCapacity } ||

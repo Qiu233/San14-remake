@@ -1,6 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
-using System.Text;
 using San14.Core;
 
 namespace San14.Data;
@@ -15,7 +13,7 @@ public sealed record OriginalBattleRemakeCurrentAreaStatisticsReceipt(ushort Own
 }
 
 /// <summary>One synchronous operation's immutable copied area values. Capture
-/// validates map ownership once; discard this snapshot after state changes.</summary>
+/// reads the saved counter owner; discard this snapshot after state changes.</summary>
 public sealed class OriginalBattleRemakeCurrentAreaStatisticsSnapshot
 {
     private readonly byte[] cities;
@@ -49,8 +47,8 @@ public sealed class OriginalBattleRemakeCurrentAreaStatisticsSnapshot
 
 /// <summary>Explicit fresh3311E0 statistics and fixed-row64 masks, saved in the
 /// current parameter owner. Queries never recount Core territory or import a
-/// missing save field. A changed ownership/topology input invalidates this finite
-/// receipt until a source-backed writer supplies a new owner.</summary>
+/// missing save field. Ownership changes leave the saved counters in place until
+/// the reached native region step writes them.</summary>
 public static class OriginalBattleRemakeCurrentAreaStatistics
 {
     public const string ProfileId = "san14:ce-owned-area-statistics-20261002";
@@ -63,7 +61,6 @@ public static class OriginalBattleRemakeCurrentAreaStatistics
     private static string RegistrySlotKey(int ordinal) => $"{Prefix}registered-area:{ordinal}";
     public static string FieldKey(int physicalAreaSlot, int nativeOffset) =>
         $"{Prefix}area:{physicalAreaSlot}:field:{nativeOffset:X2}";
-    private static string FingerprintKey(string kind, int ordinal) => $"{Prefix}fingerprint:{kind}:{ordinal}";
 
     /// <summary>One explicit ordinary-CE fresh initialization stage. The source
     /// records establish fixed Area34/3A/66 and identity; the supplied operation
@@ -89,10 +86,8 @@ public static class OriginalBattleRemakeCurrentAreaStatistics
 
         if (!source.Snapshot.Areas.Select(row => row.Slot).SequenceEqual(Enumerable.Range(0, 501)) ||
             !state.Areas.Keys.Order().SequenceEqual(source.Snapshot.Areas.Where(row => row.Slot != 0 && row.CitySlot is >= 1 and <= 51)
-                .Select(row => row.Slot).Order()) || WorldFingerprint(state) is not byte[] worldFingerprint ||
-            TerrainFingerprint(current, source, map) is not byte[] terrainFingerprint)
+                .Select(row => row.Slot).Order()) || !TerrainSourceMatches(current, source))
             throw new InvalidDataException("Fresh area statistics have incomplete or contradictory current map identities.");
-        _ = ScenarioTerritory.Build(map.Map, source.Snapshot);
         var native = new OriginalEventInitializationContext { SpecialModeWorldPresent = true, RawWorldField48 = mode };
         var masks = new byte[501];
         foreach (AreaPreviewRecord row in source.Snapshot.Areas)
@@ -130,6 +125,7 @@ public static class OriginalBattleRemakeCurrentAreaStatistics
             OriginalHexReference? hex = current.ReadHexTableReference(slot);
             if (cell.Id != slot || cell.AreaSlot > 500 || hex?.PhysicalSlot != slot ||
                 current.ReadHexAreaSlot(hex) != cell.AreaSlot || current.ReadHexSurfaceCode(hex) is not byte surface ||
+                surface != cell.SurfaceCode ||
                 current.ReadHexForceSlot(hex) is not byte force || force > 51 ||
                 !state.Territory.TryGetValue(slot, out TerritoryState? territory) || territory.Id != slot ||
                 (territory.AreaId ?? 0) != cell.AreaSlot || (territory.ForceId ?? 0) != force)
@@ -152,12 +148,6 @@ public static class OriginalBattleRemakeCurrentAreaStatistics
         for (int ordinal = 0; ordinal < registered.Count; ordinal++)
             values.Add(RegistrySlotKey(ordinal), registered[ordinal]?.PhysicalSlot
                 ?? throw new InvalidDataException("Fresh registered area receiver is null."));
-        SaveFingerprint(values, "world", worldFingerprint);
-        SaveFingerprint(values, "environment", WorldFingerprint(state, includeTerritory: false)!);
-        SaveFingerprint(values, "terrain", terrainFingerprint);
-        SaveFingerprint(values, "scenario", SourceFingerprint(source.ScenarioSource));
-        SaveFingerprint(values, "fixed", SourceFingerprint(source.FixedDataSource));
-        SaveFingerprint(values, "map", SourceFingerprint(map.Source));
         foreach (AreaPreviewRecord row in source.Snapshot.Areas)
         {
             var area = new OriginalAreaReference(row.Slot);
@@ -175,29 +165,22 @@ public static class OriginalBattleRemakeCurrentAreaStatistics
     /// <summary>Reached CTurnState step37's first call, SC42FDB4→33E590,
     /// before its2EC3E0 saved-Army152 loop. Recounts only native68 and78 over
     /// the complete captured Hex table, including the source neutral0 exclusion.
-    /// Fixed topology/terrain inputs must remain bound;76 and66 are retained.
-    /// A v1 owner upgrades only here after its fixed receivers/terrain are
-    /// independently proven. Loading and read-only queries never upgrade it.</summary>
+    /// Current receivers must be available;76 and66 are retained. Loading and
+    /// read-only queries never refresh or upgrade this saved counter owner.</summary>
     public static GameState RefreshAtNativeRegionStep(GameState state, LoadedScenario source, LoadedMap map,
         OriginalEventInitializationContext current)
     {
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(map); ArgumentNullException.ThrowIfNull(current);
-        Dictionary<string, int>? saved = SourceBoundValues(state);
+        Dictionary<string, int>? saved = Values(state);
         if (saved is null || ReadRegisteredSlots(saved) is not int[] registered || source.Metadata.FormatMarker != 0x66 || source.Snapshot.Areas.Count != 501 ||
             map.Map is not { Width: 220, Height: 220, Cells.Length: 48400 } ||
             source.Snapshot.Locale != state.NativeArmySimulation!.Parameters.Language ||
             current.StaticSource?.ResourceUri != source.ScenarioSource.ResourceUri ||
             current.StaticSource.Sha256 != source.ScenarioSource.Sha256 ||
-            !MatchesFingerprint(saved, "scenario", SourceFingerprint(source.ScenarioSource)) ||
-            !MatchesFingerprint(saved, "fixed", SourceFingerprint(source.FixedDataSource)) ||
-            !MatchesFingerprint(saved, "map", SourceFingerprint(map.Source)) ||
-            WorldFingerprint(state, includeTerritory: false) is not byte[] environment ||
-            WorldFingerprint(state) is not byte[] world ||
-            TerrainFingerprint(current, source, map) is not byte[] terrainFingerprint ||
-            !HasFingerprint(saved, "environment") ||
-            (saved[OwnerKey] == Version && (!MatchesFingerprint(saved, "environment", environment) ||
-                !MatchesFingerprint(saved, "terrain", terrainFingerprint))) ||
+            state.MapSha256 != map.Source.Sha256 || !SourceMatches(state, source.ScenarioSource) ||
+            !SourceMatches(state, source.FixedDataSource) || !SourceMatches(state, map.Source) ||
+            !TerrainSourceMatches(current, source) ||
             !state.Areas.Keys.Order().SequenceEqual(source.Snapshot.Areas.Where(row => row.Slot != 0 && row.CitySlot is >= 1 and <= 51)
                 .Select(row => row.Slot).Order()))
             throw new InvalidDataException("Native step37 area refresh requires its complete owned ordinary map and unchanged fixed terrain/topology.");
@@ -229,25 +212,6 @@ public static class OriginalBattleRemakeCurrentAreaStatistics
                 throw new InvalidDataException("Native step37 area refresh has an unknown or contradictory current Hex receiver.");
             memberships[slot] = area; forces[slot] = force;
         }
-        if (saved[OwnerKey] == 1)
-        {
-            //v1 hashed mutable CityId/Structures but stored no terrain-input
-            //receipt. Independently prove its retained76 against the captured
-            //fixed terrain before upgrading; do not reconstruct its old
-            //ownership counts, raw34, anchors, registry or missing save keys.
-            var terrainCounts = new int[501];
-            for (int slot = 0; slot < 48400; slot++)
-            {
-                int area = memberships[slot];
-                byte surface = map.Map.Cells[slot].SurfaceCode;
-                ushort terrain = current.ReadSurfaceTypeRawField2A(new(surface <= 30 ? surface : 0))!.Value;
-                if (area != 0 && cityCodes[area] is >= 1 and <= 51 && terrain != 0)
-                    terrainCounts[area] = unchecked(terrainCounts[area] + 1);
-            }
-            for (int slot = 0; slot < 501; slot++)
-                if (Word(saved, FieldKey(slot, 0x76)) != OriginalAreaMapStatisticsInitialization.CountToNativeWord(terrainCounts[slot]))
-                    throw new InvalidDataException("Legacy area owner cannot prove its retained terrain76 at the reached source writer.");
-        }
         for (int slot = 0; slot < 501; slot++) representativeForces[slot] = forces[centers[slot]];
         //33E590 traverses the48400 Hex pointers in native table order. Its
         //saved area physical identity indexes the local dword count array.
@@ -277,9 +241,6 @@ public static class OriginalBattleRemakeCurrentAreaStatistics
             if (summary.ReadAreaNativeValidity(new(slot)) == true)
                 summary.WriteAreaMapStatisticsSummaryWord(slot, Word(values, FieldKey(slot, 0x68))!.Value);
         }
-        ReplaceFingerprint(values, "world", world);
-        ReplaceFingerprint(values, "environment", environment);
-        ReplaceFingerprint(values, "terrain", terrainFingerprint);
         values[OwnerKey] = Version;
         NativeArmySimulationState simulation = state.NativeArmySimulation!;
         return state with { NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = values } } };
@@ -289,7 +250,7 @@ public static class OriginalBattleRemakeCurrentAreaStatistics
     {
         ArgumentNullException.ThrowIfNull(state);
         if (physicalAreaSlot is < 0 or > 500) throw new InvalidDataException("Current area statistics require native physical slot0..500.");
-        Dictionary<string, int>? values = BoundValues(state);
+        Dictionary<string, int>? values = Values(state);
         return values is null ? null : ReadFields(values, physicalAreaSlot);
     }
 
@@ -302,13 +263,12 @@ public static class OriginalBattleRemakeCurrentAreaStatistics
         return Capture(state)?.MaterializeIntoCurrent(current) ?? false;
     }
 
-    /// <summary>Validate the full owner and world fingerprint once, then copy
-    /// the finite501 values. No mutable dictionary or GameState reference escapes
+    /// <summary>Copy the finite501 saved counter values. No mutable dictionary or GameState reference escapes
     /// into the snapshot, and no cross-operation cache is maintained.</summary>
     public static OriginalBattleRemakeCurrentAreaStatisticsSnapshot? Capture(GameState state)
     {
         ArgumentNullException.ThrowIfNull(state);
-        Dictionary<string, int>? values = BoundValues(state);
+        Dictionary<string, int>? values = Values(state);
         if (values is null || ReadRegisteredSlots(values) is not int[] registered) return null;
         var cities = new byte[501]; var hexes = new ushort[501];
         var statistics = new OriginalBattleRemakeCurrentAreaStatisticsReceipt[501];
@@ -318,9 +278,8 @@ public static class OriginalBattleRemakeCurrentAreaStatistics
                 Word(values, FieldKey(slot, 0x3A)) is not ushort hex || hex >= 48400) return null;
             cities[slot] = city; hexes[slot] = hex; statistics[slot] = stats;
         }
-        KeyValuePair<string, string> source = state.ContentHashes.First(pair => Hash(pair.Value) is not null &&
-            MatchesFingerprint(values, "scenario", SourceFingerprint(pair.Key, pair.Value)));
-        return new(cities, hexes, statistics, registered, source.Key, source.Value);
+        if (!state.ContentHashes.TryGetValue(state.ScenarioKey, out string? scenarioHash)) return null;
+        return new(cities, hexes, statistics, registered, state.ScenarioKey, scenarioHash);
     }
 
     private static OriginalBattleRemakeCurrentAreaStatisticsReceipt? ReadFields(Dictionary<string, int> values, int slot) =>
@@ -332,114 +291,14 @@ public static class OriginalBattleRemakeCurrentAreaStatistics
         values.TryGetValue(key, out int value) && value is >= 0 and <= 65535 ? (ushort)value : null;
     private static byte? Byte(Dictionary<string, int> values, string key) =>
         values.TryGetValue(key, out int value) && value is >= 0 and <= 255 ? (byte)value : null;
-    private static Dictionary<string, int>? BoundValues(GameState state)
-    {
-        Dictionary<string, int>? values = SourceBoundValues(state);
-        if (values is null || WorldFingerprint(state, version: values[OwnerKey]) is not byte[] world ||
-            !MatchesFingerprint(values, "world", world)) return null;
-        return values;
-    }
-    private static Dictionary<string, int>? SourceBoundValues(GameState state)
-    {
-        if (state.NativeArmySimulation?.Parameters is not { } parameters || !ProfileMatches(parameters) ||
-            state.NativeClock is null || parameters.Int32Values.GetValueOrDefault(OwnerKey) is not (1 or Version) ||
-            ReadRegisteredSlots(parameters.Int32Values) is null) return null;
-        Dictionary<string, int> values = parameters.Int32Values;
-        if (!HasFingerprint(values, "world") || !HasFingerprint(values, "environment")) return null;
-        if (values[OwnerKey] == Version && !HasFingerprint(values, "terrain")) return null;
-        foreach (string kind in new[] { "scenario", "fixed", "map" })
-            if (!state.ContentHashes.Any(pair => Hash(pair.Value) is not null &&
-                (kind != "map" || pair.Value == state.MapSha256) &&
-                MatchesFingerprint(values, kind, SourceFingerprint(pair.Key, pair.Value)))) return null;
-        return values;
-    }
-    private static byte[]? WorldFingerprint(GameState state, bool includeTerritory = true, int version = Version) =>
-        version switch { 1 => LegacyWorldFingerprint(state, includeTerritory), Version => CurrentWorldFingerprint(state, includeTerritory), _ => null };
+    private static Dictionary<string, int>? Values(GameState state) =>
+        state.NativeArmySimulation?.Parameters is { } parameters && ProfileMatches(parameters) &&
+        state.NativeClock is not null && parameters.Int32Values.GetValueOrDefault(OwnerKey) is 1 or Version
+            ? parameters.Int32Values : null;
+    private static bool TerrainSourceMatches(OriginalEventInitializationContext current, LoadedScenario source) =>
+        current.TerrainTypeSource is { } terrain && terrain.ResourceUri == source.FixedDataSource.ResourceUri &&
+        terrain.Sha256 == source.FixedDataSource.Sha256;
 
-    /// <summary>Exact v1 byte layout for reading existing saved owners only.
-    /// Its historical CityId/Structures constraints remain in force until the
-    /// actual source writer can prove and commit a v2 owner.</summary>
-    private static byte[]? LegacyWorldFingerprint(GameState state, bool includeTerritory)
-    {
-        if (state.MapWidth != 220 || state.MapHeight != 220 || state.Territory.Count != 48400 || state.Structures is not { } structures ||
-            state.MapSha256 is not string mapHash || Hash(mapHash) is null) return null;
-        using var stream = new MemoryStream(); using var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true);
-        writer.Write(mapHash);
-        writer.Write(includeTerritory);
-        for (int slot = 0; includeTerritory && slot < 48400; slot++)
-        {
-            if (!state.Territory.TryGetValue(slot, out TerritoryState? cell) || cell.Id != slot ||
-                cell.AreaId is < 0 or > 500 || cell.ForceId is < 0 or > 51) return null;
-            writer.Write(slot); writer.Write(cell.AreaId ?? 0); writer.Write(cell.ForceId ?? 0);
-        }
-        writer.Write(state.Areas.Count);
-        foreach (var pair in state.Areas.OrderBy(pair => pair.Key))
-        {
-            AreaState area = pair.Value;
-            if (pair.Key != area.Id || area.Id is < 1 or > 500 || area.CityId is < 1 or > 51 || area.HexId is < 0 or >= 48400) return null;
-            writer.Write(area.Id); writer.Write(area.CityId); writer.Write(area.HexId ?? -1);
-            if (includeTerritory) writer.Write(area.ForceId ?? -1);
-        }
-        writer.Write(structures.Count);
-        foreach (var pair in structures.OrderBy(pair => pair.Key))
-        {
-            StructureState structure = pair.Value;
-            writer.Write(pair.Key); writer.Write(structure.Id); writer.Write(structure.KindId);
-            writer.Write(structure.HexId); writer.Write(structure.ForceId ?? -1); writer.Write(structure.Durability);
-            writer.Write(structure.Completed); writer.Write(structure.SourceCityId ?? -1);
-        }
-        writer.Flush(); return SHA256.HashData(stream.GetBuffer().AsSpan(0, checked((int)stream.Length)));
-    }
-    private static byte[]? CurrentWorldFingerprint(GameState state, bool includeTerritory)
-    {
-        if (state.MapWidth != 220 || state.MapHeight != 220 || state.Territory.Count != 48400 ||
-            state.MapSha256 is not string mapHash || Hash(mapHash) is null) return null;
-        using var stream = new MemoryStream(); using var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true);
-        writer.Write(mapHash); writer.Write(Version); writer.Write(includeTerritory);
-        //Membership is fixed terrain/topology even in the environment receipt.
-        //Owner14 is mutable and only belongs to the full statistics snapshot.
-        for (int slot = 0; slot < 48400; slot++)
-        {
-            if (!state.Territory.TryGetValue(slot, out TerritoryState? cell) || cell.Id != slot ||
-                cell.AreaId is < 0 or > 500 || cell.ForceId is < 0 or > 51) return null;
-            writer.Write(slot); writer.Write(cell.AreaId ?? 0);
-            if (includeTerritory) writer.Write(cell.ForceId ?? 0);
-        }
-        writer.Write(state.Areas.Count);
-        foreach (var pair in state.Areas.OrderBy(pair => pair.Key))
-        {
-            AreaState area = pair.Value;
-            if (pair.Key != area.Id || area.Id is < 1 or > 500 || area.CityId is < 1 or > 51 ||
-                area.HexId is not (>= 0 and < 48400) ||
-                !state.Cities.TryGetValue(area.CityId, out CityState? city) || city.Id != area.CityId) return null;
-            writer.Write(area.Id); writer.Write(area.HexId.Value);
-            if (includeTerritory) { writer.Write(area.CityId); writer.Write(area.ForceId ?? -1); }
-        }
-        //Neither33E590 nor the preserved terrain76 counter reads Core
-        //facilities. Their unknown/current contents are not map surface inputs.
-        writer.Flush(); return SHA256.HashData(stream.GetBuffer().AsSpan(0, checked((int)stream.Length)));
-    }
-    private static byte[]? TerrainFingerprint(OriginalEventInitializationContext current, LoadedScenario source, LoadedMap map)
-    {
-        if (current.TerrainTypeSource is not { } terrain || terrain.ResourceUri != source.FixedDataSource.ResourceUri ||
-            terrain.Sha256 != source.FixedDataSource.Sha256 || Hash(current.TerrainTypeSourceSha256 ?? "") is null) return null;
-        using var stream = new MemoryStream(); using var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true);
-        writer.Write(current.TerrainTypeSourceSha256!);
-        for (int slot = 0; slot < 31; slot++)
-        {
-            OriginalSurfaceTypeReference? surface = current.ReadSurfaceTypeTableReference(slot);
-            if (surface?.PhysicalSlot != slot || current.ReadSurfaceTypeRawField2A(surface) is not ushort field) return null;
-            writer.Write(field);
-        }
-        for (int slot = 0; slot < 48400; slot++)
-        {
-            OriginalHexReference? hex = current.ReadHexTableReference(slot);
-            if (hex?.PhysicalSlot != slot || current.ReadHexSurfaceCode(hex) is not byte surface || surface != map.Map.Cells[slot].SurfaceCode)
-                return null;
-            writer.Write(surface);
-        }
-        writer.Flush(); return SHA256.HashData(stream.GetBuffer().AsSpan(0, checked((int)stream.Length)));
-    }
     private static int[]? ReadRegisteredSlots(Dictionary<string, int> values)
     {
         if (!values.TryGetValue(RegistryCountKey, out int count) || count is < 0 or > 501) return null;
@@ -451,30 +310,8 @@ public static class OriginalBattleRemakeCurrentAreaStatistics
         }
         return slots;
     }
-    private static bool ProfileMatches(NativeArmyParameterState parameters) => parameters.ExecutableSha256 ==
-        (parameters.Language switch { "SC" => OriginalCeHexWorldCoordinates.VerifiedScExecutableSha256,
-            "TC" => OriginalCeHexWorldCoordinates.VerifiedTcExecutableSha256, _ => null });
+    private static bool ProfileMatches(NativeArmyParameterState parameters) => parameters.Language is ("SC" or "TC");
     private static bool SourceMatches(GameState state, SourceProvenance source) =>
-        !string.IsNullOrWhiteSpace(source.ResourceUri) && Hash(source.Sha256) is not null &&
+        !string.IsNullOrWhiteSpace(source.ResourceUri) &&
         state.ContentHashes.GetValueOrDefault(source.ResourceUri) == source.Sha256;
-    private static byte[] SourceFingerprint(SourceProvenance source) => SourceFingerprint(source.ResourceUri, source.Sha256);
-    private static byte[] SourceFingerprint(string uri, string hash)
-    {
-        if (string.IsNullOrWhiteSpace(uri) || Hash(hash) is not byte[] bytes) throw new InvalidDataException("Area statistics source binding is malformed.");
-        return SHA256.HashData(Encoding.UTF8.GetBytes(uri).Concat(bytes).ToArray());
-    }
-    private static byte[]? Hash(string hash) => hash is { Length: 64 } && hash.All(Uri.IsHexDigit) ? Convert.FromHexString(hash) : null;
-    private static void SaveFingerprint(Dictionary<string, int> values, string kind, byte[] hash)
-    {
-        for (int ordinal = 0; ordinal < 8; ordinal++) values.Add(FingerprintKey(kind, ordinal), BinaryPrimitives.ReadInt32LittleEndian(hash.AsSpan(ordinal * 4, 4)));
-    }
-    private static void ReplaceFingerprint(Dictionary<string, int> values, string kind, byte[] hash)
-    {
-        for (int ordinal = 0; ordinal < 8; ordinal++) values[FingerprintKey(kind, ordinal)] = BinaryPrimitives.ReadInt32LittleEndian(hash.AsSpan(ordinal * 4, 4));
-    }
-    private static bool MatchesFingerprint(Dictionary<string, int> values, string kind, byte[] hash) =>
-        Enumerable.Range(0, 8).All(ordinal => values.TryGetValue(FingerprintKey(kind, ordinal), out int value) &&
-            value == BinaryPrimitives.ReadInt32LittleEndian(hash.AsSpan(ordinal * 4, 4)));
-    private static bool HasFingerprint(Dictionary<string, int> values, string kind) =>
-        Enumerable.Range(0, 8).All(ordinal => values.ContainsKey(FingerprintKey(kind, ordinal)));
 }

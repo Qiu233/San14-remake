@@ -12,8 +12,8 @@ inline NativeShadowRasterSource loadNativeShadowRasterSource(const fs::path& dir
     std::ifstream inputs(directory/"inputs.txt");
     inputs>>out.selector>>out.common3F3>>out.scale;
     for(auto& value:out.bias)inputs>>value;
-    if(!inputs||out.selector!=1||out.common3F3!=0)
-        throw std::runtime_error("Current caster needs its source per-pass bias producer");
+    if(!inputs||out.selector>1||out.common3F3!=0)
+        throw std::runtime_error("Current caster needs its source bias producer");
     std::ifstream rows(directory/"raster.txt");
     unsigned pass,fill,cull,front,clip,scissor,multi,aa;
     int expectedBias;float expectedSlope,clamp;
@@ -26,7 +26,7 @@ inline NativeShadowRasterSource loadNativeShadowRasterSource(const fs::path& dir
         // float32 multiplication then truncation, even though EA's DSV is D32.
         const float sbiasX=out.scale*.5f;
         raster.SlopeScaledDepthBias=sbiasX+sbiasX;
-        raster.DepthBias=int(out.bias.at(pass)*16777216.f);
+        raster.DepthBias=int(out.bias.at(out.selector==0?0:pass)*16777216.f);
         raster.DepthBiasClamp=clamp;
         if(raster.DepthBias!=expectedBias||raster.SlopeScaledDepthBias!=expectedSlope)
             throw std::runtime_error("Caster bias differs from imported source conversion");

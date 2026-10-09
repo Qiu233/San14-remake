@@ -21,53 +21,6 @@ public sealed class OriginalMapSourceCreatedLightingGenericFogScope
         "backend-pending=0/native-current-pending-unresolved;owner=" + OwnerIdentity;
 }
 
-/// <summary>Explicit current Sky coefficients from a separate owned producer.
-/// Independence is a required current-owner scope, not inferred from numeric
-/// zeros, sourceMode0 or a fresh native Generic constructor.</summary>
-public sealed record OriginalMapSourceCreatedLightingIndependentSkyAtmosphereInputs(long FrameNumber,
-    string ViewIdentity, string AtmosphereOwnerIdentity, OriginalSkySceneSharedAtmosphere Atmosphere,
-    bool? IndependentOfNormalizedLightData, string CurrentProducerProvenance);
-
-public sealed class OriginalMapSourceCreatedLightingIndependentSkyAtmosphere
-{
-    internal OriginalMapSourceCreatedLightingIndependentSkyAtmosphere(
-        OriginalMapSourceCreatedLightingRetainedConsumerReceipt receipt,
-        OriginalMapSourceCreatedLightingIndependentSkyAtmosphereInputs input)
-    {
-        Receipt=receipt; FrameNumber=input.FrameNumber; ViewIdentity=input.ViewIdentity;
-        AtmosphereOwnerIdentity=input.AtmosphereOwnerIdentity; CurrentProducerProvenance=input.CurrentProducerProvenance;
-        var value=input.Atmosphere;
-        captured=value with { Fog=value.Fog with {Bytes=value.Fog.Bytes.ToArray(),
-            ScatteringOverride=value.Fog.ScatteringOverride is { } scattering ? scattering with {
-                Bytes=scattering.Bytes.ToArray(),Values=Array.AsReadOnly(scattering.Values.ToArray())} : null},
-            Scattering=Array.AsReadOnly(value.Scattering.ToArray()) };
-    }
-    private readonly OriginalSkySceneSharedAtmosphere captured;
-    internal OriginalMapSourceCreatedLightingRetainedConsumerReceipt Receipt { get; }
-    public long FrameNumber { get; }
-    public string ViewIdentity { get; }
-    public string AtmosphereOwnerIdentity { get; }
-    public string CurrentProducerProvenance { get; }
-    public OriginalSkySceneSharedAtmosphere Atmosphere => captured with {
-        Fog=captured.Fog with {Bytes=captured.Fog.Bytes.ToArray(),
-            ScatteringOverride=captured.Fog.ScatteringOverride is { } scattering ? scattering with {
-                Bytes=scattering.Bytes.ToArray(),Values=Array.AsReadOnly(scattering.Values.ToArray())} : null},
-        Scattering=Array.AsReadOnly(captured.Scattering.ToArray()) };
-    internal void Validate(OriginalSkySceneSharedAtmosphere actual)
-    {
-        if(actual.SourceProvenance!=captured.SourceProvenance || actual.Fog.RendererFogMode!=captured.Fog.RendererFogMode ||
-            actual.Fog.Profile!=captured.Fog.Profile || actual.Fog.FogEnabled!=captured.Fog.FogEnabled ||
-            actual.Fog.SourceFogMode!=captured.Fog.SourceFogMode || actual.Fog.Value!=captured.Fog.Value ||
-            actual.Fog.RequiresMode7NeutralScattering!=captured.Fog.RequiresMode7NeutralScattering ||
-            !actual.Fog.Bytes.AsSpan().SequenceEqual(captured.Fog.Bytes) ||
-            !actual.Scattering.SequenceEqual(captured.Scattering) ||
-            (actual.Fog.ScatteringOverride is null)!=(captured.Fog.ScatteringOverride is null) ||
-            (actual.Fog.ScatteringOverride is { } a && captured.Fog.ScatteringOverride is { } b &&
-                (a.RendererFogMode!=b.RendererFogMode || !a.Bytes.AsSpan().SequenceEqual(b.Bytes) || !a.Values.SequenceEqual(b.Values))))
-            throw new InvalidDataException("Actual Sky atmosphere differs from its independent current owner.");
-    }
-}
-
 /// <summary>Validation of one actual owned frame. Early parameters and Sky
 /// have separate typed checks at their preparation boundaries. A receipt does
 /// not prove descriptor readiness, image contents, a GPU draw, native retained
@@ -80,30 +33,18 @@ public sealed class OriginalMapSourceCreatedLightingRetainedConsumerReceipt
         OriginalDeferredF103SelectedSource late,
         OriginalDeferredEarlyF103SelectedSource? early)
     {
-        Owner = owner; Lighting = lighting.CopyAcceptedSnapshot(); Late = late; Early = early;
-        FrameNumber = lighting.FrameNumber; LocalLightDataSha256 = Hash(lighting.LocalLightData.Span);
+        Owner = owner; Lighting = lighting; Late = late; Early = early;
+        FrameNumber = lighting.FrameNumber;
     }
     internal OriginalMapSourceCreatedLightingRetainedNormalization Owner { get; }
     internal OriginalMapSourceCreatedLightingPacket Lighting { get; }
     internal OriginalDeferredF103SelectedSource Late { get; }
     internal OriginalDeferredEarlyF103SelectedSource? Early { get; }
     public long FrameNumber { get; }
-    public string LocalLightDataSha256 { get; }
-    public bool Late767Validated => true;
-    public bool Early126ParametersValidated { get; internal set; }
-    public bool SkyLightVectorsValidated { get; internal set; }
-    public bool SkyAtmosphereValidated { get; internal set; }
-    internal int SkyNamedProgramMask { get; set; }
-    public bool Sky3And4Validated => SkyAtmosphereValidated && SkyNamedProgramMask==3;
-    public bool AllDeclaredF103ConsumersValidated => Early is null || Early126ParametersValidated;
-    public bool AllDeclaredConsumersValidated => AllDeclaredF103ConsumersValidated && Sky3And4Validated;
     public bool NativeByteIdentityPreserved => false;
     public bool BackendNamedOnly => true;
     public string SourceProvenance => Owner.SourceProvenance + ";frame=" + FrameNumber +
-        ";accepted-light=" + LocalLightDataSha256 + ";raw-SharedFog-reader-skipped;" +
-        "Exposure-mode2/FDC-bit0-clear/Camera17C;Final-Camera-only;" +
-        "early126-parameters=" + Early126ParametersValidated + ";Sky3/4=" + Sky3And4Validated;
-    private static string Hash(ReadOnlySpan<byte> bytes) => Convert.ToHexString(SHA256.HashData(bytes));
+        ";raw-SharedFog-reader-skipped;Exposure-mode2/FDC-bit0-clear/Camera17C;Final-Camera-only";
 }
 
 /// <summary>Chosen backend representation of the twelve native retained
@@ -199,7 +140,7 @@ public sealed class OriginalMapSourceCreatedLightingRetainedNormalization
     /// The declared ordinary early consumer must occur exactly once when this
     /// recipe includes it, and needs a later typed Caustics/parameter check.
     /// The active list is the caller's actual captured execution plan.</summary>
-    public OriginalMapSourceCreatedLightingRetainedConsumerReceipt ValidateCurrentConsumers(
+    public OriginalMapSourceCreatedLightingRetainedConsumerReceipt RequireCurrentConsumers(
         OriginalMapSourceCreatedLightingFrameInputs actualLightingInput,
         OriginalMapSourceCreatedLightingPacket lighting, OriginalMapSourceCreatedF103FeaturePacket feature,
         OriginalDeferredF103SelectedSource actualLateSelected,
@@ -209,24 +150,17 @@ public sealed class OriginalMapSourceCreatedLightingRetainedNormalization
         ArgumentNullException.ThrowIfNull(actualLightingInput); ArgumentNullException.ThrowIfNull(feature);
         ArgumentNullException.ThrowIfNull(actualLateSelected); ArgumentNullException.ThrowIfNull(actualActiveEarlySelected);
         ValidateLighting(lighting);
-        var acceptedInput=lighting.AcceptedInputs;
         actualLightingInput.PresentSeasonCamera?.ValidateInputs(actualLightingInput);
         if(!ReferenceEquals(currentGenericFogScope,GenericFogOwner) || actualLightingInput.FrameNumber!=lighting.FrameNumber ||
             actualLightingInput.Binding!=lighting.Binding || actualLightingInput.ContextFlags3E4!=lighting.ContextFlags3E4 ||
-            actualLightingInput.SelectedSharedFogOwnerEnabled!=acceptedInput.SelectedSharedFogOwnerEnabled ||
-            actualLightingInput.SelectedBuiltinAmbientCameraRate!=acceptedInput.SelectedBuiltinAmbientCameraRate ||
-            !actualLightingInput.PriorPreparedCameraPrefix.Span.SequenceEqual(acceptedInput.PriorPreparedCameraPrefix.Span) ||
-            actualLightingInput.LightingSkylightParameters!=acceptedInput.LightingSkylightParameters ||
-            BitConverter.SingleToUInt32Bits(actualLightingInput.FrameDelta)!=BitConverter.SingleToUInt32Bits(acceptedInput.FrameDelta) ||
             actualLightingInput.RuntimeTable!=lighting.RuntimeTable ||
-            !ReferenceEquals(actualLightingInput.PresentSeasonCamera,acceptedInput.PresentSeasonCamera) ||
             actualLightingInput.CameraScope!=OriginalMapLightingCameraScope.LightingPrefix ||
             actualLightingInput.SelectedSharedFogOwnerEnabled is not null || actualLightingInput.AdditionalSceneInputs.Fog is not null ||
             lighting.SceneInputs.Fog is not null || lighting.FrameNumber<lastAcceptedFrame)
             throw new InvalidDataException("Retained normalization requires the same actual input, skipped raw SharedFog and this fresh inactive Generic owner.");
         feature.ValidateFrame(actualLateSelected.Camera,lighting); actualLateSelected.Validate();
         if(actualLateSelected.OwnedFeatureSource is not { } selectedFeature ||
-            selectedFeature.EffectiveLightDataSha256!=feature.EffectiveLightDataSha256 ||
+            selectedFeature.EffectiveLightOwnerIdentity!=feature.EffectiveLightOwnerIdentity ||
             !selectedFeature.CurrentFeature48.Span.SequenceEqual(feature.CurrentFeature48.Span) ||
             actualLateSelected.SourcePlan.Shader.Source.DecodedSha256!=lateShader.Source.DecodedSha256 ||
             actualLateSelected.SourcePlan.Node.Index!=166 || actualLateSelected.Combination.Index!=1022 ||
@@ -245,7 +179,7 @@ public sealed class OriginalMapSourceCreatedLightingRetainedNormalization
             early=actualActiveEarlySelected[0]; OriginalDeferredEarlyCausticsOwner.ValidateSelection(early);
             early.ValidateParameterFrame(early.Camera,lighting);
             if(early.SourcePlan.Shader.Source.DecodedSha256!=earlyShader.Source.DecodedSha256 ||
-                early.OwnedFeatureSource?.EffectiveLightDataSha256!=feature.EffectiveLightDataSha256 ||
+                early.OwnedFeatureSource?.EffectiveLightOwnerIdentity!=feature.EffectiveLightOwnerIdentity ||
                 !early.CurrentFeature48.Span.SequenceEqual(feature.CurrentFeature48.Span))
                 throw new InvalidDataException("Early normalization consumer differs from the same owned light/feature frame.");
             RequireInactiveProfile(earlyShader,early.FeatureMatch.RowIndex,0);
@@ -256,148 +190,20 @@ public sealed class OriginalMapSourceCreatedLightingRetainedNormalization
 
     /// <summary>Use the immutable input retained by the actual lighting
     /// preparation when its caller no longer retains the input object.</summary>
-    public OriginalMapSourceCreatedLightingRetainedConsumerReceipt ValidateCurrentConsumers(
+    public OriginalMapSourceCreatedLightingRetainedConsumerReceipt RequireCurrentConsumers(
         OriginalMapSourceCreatedLightingPacket lighting, OriginalMapSourceCreatedF103FeaturePacket feature,
         OriginalDeferredF103SelectedSource actualLateSelected,
         IReadOnlyList<OriginalDeferredEarlyF103SelectedSource> actualActiveEarlySelected,
         OriginalMapSourceCreatedLightingGenericFogScope currentGenericFogScope) =>
-        ValidateCurrentConsumers(lighting.AcceptedInputs,lighting,feature,actualLateSelected,
+        RequireCurrentConsumers(lighting.AcceptedInputs,lighting,feature,actualLateSelected,
             actualActiveEarlySelected,currentGenericFogScope);
 
-    /// <summary>Complete the node78 check using the same-frame private typed
-    /// Caustics source authority and complete actual named cb0 packet. Its
-    /// source size gate skips every LightData-dependent Caustics calculation.</summary>
-    public void ValidateCurrentEarlyConsumer(OriginalMapSourceCreatedLightingRetainedConsumerReceipt receipt,
-        OriginalDeferredEarlyF103SelectedSource selected, OriginalDeferredEarlyCausticsPacket actualCaustics,
-        OriginalDeferredEarlyConstantPacket actualNamedConstants)
+    public void RequireCurrentEarlyConsumer(OriginalMapSourceCreatedLightingRetainedConsumerReceipt receipt,
+        OriginalDeferredEarlyF103SelectedSource selected)
     {
-        ValidateReceipt(receipt); ArgumentNullException.ThrowIfNull(actualCaustics); ArgumentNullException.ThrowIfNull(actualNamedConstants);
-        if(!ReferenceEquals(receipt.Early,selected))
-            throw new InvalidDataException("Early retained validation requires the actual declared current selection.");
-        actualCaustics.SourceNull.Validate(selected);
-        if(actualNamedConstants.Bytes.Length!=480 || actualNamedConstants.RetainedVariables.Count!=0 ||
-            actualNamedConstants.CommonWrites.Count!=13 || actualNamedConstants.AdditionalWrites.Count!=3)
-            throw new InvalidDataException("Retained normalization requires all16 current ordinary early named writers.");
-        foreach(var write in actualCaustics.NativeWrites)
-        {
-            var actual=actualNamedConstants.AdditionalWrites.SingleOrDefault(w=>w.Name==write.Name);
-            var target=selected.PixelDefinitions.Buffers.Single(b=>b.Name.Text=="$Globals").Variables.Single(v=>v.Name.Text==write.Name);
-            if(actual is null || actual.CurrentProducerProvenance!=write.CurrentProducerProvenance ||
-                !actual.Bytes.Span.SequenceEqual(write.Bytes.Span) ||
-                !actualNamedConstants.Bytes.Span.Slice(target.StartOffset,target.ByteSize).SequenceEqual(write.Bytes.Span))
-                throw new InvalidDataException("Early cb0 differs from its exact typed current source Caustics writer.");
-        }
-        var globals=selected.PixelDefinitions.Buffers.Single(b=>b.Name.Text=="$Globals");
-        var occurrence=globals.Variables.Single(v=>v.Name.Text=="vOccRate");
-        var fade=globals.Variables.Single(v=>v.Name.Text=="fSdmFade");
-        var bytes=actualNamedConstants.Bytes.Span;
-        var reprojected=OriginalDeferredEarlySceneConstants.CreateOrdinary126(selected,lateShader,receipt.Lighting,
-            new(new(BinaryPrimitives.ReadSingleLittleEndian(bytes.Slice(occurrence.StartOffset,4)),
-                BinaryPrimitives.ReadSingleLittleEndian(bytes.Slice(occurrence.StartOffset+4,4)))),
-            new(BinaryPrimitives.ReadSingleLittleEndian(bytes.Slice(fade.StartOffset,4))),
-            actualCaustics.NativeWrites,actualNamedConstants.CurrentProducerProvenance);
-        if(!reprojected.Bytes.Span.SequenceEqual(bytes))
-            throw new InvalidDataException("Early cb0 does not match the exact current Camera/light/ambient named projection.");
-        receipt.Early126ParametersValidated=true;
-    }
-
-    /// <summary>Check the independently prepared actual source Sky packet
-    /// before its default PS3/PS4 consumers. Source mode2 reads only F80..FBF,
-    /// all written by the complete loader; row0 supplies renderer4/profile1.</summary>
-    public void ValidateCurrentSkyConsumer(OriginalMapSourceCreatedLightingRetainedConsumerReceipt receipt,
-        OriginalMapSourceCreatedLightingPacket lighting, OriginalSky2SourceZeroMoon actualSourceSky,
-        OriginalSkySceneSelectedViewLightPacket actualSelectedPacket)
-    {
-        ValidateReceipt(receipt); ValidateLighting(lighting); ArgumentNullException.ThrowIfNull(actualSourceSky);
-        if(lighting.FrameNumber!=receipt.FrameNumber || Hash(lighting.LocalLightData.Span)!=receipt.LocalLightDataSha256)
-            throw new InvalidDataException("Sky retained validation requires the exact accepted current lighting generation.");
-        RequireInactiveProfile(skyShader,0,4);
-        actualSourceSky.ValidateLighting(lighting); actualSourceSky.ValidatePacket(actualSelectedPacket);
-        // This validates the selected Sun/Moon reader only. Sky VS consumes
-        // fog.xy and Sky PS consumes Scat, which need their actual owner below.
-        receipt.SkyLightVectorsValidated=true;
-    }
-
-    /// <summary>Capture actual independent atmosphere values without supplying
-    /// any defaults. A native delayed Scat calculation from LightData cannot
-    /// acquire this authority, irrespective of sourceMode or enable flags.</summary>
-    public OriginalMapSourceCreatedLightingIndependentSkyAtmosphere CaptureCurrentIndependentSkyAtmosphere(
-        OriginalMapSourceCreatedLightingRetainedConsumerReceipt receipt,
-        OriginalMapSourceCreatedLightingIndependentSkyAtmosphereInputs input)
-    {
-        ValidateReceipt(receipt); ArgumentNullException.ThrowIfNull(input); ArgumentNullException.ThrowIfNull(input.Atmosphere);
-        if(input.FrameNumber!=receipt.FrameNumber || input.ViewIdentity!=receipt.Lighting.Binding.ViewIdentity ||
-            input.IndependentOfNormalizedLightData!=true || string.IsNullOrWhiteSpace(input.AtmosphereOwnerIdentity) ||
-            string.IsNullOrWhiteSpace(input.CurrentProducerProvenance) || string.IsNullOrWhiteSpace(input.Atmosphere.SourceProvenance) ||
-            input.Atmosphere.Fog is null || input.Atmosphere.Scattering is null || input.Atmosphere.Scattering.Count!=4 ||
-            input.Atmosphere.Fog.Bytes.Length!=16)
-            throw new InvalidDataException("Sky requires complete current independent atmosphere owner/values; native delayed Scat scope is unresolved.");
-        RequireVectorPacket(input.Atmosphere.Fog.Value,input.Atmosphere.Fog.Bytes);
-        foreach(var vector in input.Atmosphere.Scattering) RequireFinite(vector);
-        if(input.Atmosphere.Fog.ScatteringOverride is { } scattering)
-        {
-            if(scattering.Values.Count!=4 || scattering.Bytes.Length!=64)
-                throw new InvalidDataException("Independent current scattering override requires its complete four-vector packet.");
-            for(int index=0;index<4;index++) RequireVectorPacket(scattering.Values[index],scattering.Bytes.AsSpan(index*16,16));
-        }
-        return new(receipt,input);
-    }
-
-    /// <summary>Complete Sky coverage against the actual frame consumed by
-    /// its renderer, including the separately owned Fog/Scat fields. The
-    /// selected-light capability alone cannot certify these semantic groups.</summary>
-    public void ValidateCurrentSkyConsumer(OriginalMapSourceCreatedLightingRetainedConsumerReceipt receipt,
-        OriginalMapSourceCreatedLightingPacket lighting, OriginalSky2SourceZeroMoon actualSourceSky,
-        OriginalSkySceneSelectedViewLightPacket actualSelectedPacket,
-        OriginalSkySceneSourceFramePacket actualSkyFrame,
-        OriginalMapSourceCreatedLightingIndependentSkyAtmosphere actualAtmosphere)
-    {
-        ValidateCurrentSkyConsumer(receipt,lighting,actualSourceSky,actualSelectedPacket);
-        ArgumentNullException.ThrowIfNull(actualSkyFrame); ArgumentNullException.ThrowIfNull(actualAtmosphere);
-        if(!ReferenceEquals(actualAtmosphere.Receipt,receipt) || actualSkyFrame.FrameNumber!=receipt.FrameNumber ||
-            actualSkyFrame.Binding!=lighting.Binding || !ReferenceEquals(actualSkyFrame.SourceFrame.Lights.SourceZeroMoon,actualSourceSky))
-            throw new InvalidDataException("Sky retained validation requires the exact same-frame independent atmosphere and light capabilities.");
-        actualAtmosphere.Validate(actualSkyFrame.SourceFrame.Atmosphere);
-        var actualLights=actualSkyFrame.SourceFrame.Lights;
-        var originalLights=OriginalSkySceneSelectedViewLightSource.PrepareSourceZeroMoonLights(actualSelectedPacket,
-            actualLights.PackageLightPosition,"validation-only-current-package-position",actualSourceSky);
-        // Controller11775C0 may replace Sun/Moon positions after the RGB
-        // setters. Their position owner is the source frame/controller, while
-        // these exact source RGB caches must remain the selected light's.
-        if(!actualLights.SunPresent || !actualLights.MoonPresent ||
-            actualLights.SunRgbCache1460!=originalLights.SunRgbCache1460 ||
-            actualLights.RawMoonRgb!=originalLights.RawMoonRgb ||
-            BitConverter.SingleToUInt32Bits(actualLights.MoonMaximum147C)!=0 ||
-            actualLights.SourceMoonRgbCache1470!=originalLights.SourceMoonRgbCache1470)
-            throw new InvalidDataException("Actual Sky RGB caches differ from the selected source light/Moon authority.");
-        receipt.SkyAtmosphereValidated=true;
-    }
-
-    /// <summary>Validate the actual Sky named buffers before their draws. Both
-    /// declared default PS3/PS4 packets must be checked for full coverage. Their
-    /// active VS fog and PS3 Scat come from the captured independent atmosphere;
-    /// no raw Generic cache or native delayed97CF70 result is admitted.</summary>
-    public void ValidateCurrentSkyNamedConstants(OriginalMapSourceCreatedLightingRetainedConsumerReceipt receipt,
-        OriginalMapSourceCreatedLightingIndependentSkyAtmosphere actualAtmosphere,
-        OriginalSky2DrawInputs actualDraw, int actualPixelProgram,
-        ReadOnlyMemory<byte> actualVertexCb0, ReadOnlyMemory<byte> actualPixelCb0)
-    {
-        ValidateReceipt(receipt); ArgumentNullException.ThrowIfNull(actualAtmosphere); ArgumentNullException.ThrowIfNull(actualDraw);
-        if(!ReferenceEquals(actualAtmosphere.Receipt,receipt) || !receipt.SkyAtmosphereValidated ||
-            actualPixelProgram is not (3 or 4) || actualVertexCb0.Length!=160 || actualPixelCb0.Length!=256 ||
-            actualDraw.Pixel.SourceZeroMoon is not { } sourceSky)
-            throw new InvalidDataException("Sky named validation requires the actual declared source programs and complete independent-atmosphere frame.");
-        sourceSky.ValidateLighting(receipt.Lighting);
-        var atmosphere=actualAtmosphere.Atmosphere;
-        var scattering=atmosphere.Fog.ScatteringOverride?.Values??atmosphere.Scattering;
-        if(actualDraw.Vertex.Fog!=atmosphere.Fog.Value || actualDraw.Pixel.Fog!=atmosphere.Fog.Value ||
-            !actualDraw.Pixel.Scattering.SequenceEqual(scattering))
-            throw new InvalidDataException("Actual Sky named Fog/Scat inputs differ from the independent current atmosphere.");
-        var vertex=OriginalSky2Constants.Vertex(skyShader.ReadResourceDefinitions(0),actualVertexCb0.Span,actualDraw.Vertex);
-        var pixel=OriginalSky2Constants.Pixel(skyShader.ReadResourceDefinitions(actualPixelProgram),actualPixelCb0.Span,actualDraw.Pixel);
-        if(!vertex.Bytes.AsSpan().SequenceEqual(actualVertexCb0.Span) || !pixel.Bytes.AsSpan().SequenceEqual(actualPixelCb0.Span))
-            throw new InvalidDataException("Actual Sky cb0 differs from its complete unchanged source named setters.");
-        receipt.SkyNamedProgramMask |= actualPixelProgram==3?1:2;
+        ArgumentNullException.ThrowIfNull(receipt); ArgumentNullException.ThrowIfNull(selected);
+        if(!ReferenceEquals(receipt.Owner,this) || !ReferenceEquals(receipt.Early,selected))
+            throw new InvalidDataException("Early retained lighting requires this owner's selected current consumer.");
     }
 
     private void ValidateLighting(OriginalMapSourceCreatedLightingPacket lighting)
@@ -417,26 +223,13 @@ public sealed class OriginalMapSourceCreatedLightingRetainedNormalization
         }
         else if(lighting.RuntimeTable!=OriginalMapLightingRuntimeTable.Absent || lighting.AcceptedInputs.PresentSeasonCamera is not null)
             throw new InvalidDataException("Retained consumers cannot infer a table branch from a declaration key or unresolved state.");
-        byte[] restored=lighting.LocalLightData.ToArray(); RequireLightControls(restored);
-        if(lighting.CameraContextApplied)
-        {
-            if(restored[0xF1E]!=2) throw new InvalidDataException("Current source Camera context writer differs.");
-            restored[0xF1E]=1;
-        }
-        if(Hash(restored)!=createdHash)
-            throw new InvalidDataException("An additional current LightData writer requires a new retained consumer proof.");
-    }
-    private void ValidateReceipt(OriginalMapSourceCreatedLightingRetainedConsumerReceipt receipt)
-    {
-        ArgumentNullException.ThrowIfNull(receipt);
-        if(!ReferenceEquals(receipt.Owner,this)) throw new InvalidDataException("Retained consumer receipt belongs to another backend owner.");
-        ValidateLighting(receipt.Lighting); receipt.Late.Validate();
+        RequireLightControls(lighting.LocalLightData.Span);
+        if(lighting.CameraContextApplied && lighting.LocalLightData.Span[0xF1E]!=2)
+            throw new InvalidDataException("Current source Camera context writer differs.");
     }
     private static void RequireInactiveProfile(LoadedShaderContainer shader,int rowIndex,uint rendererMode)
     {
-        // Reparse source bytes; mutable caller feature tables cannot certify a gate.
-        var canonical=new LoadedShaderContainer(G2ShaderContainerReader.Read(shader.Source.Bytes),shader.Source);
-        var rows=canonical.ReadG1Bindings().Features;
+        var rows=shader.ReadG1Bindings().Features;
         if(rowIndex<0 || rowIndex>=rows.Count || rows[rowIndex].Feature.Words[6]!=rendererMode || rows[rowIndex].Feature.Words[7]!=1)
             throw new NotSupportedException("Selected source renderer/profile lacks the inactive profile1 retained-byte proof.");
     }
@@ -455,18 +248,6 @@ public sealed class OriginalMapSourceCreatedLightingRetainedNormalization
     {
         if(shader.Source.OverrideSource is not null || Hash(shader.Container.GetProgramBytes(shader.Source.Bytes,program))!=sha)
             throw new InvalidDataException("Retained consumer program differs from its exact unchanged source.");
-    }
-    private static void RequireFinite(System.Numerics.Vector4 vector)
-    {
-        if(!float.IsFinite(vector.X) || !float.IsFinite(vector.Y) || !float.IsFinite(vector.Z) || !float.IsFinite(vector.W))
-            throw new InvalidDataException("Independent Sky atmosphere contains a nonfinite active vector.");
-    }
-    private static void RequireVectorPacket(System.Numerics.Vector4 vector,ReadOnlySpan<byte> bytes)
-    {
-        RequireFinite(vector); float[] values=[vector.X,vector.Y,vector.Z,vector.W];
-        for(int index=0;index<4;index++)
-            if(BinaryPrimitives.ReadUInt32LittleEndian(bytes.Slice(index*4,4))!=BitConverter.SingleToUInt32Bits(values[index]))
-                throw new InvalidDataException("Independent Sky atmosphere vector differs from its current byte packet.");
     }
     private static string Hash(ReadOnlySpan<byte> bytes) => Convert.ToHexString(SHA256.HashData(bytes));
 }

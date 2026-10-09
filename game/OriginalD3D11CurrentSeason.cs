@@ -22,11 +22,12 @@ public sealed class OriginalD3D11CurrentSeasonFrame
         NativeMapSeasonState worldSeason, OriginalSkySeasonMainCameraRgbFrame rgb,
         OriginalMapSourceCreatedSeasonLightingFrame present,
         OriginalD3D11PreparedMainWord[] words, OriginalD3D11CurrentSeasonLight[] lights,
-        OriginalD3D11CurrentAtmosphereFrame atmosphere)
+        OriginalD3D11CurrentAtmosphereFrame atmosphere,
+        OriginalD3D11CurrentExposureLight exposureLight)
     {
         Mode = mode; WorldSeason = worldSeason; Rgb = rgb; Present = present;
         PreparedMain = present.PreparedCameraPrefix; PreparedWords = Array.AsReadOnly(words);
-        Lights = Array.AsReadOnly(lights); Atmosphere = atmosphere;
+        Lights = Array.AsReadOnly(lights); Atmosphere = atmosphere; ExposureLight = exposureLight;
     }
     public OriginalMainMapCameraModePacket Mode { get; }
     public NativeMapSeasonState WorldSeason { get; }
@@ -36,6 +37,7 @@ public sealed class OriginalD3D11CurrentSeasonFrame
     public IReadOnlyList<OriginalD3D11PreparedMainWord> PreparedWords { get; }
     public IReadOnlyList<OriginalD3D11CurrentSeasonLight> Lights { get; }
     public OriginalD3D11CurrentAtmosphereFrame Atmosphere { get; }
+    public OriginalD3D11CurrentExposureLight ExposureLight { get; }
     public int MainMode => Mode.Mode288;
     public int SeasonIndex => Rgb.Inputs.Source.Season.Resources.Selection.SeasonIndex;
     public ReadOnlyMemory<byte> MainFog72 => PreparedMain.Slice(0x340, 72);
@@ -48,9 +50,10 @@ public sealed class OriginalD3D11CurrentSeasonFrame
     public byte[] ToNativeBytes(OriginalD3D11CurrentHdrCatalog? hdr = null)
     {
         // Header32, Main3C0, sorted (int32 offset,uint32 bits) writes,
-        // then five (uint32 object,mask,reserved,reserved)+numeric LightData328.
+        // then five (uint32 object,mask,reserved,reserved)+numeric LightData328,
+        // Atmosphere296, current selected Exposure32 and the HDR routes.
         byte[] hdrBytes = hdr?.PrepareCurrentBytes(this) ?? [];
-        byte[] result = new byte[32 + 960 + PreparedWords.Count * 8 + Lights.Count * (16 + 0x328) + OriginalD3D11CurrentAtmosphereFrame.ByteLength + hdrBytes.Length];
+        byte[] result = new byte[32 + 960 + PreparedWords.Count * 8 + Lights.Count * (16 + 0x328) + OriginalD3D11CurrentAtmosphereFrame.ByteLength + OriginalD3D11CurrentExposureLight.ByteLength + hdrBytes.Length];
         var bytes = result.AsSpan();
         BinaryPrimitives.WriteUInt32LittleEndian(bytes, (uint)MainMode);
         BinaryPrimitives.WriteUInt32LittleEndian(bytes[4..], (uint)SeasonIndex);
@@ -72,7 +75,9 @@ public sealed class OriginalD3D11CurrentSeasonFrame
             light.ShaderData328.Span.CopyTo(bytes[(at + 16)..]); at += 16 + 0x328;
         }
         Atmosphere.NumericBytes.Span.CopyTo(bytes[at..]);
-        hdrBytes.CopyTo(bytes[(at + OriginalD3D11CurrentAtmosphereFrame.ByteLength)..]);
+        at += OriginalD3D11CurrentAtmosphereFrame.ByteLength;
+        ExposureLight.WriteNativeBytes(bytes[at..]);
+        hdrBytes.CopyTo(bytes[(at + OriginalD3D11CurrentExposureLight.ByteLength)..]);
         return result;
     }
 
@@ -111,7 +116,7 @@ public sealed class OriginalD3D11CurrentSeasonPublisher
         _resources = resources;
         _library = resourceLibrary;
         string locale = resources.Source.Locale;
-        _mode = actualMainMode ?? OriginalMainMapCameraModeOwner.CreateFresh(repository, locale, "native-current-season/App");
+        _mode = actualMainMode ?? OriginalMainMapCameraModeOwner.CreateFresh(locale, "native-current-season/App");
         _quality = actualQuality ?? OriginalMapGameLightQualityOwner.CreateFreshPrimary(repository, locale, "native-current-season/Configs");
         _post = OriginalMapMainCameraPostSelectionOwner.CreateFresh(repository, _mode);
         _phase = OriginalMapSeasonMainCameraPhaseSource.LoadSourceDefaults(repository, locale);
@@ -169,7 +174,8 @@ public sealed class OriginalD3D11CurrentSeasonPublisher
             lights.First(light => (light.GroupMask & 0x80) != 0).CompleteData.Span,
             _resources.ControllerGeometry40);
         return new(mode, season, rgb, present,
-            words.OrderBy(word => word.Key).Select(word => new OriginalD3D11PreparedMainWord(word.Key, word.Value)).ToArray(), lights, atmosphere);
+            words.OrderBy(word => word.Key).Select(word => new OriginalD3D11PreparedMainWord(word.Key, word.Value)).ToArray(), lights, atmosphere,
+            OriginalD3D11CurrentExposureLight.Capture(_resources.FreshExposureSelector, lights));
     }
 
     public void AcceptCurrent(OriginalD3D11CurrentSeasonFrame frame) => _previousRgb = frame.Rgb;

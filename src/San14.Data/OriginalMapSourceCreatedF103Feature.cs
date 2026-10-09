@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 
 namespace San14.Data;
 
@@ -62,7 +61,6 @@ public sealed class OriginalMapSourceCreatedF103FeaturePacket
     private readonly byte[] feature, lightData, cameraPrefix, producerTail;
     private readonly OriginalMapCameraConstructionPacket camera;
     private readonly byte[] modifierLightData;
-    private readonly OriginalMapSourceCreatedLightingPacket? acceptedInnerLighting;
     internal OriginalMapSourceCreatedF103FeaturePacket(OriginalMapCameraConstructionPacket acceptedCamera,
         OriginalMapSourceCreatedLightingPacket lighting, OriginalDeferredF103CurrentViewInputs current,
         OriginalDeferredF103Kind1Scratch scratch, byte[] effectiveLight, byte[] feature,
@@ -73,23 +71,20 @@ public sealed class OriginalMapSourceCreatedF103FeaturePacket
         FrameNumber = current.FrameNumber; CurrentView = current; Scratch = scratch; StateRebuilt = rebuilt;
         EffectiveLightDataCopied = copied;
         Binding = lighting.Binding; LightingSourceIdentity = lighting.SourceIdentity;
-        LocalLightDataSha256 = Convert.ToHexString(SHA256.HashData(lighting.LocalLightData.Span));
-        EffectiveLightDataSha256 = Convert.ToHexString(SHA256.HashData(lightData));
+        EffectiveLightOwnerIdentity = lighting.Binding.LightOwnerIdentity + ":frame=" + FrameNumber;
         LightingProducerProvenance = lighting.SourceProvenance;
-        acceptedInnerLighting = innerLighting?.CopyAcceptedSnapshot();
         modifierLightData = innerLighting is null || !OriginalDeferredF103Kind1Modifier.HasBuiltinModifier(innerLighting.LocalLightData.Span)
             ? lightData.ToArray() : innerLighting.LocalLightData.ToArray();
         SelectedModifierOwnerIdentity = innerLighting is not null && OriginalDeferredF103Kind1Modifier.HasBuiltinModifier(innerLighting.LocalLightData.Span)
-            ? innerLighting.Binding.LightOwnerIdentity + ":" + Convert.ToHexString(SHA256.HashData(modifierLightData))
-            : lighting.Binding.LightOwnerIdentity + ":" + EffectiveLightDataSha256;
+            ? innerLighting.Binding.LightOwnerIdentity + ":frame=" + FrameNumber
+            : EffectiveLightOwnerIdentity;
     }
     public long FrameNumber { get; }
     public OriginalDeferredF103CurrentViewInputs CurrentView { get; }
     public OriginalMapLightingBinding Binding { get; }
     public OriginalMapSourceCreatedLightingIdentity LightingSourceIdentity { get; }
     public string LightingProducerProvenance { get; }
-    public string LocalLightDataSha256 { get; }
-    public string EffectiveLightDataSha256 { get; }
+    public string EffectiveLightOwnerIdentity { get; }
     public int DirectionalCapacity4 => 4;
     public bool DirectOrdinaryLightData => !EffectiveLightDataCopied;
     public bool EffectiveLightDataCopied { get; }
@@ -115,15 +110,13 @@ public sealed class OriginalMapSourceCreatedF103FeaturePacket
         if (FrameNumber != acceptedCamera.FrameNumber || FrameNumber != lighting.FrameNumber ||
             Binding != lighting.Binding || LightingSourceIdentity != lighting.SourceIdentity ||
             LightingProducerProvenance != lighting.SourceProvenance ||
-            LocalLightDataSha256 != Convert.ToHexString(SHA256.HashData(lighting.LocalLightData.Span)) ||
             !MatchesAcceptedCameraPrefix(acceptedCamera.Prefix.Span) ||
             camera.Source.Camera.ObjectId != acceptedCamera.Source.Camera.ObjectId ||
             camera.Source.Resource.Source.ResourceUri != acceptedCamera.Source.Resource.Source.ResourceUri ||
             camera.Source.Resource.Source.FileId != acceptedCamera.Source.Resource.Source.FileId ||
             camera.Source.Resource.Source.DecodedSha256 != acceptedCamera.Source.Resource.Source.DecodedSha256)
             throw new InvalidDataException("F103 feature requires its exact accepted Camera, current LightData generation and same owned frame.");
-        acceptedInnerLighting?.ValidateCurrentSourceFrame();
-    }
+        }
 }
 
 /// <summary>SC EAE5D7 source first-kind cache initialization (5), TC D76780
@@ -225,10 +218,8 @@ public static class OriginalMapSourceCreatedF103Feature
             arg18 = (flags & 0x800) == 0;
         }
         byte[] light = lighting.LocalLightData.ToArray();
-        lighting.ValidateCurrentSourceFrame();
         if (innerLighting is not null)
         {
-            innerLighting.ValidateCurrentSourceFrame();
             if (innerLighting.FrameNumber != lighting.FrameNumber ||
                 innerLighting.Binding.ViewIdentity != lighting.Binding.ViewIdentity ||
                 innerLighting.Binding.CameraOwnerIdentity != lighting.Binding.CameraOwnerIdentity ||
@@ -271,9 +262,9 @@ public static class OriginalMapSourceCreatedF103Feature
             Word(light, 0x160) != 0 || shadow || previous.DirectionalCount != count || previous.HemisphereCount != hemi;
         byte[] vectors = rebuild ? light.AsSpan(0x150, 0x60).ToArray() : previous!.CopyVectors();
         byte[] counts = new byte[16]; Put(counts, 0, count); Put(counts, 12, hemi);
-        string lightOwner = lighting.Binding.LightOwnerIdentity + ":" + Convert.ToHexString(SHA256.HashData(light));
+        string lightOwner = lighting.Binding.LightOwnerIdentity + ":frame=" + lighting.FrameNumber;
         var modifierReference = separateModifier ? new OriginalDeferredF103OwnedReference(
-            innerLighting!.Binding.LightOwnerIdentity + ":" + Convert.ToHexString(SHA256.HashData(modifierBytes.Span)), 0x1B0) : null;
+            innerLighting!.Binding.LightOwnerIdentity + ":frame=" + lighting.FrameNumber, 0x1B0) : null;
         var scratch = new OriginalDeferredF103Kind1Scratch(counts, light.AsSpan(0xE0, 16).ToArray(), vectors,
             light.AsSpan(0x80, 16).ToArray(), new(lightOwner, 0), hemi != 0 ? new(lightOwner, 0x120) : null,
             rebuild ? new(current.ViewIdentity, 0x10) : previous!.View10AtA0, shadowVtable, modifierReference);

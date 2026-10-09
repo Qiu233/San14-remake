@@ -14,10 +14,9 @@ public sealed record OriginalMapSourceCreatedWorldPlayableCurrentSources(
     Func<OriginalMapSourceCreatedNativeSessionPreparedFrame,
         OriginalMapFinalOutputProductionFrameInputs> PrepareFinal)
 {
-    /// <summary>Normalized source Sky consumers must validate their actual
-    /// private Sky capability with this receipt before issuing those draws.</summary>
+    /// <summary>Prepare the current Sky with the same retained lighting scope.</summary>
     public Func<OriginalMapSourceCreatedNativeSessionPreparedFrame,
-        OriginalDirectionalLightRetainedConsumerReceipt?, Task>? AfterCurrentPreparedWithConsumerProof { get; init; }
+        OriginalDirectionalLightRetainedConsumerReceipt?, Task>? AfterCurrentPreparedWithLighting { get; init; }
     /// <summary>Borrow the actual currently selected Q80 Sky wrapper. The
     /// same resolver serves early and ordered late programs; allocated-only
     /// native selections remain rejected rather than replaced.</summary>
@@ -212,9 +211,9 @@ public sealed class OriginalMapSourceCreatedWorldPlayableHost : IAsyncDisposable
             !borrowedLighting.Sources.Any(source => source.Identity == bootstrap.Lighting.SourceIdentity) || bootstrap.CpuPopulation is null)
             throw new InvalidDataException("Playable bootstrap requires actual Main38D/current source publication selecting510/383 and its CPU population.");
         ValidateCurrentSources(current);
-        if(borrowedLighting.RetainedNormalization is not null && current.AfterCurrentPreparedWithConsumerProof is null)
+        if(borrowedLighting.RetainedNormalization is not null && current.AfterCurrentPreparedWithLighting is null)
             throw new OriginalMapSourceCreatedPlayableSourceUnavailableException(
-                "all declared retained-normalization consumers, including independent current Sky atmosphere",
+                "independent current Sky atmosphere producer",
                 OriginalMapSourceCreatedPlayableRequiredInput.CurrentSkyAtmosphereOwner);
         if (borrowedSky.Binding != bootstrap.Lighting.Binding || borrowedSky.RequiresRetirement)
             throw new InvalidDataException("World playable host requires its actual live Directional Sky/View owner.");
@@ -347,7 +346,7 @@ public sealed class OriginalMapSourceCreatedWorldPlayableHost : IAsyncDisposable
                 borrowedCompiler, allowReadback, session.Stages(finalRetirement,
                     frame=>host!.PrepareCurrentConsumersAsync(frame),current.SubmitStaticGeometry,
                     current.SubmitWorldGeometryBeforeTerrain is { } submitWorld ? async (frame,army)=>
-                    {await submitWorld(frame,army,host!);host!.RequireCurrentSkyConsumerProof();} : null),
+                    {await submitWorld(frame,army,host!);} : null),
                 session.Program,resolvedTargets,requireExternalPresentation:true);
             surface = new OriginalNativeMapSurface();
             surface.Configure(scene);
@@ -606,8 +605,8 @@ public sealed class OriginalMapSourceCreatedWorldPlayableHost : IAsyncDisposable
             frame.Selection.SourcePlan.Shader, frame.Lighting, plugins.Occlusion, plugins.ShadowFade,
             caustics.NativeWrites, caustics.CurrentProducerProvenance);
         if(RetainedNormalization is { } normalization)
-            normalization.ValidateEarly126(CurrentConsumerReceipt ??
-                throw new InvalidDataException("Current source retained consumer receipt is unavailable."),selected,caustics,constants);
+            normalization.RequireEarlyConsumer(CurrentConsumerReceipt ??
+                throw new InvalidDataException("Current retained lighting scope is unavailable."),selected);
         return Task.FromResult(new OriginalDeferredEarlySourcePassInputs(
             new Dictionary<uint, ReadOnlyMemory<byte>> { { 0, constants.Bytes } }, [], constants.CurrentProducerProvenance)
             { EarlyCausticsSourceNull = caustics.SourceNull });
@@ -628,7 +627,7 @@ public sealed class OriginalMapSourceCreatedWorldPlayableHost : IAsyncDisposable
         currentEarlySelections=currentWorldEarlyPasses[0].Selections;
         if(RetainedNormalization is not null && CurrentConsumerReceipt is not null)
             foreach(var pass in world.World.Passes)
-                RetainedNormalization.ValidateLate510(CurrentConsumerReceipt,pass.Frame.Selection,pass.InnerLighting);
+                RetainedNormalization.RequireLateConsumer(CurrentConsumerReceipt,pass.Frame.Selection,pass.InnerLighting);
     }
 
     private async Task PrepareCurrentConsumersAsync(OriginalMapSourceCreatedNativeSessionPreparedFrame frame)
@@ -652,25 +651,15 @@ public sealed class OriginalMapSourceCreatedWorldPlayableHost : IAsyncDisposable
             if (active.Any(s => s.SourcePlan.Node.Index != 78))
                 throw new NotSupportedException("Directional retained normalization requires the actual admitted ordinary78 consumer scope.");
             foreach(var pass in world.World.Passes)
-                RetainedNormalization.ValidateLate510(CurrentConsumerReceipt!,pass.Frame.Selection,pass.InnerLighting);
-            if (CurrentConsumerReceipt!.Late510Validated != true)
-                throw new InvalidDataException("Actual ordered late modifier consumers were not validated.");
+                RetainedNormalization.RequireLateConsumer(CurrentConsumerReceipt!,pass.Frame.Selection,pass.InnerLighting);
         }
         Mark("current-retained-light-consumers");
-        if(current.AfterCurrentPreparedWithConsumerProof is { } typed)
+        if(current.AfterCurrentPreparedWithLighting is { } typed)
         {
             await typed(frame,CurrentConsumerReceipt);
-            if(current.SubmitWorldGeometryBeforeTerrain is null)RequireCurrentSkyConsumerProof();
         }
         Mark("current-source-consumer-hook-and-sky");
         LastConsumerPreparationTimings=timings.AsReadOnly();
-    }
-
-    private void RequireCurrentSkyConsumerProof()
-    {
-        if(RetainedNormalization is not null && CurrentConsumerReceipt?.SkyDeclaredProgramsValidated!=true)
-            throw new OriginalMapSourceCreatedPlayableSourceUnavailableException(
-                "normalized Directional Sky consumer hook",OriginalMapSourceCreatedPlayableRequiredInput.CurrentSkyAtmosphereOwner);
     }
 
     private OriginalSkyDirectionalAmbientDeviceBinding SelectCurrentAmbient(
@@ -696,8 +685,6 @@ public sealed class OriginalMapSourceCreatedWorldPlayableHost : IAsyncDisposable
         if (pendingGpu is not { } pending || !ReferenceEquals(pending.Frame, frame) ||
             !ReferenceEquals(population.Context, frame.Context) || !cameraLeases.ContainsKey(frame.Context.FrameNumber))
             throw new InvalidDataException("Deferred source inputs require this attempt's completed early/auxiliary/Camera chain.");
-        if(RetainedNormalization is not null && CurrentConsumerReceipt?.AllDeclaredConsumersValidated!=true)
-            throw new InvalidDataException("Actual early/late retained-byte consumers were not validated for this attempt.");
         return Task.FromResult(pending.Inputs);
     }
 
@@ -761,11 +748,8 @@ public sealed class OriginalMapSourceCreatedWorldPlayableHost : IAsyncDisposable
             RequireNo7(pass.Selection.SourcePlan.Shader.ReadResourceDefinitions(pass.Selection.PixelProgramIndex),"late383");
         }
         Final.Chain.Exposure.RequireCompletedCurrentFrame(context,exposure,Final.Chain.Exposure.DrawCount);
-        // Hash-pinned native stock default3 Exposure has only sampler0. The
-        // following dedicated LightScene default1 is validated by its separate
-        // prefix owner, and likewise writes only sampler0.
-        if(Final.Chain.Exposure.PixelTranslation.SourceProgramSha256!=OriginalMapExposureSource.PixelSha256)
-            throw new InvalidDataException("Inherited terrain PS7 has another post-late Exposure program.");
+        // The completed Exposure owner binds the typed stock-default3 source;
+        // the following LightScene default1 has its own current prefix owner.
         return sampler;
     }
 

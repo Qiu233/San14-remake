@@ -4,9 +4,14 @@ using San14.Data.Formats;
 
 namespace San14.Data;
 
+public enum OriginalMapFinalOutputProgramKind { Unspecified, PostEffectSpk, Auxiliary, EmbeddedTone }
+
 public sealed record OriginalMapFinalOutputProgramSource(string SourceResourceUri,
     int VertexProgramIndex,int PixelProgramIndex,ReadOnlyMemory<byte> VertexBytes,
-    ReadOnlyMemory<byte> PixelBytes,string VertexSha256,string PixelSha256);
+    ReadOnlyMemory<byte> PixelBytes,string VertexSha256,string PixelSha256)
+{
+    public OriginalMapFinalOutputProgramKind Kind { get; init; }
+}
 public sealed record OriginalMapFinalOutputSpkProgram(int Index,uint StageCode,
     int SourceOffset,ReadOnlyMemory<byte> Bytes,string Sha256);
 public sealed record LoadedOriginalMapFinalOutputResources(LoadedRenderGraph Graph,
@@ -85,7 +90,8 @@ public static class OriginalMapFinalOutputResources
         int vi=stages.Single(s=>s.StageCode==1).Entry!.ProgramIndex,pi=stages.Single(s=>s.StageCode==0).Entry!.ProgramIndex;
         var vs=source.AuxiliaryShader.Container.GetProgramBytes(source.AuxiliaryShader.Source.Bytes,vi).ToArray();
         var ps=source.AuxiliaryShader.Container.GetProgramBytes(source.AuxiliaryShader.Source.Bytes,pi).ToArray();
-        return new(source.AuxiliaryShader.Source.ResourceUri,vi,pi,vs,ps,Hash(vs),Hash(ps));
+        return new(source.AuxiliaryShader.Source.ResourceUri,vi,pi,vs,ps,Hash(vs),Hash(ps))
+            { Kind=OriginalMapFinalOutputProgramKind.Auxiliary };
     }
 
     public static OriginalMapFinalOutputProgramSource SpkProgram(LoadedOriginalMapFinalOutputResources source,
@@ -96,7 +102,8 @@ public static class OriginalMapFinalOutputResources
             ??throw new InvalidDataException("Selected source PostEffect vertex program is absent.");
         var ps=source.SpkPrograms.SingleOrDefault(p=>p.StageCode==0&&p.Index==explicitPixelProgram)
             ??throw new InvalidDataException("Selected source PostEffect pixel program is absent.");
-        return new(source.PostEffect.Source.ResourceUri+"#SPK",vs.Index,ps.Index,vs.Bytes.ToArray(),ps.Bytes.ToArray(),vs.Sha256,ps.Sha256);
+        return new(source.PostEffect.Source.ResourceUri+"#SPK",vs.Index,ps.Index,vs.Bytes.ToArray(),ps.Bytes.ToArray(),vs.Sha256,ps.Sha256)
+            { Kind=OriginalMapFinalOutputProgramKind.PostEffectSpk };
     }
 
     public static IReadOnlyList<OriginalMapFinalOutputSpkProgram> ReadSpk(ReadOnlySpan<byte> source)

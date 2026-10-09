@@ -66,7 +66,7 @@ public sealed class OriginalMapPostEffect3ApplyExposureReference
             "E6DDAE/E6DDBC-Flag3;EAA6B6/EAA6C4-localflag;EAAC6C-bit2/EAAC72-output;"+
             "EAACC4/EAACCA-E487B0;E487DD-reference50;EAA7DA-epsilon358637BD/EAA893-reference18;";
         string evidence=nativeEvidence+
-            "exe="+source.Native.ExecutableSha256+";text="+source.Native.DecodedTextSha256+";"+
+            "render-rules="+source.Native.RenderRuleIdentity+";"+
             "owned-completed-source-node1-no-later-reference50-override;"+
             source.SourceResourceUri+";"+selectedView.SourceProvenance+";"+frameOwnerEvidence;
         return new(exposure.FrameNumber,actualOwnedReferenceIdentity,actualExposureOutputOwner,clamped,evidence);

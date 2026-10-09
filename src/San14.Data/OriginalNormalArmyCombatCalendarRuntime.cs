@@ -77,7 +77,7 @@ public static class OriginalNormalArmyCombatCalendarRuntime
         }
         var cursor = campaign.NativeNormalArmyCombatCalendar ?? new(
             OriginalNormalArmyCombatSourcePlanner.ProfileId, previous.SourceScenarioUri, previous.SourceScenarioSha256,
-            previous.SourceWorldSha256, previous.NativeClockRevision, OriginalMapSeasonNativeSource.CalendarWriterSha256,
+            previous.SourceWorldSha256, previous.NativeClockRevision,
             previous.AdvancedCalendarSteps, previous.AdvancedCalendarSteps, 0, [], Revision);
         ValidateSourceCursor(cursor);
         NativeNormalArmyCombatCalendarStateValidation.Validate(campaign with { NativeNormalArmyCombatCalendar = cursor });
@@ -91,7 +91,7 @@ public static class OriginalNormalArmyCombatCalendarRuntime
             var moment = new OriginalNormalArmyCombatPhaseMoment(checked(start + offset), date,
                 OriginalNormalArmyCombatSourcePlanner.SchedulerStageIndex, previous.SourceScenarioUri,
                 previous.SourceScenarioSha256, previous.SourceWorldSha256,
-                OriginalMapSeasonNativeSource.CalendarWriterSha256, Revision);
+                Revision);
             if (OriginalNormalArmyCombatSourcePlanner.IsDueAtSourceCalendarPhase(moment))
             {
                 var reached = phaseConsumer?.Resolve(moment) ?? new OriginalNormalArmyCombatStage13Resolution(
@@ -118,8 +118,7 @@ public static class OriginalNormalArmyCombatCalendarRuntime
     }
     private static void ValidateSourceCursor(NativeNormalArmyCombatCalendarState? cursor)
     {
-        if (cursor is not null && (cursor.ProfileId != OriginalNormalArmyCombatSourcePlanner.ProfileId || cursor.Revision != Revision ||
-            cursor.CalendarWriterSha256 != OriginalMapSeasonNativeSource.CalendarWriterSha256))
+        if (cursor is not null && (cursor.ProfileId != OriginalNormalArmyCombatSourcePlanner.ProfileId || cursor.Revision != Revision))
             throw new InvalidDataException("Normal phase observer belongs to a different source scheduler/writer generation.");
     }
 }

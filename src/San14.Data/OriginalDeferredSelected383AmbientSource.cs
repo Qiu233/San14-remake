@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 
 namespace San14.Data;
 
@@ -16,14 +15,12 @@ public sealed class OriginalDeferredSelected383SkyProjection
         int slot, uint view19B8, uint state, OriginalCubeRenderTextureDefinition cube, string provenance)
     {
         this.owner=owner; Selection=selection; FrameNumber=lighting.FrameNumber; Binding=lighting.Binding;
-        LocalLightDataSha256=Convert.ToHexString(SHA256.HashData(lighting.LocalLightData.Span));
         SelectedViewSlot=slot; CurrentView19B8=view19B8; NativeSkyState168=state;
         SelectedSpecularIndex=(state>>8)&3; CubeSource=cube; CurrentProducerProvenance=provenance;
     }
     public OriginalDeferredF103SelectedSource Selection { get; }
     public long FrameNumber { get; }
     public OriginalMapLightingBinding Binding { get; }
-    public string LocalLightDataSha256 { get; }
     public int SelectedViewSlot { get; }
     public uint CurrentView19B8 { get; }
     public uint NativeSkyState168 { get; }
@@ -44,10 +41,8 @@ public sealed class OriginalDeferredSelected383SkyProjection
     public void ValidateBorrowedCubeSource(OriginalCubeRenderTextureDefinition actualBorrowedSource)
     {
         ArgumentNullException.ThrowIfNull(actualBorrowedSource);
-        var actual=OriginalCubeRenderTextureResources.Read(actualBorrowedSource.Source,actualBorrowedSource.Object.ObjectId);
-        if (actual!=actualBorrowedSource || actual.Object.ObjectId!=CubeSource.Object.ObjectId ||
-            actual.Source.Source.ResourceUri!=CubeSource.Source.Source.ResourceUri ||
-            actual.Source.Source.DecodedSha256!=CubeSource.Source.Source.DecodedSha256)
+        if (actualBorrowedSource.Object.ObjectId!=CubeSource.Object.ObjectId ||
+            !ReferenceEquals(actualBorrowedSource.Source,CubeSource.Source))
             throw new InvalidDataException("The borrowed completed cube does not own F103's current selected Sky wrapper.");
     }
 }
@@ -117,7 +112,7 @@ public sealed class OriginalDeferredSelected383SkyProjectionOwner
         projection.CameraWriter?.ValidateCurrent(selection.Camera, lighting.FrameNumber, 0, lighting.Binding.CameraOwnerIdentity);
         projection.SkyWriter?.ValidateCurrent(OwnedSkyIdentity, lighting.FrameNumber);
         if (!ReferenceEquals(projection.Selection,selection) || projection.FrameNumber!=lighting.FrameNumber ||
-            projection.Binding!=lighting.Binding || projection.LocalLightDataSha256!=Convert.ToHexString(SHA256.HashData(lighting.LocalLightData.Span)) ||
+            projection.Binding!=lighting.Binding ||
             latestFrame!=projection.FrameNumber || latestState!=projection.NativeSkyState168 ||
             latestViewMask!=projection.CurrentView19B8 || latestSlot!=projection.SelectedViewSlot ||
             projection.CubeSource!=source.SpecularTargets[(int)projection.SelectedSpecularIndex])
@@ -125,7 +120,7 @@ public sealed class OriginalDeferredSelected383SkyProjectionOwner
     }
     private void RequireSelection(OriginalDeferredF103SelectedSource selection, OriginalMapSourceCreatedLightingPacket lighting)
     {
-        ArgumentNullException.ThrowIfNull(selection);ArgumentNullException.ThrowIfNull(lighting);ValidateSource(source);
+        ArgumentNullException.ThrowIfNull(selection);ArgumentNullException.ThrowIfNull(lighting);
         selection.Validate();selection.OwnedFeatureSource?.ValidateFrame(selection.Camera,lighting);
         if (selection.OwnedFeatureSource is null || selection.Combination.Index!=510 || selection.PixelProgramIndex!=383 ||
             selection.PixelProgramSha256!=OriginalDeferredSelected383Constants.PixelProgramSha256 ||
@@ -138,13 +133,10 @@ public sealed class OriginalDeferredSelected383SkyProjectionOwner
     {
         if (source.Resource.Source.ResourceUri!="san14://rdb/system/DAB638B2" || source.Object.ObjectId!=0x910603AC ||
             source.Object.ClassId!=OriginalSkyAmbientResources.ClassId ||
-            source.Resource.Source.DecodedSha256!="357F6A380CF19EB2A86B439AF24CF2BACDD38074AAF9BC3AE99F0EAD21EE9271" ||
-            Convert.ToHexString(SHA256.HashData(source.Resource.Source.Bytes))!=source.Resource.Source.DecodedSha256 ||
             !source.SpecularTargets.Select(t=>t.Object.ObjectId).SequenceEqual(new uint[]{0x23F44EB5,0x498857B6,0x6F1C60B7,0x121611C4}))
             throw new InvalidDataException("Sky projection requires the exact original910603AC and its ordered four specular wrapper declarations.");
         foreach (var target in source.SpecularTargets)
-            if (OriginalCubeRenderTextureResources.Read(target.Source,target.Object.ObjectId)!=target ||
-                Convert.ToHexString(SHA256.HashData(target.Source.Source.Bytes))!=target.Source.Source.DecodedSha256)
+            if (target.Object.ClassId!=OriginalCubeRenderTextureResources.ClassId)
                 throw new InvalidDataException("Current Sky source cube metadata or original source bytes changed.");
     }
 }

@@ -15,8 +15,7 @@ public static class OriginalBaseReturnCaptivesInputs
     {
         if (state.Units.Count != 0 || state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } ||
             state.NativeArmySimulation is not { } simulation ||
-            simulation.Parameters.Language switch { "SC" => simulation.Parameters.ExecutableSha256 != OriginalCeHexWorldCoordinates.VerifiedScExecutableSha256,
-                "TC" => simulation.Parameters.ExecutableSha256 != OriginalCeHexWorldCoordinates.VerifiedTcExecutableSha256, _ => true } ||
+            simulation.Parameters.Language is not ("SC" or "TC") ||
             simulation.Parameters.Int32Values.ContainsKey(VersionKey) ||
             Targets().Any(target => simulation.Parameters.Int32Values.ContainsKey(Field50Key(target))))
             throw new InvalidDataException("Base50 requires its unused fresh CE allocation.");

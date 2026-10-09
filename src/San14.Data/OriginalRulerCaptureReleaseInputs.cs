@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using San14.Core;
 using San14.Data.Formats;
 
@@ -13,24 +12,19 @@ public sealed class OriginalRulerCaptureReleaseInputs
     public static string PersonWordKey(int physical, int tcOffset) => $"ce-ruler-capture-release-current:person:{physical}:{tcOffset:X}";
     private static readonly int[] WordOffsets = [0x16E, 0x176, 0x178, 0x17A];
     private readonly LoadedScenario source;
-    private readonly string language, hash;
+    private readonly string language, ruleVersion;
     private readonly short[][] words;
-    private OriginalRulerCaptureReleaseInputs(LoadedScenario scenario, string locale, string executableHash, short[][] values)
-        => (source, language, hash, words) = (scenario, locale, executableHash, values);
+    private OriginalRulerCaptureReleaseInputs(LoadedScenario scenario, string locale, string ruleVersion, short[][] values)
+        => (source, language, this.ruleVersion, words) = (scenario, locale, ruleVersion, values);
 
     public static OriginalRulerCaptureReleaseInputs Load(OriginalGameRepository repository, LoadedScenario source, string language)
     {
-        string hash = language switch {
-            "SC" => OriginalCeHexWorldCoordinates.VerifiedScExecutableSha256,
-            "TC" => OriginalCeHexWorldCoordinates.VerifiedTcExecutableSha256,
-            _ => throw new InvalidDataException("Ruler capture inputs require CE SC/TC.") };
+        string ruleVersion = SimulationRuleIdentity.ForLocale(language);
         if (source.Metadata.FormatMarker != 0x66 || source.Snapshot.Locale != language || source.Snapshot.Characters.Count != 1851)
             throw new InvalidDataException("Ruler capture inputs require complete CE Person rows.");
         string path = string.IsNullOrWhiteSpace(source.ScenarioSource.PhysicalPath)
             ? Path.Combine(repository.SourceDirectory, source.ScenarioSource.SourcePath) : source.ScenarioSource.PhysicalPath;
         byte[] bytes = File.ReadAllBytes(path);
-        if (Convert.ToHexString(SHA256.HashData(bytes)) != source.ScenarioSource.Sha256)
-            throw new InvalidDataException("Ruler release scenario changed while loading.");
         var document = S14Reader.Read(bytes, true);
         var table = S14ScenarioTables.ReadCharacterNames(document, language);
         int delta = language == "SC" ? 56 : 0;
@@ -42,12 +36,12 @@ public sealed class OriginalRulerCaptureReleaseInputs
             words[p] = new short[4];
             for (int i = 0; i < 4; i++) words[p][i] = BinaryPrimitives.ReadInt16LittleEndian(row.Slice(276 + delta + WordOffsets[i] - 0x16A, 2));
         }
-        return new(source, language, hash, words);
+        return new(source, language, ruleVersion, words);
     }
 
     public GameState InstallFresh(GameState state)
     {
-        if (state.NativeArmySimulation is not { } native || native.Parameters.Language != language || native.Parameters.ExecutableSha256 != hash ||
+        if (state.NativeArmySimulation is not { } native || native.Parameters.Language != language || native.Parameters.RuleVersion != ruleVersion ||
             state.ContentHashes.GetValueOrDefault(source.ScenarioSource.ResourceUri) != source.ScenarioSource.Sha256 ||
             state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } || state.Units.Count != 0 ||
             native.Parameters.Int32Values.ContainsKey(VersionKey) || source.Snapshot.WorldParameters?.RawField48 == 0x13)

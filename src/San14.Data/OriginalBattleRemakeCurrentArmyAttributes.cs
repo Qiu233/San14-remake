@@ -56,7 +56,7 @@ public sealed partial class OriginalBattleRemakeCurrentArmyAttributes
     public OriginalBattleRemakeCurrentDamageAttributes? Resolve(GameState state, UnitState caster, UnitState target)
     {
         if (state.NativeArmySimulation?.Parameters is not { } p || p.Language != source.Language ||
-            p.ExecutableSha256 != source.Source.Sha256 || state.Units.GetValueOrDefault(caster.Id) != caster ||
+            p.RuleVersion != source.Source.RuleVersion || state.Units.GetValueOrDefault(caster.Id) != caster ||
             state.Units.GetValueOrDefault(target.Id) != target || caster.NativeArmyOrigin?.NativeSlotIndex is not >= 1 or > 500 ||
             target.NativeArmyOrigin?.NativeSlotIndex is not >= 1 or > 500) return null;
         Direction? a = Directional(state, caster, target), b = Directional(state, target, caster);

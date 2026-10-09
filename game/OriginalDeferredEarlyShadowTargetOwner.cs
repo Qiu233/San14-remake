@@ -100,8 +100,6 @@ public sealed class OriginalDeferredEarlyShadowTargetOwner : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(actualRectangleSource);
         if (actualRectangleSource.Locale != actualGenericSource.Native.Locale)
             throw new InvalidDataException("Early target rectangles require the same loaded executable locale.");
-        if (!source.NativeSourceEvidence.Contains("/" + actualGenericSource.Native.Locale + "@" + actualGenericSource.Native.ExecutableSha256 + ";", StringComparison.Ordinal))
-            throw new InvalidDataException("Early shadow and generic target commands require the same imported native source.");
         var bind = OriginalWorldGeometryStageSource.ReadLoadedBindDeclaration(source.ShadowDepthTargets17);
         if (bind.NodeIndex != 17 || bind.SourceFlag != 5 || bind.CpuFlags20 != 0xC0000000 ||
             bind.Colors.Count != 0 || bind.Depth.ObjectNameHash != 0xEA36C27D || bind.Depth.SurfaceId != 0 ||

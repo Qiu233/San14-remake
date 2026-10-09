@@ -77,31 +77,30 @@ public sealed class OriginalMapFinalOutputOwner : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(source);ArgumentNullException.ThrowIfNull(explicitProgram);
         if(!Enum.IsDefined(explicitTargetRoute))throw new InvalidDataException("Final target route must be selected explicitly from the supported source contexts.");
-        if(explicitProgram.SourceResourceUri==source.PostEffect.Source.ResourceUri+"#SPK")
+        if(explicitProgram.Kind==OriginalMapFinalOutputProgramKind.PostEffectSpk &&
+            explicitProgram.SourceResourceUri==source.PostEffect.Source.ResourceUri+"#SPK")
         {
             var expected=OriginalMapFinalOutputResources.SpkProgram(source,explicitProgram.VertexProgramIndex,explicitProgram.PixelProgramIndex);
             if(expected.VertexSha256!=explicitProgram.VertexSha256||expected.PixelSha256!=explicitProgram.PixelSha256)
                 throw new InvalidDataException("Selected final SPK shader pair differs from its original source directory.");
         }
-        else if(explicitProgram.SourceResourceUri==source.AuxiliaryShader.Source.ResourceUri)
+        else if(explicitProgram.Kind==OriginalMapFinalOutputProgramKind.Auxiliary &&
+            explicitProgram.SourceResourceUri==source.AuxiliaryShader.Source.ResourceUri)
         {
             var vertex=source.AuxiliaryShader.Container.GetProgramBytes(source.AuxiliaryShader.Source.Bytes,explicitProgram.VertexProgramIndex);
             var pixel=source.AuxiliaryShader.Container.GetProgramBytes(source.AuxiliaryShader.Source.Bytes,explicitProgram.PixelProgramIndex);
             if(Convert.ToHexString(SHA256.HashData(vertex))!=explicitProgram.VertexSha256||Convert.ToHexString(SHA256.HashData(pixel))!=explicitProgram.PixelSha256)
                 throw new InvalidDataException("Selected final auxiliary pair differs from its original source directory.");
         }
-        else if(sourceToneShader is not null&&explicitProgram.SourceResourceUri==sourceToneShader.SourceResourceUri)
+        else if(explicitProgram.Kind==OriginalMapFinalOutputProgramKind.EmbeddedTone &&
+            sourceToneShader is not null&&explicitProgram.SourceResourceUri==sourceToneShader.SourceResourceUri)
         {
-            var actual=OriginalMapFinalOutputToneShaderSource.ReadCurrent(
-                Path.GetDirectoryName(sourceToneShader.PhysicalPath)??throw new InvalidDataException("Tone source has no physical directory."),
-                sourceToneShader.Locale);
-            var expected=actual.ToProgramSource();
+            var expected=sourceToneShader.ToProgramSource();
             if(explicitProgram.VertexProgramIndex!=expected.VertexProgramIndex||
                 explicitProgram.PixelProgramIndex!=expected.PixelProgramIndex||
                 explicitProgram.SourceResourceUri!=expected.SourceResourceUri||
-                sourceToneShader.ExecutableSha256!=actual.ExecutableSha256||
                 explicitProgram.VertexSha256!=expected.VertexSha256||explicitProgram.PixelSha256!=expected.PixelSha256)
-                throw new InvalidDataException("Selected embedded tone pair differs from its exact original programs.");
+                throw new InvalidDataException("Selected tone pair belongs to another compiled program owner.");
         }
         else throw new InvalidDataException("Final shader selection must refer to this exact PostEffect or auxiliary source.");
         if(explicitSceneRegister==explicitExposureRegister)
@@ -273,8 +272,7 @@ public sealed class OriginalMapFinalOutputOwner : IAsyncDisposable
                     foreach(var input in Program.VertexBindings.Interface.StageVariables.Where(v=>v.StorageClass==1&&v.Location is not null))
                     {
                         int components=(int)(input.Type.ComponentCount??throw new InvalidDataException("Final VS input is not a source vector."));
-                        bool stock=Program.Source.VertexSha256==OriginalMapFinalOutputToneShaderSource.VertexSha256&&
-                            Program.Source.PixelSha256==OriginalMapFinalOutputToneShaderSource.PixelSha256;
+                        bool stock=Program.Source.Kind==OriginalMapFinalOutputProgramKind.EmbeddedTone;
                         uint offset=stock?input.Location switch{0=>0u,1=>12u,2=>16u,_=>throw new InvalidDataException("Unknown stock screen vertex location.")}:
                             stride==24?input.Location==0?0u:16u:input.Location switch{0=>0u,1=>16u,2=>32u,3=>40u,_=>throw new InvalidDataException("Unknown source final vertex location.")};
                         attributes.Add(new(){Location=input.Location!.Value,Offset=offset,Stride=(uint)stride,
@@ -329,8 +327,7 @@ public sealed class OriginalMapFinalOutputOwner : IAsyncDisposable
         bool spk=inputs.Length==2&&inputs[0].Location==0&&inputs[1].Location==1&&inputs[0].Type.ComponentCount==4&&inputs[1].Type.ComponentCount==2;
         bool auxiliary=inputs.Length==4&&inputs.Select(i=>i.Location).SequenceEqual(new uint?[]{0,1,2,3})&&
             inputs.Select(i=>i.Type.ComponentCount).SequenceEqual(new uint?[]{4,4,2,2});
-        bool stock=Program.Source.PixelSha256==OriginalMapFinalOutputToneShaderSource.PixelSha256&&
-            Program.Source.VertexSha256==OriginalMapExposureSource.VertexSha256&&inputs.Length==3&&
+        bool stock=Program.Source.Kind==OriginalMapFinalOutputProgramKind.EmbeddedTone&&inputs.Length==3&&
             inputs.Select(i=>i.Location).SequenceEqual(new uint?[]{0,1,2})&&
             inputs.Select(i=>i.Type.ComponentCount).SequenceEqual(new uint?[]{3,4,2});
         if((!spk&&!auxiliary&&!stock)||p.Quad.Length!=4*(spk||stock?24:48))throw new InvalidDataException("Final output quad differs from the selected original VS input layout.");

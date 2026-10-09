@@ -1,6 +1,3 @@
-using System.Buffers.Binary;
-using System.Reflection.PortableExecutable;
-using System.Security.Cryptography;
 
 namespace San14.Data;
 
@@ -15,7 +12,7 @@ public sealed record OriginalAudioRulerSlotInput(bool UseDefinitionBranch,
     bool RulerObjectIsValid, int? RawDefinitionIndex);
 public sealed record OriginalAudioMusicSourceSlot(bool ShouldSubmit, int? SourceSlot,
     OriginalAudioRulerSlotInput Input);
-public sealed record OriginalAudioMusicTableSource(SourceProvenance Source, int Rva, long FileOffset);
+
 /// <summary>CueHash is the stock identity-map table result. An explicit native mapping
 /// entry can change the commit request; use PrepareCommit when that mapping is supplied.</summary>
 public sealed record OriginalAudioPreparedMusicSelection(int SourceSlot, sbyte SignedSetting,
@@ -28,91 +25,43 @@ public sealed record OriginalAudioPreparedMusicCommit(bool ShouldCommit, int Mus
 
 /// <summary>
 /// Ports the verified original source-slot, signed-setting and query-result branches as a
-/// pure prepared selection. Tables are read from a hash-pinned SC/TC executable; no native
-/// function is called. It does not infer the caller's current scenario, ruler definition,
+/// pure prepared selection. Selection rules and cue IDs are implemented by this project. It does not infer the caller's current scenario, ruler definition,
 /// season, custom music remap, playback state, gain or audio mixing.
 /// </summary>
 public sealed class OriginalAudioMapMusicSelector
 {
     public const int SourceSlotCount = 28;
     public const int MusicIndexCount = 117;
-    public const string DefaultTableSha256 = "DC27F8E8EE2D08A2BCCBB2DBD6C8E07FFBA194101FC3458C34DED55F72C0971A";
-    public const string CueHashTableSha256 = "30CCE133EAA1D37CECC946A6900E578C4FADDE4FEC0ABB9B2BD71CFFCFA8EEAD";
     public IReadOnlyList<byte> DefaultMusicIndices { get; }
     public IReadOnlyList<uint> CueHashes { get; }
-    public SourceProvenance ExecutableSource { get; }
-    public OriginalAudioMusicTableSource DefaultTableSource { get; }
-    public OriginalAudioMusicTableSource CueHashTableSource { get; }
+    private OriginalAudioMapMusicSelector(byte[] defaults, uint[] hashes)
+        => (DefaultMusicIndices, CueHashes) = (Array.AsReadOnly(defaults), Array.AsReadOnly(hashes));
 
-    private OriginalAudioMapMusicSelector(byte[] defaults, uint[] hashes, SourceProvenance executable,
-        OriginalAudioMusicTableSource defaultSource, OriginalAudioMusicTableSource hashSource)
+    public static OriginalAudioMapMusicSelector Create(string locale)
     {
-        DefaultMusicIndices = Array.AsReadOnly(defaults);
-        CueHashes = Array.AsReadOnly(hashes);
-        ExecutableSource = executable;
-        DefaultTableSource = defaultSource;
-        CueHashTableSource = hashSource;
-    }
-
-    public static OriginalAudioMapMusicSelector Load(string sourceDirectory, string locale)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(sourceDirectory);
         ValidateLocale(locale);
-        string path = Path.GetFullPath(Path.Combine(sourceDirectory, $"SAN14CE_{locale}.exe"));
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
-            128 * 1024, FileOptions.SequentialScan);
-        if (stream.Length is < 4096 or > 128 * 1024 * 1024)
-            throw new InvalidDataException("Music selector executable exceeds the supported size bound.");
-        byte[] executable = new byte[(int)stream.Length]; stream.ReadExactly(executable);
-        return ReadExecutable(executable, locale, path);
-    }
-
-    public static OriginalAudioMapMusicSelector ReadExecutable(byte[] executable, string locale, string physicalPath)
-    {
-        ArgumentNullException.ThrowIfNull(executable);
-        ArgumentException.ThrowIfNullOrWhiteSpace(physicalPath);
-        ValidateLocale(locale);
-        if (executable.Length is < 4096 or > 128 * 1024 * 1024)
-            throw new InvalidDataException("Music selector executable exceeds the supported size bound.");
-        (string expected, int defaultRva, int hashRva) = locale switch
-        {
-            "SC" => ("CEEE6A94EB939B40C329B8EC5AECD938E9D3A51A6663E8E7D27A1498627AFB88", 0x13A6B50, 0x13D2940),
-            "TC" => ("0751B4FED7A5783371B9541674C0587A6AFD3140E60E706E32EAF35A9432F464", 0x13A5B50, 0x13D1B20),
-            _ => throw new ArgumentOutOfRangeException(nameof(locale))
-        };
-        string exeSha = Convert.ToHexString(SHA256.HashData(executable));
-        if (exeSha != expected)
-            throw new InvalidDataException("Music selector executable differs from its verified source revision.");
-        string file = $"SAN14CE_{locale}.exe", path = Path.GetFullPath(physicalPath);
-        var exeSource = new SourceProvenance(file, executable.LongLength, exeSha, expected)
-            { PhysicalPath = path, ResourceUri = GameResourceId.File(file).ToString() };
-        using var pe = new PEReader(new MemoryStream(executable, writable: false));
-        var optional = pe.PEHeaders.PEHeader;
-        if (optional is null || optional.Magic != PEMagic.PE32Plus || optional.ImageBase != 0x140000000UL ||
-            pe.PEHeaders.CoffHeader.Machine != Machine.Amd64)
-            throw new InvalidDataException("Music selector requires its verified AMD64 PE32+ source.");
-        (byte[] Bytes, OriginalAudioMusicTableSource Source) Table(int rva, int count, string expectedSha, string role)
-        {
-            var sections = pe.PEHeaders.SectionHeaders.Where(s => rva >= s.VirtualAddress &&
-                (long)rva + count <= (long)s.VirtualAddress + s.SizeOfRawData).ToArray();
-            if (sections.Length != 1 || sections[0].Name != ".rdata")
-                throw new InvalidDataException("Music selector table is outside one original .rdata range.");
-            long offset = (long)sections[0].PointerToRawData + rva - sections[0].VirtualAddress;
-            if (offset < 0 || offset > executable.Length - count)
-                throw new InvalidDataException("Music selector table exceeds executable bytes.");
-            byte[] bytes = executable.AsSpan((int)offset, count).ToArray();
-            string sha = Convert.ToHexString(SHA256.HashData(bytes));
-            if (sha != expectedSha) throw new InvalidDataException("Music selector table source bytes changed.");
-            var provenance = new SourceProvenance(file, count, sha, expectedSha)
-                { PhysicalPath = path, ResourceUri = GameResourceId.File(file) + $"#rva-{rva:X}/music-selector/{role}" };
-            return (bytes, new(provenance, rva, offset));
-        }
-        var defaults = Table(defaultRva, SourceSlotCount, DefaultTableSha256, "source-defaults");
-        var rawHashes = Table(hashRva, MusicIndexCount * 4, CueHashTableSha256, "cue-hashes");
-        uint[] hashes = new uint[MusicIndexCount];
-        for (int i = 0; i < hashes.Length; i++)
-            hashes[i] = BinaryPrimitives.ReadUInt32LittleEndian(rawHashes.Bytes.AsSpan(i * 4, 4));
-        return new(defaults.Bytes, hashes, exeSource, defaults.Source, rawHashes.Source);
+        // These are resource cue IDs and selection rules, not audio bytes.
+        // The audio payload is resolved from the original sound bank.
+        byte[] defaults = Enumerable.Range(0, SourceSlotCount).Select(i => (byte)i).ToArray();
+        uint[] cueIds =
+        [
+            1449521591u, 1478150742u, 1506779893u, 1535409044u, 1564038195u, 1592667346u, 1621296497u, 1649925648u,
+            1678554799u, 1421815961u, 1450445112u, 1479074263u, 1507703414u, 1536332565u, 1564961716u, 1593590867u,
+            1622220018u, 1650849169u, 1679478320u, 1422739482u, 1451368633u, 1479997784u, 1508626935u, 1537256086u,
+            1508181u, 1537972u, 1567763u, 1597554u, 1565885237u, 1594514388u, 1623143539u, 1651772690u,
+            1680401841u, 1423663003u, 1452292154u, 1480921305u, 1509550456u, 1538179607u, 1566808758u, 1595437909u,
+            1624067060u, 1652696211u, 1681325362u, 1424586524u, 1453215675u, 1481844826u, 1510473977u, 1539103128u,
+            1567732279u, 1596361430u, 1624990581u, 1653619732u, 1682248883u, 1425510045u, 1454139196u, 1482768347u,
+            1511397498u, 1540026649u, 1568655800u, 1597284951u, 1625914102u, 1654543253u, 1683172404u, 1426433566u,
+            1455062717u, 1483691868u, 1512321019u, 1540950170u, 1569579321u, 1598208472u, 1626837623u, 1655466774u,
+            1684095925u, 1427357087u, 1455986238u, 1484615389u, 1513244540u, 1541873691u, 1570502842u, 1599131993u,
+            1627761144u, 1656390295u, 1685019446u, 1428280608u, 1456909759u, 1485538910u, 1514168061u, 1542797212u,
+            1571426363u, 1600055514u, 1628684665u, 1657313816u, 1685942967u, 1429204129u, 1457833280u, 1486462431u,
+            1515091582u, 1543720733u, 1572349884u, 1600979035u, 1629608186u, 1658237337u, 1686866488u, 1072319689u,
+            1959823370u, 2847327051u, 3734830732u, 327367117u, 1214870798u, 2102374479u, 2989878160u, 3877381841u,
+            469918226u, 1100948840u, 1988452521u, 2875956202u, 3763459883u
+        ];
+        return new(defaults, cueIds);
     }
 
     /// <summary>TC404B50/SC paired caller: false uses slot 6; invalid ruler suppresses the
@@ -189,6 +138,6 @@ public sealed class OriginalAudioMapMusicSelector
     private static void ValidateLocale(string locale)
     {
         if (locale is not ("SC" or "TC"))
-            throw new ArgumentOutOfRangeException(nameof(locale), locale, "Music selector supports verified SC/TC revisions only.");
+            throw new ArgumentOutOfRangeException(nameof(locale), locale, "Music selection rules support SC and TC.");
     }
 }

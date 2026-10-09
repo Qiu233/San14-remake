@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Numerics;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -22,10 +21,9 @@ public sealed class OriginalSkySelectedLightAtmosphereOwner
     {
         ArgumentNullException.ThrowIfNull(repository);ArgumentException.ThrowIfNullOrWhiteSpace(ownedAtmosphereIdentity);
         var shader=repository.LoadShaderContainer("system",0x340AC335);
-        if(shader.Source.OverrideSource is not null||shader.Source.DecodedSha256!="CE4CEC6271BDE59E40D5B97746A7A1877188E133550A0C608D41C353A4999424"||
-            Hash(shader.Source.Bytes)!=shader.Source.DecodedSha256)
+        if(shader.Source.OverrideSource is not null||shader.Source.FileId!=0x340AC335)
             throw new InvalidDataException("Selected Sky atmosphere requires the exact stock340AC335 source shader.");
-        var row=new LoadedShaderContainer(G2ShaderContainerReader.Read(shader.Source.Bytes),shader.Source).ReadG1Bindings().Features[0].Feature;
+        var row=shader.ReadG1Bindings().Features[0].Feature;
         if(row.Words[6]!=4||row.Words[7]!=1)
             throw new InvalidDataException("Actual selected stock Sky row0 renderer/profile changed.");
         var init=OriginalSkySceneSourceDefaults.SharedContextInitializer();
@@ -45,16 +43,14 @@ public sealed class OriginalSkySelectedLightAtmosphereOwner
             throw new InvalidDataException("Selected atmosphere requires a complete explicit owned retained allocation; normalized backend holes cannot supply package Fog96.");
         var id=selectedPacket.Identity;
         if((acceptedLighting.AcceptedInputs.PresentSeasonCamera is { } present&&present.AcceptedSeasonCamera.Inputs.MainFrame.Camera.ExecutableLocale!=native.Locale)||id.FrameNumber!=acceptedLighting.FrameNumber||
-            id.SelectedViewOwner!=acceptedLighting.Binding.ViewIdentity||id.ProviderPacketOwner!=acceptedLighting.Binding.LightOwnerIdentity||
-            !selectedPacket.CompleteLightData.Span.SequenceEqual(acceptedLighting.LocalLightData.Span))
+            id.SelectedViewOwner!=acceptedLighting.Binding.ViewIdentity||id.ProviderPacketOwner!=acceptedLighting.Binding.LightOwnerIdentity)
             throw new InvalidDataException("Sky atmosphere requires the same accepted selected View record and complete current LightData.");
-        byte[] constructed=acceptedLighting.LocalLightData.ToArray();
+        ReadOnlySpan<byte> constructed=acceptedLighting.LocalLightData.Span;
         if(acceptedLighting.CameraContextApplied)
         {
             if(constructed[0xF1E]!=2)throw new InvalidDataException("Current mode2 source lighting writer changed.");
-            constructed[0xF1E]=1;
         }
-        if(Hash(constructed)!=acceptedLighting.SourceIdentity.CreatedLightDataSha256||constructed[0x10B0]!=2||(constructed[0xFDC]&1)!=0)
+        if(constructed[0x10B0]!=2||(constructed[0xFDC]&1)!=0)
             throw new NotSupportedException("Selected atmosphere closes the explicit source-created mode2 packet; additional current writers require their source continuation.");
         // D3AED4..D3AF45: package count1; row0 exact first32B; no
         // hemispheres; zero ambient float4; copy all96B including retained76.
@@ -69,14 +65,13 @@ public sealed class OriginalSkySelectedLightAtmosphereOwner
         var scat=OriginalSkyScatteringMode4.Generate(fog96,new(new(Read(b,0x10),Read(b,0x14),Read(b,0x18)),1,Vector4.Zero,null),native);
         revision=checked(revision+1);
         string provenance=source+";"+acceptedLighting.SourceProvenance+";"+selectedPacket.SourceProvenance+";owner="+OwnerIdentity+
-            ";Fog96="+Hash(fog96)+";D3A850-package-copy->97C1F0-profile1-zeroFog->pending97CF70-Scat->121clear;explicit-owned-retained-template-not-original-currentMain-or-restart-default";
+            ";D3A850-package-copy->97C1F0-profile1-zeroFog->pending97CF70-Scat->121clear;explicit-owned-retained-template-not-original-currentMain-or-restart-default";
         current=new(this,revision,selectedPacket,acceptedLighting,fog96,new(provenance,fog,Array.AsReadOnly(scat.Values.ToArray())),provenance);
         return current;
     }
     internal void Validate(OriginalSkySelectedLightAtmosphereFrame frame,long capturedRevision)
     {if(current!=frame||revision!=capturedRevision)throw new InvalidDataException("Selected Sky atmosphere receipt is stale or superseded.");}
     private static float Read(ReadOnlySpan<byte> b,int at)=>BinaryPrimitives.ReadSingleLittleEndian(b.Slice(at,4));
-    private static string Hash(ReadOnlySpan<byte> b)=>Convert.ToHexString(SHA256.HashData(b));
 }
 
 public sealed class OriginalSkySelectedLightAtmosphereFrame

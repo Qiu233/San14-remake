@@ -26,9 +26,6 @@ public sealed class OriginalWorldGeometryTerrain56StageSourceOwner
         LoadedOriginalWorldGeometryLateEffectSource loadedSource)
     {
         ArgumentNullException.ThrowIfNull(actualScene); ArgumentNullException.ThrowIfNull(loadedSource);
-        if (!loadedSource.Native.WindowSha256.ContainsKey("terrainStageBinding") ||
-            !loadedSource.Native.WindowSha256.ContainsKey("terrainStageExit"))
-            throw new InvalidDataException("Terrain stage inheritance requires the admitted complete source binder and exit.");
         scene = actualScene; detail = scene.DetailProgram; coarse = scene.CoarseProgram;
         detailLoans = CreateSourceStageLoans(detail); coarseLoans = CreateSourceStageLoans(coarse);
     }

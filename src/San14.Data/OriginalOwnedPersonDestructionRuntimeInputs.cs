@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using San14.Core;
 using San14.Data.Formats;
 
@@ -14,23 +13,18 @@ public sealed class OriginalOwnedPersonDestructionRuntimeInputs
 {
     public const string Revision = "san14:ce-owned-person-destruction-runtime-20261007";
     private readonly LoadedScenario _source;
-    private readonly string _language, _executableHash;
+    private readonly string _language, _ruleVersion;
     private readonly OriginalPersonDestructionFreshSource[] _people;
 
     private OriginalOwnedPersonDestructionRuntimeInputs(LoadedScenario source, string language,
-        string executableHash, OriginalPersonDestructionFreshSource[] people)
-        => (_source, _language, _executableHash, _people) = (source, language, executableHash, people);
+        string ruleVersion, OriginalPersonDestructionFreshSource[] people)
+        => (_source, _language, _ruleVersion, _people) = (source, language, ruleVersion, people);
 
     public static OriginalOwnedPersonDestructionRuntimeInputs Load(OriginalGameRepository repository,
         LoadedScenario source, string language)
     {
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(source);
-        string expected = language switch
-        {
-            "SC" => OriginalCeHexWorldCoordinates.VerifiedScExecutableSha256,
-            "TC" => OriginalCeHexWorldCoordinates.VerifiedTcExecutableSha256,
-            _ => throw new InvalidDataException("Person destruction inputs require CE SC/TC.")
-        };
+        string identity = SimulationRuleIdentity.ForLocale(language);
         if (source.Metadata.FormatMarker != 0x66 || source.Snapshot.Locale != language ||
             source.Snapshot.Characters.Count != 1851)
             throw new InvalidDataException("Person destruction inputs need the complete CE Person table.");
@@ -38,13 +32,11 @@ public sealed class OriginalOwnedPersonDestructionRuntimeInputs
             ? Path.Combine(repository.SourceDirectory, source.ScenarioSource.SourcePath)
             : source.ScenarioSource.PhysicalPath;
         byte[] bytes = File.ReadAllBytes(path);
-        if (Convert.ToHexString(SHA256.HashData(bytes)) != source.ScenarioSource.Sha256)
-            throw new InvalidDataException("Person destruction scenario changed while its initial rows were loaded.");
         OriginalPersonDestructionFreshSource[] people = ReadSourceRows(S14Reader.Read(bytes, true), language);
         if (people.Where((row, physical) => row.PhysicalSlot != physical ||
             row.PersonId != source.Snapshot.Characters[physical].CharacterId).Any())
             throw new InvalidDataException("Person destruction serializer identities differ from the loaded scenario.");
-        return new(source, language, expected, people);
+        return new(source, language, identity, people);
     }
 
     /// <summary>2391C0 serializes twelve words beginning atTC16A. Modern CE
@@ -116,10 +108,10 @@ public sealed class OriginalOwnedPersonDestructionRuntimeInputs
     }
 
     private bool Bound(GameState state) => state.NativeArmySimulation?.Parameters is { } parameters &&
-        parameters.Language == _language && parameters.ExecutableSha256 == _executableHash &&
+        parameters.Language == _language && parameters.RuleVersion == _ruleVersion &&
         state.ContentHashes.GetValueOrDefault(_source.ScenarioSource.ResourceUri) == _source.ScenarioSource.Sha256;
     private bool PersonBound(OfficerState person) => person.NativeAbilityRuntime is { } ability &&
-        ability.Language == _language && ability.ExecutableSha256 == _executableHash &&
+        ability.Language == _language && ability.RuleVersion == _ruleVersion &&
         ability.SourceScenarioUri == _source.ScenarioSource.ResourceUri &&
         ability.SourceScenarioSha256 == _source.ScenarioSource.Sha256 &&
         ability.PhysicalSlot is >= 1 and <= 1850 && _people[ability.PhysicalSlot].PersonId == person.Id;

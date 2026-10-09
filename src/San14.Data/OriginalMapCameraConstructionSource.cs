@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -69,15 +68,12 @@ public static class OriginalMapCameraConstructionSource
         LoadedRdbAsset source = resource.Source;
         if (source is null || source.Bytes is null || source.FileId != SourceFileId ||
             source.ResourceUri != SourceResourceUri ||
-            !string.Equals(source.DecodedSha256, SourceSha256, StringComparison.OrdinalIgnoreCase) ||
             source.OverrideSource is not null || source.IndexSource is null || source.IndexSource.IsOverride)
             throw new InvalidDataException("Source Camera construction requires the original system908AB6E2 resource identity without overrides.");
 
-        // Snapshot bytes before validation so the decoded object and word values
-        // retain the same verified source if the caller later edits its arrays.
+        // Keep the decoded object and word values in the same resource generation
+        // if the caller later edits its arrays.
         LoadedRdbAsset ownedSource = source with { Bytes = source.Bytes.ToArray() };
-        if (Convert.ToHexString(SHA256.HashData(ownedSource.Bytes)) != SourceSha256)
-            throw new InvalidDataException("Source Camera construction resource bytes differ from their pinned source identity.");
         DokDocument canonical = DokReader.Read(ownedSource.Bytes);
         VerifyDocument(resource.Document, canonical);
         DokObject[] selected = canonical.Objects.Where(item => item.ObjectId == objectId).ToArray();
@@ -102,7 +98,7 @@ public static class OriginalMapCameraConstructionSource
         // constructor at SC C3F6C2, inside the paired C3D610/C3BF60 constructors.
         values.Add(0x1240, 0u);
         var ownedResource = new LoadedObjects(canonical, ownedSource);
-        string origin = SourceResourceUri + $"#object/{objectId:X8}@{SourceSha256};" +
+        string origin = SourceResourceUri + $"#object/{objectId:X8}@{source.DecodedSha256};" +
             "fresh-source-constructor=SC:C3D610/TC:C3BF60;" +
             "property-loader=SC:C50CF0/TC:C4F6F0;" +
             "native-descriptors=SC:C89DA0/TC:C88780;literal1240=SC:C3F6C2";

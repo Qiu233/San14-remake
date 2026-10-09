@@ -61,7 +61,7 @@ public sealed class OriginalBattleRemakeCurrentDamageBodyQueries : IOriginalBatt
             state.ContentHashes.GetValueOrDefault(source.ResourceUri) != source.Sha256 ||
             state.Officers.GetValueOrDefault(target.OfficerId)?.NativeAbilityRuntime is not { } person ||
             person.Revision != OriginalTacticRemakeCurrentAbilities.ProfileId ||
-            person.Language != parameters.Language || person.ExecutableSha256 != parameters.ExecutableSha256 ||
+            person.Language != parameters.Language || person.RuleVersion != parameters.RuleVersion ||
             person.SourceScenarioUri != source.ResourceUri || person.SourceScenarioSha256 != source.Sha256 ||
             person.PhysicalSlot is < 1 or > 1850 ||
             definitions.ReadPersonLookupReference(target.OfficerId)?.PhysicalSlot != person.PhysicalSlot ||

@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Numerics;
-using System.Security.Cryptography;
 
 namespace San14.Data;
 
@@ -18,7 +17,6 @@ public sealed class OriginalSkySceneSelectedViewLightPacket
         Identity = identity; this.bytes = bytes;
         SourceProvenance = $"selected-View={identity.SelectedViewOwner};record1B20={identity.ProviderRecordOwner};" +
             $"record8-LightData={identity.ProviderPacketOwner};frame={identity.FrameNumber};" +
-            $"LightDataSha256={Convert.ToHexString(SHA256.HashData(bytes))};" +
             OriginalSkySceneSelectedViewLightSource.NativeContract;
     }
     public OriginalSkySceneSelectedViewLightIdentity Identity { get; }

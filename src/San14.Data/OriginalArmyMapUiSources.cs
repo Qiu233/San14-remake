@@ -1,7 +1,4 @@
-using System.Buffers.Binary;
 using System.Globalization;
-using System.Reflection.PortableExecutable;
-using System.Text;
 
 namespace San14.Data;
 
@@ -18,28 +15,32 @@ public sealed class OriginalArmyMapUiSources
     private OriginalArmyMapUiSources((int From, int To)[] appearanceMap, Dictionary<int, string> spriteNames)
         => (_appearanceMap, _spriteNames) = (appearanceMap, spriteNames);
 
-    public static OriginalArmyMapUiSources LoadCurrentTc(OriginalGameRepository repository)
+    public static OriginalArmyMapUiSources Create()
     {
-        _ = OriginalCeHexWorldCoordinates.VerifyInstalledExecutable(repository.SourceDirectory, "TC");
-        using var stream = File.OpenRead(Path.Combine(repository.SourceDirectory, "SAN14CE_TC.exe"));
-        using var pe = new PEReader(stream);
-        var bytes = pe.GetSectionData(0x1A23E2C).GetContent(0, 19 * 20).AsSpan();
-        var appearance = new (int From, int To)[19];
-        for (int i = 0; i < appearance.Length; i++)
-            appearance[i] = (BinaryPrimitives.ReadInt32LittleEndian(bytes.Slice(i * 20 + 4, 4)),
-                BinaryPrimitives.ReadInt32LittleEndian(bytes.Slice(i * 20, 4)));
-        int[] icons = [0x1B0, 0x1B6, 0x1B7, 0x1B8, 0x1BA, 0x1BB, 0x1B9,
-            0x1BC, 0x1BD, 0x1B1, 0x1B2, 0x1B3, 0x1B4, 0x3F0, 0x1B5,
-            0x231, 0x232, 0x233, 0x234, 0x235, 0x236, 0x237, 0x238, 0x1D1];
-        var names = new Dictionary<int, string>();
-        foreach (int id in icons)
+        // Appearance aliases and icon names are rules; the named sprites remain
+        // in the original resource archive and are loaded by the UI asset owner.
+        (int From, int To)[] appearance =
+        [
+            (2197,7), (2196,36), (2195,45), (2194,2), (2193,1),
+            (2192,9), (2191,84), (2190,60), (2189,44), (2188,49),
+            (2187,14), (2186,25), (2185,37), (2184,64), (2183,63),
+            (2182,91), (2181,30), (2180,117), (2179,17)
+        ];
+        var names = new Dictionary<int, string>
         {
-            ulong va = BinaryPrimitives.ReadUInt64LittleEndian(pe.GetSectionData(0x1A88BF0 + id * 8).GetContent(0, 8).AsSpan());
-            var text = pe.GetSectionData(checked((int)(va - 0x140000000ul))).GetContent(0, 128).AsSpan();
-            int length = text.IndexOf((byte)0);
-            if (length < 0) throw new InvalidDataException("Original Army icon source name is unterminated.");
-            names.Add(id, Encoding.ASCII.GetString(text[..length]));
-        }
+            [0x1B0]="000_cmn_icon_jin_fuchi_1", [0x1B6]="000_cmn_icon_jin_fuchi_2",
+            [0x1B7]="000_cmn_icon_jin_fuchi_3", [0x1B8]="000_cmn_icon_jin_fuchi_4",
+            [0x1BA]="000_cmn_icon_jin_fuchi_6", [0x1BB]="000_cmn_icon_jin_fuchi_7",
+            [0x1B9]="000_cmn_icon_jin_fuchi_5", [0x1BC]="000_cmn_icon_jin_fuchi_8",
+            [0x1BD]="000_cmn_icon_jin_fuchi_9", [0x1B1]="000_cmn_icon_jin_fuchi_10",
+            [0x1B2]="000_cmn_icon_jin_fuchi_11", [0x1B3]="000_cmn_icon_jin_fuchi_12",
+            [0x1B4]="000_cmn_icon_jin_fuchi_13", [0x3F0]="000_cmn_icon_jin_15_fuchi",
+            [0x1B5]="000_cmn_icon_jin_fuchi_14", [0x231]="000_cmn_mrk_gundan_1",
+            [0x232]="000_cmn_mrk_gundan_2", [0x233]="000_cmn_mrk_gundan_3",
+            [0x234]="000_cmn_mrk_gundan_4", [0x235]="000_cmn_mrk_gundan_5",
+            [0x236]="000_cmn_mrk_gundan_6", [0x237]="000_cmn_mrk_gundan_7",
+            [0x238]="000_cmn_mrk_gundan_8", [0x1D1]="000_cmn_icon_map_shussei"
+        };
         return new(appearance, names);
     }
 

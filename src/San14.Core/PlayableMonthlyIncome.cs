@@ -21,7 +21,7 @@ public sealed record MonthlyIncomeQuote(PeriodEconomyCalculationStatus Status, s
 {
     public int Gold { get; init; }
     public int Supplies { get; init; }
-    public string? SourceExecutableSha256 { get; init; }
+    public string? RuleVersion { get; init; }
     public int? SettlementMonth { get; init; }
     public int? CityId { get; init; }
     public int? GrossGold { get; init; }
@@ -143,8 +143,7 @@ public static class PlayableMonthlyIncome
             quote.GrossGold < 0 || quote.GrossSupplies < 0 || quote.GoldCapacity < 0 ||
             quote.SuppliesCapacity < 0 || quote.CurrentGoldStock < 0 || quote.CurrentSuppliesStock < 0 ||
             quote.NextGoldStock < 0 || quote.NextSuppliesStock < 0 ||
-            (quote.SourceExecutableSha256 is { } hash &&
-                (hash.Length != 64 || hash.Any(value => !Uri.IsHexDigit(value)))) ||
+            (quote.RuleVersion is { } ruleVersion && string.IsNullOrWhiteSpace(ruleVersion)) ||
             quote.MissingInputs.Any(string.IsNullOrWhiteSpace) ||
             quote.MissingInputs.Distinct().Count() != quote.MissingInputs.Length ||
             (quote.Status != PeriodEconomyCalculationStatus.Available &&

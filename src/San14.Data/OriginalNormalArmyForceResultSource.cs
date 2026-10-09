@@ -1,6 +1,3 @@
-using System.Buffers.Binary;
-using System.Reflection.PortableExecutable;
-using System.Security.Cryptography;
 using System.Text.Json;
 using San14.Core;
 
@@ -56,6 +53,8 @@ public interface IOriginalNormalArmyForceResultDefinitionQueries
 /// distinct; this method does not publish an enclosing battle result.</summary>
 public static class OriginalNormalArmyForceResultSource
 {
+    private const int TroopLossScale = 10;
+    private const int KilledAddend = 100;
     /// <summary>Writes only reached Force12/162 after every current input has
     /// resolved. Missing owners preserve the entire input. Native validity uses
     /// the matching current source definition snapshot; no UI alive inference.</summary>
@@ -69,7 +68,7 @@ public static class OriginalNormalArmyForceResultSource
         ArgumentException.ThrowIfNullOrWhiteSpace(revision);
         if (attackerForceSlot is < 0 or > 51) throw new InvalidDataException("Invalid attacking native Force slot.");
         if (input.NativeArmySimulation is not { Parameters: { } parameters } simulation ||
-            parameters.Language != source.Language || parameters.ExecutableSha256 != source.Source.Sha256 ||
+            parameters.Language != source.Language || parameters.RuleVersion != source.Source.RuleVersion ||
             definitions.StaticSource is not { } scenario ||
             input.ContentHashes.GetValueOrDefault(scenario.ResourceUri) != scenario.Sha256)
             return new(OriginalNormalArmyForceResultOutcome.CurrentInputsUnresolved,input,null);
@@ -139,42 +138,18 @@ public static class OriginalNormalArmyForceResultSource
         return new(true, worldGate, true, flagsAfter, after, delta, revision);
     }
 
-    /// <summary>Only the two parameters reached by ordinary kind27 with null
-    /// second Force are seeded. Unreached ruler/rank and Base-kind constants
-    /// are retained in the complete source window, not imported as guesses.</summary>
+    /// <summary>Project rules for the two parameters used by the ordinary Army Force result callback.</summary>
     public static OriginalNormalArmyForceResultSourceParameters LoadInitial(OriginalGameRepository repository,
         string language)
     {
         ArgumentNullException.ThrowIfNull(repository);
-        var profile = ForLanguage(language);
-        string relative = $"SAN14CE_{language}.exe";
-        string path = Path.GetFullPath(Path.Combine(repository.SourceDirectory, relative));
-        using var stream = new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read);
-        if (stream.Length is < 4096 or > 128*1024*1024)
-            throw new InvalidDataException("Force result executable exceeds its inspected bound.");
-        byte[] bytes = new byte[(int)stream.Length]; stream.ReadExactly(bytes);
-        string hash = Convert.ToHexString(SHA256.HashData(bytes));
-        if (hash != profile.ExecutableSha256) throw new InvalidDataException("Force result image identity changed.");
-        using var pe = new PEReader(new MemoryStream(bytes, writable: false));
-        if (pe.PEHeaders.PEHeader is not { Magic: PEMagic.PE32Plus, ImageBase: 0x140000000UL } ||
-            pe.PEHeaders.CoffHeader.Machine != Machine.Amd64)
-            throw new InvalidDataException("Force result requires the inspected AMD64 PE32+ source.");
-        var fields = new List<OriginalNormalArmyForceResultSourceField>();
-        foreach (var (semantic, expected) in new[] { (0x1A4A920, 10), (0x1A4A92C, 100) })
-        {
-            int physical = semantic - (language == "TC" ? 0x1030 : 0);
-            var sections = pe.PEHeaders.SectionHeaders.Where(s => s.Name == ".data" &&
-                physical >= s.VirtualAddress && (long)physical + 4 <= (long)s.VirtualAddress + s.SizeOfRawData).ToArray();
-            if (sections.Length != 1) throw new InvalidDataException("Force result parameter is not source backed.");
-            int offset = sections[0].PointerToRawData + physical - sections[0].VirtualAddress;
-            ReadOnlySpan<byte> raw = bytes.AsSpan(offset, 4);
-            int value = BinaryPrimitives.ReadInt32LittleEndian(raw);
-            if (value != expected) throw new InvalidDataException("Force result parameter initial value changed.");
-            fields.Add(new(semantic, physical, value, Convert.ToHexString(SHA256.HashData(raw))));
-        }
-        var provenance = new SourceProvenance(relative, bytes.Length, hash, profile.ExecutableSha256)
-        { ResourceUri = GameResourceId.File(relative).ToString(), PhysicalPath = path, IsOverride = false };
-        return new(language, provenance, profile, Array.AsReadOnly(fields.ToArray()), new(fields[0].Value, fields[1].Value), null);
+        var source = SimulationRuleSources.Provenance("san14-remake://rules/normal-army-force-result/v1", language);
+        OriginalNormalArmyForceResultSourceField[] fields = [
+            new(0x1A4A920, language == "TC" ? 0x1A498F0 : 0x1A4A920, TroopLossScale, string.Empty),
+            new(0x1A4A92C, language == "TC" ? 0x1A498FC : 0x1A4A92C, KilledAddend, string.Empty)
+        ];
+        return new(language, source, ForLanguage(language), Array.AsReadOnly(fields),
+            new(TroopLossScale, KilledAddend), null);
     }
 
     public static GameState InstallFresh(GameState state, OriginalNormalArmyForceResultSourceParameters source, string revision)
@@ -183,7 +158,7 @@ public static class OriginalNormalArmyForceResultSource
         ArgumentException.ThrowIfNullOrWhiteSpace(revision);
         if (source.CurrentRevision is not null || state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } ||
             state.Units.Count != 0 || state.NativeArmySimulation is not { Parameters: { } parameters } simulation ||
-            parameters.Language != source.Language || parameters.ExecutableSha256 != source.Source.Sha256)
+            parameters.Language != source.Language || parameters.RuleVersion != source.Source.RuleVersion)
             throw new InvalidDataException("Force result seed needs a fresh matching empty simulation.");
         var integers = new Dictionary<string,int>(parameters.Int32Values, parameters.Int32Values.Comparer);
         foreach (var field in source.Fields)
@@ -195,7 +170,7 @@ public static class OriginalNormalArmyForceResultSource
         }
         return state with { NativeArmySimulation = simulation with { Parameters = parameters with
         { Int32Values = integers, Float32Values = new(parameters.Float32Values,parameters.Float32Values.Comparer),
-          Revision = $"{parameters.Revision}|{revision}:normal-force-result:{source.Source.Sha256}" } } };
+          Revision = $"{parameters.Revision}|{revision}:normal-force-result:{source.Source.RuleVersion}" } } };
     }
 
     public static OriginalNormalArmyForceResultParameters? ReadCurrent(GameState state,
@@ -203,7 +178,7 @@ public static class OriginalNormalArmyForceResultSource
     {
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(source);
         if (state.NativeArmySimulation?.Parameters is not { } parameters || parameters.Language != source.Language ||
-            parameters.ExecutableSha256 != source.Source.Sha256 || string.IsNullOrWhiteSpace(parameters.Revision)) return null;
+            parameters.RuleVersion != source.Source.RuleVersion || string.IsNullOrWhiteSpace(parameters.Revision)) return null;
         int[] values = new int[2];
         for (int i = 0; i < 2; i++)
         {
@@ -213,18 +188,10 @@ public static class OriginalNormalArmyForceResultSource
         return new(values[0],values[1]);
     }
 
-    public static OriginalBattleUnitSourceProfile ForLanguage(string language) => language switch
+    public static OriginalBattleUnitSourceProfile ForLanguage(string language)
     {
-        "SC" => new("SC", "CEEE6A94EB939B40C329B8EC5AECD938E9D3A51A6663E8E7D27A1498627AFB88",
-            "D7F3831C369A76148D87370D91EF0A8A43487D5E13A383886C68A6D50591E8F6", Array.AsReadOnly<OriginalBattleUnitSourceWindow>([
-            new("forceResult",0x257420,0x2576CA,"2E4CCAF4794B091976337024A8B35BB00396E1A0DC3FA3C0A4B32A1436393067"),
-            new("ordinaryCaller",0x1791E0,0x17921B,"75CE61CB114DA3425A45A980737F5E5AE2FB75B860D0800636692EA04FE84176")])),
-        "TC" => new("TC", "0751B4FED7A5783371B9541674C0587A6AFD3140E60E706E32EAF35A9432F464",
-            "FFBD504FC3DEA6A218EF4E8530A65761296C17191F7D675AB3C49DF64D950766", Array.AsReadOnly<OriginalBattleUnitSourceWindow>([
-            new("forceResult",0x257670,0x25791A,"D0AA220CC0999EB5F641CC1299F8708BC420158E78B2AD83C2A600519C6036E7"),
-            new("ordinaryCaller",0x179480,0x1794BB,"AE41B2BD1E0E3209849BD998280794AC2EE8DDB62E01D72BEB15F3C75FDC5FD2")])),
-        _ => throw new InvalidDataException("Unsupported Force result source locale.")
-    };
+        return new(language, SimulationRuleIdentity.ForLocale(language));
+    }
 
     private sealed class OwnedCurrent(GameState state, int slot, OriginalEventInitializationContext definitions,
         IOriginalNormalArmyForceResultDefinitionQueries registry, OriginalNormalArmyForceResultSourceParameters source)

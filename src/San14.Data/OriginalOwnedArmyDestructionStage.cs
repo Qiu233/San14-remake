@@ -452,7 +452,7 @@ public sealed partial class OriginalOwnedArmyDestructionStage(OriginalOwnedArmyC
 public sealed partial class OriginalOwnedArmyCampaignRules
 {
     internal IEffectiveOfficerAbilities CreateArmyDestructionAbilities(OriginalEventInitializationContext current) =>
-        new OriginalTacticRemakeCurrentAbilities(current, _scenario, Seed.Language, Seed.Source.Sha256);
+        new OriginalTacticRemakeCurrentAbilities(current, _scenario, Seed.Language, SimulationRuleIdentity.ForLocale(Seed.Language));
     internal OriginalTacticSourceSamplerWorld? ReadArmyDestructionSampler(GameState state, OriginalEventInitializationContext current) =>
         Context(current).ReadCurrentSamplerWorld(state);
     internal GameState ApplyArmyDestructionLoyalty(GameState state, OriginalEventInitializationContext current,

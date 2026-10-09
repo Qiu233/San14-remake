@@ -12,6 +12,11 @@ public sealed record OriginalD3D11ModelViewDraw(int PrimitiveIndex,int InstanceI
     ulong DistanceKey,ulong TableOwner,byte[] Vertex,byte[] Pixel);
 public sealed record OriginalD3D11ModelViewPlan(IReadOnlyList<int> VisibleInstanceIndices,
     IReadOnlyList<int> VisibleUnsupportedInstanceIndices,IReadOnlyList<OriginalD3D11ModelViewDraw> Draws);
+public readonly record struct OriginalD3D11SourceModelMapping(int SceneInstanceIndex,int ModelOrdinal,int PrimitiveCount);
+public readonly record struct OriginalD3D11SourceModelShadowMapping(int SceneInstanceIndex,int ModelOrdinal,
+    int PrimitiveCount,uint Exclusion78,int Flags10C,float OpacityB0);
+public sealed record OriginalD3D11SourceModelShadowTemplate(int TemplateIndex,OriginalNamedModelShader FinalTable,
+    OriginalModelMatrixBindingInput Matrix,IReadOnlyList<string> VertexLayout);
 
 /// <summary>First preparation of the finite stock FieldScene static Model bank.
 /// Load reads the user's installed resources and validates source profiles once.
@@ -29,10 +34,20 @@ public sealed class OriginalD3D11ModelInputPreparation
 
     private OriginalD3D11ModelInputPreparation(LoadedSceneResources scene,Dictionary<string,byte[]> preparedFiles,
         Instance[] preparedInstances,Primitive[] preparedPrimitives,OriginalWorldPrimitiveOrderSource sourceOrder,
-        int templateCount,int assetCount,OriginalD3D11ModelInputBoundary[] sourceBoundaries)
+        int templateCount,int assetCount,OriginalD3D11ModelInputBoundary[] sourceBoundaries,
+        IReadOnlyDictionary<int,(uint Exclusion,int Flags,float Opacity)> shadowFields,
+        IReadOnlyList<(int Index,OriginalNamedModelShader Final,OriginalModelMatrixBindingInput Matrix,string Directory)> shadowTemplates)
     {
         Scene=scene;files=preparedFiles;instances=preparedInstances;primitives=preparedPrimitives;order=sourceOrder;
         TemplateCount=templateCount;AssetCount=assetCount;Boundaries=Array.AsReadOnly(sourceBoundaries);
+        SourceModelMappings=Array.AsReadOnly(instances.Select((item,ordinal)=>
+            new OriginalD3D11SourceModelMapping(item.Index,ordinal,item.PrimitiveCount)).ToArray());
+        SourceShadowMappings=Array.AsReadOnly(instances.Select((item,ordinal)=>
+            new OriginalD3D11SourceModelShadowMapping(item.Index,ordinal,item.PrimitiveCount,
+                shadowFields[item.Index].Exclusion,shadowFields[item.Index].Flags,shadowFields[item.Index].Opacity)).ToArray());
+        SourceShadowTemplates=Array.AsReadOnly(shadowTemplates.Select(template=>new OriginalD3D11SourceModelShadowTemplate(
+            template.Index,template.Final,template.Matrix,Array.AsReadOnly(Encoding.UTF8.GetString(
+                files[Normalize(Path.Combine(template.Directory,"layout.txt"))]).Split(['\r','\n'],StringSplitOptions.RemoveEmptyEntries)))).ToArray());
     }
     public LoadedSceneResources Scene{get;}
     public int InstanceCount=>instances.Length;
@@ -41,6 +56,9 @@ public sealed class OriginalD3D11ModelInputPreparation
     public int AssetCount{get;}
     public IReadOnlyList<OriginalD3D11ModelInputBoundary> Boundaries{get;}
     public int BoundaryCount=>Boundaries.Count;
+    public IReadOnlyList<OriginalD3D11SourceModelMapping> SourceModelMappings{get;}
+    public IReadOnlyList<OriginalD3D11SourceModelShadowMapping> SourceShadowMappings{get;}
+    public IReadOnlyList<OriginalD3D11SourceModelShadowTemplate> SourceShadowTemplates{get;}
     public IReadOnlyList<string> PreparedFilenames=>Array.AsReadOnly(files.Keys.ToArray());
 
     /// <summary>The fresh-publication callback must describe each actual caller
@@ -78,6 +96,8 @@ public sealed class OriginalD3D11ModelInputPreparation
         var imports=new List<object>();
         var writtenStatic=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var shadowWorlds=new List<object>();
+        var shadowFields=new Dictionary<int,(uint Exclusion,int Flags,float Opacity)>();
+        var shadowTemplates=new List<(int Index,OriginalNamedModelShader Final,OriginalModelMatrixBindingInput Matrix,string Directory)>();
         var shadowDeclarations=new Dictionary<uint,object>();
         foreach(var placement in placements.Instances.Where(p=>p.Model is not null))
         {
@@ -99,6 +119,7 @@ public sealed class OriginalD3D11ModelInputPreparation
                 var obb=OriginalMapModelNativeBoundsSources.FromSourceWorld(source,prefix.BoundsPublication);
                 var shadowCaller=OriginalDeferredEarlyShadowCasterAdmissionSource.LoadStatic(asset);
                 var sourceVisibility=OriginalMapModelNativeCurrentVisibilitySources.ConstructFresh(prefix,identity);
+                shadowFields.Add(index,(shadowCaller.Exclusion78,shadowCaller.WorldCasterFlags10C,sourceVisibility.ReadSlot(0)));
                 shadowDeclarations.TryAdd(placement.Source.Definition.ObjectId,new{
                     definitionObjectId=placement.Source.Definition.ObjectId,shadowCaller.SourceEvidence,
                     visibilityProducer="OriginalMapModelNativeCurrentVisibilitySources.ConstructFresh(actualPrefix,actualIdentity).ReadSlot(0)"});
@@ -160,6 +181,7 @@ public sealed class OriginalD3D11ModelInputPreparation
                                 string directory=Path.Combine(output,"assets",$"{placement.Source.Definition.ObjectId:X8}","draw-"+drawIndex);
                                 WritePacket(directory,asset,drawIndex,shader,provider,selectedPrograms.Combination.Index,vs,ps,vb,pb,bindings);
                                 int template=templates.Count;templates.Add(Path.GetRelativePath(output,directory).Replace('\\','/'));
+                                shadowTemplates.Add((template,named.Binding.Shader,type17,Path.GetRelativePath(output,directory)));
                                 list.Add(new(drawIndex,template,table,vd,pd,spec.Value.Value,material.MaterialId.Value,alpha,inventory.DeclaredDistance,vb,pb));
                                 imports.Add(new{definitionObjectId=placement.Source.Definition.ObjectId,model=asset.RawTransforms.Source.ResourceUri,
                                     drawIndex,template,tableKey,ownedTableAllocation=table,shader=shader.Source.ResourceUri,vs,ps,
@@ -221,7 +243,8 @@ public sealed class OriginalD3D11ModelInputPreparation
         AddText(Path.Combine(output,"shadow-source-worlds.json"),JsonSerializer.Serialize(new{
             scope="All source static candidates; caster admission and current per-view/OwnCamera/light gates are separate caller inputs",
             declarations=shadowDeclarations.Values,worlds=shadowWorlds},new JsonSerializerOptions{WriteIndented=true}));
-        return new(scene,files,instances.ToArray(),primitives.ToArray(),order,templates.Count,assets.LoadedAssetCount,boundaries.ToArray());
+        return new(scene,files,instances.ToArray(),primitives.ToArray(),order,templates.Count,assets.LoadedAssetCount,
+            boundaries.ToArray(),shadowFields,shadowTemplates);
 
         void AddBytes(string path,byte[] bytes)=>files[Normalize(path)]=bytes.ToArray();
         void AddText(string path,string value)=>AddBytes(path,Encoding.UTF8.GetBytes(value));

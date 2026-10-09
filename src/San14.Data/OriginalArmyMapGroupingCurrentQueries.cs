@@ -12,16 +12,16 @@ public sealed class OriginalArmyMapGroupingCurrentQueries : IOriginalArmyMapGrou
     private readonly OriginalEventInitializationContext _current;
     private readonly LoadedScenario _source;
     private readonly OriginalOwnedArmyGovernorComparatorInputs _posts;
-    private readonly string _language, _executableHash;
+    private readonly string _language, _ruleVersion;
     private readonly Dictionary<int, bool?> _exclusions = [];
     private readonly SavedBaseLookup _bases;
     private OriginalTacticRemakeCurrentAbilities? _abilities;
 
     public OriginalArmyMapGroupingCurrentQueries(GameState world, OriginalEventInitializationContext current,
-        LoadedScenario source, OriginalOwnedArmyGovernorComparatorInputs posts, string language, string executableHash)
+        LoadedScenario source, OriginalOwnedArmyGovernorComparatorInputs posts, string language, string ruleVersion)
     {
         _world = world; _current = current; _source = source; _posts = posts;
-        _language = language; _executableHash = executableHash; _bases = new(world, current);
+        _language = language; _ruleVersion = ruleVersion; _bases = new(world, current);
     }
 
     public IReadOnlyList<int>? ReadRegistry()
@@ -155,7 +155,7 @@ public sealed class OriginalArmyMapGroupingCurrentQueries : IOriginalArmyMapGrou
     public int? ReadLeadership(int physical)
     {
         if (ReadPersonIdentity(physical) is not ushort id) return null;
-        _abilities ??= new(_current, _source, _language, _executableHash);
+        _abilities ??= new(_current, _source, _language, _ruleVersion);
         return _abilities.Resolve(_world, id)?.Leadership;
     }
 

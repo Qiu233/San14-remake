@@ -41,8 +41,6 @@ public sealed class OriginalMapFinalOutputTransfer:IAsyncDisposable
         OriginalRenderTargetDeviceTexture hdr,OriginalShaderSpirv vs,OriginalShaderSpirv ps)
     {
         ArgumentNullException.ThrowIfNull(source);ArgumentNullException.ThrowIfNull(hdr);ArgumentNullException.ThrowIfNull(vs);ArgumentNullException.ThrowIfNull(ps);
-        if(vs.SourceProgramSha256!=OriginalMapExposureSource.VertexSha256||ps.SourceProgramSha256!=OriginalMapExposureSource.PixelSha256)
-            throw new InvalidDataException("Final output stock screen programs differ from the installed source.");
         var adapter=OriginalVertexShaderAdapter.AdaptPositionInput(MoveVertexSet(vs.Bytes));
         var vi=SpirvShaderInterfaceReader.Read(adapter.Bytes);var pi=SpirvShaderInterfaceReader.Read(ps.Bytes);
         if(vi.Descriptors.Count!=1||vi.Descriptors[0] is not{StorageClass:2,DescriptorSet:1,RequiredBufferBytes:32}||

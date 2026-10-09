@@ -1,27 +1,24 @@
-using System.Buffers.Binary;
 using System.Numerics;
-using System.Security.Cryptography;
 
 namespace San14.Data;
 
-/// <summary>File-backed startup parameter tables for the exact original controller.
-/// Later native parameter overrides require their explicit current values.</summary>
+/// <summary>Remake camera presets. Later parameter overrides are explicit current inputs.</summary>
 public sealed class OriginalMainMapCameraControllerParameters
 {
     private readonly int[] anchors;
     private readonly Vector4[] minimumFocus,maximumFocus;
     private readonly float[] minimumYaw,maximumYaw,minimumPitch,maximumPitch;
     private readonly double[] bandPitch;
-    private OriginalMainMapCameraControllerParameters(string locale,string sha,int[] anchors,
+    private OriginalMainMapCameraControllerParameters(string locale,int[] anchors,
         Vector4[] minimumFocus,Vector4[] maximumFocus,float[] minimumYaw,float[] maximumYaw,
         float[] minimumPitch,float[] maximumPitch,double[] bandPitch)
     {
-        Locale=locale;ExecutableSha256=sha;this.anchors=anchors;this.minimumFocus=minimumFocus;
+        Locale=locale;this.anchors=anchors;this.minimumFocus=minimumFocus;
         this.maximumFocus=maximumFocus;this.minimumYaw=minimumYaw;this.maximumYaw=maximumYaw;
         this.minimumPitch=minimumPitch;this.maximumPitch=maximumPitch;this.bandPitch=bandPitch;
     }
     public string Locale {get;}
-    public string ExecutableSha256 {get;}
+    public string RuleVersion => OriginalMainMapCameraRules.Version;
     public float ZoomAnchor(int band) => anchors[CheckBand(band)];
     public double ZoomBandPitch(int band) => bandPitch[CheckBand(band)];
     public double MinimumDistance => ZoomAnchor(0);
@@ -31,29 +28,22 @@ public sealed class OriginalMainMapCameraControllerParameters
     public static OriginalMainMapCameraControllerParameters LoadSourceDefaults(OriginalGameRepository repository,string locale)
     {
         ArgumentNullException.ThrowIfNull(repository);
-        string sha=OriginalCeHexWorldCoordinates.VerifyInstalledExecutable(repository.SourceDirectory,locale);
-        byte[] exe=File.ReadAllBytes(Path.Combine(repository.SourceDirectory,$"SAN14CE_{locale}.exe"));
-        if(Convert.ToHexString(SHA256.HashData(exe))!=sha)
-            throw new InvalidDataException("Original controller executable changed while reading its parameter tables.");
-        int delta=locale switch{"SC"=>0,"TC"=>0x1000,_=>throw new InvalidDataException("Original controller requires exact SC or TC.")};
-        byte[] focus=ReadImage(exe,0x1A22000-delta,7*32),yaw=ReadImage(exe,0x1A22100-delta,7*8),
-            pitch=ReadImage(exe,0x1A22138-delta,7*8);
-        float F(byte[] raw,int off)=>BinaryPrimitives.ReadSingleLittleEndian(raw.AsSpan(off,4));
-        Vector4 V(int at)=>new(F(focus,at),F(focus,at+4),F(focus,at+8),F(focus,at+12));
-        int zoomDelta=locale=="TC"?0x1030:0;
-        int[] anchors=Enumerable.Range(0,7).Select(i=>BinaryPrimitives.ReadInt32LittleEndian(
-            ReadImage(exe,0x1A4B950+i*12-zoomDelta,4))).ToArray();
-        if(!anchors.SequenceEqual(new[]{5000,10000,17500,30000,55000,120000,200000}))
-            throw new InvalidDataException("Original controller seven anchor table does not match its pinned source profile.");
-        // C880 literal binary64 stores; each is the widened source binary32 angle.
-        ulong[] words=[0x3FE0C15240000000,0x3FE6571860000000,0x3FE6571860000000,
-            0x3FF0C15240000000,0x3FF921FB60000000,0x3FF921FB60000000,0x3FF921FB60000000];
-        return new(locale,sha,anchors,Enumerable.Range(0,7).Select(i=>V(i*32)).ToArray(),
-            Enumerable.Range(0,7).Select(i=>V(i*32+16)).ToArray(),
-            Enumerable.Range(0,7).Select(i=>F(yaw,i*8)).ToArray(),Enumerable.Range(0,7).Select(i=>F(yaw,i*8+4)).ToArray(),
-            Enumerable.Range(0,7).Select(i=>F(pitch,i*8)).ToArray(),Enumerable.Range(0,7).Select(i=>F(pitch,i*8+4)).ToArray(),
-            words.Select(v=>BitConverter.UInt64BitsToDouble(v)).ToArray()) {
-                SourceInertiaTimeoutMilliseconds=BinaryPrimitives.ReadInt32LittleEndian(ReadImage(exe,0x1A4A02C-zoomDelta,4))};
+        return CreateDefaults(locale);
+    }
+
+    public static OriginalMainMapCameraControllerParameters CreateDefaults(string locale)
+    {
+        static float F(uint bits) => BitConverter.UInt32BitsToSingle(bits);
+        float pi=F(0x40490FDB),halfPi=F(0x3FC90FDB),twoPi=F(0x40C90FDB);
+        return new(OriginalMainMapCameraRules.Language(locale),[5000,10000,17500,30000,55000,120000,200000],
+            [new(40000,0,14000,1),new(38000,0,13000,1),new(43000,0,17500,1),
+             new(45000,0,24000,1),new(60000,0,30000,1),new(110000,0,74100,1),new(112400,0,115400,1)],
+            [new(192571,0,193430,1),new(192571,0,193430,1),new(190000,0,190000,1),
+             new(190000,0,190000,1),new(175000,0,173000,1),new(110000,0,130000,1),new(112400,0,115400,1)],
+            [0,0,0,0,pi,pi,pi],[twoPi,twoPi,twoPi,twoPi,pi,pi,pi],
+            [F(0x3E44980A),F(0x3EB2B8C3),F(0x3F32B8C3),F(0x3F860A92),halfPi,halfPi,halfPi],
+            [halfPi,halfPi,halfPi,halfPi,halfPi,halfPi,halfPi],
+            [F(0x3F060A92),F(0x3F32B8C3),F(0x3F32B8C3),F(0x3F860A92),halfPi,halfPi,halfPi]);
     }
 
     /// <summary>B370/BF30/BCF0 interpolate each binary32 table value, then widen
@@ -72,18 +62,6 @@ public sealed class OriginalMainMapCameraControllerParameters
             L(minimumPitch[b],minimumPitch[n]),L(maximumPitch[b],maximumPitch[n]));
     }
     private static int CheckBand(int b)=>b is>=0 and<=6?b:throw new InvalidDataException("Original controller zoom band must be 0 through 6.");
-    private static byte[] ReadImage(byte[] exe,int rva,int count)
-    {
-        int pe=BinaryPrimitives.ReadInt32LittleEndian(exe.AsSpan(0x3C,4)),n=BinaryPrimitives.ReadUInt16LittleEndian(exe.AsSpan(pe+6,2));
-        int table=pe+24+BinaryPrimitives.ReadUInt16LittleEndian(exe.AsSpan(pe+20,2));
-        for(int i=0;i<n;i++)
-        {
-            int at=table+i*40,va=BinaryPrimitives.ReadInt32LittleEndian(exe.AsSpan(at+12,4)),
-                size=BinaryPrimitives.ReadInt32LittleEndian(exe.AsSpan(at+16,4)),raw=BinaryPrimitives.ReadInt32LittleEndian(exe.AsSpan(at+20,4));
-            if(rva>=va&&rva+count<=va+size)return exe.AsSpan(raw+rva-va,count).ToArray();
-        }
-        throw new InvalidDataException("Original controller parameter bytes are outside the pinned PE raw sections.");
-    }
 }
 
 public readonly record struct OriginalMainMapCameraControllerBounds(Vector4 MinimumFocus70,

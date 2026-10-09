@@ -29,7 +29,7 @@ public static class OriginalSceneViewNativeMapWorldSourceFactory
         var textures = repo.LoadObjects("system", 0x93FB3280);
         var plan = OriginalDeferredTexturePlan.Read(graph, 166, shaders, textures,
             repo.LoadShaderContainer("system", 0x9D8E811F), 0);
-        var hostSource = OriginalMainMapContextOwnerSource.LoadFreshHostDefaults(repo, locale);
+        var hostSource = OriginalMainMapContextOwnerSource.LoadFreshHostDefaults(locale);
         var binding = OriginalMapSourceCreatedWorldNativeSession.CreateExpectedBinding(plan,
             generation + "/View", generation + "/Main", generation + "/Directional80-L");
         var cpu = OriginalSceneViewNativeMapCpuSourceOwner.CreateFresh(loaded, binding.ViewIdentity,
@@ -42,7 +42,7 @@ public static class OriginalSceneViewNativeMapWorldSourceFactory
         var staticColorSource = OriginalModelFrontendColorSource.Load(repo, locale);
         var staticQueue54 = OriginalModelRendererStateSourceReader.ReadQueue(graph, 54);
         var staticQueue55 = OriginalModelRendererStateSourceReader.ReadQueue(graph, 55);
-        var mode = OriginalMainMapCameraModeOwner.CreateFresh(repo, locale, binding.CameraOwnerIdentity);
+        var mode = OriginalMainMapCameraModeOwner.CreateFresh(locale, binding.CameraOwnerIdentity);
 
         // Source cliff, separate NearFar, ordered targets, native resize and
         // D/S-only clear are validated before GPU state. Raster request is a
@@ -171,7 +171,7 @@ public static class OriginalSceneViewNativeMapWorldSourceFactory
                     actualSky.BindActualGraphicsColorMaskOwner(history);
                     return history;
                 },
-                AfterCurrentPreparedWithConsumerProof = async (frame, consumerReceipt) =>
+                AfterCurrentPreparedWithLighting = async (frame, consumerReceipt) =>
                 {
                     var armyFrame = await actualArmy.CaptureBeforeFrameAsync(frame.Context);
                     var world = current.RequireCurrent(frame.Context);

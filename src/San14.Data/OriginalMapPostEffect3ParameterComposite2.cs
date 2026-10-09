@@ -307,14 +307,7 @@ public static partial class OriginalDeferredSamplerSources
     internal static LoadedOriginalMapPostEffect3Composite2Source ReadPostEffect3Composite2Source(LoadedOriginalDeferredSamplerNativeSource native)
     {
         if(native.Locale is not ("TC" or "SC"))throw new NotSupportedException("Composite2 complete factory9 ABI requires a verified SC/TC profile.");
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"Composite2 executable");
-        var image=new NativeImage(exe);byte[] text=image.DecodeText(out int start);VerifyHash(text,native.DecodedTextSha256,"Composite2 decoded text");
-        { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3ParameterComposite2.cs",0x115BC10,3193,"596E664684FE32A2E0B64E2067056C5C0E05D44F174EE44096E163663586F326");
-          VerifyHash(text.AsSpan(actual.Rva-start,3193),actual.Sha,"Composite2 complete CB22 writer"); }
-        { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3ParameterComposite2.cs",0x115CF80,914,"285998F6627605B1C1F238E7F057219F8F953968D8D5CFF1AF98B7234DCD1338");
-          VerifyHash(text.AsSpan(actual.Rva-start,914),actual.Sha,"Composite2 complete pass selector"); }
-        { var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3ParameterComposite2.cs",0x114AFF0,104,"5ADA83A1940629D571D7FB8BC71738944DF90865833779FC6C8D557F183C3F74");
-          VerifyHash(text.AsSpan(actual.Rva-start,104),actual.Sha,"Actual typed cached scalar getter"); }
+
         return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+";TC:115BC10-complete208B-capability5/115CF80-mask;"+
             "actual114AFF0-value=record10;actualD5C240-wrapper40/42;descriptor58=file44;"+
             "sourceCMP2InputColor/PRECMP2InputBloom;capability5-all48typedlookups;"+

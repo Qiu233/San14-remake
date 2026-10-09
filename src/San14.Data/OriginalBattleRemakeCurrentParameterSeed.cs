@@ -1,7 +1,3 @@
-using System.Buffers.Binary;
-using System.Globalization;
-using System.Reflection.PortableExecutable;
-using System.Security.Cryptography;
 using San14.Core;
 
 namespace San14.Data;
@@ -12,7 +8,7 @@ public sealed record OriginalBattleRemakeCurrentLiteral(string Name, int Semanti
     int PhysicalRva, int Bytes, string Sha256);
 
 /// <summary>A bounded source seed for a newly allocated owned parameter state.
-/// Load reads inert PE data only. InstallFresh never restores omitted save fields
+/// Defaults are project rules. InstallFresh never restores omitted save fields
 /// or replaces any existing current parameter value.</summary>
 public sealed class OriginalBattleRemakeCurrentParameterSeed
 {
@@ -45,76 +41,24 @@ public sealed class OriginalBattleRemakeCurrentParameterSeed
         string language)
     {
         ArgumentNullException.ThrowIfNull(repository);
-        //Existing bounded damage reader verifies the complete executable and
-        //its twelve source globals. Code profile is evidence, not executed code.
         OriginalBattleDamageSourceParameters damage = OriginalBattleDamageSource.LoadParameters(repository, language);
-        using var stream = new FileStream(damage.Source.PhysicalPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-        if (stream.Length is < 4096 or > 128 * 1024 * 1024 || stream.Length != damage.Source.Bytes)
-            throw new InvalidDataException("Owned battle source exceeds its inspected executable bound.");
-        byte[] bytes = new byte[(int)stream.Length]; stream.ReadExactly(bytes);
-        if (Convert.ToHexString(SHA256.HashData(bytes)) != damage.Source.Sha256)
-            throw new InvalidDataException("Owned battle source changed between bounded reads.");
-        using var pe = new PEReader(new MemoryStream(bytes, writable: false));
-        if (pe.PEHeaders.PEHeader is not { Magic: PEMagic.PE32Plus, ImageBase: 0x140000000UL } ||
-            pe.PEHeaders.CoffHeader.Machine != Machine.Amd64)
-            throw new InvalidDataException("Owned battle source requires the inspected AMD64 PE32+ ABI.");
-
-        var fields = new List<OriginalBattleRemakeCurrentParameterField>();
-        foreach (OriginalBattleDamageSourceField field in damage.Fields)
-        {
-            int semantic = language == "TC" ? field.Rva + 0x1030 : field.Rva;
-            fields.Add(new(semantic, field.Rva, field.Value, field.Sha256));
-        }
-        foreach (int semantic in MutableScRvas)
-        {
-            int physical = semantic - (language == "TC" ? 0x1030 : 0);
-            ReadOnlySpan<byte> value = Read(physical, 4, ".data");
-            fields.Add(new(semantic, physical, BinaryPrimitives.ReadInt32LittleEndian(value),
-                Convert.ToHexString(SHA256.HashData(value))));
-        }
-        if (fields.Select(field => field.SemanticScRva).Distinct().Count() != fields.Count)
-            throw new InvalidDataException("Owned battle source seed contains overlapping semantic keys.");
-
-        var literals = new List<OriginalBattleRemakeCurrentLiteral>();
-        double power = ReadDouble("commonPowerExponent", 0x1356750, 2.0);
-        float percent = ReadSingle("percentDenominator", 0x1344C4C, 100f);
-        float one = ReadSingle("one", 0x1344B98, 1f);
-        float flagNumerator = ReadSingle("flagNumerator", 0x13B08F0, 8f);
-        float flagDenominator = ReadSingle("flagDenominator", 0x1344C40, 10f);
-        return new(language, damage, fields.OrderBy(field => field.SemanticScRva).ToArray(),
-            literals.ToArray(), power, percent, one, flagNumerator, flagDenominator);
-
-        ReadOnlySpan<byte> Read(int rva, int length, string sectionName)
-        {
-            var sections = pe.PEHeaders.SectionHeaders.Where(section => section.Name == sectionName &&
-                rva >= section.VirtualAddress && (long)rva + length <= (long)section.VirtualAddress + section.SizeOfRawData).ToArray();
-            if (sections.Length != 1)
-                throw new InvalidDataException("Owned battle source field has no single expected raw PE section.");
-            long offset = (long)sections[0].PointerToRawData + rva - sections[0].VirtualAddress;
-            if (offset < 0 || offset > bytes.Length - length)
-                throw new InvalidDataException("Owned battle source field exceeds executable bytes.");
-            return bytes.AsSpan((int)offset, length);
-        }
-        float ReadSingle(string name, int semantic, float expected)
-        {
-            int physical = semantic - (language == "TC" ? 0x1000 : 0);
-            ReadOnlySpan<byte> raw = Read(physical, 4, ".rdata");
-            float value = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(raw));
-            if (BitConverter.SingleToInt32Bits(value) != BitConverter.SingleToInt32Bits(expected))
-                throw new InvalidDataException("Owned battle source literal differs from its inspected numeric identity.");
-            literals.Add(new(name, semantic, physical, 4, Convert.ToHexString(SHA256.HashData(raw))));
-            return value;
-        }
-        double ReadDouble(string name, int semantic, double expected)
-        {
-            int physical = semantic - (language == "TC" ? 0x1000 : 0);
-            ReadOnlySpan<byte> raw = Read(physical, 8, ".rdata");
-            double value = BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(raw));
-            if (BitConverter.DoubleToInt64Bits(value) != BitConverter.DoubleToInt64Bits(expected))
-                throw new InvalidDataException("Owned battle source literal differs from its inspected numeric identity.");
-            literals.Add(new(name, semantic, physical, 8, Convert.ToHexString(SHA256.HashData(raw))));
-            return value;
-        }
+        int delta = language == "TC" ? 0x1030 : 0;
+        var fields = damage.Fields.Select(field => new OriginalBattleRemakeCurrentParameterField(
+            field.Rva + delta, field.Rva, field.Value, string.Empty)).Concat(
+                MutableDefaults.Select(field => new OriginalBattleRemakeCurrentParameterField(
+                    field.SemanticScRva, field.SemanticScRva - delta, field.Value, string.Empty)))
+            .OrderBy(field => field.SemanticScRva).ToArray();
+        int literalDelta = language == "TC" ? 0x1000 : 0;
+        OriginalBattleRemakeCurrentLiteral[] literals =
+        [
+            new("commonPowerExponent", 0x1356750, 0x1356750 - literalDelta, 8, string.Empty),
+            new("percentDenominator", 0x1344C4C, 0x1344C4C - literalDelta, 4, string.Empty),
+            new("one", 0x1344B98, 0x1344B98 - literalDelta, 4, string.Empty),
+            new("flagNumerator", 0x13B08F0, 0x13B08F0 - literalDelta, 4, string.Empty),
+            new("flagDenominator", 0x1344C40, 0x1344C40 - literalDelta, 4, string.Empty),
+        ];
+        return new(language, damage, fields, literals, CommonPowerDefault, PercentDenominatorDefault,
+            OneDefault, FlagNumeratorDefault, FlagDenominatorDefault);
     }
 
     /// <summary>Append only before the first update and before Army allocation.
@@ -126,7 +70,7 @@ public sealed class OriginalBattleRemakeCurrentParameterSeed
             state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } clock ||
             clock.AnchorDate != state.Date || state.Units is null || state.Units.Count != 0 ||
             state.NativeArmySimulation is not { Parameters: { } current } simulation ||
-            current.Language != Language || !string.Equals(current.ExecutableSha256, Source.Sha256, StringComparison.OrdinalIgnoreCase) ||
+            current.Language != Language || !string.Equals(current.RuleVersion, Source.RuleVersion, StringComparison.OrdinalIgnoreCase) ||
             string.IsNullOrWhiteSpace(current.Revision) || current.Int32Values is null || current.Float32Values is null)
             throw new InvalidDataException("Owned battle parameters require a fresh matching empty simulation owner.");
         foreach (OriginalBattleRemakeCurrentParameterField field in Fields)
@@ -139,11 +83,9 @@ public sealed class OriginalBattleRemakeCurrentParameterSeed
         var integers = new Dictionary<string, int>(current.Int32Values, current.Int32Values.Comparer);
         foreach (OriginalBattleRemakeCurrentParameterField field in Fields)
             integers.Add(OriginalTacticRemakeParameterSeed.Key(field.SemanticScRva), field.Value);
-        string fingerprint = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
-            string.Join(";", Fields.Select(field => $"{field.SemanticScRva:X8}={field.Value.ToString(CultureInfo.InvariantCulture)}")))));
         var parameters = current with
         {
-            Revision = $"{current.Revision}|{revision}:battle-source-seed:{fingerprint}",
+            Revision = $"{current.Revision}|{revision}:battle-rule-seed",
             Int32Values = integers,
             Float32Values = new(current.Float32Values, current.Float32Values.Comparer)
         };
@@ -152,21 +94,119 @@ public sealed class OriginalBattleRemakeCurrentParameterSeed
         return result;
     }
 
-    //Only reached current globals of common factor, field attack and defense,
-    //plus their formation-percentage/age subqueries. No runtime-unbacked BSS
-    //field is guessed from an implicit zero initialized image.
-    private static readonly int[] MutableScRvas =
+    private const double CommonPowerDefault = 2d;
+    private const float PercentDenominatorDefault = 100f;
+    private const float OneDefault = 1f;
+    private const float FlagNumeratorDefault = 8f;
+    private const float FlagDenominatorDefault = 10f;
+    private const int CommonRootDivisor = 1;
+    private const int CommonLeadershipScale = 2;
+    private const int CommonAdditive = 200;
+    private const int CommonDivisorNumerator = 10;
+    private const int CommonDivisorOffset = 9;
+    private const int MoraleOffset = 200;
+    private const int MoraleDivisor = 300;
+    private const int AlternateMoraleOffset = 75;
+    private const int AlternateMoraleDivisor = 175;
+    private const int NormalFormationPercentScale = 10;
+    private const int AlternateFormationPercentScale = 5;
+    private const int Formation6TerrainPercent = 150;
+    private const int Formation14TerrainPercent = 150;
+    private const int AttackCoefficientScale = 5;
+    private const int AttackAbilityLimit = 10;
+    private const int AttackAbilityStep = 5;
+    private const int BaseAttackCoefficient = 34;
+    private const int ReservedBaseAttackSecondaryCoefficient = 30;
+    private const int ProvokedAttackPercent = 150;
+    private const int SiegeAbilityLimit = 10;
+    private const int SiegeAbilityStep = 5;
+    private const int SiegeAbilityBonus = 3;
+    private const int WallAbilityBonus = 5;
+    private const int WallLeadershipDenominator = 100;
+    private const int WallTroopOffset = 20000;
+    private const int WallTroopDenominator = 10000;
+    private const int WallAbilityLimit = 10;
+    private const int WallAbilityStep = 5;
+    private const int DefenseCoefficientScale = 5;
+    private const int DefenseAbilityLimit = 10;
+    private const int DefenseAbilityStep = 5;
+    private const int BaseDefenseCoefficient = 20;
+    private const int ReservedBaseDefenseSecondaryCoefficient = 16;
+    private const int BaseWallCoefficient = 20;
+    private const int Formation7ForceFlagBonus = 20;
+    private const int ProvokedOtherTargetDefensePercent = 80;
+    private const int ReservedAgeThreshold = 60;
+    private const int ReservedAgeTier1 = 1;
+    private const int ReservedAgeTier2 = 2;
+    private const int ReservedAgeTier3 = 3;
+    private const int ReservedAgeTier4 = 4;
+    private const int ReservedAgeTier5 = 5;
+    private const int FormationEffect1Scale = 1;
+    private const int FormationEffect2Scale = 1;
+    private const int FormationEffect3Scale = 1;
+    private const int FormationEffect4Scale = 1;
+    private const int FormationEffect5Scale = 1;
+    private const int FormationEffect6Scale = 1;
+    private const int FormationEffect7Scale = 1;
+    private const int FormationEffect8Scale = 1;
+    private const int FormationEffect9Scale = 1;
+    private const int FormationEffect12Scale = 1;
+
+    // Keys are stable save identifiers. Reserved entries preserve the existing seed
+    // schema; their values are not used as executable addresses.
+    private static readonly (int SemanticScRva, int Value)[] MutableDefaults =
     [
-        0x1A4C674, 0x1A4C680, 0x1A4C68C, 0x1A4C698, 0x1A4C6A4,
-        0x1A4C6B0, 0x1A4C6BC, 0x1A4A050, 0x1A4A05C,
-        0x1A4C6D4, 0x1A4A068, 0x1A4C668, 0x1A4A074,
-        0x1A4A8A0, 0x1A49C78, 0x1A4A900, 0x1A4A8C4, 0x1A4A8D0, 0x1A4A930,
-        0x1A49C98, 0x1A4A90C, 0x1A4ABA4, 0x1A4ABB0,
-        0x1A49CB0, 0x1A49CBC, 0x1A49CC8, 0x1A49CEC, 0x1A4A918,
-        0x1A4A8AC, 0x1A49D04, 0x1A4A924, 0x1A4A8DC, 0x1A4A8E8,
-        0x1A4A8B8, 0x1A4ABBC, 0x1A4A93C,
-        0x1A4B3D8, 0x1A4C774, 0x1A4C780, 0x1A4C788, 0x1A4C794, 0x1A4C7A0,
-        0x1A4C6F8, 0x1A4C704, 0x1A4C710, 0x1A4C71C, 0x1A4C728,
-        0x1A4C734, 0x1A4C740, 0x1A4C74C, 0x1A4C754, 0x1A49C34
+        (0x1A4C674, CommonRootDivisor),
+        (0x1A4C680, CommonLeadershipScale),
+        (0x1A4C68C, CommonAdditive),
+        (0x1A4C698, CommonDivisorNumerator),
+        (0x1A4C6A4, CommonDivisorOffset),
+        (0x1A4C6B0, MoraleOffset),
+        (0x1A4C6BC, MoraleDivisor),
+        (0x1A4A050, AlternateMoraleOffset),
+        (0x1A4A05C, AlternateMoraleDivisor),
+        (0x1A4C6D4, NormalFormationPercentScale),
+        (0x1A4A068, AlternateFormationPercentScale),
+        (0x1A4C668, Formation6TerrainPercent),
+        (0x1A4A074, Formation14TerrainPercent),
+        (0x1A4A8A0, AttackCoefficientScale),
+        (0x1A49C78, AttackAbilityLimit),
+        (0x1A4A900, AttackAbilityStep),
+        (0x1A4A8C4, BaseAttackCoefficient),
+        (0x1A4A8D0, ReservedBaseAttackSecondaryCoefficient),
+        (0x1A4A930, ProvokedAttackPercent),
+        (0x1A49C98, SiegeAbilityLimit),
+        (0x1A4A90C, SiegeAbilityStep),
+        (0x1A4ABA4, SiegeAbilityBonus),
+        (0x1A4ABB0, WallAbilityBonus),
+        (0x1A49CB0, WallLeadershipDenominator),
+        (0x1A49CBC, WallTroopOffset),
+        (0x1A49CC8, WallTroopDenominator),
+        (0x1A49CEC, WallAbilityLimit),
+        (0x1A4A918, WallAbilityStep),
+        (0x1A4A8AC, DefenseCoefficientScale),
+        (0x1A49D04, DefenseAbilityLimit),
+        (0x1A4A924, DefenseAbilityStep),
+        (0x1A4A8DC, BaseDefenseCoefficient),
+        (0x1A4A8E8, ReservedBaseDefenseSecondaryCoefficient),
+        (0x1A4A8B8, BaseWallCoefficient),
+        (0x1A4ABBC, Formation7ForceFlagBonus),
+        (0x1A4A93C, ProvokedOtherTargetDefensePercent),
+        (0x1A4B3D8, ReservedAgeThreshold),
+        (0x1A4C774, ReservedAgeTier1),
+        (0x1A4C780, ReservedAgeTier2),
+        (0x1A4C788, ReservedAgeTier3),
+        (0x1A4C794, ReservedAgeTier4),
+        (0x1A4C7A0, ReservedAgeTier5),
+        (0x1A4C6F8, FormationEffect1Scale),
+        (0x1A4C704, FormationEffect2Scale),
+        (0x1A4C710, FormationEffect3Scale),
+        (0x1A4C71C, FormationEffect4Scale),
+        (0x1A4C728, FormationEffect5Scale),
+        (0x1A4C734, FormationEffect6Scale),
+        (0x1A4C740, FormationEffect7Scale),
+        (0x1A4C74C, FormationEffect8Scale),
+        (0x1A4C754, FormationEffect9Scale),
+        (0x1A49C34, FormationEffect12Scale),
     ];
 }

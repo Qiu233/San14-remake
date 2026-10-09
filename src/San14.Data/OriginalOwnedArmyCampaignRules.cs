@@ -106,7 +106,7 @@ public sealed partial class OriginalOwnedArmyCampaignRules : IOriginalPlayableTa
         _baseCaptureResourceInputs = baseCaptureResourceInputs;
         _baseCaptureRewardInputs = baseCaptureRewardInputs;
         _cityCaptureTerritoryInputs = cityCaptureTerritoryInputs;
-        _usage = new(seed.Language, seed.Source.Sha256);
+        _usage = new(seed.Language, SimulationRuleIdentity.ForLocale(seed.Language));
         _ticks = Context(definitions.CaptureSourcePrefix()).CreateRules(); Tactics = new(this);
     }
 
@@ -182,7 +182,7 @@ public sealed partial class OriginalOwnedArmyCampaignRules : IOriginalPlayableTa
             { World = fresh.NativeArmySimulation!.World with { SamplerEpoch = epoch } } };
         OriginalEventInitializationContext definitions = _definitions.Capture(result)
             ?? throw new InvalidDataException("Fresh owned Person source prefix is unresolved.");
-        GameState people = new OriginalTacticRemakeCurrentAbilities(definitions, _scenario, Seed.Language, Seed.Source.Sha256)
+        GameState people = new OriginalTacticRemakeCurrentAbilities(definitions, _scenario, Seed.Language, SimulationRuleIdentity.ForLocale(Seed.Language))
             .CreateFreshOwnedPeople(result);
         GameState currentFields = _personDestructionInputs.InstallFresh(
             OriginalOwnedArmyReturnCurrentFields.InstallFresh(people, _definitions));
@@ -445,7 +445,7 @@ public sealed partial class OriginalOwnedArmyCampaignRules : IOriginalPlayableTa
             current.NativeMapSeason is not { } season) return null;
         return CaptureNormalArmyCombatPhase(new(new(reached.CalendarCycleOrdinal, reached.PreWriterThirdDate, 13,
             season.SourceScenarioUri, season.SourceScenarioSha256, season.SourceWorldSha256,
-            OriginalMapSeasonNativeSource.CalendarWriterSha256, OriginalNormalArmyCombatCalendarRuntime.Revision),
+            OriginalNormalArmyCombatCalendarRuntime.Revision),
             current, OriginalNativeArmyProgressAtomicRuntime.Revision));
     }
 
@@ -453,7 +453,7 @@ public sealed partial class OriginalOwnedArmyCampaignRules : IOriginalPlayableTa
         OriginalNormalArmyCombatPhaseMoment moment, OriginalNativeArmyCombatCycleSampler? sampler) =>
         OriginalNormalArmyCombatCurrentPhase.Capture(state, moment,
             definitions => Context(definitions, sampler), CaptureCurrentDefinitions, (definitions, descriptors) => {
-                var abilities = new OriginalTacticRemakeCurrentAbilities(definitions, _scenario, Seed.Language, Seed.Source.Sha256);
+                var abilities = new OriginalTacticRemakeCurrentAbilities(definitions, _scenario, Seed.Language, SimulationRuleIdentity.ForLocale(Seed.Language));
                 var prefix = new OriginalTacticRemakeCurrentContext(definitions, _catalog, _map, _terrain, _usage, Revision, abilities,
                     operationSampler: sampler);
                 var queries = new OriginalTacticRemakeCurrentBattleQueries(prefix, definitions, Revision,
@@ -462,7 +462,7 @@ public sealed partial class OriginalOwnedArmyCampaignRules : IOriginalPlayableTa
                 return new OriginalBattleRemakeCurrentDamage(_battleSeed.DamageSource,
                     new OriginalBattleRemakeCurrentArmyDamageQueries(attributes, queries, Revision), Revision);
             }, (context, definitions) => new(_regionSeed, context, definitions, Revision),
-            Seed.Language, Seed.Source.Sha256, Revision, sampler is null ? null : this,
+            Seed.Language, SimulationRuleIdentity.ForLocale(Seed.Language), Revision, sampler is null ? null : this,
             sampler is null ? null : this);
 
     public PlayableArmyCreationResolution? Create(GameState state, PreparedDeployment deployment, UnitState army)
@@ -573,7 +573,7 @@ public sealed partial class OriginalOwnedArmyCampaignRules : IOriginalPlayableTa
     private OriginalTacticRemakeCurrentContext Context(OriginalEventInitializationContext definitions,
         OriginalNativeArmyCombatCycleSampler? sampler = null)
     {
-        var abilities = new OriginalTacticRemakeCurrentAbilities(definitions, _scenario, Seed.Language, Seed.Source.Sha256);
+        var abilities = new OriginalTacticRemakeCurrentAbilities(definitions, _scenario, Seed.Language, SimulationRuleIdentity.ForLocale(Seed.Language));
         var prefix = new OriginalTacticRemakeCurrentContext(definitions, _catalog, _map, _terrain, _usage, Revision, abilities,
             operationSampler: sampler);
         var queries = new OriginalTacticRemakeCurrentBattleQueries(prefix, definitions, Revision,

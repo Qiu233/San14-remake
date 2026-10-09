@@ -58,7 +58,7 @@ public sealed class OriginalDeferredAuxiliaryDepthCopyProducer : IAsyncDisposabl
         await gate.WaitAsync();
         try
         {
-            ObjectDisposedException.ThrowIf(retiring,this);selection.Validate();Program.ValidateSource();
+            ObjectDisposedException.ThrowIf(retiring,this);selection.Validate();Program.RequireAvailable();
             if(selection.Camera.ExecutableLocale!=EmbeddedSource.Locale||
                 selection.SourcePlan.Graph.Source.ResourceUri!=Source.Graph.Source.ResourceUri||
                 selection.SourcePlan.Graph.Source.DecodedSha256!=Source.Graph.Source.DecodedSha256||

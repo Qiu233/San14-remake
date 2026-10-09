@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Numerics;
-using System.Reflection.PortableExecutable;
 using San14.Core;
 
 namespace San14.Data;
@@ -26,7 +25,6 @@ public sealed class OriginalD3D11CityGatePrimarySource
     readonly Dictionary<string,(int Category,int Hex,OriginalMapStaticModelPublication Node)> nodes=[];
     readonly Dictionary<string,(OriginalMapModelNativeFreshVisibilityPrefix Prefix,float Opacity,
         OriginalDeferredEarlyShadowCurrentWorldCallerFields Caller)> visibility=[];
-    readonly byte[] categoryRows;
     public OriginalMapStaticModelAssetCatalog Assets{get;}
     public OriginalCeCityVariantTable Variants{get;}
     public OriginalCityVisualDescriptorOwner Descriptors{get;}
@@ -35,7 +33,7 @@ public sealed class OriginalD3D11CityGatePrimarySource
     public OriginalD3D11CityGatePrimarySource(OriginalGameRepository repository,LoadedSceneResources scene,LoadedScenario scenario,
         LoadedMap map,NewGameOptions options)
     {
-        Variants=OriginalCeCityVariantTable.LoadCurrent(repository.SourceDirectory,"TC");
+        Variants=OriginalCeCityVariantTable.LoadCurrent("TC");
         Descriptors=OriginalCityOpeningPostLoadSource.LoadSourceCreatedOrdinary(repository,scenario,map,options,Variants)
             .CreateCurrentDescriptorOwner(Variants);
         Assets=new(repository,scene);cities=new(repository,scene,Variants);
@@ -56,9 +54,6 @@ public sealed class OriginalD3D11CityGatePrimarySource
             byte[] state=Convert.FromHexString(scenario.Snapshot.Areas[area].StateRemainingBytesHex);
             gates.Add(gate.LocationSlot,new(gate.Slot,gate.LocationSlot,objectSlot,hex,area,BinaryPrimitives.ReadUInt16LittleEndian(state.AsSpan(1,2))));
         }
-        byte[] exe=File.ReadAllBytes(Path.Combine(repository.SourceDirectory,"SAN14CE_TC.exe"));using var pe=new PEReader(new MemoryStream(exe,false));
-        const int rva=0x1A22000;var section=pe.PEHeaders.SectionHeaders.Single(s=>rva>=s.VirtualAddress&&rva+59*0x4C<=s.VirtualAddress+s.SizeOfRawData);
-        categoryRows=exe.AsSpan(section.PointerToRawData+rva-section.VirtualAddress,59*0x4C).ToArray();
     }
     public OriginalD3D11CityGatePrimaryFrame Prepare(GameState world,IReadOnlyDictionary<int,CityVisualDamageInput> actualCity66,
         IReadOnlyDictionary<int,OriginalD3D11GateCurrentBinding> actualGate66,
@@ -86,7 +81,7 @@ public sealed class OriginalD3D11CityGatePrimarySource
             if(!visibility.TryGetValue(key,out var held)){
                 var prefix=OriginalMapModelNativeVisibilitySources.PrepareFreshSingleNode(instance,new(instance.CurrentSourceIdentity!,false,true,true));
                 var caller=OriginalDeferredEarlyShadowCasterAdmissionSource.LoadStatic(instance.Asset).CaptureRetainedFresh();
-                if(BinaryPrimitives.ReadUInt32LittleEndian(categoryRows.AsSpan(category*0x4C+0x44,4))==0)caller=caller with{WorldCasterFlags10C=int.MinValue,
+                if(!ArmyGraphicsRules.UsesProjectedShadow(category))caller=caller with{WorldCasterFlags10C=int.MinValue,
                     CurrentWriterEvidence=caller.CurrentWriterEvidence+";CUnit1CBA20 category44=0->1C5360 World10C=80000000"};
                 visibility.Add(key,held=(prefix,OriginalMapModelNativeCurrentVisibilitySources.ConstructFresh(prefix,instance.CurrentSourceIdentity!).ReadSlot(0),caller));
             }

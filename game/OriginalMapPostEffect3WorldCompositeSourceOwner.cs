@@ -134,7 +134,7 @@ public sealed partial class OriginalMapPostEffect3WorldCompositeSourceOwner:IAsy
             camera.Source.Resource.Source.DecodedSha256!=actualPostSeasonCamera.Source.Resource.Source.DecodedSha256||
             !camera.Prefix.Span.SequenceEqual(actualPostSeasonCamera.Prefix.Span)||
             world.Context.Source.Host.Locale!=camera.ExecutableLocale||
-            world.Context.Source.Host.ContextOwnerVtableRva!=(camera.ExecutableLocale switch {"TC"=>0x13C4ED0u,"SC"=>0x13C5CF0u,_=>throw new NotSupportedException("Unsupported World Q executable locale.")})||
+            world.Context.Source.Host.RuleVersion!=RenderRuleIdentity.Version||
             actualContext.OutputFrame.Textures[0x064B746B].ExplicitExtent!=Extent)
             throw new InvalidDataException("Node192/193 target inheritance requires this actual World/post-season Camera/Q/extent.");
         var ratio=camera.Source.Camera.Properties[996];

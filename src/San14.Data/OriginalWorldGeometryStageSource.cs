@@ -142,8 +142,8 @@ public sealed class LoadedOriginalWorldGeometryStageSource
         OriginalMainSceneNode51Execution currentExecution, OriginalWorldGeometryViewAdditionalOwners currentOwners)
     {
         ArgumentNullException.ThrowIfNull(currentExecution);
-        if (currentExecution.Source.Locale != Native.Locale || currentExecution.Source.ExecutableSha256 != Native.ExecutableSha256)
-            throw new InvalidDataException("Empty geometry calls require the same loaded GeneralScene executable source.");
+        if (currentExecution.Source.Locale != Native.Locale)
+            throw new InvalidDataException("Empty geometry calls require the same supported GeneralScene layout.");
         if (currentOwners.PreRenderer1B80 is not (null or 0) || currentOwners.Models1BB0 is not (null or 0))
             throw new NotSupportedException("Nonnull current View1B80/1BB0 requires its actual additional geometry packet.");
         int node = currentExecution.Source.NodeIndex; long frame = currentExecution.FrameNumber;
@@ -187,7 +187,8 @@ public static class OriginalWorldGeometryStageSource
         var native = OriginalDeferredSamplerSources.LoadWorldGeometryStageNativeSource(repository.SourceDirectory, locale);
         var graph = repository.LoadRenderGraph("system", 0x024496EE);
         var objects = repository.LoadObjects("system", 0x93FB3280);
-        Require(graph.Source, GameResourceId.Rdb("system", 0x024496EE).ToString(), OriginalTerrainGbufferTargetSources.GraphSha256);
+        if (graph.Source.ResourceUri != GameResourceId.Rdb("system", 0x024496EE).ToString())
+            throw new InvalidDataException("World geometry graph resource reference differs.");
         Require(objects.Source, OriginalDeferredAuxiliaryTargetSources.ActualObjectsResourceUri, OriginalDeferredAuxiliaryTargetSources.ActualObjectsSha256);
         graph = graph with { Document = RenderGraphReader.Read(graph.Source.Bytes) };
         objects = objects with { Document = DokReader.Read(objects.Source.Bytes) };

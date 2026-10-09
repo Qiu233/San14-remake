@@ -1,7 +1,6 @@
 using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -35,6 +34,10 @@ public sealed record OriginalMainMapCameraDeferredInitializedFreshInputs(
 /// caches remain explicit current owners; this factory has no startup defaults.</summary>
 public static class OriginalMainMapCameraDeferredSource
 {
+    /// <summary>C13E58's successful868 header initializer, before any F103
+    /// temporary override. This is separate from the postdraw restore path.</summary>
+    public static OriginalDeferredTranslucencyViewportInputs CreateFreshThinSurfaceViewport()
+        => new(new Vector4(0,0,1,1));
     private sealed class LoadedThinSurfaceFactory { }
     private static readonly ConditionalWeakTable<LoadedRdbAsset, LoadedThinSurfaceFactory> LoadedFactories = new();
     public static OriginalMainMapCameraDeferredSourcePacket PrepareCurrent(
@@ -89,9 +92,7 @@ public static class OriginalMainMapCameraDeferredSource
         var shader=selected.SourcePlan.Shader;
         _=LoadedFactories.GetValue(shader.Source, source=>
         {
-            if(source.ResourceUri!="san14://rdb/system/9D8E811F"||source.OverrideSource is not null||
-                source.DecodedSha256!=OriginalDeferredSamplerSources.ShaderSourceSha256||
-                Convert.ToHexString(SHA256.HashData(source.Bytes))!=OriginalDeferredSamplerSources.ShaderSourceSha256)
+            if(source.ResourceUri!="san14://rdb/system/9D8E811F"||source.OverrideSource is not null)
                 throw new InvalidDataException("Fresh projection factory requires the exact source9D8E811F shader.");
             var thin=G1ShaderConfigurationReader.Read(source.Bytes,shader.Container).Records.Single(r=>r.Name=="ThinSurfaceBSDF");
             (uint Hash,uint Value)[] expected=[(0x42B7E6DD,0),(0xFEB72A6D,0),(0x2BC1B848,0),(0xB4762740,0),(0x93A3D611,1)];
@@ -124,7 +125,7 @@ public static class OriginalMainMapCameraDeferredSource
             BinaryPrimitives.ReadUInt32LittleEndian(reference.G1SReference.RawValue)!=0x9D8E811F||selected.Current.NativeColorMode!=0x60)
             throw new InvalidDataException("Successful fresh Main View initialization requires actual38D/View0/Class868 source owners.");
         return PrepareFreshSelectedCurrent(selected,new(current.ViewportMinimumDepth,current.ViewportMaximumDepth,
-            current.RefractionTexturePresent,new(new Vector4(0,0,1,1)),current.FrameNumber,
+            current.RefractionTexturePresent,CreateFreshThinSurfaceViewport(),current.FrameNumber,
             current.CurrentOwnerProvenance+";successful-source868-header/1593F0-C13E58;fresh-Main-K1548/K154C=1;no-later-View-edit",
             current.RetainedRefractionWorldToTexture));
     }

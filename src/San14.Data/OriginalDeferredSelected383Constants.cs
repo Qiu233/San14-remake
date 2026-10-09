@@ -18,15 +18,15 @@ public sealed class OriginalDeferredSelected383HatchingIeeeProof
     private static readonly int[] offsets = [560,564,568,572,576,580,584,588,592,596,600,608,612,616];
     private OriginalDeferredSelected383HatchingIeeeProof(OriginalDeferredHatchingInputs source,
         long frame, string lightHash, string provenance)
-    { words = Bits(source); FrameNumber = frame; EffectiveLightDataSha256 = lightHash; CurrentProducerProvenance = provenance; }
+    { words = Bits(source); FrameNumber = frame; EffectiveLightOwnerIdentity = lightHash; CurrentProducerProvenance = provenance; }
     public long FrameNumber { get; }
-    public string EffectiveLightDataSha256 { get; }
+    public string EffectiveLightOwnerIdentity { get; }
     public string CurrentProducerProvenance { get; }
     internal static OriginalDeferredSelected383HatchingIeeeProof FromSuccessfulOwnedSource(
         OriginalDeferredHatchingInputs source, long frame, string lightHash, string provenance)
     {
         ArgumentNullException.ThrowIfNull(source); ArgumentException.ThrowIfNullOrWhiteSpace(provenance);
-        if (frame <= 0 || lightHash.Length != 64 || !lightHash.All(Uri.IsHexDigit))
+        if (frame <= 0 || string.IsNullOrWhiteSpace(lightHash))
             throw new InvalidDataException("PS383 Hatching authority requires the exact accepted frame and effective light generation.");
         return new(source, frame, lightHash, provenance);
     }
@@ -35,7 +35,7 @@ public sealed class OriginalDeferredSelected383HatchingIeeeProof
         if (selected.Combination.Index != 510 || selected.PixelProgramIndex != 383 ||
             selected.PixelProgramSha256 != OriginalDeferredSelected383Constants.PixelProgramSha256 ||
             selected.Current.FrameNumber != FrameNumber || selected.OwnedFeatureSource is not { } feature ||
-            feature.EffectiveLightDataSha256 != EffectiveLightDataSha256 || !words.AsSpan().SequenceEqual(Bits(source)))
+            feature.EffectiveLightOwnerIdentity != EffectiveLightOwnerIdentity || !words.AsSpan().SequenceEqual(Bits(source)))
             throw new InvalidDataException("PS383 Hatching words or authority belong to another layout, frame or effective light generation.");
     }
     internal void Restore(Span<byte> bytes)

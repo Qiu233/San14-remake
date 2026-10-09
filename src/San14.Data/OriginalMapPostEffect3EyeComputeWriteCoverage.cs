@@ -67,7 +67,7 @@ public sealed class OriginalMapPostEffect3EyeComputeWriteCoverage
         if(execution.SourceSha256!=allocation.Source.Sha256||execution.ContextOwnerIdentity!=allocation.ContextOwnerIdentity)
             throw new InvalidDataException("Eye compute coverage belongs to another current module.");
         int pass=execution.SourcePassIndex;
-        var program=OriginalMapPostEffect3Functor1FootprintSource.RequireProgram(allocation,pass,5,pass-52,execution.ProgramSha256);
+        var program=OriginalMapPostEffect3Functor1FootprintSource.RequireProgram(allocation,pass,5,pass-52);
         var local=pass switch{102=>new OriginalMapPostEffect3DispatchExtent(64,1,1),103=>new(8,8,1),104=>new(1,1,1),_=>throw new InvalidDataException("Unknown Eye compute coverage pass.")};
         CheckTokens(program,pass,local);
         OriginalMapPostEffect3Binding Binding(OriginalMapPostEffect3BindingTable table,OriginalMapPostEffect3BindingRole role,int register)

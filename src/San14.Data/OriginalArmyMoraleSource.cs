@@ -2,7 +2,7 @@ using San14.Core;
 
 namespace San14.Data;
 
-public sealed record OriginalArmyMoraleSourceEpoch(string Language,string ExecutableSha256,
+public sealed record OriginalArmyMoraleSourceEpoch(string Language,string RuleVersion,
     string ParameterRevision,string ClockRevision,long UpdateOrdinal,int ArmyId,int? NativeArmySlot,
     string DefinitionSourceUri,string DefinitionSourceSha256,string WriterRevision);
 public sealed record OriginalArmyMoraleSourceReceipt(byte After1A,byte? Before1A,int? Requested,
@@ -134,7 +134,7 @@ public sealed class OriginalArmyMoraleSource
         if(army.OfficerId is <0 or >6000||state.NativeArmySimulation?.Parameters is not { } parameters||definitions.StaticSource is not { } source||
             !state.Officers.TryGetValue(army.OfficerId,out OfficerState? officer)||
             officer.NativeAbilityRuntime is not { } person||person.Revision!=OriginalTacticRemakeCurrentAbilities.ProfileId||
-            person.Language!=parameters.Language||person.ExecutableSha256!=parameters.ExecutableSha256||
+            person.Language!=parameters.Language||person.RuleVersion!=parameters.RuleVersion||
             person.SourceScenarioUri!=source.ResourceUri||person.SourceScenarioSha256!=source.Sha256||
             person.PhysicalSlot is <1 or >1850||definitions.ReadPersonLookupReference(army.OfficerId)?.PhysicalSlot!=person.PhysicalSlot||
             definitions.ReadPersonIdentity(person.PhysicalSlot)!=army.OfficerId||
@@ -149,14 +149,13 @@ public sealed class OriginalArmyMoraleSource
             string.IsNullOrWhiteSpace(clock.Revision)||string.IsNullOrWhiteSpace(parameters.Revision)||
             definitions.StaticSource is not { } source||string.IsNullOrWhiteSpace(source.ResourceUri)||
             state.ContentHashes.GetValueOrDefault(source.ResourceUri)!=source.Sha256||
-            parameters.Language is not("SC" or "TC")||parameters.ExecutableSha256!=
-                (parameters.Language=="SC"?OriginalCeHexWorldCoordinates.VerifiedScExecutableSha256:OriginalCeHexWorldCoordinates.VerifiedTcExecutableSha256))return null;
+            parameters.Language is not("SC" or "TC"))return null;
         if(existing&&(state.Units.GetValueOrDefault(army.Id)!=army||current.ArmyValid(state,army)!=true||army.NativeArmyOrigin is not { } origin||
-            origin.Language!=parameters.Language||origin.ExecutableSha256!=parameters.ExecutableSha256||
+            origin.Language!=parameters.Language||origin.RuleVersion!=parameters.RuleVersion||
             origin.NativeSlotIndex is null or <1 or >500||army.NativeTacticRuntime is null))return null;
         if(state.NativeArmySimulation.World.SamplerEpoch is { } sampler&&
             (sampler.NativeClockRevision!=clock.Revision||sampler.SourceScenarioUri!=source.ResourceUri||sampler.SourceScenarioSha256!=source.Sha256))return null;
-        return new(parameters.Language,parameters.ExecutableSha256,parameters.Revision,clock.Revision,clock.UpdateOrdinal,
+        return new(parameters.Language,parameters.RuleVersion,parameters.Revision,clock.Revision,clock.UpdateOrdinal,
             army.Id,existing?army.NativeArmyOrigin!.NativeSlotIndex:null,source.ResourceUri,source.Sha256,Revision);
     }
 }

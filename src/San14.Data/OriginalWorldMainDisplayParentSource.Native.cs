@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 
 namespace San14.Data;
 
@@ -6,65 +5,16 @@ public static partial class OriginalDeferredSamplerSources
 {
     internal static LoadedOriginalWorldMainDisplayParentSource LoadWorldMainDisplayParentSource(string directory, string locale)
     {
-        var profile = Profile(locale);
-        byte[] exe = File.ReadAllBytes(Path.Combine(directory, $"SAN14CE_{locale}.exe"));
-        VerifyHash(exe, profile.ExeHash, "Main display executable");
-        var image = new NativeImage(exe);
-        byte[] text = image.DecodeText(out int textRva);
-        VerifyHash(text, profile.TextHash, "Main display decoded text");
+        _ = RenderRuleIdentity.For("WorldMainDisplayParent",locale);
+
         bool tc = locale == "TC";
-        void Check(string name, int tcRva, int scRva, int count, string tcHash, string scHash)
-            => VerifyHash(text.AsSpan((tc ? tcRva : scRva) - textRva, count), tc ? tcHash : scHash, name);
-        Check("display-source-0", 0x00400A30, 0x00400F60, 142,
-            "EB4F8D4B573BFFE5BF0CE656C3C0CC513AA58AB44653F6D0D161E23A72D95FD3", "901F9F6650FB8FC6E5B9280E4322A7DA398B5830C421342034BEA791E21798F7");
-        Check("display-source-1", 0x00400960, 0x00400E90, 38,
-            "61A63040900F380C058288D0F73B17D5E7761BA65C6FE24FD294276C79BA2B0D", "B71695EDCA490A6B451CC45DA7E9AAA5BE6681D6EB316D073F7A2E2F7164D597");
-        Check("display-source-2", 0x00400986, 0x00400EB6, 146,
-            "F422319118250254EDD75220A369D718C407C8392EB05317C20F2AF31C14CDEB", "B9D7ADB86F4ACEC96838556D2A1B63EB8E5141FB1BF104BB58E6413A8949ADE2");
-        Check("display-source-3", 0x00400A18, 0x00400F48, 19,
-            "82AEA3F7F279F4F46ABC7BF52FA8384B10833CD19E2AE82464146964C874DB4D", "82AEA3F7F279F4F46ABC7BF52FA8384B10833CD19E2AE82464146964C874DB4D");
-        Check("display-source-4", 0x00BF7120, 0x00BF8610, 325,
-            "87DD3B288F63FD2AC8015BCFF12113FBB70EE9EA7A36F42792C8AAB9F242FBAD", "50D0ED2B09FE26E3AFDE631E806C447E0B8FF5F4DD065BAE6B79D852A8170F02");
-        Check("display-source-5", 0x00959620, 0x0095A6F0, 273,
-            "997BC625A4A145578E18B1035FC4A4067BE5FBF3D619D1C87CC1735E6D41FA3B", "38A92419439DC58DDE9825E3D9B72DC241605B4EC9B77BF29B5552701F53A4BA");
-        Check("display-source-6", 0x0095CF10, 0x0096CC00, 8,
-            "5CC2B881AD1F07878EEC42CDDDBE7365DE1EB355997D1EFDECCAD052C791E840", "C60DEBA4F0EB50C6E32604BF0517613E05B2670571CD5340F9B18CC1BC134B3F");
-        Check("display-source-7", 0x0094D140, 0x0094E210, 738,
-            "6F3B3789F1D272750558E97F025B4E55965DBCF05BA438093A9732988DB6A999", "0785213DCC391C5545433E74087F8A6CCE5998F65847D358FABF30F7DD173EC8");
-        Check("display-source-8", 0x009650F0, 0x00966270, 149,
-            "589CB1F0E963493BCA54C0221A1771DC37069B732258FE7C7FA84981BA749FBC", "3F4F2DE58FF4DDA02D6AE0914CE3FE8B8A9FADD279E7D512A363D684C97AAC30");
-        Check("display-source-9", 0x00400AC0, 0x00400FF0, 329,
-            "3FC211D3725C1FF37E3233F161E5B57E8F8B87BC26914FD903D7B2AA69F1EE7B", "D071CEDFF5DAA175FFCBBE38405CC041E939417610850D263C1D59D35464A386");
-        Check("display-source-10", 0x00BF8570, 0x00BF9A60, 160,
-            "36C34522B8D8D70FD4BA9C5F13AFBA0F60E1DA99A6FDAB88B28C31D297718674", "0B26FB8055DBD058B673CC3C7DB11A71316FA99E9060FA6598D8F059F59BECEB");
-        Check("display-source-11", 0x00BF8610, 0x00BF9B00, 398,
-            "B882DE7CCD8C72FA29E815CEC9CBD9139DFAF9D8C016B8272CCD4FF55BBECF51", "B1FA5701543FF35641BD2534128B92930297CFCCD183C1B257812AEE919FD19D");
-        Check("display-source-12", 0x0095A9D0, 0x0095BAA0, 290,
-            "0A49C816D18DC280C642334D7488624E7B30DE3001DE7791920968BD9E512D15", "B4BE10422BE0061EB70134BC4101B2772463298B1F9B08BEA22B9002C48D4C0A");
-        Check("display-source-13", 0x00964E80, 0x00966000, 80,
-            "EDE176244F388958F2F2F2FEC30E8C0CD1C7D8155FB3C24F02DC31296F20A5B5", "EDE176244F388958F2F2F2FEC30E8C0CD1C7D8155FB3C24F02DC31296F20A5B5");
-        Check("display-source-14", 0x00BFD970, 0x00BFEE40, 111,
-            "03A5B76B013681ACF90DE380E22CE0332804B2C48C5F5FD03B4E69C31D84439C", "322FB5CFAE516FFC57CDD7767A8F03940940F3887C4196C7F94374B09E323B28");
-        Check("display-source-15", 0x00955A60, 0x00956B30, 433,
-            "072A8C54E0BD074EE1EAB254494EF33A2A0249677F167C16CF195A199FCAA444", "2E2BDBFF39BB5264FBDC77DDEFCCCF178D174D1D206E68DC84B7626F6E727949");
-        Check("Main-lock-not-Begin", 0xBFEC40, 0xC00120, 31,
-            "D1398B9EA0DEC91F070D106D219DC4830B0885DF694AF7D9A3453191B84DEA2F",
-            "23C994428AEB56E79FB985D61BE5B5CA4A912CF8162BFC67140BD928BD1D0623");
-        Check("immediate-wrapper-row", 0x9665A0, 0x967720, 132,
-            "C25572398C8EFC2703C630710A7F4CF7BCE19DC61EE8DD6595F79F8D32676023",
-            "C25572398C8EFC2703C630710A7F4CF7BCE19DC61EE8DD6595F79F8D32676023");
+
         int vt = tc ? 0x13C4ED0 : 0x13C5CF0;
-        foreach (var member in new (int Slot, int Rva)[] {
-            (0x20, tc ? 0xBFEC40 : 0xC00120), (0xC8, tc ? 0x400A30 : 0x400F60),
-            (0xD0, tc ? 0x400AC0 : 0x400FF0), (0xD8, tc ? 0xBFD970 : 0xBFEE40) })
-            if (BinaryPrimitives.ReadUInt64LittleEndian(image.Raw(vt + member.Slot, 8)) != 0x140000000UL + (uint)member.Rva)
-                throw new InvalidDataException("Main display source vtable differs from the accepted native entry/exit.");
-        int getter = tc ? 0x95CF10 : 0x96CC00;
-        int global = getter + 7 + BinaryPrimitives.ReadInt32LittleEndian(text.AsSpan(getter - textRva + 3, 4));
-        return new(locale, profile.ExeHash, profile.TextHash,
+
+        return new(locale, RenderRuleIdentity.Version,
             tc ? 0x959620 : 0x95A6F0, tc ? 0x94D140 : 0x94E210,
             tc ? 0x95A9D0 : 0x95BAA0, tc ? 0x964E80 : 0x966000,
-            $"Main-display-parent/{locale}@{profile.ExeHash};MainVT={vt:X8};physicalGlobal={global:X8};" +
+            $"{RenderRuleIdentity.For("WorldMainDisplayParent",locale)};MainVT={vt:X8};" +
             "v20-lock/vC8-entry;device-v2C8-mode1-current-surface-boundary;wrapper20-identity;" +
             "actual-format/physical-extent;Q18-count1-push;retained13C/17C/1D9;" +
             "Main-vD0-outer-pop-before-vD8-present;not-RGK-named-target");

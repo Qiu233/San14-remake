@@ -1,11 +1,19 @@
 // D33's source state effects remain observable when its special tail is empty.
 // No guessed special shader/geometry is submitted in this finite experiment.
 struct NativeSpecialEffects {
+    bool tailOwnerAvailable{true};
     UINT queueFlags,hostFlags,alphaTest;
     std::map<UINT,UINT> references,rows;
     UINT depthCompare,alternateDepthCompare,stencilCompare,readMask,writeMask,qOr;
     D3D11_DEPTH_STENCILOP_DESC operations;
 };
+static NativeSpecialEffects createNativeSpecialEffectsWithoutParticleOwner(UINT actualHostFlags) {
+    NativeSpecialEffects out{};
+    out.hostFlags=actualHostFlags;
+    out.qOr=0x40; // D33 publishes this before its owner/population gates.
+    out.tailOwnerAvailable=false;
+    return out;
+}
 static NativeSpecialEffects loadNativeSpecialEffects(const fs::path& source) {
     NativeSpecialEffects out{};std::ifstream flags(source/"context.txt");flags>>out.queueFlags>>out.hostFlags>>out.alphaTest;
     if(!flags)throw std::runtime_error("Source D33 context input absent");
@@ -30,6 +38,7 @@ static NativeSpecialEffects loadNativeSpecialEffects(const fs::path& source) {
 static void applyNativeSpecialEffects(ID3D11Device* device,ID3D11DeviceContext* context,
     NativeSourceDepthState& logical,NativeSpecialEffects& source,UINT node) {
     source.queueFlags|=source.qOr; // Source before owner and population tests.
+    if(!source.tailOwnerAvailable)return;
     if(source.rows.at(node)!=0)throw std::runtime_error("Original specialized tail requires its shader/stream consumer");
     const auto entry=logical;const UINT savedAlpha=source.alphaTest;
     source.alphaTest=1;auto enter=entry.description;enter.DepthEnable=TRUE;

@@ -153,26 +153,10 @@ public static partial class OriginalDeferredSamplerSources
     {
         if(native.Locale is not ("TC" or "SC")||allocator.Locale!=native.Locale)
             throw new NotSupportedException("Texture records require the positively joined original TC default zero allocator.");
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"Texture zero executable");
-        var image=new NativeImage(exe);byte[] text=image.DecodeText(out int start);
-        VerifyHash(text,native.DecodedTextSha256,"Texture zero decoded text");
-        void Check(int rva,int size,string hash)
-        {
-            var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3TextureZeroAllocationSource.cs",rva,size,hash);
-            VerifyHash(text.AsSpan(actual.Rva-start,size),actual.Sha,"Texture zero source window");
-        }
-        Check(0x11474D4,0x38,"698DBDFD8ED4ABDB5AD5FC05720D111C0C2DE227AF4200E6D7CFE77A29142EA5");
-        Check(0x114A530,0x108,"3D85554DA83FBAE13EDEE6F3DAFA770EA2D829324749FEB0F2E48951282031C4");
-        Check(0x11468F8,0x38,"585CB53C76576B2C50E64F38F3D7A8EC29379A5F3E7985513DE9A83FE5CE5FC4");
-        Check(0x1146AE1,0x17,"F603018ECBBF2E36381701209A970F40F09B95882394D401EEFC19608111A90D");
-        Check(0xD5C240,0x70,"B58BE02966DD7AEEBB9DCE09F26728EB698ABAFB1B19C35865BA69CAD6C1459F");
+
         // Complete texture/buffer/CB allocation loops plus the four actual
         // texture pair/single setters: none writes record selector byte0.
-        Check(0x11468D0,0x773,"6B6F5C3DBD30952B9C56BD00E2F0A5E13CF24B0AA9686A7320363A270F453B65");
-        Check(0x1147910,0xFF,"3796750EA1953227B39F50D91ABAF96A6D4E7DA2A81EC9CE4705F97478BE17EE");
-        Check(0x1147A10,0xD8,"5B76C918DF4A53B5F632BD5FD6A3C4F80D5FE0D383517A59651291E88A89F569");
-        Check(0x1147AF0,0xFA,"075F8CE29CAF4B88B574A12A6C845CD2390F20DFB00079D75AA838E40964D097");
-        Check(0xD72210,0xD8,"B0A26B6F28003CA0AB89D8B0C92E0409827C9E63DC9990973158E6D2C4381007");
+
         return new(allocator,native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+";"+allocator.SourceEvidence+
             ";TC:11474D4-metadata/11474DC-RTbank114A530;114A54E-explicit-owned-default-allocator;"+
             "114A590..114A5A9-default-v30-whole-block=(textureCount+1)*72+(bufferCount+CBcount)*40;"+

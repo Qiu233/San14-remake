@@ -27,7 +27,7 @@ public static class OriginalBattleRemakeCurrentAttackingCityModifiers
     {
         if (string.IsNullOrWhiteSpace(revision)) throw new InvalidDataException("Current City modifiers need a revision.");
         if (state.NativeArmyLifecycle is not { } saved || state.NativeArmySimulation?.Parameters is not { } parameters ||
-            parameters.Language != saved.Language || parameters.ExecutableSha256 != saved.ExecutableSha256 ||
+            parameters.Language != saved.Language || parameters.RuleVersion != saved.RuleVersion ||
             current.StaticSource is not { } source || source.ResourceUri != saved.SourceScenarioUri ||
             source.Sha256 != saved.SourceScenarioSha256 || state.ContentHashes.GetValueOrDefault(source.ResourceUri) != source.Sha256)
             return Missing("current.City_modifiers_source_binding");

@@ -27,7 +27,7 @@ public sealed partial class OriginalTacticRemakeCurrentContext
         var assigned = OriginalTacticEffectSourceWaiting.AfterActivation(new(chain.SumOfNativeWaitingContributions,
             0, adjustment.Value, reduction.Value, policy.Value, primary.Value, second.Value, third.Value));
         return new(assigned.Primary20, assigned.Second21, assigned.Third22,
-            $"native-automatic-current:{_usage.Language}:{_usage.ExecutableSha256}:{Revision}");
+            $"native-automatic-current:{_usage.Language}:{_usage.RuleVersion}:{Revision}");
     }
 
     internal TacticUseSourceResolution? ResolveAutomaticCapturedEffects(GameState state, UnitState caster,

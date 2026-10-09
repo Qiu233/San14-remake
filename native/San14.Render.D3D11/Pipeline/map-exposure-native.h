@@ -7,11 +7,12 @@
 namespace source_map_exposure {
 using source_camera::get;using source_camera::A;using source_camera::S;using source_camera::M;using source_camera::D;
 struct Profile {uint32_t flags8{};int32_t tone3A4{};uint32_t cameraSpecial1510{},customPixelAbsent{};int32_t viewMask19B8{};};
+struct SelectedLight {uint32_t type{},flags{};std::array<float,3> baselineRgb{};};
 struct Selection {
     // Presence comes from the actual independently owned Apply reference.
     // Supplying a LightData payload alone cannot open the source branch.
     bool applyReferencePresent=false;
-    const uint8_t* selectedLightData10C0=nullptr;
+    const SelectedLight* selectedLight=nullptr;
     std::optional<int32_t> viewMask19B8;
 };
 struct Packet {std::array<float,8> texels{};float mode{},luminance{};bool halfRectangle=false;};
@@ -36,10 +37,10 @@ inline float reciprocalTone(float luminance,float mode,uint32_t flags,int tone){
     float ratio=S(D(numerator,denominator),e);return ratio>0?D(1,ratio):0;
 }
 inline bool selectedLuminance(const Selection& selection,float& luminance){
-    auto light=selection.selectedLightData10C0;
+    auto light=selection.selectedLight;
     if(!selection.applyReferencePresent||light==nullptr)return false;
-    uint8_t type=light[0x10b0];if((type<3||type>5)&&(light[0xfdc]&1)==0)return false;
-    float green=M(get<float>(light+0xfa4),F(0x3f1645a2)),red=M(get<float>(light+0xfa0),F(0x3e991687)),blue=M(get<float>(light+0xfa8),F(0x3de978d5));
+    uint32_t type=light->type;if((type<3||type>5)&&(light->flags&1)==0)return false;
+    float green=M(light->baselineRgb[1],F(0x3f1645a2)),red=M(light->baselineRgb[0],F(0x3e991687)),blue=M(light->baselineRgb[2],F(0x3de978d5));
     luminance=A(A(green,red),blue);return true;
 }
 inline Packet prepareCurrent(const Profile& profile,const source_camera::Prefix& preparedMain,const Selection& selection={}){

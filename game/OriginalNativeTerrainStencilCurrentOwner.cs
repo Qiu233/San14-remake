@@ -40,7 +40,7 @@ public sealed class OriginalNativeTerrainStencilCurrentOwner
         if (frame.Context.FrameNumber != context.FrameNumber || execution.Invocation.ContextPointer50Absent != false ||
             execution.Invocation.CurrentContextOwnerIdentity != frame.Context.Source.OwnedHostIdentity ||
             frame.Context.Source.Host.Locale != execution.Source.Locale ||
-            frame.Context.Source.Host.ExecutableSha256 != execution.Source.ExecutableSha256)
+            frame.Context.Source.Host.RuleVersion != execution.Source.RuleVersion)
             throw new InvalidDataException("Node51 and current Host use different executable sources.");
         var prepared = Prepare(context, frame, terrain, actualWorldPQ, execution.CurrentCallFlags,
             execution.SourceProvenance, baseRaster);

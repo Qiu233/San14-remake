@@ -43,7 +43,6 @@ public static class OriginalDeferredEarlySourceExecution
                 p.Association.InnerRecord.RecordOwnerIdentity==bin.CurrentLightOwnerIdentity&&
                 p.Association.EnabledInnerBit==bin.LightRecordMask78);
             pass.Frame.Feature.ValidateFrame(pass.Frame.Camera,pass.Frame.Lighting);
-            pass.InnerLighting.ValidateCurrentSourceFrame();
             if(pass.Frame.FrameNumber!=currentQ.FrameNumber||pass.InnerLighting.FrameNumber!=currentQ.FrameNumber||
                 pass.InnerLighting.SourceIdentity.MainLightObjectId!=pass.Association.InnerRecord.Source.SourceObjectId||
                 !pass.Frame.Feature.SelectedModifierLightData.Span.SequenceEqual(pass.InnerLighting.LocalLightData.Span))

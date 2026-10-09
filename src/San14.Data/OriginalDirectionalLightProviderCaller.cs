@@ -101,14 +101,6 @@ public sealed class OriginalDirectionalProviderCallerCurrentFrame
     public bool Applied{get;}
     public bool SourceHighBitSwappedRows{get;}
     public string SourceProvenance=>Caller.SourceProvenance+";"+Temporary.SourceProvenance;
-    /// <summary>Explicit numerical replay for diagnostics. Ordinary consumers
-    /// bind the accepted current Camera with RequireCamera.</summary>
-    public void ValidateCurrentSourceFrame()
-    {
-        Temporary.ValidateSourceTemporary();var expected=Temporary.ApplyCurrentCamera(camera);
-        if(expected.Applied!=Applied||expected.SourceHighBitSwappedRows!=SourceHighBitSwappedRows||!expected.Bytes.AsSpan().SequenceEqual(bytes))
-            throw new InvalidDataException("Directional provider temporary current Camera projection changed.");
-    }
     public void RequireCamera(ReadOnlySpan<byte> sameFramePreparedCamera)
     {if(!sameFramePreparedCamera.SequenceEqual(camera))throw new InvalidDataException("Provider frame has another current prepared Camera generation.");}
 }

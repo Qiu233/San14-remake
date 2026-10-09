@@ -102,13 +102,11 @@ public sealed record OriginalMapSourceCreatedLightingFrameInputs(long FrameNumbe
 public sealed partial class OriginalMapSourceCreatedLightingPacket
 {
     private readonly byte[] camera, lightData;
-    private readonly byte[] constructedLightData;
     private readonly OriginalMapSourceCreatedLightingFrameInputs acceptedInputs;
     private OriginalMapSourceCreatedLightingPacket(OriginalMapSourceCreatedLightingPacket accepted)
     {
         FrameNumber=accepted.FrameNumber;Binding=accepted.Binding;SourceIdentity=accepted.SourceIdentity;
         SourceProvenance=accepted.SourceProvenance;camera=accepted.camera.ToArray();lightData=accepted.lightData.ToArray();
-        constructedLightData=accepted.constructedLightData.ToArray();
         SceneInputs=OriginalMapSourceCreatedLighting.Snapshot(accepted.SceneInputs);Clock=accepted.Clock;
         SelectedController=accepted.SelectedController;LightingSkylightParameters=accepted.LightingSkylightParameters;
         RuntimeTable=accepted.RuntimeTable;ContextFlags3E4=accepted.ContextFlags3E4;
@@ -130,7 +128,6 @@ public sealed partial class OriginalMapSourceCreatedLightingPacket
             $"LightOwner={Binding.LightOwnerIdentity};frame={FrameNumber}"+
             (input.PresentSeasonCamera is { } present ? ";"+present.SourceProvenance : "");
         this.camera = camera; lightData = local.Bytes; SceneInputs = scene; Clock = clock;
-        constructedLightData = source.CreatedLightData.ToArray();
         SelectedController = controller; LightingSkylightParameters = input.LightingSkylightParameters;
         RuntimeTable = input.RuntimeTable; ContextFlags3E4 = input.ContextFlags3E4;
         CameraContextApplied = local.ContextApplied;
@@ -162,20 +159,6 @@ public sealed partial class OriginalMapSourceCreatedLightingPacket
     /// collections before an asynchronous consumer retains this frame.</summary>
     public OriginalMapSourceCreatedLightingPacket CopyAcceptedSnapshot() => new(this);
 
-    /// <summary>The payload owner validates its own constructor and current
-    /// Camera writes. Render consumers do not reconstruct a particular light
-    /// loader by undoing one byte of the submitted payload.</summary>
-    internal void ValidateCurrentSourceFrame()
-    {
-        if (directionalConstruction is not null)
-        { ValidateDirectionalCurrentSourceFrame(); return; }
-        if (Convert.ToHexString(SHA256.HashData(constructedLightData)) != SourceIdentity.CreatedLightDataSha256)
-            throw new InvalidDataException("Current light belongs to a different constructed source generation.");
-        var expected = OriginalMapSourceCreatedCameraLightData.ApplySourceMode2PreparedCamera(
-            constructedLightData, camera, ContextFlags3E4);
-        if (expected.ContextApplied != CameraContextApplied || !expected.Bytes.AsSpan().SequenceEqual(lightData))
-            throw new InvalidDataException("Current LightData differs from its owned constructor and Camera writer.");
-    }
 }
 
 /// <summary>Source-created Game default HDRI → Camera lighting → clock tail →

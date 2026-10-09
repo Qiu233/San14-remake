@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using San14.Data;
 
 /// <summary>Finite fresh Main scalar owner outside its accepted3C0 prefix.
@@ -8,7 +7,7 @@ using San14.Data;
 /// a different current owner; this owner never invents a missing field.</summary>
 public sealed class OriginalSceneViewNativeMapSourceFields
 {
-    private readonly byte[] sourceBytes;
+    private readonly LoadedObjects resource;
     private readonly uint objectId;
     private readonly string locale;
     private readonly uint ambientRateWord;
@@ -31,7 +30,7 @@ public sealed class OriginalSceneViewNativeMapSourceFields
         ambientRateWord = BinaryPrimitives.ReadUInt32LittleEndian(property.RawValue);
         if (!float.IsFinite(BitConverter.UInt32BitsToSingle(ambientRateWord)))
             throw new InvalidDataException("Source Main map-occlusion rate is nonfinite.");
-        sourceBytes = canonical.Resource.Source.Bytes.ToArray();
+        resource = canonical.Resource;
         objectId = canonical.Camera.ObjectId; locale = camera.ExecutableLocale;
         SourceProvenance = canonical.Resource.Source.ResourceUri + "@" + canonical.Resource.Source.DecodedSha256 +
             ";Main38D/property977-08367252-float1/CPU170;" +
@@ -47,14 +46,8 @@ public sealed class OriginalSceneViewNativeMapSourceFields
         ArgumentNullException.ThrowIfNull(currentCamera);
         if (!retained || currentCamera.FrameNumber < 1 ||
             currentCamera.ExecutableLocale != locale || currentCamera.Source.Camera.ObjectId != objectId ||
-            !currentCamera.Source.Resource.Source.Bytes.AsSpan().SequenceEqual(sourceBytes) ||
-            Convert.ToHexString(SHA256.HashData(currentCamera.Source.Resource.Source.Bytes)) !=
-                OriginalMapCameraConstructionSource.SourceSha256)
+            !ReferenceEquals(currentCamera.Source.Resource, resource))
             throw new InvalidDataException("Current Main scalar owner was replaced, edited, or imported.");
-        // Reparse the actual saved property to reject stale caller metadata.
-        var canonical = OriginalMapCameraConstructionSource.ReadPerspective(currentCamera.Source.Resource, objectId);
-        if (BinaryPrimitives.ReadUInt32LittleEndian(canonical.Camera.Properties[977].RawValue) != ambientRateWord)
-            throw new InvalidDataException("Current Main ambient declaration changed after ownership was established.");
         return BitConverter.UInt32BitsToSingle(ambientRateWord);
     }
     public void MarkImportedOrEdited(string actualWriter)

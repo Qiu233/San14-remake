@@ -115,28 +115,7 @@ public static partial class OriginalDeferredSamplerSources
     {
         ArgumentNullException.ThrowIfNull(native);
         var fresh=ReadFreshPostEffect3StockDrawSource(native);
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"Native fullscreen executable");
-        var image=new NativeImage(exe);byte[] text=image.DecodeText(out int start);
-        VerifyHash(text,native.DecodedTextSha256,"Native fullscreen decoded text");
-        VerifyAdmittedFreshFullscreenProfile(text,start,native.Locale);
-        void Check(int rva,int size,string sha)
-        {
-            var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3NativeFullscreenFrontendSource.cs",rva,size,sha);
-            VerifyHash(text.AsSpan(actual.Rva-start,size),actual.Sha,"Native fullscreen operation");
-        }
-        Check(0x1161D40,1773,"57B3E131B5FEAA2CC5DFC7318AD910B987B26478F475619E5ADB679F020B770A");
-        Check(0x1163460,426,"26428584698B46F67D86E7816F3EC7897A27BA3284E80895B037F7538B8A17A7");
-        Check(0x1163800,208,"23BE6A18FBE9C36F5873CFDE127B27AE9818139563C02C969F0FC2DD6A4BED5C");
-        Check(0x11630A0,201,"202C5FD0FAF339B76763C64E431AA453948C84ACBBF822DB13CDF4031314E3D4");
-        Check(0x1162610,1195,"0F382035B15FA1F73D25ECB7E99E5C778B48C8C68C21B4D20FB4B90DD0458AAB");
-        Check(0x1163170,751,"521950BFFD2C49366ACAF604363A74BDB91126F20BC422F31370E925794C5DA3");
-        Check(0x1163080,28,"98DED7630F7B1079FB54BAD0024AC6EF05F24ADC41481D36BEF7135CED74AC80");
-        Check(0x95AB00,183,"EE9A7E36C0B6E8F5C5FA2C22AD9AF347745279124423DB90DD73451ECE48FB26");
-        Check(0x95A370,0x12E,"87C8929F3B33304874C693AC9C197B74AFAA96DC1A71E8B96379CE8903F35E60");
-        Check(0x958340,0x22,"A35E5AE85AFD35D3888798DE6DA289ECD5AD2A864EC74C7C5CD144EABDE35319");
-        Check(0x9625E0,0x7E,"BA9F434AB7D1ADC28B05A9491451325BA585140074EA1E2D1FF9DF8CDCC832A4");
-        Check(0x95E970,0x17,"2E068329069ADB92586E0F46FB3CA3DFE85B948CBC90898E359ECE9CD192E7EF");
-        Check(0x966CF0,0xB4,"B40062D4870A19114D89ABB5CA10B85743014617CC127B3925B6C4E8B99789AD");
+
         return new(fresh,fresh.SourceEvidence+";TC1161DD(E)-compute-mode0/1161DF7-graphics-mode2;"+
             "1161E21-mode-diff-reset;11635A7-four-slot-reset;1162088-counted-kind3->1163800;"+
             "11630A0-effective-cache-targets;11626A4-bpl0/fresh1C40zero-color-only-depthoff;"+
@@ -152,6 +131,6 @@ public static partial class OriginalDeferredSamplerSources
             "968000-int32-XYWH->D3D-Viewport/96822E-RSSetViewports;"+
             "1161C00-alphaOff/opcode17->958340/9625E0/95E970-vATest2860=FF7FFFFF->966CF0-pixel-shadow;"+
             "Lens114BEA0-explicit-stock-After/959250-ScreenBegin/95A370-quad/95A7B0-restore;"+
-            "source-profile-F4_SCISSOR_SOURCE@7CFF04FED12D131BA116635B380B9988A4167348AB77DE4E944B4CD7463121AE");
+            "source-profile-F4_SCISSOR_SOURCE");
     }
 }

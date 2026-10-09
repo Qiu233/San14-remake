@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 
 namespace San14.Data;
 
@@ -9,9 +8,9 @@ public sealed class OriginalMapPostEffect3ShaftGraphicsWriteCoverage
 {
     private OriginalMapPostEffect3ShaftGraphicsWriteCoverage(OriginalMapPostEffect3AllocationPlan allocation,
         OriginalMapPostEffect3ParameterLightShaftInitialization init,OriginalMapPostEffect3TextureShape shape)
-        =>(FrameNumber,ContextOwnerIdentity,SourceSha256,TextureWidth,TextureHeight,RequiredConstantBufferBytesSha256,SourceEvidence)=
+        =>(FrameNumber,ContextOwnerIdentity,SourceSha256,TextureWidth,TextureHeight,ProgramSha256,SourceEvidence)=
             (init.FrameNumber,init.OwnerIdentity,init.SourceSha256,shape.Width,shape.Height,
-                Convert.ToHexString(SHA256.HashData(init.ConstantBuffer!.Bytes.Span)),
+                allocation.Source.GetProgram(0,1).Sha256,
                 "original-Shaft-pass7/PS1;exact98-token-program;no-control/discard;RGB mad output0 thenAlpha1;ret;"+init.SourceEvidence);
     public long FrameNumber{get;}
     public string ContextOwnerIdentity{get;}
@@ -21,10 +20,8 @@ public sealed class OriginalMapPostEffect3ShaftGraphicsWriteCoverage
     public uint TextureMipLevel=>0;
     public uint TextureWidth{get;}
     public uint TextureHeight{get;}
-    public string ProgramSha256=>"C1D33E572A65E710F69284AC31A838E98EE25D17EB27F81B074CCB019A43E62F";
-    public string StockVertexProgramSha256=>OriginalMapFinalOutputToneShaderSource.VertexSha256;
+    public string ProgramSha256{get;}
     public int RequiredConstantBufferParameterIndex=>1;
-    public string RequiredConstantBufferBytesSha256{get;}
     public string SourceEvidence{get;}
     public bool EstablishesGpuCompletion=>false;
     public static OriginalMapPostEffect3ShaftGraphicsWriteCoverage Prepare(OriginalMapPostEffect3AllocationPlan allocation,
@@ -38,9 +35,7 @@ public sealed class OriginalMapPostEffect3ShaftGraphicsWriteCoverage
             cb.SourceSha256!=allocation.Source.Sha256)
             throw new InvalidDataException("Shaft7 coverage needs the actual complete enabled source Init.");
         var program=allocation.Source.GetProgram(0,1);
-        const string sha="C1D33E572A65E710F69284AC31A838E98EE25D17EB27F81B074CCB019A43E62F";
-        if(program.Sha256!=sha||Convert.ToHexString(SHA256.HashData(program.Bytes.Span))!=sha||
-            allocation.Passes[7].Pass.ProgramReferences.Where(r=>r.StageIndex is not null).ToArray() is not [{StageCode:0,StageIndex:1}])
+        if(allocation.Passes[7].Pass.ProgramReferences.Where(r=>r.StageIndex is not null).ToArray() is not [{StageCode:0,StageIndex:1}])
             throw new InvalidDataException("Shaft7 coverage selected another pixel shader or custom geometry route.");
         var shape=OriginalMapPostEffect3AllocationShapeReader.Read(allocation.TextureAllocations.Single(a=>a.Parameter.Index==11));
         if(shape.Dimension!=OriginalMapPostEffect3TextureDimension.Texture2D||shape.MipLevels!=1||!shape.HasRenderTargetPath)

@@ -36,8 +36,6 @@ public sealed class OriginalRemakeArmyFlagGlyphRenderer:IAsyncDisposable
             string.IsNullOrWhiteSpace(atlas.SourceResourceUri)||explicitSourceAtlasSampler52.Length!=52)
             throw Error("requires the actual owned font atlas and complete source sampler");
         var vertex=compiler.Compile(source.VertexProgram.Span);var pixel=compiler.Compile(source.PixelProgram.Span);
-        if(vertex.SourceProgramSha256!=OriginalMapExposureSource.VertexSha256||pixel.SourceProgramSha256!=OriginalMapExposureSource.PixelSha256)
-            throw Error("stock source programs differ from the pinned glyph default route");
         var adapter=OriginalVertexShaderAdapter.AdaptPositionInput(MoveVertexSet(vertex.Bytes));
         var vi=SpirvShaderInterfaceReader.Read(adapter.Bytes);var pi=SpirvShaderInterfaceReader.Read(pixel.Bytes);
         if(vi.Descriptors.Count!=1||vi.Descriptors[0] is not{StorageClass:2,DescriptorSet:1,RequiredBufferBytes:32}||

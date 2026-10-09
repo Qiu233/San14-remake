@@ -106,7 +106,7 @@ public sealed class OriginalMapPostEffect3FirstWorldExecutionOwner:IAsyncDisposa
         var native=OriginalDeferredSamplerSources.Load(dependencies.Repository.SourceDirectory,
             dependencies.WorldSource.Bootstrap.First.Camera.ExecutableLocale);
         var depth=OriginalMapPostEffect3InputDepthSource.Load(dependencies.Repository,native.Locale);
-        var stock=OriginalMapFinalOutputToneShaderSource.ReadCurrent(dependencies.Repository.SourceDirectory,native.Locale);
+        var stock=OriginalMapFinalOutputToneShaderSource.ReadCurrent(native.Locale);
         OriginalMapPostEffect3ResourceBank? bank=null;
         OriginalMapPostEffect3ProgramLibrary? programs=null;
         OriginalMapPostEffect3ComputeExecutor? compute=null;

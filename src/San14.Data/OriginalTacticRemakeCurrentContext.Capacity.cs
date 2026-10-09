@@ -14,7 +14,7 @@ public sealed partial class OriginalTacticRemakeCurrentContext
             officer.NativeAbilityRuntime is not { Status11E: 1 } person ||
             person.Revision != OriginalTacticRemakeCurrentAbilities.ProfileId ||
             person.PhysicalSlot != physical || person.Language != _usage.Language ||
-            person.ExecutableSha256 != _usage.ExecutableSha256 ||
+            person.RuleVersion != _usage.RuleVersion ||
             state.ContentHashes.GetValueOrDefault(person.SourceScenarioUri) != person.SourceScenarioSha256 ||
             person.Flags196 is not ushort flags || person.Extra1FD is not byte tail ||
             !state.Forces.TryGetValue(target.ForceId, out ForceState? force) ||

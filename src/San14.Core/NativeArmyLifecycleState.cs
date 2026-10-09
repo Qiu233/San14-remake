@@ -30,7 +30,7 @@ public sealed record NativeArmyLifecycleSlot(int PhysicalSlot, ushort? Commander
     public byte? RouteHold56 { get; init; }
     public ushort? RouteGoal1F8 { get; init; }
 }
-public sealed partial record NativeArmyLifecycleState(string Revision, string Language, string ExecutableSha256,
+public sealed partial record NativeArmyLifecycleState(string Revision, string Language, string RuleVersion,
     string SourceScenarioUri, string SourceScenarioSha256, NativeSharedListPoolState Pool,
     NativeArmyLifecycleSlot[] Slots, Dictionary<string, NativeSharedListHandle?> RegistryDescriptors,
     NativeSharedListHandle? Pending70Descriptor, NativeSharedListHandle? BaseRegistryDescriptor, NativeArmyBaseListBinding[] BaseLists,
@@ -46,11 +46,11 @@ public static class NativeArmyLifecycleStateValidation
     {
         if (state.NativeArmyLifecycle is not { } lifecycle) return;
         if (string.IsNullOrWhiteSpace(lifecycle.Revision) || lifecycle.Language is not ("SC" or "TC") ||
-            !Hash(lifecycle.ExecutableSha256) || !Hash(lifecycle.SourceScenarioSha256) ||
+            string.IsNullOrWhiteSpace(lifecycle.RuleVersion) || !Hash(lifecycle.SourceScenarioSha256) ||
             string.IsNullOrWhiteSpace(lifecycle.SourceScenarioUri) ||
             state.ContentHashes.GetValueOrDefault(lifecycle.SourceScenarioUri) != lifecycle.SourceScenarioSha256 ||
             state.NativeArmySimulation?.Parameters is not { } parameters || parameters.Language != lifecycle.Language ||
-            parameters.ExecutableSha256 != lifecycle.ExecutableSha256 || lifecycle.Slots is not { Length: > 0 } ||
+            parameters.RuleVersion != lifecycle.RuleVersion || lifecycle.Slots is not { Length: > 0 } ||
             lifecycle.RegistryDescriptors is null || lifecycle.BaseLists is null || lifecycle.Pool is null || lifecycle.HexRaw1C is null ||
             lifecycle.HexRaw1C.Any(x => x.Key < 0 || x.Key >= (long)state.MapWidth * state.MapHeight))
             throw new InvalidDataException("Native Army lifecycle has missing or contradictory source ownership.");

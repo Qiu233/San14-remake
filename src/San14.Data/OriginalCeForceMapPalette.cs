@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 
 namespace San14.Data;
 
@@ -20,7 +19,7 @@ public readonly record struct OriginalCeForceFirstTableColor(int Index, int Sele
     byte Red, byte Green, byte Blue, byte Alpha);
 
 /// <summary>
-/// Reads both current CE 62-entry color tables. Selector 1 follows the
+/// Defines both CE 62-entry color tables. Selector 1 follows the
 /// second-table territory CPU path; selectors 0/2 decode the first table.
 /// Their UI consumers and final framebuffer colors remain separate questions.
 /// </summary>
@@ -28,73 +27,26 @@ public sealed class OriginalCeForceMapPalette
 {
     public const string FormulaId = "ce-sc-20260928-force-map-cpu-color";
     public const string TcFormulaId = "ce-tc-20260928-force-map-cpu-color";
-    public const string SourceTableSha256 =
-        "B0637A9E16964F7B312EB0BA8794A2FD26817F1CAA2D41EA649CFC70B3522848";
-    public const string SourceFirstTableSha256 =
-        "1228847B12FC1521FEBCC00A1099480C98596D0F6E6A54E4C3048DDC851793C2";
-    private const int ScTableFileOffset = 0x1A26EA0;
-    private const int TcTableFileOffset = 0x1A25E70;
-    private const int ScFirstTableFileOffset = 0x1A26DA0;
-    private const int TcFirstTableFileOffset = 0x1A25D70;
-    private const int TableLength = 62 * 4;
     private readonly uint[] _diskEntries;
     private readonly uint[] _firstDiskEntries;
 
-    public string ExecutableSha256 { get; }
-    public string TableSha256 { get; }
-    public string FirstTableSha256 { get; }
+    public string ImplementationVersion => RenderRuleIdentity.For("force-map-palette", Locale);
     public string Locale { get; }
     public string SourceFormulaId => Locale == "TC" ? TcFormulaId : FormulaId;
-    private OriginalCeForceMapPalette(uint[] diskEntries, uint[] firstDiskEntries,
-        string executableSha256, string tableSha256, string firstTableSha256,
-        string locale)
-        => (_diskEntries, _firstDiskEntries, ExecutableSha256, TableSha256,
-            FirstTableSha256, Locale) =
-            (diskEntries, firstDiskEntries, executableSha256, tableSha256,
-                firstTableSha256, locale);
+    private OriginalCeForceMapPalette(uint[] diskEntries, uint[] firstDiskEntries, string locale)
+        => (_diskEntries, _firstDiskEntries, Locale) = (diskEntries, firstDiskEntries, locale);
 
-    public static OriginalCeForceMapPalette LoadCurrentSc(string sourceDirectory)
-        => LoadCurrent(sourceDirectory, "SC");
+    public static OriginalCeForceMapPalette LoadCurrentSc() => LoadCurrent("SC");
 
-    public static OriginalCeForceMapPalette LoadCurrentTc(string sourceDirectory)
-        => LoadCurrent(sourceDirectory, "TC");
+    public static OriginalCeForceMapPalette LoadCurrentTc() => LoadCurrent("TC");
 
-    public static OriginalCeForceMapPalette LoadCurrent(string sourceDirectory, string locale)
+    public static OriginalCeForceMapPalette LoadCurrent(string locale)
     {
-        (int tableOffset, int firstTableOffset) = locale switch
-        {
-            "SC" => (ScTableFileOffset, ScFirstTableFileOffset),
-            "TC" => (TcTableFileOffset, TcFirstTableFileOffset),
-            _ => throw new ArgumentOutOfRangeException(nameof(locale), locale,
-                "Only the verified current CE SC and TC force map tables are supported.")
-        };
-        string executableSha = OriginalCeHexWorldCoordinates.VerifyInstalledExecutable(
-            sourceDirectory, locale);
-        string path = Path.Combine(sourceDirectory, $"SAN14CE_{locale}.exe");
-        byte[] bytes = File.ReadAllBytes(path);
-        if (!Convert.ToHexString(SHA256.HashData(bytes)).Equals(executableSha,
-            StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("CE executable changed while reading its force color table.");
-        if (bytes.Length < tableOffset + TableLength ||
-            bytes.Length < firstTableOffset + TableLength)
-            throw new InvalidDataException("Verified CE force color tables exceed the executable.");
-        ReadOnlySpan<byte> table = bytes.AsSpan(tableOffset, TableLength);
-        ReadOnlySpan<byte> firstTable = bytes.AsSpan(firstTableOffset, TableLength);
-        string tableSha = Convert.ToHexString(SHA256.HashData(table));
-        string firstTableSha = Convert.ToHexString(SHA256.HashData(firstTable));
-        if (!tableSha.Equals(SourceTableSha256, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("CE force map color table differs from the verified current source.");
-        if (!firstTableSha.Equals(SourceFirstTableSha256, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("CE first force color table differs from the verified current source.");
-        var entries = new uint[62];
-        var firstEntries = new uint[62];
-        for (int index = 0; index < entries.Length; index++)
-        {
-            entries[index] = BinaryPrimitives.ReadUInt32LittleEndian(table[(index * 4)..]);
-            firstEntries[index] = BinaryPrimitives.ReadUInt32LittleEndian(firstTable[(index * 4)..]);
-        }
-        return new(entries, firstEntries, executableSha, tableSha,
-            firstTableSha, locale);
+        _ = RenderRuleIdentity.For("force-map-palette", locale);
+        static uint[] LegacyWords(MapUiRuleColor[] colors) => colors.Select(color =>
+            BinaryPrimitives.ReverseEndianness(color.Packed)).ToArray();
+        return new(LegacyWords(OriginalMapUiRules.TerritoryFillColors),
+            LegacyWords(OriginalMapUiRules.ForceFillColors), locale);
     }
 
     public OriginalCeForceMapColor MapColor(int colorIndex)

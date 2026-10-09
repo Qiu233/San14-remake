@@ -83,7 +83,7 @@ public static class OriginalOwnedArmyLifecycleCurrent
             var descriptor = current.ReadRegistryDescriptor(range.Kind);
             registries.Add(range.Kind.ToString(), descriptor is null ? null : new(descriptor.Identity));
         }
-        var result = state with { NativeArmyLifecycle = new(Revision, parameters.Language, parameters.ExecutableSha256,
+        var result = state with { NativeArmyLifecycle = new(Revision, parameters.Language, parameters.RuleVersion,
             source.ResourceUri, source.Sha256, pool.ExportOwnedState(), slots, registries,
             new(current.ReadArmyReturnPending70Descriptor()!.Identity), new(current.ReadBaseRegistryHandle()!.Identity),
             bases.ToArray(), Enumerable.Range(0, checked(state.MapWidth * state.MapHeight)).ToDictionary(x => x, _ => (ushort?)0)) };
@@ -127,7 +127,7 @@ public static class OriginalOwnedArmyLifecycleCurrent
         OriginalOwnedArmyCurrentDefinitions definitions, byte status, byte? packetTargetKind38, ushort? packetTargetIdentity3A)
     {
         if (state.NativeArmyLifecycle is not { } arena || created.NativeArmyOrigin is not { NativeSlotIndex: int physical } origin ||
-            origin.Language != arena.Language || origin.ExecutableSha256 != arena.ExecutableSha256 ||
+            origin.Language != arena.Language || origin.RuleVersion != arena.RuleVersion ||
             FirstCreationSlot(state) != physical || created.NativeTacticRuntime?.Status10 != status || created.OfficerId is < 1 or > 6000 ||
             created.NativeReturnResources is not { } resources) return null;
         var old = arena.Slots[physical];

@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using San14.Data;
 
 public sealed partial class OriginalNativeDeferredResources
@@ -53,9 +52,7 @@ public sealed partial class OriginalNativeDeferredResources
                 throw new InvalidDataException("Selected G-buffer declaration differs from its original graph target identity.");
         }
         var native = borrowedNativeGgx.NativeSource;
-        if (native is null || native.ShaderSha256 != OriginalGgxAmbientLut.PixelSourceSha256 ||
-            borrowedNativeGgx.Translation.SourceProgramSha256 != OriginalGgxAmbientLut.PixelSourceSha256 ||
-            Convert.ToHexString(SHA256.HashData(native.Dxbc)) != OriginalGgxAmbientLut.PixelSourceSha256 ||
+        if (native is null ||
             !borrowedNativeGgx.OriginalSamplerKey.AsSpan().SequenceEqual(Convert.FromHexString("1514300000000000")))
             throw new InvalidDataException("Selected GGX requires the actual original generator and sampler recipe.");
         uint[] expectedSampler = [0x14, 3, 3, 3, 0, 1, 4, 0, 0, 0, 0, 0, 0];

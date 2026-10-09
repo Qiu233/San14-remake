@@ -82,22 +82,8 @@ public static partial class OriginalDeferredSamplerSources
     internal static LoadedOriginalMapPostEffect3ControlledApplyHistorySource ReadControlledApplyHistorySource(
         LoadedOriginalDeferredSamplerNativeSource native)
     {
-        const string sourceScope="OriginalMapPostEffect3ControlledApplyHistorySource.cs";
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"Controlled Apply history executable");
-        var image=new NativeImage(exe);byte[] text=image.DecodeText(out int start);
-        VerifyHash(text,native.DecodedTextSha256,"Controlled Apply history decoded text");
-        void Check(int at,int length,string sha)
-        {
-            var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,sourceScope,at,length,sha);
-            VerifyHash(text.AsSpan(actual.Rva-start,length),actual.Sha,"Controlled Apply history source");
-        }
-        Check(0xE9E6B0,49,"F1E1452B43A5FB57D86981994AE6E1757D877AFDFE3FBE86D2DD15FED537745C");
-        Check(0xEB5F0A,52,"25B798D0DB765C170C6327F8CE4B56ECC14E44F1AB521DCAA578FA2C6427B51A");
-        Check(0xEB7F55,44,"F006F0AC9424BA6E0EC66FF07FA1EC901C9774378B4CF9309F984DAA8FC426F0");
-        Check(0xEB7FFE,80,"5D8FAEAAA29E7B1C58AD530F839708F8642329ED28168673C79362198903DCDB");
-        Check(0xE6BA99,138,"A1EB2264F865ED971E8490A2CC0408AE18EC40B1E440341B3C178964ECA99E74");
-        Check(0xEB6CD8,7,"8DED5CC60938D36566B814314307C9B01934DCFF47758F522C63A5366F93B55B");
-        return new(native,native.ResourceUri+"@"+native.ExecutableSha256+
+
+        return new(native,native.RenderRuleIdentity+
             $";{native.Locale}:paired-Main-Apply-history-profile;TC-reference-role:E9E6B0-node193-callIndex0/count1;EB5F0A-Camera1320&7-localC0;EB5F29/30/33/38-prior-bit23->arg5;"+
             "EB7F79-E22860/EB7F7E-returnAL;EB7FFE-success/EB8004..12-lastcall;EB801C-C0nonzero-bit23set/EB8035-C0zero-bit23clear;"+
             "failure-and-intermediate-call-preserve;CPU-source-only/no-GPU-or-pixel-readiness");

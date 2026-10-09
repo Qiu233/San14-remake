@@ -60,7 +60,6 @@ public sealed class OriginalD3D11CameraInputPreparation
         var camera = main.Camera;
         if (camera.ExecutableLocale != Locale || camera.Source.Camera.ObjectId != OriginalMainMapCameraAdapter.MainCameraObjectId ||
             camera.Source.Resource.Source.ResourceUri != OriginalMapCameraConstructionSource.SourceResourceUri ||
-            camera.Source.Resource.Source.DecodedSha256 != OriginalMapCameraConstructionSource.SourceSha256 ||
             camera.CurrentPose.Scale90 != Vector3.One || camera.Prefix.Length != OriginalMapCameraConstruction.PrefixByteLength)
             throw new NotSupportedException("Camera CCP1 needs the accepted installed Main38D and supported unit-scale source frame.");
         byte[] prefix = camera.Prefix.ToArray();

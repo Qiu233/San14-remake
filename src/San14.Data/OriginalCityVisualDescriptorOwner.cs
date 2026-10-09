@@ -10,14 +10,14 @@ public sealed class OriginalCityVisualDescriptorOwner
     private readonly Dictionary<int,Entry> _entries=new();
     private readonly object _gate=new();
     public string Locale{get;}
-    public string ExecutableSha256{get;}
+    public string ImplementationVersion{get;}
     public CityVisualEvidence InitialSourceEvidence{get;}
 
     internal OriginalCityVisualDescriptorOwner(LoadedOriginalCityOpeningPostLoadSource source,
         OriginalCeCityVariantTable variants)
     {
         ArgumentNullException.ThrowIfNull(source);ArgumentNullException.ThrowIfNull(variants);
-        Locale=source.Locale;ExecutableSha256=source.ExecutableSha256;InitialSourceEvidence=source.Evidence;
+        Locale=source.Locale;ImplementationVersion=source.ImplementationVersion;InitialSourceEvidence=source.Evidence;
         foreach(var record in source.Cities.Values)
         {
             var state=new CityVisualState(record.Slot,record.HexId,record.SizeCode,
@@ -65,7 +65,7 @@ public sealed class OriginalCityVisualDescriptorOwner
     private void RequireSource(OriginalCeCityVariantTable variants)
     {
         ArgumentNullException.ThrowIfNull(variants);
-        if(variants.Locale!=Locale||variants.ExecutableSha256!=ExecutableSha256)
+        if(variants.Locale!=Locale||variants.ImplementationVersion!=ImplementationVersion)
             throw new InvalidDataException("Current City descriptor and native selector source differ.");
     }
 }

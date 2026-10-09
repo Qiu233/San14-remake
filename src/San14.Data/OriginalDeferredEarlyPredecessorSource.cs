@@ -89,7 +89,7 @@ public static class OriginalDeferredEarlyPredecessorSource
         string native = OriginalDeferredSamplerSources.LoadEarlyPredecessorNativeSource(repository.SourceDirectory, locale);
         var graph = repository.LoadRenderGraph("system", 0x024496EE);
         var objects = repository.LoadObjects("system", 0x93FB3280);
-        if (Convert.ToHexString(SHA256.HashData(graph.Source.Bytes)) != OriginalTerrainGbufferTargetSources.GraphSha256 ||
+        if (graph.Source.ResourceUri != "san14://rdb/system/024496EE" ||
             Convert.ToHexString(SHA256.HashData(objects.Source.Bytes)) != OriginalDeferredAuxiliaryTargetSources.ActualObjectsSha256)
             throw new InvalidDataException("Early predecessor source graph/object directory differs.");
         graph = graph with { Document = RenderGraphReader.Read(graph.Source.Bytes) };

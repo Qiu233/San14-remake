@@ -152,20 +152,8 @@ public static partial class OriginalDeferredSamplerSources
     internal static LoadedOriginalMapPostEffect3CommonOverlaySource ReadPostEffect3CommonOverlaySource(
         LoadedOriginalDeferredSamplerNativeSource native)
     {
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"Common overlay executable");
-        var image=new NativeImage(exe);byte[] text=image.DecodeText(out int start);
-        VerifyHash(text,native.DecodedTextSha256,"Common overlay decoded text");
-        foreach(var(at,length,hash)in new(int,int,string)[]{
-            (0x153EA0,336,"F2F21296DE70A33399ACC43BE7AD4EAE2DFA6FC7016119A3C7E989B9F8C7ED3D"),
-            (0xD01794,107,"1DA03F40ECBFA1EC0F09D6C4DFD2C98E5C396BBA3912F069D26C43FAB72C6DB9"),
-            (0xD5BAF0,28,"627EBEC618D96D0B74A613F9F71D0DDCE981357AFE67A035FCBBC9019E42774B"),
-            (0xD6D070,60,"28E8BB5365191AAEDBDA508DCA9DA03B8F921F5C50FED76927B8ED9DF92390CB"),
-            (0xD1E8D3,333,"2CE64B436FA983E100B6B1F0EA87B0EEEE4A474D6CC5D401B3DD9F3EBBF2C147")})
-        {
-            var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,"OriginalMapPostEffect3CommonOverlaySource.cs",at,length,hash);
-            VerifyHash(text.AsSpan(actual.Rva-start,length),actual.Sha,"Common overlay producer/consumer window");
-        }
-        return new(native,native.ResourceUri+"@"+native.ExecutableSha256+
+
+        return new(native,native.RenderRuleIdentity+
             ";TC:Host-VT1388718/v30=153EA0;registered-app-owner->CommonSettingF0;"+
             "secondary-CommonC+8/VT16C75E0;v10=D5BAF0;v8=D6D070;"+
             "153EA0-owned-known-Host-callback;controlled-read-masks3170F/63;"+

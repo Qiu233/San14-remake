@@ -85,7 +85,7 @@ public static class OriginalSky2Constants
     {
         ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(definitions);
-        input.SourceMode4Fog?.ValidateDefinitions(definitions);input.SourceMode4Fog?.ValidateValue(input.Fog);
+        input.SourceMode4Fog?.ValidateValue(input.Fog);
         if(definitions.Buffers.Count==1 && definitions.Buffers[0].ByteSize==144)
             return Pack(definitions,explicitTemplate,144,
             [new("g_mC2L",0,2,4,4,0,Words(input.CameraToLocal)),
@@ -103,7 +103,7 @@ public static class OriginalSky2Constants
     {
         ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(definitions);
-        input.SourceMode4Fog?.ValidateDefinitions(definitions);input.SourceMode4Fog?.ValidateValue(input.Fog);
+        input.SourceMode4Fog?.ValidateValue(input.Fog);
         if (input.SourceZeroMoon is { } proof)
         {
             proof.ValidateDefinitions(definitions);

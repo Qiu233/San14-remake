@@ -535,8 +535,7 @@ public partial class OriginalSceneView : Control
             if(UseOriginalD3D11Map)
             {
                 var field=OriginalTerrainTextureResources.LoadGroup(_repository,terrain,TerrainTextureGroupKind.Field);
-                nativeProjectionSource=OriginalTerrainInitialControlResources.LoadStockDefault(
-                    _repository,field,_text.SourceLocale).Binding.Resource.Source;
+                nativeProjectionSource=OriginalTerrainInitialControlResources.LoadStockDefault(field).Binding.Resource.Source;
             }
             else
             {
@@ -816,9 +815,8 @@ public partial class OriginalSceneView : Control
             return;
         }
         if (policy.SourceFormulaId == OriginalCeHexWorldCoordinates.FormulaId)
-            SetMeta("source_executable_sha256",
-                OriginalCeHexWorldCoordinates.VerifyInstalledExecutable(
-                    _repository.SourceDirectory, _text.SourceLocale));
+            SetMeta("coordinate_rule_version",
+                OriginalCeHexWorldCoordinates.GetRuleVersion(_text.SourceLocale));
         MapWorldProjection projection = MapWorldProjection.Build(_logicalMap, policy);
         _projection = projection;
         if(UseOriginalD3D11Map)
@@ -912,8 +910,7 @@ public partial class OriginalSceneView : Control
         }
         if (!_sourceSnapshot.Locale.Equals(_text.SourceLocale, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Scenario and displayed source locale differ.");
-        _sourceForcePalette = OriginalCeForceMapPalette.LoadCurrent(
-            _repository.SourceDirectory, _text.SourceLocale);
+        _sourceForcePalette = OriginalCeForceMapPalette.LoadCurrent(_text.SourceLocale);
         var colors = new Dictionary<int, Color>();
         var markerCandidates = new Dictionary<int, Color>();
         foreach (ForcePreviewRecord force in _sourceSnapshot.Forces)
@@ -961,10 +958,8 @@ public partial class OriginalSceneView : Control
         overlay.Material.SetMeta("source_force_map_palette_count", _sourceForceColors?.Count ?? 0);
         overlay.Material.SetMeta("source_force_map_palette_formula_id",
             _sourceForcePalette?.SourceFormulaId ?? "");
-        overlay.Material.SetMeta("source_force_map_palette_table_sha256",
-            _sourceForcePalette?.TableSha256 ?? "");
-        SetMeta("source_force_first_palette_table_sha256",
-            _sourceForcePalette?.FirstTableSha256 ?? "");
+        overlay.Material.SetMeta("force_map_palette_rule_version",
+            _sourceForcePalette?.ImplementationVersion ?? "");
         SetMeta("source_marker_color_candidate_selector", 2);
         SetMeta("source_marker_color_candidate_count",
             _sourceMarkerColorCandidates?.Count ?? 0);
@@ -1107,8 +1102,7 @@ public partial class OriginalSceneView : Control
         if (_loadedSceneResources?.Scene.Source.FileId != OriginalCeCityModels.FieldSceneId ||
             _sourceSnapshot?.Number != 1 || _materialAssets is null)
             return null;
-        _cityVariantTable ??= OriginalCeCityVariantTable.LoadCurrent(
-            _repository.SourceDirectory, _text.SourceLocale);
+        _cityVariantTable ??= OriginalCeCityVariantTable.LoadCurrent(_text.SourceLocale);
         _cityVisualAdapter ??= new OriginalCityVisualAdapter(_repository,_loadedSceneResources,
             _cityVariantTable,_materialAssets);
         if(_sourceCityOpening is null && world.NewGameOptions is { } options)
@@ -1139,7 +1133,7 @@ public partial class OriginalSceneView : Control
                 {
                     byte tier = OriginalBasePostLoad.ReadFlag66(new(OriginalBaseKind.City, city.Id), current);
                     currentDamage.Add(city.Id, CityVisualDamageInput.FromTier(tier,
-                        new("actual-current-Base/Object14/268230/2AA9B0", _cityVariantTable.ExecutableSha256,
+                        new("actual-current-Base/Object14/268230/2AA9B0", world.MapSha256,
                             "actual-current-city-damage-tier")));
                 }
                 catch(InvalidDataException) { /* No current descriptor writer: keep the prior model explicit. */ }
@@ -1195,8 +1189,7 @@ public partial class OriginalSceneView : Control
             OriginalPreviewMaterialSet materials = _materialAssets.Load(reference, mesh);
             _gateModelDisplay = new FacilityModelDisplay(reference, mesh, materials);
         }
-        string executableSha = OriginalCeHexWorldCoordinates.VerifyInstalledExecutable(
-            _repository.SourceDirectory, _text.SourceLocale);
+        string ruleVersion = OriginalCeHexWorldCoordinates.GetRuleVersion(_text.SourceLocale);
         var displays = new Dictionary<int, GateModelDisplay>();
         foreach (GatePreviewRecord sourceGate in sourceGates)
         {
@@ -1217,7 +1210,7 @@ public partial class OriginalSceneView : Control
             float radians = degrees * MathF.PI / 180f;
             displays.Add(gate.Id, new GateModelDisplay(_gateModelDisplay,
                 sourceGate.Slot, sourceArea.Slot, degrees, 55,
-                new Quaternion(Vector3.Up, radians), true, executableSha,
+                new Quaternion(Vector3.Up, radians), true, ruleVersion,
                 _loadedSceneResources.Scene.Source.ResourceUri,
                 _loadedSceneResources.Scene.Source.DecodedSha256,
                 _loadedSceneResources.ModelCatalog.Source.ResourceUri,

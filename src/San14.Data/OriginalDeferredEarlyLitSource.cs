@@ -32,10 +32,9 @@ public sealed class LoadedOriginalDeferredEarlyLitSource
 {
     private readonly Dictionary<OriginalDeferredEarlyIndirectProgram,uint> registers = new();
     internal LoadedOriginalDeferredEarlyLitSource(string locale, string nativeEvidence,
-        LoadedOriginalDeferredEarlyIndirectSource programs, LoadedOriginalDeferredSamplerNativeSource sampler,
-        IReadOnlyDictionary<string,string> windows)
+        LoadedOriginalDeferredEarlyIndirectSource programs, LoadedOriginalDeferredSamplerNativeSource sampler)
     {
-        Locale=locale;NativeSourceEvidence=nativeEvidence;Programs=programs;NativeSampler=sampler;WindowSha256=windows;
+        Locale=locale;NativeSourceEvidence=nativeEvidence;Programs=programs;NativeSampler=sampler;
         foreach(var provider in programs.Programs.GroupBy(p=>p.ProviderKind))
         {
             var shader=provider.First().Shader;
@@ -61,7 +60,6 @@ public sealed class LoadedOriginalDeferredEarlyLitSource
     public string NativeSourceEvidence { get; }
     public LoadedOriginalDeferredEarlyIndirectSource Programs { get; }
     public LoadedOriginalDeferredSamplerNativeSource NativeSampler { get; }
-    public IReadOnlyDictionary<string,string> WindowSha256 { get; }
     public string SourceEvidence=>NativeSourceEvidence+";EBCD70-actual-Camera/Host/local88-selection;"+
         "actual2939-v168/v118;PatternMap-v58/setter7-v48;876F30-key38-and-selected-SRV;no-current-pixel-claim";
 
@@ -123,7 +121,7 @@ public static class OriginalDeferredEarlyLitSource
         ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(actualPrograms);
         ArgumentNullException.ThrowIfNull(actualSampler);
         if(actualSampler.Locale!=locale||!StringComparer.OrdinalIgnoreCase.Equals(
-            Path.GetFullPath(actualSampler.PhysicalPath),Path.Combine(repository.SourceDirectory,$"SAN14CE_{locale}.exe")))
+            actualSampler.SourceDirectory,Path.GetFullPath(repository.SourceDirectory)))
             throw new InvalidDataException("Early68 sampler and native source import must share their actual locale/source directory.");
         return OriginalDeferredSamplerSources.LoadEarlyLitSource(repository.SourceDirectory,locale,actualPrograms,actualSampler);
     }

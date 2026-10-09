@@ -89,21 +89,8 @@ public static partial class OriginalDeferredSamplerSources
 {
     internal static LoadedOriginalMapPostEffect3ControlledAuxSource ReadControlledAuxSource(LoadedOriginalDeferredSamplerNativeSource native)
     {
-        const string sourceScope="OriginalMapPostEffect3ControlledAuxFields.cs";
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);VerifyHash(exe,native.ExecutableSha256,"controlled Aux executable");
-        var image=new NativeImage(exe);byte[] text=image.DecodeText(out int start);
-        VerifyHash(text,native.DecodedTextSha256,"controlled Aux decoded text");
-        foreach(var (at,length,hash) in new (int,int,string)[]{
-            (0xD02010,0x41B,"47A36EC67AFC898E468A7A8AD06E13881C400182918068CB535E6DC690D86273"),
-            (0xD223C0,0x1017,"BDC9FB792C97082D61388427ED00F53EEF05FEACD18055B7EB313892B6B3F3E4"),
-            (0xD1E410,0xCDD,"6BCDC7C8BBAEAE375183BFCCF8C4B3634DFB00BBAF7A3D1BD782D93963C270B3"),
-            (0xF43360,0x95,"6FAE8931243D70AC42FB313C9AAEDE2AE913B8A3CED04C791C4968097C327B22"),
-            (0xD12AF7,0x79,"661BE06F9BEBFD8A78F6E2905BCB06DCDAC175FBE49426BFB5A139FB0E05B54E")})
-        {
-            var actual=OriginalMapPostEffect3NativeSourceProfile.CodeWindow(native.Locale,sourceScope,at,length,hash);
-            VerifyHash(text.AsSpan(actual.Rva-start,length),actual.Sha,"controlled Aux source window");
-        }
-        return new(native,native.ResourceUri+"@"+native.ExecutableSha256+
+
+        return new(native,native.RenderRuleIdentity+
             $";{native.Locale}:paired-Aux-ctor/property-loader/current-copy;TC-reference-role:D02010-ctor;D223C0-102-property-loader;D22A97/D22A9E:ordinal92->local88;D23346:Aux440;"+
             "D22ABF/D22AC6:ordinal95->local90;D2335E:Aux448;D22FEE:Aux3A8;D23016:Aux3C0;"+
             "F43360-null-overlay->D1E410-current-copy;D1E5FE/64C/883/89D-preserve-read-fields;D12B69-arenaAux");

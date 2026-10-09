@@ -45,16 +45,15 @@ public static class OriginalArmyDestructionQueue
         var arena = state.NativeArmyLifecycle;
         if (state.Units.Count != 0 || state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } ||
             arena is null || state.NativeArmySimulation?.Parameters is not { } parameters ||
-            arena.Language != parameters.Language || arena.ExecutableSha256 != parameters.ExecutableSha256 ||
+            arena.Language != parameters.Language || arena.RuleVersion != parameters.RuleVersion ||
             state.ContentHashes.GetValueOrDefault(arena.SourceScenarioUri) != arena.SourceScenarioSha256 ||
-            !(parameters.Language == "SC" && parameters.ExecutableSha256 == OriginalCeHexWorldCoordinates.VerifiedScExecutableSha256 ||
-              parameters.Language == "TC" && parameters.ExecutableSha256 == OriginalCeHexWorldCoordinates.VerifiedTcExecutableSha256))
+            !(parameters.Language is ("SC" or "TC")))
             throw new InvalidDataException("Destruction queue requires its explicit fresh current CE constructor owner.");
         var zero = new OriginalArmyDestructionQueuePayload(new(NativeArmyDestructionReceiverKind.Army, null),
             new(NativeArmyDestructionReceiverKind.City, null), new(NativeArmyDestructionReceiverKind.Army, null),
             new(NativeArmyDestructionReceiverKind.City, null), 0, 0, 4, null);
         var stateBeforeWrapper = new OriginalArmyDestructionQueueState(Revision, parameters.Language,
-            parameters.ExecutableSha256, arena.SourceScenarioUri, arena.SourceScenarioSha256,
+            parameters.RuleVersion, arena.SourceScenarioUri, arena.SourceScenarioSha256,
             null, 0, null, null, 0,
             Enumerable.Range(0, DescriptorCapacity).Select(i => new OriginalArmyDestructionQueueDescriptor(i,
                 i + 1 < DescriptorCapacity ? i + 1 : null, null)).ToArray(),

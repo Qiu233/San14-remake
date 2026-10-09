@@ -24,7 +24,7 @@ public sealed partial class OriginalBattleRemakeCurrentArmyAttributes
         UnitState army, OriginalBattleRemakeCurrentCommonQueries reached)
     {
         if (state.NativeArmySimulation?.Parameters is not { } parameters || parameters.Language != source.Language ||
-            parameters.ExecutableSha256 != source.Source.Sha256 || state.Units.GetValueOrDefault(army.Id) != army ||
+            parameters.RuleVersion != source.Source.RuleVersion || state.Units.GetValueOrDefault(army.Id) != army ||
             army.NativeArmyOrigin?.NativeSlotIndex is not >= 1 or > 500 || queries.ReadArmyValidity(state, army) != true ||
             army.NativeMorale1A is not byte morale ||
             army.NativeTacticRuntime is not { Status10: 1, Abnormal25: 0, StatModifiers4A.Length: 6 } native ||

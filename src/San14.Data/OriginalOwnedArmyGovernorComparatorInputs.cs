@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using San14.Core;
 using San14.Data.Formats;
 
@@ -27,36 +26,29 @@ public sealed class OriginalOwnedArmyGovernorComparatorInputs
     public static string OfficeGuard36Key(int physical) => Prefix + $"office:{physical}:36";
 
     private readonly LoadedScenario _source;
-    private readonly string _language, _executableHash;
+    private readonly string _language, _ruleVersion;
     private readonly OriginalArmyGovernorPersonSource[] _people;
     private readonly S14OfficeDefinition[] _offices;
 
     private OriginalOwnedArmyGovernorComparatorInputs(LoadedScenario source, string language,
-        string executableHash, OriginalArmyGovernorPersonSource[] people, S14OfficeDefinition[] offices)
-        => (_source, _language, _executableHash, _people, _offices) =
-            (source, language, executableHash, people, offices);
+        string ruleVersion, OriginalArmyGovernorPersonSource[] people, S14OfficeDefinition[] offices)
+        => (_source, _language, _ruleVersion, _people, _offices) =
+            (source, language, ruleVersion, people, offices);
 
     public static OriginalOwnedArmyGovernorComparatorInputs Load(OriginalGameRepository repository,
         LoadedScenario source, string language)
     {
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(source);
-        string expected = language switch
-        {
-            "SC" => OriginalCeHexWorldCoordinates.VerifiedScExecutableSha256,
-            "TC" => OriginalCeHexWorldCoordinates.VerifiedTcExecutableSha256,
-            _ => throw new InvalidDataException("Governor comparator requires CE SC/TC.")
-        };
+        string identity = SimulationRuleIdentity.ForLocale(language);
         if (source.Metadata.FormatMarker != 0x66 || source.Snapshot.Locale != language ||
             source.Snapshot.RankParameters is not { FormatMarker: 0x66, OfficeRecordStride: 46 } ranks ||
             ranks.Offices.Count != 256 || ranks.Offices.Where((x, i) => x.Id != i).Any())
             throw new InvalidDataException("Governor comparator requires complete coherent CE source tables.");
-        // Read and verify the scenario once at source load, including overrides.
+        // Read the scenario once at source load, including overrides.
         string path = string.IsNullOrWhiteSpace(source.ScenarioSource.PhysicalPath)
             ? Path.Combine(repository.SourceDirectory, source.ScenarioSource.SourcePath)
             : source.ScenarioSource.PhysicalPath;
         byte[] bytes = File.ReadAllBytes(path);
-        if (Convert.ToHexString(SHA256.HashData(bytes)) != source.ScenarioSource.Sha256)
-            throw new InvalidDataException("Governor scenario changed while its source inputs were loaded.");
         var people = ReadSourceRows(S14Reader.Read(bytes, true), language);
         foreach (var office in ranks.Offices)
         {
@@ -64,7 +56,7 @@ public sealed class OriginalOwnedArmyGovernorComparatorInputs
             if (row.Length != 46 || row[39] != office.Raw39 || row[45] != office.Raw45)
                 throw new InvalidDataException("Governor CPostData source fields differ from their retained row.");
         }
-        return new(source, language, expected, people, ranks.Offices.ToArray());
+        return new(source, language, identity, people, ranks.Offices.ToArray());
     }
 
     public static OriginalArmyGovernorPersonSource[] ReadSourceRows(S14Document scenario, string language)
@@ -140,7 +132,7 @@ public sealed class OriginalOwnedArmyGovernorComparatorInputs
     }
 
     private bool Bound(GameState state) => state.NativeArmySimulation?.Parameters is { } p &&
-        p.Language == _language && p.ExecutableSha256 == _executableHash &&
+        p.Language == _language && p.RuleVersion == _ruleVersion &&
         state.ContentHashes.GetValueOrDefault(_source.ScenarioSource.ResourceUri) == _source.ScenarioSource.Sha256 &&
         state.ContentHashes.GetValueOrDefault(_source.FixedDataSource.ResourceUri) == _source.FixedDataSource.Sha256;
     private static int? ReadInt(GameState state, string key) => state.NativeArmySimulation?.Parameters is { } p &&

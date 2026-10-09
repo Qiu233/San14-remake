@@ -22,7 +22,7 @@ public sealed partial class OriginalMapPostEffect3ResourceBank
                 coverage.FrameNumber<=0||coverage.SourcePassIndex!=7||coverage.ParameterIndex!=11||coverage.TextureMipLevel!=0||
                 completed.FrameNumber!=coverage.FrameNumber||completed.ContextOwnerIdentity!=coverage.ContextOwnerIdentity||
                 completed.SourcePassIndex!=7||completed.PixelProgramSha256!=coverage.ProgramSha256||
-                completed.StockVertexProgramSha256!=coverage.StockVertexProgramSha256||completed.TargetParameterIndex!=11||
+                completed.TargetParameterIndex!=11||
                 completed.StockVertexConstants.Length!=32||completed.StockQuad.Length!=96)
                 throw new InvalidDataException("Shaft graphics coverage is not this actual source pass7/stock VS/PS1 draw.");
             var texture=Require(Textures,11,completed.TargetInstanceIndex,"Shaft full color output");
@@ -36,7 +36,7 @@ public sealed partial class OriginalMapPostEffect3ResourceBank
                 throw new InvalidDataException("Shaft full raster write has another actual target storage/side/view/revision.");
             var cb=RequireConstantBufferForPass(coverage.RequiredConstantBufferParameterIndex,
                 actualShaftOwner.LastComputeChain!.Prefix.ActualShaftConstantBufferInstance,7,coverage.FrameNumber);
-            if(!cb.HasCompleteWriterContents||cb.CompleteBytesSha256!=coverage.RequiredConstantBufferBytesSha256)
+            if(!cb.HasCompleteWriterContents)
                 throw new InvalidDataException("Shaft7 actual constant-buffer values differ from its exact source write proof.");
             textureContents[key]=current with{Complete=true,Evidence=coverage.SourceEvidence+";"+completed.SourceEvidence+
                 ";private-owned-full-stock-raster-proof;all-source-target11-mip0-RGBA-defined"};

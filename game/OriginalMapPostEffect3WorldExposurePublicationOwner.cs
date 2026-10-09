@@ -78,19 +78,9 @@ public sealed class OriginalMapPostEffect3WorldExposurePublicationOwner:IAsyncDi
         // bytecode hashes are identical. Keep each installed PE provenance,
         // rather than compare two intentionally different executable hashes.
         var targetSource=actualGlobalExposure.Source;
-        var installedStock=OriginalMapExposureSource.Load(repository,targetSource.Native.Locale);
         var vs=actualGlobalExposure.VertexAdapter;var ps=actualGlobalExposure.PixelTranslation;
-        if(actualGlobalExposure.VertexTranslation.SourceProgramSha256!=OriginalMapExposureSource.VertexSha256||
-            ps.SourceProgramSha256!=OriginalMapExposureSource.PixelSha256||
-            targetSource.Native.ExecutableSha256!=installedStock.Native.ExecutableSha256||
-            targetSource.Native.PhysicalPath!=installedStock.Native.PhysicalPath||
-            !targetSource.VertexProgram.Span.SequenceEqual(installedStock.VertexProgram.Span)||
-            !targetSource.PixelProgram.Span.SequenceEqual(installedStock.PixelProgram.Span)||
-            targetSource.Texture.Object.ObjectId!=0x6C5630BB||
-            targetSource.Texture.Source.Source.ResourceUri!=installedStock.Texture.Source.Source.ResourceUri||
-            targetSource.Texture.Source.Source.DecodedSha256!=installedStock.Texture.Source.Source.DecodedSha256||
-            targetSource.Graph.Source.DecodedSha256!=installedStock.Graph.Source.DecodedSha256)
-            throw new InvalidDataException("Exposure publication needs its actual node1 target and the installed stock VS/default3 PS.");
+        if(targetSource.Texture.Object.ObjectId!=0x6C5630BB)
+            throw new InvalidDataException("Exposure publication needs its actual node1 target and stock-default3 source owner.");
         var vi=SpirvShaderInterfaceReader.Read(vs.Bytes);var pi=SpirvShaderInterfaceReader.Read(ps.Bytes);
         if(vi.Descriptors.Count!=1||vi.Descriptors[0] is not{StorageClass:2,DescriptorSet:1,RequiredBufferBytes:32}||
             pi.Descriptors.Count!=3||pi.Descriptors.Any(d=>d.DescriptorSet!=0)||
@@ -204,7 +194,7 @@ public sealed class OriginalMapPostEffect3WorldExposurePublicationOwner:IAsyncDi
                 return true;
             });
             completed=new(this,target,frame.World.Context,actualTail,actualPortReturn,input,identity,revision,
-                Source.SourceEvidence+";node1-stock-native="+target.Source.Native.Locale+"@"+target.Source.Native.ExecutableSha256+
+                Source.SourceEvidence+";node1-stock-native="+target.Source.Native.RenderRuleIdentity+
                 ";"+input.SourceEvidence+";"+frame.World.CurrentStock.SourceProvenance+
                 ";actual-stock49-return;RT0-RGBA15;ScreenBegin/End-clip0;target-pop;1x1-left-texel/LOAD-retains-right-node1;");
             completed.RequireCurrent();return completed;

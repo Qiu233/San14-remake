@@ -14,17 +14,12 @@ public sealed class OriginalOwnedForce164Inputs
     public SourceProvenance Source { get; }
     public string Language { get; }
     private readonly LoadedExperienceData _experience;
-    private readonly string _executableHash;
+    private readonly string _ruleVersion;
 
     private OriginalOwnedForce164Inputs(LoadedExperienceData experience, string language)
     {
         _experience = experience; Source = experience.Source; Language = language;
-        _executableHash = language switch
-        {
-            "SC" => OriginalCeHexWorldCoordinates.VerifiedScExecutableSha256,
-            "TC" => OriginalCeHexWorldCoordinates.VerifiedTcExecutableSha256,
-            _ => throw new InvalidDataException("Force164 inputs require CE SC/TC.")
-        };
+        _ruleVersion = SimulationRuleIdentity.ForLocale(language);
         if (experience.Document.Tables.Count != 4 || experience.Doctrine is not
             { TableIndex: 0, TableOffset: 36, TableLength: 114, RecordStride: 10 } ||
             experience.Doctrine.Records.Count != 11 ||
@@ -40,7 +35,7 @@ public sealed class OriginalOwnedForce164Inputs
     public GameState InstallFresh(GameState state)
     {
         if (state.NativeArmySimulation is not { } simulation || simulation.Parameters.Language != Language ||
-            simulation.Parameters.ExecutableSha256 != _executableHash || state.Units.Count != 0 ||
+            simulation.Parameters.RuleVersion != _ruleVersion || state.Units.Count != 0 ||
             state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } ||
             simulation.Parameters.Int32Values.Keys.Any(k => k.StartsWith(Prefix, StringComparison.Ordinal)) ||
             state.ContentHashes.TryGetValue(Source.ResourceUri, out string? hash) && hash != Source.Sha256)

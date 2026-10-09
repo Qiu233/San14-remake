@@ -51,7 +51,7 @@ public static class OriginalSkySeasonMainWeatherFog
         OriginalNativeCameraTangentDispatch dispatch)
     {
         ArgumentNullException.ThrowIfNull(camera);ArgumentNullException.ThrowIfNull(power);
-        var source=camera.Inputs.Source;source.Selection.Validate();source.SceneClockSeed.Validate();
+        var source=camera.Inputs.Source;source.Selection.Validate();
         if(!source.UsesSourceCreatedEmptyAxes||source.Selection.SecondPackage is not null||
             source.Selection.FirstPackage.Camera.ObjectId!=OriginalMapSeasonCameraApplication.RootCameraObjectId||
             camera.Inputs.CurrentColorTemperature21C!=6500||

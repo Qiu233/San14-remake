@@ -1,14 +1,17 @@
 using System.Buffers.Binary;
-using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
-using System.Security.Cryptography;
 
 namespace San14.Data;
 
 public sealed class OriginalMapPostEffect3LensPresetIntermediateMathSources
 {
+    public const string ResourceUri="san14://rules/post/lens-preset-intermediate";
+    public const string RuleVersion="lens-preset-intermediate-v1";
+    private const float StandardExposureMultiplier=.18f;
+    private const float CentimetersToMeters=.01f;
+
     private OriginalMapPostEffect3LensPresetIntermediateMathSources(OriginalSkyWeatherNativePowerSource power,
         LoadedOriginalNativeSkyAtanSource atan,LoadedOriginalNativeCameraTangentSource tangent,float exposureMultiplier,float distanceUnitScale)
         =>(Power,Atan,Tangent,ExposureMultiplier,DistanceUnitScale)=(power,atan,tangent,exposureMultiplier,distanceUnitScale);
@@ -18,30 +21,15 @@ public sealed class OriginalMapPostEffect3LensPresetIntermediateMathSources
     public float ExposureMultiplier{get;}
     public float DistanceUnitScale{get;}
     public string Locale=>Power.Locale;
-    public string SourceEvidence=>Power.SourceProvenance+";"+Atan.SourceProvenance+";"+Tangent.ResourceUri+
-        "@"+Tangent.ExecutableSha256+";TC1148F00/SC1149F80-native-multiplier16DCBAC/16DD86C=3E3851EC;"+
-        "TC1148CB0/SC1149D30-distance-scale13948B8/13958B8=3C23D70A";
+    public string SourceEvidence=>ResourceUri+"@"+RuleVersion+";"+Power.SourceProvenance+";"+
+        Atan.SourceProvenance+";"+Tangent.ResourceUri+"@"+Tangent.RuleVersion;
     public static OriginalMapPostEffect3LensPresetIntermediateMathSources Load(OriginalGameRepository repository,string locale)
     {
         ArgumentNullException.ThrowIfNull(repository);
         var power=OriginalSkyWeatherNativePowerSource.Load(repository,locale);
         var atan=OriginalNativeSkyAtanSource.Load(repository.SourceDirectory,locale);
         var tangent=OriginalNativeCameraTangentSource.Load(repository,locale);
-        byte[] exe=File.ReadAllBytes(tangent.PhysicalPath);
-        if(Convert.ToHexString(SHA256.HashData(exe))!=tangent.ExecutableSha256)
-            throw new InvalidDataException("Lens intermediate native source changed while reading its multiplier.");
-        using var pe=new PEReader(new MemoryStream(exe,false));
-        int rva=locale=="TC"?0x16DCBAC:0x16DD86C;
-        var section=pe.PEHeaders.SectionHeaders.Single(s=>s.Name==".rdata"&&rva>=s.VirtualAddress&&
-            rva+4<=s.VirtualAddress+s.SizeOfRawData);
-        uint bits=BinaryPrimitives.ReadUInt32LittleEndian(exe.AsSpan(section.PointerToRawData+rva-section.VirtualAddress,4));
-        if(bits!=0x3E3851EC)throw new InvalidDataException("Lens intermediate's original exposure multiplier differs.");
-        int distanceRva=locale=="TC"?0x13948B8:0x13958B8;
-        var distanceSection=pe.PEHeaders.SectionHeaders.Single(s=>s.Name==".rdata"&&distanceRva>=s.VirtualAddress&&
-            distanceRva+4<=s.VirtualAddress+s.SizeOfRawData);
-        uint distanceBits=BinaryPrimitives.ReadUInt32LittleEndian(exe.AsSpan(distanceSection.PointerToRawData+distanceRva-distanceSection.VirtualAddress,4));
-        if(distanceBits!=0x3C23D70A)throw new InvalidDataException("Lens PrepareBase's source distance unit scale differs.");
-        return new(power,atan,tangent,BitConverter.UInt32BitsToSingle(bits),BitConverter.UInt32BitsToSingle(distanceBits));
+        return new(power,atan,tangent,StandardExposureMultiplier,CentimetersToMeters);
     }
 }
 

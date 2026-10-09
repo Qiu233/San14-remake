@@ -90,9 +90,9 @@ internal partial class OriginalD3D11MapMarkers : Control
         _playerForce = playerForceId;
         _areaSources = OriginalAreaMapMarkerSources.LoadCurrentTc(repository);
         _areaLayout = _areaSources.NormalRestGeometry();
-        var textPresets = OriginalMapTextPresets.LoadCurrentTc(repository);
+        var textPresets = OriginalMapTextPresets.Create();
         _textPresets = textPresets;
-        _spritePalettes = OriginalMapSpritePalettes.LoadCurrentTc(repository);
+        _spritePalettes = OriginalMapSpritePalettes.Create();
         _font = new(repository, locale);
         _locationFont = OriginalMapFontProfile.FromNode(_citySources.Simple.Nodes[14], _citySources.Simple.Source.ResourceUri).WithPreset(textPresets[0]);
         _numberFont = OriginalMapFontProfile.FromNode(layout.Nodes[78], layout.Source.ResourceUri).WithPreset(textPresets[19]);

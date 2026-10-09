@@ -1,9 +1,7 @@
 using System.Buffers.Binary;
-using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
-using System.Security.Cryptography;
 
 namespace San14.Data;
 
@@ -11,40 +9,16 @@ namespace San14.Data;
 /// atan kernel. E71690 uses these two different float rational functions.</summary>
 public sealed class OriginalMapPostEffect3PresentLightMathSource
 {
-    private OriginalMapPostEffect3PresentLightMathSource(string locale,string sha)
-        =>(Locale,ExecutableSha256)=(locale,sha);
+    private OriginalMapPostEffect3PresentLightMathSource(string locale)=>Locale=locale;
     public string Locale{get;}
-    public string ExecutableSha256{get;}
-    public string SourceEvidence=>$"san14://file/SAN14CE_{Locale}.exe@{ExecutableSha256}#E71690-present-light-acos-asin;finite-SSE";
+    public string RuleVersion=>RenderRuleIdentity.Version;
+    public string SourceEvidence=>RenderRuleIdentity.For("present-light-acos-asin",Locale)+";finite-SSE";
     public static OriginalMapPostEffect3PresentLightMathSource Load(OriginalGameRepository repository,string locale)
     {
         ArgumentNullException.ThrowIfNull(repository);
-        string expected=locale switch{
-            "TC"=>"0751B4FED7A5783371B9541674C0587A6AFD3140E60E706E32EAF35A9432F464",
-            "SC"=>"CEEE6A94EB939B40C329B8EC5AECD938E9D3A51A6663E8E7D27A1498627AFB88",
-            _=>throw new NotSupportedException("Present light source requires the installed paired SC/TC image.")};
-        byte[] exe=File.ReadAllBytes(Path.Combine(repository.SourceDirectory,$"SAN14CE_{locale}.exe"));
-        if(Convert.ToHexString(SHA256.HashData(exe))!=expected)
-            throw new InvalidDataException("Present light arithmetic differs from its inspected original executable.");
-        using var pe=new PEReader(new MemoryStream(exe,false));
-        foreach(var c in Constants)
-        {
-            int rva=c.TcRva+(locale=="SC"?(c.TcRva>=0x1700000?0xC60:c.TcRva>=0x16B0000?0xCB0:0x1000):0);
-            var section=pe.PEHeaders.SectionHeaders.Single(s=>s.Name==".rdata"&&rva>=s.VirtualAddress&&rva+c.Bytes.Length<=s.VirtualAddress+s.SizeOfRawData);
-            if(!exe.AsSpan(section.PointerToRawData+rva-section.VirtualAddress,c.Bytes.Length).SequenceEqual(c.Bytes))
-                throw new InvalidDataException("Present light instruction operand changed.");
-        }
-        return new(locale,expected);
+        if(locale is not ("SC" or "TC"))throw new ArgumentOutOfRangeException(nameof(locale));
+        return new(locale);
     }
-    private static readonly (int TcRva,byte[] Bytes)[] Constants=[
-        (0x1724230,Convert.FromHexString("E13F5BBC")),(0x1724204,Convert.FromHexString("6BCE813B")),
-        (0x172421C,Convert.FromHexString("A56F8D3F")),(0x1724210,Convert.FromHexString("DD8B673D")),
-        (0x1724214,Convert.FromHexString("DC943C3E")),(0x1724218,Convert.FromHexString("0D1F563F")),
-        (0x1724208,Convert.FromHexString("075C143326A6913C")),(0x1724228,Convert.FromHexString("182D4454FB210940")),
-        (0x1724220,Convert.FromHexString("182D4454FB21F93F")),(0x1727E48,Convert.FromHexString("6821A233")),
-        (0x1727E4C,Convert.FromHexString("DA0F493F")),(0x1343B54,Convert.FromHexString("00004837")),
-        (0x16BD514,Convert.FromHexString("A245163F")),(0x16BD510,Convert.FromHexString("8716993E")),
-        (0x16BD50C,Convert.FromHexString("D578E93D"))];
 }
 
 /// <summary>Finite float ports retain each SSE operation and the native split

@@ -54,7 +54,7 @@ public sealed class OriginalMapSelectedSourceSamplerOwner : IAsyncDisposable
         {
             ObjectDisposedException.ThrowIf(retiring,this);
             OriginalMapSelectedSourceImageOwner.ValidateCompatible(Source.ImagePlan,currentValidatedPlan.ImagePlan);
-            if (Source.Native.ExecutableSha256 != currentValidatedPlan.Native.ExecutableSha256 ||
+            if (Source.Native.Locale != currentValidatedPlan.Native.Locale ||
                 Source.Bindings.Count != currentValidatedPlan.Bindings.Count ||
                 !Source.Bindings.Zip(currentValidatedPlan.Bindings).All(p => p.First.Register == p.Second.Register &&
                     p.First.SamplerName == p.Second.SamplerName && p.First.TextureRegister == p.Second.TextureRegister &&

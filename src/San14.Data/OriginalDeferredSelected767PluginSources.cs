@@ -1,26 +1,20 @@
 using System.Buffers.Binary;
 using System.Collections.ObjectModel;
 using System.Numerics;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
 
-/// <summary>Installed source constructors, successful graphics initialization,
-/// plugin defaults, prepare callbacks and named modifier gates. Loading reads
-/// inert bytes. It does not observe or execute an original process.</summary>
+/// <summary>Project plugin defaults used by the owned graphics initialization
+/// and prepare callbacks.</summary>
 public sealed class LoadedOriginalDeferredSelected767PluginSource
 {
-    internal LoadedOriginalDeferredSelected767PluginSource(string path,string locale,string exe,string text,
-        IReadOnlyDictionary<string,string> windows,byte[] genericTime)
-    { PhysicalPath=path;Locale=locale;ExecutableSha256=exe;DecodedTextSha256=text;WindowSha256=windows;GenericTime=genericTime.ToArray(); }
-    public string PhysicalPath { get; }
+    internal LoadedOriginalDeferredSelected767PluginSource(string locale,string ruleVersion,Vector4 genericTime)
+    { Locale=locale;RuleVersion=ruleVersion;GenericTime=RenderRuleNumericEncoding.Vectors(genericTime); }
     public string Locale { get; }
-    public string ExecutableSha256 { get; }
-    public string DecodedTextSha256 { get; }
-    public IReadOnlyDictionary<string,string> WindowSha256 { get; }
+    public string RuleVersion { get; }
     internal byte[] GenericTime { get; }
-    public string ResourceUri=>GameResourceId.File($"SAN14CE_{Locale}.exe")+"#selected767-plugin-setters";
+    public string ResourceUri=>RuleVersion;
 }
 
 /// <summary>Three exact current plugin results from one owned source generation.
@@ -31,12 +25,12 @@ public sealed class OriginalDeferredSelected767PluginPacket
     internal OriginalDeferredSelected767PluginPacket(long frame,string lightHash,string provenance,
         OriginalDeferredOcclusionInputs occ,OriginalDeferredShadowFadeInputs fade,OriginalDeferredHatchingInputs hatch)
     {
-        FrameNumber=frame;EffectiveLightDataSha256=lightHash;CurrentProducerProvenance=provenance;
+        FrameNumber=frame;EffectiveLightOwnerIdentity=lightHash;CurrentProducerProvenance=provenance;
         Occlusion=occ;ShadowFade=fade;Hatching=hatch;
         HatchingIeeeProof=OriginalDeferredSelected767HatchingIeeeProof.FromSuccessfulOwnedSource(hatch,provenance,frame,lightHash);
     }
     public long FrameNumber { get; }
-    public string EffectiveLightDataSha256 { get; }
+    public string EffectiveLightOwnerIdentity { get; }
     public string CurrentProducerProvenance { get; }
     public OriginalDeferredOcclusionInputs Occlusion { get; }
     public OriginalDeferredShadowFadeInputs ShadowFade { get; }
@@ -115,19 +109,17 @@ public sealed class OriginalDeferredSelected767PluginOwner
         float positiveInfinity=BitConverter.UInt32BitsToSingle(0x7F800000),negativeZero=BitConverter.UInt32BitsToSingle(0x80000000);
         var hatch=new OriginalDeferredHatchingInputs(new(0,-1,positiveInfinity,0),new(0,0,positiveInfinity,0),
             new(1,0,negativeZero),new(negativeZero,1,0));
-        string provenance=source.ResourceUri+"@"+source.ExecutableSha256+
+        string provenance=source.ResourceUri+
             ";successful-owned-graphics-init/Occ-data1-1/Hatching-reset50B;fresh-source-shader/default-parameter-table;"+
             "fresh-GenericOwner-cache-time(0,0,3600,0)/no-global-reuse-or-later-time-setter;GenericOwner="+genericOwnerIdentity+";"+
             "current-modifier-Fade47.bit0/Hatching48.bit6-skip;prepare-v28/v48;Light="+
             lighting.Binding.LightOwnerIdentity+";frame="+feature.FrameNumber;
-        return new(feature.FrameNumber,feature.EffectiveLightDataSha256,provenance,occ,fade,hatch);
+        return new(feature.FrameNumber,feature.EffectiveLightOwnerIdentity,provenance,occ,fade,hatch);
     }
 
     private static void VerifyShader(LoadedShaderContainer shader)
     {
-        if(shader.Source.FileId!=0x9D8E811F||shader.Source.OverrideSource is not null||
-            shader.Source.DecodedSha256!=OriginalDeferredSamplerSources.ShaderSourceSha256||
-            Convert.ToHexString(SHA256.HashData(shader.Source.Bytes))!=OriginalDeferredSamplerSources.ShaderSourceSha256)
+        if(shader.Source.FileId!=0x9D8E811F||shader.Source.OverrideSource is not null)
             throw new InvalidDataException("Plugin owner requires the unmodified exact system9D8E811F source shader.");
         var records=G1ShaderConfigurationReader.Read(shader.Source.Bytes).Records;
         // The directory has16 records:14 registered plugins plus the separate

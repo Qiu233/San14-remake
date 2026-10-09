@@ -271,7 +271,7 @@ public sealed class OriginalMainMapCameraAdapter
             throw new InvalidDataException("Main camera publication requires an explicit frame number and provenance.");
         OriginalMapCameraCurrentPose pose = OriginalMainMapCameraController.Publish(runtime.Pose, input.CurrentScale90);
         string provenance = $"{ContractId};{Source.ConstructorOrigin};" +
-            $"controller={Parameters.Locale}@{Parameters.ExecutableSha256};" +
+            $"controller={Parameters.Locale}@{Parameters.RuleVersion};" +
             $"ruler-focus={InitialFocus.PlayerForcePhysicalSlot}/{InitialFocus.RulerPersonSourceId}/" +
             $"{InitialFocus.AffiliationLocationId}/{InitialFocus.PhysicalHexId};" +
             $"owned-world={InitialFocus.OwnedWorldProvenance};frame={input.FrameProvenance}"+

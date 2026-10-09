@@ -12,9 +12,9 @@ public partial class Main
         if (restored.NativeArmySimulation?.Parameters is { } parameters)
         {
             string locale = _locale.Selected == 1 ? "TC" : "SC";
-            string executable = OriginalCeHexWorldCoordinates.VerifyInstalledExecutable(_repository.SourceDirectory, locale);
-            if (parameters.Language != locale || parameters.ExecutableSha256 != executable)
-                throw new InvalidDataException("Installed Army rules differ from the saved native campaign executable revision.");
+            string ruleVersion = SimulationRuleIdentity.ForLocale(locale);
+            if (parameters.Language != locale || parameters.RuleVersion != ruleVersion)
+                throw new InvalidDataException("Saved campaign rules are incompatible with this implementation.");
         }
         var expected = new Dictionary<string, string>(initial.ContentHashes);
         NativePersonGrowthRuntime[] growth = restored.Officers.Values
@@ -64,7 +64,7 @@ public partial class Main
         constructed = package.ConfirmNewGamePlayerPerson(constructed, confirmedRulerPersonId);
         constructed = OriginalMapSeasonRuntime.CreateForFreshCampaign(_repository!, constructed,
             OriginalMapSeasonNativeSource.Load(_repository!.SourceDirectory, _selectedSnapshot!.Locale));
-        SetMeta("playable_owned_army_source_sha256", package.Seed.Source.Sha256);
+        SetMeta("playable_owned_army_rule_version", SimulationRuleIdentity.Version);
         SetMeta("playable_owned_army_source_revision", package.Revision);
         return constructed;
     }
@@ -112,23 +112,23 @@ public partial class Main
         SetMeta("playable_owned_army_rules", prepared.Army is not null);
         if (prepared.Army is { } army)
         {
-            SetMeta("playable_owned_army_source_sha256", army.Seed.Source.Sha256);
+            SetMeta("playable_owned_army_rule_version", SimulationRuleIdentity.Version);
             SetMeta("playable_owned_army_source_revision", army.Revision);
         }
         else
         {
-            RemoveMeta("playable_owned_army_source_sha256");
+            RemoveMeta("playable_owned_army_rule_version");
             RemoveMeta("playable_owned_army_source_revision");
         }
         if (prepared.Income is { } rates)
         {
-            SetMeta("playable_income_difficulty_source_sha256", rates.SourceExecutableSha256);
+            SetMeta("playable_income_difficulty_rule_version", rates.RuleVersion);
             SetMeta("playable_income_player_gold_percent", rates.ForForce(prepared.PlayerForceId).GoldPercent);
             SetMeta("playable_income_player_supplies_percent", rates.ForForce(prepared.PlayerForceId).SuppliesPercent);
         }
         else
         {
-            RemoveMeta("playable_income_difficulty_source_sha256");
+            RemoveMeta("playable_income_difficulty_rule_version");
             RemoveMeta("playable_income_player_gold_percent");
             RemoveMeta("playable_income_player_supplies_percent");
         }

@@ -17,7 +17,7 @@ public sealed class OriginalSkySeasonTransmittanceSource
     public LoadedOriginalNativeCameraTangentSource Tangent{get;}
     public OriginalSkyWeatherNativePowerSource Power{get;}
     public string SourceProvenance=>Tables.SourceEvidence+";"+Atan.SourceProvenance+
-        ";"+Tangent.ResourceUri+"@"+Tangent.ExecutableSha256+";"+Power.SourceProvenance+
+        ";"+Tangent.ResourceUri+"@"+Tangent.RuleVersion+";"+Power.SourceProvenance+
         ";owned-source-successful-raw-dependency-publication";
     public static OriginalSkySeasonTransmittanceSource Load(OriginalGameRepository repository,
         OriginalMapSeasonCameraPackage package,string locale)

@@ -51,7 +51,7 @@ public sealed class OriginalDeferredAuxiliaryStockCopyProducer : IAsyncDisposabl
         await gate.WaitAsync();
         try
         {
-            ObjectDisposedException.ThrowIf(retiring,this);selection.Validate();Program.ValidateSource();
+            ObjectDisposedException.ThrowIf(retiring,this);selection.Validate();Program.RequireAvailable();
             if(selection.Camera.ExecutableLocale!=StockSource.Native.Locale||attachment.FrameNumber!=selection.Current.FrameNumber||
                 attachment.FrameProducerProvenance!=selection.Current.CurrentProducerProvenance||attachment.BoundAttachmentIndex!=0||
                 string.IsNullOrWhiteSpace(attachment.CurrentBindingProducerProvenance)||

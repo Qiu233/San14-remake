@@ -1,41 +1,21 @@
-using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 
 namespace San14.Data;
 
 public sealed class OriginalMapSeasonMainCameraPhaseSource
 {
-    private OriginalMapSeasonMainCameraPhaseSource(string locale,string sha,int start,int end,int denominator)
-    {Locale=locale;ExecutableSha256=sha;StartPhaseNumerator=start;EndPhaseNumerator=end;Denominator=denominator;}
-    public string Locale{get;}
-    public string ExecutableSha256{get;}
-    public int StartPhaseNumerator{get;}
-    public int EndPhaseNumerator{get;}
-    public int Denominator{get;}
-    public string SourceProvenance=>$"source-Main17BD0-ECb0-phase;{Locale}@{ExecutableSha256};startup-phase-config={StartPhaseNumerator}/{EndPhaseNumerator}/{Denominator}";
+    private OriginalMapSeasonMainCameraPhaseSource(string locale) => Locale=OriginalMainMapCameraRules.Language(locale);
+    public string Locale {get;}
+    public string RuleVersion => OriginalMainMapCameraRules.Version;
+    public int StartPhaseNumerator => 7635;
+    public int EndPhaseNumerator => 7650;
+    public int Denominator => 10000;
+    public string SourceProvenance => $"{RuleVersion};{Locale};zoom-phase={StartPhaseNumerator}/{EndPhaseNumerator}/{Denominator}";
+    public static OriginalMapSeasonMainCameraPhaseSource CreateDefaults(string locale) => new(locale);
     public static OriginalMapSeasonMainCameraPhaseSource LoadSourceDefaults(OriginalGameRepository repository,string locale)
     {
         ArgumentNullException.ThrowIfNull(repository);
-        string sha=OriginalCeHexWorldCoordinates.VerifyInstalledExecutable(repository.SourceDirectory,locale);
-        byte[] exe=File.ReadAllBytes(Path.Combine(repository.SourceDirectory,$"SAN14CE_{locale}.exe"));
-        if(Convert.ToHexString(SHA256.HashData(exe))!=sha)throw new InvalidDataException("Main source phase executable changed while reading its exact startup parameters.");
-        int delta=locale switch{"TC"=>0,"SC"=>0x1030,_=>throw new InvalidDataException("Main source phase requires SC or TC.")};
-        int I(int rva)=>BinaryPrimitives.ReadInt32LittleEndian(ReadImage(exe,rva+delta,4));
-        int start=I(0x1A4A8A8),end=I(0x1A4A8B4),den=I(0x1A4A8C0);
-        if(start!=7635||end!=7650||den!=10000)throw new InvalidDataException("Main source phase startup configuration differs from the inspected source generation.");
-        return new(locale,sha,start,end,den);
-    }
-    private static byte[] ReadImage(byte[] exe,int rva,int count)
-    {
-        int pe=BinaryPrimitives.ReadInt32LittleEndian(exe.AsSpan(0x3C,4)),n=BinaryPrimitives.ReadUInt16LittleEndian(exe.AsSpan(pe+6,2));
-        int table=pe+24+BinaryPrimitives.ReadUInt16LittleEndian(exe.AsSpan(pe+20,2));
-        for(int i=0;i<n;i++)
-        {
-            int at=table+i*40,va=BinaryPrimitives.ReadInt32LittleEndian(exe.AsSpan(at+12,4)),size=BinaryPrimitives.ReadInt32LittleEndian(exe.AsSpan(at+16,4));
-            if(rva>=va&&rva+count<=va+size)return exe.AsSpan(BinaryPrimitives.ReadInt32LittleEndian(exe.AsSpan(at+20,4))+rva-va,count).ToArray();
-        }
-        throw new InvalidDataException("Main phase startup source is outside the original raw PE sections.");
+        return CreateDefaults(locale);
     }
 }
 

@@ -1,10 +1,8 @@
 namespace San14.Data;
 
-/// <summary>Canonical declared-hook source semantics captured from this
-/// owner's private immutable byte copies. It is neither a live mutable asset
-/// validation waiver nor a GPU receipt. Exact pending prefix and source
-/// revision remain current; edited live assets reject at capture/commit/new
-/// attempt boundaries, and explicit unknown writers invalidate immediately.</summary>
+/// <summary>The retained declared-hook scope for one actual frontend attempt.
+/// The pending prefix and owner generation remain current; explicit unknown
+/// writers and failed attempts invalidate it. This is not a GPU receipt.</summary>
 public sealed class OriginalMapOwnedGraphicsMaskAcceptedSourceSnapshot
 {
     private readonly OriginalMapOwnedGraphicsColorMaskHistorySource owner;
@@ -18,12 +16,10 @@ public sealed class OriginalMapOwnedGraphicsMaskAcceptedSourceSnapshot
     public string OwnedFrontendIdentity=>owner.OwnedFrontendIdentity;
     public int AssetCount{get;}
     public long CapturedByteCount{get;}
-    public string SourceProvenance=>owner.SourceProvenance+";accepted-private-immutable-declared-source-snapshot/revision="+
-        SourceRevision+";frame="+FrameNumber+";live-source-validation-at-capture/commit/new-attempt;not-GPU-completion";
+    public string SourceProvenance=>owner.SourceProvenance+";accepted-declared-source-scope/generation="+
+        SourceRevision+";frame="+FrameNumber+";not-GPU-completion";
     public void RequireCurrent()=>owner.RequireAcceptedSourceSnapshot(this);
-    /// <summary>Use at a complete source acceptance boundary, including a
-    /// separately closed Functor1 route. This retains the live mutable asset
-    /// edit rejection while draw-time proof uses the private captured bytes.</summary>
+    /// <summary>Validate the live attempt and explicit failure/writer state.</summary>
     public void RevalidateMutableSourceBoundary()
     {RequireCurrent();owner.RevalidateAcceptedMutableSourceBoundary(this);}
 }
@@ -32,15 +28,9 @@ public sealed partial class OriginalMapOwnedGraphicsColorMaskHistorySource
 {
     private OriginalMapOwnedGraphicsMaskAcceptedSourceSnapshot? acceptedSources;
     private long acceptedSourceRevision=1;
-    private long fullStaticSourceValidationCount;
-    /// <summary>Diagnostic number of complete live-byte comparison passes.
-    /// ReadFresh also verifies every canonical hash/configuration once.</summary>
-    public long FullStaticSourceValidationCount=>Interlocked.Read(ref fullStaticSourceValidationCount);
 
-    /// <summary>Explicit acceptance boundary. The private source copies were
-    /// hash/configuration verified by ReadFresh and are never exposed. Check
-    /// the mutable original once before accepting this exact active prefix.
-    /// The Game owner must retain all actual dynamic World/stock checks.</summary>
+    /// <summary>Accept the exact active prefix. Resource declarations were
+    /// parsed when loading; only actual attempt lifetime is checked here.</summary>
     public OriginalMapOwnedGraphicsMaskAcceptedSourceSnapshot CaptureAcceptedImmutableSourceSnapshot(
         OriginalMapOwnedGraphicsMaskPrefix prefix)
     {
@@ -66,10 +56,6 @@ public sealed partial class OriginalMapOwnedGraphicsColorMaskHistorySource
     private void RequireMutableSourceBoundary()
     {
         if(!valid)throw new InvalidDataException("Owned mask history contains a failed attempt or an unknown writer/hook.");
-        Interlocked.Increment(ref fullStaticSourceValidationCount);
-        foreach(var asset in assets)
-            if(!asset.Source.Bytes.AsSpan().SequenceEqual(asset.Bytes))
-                throw new InvalidDataException("Owned mask history contains an edited live source at its capture/commit/attempt boundary.");
     }
     private void ReleaseAcceptedSourceSnapshot()
     {acceptedSources=null;acceptedSourceRevision=checked(acceptedSourceRevision+1);}

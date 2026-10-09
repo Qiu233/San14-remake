@@ -130,21 +130,15 @@ public sealed class OriginalTacticOrdinaryArmyUsageSourceProfile
 {
     public const string Revision = "ce-current-ordinary-army-15-19-20-23-20261002";
     public string Language { get; }
-    public string ExecutableSha256 { get; }
+    public string RuleVersion { get; }
 
     public OriginalTacticOrdinaryArmyUsageSourceProfile(string language,
-        string executableSha256)
+        string ruleVersion)
     {
-        string expected = language switch
-        {
-            "SC" => "CEEE6A94EB939B40C329B8EC5AECD938E9D3A51A6663E8E7D27A1498627AFB88",
-            "TC" => "0751B4FED7A5783371B9541674C0587A6AFD3140E60E706E32EAF35A9432F464",
-            _ => throw new InvalidDataException("Original ordinary Army usage language is unsupported.")
-        };
-        if (!expected.Equals(executableSha256, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Original ordinary Army usage executable revision differs.");
         Language = language;
-        ExecutableSha256 = expected;
+        RuleVersion = SimulationRuleIdentity.ForLocale(language);
+        if (ruleVersion != RuleVersion)
+            throw new InvalidDataException("Ordinary Army usage has an incompatible project rule version.");
     }
 
     public OriginalTacticEffectUsageSource Resolve(S14TacticEffectProgram program,
@@ -165,7 +159,7 @@ public sealed class OriginalTacticOrdinaryArmyUsageSourceProfile
         bool allowed = OriginalTacticEffectSourceWaiting.NativeArmyGateAllows(gate);
         return new(cooldown, true, new(allowed,
             allowed ? null : "tactic.native_army_gate"),
-            $"{Revision}:{Language}:{ExecutableSha256}");
+            $"{Revision}:{Language}:{RuleVersion}");
     }
 
     /// <summary>Exact subday activation: retain all three source waiting bytes
@@ -181,7 +175,7 @@ public sealed class OriginalTacticOrdinaryArmyUsageSourceProfile
         //and logistics assumptions or predict a future readiness boundary.
         OriginalTacticArmyWaitingSourceResult assigned = OriginalTacticEffectSourceWaiting.AfterActivation(waiting);
         bool allowed = OriginalTacticEffectSourceWaiting.NativeArmyGateAllows(gate);
-        string scoped = $"{Revision}:{Language}:{ExecutableSha256}";
+        string scoped = $"{Revision}:{Language}:{RuleVersion}";
         return new(0, true, new(allowed, allowed ? null : "tactic.native_army_gate"), scoped)
         {
             NativeActivationWaiting = new(assigned.Primary20, assigned.Second21, assigned.Third22,

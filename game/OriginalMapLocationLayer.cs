@@ -6,7 +6,7 @@ using San14.Data.Formats;
 public sealed record ProjectedMapLocation(int Id, bool IsGate, string Name, int HexId,
     int? ForceId, Vector3 Position, Node3D Marker);
 public sealed record CityModelDisplay(FacilityModelDisplay Assets, int Category, int Variant,
-    int DamageTier, string ExecutableSha256, string SceneUri, string SceneSha256,
+    int DamageTier, string ImplementationVersion, string SceneUri, string SceneSha256,
     string CatalogUri, string CatalogSha256, string EvidenceUri,
     string EvidenceSha256)
 {
@@ -16,7 +16,7 @@ public sealed record CityModelDisplay(FacilityModelDisplay Assets, int Category,
 }
 public sealed record GateModelDisplay(FacilityModelDisplay Assets, int SourceSlot,
     int SourceAreaSlot, int SourceAngleDegrees, int Category,
-    Quaternion PreviewRotation, bool InitialRotationVerified, string ExecutableSha256,
+    Quaternion PreviewRotation, bool InitialRotationVerified, string RuleVersion,
     string SceneUri, string SceneSha256, string CatalogUri, string CatalogSha256);
 
 /// <summary>Client markers using an explicit fitted projection, separate from simulation rules.</summary>
@@ -209,7 +209,7 @@ public partial class OriginalMapLocationLayer : Node3D
             model.SetMeta("source_city_category", cityModel.Category);
             model.SetMeta("source_city_variant", cityModel.Variant);
             model.SetMeta("source_city_damage_tier", cityModel.DamageTier);
-            model.SetMeta("source_variant_executable_sha256", cityModel.ExecutableSha256);
+            model.SetMeta("city_variant_rule_version", cityModel.ImplementationVersion);
             model.SetMeta("scene_resource_uri", cityModel.SceneUri);
             model.SetMeta("scene_decoded_sha256", cityModel.SceneSha256);
             model.SetMeta("catalog_resource_uri", cityModel.CatalogUri);
@@ -248,7 +248,7 @@ public partial class OriginalMapLocationLayer : Node3D
             model.SetMeta("source_gate_area_slot", gateModel.SourceAreaSlot);
             model.SetMeta("source_gate_angle_degrees", gateModel.SourceAngleDegrees);
             model.SetMeta("source_gate_category", gateModel.Category);
-            model.SetMeta("source_gate_executable_sha256", gateModel.ExecutableSha256);
+            model.SetMeta("source_gate_rule_version", gateModel.RuleVersion);
             model.SetMeta("scene_resource_uri", gateModel.SceneUri);
             model.SetMeta("scene_decoded_sha256", gateModel.SceneSha256);
             model.SetMeta("catalog_resource_uri", gateModel.CatalogUri);

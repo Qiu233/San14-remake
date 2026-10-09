@@ -1,13 +1,10 @@
 using System.Buffers.Binary;
-using System.Reflection.PortableExecutable;
-using System.Security.Cryptography;
 using System.Runtime.CompilerServices;
 using San14.Data.Formats;
 
 namespace San14.Data;
 
-/// <summary>The native node1 Exposure declaration and the installed stock
-/// rectangle programs. Installed executable bytes are read as inert data.</summary>
+/// <summary>The resource node1 Exposure declaration and project stock rectangle programs.</summary>
 public sealed class LoadedOriginalMapExposureSource
 {
     internal LoadedOriginalMapExposureSource(LoadedRenderGraph graph, OriginalRenderTextureDefinition texture,
@@ -56,8 +53,6 @@ public sealed record OriginalMapExposureViewAux(uint Flags8, int ToneType3A4,
     public static OriginalMapExposureViewAux ReadTemplate(LoadedObjects source,uint objectId)
     {
         ArgumentNullException.ThrowIfNull(source);
-        if(Convert.ToHexString(SHA256.HashData(source.Source.Bytes))!=source.Source.DecodedSha256)
-            throw new InvalidDataException("Exposure CommonViewSetting bytes differ from their source identity.");
         var rows=source.Document.Objects.Where(o=>o.ObjectId==objectId).ToArray();
         if(rows.Length!=1||rows[0].Kind!=DokObjectKind.Inline||rows[0].ClassId!=0xEF3D849D||rows[0].Properties.Count!=102)
             throw new InvalidDataException("Exposure requires an explicitly selected102-property CommonViewSetting template.");
@@ -125,8 +120,6 @@ public sealed class OriginalMapExposurePacket
 public static class OriginalMapExposureSource
 {
     public const uint TextureObjectId=0x6C5630BB;
-    public const string VertexSha256="F2E09A25DC65315D110B1E81383DAE8D411FE17BBAFA7196CC809AF2AACEEF80";
-    public const string PixelSha256="914032F0D716F2148E238B93A5FBF7A25A72252B4A579DB5FEEAED527E051789";
 
     public static LoadedOriginalMapExposureSource Load(OriginalGameRepository repository,string locale)
     {
@@ -150,28 +143,7 @@ public static class OriginalMapExposureSource
             texture.OutputColorSpace!=2||texture.NoiseParameterObjectNameHash!=0)
             throw new InvalidDataException("Exposure requires its original2x1 FloatRGBA128 declaration.");
         var native=OriginalDeferredSamplerSources.Load(repository.SourceDirectory,locale);
-        byte[] exe=File.ReadAllBytes(native.PhysicalPath);
-        if(Convert.ToHexString(SHA256.HashData(exe))!=native.ExecutableSha256)
-            throw new InvalidDataException("Exposure source executable changed while reading its stock programs.");
-        using var pe=new PEReader(new MemoryStream(exe,false));
-        byte[] Raw(int rva,int count)
-        {
-            var section=pe.PEHeaders.SectionHeaders.Single(s=>rva>=s.VirtualAddress&&
-                (long)rva+count<=(long)s.VirtualAddress+s.SizeOfRawData);
-            return exe.AsSpan(checked(section.PointerToRawData+rva-section.VirtualAddress),count).ToArray();
-        }
-        int vs=locale=="SC"?0x14BD070:0x14BC190,ps=locale=="SC"?0x14BDDF0:0x14BCF10;
-        byte[] vertex=Raw(vs,900),pixel=Raw(ps,896);
-        if(Convert.ToHexString(SHA256.HashData(vertex))!=VertexSha256||Convert.ToHexString(SHA256.HashData(pixel))!=PixelSha256)
-            throw new InvalidDataException("Exposure stock screen VS/default3 PS differ from the installed source.");
-        // Pixel04 resource/sampling/target tables select DXGI1/2/2. Neither
-        // source ColorSpace nor OutputColorSpace changes this float view.
-        int resource=locale=="SC"?0x14C01B0:0x14BF2D0;
-        int srv=locale=="SC"?0x14BF9C0:0x14BEAE0,rtv=locale=="SC"?0x14BFDC0:0x14BEEE0;
-        if(BinaryPrimitives.ReadUInt32LittleEndian(Raw(resource,4))!=1||
-            BinaryPrimitives.ReadUInt32LittleEndian(Raw(srv,4))!=2||
-            BinaryPrimitives.ReadUInt32LittleEndian(Raw(rtv,4))!=2)
-            throw new InvalidDataException("Exposure native FloatRGBA128 format rows differ.");
+        byte[] vertex=ProjectStockShaders.Vertex.Dxbc,pixel=ProjectStockShaders.Default3.Dxbc;
         var sampler=OriginalDeferredSamplerSources.DecodeKey(native,OriginalDeferredSamplerSources.RenderTextureKey(native,1));
         return new(graph,texture,native,vertex,pixel,sampler);
     }

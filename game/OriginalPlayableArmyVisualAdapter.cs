@@ -207,7 +207,7 @@ public sealed class OriginalPlayableArmyVisualAdapter
                 model.SetMeta("source_formation_sha256", _definitions.Source.Sha256);
                 model.SetMeta("source_formation_decoded_sha256", _writer.DecodedSha256);
                 model.SetMeta("source_formation_is_override", _definitions.Source.IsOverride);
-                model.SetMeta("source_selection_executable_sha256", _writer.CodeSource.ExecutableSha256);
+                model.SetMeta("source_selection_rule_version", _writer.CodeSource.RuleVersion);
                 model.SetMeta("source_selection_code_language", _writer.CodeSource.Language);
                 model.SetMeta("source_hex_surface_byte", (int)selection.Terrain.RawHexTerrainByte10);
                 model.SetMeta("source_descriptor_requested_resource_count", request.RequestedResourceCount);

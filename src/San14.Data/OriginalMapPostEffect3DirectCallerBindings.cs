@@ -18,7 +18,7 @@ public static class OriginalMapPostEffect3InheritedTargetGammaSource
         actualContext.Source.Validate(actualContext);
         OriginalRenderTextureResolutionFrame.ValidateDeclaration(actualInheritedTarget.Declaration);
         var host=actualContext.Source.Host;
-        if(actualContext.FrameNumber<=0||host.Locale is not ("TC" or "SC")||host.ContextOwnerVtableRva!=(uint)OriginalMapPostEffect3NativeSourceProfile.DataRva(host.Locale,"OriginalMapPostEffect3DirectCallerBindings.cs",0x13C4ED0))
+        if(actualContext.FrameNumber<=0||host.Locale is not ("TC" or "SC")||host.RuleVersion!=RenderRuleIdentity.Version)
             throw new NotSupportedException("Direct Apply gamma requires the actual same-locale pinned fresh Host Q owner.");
         uint mode=ResolveNativeAttachmentOutputMode(actualInheritedTarget.ColorSpace,actualInheritedTarget.OutputColorSpace);
         return new(actualContext.FrameNumber,actualInheritedTarget.OwnerIdentity,actualContext.Source.OwnedHostIdentity,
@@ -56,8 +56,7 @@ public sealed class OriginalMapPostEffect3ApplyViewSlotSource
         var context=actualWorldFrame.Context;var invocation=actualMainExecution.Invocation;
         context.Source.Validate(context);
         actualMainExecution.RequireSelectedView(actualWorldFrame.FrameNumber,actualWorldFrame.Lighting.Binding);
-        if(actualApplyGraph.Source.DecodedSha256!=OriginalMainSceneNode51Source.GraphSha256||
-            Convert.ToHexString(SHA256.HashData(actualApplyGraph.Source.Bytes))!=OriginalMainSceneNode51Source.GraphSha256||
+        if(actualApplyGraph.Source.ResourceUri!="san14://rdb/system/024496EE"||
             actualApplyGraph.Document.Nodes.Count<=193)
             throw new InvalidDataException("Apply view selection requires the same original Main/Apply graph.");
         var apply=actualApplyGraph.Document.Nodes[193];

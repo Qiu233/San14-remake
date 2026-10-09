@@ -52,7 +52,7 @@ public sealed class OriginalArmyMovementEligibilityCurrentProducer
         var definitions = package.CaptureCurrentDefinitions(state);
         if (definitions is null) return Missing("current.Base_Hex_Person_definition_capture");
         var context = new OriginalTacticRemakeCurrentContext(definitions, catalog, map, terrain,
-            new(package.Seed.Language, package.Seed.Source.Sha256), Revision);
+            new(package.Seed.Language, SimulationRuleIdentity.ForLocale(package.Seed.Language)), Revision);
         bool? valid = context.ArmyValid(state, army);
         if (valid is null) return Missing("current.Army_validity");
         if (!valid.Value) return Result(false, null, null, "2C7377.invalid-Army");
@@ -247,7 +247,7 @@ public sealed class OriginalArmyMovementEligibilityCurrentProducer
             return march.TargetHex2C;
         }
         OriginalArmyMovementEligibilityCurrentResolution Result(bool eligible, int? target, int? goalHex, string branch) =>
-            new(new(eligible, target, goalHex, branch, $"{Revision};{package.Seed.Source.Sha256};cycle={moment.CalendarCycleOrdinal};{branch}"), null);
+            new(new(eligible, target, goalHex, branch, $"{Revision};{package.Seed.Source.RuleVersion};cycle={moment.CalendarCycleOrdinal};{branch}"), null);
     }
 
     private static bool? RingContains(int center, int current, int radius)

@@ -16,20 +16,20 @@ public sealed record OriginalCityOpeningPostLoadRecord(int Slot,int ObjectSlot,i
 public sealed class LoadedOriginalCityOpeningPostLoadSource
 {
     internal LoadedOriginalCityOpeningPostLoadSource(LoadedScenario scenario,OriginalCityOpeningPostLoadNativeRecipe native,
-        NewGameOptions options,int[] effects,Dictionary<int,OriginalCityOpeningPostLoadRecord> cities)
+        OriginalCeCityVariantTable variants,NewGameOptions options,int[] effects,Dictionary<int,OriginalCityOpeningPostLoadRecord> cities)
     {
         Locale=scenario.Snapshot.Locale;ScenarioSource=scenario.ScenarioSource;FixedDataSource=scenario.FixedDataSource;
-        ExecutableSha256=native.ExecutableSha256;Options=options;ForcePolicyEffects32=Array.AsReadOnly(effects);
+        ImplementationVersion=variants.ImplementationVersion;Options=options;ForcePolicyEffects32=Array.AsReadOnly(effects);
         Cities=new ReadOnlyDictionary<int,OriginalCityOpeningPostLoadRecord>(cities);
         Evidence=new(scenario.ScenarioSource.ResourceUri+"#source-created-ordinary-City66",scenario.ScenarioSource.Sha256,
-            "source-created-ordinary-postload;"+native.SourceUri+"@"+native.ExecutableSha256+
+            "source-created-ordinary-postload;"+native.SourceUri+";implementation="+native.ImplementationVersion+
             ";fixed="+scenario.FixedDataSource.ResourceUri+"@"+scenario.FixedDataSource.Sha256+
             ";native-object-registry/Area35/linked-Object14/capacity/effect32/float-ceil;derived-not-observed");
     }
     public string Locale{get;}
     public SourceProvenance ScenarioSource{get;}
     public SourceProvenance FixedDataSource{get;}
-    public string ExecutableSha256{get;}
+    public string ImplementationVersion{get;}
     public NewGameOptions Options{get;}
     public IReadOnlyList<int> ForcePolicyEffects32{get;}
     public IReadOnlyDictionary<int,OriginalCityOpeningPostLoadRecord> Cities{get;}
@@ -45,7 +45,7 @@ public sealed class LoadedOriginalCityOpeningPostLoadSource
     public CityVisualSelectionResult SelectSourceCreatedOpening(OriginalCeCityVariantTable variants,CityVisualState city)
     {
         ArgumentNullException.ThrowIfNull(variants);
-        if(variants.Locale!=Locale||variants.ExecutableSha256!=ExecutableSha256)
+        if(variants.Locale!=Locale||variants.ImplementationVersion!=ImplementationVersion)
             throw new InvalidDataException("Derived opening and current city variant source differ.");
         if(!Cities.TryGetValue(city.Slot,out var record)||city.HexId!=record.HexId||city.SizeCode!=record.SizeCode||
             city.Durability!=record.Durability||city.ForceId!=(record.ForcePhysicalSlot==0?null:(int?)record.ForcePhysicalSlot))
@@ -71,8 +71,8 @@ public static class OriginalCityOpeningPostLoadSource
             scenario.Snapshot.WorldParameters?.SourceBoundary?.Settings is not { } settings)
             throw new NotSupportedException("Opening City66 needs complete ordinary CE sources and actual new-game choices.");
         var native=OriginalDeferredSamplerSources.LoadCityOpeningPostLoadNative(repository.SourceDirectory,scenario.Snapshot.Locale);
-        if(variants.Locale!=native.Locale||variants.ExecutableSha256!=native.ExecutableSha256)
-            throw new InvalidDataException("City postload and selected native variant executable differ.");
+        if(variants.Locale!=native.Locale)
+            throw new InvalidDataException("City postload and selected variant locales differ.");
         // ENV source serialization precedes City slot7. The ordinary page
         // also writes1, but it cannot replace an unproved static source gate.
         if(settings.FieldAtNativeMember(0xE58).SignedValue!=1)
@@ -118,7 +118,7 @@ public static class OriginalCityOpeningPostLoadSource
             result.Add(city.Slot,new(city.Slot,link,hex,size,forceSlot,sourceDurability,actualDurable,capacity,tier,variant,
                 OriginalCeCityModels.CategoryFor(variant,size,tier),special));
         }
-        return new(scenario,native,options,effects,result);
+        return new(scenario,native,variants,options,effects,result);
     }
 
     /// <summary>The fourth capacity output for a real city-object binding.
@@ -198,5 +198,5 @@ public static class OriginalCityOpeningPostLoadSource
     }
 }
 
-internal sealed record OriginalCityOpeningPostLoadNativeRecipe(string Locale,string ExecutableSha256,string SourceUri,
+internal sealed record OriginalCityOpeningPostLoadNativeRecipe(string Locale,string ImplementationVersion,string SourceUri,
     OriginalBaseParameterCatalog BaseParameters);
