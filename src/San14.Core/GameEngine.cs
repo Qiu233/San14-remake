@@ -20,6 +20,8 @@ public sealed record CommandResult(GameState? State, string? Error)
 
 public interface IOrderRules
 {
+    // The state belongs to the current transaction. Rules may change its collections,
+    // but must not retain them after returning or introduce shared mutable state.
     CommandResult Apply(GameState state, ForceState force, GameOrder order, CommandContext context);
 }
 
@@ -41,6 +43,17 @@ public static class GameEngine
     public static CommandResult Apply(GameState state, GameOrder order, IOrderRules rules,
         CommandContext context, IOrderAuthority authority)
     {
+        CommandResult? error = CheckOrder(state, order, context, authority);
+        if (error is not null) return error;
+        CommandResult result = ApplyOwned(state, GameStateCopy.Copy(state), order, rules, context);
+        // The stateless API transfers a result to an independent caller. Session
+        // operations below keep their transaction instead of making this second copy.
+        return result.Accepted ? result with { State = GameStateCopy.Copy(result.State!) } : result;
+    }
+
+    internal static CommandResult? CheckOrder(GameState state, GameOrder order,
+        CommandContext context, IOrderAuthority authority)
+    {
         if (state.NativePlayableTerminal is not null)
             return CommandResult.Reject("The campaign has ended.", "command.campaign_ended");
         if (state.Phase != TurnPhase.Strategy)
@@ -55,34 +68,34 @@ public static class GameEngine
         if (context.DelegatedDistrictId is int districtId &&
             (!state.Districts.TryGetValue(districtId, out DistrictState? district) || district.ForceId != force.Id))
             return CommandResult.Reject("Delegated district does not belong to this force.", "command.district_missing");
-        StateValidator.Validate(state);
-        // Optional adapters receive an owned working copy. A rejection or an
-        // exception cannot change the caller's dictionaries or nested arrays.
-        GameState working = GameStateSnapshot.Detach(state, out byte[] previousSnapshot);
-        CommandResult result = rules.Apply(working, working.Forces[force.Id], order, context);
+        return null;
+    }
+
+    internal static CommandResult ApplyOwned(GameState state, GameState working,
+        GameOrder order, IOrderRules rules, CommandContext context)
+    {
+        CommandResult result = rules.Apply(working, working.Forces[order.ForceId], order, context);
         if (result.Accepted)
         {
-            GameState next = GameStateSnapshot.Detach(result.State!, out byte[] nextSnapshot);
+            GameState next = result.State!;
             ValidateWorldIdentity(state, next);
             if (next.Phase != state.Phase || next.Date != state.Date ||
                 next.PeriodNumber != state.PeriodNumber || next.NativeClock != state.NativeClock)
                 throw new InvalidDataException("Command rules changed the turn clock or phase.");
-            StateValidator.Validate(next);
-            // Preserve the established identity of a genuine no-op. The adapter
-            // never received this instance, so its retained copies cannot alter it.
-            return result with { State = previousSnapshot.AsSpan().SequenceEqual(nextSnapshot) ? state : next };
         }
         return result;
     }
 
     public static GameState AdvancePeriod(GameState state, IAdvancementRules rules)
+        => GameStateCopy.Copy(AdvancePeriodOwned(state, GameStateCopy.Copy(state), rules));
+
+    internal static GameState AdvancePeriodOwned(GameState state, GameState working, IAdvancementRules rules)
     {
         if (state.NativePlayableTerminal is not null)
             throw new InvalidOperationException("The campaign has ended.");
         if (state.Phase != TurnPhase.Strategy)
             throw new InvalidOperationException("The state is not in the strategy phase.");
-        StateValidator.Validate(state);
-        GameState next = GameStateSnapshot.Detach(rules.AdvanceTenDays(GameStateSnapshot.Detach(state)));
+        GameState next = rules.AdvanceTenDays(working);
         ValidateWorldIdentity(state, next);
         if (next.NativePlayableTerminal is not null)
         {
@@ -101,7 +114,6 @@ public static class GameEngine
                 throw new InvalidDataException("Terminal advancement returned an invalid native stop cursor.");
             if (state.NativeClock is null && next.NativeClock is not null)
                 throw new InvalidDataException("Terminal advancement initialized an unresolved native clock.");
-            StateValidator.Validate(next);
             return next;
         }
         if (next.Phase != TurnPhase.Reporting || next.Date != state.Date.Next() ||
@@ -117,28 +129,28 @@ public static class GameEngine
             throw new InvalidDataException("Advancement rules returned an invalid native subday clock.");
         if (state.NativeClock is null && next.NativeClock is not null)
             throw new InvalidDataException("Advancement rules initialized an unresolved native clock.");
-        StateValidator.Validate(next);
         return next;
     }
 
     public static GameState FinishReport(GameState state, IReportingRules rules)
+        => GameStateCopy.Copy(FinishReportOwned(state, GameStateCopy.Copy(state), rules));
+
+    internal static GameState FinishReportOwned(GameState state, GameState working, IReportingRules rules)
     {
         if (state.Phase != TurnPhase.Reporting)
             throw new InvalidOperationException("There is no report to finish.");
-        StateValidator.Validate(state);
-        GameState next = GameStateSnapshot.Detach(rules.CompleteReport(GameStateSnapshot.Detach(state)));
+        GameState next = rules.CompleteReport(working);
         ValidateWorldIdentity(state, next);
         if (next.Phase != TurnPhase.Strategy || next.Date != state.Date || next.PeriodNumber != state.PeriodNumber || next.NativeClock != state.NativeClock ||
             next.NativePlayableTerminal != state.NativePlayableTerminal)
             throw new InvalidDataException("Reporting rules returned an invalid phase or date.");
-        StateValidator.Validate(next);
         return next;
     }
 
     // Commands and period adapters operate on one world. Starting a scenario,
     // upgrading a ruleset or replacing a map are explicit operations outside these
     // transitions, so a faulty optional module cannot quietly replace the session.
-    private static void ValidateWorldIdentity(GameState previous, GameState next)
+    internal static void ValidateWorldIdentity(GameState previous, GameState next)
     {
         if (next is null || next.ScenarioKey != previous.ScenarioKey ||
             next.RulesetId != previous.RulesetId || next.MapSha256 != previous.MapSha256 ||
@@ -150,18 +162,10 @@ public static class GameEngine
     }
 }
 
-/// <summary>Owns all serialized state collections without applying save migration or initialization.</summary>
+/// <summary>Creates an independent world without save encoding, migration or initialization.</summary>
 internal static class GameStateSnapshot
 {
-    internal static GameState Detach(GameState state) => Detach(state, out _);
-
-    internal static GameState Detach(GameState state, out byte[] serialized)
-    {
-        if (state is null) throw new InvalidDataException("Rules returned a missing game state.");
-        serialized = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(state);
-        return System.Text.Json.JsonSerializer.Deserialize<GameState>(serialized)
-            ?? throw new InvalidDataException("Game state could not be copied.");
-    }
+    internal static GameState Detach(GameState state) => GameStateCopy.Copy(state);
 }
 
 public interface IAdvancementRules

@@ -30,8 +30,6 @@ struct NativeNormalPost {
     std::map<std::string,UINT> selectors;
     std::array<ComPtr<ID3D11Buffer>,2> spriteStaging;
     NormalPostSurface exposure;
-    ComPtr<ID3D11Query> timingDisjoint,timingStart,timingEnd;
-    double lastSubmitMs=0,lastGpuMs=0;
     UINT width{},height{};
 };
 static NormalPostSurface normalPostSurface(ID3D11Device* device,UINT w,UINT h,UINT mips,
@@ -198,18 +196,12 @@ static NativeNormalPost prepareNormalPost(ID3D11Device* device,
     if(compositeBytes.size()!=208)throw std::runtime_error("Normal post needs complete original CB22");
     std::memcpy(&lensGate,compositeBytes.data()+40,4);std::memcpy(&ldrGate,compositeBytes.data()+20,4);
     if(lensGate>0||ldrGate>0)throw std::runtime_error("Normal current package needs an active Lens/LDR producer beyond this source selection");
-    D3D11_QUERY_DESC query{};query.Query=D3D11_QUERY_TIMESTAMP_DISJOINT;
-    check(device->CreateQuery(&query,&state.timingDisjoint),"normal post diagnostic timing interval");
-    query.Query=D3D11_QUERY_TIMESTAMP;
-    check(device->CreateQuery(&query,&state.timingStart),"normal post diagnostic start");
-    check(device->CreateQuery(&query,&state.timingEnd),"normal post diagnostic end");
     return state;
 }
 
 static ComPtr<ID3D11Texture2D> executeNormalPost(ID3D11Device* device,ID3D11DeviceContext* context,NativeSourceDepthState& logical,
-    NativeNormalPost& state,const std::vector<NativeNormalPostPass>& passes,const fs::path& output,bool captureDiagnostics=true,
+    NativeNormalPost& state,const std::vector<NativeNormalPostPass>& passes,
     const std::function<void()>& before57={}) {
-    if(captureDiagnostics)fs::create_directories(output);
     // The incoming logical description remains independent of ignored D3D
     // hardware fields. Source11462D0 stores entry Test for its restored Write.
     const auto entryDepthDesc=logical.description;
@@ -219,10 +211,6 @@ static ComPtr<ID3D11Texture2D> executeNormalPost(ID3D11Device* device,ID3D11Devi
     auto& surfaces=state.surfaces;auto& buffers=state.buffers;auto& externalViews=state.externalViews;
     auto& spriteStaging=state.spriteStaging;auto& exposure=state.exposure;
     const UINT width=state.width,height=state.height;
-    const auto submitStart=std::chrono::steady_clock::now();
-    context->Begin(state.timingDisjoint.Get());context->End(state.timingStart.Get());
-    std::cout<<"source normal post193 retained resources T63Side="<<state.selectors.at("Texture63")
-        <<" T64Side="<<state.selectors.at("Texture64")<<" B5Side="<<state.selectors.at("Buffer5")<<" exposureResourceRetained=1\n";
 
     auto srv=[&](const std::string& name,UINT mip)->ID3D11ShaderResourceView* {
         if(name=="Null")return nullptr;
@@ -241,8 +229,7 @@ static ComPtr<ID3D11Texture2D> executeNormalPost(ID3D11Device* device,ID3D11Devi
         else if(stage=="CS")context->CSSetShaderResources(slot,1,&view);
         else throw std::runtime_error("Unsupported normal post source shader stage");
     };
-    std::vector<std::string> executed;
-    UINT diagnosticStagingSide=0;
+
     for(const auto& pass:passes) {
         // Original Count0 reads selected controller staging here, after55
         // and before current57/58 produce the new B5 indirect arguments.
@@ -290,43 +277,11 @@ static ComPtr<ID3D11Texture2D> executeNormalPost(ID3D11Device* device,ID3D11Devi
                 auto actual=buffers.at("Buffer"+std::to_string(pass.index)).buffer.Get();
                 context->CopyResource(spriteStaging.at(pass.stagingSide).Get(),actual);
                 context->DrawInstancedIndirect(actual,pass.offset);
-                diagnosticStagingSide=pass.stagingSide;
             } else context->DrawInstanced(pass.vertexCount,pass.instanceCount,pass.startVertex,pass.startInstance);
         }
-        executed.push_back(pass.name);std::cout<<"NORMAL_POST original "<<pass.name<<(pass.compute?" dispatch":" draw")<<'\n';
+
     }
     normalPostUnbind(context);
-    context->End(state.timingEnd.Get());context->End(state.timingDisjoint.Get());
-    state.lastSubmitMs=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-submitStart).count();
-    state.lastGpuMs=std::numeric_limits<double>::quiet_NaN();
-    if(captureDiagnostics) {
-    auto exposureBytes=postNativeReadback(device,context,exposure.texture.Get(),exposure.sampledFormat);
-    auto toneBytes=postNativeReadback(device,context,surfaces.at("Tone108").texture.Get(),surfaces.at("Tone108").sampledFormat);
-    auto finalBytes=postNativeReadback(device,context,surfaces.at("Final109").texture.Get(),surfaces.at("Final109").sampledFormat);
-    // Numerical diagnostic only. Fresh source Count10=2 does not branch on
-    // this CPU result; native indirect counts were consumed directly on GPU.
-    D3D11_MAPPED_SUBRESOURCE indirectMapped{};check(context->Map(spriteStaging[diagnosticStagingSide].Get(),0,D3D11_MAP_READ,0,&indirectMapped),"normal post actual indirect numerical readback");
-    std::vector<char> indirectBytes(32);std::memcpy(indirectBytes.data(),indirectMapped.pData,indirectBytes.size());context->Unmap(spriteStaging[diagnosticStagingSide].Get(),0);
-    std::array<UINT,8> actualIndirect{};std::memcpy(actualIndirect.data(),indirectBytes.data(),indirectBytes.size());
-    D3D11_QUERY_DATA_TIMESTAMP_DISJOINT interval{};UINT64 gpuStart=0,gpuEnd=0;
-    if(context->GetData(state.timingDisjoint.Get(),&interval,sizeof(interval),D3D11_ASYNC_GETDATA_DONOTFLUSH)==S_OK&&!interval.Disjoint&&
-        context->GetData(state.timingStart.Get(),&gpuStart,sizeof(gpuStart),D3D11_ASYNC_GETDATA_DONOTFLUSH)==S_OK&&
-        context->GetData(state.timingEnd.Get(),&gpuEnd,sizeof(gpuEnd),D3D11_ASYNC_GETDATA_DONOTFLUSH)==S_OK)
-        state.lastGpuMs=double(gpuEnd-gpuStart)*1000/double(interval.Frequency);
-    postNativeWriteBytes(output/"normal-post-exposure104-r32f.bin",exposureBytes);
-    postNativeWriteBytes(output/"normal-post-tone108-r11g11b10.bin",toneBytes);postNativeWriteBytes(output/"normal-post-final109-bgra8.bin",finalBytes);
-    postNativeWriteBytes(output/"normal-post-indirect5.bin",indirectBytes);
-    std::ofstream result(output/"normal-post-native-result.json");result<<std::setprecision(std::numeric_limits<float>::max_digits10);
-    result<<"{\n\"scope\":\"source-selected normal DOF/Bloom/exposure/tone/FXAA with persistent resources; actual incoming Main Scene/depth; earlier RawLens/TemporalAA outside this slice\",\n"
-        <<"\"controlledInitialExposureTexels\":[1,1],\"originalInitialDataNull\":true,\"activeCurrentFlare\":false,\n\"width\":"<<width<<",\"height\":"<<height<<",\"orderedPasses\":[";
-    for(size_t n=0;n<executed.size();++n){if(n)result<<',';result<<'"'<<executed[n]<<'"';}
-    std::array<float,2> actualExposure{};std::memcpy(actualExposure.data(),exposureBytes.data(),8);
-    result<<"],\n\"actualExposure104\":[";for(UINT n=0;n<2;++n){if(n)result<<',';if(std::isfinite(actualExposure[n]))result<<actualExposure[n];else result<<"null";}
-    result<<"],\n\"submitCpuMs\":"<<state.lastSubmitMs<<",\"gpuMs\":";if(std::isfinite(state.lastGpuMs))result<<state.lastGpuMs;else result<<"null";
-    result<<",\n\"actualSpriteIndirectArguments\":[";for(UINT n=0;n<8;++n){if(n)result<<',';result<<actualIndirect[n];}
-    result<<"],\n\"tone108\":";postNativeStats(result,toneBytes,surfaces.at("Tone108").sampledFormat,width,height);
-    result<<",\n\"final109\":";postNativeStats(result,finalBytes,surfaces.at("Final109").sampledFormat,width,height);result<<"\n}\n";
-    }
     auto& final=surfaces.at("Final109");
     normalPostUnbind(context);
     ComPtr<ID3D11DepthStencilState> currentDepthState;UINT currentStencilRef;
@@ -344,12 +299,7 @@ static ComPtr<ID3D11Texture2D> executeNormalPost(ID3D11Device* device,ID3D11Devi
     //Tone108 is a separate format26 texture, not this output90/91 target.
     auto finalTarget=final.targets.at(0).Get();context->OMSetRenderTargets(1,&finalTarget,nullptr);
     D3D11_VIEWPORT finalViewport{0,0,float(width),float(height),0,1};context->RSSetViewports(1,&finalViewport);
-    std::cout<<"source normal post193 exit Output13BF771D color0 view="<<final.sampledFormat
-        <<" depthTest="<<exitDepth.DepthEnable<<" depthWrite="<<exitDepth.DepthWriteMask<<" compare="<<exitDepth.DepthFunc<<"\n";
-    std::cout<<"source normal post193 submitCpuMs="<<state.lastSubmitMs;
-    if(std::isfinite(state.lastGpuMs))std::cout<<" gpuMs="<<state.lastGpuMs;
-    else std::cout<<" gpuTimingPending";
-    std::cout<<" captures excluded\n";
+
     return final.texture;
 }
 

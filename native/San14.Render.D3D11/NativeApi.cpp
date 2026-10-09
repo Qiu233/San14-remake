@@ -80,16 +80,14 @@ void* __cdecl san14_render_create(void* device,void* queue,void* output,
         const wchar_t* terrainSourceDirectory,int width,int height,uint32_t worldDetails,
         const San14RenderInput* input,San14RenderReceipt* receipt) {
     try {
-        if((worldDetails&2)&&(!input->armyWorld||!input->armyWorldBytes))
+        RenderConfiguration configuration{
+            PreparedResourceDirectories{terrainSourceDirectory}, unsigned(width), unsigned(height),
+            WorldVisuals::fromInteropFlags(worldDetails)};
+        if(configuration.world.armies&&(!input->armyWorld||!input->armyWorldBytes))
             throw std::runtime_error("Actual Army population requires its initial World publication, including an empty World");
-        const fs::path terrain=terrainSourceDirectory;
         auto owner=std::make_unique<Owner>(static_cast<ID3D12Device*>(device),static_cast<ID3D12CommandQueue*>(queue));
         auto& host=owner->host;
-        // Source loaders are shared with the accepted experiment. Resource
-        // import is performed once by this session, never on a cache hit.
-        host.sourceDirectory=terrain;
-        host.width=width;host.height=height;host.worldDetails=worldDetails;
-        owner->session=createRenderSession(host);
+        owner->session=createRenderSession(host,std::move(configuration));
         owner->publish(static_cast<ID3D12Resource*>(output),*input,OutputUse::RenderTarget,*receipt);
         lastError.clear();return owner.release();
     }catch(...){recordException();return nullptr;}

@@ -213,6 +213,7 @@ public static class ScenarioSnapshotBuilder
                 RawField46 = item.RawField46,
                 AdjacentAreaSlots = item.AdjacentAreaSlots,
                 RawNeighborSlots = item.RawNeighborSlots,
+                RegionalNeighborMask = item.RegionalNeighborMask,
                 RawFlags38 = state.RawFlags38,
                 RawFlag74 = state.RawFlag74
             };

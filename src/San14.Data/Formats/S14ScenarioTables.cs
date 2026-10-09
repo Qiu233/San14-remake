@@ -41,6 +41,7 @@ public sealed record S14AreaDefinition(int Slot, string Name, string SecondaryTe
     public IReadOnlyList<int> AdjacentAreaSlots { get; init; } = [];
     // All eight source words, including zero terminators and reserved raw values.
     public IReadOnlyList<ushort>? RawNeighborSlots { get; init; }
+    public byte RegionalNeighborMask { get; init; }
 }
 
 public sealed record S14ScenarioCity(int Slot, ushort OfficerSlot, byte DistrictSlot,
@@ -212,7 +213,8 @@ public static class S14ScenarioTables
                 RawField46 = BinaryPrimitives.ReadUInt16LittleEndian(row.Slice(43, 2)),
                 // Reserved inactive records can contain original uninitialized bytes.
                 AdjacentAreaSlots = citySlot == 0 ? [] : ReadAreaLinks(row.Slice(47, 16), slot),
-                RawNeighborSlots = neighbors
+                RawNeighborSlots = neighbors,
+                RegionalNeighborMask = row[64]
             });
         }
         foreach (S14AreaDefinition area in areas)

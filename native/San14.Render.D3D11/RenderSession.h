@@ -13,17 +13,24 @@
 #include "TerritoryOwnership.h"
 #include "ArmyWorldPublication.h"
 #include "ArmyUnitHeight.h"
+#include "RenderConfiguration.h"
 #include "CityGateWorldPublication.h"
 #include "AreaCapitalWorldPublication.h"
 #include "Pipeline/current-season-client-input/current-season-native.h"
 
 namespace San14::Render {
+enum class FrameInputFlag : unsigned {
+    PublishedCamera=1,
+    Paused=2,
+    InitialAnimationUpdate=4,
+    HideTerritory=8
+};
 struct RenderInput {
     source_camera::Prefix camera{};
     source_camera::State controller{};
     int band{},fraction{};
     float deltaSeconds{};
-    unsigned flags{}; //1 published camera,2 pause,4 actual eligible animation update,8 hide force colors+grid
+    unsigned flags{}; // Stable interop mask; renderer uses FrameInputFlag.
     const std::uint8_t* ownershipColors{};
     std::uint64_t ownershipRevision{};
     std::uint32_t ownershipCount{};
@@ -39,6 +46,9 @@ struct RenderInput {
     std::uint32_t cityGateWorldBytes{};
     const std::uint8_t* areaCapitalWorld{};
     std::uint32_t areaCapitalWorldBytes{};
+    bool contains(FrameInputFlag flag) const noexcept {
+        return (flags & static_cast<unsigned>(flag))!=0;
+    }
 };
 struct RenderOutput {
     ID3D11Texture2D* texture{}; // borrowed until the next render or session close
@@ -59,14 +69,26 @@ struct RenderHost {
     std::optional<source_current_season::Frame> currentSeason;
     std::optional<CityGateWorldPublication> cityGateWorld;
     std::optional<AreaCapitalWorldPublication> areaCapitalWorld;
-    std::filesystem::path sourceDirectory;
-    unsigned width{},height{},worldDetails{};
     // Actual paced manager callbacks are separate from Main/Canvas requests.
     std::function<void(unsigned)> animationUpdate;
     AnimationState animationState;
     std::function<std::vector<ArmyLabelUnitPosition>()> armyUnitPositions;
 };
-// A coroutine keeps the existing Main owners and closures alive across caller
+// Callbacks capture retained session owners. Detach them before a closed or
+// failed session leaves a host with references into its destroyed frame.
+class RenderCallbackScope {
+public:
+    explicit RenderCallbackScope(RenderHost& host) noexcept : host(host) {}
+    ~RenderCallbackScope() {
+        host.animationUpdate={};
+        host.armyUnitPositions={};
+    }
+    RenderCallbackScope(const RenderCallbackScope&)=delete;
+    RenderCallbackScope& operator=(const RenderCallbackScope&)=delete;
+private:
+    RenderHost& host;
+};
+// A coroutine keeps GPU owners and closures alive across caller
 // requests. It does not own a thread, poll files or advance an independent loop.
 class RenderSession {
 public:
@@ -102,5 +124,5 @@ public:
 private:
     std::coroutine_handle<promise_type> handle{};
 };
-RenderSession createRenderSession(RenderHost& host);
+RenderSession createRenderSession(RenderHost& host, RenderConfiguration configuration);
 }

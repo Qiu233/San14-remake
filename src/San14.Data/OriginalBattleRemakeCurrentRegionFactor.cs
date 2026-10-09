@@ -105,38 +105,38 @@ public sealed class OriginalBattleRemakeCurrentRegionFactor
         OriginalForceReference? force = definitions.ReadForceTableReference(nativeForceSlot);
         if (force is null || definitions.ReadForceNativeValidity(force) is not bool forceValid) return null;
         if (!forceValid) return One("invalid-force");
-        OriginalBattleRemakeCurrentAreaStatisticsSnapshot? snapshot = OriginalBattleRemakeCurrentAreaStatistics.Capture(state);
-        if (snapshot is null || !snapshot.MaterializeIntoCurrent(definitions)) return null;
+        AreaMapStatisticsState? snapshot = state.RegionStatistics;
+        if (snapshot is null) return null;
         OriginalArmySavedRegionArea? reached = OriginalArmyCurrentRegionSource.ResolveReachedArea(hex, definitions);
         if (reached is null || definitions.ReadAreaNativeValidity(reached.Area) is not bool areaValid) return null;
         if (!areaValid) return One("invalid-area");
         if (reached.Area.PhysicalSlot is not int physical ||
-            snapshot.Read(physical) is not { } area) return null;
+            !snapshot.Entries.TryGetValue(physical, out var area)) return null;
         int sum = 0;
         bool? own = Eligible(area);
         if (own is null) return null;
         if (own.Value)
         {
-            if (!area.Owned68Current) return null;
-            sum = NativeAreaPercent(area.Owned68, area.Terrain76);
+            if (!area.IsOwnedCountCurrent) return null;
+            sum = NativeAreaPercent(area.OwnedCellCount, area.TerrainCellCount);
         }
         for (int index = 0; index < 8; index++)
         {
             //The fixed definition mask proves this contribution absent. Its
             //source generic validity queries are pure; no counter is read.
-            if ((area.NeighborMask66 & (1 << index)) == 0) continue;
+            if ((area.NeighborMask & (1 << index)) == 0) continue;
             if (definitions.ReadAreaNeighborSlot(reached.Area, index) is not ushort requested) return null;
             OriginalAreaReference? neighbor = definitions.ReadAreaTableReference(requested <= 500 ? requested : 0);
             if (neighbor is null || definitions.ReadAreaNativeValidity(neighbor) is not bool valid) return null;
             if (!valid) continue;
             if (neighbor.PhysicalSlot is not int other ||
-                snapshot.Read(other) is not { } record) return null;
+                !snapshot.Entries.TryGetValue(other, out var record)) return null;
             bool? eligible = Eligible(record);
             if (eligible is null) return null;
             if (eligible.Value)
             {
-                if (!record.Owned68Current) return null;
-                sum = unchecked(sum + NativeAreaPercent(record.Owned68, record.Terrain76));
+                if (!record.IsOwnedCountCurrent) return null;
+                sum = unchecked(sum + NativeAreaPercent(record.OwnedCellCount, record.TerrainCellCount));
             }
         }
         if (sum == 0) return new(1f, 0, null, saved, physical, revision + ":zero-area-sum");
@@ -193,14 +193,15 @@ public sealed class OriginalBattleRemakeCurrentRegionFactor
 
         OriginalBattleRemakeCurrentRegionReceipt One(string why) => new(1f, null, null,
             selectedHex, null, revision + ":" + why);
-        bool? Eligible(OriginalBattleRemakeCurrentAreaStatisticsReceipt candidate)
+        bool? Eligible(AreaMapStatisticsEntry candidate)
         {
-            if (candidate.Force78 == nativeForceSlot) return true;
+            int forceId = candidate.ForceId ?? 0;
+            if (forceId == nativeForceSlot) return true;
             if (Policy(39) is not int amount) return null;
             if (amount <= 0) return false;
             NativeArmyForceState? native = state.NativeArmySimulation!.Forces.GetValueOrDefault(nativeForceSlot);
-            return native?.RelationsEA is { Length: 52 } relation && candidate.Force78 <= 51
-                ? (relation[candidate.Force78] & 0x7F) != 0 : null;
+            return native?.RelationsEA is { Length: 52 } relation && forceId <= 51
+                ? (relation[forceId] & 0x7F) != 0 : null;
         }
         int? Policy(int effect)
         {
@@ -216,9 +217,9 @@ public sealed class OriginalBattleRemakeCurrentRegionFactor
 
     public static bool IsNativeBandPerson(int identity) => new[] { 0x100F, 0x1023, 0x1037, 0x104B, 0x105F }
         .Any(first => unchecked((uint)(identity - first)) <= 9);
-    public static int NativeAreaPercent(ushort owned68, ushort terrain76)
+    public static int NativeAreaPercent(int ownedCellCount, int terrainCellCount)
     {
-        float value = (float)owned68 / (float)terrain76;
+        float value = (float)ownedCellCount / (float)terrainCellCount;
         value = value * 100f;
         return !float.IsFinite(value) || value < int.MinValue || value >= 2147483648f ? int.MinValue : (int)value;
     }

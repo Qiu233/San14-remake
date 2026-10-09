@@ -2,6 +2,7 @@ using Godot;
 using San14.Data;
 using San14.Data.Formats;
 using San14.Core;
+using San14.Client.Gameplay;
 
 public partial class Main : Control
 {
@@ -14,7 +15,8 @@ public partial class Main : Control
     private OriginalMapSurface? _mapSurface;
     private bool _mapSurfaceAttempted;
     private ScenarioTerritory? _territory;
-    private GameState? _world;
+    private GameplaySession? _session;
+    private GameState? _world => _session?.World;
     private MapCell? _selectedCell;
     private string? _loadError;
     private PreviewText _ui = null!;
@@ -72,8 +74,8 @@ public partial class Main : Control
     private Button _openScenePreview = null!;
     private Control _browserContent = null!;
     private bool _consumeBackRelease;
-    private int? _playerForceId;
-    private PlayableRuleSet? _playRules;
+    private int? _playerForceId => _session?.PlayerForceId;
+    private PlayableRuleSet? _playRules => _session?.Rules;
     private Label _playTitle = null!;
     private Label _playStatus = null!;
     private Label _playMessage = null!;
@@ -221,7 +223,7 @@ public partial class Main : Control
     {
         _failed = true;
         _loadError = error.Message;
-        _world = null;
+        _session = null;
         GD.PushError(error.ToString());
         foreach (Node child in GetChildren()) child.QueueFree();
         var background = new ColorRect { Color = new Color("#231714") };
@@ -590,26 +592,27 @@ public partial class Main : Control
         if (restored is not null)
             ValidateRestoredCampaignContent(restored, initialized.State);
         GameState world = restored ?? initialized.State;
-        StateValidator.Validate(world);
         PreparedPlayableSessionRules? restoredRules = restoredPlayerForceId is int player
             ? PreparePlayableSessionRules(world, player, loaded, loadedMap, snapshot) : null;
         PlayableRuleSet playRules = restoredRules?.Rules ??
             PlayableSkeleton.Bind(new OriginalHexTravelMap(loadedMap));
+        GameplaySession session = restoredRules is not null
+            ? GameplaySession.Restore(world, restoredRules.PlayerForceId, playRules,
+                CampaignCalendar(restoredRules.Army))
+            : GameplaySession.Preview(world, playRules);
         // Prepare source validation and campaign rules before replacing the live
         // session. A failed load must leave its player, orders and save path usable.
         ResetMilitaryDeploymentComposition();
         LeaveSceneAudioContext();
         CloseResidentMap();
-        _playerForceId = restoredPlayerForceId;
         _loadError = null;
         _map = loadedMap.Map;
         _loadedScenario = loaded;
         _ownedArmyCampaign = null;
         _loadedMap = loadedMap;
         _territory = territory;
-        _world = world;
+        _session = session;
         SyncNewGameOptions(world);
-        _playRules = playRules;
         if (restoredRules is not null) PublishPlayableSessionRules(restoredRules);
         _detailsView?.QueueFree();
         _detailsView = null;
@@ -656,7 +659,6 @@ public partial class Main : Control
         ScenarioCityPreview snapshot = _selectedSnapshot;
         S14Entry selected = _selectedScenario;
         GameState world = _world ?? throw new InvalidDataException("Current scenario state is missing.");
-        StateValidator.Validate(world);
         int forceSlot = _shownForces[(int)index];
         if (!world.Forces.TryGetValue(forceSlot, out ForceState? force))
             throw new InvalidDataException($"Current force {forceSlot} is missing.");
@@ -2049,26 +2051,30 @@ public partial class Main : Control
         _playDemolish.Disabled = !canTarget;
     }
 
-    private PlayableRuleSet BindPlayableSessionRules(GameState world, int playerForceId)
+    private PreparedPlayableSessionRules BindPlayableSessionRules(GameState world, int playerForceId)
     {
         if (_repository is null || _loadedScenario is null || _loadedMap is null || _selectedSnapshot is null)
             throw new InvalidOperationException("The selected source map is unavailable.");
         PreparedPlayableSessionRules prepared = PreparePlayableSessionRules(world, playerForceId,
             _loadedScenario, _loadedMap, _selectedSnapshot, _ownedArmyCampaign);
         PublishPlayableSessionRules(prepared);
-        return prepared.Rules;
+        return prepared;
     }
+
+    private static Func<GameState, GameState> CampaignCalendar(OriginalOwnedArmyCampaignRules? campaign) =>
+        campaign is null ? state => OriginalNormalArmyCombatCalendarRuntime.AdvanceCampaign(state) :
+            state => campaign.AdvancePlayableCalendar(state);
 
     private void StartPlayable()
     {
         if (_world is not GameState world || _selectedForceSlot is not int forceId ||
             world.Phase != TurnPhase.Initializing) return;
-        int confirmedRulerPersonId = world.Forces[forceId].RulerId ??
-            throw new InvalidDataException("The confirmed faction has no original ruler Person.");
-        GameState started = ConstructFreshOwnedCampaign(PlayableSkeleton.Start(world), confirmedRulerPersonId);
-        _playRules = BindPlayableSessionRules(started, forceId);
-        _world = started;
-        _playerForceId = forceId;
+        _session = _session!.Start(forceId, (started, rulerId) =>
+        {
+            GameState campaign = ConstructFreshOwnedCampaign(started, rulerId);
+            PreparedPlayableSessionRules prepared = BindPlayableSessionRules(campaign, forceId);
+            return new CampaignConfiguration(campaign, prepared.Rules, CampaignCalendar(prepared.Army));
+        });
         RefreshSceneAudioContext();
         _playMessage.Text = _ui.Get("play_started");
         RefreshCurrentPlayWorld();
@@ -2245,9 +2251,8 @@ public partial class Main : Control
 
     private void ApplyPlayableOrder(GameOrder order)
     {
-        if (_world is not GameState world || _playerForceId is not int player) return;
-        CommandResult result = GameEngine.Apply(world, order, _playRules!.OrderRules,
-            new CommandContext("local"), new SingleForceAuthority(player, "local"));
+        if (_session?.PlayerForceId is null) return;
+        CommandResult result = _session!.Issue(order);
         if (!result.Accepted)
         {
             _playMessage.Text = _ui.Format("play_order_rejected",
@@ -2255,30 +2260,23 @@ public partial class Main : Control
                 result.ErrorCode is { } code ? _ui.CommandError(code) : result.Error ?? "?");
             return;
         }
-        _world = result.State;
         _playMessage.Text = _ui.Get("play_order_accepted");
         RefreshCurrentPlayWorld();
     }
 
     private void AdvancePlayable()
     {
-        if (_world is null || _playerForceId is not int player) return;
-        if (PlayableOutcome.Evaluate(_world, player) != PlayableResult.Ongoing) return;
-        GameState prepared = PlayableAiPlanner.IssueCampaignOrders(_world, _playRules!, new HashSet<int> { player });
-        GameState advanced = GameEngine.AdvancePeriod(prepared, _playRules!.AdvancementRules);
-        if (advanced.NativePlayableTerminal is null)
-            advanced = _ownedArmyCampaign is { } campaign ? campaign.AdvancePlayableCalendar(advanced) :
-                OriginalNormalArmyCombatCalendarRuntime.AdvanceCampaign(advanced);
-        _world = advanced;
+        if (_session?.PlayerForceId is null) return;
+        if (!_session!.AdvancePeriod()) return;
         _playMessage.Text = "";
         RefreshCurrentPlayWorld();
-        if (_world.Phase == TurnPhase.Reporting) SetMapFocus(false);
+        if (_session.World.Phase == TurnPhase.Reporting) SetMapFocus(false);
     }
 
     private void FinishPlayableReport()
     {
         if (_world is not { Phase: TurnPhase.Reporting } || _playerForceId is null) return;
-        _world = GameEngine.FinishReport(_world, _playRules!.ReportingRules);
+        _session!.FinishReport();
         _playMessage.Text = "";
         RefreshCurrentPlayWorld();
     }
@@ -2535,24 +2533,18 @@ public partial class Main : Control
 
     private void SavePlayable()
     {
-        if (_world is null || _playerForceId is not int forceId) return;
-        new SessionSaveStore(new JsonGzipSaveCodec()).Save(PlayableSavePath(SelectedPlayableSaveSlot), _world, forceId);
+        if (_session?.PlayerForceId is null) return;
+        _session!.Save(PlayableSavePath(SelectedPlayableSaveSlot));
         RefreshSaveSlots();
         _playMessage.Text = _ui.Get("play_saved");
     }
 
     private void LoadPlayable()
     {
-        GameSessionSave restored = new SessionSaveStore(new JsonGzipSaveCodec()).Load(
-            PlayableSavePath(SelectedPlayableSaveSlot));
-        if (restored.State.RulesetId != PlayableSkeleton.RulesetId ||
-            restored.State.Phase is not (TurnPhase.Strategy or TurnPhase.Reporting))
-            throw new InvalidDataException("Saved session has an unsupported ruleset or phase.");
+        GameSessionSave restored = GameplaySession.ReadSave(PlayableSavePath(SelectedPlayableSaveSlot));
         int index = _shownScenarios.FindIndex(scenario =>
             GameResourceId.File(scenario.SourcePath).ToString() == restored.State.ScenarioKey);
         if (index < 0) throw new InvalidDataException("The saved scenario is unavailable in the selected language.");
-        if (!restored.State.Forces.ContainsKey(restored.PlayerForceId))
-            throw new InvalidDataException("Saved player force is unavailable.");
         ShowScenario(index, restored.State, restored.PlayerForceId);
         _scenarioList.Select(index);
         RefreshSceneAudioContext();
@@ -2573,7 +2565,7 @@ public partial class Main : Control
         if (_world is null) return;
         try
         {
-            new SaveStore(new JsonGzipSaveCodec()).Save(InitialSavePath, _world);
+            _session!.SavePreview(InitialSavePath);
             _worldStatus.Text = _ui.InitialStateSaved;
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
@@ -2589,9 +2581,7 @@ public partial class Main : Control
         int index;
         try
         {
-            restored = new SaveStore(new JsonGzipSaveCodec()).Load(InitialSavePath);
-            if (restored.Phase != TurnPhase.Initializing)
-                throw new InvalidDataException("This browser currently loads initialized-world snapshots only.");
+            restored = GameplaySession.ReadPreview(InitialSavePath);
             index = _shownScenarios.FindIndex(scenario =>
                 GameResourceId.File(scenario.SourcePath).ToString() == restored.ScenarioKey);
             if (index < 0) throw new InvalidDataException("The saved scenario is unavailable in the selected language.");

@@ -6,13 +6,16 @@ namespace San14.Data.Formats;
 
 public sealed record S14TerrainTypeDefinition(int Slot, string Name, string SecondaryText,
     ushort RawField2A, byte RawField2C, string ThirdText,
-    byte RawField40, byte RawField41, byte RawField42, byte RawField43, byte[] RawBytes);
+    byte RawField40, byte RawField41, byte RawField42, byte RawField43, byte[] RawBytes)
+{
+    public bool CountsTowardRegionalArea => RawField2A > 0;
+}
 
 public sealed record S14TerrainTypeCatalog(uint FormatMarker, int RecordOffset,
     int RecordStride, string DecodedSha256, IReadOnlyList<S14TerrainTypeDefinition> Types);
 
-/// <summary>Fixed section8 CTerrainData. Field names retain native offsets;
-/// the unsigned raw2A word's numeric gameplay meaning is not inferred.</summary>
+/// <summary>Reads fixed section8 terrain records. The positive count flag
+/// marks terrain included in regional area totals; other undecoded fields stay at the format boundary.</summary>
 public static class S14TerrainTypeReader
 {
     private static readonly UnicodeEncoding StrictUtf16 = new(false, false, true);

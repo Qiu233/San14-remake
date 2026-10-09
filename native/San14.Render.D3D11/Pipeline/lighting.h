@@ -1,7 +1,7 @@
 // One original GGX initializer and one selected F103 lighting pass.
 // All sampled pixels are produced on this D3D11 device.
 static ComPtr<ID3D11Texture2D> generateGgx(ID3D11Device* device,ID3D11DeviceContext* context,
-    const fs::path& source,const fs::path& output) {
+    const fs::path& source) {
     auto vsCode=load(source/"vertex.dxbc"),psCode=load(source/"ggx-pixel.dxbc");
     ComPtr<ID3D11VertexShader> vs;ComPtr<ID3D11PixelShader> ps;
     check(device->CreateVertexShader(vsCode.data(),vsCode.size(),nullptr,&vs),"GGX source fullscreen VS");
@@ -22,11 +22,6 @@ static ComPtr<ID3D11Texture2D> generateGgx(ID3D11Device* device,ID3D11DeviceCont
     context->IASetInputLayout(nullptr);context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);context->VSSetShader(vs.Get(),nullptr,0);context->PSSetShader(ps.Get(),nullptr,0);
     auto rawCb=constants.Get();context->PSSetConstantBuffers(0,1,&rawCb);context->RSSetState(raster.Get());context->OMSetDepthStencilState(depth.Get(),0);context->OMSetBlendState(blend.Get(),nullptr,~0u);
     D3D11_VIEWPORT vp{0,0,256,256,0,1};context->RSSetViewports(1,&vp);auto rawTarget=target.Get();context->OMSetRenderTargets(1,&rawTarget,nullptr);context->Draw(3,0);context->OMSetRenderTargets(0,nullptr,nullptr);
-    td.Usage=D3D11_USAGE_STAGING;td.BindFlags=0;td.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
-    ComPtr<ID3D11Texture2D> staging;check(device->CreateTexture2D(&td,nullptr,&staging),"GGX staging");context->CopyResource(staging.Get(),texture.Get());D3D11_MAPPED_SUBRESOURCE data{};check(context->Map(staging.Get(),0,D3D11_MAP_READ,0,&data),"GGX readback");
-    std::ofstream file(output/"ggx-rg16f.bin",std::ios::binary);UINT nonfinite=0;float minimum=INFINITY,maximum=-INFINITY;
-    for(UINT y=0;y<256;++y){const char* row=static_cast<const char*>(data.pData)+y*data.RowPitch;file.write(row,256*4);for(UINT x=0;x<256;++x){auto value=decode(row+x*4,DXGI_FORMAT_R16G16_FLOAT);for(int c=0;c<2;++c){if(!std::isfinite(value[c]))++nonfinite;else{minimum=std::min(minimum,value[c]);maximum=std::max(maximum,value[c]);}}}}
-    context->Unmap(staging.Get(),0);std::cout<<"GGX originalPS extent=256x256 samples=256 format=34 nonfinite="<<nonfinite<<" min="<<minimum<<" max="<<maximum<<"\n";
     return texture;
 }
 

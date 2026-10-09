@@ -106,6 +106,7 @@ public sealed record AreaPreviewRecord(int Slot, string Name, string SecondaryTe
     public ushort? RawField46 { get; init; }
     public IReadOnlyList<int> AdjacentAreaSlots { get; init; } = [];
     public IReadOnlyList<ushort>? RawNeighborSlots { get; init; }
+    public byte RegionalNeighborMask { get; init; }
     public byte? RawFlags38 { get; init; }
     public byte? RawFlag74 { get; init; }
 }

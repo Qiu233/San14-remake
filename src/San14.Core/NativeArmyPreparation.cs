@@ -4,9 +4,8 @@ namespace San14.Core;
 /// A null value explicitly leaves the reached native aftermath unknown.</summary>
 public sealed record NativeArmyMoralePreparationResolution(byte? NativeMorale1A);
 public sealed record NativeArmyRegionPreparationResolution(ushort? NativeSavedRegionHex152);
-/// <summary>Global step37 writes to the existing native current parameter
-/// owner. This receipt cannot replace source identity, floats or other state.</summary>
-public sealed record NativeArmyGlobalRegionPreparationResolution(Dictionary<string, int> Int32Values);
+/// <summary>Completed regional statistics, staged before army region effects are evaluated.</summary>
+public sealed record AreaStatisticsUpdate(AreaMapStatisticsState Statistics);
 
 /// <summary>Explicit CTurnState step36 logistics result for an owned Army.
 /// Null means a reached current query is unresolved.</summary>
@@ -21,7 +20,7 @@ public interface IPlayableNativeArmyPreparationRules
     byte? ResolveFlags150AfterLogistics(GameState state, UnitState army) => null;
     bool ProvidesFlags150Preparation => false;
     bool ProvidesGlobalRegionPreparation => false;
-    NativeArmyGlobalRegionPreparationResolution? ResolveGlobalRegionPreparation(GameState state) => null;
+    AreaStatisticsUpdate? ResolveGlobalRegionPreparation(GameState state) => null;
     /// <summary>Separate CTurnState step37, after all step36 receipts are
     /// staged. This is not a movement or subday-update callback.</summary>
     NativeArmyRegionPreparationResolution? ResolveSavedRegionAfterPreparation(GameState state, UnitState army) => null;
@@ -69,18 +68,11 @@ public static class NativeArmyPreparation
         bool globalPrepared = rules.ProvidesGlobalRegionPreparation && state.NativeArmySimulation is not null;
         if (globalPrepared)
         {
-            if (state.NativeArmySimulation is not { } simulation)
-                throw new InvalidDataException("Global native region preparation has no current parameter owner.");
-            NativeArmyGlobalRegionPreparationResolution global = rules.ResolveGlobalRegionPreparation(afterLogistics)
+            AreaStatisticsUpdate global = rules.ResolveGlobalRegionPreparation(afterLogistics)
                 ?? throw new InvalidDataException("Global native region preparation inputs are unresolved.");
-            if (global.Int32Values is null || global.Int32Values.Keys.Any(string.IsNullOrWhiteSpace))
-                throw new InvalidDataException("Global native region preparation returned malformed current fields.");
-            var parameters = simulation.Parameters with { Int32Values = new(global.Int32Values, global.Int32Values.Comparer) };
             //Only receipt fields are accepted. Rebuild from the original
             //snapshot and staged36 units, excluding incidental provider writes.
-            afterLogistics = GameStateSnapshot.Detach(prepared with { Units = units,
-                NativeArmySimulation = simulation with { Parameters = parameters } });
-            NativeArmySimulationStateValidation.Validate(afterLogistics);
+            afterLogistics = prepared with { RegionStatistics = global.Statistics };
         }
         var regions = new Dictionary<int, ushort?>();
         foreach (int id in connected.Keys.Order())
@@ -92,6 +84,6 @@ public static class NativeArmyPreparation
         foreach ((int id, ushort? region) in regions)
             units[id] = units[id] with { NativeSavedRegionHex152 = region };
         return connected.Count == 0 && !globalPrepared ? state : GameStateSnapshot.Detach(prepared with
-            { Units = units, NativeArmySimulation = afterLogistics.NativeArmySimulation });
+            { Units = units, RegionStatistics = afterLogistics.RegionStatistics });
     }
 }

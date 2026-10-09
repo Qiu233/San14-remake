@@ -220,6 +220,7 @@ public sealed partial record GameState
     public Dictionary<int, GateState> Gates { get; init; } = [];
     public Dictionary<int, OfficerState> Officers { get; init; } = [];
     public Dictionary<int, AreaState> Areas { get; init; } = [];
+    public AreaMapStatisticsState? RegionStatistics { get; init; }
     public Dictionary<int, UnitState> Units { get; init; } = [];
     // Null preserves unknown original/legacy map constructions. Empty is known empty.
     public Dictionary<int, StructureState>? Structures { get; init; }
@@ -282,6 +283,18 @@ public static class StateValidator
 
         bool KnownForce(int? id) => id is null || state.Forces.ContainsKey(id.Value);
         bool KnownOfficer(int? id) => id is null || state.Officers.ContainsKey(id.Value);
+        if (state.RegionStatistics is { } statistics)
+        {
+            if (statistics.Entries is null || statistics.UpdateOrder is null)
+                throw new InvalidDataException("Regional map statistics are incomplete.");
+            foreach ((int id, AreaMapStatisticsEntry area) in statistics.Entries)
+                if (area is null || id != area.AreaId || id < 0 || area.CenterHexId < 0 || area.CenterHexId >= mapSize ||
+                    area.OwnedCellCount < 0 || area.TerrainCellCount < 0 || !KnownForce(area.ForceId) ||
+                    (area.CityId is int cityId && !state.Cities.ContainsKey(cityId)))
+                    throw new InvalidDataException($"Regional map statistics for area {id} are invalid.");
+            if (statistics.UpdateOrder.Any(id => !statistics.Entries.ContainsKey(id)))
+                throw new InvalidDataException("The regional update order references a missing area.");
+        }
         bool ValidHex(int? hex) => hex is null ? state.Phase == TurnPhase.Initializing ||
             PlayableSkeleton.IsPlayableRuleset(state.RulesetId) : hex >= 0 && hex < mapSize;
         if (state.Structures is { } structures)

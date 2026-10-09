@@ -198,8 +198,7 @@ public sealed partial class OriginalOwnedArmyCampaignRules : IOriginalPlayableTa
             CaptureCurrentDefinitions(settings) ?? throw new InvalidDataException("Fresh credit current Person capture is unresolved."));
         GameState region = _regionSeed.InstallFresh(_personReward.InstallFresh(
             _pendingMerit.InstallFresh(_growthQueries.InstallFresh(credit))), Revision);
-        GameState areas = OriginalBattleRemakeCurrentAreaStatistics.InstallFresh(region, _scenario, _map,
-            _definitions.Capture(region) ?? throw new InvalidDataException("Fresh area statistics have no complete current map capture."));
+        GameState areas = AreaStatisticsSourceAdapter.Initialize(region, _scenario, _map, _terrain);
         GameState lifecycle = InstallFreshArmyLifecycle(OriginalOwnedArmyReturnServiceInputs.InstallFresh(
             _governorInputs.InstallFresh(_baseCapacityInputs.InstallFresh(areas))));
         var commandWorld = CaptureOwnedArmyReturnWorld(lifecycle);
@@ -560,13 +559,10 @@ public sealed partial class OriginalOwnedArmyCampaignRules : IOriginalPlayableTa
         return receipt is null ? null : new(receipt.Word152);
     }
     public bool ProvidesGlobalRegionPreparation => true;
-    public NativeArmyGlobalRegionPreparationResolution? ResolveGlobalRegionPreparation(GameState state)
+    public AreaStatisticsUpdate? ResolveGlobalRegionPreparation(GameState state)
     {
-        OriginalEventInitializationContext? definitions = CaptureCurrentDefinitions(state);
-        if (definitions is null) return null;
-        GameState refreshed = OriginalBattleRemakeCurrentAreaStatistics.RefreshAtNativeRegionStep(state,
-            _scenario, _map, definitions);
-        return new(refreshed.NativeArmySimulation!.Parameters.Int32Values);
+        return state.RegionStatistics is { } statistics
+            ? new(AreaStatisticsRules.RefreshOwnership(statistics, state.Territory)) : null;
     }
     private OriginalTacticRemakeCurrentContext? Capture(GameState state) =>
         CaptureCurrentDefinitions(state) is { } definitions ? Context(definitions) : null;
