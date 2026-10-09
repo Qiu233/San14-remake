@@ -44,11 +44,10 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="Interop.cpp" />
-    <ClCompile Include="RenderCore.cpp" />
-    <ClCompile Include="NativeApi.cpp" />
-    <ClInclude Include="*.h" />
-    <ClInclude Include="Pipeline\**\*.h;Pipeline\**\*.hpp" />
+    <ClCompile Include="Interop\Interop.cpp" />
+    <ClCompile Include="Runtime\RenderCore.cpp" />
+    <ClCompile Include="Interop\NativeApi.cpp" />
+    <ClInclude Include="Interop\**\*.h;Runtime\**\*.h;Device\**\*.h;Camera\**\*.h;Scene\**\*.h;Scene\**\*.hpp;Passes\**\*.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

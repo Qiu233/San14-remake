@@ -102,7 +102,7 @@ internal sealed class ArmyMapOccupancyAdapter
     }
 }
 
-public sealed partial class OriginalEventInitializationContext
+public sealed partial class SourceWorldContext
 {
     private ArmyMapOccupancyAdapter? _armyMapOccupancy;
     private bool _armyMapOccupancyBoundToWorld;
@@ -119,8 +119,8 @@ public sealed partial class OriginalEventInitializationContext
         writes = [];
         return _armyMapOccupancy?.TryTraverse(receiver, from, to, out writes) == true;
     }
-    private void CopyArmyMapOccupancyTo(OriginalEventInitializationContext draft)
+    private void CopyArmyMapOccupancyTo(SourceWorldContext draft)
     { draft._armyMapOccupancy = _armyMapOccupancy?.Copy(); draft._armyMapOccupancyBoundToWorld = _armyMapOccupancyBoundToWorld; }
-    private void CommitArmyMapOccupancyFrom(OriginalEventInitializationContext draft)
+    private void CommitArmyMapOccupancyFrom(SourceWorldContext draft)
     { _armyMapOccupancy = draft._armyMapOccupancy?.Copy(); _armyMapOccupancyBoundToWorld = draft._armyMapOccupancyBoundToWorld; }
 }

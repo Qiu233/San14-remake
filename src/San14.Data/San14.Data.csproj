@@ -11,8 +11,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="OriginalEmbeddedGgxShader.hlsl" />
-    <EmbeddedResource Include="ProjectStockShader.*.hlsl" />
+    <EmbeddedResource Include="Rendering/Shaders/GgxAmbientLut.hlsl" LogicalName="San14.Data.Shaders.GgxAmbientLut.hlsl" />
+    <EmbeddedResource Include="Rendering/Shaders/ProjectStockShader.*.hlsl" LogicalName="San14.Data.Shaders.%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>

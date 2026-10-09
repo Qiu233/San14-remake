@@ -1,0 +1,77 @@
+using Godot;
+using San14.Data;
+
+/// <summary>GPU samplers for one selected original program's actual key
+/// recipes. GGX stays with its LUT owner. A new accepted frame supplies a new
+/// validated plan; descriptor reuse never imports that frame's current state.</summary>
+public sealed class MapSelectedSourceSamplerOwner : IAsyncDisposable
+{
+    public MapSelectedSourceSamplerPlan Source { get; }
+    public IReadOnlyDictionary<uint, ReadOnlyMemory<byte>> SourceDescriptors => Source.SourceDescriptors;
+    private readonly IReadOnlyDictionary<uint, Rid> samplers;
+    private readonly IReadOnlyList<Rid> owned;
+    private readonly object gate = new();
+    private bool retiring;
+    private Task? disposal;
+
+    private MapSelectedSourceSamplerOwner(MapSelectedSourceSamplerPlan source,
+        Dictionary<uint, Rid> handles, List<Rid> ownedHandles)
+        => (Source, samplers, owned) = (source,
+            new System.Collections.ObjectModel.ReadOnlyDictionary<uint, Rid>(handles), ownedHandles.AsReadOnly());
+
+    public static async Task<MapSelectedSourceSamplerOwner> BuildAsync(MapSelectedSourceSamplerPlan source)
+    {
+        ArgumentNullException.ThrowIfNull(source); source.Validate();
+        var descriptors = source.SourceDescriptors.ToDictionary(p => p.Key,p => p.Value.ToArray());
+        var recipes = source.Bindings.Select(b => b with {Recipe=b.Recipe with {RawKey=b.Recipe.RawKey.ToArray()}}).ToArray();
+        uint? ggx = source.ImagePlan.Samplers.SingleOrDefault(s => s.KeySource.Role == "GGX")?.Declaration.BindPoint;
+        return await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
+        {
+            var handles = new Dictionary<uint,Rid>(); var owned = new List<Rid>();
+            var cache = new Dictionary<string,Rid>(StringComparer.Ordinal);
+            try
+            {
+                foreach (var binding in recipes.Where(b => b.Register != ggx))
+                {
+                    string descriptorHash = Convert.ToHexString(descriptors[binding.Register]);
+                    if (!cache.TryGetValue(descriptorHash,out Rid sampler))
+                    {
+                        sampler = DeviceSampler.Create(rd,descriptors[binding.Register]);
+                        cache.Add(descriptorHash,sampler); owned.Add(sampler);
+                    }
+                    handles.Add(binding.Register,sampler);
+                }
+                return new MapSelectedSourceSamplerOwner(source,handles,owned);
+            }
+            catch {for(int index=owned.Count-1;index>=0;index--)rd.FreeRid(owned[index]);throw;}
+        });
+    }
+
+    public IReadOnlyList<DeferredDeviceBinding> GetBindings(MapSelectedSourceSamplerPlan currentValidatedPlan)
+    {
+        ArgumentNullException.ThrowIfNull(currentValidatedPlan); currentValidatedPlan.Validate();
+        lock (gate)
+        {
+            ObjectDisposedException.ThrowIf(retiring,this);
+            MapSelectedSourceImageOwner.ValidateCompatible(Source.ImagePlan,currentValidatedPlan.ImagePlan);
+            if (Source.Native.Locale != currentValidatedPlan.Native.Locale ||
+                Source.Bindings.Count != currentValidatedPlan.Bindings.Count ||
+                !Source.Bindings.Zip(currentValidatedPlan.Bindings).All(p => p.First.Register == p.Second.Register &&
+                    p.First.SamplerName == p.Second.SamplerName && p.First.TextureRegister == p.Second.TextureRegister &&
+                    p.First.TextureName == p.Second.TextureName && p.First.Recipe.RawKey.AsSpan().SequenceEqual(p.Second.Recipe.RawKey)) ||
+                Source.SourceDescriptors.Count != currentValidatedPlan.SourceDescriptors.Count ||
+                Source.SourceDescriptors.Any(p => !currentValidatedPlan.SourceDescriptors.TryGetValue(p.Key,out var value) || !p.Value.Span.SequenceEqual(value.Span)))
+                throw new InvalidDataException("Current selected sampler key, descriptor or null scope changed; drain dependent draws and rebuild its owner.");
+            return Array.AsReadOnly(currentValidatedPlan.Bindings.Where(b => samplers.ContainsKey(b.Register)).Select(b =>
+                new DeferredDeviceBinding("Sampler",b.Register,samplers[b.Register],null,
+                    b.SourceResourceUri + "/sampler-key/" + Convert.ToHexString(b.Recipe.RawKey) +
+                    ";source-program=" + currentValidatedPlan.Selection.PixelProgramSha256)).ToArray());
+        }
+    }
+
+    public IReadOnlyList<DeferredDeviceBinding> GetBindings() => GetBindings(Source);
+    public ValueTask DisposeAsync()
+    {lock(gate){retiring=true;return new(disposal??=DisposeCoreAsync());}}
+    private Task DisposeCoreAsync() => TerrainDeviceTexture.OnRenderThreadAsync(rd =>
+    {for(int index=owned.Count-1;index>=0;index--)rd.FreeRid(owned[index]);return true;});
+}

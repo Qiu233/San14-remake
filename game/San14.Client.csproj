@@ -9,7 +9,6 @@
     <DefaultItemExcludes>$(DefaultItemExcludes);obj/**;bin/**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Remove="TerrainArraySmoke.cs" />
     <ProjectReference Include="../src/San14.Data/San14.Data.csproj" />
     <ProjectReference Include="../src/San14.Core/San14.Core.csproj" />
   </ItemGroup>
