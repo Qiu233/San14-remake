@@ -18,15 +18,18 @@ public sealed record OriginalCityCaptureFoodQuote(int? Value, OriginalCityCaptur
 public static class OriginalCityCaptureFoodWarningSource
 {
     public const string VersionKey = "ce-city-capture-food-quote:version";
-    public static string ParameterKey(int tcRva) => "ce-city-capture-food-quote:parameter:" + tcRva.ToString("X");
-    private const int PositiveCorrection = 0x27D3824, NegativeCorrection = 0x27D3828;
     private const int GarrisonFoodExpenseNumerator = 10;
     private const int GarrisonFoodExpenseDivisor = 30;
     private const int GovernorFoodExpenseEffectScale = 1;
     private const int CityRepairQuoteGoldFee = 100;
     private const int InitialPositiveFoodCorrection = 0;
     private const int InitialNegativeFoodCorrection = 0;
-    private static readonly int[] DataRvas = [0x1A4AF04, 0x1A4AEF8, 0x1A4B17C, 0x1A4A9B4];
+    private static readonly string[] ParameterKeys = [
+        SimulationParameterKeys.CityFoodExpense.GarrisonExpenseNumerator,
+        SimulationParameterKeys.CityFoodExpense.GarrisonExpenseDivisor,
+        SimulationParameterKeys.CityFoodExpense.GovernorExpenseEffectScale,
+        SimulationParameterKeys.CityFoodExpense.RepairGoldFee
+    ];
 
     /// <summary>Explicit fresh installation of project food quote rules.
     /// Ordinary quote calls consume the current saved parameter bank.</summary>
@@ -41,9 +44,9 @@ public static class OriginalCityCaptureFoodWarningSource
         int[] rules = [GarrisonFoodExpenseNumerator, GarrisonFoodExpenseDivisor,
             GovernorFoodExpenseEffectScale, CityRepairQuoteGoldFee];
         var values = new Dictionary<string, int>(owner.Int32Values) { [VersionKey] = 1 };
-        for (int i = 0; i < DataRvas.Length; i++) values.Add(ParameterKey(DataRvas[i]), rules[i]);
-        values.Add(ParameterKey(PositiveCorrection), InitialPositiveFoodCorrection);
-        values.Add(ParameterKey(NegativeCorrection), InitialNegativeFoodCorrection);
+        for (int i = 0; i < ParameterKeys.Length; i++) values.Add(ParameterKeys[i], rules[i]);
+        values.Add(SimulationParameterKeys.CityFoodExpense.PositiveCorrection, InitialPositiveFoodCorrection);
+        values.Add(SimulationParameterKeys.CityFoodExpense.NegativeCorrection, InitialNegativeFoodCorrection);
         return state with { NativeArmySimulation = state.NativeArmySimulation! with
             { Parameters = owner with { Int32Values = values } } };
     }
@@ -98,7 +101,7 @@ public static class OriginalCityCaptureFoodWarningSource
                 if (homeArmies.Count != 0) throw Missing("Army269850_route2B0010_and269A50_current_producer");
             }
             finally { Release(current, armies); Release(current, gates); }
-            ApplyEmptyAdministrationQuoteTail(state, current, city, policies, P(0x1A4A9B4));
+            ApplyEmptyAdministrationQuoteTail(state, current, city, policies, P(SimulationParameterKeys.CityFoodExpense.RepairGoldFee));
             return new(expense, garrison.ToArray(), [], null) { QuotePolicyQueries = policies.ToArray() };
 
             int QuoteGarrison(OriginalBaseReference target)
@@ -106,7 +109,7 @@ public static class OriginalCityCaptureFoodWarningSource
                 int ready = K(current.ReadBaseResource(target, OriginalBaseResourceKind.Troops), "garrison3C");
                 int wounds = K(current.ReadArmyReturnBaseWounded40(target), "garrison40");
                 int total = unchecked(ready + wounds);
-                int basic = Divide(Divide(unchecked(total * P(0x1A4AF04)), P(0x1A4AEF8)), 10);
+                int basic = Divide(Divide(unchecked(total * P(SimulationParameterKeys.CityFoodExpense.GarrisonExpenseNumerator)), P(SimulationParameterKeys.CityFoodExpense.GarrisonExpenseDivisor)), 10);
                 basic = Math.Max(basic, 1);
                 ushort governor = K(current.ReadArmyReturnBaseGovernor2E(target), "garrison_Governor2E");
                 var lookup = current.ReadPersonLookupReference(governor <= 6000 ? governor : 0) ?? throw Missing("garrison_Governor_pointer");
@@ -119,15 +122,15 @@ public static class OriginalCityCaptureFoodWarningSource
                     {
                         effect = OriginalTacticRemakeCurrentTraits.CommanderEffectSum(current, physical, 0x46)
                             ?? throw Missing("garrison_Governor_effect70");
-                        if (effect > 0) adjustment = Math.Max(1, unchecked(Divide(unchecked(P(0x1A4B17C) * basic * effect.Value), 100) + P(PositiveCorrection)));
-                        else if (effect < 0) adjustment = Math.Min(-1, unchecked(Divide(unchecked(P(0x1A4B17C) * basic * effect.Value), 100) - P(NegativeCorrection)));
+                        if (effect > 0) adjustment = Math.Max(1, unchecked(Divide(unchecked(P(SimulationParameterKeys.CityFoodExpense.GovernorExpenseEffectScale) * basic * effect.Value), 100) + P(SimulationParameterKeys.CityFoodExpense.PositiveCorrection)));
+                        else if (effect < 0) adjustment = Math.Min(-1, unchecked(Divide(unchecked(P(SimulationParameterKeys.CityFoodExpense.GovernorExpenseEffectScale) * basic * effect.Value), 100) - P(SimulationParameterKeys.CityFoodExpense.NegativeCorrection)));
                     }
                 }
                 int quote = total == 0 ? 0 : unchecked(basic - adjustment);
                 garrison.Add(new(target, ready, wounds, basic, physical, busy, effect, quote)); return quote;
             }
-            int P(int rva) => state.NativeArmySimulation?.Parameters.Int32Values is { } values && values.GetValueOrDefault(VersionKey) == 1 &&
-                values.TryGetValue(ParameterKey(rva), out int raw) ? raw : throw Missing($"parameter{rva:X}");
+            int P(string key) => state.NativeArmySimulation?.Parameters.Int32Values is { } values && values.GetValueOrDefault(VersionKey) == 1 &&
+                values.TryGetValue(key, out int raw) ? raw : throw Missing($"parameter{key}");
         }
         catch (InvalidDataException missing) { return new(null, garrison.ToArray(), homeArmies.ToArray(), missing.Message)
             { QuotePolicyQueries = policies.ToArray() }; }

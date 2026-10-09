@@ -1,6 +1,4 @@
-using System.Buffers.Binary;
 using System.Numerics;
-using System.Security.Cryptography;
 
 namespace San14.Data;
 
@@ -108,24 +106,6 @@ public static class OriginalUnitWorldParent
         return new(fields, OriginalUnitWorldParentReference.Known(null));
     }
 
-    public static OriginalUnitWorldParentRecord ReadCurrentRecord(ReadOnlySpan<byte> completeRecord64,
-        string callerSource, string language, ulong explicitImageBase)
-    {
-        Label(callerSource);
-        if (completeRecord64.Length != 64 || explicitImageBase == 0)
-            throw new InvalidDataException("Current native parent record requires all 64 bytes and its explicit image base.");
-        uint rva = language switch { "SC" => 0x16CB0D8, "TC" => 0x16CA428,
-            _ => throw new InvalidDataException("Unsupported native parent record language profile.") };
-        if (explicitImageBase > ulong.MaxValue - rva)
-            throw new InvalidDataException("Current native parent image base overflows its vtable address.");
-        if (BinaryPrimitives.ReadUInt64LittleEndian(completeRecord64) != explicitImageBase + rva)
-            throw new InvalidDataException("Current parent record vtable differs from the proven D82400 type.");
-        Vector4 scale = Vector(completeRecord64[0x10..]), q = Vector(completeRecord64[0x20..]), p = Vector(completeRecord64[0x30..]);
-        return new(BinaryPrimitives.ReadInt32LittleEndian(completeRecord64[8..]),
-            BinaryPrimitives.ReadInt32LittleEndian(completeRecord64[12..]), scale, new(q.X, q.Y, q.Z, q.W), p,
-            callerSource + "; explicit64 SHA256=" + Convert.ToHexString(SHA256.HashData(completeRecord64)));
-    }
-
     /// <summary>DA4030 rejects every requested selector other than -1 before
     /// reading node+1C0. Allocation outcome is consumed only for an absent record;
     /// failed allocation and rejected selectors preserve the entire prior state.</summary>
@@ -215,7 +195,4 @@ public static class OriginalUnitWorldParent
     {
         if (string.IsNullOrWhiteSpace(value)) throw new InvalidDataException("Native parent input requires an explicit caller source.");
     }
-    private static Vector4 Vector(ReadOnlySpan<byte> bytes) => new(
-        BinaryPrimitives.ReadSingleLittleEndian(bytes), BinaryPrimitives.ReadSingleLittleEndian(bytes[4..]),
-        BinaryPrimitives.ReadSingleLittleEndian(bytes[8..]), BinaryPrimitives.ReadSingleLittleEndian(bytes[12..]));
 }

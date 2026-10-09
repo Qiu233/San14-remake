@@ -3,9 +3,9 @@ using System.Runtime.CompilerServices;
 
 namespace San14.Data;
 
-/// <summary>Actual dimensions provided by the owned device at E24A80. They are
+/// <summary>Actual dimensions provided by the owned device. They are
 /// deliberately separate from the working Scene wrapper's dimensions. Field98
-/// is initialized from this pair and E22590 does not update it.</summary>
+/// is initialized from this pair; later camera preparation leaves it unchanged.</summary>
 public sealed record OriginalMapPostEffect3ApplyControllerDimensions(long FrameNumber,
     string OwnerIdentity, int DeviceWidth, int DeviceHeight, float Diagonal98,
     float DeviceAspect94, string SourceEvidence)
@@ -29,14 +29,14 @@ public sealed record OriginalMapPostEffect3ApplyDerivedScalarPlan(long FrameNumb
     public void RequireCompleteForExecution()=>throw new NotSupportedException(UnsupportedInputs);
 }
 
-/// <summary>TC EB74A3..EB7928 computed scalar writers. Uses the already ported,
-/// hash-pinned original positive finite SSE pow kernel. No framework pow,
+/// <summary>Computed controller scalar writers. Uses the ported
+/// positive finite SSE pow kernel. No framework pow,
 /// substitute Camera tail, original process access or GPU dispatch occurs.</summary>
 public static class OriginalMapPostEffect3ApplyDerivedScalars
 {
-    public const string SourceScope="TC:E24A80;E22590;EB74A3..EB7928;fresh-owned-controller;partial-derived-writers";
+    public const string SourceScope="TC;fresh-owned-controller;partial-derived-writers";
     private static string Scope(string locale)=>locale=="TC"?SourceScope:
-        $"{locale}:paired-fresh-owned-controller;constructor={OriginalMapPostEffect3NativeSourceProfile.CodeRva(locale,"OriginalMapPostEffect3ApplyDerivedScalars.cs",0xE24A80):X8};partial-derived-writers";
+        $"{locale}:paired-fresh-owned-controller;typed-controller;partial-derived-writers";
 
     public static OriginalMapPostEffect3ApplyControllerDimensions ConstructFreshDimensions(
         long frameNumber,string ownerIdentity,int actualDeviceWidth,int actualDeviceHeight,
@@ -49,7 +49,7 @@ public static class OriginalMapPostEffect3ApplyDerivedScalars
         float w=actualDeviceWidth,h=actualDeviceHeight;
         float diagonal=MathF.Sqrt(A(Pow(h,2,actualSsePower),Pow(w,2,actualSsePower)));
         return new(frameNumber,ownerIdentity,actualDeviceWidth,actualDeviceHeight,diagonal,D(w,h),
-            Scope(actualSsePower.Locale)+";TC-reference-role:E24B6A..E24C06;device-descriptor50/54;"+actualSsePower.SourceProvenance)
+            Scope(actualSsePower.Locale)+";device-descriptor50/54;"+actualSsePower.SourceProvenance)
             {ExecutableLocale=actualSsePower.Locale};
     }
 
@@ -85,56 +85,56 @@ public static class OriginalMapPostEffect3ApplyDerivedScalars
         string evidence=Scope(camera.ExecutableLocale)+";"+camera.FrameProvenance+";"+tail.SourceEvidence+";"+dimensions.SourceEvidence;
         var init=new List<OriginalMapPostEffect3ApplyValueWrite>();
         var apply=new List<OriginalMapPostEffect3ApplyValueWrite>();
-        uint Code(uint rva)=>(uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(camera.ExecutableLocale,"OriginalMapPostEffect3ApplyDerivedScalars.cs",(int)rva);
-        void F(List<OriginalMapPostEffect3ApplyValueWrite> output,string name,uint at,uint helper,params float[] values)
+
+        void F(List<OriginalMapPostEffect3ApplyValueWrite> output,string name,OriginalMapPostEffect3WriteStage stage,params float[] values)
         {
             if(values.Any(v=>!float.IsFinite(v)))throw new NotSupportedException("Native derived scalar reaches a nonfinite branch.");
             byte[] bytes=new byte[checked(values.Length*4)];
             for(int i=0;i<values.Length;i++)BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(i*4),values[i]);
-            output.Add(new(name,Code(at),Code(helper),bytes,evidence));
+            output.Add(new(name,stage,bytes,evidence));
         }
-        void I(List<OriginalMapPostEffect3ApplyValueWrite> output,string name,uint at,uint helper,int value)
-        {byte[] b=new byte[4];BinaryPrimitives.WriteInt32LittleEndian(b,value);output.Add(new(name,Code(at),Code(helper),b,evidence));}
+        void I(List<OriginalMapPostEffect3ApplyValueWrite> output,string name,OriginalMapPostEffect3WriteStage stage,int value)
+        {byte[] b=new byte[4];BinaryPrimitives.WriteInt32LittleEndian(b,value);output.Add(new(name,stage,b,evidence));}
         if(retained is null)
         {
-            F(init,"ScreenWidth",0xE24C0F,0xE24A80,dimensions.DeviceWidth);
-            F(init,"ScreenHeight",0xE24C35,0xE24A80,dimensions.DeviceHeight);
-            I(init,"EnableDebugBloomSoftKneeCurve",0xE24C60,0xE24A80,0);
-            I(init,"EnableDebugHistgram",0xE24C81,0xE24A80,0);
+            F(init,"ScreenWidth",OriginalMapPostEffect3WriteStage.InitialScreenWidth,dimensions.DeviceWidth);
+            F(init,"ScreenHeight",OriginalMapPostEffect3WriteStage.InitialScreenHeight,dimensions.DeviceHeight);
+            I(init,"EnableDebugBloomSoftKneeCurve",OriginalMapPostEffect3WriteStage.InitialDebugBloom,0);
+            I(init,"EnableDebugHistgram",OriginalMapPostEffect3WriteStage.InitialDebugHistogram,0);
         }
         uint flags=tail.Word(0x1320);
         bool useWorkingExtent=(flags&(1u<<4))!=0;
         bool multiResolutionFix=(flags&(1u<<5))!=0;
         if(retained is not null&&(useWorkingExtent||multiResolutionFix))
-            throw new NotSupportedException("Retained FC/FD changes need their actual E22590 dirty optics writer.");
+            throw new NotSupportedException("Retained FC/FD changes need their actual  dirty optics writer");
         float width=useWorkingExtent?actualWorkingSceneWidth:dimensions.DeviceWidth;
         float height=useWorkingExtent?actualWorkingSceneHeight:dimensions.DeviceHeight;
         if(retained is not null){width=retained.EffectiveWidth80;height=retained.EffectiveHeight84;}
-        // E1CD10 flagsFC/FD are fresh zero. E22590 writes ScreenWidth/Height
+        // flagsFC/FD are fresh zero. writes ScreenWidth/Height
         // only when either flag changes, or enabled override changes its extent.
         if(useWorkingExtent||multiResolutionFix)
         {
-            F(apply,"ScreenWidth",0xEB74A3,0xE22590,width);
-            F(apply,"ScreenHeight",0xEB74A3,0xE22590,height);
-            I(apply,"Enable4KResFix",0xEB74A3,0xE22590,useWorkingExtent?1:0);
-            I(apply,"EnableMultiResFix",0xEB74A3,0xE22590,multiResolutionFix?1:0);
+            F(apply,"ScreenWidth",OriginalMapPostEffect3WriteStage.ControlledResize,width);
+            F(apply,"ScreenHeight",OriginalMapPostEffect3WriteStage.ControlledResize,height);
+            I(apply,"Enable4KResFix",OriginalMapPostEffect3WriteStage.ControlledResize,useWorkingExtent?1:0);
+            I(apply,"EnableMultiResFix",OriginalMapPostEffect3WriteStage.ControlledResize,multiResolutionFix?1:0);
         }
-        // E227E0 writes the internal A9 byte, not a named shader parameter.
+        // writes the internal A9 byte, not a named shader parameter.
         bool spriteDof=tail.Float(0x1324)>=0;
-        F(apply,"LuminanceRangeMinMax",0xEB76B6,0xE259C0,
+        F(apply,"LuminanceRangeMinMax",OriginalMapPostEffect3WriteStage.ControlledLuminanceRangeMinMax,
             Pow(2,tail.Float(0x136C),actualSsePower),Pow(2,tail.Float(0x1370),actualSsePower));
-        F(apply,"AdjustMiddleGray",0xEB76F2,0xE25000,
+        F(apply,"AdjustMiddleGray",OriginalMapPostEffect3WriteStage.ControlledAdjustMiddleGray,
             M(Pow(2,tail.Float(0x1328),actualSsePower),B(0x3E5EDC7F)));
-        F(apply,"BloomThresholdCurveParams",0xEB7790,0xE25100,
+        F(apply,"BloomThresholdCurveParams",OriginalMapPostEffect3WriteStage.ControlledBloomThresholdCurveParams,
             Pow(tail.Float(0x1354),B(0x400CCCCD),actualSsePower),tail.Float(0x1358));
-        F(apply,"TinyChromaAberraAmount",0xEB77E8,0xE25180,M(D(64,dimensions.Diagonal98),tail.Float(0x1380)));
-        F(apply,"LensFlareThreshold",0xEB7814,0xE25910,
+        F(apply,"TinyChromaAberraAmount",OriginalMapPostEffect3WriteStage.ControlledTinyChromaAberraAmount,M(D(64,dimensions.Diagonal98),tail.Float(0x1380)));
+        F(apply,"LensFlareThreshold",OriginalMapPostEffect3WriteStage.ControlledLensFlareThreshold,
             Pow(tail.Float(0x1360),B(0x400CCCCD),actualSsePower));
         float limb=Pow(camera.ExtraScalars.LimbDarkeningWeight7B0,B(0x3EE8BA2E),actualSsePower);
-        // E22530 first publishes prior controller70 if enabled, otherwise -.5.
-        // Fresh E1CD10 memset leaves70 zero, and E25980 then replaces it.
-        F(apply,"LimbDarkenningLinFade",0xEB7834,0xE22530,-.5f);
-        F(apply,"LimbDarkenningLinFade",0xEB786C,0xE25980,limb);
+        // first publishes prior controller70 if enabled, otherwise -.5.
+        // Fresh memset leaves70 zero, and then replaces it.
+        F(apply,"LimbDarkenningLinFade",OriginalMapPostEffect3WriteStage.ControlledResetLimbDarkening,-.5f);
+        F(apply,"LimbDarkenningLinFade",OriginalMapPostEffect3WriteStage.ControlledSetLimbDarkening,limb);
         float aspectScale=B(0x40166666);
         float f4,f0;
         if(retained is not null){f4=retained.AspectRatioF4;f0=retained.SensorHeightRatioF0;}
@@ -145,8 +145,8 @@ public static class OriginalMapPostEffect3ApplyDerivedScalars
         }
         float dc=tail.Float(0x135C);
         float intensity=BinaryPrimitives.ReadSingleLittleEndian(camera.Prefix.Span.Slice(0x180,4));
-        // E22480 writes byteAA only; E250F0 writes floatDC only. They are not
-        // shader-name writes despite adjacent E22490/E25100 wrapper code.
+        // writes byteAA only; writes floatDC only. They are not
+        // shader-name writes despite adjacent wrapper code.
         if(!float.IsFinite(dc)||!float.IsFinite(f4)||!float.IsFinite(f0))
             throw new NotSupportedException("Fresh controller scalar reaches a nonfinite native branch.");
         return new(camera.FrameNumber,Array.AsReadOnly(init.ToArray()),Array.AsReadOnly(apply.ToArray()),

@@ -3,6 +3,11 @@ using San14.Data.Formats;
 
 namespace San14.Data;
 
+public enum TerrainRendererKind
+{
+    OrdinaryMaterial
+}
+
 /// <summary>Current View19C8 item and its actual item+8 WorldPQ. This is an
 /// independent native owner publication; a Kind1ViewRecord.Mask78 or its
 /// shared LightOwnerIdentity cannot create this packet implicitly.</summary>
@@ -60,7 +65,7 @@ public static class OriginalTerrainSourceCreatedKind1WorldPQOwners
 public sealed record OriginalTerrainFreshOwnedStencilPublication(long FrameNumber,
     string ViewIdentity, string CameraOwnerIdentity, string CurrentLandscapeRecordIdentity,
     string SelectedF8RendererOwnerIdentity, string SelectedShaderSha256,
-    uint NativeRendererVtableTc, byte CurrentCallFlags, uint CurrentExclusion2B8,
+    TerrainRendererKind RendererKind, byte CurrentCallFlags, uint CurrentExclusion2B8,
     bool? FirstOverrideParameterPresent, bool? SecondOverrideParameterPresent,
     bool? SourceConstructorAndStartupRegistryRetained,
     bool? CompleteCreatedPluginChainAndDefaultCallbacksUnchanged,
@@ -99,7 +104,7 @@ public sealed class OriginalTerrainOrdinaryNativeStencilReceipt
         ";" + CurrentPublication.CurrentProducerProvenance + ";D2E443-stencil-disable;no-GPU-or-Main-activation-claim";
 }
 
-/// <summary>Actual Field Landscape128/DC52 source and plugin table16977D8.
+/// <summary>Actual Field Landscape128/DC52 source and ordinary material renderer.
 /// It never substitutes the class18 PB2 stencil continuation or equates a
 /// lighting mask descriptor with an unproven current WorldPQ pointer.</summary>
 public sealed class OriginalTerrainOrdinaryNativeStencilSource
@@ -113,13 +118,13 @@ public sealed class OriginalTerrainOrdinaryNativeStencilSource
     public OriginalTerrainViewPublicationSource TerrainSource { get; }
     public string ShaderUri => shader.Source.ResourceUri;
     public string ShaderSha256 => CanonicalShaderSha256;
-    public uint NativeRendererVtableTc => 0x16977D8;
+    public TerrainRendererKind RendererKind => TerrainRendererKind.OrdinaryMaterial;
     public uint NativePluginHeadOffset => 0x2D10;
     public string SourceKey => TerrainSource.SourceIdentity + "|" + ShaderUri + "@" + ShaderSha256;
-    public string SourceProvenance => SourceKey + ";BC3CCB-extraCount0/ptr0/B94E20/16977D8;" +
-        "Landscape128/BAC320/D5D042-F8;D31D30-View19C8-kind1-item8-WorldPQ78/View1BB8/D28C30/D2D050;" +
-        "D2D23A-flags4clear/10set;D2D80B-enable/D2D83E-0-0-2/D2D858-Always-current78-FF/D2D85D-writeFF;" +
-        "v60-B9E440/vC0-BA1A80/v70-BA80F0/GBuffer-only-J2D10-fixed-default-counter";
+    public string SourceProvenance => SourceKey + ";extraCount0/ptr0;ordinary-material-renderer;" +
+        "Landscape128/F8;View19C8-kind1-item8-WorldPQ78/View1BB8;" +
+        "flags4clear/10set;stencil-enable/0-0-2/Always-current78-FF/writeFF;" +
+        "GBuffer-only-J2D10-fixed-default-counter";
 
     public static OriginalTerrainOrdinaryNativeStencilSource ReadFreshFieldScene(LoadedTerrainShaderResources resources)
     {
@@ -159,7 +164,7 @@ public sealed class OriginalTerrainOrdinaryNativeStencilSource
             (first && second) || current.CurrentExclusion2B8 != TerrainSource.Exclusion2B8 ||
             (current.CurrentExclusion2B8 & world.CurrentWorldPQWord78) != 0)
             throw new NotSupportedException("Only the admitted original ordinary F8 flags/override/exclusion branch has a closed stencil recipe.");
-        if (current.SelectedShaderSha256 != ShaderSha256 || current.NativeRendererVtableTc != NativeRendererVtableTc ||
+        if (current.SelectedShaderSha256 != ShaderSha256 || current.RendererKind != RendererKind ||
             current.SourceConstructorAndStartupRegistryRetained != true ||
             current.CompleteCreatedPluginChainAndDefaultCallbacksUnchanged != true ||
             current.CurrentSelectedF8AndBindingsUnchanged != true || current.NoExternalHandlerOrStencilAssignment != true)

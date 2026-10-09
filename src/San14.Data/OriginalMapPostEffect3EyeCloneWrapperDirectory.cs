@@ -29,7 +29,7 @@ public sealed class OriginalMapPostEffect3EyeCloneWrapperDirectory
     public IReadOnlyList<Entry> Entries=>Array.AsReadOnly(entries.Values.OrderBy(e=>e.PhysicalParameterIndex).ThenBy(e=>e.NativeMipLevel).ToArray());
     public bool ProvesGpuViewCreation=>false;
     public bool GrantsPixelReadiness=>false;
-    public string SourceEvidence=>Source.SourceEvidence+";1158160/94AA60-clone-distinct-pointer-arrays;968F40(i,i)-single-mip-SRV/RTV;"+
+    public string SourceEvidence=>Source.SourceEvidence+"-clone-distinct-pointer-arrays;(i,i)-single-mip-SRV/RTV"+
         "native-full-wrapper40/42-retained;arrays85/86-exclude-last-physical-mip;CPU-pointer-recipe-only";
     public void RequireCurrent()
     {

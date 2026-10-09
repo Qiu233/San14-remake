@@ -124,9 +124,9 @@ public static partial class OriginalDeferredSamplerSources
         LoadedOriginalDeferredSamplerNativeSource native)
     {
 
-        return new(native,native.ResourceUri+";TC:1146926-owned61-flags7;1147D50-v20→94F420→94EA60→94C9D0;"+
-            "94CA78-initialData=null→94C6E0→9539B0-device.v28;CPU-owner/view-header-clears-only;"+
-            "factory8-v38=1158160-bloom85/86-mipviews-and69-alias/no61;source104-sole61-directory-writer;"+
+        return new(native,native.ResourceUri+";owned61-flags7;-v20→→→"+
+            "-initialData=null→→-device.v28;CPU-owner/view-header-clears-only"+
+            "factory8-v38=-bloom85/86-mipviews-and69-alias/no61;source104-sole61-directory-writer"+
             "first-CS52-positive-adaptation-reads-source-unspecified-u0(0,0);no-invented-clear/copy/initial-pixels");
     }
 }

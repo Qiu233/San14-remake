@@ -133,23 +133,23 @@ public sealed class OriginalOwnedPersonRelationInputs
         bool siblings = !sameId && ((a.B4 != 0 && a.B4 == b.B4) || (a.B6 != 0 && a.B6 == b.B6));
         bool sworn = !sameId && a.BC != 0 && a.BC == b.BC;
         bool clan = a.B2 != 0 && a.B2 == b.B2;
-        int multiplier = spouse || parents || siblings || clan ? P(0x1A4B2A4) : 1;
+        int multiplier = spouse || parents || siblings || clan ? P(SimulationParameterKeys.ArmyDestruction.RelationFamilyMultiplier) : 1;
         //2C8550's early exits occur only after the complete actual eight-entry
         //fill and wrapper destruction. The remaining wrappers are not run.
         bool isolated = !OneListHit(a.C0, secondPhysical) && !OneListHit(b.C0, firstPhysical) &&
             !OneListHit(a.D0, secondPhysical) && !OneListHit(b.D0, firstPhysical) && !sworn;
         var likes = TwoListHits(a.C0, secondPhysical, b.C0, firstPhysical);
-        int likeTerm = unchecked(((likes.First ? P(0x1A4B248) : 0) + (likes.Second ? P(0x1A4B248) : 0)) * multiplier);
+        int likeTerm = unchecked(((likes.First ? P(SimulationParameterKeys.ArmyDestruction.RelationLikeBonus) : 0) + (likes.Second ? P(SimulationParameterKeys.ArmyDestruction.RelationLikeBonus) : 0)) * multiplier);
         var hates = TwoListHits(a.D0, secondPhysical, b.D0, firstPhysical);
-        int hateTerm = unchecked(-((hates.First ? P(0x1A4B254) : 0) + (hates.Second ? P(0x1A4B254) : 0)) * multiplier);
-        int swornTerm = sworn ? P(0x1A4B25C) : 0;
-        int spouseTerm = isolated && spouse ? P(0x1A4B268) : 0;
-        int parentTerm = isolated && parents ? P(0x1A4B274) : 0;
-        int siblingTerm = isolated && siblings ? P(0x1A4B280) : 0;
-        int clanTerm = isolated && !parents && !siblings && clan ? P(0x1A4B28C) : 0;
+        int hateTerm = unchecked(-((hates.First ? P(SimulationParameterKeys.ArmyDestruction.RelationHatePenalty) : 0) + (hates.Second ? P(SimulationParameterKeys.ArmyDestruction.RelationHatePenalty) : 0)) * multiplier);
+        int swornTerm = sworn ? P(SimulationParameterKeys.ArmyDestruction.RelationSwornBonus) : 0;
+        int spouseTerm = isolated && spouse ? P(SimulationParameterKeys.ArmyDestruction.RelationSpouseBonus) : 0;
+        int parentTerm = isolated && parents ? P(SimulationParameterKeys.ArmyDestruction.RelationParentBonus) : 0;
+        int siblingTerm = isolated && siblings ? P(SimulationParameterKeys.ArmyDestruction.RelationSiblingBonus) : 0;
+        int clanTerm = isolated && !parents && !siblings && clan ? P(SimulationParameterKeys.ArmyDestruction.RelationClanBonus) : 0;
         int distance = Math.Abs((int)a.BE - b.BE);
         distance = Math.Min(Math.Min(distance, 150 - distance), 75);
-        int affinityWeight = P(0x1A4B298);
+        int affinityWeight = P(SimulationParameterKeys.ArmyDestruction.RelationAffinityWeight);
         float affinity = ((75f - (float)distance) * (float)affinityWeight) / 75f;
         int rounded = Cvtt(MathF.Round(affinity, MidpointRounding.AwayFromZero));
         int affinityTerm = Math.Min(rounded, affinityWeight);
@@ -166,15 +166,15 @@ public sealed class OriginalOwnedPersonRelationInputs
             if (state.NativeArmySimulation?.Parameters.Int32Values is not { } values ||
                 !values.TryGetValue(Force178Key(force), out int flag) || flag is < 0 or > 255) throw Unknown("Force byte178");
             //232B30 reads raw D0 IDs, not the allocator's successful payloads.
-            if ((flag & 1) != 0 && !a.D0.Contains(bid) && !b.D0.Contains(aid)) forceTerm = P(0x1A4B2B0);
+            if ((flag & 1) != 0 && !a.D0.Contains(bid) && !b.D0.Contains(aid)) forceTerm = P(SimulationParameterKeys.ArmyDestruction.RelationForceBonus);
         }
         int scalar = unchecked(traitTerm + forceTerm + affinityTerm + clanTerm + siblingTerm + parentTerm +
             spouseTerm + swornTerm + hateTerm + likeTerm);
-        byte tier = scalar < P(0x27D3834) ? (byte)1 : scalar < P(0x1A4B220) ? (byte)2 :
-            scalar < P(0x1A4B22C) ? (byte)3 : scalar < P(0x1A4B234) ? (byte)4 : (byte)5;
+        byte tier = scalar < P(SimulationParameterKeys.ArmyDestruction.RelationTierOneThreshold) ? (byte)1 : scalar < P(SimulationParameterKeys.ArmyDestruction.RelationTierTwoThreshold) ? (byte)2 :
+            scalar < P(SimulationParameterKeys.ArmyDestruction.RelationTierThreeThreshold) ? (byte)3 : scalar < P(SimulationParameterKeys.ArmyDestruction.RelationTierFourThreshold) ? (byte)4 : (byte)5;
         return new(scalar, tier);
 
-        int P(int tcRva) => Known(OriginalArmyDestructionParameterSeed.ReadCurrentTc(state, tcRva), $"relation parameter {tcRva:X}");
+        int P(string key) => Known(OriginalArmyDestructionParameterSeed.ReadCurrent(state, key), $"relation parameter {key}");
         bool OneListHit(ushort[] ids, int sought)
         {
             var handle = current.CreateTemporaryHexList() ?? throw Unknown("temporary wrapper allocation outcome");

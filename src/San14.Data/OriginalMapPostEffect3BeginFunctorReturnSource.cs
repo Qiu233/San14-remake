@@ -56,9 +56,9 @@ public static partial class OriginalDeferredSamplerSources
     {
 
         return new(native,native.RenderRuleIdentity+
-            ";TC:1161C00-full-context-save/CPU1BF0;all-branches-join1161D33-literalAL1;"+
-            "1146823-call/1146828-test;1164140-nonempty45-Functor0;1164278-AL1/"+
-            "1164285-source-finish-v28=BF9280-B001C3;11642A0-return-final-AL;"+
-            "1146845-preserveSIL/1146848-frontendEnd/1146851-pairflip/1146860-returnSIL");
+            ";full-context-save/CPU1BF0;all-branches-join-literalAL1"+
+            "-call/-test;-nonempty45-Functor0;-AL1"+
+            "-source-finish-v28=-;-return-final-AL"+
+            "-preserveSIL/-frontendEnd/-pairflip/-returnSIL");
     }
 }

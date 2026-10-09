@@ -32,7 +32,7 @@ public sealed partial class OriginalMapPostEffect3FullscreenGraphicsExecutor
         {
             if(eye.RequiresDynamicPixelTextureBinding)
             {
-                if(setters is not [{SourceSetter.RegisterIndex:0}]||setters[0].SourceSetterRva!=eye.NativePixelTextureSetterRva)
+                if(setters is not [{SourceSetter.RegisterIndex:0}]||setters[0].Setter!=eye.TextureSetter)
                     throw new InvalidDataException("Actual Eye iteration requires exactly its typed Before t0 setter.");
             }
             else if(setters.Count!=0)throw new InvalidDataException("Eye iteration has no source dynamic t0 setter.");
@@ -101,7 +101,7 @@ public sealed partial class OriginalMapPostEffect3FullscreenGraphicsExecutor
         if(source.EyeBefore is{RequiresTemporaryBlendOverride:true})
         {
             var a=actual.Raster.Attachments[0];
-            // Native966330 expands packed111100 through14BF7E0/14BF810:
+            // The packed111100 blend state expands to:
             // D3D RGB/alpha ONE+ONE and operation ADD, not SRC_ALPHA.
             if(!a.EnableBlend||a.SourceColor!=RenderingDevice.BlendFactor.One||a.DestinationColor!=RenderingDevice.BlendFactor.One||
                 a.ColorOperation!=RenderingDevice.BlendOperation.Add||a.SourceAlpha!=RenderingDevice.BlendFactor.One||

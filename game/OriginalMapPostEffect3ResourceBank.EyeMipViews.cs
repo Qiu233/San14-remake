@@ -41,7 +41,7 @@ public sealed partial class OriginalMapPostEffect3ResourceBank
             b.Table==OriginalMapPostEffect3BindingTable.TextureParameters&&b.ParameterIndex==logicalParameter&&
             b.Role==OriginalMapPostEffect3BindingRole.ShaderResourceRead&&b.RegisterIndex==sourceRegister&&b.NativeViewKind==1))
             throw new InvalidDataException("Selected Eye alias is not this source pass/register's native texture setter.");
-        // Native kind1 calls1163970 and selects the wrapper's actual SRV.
+        // Native kind1 selects the wrapper's actual SRV.
         // Counted mip/slice columns are unused by this setter. The actual
         // source-cloned wrapper retains its one physical mip.
         int physical=reference.PhysicalAllocationParameterIndex.Value;uint mip=reference.NativeFirstMipLevel!.Value;
@@ -50,7 +50,7 @@ public sealed partial class OriginalMapPostEffect3ResourceBank
         var view=await RequireEyeMipViewAsync(texture,mip,texture.Shape.Formats.ShaderResourceFormat0);
         table.ValidateCurrent(accepted);contents.RequireCurrent();
         return new EyeSelectedMipReadLease(this,table,accepted,contents,view,sourcePass,sourceRegister,
-            reference.SourceEvidence+";94AA60/968F40-source-single-mip-wrapper");
+            reference.SourceEvidence+";source-single-mip-wrapper");
     }
 
     /// <summary>Eye Before's dynamic PS t0 setter selects a cloned wrapper
@@ -74,7 +74,7 @@ public sealed partial class OriginalMapPostEffect3ResourceBank
         var view=await RequireEyeMipViewAsync(texture,(uint)mip,texture.Shape.Formats.ShaderResourceFormat0);
         frame.RequireCurrent();table.ValidateCurrent(accepted);contents.RequireCurrent();
         return new EyeSelectedMipReadLease(this,table,accepted,contents,view,before.Iteration.SourcePassIndex,0,
-            before.SourceEvidence+";1163970-dynamic-PS-t0-current-single-mip-wrapper",frame);
+            before.SourceEvidence+";dynamic-PS-t0-current-single-mip-wrapper",frame);
     }
 
     private void RequireEyeTable(OriginalMapPostEffect3TextureParameterState table)

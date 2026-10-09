@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 
 namespace San14.Data;
 
-/// <summary>Exact E22860 internal diaphragm/star pointer choices. This copies
+/// <summary>Exact internal diaphragm/star pointer choices. This copies
 /// native wrapper identities and makes no statement about their pixel contents.
 /// External custom diaphragm/star branches need their actual controller owners.</summary>
 public sealed class OriginalMapPostEffect3LensFlare2ControllerTextures
@@ -71,7 +71,7 @@ public static partial class OriginalDeferredSamplerSources
     {
         if(native.Locale is not ("TC" or "SC"))throw new NotSupportedException("LensFlare2 controller texture source requires a verified SC/TC profile.");
 
-        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+";TC:E22860..E229BE;E22919-copy-owned50-to51-if-Diaphragm9C!=2;"+
-            "E229BA-copy-owned55-to56-if-ExternalStarA0=0;no-LF2OutputColor57-alias",native.Locale);
+        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;"+";copy-owned50-to51-if-Diaphragm9C!=2"+
+            "-copy-owned55-to56-if-ExternalStarA0=0;no-LF2OutputColor57-alias",native.Locale);
     }
 }

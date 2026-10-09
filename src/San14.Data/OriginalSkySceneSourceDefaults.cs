@@ -143,7 +143,7 @@ public static class OriginalSkySceneSourceDefaults
         Matrix4x4 celestial=new(1,0,0,0,0,quarter.Cos,quarter.Sin,0,0,Neg(quarter.Sin),quarter.Cos,0,0,0,0,1);
         celestial=LeftY(celestial,F(0x40490FDB));celestial=RightY(celestial,hour);
         Matrix4x4 geographic=Matrix(OriginalSky2GeometryPreparation.PrepareSkyTransform(p.Angle1430,p.Angle1434,p.Angle143C));
-        Matrix4x4 inverse=OriginalNativeMatrixMath.Inverse3F6EB0(Combine3x3(celestial,geographic),out _);
+        Matrix4x4 inverse=OriginalNativeMatrixMath.Invert(Combine3x3(celestial,geographic),out _);
         Vector4? sun=null,moon=null;
         if(explicitSunPresent) sun=CelestialDirection(season,F(0x3ED17496),inverse);
         if(explicitMoonPresent)

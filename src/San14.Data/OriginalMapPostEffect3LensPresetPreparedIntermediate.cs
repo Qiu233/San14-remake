@@ -24,15 +24,15 @@ public sealed class OriginalMapPostEffect3LensPresetPreparedIntermediatePacket
     public ReadOnlyMemory<byte> Bytes=>bytes.ToArray();
     public string SourceEvidence{get;}
 
-    /// <summary>Explicit fresh original Camera ownership: C3E1C6 clears
-    /// embedded1330..2BEF, including relativeIntermediate15CC+5C. C4429C
-    /// writes exactly92B and preserves that separate constructor-zero tag.</summary>
+    /// <summary>Fresh Camera construction clears embedded1330..2BEF,
+    /// including relativeIntermediate15CC+5C. The intermediate writer updates
+    /// exactly92B and preserves that separate constructor-zero tag.</summary>
     public static OriginalMapPostEffect3LensPresetPreparedIntermediatePacket ConstructFreshSource(
         OriginalMapPostEffect3LensPresetIntermediatePacket math)
     {
         ArgumentNullException.ThrowIfNull(math);
         if(math.FrameNumber<=0)throw new InvalidDataException("Fresh96B Lens ownership requires an accepted Camera frame.");
-        return new(math,0,"explicit-fresh-Camera;TC-C3E1C6/SC-C3F876-memset-embedded1330/18C0;"+
+        return new(math,0,"explicit-fresh-Camera;TC-/SC-memset-embedded1330/18C0"+
             "Intermediate-relative15CC+5C=wholeCPU2958;C4429C92B-math-preserves-marker");
     }
     public static OriginalMapPostEffect3LensPresetPreparedIntermediatePacket FromExplicitOwnedPreparedCamera(
@@ -53,7 +53,7 @@ public sealed record OriginalMapPostEffect3LensPresetPrepareBaseResult(long Fram
     uint PreviousNativeComparisonTag,uint CurrentNativeComparisonTag,bool RegeneratedMath,
     bool NativeReturnValue,string SourceEvidence);
 
-/// <summary>1153DF0 split-route preparation. Supported actual declarations are
+/// <summary> split-route preparation. Supported actual declarations are
 /// all present: their unknown values cannot be treated as failed name lookups.
 /// Marker-equal skip reads no current scalar values. Native lookup-missing or
 /// nonfinite mathematical branches require a separate retained-data producer.</summary>
@@ -74,7 +74,7 @@ public static class OriginalMapPostEffect3LensPresetPrepareBase
         if(BinaryPrimitives.ReadUInt64LittleEndian(state.RequireValue("LensPreset").Span)!=0)
             throw new NotSupportedException("Lens PrepareBase unified pointer route needs its own actual native owner.");
         uint previous=pins.NativeComparisonTag5C;
-        string evidence=pins.SourceEvidence+";"+inputs.ActualContextEvidence+";TC1153DF0/SC11555F0";
+        string evidence=pins.SourceEvidence+";"+inputs.ActualContextEvidence+";/";
         if(previous==inputs.ActualContextCounter1BF0)
             return new(pins.FrameNumber,previous,previous,false,true,evidence+";native-marker-equal-no-scalar-read");
         if(inputs.DescriptorWidth<=0||inputs.DescriptorHeight<=0||!Sse.IsSupported)
@@ -95,9 +95,9 @@ public static class OriginalMapPostEffect3LensPresetPrepareBase
         float diagonal=Divide(Sse.SqrtScalar(Vector128.CreateScalar(square)).GetElement(0),height);
         var caller=OriginalMapPostEffect3LensPresetCallerInputs.CapturePreparedNativeInputs(pins.Camera,
             [distance,focal,diagonal,Divide(width,height),Scalar("FStop"),Scalar("ExposureDial"),
-                Scalar("AdaptedScaleLight"),Scalar("AdaptedScaleDark")],evidence+";TC1148CB0/SC1149D30-six-native-scalars-and-descriptor40-extent");
+                Scalar("AdaptedScaleLight"),Scalar("AdaptedScaleDark")],evidence+";/-six-native-scalars-and-descriptor40-extent");
         var math=OriginalMapPostEffect3LensPresetIntermediateProducer.PrepareCurrent(caller,pins.Source,sources,explicitDispatch);
-        pins.CommitPrepareBase(math,inputs.ActualContextCounter1BF0,evidence+";1153EEE-exact-current-native-counter-write");
+        pins.CommitPrepareBase(math,inputs.ActualContextCounter1BF0,evidence+"-exact-current-native-counter-write");
         return new(pins.FrameNumber,previous,inputs.ActualContextCounter1BF0,true,true,evidence+";all92B-math-before5C-counter-write");
     }
     [MethodImpl(MethodImplOptions.NoInlining)]private static float Divide(float a,float b)=>a/b;

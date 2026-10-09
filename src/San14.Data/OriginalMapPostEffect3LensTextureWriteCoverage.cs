@@ -89,8 +89,7 @@ public sealed class OriginalMapPostEffect3LensTextureWriteCoverage
         {
             var cb=recipe.Initialization.ConstantBuffers.Single(c=>c.Declaration.Index==req.ParameterIndex);
             if(cb.FrameNumber!=recipe.FrameNumber||cb.OwnerIdentity!=recipe.ContextOwnerIdentity||cb.SourceSha256!=recipe.SourceSha256||
-                cb.Locale!=recipe.Initialization.Locale||cb.WriterRva!=checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(
-                    recipe.Initialization.Locale,"OriginalMapPostEffect3LensTextureWriteCoverage.cs",0x1151FF0))||cb.Bytes.Length!=req.NativeDeclaration.ByteCount)
+                cb.Locale!=recipe.Initialization.Locale||cb.Writer!=OriginalMapPostEffect3ConstantBufferWriter.LensLegacy||cb.Bytes.Length!=req.NativeDeclaration.ByteCount)
                 throw new InvalidDataException("Lens coverage CB producer/frame/extent differs from the actual initialization.");
             cbs.Add(req.ParameterIndex,Convert.ToHexString(SHA256.HashData(cb.Bytes.Span)));
         }

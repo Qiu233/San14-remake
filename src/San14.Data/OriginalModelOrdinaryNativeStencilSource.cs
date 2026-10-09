@@ -40,10 +40,10 @@ public sealed class OriginalModelOrdinaryNativeStencilReceipt
         ";D48D05-dispatcher-disable;no-GPU-or-whole-raster-receipt";
 }
 
-/// <summary>The actual class18 creator installs TC170ABB0, whose v60 is
-/// B9E3B0 and plugin head1460. This finite source recipe excludes all three
+/// <summary>The actual class18 creator installs its renderer with plugin
+/// head1460. This finite source recipe excludes all three
 /// subsequent stencil-reference writers using the real initialized modifier
-/// header and created GBuffer plugin; generic138F810 is not its identity.</summary>
+/// header and created GBuffer plugin.</summary>
 public sealed class OriginalModelOrdinaryNativeStencilSource
 {
     private readonly OriginalModelQueueStateSource queue;
@@ -68,14 +68,12 @@ public sealed class OriginalModelOrdinaryNativeStencilSource
         $"{ProviderDictionaryUri}@{ProviderDictionarySha256}/{OwnerObjectId:X8}/{ProviderObjectId:X8}|{ShaderUri}@{ShaderSha256}";
     public int QueueNodeIndex => queue.Node.Index;
     public int StateIndex => queue.ShaderStateOffset;
-    public uint NativeRendererVtableTc => 0x170ABB0;
     public uint NativeFreshModifierMask => 0x6EA;
     public uint NativeFreshModifierMaskedValue => 0;
     public string SourceProvenance => $"actual-class18-stencil/{ShaderUri}@{ShaderSha256};" +
         $"owner={OwnerObjectId:X8}/provider={ProviderObjectId:X8}/queue={QueueNodeIndex}/state={StateIndex};" +
-        "FA9810/FA9940/F8DA10/F8DC82-VT170ABB0;FA9AD5/FA7490/C14A60;" +
-        "aux6EA=0/GBuffer-only/SSSTransmit-absent;v60-B9E3B0-J1460;" +
-        "D157DA/D172BA/D17390-skipped;vC0-F9FE50/v70-BA8060;D4D880-PB2-cleanup";
+        "class18-renderer;aux6EA=0/GBuffer-only/SSSTransmit-absent;plugin-head1460;" +
+        "stencil-reference-writers-skipped;PB2-cleanup";
 
     /// <summary>Read once for the full graph/provider/shader source identity.
     /// Source objects and configuration records are reparsed from verified

@@ -5,8 +5,8 @@ using System.Runtime.Intrinsics.X86;
 
 namespace San14.Data;
 
-/// <summary>Installed paired acos101E910/asin10305CC operands, not the Sky
-/// atan kernel. E71690 uses these two different float rational functions.</summary>
+/// <summary>Installed paired acos/asin operands, not the Sky
+/// atan kernel. uses these two different float rational functions.</summary>
 public sealed class OriginalMapPostEffect3PresentLightMathSource
 {
     private OriginalMapPostEffect3PresentLightMathSource(string locale)=>Locale=locale;

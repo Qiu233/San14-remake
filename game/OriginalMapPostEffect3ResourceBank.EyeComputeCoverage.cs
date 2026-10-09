@@ -130,7 +130,7 @@ public sealed partial class OriginalMapPostEffect3ResourceBank
             if(input.FrameNumber!=coverage.FrameNumber||input.ContextOwnerIdentity!=coverage.ContextOwnerIdentity||
                 input.StorageRid!=native.StorageRid||input.ByteCount!=256||input.UploadRevision!=native.UploadRevision||
                 native.Shape.ViewFormat!=42||native.LastShaderWritePassIndex!=expectedPrior||
-                native.LastShaderWriteFrameNumber!=coverage.FrameNumber||native.WriterRva!=coverage.NativeGenericCommandRva)
+                native.LastShaderWriteFrameNumber!=coverage.FrameNumber||native.Writer!=OriginalMapPostEffect3BufferWriter.Compute)
                 throw new InvalidDataException("Eye histogram input is not this ordered actual preceding native producer.");
             buffers.Add(new(8,input.InstanceIndex,input.StorageRid,input.ByteCount,input.UploadRevision,native.CompleteBytesSha256));
         }
@@ -251,7 +251,7 @@ public sealed partial class OriginalMapPostEffect3ResourceBank
             if(prior.Storage!=write.StorageRid||prior.Side!=write.InstanceIndex||write.WriterRevision!=checked(prior.Revision+1))
                 throw new InvalidDataException("Eye atomic accumulation did not consume and replace the accepted prior histogram storage exactly once.");
         }
-        target.HasCompleteWriterContents=true;target.CompleteFrameNumber=coverage.FrameNumber;target.WriterRva=coverage.NativeGenericCommandRva;
+        target.HasCompleteWriterContents=true;target.CompleteFrameNumber=coverage.FrameNumber;target.Writer=OriginalMapPostEffect3BufferWriter.Compute;
         target.CompleteBytesSha256=coverage.SourceKnownCompleteBufferBytesSha256;
         target.CompleteSourceEvidence=coverage.SourceEvidence+";"+completed.SourceEvidence+
             ";actual-accepted-Eye-input-dispatch-publication-transaction;physical256B/current-writer-revision";

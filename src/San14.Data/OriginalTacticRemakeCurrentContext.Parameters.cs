@@ -2,8 +2,7 @@ using San14.Core;
 
 namespace San14.Data;
 
-public sealed record OriginalTacticRemakeParameterSeedField(int SemanticScRva,
-    int PhysicalRva, int Value, string Sha256);
+public sealed record OriginalTacticRemakeParameterSeedField(string Key, int Value);
 
 /// <summary>Project-owned tactic rule defaults and an explicit producer of this game's own
 /// current parameter allocation. This is never a read of original process state.</summary>
@@ -17,17 +16,14 @@ public sealed class OriginalTacticRemakeParameterSeed
         OriginalTacticRemakeParameterSeedField[] fields)
     { Language = language; Source = source; Fields = Array.AsReadOnly(fields); }
 
-    public static string Key(int semanticScRva) => $"sc-rva:{semanticScRva:X8}";
-
     public static OriginalTacticRemakeParameterSeed LoadPinnedSeed(OriginalGameRepository repository,
         string language)
     {
         ArgumentNullException.ThrowIfNull(repository);
         SourceProvenance source = SimulationRuleSources.Provenance(
             "san14-remake://rules/tactic-parameters/v1", language);
-        int delta = language == "TC" ? 0x1030 : 0;
         return new(language, source, InitialDefaults.Select(field => new OriginalTacticRemakeParameterSeedField(
-            field.SemanticScRva, field.SemanticScRva - delta, field.Value, string.Empty)).ToArray());
+            field.Key, field.Value)).ToArray());
     }
 
     /// <summary>Explicit copy into a new current owner. Later writes occur in
@@ -36,7 +32,7 @@ public sealed class OriginalTacticRemakeParameterSeed
     {
         if (string.IsNullOrWhiteSpace(revision)) throw new InvalidDataException("Owned parameter allocation revision is missing.");
         return new($"{revision}:rule-seed", Language, Source.RuleVersion!,
-            Fields.ToDictionary(field => Key(field.SemanticScRva), field => field.Value), []);
+            Fields.ToDictionary(field => field.Key, field => field.Value), []);
     }
 
     /// <summary>Only a fresh, empty owned Army session can construct these
@@ -105,56 +101,55 @@ public sealed class OriginalTacticRemakeParameterSeed
     private const int AbilitySecondaryBaseline = 100;
     private const int AbilitySecondaryAdjustment = 90;
 
-    // Legacy parameter keys remain stable for saved current values.
-    private static readonly (int SemanticScRva, int Value)[] InitialDefaults =
+    private static readonly (string Key, int Value)[] InitialDefaults =
     [
-        (0x1A4A080, AbnormalCounterUpperBound),
-        (0x1A4A08C, PrimaryWaitingCap),
-        (0x1A4A098, SecondaryWaitingCap),
-        (0x1A4A0A4, TertiaryWaitingCap),
-        (0x1A4A0B0, OrdinaryWaitingRate),
-        (0x1A4A094, InitialWaiting),
-        (0x1A4A04C, Formation1CreationWaitingAdjustment),
-        (0x1A4A058, Formation2CreationWaitingAdjustment),
-        (0x1A4A064, Formation14CreationWaitingAdjustment),
-        (0x1A4AA64, Formation1AutomaticWaitingAdjustment),
-        (0x1A4AA70, Formation2AutomaticWaitingAdjustment),
-        (0x1A4AA08, Formation14AutomaticWaitingAdjustment),
-        (0x1A4AC30, ForceFlagWaitingReduction),
-        (0x1A4A9FC, NonplayerAutomaticTrialRate),
-        (0x1A4AA14, PlayerDifficulty0TrialRate),
-        (0x1A4AA20, PlayerDifficulty1TrialRate),
-        (0x1A4AA2C, PlayerDifficulty2TrialRate),
-        (0x1A4AAAC, HighDifficultyNonplayerTrialRate),
-        (0x1A4AAB4, EffectStageScale),
-        (0x1A4AB14, StrengthEffectDivisor),
-        (0x1A4AB1C, IntelligenceEffectDivisor),
-        (0x1A4AB54, HealingMinimum),
-        (0x1A4AAF0, StrengthDifferenceDivisor),
-        (0x1A4AAFC, IntelligenceDifferenceDivisor),
-        (0x1A4AB08, EffectFactorFloorPercent),
-        (0x1A4AB30, AbnormalGateBaseline),
-        (0x1A4AB3C, AbnormalGateHigherAbilityScale),
-        (0x1A4AB48, AbnormalGateLowerAbilityScale),
-        (0x1A4ABEC, AbnormalGateTraitRate),
-        (0x1A4ABB4, Waiting0SharedFactorPercent),
-        (0x1A4ABA8, Waiting1SharedFactorPercent),
-        (0x1A4AC18, SpecialForceEffectPercent),
-        (0x1A4ABC0, AbnormalGeneralResistanceRate),
-        (0x1A4ABCC, AbnormalType0ResistanceRate),
-        (0x1A4ABD8, AbnormalType1ResistanceRate),
-        (0x1A4ABE0, AbnormalType2ResistanceRate),
-        (0x1A4C4EC, AbnormalSourceTraitRate),
-        (0x1A4B79C, MoraleBaseline),
-        (0x1A4B7A8, MoraleEffectCoefficient),
-        (0x1A4AFBC, ReservedTacticScale),
-        (0x1A49D4C, HealingCapacityCoefficient),
-        (0x1A4BD44, ActivationContribution),
-        (0x1A4BD54, HealthyAbilityPercent),
-        (0x1A4BD60, InjuryLevel1AbilityPercent),
-        (0x1A4BD6C, InjuryLevel2AbilityPercent),
-        (0x1A4BD78, InjuryLevel3AbilityPercent),
-        (0x1A4BD84, AbilitySecondaryBaseline),
-        (0x1A4BD90, AbilitySecondaryAdjustment),
+        (SimulationParameterKeys.Tactics.AbnormalCounterUpperBound, AbnormalCounterUpperBound),
+        (SimulationParameterKeys.Tactics.PrimaryWaitingCap, PrimaryWaitingCap),
+        (SimulationParameterKeys.Tactics.SecondaryWaitingCap, SecondaryWaitingCap),
+        (SimulationParameterKeys.Tactics.TertiaryWaitingCap, TertiaryWaitingCap),
+        (SimulationParameterKeys.Tactics.OrdinaryWaitingRate, OrdinaryWaitingRate),
+        (SimulationParameterKeys.Tactics.InitialWaiting, InitialWaiting),
+        (SimulationParameterKeys.Tactics.Formation1CreationWaitingAdjustment, Formation1CreationWaitingAdjustment),
+        (SimulationParameterKeys.Tactics.Formation2CreationWaitingAdjustment, Formation2CreationWaitingAdjustment),
+        (SimulationParameterKeys.Tactics.Formation14CreationWaitingAdjustment, Formation14CreationWaitingAdjustment),
+        (SimulationParameterKeys.Tactics.Formation1AutomaticWaitingAdjustment, Formation1AutomaticWaitingAdjustment),
+        (SimulationParameterKeys.Tactics.Formation2AutomaticWaitingAdjustment, Formation2AutomaticWaitingAdjustment),
+        (SimulationParameterKeys.Tactics.Formation14AutomaticWaitingAdjustment, Formation14AutomaticWaitingAdjustment),
+        (SimulationParameterKeys.Tactics.ForceFlagWaitingReduction, ForceFlagWaitingReduction),
+        (SimulationParameterKeys.Tactics.NonplayerAutomaticTrialRate, NonplayerAutomaticTrialRate),
+        (SimulationParameterKeys.Tactics.PlayerDifficulty0TrialRate, PlayerDifficulty0TrialRate),
+        (SimulationParameterKeys.Tactics.PlayerDifficulty1TrialRate, PlayerDifficulty1TrialRate),
+        (SimulationParameterKeys.Tactics.PlayerDifficulty2TrialRate, PlayerDifficulty2TrialRate),
+        (SimulationParameterKeys.Tactics.HighDifficultyNonplayerTrialRate, HighDifficultyNonplayerTrialRate),
+        (SimulationParameterKeys.Tactics.EffectStageScale, EffectStageScale),
+        (SimulationParameterKeys.Tactics.StrengthEffectDivisor, StrengthEffectDivisor),
+        (SimulationParameterKeys.Tactics.IntelligenceEffectDivisor, IntelligenceEffectDivisor),
+        (SimulationParameterKeys.Tactics.HealingMinimum, HealingMinimum),
+        (SimulationParameterKeys.Tactics.StrengthDifferenceDivisor, StrengthDifferenceDivisor),
+        (SimulationParameterKeys.Tactics.IntelligenceDifferenceDivisor, IntelligenceDifferenceDivisor),
+        (SimulationParameterKeys.Tactics.EffectFactorFloorPercent, EffectFactorFloorPercent),
+        (SimulationParameterKeys.Tactics.AbnormalGateBaseline, AbnormalGateBaseline),
+        (SimulationParameterKeys.Tactics.AbnormalGateHigherAbilityScale, AbnormalGateHigherAbilityScale),
+        (SimulationParameterKeys.Tactics.AbnormalGateLowerAbilityScale, AbnormalGateLowerAbilityScale),
+        (SimulationParameterKeys.Tactics.AbnormalGateTraitRate, AbnormalGateTraitRate),
+        (SimulationParameterKeys.Tactics.Waiting0SharedFactorPercent, Waiting0SharedFactorPercent),
+        (SimulationParameterKeys.Tactics.Waiting1SharedFactorPercent, Waiting1SharedFactorPercent),
+        (SimulationParameterKeys.Tactics.SpecialForceEffectPercent, SpecialForceEffectPercent),
+        (SimulationParameterKeys.Tactics.AbnormalGeneralResistanceRate, AbnormalGeneralResistanceRate),
+        (SimulationParameterKeys.Tactics.AbnormalType0ResistanceRate, AbnormalType0ResistanceRate),
+        (SimulationParameterKeys.Tactics.AbnormalType1ResistanceRate, AbnormalType1ResistanceRate),
+        (SimulationParameterKeys.Tactics.AbnormalType2ResistanceRate, AbnormalType2ResistanceRate),
+        (SimulationParameterKeys.Tactics.AbnormalSourceTraitRate, AbnormalSourceTraitRate),
+        (SimulationParameterKeys.Morale.Maximum, MoraleBaseline),
+        (SimulationParameterKeys.Morale.PolicyScale, MoraleEffectCoefficient),
+        (SimulationParameterKeys.Tactics.ReservedTacticScale, ReservedTacticScale),
+        (SimulationParameterKeys.Tactics.HealingCapacityCoefficient, HealingCapacityCoefficient),
+        (SimulationParameterKeys.Tactics.ActivationContribution, ActivationContribution),
+        (SimulationParameterKeys.Tactics.HealthyAbilityPercent, HealthyAbilityPercent),
+        (SimulationParameterKeys.Tactics.InjuryLevel1AbilityPercent, InjuryLevel1AbilityPercent),
+        (SimulationParameterKeys.Tactics.InjuryLevel2AbilityPercent, InjuryLevel2AbilityPercent),
+        (SimulationParameterKeys.Tactics.InjuryLevel3AbilityPercent, InjuryLevel3AbilityPercent),
+        (SimulationParameterKeys.Tactics.AbilitySecondaryBaseline, AbilitySecondaryBaseline),
+        (SimulationParameterKeys.Tactics.AbilitySecondaryAdjustment, AbilitySecondaryAdjustment),
     ];
 }

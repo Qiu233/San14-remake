@@ -137,7 +137,7 @@ public static class OriginalCityCaptureTerritorySource
     {
         _ = CheckCity(current, scope.City); CheckForce(scope.NewForcePhysical);
         var center = OriginalCurrentGateMapQueries.FindHex(scope.City, current);
-        var central = Rings(state, current, center, unchecked(K(OriginalBaseCaptureResourceInputs.ReadCurrentTc(state, 0x1A4A7A8), "radiusA7A8") + 1), scope.NewForcePhysical);
+        var central = Rings(state, current, center, unchecked(K(OriginalBaseCaptureResourceInputs.ReadCurrent(state, SimulationParameterKeys.BaseCapture.CentralTerritoryRadius), "radiusA7A8") + 1), scope.NewForcePhysical);
         var visited = central.VisitedHexes.ToList(); var changed = central.TransferredHexes.ToList();
         foreach (var hex in Footprint(current, scope.City)) { visited.Add(Physical(hex)); Raw(current, hex, scope.NewForcePhysical, changed); }
         central = central with { VisitedHexes = visited.ToArray(), TransferredHexes = changed.ToArray() };
@@ -325,10 +325,10 @@ public static class OriginalCityCaptureTerritorySource
         int rankAC = K(OriginalOwnedArmyMoraleWaveInputs.ReadRankAC(state, rank <= 12 ? rank : 0), "area_radius_current_RankAC");
         ushort leader = K(current.ReadDistrictLeader(districtPhysical), "area_radius_current_District12");
         int charm = K(abilities.Resolve(state, leader <= 6000 ? leader : 0)?.Charm, "area_radius_full_Leader_charm4");
-        int delta = Math.Max(unchecked(charm - P(0x1A4A7F0)), 0);
-        int radius = unchecked(Divide(10 - rankAC, P(0x1A4A7E4)) + Divide(unchecked(delta * delta), P(0x1A4A7FC)));
-        return Math.Min(radius, P(0x1A4A7D8));
-        int P(int rva) => K(OriginalCityCaptureTerritoryInputs.ReadCurrentTc(state, rva), $"area_radius_scalar{rva:X}");
+        int delta = Math.Max(unchecked(charm - P(SimulationParameterKeys.CityCapture.LeaderCharmRadiusThreshold)), 0);
+        int radius = unchecked(Divide(10 - rankAC, P(SimulationParameterKeys.CityCapture.RankRadiusDivisor)) + Divide(unchecked(delta * delta), P(SimulationParameterKeys.CityCapture.SquaredCharmRadiusDivisor)));
+        return Math.Min(radius, P(SimulationParameterKeys.CityCapture.MaximumCaptureAreaRadius));
+        int P(string key) => K(OriginalCityCaptureTerritoryInputs.ReadCurrent(state, key), $"area_radius_scalar{key}");
     }
     private static int Divide(int numerator, int denominator)
     { if (denominator == 0 || numerator == int.MinValue && denominator == -1) throw Missing("source_IDIV"); return numerator / denominator; }

@@ -26,9 +26,7 @@ public sealed class OriginalPersonNormalArmyRewardSource
     private const int KindTwoLeadershipGrowth = 750;
     private const int KindTwoPendingMerit = 100;
     private const int KindThreeLeadershipGrowth = 2000;
-    private static readonly int[] Globals = [0x1A4BDB4, 0x1A4BD50, 0x1A4BDC0, 0x1A4BD5C, 0x1A4BDCC, 0x1A4BD68, 0x1A4BDA8];
-    public static string GlobalKey(int ordinal) => ordinal is >= 0 and < 7
-        ? OriginalTacticRemakeParameterSeed.Key(Globals[ordinal]) : throw new ArgumentOutOfRangeException(nameof(ordinal));
+    private static readonly string[] ParameterKeys = [SimulationParameterKeys.PersonCombatRewards.KindZeroLeadershipPercent, SimulationParameterKeys.PersonCombatRewards.KindZeroPendingMeritPercent, SimulationParameterKeys.PersonCombatRewards.KindOneLeadershipPercent, SimulationParameterKeys.PersonCombatRewards.KindOnePendingMeritPercent, SimulationParameterKeys.PersonCombatRewards.KindTwoLeadershipGrowth, SimulationParameterKeys.PersonCombatRewards.KindTwoPendingMerit, SimulationParameterKeys.PersonCombatRewards.KindThreeLeadershipGrowth];
     private readonly LoadedScenario _source;
     private readonly string _language, _ruleVersion;
     private readonly int[] _initial;
@@ -49,13 +47,13 @@ public sealed class OriginalPersonNormalArmyRewardSource
     public GameState InstallFresh(GameState input)
     {
         if (!Bound(input) || input.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } || input.Units.Count != 0 ||
-            input.NativeArmySimulation!.Parameters.Int32Values.ContainsKey(VersionKey) || Globals.Any(rva =>
-                input.NativeArmySimulation.Parameters.Int32Values.ContainsKey(OriginalTacticRemakeParameterSeed.Key(rva)) ||
-                input.NativeArmySimulation.Parameters.Float32Values.ContainsKey(OriginalTacticRemakeParameterSeed.Key(rva))))
+            input.NativeArmySimulation!.Parameters.Int32Values.ContainsKey(VersionKey) || ParameterKeys.Any(key =>
+                input.NativeArmySimulation.Parameters.Int32Values.ContainsKey(key) ||
+                input.NativeArmySimulation.Parameters.Float32Values.ContainsKey(key)))
             throw new InvalidDataException("Fresh normal reward cannot replace a saved current parameter bank.");
         var simulation = input.NativeArmySimulation!;
         var values = new Dictionary<string, int>(simulation.Parameters.Int32Values) { [VersionKey] = 1 };
-        for (int i = 0; i < Globals.Length; i++) values.Add(GlobalKey(i), _initial[i]);
+        for (int i = 0; i < ParameterKeys.Length; i++) values.Add(ParameterKeys[i], _initial[i]);
         return input with { NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = values } } };
     }
 
@@ -149,15 +147,26 @@ public sealed class OriginalPersonNormalArmyRewardSource
     public OriginalPersonNormalArmyRewardRequests? ReadRequests(GameState input, int kind, int amount)
     {
         if (!Bound(input) || input.NativeArmySimulation!.Parameters.Int32Values.GetValueOrDefault(VersionKey) != 1 || kind is < 0 or > 3) return null;
-        int growthIndex = kind switch { 0 => 0, 1 => 2, 2 => 4, _ => 6 };
-        if (Read(growthIndex) is not int growth) return null;
+        string growthKey = kind switch {
+            0 => SimulationParameterKeys.PersonCombatRewards.KindZeroLeadershipPercent,
+            1 => SimulationParameterKeys.PersonCombatRewards.KindOneLeadershipPercent,
+            2 => SimulationParameterKeys.PersonCombatRewards.KindTwoLeadershipGrowth,
+            _ => SimulationParameterKeys.PersonCombatRewards.KindThreeLeadershipGrowth
+        };
+        string? meritKey = kind switch {
+            0 => SimulationParameterKeys.PersonCombatRewards.KindZeroPendingMeritPercent,
+            1 => SimulationParameterKeys.PersonCombatRewards.KindOnePendingMeritPercent,
+            2 => SimulationParameterKeys.PersonCombatRewards.KindTwoPendingMerit,
+            _ => null
+        };
+        if (Read(growthKey) is not int growth) return null;
         int merit = 0;
-        if (kind < 3 && Read(kind * 2 + 1) is not int) return null;
-        if (kind < 3) merit = Read(kind * 2 + 1)!.Value;
+        if (meritKey is not null && Read(meritKey) is not int) return null;
+        if (meritKey is not null) merit = Read(meritKey)!.Value;
         return CalculateRequests(kind, amount, growth, merit);
-        int? Read(int index)
+        int? Read(string key)
         {
-            var p = input.NativeArmySimulation!.Parameters; string key = GlobalKey(index);
+            var p = input.NativeArmySimulation!.Parameters;
             return !p.Float32Values.ContainsKey(key) && p.Int32Values.TryGetValue(key, out int value) ? value : null;
         }
     }

@@ -26,9 +26,9 @@ public sealed partial class OriginalMapPostEffect3WorldNativeFullscreenFrontendO
             selected.AutomaticExecution!=OriginalMapPostEffect3AutomaticExecution.ComputeDispatch||
             World.Bank.Source.Source.Passes[before.SourcePassIndex].ProgramReferences.Where(r=>r.StageIndex is not null).ToArray() is not [{StageCode:5}])
             throw new InvalidDataException("DOF2 compute Bind requires this actual57/58 CS and the released preceding graphics row.");
-        //1161DCF..1161DE5 selects CS/mode0;1161E21/1161E2C resets the
+        // Select CS/mode0 and reset the
         //complete cache when mode differs. Every preceding standard graphics
-        //wrapper also ran1163080 ->1163460. No color target is inherited as
+        // wrapper also reset cached bindings. No color target is inherited as
         //a compute output and no pixel contents are granted by this binding.
         directoryCursor?.EnterSelectedBefore(before.SourcePassIndex,0);
         directoryCursor?.RecordBeforeReturned(before);directoryCursor?.ApplyDepthBefore(before);
@@ -47,8 +47,8 @@ public sealed partial class OriginalMapPostEffect3WorldNativeFullscreenFrontendO
             completed.FrameNumber!=before.FrameNumber||completed.ContextOwnerIdentity!=before.ContextOwnerIdentity||
             completed.ProgramSha256!=shader.Sha256||completed.OrderedEffectiveBindings.Count==0)
             throw new InvalidDataException("DOF2 compute Release requires its actual selected shader dispatch and current resource receipt.");
-        //1163170 dispatches the original automatic CS command, clears the
-        //CS frontend binding, and1163080 resets all native cached resources.
+        // Dispatch the automatic CS command and clear the
+        // CS frontend binding resets all native cached resources.
         //The GPU executor has already submitted the original dispatch here.
         var history=submissionLedger?.CaptureDepthCompute(this,before,actualExecutor,completed);
         actualDofCompute=null;

@@ -98,7 +98,7 @@ public static class OriginalMapPostEffect3Functor0Preparation
         ArgumentNullException.ThrowIfNull(state);
         var plan=Read(allocation).Passes[0];
         if(plan.State.Factory.Index!=0||plan.State.Factory.NativeName!="plTemporalAA"||
-            plan.State.Factory.BeforeHook!=0x11505A0||
+            plan.State.Factory.BeforeHook!=OriginalMapPostEffect3Hook.BeforeTemporalAA||
             plan.State.AutomaticExecution!=OriginalMapPostEffect3AutomaticExecution.StockScreenQuad||
             plan.State.Pass.ProgramReferences.Where(r=>r.StageIndex is not null).ToArray() is not
                 [{StageCode:0,StageIndex:0}])
@@ -113,7 +113,7 @@ public static class OriginalMapPostEffect3Functor0Preparation
                 b.ConstantBuffer.Declaration.Index!=0))
             throw new InvalidDataException("TemporalAA first pass must preserve both actual CB0 to PS0 CB3 source rows.");
         var image=new OriginalMapPostEffect3ConstantBufferImage(allocation,packet.Declaration.Index,state.FrameNumber);
-        image.Write(0,packet.Bytes.Span,packet.WriterRva,"actual11505A0 complete TemporalAA before-hook output");
+        image.Write(0,packet.Bytes.Span,packet.Writer,"actual complete TemporalAA before-hook output");
         var upload=image.PrepareForPass(allocation,0,state.FrameNumber);
         return new(state.FrameNumber,state.OwnerIdentity,plan,
             OriginalMapPostEffect3TemporalAAFirstPassDisposition.EnabledSourceConstantBufferPrepared,

@@ -40,16 +40,10 @@ public sealed record OriginalWorldMainDisplayExitRecipe(int TargetStackIndex,
 /// supply device surfaces or claim the Windows device.v2C8 implementation.</summary>
 public sealed class LoadedOriginalWorldMainDisplayParentSource
 {
-    internal LoadedOriginalWorldMainDisplayParentSource(string locale, string ruleVersion,
-        int entry, int refresh, int exit, int pop, string evidence)
-        => (Locale, RuleVersion, EntryRva, RefreshRva, ExitRva, PopRva, SourceEvidence) =
-            (locale, ruleVersion, entry, refresh, exit, pop, evidence);
+    internal LoadedOriginalWorldMainDisplayParentSource(string locale, string ruleVersion,string evidence)
+        => (Locale, RuleVersion, SourceEvidence) = (locale, ruleVersion,evidence);
     public string Locale { get; }
     public string RuleVersion { get; }
-    public int EntryRva { get; }
-    public int RefreshRva { get; }
-    public int ExitRva { get; }
-    public int PopRva { get; }
     public string SourceEvidence { get; }
 
     public OriginalWorldMainDisplayColorFormat ResolveColorFormat(uint sourceDxgiFormat)
@@ -75,7 +69,7 @@ public sealed class LoadedOriginalWorldMainDisplayParentSource
     {
         if (actualCurrentTargetStackIndex < 0) throw new InvalidOperationException("No actual display row to pop.");
         return new(actualCurrentTargetStackIndex - 1, 0, 0, 0,
-            SourceEvidence + ";whole-graph-return;Main-vD0-context-reset;actual-outer-pop");
+            SourceEvidence + ";whole-graph-return;main-display-context-reset;actual-outer-pop");
     }
 }
 

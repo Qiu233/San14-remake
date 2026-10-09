@@ -337,7 +337,7 @@ public sealed partial class OriginalMapPostEffect3FullscreenGraphicsExecutor:IAs
             return LastCompletedPass=new(source.FrameNumber,source.ContextOwnerIdentity,index,vertex.Source.Sha256,pixel.Source.Sha256,
                 native,Array.AsReadOnly(writes.ToArray()),cbReads,actual.Viewport,actual.Scissor,raster,
                 source.SourceEvidence+";"+input.CurrentDrawContext.SourceEvidence+
-                ";1161D40-actual-counted-VS/PS-selection;original-DXBC-procedural-triangle3;"+
+                ";counted-VS/PS-selection;DXBC-procedural-triangle3;"+
                 (writeStarted?"actual-RD-submission;":"empty-native-scissor-pixel-domain;no-target-invalidation-or-pixel-draw;")+
                 "no-full-coverage/history-claim")
                 {TextureReads=Array.AsReadOnly(textureReads.ToArray()),WasPixelDrawSubmitted=writeStarted,

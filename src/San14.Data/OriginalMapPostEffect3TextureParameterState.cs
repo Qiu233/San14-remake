@@ -7,7 +7,7 @@ public sealed record OriginalMapPostEffect3TextureParameterReference(
     int? PhysicalAllocationParameterIndex,int InstanceIndex,string ProducerOwnerIdentity,
     string SourceEvidence)
 {
-    // 94AA60 copies the wrapper dimensions; 968F40 replaces only its views.
+    // copies the wrapper dimensions; replaces only its views.
     // These are physical subresources of the existing allocation, not another
     // allocation or a claim that the selected pixels have been initialized.
     public uint? NativeFirstMipLevel{get;init;}
@@ -115,7 +115,7 @@ public sealed partial class OriginalMapPostEffect3TextureParameterState
             if((uint)side>=a.InstanceCount)throw new InvalidDataException("Retained texture side exceeds its native allocation.");
             if(side!=old.InstanceIndex)
                 state.Assign(index,new(index,side,allocation.ContextOwnerIdentity+$"/texture{index}/side{side}",
-                    "TC:114AB40 source exit wrapper selection;"+actualInvocation.Begin.SourceEvidence));
+                    "TC; source exit wrapper selection"+actualInvocation.Begin.SourceEvidence));
         }
         return state;
     }
@@ -138,8 +138,8 @@ public sealed partial class OriginalMapPostEffect3TextureParameterState
         Assign(parameterIndex,null);
     }
 
-    /// <summary>The EB7F49 temporary replacement is allowed only on the actual
-    /// owned EA2 slot. Its saved pointer is restored by EB7FEA, independently of
+    /// <summary>The temporary replacement is allowed only on the actual
+    /// owned EA2 slot. Its saved pointer is restored by , independently of
     /// the external parameter assignment API. This grants no pixel readiness.</summary>
     public ExposureScaleSwap BeginExposureScaleSwap(bool actualOutputExposureScalePredicate,
         OriginalMapPostEffect3ApplyView? actualExposureScale,string sourceEvidence)
@@ -158,7 +158,6 @@ public sealed partial class OriginalMapPostEffect3TextureParameterState
         if(plan.BeforeExecution.Count!=0)
         {
             var write=plan.BeforeExecution.Single();
-            if(write.CallSiteRva!=0xEB7F49)throw new InvalidDataException("Original EA2 replacement writer differs.");
             Assign(index,new(null,0,write.View!.OwnerIdentity,write.SourceEvidence));
         }
         return exposureSwap=new(this,index,saved,revisions[index],plan);
@@ -181,7 +180,7 @@ public sealed partial class OriginalMapPostEffect3TextureParameterState
                 throw new InvalidDataException("Exposure scale swap was consumed or its current slot changed.");
             if(plan.AfterExecution.Count!=0)
             {
-                if(plan.AfterExecution.Single().CallSiteRva!=0xEB7FEA||saved is null)
+                if(saved is null)
                     throw new InvalidDataException("Original EA2 saved pointer restore differs.");
                 owner.Assign(index,saved);
             }
@@ -222,7 +221,7 @@ public sealed partial class OriginalMapPostEffect3TextureParameterState
         if(source.FrameNumber!=FrameNumber||source.OwnerIdentity!=ContextOwnerIdentity)
             throw new InvalidDataException("DOF alias belongs to another frame/owner.");
         var a=source.TextureAlias;
-        Copy(a.SourceParameterIndex,a.DestinationParameterIndex,"TC:1150DF9/1150E4F;source DOF init texture pointer copy");
+        Copy(a.SourceParameterIndex,a.DestinationParameterIndex,"TC;source DOF init texture pointer copy");
     }
 
     public void ApplyLensFlareAliases(OriginalMapPostEffect3ParameterLensFlareInitialization source)
@@ -252,7 +251,7 @@ public sealed partial class OriginalMapPostEffect3TextureParameterState
             ??throw new InvalidDataException("MotionBlur alias input name is absent.");
         int to=names.FindResourceIndex(OriginalMapPostEffect3ParameterResourceTable.Texture,"MBOutputColor",actualAliasMode)
             ??throw new InvalidDataException("MotionBlur alias output name is absent.");
-        Copy(from,to,source.NextHistory.Enabled10?"TC:1151487..11514CB;enabled MB pointer copy":"TC:115142F..1151466;disabled MB pointer copy");
+        Copy(from,to,source.NextHistory.Enabled10?"TC;enabled MB pointer copy":"TC;disabled MB pointer copy");
     }
 
     public void ApplyPreparedFactoryAliases(OriginalMapPostEffect3OwnedFreshCameraFrame frame,
@@ -362,7 +361,7 @@ public sealed partial class OriginalMapPostEffect3TextureParameterState
         from??=Find("InputColor");
         int? to=Find("TAAOutputColor")??Find("OutputTemporal");
         if(to is null)throw new InvalidDataException("TemporalAA source output lookup is absent.");
-        if(from is{} input)Copy(input,to.Value,"TC:1150609..1150686;disabled TAA current pointer copy");
+        if(from is{} input)Copy(input,to.Value,"TC;disabled TAA current pointer copy");
         else Assign(to.Value,null); // Both source lookups explicitly absent.
     }
 

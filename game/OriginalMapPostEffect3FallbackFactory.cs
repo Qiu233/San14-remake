@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 using Godot;
 using San14.Data;
 
-/// <summary>Explicit current EC3360 inputs. Capture these while current stock
+/// <summary>Explicit current tone fallback inputs. Capture these while current stock
 /// source receipts are still live, before completed Host history consumes them.
 /// Samplers/raster and context Camera selection are independent source owners.</summary>
 public sealed record OriginalMapPostEffect3FallbackFrameInputs(
@@ -21,7 +21,7 @@ public sealed record OriginalMapPostEffect3FallbackAcceptedFrame(OriginalNativeM
     ReadOnlyMemory<byte> PixelConstants,ReadOnlyMemory<byte> VertexConstants,ReadOnlyMemory<byte> Quad,
     IReadOnlyList<int> UnreadPixelPaddingBytes,string SourceEvidence);
 
-/// <summary>Actual mode1 EC3360 Tone fallback, independent of A1 execution.
+/// <summary>Actual mode1 Tone fallback, independent of A1 execution.
 /// Borrows the accepted original node1 Exposure owner and node73 working image.
 /// It neither commits Host history nor claims to execute the3SPK functor.
 /// Unknown current resources/state reject instead of being substituted.</summary>
@@ -84,7 +84,7 @@ public sealed class OriginalMapPostEffect3FallbackFactory:IAsyncDisposable
             long frame=context.FrameNumber;var viewport=input.Viewport;var binding=input.Bindings;
             if(frame<=0||prepared.FrameNumber!=frame||input.Route.FrameNumber!=frame||viewport.FrameNumber!=frame||
                 binding.FrameNumber!=frame||input.Gamma.FrameNumber!=frame||input.CurrentStock.FrameNumber!=frame||
-                !input.Route.ExecutesEc3360Fallback||input.Route.ExecutesModuleFunctor||!input.Route.BypassesLegacyA1Branch||
+                !input.Route.ExecutesToneFallback||input.Route.ExecutesModuleFunctor||!input.Route.BypassesLegacyA1Branch||
                 viewport.UsesDirectTextureDrawPath||binding.NativeShaderType!=5||binding.UsesDirectTextureDrawPath||
                 input.Gamma.OwnerIdentity!=input.Route.OwnerIdentity||viewport.Inputs.OwnerIdentity!=input.Route.OwnerIdentity||
                 !binding.Native49Packet.Span.SequenceEqual(viewport.Native49Packet.Span))
@@ -95,7 +95,7 @@ public sealed class OriginalMapPostEffect3FallbackFactory:IAsyncDisposable
                 OriginalPreparedCameraSceneSource.ReadCompletePrefix(input.ActualSelectedContextCamera.Prefix.Span)!=context.PreparedCamera||
                 viewport.Inputs.ActualCamera1CC!=OriginalMapPostEffect3ApplyFallbackToneCurve.ReadSelectedCamera1CC(input.ActualSelectedContextCamera))
                 throw new InvalidDataException("Tone fallback context Camera is foreign to its exact actual Scene attempt.");
-            // EC34AE..EC34D7 explicitly clears B0 before this source draw.
+            // The tone fallback explicitly clears B0 before this source draw.
             // The selected stock program implements that operation regardless
             // of the incoming stock custom-VS state.
             var reference=input.ExposureReference;
@@ -128,7 +128,7 @@ public sealed class OriginalMapPostEffect3FallbackFactory:IAsyncDisposable
             var samplers=input.SamplerDescriptors.ToDictionary(p=>p.Key,p=>(ReadOnlyMemory<byte>)p.Value.ToArray());
             string evidence=binding.SourceEvidence+";"+input.Gamma.SourceEvidence+";"+input.CurrentStock.SourceProvenance+
                 ";"+reference.SourceEvidence+";"+ToneSource.SourceEvidence+
-                ";EC34AE/EC34D7-explicit-stock-custom-VS-clear;"+
+                ";tone-fallback-explicit-stock-custom-VS-clear;"+
                 ";actual-same-frame-Exposure-owner;no-A1-effect-draw;no-Host-history-commit";
             var packet=new OriginalMapFinalOutputFramePacket(frame,new Dictionary<uint,ReadOnlyMemory<byte>>{{0,vertex}},
                 new Dictionary<uint,ReadOnlyMemory<byte>>{{0,pixel}},quad,

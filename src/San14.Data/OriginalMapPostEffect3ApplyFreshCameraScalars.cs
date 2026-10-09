@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 
 namespace San14.Data;
 
-/// <summary>Fresh C42070 scalar copies into the owned prepared Camera tail.
+/// <summary>Fresh scalar copies into the owned prepared Camera tail.
 /// Only 44 native property-bound words are present; the four intervening
 /// resource/blend words have no implicit zero. No full tail blob is invented.
 /// Later LensPreset or per-view callbacks require their own writer receipt.</summary>
@@ -17,7 +17,7 @@ public sealed class OriginalMapPostEffect3ApplyFreshCameraScalars
     public uint CameraObjectId=>camera.Source.Camera.ObjectId;
     public string OwnerIdentity{get;}
     public string SourceEvidence=>camera.Source.ConstructorOrigin+
-        ";TC:C43A66..C43C70;native-reflection-C88780;loader-C4F6F0;"+
+        "TC;native-reflection-;loader-"+
         (camera.CurrentSeasonPostEffectScalars?.SourceEvidence??"fresh-source-no-later-tail-writer")+";"+OwnerIdentity;
     public IReadOnlyList<int> SupportedCameraOffsets=>Array.AsReadOnly(Bindings.Select(b=>b.CameraOffset).ToArray());
     public uint Word(int cameraOffset)=>words.TryGetValue(cameraOffset,out uint value)?value:

@@ -26,7 +26,7 @@ public sealed partial class OriginalMapPostEffect3TextureParameterState
             int side=actualInvocation.TextureInstances[index];
             if((uint)side>=a.InstanceCount)throw new InvalidDataException("Functor1 retained side exceeds the original allocation.");
             if(side!=old.InstanceIndex)state.Assign(index,new(index,side,allocation.ContextOwnerIdentity+$"/texture{index}/side{side}",
-                "TC:114AB40 Functor1 CPU selector transition;"+actualInvocation.Begin.SourceEvidence));
+                "TC; Functor1 CPU selector transition"+actualInvocation.Begin.SourceEvidence));
         }
         return state;
     }

@@ -48,9 +48,8 @@ public static partial class OriginalPersonReturnCommands
             var values = members.Count(entry.Value.Members20) is null ? null : members.Values(entry.Value.Members20)
                 .Select(p => p?.Kind == "MemberId32" && p.Identity is int id ? (uint?)id : null).ToArray();
             current.SetLinkedEntityMemberIds(entry.Key, values);
-            current.SetAssociatedPayloadSlot7Target(entry.Key, 0x092670); //Actual CE Return vslot7: no-op.
+            current.SetAssociatedPayloadPostLoadCallback(entry.Key, OriginalPostLoadCallback.NoOp);
         }
-        current.AssociatedPayloadSlot7Handlers.TryAdd(0x092670, _ => { });
         current.BindOwnedPersonCommandTree(owner.IdToReceiver);
     }
 

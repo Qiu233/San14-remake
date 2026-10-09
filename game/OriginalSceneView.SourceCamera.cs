@@ -12,7 +12,7 @@ using NVector3 = System.Numerics.Vector3;
 public sealed record OriginalSceneViewSourceCameraInputs(
     NVector3 CurrentScale90, bool ContextOwner3E4Bit29, uint NativeClipProfile,
     OriginalNativeCameraTangentDispatch TangentDispatch, float OwnerFovOverride290,
-    bool CurrentMaximumYOverride, ulong SourceImageBase, string Provenance);
+    bool CurrentMaximumYOverride, string Provenance);
 
 public partial class OriginalSceneView
 {
@@ -155,7 +155,7 @@ public partial class OriginalSceneView
     {
         if(!_loaded||_sourceMainCamera is null||_sourceMainCameraInputs is not { } input)return false;
         var frame=_sourceMainCamera.PrepareCurrent(new(input.CurrentScale90,input.ContextOwner3E4Bit29,
-            input.NativeClipProfile,input.TangentDispatch,input.OwnerFovOverride290,input.SourceImageBase,
+            input.NativeClipProfile,input.TangentDispatch,input.OwnerFovOverride290,
             ++_sourceMainCameraFrameNumber,input.Provenance)
             {SourceSelectedFovV410=PrepareOriginalSourceSeasonCameraFov()});
         _sourceMainCameraFrame=frame;
@@ -225,7 +225,7 @@ public partial class OriginalSceneView
     public static Transform3D CreateSourceCameraGodotTransform(OriginalMapCameraConstructionPacket camera)
     {
         ArgumentNullException.ThrowIfNull(camera);
-        var world=OriginalNativeMatrixMath.Inverse3F6EB0(camera.SourceWorldToView,out _);
+        var world=OriginalNativeMatrixMath.Invert(camera.SourceWorldToView,out _);
         var basis=new Basis(new(world.M11,world.M12,world.M13),new(world.M21,world.M22,world.M23),new(world.M31,world.M32,world.M33));
         return new(basis,new(camera.CurrentPose.Position80.X,camera.CurrentPose.Position80.Y,camera.CurrentPose.Position80.Z));
     }

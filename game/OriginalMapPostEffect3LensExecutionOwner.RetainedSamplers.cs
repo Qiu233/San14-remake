@@ -29,7 +29,7 @@ public sealed partial class OriginalMapPostEffect3LensExecutionOwner
         var writes=recipe.DescriptorTextureSubmissions.Where(s=>s.NativeStageCode==0&&s.RegisterIndex is 7 or 8).ToArray();
         if(writes.Length==0)return; // A PS setter does not mutate retained CS7/8.
         if(writes.Length!=2||writes.Select(s=>s.RegisterIndex).Distinct().Count()!=2||
-            writes.Any(s=>s.Locale!=locale||s.WriterRva!=OriginalMapPostEffect3ParameterLensFlareBefore.NativeShaderResourceWriterRva(locale)||
+            writes.Any(s=>s.Locale!=locale||s.Setter!=OriginalMapPostEffect3ResourceSetter.ShaderResource||
                 s.Role!=OriginalMapPostEffect3BindingRole.ShaderResourceRead||
                 s.ParameterIndex is not null||s.DescriptorTextureOffset!=(s.RegisterIndex==7?0x30:0x38)))
             throw new InvalidDataException("Retained Lens CS7/8 source manager setter pair differs.");
@@ -68,7 +68,7 @@ public sealed partial class OriginalMapPostEffect3LensExecutionOwner
         public string ContextOwnerIdentity=>actualWrite.Recipe.ContextOwnerIdentity;
         public OriginalMapPostEffect3SourceSamplerOwner ActualManagerSamplerOwner=>owner.Samplers;
         public string SourceEvidence=>actualWrite.Recipe.SourceEvidence+
-            $";actual-completed-native-CS-before1163970-manager30/38-writer-frame{NativeWriterFrameNumber}/pass{NativeWriterSourcePassIndex};retained-sampler-state-only";
+            $";actual-completed-CS-manager30/38-writer-frame{NativeWriterFrameNumber}/pass{NativeWriterSourcePassIndex};retained-sampler-state-only";
         private void RequireSnapshot()
         {
             lock(owner.lifetime)

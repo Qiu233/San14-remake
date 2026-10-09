@@ -31,7 +31,7 @@ public sealed partial class OriginalTacticRemakeCurrentContext
         if (target.ForceId is >= 46 and <= 50 || IsCapacitySpecialPerson(officer.Id)) return null;
         OriginalTacticCommanderCapacityTraits? traits = OriginalTacticRemakeCurrentTraits.CommanderCapacityTraits(
             _definitions, physical.Value);
-        int? coefficient = Parameter(state, 0x1A49D4C), policy = Policy(state, target.ForceId, 0x37);
+        int? coefficient = Parameter(state, SimulationParameterKeys.Tactics.HealingCapacityCoefficient), policy = Policy(state, target.ForceId, 0x37);
         if (traits is null || coefficient is null || policy is null) return null;
         int first = unchecked(rank.CommandLimit + unchecked(traits.Group256To355 * coefficient.Value));
         int value = unchecked(Math.Min(first, 20000) + unchecked(traits.OtherGroup * coefficient.Value));

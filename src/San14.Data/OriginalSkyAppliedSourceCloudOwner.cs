@@ -187,9 +187,9 @@ public sealed class OriginalSkyAppliedSourceCloudOwner
         var c=frame.SixCameras[face];var l=frame.Lights;var controller=frame.Controller!;
         if(c.NativeClipProfile!=2||(c.Flags148&~2u)!=0)throw new NotSupportedException("Cloud current source writer closes ordinary Perspective clip2 only.");
         float far=(c.Flags148&2)!=0?0:1,near=(c.Flags148&2)!=0?1:0;
-        Matrix4x4 p2w=OriginalNativeMatrixMath.Inverse3F6EB0(c.MatrixF0,out _);
+        Matrix4x4 p2w=OriginalNativeMatrixMath.Invert(c.MatrixF0,out _);
         Matrix4x4 directionView=DirectionView(face),projection=Projection((c.Flags148&2)!=0);
-        Matrix4x4 rays=OriginalNativeMatrixMath.Inverse3F6EB0(TerrainFrustumMath.Multiply(directionView,projection),out _);
+        Matrix4x4 rays=OriginalNativeMatrixMath.Invert(TerrainFrustumMath.Multiply(directionView,projection),out _);
         float[] vectors=new float[16];
         for(int vertex=0;vertex<4;vertex++)
         {

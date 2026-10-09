@@ -94,14 +94,14 @@ public static class OriginalMapPostEffect3LensPresetSource
             throw new InvalidDataException("LensPreset builtin0 recovered source bytes differ.");
         string evidence=$"{source.Source.ResourceUri}#object/3D60C3C7@{ResourceSha256};"+
             $"Camera285/A4541BE1={camera.Camera.ObjectId:X8};source-created-successful-builtin0-resolution;"+
-            "TC-E20750/E20A83/1148C80/1148180;SC-paired-opcodes-and-readonly-data;"+
+            "TC-;SC-paired-opcodes-and-readonly-data"+
             "payload656/alloc672/ghost4/flare16;retained-padding10-backend-zero/non-native-byte-identity;"+
             "Split=Data20.Cpu08.payload;Intermediate=Camera15CC-separate-current-producer;locale="+locale;
         return new(camera.Camera.ObjectId,camera.Resource.Source.DecodedSha256,locale,evidence);
     }
 }
 
-/// <summary>Exact92B output of the separate native1148F00 Camera preparation.
+/// <summary>Exact92B output of the separate native Camera preparation.
 /// No implicit zero buffer is supplied by the LensPreset declaration loader.</summary>
 public sealed class OriginalMapPostEffect3LensPresetIntermediatePacket
 {
@@ -134,7 +134,7 @@ public sealed class OriginalMapPostEffect3LensPresetIntermediatePacket
             throw new InvalidDataException("LensPreset intermediate requires the actual owned same-frame whole Camera and identical accepted early prefix.");
         byte[] bytes=actualOwnedWholeCamera.Slice(0x15CC,92).ToArray();
         if(BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(88,4))!=0)
-            throw new InvalidDataException("Native1148F00 intermediate tail58 must be its explicit zero write.");
+            throw new InvalidDataException("Native intermediate tail58 must be its explicit zero write.");
         return new(acceptedCamera,bytes,actualProducerEvidence+";explicit-owned-Camera15CC/92B-native-output;producer-not-inferred");
     }
 }
@@ -219,19 +219,19 @@ public sealed class OriginalMapPostEffect3LensPresetParameterOwner:IDisposable
         }
         byte[] Word(GCHandle pin){byte[] result=new byte[8];BinaryPrimitives.WriteUInt64LittleEndian(result,
             unchecked((ulong)pin.AddrOfPinnedObject().ToInt64()));return result;}
-        state.SetByName("LensPresetSplit",Word(splitPin),SourceEvidence+";E72483-actual-owned-pinned-Split-address");
-        state.SetByName("LensPresetIntermediate",Word(intermediatePin),SourceEvidence+";E724AD-actual-owned-pinned-Camera15CC-address");
+        state.SetByName("LensPresetSplit",Word(splitPin),SourceEvidence+"-actual-owned-pinned-Split-address");
+        state.SetByName("LensPresetIntermediate",Word(intermediatePin),SourceEvidence+"-actual-owned-pinned-Camera15CC-address");
         boundStates.Add(state);
     }
     public void Dispose()
     {
         if(disposed)return;
-        // E73770 clears both pointer-valued scalars after their CPU consumers.
+        // clears both pointer-valued scalars after their CPU consumers.
         // Release the corresponding owned pins only after this explicit clear.
         foreach(var state in boundStates)
         {
-            state.SetByName("LensPresetSplit",new byte[8],SourceEvidence+";E73770-owned-LensPresetSplit-cleanup");
-            state.SetByName("LensPresetIntermediate",new byte[8],SourceEvidence+";E73770-owned-LensPresetIntermediate-cleanup");
+            state.SetByName("LensPresetSplit",new byte[8],SourceEvidence+"-owned-LensPresetSplit-cleanup");
+            state.SetByName("LensPresetIntermediate",new byte[8],SourceEvidence+"-owned-LensPresetIntermediate-cleanup");
         }
         boundStates.Clear();disposed=true;
         if(splitPin.IsAllocated)splitPin.Free();if(intermediatePin.IsAllocated)intermediatePin.Free();

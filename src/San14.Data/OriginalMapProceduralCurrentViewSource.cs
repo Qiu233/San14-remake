@@ -38,7 +38,7 @@ public sealed record OriginalProceduralCurrentView(Vector3 Eye, TerrainFrustumPl
         {
             Vector4 a=frustum.Planes[triple[0]].Equation,b=frustum.Planes[triple[1]].Equation,c=frustum.Planes[triple[2]].Equation;
             var matrix=new Matrix4x4(a.X,b.X,c.X,0,a.Y,b.Y,c.Y,0,a.Z,b.Z,c.Z,0,0,0,0,1);
-            var inverse=OriginalNativeMatrixMath.Inverse3F6EB0(matrix,out _);
+            var inverse=OriginalNativeMatrixMath.Invert(matrix,out _);
             points.Add(new(A(A(A(M(inverse.M21,-b.W),M(inverse.M11,-a.W)),M(inverse.M31,-c.W)),inverse.M41),
                 A(A(A(M(inverse.M22,-b.W),M(inverse.M12,-a.W)),M(inverse.M32,-c.W)),inverse.M42),
                 A(A(A(M(inverse.M23,-b.W),M(inverse.M13,-a.W)),M(inverse.M33,-c.W)),inverse.M43)));

@@ -333,7 +333,7 @@ public sealed class OriginalMapPostEffect3StockGraphicsExecutor:IAsyncDisposable
                 stock.EmbeddedSource.Vertex.Sha256,Array.AsReadOnly(native.Select(r=>r.SourceRowIndex).ToArray()),target.StorageRid,
                 target.TargetViewRid,target.ParameterIndex,target.InstanceIndex,vertex,quad,
                 input.CurrentStock.SourceProvenance+";"+target.SourceEvidence+";"+input.CurrentDrawContextEvidence+
-                ";116323A..11632C2-original-current-stock-B0-selection;actual-RD-triangle-strip4;no-history-or-full-content-claim");
+                ";current-stock-B0-selection;actual-RD-triangle-strip4;no-history-or-full-content-claim");
         }
         finally
         {

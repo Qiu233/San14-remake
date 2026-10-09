@@ -48,8 +48,7 @@ public sealed class OriginalMapPostEffect3ToneInfoReadFootprint
         OriginalMapPostEffect3ParameterState.ValidateSource(allocation.Source);var cb=actualCompositeInit.ConstantBuffer;
         if(cb.SourceSha256!=allocation.Source.Sha256||cb.FrameNumber!=actualCompositeInit.FrameNumber||cb.FrameNumber<=0||
             cb.OwnerIdentity!=actualCompositeInit.OwnerIdentity||cb.OwnerIdentity!=allocation.ContextOwnerIdentity||
-            cb.Declaration.Index!=16||cb.WriterRva!=checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(
-                cb.Locale,"OriginalMapPostEffect3ToneInfoReadFootprint.cs",0x1153390))||cb.Bytes.Length!=160)
+            cb.Declaration.Index!=16||cb.Writer!=OriginalMapPostEffect3ConstantBufferWriter.CompositeLegacy||cb.Bytes.Length!=160)
             throw new InvalidDataException("Composite ToneInfo footprint requires its actual owned source160B CB.");
         var program=allocation.Source.GetProgram(0,3);
         if(program.Sha256!=ShaderSha||Convert.ToHexString(SHA256.HashData(program.Bytes.Span))!=ShaderSha||

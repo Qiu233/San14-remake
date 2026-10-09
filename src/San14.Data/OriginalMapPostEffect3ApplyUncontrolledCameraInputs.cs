@@ -2,8 +2,8 @@ using System.Buffers.Binary;
 
 namespace San14.Data;
 
-/// <summary>Independent fresh source Camera fields needed by the E71690 and
-/// E70780 no-controller preparations. Complements the existing prefix, Extra
+/// <summary>Independent fresh source Camera fields needed by the and
+/// no-controller preparations. Complements the existing prefix, Extra
 /// scalars and 44-word PostEffect3 tail; no full Camera tail or defaults blob.</summary>
 public sealed class OriginalMapPostEffect3ApplyUncontrolledCameraInputs
 {
@@ -16,7 +16,7 @@ public sealed class OriginalMapPostEffect3ApplyUncontrolledCameraInputs
     public long FrameNumber=>camera.FrameNumber;
     public string OwnerIdentity{get;}
     public string SourceEvidence=>camera.Source.ConstructorOrigin+
-        ";TC:C409C0-source-copy;21-extra-property-bound-words;"+
+        ";source-copy;21-extra-property-bound-words"+
         (camera.CurrentSeasonPostEffectScalars?.SourceEvidence??"fresh-owned-no-later-tail-writer")+";"+OwnerIdentity;
     public uint Word(int offset)=>words.TryGetValue(offset,out uint v)?v:
         throw new NotSupportedException($"Fresh uncontrolled Camera field {offset:X} is unsupported.");
@@ -41,7 +41,7 @@ public sealed class OriginalMapPostEffect3ApplyUncontrolledCameraInputs
             values.Add(b.CameraOffset,value);
         }
         var result=new OriginalMapPostEffect3ApplyUncontrolledCameraInputs(snapshot,actualInputOwner,values);
-        if((result.tail.Word(0x132C)&1)!=0)throw new NotSupportedException("ObjectDistance Camera12FC selects C4436F pose-distance branch; fresh static source copy is insufficient.");
+        if((result.tail.Word(0x132C)&1)!=0)throw new NotSupportedException("ObjectDistance Camera12FC selects  pose-distance branch; fresh static source copy is insufficient");
         return result;
     }
     public void ValidateSameCamera(OriginalMapCameraConstructionPacket candidate)

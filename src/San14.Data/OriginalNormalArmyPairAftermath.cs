@@ -41,7 +41,7 @@ public static class OriginalNormalArmyPairAftermath
             if (first is >= 46 and <= 50 || second is >= 46 and <= 50)
                 throw Missing("current.special_Force_27B0F0_relation_tail");
             byte beforeFirst = Relation(first, second), beforeSecond = Relation(second, first);
-            int ceiling = P(0x1A499B4), adjustment = P(0x1A499C0);
+            int ceiling = P(SimulationParameterKeys.NormalAftermath.HostileRelationCeiling), adjustment = P(SimulationParameterKeys.NormalAftermath.HostileRelationAdjustment);
             if (beforeFirst > ceiling) WriteRelations(first, second, unchecked(ceiling - beforeFirst));
             WriteRelations(first, second, adjustment);
             relations = new(first, second, beforeFirst, beforeSecond, Relation(first, second), Relation(second, first));
@@ -72,7 +72,7 @@ public static class OriginalNormalArmyPairAftermath
                     if (percent <= 0f || Sample("development-protection", 10000, (int)((percent * 10000f) / 100f)) >=
                         (int)((percent * 10000f) / 100f))
                     {
-                        int reduction = P(0x1A49964);
+                        int reduction = P(SimulationParameterKeys.NormalAftermath.AreaDevelopmentReduction);
                         var adapter = new Development(working, current, inputs);
                         foreach (var field in new[] { OriginalCeAreaDevelopmentField.Commerce,
                             OriginalCeAreaDevelopmentField.Agriculture, OriginalCeAreaDevelopmentField.Barracks })
@@ -87,9 +87,9 @@ public static class OriginalNormalArmyPairAftermath
                 }
                 area = working.Areas[areaId];
                 int security = Need(area.Security, "current.Area_security54");
-                int divisor = Math.Max(1, P(0x1A4997C));
-                float probability = (((float)P(0x1A4AF78) * (float)P(0x1A49970)) /
-                    ((float)security + (float)P(0x1A4AF84)) / (float)divisor) * 100f;
+                int divisor = Math.Max(1, P(SimulationParameterKeys.NormalAftermath.SecurityLossProbabilityDivisor));
+                float probability = (((float)P(SimulationParameterKeys.NormalAftermath.SecurityLossBaseMultiplier) * (float)P(SimulationParameterKeys.NormalAftermath.SecurityLossProbabilityNumerator)) /
+                    ((float)security + (float)P(SimulationParameterKeys.NormalAftermath.SecurityLossDenominatorOffset)) / (float)divisor) * 100f;
                 float capped = probability <= 100f ? probability : 100f;
                 int securityAfter = security;
                 if (capped > 0f && Sample("security-loss", 10000, (int)((capped * 10000f) / 100f)) <
@@ -100,8 +100,8 @@ public static class OriginalNormalArmyPairAftermath
                     //two pair actors' captured forces.
                     if (force is < 46 or > 50) securityAfter = Math.Clamp(security - 1, 0, 100);
                 }
-                int draw = Sample("quantity-loss", P(0x1A49994), null);
-                int after = unchecked(unchecked((int)quantity - draw) - P(0x1A49988));
+                int draw = Sample("quantity-loss", P(SimulationParameterKeys.NormalAftermath.AreaQuantityRandomReductionBound), null);
+                int after = unchecked(unchecked((int)quantity - draw) - P(SimulationParameterKeys.NormalAftermath.AreaQuantityFixedReduction));
                 ushort quantityAfter = (ushort)Math.Clamp(Math.Max(5000, after), 0, 60000);
                 working = working with { Areas = new(working.Areas) { [area.Id] = area with { Security = securityAfter,
                     NativeNormalAftermath = area.NativeNormalAftermath! with { Quantity52 = quantityAfter } } } };
@@ -116,7 +116,7 @@ public static class OriginalNormalArmyPairAftermath
         }
         catch (Unknown error) { return new(OriginalNormalArmyPairAftermathOutcome.CurrentInputsUnresolved, input, null, null, [], error.Message); }
 
-        int P(int rva) => Need(inputs.ReadTc(working, rva), "current.stage8_parameter:" + rva.ToString("X"));
+        int P(string key) => Need(inputs.ReadCurrent(working, key), "current.stage8_parameter:" + key);
         bool ForceValid(int id) => Need(current.ReadForceNativeValidity(Pointer(current.ReadForceTableReference(
             id is >= 0 and <= 51 ? id : 0), "current.Force_pointer")), "current.Force_validity");
         bool CommanderOrdinary(OriginalNormalArmyCombatDescriptor descriptor)
@@ -179,7 +179,7 @@ public static class OriginalNormalArmyPairAftermath
         public int? ReadForcePhysicalIdentity(OriginalForceReference force) => current.ReadForcePhysicalSlot(force);
         public short? ReadForceDevelopmentWord1BE(OriginalForceReference force) =>
             force.PhysicalSlot is int slot ? State.NativeArmySimulation!.Forces.GetValueOrDefault(slot)?.NormalAftermath?.Development1BE : null;
-        public int? ReadCurrentDevelopmentLevelChangeCoefficient() => inputs.ReadTc(State, 0x1A49844);
+        public int? ReadCurrentDevelopmentLevelChangeCoefficient() => inputs.ReadCurrent(State, SimulationParameterKeys.NormalAftermath.AreaDevelopmentLevelChangeCoefficient);
         public void WriteForceDevelopmentWord1BE(OriginalForceReference force, short value)
         {
             var simulation = State.NativeArmySimulation!; int slot = force.PhysicalSlot!.Value; var old = simulation.Forces[slot];

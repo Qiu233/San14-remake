@@ -33,7 +33,7 @@ public sealed class OriginalArmyReturnCaptivesSource(OriginalOwnedArmyCampaignRu
     {
         try
         {
-            int parameter = P(_working, 0x1A4ADB8);
+            int parameter = P(_working, SimulationParameterKeys.ArmyDestruction.TransportReturnCommanderMerit);
             float requested = ((float)acceptedCargo / 100000.0f + 1.0f) * unchecked(parameter * 10);
             int amount = !float.IsFinite(requested) || requested < int.MinValue || requested >= 2147483648f
                 ? int.MinValue : (int)requested;
@@ -63,7 +63,7 @@ public sealed class OriginalArmyReturnCaptivesSource(OriginalOwnedArmyCampaignRu
             OriginalPersonPendingMeritReceipt? merit = null;
             if (K(current.ReadPersonNativeValidity(commander), "2F8F00 Commander validity"))
             {
-                int amount = unchecked(P(working, 0x1A4AD44) * 10);
+                int amount = unchecked(P(working, SimulationParameterKeys.ArmyDestruction.CaptiveReturnCommanderMerit) * 10);
                 var earned = package.ApplyReturnCaptiveMerit(working, current, commanderId, amount);
                 if (earned.Outcome == OriginalPersonPendingMeritOutcome.CurrentInputsUnresolved)
                     throw Missing("current.2F8F00_Commander1695C0");
@@ -92,7 +92,7 @@ public sealed class OriginalArmyReturnCaptivesSource(OriginalOwnedArmyCampaignRu
                 {
                     current.ClearTemporaryHexList(gateCaptives);
                     int count = FillBaseAssociates(current, gateCaptives, location).Length;
-                    requirement = unchecked(unchecked((count + 1) * P(working, 0x1A4AA34)) + unchecked(P(working, 0x1A4AA28) * sum));
+                    requirement = unchecked(unchecked((count + 1) * P(working, SimulationParameterKeys.ArmyDestruction.CaptiveTroopRequirementAddend)) + unchecked(P(working, SimulationParameterKeys.ArmyDestruction.GateCaptiveGuardMultiplier) * sum));
                     shortage = K(current.ReadBaseResource(target, OriginalBaseResourceKind.Troops), "2F8F00 Gate virtual90") < requirement;
                 }
                 finally { Release(current, gateCaptives); }
@@ -103,7 +103,7 @@ public sealed class OriginalArmyReturnCaptivesSource(OriginalOwnedArmyCampaignRu
                 int ready = K(current.ReadBaseResource(target, OriginalBaseResourceKind.Troops), "2F8F00 City virtual90");
                 int wounds = K(current.ReadArmyReturnBaseWounded40(target), "2F8F00 City wounded22DAA0");
                 int raw50 = K(current.ReadBaseReturnField50(target), "current.2F8F00_City_raw50");
-                requirement = unchecked(raw50 + P(working, 0x1A4AA34));
+                requirement = unchecked(raw50 + P(working, SimulationParameterKeys.ArmyDestruction.CaptiveTroopRequirementAddend));
                 shortage = unchecked(ready + wounds) < requirement;
             }
             foreach (int person in people) ReadEmptyItemTransfer(current, target, person);
@@ -147,14 +147,14 @@ public sealed class OriginalArmyReturnCaptivesSource(OriginalOwnedArmyCampaignRu
         var values = state.NativeArmySimulation?.Parameters.Int32Values ?? throw Missing("2B4DE0 saved parameter owner");
         if (!values.TryGetValue(OriginalOwnedArmyGovernorComparatorInputs.OfficeGuard36Key(selected), out int office) || office is < 0 or > 255)
             throw Missing("current.2B4DE0_Post36");
-        int amount = unchecked(office * P(state, 0x1A4B14C));
-        if ((K(current.ReadArmyReturnPersonFlags196(person), "2B4DE0 Person15E") & 0x4000) != 0) amount = P(state, 0x1A4B1C4);
+        int amount = unchecked(office * P(state, SimulationParameterKeys.ArmyDestruction.CaptiveGuardOfficeMultiplier));
+        if ((K(current.ReadArmyReturnPersonFlags196(person), "2B4DE0 Person15E") & 0x4000) != 0) amount = P(state, SimulationParameterKeys.ArmyDestruction.CaptiveGuardFlaggedAmount);
         int effect = K(OriginalTacticRemakeCurrentTraits.CommanderEffectSum(current, person, 46), "2B4DE0 effect46");
-        int trait = unchecked(P(state, 0x1A4B074) * effect);
+        int trait = unchecked(P(state, SimulationParameterKeys.ArmyDestruction.CaptiveGuardTraitMultiplier) * effect);
         var force = current.ReadPersonForce(person) ?? throw Missing("2B4DE0 current PersonForce");
         var advantage = OriginalPersonReturnPathSource.ReadForceAdvantage(state, current, force, 12);
         int land = K(advantage.Value, advantage.UnresolvedOwner ?? "2B4DE0 advantage12");
-        int first = unchecked(unchecked(P(state, 0x1A49C28) * land) * amount);
+        int first = unchecked(unchecked(P(state, SimulationParameterKeys.ArmyDestruction.CaptiveGuardLandMultiplier) * land) * amount);
         return unchecked(unchecked(amount - first / 100) - unchecked(trait * amount) / 100);
     }
 
@@ -195,7 +195,7 @@ public sealed class OriginalArmyReturnCaptivesSource(OriginalOwnedArmyCampaignRu
     }
     private static void Release(OriginalEventInitializationContext current, OriginalHexListHandle descriptor)
     { current.ClearTemporaryHexList(descriptor); current.ReleaseTemporaryHexList(descriptor); }
-    private static int P(GameState state, int tc) => K(OriginalArmyDestructionParameterSeed.ReadCurrentTc(state, tc), $"2F8F00 parameter TC{tc:X}");
+    private static int P(GameState state, string key) => K(OriginalArmyDestructionParameterSeed.ReadCurrent(state, key), $"2F8F00 parameter TC{key}");
     private static T K<T>(T? value, string owner) where T : struct => value ?? throw Missing(owner);
     private static InvalidDataException Missing(string owner) => new(owner);
 }

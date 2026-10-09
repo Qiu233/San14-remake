@@ -20,7 +20,7 @@ public sealed class LoadedOriginalMapPostEffect3LutSelectorSource
     }
 }
 
-/// <summary>BF8B50 returns zero because this exact Q.v80 is C00170/literalfalse.
+/// <summary> returns zero because this exact Q.v80 is /literalfalse.
 /// No external selector value, locale selection or first declaration is used.</summary>
 public sealed class OriginalMapPostEffect3OwnedMainLutSelector
 {
@@ -58,14 +58,6 @@ public static partial class OriginalDeferredSamplerSources
     internal static LoadedOriginalMapPostEffect3LutSelectorSource ReadPostEffect3LutSelectorSource(
         LoadedOriginalDeferredSamplerNativeSource native)
     {
-        const string sourceScope="OriginalMapPostEffect3LutSelectorSource.cs";
-
-        int vtable=OriginalMapPostEffect3NativeSourceProfile.DataRva(native.Locale,sourceScope,0x13C4ED0);
-        int falseLeaf=OriginalMapPostEffect3NativeSourceProfile.CodeRva(native.Locale,sourceScope,0xC00170);
-        int selector=OriginalMapPostEffect3NativeSourceProfile.CodeRva(native.Locale,sourceScope,0xBF8B50);
-
-        return new(native,native.RenderRuleIdentity+
-            $";{native.Locale}:QVT{vtable:X8}.v88={selector:X8}/v80={falseLeaf:X8}-literalALfalse;TC-reference-role:BF8B81-EAXzero;"+
-            "E8F49B-context50/E23937-v88;owned-Main-current-context-only;not-original-active-Q-observation");
+        return new(native,native.RenderRuleIdentity+";owned Main context LUT selector;current source mode;not original process observation");
     }
 }

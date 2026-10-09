@@ -58,8 +58,8 @@ public static partial class OriginalDeferredSamplerSources
         LoadedOriginalDeferredSamplerNativeSource native)
     {
 
-        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+";render-rules="+native.RenderRuleIdentity+
-            ";1163080->1163460-clears-six-stage16-SRV-pointers-and-dirty0101;1162AC0->1163A10-kind1-null->876F30-SRV0;"+
+        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;"+";render-rules="+native.RenderRuleIdentity+
+            "->-clears-six-stage16-SRV-pointers-and-dirty0101;->-kind1-null->-SRV0"+
             "source-CS32/36-t2-has-no-counted-or-Before-setter;isolated-device-set-retains-no-other-pass-SRV",native.Locale);
     }
 }

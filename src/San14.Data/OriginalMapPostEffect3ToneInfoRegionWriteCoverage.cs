@@ -72,8 +72,7 @@ public sealed class OriginalMapPostEffect3ToneInfoRegionWriteCoverage
         Check(raw,366,[0x0A0000A4,0x0011E0F2,0,0x00004002,0,0,0,0,0x00100006,0]);
         var main=recipe.Initialization.ConstantBuffers.Single(c=>c.Declaration.Index==6);
         if(main.FrameNumber!=recipe.FrameNumber||main.OwnerIdentity!=recipe.ContextOwnerIdentity||main.SourceSha256!=recipe.SourceSha256||
-            main.Locale!=recipe.Initialization.Locale||main.WriterRva!=checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(
-                recipe.Initialization.Locale,"OriginalMapPostEffect3ToneInfoRegionWriteCoverage.cs",0x1151FF0))||main.Bytes.Length!=192||
+            main.Locale!=recipe.Initialization.Locale||main.Writer!=OriginalMapPostEffect3ConstantBufferWriter.LensLegacy||main.Bytes.Length!=192||
             BinaryPrimitives.ReadSingleLittleEndian(main.Bytes.Span)!=(float)allocation.ContextWidth||
             BinaryPrimitives.ReadSingleLittleEndian(main.Bytes.Span[4..])!=(float)allocation.ContextHeight||
             allocation.ContextWidth>int.MaxValue||allocation.ContextHeight>int.MaxValue)

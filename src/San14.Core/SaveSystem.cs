@@ -16,7 +16,7 @@ public sealed record SaveEnvelope(int SchemaVersion, string FormatId, GameState 
 /// <summary>Local save format. A future original-save adapter can implement ISaveCodec.</summary>
 public sealed class JsonGzipSaveCodec : ISaveCodec
 {
-    public const int CurrentSchemaVersion = 59;
+    public const int CurrentSchemaVersion = 60;
     public string FormatId => "san14-remake-json-gzip";
 
     public byte[] Encode(GameState state)
@@ -179,6 +179,9 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
         // Schema59 replaces EXE proof hashes with the version of our own rules.
         // Migrate identity metadata only; all current field values and owner links remain untouched.
         if (version < 59) MigrateRuleIdentities((JsonObject)document["State"]!);
+        // Schema60 names saved parameters by their meaning. This is the only
+        // boundary that recognizes historical source-address keys; values stay unchanged.
+        if (version < 60) LegacySimulationParameterSaveMigration.Apply((JsonObject)document["State"]!);
         ValidateModuleSnapshotShape((JsonObject)document["State"]!, version);
         // A present options record must contain all choices. JSON constructor
         // defaults must not turn a missing boolean into a confirmed false choice.

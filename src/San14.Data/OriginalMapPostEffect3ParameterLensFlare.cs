@@ -7,7 +7,7 @@ public sealed record OriginalMapPostEffect3LensFlareTextureAlias(int Destination
     string DestinationName,string SourceName,string SourceEvidence);
 public sealed record OriginalMapPostEffect3LensFlareBufferWrite(int ParameterIndex,ReadOnlyMemory<byte> Bytes,string SourceEvidence);
 
-/// <summary>Retained native plLensFlare.self10. Fresh1151900 is +0; Init
+/// <summary>Retained native plLensFlare.self10. Fresh is +0; Init
 /// compares this word with FStop before retaining the next value.</summary>
 public sealed record OriginalMapPostEffect3LensFlareHistory(string SourceSha256,string OwnerIdentity,uint FStopBits)
 {
@@ -27,7 +27,7 @@ public sealed record OriginalMapPostEffect3ParameterLensFlareInitialization(long
     public bool RequiresBeforeHookProducer=>true;
 }
 
-/// <summary>Actual1151FF0 initialization, complete192B Lens constants and
+/// <summary>Actual initialization, complete192B Lens constants and
 /// complete16B down/up/bloom constants. Current source scope supports native
 /// powf uses the recovered positive finite SSE kernel and its source tables.
 /// Before1151B90's per-pass resource/dispatch mutations remain independent.</summary>
@@ -35,8 +35,7 @@ public static class OriginalMapPostEffect3ParameterLensFlare
 {
     /// <summary>Actual callable Init identity in the loaded source locale.
     /// Uses the compiled paired source directory; performs no source I/O.</summary>
-    public static uint NativeInitializeWriterRva(string locale)=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(
-        locale,"OriginalMapPostEffect3ParameterLensFlare.cs",0x1151FF0));
+    public static OriginalMapPostEffect3ConstantBufferWriter InitializationWriter=>OriginalMapPostEffect3ConstantBufferWriter.LensLegacy;
     public static OriginalMapPostEffect3ParameterLensFlareInitialization PrepareInit(
         OriginalMapPostEffect3ParameterState state,OriginalMapPostEffect3AllocationPlan allocation,
         OriginalMapPostEffect3LensPresetParameterOwner actualLens,
@@ -55,8 +54,8 @@ public static class OriginalMapPostEffect3ParameterLensFlare
         if(actualLens.FrameNumber!=state.FrameNumber)throw new InvalidDataException("LensFlare pinned Lens parameters belong to another frame.");
         if(state.FindScalarIndex("LensPreset") is not null&&BinaryPrimitives.ReadUInt64LittleEndian(state.RequireValue("LensPreset").Span)!=0)
             throw new NotSupportedException("LensFlare nonnull unified LensPreset has no selected typed Split producer.");
-        // 1151FF0 performs independent named lookups: Split -> R15 at
-        // 11520D3/11520E0, Intermediate -> R12 at 115210B/1152118. The
+        // performs independent named lookups: Split -> R15 at
+        // /, Intermediate -> R12 at /. The
         // unified-preset branch uses +10 -> R15 and +18 -> R12 as well.
         byte[] split=actualLens.SplitBytes.ToArray(),intermediate=actualLens.IntermediateBytes.ToArray();
         if(split.Length!=656||intermediate.Length<92||actualLens.Source.GhostCount!=4||actualLens.Source.FlareCount!=16)
@@ -69,7 +68,7 @@ public static class OriginalMapPostEffect3ParameterLensFlare
         uint fstopBits=BitConverter.SingleToUInt32Bits(fstop);
         bool changed=BitConverter.UInt32BitsToSingle(history.FStopBits)!=fstop;
         bool lens=I("LensFlareEnable")!=0&&I("IntoSunLight")!=0&&split[0x54]==0;
-        //1152536 repeats lookup into the SAME output pointer without clearing
+        // repeats lookup into the SAME output pointer without clearing
         // it. If AnamorphicFlag is absent (the real payload), failed lookup
         // retains the AnamorphicEnable pointer and reads that scalar value.
         bool anamorphic=state.FindScalarIndex("AnamorphicEnable") is null||I("AnamorphicEnable")!=0;
@@ -88,7 +87,7 @@ public static class OriginalMapPostEffect3ParameterLensFlare
                     throw new NotSupportedException("LensFlare powf requires the matching original positive-finite SSE source kernel.");
                 power=OriginalSkyWeatherNativePower.PowSse(2,dial,actualNativePower);
             }
-            //101EC10 zero-exponent source branch returns exactly binary32 one.
+            // zero-exponent source branch returns exactly binary32 one.
             threshold=D(threshold,power);
         }
         float width=allocation.ContextWidth,height=allocation.ContextHeight;
@@ -121,19 +120,19 @@ public static class OriginalMapPostEffect3ParameterLensFlare
         var buffers=new[]{Buffer("LensGroup",0x90,4,16),Buffer("SimpleGhost",0xD0,16,28)};
         return new(state.FrameNumber,state.OwnerIdentity,state.SourceSha256,changed,lens,anamorphic,
             new(state.SourceSha256,state.OwnerIdentity,fstopBits),cbs.AsReadOnly(),Array.AsReadOnly(aliases),Array.AsReadOnly(buffers),
-            actualLens.SourceEvidence+";TC:1151900-fresh-FStop0;1151FF0-init;115249F..1152ABF-complete192B;1152AC4..1152FC0-scales;1152FC0..11530FD-bufferwrites",
+            actualLens.SourceEvidence+";fresh-FStop0;-init;-complete192B;-scales;-bufferwrites",
             actualLens.Source.ExecutableLocale);
 
         int Resource(OriginalMapPostEffect3ParameterResourceTable table,string name)=>state.FindResourceIndex(table,name,aliasMode)
             ??throw new InvalidDataException("LensFlare source resource declaration absent: "+name);
         OriginalMapPostEffect3LensFlareTextureAlias Alias(string dst,string src)=>new(Resource(OriginalMapPostEffect3ParameterResourceTable.Texture,dst),
-            Resource(OriginalMapPostEffect3ParameterResourceTable.Texture,src),dst,src,"TC:11525E7..11526B1-source-alias");
+            Resource(OriginalMapPostEffect3ParameterResourceTable.Texture,src),dst,src,";source-alias");
         OriginalMapPostEffect3ParameterConstantBuffer Packet(string name,byte[] bytes)
         {
             var d=allocation.ConstantBufferParameters[Resource(OriginalMapPostEffect3ParameterResourceTable.ConstantBuffer,name)];
             if(d.ByteCount!=bytes.Length||d.Ownership!=OriginalMapPostEffect3AllocationOwnership.OwnedDeclaration)
                 throw new InvalidDataException("LensFlare source CB ownership/extent differs: "+name);
-            return new(state,d,NativeInitializeWriterRva(actualLens.Source.ExecutableLocale),bytes,
+            return new(state,d,InitializationWriter,bytes,
                 actualLens.Source.ExecutableLocale);
         }
         OriginalMapPostEffect3ParameterConstantBuffer Scale(string name,uint x,uint y,int level)
@@ -146,7 +145,7 @@ public static class OriginalMapPostEffect3ParameterLensFlare
                 throw new InvalidDataException("LensFlare source buffer ownership/extent differs.");
             byte[] bytes=new byte[(int)d.ByteCount];int n=checked(count*stride);
             if(bytes.Length>=n)split.AsSpan(sourceAt,n).CopyTo(bytes);
-            return new(index,bytes,"TC:1152FFC/115300F-zero-entire-capacity;1153014..1153055-LensGroup;1153096..11530F8-SimpleGhost");
+            return new(index,bytes,";zero-entire-capacity;-LensGroup;-SimpleGhost");
         }
         int I(string name)
         {Decl(name,6,4);return BinaryPrimitives.ReadInt32LittleEndian(state.RequireValue(name).Span);}

@@ -89,7 +89,7 @@ public sealed class OriginalOwnedCityCaptureStage(OriginalOwnedArmyCampaignRules
             working = refreshed.State ?? throw Missing(refreshed.UnresolvedOwner ?? "27BE40_new_Force");
             var land = OriginalCityCaptureTerritorySource.ApplyTerritoryAfterResources(working, current, scope, newDistrict, package.CreateArmyDestructionAbilities(current));
             _ = OriginalCityCaptureTerritorySource.RequireNoReachedAreaObjectService(current, scope);
-            int cap = K(OriginalArmyDestructionParameterSeed.ReadCurrentTc(working, 0x1A49050), "231480_bound");
+            int cap = K(OriginalArmyDestructionParameterSeed.ReadCurrent(working, SimulationParameterKeys.Tactics.AbnormalCounterUpperBound), "231480_bound");
             byte zero = unchecked((byte)Math.Min(cap, 0));
             current.SetCaptureBaseThreatFields(target, new(zero, zero, 255, 0));
             _ = OriginalCityCaptureTerritorySource.RequireEmperorCaptureNotReached(working, current, scope);

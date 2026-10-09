@@ -44,9 +44,6 @@ public sealed class OriginalCeInitialAreaDevelopment
 
     public string Locale { get; }
     public string RuleVersion { get; }
-    public uint AreaResetRva => Locale == "SC" ? 0x226BC0u : 0x226950u;
-    public uint StrategyWorkerRva => Locale == "SC" ? 0x4C6F50u : 0x4C6F20u;
-    public uint LevelChangeCoefficientRva => Locale == "SC" ? 0x1A4A874u : 0x1A49844u;
     /// <summary>Fresh rule initial value only. A write consumes the context's
     /// current value, because the saved parameter may have changed.</summary>
     public int ImageInitialLevelChangeCoefficient { get; }
@@ -67,17 +64,6 @@ public sealed class OriginalCeInitialAreaDevelopment
             InitialForceDevelopmentLevelChangeCoefficient);
     }
 
-    public uint SetterRva(OriginalCeAreaDevelopmentField field) => (Locale, field) switch
-    {
-        ("SC", OriginalCeAreaDevelopmentField.Commerce) => 0x240EA0,
-        ("SC", OriginalCeAreaDevelopmentField.Agriculture) => 0x241440,
-        ("SC", OriginalCeAreaDevelopmentField.Barracks) => 0x241E20,
-        ("TC", OriginalCeAreaDevelopmentField.Commerce) => 0x240C20,
-        ("TC", OriginalCeAreaDevelopmentField.Agriculture) => 0x2411C0,
-        ("TC", OriginalCeAreaDevelopmentField.Barracks) => 0x241BA0,
-        _ => throw new ArgumentOutOfRangeException(nameof(field))
-    };
-
     public int ReadLevel(ushort progress)
     {
         for (int index = 0; index < _thresholds.Length; index++)
@@ -90,7 +76,8 @@ public sealed class OriginalCeInitialAreaDevelopment
         IOriginalCeAreaDevelopmentWriteContext context)
     {
         ArgumentNullException.ThrowIfNull(area); ArgumentNullException.ThrowIfNull(context);
-        _ = SetterRva(field);
+        if (field is not (OriginalCeAreaDevelopmentField.Commerce or OriginalCeAreaDevelopmentField.Agriculture or OriginalCeAreaDevelopmentField.Barracks))
+            throw new ArgumentOutOfRangeException(nameof(field));
         if (!area.PhysicalSlot.HasValue)
             throw new InvalidDataException("Native area progress setter dereferences a null receiver.");
         //Flag0 does not read the previous word, Hex or force. Every nonzero

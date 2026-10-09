@@ -28,7 +28,7 @@ public sealed class OriginalMapPostEffect3CommonOverlayPacket
             actualOwner.ConsumedHighBits!=ConsumedHighBits)
             throw new InvalidDataException("Common overlay packet differs from its actual owned context/frame/revision.");
     }
-    /// <summary>D1E410's controlledFlags8 writes. The nonnull overlay branch
+    /// <summary>'s controlledFlags8 writes. The nonnull overlay branch
     /// does not write these four other consumed Aux offsets.</summary>
     public OriginalMapPostEffect3ControlledAuxFields ApplyControlledFields(
         OriginalMapPostEffect3ControlledAuxFields actualSourceAux)
@@ -47,7 +47,7 @@ public sealed class OriginalMapPostEffect3CommonOverlayPacket
             actualSourceAux.Fxaa3A8,actualSourceAux.SeparateHdrMode440,actualSourceAux.BloomColorFix448,
             actualSourceAux.CustomPixelShader108Absent,
             actualSourceAux.SourceEvidence+";"+SourceEvidence+
-            (Selected?";D1E8D3..D1EA1C-selected-overlay-Flags8-writers":";D1E8CD-null-overlay-no-rewrite"));
+            (Selected?"-selected-overlay-Flags8-writers":"-null-overlay-no-rewrite"));
     }
     private static uint WriteBit(uint destination,int at,uint source,int from)
         =>(destination&~(1u<<at))|(((source>>from)&1u)<<at);
@@ -69,7 +69,7 @@ public sealed class OriginalMapPostEffect3OwnedCommonOverlay
         CommonContextOwnerIdentity=common;SelectedViewOwnerIdentity=view;HostOwnerIdentity=host;
         baseEvidence=evidence+";owned-Common="+common+";owned-Host="+host;
         SourceEvidence=baseEvidence+
-            ";D01739-3324=0;D01794-34B0=01FFFFFF;only-consumed-fields-before-callback";
+            ";3324=0;34B0=01FFFFFF;only-consumed-fields-before-callback";
     }
     public string CommonContextOwnerIdentity{get;}
     public string SelectedViewOwnerIdentity{get;}
@@ -96,7 +96,7 @@ public sealed class OriginalMapPostEffect3OwnedCommonOverlay
         ConsumedHighBits|=0x20;Selected=true;Revision=checked(Revision+1);
         SourceEvidence=baseEvidence+";"+flagsWriterEvidence+
             ";153F1B-existing-overlay-or-native-default;153FC4-highword-OR20;"+
-            "D6D070-publish;3324.bit2=1;host-lowword19/22-and-rate-not-consumed;revision="+Revision;
+            "-publish;3324.bit2=1;host-lowword19/22-and-rate-not-consumed;revision="+Revision;
         return new(this,frame);
     }
     /// <summary>Explicit owned configuration write. Both words are actual
@@ -115,7 +115,7 @@ public sealed class OriginalMapPostEffect3OwnedCommonOverlay
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(actualOwnedWriterEvidence);AcceptFrame(frame);
         if(Selected){Selected=false;Revision=checked(Revision+1);}
-        SourceEvidence=baseEvidence+";D1A3B4-clear-3324.bit2;"+actualOwnedWriterEvidence+";revision="+Revision;
+        SourceEvidence=baseEvidence+"-clear-3324.bit2"+actualOwnedWriterEvidence+";revision="+Revision;
     }
     private void AcceptFrame(long frame)
     {
@@ -154,9 +154,9 @@ public static partial class OriginalDeferredSamplerSources
     {
 
         return new(native,native.RenderRuleIdentity+
-            ";TC:Host-VT1388718/v30=153EA0;registered-app-owner->CommonSettingF0;"+
-            "secondary-CommonC+8/VT16C75E0;v10=D5BAF0;v8=D6D070;"+
+            "TC:Host-VT/v30=153EA0;registered-app-owner->CommonSettingF0"+
+            "secondary-CommonC+8/VT;v10=;v8="+
             "153EA0-owned-known-Host-callback;controlled-read-masks3170F/63;"+
-            "D1E8D3..D1EA1C-flags8-only;not-complete68B/not-original-observation/no-GPU-claim");
+            "-flags8-only;not-complete68B/not-original-observation/no-GPU-claim");
     }
 }

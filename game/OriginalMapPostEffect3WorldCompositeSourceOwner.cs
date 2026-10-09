@@ -146,14 +146,14 @@ public sealed partial class OriginalMapPostEffect3WorldCompositeSourceOwner:IAsy
             ObjectDisposedException.ThrowIf(retiring,this);
             if(accepted!=0)throw new InvalidOperationException("Cannot rebind frontend target during an accepted Composite draw.");
             targetStack.Clear();targetStack.Push(target);
-            // EBB470..EBB4A2 matched ratio1/context-size branch returns without
+            // The matched ratio1/context-size branch returns without
             // target push. This is execution of that finite owned branch.
             if(targetStack.Count!=1||!ReferenceEquals(targetStack.Peek(),target))
                 throw new InvalidDataException("Node192 changed its owned inherited target.");
             CompletedPresentation=null;
             return current=new(this,actualContext,++revision,world.Context.Source.OwnedHostIdentity,
-                SourceEvidence+";TC:E987B0-Qv80false->EBB2F0;E8F210-sourceRatio0-effective1;"+
-                "EBB470/EBB483/EBB48E/EBB499/EBB4A2-no-push;actual-frontend-stack-depth1;"+late.SourceEvidence);
+                SourceEvidence+";frontend-context-disabled;sourceRatio0-effective1;"+
+                "matched-ratio-and-context-size-no-push;actual-frontend-stack-depth1;"+late.SourceEvidence);
         }
     }
 

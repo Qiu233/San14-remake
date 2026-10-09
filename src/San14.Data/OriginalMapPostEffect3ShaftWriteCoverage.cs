@@ -42,7 +42,7 @@ public sealed class OriginalMapPostEffect3ShaftWriteCoverage
         if(sourcePassIndex is <1 or >6||!init.BeforeHookAllowsPasses||!init.InitializationReturnedTrue||
             init.SourceSha256!=allocation.Source.Sha256||init.OwnerIdentity!=allocation.ContextOwnerIdentity||init.FrameNumber<=0||
             init.ConstantBuffer is not{} cb||cb.Declaration.Index!=1||cb.Bytes.Length!=144||cb.Locale!=init.Locale||
-            cb.WriterRva!=checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(init.Locale,"OriginalMapPostEffect3ShaftWriteCoverage.cs",0x1153FA0))||
+            cb.Writer!=OriginalMapPostEffect3ConstantBufferWriter.LightShaft||
             cb.FrameNumber!=init.FrameNumber||cb.OwnerIdentity!=init.OwnerIdentity||cb.SourceSha256!=init.SourceSha256)
             throw new InvalidDataException("Shaft coverage requires this actual enabled source Init and pass1..6.");
         var links=allocation.Passes[sourcePassIndex];int shaderIndex=sourcePassIndex-1;

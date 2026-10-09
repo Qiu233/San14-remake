@@ -31,7 +31,7 @@ public static class OriginalSkylightDirectionMath
             0, -quarterTurn.Sin, quarterTurn.Cos, 0, 0, 0, 0, 1);
         sky = LeftY(sky, Pi);
         sky = RightY(sky, hour);
-        Matrix4x4 transform = OriginalNativeMatrixMath.Inverse3F6EB0(Combine3x3(sky, geographic), out _);
+        Matrix4x4 transform = OriginalNativeMatrixMath.Invert(Combine3x3(sky, geographic), out _);
 
         OriginalNativeSinCos obliquity = OriginalNativeTrigonometry.SinCos014590(0.40909260511398315f);
         Vector4 axis = new(-obliquity.Sin, obliquity.Cos, 0, 0);

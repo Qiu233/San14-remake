@@ -24,9 +24,9 @@ public sealed class OriginalMapPostEffect3ConstantBufferImage
 
     /// <summary>The caller supplies an actual recovered writer and its exact
     /// current output. Native later writes replace earlier values in order.</summary>
-    public void Write(int offset,ReadOnlySpan<byte> value,uint writerRva,string sourceEvidence)
+    public void Write(int offset,ReadOnlySpan<byte> value,OriginalMapPostEffect3ConstantBufferWriter writer,string sourceEvidence)
     {
-        if(writerRva==0||string.IsNullOrWhiteSpace(sourceEvidence))
+        if(string.IsNullOrWhiteSpace(sourceEvidence))
             throw new InvalidDataException("CB bytes require an explicit recovered source writer.");
         if(offset<0||value.Length==0||(long)offset+value.Length>bytes.Length)
             throw new InvalidDataException("CB writer exceeds its native allocation.");

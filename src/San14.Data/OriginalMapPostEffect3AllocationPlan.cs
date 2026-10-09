@@ -22,7 +22,7 @@ public sealed record OriginalMapPostEffect3BufferParameter(int Index,uint NameHa
         OriginalMapPostEffect3AllocationOwnership.OwnedDeclaration:OriginalMapPostEffect3AllocationOwnership.ExternalParameterSlot;
     public bool HasTwoRuntimeInstances=>(NativeFlags&8)!=0;
 }
-/// <summary>Exact fields consumed by 11468D0's allocator.v20/v28 request.
+/// <summary>Exact fields consumed by 's allocator.v20/v28 request.
 /// Unnamed native request fields remain raw; this does not guess texture kind,
 /// array/mip semantics or native resource handles from matching shape.</summary>
 public sealed record OriginalMapPostEffect3TextureAllocation(OriginalMapPostEffect3TextureParameter Parameter,
@@ -48,7 +48,7 @@ public sealed record OriginalMapPostEffect3DispatchExtent(uint X,uint Y,uint Z);
 public sealed record OriginalMapPostEffect3PassAllocationLinks(OriginalMapPostEffect3Pass Pass,
     IReadOnlyList<OriginalMapPostEffect3BindingSpan> Spans,OriginalMapPostEffect3DispatchExtent? DispatchExtent)
 {
-    // 1161DCF..1161DFF prefers CS when present, otherwise requires PS and
+    // .. prefers CS when present, otherwise requires PS and
     // selects the remaining five native stage bits. It does not infer a VS.
     public byte NativeActiveStageMask=>Pass.ProgramReferences.Any(p=>p.StageCode==5&&p.StageIndex is not null)?(byte)1:
         Pass.ProgramReferences.Any(p=>p.StageCode==0&&p.StageIndex is not null)?(byte)62:(byte)0;
@@ -98,7 +98,7 @@ public sealed class OriginalMapPostEffect3AllocationPlan
         Passes=resize.Passes;
     }
     public bool IsCompleteForExecution=>false;
-    public string SourceEvidence=>"TC:11468D0;1147580;11476B0;1147ED0/1A8F9F0;01738AB0/v48/1147CB0/94C470/94C350;1163690/95B930;1161B80;1161D40;1161A90;source-counted-3SPK";
+    public string SourceEvidence=>"TC;v48;source-counted-3SPK";
     public IReadOnlyList<OriginalMapPostEffect3PassAllocationLinks> ReadSourceFunctorOrder(int explicitFunctorIndex)
     {
         var rows=Source.ReadFunctorPasses(explicitFunctorIndex);
@@ -152,9 +152,9 @@ public static class OriginalMapPostEffect3AllocationReader
             constantBuffers.Add(p);
             if(p.Ownership!=OriginalMapPostEffect3AllocationOwnership.OwnedDeclaration)continue;
             if(p.ByteCount==0||p.ByteCount>int.MaxValue)throw new NotSupportedException("3SPK constant buffer byte count is outside supported owned storage.");
-            // 1146E81 skips this entire allocation loop during resize-only.
-            // allocator v48 is 1147CB0 -> 94C470 (CPU constant-buffer owner),
-            // not v40's 1147C80 -> 94B650 generic GPU buffer.
+            // skips this entire allocation loop during resize-only.
+            // allocator v48 is -> (CPU constant-buffer owner),
+            // not v40's -> generic GPU buffer.
             constantBufferAllocations.Add(new(p,0x48,p.HasTwoRuntimeInstances?2:1,!resizeOnly));
         }
         var passes=new List<OriginalMapPostEffect3PassAllocationLinks>();
@@ -201,7 +201,7 @@ public static class OriginalMapPostEffect3AllocationReader
         if(mode is not(1 or 2))throw new NotSupportedException("3SPK texture dimension mode is unsupported.");
         float value=BitConverter.UInt32BitsToSingle(operand);
         float extent=unchecked((int)callerExtent);float result=mode==1?extent*value:extent/value;
-        // 11476B0: CVTDQ2PS -> MULSS/DIVSS -> CVTPS2PD -> ceil -> CVTTSD2SI.
+        // : CVTDQ2PS -> MULSS/DIVSS -> CVTPS2PD -> ceil -> CVTTSD2SI.
         return PositiveInt32(Math.Ceiling((double)result),"texture extent");
     }
     public static uint ResolveBufferByteCount(OriginalMapPostEffect3BufferParameter p,uint width,uint height)

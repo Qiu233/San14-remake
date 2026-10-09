@@ -17,8 +17,8 @@ public sealed class OriginalMapPostEffect3ManagerSamplerSources
 
 public static partial class OriginalDeferredSamplerSources
 {
-    /// <summary>11443A0/1145960 create two eight by eight native RT wrappers,
-    /// then edit wrapper+48 and install them via114AAD0 into manager+30/+38.
+    /// <summary>Create two eight by eight native RT wrappers,
+    /// then edit wrapper+48 and install them into manager+30/+38.
     /// The currently verified SC/TC source profiles are admitted. No RDEF sampler name
     /// or backend null/default state participates in this recipe.</summary>
     public static OriginalMapPostEffect3ManagerSamplerSources ReadPostEffect3ManagerSamplers(
@@ -43,6 +43,6 @@ public static partial class OriginalDeferredSamplerSources
             BinaryPrimitives.WriteUInt16LittleEndian(key,lo);
         }
         Write(linear,0x5400);Write(point,0x4000);
-        return new(linear,point,native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+";TC11443A0/1145960->952D90(level1)->wrapper48;114AAD0:linear30/point38;slot-installation-not-established",native.Locale);
+        return new(linear,point,native.ResourceUri+$";{native.Locale}:manager-sampler-rules;"+"level1;wrapper48;linear30/point38;slot-installation-not-established",native.Locale);
     }
 }

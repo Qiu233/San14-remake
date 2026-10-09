@@ -43,7 +43,7 @@ public sealed class OriginalMapPostEffect3ModuleSamplerCarrierState
         actualWorld.RequireCurrent();
         if(!actualManager.Source.LinearKey.AsSpan().SequenceEqual(Convert.FromHexString("1554300000000000"))||
             !actualManager.Source.PointKey.AsSpan().SequenceEqual(Convert.FromHexString("1540300000000000")))
-            throw new InvalidDataException("Actual module carriers need the original11443A0/1145960 full manager keys.");
+            throw new InvalidDataException("Actual module carriers need the full manager sampler keys.");
         var result=new OriginalMapPostEffect3ModuleSamplerCarrierState(actualWorld,actualManager);
         result.RequireCurrent();return result;
     }

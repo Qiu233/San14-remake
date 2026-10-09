@@ -16,20 +16,18 @@ public sealed class OriginalTerrainGbufferMaterialDrawSource
 {
     private readonly Vector4 specular;
     private readonly uint materialFlags;
-    internal OriginalTerrainGbufferMaterialDrawSource(string locale, string ruleVersion, Vector4 value, uint flags, uint drawRva, uint setterRva)
+    internal OriginalTerrainGbufferMaterialDrawSource(string locale, string ruleVersion, Vector4 value, uint flags)
     {
         Locale = locale; RuleVersion = ruleVersion;
-        specular = value; materialFlags = flags; NativeDrawRva = drawRva; NativeMaterialSetterRva = setterRva;
+        specular = value; materialFlags = flags;
         SourceProvenance = $"{ruleVersion};" +
-            $"ordinary-F8/{drawRva:X8};flags-bit4-skips-material-modifiers;" +
-            $"material+20->{setterRva:X8}/count1/spec-bit100/group-index2;" +
+            "ordinary-terrain-material;flags-bit4-skips-material-modifiers;" +
+            "material-field20/count1/spec-bit100/group-index2;" +
             "san14://rdb/system/DC52FD1C";
     }
 
     public string Locale { get; }
     public string RuleVersion { get; }
-    public uint NativeDrawRva { get; }
-    public uint NativeMaterialSetterRva { get; }
     public string SourceProvenance { get; }
     public uint MaterialModeCount => 1;
 
@@ -75,9 +73,6 @@ public static partial class OriginalDeferredSamplerSources
         string sourceDirectory, string locale)
     {
         string ruleVersion = RenderRuleIdentity.For("terrain-gbuffer-material-draw", locale);
-        uint ordinaryShift = locale == "SC" ? 0xD30u : 0;
-        uint setterShift = locale == "SC" ? 0x1190u : 0;
-        return new(locale, ruleVersion, new Vector4(1,1,1,2), 0x100,
-            0xD2D050u + ordinaryShift, 0x9800D0u + setterShift);
+        return new(locale, ruleVersion, new Vector4(1,1,1,2), 0x100);
     }
 }

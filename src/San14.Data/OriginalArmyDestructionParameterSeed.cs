@@ -86,15 +86,7 @@ public sealed class OriginalArmyDestructionParameterSeed
     private const int RulerExecutionRelationPenalty = 0;
     public const string Revision = "san14:ce-owned-army-destruction-parameters-20261007";
     public const string VersionKey = "ce-army-destruction-current:version";
-    public const int CaptureAdjustmentTcRva = 0x27D37AC;
-    public const int CaptureAdjustmentScRva = 0x27D480C;
-    public const int RelationFirstThresholdTcRva = 0x27D3834;
-    public const int RelationFirstThresholdScRva = 0x27D4894;
-    public const int LordReleaseRelationThresholdTcRva = 0x27D37D0;
-    public const int LordReleaseRelationThresholdScRva = 0x27D4830;
-    public const int LordExecuteRelationPenaltyTcRva = 0x27D37D4;
-    public const int LordExecuteRelationPenaltyScRva = 0x27D4834;
-    public string Language { get; }
+                                    public string Language { get; }
     public SourceProvenance Source { get; }
     public IReadOnlyList<OriginalBattleRemakeCurrentParameterField> Fields { get; }
     private OriginalArmyDestructionParameterSeed(string language, SourceProvenance source,
@@ -104,87 +96,87 @@ public sealed class OriginalArmyDestructionParameterSeed
     {
         ArgumentNullException.ThrowIfNull(repository);
         var source = SimulationRuleSources.Provenance("san14-remake://rules/army-destruction/v1", language);
-        // Legacy addresses identify existing saved keys; the values are project rules.
+        // Project rules install their named keys in the saved parameter bank.
         OriginalBattleRemakeCurrentParameterField[] fields = [
-            new(0x1A4AFE8, language == "TC" ? 0x1A49FB8 : 0x1A4AFE8, PersonalityDefaultRadius, string.Empty),
-            new(0x1A4A090, language == "TC" ? 0x1A49060 : 0x1A4A090, ForceExperienceWoundedDivisor, string.Empty),
-            new(0x1A4A0E4, language == "TC" ? 0x1A490B4 : 0x1A4A0E4, ForceExperienceTraitMultiplier, string.Empty),
-            new(0x1A4ABE8, language == "TC" ? 0x1A49BB8 : 0x1A4ABE8, ForceExperienceLandAdvantageMultiplier, string.Empty),
-            new(0x1A4A7C4, language == "TC" ? 0x1A49794 : 0x1A4A7C4, ForceExperienceFlagBonusPercent, string.Empty),
-            new(0x1A4C250, language == "TC" ? 0x1A4B220 : 0x1A4C250, RelationTierTwoThreshold, string.Empty),
-            new(0x1A4C25C, language == "TC" ? 0x1A4B22C : 0x1A4C25C, RelationTierThreeThreshold, string.Empty),
-            new(0x1A4C264, language == "TC" ? 0x1A4B234 : 0x1A4C264, RelationTierFourThreshold, string.Empty),
-            new(0x1A4C278, language == "TC" ? 0x1A4B248 : 0x1A4C278, RelationLikeBonus, string.Empty),
-            new(0x1A4C284, language == "TC" ? 0x1A4B254 : 0x1A4C284, RelationHatePenalty, string.Empty),
-            new(0x1A4C28C, language == "TC" ? 0x1A4B25C : 0x1A4C28C, RelationSwornBonus, string.Empty),
-            new(0x1A4C298, language == "TC" ? 0x1A4B268 : 0x1A4C298, RelationSpouseBonus, string.Empty),
-            new(0x1A4C2A4, language == "TC" ? 0x1A4B274 : 0x1A4C2A4, RelationParentBonus, string.Empty),
-            new(0x1A4C2B0, language == "TC" ? 0x1A4B280 : 0x1A4C2B0, RelationSiblingBonus, string.Empty),
-            new(0x1A4C2BC, language == "TC" ? 0x1A4B28C : 0x1A4C2BC, RelationClanBonus, string.Empty),
-            new(0x1A4C2C8, language == "TC" ? 0x1A4B298 : 0x1A4C2C8, RelationAffinityWeight, string.Empty),
-            new(0x1A4C2D4, language == "TC" ? 0x1A4B2A4 : 0x1A4C2D4, RelationFamilyMultiplier, string.Empty),
-            new(0x1A4C2E0, language == "TC" ? 0x1A4B2B0 : 0x1A4C2E0, RelationForceBonus, string.Empty),
-            new(0x1A4C4B0, language == "TC" ? 0x1A4B480 : 0x1A4C4B0, DefeatedResourcesHomePercent, string.Empty),
-            new(0x1A4C4BC, language == "TC" ? 0x1A4B48C : 0x1A4C4BC, DefeatedResourcesWinnerPercent, string.Empty),
-            new(0x1A4C4C8, language == "TC" ? 0x1A4B498 : 0x1A4C4C8, DefeatedResourcesSpecialHomePercent, string.Empty),
-            new(0x1A4C4D4, language == "TC" ? 0x1A4B4A4 : 0x1A4C4D4, DefeatedResourcesSpecialWinnerPercent, string.Empty),
-            new(0x1A4C520, language == "TC" ? 0x1A4B4F0 : 0x1A4C520, BattleDeathBaseProbability, string.Empty),
-            new(0x1A4C52C, language == "TC" ? 0x1A4B4FC : 0x1A4C52C, BattleDeathModeTwoPercent, string.Empty),
-            new(0x1A4C538, language == "TC" ? 0x1A4B508 : 0x1A4C538, BattleDeathModeZeroPercent, string.Empty),
-            new(0x1A4C544, language == "TC" ? 0x1A4B514 : 0x1A4C544, SpecialForceHealthyInjuryBase, string.Empty),
-            new(0x1A4C550, language == "TC" ? 0x1A4B520 : 0x1A4C550, SpecialForceInjuredInjuryBase, string.Empty),
-            new(0x1A4C558, language == "TC" ? 0x1A4B528 : 0x1A4C558, SpecialForceSevereInjuryBase, string.Empty),
-            new(0x1A4C560, language == "TC" ? 0x1A4B530 : 0x1A4C560, SpecialForceHealthyAbilityDivisor, string.Empty),
-            new(0x1A4C56C, language == "TC" ? 0x1A4B53C : 0x1A4C56C, SpecialForceInjuredAbilityDivisor, string.Empty),
-            new(0x1A4C578, language == "TC" ? 0x1A4B548 : 0x1A4C578, SpecialForceSevereAbilityDivisor, string.Empty),
-            new(0x1A4C584, language == "TC" ? 0x1A4B554 : 0x1A4C584, OrdinaryForceHealthyInjuryBase, string.Empty),
-            new(0x1A4C590, language == "TC" ? 0x1A4B560 : 0x1A4C590, OrdinaryForceInjuredInjuryBase, string.Empty),
-            new(0x1A4C59C, language == "TC" ? 0x1A4B56C : 0x1A4C59C, OrdinaryForceSevereInjuryBase, string.Empty),
-            new(0x1A4C5A8, language == "TC" ? 0x1A4B578 : 0x1A4C5A8, OrdinaryForceHealthyAbilityDivisor, string.Empty),
-            new(0x1A4C5B4, language == "TC" ? 0x1A4B584 : 0x1A4C5B4, OrdinaryForceInjuredAbilityDivisor, string.Empty),
-            new(0x1A4C5C0, language == "TC" ? 0x1A4B590 : 0x1A4C5C0, OrdinaryForceSevereAbilityDivisor, string.Empty),
-            new(0x1A4C5D8, language == "TC" ? 0x1A4B5A8 : 0x1A4C5D8, HighDifficultyPlayerInjuryPercent, string.Empty),
-            new(0x1A4C5E4, language == "TC" ? 0x1A4B5B4 : 0x1A4C5E4, LoyaltyLossLoyaltyDivisor, string.Empty),
-            new(0x1A4C5F0, language == "TC" ? 0x1A4B5C0 : 0x1A4C5F0, LoyaltyLossPersonWordDivisor, string.Empty),
-            new(0x1A4C5FC, language == "TC" ? 0x1A4B5CC : 0x1A4C5FC, LoyaltyLossRelationBase, string.Empty),
-            new(0x1A4C608, language == "TC" ? 0x1A4B5D8 : 0x1A4C608, MoraleWaveLowPostThreshold, string.Empty),
-            new(0x1A4C614, language == "TC" ? 0x1A4B5E4 : 0x1A4C614, MoraleWaveGainCap, string.Empty),
-            new(0x1A4C620, language == "TC" ? 0x1A4B5F0 : 0x1A4C620, MoraleWaveGainPercent, string.Empty),
-            new(0x1A4C62C, language == "TC" ? 0x1A4B5FC : 0x1A4C62C, MoraleWaveLossCap, string.Empty),
-            new(0x1A4C638, language == "TC" ? 0x1A4B608 : 0x1A4C638, MoraleWaveLossPercent, string.Empty),
-            new(0x1A4B84C, language == "TC" ? 0x1A4A81C : 0x1A4B84C, CaptureAbilityBaseline, string.Empty),
-            new(0x1A4B854, language == "TC" ? 0x1A4A824 : 0x1A4B854, CaptureAbilityPercent, string.Empty),
-            new(0x1A4B860, language == "TC" ? 0x1A4A830 : 0x1A4B860, CaptureThreatPercent, string.Empty),
-            new(0x1A4B86C, language == "TC" ? 0x1A4A83C : 0x1A4B86C, CaptureFormationFourPercent, string.Empty),
-            new(0x1A4B878, language == "TC" ? 0x1A4A848 : 0x1A4B878, HighDifficultyPlayerWinnerCapturePercent, string.Empty),
-            new(0x1A4B884, language == "TC" ? 0x1A4A854 : 0x1A4B884, CaptureModeOnePercent, string.Empty),
-            new(0x1A4B890, language == "TC" ? 0x1A4A860 : 0x1A4B890, CaptureRulerOfficerPercent, string.Empty),
-            new(0x1A4BBE0, language == "TC" ? 0x1A4ABB0 : 0x1A4BBE0, RulerReleaseRelationThreshold, string.Empty),
-            new(0x1A4BC8C, language == "TC" ? 0x1A4AC5C : 0x1A4BC8C, RulerReleaseRelationGain, string.Empty),
-            new(0x1A4A91C, language == "TC" ? 0x1A498EC : 0x1A4A91C, RulerReleasePopularityGain, string.Empty),
-            new(0x1A4A8D4, language == "TC" ? 0x1A498A4 : 0x1A4A8D4, PersonFreedomPopularityPenalty, string.Empty),
-            new(0x1A4A1B0, language == "TC" ? 0x1A49180 : 0x1A4A1B0, AdvisorHighThreshold, string.Empty),
-            new(0x1A4A1BC, language == "TC" ? 0x1A4918C : 0x1A4A1BC, AdvisorLowThreshold, string.Empty),
-            new(0x1A4A944, language == "TC" ? 0x1A49914 : 0x1A4A944, BaseCaptureResultGain, string.Empty),
-            new(0x1A4A09C, language == "TC" ? 0x1A4906C : 0x1A4A09C, BaseCaptureExperienceGain, string.Empty),
-            new(0x1A4A0A8, language == "TC" ? 0x1A49078 : 0x1A4A0A8, StateCaptureExperienceGain, string.Empty),
-            new(0x1A4A0B4, language == "TC" ? 0x1A49084 : 0x1A4A0B4, RegionCaptureExperienceGain, string.Empty),
-            new(0x1A4BD24, language == "TC" ? 0x1A4ACF4 : 0x1A4BD24, UnassignedBaseCommanderMerit, string.Empty),
-            new(0x1A4BD2C, language == "TC" ? 0x1A4ACFC : 0x1A4BD2C, GateCaptureCommanderMerit, string.Empty),
-            new(0x1A4BD38, language == "TC" ? 0x1A4AD08 : 0x1A4BD38, CityCaptureCommanderMerit, string.Empty),
-            new(0x1A4BD74, language == "TC" ? 0x1A4AD44 : 0x1A4BD74, CaptiveReturnCommanderMerit, string.Empty),
-            new(0x1A4BDE8, language == "TC" ? 0x1A4ADB8 : 0x1A4BDE8, TransportReturnCommanderMerit, string.Empty),
-            new(0x1A4A4AC, language == "TC" ? 0x1A4947C : 0x1A4A4AC, TransportCommandCost, string.Empty),
-            new(0x1A4BA58, language == "TC" ? 0x1A4AA28 : 0x1A4BA58, GateCaptiveGuardMultiplier, string.Empty),
-            new(0x1A4BA64, language == "TC" ? 0x1A4AA34 : 0x1A4BA64, CaptiveTroopRequirementAddend, string.Empty),
-            new(0x1A4C17C, language == "TC" ? 0x1A4B14C : 0x1A4C17C, CaptiveGuardOfficeMultiplier, string.Empty),
-            new(0x1A4C1F4, language == "TC" ? 0x1A4B1C4 : 0x1A4C1F4, CaptiveGuardFlaggedAmount, string.Empty),
-            new(0x1A4C0A4, language == "TC" ? 0x1A4B074 : 0x1A4C0A4, CaptiveGuardTraitMultiplier, string.Empty),
-            new(0x1A4AC58, language == "TC" ? 0x1A49C28 : 0x1A4AC58, CaptiveGuardLandMultiplier, string.Empty),
-            new(0x27D480C, language == "TC" ? 0x27D37AC : 0x27D480C, CaptureThreatAdjustment, string.Empty),
-            new(0x27D4894, language == "TC" ? 0x27D3834 : 0x27D4894, RelationTierOneThreshold, string.Empty),
-            new(0x27D4830, language == "TC" ? 0x27D37D0 : 0x27D4830, RulerReleasePersonRelationThreshold, string.Empty),
-            new(0x27D4834, language == "TC" ? 0x27D37D4 : 0x27D4834, RulerExecutionRelationPenalty, string.Empty)
+            new(SimulationParameterKeys.ArmyDestruction.PersonalityDefaultRadius, PersonalityDefaultRadius),
+            new(SimulationParameterKeys.ArmyDestruction.ForceExperienceWoundedDivisor, ForceExperienceWoundedDivisor),
+            new(SimulationParameterKeys.ArmyDestruction.ForceExperienceTraitMultiplier, ForceExperienceTraitMultiplier),
+            new(SimulationParameterKeys.ArmyDestruction.ForceExperienceLandAdvantageMultiplier, ForceExperienceLandAdvantageMultiplier),
+            new(SimulationParameterKeys.ArmyDestruction.ForceExperienceFlagBonusPercent, ForceExperienceFlagBonusPercent),
+            new(SimulationParameterKeys.ArmyDestruction.RelationTierTwoThreshold, RelationTierTwoThreshold),
+            new(SimulationParameterKeys.ArmyDestruction.RelationTierThreeThreshold, RelationTierThreeThreshold),
+            new(SimulationParameterKeys.ArmyDestruction.RelationTierFourThreshold, RelationTierFourThreshold),
+            new(SimulationParameterKeys.ArmyDestruction.RelationLikeBonus, RelationLikeBonus),
+            new(SimulationParameterKeys.ArmyDestruction.RelationHatePenalty, RelationHatePenalty),
+            new(SimulationParameterKeys.ArmyDestruction.RelationSwornBonus, RelationSwornBonus),
+            new(SimulationParameterKeys.ArmyDestruction.RelationSpouseBonus, RelationSpouseBonus),
+            new(SimulationParameterKeys.ArmyDestruction.RelationParentBonus, RelationParentBonus),
+            new(SimulationParameterKeys.ArmyDestruction.RelationSiblingBonus, RelationSiblingBonus),
+            new(SimulationParameterKeys.ArmyDestruction.RelationClanBonus, RelationClanBonus),
+            new(SimulationParameterKeys.ArmyDestruction.RelationAffinityWeight, RelationAffinityWeight),
+            new(SimulationParameterKeys.ArmyDestruction.RelationFamilyMultiplier, RelationFamilyMultiplier),
+            new(SimulationParameterKeys.ArmyDestruction.RelationForceBonus, RelationForceBonus),
+            new(SimulationParameterKeys.ArmyDestruction.DefeatedResourcesHomePercent, DefeatedResourcesHomePercent),
+            new(SimulationParameterKeys.ArmyDestruction.DefeatedResourcesWinnerPercent, DefeatedResourcesWinnerPercent),
+            new(SimulationParameterKeys.ArmyDestruction.DefeatedResourcesSpecialHomePercent, DefeatedResourcesSpecialHomePercent),
+            new(SimulationParameterKeys.ArmyDestruction.DefeatedResourcesSpecialWinnerPercent, DefeatedResourcesSpecialWinnerPercent),
+            new(SimulationParameterKeys.ArmyDestruction.BattleDeathBaseProbability, BattleDeathBaseProbability),
+            new(SimulationParameterKeys.ArmyDestruction.BattleDeathModeTwoPercent, BattleDeathModeTwoPercent),
+            new(SimulationParameterKeys.ArmyDestruction.BattleDeathModeZeroPercent, BattleDeathModeZeroPercent),
+            new(SimulationParameterKeys.ArmyDestruction.SpecialForceHealthyInjuryBase, SpecialForceHealthyInjuryBase),
+            new(SimulationParameterKeys.ArmyDestruction.SpecialForceInjuredInjuryBase, SpecialForceInjuredInjuryBase),
+            new(SimulationParameterKeys.ArmyDestruction.SpecialForceSevereInjuryBase, SpecialForceSevereInjuryBase),
+            new(SimulationParameterKeys.ArmyDestruction.SpecialForceHealthyAbilityDivisor, SpecialForceHealthyAbilityDivisor),
+            new(SimulationParameterKeys.ArmyDestruction.SpecialForceInjuredAbilityDivisor, SpecialForceInjuredAbilityDivisor),
+            new(SimulationParameterKeys.ArmyDestruction.SpecialForceSevereAbilityDivisor, SpecialForceSevereAbilityDivisor),
+            new(SimulationParameterKeys.ArmyDestruction.OrdinaryForceHealthyInjuryBase, OrdinaryForceHealthyInjuryBase),
+            new(SimulationParameterKeys.ArmyDestruction.OrdinaryForceInjuredInjuryBase, OrdinaryForceInjuredInjuryBase),
+            new(SimulationParameterKeys.ArmyDestruction.OrdinaryForceSevereInjuryBase, OrdinaryForceSevereInjuryBase),
+            new(SimulationParameterKeys.ArmyDestruction.OrdinaryForceHealthyAbilityDivisor, OrdinaryForceHealthyAbilityDivisor),
+            new(SimulationParameterKeys.ArmyDestruction.OrdinaryForceInjuredAbilityDivisor, OrdinaryForceInjuredAbilityDivisor),
+            new(SimulationParameterKeys.ArmyDestruction.OrdinaryForceSevereAbilityDivisor, OrdinaryForceSevereAbilityDivisor),
+            new(SimulationParameterKeys.ArmyDestruction.HighDifficultyPlayerInjuryPercent, HighDifficultyPlayerInjuryPercent),
+            new(SimulationParameterKeys.ArmyDestruction.LoyaltyLossLoyaltyDivisor, LoyaltyLossLoyaltyDivisor),
+            new(SimulationParameterKeys.ArmyDestruction.LoyaltyLossPersonWordDivisor, LoyaltyLossPersonWordDivisor),
+            new(SimulationParameterKeys.ArmyDestruction.LoyaltyLossRelationBase, LoyaltyLossRelationBase),
+            new(SimulationParameterKeys.ArmyDestruction.MoraleWaveLowPostThreshold, MoraleWaveLowPostThreshold),
+            new(SimulationParameterKeys.ArmyDestruction.MoraleWaveGainCap, MoraleWaveGainCap),
+            new(SimulationParameterKeys.ArmyDestruction.MoraleWaveGainPercent, MoraleWaveGainPercent),
+            new(SimulationParameterKeys.ArmyDestruction.MoraleWaveLossCap, MoraleWaveLossCap),
+            new(SimulationParameterKeys.ArmyDestruction.MoraleWaveLossPercent, MoraleWaveLossPercent),
+            new(SimulationParameterKeys.ArmyDestruction.CaptureAbilityBaseline, CaptureAbilityBaseline),
+            new(SimulationParameterKeys.ArmyDestruction.CaptureAbilityPercent, CaptureAbilityPercent),
+            new(SimulationParameterKeys.ArmyDestruction.CaptureThreatPercent, CaptureThreatPercent),
+            new(SimulationParameterKeys.ArmyDestruction.CaptureFormationFourPercent, CaptureFormationFourPercent),
+            new(SimulationParameterKeys.ArmyDestruction.HighDifficultyPlayerWinnerCapturePercent, HighDifficultyPlayerWinnerCapturePercent),
+            new(SimulationParameterKeys.ArmyDestruction.CaptureModeOnePercent, CaptureModeOnePercent),
+            new(SimulationParameterKeys.ArmyDestruction.CaptureRulerOfficerPercent, CaptureRulerOfficerPercent),
+            new(SimulationParameterKeys.ArmyDestruction.RulerReleaseRelationThreshold, RulerReleaseRelationThreshold),
+            new(SimulationParameterKeys.ArmyDestruction.RulerReleaseRelationGain, RulerReleaseRelationGain),
+            new(SimulationParameterKeys.ArmyDestruction.RulerReleasePopularityGain, RulerReleasePopularityGain),
+            new(SimulationParameterKeys.ArmyDestruction.PersonFreedomPopularityPenalty, PersonFreedomPopularityPenalty),
+            new(SimulationParameterKeys.ArmyDestruction.AdvisorHighThreshold, AdvisorHighThreshold),
+            new(SimulationParameterKeys.ArmyDestruction.AdvisorLowThreshold, AdvisorLowThreshold),
+            new(SimulationParameterKeys.ArmyDestruction.BaseCaptureResultGain, BaseCaptureResultGain),
+            new(SimulationParameterKeys.ArmyDestruction.BaseCaptureExperienceGain, BaseCaptureExperienceGain),
+            new(SimulationParameterKeys.ArmyDestruction.StateCaptureExperienceGain, StateCaptureExperienceGain),
+            new(SimulationParameterKeys.ArmyDestruction.RegionCaptureExperienceGain, RegionCaptureExperienceGain),
+            new(SimulationParameterKeys.ArmyDestruction.UnassignedBaseCommanderMerit, UnassignedBaseCommanderMerit),
+            new(SimulationParameterKeys.ArmyDestruction.GateCaptureCommanderMerit, GateCaptureCommanderMerit),
+            new(SimulationParameterKeys.ArmyDestruction.CityCaptureCommanderMerit, CityCaptureCommanderMerit),
+            new(SimulationParameterKeys.ArmyDestruction.CaptiveReturnCommanderMerit, CaptiveReturnCommanderMerit),
+            new(SimulationParameterKeys.ArmyDestruction.TransportReturnCommanderMerit, TransportReturnCommanderMerit),
+            new(SimulationParameterKeys.ArmyDestruction.TransportCommandCost, TransportCommandCost),
+            new(SimulationParameterKeys.ArmyDestruction.GateCaptiveGuardMultiplier, GateCaptiveGuardMultiplier),
+            new(SimulationParameterKeys.ArmyDestruction.CaptiveTroopRequirementAddend, CaptiveTroopRequirementAddend),
+            new(SimulationParameterKeys.ArmyDestruction.CaptiveGuardOfficeMultiplier, CaptiveGuardOfficeMultiplier),
+            new(SimulationParameterKeys.ArmyDestruction.CaptiveGuardFlaggedAmount, CaptiveGuardFlaggedAmount),
+            new(SimulationParameterKeys.ArmyDestruction.CaptiveGuardTraitMultiplier, CaptiveGuardTraitMultiplier),
+            new(SimulationParameterKeys.ArmyDestruction.CaptiveGuardLandMultiplier, CaptiveGuardLandMultiplier),
+            new(SimulationParameterKeys.ArmyDestruction.CaptureThreatAdjustment, CaptureThreatAdjustment),
+            new(SimulationParameterKeys.ArmyDestruction.RelationTierOneThreshold, RelationTierOneThreshold),
+            new(SimulationParameterKeys.ArmyDestruction.RulerReleasePersonRelationThreshold, RulerReleasePersonRelationThreshold),
+            new(SimulationParameterKeys.ArmyDestruction.RulerExecutionRelationPenalty, RulerExecutionRelationPenalty)
         ];
         return new(language, source, fields);
     }
@@ -198,7 +190,7 @@ public sealed class OriginalArmyDestructionParameterSeed
         var integers = new Dictionary<string, int>(simulation.Parameters.Int32Values) { [VersionKey] = 1 };
         foreach (var field in Fields)
         {
-            string key = OriginalTacticRemakeParameterSeed.Key(field.SemanticScRva);
+            string key = field.Key;
             if (simulation.Parameters.Float32Values.ContainsKey(key) || integers.TryGetValue(key, out int existing) && existing != field.Value)
                 throw new InvalidDataException("Destruction parameter disagrees with an already installed source field.");
             integers.TryAdd(key, field.Value);
@@ -206,13 +198,8 @@ public sealed class OriginalArmyDestructionParameterSeed
         return state with { NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = integers } } };
     }
 
-    public static int? ReadCurrentTc(GameState state, int tcRva) =>
+    public static int? ReadCurrent(GameState state, string key) =>
         state.NativeArmySimulation?.Parameters is { } owner && owner.Int32Values.GetValueOrDefault(VersionKey) == 1 &&
-        owner.Int32Values.TryGetValue(OriginalTacticRemakeParameterSeed.Key(tcRva switch {
-            CaptureAdjustmentTcRva => CaptureAdjustmentScRva,
-            RelationFirstThresholdTcRva => RelationFirstThresholdScRva,
-            LordReleaseRelationThresholdTcRva => LordReleaseRelationThresholdScRva,
-            LordExecuteRelationPenaltyTcRva => LordExecuteRelationPenaltyScRva,
-            _ => tcRva + 0x1030 }), out int value) ? value : null;
+        owner.Int32Values.TryGetValue(key, out int value) ? value : null;
 
 }

@@ -13,7 +13,7 @@ public sealed class OriginalBaseCaptureResourceInputs
     private const int CentralTerritoryRadius = 3;
     private const int CapturedCitySuppliesFloor = 20000;
     private const int CapturedWallFloorPercent = 40;
-    public static readonly int[] TcRvas = [0x1A4A784, 0x1A4A790, 0x1A4A79C, 0x1A4A7A8, 0x1A4A7B4, 0x1A4A7CC];
+    public static readonly string[] ParameterKeys = [SimulationParameterKeys.BaseCapture.MinimumResourceKeepPercent, SimulationParameterKeys.BaseCapture.CommanderCharmDivisor, SimulationParameterKeys.BaseCapture.CapturedCityGoldFloor, SimulationParameterKeys.BaseCapture.CentralTerritoryRadius, SimulationParameterKeys.BaseCapture.CapturedCitySuppliesFloor, SimulationParameterKeys.BaseCapture.CapturedWallFloorPercent];
     public string Language { get; }
     public SourceProvenance Source { get; }
     public IReadOnlyList<OriginalBattleRemakeCurrentParameterField> Fields { get; }
@@ -26,12 +26,9 @@ public sealed class OriginalBaseCaptureResourceInputs
         var source = SimulationRuleSources.Provenance("san14-rule://simulation/base-capture-resources", language);
         int[] rules = [MinimumResourceKeepPercent, CommanderCharmDivisor, CapturedCityGoldFloor,
             CentralTerritoryRadius, CapturedCitySuppliesFloor, CapturedWallFloorPercent];
-        // Legacy addresses retain the existing saved parameter keys.
-        var fields = TcRvas.Select((tc, index) =>
-        {
-            int semantic = tc + 0x1030, physical = language == "SC" ? semantic : tc;
-            return new OriginalBattleRemakeCurrentParameterField(semantic, physical, rules[index], string.Empty);
-        }).ToArray();
+        // Project rules use named keys independent of locale.
+        var fields = ParameterKeys.Select((key, index) =>
+            new OriginalBattleRemakeCurrentParameterField(key, rules[index])).ToArray();
         return new(language, source, fields);
     }
 
@@ -44,14 +41,14 @@ public sealed class OriginalBaseCaptureResourceInputs
         var integers = new Dictionary<string, int>(simulation.Parameters.Int32Values) { [VersionKey] = 1 };
         foreach (var field in Fields)
         {
-            string key = OriginalTacticRemakeParameterSeed.Key(field.SemanticScRva);
+            string key = field.Key;
             if (simulation.Parameters.Float32Values.ContainsKey(key) || integers.TryGetValue(key, out int old) && old != field.Value)
                 throw new InvalidDataException("Base capture parameters disagree with an installed source field.");
             integers.TryAdd(key, field.Value);
         }
         return state with { NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = integers } } };
     }
-    public static int? ReadCurrentTc(GameState state, int tcRva) =>
+    public static int? ReadCurrent(GameState state, string key) =>
         state.NativeArmySimulation?.Parameters is { } bank && bank.Int32Values.GetValueOrDefault(VersionKey) == 1 &&
-        bank.Int32Values.TryGetValue(OriginalTacticRemakeParameterSeed.Key(tcRva + 0x1030), out int value) ? value : null;
+        bank.Int32Values.TryGetValue(key, out int value) ? value : null;
 }

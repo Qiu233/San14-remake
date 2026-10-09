@@ -50,11 +50,11 @@ public sealed class OriginalMapPostEffect3Container
 
 public static class OriginalMapPostEffect3ContainerReader
 {
-    // 1149E40 maps these six counted groups to metadata A0/A8/B0/B8/C0/C8.
-    // D3D creators 94D8E0/94DF10/94DE50 confirm CS/VS/PS, not VS/PS/GS.
+    // maps these six counted groups to metadata A0/A8/B0/B8/C0/C8.
+    // D3D creators // confirm CS/VS/PS, not VS/PS/GS.
     private static readonly uint[] Stages=[5,1,0,2,3,4];
     // Kind -> header capacity offset, wire stride and supported chunk version.
-    // 11493E0 allocation + 1149770 dispatch + the individual stream readers.
+    // allocation + dispatch + the individual stream readers.
     private static readonly (uint Kind,int Capacity,int Stride,uint Version)[] Tables=
     [(2,0x48,36,1),(3,0x4C,36,0),(4,0x50,16,0),(5,0x54,16,0),
      (6,0x58,12,1),(7,0x5C,8,0),(8,0x60,64,1),(9,0x64,20,0),(13,0x84,8,0)];

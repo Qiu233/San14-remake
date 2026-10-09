@@ -8,8 +8,6 @@ public static class OriginalDeferredEarlyShadowCompactConstructor
 {
     public const int NativeCpuByteLength = 0xD30;
     public const int ControllerOffset = 0x8F0;
-    public const uint SourceTypeVtableRva = 0x017335F0;
-    public const uint SourcePoolDescriptorRva = 0x014D31D0;
     public static int PassBoundsOffset(int index) => (uint)index < 4u
         ? ControllerOffset + index * 0xB0 : throw new ArgumentOutOfRangeException(nameof(index));
 

@@ -1,17 +1,16 @@
 namespace San14.Data;
 
 public sealed record OriginalStaticTableRange(int TableOffset, int Count);
-public sealed record OriginalStaticTableReference(int? PhysicalSlot, uint? Slot4Target);
+public sealed record OriginalStaticTableReference(int? PhysicalSlot, OriginalPostLoadCallback? PostLoadCallback);
 
 public interface IOriginalStaticTablePostLoadState
 {
     OriginalStaticTableReference? ReadStaticTableReference(int tableOffset, int slot);
 }
 
-/// <summary>The45 current-pointer loops at the beginning of CE32F910.
-/// Every supported table's actual slot4 is the proven370500 empty operation.
-/// Empty methods still require a valid receiver and virtual dispatch target;
-/// this stage neither resets fields nor substitutes the later person slot7.</summary>
+/// <summary>The 45 current-pointer loops of the first static post-load stage.
+/// Every supported table has a NoOp callback. The stage requires a current
+/// receiver and known callback; it does not reset fields or run later processing.</summary>
 public static class OriginalStaticTablePostLoad
 {
     public static IReadOnlyList<OriginalStaticTableRange> Ranges { get; } = Array.AsReadOnly(new[]
@@ -37,12 +36,11 @@ public static class OriginalStaticTablePostLoad
                     ?? throw new InvalidDataException($"Current static table{range.TableOffset:X} pointer{slot} is unknown.");
                 if (!reference.PhysicalSlot.HasValue)
                     throw new InvalidDataException($"Current static table{range.TableOffset:X} pointer{slot} is null at virtual slot4 dispatch.");
-                if (!reference.Slot4Target.HasValue)
-                    throw new InvalidDataException($"Current static table{range.TableOffset:X} pointer{slot} has an unknown virtual slot4 target.");
-                if (reference.Slot4Target.Value != 0x370500)
-                    throw new InvalidDataException($"Current virtual slot4 target{reference.Slot4Target.Value:X} is outside the supported CE post-load profile.");
-                // The exact370500 body is RET0 (no return-register assignment).
-                // The caller ignores its return value; there are no state writes.
+                if (reference.PostLoadCallback is not { } callback)
+                    throw new InvalidDataException($"Current static table{range.TableOffset:X} pointer{slot} has an unknown post-load callback.");
+                if (callback != OriginalPostLoadCallback.NoOp)
+                    throw new InvalidDataException($"Current static post-load callback {callback.Kind} is not NoOp.");
+                // This stage has no state writes or consumed return value.
             }
     }
 }

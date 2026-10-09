@@ -22,7 +22,7 @@ public interface IOriginalMapPostEffect3ControlledHostOutputAuthority
     void RequireActualReturnedOutput();
 }
 
-/// <summary>Source branch and wrapper identities for EB84C0's post-Functor
+/// <summary>Source branch and wrapper identities for 's post-Functor
 /// exposure publication. A different global50 target requires a real stock
 /// command even after every selected Functor1 shader returned.</summary>
 public sealed class OriginalMapPostEffect3ControlledHostTailRecipe
@@ -47,7 +47,7 @@ public sealed class OriginalMapPostEffect3ControlledHostTailRecipe
             throw new InvalidDataException("Post-Apply lookup must retain its real native-null or actual module61 wrapper identity.");
         ActualModuleWrapperIdentity=inputWrapper;ActualGlobalExposureWrapperIdentity=globalWrapper;
         RequiresExposureCopy=source.RequiresExposureCopyCandidate(inputWrapper,globalWrapper);
-        SourceEvidence=source.SourceEvidence+";"+evidence+";EB84CB-input-null-skip/EB84DF-global50-null-skip/EB84E8-same-wrapper-skip/otherwise-source-caller-copy";
+        SourceEvidence=source.SourceEvidence+";"+evidence+"-input-null-skip/-global50-null-skip/-same-wrapper-skip/otherwise-source-caller-copy";
         RequireCurrent();
     }
     public long FrameNumber=>camera.FrameNumber;
@@ -111,9 +111,9 @@ public static partial class OriginalDeferredSamplerSources
     {
 
         return new(native,native.RenderRuleIdentity+
-            $";{native.Locale}:paired-Host-current-lookup/stock-tail-profile;TC-reference-role:EB7F99/FB4-EA2OutputExposureScale-current-lookup;EB84CB-null-input-skip;"+
-            "EB84DF-null-global50-skip/EB84E8-identical-wrapper-skip;EB8515..8604/EB99DF..9A51-stock-exposure-copy;"+
-            "95A370-source-clip-Begin-End/956A60-B0-bind-domain;finite-owned-Q-tail;no-legacy-final-or-device-completion");
+            $"{native.Locale}:paired-Host-current-lookup/stock-tail-profile;/FB4-EA2OutputExposureScale-current-lookup;-null-input-skip"+
+            "-null-global50-skip/-identical-wrapper-skip;8604;9A51-stock-exposure-copy"+
+            "-source-clip-Begin-End/-B0-bind-domain;finite-owned-Q-tail;no-legacy-final-or-device-completion");
     }
 }
 
@@ -132,7 +132,7 @@ public sealed class OriginalMapPostEffect3ControlledHostWriterScope
         RequireCurrentContext(context);
         if(camera.FrameNumber!=context.FrameNumber||view.FrameNumber!=context.FrameNumber||view.Index!=0||
             view.ContextOwnerIdentity!=context.Source.OwnedHostIdentity||camera.Route.SelectedModuleFunctorIndex!=1||
-            !camera.Route.UsesOwnedController||camera.Route.ExecutesEc3360Fallback||!camera.Route.BypassesLegacyA1Branch||
+            !camera.Route.UsesOwnedController||camera.Route.ExecutesToneFallback||!camera.Route.BypassesLegacyA1Branch||
             camera.CaptureAcceptedCamera().ExecutableLocale!=context.Source.Host.Locale)
             throw new NotSupportedException("Controlled Host completion needs the exact current Main slot0/owned Q/Functor1 writer family.");
     }
@@ -149,7 +149,7 @@ public sealed class OriginalMapPostEffect3ControlledHostWriterScope
     }
     public string SourceEvidence=>source.SourceEvidence+";"+q.Source.SourceProvenance+
         ";same-owned-Q-v170-ret-leaf/16-source-null-overlay-slots;Functor1-reset/source-thin-or-actual-specialized57-OR40;"+
-        "controlled-module-return;shared-tail-viewport-restoration;Apply-tail-before-outer-E9E6D4-OR20;no-EC3360-output-claim";
+        "controlled-module-return;shared-tail-viewport-restoration;Apply-tail-before-outer-OR20;no-output-claim";
 }
 
 /// <summary>Closed source Host acknowledgement with a live actual Game

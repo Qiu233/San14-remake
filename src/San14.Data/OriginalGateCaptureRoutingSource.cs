@@ -43,7 +43,7 @@ public static class OriginalGateCaptureRoutingSource
             throw Missing("branch.ordinary_Base_receiver");
         var center = OriginalCurrentGateMapQueries.FindHex(target, current);
         //2851B0 passesA7A8 to2A7EE0 forGate, A7A8+1 forCity.
-        int radius = unchecked(K(OriginalBaseCaptureResourceInputs.ReadCurrentTc(state, 0x1A4A7A8), "mode0_Base_radiusA7A8") +
+        int radius = unchecked(K(OriginalBaseCaptureResourceInputs.ReadCurrent(state, SimulationParameterKeys.BaseCapture.CentralTerritoryRadius), "mode0_Base_radiusA7A8") +
             (target.Kind == OriginalBaseKind.City ? 1 : 0));
         var hexes = current.CreateNearbyTemporary();
         try

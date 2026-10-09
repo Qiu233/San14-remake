@@ -31,15 +31,15 @@ public sealed class OriginalArmyMobilityParameterSeed
     {
         ArgumentNullException.ThrowIfNull(repository);
         var source = SimulationRuleSources.Provenance("san14-remake://rules/army-mobility/v1", language);
-        // Legacy addresses identify existing saved keys; the values are project rules.
+        // Defaults use the shared simulation parameter vocabulary.
         OriginalBattleRemakeCurrentParameterField[] fields = [
-            new(0x1A4AB98, language == "TC" ? 0x1A49B68 : 0x1A4AB98, FormationFiveMobilityBonus, string.Empty),
-            new(0x1A49C40, language == "TC" ? 0x1A48C10 : 0x1A49C40, TraitMobilityLimit, string.Empty),
-            new(0x1A4A8F4, language == "TC" ? 0x1A498C4 : 0x1A4A8F4, TraitMobilityStep, string.Empty),
-            new(0x1A49C58, language == "TC" ? 0x1A48C28 : 0x1A49C58, ForceTerrainPercent, string.Empty),
-            new(0x1A49C64, language == "TC" ? 0x1A48C34 : 0x1A49C64, EnvironmentTerrainPercent, string.Empty),
-            new(0x1A49C4C, language == "TC" ? 0x1A48C1C : 0x1A49C4C, FormationTerrainPercent, string.Empty),
-            new(0x1A4C6EC, language == "TC" ? 0x1A4B6BC : 0x1A4C6EC, FormationSixTerrainPercent, string.Empty)
+            new(SimulationParameterKeys.ArmyMobility.FormationFiveMobilityBonus, FormationFiveMobilityBonus),
+            new(SimulationParameterKeys.ArmyMobility.TraitMobilityLimit, TraitMobilityLimit),
+            new(SimulationParameterKeys.ArmyMobility.TraitMobilityStep, TraitMobilityStep),
+            new(SimulationParameterKeys.ArmyMobility.ForceTerrainPercent, ForceTerrainPercent),
+            new(SimulationParameterKeys.ArmyMobility.EnvironmentTerrainPercent, EnvironmentTerrainPercent),
+            new(SimulationParameterKeys.ArmyMobility.FormationTerrainPercent, FormationTerrainPercent),
+            new(SimulationParameterKeys.ArmyMobility.FormationSixTerrainPercent, FormationSixTerrainPercent)
         ];
         return new(language, source, fields, TerrainNormalization, PercentDenominator, MultiplicativeIdentity);
     }
@@ -48,11 +48,11 @@ public sealed class OriginalArmyMobilityParameterSeed
     {
         if (state.NativeArmySimulation is not { } simulation || state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } ||
             state.Units.Count != 0 || simulation.Parameters.Language != Language || simulation.Parameters.RuleVersion != Source.RuleVersion ||
-            Fields.Any(f => simulation.Parameters.Int32Values.ContainsKey(OriginalTacticRemakeParameterSeed.Key(f.SemanticScRva)) ||
-                simulation.Parameters.Float32Values.ContainsKey(OriginalTacticRemakeParameterSeed.Key(f.SemanticScRva))))
+            Fields.Any(f => simulation.Parameters.Int32Values.ContainsKey(f.Key) ||
+                simulation.Parameters.Float32Values.ContainsKey(f.Key)))
             throw new InvalidDataException("Fresh mobility scalars cannot replace a current owner or repair omitted saved values.");
         var values = new Dictionary<string, int>(simulation.Parameters.Int32Values);
-        foreach (var field in Fields) values.Add(OriginalTacticRemakeParameterSeed.Key(field.SemanticScRva), field.Value);
+        foreach (var field in Fields) values.Add(field.Key, field.Value);
         return state with { NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = values } } };
     }
 }

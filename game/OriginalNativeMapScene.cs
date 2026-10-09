@@ -192,8 +192,8 @@ public sealed class OriginalNativeMapScene : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(preparedCamera);ArgumentNullException.ThrowIfNull(prepareDeferred);
         // Validate the shared full matrices before any terrain submission.
-        _=OriginalNativeMatrixMath.Inverse3F6EB0(preparedCamera.SourceWorldToView,out _);
-        _=OriginalNativeMatrixMath.Inverse3F6EB0(preparedCamera.SourceWorldToProjection,out _);
+        _=OriginalNativeMatrixMath.Invert(preparedCamera.SourceWorldToView,out _);
+        _=OriginalNativeMatrixMath.Invert(preparedCamera.SourceWorldToProjection,out _);
         var terrainCamera=OriginalDeferredSceneConstants.PrepareTerrainCamera(preparedCamera,terrainParameters);
         return RenderCoreAsync(batches,terrainCamera,terrainRaster,clearColors,clearDepth,clearStencil,async context=>
         {
@@ -225,8 +225,8 @@ public sealed class OriginalNativeMapScene : IAsyncDisposable
         RenderingDevice.DrawFlags geometryClearActions=RenderingDevice.DrawFlags.ClearAll)
     {
         ArgumentNullException.ThrowIfNull(preparedCamera); ArgumentNullException.ThrowIfNull(prepareDeferred);
-        _=OriginalNativeMatrixMath.Inverse3F6EB0(preparedCamera.SourceWorldToView,out _);
-        _=OriginalNativeMatrixMath.Inverse3F6EB0(preparedCamera.SourceWorldToProjection,out _);
+        _=OriginalNativeMatrixMath.Invert(preparedCamera.SourceWorldToView,out _);
+        _=OriginalNativeMatrixMath.Invert(preparedCamera.SourceWorldToProjection,out _);
         var terrainCamera=OriginalDeferredSceneConstants.PrepareTerrainCamera(preparedCamera,terrainParameters);
         return RenderCoreAsync(batches,terrainCamera,terrainRaster,clearColors,clearDepth,clearStencil,async context=>
         {

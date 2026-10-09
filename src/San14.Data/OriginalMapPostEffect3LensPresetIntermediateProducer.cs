@@ -33,7 +33,7 @@ public sealed class OriginalMapPostEffect3LensPresetIntermediateMathSources
     }
 }
 
-/// <summary>Actual C4429C caller fields frozen with the same-frame Camera.
+/// <summary>Actual caller fields frozen with the same-frame Camera.
 /// The8 native float inputs do not come from the current pose's target distance.</summary>
 public sealed class OriginalMapPostEffect3LensPresetCallerInputs
 {
@@ -68,7 +68,7 @@ public sealed class OriginalMapPostEffect3LensPresetCallerInputs
             OriginalNativeFloat.Multiply(cpu12ECAspect,cpu12ECAspect),1))).GetElement(0);
         return new(actualCamera,[cpu1048ObjectDistance,cpu104CInfiniteFocalLength,diagonal,cpu12ECAspect,
             cpu1050FStop,cpu1054ExposureDial,cpu74LightAdaptedScale,cpu78DarkAdaptedScale],
-            actualCallerEvidence+";C44206..C4429C/32B;aspect-sqrt101FAD8=finiteSQRTSS;no-pose-distance-substitution");
+            actualCallerEvidence+"32B;aspect-sqrt=finiteSQRTSS;no-pose-distance-substitution");
     }
     public static OriginalMapPostEffect3LensPresetCallerInputs CaptureFreshSource(OriginalMapCameraConstructionPacket camera)
     {
@@ -80,7 +80,7 @@ public sealed class OriginalMapPostEffect3LensPresetCallerInputs
             var p=source.Camera.Properties[ordinal];
             if(p.Index!=ordinal||p.NameHash!=hash||p.TypeCode!=8||p.ElementCount!=1||p.RawValue.Length!=4)
                 throw new InvalidDataException("Lens caller original scalar declaration differs.");
-            //C4429C consumes the actual CPU74/78 as well as1048..1054.
+            // consumes the actual CPU74/78 as well as1048..1054.
             //Main17E19/17E11 post-selection writes are transported to1C4/1C8;
             //retain those current words before LensPreset's later23word writer.
             int offset=ordinal switch{274=>0x12FC,275=>0x1300,276=>0x1304,277=>0x1308,
@@ -96,7 +96,7 @@ public sealed class OriginalMapPostEffect3LensPresetCallerInputs
     }
 }
 
-/// <summary>Complete23 native writes of TC1148F00/SC1149F80. The finite SSE
+/// <summary>Complete23 native writes of /. The finite SSE
 /// pow/atan/tangent ports retain their existing source domain gates. No
 /// framework power, angle approximation or default Intermediate is used.</summary>
 public static class OriginalMapPostEffect3LensPresetIntermediateProducer
@@ -149,7 +149,7 @@ public static class OriginalMapPostEffect3LensPresetIntermediateProducer
         W(0x4C,M(correction,correctedStop));W(0x50,M(M(S(correctedStop,P(0x50)),apertureRatio),.5f));
         return OriginalMapPostEffect3LensPresetIntermediatePacket.FromProducedMath(caller.Camera,output,
             preset.SourceEvidence+";"+caller.SourceEvidence+";"+sources.SourceEvidence+
-            ";explicit-native-SSE/nearest-even;all23-original1148F00-writes;accepted-camera-prefix-retained");
+            "explicit-native-SSE/nearest-even;all23-original-writes;accepted-camera-prefix-retained");
     }
     [MethodImpl(MethodImplOptions.NoInlining)]private static float A(float a,float b)=>a+b;
     [MethodImpl(MethodImplOptions.NoInlining)]private static float S(float a,float b)=>a-b;

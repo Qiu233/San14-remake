@@ -14,10 +14,10 @@ public sealed partial class OriginalTacticRemakeCurrentContext
             ResolveChain(state, caster, _catalog.Rows[selected.TacticSlot]) is not { ChainCount: 0 } chain ||
             state.NativeArmySimulation!.Forces.GetValueOrDefault(caster.ForceId)?.Flags193 is not byte flags)
             return null;
-        int? primary = Parameter(state, 0x1A4A08C), second = Parameter(state, 0x1A4A098), third = Parameter(state, 0x1A4A0A4);
-        int? adjustment = formation switch { 1 => Parameter(state, 0x1A4AA64), 2 => Parameter(state, 0x1A4AA70),
-            14 => Parameter(state, 0x1A4AA08), _ => 0 };
-        int? reduction = (flags & 0x40) != 0 ? Parameter(state, 0x1A4AC30) : 0;
+        int? primary = Parameter(state, SimulationParameterKeys.Tactics.PrimaryWaitingCap), second = Parameter(state, SimulationParameterKeys.Tactics.SecondaryWaitingCap), third = Parameter(state, SimulationParameterKeys.Tactics.TertiaryWaitingCap);
+        int? adjustment = formation switch { 1 => Parameter(state, SimulationParameterKeys.Tactics.Formation1AutomaticWaitingAdjustment), 2 => Parameter(state, SimulationParameterKeys.Tactics.Formation2AutomaticWaitingAdjustment),
+            14 => Parameter(state, SimulationParameterKeys.Tactics.Formation14AutomaticWaitingAdjustment), _ => 0 };
+        int? reduction = (flags & 0x40) != 0 ? Parameter(state, SimulationParameterKeys.Tactics.ForceFlagWaitingReduction) : 0;
         var reference = _definitions.ReadSkillTacticReference(selected.TacticSlot);
         byte? category = reference is null ? null : _definitions.ReadSkillTacticRawByte(reference, 0x40);
         int? policy = category switch { 5 => Policy(state, caster.ForceId, 0x24),

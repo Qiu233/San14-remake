@@ -165,7 +165,7 @@ public sealed class LoadedOriginalMapPostEffect3Composite2Source
         }
     }
 
-    /// <summary>115BC10's complete208B, capability5 branch. All48 factory9
+    /// <summary>'s complete208B, capability5 branch. All48 factory9
     /// default lookups must be present and written; smaller/uninitialized
     /// native capabilities cannot provide a complete CB22 packet.</summary>
     public OriginalMapPostEffect3ParameterComposite2Update Prepare(
@@ -221,7 +221,7 @@ public sealed class LoadedOriginalMapPostEffect3Composite2Source
         P(200,cropped&&actualInputs.SceneWrapperPresent&&mode>=1?MaximumUv(VF(vp,2),sw):1);
         P(204,cropped&&actualInputs.SceneWrapperPresent&&mode>=1?MaximumUv(VF(vp,3),sh):1);
         var selected=Select(state,allocation.Source,values,cropped,mode);
-        return new(state,allocation,actualInputs,values,new(state,cb,checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3ParameterComposite2.cs",0x115BC10)),bytes,Locale),cropped,selected,SourceEvidence);
+        return new(state,allocation,actualInputs,values,new(state,cb,OriginalMapPostEffect3ConstantBufferWriter.Composite2,bytes,Locale),cropped,selected,SourceEvidence);
         float F(string n,int word=0)=>VF(values[n],word);
         int I(string n)=>BinaryPrimitives.ReadInt32LittleEndian(values[n]);
         void P(int offset,float v)=>BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(offset),v);
@@ -308,8 +308,8 @@ public static partial class OriginalDeferredSamplerSources
     {
         if(native.Locale is not ("TC" or "SC"))throw new NotSupportedException("Composite2 complete factory9 ABI requires a verified SC/TC profile.");
 
-        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+";TC:115BC10-complete208B-capability5/115CF80-mask;"+
-            "actual114AFF0-value=record10;actualD5C240-wrapper40/42;descriptor58=file44;"+
+        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;"+";complete208B-capability5/-mask"+
+            "actual-value=record10;actual-wrapper40/42;descriptor58=file44"+
             "sourceCMP2InputColor/PRECMP2InputBloom;capability5-all48typedlookups;"+
             "cbComposite2-CB22;no-GPU-or-current-original-controller-claim",native.Locale);
     }

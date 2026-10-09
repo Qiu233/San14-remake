@@ -54,7 +54,7 @@ public static class OriginalRulerCaptureReleaseSource
             if (specialVictim < 58 && ((special >> specialVictim) & 1) != 0 && W(rulerPhysical, 0x17A) >= 0) flag = 1;
             if (id == 932 && rulerId == 266) return Done(OriginalRulerCaptureDecision.ExecuteRequired, "special_932_266_execute");
             if (flag == 0) {
-                if (Relation(winner, original) > P(0x1A4ABB0)) flag = 2;
+                if (Relation(winner, original) > P(SimulationParameterKeys.ArmyDestruction.RulerReleaseRelationThreshold)) flag = 2;
                 if (Kin(personPhysical, rulerPhysical, 0xBC)) flag = 2;
                 if (Kin(personPhysical, rulerPhysical, 0xBA)) flag = 2;
                 if (Kin(personPhysical, rulerPhysical, 0xB4) || Kin(personPhysical, rulerPhysical, 0xB6)) flag = 2;
@@ -79,7 +79,7 @@ public static class OriginalRulerCaptureReleaseSource
         int Draw(int divisor) => OriginalTacticEffectSourceSamplerMath.Sample(100, divisor, id, rulerId, 0, 0,
             sampler ?? throw Missing("current.Lord_World450_45C"));
         short W(int physical, int field) => K(OriginalRulerCaptureReleaseInputs.ReadCurrentWord(state, physical, field), $"current.Lord_Person{field:X}");
-        int P(int tc) => K(OriginalArmyDestructionParameterSeed.ReadCurrentTc(state, tc), $"current.Lord_parameter{tc:X}");
+        int P(string key) => K(OriginalArmyDestructionParameterSeed.ReadCurrent(state, key), $"current.Lord_parameter{key}");
         byte Rank(int force) => K(current.ReadMoraleWaveForceRank47(force), "current.Lord_Force47");
         byte Relation(int a, int b) => ReadRelation(state, current, a, b);
         ushort R(int physical, int field) => ReadRelationWord(state, physical, field);
@@ -125,11 +125,11 @@ public static class OriginalRulerCaptureReleaseSource
             int person = receipt.PersonPhysical, winner = receipt.WinnerForcePhysical, original = receipt.OriginalForcePhysical;
             BindCurrent(state, current);
             var working = state; bool relationWritten = false; byte? afterA = null, afterB = null; short? fame = null;
-            if (K(current.ReadPersonDestructionWord1A4(person), "current.Lord_Person16C") >= P(0x27D37D0) && P(0x1A4AC5C) != 0 &&
+            if (K(current.ReadPersonDestructionWord1A4(person), "current.Lord_Person16C") >= P(SimulationParameterKeys.ArmyDestruction.RulerReleasePersonRelationThreshold) && P(SimulationParameterKeys.ArmyDestruction.RulerReleaseRelationGain) != 0 &&
                 K(current.ReadForceNativeValidity(new(winner)), "current.Lord_winner_Force_validity") &&
                 K(current.ReadForceNativeValidity(new(original)), "current.Lord_original_Force_validity") && winner != original) {
                 if (winner is >= 46 and <= 50 || original is >= 46 and <= 50) throw Missing("branch.Lord_release_special_Force27B0F0");
-                int change = P(0x1A4AC5C);
+                int change = P(SimulationParameterKeys.ArmyDestruction.RulerReleaseRelationGain);
                 afterA = (byte)Math.Clamp(unchecked(ReadRelation(working, current, winner, original) + change), 0, 200);
                 afterB = (byte)Math.Clamp(unchecked(ReadRelation(working, current, original, winner) + change), 0, 200);
                 working = WriteForce(working, winner, f => f with { Relations13 = ChangedRelations(f, original, afterA.Value) });
@@ -139,7 +139,7 @@ public static class OriginalRulerCaptureReleaseSource
             }
             if (K(current.ReadForceNativeValidity(new(winner)), "current.Lord_popularity_Force_validity") && winner != 0 &&
                 winner != 51 && winner is not (>= 46 and <= 50)) {
-                fame = (short)Math.Clamp(unchecked(K(current.ReadRulerReleasePopularity1BE(winner), "current.Lord_winner_Force1BE") + P(0x1A498EC)), -1000, 1000);
+                fame = (short)Math.Clamp(unchecked(K(current.ReadRulerReleasePopularity1BE(winner), "current.Lord_winner_Force1BE") + P(SimulationParameterKeys.ArmyDestruction.RulerReleasePopularityGain)), -1000, 1000);
                 working = WriteForce(working, winner, f => f with { Development1BE = fame });
                 current.SetRulerReleasePopularity1BE(winner, fame);
             }
@@ -181,7 +181,7 @@ public static class OriginalRulerCaptureReleaseSource
             }
         }
         catch (InvalidDataException error) { return new(null, null, error.Message); }
-        int P(int tc) => K(OriginalArmyDestructionParameterSeed.ReadCurrentTc(state, tc), $"current.Lord_parameter{tc:X}");
+        int P(string key) => K(OriginalArmyDestructionParameterSeed.ReadCurrent(state, key), $"current.Lord_parameter{key}");
     }
 
     public static void BindCurrent(GameState state, OriginalEventInitializationContext current)

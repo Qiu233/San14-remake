@@ -1,6 +1,6 @@
 namespace San14.Data;
 
-// Original1148180 builtin0 stores; pointer words are relocation slots, not native nulls.
+// Original builtin0 stores; pointer words are relocation slots, not native nulls.
 internal static class OriginalMapPostEffect3LensPresetBuiltin0
 {
     internal const string PrimitiveSha256 = "608239E0B4BDD3E6028245DBA78A2348DAFCBAD4B056EEA2226136ABCA8DCE99";

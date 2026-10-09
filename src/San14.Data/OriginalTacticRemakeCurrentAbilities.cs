@@ -76,9 +76,9 @@ public sealed class OriginalTacticRemakeCurrentAbilities : IEffectiveOfficerAbil
             unchecked((uint)(officerId - 5001)) <= 99 || status != 0);
         if (!valid) return new(0, 0, 0, 0, 0); //Army22E610's proved invalid-person result.
         if (!RoleMatches(officer.Role, status) || Values(basic).Any(value => value is < 0 or > 255)) return null;
-        int? health = healthState switch { 0 => Parameter(state, 0x1A4BD54), 1 => Parameter(state, 0x1A4BD60),
-            2 => Parameter(state, 0x1A4BD6C), 3 => Parameter(state, 0x1A4BD78), _ => 0 };
-        int? secondary = Parameter(state, 0x1A4BD84);
+        int? health = healthState switch { 0 => Parameter(state, SimulationParameterKeys.Tactics.HealthyAbilityPercent), 1 => Parameter(state, SimulationParameterKeys.Tactics.InjuryLevel1AbilityPercent),
+            2 => Parameter(state, SimulationParameterKeys.Tactics.InjuryLevel2AbilityPercent), 3 => Parameter(state, SimulationParameterKeys.Tactics.InjuryLevel3AbilityPercent), _ => 0 };
+        int? secondary = Parameter(state, SimulationParameterKeys.Tactics.AbilitySecondaryBaseline);
         //For native rulers and every stage except1, both settings outcomes
         //have the same baseline. Stage1 may additionally require the complete
         //special-person/affiliation gate; unresolved branches stay nullable.
@@ -88,7 +88,7 @@ public sealed class OriginalTacticRemakeCurrentAbilities : IEffectiveOfficerAbil
             if (state.NewGameOptions.CapturedOfficersEnabled)
             {
                 if (IsBandPerson(officerId)) return null;
-                secondary = Parameter(state, 0x1A4BD90);
+                secondary = Parameter(state, SimulationParameterKeys.Tactics.AbilitySecondaryAdjustment);
             }
         }
         OfficerAbilities? appointment = Appointment(state, officer, person, status);
@@ -147,8 +147,8 @@ public sealed class OriginalTacticRemakeCurrentAbilities : IEffectiveOfficerAbil
         parameters.Language == _language && parameters.RuleVersion == _ruleVersion &&
         state.ContentHashes.GetValueOrDefault(_source.ScenarioSource.ResourceUri) == _source.ScenarioSource.Sha256 &&
         state.ContentHashes.GetValueOrDefault(_source.FixedDataSource.ResourceUri) == _source.FixedDataSource.Sha256;
-    private int? Parameter(GameState state, int rva) => state.NativeArmySimulation!.Parameters.Int32Values
-        .TryGetValue(OriginalTacticRemakeParameterSeed.Key(rva), out int value) ? value : null;
+    private int? Parameter(GameState state, string key) => state.NativeArmySimulation!.Parameters.Int32Values
+        .TryGetValue(key, out int value) ? value : null;
     public static int DecodeCap(byte encoded, int physicalSlot) =>
         (byte)((byte)((encoded << 3) | (encoded >> 5)) ^ (byte)physicalSlot);
     private static readonly OfficerAbilities Zero = new(0, 0, 0, 0, 0);

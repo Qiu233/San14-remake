@@ -52,7 +52,7 @@ public static class OriginalTransportArmyRouteMobilitySource
             int size = K(OriginalTacticRemakeCurrentFormations.ReadVectorByteCount(state, formationPhysical), "Formation_A8_size");
             byte rawCoefficient = K(OriginalTacticRemakeCurrentFormations.ReadParameter(state, formationPhysical, 0x7F), "Formation7F");
             int coefficient = (size & ~3) == 32 ? Math.Clamp((int)rawCoefficient, 1, 30) : rawCoefficient;
-            if ((flags & 2) != 0 && formationPhysical == 5) coefficient = unchecked(coefficient + P(0x1A4AB98));
+            if ((flags & 2) != 0 && formationPhysical == 5) coefficient = unchecked(coefficient + P(SimulationParameterKeys.ArmyMobility.FormationFiveMobilityBonus));
 
             int percent = 100;
             OriginalForcePolicyScratchReceipt? policyQuery = null;
@@ -60,7 +60,7 @@ public static class OriginalTransportArmyRouteMobilitySource
             {
                 int effect = formationPhysical <= 7 ? formationPhysical : formationPhysical <= 10 ? 8 : formationPhysical <= 13 ? 9 : 12;
                 policyQuery = OriginalForcePolicyScratchCurrent.ReadBeforeFreedom(state, current, force, effect, true);
-                int scale = P(effect <= 8 ? 0x1A4C6F8 + (effect - 1) * 12 : effect == 9 ? 0x1A4C754 : 0x1A49C34);
+                int scale = P(OriginalBattleRemakeCurrentParameterSeed.FormationEffectKey(effect)!);
                 percent = unchecked(100 + unchecked(policyQuery.Value * scale));
             }
             int trait = 0;
@@ -77,7 +77,7 @@ public static class OriginalTransportArmyRouteMobilitySource
                     trait = unchecked(trait + Math.Clamp((int)raw, -100, 2000));
                 }
             }
-            int limit = P(0x1A49C40), step = P(0x1A4A8F4), lower = unchecked(-limit);
+            int limit = P(SimulationParameterKeys.ArmyMobility.TraitMobilityLimit), step = P(SimulationParameterKeys.ArmyMobility.TraitMobilityStep), lower = unchecked(-limit);
             int capped = trait < lower ? lower : trait > limit ? limit : trait;
             float traitFactor = (float)unchecked(step * capped) / 100f + 1f;
             int selector = K(OriginalBattleRemakeCurrentSettings.ReadSelectorE58(state), "EnvironmentE58");
@@ -92,14 +92,14 @@ public static class OriginalTransportArmyRouteMobilitySource
             }
             float formationTerrain = 1f;
             if (formationPhysical is 6 or 14 && explicitHexSurface10 is >= 5 and < 12 && explicitHexSurface10 != 7)
-                formationTerrain = (float)P(formationPhysical == 6 ? 0x1A4C6EC : 0x1A49C4C) / 100f;
+                formationTerrain = (float)P(formationPhysical == 6 ? SimulationParameterKeys.ArmyMobility.FormationSixTerrainPercent : SimulationParameterKeys.ArmyMobility.FormationTerrainPercent) / 100f;
             ushort hexIndex = K(current.ReadArmyUnitRawHex2A(receiver), "Army2A");
             var currentHex = current.ReadHexTableReference(hexIndex < 48400 ? hexIndex : 0) ?? throw Missing("Hex_table");
             byte currentSurface = K(current.ReadHexSurfaceCode(currentHex), "current_Hex10");
-            float forceTerrain = (flags & 8) != 0 && currentSurface is >= 8 and <= 11 ? (float)P(0x1A49C58) / 100f : 1f;
+            float forceTerrain = (flags & 8) != 0 && currentSurface is >= 8 and <= 11 ? (float)P(SimulationParameterKeys.ArmyMobility.ForceTerrainPercent) / 100f : 1f;
             float environment = 1f;
             if (selector != 0 && K(OriginalBattleRemakeCurrentSettings.ReadInt32(state, 0x104), "Environment104") == 1)
-                environment = (float)P(0x1A49C64) / 100f;
+                environment = (float)P(SimulationParameterKeys.ArmyMobility.EnvironmentTerrainPercent) / 100f;
             float value = (float)unchecked(percent * coefficient) / 100f;
             value = traitFactor * value;
             value *= 1f; //flags0: source modifierFactor is exactly1, no Army4A read.
@@ -132,8 +132,8 @@ public static class OriginalTransportArmyRouteMobilitySource
                 coefficient, percent, trait, traitFactor, baselineFactor, formationTerrain, forceTerrain,
                 environment, policy, policyValue, advanced, policyQuery), null);
 
-            int P(int semanticScRva) => parameters.Int32Values.TryGetValue(OriginalTacticRemakeParameterSeed.Key(semanticScRva), out int result)
-                ? result : throw Missing($"parameter_SC_{semanticScRva:X}");
+            int P(string key) => parameters.Int32Values.TryGetValue(key, out int result)
+                ? result : throw Missing($"parameter_{key}");
         }
         catch (MissingOwner missing) { return new(null, null, missing.Message); }
         catch (InvalidDataException missing) when (missing.Message.StartsWith("current.PolicyScratch_", StringComparison.Ordinal))

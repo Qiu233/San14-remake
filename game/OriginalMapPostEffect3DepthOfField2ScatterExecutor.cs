@@ -194,7 +194,7 @@ public sealed partial class OriginalMapPostEffect3DepthOfField2ScatterExecutor:I
                 try
                 {
                     rd.DrawListBindRenderPipeline(list,pipeline);if(vs.IsValid)rd.DrawListBindUniformSet(list,vs,1);if(ps.IsValid)rd.DrawListBindUniformSet(list,ps,0);
-                    //1155CF0 enables its floor(target0*Viewport) scissor.
+                    // Enable the floor(target0*Viewport) scissor.
                     //The admitted source rectangle is exactly the full target.
                     rd.DrawListEnableScissor(list,new Rect2I(Vector2I.Zero,view.Extent));
                     rd.DrawListDrawIndirect(list,false,input.ActualArguments.StorageRid,checked((uint)before.NativeIndirectArgumentByteOffset),1,16);

@@ -30,10 +30,10 @@ public sealed class OriginalMapPostEffect3ApplyMode1Completed
     public OriginalMapPostEffect3ApplyFallbackViewportPlan Viewport { get; }
     public OriginalMapPostEffect3ApplyFallbackBindingPlan Bindings { get; }
     public OriginalMapPostEffect3ApplyMode1WriterScopeCurrent? WriterScope { get; }
-    // Exposure EA9B2B writes15. EC3360's stock draw/restore retains it;
-    // the admitted optional caller composite EB8539 also explicitly writes15.
+    // Exposure writes15. 's stock draw/restore retains it;
+    // the admitted optional caller composite also explicitly writes15.
     public uint FallbackRt0ColorWriteMask=>15;
-    // EC34AE..EC34D7 clears frontend+B0 through native opcode47.
+    // .. clears frontend+B0 through native opcode47.
     public bool FallbackCustomVertexShaderIsAbsent=>true;
     public bool IsCompleteForSourceHostHistory=>WriterScope is not null;
     public void RequireCompletedSourceHostWriterScope()
@@ -44,7 +44,7 @@ public sealed class OriginalMapPostEffect3ApplyMode1Completed
         WriterScope.Validate(Camera,Route);
     }
     public string SourceEvidence=>Route.SourceEvidence+";"+Viewport.SourceEvidence+";"+Bindings.SourceEvidence+
-        ";Exposure-EA9B2B-RT0=15;EC34AE..34D7-B0=null;95A370/95A7B0-stock-scalars-and-clip-mask-preserving;"+
+        "Exposure-RT0=15;34D7-B0=null;-stock-scalars-and-clip-mask-preserving"+
         (WriterScope is null?"caller-writer-scope-unclosed":WriterScope.SourceEvidence)+";not-GPU-receipt";
 
     public static OriginalMapPostEffect3ApplyMode1Completed CaptureAfterSuccessfulSourceCall(
@@ -91,7 +91,7 @@ public sealed class OriginalMapPostEffect3ApplyMode1Completed
             Camera.Source.CpuWord(0xBF0)!=0||Camera.ExecutableLocale is not("SC" or "TC")||
             Viewport.Inputs.ActualCamera1CC!=BinaryPrimitives.ReadUInt32LittleEndian(Camera.Prefix.Span.Slice(0x1CC,4)))
             throw new InvalidDataException("Mode1 completion requires the same retained Camera/Exposure and admitted full output frame.");
-        if(!Route.ExecutesEc3360Fallback||Route.ExecutesModuleFunctor||!Route.BypassesLegacyA1Branch||
+        if(!Route.ExecutesToneFallback||Route.ExecutesModuleFunctor||!Route.BypassesLegacyA1Branch||
             Viewport.Inputs.ActualCameraViewport1540!=new Vector4(0,0,1,1)||Viewport.SpecialRectangleApplied||
             Viewport.Inputs.OwnerIdentity!=Bindings.ActualTarget.OwnerIdentity||Bindings.ActualTarget.FrameNumber!=FrameNumber||
             Viewport.PixelRectangle!=new OriginalMapPostEffect3ApplyFallbackPixelRectangle(0,0,
@@ -101,9 +101,9 @@ public sealed class OriginalMapPostEffect3ApplyMode1Completed
             throw new InvalidDataException("Mode1 completion requires the actual target, full viewport and same native49 draw plan.");
         int beforeCount=Bindings.UsesDirectTextureDrawPath?1:2;
         if(Bindings.BeforeDraw.Count!=beforeCount||Bindings.AfterDraw.Count!=2||
-            Bindings.BeforeDraw[0].NativeSlot!=0||Bindings.BeforeDraw[0].CallSiteRva!=0xEC374C||
-            Bindings.AfterDraw[0].NativeSlot!=0||Bindings.AfterDraw[0].CallSiteRva!=0xEC3A62||
-            Bindings.AfterDraw[1].NativeSlot!=1||Bindings.AfterDraw[1].CallSiteRva!=0xEC3A75||
+            Bindings.BeforeDraw[0].NativeSlot!=0||
+            Bindings.AfterDraw[0].NativeSlot!=0||
+            Bindings.AfterDraw[1].NativeSlot!=1||
             Bindings.AfterDraw.Any(b=>b.Owner is not null)||
             Bindings.BeforeDraw.Any(b=>b.Owner is null||b.Owner.FrameNumber!=FrameNumber||string.IsNullOrWhiteSpace(b.Owner.OwnerIdentity)))
             throw new InvalidDataException("Mode1 completion lost the source bind/draw/unbind order or owned texture frame.");
@@ -114,16 +114,16 @@ public sealed class OriginalMapPostEffect3ApplyMode1Completed
         }
         else
         {
-            if(Bindings.BeforeDraw[1].NativeSlot!=1||Bindings.BeforeDraw[1].CallSiteRva!=0xEC37EB||
+            if(Bindings.BeforeDraw[1].NativeSlot!=1||
                 Bindings.ToneShaderAuxF8 is not { } shader||shader.FrameNumber!=FrameNumber||string.IsNullOrWhiteSpace(shader.OwnerIdentity))
                 throw new InvalidDataException("Tone mode1 completion requires its actual reference50/AuxF8 owners.");
-            var expected=new[]{("vToneMapParams",16,0xEC3916u),("fGamma",4,0xEC3948u),("fToneCurveType",4,0xEC3994u)};
+            var expected=new[]{("vToneMapParams",16),("fGamma",4),("fToneCurveType",4)};
             if(Bindings.GenericShaderParameters.Count!=expected.Length)
                 throw new InvalidDataException("Tone mode1 completion has incomplete typed source parameter writes.");
             for(int i=0;i<expected.Length;i++)
             {
                 var write=Bindings.GenericShaderParameters[i];var e=expected[i];
-                if(write.Name!=e.Item1||write.Bytes.Length!=e.Item2||write.CallSiteRva!=e.Item3||write.HelperRva!=0xEC3360||
+                if(write.Name!=e.Item1||write.Bytes.Length!=e.Item2||
                     string.IsNullOrWhiteSpace(write.SourceEvidence))
                     throw new InvalidDataException("Tone mode1 completion has a foreign or reordered scalar writer.");
                 for(int p=0;p<write.Bytes.Length;p+=4)

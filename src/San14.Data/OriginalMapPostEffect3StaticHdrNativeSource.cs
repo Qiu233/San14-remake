@@ -31,13 +31,12 @@ public sealed class OriginalMapPostEffect3StaticHdrNativeRecipe
     public byte NativeDescriptorSamplerLow4=>(byte)(NativeDescriptorSamplerWord38&15);
     public G1TextureSamplerRecipe Sampler=>sampler with {RawKey=sampler.RawKey.ToArray()};
     /// <summary>Source952010 explicitly zeroes+28. Both actual container
-    /// metadata size and image record count are zero, so952700 never replaces
-    /// it. C0F048/96C5A0 copies this null pointer into the Static CPU descriptor.</summary>
+    /// metadata size and image record count are zero, so never replaces
+    /// it. copies this null pointer into the Static CPU descriptor.</summary>
     public ReadOnlyMemory<byte>? NativeDescriptorMetadata28Chain=>null;
     public bool NativeDescriptorMetadata28IsProvenNull=>true;
     public uint NativeGlobalMetadataByteCount=>0;
     public uint NativeImageMetadataRecordCount=>0;
-    public uint NativeStaticDescriptorCopyRva=>(uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3StaticHdrNativeSource.cs",0x96C5A0);
     public int NativeStaticDescriptorByteCount=>72;
     public bool RuntimeMipTrimmingCannotChangeThisSingleMip=>true;
     public bool IsModuleManagerSamplerWrapper=>false;
@@ -84,10 +83,10 @@ public sealed class LoadedOriginalMapPostEffect3StaticHdrNativeSource
         loadedRecipe=new(binding,sampler,formatRule.Resource,selected,alternate,packed,Native,SourceEvidence+
             $";Static{binding.Definition.ObjectId:X8}/context{binding.Resource.Source.FileId:X8}/TID{binding.ImageIndex};"+
             $"{binding.Resource.Source.ResourceUri}@{binding.Resource.Source.DecodedSha256};"+
-            $"952010-descriptor38-key{Convert.ToHexString(sampler.RawKey)}/28-zero;"+
-            "952700-actual-globalMetadata0-and-imageMetadataCount0;9556E0-single-mip-no-trim;"+
-            $"951A80-format{format:X2}/resource{formatRule.Resource}/selectedSRV{selected}/source-image19-selector;"+
-            "C0EFB0-C0BD00-96C5A0-exact72B;96C650-ID16-null;module30/38-are-separate-manager-sampler-carriers");
+            $"-descriptor38-key{Convert.ToHexString(sampler.RawKey)}/28-zero"+
+            "-actual-globalMetadata0-and-imageMetadataCount0;-single-mip-no-trim"+
+            $"-format{format:X2}/resource{formatRule.Resource}/selectedSRV{selected}/source-image19-selector"+
+            "--exact72B;-ID16-null;module30/38-are-separate-manager-sampler-carriers");
         return loadedRecipe;
     }
     public OriginalMapPostEffect3StaticHdrNativeRecipe ReadSelectedCurrent(OriginalMapPostEffect3CurrentLutLookup actualLookup)
@@ -165,10 +164,10 @@ public static partial class OriginalDeferredSamplerSources
     internal static LoadedOriginalMapPostEffect3StaticHdrNativeSource ReadStaticHdrNativeSource(LoadedOriginalDeferredSamplerNativeSource native)
     {
         OriginalStaticHdrFormatRule[] formats=[
-            new(27,28,29), // RGBA8 typeless resource / linear and sRGB views.
-            new(90,87,91), // BGRA8 typeless resource / linear and sRGB views.
-            new(39,41,0),  // R32 typeless resource / float view.
-            new(9,10,0)];  // RGBA16 typeless resource / float view.
+            new(27,28,29), // RGBA8 typeless resource linear and sRGB views.
+            new(90,87,91), // BGRA8 typeless resource linear and sRGB views.
+            new(39,41,0),  // R32 typeless resource float view.
+            new(9,10,0)];  // RGBA16 typeless resource float view.
         return new(formats,native,RenderRuleIdentity.For("static-hdr-format",native.Locale)+
             ";resource-linear-and-srgb-format-rules;source-image-selector;single-mip-static-descriptor");
     }

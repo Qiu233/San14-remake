@@ -45,10 +45,10 @@ public static partial class OriginalPersonReturnPathSource
                 if (effect.Value is not int value) return new(null, found, count, path, effect.UnresolvedOwner);
                 advantage = value;
             }
-            int coefficient = Known(OriginalPersonReturnPathParameterSeed.ReadCurrentTc(state, 0x1A4A9D0), "2318F0 DAT1A4A9D0");
+            int coefficient = Known(OriginalPersonReturnPathParameterSeed.ReadCurrent(state, SimulationParameterKeys.PersonReturn.JourneyCoefficient), "2318F0 DAT1A4A9D0");
             //Native actorPerson is known-null0 in1F68B0: no trait12 read or multiplier.
             float bonus = validForce ? (float)advantage / (float)Known(
-                OriginalPersonReturnPathParameterSeed.ReadCurrentTc(state, 0x1A49BAC), "2318F0 DAT1A49BAC") : 0f;
+                OriginalPersonReturnPathParameterSeed.ReadCurrent(state, SimulationParameterKeys.PersonReturn.LandAdvantageDivisor), "2318F0 DAT1A49BAC") : 0f;
             float numerator = (float)coefficient * (float)distance;
             float days = numerator / (bonus + 10f);
             days = days / 12f;

@@ -91,7 +91,7 @@ public sealed class OriginalMapPostEffect3Functor1ModuleState:IDisposable
         string locale=begin.Locale;
         var profile=OriginalMapPostEffect3PassStateReader.ReadFunctorProtocol(allocation.Source,1,locale);
         var finish=OriginalMapPostEffect3PassStateReader.FactoriesForLocale(locale).Skip(6)
-            .Select(f=>(f.Index,(uint?)f.FinishHook));
+            .Select(f=>(f.Index,(OriginalMapPostEffect3Hook?)f.FinishHook));
         if(exit.Locale!=locale||actualFreshDof.Locale!=locale||actualFreshEye.Locale!=locale||
             sides.AppliesAfterHistoryFlip||!profile.Where(s=>s.Operation==OriginalMapPostEffect3FunctorOperation.ExecutePass).Select(s=>s.SourcePassIndex)
                 .SequenceEqual(Enumerable.Range(45,72).Select(i=>(int?)i))||

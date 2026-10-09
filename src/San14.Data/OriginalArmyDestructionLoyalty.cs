@@ -63,7 +63,7 @@ public static class OriginalArmyDestructionLoyalty
             byte relation = Get(draft.ReadDestructionRelationTier2A6EE0(personPhysical, rulerPhysical, 0), "current.relationship2A6EE0");
             byte raw = Get(ReadCurrentRawE8(state, current, personPhysical, governorInputs), "current.Person_rawE8");
             short word = Get(current.ReadPersonDestructionWord1A4(personPhysical), "current.Person_TC16C_SC1A4");
-            int loyaltyDivisor = P(0x1a4b5b4), wordDivisor = P(0x1a4b5c0), relationBase = P(0x1a4b5cc);
+            int loyaltyDivisor = P(SimulationParameterKeys.ArmyDestruction.LoyaltyLossLoyaltyDivisor), wordDivisor = P(SimulationParameterKeys.ArmyDestruction.LoyaltyLossPersonWordDivisor), relationBase = P(SimulationParameterKeys.ArmyDestruction.LoyaltyLossRelationBase);
             float first = (((float)word - 20f) * -1f) / (float)wordDivisor;
             float second = (100f - (float)raw) / (float)loyaltyDivisor;
             float requested = (first + second) + (float)unchecked(relationBase - relation);
@@ -77,7 +77,7 @@ public static class OriginalArmyDestructionLoyalty
             return new(new(current, personPhysical, raw, after, penalty, low,
                 strong ? "source.flags15E_bit13_output" : "source.numeric_E8", pool, preparedPool), null);
 
-            int P(int tcRva) => Get(OriginalArmyDestructionParameterSeed.ReadCurrentTc(state, tcRva), $"current.destruction_parameter{tcRva:X}");
+            int P(string key) => Get(OriginalArmyDestructionParameterSeed.ReadCurrent(state, key), $"current.destruction_parameter{key}");
             OriginalArmyDestructionLoyaltyResolution Skip(string branch) => new(new(current, personPhysical, null, null, null, null, branch), null);
         }
         catch (MissingOwner error) { return new(null, error.Message); }

@@ -10,7 +10,7 @@ public static partial class OriginalDeferredSamplerSources
         var ruleVersion=RenderRuleIdentity.For("shadow-atlas",locale);
 
         return new(locale, $"{ruleVersion};" +
-            $"v50-atlas={(locale == "TC" ? 0x1059500 : 0x105A430):X8};D24-normal-only;" +
+            "atlas-layout;D24-normal-only;" +
             "current198-u16-40/42-or-current-fallback5B4/5B8;" +
             "current230/22C/D25-gates;CE0-interior;unit4C/50-padded;6F0-scale/offset;" +
             "not-target-pointer-publication/not-caster-or-draw-completion");

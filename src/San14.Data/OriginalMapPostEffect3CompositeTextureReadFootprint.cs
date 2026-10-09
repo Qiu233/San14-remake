@@ -67,8 +67,7 @@ public sealed class OriginalMapPostEffect3CompositeTextureReadFootprint
         OriginalMapPostEffect3ParameterState.ValidateSource(allocation.Source);var cb=actualCompositeInit.ConstantBuffer;
         if(cb.FrameNumber<=0||cb.FrameNumber!=actualCompositeInit.FrameNumber||cb.OwnerIdentity!=actualCompositeInit.OwnerIdentity||
             cb.OwnerIdentity!=allocation.ContextOwnerIdentity||cb.SourceSha256!=allocation.Source.Sha256||
-            cb.Declaration.Index!=16||cb.Declaration.NameHash!=0x8EF18D14||cb.WriterRva!=checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(
-                cb.Locale,"OriginalMapPostEffect3CompositeTextureReadFootprint.cs",0x1153390))||cb.Bytes.Length!=160)
+            cb.Declaration.Index!=16||cb.Declaration.NameHash!=0x8EF18D14||cb.Writer!=OriginalMapPostEffect3ConstantBufferWriter.CompositeLegacy||cb.Bytes.Length!=160)
             throw new InvalidDataException("Composite mip footprint requires its actual owned160B source CB16.");
         var program=allocation.Source.GetProgram(0,3);
         if(program.Sha256!=ShaderSha||Convert.ToHexString(SHA256.HashData(program.Bytes.Span))!=ShaderSha||

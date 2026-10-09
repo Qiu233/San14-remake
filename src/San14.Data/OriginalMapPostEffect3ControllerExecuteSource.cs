@@ -3,7 +3,7 @@ using System.Text;
 
 namespace San14.Data;
 
-/// <summary>Copied current controller fields consumed by E22860. Raw float
+/// <summary>Copied current controller fields consumed by . Raw float
 /// bits and native byte/dword widths are preserved; this input does not prove
 /// texture readiness, a complete controller, or an original process sample.</summary>
 public sealed record OriginalMapPostEffect3ControllerScalarSnapshot(long FrameNumber,string ControllerOwnerIdentity,
@@ -32,19 +32,14 @@ public sealed record OriginalMapPostEffect3ControllerExecuteCaller(long FrameNum
 
 public sealed class LoadedOriginalMapPostEffect3ControllerExecuteSource
 {
-    private readonly uint[] callSites;
-    private readonly uint namedSetter;
     internal LoadedOriginalMapPostEffect3ControllerExecuteSource(LoadedOriginalDeferredSamplerNativeSource native,string evidence)
     {
         Native=native;SourceEvidence=evidence;
-        callSites=Declarations.Select(d=>(uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(native.Locale,
-            "OriginalMapPostEffect3ControllerExecuteSource.cs",(int)d.Call)).ToArray();
-        namedSetter=(uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(native.Locale,"OriginalMapPostEffect3ControllerExecuteSource.cs",0x114B170);
     }
     public LoadedOriginalDeferredSamplerNativeSource Native{get;}
     public string SourceEvidence{get;}
     public bool ProvesGpuExecution=>false;
-    /// <summary>E243F0 writes A0..AE, and its final setter dirties AF. Other
+    /// <summary> writes A0..AE, and its final setter dirties AF. Other
     /// controller members and derived math are outside this scalar owner.</summary>
     public ReadOnlyMemory<byte> FreshResetFlagsA0ToAF=>new byte[]{0,1,0,0,0,0,0,0,1,1,1,0,0,0,0,1};
     public OriginalMapPostEffect3ControllerScalarOwner ConstructFreshScalarOwner(
@@ -64,7 +59,7 @@ public sealed class LoadedOriginalMapPostEffect3ControllerExecuteSource
             string.IsNullOrWhiteSpace(snapshot.ControllerOwnerIdentity)||string.IsNullOrWhiteSpace(snapshot.SourceEvidence)||
             string.IsNullOrWhiteSpace(caller.SourceEvidence)||state.SourceSha256!=OriginalMapFinalOutputPostEffect3Source.PayloadSha256)
             throw new InvalidDataException("Controller execution requires exact current scalar snapshot/caller frame and known provenance.");
-        // E22B0E branches to false for nonzero arg5. A4 is CMP DWORD,
+        // branches to false for nonzero arg5. A4 is CMP DWORD,
         // not a byte comparison. This intentionally differs from the old
         // audit JSON's incorrectly inverted arg5 predicate.
         bool first=caller.Argument3R8B!=0||caller.Argument4R9B!=0||
@@ -81,29 +76,29 @@ public sealed class LoadedOriginalMapPostEffect3ControllerExecuteSource
                 OriginalMapPostEffect3ParameterState.PrimaryNameHash(d.Name)!=d.Hash)
                 throw new InvalidDataException("Controller source scalar declaration changed: "+d.Name);
             byte[] bytes=new byte[4];BinaryPrimitives.WriteUInt32LittleEndian(bytes,words[j]);
-            writes.Add(new(d.Name,callSites[j],namedSetter,bytes,SourceEvidence+";"+snapshot.SourceEvidence+";"+caller.SourceEvidence+
+            writes.Add(new(d.Name,Enum.Parse<OriginalMapPostEffect3WriteStage>("Controller"+d.Name),bytes,SourceEvidence+";"+snapshot.SourceEvidence+";"+caller.SourceEvidence+
                 $";actual-controller={snapshot.ControllerOwnerIdentity};source-ordered-named-scalar-{j}"));
         }
         return writes.AsReadOnly();
     }
     private static uint Bool(byte value)=>value!=0?1u:0u;
     private static uint Bool(int value)=>value!=0?1u:0u;
-    internal static readonly (string Name,int Index,uint Hash,uint Type,uint Call,int StringRva)[] Declarations=[
-        ("StopBladeCount",58,0x84A28F6C,6,0xE2293E,0x16DC670),
-        ("ChangeFStop",69,0xACBFA86B,6,0xE22A60,0x16DC6D8),
-        ("EnableExternalStarBurst",70,0x9991F7C5,6,0xE22A7E,0x16DC6E8),
-        ("DiaphragmType",71,0x414B6021,6,0xE22A9C,0x16DC700),
-        ("EnableDof",85,0xD3729FAD,6,0xE22B4A,0x16DC728),
-        ("EnableSpriteDof",86,0x6E82D592,6,0xE22B68,0x16DC738),
-        ("IsFirstExec",87,0xCEB30472,6,0xE22B89,0x16DC748),
-        ("BloomRadius",95,0xAC8F38CD,1,0xE22BC5,0x16DC758),
-        ("EnableBloom",98,0xB344DE25,6,0xE22BE3,0x16DC768),
-        ("QualityLevel",84,0x7A1FA336,6,0xE22C03,0x16DC778)
+    internal static readonly (string Name,int Index,uint Hash,uint Type)[] Declarations=[
+        ("StopBladeCount",58,0x84A28F6C,6),
+        ("ChangeFStop",69,0xACBFA86B,6),
+        ("EnableExternalStarBurst",70,0x9991F7C5,6),
+        ("DiaphragmType",71,0x414B6021,6),
+        ("EnableDof",85,0xD3729FAD,6),
+        ("EnableSpriteDof",86,0x6E82D592,6),
+        ("IsFirstExec",87,0xCEB30472,6),
+        ("BloomRadius",95,0xAC8F38CD,1),
+        ("EnableBloom",98,0xB344DE25,6),
+        ("QualityLevel",84,0x7A1FA336,6)
     ];
 }
 
-/// <summary>Owned controller scalar fields only. E243F0 reset runs once at
-/// construction; E22860 clears A1 after the actual module call returns, including
+/// <summary>Owned controller scalar fields only. reset runs once at
+/// construction; clears A1 after the actual module call returns, including
 /// native failure. This does not own LUTs, ghost buffers or factory handlers.</summary>
 public sealed class OriginalMapPostEffect3ControllerScalarOwner
 {
@@ -118,7 +113,7 @@ public sealed class OriginalMapPostEffect3ControllerScalarOwner
     {
         this.source=source;this.module=module;OwnerIdentity=ownerIdentity;
         current=new(0,ownerIdentity,6,1,0,0,0,1,0x40400000,1,
-            source.SourceEvidence+";E243F0-source-reset-6C=6/9C=0/A0=0/A1=1/A4DWORD=0/A9=1/AA=1/DCbits=40400000");
+            source.SourceEvidence+"-source-reset-6C=6/9C=0/A0=0/A1=1/A4DWORD=0/A9=1/AA=1/DCbits=40400000");
     }
     public string OwnerIdentity{get;}
     public bool IsCompleteController=>false;
@@ -160,9 +155,9 @@ public sealed class OriginalMapPostEffect3ControllerScalarOwner
     internal void CompleteAfterModuleReturn(OriginalMapPostEffect3ControllerScalarInvocation invocation)
     {
         RequirePending(invocation);
-        // E22C8E executes even if 11466F0 returned AL0. The scalar ChangeFStop
+        // executes even if returned AL0. The scalar ChangeFStop
         // remains the value just submitted; only the controller byte is reset.
-        current=current with{ChangeFStopA1=0,SourceEvidence=current.SourceEvidence+";E22C8E-controller-A1-unconditionally-cleared-after-actual-module-return"};
+        current=current with{ChangeFStopA1=0,SourceEvidence=current.SourceEvidence+"-controller-A1-unconditionally-cleared-after-actual-module-return"};
         pending=null;acceptedSnapshotFrame=null;
     }
 }
@@ -207,10 +202,10 @@ public static partial class OriginalDeferredSamplerSources
         LoadedOriginalDeferredSamplerNativeSource native)
     {
 
-        return new(native,native.ResourceUri+$";{native.Locale}:paired-controller-execution/reset-profile;TC-reference-role:E24C89-defaults/E24C91-E243F0-reset;"+
-            "E22860..E22CB2-complete-source-sha725BF0BA;114B170-named-exact4B-source-order;"+
-            "E22AEA-CMP-DWORD-A4;E22B04/E22B09/E22B0E-IsFirstExec=arg3||arg4||(!arg5&&Dof);"+
-            "E22BEF-QualityLevel-actual-current-1A8C788-required;E22C1D-actual-selected-functor;"+
-            "E22C25-return-AL-bit0;E22C8E-A1-reset-regardless-of-native-success;no-texture/ghost/GPU-claim");
+        return new(native,native.ResourceUri+$"{native.Locale}:paired-controller-execution/reset-profile;-defaults/-reset"+
+            "-complete-source-sha725BF0BA;-named-exact4B-source-order"+
+            "-CMP-DWORD-A4;-IsFirstExec=arg3||arg4||(!arg5&&Dof)"+
+            "-QualityLevel-actual-current-required;-actual-selected-functor"+
+            "-return-AL-bit0;-A1-reset-regardless-of-native-success;no-texture/ghost/GPU-claim");
     }
 }

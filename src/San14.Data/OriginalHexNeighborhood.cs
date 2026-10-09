@@ -6,13 +6,13 @@ namespace San14.Data;
 /// </summary>
 public static class OriginalHexNeighborhood
 {
-    // Verified original rdata at RVA13AECE0 (two x-parity rows, directions1..6).
+    // Two x-parity rows, directions1..6.
     private static readonly (int X, int Y)[][] Directions =
     [
         [(-1, 0), (0, -1), (1, 0), (-1, 1), (0, 1), (1, 1)],
         [(-1, -1), (0, -1), (1, -1), (-1, 0), (0, 1), (1, 0)]
     ];
-    // Verified original walk order at RVA13AED40. Candidates exclude the center.
+    // Walk order; candidates exclude the center.
     private static readonly int[] WalkOrder = [2, 3, 6, 5, 4, 1];
 
     public static IReadOnlyList<int> RadiusOneCandidates(int hexPhysicalSlot)

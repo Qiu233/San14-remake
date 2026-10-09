@@ -1,9 +1,9 @@
 namespace San14.Data;
 
 /// <summary>Source mode1 branch selection. A successfully resolved LensPreset
-/// makes E71690 return true and selects the without-controller functor0.
-/// Explicitly failed resolution uses EC3360. The controlled route instead
-/// carries the actual E22860 scalar invocation and source Apply1A8. Both
+/// makes return true and selects the without-controller functor0.
+/// Explicitly failed resolution uses . The controlled route instead
+/// carries the actual scalar invocation and source Apply1A8. Both
 /// bypass legacy/A1; neither route proves a GPU result.</summary>
 public sealed class OriginalMapPostEffect3ApplyMode1Route
 {
@@ -26,7 +26,7 @@ public sealed class OriginalMapPostEffect3ApplyMode1Route
     public OriginalMapPostEffect3ApplyPreparationSelection Preparation{get;}
     public bool NativePreparationReturnedTrue{get;}
     public bool ExecutesModuleFunctor=>NativePreparationReturnedTrue;
-    public bool ExecutesEc3360Fallback=>!NativePreparationReturnedTrue;
+    public bool ExecutesToneFallback=>!NativePreparationReturnedTrue;
     public OriginalMapPostEffect3ApplyFunctorSelection? FunctorSelection{get;}
     public OriginalMapPostEffect3ControllerScalarInvocation? ControllerInvocation{get;}
     public OriginalMapPostEffect3ControlledOpticsPreparation? ControlledPreparation{get;}
@@ -35,8 +35,8 @@ public sealed class OriginalMapPostEffect3ApplyMode1Route
         FunctorSelection?.WithoutControllerIndex1A4;
     public bool ProvesGpuExecution=>false;
     public bool BypassesLegacyA1Branch=>true;
-    public uint? FallbackCallSiteRva=>ExecutesEc3360Fallback?0xEB80D4u:null;
-    public uint SharedTailEntryRva=>0xEB99F0;
+
+
     public string SourceEvidence{get;}
     public void ValidateSameCamera(OriginalMapCameraConstructionPacket currentCamera)
     {
@@ -59,20 +59,20 @@ public sealed class OriginalMapPostEffect3ApplyMode1Route
         ArgumentNullException.ThrowIfNull(camera);ArgumentNullException.ThrowIfNull(lookups);
         ArgumentException.ThrowIfNullOrWhiteSpace(actualMode1Owner);lookups.ValidateSameCamera(camera);
         var selection=OriginalMapPostEffect3ApplyPreparationSelection.ReadActualSource(source,container,actualMode1Owner+"/descriptor");
-        if(selection.Variant!=OriginalMapPostEffect3ApplyUncontrolledVariant.NativeE71690||
+        if(selection.Variant!=OriginalMapPostEffect3ApplyUncontrolledVariant.LensPresetCameraFields||
             lookups.FreshControllerPresent190)
-            throw new NotSupportedException("Fresh no-controller route requires actual source E71690 and cleared controller lookups.");
+            throw new NotSupportedException("Fresh no-controller route requires actual source  and cleared controller lookups");
         bool present=lookups.FreshLensPreset1810Present;
         var functor=present?OriginalMapPostEffect3ApplyFunctorSelection.ConstructFreshDefault(source,container,
             camera.FrameNumber,actualMode1Owner+"/default-factory",lookups.SourceEvidence):null;
         return new(camera.FrameNumber,actualMode1Owner,selection,selection.SourceEvidence+";"+lookups.SourceEvidence+
-            (present?";TC:E7242C/E72446-present1810=>R15B1;E725D7=>AL1;EB7EC6/EB7ECE;EB804E/EB805C-Apply1A4-functor0;"+functor!.SourceEvidence:
-                ";TC:E7242C/E725D7-failed-lookup-null1810=>AL0;EB7EC6/EB7EC8=>EB80BF/EB80D4-EC3360;")+
-            "EB80DD-mode1-cleanup;EB8604-jump99F0-bypasses8609-legacyA1;EB9CE7/EB9CEE=>EB619D-outer-loop",camera,source,container,present,functor,lookups);
+            (present?";present1810=>R15B1;=>AL1;-Apply1A4-functor0"+functor!.SourceEvidence:
+                ";failed-lookup-null1810=>AL0;=>/-")+
+            "-mode1-cleanup;-jump99F0-bypasses8609-legacyA1;=>-outer-loop",camera,source,container,present,functor,lookups);
     }
 
     /// <summary>The caller has prepared its owned controller and reached the
-    /// actual E22860 invocation. A successful prepared593 handle by itself is
+    /// actual invocation. A successful prepared593 handle by itself is
     /// insufficient; the typed invocation carries this bank and actual1A8.</summary>
     public static OriginalMapPostEffect3ApplyMode1Route ResolveOwnedControlled(
         OriginalMapFinalOutputPostEffect3Source source,OriginalMapPostEffect3Container container,
@@ -94,9 +94,9 @@ public sealed class OriginalMapPostEffect3ApplyMode1Route
         if(actualControllerInvocation.Caller.ActualSelectedFunctorIndex!=functor.WithControllerIndex1A8)
             throw new InvalidDataException("Actual controller argument6 does not match the owned default Apply1A8.");
         return new(camera.FrameNumber,actualMode1Owner,selection,selection.SourceEvidence+";"+lookups.SourceEvidence+";"+
-            actualControllerInvocation.SourceEvidence+";"+actualControlledPreparation.SourceEvidence+";TC:EB7461-owned-controller;EB7DFB-D7B4D0-controlled-preparation;"+
-            "EB7EC6-successful-preparation;EB7ED7/E1F970-global-byte-literalAL1;EB7F6B-actual-Apply1A8;EB7F79-E22860;"+
-            "EB8604-shared99F0-bypasses-legacyA1;owned-CPU-controller-scalar-route-only",camera,source,container,true,functor,lookups,
+            actualControllerInvocation.SourceEvidence+";"+actualControlledPreparation.SourceEvidence+";owned-controller;-controlled-preparation"+
+            "-successful-preparation;-global-byte-literalAL1;-actual-Apply1A8;-"+
+            "-shared99F0-bypasses-legacyA1;owned-CPU-controller-scalar-route-only",camera,source,container,true,functor,lookups,
             actualControllerInvocation,actualControlledPreparation);
     }
 }

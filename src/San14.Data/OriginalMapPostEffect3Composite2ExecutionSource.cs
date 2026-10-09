@@ -6,7 +6,7 @@ using System.Runtime.Intrinsics.X86;
 namespace San14.Data;
 
 /// <summary>The ShaderManager module+30 linear and +38 point 8x8 M1
-/// sampler carriers. Original11443A0/1145960 create both and114AAD0 installs
+/// sampler carriers. Original/ create both and114AAD0 installs
 /// them. They are independent of Camera LUT assets and named texture slots.
 /// The positional legacy names remain compatible with existing clients.</summary>
 public sealed record OriginalMapPostEffect3Composite2ModuleLuts(long FrameNumber,string ContextOwnerIdentity,
@@ -25,21 +25,20 @@ public sealed class OriginalMapPostEffect3Composite2TextureAlias
     private readonly OriginalMapPostEffect3ResolvedTextureParameter? source;
     private readonly long? nullRevision;
     internal OriginalMapPostEffect3Composite2TextureAlias(OriginalMapPostEffect3TextureParameterState table,int from,int to,
-        uint writer,string evidence,string locale="TC")
+        bool clearsAlternate,string evidence,string locale="TC")
     {
-        this.table=table;SourceParameterIndex=from;DestinationParameterIndex=to;WriterRva=writer;SourceEvidence=evidence;Locale=locale;
+        this.table=table;SourceParameterIndex=from;DestinationParameterIndex=to;ClearsAlternateRuntimePointer=clearsAlternate;SourceEvidence=evidence;Locale=locale;
         if(table.ReadKnownNullablePointer(from) is null)nullRevision=table.CaptureKnownNullRevision(from);
         else source=table.Require(from);
     }
     public int SourceParameterIndex{get;}
     public int DestinationParameterIndex{get;}
-    public uint WriterRva{get;}
     public string Locale{get;}
     public string SourceEvidence{get;}
     public OriginalMapPostEffect3ResolvedTextureParameter? ActualCopiedSource=>source;
     public bool CopiesKnownNull=>source is null;
     public bool CopiesActualSelectedSide=>true;
-    public bool ClearsAlternateRuntimePointer=>WriterRva==checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",0x115A14C));
+    public bool ClearsAlternateRuntimePointer{get;}
     internal void ValidateSource(OriginalMapPostEffect3TextureParameterState actualTable)
     {
         if(!ReferenceEquals(table,actualTable))throw new InvalidDataException("Composite2 alias uses another actual texture table.");
@@ -52,7 +51,7 @@ public sealed class OriginalMapPostEffect3Composite2TextureAlias
     }
 }
 
-/// <summary>115C890 writes bytes0..147 of the160B CB23. Its twelve padding
+/// <summary> writes bytes0..147 of the160B CB23. Its twelve padding
 /// bytes receive no native write. A consumer supplies actual mapped/staging
 /// bytes to preserve them; zero padding is never inferred from this writer.</summary>
 public sealed class OriginalMapPostEffect3Composite2CrossFilterPatch
@@ -62,7 +61,7 @@ public sealed class OriginalMapPostEffect3Composite2CrossFilterPatch
     internal OriginalMapPostEffect3Composite2CrossFilterPatch(OriginalMapPostEffect3Composite2ExecutionFrame frame,int phase,byte[] bytes)
         =>(this.frame,NativePhase, written)=(frame,phase,bytes.ToArray());
     public int NativePhase{get;}
-    public uint WriterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(frame.Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",0x115C890));
+    public OriginalMapPostEffect3ConstantBufferWriter Writer=>OriginalMapPostEffect3ConstantBufferWriter.ToneInfo;
     public int ConstantBufferParameterIndex=>23;
     public int NativeDeclaredByteCount=>160;
     public int ActualWrittenByteCount=>148;
@@ -73,7 +72,7 @@ public sealed class OriginalMapPostEffect3Composite2CrossFilterPatch
         frame.RequireCurrent();ArgumentException.ThrowIfNullOrWhiteSpace(actualMappedProducerEvidence);
         if(actualMapped160.Length!=160)throw new InvalidDataException("CrossFilter needs its actual160B mapped/staging allocation.");
         byte[] bytes=actualMapped160.ToArray();written.CopyTo(bytes,0);
-        return new(frame.State,frame.Allocation.ConstantBufferParameters[23],WriterRva,bytes,frame.Locale);
+        return new(frame.State,frame.Allocation.ConstantBufferParameters[23],Writer,bytes,frame.Locale);
     }
 }
 
@@ -126,7 +125,6 @@ public sealed class OriginalMapPostEffect3Composite2ExecutionFrame
     public byte NativeInitializeReturnAl=>1;
     public byte NativeAfterReturnAl=>1;
     public byte NativeFinishReturnAl=>1;
-    public uint NativeAfterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",0xBF9280));
     public bool AfterWritesState=>false;
     public bool ProvesGpuExecution=>false;
     public string SourceEvidence=>source.SourceEvidence;
@@ -230,12 +228,8 @@ public sealed class OriginalMapPostEffect3Composite2GraphicsRecipe
     public OriginalMapPostEffect3EyeGraphicsCurrentState RestoreExecuteState=>ActualCurrentState;
     public bool ExecuteChangesViewport=>false;
     public bool PreservesActualRemainingRasterFields=>true;
-    public uint NativeCurrentViewportGetterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Before.Frame.Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",0x963D80));
-    public uint NativePreviousScissorGetterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Before.Frame.Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",0x963D30));
-    public uint NativeScissorSetterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Before.Frame.Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",0x95BC90));
     public uint NativeScissorEnableOpcode=>0x10013;
     public uint NativeScissorRectangleOpcode=>0x10014;
-    public uint NativeColorStateSetterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Before.Frame.Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",0x999BA0));
     public IReadOnlyList<int> NativeColorStateAffectedSlots=>Array.AsReadOnly(Enumerable.Range(0,8).ToArray());
     public uint NativeRt0BlendEnableOpcode=>0x100000B;
     public ReadOnlyMemory<byte> NativeDrawCommand=>Convert.FromHexString("2D0003000000000003000000");
@@ -274,13 +268,13 @@ public sealed class LoadedOriginalMapPostEffect3Composite2ExecutionSource
             ??throw new InvalidDataException("Composite2 native Init texture name missing: "+name);
          if(index!=expected)throw new InvalidDataException("Composite2 source name/index changed: "+name);return index;}
         var aliases=new List<OriginalMapPostEffect3Composite2TextureAlias>
-        {new(table,Find("PRECMP2InputColor",68),Find("PRECMP2OutputAddBloom",79),checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",0x115A08B)),SourceEvidence+";Init-D72210-current68-to79",Locale)};
+        {new(table,Find("PRECMP2InputColor",68),Find("PRECMP2OutputAddBloom",79),false,SourceEvidence+"Init-current68-to79",Locale)};
         uint mask=actualPrepared.PassSelection.NativeMask64;
         if((mask&0x3003)!=0)
         {
             bool cross=(mask&0x10200)!=0;
             aliases.Add(new(table,cross?Find("PRECMP2TargetBloom",77):Find("PRECMP2InputBloom",74),
-                Find("PRECMP2InputAddBloom",78),checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",0x115A14C)),SourceEvidence+";Init1159BB0-copy-current-wrapper/side-reset-alternate",Locale));
+                Find("PRECMP2InputAddBloom",78),true,SourceEvidence+"Init-copy-current-wrapper/side-reset-alternate",Locale));
         }
         var hdr=PrepareHdrRemake(state,allocation,values);
         var frame=new OriginalMapPostEffect3Composite2ExecutionFrame(this,state,allocation,table,actualPrepared,actualModuleLuts,values,aliases.AsReadOnly(),hdr);
@@ -327,7 +321,7 @@ public sealed class LoadedOriginalMapPostEffect3Composite2ExecutionSource
         ArgumentNullException.ThrowIfNull(frame);frame.RequireCurrent();
         if(nativePhase is <0 or >2)throw new InvalidDataException("Composite2 CrossFilter phase is outside its actual0/1/2 calls.");
         if(!frame.RequiresCrossFilterConstants)return null;
-        // 115C890 dereferences the actual PRECMP2InputBloom wrapper. It is
+        // dereferences the actual PRECMP2InputBloom wrapper. It is
         // independent of Init78's selected77 result in the positive branch.
         var table=GetCurrentTable(frame);var bloom=table.Require(74);ushort width,height;
         if(bloom.Reference.PhysicalAllocationParameterIndex is not int physical)
@@ -431,7 +425,7 @@ public sealed class LoadedOriginalMapPostEffect3Composite2ExecutionSource
         BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(8),Unsigned("TonemapType"));
         BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(12),Unsigned("ColorGamut"));
         values["NeutralTonemapParams0"].CopyTo(bytes,16);values["NeutralTonemapParams1"].CopyTo(bytes,32);
-        return new(state,allocation.ConstantBufferParameters[25],checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3Composite2ExecutionSource.cs",0x115CD10)),bytes,Locale);
+        return new(state,allocation.ConstantBufferParameters[25],OriginalMapPostEffect3ConstantBufferWriter.LightInfo,bytes,Locale);
     }
     private static void RequireCb(OriginalMapPostEffect3AllocationPlan allocation,int index,uint hash,uint size)
     {var cb=allocation.ConstantBufferParameters[index];if(cb.Index!=index||cb.NameHash!=hash||cb.ByteCount!=size||

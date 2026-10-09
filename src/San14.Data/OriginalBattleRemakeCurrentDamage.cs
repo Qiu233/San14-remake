@@ -107,8 +107,8 @@ public sealed class OriginalBattleRemakeCurrentDamage
         var current = new int[12];
         for (int index = 0; index < current.Length; index++)
         {
-            int semantic = source.Fields[index].Rva + (source.Language == "TC" ? 0x1030 : 0);
-            if (!parameters.Int32Values.TryGetValue(OriginalTacticRemakeParameterSeed.Key(semantic), out current[index])) return null;
+            string key = source.Fields[index].Key;
+            if (!parameters.Int32Values.TryGetValue(key, out current[index])) return null;
         }
         return source.WithCurrentValues(new(current[0], current[1], current[2], current[3], current[4], current[5],
             current[6], current[7], current[8], current[9], current[10], current[11]), parameters.Revision);

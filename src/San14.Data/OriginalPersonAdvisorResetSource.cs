@@ -89,9 +89,9 @@ public static class OriginalPersonAdvisorResetSource
             {
                 //27AA40 uses3130E0's level, not CPolicyEffect's mapped value.
                 level = ReadPolicy(force, 14, false);
-                int high = Need(OriginalArmyDestructionParameterSeed.ReadCurrentTc(working, 0x1A49180), "Force15E_high_threshold");
+                int high = Need(OriginalArmyDestructionParameterSeed.ReadCurrent(working, SimulationParameterKeys.ArmyDestruction.AdvisorHighThreshold), "Force15E_high_threshold");
                 cache = level >= high ? (byte)13 : (byte)(11 +
-                    (level >= Need(OriginalArmyDestructionParameterSeed.ReadCurrentTc(working, 0x1A4918C), "Force15E_low_threshold") ? 1 : 0));
+                    (level >= Need(OriginalArmyDestructionParameterSeed.ReadCurrent(working, SimulationParameterKeys.ArmyDestruction.AdvisorLowThreshold), "Force15E_low_threshold") ? 1 : 0));
                 values[OriginalBattleRemakeCurrentForcePolicies.ForceFieldKey(physical, 0x15E)] = cache.Value;
 
                 //2FF040 uses the City pointer table, not manager90/manager80.

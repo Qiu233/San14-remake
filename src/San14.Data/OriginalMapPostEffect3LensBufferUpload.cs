@@ -10,14 +10,13 @@ public sealed class OriginalMapPostEffect3LensBufferUpload
     internal OriginalMapPostEffect3LensBufferUpload(OriginalMapPostEffect3AllocationPlan allocation,
         OriginalMapPostEffect3ParameterLensFlareInitialization init,OriginalMapPostEffect3BufferAllocation declaration,byte[] bytes)
     {SourceSha256=allocation.Source.Sha256;OwnerIdentity=allocation.ContextOwnerIdentity;FrameNumber=init.FrameNumber;
-     Declaration=declaration;Locale=init.Locale;this.bytes=bytes.ToArray();SourceEvidence=init.SourceEvidence+";1152FFC/1153096-map;101CD70-zero-capacity;1153030/11530C0-copy-source-arrays";}
+     Declaration=declaration;Locale=init.Locale;this.bytes=bytes.ToArray();SourceEvidence=init.SourceEvidence+"-map;-zero-capacity;-copy-source-arrays";}
     public OriginalMapPostEffect3BufferAllocation Declaration{get;}
     public string SourceSha256{get;}
     public string OwnerIdentity{get;}
     public long FrameNumber{get;}
     public string Locale{get;}
-    public uint WriterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(
-        Locale,"OriginalMapPostEffect3LensBufferUpload.cs",0x1151FF0));
+    public OriginalMapPostEffect3BufferWriter Writer=>OriginalMapPostEffect3BufferWriter.LensInitialization;
     public ReadOnlyMemory<byte> Bytes=>bytes.ToArray();
     public string SourceEvidence{get;}
 }

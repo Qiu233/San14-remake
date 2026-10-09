@@ -25,16 +25,16 @@ public sealed class OriginalPersonGrowthCurrentQueries
     public static string RequirementKey(int slot) => Prefix + $"advantage:{slot}:B3";
     public static string EffectKey(int slot, int index) => Prefix + $"advantage:{slot}:effect:{index}";
     public static string MagnitudeKey(int slot, int index) => Prefix + $"advantage:{slot}:magnitude:{index}";
-    private static readonly int[] Globals = [0x1A4C1D8, 0x1A4ABF4, 0x1A4A7D0, 0x1A4C1CC];
+    private static readonly string[] ParameterKeys = [SimulationParameterKeys.PersonGrowth.TraitGrowthScale, SimulationParameterKeys.PersonGrowth.ProvinceAdvantageGrowthScale, SimulationParameterKeys.PersonGrowth.DoctrineGrowthScale, SimulationParameterKeys.PersonGrowth.PolicyGrowthScale];
     private readonly LoadedScenario _scenario;
     private readonly LoadedGrowthModifierDefinitions _definitions;
     private readonly string _language, _ruleVersion;
-    private readonly int[] _initialGlobals;
+    private readonly int[] _initialParameters;
 
     private OriginalPersonGrowthCurrentQueries(LoadedScenario scenario, LoadedGrowthModifierDefinitions definitions,
-        string language, string ruleVersion, int[] initialGlobals)
-        => (_scenario, _definitions, _language, _ruleVersion, _initialGlobals) =
-            (scenario, definitions, language, ruleVersion, initialGlobals);
+        string language, string ruleVersion, int[] initialParameters)
+        => (_scenario, _definitions, _language, _ruleVersion, _initialParameters) =
+            (scenario, definitions, language, ruleVersion, initialParameters);
 
     public static OriginalPersonGrowthCurrentQueries Load(OriginalGameRepository repository, LoadedScenario scenario, string language)
     {
@@ -66,11 +66,11 @@ public sealed class OriginalPersonGrowthCurrentQueries
         }
         foreach (var row in _scenario.Snapshot.Cities)
         { values.Add(CityStateKey(row.Slot), row.GroupCode); values.Add(CityDistrict26Key(row.Slot), row.DistrictSlot); }
-        for (int i = 0; i < Globals.Length; i++)
+        for (int i = 0; i < ParameterKeys.Length; i++)
         {
-            string key = OriginalTacticRemakeParameterSeed.Key(Globals[i]);
+            string key = ParameterKeys[i];
             if (values.ContainsKey(key) || floats.ContainsKey(key)) throw new InvalidDataException("Growth global already has a current owner.");
-            values.Add(key, _initialGlobals[i]);
+            values.Add(key, _initialParameters[i]);
         }
         return state with { NativeArmySimulation = state.NativeArmySimulation with {
             Parameters = state.NativeArmySimulation.Parameters with { Int32Values = values } } };
@@ -133,8 +133,8 @@ public sealed class OriginalPersonGrowthCurrentQueries
         return new(total, reached.ToArray(), counts.ToArray());
     }
 
-    public int? ReadGlobal(GameState state, int ordinal) => SavedBank(state) && ordinal is >= 0 and < 4
-        ? ReadInt(state, OriginalTacticRemakeParameterSeed.Key(Globals[ordinal])) : null;
+    public int? ReadCurrent(GameState state, string key) => SavedBank(state) && ParameterKeys.Contains(key)
+        ? ReadInt(state, key) : null;
 
     private bool Bound(GameState state) => state.NativeArmySimulation?.Parameters is { } p &&
         p.Language == _language && p.RuleVersion == _ruleVersion &&

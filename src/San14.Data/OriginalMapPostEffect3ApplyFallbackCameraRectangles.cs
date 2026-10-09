@@ -20,7 +20,7 @@ public sealed class OriginalMapPostEffect3ApplyFallbackCameraRectangles
     public Vector4 Viewport1540=>new(F(zeroWord),F(zeroWord),F(native.Source1278Word),F(native.Source127CWord));
     public Vector4 SpecialRectangle152C=>new(F(zeroWord),F(zeroWord),F(zeroWord),F(zeroWord));
     public string SourceEvidence=>camera.Source.ConstructorOrigin+
-        ";TC:C3EFA2..C3EFCB-source125C/1270;C4405A..C440C4-embedded1330;"+
+        ";source125C/1270;-embedded1330"+
         "all1119-property-pointer-ranges-exclude125C..1280;fresh-source-only;"+native.SourceEvidence+";"+OwnerIdentity;
     public static OriginalMapPostEffect3ApplyFallbackCameraRectangles ConstructFreshSource(
         OriginalMapCameraConstructionPacket ownedCamera,OriginalMapPostEffect3FallbackCameraConstructorWords native,

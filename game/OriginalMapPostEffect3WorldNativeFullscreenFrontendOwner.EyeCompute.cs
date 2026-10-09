@@ -29,9 +29,9 @@ public sealed partial class OriginalMapPostEffect3WorldNativeFullscreenFrontendO
             !frame.OrderedIterations.Where(i=>i.IsCompute).Select(i=>i.SourcePassIndex).SequenceEqual(new[]{102,103,104})||
             pass!=102+completedEyeCompute.Count||actualEyeComputeFrame is not null&&!ReferenceEquals(actualEyeComputeFrame,frame))
             throw new InvalidDataException("Eye compute Bind requires this actual next102/103/104 iteration and its released preceding native row.");
-        //1161DCF..1161DE5 selects CS/mode0.1161E21/1161E2C runs
-        //1163460 when switching from graphics. The previous standard
-        //1163080 also reset all four targets; compute inherits no color RT.
+        // Select CS/mode0 and reset bindings when switching from graphics.
+        // The previous standard wrapper also reset all four targets;
+        // compute inherits no color RT.
         directoryCursor?.EnterSelectedBefore(pass,before.Iteration.NativeLoopIndex);
         directoryCursor?.RecordBeforeReturned(before,before);directoryCursor?.ApplyEyeBefore(before);
         actualEyeComputeFrame=frame;actualEyeCompute=new(frame,before);revision=checked(revision+1);
@@ -62,8 +62,8 @@ public sealed partial class OriginalMapPostEffect3WorldNativeFullscreenFrontendO
                 (pair.First with{RawBytes=pair.Second.RawBytes})==pair.Second&&
                 pair.First.RawBytes.Span.SequenceEqual(pair.Second.RawBytes.Span)))
             throw new InvalidDataException("Eye compute Release requires its actual selected original shader/dispatch/ordered binding receipt.");
-        //1157B21 ->1163170 issues the automatic CS command after native
-        //custom Execute AL1;1163080 resets every cached resource/target.
+        // Issue the automatic CS command after native custom Execute AL1;
+        // the standard wrapper resets every cached resource/target.
         //Pixel/buffer publication is separately proved by the real bank
         //coverage helper, never by binding or this lifecycle acceptance.
         var history=submissionLedger?.CaptureEyeCompute(this,frame,before,actualExecutor,completed);

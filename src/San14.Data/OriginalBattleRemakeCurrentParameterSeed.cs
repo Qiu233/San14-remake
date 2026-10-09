@@ -2,10 +2,7 @@ using San14.Core;
 
 namespace San14.Data;
 
-public sealed record OriginalBattleRemakeCurrentParameterField(int SemanticScRva,
-    int PhysicalRva, int Value, string Sha256);
-public sealed record OriginalBattleRemakeCurrentLiteral(string Name, int SemanticScRva,
-    int PhysicalRva, int Bytes, string Sha256);
+public sealed record OriginalBattleRemakeCurrentParameterField(string Key, int Value);
 
 /// <summary>A bounded source seed for a newly allocated owned parameter state.
 /// Defaults are project rules. InstallFresh never restores omitted save fields
@@ -17,22 +14,35 @@ public sealed class OriginalBattleRemakeCurrentParameterSeed
     public OriginalBattleDamageSourceParameters DamageSource { get; }
     public OriginalBattleUnitSourceProfile SourceCodeProfile { get; }
     public IReadOnlyList<OriginalBattleRemakeCurrentParameterField> Fields { get; }
-    public IReadOnlyList<OriginalBattleRemakeCurrentLiteral> Literals { get; }
     public double CommonPowerExponent { get; }
     public float PercentDenominator { get; }
     public float One { get; }
     public float FlagNumerator { get; }
     public float FlagDenominator { get; }
 
+    internal static string? FormationEffectKey(int effect) => effect switch
+    {
+        1 => SimulationParameterKeys.BattleAttributes.FormationEffect1Scale,
+        2 => SimulationParameterKeys.BattleAttributes.FormationEffect2Scale,
+        3 => SimulationParameterKeys.BattleAttributes.FormationEffect3Scale,
+        4 => SimulationParameterKeys.BattleAttributes.FormationEffect4Scale,
+        5 => SimulationParameterKeys.BattleAttributes.FormationEffect5Scale,
+        6 => SimulationParameterKeys.BattleAttributes.FormationEffect6Scale,
+        7 => SimulationParameterKeys.BattleAttributes.FormationEffect7Scale,
+        8 => SimulationParameterKeys.BattleAttributes.FormationEffect8Scale,
+        9 => SimulationParameterKeys.BattleAttributes.FormationEffect9Scale,
+        12 => SimulationParameterKeys.BattleAttributes.FormationEffect12Scale,
+        _ => null
+    };
+
     private OriginalBattleRemakeCurrentParameterSeed(string language,
         OriginalBattleDamageSourceParameters damage,
         OriginalBattleRemakeCurrentParameterField[] fields,
-        OriginalBattleRemakeCurrentLiteral[] literals,
         double power, float percent, float one, float flagNumerator, float flagDenominator)
     {
         Language = language; DamageSource = damage;
         SourceCodeProfile = OriginalBattleUnitSourceCodeSources.ForLanguage(language);
-        Fields = Array.AsReadOnly(fields); Literals = Array.AsReadOnly(literals);
+        Fields = Array.AsReadOnly(fields);
         CommonPowerExponent = power; PercentDenominator = percent; One = one;
         FlagNumerator = flagNumerator; FlagDenominator = flagDenominator;
     }
@@ -42,22 +52,74 @@ public sealed class OriginalBattleRemakeCurrentParameterSeed
     {
         ArgumentNullException.ThrowIfNull(repository);
         OriginalBattleDamageSourceParameters damage = OriginalBattleDamageSource.LoadParameters(repository, language);
-        int delta = language == "TC" ? 0x1030 : 0;
-        var fields = damage.Fields.Select(field => new OriginalBattleRemakeCurrentParameterField(
-            field.Rva + delta, field.Rva, field.Value, string.Empty)).Concat(
-                MutableDefaults.Select(field => new OriginalBattleRemakeCurrentParameterField(
-                    field.SemanticScRva, field.SemanticScRva - delta, field.Value, string.Empty)))
-            .OrderBy(field => field.SemanticScRva).ToArray();
-        int literalDelta = language == "TC" ? 0x1000 : 0;
-        OriginalBattleRemakeCurrentLiteral[] literals =
+        OriginalBattleRemakeCurrentParameterField[] fields =
         [
-            new("commonPowerExponent", 0x1356750, 0x1356750 - literalDelta, 8, string.Empty),
-            new("percentDenominator", 0x1344C4C, 0x1344C4C - literalDelta, 4, string.Empty),
-            new("one", 0x1344B98, 0x1344B98 - literalDelta, 4, string.Empty),
-            new("flagNumerator", 0x13B08F0, 0x13B08F0 - literalDelta, 4, string.Empty),
-            new("flagDenominator", 0x1344C40, 0x1344C40 - literalDelta, 4, string.Empty),
+            new(SimulationParameterKeys.BattleAttributes.FormationEffect12Scale, FormationEffect12Scale),
+            new(SimulationParameterKeys.BattleAttributes.AttackAbilityLimit, AttackAbilityLimit),
+            new(SimulationParameterKeys.BattleAttributes.SiegeAbilityLimit, SiegeAbilityLimit),
+            new(SimulationParameterKeys.BattleAttributes.WallLeadershipDenominator, WallLeadershipDenominator),
+            new(SimulationParameterKeys.BattleAttributes.WallTroopOffset, WallTroopOffset),
+            new(SimulationParameterKeys.BattleAttributes.WallTroopDenominator, WallTroopDenominator),
+            new(SimulationParameterKeys.BattleAttributes.WallAbilityLimit, WallAbilityLimit),
+            new(SimulationParameterKeys.BattleAttributes.DefenseAbilityLimit, DefenseAbilityLimit),
+            new(SimulationParameterKeys.BattleAttributes.AlternateMoraleOffset, AlternateMoraleOffset),
+            new(SimulationParameterKeys.BattleAttributes.AlternateMoraleDivisor, AlternateMoraleDivisor),
+            new(SimulationParameterKeys.BattleAttributes.AlternateFormationPercentScale, AlternateFormationPercentScale),
+            new(SimulationParameterKeys.BattleAttributes.Formation14TerrainPercent, Formation14TerrainPercent),
+            new(SimulationParameterKeys.BattleAttributes.AttackCoefficientScale, AttackCoefficientScale),
+            new(SimulationParameterKeys.BattleAttributes.DefenseCoefficientScale, DefenseCoefficientScale),
+            new(SimulationParameterKeys.BattleAttributes.BaseWallCoefficient, BaseWallCoefficient),
+            new(SimulationParameterKeys.BattleAttributes.BaseAttackCoefficient, BaseAttackCoefficient),
+            new(SimulationParameterKeys.BattleAttributes.ReservedBaseAttackSecondaryCoefficient, ReservedBaseAttackSecondaryCoefficient),
+            new(SimulationParameterKeys.BattleAttributes.BaseDefenseCoefficient, BaseDefenseCoefficient),
+            new(SimulationParameterKeys.BattleAttributes.ReservedBaseDefenseSecondaryCoefficient, ReservedBaseDefenseSecondaryCoefficient),
+            new(SimulationParameterKeys.BattleAttributes.AttackAbilityStep, AttackAbilityStep),
+            new(SimulationParameterKeys.BattleAttributes.SiegeAbilityStep, SiegeAbilityStep),
+            new(SimulationParameterKeys.BattleAttributes.WallAbilityStep, WallAbilityStep),
+            new(SimulationParameterKeys.BattleAttributes.DefenseAbilityStep, DefenseAbilityStep),
+            new(SimulationParameterKeys.BattleAttributes.ProvokedAttackPercent, ProvokedAttackPercent),
+            new(SimulationParameterKeys.BattleAttributes.ProvokedOtherTargetDefensePercent, ProvokedOtherTargetDefensePercent),
+            new(damage.Fields[0].Key, damage.Fields[0].Value),
+            new(damage.Fields[1].Key, damage.Fields[1].Value),
+            new(damage.Fields[2].Key, damage.Fields[2].Value),
+            new(damage.Fields[3].Key, damage.Fields[3].Value),
+            new(damage.Fields[4].Key, damage.Fields[4].Value),
+            new(damage.Fields[5].Key, damage.Fields[5].Value),
+            new(damage.Fields[6].Key, damage.Fields[6].Value),
+            new(damage.Fields[7].Key, damage.Fields[7].Value),
+            new(SimulationParameterKeys.BattleAttributes.SiegeAbilityBonus, SiegeAbilityBonus),
+            new(SimulationParameterKeys.BattleAttributes.WallAbilityBonus, WallAbilityBonus),
+            new(SimulationParameterKeys.BattleAttributes.Formation7ForceFlagBonus, Formation7ForceFlagBonus),
+            new(damage.Fields[8].Key, damage.Fields[8].Value),
+            new(SimulationParameterKeys.BattleAttributes.ReservedAgeThreshold, ReservedAgeThreshold),
+            new(damage.Fields[9].Key, damage.Fields[9].Value),
+            new(damage.Fields[11].Key, damage.Fields[11].Value),
+            new(damage.Fields[10].Key, damage.Fields[10].Value),
+            new(SimulationParameterKeys.BattleAttributes.Formation6TerrainPercent, Formation6TerrainPercent),
+            new(SimulationParameterKeys.BattleAttributes.CommonRootDivisor, CommonRootDivisor),
+            new(SimulationParameterKeys.BattleAttributes.CommonLeadershipScale, CommonLeadershipScale),
+            new(SimulationParameterKeys.BattleAttributes.CommonAdditive, CommonAdditive),
+            new(SimulationParameterKeys.BattleAttributes.CommonDivisorNumerator, CommonDivisorNumerator),
+            new(SimulationParameterKeys.BattleAttributes.CommonDivisorOffset, CommonDivisorOffset),
+            new(SimulationParameterKeys.BattleAttributes.MoraleOffset, MoraleOffset),
+            new(SimulationParameterKeys.BattleAttributes.MoraleDivisor, MoraleDivisor),
+            new(SimulationParameterKeys.BattleAttributes.NormalFormationPercentScale, NormalFormationPercentScale),
+            new(SimulationParameterKeys.BattleAttributes.FormationEffect1Scale, FormationEffect1Scale),
+            new(SimulationParameterKeys.BattleAttributes.FormationEffect2Scale, FormationEffect2Scale),
+            new(SimulationParameterKeys.BattleAttributes.FormationEffect3Scale, FormationEffect3Scale),
+            new(SimulationParameterKeys.BattleAttributes.FormationEffect4Scale, FormationEffect4Scale),
+            new(SimulationParameterKeys.BattleAttributes.FormationEffect5Scale, FormationEffect5Scale),
+            new(SimulationParameterKeys.BattleAttributes.FormationEffect6Scale, FormationEffect6Scale),
+            new(SimulationParameterKeys.BattleAttributes.FormationEffect7Scale, FormationEffect7Scale),
+            new(SimulationParameterKeys.BattleAttributes.FormationEffect8Scale, FormationEffect8Scale),
+            new(SimulationParameterKeys.BattleAttributes.FormationEffect9Scale, FormationEffect9Scale),
+            new(SimulationParameterKeys.BattleAttributes.ReservedAgeTier1, ReservedAgeTier1),
+            new(SimulationParameterKeys.BattleAttributes.ReservedAgeTier2, ReservedAgeTier2),
+            new(SimulationParameterKeys.BattleAttributes.ReservedAgeTier3, ReservedAgeTier3),
+            new(SimulationParameterKeys.BattleAttributes.ReservedAgeTier4, ReservedAgeTier4),
+            new(SimulationParameterKeys.BattleAttributes.ReservedAgeTier5, ReservedAgeTier5),
         ];
-        return new(language, damage, fields, literals, CommonPowerDefault, PercentDenominatorDefault,
+        return new(language, damage, fields, CommonPowerDefault, PercentDenominatorDefault,
             OneDefault, FlagNumeratorDefault, FlagDenominatorDefault);
     }
 
@@ -75,14 +137,14 @@ public sealed class OriginalBattleRemakeCurrentParameterSeed
             throw new InvalidDataException("Owned battle parameters require a fresh matching empty simulation owner.");
         foreach (OriginalBattleRemakeCurrentParameterField field in Fields)
         {
-            string key = OriginalTacticRemakeParameterSeed.Key(field.SemanticScRva);
+            string key = field.Key;
             if (current.Int32Values.Keys.Concat(current.Float32Values.Keys)
                 .Any(existing => string.Equals(existing, key, StringComparison.OrdinalIgnoreCase)))
                 throw new InvalidDataException("Owned battle parameter key already has a current value; installation cannot replace it.");
         }
         var integers = new Dictionary<string, int>(current.Int32Values, current.Int32Values.Comparer);
         foreach (OriginalBattleRemakeCurrentParameterField field in Fields)
-            integers.Add(OriginalTacticRemakeParameterSeed.Key(field.SemanticScRva), field.Value);
+            integers.Add(field.Key, field.Value);
         var parameters = current with
         {
             Revision = $"{current.Revision}|{revision}:battle-rule-seed",
@@ -152,61 +214,4 @@ public sealed class OriginalBattleRemakeCurrentParameterSeed
     private const int FormationEffect9Scale = 1;
     private const int FormationEffect12Scale = 1;
 
-    // Keys are stable save identifiers. Reserved entries preserve the existing seed
-    // schema; their values are not used as executable addresses.
-    private static readonly (int SemanticScRva, int Value)[] MutableDefaults =
-    [
-        (0x1A4C674, CommonRootDivisor),
-        (0x1A4C680, CommonLeadershipScale),
-        (0x1A4C68C, CommonAdditive),
-        (0x1A4C698, CommonDivisorNumerator),
-        (0x1A4C6A4, CommonDivisorOffset),
-        (0x1A4C6B0, MoraleOffset),
-        (0x1A4C6BC, MoraleDivisor),
-        (0x1A4A050, AlternateMoraleOffset),
-        (0x1A4A05C, AlternateMoraleDivisor),
-        (0x1A4C6D4, NormalFormationPercentScale),
-        (0x1A4A068, AlternateFormationPercentScale),
-        (0x1A4C668, Formation6TerrainPercent),
-        (0x1A4A074, Formation14TerrainPercent),
-        (0x1A4A8A0, AttackCoefficientScale),
-        (0x1A49C78, AttackAbilityLimit),
-        (0x1A4A900, AttackAbilityStep),
-        (0x1A4A8C4, BaseAttackCoefficient),
-        (0x1A4A8D0, ReservedBaseAttackSecondaryCoefficient),
-        (0x1A4A930, ProvokedAttackPercent),
-        (0x1A49C98, SiegeAbilityLimit),
-        (0x1A4A90C, SiegeAbilityStep),
-        (0x1A4ABA4, SiegeAbilityBonus),
-        (0x1A4ABB0, WallAbilityBonus),
-        (0x1A49CB0, WallLeadershipDenominator),
-        (0x1A49CBC, WallTroopOffset),
-        (0x1A49CC8, WallTroopDenominator),
-        (0x1A49CEC, WallAbilityLimit),
-        (0x1A4A918, WallAbilityStep),
-        (0x1A4A8AC, DefenseCoefficientScale),
-        (0x1A49D04, DefenseAbilityLimit),
-        (0x1A4A924, DefenseAbilityStep),
-        (0x1A4A8DC, BaseDefenseCoefficient),
-        (0x1A4A8E8, ReservedBaseDefenseSecondaryCoefficient),
-        (0x1A4A8B8, BaseWallCoefficient),
-        (0x1A4ABBC, Formation7ForceFlagBonus),
-        (0x1A4A93C, ProvokedOtherTargetDefensePercent),
-        (0x1A4B3D8, ReservedAgeThreshold),
-        (0x1A4C774, ReservedAgeTier1),
-        (0x1A4C780, ReservedAgeTier2),
-        (0x1A4C788, ReservedAgeTier3),
-        (0x1A4C794, ReservedAgeTier4),
-        (0x1A4C7A0, ReservedAgeTier5),
-        (0x1A4C6F8, FormationEffect1Scale),
-        (0x1A4C704, FormationEffect2Scale),
-        (0x1A4C710, FormationEffect3Scale),
-        (0x1A4C71C, FormationEffect4Scale),
-        (0x1A4C728, FormationEffect5Scale),
-        (0x1A4C734, FormationEffect6Scale),
-        (0x1A4C740, FormationEffect7Scale),
-        (0x1A4C74C, FormationEffect8Scale),
-        (0x1A4C754, FormationEffect9Scale),
-        (0x1A49C34, FormationEffect12Scale),
-    ];
 }

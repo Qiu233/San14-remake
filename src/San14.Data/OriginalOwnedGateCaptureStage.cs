@@ -92,7 +92,7 @@ public sealed class OriginalOwnedGateCaptureStage(OriginalOwnedArmyCampaignRules
             effects.Add("26DA10.two_2E9140_empty_HomeArmy_and_27BE40");
             _ = OriginalGateCaptureTerritorySource.ApplyTerritoryAfterResources(working, current, target, newForce,
                 assignment.CapturedOldDistrict.PhysicalSlot ?? 0, newDistrict);
-            int cap = K(OriginalArmyDestructionParameterSeed.ReadCurrentTc(working, 0x1A49050), "231480_bound");
+            int cap = K(OriginalArmyDestructionParameterSeed.ReadCurrent(working, SimulationParameterKeys.Tactics.AbnormalCounterUpperBound), "231480_bound");
             byte zero = unchecked((byte)Math.Min(cap, 0));
             current.SetCaptureBaseThreatFields(target, new(zero, zero, 255, 0));
             _ = OriginalGateCaptureRoutingSource.ClearTargetRouting(current, target);

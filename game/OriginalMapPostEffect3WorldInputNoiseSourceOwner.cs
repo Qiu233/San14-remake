@@ -15,7 +15,7 @@ public sealed class OriginalMapPostEffect3WorldInputNoiseSourceOwner
     public string OwnerIdentity=>noise.OwnerIdentity;
     public ReadOnlyMemory<byte> NativeSamplerKey=>noise.NativeSamplerKey.ToArray();
     public string SourceEvidence=>noise.Binding.SourceResourceUri+
-        ";source-saved-Common899F101B-successful-init/310-copy;TC:EB6BC6..EB6BDD-currentAux310+10;source-Camera-noise140=0";
+        ";source-saved-Common899F101B-successful-init/noise-wrapper-copy;current-noise-shader-view;source-Camera-noise140=0";
     public static OriginalMapPostEffect3WorldInputNoiseSourceOwner BindCurrent(
         OriginalMapSourceCreatedWorldPlayableHost host,OriginalMapPostEffect3WorldStockGraphicsSourceOwner world,
         OriginalMapPostEffect3OwnedFreshCameraFrame parameters,OriginalMapCameraConstructionPacket currentCamera)
@@ -36,7 +36,7 @@ public sealed class OriginalMapPostEffect3WorldInputNoiseSourceOwner
         int index=parameters.State.FindResourceIndex(OriginalMapPostEffect3ParameterResourceTable.Texture,"InputNoise")??
             throw new InvalidDataException("Original InputNoise parameter is absent.");
         world.TextureParameters.BindExternal(index,new(world.Context.FrameNumber,noise.OwnerIdentity),
-            noise.Binding.SourceResourceUri+";TC:EB6BC6..EB6BDD-savedAux310-non-owning-runtime-view");
+            noise.Binding.SourceResourceUri+";saved-noise-wrapper-non-owning-runtime-view");
         var owner=new OriginalMapPostEffect3WorldInputNoiseSourceOwner(world,noise,world.TextureParameters.Require(index));
         owner.RequireCurrent();return owner;
     }

@@ -30,7 +30,7 @@ public sealed partial class OriginalOwnedArmyCampaignRules : IPlayableTransportC
                 receipt.Fields.HomeSequence28 is null || receipt.FieldOwnersMissing.Count != 0) return null;
             var fields = receipt.Fields; var stocks = receipt.Resources;
             if (fields.CurrentHex2A != projection.HexId) return null;
-            int? commandCost = OriginalArmyDestructionParameterSeed.ReadCurrentTc(state, 0x1A4947C);
+            int? commandCost = OriginalArmyDestructionParameterSeed.ReadCurrent(state, SimulationParameterKeys.ArmyDestruction.TransportCommandCost);
             int? primary = OriginalOwnedArmyLifecycleAuxiliaries.CurrentPlayerPrimaryDistrict(state, world.Context);
             if (commandCost is null || primary is not int districtId ||
                 !state.Districts.TryGetValue(districtId, out var district) || district.OrdersRemaining is not int remaining)

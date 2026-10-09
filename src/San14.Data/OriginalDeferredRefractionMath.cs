@@ -86,7 +86,7 @@ public static class OriginalDeferredRefractionMath
     }
 
     public static OriginalDeferredProjectionInputs? PrepareProjectionToView(Matrix4x4 cameraMatrixB0, bool explicitPluginA8Bit0)
-        => explicitPluginA8Bit0 ? new(OriginalNativeMatrixMath.Inverse3F6EB0(cameraMatrixB0, out _)) : null;
+        => explicitPluginA8Bit0 ? new(OriginalNativeMatrixMath.Invert(cameraMatrixB0, out _)) : null;
 
     public static OriginalDeferredLocalAmbientOcclusionInputs PrepareLocalAmbientOcclusion(uint source157C,
         int currentColorWidth, int currentColorHeight)

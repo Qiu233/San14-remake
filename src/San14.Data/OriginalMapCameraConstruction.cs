@@ -15,12 +15,12 @@ public sealed class OriginalMapCameraConstructionPacket
     internal OriginalMapCameraConstructionPacket(byte[] prefix,
         LoadedOriginalMapCameraConstructionSource source, OriginalMapCameraCurrentPose pose,
         OriginalCameraLens lens, OriginalMapCameraConstructionMatrices matrices,
-        ulong imageBase, string executableLocale, long frameNumber, string frameProvenance,
+        string executableLocale, long frameNumber, string frameProvenance,
         OriginalMapSeasonCameraPostEffectScalars? currentSeasonPostEffectScalars=null,
         OriginalMapSeasonCameraPostEffectScalarWriteIdentity? currentSeasonPostEffectWriteIdentity=null)
     {
         this.prefix = prefix; Source = source; CurrentPose = pose; Lens = lens; Matrices = matrices;
-        ImageBase = imageBase; ExecutableLocale = executableLocale;
+        ExecutableLocale = executableLocale;
         FrameNumber = frameNumber; FrameProvenance = frameProvenance;
         CurrentSeasonPostEffectScalars=currentSeasonPostEffectScalars;
         CurrentSeasonPostEffectWriteIdentity=currentSeasonPostEffectWriteIdentity;
@@ -37,7 +37,6 @@ public sealed class OriginalMapCameraConstructionPacket
     public Matrix4x4 SourceWorldToView => Matrices.WorldToView80;
     public Matrix4x4 SourceProjection => Matrices.ProjectionC0;
     public Matrix4x4 SourceWorldToProjection => Matrices.WorldToProjection100;
-    public ulong ImageBase { get; }
     public string ExecutableLocale { get; }
     public long FrameNumber { get; }
     public string FrameProvenance { get; }
@@ -74,7 +73,7 @@ public sealed class OriginalMapCameraConstructionPacket
         if(frameNumber<0||string.IsNullOrWhiteSpace(frameProvenance))
             throw new InvalidDataException("Owned Camera snapshot requires an explicit render attempt and provenance.");
         var write=CurrentSeasonPostEffectWriteIdentity?.ForOwnedFrame(frameNumber,frameProvenance);
-        return new(prefix.ToArray(),Source,CurrentPose,Lens,Matrices,ImageBase,ExecutableLocale,frameNumber,frameProvenance,
+        return new(prefix.ToArray(),Source,CurrentPose,Lens,Matrices,ExecutableLocale,frameNumber,frameProvenance,
             write?.Scalars??CurrentSeasonPostEffectScalars?.ForOwnedFrame(frameNumber,frameProvenance),write);
     }
     public float Exposure170 => BinaryPrimitives.ReadSingleLittleEndian(prefix.AsSpan(0x170, 4));
@@ -128,19 +127,12 @@ public static class OriginalMapCameraConstruction
 
     /// <summary>The exact fresh embedded Camera prefix before source preparation.
     /// The concrete original source CPU constructor clears18C0, installs the
-    /// CKIDSCamera vtable and sets projection dirty161. Perspective bit0 is clear.</summary>
-    public static byte[] ConstructFreshPerspectivePrefix(ulong imageBase, string executableLocale)
+    /// Project perspective type tag and projection dirty161. Perspective bit0 is clear.</summary>
+    public static byte[] ConstructFreshPerspectivePrefix(string executableLocale)
     {
-        ulong vtableRva = executableLocale switch
-        {
-            "SC" => 0x1344398UL,
-            "TC" => 0x1343398UL,
-            _ => throw new InvalidDataException("Source Camera construction requires the exact SC or TC executable profile.")
-        };
-        if (imageBase == 0 || imageBase > ulong.MaxValue - vtableRva)
-            throw new InvalidDataException("Source Camera construction requires an explicit valid image base.");
+        _ = OriginalMainMapCameraRules.Language(executableLocale);
         byte[] result = new byte[PrefixByteLength];
-        BinaryPrimitives.WriteUInt64LittleEndian(result, imageBase + vtableRva);
+        BinaryPrimitives.WriteUInt64LittleEndian(result, (ulong)RenderStateRecordKind.PerspectiveCamera);
         result[0x161] = 1;
         return result;
     }
@@ -161,13 +153,13 @@ public static class OriginalMapCameraConstruction
     public static OriginalMapCameraConstructionPacket PrepareFreshPerspective(
         LoadedOriginalMapCameraConstructionSource source, OriginalMapCameraCurrentPose currentPose,
         bool contextOwner3E4Bit29, uint nativeClipProfile, OriginalNativeCameraTangentDispatch tangentDispatch,
-        ulong imageBase, string executableLocale, long frameNumber, string frameProvenance)
+        string executableLocale, long frameNumber, string frameProvenance)
     {
         ArgumentNullException.ThrowIfNull(source);
         float tangent = OriginalNativeCameraTangent.Tangent1020A90(
             M(Float(source, 0x12E8), .5f), tangentDispatch);
         return PrepareFreshPerspectiveFromTangent(source, currentPose, contextOwner3E4Bit29,
-            nativeClipProfile, tangent, imageBase, executableLocale, frameNumber, frameProvenance);
+            nativeClipProfile, tangent, executableLocale, frameNumber, frameProvenance);
     }
 
     /// <summary>Recomputes the four native matrix slots from complete current
@@ -195,14 +187,14 @@ public static class OriginalMapCameraConstruction
     public static OriginalMapCameraConstructionPacket PrepareFreshPerspectiveFromTangent(
         LoadedOriginalMapCameraConstructionSource source, OriginalMapCameraCurrentPose currentPose,
         bool contextOwner3E4Bit29,
-        uint nativeClipProfile, float originalHalfFovTangent, ulong imageBase,
+        uint nativeClipProfile, float originalHalfFovTangent,
         string executableLocale, long frameNumber, string frameProvenance)
     {
         ArgumentNullException.ThrowIfNull(source);
         if (frameNumber < 0 || string.IsNullOrWhiteSpace(frameProvenance))
             throw new InvalidDataException("Prepared source Camera requires an explicit frame number and provenance.");
         ValidatePose(currentPose);
-        byte[] result = ConstructFreshPerspectivePrefix(imageBase, executableLocale);
+        byte[] result = ConstructFreshPerspectivePrefix(executableLocale);
         CopyWord(result, 0x150, source, 0x18); CopyWord(result, 0x15C, source, 0x1C);
         for (int offset = 0x20; offset <= 0x78; offset += 4)
             CopyWord(result, offset + 0x150, source, offset);
@@ -232,7 +224,7 @@ public static class OriginalMapCameraConstruction
             eye, vectors.Target20, vectors.Up30, lens, nativeClipProfile, originalHalfFovTangent);
         matrices.WriteEarlyMatrices(result);
         result[0x160] = result[0x161] = 0; // AB6C60 forced update owns both dirty bytes.
-        return new(result, source, currentPose, lens, matrices, imageBase,
+        return new(result, source, currentPose, lens, matrices,
             executableLocale, frameNumber, frameProvenance);
     }
 

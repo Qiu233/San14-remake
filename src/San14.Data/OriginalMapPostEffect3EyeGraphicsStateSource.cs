@@ -49,12 +49,8 @@ public sealed class OriginalMapPostEffect3EyeGraphicsStateRecipe
     public OriginalMapPostEffect3EyeGraphicsCurrentState RestoreExecuteState=>ActualCurrentState;
     public bool PreservesActualRemainingRasterFields=>true;
     public bool ExecuteChangesViewport=>false;
-    public uint NativeCurrentViewportGetterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(frame.Locale,"OriginalMapPostEffect3EyeGraphicsStateSource.cs",0x963D80));
-    public uint NativePreviousScissorGetterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(frame.Locale,"OriginalMapPostEffect3EyeGraphicsStateSource.cs",0x963D30));
-    public uint NativeScissorSetterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(frame.Locale,"OriginalMapPostEffect3EyeGraphicsStateSource.cs",0x95BC90));
     public uint NativeScissorEnableOpcode=>0x10013;
     public uint NativeScissorRectangleOpcode=>0x10014;
-    public uint NativeColorStateSetterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(frame.Locale,"OriginalMapPostEffect3EyeGraphicsStateSource.cs",0x999BA0));
     public IReadOnlyList<int> NativeColorStateAffectedSlots=>Array.AsReadOnly(Enumerable.Range(0,8).ToArray());
     public uint NativeRt0BlendEnableOpcode=>0x100000B;
     public string SourceEvidence{get;}
@@ -162,7 +158,7 @@ public static partial class OriginalDeferredSamplerSources
     {
         if(native.Locale is not ("TC" or "SC"))throw new NotSupportedException("Eye graphics native current-state ABI requires a verified SC/TC profile.");
 
-        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+";TC1158DC0-Execute;963D80-actual-target-viewport;963D30/95BC90-source-scissor;"+
-            "1158F51/6D/82/97-native-floor101EB80;115904E-F4/RT0blend1C0-temporary-restore;inherits-actual-cull/depth/stencil",native.Locale);
+        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;"+"-Execute;-actual-target-viewport;-source-scissor"+
+            "6D/82/97-native-floor;-F4/RT0blend1C0-temporary-restore;inherits-actual-cull/depth/stencil",native.Locale);
     }
 }

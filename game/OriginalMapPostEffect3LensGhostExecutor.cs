@@ -61,11 +61,11 @@ public sealed class OriginalMapPostEffect3LensGhostExecutor
             string.IsNullOrWhiteSpace(input.ActualInheritedDrawStateEvidence)||input.ActualViewport.Position.X<0||input.ActualViewport.Position.Y<0||
             input.ActualViewport.Size.X<=0||input.ActualViewport.Size.Y<=0)
             throw new InvalidDataException("Lens Ghost current resources/viewport/inherited topology are not the exact source draw inputs.");
-        // Native1153244 command40031 selects opcode31/topology4.
-        // Handler958980->962320->964ED0 maps table14BEA98[4] to
+        // The indirect draw command40031 selects opcode31/topology4.
+        // The topology table maps topology4 to
         // D3D topology5(TriangleStrip). Raster cull remains inherited.
         var raster=OriginalMapFinalOutputRasterSnapshot.Capture(input.ActualInheritedRaster);
-        // Native1153201 temporarily disables depth testing regardless of the
+        // The ghost draw temporarily disables depth testing regardless of the
         // inherited frontend1BF value. Its preserved depth-write setting has
         // no effect while depth is disabled; the actual target has no depth
         // attachment. Stencil still requires its own positively closed state.
@@ -205,12 +205,12 @@ public sealed class OriginalMapPostEffect3LensGhostExecutor
                     finally{foreach(var u in uniforms)u.Dispose();}
                 }
                 Rid psSet=Set(pixel),vsSet=Set(vertex);
-                //1153201 disables frontend1BF depth test. Cull(frontendE8)
+                // Disable frontend1BF depth test. Cull(frontendE8)
                 // is inherited; the source Ghost factory does not replace it.
                 using var rasterState=new RDPipelineRasterizationState{CullMode=raster.Cull,FrontFace=raster.FrontFace};
                 using var multi=new RDPipelineMultisampleState();using var depth=new RDPipelineDepthStencilState{EnableDepthTest=false,EnableDepthWrite=false};
                 var mask=raster.Attachments.Single();
-                // Native00114400 decodes through966330/94AF20 to
+                // Native00114400 decodes to
                 // SrcAlpha/One/Add for RGB and alpha. Eye00111100 uses a
                 // different source factor; its One/One formula cannot be reused.
                 using var attachment=new RDPipelineColorBlendStateAttachment{EnableBlend=true,

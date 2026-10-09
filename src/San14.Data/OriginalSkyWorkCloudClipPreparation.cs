@@ -34,7 +34,7 @@ public static class OriginalSkyWorkCloudClipPreparation
         float clamped=dot<1?(dot>=-1?dot:-1):1;
         float horizonY=D(Tangent(OriginalMapPostEffect3PresentLightMath.Acos(clamped,inverseTrig)),Tangent(M(camera.Scalar138,.5f)));
         if(M(horizon.Y,reciprocal)<dy)horizonY=Neg(horizonY);
-        var transform=TerrainFrustumMath.Multiply(OriginalNativeMatrixMath.Inverse3F6EB0(cloneProjection,out _),camera.MatrixF0);
+        var transform=TerrainFrustumMath.Multiply(OriginalNativeMatrixMath.Invert(cloneProjection,out _),camera.MatrixF0);
         float far=(camera.Flags148&2)!=0?0:1;
         Vector4 Point(bool minus)
         {

@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 using Godot;
 using San14.Data;
 
-/// <summary>The active native EB64B8..EB67EC dedicated LightScene producer.
+/// <summary>The active dedicated LightScene producer.
 /// It owns the original 2A691F4A/native107 target and performs its one stock
 /// mode1 copy. This borrows the accepted World Scene; it does not run the
 /// unrelated A1 effects, alias the Scene, or change the source effect flags.</summary>
@@ -25,8 +25,8 @@ public sealed class OriginalMapPostEffect3WorldInputLightSceneSourceOwner:IAsync
     public long SubmittedDrawCount=>native.SubmittedDrawCount;
     public ReadOnlyMemory<byte> NativeSamplerKey=>nativeSamplerKey.ToArray();
     public string SourceEvidence=>descriptor.SourceProvenance+
-        ";TC:EB64B8-B3B6F0/B34660/B39B70/B34D90/014C60-original-2A691F4A;"+
-        "EB65CA..EB67EC-black-clear/stock-mode1-Scene-copy/target-pop;separate-actual-image";
+        ";dedicated-light-scene-target-2A691F4A;"+
+        "black-clear/stock-mode1-Scene-copy/target-pop;separate-actual-image";
     private OriginalMapPostEffect3WorldInputLightSceneSourceOwner(OriginalMapSourceCreatedWorldPlayableHost host,
         OriginalMapFinalOutputPassOwner.NativeRecipeOwner native,OriginalRenderTextureDefinition declaration)
     {
@@ -75,7 +75,7 @@ public sealed class OriginalMapPostEffect3WorldInputLightSceneSourceOwner:IAsync
         exposureDrawCount=host.Final.Chain.Exposure.DrawCount;
         host.Final.Chain.Exposure.RequireCompletedCurrentFrame(context,exposure,exposureDrawCount);
         int width=scene.ExplicitExtent.X,height=scene.ExplicitExtent.Y;
-        // 95FA2C disabled alpha test writes X=-FLT_MAX. The PS1 reads only X;
+        // Disabled alpha test writes X=-FLT_MAX. The PS1 reads only X;
         // the other twelve bytes are unread ABI padding, not fabricated source
         // state. The complete source stock VS projection/color is retained from
         // the actual current frontend's six proved words.
@@ -89,7 +89,7 @@ public sealed class OriginalMapPostEffect3WorldInputLightSceneSourceOwner:IAsync
             BinaryPrimitives.WriteUInt32LittleEndian(vertices.AsSpan(i*24+12),uint.MaxValue);
             Write(vertices,i*24+16,corners[i][2]);Write(vertices,i*24+20,corners[i][3]);
         }
-        // Actual ScreenBegin959250 sets CullNone, disables depth, and the
+        // Actual screen begin sets CullNone, disables depth, and the
         // dedicated copy replaces rather than accumulates destination pixels.
         var attachment=new OriginalModelBlendAttachment(false,RenderingDevice.BlendFactor.One,RenderingDevice.BlendFactor.Zero,
             RenderingDevice.BlendOperation.Add,RenderingDevice.BlendFactor.One,RenderingDevice.BlendFactor.Zero,

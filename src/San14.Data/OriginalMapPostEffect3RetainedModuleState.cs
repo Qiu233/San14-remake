@@ -44,7 +44,7 @@ public sealed class OriginalMapPostEffect3RetainedModuleState : IDisposable
         ArgumentNullException.ThrowIfNull(allocation);ArgumentNullException.ThrowIfNull(sides);
         ArgumentNullException.ThrowIfNull(actualBeginSource);sides.ValidateFor(allocation);
         var protocol=OriginalMapPostEffect3PassStateReader.ReadFunctorProtocol(allocation.Source,0,actualBeginSource.Locale);
-        uint finishHook=OriginalMapPostEffect3PassStateReader.FactoriesForLocale(actualBeginSource.Locale)[0].FinishHook;
+        OriginalMapPostEffect3Hook finishHook=OriginalMapPostEffect3PassStateReader.FactoriesForLocale(actualBeginSource.Locale)[0].FinishHook;
         if(!protocol.Where(p=>p.Operation==OriginalMapPostEffect3FunctorOperation.ExecutePass)
                 .Select(p=>p.SourcePassIndex).SequenceEqual(Enumerable.Range(0,45).Select(i=>(int?)i)) ||
             protocol.Where(p=>p.Operation==OriginalMapPostEffect3FunctorOperation.FinishHook).Any(p=>p.SourceHook!=finishHook))
@@ -272,8 +272,8 @@ public sealed class OriginalMapPostEffect3RetainedModuleInvocation
             nextPass++;
         }
     }
-    /// <summary>Model the known BF9280 Finish hooks/flag clears and source
-    ///114AB40 exit flip after the successful branch finishes frontend End.
+    /// <summary>Model the known Finish hooks/flag clears and source
+    /// exit flip after the successful branch finishes frontend End.
     /// Failed Begin exits without frontend End or flip. The receipt
     /// remains CPU-only; even a fully processed cursor proves no GPU output.</summary>
     public OriginalMapPostEffect3RetainedCpuExit ApplySourceExitAfterFrontendEnd()

@@ -17,7 +17,7 @@ public sealed partial class OriginalMapPostEffect3LensExecutionOwner
             int offset=Kind==OriginalMapPostEffect3ManagerSamplerKind.Linear?0x30:0x38;
             if(!Recipe.ExecutesPass||Recipe.Locale!=Owner.locale||Recipe.DescriptorTextureSubmissions.Count(s=>s.NativeStageCode==NativeStageOrdinal&&
                 s.RegisterIndex==SourceRegister&&s.DescriptorTextureOffset==offset&&s.Locale==Owner.locale&&
-                s.WriterRva==OriginalMapPostEffect3ParameterLensFlareBefore.NativeShaderResourceWriterRva(Owner.locale))!=1)
+                s.Setter==OriginalMapPostEffect3ResourceSetter.ShaderResource)!=1)
                 throw new InvalidDataException("Current Lens Before did not install this actual manager descriptor/sampler slot.");
         }
     }

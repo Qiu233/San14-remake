@@ -36,7 +36,7 @@ public sealed partial class OriginalMapPostEffect3WorldStockGraphicsSourceOwner
         var lease=new InputDepthLease(this,source,geometry,reference,depth);lease.RequireCurrent();return lease;
     }
 
-    /// <summary>1163A10/876F30 binds the actual sampled E13 wrapper's key at
+    /// <summary>Bind the actual sampled E13 wrapper's key at
     /// the same counted texture register. The current source receipt fixes
     /// the original2D loader key; enabled TemporalAA's later mutations are
     /// deliberately outside this admitted first-frame key-retention scope.</summary>
@@ -136,7 +136,7 @@ public sealed class OriginalMapPostEffect3InputDepthSamplerOwner:IOriginalMapPos
             texture.RequireCurrent();parameters.RequireCurrent();
             var sampler=OriginalDeviceSampler.Create(rd,recipe);
             return new OriginalMapPostEffect3InputDepthSamplerOwner(world,texture,parameters,pass,stage,register,sampler,
-                packed.SourceEvidence+";TC:1162610/1162AC0/1163A10/876F30-descriptor38-same-register;counted-CS-pass1/t2/s2;disabled-TAA-preserves-E13-key");
+                packed.SourceEvidence+";descriptor38-same-register;counted-CS-pass1/t2/s2;disabled-TAA-preserves-E13-key");
         });
     }
     public void RequireCurrent()

@@ -99,7 +99,7 @@ public sealed class OriginalArmyMoraleSource
         int? definitionCap=current.ForceMoraleMaximum(state,army.ForceId);
         int? getterCap=current.ForceMoraleMaximum(state,army.ForceId);
         if(definitionCap is null||getterCap is null||!state.NativeArmySimulation!.Parameters.Int32Values.TryGetValue(
-            OriginalTacticRemakeParameterSeed.Key(0x1A4BE8C),out int gain))return null;
+            SimulationParameterKeys.Morale.LogisticsGain,out int gain))return null;
         int requested=Math.Min(unchecked(Math.Min((int)raw,getterCap.Value)+gain),definitionCap.Value);
         int? setterCap=current.ForceMoraleMaximum(state,army.ForceId);
         if(setterCap is null)return null;

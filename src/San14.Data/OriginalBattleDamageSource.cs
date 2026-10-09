@@ -24,8 +24,7 @@ public sealed record OriginalWallDamageSourceInput(int CurrentDurability, float 
     int Person103Percent, int PositivePerson103Addend, int NegativePerson103Subtractand,
     bool PermitZeroDurability, int? ChallengeAdjustedDamage);
 
-public sealed record OriginalBattleDamageSourceField(string Name, int Rva, int Value, string Sha256);
-public sealed record OriginalBattleDamageSourceCodeWindow(string Name, int Rva, int Bytes, string Sha256);
+public sealed record OriginalBattleDamageSourceField(string Key, int Value);
 
 /// <summary>All twelve current native parameter values, explicitly resolved by
 /// a runtime context. No omitted value is filled from the rule defaults.</summary>
@@ -40,9 +39,7 @@ public sealed class OriginalBattleDamageSourceParameters
 {
     public string Language { get; }
     public SourceProvenance Source { get; }
-    public string DecodedTextSha256 { get; }
     public IReadOnlyList<OriginalBattleDamageSourceField> Fields { get; }
-    public IReadOnlyList<OriginalBattleDamageSourceCodeWindow> CodeWindows { get; }
     public string? CurrentRevision { get; }
     public bool IsImageInitial { get; }
     public OriginalBattleDamageCurrentValues CurrentValues { get; }
@@ -60,12 +57,11 @@ public sealed class OriginalBattleDamageSourceParameters
     public int WallPersonMultiplier { get; }
 
     internal OriginalBattleDamageSourceParameters(string language, SourceProvenance source,
-        string decodedTextSha256, OriginalBattleDamageSourceField[] fields,
-        OriginalBattleDamageSourceCodeWindow[] codeWindows,
+        OriginalBattleDamageSourceField[] fields,
         OriginalBattleDamageCurrentValues? currentValues=null,string? currentRevision=null)
     {
-        Language=language; Source=source; DecodedTextSha256=decodedTextSha256;
-        Fields=Array.AsReadOnly(fields); CodeWindows=Array.AsReadOnly(codeWindows);
+        Language=language; Source=source;
+        Fields=Array.AsReadOnly(fields);
         IsImageInitial=currentValues is null;
         CurrentRevision=currentRevision;
         var values=currentValues??new(fields[0].Value,fields[1].Value,fields[2].Value,
@@ -86,7 +82,7 @@ public sealed class OriginalBattleDamageSourceParameters
         ArgumentNullException.ThrowIfNull(values);
         if(string.IsNullOrWhiteSpace(currentRevision))
             throw new InvalidDataException("Current battle parameters need an explicit revision.");
-        return new(Language,Source,DecodedTextSha256,Fields.ToArray(),CodeWindows.ToArray(),values,currentRevision);
+        return new(Language,Source,Fields.ToArray(),values,currentRevision);
     }
 }
 /// <summary>Independent C# transcription of current CE common troop damage and
@@ -99,11 +95,10 @@ public static class OriginalBattleDamageSource
     {
         ArgumentNullException.ThrowIfNull(repository);
         _ = SimulationRuleIdentity.ForLocale(language);
-        int delta = language == "TC" ? -0x1030 : 0;
         var fields = ParameterFields.Select(field => new OriginalBattleDamageSourceField(
-            field.Name, field.ScRva + delta, field.Value, string.Empty)).ToArray();
+            field.Key, field.Value)).ToArray();
         return new(language, SimulationRuleSources.Provenance(
-            "san14-remake://rules/battle-damage/v1", language), string.Empty, fields, []);
+            "san14-remake://rules/battle-damage/v1", language), fields);
     }
 
     public static int CalculateTroopDamage(OriginalBattleDamageSourceParameters parameters,
@@ -227,20 +222,19 @@ public static class OriginalBattleDamageSource
     private const int DamageCapDefault = 9999;
     private const int WallPersonMultiplierDefault = 1;
 
-    // Stable legacy parameter keys remain save-compatible; no physical source is read.
-    private static readonly (string Name, int ScRva, int Value)[] ParameterFields =
+    private static readonly (string Key, int Value)[] ParameterFields =
     [
-        ("attackOffset", 0x1A4A948, AttackOffsetDefault),
-        ("attackSquareDivisor", 0x1A4A954, AttackSquareDivisorDefault),
-        ("troopSumDivisor", 0x1A4A960, TroopSumDivisorDefault),
-        ("troopSumOffset", 0x1A4A96C, TroopSumOffsetDefault),
-        ("damageDivisor", 0x1A4A978, DamageDivisorDefault),
-        ("transportTargetMultiplier", 0x1A4A984, TransportTargetMultiplierDefault),
-        ("cityPolicyMultiplier", 0x1A4A9CC, CityPolicyMultiplierDefault),
-        ("cityPersonMultiplier", 0x1A4A9D8, CityPersonMultiplierDefault),
-        ("cityQueryMultiplier", 0x1A4ABC8, CityQueryMultiplierDefault),
-        ("halfDamageDivisor", 0x1A4C3B8, HalfDamageDivisorDefault),
-        ("damageCap", 0x1A4C514, DamageCapDefault),
-        ("wallPersonMultiplier", 0x1A4C4F8, WallPersonMultiplierDefault),
+        (SimulationParameterKeys.BattleDamage.AttackOffset, AttackOffsetDefault),
+        (SimulationParameterKeys.BattleDamage.AttackSquareDivisor, AttackSquareDivisorDefault),
+        (SimulationParameterKeys.BattleDamage.TroopSumDivisor, TroopSumDivisorDefault),
+        (SimulationParameterKeys.BattleDamage.TroopSumOffset, TroopSumOffsetDefault),
+        (SimulationParameterKeys.BattleDamage.DamageDivisor, DamageDivisorDefault),
+        (SimulationParameterKeys.BattleDamage.TransportTargetMultiplier, TransportTargetMultiplierDefault),
+        (SimulationParameterKeys.BattleDamage.CityPolicyMultiplier, CityPolicyMultiplierDefault),
+        (SimulationParameterKeys.BattleDamage.CityPersonMultiplier, CityPersonMultiplierDefault),
+        (SimulationParameterKeys.BattleDamage.CityQueryMultiplier, CityQueryMultiplierDefault),
+        (SimulationParameterKeys.BattleDamage.HalfDamageDivisor, HalfDamageDivisorDefault),
+        (SimulationParameterKeys.BattleDamage.DamageCap, DamageCapDefault),
+        (SimulationParameterKeys.BattleDamage.WallPersonMultiplier, WallPersonMultiplierDefault),
     ];
 }

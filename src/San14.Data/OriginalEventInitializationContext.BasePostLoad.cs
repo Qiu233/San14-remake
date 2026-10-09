@@ -1,3 +1,4 @@
+using San14.Core;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -6,9 +7,9 @@ public sealed partial class OriginalEventInitializationContext : IOriginalBasePo
 {
     private readonly Dictionary<int, byte?> _citySizesB8 = [];
     private readonly Dictionary<OriginalBaseReference, ushort?> _baseFields46 = [];
-    private readonly Dictionary<int, int?> _basePostLoadParameters = [];
+    private readonly Dictionary<string, int?> _basePostLoadParameters = [];
     public SourceProvenance? BasePostLoadParameterSource { get; private set; }
-    public Func<int, int?>? BasePostLoadParameterReader { get; set; }
+    public Func<string, int?>? BasePostLoadParameterReader { get; set; }
     public int? BaseRuntimeTroopsExtra { get; set; }
     public Func<int?>? BaseRuntimeTroopsExtraReader { get; set; }
     public Func<OriginalForceReference, int, int?>? BaseForcePolicyEffectReader { get; set; }
@@ -30,14 +31,14 @@ public sealed partial class OriginalEventInitializationContext : IOriginalBasePo
     public void MaterializeBasePostLoadParameters(LoadedBaseParameters loaded)
     {
         ArgumentNullException.ThrowIfNull(loaded);
-        foreach (int rva in OriginalBaseParameterReader.ParameterRvas)
-            _basePostLoadParameters[rva] = loaded.Catalog.RawValues.TryGetValue(rva, out int value) ? value
-                : throw new InvalidDataException($"Original base parameter{rva:X} is missing from the loaded catalog.");
+        foreach (string key in OriginalBaseParameterReader.ParameterKeys)
+            _basePostLoadParameters[key] = loaded.Catalog.Values.TryGetValue(key, out int value) ? value
+                : throw new InvalidDataException($"Original base parameter{key} is missing from the loaded catalog.");
         BasePostLoadParameterSource = loaded.Source;
     }
-    public int? ReadBasePostLoadParameter(int rva)
-        => BasePostLoadParameterReader is null ? _basePostLoadParameters.GetValueOrDefault(rva) : BasePostLoadParameterReader(rva);
-    public void SetBasePostLoadParameter(int rva, int? value) => _basePostLoadParameters[rva] = value;
+    public int? ReadBasePostLoadParameter(string key)
+        => BasePostLoadParameterReader is null ? _basePostLoadParameters.GetValueOrDefault(key) : BasePostLoadParameterReader(key);
+    public void SetBasePostLoadParameter(string key, int? value) => _basePostLoadParameters[key] = value;
     public int? ReadBaseRuntimeTroopsExtra() => BaseRuntimeTroopsExtraReader is null ? BaseRuntimeTroopsExtra : BaseRuntimeTroopsExtraReader();
     public int? ReadBaseForcePolicyEffect(OriginalForceReference force, int effect) => BaseForcePolicyEffectReader?.Invoke(force, effect);
     public int? ReadBaseForceModifier(OriginalForceReference force, int modifier) => BaseForceModifierReader?.Invoke(force, modifier);
@@ -65,7 +66,7 @@ public sealed partial class OriginalEventInitializationContext : IOriginalBasePo
         {
             OriginalBaseReference city = ReadCityTableReference(physical)
                 ?? throw new InvalidDataException("Current object field14 city pointer is unknown.");
-            if (ReadSpecialBaseCapacity(city)) cap = StartupKnown(ReadBasePostLoadParameter(0x1A4BCB8), "special object field14 cap");
+            if (ReadSpecialBaseCapacity(city)) cap = StartupKnown(ReadBasePostLoadParameter(SimulationParameterKeys.BaseCapacity.MaximumDurability), "special object field14 cap");
         }
         SetObjectRawField14(physical, unchecked((ushort)(input < 0 ? 0 : Math.Min(input, cap))));
     }

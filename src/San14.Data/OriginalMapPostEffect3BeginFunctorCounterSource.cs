@@ -107,10 +107,10 @@ public static partial class OriginalDeferredSamplerSources
     {
         if(native.Locale is not ("TC" or "SC"))throw new NotSupportedException("BeginFunctor source requires its verified SC/TC module creator.");
 
-        return new(native.Locale,native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+
-            ";TC:1147378-allocate/114739D-moduleCtor1145D90;1145DAA-xorECX;1145DD1-qwordCPU50-zero-coversCPU54;"+
-            "11474D8-dwordCPU50-count-preservesCPU54;11466F0-module-BeginFunctor;114681D-INC-dwordCPU54;"+
-            "1146820-EDX=CPU54/1146823-call1161C00;1161C16-context1BF0=EDX;"+
-            "1146828-frontend-failure-test-after-counter;fresh-first-Begin=1;uint32-wrap;not-QCounter/not-FrameNumber");
+        return new(native.Locale,native.ResourceUri+$";{native.Locale}:paired-source-profile;"+
+            ";allocate/-moduleCtor;-xorECX;-qwordCPU50-zero-coversCPU54"+
+            "-dwordCPU50-count-preservesCPU54;-module-BeginFunctor;-INC-dwordCPU54"+
+            "-EDX=CPU54/-call;-context1BF0=EDX"+
+            "-frontend-failure-test-after-counter;fresh-first-Begin=1;uint32-wrap;not-QCounter/not-FrameNumber");
     }
 }

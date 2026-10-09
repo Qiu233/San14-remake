@@ -43,7 +43,7 @@ public readonly record struct OriginalWorldGeometryCurrentPop(bool ShouldPop, ui
     bool CallsOptionalE86E40, bool CopiesDepthBeforePop);
 public sealed record OriginalWorldGeometryEmptySceneCall(int NodeIndex, long FrameNumber, string ViewIdentity,
     string CameraOwnerIdentity, byte CurrentCallFlags, uint CurrentFlag2,
-    int SourceOwnerOffset, int SourceCallerRva, int LocalCameraCopyRva, int LocalCameraCleanupRva)
+    int SourceOwnerOffset)
 {
     public uint GeometryDrawCount => 0;
     public bool CopiesCurrentCameraIntoLocalObject => true;
@@ -56,7 +56,6 @@ public readonly record struct OriginalWorldGeometryDepthCopyCommand(ulong Destin
     uint DestinationX, uint DestinationY, uint DestinationZ, ulong SourceResource, uint SourceSubresource,
     bool SourceBoxIsNull)
 {
-    public uint NativeDeviceContextMethodOffset => 0x170;
     public bool ProvesGpuPixelsCopied => false;
 }
 public sealed record OriginalWorldGeometryIndependentDepthSource(OriginalRenderTextureDefinition Declaration,
@@ -151,11 +150,9 @@ public sealed class LoadedOriginalWorldGeometryStageSource
         string view = selected.ViewIdentity;
         return Array.AsReadOnly(new[] {
             new OriginalWorldGeometryEmptySceneCall(node, frame, view, selected.CameraOwnerIdentity,
-                currentExecution.CurrentCallFlags, currentExecution.CurrentFlag2, 0x1B80, Native.PreRendererRva,
-                Native.LocalCameraCopyRva, Native.LocalCameraCleanupRva),
+                currentExecution.CurrentCallFlags, currentExecution.CurrentFlag2, 0x1B80),
             new OriginalWorldGeometryEmptySceneCall(node, frame, view, selected.CameraOwnerIdentity,
-                currentExecution.CurrentCallFlags, currentExecution.CurrentFlag2, 0x1BB0, Native.ModelsRva,
-                Native.LocalCameraCopyRva, Native.LocalCameraCleanupRva) });
+                currentExecution.CurrentCallFlags, currentExecution.CurrentFlag2, 0x1BB0) });
     }
 
     /// <summary>Exact source D1 surface0/single-slice CopySubresourceRegion

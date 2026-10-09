@@ -162,9 +162,9 @@ public sealed partial class OriginalMapPostEffect3WorldControlledFactoryFrame : 
         if(colorIndex!=0||depthIndex!=1)
             throw new InvalidDataException("Controlled InputColor/InputDepth source indices changed.");
         table.BindExternal(colorIndex,new(current.FrameNumber,scene.EffectiveSource.OwnerIdentity),
-            "TC:EB69F0/D72210;actual same-attempt World Scene;"+stock.SourceEvidence);
+            "actual same-attempt World Scene;"+stock.SourceEvidence);
         table.BindExternal(depthIndex,new(current.FrameNumber,depth.EffectiveSource.OwnerIdentity),
-            "TC:EB6A23/D72210;actual same-attempt E13;"+depthSource.SourceEvidence);
+            "actual same-attempt depth;"+depthSource.SourceEvidence);
         var controllerTextures=sources.LensController
             .PrepareInternal(camera.State,table,camera.Invocation.Snapshot);
         table.ApplyLensFlare2InternalControllerTextures(controllerTextures);

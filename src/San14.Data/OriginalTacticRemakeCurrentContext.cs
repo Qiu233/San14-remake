@@ -87,15 +87,15 @@ public sealed partial class OriginalTacticRemakeCurrentContext : IOriginalTactic
         if (outer is null) return null;
         OriginalTacticRemakeChainResolution? chain = ResolveChain(state, caster, source);
         if (chain is null || chain.RandomState != state.RandomState || chain.ChainCount != 0) return null;
-        int? primary = Parameter(state, 0x1A4A08C), second = Parameter(state, 0x1A4A098), third = Parameter(state, 0x1A4A0A4);
-        int? adjustment = formation switch { 1 => Parameter(state, 0x1A4AA64), 2 => Parameter(state, 0x1A4AA70),
-            14 => Parameter(state, 0x1A4AA08), _ => 0 };
-        int? reduction = (forceFlags & 0x40) != 0 ? Parameter(state, 0x1A4AC30) : 0;
+        int? primary = Parameter(state, SimulationParameterKeys.Tactics.PrimaryWaitingCap), second = Parameter(state, SimulationParameterKeys.Tactics.SecondaryWaitingCap), third = Parameter(state, SimulationParameterKeys.Tactics.TertiaryWaitingCap);
+        int? adjustment = formation switch { 1 => Parameter(state, SimulationParameterKeys.Tactics.Formation1AutomaticWaitingAdjustment), 2 => Parameter(state, SimulationParameterKeys.Tactics.Formation2AutomaticWaitingAdjustment),
+            14 => Parameter(state, SimulationParameterKeys.Tactics.Formation14AutomaticWaitingAdjustment), _ => 0 };
+        int? reduction = (forceFlags & 0x40) != 0 ? Parameter(state, SimulationParameterKeys.Tactics.ForceFlagWaitingReduction) : 0;
         OriginalTacticReference? receiver = _definitions.ReadSkillTacticReference(source.Slot);
         byte? category = receiver is null ? null : _definitions.ReadSkillTacticRawByte(receiver, 0x40);
         int? policyReduction = category switch { 5 => Policy(state, caster.ForceId, 0x24),
             6 => Policy(state, caster.ForceId, 0x25), null => null, _ => 0 };
-        int? rate = Parameter(state, 0x1A4A0B0);
+        int? rate = Parameter(state, SimulationParameterKeys.Tactics.OrdinaryWaitingRate);
         if (primary is not >= 0 or > 255 || second is not >= 0 or > 255 || third is not >= 0 or > 255 ||
             adjustment is null || reduction is null || policyReduction is null)
             return null;
@@ -186,7 +186,7 @@ public sealed partial class OriginalTacticRemakeCurrentContext : IOriginalTactic
         UnitState caster, UnitState target, OriginalTacticSourceRow source, S14TacticEffectInstruction instruction)
     {
         OriginalTacticEffectScaleSourceInput? scale = Scale(state, caster, source, instruction);
-        int? capacity = ReadArmyHealingSelectionCapacity(state, target), floor = Parameter(state, 0x1A4AB54);
+        int? capacity = ReadArmyHealingSelectionCapacity(state, target), floor = Parameter(state, SimulationParameterKeys.Tactics.HealingMinimum);
         return scale is null || capacity is null || floor is null || target.WoundedTroops is not int wounded ? null :
             new(new(scale, target.Troops, wounded, capacity.Value, floor.Value, 20000), state.RandomState);
     }
@@ -198,9 +198,9 @@ public sealed partial class OriginalTacticRemakeCurrentContext : IOriginalTactic
             ResolveChain(state, caster, source) is not { ChainCount: 0 } ||
             FactorSelector(source) is not byte selector || caster.NativeTacticRuntime is not { } native)
             return null;
-        int? divisor = Parameter(state, selector == 1 ? 0x1A4AB14 : 0x1A4AB1C);
-        int? stage = Parameter(state, 0x1A4AAB4);
-        int? shared = native.Waiting21 != 0 ? 100 : Parameter(state, native.Waiting22 == 0 ? 0x1A4ABB4 : 0x1A4ABA8);
+        int? divisor = Parameter(state, selector == 1 ? SimulationParameterKeys.Tactics.StrengthEffectDivisor : SimulationParameterKeys.Tactics.IntelligenceEffectDivisor);
+        int? stage = Parameter(state, SimulationParameterKeys.Tactics.EffectStageScale);
+        int? shared = native.Waiting21 != 0 ? 100 : Parameter(state, native.Waiting22 == 0 ? SimulationParameterKeys.Tactics.Waiting0SharedFactorPercent : SimulationParameterKeys.Tactics.Waiting1SharedFactorPercent);
         if (divisor is null || divisor == 0 || stage is null || shared is null) return null;
         float factor = (float)(selector == 1 ? ability.Strength : ability.Intelligence) / (float)divisor.Value;
         factor += 1f;
@@ -225,7 +225,7 @@ public sealed partial class OriginalTacticRemakeCurrentContext : IOriginalTactic
     public int? ForceMoraleMaximum(GameState state, int forceId)
     {
         if (!Bound(state) || !state.Forces.TryGetValue(forceId, out ForceState? force)) return null;
-        int? baseline = Parameter(state, 0x1A4B79C), coefficient = Parameter(state, 0x1A4B7A8);
+        int? baseline = Parameter(state, SimulationParameterKeys.Morale.Maximum), coefficient = Parameter(state, SimulationParameterKeys.Morale.PolicyScale);
         if (baseline is null) return null;
         if (!force.IsActive) return baseline;
         int? effect = forceId is >= 46 and <= 51 ? 0 : _remaining?.ReadForceEffect10(state, force)
@@ -317,13 +317,13 @@ public sealed partial class OriginalTacticRemakeCurrentContext : IOriginalTactic
         return hex?.PhysicalSlot == unit.HexId ? _definitions.ReadHexSurfaceCode(hex) : null;
     }
 
-    private int? Parameter(GameState state, int semanticScRva) => Bound(state) &&
-        state.NativeArmySimulation!.Parameters.Int32Values.TryGetValue(OriginalTacticRemakeParameterSeed.Key(semanticScRva), out int value)
+    private int? Parameter(GameState state, string key) => Bound(state) &&
+        state.NativeArmySimulation!.Parameters.Int32Values.TryGetValue(key, out int value)
         ? value : null;
 
     public IReadOnlyList<int>? ReadCurrentAbnormalUpperBounds(GameState state, UnitState caster, UnitState target)
-    { int? bound = Parameter(state, 0x1A4A080); return bound is null ? null : new[] { bound.Value, bound.Value, bound.Value }; }
-    public int? ReadCurrentArmyAbnormalUpperBound(GameState state, UnitState target, int nativeIndex) => Parameter(state, 0x1A4A080);
+    { int? bound = Parameter(state, SimulationParameterKeys.Tactics.AbnormalCounterUpperBound); return bound is null ? null : new[] { bound.Value, bound.Value, bound.Value }; }
+    public int? ReadCurrentArmyAbnormalUpperBound(GameState state, UnitState target, int nativeIndex) => Parameter(state, SimulationParameterKeys.Tactics.AbnormalCounterUpperBound);
     public ulong? FinishArmyAbnormalClear(GameState state, UnitState caster, UnitState target,
         OriginalTacticSourceRow source, S14TacticEffectInstruction instruction) =>
         ArmyValid(state, target) == true && target.HexId is >= 0 and < 48400
@@ -348,11 +348,11 @@ public sealed partial class OriginalTacticRemakeCurrentContext : IOriginalTactic
     }
     public bool? ReadArmyValidity(GameState state, UnitState unit, NativeSubdayMoment moment) => ArmyValid(state, unit);
     public bool? ReadExpirationLoggingForceNonzero(GameState state, UnitState unit) => ArmyValid(state, unit) is true ? unit.ForceId != 0 : null;
-    public int? ReadAbnormalUpperBound(GameState state, UnitState unit, int nativeIndex) => Parameter(state, 0x1A4A080);
+    public int? ReadAbnormalUpperBound(GameState state, UnitState unit, int nativeIndex) => Parameter(state, SimulationParameterKeys.Tactics.AbnormalCounterUpperBound);
     public bool? ReadSpecialWaitingModeActive(GameState state, UnitState unit) =>
         Bound(state) && state.NativeArmySimulation!.World.SelectedCommanderCount165D == 0 ? false : null;
-    public int? ReadOrdinaryWaitingRate(GameState state, UnitState unit) => Parameter(state, 0x1A4A0B0);
+    public int? ReadOrdinaryWaitingRate(GameState state, UnitState unit) => Parameter(state, SimulationParameterKeys.Tactics.OrdinaryWaitingRate);
     public int? ReadWaitingUpperBound(GameState state, UnitState unit, int nativeIndex) =>
-        Parameter(state, nativeIndex switch { 0 => 0x1A4A08C, 1 => 0x1A4A098, 2 => 0x1A4A0A4,
+        Parameter(state, nativeIndex switch { 0 => SimulationParameterKeys.Tactics.PrimaryWaitingCap, 1 => SimulationParameterKeys.Tactics.SecondaryWaitingCap, 2 => SimulationParameterKeys.Tactics.TertiaryWaitingCap,
             _ => throw new InvalidDataException("Owned waiting index is invalid.") });
 }

@@ -89,13 +89,13 @@ public static class OriginalBattleRemakeCurrentSettings
         if (selector is null) return null;
         if (selector == 0)
         {
-            int? percent = ReadAdvancedParameter(state, 8), normal = Parameter(0x1A4C6D4);
+            int? percent = ReadAdvancedParameter(state, 8), normal = Parameter(SimulationParameterKeys.BattleAttributes.NormalFormationPercentScale);
             return percent is null || normal is null ? null : unchecked(percent.Value * normal.Value) / 100;
         }
         int? mode = ReadNeighborModeD8(state);
-        return mode is null ? null : Parameter(mode == 0 ? 0x1A4A068 : 0x1A4C6D4);
-        int? Parameter(int rva) => state.NativeArmySimulation!.Parameters.Int32Values
-            .TryGetValue(OriginalTacticRemakeParameterSeed.Key(rva), out int value) ? value : null;
+        return mode is null ? null : Parameter(mode == 0 ? SimulationParameterKeys.BattleAttributes.AlternateFormationPercentScale : SimulationParameterKeys.BattleAttributes.NormalFormationPercentScale);
+        int? Parameter(string key) => state.NativeArmySimulation!.Parameters.Int32Values
+            .TryGetValue(key, out int value) ? value : null;
     }
 
     /// <summary>SC2A923F..2A933F/TC2A93EF..2A94EF's ordinary branch. Any

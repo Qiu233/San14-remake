@@ -65,8 +65,7 @@ public sealed class OriginalMapPostEffect3LensWriteCoverage
                 0x0700001E,0x00100012,1,0x0010000A,1,0x00004001,1,0x01000016,0x0100003E]);
             var main=recipe.Initialization.ConstantBuffers.Single(c=>c.Declaration.Index==6);
             if(main.FrameNumber!=recipe.FrameNumber||main.OwnerIdentity!=recipe.ContextOwnerIdentity||main.SourceSha256!=recipe.SourceSha256||
-                main.Locale!=recipe.Initialization.Locale||main.WriterRva!=checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(
-                    recipe.Initialization.Locale,"OriginalMapPostEffect3LensWriteCoverage.cs",0x1151FF0))||main.Bytes.Length!=192||
+                main.Locale!=recipe.Initialization.Locale||main.Writer!=OriginalMapPostEffect3ConstantBufferWriter.LensLegacy||main.Bytes.Length!=192||
                 BinaryPrimitives.ReadUInt32LittleEndian(main.Bytes.Span.Slice(148,4))!=0x41800000||
                 recipe.ActualDispatch!=new OriginalMapPostEffect3DispatchExtent(1,1,1))
                 throw new NotSupportedException("GhostSprite complete16-row coverage needs its actual original Init count16 and single invocation.");

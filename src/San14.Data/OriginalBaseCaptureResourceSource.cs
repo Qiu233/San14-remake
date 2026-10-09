@@ -22,7 +22,7 @@ public static class OriginalBaseCaptureResourceSource
         //The wall floor precedes resource scaling, with two fresh source
         //virtual60 reads. A valid commander preserves a higher current wall.
         int wallCap1 = OriginalBasePostLoad.ReadCapacities(target, current).Field46;
-        int wallFloor = unchecked(wallCap1 * P(0x1A4A7CC)) / 100;
+        int wallFloor = unchecked(wallCap1 * P(SimulationParameterKeys.BaseCapture.CapturedWallFloorPercent)) / 100;
         int wallCap2 = OriginalBasePostLoad.ReadCapacities(target, current).Field46;
         wallFloor = Math.Min(wallFloor, wallCap2);
         bool commanderValid = Known(current.ReadPersonNativeValidity(physical), "Commander_validity");
@@ -37,11 +37,11 @@ public static class OriginalBaseCaptureResourceSource
             current.SetBasePostLoadFlag66(target, OriginalBasePostLoad.ReadFlag66(target, current));
         }
 
-        int keep = P(0x1A4A784);
+        int keep = P(SimulationParameterKeys.BaseCapture.MinimumResourceKeepPercent);
         if (commanderValid)
         {
             int charm = Known(abilities.Resolve(state, Known(current.ReadPersonIdentity(physical), "Commander10"))?.Charm, "Commander_full_charm4");
-            int divisor = P(0x1A4A790);
+            int divisor = P(SimulationParameterKeys.BaseCapture.CommanderCharmDivisor);
             if (divisor == 0 || charm == int.MinValue && divisor == -1) throw Missing("keep_IDIV");
             //26E097 CMP EAX,EDI;26E099 CMOVGE selects Charm/divisor.
             //The source uses maxSigned, not a ceiling on the charm bonus.
@@ -70,12 +70,12 @@ public static class OriginalBaseCaptureResourceSource
             var receivingCity = OriginalCurrentGateMapQueries.FindCity(target, current);
             if (Known(current.ReadBaseNativeValidity(receivingCity), "FindCity_validity"))
             {
-                Floor(OriginalBaseResourceKind.Gold, 0x1A4A79C);
-                Floor(OriginalBaseResourceKind.Supplies, 0x1A4A7B4);
+                Floor(OriginalBaseResourceKind.Gold, SimulationParameterKeys.BaseCapture.CapturedCityGoldFloor);
+                Floor(OriginalBaseResourceKind.Supplies, SimulationParameterKeys.BaseCapture.CapturedCitySuppliesFloor);
             }
-            void Floor(OriginalBaseResourceKind kind, int rva)
+            void Floor(OriginalBaseResourceKind kind, string key)
             {
-                int value = unchecked((money + 100) * P(rva)) / 100;
+                int value = unchecked((money + 100) * P(key)) / 100;
                 if (Known(current.ReadBaseResource(receivingCity, kind), "FindCity_resource") < value)
                     SetResource(receivingCity, kind, value);
             }
@@ -90,7 +90,7 @@ public static class OriginalBaseCaptureResourceSource
         }
         return new(keep, money, troops, commanderValid, writes.AsReadOnly());
 
-        int P(int rva) => Known(OriginalBaseCaptureResourceInputs.ReadCurrentTc(state, rva), $"parameter_{rva:X}");
+        int P(string key) => Known(OriginalBaseCaptureResourceInputs.ReadCurrent(state, key), $"parameter_{key}");
         void ScaleResource(OriginalBaseResourceKind kind, int modifier, string field)
         {
             int before = Known(current.ReadBaseResource(target, kind), "Base" + field);

@@ -66,7 +66,7 @@ public static partial class OriginalBaseCaptureRewardSource
             byte? nextFlags = worldGate ? (byte)(flags!.Value | 4) : null;
             //Base caller uses loss0/killed1 with a known null second pointer.
             //It therefore reaches only this Base constant, never Army498FC.
-            int delta = resultGate ? P(input, 0x1A49914) : 0;
+            int delta = resultGate ? P(input, SimulationParameterKeys.ArmyDestruction.BaseCaptureResultGain) : 0;
             ushort? next = resultGate ? (ushort)Math.Clamp(unchecked(before!.Value + delta), 0, 60000) : null;
             var simulation = input.NativeArmySimulation!;
             var saved = input with { NativeArmySimulation = simulation with { Forces = new(simulation.Forces)
@@ -155,23 +155,23 @@ public static partial class OriginalBaseCaptureRewardSource
                     var commander = current.ReadPersonLookupReference(commanderId <= 6000 ? commanderId : 0)
                         ?? throw Missing("2851B0 late commander pointer");
                     if (commander.PhysicalSlot is int person && K(current.ReadPersonNativeValidity(person), "2851B0 late commander validity"))
-                        trait = unchecked(K(OriginalTacticRemakeCurrentTraits.CommanderEffectSum(current, person, 0x4C), "2851B0 effect4C") * P(working, 0x1A490B4));
+                        trait = unchecked(K(OriginalTacticRemakeCurrentTraits.CommanderEffectSum(current, person, 0x4C), "2851B0 effect4C") * P(working, SimulationParameterKeys.ArmyDestruction.ForceExperienceTraitMultiplier));
                 }
                 var advantage = OriginalPersonReturnPathSource.ReadForceAdvantage(working, current, winner, 6);
                 effect6 = K(advantage.Value, advantage.UnresolvedOwner ?? "2851B0 effect6");
-                int effectTerm = unchecked(effect6 * P(working, 0x1A49BB8));
-                Grant("Base", 0x1A4906C);
+                int effectTerm = unchecked(effect6 * P(working, SimulationParameterKeys.ArmyDestruction.ForceExperienceLandAdvantageMultiplier));
+                Grant("Base", SimulationParameterKeys.ArmyDestruction.BaseCaptureExperienceGain);
                 afterStates = FillStates(working, current, winner, territory.States);
-                if (afterStates > territory.StateCount) Grant("State", 0x1A49078);
+                if (afterStates > territory.StateCount) Grant("State", SimulationParameterKeys.ArmyDestruction.StateCaptureExperienceGain);
                 afterRegions = FillRegions(working, current, winner, territory.States, territory.Regions);
-                if (afterRegions > territory.RegionCount) Grant("Region", 0x1A49084);
+                if (afterRegions > territory.RegionCount) Grant("Region", SimulationParameterKeys.ArmyDestruction.RegionCaptureExperienceGain);
 
-                void Grant(string label, int rva)
+                void Grant(string label, string key)
                 {
-                    int scale = P(working, rva);
+                    int scale = P(working, key);
                     int gain = unchecked(unchecked(effectTerm * scale) / 100 + unchecked(trait * scale) / 100 + scale);
                     if ((K(Force(working, forceSlot).Flags12, "2851B0 late Force12") & 8) != 0)
-                        gain = unchecked(gain + unchecked(scale * P(working, 0x1A49794)) / 100);
+                        gain = unchecked(gain + unchecked(scale * P(working, SimulationParameterKeys.ArmyDestruction.ForceExperienceFlagBonusPercent)) / 100);
                     if (gain < 0) { writes.Add(new(label, gain, null, null, null, null, false, null, false)); return; }
                     int before = K(current.ReadForce164(winner), "258A60 late Force164");
                     int oldLevel = K(OriginalOwnedForce164Inputs.ReadLevel(working, before), "258A60 before level");
@@ -233,7 +233,7 @@ public static partial class OriginalBaseCaptureRewardSource
     }
     private static NativeArmyForceState Force(GameState state, int slot) => state.NativeArmySimulation?.Forces.GetValueOrDefault(slot)
         ?? throw Missing("2851B0 saved current Force fields");
-    private static int P(GameState state, int rva) => K(OriginalArmyDestructionParameterSeed.ReadCurrentTc(state, rva), $"2851B0 parameter{rva:X}");
+    private static int P(GameState state, string key) => K(OriginalArmyDestructionParameterSeed.ReadCurrent(state, key), $"2851B0 parameter{key}");
     private static OriginalHexListHandle Temporary(OriginalEventInitializationContext current)
         => current.CreateTemporaryHexList() ?? throw Missing("2851B0 temporary allocator");
     private static void Release(OriginalEventInitializationContext current, OriginalHexListHandle handle)

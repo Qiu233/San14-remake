@@ -21,7 +21,7 @@ internal sealed class OriginalMapPostEffect3Functor1FrontendCacheOwner
     {
         internal Metadata? Loan;
         internal OriginalMapPostEffect3Binding? Counted;
-        //1145F40/70/A0 and1145FE0 initialize type byte0=FF, not
+        // Fresh cached resource entries initialize type byte0=FF, not
         //selector bytes1/2. Preserve those unwritten selectors as unknown.
         internal byte NativeResourceKind=0xFF;
         internal sbyte? Mip,Slice;
@@ -50,12 +50,12 @@ internal sealed class OriginalMapPostEffect3Functor1FrontendCacheOwner
         if(actualMode is not(0 or 2))throw new InvalidDataException("Actual Select mode lacks its CS/PS catalog wrapper.");
         if(NativeMode1C04!=actualMode)
         {
-            ResetResources("1161E21-mode-change",recipe.SourcePassIndex);
+            ResetResources("mode-change",recipe.SourcePassIndex);
             bool? prior=NativePendingComputeBoolean2A98;bool next=actualMode==0;
             int? provedSourceOpcode=prior is null||prior==next?null:next?35:36;
             NativePendingComputeBoolean2A98=next;
             Log("ModeChangeSourceBackendSemantic",recipe.SourcePassIndex,new{prior,next,provedSourceOpcode,
-                sourceRva="1161E35..1161E75",packedNativeDeviceCommandObserved=false});
+                packedNativeDeviceCommandObserved=false});
         }
         NativeMode1C04=actualMode;Log("SelectHeader",recipe.SourcePassIndex,new{NativeFirstPass1BF4,NativeDirectoryOrdinal1BF8,NativeMode1C04});
     }
@@ -96,7 +96,7 @@ internal sealed class OriginalMapPostEffect3Functor1FrontendCacheOwner
             if(group==3)row.Slice=slice;
         }
         else row.Dirty|=0x0100; //same pointer setter only sets row+4.
-        //1163DC0 compares only the pointer: its same-pointer branch writes
+        // Compare only the pointer: the same-pointer branch writes
         //row+4 and leaves the native UAV mip byte unchanged.
         row.Counted=counted;
         Log(reason,pass,new{group,stage,slot,parameter=incoming?.Parameter,side=incoming?.Side,storage=incoming?.Storage.Id,
@@ -109,11 +109,11 @@ internal sealed class OriginalMapPostEffect3Functor1FrontendCacheOwner
         if(count==1)retained.Remove(loan.Retained);else retained[loan.Retained]=count-1;
         Log("Release",pass,new{group,stage,slot,loan.Parameter,loan.Side,storage=loan.Storage.Id,reason});row.Loan=null;
     }
-    internal void FlushBeforeActualBind(int pass)=>Flush("1162AC0-before-actual-Bind",pass);
+    internal void FlushBeforeActualBind(int pass)=>Flush("before-bind",pass);
     private void Flush(string reason,int pass)
     {
-        //1162AC0 visits UAV,SRV,CB for each stage, clears both dirty bytes.
-        //Null CB skips95B930. RT rows are handled by actual target Bind.
+        // Visit UAV, SRV and CB for each stage, clearing both dirty bytes.
+        // Null CB skips buffer binding. RT rows are handled by actual target Bind.
         for(int stage=0;stage<6;stage++)foreach(int group in new[]{1,0,2})
         for(int slot=0;slot<16;slot++)
         {
@@ -127,7 +127,7 @@ internal sealed class OriginalMapPostEffect3Functor1FrontendCacheOwner
     }
     internal void ResetResources(string reason,int pass)
     {
-        //1163460 stage0..5:16SRV,16UAV,16CB; then four RT slots.
+        // Reset stages0..5:16SRV,16UAV,16CB; then four RT slots.
         for(int stage=0;stage<6;stage++)for(int group=0;group<3;group++)
         for(int slot=0;slot<16;slot++)ResetRow(group,stage,slot,reason,pass);
         for(int slot=0;slot<4;slot++)ResetRow(3,0,slot,reason,pass);
@@ -140,30 +140,30 @@ internal sealed class OriginalMapPostEffect3Functor1FrontendCacheOwner
         row.Counted=null;
     }
     internal void ResetPass(int pass)
-    {ResetResources("1163080-wrapper-Reset",pass);CurrentPassDescriptor=null;Log("ResetDescriptor",pass,new{rva="1161B60"});}
+    {ResetResources("wrapper-reset",pass);CurrentPassDescriptor=null;Log("ResetDescriptor",pass,new{hasCurrentDescriptor=false});}
     internal void BeginModule()
     {
         if(OutstandingLoans!=0||CurrentPassDescriptor is not null)
             throw new InvalidDataException("Module Begin cannot replace outstanding actual cache loans.");
         events.Clear();eventOrdinal=0; //bounded current-invocation diagnostics
-        NativeMode1C04=-1; //1161C1E writes this on every Begin, not only construction.
-        Log("ModuleBegin",-1,new{sourceRva="1161C1E",NativeMode1C04});
+        NativeMode1C04=-1; // Every Begin writes this, not only construction.
+        Log("ModuleBegin",-1,new{NativeMode1C04});
     }
     internal void EndModule()
     {
-        //1162D70 clears only borrowed nonnull rows. Flush excludes RT. Do
+        // Clear only borrowed nonnull rows. Flush excludes RT. Do
         //not reuse Reset: its descriptor reset is a distinct source call.
         for(int group=0;group<4;group++)for(int i=0;i<groups[group].Length;i++)
         {
             var row=groups[group][i];
             if(row.Loan is null)continue;
-            Release(row,group,group==3?0:i/16,group==3?i:i%16,116,"1162D70-End(-1)");
+            Release(row,group,group==3?0:i/16,group==3?i:i%16,116,"module-end");
             row.Dirty=0x0101;
         }
         bool? pending=NativePendingComputeBoolean2A98;
         if(pending is null)throw new InvalidDataException("Actual directory has not established native pending mode.");
         NativePendingComputeBoolean2A98=false;
-        Flush("1162F4E-End-flush",116);
+        Flush("module-end-flush",116);
         if(OutstandingLoans!=0)throw new InvalidDataException("End did not release its acquired cache loans.");
         Log("ModuleEnd",116,new{argument=uint.MaxValue,pendingBefore=pending,conditionalSourceOpcode=pending==true?0x36:(int?)null,
             packedNativeDeviceCommandObserved=false,nullCbUploads=0,optionalFinalDraw=false,remainingLoans=OutstandingLoans});

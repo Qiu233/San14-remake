@@ -140,7 +140,7 @@ public sealed class OriginalBattleRemakeCurrentRegionFactor
             }
         }
         if (sum == 0) return new(1f, 0, null, saved, physical, revision + ":zero-area-sum");
-        if (Parameter(state, 0x1A4C6C8) is not int baseline ||
+        if (Parameter(state, SimulationParameterKeys.BattleRegion.BaselineRegionCoefficient) is not int baseline ||
             OriginalBattleRemakeCurrentSettings.ReadSelectorE58(state) is not int selector) return null;
         float coefficient = baseline;
         if (selector != 0)
@@ -153,7 +153,7 @@ public sealed class OriginalBattleRemakeCurrentRegionFactor
                 if (remaining?.ReadNativeForceIsPlayer(state, nativeForceSlot) is not bool player) return null;
                 if (!player)
                 {
-                    if (Parameter(state, difficulty == 3 ? 0x1A49D10 : 0x1A49D34) is not int selected) return null;
+                    if (Parameter(state, difficulty == 3 ? SimulationParameterKeys.BattleRegion.DifficultyThreeNonplayerCoefficient : SimulationParameterKeys.BattleRegion.HigherDifficultyNonplayerCoefficient) is not int selected) return null;
                     coefficient = selected;
                 }
             }
@@ -172,7 +172,7 @@ public sealed class OriginalBattleRemakeCurrentRegionFactor
                     int multiplier;
                     if (multiplierMode is 1 or 2)
                     {
-                        if (Parameter(state, multiplierMode == 1 ? 0x1A49D1C : 0x1A49D28) is not int selected) return null;
+                        if (Parameter(state, multiplierMode == 1 ? SimulationParameterKeys.BattleRegion.RegionMultiplierModeOnePercent : SimulationParameterKeys.BattleRegion.RegionMultiplierModeTwoPercent) is not int selected) return null;
                         multiplier = selected;
                     }
                     else multiplier = 0;
@@ -238,6 +238,6 @@ public sealed class OriginalBattleRemakeCurrentRegionFactor
         value = value / 100f;
         return value + 1f;
     }
-    private static int? Parameter(GameState state, int semantic) => state.NativeArmySimulation!.Parameters.Int32Values
-        .TryGetValue(OriginalTacticRemakeParameterSeed.Key(semantic), out int value) ? value : null;
+    private static int? Parameter(GameState state, string key) => state.NativeArmySimulation!.Parameters.Int32Values
+        .TryGetValue(key, out int value) ? value : null;
 }

@@ -1,14 +1,14 @@
 namespace San14.Data;
 
-public sealed record OriginalStaticPostProcessReference(int TableOffset, int? PhysicalSlot, uint? Slot7Target);
+public sealed record OriginalStaticPostProcessReference(int TableOffset, int? PhysicalSlot, OriginalPostLoadCallback? Callback);
 public interface IOriginalStaticTablePostProcessState
 {
     OriginalStaticPostProcessReference? ReadStaticPostProcessReference(int tableOffset, int slot);
     void InvokeStaticPostProcess(OriginalStaticPostProcessReference reference);
 }
 
-/// <summary>The43 current-pointer loops of324D00. They exclude both caution
-/// tables and call slot7, independently of the earlier45 slot4 loops.</summary>
+/// <summary>The 43 current-pointer loops of static post-processing. They exclude
+/// both caution tables and invoke callbacks independently of the earlier NoOp stage.</summary>
 public static class OriginalStaticTablePostProcess
 {
     public static IReadOnlyList<OriginalStaticTableRange> Ranges { get; } = Array.AsReadOnly(new[]
@@ -24,15 +24,19 @@ public static class OriginalStaticTablePostProcess
         new(0x85DB8,7), new(0x85DF0,7), new(0x85E28,31), new(0x85F20,80)
     });
 
-    public static uint SupportedTarget(int tableOffset)
+    public static OriginalPostLoadCallback SupportedCallback(int tableOffset)
     {
-        if (!Ranges.Any(range => range.TableOffset == tableOffset)) throw new InvalidDataException("Unknown324D00 table offset.");
-        return tableOffset switch
+        if (!Ranges.Any(range => range.TableOffset == tableOffset)) throw new InvalidDataException("Unknown static post-processing table offset.");
+        return new(tableOffset switch
         {
-            0xDD38 => 0x2243E0, 0xE0D0 => 0x2244C0, 0xDED8 => 0x224750,
-            0x7DD18 => 0x2253A0, 0x73A50 => 0x224800, 0x80880 => 0x225410,
-            _ => 0x370500
-        };
+            0xDD38 => OriginalPostLoadCallbackKind.City,
+            0xE0D0 => OriginalPostLoadCallbackKind.District,
+            0xDED8 => OriginalPostLoadCallbackKind.Gate,
+            0x7DD18 => OriginalPostLoadCallbackKind.Personality,
+            0x73A50 => OriginalPostLoadCallbackKind.Person,
+            0x80880 => OriginalPostLoadCallbackKind.Policy,
+            _ => OriginalPostLoadCallbackKind.NoOp
+        });
     }
 
     public static void Apply(IOriginalStaticTablePostProcessState state)
@@ -42,11 +46,12 @@ public static class OriginalStaticTablePostProcess
             for (int slot = 0; slot < range.Count; slot++)
             {
                 OriginalStaticPostProcessReference reference = state.ReadStaticPostProcessReference(range.TableOffset, slot)
-                    ?? throw new InvalidDataException($"Current324D00 table{range.TableOffset:X} pointer{slot} is unknown.");
-                if (!reference.PhysicalSlot.HasValue) throw new InvalidDataException("Null324D00 receiver is unsafe at virtual slot7.");
-                uint target = reference.Slot7Target ?? throw new InvalidDataException("Current324D00 virtual slot7 target is unknown.");
-                if (target != SupportedTarget(range.TableOffset)) throw new InvalidDataException($"Unsupported324D00 slot7 target{target:X}.");
-                if (target != 0x370500) state.InvokeStaticPostProcess(reference);
+                    ?? throw new InvalidDataException($"Current static table{range.TableOffset:X} pointer{slot} is unknown.");
+                if (!reference.PhysicalSlot.HasValue) throw new InvalidDataException("Static post-processing requires a current receiver.");
+                var callback = reference.Callback ?? throw new InvalidDataException("Current static post-process callback is unknown.");
+                if (callback != SupportedCallback(range.TableOffset))
+                    throw new InvalidDataException($"Unsupported static post-process callback {callback.Kind} for table{range.TableOffset:X}.");
+                if (callback.Kind != OriginalPostLoadCallbackKind.NoOp) state.InvokeStaticPostProcess(reference);
             }
     }
 }

@@ -30,7 +30,7 @@ public static class OriginalSkyCubeBlendFaceMath
             OriginalNativeFloat.Multiply(x.Y,horizontal),OriginalNativeFloat.Multiply(y.Y,vertical),OriginalNativeFloat.Multiply(z.Y,depth),-z.Y,
             OriginalNativeFloat.Multiply(x.Z,horizontal),OriginalNativeFloat.Multiply(y.Z,vertical),OriginalNativeFloat.Multiply(z.Z,depth),-z.Z,
             0,0,OriginalNativeFloat.Multiply(near,depth),0);
-        Matrix4x4 matrix=OriginalNativeMatrixMath.Inverse3F6EB0(viewProjection,out _);
+        Matrix4x4 matrix=OriginalNativeMatrixMath.Invert(viewProjection,out _);
         float[] values=[matrix.M11,matrix.M12,matrix.M13,matrix.M14,
             matrix.M21,matrix.M22,matrix.M23,matrix.M24,
             matrix.M31,matrix.M32,matrix.M33,matrix.M34,

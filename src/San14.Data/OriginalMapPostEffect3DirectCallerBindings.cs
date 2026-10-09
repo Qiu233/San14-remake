@@ -3,8 +3,8 @@ using System.Security.Cryptography;
 
 namespace San14.Data;
 
-/// <summary>95B0C0 returns the actual attachment row at the current target
-/// stack entry, not the texture wrapper. Row60 is95D440's native output color
+/// <summary> returns the actual attachment row at the current target
+/// stack entry, not the texture wrapper. Row60 is's native output color
 /// mode; wrapper60 itself is a different optional pointer. This helper admits
 /// a target the caller actually inherited/bound and its resolved descriptor.</summary>
 public static class OriginalMapPostEffect3InheritedTargetGammaSource
@@ -23,9 +23,9 @@ public static class OriginalMapPostEffect3InheritedTargetGammaSource
         uint mode=ResolveNativeAttachmentOutputMode(actualInheritedTarget.ColorSpace,actualInheritedTarget.OutputColorSpace);
         return new(actualContext.FrameNumber,actualInheritedTarget.OwnerIdentity,actualContext.Source.OwnedHostIdentity,
             mode==1,false,actualInheritedBindingEvidence+";"+actualInheritedTarget.SourceProvenance+";"+
-            "TC:C06FAE..C06FE6-OutputColorSpace2-inherits-ColorSpace;C0701E/94E9D0:creator-output-mode;"+
-            "94EFA6/94EFBE->95D447/95D4B0:attachment60=native-output-mode;95B0C0-current-target-stack-row;"+
-            "EB5F72-target60==1;QVT13C4ED0-v80=C00170-false;"+actualContext.SourceProvenance);
+            ";OutputColorSpace2-inherits-ColorSpace;:creator-output-mode"+
+            "->/:attachment60=native-output-mode;-current-target-stack-row"+
+            "-target60==1;QVT-v80=-false"+actualContext.SourceProvenance);
     }
     public static uint ResolveNativeAttachmentOutputMode(byte colorSpace,byte outputColorSpace)
     {
@@ -35,7 +35,7 @@ public static class OriginalMapPostEffect3InheritedTargetGammaSource
     }
 }
 
-/// <summary>ApplyEB5E01..EB5E1C packs its source view offset in CPU1A3,
+/// <summary>Apply.. packs its source view offset in CPU1A3,
 /// adds the same Q3F8 low31 bits used by the current Main execution and selects
 /// from the same named E1 View collection. This receipt joins those real owners.</summary>
 public sealed class OriginalMapPostEffect3ApplyViewSlotSource
@@ -74,9 +74,9 @@ public sealed class OriginalMapPostEffect3ApplyViewSlotSource
         if(slot>=32||slot!=actualMainExecution.SelectedViewIndex)
             throw new NotSupportedException("Apply selects a different View than this actual World frame; resolve that collection slot before preparing its caller.");
         return new((int)slot,actualWorldFrame.FrameNumber,context.Source.OwnedHostIdentity,invocation.CurrentViewCollectionOwnerIdentity,
-            actualMainExecution.SourceProvenance+";TC:E7BBF1/E7BBF5-argument6-source-byte9075EDA0;E7C3FB-ctorEDX;"+
-            "E6BA9D/E6BAD9/E6BADD:Apply1A3=source-low7;EB5E01/09/15/19/1C:(Apply1A3&7F)+(Q3F8&7FFFFFFF);"+
-            "EB5E2A-current-E1-slot-nonnull;actual-node51-Q-and-view-collection-join");
+            actualMainExecution.SourceProvenance+";argument6-source-byte9075EDA0;-ctorEDX"+
+            ":Apply1A3=source-low7;09/15/19/1C:(Apply1A3&7F)+(Q3F8&7FFFFFFF)"+
+            "-current-E1-slot-nonnull;actual-node51-Q-and-view-collection-join");
     }
 
     public static OriginalMapPostEffect3OwnedDirectCaller PrepareFreshWorldCaller(

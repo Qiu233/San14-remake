@@ -13,7 +13,7 @@ public sealed record OriginalMapPostEffect3Functor1MaskSnapshot(uint LensMaskF4,
     uint EyeMask1E8,int EyeLevelCount1B0,uint CompositeMask64);
 
 /// <summary>One original directory wrapper. The final function AL comes from
-/// v58 BF9280, independently of callback AL and device work. Selection still
+/// v58 , independently of callback AL and device work. Selection still
 /// requires native CS/PS wrapper availability; declarations are no live proof.</summary>
 public sealed class OriginalMapPostEffect3Functor1WrapperRecipe
 {
@@ -45,15 +45,11 @@ public sealed class OriginalMapPostEffect3Functor1WrapperRecipe
     public byte SourceAfterReturnAlAfterReturning=>1;
     public byte SourceFinalizeReturnAl=>1;
     public string Locale=>Pass.Factory.Locale;
-    public uint SourceFinalizeRva=>Pass.Factory.FinalizeHook;
+    public OriginalMapPostEffect3Hook FinalizeHook=>Pass.Factory.FinalizeHook;
     public bool RequiresNativeCsOrPsWrapperForSelection=>true;
-    public uint SourceSelectionRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3Functor1WrapperSource.cs",0x1161D40));
     public int SourceSelectionContextFirstPass1BF4=>45;
     public int SourceSelectionContextDirectoryOrdinal1BF8=>SourceDirectoryOrdinal;
     public int SourceDeclaredProgramMode1C04=>Pass.AutomaticExecution==OriginalMapPostEffect3AutomaticExecution.ComputeDispatch?0:2;
-    public uint SourceResetRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3Functor1WrapperSource.cs",0x1163080));
-    public uint SourceResetTargetSlotsRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3Functor1WrapperSource.cs",0x1163460));
-    public uint SourceResetCurrentPassDescriptorRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3Functor1WrapperSource.cs",0x1161B60));
     public bool MaskRejectedStillSelectsAndResets=>true;
     public bool SelectionModeChangeMayClearTargets=>true;
     public bool ProvesActualFrontendSelectionOrReset=>false;
@@ -133,8 +129,8 @@ public sealed class LoadedOriginalMapPostEffect3Functor1WrapperSource
         foreach(var p in module.ReadFunctorPasses(1))
         {
             var state=states[p.Index];int family=state.Factory.Index-6;
-            if((uint)family>=4||state.Factory.FinalizeHook!=checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3Functor1WrapperSource.cs",0xBF9280))||
-                state.Factory.PassWrapper!=checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3Functor1WrapperSource.cs",family==2?0x1157A20:0x114CD40)))
+            if((uint)family>=4||state.Factory.FinalizeHook!=OriginalMapPostEffect3Hook.AlwaysTrue||
+                state.Factory.PassWrapper!=(family==2?OriginalMapPostEffect3PassWrapper.EyeRepeat:OriginalMapPostEffect3PassWrapper.Standard))
                 throw new InvalidDataException("Functor1 wrapper/finalize native vtable identity differs.");
             int ordinal=Array.IndexOf(NativeCachePasses[family],p.Index);
             if(ordinal<0)throw new InvalidDataException("Functor1 counted pass has no native Before cache entry.");
@@ -165,7 +161,7 @@ public static partial class OriginalDeferredSamplerSources
     {
         if(native.Locale is not ("TC" or "SC"))throw new NotSupportedException("Functor1 wrapper source requires a verified SC/TC profile.");
 
-        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+";render-rules="+native.RenderRuleIdentity+
-            ";114CD40/1157A20-source-Before-masks/repeats/Execute/After/Reset;v58=BF9280-literal1;no-native-live-program-or-device-observation",native.Locale);
+        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;"+";render-rules="+native.RenderRuleIdentity+
+            "-source-Before-masks/repeats/Execute/After/Reset;v58=-literal1;no-native-live-program-or-device-observation",native.Locale);
     }
 }

@@ -63,7 +63,7 @@ public sealed record OriginalMapPostEffect3DepthOfField2TargetView(int SourceTar
     uint NativeViewFormat,RenderingDevice.DataFormat DeviceFormat,Vector2I Extent,string SourceEvidence);
 
 /// <summary>The actual Before sampler setter, independent of LUT assets.
-/// PS7/8 select module manager carriers30/38 through1163970.</summary>
+/// PS7/8 select module manager carriers30/38.</summary>
 public interface IOriginalMapPostEffect3DepthOfField2ManagerSamplerLease:IOriginalMapPostEffect3ComputeSamplerLease
 {
     OriginalMapPostEffect3ManagerSamplerKind ManagerKind{get;}

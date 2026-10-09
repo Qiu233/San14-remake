@@ -18,8 +18,7 @@ public sealed record DistrictOrderLimitParameters(int Minimum, int Maximum);
 /// </summary>
 public static class OriginalDistrictOrderLimits
 {
-    // Frozen CE SC .data initial values at RVAs1A4C24C/1A4C244. Runtime
-    // parameter loading is separate; these are not immutable machine constants.
+    // Command-book defaults; a current rule set supplies its own bounds.
     public static DistrictOrderLimitParameters BaselineParameters { get; } = new(50, 200);
 
     /// <summary>

@@ -4,9 +4,9 @@ using System.Runtime.CompilerServices;
 
 namespace San14.Data;
 
-/// <summary>CPU sources for the actual EB746A controlled branch. This owner
+/// <summary>CPU sources for the actual controlled branch. This owner
 /// deliberately creates fresh all-ten-factory scalar storage; it does not
-/// import an E71690/Functor0 frame or prove controller texture readiness.</summary>
+/// import an /Functor0 frame or prove controller texture readiness.</summary>
 public sealed class OriginalMapPostEffect3OwnedControlledCameraSources
 {
     private OriginalMapPostEffect3OwnedControlledCameraSources(
@@ -44,7 +44,7 @@ public sealed record OriginalMapPostEffect3ControlledCameraCaller(long FrameNumb
     int ActualWorkingSceneWidth,int ActualWorkingSceneHeight,int ActualFxaaMode,
     float ActualGammaDivisorXmm13,float ActualDeltaTime,float ActualLdrLutIntensityXmm9,
     int ActualGatherSizeTypeC0,bool ActualAdaptationLockPredicate,
-    Vector4 ActualViewport1540,Vector4 ActualCompositeLastViewport,int? ActualAb5D10Result,
+    Vector4 ActualViewport1540,Vector4 ActualCompositeLastViewport,int? ActualProjectionClipMode,
     float ActualContextHeatScale254,string SourceEvidence);
 
 /// <summary>The actual selected HDR wrapper and its native metadata snapshot.
@@ -88,7 +88,7 @@ public sealed class OriginalMapPostEffect3ControlledSelectedHdrTexture
     }
 }
 
-/// <summary>Same-frame successful or explicitly absent D59120 light lookup.
+/// <summary>Same-frame successful or explicitly absent light lookup.
 /// The positive branch consumes this actual light's F80 vector. Absence has
 /// its own frozen native fallback; no F0 projection is used.</summary>
 public sealed class OriginalMapPostEffect3ControlledLightLookup
@@ -154,7 +154,7 @@ public sealed record OriginalMapPostEffect3OwnedControlledCameraInputs(
 
 /// <summary>Independent fresh owned Functor1 scalar preparation. Factory
 /// defaults, recovered controlled Camera/light writes, metadata4 and actual
-/// E22860 writes10 are source-ordered. Controller optics/ghost preparation,
+/// writes10 are source-ordered. Controller optics/ghost preparation,
 /// factory Before hooks, resources and GPU execution remain separate gates.</summary>
 public sealed class OriginalMapPostEffect3OwnedControlledCameraFrame
 {
@@ -272,7 +272,7 @@ public sealed class OriginalMapPostEffect3OwnedControlledCameraFrame
             state.ApplyKnownCameraWrites(new(snapshot.FrameNumber,derived.InitializationWrites,native.Camera.SourceEvidence));
             optics.ApplyInitializationToCurrentState(state,allocation);
         }
-        var currentWrites=known.Writes.Concat(derived.ApplyWrites).Concat(extra).OrderBy(w=>w.CallSiteRva).ToArray();
+        var currentWrites=known.Writes.Concat(derived.ApplyWrites).Concat(extra).OrderBy(w=>w.Stage).ToArray();
         var writes=(previous is null?derived.InitializationWrites.Concat(optics.InitializationWrites):
             Enumerable.Empty<OriginalMapPostEffect3ApplyValueWrite>()).Concat(currentWrites)
             .Select(w=>w.CopyAcceptedSnapshot()).ToArray();
@@ -289,7 +289,7 @@ public sealed class OriginalMapPostEffect3OwnedControlledCameraFrame
             actualController.BloomRadiusBitsDC!=BitConverter.SingleToUInt32Bits(derived.BloomAntiFlickerDc)||
             (actualController.BloomEnableAA!=0)!=derived.BloomAntiFlickerAa)
             throw new InvalidDataException("Actual post-Apply controller fields differ from the recovered same-Camera A4/A9/DC/AA writers.");
-        // Ten E22860 fields are from the actual post-Apply controller snapshot.
+        // Ten fields are from the actual post-Apply controller snapshot.
         // Fresh constructor flags must not overwrite those current caller facts.
         var controller=previous?.Controller??native.Execute.ConstructFreshScalarOwner(allocation.Source,allocation.ContextOwnerIdentity);
         controller.AcceptCurrentSnapshot(actualController);
@@ -298,7 +298,7 @@ public sealed class OriginalMapPostEffect3OwnedControlledCameraFrame
             optics,invocation,allocation.ContextOwnerIdentity+"/controlled-mode1");
         return new(snapshot,allocation,defaults,route,controller,tone,derived,Array.AsReadOnly(writes.Concat(optics.Writes).ToArray()),optics,
             defaults.SourceEvidence+";"+native.Camera.SourceEvidence+";"+inputs.PreparedTransfer.SourceEvidence+";"+tone.SourceEvidence+
-            ";"+optics.SourceEvidence+";CPU-Functor1-bank;no-E71690-writes;factory-and-device-execution-remain-separate",
+            ";"+optics.SourceEvidence+"CPU-Functor1-bank;no-writes;factory-and-device-execution-remain-separate",
             previous is null?null:state);
     }
 
@@ -357,26 +357,26 @@ public sealed class LoadedOriginalMapPostEffect3ControlledCameraSource
         var tail=OriginalMapPostEffect3ApplyFreshCameraScalars.ConstructFreshSource(camera,"controlled-field-source-only/tail");
         var writes=new List<OriginalMapPostEffect3ApplyValueWrite>();
         string evidence=SourceEvidence+";"+camera.FrameProvenance+";"+caller.SourceEvidence+";"+light.SourceEvidence;
-        uint Code(uint rva)=>(uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Native.Locale,"OriginalMapPostEffect3OwnedControlledCameraFrame.cs",(int)rva);
-        void W(string name,uint at,uint helper,params uint[] words)
-        {byte[] bytes=new byte[checked(words.Length*4)];for(int i=0;i<words.Length;i++)BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(i*4),words[i]);writes.Add(new(name,Code(at),Code(helper),bytes,evidence));}
-        void F(string name,uint at,uint helper,params float[] values)=>W(name,at,helper,values.Select(BitConverter.SingleToUInt32Bits).ToArray());
-        W("AdaptedScaleLight",0xEB7683,0xE24FA0,caller.ActualAdaptationLockPredicate?lockedAdaptationBits:
+
+        void W(string name,OriginalMapPostEffect3WriteStage stage,params uint[] words)
+        {byte[] bytes=new byte[checked(words.Length*4)];for(int i=0;i<words.Length;i++)BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(i*4),words[i]);writes.Add(new(name,stage,bytes,evidence));}
+        void F(string name,OriginalMapPostEffect3WriteStage stage,params float[] values)=>W(name,stage,values.Select(BitConverter.SingleToUInt32Bits).ToArray());
+        W("AdaptedScaleLight",OriginalMapPostEffect3WriteStage.ControlledAdaptedScaleLight,caller.ActualAdaptationLockPredicate?lockedAdaptationBits:
             BinaryPrimitives.ReadUInt32LittleEndian(camera.Prefix.Span[0x1C4..]));
-        W("AdaptedScaleDark",0xEB7683,0xE24FA0,caller.ActualAdaptationLockPredicate?lockedAdaptationBits:
+        W("AdaptedScaleDark",OriginalMapPostEffect3WriteStage.ControlledAdaptedScaleLight,caller.ActualAdaptationLockPredicate?lockedAdaptationBits:
             BinaryPrimitives.ReadUInt32LittleEndian(camera.Prefix.Span[0x1C8..]));
         float height=derived.EffectiveHeight84;
         float gather=MathF.Min(BitConverter.UInt32BitsToSingle(gatherMaximumBits),
             D(M(A(A(caller.ActualGatherSizeTypeC0,caller.ActualGatherSizeTypeC0),1),BitConverter.UInt32BitsToSingle(gatherFactorBits)),height));
-        W("GatherSizeType",0xEB75B3,0xE253F0,unchecked((uint)caller.ActualGatherSizeTypeC0));
-        F("GatherMaxCoC",0xEB75B3,0xE253F0,gather);
-        F("DOF2HeatSimmerParams",0xEB760F,0xE25390,tail.Float(0x13C0),tail.Float(0x13C4),
+        W("GatherSizeType",OriginalMapPostEffect3WriteStage.ControlledGather,unchecked((uint)caller.ActualGatherSizeTypeC0));
+        F("GatherMaxCoC",OriginalMapPostEffect3WriteStage.ControlledGather,gather);
+        F("DOF2HeatSimmerParams",OriginalMapPostEffect3WriteStage.ControlledDOF2HeatSimmerParams,tail.Float(0x13C0),tail.Float(0x13C4),
             M(tail.Float(0x13C8),caller.ActualContextHeatScale254));
-        W("EnableSeparateHdrLut",0xEB78E5,0xE25C40,
+        W("EnableSeparateHdrLut",OriginalMapPostEffect3WriteStage.ControlledHdrDisplay,
             aux.SeparateHdrMode440==2&&selector.Selector==2?1u:0u);
-        W("HdrTvNit",0xEB78E5,0xE25C40,tail.Word(0x13CC));W("BaseTvNit",0xEB78E5,0xE25C40,tail.Word(0x13D0));
-        F("LdrLutIntensity",0xEB794F,0xE25860,caller.ActualLdrLutIntensityXmm9);
-        W("GammaEnable",0xEB7962,0xE25320,1);F("GammaValue",0xEB7962,0xE25320,D(1,caller.ActualGammaDivisorXmm13));
+        W("HdrTvNit",OriginalMapPostEffect3WriteStage.ControlledHdrDisplay,tail.Word(0x13CC));W("BaseTvNit",OriginalMapPostEffect3WriteStage.ControlledHdrDisplay,tail.Word(0x13D0));
+        F("LdrLutIntensity",OriginalMapPostEffect3WriteStage.ControlledLdrLutIntensity,caller.ActualLdrLutIntensityXmm9);
+        W("GammaEnable",OriginalMapPostEffect3WriteStage.ControlledGamma,1);F("GammaValue",OriginalMapPostEffect3WriteStage.ControlledGamma,D(1,caller.ActualGammaDivisorXmm13));
         uint CameraSourceWord(int ordinal,uint hash,uint type)
         {
             var p=camera.Source.Camera.Properties[ordinal];
@@ -387,32 +387,32 @@ public sealed class LoadedOriginalMapPostEffect3ControlledCameraSource
         uint radialAmount=CameraSourceWord(989,0x40EF01BE,8),radialSamples=CameraSourceWord(994,0x1E65C92A,4);
         bool radialEnabled=BitConverter.UInt32BitsToSingle(radialAmount)!=0&&unchecked((int)radialSamples)>0;
         if(radialEnabled)throw new NotSupportedException("Enabled controlled radial blur requires the actual prepared12E4/12E8 center producer.");
-        W("EnableRadialBlur",0xEB798C,0xE25B50,0);
-        W("HdrTvScale",0xEB7A06,0x114B0F0,selector.Selector==1?hdrTvScaleBits:0x3F800000);
-        Vector4 projection=CalculateLensProjection(camera.Prefix,light.ReadSelectedLight(camera),caller.ActualAb5D10Result);
-        F("LensFlareProjPosFovScale",0xEB7BF8,0xE258F0,projection.X,projection.Y,projection.Z,projection.W);
-        W("EnableFXAA",0xEB7C15,0xE224E0,caller.ActualFxaaMode==1?1u:0u);
-        W("FXAAType",0xEB7C23,0xE25760,raw.Word(0x418));
-        W("FXAAQualityEdgeThreshold",0xEB7C73,0xE256A0,raw.Word(0x41C));
-        W("FXAAQualityEdgeThresholdMin",0xEB7C73,0xE256A0,raw.Word(0x420));
-        W("FXAAQualitySubpixSharpness",0xEB7C83,0xE25670,raw.Word(0x424));
-        W("FXAAQualityLevel",0xEB7C98,0xE25610,raw.Word(0x428));W("FXAAQualityPerformance",0xEB7C98,0xE25610,raw.Word(0x42C));
-        F("Viewport",0xEB7D58,0x114B0F0,0,0,caller.ActualViewport1540.Z,caller.ActualViewport1540.W);
-        F("CompositeLastViewport",0xEB7DEB,0x114B0F0,caller.ActualCompositeLastViewport.X,caller.ActualCompositeLastViewport.Y,
+        W("EnableRadialBlur",OriginalMapPostEffect3WriteStage.ControlledEnableRadialBlur,0);
+        W("HdrTvScale",OriginalMapPostEffect3WriteStage.ControlledHdrTvScale,selector.Selector==1?hdrTvScaleBits:0x3F800000);
+        Vector4 projection=CalculateLensProjection(camera.Prefix,light.ReadSelectedLight(camera),caller.ActualProjectionClipMode);
+        F("LensFlareProjPosFovScale",OriginalMapPostEffect3WriteStage.ControlledLensFlareProjPosFovScale,projection.X,projection.Y,projection.Z,projection.W);
+        W("EnableFXAA",OriginalMapPostEffect3WriteStage.ControlledEnableFXAA,caller.ActualFxaaMode==1?1u:0u);
+        W("FXAAType",OriginalMapPostEffect3WriteStage.ControlledFXAAType,raw.Word(0x418));
+        W("FXAAQualityEdgeThreshold",OriginalMapPostEffect3WriteStage.ControlledFxaaEdges,raw.Word(0x41C));
+        W("FXAAQualityEdgeThresholdMin",OriginalMapPostEffect3WriteStage.ControlledFxaaEdges,raw.Word(0x420));
+        W("FXAAQualitySubpixSharpness",OriginalMapPostEffect3WriteStage.ControlledFXAAQualitySubpixSharpness,raw.Word(0x424));
+        W("FXAAQualityLevel",OriginalMapPostEffect3WriteStage.ControlledFxaaQuality,raw.Word(0x428));W("FXAAQualityPerformance",OriginalMapPostEffect3WriteStage.ControlledFxaaQuality,raw.Word(0x42C));
+        F("Viewport",OriginalMapPostEffect3WriteStage.ControlledViewport,0,0,caller.ActualViewport1540.Z,caller.ActualViewport1540.W);
+        F("CompositeLastViewport",OriginalMapPostEffect3WriteStage.ControlledCompositeLastViewport,caller.ActualCompositeLastViewport.X,caller.ActualCompositeLastViewport.Y,
             caller.ActualCompositeLastViewport.Z,caller.ActualCompositeLastViewport.W);
-        F("DeltaTime",0xEB7DFB,0xD7B4D0,MathF.Max(0,caller.ActualDeltaTime));
+        F("DeltaTime",OriginalMapPostEffect3WriteStage.ControlledDeltaTime,MathF.Max(0,caller.ActualDeltaTime));
         return writes.AsReadOnly();
     }
-    /// <summary>Exact finite D5BF60 normalization, negative-far placement,
-    /// 16900 source-ordered projection and EB7B24 validation/FOV scale branch.
-    /// Actual AB5D10 output remains explicit for the positive-light branch.</summary>
+    /// <summary>Exact finite normalization, negative-far placement,
+    /// 16900 source-ordered projection and validation/FOV scale branch.
+    /// Actual output remains explicit for the positive-light branch.</summary>
     public Vector4 CalculateLensProjection(ReadOnlyMemory<byte> currentCameraPrefix,ReadOnlyMemory<byte>? actualSelectedLight,
-        int? actualAb5D10Result=null)
+        int? actualProjectionClipMode=null)
     {
         if(currentCameraPrefix.Length!=0x3C0)throw new InvalidDataException("Controlled lens projection needs the actual complete Camera prefix.");
         if(actualSelectedLight is null)return defaultLightProjection;
-        if(actualSelectedLight.Value.Length!=0x10C0||actualAb5D10Result is null)
-            throw new NotSupportedException("Positive controlled light projection needs actual AB5D10 output and complete LightData.");
+        if(actualSelectedLight.Value.Length!=0x10C0||actualProjectionClipMode is null)
+            throw new NotSupportedException("Positive controlled light projection needs actual  output and complete LightData");
         float C(int at)=>BinaryPrimitives.ReadSingleLittleEndian(currentCameraPrefix.Span[at..]);
         float L(int at)=>BinaryPrimitives.ReadSingleLittleEndian(actualSelectedLight.Value.Span[at..]);
         float x=L(0xF80),y=L(0xF84),z=L(0xF88);
@@ -424,7 +424,7 @@ public sealed class LoadedOriginalMapPostEffect3ControlledCameraSource
         float clipW=A(A(A(M(x,C(0x10C)),M(y,C(0x11C))),M(z,C(0x12C))),C(0x13C));
         inverse=D(1,clipW);float px=M(clipX,inverse),py=M(clipY,inverse),pz=M(clipZ,inverse);
         if(new[]{px,py,pz,clipW}.Any(v=>!float.IsFinite(v)))throw new NotSupportedException("Controlled lens projection reached an unsupported nonfinite branch.");
-        float threshold=actualAb5D10Result==2?0:BitConverter.UInt32BitsToSingle(lightThresholdBits);
+        float threshold=actualProjectionClipMode==2?0:BitConverter.UInt32BitsToSingle(lightThresholdBits);
         float limit=BitConverter.UInt32BitsToSingle(lightLimitBits),epsilon=BitConverter.UInt32BitsToSingle(lightEpsilonBits);
         bool valid=!(threshold>pz)&&!(0>clipW)&&MathF.Abs(px)<=limit&&MathF.Abs(py)<=limit;
         float vertical=D(BitConverter.UInt32BitsToSingle(lightScaleBits),MathF.Max(C(0x148),epsilon));

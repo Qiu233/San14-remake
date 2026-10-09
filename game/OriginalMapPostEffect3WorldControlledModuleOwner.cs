@@ -244,7 +244,7 @@ public sealed class OriginalMapPostEffect3WorldControlledPortReturnReceipt
     public object CaptureEvidence()=>new{FrameNumber,HistoricalSubmissionCount,ProvesManagedFrontendEnd,ProvesNativeRawStateRestoration,
         sourceFinishOrder=new[]{6,7,8,9},sourceEndArgument=uint.MaxValue,sourceSelectorsFlipped=22,
         managedOuterParentRestored=Scope.OuterRestored,controllerGhostRegistryCleaned=true,controllerA1=0,
-        ApplyHistoryBit23AfterReturn,applyHistoryPostwriter="EB7FFE-success-and-last-call/EB801C-or-EB8035-currentC0",
+        ApplyHistoryBit23AfterReturn,applyHistoryPostwriter="success-and-last-call/current-gather-size",
         exposureWriterFrame=Exposure.WriterFrame,exposureContentsRevision=Exposure.WriterRevision,
         physicalExposureStorageRid=Exposure.Texture.StorageRid.Id,ProvesNextFramePixelsReady,
         acceptedDrawContinuation=Scope.DrawContinuation is{} c?new{c.FrameNumber,c.Counter,c.LastActualGraphicsPass,c.ColorStateF4,

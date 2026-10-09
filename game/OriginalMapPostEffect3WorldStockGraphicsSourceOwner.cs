@@ -101,7 +101,7 @@ public sealed partial class OriginalMapPostEffect3WorldStockGraphicsSourceOwner
         return new WorkingSceneLease(this,reference,texture,native.ShaderViewFormat);
     }
 
-    /// <summary>Actual EB7F49 temporary EA2OutputExposureScale replacement only.
+    /// <summary>Actual temporary EA2OutputExposureScale replacement only.
     /// In this module its primary declaration is61, not LFOutputToneMapInfo5.
     /// A still-owned61 or a missing native setter rejects; no alias is invented.</summary>
     public IOriginalMapPostEffect3ComputeExternalTextureLease LeaseCompletedExposureScale(
@@ -152,7 +152,7 @@ public sealed partial class OriginalMapPostEffect3WorldStockGraphicsSourceOwner
             actualParameters.Allocation.ContextWidth!=Bank.Source.ContextWidth||actualParameters.Allocation.ContextHeight!=Bank.Source.ContextHeight||
             composite.FrameNumber!=Context.FrameNumber||composite.OwnerIdentity!=Bank.Source.ContextOwnerIdentity||
             composite.ConstantBuffer.SourceSha256!=Bank.Source.Source.Sha256||
-            composite.ConstantBuffer.WriterRva!=OriginalMapPostEffect3ParameterComposite.NativeInitializeWriterRva(composite.ConstantBuffer.Locale)||
+            composite.ConstantBuffer.Writer!=OriginalMapPostEffect3ParameterComposite.InitializationWriter||
             composite.ConstantBuffer.Declaration.Index!=16||composite.ConstantBuffer.Bytes.Length!=160||
             composite.BeforeSamplerRequirements is not [{NativeStageOrdinal:2,RegisterIndex:7,NativeManagerSource:"ShaderManager30/source-linear"},
                 {NativeStageOrdinal:2,RegisterIndex:8,NativeManagerSource:"ShaderManager38/source-point"}])
@@ -169,7 +169,7 @@ public sealed partial class OriginalMapPostEffect3WorldStockGraphicsSourceOwner
     {
         public long FrameNumber=>Owner.Context.FrameNumber;
         public string ContextOwnerIdentity=>Owner.Bank.Source.ContextOwnerIdentity;
-        public string SourceEvidence=>Owner.SourceEvidence+";TC:1153340-CompositeBefore;stage2/slot"+SourceRegister+
+        public string SourceEvidence=>Owner.SourceEvidence+";CompositeBefore;stage2/slot"+SourceRegister+
             ";actual-private-factory-initialization16;manager"+(Kind==OriginalMapPostEffect3ManagerSamplerKind.Linear?"30/linear":"38/point");
         public void RequireCurrent()
         {
@@ -193,7 +193,7 @@ public sealed partial class OriginalMapPostEffect3WorldStockGraphicsSourceOwner
         public RenderingDevice.DataFormat DeviceFormat=>Texture.ShaderFormat;
         public Vector3I Extent=>new(Texture.ExplicitExtent.X,Texture.ExplicitExtent.Y,1);
         public string ProducerOwnerIdentity=>Texture.EffectiveSource.OwnerIdentity;
-        public string SourceEvidence=>Owner.SourceEvidence+";EB69F0-actual-working-wrapper-alias;"+Reference.Reference.SourceEvidence;
+        public string SourceEvidence=>Owner.SourceEvidence+";actual-working-wrapper-alias;"+Reference.Reference.SourceEvidence;
         public OriginalMapPostEffect3SharedSampledViewProof RequireSharedSampledViewProof()
             =>OriginalMapPostEffect3SharedSampledViewProof.CaptureWorkingScene(Owner.Context.OutputFrame,Texture,RequireCurrent);
         public void RequireCurrent()
@@ -218,7 +218,7 @@ public sealed partial class OriginalMapPostEffect3WorldStockGraphicsSourceOwner
         public RenderingDevice.DataFormat DeviceFormat=>RenderingDevice.DataFormat.R32G32B32A32Sfloat;
         public Vector3I Extent=>new(2,1,1);
         public string ProducerOwnerIdentity=>Publication.ExposureTexture50.OwnerIdentity;
-        public string SourceEvidence=>Owner.SourceEvidence+";"+Publication.SourceEvidence+";EB7F49-actual-exposure-scale-swap;"+Reference.Reference.SourceEvidence;
+        public string SourceEvidence=>Owner.SourceEvidence+";"+Publication.SourceEvidence+";actual-exposure-scale-swap;"+Reference.Reference.SourceEvidence;
         public void RequireCurrent()
         {
             Owner.RequireCurrent();Owner.TextureParameters.ValidateCurrent(Reference);
@@ -241,7 +241,7 @@ public sealed partial class OriginalMapPostEffect3WorldStockGraphicsSourceOwner
         public uint NativeViewFormat=>Texture.Shape.Formats.RenderTargetFormat0;
         public RenderingDevice.DataFormat DeviceFormat=>Texture.StorageFormat;
         public Vector2I Extent=>new(checked((int)Texture.Shape.Width),checked((int)Texture.Shape.Height));
-        public string SourceEvidence=>Owner.SourceEvidence+";1161D40/1163800-native-pass7-rows56/59-RT0-parameter11;"+Reference.Reference.SourceEvidence;
+        public string SourceEvidence=>Owner.SourceEvidence+";pass7-rows56/59-RT0-parameter11;"+Reference.Reference.SourceEvidence;
         public void RequireCurrentForPass(int sourcePassIndex)
         {
             if(sourcePassIndex!=7)throw new NotSupportedException("This target capability proves pass7 only; no target inheritance is implied.");

@@ -81,8 +81,8 @@ public sealed partial class OriginalBattleRemakeCurrentArmyAttributes
             !float.IsFinite(reached.NeighborFactor))
             throw new InvalidDataException("Current common factor query has unsupported native scalar fields.");
         OriginalBattleUnitCommonParameters? commonParameters = CommonParameters(state);
-        int? moraleOffset = Parameter(state, reached.AlternateMoraleGlobals ? 0x1A4A050 : 0x1A4C6B0);
-        int? moraleDivisor = Parameter(state, reached.AlternateMoraleGlobals ? 0x1A4A05C : 0x1A4C6BC);
+        int? moraleOffset = Parameter(state, reached.AlternateMoraleGlobals ? SimulationParameterKeys.BattleAttributes.AlternateMoraleOffset : SimulationParameterKeys.BattleAttributes.MoraleOffset);
+        int? moraleDivisor = Parameter(state, reached.AlternateMoraleGlobals ? SimulationParameterKeys.BattleAttributes.AlternateMoraleDivisor : SimulationParameterKeys.BattleAttributes.MoraleDivisor);
         float? terrainFactor = TerrainFactor(state, formation, reached.NativeTerrainCode);
         if (commonParameters is null || moraleOffset is null || moraleDivisor is not > 0 || terrainFactor is null) return null;
         float common = OriginalBattleUnitSourceMath.CommonFactor(new(full.Leadership, army.Troops,
@@ -95,7 +95,7 @@ public sealed partial class OriginalBattleRemakeCurrentArmyAttributes
         OriginalBattleUnitStatParameters? attackParameters = StatParameters(state, false), defenseParameters = StatParameters(state, true);
         int? percent = QueryPercent(state, army, formation);
         int? defenseBonus = state.NativeArmySimulation!.Forces.GetValueOrDefault(army.ForceId)?.Flags193 is byte forceFlags
-            ? (forceFlags & 0x20) != 0 && formation == 7 ? Parameter(state, 0x1A4ABBC) : 0 : null;
+            ? (forceFlags & 0x20) != 0 && formation == 7 ? Parameter(state, SimulationParameterKeys.BattleAttributes.Formation7ForceFlagBonus) : 0 : null;
         int? doctrine = ActivePolicy(state, army, 40); //native query0x28, decimal40
         bool? doctrineEligible = doctrine is > 0 ? queries.ReadDoctrineAttackEligibility(state, army) : false;
         if (attackCoefficient is null || defenseCoefficient is null || attackParameters is null || defenseParameters is null ||
@@ -128,12 +128,12 @@ public sealed partial class OriginalBattleRemakeCurrentArmyAttributes
             //The source compares the raw word only; it does not read ownerkind3C.
             if (rawTarget == opponent.NativeArmyOrigin!.NativeSlotIndex)
             {
-                int? multiplier = Parameter(state, 0x1A4A930); if (multiplier is null) return null;
+                int? multiplier = Parameter(state, SimulationParameterKeys.BattleAttributes.ProvokedAttackPercent); if (multiplier is null) return null;
                 attack *= (float)multiplier.Value / source.PercentDenominator;
             }
             else
             {
-                int? multiplier = Parameter(state, 0x1A4A93C); if (multiplier is null) return null;
+                int? multiplier = Parameter(state, SimulationParameterKeys.BattleAttributes.ProvokedOtherTargetDefensePercent); if (multiplier is null) return null;
                 defense *= (float)multiplier.Value / source.PercentDenominator;
             }
         }
@@ -148,9 +148,8 @@ public sealed partial class OriginalBattleRemakeCurrentArmyAttributes
         int? effect = formation switch { >= 1 and <= 7 => formation, >= 8 and <= 10 => 8,
             >= 11 and <= 13 => 9, >= 14 and <= 16 => 0, 17 or 18 => 12, _ => null };
         if (effect == 0) return 100;
-        int? coefficientRva = effect switch { >= 1 and <= 8 => 0x1A4C6F8 + (effect.Value - 1) * 12,
-            9 => 0x1A4C754, 12 => 0x1A49C34, _ => null };
-        int? coefficient = coefficientRva is null ? null : Parameter(state, coefficientRva.Value);
+        string? coefficientKey = effect is null ? null : OriginalBattleRemakeCurrentParameterSeed.FormationEffectKey(effect.Value);
+        int? coefficient = coefficientKey is null ? null : Parameter(state, coefficientKey);
         if (effect is null || coefficient is null || queries.ReadForceFormationEffect(state, army, effect.Value) is not int value) return null;
         return unchecked(100 + unchecked(value * coefficient.Value));
     }
@@ -167,26 +166,26 @@ public sealed partial class OriginalBattleRemakeCurrentArmyAttributes
     private float? TerrainFactor(GameState state, int formation, byte terrain)
     {
         if (terrain is not (5 or 6 or >= 8 and <= 11) || formation is not (6 or 14)) return source.One;
-        int? amount = Parameter(state, formation == 6 ? 0x1A4C668 : 0x1A4A074);
+        int? amount = Parameter(state, formation == 6 ? SimulationParameterKeys.BattleAttributes.Formation6TerrainPercent : SimulationParameterKeys.BattleAttributes.Formation14TerrainPercent);
         return amount is null ? null : (float)amount.Value / source.PercentDenominator;
     }
     private OriginalBattleUnitCommonParameters? CommonParameters(GameState state)
     {
-        int? root = Parameter(state, 0x1A4C674), leadership = Parameter(state, 0x1A4C680), additive = Parameter(state, 0x1A4C68C),
-            numerator = Parameter(state, 0x1A4C698), offset = Parameter(state, 0x1A4C6A4);
+        int? root = Parameter(state, SimulationParameterKeys.BattleAttributes.CommonRootDivisor), leadership = Parameter(state, SimulationParameterKeys.BattleAttributes.CommonLeadershipScale), additive = Parameter(state, SimulationParameterKeys.BattleAttributes.CommonAdditive),
+            numerator = Parameter(state, SimulationParameterKeys.BattleAttributes.CommonDivisorNumerator), offset = Parameter(state, SimulationParameterKeys.BattleAttributes.CommonDivisorOffset);
         return root is null or 0 || leadership is null || additive is null || numerator is null || offset is null ? null :
             new(source.CommonPowerExponent, root.Value, leadership.Value, additive.Value, source.FlagNumerator,
                 source.FlagDenominator, numerator.Value, offset.Value);
     }
     private OriginalBattleUnitStatParameters? StatParameters(GameState state, bool defense)
     {
-        int? limit = Parameter(state, defense ? 0x1A49D04 : 0x1A49C78),
-            step = Parameter(state, defense ? 0x1A4A924 : 0x1A4A900), scale = Parameter(state, defense ? 0x1A4A8AC : 0x1A4A8A0);
+        int? limit = Parameter(state, defense ? SimulationParameterKeys.BattleAttributes.DefenseAbilityLimit : SimulationParameterKeys.BattleAttributes.AttackAbilityLimit),
+            step = Parameter(state, defense ? SimulationParameterKeys.BattleAttributes.DefenseAbilityStep : SimulationParameterKeys.BattleAttributes.AttackAbilityStep), scale = Parameter(state, defense ? SimulationParameterKeys.BattleAttributes.DefenseCoefficientScale : SimulationParameterKeys.BattleAttributes.AttackCoefficientScale);
         return limit is null || step is null || scale is null ? null :
             new(limit.Value, step.Value, step.Value, scale.Value, source.PercentDenominator, source.One);
     }
-    private static int? Parameter(GameState state, int rva) => state.NativeArmySimulation!.Parameters.Int32Values
-        .TryGetValue(OriginalTacticRemakeParameterSeed.Key(rva), out int value) ? value : null;
+    private static int? Parameter(GameState state, string key) => state.NativeArmySimulation!.Parameters.Int32Values
+        .TryGetValue(key, out int value) ? value : null;
 }
 
 public sealed record OriginalBattleRemakeCurrentCityDamageBranch(bool Present, OriginalAttackingCityDamageSourceInput? Input);

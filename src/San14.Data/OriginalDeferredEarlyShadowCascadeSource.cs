@@ -11,8 +11,6 @@ public static class OriginalDeferredEarlyShadowCascadeConstructor
     public const int NativeCpuByteLength = 0x1410;
     public const int OwnCameraOffset = 0x240;
     public const int ControllerOffset = 0x8F0;
-    public const uint SourceTypeVtableRva = 0x01731B70;
-    public const uint SourcePoolDescriptorRva = 0x014D31D0;
     public static int ChildOffset(int index) => (uint)index < 4u
         ? ControllerOffset + 0x60 + index * 0x290
         : throw new ArgumentOutOfRangeException(nameof(index));

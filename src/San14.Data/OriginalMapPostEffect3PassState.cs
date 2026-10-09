@@ -8,9 +8,9 @@ public enum OriginalMapPostEffect3PassOperation {
 }
 public enum OriginalMapPostEffect3FunctorOperation { ResetHookFlags,PrepareHook,InitializeHook,ExecutePass,FinishHook,ClearHookFlags }
 public sealed record OriginalMapPostEffect3FactoryState(int Index,uint NameHash,string NativeName,
-    uint RegistrationCreator,uint PlacementCreator,uint Constructor,uint Vtable,
-    uint PassWrapper,uint PrepareHook,uint InitializeHook,uint FinishHook,
-    uint BeforeHook,uint ExecuteHook,uint AfterHook,uint FinalizeHook)
+    OriginalMapPostEffect3PassWrapper PassWrapper,
+    OriginalMapPostEffect3Hook PrepareHook,OriginalMapPostEffect3Hook InitializeHook,OriginalMapPostEffect3Hook FinishHook,
+    OriginalMapPostEffect3Hook BeforeHook,OriginalMapPostEffect3Hook ExecuteHook,OriginalMapPostEffect3Hook AfterHook,OriginalMapPostEffect3Hook FinalizeHook)
 {
     public string Locale{get;init;}="TC";
 }
@@ -23,45 +23,30 @@ public sealed record OriginalMapPostEffect3PassState(OriginalMapPostEffect3Pass 
     public bool IsCompleteForExecution=>false;
 }
 public sealed record OriginalMapPostEffect3FunctorStep(OriginalMapPostEffect3FunctorOperation Operation,
-    int FactoryIndex,int? SourcePassIndex,uint? SourceHook);
+    int FactoryIndex,int? SourcePassIndex,OriginalMapPostEffect3Hook? SourceHook);
 public sealed record OriginalMapPostEffect3HistorySlot(OriginalMapPostEffect3BindingTable Table,int ParameterIndex);
 
-/// <summary>Source-only protocol for 11466F0 -> 1164140 -> factory.v8.
-/// Hook addresses identify the actual installed implementations; this does not
+/// <summary>Ordered module and factory callback protocol.
+/// Named hooks identify the installed behavior; this does not
 /// evaluate their controller predicates, scalar writes or custom draw commands.</summary>
 public static class OriginalMapPostEffect3PassStateReader
 {
-    private const uint True=0xBF9280,Standard=0x114CD40;
-    // 11444C0 passes the exact names to each creator. Primary114CC30 is stored
-    // at factory+28; 1145CF0 compares it to type7 row+4. Placement v20 creates
-    // the concrete CPU object below. Do not confuse these with Apply functors0/1.
     public static IReadOnlyList<OriginalMapPostEffect3FactoryState> Factories{get;}=Array.AsReadOnly(new[] {
-        new OriginalMapPostEffect3FactoryState(0,0xD93C0DCE,"plTemporalAA",0x11458C0,0x1144EF0,0x11504A0,0x173AEA8,Standard,True,True,True,0x11505A0,True,True,True),
-        new OriginalMapPostEffect3FactoryState(1,0x2413E650,"plLightShaft",0x11455A0,0x1144CC0,0x1153F20,0x173B458,Standard,0x1153DF0,0x1153FA0,True,0x1153F90,True,True,True),
-        new OriginalMapPostEffect3FactoryState(2,0x625AD5EC,"plDepthOfField",0x1145280,0x1144A90,0x1150D60,0x173AFD0,Standard,0x1153DF0,0x1150D90,True,0x1153F90,True,True,True),
-        new OriginalMapPostEffect3FactoryState(3,0xC49F7F09,"plMotionBlur",0x11456E0,0x1144DA0,0x11512F0,0x173B070,Standard,0x1153DF0,0x11513C0,True,0x1153F90,True,True,True),
-        new OriginalMapPostEffect3FactoryState(4,0x6007F69C,"plLensFlare",0x1145460,0x1144BE0,0x1151900,0x173B160,Standard,0x1153DF0,0x1151FF0,True,0x1151B90,0x1153120,True,True),
-        new OriginalMapPostEffect3FactoryState(5,0x3D2D6725,"plComposite",0x1145000,0x1144910,0x1153320,0x173B3E0,Standard,0x1153DF0,0x1153390,True,0x1153340,True,True,True),
-        new OriginalMapPostEffect3FactoryState(6,0xF59F3BCE,"plLensFlare2",0x11453C0,0x1144B70,0x114B1D0,0x173A590,Standard,0x114C640,0x114B500,True,0x114B450,0x114C350,0x114BEA0,True),
-        new OriginalMapPostEffect3FactoryState(7,0x70D82B7A,"plDepthOfField2",0x1145140,0x11449B0,0x1154C00,0x173B608,Standard,0x11564F0,0x1155140,0x1155280,0x1154DC0,0x1155CF0,True,True),
-        new OriginalMapPostEffect3FactoryState(8,0x80E2C49A,"plEyeAdaptation2",0x1145320,0x1144B00,0x1157810,0x173BB68,0x1157A20,0x11592A0,0x1158040,True,0x1157CB0,0x1158DC0,True,True),
-        new OriginalMapPostEffect3FactoryState(9,0xD2C4AC57,"plComposite2",0x1144F60,0x11448A0,0x1159CC0,0x173BD98,Standard,0x115BBA0,0x115A020,True,0x1159DD0,0x115B750,True,True)
+        new OriginalMapPostEffect3FactoryState(0,0xD93C0DCE,"plTemporalAA",OriginalMapPostEffect3PassWrapper.Standard,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.BeforeTemporalAA,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.AlwaysTrue),
+        new OriginalMapPostEffect3FactoryState(1,0x2413E650,"plLightShaft",OriginalMapPostEffect3PassWrapper.Standard,OriginalMapPostEffect3Hook.PrepareMiddle,OriginalMapPostEffect3Hook.InitializeLightShaft,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.BeforeMiddle,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.AlwaysTrue),
+        new OriginalMapPostEffect3FactoryState(2,0x625AD5EC,"plDepthOfField",OriginalMapPostEffect3PassWrapper.Standard,OriginalMapPostEffect3Hook.PrepareMiddle,OriginalMapPostEffect3Hook.InitializeDepthOfFieldLegacy,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.BeforeMiddle,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.AlwaysTrue),
+        new OriginalMapPostEffect3FactoryState(3,0xC49F7F09,"plMotionBlur",OriginalMapPostEffect3PassWrapper.Standard,OriginalMapPostEffect3Hook.PrepareMiddle,OriginalMapPostEffect3Hook.InitializeMotionBlur,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.BeforeMiddle,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.AlwaysTrue),
+        new OriginalMapPostEffect3FactoryState(4,0x6007F69C,"plLensFlare",OriginalMapPostEffect3PassWrapper.Standard,OriginalMapPostEffect3Hook.PrepareMiddle,OriginalMapPostEffect3Hook.InitializeLensLegacy,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.BeforeLensLegacy,OriginalMapPostEffect3Hook.ExecuteLensLegacy,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.AlwaysTrue),
+        new OriginalMapPostEffect3FactoryState(5,0x3D2D6725,"plComposite",OriginalMapPostEffect3PassWrapper.Standard,OriginalMapPostEffect3Hook.PrepareMiddle,OriginalMapPostEffect3Hook.InitializeCompositeLegacy,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.AlwaysTrue),
+        new OriginalMapPostEffect3FactoryState(6,0xF59F3BCE,"plLensFlare2",OriginalMapPostEffect3PassWrapper.Standard,OriginalMapPostEffect3Hook.PrepareLens2,OriginalMapPostEffect3Hook.InitializeLens2,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.BeforeLens2,OriginalMapPostEffect3Hook.ExecuteLens2,OriginalMapPostEffect3Hook.AfterLens2,OriginalMapPostEffect3Hook.AlwaysTrue),
+        new OriginalMapPostEffect3FactoryState(7,0x70D82B7A,"plDepthOfField2",OriginalMapPostEffect3PassWrapper.Standard,OriginalMapPostEffect3Hook.PrepareDepthOfField2,OriginalMapPostEffect3Hook.InitializeDepthOfField2,OriginalMapPostEffect3Hook.FinishDepthOfField2,OriginalMapPostEffect3Hook.BeforeDepthOfField2,OriginalMapPostEffect3Hook.ExecuteDepthOfField2,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.AlwaysTrue),
+        new OriginalMapPostEffect3FactoryState(8,0x80E2C49A,"plEyeAdaptation2",OriginalMapPostEffect3PassWrapper.EyeRepeat,OriginalMapPostEffect3Hook.PrepareEye,OriginalMapPostEffect3Hook.InitializeEye,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.BeforeEye,OriginalMapPostEffect3Hook.ExecuteEye,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.AlwaysTrue),
+        new OriginalMapPostEffect3FactoryState(9,0xD2C4AC57,"plComposite2",OriginalMapPostEffect3PassWrapper.Standard,OriginalMapPostEffect3Hook.PrepareComposite2,OriginalMapPostEffect3Hook.InitializeComposite2,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.BeforeComposite2,OriginalMapPostEffect3Hook.ExecuteComposite2,OriginalMapPostEffect3Hook.AlwaysTrue,OriginalMapPostEffect3Hook.AlwaysTrue)
     });
-
-    private static readonly Lazy<IReadOnlyList<OriginalMapPostEffect3FactoryState>> ScFactories=new(
-        ()=>Array.AsReadOnly(Factories.Select(f=>f with {
-            Locale="SC",
-            RegistrationCreator=Code(f.RegistrationCreator),PlacementCreator=Code(f.PlacementCreator),
-            Constructor=Code(f.Constructor),
-            Vtable=checked((uint)OriginalMapPostEffect3NativeSourceProfile.DataRva("SC","OriginalMapPostEffect3PassState.cs",checked((int)f.Vtable))),
-            PassWrapper=Code(f.PassWrapper),PrepareHook=Code(f.PrepareHook),InitializeHook=Code(f.InitializeHook),
-            FinishHook=Code(f.FinishHook),BeforeHook=Code(f.BeforeHook),ExecuteHook=Code(f.ExecuteHook),
-            AfterHook=Code(f.AfterHook),FinalizeHook=Code(f.FinalizeHook)
-        }).ToArray()));
-    private static uint Code(uint tcRva)=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(
-        "SC","OriginalMapPostEffect3PassState.cs",checked((int)tcRva)));
-    public static IReadOnlyList<OriginalMapPostEffect3FactoryState> FactoriesForLocale(string locale)=>locale switch {
-        "TC"=>Factories,"SC"=>ScFactories.Value,_=>throw new ArgumentOutOfRangeException(nameof(locale))};
+    private static readonly IReadOnlyList<OriginalMapPostEffect3FactoryState> ScFactories=
+        Array.AsReadOnly(Factories.Select(f=>f with{Locale="SC"}).ToArray());
+    public static IReadOnlyList<OriginalMapPostEffect3FactoryState> FactoriesForLocale(string locale)=>locale switch{
+        "TC"=>Factories,"SC"=>ScFactories,_=>throw new ArgumentOutOfRangeException(nameof(locale))};
 
     public static IReadOnlyList<OriginalMapPostEffect3PassState> Read(OriginalMapPostEffect3Container source,string locale="TC")
     {
@@ -99,14 +84,14 @@ public static class OriginalMapPostEffect3PassStateReader
         var unique=passes.Select(p=>p.Factory).DistinctBy(f=>f.Index).ToArray();
         foreach(var f in unique){result.Add(new(OriginalMapPostEffect3FunctorOperation.PrepareHook,f.Index,null,f.PrepareHook));
             result.Add(new(OriginalMapPostEffect3FunctorOperation.InitializeHook,f.Index,null,f.InitializeHook));}
-        foreach(var p in passes)result.Add(new(OriginalMapPostEffect3FunctorOperation.ExecutePass,p.Factory.Index,p.Pass.Index,p.Factory.PassWrapper));
+        foreach(var p in passes)result.Add(new(OriginalMapPostEffect3FunctorOperation.ExecutePass,p.Factory.Index,p.Pass.Index,null));
         var finished=new HashSet<int>();
         foreach(var p in passes){if(finished.Add(p.Factory.Index))result.Add(new(OriginalMapPostEffect3FunctorOperation.FinishHook,p.Factory.Index,p.Pass.Index,p.Factory.FinishHook));
             result.Add(new(OriginalMapPostEffect3FunctorOperation.ClearHookFlags,p.Factory.Index,p.Pass.Index,null));}
         return result.AsReadOnly();
     }
 
-    /// <summary>114CD40 branches only. The bind return is deliberately ignored
+    /// <summary> branches only. The bind return is deliberately ignored
     /// by the original. EyeAdaptation2 has a separate repeat wrapper and must
     /// not consume this single-pass trace.</summary>
     public static IReadOnlyList<OriginalMapPostEffect3PassOperation> ReadStandardProtocol(
@@ -122,7 +107,7 @@ public static class OriginalMapPostEffect3PassStateReader
         result.Add(OriginalMapPostEffect3PassOperation.FinalizeHook);return result.AsReadOnly();
     }
 
-    /// <summary>114AB40 flips every runtime pair after 11466F0's successful
+    /// <summary> flips every runtime pair after 's successful
     /// BeginFunctor, regardless of individual hook/pass results. No flip occurs
     /// when BeginFunctor fails. This is not a per-pass ping-pong.</summary>
     public static IReadOnlyList<OriginalMapPostEffect3HistorySlot> ReadHistoryFlip(OriginalMapPostEffect3AllocationPlan allocation,bool beginFunctorSucceeded)

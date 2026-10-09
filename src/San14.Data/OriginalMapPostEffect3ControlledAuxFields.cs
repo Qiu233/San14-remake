@@ -74,7 +74,7 @@ public sealed class LoadedOriginalMapPostEffect3ControlledAuxSource
             canonical.Flags8,Word(31,0x668912BD,4),Word(10,0xBB7C520E,4),Word(92,0x6B8FE283,5),Word(95,0x29DA6891,5),
             true,
             SourceEvidence+";"+canonical.SourceIdentity+";"+actualCommon.ProducerProvenance+
-            ";D02420-Aux108-source-null/D223C0-no-writer/D1ECE9-F0-arena-current-copy;actual-selected-View;only-read-fields;not-a-synthesized460-record");
+            "-Aux108-source-null/-no-writer/-F0-arena-current-copy;actual-selected-View;only-read-fields;not-a-synthesized460-record");
         fields.ValidateFrame(actualCommon.FrameNumber);return fields;
     }
 }
@@ -91,8 +91,8 @@ public static partial class OriginalDeferredSamplerSources
     {
 
         return new(native,native.RenderRuleIdentity+
-            $";{native.Locale}:paired-Aux-ctor/property-loader/current-copy;TC-reference-role:D02010-ctor;D223C0-102-property-loader;D22A97/D22A9E:ordinal92->local88;D23346:Aux440;"+
-            "D22ABF/D22AC6:ordinal95->local90;D2335E:Aux448;D22FEE:Aux3A8;D23016:Aux3C0;"+
-            "F43360-null-overlay->D1E410-current-copy;D1E5FE/64C/883/89D-preserve-read-fields;D12B69-arenaAux");
+            $"{native.Locale}:paired-Aux-ctor/property-loader/current-copy;-ctor;-102-property-loader;:ordinal92->local88;:Aux440"+
+            ":ordinal95->local90;:Aux448;:Aux3A8;:Aux3C0"+
+            "-null-overlay->-current-copy;64C/883/89D-preserve-read-fields;-arenaAux");
     }
 }

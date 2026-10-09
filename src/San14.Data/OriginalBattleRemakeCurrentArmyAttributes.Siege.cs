@@ -42,8 +42,8 @@ public sealed partial class OriginalBattleRemakeCurrentArmyAttributes
             !float.IsFinite(reached.NeighborFactor)) return null;
 
         OriginalBattleUnitCommonParameters? commonParameters = CommonParameters(state);
-        int? moraleOffset = Parameter(state, reached.AlternateMoraleGlobals ? 0x1A4A050 : 0x1A4C6B0),
-            moraleDivisor = Parameter(state, reached.AlternateMoraleGlobals ? 0x1A4A05C : 0x1A4C6BC);
+        int? moraleOffset = Parameter(state, reached.AlternateMoraleGlobals ? SimulationParameterKeys.BattleAttributes.AlternateMoraleOffset : SimulationParameterKeys.BattleAttributes.MoraleOffset),
+            moraleDivisor = Parameter(state, reached.AlternateMoraleGlobals ? SimulationParameterKeys.BattleAttributes.AlternateMoraleDivisor : SimulationParameterKeys.BattleAttributes.MoraleDivisor);
         float? terrainFactor = TerrainFactor(state, formation, reached.NativeTerrainCode);
         var siegeSource = queries.ReadFormationCoefficient(state, army, formation, OriginalBattleUnitArmyStatKind.SiegeTroopAttack);
         var wallSource = queries.ReadFormationCoefficient(state, army, formation, OriginalBattleUnitArmyStatKind.WallAttack);
@@ -51,12 +51,12 @@ public sealed partial class OriginalBattleRemakeCurrentArmyAttributes
         //19/20 hard100 branch and41D5D0's other valid branches match QueryPercent.
         int? percent = QueryPercent(state, army, formation);
         bool bonusActive = formation == 5 && (flags & 2) != 0;
-        int? siegeBonus = bonusActive ? Parameter(state, 0x1A4ABA4) : 0,
-            wallBonus = bonusActive ? Parameter(state, 0x1A4ABB0) : 0;
-        int? siegeLimit = Parameter(state, 0x1A49C98), siegeStep = Parameter(state, 0x1A4A90C),
-            scale = Parameter(state, 0x1A4A8A0), wallLimit = Parameter(state, 0x1A49CEC),
-            wallStep = Parameter(state, 0x1A4A918), leadDenominator = Parameter(state, 0x1A49CB0),
-            troopOffset = Parameter(state, 0x1A49CBC), troopDenominator = Parameter(state, 0x1A49CC8);
+        int? siegeBonus = bonusActive ? Parameter(state, SimulationParameterKeys.BattleAttributes.SiegeAbilityBonus) : 0,
+            wallBonus = bonusActive ? Parameter(state, SimulationParameterKeys.BattleAttributes.WallAbilityBonus) : 0;
+        int? siegeLimit = Parameter(state, SimulationParameterKeys.BattleAttributes.SiegeAbilityLimit), siegeStep = Parameter(state, SimulationParameterKeys.BattleAttributes.SiegeAbilityStep),
+            scale = Parameter(state, SimulationParameterKeys.BattleAttributes.AttackCoefficientScale), wallLimit = Parameter(state, SimulationParameterKeys.BattleAttributes.WallAbilityLimit),
+            wallStep = Parameter(state, SimulationParameterKeys.BattleAttributes.WallAbilityStep), leadDenominator = Parameter(state, SimulationParameterKeys.BattleAttributes.WallLeadershipDenominator),
+            troopOffset = Parameter(state, SimulationParameterKeys.BattleAttributes.WallTroopOffset), troopDenominator = Parameter(state, SimulationParameterKeys.BattleAttributes.WallTroopDenominator);
         if (commonParameters is null || moraleOffset is null || moraleDivisor is not > 0 || terrainFactor is null ||
             siegeSource is null || wallSource is null || percent is null || siegeBonus is null || wallBonus is null ||
             siegeLimit is null || siegeStep is null || scale is null || wallLimit is null || wallStep is null ||

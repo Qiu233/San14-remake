@@ -48,7 +48,7 @@ public static partial class OriginalD3D11AtmosphereInitialConstantPreparation
         Matrix4x4 ordinaryView=new(F(main,0x80),F(main,0x84),F(main,0x88),F(main,0x8C),
             F(main,0x90),F(main,0x94),F(main,0x98),F(main,0x9C),F(main,0xA0),F(main,0xA4),F(main,0xA8),F(main,0xAC),
             F(main,0xB0),F(main,0xB4),F(main,0xB8),F(main,0xBC));
-        Matrix4x4 inverseView=OriginalNativeMatrixMath.Inverse3F6EB0(ordinaryView,out _);
+        Matrix4x4 inverseView=OriginalNativeMatrixMath.Invert(ordinaryView,out _);
         float maskX=D(1,R(0x9BC)),maskY=D(1,R(0x9C0));
         Vector4 mask=new(maskX,maskY,Flip(M(R(0x9C4),maskX)),Flip(M(R(0x9C8),maskY)));
         var objects=repository.LoadObjects("system",0x718CCB8B);

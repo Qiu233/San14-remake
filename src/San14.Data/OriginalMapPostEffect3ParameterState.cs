@@ -80,7 +80,7 @@ public sealed class OriginalMapPostEffect3ParameterState
         return actualDefaultAllocator.CreateFreshState(source,frameNumber,ownerIdentity);
     }
 
-    /// <summary>114AC40 consumes the low BYTE of type5+0C (not its full u32).
+    /// <summary> consumes the low BYTE of type5+0C (not its full u32).
     /// Runtime record+10 is the value; its occupied stride is minimum32,
     /// otherwise align4(value bytes+20). No initializer is implicitly run.</summary>
     public static OriginalMapPostEffect3ParameterState CreateUninitialized(
@@ -117,7 +117,7 @@ public sealed class OriginalMapPostEffect3ParameterState
         return directory.Scalars.TryGetValue(primaryHash,out int index)?index:null;
     }
 
-    /// <summary>114B170/114B0F0: primary lookup only, exact byte size, false
+    /// <summary>/: primary lookup only, exact byte size, false
     /// without mutation on absence or size mismatch. Type13 is not consulted.</summary>
     public bool SetByName(string name,ReadOnlySpan<byte> bytes,string writerEvidence)
         =>SetByHash(PrimaryNameHash(name),bytes,writerEvidence);
@@ -213,7 +213,7 @@ public sealed class OriginalMapPostEffect3ParameterState
         }
     }
 
-    /// <summary>114CC30 initializes with the first SIGNED byte, then adds that
+    /// <summary> initializes with the first SIGNED byte, then adds that
     /// byte again with weight31. This is intentionally not ResourceNameHash.</summary>
     public static uint PrimaryNameHash(string name)=>PrimaryNameHash(AsciiBytes(name));
     public static uint PrimaryNameHash(ReadOnlySpan<byte> name)

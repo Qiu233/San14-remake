@@ -9,10 +9,10 @@ public sealed class OriginalArmyMoraleParameterSeed
     private const int NegativeMoraleAdjustmentScale = 1;
     public string Language { get; }
     public SourceProvenance Source { get; }
-    public int LogisticsGain1A4BE8C { get; }
-    public int NegativeAdjustmentScale1A4B010 { get; }
+    public int LogisticsGain { get; }
+    public int NegativeAdjustmentScale { get; }
     private OriginalArmyMoraleParameterSeed(string language,SourceProvenance source,int gain,int adjustmentScale)
-        =>(Language,Source,LogisticsGain1A4BE8C,NegativeAdjustmentScale1A4B010)=(language,source,gain,adjustmentScale);
+        =>(Language,Source,LogisticsGain,NegativeAdjustmentScale)=(language,source,gain,adjustmentScale);
     public static OriginalArmyMoraleParameterSeed LoadPinnedSeed(OriginalGameRepository repository,string language)
     {
         ArgumentNullException.ThrowIfNull(repository);
@@ -23,7 +23,7 @@ public sealed class OriginalArmyMoraleParameterSeed
     public GameState InstallFresh(GameState state,OriginalEventInitializationContext freshDefinitions,string revision)
     {
         ArgumentNullException.ThrowIfNull(state);ArgumentNullException.ThrowIfNull(freshDefinitions);
-        string adjustmentKey=OriginalTacticRemakeParameterSeed.Key(0x1A4B010);
+        string adjustmentKey=SimulationParameterKeys.Morale.NegativeAdjustmentScale;
         if(state.NativeArmySimulation?.Parameters is not { } parameters||state.NativeClock is not { UpdateOrdinal:0,UpdatesIntoPeriod:0 } clock||
             state.Units.Count!=0||parameters.Int32Values.Keys.Any(key=>key.StartsWith("native-base-morale44:",StringComparison.Ordinal))||
             parameters.Int32Values.ContainsKey(adjustmentKey)||parameters.Float32Values.ContainsKey(adjustmentKey)||
@@ -33,9 +33,9 @@ public sealed class OriginalArmyMoraleParameterSeed
             state.NativeArmySimulation.World.SamplerEpoch is { } epoch&&
                 (epoch.NativeClockRevision!=clock.Revision||epoch.SourceScenarioUri!=definitionSource.ResourceUri||epoch.SourceScenarioSha256!=definitionSource.Sha256))
             throw new InvalidDataException("Fresh Army morale owners require the same source scenario/clock and matching initial parameter allocation.");
-        var values=new Dictionary<string,int>(parameters.Int32Values);string gainKey=OriginalTacticRemakeParameterSeed.Key(0x1A4BE8C);
-        values.TryAdd(gainKey,LogisticsGain1A4BE8C);
-        values.Add(adjustmentKey,NegativeAdjustmentScale1A4B010);
+        var values=new Dictionary<string,int>(parameters.Int32Values);string gainKey=SimulationParameterKeys.Morale.LogisticsGain;
+        values.TryAdd(gainKey,LogisticsGain);
+        values.Add(adjustmentKey,NegativeAdjustmentScale);
         for(int slot=0;slot<52;slot++)Copy(freshDefinitions.ReadCityTableReference(slot));
         for(int slot=0;slot<11;slot++)Copy(freshDefinitions.ReadGateTableReference(slot));
         void Copy(OriginalBaseReference? reference)

@@ -85,7 +85,7 @@ public static partial class OriginalTransportArmyRouteSource
             if (wallPermission)
             {
                 ushort wall = K(current.ReadCaptureHexWord16(Hex(raw).PhysicalSlot!.Value), "Hex16");
-                if (wall != 0) value = unchecked(value + unchecked((int)((uint)wall * (uint)Parameter(0x1A4B1BC))) / 100);
+                if (wall != 0) value = unchecked(value + unchecked((int)((uint)wall * (uint)Parameter(SimulationParameterKeys.TransportRoute.WallPenaltyPercent))) / 100);
             }
             return value;
         }
@@ -163,9 +163,9 @@ public static partial class OriginalTransportArmyRouteSource
             int otherForce = commander.PhysicalSlot is int p && K(current.ReadPersonNativeValidity(p), "occupant_Person_validity")
                 ? K(current.ReadPersonOldForceSlot(p), "occupant_Force") : 0;
             if (K(OriginalArmyLogisticsPreparation.ReadNativeRelationGate(state, force, otherForce), "occupant_relation"))
-                return Parameter(0x1A4B1D4);
+                return Parameter(SimulationParameterKeys.TransportRoute.FriendlyOccupantPenalty);
             if (other?.NativeTacticRuntime is not { } runtime) throw Missing("occupant_Army24");
-            bool blocks = runtime.Abnormal24 >= Parameter(0x1A4B1C8);
+            bool blocks = runtime.Abnormal24 >= Parameter(SimulationParameterKeys.TransportRoute.BlockingAbnormalThreshold);
             if (!blocks)
             {
                 if (other.NativeArmyConfiguration?.Action37 is not byte action) throw Missing("occupant_Action37");
@@ -176,8 +176,8 @@ public static partial class OriginalTransportArmyRouteSource
                     throw Missing("occupant_2C9830_action_branch");
                 else blocks = true;
             }
-            return Parameter(blocks ? 0x1A4B1EC : 0x1A4B1E0);
+            return Parameter(blocks ? SimulationParameterKeys.TransportRoute.BlockingOccupantPenalty : SimulationParameterKeys.TransportRoute.NonblockingOccupantPenalty);
         }
-        private int Parameter(int tc) => K(OriginalTransportArmyRouteInputs.ReadCurrentTc(state, tc), "parameter_" + tc.ToString("X"));
+        private int Parameter(string key) => K(OriginalTransportArmyRouteInputs.ReadCurrent(state, key), "parameter_" + key);
     }
 }

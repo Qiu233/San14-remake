@@ -431,7 +431,7 @@ public sealed partial class OriginalOwnedArmyDestructionStage(OriginalOwnedArmyC
             for (int i = 0; i < 4; i++) value |= Known(current.ReadPersonalityByte(trait, 0xA8 + i), "Personality_radiusA8") << (i * 8);
             if (value >= 1) return value;
         }
-        return Known(OriginalArmyDestructionParameterSeed.ReadCurrentTc(state, 0x1A49FB8), "Personality_default_radius");
+        return Known(OriginalArmyDestructionParameterSeed.ReadCurrent(state, SimulationParameterKeys.ArmyDestruction.PersonalityDefaultRadius), "Personality_default_radius");
     }
     private static T Known<T>(T? value, string field) where T : struct => value ?? throw Missing("current." + field);
     private static InvalidDataException Missing(string field) => new(field);

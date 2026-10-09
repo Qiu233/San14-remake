@@ -131,7 +131,7 @@ public sealed class OriginalMapPostEffect3Functor1FrontendCursor
         if(before.RequiresDynamicPixelTextureBinding&&before.SourceTextureParameterIndex is{} input)
         {
             var clones=RequireEyeCloneCatalog();
-            Cache.SetBeforeTexture(2,0,clones.Metadata(clones.RequireDynamicSource(before),input),pass,"1157F5A/FA9-Eye-Before-array-clone-t0");
+            Cache.SetBeforeTexture(2,0,clones.Metadata(clones.RequireDynamicSource(before),input),pass,"Eye-Before-array-clone-t0");
         }
         if(before.RequiresDynamicTargetBinding&&before.TargetTextureParameterIndex is{} output)
             Cache.SetBeforeTarget(0,frame.CaptureDirectoryTextureMetadata(output),before.TargetMipLevel!.Value,-1,pass,"Eye-Before-target-mip");
@@ -183,7 +183,7 @@ public sealed class OriginalMapPostEffect3Functor1FrontendCursor
         RequireExecuting();if(selected?.Recipe.SourcePassIndex!=pass||!selected.Recipe.RequiresLensAfterDeviceJoin||actualBind is null||
             !actualIterationAccepted||lensAfterReset)
             throw new InvalidDataException("Lens After reset lacks its exact selected producer.");
-        Cache.ResetResources("114BEF0/114C0D7-LensAfter-internal-reset",pass);lensAfterReset=true;
+        Cache.ResetResources("LensAfter-internal-reset",pass);lensAfterReset=true;
     }
     internal void AcceptCompleteLensAfter(IOriginalMapPostEffect3Functor1ActualDeviceReceipt actual)
     {

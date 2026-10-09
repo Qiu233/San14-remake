@@ -22,7 +22,7 @@ public sealed class OriginalMapPostEffect3ApplyMode1WriterScope
     {
         ArgumentNullException.ThrowIfNull(actualContext);ArgumentNullException.ThrowIfNull(actualRoute);
         ArgumentNullException.ThrowIfNull(actualCameraSelection);RequireCurrentContext(actualContext);
-        if(!actualRoute.ExecutesEc3360Fallback||actualRoute.ExecutesModuleFunctor||
+        if(!actualRoute.ExecutesToneFallback||actualRoute.ExecutesModuleFunctor||
             actualCameraSelection.FrameNumber!=actualContext.FrameNumber||actualRoute.FrameNumber!=actualContext.FrameNumber||
             actualCameraSelection.OwnerIdentity!=Source.OwnedHostIdentity||actualCameraSelection.Slot!=0||
             actualCameraSelection.Camera is not { } camera)
@@ -71,7 +71,7 @@ internal sealed class OriginalMapPostEffect3OwnedMainHostCallbackScope
 }
 
 /// <summary>Same-frame source writer family, not GPU submission acknowledgement.
-/// CommonAux300 need not be guessed absent: native EB9A75 first tests the
+/// CommonAux300 need not be guessed absent: native first tests the
 /// selected Q overlay, which this owned fresh constructor clears.</summary>
 public sealed class OriginalMapPostEffect3ApplyMode1WriterScopeCurrent
 {
@@ -84,11 +84,11 @@ public sealed class OriginalMapPostEffect3ApplyMode1WriterScopeCurrent
     public OriginalMapPostEffect3ApplyMode1Route Route { get; }
     public OriginalMapPostEffect3ApplyFallbackCameraSelection CameraSelection { get; }
     public long FrameNumber=>Context.FrameNumber;
-    public uint Virtual170TargetRva=>Owner.Source.Host.Locale=="TC"?0xA624F0u:0xA90880u;
+
     public string SourceEvidence=>Owner.Source.SourceProvenance+
-        ";final-Host-Q-v170-ret0;BF58A0-sixteen-Q2F8-overlay-slots-null;Main-slot0;"+
-        "EB84C7-r13-current-CommonAux;EB9A75-null-Q-overlay=>EB9B36-independent-of-Aux300-pointer;"+
-        "E6D4B0/95C070-return-scope-restores-viewport-only;not-GPU-receipt";
+        "final-Host-Q-v170-ret0;-sixteen-Q2F8-overlay-slots-null;Main-slot0"+
+        "-r13-current-CommonAux;-null-Q-overlay=>-independent-of-Aux300-pointer"+
+        "-return-scope-restores-viewport-only;not-GPU-receipt";
     public void Validate(OriginalMapCameraConstructionPacket camera,OriginalMapPostEffect3ApplyMode1Route route)
     {
         Owner.RequireCurrentContext(Context);

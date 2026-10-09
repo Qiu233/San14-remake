@@ -10,8 +10,8 @@ public sealed partial class OriginalEventInitializationContext : IOriginalAssoci
     private readonly Dictionary<int, byte?> _associatedTreeNilFlags = [];
     private readonly Dictionary<int, OriginalPersonLinkedEntityReference?> _associatedTreePayloads = [];
     private readonly Dictionary<int, OriginalRegistryListHandle?> _associatedChainDescriptors = [];
-    private readonly Dictionary<int, uint?> _associatedPayloadSlot7Targets = [];
-    public Dictionary<uint, Action<OriginalPersonLinkedEntityReference>> AssociatedPayloadSlot7Handlers { get; } = [];
+    private readonly Dictionary<int, OriginalPostLoadCallback?> _associatedPayloadPostLoadCallbacks = [];
+    public Dictionary<string, Action<OriginalPersonLinkedEntityReference>> AssociatedPayloadPostLoadHandlers { get; } = new(StringComparer.Ordinal);
 
     public OriginalAssociatedContainerReference? ReadCurrentAssociatedContainer() => _currentAssociatedContainer;
     public void SetCurrentAssociatedContainer(OriginalAssociatedContainerReference? container)
@@ -41,16 +41,17 @@ public sealed partial class OriginalEventInitializationContext : IOriginalAssoci
         => ReadNativeListPayload<OriginalPersonLinkedEntityReference>(NodeIdentity(new(node.Identity)));
     public void SetAssociatedChainPayload(OriginalRegistryListNodeReference node, OriginalPersonLinkedEntityReference payload)
     { ArgumentNullException.ThrowIfNull(payload); _nativeListPayloads[NodeIdentity(new(node.Identity))] = payload; }
-    public void SetAssociatedPayloadSlot7Target(int identity, uint? target)
-    { CheckOpaque(identity, "associated payload"); _associatedPayloadSlot7Targets[identity] = target; }
+    public void SetAssociatedPayloadPostLoadCallback(int identity, OriginalPostLoadCallback? callback)
+    { CheckOpaque(identity, "associated payload"); _associatedPayloadPostLoadCallbacks[identity] = callback; }
     public void InvokeAssociatedPayloadSlot7(OriginalPersonLinkedEntityReference payload)
     {
         int identity = AssociatedIdentity(payload.Identity, "payload");
-        uint target = _associatedPayloadSlot7Targets.GetValueOrDefault(identity)
-            ?? throw new InvalidDataException("Current associated payload slot7 target is unknown.");
-        if (target == 0x370500) return; //The14 identified CCmdAction classes.
-        if (AssociatedPayloadSlot7Handlers.TryGetValue(target, out var handler)) { handler(payload); return; }
-        throw new InvalidDataException($"Unsupported associated payload slot7 target{target:X}.");
+        var callback = _associatedPayloadPostLoadCallbacks.GetValueOrDefault(identity)
+            ?? throw new InvalidDataException("Current associated payload post-load callback is unknown.");
+        if (callback == OriginalPostLoadCallback.NoOp) return;
+        if (callback.Kind == OriginalPostLoadCallbackKind.External && callback.HandlerIdentity is { } handlerIdentity &&
+            AssociatedPayloadPostLoadHandlers.TryGetValue(handlerIdentity, out var handler)) { handler(payload); return; }
+        throw new InvalidDataException($"Unsupported associated payload post-load callback {callback.Kind}/{callback.HandlerIdentity}.");
     }
     public OriginalAssociatedPostLoadResult PostProcessAssociatedObjects() => OriginalAssociatedObjectPostLoad.Apply(this);
 

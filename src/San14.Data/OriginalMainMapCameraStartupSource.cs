@@ -6,8 +6,6 @@ public sealed class LoadedOriginalMainMapCameraStartupSource
     internal LoadedOriginalMainMapCameraStartupSource(string locale) => Locale=OriginalMainMapCameraRules.Language(locale);
     public string Locale { get; }
     public string RuleVersion => OriginalMainMapCameraRules.Version;
-    /// <summary>Opaque address namespace in the existing CPU packet format; never a loaded image or callable address.</summary>
-    public ulong CpuAddressBase => 0x140000000UL;
     public uint StaticProjectionProfile => 2;
     public int AppMode288AfterReset => 0;
     public int ModeOverride28CAfterReset => -1;

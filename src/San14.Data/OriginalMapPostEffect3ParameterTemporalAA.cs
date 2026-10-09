@@ -3,7 +3,7 @@ using System.Numerics;
 
 namespace San14.Data;
 
-/// <summary>Native11504A0 initializes three identity matrix histories and
+/// <summary>Native initializes three identity matrix histories and
 /// byteD0=1. These are handler fields, not globally initialized scalar values.</summary>
 public sealed record OriginalMapPostEffect3ParameterTemporalAAHistory
 {
@@ -57,7 +57,7 @@ public static class OriginalMapPostEffect3ParameterTemporalAA
         {
             var value=state.RequireValue("TemporalAAEnable");
             if(value.Length!=4)throw new InvalidDataException("3SPK TemporalAAEnable extent differs.");
-            enabled=value.Span[0]!=0; //11505F3 reads a byte, not signed-positive int.
+            enabled=value.Span[0]!=0; // reads a byte, not signed-positive int.
         }
         if(!enabled)return new(state.FrameNumber,history.Next(state.FrameNumber,history.Current10,false),null);
 
@@ -77,7 +77,7 @@ public static class OriginalMapPostEffect3ParameterTemporalAA
         float autoExposure=OptionalInt(state,"AutoExposureEnable",1)==1?1:0;
         float exposure=OptionalFloat(state,"ExposureValue",1);
         if(tonemap==0)autoExposure=0;
-        //11508DF uses the source parameter lookup result, not texture readiness.
+        // uses the source parameter lookup result, not texture readiness.
         bool hasVelocity=allocation.TextureParameters.Any(t=>t.NameHash==
             OriginalMapPostEffect3ParameterState.PrimaryNameHash("TAAInputVelocity"))||
             allocation.TextureParameters.Any(t=>t.NameHash==OriginalMapPostEffect3ParameterState.PrimaryNameHash("InputVelocity"));
@@ -87,12 +87,12 @@ public static class OriginalMapPostEffect3ParameterTemporalAA
         if(cb.ByteCount!=160||cb.Ownership!=OriginalMapPostEffect3AllocationOwnership.OwnedDeclaration)
             throw new InvalidDataException("3SPK native TemporalAA CB capacity differs.");
         byte[] bytes=new byte[160];
-        //999B40 delegates to the already recovered full SSE3F6EB0 inverse.
-        WriteMatrix(bytes,0,OriginalNativeMatrixMath.Inverse3F6EB0(current,out _));WriteMatrix(bytes,64,next.Previous50);
+        // delegates to the already recovered full SSE3F6EB0 inverse.
+        WriteMatrix(bytes,0,OriginalNativeMatrixMath.Invert(current,out _));WriteMatrix(bytes,64,next.Previous50);
         Put(bytes,128,velocity);Put(bytes,132,basis);Put(bytes,136,threshold);Put(bytes,140,hasVelocity?1:0);
         Put(bytes,144,tonemap);Put(bytes,148,autoExposure);Put(bytes,152,exposure);
         BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(156),0);
-        return new(state.FrameNumber,next,new(state,cb,0x11505A0,bytes));
+        return new(state.FrameNumber,next,new(state,cb,OriginalMapPostEffect3ConstantBufferWriter.TemporalAA,bytes));
     }
 
     private static float OptionalFloat(OriginalMapPostEffect3ParameterState state,string name,float absentFallback)

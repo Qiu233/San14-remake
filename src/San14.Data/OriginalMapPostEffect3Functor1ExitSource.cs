@@ -34,8 +34,8 @@ public static partial class OriginalDeferredSamplerSources
     {
         if(native.Locale is not ("TC" or "SC"))throw new NotSupportedException("Functor1 exit source requires a verified SC/TC profile.");
 
-        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+";render-rules="+native.RenderRuleIdentity+
-            ";TC:1164140-whole72-before-Finish6/7/8/9;1155280-count10;1146848-End/1146851-pairs/1146856-outerRestore;"+
-            "E22C22-bit0/E22C29-buffer4-cleanup/E22C8E-A1;CPU-source-protocol-only",native.Locale);
+        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;"+";render-rules="+native.RenderRuleIdentity+
+            ";whole72-before-Finish6/7/8/9;-count10;-End/-pairs/-outerRestore"+
+            "-bit0/-buffer4-cleanup/-A1;CPU-source-protocol-only",native.Locale);
     }
 }

@@ -39,7 +39,7 @@ public static class OriginalSky2CameraLightPreparation
             rigid[a] = A(M(w,x),rigid[a]);rigid[a+1] = A(M(w,y),rigid[a+1]);
             rigid[a+2] = A(M(w,z),rigid[a+2]);
         }
-        Matrix4x4 inverse = OriginalNativeMatrixMath.Inverse3F6EB0(explicitCameraMatrixB0,out _);
+        Matrix4x4 inverse = OriginalNativeMatrixMath.Invert(explicitCameraMatrixB0,out _);
         Matrix4x4 cameraToLocal = Multiply17B070(Multiply17B070(inverse,Matrix(rigid)),sky);
         if (explicitControllerMatrix1B0 is Matrix4x4 localToGlobal) Finite(localToGlobal);
         bool reverse = (explicitPreparedCameraFlags148 & 2u) != 0;

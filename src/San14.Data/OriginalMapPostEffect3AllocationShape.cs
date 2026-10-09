@@ -2,7 +2,7 @@ namespace San14.Data;
 
 public enum OriginalMapPostEffect3TextureDimension { Texture2D, Texture3D }
 
-/// <summary>953A40's exact six format mapping outputs. The installed mapping
+/// <summary>'s exact six format mapping outputs. The installed mapping
 /// permits typeless resources with typed views; native codes are not DXGI codes.</summary>
 public sealed record OriginalMapPostEffect3TextureFormats(uint ResourceFormat,
     uint ShaderResourceFormat0,uint ShaderResourceFormat1,uint RenderTargetFormat0,
@@ -12,9 +12,9 @@ public sealed record OriginalMapPostEffect3TextureShape(int ParameterIndex,
     OriginalMapPostEffect3TextureDimension Dimension,uint Width,uint Height,uint Depth,
     int MipLevels,bool AllowsUnorderedAccess,bool HasRenderTargetPath,
     uint NativeFlagBit3,uint NativeFlagBit4,OriginalMapPostEffect3TextureFormats Formats,
-    uint NativeAllocatorSlot,uint NativeBackendCreator);
+    uint NativeAllocatorSlot);
 
-/// <summary>11468D0 -> allocator 01738AB0 v20/v28 -> native D3D texture creation.
+/// <summary> -> allocator v20/v28 -> native D3D texture creation.
 /// This only resolves declared resource shape, not pass choice or live views.</summary>
 public static class OriginalMapPostEffect3AllocationShapeReader
 {
@@ -36,11 +36,10 @@ public static class OriginalMapPostEffect3AllocationShapeReader
         int levels=p.RawSignedByte1C>=chain?chain:Math.Max(1,(int)p.RawSignedByte1C);
         bool uav=(p.NativeFlags&1)!=0,rt=dimension==OriginalMapPostEffect3TextureDimension.Texture2D&&(p.NativeFlags&2)!=0;
         return new(p.Index,dimension,allocation.Width,allocation.Height,depth,levels,uav,rt,
-            (uint)((p.NativeFlags>>3)&1),(uint)((p.NativeFlags>>4)&1),ReadFormats(p.NativeFormat),allocation.NativeCreateSlot,
-            dimension==OriginalMapPostEffect3TextureDimension.Texture3D?0x94CC80u:0x94C6E0u);
+            (uint)((p.NativeFlags>>3)&1),(uint)((p.NativeFlags>>4)&1),ReadFormats(p.NativeFormat),allocation.NativeCreateSlot);
     }
 
-    // Original callback953A40, installed format codes only. Each tuple is an
+    // Original callback, installed format codes only. Each tuple is an
     // exact positive table join, not a guessed family or a universal fallback.
     public static OriginalMapPostEffect3TextureFormats ReadFormats(uint code)=>code switch {
         0=>new(27,28,29,28,29,28),

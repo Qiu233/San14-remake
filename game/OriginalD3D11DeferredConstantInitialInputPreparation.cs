@@ -24,7 +24,7 @@ public static class OriginalD3D11DeferredConstantInitialInputPreparation
         var target = new Vector3(F(raw,0x20),F(raw,0x24),F(raw,0x28));
         var refraction = OriginalDeferredRefractionMath.Prepare(camera,target,F(raw,0x140),F(raw,0x144),
             (BinaryPrimitives.ReadUInt32LittleEndian(raw[0x158..])&2)!=0,0,1,true);
-        var projection = new OriginalDeferredProjectionInputs(OriginalNativeMatrixMath.Inverse3F6EB0(Matrix(raw,0xC0),out _));
+        var projection = new OriginalDeferredProjectionInputs(OriginalNativeMatrixMath.Invert(Matrix(raw,0xC0),out _));
         // The fresh868/C13E58 initialization precedes any node97 temporary
         // viewport setter and is not borrowed from a postdraw restore packet.
         var viewport = OriginalMainMapCameraDeferredSource.CreateFreshThinSurfaceViewport();

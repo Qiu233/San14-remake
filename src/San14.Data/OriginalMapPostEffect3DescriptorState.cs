@@ -19,8 +19,8 @@ public sealed class OriginalMapPostEffect3ApplyExtentPlan
 }
 
 /// <summary>Owned equivalent of the mutable 3SPK descriptor+40/+44 extent.
-/// Fresh creation uses context dimensions; EB691A/EB6927 compares the existing
-/// dimensions and 1145D00/1147830 resizes before execution. The GPU owner must
+/// Fresh creation uses context dimensions; compares the existing
+/// dimensions and resizes before execution. The GPU owner must
 /// serialize calls and acknowledge its actual resize. This class allocates no
 /// resources, executes no native functions and never manufactures pixels.</summary>
 public sealed class OriginalMapPostEffect3DescriptorState
@@ -71,7 +71,7 @@ public sealed class OriginalMapPostEffect3DescriptorState
         if(!plan.RequiresResize||resizeAcknowledged||actualWidth!=plan.Width||actualHeight!=plan.Height)
             throw new InvalidDataException("Resize acknowledgement differs from the exact pending module extent.");
         descriptor=OriginalMapFinalOutputPostEffect3Owner.CreatePresent(descriptor.OwnerIdentity,actualWidth,actualHeight,
-            Source.Source.Source.ResourceUri+";TC:EB696B->1145D00->1147830;actual-owned-resize;"+actualBackendWriterEvidence);
+            Source.Source.Source.ResourceUri+";actual-owned-resize"+actualBackendWriterEvidence);
         ResizeGeneration++;resizeAcknowledged=true;
     }
 

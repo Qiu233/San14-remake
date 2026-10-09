@@ -43,7 +43,7 @@ internal sealed class OriginalMapPostEffect3Functor1GhostRegistryOwner:IAsyncDis
             throw new InvalidDataException("Controller ghost producer exceeds its real native allocation.");
         await OriginalTerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {if(current.Length!=0)rd.BufferUpdate(StorageRid,0,(uint)current.Length,current);return true;});
-        //E24F30 increments the incoming object before releasing former refs.
+        // Replacement increments the incoming object before releasing former refs.
         references++;borrowed8=ControllerIdentity;retained16=ControllerIdentity;
         assigned=camera;dirty=true;
     }

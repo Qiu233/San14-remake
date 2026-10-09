@@ -102,7 +102,7 @@ public sealed class OriginalMainCameraView19B8Owner
             if (!ReferenceEquals(latest, projection) || frameNumber != camera.FrameNumber ||
                 projection.FrameNumber != frameNumber || slot != 0 || cameraOwner != CameraOwnerIdentity ||
                 projection.CurrentView19B8 != (header08 | LockBit) ||
-                camera.ImageBase != accepted.ImageBase || camera.ExecutableLocale != accepted.ExecutableLocale ||
+                camera.ExecutableLocale != accepted.ExecutableLocale ||
                 camera.FrameProvenance != accepted.FrameProvenance || camera.CurrentPose != accepted.CurrentPose ||
                 camera.Lens != accepted.Lens || camera.Matrices != accepted.Matrices ||
                 Convert.ToHexString(SHA256.HashData(camera.Prefix.Span)) != projection.CameraPrefixSha256 ||
@@ -115,7 +115,7 @@ public sealed class OriginalMainCameraView19B8Owner
     {
         ArgumentNullException.ThrowIfNull(camera);
         if (camera.FrameNumber < 1 || string.IsNullOrWhiteSpace(camera.FrameProvenance) ||
-            camera.ExecutableLocale is not ("SC" or "TC") || camera.ImageBase == 0 ||
+            camera.ExecutableLocale is not ("SC" or "TC") ||
             camera.Prefix.Length != OriginalMapCameraConstruction.PrefixByteLength ||
             camera.Source.Camera.ObjectId != OriginalDefaultView0Source.MainCameraObjectId)
             throw new InvalidDataException("Main Camera19B8 requires a complete current stock Main38D04576 Camera.");

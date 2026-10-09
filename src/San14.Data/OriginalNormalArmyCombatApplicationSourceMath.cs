@@ -3,7 +3,7 @@ using San14.Core;
 namespace San14.Data;
 
 public sealed record OriginalNormalArmyCombatApplicationSourceField(string Name,
-    int SemanticScRva, int PhysicalRva, int Value, string Sha256);
+    string Key, int Value);
 
 /// <summary>Current numeric globals reached by the Army application stages.
 /// Terrain category1 is a saved runtime allocation, distinct from backed data.</summary>
@@ -81,18 +81,14 @@ public sealed record OriginalNormalArmyCombatMoraleReceipt(int Loss,
 /// The ordinary caller's frame20+22 request is distinct from common gross damage.</summary>
 public static class OriginalNormalArmyCombatApplicationSourceMath
 {
-    public const int Terrain1ScRva = 0x27D48A4;
-    public const int Terrain1TcRva = 0x27D3844;
     public static OriginalNormalArmyCombatApplicationSourceParameters LoadInitial(
         OriginalGameRepository repository, string language)
     {
         ArgumentNullException.ThrowIfNull(repository);
         OriginalBattleUnitSourceProfile profile = ForLanguage(language);
-        int delta = language == "TC" ? 0x1030 : 0;
         var fields = FieldDefinitions.Select(field => new OriginalNormalArmyCombatApplicationSourceField(
-            field.Name, field.Rva, field.Rva - delta, field.Value, string.Empty)).Append(
-                new("terrain1LoaderZero", Terrain1ScRva,
-                    language == "TC" ? Terrain1TcRva : Terrain1ScRva, 0, string.Empty)).ToArray();
+            field.Name, field.Key, field.Value)).Append(
+                new("terrain1LoaderZero", SimulationParameterKeys.NormalCombatApplication.TerrainOneAddend, 0)).ToArray();
         return new(language, SimulationRuleSources.Provenance(
             "san14-remake://rules/normal-army-application/v1", language), profile, fields,
             Values(fields.Select(field => field.Value).ToArray()));
@@ -115,14 +111,14 @@ public static class OriginalNormalArmyCombatApplicationSourceMath
             throw new InvalidDataException("Normal application seed requires a fresh matching empty simulation owner.");
         foreach (var field in source.Fields)
         {
-            string key = OriginalTacticRemakeParameterSeed.Key(field.SemanticScRva);
+            string key = field.Key;
             if (parameters.Int32Values.Keys.Concat(parameters.Float32Values.Keys)
                 .Any(existing => string.Equals(existing, key, StringComparison.OrdinalIgnoreCase)))
                 throw new InvalidDataException("Normal application seed cannot overwrite an existing current key.");
         }
         var integers = new Dictionary<string, int>(parameters.Int32Values, parameters.Int32Values.Comparer);
         foreach (var field in source.Fields)
-            integers.Add(OriginalTacticRemakeParameterSeed.Key(field.SemanticScRva), field.Value);
+            integers.Add(field.Key, field.Value);
         var current = parameters with
         {
             Int32Values = integers,
@@ -146,7 +142,7 @@ public static class OriginalNormalArmyCombatApplicationSourceMath
         var values = new int[FieldDefinitions.Length];
         for (int index = 0; index < values.Length; index++)
         {
-            string key = OriginalTacticRemakeParameterSeed.Key(FieldDefinitions[index].Rva);
+            string key = FieldDefinitions[index].Key;
             if (parameters.Float32Values.ContainsKey(key) || !parameters.Int32Values.TryGetValue(key, out values[index])) return null;
         }
         return source.WithCurrentValues(Values(values), parameters.Revision);
@@ -154,7 +150,7 @@ public static class OriginalNormalArmyCombatApplicationSourceMath
 
     public static int? ReadCurrentTerrain1Addend(GameState state)
     {
-        string key = OriginalTacticRemakeParameterSeed.Key(Terrain1ScRva);
+        string key = SimulationParameterKeys.NormalCombatApplication.TerrainOneAddend;
         return state.NativeArmySimulation?.Parameters is { } owner &&
             !owner.Float32Values.ContainsKey(key) && owner.Int32Values.TryGetValue(key, out int value) ? value : null;
     }
@@ -347,27 +343,27 @@ public static class OriginalNormalArmyCombatApplicationSourceMath
     private const int MoraleProbabilityScaleDefault = 125;
     private const int MoraleLossSamplerBoundDefault = 3;
 
-    private static readonly (string Name, int Rva, int Value)[] FieldDefinitions =
+    private static readonly (string Name, string Key, int Value)[] FieldDefinitions =
     [
-        ("charmScale", 0x1A4C3DC, CharmScaleDefault),
-        ("charmDenominator", 0x1A4C3E8, CharmDenominatorDefault),
-        ("moraleScale", 0x1A4C3F4, MoraleScaleDefault),
-        ("moraleDenominator", 0x1A4C400, MoraleDenominatorDefault),
-        ("adjacentAddend", 0x1A4C40C, AdjacentAddendDefault),
-        ("terrain2Addend", 0x1A4C420, Terrain2AddendDefault),
-        ("terrain3Addend", 0x1A4C42C, Terrain3AddendDefault),
-        ("terrain4Addend", 0x1A4C438, Terrain4AddendDefault),
-        ("terrain5Addend", 0x1A4C444, Terrain5AddendDefault),
-        ("terrain6Addend", 0x1A4C450, Terrain6AddendDefault),
-        ("terrain7Addend", 0x1A4C45C, Terrain7AddendDefault),
-        ("terrain8Addend", 0x1A4C468, Terrain8AddendDefault),
-        ("terrain9Addend", 0x1A4C474, Terrain9AddendDefault),
-        ("terrain10Addend", 0x1A4C480, Terrain10AddendDefault),
-        ("difficultyPlayerAddend", 0x1A4C498, DifficultyPlayerAddendDefault),
-        ("specialForceAddend", 0x1A4C4A4, SpecialForceAddendDefault),
-        ("woundedSubtractionPercent", 0x1A4C48C, WoundedSubtractionPercentDefault),
-        ("moraleProbabilityScale", 0x1A4C3AC, MoraleProbabilityScaleDefault),
-        ("moraleLossSamplerBound", 0x1A4C3A0, MoraleLossSamplerBoundDefault),
+        ("charmScale", SimulationParameterKeys.NormalCombatApplication.CharmScale, CharmScaleDefault),
+        ("charmDenominator", SimulationParameterKeys.NormalCombatApplication.CharmDenominator, CharmDenominatorDefault),
+        ("moraleScale", SimulationParameterKeys.NormalCombatApplication.MoraleScale, MoraleScaleDefault),
+        ("moraleDenominator", SimulationParameterKeys.NormalCombatApplication.MoraleDenominator, MoraleDenominatorDefault),
+        ("adjacentAddend", SimulationParameterKeys.NormalCombatApplication.AdjacentAddend, AdjacentAddendDefault),
+        ("terrain2Addend", SimulationParameterKeys.NormalCombatApplication.Terrain2Addend, Terrain2AddendDefault),
+        ("terrain3Addend", SimulationParameterKeys.NormalCombatApplication.Terrain3Addend, Terrain3AddendDefault),
+        ("terrain4Addend", SimulationParameterKeys.NormalCombatApplication.Terrain4Addend, Terrain4AddendDefault),
+        ("terrain5Addend", SimulationParameterKeys.NormalCombatApplication.Terrain5Addend, Terrain5AddendDefault),
+        ("terrain6Addend", SimulationParameterKeys.NormalCombatApplication.Terrain6Addend, Terrain6AddendDefault),
+        ("terrain7Addend", SimulationParameterKeys.NormalCombatApplication.Terrain7Addend, Terrain7AddendDefault),
+        ("terrain8Addend", SimulationParameterKeys.NormalCombatApplication.Terrain8Addend, Terrain8AddendDefault),
+        ("terrain9Addend", SimulationParameterKeys.NormalCombatApplication.Terrain9Addend, Terrain9AddendDefault),
+        ("terrain10Addend", SimulationParameterKeys.NormalCombatApplication.Terrain10Addend, Terrain10AddendDefault),
+        ("difficultyPlayerAddend", SimulationParameterKeys.NormalCombatApplication.DifficultyPlayerAddend, DifficultyPlayerAddendDefault),
+        ("specialForceAddend", SimulationParameterKeys.NormalCombatApplication.SpecialForceAddend, SpecialForceAddendDefault),
+        ("woundedSubtractionPercent", SimulationParameterKeys.NormalCombatApplication.WoundedSubtractionPercent, WoundedSubtractionPercentDefault),
+        ("moraleProbabilityScale", SimulationParameterKeys.NormalCombatApplication.MoraleProbabilityScale, MoraleProbabilityScaleDefault),
+        ("moraleLossSamplerBound", SimulationParameterKeys.NormalCombatApplication.MoraleLossSamplerBound, MoraleLossSamplerBoundDefault),
     ];
 
     public static OriginalBattleUnitSourceProfile ForLanguage(string language)

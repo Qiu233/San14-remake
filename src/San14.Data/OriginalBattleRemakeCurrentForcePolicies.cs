@@ -7,7 +7,7 @@ namespace San14.Data;
 /// <summary>Owned current CE Force policy personnel and Policy effect references.
 /// The one fresh static projection is explicit; the policy bank is saved,
 /// and the optional operation overload reads reached Person fields current.
-/// Native offsets in keys are semantic SC labels, with paired TC consumers.</summary>
+/// Record-field keys preserve the serialized policy and personnel layouts.</summary>
 public static class OriginalBattleRemakeCurrentForcePolicies
 {
     public const string ProfileId = "san14:ce-owned-force-policy-bank-20261002";

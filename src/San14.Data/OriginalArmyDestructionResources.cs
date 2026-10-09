@@ -62,10 +62,10 @@ public static class OriginalArmyDestructionResources
 
             if (woundBlock && ArmyValid(current, victim) && BaseValid(current, captured.VictimHome))
             {
-                int homePercent = P(0x1a4b480), winnerPercent = P(0x1a4b48c);
+                int homePercent = P(SimulationParameterKeys.ArmyDestruction.DefeatedResourcesHomePercent), winnerPercent = P(SimulationParameterKeys.ArmyDestruction.DefeatedResourcesWinnerPercent);
                 if ((ArmyValid(current, winner) && current.IsArmyUnitBoundToSpecialForce(winner!)) ||
                     (BaseValid(current, winnerBase) && SpecialBase(winnerBase!)))
-                { homePercent = P(0x1a4b498); winnerPercent = P(0x1a4b4a4); }
+                { homePercent = P(SimulationParameterKeys.ArmyDestruction.DefeatedResourcesSpecialHomePercent); winnerPercent = P(SimulationParameterKeys.ArmyDestruction.DefeatedResourcesSpecialWinnerPercent); }
                 int homeWound = Percent(Wounded(victim), homePercent);
                 if (selector == 0) homeWound = Math.Min(Percent(homeWound, Advanced7()), TotalVictim());
                 AddBaseWounded(captured.VictimHome, homeWound);
@@ -134,7 +134,7 @@ public static class OriginalArmyDestructionResources
             }
             return new(new(current, captured, writes), null);
 
-            int P(int tcRva) => Get(OriginalArmyDestructionParameterSeed.ReadCurrentTc(state, tcRva), $"current.destruction_parameter{tcRva:X}");
+            int P(string key) => Get(OriginalArmyDestructionParameterSeed.ReadCurrent(state, key), $"current.destruction_parameter{key}");
             int Advanced7() => Get(OriginalBattleRemakeCurrentSettings.ReadAdvancedParameter(state, 7), "current.settings_advanced7");
             bool ForceValid(OriginalForceReference force) => force.PhysicalSlot.HasValue && Get(current.ReadForceNativeValidity(force), "current.winner_Force_validity");
             bool OrdinaryForce(OriginalForceReference force)
@@ -211,9 +211,9 @@ public static class OriginalArmyDestructionResources
             void AddLoot(OriginalBaseReference target)
             {
                 AddBaseResource(target, OriginalArmyDestructionResourceWriteKind.BaseGold34,
-                    Percent(Get(Fields(victim).Gold5C, "current.victim_Army_gold5C"), P(0x1a4b48c)));
+                    Percent(Get(Fields(victim).Gold5C, "current.victim_Army_gold5C"), P(SimulationParameterKeys.ArmyDestruction.DefeatedResourcesWinnerPercent)));
                 AddBaseResource(target, OriginalArmyDestructionResourceWriteKind.BaseSupplies38,
-                    Percent(Get(Fields(victim).Supplies60, "current.victim_Army_supplies60"), P(0x1a4b48c)));
+                    Percent(Get(Fields(victim).Supplies60, "current.victim_Army_supplies60"), P(SimulationParameterKeys.ArmyDestruction.DefeatedResourcesWinnerPercent)));
             }
             void WriteBaseMorale(OriginalBaseReference target, int requested)
             {

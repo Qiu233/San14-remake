@@ -11,7 +11,7 @@ public sealed partial class OriginalOwnedArmyDestructionStage
         try
         {
             OriginalNearbyArmyTemporarySource.FillNearbyArmyTemporary(current, victim,
-                Known(OriginalArmyDestructionParameterSeed.ReadCurrentTc(state, 0x1A49FB8), "nearby_radius"), temporary);
+                Known(OriginalArmyDestructionParameterSeed.ReadCurrent(state, SimulationParameterKeys.ArmyDestruction.PersonalityDefaultRadius), "nearby_radius"), temporary);
             var node = current.ReadRegistryHead(new(temporary.Identity)) ?? throw Missing("current.protector_Army_head");
             while (node.Identity.HasValue)
             {
@@ -47,7 +47,7 @@ public sealed partial class OriginalOwnedArmyDestructionStage
         try
         {
             OriginalNearbyArmyTemporarySource.FillNearbyArmyTemporary(current, victim,
-                Known(OriginalArmyDestructionParameterSeed.ReadCurrentTc(state, 0x1A49FB8), "nearby_radius"), temporary);
+                Known(OriginalArmyDestructionParameterSeed.ReadCurrent(state, SimulationParameterKeys.ArmyDestruction.PersonalityDefaultRadius), "nearby_radius"), temporary);
             var node = current.ReadRegistryHead(new(temporary.Identity)) ?? throw Missing("current.personality_tail_head");
             while (node.Identity.HasValue)
             {

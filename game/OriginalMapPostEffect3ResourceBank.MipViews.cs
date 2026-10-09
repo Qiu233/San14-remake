@@ -23,8 +23,8 @@ public sealed partial class OriginalMapPostEffect3ResourceBank
         if(texture.Shape.Dimension!=OriginalMapPostEffect3TextureDimension.Texture2D||
             !texture.Shape.AllowsUnorderedAccess||texture.Shape.Formats.UnorderedAccessFormat==0)
             throw new NotSupportedException("Source UAV requires an owned ordinary2D storage texture.");
-        // Native compute kind1 -1 selects wrapper+60[0]: TC1163F2D
-        // ->1163610, SC1164FED->11646D0. Kind4 has the same -1=>0.
+        // Native compute kind1 -1 selects wrapper+60[0].
+        // Kind4 has the same -1=>0 selection.
         int mip=mipSelector==-1?0:mipSelector;
         if(mip<0||(uint)mip>=texture.Shape.MipLevels)
             throw new NotSupportedException("Original UAV mip selector lies outside its actual source texture.");

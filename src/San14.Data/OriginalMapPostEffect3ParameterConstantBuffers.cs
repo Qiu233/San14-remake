@@ -8,16 +8,16 @@ public sealed class OriginalMapPostEffect3ParameterConstantBuffer
 {
     private readonly byte[] bytes;
     internal OriginalMapPostEffect3ParameterConstantBuffer(OriginalMapPostEffect3ParameterState state,
-        OriginalMapPostEffect3ConstantBufferParameter declaration,uint writer,byte[] bytes,string locale="TC")
+        OriginalMapPostEffect3ConstantBufferParameter declaration,OriginalMapPostEffect3ConstantBufferWriter writer,byte[] bytes,string locale="TC")
     {
         FrameNumber=state.FrameNumber;OwnerIdentity=state.OwnerIdentity;SourceSha256=state.SourceSha256;
-        Declaration=declaration;WriterRva=writer;Locale=locale;this.bytes=bytes.ToArray();
+        Declaration=declaration;Writer=writer;Locale=locale;this.bytes=bytes.ToArray();
     }
     public long FrameNumber{get;}
     public string OwnerIdentity{get;}
     public string SourceSha256{get;}
     public OriginalMapPostEffect3ConstantBufferParameter Declaration{get;}
-    public uint WriterRva{get;}
+    public OriginalMapPostEffect3ConstantBufferWriter Writer{get;}
     public string Locale{get;}
     public ReadOnlyMemory<byte> Bytes=>bytes.ToArray();
 }
@@ -32,7 +32,7 @@ public sealed record OriginalMapPostEffect3ParameterConstantBufferBinding(int So
     public bool ShaderDeclaresRegister { get; init; } = true;
 }
 
-/// <summary>Explicit inputs to native11592F0: caller width/height/level,
+/// <summary>Explicit inputs to native: caller width/height/level,
 /// RenderContext1C48 and controller1A8. This record supplies values; it does not
 /// claim to recover their current native producers or choose a loop iteration.</summary>
 public sealed record OriginalMapPostEffect3ParameterBloomLoopInputs(int SourceWidth,int SourceHeight,
@@ -43,7 +43,7 @@ public sealed record OriginalMapPostEffect3ParameterBloomLoopInputs(int SourceWi
 /// by PreparePassBindings until their own writers produce complete packets.</summary>
 public static class OriginalMapPostEffect3ParameterConstantBuffers
 {
-    /// <summary>11592F0..11594C6: complete32B cbBloom2Loop per invocation.
+    /// <summary>..: complete32B cbBloom2Loop per invocation.
     /// The separately supplied iteration/context fields have no guessed defaults.</summary>
     public static OriginalMapPostEffect3ParameterConstantBuffer PrepareBloom2Loop(
         OriginalMapPostEffect3ParameterState state,OriginalMapPostEffect3AllocationPlan allocation,
@@ -77,10 +77,10 @@ public static class OriginalMapPostEffect3ParameterConstantBuffers
         Put(bytes,4,OriginalNativeLogarithm.Divide(1,h));Put(bytes,8,inputs.CurrentLoopRate);Put(bytes,12,inputs.Level);
         BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(16),inputs.Controller1A8Word);
         BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(20),0);Put(bytes,24,edgeW);Put(bytes,28,edgeH);
-        return new(state,declaration,checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(locale,"OriginalMapPostEffect3ParameterConstantBuffers.cs",0x11592F0)),bytes,locale);
+        return new(state,declaration,OriginalMapPostEffect3ConstantBufferWriter.BloomLoop,bytes,locale);
     }
 
-    /// <summary>TC11594D0..115970B: actual cbBloom2Main map/write/unmap.
+    /// <summary>..: actual cbBloom2Main map/write/unmap.
     /// Preserves SSE scalar operation order, including native negative sentinel
     /// exposure/anti-flicker values; no brightness adjustment is introduced.</summary>
     public static OriginalMapPostEffect3ParameterConstantBuffer PrepareBloom2Main(
@@ -88,7 +88,7 @@ public static class OriginalMapPostEffect3ParameterConstantBuffers
     {
         Validate(state,allocation);
         var declaration=RequireDeclaration(state,allocation,"cbBloom2Main",32);
-        // 11583E0 gives version4 only if all optional native scalar lookups exist.
+        // gives version4 only if all optional native scalar lookups exist.
         // On the pinned complete 6CA payload they do. Never infer this from a UI setting.
         bool hasVersion4=state.FindScalarIndex("Viewport") is not null&&
             state.FindScalarIndex("Enable4KCBFix") is not null&&state.FindScalarIndex("EnableBloomColorFix") is not null;
@@ -103,10 +103,10 @@ public static class OriginalMapPostEffect3ParameterConstantBuffers
         Put(bytes,4,OriginalNativeFloat.Add(knee,knee));Put(bytes,8,inverseKnee);Put(bytes,12,threshold);
         Put(bytes,16,automatic?-1f:F(state,"UserExposureScale"));
         Put(bytes,20,antiFlicker?-.5f:0f);Put(bytes,24,antiFlicker?1f:-1f);Put(bytes,28,colorFix?1f:0f);
-        return new(state,declaration,checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(locale,"OriginalMapPostEffect3ParameterConstantBuffers.cs",0x11594D0)),bytes,locale);
+        return new(state,declaration,OriginalMapPostEffect3ConstantBufferWriter.BloomMain,bytes,locale);
     }
 
-    /// <summary>11618E0/1162300: retain original type6 row order and stage-bit
+    /// <summary>/: retain original type6 row order and stage-bit
     /// order, with program/RDEF register and byte-size crosschecks. Only explicit
     /// counted type4 CBs are returned; implicit backend/global CBs remain separate.</summary>
     public static IReadOnlyList<OriginalMapPostEffect3ParameterConstantBufferBinding> PreparePassBindings(
@@ -141,7 +141,7 @@ public static class OriginalMapPostEffect3ParameterConstantBuffers
             var packet=byIndex[requirement.ParameterIndex];
             if(requirement.ShaderDeclaredByteCount is int size&&size>packet.Bytes.Length)
                 throw new InvalidDataException("3SPK type4 CB size disagrees with the selected DXBC declaration.");
-            // Native1162300 binds by counted CB index/register, not name.
+            // Native binds by counted CB index/register, not name.
             // Preserve source row duplicates and actual selected stage order.
             result.Add(new(requirement.SourceRowIndex,requirement.StageCode,requirement.RegisterIndex,
                 requirement.Program,packet){ShaderDeclaresRegister=requirement.ShaderDeclaredByteCount is not null});

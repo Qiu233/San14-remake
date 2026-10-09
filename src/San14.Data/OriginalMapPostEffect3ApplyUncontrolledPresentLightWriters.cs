@@ -4,7 +4,7 @@ using System.Runtime.CompilerServices;
 
 namespace San14.Data;
 
-/// <summary>Positive D586B0 lookup selection supplied by its actual View owner.
+/// <summary>Positive lookup selection supplied by its actual View owner.
 /// The private snapshot retains a complete produced LightData. Loading a light
 /// declaration or enabling shafts does not create this selection.</summary>
 public sealed class OriginalMapPostEffect3ApplyUncontrolledPresentLightInputs
@@ -35,7 +35,7 @@ public sealed class OriginalMapPostEffect3ApplyUncontrolledPresentLightInputs
 public sealed record OriginalMapPostEffect3PresentLightCalculatedValues(float WhitePoint,Vector3 SunProjPos,
     Vector2 SunScale,Vector3 SunColor,bool IntoSunLight,int LsGaussBlur,int LsStepLength);
 
-/// <summary>Complete present-light E71690 writers. These are computed after the
+/// <summary>Complete present-light writers. These are computed after the
 /// actual positive lookup and before the direct Camera LS scalar writes.</summary>
 public static class OriginalMapPostEffect3ApplyUncontrolledPresentLightWriters
 {
@@ -47,8 +47,8 @@ public static class OriginalMapPostEffect3ApplyUncontrolledPresentLightWriters
     {
         ArgumentNullException.ThrowIfNull(selection);ArgumentNullException.ThrowIfNull(camera);ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(math);ArgumentNullException.ThrowIfNull(tangent);
-        if(selection.Variant!=OriginalMapPostEffect3ApplyUncontrolledVariant.NativeE71690)
-            throw new NotSupportedException("Present light preparation requires the actual E71690 descriptor route.");
+        if(selection.Variant!=OriginalMapPostEffect3ApplyUncontrolledVariant.LensPresetCameraFields)
+            throw new NotSupportedException("Present light preparation requires the actual  descriptor route");
         if(input.FrameNumber!=camera.FrameNumber||math.Locale!=camera.ExecutableLocale||tangent.Language!=camera.ExecutableLocale||
             input.Light.SourceIdentity.CameraObjectId!=camera.Source.Camera.ObjectId||
             !input.Light.PreparedCameraPrefix.Span.SequenceEqual(camera.Prefix.Span))
@@ -64,22 +64,22 @@ public static class OriginalMapPostEffect3ApplyUncontrolledPresentLightWriters
         Vector3 V3(int offset)=>new(BinaryPrimitives.ReadSingleLittleEndian(input.Light.LocalLightData.Span.Slice(offset,4)),
             BinaryPrimitives.ReadSingleLittleEndian(input.Light.LocalLightData.Span.Slice(offset+4,4)),
             BinaryPrimitives.ReadSingleLittleEndian(input.Light.LocalLightData.Span.Slice(offset+8,4)));
-        // C42BDE..C42C14 copies CPU B88..B98 into embedded Camera E18..E28.
+        // .. copies CPU B88..B98 into embedded Camera E18..E28.
         var values=CalculateExplicitCurrentFields(camera.Prefix,V3(0),V3(0xFA0),P(134,0xEBCADD79),
             new(P(135,0x41C4B441,0,3),P(135,0x41C4B441,1,3),P(135,0x41C4B441,2,3)),
             P(136,0xB2EB70EA),P(290,0xEB8B5927),math,tangent,explicitDispatch);
         string evidence=selection.SourceEvidence+";"+input.SourceEvidence+";"+math.SourceEvidence+
-            ";TC:E71A8B..E71F7F/E897A0;SC:E72ADB..E7302F/E8A950;selected-D586B0-positive;fresh-Camera-E18/E1C/E28/1318";
-        OriginalMapPostEffect3ApplyValueWrite W(string name,uint at,params float[] fields)
-        {byte[] b=new byte[fields.Length*4];for(int i=0;i<fields.Length;i++)BinaryPrimitives.WriteSingleLittleEndian(b.AsSpan(i*4,4),fields[i]);return new(name,at,0xE71690,b,evidence);}
-        OriginalMapPostEffect3ApplyValueWrite Int(string name,uint at,int value)
-        {byte[] b=new byte[4];BinaryPrimitives.WriteInt32LittleEndian(b,value);return new(name,at,0xE71690,b,evidence);}
-        return Array.AsReadOnly(new[]{W("WhitePoint",0xE71AE7,values.WhitePoint),
-            W("SunProjPos",0xE71BBA,values.SunProjPos.X,values.SunProjPos.Y,values.SunProjPos.Z),
-            Int("IntoSunLight",0xE71E95,values.IntoSunLight?1:0),W("SunScale",0xE71EC8,values.SunScale.X,values.SunScale.Y),
-            W("SunColor",0xE71EF1,values.SunColor.X,values.SunColor.Y,values.SunColor.Z),
-            Int("LightShaftEnable",0xE71F2B,input.ActualLightShaftArgument?1:0),
-            Int("LSGaussBlur",0xE71F55,values.LsGaussBlur),Int("LSStepLength",0xE71F7F,values.LsStepLength)});
+            "TC;SC;selected-positive;fresh-Camera-E18/E1C/E28/1318";
+        OriginalMapPostEffect3ApplyValueWrite W(string name,OriginalMapPostEffect3WriteStage stage,params float[] fields)
+        {byte[] b=new byte[fields.Length*4];for(int i=0;i<fields.Length;i++)BinaryPrimitives.WriteSingleLittleEndian(b.AsSpan(i*4,4),fields[i]);return new(name,stage,b,evidence);}
+        OriginalMapPostEffect3ApplyValueWrite Int(string name,OriginalMapPostEffect3WriteStage stage,int value)
+        {byte[] b=new byte[4];BinaryPrimitives.WriteInt32LittleEndian(b,value);return new(name,stage,b,evidence);}
+        return Array.AsReadOnly(new[]{W("WhitePoint",OriginalMapPostEffect3WriteStage.LightWhitePointUpdated,values.WhitePoint),
+            W("SunProjPos",OriginalMapPostEffect3WriteStage.LightSunProjPos,values.SunProjPos.X,values.SunProjPos.Y,values.SunProjPos.Z),
+            Int("IntoSunLight",OriginalMapPostEffect3WriteStage.LightIntoSunLight,values.IntoSunLight?1:0),W("SunScale",OriginalMapPostEffect3WriteStage.LightSunScale,values.SunScale.X,values.SunScale.Y),
+            W("SunColor",OriginalMapPostEffect3WriteStage.LightSunColor,values.SunColor.X,values.SunColor.Y,values.SunColor.Z),
+            Int("LightShaftEnable",OriginalMapPostEffect3WriteStage.LightLightShaftEnable,input.ActualLightShaftArgument?1:0),
+            Int("LSGaussBlur",OriginalMapPostEffect3WriteStage.LightLSGaussBlur,values.LsGaussBlur),Int("LSStepLength",OriginalMapPostEffect3WriteStage.LightLSStepLength,values.LsStepLength)});
     }
 
     /// <summary>Pure scalar primitive for explicit current fields and native
@@ -121,8 +121,8 @@ public static class OriginalMapPostEffect3ApplyUncontrolledPresentLightWriters
         float viewX=A(A(M(nativeLightDirection0.Y,C(0x90)),M(nativeLightDirection0.X,C(0x80))),M(nativeLightDirection0.Z,C(0xA0)));
         float viewY=A(A(M(nativeLightDirection0.Y,C(0x94)),M(nativeLightDirection0.X,C(0x84))),M(nativeLightDirection0.Z,C(0xA4)));
         float viewZ=A(A(M(nativeLightDirection0.Y,C(0x98)),M(nativeLightDirection0.X,C(0x88))),M(nativeLightDirection0.Z,C(0xA8)));
-        // E71C78..E71C8F and E71CF3..E71CF7 round the reciprocal first,
-        // then multiply Z. Combining these into Z / length changes bits.
+        // .. and .. round the reciprocal first,
+        // then multiply Z. Combining these into Z length changes bits.
         float vertical=M(V(1,Max(OriginalMapPostEffect3PresentLightMath.Sqrt(A(A(M(viewY,viewY),0),M(viewZ,viewZ))),epsilon)),viewZ);
         float halfField=Max(Tan(M(C(0x148),.5f),tangent),epsilon),horizontalField=M(halfField,C(0x14C));
         float angularRadius=OriginalMapPostEffect3PresentLightMath.Asin(V(camera1318Radius,Max(epsilon,cameraE18Length)),math);
@@ -136,7 +136,7 @@ public static class OriginalMapPostEffect3ApplyUncontrolledPresentLightWriters
         }
         var scale=new Vector2(Scale(horizontal,horizontalField),Scale(vertical,halfField));
         bool into=(scale.X>0&&scale.Y>0)||color.X>=epsilon||color.Y>=epsilon||color.Z>=epsilon;
-        float floored=MathF.Floor(cameraE28Step); // 101EB80 clears fractional bits; negatives subtract 1.
+        float floored=MathF.Floor(cameraE28Step); // clears fractional bits; negatives subtract 1.
         int step=floored>=2147483648f||floored< -2147483648f?int.MinValue:(int)floored;
         if(new[]{white,projected.X,projected.Y,projected.Z,scale.X,scale.Y,color.X,color.Y,color.Z}.Any(v=>!float.IsFinite(v)))
             throw new NotSupportedException("Present light exceptional projection/normalization requires its separate native path.");
@@ -144,7 +144,7 @@ public static class OriginalMapPostEffect3ApplyUncontrolledPresentLightWriters
     }
     private static float Tan(float angle,LoadedOriginalNativeCameraTangentSource source)
     {
-        // 101FB90 fast reduction supports these bounded signed angles as well
+        // fast reduction supports these bounded signed angles as well
         // as the existing positive half-FOV caller. The same source constants
         // and odd-quadrant reciprocal are retained; no pi subtraction shortcut.
         if(!float.IsFinite(angle)||MathF.Abs(angle)>4)throw new NotSupportedException("Present light tangent left the verified finite fast-reduction domain.");

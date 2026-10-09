@@ -44,7 +44,7 @@ public sealed class OriginalMapSourceCreatedSeasonLightingFrame
         var main=inputs.MainFrame.Camera;
         var optics=inputs.Source.PostEffectScalarSource.CaptureActualMainPreparation(inputs,main);
         return new(current.ToArray(),main.Source,main.CurrentPose,main.Lens,main.Matrices,
-            main.ImageBase,main.ExecutableLocale,FrameNumber,
+            main.ExecutableLocale,FrameNumber,
             main.FrameProvenance+";"+SourceProvenance+";owned-current-season-post-Camera",
             optics.Scalars,optics);
     }

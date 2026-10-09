@@ -203,7 +203,7 @@ public sealed class OriginalMapPostEffect3LensFlare2ExecutionOwner:IAsyncDisposa
         public long FrameNumber=>Source.FrameNumber;public string ContextOwnerIdentity=>Source.ContextOwnerIdentity;
         public int NativeStageOrdinal=>2;public OriginalMapPostEffect3ManagerSamplerKind Kind=>SourceRegister==7?
             OriginalMapPostEffect3ManagerSamplerKind.Linear:OriginalMapPostEffect3ManagerSamplerKind.Point;
-        public string SourceEvidence=>Source.SourceEvidence+";114B4B6/114B4CA-native-PS7-linear/PS8-point-Before";
+        public string SourceEvidence=>Source.SourceEvidence+";PS7-linear/PS8-point-Before";
         public void RequireCurrent(){Owner.RequireLive();Source.RequireCurrent();if(SourceRegister is not(7 or 8))throw new InvalidDataException("LensFlare2 Before only setsPS7/8.");}
     }
     private void RequireLive(){lock(lifetime)ObjectDisposedException.ThrowIf(retiring&&accepted==0,this);}

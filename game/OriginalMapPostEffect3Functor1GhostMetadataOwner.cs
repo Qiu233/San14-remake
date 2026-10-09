@@ -23,8 +23,8 @@ internal sealed class OriginalMapPostEffect3Functor1GhostMetadataOwner
             initializedPrefix.Length!=448||currentPrefix.Length!=producer.GhostSpriteCount*28||currentPrefix.Length>448)
             throw new InvalidDataException("Controller828 metadata lacks its actual fresh448B/stride28 CPU producers.");
         SourceEvidence=native.SourceEvidence+";"+producer.SourceEvidence+
-            ";E24B5E-created-controller828-448B-stride28-source-contract;E24C99-initial-16rows;114B3D0-current-prefix;"+
-            "E22ADF/E24F30-temporary-registry4-logical-retain;managed-metadata-only/no-device-SRV/no-readiness;"+
+            ";controller-448B-stride28;initial-16rows;current-prefix;"+
+            "temporary-registry4-logical-retain;managed-metadata-only/no-device-SRV/no-readiness;"+
             "initialSHA="+Hash(initializedPrefix)+";currentSHA="+Hash(currentPrefix);
     }
     internal void RequireCurrent()

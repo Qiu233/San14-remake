@@ -43,7 +43,7 @@ public static class OriginalDeferredEarlyShadowCompactSamplerSource
         float reciprocal=D(1,MathF.Sqrt(A(A(M(dy,dy),M(dx,dx)),M(dz,dz))));
         Vector4 direction=new(M(dx,reciprocal),M(dy,reciprocal),M(dz,reciprocal),0);
         Matrix4x4 view=OriginalDeferredEarlyShadowLightViewSource.LightViewA07370(eye,direction,up);
-        Matrix4x4 inverse=OriginalNativeMatrixMath.Inverse3F6EB0(texture,out _);
+        Matrix4x4 inverse=OriginalNativeMatrixMath.Invert(texture,out _);
         Vector4 plane=new(view.M13,view.M23,view.M33,S(view.M43,actualPassEndsBB0ToBBC[0]));
         Vector4 output=new(RowDot(plane,inverse.M11,inverse.M12,inverse.M13,inverse.M14),
             RowDot(plane,inverse.M21,inverse.M22,inverse.M23,inverse.M24),

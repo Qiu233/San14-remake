@@ -22,13 +22,13 @@ public static partial class OriginalD3D11AtmosphereInitialConstantPreparation
         foreach(var axis in CloudAxes)input[axis.Phase]=CloudRemainder(S(0,M(options.CloudElapsedSeconds,R(axis.Wind))),R(axis.Period));
         float[] previousVector=new float[4];
         for(int lane=0;lane<3;lane++)previousVector[lane]=CloudRemainder(M(options.CloudElapsedSeconds,R(0x110+lane*4)),R(0xF0+lane*4));
-        var p2w=OriginalNativeMatrixMath.Inverse3F6EB0(worldToProjection,out _);
+        var p2w=OriginalNativeMatrixMath.Invert(worldToProjection,out _);
         Vector3 direction=new(S(target.X,eye.X),S(target.Y,eye.Y),S(target.Z,eye.Z));
         float length=(float)Math.Sqrt(A(A(M(direction.X,direction.X),M(direction.Y,direction.Y)),M(direction.Z,direction.Z)));
         float inverse=D(1,length);direction=new(M(direction.X,inverse),M(direction.Y,inverse),M(direction.Z,inverse));
         var rayCamera=OriginalMapCameraConstructionMath.CompleteAB6C60(new(0,0,0,1),new(direction,1),up,
             lens with{Near=1,Far=100},2,OriginalNativeCameraTangentDispatch.Sse);
-        var rays=OriginalNativeMatrixMath.Inverse3F6EB0(rayCamera.WorldToProjection100,out _);
+        var rays=OriginalNativeMatrixMath.Invert(rayCamera.WorldToProjection100,out _);
         float far=lens.ReverseDepth?0:1,near=lens.ReverseDepth?1:0;float[] vectors=new float[16];
         for(int corner=0;corner<4;corner++)
         {

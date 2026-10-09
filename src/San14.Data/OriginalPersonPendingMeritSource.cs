@@ -23,10 +23,7 @@ public sealed class OriginalPersonPendingMeritSource
     private const int StageOnePendingMeritBonusPercent = 10;
     private const int CreditModeOnePendingMeritPercent = 150;
     private const int CreditModeZeroPendingMeritPercent = 100;
-    private static readonly int[] SemanticGlobals = [0x1A4BFE8, 0x1A4A7DC, 0x1A4C00C, 0x1A4C000, 0x1A4BFF4];
-    public static string GlobalKey(int ordinal) => ordinal is >= 0 and < 5
-        ? OriginalTacticRemakeParameterSeed.Key(SemanticGlobals[ordinal])
-        : throw new ArgumentOutOfRangeException(nameof(ordinal));
+    private static readonly string[] ParameterKeys = [SimulationParameterKeys.PersonMerit.TraitPendingMeritScale, SimulationParameterKeys.PersonMerit.DoctrinePendingMeritBonusPercent, SimulationParameterKeys.PersonMerit.StageOnePendingMeritBonusPercent, SimulationParameterKeys.PersonMerit.CreditModeOnePendingMeritPercent, SimulationParameterKeys.PersonMerit.CreditModeZeroPendingMeritPercent];
     private readonly LoadedScenario _source;
     private readonly string _language, _ruleVersion;
     private readonly int[] _initial;
@@ -59,12 +56,12 @@ public sealed class OriginalPersonPendingMeritSource
         if (!Bound(state) || state.Units.Count != 0 || state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } ||
             state.NativeArmySimulation!.Parameters.Int32Values.ContainsKey(VersionKey) ||
             state.NativeArmySimulation.Parameters.Int32Values.ContainsKey(Panel50Key) ||
-            SemanticGlobals.Any(rva => state.NativeArmySimulation.Parameters.Int32Values.ContainsKey(OriginalTacticRemakeParameterSeed.Key(rva)) ||
-                state.NativeArmySimulation.Parameters.Float32Values.ContainsKey(OriginalTacticRemakeParameterSeed.Key(rva))))
+            ParameterKeys.Any(key => state.NativeArmySimulation.Parameters.Int32Values.ContainsKey(key) ||
+                state.NativeArmySimulation.Parameters.Float32Values.ContainsKey(key)))
             throw new InvalidDataException("Fresh pending merit cannot replace a saved current bank.");
         var simulation = state.NativeArmySimulation!;
         var values = new Dictionary<string, int>(simulation.Parameters.Int32Values) { [VersionKey] = 1, [Panel50Key] = _panel50 };
-        for (int i = 0; i < SemanticGlobals.Length; i++) values.Add(OriginalTacticRemakeParameterSeed.Key(SemanticGlobals[i]), _initial[i]);
+        for (int i = 0; i < ParameterKeys.Length; i++) values.Add(ParameterKeys[i], _initial[i]);
         return state with { NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = values } } };
     }
 
@@ -110,7 +107,7 @@ public sealed class OriginalPersonPendingMeritSource
             current.ReadPersonNativeValidity(ability.PhysicalSlot) is not bool valid ||
             current.ReadForceNativeValidity(force) is not bool forceValid || ability.Secondary1F4 is not byte stage ||
             OriginalBattleRemakeCurrentSettings.ReadSelectorE58(input) is not int selector ||
-            ReadGlobal(input, 0) is not int traitScale)
+            ReadCurrent(input, SimulationParameterKeys.PersonMerit.TraitPendingMeritScale) is not int traitScale)
             return Unknown();
         int trait = 0, policy = 0, doctrine = 0;
         if (valid)
@@ -125,7 +122,7 @@ public sealed class OriginalPersonPendingMeritSource
             policy = panel;
             if ((forceFlags & 8) != 0) return Unknown(); //22C230 current doctrine/name validity owner absent.
         }
-        int? stageScale = stage == 1 ? ReadGlobal(input, 2) : 0;
+        int? stageScale = stage == 1 ? ReadCurrent(input, SimulationParameterKeys.PersonMerit.StageOnePendingMeritBonusPercent) : 0;
         int? scaling;
         if (selector == 0)
         {
@@ -135,7 +132,8 @@ public sealed class OriginalPersonPendingMeritSource
         else
         {
             if (OriginalBattleRemakeCurrentSettings.ReadInt32(input, 0x124) is not int mode) return Unknown();
-            scaling = mode == 1 ? ReadGlobal(input, 3) : mode == 0 ? ReadGlobal(input, 4) : null;
+            scaling = mode == 1 ? ReadCurrent(input, SimulationParameterKeys.PersonMerit.CreditModeOnePendingMeritPercent) :
+                mode == 0 ? ReadCurrent(input, SimulationParameterKeys.PersonMerit.CreditModeZeroPendingMeritPercent) : null;
             if (mode is 0 or 1 && scaling is null) return Unknown();
         }
         if (stageScale is null) return Unknown();
@@ -187,10 +185,9 @@ public sealed class OriginalPersonPendingMeritSource
         return values.GetValueOrDefault(VersionKey) == 1 && values.TryGetValue(Panel50Key, out int value) &&
             value is >= short.MinValue and <= short.MaxValue ? value : null;
     }
-    private int? ReadGlobal(GameState state, int ordinal)
+    private int? ReadCurrent(GameState state, string key)
     {
         var p = state.NativeArmySimulation!.Parameters;
-        string key = OriginalTacticRemakeParameterSeed.Key(SemanticGlobals[ordinal]);
         return p.Int32Values.GetValueOrDefault(VersionKey) == 1 && !p.Float32Values.ContainsKey(key) &&
             p.Int32Values.TryGetValue(key, out int value) ? value : null;
     }

@@ -60,7 +60,7 @@ public sealed class OriginalNativeTerrainStencilCurrentOwner
         var typedTerrain = terrain.CurrentViewPublication.Terrain1BB8 ?? throw new InvalidDataException("Actual terrain View1BB8 publication is missing.");
         var publication = new OriginalTerrainFreshOwnedStencilPublication(context.FrameNumber, typedTerrain.ViewIdentity,
             typedTerrain.CameraOwnerIdentity, OwnerIdentity + "/record0/" + context.FrameNumber,
-            OwnerIdentity + "/F8", source.ShaderSha256, source.NativeRendererVtableTc, actualCurrentCallFlags,
+            OwnerIdentity + "/F8", source.ShaderSha256, source.RendererKind, actualCurrentCallFlags,
             source.TerrainSource.Exclusion2B8, false, false, true, true, true, true,
             OwnerIdentity + "/retained-source-DC52-GBuffer;" + currentExecutionProducer);
         var receipt = source.PrepareCurrent(typedTerrain, actualWorldPQ, publication);

@@ -34,7 +34,7 @@ public static class OriginalArmyMoraleNonzeroCurrent
                 if (trait != 0)
                 {
                     var parameters = state.NativeArmySimulation?.Parameters ?? throw Missing("current_parameters");
-                    string key = OriginalTacticRemakeParameterSeed.Key(0x1A4B010); //CE TC1A49FE0, i32 IMUL.
+                    string key = SimulationParameterKeys.Morale.NegativeAdjustmentScale; //CE TC1A49FE0, i32 IMUL.
                     if (parameters.Float32Values.ContainsKey(key) || !parameters.Int32Values.TryGetValue(key, out int number))
                         throw Missing("current_scale1A49FE0");
                     scale = number;

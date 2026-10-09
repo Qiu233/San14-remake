@@ -7,8 +7,7 @@ public sealed record OriginalNativeSinCos(float Sin, float Cos);
 /// <summary>Native187A40 and1C58E0 scalar arithmetic, independent of the
 /// existing fitted preview projection. Current coordinate origins and the
 /// original custom sine/cosine function has a built-in source implementation.
-/// RVA-based API names retain the historical profile; current SinCos/Quaternion
-/// bodies are014590/1C6690 in both supported CE executables.</summary>
+/// SinCos and Quaternion use project arithmetic in both locales.</summary>
 public sealed class OriginalUnitGeometry
 {
     public float? OriginX1A22578 { get; private set; }

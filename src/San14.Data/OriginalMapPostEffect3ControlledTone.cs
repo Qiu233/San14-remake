@@ -99,7 +99,7 @@ public sealed class OriginalMapPostEffect3ControlledToneSource
                 if(next>chain.Length)throw new InvalidDataException("Native texture metadata record extends outside its actual snapshot.");
                 if(id==16&&found is null)
                 {
-                    if(bytes<40)throw new InvalidDataException("Native metadata16 does not contain the forty bytes read by 1147F60.");
+                    if(bytes<40)throw new InvalidDataException("Native metadata16 does not contain the forty bytes read by");
                     found=cursor+4;
                 }
                 if(chain[cursor+3]!=0)
@@ -155,7 +155,7 @@ public sealed class OriginalMapPostEffect3ControlledToneSource
         ReadOnlyMemory<byte>[] values=[typeBytes,gamutBytes,metadata.NeutralTonemapParams0,metadata.NeutralTonemapParams1];
         for(int i=0;i<targets.Length;i++)
             if(!actualState.SetTypedByHash(targets[i].hash,targets[i].type,1,values[i].Span,
-                metadata.SourceEvidence+";E25A00-four-primary-current-controlled-bank-writes"))
+                metadata.SourceEvidence+"-four-primary-current-controlled-bank-writes"))
                 throw new InvalidDataException("Controlled Tone source scalar target changed.");
     }
 }

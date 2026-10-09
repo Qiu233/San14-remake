@@ -94,15 +94,15 @@ public static class OriginalPersonArmyInjurySource
             if (samplerWorld is null) return Unknown("current.operation_World450_45C");
             if (SpecialForce(current, personPhysical) is not bool special)
                 return Unknown("current.Person_232A50_special_force");
-            int baseRva = special ? health == 0 ? 0x1A4B514 : 0x1A4B520 : health == 0 ? 0x1A4B554 : 0x1A4B560;
-            int divisorRva = special ? health == 0 ? 0x1A4B530 : 0x1A4B53C : health == 0 ? 0x1A4B578 : 0x1A4B584;
+            string baselineKey = special ? health == 0 ? SimulationParameterKeys.ArmyDestruction.SpecialForceHealthyInjuryBase : SimulationParameterKeys.ArmyDestruction.SpecialForceInjuredInjuryBase : health == 0 ? SimulationParameterKeys.ArmyDestruction.OrdinaryForceHealthyInjuryBase : SimulationParameterKeys.ArmyDestruction.OrdinaryForceInjuredInjuryBase;
+            string divisorKey = special ? health == 0 ? SimulationParameterKeys.ArmyDestruction.SpecialForceHealthyAbilityDivisor : SimulationParameterKeys.ArmyDestruction.SpecialForceInjuredAbilityDivisor : health == 0 ? SimulationParameterKeys.ArmyDestruction.OrdinaryForceHealthyAbilityDivisor : SimulationParameterKeys.ArmyDestruction.OrdinaryForceInjuredAbilityDivisor;
             //A preceding source callback in this same uncommitted operation
             //may already have changed health. The effective-ability adapter
             //consumes the saved-field view, so give it the actual current byte.
             var abilityState = native.Health199 == health ? state : state with { Officers = new(state.Officers)
                 { [id] = person with { NativeAbilityRuntime = native with { Health199 = health } } } };
-            if (OriginalArmyDestructionParameterSeed.ReadCurrentTc(state, baseRva) is not int baseline ||
-                OriginalArmyDestructionParameterSeed.ReadCurrentTc(state, divisorRva) is not int divisor ||
+            if (OriginalArmyDestructionParameterSeed.ReadCurrent(state, baselineKey) is not int baseline ||
+                OriginalArmyDestructionParameterSeed.ReadCurrent(state, divisorKey) is not int divisor ||
                 divisor == 0 || abilities.Resolve(abilityState, id) is not { } effective)
                 return Unknown("current.healthy_injury_parameters_and_22FE40_abilities");
             int probability = unchecked(baseline - Math.Max(effective.Intelligence, effective.Strength) / divisor);
@@ -120,7 +120,7 @@ public static class OriginalPersonArmyInjurySource
                         return Unknown("current.World_player_Force3A");
                     if (playerPhysical != 0 && playerPhysical == force.PhysicalSlot)
                     {
-                        if (OriginalArmyDestructionParameterSeed.ReadCurrentTc(state, 0x1A4B5A8) is not int percent)
+                        if (OriginalArmyDestructionParameterSeed.ReadCurrent(state, SimulationParameterKeys.ArmyDestruction.HighDifficultyPlayerInjuryPercent) is not int percent)
                             return Unknown("current.player_injury_multiplier");
                         probability = unchecked(probability * percent) / 100;
                     }
@@ -238,7 +238,7 @@ public static class OriginalPersonArmyInjurySource
             }
             if (value >= 1) return value;
         }
-        return OriginalArmyDestructionParameterSeed.ReadCurrentTc(state, 0x1A49FB8);
+        return OriginalArmyDestructionParameterSeed.ReadCurrent(state, SimulationParameterKeys.ArmyDestruction.PersonalityDefaultRadius);
     }
     private static bool? PlayerDistrict(GameState state, OriginalEventInitializationContext current, int personPhysical)
     {

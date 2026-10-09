@@ -154,8 +154,8 @@ public sealed class OriginalTerritoryStyleSources
     public static OriginalTerritoryInputs Inputs(OriginalDeferredCameraInputs camera,OriginalTerritoryStylePacket style)
     {
         ArgumentNullException.ThrowIfNull(camera);Validate(style);
-        var viewToWorld=OriginalNativeMatrixMath.Inverse3F6EB0(camera.SourceWorldToView,out _);
-        var projectionToWorld=OriginalNativeMatrixMath.Inverse3F6EB0(camera.SourceWorldToProjection,out _);
+        var viewToWorld=OriginalNativeMatrixMath.Invert(camera.SourceWorldToView,out _);
+        var projectionToWorld=OriginalNativeMatrixMath.Invert(camera.SourceWorldToProjection,out _);
         return new(Words(viewToWorld),Words(projectionToWorld),Words(camera.SourceWorldToView),
             InitializedField,style.CellColors.ToArray(),style.LineColors.ToArray(),
             style.FrameColor,style.LineWidths.ToArray(),new(220,220,468,7),new(.5f,1,1,0),new(0,0,0,1),

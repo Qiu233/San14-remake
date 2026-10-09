@@ -137,7 +137,7 @@ public sealed class OriginalPersonFreedomSource(OriginalOwnedArmyCampaignRules p
                 effects.Add("2653xx.29CCB0_player_selected_Person_clear_after_departments");
             }
             short fame = K(current.ReadRulerReleasePopularity1BE(originalForce), "current.freedom_Force1BE");
-            int penalty = K(OriginalArmyDestructionParameterSeed.ReadCurrentTc(input, 0x1A498A4), "current.freedom_popularity_parameter");
+            int penalty = K(OriginalArmyDestructionParameterSeed.ReadCurrent(input, SimulationParameterKeys.ArmyDestruction.PersonFreedomPopularityPenalty), "current.freedom_popularity_parameter");
             fame = (short)Math.Clamp(unchecked(fame - penalty), -1000, 1000);
             current.SetRulerReleasePopularity1BE(originalForce, fame);
             var native = input.NativeArmySimulation!; var forceState = native.Forces[originalForce];

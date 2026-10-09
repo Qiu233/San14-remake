@@ -56,7 +56,7 @@ public static class OriginalBattleRemakeCurrentAreaStatistics
     public const int CurrentVersion = 2;
     private const int Version = CurrentVersion;
     private static string OwnerKey => Prefix + "profile-version";
-    private static string RuntimeCounterKey(int slot) => $"{Prefix}area:{slot}:runtime-33E590";
+    private static string RuntimeCounterKey(int slot) => $"{Prefix}area:{slot}:owned-count-version";
     private static string RegistryCountKey => Prefix + "registered-area-count";
     private static string RegistrySlotKey(int ordinal) => $"{Prefix}registered-area:{ordinal}";
     public static string FieldKey(int physicalAreaSlot, int nativeOffset) =>

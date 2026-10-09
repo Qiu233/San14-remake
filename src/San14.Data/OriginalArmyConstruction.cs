@@ -89,13 +89,13 @@ public sealed class OriginalArmyConstruction : IPlayableArmyCreationRules
             error.Message.EndsWith(" is unknown.", StringComparison.Ordinal)) { return null; }
         if (formation.Bytes.Byte1B != deployment.FormationId || formation.Bytes.Byte1C is null) return null;
 
-        int? initial = Parameter(simulation, 0x1A4A094);
+        int? initial = Parameter(simulation, SimulationParameterKeys.Tactics.InitialWaiting);
         int? adjustment = deployment.FormationId switch
-        { 1 => Parameter(simulation, 0x1A4A04C), 2 => Parameter(simulation, 0x1A4A058),
-          14 => Parameter(simulation, 0x1A4A064), _ => 0 };
-        int? reduction = (forceFlags & 0x40) == 0 ? 0 : Parameter(simulation, 0x1A4AC30);
-        int? cap0 = Parameter(simulation, 0x1A4A08C), cap1 = Parameter(simulation, 0x1A4A098),
-            cap2 = Parameter(simulation, 0x1A4A0A4);
+        { 1 => Parameter(simulation, SimulationParameterKeys.Tactics.Formation1CreationWaitingAdjustment), 2 => Parameter(simulation, SimulationParameterKeys.Tactics.Formation2CreationWaitingAdjustment),
+          14 => Parameter(simulation, SimulationParameterKeys.Tactics.Formation14CreationWaitingAdjustment), _ => 0 };
+        int? reduction = (forceFlags & 0x40) == 0 ? 0 : Parameter(simulation, SimulationParameterKeys.Tactics.ForceFlagWaitingReduction);
+        int? cap0 = Parameter(simulation, SimulationParameterKeys.Tactics.PrimaryWaitingCap), cap1 = Parameter(simulation, SimulationParameterKeys.Tactics.SecondaryWaitingCap),
+            cap2 = Parameter(simulation, SimulationParameterKeys.Tactics.TertiaryWaitingCap);
         if (initial is null || adjustment is null || reduction is null || cap0 is null || cap1 is null || cap2 is null)
             return null;
         int slot;
@@ -144,6 +144,6 @@ public sealed class OriginalArmyConstruction : IPlayableArmyCreationRules
     /// A negative request skips the cap, while a negative cap can wrap on store.</summary>
     public static byte CreationCounter(int request, int cap) => request < 0 ? (byte)0 : unchecked((byte)Math.Min(request, cap));
 
-    private static int? Parameter(NativeArmySimulationState simulation, int scRva) =>
-        simulation.Parameters.Int32Values.TryGetValue(OriginalTacticRemakeParameterSeed.Key(scRva), out int value) ? value : null;
+    private static int? Parameter(NativeArmySimulationState simulation, string key) =>
+        simulation.Parameters.Int32Values.TryGetValue(key, out int value) ? value : null;
 }

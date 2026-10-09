@@ -119,7 +119,7 @@ public sealed partial class OriginalMapSeasonCameraPostEffectScalars
     {
         ValidateForCamera(camera);
         return new(camera.Prefix.ToArray(),camera.Source,camera.CurrentPose,camera.Lens,camera.Matrices,
-            camera.ImageBase,camera.ExecutableLocale,camera.FrameNumber,camera.FrameProvenance+";"+SourceEvidence,this);
+            camera.ExecutableLocale,camera.FrameNumber,camera.FrameProvenance+";"+SourceEvidence,this);
     }
     private readonly record struct Binding(int Prepared,int Ordinal,uint Hash,uint Type);
     private static readonly Binding[] Bindings=

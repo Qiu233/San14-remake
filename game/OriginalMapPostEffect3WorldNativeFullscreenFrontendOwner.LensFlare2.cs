@@ -91,8 +91,8 @@ public sealed partial class OriginalMapPostEffect3WorldNativeFullscreenFrontendO
                 compute.OrderedEffectiveBindings.Count==0||compute.ConstantBufferReads.Any(cb=>cb.ParameterIndex==17&&
                     (!cb.HasCompleteWriterContents||cb.CompleteBytesSha256!=source.ConstantBufferBytesSha256)))
                 throw new InvalidDataException("LensFlare2 compute Release requires its actual selected original shader/dispatch/resource receipt.");
-            //Original1163170 emits its CS automatic command, then the
-            //standard1163080 wrapper clears every cached register/RT slot.
+            // The automatic compute command is emitted, then the
+            // standard wrapper clears every cached register/RT slot.
         }
         actualLensBefore=null;
         if(source.Recipe.RequiresAfterMipGeneration)
@@ -100,7 +100,7 @@ public sealed partial class OriginalMapPostEffect3WorldNativeFullscreenFrontendO
         if(history is not null)submissionLedger!.AcceptAfterActualRelease(history);
     }
 
-    /// <summary>Original114BEA0 After: reset registers, disable RT0 blend,
+    /// <summary>After: reset registers, disable RT0 blend,
     /// choose actual physical wrapper+58 mip, then ScreenBegin and stock
     /// rectangle draw. This context never selects a procedural module VS.</summary>
     public async Task<IOriginalMapPostEffect3LensFlare2AfterStockLease> BindLensFlare2AfterMipAsync(
@@ -129,7 +129,7 @@ public sealed partial class OriginalMapPostEffect3WorldNativeFullscreenFrontendO
             view.Extent!=new Vector3I(checked((int)step.DestinationWidth),checked((int)step.DestinationHeight),1))
             throw new InvalidDataException("LensFlare2 native RT mip rectangle differs from its actual device view extent.");
         var binding=new NativeContext(this,plan.SourcePassIndex,checked(++revision),plan.SourceEvidence+
-            ";114BEA0-stock-After/1163460-reset/959740-color-only/959250-ScreenBegin;not-module-explicit-VS");
+            ";stock-After/reset/color-only/ScreenBegin;not-module-explicit-VS");
         current=binding;
         try
         {
@@ -151,8 +151,8 @@ public sealed partial class OriginalMapPostEffect3WorldNativeFullscreenFrontendO
         var history=submissionLedger?.CaptureLensMip(this,actualExecutor,completed);
         LastRestoredNativeState=stock.Context.NativeState;
         lastReleasedGraphicsPass=completed.Plan.SourcePassIndex;
-        //95A7B0 restores depth/cull/clip and95AB00 pops the actual mip
-        //target.114BEA0 restores its saved RT0 blend enable after all mips.
+        // Restore depth/cull/clip and pop the actual mip
+        // target. Restore the saved RT0 blend enable after all mips.
         current=null;actualLensAfterStock=null;nextLensAfterMip++;
         if(nextLensAfterMip==completed.Plan.Steps.Count)
         {pendingLensAfterSource=null;actualLensAfterPlan=null;nextLensAfterMip=0;}
@@ -185,7 +185,7 @@ public sealed partial class OriginalMapPostEffect3WorldNativeFullscreenFrontendO
         public bool CurrentCustomStockVertexShaderIsAbsent=>Owner.World.CurrentStock.CurrentCustomVertexShaderIsAbsent;
         public IOriginalMapPostEffect3FullscreenDrawContextLease ActualDrawContext=>Context;
         public string SourceEvidence=>Plan.SourceEvidence+";"+Context.SourceEvidence+";"+Owner.World.CurrentStock.SourceProvenance+
-            ";retained-actual-stock29E0/29F0/B0;1161C00-alphaOff->95E970-vATest2860=FF7FFFFF;959250/95A370/95A7B0-stock-screen-helper";
+            ";retained-actual-stock-programs/B0;alphaOff-vATest=FF7FFFFF;stock-screen-helper";
         public void RequireCurrentAfterMip(OriginalMapPostEffect3LensFlare2MipPlan plan,OriginalMapPostEffect3LensFlare2MipStep step)
         {
             Owner.RequireCurrent();Plan.RequireCurrentTextureTable(Owner.World.TextureParameters);Owner.World.CurrentStock.ValidateCurrent();

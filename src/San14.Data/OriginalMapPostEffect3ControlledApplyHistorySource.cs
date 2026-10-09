@@ -1,6 +1,6 @@
 namespace San14.Data;
 
-/// <summary>The EB5D50 post-return bit23 writer and its next E22860 argument.
+/// <summary>The post-return bit23 writer and its next argument.
 /// Only this known bit is modeled; the other Apply1A0 bits are not inferred.</summary>
 public sealed class LoadedOriginalMapPostEffect3ControlledApplyHistorySource
 {
@@ -62,7 +62,7 @@ public sealed class OriginalMapPostEffect3ControlledApplyHistoryState
             actualCamera.FrameNumber!=invocation.FrameNumber||actualCamera.FrameNumber!=LastReturnedFrameNumber+1||
             actualCamera.CaptureAcceptedCamera().ExecutableLocale!=source.Native.Locale)
             throw new InvalidDataException("Apply history postwriter must follow the exact returned current Camera/controller/module source protocol.");
-        // E9E6B0's actual node193 source caller passes index0/count1. The
+        // 's actual node193 source caller passes index0/count1. The
         // controlled Main profile admits this one invocation and View0 only.
         int c0=actualCamera.Invocation.Snapshot.EnableDofA4;
         Bit23=source.ReadBit23Candidate(Bit23,1,0,1,c0);
@@ -84,8 +84,8 @@ public static partial class OriginalDeferredSamplerSources
     {
 
         return new(native,native.RenderRuleIdentity+
-            $";{native.Locale}:paired-Main-Apply-history-profile;TC-reference-role:E9E6B0-node193-callIndex0/count1;EB5F0A-Camera1320&7-localC0;EB5F29/30/33/38-prior-bit23->arg5;"+
-            "EB7F79-E22860/EB7F7E-returnAL;EB7FFE-success/EB8004..12-lastcall;EB801C-C0nonzero-bit23set/EB8035-C0zero-bit23clear;"+
+            $"{native.Locale}:paired-Main-Apply-history-profile;-node193-callIndex0/count1;-Camera1320&7-localC0;30/33/38-prior-bit23->arg5"+
+            "-/-returnAL;-success;12-lastcall;-C0nonzero-bit23set/-C0zero-bit23clear"+
             "failure-and-intermediate-call-preserve;CPU-source-only/no-GPU-or-pixel-readiness");
     }
 }

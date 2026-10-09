@@ -1,6 +1,6 @@
 namespace San14.Data;
 
-/// <summary>Source context110 camera selection used by EC3360. The slot inputs
+/// <summary>Source context110 camera selection used by . The slot inputs
 /// are actual ApplyCPU1A3 and caller record3F8; this helper never infers them from
 /// a View name, archive Camera id or difficulty/game settings.</summary>
 public sealed class OriginalMapPostEffect3ApplyFallbackCameraSelection
@@ -30,8 +30,8 @@ public sealed class OriginalMapPostEffect3ApplyFallbackCameraSelection
                 throw new InvalidDataException("Fallback Camera context entry belongs to another frame.");
             selected=candidate.CopyAcceptedSnapshot();
         }
-        return new(frame,contextOwner,slot,selected,"TC:EC33AF/EC33B5-record3F8-clearbit31;EC33BD/EC33CC-Apply1A3&7F;"+
-            "EC33CF-uint32-add;EC340D-slot<32;EC3412-context110;EC3423-B992A0-present-copy;"+
-            "EC33D1-AB5990-absent-default;"+lookupEvidence);
+        return new(frame,contextOwner,slot,selected,";record3F8-clearbit31;-Apply1A3&7F"+
+            "-uint32-add;-slot<32;-context110;-present-copy"+
+            "-absent-default"+lookupEvidence);
     }
 }

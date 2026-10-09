@@ -14,7 +14,7 @@ public partial class OriginalSceneView
         var startup=OriginalMainMapCameraStartupSource.Load(repository,locale);
         return new(System.Numerics.Vector3.One,context.ContextOwner3E4Bit29,startup.StaticProjectionProfile,
             OriginalNativeCameraTangentDispatch.Sse,startup.OwnerFovOverride290AfterReset,
-            startup.MaximumYOverrideAfterControllerReset,startup.CpuAddressBase,
+            startup.MaximumYOverrideAfterControllerReset,
             $"{context.SourceProvenance};{startup.SourceEvidence};"+
             "unparented-source-getter90-fallbackOne;remake-owned-SSE-tangent-dispatch");
     }

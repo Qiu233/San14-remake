@@ -42,7 +42,7 @@ public sealed class OriginalMapPostEffect3WorldExposurePublicationCompleted
     }
 }
 
-/// <summary>Source EB8515..8604 / EB99DF..9A4C exposure publication. A real
+/// <summary>Current exposure publication. A real
 /// default3 stock draw updates the source-selected 1x1 rectangle of the owned
 /// 2x1 RGBA32F destination. Its other texel retains the current node1 pixels.
 /// No direct TextureCopy, CPU pixels, frame-ordinal algorithm or seed is used.</summary>

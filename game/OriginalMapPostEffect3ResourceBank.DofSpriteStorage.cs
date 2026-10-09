@@ -68,7 +68,7 @@ public sealed partial class OriginalMapPostEffect3ResourceBank
                 if(current.StorageRid!=cb.StorageRid||current.UploadRevision!=cb.UploadRevision||current.CompleteBytesSha256!=cb.CompleteBytesSha256)
                     throw new InvalidDataException("CS46 current CB18 writer owner/revision changed before publication.");
             }
-            target.HasCompleteWriterContents=true;target.CompleteFrameNumber=completed.FrameNumber;target.WriterRva=actualBefore.NativeGenericCommandRva;
+            target.HasCompleteWriterContents=true;target.CompleteFrameNumber=completed.FrameNumber;target.Writer=OriginalMapPostEffect3BufferWriter.Compute;
             target.CompleteBytesSha256=known;target.CompleteSourceEvidence=completed.SourceEvidence+
                 ";exact-original-DOF2-CS45-two32B-argument-groups-or-CS46-prior-initialized-two-atomic-counters;full32B-not-sprite-capacity";
             dofArgumentDomains[(write.InstanceIndex,completed.FrameNumber,write.WriterRevision)]=completed;

@@ -6,7 +6,7 @@ public sealed partial record OriginalMapPostEffect3DeviceBuffer
 {
     public bool HasCompleteWriterContents{get;internal set;}
     public long? CompleteFrameNumber{get;internal set;}
-    public uint? WriterRva{get;internal set;}
+    public OriginalMapPostEffect3BufferWriter? Writer{get;internal set;}
     public string? CompleteBytesSha256{get;internal set;}
     public string? CompleteSourceEvidence{get;internal set;}
     public long UploadRevision{get;internal set;}
@@ -50,7 +50,7 @@ public sealed partial class OriginalMapPostEffect3ResourceBank
         lock(lifetime)
         {var b=RequireCurrentBuffer(index,instance,frame);return new CurrentBufferLease(this,frame,Source.ContextOwnerIdentity,index,instance,
             b.StorageRid,b.ShaderReadRid,b.DeviceTexelFormat,b.Source.ByteCount,b.UploadRevision,b.CompleteSourceEvidence+
-            $";actual-complete-buffer-writer={b.WriterRva:X};sha={b.CompleteBytesSha256};revision={b.UploadRevision}");}
+            $";actual-complete-buffer-writer={b.Writer};sha={b.CompleteBytesSha256};revision={b.UploadRevision}");}
     }
 
     // Dispatch shares the bank upload serialization and keeps all bank RIDs
@@ -71,7 +71,7 @@ public sealed partial class OriginalMapPostEffect3ResourceBank
     {
         lock(lifetime)
         {var b=Require(Buffers,index,instance,"written buffer");b.UploadRevision=checked(b.UploadRevision+1);
-         b.HasCompleteWriterContents=false;b.CompleteFrameNumber=null;b.WriterRva=null;b.CompleteBytesSha256=null;b.CompleteSourceEvidence=null;b.PreparedShaderReadRid=default;
+         b.HasCompleteWriterContents=false;b.CompleteFrameNumber=null;b.Writer=null;b.CompleteBytesSha256=null;b.CompleteSourceEvidence=null;b.PreparedShaderReadRid=default;
          b.LastShaderWriteFrameNumber=frame;b.LastShaderWritePassIndex=pass;return b.UploadRevision;}
     }
     /// <summary>Joins source coverage with this executor's actual last successful
@@ -135,7 +135,7 @@ public sealed partial class OriginalMapPostEffect3ResourceBank
                 System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(4),4);
                 contentHash=Convert.ToHexString(SHA256.HashData(bytes));
             }
-            b.HasCompleteWriterContents=true;b.CompleteFrameNumber=coverage.FrameNumber;b.WriterRva=0x1163170;
+            b.HasCompleteWriterContents=true;b.CompleteFrameNumber=coverage.FrameNumber;b.Writer=OriginalMapPostEffect3BufferWriter.Compute;
             b.CompleteBytesSha256=contentHash;
             b.CompleteSourceEvidence=coverage.SourceEvidence+";"+completed.SourceEvidence+";actual-physical-storage-and-still-current-writer-revision";
             return CaptureCurrentBufferLease(write.ParameterIndex,write.InstanceIndex,coverage.FrameNumber);
@@ -156,7 +156,7 @@ public sealed partial class OriginalMapPostEffect3ResourceBank
         {
             ObjectDisposedException.ThrowIf(retiring,this);var target=Require(Buffers,packet.Declaration.Parameter.Index,instance,"Lens buffer");
             if(packet.SourceSha256!=Source.Source.Sha256||packet.OwnerIdentity!=Source.ContextOwnerIdentity||packet.FrameNumber<=0||
-                packet.WriterRva!=OriginalMapPostEffect3ParameterLensFlare.NativeInitializeWriterRva(packet.Locale)||bytes.Length!=target.Source.ByteCount||
+                packet.Writer!=OriginalMapPostEffect3BufferWriter.LensInitialization||bytes.Length!=target.Source.ByteCount||
                 packet.Declaration.ByteCount!=target.Source.ByteCount||
                 !packet.Declaration.Parameter.RawBytes.Span.SequenceEqual(target.Source.Parameter.RawBytes.Span)||
                 target.Shape.Dimension!=OriginalMapPostEffect3BufferDimension.Structured||target.RequiresIndirectArgumentAdapter||target.NativeAllowsUnorderedAccess)
@@ -188,7 +188,7 @@ public sealed partial class OriginalMapPostEffect3ResourceBank
                 bool installed=false;
                 try
                 {
-                    var next=target with{StorageRid=replacement,CompleteFrameNumber=packet.FrameNumber,WriterRva=packet.WriterRva,
+                    var next=target with{StorageRid=replacement,CompleteFrameNumber=packet.FrameNumber,Writer=packet.Writer,
                         CompleteBytesSha256=hash,UploadRevision=nextRevision,HasCompleteWriterContents=true,
                         CompleteSourceEvidence=packet.SourceEvidence+";Godot4.7-TextureBufferCreate-full-initialdata;serialized-physical-side-replacement",
                         LastShaderWriteFrameNumber=null,LastShaderWritePassIndex=null};

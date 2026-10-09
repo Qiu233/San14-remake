@@ -58,10 +58,10 @@ public static partial class OriginalDeferredSamplerSources
         if(Word(4,0x56AB46F0)!=0xE13DDB4F||Word(12,0xCA398DA4)!=0)
             throw new NotSupportedException("Apply depth requires source arg4 E13 and explicit arg12 GBuffers absent.");
         var texture=OriginalRenderTextureResources.Read(repository.LoadObjects("system",0x93FB3280),0xE13DDB4F);
-        return new(graph,texture,native,native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+
-            ";TC:E7C0B6..E7C0DA-arg4-depth;E7C432-caller40/E6BA37-callee48->CPU38;"+
-            "E7C054-arg12-zero/E7C0A9-null/E7C412-caller60/E6BA5F-callee68->CPU60-null;"+
-            "EB67EC/EB681E-CPU60-null-selects-CPU38;D9B580-owned-success;C0BB30-current-wrapper;EB686B->rbp50;EB6A23-InputDepth;"+
+        return new(graph,texture,native,native.ResourceUri+$";{native.Locale}:paired-source-profile;"+
+            ";arg4-depth;-caller40/-callee48->CPU38"+
+            "-arg12-zero/-null/-caller60/-callee68->CPU60-null"+
+            "-CPU60-null-selects-CPU38;-owned-success;-current-wrapper;->rbp50;-InputDepth"+
             graph.Source.ResourceUri+"@"+graph.Source.DecodedSha256+";source-arg4=E13DDB4F;arg12=0");
     }
 }

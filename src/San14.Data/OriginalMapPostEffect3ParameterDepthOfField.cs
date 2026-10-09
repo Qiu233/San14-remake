@@ -5,7 +5,7 @@ using System.Runtime.Intrinsics.X86;
 
 namespace San14.Data;
 
-/// <summary>1150DF9/1150E4F aliases a source texture into DofOutputColor before
+/// <summary>/ aliases a source texture into DofOutputColor before
 /// any pass executes. This is a producer requirement, not a completed binding.</summary>
 public sealed record OriginalMapPostEffect3DepthOfFieldTextureAlias(
     string SourceName,string DestinationName,int SourceParameterIndex,int DestinationParameterIndex);
@@ -22,21 +22,21 @@ public sealed class OriginalMapPostEffect3ParameterDepthOfFieldUpdate
     public string OwnerIdentity{get;}
     public bool Enabled10{get;}
     public bool NativeInitializeReturn=>Enabled10;
-    /// <summary>1153F90's complete shared before-hook returns handler byte10.</summary>
+    /// <summary>'s complete shared before-hook returns handler byte10.</summary>
     public bool BeforeHookReturn=>Enabled10;
     public OriginalMapPostEffect3DepthOfFieldTextureAlias TextureAlias{get;}
     public bool RequiresTextureAliasProducer=>true;
     public OriginalMapPostEffect3ParameterConstantBuffer? ConstantBuffer{get;}
-    /// <summary>1151256 compares nativeCB.self10 with global27F3D88. The
+    /// <summary> compares nativeCB.self10 with global. The
     /// conditional16B at offset96 are outside the selected shader's96B RDEF.
     /// These bytes are not silently applied to the declared96B allocation.</summary>
     public bool RequiresActualBackendExtensionPredicate=>Enabled10;
-    public string BackendExtensionPredicate=>"TC:1151256;nativeCB.self10==global27F3D88";
+    public string BackendExtensionPredicate=>"TC;nativeCB.self10==global";
     public int ConditionalBackendExtensionOffset=>96;
     public ReadOnlyMemory<byte> ConditionalBackendExtensionBytes=>extension.ToArray();
 }
 
-/// <summary>Actual factory2 plDepthOfField init1150D90 and before1153F90.
+/// <summary>Actual factory2 plDepthOfField init and before1153F90.
 /// Prepares the complete selected plDoFConstants96B image. Parameter values
 /// remain unknown until an actual scalar writer or owned LensPreset binds them.</summary>
 public static class OriginalMapPostEffect3ParameterDepthOfField
@@ -53,7 +53,7 @@ public static class OriginalMapPostEffect3ParameterDepthOfField
             state.FrameNumber<=0||actualContextWidth40<=0||actualContextHeight44<=0||
             (uint)actualContextWidth40!=allocation.ContextWidth||(uint)actualContextHeight44!=allocation.ContextHeight)
             throw new InvalidDataException("DOF scalar/allocation/context descriptor owners differ or are stale.");
-        //1150D60 starts enabled. Present DofEnable is an int !=0 test, not byte
+        // starts enabled. Present DofEnable is an int !=0 test, not byte
         //or strictly positive. Unknown present values cannot become defaults.
         bool enabled=OptionalInt(state,"DofEnable",1)!=0;
         var alias=Alias(state,enabled?"DofOutputColorInternal":"DofInputColor","DofOutputColor",actualAliasMode);
@@ -67,7 +67,7 @@ public static class OriginalMapPostEffect3ParameterDepthOfField
         ReadOnlySpan<byte> intermediate=actualLensParameters.IntermediateBytes.Span;
         if(split.Length!=656||intermediate.Length is not (92 or 96))
             throw new InvalidDataException("DOF actual LensPreset builtin0/intermediate byte extent differs.");
-        //1151AA0 prefers LensPreset when nonnull, then only falls back to the
+        // prefers LensPreset when nonnull, then only falls back to the
         //Split/Intermediate bank. This owned implementation closes the latter.
         if(state.FindScalarIndex("LensPreset") is not null&&
             BinaryPrimitives.ReadUInt64LittleEndian(state.RequireValue("LensPreset").Span)!=0)
@@ -94,10 +94,10 @@ public static class OriginalMapPostEffect3ParameterDepthOfField
         float scale=BitConverter.UInt32BitsToSingle(0x3C23D70A);
         byte[] bytes=new byte[96];
         Put(0,width);Put(4,height);Put(8,Divide(diagonal,height));Put(12,Divide(width,height));
-        //1150E98 supplies R8=&[RBP-69] (Intermediate out),1150EA0 supplies
-        //RDX=&[RBP-61] (Split out) to1151AA0. Later115113E loads RDX from
+        // supplies R8=&[RBP-69] (Intermediate out), supplies
+        //RDX=&[RBP-61] (Split out) to. Later loads RDX from
         //[RBP-69], so the CB store stream's RDX is Intermediate and R8 is
-        //Split. In particular115121B reads the integer polygon stop count
+        //Split. In particular reads the integer polygon stop count
         //from Split14, not the float field-of-view bits at Intermediate14.
         Put(16,Multiply(distance,scale));Copy(20,intermediate,8);Put(24,Multiply(near,scale));Put(28,Multiply(far,scale));
         Copy(32,intermediate,16);Copy(36,split,8);Copy(40,split,4);Copy(44,split,0x44);
@@ -108,7 +108,7 @@ public static class OriginalMapPostEffect3ParameterDepthOfField
         Put(80,BinaryPrimitives.ReadInt32LittleEndian(split[0x14..]));
         Put(84,Divide(F(intermediate,0x28),F(split,0x1C)));Copy(88,intermediate,0x40);Put(92,1024);
         byte[] extension=new byte[16];BinaryPrimitives.WriteUInt32LittleEndian(extension,compareBrightness?1u:0u);
-        return new(state,true,alias,new(state,declaration,0x1150D90,bytes),extension);
+        return new(state,true,alias,new(state,declaration,OriginalMapPostEffect3ConstantBufferWriter.DepthOfFieldLegacy,bytes),extension);
 
         void Put(int at,float value)
         {

@@ -18,7 +18,7 @@ public sealed class OriginalMapPostEffect3AcceptedCameraState
     public void ValidateCurrent(OriginalMapCameraConstructionPacket actualCamera)
     {
         ArgumentNullException.ThrowIfNull(actualCamera);
-        if(actualCamera.FrameNumber!=camera.FrameNumber||actualCamera.ImageBase!=camera.ImageBase||
+        if(actualCamera.FrameNumber!=camera.FrameNumber||
             actualCamera.ExecutableLocale!=camera.ExecutableLocale||
             actualCamera.Source.Camera.ObjectId!=camera.Source.Camera.ObjectId||
             actualCamera.Source.Resource.Source.ResourceUri!=camera.Source.Resource.Source.ResourceUri||

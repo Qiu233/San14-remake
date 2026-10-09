@@ -457,7 +457,7 @@ public sealed class OriginalMapPostEffect3ComputeExecutor:IAsyncDisposable
                 var current=input.CurrentTextures.Single(t=>t.ParameterIndex==row.ParameterIndex);
                 if(current is IOriginalMapPostEffect3ComputeSelectedMipTextureLease{IsSourceSelectedMipView:true} selected)
                     selected.RequireSourceSelectedView(index,checked((uint)row.RegisterIndex));
-                // Original kind1 submits1163970/SC1164A30, which writes FF
+                // The kind1 shader-resource binding writes FF
                 // rather than consuming the counted row's mip column. The
                 // resulting shader wrapper+10 is its full native SRV. Keep
                 // LOD semantics intact even when that unused column is >=0.

@@ -68,7 +68,7 @@ public sealed class OriginalArmyMobilityCurrentProducer
             !state.Forces.TryGetValue(army.ForceId, out var force)) return Missing("current.Force193_identity");
         if ((forceFlags & 2) != 0 && formation == 5)
         {
-            if (Parameter(0x1A4AB98) is not int bonus) return Missing("current.mobility_formation5_bonus1A4AB98");
+            if (Parameter(SimulationParameterKeys.ArmyMobility.FormationFiveMobilityBonus) is not int bonus) return Missing("current.mobility_formation5_bonus1A4AB98");
             coefficient = unchecked(coefficient + bonus);
         }
         int? percent = ForceFormationPercent(formation);
@@ -78,7 +78,7 @@ public sealed class OriginalArmyMobilityCurrentProducer
             OriginalTacticRemakeCurrentTraits.ArmyContributions(definitions, commander.PhysicalSlot,
                 army.NativeArmyConfiguration?.TraitSlots64) is not { Length: 127 } traits)
             return Missing("current.Person_and_Army_traits26A740");
-        if (Parameter(0x1A49C40) is not int limit || Parameter(0x1A4A8F4) is not int step)
+        if (Parameter(SimulationParameterKeys.ArmyMobility.TraitMobilityLimit) is not int limit || Parameter(SimulationParameterKeys.ArmyMobility.TraitMobilityStep) is not int step)
             return Missing("current.mobility_trait_limit1A49C40_step1A4A8F4");
         int trait;
         if (runtime.Status10 == 1)
@@ -111,14 +111,14 @@ public sealed class OriginalArmyMobilityCurrentProducer
         float formationTerrain = source.One;
         if (formation is 6 or 14 && terrainCode is >= 5 and < 12 && terrainCode != 7)
         {
-            if (Parameter(formation == 6 ? 0x1A4C6EC : 0x1A49C4C) is not int terrainPercent)
+            if (Parameter(formation == 6 ? SimulationParameterKeys.ArmyMobility.FormationSixTerrainPercent : SimulationParameterKeys.ArmyMobility.FormationTerrainPercent) is not int terrainPercent)
                 return Missing("current.formation6_or14_Terrain_percent");
             formationTerrain = (float)terrainPercent / source.Percent;
         }
         float forceTerrain = source.One;
         if (runtime.Status10 == 2 && (forceFlags & 8) != 0 && terrainCode is >= 8 and <= 11)
         {
-            if (Parameter(0x1A49C58) is not int terrainPercent) return Missing("current.Force193_bit8_Terrain_percent1A49C58");
+            if (Parameter(SimulationParameterKeys.ArmyMobility.ForceTerrainPercent) is not int terrainPercent) return Missing("current.Force193_bit8_Terrain_percent1A49C58");
             forceTerrain = (float)terrainPercent / source.Percent;
         }
         float environment = source.One;
@@ -128,7 +128,7 @@ public sealed class OriginalArmyMobilityCurrentProducer
                 return Missing("current.CEnvironment104");
             if (runtime.Status10 == 2 && mode == 1)
             {
-                if (Parameter(0x1A49C64) is not int environmentPercent) return Missing("current.Environment104_percent1A49C64");
+                if (Parameter(SimulationParameterKeys.ArmyMobility.EnvironmentTerrainPercent) is not int environmentPercent) return Missing("current.Environment104_percent1A49C64");
                 environment = (float)environmentPercent / source.Percent;
             }
         }
@@ -161,13 +161,13 @@ public sealed class OriginalArmyMobilityCurrentProducer
             formationTerrain, forceTerrain, environment, policy, policyValue, advanced,
             $"{Revision};{source.Source.ResourceUri}@{source.Source.RuleVersion};{parameters.Revision};owned-clock={state.NativeClock!.UpdateOrdinal}"), null);
 
-        int? Parameter(int rva) => parameters.Int32Values.TryGetValue(OriginalTacticRemakeParameterSeed.Key(rva), out int value) ? value : null;
+        int? Parameter(string key) => parameters.Int32Values.TryGetValue(key, out int value) ? value : null;
         int? ForceFormationPercent(int physical)
         {
             if (army.ForceId is >= 46 and <= 51 || physical is >= 14 and <= 16) return 100;
             int effect = physical is <= 7 ? physical : physical <= 10 ? 8 : physical <= 13 ? 9 : 12;
-            int rva = effect <= 8 ? 0x1A4C6F8 + (effect - 1) * 12 : effect == 9 ? 0x1A4C754 : 0x1A49C34;
-            int? contribution = OriginalBattleRemakeCurrentForcePolicies.ReadForceEffect(state, force, effect), scale = Parameter(rva);
+            string? key = OriginalBattleRemakeCurrentParameterSeed.FormationEffectKey(effect);
+            int? contribution = OriginalBattleRemakeCurrentForcePolicies.ReadForceEffect(state, force, effect), scale = key is null ? null : Parameter(key);
             return contribution is null || scale is null ? null : unchecked(100 + unchecked(contribution.Value * scale.Value));
         }
         int? TerrainCost(OriginalSurfaceTypeReference pointer, int selector)

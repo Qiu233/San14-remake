@@ -27,7 +27,7 @@ public sealed class OriginalMapPostEffect3MiddleExecutionRecipe
     public IReadOnlyList<OriginalMapPostEffect3ParameterConstantBuffer> ConstantBuffers{get;}
     public IReadOnlyList<OriginalMapPostEffect3ParameterConstantBufferBinding> ConstantBufferBindings{get;}
     public bool CommitsFunctorHistory=>false;
-    public string SourceEvidence=>"TC:114CD40-standard-wrapper;1153F90-before-enabled-byte;"+
+    public string SourceEvidence=>";standard-wrapper;-before-enabled-byte"+
         $"factory{Pass.Factory.Index}/pass{SourcePassIndex};module="+SourceSha256+
         ";actual-initialized-frame="+ContextOwnerIdentity;
 
@@ -39,10 +39,10 @@ public sealed class OriginalMapPostEffect3MiddleExecutionRecipe
         var init=actualFrame.RequirePreparedFactories();
         var pass=OriginalMapPostEffect3PassStateReader.Read(actualFrame.Allocation.Source)[passIndex];
         int expectedFactory=passIndex<15?2:3;
-        if(pass.Factory.Index!=expectedFactory||pass.Factory.BeforeHook!=0x1153F90||
-            pass.Factory.ExecuteHook!=0xBF9280||pass.Factory.AfterHook!=0xBF9280||
+        if(pass.Factory.Index!=expectedFactory||pass.Factory.BeforeHook!=OriginalMapPostEffect3Hook.BeforeMiddle||
+            pass.Factory.ExecuteHook!=OriginalMapPostEffect3Hook.AlwaysTrue||pass.Factory.AfterHook!=OriginalMapPostEffect3Hook.AlwaysTrue||
             pass.AutomaticExecution!=OriginalMapPostEffect3AutomaticExecution.ComputeDispatch||
-            pass.Factory.PassWrapper!=0x114CD40)
+            pass.Factory.PassWrapper!=OriginalMapPostEffect3PassWrapper.Standard)
             throw new NotSupportedException("Selected middle pass differs from the original shared Before/automatic CS protocol.");
         bool enabled=expectedFactory==2?init.DepthOfField.BeforeHookReturn:init.MotionBlur.BeforeHookAllowsPasses;
         IReadOnlyList<OriginalMapPostEffect3ParameterConstantBuffer> buffers=expectedFactory==2?

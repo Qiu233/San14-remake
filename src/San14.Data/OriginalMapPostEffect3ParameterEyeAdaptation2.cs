@@ -4,14 +4,12 @@ using System.Runtime.Intrinsics.X86;
 
 namespace San14.Data;
 
-/// <summary>1158160 clones wrapper/view records of the existing counted
+/// <summary> clones wrapper/view records of the existing counted
 /// physical texture. It does not allocate unrelated pixel images per level.</summary>
 public sealed record OriginalMapPostEffect3EyeBloomViewPlan(int PhysicalTextureParameterIndex,
     int NativeMipCount,IReadOnlyList<int> ClonedWrapperMipLevels,ushort NativeWidth40,ushort NativeHeight42,
     ushort NativeSamplerFilterMask,string SourceEvidence,string Locale="TC")
 {
-    public uint NativeWrapperCopyRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3ParameterEyeAdaptation2.cs",0x94AA60));
-    public uint NativeSingleMipViewsRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3ParameterEyeAdaptation2.cs",0x968F40));
     public bool ClonesExistingPhysicalPixels=>true;
     public bool PreservesFullWrapperDimensions=>true;
     public int ShaderResourceMipCount=>1;
@@ -21,7 +19,7 @@ public sealed record OriginalMapPostEffect3EyeBloomViewPlan(int PhysicalTextureP
 /// table slot or a cloned single-mip wrapper of the specified physical owner.
 /// The device consumer creates the view and supplies its real pointer.</summary>
 public sealed record OriginalMapPostEffect3EyeTextureAliasRecipe(int TargetParameterIndex,
-    int? SourceParameterIndex,int? PhysicalTextureParameterIndex,int? NativeMipLevel,uint WriterRva,
+    int? SourceParameterIndex,int? PhysicalTextureParameterIndex,int? NativeMipLevel,
     string SourceEvidence)
 {
     public bool UsesSingleMipWrapper=>PhysicalTextureParameterIndex is not null;
@@ -40,9 +38,9 @@ public sealed record OriginalMapPostEffect3EyeBeforeBindings(OriginalMapPostEffe
     OriginalMapPostEffect3ParameterConstantBuffer? BloomLoopConstants,string SourceEvidence,string Locale="TC")
 {
     public int NativePixelTextureRegister=>0;
-    public uint NativePixelTextureSetterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3ParameterEyeAdaptation2.cs",0x1163970));
+    public OriginalMapPostEffect3ResourceSetter TextureSetter=>OriginalMapPostEffect3ResourceSetter.ShaderResource;
     public int NativeTargetRegister=>0;
-    public uint NativeTargetSetterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3ParameterEyeAdaptation2.cs",0x1163800));
+    public OriginalMapPostEffect3ResourceSetter TargetSetter=>OriginalMapPostEffect3ResourceSetter.RenderTarget;
     public int NativeSamplerStage=>2;
     public IReadOnlyList<int> NativeBeforeSamplerRegisters=>Array.AsReadOnly(new[]{7,8});
     public bool RequiresDynamicPixelTextureBinding=>Iteration.NativeCachedPassOrdinal is 3 or 4 or 10 or 11;
@@ -110,8 +108,8 @@ public sealed class OriginalMapPostEffect3EyeAdaptation2Frame
     public string OutputAliasSourceName=>BloomEnabled?"BL2BloomPrefiltered":"BL2InputColor";
     public int? OutputAliasRequiredNativeMipLevel=>BloomEnabled?0:null;
     public OriginalMapPostEffect3EyeTextureAliasRecipe InitializeOutputAlias=>BloomEnabled?
-        new(74,null,ActivePhysicalTextureAtInitialize,0,checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3ParameterEyeAdaptation2.cs",0x1158040)),owner.SourceEvidence+";Init-enabled-current-controller28-wrapper"):
-        new(74,68,null,null,checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3ParameterEyeAdaptation2.cs",0x1158040)),owner.SourceEvidence+";Init-disabled-copy-current-InputColor68");
+        new(74,null,ActivePhysicalTextureAtInitialize,0,owner.SourceEvidence+";Init-enabled-current-controller28-wrapper"):
+        new(74,68,null,null,owner.SourceEvidence+";Init-disabled-copy-current-InputColor68");
     public void RequireCurrent()
     {
         owner.RequireCurrent(this);
@@ -127,7 +125,7 @@ public sealed class LoadedOriginalMapPostEffect3EyeAdaptation2Source
     internal OriginalNativeLogTables FloatLogTables{get;}
     public string Locale{get;}
     public string SourceEvidence{get;}
-    /// <summary>Actual1159710 complete64B cbExposure2. The middle-gray log
+    /// <summary>Actual complete64B cbExposure2. The middle-gray log
     /// executes in binary64, while its denominator is the separately executed
     /// binary32 log(2) promoted to binary64; only the final ratio rounds32.</summary>
     public OriginalMapPostEffect3ParameterConstantBuffer PrepareExposure(
@@ -162,7 +160,7 @@ public sealed class LoadedOriginalMapPostEffect3EyeAdaptation2Source
         Put(48,OriginalNativeFloat.Multiply(F("OmittedLuminancePercentsLowHigh"),percent));
         Put(52,OriginalNativeFloat.Multiply(F("OmittedLuminancePercentsLowHigh",1),percent));
         Copy(56,"LuminanceRangeMinMax");Copy(60,"LuminanceRangeMinMax",1);
-        return new(state,declaration,checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3ParameterEyeAdaptation2.cs",0x1159710)),bytes,Locale);
+        return new(state,declaration,OriginalMapPostEffect3ConstantBufferWriter.Exposure,bytes,Locale);
         void Put(int at,float value)=>BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(at),value);
         void Copy(int at,string name,int word=0)=>frame.Values[name].AsSpan(word*4,4).CopyTo(bytes.AsSpan(at));
     }
@@ -216,13 +214,13 @@ public sealed class LoadedOriginalMapPostEffect3EyeAdaptation2Source
         if(shape.Dimension!=OriginalMapPostEffect3TextureDimension.Texture2D||!shape.HasRenderTargetPath||shape.MipLevels is <2 or >17)
             throw new NotSupportedException("Original EyeAdaptation2 bloom wrapper mip extent cannot initialize its sixteen-view array.");
         return new(index,shape.MipLevels,Array.AsReadOnly(Enumerable.Range(0,shape.MipLevels-1).ToArray()),
-            a.Width16,a.Height16,0x5400,SourceEvidence+";1158160-BL2Bloom/BL2Bloom4KCB;"+
-            "94AA60-native-wrapper-copy;968F40(i,i)-exact-single-mip-SRV/RTV;sampler48=(48&3FF)|5400;not-new-pixels",Locale);
+            a.Width16,a.Height16,0x5400,SourceEvidence+"-BL2Bloom/BL2Bloom4KCB"+
+            "-native-wrapper-copy;(i,i)-exact-single-mip-SRV/RTV;sampler48=(48&3FF)|5400;not-new-pixels",Locale);
     }
     public OriginalMapPostEffect3EyeTextureAliasRecipe ReadResourceInitializationAlias(OriginalMapPostEffect3AllocationPlan allocation)
     {
         ReadOwnedBloomViewPlan(allocation,false);ReadOwnedBloomViewPlan(allocation,true);
-        return new(69,null,85,0,checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3ParameterEyeAdaptation2.cs",0x1158160)),SourceEvidence+";v38-initial-controller28-BL2Bloom85-single-mip0");
+        return new(69,null,85,0,SourceEvidence+";v38-initial-controller28-BL2Bloom85-single-mip0");
     }
 }
 
@@ -313,7 +311,7 @@ public sealed class OriginalMapPostEffect3EyeAdaptation2Owner
             Array.AsReadOnly(iterations.ToArray()),main);
     }
 
-    /// <summary>Actual1157CB0 dynamic t0/RT0 and complete32B loop constants.
+    /// <summary>Actual dynamic t0/RT0 and complete32B loop constants.
     /// source width/height for prefilter come from its selected InputColor
     /// wrapper; all other mip-wrapper dimensions derive from source allocation.
     /// This neither binds a GPU sampler nor publishes texture readiness.</summary>
@@ -329,8 +327,8 @@ public sealed class OriginalMapPostEffect3EyeAdaptation2Owner
         if(activeFourKWrapper!=fourK)
         {
             activeFourKWrapper=fourK;
-            aliasChange=new(69,null,view.PhysicalTextureParameterIndex,0,checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(source.Locale,"OriginalMapPostEffect3ParameterEyeAdaptation2.cs",0x1157CB0)),
-                source.SourceEvidence+";Before-27F3D94-mode-change-copy-active-array-to-controller28/alias69");
+            aliasChange=new(69,null,view.PhysicalTextureParameterIndex,0,
+                source.SourceEvidence+"Before-mode-change-copy-active-array-to-controller28/alias69");
         }
         int o=iteration.NativeCachedPassOrdinal,i=iteration.NativeLoopIndex;
         int? read=null,readMip=null,target=null,targetMip=null;int width=0,height=0,level=0;
@@ -358,7 +356,7 @@ public sealed class OriginalMapPostEffect3EyeAdaptation2Owner
                 BinaryPrimitives.ReadSingleLittleEndian(vp.AsSpan(12))!=1;
         }
         return new(iteration,read,readMip,target,targetMip,width,height,level,loop,source.SourceEvidence+
-            ";1157CB0-ordered-Before;1163970-PS-t0/samplers7,8;1163800-native-RT0-mip;11592F0-current-loop-CB;requires-owned-source-cache/view-producer",source.Locale)
+            "-ordered-Before;-PS-t0/samplers7,8;-native-RT0-mip;-current-loop-CB;requires-owned-source-cache/view-producer",source.Locale)
             {PrefilterAliasChange=aliasChange};
     }
     internal void RequireCurrent(OriginalMapPostEffect3EyeAdaptation2Frame frame)
@@ -388,9 +386,9 @@ public static partial class OriginalDeferredSamplerSources
         if(native.Locale is not ("TC" or "SC")||log.Locale!=native.Locale)
             throw new NotSupportedException("EyeAdaptation2 source code and log tables need the inspected same SC/TC source.");
 
-        return new(log,native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+";TC:11583E0-capability4-all20typedscalars;1157B70-logSSE-layercount;"+
-            "1159A40-original-mask;1157A20-counted-repetitions;1158160-existingphysical85/86-mipviews;"+
-            "1157CB0-Before;11594D0-main/11592F0-loop;requires-separate-doublelog-Exposure64B/source-mode-cache;no-GPU-claim",native.Locale);
+        return new(log,native.ResourceUri+$";{native.Locale}:paired-source-profile;"+";capability4-all20typedscalars;-logSSE-layercount"+
+            "-original-mask;-counted-repetitions;-existingphysical85/86-mipviews"+
+            "-Before;-main/-loop;requires-separate-doublelog-Exposure64B/source-mode-cache;no-GPU-claim",native.Locale);
 
     }
 }

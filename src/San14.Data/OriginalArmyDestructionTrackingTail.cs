@@ -34,7 +34,7 @@ public static class OriginalArmyDestructionTrackingTail
             if (before == 0) continue;
             //231480 reads current TC1A49050, the already installed SC semantic
             //1A4A080. Source clamping of a request0 wraps a negative cap.
-            int cap = OriginalArmyDestructionParameterSeed.ReadCurrentTc(state, 0x1A49050)
+            int cap = OriginalArmyDestructionParameterSeed.ReadCurrent(state, SimulationParameterKeys.Tactics.AbnormalCounterUpperBound)
                 ?? throw Missing("current.manager60_231480_cap");
             byte after = cap < 0 ? unchecked((byte)cap) : (byte)0;
             var changed = NativeArmyOverrideTargetWrites.Apply(image with

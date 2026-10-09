@@ -24,7 +24,7 @@ public sealed class LoadedOriginalMapPostEffect3TextureZeroAllocationSource
         if(Locale is not ("TC" or "SC")||plan.ResizeOnly||plan.TextureParameters.Count!=89||plan.BufferParameters.Count!=9||
             plan.ConstantBufferParameters.Count!=26||plan.TextureParameters.Select(t=>t.NameHash).Distinct().Count()!=89)
             throw new NotSupportedException("Fresh RT zero receipt requires the verified SC/TC non-resize original counted module.");
-        // Native114A590..114A5A9 allocates the72B container header plus one
+        // Native.. allocates the72B container header plus one
         //72B record per texture and40B records per buffer/constant-buffer.
         if(ReadNativeAllocationByteCountUnchecked(plan)!=7880)
             throw new InvalidDataException("Original fresh RT record allocation extent differs.");
@@ -77,7 +77,7 @@ public sealed class LoadedOriginalMapPostEffect3TextureZeroAllocationSource
         =>new(plan,ReadFreshOwnedTextureAllocationSides(plan),ReadFreshOwnedConstantBufferAllocationSides(plan),
             ReadFreshOwnedBufferAllocationSides(plan),
             SourceEvidence+";fresh-owned-allocation="+plan.ContextOwnerIdentity+
-            ";1147910/1147AF0-two-wrapper-writers-preserve-record-byte0;1146F33..83-CB-pair-writer-preserves-record-byte0;"+
+            "-two-wrapper-writers-preserve-record-byte0;83-CB-pair-writer-preserves-record-byte0"+
             "byte1=pair-presence/not-selector;selected-first-instance0-before-factory/history-writers");
 
     /// <summary>The same original default allocator initializes each40B buffer
@@ -157,11 +157,11 @@ public static partial class OriginalDeferredSamplerSources
         // Complete texture/buffer/CB allocation loops plus the four actual
         // texture pair/single setters: none writes record selector byte0.
 
-        return new(allocator,native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+";"+allocator.SourceEvidence+
-            ";TC:11474D4-metadata/11474DC-RTbank114A530;114A54E-explicit-owned-default-allocator;"+
-            "114A590..114A5A9-default-v30-whole-block=(textureCount+1)*72+(bufferCount+CBcount)*40;"+
-            "114A5E7-container18=RTrecord-array;whole-block-zero-before-metadata;"+
-            "1146926-flags-bit2-clear-skip/1146AE1;external-records-remain-zero-before-current-writers;"+
-            "D5C264/26B-side-selector-zero->D5C28B/295-first-wrapper-null;no-GPU-content-initialization;no-retained-bank-reset");
+        return new(allocator,native.ResourceUri+$";{native.Locale}:paired-source-profile;"+";"+allocator.SourceEvidence+
+            ";metadata/-RTbank;-explicit-owned-default-allocator"+
+            "-default-v30-whole-block=(textureCount+1)*72+(bufferCount+CBcount)*40"+
+            "-container18=RTrecord-array;whole-block-zero-before-metadata"+
+            "-flags-bit2-clear-skip;external-records-remain-zero-before-current-writers"+
+            "26B-side-selector-zero->/295-first-wrapper-null;no-GPU-content-initialization;no-retained-bank-reset");
     }
 }

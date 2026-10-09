@@ -48,6 +48,8 @@ pwsh -File .\build\Export-Windows.ps1 -GodotConsole 'C:\path\to\Godot_console.ex
 
 资源 override 用于地图、文本等资源。机制与参数由项目自己的实现管理。
 
+模拟参数使用具名语义键；渲染回调和参数写入顺序使用明确的操作类型，不以原程序地址作为标识。项目旧存档中的地址形式参数键仅由版本迁移器识别，迁移后保留原值并按新格式保存。
+
 游戏存档使用独立的带版本格式。与原版存档互转、多人与地图扩展保留架构可能性，尚未实现。
 
 第三方来源和许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。

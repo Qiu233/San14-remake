@@ -177,8 +177,8 @@ public sealed partial class OriginalMapPostEffect3EyeBloomExecutionOwner : IAsyn
         int physical = before.SourceTextureParameterIndex ?? throw new InvalidDataException("Eye mip input lacks its physical wrapper.");
         var texture = Bank.RequireTexture(physical, input.InstanceIndex);
         byte[] key = OriginalDeferredSamplerSources.RenderTextureKey(native, texture.Shape.MipLevels);
-        // 1158244 copies clone0 before 1158249 changes the physical key.
-        // 968F40 changes the selected views, retaining the copied sampler key.
+        // Copy clone0 before changing the physical key.
+        // The selected mip views change while retaining the copied sampler key.
         if (input.NativeFirstMipLevel != 0)
             BinaryPrimitives.WriteUInt16LittleEndian(key, (ushort)((BinaryPrimitives.ReadUInt16LittleEndian(key) & 0x03FF) |
                 Source.ReadOwnedBloomViewPlan(Bank.Source, physical == 86).NativeSamplerFilterMask));

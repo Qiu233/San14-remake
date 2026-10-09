@@ -31,7 +31,7 @@ public static class OriginalArmyDestructionMoraleWave
             int? post = personValid ? Get(current.ReadMoraleWavePersonPostE7(person), "current victim PostE7") : null;
             bool postValid = post.HasValue && Get(OriginalOwnedArmyMoraleWaveInputs.ReadPostNativeValidity(state, post.Value), "current CPostData validity");
             int order = postValid ? Get(OriginalOwnedArmyMoraleWaveInputs.ReadPost37(state, post!.Value), "current CPostData37") : 0;
-            bool lowPost = postValid && order <= P(0x1A4B5D8);
+            bool lowPost = postValid && order <= P(SimulationParameterKeys.ArmyDestruction.MoraleWaveLowPostThreshold);
             bool ruler = false;
             if (!lowPost)
                 ruler = Get(current.ReadPersonIdentity(person), "current victim ID10") == Get(current.ReadMoraleWaveRuler22EAC0(owners.VictimForce), "victim Force ruler22EAC0");
@@ -76,13 +76,13 @@ public static class OriginalArmyDestructionMoraleWave
                         //map an out-of-table byte through the Force0 fallback.
                         int force = current.ReadArmyUnitRawForceSlot(army);
                         if (hasWinner && force == Get(current.ReadForcePhysicalSlot(owners.WinnerForce), "captured winner Force physical"))
-                            ApplyOne(army, Math.Min(unchecked(factor * P(0x1A4B5F0)) / 100, P(0x1A4B5E4)), 0x41);
+                            ApplyOne(army, Math.Min(unchecked(factor * P(SimulationParameterKeys.ArmyDestruction.MoraleWaveGainPercent)) / 100, P(SimulationParameterKeys.ArmyDestruction.MoraleWaveGainCap)), 0x41);
                         else if (force == Get(current.ReadForcePhysicalSlot(owners.VictimForce), "captured victim Force physical"))
                         {
                             int effective = EffectiveMorale(army);
                             if (effective > (hasWinner ? 0 : 1))
                             {
-                                int loss = Math.Min(unchecked(factor * P(0x1A4B608)) / 100, P(0x1A4B5FC));
+                                int loss = Math.Min(unchecked(factor * P(SimulationParameterKeys.ArmyDestruction.MoraleWaveLossPercent)) / 100, P(SimulationParameterKeys.ArmyDestruction.MoraleWaveLossCap));
                                 if (!hasWinner) loss = Math.Min(loss, unchecked(EffectiveMorale(army) - 1));
                                 ApplyOne(army, unchecked(-loss), 0x42);
                             }
@@ -110,7 +110,7 @@ public static class OriginalArmyDestructionMoraleWave
                     throw new InvalidDataException(result.UnresolvedOwner ?? "current.MoraleWave: nearby2709A0");
                 effects.Add(new(army, nativeEffect, result.Receipt));
             }
-            int P(int tcRva) => Get(OriginalArmyDestructionParameterSeed.ReadCurrentTc(state, tcRva), $"morale wave parameter{tcRva:X}");
+            int P(string key) => Get(OriginalArmyDestructionParameterSeed.ReadCurrent(state, key), $"morale wave parameter{key}");
         }
         catch (InvalidDataException unknown) { return new(null, effects, nearbyCount, unknown.Message); }
     }

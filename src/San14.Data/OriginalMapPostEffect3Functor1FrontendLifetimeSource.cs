@@ -15,7 +15,7 @@ public sealed record OriginalMapPostEffect3FrontendEndBindingGroup(
     public int RetainedReferenceOffset=>16;
     public int DirtyWordOffset=>3;
     public ushort DirtyWordWrittenWhenBorrowedPointerWasNonNull=>0x0101;
-    //1162AC0 consumes the three six-group tables. It does not visit RT slots.
+    // consumes the three six-group tables. It does not visit RT slots.
     public bool FlushConsumesDirtyWord=>Kind!=OriginalMapPostEffect3FrontendBindingGroupKind.RenderTargets;
     public int NativeRecordOffset(int group,int slot)
     {
@@ -76,7 +76,7 @@ public sealed class LoadedOriginalMapPostEffect3Functor1FrontendLifetimeSource
     public IReadOnlyList<int> BeginSavedAttachmentFrontendOffsets{get;}=Array.AsReadOnly(new[]{0x1C08,0x1C0C,0x1C10});
     public int BeginSavedAlphaBackendOffset=>0x1BE;
     public int BeginSavedAlphaFrontendOffset=>0x1C14;
-    //The two scope bytes really are both read from backend1BF at1146737.
+    //The two scope bytes really are both read from backend1BF at.
     //Do not replace this native copy with an idealized snapshot of1D8.
     public int OuterSaved14SourceBackendOffset=>0x1BF;
     public int OuterRestored14DestinationBackendOffset=>0x1D8;
@@ -108,8 +108,8 @@ public sealed class LoadedOriginalMapPostEffect3Functor1FrontendLifetimeSource
         var steps=new List<OriginalMapPostEffect3TemporaryRegistryCleanupStep>();
         void Clear(OriginalMapPostEffect3TemporaryRegistryCleanupOperation operation,int offset)
             =>steps.Add(new(operation,offset,0));
-        //E22C49 captures retained+10 before clearing borrowed+8. This is a
-        //snapshot description only: native E22C64 reads+20 only after the
+        // captures retained+10 before clearing borrowed+8. This is a
+        //snapshot description only: native reads+20 only after the
         //first possible callback. An actual executor must make that later
         //read/current-owner check, rather than treating this numeric pointer
         //snapshot as authority to release an old object after a mutation.
@@ -144,10 +144,10 @@ public static partial class OriginalDeferredSamplerSources
         ArgumentNullException.ThrowIfNull(native);
         if(native.Locale is not ("TC" or "SC"))throw new NotSupportedException("Functor1 frontend lifetime source requires a verified SC/TC profile.");
 
-        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+";render-rules="+native.RenderRuleIdentity+
-            ";TC:1162D70-EndFFFFFFFF/1162AC0-SRV-UAV-CB-dirty-flush;114AB40-pairs-before11462D0-outer;"+
-            "E24F30-CPUregistry40B-loan/E22C49..E22C89-CPUrefs-release/E22C8E-A1;"+
-            "E24B5E/94FAB0-controller828-owned-448B-stride28;source-recipe-only-no-device-or-release-execution",native.Locale);
+        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;"+";render-rules="+native.RenderRuleIdentity+
+            ";EndFFFFFFFF/-SRV-UAV-CB-dirty-flush;-pairs-before11462D0-outer"+
+            "-CPUregistry40B-loan;-CPUrefs-release/-A1"+
+            "-controller828-owned-448B-stride28;source-recipe-only-no-device-or-release-execution",native.Locale);
     }
 
 }

@@ -57,7 +57,7 @@ public sealed partial class OriginalMapPostEffect3DepthOfField2ExecutionOwner
                 retainedShape.ActualNativeMipCount45!=1||
                 (retainedShape.ActualNativeFlags46&requirement.RequiredFlags46Mask)!=requirement.RequiredFlags46Value||
                 (retainedShape.ActualNativeFlags46&127)!=requirement.RequiredFlags46Low7)
-                throw new NotSupportedException("DOF2 retained shape does not satisfy original1156E20 native wrapper validation; its real replacement owner is required.");
+                throw new NotSupportedException("DOF2 retained shape does not satisfy the required shape wrapper; its real replacement owner is required.");
             return;
         }
         if(!requirement.SourceShapeChanged)
@@ -77,7 +77,7 @@ public sealed partial class OriginalMapPostEffect3DepthOfField2ExecutionOwner
         try
         {
             TextureParameters.BindExternal(58,new(Prepared.FrameNumber,State.OwnerIdentity+":DOF2-source-shape/"+image),
-                Prepared.SourceEvidence+";1156E20-source-null-wrapper/952D90-create-required-square-M1-format3/96C5A0-copy");
+                Prepared.SourceEvidence+";create-required-square-M1-format3/copy-shape");
             shapePointer=TextureParameters.Require(58);
             ownedShape=new(image,requirement.RequestedSide,shapePointer.Reference,TextureParameters);
             ModuleResources.AdoptShape(this,ownedShape);

@@ -163,7 +163,7 @@ public sealed partial class OriginalMapPostEffect3WorldNativeFullscreenFrontendO
         LastRestoredNativeState=binding.NativeState;
         lastReleasedGraphicsPass=completed.SourcePassIndex;
         //The per-draw GPU pipeline applies Execute's delta. Native release
-        //restores its saved state and pops the counted target row95AB00;
+        // restores its saved state and pops the counted target row;
         //the actual node192/193 owned parent remains the inherited caller.
         current=null;
     }

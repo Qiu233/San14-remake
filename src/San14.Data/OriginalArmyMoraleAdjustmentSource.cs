@@ -46,7 +46,7 @@ public sealed class OriginalArmyMoraleAdjustmentSource(
             trait = contributions[13];
             if (trait != 0)
             {
-                string key = OriginalTacticRemakeParameterSeed.Key(0x1A4B010);
+                string key = SimulationParameterKeys.Morale.NegativeAdjustmentScale;
                 if (parameters.Float32Values.ContainsKey(key) || !parameters.Int32Values.TryGetValue(key, out int value))
                     return Unknown();
                 scale = value;

@@ -28,7 +28,7 @@ public sealed partial class OriginalMapSourceCreatedLightingPacket
         var main=acceptedMain.CopyAcceptedSnapshot();
         var optics=source.PostEffectScalarSource.CaptureActualMainPreparation(present.AcceptedSeasonCamera.Inputs,main);
         return new(camera.ToArray(),main.Source,main.CurrentPose,main.Lens,main.Matrices,
-            main.ImageBase,main.ExecutableLocale,FrameNumber,
+            main.ExecutableLocale,FrameNumber,
             main.FrameProvenance+";"+present.SourceProvenance+";actual-post-season-Camera3C0-from-owned-lighting-writer",optics.Scalars,optics);
     }
 }

@@ -197,8 +197,8 @@ public sealed class OriginalNativeMapModelPopulationRenderer : IAsyncDisposable
             if (context.TerrainFrame.ColorViews.Count != 5)
                 throw new InvalidDataException("Native population requires the complete original five-MRT target.");
             var sourceCamera = context.PreparedCamera;
-            _ = OriginalNativeMatrixMath.Inverse3F6EB0(sourceCamera.SourceWorldToView, out _);
-            _ = OriginalNativeMatrixMath.Inverse3F6EB0(sourceCamera.SourceWorldToProjection, out _);
+            _ = OriginalNativeMatrixMath.Invert(sourceCamera.SourceWorldToView, out _);
+            _ = OriginalNativeMatrixMath.Invert(sourceCamera.SourceWorldToProjection, out _);
             var camera = OriginalMapStaticModelCamera.FromExplicitRows(Rows(sourceCamera.SourceWorldToProjection),
                 Rows(Matrix4x4.Transpose(sourceCamera.SourceWorldToView))[..12]);
             var population = _population(context) ?? throw new InvalidDataException("Native population source is unavailable.");

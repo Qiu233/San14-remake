@@ -10,7 +10,7 @@ public sealed class OriginalOwnedBaseCapacityInputs
 {
     public const string Revision = "san14:ce-owned-base-capacity-inputs-20261007";
     public const string VersionKey = "ce-base-capacity-current:version";
-    public static string TroopsExtraKey => OriginalTacticRemakeParameterSeed.Key(0x27D4890);
+    public static string TroopsExtraKey => SimulationParameterKeys.BaseCapacity.ExtraTroopCapacity;
     public static string PanelKey(int slot) => $"ce-base-capacity-current:panel:{slot}:36";
     private readonly LoadedBaseParameters _base;
     private readonly LoadedDoctrinePanels _panels;
@@ -40,9 +40,9 @@ public sealed class OriginalOwnedBaseCapacityInputs
         var simulation = state.NativeArmySimulation!;
         var values = new Dictionary<string, int>(simulation.Parameters.Int32Values)
             { [VersionKey] = 1, [TroopsExtraKey] = _base.Catalog.RuntimeTroopsExtraInitial!.Value };
-        foreach (var field in _base.Catalog.RawValues)
+        foreach (var field in _base.Catalog.Values)
         {
-            string key = OriginalTacticRemakeParameterSeed.Key(field.Key);
+            string key = field.Key;
             if (simulation.Parameters.Float32Values.ContainsKey(key) || values.TryGetValue(key, out int existing) && existing != field.Value)
                 throw new InvalidDataException("Fresh Base globals disagree with an existing current source seed.");
             values.TryAdd(key, field.Value);
@@ -62,7 +62,7 @@ public sealed class OriginalOwnedBaseCapacityInputs
             return false;
         foreach (var city in state.Cities.Values)
             context.SetCitySizeB8(city.Id, city.Size is { } size && Enum.IsDefined(size) ? (byte)((int)size + 1) : null);
-        context.BasePostLoadParameterReader = rva => Parameter(state, OriginalTacticRemakeParameterSeed.Key(rva));
+        context.BasePostLoadParameterReader = key => Parameter(state, key);
         context.BaseRuntimeTroopsExtraReader = () => Parameter(state, TroopsExtraKey);
         context.BaseCapacityPercentageEnabledReader = () => OriginalBattleRemakeCurrentSettings.ReadAdvancedSettings(state);
         context.BaseCapacityPercentageReader = () => OriginalBattleRemakeCurrentSettings.ReadAdvancedParameter(state, 39);

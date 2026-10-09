@@ -94,7 +94,7 @@ public static class OriginalCityOpeningPostLoadSource
             current.SetAreaTablePointer(area.Slot,area.Slot);current.SetAreaValidityCode(area.Slot,area.CitySlot);
             if(area.Slot!=0&&area.CitySlot!=0)current.SetAreaCitySlot(area.Slot,(byte)Math.Clamp((int)area.CitySlot,0,51));
         }
-        int Parameter(int key)=>native.BaseParameters.RawValues[key];
+        int Parameter(string key)=>native.BaseParameters.Values[key];
         var result=new Dictionary<int,OriginalCityOpeningPostLoadRecord>();
         foreach(var city in scenario.Snapshot.Cities.Where(c=>c.Slot!=0))
         {
@@ -109,7 +109,7 @@ public static class OriginalCityOpeningPostLoadSource
             // Native linked setter first clamps by actual base capacity,
             // then Object14 setter applies its own source maximum.
             int durable=sourceDurability<0?0:Math.Min(sourceDurability,capacity);
-            durable=durable<0?0:Math.Min(durable,Parameter(0x1A4BCB8));
+            durable=durable<0?0:Math.Min(durable,Parameter(SimulationParameterKeys.BaseCapacity.MaximumDurability));
             current.SetObjectRawField14(link,unchecked((ushort)durable));
             int actualDurable=current.ReadObjectRawField14(new(link))!.Value;
             byte tier=ReadFlag66(actualDurable,capacity,native.BaseParameters);
@@ -128,9 +128,9 @@ public static class OriginalCityOpeningPostLoadSource
         OriginalBaseParameterCatalog parameters,bool actualPercentageEnabled,int? actualPercentage)
     {
         ArgumentNullException.ThrowIfNull(parameters);
-        int P(int key)=>parameters.RawValues[key];
-        if(specialBase)return P(0x1A4BCB8);
-        int capacity=unchecked(P(0x1A4C248)+(actualSizeCode-1)*P(0x1A4C254)+actualPolicyEffect32*P(0x1A4C260));
+        int P(string key)=>parameters.Values[key];
+        if(specialBase)return P(SimulationParameterKeys.BaseCapacity.MaximumDurability);
+        int capacity=unchecked(P(SimulationParameterKeys.BaseCapacity.BaseDurability)+(actualSizeCode-1)*P(SimulationParameterKeys.BaseCapacity.DurabilityPerAdditionalSize)+actualPolicyEffect32*P(SimulationParameterKeys.BaseCapacity.DurabilityPolicyScale));
         if(actualPercentageEnabled)capacity=unchecked((actualPercentage??throw new InvalidDataException("Enabled city capacity percentage is unknown."))*capacity)/100;
         return Math.Min(capacity,9999);
     }
@@ -141,10 +141,10 @@ public static class OriginalCityOpeningPostLoadSource
     {
         ArgumentNullException.ThrowIfNull(parameters);
         float ratio=(float)linkedDurability/(float)actualCapacity;
-        float percent=ratio*BitConverter.Int32BitsToSingle(parameters.RawValues[0x1344C4C]);
+        float percent=ratio*BitConverter.Int32BitsToSingle(parameters.Values[SimulationParameterKeys.Shared.PercentDenominator]);
         float ceiling=MathF.Ceiling(percent);
         int n=!float.IsFinite(ceiling)||ceiling<int.MinValue||ceiling>=2147483648f?int.MinValue:(int)ceiling;
-        int high=parameters.RawValues[0x1A4C644],middle=parameters.RawValues[0x1A4C650],low=parameters.RawValues[0x1A4C65C];
+        int high=parameters.Values[SimulationParameterKeys.BaseCapacity.DamageTierFirstThreshold],middle=parameters.Values[SimulationParameterKeys.BaseCapacity.DamageTierSecondThreshold],low=parameters.Values[SimulationParameterKeys.BaseCapacity.DamageTierThirdThreshold];
         if(n>high&&n<=100)return 0;
         if(n>middle&&n<=high)return 1;
         if(n>low&&n<=middle)return 2;

@@ -57,7 +57,7 @@ public sealed partial class OriginalMapPostEffect3ResourceBank
         public Vector2I Extent=>new(View.Extent.X,View.Extent.Y);
         public uint NativeFirstMipLevel=>View.FirstMipLevel;
         public uint NativeMipLevelCount=>View.MipLevelCount;
-        public string NativeMipSelectionEvidence=>Before.SourceEvidence+";94AA60/968F40-source-cloned-RTV;native-RT0-setter";
+        public string NativeMipSelectionEvidence=>Before.SourceEvidence+";source-cloned-mip-RTV;native-RT0-setter";
         public string SourceEvidence=>NativeMipSelectionEvidence+";"+DrawContext.SourceEvidence;
         public void RequireCurrentForPass(int pass)
         {

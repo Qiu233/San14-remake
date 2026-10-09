@@ -3,7 +3,7 @@ using System.Buffers.Binary;
 namespace San14.Data;
 
 public enum OriginalMapPostEffect3Functor1FactoryCallback { Prepare,Initialize }
-public sealed record OriginalMapPostEffect3Functor1ChildReturnObservation(uint SourceRva,uint? ReturnedValue);
+public sealed record OriginalMapPostEffect3Functor1ChildReturnObservation(OriginalMapPostEffect3ChildOperation Operation,uint? ReturnedValue);
 
 /// <summary>Original wrapper return aggregation. Explicit child observations
 /// are CPU observations or oracle fixtures, not device completion authority.
@@ -25,8 +25,8 @@ public sealed class OriginalMapPostEffect3Functor1FactoryReturnTrace
         IReadOnlyList<OriginalMapPostEffect3Functor1ChildReturnObservation> children,string actualCpuObservationEvidence,string locale="TC")
     {
         ArgumentNullException.ThrowIfNull(children);ArgumentException.ThrowIfNullOrWhiteSpace(actualCpuObservationEvidence);
-        uint[] rvas=SourceChildren(factory,callback,locale);
-        if(!children.Select(c=>c.SourceRva).SequenceEqual(rvas))
+        var operations=SourceChildren(factory,callback,locale);
+        if(!children.Select(c=>c.Operation).SequenceEqual(operations))
             throw new InvalidDataException("Factory CPU return requires exact original child call order.");
         bool incomplete=false;
         foreach(var child in children)
@@ -46,23 +46,20 @@ public sealed class OriginalMapPostEffect3Functor1FactoryReturnTrace
         return new(factory,callback,Array.AsReadOnly(children.ToArray()),result,actualCpuObservationEvidence+
             ";source native wrapper aggregation;aliases/map results do not become GPU completion",locale);
     }
-    internal static uint[] SourceChildren(int factory,OriginalMapPostEffect3Functor1FactoryCallback callback,string locale="TC")
-        =>CanonicalChildren(factory,callback).Select(r=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(
-            locale,"OriginalMapPostEffect3Functor1FactoryReturnSource.cs",checked((int)r)))).ToArray();
-    private static uint[] CanonicalChildren(int factory,OriginalMapPostEffect3Functor1FactoryCallback callback)
-        =>(factory,callback) switch{
-            (6,OriginalMapPostEffect3Functor1FactoryCallback.Prepare)=>[0x114C650],
-            (6,OriginalMapPostEffect3Functor1FactoryCallback.Initialize)=>[0x114CA40],
-            (7,OriginalMapPostEffect3Functor1FactoryCallback.Prepare)=>[0x1156E20,0x1156550],
-            (7,OriginalMapPostEffect3Functor1FactoryCallback.Initialize)=>[0x1157230],
-            (8,OriginalMapPostEffect3Functor1FactoryCallback.Prepare)=>[0x1159710,0x11594D0],
-            (8,OriginalMapPostEffect3Functor1FactoryCallback.Initialize)=>[0x1157B70,0x1159A40,0x114AFF0],
-            (9,OriginalMapPostEffect3Functor1FactoryCallback.Prepare)=>[0x115BC10,0x115C890,0x115CD10],
-            (9,OriginalMapPostEffect3Functor1FactoryCallback.Initialize)=>[0x115CF80],
-            _=>throw new NotSupportedException("Factory return source covers only Functor1 factory6..9 Prepare/Init.")};
+    internal static OriginalMapPostEffect3ChildOperation[] SourceChildren(int factory,
+        OriginalMapPostEffect3Functor1FactoryCallback callback,string locale="TC")=>(factory,callback) switch{
+            (6,OriginalMapPostEffect3Functor1FactoryCallback.Prepare)=>[OriginalMapPostEffect3ChildOperation.LensConstants],
+            (6,OriginalMapPostEffect3Functor1FactoryCallback.Initialize)=>[OriginalMapPostEffect3ChildOperation.LensTextures],
+            (7,OriginalMapPostEffect3Functor1FactoryCallback.Prepare)=>[OriginalMapPostEffect3ChildOperation.DofShape,OriginalMapPostEffect3ChildOperation.DofConstants],
+            (7,OriginalMapPostEffect3Functor1FactoryCallback.Initialize)=>[OriginalMapPostEffect3ChildOperation.DofInitialize],
+            (8,OriginalMapPostEffect3Functor1FactoryCallback.Prepare)=>[OriginalMapPostEffect3ChildOperation.ExposureConstants,OriginalMapPostEffect3ChildOperation.BloomConstants],
+            (8,OriginalMapPostEffect3Functor1FactoryCallback.Initialize)=>[OriginalMapPostEffect3ChildOperation.BloomLevels,OriginalMapPostEffect3ChildOperation.EyeInitialize,OriginalMapPostEffect3ChildOperation.CachedScalarLookup],
+            (9,OriginalMapPostEffect3Functor1FactoryCallback.Prepare)=>[OriginalMapPostEffect3ChildOperation.CompositeConstants,OriginalMapPostEffect3ChildOperation.ToneInfo,OriginalMapPostEffect3ChildOperation.LightInfo],
+            (9,OriginalMapPostEffect3Functor1FactoryCallback.Initialize)=>[OriginalMapPostEffect3ChildOperation.CompositeInitialize],
+            _=>throw new NotSupportedException("Factory callback requires a supported current operation family.")};
 }
 
-/// <summary>The port's typed current cached records. Native114AFF0 does not
+/// <summary>The port's typed current cached records. Native does not
 /// inspect type/count to return AL: its nonnull stack output addresses return
 /// literal1. Typed checks here admit safe current records for the leaf writers;
 /// they are stronger than that native return test and confer no native address.</summary>
@@ -98,8 +95,8 @@ public sealed class OriginalMapPostEffect3Functor1FactoryCpuReturnedRecipe
     public byte SourcePrepareReturnAl=>PrepareTrace.SourceReturnAl!.Value;
     public byte SourceInitializeReturnAl=>InitializeTrace.SourceReturnAl!.Value;
     public string Locale=>PrepareTrace.Locale;
-    public uint SourcePrepareRva=>OriginalMapPostEffect3PassStateReader.FactoriesForLocale(Locale)[FactoryIndex].PrepareHook;
-    public uint SourceInitializeRva=>OriginalMapPostEffect3PassStateReader.FactoriesForLocale(Locale)[FactoryIndex].InitializeHook;
+
+
     public string SourceEvidence{get;}
     public bool ProvesNativeProcessCallbackObservation=>false;
     public bool ProvesGpuCompletion=>false;
@@ -134,7 +131,7 @@ public sealed class LoadedOriginalMapPostEffect3Functor1FactoryReturnSource
         OriginalMapPostEffect3ParameterLensFlare2Update actualPrepared)
     {
         void Require(){Validate(invocation,table);actualPrepared.RequireCurrentScalarState(invocation.State);actualPrepared.RequireCurrentTextureTable(table);
-            Packet(invocation,table,actualPrepared.ConstantBuffer,17,96,0x114C650);}
+            Packet(invocation,table,actualPrepared.ConstantBuffer,17,96,OriginalMapPostEffect3ConstantBufferWriter.Lens2);}
         Require();return Make(invocation,6,actualPrepared,Require,OriginalMapPostEffect3ApplyInitialScalars.LensDefaults,[actualPrepared.ConstantBuffer]);
     }
     public OriginalMapPostEffect3Functor1FactoryCpuReturnedRecipe CaptureDepthOfFieldReturned(
@@ -142,7 +139,7 @@ public sealed class LoadedOriginalMapPostEffect3Functor1FactoryReturnSource
         OriginalMapPostEffect3ParameterDepthOfField2Update actualPrepared)
     {
         void Require(){Validate(invocation,table);invocation.RequireCurrentDepthOfField2Prepared(actualPrepared,table);
-            Packet(invocation,table,actualPrepared.ConstantBuffer,18,144,0x1156550);}
+            Packet(invocation,table,actualPrepared.ConstantBuffer,18,144,OriginalMapPostEffect3ConstantBufferWriter.DepthOfField2);}
         Require();return Make(invocation,7,actualPrepared,Require,OriginalMapPostEffect3ApplyCompleteInitialScalars.DepthOfField2Defaults,[actualPrepared.ConstantBuffer]);
     }
     /// <summary>Completes original Prepare's separately required CB24 writer,
@@ -155,9 +152,9 @@ public sealed class LoadedOriginalMapPostEffect3Functor1FactoryReturnSource
         void Require(){Validate(invocation,table);invocation.Owner.EyeController.RequireCurrent(actualPrepared);
             if(!ReferenceEquals(actualPrepared.State,invocation.State)||!ReferenceEquals(actualPrepared.Allocation,table.Allocation))
                 throw new InvalidDataException("Eye CPU return requires its exact current source prepared state.");
-            actualPrepared.RequireCurrent();Packet(invocation,table,actualPrepared.BloomMainConstants,21,32,0x11594D0);}
+            actualPrepared.RequireCurrent();Packet(invocation,table,actualPrepared.BloomMainConstants,21,32,OriginalMapPostEffect3ConstantBufferWriter.BloomMain);}
         Require();var exposure=actualExposurePrepared??eyeSource.PrepareExposure(actualPrepared,doubleLog,OriginalNativeLogDispatch.Sse);
-        Packet(invocation,table,exposure,24,64,0x1159710);
+        Packet(invocation,table,exposure,24,64,OriginalMapPostEffect3ConstantBufferWriter.Exposure);
         var output=table.ReadKnownNullablePointer(74) is null?null:table.Require(74);
         long? nullRevision=output is null?table.CaptureKnownNullRevision(74):null;
         var alias=actualPrepared.InitializeOutputAlias;
@@ -177,7 +174,7 @@ public sealed class LoadedOriginalMapPostEffect3Functor1FactoryReturnSource
     {
         void Require(){Validate(invocation,table);actualPrepared.Prepared.RequireOwnedLifecycle(invocation.State,table.Allocation,table);
             actualPrepared.RequireInitialized();actualPrepared.RequireTable(table);
-            Packet(invocation,table,actualPrepared.Prepared.ConstantBuffer,22,208,0x115BC10);
+            Packet(invocation,table,actualPrepared.Prepared.ConstantBuffer,22,208,OriginalMapPostEffect3ConstantBufferWriter.Composite2);
             if(actualPrepared.RequiresCrossFilterConstants||actualPrepared.RequiresHdrRemakeConstants)
                 throw new NotSupportedException("Factory return admission currently covers the actual zero CrossFilter/no separate HDR LUT branch; positive optional writers need their own mapped-byte return join.");}
         Require();return Make(invocation,9,actualPrepared,Require,OriginalMapPostEffect3ApplyCompleteInitialScalars.Composite2Defaults,
@@ -218,10 +215,10 @@ public sealed class LoadedOriginalMapPostEffect3Functor1FactoryReturnSource
             table.ContextOwnerIdentity!=invocation.State.OwnerIdentity||table.SourceSha256!=invocation.State.SourceSha256)
             throw new InvalidDataException("Factory return requires its current source module allocation/frame/table.");}
     private void Packet(OriginalMapPostEffect3Functor1ModuleInvocation invocation,OriginalMapPostEffect3TextureParameterState table,
-        OriginalMapPostEffect3ParameterConstantBuffer packet,int index,int count,uint writer)
+        OriginalMapPostEffect3ParameterConstantBuffer packet,int index,int count,OriginalMapPostEffect3ConstantBufferWriter writer)
     {if(packet.FrameNumber!=invocation.FrameNumber||packet.OwnerIdentity!=table.ContextOwnerIdentity||packet.SourceSha256!=table.SourceSha256||
         !ReferenceEquals(packet.Declaration,table.Allocation.ConstantBufferParameters[index])||packet.Declaration.Index!=index||
-        packet.Bytes.Length!=count||packet.Locale!=Locale||packet.WriterRva!=checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3Functor1FactoryReturnSource.cs",checked((int)writer))))throw new InvalidDataException("Factory CPU writer packet source/identity differs.");}
+        packet.Bytes.Length!=count||packet.Locale!=Locale||packet.Writer!=writer)throw new InvalidDataException("Factory CPU writer packet source/identity differs.");}
 }
 
 public static class OriginalMapPostEffect3Functor1FactoryReturnSource
@@ -247,8 +244,8 @@ public static partial class OriginalDeferredSamplerSources
     {
         if(native.Locale is not ("TC" or "SC"))throw new NotSupportedException("Factory6..9 callback source requires a verified SC/TC profile.");
 
-        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;TC-reference-role-anchors;"+";render-rules="+native.RenderRuleIdentity+
-            ";factory6..9 actual Prepare/Init return aggregation;114AFF0-nonnull-stack-output-literal1;CPU source port only",
+        return new(native.ResourceUri+$";{native.Locale}:paired-source-profile;"+";render-rules="+native.RenderRuleIdentity+
+            "factory6;9 actual Prepare/Init return aggregation;-nonnull-stack-output-literal1;CPU source port only",
             actualEye??OriginalMapPostEffect3ParameterEyeAdaptation2.Load(repository,native.Locale),actualLog??LoadedOriginalNativeDoubleLogSource.Load(repository,native.Locale));
     }
 }

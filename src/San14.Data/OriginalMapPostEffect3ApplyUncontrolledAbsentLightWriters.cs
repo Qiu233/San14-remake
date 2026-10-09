@@ -2,13 +2,13 @@ using System.Buffers.Binary;
 
 namespace San14.Data;
 
-/// <summary>Actual absence of D586B0's context/ViewMask-filtered light lookup.
+/// <summary>Actual absence of the context/ViewMask-filtered light lookup.
 /// This is supplied by the source lookup owner, not inferred from a missing
 /// archive key, empty scalar bank or disabled LightShaft option.</summary>
 public sealed record OriginalMapPostEffect3ApplyUncontrolledAbsentLightInputs(
     long FrameNumber,string ActualLookupOwnerIdentity,bool ActualLightShaftArgument,string LookupEvidence);
 
-/// <summary>The E71690 absent-light branch writes seven keys, leaves SunProjPos
+/// <summary>The absent-light branch writes seven keys, leaves SunProjPos
 /// untouched and uses the original LSGaussBlur constant7. It does not synthesize
 /// the present-light projection/trigonometry path.</summary>
 public static class OriginalMapPostEffect3ApplyUncontrolledAbsentLightWriters
@@ -21,18 +21,18 @@ public static class OriginalMapPostEffect3ApplyUncontrolledAbsentLightWriters
         ArgumentException.ThrowIfNullOrWhiteSpace(input.ActualLookupOwnerIdentity);
         ArgumentException.ThrowIfNullOrWhiteSpace(input.LookupEvidence);
         if(input.FrameNumber<=0)throw new InvalidDataException("Absent-light preparation requires an owned frame.");
-        if(selection.Variant!=OriginalMapPostEffect3ApplyUncontrolledVariant.NativeE71690)
-            throw new NotSupportedException("Absent-light writer recipe requires the actual E71690 descriptor route.");
-        string evidence=selection.SourceEvidence+";TC:E71A28..E71A85-D586B0-null;E72604..E7262C;"+
+        if(selection.Variant!=OriginalMapPostEffect3ApplyUncontrolledVariant.LensPresetCameraFields)
+            throw new NotSupportedException("Absent-light writer recipe requires the LensPreset camera field route.");
+        string evidence=selection.SourceEvidence+";absent-current-light;"+
             "stack38/SunScale=0;stack90/SunColor=0;IntoSunLight=0;stack44=7;stack34=0;"+
             input.ActualLookupOwnerIdentity+";"+input.LookupEvidence;
-        OriginalMapPostEffect3ApplyValueWrite W(string name,uint at,int length,uint value=0)
-        {byte[] bytes=new byte[length];BinaryPrimitives.WriteUInt32LittleEndian(bytes,value);return new(name,at,0xE71690,bytes,evidence);}
-        // Source execution order crosses a late-address fallback block before
-        // rejoining E71E3F. Sorting this collection by native RVA would be wrong.
-        return Array.AsReadOnly(new[]{W("WhitePoint",0xE72627,4),W("IntoSunLight",0xE71E95,4),
-            W("SunScale",0xE71EC8,8),W("SunColor",0xE71EF1,12),
-            W("LightShaftEnable",0xE71F2B,4,input.ActualLightShaftArgument?1u:0u),
-            W("LSGaussBlur",0xE71F55,4,7),W("LSStepLength",0xE71F7F,4)});
+        OriginalMapPostEffect3ApplyValueWrite W(string name,OriginalMapPostEffect3WriteStage stage,int length,uint value=0)
+        {byte[] bytes=new byte[length];BinaryPrimitives.WriteUInt32LittleEndian(bytes,value);return new(name,stage,bytes,evidence);}
+        // These fallback writes run in the Light phase before LSLarge.
+        // Preserve their branch order when combining camera scalar writes.
+        return Array.AsReadOnly(new[]{W("WhitePoint",OriginalMapPostEffect3WriteStage.LightWhitePoint,4),W("IntoSunLight",OriginalMapPostEffect3WriteStage.LightIntoSunLight,4),
+            W("SunScale",OriginalMapPostEffect3WriteStage.LightSunScale,8),W("SunColor",OriginalMapPostEffect3WriteStage.LightSunColor,12),
+            W("LightShaftEnable",OriginalMapPostEffect3WriteStage.LightLightShaftEnable,4,input.ActualLightShaftArgument?1u:0u),
+            W("LSGaussBlur",OriginalMapPostEffect3WriteStage.LightLSGaussBlur,4,7),W("LSStepLength",OriginalMapPostEffect3WriteStage.LightLSStepLength,4)});
     }
 }

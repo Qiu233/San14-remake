@@ -17,15 +17,14 @@ public sealed record OriginalMapPostEffect3ParameterCompositeUpdate(long FrameNu
     public bool RequiresSharedPrepareBaseProducer=>true;
 }
 
-/// <summary>Actual factory5 Composite init1153390 complete160B writer;
+/// <summary>Actual factory5 Composite init complete160B writer;
 /// before1153340 binds native manager samplers7/8. Does not substitute shaders,
 /// execute a GPU draw or infer those implicit sampler handles.</summary>
 public static class OriginalMapPostEffect3ParameterComposite
 {
     /// <summary>Actual callable Init identity in the loaded source locale.
     /// Uses the compiled paired source directory; performs no source I/O.</summary>
-    public static uint NativeInitializeWriterRva(string locale)=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(
-        locale,"OriginalMapPostEffect3ParameterComposite.cs",0x1153390));
+    public static OriginalMapPostEffect3ConstantBufferWriter InitializationWriter=>OriginalMapPostEffect3ConstantBufferWriter.CompositeLegacy;
     public static OriginalMapPostEffect3ParameterCompositeUpdate Prepare(
         OriginalMapPostEffect3ParameterState state,OriginalMapPostEffect3AllocationPlan allocation,
         OriginalMapPostEffect3LensPresetParameterOwner actualLens,
@@ -44,8 +43,8 @@ public static class OriginalMapPostEffect3ParameterComposite
         actualLens.ValidatePointerWrites(state);
         if(BinaryPrimitives.ReadUInt64LittleEndian(Value("LensPreset",7,1).Span)!=0)
             throw new NotSupportedException("Composite typed Split route requires actual unified LensPreset null.");
-        // 1153390 performs its own named pointer lookups: Split -> RSI at
-        // 1153435/115343B, Intermediate -> R14 at 1153469/115346F. Its
+        // performs its own named pointer lookups: Split -> RSI at
+        // /, Intermediate -> R14 at /. Its
         // unified-preset branch likewise uses +10/+18 in that same order.
         ReadOnlySpan<byte> split=actualLens.SplitBytes.Span,intermediate=actualLens.IntermediateBytes.Span;
         if(split.Length!=656||intermediate.Length is not (92 or 96))
@@ -93,7 +92,7 @@ public static class OriginalMapPostEffect3ParameterComposite
         colorTemperature.CopyTo(bytes,112);Put(124,saturation);
         Put(128,gamma!=0?1:0);Put(132,gammaValue);Put(136,automatic);Put(140,exposureValue);
         Put(144,fxaa!=0?1:0);Put(148,fade);Put(152,useSky2?6.5f:1);Put(156,0);
-        return new(state.FrameNumber,state.OwnerIdentity,new(state,declaration,NativeInitializeWriterRva(math.Locale),bytes,math.Locale),
+        return new(state.FrameNumber,state.OwnerIdentity,new(state,declaration,InitializationWriter,bytes,math.Locale),
             Array.AsReadOnly(new[]{new OriginalMapPostEffect3CompositeBeforeSamplerRequirement(2,7,"ShaderManager30/source-linear"),
                 new OriginalMapPostEffect3CompositeBeforeSamplerRequirement(2,8,"ShaderManager38/source-point")}));
 

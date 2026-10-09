@@ -17,7 +17,7 @@ internal sealed class OriginalMapPostEffect3Functor1ShaderCatalog
         internal byte EvaluateActualSelectionAl()
         {
             Owner.Library.RequireOwnedDirectoryProgram(ActualOrdinaryProgram);
-            //Original1161DCF CS pointer, otherwise1161DE9 PS pointer.
+            // Select the compute program, otherwise the pixel program.
             //The AL follows actual owned pointer availability, not a mask.
             return SourceCsWrapper is not null||SourcePsWrapper is not null?(byte)1:(byte)0;
         }

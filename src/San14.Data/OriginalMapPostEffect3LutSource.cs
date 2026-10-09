@@ -4,7 +4,7 @@ using San14.Data.Formats;
 
 namespace San14.Data;
 
-/// <summary>E21110 source declaration, not an observation of an original
+/// <summary> source declaration, not an observation of an original
 /// Camera1828 or a completed native/GPU texture. CPU+8 retains this count;
 /// CPU+10 points to the ordered child Data* array allocated after its32B header.</summary>
 public sealed class LoadedOriginalMapPostEffect3LutSource
@@ -21,9 +21,9 @@ public sealed class LoadedOriginalMapPostEffect3LutSource
     public IReadOnlyList<uint> ChildObjectKeys=>Array.AsReadOnly(children);
     public bool ProvesCurrentGameCameraBinding=>false;
     public string SourceEvidence=>$"{Definitions.Source.ResourceUri}@{Definitions.Source.DecodedSha256}#object/{SourceObjectId:X8};"+
-        "TC:E1CDB0/VT16DB8B0/E239B0-class593A65D1/E23A10-PostEffect3Lut;E234D0-property8D16812D/type5-array;"+
-        "E211CF-count24/E211E0-allocation32+8n/E21290-ordered-keylookup/E21340-CPU08/E21343-CPU10;"+
-        "E23920-selector=context50.v88/not-locale-or-quality;source-declaration-only";
+        "TC;VT/-class593A65D1/-PostEffect3Lut;-property8D16812D/type5-array"+
+        "-count24/-allocation32+8n/-ordered-keylookup/-CPU08/-CPU10"+
+        "-selector=context50.v88/not-locale-or-quality;source-declaration-only";
 
     /// <summary>Exact source bounds/zero-key behavior. The argument must come
     /// from the caller's actual context50.v88 producer. This method does not

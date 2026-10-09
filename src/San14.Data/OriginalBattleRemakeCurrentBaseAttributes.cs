@@ -70,13 +70,13 @@ public sealed class OriginalBattleRemakeCurrentBaseAttributes
         bool? alternate = OriginalBattleRemakeCurrentSettings.ReadAlternateMoraleGlobals(state);
         if (durability is null || hex is null || reachedRegion is null || alternate is null) return null;
 
-        int? root = Parameter(0x1A4C674), leadership = Parameter(0x1A4C680), additive = Parameter(0x1A4C68C),
-            divisorNumerator = Parameter(0x1A4C698), divisorOffset = Parameter(0x1A4C6A4),
-            moraleOffset = Parameter(alternate.Value ? 0x1A4A050 : 0x1A4C6B0),
-            moraleDivisor = Parameter(alternate.Value ? 0x1A4A05C : 0x1A4C6BC),
-            attackCoefficient = Parameter(0x1A4A8C4), defenseCoefficient = Parameter(0x1A4A8DC),
-            attackScale = Parameter(0x1A4A8A0), defenseScale = Parameter(0x1A4A8AC),
-            wallCoefficient = Parameter(0x1A4A8B8);
+        int? root = Parameter(SimulationParameterKeys.BattleAttributes.CommonRootDivisor), leadership = Parameter(SimulationParameterKeys.BattleAttributes.CommonLeadershipScale), additive = Parameter(SimulationParameterKeys.BattleAttributes.CommonAdditive),
+            divisorNumerator = Parameter(SimulationParameterKeys.BattleAttributes.CommonDivisorNumerator), divisorOffset = Parameter(SimulationParameterKeys.BattleAttributes.CommonDivisorOffset),
+            moraleOffset = Parameter(alternate.Value ? SimulationParameterKeys.BattleAttributes.AlternateMoraleOffset : SimulationParameterKeys.BattleAttributes.MoraleOffset),
+            moraleDivisor = Parameter(alternate.Value ? SimulationParameterKeys.BattleAttributes.AlternateMoraleDivisor : SimulationParameterKeys.BattleAttributes.MoraleDivisor),
+            attackCoefficient = Parameter(SimulationParameterKeys.BattleAttributes.BaseAttackCoefficient), defenseCoefficient = Parameter(SimulationParameterKeys.BattleAttributes.BaseDefenseCoefficient),
+            attackScale = Parameter(SimulationParameterKeys.BattleAttributes.AttackCoefficientScale), defenseScale = Parameter(SimulationParameterKeys.BattleAttributes.DefenseCoefficientScale),
+            wallCoefficient = Parameter(SimulationParameterKeys.BattleAttributes.BaseWallCoefficient);
         if (root is null || leadership is null || additive is null || divisorNumerator is null || divisorOffset is null ||
             moraleOffset is null || moraleDivisor is null || attackCoefficient is null || defenseCoefficient is null ||
             attackScale is null || defenseScale is null || wallCoefficient is null) return null;
@@ -99,7 +99,7 @@ public sealed class OriginalBattleRemakeCurrentBaseAttributes
             troops, morale, abnormal, link, durability.Value, hex.Value, finalDescriptorDivisor14,
             reachedRegion, $"{Revision}:{parameters.Revision}");
 
-        int? Parameter(int rva) => parameters.Int32Values.TryGetValue(OriginalTacticRemakeParameterSeed.Key(rva), out int value)
+        int? Parameter(string key) => parameters.Int32Values.TryGetValue(key, out int value)
             ? value : null;
     }
 }

@@ -36,7 +36,7 @@ public sealed class OriginalMapPostEffect3DeviceConstantBuffer
     public Rid StorageRid{get;}
     public bool HasCompleteWriterContents{get;internal set;}
     public long? CompleteFrameNumber{get;internal set;}
-    public uint? WriterRva{get;internal set;}
+    public OriginalMapPostEffect3ConstantBufferWriter? Writer{get;internal set;}
     public string? CompleteBytesSha256{get;internal set;}
     public long? PassScopedFrameNumber{get;internal set;}
     public int? PassScopedPassIndex{get;internal set;}
@@ -141,7 +141,7 @@ public sealed partial class OriginalMapPostEffect3ResourceBank:IAsyncDisposable
                 foreach(var allocation in plan.BufferAllocations.Where(a=>a.CreateInThisInvocation))
                 {
                     var p=allocation.Parameter;var shape=bufferShapes[p.Index];
-                    // 1147C40/94B250 uses a distinct typed-buffer table. Texture
+                    // The typed-buffer table is distinct. Texture
                     // native code6 means DXGI10 here, not texture table code6.
                     (uint stride,RenderingDevice.DataFormat format)=shape.Dimension switch{
                         OriginalMapPostEffect3BufferDimension.Typed=>shape.ViewFormat switch{
@@ -256,7 +256,7 @@ public sealed partial class OriginalMapPostEffect3ResourceBank:IAsyncDisposable
             ObjectDisposedException.ThrowIf(retiring,this);
             var target=Require(ConstantBuffers,packet.Declaration.Index,instance,"CB");
             if(packet.SourceSha256!=Source.Source.Sha256||packet.OwnerIdentity!=Source.ContextOwnerIdentity||
-                packet.FrameNumber<0||packet.WriterRva==0||bytes.Length!=target.Source.Parameter.ByteCount||
+                packet.FrameNumber<0||bytes.Length!=target.Source.Parameter.ByteCount||
                 !packet.Declaration.RawBytes.Span.SequenceEqual(target.Source.Parameter.RawBytes.Span))
                 throw new InvalidDataException("3SPK CB writer belongs to another source/owner/declaration or incomplete extent.");
             accepted++;return UploadAcceptedAsync(packet,bytes,target);
@@ -276,7 +276,7 @@ public sealed partial class OriginalMapPostEffect3ResourceBank:IAsyncDisposable
              if(result!=Error.Ok)throw new InvalidDataException("Device rejected a complete3SPK CB writer upload.");return true;});
             await renderingTask;
             OriginalRenderThreadSchedulingDiagnostics.CallerResumed(renderingTask);
-            lock(lifetime){target.CompleteFrameNumber=packet.FrameNumber;target.WriterRva=packet.WriterRva;
+            lock(lifetime){target.CompleteFrameNumber=packet.FrameNumber;target.Writer=packet.Writer;
                 target.UploadRevision=checked(target.UploadRevision+1);
                 target.CompleteBytesSha256=Convert.ToHexString(SHA256.HashData(bytes));target.HasCompleteWriterContents=true;
                 target.PassScopedFrameNumber=null;target.PassScopedPassIndex=null;target.PassKnownSourceByteCount=0;}
@@ -325,7 +325,7 @@ public sealed partial class OriginalMapPostEffect3ResourceBank:IAsyncDisposable
             lock(lifetime)
             {
                 target.UploadRevision=checked(target.UploadRevision+1);
-                target.HasCompleteWriterContents=false;target.CompleteFrameNumber=null;target.WriterRva=null;target.CompleteBytesSha256=null;
+                target.HasCompleteWriterContents=false;target.CompleteFrameNumber=null;target.Writer=null;target.CompleteBytesSha256=null;
                 target.PassScopedFrameNumber=upload.FrameNumber;target.PassScopedPassIndex=upload.PassIndex;target.PassKnownSourceByteCount=known;
             }
         }

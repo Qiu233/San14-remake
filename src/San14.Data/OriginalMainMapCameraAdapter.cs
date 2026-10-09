@@ -10,7 +10,7 @@ namespace San14.Data;
 public sealed record OriginalMainMapCameraFrameInputs(Vector3 CurrentScale90,
     bool ContextOwner3E4Bit29, uint NativeClipProfile,
     OriginalNativeCameraTangentDispatch TangentDispatch, float OwnerFovOverride290,
-    ulong ImageBase, long FrameNumber, string FrameProvenance)
+    long FrameNumber, string FrameProvenance)
 {
     /// <summary>This update's source V468/V410 store, before the later App290
     /// override. Null retains CPU12E8 without inventing a seasonal write.</summary>
@@ -278,7 +278,7 @@ public sealed class OriginalMainMapCameraAdapter
             (farWriter is null?"":";map-entry-far="+farWriter);
         OriginalMapCameraConstructionPacket camera = OriginalMapCameraConstruction.PrepareFreshPerspective(
             Source, pose, input.ContextOwner3E4Bit29, input.NativeClipProfile, input.TangentDispatch,
-            input.ImageBase, Parameters.Locale, input.FrameNumber, provenance);
+            Parameters.Locale, input.FrameNumber, provenance);
 
         // V468 may call V410 and overwrite sourceCPU12E8. The current source
         // producer supplies that conditional store before geometry is captured.
@@ -304,7 +304,7 @@ public sealed class OriginalMainMapCameraAdapter
                 lens, input.NativeClipProfile, input.TangentDispatch);
             matrices.WriteEarlyMatrices(prefix);
             prefix[0x160] = prefix[0x161] = 0;
-            camera = new(prefix, Source, pose, lens, matrices, input.ImageBase, Parameters.Locale,
+            camera = new(prefix, Source, pose, lens, matrices, Parameters.Locale,
                 input.FrameNumber, provenance + (applied
                     ? ";same-update-positive-owner290-fov" : input.SourceSelectedFovV410 is not null
                         ? ";same-update-source-V468-V410-fov" : ";retained-sourceCPU12E8"));

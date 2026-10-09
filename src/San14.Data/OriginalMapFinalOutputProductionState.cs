@@ -86,7 +86,7 @@ public sealed class OriginalMapFinalOutputProductionState
             acceptedLighting.LocalLightData.Span[0x10B0]!=2||(acceptedLighting.LocalLightData.Span[0xFDC]&1)!=0)
             throw new InvalidDataException("Production final exposure requires the actual owned mode2/FDC0 Camera-luminance branch; external selected-light ownership is unresolved.");
         var camera=new OriginalMapCameraConstructionPacket(acceptedLighting.PreparedCameraPrefix.ToArray(),currentCamera.Source,
-            currentCamera.CurrentPose,currentCamera.Lens,currentCamera.Matrices,currentCamera.ImageBase,currentCamera.ExecutableLocale,
+            currentCamera.CurrentPose,currentCamera.Lens,currentCamera.Matrices,currentCamera.ExecutableLocale,
             currentCamera.FrameNumber,currentCamera.FrameProvenance+";"+acceptedLighting.SourceProvenance+";"+currentSeason.SourceProvenance);
         var exposure=OriginalMapExposureSource.Prepare(new(camera.FrameNumber,camera.Prefix,camera.FrameProvenance,selectedViewAux,
             OriginalMapExposureSurface.ExistingViewModeInvariant(selectedViewAux,actualFrameOwner+"/actual-node73-working-surface"),

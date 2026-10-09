@@ -295,8 +295,8 @@ public sealed partial class OriginalNativeMapArmyPopulationRenderer:IAsyncDispos
         if(context.FrameNumber<=0||context.PreparedCamera is null||context.TerrainFrame.ColorViews.Count!=5||!context.TerrainFrame.DepthView.IsValid||
             context.TerrainFrame.Source.Graph.Source.ResourceUri!=_graphUri||context.TerrainFrame.Source.Graph.Source.DecodedSha256!=_graphSha)
             throw new InvalidDataException("Native Army population requires the same accepted source Camera and complete original five-MRT/depth graph.");
-        _=OriginalNativeMatrixMath.Inverse3F6EB0(context.PreparedCamera.SourceWorldToView,out _);
-        _=OriginalNativeMatrixMath.Inverse3F6EB0(context.PreparedCamera.SourceWorldToProjection,out _);
+        _=OriginalNativeMatrixMath.Invert(context.PreparedCamera.SourceWorldToView,out _);
+        _=OriginalNativeMatrixMath.Invert(context.PreparedCamera.SourceWorldToProjection,out _);
     }
 
     public Task BeforeTargetRetirementAsync(OriginalNativeMapTargetContext context)

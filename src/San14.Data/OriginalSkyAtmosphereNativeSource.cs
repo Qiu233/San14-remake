@@ -43,15 +43,8 @@ public static partial class OriginalDeferredSamplerSources
 {
     internal static string ReadSkyAtmosphereNativeRecipe(string sourceDirectory,string locale)
     {
-        _ = RenderRuleIdentity.For("SkyAtmosphereNative",locale);
-        int start=locale switch
-        {
-            "TC"=>0x97CF70,
-            "SC"=>0x97E100,
-            _=>throw new InvalidDataException("Source Sky atmosphere requires SC or TC.")
-        };
         return $"{RenderRuleIdentity.For("SkyAtmosphereNative",locale)};"+
-            $"native-mode4-Scat={start:X8}/4C0;native-lazy=-1/logf(2);"+
-            "source=Generic97CF70/package40-Fog96/package10-directionalRGB/package30+hemi-ambient";
+            "mode4-scattering/4C0;lazy=-1/logf(2);"+
+            "package40-Fog96/package10-directionalRGB/package30+hemi-ambient";
     }
 }

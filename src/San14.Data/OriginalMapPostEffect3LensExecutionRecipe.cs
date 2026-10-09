@@ -16,7 +16,7 @@ public sealed record OriginalMapPostEffect3LensGhostDraw(uint VertexCount,uint I
 }
 
 /// <summary>Source-specific factory4 pass preparation. Native Select submits
-/// counted resource bindings before Before mutates them. Commit1162610 consumes
+/// counted resource bindings before Before mutates them. Commit consumes
 /// that resulting table, not a fresh copy of the counted rows.</summary>
 public sealed class OriginalMapPostEffect3LensExecutionRecipe
 {
@@ -41,8 +41,8 @@ public sealed class OriginalMapPostEffect3LensExecutionRecipe
     public bool CommitsFunctorHistory=>false;
     public bool EstablishesCompleteResourceContents=>false;
     public string SourceEvidence=>Before.SourceEvidence+
-        ";114CD69/1161D40-Select-counted-bindings;114CD7E/1151B90-Before-overrides;114CD88/1162610-commit-result;"+
-        (GhostDraw?.SourceEvidence??"1153120-non-GhostSprite-returns-true;1163170-source-automatic-dispatch");
+        "-Select-counted-bindings;-Before-overrides;-commit-result"+
+        (GhostDraw?.SourceEvidence??"-non-GhostSprite-returns-true;-source-automatic-dispatch");
 
     public static OriginalMapPostEffect3LensExecutionRecipe Prepare(
         OriginalMapPostEffect3ParameterState currentState,OriginalMapPostEffect3AllocationPlan allocation,
@@ -87,9 +87,9 @@ public sealed class OriginalMapPostEffect3LensExecutionRecipe
                 shape.ByteCount<instances*28||!shape.CreatesShaderResourceView)
                 throw new InvalidDataException("GhostSprite draw requires the original source structured buffer2 and its native stride28.");
             ghost=new(4,instances,0,0,0x00114400,true,false,buffer,instances*28,
-                "TC:1153120..115331A;SC:1154260..115445A;packet40031=4,min(Split58,14),0,0;"+
+                "TC;SC;packet40031=4,min(Split58,14),0,0"+
                 "temporary-blend114400/enabled;temporary-depth1BF0;cullE8-inherited;restore-inherited-states;"+
-                "opcode40031->958980/962320/964ED0-primitive4->D3D5-TriangleStrip;no-indirect-call;SplitSha="+
+                "opcode40031->;-primitive4->D3D5-TriangleStrip;no-indirect-call;SplitSha="+
                 Convert.ToHexString(SHA256.HashData(split)));
         }
         // Buffer3's allocator flag exposes an indirect-capable view, but these

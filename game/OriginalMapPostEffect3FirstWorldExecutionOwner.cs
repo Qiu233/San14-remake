@@ -266,7 +266,7 @@ public sealed class OriginalMapPostEffect3FirstWorldExecutionOwner:IAsyncDisposa
 
     /// <summary>Invoke in the actual AfterDeferred prefix, before old Final.
     /// The producer receives the exact accepted Camera/World packet and owned
-    /// allocation plan. It must recover the real E71690 tuple/light lookup and
+    /// allocation plan. It must recover the real lens preset tuple/light lookup and
     /// initialize its factories and actual allocation-side table using the
     /// receipt from this module's real Begin. The default current-World method
     /// supplies that producer; no Main mount or Host-history commit is implied.</summary>
@@ -307,7 +307,7 @@ public sealed class OriginalMapPostEffect3FirstWorldExecutionOwner:IAsyncDisposa
             begin.RequireCurrent();
             invocation.ReportSourceFrontendBeginResult(beginReturnSource.CaptureCurrentFrontendBegin(invocation));
             var input=await actualFrameProducer(Bank.Source,prepared,begin) ??
-                throw new InvalidDataException("The actual E71690 source producer returned no current frame.");
+                throw new InvalidDataException("The actual lens preset source producer returned no current frame.");
             var frame=input.Parameters;
             frame.RequireCurrent();frame.Route.ValidateSameCamera(
                 prepared.Lighting.CapturePreparedCameraFromSameAcceptedMain(prepared.MainCamera));
@@ -324,7 +324,7 @@ public sealed class OriginalMapPostEffect3FirstWorldExecutionOwner:IAsyncDisposa
             if(!invocation.TextureInstances.OrderBy(p=>p.Key).SequenceEqual((previousCompletedExit?.TextureInstances??FreshAllocationSides.TextureInstances).OrderBy(p=>p.Key))||
                 !invocation.ConstantBufferInstances.OrderBy(p=>p.Key).SequenceEqual((previousCompletedExit?.ConstantBufferInstances??FreshAllocationSides.ConstantBufferInstances).OrderBy(p=>p.Key)))
                 throw new InvalidDataException("First World invocation differs from the module's genuine constructor sides.");
-            // Real EB69F0/EB6A23 external bindings. The current Scene is proved
+            // Real external scene/depth bindings. The current Scene is proved
             // by late submission; E13 selection is independently source-pinned.
             var scene=context.OutputFrame.Textures[0x064B746B];
             var depth=context.TerrainFrame.Textures[0xE13DDB4F];
@@ -336,13 +336,13 @@ public sealed class OriginalMapPostEffect3FirstWorldExecutionOwner:IAsyncDisposa
                 OriginalMapPostEffect3ParameterAliasMode.SourceAsciiZeroLocale) ??
                 throw new InvalidDataException("Actual InputDepth declaration is absent.");
             input.Textures.BindExternal(color,new(context.FrameNumber,scene.EffectiveSource.OwnerIdentity),
-                late.SourceEvidence+";TC:EB69F0/D72210-actual-working-Scene");
+                late.SourceEvidence+";actual-working-scene");
             input.Textures.BindExternal(depthIndex,new(context.FrameNumber,depth.EffectiveSource.OwnerIdentity),
-                depthSource.SourceEvidence+";TC:EB6A23/D72210-actual-InputDepth");
+                depthSource.SourceEvidence+";actual-input-depth");
             var world=OriginalMapPostEffect3WorldStockGraphicsSourceOwner.CaptureCurrent(host,context,Bank,input.Textures);
             LastPreparationFacts=CapturePreparationFacts(frame,input.Textures,"before-mandatory-external-input-writes");
             var postSeasonCamera=prepared.Lighting.CapturePreparedCameraFromSameAcceptedMain(prepared.MainCamera);
-            // Original EB648F..EB649F uses BOTH the nonzero copied SceneType
+            // The dedicated light scene gate uses BOTH the nonzero copied SceneType
             // and the actual positive source length/RGB caller predicate.
             var sceneType=postSeasonCamera.Source.Camera.Properties[142];
             if(sceneType.Index!=142||sceneType.NameHash!=0x4168C674||sceneType.TypeCode!=5||sceneType.ElementCount!=1||
@@ -357,11 +357,11 @@ public sealed class OriginalMapPostEffect3FirstWorldExecutionOwner:IAsyncDisposa
                 await InputLightSceneSource.BindAndProduceCurrentAsync(world,frame,postSeasonCamera,caller);
             else
                 input.Textures.BindExternal(lightScene,new(context.FrameNumber,scene.EffectiveSource.OwnerIdentity),
-                    late.SourceEvidence+";"+caller.SourceEvidence+";TC:EB648F..EB649F-dedicated-gate-false;EB6A8F..EB6A97-working-Scene-fallback");
+                    late.SourceEvidence+";"+caller.SourceEvidence+";dedicated-light-scene-gate-false;working-Scene-fallback");
             inputNoiseSource=OriginalMapPostEffect3WorldInputNoiseSourceOwner.BindCurrent(host,world,frame,postSeasonCamera);
             LastPreparationFacts=CapturePreparationFacts(frame,input.Textures,"after-actual-LightScene-branch-and-initialized-Noise-input-writes");
             // Original Apply installs every external input before entering
-            // E71690's factory aliases; all Init aliases then precede TAA Before.
+            // Lens preset factory aliases; all Init aliases then precede TAA Before.
             input.Textures.ApplyPreparedFactoryAliases(frame,OriginalMapPostEffect3ParameterAliasMode.SourceAsciiZeroLocale);
             var temporal=invocation.PrepareTemporalAABefore();
             if(temporal.Disposition!=OriginalMapPostEffect3TemporalAAFirstPassDisposition.DisabledNativeTextureAliasRequiresProducer)

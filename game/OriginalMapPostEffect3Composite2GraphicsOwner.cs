@@ -246,7 +246,7 @@ public sealed partial class OriginalMapPostEffect3Composite2GraphicsOwner:IAsync
                 RequireCurrent();selectedDraws.Add(completed);
             if(selectedDraws.Count!=Frame.Prepared.PassSelection.OrderedFactory9Passes.Count)return;
             var result=new OriginalMapPostEffect3Composite2CompletedGraphics(Frame,Array.AsReadOnly(selectedDraws.ToArray()),selectedDraws.Last(),
-                Frame.SourceEvidence+";"+invocation.SourceEvidence+";actual-complete-selected-factory9-graphics;Execute-scissor-state-local-and-restored;After/Finish-BF9280-literal1");
+                Frame.SourceEvidence+";"+invocation.SourceEvidence+";actual-complete-selected-factory9-graphics;Execute-scissor-state-local-and-restored;After/Finish-success");
             if(!result.ProvesAllSelectedGraphicsWereSubmitted)throw new InvalidDataException("Composite2 did not submit every actual selected graphics pass.");
             LastCompleted=result;
     }

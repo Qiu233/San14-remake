@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 namespace San14.Data;
 
 /// <summary>The source fresh default Apply factory registered by1092E0.
-/// E6BBC0 supplies its pair(0,1); E7BB60/E6B9F0 copies it into Apply1A4/1A8.
+/// supplies its pair(0,1); copies it into Apply1A4/1A8.
 /// Alternative109370 external-pair registration is a separate unsupported
 /// owner, not a silent override of this fresh-default receipt.</summary>
 public sealed class OriginalMapPostEffect3ApplyFunctorSelection
@@ -43,9 +43,9 @@ public sealed class OriginalMapPostEffect3ApplyFunctorSelection
         if(snapshot.Functors.Count!=2||snapshot.Functors[0].Index!=0||snapshot.Functors[1].Index!=1)
             throw new InvalidDataException("Fresh default Apply selectors require both actual source functors.");
         return new(snapshot,frameNumber,actualDefaultFactoryOwner,
-            "TC:1092E0/109332:E6BBC0-default-pair0,1;109357:B2D30063;109364:B3C3F0-register;"+
-            "E7C3FF:prototype+8;E6BB6E:Apply1A4;E6BB78:Apply1A8;"+
-            "EB805C:without-controller;EB7F6B/E22C1D:with-controller;"+
+            "TC:1092E0/109332:-default-pair0,1;109357:B2D30063;109364:-register"+
+            ":prototype+8;:Apply1A4;:Apply1A8"+
+            ":without-controller;:with-controller"+
             "explicit-owned-default-registry;"+actualDefaultFactoryOwner+";"+callerRegistryEvidence);
     }
 }

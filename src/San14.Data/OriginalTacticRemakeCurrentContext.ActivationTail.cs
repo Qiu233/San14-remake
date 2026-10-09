@@ -42,7 +42,7 @@ public sealed partial class OriginalTacticRemakeCurrentContext
             return null;
         if (!valid) return commander;
         if (_definitions.ReadPersonIdentity(personSlot) != commander.Id ||
-            Parameter(state, 0x1A4BD44) is not int contribution) return null;
+            Parameter(state, SimulationParameterKeys.Tactics.ActivationContribution) is not int contribution) return null;
         int requested = unchecked(contribution * 10);
         OriginalPersonPendingMeritResult result = writePendingMerit(state, commander.Id, requested);
         return result.Outcome == OriginalPersonPendingMeritOutcome.CurrentInputsUnresolved

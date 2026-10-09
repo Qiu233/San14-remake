@@ -2,12 +2,12 @@ using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 using San14.Data;
 
-/// <summary>Actual EB caller facts whose current producers are outside this
+/// <summary>Actual post effect caller facts whose current producers are outside this
 /// source preparation. Each value must come from the caller owner named by
 /// SourceEvidence. No installed executable initializer is a current value.</summary>
 public sealed record OriginalMapPostEffect3WorldControlledCallerFacts(
     long FrameNumber,int ActualGatherSizeTypeC0,bool ActualAdaptationLockPredicate,
-    float ActualLdrLutIntensityXmm9,float ActualContextHeatScale254,int ActualAb5D10Result,
+    float ActualLdrLutIntensityXmm9,float ActualContextHeatScale254,int ActualProjectionClipMode,
     byte ActualExecuteArgument3R8B,byte ActualExecuteArgument4R9B,byte ActualExecuteArgument5EntryRsp28,
     int ActualQualityLevel,OriginalNativeLogDispatch ActualOwnedLogDispatch,string SourceEvidence);
 
@@ -41,8 +41,8 @@ public sealed partial class OriginalMapPostEffect3WorldControlledPreparation
         this.commonTemplate=commonTemplate;this.lutDefinitions=lutDefinitions;transferSource=transfer;
         selectorSource=selector;auxSource=aux;rectangleSource=rectangles;this.callerSource=callerSource;
         GraphicsConfiguration=callerSource.CreateFreshOwnedConfiguration(allocation.ContextOwnerIdentity+"/actual-owned-native-configuration");
-        // Original D0176F and E6BB1C are the actual zero writers for these
-        // newly owned FrameSync/Common and Apply clock fields.
+        // Fresh FrameSync/Common and Apply clock owners initialize these
+        // fields to zero.
         commonClock=new(callerSource,OriginalMapFreshCommonResources.ReadSourceTemplate(commonTemplate));
     }
     public OriginalMapFinalOutputPostEffect3Source Source{get;}
@@ -127,7 +127,7 @@ public sealed partial class OriginalMapPostEffect3WorldControlledPreparation
         var freshCaller=callerSource.CaptureFreshCurrent(camera,transfer,lookups);
         var currentClock=CaptureActualSourceClock(actualContext,world.First.Common,actualClock);
 
-        // D59120 reads the same selected View+1B20 record+8, directly. The
+        // The controlled light lookup reads the selected View+1B20 record+8 directly. The
         // existing World selected-record producer proves that independent
         // pointer; the inner F103 modifier payload is not selected here.
         var finalInput=OriginalMapFinalOutputProductionFrameInputs.FromWorldSourceSession(prepared,actualContext,world,
@@ -137,10 +137,10 @@ public sealed partial class OriginalMapPostEffect3WorldControlledPreparation
         var lightPacket=world.World.CopyAcceptedRecordLighting(record);
         if(selected.Identity.SelectedViewOwner!=aux.SelectedViewOwnerIdentity||
             !lightPacket.LocalLightData.Span.SequenceEqual(selected.CompleteLightData.Span))
-            throw new InvalidDataException("D59120 needs the exact original accepted selected-record8 payload.");
+            throw new InvalidDataException("The controlled light lookup needs the exact accepted selected-record8 payload.");
         var light=OriginalMapPostEffect3ControlledLightLookup.CaptureActualLookup(camera,lightPacket,
-            aux.SelectedViewOwnerIdentity+"/D59120-selected-record8",selected.SourceProvenance+
-            ";TC:D59120-ViewCollection110[index]/View1B20/record8;actual-complete-World-record-owner");
+            aux.SelectedViewOwnerIdentity+"/controlled-selected-record",selected.SourceProvenance+
+            ";selected-view-light-record;actual-complete-World-record-owner");
         var raw=OriginalMapPostEffect3ApplyUncontrolledCameraInputs.ConstructFreshSource(camera,
             Allocation.ContextOwnerIdentity+"/controlled-source-fields-only");
         int fxaa=aux.Fxaa3A8|unchecked((int)raw.Word(0x414));
@@ -148,7 +148,7 @@ public sealed partial class OriginalMapPostEffect3WorldControlledPreparation
         if(!float.IsFinite(sourceGamma)||sourceGamma<=0)throw new InvalidDataException("Current Camera174 gamma is not positive finite.");
         float adjusted=gammaTarget.NativeTarget60Equals1||gammaTarget.ContextVirtual80Result?
             Divide(sourceGamma,BitConverter.UInt32BitsToSingle(0x400CCCCD)):sourceGamma;
-        float gammaDivisor=Divide(1,adjusted); // actual EB5FA1 xmm13, before its later reciprocal writer.
+        float gammaDivisor=Divide(1,adjusted); // Capture before the later reciprocal writer.
         var selection=OriginalMapPostEffect3ApplyFunctorSelection.ConstructFreshDefault(Source,Allocation.Source,camera.FrameNumber,
             Allocation.ContextOwnerIdentity+"/actual-source-default-Apply-registry",slot.SourceEvidence);
         var extentTransition=actualExtentTransition??ReadActualExtentTransition(actualContext);
@@ -170,7 +170,7 @@ public sealed partial class OriginalMapPostEffect3WorldControlledPreparation
             OriginalMapPostEffect3WorldCommonClockPublication publication;
             if(currentCommonClock is not null&&ReferenceEquals(currentCommonClock.Context,context))
             {
-                // EB5E7A reads table254; it does not resample the upstream
+                // Apply reads the published Common time; it does not resample the upstream
                 // App delta after geometry. Keep the actual clock owner join.
                 publication=currentCommonClock;publication.RequireCurrent();
                 publication.SourceClock.RequireCurrentForCommon(actualCommon);
@@ -312,8 +312,8 @@ public sealed partial class OriginalMapPostEffect3WorldControlledPreparation
                 FreshCaller.AdaptationLock,FreshCaller.LdrIntensityXmm9,ActualPublishedCommonBlockTime254,config.ProjectionConvention,
                 FreshCaller.FreshControllerArgument3,0,FreshCaller.FreshApplyArgument5,config.QualityLevel,config.LogDispatch,
                 FreshCaller.SourceEvidence+";"+config.SourceEvidence+";"+owner.callerSource.SourceEvidence+
-                ";actual-module-dimensions-equal-current-working-wrapper40/42->EB691A-arg4zero;"+
-                "owned-FrameSync3348->D12ACB/D61BB4-current-block254;EB5E8D/96-actual-Apply-clock-subtract/update");
+                ";actual-module-dimensions-equal-current-working-wrapper/arg4zero;"+
+                "owned-FrameSync-published-Common-time;actual-Apply-clock-subtract/update");
             var result=PrepareCore(actualSelectedHdr,facts,null,FreshCaller);
             if(config.Revision!=revision)throw new InvalidDataException("Native owned configuration changed during controlled preparation.");
             return result;
@@ -342,7 +342,7 @@ public sealed partial class OriginalMapPostEffect3WorldControlledPreparation
             var snapshot=previous.Controller.CaptureCurrentSnapshot(FrameNumber) with{
                 StopBladeCount6C=FreshCaller.StopBladeCount6C,Diaphragm9C=FreshCaller.Diaphragm9C,
                 EnableDofA4=FreshCaller.GatherSizeTypeC0,
-                SourceEvidence=FreshCaller.SourceEvidence+";same-owned-controller-after-source-cleanup/no-E243F0-reset"};
+                SourceEvidence=FreshCaller.SourceEvidence+";same-owned-controller-after-source-cleanup/no-controller-reset"};
             var facts=new OriginalMapPostEffect3WorldControlledCallerFacts(FrameNumber,FreshCaller.GatherSizeTypeC0,
                 FreshCaller.AdaptationLock,FreshCaller.LdrIntensityXmm9,ActualPublishedCommonBlockTime254,config.ProjectionConvention,
                 0,ActualExtentTransition.ControllerArgument4R9B,actualPriorApplyArgument5,config.QualityLevel,config.LogDispatch,
@@ -366,9 +366,9 @@ public sealed partial class OriginalMapPostEffect3WorldControlledPreparation
             var caller=new OriginalMapPostEffect3ControlledCameraCaller(FrameNumber,checked((int)Allocation.ContextWidth),
                 checked((int)Allocation.ContextHeight),fxaa,gammaDivisor,actualSourceApplyDelta,
                 actualCaller.ActualLdrLutIntensityXmm9,actualCaller.ActualGatherSizeTypeC0,actualCaller.ActualAdaptationLockPredicate,
-                rectangles.Viewport1540,rectangles.Viewport1540,actualCaller.ActualAb5D10Result,actualCaller.ActualContextHeatScale254,
+                rectangles.Viewport1540,rectangles.Viewport1540,actualCaller.ActualProjectionClipMode,actualCaller.ActualContextHeatScale254,
                 actualCaller.SourceEvidence+";"+ApplyViewSlot.SourceEvidence+";"+rectangles.SourceEvidence+";"+
-                ActualFrontendParent.SourceEvidence+";EB5FA1-actual-xmm13;EB6886/EB6890-actual-Aux3A8-OR-Camera414;"+
+                ActualFrontendParent.SourceEvidence+";actual-mode3-word;Aux3A8-OR-Camera414;"+
                 "owned-renderer-clock="+clock.ActualClockOwnerIdentity);
             var execute=new OriginalMapPostEffect3ControllerExecuteCaller(FrameNumber,actualCaller.ActualExecuteArgument3R8B,
                 actualCaller.ActualExecuteArgument4R9B,actualCaller.ActualExecuteArgument5EntryRsp28,actualCaller.ActualQualityLevel,

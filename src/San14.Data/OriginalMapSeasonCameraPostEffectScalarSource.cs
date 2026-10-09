@@ -111,7 +111,7 @@ public sealed class OriginalMapSeasonCameraPostEffectScalarWriteIdentity
     {
         Scalars.ValidateForCamera(camera);
         return new(camera.Prefix.ToArray(),camera.Source,camera.CurrentPose,camera.Lens,camera.Matrices,
-            camera.ImageBase,camera.ExecutableLocale,camera.FrameNumber,camera.FrameProvenance+";"+SourceEvidence,Scalars,this);
+            camera.ExecutableLocale,camera.FrameNumber,camera.FrameProvenance+";"+SourceEvidence,Scalars,this);
     }
     internal void RequireActualMainPreparation(OriginalSkySeasonMainCameraInputs inputs,
         OriginalMapCameraConstructionPacket camera)

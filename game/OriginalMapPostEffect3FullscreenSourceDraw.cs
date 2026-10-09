@@ -45,7 +45,7 @@ public sealed class OriginalMapPostEffect3FullscreenSourceDraw
                 throw new InvalidDataException("Composite2 graphics needs its actual selected lifecycle command and post-Bind state.");
         }
         Validate();return new(before.SourcePassIndex,frame.FrameNumber,frame.OwnerIdentity,frame.SourceSha256,
-            before.SourceEvidence+";TC115B750-actual-graphics-Execute/restore;opcode3002D-start0-count3",Validate)
+            before.SourceEvidence+";composite-graphics-execute/restore;start0-count3",Validate)
         {ExecutableLocale=frame.Locale,Composite2Recipe=actual,UsesInheritedCallerTarget=actual.ActualEffectiveTargetCount==0,
             RequiredConstantBufferBytesSha256=new System.Collections.ObjectModel.ReadOnlyDictionary<int,string>(
                 new Dictionary<int,string>{{22,Convert.ToHexString(SHA256.HashData(frame.Prepared.ConstantBuffer.Bytes.Span))}})};
@@ -62,7 +62,7 @@ public sealed class OriginalMapPostEffect3FullscreenSourceDraw
                 throw new InvalidDataException("Eye source iteration does not admit its actual fullscreen command.");
         }
         Validate();return new(before.Iteration.SourcePassIndex,actual.FrameNumber,actual.OwnerIdentity,
-            actual.State.SourceSha256,before.SourceEvidence+";TC1159004/115908D-opcode3002D-start0-count3",Validate,before)
+            actual.State.SourceSha256,before.SourceEvidence+";eye-graphics-draw;start0-count3",Validate,before)
             {ExecutableLocale=actual.Locale,EyeFrame=actual,RequiredConstantBufferBytesSha256=CaptureEyeConstants(actual,before)};
     }
     public static OriginalMapPostEffect3FullscreenSourceDraw CaptureLensFlare2(
@@ -77,7 +77,7 @@ public sealed class OriginalMapPostEffect3FullscreenSourceDraw
                 throw new NotSupportedException("LensFlare2 fullscreen route requires its original three-vertex command.");
         }
         Validate();return new(actual.SourcePassIndex,actual.FrameNumber,actual.ContextOwnerIdentity,
-            actual.SourceSha256,actual.SourceEvidence+";TC114C458-opcode3002D-start0-count3",Validate)
+            actual.SourceSha256,actual.SourceEvidence+";lens-graphics-draw;start0-count3",Validate)
         {ExecutableLocale=actual.ConstantBuffer.Locale,RequiredConstantBufferBytesSha256=new System.Collections.ObjectModel.ReadOnlyDictionary<int,string>(
             new Dictionary<int,string>{{17,Convert.ToHexString(SHA256.HashData(actual.ConstantBuffer.Bytes.Span))}})};
     }
@@ -104,7 +104,7 @@ public sealed class OriginalMapPostEffect3FullscreenSourceDraw
                 throw new NotSupportedException("DOF2 fullscreen route requires a selected ordinary procedural draw.");
         }
         Validate();return new(before.SourcePassIndex,actual.FrameNumber,before.ContextOwnerIdentity,
-            actual.ConstantBuffer.SourceSha256,before.SourceEvidence+";TC1155CF0-selected-opcode3002D-start0-count3",Validate,null,before)
+            actual.ConstantBuffer.SourceSha256,before.SourceEvidence+";dof-selected-graphics-draw;start0-count3",Validate,null,before)
         {
             ExecutableLocale=actual.ConstantBuffer.Locale,
             RequiredConstantBufferBytesSha256=new System.Collections.ObjectModel.ReadOnlyDictionary<int,string>(
@@ -124,7 +124,7 @@ public sealed class OriginalMapPostEffect3FullscreenSourceDraw
 }
 
 /// <summary>Actual current frontend raster, viewport and scissor. The scissor
-/// is independent: 95BC90/963D30 and frontend1D9 do not change the viewport.
+/// is independent: context binding and frontend1D9 do not change the viewport.
 /// A null scissor denotes positively proved disabled source scissor.</summary>
 public interface IOriginalMapPostEffect3FullscreenDrawContextLease
 {
@@ -169,10 +169,10 @@ public sealed class OriginalMapPostEffect3FullscreenTextureOverride
     private readonly OriginalMapPostEffect3ResolvedTextureParameter reference;
     private readonly Action validate;
     private OriginalMapPostEffect3FullscreenTextureOverride(OriginalMapPostEffect3TextureParameterState table,
-        int pass,int register,IOriginalMapPostEffect3ComputeTextureLease texture,uint setter,string evidence,Action validate)
+        int pass,int register,IOriginalMapPostEffect3ComputeTextureLease texture,OriginalMapPostEffect3ResourceSetter setter,string evidence,Action validate)
     {
         this.table=table;reference=table.Require(texture.ParameterIndex);this.validate=validate;
-        SourcePassIndex=pass;Texture=texture;SourceSetterRva=setter;SourceEvidence=evidence;
+        SourcePassIndex=pass;Texture=texture;Setter=setter;SourceEvidence=evidence;
         SourceSetter=new(-1,OriginalMapPostEffect3BindingTable.TextureParameters,texture.ParameterIndex,1,
             checked((short)register),-1,-1,4,OriginalMapPostEffect3BindingRole.ShaderResourceRead,0,ReadOnlyMemory<byte>.Empty);
     }
@@ -180,7 +180,7 @@ public sealed class OriginalMapPostEffect3FullscreenTextureOverride
     public long FrameNumber=>table.FrameNumber;
     public string ContextOwnerIdentity=>table.ContextOwnerIdentity;
     public string SourceSha256=>table.SourceSha256;
-    public uint SourceSetterRva{get;}
+    public OriginalMapPostEffect3ResourceSetter Setter{get;}
     public OriginalMapPostEffect3Binding SourceSetter{get;}
     public IOriginalMapPostEffect3ComputeTextureLease Texture{get;}
     public string SourceEvidence{get;}
@@ -204,7 +204,7 @@ public sealed class OriginalMapPostEffect3FullscreenTextureOverride
                 throw new InvalidDataException("Eye t0 override differs from its actual current source single-mip wrapper.");
             texture.RequireSourceSelectedView(before.Iteration.SourcePassIndex,0);
         }
-        Validate();return new(table,before.Iteration.SourcePassIndex,0,texture,before.NativePixelTextureSetterRva,before.SourceEvidence,Validate);
+        Validate();return new(table,before.Iteration.SourcePassIndex,0,texture,before.TextureSetter,before.SourceEvidence,Validate);
     }
     public static OriginalMapPostEffect3FullscreenTextureOverride CaptureDepthOfField2(
         OriginalMapPostEffect3TextureParameterState table,OriginalMapPostEffect3DepthOfField2BeforeBindings before,
@@ -222,7 +222,7 @@ public sealed class OriginalMapPostEffect3FullscreenTextureOverride
                 texture.InstanceIndex!=setter.ActualTexture.Reference.InstanceIndex)
                 throw new InvalidDataException("DOF2 Before override differs from its actual source texture setter.");
         }
-        Validate();return new(table,before.SourcePassIndex,setter.NativeRegisterIndex,texture,setter.NativeSetterRva,
+        Validate();return new(table,before.SourcePassIndex,setter.NativeRegisterIndex,texture,setter.TextureSetter,
             before.SourceEvidence,Validate);
     }
 }

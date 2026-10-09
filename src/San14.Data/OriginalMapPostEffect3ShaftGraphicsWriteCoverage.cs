@@ -30,7 +30,7 @@ public sealed class OriginalMapPostEffect3ShaftGraphicsWriteCoverage
         ArgumentNullException.ThrowIfNull(allocation);ArgumentNullException.ThrowIfNull(init);
         _=OriginalMapPostEffect3ParameterLightShaft.PreparePassBindings(allocation,7,init);
         if(!init.BeforeHookAllowsPasses||init.ConstantBuffer is not{Bytes.Length:144} cb||cb.Locale!=init.Locale||
-            cb.WriterRva!=checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(init.Locale,"OriginalMapPostEffect3ShaftGraphicsWriteCoverage.cs",0x1153FA0))||
+            cb.Writer!=OriginalMapPostEffect3ConstantBufferWriter.LightShaft||
             cb.Declaration.Index!=1||cb.FrameNumber!=init.FrameNumber||cb.OwnerIdentity!=init.OwnerIdentity||
             cb.SourceSha256!=allocation.Source.Sha256)
             throw new InvalidDataException("Shaft7 coverage needs the actual complete enabled source Init.");

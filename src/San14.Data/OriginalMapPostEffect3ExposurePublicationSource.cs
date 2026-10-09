@@ -29,7 +29,7 @@ public sealed class LoadedOriginalMapPostEffect3ExposurePublicationSource
         if(!float.IsFinite(color.X)||!float.IsFinite(color.Y)||!float.IsFinite(color.Z)||!float.IsFinite(color.W))
             throw new InvalidDataException("Exposure publication lacks its actual finite retained stock color words.");
     }
-    /// <summary>EB85AF destination rectangle(0,0,1,1); EB8595/85BE/85D1
+    /// <summary> destination rectangle(0,0,1,1); /85BE/85D1
     /// UV(0,0,1/sourceWidth,1/sourceHeight). Actual61 is2x1. Stock49 receives
     /// packed white and z=0; alpha-test-disabled constants are separate.</summary>
     public byte[] BuildQuad()
@@ -68,11 +68,11 @@ public static partial class OriginalDeferredSamplerSources
         var allocation=ReadEyeExposureInitializationSource(native);
         var sampler=DecodeKey(native,Convert.FromHexString("1514300000000000"));
         return new(native,sampler,allocation,native.RenderRuleIdentity+
-            ";TC:EB8515-target-global50/EB85AF-unit-rect/EB85D1-inverse-source-extent-UV;"+
-            "EB99F0-packed-white/EB9A0C-stock49-z0;Aux108-typed-null->956A60-type3;"+
-            "D4A730-alphaTestOff->vATest=-FLTMAX;9999C0-blendOff;RGB7/alpha1;"+
-            "959250-depthOff/cullNONE/clip0->ScreenEnd/targetPop;"+
-            "owned61-single-side-M1/96AFC0-wrapper-key1514300000000000/876F30-read-descriptor38;"+
+            ";target-global50/-unit-rect/-inverse-source-extent-UV"+
+            "-packed-white/-stock49-z0;Aux108-typed-null->-type3"+
+            "-alphaTestOff->vATest=-FLTMAX;-blendOff;RGB7/alpha1"+
+            "-depthOff/cullNONE/clip0->ScreenEnd/targetPop"+
+            "owned61-single-side-M1/-wrapper-key1514300000000000/-read-descriptor38"+
             "stock32B-VS/default3-16B-PS;source-current104-R32_FLOAT2x1-mip0;"+
             "source-parameters-only/no-GPU-completion-or-right-texel-replacement");
     }

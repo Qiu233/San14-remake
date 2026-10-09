@@ -222,8 +222,8 @@ public static class OriginalDeferredSceneConstants
             Write("mW2P", 592, 2, 4, 4, 0, Words(camera.SourceWorldToProjection));
             uint[] transposed = Words(Matrix4x4.Transpose(camera.SourceWorldToView));
             Write("mWV", 1824, 1, 1, 4, 3, transposed[..12]);
-            Write("mV2W", 2336, 2, 4, 4, 0, Words(OriginalNativeMatrixMath.Inverse3F6EB0(camera.SourceWorldToView, out _)));
-            Write("mP2W", 2400, 2, 4, 4, 0, Words(OriginalNativeMatrixMath.Inverse3F6EB0(camera.SourceWorldToProjection, out _)));
+            Write("mV2W", 2336, 2, 4, 4, 0, Words(OriginalNativeMatrixMath.Invert(camera.SourceWorldToView, out _)));
+            Write("mP2W", 2400, 2, 4, 4, 0, Words(OriginalNativeMatrixMath.Invert(camera.SourceWorldToProjection, out _)));
         }
         if (input.Fog is { } fog)
         {

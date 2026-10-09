@@ -17,7 +17,7 @@ public sealed class OriginalMapPostEffect3WorldLightLookupOwner
     private readonly IReadOnlyList<OriginalMapPostEffect3LightLookupPrimitive> prefix;
     public OriginalNativeMapFrameContext Context{get;}
     public OriginalMapPostEffect3LightLookupResult Result{get;}
-    public string SourceEvidence=>"TC:D586B0-context110/Main0->D586D0;actual-owned-complete-kind1-prefix;"+
+    public string SourceEvidence=>"main-light-lookup;actual-owned-complete-kind1-prefix;"+
         world.CountedQueue.QueueOwnerIdentity+";single-bit-unique-selection/order-invariant;"+submitted.SourceEvidence+";"+caller.SourceEvidence;
 
     private OriginalMapPostEffect3WorldLightLookupOwner(OriginalMapSourceCreatedWorldPlayableHost actualHost,
@@ -48,11 +48,11 @@ public sealed class OriginalMapPostEffect3WorldLightLookupOwner
             inputs.Add(new(item.CurrentItemTagWord,true,r.Mask78,world.World.CopyAcceptedRecordLighting(r)));
         }
         prefix=Array.AsReadOnly(inputs.ToArray());
-        if(prefix.Count(p=>(p.RecordMask78&caller.D586B0ExclusionMask)==0)>1)
+        if(prefix.Count(p=>(p.RecordMask78&caller.LightLookupExclusionMask)==0)>1)
             throw new NotSupportedException("Current D586 selection depends on an unclosed equal-key native sort order.");
         // This owned adapter's complete published positive count is its actual
         // prefix length, not an observation of original View19D4/19D0 memory.
-        Result=OriginalMapPostEffect3LightLookup.ReadSortedPrefix(prefix,prefix.Count,prefix.Count,caller.D586B0ExclusionMask);
+        Result=OriginalMapPostEffect3LightLookup.ReadSortedPrefix(prefix,prefix.Count,prefix.Count,caller.LightLookupExclusionMask);
     }
 
     public static OriginalMapPostEffect3WorldLightLookupOwner CaptureCurrent(
@@ -94,12 +94,12 @@ public sealed class OriginalMapPostEffect3WorldLightLookupOwner
         RequireCurrent();
         return Result.Payload8 is { } selected ?
             OriginalMapPostEffect3ApplyUncontrolledPresentLightInputs.CaptureSelectedLookup(selected,
-                world.CountedQueue.QueueOwnerIdentity+"/D586B0",SourceEvidence,caller.ActualLightShaftArgument):null;
+                world.CountedQueue.QueueOwnerIdentity+"/main-light-lookup",SourceEvidence,caller.ActualLightShaftArgument):null;
     }
     public OriginalMapPostEffect3ApplyUncontrolledAbsentLightInputs? CreateAbsentLightInputs()
     {
         RequireCurrent();
-        return Result.Payload8 is null ? new(Context.FrameNumber,world.CountedQueue.QueueOwnerIdentity+"/D586B0",
+        return Result.Payload8 is null ? new(Context.FrameNumber,world.CountedQueue.QueueOwnerIdentity+"/main-light-lookup",
             caller.ActualLightShaftArgument,SourceEvidence):null;
     }
 }

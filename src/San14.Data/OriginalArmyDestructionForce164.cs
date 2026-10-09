@@ -53,7 +53,7 @@ public static class OriginalArmyDestructionForce164
             if (!Get(current.ReadForceNativeValidity(force), "late winner Force validity")) return new(new(current, force), null);
             int physical = Get(current.ReadForcePhysicalSlot(force), "late winner Force physical");
             int wounded = Get(current.ReadArmyReturnResourceFields(victim)?.Wounded18, "victim Army word18");
-            int scale = P(0x1A49060);
+            int scale = P(SimulationParameterKeys.ArmyDestruction.ForceExperienceWoundedDivisor);
             if (scale == 0) throw Missing("Force164 division parameter1A49060 is zero");
             int traitTerm = 0;
             if (winnerValid)
@@ -64,7 +64,7 @@ public static class OriginalArmyDestructionForce164
                 if (person.PhysicalSlot is int commander && Get(current.ReadPersonNativeValidity(commander), "late winner commander validity"))
                 {
                     int effect = Get(OriginalTacticRemakeCurrentTraits.CommanderEffectSum(current, commander, 0x4C), "late winner commander effect4C");
-                    traitTerm = unchecked(effect * P(0x1A490B4) * scale) / 100;
+                    traitTerm = unchecked(effect * P(SimulationParameterKeys.ArmyDestruction.ForceExperienceTraitMultiplier) * scale) / 100;
                 }
             }
             var pool = current.ReadOwnedCurrentListPool() ?? throw Missing("Force164 owned primary pool");
@@ -77,10 +77,10 @@ public static class OriginalArmyDestructionForce164
             var preparedPool = pool.DetachForArmyReturn(draft);
             var advantage = OriginalPersonReturnPathSource.ReadForceAdvantage(state, draft, force, 6);
             if (advantage.Value is not int effect6) throw Missing(advantage.UnresolvedOwner ?? "Force164 source2ADBC0 effect6");
-            int gain = unchecked((int)((long)wounded / (long)scale) + unchecked(effect6 * P(0x1A49BB8) * scale) / 100 + traitTerm);
+            int gain = unchecked((int)((long)wounded / (long)scale) + unchecked(effect6 * P(SimulationParameterKeys.ArmyDestruction.ForceExperienceLandAdvantageMultiplier) * scale) / 100 + traitTerm);
             if (!state.NativeArmySimulation!.Forces.TryGetValue(physical, out var nativeForce) || nativeForce.Flags12 is not byte flags)
                 throw Missing("late winner Force current byte12");
-            if ((flags & 8) != 0) gain = unchecked(gain + unchecked(P(0x1A49794) * scale) / 100);
+            if ((flags & 8) != 0) gain = unchecked(gain + unchecked(P(SimulationParameterKeys.ArmyDestruction.ForceExperienceFlagBonusPercent) * scale) / 100);
             //258A60 accepts nonnegative delta; the preceding real effect6
             //temporary lifecycle still executes when a negative result skips.
             if (gain < 0) return new(new(current, force, wounded, gain, pool: pool, prepared: preparedPool), null);
@@ -101,7 +101,7 @@ public static class OriginalArmyDestructionForce164
             return new(new(current, force, wounded, gain, before, after, oldLevel, newLevel, display,
                 isPlayer && oldLevel < newLevel && newLevel == 10, pool, preparedPool), null);
 
-            int P(int tcRva) => Get(OriginalArmyDestructionParameterSeed.ReadCurrentTc(state, tcRva), $"Force164 parameter{tcRva:X}");
+            int P(string key) => Get(OriginalArmyDestructionParameterSeed.ReadCurrent(state, key), $"Force164 parameter{key}");
         }
         catch (MissingOwner missing) { return new(null, missing.Message); }
         catch (InvalidDataException missing) { return new(null, "current.Force164: " + missing.Message); }

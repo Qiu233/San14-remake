@@ -119,10 +119,10 @@ public sealed class OriginalArmyMarchPenaltyCurrentProducer
         if (counts[0] == 0 && counts[1] == 0 && counts[2] == 0 && hostileHexes == 0) value = 0;
         else
         {
-            if (ReadWeight(OriginalArmyMarchPenaltyParameterSeed.RadiusOneWeightScRva) is not int w1 ||
-                ReadWeight(OriginalArmyMarchPenaltyParameterSeed.RadiusTwoWeightScRva) is not int w2 ||
-                ReadWeight(OriginalArmyMarchPenaltyParameterSeed.RadiusThreeWeightScRva) is not int w3 ||
-                ReadWeight(OriginalArmyMarchPenaltyParameterSeed.TerritoryWeightScRva) is not int wt)
+            if (ReadWeight(SimulationParameterKeys.ArmyMarchPenalty.RadiusOneArmyWeight) is not int w1 ||
+                ReadWeight(SimulationParameterKeys.ArmyMarchPenalty.RadiusTwoArmyWeight) is not int w2 ||
+                ReadWeight(SimulationParameterKeys.ArmyMarchPenalty.RadiusThreeArmyWeight) is not int w3 ||
+                ReadWeight(SimulationParameterKeys.ArmyMarchPenalty.TerritoryWeight) is not int wt)
                 return Missing("current.penalty_four_weights_including_runtime27D47A4");
             value = unchecked(unchecked((hostileHexes - counts[2]) * wt) + unchecked((counts[2] - counts[1]) * w3) +
                 unchecked((counts[1] - counts[0]) * w2) + unchecked(counts[0] * w1));
@@ -134,8 +134,8 @@ public sealed class OriginalArmyMarchPenaltyCurrentProducer
         return Result(value, army.HexId, false, counts[0], counts[1], counts[2], hostileHexes,
             field?.SourceProvenance ?? "all-return-values-zero-independent-of-Army140");
 
-        int? ReadWeight(int rva) => state.NativeArmySimulation!.Parameters.Int32Values.TryGetValue(
-            OriginalTacticRemakeParameterSeed.Key(rva), out int weight) ? weight : null;
+        int? ReadWeight(string key) => state.NativeArmySimulation!.Parameters.Int32Values.TryGetValue(
+            key, out int weight) ? weight : null;
         OriginalArmyMarchPenaltyCurrentResolution Result(int value, int? center, bool immune,
             int n1, int n2, int n3, int territoryCount, string owner) => new(new(value, center, immune, n1, n2, n3, territoryCount,
                 $"{Revision};{source.Source.ResourceUri}@{source.Source.RuleVersion};owned-clock={state.NativeClock!.UpdateOrdinal};{owner}"), null);

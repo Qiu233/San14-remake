@@ -65,7 +65,7 @@ public sealed class OriginalMapPostEffect3DepthOfField2Controller
     public string SourceEvidence{get;}
     public string Locale{get;}
     public uint NativeCapability160=>2;
-    /// <summary>Only native1155280's decrement. The caller must have reached
+    /// <summary>Only native's decrement. The caller must have reached
     /// the actual finish hook in its owned source protocol. No pass success or
     /// GPU completion is inferred by advancing this numeric field.</summary>
     public OriginalMapPostEffect3DepthOfField2Controller ApplySourceFinish(bool actualFinishHookReached)
@@ -73,7 +73,7 @@ public sealed class OriginalMapPostEffect3DepthOfField2Controller
         if(!actualFinishHookReached)throw new InvalidDataException("DOF2 source finish hook was not reached.");
         return new(Allocation,FrameNumber,Count10==0?0:Count10-1,HistoryFlip16,SpriteSide28,
             ShapeFix4K,ShapeMultiResolution,ShapeHeight,InitializeFix4K,InitializeMultiResolution,InitializeHeight,
-            UsesCroppedViewport168,SourceEvidence+";TC1155280-owned-source-finish-count10",Locale)
+            UsesCroppedViewport168,SourceEvidence+";-owned-source-finish-count10",Locale)
             {RearScatterEnabled14=RearScatterEnabled14,ForeScatterEnabled15=ForeScatterEnabled15};
     }
 }
@@ -110,7 +110,7 @@ public sealed record OriginalMapPostEffect3DepthOfField2PixelTextureSetter(int N
     OriginalMapPostEffect3ResolvedTextureParameter ActualTexture,string Locale="TC")
 {
     public uint NativeStageCode=>2;
-    public uint NativeSetterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3ParameterDepthOfField2.cs",0x1163970));
+    public OriginalMapPostEffect3ResourceSetter TextureSetter=>OriginalMapPostEffect3ResourceSetter.ShaderResource;
 }
 
 public enum OriginalMapPostEffect3DepthOfField2DynamicBindingKind { PixelTexture,RenderTarget }
@@ -118,7 +118,7 @@ public sealed record OriginalMapPostEffect3DepthOfField2DynamicBinding(
     OriginalMapPostEffect3DepthOfField2DynamicBindingKind Kind,int NativeRegisterIndex,
     OriginalMapPostEffect3ResolvedTextureParameter ActualTexture,string Locale="TC")
 {
-    public uint NativeSetterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3ParameterDepthOfField2.cs",Kind==OriginalMapPostEffect3DepthOfField2DynamicBindingKind.PixelTexture?0x1163970:0x1163800));
+    public OriginalMapPostEffect3ResourceSetter TextureSetter=>OriginalMapPostEffect3ResourceSetter.ShaderResource;
 }
 
 public sealed class OriginalMapPostEffect3DepthOfField2BeforeBindings
@@ -153,12 +153,11 @@ public sealed class OriginalMapPostEffect3DepthOfField2BeforeBindings
     public int NativeTargetRegister=>0;
     public int NativeTargetMip=>-1;
     public int NativeTargetArraySlice=>-1;
-    public uint NativeTargetSetterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(update.ConstantBuffer.Locale,"OriginalMapPostEffect3ParameterDepthOfField2.cs",0x1163800));
-    public uint NativeGenericCommandRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(update.ConstantBuffer.Locale,"OriginalMapPostEffect3ParameterDepthOfField2.cs",0x1163170));
+    public OriginalMapPostEffect3ResourceSetter TargetSetter=>OriginalMapPostEffect3ResourceSetter.RenderTarget;
     public IReadOnlyList<int> PixelSamplerRegisters=>Array.AsReadOnly(new[]{7,8});
     public bool UsedNativeSpriteCountReadback{get;}
-    //1155112 writes a qword: DWORD clear mask1C18=15 and packed RGBA8
-    //clear color1C1C=0.1162610 consumes them during target Bind.
+    // writes a qword: DWORD clear mask1C18=15 and packed RGBA8
+    //clear color1C1C=0. consumes them during target Bind.
     public bool RequiresNativeClearMaskAndColorOverride{get;}
     public uint? NativeClearMaskContext1C18=>RequiresNativeClearMaskAndColorOverride?15u:null;
     public uint? NativeClearColorRgba8Context1C1C=>RequiresNativeClearMaskAndColorOverride?0u:null;
@@ -179,7 +178,7 @@ public sealed class OriginalMapPostEffect3DepthOfField2BeforeBindings
     public bool RestoreActualPreviousScissor=>RequiresNativeScissorOverride;
     public ReadOnlyMemory<byte> NativeDrawCommand=>RequiresGenericComputeDispatch||RequiresNativeIndirectDraw?
         ReadOnlyMemory<byte>.Empty:Convert.FromHexString("2D0003000000000003000000");
-    public string SourceEvidence=>update.SourceEvidence+";1154DC0-original-ordered-Before";
+    public string SourceEvidence=>update.SourceEvidence+"-original-ordered-Before";
     public void RequireCurrent()
     {
         update.RequireCurrent();
@@ -224,7 +223,6 @@ public sealed class OriginalMapPostEffect3ParameterDepthOfField2Update
     public bool RequiresSpriteCountReadback=>NextController.Count10==0&&PassSelection.OrderedFactory7Passes.Contains(57);
     public string SourceEvidence{get;}
     public bool ProvesGpuExecution=>false;
-    public uint NativeAfterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(ConstantBuffer.Locale,"OriginalMapPostEffect3ParameterDepthOfField2.cs",0xBF9280));
     public bool NativeAfterIsNoOp=>true;
     public bool BeforeHookAllows(int actualPassIndex)
     {
@@ -342,7 +340,7 @@ public sealed class OriginalMapPostEffect3DepthOfField2InitializationReceipt
     public OriginalMapPostEffect3ResolvedTextureParameter? ActualSource{get;}
     public OriginalMapPostEffect3ResolvedTextureParameter? ActualTarget{get;}
     public long FrameNumber=>update.FrameNumber;
-    public string SourceEvidence=>update.SourceEvidence+";1155140/11551B7-actual-Init-copy0-to68;exact-current-pointer-revisions";
+    public string SourceEvidence=>update.SourceEvidence+"-actual-Init-copy0-to68;exact-current-pointer-revisions";
     public void RequireCurrent(OriginalMapPostEffect3TextureParameterState actualTable)
     {
         update.RequireCurrentTextureTable(actualTable);
@@ -403,7 +401,7 @@ public sealed class LoadedOriginalMapPostEffect3DepthOfField2Source
     }
 
     /// <summary>Original prepare18 executes shape1156E20 then CB1156550;
-    /// init20 executes1157230 and its separate alias. Capability2 writes CB18
+    /// init20 executes and its separate alias. Capability2 writes CB18
     /// and consumes a shape texture; it never initializes CB19.</summary>
     public OriginalMapPostEffect3ParameterDepthOfField2Update PrepareAndInitialize(
         OriginalMapPostEffect3ParameterState state,OriginalMapPostEffect3AllocationPlan allocation,
@@ -465,7 +463,7 @@ public sealed class LoadedOriginalMapPostEffect3DepthOfField2Source
         if(index!=18||declaration.NameHash!=0x09427879||declaration.ByteCount!=144||
             declaration.Ownership!=OriginalMapPostEffect3AllocationOwnership.OwnedDeclaration)
             throw new InvalidDataException("Actual cbDof2 CB18/144B ownership differs.");
-        // 1157230 caches IsFirstExec(+138) into rbp+48 for the Clear/AA
+        // caches IsFirstExec(+138) into rbp+48 for the Clear/AA
         // branch; ChangeFStop(+120) goes to rbp+58 and only gates shape bit0.
         uint mask=I("IsFirstExec")!=0?0x800u:0x1000u;
         uint count=I("IsFirstExec")!=0?2:prior.Count10;
@@ -507,7 +505,7 @@ public sealed class LoadedOriginalMapPostEffect3DepthOfField2Source
             OriginalMapPostEffect3ParameterAliasMode.SourceAsciiZeroLocale)!.Value;
         int aliasTarget=state.FindResourceIndex(OriginalMapPostEffect3ParameterResourceTable.Texture,"DOF2OutputColor",
             OriginalMapPostEffect3ParameterAliasMode.SourceAsciiZeroLocale)!.Value;
-        return new(state,inputs,values,new(state,declaration,checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3ParameterDepthOfField2.cs",0x1156550)),bytes,Locale),next,shape,
+        return new(state,inputs,values,new(state,declaration,OriginalMapPostEffect3ConstantBufferWriter.DepthOfField2,bytes,Locale),next,shape,
             new(mask,Array.AsReadOnly(selected)),aliasSource,aliasTarget,SourceEvidence+";"+inputs.SourceEvidence,prior);
         void Put(int at,float value)=>BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(at),value);
     }

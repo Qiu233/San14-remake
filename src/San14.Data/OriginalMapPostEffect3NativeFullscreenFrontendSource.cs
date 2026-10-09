@@ -13,11 +13,6 @@ public sealed class OriginalMapPostEffect3NativeFullscreenFrontendSource
     public string Locale=>Fresh.Native.Locale;
     public int NativeComputeMode=>0;
     public int NativeOrdinaryGraphicsMode=>2;
-    public uint NativeSelectRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3NativeFullscreenFrontendSource.cs",0x1161D40));
-    public uint NativeFourSlotResetRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3NativeFullscreenFrontendSource.cs",0x11635A7));
-    public uint NativeBindRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3NativeFullscreenFrontendSource.cs",0x1162610));
-    public uint NativeReleaseRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3NativeFullscreenFrontendSource.cs",0x1163170));
-    public uint NativeResetPassRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3NativeFullscreenFrontendSource.cs",0x1163080));
     public bool OrdinaryBindHasMatchingDepthTarget=>Fresh.FreshMatchingDepthTargetCount!=0;
     public bool OrdinaryBindDepthTest=>false;
     public uint OrdinaryBindNativeDepthCompare=>7;
@@ -34,7 +29,7 @@ public sealed class OriginalMapPostEffect3NativeFullscreenFrontendSource
     public uint ModuleDisabledStockAlphaTestWord=>0xFF7FFFFF;
     /// <summary>The supplied extent must be the real current native RT view,
     /// with its source-created full rectangle and retained writer history.
-    ///963D80 is native int32 WHXY; this public record is numeric XYWH.</summary>
+    /// is native int32 WHXY; this public record is numeric XYWH.</summary>
     public OriginalMapPostEffect3EyeNativeViewport CaptureSourceFullWrapperViewport(int actualWidth50,int actualHeight54)
     {
         if(actualWidth50<=0||actualHeight54<=0)throw new InvalidDataException("Actual current target dimensions are not positive.");
@@ -57,7 +52,7 @@ public sealed class OriginalMapPostEffect3NativeFullscreenFrontendSource
 }
 
 /// <summary>Source-owned target cache. Its initial null slots are produced
-/// by11635A7..11635E4, then each counted Select setter and Before override
+/// by.., then each counted Select setter and Before override
 /// changes only its named slot. Clearing RT0 does not clear the other slots.</summary>
 public sealed class OriginalMapPostEffect3NativeFullscreenTargetCache
 {
@@ -71,7 +66,7 @@ public sealed class OriginalMapPostEffect3NativeFullscreenTargetCache
         OriginalMapPostEffect3NativeFullscreenFrontendSource source,OriginalMapPostEffect3AllocationPlan allocation,int firstPass)
         =>(this.source,this.allocation,this.firstPass)=(source,allocation,firstPass);
     public string SourceEvidence=>source.SourceEvidence+";actualCS104-mode0->ordinarygraphics-mode2;"+
-        "1161E21/1161E2C->1163460/11635A7-four-target-slots-cleared;source-cache-maintained-per-Select-and-Before";
+        "->/-four-target-slots-cleared;source-cache-maintained-per-Select-and-Before";
     public IReadOnlyList<OriginalMapPostEffect3Binding?> SelectAndApplyBefore(
         OriginalMapPostEffect3Composite2BeforeBindings before,OriginalMapPostEffect3TextureParameterState table)
     {
@@ -89,7 +84,7 @@ public sealed class OriginalMapPostEffect3NativeFullscreenTargetCache
             if(row.NativeViewKind!=3||row.Table!=OriginalMapPostEffect3BindingTable.TextureParameters||
                 row.RegisterIndex is <0 or >3)
                 throw new NotSupportedException("Native target cache requires its exact texture-kind3 setter.");
-            //1162093 tests the actual wrapper. A known null pointer does not
+            // tests the actual wrapper. A known null pointer does not
             // execute1163800; it retains this slot's preceding cache value.
             if(table.ReadKnownNullablePointer(row.ParameterIndex) is not null)slots[row.RegisterIndex]=row;
         }
@@ -101,7 +96,7 @@ public sealed class OriginalMapPostEffect3NativeFullscreenTargetCache
         before.RequireCurrent();
         if(boundPass!=before.SourcePassIndex||!ReferenceEquals(before.Frame.Allocation,allocation))
             throw new InvalidOperationException("Native ResetPass differs from the actual preceding bound source command.");
-        //114CDBA ->1163089 ->1163460 clears all four slots even when the
+        // clears all four slots even when the
         //following pass retains the same ordinary-graphics mode. FXAA has no
         //counted RT setter and therefore inherits the restored caller row.
         Array.Clear(slots);boundPass=null;
@@ -116,21 +111,21 @@ public static partial class OriginalDeferredSamplerSources
         ArgumentNullException.ThrowIfNull(native);
         var fresh=ReadFreshPostEffect3StockDrawSource(native);
 
-        return new(fresh,fresh.SourceEvidence+";TC1161DD(E)-compute-mode0/1161DF7-graphics-mode2;"+
-            "1161E21-mode-diff-reset;11635A7-four-slot-reset;1162088-counted-kind3->1163800;"+
-            "11630A0-effective-cache-targets;11626A4-bpl0/fresh1C40zero-color-only-depthoff;"+
-            "1162A52-depthCompare1C44=7;1163422/1163435->95AB00-release-actual-pushed-target-row;"+
-            "114CDBA->1163080-unconditional-ResetPass->1163460-four-slots-clear;"+
-            "freshFrontend966F05-F4=1100/WORK1198D08-save->11991F5-restore;"+
+        return new(fresh,fresh.SourceEvidence+";compute-mode0/graphics-mode2;"+
+            "-mode-diff-reset;-four-slot-reset;-counted-kind3->"+
+            "-effective-cache-targets;-bpl0/fresh1C40zero-color-only-depthoff"+
+            "-depthCompare1C44=7;->-release-actual-pushed-target-row"+
+            "->-unconditional-ResetPass->-four-slots-clear"+
+            "freshFrontend966F05-F4=1100/WORK-save->-restore"+
             "F103D712F0-zero-blend-bits-preserve;actual-Sky/class18/Terrain/callback-gates-required;"+
-            "966EBA-scissorDisabled/Eye-and-Composite-save-restore;966F9C-min0/96702E-max1/Filter95C070-retains-original-packet;"+
-            "955F8E-D3D11CreateDevice-immediate-context10/965821-GetType0->frontend28=1;"+
-            "9665A0-row60=&actualWrapper164;95D440-fullXYWH/963D80-int32-WHXY-getter/95C070-inverse;"+
-            "94EA60-physical-RT-row-per-mip/95D440-nativeXYWH-full-mip-rect;"+
-            "Eye1157F74/1157FC3/1157FF6-RT0-activePhysical10+native-mip-selector;SRV-clones-remain-independent;"+
-            "968000-int32-XYWH->D3D-Viewport/96822E-RSSetViewports;"+
-            "1161C00-alphaOff/opcode17->958340/9625E0/95E970-vATest2860=FF7FFFFF->966CF0-pixel-shadow;"+
-            "Lens114BEA0-explicit-stock-After/959250-ScreenBegin/95A370-quad/95A7B0-restore;"+
+            "-scissorDisabled/Eye-and-Composite-save-restore;-min0/-max1/Filter-retains-original-packet"+
+            "-reateDevice-immediate-context10/-GetType0->frontend28=1"+
+            "-row60=&actualWrapper164;-fullXYWH/-int32-WHXY-getter/-inverse"+
+            "-physical-RT-row-per-mip/-nativeXYWH-full-mip-rect"+
+            "Eye1157F74;-RT0-activePhysical10+native-mip-selector;SRV-clones-remain-independent"+
+            "-int32-XYWH->D3D-Viewport/-RSSetViewports"+
+            "-alphaOff/opcode17->;-vATest2860=FF7FFFFF->-pixel-shadow"+
+            "Lens-explicit-stock-After/-ScreenBegin/-quad/-restore"+
             "source-profile-F4_SCISSOR_SOURCE");
     }
 }

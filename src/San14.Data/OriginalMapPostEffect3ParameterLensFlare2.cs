@@ -61,9 +61,6 @@ public sealed class OriginalMapPostEffect3LensFlare2PassRecipe
     public bool RequiresAfterMipGeneration=>SourcePassIndex is 45 or 49;
     public IReadOnlyList<int> PixelSamplerRegisters=>Array.AsReadOnly(new[]{7,8});
     public string Locale=>update.ConstantBuffer.Locale;
-    public uint NativeBeforeRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3ParameterLensFlare2.cs",0x114B450));
-    public uint NativeExecuteRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3ParameterLensFlare2.cs",0x114C350));
-    public uint NativeAfterRva=>checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3ParameterLensFlare2.cs",0x114BEA0));
     public bool ProvesGpuExecution=>false;
     public void RequireCurrent()=>update.RequireCurrent();
 }
@@ -190,7 +187,7 @@ public sealed class LoadedOriginalMapPostEffect3LensFlare2Source
         return new(state,table,output,height,actualContext1C48Word,SourceEvidence+";"+sourceEvidence);
     }
 
-    /// <summary>114CA40 Init plus complete114C650 CB17/96B Prepare. No finite
+    /// <summary> Init plus complete114C650 CB17/96B Prepare. No finite
     /// clamps: fresh zero FOV legitimately produces reciprocal infinity.</summary>
     public OriginalMapPostEffect3ParameterLensFlare2Update Prepare(
         OriginalMapPostEffect3ParameterState state,OriginalMapPostEffect3AllocationPlan allocation,
@@ -236,7 +233,7 @@ public sealed class LoadedOriginalMapPostEffect3LensFlare2Source
                 throw new InvalidDataException("LensFlare2 eight native cached pass hashes differ.");
             if((mask&(1u<<i))!=0)selected.Add(passIndices[i]);
         }
-        return new(state,allocation,actualInputs,values,new(state,cb,checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3ParameterLensFlare2.cs",0x114C650)),bytes,Locale),
+        return new(state,allocation,actualInputs,values,new(state,cb,OriginalMapPostEffect3ConstantBufferWriter.Lens2,bytes,Locale),
             new(mask,ghosts,selected.AsReadOnly()),SourceEvidence);
         float F(string name,int word=0)=>BinaryPrimitives.ReadSingleLittleEndian(values[name].AsSpan(word*4));
         int I(string name)=>BinaryPrimitives.ReadInt32LittleEndian(values[name]);
@@ -267,8 +264,8 @@ public sealed class LoadedOriginalMapPostEffect3LensFlare2Source
         for(int mip=1;mip<count;mip++)steps.Add(new(mip-1,mip,
             (actualSelectedSourcePass==45?0x18:0x78)+8*(mip-1),Math.Max(1,allocation.Width>>mip),Math.Max(1,allocation.Height>>mip)));
         return new(actualPrepare,table,texture,actualSelectedSourcePass,actualWrapperWord46,actualWrapperWord48,steps.AsReadOnly(),
-            SourceEvidence+";VT.v38=114B520;actual-wrapper46/48="+actualWrapperSourceEvidence+
-            ";94AA60/968F40-source-singleMip-views;114BEA0-sourceMip0..count-2/destinationMip1..count-1;no-view-or-GPU-completion");
+            SourceEvidence+"VT.v38=;actual-wrapper46/48="+actualWrapperSourceEvidence+
+            "-source-singleMip-views;-sourceMip0;count-2/destinationMip1;count-1;no-view-or-GPU-completion");
     }
 
     private static void Validate(OriginalMapPostEffect3ParameterState state,OriginalMapPostEffect3AllocationPlan allocation)

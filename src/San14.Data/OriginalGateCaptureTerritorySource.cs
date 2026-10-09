@@ -86,7 +86,7 @@ public static class OriginalGateCaptureTerritorySource
         //their messages have no original native receiver in this client.
         _ = oldDistrict; _ = newDistrict;
         var center = OriginalCurrentGateMapQueries.FindHex(gate, current);
-        int radius = K(OriginalBaseCaptureResourceInputs.ReadCurrentTc(state, 0x1A4A7A8), "current_Gate_radiusA7A8");
+        int radius = K(OriginalBaseCaptureResourceInputs.ReadCurrent(state, SimulationParameterKeys.BaseCapture.CentralTerritoryRadius), "current_Gate_radiusA7A8");
         var visited = new List<int>(); var cleared = new List<int>();
         var changed = new List<int>(); var dirty = new List<int>();
         var temporary = current.CreateNearbyTemporary(); //2DFA7B, before advice query.

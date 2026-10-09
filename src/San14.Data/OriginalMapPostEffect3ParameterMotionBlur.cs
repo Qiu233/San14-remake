@@ -3,7 +3,7 @@ using System.Numerics;
 
 namespace San14.Data;
 
-/// <summary>11512F0 initializes enabled10=1, tag14=0 and two identity matrices.
+/// <summary> initializes enabled10=1, tag14=0 and two identity matrices.
 /// The recovered11513C0 initializer never writes tag14; frame progression must
 /// not silently replace that native comparison field.</summary>
 public sealed record OriginalMapPostEffect3ParameterMotionBlurHistory
@@ -53,7 +53,7 @@ public sealed record OriginalMapPostEffect3ParameterMotionBlurUpdate(long FrameN
 
 public static class OriginalMapPostEffect3ParameterMotionBlur
 {
-    /// <summary>Actual factory3 initializer11513C0. Required scalar lookup
+    /// <summary>Actual factory3 initializer. Required scalar lookup
     /// failures return ALfalse before CB writes; present but unwritten values
     /// reject. ReverseZ is consumed by pointer presence, not value truthiness.</summary>
     public static OriginalMapPostEffect3ParameterMotionBlurUpdate Prepare(
@@ -70,7 +70,7 @@ public static class OriginalMapPostEffect3ParameterMotionBlur
            state.FrameNumber<=history.FrameNumber||allocation.ContextWidth==0||allocation.ContextHeight==0||
            allocation.ContextWidth>int.MaxValue||allocation.ContextHeight>int.MaxValue)
             throw new InvalidDataException("3SPK MotionBlur scalar/allocation/history owners differ or are stale.");
-        bool enabled=true; //1151418: missing enable declaration defaults to1.
+        bool enabled=true; //: missing enable declaration defaults to1.
         if(state.FindScalarIndex("MotionBlurEnable") is not null)
             enabled=ReadInt(state,"MotionBlurEnable")!=0; // Full dword compare1151420.
         string alias=enabled?"MBOutputColorInternal":"MBInputColor";
@@ -99,9 +99,9 @@ public static class OriginalMapPostEffect3ParameterMotionBlur
             OriginalNativeFloat.Multiply(width,width)));
         Put(constants,8,OriginalNativeLogarithm.Divide(diagonal,height));
         Put(constants,12,OriginalNativeLogarithm.Divide(width,height));
-        //115172E..1151757: lens-infoXYZ=0; W=1 if ReverseZ pointer exists.
+        //..: lens-infoXYZ=0; W=1 if ReverseZ pointer exists.
         Put(constants,16,0);Put(constants,20,0);Put(constants,24,0);Put(constants,28,1);
-        WriteMatrix(constants,32,OriginalNativeMatrixMath.Inverse3F6EB0(current,out _));
+        WriteMatrix(constants,32,OriginalNativeMatrixMath.Invert(current,out _));
         WriteMatrix(constants,96,previous);
         float scale=OriginalNativeLogarithm.Divide(OriginalNativeFloat.Multiply(shutter,
             BitConverter.UInt32BitsToSingle(0x3E19999A)),delta);
@@ -110,8 +110,8 @@ public static class OriginalMapPostEffect3ParameterMotionBlur
         Put(scale0,0,scale);Put(scale0,4,BitConverter.UInt32BitsToSingle(0x3DE38E39));
         Put(scale0,8,velocity);Put(scale0,12,0);
         Put(scale1,0,scale);Put(scale1,4,1);Put(scale1,8,velocity);Put(scale1,12,0);
-        OriginalMapPostEffect3ParameterConstantBuffer[] buffers=[new(state,declarations[0],0x11513C0,constants),
-            new(state,declarations[1],0x11513C0,scale0),new(state,declarations[2],0x11513C0,scale1)];
+        OriginalMapPostEffect3ParameterConstantBuffer[] buffers=[new(state,declarations[0],OriginalMapPostEffect3ConstantBufferWriter.MotionBlur,constants),
+            new(state,declarations[1],OriginalMapPostEffect3ConstantBufferWriter.MotionBlur,scale0),new(state,declarations[2],OriginalMapPostEffect3ConstantBufferWriter.MotionBlur,scale1)];
         return new(state.FrameNumber,next,true,alias,Array.AsReadOnly(buffers));
     }
 

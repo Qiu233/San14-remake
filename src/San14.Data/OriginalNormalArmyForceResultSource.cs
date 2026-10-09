@@ -4,8 +4,7 @@ using San14.Core;
 namespace San14.Data;
 
 public sealed record OriginalNormalArmyForceResultParameters(int TroopLossScale, int KilledAddend);
-public sealed record OriginalNormalArmyForceResultSourceField(int SemanticScRva, int PhysicalRva,
-    int Value, string Sha256);
+public sealed record OriginalNormalArmyForceResultSourceField(string Key, int Value);
 public sealed class OriginalNormalArmyForceResultSourceParameters
 {
     public string Language { get; }
@@ -145,8 +144,8 @@ public static class OriginalNormalArmyForceResultSource
         ArgumentNullException.ThrowIfNull(repository);
         var source = SimulationRuleSources.Provenance("san14-remake://rules/normal-army-force-result/v1", language);
         OriginalNormalArmyForceResultSourceField[] fields = [
-            new(0x1A4A920, language == "TC" ? 0x1A498F0 : 0x1A4A920, TroopLossScale, string.Empty),
-            new(0x1A4A92C, language == "TC" ? 0x1A498FC : 0x1A4A92C, KilledAddend, string.Empty)
+            new(SimulationParameterKeys.ForceCombatResult.TroopLossScale, TroopLossScale),
+            new(SimulationParameterKeys.ForceCombatResult.KilledAddend, KilledAddend)
         ];
         return new(language, source, ForLanguage(language), Array.AsReadOnly(fields),
             new(TroopLossScale, KilledAddend), null);
@@ -163,7 +162,7 @@ public static class OriginalNormalArmyForceResultSource
         var integers = new Dictionary<string,int>(parameters.Int32Values, parameters.Int32Values.Comparer);
         foreach (var field in source.Fields)
         {
-            string key = OriginalTacticRemakeParameterSeed.Key(field.SemanticScRva);
+            string key = field.Key;
             if (integers.Keys.Concat(parameters.Float32Values.Keys).Any(k => string.Equals(k,key,StringComparison.OrdinalIgnoreCase)))
                 throw new InvalidDataException("Force result seed cannot overwrite a current parameter.");
             integers.Add(key,field.Value);
@@ -182,7 +181,7 @@ public static class OriginalNormalArmyForceResultSource
         int[] values = new int[2];
         for (int i = 0; i < 2; i++)
         {
-            string key = OriginalTacticRemakeParameterSeed.Key(source.Fields[i].SemanticScRva);
+            string key = source.Fields[i].Key;
             if (parameters.Float32Values.ContainsKey(key) || !parameters.Int32Values.TryGetValue(key,out values[i])) return null;
         }
         return new(values[0],values[1]);

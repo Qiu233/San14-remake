@@ -45,9 +45,9 @@ public sealed partial class OriginalTacticRemakeCurrentContext
         //substitutes for an unbound current World player receiver.
         bool? player = sourceForce is null || playerForce is null ? null : sourceForce == playerForce;
         if (formationRate is null || terrainRate is null || difficulty is null || player is null) return null;
-        int baselineKey = player.Value ? difficulty switch
-            { 0 => 0x1A4AA14, 1 => 0x1A4AA20, _ => 0x1A4AA2C }
-            : difficulty >= 4 ? 0x1A4AAAC : 0x1A4A9FC;
+        string baselineKey = player.Value ? difficulty switch
+            { 0 => SimulationParameterKeys.Tactics.PlayerDifficulty0TrialRate, 1 => SimulationParameterKeys.Tactics.PlayerDifficulty1TrialRate, _ => SimulationParameterKeys.Tactics.PlayerDifficulty2TrialRate }
+            : difficulty >= 4 ? SimulationParameterKeys.Tactics.HighDifficultyNonplayerTrialRate : SimulationParameterKeys.Tactics.NonplayerAutomaticTrialRate;
         if (Parameter(state, baselineKey) is not int baseline || region.ResolveCurrentHexReceipt(state, caster) is not { } multiplier)
             return null;
         var input = new OriginalTacticAutomaticActivationRateInput(formationRate.Value, baseline,

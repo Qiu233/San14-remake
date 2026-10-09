@@ -51,7 +51,7 @@ public sealed class OriginalMapPostEffect3EyeGraphicsWriteCoverage
         VertexClipDepthWord=depthWord;
         SourceEvidence=before.SourceEvidence+";exact-native-VS31..38-fullscreen-SV_VertexID0/1/2;"+
             "originalPS34/36..41-no-discard/no-early-return;RGBA-output-after-finite-control;"+
-            "source963D30/95BC90=scissor-not-viewport;target+60-native-viewport-required;"+
+            "source963D30/=scissor-not-viewport;target+60-native-viewport-required"+
             "source-pixel-domain-only;actual-GPU/raster/input/CB-content-joins-required";
     }
     public long FrameNumber=>frame.FrameNumber;
@@ -117,12 +117,11 @@ public sealed class OriginalMapPostEffect3EyeGraphicsWriteCoverage
         if(!Profiles.TryGetValue(pass,out var profile)||profile.Ordinal!=ordinal)
             throw new NotSupportedException("Only original Eye prefilter/downsample/upsample source raster domains are closed; debug and compute use separate producers.");
         // PrepareBefore already emits the loaded locale's actual loop writer:
-        // TC11592F0 / SC115A3A0. Require that same source here, rather than
+        // . Require that same source here, rather than
         // comparing a correctly prepared SC packet with the TC role anchor.
-        uint loopWriter=checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(
-            frame.Locale,"OriginalMapPostEffect3EyeGraphicsWriteCoverage.cs",0x11592F0));
+        var loopWriter=OriginalMapPostEffect3ConstantBufferWriter.BloomLoop;
         if(before.TargetTextureParameterIndex is not(85 or 86)||before.TargetMipLevel is not{} mip||
-            before.BloomLoopConstants is not{Bytes.Length:32} loop||loop.WriterRva!=loopWriter||
+            before.BloomLoopConstants is not{Bytes.Length:32} loop||loop.Writer!=loopWriter||
             before.Locale!=frame.Locale||loop.Locale!=frame.Locale||
             !before.NativeDrawCommand.Span.SequenceEqual(Convert.FromHexString("2D0003000000000003000000")))
             throw new InvalidDataException("Eye source target/loop writer/procedural draw differs.");

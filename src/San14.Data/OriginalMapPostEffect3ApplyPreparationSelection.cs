@@ -13,9 +13,9 @@ public sealed class OriginalMapPostEffect3ApplyPreparationSelection
     public uint Descriptor58{get;}
     public string OwnerIdentity{get;}
     public OriginalMapPostEffect3ApplyUncontrolledVariant Variant=>Descriptor58==6
-        ?OriginalMapPostEffect3ApplyUncontrolledVariant.NativeE70780
-        :OriginalMapPostEffect3ApplyUncontrolledVariant.NativeE71690;
-    public string SourceEvidence=>"TC:1147218-header44/remainder24;114722A-arg6;1147510/1147517-descriptor58;EB7E32-selector6;"+OwnerIdentity;
+        ?OriginalMapPostEffect3ApplyUncontrolledVariant.LegacyCameraFields
+        :OriginalMapPostEffect3ApplyUncontrolledVariant.LensPresetCameraFields;
+    public string SourceEvidence=>";header44/remainder24;-arg6;-descriptor58;-selector6"+OwnerIdentity;
     public static OriginalMapPostEffect3ApplyPreparationSelection ReadActualSource(
         OriginalMapFinalOutputPostEffect3Source source,OriginalMapPostEffect3Container container,string descriptorOwner)
     {

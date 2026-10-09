@@ -10,7 +10,7 @@ public sealed record OriginalMapPostEffect3LightLookupResult(int NormalizedReadC
 
 public static class OriginalMapPostEffect3LightLookup
 {
-    /// <summary>Exact finite D586D0 scan, including negative count normalization,
+    /// <summary>Exact finite scan, including negative count normalization,
     /// signed packed-kind comparison and first matching null-payload return.
     /// The complete prefix must cover the resulting read count; no truncation
     /// or search beyond the first matching record is permitted.</summary>
@@ -22,7 +22,7 @@ public static class OriginalMapPostEffect3LightLookup
         if(actualCapacity19D0<0)throw new InvalidDataException("Native sorted-prefix capacity is negative.");
         int count=actualReadCount19D4<0?Math.Min(~actualReadCount19D4,actualCapacity19D0):actualReadCount19D4;
         if(count<0 || count>completePrefix.Count)
-            throw new InvalidDataException("Actual D586D0 read count exceeds its complete owned sorted prefix.");
+            throw new InvalidDataException("Actual  read count exceeds its complete owned sorted prefix");
         for(int i=0;i<count;i++)
         {
             var p=completePrefix[i] ??throw new InvalidDataException("Owned sorted primitive pointer is absent.");

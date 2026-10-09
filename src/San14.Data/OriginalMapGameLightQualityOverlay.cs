@@ -9,8 +9,6 @@ public readonly record struct OriginalMapGameLightQualityWrites(byte Light10B1,
 public static class OriginalMapGameLightQualityOverlay
 {
     public const int CompleteLightDataBytes=0x10C0;
-    public const uint TcEnvironmentHolderRva=0x1A47C80;
-    public const uint TcPrimaryQualityRva=0x1A47CEC;
     public const string ConfigSection="Configs";
     public const string ConfigQualityName="CG_QUALITY";
 
@@ -81,8 +79,6 @@ public sealed class OriginalMapGameLightQualityOwner
     public string OwnedEnvironmentIdentity{get;}
     public string RuleVersion{get;}
     public string Locale=>source.Locale;
-    public int InitializerRva=>source.InitializerRva;
-    public int NativeWriterRva=>source.WriterRva;
     public int CurrentQualityOption18{get;private set;}
     public bool SavedConfigurationOrOwnedEditApplied{get;private set;}
     public string SourceProvenance{get;private set;}

@@ -77,7 +77,7 @@ public sealed class OriginalMapPostEffect3CurrentLutLookup
     }
 
     /// <summary>Join the actual Main17BD0 seasonal caller with this selected
-    /// Camera lookup. The native nonnegative slot proves CAAEE0 installs this
+    /// Camera lookup. The native nonnegative slot proves installs this
     /// lookup result in prepared1828/1830 without restoring the prior handle.
     /// Neither successful593 resolution nor this transfer proves an A0 GPU view.</summary>
     public OriginalMapPostEffect3CurrentLutLookup JoinActualMainPreparation(OriginalMapSeasonPreparedLutTransfer transfer)

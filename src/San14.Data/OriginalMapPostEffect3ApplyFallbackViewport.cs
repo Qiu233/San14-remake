@@ -4,7 +4,7 @@ using System.Runtime.CompilerServices;
 
 namespace San14.Data;
 
-/// <summary>Resolved EC3360 inputs only. Extents are backend95B0C0's target
+/// <summary>Resolved inputs only. Extents are backend95B0C0's target
 /// descriptor50/54, not the source texture extent. Camera fields are from the
 /// actual local snapshot prepared at rbp-70. Apply28Present remains unknown
 /// when the special rectangle has no positive area: either pointer branch
@@ -33,7 +33,7 @@ public sealed record OriginalMapPostEffect3ApplyFallbackGammaPlan(long FrameNumb
     float SelectedGammaOrSourceDefault,float AdjustedGamma,float ShaderReciprocalGamma,
     bool UsedSourceGammaDefault,bool DivisionBySourceGammaApplied,string SourceEvidence);
 
-/// <summary>Native49 draw packet emitted by95A6C0→95A370. Stores pixel-space
+/// <summary>Native49 draw packet emitted by→. Stores pixel-space
 /// rect, UV rect, packed colorFFFFFFFF and the actual fifth draw argument0.
 /// The GPU adapter still supplies its source-proven programs and resources.</summary>
 public sealed class OriginalMapPostEffect3ApplyFallbackViewportPlan
@@ -54,7 +54,7 @@ public sealed class OriginalMapPostEffect3ApplyFallbackViewportPlan
     public bool RequiresGenericCopyShader=>!UsesDirectTextureDrawPath;
     public bool RequestsSourceViewBit15Clear{get;}
     public bool OriginalSourceViewBit15=>(Inputs.ActualSourceFlags36&0x8000)!=0;
-    /// <summary>Requested draw state, not a claim that native96C6B0 succeeded.</summary>
+    /// <summary>Requested draw state, not a claim that native succeeded.</summary>
     public ushort RequestedDrawingSourceFlags36=>RequestsSourceViewBit15Clear?
         (ushort)(Inputs.ActualSourceFlags36&0x7FFF):Inputs.ActualSourceFlags36;
     public ushort RestoredSourceFlags36=>Inputs.ActualSourceFlags36;
@@ -64,7 +64,7 @@ public sealed class OriginalMapPostEffect3ApplyFallbackViewportPlan
     public uint PackedColorR9=>uint.MaxValue;
     public float FifthDrawArgument=>0;
     public ReadOnlyMemory<byte> Native49Packet=>packet;
-    public string SourceEvidence=>"TC:EC3521..EC3756;EC3818..EC388D;EC39DC..EC3A50;95A6C0/95A370;"+Inputs.SourceEvidence;
+    public string SourceEvidence=>"TC"+Inputs.SourceEvidence;
     public bool IsCompleteForExecution=>false;
 }
 
@@ -95,7 +95,7 @@ public static class OriginalMapPostEffect3ApplyFallbackViewport
             throw new NotSupportedException("Fallback gamma reaches an unadmitted zero/nonfinite native shader result.");
         return new(input.FrameNumber,input.OwnerIdentity,gamma,adjusted,reciprocal,
             !input.ActualContextCameraSelected,divide,
-            "TC:EC37FA..EC38BA;EC3909;source-literal400CCCCD;actual-context-selected-Camera174;"+input.SourceEvidence);
+            "TC;source-literal400CCCCD;actual-context-selected-Camera174"+input.SourceEvidence);
     }
     public static OriginalMapPostEffect3ApplyFallbackViewportPlan Prepare(
         OriginalMapPostEffect3ApplyFallbackViewportInputs input)
@@ -111,7 +111,7 @@ public static class OriginalMapPostEffect3ApplyFallbackViewport
         bool direct=false;float scalar=input.ActualFifthFloatArgument;
         if(input.ActualTargetColorSpace60==0&&!originalView)
         {
-            //EC3818 uses the very same two source float-format masks as Apply.
+            // uses the very same two source float-format masks as Apply.
             direct=!OriginalMapFinalOutputHdrRoute.IsFloatFormat(input.ActualSourceFlags36);
             if(input.ActualCamera1CC==0)
             {scalar=BitConverter.UInt32BitsToSingle(0x3E99999A);direct=false;}
@@ -124,9 +124,9 @@ public static class OriginalMapPostEffect3ApplyFallbackViewport
         var rect=new OriginalMapPostEffect3ApplyFallbackPixelRectangle(left,top,right,bottom);
         Vector4 uv=new(0,0,viewport.Z,viewport.W);
         Vector4 special=input.ActualCameraSpecialRectangle152C;
-        //Native EC3650 tests Apply+28 first, then EC3662/EC3674 test
+        //Native tests Apply+28 first, then test
         //positive Z/W. If either extent is nonpositive, both possible pointer
-        //branches converge at EC371A with unchanged rect/UV/sampler. This is
+        //branches converge at with unchanged rect/UV/sampler. This is
         //a proved result invariant, not a claim that native never reads+28.
         bool useSpecial=special.Z>0&&special.W>0&&
             !(input.ActualApply28Present??throw new InvalidDataException(
@@ -137,7 +137,7 @@ public static class OriginalMapPostEffect3ApplyFallbackViewport
             float u0=S(special.X,viewport.X),v0=S(special.Y,viewport.Y);
             uv=new(u0,v0,A(special.Z,u0),A(special.W,v0));
             rect=new(0,0,input.ActualTargetWidth50,input.ActualTargetHeight54);
-            //EC36ED..EC3715: both address modes1, clear upper bits14/15.
+            //..: both address modes1, clear upper bits14/15.
             sampler=(ushort)((sampler&0x03FF)|0x1400);
         }
         if(!Finite(uv))throw new InvalidDataException("Fallback UV expression is outside the finite admitted source domain.");

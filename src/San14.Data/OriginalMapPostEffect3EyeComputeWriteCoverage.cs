@@ -28,7 +28,6 @@ public sealed class OriginalMapPostEffect3EyeComputeWriteCoverage
     public string ContextOwnerIdentity=>execution.ContextOwnerIdentity;
     public string SourceSha256=>execution.SourceSha256;
     public string Locale=>execution.Locale;
-    public uint NativeGenericCommandRva=>execution.NativeGenericCommandRva;
     public int SourcePassIndex=>execution.SourcePassIndex;
     public string ProgramSha256=>execution.ProgramSha256;
     public OriginalMapPostEffect3Binding OutputBinding{get;}

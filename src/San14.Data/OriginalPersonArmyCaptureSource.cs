@@ -73,7 +73,7 @@ public static class OriginalPersonArmyCaptureSource
             bool ownArmyValid = Need(current.ReadArmyUnitNativeValidity(ownArmy), "current.defeated_Army_validity");
             if (ownArmyValid) {
                 ownArmyPhysical = ownArmy.PhysicalSlot;
-                int radius = P(state, 0x1A49FB8);
+                int radius = P(state, SimulationParameterKeys.ArmyDestruction.PersonalityDefaultRadius);
                 var list = current.CreateNearbyTemporary();
                 try {
                     _ = OriginalNearbyArmyTemporarySource.FillNearbyArmyTemporary(current, ownArmy, radius, list);
@@ -146,26 +146,26 @@ public static class OriginalPersonArmyCaptureSource
                 [defeatedId] = officer with { NativeAbilityRuntime = native with { Health199 = health } } } };
             var effective = abilities.Resolve(abilityState, defeatedId) ?? throw Missing("current.defeated_22FE40_effective_abilities");
             int maxAbility = Math.Max(effective.Intelligence, effective.Strength);
-            float abilityTerm = (float)unchecked((P(state, 0x1A4A81C) - maxAbility + 5) * P(state, 0x1A4A824)) / 100f;
+            float abilityTerm = (float)unchecked((P(state, SimulationParameterKeys.ArmyDestruction.CaptureAbilityBaseline) - maxAbility + 5) * P(state, SimulationParameterKeys.ArmyDestruction.CaptureAbilityPercent)) / 100f;
             float floor = Math.Max(5f, abilityTerm);
-            float scaled = (float)unchecked(Math.Max(1, threats) + P(state, 0x27D37AC)) * floor;
-            scaled = scaled * (float)P(state, 0x1A4A830);
+            float scaled = (float)unchecked(Math.Max(1, threats) + P(state, SimulationParameterKeys.ArmyDestruction.CaptureThreatAdjustment)) * floor;
+            scaled = scaled * (float)P(state, SimulationParameterKeys.ArmyDestruction.CaptureThreatPercent);
             scaled = scaled / 100f;
             int probability = Math.Min(100, Cvtt(scaled));
             if (ownArmyValid) {
                 ownFormation = EffectiveFormation(state, current, ownArmy);
-                if (ownFormation == 4) probability = unchecked(probability * P(state, 0x1A4A83C)) / 100;
+                if (ownFormation == 4) probability = unchecked(probability * P(state, SimulationParameterKeys.ArmyDestruction.CaptureFormationFourPercent)) / 100;
             }
             probability = Math.Clamp(probability, 0, 100);
             int selector = Need(OriginalBattleRemakeCurrentSettings.ReadSelectorE58(state), "current.EnvironmentE58");
             if (selector != 0) {
                 if (Need(OriginalBattleRemakeCurrentSettings.ReadInt32(state, 0x28), "current.Environment_difficulty28") > 2 && winnerArmyValid &&
                     Need(current.ReadForceNativeValidity(winningForce), "current.reached_winner_Force_validity") && Player(state, current, winningForce))
-                    probability = unchecked(probability * P(state, 0x1A4A848)) / 100;
+                    probability = unchecked(probability * P(state, SimulationParameterKeys.ArmyDestruction.HighDifficultyPlayerWinnerCapturePercent)) / 100;
                 probability = Math.Clamp(probability, 0, 100);
-                if (captureMode == 1) probability = unchecked(probability * P(state, 0x1A4A854)) / 100;
+                if (captureMode == 1) probability = unchecked(probability * P(state, SimulationParameterKeys.ArmyDestruction.CaptureModeOnePercent)) / 100;
                 byte status = Need(current.ReadPersonStatus(defeatedPhysical), "current.defeated_PersonE6");
-                if (status is 1 or 2) probability = unchecked(probability * P(state, 0x1A4A860)) / 100;
+                if (status is 1 or 2) probability = unchecked(probability * P(state, SimulationParameterKeys.ArmyDestruction.CaptureRulerOfficerPercent)) / 100;
                 probability = Math.Clamp(probability, 0, 100);
             }
             var reachedDate = operationDate ?? throw Missing("current.operation_World38_hour");
@@ -242,7 +242,7 @@ public static class OriginalPersonArmyCaptureSource
     private static int TraitRadius(GameState state, OriginalEventInitializationContext current, OriginalPersonalityReference trait)
     {
         int raw = 0; for (int i = 0; i < 4; i++) raw |= Need(current.ReadPersonalityByte(trait, 0xA8 + i), "current.custom_Personality_A8") << (8 * i);
-        return raw >= 1 ? raw : P(state, 0x1A49FB8);
+        return raw >= 1 ? raw : P(state, SimulationParameterKeys.ArmyDestruction.PersonalityDefaultRadius);
     }
     private static void FillOuterRing(OriginalEventInitializationContext current, int center, int radius, OriginalHexListHandle list)
     {
@@ -332,7 +332,7 @@ public static class OriginalPersonArmyCaptureSource
     }
     private static int Hex(OriginalEventInitializationContext current, OriginalHexReference reference) =>
         Need(current.ReadHexPhysicalSlot(reference), "current.Person_Hex_physical");
-    private static int P(GameState state, int tcRva) => Need(OriginalArmyDestructionParameterSeed.ReadCurrentTc(state, tcRva), $"current.capture_parameter{tcRva:X}");
+    private static int P(GameState state, string key) => Need(OriginalArmyDestructionParameterSeed.ReadCurrent(state, key), $"current.capture_parameter{key}");
     private static int Cvtt(float value) => !float.IsFinite(value) || value < int.MinValue || value >= 2147483648f ? int.MinValue : (int)value;
     private static T Need<T>(T? value, string field) where T : struct => value ?? throw Missing(field);
     private static MissingOwner Missing(string field) => new(field);

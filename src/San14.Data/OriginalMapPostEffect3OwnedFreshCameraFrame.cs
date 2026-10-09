@@ -1,7 +1,7 @@
 namespace San14.Data;
 
 /// <summary>Source kernels resolved once for an owned original Camera. This
-/// current producer supports the recovered TC no-controller E71690 ABI.</summary>
+/// current producer supports the recovered TC no-controller ABI.</summary>
 public sealed class OriginalMapPostEffect3OwnedFreshCameraSources
 {
     private OriginalMapPostEffect3OwnedFreshCameraSources(LoadedOriginalMapPostEffect3LensPresetSource lens,
@@ -21,7 +21,7 @@ public sealed class OriginalMapPostEffect3OwnedFreshCameraSources
         OriginalMapCameraConstructionPacket camera)
     {
         ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(camera);
-        if(camera.ExecutableLocale!="TC")throw new NotSupportedException("Owned complete E71690 Apply currently admits its recovered TC caller ABI.");
+        if(camera.ExecutableLocale!="TC")throw new NotSupportedException("Owned complete  Apply currently admits its recovered TC; caller ABI");
         return new(OriginalMapPostEffect3LensPresetSource.LoadForCamera(repository,camera.Source,"TC"),
             OriginalMapPostEffect3ScalarZeroAllocationSource.Load(repository,"TC"),
             OriginalMapPostEffect3LensPresetIntermediateMathSources.Load(repository,"TC"),
@@ -49,7 +49,7 @@ public sealed record OriginalMapPostEffect3OwnedFactoryInitialization(
     public bool CommitsGpuFrameOrHistory=>false;
 }
 
-/// <summary>One private scalar bank, actual Lens pins and source E71690 writes.
+/// <summary>One private scalar bank, actual Lens pins and source writes.
 /// Keeps fresh source tail scope explicit; no imported/current tail is guessed.
 /// Factory preparation follows source prepare/init order. TemporalAA Before is
 /// deliberately later, when its pass is selected. This class does not run GPU
@@ -125,14 +125,14 @@ public sealed class OriginalMapPostEffect3OwnedFreshCameraFrame:IDisposable
                 new(snapshot.FrameNumber,lens.OwnerIdentity+"/split"),new(snapshot.FrameNumber,lens.OwnerIdentity+"/intermediate"),lens.SourceEvidence);
             var simple=OriginalMapPostEffect3ApplyUncontrolledSimpleWriters.PrepareFreshSource(snapshot,raw,route.Preparation.Variant,
                 route.SourceEvidence,inputs.Caller,pointerOwners);
-            // The absent-light fallback has a later RVA but rejoins before
-            // LSLarge. Preserve source branch order rather than sorting it.
-            var cameraWrites=direct.Writes.Concat(simple.ScalarWrites).OrderBy(w=>w.CallSiteRva).ToArray();
-            var writes=cameraWrites.Where(w=>w.CallSiteRva<0xE71FAB).Concat(light)
-                .Concat(cameraWrites.Where(w=>w.CallSiteRva>=0xE71FAB)).Select(w=>w.CopyAcceptedSnapshot()).ToArray();
+            // Both light branches run before LSLarge. The phase boundaries
+            // preserve their execution order independently of scalar sorting.
+            var cameraWrites=direct.Writes.Concat(simple.ScalarWrites).OrderBy(w=>w.Stage).ToArray();
+            var writes=cameraWrites.Where(w=>w.Phase==OriginalMapPostEffect3WritePhase.BeforeLight).Concat(light)
+                .Concat(cameraWrites.Where(w=>w.Phase==OriginalMapPostEffect3WritePhase.AfterLight)).Select(w=>w.CopyAcceptedSnapshot()).ToArray();
             if(!simple.NativeReturnPredicateFromLensPresetPresence||simple.PointerWrites.Count!=2||
                 simple.PointerWrites.Any(w=>w.IsNativeNullPointer)||writes.Select(w=>w.Name).Distinct().Count()!=writes.Length)
-                throw new InvalidDataException("Owned E71690 writer/pointer population differs from the recovered successful source branch.");
+                throw new InvalidDataException("Owned  writer/pointer population differs from the recovered successful source branch");
             state.ApplyKnownCameraWrites(new(snapshot.FrameNumber,Array.AsReadOnly(writes),route.SourceEvidence));
             lens.ApplyPointerWrites(state);lens.ValidatePointerWrites(state);
             return new(native,snapshot,allocation,defaults,state,route,lens,Array.AsReadOnly(writes),inputs.NativeDispatch);
@@ -153,7 +153,7 @@ public sealed class OriginalMapPostEffect3OwnedFreshCameraFrame:IDisposable
         void PrepareBase()=>prepares.Add(OriginalMapPostEffect3LensPresetPrepareBase.Apply(Lens,State,
             new(FrameNumber,actualContextCounter1BF0,(int)Allocation.ContextWidth,(int)Allocation.ContextHeight,actualContextEvidence),
             sources.LensMath,dispatch));
-        // Factory0 prepare/init are BF9280. The first actual shared prepare
+        // Factory0 prepare/init are . The first actual shared prepare
         // is factory1, followed by four marker-equal prepares in source order.
         PrepareBase();var shaft=OriginalMapPostEffect3ParameterLightShaft.PrepareInit(State,Allocation,sources.ShaftMath,actualAliasMode);
         PrepareBase();var dof=OriginalMapPostEffect3ParameterDepthOfField.Prepare(State,Allocation,Lens,

@@ -49,7 +49,7 @@ public static class OriginalDeferredEarlyIndirectCurrentCameraSource
         if (camera != actualCurrentPreparedLighting.SceneInputs.Camera ||
             camera.SourceWorldToProjection != currentGeometry.Camera.SourceWorldToProjection)
             throw new InvalidDataException("Indirect68 Camera matrix was not produced by this geometry and lighting preparation.");
-        var matrix = OriginalNativeMatrixMath.Inverse3F6EB0(camera.SourceWorldToProjection, out float determinant);
+        var matrix = OriginalNativeMatrixMath.Invert(camera.SourceWorldToProjection, out float determinant);
         if (!float.IsFinite(determinant) || determinant == 0)
             throw new InvalidDataException("Indirect68 current projection is singular.");
         uint fade = BinaryPrimitives.ReadUInt32LittleEndian(prefix.Slice(0x3BC, 4));

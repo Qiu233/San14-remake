@@ -30,10 +30,10 @@ public sealed partial class OriginalOwnedArmyCampaignRules
             if (!personValid) return new(state, growth, null, null);
             int district = current.ReadBaseDistrictSlot(target) ?? throw new InvalidDataException("current.capture_oldBase78");
             int link = current.ReadBaseObjectLink(target) ?? throw new InvalidDataException("current.capture_Base4E");
-            int rva = district != 0 && link is >= 1 and <= 61
-                ? link <= 51 ? 0x1A4AD08 : 0x1A4ACFC : 0x1A4ACF4;
-            int basis = OriginalArmyDestructionParameterSeed.ReadCurrentTc(state, rva)
-                ?? throw new InvalidDataException($"current.capture_Commander_merit_{rva:X}");
+            string key = district != 0 && link is >= 1 and <= 61
+                ? link <= 51 ? SimulationParameterKeys.ArmyDestruction.CityCaptureCommanderMerit : SimulationParameterKeys.ArmyDestruction.GateCaptureCommanderMerit : SimulationParameterKeys.ArmyDestruction.UnassignedBaseCommanderMerit;
+            int basis = OriginalArmyDestructionParameterSeed.ReadCurrent(state, key)
+                ?? throw new InvalidDataException($"current.capture_Commander_merit_{key}");
             //Source1695C0 param3=1 remains independent of the Army excluded
             //gate above. Do not deduplicate it with gross loss or kind3 merit.
             var merit = ApplyPendingMeritDuringArmyOperation(state, id, unchecked(basis * 10));

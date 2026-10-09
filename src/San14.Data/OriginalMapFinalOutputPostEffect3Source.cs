@@ -20,7 +20,7 @@ public sealed class OriginalMapFinalOutputPostEffect3Source
     public int SelectedTemplateMode3C0{get;}
     public string TemplateEvidence{get;}
     public uint NativeHeaderBytes=>BinaryPrimitives.ReadUInt32LittleEndian(payload.AsSpan(12,4));
-    public string CreatorEvidence=>"TC:factory16AFE28+58=C05370;CPU16AFEC8;C05543/C05553:Q3E8/Q3EC;1145960->11470E0->1147270;1147500:descriptor40;C09270:CPU138";
+    public string CreatorEvidence=>"post-effect-factory;caller-context-extent3E8/3EC;create-module->initialize-descriptor40;cpu-descriptor138";
 
     public static OriginalMapFinalOutputPostEffect3Source Load(OriginalGameRepository repository)
     {
@@ -55,10 +55,10 @@ public sealed class OriginalMapFinalOutputPostEffect3Source
             throw new InvalidDataException("PostEffect3 needs the distinct hash-pinned 3SPK1000 payload.");
         int mode=ReadSelectedTemplateMode(selectedCommonTemplate,selectedCommonObjectId);
         return new(effect,bytes,mode,selectedCommonTemplate.Source.ResourceUri+$"#object/{selectedCommonObjectId:X8}"+
-            $"@{selectedCommonTemplate.Source.DecodedSha256};TC:D227DF-property31/rsp70;D23016-Common3C0;D1E64C-current-copy;caller-selected-template");
+            $"@{selectedCommonTemplate.Source.DecodedSha256};property31->Common3C0->current-copy;caller-selected-template");
     }
 
-    /// <summary>D227DF/D23016 source template loading, independent of a later
+    /// <summary>Source template loading, independent of a later
     /// active View. The caller must select the template explicitly.</summary>
     public static int ReadSelectedTemplateMode(LoadedObjects source,uint objectId)
     {
@@ -74,7 +74,7 @@ public sealed class OriginalMapFinalOutputPostEffect3Source
         return BinaryPrimitives.ReadInt32LittleEndian(fields[0].RawValue);
     }
 
-    /// <summary>Fresh C05370 construction uses actual caller-context Q3E8/Q3EC,
+    /// <summary>Fresh construction uses actual caller-context Q3E8/Q3EC,
     /// not file-header dimensions or the Scene declaration. Supply the owned
     /// context extent; this does not assert an active original-game descriptor.</summary>
     public OriginalMapFinalOutputPostEffect3Owner CreateFreshForOwnedContext(int width,int height,

@@ -22,9 +22,23 @@ public sealed class OriginalNormalArmyAftermathInputs
     private const int RelationBandThreeMinimum = 50;
     private const int RelationBandFourMinimum = 70;
     private const int RelationBandFiveMinimum = 100;
-    private static readonly int[] TcRvas = [0x1A49964, 0x1A49970, 0x1A4997C,
-        0x1A4AF78, 0x1A4AF84, 0x1A49988, 0x1A49994, 0x1A499B4, 0x1A499C0,
-        0x1A491D8, 0x1A491B4, 0x1A491BC, 0x1A491C4, 0x1A491D0, 0x1A49844];
+    private static readonly string[] ParameterKeys = [
+        SimulationParameterKeys.NormalAftermath.AreaDevelopmentReduction,
+        SimulationParameterKeys.NormalAftermath.SecurityLossProbabilityNumerator,
+        SimulationParameterKeys.NormalAftermath.SecurityLossProbabilityDivisor,
+        SimulationParameterKeys.NormalAftermath.SecurityLossBaseMultiplier,
+        SimulationParameterKeys.NormalAftermath.SecurityLossDenominatorOffset,
+        SimulationParameterKeys.NormalAftermath.AreaQuantityFixedReduction,
+        SimulationParameterKeys.NormalAftermath.AreaQuantityRandomReductionBound,
+        SimulationParameterKeys.NormalAftermath.HostileRelationCeiling,
+        SimulationParameterKeys.NormalAftermath.HostileRelationAdjustment,
+        SimulationParameterKeys.NormalAftermath.RelationBandOneMinimum,
+        SimulationParameterKeys.NormalAftermath.RelationBandTwoMinimum,
+        SimulationParameterKeys.NormalAftermath.RelationBandThreeMinimum,
+        SimulationParameterKeys.NormalAftermath.RelationBandFourMinimum,
+        SimulationParameterKeys.NormalAftermath.RelationBandFiveMinimum,
+        SimulationParameterKeys.NormalAftermath.AreaDevelopmentLevelChangeCoefficient
+    ];
     private readonly string language, ruleVersion;
     private readonly int[] initial;
     public OriginalCeInitialAreaDevelopment Development { get; }
@@ -73,9 +87,9 @@ public sealed class OriginalNormalArmyAftermathInputs
             NativeNormalAftermath = new(sourceAreas[row.Key].Amount0)
         }); //235800 first transferred word.
         var integers = new Dictionary<string, int>(simulation.Parameters.Int32Values) { [VersionKey] = 1 };
-        for (int i = 0; i < TcRvas.Length; i++)
+        for (int i = 0; i < ParameterKeys.Length; i++)
         {
-            string key = Key(TcRvas[i]);
+            string key = ParameterKeys[i];
             if (simulation.Parameters.Float32Values.ContainsKey(key) || integers.TryGetValue(key, out int old) && old != initial[i])
                 throw new InvalidDataException("Fresh normal aftermath parameter conflicts with another source seed.");
             integers[key] = initial[i];
@@ -85,11 +99,10 @@ public sealed class OriginalNormalArmyAftermathInputs
         NativeNormalArmyAftermathStateValidation.Validate(result); return result;
     }
 
-    public int? ReadTc(GameState state, int rva) => Bound(state) &&
+    public int? ReadCurrent(GameState state, string key) => Bound(state) &&
         state.NativeArmySimulation!.Parameters is { } parameters && parameters.Int32Values.GetValueOrDefault(VersionKey) == 1 &&
-        TcRvas.Contains(rva) && !parameters.Float32Values.ContainsKey(Key(rva)) &&
-        parameters.Int32Values.TryGetValue(Key(rva), out int value) ? value : null;
-    public static string Key(int tcRva) => OriginalTacticRemakeParameterSeed.Key(checked(tcRva + 0x1030));
+        ParameterKeys.Contains(key) && !parameters.Float32Values.ContainsKey(key) &&
+        parameters.Int32Values.TryGetValue(key, out int value) ? value : null;
     private bool Bound(GameState state) => state.NativeArmySimulation?.Parameters is { } p &&
         p.Language == language && p.RuleVersion == ruleVersion;
 }

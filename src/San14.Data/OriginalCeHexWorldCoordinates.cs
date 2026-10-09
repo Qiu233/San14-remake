@@ -29,11 +29,11 @@ public static class OriginalCeHexWorldCoordinates
         x += 37594f;
 
         float root3 = MathF.Sqrt(3f);
-        // RVA 0x11D0 first-startup initializer: sqrtss, mulss, mulss, addss.
+        // Startup initializer: square root, two products, then addition.
         float initialHalf = root3 * 0.5f;
         float initialOffset = initialHalf * 468f;
         float zOrigin = initialOffset + 12930f;
-        // RVA 0x1888C0: even columns add a separate half-row product.
+        // Even columns add a separate half-row product.
         float evenOffset = column % 2 == 0 ? (root3 * 468f) * 0.5f : 0f;
         float zStride = root3 * 468f;
         float z = zStride * row;

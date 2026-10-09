@@ -6,7 +6,7 @@ namespace San14.Data;
 public sealed record OriginalMapPostEffect3LightShaftTextureAlias(int TargetParameterIndex,int SourceParameterIndex,
     string TargetName,string SourceName,string SourceEvidence);
 
-/// <summary>Actual Init1153FA0 and shared Before1153F90 outputs. An alias is
+/// <summary>Actual Init and shared Before1153F90 outputs. An alias is
 /// required on both branches; CB production alone does not apply it or execute
 /// the seven source passes.</summary>
 public sealed record OriginalMapPostEffect3ParameterLightShaftInitialization(long FrameNumber,string OwnerIdentity,
@@ -33,10 +33,10 @@ public static class OriginalMapPostEffect3ParameterLightShaft
         string src=enabled?"LSOutputColorInternal":"LSInputColor",dst="LSOutputColor";
         int Resource(string name)=>state.FindResourceIndex(OriginalMapPostEffect3ParameterResourceTable.Texture,name,actualAliasMode)
             ??throw new InvalidDataException("LightShaft texture declaration is absent: "+name);
-        string evidence="TC:1153F20-freshEnabled10=1;1153FA0-init;1153FF9/1154007-LSEnable-dword;"+
-            "1154033/1154041-IntoSunLight-dword;1153F90-before-returnsEnabled10;"+exponential.SourceEvidence;
+        string evidence=";freshEnabled10=1;-init;-LSEnable-dword"+
+            "-IntoSunLight-dword;-before-returnsEnabled10"+exponential.SourceEvidence;
         var alias=new OriginalMapPostEffect3LightShaftTextureAlias(Resource(dst),Resource(src),dst,src,
-            evidence+(enabled?";11540A5..11540E1-internal-output-alias":";1154062..1154099-input-output-alias"));
+            evidence+(enabled?"-internal-output-alias":"-input-output-alias"));
         if(!enabled)return new(state.FrameNumber,state.OwnerIdentity,state.SourceSha256,false,false,null,alias,evidence,exponential.Locale);
         int index=state.FindResourceIndex(OriginalMapPostEffect3ParameterResourceTable.ConstantBuffer,"plLightShaftConstants")
             ??throw new InvalidDataException("LightShaft CB is absent.");
@@ -60,9 +60,8 @@ public static class OriginalMapPostEffect3ParameterLightShaft
         Put(76,D(allocation.ContextWidth,allocation.ContextHeight));
         for(int i=0;i<weights.Length;i++)Put(80+i*4,M(weights[i],inverseSum));
         return new(state.FrameNumber,state.OwnerIdentity,state.SourceSha256,true,true,
-            new(state,cb,checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(
-                exponential.Locale,"OriginalMapPostEffect3ParameterLightShaft.cs",0x1153FA0)),bytes,exponential.Locale),
-            alias,evidence+";11542FD..11545E5-complete144B-map-writes;source-context40/44-dimensions",exponential.Locale);
+            new(state,cb,OriginalMapPostEffect3ConstantBufferWriter.LightShaft,bytes,exponential.Locale),
+            alias,evidence+"-complete144B-map-writes;source-context40/44-dimensions",exponential.Locale);
         void Put(int at,float v)=>BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(at),v);
         void Copy3(int at,byte[] values)=>values.CopyTo(bytes,at);
         int I(string name)

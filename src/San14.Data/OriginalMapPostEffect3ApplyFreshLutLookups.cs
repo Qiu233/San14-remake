@@ -5,7 +5,7 @@ namespace San14.Data;
 /// <summary>Fresh original source Camera lookup construction, with no later
 /// resource/per-view/LensPreset writer beyond an accepted source season copy.
 /// Current raw LUT keys require their actual source lookup, including failure;
-/// the two secondary handles are explicitly cleared by CAAEE0. LensPreset is
+/// the two secondary handles are explicitly cleared by . LensPreset is
 /// the separate property285 lookup; its successful resolution or explicit
 /// failure is required before prepared1810 presence is established.</summary>
 public sealed class OriginalMapPostEffect3ApplyFreshLutLookups
@@ -30,7 +30,7 @@ public sealed class OriginalMapPostEffect3ApplyFreshLutLookups
     /// Prepared presence also requires the actual seasonal Main transfer.</summary>
     public OriginalMapPostEffect3CurrentLutLookup? ResolvedHdrLookup=>hdrLookup;
     public OriginalMapPostEffect3CurrentLutLookup? ResolvedLdrLookup=>ldrLookup;
-    /// <summary>C57BE6 CPU2EC0 -> CAB236/CAB23D Camera1810. The native
+    /// <summary> CPU2EC0 -> Camera1810. The native
     /// LensPresetSplit/Intermediate writer consumes this resource handle;
     /// property285/hashA4541BE1 is PostEffect3LensPreset. RBP+3C means
     /// canonicalRSP+13C, not the unrelated property957 slot at RSP+3C.</summary>
@@ -44,13 +44,13 @@ public sealed class OriginalMapPostEffect3ApplyFreshLutLookups
     public bool FreshControllerPresent190=>!HdrPrimary1828Present&&!LdrPrimary1830Present?false:
         throw new NotSupportedException("A prepared593 handle is present. Supply the actual owned selected A0/controller route; prepared presence does not create a controller.");
     public string SourceEvidence=>camera.Source.ConstructorOrigin+
-        $";TC:C57BF0/C57C30:accepted932-key={SourceHdrLutKey932:X8};"+
-        "C57BA6-RBP3C=RSP13C:285/A4541BE1-key3D60C3C7;C57BE6=>CPU2EC0;CAB236/CAB23D=>Camera1810;"+
-        $"C57C3A/C57C7A:accepted933-key={SourceLdrLutKey933:X8};"+
-        "CAB260/CAB267:selected-source2EC8-candidate=>Main2B58=Camera1828;CAB26E/CAB275:selected-source2ED0-candidate=>Main2B60=Camera1830;"+
+        $"TC;:accepted932-key={SourceHdrLutKey932:X8}"+
+        "-RBP3C=RSP13C:285/A4541BE1-key3D60C3C7;=>CPU2EC0;=>Camera1810"+
+        $":accepted933-key={SourceLdrLutKey933:X8}"+
+        ":selected-source2EC8-candidate=>Main2B58=Camera1828;:selected-source2ED0-candidate=>Main2B60=Camera1830"+
         (hdrLookup?.ProvesPreparedCameraHandleTransfer==true||ldrLookup?.ProvesPreparedCameraHandleTransfer==true?
-            "typed-actual-Main17BD0-nonnegative-slot=>CAAEE0-no-prior-primary-restore;":"prepared-transfer-not-joined;")+
-        "CAB27C/CAB27E/CAB285:secondary2B68/2B70=Camera1838/1840-cleared;"+
+            "typed-actual-Main17BD0-nonnegative-slot=>-no-prior-primary-restore":"prepared-transfer-not-joined;")+
+        ":secondary2B68/2B70=Camera1838/1840-cleared"+
         "current-nonzero-keys-require-owned593-lookup-receipts;key0-source-lookup-null;"+
         "positive-HDR-handle-does-not-infer-A0/controller;fresh-owned-secondary-handles-cleared;"+
         (hdrLookup?.SourceEvidence??"source-HDR-key0-null")+";"+(ldrLookup?.SourceEvidence??"source-LDR-key0-null")+";"+
@@ -91,7 +91,7 @@ public sealed class OriginalMapPostEffect3ApplyFreshLutLookups
         if(currentCamera.FrameNumber<=0)throw new InvalidDataException("Failed LensPreset lookup requires an owned Camera frame.");
         var snapshot=currentCamera.CopyAcceptedSnapshot();ValidateKeys(snapshot);ValidateLutLookups(snapshot,actualHdrLookup,actualLdrLookup);
         return new(snapshot,actualLookupOwner,null,
-            "explicit-owned-LensPreset285-lookup-failed-C57BA3-null-retained;"+actualFailedLookupEvidence,actualHdrLookup,actualLdrLookup);
+            "explicit-owned-LensPreset285-lookup-failed-null-retained"+actualFailedLookupEvidence,actualHdrLookup,actualLdrLookup);
     }
     public void ValidateSameCamera(OriginalMapCameraConstructionPacket currentCamera)
     {

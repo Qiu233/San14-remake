@@ -14,7 +14,7 @@ public sealed partial class OriginalMapPostEffect3DepthOfField2ScatterExecutor
         long revision=checked((stagingContents[side]?.ActualStagingWriteRevision??0)+1);
         var copied=new OriginalMapPostEffect3DepthOfField2StagingCopyReceipt(input.Prepared.FrameNumber,pass,side,
             arguments.StorageRid,staging[side],32,input.Before.SourceEvidence+
-            ";1155630-native-staging-copy-opcode50-before-indirect;actual-source-side28;physical-copy-retained")
+            ";staging-copy-before-indirect;actual-source-side28;physical-copy-retained")
             {ActualArgumentsPhysicalSide=arguments.InstanceIndex,ActualArgumentsWriterRevision=arguments.UploadRevision,
                 ActualStagingWriteRevision=revision};
         stagingContents[side]=copied;LastStagingCopy=copied;

@@ -9,12 +9,12 @@ namespace San14.Data;
 public sealed class OriginalMapPostEffect3EyeComputeExecutionRecipe
 {
     private readonly OriginalMapPostEffect3EyeAdaptation2Frame frame;
-    private readonly uint exposureWriterRva;
+    private readonly OriginalMapPostEffect3ConstantBufferWriter exposureWriter;
     internal OriginalMapPostEffect3EyeComputeExecutionRecipe(OriginalMapPostEffect3EyeAdaptation2Frame frame,
         OriginalMapPostEffect3EyeBeforeBindings before,OriginalMapPostEffect3ParameterConstantBuffer? exposure,
-        string programSha,OriginalMapPostEffect3DispatchExtent dispatch,uint exposureWriterRva,string evidence)
+        string programSha,OriginalMapPostEffect3DispatchExtent dispatch,OriginalMapPostEffect3ConstantBufferWriter exposureWriter,string evidence)
     {
-        this.frame=frame;this.exposureWriterRva=exposureWriterRva;Before=before;ExposureConstants=exposure;ProgramSha256=programSha;ActualDispatch=dispatch;
+        this.frame=frame;this.exposureWriter=exposureWriter;Before=before;ExposureConstants=exposure;ProgramSha256=programSha;ActualDispatch=dispatch;
         OrderedEffectiveBindings=Array.AsReadOnly(frame.Allocation.Passes[before.Iteration.SourcePassIndex].ActiveBindings.ToArray());
         SourceEvidence=evidence+";"+before.SourceEvidence;
     }
@@ -22,8 +22,6 @@ public sealed class OriginalMapPostEffect3EyeComputeExecutionRecipe
     public string ContextOwnerIdentity=>frame.OwnerIdentity;
     public string SourceSha256=>frame.State.SourceSha256;
     public string Locale=>frame.Locale;
-    public uint NativeGenericCommandRva=>(uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,
-        "OriginalMapPostEffect3EyeComputeExecutionSource.cs",0x1163170);
     public int SourcePassIndex=>Before.Iteration.SourcePassIndex;
     public int NativeCachedPassOrdinal=>Before.Iteration.NativeCachedPassOrdinal;
     public OriginalMapPostEffect3EyeBeforeBindings Before{get;}
@@ -50,7 +48,7 @@ public sealed class OriginalMapPostEffect3EyeComputeExecutionRecipe
         if(!frame.OrderedIterations.Contains(Before.Iteration)||!Before.RequiresGenericComputeDispatch||
             Before.Iteration.NativeLoopIndex!=0||Before.Iteration.NativeLoopCount!=1)
             throw new InvalidDataException("Eye compute recipe is not its current selected single source iteration.");
-        if(SourcePassIndex!=102&&(ExposureConstants is not{Bytes.Length:64}||ExposureConstants.WriterRva!=exposureWriterRva))
+        if(SourcePassIndex!=102&&(ExposureConstants is not{Bytes.Length:64}||ExposureConstants.Writer!=exposureWriter))
             throw new InvalidDataException("Eye compute has no complete actual source Exposure CB24.");
     }
     internal void RequirePreparedFrame(OriginalMapPostEffect3EyeAdaptation2Frame actual)
@@ -62,7 +60,7 @@ public sealed class LoadedOriginalMapPostEffect3EyeComputeExecutionSource
     internal LoadedOriginalMapPostEffect3EyeComputeExecutionSource(LoadedOriginalDeferredSamplerNativeSource native,string evidence)=>(Native,SourceEvidence)=(native,evidence);
     public LoadedOriginalDeferredSamplerNativeSource Native{get;}
     public string Locale=>Native.Locale;
-    public uint ExposureWriterRva=>(uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Locale,"OriginalMapPostEffect3EyeComputeExecutionSource.cs",0x1159710);
+    public OriginalMapPostEffect3ConstantBufferWriter ExposureWriter=>OriginalMapPostEffect3ConstantBufferWriter.Exposure;
     public string SourceEvidence{get;}
     public OriginalMapPostEffect3EyeComputeExecutionRecipe Prepare(
         OriginalMapPostEffect3AllocationPlan allocation,OriginalMapPostEffect3EyeAdaptation2Frame frame,
@@ -81,7 +79,7 @@ public sealed class LoadedOriginalMapPostEffect3EyeComputeExecutionSource
             throw new InvalidDataException("Eye compute current mask does not select its actual ordinal.");
         if(pass!=102)
         {
-            if(actualExposureConstants is not{Bytes.Length:64} cb||cb.WriterRva!=ExposureWriterRva||cb.Declaration.Index!=24||
+            if(actualExposureConstants is not{Bytes.Length:64} cb||cb.Writer!=ExposureWriter||cb.Declaration.Index!=24||
                 cb.FrameNumber!=frame.FrameNumber||cb.OwnerIdentity!=frame.OwnerIdentity||cb.SourceSha256!=frame.State.SourceSha256)
                 throw new InvalidDataException("Eye automatic compute needs current original complete Exposure CB24/64B.");
             foreach(var pair in new[]{(Name:"AdaptedScaleLight",Offset:0),(Name:"AdaptedScaleDark",Offset:4),
@@ -95,7 +93,7 @@ public sealed class LoadedOriginalMapPostEffect3EyeComputeExecutionSource
             throw new InvalidDataException("Eye selected generic dispatch lacks its actual positive source context extent.");
         if((pass is 102 or 104)&&dispatch!=new OriginalMapPostEffect3DispatchExtent(1,1,1))
             throw new NotSupportedException("Original Eye clear/exposure use exactly one source dispatch group.");
-        var result=new OriginalMapPostEffect3EyeComputeExecutionRecipe(frame,before,pass==102?null:actualExposureConstants,sha,dispatch,ExposureWriterRva,SourceEvidence);
+        var result=new OriginalMapPostEffect3EyeComputeExecutionRecipe(frame,before,pass==102?null:actualExposureConstants,sha,dispatch,ExposureWriter,SourceEvidence);
         result.RequireCurrent();return result;
     }
 }
@@ -113,8 +111,8 @@ public static partial class OriginalDeferredSamplerSources
     internal static LoadedOriginalMapPostEffect3EyeComputeExecutionSource ReadEyeComputeExecutionSource(LoadedOriginalDeferredSamplerNativeSource native)
     {
 
-        return new(native,native.ResourceUri+";TC1159A40-mask-unconditional-E0;1157CB0-Before-mask-and-4Klookup-only;"+
-            "1158DDD..1158E27-compute5/6/7→1159172-AL1;1157B21→1163170-generic-CS-after-ExecuteAL1;"+
+        return new(native,native.ResourceUri+"-mask-unconditional-E0;-Before-mask-and-4Klookup-only"+
+            "-compute5/6/7→-AL1;→-generic-CS-after-ExecuteAL1"+
             "counted-pass102/103/104-native-dispatch-context;no-AutoExposure-skip/no-GPU-claim");
     }
 }

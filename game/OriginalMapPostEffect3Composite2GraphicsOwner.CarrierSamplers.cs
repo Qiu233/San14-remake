@@ -5,7 +5,7 @@ using San14.Data;
 public sealed partial class OriginalMapPostEffect3Composite2GraphicsOwner
 {
     /// <summary>Original manager linear/point carriers selected by factory9
-    /// Before1163970 at PS7/8. These are independent of LUT texture81/83 and
+    /// Before binds these at PS7/8. They are independent of LUT texture81/83 and
     /// sampled-wrapper samplers installed by the later counted Bind.</summary>
     public static IReadOnlyList<IOriginalMapPostEffect3ComputeSamplerLease> LeaseOriginalModuleCarrierSamplers(
         OriginalMapPostEffect3SourceSamplerOwner actualManager,OriginalMapPostEffect3Composite2BeforeBindings before,
@@ -34,7 +34,7 @@ public sealed partial class OriginalMapPostEffect3Composite2GraphicsOwner
         public long FrameNumber=>Before.Frame.FrameNumber;public string ContextOwnerIdentity=>Before.Frame.OwnerIdentity;
         public int NativeStageOrdinal=>2;
         public string SourceEvidence=>Before.SourceEvidence+";actual-module-manager-carrier-"+(SourceRegister==7?"30-linear":"38-point")+
-            ";11443A0/1145960->952D90-original-carrier-key;not-a-LUT-asset";
+            ";module-carrier-sampler-key;not-a-LUT-asset";
         public void RequireCurrent(){Before.RequireCurrent();if(SourceRegister is not(7 or 8)||!Before.OverridesActualHdrAndLdrSamplers)
             throw new InvalidDataException("Composite2 manager carrier sampler lacks its original Before setter.");}
     }

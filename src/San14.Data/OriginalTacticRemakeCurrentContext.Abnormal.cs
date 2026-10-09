@@ -57,8 +57,8 @@ public sealed partial class OriginalTacticRemakeCurrentContext
         {
             int[]? traits = OriginalTacticRemakeCurrentTraits.ArmyContributions(_definitions,
                 commander, caster.NativeArmyConfiguration?.TraitSlots64);
-            int? baseline = Parameter(state, 0x1A4AB30), higher = Parameter(state, 0x1A4AB3C),
-                lower = Parameter(state, 0x1A4AB48), traitRate = Parameter(state, 0x1A4ABEC);
+            int? baseline = Parameter(state, SimulationParameterKeys.Tactics.AbnormalGateBaseline), higher = Parameter(state, SimulationParameterKeys.Tactics.AbnormalGateHigherAbilityScale),
+                lower = Parameter(state, SimulationParameterKeys.Tactics.AbnormalGateLowerAbilityScale), traitRate = Parameter(state, SimulationParameterKeys.Tactics.AbnormalGateTraitRate);
             if (traits is null || baseline is null || higher is null || lower is null || traitRate is null ||
                 _definitions.ReadHexTableReference(caster.HexId)?.PhysicalSlot != caster.HexId ||
                 _definitions.ReadHexTableReference(target.HexId)?.PhysicalSlot != target.HexId) return null;
@@ -73,10 +73,10 @@ public sealed partial class OriginalTacticRemakeCurrentContext
             caster.NativeTacticRuntime is not { } runtime ||
             state.NativeArmySimulation!.Forces.GetValueOrDefault(caster.ForceId)?.Flags193 is not byte flags)
             return null;
-        int? divisor = Parameter(state, selector == 1 ? 0x1A4AAF0 : 0x1A4AAFC), floor = Parameter(state, 0x1A4AB08),
-            stage = Parameter(state, 0x1A4AAB4), shared = runtime.Waiting21 != 0 ? 100 :
-                Parameter(state, runtime.Waiting22 == 0 ? 0x1A4ABB4 : 0x1A4ABA8),
-            special = (flags & 2) != 0 ? Parameter(state, 0x1A4AC18) : 100;
+        int? divisor = Parameter(state, selector == 1 ? SimulationParameterKeys.Tactics.StrengthDifferenceDivisor : SimulationParameterKeys.Tactics.IntelligenceDifferenceDivisor), floor = Parameter(state, SimulationParameterKeys.Tactics.EffectFactorFloorPercent),
+            stage = Parameter(state, SimulationParameterKeys.Tactics.EffectStageScale), shared = runtime.Waiting21 != 0 ? 100 :
+                Parameter(state, runtime.Waiting22 == 0 ? SimulationParameterKeys.Tactics.Waiting0SharedFactorPercent : SimulationParameterKeys.Tactics.Waiting1SharedFactorPercent),
+            special = (flags & 2) != 0 ? Parameter(state, SimulationParameterKeys.Tactics.SpecialForceEffectPercent) : 100;
         if (divisor is null or 0 || floor is null || stage is null || shared is null || special is null) return null;
         float factor = (float)unchecked(sourceAbility - targetAbility) / (float)divisor.Value;
         factor += 1f;
@@ -117,9 +117,9 @@ public sealed partial class OriginalTacticRemakeCurrentContext
         int? sourcePerson = CommanderPhysical(state, caster);
         int[]? sourceValues = sourcePerson is null ? null : OriginalTacticRemakeCurrentTraits.ArmyContributions(
             _definitions, sourcePerson.Value, caster.NativeArmyConfiguration?.TraitSlots64);
-        int? generalRate = Parameter(state, 0x1A4ABC0);
-        int? specificRate = Parameter(state, nativeIndex switch { 0 => 0x1A4ABCC, 1 => 0x1A4ABD8, _ => 0x1A4ABE0 });
-        int? sourceRate = Parameter(state, 0x1A4C4EC);
+        int? generalRate = Parameter(state, SimulationParameterKeys.Tactics.AbnormalGeneralResistanceRate);
+        int? specificRate = Parameter(state, nativeIndex switch { 0 => SimulationParameterKeys.Tactics.AbnormalType0ResistanceRate, 1 => SimulationParameterKeys.Tactics.AbnormalType1ResistanceRate, _ => SimulationParameterKeys.Tactics.AbnormalType2ResistanceRate });
+        int? sourceRate = Parameter(state, SimulationParameterKeys.Tactics.AbnormalSourceTraitRate);
         if (targetValues is null || sourceValues is null || generalRate is null || specificRate is null || sourceRate is null) return null;
         return Receipt(true, false, false, targetValues[9], targetValues[10 + nativeIndex],
             sourceValues[98], generalRate, specificRate, sourceRate);

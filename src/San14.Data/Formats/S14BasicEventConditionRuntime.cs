@@ -36,8 +36,7 @@ public interface IS14BasicEventConditionQueries
 }
 
 /// <summary>
-/// The CE basic condition profile proved at slot0 RVAs 3AD380, 3B63A0,
-/// 3B9E20 and 3B1140. Supports codes 9/15/17/19 and the existing group/false
+/// The CE basic condition profile supports codes 9/15/17/19 and the existing group/false
 /// built-ins, with step one and the sticky execution+38 blocking signal.
 /// Negative dynamic ID selectors and unsafe bitmap indices are unsupported.
 /// This is not a Core state adapter or a complete first-player event context.

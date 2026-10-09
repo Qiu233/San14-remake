@@ -9,7 +9,7 @@ public static partial class OriginalDeferredSamplerSources
         var ruleVersion=RenderRuleIdentity.For("shadow-target-rectangle",locale);
 
         return new(locale, $"{ruleVersion};" +
-            $"decoder={(locale == "TC" ? 0x957AF0 : 0x958BC0):X8};flag-byte5=true;" +
+            "decode-target-rectangle;flag-byte5=true;" +
             "actual-row50-primary-surface50/54;viewport/scissor-full-target;" +
             "retained-frontend13C/17C-depth-and1D9-enable;no-extra-rectangle-package");
     }

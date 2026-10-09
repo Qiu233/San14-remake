@@ -13,7 +13,7 @@ public sealed class OriginalCityCaptureTerritoryInputs
     private const int RankRadiusDivisor = 4;
     private const int LeaderCharmRadiusThreshold = -40;
     private const int SquaredCharmRadiusDivisor = 9000;
-    public static readonly int[] TcRvas = [0x1A4A7D8, 0x1A4A7E4, 0x1A4A7F0, 0x1A4A7FC];
+    public static readonly string[] ParameterKeys = [SimulationParameterKeys.CityCapture.MaximumCaptureAreaRadius, SimulationParameterKeys.CityCapture.RankRadiusDivisor, SimulationParameterKeys.CityCapture.LeaderCharmRadiusThreshold, SimulationParameterKeys.CityCapture.SquaredCharmRadiusDivisor];
     public string Language { get; }
     public SourceProvenance Source { get; }
     public IReadOnlyList<OriginalBattleRemakeCurrentParameterField> Fields { get; }
@@ -26,12 +26,9 @@ public sealed class OriginalCityCaptureTerritoryInputs
         var source = SimulationRuleSources.Provenance("san14-rule://simulation/city-capture-territory", language);
         int[] rules = [MaximumCaptureAreaRadius, RankRadiusDivisor, LeaderCharmRadiusThreshold,
             SquaredCharmRadiusDivisor];
-        // Legacy addresses retain the existing saved parameter keys.
-        var fields = TcRvas.Select((tc, index) =>
-        {
-            int semantic = tc + 0x1030, physical = language == "SC" ? semantic : tc;
-            return new OriginalBattleRemakeCurrentParameterField(semantic, physical, rules[index], string.Empty);
-        }).ToArray();
+        // Project rules use named keys independent of locale.
+        var fields = ParameterKeys.Select((key, index) =>
+            new OriginalBattleRemakeCurrentParameterField(key, rules[index])).ToArray();
         return new(language, source, fields);
     }
 
@@ -45,16 +42,16 @@ public sealed class OriginalCityCaptureTerritoryInputs
         var values = new Dictionary<string, int>(simulation.Parameters.Int32Values) { [VersionKey] = 1, [Emperor1654Key] = world.RawEmperorPersonId };
         foreach (var field in Fields)
         {
-            string key = OriginalTacticRemakeParameterSeed.Key(field.SemanticScRva);
+            string key = field.Key;
             if (simulation.Parameters.Float32Values.ContainsKey(key) || values.TryGetValue(key, out int old) && old != field.Value)
                 throw Missing("inconsistent_source_scalar");
             values.TryAdd(key, field.Value);
         }
         return state with { NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = values } } };
     }
-    public static int? ReadCurrentTc(GameState state, int tcRva) => state.NativeArmySimulation?.Parameters is { } bank &&
+    public static int? ReadCurrent(GameState state, string key) => state.NativeArmySimulation?.Parameters is { } bank &&
         bank.Int32Values.GetValueOrDefault(VersionKey) == 1 &&
-        bank.Int32Values.TryGetValue(OriginalTacticRemakeParameterSeed.Key(tcRva + 0x1030), out int value) ? value : null;
+        bank.Int32Values.TryGetValue(key, out int value) ? value : null;
     public static ushort? ReadEmperor1654(GameState state) => state.NativeArmySimulation?.Parameters.Int32Values is { } values &&
         values.GetValueOrDefault(VersionKey) == 1 && values.TryGetValue(Emperor1654Key, out int id) && id is >= 0 and <= 65535 ? (ushort)id : null;
     public static void BindCurrentEmperor(GameState state, OriginalEventInitializationContext current) => current.RawEmperorId = ReadEmperor1654(state);

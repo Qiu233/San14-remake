@@ -47,8 +47,7 @@ public sealed class OriginalMapPostEffect3Composite2ReadFootprint
         var program=OriginalMapPostEffect3Functor1FootprintSource.RequireProgram(allocation,sourcePassIndex,0,profile.Pixel);
         var bindings=OriginalMapPostEffect3Functor1FootprintSource.ReadPixelTextures(allocation,sourcePassIndex);
         var cb=update.ConstantBuffer;
-        if(cb.WriterRva!=checked((uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(
-            cb.Locale,"OriginalMapPostEffect3Composite2ReadFootprint.cs",0x115BC10))||cb.Declaration.Index!=22||cb.Bytes.Length!=208)
+        if(cb.Writer!=OriginalMapPostEffect3ConstantBufferWriter.Composite2||cb.Declaration.Index!=22||cb.Bytes.Length!=208)
             throw new InvalidDataException("Composite2 footprint requires its complete actual original CB22 writer.");
         byte[] bytes=cb.Bytes.ToArray();
         float F(int at)=>BinaryPrimitives.ReadSingleLittleEndian(bytes.AsSpan(at));

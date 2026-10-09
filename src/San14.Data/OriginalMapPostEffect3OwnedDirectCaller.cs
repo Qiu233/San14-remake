@@ -4,7 +4,7 @@ using System.Runtime.CompilerServices;
 namespace San14.Data;
 
 /// <summary>Explicit fresh owned graphics configuration. TC's file-backed
-/// initializer at1A8C934 is1; E7212A consumes that word. This is not a read of
+/// initializer at is1; consumes that word. This is not a read of
 /// the original process's mutable configuration or a renderer-wide switch.</summary>
 public sealed class OriginalMapPostEffect3FreshGraphicsConfiguration
 {
@@ -34,7 +34,7 @@ public sealed record OriginalMapPostEffect3DirectCallerOutputTarget(long FrameNu
     string TargetOwnerIdentity,string ContextOwnerIdentity,bool NativeTarget60Equals1,
     bool ContextVirtual80Result,string TargetAndContextEvidence);
 
-/// <summary>Exact Direct EB7EC1 scalar ABI plus the independent D586B0 lookup
+/// <summary>Exact Direct scalar ABI plus the independent lookup
 /// arguments. This receipt selects no light and performs no parameter writes.</summary>
 public sealed class OriginalMapPostEffect3OwnedDirectCaller
 {
@@ -49,7 +49,7 @@ public sealed class OriginalMapPostEffect3OwnedDirectCaller
     public bool ActualLightShaftArgument{get;}
     public int ActualViewIndexArgument{get;}
     public byte ActualAuxGroupArgument{get;}
-    public uint D586B0ExclusionMask=>~(1u<<((ActualAuxGroupArgument-1)&31));
+    public uint LightLookupExclusionMask=>~(1u<<((ActualAuxGroupArgument-1)&31));
     public string ContextOwnerIdentity{get;}
     public string SourceEvidence{get;}
 
@@ -90,11 +90,11 @@ public sealed class OriginalMapPostEffect3OwnedDirectCaller
             throw new InvalidDataException("Direct Apply Common3A8 differs from its source FXAA loader field.");
         int auxFxaa=BinaryPrimitives.ReadInt32LittleEndian(fxaa.RawValue);
         var raw=OriginalMapPostEffect3ApplyUncontrolledCameraInputs.ConstructFreshSource(current,
-            common.SelectedViewOwnerIdentity+"/DirectEB7EC1-camera");
+            common.SelectedViewOwnerIdentity+"Direct-camera");
         int cameraFxaa=unchecked((int)raw.Word(0x414));
         float sourceGamma=BinaryPrimitives.ReadSingleLittleEndian(current.Prefix.Span.Slice(0x174,4));
         float gamma=ResolveGammaArgument(sourceGamma,actualOutputTarget.NativeTarget60Equals1,actualOutputTarget.ContextVirtual80Result);
-        // EB620B/E621C..E6247 uses the prepared Camera's E28 and E1C/E20/E24.
+        // /E621C..E6247 uses the prepared Camera's E28 and E1C/E20/E24.
         // This fresh-source scope has no later tail writer, so the exact source
         // property/copy joins are used; SceneType142 is not part of this bool.
         float P(int ordinal,uint hash,int count=1,int component=0)
@@ -109,15 +109,15 @@ public sealed class OriginalMapPostEffect3OwnedDirectCaller
             throw new InvalidDataException("Direct Apply shaft source must be finite.");
         bool shaft=length>0&&(r>0||g>0||b>0);
         float delta=actualRendererElapsedDelta>=0?actualRendererElapsedDelta:0;
-        string evidence="TC:EB7EC1-direct-E71690;EB6886/EB6890:Aux3A8-OR-Camera414;"+
-            "EB5F5A/EB5F89/EB5FA1/EB7E3D:Gamma-two-reciprocal-divss;"+
-            "EB7E26:MAXSS-zero-owned-renderer-delta;owned-clock="+actualClockOwnerIdentity+";"+
-            "EB620B..EB6247/EB648C/EB7E8B:shaft-predicate;"+common.ProducerProvenance+";"+
+        string evidence=";direct-;:Aux3A8-OR-Camera414"+
+            ":Gamma-two-reciprocal-divss"+
+            ":MAXSS-zero-owned-renderer-delta;owned-clock="+actualClockOwnerIdentity+";"+
+            ":shaft-predicate"+common.ProducerProvenance+";"+
             actualOutputTarget.TargetAndContextEvidence+";"+actualGraphics.SourceEvidence+";"+actualApplyViewIndexEvidence;
         var simple=new OriginalMapPostEffect3ApplyUncontrolledSimpleInputs(current.FrameNumber,auxFxaa|cameraFxaa,
             gamma,delta,actualGraphics.GammaEnableWord,common.CommonViewFlags8,evidence);
         return new(current.CopyAcceptedSnapshot(),simple,shaft,actualResolvedApplyViewIndex,sourceCommon.ViewAux3F2,
-            common.CommonTableOwnerIdentity,evidence+";E71A28/E71A3B/E71A43:~(1u<<((Aux3F2-1)&31));E71A49-current-ViewIndex");
+            common.CommonTableOwnerIdentity,evidence+":~(1u<<((Aux3F2-1)&31));-current-ViewIndex");
     }
     public void ValidateSameCamera(OriginalMapCameraConstructionPacket candidate)
     {

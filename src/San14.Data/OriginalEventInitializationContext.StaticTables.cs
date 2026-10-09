@@ -3,7 +3,7 @@ namespace San14.Data;
 public sealed partial class OriginalEventInitializationContext : IOriginalStaticTablePostLoadState
 {
     private readonly Dictionary<(int Table,int Slot),int?> _staticTablePointers = [];
-    private readonly Dictionary<(int Table,int Physical),uint?> _staticSlot4Targets = [];
+    private readonly Dictionary<(int Table,int Physical),OriginalPostLoadCallback?> _staticPostLoadCallbacks = [];
     private static readonly IReadOnlyDictionary<int,OriginalRegistryKind> StaticRegistryKinds = new Dictionary<int,OriginalRegistryKind>
     {
         [0x6CAF0]=OriginalRegistryKind.Area, [0x7E838]=OriginalRegistryKind.Army,
@@ -40,10 +40,10 @@ public sealed partial class OriginalEventInitializationContext : IOriginalStatic
         }
     }
 
-    public void SetStaticTableSlot4Target(int tableOffset, int physical, uint? target)
+    public void SetStaticTablePostLoadCallback(int tableOffset, int physical, OriginalPostLoadCallback? callback)
     {
         Check(physical,StaticTableCount(tableOffset),"static virtual receiver");
-        _staticSlot4Targets[(tableOffset,physical)]=target;
+        _staticPostLoadCallbacks[(tableOffset,physical)]=callback;
     }
 
     public OriginalStaticTableReference? ReadStaticTableReference(int tableOffset, int slot)
@@ -77,9 +77,9 @@ public sealed partial class OriginalEventInitializationContext : IOriginalStatic
                 if (!_staticTablePointers.TryGetValue((tableOffset,slot),out physical)) return null;
                 break;
         }
-        uint? target = physical.HasValue && _staticSlot4Targets.TryGetValue((tableOffset,physical.Value),out uint? provided)
-            ? provided : 0x370500;
-        return new(physical,target);
+        OriginalPostLoadCallback? callback = physical.HasValue && _staticPostLoadCallbacks.TryGetValue((tableOffset,physical.Value),out var provided)
+            ? provided : OriginalPostLoadCallback.NoOp;
+        return new(physical,callback);
     }
 
     public void ApplyStaticTablePostLoad() => OriginalStaticTablePostLoad.Apply(this);

@@ -35,11 +35,11 @@ public readonly record struct OriginalMapCameraConstructionMatrices(
 {
     /// <summary>Downstream original full inverse; this is not an early Camera matrix slot.</summary>
     public Matrix4x4 ViewToWorld3F6EB0() =>
-        OriginalNativeMatrixMath.Inverse3F6EB0(WorldToView80, out _);
+        OriginalNativeMatrixMath.Invert(WorldToView80, out _);
 
     /// <summary>Downstream original full inverse; this is not an early Camera matrix slot.</summary>
     public Matrix4x4 ProjectionToWorld3F6EB0() =>
-        OriginalNativeMatrixMath.Inverse3F6EB0(WorldToProjection100, out _);
+        OriginalNativeMatrixMath.Invert(WorldToProjection100, out _);
 
     /// <summary>Writes only the native +40..+13F matrix fields into an explicit prefix.</summary>
     public void WriteEarlyMatrices(Span<byte> cameraPrefix)

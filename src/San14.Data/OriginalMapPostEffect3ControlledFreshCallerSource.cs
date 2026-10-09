@@ -40,12 +40,12 @@ public sealed class OriginalMapPostEffect3ControlledFreshCaller
         if(actualDerived.FrameNumber!=FrameNumber||actualOptics.FrameNumber!=FrameNumber||actualOptics.OwnerIdentity!=owner||
             actualDerived.ExecutableLocale!=camera.ExecutableLocale||actualOptics.Locale!=camera.ExecutableLocale||!actualOptics.IsCompleteCpuOpticsPreparation||
             actualOptics.NativePreparationReturnAl!=1||actualOptics.DirtyAfAfterPreparation!=0)
-            throw new InvalidDataException("Current controller snapshot needs this actual fresh Camera/derived/complete E1F990 preparation.");
+            throw new InvalidDataException("Current controller snapshot needs this actual fresh Camera/derived/complete  preparation");
         return new(FrameNumber,owner,StopBladeCount6C,ChangeFStopA1,ExternalStarA0,Diaphragm9C,GatherSizeTypeC0,
             actualDerived.SpriteDofA9?(byte)1:(byte)0,BitConverter.SingleToUInt32Bits(actualDerived.BloomAntiFlickerDc),
             actualDerived.BloomAntiFlickerAa?(byte)1:(byte)0,SourceEvidence+";"+actualOptics.SourceEvidence+
-            ";E243F0-A1=1;EB7559-E252F0-Camera1348;EB756A-E25300-Camera1320.bit3;"+
-            "EB75A5-E25CF0-externalStar-null;E1F990-does-not-clear-A1;actual-A4/A9/DC/AA-current-writers");
+            "-A1=1;-Camera1348;-Camera1320.bit3"+
+            "-externalStar-null;-does-not-clear-A1;actual-A4/A9/DC/AA-current-writers");
     }
 }
 
@@ -102,7 +102,7 @@ public sealed class LoadedOriginalMapPostEffect3ControlledFreshCallerSource
         var canonical=package.Objects.Document.Objects.Single(o=>o.ObjectId==package.Camera.ObjectId);
         uint Main(int ordinal,uint hash,uint type)=>Word(camera.Source.Camera,ordinal,hash,type);
         uint Season(int ordinal,uint hash,uint type)=>Word(canonical,ordinal,hash,type);
-        // C57C84/CCE key0 writes literal-null caches2ED8/2EE0; CAB28C/A1
+        // /CCE key0 writes literal-null caches2ED8/2EE0; /A1
         // transports them into prepared1848/1850. Both current source cameras
         // are checked, so no unknown resource selection becomes absence.
         if(Main(971,0xE0C70CE1,5)!=0||Main(972,0xFD3DD206,5)!=0||
@@ -110,7 +110,7 @@ public sealed class LoadedOriginalMapPostEffect3ControlledFreshCallerSource
             throw new NotSupportedException("Current external diaphragm/star source keys need their actual owned resource lookups.");
         uint mask=Main(1021,0x740E879D,5),fade=Main(1020,0xDB86C1F7,8),lumi=Main(1022,0x14515444,8);
         uint selectedMask=Season(1021,0x740E879D,5);
-        // C38BAB/C38BB2 is unsigned>0. A selected mask0 retains all three
+        // is unsigned>0. A selected mask0 retains all three
         // Main values; a nonzero mask copies this exact selected package.
         if(selectedMask!=0){mask=selectedMask;fade=Season(1020,0xDB86C1F7,8);lumi=Season(1022,0x14515444,8);}
         bool locked=(BitConverter.UInt32BitsToSingle(fade)>0||BitConverter.UInt32BitsToSingle(lumi)!=1)&&(mask&0x40000000)!=0;

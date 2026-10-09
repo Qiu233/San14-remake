@@ -3,8 +3,8 @@ using System.Runtime.CompilerServices;
 
 namespace San14.Data;
 
-/// <summary>Owned CPU result of D7B4D0's conditional E1F990. The return AL1
-/// is the complete D7B4D0 literal writer, independent of named-setter results.
+/// <summary>Owned CPU result of the conditional . The return AL1
+/// is the complete literal writer, independent of named-setter results.
 /// The actual ghost buffer allocation/upload remains its own device producer.</summary>
 public sealed class OriginalMapPostEffect3ControlledOpticsPreparation
 {
@@ -20,15 +20,13 @@ public sealed class OriginalMapPostEffect3ControlledOpticsPreparation
         bool dirty,IReadOnlyList<OriginalMapPostEffect3ApplyValueWrite> writes,byte[] all,byte[] selected,
         int ghostCount,float distance,float focal,float stop,string evidence,string locale)
     {FrameNumber=frame;OwnerIdentity=owner;ActualDirtyAfBeforePreparation=dirty;Writes=writes;allGhosts=all;selectedGhosts=selected;
-        GhostSpriteCount=ghostCount;ObjectDistance60=distance;FocalLength64=focal;FStop68=stop;SourceEvidence=evidence;Locale=locale;
-        NativePreparationEntryRva=(uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(locale,"OriginalMapPostEffect3ControlledOpticsPreparation.cs",0xD7B4D0);}
+        GhostSpriteCount=ghostCount;ObjectDistance60=distance;FocalLength64=focal;FStop68=stop;SourceEvidence=evidence;Locale=locale;}
     public long FrameNumber{get;}
     public string OwnerIdentity{get;}
     public bool ActualDirtyAfBeforePreparation{get;}
     public byte DirtyAfAfterPreparation=>0;
     public byte NativePreparationReturnAl=>1;
     public string Locale{get;}
-    public uint NativePreparationEntryRva{get;}
     public IReadOnlyList<OriginalMapPostEffect3ApplyValueWrite> Writes{get;}
     public IReadOnlyList<OriginalMapPostEffect3ApplyValueWrite> InitializationWrites=>initialWrites;
     public IReadOnlyList<string> ExplicitlyAbsentScalarNames=>Array.AsReadOnly(absentScalarNames.Order().ToArray());
@@ -37,7 +35,7 @@ public sealed class OriginalMapPostEffect3ControlledOpticsPreparation
     public int NativeGhostAllocationByteCount=>448;
     public ReadOnlyMemory<byte> AllGhostRecords440=>allGhosts.ToArray();
     public ReadOnlyMemory<byte> SelectedGhostRecords640=>selectedGhosts.ToArray();
-    /// <summary>E24C99 prepares and stages16 source rows before current
+    /// <summary> prepares and stages16 source rows before current
     /// Camera writes. A later count0 upload does not clear these device bytes.</summary>
     public ReadOnlyMemory<byte> InitialGhostRecords640=>initialGhosts.ToArray();
     public int ActualGhostUploadByteCount=>selectedGhosts.Length;
@@ -63,7 +61,7 @@ public sealed class OriginalMapPostEffect3ControlledOpticsPreparation
         var current=new OriginalMapPostEffect3ControlledOpticsPreparation(state.FrameNumber,state.OwnerIdentity,false,
             Array.Empty<OriginalMapPostEffect3ApplyValueWrite>(),previous.allGhosts.ToArray(),previous.selectedGhosts.ToArray(),
             previous.GhostSpriteCount,previous.ObjectDistance60,previous.FocalLength64,previous.FStop68,
-            originalEvidence+retainedMarker+";D7B4D0-skips-E1F990;no-E243F0-or-E24C99-reinitialization;currentFrame="+state.FrameNumber,previous.Locale);
+            originalEvidence+retainedMarker+";retained-optics-without-reinitialization;currentFrame="+state.FrameNumber,previous.Locale);
         current.initialGhosts=previous.initialGhosts.ToArray();
         current.RequireOwner(state,allocation);current.initializationApplied=true;current.currentApplied=true;
         current.appliedState=state;current.appliedAllocation=allocation;return current;
@@ -71,7 +69,7 @@ public sealed class OriginalMapPostEffect3ControlledOpticsPreparation
     public void ApplyInitializationToCurrentState(OriginalMapPostEffect3ParameterState state,OriginalMapPostEffect3AllocationPlan allocation)
     {
         if(initializationApplied||appliedState is not null)throw new InvalidOperationException("Controlled initialization was already applied.");
-        RequireOwner(state,allocation);ApplySourceNamedWrites(state,InitializationWrites,SourceEvidence+";E24C99");
+        RequireOwner(state,allocation);ApplySourceNamedWrites(state,InitializationWrites,SourceEvidence+"ControlledOpticsPreparation");
         initializationApplied=true;appliedState=state;appliedAllocation=allocation;
     }
     public void ApplyToCurrentState(OriginalMapPostEffect3ParameterState state,OriginalMapPostEffect3AllocationPlan allocation)
@@ -103,7 +101,7 @@ public sealed class OriginalMapPostEffect3ControlledOpticsPreparation
     private void ApplySourceNamedWrites(OriginalMapPostEffect3ParameterState state,
         IReadOnlyList<OriginalMapPostEffect3ApplyValueWrite> writes,string evidence)
     {
-        // Every complete native body calls114B170 and ignores a missing
+        // Every complete native body calls and ignores a missing
         // primary named scalar. FlareScreenDhAspect is actually absent from
         // this pinned type5 bank; a missing slot must not become an alias.
         var accepted=new List<OriginalMapPostEffect3ApplyValueWrite>();
@@ -131,7 +129,7 @@ public static class OriginalMapPostEffect3ControlledOpticsSource
 }
 
 /// <summary>Actual source fresh controller optics followed by the current
-/// Camera setters. E24C99 runs the constructor's E1F990 once and clears AF;
+/// Camera setters. runs the constructor's once and clears AF;
 /// current setters dirty it by native float comparisons. Only fields read by
 /// these complete bodies are populated; unconsumed padding is never invented.</summary>
 public sealed class LoadedOriginalMapPostEffect3ControlledOpticsSource
@@ -163,7 +161,7 @@ public sealed class LoadedOriginalMapPostEffect3ControlledOpticsSource
         var raw=OriginalMapPostEffect3ApplyUncontrolledCameraInputs.ConstructFreshSource(camera,actualControllerScalarOwner+"/controlled-optics-fields");
         var tail=OriginalMapPostEffect3ApplyFreshCameraScalars.ConstructFreshSource(camera,actualControllerScalarOwner+"/controlled-optics-tail");
         float distance=M(raw.Float(0x12FC),DistanceScale);
-        // EB7509 performs Camera1300*10 before E25830 applies .001. Retain
+        // performs Camera1300*10 before applies .001. Retain
         // both binary32 multiplications instead of combining their factors.
         float focal=M(M(raw.Float(0x1300),10),FocalScale),stop=raw.Float(0x1304);
         float limbStart=raw.Float(0x7A8);
@@ -172,7 +170,7 @@ public sealed class LoadedOriginalMapPostEffect3ControlledOpticsSource
         bool dirty=distance!=1||focal!=B(0x3D4CCCCD)||stop!=B(0x40B33333)||anamorphic||
             dimensions.ApplyWrites.Any(w=>w.Name is "Enable4KResFix" or "EnableMultiResFix")||
             limbStart!=B(0x3F4CCCCD)||limbEnd!=B(0x3F8CCCCD);
-        // The source fresh route's E243F0 sets DC/AF, E24C99 clears AF.
+        // The source fresh route's sets DC/AF, clears AF.
         // Native current Camera setters are the only subsequent dirty writers
         // consumed here. These finite source fields require no retained state.
         if(new[]{distance,focal,stop,limbStart,limbEnd}.Any(x=>!float.IsFinite(x))||distance<=0||focal<=0||stop<=0||distance<=focal)
@@ -190,8 +188,8 @@ public sealed class LoadedOriginalMapPostEffect3ControlledOpticsSource
             camera.ExtraScalars.LimbDarkeningWeight7B0,tail.Int(0x1344),anamorphic,
             dimensions,actualOwnedLogDispatch,dirty);
         current.AcceptFreshInitialization(initial,Array.AsReadOnly(new[]{
-            new OriginalMapPostEffect3ApplyValueWrite("HaloAberrationWavesRateRB",Code(0xE24592),Code(0xE243F0),PackFloats(.98f,1.02f),SourceEvidence+";fresh-two-float-writer"),
-            new OriginalMapPostEffect3ApplyValueWrite("AnamorphicCoatColor",Code(0xE245BC),Code(0xE243F0),PackFloats(.000075f,.000125f,.0005f),SourceEvidence+";fresh-three-float-writer")}));
+            new OriginalMapPostEffect3ApplyValueWrite("HaloAberrationWavesRateRB",OriginalMapPostEffect3WriteStage.OpticsHaloAberrationWavesRateRB,PackFloats(.98f,1.02f),SourceEvidence+";fresh-two-float-writer"),
+            new OriginalMapPostEffect3ApplyValueWrite("AnamorphicCoatColor",OriginalMapPostEffect3WriteStage.OpticsAnamorphicCoatColor,PackFloats(.000075f,.000125f,.0005f),SourceEvidence+";fresh-three-float-writer")}));
         return current;
     }
 
@@ -225,7 +223,7 @@ public sealed class LoadedOriginalMapPostEffect3ControlledOpticsSource
         float stopPoly=S(1,S(D(c0,D(Log(stop),log2)),c4));
         float starSample=D(M(M(stop,StarFactor),StarSize),const14);
         bool fcEnabled=dimensions.ApplyWrites.Any(w=>w.Name=="Enable4KResFix"&&BinaryPrimitives.ReadInt32LittleEndian(w.Bytes.Span)!=0);
-        // E246B0's five-element local lens array starts with an actual zero.
+        // 's five-element local lens array starts with an actual zero.
         float[] lens=new float[5];float previousDelta=0;
         for(int j=0;j<4;j++)
         {
@@ -250,42 +248,42 @@ public sealed class LoadedOriginalMapPostEffect3ControlledOpticsSource
         byte[] selected=new byte[count*28];int[] order=[0,2,6,15,7,3,8,14,9,1,4,10,13,11,5,12];
         for(int i=0;i<count;i++)allGhosts.AsSpan(order[i]*28,28).CopyTo(selected.AsSpan(i*28));
         var writes=new List<OriginalMapPostEffect3ApplyValueWrite>();string evidence=SourceEvidence+
-            $";frame={frame};owner={owner};fresh-E24C99-AF0;current-setters-AF={(dirty?1:0)};D7B4D0-fixedAL1";
-        void F(string name,uint at,uint helper,params float[] values)
+            $"frame={frame};owner={owner};fresh-AF0;current-setters-AF={(dirty?1:0)};-fixedAL1";
+        void F(string name,OriginalMapPostEffect3WriteStage stage,params float[] values)
         {
             if(values.Any(v=>!float.IsFinite(v)))throw new NotSupportedException("Actual controller optics reaches a nonfinite named writer: "+name);
             byte[] bytes=new byte[values.Length*4];for(int i=0;i<values.Length;i++)BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(i*4),values[i]);
-            writes.Add(new(name,Code(at),Code(helper),bytes,evidence));
+            writes.Add(new(name,stage,bytes,evidence));
         }
-        void I(string name,uint at,uint helper,int value)
-        {byte[] bytes=new byte[4];BinaryPrimitives.WriteInt32LittleEndian(bytes,value);writes.Add(new(name,Code(at),Code(helper),bytes,evidence));}
+        void I(string name,OriginalMapPostEffect3WriteStage stage,int value)
+        {byte[] bytes=new byte[4];BinaryPrimitives.WriteInt32LittleEndian(bytes,value);writes.Add(new(name,stage,bytes,evidence));}
         // Current native branch executes only when AF is dirty. A fresh bank
-        // also receives the unconditional E24C99 initialization values. For
+        // also receives the unconditional initialization values. For
         // this source current seasonal route the Camera setters dirty AF;
         // callers outside it require their separate retained controller owner.
-        if(!dirty)throw new NotSupportedException("Current Camera leaves AF clear: preserve the actual E24C99 initial optics receipt instead of inventing a later writer.");
-        F("StopPolyRate",0xE1FB73,0xE1F990,stopPoly);
-        F("FlareScreenDhAspect",0xE25F0D,0xE25EB0,anamorphic?dimensions.SensorHeightRatioF0:diagonalRatio);
-        F("FlareScreenWhAspect",0xE25F2B,0xE25EB0,anamorphic?dimensions.AspectRatioF4:deviceAspect);
-        I("EnableAnamorphic",0xE25F59,0xE25EB0,anamorphic?1:-1);
+        if(!dirty)throw new NotSupportedException("Current Camera leaves AF clear: preserve the actual  initial optics receipt instead of inventing a later writer");
+        F("StopPolyRate",OriginalMapPostEffect3WriteStage.OpticsStopPolyRate,stopPoly);
+        F("FlareScreenDhAspect",OriginalMapPostEffect3WriteStage.OpticsFlareScreenDhAspect,anamorphic?dimensions.SensorHeightRatioF0:diagonalRatio);
+        F("FlareScreenWhAspect",OriginalMapPostEffect3WriteStage.OpticsFlareScreenWhAspect,anamorphic?dimensions.AspectRatioF4:deviceAspect);
+        I("EnableAnamorphic",OriginalMapPostEffect3WriteStage.OpticsEnableAnamorphic,anamorphic?1:-1);
         float anamorphicRate=anamorphic?A(M(S(D(1,B(0x40166666)),B(0x40166666)),stopPoly),B(0x40166666)):1;
-        F("AnamorphicRateXY",0xE25FBE,0xE25EB0,anamorphicRate,1);
+        F("AnamorphicRateXY",OriginalMapPostEffect3WriteStage.OpticsAnamorphicRateXY,anamorphicRate,1);
         float screenAspect=anamorphic?D(1,dimensions.AspectRatioF4):deviceAspect;
-        F("ScreenWhAspect",0xE25FFF,0xE25EB0,screenAspect);
-        I("GhostSpriteNum",0xE2496C,0xE246B0,count);
+        F("ScreenWhAspect",OriginalMapPostEffect3WriteStage.OpticsScreenWhAspect,screenAspect);
+        I("GhostSpriteNum",OriginalMapPostEffect3WriteStage.OpticsGhostSpriteNum,count);
         const int halo=15*28;
-        F("LensHaloInfo0",0xE249E7,0xE246B0,ReadF(allGhosts,halo+8),ReadF(allGhosts,halo+12),ReadF(allGhosts,halo+16),ReadF(allGhosts,halo+4));
+        F("LensHaloInfo0",OriginalMapPostEffect3WriteStage.OpticsLensHaloInfo0,ReadF(allGhosts,halo+8),ReadF(allGhosts,halo+12),ReadF(allGhosts,halo+16),ReadF(allGhosts,halo+4));
         float tangentValue=M(Tan(M(M(d4,cc),.5f)),2),limbRatio=D(screenAspect,tangentValue),limb0=M(limbRatio,limbRatio);
         float stretch=M(A(D(S(b8,b0),b0),1),limbEnd),linear=M(M(S(stretch,limbStart),.5f),d0);
-        F("LimbDarkenningInfo",0xE260F6,0xE26010,limb0,M(S(stretch,linear),M(screenAspect,.5f)),A(M(M(screenAspect,.5f),linear),M(M(screenAspect,.5f),linear)));
+        F("LimbDarkenningInfo",OriginalMapPostEffect3WriteStage.OpticsLimbDarkenningInfo,limb0,M(S(stretch,linear),M(screenAspect,.5f)),A(M(M(screenAspect,.5f),linear),M(M(screenAspect,.5f),linear)));
         float limbFade=limbWeight>0?Pow(limbWeight,B(0x3EE8BA2E)):-1;
-        F("LimbDarkenningLinFade",0xE26140,0xE26010,limbFade>0?limbFade:-1);
-        F("StarBurstSampleScale",0xE1FBD5,0xE1F990,starSample);
-        F("FocasuedDistance",0xE1FBF6,0xE1F990,distance);
-        F("DofLensCoeff",0xE1FC17,0xE1F990,dofCoefficient);
+        F("LimbDarkenningLinFade",OriginalMapPostEffect3WriteStage.OpticsSetLimbDarkening,limbFade>0?limbFade:-1);
+        F("StarBurstSampleScale",OriginalMapPostEffect3WriteStage.OpticsStarBurstSampleScale,starSample);
+        F("FocasuedDistance",OriginalMapPostEffect3WriteStage.OpticsFocasuedDistance,distance);
+        F("DofLensCoeff",OriginalMapPostEffect3WriteStage.OpticsDofLensCoeff,dofCoefficient);
         return new(frame,owner,dirty,writes.AsReadOnly(),allGhosts,selected,count,distance,focal,stop,evidence,Native.Locale);
     }
-    private uint Code(uint rva)=>(uint)OriginalMapPostEffect3NativeSourceProfile.CodeRva(Native.Locale,"OriginalMapPostEffect3ControlledOpticsPreparation.cs",(int)rva);
+
     private static float ReadF(byte[] bytes,int at)=>BinaryPrimitives.ReadSingleLittleEndian(bytes.AsSpan(at));
     private static byte[] PackFloats(params float[] values)
     {

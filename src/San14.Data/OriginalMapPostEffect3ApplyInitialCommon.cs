@@ -5,8 +5,8 @@ namespace San14.Data;
 public sealed record OriginalMapPostEffect3ApplyInitialCommonPass(int CachedIndex,string Name,
     uint NameHash,IReadOnlyList<int> ActualSelectedPassIndices);
 
-/// <summary>TC114CE20 fresh standard/Common handler fields, independently
-/// distinct from RTScalar state. Its virtual10 BF9280 returns1 and writes
+/// <summary> fresh standard/Common handler fields, independently
+/// distinct from RTScalar state. Its virtual10 returns1 and writes
 /// no scalar values. Sparse unknown self bytes remain unsupported.</summary>
 public sealed class OriginalMapPostEffect3ApplyInitialCommon
 {
@@ -16,11 +16,11 @@ public sealed class OriginalMapPostEffect3ApplyInitialCommon
     {FrameNumber=frame;OwnerIdentity=owner;knownBytes=bytes;Passes=passes;}
     public long FrameNumber{get;}
     public string OwnerIdentity{get;}
-    public uint HandlerVtableRva=>0x173A6D0;
-    public uint ConstructorRva=>0x114CE20;
-    public uint InitializerRva=>0xBF9280;
+
+
+
     public IReadOnlyList<OriginalMapPostEffect3ApplyInitialCommonPass> Passes{get;}
-    public string SourceEvidence=>"TC:114CE20..114CF57;VT173A6D0;BF9280=AL1-no-writes;"+OwnerIdentity;
+    public string SourceEvidence=>"TC;VT;=AL1-no-writes"+OwnerIdentity;
 
     /// <summary>Only actual Functor0 is currently admitted for these Common
     /// source pass-name identities. This does not select it in the Apply ABI.</summary>
@@ -41,7 +41,7 @@ public sealed class OriginalMapPostEffect3ApplyInitialCommon
         void B(int at,byte value)=>bytes.Add(at,value);
         void W(int at,uint value)
         {byte[] word=new byte[4];BinaryPrimitives.WriteUInt32LittleEndian(word,value);for(int i=0;i<4;i++)B(at+i,word[i]);}
-        // Eight frozen literal vectors at14BB860..14BB89F, repeated twice.
+        // Eight frozen literal vectors at.., repeated twice.
         for(int matrix=0;matrix<2;matrix++)for(int lane=0;lane<16;lane++)
             W(0x60+matrix*64+lane*4,lane%5==0?0x3F800000u:0u);
         W(0xE0,0x3F800000);W(0xE4,0x3F800000);B(0xE8,1);W(0xEC,0);
@@ -61,8 +61,8 @@ public sealed class OriginalMapPostEffect3ApplyInitialCommon
         ArgumentNullException.ThrowIfNull(state);
         if(state.FrameNumber!=FrameNumber||state.SourceSha256!=OriginalMapFinalOutputPostEffect3Source.PayloadSha256)
             throw new InvalidDataException("Common no-op initializer belongs to a different scalar bank frame/source.");
-        // BF9280 body is mov al,1;ret. Never initialize/clear the bank here.
-        return new(FrameNumber,OwnerIdentity,HandlerVtableRva,InitializerRva,
+        // body is mov al,1;ret. Never initialize/clear the bank here.
+        return new(FrameNumber,OwnerIdentity,
             Array.Empty<OriginalMapPostEffect3ApplyInitialWrite>(),Array.Empty<string>(),true,null,
             SourceEvidence+";owned-state="+state.OwnerIdentity);
     }

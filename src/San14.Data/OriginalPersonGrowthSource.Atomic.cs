@@ -52,7 +52,8 @@ public sealed partial class OriginalPersonGrowthSource
             current.ReadForceNativeValidity(force) is not bool forceValid ||
             OriginalTacticRemakeCurrentTraits.CommanderEffectSum(current, owner.PhysicalSlot, 75) is not int trait ||
             queries.ReadAdvantage7(input, current, force) is not { } advantage ||
-            queries.ReadGlobal(input, 0) is not int traitScale || queries.ReadGlobal(input, 1) is not int advantageScale ||
+            queries.ReadCurrent(input, SimulationParameterKeys.PersonGrowth.TraitGrowthScale) is not int traitScale ||
+            queries.ReadCurrent(input, SimulationParameterKeys.PersonGrowth.ProvinceAdvantageGrowthScale) is not int advantageScale ||
             OriginalBattleRemakeCurrentSettings.ReadSelectorE58(input) is not int selector)
             return Unknown();
         int policy = 0, policyScale = 0;
@@ -69,7 +70,7 @@ public sealed partial class OriginalPersonGrowthSource
                 return Unknown();
             }
             if (OriginalBattleRemakeCurrentForcePolicies.ReadForceEffect(input, savedForce, 40) is not int value ||
-                queries.ReadGlobal(input, 3) is not int scale40) return Unknown();
+                queries.ReadCurrent(input, SimulationParameterKeys.PersonGrowth.PolicyGrowthScale) is not int scale40) return Unknown();
             policy = value; policyScale = scale40;
         }
         uint bits = unchecked((uint)requested);
