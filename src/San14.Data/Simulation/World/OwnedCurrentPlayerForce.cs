@@ -34,9 +34,7 @@ public static class OwnedCurrentPlayerForce
             state.NativeArmySimulation!.Parameters.Int32Values.ContainsKey(VersionKey) ||
             state.NativeArmySimulation.Parameters.Int32Values.ContainsKey(RawForce3AKey) ||
             !state.Officers.TryGetValue(confirmedPersonId, out OfficerState? person) ||
-            person.Role != OfficerRole.Ruler || person.NativeAbilityRuntime is not { } ability ||
-            current.ReadPersonLookupReference(confirmedPersonId)?.PhysicalSlot != ability.PhysicalSlot ||
-            current.ReadPersonIdentity(ability.PhysicalSlot) != person.Id ||
+            person.Role != OfficerRole.Ruler || current.ResolveOfficerSource(confirmedPersonId) is null ||
             person.ForceId is not int forceId || !state.Forces.TryGetValue(forceId, out ForceState? force) ||
             !force.IsActive || force.RulerId != person.Id ||
             ResolveConfirmedPersonStore(current, confirmedPersonId) is not byte raw)

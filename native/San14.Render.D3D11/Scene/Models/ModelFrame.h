@@ -119,19 +119,21 @@ inline std::uint64_t modelContinuousDistanceKey(const NativeModelContinuousInsta
     return std::uint64_t(_mm_cvttss_si64(_mm_set_ss(value)))+add;
 }
 
-// Same accepted original 3C0 prefix and normalized six planes used by terrain.
-// The source reverse-depth PreparedView plane+40 is planes[4]. No independent
-// camera reconstruction, source reads, object creation or fixed-camera lookup.
+struct NativeModelCamera {
+    float nearPlane{},farPlane{};
+    std::array<float,16> view{},worldToClip{};
+};
+// Models use the accepted camera transform and frustum, shared with terrain.
+// Matrix packing below belongs to the model shader constant-buffer boundary.
 inline NativeModelContinuousPlan selectNativeModelContinuous(const NativeModelContinuous& catalog,
-    const std::array<char,0x3C0>& cameraPrefix,const std::array<std::array<float,4>,6>& planes) {
-    NativeModelContinuousPlan plan;float nearValue,farValue;
-    std::memcpy(&nearValue,cameraPrefix.data()+0x140,4);std::memcpy(&farValue,cameraPrefix.data()+0x144,4);
+    const NativeModelCamera& camera,const std::array<std::array<float,4>,6>& planes) {
+    NativeModelContinuousPlan plan;float nearValue=camera.nearPlane,farValue=camera.farPlane;
     float span=modelContinuousAdd(modelContinuousSub(farValue,nearValue),1.f);
     float doubled=modelContinuousAdd(span,span);
     float scale=float(18446744073709551616.0/double(doubled));
     const unsigned viewIndices[]{0,4,8,12,1,5,9,13,2,6,10,14};
     std::array<char,48> worldToView{};
-    for(unsigned i=0;i<12;++i)std::memcpy(worldToView.data()+i*4,cameraPrefix.data()+0x80+viewIndices[i]*4,4);
+    for(unsigned i=0;i<12;++i)std::memcpy(worldToView.data()+i*4,camera.view.data()+viewIndices[i],4);
     for(const auto& instance:catalog.instances) {
         if(!modelContinuousVisible(instance,planes))continue;
         plan.visibleInstances.push_back(instance.index);
@@ -141,7 +143,7 @@ inline NativeModelContinuousPlan selectNativeModelContinuous(const NativeModelCo
             const auto& primitive=catalog.primitives[index];NativeModelContinuousDraw draw;
             draw.primitiveIndex=index;draw.distanceKey=key;draw.tableOwner=primitive.tableOwner;
             draw.vertex=primitive.vertex;draw.pixel=primitive.pixel;
-            std::memcpy(draw.vertex.data(),cameraPrefix.data()+0x100,64);
+            std::memcpy(draw.vertex.data(),camera.worldToClip.data(),64);
             std::memcpy(draw.pixel.data()+16,worldToView.data(),48);plan.draws.push_back(draw);
         }
     }
@@ -158,15 +160,14 @@ inline NativeModelContinuousPlan selectNativeModelContinuous(const NativeModelCo
     return plan;
 }
 
-// Thin adapter for the already accepted source_camera::Frame shape. It copies
-// its current prefix/plane equations; it does not construct another Camera.
+// Thin projection of the accepted camera's typed matrices and planes.
 template<class AcceptedSourceCameraFrame>
 inline NativeModelContinuousPlan selectNativeModelContinuousFromCameraFrame(const NativeModelContinuous& catalog,
     const AcceptedSourceCameraFrame& frame) {
-    std::array<char,0x3C0> prefix{};std::memcpy(prefix.data(),frame.prefix.data(),prefix.size());
+    const NativeModelCamera camera{frame.optics.nearPlane,frame.optics.farPlane,frame.view,frame.worldToClip};
     std::array<std::array<float,4>,6> planes{};
     for(unsigned i=0;i<6;++i){const auto& p=frame.planes[i].equation;planes[i]={p.X,p.Y,p.Z,p.W};}
-    return selectNativeModelContinuous(catalog,prefix,planes);
+    return selectNativeModelContinuous(catalog,camera,planes);
 }
 
 inline ComPtr<ID3D11Buffer> modelContinuousConstantBuffer(ID3D11Device* device,const char* bytes,UINT size) {

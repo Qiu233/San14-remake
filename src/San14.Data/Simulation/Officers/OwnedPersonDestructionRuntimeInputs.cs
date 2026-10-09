@@ -15,10 +15,20 @@ public sealed class OwnedPersonDestructionRuntimeInputs
     private readonly LoadedScenario _source;
     private readonly string _language, _ruleVersion;
     private readonly PersonDestructionFreshSource[] _people;
+    private readonly OfficerSourceDirectory _identities = new();
 
     private OwnedPersonDestructionRuntimeInputs(LoadedScenario source, string language,
         string ruleVersion, PersonDestructionFreshSource[] people)
-        => (_source, _language, _ruleVersion, _people) = (source, language, ruleVersion, people);
+        {
+        (_source, _language, _ruleVersion, _people) = (source, language, ruleVersion, people);
+        _identities.ClearLogicalReferences();
+        foreach (var row in people)
+        {
+            _identities.SetRecordIdentity(row.PhysicalSlot, row.PersonId);
+            if (row.PhysicalSlot == 0 || row.PersonId != 0)
+                _identities.SetLogicalReference(row.PersonId, row.PhysicalSlot);
+        }
+    }
 
     public static OwnedPersonDestructionRuntimeInputs Load(GameResourceRepository repository,
         LoadedScenario source, string language)
@@ -69,8 +79,9 @@ public sealed class OwnedPersonDestructionRuntimeInputs
         var officers = new Dictionary<int, OfficerState>(state.Officers);
         foreach (OfficerState person in state.Officers.Values)
         {
-            if (!PersonBound(person)) throw new InvalidDataException("Fresh destruction auxiliaries have no matching native Person identity.");
-            PersonDestructionFreshSource row = _people[person.NativeAbilityRuntime!.PhysicalSlot];
+            int physical = _identities.ResolveOfficer(person.Id)
+                ?? throw new InvalidDataException("Fresh destruction auxiliaries have no matching officer source record.");
+            PersonDestructionFreshSource row = _people[physical];
             //Actual2277B0 qword160 zeroes162/164/165; word168 zeroes168.
             //2391C0 static data overwrites16C from its full source word window.
             officers[person.Id] = person with { NativeDestructionRuntime = new(Revision, 0, 0, 0, 0, row.Word1A4) };
@@ -83,7 +94,7 @@ public sealed class OwnedPersonDestructionRuntimeInputs
     {
         if (!Bound(state) || (uint)physical >= _people.Length ||
             !state.Officers.TryGetValue(_people[physical].PersonId, out OfficerState? person) ||
-            !PersonBound(person) || person.NativeAbilityRuntime!.PhysicalSlot != physical ||
+            _identities.ResolveOfficer(person.Id) != physical ||
             person.NativeDestructionRuntime is not { Revision: Revision } current)
             return null;
         return current;
@@ -100,9 +111,9 @@ public sealed class OwnedPersonDestructionRuntimeInputs
         current.ClearPersonDestructionRuntimeFields();
         foreach (OfficerState person in state.Officers.Values)
         {
-            if (!PersonBound(person) || current.ReadPersonIdentity(person.NativeAbilityRuntime!.PhysicalSlot) != person.Id)
-                throw new InvalidDataException("Person destruction capture differs from its current physical receiver.");
-            int physical = person.NativeAbilityRuntime.PhysicalSlot;
+            if (current.ResolveOfficerSource(person.Id) is not int physical ||
+                _identities.ResolveOfficer(person.Id) != physical)
+                throw new InvalidDataException("Person destruction capture differs from its current source record.");
             current.SetPersonDestructionRuntimeFields(physical, ReadCurrent(state, physical));
         }
     }
@@ -110,11 +121,6 @@ public sealed class OwnedPersonDestructionRuntimeInputs
     private bool Bound(GameState state) => state.NativeArmySimulation?.Parameters is { } parameters &&
         parameters.Language == _language && parameters.RuleVersion == _ruleVersion &&
         state.ContentHashes.GetValueOrDefault(_source.ScenarioSource.ResourceUri) == _source.ScenarioSource.Sha256;
-    private bool PersonBound(OfficerState person) => person.NativeAbilityRuntime is { } ability &&
-        ability.Language == _language && ability.RuleVersion == _ruleVersion &&
-        ability.SourceScenarioUri == _source.ScenarioSource.ResourceUri &&
-        ability.SourceScenarioSha256 == _source.ScenarioSource.Sha256 &&
-        ability.PhysicalSlot is >= 1 and <= 1850 && _people[ability.PhysicalSlot].PersonId == person.Id;
 }
 
 public sealed partial class SourceWorldContext

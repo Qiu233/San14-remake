@@ -18,7 +18,7 @@
 #include <chrono>
 #include <stdexcept>
 #include "../Scene/Models/ArmyUnitHeight.h"
-#include "../Camera/MainCameraInitialNumeric.h"
+#include "../Scene/SceneEnvironmentPacket.h"
 using Microsoft::WRL::ComPtr;
 namespace fs = std::filesystem;
 static void check(HRESULT h, const char* what) {
@@ -259,15 +259,12 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     FogAccelerationPass fogAcceleration;NativeSpecialEffects specialEffects;
     NormalPostProcess postProcessing;
     TerritoryPass territory;
-    float heldMainB1C=0;
     AtmospherePass atmosphere;
     std::optional<StaticModelResources> staticModels;
     BaseRenderWorld bases{sourceAccessoryVisuals};
     source_default_player_phase::Profile defaultPlayerPhases;
     ground_details::GroundDetails groundDetails;
-    std::vector<char> currentMain18C0;
-    uint32_t groundSourceFlags14=0,groundFrustumType64=0,groundCulling450=0,groundScanning454=0;
-    uint16_t groundAppBaseFlags=0;
+    SceneEnvironment sceneEnvironment;
     unsigned accessoryOrdinaryCount=0;
     ArmyRenderWorld armies{sourceArmyVisuals,sourceAccessoryVisuals};
     ShadowPass shadows;
@@ -277,7 +274,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     const auto& staticCamera=cameraRig.frame();
     const auto& currentDisplay=cameraRig.display();
     San14::Render::FieldDisplay fieldDisplay;
-    source_camera::Prefix mainDirectPrefix{};
+    const auto& acceptedCameraPacket=sceneEnvironment.directCameraPacket();
     NativeDeferredCameraProfile deferredCameraProfile;NativeDeferredCameraFields deferredCameraFields;
     source_weather_fog::Profile weatherCameraProfile;source_weather_fog::Frame weatherCameraFrame;
     source_camera::V3 globalAtmosphereRgb{};
@@ -293,21 +290,15 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             resources.directory(ResourceGroup::DistantMap),resources.directory(ResourceGroup::CameraMotion));
         // Initialize only this renderer's consumed fields from project rules
         // and the current resource declarations; season publishes live fields.
-        currentMain18C0=own_main_init::decode(load(resources.directory(ResourceGroup::CameraInitialState)/"profile.bin"));
-        heldMainB1C=source_camera::get<float>(reinterpret_cast<const uint8_t*>(currentMain18C0.data())+0xb1c);
+        sceneEnvironment.initialize(SceneEnvironmentPacket::decodeInitial(
+            load(resources.directory(ResourceGroup::CameraInitialState)/"profile.bin")));
         // The source map reaches a settled display via its first-dirty updater.
         // Prepare the held World once; accepted camera requests reuse this owner.
         territory.prepareZones(resources.directory(ResourceGroup::TerritoryZones));
         staticModels.emplace(modelSource);
         bases.preparePrimary(device.Get(),resources,host.areaCapitalWorld);
-        const auto groundInput=resources.directory(ResourceGroup::GroundDetails);
-        std::ifstream groundReference(groundInput/"source-directory.txt");std::string groundRelative;
-        if(!std::getline(groundReference,groundRelative)||groundRelative.empty())throw std::runtime_error("Ground detail source directory import absent");
-        groundDetails.loadOnce(device.Get(),groundInput/fs::path(groundRelative),
+        groundDetails.prepareResources(device.Get(),resources.directory(ResourceGroup::GroundDetails),
             currentSeason?resources.directory(ResourceGroup::SeasonalGroundDetails):fs::path{});
-        std::ifstream groundSettings(groundInput/"common-source.txt");
-        groundSettings>>groundSourceFlags14>>groundFrustumType64>>groundCulling450>>groundScanning454>>std::hex>>groundAppBaseFlags;
-        if(!groundSettings)throw std::runtime_error("Ground detail saved Common/App import absent");
         deferredCameraProfile=prepareNativeDeferredCameraProfile(resources.directory(ResourceGroup::DeferredCamera));
         weatherCameraProfile=source_weather_fog::readProfile(resources.directory(ResourceGroup::Weather)/"initial"/"weather");
         weatherConsumers=prepareNativeWeatherFogConsumers(resources.directory(ResourceGroup::WeatherFog));
@@ -340,7 +331,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         if(sourceArmyVisuals)armies.synchronize(device.Get(),*host.armyWorld);
     };
     auto atmosphereFrame=[&]() {
-        return clouds.atmosphereFrame(currentSeason,currentCloudLights,mainDirectPrefix,
+        return clouds.atmosphereFrame(currentSeason,currentCloudLights,acceptedCameraPacket,
             weatherCameraFrame,globalAtmosphereRgb,staticCamera.prefix);
     };
     auto prepareAcceptedCamera=[&]() {
@@ -351,18 +342,17 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         territory.publishOwnership(context.Get(),host.territoryOwnership);
         publishCurrentModels();
         cameraRig.accept(host.input);
-        currentRenderMode=currentDisplay.mode.ownerMode288;
+        currentRenderMode=currentDisplay.mode.sceneMode;
         shadows.selectFamily(currentRenderMode);
         fieldDisplay.capture(currentDisplay);
         if(currentSeason) {
-            mainDirectPrefix=currentSeason->main;
-            source_current_season::publishMain(*currentSeason,
-                {reinterpret_cast<uint8_t*>(currentMain18C0.data()),currentMain18C0.size()});
+            SceneEnvironmentPacket::acceptSeason(sceneEnvironment,*currentSeason);
             shadows.publishSeason(*currentSeason);
             std::memcpy(weatherCameraFrame.main72.data(),currentSeason->main.data()+0x340,72);
         }else {
-            mainDirectPrefix=cameraRig.prepareDirectPrefix();
-            weatherCameraFrame=source_weather_fog::prepareCurrent(weatherCameraProfile,staticCamera.eye.Y,source_camera::get<float>(mainDirectPrefix.data()+0x210));
+            const auto directCamera=cameraRig.prepareDirectPrefix();
+            sceneEnvironment.acceptCamera(directCamera,SceneEnvironmentPacket::decodeCamera(directCamera));
+            weatherCameraFrame=source_weather_fog::prepareCurrent(weatherCameraProfile,staticCamera.eye.Y,sceneEnvironment.camera().weatherHeight);
         }
         atmosphere.publishAcceptedCamera(atmosphereFrame());
         staticModels->selectCamera(staticCamera,fieldDisplay);
@@ -376,19 +366,14 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         if(ordinaryPopulationCounts.size()!=bases.plan().ordinaryCounts.size())throw std::runtime_error("Field/City ordinary record identities differ");
         // D12A80 consumes this accepted Main, retaining its actual prepared
         // weather/wind tail. Geometry matrices use the ordinary source camera.
-        std::memcpy(currentMain18C0.data(),mainDirectPrefix.data(),mainDirectPrefix.size());
-        std::array<float,16> groundW2P;std::array<float,12> groundWV;
-        std::memcpy(groundW2P.data(),staticCamera.prefix.data()+0x100,64);
-        for(size_t row=0;row<3;++row)for(size_t column=0;column<4;++column)
-            groundWV[row*4+column]=source_camera::get<float>(staticCamera.prefix.data()+0x80+column*16+row*4);
+        sceneEnvironment.publishVegetationCamera();
         const auto& mode=currentDisplay.mode;
         const auto& groundCaller=bases.citySource().caller;
         const auto& groundPopulation=groundDetails.prepare({staticCamera,
-            {reinterpret_cast<const uint8_t*>(currentMain18C0.data()),currentMain18C0.size()},commonPublication,groundW2P,groundWV,
-            {viewProfile.commonPresent!=0,viewProfile.commonFlags,groundSourceFlags14,viewProfile.commonExclusion,groundFrustumType64},
-            commonClock.settingsFlags10,groundCulling450,groundScanning454,
-            groundCaller.callerFirst,groundCaller.callerSecond,groundCaller.callerShadow,groundCaller.registered3330,groundCaller.successful3340,0,
-            groundAppBaseFlags,mode.ownerMode288,mode.ecB0Index,true,false,0,currentSeason?currentSeason->season:0});
+            sceneEnvironment.vegetation(),commonPublication,
+            {viewProfile.commonPresent!=0,viewProfile.commonFlags,viewProfile.commonExclusion},commonClock.settingsFlags10,
+            {groundCaller.callerFirst,groundCaller.callerSecond,groundCaller.callerShadow,groundCaller.registered3330,groundCaller.successful3340,0},
+            {mode.sceneMode,mode.zoomLevel,true,false,0},currentSeason?currentSeason->season:0});
         if(groundPopulation.seasonPopulationChanged)
 
         for(size_t record=0;record<viewProfile.records.size();++record)
@@ -437,7 +422,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
 
         prepareAcceptedCamera(); // Current Main is available to node1, not only geometry.
         postProcessing.updateMapExposure(context.Get(),currentSeason,
-            reinterpret_cast<const uint8_t*>(currentMain18C0.data()),mainDirectPrefix);
+            {sceneEnvironment.camera().exposure,sceneEnvironment.camera().luminance},sceneEnvironment.exposureRectangleFlags());
         fogAcceleration.updateCamera(context.Get(),staticCamera.prefix);
         specialEffects.queueFlags=0;contextFlags3F4=0; // EA9300 accepted node1.
 
@@ -514,8 +499,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             auto drawGroundNode=[&](uint32_t node){
                 for(size_t record=0;record<viewProfile.records.size();++record){
                     const auto& sourceRecord=viewProfile.records[record];
-                    source_view::Primitive primitive{0,0,ground_detail_source::effectiveExclusion(
-                        {viewProfile.commonPresent!=0,viewProfile.commonFlags,groundDetails.currentStatistics().currentAux14,viewProfile.commonExclusion,groundFrustumType64}),1u<<record};
+                    source_view::Primitive primitive{0,0,groundDetails.preparedExclusion(),1u<<record};
                     groundDetails.draw(context.Get(),node,{sourceRecord.mask,currentView.ordinaryCounts[record],sourceHostFlags3E4,
                         (sourceRecord.classification&1)==0,source_view::ordinary54(viewProfile,currentView,primitive,record,sourceHostFlags3E4)},geometryTargets.colors().data(),geometryTargets.depthView(),geometryTargets.viewport());
                 }
@@ -556,7 +540,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     auto drawCurrentTerritory=[&](UINT node,UINT providerDrawFlags){
 
         territory.draw(context.Get(),cameraRig.zoom().band,cameraRig.zoom().fraction,
-            cameraRig.distance(),staticCamera.prefix,heldMainB1C,
+            cameraRig.distance(),staticCamera.prefix,sceneEnvironment.territoryReferenceHeight(),
             postProcessing.mapExposureView(),providerDrawFlags,sourceDepth);
         updateNativeDepthMirror(context.Get(),mainDepth,node==122?"122 PB Pop40000007":"60 PB Pop40000007");
 
@@ -605,7 +589,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         auto globals=std::find_if(pass->constants.begin(),pass->constants.end(),[](auto& cb){return !cb.vertex&&cb.slot==0;});
         if(globals==pass->constants.end())throw std::runtime_error("Forward actual current HDR globals absent");
         primaryForwardFrame=prepareNativePrimaryForwardCurrent(primaryForwardSource,bases.primary().source,bases.plan(),
-            mainDirectPrefix.data(),globals->bytes.data(),globals->bytes.size(),
+            sceneEnvironment.camera().eye,globals->bytes.data(),globals->bytes.size(),
             shadows.geometryReceiverConstants().data(),shadows.geometryReceiverConstants().size());
          //Allocation observation, not a source-pixel render.
         executeNativePrimaryForwardGpu(context.Get(),sourceDepth,primaryForwardGpu,primaryForwardFrame,bases.primary().currentModels,

@@ -220,7 +220,6 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         //owners exist, their mutable bytes come from the saved current fields.
         //Absent location owners overlay null masks; a reached conditional trait
         //must remain unknown while permanent traits can still resolve.
-        if (state.Officers.Values.Any(person => person.NativeAbilityRuntime is null)) return null;
         SourceWorldContext? current = _definitions.Capture(state);
         if (current is null) return null;
         current.OverlayOwnedArmyReturnCurrentFields(state);

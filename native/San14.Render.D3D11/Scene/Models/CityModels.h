@@ -72,14 +72,6 @@ inline NativeCityModels prepareNativeCityModels(ID3D11Device* device,const fs::p
         r.allModels.draws.at(i).identity="city:7/primary/draw-"+std::to_string(r.source.catalog.primitives[i].drawIndex);
     return r;
 }
-inline NativeCityModelPlan selectNativeCityModels(const NativeCityModelSource& source,
-    const std::array<char,0x3C0>& prefix,const std::array<std::array<float,4>,6>& planes) {
-    NativeCityModelPlan r;r.masks=nativeCityModelCurrentMasks(source.admission);
-    if(r.masks.firstSlot)r.models=selectNativeModelContinuous(source.catalog,prefix,planes);
-    r.ordinaryCounts.resize(source.ordinaryRecordCount);
-    r.ordinaryCounts[source.ordinaryRecordIndex]=unsigned(r.models.draws.size());
-    return r;
-}
 template<class AcceptedSourceCameraFrame>
 inline NativeCityModelPlan selectNativeCityModels(const NativeCityModelSource& source,const AcceptedSourceCameraFrame& frame) {
     NativeCityModelPlan r;r.masks=nativeCityModelCurrentMasks(source.admission);

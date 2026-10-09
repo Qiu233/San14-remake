@@ -7,7 +7,6 @@ namespace San14.Data;
 /// trait rounding distinct; their overflow and division semantics differ.</summary>
 internal static class PersonRewardArithmetic
 {
-    internal readonly record struct AbilityAdvance(uint Experience, byte BaseAbility);
     internal readonly record struct PendingMeritAdjustment(int TraitCorrection, int PanelCorrection,
         int DoctrineCorrection, int StageCorrection, int BeforeScaling, int Earned, int PendingMerit);
 
@@ -20,26 +19,6 @@ internal static class PersonRewardArithmetic
             3 => new(kind, amount, growth, 0),
             _ => throw new InvalidDataException("Normal reward kind is outside the source switch.")
         };
-
-    internal static int CalculateGrowth(int requested, int trait, int traitScale,
-        int advantage, int advantageScale, bool forceValid, int policy, int policyScale)
-    {
-        uint quantity = unchecked((uint)requested);
-        uint traitBonus = Math.Max(trait != 0 ? 1u : 0u,
-            ExperiencePercent(unchecked(traitScale * trait), quantity));
-        uint bonus = unchecked(traitBonus + ExperiencePercent(unchecked(advantageScale * advantage), quantity));
-        uint primary = forceValid ? ExperiencePercent(unchecked(policyScale * policy + 100), quantity) : quantity;
-        return unchecked((int)(bonus + primary));
-    }
-
-    internal static AbilityAdvance AdvanceAbility(uint experience, byte baseAbility, int applied,
-        Func<int, uint> nextThreshold)
-    {
-        uint after = unchecked(experience + (uint)applied);
-        byte afterBase = baseAbility;
-        while (afterBase < 100 && nextThreshold(afterBase + 1) <= after) afterBase++;
-        return new(after, afterBase);
-    }
 
     internal static PendingMeritAdjustment CalculatePendingMerit(int requested, int pending,
         int trait, int traitScale, int panel, int doctrine, bool stageOne, int stageScale, int? percent)
@@ -60,7 +39,6 @@ internal static class PersonRewardArithmetic
     }
 
     private static int SignedPercent(int coefficient, int amount) => unchecked(coefficient * amount) / 100;
-    private static uint ExperiencePercent(int coefficient, uint quantity) => unchecked((uint)coefficient * quantity) / 100;
     private static int Truncate(float value) => !float.IsFinite(value) || value >= 2147483648f || value < -2147483648f
         ? int.MinValue : (int)value;
 }

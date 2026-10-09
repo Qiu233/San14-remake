@@ -16,7 +16,7 @@ public sealed record SaveEnvelope(int SchemaVersion, string FormatId, GameState 
 /// <summary>Local save format. A future original-save adapter can implement ISaveCodec.</summary>
 public sealed class JsonGzipSaveCodec : ISaveCodec
 {
-    public const int CurrentSchemaVersion = 76;
+    public const int CurrentSchemaVersion = 78;
     public string FormatId => "san14-remake-json-gzip";
 
     public byte[] Encode(GameState state)
@@ -68,6 +68,8 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
         if (version < 74) LegacyOfficerServiceStatusSaveMigration.Apply((JsonObject)document["State"]!);
         if (version < 75) LegacyOfficerBehaviorSaveMigration.Apply((JsonObject)document["State"]!);
         if (version < 76) LegacyOfficerMeritSaveMigration.Apply((JsonObject)document["State"]!);
+        if (version < 77) LegacyOfficerGrowthSaveMigration.Apply((JsonObject)document["State"]!);
+        if (version < 78) LegacyUnusedOfficerFreedomSaveMigration.Apply((JsonObject)document["State"]!);
         ValidateModuleSnapshotShape((JsonObject)document["State"]!, version);
         // A present options record must contain all choices. JSON constructor
         // defaults must not turn a missing boolean into a confirmed false choice.
@@ -212,20 +214,23 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
                         _ = Require(merit, "officer merit cycle", "Merit", "PendingMerit", "RankStageId",
                             "FirstSelectionCount", "SecondSelectionCount", "ResetCode");
                 }
-                if (officerNode is JsonObject growthOwner && growthOwner["NativeGrowthRuntime"] is JsonNode growthNode)
+                if (officerNode is JsonObject growthOwner)
                 {
-                    JsonObject growth = Require(growthNode, "current Person growth", "Revision",
-                        "SourceExperienceUri", "SourceExperienceSha256", "Experience13C",
-                        "AbilityGrowthNotices");
-                    if (growth.ContainsKey("PendingMerit1F8"))
-                        throw new InvalidDataException("Saved growth contains an obsolete pending merit owner.");
-                    if (growth["AbilityGrowthNotices"] is JsonNode noticesNode)
+                    if (!growthOwner.ContainsKey("Growth") || growthOwner.ContainsKey("NativeGrowthRuntime"))
+                        throw new InvalidDataException("Saved officer growth owner is missing or obsolete.");
+                    if (growthOwner["Growth"] is JsonNode growthNode)
                     {
-                        if (noticesNode is not JsonArray notices)
-                            throw new InvalidDataException("Saved Person growth notices are invalid.");
-                        foreach (JsonNode? notice in notices)
-                            _ = Require(notice, "Person ability growth notice", "AbilityIndex", "After4",
-                                "Before5", "ReportContext8", "RawC", "Raw10");
+                        JsonObject growth = Require(growthNode, "officer growth", "Experience", "Notifications");
+                        if (growth["Experience"] is JsonNode experience && experience is not JsonArray)
+                            throw new InvalidDataException("Saved officer experience channels are invalid.");
+                        if (growth["Notifications"] is JsonNode noticesNode)
+                        {
+                            if (noticesNode is not JsonArray notices)
+                                throw new InvalidDataException("Saved officer growth notifications are invalid.");
+                            foreach (JsonNode? notice in notices)
+                                _ = Require(notice, "ability growth notification", "AbilityIndex", "AfterAbility",
+                                    "BeforeAbility", "ReportContext", "UninterpretedCode", "UninterpretedState");
+                        }
                     }
                 }
                 if (officerNode is JsonObject locationOwner)
@@ -257,8 +262,8 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
                             throw new InvalidDataException("Saved officer contains an obsolete trait activation owner.");
                     }
                 }
-                if (officerNode is JsonObject freedomOwner && freedomOwner["NativeFreedomRuntime"] is JsonNode freedom)
-                    _ = Require(freedom, "current Person freedom", "Revision", "Qword18A", "Dword192", "Word19E");
+                if (officerNode is JsonObject freedomOwner && freedomOwner.ContainsKey("NativeFreedomRuntime"))
+                    throw new InvalidDataException("Saved officer contains an obsolete freedom snapshot.");
                 if (officerNode is JsonObject officer && officer["NativeAbilityRuntime"] is JsonNode person)
                 {
                     JsonObject ability = Require(person, "owned Person ability runtime", "Revision", "Language", "RuleVersion",

@@ -79,16 +79,12 @@ public sealed class CampaignComposition
                 throw new InvalidDataException("Saved campaign rules are incompatible with this implementation.");
         }
         var expected = new Dictionary<string, string>(initial.ContentHashes);
-        NativePersonGrowthRuntime[] growth = restored.Officers.Values
-            .Where(person => person.NativeGrowthRuntime is not null)
-            .Select(person => person.NativeGrowthRuntime!).ToArray();
-        if (growth.Length != 0)
+        if (restored.Officers.Values.Any(person => person.Growth is not null))
         {
-            // Compare the saved module's content revision without installing XP
-            // or replacing its ordered notification vector.
+            // The campaign content ledger owns resource identity; loading
+            // never installs XP or replaces ordered growth notifications.
             SourceProvenance source = _repository.LoadExperienceData(ExperienceVariant.ExCe).Source;
-            if (growth.Any(owner => owner.SourceExperienceUri != source.ResourceUri ||
-                owner.SourceExperienceSha256 != source.Sha256))
+            if (restored.ContentHashes.GetValueOrDefault(source.ResourceUri) != source.Sha256)
                 throw new InvalidDataException("Current experience content or overrides differ from the saved growth revision.");
             expected[source.ResourceUri] = source.Sha256;
         }

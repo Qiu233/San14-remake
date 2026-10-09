@@ -14,8 +14,8 @@ public sealed partial class SourceWorldContext : IS14PlayerEventConditionQueries
         return value is null ? null : new(value.PhysicalSlot is int physical ? new(physical) : null);
     }
 
-    public S14EventConditionPersonPointer? ReadConditionBasePerson() => !_basePointerKnown
-        ? null : new(_basePerson is int physical ? new(physical) : null);
+    public S14EventConditionPersonPointer? ReadConditionBasePerson() => _officerSources.Placeholder is not { } reference
+        ? null : new(reference.Record is int physical ? new(physical) : null);
 
     public byte? ReadConditionPersonStatus(S14EventConditionPersonReference person) => ReadPersonStatus(person.PhysicalSlot);
     public bool? ReadConditionPersonValidity(S14EventConditionPersonReference person) => ReadPersonNativeValidity(person.PhysicalSlot);

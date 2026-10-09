@@ -1,5 +1,6 @@
 using Godot;
 using San14.Core;
+using San14.Client.Gameplay;
 using System.Globalization;
 
 /// <summary>Equipped source tactic identities and queue controls; every decision uses the shared tactic rules.</summary>
@@ -18,13 +19,8 @@ public partial class TacticOrdersPanel : VBoxContainer
     private Func<string, string>? _text;
     private Func<string?, string>? _reason;
     private Action<GameOrder>? _submit;
-    private GameState? _world;
-    private UnitState? _unit;
-    private int? _player;
-    private int? _selectedHex;
-    private IPlayableTacticRules _profiles = UnresolvedTacticRules.Instance;
-    private PlayableLandRoutes? _routes;
-    private TacticCommandAvailability[] _choices = [];
+    private TacticCommandView _view = TacticCommandView.Empty;
+    private Func<int, int, int, int, TacticUseEligibility>? _targetEligibility;
 
     public TacticOrdersPanel()
     {
@@ -40,22 +36,24 @@ public partial class TacticOrdersPanel : VBoxContainer
         _target.ItemSelected += _ => RefreshStatus();
         _use.Pressed += () =>
         {
-            if (!_use.Disabled && _player is int force && _unit is { } unit && _tactic.Selected >= 0 && _target.Selected >= 0)
-                _submit?.Invoke(new UseTacticOrder(force, unit.Id, _tactic.GetSelectedId(), _target.GetSelectedId()));
+            if (!_use.Disabled && _view.ForceId is int force && _view.UnitId is int unit && _tactic.Selected >= 0 && _target.Selected >= 0)
+                _submit?.Invoke(new UseTacticOrder(force, unit, _tactic.GetSelectedId(), _target.GetSelectedId()));
         };
         _cancel.Pressed += () =>
         {
-            if (!_cancel.Disabled && _player is int force && _unit is { } unit)
-                _submit?.Invoke(new CancelTacticUseOrder(force, unit.Id));
+            if (!_cancel.Disabled && _view.ForceId is int force && _view.UnitId is int unit)
+                _submit?.Invoke(new CancelTacticUseOrder(force, unit));
         };
         RefreshStatus();
     }
 
-    public void Configure(Func<string, string> text, Func<string?, string> reason, Action<GameOrder> submit)
+    public void Configure(Func<string, string> text, Func<string?, string> reason, Action<GameOrder> submit,
+        Func<int, int, int, int, TacticUseEligibility> targetEligibility)
     {
         _text = text ?? throw new ArgumentNullException(nameof(text));
         _reason = reason ?? throw new ArgumentNullException(nameof(reason));
         _submit = submit ?? throw new ArgumentNullException(nameof(submit));
+        _targetEligibility = targetEligibility ?? throw new ArgumentNullException(nameof(targetEligibility));
         _title.Text = text("play_tactic_active_title"); _tacticLabel.Text = text("play_tactic_choice");
         _targetLabel.Text = text("play_tactic_target"); _use.Text = text("play_tactic_use"); _cancel.Text = text("play_tactic_cancel");
         RefreshStatus();
@@ -64,66 +62,54 @@ public partial class TacticOrdersPanel : VBoxContainer
     public void Refresh(GameState? world, int? unitId, int? playerForceId, IPlayableTacticRules profiles,
         PlayableLandRoutes? routes, int? selectedHex = null)
     {
-        _world = world; _player = playerForceId; _profiles = profiles; _routes = routes; _selectedHex = selectedHex;
-        _unit = world is not null && unitId is int id && world.Units.TryGetValue(id, out UnitState? unit) && unit.ForceId == playerForceId
-            ? unit : null;
+        _view = TacticCommandView.Create(world, unitId, playerForceId, profiles, routes is not null, selectedHex);
         int prior = _tactic.Selected >= 0 ? _tactic.GetSelectedId() : -1;
-        _choices = world is not null && _unit is not null ? PlayableTacticAvailability.ForUnit(world, _unit, profiles) : [];
         _tactic.Clear();
-        foreach (TacticCommandAvailability choice in _choices) _tactic.AddItem(choice.Name, choice.TacticId);
-        int chosen = _tactic.GetItemIndex(_unit?.TacticRuntime?.Pending?.TacticId ?? prior);
+        foreach (TacticCommandAvailability choice in _view.Choices) _tactic.AddItem(choice.Name, choice.TacticId);
+        int chosen = _tactic.GetItemIndex(_view.Pending?.TacticId ?? prior);
         if (chosen >= 0) _tactic.Select(chosen);
-        SetMeta("tactic_equipped_count", _choices.Length);
-        SetMeta("tactic_unresolved_count", _choices.Count(choice => choice.Kind == TacticCommandAvailabilityKind.Unresolved));
-        SetMeta("tactic_ready_count", _choices.Count(choice => choice.Kind == TacticCommandAvailabilityKind.Ready));
-        SetMeta("tactic_unit_id", _unit?.Id ?? -1);
+        SetMeta("tactic_equipped_count", _view.Choices.Count);
+        SetMeta("tactic_unresolved_count", _view.Choices.Count(choice => choice.Kind == TacticCommandAvailabilityKind.Unresolved));
+        SetMeta("tactic_ready_count", _view.Choices.Count(choice => choice.Kind == TacticCommandAvailabilityKind.Ready));
+        SetMeta("tactic_unit_id", _view.UnitId ?? -1);
         RefreshTargets(); RefreshStatus();
     }
 
     private TacticCommandAvailability? SelectedTactic() => _tactic.Selected >= 0
-        ? _choices.FirstOrDefault(choice => choice.TacticId == _tactic.GetSelectedId()) : null;
+        ? _view.Choices.FirstOrDefault(choice => choice.TacticId == _tactic.GetSelectedId()) : null;
 
     private void RefreshTargets()
     {
         int prior = _target.Selected >= 0 ? _target.GetSelectedId() : -1;
         _target.Clear();
-        if (_world is not { } world || _unit is not { } caster || SelectedTactic()?.TargetRelation is not { } relation) return;
-        foreach (UnitState target in world.Units.Values.Where(unit => relation switch
-                 {
-                     PlayableTacticTargetRelation.Self => unit.Id == caster.Id,
-                     PlayableTacticTargetRelation.Friendly => unit.ForceId == caster.ForceId || PlayableDiplomacy.AreAllied(world, caster.ForceId, unit.ForceId),
-                     PlayableTacticTargetRelation.Hostile => PlayableDiplomacy.IsHostile(world, caster.ForceId, unit.ForceId),
-                     _ => false
-                 }).OrderBy(unit => unit.Id))
+        if (SelectedTactic()?.TargetRelation is not { } relation) return;
+        foreach (TacticTargetChoice target in _view.Targets(relation))
         {
-            string name = world.Officers.TryGetValue(target.OfficerId, out OfficerState? officer) ? officer.Name : target.OfficerId.ToString();
-            _target.AddItem(Format("play_tactic_target_item", name, target.Id), target.Id);
+            _target.AddItem(Format("play_tactic_target_item", target.OfficerName, target.Id), target.Id);
         }
-        int pending = _unit.TacticRuntime?.Pending?.TargetUnitId ?? prior;
+        int pending = _view.Pending?.TargetUnitId ?? prior;
         int index = _target.GetItemIndex(pending);
         if (index >= 0) _target.Select(index);
-        else if (_selectedHex is int hex && world.Units.Values.FirstOrDefault(unit => unit.HexId == hex && _target.GetItemIndex(unit.Id) >= 0) is { } picked)
-            _target.Select(_target.GetItemIndex(picked.Id));
+        else if (_view.SelectedHexTarget(relation) is int picked)
+            _target.Select(_target.GetItemIndex(picked));
     }
 
     private void RefreshStatus()
     {
-        bool strategy = _world is { Phase: TurnPhase.Strategy } world && _player is int force &&
-            world.Forces.TryGetValue(force, out ForceState? owner) && owner.IsActive &&
-            PlayableOutcome.Evaluate(world, force) == PlayableResult.Ongoing && _unit is not null;
+        bool strategy = _view.CanIssue;
         TacticCommandAvailability? choice = SelectedTactic();
-        TacticUseEligibility eligibility = _world is not null && _unit is not null && choice is not null &&
-            _target.Selected >= 0 && _routes is not null
-            ? PlayableTacticAvailability.ForTarget(_world, _unit, choice.TacticId, _target.GetSelectedId(), _profiles, _routes)
+        TacticUseEligibility eligibility = _view.ForceId is int force && _view.UnitId is int caster && choice is not null &&
+            _target.Selected >= 0 && _view.CanQueryTargets && _targetEligibility is not null
+            ? _targetEligibility(force, caster, choice.TacticId, _target.GetSelectedId())
             : new(null, choice?.Reason ?? "tactic.target_missing");
-        _tactic.Disabled = !strategy || _choices.Length == 0;
+        _tactic.Disabled = !strategy || _view.Choices.Count == 0;
         _target.Disabled = !strategy || _target.ItemCount == 0;
         _use.Disabled = !strategy || choice?.Kind != TacticCommandAvailabilityKind.Ready || eligibility.Allowed != true;
-        _cancel.Disabled = !strategy || _unit?.TacticRuntime?.Pending is null;
+        _cancel.Disabled = !strategy || _view.Pending is null;
         SetMeta("tactic_selected_id", choice?.TacticId ?? -1);
         SetMeta("tactic_availability", choice?.Kind.ToString() ?? "None");
-        SetMeta("tactic_pending_id", _unit?.TacticRuntime?.Pending?.TacticId ?? -1);
-        SetMeta("tactic_pending_target_id", _unit?.TacticRuntime?.Pending?.TargetUnitId ?? -1);
+        SetMeta("tactic_pending_id", _view.Pending?.TacticId ?? -1);
+        SetMeta("tactic_pending_target_id", _view.Pending?.TargetUnitId ?? -1);
         SetMeta("tactic_target_allowed", eligibility.Allowed == true);
         SetMeta("tactic_target_rule_key", eligibility.MissingRuleKey ?? eligibility.Reason ?? "");
         if (_text is null || _reason is null) return;
@@ -138,8 +124,8 @@ public partial class TacticOrdersPanel : VBoxContainer
         SetMeta("tactic_restriction_key", restriction ?? "");
         _restriction.Visible = choice is not null && restriction is not null;
         _restriction.Text = restriction is null ? "" : Format("play_tactic_restriction", _reason(restriction));
-        _queue.Text = _unit?.TacticRuntime?.Pending is { } pending
-            ? Format("play_tactic_queued", _world?.Tactics.GetValueOrDefault(pending.TacticId)?.Name ?? pending.TacticId.ToString(), pending.TargetUnitId)
+        _queue.Text = _view.Pending is { } pending
+            ? Format("play_tactic_queued", pending.Name, pending.TargetUnitId)
             : _text("play_tactic_queue_empty");
     }
 

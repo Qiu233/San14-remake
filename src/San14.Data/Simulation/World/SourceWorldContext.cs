@@ -12,7 +12,8 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
     IDistrictPostLoadState, IPersonRoleLocationState, IPersonBaseSyncState,
     IPersonDistrictTransferState, IForcePersonAssociationState
 {
-    private sealed record PersonFields(ushort? Id, OfficerBehavior? Behavior, byte? Status, ushort? Location);
+    private sealed record PersonFields(OfficerBehavior? Behavior, byte? Status, ushort? Location);
+    private readonly OfficerSourceDirectory _officerSources = new();
     private readonly Dictionary<int, PersonFields> _persons = [];
     private readonly Dictionary<int, byte?> _personDistrictSlots = [];
     private readonly Dictionary<int, ushort?> _personFirstLocations = [];
@@ -31,9 +32,7 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
     private readonly Dictionary<(int Force, int Index), ushort?> _associationPersons = [];
     private readonly Dictionary<(int Force, int Index), byte?> _associationTargets = [];
     private List<BaseReference?>? _registeredBases;
-    private readonly Dictionary<int, int?> _personPointers = [], _cityPointers = [], _objectPointers = [], _gatePointers = [];
-    private bool _personLookupCleared, _basePointerKnown;
-    private int? _basePerson;
+    private readonly Dictionary<int, int?> _cityPointers = [], _objectPointers = [], _gatePointers = [];
     public EventConditionState EventConditions { get; } = new();
     public EventEligibilitySession EventEligibility { get; } = new();
     public SourceProvenance? StaticSource { get; private set; }
@@ -74,19 +73,19 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
     {
         if (record is null) throw new InvalidDataException("Current person record is unknown.");
         Check(record.PhysicalSlot, 1851, "person physical slot");
-        _persons[record.PhysicalSlot] = new(record.CharacterId, OfficerBehaviorSourceAdapter.Decode(record.RawFlags196,
+        _officerSources.SetRecordIdentity(record.PhysicalSlot, record.CharacterId);
+        _persons[record.PhysicalSlot] = new(OfficerBehaviorSourceAdapter.Decode(record.RawFlags196,
             record.RawFlag1FD), record.RawStatus11E, record.RawLocation11C);
     }
     public void SetPersonIdentity(int physicalSlot, ushort? characterId)
     {
         Check(physicalSlot, 1851, "person physical slot");
-        PersonFields old = _persons.GetValueOrDefault(physicalSlot) ?? new(null, null, null, null);
-        _persons[physicalSlot] = old with { Id = characterId };
+        _officerSources.SetRecordIdentity(physicalSlot, characterId);
     }
     public ushort? ReadPersonIdentity(int physicalSlot)
     {
         Check(physicalSlot, 1851, "person physical slot");
-        return _persons.GetValueOrDefault(physicalSlot)?.Id;
+        return _officerSources.IdentityAt(physicalSlot) is int id ? (ushort)id : null;
     }
     public byte? ReadPersonStatus(int physicalSlot)
     {
@@ -111,13 +110,13 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
     public void WritePersonSecondLocation(int physicalSlot, ushort location)
     {
         Check(physicalSlot, 1851, "person physical slot");
-        PersonFields old = _persons.GetValueOrDefault(physicalSlot) ?? new(null, null, null, null);
+        PersonFields old = _persons.GetValueOrDefault(physicalSlot) ?? new(null, null, null);
         _persons[physicalSlot] = old with { Location = location };
     }
     public void WritePersonStatus(int physicalSlot, byte status)
     {
         Check(physicalSlot, 1851, "person physical slot");
-        PersonFields old = _persons.GetValueOrDefault(physicalSlot) ?? new(null, null, null, null);
+        PersonFields old = _persons.GetValueOrDefault(physicalSlot) ?? new(null, null, null);
         _persons[physicalSlot] = old with { Status = status };
     }
     public void SetPersonDistrictSlot(int physicalSlot, byte? districtSlot)
@@ -134,12 +133,12 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
     {
         Check(physicalSlot, 1851, "person physical slot");
         PersonFields? value = _persons.GetValueOrDefault(physicalSlot);
-        return NativeValidity.PersonWithBehavior(physicalSlot, value?.Id, value?.Behavior, value?.Status);
+        return NativeValidity.PersonWithBehavior(physicalSlot, ReadPersonIdentity(physicalSlot), value?.Behavior, value?.Status);
     }
     public S14ConditionNativePerson? ReadPhysicalPerson(int physicalSlot)
     {
         Check(physicalSlot, 1851, "person physical slot");
-        if (!_persons.TryGetValue(physicalSlot, out PersonFields? value) || value.Id is not ushort id ||
+        if (!_persons.TryGetValue(physicalSlot, out PersonFields? value) || ReadPersonIdentity(physicalSlot) is not ushort id ||
             OfficerBehaviorSourceAdapter.EncodeFlags(value.Behavior) is not ushort flags || OfficerBehaviorSourceAdapter.EncodeMarker(value.Behavior) is not byte tail || value.Status is not byte status ||
             value.Location is not ushort location) return null;
         return new(physicalSlot, id, flags, tail, status, location);
@@ -379,23 +378,30 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
         return _objects.GetValueOrDefault(physicalSlot);
     }
 
-    public void SetPersonTablePointer(int slot, int? physicalSlot) => SetPointer(_personPointers, slot, 6001, physicalSlot, 1851);
+    public void SetPersonTablePointer(int slot, int? physicalSlot)
+    {
+        Check(slot, 6001, "person lookup slot");
+        if (physicalSlot.HasValue) Check(physicalSlot.Value, 1851, "person physical slot");
+        _officerSources.SetLogicalReference(slot, physicalSlot);
+    }
+    /// <summary>Exact logical-to-record admission; no source fallback or Ability DTO dependency.</summary>
+    public int? ResolveOfficerSource(int officerId) => _officerSources.ResolveOfficer(officerId);
     public void SetCityTablePointer(int slot, int? physicalSlot) => SetPointer(_cityPointers, slot, 52, physicalSlot, 52);
     public void SetObjectTablePointer(int slot, int? physicalSlot) => SetPointer(_objectPointers, slot, 3001, physicalSlot, 3001);
     public void SetGateTablePointer(int slot, int? physicalSlot) => SetPointer(_gatePointers, slot, 11, physicalSlot, 11);
     public void SetBasePersonPointer(int? physicalSlot)
     {
         if (physicalSlot.HasValue) Check(physicalSlot.Value, 1851, "base person physical slot");
-        _basePointerKnown = true; _basePerson = physicalSlot;
+        _officerSources.SetPlaceholder(physicalSlot);
     }
     public S14ConditionPersonLookup? ReadPersonTableSlot(int slot)
     {
         Check(slot, 6001, "person lookup slot");
-        if (!_personPointers.TryGetValue(slot, out int? physical)) return _personLookupCleared ? new(null) : null;
-        return physical.HasValue ? PersonAt(physical.Value) : new(null);
+        SourceOfficerReference? reference = _officerSources.LogicalReference(slot);
+        return reference is null ? null : reference.Record is int physical ? PersonAt(physical) : new(null);
     }
-    public S14ConditionPersonLookup? ReadBasePerson() => !_basePointerKnown ? null
-        : _basePerson.HasValue ? PersonAt(_basePerson.Value) : new(null);
+    public S14ConditionPersonLookup? ReadBasePerson() => _officerSources.Placeholder is not { } reference ? null
+        : reference.Record is int physical ? PersonAt(physical) : new(null);
     public S14ConditionCityLookup? ReadCityTableSlot(int slot)
     {
         Check(slot, 52, "city lookup slot");
@@ -419,7 +425,7 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
     }
 
     /// <summary>Explicit native lookup reset; does not erase current physical person fields.</summary>
-    public void ResetPersonIdLookup() { _personPointers.Clear(); _personLookupCleared = true; }
+    public void ResetPersonIdLookup() { _officerSources.ClearLogicalReferences(); }
     /// <summary>Ordered native rebuild; no implicit clear and no rollback on unknown/unsafe identity.</summary>
     public void RebuildPersonIdLookup()
     {
@@ -568,7 +574,8 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
             CharacterPreviewRecord person = source.Characters[slot];
             if (person.Slot != slot || person.CharacterId is < 0 or > ushort.MaxValue)
                 throw new InvalidDataException($"Event source person physical slot {slot} is invalid.");
-            _persons[slot] = new((ushort)person.CharacterId, OfficerBehaviorSourceAdapter.Decode(person.CreditReference?.RawFlagsWord,
+            _officerSources.SetRecordIdentity(slot, person.CharacterId);
+            _persons[slot] = new(OfficerBehaviorSourceAdapter.Decode(person.CreditReference?.RawFlagsWord,
                 person.CreditReference?.RawTailCode), person.StatusCode, person.SecondaryCitySlot);
             SetPersonDistrictSlot(slot, person.DistrictSlot);
             SetPersonFirstLocation(slot, person.CitySlot);

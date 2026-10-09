@@ -229,13 +229,6 @@ public static class GameStateCopy
 
 
     [return: NotNullIfNotNull(nameof(value))]
-    internal static NativePersonGrowthRuntime? Copy(NativePersonGrowthRuntime? value) => value is null ? null : value with
-    {
-        Experience13C = CopyArray(value.Experience13C),
-        AbilityGrowthNotices = CopyArray(value.AbilityGrowthNotices),
-    };
-
-    [return: NotNullIfNotNull(nameof(value))]
     internal static NativeTransportFields? Copy(NativeTransportFields? value) => value is null ? null : value with
     {
         Waypoints2C = CopyArray(value.Waypoints2C),
@@ -246,7 +239,6 @@ public static class GameStateCopy
     {
         BaseFormationIds = CopyArray(value.BaseFormationIds),
         BaseTacticIds = CopyArray(value.BaseTacticIds),
-        NativeGrowthRuntime = Copy(value.NativeGrowthRuntime),
     };
 
     [return: NotNullIfNotNull(nameof(value))]

@@ -63,21 +63,16 @@ public sealed partial class PersonGrowthSource
             state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } || state.Units.Count != 0 ||
             scenario.Metadata.FormatMarker != 0x66 || scenario.Snapshot.Locale != parameters.Language ||
             state.ContentHashes.GetValueOrDefault(scenario.ScenarioSource.ResourceUri) != scenario.ScenarioSource.Sha256 ||
-            state.Officers.Values.Any(person => person.NativeGrowthRuntime is not null) ||
+            state.Officers.Values.Any(person => person.Growth is not null) ||
             state.ContentHashes.TryGetValue(_source.ResourceUri, out string? existing) && existing != _source.Sha256)
             throw new InvalidDataException("Fresh current growth cannot replace a saved or incomplete owner.");
         var officers = new Dictionary<int, OfficerState>(state.Officers);
         foreach (OfficerState officer in state.Officers.Values)
         {
-            if (officer.NativeAbilityRuntime is not { } owner ||
-                owner.Revision != TacticRemakeCurrentAbilities.ProfileId ||
-                owner.Language != parameters.Language || owner.RuleVersion != parameters.RuleVersion ||
-                owner.SourceScenarioUri != scenario.ScenarioSource.ResourceUri ||
-                owner.SourceScenarioSha256 != scenario.ScenarioSource.Sha256 ||
-                owner.PhysicalSlot is < 1 or > 1850 ||
-                current.ReadPersonLookupReference(officer.Id)?.PhysicalSlot != owner.PhysicalSlot ||
-                current.ReadPersonIdentity(owner.PhysicalSlot) != officer.Id ||
-                current.ReadPersonNativeValidity(owner.PhysicalSlot) is not bool valid ||
+            if (current.StaticSource?.ResourceUri != scenario.ScenarioSource.ResourceUri ||
+                current.StaticSource.Sha256 != scenario.ScenarioSource.Sha256 ||
+                current.ResolveOfficerSource(officer.Id) is not int physical ||
+                current.ReadPersonNativeValidity(physical) is not bool valid ||
                 OfficerServiceStatusSourceAdapter.Encode(officer.ServiceStatus) is not byte status || officer.BaseAbilities is not { } basic)
                 throw new InvalidDataException("Fresh current growth has no complete current Person identity.");
             uint[]? xp = null;
@@ -91,8 +86,7 @@ public sealed partial class PersonGrowthSource
             //The real map constructor has no entries. Only this fresh source
             //allocation establishes the known empty per-Person vector. The
             //separate complete fresh credit consumer owns pending merit later.
-            officers[officer.Id] = officer with { NativeGrowthRuntime = new(ProfileId,
-                _source.ResourceUri, _source.Sha256, xp, []) };
+            officers[officer.Id] = officer with { Growth = OfficerGrowthSourceAdapter.Fresh(xp) };
         }
         var hashes = new Dictionary<string, string>(state.ContentHashes) { [_source.ResourceUri] = _source.Sha256 };
         GameState result = state with { Officers = officers, ContentHashes = hashes };

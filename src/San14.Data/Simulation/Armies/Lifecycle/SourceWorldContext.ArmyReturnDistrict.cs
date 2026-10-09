@@ -38,7 +38,7 @@ public sealed partial class SourceWorldContext
         Copy(_forcePointers, draft._forcePointers); Copy(_forceRulers, draft._forceRulers);
         _districtIdentities.CopyTo(draft._districtIdentities);
         foreach (var field in _districtSourceExtensions) draft._districtSourceExtensions[field.Key] = field.Value.ToArray();
-        Copy(_personPointers, draft._personPointers); draft._personLookupCleared = _personLookupCleared;
+        _officerSources.CopyTo(draft._officerSources);
         Copy(_cityLinks, draft._cityLinks); Copy(_gateLinks, draft._gateLinks);
         Copy(_armyReturnGovernorWords2E, draft._armyReturnGovernorWords2E);
         Copy(_linkedEntityStates, draft._linkedEntityStates);

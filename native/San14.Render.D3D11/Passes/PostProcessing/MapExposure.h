@@ -16,6 +16,7 @@ struct Selection {
     std::optional<int32_t> viewMask19B8;
 };
 struct Packet {std::array<float,8> texels{};float mode{},luminance{};bool halfRectangle=false;};
+struct CameraInputs {float exposure{},luminance{};};
 inline float F(uint32_t bits){float v;std::memcpy(&v,&bits,4);return v;}
 inline Profile readProfile(const std::filesystem::path& source){
     std::ifstream input(source/"profile.bin",std::ios::binary);auto p=source_camera::read<Profile>(input);
@@ -43,9 +44,9 @@ inline bool selectedLuminance(const Selection& selection,float& luminance){
     float green=M(light->baselineRgb[1],F(0x3f1645a2)),red=M(light->baselineRgb[0],F(0x3e991687)),blue=M(light->baselineRgb[2],F(0x3de978d5));
     luminance=A(A(green,red),blue);return true;
 }
-inline Packet prepareCurrent(const Profile& profile,const source_camera::Prefix& preparedMain,const Selection& selection={}){
-    Packet p;p.mode=.5f;p.luminance=get<float>(preparedMain.data()+0x17c);selectedLuminance(selection,p.luminance);
-    p.texels[0]=get<float>(preparedMain.data()+0x170);p.texels[4]=p.mode;
+inline Packet prepareCurrent(const Profile& profile,const CameraInputs& camera,const Selection& selection={}){
+    Packet p;p.mode=.5f;p.luminance=camera.luminance;selectedLuminance(selection,p.luminance);
+    p.texels[0]=camera.exposure;p.texels[4]=p.mode;
     p.texels[5]=reciprocalTone(p.luminance,p.mode,profile.flags8,profile.tone3A4);
     p.halfRectangle=((profile.flags8&(1u<<25))!=0||(profile.cameraSpecial1510&1)!=0)&&selection.viewMask19B8.value_or(profile.viewMask19B8)!=1;return p;
 }
@@ -119,8 +120,8 @@ static NativeMapExposure prepareNativeMapExposure(ID3D11Device* device,const fs:
     out.viewport={0,0,2,1,0,1};return out;
 }
 static source_map_exposure::Packet executeNativeMapExposure(ID3D11DeviceContext* context,NativeMapExposure& owner,
-    const source_camera::Prefix& currentPreparedMain,const source_map_exposure::Selection& selected={}){
-    auto packet=source_map_exposure::prepareCurrent(owner.profile,currentPreparedMain,selected);
+    const source_map_exposure::CameraInputs& camera,const source_map_exposure::Selection& selected={}){
+    auto packet=source_map_exposure::prepareCurrent(owner.profile,camera,selected);
     if(packet.halfRectangle&&!owner.hasOutput)throw std::runtime_error("Map Exposure first half draw requires actual retained output");
     owner.ring=(owner.ring+1)%3;
     context->UpdateSubresource(owner.inputs[owner.ring].Get(),0,nullptr,packet.texels.data(),32,32);

@@ -59,15 +59,6 @@ inline Frame decode(std::span<const uint8_t> bytes){
     if(at!=bytes.size())throw std::runtime_error("Current HDR packet tail");
     return r;
 }
-// The caller's full retained Main keeps unowned bytes. Prefix is complete;
-// sparse tail stores publish only proved direct/selected current writers.
-inline void publishMain(const Frame& frame,std::span<uint8_t> ownedMain){
-    if(ownedMain.size()<frame.main.size())throw std::runtime_error("Current season Main extent");
-    for(const auto& w:frame.words)if(w.offset<0||size_t(w.offset)+4>ownedMain.size())
-        throw std::runtime_error("Current season Main word offset");
-    std::memcpy(ownedMain.data(),frame.main.data(),frame.main.size());
-    for(const auto& w:frame.words)std::memcpy(ownedMain.data()+w.offset,&w.bits,4);
-}
 // World selection belongs to its ordinary owner. This is the original ordered
 // first-intersecting group query over this same five-record publication.
 inline const Light* firstMatching(const Frame& frame,uint32_t queryMask){

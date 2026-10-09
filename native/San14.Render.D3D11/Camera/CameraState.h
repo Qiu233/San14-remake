@@ -11,11 +11,9 @@
 #include <stdexcept>
 #include <vector>
 #include <immintrin.h>
+#include "CameraTransform.h"
 
 namespace source_camera {
-struct V3 {float X,Y,Z;};
-struct V4 {float X,Y,Z,W;};
-using Matrix=std::array<float,16>;
 using Prefix=std::array<uint8_t,0x3c0>;
 struct State {double x,y,z,w,distance,yaw,pitch;};
 struct Zoom {int band,fraction;float nativeReturnedIndex;};
@@ -24,8 +22,8 @@ struct Request {V4 focus;double distance,yaw,pitch;}; // source duration=0 / Req
 struct Runtime {State pose;Bounds bounds;Zoom zoom;uint32_t dirtyCountdown=2;};
 struct Node {int index,level,x,z;float minimum,maximum,size;};
 struct Profile {
-    Prefix staticPrefix{};float halfFovTangent=0,lookDistance=0,lodScale=0;
-    uint32_t clipProfile=0;int heightWidth=0,controlWidth=0,levels=0;
+    Prefix staticPrefix{};CameraOptics optics{};float halfFovTangent=0,lookDistance=0,lodScale=0;
+    ClipDepthRange clipDepthRange=ClipDepthRange::MinusOneToOne;int heightWidth=0,controlWidth=0,levels=0;
     std::array<float,7> anchors{};std::array<std::array<float,10>,7> bounds{};
     State initial{};std::vector<Node> nodes;
 };
@@ -35,7 +33,10 @@ static_assert(sizeof(Instance)==56,"Original Terrain instance ABI");
 struct DrawRow {int node,group;float distance;uint32_t edgeFlags;};
 static_assert(sizeof(DrawRow)==16,"CPU comparison draw row ABI");
 struct Batch {int group,start,count,coarse;};
-struct Frame {Prefix prefix{};std::array<Plane,6> planes{};V4 eye{},quaternion{};
+struct Frame:CameraTransform {
+    // Compatibility packet for existing pass writers; CPU camera consumers use
+    // CameraTransform. Prepared once when a frame is published.
+    Prefix prefix{};std::array<Plane,6> planes{};V4 quaternion{};
     int selectedCount=0,culledCount=0;std::vector<Instance> instances;std::vector<DrawRow> rows;std::vector<Batch> batches;};
 struct GroundHeightProfile {
     uint32_t preparationBranch=0,outerOwnerPresent=1;
@@ -57,10 +58,38 @@ inline float flip(float f){uint32_t b;std::memcpy(&b,&f,4);b^=0x80000000u;std::m
 template<class T> inline T get(const uint8_t* p){T v;std::memcpy(&v,p,sizeof v);return v;}
 template<class T> inline void put(uint8_t* p,const T& v){std::memcpy(p,&v,sizeof v);}
 template<class T> inline T read(std::ifstream& s){T v{};s.read(reinterpret_cast<char*>(&v),sizeof v);if(!s)throw std::runtime_error("Incomplete camera source profile");return v;}
+// CCP1 and published-camera packet decoding is confined to this boundary.
+inline CameraOptics decodeCameraOptics(const Prefix& packet){
+    const auto flags=get<uint32_t>(packet.data()+0x158);
+    return {get<float>(packet.data()+0x140),get<float>(packet.data()+0x144),
+        get<float>(packet.data()+0x14c),get<float>(packet.data()+0x150),
+        flags&1?ProjectionKind::Orthographic:ProjectionKind::Perspective,(flags&2)!=0};
+}
+inline CameraTransform decodeCameraTransform(const Prefix& packet){
+    return {get<V4>(packet.data()+0x10),get<V4>(packet.data()+0x20),get<V4>(packet.data()+0x30),
+        get<Matrix>(packet.data()+0x40),get<Matrix>(packet.data()+0x80),get<Matrix>(packet.data()+0xc0),
+        get<Matrix>(packet.data()+0x100),decodeCameraOptics(packet)};
+}
+inline Prefix encodePreparedCamera(const Prefix& formatTemplate,const CameraTransform& camera){
+    Prefix packet=formatTemplate;
+    put(packet.data()+0x10,camera.eye);put(packet.data()+0x20,camera.target);put(packet.data()+0x30,camera.up);
+    put(packet.data()+0x40,camera.unrolledView);put(packet.data()+0x80,camera.view);
+    put(packet.data()+0xc0,camera.projection);put(packet.data()+0x100,camera.worldToClip);
+    put(packet.data()+0x140,camera.optics.nearPlane);put(packet.data()+0x144,camera.optics.farPlane);
+    put(packet.data()+0x14c,camera.optics.aspectRatio);put(packet.data()+0x150,camera.optics.roll);
+    auto flags=get<uint32_t>(packet.data()+0x158)&~3u;
+    if(camera.optics.projectionKind==ProjectionKind::Orthographic)flags|=1;
+    if(camera.optics.reversedDepth)flags|=2;
+    put(packet.data()+0x158,flags);
+    packet[0x160]=packet[0x161]=0;
+    return packet;
+}
 inline Profile loadProfile(const std::filesystem::path& path){
     std::ifstream s(path,std::ios::binary);if(!s||read<uint32_t>(s)!=0x31504343u)throw std::runtime_error("Camera source profile CCP1 absent");
-    Profile p;p.staticPrefix=read<Prefix>(s);p.halfFovTangent=read<float>(s);p.lookDistance=read<float>(s);
-    p.clipProfile=read<uint32_t>(s);p.lodScale=read<float>(s);p.heightWidth=read<int>(s);p.controlWidth=read<int>(s);
+    Profile p;p.staticPrefix=read<Prefix>(s);p.optics=decodeCameraOptics(p.staticPrefix);p.halfFovTangent=read<float>(s);p.lookDistance=read<float>(s);
+    const auto clipFlags=read<uint32_t>(s);
+    p.clipDepthRange=clipFlags&2?ClipDepthRange::ZeroToOne:ClipDepthRange::MinusOneToOne;
+    p.lodScale=read<float>(s);p.heightWidth=read<int>(s);p.controlWidth=read<int>(s);
     p.anchors=read<std::array<float,7>>(s);p.bounds=read<std::array<std::array<float,10>,7>>(s);p.initial=read<State>(s);
     auto h=read<std::array<uint8_t,20>>(s);p.levels=get<uint16_t>(h.data()+18);int count=get<uint16_t>(h.data()+16);
     if(p.levels!=6||count!=1365||p.heightWidth<2||p.controlWidth<2)throw std::runtime_error("Unsupported source tree/profile shape");
@@ -69,7 +98,7 @@ inline Profile loadProfile(const std::filesystem::path& path){
 }
 // App/Main owner+288 is not Camera prefix+288 (the latter is TransitionSpan).
 // This publication stays separate from prepareCurrent's raw camera schema.
-struct CurrentRenderMode {int ownerMode288;float ecB0Index;};
+struct CurrentRenderMode {int sceneMode;float zoomLevel;};
 inline int classifyRenderMode(Zoom zoom){
     const float index=A(static_cast<float>(zoom.band),D(static_cast<float>(zoom.fraction),10000));
     return index<2.5f?0:index<3.5f?1:index<4.5f?2:index<5.5f?3:4;
@@ -80,7 +109,7 @@ inline CurrentRenderMode prepareCurrentRenderMode(Zoom zoom){
     if(mode>1)throw std::runtime_error("Main render mode2+ App/group mutation is outside current mode0/1 publication");
     return {mode,index};
 }
-inline int currentRenderMode(Zoom zoom){return prepareCurrentRenderMode(zoom).ownerMode288;}
+inline int currentRenderMode(Zoom zoom){return prepareCurrentRenderMode(zoom).sceneMode;}
 struct RenderModePrefixProfile {uint32_t adaptedScale,bloomWeight,lensFlareWeight,selectedCloudy,cloudyChangedAltitude,initialPriorCloudy;};
 struct RenderModePrefixState {uint32_t priorCloudy430=0;};
 inline RenderModePrefixProfile loadRenderModePrefixProfile(const std::filesystem::path& path){
@@ -90,7 +119,7 @@ inline RenderModePrefixProfile loadRenderModePrefixProfile(const std::filesystem
 inline RenderModePrefixState createRenderModePrefixState(const RenderModePrefixProfile& p){return {p.initialPriorCloudy};}
 inline Prefix prepareCurrentRenderModeDirectPrefix(const RenderModePrefixProfile& profile,
     RenderModePrefixState& state,CurrentRenderMode mode,const Prefix& rawCamera){
-    if(mode.ownerMode288<0||mode.ownerMode288>1)throw std::runtime_error("Main direct prefix needs supported current render mode0/1");
+    if(mode.sceneMode<0||mode.sceneMode>1)throw std::runtime_error("Main direct prefix needs supported current render mode0/1");
     Prefix result=rawCamera;float previous,current;
     std::memcpy(&previous,&state.priorCloudy430,4);std::memcpy(&current,&profile.selectedCloudy,4);
     // Original17BD0/ProjectDirectWrites under held quality0/AppFlagsE2/selected season.
@@ -224,74 +253,18 @@ inline bool applyImmediateWithGround(const Profile& profile,Runtime& r,const Req
 inline bool applyImmediate(const Profile& profile,Runtime& r,const Request& request){return applyImmediateWithGround(profile,r,request,nullptr);}
 inline bool applyImmediate(const Profile& profile,Runtime& r,const Request& request,const GroundHeightProfile& ground){return applyImmediateWithGround(profile,r,request,&ground);}
 
-// Exact source quaternion-vector and SSE look-to bodies inserted below.
+// Rotate the vector by q * v * conjugate(q). Explicit scalar stages retain
+// the established multiplication and addition order, including operand order.
 inline V4 rotateVector(V4 rotation,V4 vector){
-        float x0=0,x1=0,x2=0,x3=0,x4=0,x5=0,x6=0,x7=0,x8=0,x9=0,x10=0,x11=0,x12=0;
-        x2 = vector.Y; // SC 00016707
-        x3 = vector.X; // SC 0001670D
-        x0 = x2; // SC 00016712
-        x4 = vector.Z; // SC 00016715
-        x1 = x4; // SC 00016720
-        x7 = x4; // SC 00016728
-        x8 = x3; // SC 00016730
-        x9 = rotation.Y; // SC 00016739
-        x0 = M(x0, x9); // SC 0001673F
-        x10 = rotation.Z; // SC 00016749
-        x1 = M(x1, x10); // SC 0001674F
-        x6 = x10; // SC 00016754
-        x6 = M(x6, x3); // SC 00016758
-        x11 = rotation.X; // SC 00016761
-        x7 = M(x7, x9); // SC 00016766
-        x5 = x11; // SC 0001676B
-        x5 = M(x5, x2); // SC 0001676F
-        x8 = M(x8, x11); // SC 00016773
-        x12 = rotation.W; // SC 0001677D
-        x8 = A(x8, x0); // SC 00016783
-        x0 = x10; // SC 00016788
-        x0 = M(x0, x2); // SC 0001678C
-        x8 = A(x8, x1); // SC 00016790
-        x1 = x3; // SC 00016795
-        x7 = S(x7, x0); // SC 00016798
-        x1 = M(x1, x12); // SC 0001679C
-        x3 = M(x3, x9); // SC 000167A1
-        x0 = x4; // SC 000167A6
-        x0 = M(x0, x11); // SC 000167A9
-        x7 = A(x7, x1); // SC 000167AE
-        x4 = M(x4, x12); // SC 000167B2
-        x5 = S(x5, x3); // SC 000167B7
-        x1 = x2; // SC 000167BB
-        x6 = S(x6, x0); // SC 000167BE
-        x1 = M(x1, x12); // SC 000167C2
-        x3 = x9; // SC 000167C7
-        x0 = x10; // SC 000167CB
-        x2 = x10; // SC 000167CF
-        x10 = M(x10, x8); // SC 000167D3
-        x2 = M(x2, x7); // SC 000167D8
-        x5 = A(x5, x4); // SC 000167DC
-        x6 = A(x6, x1); // SC 000167E0
-        x1 = x11; // SC 000167E4
-        x1 = M(x1, x8); // SC 000167E8
-        x3 = M(x3, x5); // SC 000167ED
-        x0 = M(x0, x6); // SC 000167F1
-        x3 = S(x3, x0); // SC 000167F5
-        x0 = x11; // SC 000167F9
-        x11 = M(x11, x6); // SC 000167FD
-        x0 = M(x0, x5); // SC 00016802
-        x3 = A(x3, x1); // SC 00016806
-        x6 = M(x6, x12); // SC 0001680A
-        x1 = x9; // SC 0001680F
-        x5 = M(x5, x12); // SC 00016813
-        x9 = M(x9, x7); // SC 00016818
-        x2 = S(x2, x0); // SC 0001681D
-        x1 = M(x1, x8); // SC 00016821
-        x11 = S(x11, x9); // SC 0001682B
-        x7 = M(x7, x12); // SC 00016835
-        x2 = A(x2, x1); // SC 0001683A
-        x11 = A(x11, x10); // SC 0001683E
-        x7 = A(x7, x3); // SC 00016843
-        x6 = A(x6, x2); // SC 00016847
-        x5 = A(x5, x11); // SC 0001684B
-        return {x7,x6,x5,vector.W};
+    const float dot=A(A(M(vector.X,rotation.X),M(vector.Y,rotation.Y)),M(vector.Z,rotation.Z));
+    const float productX=A(S(M(vector.Z,rotation.Y),M(rotation.Z,vector.Y)),M(vector.X,rotation.W));
+    const float productY=A(S(M(rotation.Z,vector.X),M(vector.Z,rotation.X)),M(vector.Y,rotation.W));
+    const float productZ=A(S(M(rotation.X,vector.Y),M(vector.X,rotation.Y)),M(vector.Z,rotation.W));
+    const float conjugateX=A(S(M(rotation.Y,productZ),M(rotation.Z,productY)),M(rotation.X,dot));
+    const float conjugateY=A(S(M(rotation.Z,productX),M(rotation.X,productZ)),M(rotation.Y,dot));
+    const float conjugateZ=A(S(M(rotation.X,productY),M(rotation.Y,productX)),M(rotation.Z,dot));
+    return {A(M(productX,rotation.W),conjugateX),A(M(productY,rotation.W),conjugateY),
+        A(M(productZ,rotation.W),conjugateZ),vector.W};
 }
 
 inline Matrix lookTo(V4 eye,V4 target,V4 up){
@@ -443,28 +416,29 @@ inline float planarDistance(Node n,V4 eye){float minX=M(static_cast<float>(n.x),
     return std::sqrt(A(A(M(dx,dx),0),M(dz,dz)));}
 inline Frame prepareTerrainFromFrame(const Profile& p,Frame f);
 inline Frame prepareCurrent(const Profile& p,const Runtime& r){
-    Frame f;f.prefix=p.staticPrefix;auto pose=derivePose(r.pose);f.eye=pose[0];f.quaternion=pose[1];
+    Frame f;f.optics=p.optics;auto pose=derivePose(r.pose);f.eye=pose[0];f.quaternion=pose[1];
     V4 fw=normalizeDirection(rotateVector(f.quaternion,{0,0,1,0})),up=normalizeDirection(rotateVector(f.quaternion,{0,1,0,0}));
     V4 target{A(M(fw.X,p.lookDistance),f.eye.X),A(M(fw.Y,p.lookDistance),f.eye.Y),A(M(fw.Z,p.lookDistance),f.eye.Z),A(M(fw.W,p.lookDistance),f.eye.W)};
-    put(f.prefix.data()+0x10,f.eye);put(f.prefix.data()+0x20,target);put(f.prefix.data()+0x30,up);
+    f.target=target;f.up=up;
     Matrix raw=lookTo(f.eye,target,up),view=raw;
-    float offset=get<float>(f.prefix.data()+0x150);if(offset!=0){auto t=sinCos(flip(offset));for(int i=0;i<4;i++){
+    float offset=f.optics.roll;if(offset!=0){auto t=sinCos(flip(offset));for(int i=0;i<4;i++){
         float x=raw[i*4],y=raw[i*4+1];view[i*4]=S(M(x,t[1]),M(y,t[0]));view[i*4+1]=A(M(x,t[0]),M(y,t[1]));}}
-    uint32_t flags=get<uint32_t>(f.prefix.data()+0x158);if(flags&1)throw std::runtime_error("Source Main requires perspective");bool reverse=(flags&2)!=0;
-    float sourceNear=get<float>(f.prefix.data()+0x140),sourceFar=get<float>(f.prefix.data()+0x144),aspect=get<float>(f.prefix.data()+0x14c);
+    if(f.optics.projectionKind!=ProjectionKind::Perspective)throw std::runtime_error("Map camera requires perspective");bool reverse=f.optics.reversedDepth;
+    float sourceNear=f.optics.nearPlane,sourceFar=f.optics.farPlane,aspect=f.optics.aspectRatio;
     float na=reverse?sourceFar:sourceNear,fa=reverse?sourceNear:sourceFar,yScale=D(1,M(p.halfFovTangent,1)),range=S(na,fa),ds,dd;
-    if(p.clipProfile&2){ds=D(fa,range);dd=M(ds,na);}else{float inv=D(1,range);ds=M(A(na,fa),inv);dd=M(M(A(na,na),fa),inv);}
+    if(p.clipDepthRange==ClipDepthRange::ZeroToOne){ds=D(fa,range);dd=M(ds,na);}else{float inv=D(1,range);ds=M(A(na,fa),inv);dd=M(M(A(na,na),fa),inv);}
     Matrix projection{D(yScale,aspect),0,0,0,0,yScale,0,0,0,0,ds,-1,0,0,dd,0},combined=compose(view,projection);
-    put(f.prefix.data()+0x40,raw);put(f.prefix.data()+0x80,view);put(f.prefix.data()+0xc0,projection);put(f.prefix.data()+0x100,combined);f.prefix[0x160]=f.prefix[0x161]=0;
+    f.unrolledView=raw;f.view=view;f.projection=projection;f.worldToClip=combined;
+    f.prefix=encodePreparedCamera(p.staticPrefix,f);
     f.planes=makePlanes(combined,reverse);
     return prepareTerrainFromFrame(p,std::move(f));
 }
 // The client publishes its original prepared Camera. Reuse the terrain/LOD
 // kernel without rebuilding a second camera with separate optics or matrices.
 inline Frame preparePublished(const Profile& p,const Prefix& prefix,const State& controller){
-    Frame f;f.prefix=prefix;f.eye=get<V4>(prefix.data()+0x10);f.quaternion=derivePose(controller)[1];
-    const auto combined=get<Matrix>(prefix.data()+0x100);
-    f.planes=makePlanes(combined,(get<uint32_t>(prefix.data()+0x158)&2)!=0);
+    Frame f;static_cast<CameraTransform&>(f)=decodeCameraTransform(prefix);
+    f.prefix=prefix;f.quaternion=derivePose(controller)[1];
+    f.planes=makePlanes(f.worldToClip,f.optics.reversedDepth);
     return prepareTerrainFromFrame(p,std::move(f));
 }
 inline Frame prepareTerrainFromFrame(const Profile& p,Frame f){

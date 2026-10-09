@@ -5,7 +5,7 @@ namespace San14.Data;
 public sealed partial class WorldIndexContext
 {
     internal sealed record UnitIndexValue(int? UnitId);
-    private readonly Dictionary<int, int> _officerPhysical = [];
+    private readonly EntitySourceBindings _officers = new();
     public WorldIndexesState ExportOwnedState() => _state.ExportWorldIndexes(this);
     internal WorldIndexesState BeginChangedWork()
     {
@@ -26,12 +26,12 @@ public sealed partial class WorldIndexContext
     }
     public void BindWorld(GameState state)
     {
-        if (state.NativeArmyLifecycle is { } lifecycle)
-            foreach (var slot in lifecycle.Slots)
-                if ((slot.ActiveUnitId ?? slot.PendingImage?.Id) is int unitId)
-                    BindArmyIdentity(slot.PhysicalSlot, unitId);
-        foreach (var officer in state.Officers.Values)
-            if (officer.NativeAbilityRuntime is { } source) _officerPhysical[officer.Id] = source.PhysicalSlot;
+        _armies.Replace(state.NativeArmyLifecycle?.Slots
+            .Where(slot => (slot.ActiveUnitId ?? slot.PendingImage?.Id) is not null)
+            .Select(slot => new EntitySourceBinding(slot.PhysicalSlot, slot.ActiveUnitId ?? slot.PendingImage!.Id)) ?? []);
+        foreach (int retired in _traitHandles.Keys.Where(id => !_armies.ContainsEntity(id)).ToArray()) ReleaseTraitIndexes(retired);
+        _officers.Replace(state.Officers.Values.Select(officer => (officer.Id, Record: _state.ResolveOfficerSource(officer.Id)))
+            .Where(row => row.Record is not null).Select(row => new EntitySourceBinding(row.Record!.Value, row.Id)));
     }
     internal WorldEntityReference ToWorld(RegistryObjectReference value) => ToWorld(value.Kind, value.PhysicalSlot);
     internal WorldEntityReference ToWorld(BaseReference value)
@@ -46,8 +46,7 @@ public sealed partial class WorldIndexContext
             return new(domainKind, physical == 0 ? null : ArmyId(physical.Value));
         if (kind == RegistryKind.Person)
         {
-            int? officerId = null;
-            foreach (var row in _officerPhysical) if (row.Value == physical.Value) { officerId = row.Key; break; }
+            int? officerId = _officers.EntityAt(physical.Value);
             officerId ??= _state.ReadPersonIdentity(physical.Value);
             return new(domainKind, officerId ?? throw new InvalidDataException("Registered officer identity is unavailable."));
         }
@@ -55,13 +54,11 @@ public sealed partial class WorldIndexContext
             return ToWorld(new BaseReference(kind == RegistryKind.City ? BaseKind.City : BaseKind.Gate, physical));
         return new(domainKind, physical);
     }
-    internal int ArmyId(int physical) => _armyIds.TryGetValue(physical, out int id) ? id :
+    internal int ArmyId(int physical) => _armies.EntityAt(physical) is int id ? id :
         throw new InvalidDataException("A primary unit index references a receiver with no logical unit identity.");
     internal int? ArmyPhysical(int? id)
     {
-        if (id is null) return null;
-        foreach (var row in _armyIds) if (row.Value == id.Value) return row.Key;
-        return null; //Retired logical references never bind a recycled receiver.
+        return _armies.RecordOf(id); //Retired logical references never bind a recycled receiver.
     }
     internal object? StoreValue(object? value) => value is RegistryObjectReference { Kind: RegistryKind.Army } unit ?
         new UnitIndexValue(unit.PhysicalSlot is int physical && physical != 0 ? ArmyId(physical) : null) : value;
@@ -88,7 +85,7 @@ public sealed partial class WorldIndexContext
         if (kind == RegistryKind.Army) physical = ArmyPhysical(value.Id);
         else if (kind == RegistryKind.Gate && physical is int gate) physical = gate - 51;
         else if (kind == RegistryKind.Person && physical is int person)
-            physical = _officerPhysical.TryGetValue(person, out int source) ? source :
+            physical = _officers.RecordOf(person) is int source ? source :
                 throw new InvalidDataException("A saved officer index has no current officer source identity.");
         return new(kind, physical);
     }

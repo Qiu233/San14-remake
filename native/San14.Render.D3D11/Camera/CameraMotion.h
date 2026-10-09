@@ -139,15 +139,15 @@ inline Matrix affineInverse(Matrix m){
         M(A(A(M(ty,c10),M(tx,c00)),M(tz,c20)),factor),M(A(A(M(ty,c11),M(tx,c01)),M(tz,c21)),factor),
         M(A(A(M(ty,c12),M(tx,c02)),M(tz,c22)),factor),1};
 }
-inline CursorRay cursorRay(const Prefix& prefix,int32_t canonicalX,int32_t canonicalY){
-    auto inv=affineInverse(get<Matrix>(prefix.data()+0x100));
+inline CursorRay cursorRay(const CameraTransform& camera,int32_t canonicalX,int32_t canonicalY){
+    auto inv=affineInverse(camera.worldToClip);
     float x=D(float(signedWord(uint32_t(canonicalX)-960u)),960),y=D(float(signedWord(540u-uint32_t(canonicalY))),540);
-    float ratio=D(get<float>(prefix.data()+0x144),get<float>(prefix.data()+0x140)),farX=M(ratio,x),farY=M(ratio,y);
+    float ratio=D(camera.optics.farPlane,camera.optics.nearPlane),farX=M(ratio,x),farY=M(ratio,y);
     auto nearValue=[&](int c){return A(A(A(M(inv[4+c],y),M(inv[c],x)),M(inv[8+c],0)),inv[12+c]);};
     auto farValue=[&](int c){return A(S(A(M(inv[4+c],farY),M(inv[c],farX)),inv[8+c]),inv[12+c]);};
     float dx=S(farValue(0),nearValue(0)),dy=S(farValue(1),nearValue(1)),dz=S(farValue(2),nearValue(2)),
         factor=D(1,std::sqrt(A(A(M(dy,dy),M(dx,dx)),M(dz,dz))));
-    CursorRay result{get<V4>(prefix.data()+0x10),{M(dx,factor),M(dy,factor),M(dz,factor),farValue(3)},true};
+    CursorRay result{camera.eye,{M(dx,factor),M(dy,factor),M(dz,factor),farValue(3)},true};
     for(float v:{result.origin.X,result.origin.Y,result.origin.Z,result.origin.W,result.direction.X,result.direction.Y,result.direction.Z,result.direction.W})
         if(std::isnan(v))return {{0,0,0,1},{0,0,0,1},false};return result;
 }
@@ -169,7 +169,7 @@ inline std::optional<Request> buildWheel(const source_camera::Profile& camera,co
 inline bool queueWheel(const source_camera::Profile& camera,const Profile& profile,Runtime& state,int32_t delta,
     const Frame& current,int32_t canonicalX,int32_t canonicalY,int32_t sourceClock,const TerrainQualifier& terrain={}){
     if(state.requestMode!=0)return false;
-    auto request=buildWheel(camera,profile,state,delta,cursorRay(current.prefix,canonicalX,canonicalY),eyeForward(current),terrain);
+    auto request=buildWheel(camera,profile,state,delta,cursorRay(current,canonicalX,canonicalY),eyeForward(current),terrain);
     return request&&queueTimed(state,*request,sourceClock);
 }
 inline void savePanVelocity(Runtime& state,V4 saved,bool sampleOne,int32_t sourceClock){if(sampleOne&&state.requestMode==0){state.velocity=saved;state.velocityStart=state.velocityLast=sourceClock;}}

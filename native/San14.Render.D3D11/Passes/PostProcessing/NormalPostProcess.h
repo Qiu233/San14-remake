@@ -23,7 +23,7 @@ public:
     }
     void updateMapExposure(ID3D11DeviceContext* context,
         const source_current_season::Frame* season,
-        const uint8_t* mainNumeric,const source_camera::Prefix& directCamera) {
+        const source_map_exposure::CameraInputs& camera,uint32_t rectangleFlags) {
         const auto parent=NativeMainTargetScope::retain(context);
         ComPtr<ID3D11RasterizerState> priorRaster;context->RSGetState(&priorRaster);
         source_map_exposure::Selection exposureSelection;
@@ -33,9 +33,8 @@ public:
             exposureLight={season->exposure.type,season->exposure.flags,season->exposure.rgb};
             exposureSelection.selectedLight=&exposureLight;
         }
-        if(season)mapExposure_.profile.cameraSpecial1510=source_camera::get<uint32_t>(
-            reinterpret_cast<const uint8_t*>(mainNumeric)+0x1510);
-        const auto packet=executeNativeMapExposure(context,mapExposure_,directCamera,exposureSelection);
+        if(season)mapExposure_.profile.cameraSpecial1510=rectangleFlags;
+        const auto packet=executeNativeMapExposure(context,mapExposure_,camera,exposureSelection);
 
         parent.restore(context);context->RSSetState(priorRaster.Get());
     }

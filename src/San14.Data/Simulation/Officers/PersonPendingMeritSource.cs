@@ -77,8 +77,7 @@ public sealed class PersonPendingMeritSource
         if (!Bound(input) || !input.Officers.TryGetValue(personId, out var person) ||
             current.StaticSource?.ResourceUri != _source.ScenarioSource.ResourceUri ||
             current.StaticSource.Sha256 != _source.ScenarioSource.Sha256 ||
-            current.ReadPersonLookupReference(personId)?.PhysicalSlot is not int physical ||
-            current.ReadPersonIdentity(physical) != personId ||
+            current.ResolveOfficerSource(personId) is not int physical ||
             OfficerServiceStatusSourceAdapter.Encode(person.ServiceStatus) is not byte status ||
             person.Behavior?.UsesSpecialPersonRules is not bool ||
             current.ReadPersonStatus(physical) != status ||

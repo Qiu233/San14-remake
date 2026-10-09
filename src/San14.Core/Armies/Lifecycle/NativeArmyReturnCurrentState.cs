@@ -1,7 +1,7 @@
 namespace San14.Core;
 
-/// <summary>Current owned source-semantic location auxiliaries. Identity,
-/// flags stay in NativeAbilityRuntime; service and health have independent
+/// <summary>Current owned source-semantic location auxiliaries. Source identity
+/// is resolved by Data; behavior, service and health have independent
 /// OfficerState owners. Null is unresolved.</summary>
 public sealed record NativePersonLocationRuntime(string Revision, ushort? Second11C)
 {
@@ -34,8 +34,8 @@ public static class NativeArmyReturnCurrentStateValidation
         foreach (var person in state.Officers.Values)
         {
             if (person.NativeLocationRuntime is not { } fields) continue;
-            if (person.NativeAbilityRuntime is null || string.IsNullOrWhiteSpace(fields.Revision))
-                throw new InvalidDataException("Current native Person location owner has invalid identity.");
+            if (string.IsNullOrWhiteSpace(fields.Revision))
+                throw new InvalidDataException("Current Person location owner has invalid revision.");
         }
         foreach (var city in state.Cities.Values)
             if (city.NativeReturnRuntime is { } fields &&

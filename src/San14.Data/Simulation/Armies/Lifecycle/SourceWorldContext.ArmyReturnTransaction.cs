@@ -43,7 +43,7 @@ public sealed partial class SourceWorldContext
         Copy(_hexSurfaceCodes, draft._hexSurfaceCodes);
         Copy(_surfaceTypePointers, draft._surfaceTypePointers); Copy(_surfaceTypeFields2A, draft._surfaceTypeFields2A);
         CopyArmyMapOccupancyTo(draft); Copy(_personTraitSlots150, draft._personTraitSlots150);
-        Copy(_staticTablePointers, draft._staticTablePointers); Copy(_transferPersonPointers, draft._transferPersonPointers);
+        Copy(_staticTablePointers, draft._staticTablePointers);
         Copy(_officerHealth, draft._officerHealth);
         Copy(_healthSourceIdentities, draft._healthSourceIdentities);
         Copy(_captureItemOwners4A, draft._captureItemOwners4A);

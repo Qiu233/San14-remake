@@ -50,8 +50,7 @@ public sealed partial class ArmyOperationContext
         }
         foreach (OfficerState officer in state.Officers.Values)
         {
-            TransferPersonReference? reference = native.ReadPersonLookupReference(officer.Id);
-            if (reference?.PhysicalSlot is not int physical || native.ReadPersonIdentity(physical) != officer.Id) return null;
+            if (native.ResolveOfficerSource(officer.Id) is not int physical) return null;
             if (officer.LocationId is < 0 or > ushort.MaxValue || officer.DistrictId is < 0 or > 51) return null;
             native.SetPersonFirstLocation(physical, officer.LocationId is int first ? (ushort)first : null);
             native.SetPersonDistrictSlot(physical, officer.DistrictId is int district ? (byte)district : null);

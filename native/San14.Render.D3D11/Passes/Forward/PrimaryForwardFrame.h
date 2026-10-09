@@ -39,7 +39,7 @@ inline NativePrimaryForwardSource prepareNativePrimaryForwardSource(const std::f
 }
 inline NativePrimaryForwardFrame prepareNativePrimaryForwardCurrent(const NativePrimaryForwardSource& source,
     const NativeCityPopulationSource& currentWorld,const NativeCityPopulationPlan& currentPlan,
-    const unsigned char* currentPreparedMainPrefix,const char* currentHdrInner02,size_t hdrBytes,
+    const std::array<float,4>& eye,const char* currentHdrInner02,size_t hdrBytes,
     const char* currentShadowReceiver,size_t receiverBytes) {
     // Held-lens season/MainMode0/1 is this imported producer's source scope.
     // Its lens-dependent Cluster/Volume scalars are stable, not fingerprinted
@@ -57,7 +57,7 @@ inline NativePrimaryForwardFrame prepareNativePrimaryForwardCurrent(const Native
         std::memcpy(draw.pixel.data()+192,ordinary.pixel.data(),16); // cSpec
         std::memcpy(draw.pixel.data()+336,ordinary.pixel.data()+64,4); // actual AlphaTest value
         for(const auto& w:source.hdrWrites)std::memcpy(draw.pixel.data()+w.destination,currentHdrInner02+w.source,w.bytes);
-        std::memcpy(draw.pixel.data()+176,currentPreparedMainPrefix+0x10,16);
+        std::memcpy(draw.pixel.data()+176,eye.data(),sizeof(eye));
         // HDR PS383 normalizes unread ambLit.W, but forward's actual Shadow
         // module uses it. The normal receiver has the same full E0 writer.
         std::memcpy(draw.pixel.data()+156,currentShadowReceiver+12,4);

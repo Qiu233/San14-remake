@@ -69,19 +69,16 @@ public sealed class PersonNormalArmyRewardSource
         int personId, int kind, int amount, bool detachCallbacks)
     {
         if (!Bound(input) || !current.IsBoundCurrentState(input) || !input.Officers.TryGetValue(personId, out var person) ||
-            person.NativeAbilityRuntime is not { } ability || ability.Language != _language || ability.RuleVersion != _ruleVersion ||
-            ability.Revision != TacticRemakeCurrentAbilities.ProfileId ||
-            ability.SourceScenarioUri != _source.ScenarioSource.ResourceUri || ability.SourceScenarioSha256 != _source.ScenarioSource.Sha256 ||
-            definitions.StaticSource?.ResourceUri != ability.SourceScenarioUri || definitions.StaticSource.Sha256 != ability.SourceScenarioSha256 ||
-            definitions.ReadPersonLookupReference(personId)?.PhysicalSlot != ability.PhysicalSlot ||
-            definitions.ReadPersonIdentity(ability.PhysicalSlot) != personId ||
-            definitions.ReadPersonNativeValidity(ability.PhysicalSlot) is not bool valid)
+            definitions.StaticSource?.ResourceUri != _source.ScenarioSource.ResourceUri ||
+            definitions.StaticSource.Sha256 != _source.ScenarioSource.Sha256 ||
+            definitions.ResolveOfficerSource(personId) is not int physical ||
+            definitions.ReadPersonNativeValidity(physical) is not bool valid)
             return Unknown("receiver");
         if (!valid) return Skip();
-        if (definitions.ReadPersonFirstLocation(ability.PhysicalSlot) is not ushort first) return Unknown("first-location");
+        if (definitions.ReadPersonFirstLocation(physical) is not ushort first) return Unknown("first-location");
         if (first is >= 1 and <= 61)
         {
-            if (definitions.ReadPersonForce(ability.PhysicalSlot)?.PhysicalSlot is not int force) return Unknown("special-force");
+            if (definitions.ReadPersonForce(physical)?.PhysicalSlot is not int force) return Unknown("special-force");
             if (force is >= 46 and <= 50) return Skip();
             if (new[] { 4111, 4131, 4151, 4171, 4191 }.Any(start => unchecked((uint)(personId - start)) <= 9)) return Skip();
         }
@@ -89,7 +86,7 @@ public sealed class PersonNormalArmyRewardSource
         //word, selects the native Army slot and compares Commander12. A Core
         //Deployed flag cannot supply the missing source writer.
         if (person.NativeLocationRuntime?.Second11C is not ushort second ||
-            definitions.ReadPersonSecondLocation(ability.PhysicalSlot) != second) return Unknown("second-location");
+            definitions.ReadPersonSecondLocation(physical) != second) return Unknown("second-location");
         NativeLocation location = PersonPositionRepair.DecodeSecondLocation(second);
         if (location.Kind != 27) return Skip(); //Real table0 invalid Army when second is not Army kind.
         UnitState[] matches = input.Units.Values.Where(u => u.NativeArmyOrigin?.NativeSlotIndex == location.Index).ToArray();

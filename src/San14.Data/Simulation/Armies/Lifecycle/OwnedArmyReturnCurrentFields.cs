@@ -20,14 +20,13 @@ public static class OwnedArmyReturnCurrentFields
         var people = state.Officers.ToDictionary(x => x.Key, x => x.Value);
         foreach (var person in people.Values.ToArray())
         {
-            var ability = person.NativeAbilityRuntime ?? throw new InvalidDataException("Fresh Person source identity is missing.");
-            if (prefix.ReadPersonIdentity(ability.PhysicalSlot) != person.Id)
-                throw new InvalidDataException("Fresh Person identity differs from the installed ability owner.");
+            int physical = prefix.ResolveOfficerSource(person.Id)
+                ?? throw new InvalidDataException("Fresh officer has no matching source record.");
             people[person.Id] = person with
             {
-                NativeLocationRuntime = new(Revision, prefix.ReadPersonSecondLocation(ability.PhysicalSlot))
-                    { District118 = prefix.ReadPersonDistrictSlot(ability.PhysicalSlot) },
-                TraitActivation = OfficerTraitActivationSourceAdapter.Read(prefix, ability.PhysicalSlot)
+                NativeLocationRuntime = new(Revision, prefix.ReadPersonSecondLocation(physical))
+                    { District118 = prefix.ReadPersonDistrictSlot(physical) },
+                TraitActivation = OfficerTraitActivationSourceAdapter.Read(prefix, physical)
             };
         }
         var cities = state.Cities.ToDictionary(x => x.Key, x => x.Value);
@@ -68,10 +67,9 @@ public static class OwnedArmyReturnCurrentFields
         var people = state.Officers.ToDictionary(x => x.Key, x => x.Value);
         foreach (var person in people.Values.ToArray())
         {
-            var ability = person.NativeAbilityRuntime ?? throw new InvalidDataException("Current Person ability owner is missing.");
+            int physical = current.ResolveOfficerSource(person.Id)
+                ?? throw new InvalidDataException("Current officer publication identity mismatch.");
             var fields = person.NativeLocationRuntime ?? throw new InvalidDataException("Current Person mutable owner is missing.");
-            int physical = ability.PhysicalSlot;
-            if (current.ReadPersonIdentity(physical) != person.Id) throw new InvalidDataException("Current Person publication identity mismatch.");
             ushort? first = current.ReadPersonFirstLocation(physical); byte? district = current.ReadPersonDistrictSlot(physical);
             int? forceId = person.ForceId;
             if (district != person.DistrictId)
@@ -145,10 +143,9 @@ public sealed partial class SourceWorldContext
         var ownedPeople = new HashSet<int>();
         foreach (var person in state.Officers.Values)
         {
-            var ability = person.NativeAbilityRuntime ?? throw new InvalidDataException("Current Person native identity is missing.");
-            int physical = ability.PhysicalSlot;
+            int physical = ResolveOfficerSource(person.Id)
+                ?? throw new InvalidDataException("Current officer has no matching source record.");
             ownedPeople.Add(physical);
-            if (ReadPersonIdentity(physical) != person.Id) throw new InvalidDataException("Current Person physical identity mismatch.");
             var location = person.NativeLocationRuntime;
             if (location?.District118 is byte district) SetPersonDistrictSlot(physical, district);
             var old = _persons[physical];

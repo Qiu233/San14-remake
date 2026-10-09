@@ -6,6 +6,7 @@
 #include "GroundDetailAdmission.hpp"
 #include "GroundDetailSeason.h"
 #include "TreeWindFrame.h"
+#include "GroundDetailFrame.h"
 #include "../Models/ModelView.h"
 #include <span>
 #include <optional>
@@ -16,25 +17,12 @@ using Microsoft::WRL::ComPtr;
 using ground_detail_source::Affine48;
 struct Statistics {
     uint32_t selectedInstances{},preparedPrimitives{},nonemptyDraws{},opaqueDraws{},alphaDraws{};
-    uint16_t currentAppFlags{};uint32_t currentAux14{};bool normalFirst{},normalSecond{},windUpdated{};
+    uint16_t currentAppFlags{};uint32_t currentPlacementFlags{};bool normalFirst{},normalSecond{},windUpdated{};
     uint32_t seasonGroup{},wholeInstances{};bool seasonPopulationChanged{};
 };
-struct FrameInputs {
-    const source_camera::Frame& camera; // actual ordinary source visibility camera
-    std::span<const uint8_t> main18C0;
-    const NativeFrameClockPublication& clock;
-    std::array<float,16> normalWorldToProjection;
-    std::array<float,12> normalWorldToView;
-    ground_detail_source::WorldCommon common;
-    uint32_t commonFlags10,culling450,scanning454;
-    uint32_t callerFirst,callerSecond,callerShadow,presentViews,successful3340,selectedViewIndex;
-    uint16_t actualAppFlags0;int actualMode288;float actualEcB0;
-    bool hostCallbackExecuted,overlaySelected;uint32_t actualOverlayWord0;
-    uint32_t actualSeason{};
-};
 struct RecordInputs {
-    uint32_t mask78,currentFirstCounterCount,contextFlags3E4;
-    bool kind1;
+    uint32_t excludedCategories,ordinaryPrimitiveCount,contextFlags;
+    bool ordinaryGeometryKind;
     source_view::Stencil dispatcherStencil; // source_view::ordinary54 current result
 };
 // Source D7AD80 publications are complete typed records, not initialized spare
@@ -64,10 +52,11 @@ class GroundDetails {
     ComPtr<ID3D11ComputeShader> windShader;ComPtr<ID3D11Buffer> windConstants;
     tree2_source::WorldRandom random;tree2_source::WindOwner windOwner;
     tree2_source::CurrentWind currentWind{};tree2_source::GraphicsHistory graphics;
-    std::array<uint8_t,0x18C0> currentMain{};
+    VisibilityPolicy visibilityPolicy;
+    tree2_source::WindEnvironment currentEnvironment{};
     std::array<float,16> currentW2P{};std::array<float,12> currentWV{};
     ground_detail_source::WorldCommon currentCommon{};
-    uint32_t currentFlags10{},currentViewIndex{},effectiveExclusion{};
+    uint32_t commonSettingsFlags{},currentViewIndex{},effectiveExclusion{};
     bool ordinaryCamera{},viewPresent{},windOccurrence{},prepared=false,uploaded=false;
     Statistics statistics;
 
@@ -105,7 +94,21 @@ class GroundDetails {
     static std::span<uint8_t> bytes(std::vector<char>& data) {return {reinterpret_cast<uint8_t*>(data.data()),data.size()};}
 
 public:
-    // sourceReviewRoot is .../ground-detail-source-review, containing packet.
+    GroundDetails()=default;
+    GroundDetails(const GroundDetails&)=delete;
+    GroundDetails& operator=(const GroundDetails&)=delete;
+
+    void prepareResources(ID3D11Device* device,const fs::path& resourceDirectory,const fs::path& seasonRoot={}) {
+        std::ifstream reference(resourceDirectory/"source-directory.txt");std::string relative;
+        if(!std::getline(reference,relative)||relative.empty())throw std::runtime_error("Ground detail source directory import absent");
+        loadOnce(device,resourceDirectory/fs::path(relative),seasonRoot);
+        std::ifstream settings(resourceDirectory/"common-source.txt");
+        settings>>visibilityPolicy.placementFlags>>visibilityPolicy.frustumKind>>visibilityPolicy.cullingMode>>visibilityPolicy.scanningOrder>>std::hex>>visibilityPolicy.baseAppFlags;
+        if(!settings)throw std::runtime_error("Ground detail saved Common/App import absent");
+    }
+
+private:
+    // The declared resource directory contains the model/population packet.
     void loadOnce(ID3D11Device* device,const fs::path& sourceReviewRoot,const fs::path& seasonRoot={}) {
         if(!models.draws.empty())throw std::runtime_error("Ground details already loaded; resource reload needs a new component");
         const auto source=sourceReviewRoot/"packet"/"gpu-templates";
@@ -168,6 +171,7 @@ public:
         D3D11_SAMPLER_DESC desc;std::memcpy(&desc,sampler.data(),sizeof(desc));
         check(device->CreateSamplerState(&desc,&windSampler),"Ground details original wind8/9 sampler");
     }
+public:
     // Caller publishes its current point/spot/area population before prepare.
     // Empty spans retain the genuine owned zero counts; nonzero uploads use
     // original record widths and the actual default source capacity128.
@@ -178,35 +182,37 @@ public:
             upload(context,windObjects[i].buffer.Get(),rows[i].data(),rows[i].size());windCounts[i]=uint32_t(rows[i].size()/sizes[i]);}
     }
     const Statistics& prepare(const FrameInputs& f) {
-        if(models.draws.empty()||f.main18C0.size()<currentMain.size()||f.selectedViewIndex>=32)
+        if(models.draws.empty()||f.population.selectedView>=32)
             throw std::runtime_error("Ground details current Main/View input absent");
         statistics={};population={};uploaded=false;prepared=true;
         if(seasons){
-            statistics.seasonPopulationChanged=ground_detail_season_source::installSettled(*seasons,packet,f.actualSeason);
+            statistics.seasonPopulationChanged=ground_detail_season_source::installSettled(*seasons,packet,f.season);
             if(statistics.seasonPopulationChanged){
                 wholeInstances=0;for(const auto& bank:packet.banks)wholeInstances+=uint32_t(bank.instances.size());
             }
             statistics.seasonGroup=seasons->currentGroup;
         }
         statistics.wholeInstances=wholeInstances;
-        std::memcpy(currentMain.data(),f.main18C0.data(),currentMain.size());currentW2P=f.normalWorldToProjection;currentWV=f.normalWorldToView;
-        currentViewIndex=f.selectedViewIndex;currentFlags10=f.commonFlags10;currentCommon=f.common;
-        statistics.currentAppFlags=ground_detail_source::normalAppTail(f.actualAppFlags0,f.actualMode288,f.actualEcB0);
-        bool selected=f.overlaySelected;uint32_t overlay=f.actualOverlayWord0;
-        if(f.hostCallbackExecuted){overlay=ground_detail_source::hostPlacementOverlay(selected?overlay:0x01FFFFFFu,statistics.currentAppFlags);selected=true;}
-        currentCommon.flags14=ground_detail_source::placementAux14(f.common.flags14,selected,overlay);
-        statistics.currentAux14=currentCommon.flags14;effectiveExclusion=ground_detail_source::effectiveExclusion(currentCommon);
-        viewPresent=(f.presentViews&(1u<<f.selectedViewIndex))!=0;
-        ordinaryCamera=(source_camera::get<uint32_t>(currentMain.data()+0x158)&1)==0;
-        windOccurrence=viewPresent&&(f.successful3340&(1u<<f.selectedViewIndex))!=0&&(f.selectedViewIndex==0||f.selectedViewIndex==6);
-        if(windOccurrence)currentWind=tree2_source::advance(windOwner,random,currentMain,f.clock);
-        if((f.commonFlags10&0x200000u)!=0)
+        currentEnvironment=f.environment;
+        const auto matrices=cameraMatrices(f.camera);currentW2P=matrices.worldToProjection;currentWV=matrices.worldToView;
+        currentViewIndex=f.population.selectedView;commonSettingsFlags=f.commonSettingsFlags;
+        currentCommon={f.view.present,f.view.categoryFlags,visibilityPolicy.placementFlags,f.view.excludedCategories,visibilityPolicy.frustumKind};
+        statistics.currentAppFlags=ground_detail_source::normalAppTail(visibilityPolicy.baseAppFlags,f.display.mode,f.display.zoomLevel);
+        bool selected=f.display.overlaySelected;uint32_t overlay=f.display.placementOverlay;
+        if(f.display.hostPlacementCallbackExecuted){overlay=ground_detail_source::hostPlacementOverlay(selected?overlay:0x01FFFFFFu,statistics.currentAppFlags);selected=true;}
+        currentCommon.flags14=ground_detail_source::placementAux14(currentCommon.flags14,selected,overlay);
+        statistics.currentPlacementFlags=currentCommon.flags14;effectiveExclusion=ground_detail_source::effectiveExclusion(currentCommon);
+        viewPresent=(f.population.registeredViews&(1u<<f.population.selectedView))!=0;
+        ordinaryCamera=currentEnvironment.ordinaryCamera;
+        windOccurrence=viewPresent&&(f.population.successfulViews&(1u<<f.population.selectedView))!=0&&(f.population.selectedView==0||f.population.selectedView==6);
+        if(windOccurrence)currentWind=tree2_source::advance(windOwner,random,currentEnvironment,f.clock);
+        if((f.commonSettingsFlags&0x200000u)!=0)
             throw std::runtime_error("Ground details current interaction writer requires its actual shader/owner publication interface");
-        for(auto d:ground_detail_source::dispatch(f.callerFirst,f.callerSecond,f.callerShadow,f.presentViews,currentCommon))if(d.view==f.selectedViewIndex){
-            statistics.normalFirst=(d.first&f.successful3340)!=0;statistics.normalSecond=(d.second&f.successful3340)!=0;
+        for(auto d:ground_detail_source::dispatch(f.population.firstViews,f.population.secondViews,f.population.shadowViews,f.population.registeredViews,currentCommon))if(d.view==f.population.selectedView){
+            statistics.normalFirst=(d.first&f.population.successfulViews)!=0;statistics.normalSecond=(d.second&f.population.successfulViews)!=0;
         }
         if(!statistics.normalFirst&&!statistics.normalSecond)return statistics;
-        auto view=ground_detail_source::prepare(f.camera,f.culling450,f.scanning454);
+        auto view=ground_detail_source::prepare(f.camera,visibilityPolicy.cullingMode,visibilityPolicy.scanningOrder);
         population=ground_detail_source::aggregate(packet,view,ground_detail_source::select(packet,view),parts,worlds);
         for(const auto& stream:population.streams)statistics.selectedInstances+=uint32_t(stream.rows.size());
         statistics.preparedPrimitives=uint32_t(population.submissions.size());
@@ -215,19 +221,20 @@ public:
             if(d.queue==54)++statistics.opaqueDraws;else ++statistics.alphaDraws;
         }return statistics;
     }
-    uint32_t preparedCountForRecord(uint32_t mask78) const {
-        if(!prepared||!statistics.normalFirst||(mask78&effectiveExclusion)!=0)return 0;
+    uint32_t preparedExclusion() const noexcept {return effectiveExclusion;}
+    uint32_t preparedCountForRecord(uint32_t excludedCategories) const {
+        if(!prepared||!statistics.normalFirst||(excludedCategories&effectiveExclusion)!=0)return 0;
         return statistics.preparedPrimitives;
     }
     // Call before any normal draw and before publishing the current wind side.
     void update(ID3D11DeviceContext* context) {
         if(!prepared||uploaded)throw std::runtime_error("Ground details requires one update after current prepare");
-        tree2_source::WindAdmissionInputs a{currentViewIndex,currentFlags10,viewPresent,currentCommon.present,ordinaryCamera,bool(windShader),
-            bool(windObjects[0].srv),bool(windObjects[1].srv),bool(windObjects[2].srv),bool(volumes[0].uav)&&bool(volumes[1].uav),bool(phase[0].uav)&&bool(phase[1].uav),tree2_source::read(currentMain,0x1438)};
+        tree2_source::WindAdmissionInputs a{currentViewIndex,commonSettingsFlags,viewPresent,currentCommon.present,ordinaryCamera,bool(windShader),
+            bool(windObjects[0].srv),bool(windObjects[1].srv),bool(windObjects[2].srv),bool(volumes[0].uav)&&bool(volumes[1].uav),bool(phase[0].uav)&&bool(phase[1].uav),currentEnvironment.windExtent};
         auto next=graphics;
-        if(windOccurrence&&tree2_source::beginWindUpdate(next,currentMain,0,a)){
+        if(windOccurrence&&tree2_source::beginWindUpdate(next,currentEnvironment,0,a)){
             std::array<ID3D11ShaderResourceView*,16> none{};context->VSSetShaderResources(0,16,none.data());
-            std::array<uint8_t,64> cb{};tree2_source::writeComputeFrame(cb,currentMain,currentWind,next,0,windCounts[0],windCounts[1],windCounts[2]);
+            std::array<uint8_t,64> cb{};tree2_source::writeComputeFrame(cb,currentEnvironment,currentWind,next,0,windCounts[0],windCounts[1],windCounts[2]);
             context->UpdateSubresource(windConstants.Get(),0,nullptr,cb.data(),0,0);auto c=windConstants.Get();context->CSSetConstantBuffers(0,1,&c);
             const auto side=next.phaseSide[0];ID3D11ShaderResourceView* inputs[4]{windObjects[0].srv.Get(),windObjects[1].srv.Get(),windObjects[2].srv.Get(),phase[1-side].srv.Get()};
             ID3D11UnorderedAccessView* outputs[3]{volumes[0].uav.Get(),volumes[1].uav.Get(),phase[side].uav.Get()};
@@ -243,7 +250,7 @@ public:
         for(const auto& submission:population.submissions){if(population.streams[submission.streamIndex].rows.empty())continue;
             const auto i=drawByPath.at(submission.primitive.relativePath);auto& d=drawData[i];auto& model=models.draws[i];
             std::memcpy(d.vertex.data(),currentW2P.data(),64);std::memcpy(d.pixel.data()+16,currentWV.data(),48);
-            if(d.tree)tree2_source::writeVsFrame(bytes(d.vertex),currentMain,currentWind,graphics,d.groupFlags);
+            if(d.tree)tree2_source::writeVsFrame(bytes(d.vertex),currentEnvironment,currentWind,graphics,d.groupFlags);
             context->UpdateSubresource(model.vsConstants.Get(),0,nullptr,d.vertex.data(),0,0);context->UpdateSubresource(model.psConstants.Get(),0,nullptr,d.pixel.data(),0,0);
         }
         uploaded=true;
@@ -254,8 +261,8 @@ public:
         ID3D11RenderTargetView* const* targets,ID3D11DepthStencilView* dsv,const D3D11_VIEWPORT& viewport) {
         if(!uploaded)throw std::runtime_error("Ground details draw needs current uploaded streams/CB");
         if(node54or55!=54&&node54or55!=55)throw std::runtime_error("Ground details supports normal54/55 only");
-        if(!statistics.normalFirst||!record.kind1||!record.dispatcherStencil.submit||!record.currentFirstCounterCount||(record.mask78&effectiveExclusion)!=0)return;
-        const uint32_t reference=record.dispatcherStencil.reference,reverse=(record.contextFlags3E4>>29)&1;
+        if(!statistics.normalFirst||!record.ordinaryGeometryKind||!record.dispatcherStencil.submit||!record.ordinaryPrimitiveCount||(record.excludedCategories&effectiveExclusion)!=0)return;
+        const uint32_t reference=record.dispatcherStencil.reference,reverse=(record.contextFlags>>29)&1;
         context->OMSetRenderTargets(5,targets,dsv);context->RSSetViewports(1,&viewport);context->OMSetBlendState(models.blend.Get(),nullptr,~0u);
         context->HSSetShader(nullptr,nullptr,0);context->DSSetShader(nullptr,nullptr,0);context->GSSetShader(nullptr,nullptr,0);
         for(const auto& s:population.submissions){const auto& stream=population.streams[s.streamIndex];if(stream.rows.empty())continue;

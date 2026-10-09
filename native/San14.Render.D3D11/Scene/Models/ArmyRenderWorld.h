@@ -184,9 +184,9 @@ public:
                 const bool siege=modelMode==2,naval=modelMode==1;
                 auto& height=armyUnitHeights[id];height.observeMotion(world->unitMotionRevisions.at(id));
                 auto currentCenter=center;currentCenter[1]=height.y14;
-                auto gate=std::floor(mode.ecB0Index)<4?source_accessory_population::unitAdmission(currentCenter,
+                auto gate=std::floor(mode.zoomLevel)<4?source_accessory_population::unitAdmission(currentCenter,
                     reinterpret_cast<const char*>(eventCamera.prefix.data()),reinterpret_cast<const char*>(eventCamera.prefix.data()),
-                    mode.ownerMode288,mode.ecB0Index,input.controller.distance):source_accessory_population::UnitAdmission{};
+                    mode.sceneMode,mode.zoomLevel,input.controller.distance):source_accessory_population::UnitAdmission{};
                 const bool reached=gate.visible||armyPriorVisible[id];armyPriorVisible[id]=gate.visible;
                 unsigned resolved=0;
                 if(reached){
@@ -234,7 +234,7 @@ public:
                 auto& physical=*armyModelPool->find(actor.key);auto& player=physical.clock;
                 bool eligible=reached;
                 if(category==2||category==3)eligible=eligible&&gate.animateNear;
-                if(category==3)eligible=eligible&&std::floor(mode.ecB0Index)<1;
+                if(category==3)eligible=eligible&&std::floor(mode.zoomLevel)<1;
                 if(navalBody)eligible=eligible&&gate.animateNear;
                 if(siegeBody)eligible=eligible&&(graphics==2?
                     world->unitSelectedFormations.at(id)!=8:dirtyBeforeV30);
@@ -274,13 +274,13 @@ public:
         if(sourceAccessoryVisuals) {
             const auto& action=armyGraphicsActions->rows.at({2,0});
             updateNativeSharedAccessoryFamily(device,*armyModelPool,sharedAreaAccessories,areaAccessories,
-                GraphicsModelFamily::AreaCapital,eventCamera,mode.ownerMode288,mode.ecB0Index,
+                GraphicsModelFamily::AreaCapital,eventCamera,mode.sceneMode,mode.zoomLevel,
                 input.controller.distance,action,armyModels.source.poses[2],animationFps.fps,fpsMode,armyAnimationGroups);
             updateNativeSharedAccessoryFamily(device,*armyModelPool,sharedCityAccessories,cityAccessories,
-                GraphicsModelFamily::City,eventCamera,mode.ownerMode288,mode.ecB0Index,
+                GraphicsModelFamily::City,eventCamera,mode.sceneMode,mode.zoomLevel,
                 input.controller.distance,action,armyModels.source.poses[2],animationFps.fps,fpsMode,armyAnimationGroups);
             updateNativeSharedAccessoryFamily(device,*armyModelPool,sharedCityAccessories,cityAccessories,
-                GraphicsModelFamily::Gate,eventCamera,mode.ownerMode288,mode.ecB0Index,
+                GraphicsModelFamily::Gate,eventCamera,mode.sceneMode,mode.zoomLevel,
                 input.controller.distance,action,armyModels.source.poses[2],animationFps.fps,fpsMode,armyAnimationGroups);
         }
         ++state.updates;state.fpsMode=fpsMode;

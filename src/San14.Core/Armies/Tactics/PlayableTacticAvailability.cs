@@ -12,11 +12,16 @@ public static class PlayableTacticAvailability
 {
     /// <summary>Queries the same unit/target eligibility as the shared command path.</summary>
     public static TacticUseEligibility ForTarget(GameState state, UnitState unit,
+        int tacticId, int targetUnitId, IPlayableTacticRules profiles, PlayableLandRoutes routes) =>
+        ForTarget(state, unit.Id, unit.ForceId, tacticId, targetUnitId, profiles, routes);
+
+    /// <summary>Resolves a current caster by logical identity without retaining a borrowed unit.</summary>
+    public static TacticUseEligibility ForTarget(GameState state, int unitId, int forceId,
         int tacticId, int targetUnitId, IPlayableTacticRules profiles, PlayableLandRoutes routes)
     {
         if (state.Phase != TurnPhase.Strategy) return new(false, "tactic.phase");
         routes.ValidateWorld(state);
-        if (!state.Units.TryGetValue(unit.Id, out UnitState? acting) || acting.ForceId != unit.ForceId)
+        if (!state.Units.TryGetValue(unitId, out UnitState? acting) || acting.ForceId != forceId)
             return new(false, "tactic.unit_missing");
         if (tacticId < 1 || !state.Tactics.ContainsKey(tacticId))
             return new(false, "tactic.tactic_missing");

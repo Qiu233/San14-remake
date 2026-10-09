@@ -1,5 +1,6 @@
 using Godot;
 using San14.Core;
+using San14.Client.Gameplay;
 using System.Globalization;
 
 /// <summary>Reusable command editor. Simulation authority and validation remain in GameEngine.</summary>
@@ -33,14 +34,14 @@ public partial class MilitaryOrdersPanel : VBoxContainer
     private readonly List<int> _draft = [];
     private readonly List<(DeploymentTarget Target, int HexId)> _attackTargets = [];
     private Func<string, string>? _text;
-    private UnitState? _boundUnit;
+    private MilitaryCommandView _view = MilitaryCommandView.Empty;
+    private long _bindingRevision;
     private int? _forceId;
     private int? _unitId;
     private int? _selectedHex;
     private int _mapSize;
     private bool _strategy;
     private Action<GameOrder>? _issue;
-    private GameState? _world;
 
     public MilitaryOrdersPanel()
     {
@@ -92,7 +93,7 @@ public partial class MilitaryOrdersPanel : VBoxContainer
         {
             int[] units = CommandUnitIdsSnapshot();
             int? destination = _selectedHex ?? (units.Length == 1
-                ? _world?.Units.GetValueOrDefault(units[0])?.HexId : null);
+                ? _view.CombatUnit(units[0])?.HexId : null);
             if (!_stay.Disabled && destination is int hex)
                 RequestAction(new DeploymentAction("stay", new DeploymentTarget(DeploymentTargetKind.Hex, hex)));
         };
@@ -151,39 +152,35 @@ public partial class MilitaryOrdersPanel : VBoxContainer
         RenderNativeState();
     }
 
-    public void Refresh(GameState? world, int? selectedUnitId, int? playerForceId, int? selectedHexId = null)
+    public void Refresh(MilitaryCommandView view, int? selectedHexId = null)
     {
-        _forceId = playerForceId;
-        _world = world;
+        _view = view;
+        _forceId = view.ForceId;
         _unitId = null;
         _selectedHex = selectedHexId;
-        _mapSize = world is null ? 0 : checked(world.MapWidth * world.MapHeight);
-        _strategy = world?.Phase == TurnPhase.Strategy && playerForceId is int force &&
-            world.Forces.TryGetValue(force, out ForceState? owner) && owner.IsActive &&
-            PlayableOutcome.Evaluate(world, force) == PlayableResult.Ongoing;
-        UnitState? unit = world is not null && selectedUnitId is int id &&
-            world.Units.TryGetValue(id, out UnitState? candidate) && candidate.ForceId == playerForceId
-            ? candidate : null;
-        if (unit?.Mission is not null and not { Kind: UnitMissionKind.Transport }) _unitId = unit.Id;
-        RefreshBatchSelection(unit);
+        _mapSize = view.MapSize;
+        _strategy = view.CanIssue;
+        MilitaryUnitView? unit = view.FocusedUnit;
+        if (unit?.HasCombatMission == true) _unitId = unit.Id;
+        RefreshBatchSelection();
         SetMeta("military_selected_unit_id", _unitId ?? -1);
-        SetMeta("military_plan_waypoints", unit?.MilitaryPlan?.WaypointHexIds.Length ?? 0);
-        SetMeta("military_plan_waypoint_cursor", unit?.MilitaryPlan?.NextWaypointIndex ?? 0);
-        SetMeta("military_plan_complete", unit?.MilitaryPlan?.Completed ?? false);
-        SetMeta("military_plan_action", unit?.MilitaryPlan?.Action.ActionKey ?? "");
-        SetMeta("military_plan_target_id", unit?.MilitaryPlan?.Action.Target.Id ?? -1);
-        SetMeta("military_plan_target_kind", unit?.MilitaryPlan?.Action.Target.Kind.ToString() ?? "");
-        if (!ReferenceEquals(_boundUnit, unit))
+        SetMeta("military_plan_waypoints", unit?.Plan?.Waypoints.Count ?? 0);
+        SetMeta("military_plan_waypoint_cursor", unit?.Plan?.NextWaypointIndex ?? 0);
+        SetMeta("military_plan_complete", unit?.Plan?.Completed ?? false);
+        SetMeta("military_plan_action", unit?.Plan?.Action.ActionKey ?? "");
+        SetMeta("military_plan_target_id", unit?.Plan?.Action.Target.Id ?? -1);
+        SetMeta("military_plan_target_kind", unit?.Plan?.Action.Target.Kind.ToString() ?? "");
+        if (_bindingRevision != view.BindingRevision)
         {
             _draft.Clear();
-            if (unit?.MilitaryPlan is { Completed: false } plan)
-                _draft.AddRange(plan.WaypointHexIds.Skip(plan.NextWaypointIndex));
+            if (unit?.Plan is { Completed: false } plan)
+                _draft.AddRange(plan.Waypoints.Skip(plan.NextWaypointIndex));
             DeploymentBehavior selected = unit?.Behavior ?? new(true, true, false, DeploymentAfterAction.Stay);
             _nearby.ButtonPressed = selected.AttackNearbyEnemies;
             _retreat.ButtonPressed = selected.AllowRetreat;
             _pursuit.ButtonPressed = selected.PursueRetreatingEnemies;
             if (_after.ItemCount > 0) _after.Select(_after.GetItemIndex((int)selected.AfterAction));
-            _boundUnit = unit;
+            _bindingRevision = view.BindingRevision;
             RenderWaypoints();
         }
         RefreshActionTargets();
@@ -236,24 +233,13 @@ public partial class MilitaryOrdersPanel : VBoxContainer
             ? _attackTargets[_attackTarget.Selected].Target : null;
         int priorEnter = _enterTarget.Selected >= 0 ? _enterTarget.GetSelectedId() : -1;
         _attackTarget.Clear(); _enterTarget.Clear(); _attackTargets.Clear();
-        if (_world is { } world && _forceId is int force)
+        foreach (MilitaryAttackChoice target in _view.AttackTargets)
         {
-            foreach (UnitState enemy in world.Units.Values.Where(unit => PlayableDiplomacy.IsHostile(world, force, unit.ForceId)).OrderBy(unit => unit.Id))
-            {
-                string name = world.Officers.TryGetValue(enemy.OfficerId, out OfficerState? officer) ? officer.Name : enemy.OfficerId.ToString();
-                AddAttack(new(DeploymentTargetKind.Unit, enemy.Id), enemy.HexId, Format("play_military_target_unit", name, enemy.Id));
-            }
-            foreach (CityState city in world.Cities.Values.OrderBy(city => city.Id))
-                if (city.HexId is int hex) AddLocation(city.Id, hex, city.ForceId, city.Name);
-            foreach (GateState gate in world.Gates.Values.OrderBy(gate => gate.Id))
-                if (gate.HexId is int hex) AddLocation(gate.Id, hex, gate.ForceId, gate.Name);
-            void AddLocation(int id, int hex, int? owner, string name)
-            {
-                if (owner == force) _enterTarget.AddItem(name, id);
-                else if (PlayableDiplomacy.IsHostile(world, force, owner))
-                    AddAttack(new(DeploymentTargetKind.Location, id), hex, Format("play_military_target_location", name, id));
-            }
+            string label = Format(target.Target.Kind == DeploymentTargetKind.Unit
+                ? "play_military_target_unit" : "play_military_target_location", target.Name, target.Target.Id);
+            AddAttack(target.Target, target.HexId, label);
         }
+        foreach (MilitaryLocationChoice location in _view.EntryTargets) _enterTarget.AddItem(location.Name, location.Id);
         int attackIndex = _attackTargets.FindIndex(item => item.Target == priorAttack);
         if (attackIndex >= 0) _attackTarget.Select(attackIndex);
         int enterIndex = _enterTarget.GetItemIndex(priorEnter);
@@ -270,33 +256,22 @@ public partial class MilitaryOrdersPanel : VBoxContainer
 
     private void SelectMapTargets()
     {
-        if (_selectedHex is not int hex || _world is null) return;
+        if (_selectedHex is not int hex) return;
         int attack = _attackTargets.FindIndex(item => item.HexId == hex);
         if (attack >= 0) _attackTarget.Select(attack);
-        int? enter = _world.Cities.Values.FirstOrDefault(city => city.HexId == hex && city.ForceId == _forceId)?.Id ??
-            _world.Gates.Values.FirstOrDefault(gate => gate.HexId == hex && gate.ForceId == _forceId)?.Id;
+        int? enter = _view.EntryAtHex(hex);
         if (enter is int id && _enterTarget.GetItemIndex(id) is int index && index >= 0) _enterTarget.Select(index);
     }
 
     private void RenderActionStatus()
     {
         if (_text is null) return;
-        _unitSummary.Text = _boundUnit is { } unit ? Format("play_military_unit_summary", unit.Id,
-            _world?.Officers.GetValueOrDefault(unit.OfficerId)?.Name ?? unit.OfficerId.ToString(), unit.Troops,
-            unit.NativeMorale1A is byte nativeMorale ? nativeMorale : unit.Morale,
-            unit.FormationId is int formation ? _world?.Formations.GetValueOrDefault(formation)?.Name ?? _text("detail_unknown") : _text("detail_unknown")) : "";
-        if (_boundUnit?.MilitaryPlan is not { } plan)
+        _unitSummary.Text = _view.FocusedUnit is { } unit ? Format("play_military_unit_summary", unit.Id,
+            unit.OfficerName, unit.Troops, unit.Morale, unit.FormationName ?? _text("detail_unknown")) : "";
+        if (_view.FocusedUnit?.Plan is not { } plan)
         { _actionStatus.Text = _text("play_military_no_action"); return; }
-        string target = plan.Action.Target.Kind switch
-        {
-            DeploymentTargetKind.Unit => _world?.Units.TryGetValue(plan.Action.Target.Id, out UnitState? targetUnit) == true &&
-                _world.Officers.TryGetValue(targetUnit.OfficerId, out OfficerState? officer) ? officer.Name : plan.Action.Target.Id.ToString(),
-            DeploymentTargetKind.Location => _world?.Cities.GetValueOrDefault(plan.Action.Target.Id)?.Name ??
-                _world?.Gates.GetValueOrDefault(plan.Action.Target.Id)?.Name ?? plan.Action.Target.Id.ToString(),
-            _ => plan.Action.Target.Id.ToString()
-        };
         _actionStatus.Text = Format(plan.Completed ? "play_military_action_complete" : "play_military_action_current",
-            _text("play_military_action_" + plan.Action.ActionKey), target);
+            _text("play_military_action_" + plan.Action.ActionKey), plan.TargetName);
     }
 
     private string Format(string key, params object?[] args) => _text is null ? "" :
@@ -323,7 +298,7 @@ public partial class MilitaryOrdersPanel : VBoxContainer
         _attack.Disabled = _attackTarget.Disabled || _attackTarget.Selected < 0;
         _enter.Disabled = _enterTarget.Disabled || _enterTarget.Selected < 0;
         _stay.Disabled = !_strategy || !combatUnit || units.Length > 1 && _selectedHex is null;
-        _nearby.Disabled = !_strategy || _boundUnit?.Mission?.Kind == UnitMissionKind.Transport;
+        _nearby.Disabled = !_strategy || _view.FocusedUnit?.IsTransport == true;
         _retreat.Disabled = _nearby.Disabled;
         _pursuit.Disabled = _nearby.Disabled;
         _after.Disabled = _nearby.Disabled;
@@ -332,7 +307,7 @@ public partial class MilitaryOrdersPanel : VBoxContainer
         _remove.Disabled = !_strategy || _waypoints.GetSelectedItems().Length == 0;
         _clear.Disabled = !_strategy || _draft.Count == 0;
         _applyRoute.Disabled = !_strategy || !combatUnit || units.Any(id =>
-            _world?.Units.GetValueOrDefault(id)?.MilitaryPlan is not { Completed: false });
+            _view.CombatUnit(id)?.HasUnfinishedPlan != true);
         _applyBehavior.Disabled = !_strategy || !combatUnit;
         UpdateBatchSelectionEnabled();
         UpdateWithdrawalEnabled();

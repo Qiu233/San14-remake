@@ -17,8 +17,8 @@ public sealed partial class WorldIndexContext
     }
     private void CopyBindingsFrom(WorldIndexContext source)
     {
-        _armyIds.Clear(); foreach (var row in source._armyIds) _armyIds.Add(row.Key, row.Value);
-        _officerPhysical.Clear(); foreach (var row in source._officerPhysical) _officerPhysical.Add(row.Key, row.Value);
+        _armies.CopyFrom(source._armies);
+        _officers.CopyFrom(source._officers);
         _traitHandles.Clear(); foreach (var row in source._traitHandles) _traitHandles.Add(row.Key, row.Value.ToArray());
         _cautionHandles.Clear(); foreach (var row in source._cautionHandles) _cautionHandles.Add(row.Key, row.Value);
         AssociatedTaskHandle = source.AssociatedTaskHandle; ChangedWorkingHandle = source.ChangedWorkingHandle;

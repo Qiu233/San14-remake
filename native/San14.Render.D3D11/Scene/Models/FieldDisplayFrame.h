@@ -38,23 +38,23 @@ inline CurrentRenderMode currentMode(Zoom zoom){
 }
 inline Current prepareCurrent(const Profile& p,Owner& owner,Zoom zoom,const Prefix& actualRawCamera){
     Current out;out.mode=currentMode(zoom);out.directPrefix=actualRawCamera;
-    out.preparedWords=p.direct.at(out.mode.ownerMode288);
+    out.preparedWords=p.direct.at(out.mode.sceneMode);
     uint32_t cloudy=p.selectedCloudy;
     for(auto& word:out.preparedWords)if(word.offset==0x1D0)cloudy=word.bits;
     const uint32_t altitude=source_camera::get<float>(reinterpret_cast<const uint8_t*>(&owner.priorCloudy))==source_camera::get<float>(reinterpret_cast<const uint8_t*>(&cloudy))?0:p.changedAltitude;
     for(auto& word:out.preparedWords){if(word.offset==0x210)word.bits=altitude;
         if(word.offset+4<=out.directPrefix.size())source_camera::put(out.directPrefix.data()+word.offset,word.bits);}
-    if(out.mode.ownerMode288>=3){
+    if(out.mode.sceneMode>=3){
         using source_camera::A;using source_camera::S;using source_camera::M;using source_camera::D;
-        const float t=S(out.mode.ecB0Index,5.f),start=D(float(p.phaseStart),float(p.phaseDenominator)),end=D(float(p.phaseEnd),float(p.phaseDenominator));
+        const float t=S(out.mode.zoomLevel,5.f),start=D(float(p.phaseStart),float(p.phaseDenominator)),end=D(float(p.phaseEnd),float(p.phaseDenominator));
         const float date=A(M(start,S(1.f,t)),M(end,t));source_camera::put(out.directPrefix.data()+0x204,date);
         out.preparedWords.push_back({0x204,source_camera::get<uint32_t>(reinterpret_cast<const uint8_t*>(&date))});
     }
     owner.priorCloudy=cloudy;
-    out.sceneConfigPublished=source_mode2_octree::publishAfterV418(owner.displayConfig,owner.appFlags,p.quality,out.mode.ownerMode288);
+    out.sceneConfigPublished=source_mode2_octree::publishAfterV418(owner.displayConfig,owner.appFlags,p.quality,out.mode.sceneMode);
     out.appFlags=owner.appFlags;out.sceneTypeMask=source_mode2_octree::sceneTypeMask(owner.displayConfig);
-    out.resetGroups[1]=p.quality>=2||out.mode.ownerMode288>=2;
-    out.resetGroups[2]=out.mode.ownerMode288>=3;out.resetGroups[3]=out.resetGroups[6]=p.quality>=2;
+    out.resetGroups[1]=p.quality>=2||out.mode.sceneMode>=2;
+    out.resetGroups[2]=out.mode.sceneMode>=3;out.resetGroups[3]=out.resetGroups[6]=p.quality>=2;
     return out;
 }
 struct CurrentModelMasks {uint32_t first{},second{},shadow{};};

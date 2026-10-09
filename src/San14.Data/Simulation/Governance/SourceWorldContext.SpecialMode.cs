@@ -17,10 +17,10 @@ public sealed partial class SourceWorldContext : ISpecialModeForceInitialization
     public ScenarioPersonReference? ReadSpecialModePersonTableReference(int id)
     {
         Check(id, 6001, "special-mode person ID lookup");
-        if (_personPointers.TryGetValue(id, out int? physical)) return new(physical);
-        return _personLookupCleared ? new(null) : null;
+        SourceOfficerReference? reference = _officerSources.LogicalReference(id);
+        return reference is null ? null : new(reference.Record);
     }
-    public ScenarioPersonReference? ReadSpecialModeBasePersonReference() => _basePointerKnown ? new(_basePerson) : null;
+    public ScenarioPersonReference? ReadSpecialModeBasePersonReference() => _officerSources.Placeholder is { } reference ? new(reference.Record) : null;
     public bool? ReadSpecialModePersonNativeValidity(ScenarioPersonReference person)
     {
         ArgumentNullException.ThrowIfNull(person);

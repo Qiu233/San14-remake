@@ -208,8 +208,7 @@ public sealed class PersonFreedomSource(ArmyCampaignRuleAdapter package, LoadedS
                     ServiceStatus = OfficerServiceStatus.Free,
                     Behavior = OfficerBehaviorSourceAdapter.WithSourceFlags(person.Behavior, OfficerBehaviorSourceAdapter.ClearFreedomState(flags)),
                     MeritState = OfficerMeritRules.ResetAfterRelease(merit),
-                    NativeDestructionRuntime = auxiliaries with { Byte19D = 0, Byte1A0 = 0 },
-                    NativeFreedomRuntime = new(Revision, 0, 0, 0)
+                    NativeDestructionRuntime = auxiliaries with { Byte19D = 0, Byte1A0 = 0 }
                 } },
                 Cities = new(result.Cities) { [captured.Id] = result.Cities[captured.Id] with
                     { ForceId = captured.ForceId, DistrictId = captured.DistrictId, GovernorId = captured.GovernorId } },

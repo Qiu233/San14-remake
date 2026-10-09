@@ -19,8 +19,8 @@ public sealed partial class SourceWorldContext : IPostRegistrationLookupState
     public TransferPersonReference? ReadPersonLookupReference(int id)
     {
         Check(id,6001,"person lookup ID");
-        if(_personPointers.TryGetValue(id,out int? physical))return new(physical);
-        return _personLookupCleared ? new(null) : null;
+        SourceOfficerReference? reference = _officerSources.LogicalReference(id);
+        return reference is null ? null : new(reference.Record);
     }
     public void SetForceRankSlot47(int physical,byte? rank)
     {Check(physical,52,"force rank receiver");_forceRanks47[physical]=rank;}
