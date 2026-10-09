@@ -10,8 +10,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             physical is < 1 or > 500 || physical >= arena.Slots.Length ||
             arena.Slots[physical] is not { ActiveUnitId: var active, Commander12: var commander } slot ||
             active != army.Id || commander != army.OfficerId ||
-            arena.Targets38 is not { } targets || physical >= targets.Length ||
-            targets[physical] is not { Kind38: 5, Identity3A: ushort target } || target != city.Id ||
+            OwnedArmyLifecycleTargets.Read(state, slot.ReceiverId) is not { Kind38: 5, Identity3A: ushort target } || target != city.Id ||
             army.NativeCurrentHex2A != army.HexId)
             return new(null, "current.transport_entry_position_owner");
         var geometry = _definitions.ReadCityEntryGeometry(target);
@@ -24,7 +23,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 person.Behavior, OfficerServiceStatusSourceAdapter.Encode(person.ServiceStatus));
             if (commanderValid == false) rawForce = 0;
             else if (commanderValid == true && OfficerLocationSourceAdapter.EncodeMembership(person.LocationState?.Membership,
-                (state.ResourceState as OfficerLocationSourceResidues)?.Find(person.Id)) is byte districtId)
+                (state.ResourceState as CampaignSourceKnowledge)?.Find(person.Id)) is byte districtId)
             {
                 if (districtId is 0 or > 51) rawForce = 0;
                 else if (state.Districts.TryGetValue(districtId, out var district))
@@ -37,7 +36,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         return ArmyCityEntryEligibilitySource.ReadPosition(new(physical, slot.Commander12, slot.Status10,
             army.NativeArmyConfiguration?.Action37, army.NativeMarch?.CurrentHex2A ?? army.NativeCurrentHex2A,
-            targets[physical], target, geometry.Valid, geometry.Location, geometry.Goal, rawForce, city.ForceId ?? 0,
+            OwnedArmyLifecycleTargets.Read(state, slot.ReceiverId), target, geometry.Valid, geometry.Location, geometry.Goal, rawForce, city.ForceId ?? 0,
             commanderValid));
     }
 }

@@ -6,7 +6,7 @@ namespace San14.Data;
 /// is the pointer-table receiver selected by raw38/3A; GoalHex is its linked
 /// Object10, not the Army's route48 or the first waypoint2C.</summary>
 public sealed record ArmyCityEntryPositionInputs(int ArmyPhysicalSlot, ushort? Commander12,
-    byte? Status10, byte? Action37, ushort? CurrentHex2A, NativeArmyLifecycleTargetState? Target38,
+    byte? Status10, byte? Action37, ushort? CurrentHex2A, ArmyTargetSourceFields? Target38,
     int? TargetCityPhysical, bool? TargetCityValid, ushort? TargetLocation4E, ushort? GoalHex2B5610,
     int? ArmyForceB0, int? TargetForceB0, bool? CommanderValid = null);
 
@@ -84,7 +84,7 @@ public static class ArmyCityEntryEligibilitySource
             return Missing("saved_active_Army_receiver");
         var fields = new ArmyCityEntryPositionInputs(physical, slot.Commander12, slot.Status10,
             army.NativeArmyConfiguration?.Action37, army.NativeMarch?.CurrentHex2A ?? army.NativeCurrentHex2A,
-            arena.Targets38 is { } targets && physical < targets.Length ? targets[physical] : null,
+            OwnedArmyLifecycleTargets.Read(state, slot.ReceiverId),
             null, null, null, null, null, null);
         var prefix = ReadPosition(fields);
         if (prefix.UnresolvedOwner != "current.city_entry_TargetCity_pointer") return prefix;

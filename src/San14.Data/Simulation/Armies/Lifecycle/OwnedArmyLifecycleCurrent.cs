@@ -34,7 +34,7 @@ public static class OwnedArmyLifecycleCurrent
             receiverDirectory.TryResolveReceiverId(physical, out var receiverId);
             slots[physical] = new(physical, 0, 0, 0, null, null, ArmyStoreKnowledge.Empty, new ushort[36], new ushort[36])
                 { ReceiverId = receiverId,
-                    OverrideTarget = new(0xFF, 0), Direction36 = ArmyDirectionSource.ResetDirection36,
+                    OverrideTarget = ArmyOverrideTargetState.Cleared, Direction36 = ArmyDirectionSource.ResetDirection36,
                     MapUiByte13C = 0, CommandControl140 = 0, RouteHold56 = 0, RouteGoal1F8 = 0xBD10,
                     GroupAssignmentReady = true };
             current.SetArmyUnitTablePointer(physical, physical);
@@ -137,15 +137,17 @@ public static class OwnedArmyLifecycleCurrent
             Priority14 = status == 2 ? (ushort)0 : created.NativeMarch?.Credit14,
             ActiveUnitId = created.Id, PendingImage = null,
             GroupAssignmentReady = false,
-            OverrideTarget = created.NativeOverrideTarget, Direction36 = created.NativeDirection36,
+            OverrideTarget = created.OverrideTarget, Direction36 = created.NativeDirection36,
             MapUiByte13C = created.NativeMapUiByte13C,
             CommandControl140 = created.NativeCommandControl140,
             RouteHold56 = created.NativeRouteHold56, RouteGoal1F8 = created.NativeRouteGoal1F8,
             StoredResources = new(resources.Gold, resources.Food) };
         var registered = arena with { Slots = slots, Indexes = pool.ExportOwnedState() };
-        registered = OwnedArmyLifecycleTargets.PublishCreation(registered, physical, packetTargetKind38, packetTargetIdentity3A);
+        var targetState = OwnedArmyLifecycleTargets.PublishCreation(state with { NativeArmyLifecycle = registered }, physical, packetTargetKind38, packetTargetIdentity3A);
+        targetState = ArmyOverrideTargetSourceAdapter.InheritReceiverKnowledge(targetState, created);
+        registered = targetState.NativeArmyLifecycle!;
         var admitted = OwnedArmyLifecycleAuxiliaries.PrepareCreation(registered, state, created, current, pool);
-        return admitted is null ? null : new(admitted, assignedOccupancy);
+        return admitted is null ? null : new(admitted, assignedOccupancy) { ResourceState = targetState.ResourceState };
     }
 
     /// <summary>Only31F370's container operation for a known pooled pointer.

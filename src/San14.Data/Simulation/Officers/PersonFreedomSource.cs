@@ -143,8 +143,7 @@ public sealed class PersonFreedomSource(ArmyCampaignRuleAdapter package, LoadedS
             input = input with { NativeArmySimulation = native with { Forces = new(native.Forces) { [originalForce] = forceState with
                 { NormalAftermath = forceState.NormalAftermath! with { Development1BE = fame } } } } };
             effects.Add("265488.223D40_original_Force_popularity");
-            var auxiliaries = current.ReadPersonDestructionRuntimeFields(physical) ?? throw Missing("current.freedom_Person160_owner");
-            current.SetPersonDestructionRuntimeFields(physical, auxiliaries with { Byte19D = 0 });
+            current.WriteFormerForceKnowledge(physical, 0);
             current.WritePersonStatus(physical, 5);
             PersonDistrictTransfer.Apply(physical, 0, new Transfer(current));
             current.WritePersonFirstLocation(physical, 0);
@@ -177,7 +176,8 @@ public sealed class PersonFreedomSource(ArmyCampaignRuleAdapter package, LoadedS
             }
             ushort destination = (ushort)Math.Min(K(current.ReadBaseObjectLink(finalHome), "current.freedom_final_City4E"), (ushort)61);
             current.WritePersonFirstLocation(physical, destination);
-            current.SetPersonDestructionRuntimeFields(physical, auxiliaries with { Byte19D = 0, Byte1A0 = 0 });
+            current.WriteFormerForceKnowledge(physical, 0);
+            current.ClearCaptureResetKnowledge(physical);
             byte loyalty = OfficerBehaviorRules.PreservesMaximumLoyalty(current.ReadPersonBehavior(physical)) == false ? (byte)0 : (byte)255;
             current.SetPersonDestructionLoyaltyE8(physical, loyalty);
             int? selector = BattleRemakeCurrentSettings.ReadSelectorE58(input);
@@ -205,8 +205,7 @@ public sealed class PersonFreedomSource(ArmyCampaignRuleAdapter package, LoadedS
                     LocationState = person.LocationState! with { Membership = OfficerDistrictMembership.Unaffiliated },
                     ServiceStatus = OfficerServiceStatus.Free,
                     Behavior = OfficerBehaviorSourceAdapter.WithSourceFlags(person.Behavior, OfficerBehaviorSourceAdapter.ClearFreedomState(flags)),
-                    MeritState = OfficerMeritRules.ResetAfterRelease(merit),
-                    NativeDestructionRuntime = auxiliaries with { Byte19D = 0, Byte1A0 = 0 }
+                    MeritState = OfficerMeritRules.ResetAfterRelease(merit)
                 } },
                 Cities = new(result.Cities) { [captured.Id] = result.Cities[captured.Id] with
                     { ForceId = captured.ForceId, DistrictId = captured.DistrictId, GovernorId = captured.GovernorId } },
@@ -215,6 +214,7 @@ public sealed class PersonFreedomSource(ArmyCampaignRuleAdapter package, LoadedS
                 NativeArmyLifecycle = result.NativeArmyLifecycle! with { Indexes = world.Pool.ExportOwnedState() }
             };
             result = OfficerLocationSourceAdapter.PublishPosition(result, personId, current);
+            result = current.PublishOfficerAftermath(result, personId);
             effects.Add("265C50.Area_E4→Home_E2→Office73_Loyalty0_or255→actual_raw_resets");
             ArmyReturnGovernorPacket? governorRepair = null;
             if (repairGovernor && K(current.ReadArmyReturnBaseGovernor2E(oldHome), "current.freedom_old_Home2E_tail") == 0 &&

@@ -137,9 +137,10 @@ public sealed partial class OwnedArmyDestructionStage
                 ArmyDestructionForce164.ApplyContext(packet);
                 state = ArmyDestructionForce164.PublishCurrent(state, packet); forceGain = packet.RequestedGain;
                 effects.Add("25C2xx.258A60_winner_Force164");
-                var target = current.ReadArmyLifecycleTargetFields(winner.PhysicalSlot!.Value)
+                var target = current.ReadArmyTargetState(winner.PhysicalSlot!.Value)
                     ?? throw Missing("current.cause4_winner_Target38");
-                if (Known(target.Kind38, "cause4_winner_Target38") == 0x1B && Known(target.Identity3A, "cause4_winner_Target3A") == physical)
+                if (Known(target.Kind, "cause4_winner_Target38") == ArmyTargetKind.ArmyReceiver &&
+                    current.TargetsArmyReceiver(target.Destination ?? throw Missing("current.cause4_winner_Target3A"), physical))
                     if (!OwnedArmyDestructorFlags.SetSourceBit(current, winner.PhysicalSlot.Value, 2, true))
                         throw Missing("current.cause4_winner_Army150");
                 effects.Add("25C3xx.winner_Target38_3A_flag2");
@@ -151,9 +152,10 @@ public sealed partial class OwnedArmyDestructionStage
                 var saved = state.NativeArmyLifecycle!.Slots[index];
                 var image = saved.ActiveUnitId is int active ? state.Units.GetValueOrDefault(active) : saved.PendingImage;
                 if (Known(image?.NativeArmyConfiguration?.Action37, "cause4_target_clear_Action37") != 7) continue;
-                var target = current.ReadArmyLifecycleTargetFields(index) ?? throw Missing("current.cause4_target38");
-                if (Known(target.Kind38, "cause4_target38") == 0x1B && Known(target.Identity3A, "cause4_target3A") == physical)
-                    current.SetArmyLifecycleTargetFields(index, new(0x1B, 0));
+                var target = current.ReadArmyTargetState(index) ?? throw Missing("current.cause4_target38");
+                if (Known(target.Kind, "cause4_target38") == ArmyTargetKind.ArmyReceiver &&
+                    current.TargetsArmyReceiver(target.Destination ?? throw Missing("current.cause4_target3A"), physical))
+                    current.ClearArmyTargetToPlaceholder(index);
             }
             effects.Add("25C4xx.manager60_target38_3A_clear");
             var slots = state.NativeArmyLifecycle!.Slots.ToArray();
@@ -179,11 +181,11 @@ public sealed partial class OwnedArmyDestructionStage
                         AuxiliaryAC = fields?.PersonsAC.ToArray() ?? old.AuxiliaryAC, AuxiliaryF4 = fields?.AuxiliaryF4.ToArray() ?? old.AuxiliaryF4 };
                 }
             }
-            var savedArena = OwnedArmyLifecycleTargets.PublishCurrent(
-                OwnedArmyDestructorFlags.PublishCurrent(state.NativeArmyLifecycle!, current), current) with
+            var savedArena = OwnedArmyDestructorFlags.PublishCurrent(state.NativeArmyLifecycle!, current) with
             { Slots = slots, Indexes = pool.ExportOwnedState() };
             var result = state with { Units = units, Officers = new(state.Officers) { [army.OfficerId] = state.Officers[army.OfficerId] with { Deployed = false } },
                 NativeArmyLifecycle = savedArena, ArmyMapOccupancy = current.ExportArmyMapOccupancy() };
+            result = OwnedArmyLifecycleTargets.PublishCurrent(result, current);
             return new(result, new(physical, id, commander, effects, tracking.Writes)
                 { VictimHome = captured.VictimHome, WinnerReward = winnerReward, WinnerForce164Gain = forceGain }, null);
         }

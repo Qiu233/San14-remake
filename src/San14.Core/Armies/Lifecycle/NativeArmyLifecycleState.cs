@@ -12,7 +12,7 @@ public sealed record NativeArmyLifecycleSlot(int PhysicalSlot, ushort? Commander
     public ArmyReceiverId ReceiverId { get; init; }
     /// <summary>Free receiver reset/current source writes. Active/Pending
     /// images keep their own mutable raw fields; a missing reset is unknown.</summary>
-    public NativeArmyOverrideTargetRuntime? OverrideTarget { get; init; }
+    public ArmyOverrideTargetState? OverrideTarget { get; init; }
     //Free receiver current value; active/Pending images own their direction.
     public byte? Direction36 { get; init; }
     public byte? MapUiByte13C { get; init; }
@@ -56,7 +56,6 @@ public static class NativeArmyLifecycleStateValidation
         ArmyGroupsSaveValidation.Validate(lifecycle.ArmyGroups);
         ArmyCautionsSaveValidation.Validate(lifecycle.ArmyCautions);
         NativeArmyDestructorFlagsStateValidation.Validate(lifecycle);
-        NativeArmyLifecycleTargetStateValidation.Validate(lifecycle);
         var units = new HashSet<int>();
         var receivers = new HashSet<ArmyReceiverId>();
         for (int i = 0; i < lifecycle.Slots.Length; i++)

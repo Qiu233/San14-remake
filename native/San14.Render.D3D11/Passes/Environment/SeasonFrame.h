@@ -1,6 +1,7 @@
 #pragma once
-// Numeric same-request packet from OriginalD3D11CurrentSeasonFrame. Loaded
-// textures, programs, History/Generic owners remain native session resources.
+// Same-request season interchange packet. Imported layout is decoded here;
+// loaded textures, programs and retained pass histories remain session resources.
+#include "../Shadows/SeasonShadowInputs.h"
 #include <array>
 #include <cstdint>
 #include <cstring>
@@ -11,7 +12,11 @@
 
 namespace source_current_season {
 struct Word {int32_t offset;uint32_t bits;};
-struct Light {uint32_t object,mask;std::array<uint8_t,0x328> data;};
+struct Light {
+    uint32_t object,mask;
+    std::array<uint8_t,0x328> data;
+    source_current_season_shadow::LightGeometry shadowGeometry;
+};
 struct ExposureLight {uint32_t auxiliarySelector{},object{},present{},type{},flags{};std::array<float,3> rgb{};};
 static_assert(sizeof(ExposureLight)==32);
 struct HdrWrite {uint32_t offset;std::vector<uint8_t> bytes;};
@@ -23,9 +28,47 @@ struct Frame {
     std::array<float,74> atmosphere{};
     ExposureLight exposure;
     std::vector<HdrPass> hdr;
+    source_current_season_shadow::Settings shadow;
+    source_current_season_shadow::ReceiverStyle shadowReceiver;
 };
 template<class T> inline T read(std::span<const uint8_t> bytes,size_t at){
     T result;std::memcpy(&result,bytes.data()+at,sizeof(result));return result;
+}
+// Sparse Main fields are an interchange detail. Read them once at import;
+// shadow preparation consumes named values and never queries offset tables.
+template<class T> inline std::optional<T> importedMainField(const Frame& frame,int offset){
+    if(offset>=0&&size_t(offset)+sizeof(T)<=frame.main.size())
+        return read<T>(frame.main,size_t(offset));
+    for(const auto& word:frame.words)if(word.offset==offset){
+        T result;std::memcpy(&result,&word.bits,sizeof(result));return result;
+    }
+    return std::nullopt;
+}
+inline void decodeShadowInputs(Frame& frame){
+    auto& settings=frame.shadow;
+    settings.selectedLightGroup=importedMainField<int32_t>(frame,0xa00);
+    const auto direction=importedMainField<uint32_t>(frame,0xa04);
+    settings.directionChannel=direction?std::optional(static_cast<source_current_season_shadow::DirectionChannel>(
+        *direction>=1&&*direction<=3?*direction:0)):std::nullopt;
+    settings.planeScale=importedMainField<float>(frame,0xa28);
+    settings.maximumDistance=importedMainField<float>(frame,0x9ec);
+    settings.nearDistance=importedMainField<float>(frame,0x9f0);
+    settings.farDistanceOverride=importedMainField<float>(frame,0xa2c);
+    settings.sampleLoopCount=importedMainField<uint32_t>(frame,0xa38);
+    settings.qualityLevel=importedMainField<uint32_t>(frame,0xa88);
+    const auto mode=importedMainField<uint32_t>(frame,0xa3c);
+    settings.compactMode=mode?std::optional(static_cast<source_current_season_shadow::CompactMode>(*mode)):std::nullopt;
+    settings.rectangleOverride=importedMainField<uint32_t>(frame,0xa84);
+    settings.cascadeSplits={importedMainField<float>(frame,0x9f4),
+        importedMainField<float>(frame,0x9f8),importedMainField<float>(frame,0x9fc)};
+    settings.halfFovTangent=frame.atmosphere[196/4];
+    frame.shadowReceiver={read<int32_t>(frame.main,0x3ac),
+        read<float>(frame.main,0x27c),read<float>(frame.main,0x3bc)};
+    for(auto& light:frame.lights){
+        for(size_t channel=0;channel<light.shadowGeometry.directions.size();++channel)
+            light.shadowGeometry.directions[channel]=read<source_camera::V4>(light.data,channel*0x20);
+        light.shadowGeometry.receiverAmbientAlpha=read<float>(light.data,0xec);
+    }
 }
 inline Frame decode(std::span<const uint8_t> bytes){
     if(bytes.size()<32+0x3c0)throw std::runtime_error("Current season packet length");
@@ -57,6 +100,7 @@ inline Frame decode(std::span<const uint8_t> bytes){
         }
     }
     if(at!=bytes.size())throw std::runtime_error("Current HDR packet tail");
+    decodeShadowInputs(r);
     return r;
 }
 // World selection belongs to its ordinary owner. This is the original ordered

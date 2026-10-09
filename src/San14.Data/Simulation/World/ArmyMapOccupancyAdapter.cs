@@ -2,7 +2,8 @@ using San14.Core;
 
 namespace San14.Data;
 
-public sealed record ArmyLifecycleCreationAdmission(NativeArmyLifecycleState Lifecycle, ArmyMapOccupancyState Occupancy);
+public sealed record ArmyLifecycleCreationAdmission(NativeArmyLifecycleState Lifecycle, ArmyMapOccupancyState Occupancy)
+{ public ICampaignResourceState? ResourceState { get; init; } }
 
 /// <summary>Operation-local translation between semantic map bindings and the
 /// resource facade's receiver table. The typed map is the only cell authority.</summary>

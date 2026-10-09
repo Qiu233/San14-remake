@@ -55,7 +55,7 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportCreation
                 NativeMapUiByte13C = fields.MapUiByte13C,
                 NativeCommandControl140 = arena.Slots[fields.NativeSlot].CommandControl140,
                 NativeRouteHold56 = fields.Field56, NativeRouteGoal1F8 = arena.Slots[fields.NativeSlot].RouteGoal1F8,
-                NativeOverrideTarget = fields.OverrideTarget,
+                OverrideTarget = fields.OverrideTarget,
                 CarriedStores = new(fields.Gold5C, fields.Supplies60),
                 NativeHomeSequence28 = fields.HomeSequence28,
                 NativeTransport = new(fields.Waypoints2C.ToArray(), fields.Choice41, fields.InitialNextHex48, null)
@@ -74,7 +74,7 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportCreation
                         new ArmyReceiverSourceDirectory(registered.Lifecycle)) } } },
                 Districts = new(state.Districts) { [districtId] = district with
                     { OrdersRemaining = Math.Clamp(unchecked(remaining - commandCost.Value), 0, 200) } },
-                Units = new(state.Units) { [created.Id] = created }, NativeArmyLifecycle = registered.Lifecycle, ArmyMapOccupancy = registered.Occupancy
+                Units = new(state.Units) { [created.Id] = created }, NativeArmyLifecycle = registered.Lifecycle, ArmyMapOccupancy = registered.Occupancy, ResourceState = registered.ResourceState
             };
             var currentRoute = CaptureWritableTransportRouteCurrent(result);
             var route = TransportArmyCreationRouteSource.Prepare(result, currentRoute, created);

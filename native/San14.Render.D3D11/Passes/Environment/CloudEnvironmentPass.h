@@ -55,7 +55,7 @@ class CloudEnvironmentPass {
                 weather_->profiles.seasons.end(),[&](const auto& profile){return profile.season==frame.season->season;}))
                 weather_=readNativeCurrentCloudWeather(source.weather);
             const auto weather=publishNativeCurrentCloudWeatherBeforeClock(*weather_,*frame.season,cloud_,environmentCloud_);
-            currentPlanet=weather.input[0x228/4];
+            currentPlanet=weather.planetRadius;
             if(!currentAmbient_)currentAmbient_=prepareNativeCurrentAmbientFrame(device,
                 source.ambientFrame,environment_,environmentCloud_);
         }

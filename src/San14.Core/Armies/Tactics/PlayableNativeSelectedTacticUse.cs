@@ -34,6 +34,7 @@ public static partial class PlayableTacticRuntime
             throw new InvalidDataException("Selected native use has incomplete current actor, primary, waiting or effects.");
         var units = new Dictionary<int, UnitState>(working.Units);
         var officers = new Dictionary<int, OfficerState>(working.Officers);
+        ICampaignResourceState? resourceState = working.ResourceState;
         var details = new List<TacticReportEntry>();
         int reportPeriod = checked(state.PeriodNumber + 1);
         details.Add(new("used", reportPeriod, actor.ForceId, actor.Id, actor.OfficerId,
@@ -55,9 +56,11 @@ public static partial class PlayableTacticRuntime
                     definition.TacticId, target.Id, effect.Kind, amount)
                     { NativeUpdateOrdinal = state.NativeClock.UpdateOrdinal });
             }
+            resourceState = step.ResourceStateAfter ?? resourceState;
         }
         GameState afterEffects = working with { Units = units, Officers = officers,
-            RandomState = use.OrderedEffects.RandomState };
+            RandomState = use.OrderedEffects.RandomState,
+            ResourceState = resourceState };
         OfficerState? commander = source.ResolveNativeActivationCommanderTail(afterEffects,
             units[actor.Id], definition);
         if (commander is null) return null;
@@ -105,7 +108,7 @@ public static partial class PlayableTacticRuntime
         UnitState changed = target with { NativeTacticRuntime = native with {
             Abnormal23 = abnormal.Abnormal23, Abnormal24 = abnormal.Abnormal24, Abnormal25 = abnormal.Abnormal25,
             ProvocationOwner = abnormal.ProvocationOwner } };
-        changed = NativeArmyOverrideTargetWrites.Apply(changed, abnormal.OverrideTarget);
+        changed = ArmyOverrideTargetWrites.Apply(changed, abnormal.OverrideTarget);
         if (effect.Kind == PlayableTacticEffectKind.ClearAbnormalStatuses)
             changed = changed with { TacticRuntime = changed.TacticRuntime! with {
                 Statuses = changed.TacticRuntime!.Statuses.Where(status => !Abnormal(status)).ToArray() } };

@@ -34,7 +34,7 @@ public sealed partial class SourceWorldContext
     {
         var draft = new SourceWorldContext();
         Copy(_persons, draft._persons); Copy(_personFirstLocations, draft._personFirstLocations);
-        CopyOfficerLocationsTo(draft);
+        CopyOfficerLocationsTo(draft); CopyArmyTargetsTo(draft);
         Copy(_personDistrictSlots, draft._personDistrictSlots); Copy(_districtPointers, draft._districtPointers);
         Copy(_forcePointers, draft._forcePointers); Copy(_forceRulers, draft._forceRulers);
         _districtIdentities.CopyTo(draft._districtIdentities);

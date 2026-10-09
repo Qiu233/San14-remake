@@ -16,7 +16,7 @@ public sealed record SaveEnvelope(int SchemaVersion, string FormatId, GameState 
 /// <summary>Local save format. A future original-save adapter can implement ISaveCodec.</summary>
 public sealed class JsonGzipSaveCodec : ISaveCodec
 {
-    public const int CurrentSchemaVersion = 81;
+    public const int CurrentSchemaVersion = 84;
     public string FormatId => "san14-remake-json-gzip";
     private readonly ILegacyOfficerAbilitySource? _legacyAbilitySource;
     private readonly ICampaignResourceStateCodec? _resourceStateCodec;
@@ -31,6 +31,8 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
     public byte[] Encode(GameState state)
     {
         StateValidator.Validate(state);
+        ArmyTargetsSaveValidation.Validate(state);
+        ArmyOverrideSaveValidation.Validate(state);
         JsonObject document = JsonSerializer.SerializeToNode(new SaveEnvelope(CurrentSchemaVersion, FormatId, state))!.AsObject();
         if (state.ResourceState is { } resourceState)
             document["ResourceState"] = (_resourceStateCodec ?? throw new InvalidDataException(
@@ -100,6 +102,27 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
                 resourceState = (_resourceStateCodec ?? throw new InvalidDataException(
                     "Historical unresolved officer locations require the resource-state codec.")).MigrateLocations(resourceState, locations);
         }
+        if (version < 82)
+        {
+            var aftermath = LegacyOfficerAftermathSaveMigration.Apply((JsonObject)document["State"]!);
+            if (aftermath.Count != 0)
+                resourceState = (_resourceStateCodec ?? throw new InvalidDataException(
+                    "Historical officer aftermath encodings require the resource-state codec.")).MigrateAftermath(resourceState, aftermath);
+        }
+        if (version < 83)
+        {
+            var targets = LegacyArmyTargetsSaveMigration.Apply((JsonObject)document["State"]!);
+            if (targets.Count != 0)
+                resourceState = (_resourceStateCodec ?? throw new InvalidDataException(
+                    "Historical unresolved army targets require the resource-state codec.")).MigrateArmyTargets(resourceState, targets);
+        }
+        if (version < 84)
+        {
+            var overrides = LegacyArmyOverrideSaveMigration.Apply((JsonObject)document["State"]!);
+            if (overrides.Count != 0)
+                resourceState = (_resourceStateCodec ?? throw new InvalidDataException(
+                    "Historical unresolved army overrides require the resource-state codec.")).MigrateArmyOverrides(resourceState, overrides);
+        }
         ValidateModuleSnapshotShape((JsonObject)document["State"]!, version);
         // A present options record must contain all choices. JSON constructor
         // defaults must not turn a missing boolean into a confirmed false choice.
@@ -147,6 +170,8 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
         }
         GameState state = (version < 23 ? MigrateCombatFood(envelope.State) : envelope.State) with { ResourceState = resourceState };
         StateValidator.Validate(state);
+        ArmyTargetsSaveValidation.Validate(state);
+        ArmyOverrideSaveValidation.Validate(state);
         return state;
     }
 
@@ -233,9 +258,26 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
         if (state["Officers"] is JsonObject officers)
             foreach (JsonNode? officerNode in officers.Select(pair => pair.Value))
             {
-                if (officerNode is JsonObject destructionOwner && destructionOwner["NativeDestructionRuntime"] is JsonNode destruction)
-                    _ = Require(destruction, "current Person destruction runtime", "Revision", "Word19A", "Byte19C",
-                        "Byte19D", "Byte1A0", "Word1A4");
+                if (officerNode is JsonObject aftermathOwner)
+                {
+                    if (aftermathOwner.ContainsKey("NativeDestructionRuntime") ||
+                        !aftermathOwner.ContainsKey("Resentment") || !aftermathOwner.ContainsKey("AllegianceDisposition"))
+                        throw new InvalidDataException("Saved officer aftermath knowledge is missing or obsolete.");
+                    if (aftermathOwner["Resentment"] is JsonNode resentment)
+                    {
+                        var remembered = Require(resentment, "officer resentment", "TargetOfficerId", "Intensity");
+                        foreach (string field in new[] { "TargetOfficerId", "Intensity" })
+                            if (remembered[field] is JsonNode known &&
+                                (known is not JsonValue scalar || !scalar.TryGetValue<int>(out int value) || value < 0))
+                                throw new InvalidDataException("Saved officer resentment knowledge is invalid.");
+                    }
+                    if (aftermathOwner["AllegianceDisposition"] is JsonNode disposition)
+                    {
+                        var observed = Require(disposition, "officer allegiance disposition", "Value");
+                        if (observed["Value"] is not JsonValue scalar || !scalar.TryGetValue<int>(out _))
+                            throw new InvalidDataException("Saved officer allegiance disposition is invalid.");
+                    }
+                }
                 if (officerNode is JsonObject meritOwner)
                 {
                     if (!meritOwner.ContainsKey("MeritState") || meritOwner.ContainsKey("NativeCreditRuntime"))
@@ -368,13 +410,13 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
             foreach (JsonNode? slotNode in slots)
             {
                 JsonObject slot = Require(slotNode, "native Army slot", "ReceiverId", "PhysicalSlot", "Commander12", "Status10",
-                    "Priority14", "ActiveUnitId", "PendingImage", "StoredResources", "AuxiliaryAC", "AuxiliaryF4", "GroupAssignmentReady", "OccupancyBindingId");
+                    "Priority14", "ActiveUnitId", "PendingImage", "StoredResources", "AuxiliaryAC", "AuxiliaryF4", "GroupAssignmentReady", "OccupancyBindingId", "OverrideTarget");
                 _ = Require(slot["ReceiverId"], "army receiver identity", "Value");
                 if (slot.ContainsKey("Gold5C") || slot.ContainsKey("Supplies60"))
                     throw new InvalidDataException("Saved Army receiver contains obsolete stores fields.");
                 _ = Require(slot["StoredResources"], "retained Army stores", "Gold", "Food");
                 if (slot["OverrideTarget"] is JsonNode overrideTarget)
-                    _ = Require(overrideTarget, "native Army receiver override target", "Kind3C", "Identity3E");
+                    CheckOverrideTarget(overrideTarget);
                 if (slot["PendingImage"] is JsonNode pendingNode)
                 {
                     JsonObject pending = Require(pendingNode, "pending Army image", "Id", "ForceId", "OfficerId", "HexId",
@@ -385,12 +427,22 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
             if (lifecycle["ArmyFlags150"] is JsonNode flagsNode &&
                 (flagsNode is not JsonArray armyFlags || armyFlags.Count != 501))
                 throw new InvalidDataException("Saved native Army flags150 physical table is invalid.");
-            if (lifecycle["Targets38"] is JsonNode targetsNode)
+            if (lifecycle.ContainsKey("Targets38"))
+                throw new InvalidDataException("Saved army targets contain an obsolete source table.");
+            if (!lifecycle.ContainsKey("Targets")) throw new InvalidDataException("Saved army target owner is missing.");
+            if (lifecycle["Targets"] is JsonNode targetsNode)
             {
-                if (targetsNode is not JsonArray armyTargets || armyTargets.Count != 501)
-                    throw new InvalidDataException("Saved native Army targets38 physical table is invalid.");
-                foreach (JsonNode? target in armyTargets)
-                    _ = Require(target, "native Army target", "Kind38", "Identity3A");
+                var targets = Require(targetsNode, "army target owner", "Assignments");
+                if (targets["Assignments"] is not JsonArray assignments)
+                    throw new InvalidDataException("Saved army target assignments are invalid.");
+                foreach (var node in assignments)
+                {
+                    var row = Require(node, "army target assignment", "ReceiverId", "Target");
+                    _ = Require(row["ReceiverId"], "army target receiver", "Value");
+                    var target = Require(row["Target"], "army target knowledge", "Kind", "Destination");
+                    if (target["Destination"] is JsonNode destination)
+                        _ = Require(destination, "army target destination", "Kind", "CityId", "ReceiverId");
+                }
             }
             if (lifecycle["DeferredDestructionQueue"] is not null)
                 throw new InvalidDataException("Saved state contains an obsolete combat queue owner.");
@@ -443,6 +495,7 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
             throw new InvalidDataException("Saved state contains an obsolete personnel command owner.");
         static void CheckUnitModules(JsonObject unit)
         {
+                if (!unit.ContainsKey("OverrideTarget")) throw new InvalidDataException("Saved army override knowledge is missing.");
                 if (unit["MilitaryPlan"] is JsonNode planNode)
                 {
                     JsonObject plan = Require(planNode, "military plan", "WaypointHexIds", "NextWaypointIndex", "Action");
@@ -469,11 +522,13 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
                 }
                 if (unit["NativeArmyOrigin"] is JsonNode armyOrigin)
                     _ = Require(armyOrigin, "source-created Army origin", "Revision", "Language", "RuleVersion", "NativeSlotIndex");
-                if (unit["NativeOverrideTarget"] is JsonNode overrideTarget)
-                    _ = Require(overrideTarget, "current native Army override target", "Kind3C", "Identity3E");
+                if (unit.ContainsKey("NativeOverrideTarget")) throw new InvalidDataException("Saved army contains an obsolete override owner.");
+                if (unit["OverrideTarget"] is JsonNode overrideTarget) CheckOverrideTarget(overrideTarget);
                 if (unit["NativeMarch"] is JsonNode nativeMarch)
-                    _ = Require(nativeMarch, "native Army march fields", "Credit14", "CurrentHex2A", "TargetHex2C",
-                        "NextHex48", "OverrideTargetType3C");
+                {
+                    JsonObject march = Require(nativeMarch, "native Army march fields", "Credit14", "CurrentHex2A", "TargetHex2C", "NextHex48");
+                    if (march.ContainsKey("OverrideTargetType3C")) throw new InvalidDataException("Saved march contains a duplicate override category.");
+                }
                 if (unit["NativeArmyConfiguration"] is JsonNode armyConfiguration)
                     _ = Require(armyConfiguration, "native Army configuration", "Formation1B", "Formation1C", "Action37", "Category40", "TraitSlots64");
                 if (unit.ContainsKey("NativeReturnResources"))
@@ -589,6 +644,14 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
                     "PreviousHolderId", "NextHolderId", "PreviousOfficeId", "NextOfficeId", "CommandBooks",
                     "Gold", "LoyaltyDelta", "PolicyRevision", "DistrictId", "GoldCityId", "ReportedInPeriod");
 
+        static void CheckOverrideTarget(JsonNode node)
+        {
+            JsonObject target = Require(node, "army override target", "Kind", "Destination");
+            if (target.ContainsKey("Kind3C") || target.ContainsKey("Identity3E"))
+                throw new InvalidDataException("Saved override contains obsolete source fields.");
+            if (target["Destination"] is JsonNode destination)
+                _ = Require(destination, "army override destination", "Kind", "EntityId", "ReceiverId");
+        }
         static JsonObject Require(JsonNode? node, string label, params string[] keys)
         {
             if (node is not JsonObject record || keys.Any(key => !record.ContainsKey(key)))

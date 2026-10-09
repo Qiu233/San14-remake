@@ -29,7 +29,7 @@ public sealed partial record UnitState
 public sealed record PlayableArmyCreationResolution(NativeArmyTacticRuntime Runtime,
     int WoundedTroops, NativeArmyOrigin Origin, ulong RandomState)
 {
-    public NativeArmyOverrideTargetRuntime? NativeOverrideTarget { get; init; }
+    public ArmyOverrideTargetState? OverrideTarget { get; init; }
     public NativeArmyConfiguration? Configuration { get; init; }
     public byte? NativeMorale1A { get; init; }
     public ushort? NativeSavedRegionHex152 { get; init; }
@@ -113,7 +113,7 @@ public static class PlayableArmyCreation
             NativeRouteHold56 = result.NativeRouteHold56,
             NativeRouteGoal1F8 = result.NativeRouteGoal1F8,
             NativeHomeSequence28 = result.NativeHomeSequence28,
-            NativeOverrideTarget = result.NativeOverrideTarget,
+            OverrideTarget = result.OverrideTarget,
             CarriedStores = result.CarriedStores,
             NativeArmyConfiguration = result.Configuration is null ? null : result.Configuration with
                 { TraitSlots64 = result.Configuration.TraitSlots64?.ToArray() },

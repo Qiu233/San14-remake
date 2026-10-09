@@ -158,7 +158,7 @@ public static class GameStateCopy
         Indexes = value.Indexes.Copy(),
         ArmyGroups = value.ArmyGroups?.Copy(),
         Slots = CopyArray(value.Slots, item => Copy(item)!),
-        Targets38 = CopyArray(value.Targets38),
+        Targets = value.Targets,
     };
 
     [return: NotNullIfNotNull(nameof(value))]

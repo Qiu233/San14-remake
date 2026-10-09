@@ -28,7 +28,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         current.BindArmyMapOccupancy(state);
         current.RestoreOwnedArmyReturnSlots(state, arena);
         OwnedArmyDestructorFlags.BindCurrent(arena, current);
-        OwnedArmyLifecycleTargets.BindCurrent(arena, current);
+        OwnedArmyLifecycleTargets.BindCurrent(state, current);
         BaseCaptureCurrentInputs.BindCurrent(state, current);
         return current;
     }

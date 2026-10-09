@@ -24,11 +24,11 @@ inline float clamp(float x){return x>=1?1.f:(0>x?0.f:x);}
 inline float weight(float x,float lo,float hi){return hi>lo?clamp(D(S(x,lo),S(hi,lo))):(x>=lo?1.f:0.f);}
 inline float size(float x){return x>=FLT_MAX?FLT_MAX:(x>F(0x3a9c4000)?x:F(0x3a9c4000));}
 inline float signedClamp(float x){return x>=F(0x3f7fff38)?F(0x3f7fff38):(x>F(0xbf7fff38)?x:F(0xbf7fff38));}
-struct Frame {std::array<uint32_t,0x7a4/4> weather{};std::array<float,0x294/4> input{};V4 rayleigh{},mie{};float cloudy{};};
+struct Frame {std::array<uint32_t,0x7a4/4> weather{};std::array<float,0x294/4> input{};V4 rayleigh{},mie{};float cloudy{},planetRadius{};};
 inline Frame prepareCurrent(const Profiles& profiles,const source_current_season::Frame& current){
     const Profile* selected=nullptr;for(const auto& p:profiles.seasons)if(p.season==current.season){selected=&p;break;}
     if(!selected)throw std::runtime_error("Cloud weather requires loaded actual season");const auto& p=*selected;
-    Frame out;out.weather=p.words;out.cloudy=mainFloat(current,0x1d0);float humidity=mainFloat(current,0x1d8);
+    Frame out;out.planetRadius=p.planet;out.weather=p.words;out.cloudy=mainFloat(current,0x1d0);float humidity=mainFloat(current,0x1d8);
     // Main post-selection owns these final quality writes, after the selected
     // Camera's declared values. Program selection stays with its resource owner.
     for(uint32_t offset:{0x674u,0x7a0u}){

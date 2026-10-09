@@ -12,7 +12,7 @@ public sealed record NativeTacticWaitingAssignment(byte Waiting20, byte Waiting2
 public sealed record NativeTacticAbnormalAssignment(byte Abnormal23, byte Abnormal24, byte Abnormal25,
     NativeTacticOwnerReference? ProvocationOwner)
 {
-    public NativeArmyOverrideTargetRuntime? OverrideTarget { get; init; }
+    public ArmyOverrideTargetState? OverrideTarget { get; init; }
 }
 public sealed record TacticArmyHealingResult(int TroopsAfter, int WoundedAfter);
 public sealed record NativeSubdayMoment(PeriodDate AnchorDate, long UpdateOrdinal, int DayOffset, int Hour);

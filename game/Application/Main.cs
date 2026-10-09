@@ -8,7 +8,6 @@ public partial class Main : Control
 {
     private const int NoTacticId = int.MaxValue;
     private const int NoGovernanceOfficerId = int.MaxValue;
-    private const int PlayableSaveSlotCount = 10;
     private GameResourceRepository? _repository;
     private MapDocument? _map;
     private LoadedMap? _loadedMap;
@@ -23,12 +22,10 @@ public partial class Main : Control
     private PreviewText? _safeUi;
     private bool _failed;
     private ResourceOverrides _overrides = null!;
-    private readonly List<S14Entry> _shownScenarios = [];
-    private readonly List<EffectiveScenario> _shownSelections = [];
-    private readonly List<int> _shownForces = [];
-    private ScenarioCityPreview? _selectedSnapshot;
-    private S14Entry? _selectedScenario;
-    private int? _selectedForceSlot;
+    private IReadOnlyList<ScenarioBrowserItem> _shownScenarios = [];
+    private IReadOnlyList<BrowserChoice> _shownForces = [];
+    private ScenarioCityPreview? _selectedSnapshot => _campaignComposition?.Snapshot;
+    private int? _selectedForceId;
     private Label _title = null!;
     private Label _hint = null!;
     private Label _languageLabel = null!;
@@ -138,7 +135,7 @@ public partial class Main : Control
     private Button _playRetarget = null!;
     private Label _playStructureKindLabel = null!;
     private OptionButton _playStructureKind = null!;
-    private string? _playStructureCatalogRevision;
+    private CampaignConstructionCatalog? _boundConstructionCatalog;
     private Button _playBuild = null!;
     private Button _playRepair = null!;
     private Button _playDemolish = null!;
@@ -497,23 +494,13 @@ public partial class Main : Control
     private void RefreshScenarios()
     {
         _scenarioList.Clear();
-        _shownScenarios.Clear();
-        _shownSelections.Clear();
+        _shownScenarios = [];
         if (_repository is null) return;
         string locale = _locale.Selected == 1 ? "TC" : "SC";
-        var documents = _repository.ScenarioDocuments.ToDictionary(item => item.SourcePath,
-            StringComparer.OrdinalIgnoreCase);
-        foreach (EffectiveScenario scenario in _repository.EffectiveScenarios
-                     .Where(item => item.Locale == locale)
-                     .OrderBy(item => item.Number))
-        {
-            S14Entry entry = documents[scenario.SourcePath];
-            _shownScenarios.Add(entry);
-            _shownSelections.Add(scenario);
-            string date = entry.StartYear is int year && entry.StartMonth is int month &&
-                entry.StartDay is int day ? _ui.DateInline(year, month, day) : "";
-            _scenarioList.AddItem(_ui.ScenarioItem(scenario.Number, date, entry.Title));
-        }
+        _shownScenarios = ScenarioBrowserViews.Scenarios(_repository.ScenarioDocuments,
+            _repository.EffectiveScenarios, locale, _ui);
+        foreach (ScenarioBrowserItem item in _shownScenarios)
+            _scenarioList.AddItem(item.Label);
         if (_shownScenarios.Count > 0)
         {
             _scenarioList.Select(0);
@@ -581,13 +568,12 @@ public partial class Main : Control
     private void ShowScenario(long index, GameState? restored, int? restoredPlayerForceId = null)
     {
         if (index < 0 || index >= _shownScenarios.Count || _repository is null) return;
-        EffectiveScenario selection = _shownSelections[(int)index];
+        EffectiveScenario selection = _shownScenarios[(int)index].Selection;
         CampaignLoadResult campaign = CampaignComposition.Load(_repository, selection,
             _newGameOptions, restored, restoredPlayerForceId);
         LoadedScenario loaded = campaign.Composition.Scenario;
         LoadedMap loadedMap = campaign.Composition.Map;
         S14Entry selected = loaded.Metadata;
-        ScenarioCityPreview snapshot = loaded.Snapshot;
         GameState world = campaign.Session.World;
         // Prepare source validation and campaign rules before replacing the live
         // session. A failed load must leave its player, orders and save path usable.
@@ -604,7 +590,7 @@ public partial class Main : Control
         PublishCampaignPresentation(campaign.Presentation);
         _detailsView?.QueueFree();
         _detailsView = null;
-        _selectedForceSlot = null;
+        _selectedForceId = null;
         _openForceDetails.Disabled = true;
         _openCityDetails.Disabled = true;
         _city.Clear();
@@ -613,24 +599,15 @@ public partial class Main : Control
         _saveInitial.Disabled = false;
         _worldStatus.Text = _ui.InitialStateHint;
         _selectedCell = null;
-        _selectedSnapshot = snapshot;
-        _selectedScenario = selected;
-        _shownForces.Clear();
+        ForceBrowserChoices forces = ScenarioBrowserViews.Forces(world, selection.Number, restoredPlayerForceId, _ui);
+        _shownForces = forces.Items;
         _force.Clear();
-        foreach (ForceState force in world.Forces.Values.Where(force => force.IsActive ||
-                     force.Id == restoredPlayerForceId).OrderBy(force => force.Id))
+        foreach (BrowserChoice force in forces.Items)
+            _force.AddItem(force.Label);
+        if (forces.InitialIndex >= 0)
         {
-            int cityCount = world.Cities.Values.Count(city => city.ForceId == force.Id);
-            _shownForces.Add(force.Id);
-            _force.AddItem(_ui.ForceItem(force.Id, force.Name, cityCount));
-        }
-        if (_shownForces.Count > 0)
-        {
-            int defaultIndex = selection.Number == 1 && world.Cities.TryGetValue(7, out CityState? defaultCity) &&
-                defaultCity.ForceId is int defaultForceId ? _shownForces.IndexOf(defaultForceId) : -1;
-            if (defaultIndex < 0) defaultIndex = 0;
-            _force.Select(defaultIndex);
-            ShowForce(defaultIndex);
+            _force.Select(forces.InitialIndex);
+            ShowForce(forces.InitialIndex);
         }
         else
             _description.Text = $"{selected.Title}\n{selected.Description}";
@@ -642,137 +619,29 @@ public partial class Main : Control
 
     private void ShowForce(long index)
     {
-        if (index < 0 || index >= _shownForces.Count ||
-            _selectedSnapshot is null || _selectedScenario is null) return;
-        ScenarioCityPreview snapshot = _selectedSnapshot;
-        S14Entry selected = _selectedScenario;
+        if (index < 0 || index >= _shownForces.Count || _campaignComposition is null) return;
         GameState world = _world ?? throw new InvalidDataException("Current scenario state is missing.");
-        int forceSlot = _shownForces[(int)index];
-        if (!world.Forces.TryGetValue(forceSlot, out ForceState? force))
-            throw new InvalidDataException($"Current force {forceSlot} is missing.");
-        _selectedForceSlot = forceSlot;
+        ForceBrowserView view = ScenarioBrowserViews.Force(world, _campaignComposition.Snapshot,
+            _campaignComposition.Scenario.Metadata, _shownForces[(int)index].Id, _ui);
+        _selectedForceId = view.ForceId;
         _openForceDetails.Disabled = false;
-        CityState[] cities = world.Cities.Values.Where(city => city.ForceId == forceSlot)
-            .OrderBy(city => city.Id).ToArray();
-        OfficerState[] people = world.Officers.Values.Where(person => person.ForceId == forceSlot &&
-            person.Presence is null or OfficerPresence.Present)
-            .OrderBy(person => person.Id).ToArray();
-        DistrictState[] districts = world.Districts.Values.Where(district => district.ForceId == forceSlot)
-            .OrderBy(district => district.Number).ThenBy(district => district.Id).ToArray();
-        GateState[] gates = world.Gates.Values.Where(gate => gate.ForceId == forceSlot)
-            .OrderBy(gate => gate.Id).ToArray();
-        OfficerState? ruler = force.RulerId is int rulerId ? world.Officers[rulerId] : null;
         _city.Clear();
-        foreach (CityState city in cities)
-            _city.AddItem(city.Name, city.Id);
-        int defaultCityId = ruler?.LocationId ?? -1;
-        int defaultCityIndex = _city.GetItemIndex(defaultCityId);
+        foreach (BrowserChoice city in view.Cities)
+            _city.AddItem(city.Label, city.Id);
+        int defaultCityIndex = _city.GetItemIndex(view.PreferredCityId);
         if (_city.ItemCount > 0) _city.Select(defaultCityIndex < 0 ? 0 : defaultCityIndex);
         _openCityDetails.Disabled = _city.ItemCount == 0;
         _officer.Clear();
-        foreach (OfficerState officer in people)
-            _officer.AddItem(officer.Name, officer.Id);
-        int defaultOfficerIndex = _officer.GetItemIndex(ruler?.Id ?? -1);
+        foreach (BrowserChoice officer in view.Officers)
+            _officer.AddItem(officer.Label, officer.Id);
+        int defaultOfficerIndex = _officer.GetItemIndex(view.PreferredOfficerId);
         if (_officer.ItemCount > 0) _officer.Select(defaultOfficerIndex < 0 ? 0 : defaultOfficerIndex);
         _openOfficerDetails.Disabled = _officer.ItemCount == 0;
-        CharacterPreviewRecord? portrait = ruler is null ? null : snapshot.Characters.FirstOrDefault(person =>
-            person.CharacterId != 0 && person.CharacterId == ruler.Id);
-        ShowPortrait(portrait is null ? null : portrait with { Name = ruler!.Name });
-        string date = _ui.DateLine(world.Date.Year, world.Date.Month, world.Date.Day);
-        string districtRows = string.Join("\n", districts.Select(district =>
-            $"{_ui.DistrictNumber(district.Number)}  {_ui.DistrictLeader}{_ui.Colon}" +
-            CurrentOfficerName(world, district.LeaderId)));
-        OfficerAbilities? baseAbilities = ruler?.BaseAbilities;
-        string abilities = ruler is null ? "" :
-            $"\n{_ui.BaseAbilities}{_ui.Colon}" +
-            $"{_ui.Leadership} {CurrentNumber(baseAbilities?.Leadership)} / {_ui.Strength} {CurrentNumber(baseAbilities?.Strength)} / " +
-            $"{_ui.Intelligence} {CurrentNumber(baseAbilities?.Intelligence)} / {_ui.Politics} {CurrentNumber(baseAbilities?.Politics)} / " +
-            $"{_ui.Charm} {CurrentNumber(baseAbilities?.Charm)}\n{_ui.BaseAbilitiesHint}";
-        string rows = string.Join("\n\n", cities.Select(city =>
-        {
-            CityPreviewRecord? original = snapshot.Cities.FirstOrDefault(item => item.Slot == city.Id);
-            string names = string.Join(_ui.ListSeparator, people.Where(person =>
-                person.LocationId == city.Id)
-                .Select(person => person.Name));
-            string links = original is null ? _ui.Get("detail_unknown") : string.Join(_ui.ListSeparator,
-                original.LinkedLocationSlots.Select(slot => CurrentLocationName(world, slot)));
-            string rawLimits = original is null ? _ui.Get("detail_unknown") :
-                $"{original.RawLimit0:N0} / {original.RawLimit1:N0} / {original.RawLimit2:N0}";
-            return $"{city.Id:00} {city.Name}  {_ui.Governor} " +
-                $"{CurrentOfficerName(world, city.GovernorId)}\n" +
-                $"{CurrentDistrictName(world, city.DistrictId)}  {_ui.Size}{_ui.Colon}{CurrentCitySize(city.Size)}\n" +
-                $"{_ui.CityHex}{_ui.Colon}{CurrentNumber(city.HexId)}  " +
-                $"{_ui.GroupCode}{_ui.Colon}{CurrentNumber(original?.GroupCode)}\n" +
-                $"{_ui.LinkedLocations}{_ui.Colon}{links}\n" +
-                $"{_ui.Gold}{_ui.Colon}{city.Gold:N0}  {_ui.Supplies}{_ui.Colon}{city.Supplies:N0}  " +
-                $"{_ui.Troops}{_ui.Colon}{city.Troops:N0}\n" +
-                $"{_ui.Morale}{_ui.Colon}{CurrentNumber(city.Morale)}  {_ui.Durability}{_ui.Colon}{CurrentNumber(city.Durability, "N0")}\n" +
-                $"{_ui.RawLimits}{_ui.Colon}{rawLimits}\n" +
-                $"{_ui.OfficerList}{_ui.Colon}{names}";
-        }));
-        string gateRows = string.Join("\n", gates.Select(gate =>
-            $"{gate.Name}  {CurrentDistrictName(world, gate.DistrictId)}  " +
-            $"{_ui.Troops}{_ui.Colon}{gate.Troops:N0}"));
-        int controlled = world.Territory.Values.Count(tile => tile.ForceId == forceSlot);
-        int available = world.Territory.Values.Count(tile => tile.AreaId is not null);
-        string land = world.Territory.Count == 0 ?
-            $"{_ui.LandControlled}{_ui.Colon}{_ui.Get("detail_unknown")}  {_ui.LandRate}{_ui.Colon}{_ui.Get("detail_unknown")}\n" :
-            $"{_ui.LandControlled}{_ui.Colon}{controlled:N0} / {available:N0}  " +
-            $"{_ui.LandRate}{_ui.Colon}{(available == 0 ? _ui.Get("detail_unknown") : $"{100.0 * controlled / available:F1}%")}\n";
-        string unresolved = snapshot.UnresolvedCharacters.Count == 0 && snapshot.UnresolvedPlacements.Count == 0
-            ? "" : _ui.UnresolvedReferences(snapshot.UnresolvedCharacters.Count,
-                snapshot.UnresolvedPlacements.Count) + "\n";
-        _description.Text = $"{selected.Title}\n{date}\n{selected.Description}\n\n" +
-            $"{_ui.SourceFile}{_ui.Colon}{selected.SourcePath}\n" +
-            $"{_ui.SourceHash}{_ui.Colon}{selected.DecodedSha256}\n" +
-            $"{_ui.DecodedBytes}{_ui.Colon}{selected.DecodedBytes:N0} {_ui.Bytes}\n\n" +
-            unresolved +
-            $"{_ui.Force} {forceSlot}{_ui.Colon}{force.Name}\n" +
-            $"{_ui.CityRecords}{_ui.Colon}{cities.Length}  {_ui.Districts}{_ui.Colon}{districts.Length}  " +
-            $"{_ui.Officer}{_ui.Colon}{people.Length}\n" +
-            land +
-            $"{_ui.Gold}{_ui.Colon}{cities.Sum(city => (long)city.Gold):N0}  " +
-            $"{_ui.Supplies}{_ui.Colon}{cities.Sum(city => (long)city.Supplies):N0}  " +
-            $"{_ui.Troops}{_ui.Colon}{cities.Sum(city => (long)city.Troops) + gates.Sum(gate => (long)gate.Troops):N0}\n" +
-            $"{_ui.TroopsIncludesGates}\n{districtRows}{abilities}\n\n" + rows +
-            (gates.Length == 0 ? "" : $"\n\n{_ui.Gates}\n{gateRows}");
+        ShowPortrait(view.Portrait);
+        _description.Text = view.Description;
         DrawMap();
         RefreshPlayControls();
     }
-
-    private string CurrentNumber(int? value, string format = "") =>
-        value is int number ? number.ToString(format) : _ui.Get("detail_unknown");
-
-    private string CurrentOfficerName(GameState world, int? officerId)
-    {
-        if (officerId is not int id) return _ui.Get("detail_unknown");
-        return world.Officers.TryGetValue(id, out OfficerState? officer) ? officer.Name :
-            throw new InvalidDataException($"Current officer reference {id} is missing.");
-    }
-
-    private string CurrentDistrictName(GameState world, int? districtId)
-    {
-        if (districtId is not int id) return _ui.Get("detail_unknown");
-        return world.Districts.TryGetValue(id, out DistrictState? district) ? _ui.DistrictNumber(district.Number) :
-            throw new InvalidDataException($"Current district reference {id} is missing.");
-    }
-
-    private static string CurrentLocationName(GameState world, int id)
-    {
-        if (world.Cities.TryGetValue(id, out CityState? city)) return city.Name;
-        if (world.Gates.TryGetValue(id, out GateState? gate)) return gate.Name;
-        throw new InvalidDataException($"Current linked location reference {id} is missing.");
-    }
-
-    private string CurrentCitySize(CitySize? size) => size switch
-    {
-        CitySize.Small => _ui.CitySize(1),
-        CitySize.Medium => _ui.CitySize(2),
-        CitySize.Large => _ui.CitySize(3),
-        CitySize.Giant => _ui.CitySize(4),
-        null => _ui.Get("detail_unknown"),
-        _ => throw new InvalidDataException($"Current city size {(int)size.Value} is invalid.")
-    };
 
     private void OpenOfficerDetails()
     {
@@ -1051,7 +920,7 @@ public partial class Main : Control
 
     private void OpenForceDetails()
     {
-        if (_selectedForceSlot is int forceId)
+        if (_selectedForceId is int forceId)
             OpenForceDetailsFor(forceId, _openForceDetails);
     }
 
@@ -1114,7 +983,7 @@ public partial class Main : Control
         _playSaveSlotLabel = new Label();
         actions.AddChild(_playSaveSlotLabel);
         _playSaveSlot = new OptionButton { Name = "PlayableSaveSlot", CustomMinimumSize = new Vector2(135, 0) };
-        for (int slot = 1; slot <= PlayableSaveSlotCount; slot++)
+        for (int slot = 1; slot <= LocalCampaignSaves.SlotCount; slot++)
             _playSaveSlot.AddItem(slot.ToString(), slot);
         _playSaveSlot.Select(0);
         _playSaveSlot.ItemSelected += _ => RunUiAction(RefreshSaveSlots);
@@ -1486,36 +1355,24 @@ public partial class Main : Control
 
     private void RefreshPlayStructureKinds()
     {
-        if (_repository is null || _selectedSnapshot is null || _world is null)
+        if (_campaignComposition is null || _world is null)
         {
             _playStructureKind.Clear();
-            _playStructureCatalogRevision = null;
+            _boundConstructionCatalog = null;
             return;
         }
-        string fixedUri = GameResourceId.File(_selectedSnapshot.FixedDataPath).ToString();
-        string revision = fixedUri + "|" +
-            _world.ContentHashes.GetValueOrDefault(fixedUri, "") + "|" + _ui.SourceLocale;
-        if (revision == _playStructureCatalogRevision) return;
-        LoadedObjectDefinitions loaded = _repository.LoadObjectDefinitions(
-            _selectedSnapshot.FixedDataPath);
-        if (!_world.ContentHashes.TryGetValue(loaded.Source.ResourceUri,
-                out string? expectedHash) ||
-            !expectedHash.Equals(loaded.Source.Sha256, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Construction catalog differs from the current scenario source.");
+        CampaignConstructionCatalog catalog = _campaignComposition.Construction;
+        if (ReferenceEquals(catalog, _boundConstructionCatalog)) return;
         int prior = _playStructureKind.Selected >= 0
-            ? _playStructureKind.GetSelectedId() : PlayableConstructionRules.SupportedKinds[0].ObjectSlot;
+            ? _playStructureKind.GetSelectedId() : catalog.Choices[0].Id;
         _playStructureKind.Clear();
-        foreach (PlayableConstructionRules.KindDefinition kind in PlayableConstructionRules.SupportedKinds)
-        {
-            S14ObjectDefinition definition = loaded.Catalog.Definitions.Single(row =>
-                row.Slot == kind.ObjectSlot && !string.IsNullOrWhiteSpace(row.Name));
-            _playStructureKind.AddItem(definition.Name, kind.ObjectSlot);
-        }
+        foreach (NamedCommandChoice kind in catalog.Choices)
+            _playStructureKind.AddItem(kind.Name, kind.Id);
         int index = _playStructureKind.GetItemIndex(prior);
         _playStructureKind.Select(index < 0 ? 0 : index);
-        _playStructureCatalogRevision = revision;
-        SetMeta("structure_catalog_source_uri", loaded.Source.ResourceUri);
-        SetMeta("structure_catalog_source_sha256", loaded.Source.Sha256);
+        _boundConstructionCatalog = catalog;
+        SetMeta("structure_catalog_source_uri", catalog.SourceUri);
+        SetMeta("structure_catalog_source_sha256", catalog.SourceSha256);
     }
 
     private void RefreshPlayControls()
@@ -1531,7 +1388,7 @@ public partial class Main : Control
         bool strategy = playing && _world!.Phase == TurnPhase.Strategy && outcome == PlayableResult.Ongoing;
         bool reporting = playing && _world!.Phase == TurnPhase.Reporting;
         _saveInitial.Disabled = _world is null || _world.Phase != TurnPhase.Initializing;
-        _playStart.Disabled = _world is null || _world.Phase != TurnPhase.Initializing || _selectedForceSlot is null;
+        _playStart.Disabled = _world is null || _world.Phase != TurnPhase.Initializing || _selectedForceId is null;
         _playSave.Disabled = !playing;
         RefreshSaveSlots();
         RefreshPlayStructureKinds();
@@ -1913,7 +1770,7 @@ public partial class Main : Control
 
     private void StartPlayable()
     {
-        if (_world is not GameState world || _selectedForceSlot is not int forceId ||
+        if (_world is not GameState world || _selectedForceId is not int forceId ||
             world.Phase != TurnPhase.Initializing) return;
         CampaignStartResult campaign = _campaignComposition!.Start(_session!, forceId);
         _session = campaign.Session;
@@ -2133,98 +1990,7 @@ public partial class Main : Control
         UpdateResidentMap();
     }
 
-    private string PlayableSavePath(int slot)
-    {
-        if (slot < 1 || slot > PlayableSaveSlotCount)
-            throw new ArgumentOutOfRangeException(nameof(slot));
-        string fileName = slot == 1 ? "playable-session.sav" : $"playable-session-{slot:00}.sav";
-        return ProjectSettings.GlobalizePath("user://saves/" + fileName);
-    }
-
-    private int SelectedPlayableSaveSlot => _playSaveSlot.GetSelectedId();
-
-    private void RefreshSaveSlots()
-    {
-        for (int index = 0; index < _playSaveSlot.ItemCount; index++)
-        {
-            int slot = _playSaveSlot.GetItemId(index);
-            string label = _ui.Format("play_save_slot_item", slot);
-            if (File.Exists(PlayableSavePath(slot)))
-                label += " " + _ui.Get("play_save_slot_used");
-            _playSaveSlot.SetItemText(index, label);
-        }
-        _playContinue.Disabled = !File.Exists(PlayableSavePath(SelectedPlayableSaveSlot));
-    }
-
-    private void SavePlayable()
-    {
-        if (_session?.PlayerForceId is null) return;
-        _session!.Save(PlayableSavePath(SelectedPlayableSaveSlot));
-        RefreshSaveSlots();
-        _playMessage.Text = _ui.Get("play_saved");
-    }
-
-    private void LoadPlayable()
-    {
-        GameSessionSave restored = GameplaySession.ReadSave(PlayableSavePath(SelectedPlayableSaveSlot),
-            new ResourceSaveCodec(_repository!));
-        int index = _shownScenarios.FindIndex(scenario =>
-            GameResourceId.File(scenario.SourcePath).ToString() == restored.State.ScenarioKey);
-        if (index < 0) throw new InvalidDataException("The saved scenario is unavailable in the selected language.");
-        ShowScenario(index, restored.State, restored.PlayerForceId);
-        _scenarioList.Select(index);
-        RefreshSceneAudioContext();
-        int forceIndex = _shownForces.IndexOf(restored.PlayerForceId);
-        if (forceIndex >= 0)
-        {
-            _force.Select(forceIndex);
-            ShowForce(forceIndex);
-        }
-        _playMessage.Text = _ui.Get("play_loaded");
-        RefreshCurrentPlayWorld();
-    }
-
-    private string InitialSavePath => ProjectSettings.GlobalizePath("user://saves/initial-state.sav");
-
-    private void SaveInitialState()
-    {
-        if (_world is null) return;
-        try
-        {
-            _session!.SavePreview(InitialSavePath);
-            _worldStatus.Text = _ui.InitialStateSaved;
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-        {
-            _worldStatus.Text = _safeUi?.StateFileError(error.Message) ?? error.Message;
-            GD.PushWarning(error.ToString());
-        }
-    }
-
-    private void LoadInitialState()
-    {
-        GameState restored;
-        int index;
-        try
-        {
-            restored = GameplaySession.ReadPreview(InitialSavePath, new ResourceSaveCodec(_repository!));
-            index = _shownScenarios.FindIndex(scenario =>
-                GameResourceId.File(scenario.SourcePath).ToString() == restored.ScenarioKey);
-            if (index < 0) throw new InvalidDataException("The saved scenario is unavailable in the selected language.");
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or
-            InvalidDataException or System.Text.Json.JsonException)
-        {
-            _worldStatus.Text = _safeUi?.StateFileError(error.Message) ?? error.Message;
-            GD.PushWarning(error.ToString());
-            return;
-        }
-        ShowScenario(index, restored);
-        _scenarioList.Select(index);
-        _worldStatus.Text = _ui.InitialStateLoaded;
-    }
-
-    private void ShowPortrait(CharacterPreviewRecord? person)
+    private void ShowPortrait(BrowserPortrait? person)
     {
         _assetPreview.Texture = null;
         if (person is null || _repository is null)
@@ -2280,7 +2046,7 @@ public partial class Main : Control
             {
                 (int? area, int? owner) = DisplayedMapOwnership(cell.Id, world);
                 Color ownerColor = area is null ? new Color("#0d2630") :
-                    _selectedForceSlot is int selected && owner == selected ? new Color("#eaa52f") :
+                    _selectedForceId is int selected && owner == selected ? new Color("#eaa52f") :
                     owner is null ? new Color("#a1aba2") : new Color("#64748a");
                 color = _mapSurface is null ? ownerColor :
                     _mapSurface.ColorAt(cell.Id).Lerp(ownerColor,
@@ -2318,7 +2084,7 @@ public partial class Main : Control
                 ValidateDisplayedHex(hex);
                 int x = hex % _map.Width;
                 int y = hex / _map.Width;
-                Color marker = _selectedForceSlot is int selected && forceId == selected
+                Color marker = _selectedForceId is int selected && forceId == selected
                     ? new Color("#ffd66b") : new Color("#f0f5ed");
                 for (int delta = -1; delta <= 1; delta++)
                 {

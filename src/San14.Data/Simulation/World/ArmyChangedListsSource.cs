@@ -26,14 +26,18 @@ public static class ArmyChangedListsSource
     }
     /// <summary>Exact018CC0(...,1) tail append plus Army pointer store.
     /// It does not deduplicate or ask native validity before registering.</summary>
-    public static ArmyChangedListsResult Append(GameState state, int armyPhysical)
+    public static ArmyChangedListsResult Append(GameState state, int armyPhysical) => Append(state, armyPhysical, new SourceWorldContext());
+
+    /// <summary>The caller supplies the actual resource identity directory.
+    /// Importing a saved officer registry into an empty facade cannot establish
+    /// its logical identities.</summary>
+    public static ArmyChangedListsResult Append(GameState state, int armyPhysical, SourceWorldContext current)
     {
         if (armyPhysical is < 0 or > 500) return Unknown("current.changed_lists_Army_pointer");
         if (state.NativeArmyLifecycle is not { } arena || arena.Indexes.ChangedProcessing is null || arena.Indexes.ChangedPendingUnitIds is null)
             return Unknown("current.changed_lists_saved_owner");
         try
         {
-            var current = new SourceWorldContext();
             var pool = WorldIndexContext.ImportOwnedState(current, arena.Indexes, state);
             var at = current.AllocateRegistryNode(new(pool.ChangedPendingHandle!.Identity))
                 ?? throw new Missing("current.changed_lists_append_node");

@@ -7,7 +7,7 @@ public sealed record TransportArmyCreatedFields(int NativeSlot, byte Status10, u
     byte Flags26, ushort? HomeSequence28, ushort CurrentHex2A, ushort[] Waypoints2C,
     byte Action37, byte TargetKind38, ushort TargetIdentity3A, byte Category40, byte Choice41,
     ushort InitialNextHex48, byte Field56, int Gold5C, int Supplies60, ushort SavedHex152,
-    ushort CommanderSecondE4, NativeArmyOverrideTargetRuntime OverrideTarget)
+    ushort CommanderSecondE4, ArmyOverrideTargetState OverrideTarget)
 {
     /// <summary>2D8FE0 retains the free receiver's saved current13C.
     /// Fresh/reset installs0; an old receiver without the field stays null.</summary>
@@ -69,7 +69,7 @@ public sealed class TransportArmyCreationSource
             int nativeSlot = OwnedArmyLifecycleCurrent.FirstCreationSlot(state) ?? 0;
             if (nativeSlot == 0) return Missing("current.transport_first_invalid_501_receiver");
             var receiver = arena.Slots[nativeSlot];
-            if (receiver.OverrideTarget is not { Kind3C: not null, Identity3E: not null } inherited)
+            if (receiver.OverrideTarget is not { Kind: not null, Destination: not null } inherited)
                 return Missing("current.transport_reset_override3C3E");
 
             var home = new BaseReference(BaseKind.City, packet.SourceCityPhysical);

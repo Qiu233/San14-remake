@@ -224,9 +224,10 @@ public sealed class TacticEffectSourceRules : ITacticRuleSource, IPlayableTactic
                 UnitState acting = staged.Units.GetValueOrDefault(caster.Id) ?? caster;
                 TacticTargetResolution? result = ResolveInstruction(staged, acting, target, source, instruction);
                 if (result is null) return null;
-                steps.Add(new(targetId, result.Effects, result.RandomState));
+                steps.Add(new(targetId, result.Effects, result.RandomState) { ResourceStateAfter = result.ResourceStateAfter });
                 foreach (PlayableTacticEffect effect in result.Effects) target = ApplyReceipt(target, effect);
-                staged = Stage(staged, target) with { RandomState = result.RandomState };
+                staged = Stage(staged, target) with { RandomState = result.RandomState,
+                    ResourceState = result.ResourceStateAfter ?? staged.ResourceState };
             }
         return new(steps.ToArray(), staged.RandomState);
     }
@@ -262,9 +263,10 @@ public sealed class TacticEffectSourceRules : ITacticRuleSource, IPlayableTactic
             if (result is null) return null;
             effects.AddRange(result.Effects);
             foreach (PlayableTacticEffect effect in result.Effects) simulatedTarget = ApplyReceipt(simulatedTarget, effect);
-            simulatedState = Stage(simulatedState, simulatedTarget) with { RandomState = result.RandomState };
+            simulatedState = Stage(simulatedState, simulatedTarget) with { RandomState = result.RandomState,
+                ResourceState = result.ResourceStateAfter ?? simulatedState.ResourceState };
         }
-        return new(effects.ToArray(), simulatedState.RandomState);
+        return new(effects.ToArray(), simulatedState.RandomState) { ResourceStateAfter = simulatedState.ResourceState };
     }
 
     private TacticTargetResolution? ResolveInstruction(GameState state, UnitState caster, UnitState target,
@@ -300,9 +302,9 @@ public sealed class TacticEffectSourceRules : ITacticRuleSource, IPlayableTactic
             {
                 //1780CF resets the former positive25 owner before its three
                 //fresh cap reads, then writes each counter before the next read.
-                NativeArmyOverrideTargetRuntime? ownerWrite = native.Abnormal25 > 0 ? new(0xFF, 0) : null;
+                ArmyOverrideTargetState? ownerWrite = native.Abnormal25 > 0 ? ArmyOverrideTargetState.Cleared : null;
                 native = native with { ProvocationOwner = native.Abnormal25 > 0 ? null : native.ProvocationOwner };
-                current = NativeArmyOverrideTargetWrites.Apply(current with { NativeTacticRuntime = native }, ownerWrite);
+                current = ArmyOverrideTargetWrites.Apply(current with { NativeTacticRuntime = native }, ownerWrite);
                 staged = Stage(staged, current);
                 for (int index = 0; index < 3; index++)
                 {
@@ -330,7 +332,8 @@ public sealed class TacticEffectSourceRules : ITacticRuleSource, IPlayableTactic
             //and appends its result marker at179F20. An omitted current marker
             //receipt remains unknown; the pure native append has no RNG draw.
             ulong? random = _context.FinishArmyAbnormalClear(staged, caster, current, source, instruction);
-            return random is null ? null : new([effect], random.Value);
+            return random is null ? null : new([effect], random.Value)
+                { ResourceStateAfter = ArmyOverrideTargetSourceAdapter.ReconcileOwner(staged, current).ResourceState };
         }
         if (instruction.Opcode == 20)
         {
@@ -412,7 +415,7 @@ public sealed class TacticEffectSourceRules : ITacticRuleSource, IPlayableTactic
                     TacticEffectQueryResult<TacticCapturedOwnerSource>? capture =
                         _context.ResolveArmyAbnormalCapturedOwner(staged, caster, current, source, instruction);
                     if (capture is null) return null;
-                    if (capture.Value.HasEntity && capture.Value.OverrideTarget is not { Kind3C: not null, Identity3E: not null }) return null;
+                    if (capture.Value.HasEntity && capture.Value.OverrideTarget is not { Kind: not null, Destination: not null }) return null;
                     result = TacticEffectSourceAbnormal.Resolve(input with { CapturedOwner = capture.Value },
                         before.ProvocationOwner)!;
                     receipt = receipt with { ProvocationOwner = result.OwnerAfter,
@@ -420,13 +423,16 @@ public sealed class TacticEffectSourceRules : ITacticRuleSource, IPlayableTactic
                     effect = effect with { NativeAbnormalAfter = receipt };
                     current = ApplyReceipt(current, effect);
                     staged = Stage(staged, current) with { RandomState = capture.RandomState };
+                    if (capture.Value.SourceResidue is { } residue)
+                        staged = staged with { ResourceState = CampaignSourceKnowledge.From(staged.ResourceState).WithArmyOverride(residue) };
                 }
                 effects.Add(effect);
                 ulong? random = _context.FinishArmyAbnormalStatus(staged, caster, current, source, instruction, index, result);
                 if (random is null) return null;
                 staged = staged with { RandomState = random.Value };
             }
-            return new(effects.ToArray(), staged.RandomState);
+            return new(effects.ToArray(), staged.RandomState)
+                { ResourceStateAfter = ArmyOverrideTargetSourceAdapter.ReconcileOwner(staged, current).ResourceState };
         }
         return instruction.Opcode == 0 ? new([], state.RandomState) : null;
     }
@@ -489,7 +495,7 @@ public sealed class TacticEffectSourceRules : ITacticRuleSource, IPlayableTactic
         if (effect.HealingResult is { } healing)
             target = target with { Troops = healing.TroopsAfter, WoundedTroops = healing.WoundedAfter };
         if (effect.NativeAbnormalAfter is { } after && target.NativeTacticRuntime is { } native)
-            target = NativeArmyOverrideTargetWrites.Apply(target with { NativeTacticRuntime = native with
+            target = ArmyOverrideTargetWrites.Apply(target with { NativeTacticRuntime = native with
                 { Abnormal23 = after.Abnormal23, Abnormal24 = after.Abnormal24, Abnormal25 = after.Abnormal25,
                     ProvocationOwner = after.ProvocationOwner } }, after.OverrideTarget);
         if (effect.Kind == PlayableTacticEffectKind.ClearAbnormalStatuses && target.TacticRuntime is { } runtime)

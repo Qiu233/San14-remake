@@ -12,10 +12,21 @@ public sealed class ResourceSaveCodec : ISaveCodec
     public ResourceSaveCodec() { }
     public ResourceSaveCodec(GameResourceRepository repository) => _repository = repository;
     public string FormatId => "san14-remake-json-gzip";
-    public byte[] Encode(GameState state) => new JsonGzipSaveCodec(resourceStateCodec: new OfficerLocationResourceStateCodec()).Encode(state);
-    public GameState Decode(ReadOnlySpan<byte> bytes) =>
-        new JsonGzipSaveCodec(_repository is null ? null : new LegacyOfficerAbilitySource(_repository),
-            new OfficerLocationResourceStateCodec()).Decode(bytes);
+    public byte[] Encode(GameState state)
+    {
+        state = ArmyOverrideSourceKnowledgeValidation.PruneReplacedChannels(state);
+        ArmyOverrideSourceKnowledgeValidation.Validate(state);
+        ArmyTargetSourceKnowledgeValidation.Validate(state);
+        return new JsonGzipSaveCodec(resourceStateCodec: new CampaignResourceStateCodec()).Encode(state);
+    }
+    public GameState Decode(ReadOnlySpan<byte> bytes)
+    {
+        var state = new JsonGzipSaveCodec(_repository is null ? null : new LegacyOfficerAbilitySource(_repository),
+            new CampaignResourceStateCodec()).Decode(bytes);
+        ArmyTargetSourceKnowledgeValidation.Validate(state);
+        ArmyOverrideSourceKnowledgeValidation.Validate(state);
+        return state;
+    }
 
     // One directory per resource in a single migration. Later save reads obtain
     // a fresh migration source so resource updates cannot borrow an older table.

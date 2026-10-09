@@ -281,8 +281,9 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         }
         if (winnerPhysical is int winnerTargetSlot)
         {
-            var target = current.ReadArmyLifecycleTargetFields(winnerTargetSlot) ?? throw Missing("current.winner_Target38");
-            if (Known(target.Kind38, "winner_Target38") == 0x1B && Known(target.Identity3A, "winner_Target3A") == physical)
+            var target = current.ReadArmyTargetState(winnerTargetSlot) ?? throw Missing("current.winner_Target38");
+            if (Known(target.Kind, "winner_Target38") == ArmyTargetKind.ArmyReceiver &&
+                current.TargetsArmyReceiver(target.Destination ?? throw Missing("current.winner_Target3A"), physical))
                 if (!OwnedArmyDestructorFlags.SetSourceBit(current, winnerTargetSlot, 2, true)) throw Missing("current.winner_Army150");
             effects.Add("25C3xx.winner_Target38_3A_flag2");
         }
@@ -293,9 +294,10 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
             var saved = state.NativeArmyLifecycle!.Slots[index];
             var image = saved.ActiveUnitId is int active ? state.Units.GetValueOrDefault(active) : saved.PendingImage;
             if (Known(image?.NativeArmyConfiguration?.Action37, "target_clear_Army37") != 7) continue;
-            var target = current.ReadArmyLifecycleTargetFields(index) ?? throw Missing("current.target_clear_Army38");
-            if (Known(target.Kind38, "target_clear_Army38") == 0x1B && Known(target.Identity3A, "target_clear_Army3A") == physical)
-                current.SetArmyLifecycleTargetFields(index, new(0x1B, 0));
+            var target = current.ReadArmyTargetState(index) ?? throw Missing("current.target_clear_Army38");
+            if (Known(target.Kind, "target_clear_Army38") == ArmyTargetKind.ArmyReceiver &&
+                current.TargetsArmyReceiver(target.Destination ?? throw Missing("current.target_clear_Army3A"), physical))
+                current.ClearArmyTargetToPlaceholder(index);
         }
         effects.Add("25C4xx.current_manager60_target_clear");
         return (state, new(physical, id, commanderId, army.ForceId, hex, home, injuryReceipt, effects)
@@ -338,10 +340,10 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                     AuxiliaryAC = traits?.PersonsAC.ToArray() ?? old.AuxiliaryAC, AuxiliaryF4 = traits?.AuxiliaryF4.ToArray() ?? old.AuxiliaryF4 };
             }
         }
-        arena = OwnedArmyLifecycleTargets.PublishCurrent(OwnedArmyDestructorFlags.PublishCurrent(arena, current), current)
+        arena = OwnedArmyDestructorFlags.PublishCurrent(arena, current)
             with { Indexes = pool.ExportOwnedState(), Slots = slots };
-        return result with { Units = units, Officers = people, NativeArmyLifecycle = arena, ArmyMapOccupancy = current.ExportArmyMapOccupancy(), PendingCombatSettlements = queue,
-            PersonnelReturns = current.ReadOwnedPersonCommandManager() };
+        return OwnedArmyLifecycleTargets.PublishCurrent(result with { Units = units, Officers = people, NativeArmyLifecycle = arena, ArmyMapOccupancy = current.ExportArmyMapOccupancy(), PendingCombatSettlements = queue,
+            PersonnelReturns = current.ReadOwnedPersonCommandManager() }, current);
     }
 
     private static bool PersonalityImmunity(GameState state, SourceWorldContext current, int commander)

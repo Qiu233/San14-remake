@@ -36,7 +36,7 @@ struct Batch {int group,start,count,coarse;};
 struct Frame:CameraTransform {
     // Compatibility packet for existing pass writers; CPU camera consumers use
     // CameraTransform. Prepared once when a frame is published.
-    Prefix prefix{};std::array<Plane,6> planes{};V4 quaternion{};
+    Prefix prefix{};bool viewNeedsRebuild{};std::array<Plane,6> planes{};V4 quaternion{};
     int selectedCount=0,culledCount=0;std::vector<Instance> instances;std::vector<DrawRow> rows;std::vector<Batch> batches;};
 struct GroundHeightProfile {
     uint32_t preparationBranch=0,outerOwnerPresent=1;
@@ -438,7 +438,7 @@ inline Frame prepareCurrent(const Profile& p,const Runtime& r){
 // kernel without rebuilding a second camera with separate optics or matrices.
 inline Frame preparePublished(const Profile& p,const Prefix& prefix,const State& controller){
     Frame f;static_cast<CameraTransform&>(f)=decodeCameraTransform(prefix);
-    f.prefix=prefix;f.quaternion=derivePose(controller)[1];
+    f.prefix=prefix;f.viewNeedsRebuild=prefix[0x160]!=0;f.quaternion=derivePose(controller)[1];
     f.planes=makePlanes(f.worldToClip,f.optics.reversedDepth);
     return prepareTerrainFromFrame(p,std::move(f));
 }

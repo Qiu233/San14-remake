@@ -29,14 +29,17 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportRetarget
             NativeTacticRuntime = runtime with { Flags26 = receipt.Flags26 },
             NativeTransport = transport with { Waypoints2C = receipt.Waypoints2C.ToArray(),
                 Choice41 = receipt.Choice41, CurrentNextHex48 = receipt.NextHex48 },
-            NativeOverrideTarget = receipt.ClearOverride3C3E ? new(0xFF, 0) : unit.NativeOverrideTarget
+            OverrideTarget = receipt.ClearOverride3C3E ? ArmyOverrideTargetState.Cleared : unit.OverrideTarget
         };
-        var targets = arena.Targets38?.ToArray();
-        if (targets is not { Length: 501 }) return null;
-        targets[physical] = new(receipt.TargetKind38, receipt.TargetIdentity3A);
+        if (arena.Targets is null) return null;
+        var targetState = OwnedArmyLifecycleTargets.Write(state, arena.Slots[physical].ReceiverId,
+            new(receipt.TargetKind38, receipt.TargetIdentity3A));
         var submitted = state with { Units = new(state.Units) { [unit.Id] = staged },
-            NativeArmyLifecycle = arena with { Targets38 = targets } };
-        var registered = ArmyChangedListsSource.Append(submitted, receipt.ChangedArmyList18PhysicalSlot);
+            NativeArmyLifecycle = targetState.NativeArmyLifecycle, ResourceState = targetState.ResourceState };
+        SourceWorldContext current;
+        try { current = CaptureWritableTransportRouteCurrent(submitted); }
+        catch (InvalidDataException) { return null; }
+        var registered = ArmyChangedListsSource.Append(submitted, receipt.ChangedArmyList18PhysicalSlot, current);
         if (registered.State is not { } result) return null;
         return new(result, TransportRetargetRevision);
     }

@@ -22,7 +22,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     public OwnedArmyReturnWorld CaptureOwnedArmyReturnWorld(GameState state)
     {
         var world = OwnedArmyReturnWorld.Capture(state, _definitions);
-        OwnedArmyLifecycleTargets.BindCurrent(state.NativeArmyLifecycle!, world.Context);
+        OwnedArmyLifecycleTargets.BindCurrent(state, world.Context);
         _personDestructionInputs.BindCurrent(state, world.Context);
         _personRelationInputs.BindCurrent(state, world.Context);
         _force164Inputs.BindCurrent(state, world.Context);

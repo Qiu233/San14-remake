@@ -21,7 +21,7 @@ public static class ArmyDestructionTrackingTail
             int physical = receiver.PhysicalSlot ?? throw Missing("current.manager60_Army_pointer");
             var slot = arena.Slots[physical];
             var image = slot.ActiveUnitId is int active ? state.Units.GetValueOrDefault(active) : slot.PendingImage;
-            if (image?.NativeOverrideTarget?.Identity3E is not ushort identity)
+            if (image is null || ArmyOverrideTargetSourceAdapter.Read(state, image).Identity3E is not ushort identity)
             {
                 //An already known zero25 makes the complete conjunction false
                 //for every possible3E. It proves no writer without inventing a
@@ -37,8 +37,8 @@ public static class ArmyDestructionTrackingTail
             int cap = ArmyDestructionParameterSeed.ReadCurrent(state, SimulationParameterKeys.Tactics.AbnormalCounterUpperBound)
                 ?? throw Missing("current.manager60_231480_cap");
             byte after = cap < 0 ? unchecked((byte)cap) : (byte)0;
-            var changed = NativeArmyOverrideTargetWrites.Apply(image with
-            { NativeTacticRuntime = image.NativeTacticRuntime! with { Abnormal25 = after, ProvocationOwner = null } }, new(0xFF, 0));
+            var changed = ArmyOverrideTargetWrites.Apply(image with
+            { NativeTacticRuntime = image.NativeTacticRuntime! with { Abnormal25 = after, ProvocationOwner = null } }, ArmyOverrideTargetState.Cleared);
             slots ??= arena.Slots.ToArray();
             if (slot.ActiveUnitId is int id)
             {
@@ -46,7 +46,7 @@ public static class ArmyDestructionTrackingTail
                 units[id] = changed;
             }
             slots[physical] = slot with { PendingImage = slot.PendingImage is null ? null : changed,
-                OverrideTarget = changed.NativeOverrideTarget };
+                OverrideTarget = changed.OverrideTarget };
             writes.Add(new(physical, before, after));
         }
         return slots is null ? (state, []) :

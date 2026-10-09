@@ -62,9 +62,9 @@ public static class ArmyDestructionLoyalty
             draft.DestructionRelationTier2A6EE0Reader = current.DestructionRelationTier2A6EE0Reader;
             byte relation = Get(draft.ReadDestructionRelationTier2A6EE0(personPhysical, rulerPhysical, 0), "current.relationship2A6EE0");
             byte raw = Get(ReadCurrentRawE8(state, current, personPhysical, governorInputs), "current.Person_rawE8");
-            short word = Get(current.ReadPersonDestructionWord1A4(personPhysical), "current.Person_TC16C_SC1A4");
+            int disposition = Get(current.ReadAllegianceDisposition(personPhysical), "current.Person_allegiance_disposition");
             int loyaltyDivisor = P(SimulationParameterKeys.ArmyDestruction.LoyaltyLossLoyaltyDivisor), wordDivisor = P(SimulationParameterKeys.ArmyDestruction.LoyaltyLossPersonWordDivisor), relationBase = P(SimulationParameterKeys.ArmyDestruction.LoyaltyLossRelationBase);
-            float first = (((float)word - 20f) * -1f) / (float)wordDivisor;
+            float first = (((float)disposition - 20f) * -1f) / (float)wordDivisor;
             float second = (100f - (float)raw) / (float)loyaltyDivisor;
             float requested = (first + second) + (float)unchecked(relationBase - relation);
             int nativeInt = TruncateCvtt(requested);

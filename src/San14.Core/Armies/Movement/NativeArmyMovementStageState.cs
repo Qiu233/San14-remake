@@ -3,7 +3,7 @@ namespace San14.Core;
 /// <summary>Actual native marching words. Unknown producer stays null; a Core
 /// military destination, period distance or load never synthesizes these fields.</summary>
 public sealed record NativeArmyMarchState(ushort Credit14, ushort CurrentHex2A,
-    ushort TargetHex2C, ushort NextHex48, byte OverrideTargetType3C);
+    ushort TargetHex2C, ushort NextHex48);
 public sealed partial record UnitState
 {
     public NativeArmyMarchState? NativeMarch { get; init; }

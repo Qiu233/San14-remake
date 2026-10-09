@@ -59,7 +59,7 @@ public sealed partial class SourceWorldContext
     internal void CommitArmyReturnTransactionFields(SourceWorldContext draft)
     {
         Copy(draft._persons, _persons); Copy(draft._personFirstLocations, _personFirstLocations);
-        draft.CopyOfficerLocationsTo(this);
+        draft.CopyOfficerLocationsTo(this); draft.CopyArmyTargetsTo(this);
         Copy(draft._personDistrictSlots, _personDistrictSlots); Copy(draft._cityDistricts, _cityDistricts);
         Copy(draft._armyReturnGovernorWords2E, _armyReturnGovernorWords2E);
         Copy(draft._baseResources, _baseResources); Copy(draft._baseMorale44, _baseMorale44);
@@ -68,6 +68,7 @@ public sealed partial class SourceWorldContext
         CommitAssignmentCurrentFields(draft);
         CommitBaseCaptureCurrentFields(draft);
         CommitBaseReturnCaptivesFields(draft);
+        draft.CopyOfficerAftermathTo(this);
         static void Copy<K,V>(Dictionary<K,V> source, Dictionary<K,V> target) where K : notnull
         { target.Clear(); foreach (var row in source) target.Add(row.Key, row.Value); }
     }

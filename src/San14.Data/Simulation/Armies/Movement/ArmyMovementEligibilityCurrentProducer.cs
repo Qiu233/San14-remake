@@ -4,7 +4,7 @@ namespace San14.Data;
 
 public sealed record ArmyMovementEligibilityCurrentFields(int UnitId, int NativePoolSlot,
     NativeArmyProgressStageMoment Moment, byte? TargetType38, ushort? TargetValue3A,
-    ushort? OverrideTargetValue3E, byte? Flags150, ushort[]? TargetWords2CTo34, string SourceProvenance);
+    byte? Flags150, ushort[]? TargetWords2CTo34, string SourceProvenance);
 /// <summary>Actual current raw target fields, never MilitaryPlan or display
 /// destinations. Missing independent fields remain null.</summary>
 public interface IArmyMovementEligibilityCurrentOwnerQueries
@@ -70,6 +70,8 @@ public sealed class ArmyMovementEligibilityCurrentProducer
         if (army.NativeMarch is not { } march) return Missing("current.NativeMarch_word2C_and_override3C");
         if (march.CurrentHex2A != army.HexId || march.CurrentHex2A > 48399)
             return Missing("current.Army_Hex2A");
+        var overrideFields = ArmyOverrideTargetSourceAdapter.Read(state, army);
+        if (army.OverrideTarget?.Kind is not ArmyOverrideTargetKind overrideKind) return Missing("current.Army_override_category");
         int? currentTarget = ResolveCurrentTarget();
         if (currentTarget is null) return Missing("current.target2B54A0_raw38_3A_3E_or_selected_owner");
         if (currentTarget == 48400) return Result(false, currentTarget, null, "2C73AE.no-current-target");
@@ -90,7 +92,7 @@ public sealed class ArmyMovementEligibilityCurrentProducer
         if (goal is null) return Missing("current.goal2B5610_selected_Base_Object_Army_owner");
         if (goal == 48400) return Result(false, currentTarget, goal, "2C73E3.no-goal");
         if (army.NativeArmyConfiguration?.Action37 is not byte action) return Missing("current.Army_action37");
-        bool direct = march.OverrideTargetType3C == 0xFF;
+        bool direct = overrideKind == ArmyOverrideTargetKind.None;
         if (direct)
         {
             if (action is 1 or 13 or 15)
@@ -145,11 +147,12 @@ public sealed class ArmyMovementEligibilityCurrentProducer
         if (action is 11 or 12) return Result(true, currentTarget, goal, "2C779B.override-action11-12");
         bool? overrideExtended = ExtendedFormation();
         if (overrideExtended is null) return Missing("current.Formation_A8_A6_and_Force193_for2C70A0");
-        if (fields!.OverrideTargetValue3E is not ushort overrideValue) return Missing("current.Army_override_word3E");
-        int? overrideGoal = ResolveRawGoal(march.OverrideTargetType3C, overrideValue);
+        if (overrideFields.Identity3E is not ushort overrideValue) return Missing("current.Army_override_word3E");
+        int? overrideGoal = overrideKind == ArmyOverrideTargetKind.Unresolved ? 48400 :
+            overrideFields.Kind3C is byte encodedKind ? ResolveRawGoal(encodedKind, overrideValue) : null;
         if (overrideGoal is null) return Missing("current.override_goal2B5900_selected_owner");
-        int overrideRadius = march.OverrideTargetType3C == 5 && overrideExtended.Value ? 3 :
-            !overrideExtended.Value && march.OverrideTargetType3C != 5 ? 1 : 2;
+        int overrideRadius = overrideKind == ArmyOverrideTargetKind.City && overrideExtended.Value ? 3 :
+            !overrideExtended.Value && overrideKind != ArmyOverrideTargetKind.City ? 1 : 2;
         bool? nearOverride = RingContains(overrideGoal.Value, march.CurrentHex2A, overrideRadius);
         if (nearOverride is null) return Missing("current.override_fixed_ring_boundary_stack_values");
         return Result(!nearOverride.Value, currentTarget, goal, "2C76E4.override-target-ring");
@@ -206,18 +209,19 @@ public sealed class ArmyMovementEligibilityCurrentProducer
         }
         int? ResolveCurrentTarget()
         {
-            if (march.OverrideTargetType3C == 0xFF && march.TargetHex2C != 48400) return march.TargetHex2C;
+            if (overrideKind == ArmyOverrideTargetKind.None && march.TargetHex2C != 48400) return march.TargetHex2C;
             byte type; ushort value;
-            if (march.OverrideTargetType3C == 0xFF)
+            if (overrideKind == ArmyOverrideTargetKind.None)
             {
                 if (Fields()?.TargetType38 is not byte t || fields?.TargetValue3A is not ushort v) return null;
                 type = t; value = v;
             }
             else
             {
-                type = march.OverrideTargetType3C;
-                if (type is not (5 or 6 or 9 or 11 or 27)) return march.TargetHex2C;
-                if (Fields()?.OverrideTargetValue3E is not ushort v) return null;
+                if (overrideKind == ArmyOverrideTargetKind.Unresolved) return march.TargetHex2C;
+                if (overrideFields.Kind3C is not byte encodedKind) return null;
+                type = encodedKind;
+                if (overrideFields.Identity3E is not ushort v) return null;
                 value = v;
             }
             if (type == 9) return value;

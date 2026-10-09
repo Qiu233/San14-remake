@@ -36,6 +36,7 @@ public sealed partial class SourceWorldContext
         CopyAssignmentInputsTo(draft);
         CopyBaseCaptureCurrentTo(draft);
         CopyBaseReturnCaptivesInputsTo(draft);
+        CopyOfficerAftermathTo(draft);
         return draft;
         static void Copy<TKey, TValue>(Dictionary<TKey, TValue> from, Dictionary<TKey, TValue> to) where TKey : notnull
         { foreach (var field in from) to.Add(field.Key, field.Value); }

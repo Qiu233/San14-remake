@@ -49,6 +49,8 @@ struct SeasonEnvironment {
     V3 sunRgb{},moonRgb{};
     source_camera::Matrix skyLights{};
     float opacityClamp{};
+    float skyHeightOffset{};
+    V4 moonFaceDirection{};
 };
 inline SeasonEnvironment decodeEnvironment(const source_current_season::Frame& current) {
     SeasonEnvironment result;
@@ -61,6 +63,8 @@ inline SeasonEnvironment decodeEnvironment(const source_current_season::Frame& c
     celestial.sunIntensity=get<float>(fields+188);celestial.moonIntensity=get<float>(fields+192);celestial.halfFovTangent=get<float>(fields+196);
     result.sunRgb=get<V3>(fields+200);result.moonRgb=get<V3>(fields+216);
     result.skyLights=get<source_camera::Matrix>(fields+232);
+    result.skyHeightOffset=get<float>(fields+176);
+    result.moonFaceDirection=get<V4>(fields+280);
     result.direct=source_atmosphere_camera::decodeDirectEnvironment(current.main);
     result.opacityClamp=get<float>(current.main.data()+0x278);
     return result;

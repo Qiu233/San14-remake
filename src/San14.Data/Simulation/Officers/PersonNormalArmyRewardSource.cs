@@ -87,7 +87,7 @@ public sealed class PersonNormalArmyRewardSource
         //Deployed flag cannot supply the missing source writer.
         var receivers = OfficerLocationSourceAdapter.Receivers(input);
         if (OfficerLocationSourceAdapter.EncodePosition(person.LocationState?.Position, receivers,
-                (input.ResourceState as OfficerLocationSourceResidues)?.Find(personId)) is not ushort second ||
+                (input.ResourceState as CampaignSourceKnowledge)?.Find(personId)) is not ushort second ||
             definitions.ReadPersonSecondLocation(physical) != second) return Unknown("second-location");
         if (person.LocationState?.Position is not { Kind: OfficerPositionKind.ArmyReceiver, EntityId: int receiverId })
             return person.LocationState?.Position?.Kind == OfficerPositionKind.Unresolved && second is >= 62 and <= 561

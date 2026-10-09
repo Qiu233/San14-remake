@@ -19,12 +19,14 @@ public sealed class CampaignComposition
         _saveCodec = new ResourceSaveCodec(repository);
         Scenario = scenario;
         Map = map;
+        Construction = CampaignConstructionCatalog.Load(repository, scenario);
     }
 
     public LoadedScenario Scenario { get; }
     public LoadedMap Map { get; }
     public ScenarioCityPreview Snapshot => Scenario.Snapshot;
     public ArmyCampaignRuleAdapter? Army => _army;
+    internal CampaignConstructionCatalog Construction { get; }
 
     public static CampaignLoadResult Load(GameResourceRepository repository, EffectiveScenario selection,
         NewGameOptions options, GameState? restored = null, int? restoredPlayerForceId = null)

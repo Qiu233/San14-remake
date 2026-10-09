@@ -599,7 +599,6 @@ public static class StateValidator
         NativeSubdayStateValidation.Validate(state);
         NativeNormalArmyCombatCalendarStateValidation.Validate(state);
         NativeArmyMarchStateValidation.Validate(state);
-        NativePersonDestructionRuntimeStateValidation.Validate(state);
         NativeArmyReturnCurrentStateValidation.Validate(state);
         NativeArmyLifecycleStateValidation.Validate(state);
         ArmyMapOccupancySaveValidation.Validate(state);

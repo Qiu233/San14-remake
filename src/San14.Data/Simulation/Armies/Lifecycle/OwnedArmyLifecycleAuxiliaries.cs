@@ -59,7 +59,7 @@ public static class OwnedArmyLifecycleAuxiliaries
         var cautionMembers = arena.Indexes.CautionGroupMembers;
         var slots = arena.Slots.ToArray();
         var armyFlags150 = arena.ArmyFlags150?.ToArray();
-        var armyTargets38 = arena.Targets38?.ToArray();
+        OwnedArmyLifecycleTargets.BindCurrent(state, current);
         try
         {
             foreach (var receiver in pendingOrder)
@@ -90,12 +90,12 @@ public static class OwnedArmyLifecycleAuxiliaries
                 slots[army] = slots[army] with { Commander12 = 0, Status10 = 0, Priority14 = 0, ActiveUnitId = null,
                     GroupAssignmentReady = true,
                     PendingImage = null, StoredResources = ArmyStoreKnowledge.Empty, AuxiliaryAC = new ushort[36], AuxiliaryF4 = new ushort[36],
-                    OverrideTarget = new(0xFF, 0), Direction36 = ArmyDirectionSource.ResetDirection36,
+                    OverrideTarget = ArmyOverrideTargetState.Cleared, Direction36 = ArmyDirectionSource.ResetDirection36,
                     MapUiByte13C = 0, CommandControl140 = 0, RouteHold56 = 0, RouteGoal1F8 = 0xBD10 };
                 current.ReleaseArmyOccupancyReceiver(army);
                 current.SetArmyUnitCommanderId(army, 0); current.SetArmyUnitStatusFlag10(army, 0);
                 if (armyFlags150 is not null) armyFlags150[army] = 0; //2269E0 byte150 explicit reset.
-                if (armyTargets38 is not null) armyTargets38[army] = new(0xFF, 0); //2269E0 target reset.
+                if (arena.Targets is not null) current.SetArmyLifecycleTargetFields(army, new(0xFF, 0)); //2269E0 target reset.
                 _ = ArmyMovementManagerLifecycle.Remove(receiver, current);
                 pool.RemoveArmyIdentity(army);
                 roster = ArmyGroupSourceAdapter.Roster(arena, current);
@@ -104,8 +104,15 @@ public static class OwnedArmyLifecycleAuxiliaries
                     ?? throw new InvalidDataException("Current group retirement membership is unavailable.");
             }
             current.ClearTemporaryHexList(new(current.ReadArmyReturnPending70Descriptor()!.Identity));
-            var result = state with { ArmyMapOccupancy = current.ExportArmyMapOccupancy(), NativeArmyLifecycle = arena with { Indexes = pool.ExportOwnedState(), Slots = slots, ArmyFlags150 = armyFlags150, Targets38 = armyTargets38,
+            var result = state with { ArmyMapOccupancy = current.ExportArmyMapOccupancy(), NativeArmyLifecycle = arena with { Indexes = pool.ExportOwnedState(), Slots = slots, ArmyFlags150 = armyFlags150,
                 ArmyGroups = groups, ArmyCautions = cautions } };
+            result = OwnedArmyLifecycleTargets.PublishCurrent(result, current);
+            if (result.ResourceState is CampaignSourceKnowledge knowledge)
+            {
+                var resetReceivers = pendingOrder.Select(receiver => arena.Slots[receiver.PhysicalSlot!.Value].ReceiverId).ToHashSet();
+                result = result with { ResourceState = knowledge.ReplaceArmyOverrides(knowledge.ArmyOverrides
+                    .Where(row => row.Owner.ReceiverId is not { } id || !resetReceivers.Contains(id))) };
+            }
             foreach (var receiver in pendingOrder) committedReset?.Invoke(receiver.PhysicalSlot!.Value);
             return result;
         }

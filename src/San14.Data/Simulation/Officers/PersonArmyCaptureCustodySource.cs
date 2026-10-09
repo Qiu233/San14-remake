@@ -45,18 +45,16 @@ public static class PersonArmyCaptureCustodySource
             byte status = Known(current.ReadPersonStatus(personPhysical), "current.Person_E6_after_prefix_callbacks");
             if (status == 1) throw Missing("branch.ruler_2F86F0_or_single_city_at_home_prefix");
             if (status is not (2 or 3 or 4)) throw Missing("branch.capture_prefix_requires_current_status2_or3_or4");
-            var auxiliaries = current.ReadPersonDestructionRuntimeFields(personPhysical)
+            var auxiliaries = current.ReadOfficerAftermath(personPhysical)
                 ?? throw Missing("current.Person_destruction_auxiliary_owner");
             if (!state.OfficerOffices.ContainsKey(73)) throw Missing("current.Office73_projection");
             byte? district = status == 2
                 ? Known(current.ReadPersonDistrictSlot(personPhysical), "current.Person_E0_for_post_status_District") : null;
-            auxiliaries = auxiliaries with { Byte1A0 = 0 };
+            current.ClearCaptureResetKnowledge(personPhysical);
             current.WritePersonStatus(personPhysical, 6);
-            current.SetPersonDestructionRuntimeFields(personPhysical, auxiliaries);
             var updated = person with { Appointment = OfficerAppointment.Synchronize(73),
-                ServiceStatus = OfficerServiceStatus.Captive,
-                NativeDestructionRuntime = auxiliaries };
-            return new(state with { Officers = new(state.Officers) { [person.Id] = updated } },
+                ServiceStatus = OfficerServiceStatus.Captive };
+            return new(current.PublishOfficerAftermath(state with { Officers = new(state.Officers) { [person.Id] = updated } }, person.Id),
                 new(personPhysical, (ushort)person.Id, status, district), null);
         }
         catch (InvalidDataException error) { return new(null, null, error.Message); }
@@ -111,9 +109,7 @@ public static class PersonArmyCaptureCustodySource
             current.WritePersonSecondLocation(r.PersonPhysical, r.SecondLocationAfter);
         if (r.WritesOldForce19D)
         {
-            var old = current.ReadPersonDestructionRuntimeFields(r.PersonPhysical)
-                ?? throw Missing("current.Person_destruction_auxiliary_owner");
-            current.SetPersonDestructionRuntimeFields(r.PersonPhysical, old with { Byte19D = r.OldForce19DAfter });
+            current.WriteFormerForceKnowledge(r.PersonPhysical, Known(r.OldForce19DAfter, "current.saved_original_force"));
         }
     }
 
@@ -125,15 +121,13 @@ public static class PersonArmyCaptureCustodySource
         var r = packet.Receipt; var current = packet.Owner;
         OfficerState person = Person(state, current, r.PersonPhysical);
         var location = person.LocationState ?? throw Missing("current.Person_location_owner");
-        var auxiliary = current.ReadPersonDestructionRuntimeFields(r.PersonPhysical)
-            ?? throw Missing("current.Person_destruction_auxiliary_owner");
-        return OfficerLocationSourceAdapter.PublishPosition(state with { Officers = new(state.Officers) { [person.Id] = person with
+        var result = OfficerLocationSourceAdapter.PublishPosition(state with { Officers = new(state.Officers) { [person.Id] = person with
         {
             LocationId = Known(current.ReadPersonFirstLocation(r.PersonPhysical), "current.Person_first_E2"),
             Appointment = OfficerAppointment.Synchronize(73),
-            ServiceStatus = OfficerServiceStatusSourceAdapter.Decode(Known(current.ReadPersonStatus(r.PersonPhysical), "current.Person_status_E6")),
-            NativeDestructionRuntime = auxiliary
+            ServiceStatus = OfficerServiceStatusSourceAdapter.Decode(Known(current.ReadPersonStatus(r.PersonPhysical), "current.Person_status_E6"))
         } } }, person.Id, current);
+        return current.PublishOfficerAftermath(result, person.Id);
     }
 
     private static int CountOwnedCities(SourceWorldContext current, ForceReference force)

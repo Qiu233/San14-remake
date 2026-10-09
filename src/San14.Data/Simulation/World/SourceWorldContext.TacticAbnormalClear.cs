@@ -3,7 +3,6 @@ namespace San14.Data;
 public sealed partial class SourceWorldContext : ITacticAbnormalClearState
 {
     private readonly Dictionary<(RegistryKind Kind, int Physical, int Offset), byte?> _tacticAbnormalBytes = [];
-    private readonly Dictionary<int, ushort?> _tacticArmyTargets3E = [];
     private readonly Dictionary<int, int?> _tacticNodePayloadIds = [];
     public int? TacticAbnormalUpperBound { get; set; }
     public Func<int, int?>? TacticAbnormalUpperBoundReader { get; set; }
@@ -24,20 +23,29 @@ public sealed partial class SourceWorldContext : ITacticAbnormalClearState
     public bool? ReadTacticClearTargetValidity(RegistryObjectReference target) =>
         ReadRegistryObjectNativeValidity(target);
     public byte? ReadTacticClearByte(RegistryObjectReference target, int offset) =>
+        target.Kind == RegistryKind.Army && offset == 0x3C ? ReadOverrideSource(target.PhysicalSlot).Kind3C :
         _tacticAbnormalBytes.GetValueOrDefault(TacticAbnormalKey(target, offset));
     public void WriteTacticClearByte(RegistryObjectReference target, int offset, byte value) =>
-        _tacticAbnormalBytes[TacticAbnormalKey(target, offset)] = value;
-    public void SetTacticAbnormalRawByte(RegistryObjectReference target, int offset, byte? value) =>
-        _tacticAbnormalBytes[TacticAbnormalKey(target, offset)] = value;
+        SetTacticAbnormalRawByte(target, offset, value);
+    public void SetTacticAbnormalRawByte(RegistryObjectReference target, int offset, byte? value)
+    {
+        if (target.Kind == RegistryKind.Army && offset == 0x3C)
+        {
+            var previous = ReadOverrideSource(target.PhysicalSlot);
+            if (HasOverrideDestination(target.PhysicalSlot) && previous.Identity3E is null)
+                throw new InvalidDataException("A source category write cannot encode this independent override destination.");
+            WriteOverrideSource(target.PhysicalSlot, previous with { Kind3C = value });
+        }
+        else _tacticAbnormalBytes[TacticAbnormalKey(target, offset)] = value;
+    }
     public void WriteTacticClearUInt16(RegistryObjectReference target, int offset, ushort value)
     {
         if (target.Kind != RegistryKind.Army || offset != 0x3E)
             throw new InvalidDataException("Uninspected abnormal-clear word write.");
-        int physical = MapPhysical(target.PhysicalSlot, 501, "army abnormal target3E");
-        _tacticArmyTargets3E[physical] = value;
+        WriteOverrideSource(target.PhysicalSlot, ReadOverrideSource(target.PhysicalSlot) with { Identity3E = value });
     }
     public ushort? ReadTacticArmyTarget3E(ArmyUnitReference target) =>
-        _tacticArmyTargets3E.GetValueOrDefault(MapPhysical(target.PhysicalSlot, 501, "army abnormal target3E"));
+        ReadOverrideSource(target.PhysicalSlot).Identity3E;
     public int? ReadTacticAbnormalUpperBound(int statusIndex)
     {
         if (statusIndex is < 0 or > 2) throw new InvalidDataException("Abnormal status index is out of range.");
@@ -56,7 +64,7 @@ public sealed partial class SourceWorldContext : ITacticAbnormalClearState
 
     private static (RegistryKind, int, int) TacticAbnormalKey(RegistryObjectReference target, int offset)
     {
-        if (target.Kind == RegistryKind.Army && offset is >= 0x23 and <= 0x25 or 0x3C)
+        if (target.Kind == RegistryKind.Army && offset is >= 0x23 and <= 0x25)
             return (target.Kind, MapPhysical(target.PhysicalSlot, 501, "army abnormal byte"), offset);
         if (target.Kind is RegistryKind.City or RegistryKind.Gate && offset is >= 0x49 and <= 0x4B)
             return (target.Kind, MapPhysical(target.PhysicalSlot,

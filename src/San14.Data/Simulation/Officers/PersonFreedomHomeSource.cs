@@ -158,8 +158,7 @@ public sealed class PersonFreedomHomeSource
         int leftRuler = Ruler(leftForce), rightRuler = Ruler(rightForce);
         bool leftSpecial = leftForce is >= 46 and <= 50, rightSpecial = rightForce is >= 46 and <= 50;
         if (leftSpecial != rightSpecial) return !leftSpecial;
-        ushort targetId = Need(current.ReadPersonDestructionWord19A(person), "current.254F70_Person162");
-        int target = Person(targetId);
+        int target = Need(current.ReadResentmentTarget(person)?.PhysicalSlot, "current.254F70_Person162_lookup_pointer");
         if (Need(current.ReadPersonNativeValidity(target), "current.254F70_Person162_validity") && (leftRuler == target) != (rightRuler == target))
             return leftRuler != target;
         if (Need(current.ReadPersonNativeValidity(leftRuler), "current.254F70_left_ruler_validity") &&

@@ -390,9 +390,9 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         population.selectedCompactPresent=shadows.frame().passes[0].shadowAvailable!=0;
         population.selectedLitPresent=shadows.directionalView()!=nullptr;
         if(currentSeason) {
-            viewProfile.mainA00=shadows.seasonParameters().selectedSignedA00;
-            viewProfile.mainA28=shadows.seasonParameters().scaleA28;
-            viewProfile.mainA3C=source_current_season_shadow::mainWord<uint32_t>(*currentSeason,0xa3c);
+            viewProfile.mainA00=shadows.seasonParameters().selectedLightGroup;
+            viewProfile.mainA28=shadows.seasonParameters().planeScale;
+            viewProfile.mainA3C=static_cast<uint32_t>(source_current_season_shadow::required(currentSeason->shadow.compactMode));
         }
         currentView=source_view::prepareCurrent(viewProfile,population);
         actualViewRainFlags19B4=currentView.rain19B4;

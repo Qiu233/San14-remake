@@ -119,7 +119,7 @@ public sealed class TacticRemakeCurrentBattleQueries :
 
     public ushort? ReadRawProvocationTargetWord3E(GameState state, UnitState army)
     {
-        return context.ArmyValid(state, army) == true ? army.NativeOverrideTarget?.Identity3E : null;
+        return context.ArmyValid(state, army) == true ? ArmyOverrideTargetSourceAdapter.Read(state, army).Identity3E : null;
     }
     public bool? ReadCurvePermission(GameState state, UnitState caster, UnitState target) =>
         body.ReadCurvePermission(state, caster, target);

@@ -35,7 +35,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
     private readonly PersonNormalArmyRewardSource _personReward;
     private readonly OwnedBaseCapacityInputs _baseCapacityInputs;
     private readonly OwnedArmyGovernorComparatorInputs _governorInputs;
-    private readonly OwnedPersonDestructionRuntimeInputs _personDestructionInputs;
+    private readonly OfficerAftermathInputs _personDestructionInputs;
     private readonly ArmyDestructionParameterSeed _destructionSeed;
     private readonly NormalArmyAftermathInputs _normalAftermathInputs;
     private readonly OwnedPersonRelationInputs _personRelationInputs;
@@ -65,7 +65,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         NormalArmyForceResultSourceParameters forceResultSeed,
         PersonNormalArmyRewardSource personReward, OwnedBaseCapacityInputs baseCapacityInputs,
         OwnedArmyGovernorComparatorInputs governorInputs,
-        OwnedPersonDestructionRuntimeInputs personDestructionInputs,
+        OfficerAftermathInputs personDestructionInputs,
         ArmyDestructionParameterSeed destructionSeed,
         NormalArmyAftermathInputs normalAftermathInputs,
         OwnedPersonRelationInputs personRelationInputs,
@@ -137,7 +137,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             PersonNormalArmyRewardSource.Load(repository, source, language),
             OwnedBaseCapacityInputs.Load(repository, source, language),
             OwnedArmyGovernorComparatorInputs.Load(repository, source, language),
-            OwnedPersonDestructionRuntimeInputs.Load(repository, source, language),
+            OfficerAftermathInputs.Load(repository, source, language),
             ArmyDestructionParameterSeed.Load(repository, language),
             NormalArmyAftermathInputs.Load(repository, language),
             OwnedPersonRelationInputs.Load(repository, source, language),
@@ -321,7 +321,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                 NativeCommandControl140 = receipt.NativeCommandControl140,
                 NativeRouteHold56 = receipt.NativeRouteHold56, NativeRouteGoal1F8 = receipt.NativeRouteGoal1F8,
                 NativeHomeSequence28 = receipt.NativeHomeSequence28,
-                CarriedStores = receipt.CarriedStores, NativeOverrideTarget = receipt.NativeOverrideTarget,
+                CarriedStores = receipt.CarriedStores, OverrideTarget = receipt.OverrideTarget,
                 WoundedTroops = receipt.WoundedTroops
             });
             OfficerState commander = current.Officers[plan.OfficerId];
@@ -504,7 +504,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                 ArmyHomeSequenceSource.ReadNextOrdinary(state, CaptureOwnedArmyReturnWorld(state).Context, army.OfficerId),
             NativeSavedRegionHex152 = selectedBase?.PhysicalSlot is not null
                 ? ArmyCurrentRegionSource.ResolveCreationRegion(selectedBase, definitions) : null };
-        var residues = OfficerLocationSourceResidues.From(state.ResourceState);
+        var residues = CampaignSourceKnowledge.From(state.ResourceState);
         var previousLocationResidue = residues.Find(army.OfficerId);
         result = result with { ResourceState = residues.With(new(army.OfficerId,
             result.CommanderPosition?.Kind == OfficerPositionKind.Unresolved
@@ -514,7 +514,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         UnitState created = army with { NativeArmyOrigin = result.Origin, NativeArmyConfiguration = result.Configuration,
             NativeTacticRuntime = result.Runtime, NativeMorale1A = result.NativeMorale1A,
             NativeSavedRegionHex152 = result.NativeSavedRegionHex152, CarriedStores = result.CarriedStores,
-            NativeOverrideTarget = result.NativeOverrideTarget,
+            OverrideTarget = result.OverrideTarget,
             NativeCurrentHex2A = result.NativeCurrentHex2A,
             NativeDirection36 = result.NativeDirection36,
             NativeMapUiByte13C = result.NativeMapUiByte13C,
@@ -523,7 +523,8 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             NativeHomeSequence28 = result.NativeHomeSequence28,
             WoundedTroops = result.WoundedTroops };
         ArmyLifecycleCreationAdmission? lifecycle = PrepareArmyLifecycleCreation(state, created);
-        return lifecycle is null ? null : result with { NativeLifecycle = lifecycle.Lifecycle, ArmyMapOccupancy = lifecycle.Occupancy };
+        return lifecycle is null ? null : result with { NativeLifecycle = lifecycle.Lifecycle, ArmyMapOccupancy = lifecycle.Occupancy,
+            ResourceState = CampaignSourceKnowledge.From(result.ResourceState).ReplaceArmyTargets(CampaignSourceKnowledge.From(lifecycle.ResourceState).ArmyTargets) };
     }
     public PlayableTacticDefinition? Resolve(GameState state, int tacticId) => null; //Native usage requires a caster.
     public PlayableTacticDefinition? ResolveForCaster(GameState state, UnitState caster, int tacticId) =>

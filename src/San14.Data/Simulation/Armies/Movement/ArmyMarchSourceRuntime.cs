@@ -97,7 +97,7 @@ public sealed class ArmyMarchSourceRuntime : IPlayableNativeArmyMovementRules
             !HasCurrentRules(army) ||
             army.NativeMarch is not { } fields || army.NativeArmyConfiguration?.Action37 is not byte action ||
             fields.CurrentHex2A > 48399 ||
-            fields.CurrentHex2A != army.HexId || fields.OverrideTargetType3C != 0xFF ||
+            fields.CurrentHex2A != army.HexId || army.OverrideTarget?.Kind != ArmyOverrideTargetKind.None ||
             fields.TargetHex2C > 48399 || fields.CurrentHex2A == fields.TargetHex2C || fields.NextHex48 > 48399 || action == 8)
             return null;
         var input = queries.ReadOrdinaryCurrentInputs(state, army, moment);

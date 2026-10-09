@@ -4,8 +4,8 @@
 #include "AmbientFrame.h"
 namespace source_current_main_sky {
 inline source_camera::Matrix prepareMoonFace(const source_current_season::Frame& current) {
- const auto* atmosphere=reinterpret_cast<const uint8_t*>(current.atmosphere.data());
- return source_current_ambient::moonFace(source_camera::get<source_camera::V4>(atmosphere+280));
+ const auto environment=source_current_season_atmosphere::decodeEnvironment(current);
+ return source_current_ambient::moonFace(environment.moonFaceDirection);
 }
 inline void publishMoonFace(source_atmosphere_camera::Packet& packet,const source_current_season::Frame& current) {
  source_camera::put(packet.skyPixel.data()+192,prepareMoonFace(current));

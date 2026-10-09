@@ -5,7 +5,7 @@ namespace San14.Data;
 public sealed partial class SourceWorldContext
 {
     private readonly Dictionary<int, OfficerLocationState?> _officerLocations = [];
-    private OfficerLocationSourceResidues _locationResidues = new([]);
+    private CampaignSourceKnowledge _locationResidues = new([]);
     private ArmyReceiverSourceDirectory? _locationReceivers;
 
     internal void BindOfficerLocations(GameState state, ArmyReceiverSourceDirectory? receivers)
@@ -13,7 +13,7 @@ public sealed partial class SourceWorldContext
         _officerLocations.Clear();
         foreach (var officer in state.Officers.Values)
             _officerLocations.Add(officer.Id, officer.LocationState);
-        _locationResidues = OfficerLocationSourceResidues.From(state.ResourceState);
+        _locationResidues = CampaignSourceKnowledge.From(state.ResourceState);
         _locationReceivers = receivers;
     }
     internal OfficerLocationState? ReadOfficerLocation(int officerId) => _officerLocations.GetValueOrDefault(officerId);

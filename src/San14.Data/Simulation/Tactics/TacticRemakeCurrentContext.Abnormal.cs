@@ -140,16 +140,22 @@ public sealed partial class TacticRemakeCurrentContext
         if (occupant is null) return new(new(false, null), state.RandomState);
         if (occupant.Army is { } army)
         {
-            if (army.NativeArmyOrigin?.NativeSlotIndex is not (>= 1 and <= 500)) return null;
+            if (army.NativeArmyOrigin?.NativeSlotIndex is not int ordinal || ordinal is < 1 or > 500) return null;
+            var fields = new ArmyOverrideTargetSourceFields(27, (ushort)ordinal);
+            var decoded = ArmyOverrideTargetSourceAdapter.Decode(fields,
+                state.NativeArmyLifecycle is { } arena ? new(arena) : null);
             return new(new(true, new(army.ForceId, DeploymentTargetKind.Unit, army.Id))
-            { OverrideTarget = new(0x1B, (ushort)army.NativeArmyOrigin.NativeSlotIndex.Value) }, state.RandomState);
+            { OverrideTarget = decoded, SourceResidue = ArmyOverrideTargetSourceAdapter.Residue(
+                ArmyOverrideTargetSourceAdapter.Owner(state, target), fields, decoded) }, state.RandomState);
         }
         if (occupant.BaseLocation is int location && occupant.CapturedObject is { } obj &&
             _definitions.ReadObjectForceSlot13(obj) is byte force)
         {
             if (location is < 1 or > 61) return null;
             return new(new(true, new(force, DeploymentTargetKind.Location, location))
-            { OverrideTarget = location <= 51 ? new(5, (ushort)location) : new(6, (ushort)(location - 51)) }, state.RandomState);
+            { OverrideTarget = location <= 51
+                ? new(ArmyOverrideTargetKind.City, new(ArmyOverrideDestinationKind.City, location))
+                : new(ArmyOverrideTargetKind.Gate, new(ArmyOverrideDestinationKind.Gate, location)) }, state.RandomState);
         }
         return null;
     }

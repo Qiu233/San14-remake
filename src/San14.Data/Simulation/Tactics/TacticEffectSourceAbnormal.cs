@@ -17,7 +17,8 @@ public sealed record TacticCapturedOwnerSource(bool HasEntity,
 {
     /// <summary>Actual type/physical identity read from16E880's current entity.
     /// Null for an empty Hex means that the source does not write this pair.</summary>
-    public NativeArmyOverrideTargetRuntime? OverrideTarget { get; init; }
+    public ArmyOverrideTargetState? OverrideTarget { get; init; }
+    public ArmyOverrideTargetSourceResidue? SourceResidue { get; init; }
 }
 
 public sealed record TacticAbnormalSourceResult(byte CounterAfter,

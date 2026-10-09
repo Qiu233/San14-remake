@@ -6,44 +6,95 @@ public static class OwnedArmyLifecycleTargets
 {
     public static GameState InstallFresh(GameState state)
     {
-        if (state.NativeArmyLifecycle is not { Slots.Length: 501, Targets38: null } arena ||
-            state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } || state.Units.Count != 0)
+        if (state.NativeArmyLifecycle is not { Targets: null } arena ||
+            state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } || state.Units.Count != 0 ||
+            CampaignSourceKnowledge.From(state.ResourceState).ArmyTargets.Count != 0)
             throw new InvalidDataException("Army targets require the unused fresh constructor allocation.");
-        //2269E0 writes byte38=FF and word3A=0 for every501 receiver.
-        return state with { NativeArmyLifecycle = arena with { Targets38 = Enumerable.Range(0, 501)
-            .Select(_ => new NativeArmyLifecycleTargetState(0xFF, 0)).ToArray() } };
+        var directory = new ArmyReceiverSourceDirectory(arena);
+        var rows = arena.Slots.Select(slot => (slot.ReceiverId,
+            Decoded: ArmyTargetSourceAdapter.Decode(slot.ReceiverId, new(255, 0), directory))).ToArray();
+        return state with
+        {
+            NativeArmyLifecycle = arena with { Targets = new(rows.Select(row => new ArmyTargetAssignment(row.ReceiverId, row.Decoded.Target)).ToArray()) },
+            ResourceState = CampaignSourceKnowledge.From(state.ResourceState).ReplaceArmyTargets(rows.Select(row => row.Decoded.Residue))
+        };
     }
-
-    internal static NativeArmyLifecycleState PublishCreation(NativeArmyLifecycleState arena, int physical, byte? packetKind38,
-        ushort? packetIdentity3A = null)
+    public static GameState Write(GameState state, ArmyReceiverId receiverId, ArmyTargetSourceFields fields)
     {
-        if (arena.Targets38 is null && packetKind38 is null) return arena;
-        //A real new creator store can make just this old-save receiver known.
-        //Other old receivers do not acquire constructor defaults.
-        var targets = arena.Targets38?.ToArray() ?? Enumerable.Range(0, 501)
-            .Select(_ => new NativeArmyLifecycleTargetState(null, null)).ToArray();
-        //2D2CA0 writes low bytes of packetE/F. The current short packet owns
-        //E=9. Its caller's F=param2 is not yet represented by this producer.
-        targets[physical] = new(packetKind38, packetIdentity3A);
-        return arena with { Targets38 = targets };
+        var arena = state.NativeArmyLifecycle ?? throw new InvalidDataException("Army target receiver owner is absent.");
+        var directory = new ArmyReceiverSourceDirectory(arena);
+        if (!directory.TryResolveSourceOrdinal(receiverId, out _))
+            throw new InvalidDataException("Army target write names an unowned receiver.");
+        var decoded = ArmyTargetSourceAdapter.Decode(receiverId, fields, directory);
+        return state with
+        {
+            NativeArmyLifecycle = arena with { Targets = (arena.Targets ?? new([])).With(receiverId, decoded.Target) },
+            ResourceState = CampaignSourceKnowledge.From(state.ResourceState).WithArmyTarget(decoded.Residue)
+        };
     }
-
-    public static void BindCurrent(NativeArmyLifecycleState arena, SourceWorldContext current)
+    internal static GameState PublishCreation(GameState state, int physical, byte? kind, ushort? identity)
     {
-        if (arena.Targets38 is not { } targets) return;
-        for (int i = 0; i < targets.Length; i++) current.SetArmyLifecycleTargetFields(i, targets[i]);
+        if (state.NativeArmyLifecycle!.Targets is null && kind is null) return state;
+        return Write(state, state.NativeArmyLifecycle.Slots[physical].ReceiverId, new(kind, identity));
     }
-
-    public static NativeArmyLifecycleState PublishCurrent(NativeArmyLifecycleState arena, SourceWorldContext current) =>
-        arena.Targets38 is null ? arena : arena with { Targets38 = Enumerable.Range(0, 501)
-            .Select(i => current.ReadArmyLifecycleTargetFields(i) ?? new NativeArmyLifecycleTargetState(null, null)).ToArray() };
+    public static ArmyTargetSourceFields? Read(GameState state, ArmyReceiverId receiverId) =>
+        state.NativeArmyLifecycle is { Targets: { } targets } arena && targets.Find(receiverId) is { } target
+            ? ArmyTargetSourceAdapter.Encode(target, (state.ResourceState as CampaignSourceKnowledge)?.FindArmyTarget(receiverId), new(arena))
+            : state.NativeArmyLifecycle?.Targets is not null ? new(null, null) : null;
+    public static void BindCurrent(GameState state, SourceWorldContext current) => current.BindArmyTargets(state);
+    public static GameState PublishCurrent(GameState state, SourceWorldContext current) => state with
+    {
+        NativeArmyLifecycle = state.NativeArmyLifecycle! with { Targets = current.ArmyTargets },
+        ResourceState = CampaignSourceKnowledge.From(state.ResourceState).ReplaceArmyTargets(current.ArmyTargetResidues)
+    };
 }
 
 public sealed partial class SourceWorldContext
 {
-    private readonly Dictionary<int, NativeArmyLifecycleTargetState?> _armyLifecycleTargets38 = [];
-    public void SetArmyLifecycleTargetFields(int physical, NativeArmyLifecycleTargetState? target)
-    { Check(physical, 501, "Army target38 receiver"); _armyLifecycleTargets38[physical] = target; }
-    public NativeArmyLifecycleTargetState? ReadArmyLifecycleTargetFields(int physical)
-    { Check(physical, 501, "Army target38 receiver"); return _armyLifecycleTargets38.GetValueOrDefault(physical); }
+    private ArmyTargetsState? _armyTargets;
+    private ArmyReceiverSourceDirectory? _targetReceivers;
+    private CampaignSourceKnowledge _targetResidues = new([]);
+    internal ArmyTargetsState? ArmyTargets => _armyTargets;
+    internal IReadOnlyCollection<ArmyTargetSourceResidue> ArmyTargetResidues => _targetResidues.ArmyTargets;
+    internal void BindArmyTargets(GameState state)
+    {
+        _armyTargets = state.NativeArmyLifecycle?.Targets;
+        _targetReceivers = state.NativeArmyLifecycle is { } arena ? new(arena) : null;
+        _targetResidues = CampaignSourceKnowledge.From(state.ResourceState);
+        BindArmyOverrides(state);
+    }
+    internal ArmyTargetState? ReadArmyTargetState(int sourceOrdinal) =>
+        _targetReceivers is not null && _targetReceivers.TryResolveReceiverId(sourceOrdinal, out var receiver)
+            ? _armyTargets?.Find(receiver) ?? (_armyTargets is null ? null : new(null, null)) : null;
+    internal bool TargetsArmyReceiver(ArmyTargetDestination destination, int sourceOrdinal) =>
+        destination.Kind == ArmyTargetDestinationKind.ArmyReceiver &&
+        _targetReceivers is not null && _targetReceivers.TryResolveReceiverId(sourceOrdinal, out var receiver) &&
+        destination.ReceiverId == receiver;
+    internal void ClearArmyTargetToPlaceholder(int sourceOrdinal)
+    {
+        if (_targetReceivers is null || !_targetReceivers.TryResolveReceiverId(sourceOrdinal, out var owner) ||
+            !_targetReceivers.TryResolveReceiverId(0, out var placeholder))
+            throw new InvalidDataException("Army target clear has no receiver directory.");
+        _armyTargets = (_armyTargets ?? new([])).With(owner,
+            new(ArmyTargetKind.ArmyReceiver, new(ArmyTargetDestinationKind.ArmyReceiver, null, placeholder)));
+        _targetResidues = _targetResidues.WithArmyTarget(new(owner, null, null));
+    }
+    public void SetArmyLifecycleTargetFields(int physical, ArmyTargetSourceFields? fields)
+    {
+        if (_targetReceivers is null || !_targetReceivers.TryResolveReceiverId(physical, out var receiver))
+            throw new InvalidDataException("Army target write has no receiver directory.");
+        var decoded = ArmyTargetSourceAdapter.Decode(receiver, fields ?? new(null, null), _targetReceivers);
+        _armyTargets = (_armyTargets ?? new([])).With(receiver, decoded.Target);
+        _targetResidues = _targetResidues.WithArmyTarget(decoded.Residue);
+    }
+    public ArmyTargetSourceFields? ReadArmyLifecycleTargetFields(int physical) =>
+        _targetReceivers is not null && _targetReceivers.TryResolveReceiverId(physical, out var receiver) &&
+        _armyTargets?.Find(receiver) is { } target
+            ? ArmyTargetSourceAdapter.Encode(target, _targetResidues.FindArmyTarget(receiver), _targetReceivers)
+            : _armyTargets is not null ? new(null, null) : null;
+    private void CopyArmyTargetsTo(SourceWorldContext other)
+    {
+        other._armyTargets = _armyTargets; other._targetReceivers = _targetReceivers; other._targetResidues = _targetResidues;
+        CopyArmyOverridesTo(other);
+    }
 }

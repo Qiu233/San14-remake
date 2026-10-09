@@ -100,7 +100,7 @@ public sealed class ArmyConstruction : IPlayableArmyCreationRules
             return null;
         int slot;
         ArmyStores? returnResources;
-        NativeArmyOverrideTargetRuntime? overrideTarget;
+        ArmyOverrideTargetState? overrideTarget;
         ushort[]? traitSlots;
         if (state.NativeArmyLifecycle is { } arena)
         {
@@ -121,7 +121,7 @@ public sealed class ArmyConstruction : IPlayableArmyCreationRules
                 .Select(unit => unit.NativeArmyOrigin!.NativeSlotIndex).ToHashSet();
             slot = Enumerable.Range(1, 500).FirstOrDefault(index => !usedSlots.Contains(index));
             returnResources = new(0, 0); traitSlots = new ushort[36];
-            overrideTarget = new(0xFF, 0); //The actual new receiver runs2269E0.
+            overrideTarget = ArmyOverrideTargetState.Cleared; //The actual new receiver runs2269E0.
         }
         if (slot == 0) return null;
         int requested = unchecked(unchecked(initial.Value + adjustment.Value) - reduction.Value);
@@ -133,7 +133,7 @@ public sealed class ArmyConstruction : IPlayableArmyCreationRules
             CreationCounter(cap1.Value, cap1.Value), CreationCounter(cap2.Value, cap2.Value),
             0, 0, 0, new sbyte[6], new byte[6], null, primary == 0 ? clock.UpdateOrdinal : null);
         return new(runtime, 0, new(ProfileId, Language, RuleVersion) { NativeSlotIndex = slot }, state.RandomState)
-        { CarriedStores = returnResources, NativeOverrideTarget = overrideTarget,
+        { CarriedStores = returnResources, OverrideTarget = overrideTarget,
           NativeRouteHold56 = _configuration.RouteHold40Input is int hold ? (byte)Math.Clamp(hold, 0, 9) : null,
           Configuration = new(formation.Bytes.Byte1B, formation.Bytes.Byte1C,
             (byte)Math.Clamp(_configuration.Action34, 0, 17), (byte)Math.Clamp(_configuration.Category44, 0, 2))

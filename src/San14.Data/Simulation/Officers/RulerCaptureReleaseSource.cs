@@ -125,7 +125,7 @@ public static class RulerCaptureReleaseSource
             int person = receipt.PersonPhysical, winner = receipt.WinnerForcePhysical, original = receipt.PriorForcePhysical;
             BindCurrent(state, current);
             var working = state; bool relationWritten = false; byte? afterA = null, afterB = null; short? fame = null;
-            if (K(current.ReadPersonDestructionWord1A4(person), "current.Lord_Person16C") >= P(SimulationParameterKeys.ArmyDestruction.RulerReleasePersonRelationThreshold) && P(SimulationParameterKeys.ArmyDestruction.RulerReleaseRelationGain) != 0 &&
+            if (K(current.ReadAllegianceDisposition(person), "current.Lord_allegiance_disposition") >= P(SimulationParameterKeys.ArmyDestruction.RulerReleasePersonRelationThreshold) && P(SimulationParameterKeys.ArmyDestruction.RulerReleaseRelationGain) != 0 &&
                 K(current.ReadForceNativeValidity(new(winner)), "current.Lord_winner_Force_validity") &&
                 K(current.ReadForceNativeValidity(new(original)), "current.Lord_original_Force_validity") && winner != original) {
                 if (winner is >= 46 and <= 50 || original is >= 46 and <= 50) throw Missing("branch.Lord_release_special_Force27B0F0");

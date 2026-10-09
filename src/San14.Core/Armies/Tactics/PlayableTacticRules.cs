@@ -2,7 +2,12 @@ namespace San14.Core;
 
 public readonly record struct TacticUseEligibility(bool? Allowed, string? Reason = null,
     string? MissingRuleKey = null);
-public sealed record TacticTargetResolution(PlayableTacticEffect[] Effects, ulong RandomState);
+public sealed record TacticTargetResolution(PlayableTacticEffect[] Effects, ulong RandomState)
+{
+    /// <summary>Immutable resource compatibility publication, committed with
+    /// the effects. Ordinary game rules never interpret its source encoding.</summary>
+    public ICampaignResourceState? ResourceStateAfter { get; init; }
+}
 
 /// <summary>Source or provisional adapters supply both resolved effects and final usage eligibility.</summary>
 public interface IPlayableTacticRules

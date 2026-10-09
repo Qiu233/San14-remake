@@ -19,7 +19,7 @@ public static class OwnedArmyReturnCurrentFields
         var prefix = definitions.Capture(state) ?? throw new InvalidDataException("Fresh return source definitions do not match current content.");
         var people = state.Officers.ToDictionary(x => x.Key, x => x.Value);
         var receivers = OfficerLocationSourceAdapter.Receivers(state) ?? ArmyReceiverSourceDirectory.CreateFresh(501);
-        var residues = OfficerLocationSourceResidues.From(state.ResourceState);
+        var residues = CampaignSourceKnowledge.From(state.ResourceState);
         foreach (var person in people.Values.ToArray())
         {
             int physical = prefix.ResolveOfficerSource(person.Id)
@@ -61,6 +61,7 @@ public static class OwnedArmyReturnCurrentFields
     {
         var current = definitions.Capture(state) ?? throw new InvalidDataException("Return definitions/content identity mismatch.");
         current.OverlayOwnedArmyReturnCurrentFields(state, freshReceivers);
+        OwnedArmyLifecycleTargets.BindCurrent(state, current);
         return current;
     }
 
@@ -69,7 +70,7 @@ public static class OwnedArmyReturnCurrentFields
     internal static GameState PublishCurrent(GameState state, SourceWorldContext current)
     {
         var people = state.Officers.ToDictionary(x => x.Key, x => x.Value);
-        var residues = OfficerLocationSourceResidues.From(state.ResourceState);
+        var residues = CampaignSourceKnowledge.From(state.ResourceState);
         foreach (var person in people.Values.ToArray())
         {
             int physical = current.ResolveOfficerSource(person.Id)
@@ -150,7 +151,7 @@ public sealed partial class SourceWorldContext
         BindArmyMapOccupancy(state);
         var ownedPeople = new HashSet<int>();
         var receivers = OfficerLocationSourceAdapter.Receivers(state) ?? freshReceivers;
-        var residues = state.ResourceState as OfficerLocationSourceResidues;
+        var residues = state.ResourceState as CampaignSourceKnowledge;
         foreach (var person in state.Officers.Values)
         {
             int physical = ResolveOfficerSource(person.Id)

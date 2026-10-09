@@ -62,7 +62,7 @@ public static class OfficerLocationSourceAdapter
         OfficerState officer = state.Officers[officerId];
         var location = officer.LocationState ?? new OfficerLocationState(null, null);
         var position = current.ReadOfficerLocation(officerId)?.Position;
-        var residues = OfficerLocationSourceResidues.From(state.ResourceState);
+        var residues = CampaignSourceKnowledge.From(state.ResourceState);
         var previous = residues.Find(officerId);
         residues = residues.With(new(officerId, current.ReadOfficerLocationResidue(officerId)?.LocationCode, previous?.DistrictCode));
         return state with { Officers = new(state.Officers) { [officerId] = officer with
@@ -71,7 +71,7 @@ public static class OfficerLocationSourceAdapter
     internal static GameState PublishPositions(GameState state, SourceWorldContext current)
     {
         var people = new Dictionary<int, OfficerState>(state.Officers);
-        var residues = OfficerLocationSourceResidues.From(state.ResourceState);
+        var residues = CampaignSourceKnowledge.From(state.ResourceState);
         foreach (var person in state.Officers.Values)
         {
             int physical = current.ResolveOfficerSource(person.Id) ?? throw new InvalidDataException("Current officer position identity is missing.");

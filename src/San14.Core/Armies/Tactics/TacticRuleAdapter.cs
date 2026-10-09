@@ -18,7 +18,10 @@ public interface IPlayableTacticCasterSource
 /// <summary>A complete source program can interleave different target areas in
 /// instruction order. The explicit steps retain that order and its RNG receipts.</summary>
 public sealed record TacticSourceEffectStep(int TargetUnitId, PlayableTacticEffect[] Effects,
-    ulong RandomState);
+    ulong RandomState)
+{
+    public ICampaignResourceState? ResourceStateAfter { get; init; }
+}
 public sealed record TacticUseSourceResolution(TacticSourceEffectStep[] Steps, ulong RandomState);
 public interface IPlayableTacticUseSource
 {
