@@ -224,8 +224,8 @@ public static class PlayableBaseCaptureAftermath
                 //No native location/status writer ran in this provisional
                 //evacuation. Keep its actual E4/status; later source governor
                 //queries can exclude this Person at the old physical location.
-                NativeLocationRuntime = resident.NativeLocationRuntime,
-                NativeAbilityRuntime = resident.NativeAbilityRuntime
+                LocationState = resident.LocationState,
+                AbilityState = resident.AbilityState
             };
             reports.Add(new(EvacuatedReportKind, defendingForceId,
                 current.Cities.ContainsKey(destinationId) ? destinationId : null,

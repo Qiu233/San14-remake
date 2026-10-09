@@ -94,7 +94,7 @@ public static class ArmyDestructionLoyalty
         if (packet.AfterE8 is not byte after) return state;
         ushort id = packet.Owner.ReadPersonIdentity(packet.PersonPhysical)
             ?? throw new InvalidDataException("Current loyalty Person identity is unknown.");
-        if (!state.Officers.TryGetValue(id, out var person) || person.NativeAbilityRuntime?.PhysicalSlot != packet.PersonPhysical ||
+        if (!state.Officers.TryGetValue(id, out var person) || packet.Owner.ResolveOfficerSource(id) != packet.PersonPhysical ||
             state.NativeArmySimulation is not { } simulation ||
             simulation.Parameters.Int32Values.GetValueOrDefault(OwnedArmyGovernorComparatorInputs.VersionKey) != 1)
             throw new InvalidDataException("Current loyalty publication lacks its saved raw-E8 owner.");
@@ -122,7 +122,7 @@ public static class ArmyDestructionLoyalty
         if (state.NativeArmySimulation?.Parameters.Int32Values is not { } values ||
             values.GetValueOrDefault(OwnedArmyGovernorComparatorInputs.VersionKey) != 1 ||
             current.ReadPersonIdentity(physical) is not ushort id || !state.Officers.TryGetValue(id, out var person) ||
-            person.NativeAbilityRuntime?.PhysicalSlot != physical) return null;
+            current.ResolveOfficerSource(id) != physical) return null;
         if (person.Loyalty is int loyalty) return loyalty is >= 0 and <= 255 ? (byte)loyalty : null;
         return values.TryGetValue(OwnedArmyGovernorComparatorInputs.PersonRawE8Key(physical), out int raw) &&
             raw is >= 0 and <= 255 ? (byte)raw : null;

@@ -15,7 +15,7 @@ class FogAccelerationPass {
         resources_=prepareResources(device,source);
         camera_=prepareCamera(device,source,resources_);
     }
-    void updateCamera(ID3D11DeviceContext* context,const source_camera::Prefix& camera) {
+    void updateCamera(ID3D11DeviceContext* context,const source_camera::CameraTransform& camera) {
         updateCameraResources(context,camera_,resources_,camera);
     }
     void execute(ID3D11Device* device,ID3D11DeviceContext* context) {
@@ -170,8 +170,8 @@ class FogAccelerationPass {
     }
     static void updateCameraResources(ID3D11DeviceContext* context,
         source_aux_camera::FogAccelerationConstants& constants,Resources& fog,
-        const source_camera::Prefix& camera) {
-        source_aux_camera::writeCurrentFogAcceleration(constants,camera.data());
+        const source_camera::CameraTransform& camera) {
+        source_aux_camera::writeCurrentFogAcceleration(constants,camera);
         context->UpdateSubresource(fog.passes[1].vertexConstants[0].Get(),0,nullptr,constants.vertex.data(),0,0);
         context->UpdateSubresource(fog.passes[1].pixelConstants[0].Get(),0,nullptr,constants.pixel.data(),0,0);
     }

@@ -11,11 +11,10 @@ public sealed partial class TacticRemakeCurrentContext
     {
         int? physical = CommanderPhysical(state, target);
         if (physical is null || officer.Role != OfficerRole.Ruler ||
-            officer.ServiceStatus != OfficerServiceStatus.Ruler || officer.NativeAbilityRuntime is not { } person ||
-            person.Revision != TacticRemakeCurrentAbilities.ProfileId ||
-            person.PhysicalSlot != physical || person.Language != _usage.Language ||
-            person.RuleVersion != _usage.RuleVersion ||
-            state.ContentHashes.GetValueOrDefault(person.SourceScenarioUri) != person.SourceScenarioSha256 ||
+            officer.ServiceStatus != OfficerServiceStatus.Ruler ||
+            _definitions.ResolveOfficerSource(officer.Id) != physical || !Bound(state) ||
+            _definitions.StaticSource is not { } scenario ||
+            state.ContentHashes.GetValueOrDefault(scenario.ResourceUri) != scenario.Sha256 ||
             !state.Forces.TryGetValue(target.ForceId, out ForceState? force) ||
             force.RulerId != officer.Id || force.RankId is not int rankId ||
             rankId is < 0 or > 12 ||
@@ -23,7 +22,7 @@ public sealed partial class TacticRemakeCurrentContext
             rank.CommandLimit is < 0 or > ushort.MaxValue) return null;
         //Person V18 reaches the current appendix tail for flags4000. A stale
         //serialized ruler status cannot turn an invalid current Person valid.
-        bool? valid = NativeValidity.PersonWithBehavior(person.PhysicalSlot, checked((ushort)officer.Id), officer.Behavior, OfficerServiceStatusSourceAdapter.Encode(officer.ServiceStatus));
+        bool? valid = NativeValidity.PersonWithBehavior(physical.Value, checked((ushort)officer.Id), officer.Behavior, OfficerServiceStatusSourceAdapter.Encode(officer.ServiceStatus));
         if (valid is null) return null;
         if (!valid.Value) return 0;
         //232CB0 can succeed only with current native Force IDs46..50;

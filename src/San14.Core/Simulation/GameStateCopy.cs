@@ -53,7 +53,6 @@ public static class GameStateCopy
         NativeBaseCaptureCurrent = Copy(value.NativeBaseCaptureCurrent),
         NativeForceUnregisterCurrent = Copy(value.NativeForceUnregisterCurrent),
         NativeNormalArmyCombatCalendar = Copy(value.NativeNormalArmyCombatCalendar),
-        NativePersonCaptureWorldCandidates = Copy(value.NativePersonCaptureWorldCandidates),
         PersonnelReturns = CopyPersonnelReturns(value.PersonnelReturns),
         PendingCombatSettlements = value.PendingCombatSettlements is null ? null : new([.. value.PendingCombatSettlements.Requests]),
         NativeSubdayReports = CopyArray(value.NativeSubdayReports),
@@ -218,13 +217,6 @@ public static class GameStateCopy
     internal static NativeNormalArmyForceAftermath? Copy(NativeNormalArmyForceAftermath? value) => value is null ? null : value with
     {
         Relations13 = CopyArray(value.Relations13),
-    };
-
-    [return: NotNullIfNotNull(nameof(value))]
-    internal static NativePersonCaptureWorldCandidatesState? Copy(NativePersonCaptureWorldCandidatesState? value) => value is null ? null : value with
-    {
-        PersonIds165E = CopyArray(value.PersonIds165E),
-        Values1668 = CopyArray(value.Values1668),
     };
 
 

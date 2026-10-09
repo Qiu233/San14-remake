@@ -105,7 +105,7 @@ public sealed class OwnedArmyMoraleWaveInputs
     public static byte? ReadPersonPostE7(GameState state, SourceWorldContext current, int physical)
     {
         if (current.ReadPersonIdentity(physical) is not ushort id || !state.Officers.TryGetValue(id, out var person) ||
-            person.NativeAbilityRuntime?.PhysicalSlot != physical) return null;
+            current.ResolveOfficerSource(id) != physical) return null;
         return OfficerAppointmentSourceAdapter.ReadOfficeId(person.Appointment);
     }
     private static int? ReadInt(GameState state, string key) => state.NativeArmySimulation?.Parameters.Int32Values is { } values &&

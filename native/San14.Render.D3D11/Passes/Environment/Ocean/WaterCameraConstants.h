@@ -32,8 +32,8 @@ inline NativeWaterCameraGpu prepareNativeWaterCameraGpu(ID3D11Device* device,
 // Current complete CB bytes are retained, including all time/material writers.
 inline const source_water_geometry::Frame& writeNativeWaterCameraCpu(
     NativeWaterCameraGpu& camera,NativeOcean116& ocean,
-    const source_water_camera::Prefix& prefix,const std::array<float,8>& completedWaveBounds) {
-    auto frame=source_water_geometry::prepareCurrent(camera.profile,prefix,completedWaveBounds);
+    const source_camera::CameraTransform& transform,const std::array<float,8>& completedWaveBounds) {
+    auto frame=source_water_geometry::prepareCurrent(camera.profile,transform,completedWaveBounds);
     if(frame.instances.size()>camera.profile.capacity)
         throw std::runtime_error("Source Ocean current instance capacity exceeded");
     source_water_camera::Packets packets;
@@ -41,7 +41,7 @@ inline const source_water_geometry::Frame& writeNativeWaterCameraCpu(
         packets.constants[flat*2]=ocean.vertexBytes[flat];
         packets.constants[flat*2+1]=ocean.pixelBytes[flat];
     }
-    camera.refraction=source_water_camera::writeCurrentCamera(packets,prefix).refraction;
+    camera.refraction=source_water_camera::writeCurrentCamera(packets,transform).refraction;
     source_water_geometry::writeCurrentClips(packets,frame);
     for(unsigned flat=0;flat<2;++flat) {
         ocean.vertexBytes[flat]=std::move(packets.constants[flat*2]);
@@ -64,8 +64,8 @@ inline const source_water_geometry::Frame& writeNativeWaterCameraCpu(
 // executeNativeOcean116 performs the existing complete-CB upload when dirty.
 inline const source_water_geometry::Frame& updateNativeWaterCameraGpu(
     NativeWaterCameraGpu& camera,ID3D11DeviceContext* context,NativeOcean116& ocean,
-    const source_water_camera::Prefix& prefix,const std::array<float,8>& completedWaveBounds) {
-    const auto& frame=writeNativeWaterCameraCpu(camera,ocean,prefix,completedWaveBounds);
+    const source_camera::CameraTransform& transform,const std::array<float,8>& completedWaveBounds) {
+    const auto& frame=writeNativeWaterCameraCpu(camera,ocean,transform,completedWaveBounds);
     if(!frame.instances.empty()) {
         const UINT bytes=UINT(frame.instances.size()*sizeof(source_water_geometry::Instance));
         D3D11_BOX range{0,0,0,bytes,1,1};

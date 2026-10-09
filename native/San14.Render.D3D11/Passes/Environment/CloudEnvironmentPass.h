@@ -42,9 +42,9 @@ class CloudEnvironmentPass {
     // target. Return the complete borrowed frame rather than a mutable cloud owner.
     AtmosphereFrame atmosphereFrame(const source_current_season::Frame* season,
         const source_current_season_atmosphere::CloudLightInput& lights,
-        const source_camera::Prefix& main,const source_weather_fog::Frame& weather,
-        const source_camera::V3& globalRgb,const source_camera::Prefix& camera) {
-        return AtmosphereFrame{season,lights,main,weather,globalRgb,camera,cloud_};
+        float altitude,const source_weather_fog::Frame& weather,
+        const source_camera::V3& globalRgb,const source_camera::CameraTransform& camera) {
+        return AtmosphereFrame{season,lights,altitude,weather,globalRgb,camera,cloud_};
     }
 
     void updateAcceptedFrame(ID3D11Device* device,ID3D11DeviceContext* context,

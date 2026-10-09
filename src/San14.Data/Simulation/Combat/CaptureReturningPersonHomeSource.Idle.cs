@@ -65,12 +65,11 @@ public sealed partial class CaptureReturningPersonHomeSource
         int officerId, int person)
     {
         var officer = state.Officers[officerId];
-        var ability = officer.NativeAbilityRuntime ?? throw Missing("current.idle_Home_Person_ability_owner");
-        var location = officer.NativeLocationRuntime ?? throw Missing("current.idle_Home_Person_location_owner");
-        return state with { Officers = new(state.Officers) { [officerId] = officer with
+        if (current.ResolveOfficerSource(officerId) != person) throw Missing("current.idle_Home_Person_identity");
+        var location = officer.LocationState ?? throw Missing("current.idle_Home_Person_location_owner");
+        return OfficerLocationSourceAdapter.PublishPosition(state with { Officers = new(state.Officers) { [officerId] = officer with
         {
-            Behavior = current.ReadPersonBehavior(person),
-            NativeLocationRuntime = location with { Second11C = Need(current.ReadPersonSecondLocation(person), "current.idle_Home_PersonE4") }
-        } } };
+            Behavior = current.ReadPersonBehavior(person)
+        } } }, officerId, current);
     }
 }

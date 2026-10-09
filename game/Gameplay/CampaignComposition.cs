@@ -10,11 +10,13 @@ namespace San14.Client.Gameplay;
 public sealed class CampaignComposition
 {
     private readonly GameResourceRepository _repository;
+    private readonly ISaveCodec _saveCodec;
     private ArmyCampaignRuleAdapter? _army;
 
     private CampaignComposition(GameResourceRepository repository, LoadedScenario scenario, LoadedMap map)
     {
         _repository = repository;
+        _saveCodec = new ResourceSaveCodec(repository);
         Scenario = scenario;
         Map = map;
     }
@@ -38,12 +40,12 @@ public sealed class CampaignComposition
         {
             PreparedRules prepared = composition.PrepareRules(world, player);
             GameplaySession session = GameplaySession.Restore(world, player,
-                prepared.Rules, Calendar(prepared.Army));
+                prepared.Rules, Calendar(prepared.Army), composition._saveCodec);
             composition._army = prepared.Army;
             return new(composition, territory, session, prepared.Presentation);
         }
         return new(composition, territory,
-            GameplaySession.Preview(world, PlayableSkeleton.Bind(new HexTravelMap(map))),
+            GameplaySession.Preview(world, PlayableSkeleton.Bind(new HexTravelMap(map)), composition._saveCodec),
             CampaignPresentation.Preview);
     }
 
@@ -60,7 +62,7 @@ public sealed class CampaignComposition
             MapSeasonNativeSource.Load(_repository.SourceDirectory, Snapshot.Locale));
         PreparedRules prepared = PrepareRules(world, playerForceId, army);
         GameplaySession session = GameplaySession.Restore(world, playerForceId,
-            prepared.Rules, Calendar(prepared.Army));
+            prepared.Rules, Calendar(prepared.Army), _saveCodec);
         // No cache or UI publication occurs in rule construction. Even the
         // session's ownership/initial-state check must succeed before this cache changes.
         _army = prepared.Army;

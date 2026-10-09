@@ -4,6 +4,7 @@
 // still belong to their actual producers; see the companion source report.
 #include "../Environment/SeasonFrame.h"
 #include "PostProcessCamera.h"
+#include "../../Camera/CameraState.h"
 
 namespace source_current_season_post {
 template<class T> inline T mainWord(const source_current_season::Frame& current,int offset) {
@@ -142,6 +143,10 @@ inline void publishSimpleCurrent(const Inputs& current,ContinuousPostOwner& post
 template<class ContinuousPostOwner>
 inline NativeNormalPostCameraProjection publishProjectionBeforeBegin(const source_current_season::Frame& current,
     NativeNormalPostCamera& postCamera,ContinuousPostOwner& post) {
-    return updateNativeNormalPostCameraBeforeBegin(postCamera,current.main,post);
+    // The season publication is a distinct prepared-media packet: its camera
+    // need not match the motion rig's currently accepted transform. Decode at
+    // this input adapter; projection mathematics only receives the typed value.
+    return updateNativeNormalPostCameraBeforeBegin(postCamera,
+        source_camera::decodeCameraTransform(current.main),post);
 }
 } // namespace source_current_season_post

@@ -4,7 +4,7 @@ namespace San14.Data;
 
 public sealed record PersonArmyCaptureWholeReceipt(int PersonPhysical, ushort PersonId,
     ForceReference PriorForce, DistrictReference PriorDistrict,
-    PersonCaptureWorldCandidatesReceipt? Candidates,
+    CommanderSelectionRemovalReceipt? Candidates,
     PersonAssignmentPrecallResult Appointments,
     PersonCaptureForceDepartmentsReceipt? Departments,
     PersonArmyCaptureCustodyReceipt Custody,
@@ -44,11 +44,10 @@ public static class PersonArmyCaptureWholeSource
                 ?? throw Missing("current.capture_PlayerForce32EFA0");
             int playerPhysical = Known(current.ReadForcePhysicalSlot(player), "current.capture_PlayerForce_ordinal");
             int originalPhysical = Known(current.ReadForcePhysicalSlot(originalForce), "current.capture_original_Force_ordinal");
-            PersonCaptureWorldCandidatesReceipt? candidatesReceipt = null;
+            CommanderSelectionRemovalReceipt? candidatesReceipt = null;
             if (playerPhysical != 0 && playerPhysical == originalPhysical)
             {
-                var candidates = PersonCaptureWorldCandidates.ApplyCurrent(state, current, personPhysical,
-                    PersonCaptureCandidatesPresentationAbsent.IndependentClient);
+                var candidates = CommanderSelectionSource.RemoveCurrentOfficer(state, current, personPhysical);
                 state = candidates.State ?? throw Missing(candidates.UnresolvedOwner ?? "current.capture_29CCB0");
                 candidatesReceipt = candidates.Receipt;
                 effects.Add("2E155B.29CCB0_player_selected_Person_clear");

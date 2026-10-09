@@ -1,6 +1,7 @@
 // Original EB7BF8 current-camera LensProjection and exact post named CB fields.
 // CPU only. Prepare fixed loaded source/light once; update before post Begin.
 #pragma once
+#include "../../Camera/CameraTransform.h"
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -36,30 +37,28 @@ inline float postCameraDiv(float a,float b){return _mm_cvtss_f32(_mm_div_ss(_mm_
 inline float postCameraSub(float a,float b){return _mm_cvtss_f32(_mm_sub_ss(_mm_set_ss(a),_mm_set_ss(b)));}
 inline float postCameraRead(const void* bytes,std::size_t offset){float value;std::memcpy(&value,static_cast<const char*>(bytes)+offset,4);return value;}
 
-template<class Byte>
 inline NativeNormalPostCameraProjection calculateNativeNormalPostCamera(const NativeNormalPostCamera& source,
-    const std::array<Byte,0x3C0>& cameraPrefix) {
-    static_assert(sizeof(Byte)==1,"Actual complete source Camera prefix has byte elements");
+    const source_camera::CameraTransform& camera) {
     if(!source.selectedLightPresent)return {source.absentLightProjection,false,false};
-    const auto* bytes=cameraPrefix.data();auto C=[&](std::size_t offset){return postCameraRead(bytes,offset);};
+    const auto& matrix=camera.worldToClip;
     float x=source.selectedSunF80[0],y=source.selectedSunF80[1],z=source.selectedSunF80[2];
     float squared=postCameraAdd(postCameraAdd(postCameraMul(x,x),postCameraMul(y,y)),postCameraMul(z,z));
     float inverse=postCameraDiv(1.f,_mm_cvtss_f32(_mm_sqrt_ss(_mm_set_ss(squared))));
-    const float negativeFar=-C(0x144);
-    x=postCameraAdd(postCameraMul(negativeFar,postCameraMul(x,inverse)),C(0x10));
-    y=postCameraAdd(postCameraMul(negativeFar,postCameraMul(y,inverse)),C(0x14));
-    z=postCameraAdd(postCameraMul(negativeFar,postCameraMul(z,inverse)),C(0x18));
-    float cx=postCameraAdd(postCameraAdd(postCameraAdd(postCameraMul(y,C(0x110)),postCameraMul(x,C(0x100))),postCameraMul(z,C(0x120))),C(0x130));
-    float cy=postCameraAdd(postCameraAdd(postCameraAdd(postCameraMul(x,C(0x104)),postCameraMul(y,C(0x114))),postCameraMul(z,C(0x124))),C(0x134));
-    float cz=postCameraAdd(postCameraAdd(postCameraAdd(postCameraMul(x,C(0x108)),postCameraMul(y,C(0x118))),postCameraMul(z,C(0x128))),C(0x138));
-    float cw=postCameraAdd(postCameraAdd(postCameraAdd(postCameraMul(x,C(0x10C)),postCameraMul(y,C(0x11C))),postCameraMul(z,C(0x12C))),C(0x13C));
+    const float negativeFar=-camera.optics.farPlane;
+    x=postCameraAdd(postCameraMul(negativeFar,postCameraMul(x,inverse)),camera.eye.X);
+    y=postCameraAdd(postCameraMul(negativeFar,postCameraMul(y,inverse)),camera.eye.Y);
+    z=postCameraAdd(postCameraMul(negativeFar,postCameraMul(z,inverse)),camera.eye.Z);
+    float cx=postCameraAdd(postCameraAdd(postCameraAdd(postCameraMul(y,matrix[4]),postCameraMul(x,matrix[0])),postCameraMul(z,matrix[8])),matrix[12]);
+    float cy=postCameraAdd(postCameraAdd(postCameraAdd(postCameraMul(x,matrix[1]),postCameraMul(y,matrix[5])),postCameraMul(z,matrix[9])),matrix[13]);
+    float cz=postCameraAdd(postCameraAdd(postCameraAdd(postCameraMul(x,matrix[2]),postCameraMul(y,matrix[6])),postCameraMul(z,matrix[10])),matrix[14]);
+    float cw=postCameraAdd(postCameraAdd(postCameraAdd(postCameraMul(x,matrix[3]),postCameraMul(y,matrix[7])),postCameraMul(z,matrix[11])),matrix[15]);
     inverse=postCameraDiv(1.f,cw);float px=postCameraMul(cx,inverse),py=postCameraMul(cy,inverse),pz=postCameraMul(cz,inverse);
     if(!std::isfinite(px)||!std::isfinite(py)||!std::isfinite(pz)||!std::isfinite(cw))
         throw std::runtime_error("Original current-camera lens projection reached its unsupported nonfinite branch");
     const float threshold=source.actualProjectionConvention==2?0.f:source.threshold;
     bool valid=!(threshold>pz)&&!(0.f>cw)&&std::fabs(px)<=source.limit&&std::fabs(py)<=source.limit;
-    float fov=C(0x148);float vertical=postCameraDiv(source.scale,fov>source.epsilon?fov:source.epsilon);
-    float aspect=C(0x14C);float horizontal=postCameraDiv(vertical,aspect>source.epsilon?aspect:source.epsilon);
+    float fov=camera.optics.viewSpan;float vertical=postCameraDiv(source.scale,fov>source.epsilon?fov:source.epsilon);
+    float aspect=camera.optics.aspectRatio;float horizontal=postCameraDiv(vertical,aspect>source.epsilon?aspect:source.epsilon);
     return {{px,py,valid?horizontal:0.f,valid?vertical:0.f},valid,true};
 }
 
@@ -97,10 +96,10 @@ inline bool applyNativeNormalPostCameraConstants(StaticConstantMap& constants,co
     if(compositeCount!=3)throw std::runtime_error("Normal post source union must retain three complete CB22 templates");
     return compositeActive;
 }
-template<class Byte,class ContinuousPostOwner>
+template<class ContinuousPostOwner>
 inline NativeNormalPostCameraProjection updateNativeNormalPostCameraBeforeBegin(const NativeNormalPostCamera& source,
-    const std::array<Byte,0x3C0>& currentCameraPrefix,ContinuousPostOwner& owner) {
+    const source_camera::CameraTransform& camera,ContinuousPostOwner& owner) {
     if(owner.awaitingReturn)throw std::runtime_error("Return the current post invocation before updating its next camera fields");
-    auto projection=calculateNativeNormalPostCamera(source,currentCameraPrefix);
+    auto projection=calculateNativeNormalPostCamera(source,camera);
     applyNativeNormalPostCameraConstants(owner.staticConstants,projection);return projection;
 }

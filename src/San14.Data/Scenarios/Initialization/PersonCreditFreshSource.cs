@@ -37,25 +37,21 @@ public static class PersonCreditFreshSource
         var officers = new Dictionary<int, OfficerState>(state.Officers);
         foreach (OfficerState person in state.Officers.Values)
         {
-            if (person.NativeAbilityRuntime is not { } ability ||
-                ability.Revision != TacticRemakeCurrentAbilities.ProfileId ||
-                ability.Language != parameters.Language || ability.RuleVersion != parameters.RuleVersion ||
-                ability.SourceScenarioUri != source.ScenarioSource.ResourceUri || ability.SourceScenarioSha256 != source.ScenarioSource.Sha256 ||
-                ability.PhysicalSlot is < 1 or > 1850 ||
-                current.ReadPersonLookupReference(person.Id)?.PhysicalSlot != ability.PhysicalSlot ||
-                current.ReadPersonIdentity(ability.PhysicalSlot) != person.Id)
+            if (current.StaticSource?.ResourceUri != source.ScenarioSource.ResourceUri ||
+                current.StaticSource.Sha256 != source.ScenarioSource.Sha256 ||
+                current.ResolveOfficerSource(person.Id) is not int physical)
                 throw new InvalidDataException("Fresh credit has no complete current Person identity.");
 
             OfficerMeritState credit = new(null, null, person.MeritState!.RankStageId, null, null, null);
             CreditState? after = null;
-            CharacterPreviewRecord row = source.Snapshot.Characters[ability.PhysicalSlot];
+            CharacterPreviewRecord row = source.Snapshot.Characters[physical];
             if (prefixKnown && row.CharacterId == person.Id && row.CreditReference is { } appendix &&
                 AppendixMatches(appendix) && OfficerServiceStatusSourceAdapter.Encode(person.ServiceStatus) == row.StatusCode && OfficerBehaviorSourceAdapter.EncodeFlags(person.Behavior) == appendix.RawFlagsWord &&
                 OfficerMeritSourceAdapter.EncodeStage(person.MeritState) == appendix.RawStageCode && OfficerBehaviorSourceAdapter.EncodeMarker(person.Behavior) == appendix.RawTailCode &&
-                current.ReadPersonStatus(ability.PhysicalSlot) == OfficerServiceStatusSourceAdapter.Encode(person.ServiceStatus) &&
-                current.ReadPhysicalPerson(ability.PhysicalSlot) is { } captured &&
+                current.ReadPersonStatus(physical) == OfficerServiceStatusSourceAdapter.Encode(person.ServiceStatus) &&
+                current.ReadPhysicalPerson(physical) is { } captured &&
                 captured.RawFlags196 == OfficerBehaviorSourceAdapter.EncodeFlags(person.Behavior) && captured.RawFlag1FD == OfficerBehaviorSourceAdapter.EncodeMarker(person.Behavior) &&
-                Eligibility(person, ability, current) is bool eligible)
+                Eligibility(person, physical, current) is bool eligible)
             {
                 //226720/226480 clears dword1FC on fresh allocation. The nine
                 //serialized appendix bytes do not contain this reset byte.
@@ -75,20 +71,20 @@ public static class PersonCreditFreshSource
         StateValidator.Validate(result); return result;
     }
 
-    private static bool? Eligibility(OfficerState person, NativePersonAbilityRuntime ability,
+    private static bool? Eligibility(OfficerState person, int personPhysical,
         SourceWorldContext current)
     {
-        if (current.ReadPersonNativeValidity(ability.PhysicalSlot) is not bool valid ||
+        if (current.ReadPersonNativeValidity(personPhysical) is not bool valid ||
             OfficerServiceStatusSourceAdapter.Encode(person.ServiceStatus) is not byte status || OfficerBehaviorSourceAdapter.EncodeFlags(person.Behavior) is not ushort flags) return null;
         if (!valid || status == 1) return false;
         bool band = new[] { 4111, 4131, 4151, 4171, 4191 }
             .Any(start => unchecked((uint)(person.Id - start)) <= 9);
-        var force = current.ReadPersonForce(ability.PhysicalSlot);
+        var force = current.ReadPersonForce(personPhysical);
         if (force?.PhysicalSlot is not int physical || physical is < 0 or > 51 ||
             person.ForceId != (physical == 0 ? null : (int?)physical)) return null;
         if (band)
         {
-            if (current.ReadPersonFirstLocation(ability.PhysicalSlot) is not ushort location) return null;
+            if (current.ReadPersonFirstLocation(personPhysical) is not ushort location) return null;
             if (location is >= 1 and <= 61 && physical is not (>= 46 and <= 50)) return false;
         }
         if (physical is >= 46 and <= 50 || OfficerBehaviorRules.UsesOrdinaryPersonRules(person.Behavior) == false) return false;

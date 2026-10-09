@@ -144,6 +144,7 @@ static std::array<float,4> decode(const char* p, DXGI_FORMAT format) {
 #include "../Passes/Effects/EffectCameraFrame.h"
 #include "../Passes/Environment/AtmosphereCameraFrame.h"
 #include "../Passes/Environment/WeatherFogFrame.h"
+#include "../Passes/Environment/WeatherFogProfileReader.h"
 #include "../Passes/Environment/WeatherFogConstants.h"
 #include "../Passes/Environment/FogAccelerationPass.h"
 #include "../Passes/Effects/SpecialEffectState.h"
@@ -331,8 +332,9 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         if(sourceArmyVisuals)armies.synchronize(device.Get(),*host.armyWorld);
     };
     auto atmosphereFrame=[&]() {
-        return clouds.atmosphereFrame(currentSeason,currentCloudLights,acceptedCameraPacket,
-            weatherCameraFrame,globalAtmosphereRgb,staticCamera.prefix);
+        return clouds.atmosphereFrame(currentSeason,currentCloudLights,
+            sceneEnvironment.camera().weatherHeight,
+            weatherCameraFrame,globalAtmosphereRgb,staticCamera);
     };
     auto prepareAcceptedCamera=[&]() {
 
@@ -348,7 +350,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         if(currentSeason) {
             SceneEnvironmentPacket::acceptSeason(sceneEnvironment,*currentSeason);
             shadows.publishSeason(*currentSeason);
-            std::memcpy(weatherCameraFrame.main72.data(),currentSeason->main.data()+0x340,72);
+            weatherCameraFrame.fog=source_weather_fog::decodeFog(currentSeason->main.data()+0x340);
         }else {
             const auto directCamera=cameraRig.prepareDirectPrefix();
             sceneEnvironment.acceptCamera(directCamera,SceneEnvironmentPacket::decodeCamera(directCamera));
@@ -394,7 +396,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         }
         currentView=source_view::prepareCurrent(viewProfile,population);
         actualViewRainFlags19B4=currentView.rain19B4;
-        deferredCameraFields=prepareNativeDeferredCameraFields(staticCamera.prefix);
+        deferredCameraFields=prepareNativeDeferredCameraFields(staticCamera);
         fieldDisplay.finishPreparation();
 
     };
@@ -423,7 +425,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         prepareAcceptedCamera(); // Current Main is available to node1, not only geometry.
         postProcessing.updateMapExposure(context.Get(),currentSeason,
             {sceneEnvironment.camera().exposure,sceneEnvironment.camera().luminance},sceneEnvironment.exposureRectangleFlags());
-        fogAcceleration.updateCamera(context.Get(),staticCamera.prefix);
+        fogAcceleration.updateCamera(context.Get(),staticCamera);
         specialEffects.queueFlags=0;contextFlags3F4=0; // EA9300 accepted node1.
 
         fogAcceleration.execute(device.Get(),context.Get());
@@ -553,7 +555,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     postProcessing.prepareSeason(resources.directory(ResourceGroup::SeasonalResources),currentSeason);
     auto executeCurrentPost=[&](float currentClock) {
         return postProcessing.execute(device.Get(),context.Get(),sourceDepth,
-            resources.directory(ResourceGroup::SeasonalResources),currentSeason,staticCamera.prefix,currentClock);
+            resources.directory(ResourceGroup::SeasonalResources),currentSeason,staticCamera,currentClock);
     };
     ComPtr<ID3D11Texture2D> postInputSnapshot,cloudInputSnapshot;
     NativeSourceDepthState cloudEntryLogical{};
@@ -648,7 +650,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                     resources.directory(ResourceGroup::Water),waterCameraInput,resources.directory(ResourceGroup::OceanWaves),
                     resources.directory(ResourceGroup::OceanClock),resources.directory(ResourceGroup::Refraction)/"copy97"};
                 const OceanTargets oceanTargets{geometryTargets.textures(),geometryTargets.colors(),formats[3],geometryTargets.depthView(),width,height};
-                ocean.prepareWater(device.Get(),context.Get(),oceanSources,oceanTargets,staticCamera.prefix,initialCommonClock);
+                ocean.prepareWater(device.Get(),context.Get(),oceanSources,oceanTargets,staticCamera,initialCommonClock);
                 ocean.executeWater(device.Get(),context.Get(),sourceDepth,initialCommonClock);
                 ;
                 updateNativeDepthMirror(context.Get(),mainDepth,"117 after Ocean");
@@ -795,7 +797,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         mainTargets.restore(context.Get());
         ocean.copyScene(context.Get(),sourceDepth);
         ocean.copyDepth(context.Get(),sourceDepth);mainTargets.restore(context.Get());
-        ocean.updateCamera(context.Get(),staticCamera.prefix);
+        ocean.updateCamera(context.Get(),staticCamera);
         ocean.executeWater(device.Get(),context.Get(),sourceDepth,currentClock);
         updateNativeDepthMirror(context.Get(),mainDepth,"117 new Main Ocean");mainTargets.restore(context.Get());
         context->OMSetRenderTargets(1,&rsTarget,geometryTargets.depthView());

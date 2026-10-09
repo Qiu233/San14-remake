@@ -22,8 +22,8 @@ public static class PlayableUnitAftermath
             Deployed = false,
             LocationId = home ?? officer.LocationId,
             DistrictId = district,
-            NativeLocationRuntime = officer.NativeLocationRuntime is { } location
-                ? location with { Second11C = null } : null
+            LocationState = officer.LocationState is { } location
+                ? location with { Position = null } : null
         };
         onRetired?.Invoke(unit);
         reports.Add(new PeriodReportEntry("field_destroyed", unit.ForceId,

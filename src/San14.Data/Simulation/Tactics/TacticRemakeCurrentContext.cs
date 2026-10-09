@@ -63,8 +63,8 @@ public sealed partial class TacticRemakeCurrentContext : ITacticEffectSourceCont
         if (caster is null || !Bound(state) || ArmyValid(state, caster) is not true ||
             caster.NativeTacticRuntime is not { } native || EffectiveFormation(state, caster) is not int formation ||
             AvailableTactics(state, caster, formation) is not int[] available ||
-            state.NativeArmySimulation!.World.SelectedCommanderCount165D is not 0 ||
-            state.NativeArmySimulation.Forces.GetValueOrDefault(caster.ForceId)?.Flags193 is not byte forceFlags)
+            state.CommanderSelection?.ActiveCount is not 0 ||
+            state.NativeArmySimulation!.Forces.GetValueOrDefault(caster.ForceId)?.Flags193 is not byte forceFlags)
             return null;
         bool selectedPrimary = program.Instructions.Any(instruction => instruction.Opcode == 23);
         TacticPrimaryArmyCandidatesSource? primaryCandidates = null;
@@ -350,7 +350,7 @@ public sealed partial class TacticRemakeCurrentContext : ITacticEffectSourceCont
     public bool? ReadExpirationLoggingForceNonzero(GameState state, UnitState unit) => ArmyValid(state, unit) is true ? unit.ForceId != 0 : null;
     public int? ReadAbnormalUpperBound(GameState state, UnitState unit, int nativeIndex) => Parameter(state, SimulationParameterKeys.Tactics.AbnormalCounterUpperBound);
     public bool? ReadSpecialWaitingModeActive(GameState state, UnitState unit) =>
-        Bound(state) && state.NativeArmySimulation!.World.SelectedCommanderCount165D == 0 ? false : null;
+        Bound(state) && state.CommanderSelection?.ActiveCount == 0 ? false : null;
     public int? ReadOrdinaryWaitingRate(GameState state, UnitState unit) => Parameter(state, SimulationParameterKeys.Tactics.OrdinaryWaitingRate);
     public int? ReadWaitingUpperBound(GameState state, UnitState unit, int nativeIndex) =>
         Parameter(state, nativeIndex switch { 0 => SimulationParameterKeys.Tactics.PrimaryWaitingCap, 1 => SimulationParameterKeys.Tactics.SecondaryWaitingCap, 2 => SimulationParameterKeys.Tactics.TertiaryWaitingCap,

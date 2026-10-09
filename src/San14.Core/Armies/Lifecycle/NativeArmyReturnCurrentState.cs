@@ -1,18 +1,5 @@
 namespace San14.Core;
 
-/// <summary>Current owned source-semantic location auxiliaries. Source identity
-/// is resolved by Data; behavior, service and health have independent
-/// OfficerState owners. Null is unresolved.</summary>
-public sealed record NativePersonLocationRuntime(string Revision, ushort? Second11C)
-{
-    //Native District0 means the actual free-Person owner. Core has no
-    //District0 entity; null in its projection must not lose this known raw0.
-    public byte? District118 { get; init; }
-}
-public sealed partial record OfficerState
-{
-    public NativePersonLocationRuntime? NativeLocationRuntime { get; init; }
-}
 /// <summary>Current independent Base fields. Gold/food/ready remain the
 /// authoritative CityState quantities; no static recapture fills these fields.</summary>
 public sealed record NativeCityReturnRuntime(string Revision, byte? Morale44, int? Wounded40, ushort? Governor2E);
@@ -31,12 +18,6 @@ public static class NativeArmyReturnCurrentStateValidation
 {
     public static void Validate(GameState state)
     {
-        foreach (var person in state.Officers.Values)
-        {
-            if (person.NativeLocationRuntime is not { } fields) continue;
-            if (string.IsNullOrWhiteSpace(fields.Revision))
-                throw new InvalidDataException("Current Person location owner has invalid revision.");
-        }
         foreach (var city in state.Cities.Values)
             if (city.NativeReturnRuntime is { } fields &&
                 (string.IsNullOrWhiteSpace(fields.Revision) || fields.Wounded40 is < 0))

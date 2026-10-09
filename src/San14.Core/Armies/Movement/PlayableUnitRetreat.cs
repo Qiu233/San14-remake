@@ -70,8 +70,8 @@ public static class PlayableUnitRetreat
         officers[officer.Id] = officer with
         {
             Deployed = false, LocationId = locationId, DistrictId = districtId,
-            NativeLocationRuntime = officer.NativeLocationRuntime is { } location
-                ? location with { Second11C = null } : null
+            LocationState = officer.LocationState is { } location
+                ? location with { Position = null } : null
         };
         units.Remove(unit.Id);
         onRetired?.Invoke(unit);

@@ -619,8 +619,8 @@ public static class PlayableSkeleton
                         {
                             Deployed = false, LocationId = destination.Id,
                             DistrictId = destination.DistrictId,
-                            NativeLocationRuntime = officers[unit.OfficerId].NativeLocationRuntime is { } location
-                                ? location with { Second11C = null } : null
+                            LocationState = officers[unit.OfficerId].LocationState is { } location
+                                ? location with { Position = null } : null
                         };
                         units.Remove(unit.Id);
                         reports.Add(new PeriodReportEntry("transport_troops", unit.ForceId,

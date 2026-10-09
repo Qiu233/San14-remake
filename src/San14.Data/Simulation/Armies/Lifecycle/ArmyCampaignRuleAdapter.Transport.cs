@@ -16,8 +16,8 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportCreation
             state.NativeArmyLifecycle is not { } arena ||
             !state.Officers.TryGetValue(order.OfficerId, out var person) || person.Deployed ||
             OfficerBehaviorSourceAdapter.EncodeFlags(person.Behavior) is not ushort flags ||
-            person.NativeAbilityRuntime is not { } ability ||
-            person.NativeLocationRuntime is not { } location || state.Units.ContainsKey(projection.Id)) return null;
+            _definitions.ResolveOfficerSource(person.Id) is null ||
+            person.LocationState is not { } location || state.Units.ContainsKey(projection.Id)) return null;
         try
         {
             var world = CaptureOwnedArmyReturnWorld(state);
@@ -70,7 +70,8 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportCreation
                     { Troops = stocks.TroopsAfter, Gold = stocks.GoldAfter, Supplies = stocks.SuppliesAfter } },
                 Officers = new(state.Officers) { [person.Id] = person with { Deployed = true,
                     Behavior = OfficerBehaviorSourceAdapter.WithSourceFlags(person.Behavior, OfficerBehaviorSourceAdapter.MarkReturn(flags)),
-                    NativeLocationRuntime = location with { Second11C = fields.CommanderSecondE4 } } },
+                    LocationState = location with { Position = OfficerLocationSourceAdapter.DecodePosition(fields.CommanderSecondE4,
+                        new ArmyReceiverSourceDirectory(registered.Lifecycle)) } } },
                 Districts = new(state.Districts) { [districtId] = district with
                     { OrdersRemaining = Math.Clamp(unchecked(remaining - commandCost.Value), 0, 200) } },
                 Units = new(state.Units) { [created.Id] = created }, NativeArmyLifecycle = registered.Lifecycle, ArmyMapOccupancy = registered.Occupancy

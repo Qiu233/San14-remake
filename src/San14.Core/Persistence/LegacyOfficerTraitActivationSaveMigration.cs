@@ -12,7 +12,7 @@ internal static class LegacyOfficerTraitActivationSaveMigration
         {
             if (node is not JsonObject officer) continue;
             officer["TraitActivation"] = null;
-            if (officer["NativeLocationRuntime"] is not JsonObject location) continue;
+            if (officer["LocationState"] is not JsonObject location) continue;
             if (!location.ContainsKey("TraitMask1BC") || !location.ContainsKey("TraitExtras1BE"))
                 throw new InvalidDataException("Legacy officer activation knowledge is incomplete.");
             JsonArray? slots = null;

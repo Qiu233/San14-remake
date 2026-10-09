@@ -2,6 +2,7 @@
 // Preserves complete caller templates. Other source groups are independent.
 #pragma once
 #include "../../Camera/CameraMatrix.h"
+#include "../../Camera/CameraTransform.h"
 #include <array>
 #include <cstdint>
 #include <cstring>
@@ -17,13 +18,11 @@ struct NativeDeferredCameraFields {
     source_matrix::Matrix worldToProjection{},viewToWorld{},projectionToWorld{},projectionToView{};
     std::array<float,12> worldToViewRows{};
 };
-inline NativeDeferredCameraFields prepareNativeDeferredCameraFields(const std::array<std::uint8_t,0x3C0>& prefix) {
+inline NativeDeferredCameraFields prepareNativeDeferredCameraFields(const source_camera::CameraTransform& camera) {
     NativeDeferredCameraFields result;
-    source_matrix::Matrix view{},projection{};
-    std::memcpy(result.eye.data(),prefix.data()+0x10,16);
-    std::memcpy(view.data(),prefix.data()+0x80,64);
-    std::memcpy(projection.data(),prefix.data()+0xC0,64);
-    std::memcpy(result.worldToProjection.data(),prefix.data()+0x100,64);
+    const auto& view=camera.view;const auto& projection=camera.projection;
+    result.eye={camera.eye.X,camera.eye.Y,camera.eye.Z,camera.eye.W};
+    result.worldToProjection=camera.worldToClip;
     // mW2P is the original matrix. mWV is only the transposed affine 3 rows.
     for(unsigned row=0;row<3;++row)for(unsigned column=0;column<4;++column)
         result.worldToViewRows[row*4+column]=view[column*4+row];

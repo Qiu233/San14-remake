@@ -29,7 +29,7 @@ public sealed partial class TacticRemakeCurrentContext
             ArmyValid(state, caster) != true || ArmyValid(state, primary) != true ||
             caster.NativeArmyOrigin?.NativeSlotIndex != pair.Attacker.NativePoolSlot ||
             primary.NativeArmyOrigin?.NativeSlotIndex != pair.Target.NativePoolSlot ||
-            state.NativeArmySimulation!.World.SelectedCommanderCount165D != 0 ||
+            state.CommanderSelection?.ActiveCount != 0 ||
             caster.NativeTacticRuntime is not { } native) return null;
         if (native.Status10 != 1) return Skipped();
         if (EffectiveFormation(state, caster) is not int formation ||

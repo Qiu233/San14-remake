@@ -16,15 +16,28 @@ public sealed record SaveEnvelope(int SchemaVersion, string FormatId, GameState 
 /// <summary>Local save format. A future original-save adapter can implement ISaveCodec.</summary>
 public sealed class JsonGzipSaveCodec : ISaveCodec
 {
-    public const int CurrentSchemaVersion = 78;
+    public const int CurrentSchemaVersion = 81;
     public string FormatId => "san14-remake-json-gzip";
+    private readonly ILegacyOfficerAbilitySource? _legacyAbilitySource;
+    private readonly ICampaignResourceStateCodec? _resourceStateCodec;
+
+    public JsonGzipSaveCodec(ILegacyOfficerAbilitySource? legacyAbilitySource = null,
+        ICampaignResourceStateCodec? resourceStateCodec = null)
+    {
+        _legacyAbilitySource = legacyAbilitySource;
+        _resourceStateCodec = resourceStateCodec;
+    }
 
     public byte[] Encode(GameState state)
     {
         StateValidator.Validate(state);
+        JsonObject document = JsonSerializer.SerializeToNode(new SaveEnvelope(CurrentSchemaVersion, FormatId, state))!.AsObject();
+        if (state.ResourceState is { } resourceState)
+            document["ResourceState"] = (_resourceStateCodec ?? throw new InvalidDataException(
+                "This campaign requires its resource-state save codec.")).Encode(resourceState);
         using var output = new MemoryStream();
         using (var zip = new GZipStream(output, CompressionLevel.Optimal, leaveOpen: true))
-            JsonSerializer.Serialize(zip, new SaveEnvelope(CurrentSchemaVersion, FormatId, state));
+            JsonSerializer.Serialize(zip, document);
         return output.ToArray();
     }
 
@@ -42,6 +55,14 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
             throw new InvalidDataException("Save format or schema version is unsupported.");
         if (document["State"] is not JsonObject)
             throw new InvalidDataException("Saved game state is missing or invalid.");
+        ICampaignResourceState? resourceState = null;
+        if (document.ContainsKey("ResourceState"))
+        {
+            if (document["ResourceState"] is not JsonObject resourceDocument)
+                throw new InvalidDataException("Saved resource compatibility state is invalid.");
+            resourceState = (_resourceStateCodec ?? throw new InvalidDataException(
+                "Saved resource compatibility knowledge requires its resource-state codec.")).Decode(resourceDocument);
+        }
         // Schema59 replaces EXE proof hashes with the version of our own rules.
         // Migrate identity metadata only; all current field values and owner links remain untouched.
         if (version < 59) MigrateRuleIdentities((JsonObject)document["State"]!);
@@ -70,6 +91,15 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
         if (version < 76) LegacyOfficerMeritSaveMigration.Apply((JsonObject)document["State"]!);
         if (version < 77) LegacyOfficerGrowthSaveMigration.Apply((JsonObject)document["State"]!);
         if (version < 78) LegacyUnusedOfficerFreedomSaveMigration.Apply((JsonObject)document["State"]!);
+        if (version < 79) LegacyCommanderSelectionSaveMigration.Apply((JsonObject)document["State"]!);
+        if (version < 80) LegacyOfficerAbilitySaveMigration.Apply((JsonObject)document["State"]!, _legacyAbilitySource);
+        if (version < 81)
+        {
+            var locations = LegacyOfficerLocationSaveMigration.Apply((JsonObject)document["State"]!);
+            if (locations.Count != 0)
+                resourceState = (_resourceStateCodec ?? throw new InvalidDataException(
+                    "Historical unresolved officer locations require the resource-state codec.")).MigrateLocations(resourceState, locations);
+        }
         ValidateModuleSnapshotShape((JsonObject)document["State"]!, version);
         // A present options record must contain all choices. JSON constructor
         // defaults must not turn a missing boolean into a confirmed false choice.
@@ -115,7 +145,7 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
         {
             throw new InvalidDataException("Saved state contains an invalid typed field or collection.", error);
         }
-        GameState state = version < 23 ? MigrateCombatFood(envelope.State) : envelope.State;
+        GameState state = (version < 23 ? MigrateCombatFood(envelope.State) : envelope.State) with { ResourceState = resourceState };
         StateValidator.Validate(state);
         return state;
     }
@@ -255,24 +285,25 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
                         throw new InvalidDataException("Saved officer activation owner is missing.");
                     if (locationOwner["TraitActivation"] is JsonNode activation)
                         _ = Require(activation, "officer trait activation", "ActiveSlots", "RemainingDurations");
-                    if (locationOwner["NativeLocationRuntime"] is JsonNode location)
+                    if (!locationOwner.ContainsKey("LocationState") || locationOwner.ContainsKey("NativeLocationRuntime"))
+                        throw new InvalidDataException("Saved officer location owner is missing or obsolete.");
+                    if (locationOwner["LocationState"] is JsonNode location)
                     {
-                        JsonObject fields = Require(location, "current Person location", "Revision", "Second11C");
-                        if (fields.ContainsKey("TraitMask1BC") || fields.ContainsKey("TraitExtras1BE"))
-                            throw new InvalidDataException("Saved officer contains an obsolete trait activation owner.");
+                        JsonObject fields = Require(location, "officer location knowledge", "Position", "Membership");
+                        if (fields["Position"] is JsonNode position)
+                            _ = Require(position, "officer position", "Kind", "EntityId");
+                        if (fields["Membership"] is JsonNode membership)
+                            _ = Require(membership, "officer membership", "Kind", "DistrictId");
                     }
                 }
                 if (officerNode is JsonObject freedomOwner && freedomOwner.ContainsKey("NativeFreedomRuntime"))
                     throw new InvalidDataException("Saved officer contains an obsolete freedom snapshot.");
-                if (officerNode is JsonObject officer && officer["NativeAbilityRuntime"] is JsonNode person)
+                if (officerNode is JsonObject abilityOwner)
                 {
-                    JsonObject ability = Require(person, "owned Person ability runtime", "Revision", "Language", "RuleVersion",
-                        "SourceScenarioUri", "SourceScenarioSha256", "PhysicalSlot",
-                        "Doctrine184",
-                        "EncodedOrdinaryCap224", "EncodedCharmCap225");
-                    if (ability.ContainsKey("Health199") || ability.ContainsKey("Office11F") || ability.ContainsKey("Status11E") ||
-                        ability.ContainsKey("Flags196") || ability.ContainsKey("Extra1FD") || ability.ContainsKey("Secondary1F4"))
-                        throw new InvalidDataException("Saved officer contains an obsolete health, appointment or service status owner.");
+                    if (!abilityOwner.ContainsKey("AbilityState") || abilityOwner.ContainsKey("NativeAbilityRuntime"))
+                        throw new InvalidDataException("Saved officer ability owner is missing or obsolete.");
+                    if (abilityOwner["AbilityState"] is JsonNode ability)
+                        _ = Require(ability, "officer ability limits", "OrdinaryLimit", "CharmLimit", "ObservedDoctrineId");
                 }
             }
         if (state["Cities"] is JsonObject cities)
@@ -336,8 +367,9 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
             if (lifecycle["Slots"] is not JsonArray slots) throw new InvalidDataException("Saved native slots are invalid.");
             foreach (JsonNode? slotNode in slots)
             {
-                JsonObject slot = Require(slotNode, "native Army slot", "PhysicalSlot", "Commander12", "Status10",
+                JsonObject slot = Require(slotNode, "native Army slot", "ReceiverId", "PhysicalSlot", "Commander12", "Status10",
                     "Priority14", "ActiveUnitId", "PendingImage", "StoredResources", "AuxiliaryAC", "AuxiliaryF4", "GroupAssignmentReady", "OccupancyBindingId");
+                _ = Require(slot["ReceiverId"], "army receiver identity", "Value");
                 if (slot.ContainsKey("Gold5C") || slot.ContainsKey("Supplies60"))
                     throw new InvalidDataException("Saved Army receiver contains obsolete stores fields.");
                 _ = Require(slot["StoredResources"], "retained Army stores", "Gold", "Food");
@@ -392,13 +424,20 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
                 foreach (var row in labels) _ = Require(row.Value, "caution group label", "IsKnown", "Label");
             }
         }
-        if (state["NativePersonCaptureWorldCandidates"] is JsonNode captureCandidatesNode)
+        if (state.ContainsKey("NativePersonCaptureWorldCandidates"))
+            throw new InvalidDataException("Saved state contains an obsolete commander selection window.");
+        if (!state.ContainsKey("CommanderSelection"))
+            throw new InvalidDataException("Saved commander selection knowledge is missing.");
+        if (state["CommanderSelection"] is JsonNode captureCandidatesNode)
         {
-            JsonObject candidates = Require(captureCandidatesNode, "native Person capture World candidates",
-                "Revision", "PersonIds165E", "Values1668");
-            if (candidates["PersonIds165E"] is not JsonArray personIds || personIds.Count != 5 ||
-                candidates["Values1668"] is not JsonArray candidateValues || candidateValues.Count != 5)
-                throw new InvalidDataException("Saved native World capture candidate arrays are not the source five-slot windows.");
+            JsonObject candidates = Require(captureCandidatesNode, "commander selection", "ActiveCount", "Candidates");
+            if (candidates["Candidates"] is JsonNode entries)
+            {
+                if (entries is not JsonArray array)
+                    throw new InvalidDataException("Saved commander selection candidates are invalid.");
+                foreach (JsonNode? entry in array)
+                    _ = Require(entry, "commander selection candidate", "OfficerId", "UninterpretedValue");
+            }
         }
         if (state["NativePersonReturnCommands"] is not null)
             throw new InvalidDataException("Saved state contains an obsolete personnel command owner.");
@@ -478,7 +517,9 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
                 if (forceFieldsNode is JsonObject forceFieldsObject && forceFieldsObject["NormalAftermath"] is JsonNode aftermath)
                     _ = Require(aftermath, "current Force normal aftermath", "Relations13", "Development1BE");
             }
-            JsonObject world = Require(simulation["World"], "owned native world fields", "SelectedCommanderCount165D");
+            JsonObject world = Require(simulation["World"], "owned native world fields");
+            if (world.ContainsKey("SelectedCommanderCount165D"))
+                throw new InvalidDataException("Saved world contains an obsolete commander selection count.");
             if (version >= 39) _ = Require(world, "owned native world result selection", "SelectedForce1656");
             if (world["SamplerEpoch"] is JsonNode sampler)
                 _ = Require(sampler, "owned native sampler epoch", "SourceScenarioUri", "SourceScenarioSha256",

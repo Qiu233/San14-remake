@@ -140,7 +140,6 @@ public static class PersonArmyCaptureSource
             }
             finally { current.ClearNearbyTemporary(hexes, true); }
             var officer = state.Officers.GetValueOrDefault(defeatedId) ?? throw Missing("current.defeated_Officer_ability_owner");
-            var native = officer.NativeAbilityRuntime ?? throw Missing("current.defeated_ability_runtime");
             byte healthIdentity = Need(OfficerHealthSourceAdapter.ReadByte(current, defeatedPhysical), "current.defeated_health161");
             var health = new OfficerHealth(healthIdentity);
             var abilityState = officer.Health == health ? state : state with { Officers = new(state.Officers) {

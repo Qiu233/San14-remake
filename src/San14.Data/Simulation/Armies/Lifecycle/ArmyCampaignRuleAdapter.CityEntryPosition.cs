@@ -18,12 +18,13 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (geometry.Goal != city.HexId) return new(null, "current.transport_entry_Object10");
         int? rawForce = null;
         bool? commanderValid = null;
-        if (state.Officers.TryGetValue(army.OfficerId, out var person) && person.NativeAbilityRuntime is { } ability)
+        if (state.Officers.TryGetValue(army.OfficerId, out var person) && _definitions.ResolveOfficerSource(person.Id) is int personPhysical)
         {
-            commanderValid = NativeValidity.PersonWithBehavior(ability.PhysicalSlot, checked((ushort)person.Id),
+            commanderValid = NativeValidity.PersonWithBehavior(personPhysical, checked((ushort)person.Id),
                 person.Behavior, OfficerServiceStatusSourceAdapter.Encode(person.ServiceStatus));
             if (commanderValid == false) rawForce = 0;
-            else if (commanderValid == true && person.NativeLocationRuntime?.District118 is byte districtId)
+            else if (commanderValid == true && OfficerLocationSourceAdapter.EncodeMembership(person.LocationState?.Membership,
+                (state.ResourceState as OfficerLocationSourceResidues)?.Find(person.Id)) is byte districtId)
             {
                 if (districtId is 0 or > 51) rawForce = 0;
                 else if (state.Districts.TryGetValue(districtId, out var district))

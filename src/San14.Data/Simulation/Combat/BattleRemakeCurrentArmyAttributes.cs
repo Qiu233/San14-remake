@@ -71,8 +71,8 @@ public sealed partial class BattleRemakeCurrentArmyAttributes
         if (queries.ReadArmyValidity(state, army) != true || army.NativeMorale1A is not byte nativeMorale ||
             army.NativeTacticRuntime is not { StatModifiers4A.Length: 6 } native ||
             army.NativeArmyConfiguration is not { } configuration ||
-            state.Officers.GetValueOrDefault(army.OfficerId)?.NativeAbilityRuntime is not { } commander ||
-            definitions.ReadPersonIdentity(commander.PhysicalSlot) != army.OfficerId ||
+            !state.Officers.ContainsKey(army.OfficerId) ||
+            definitions.ResolveOfficerSource(army.OfficerId) is not int commanderPhysical ||
             abilities.Resolve(state, army.OfficerId) is not { } full ||
             queries.ReadSelectedFormationPhysicalSlot(state, army) is not int formation || formation is < 1 or > 20 ||
             queries.ReadCommonQueries(state, army, opponent) is not { } reached || string.IsNullOrWhiteSpace(reached.Revision)) return null;
@@ -103,7 +103,7 @@ public sealed partial class BattleRemakeCurrentArmyAttributes
         int command = 0, attackEffect = 0, defenseEffect = 0, shared = 0;
         if (native.Status10 == 1)
         {
-            int[]? traits = TacticRemakeCurrentTraits.ArmyContributions(definitions, commander.PhysicalSlot, configuration.TraitSlots64);
+            int[]? traits = TacticRemakeCurrentTraits.ArmyContributions(definitions, commanderPhysical, configuration.TraitSlots64);
             if (traits is not { Length: 127 }) return null;
             //All return branches of2A6200 are zero when both actual source
             //contributions31/97 are zero, independent of its earlier age read.

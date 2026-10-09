@@ -14,7 +14,7 @@ public sealed partial class CaptureReturningPersonHomeSource : IPlayableCaptureA
         if (arena?.Indexes.Registries.GetValueOrDefault(WorldEntityKind.Officer) is not { } order) return null;
         var targets = state.Units.Values.Where(x => x.ForceId == previousForceId && x.NativeArmyOrigin is not null &&
             x.Mission?.Kind != UnitMissionKind.Transport && state.Officers[x.OfficerId].LocationId == capturedLocationId).ToArray();
-        if (targets.Any(x => state.Officers[x.OfficerId].NativeAbilityRuntime is null)) return null;
+        if (targets.Any(x => package.ResolveOfficerSource(x.OfficerId) is null)) return null;
         var armies = targets.ToDictionary(x => x.OfficerId);
         var result = new List<int>();
         //2851B0's234920/234D80 uses the actual manager100 Person chain.
@@ -31,11 +31,11 @@ public sealed partial class CaptureReturningPersonHomeSource : IPlayableCaptureA
             if (!OfficerServiceRules.IsServing(person.ServiceStatus)) continue;
             if (person.DistrictId is not int district || !state.Districts.TryGetValue(district, out var districtState)) return null;
             if (districtState.ForceId != previousForceId) continue;
-            if (person.NativeLocationRuntime?.Second11C is not ushort second) return null;
-            var position = PersonPositionRepair.DecodeSecondLocation(second);
-            if (position.Kind != 27 || position.Index is < 1 or > 500 || position.Index >= arena.Slots.Length ||
-                arena.Slots[position.Index].Commander12 != person.Id || arena.Slots[position.Index].Status10 is null or 0 ||
-                arena.Slots[position.Index].ActiveUnitId != army.Id || army.NativeArmyOrigin!.NativeSlotIndex != position.Index)
+            if (person.LocationState?.Position is not { Kind: OfficerPositionKind.ArmyReceiver, EntityId: int receiverId }) return null;
+            var receiver = arena.Slots.SingleOrDefault(slot => slot.ReceiverId.Value == receiverId);
+            if (receiver is null || receiver.PhysicalSlot is < 1 or > 500 ||
+                receiver.Commander12 != person.Id || receiver.Status10 is null or 0 ||
+                receiver.ActiveUnitId != army.Id || army.NativeArmyOrigin!.NativeSlotIndex != receiver.PhysicalSlot)
                 return null;
             result.Add(army.Id);
         }

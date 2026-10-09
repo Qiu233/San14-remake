@@ -34,6 +34,8 @@ public partial class SceneAudioSession : Node
     private bool _retired;
     public string? SceneKey { get; private set; }
     public long SceneRevision { get; private set; }
+    // Includes preparing, loaded, playing, paused and failed retained channels.
+    public int ChannelCount => _channels.Count;
     public event Action<SceneAudioChannel>? ChannelChanged;
 
     public override void _EnterTree()

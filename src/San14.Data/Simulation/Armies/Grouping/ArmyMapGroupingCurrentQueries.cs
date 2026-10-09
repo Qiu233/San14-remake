@@ -138,7 +138,7 @@ public sealed class ArmyMapGroupingCurrentQueries : IArmyMapGroupingQueries
     public byte? ReadPostOrder37(int physical)
     {
         if (Commander(physical)?.PhysicalSlot is not int at || _current.ReadPersonIdentity(at) is not ushort person ||
-            !_world.Officers.TryGetValue(person, out var officer) || officer.NativeAbilityRuntime is not { } runtime)
+            !_world.Officers.TryGetValue(person, out var officer) || _current.ResolveOfficerSource(person) != at)
             return null;
         int? office = OfficerAppointmentRules.ReadOfficeId(officer.Appointment);
         if (office is not >= 0 or > 255 || _source.Snapshot.RankParameters?.Offices is not { Count: 256 } rows) return null;

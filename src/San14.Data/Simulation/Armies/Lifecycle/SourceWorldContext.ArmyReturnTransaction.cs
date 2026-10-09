@@ -59,6 +59,7 @@ public sealed partial class SourceWorldContext
     internal void CommitArmyReturnTransactionFields(SourceWorldContext draft)
     {
         Copy(draft._persons, _persons); Copy(draft._personFirstLocations, _personFirstLocations);
+        draft.CopyOfficerLocationsTo(this);
         Copy(draft._personDistrictSlots, _personDistrictSlots); Copy(draft._cityDistricts, _cityDistricts);
         Copy(draft._armyReturnGovernorWords2E, _armyReturnGovernorWords2E);
         Copy(draft._baseResources, _baseResources); Copy(draft._baseMorale44, _baseMorale44);

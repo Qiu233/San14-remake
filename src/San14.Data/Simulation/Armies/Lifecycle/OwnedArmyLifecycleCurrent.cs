@@ -14,7 +14,7 @@ public static class OwnedArmyLifecycleCurrent
         if (state.NativeArmyLifecycle is not null || state.ArmyMapOccupancy is not null || state.Units.Count != 0 ||
             state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } || state.NativeArmySimulation is null)
             throw new InvalidDataException("Fresh Army lifecycle requires its explicit initial owned campaign.");
-        var current = OwnedArmyReturnCurrentFields.CaptureCurrent(state, definitions);
+        var current = OwnedArmyReturnCurrentFields.CaptureCurrent(state, definitions, ArmyReceiverSourceDirectory.CreateFresh(501));
         definitions.BindFreshLifecycleUnprojectedReceivers(state, current);
         var pool = current.ReadOwnedCurrentListPool()
             ?? throw new InvalidDataException("Fresh world indexes are missing.");
@@ -26,12 +26,15 @@ public static class OwnedArmyLifecycleCurrent
         current.SetArmyReturnPending70Descriptor(Registry(pool.AllocateDescriptor()));
 
         var slots = new NativeArmyLifecycleSlot[501];
+        var receiverDirectory = ArmyReceiverSourceDirectory.CreateFresh(slots.Length);
         for (int physical = 0; physical < slots.Length; physical++)
         {
             //326990:501 x200-byte CArmy;2209A0:9 x10-byte list ctor;
             //2269E0: header/raw5C60 and all36-word64/AC/F4 reset.
+            receiverDirectory.TryResolveReceiverId(physical, out var receiverId);
             slots[physical] = new(physical, 0, 0, 0, null, null, ArmyStoreKnowledge.Empty, new ushort[36], new ushort[36])
-                { OverrideTarget = new(0xFF, 0), Direction36 = ArmyDirectionSource.ResetDirection36,
+                { ReceiverId = receiverId,
+                    OverrideTarget = new(0xFF, 0), Direction36 = ArmyDirectionSource.ResetDirection36,
                     MapUiByte13C = 0, CommandControl140 = 0, RouteHold56 = 0, RouteGoal1F8 = 0xBD10,
                     GroupAssignmentReady = true };
             current.SetArmyUnitTablePointer(physical, physical);
@@ -188,7 +191,8 @@ public sealed partial class ArmyOperationContext
         foreach (var row in _source.Snapshot.Forces)
             if (current.ReadForceRecord(row.Slot) is null && state.Forces.GetValueOrDefault(row.Slot)?.RulerId is null && row.RulerSlot == 0)
                 current.SetForceRecord(new(row.Slot, row.RulerSlot));
-        var represented = state.Officers.Values.Select(x => x.NativeAbilityRuntime!.PhysicalSlot).ToHashSet();
+        var represented = state.Officers.Values.Select(x => current.ResolveOfficerSource(x.Id)
+            ?? throw new InvalidDataException("Fresh Person source identity is unknown.")).ToHashSet();
         foreach (var row in _source.Snapshot.Characters)
         {
             if (represented.Contains(row.Slot) || row.Slot == 0) continue;

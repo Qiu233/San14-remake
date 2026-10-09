@@ -30,12 +30,14 @@ public static class OwnedArmyLifecycleDetachedInputs
         foreach (var gate in state.Gates.Values)
             current.SetArmyReturnBaseGovernor2E(new(BaseKind.Gate,gate.Id-51),
                 gate.GovernorId is int governor ? (ushort)governor : Word("Gate",gate.Id-51,"2E"));
-        var owned = state.Officers.Values.Select(x => x.NativeAbilityRuntime!.PhysicalSlot).ToHashSet();
+        var owned = state.Officers.Values.Select(x => current.ResolveOfficerSource(x.Id)
+            ?? throw new InvalidDataException("Detached Person source identity is unknown.")).ToHashSet();
         foreach (var person in state.Officers.Values)
         {
-            int physical = person.NativeAbilityRuntime!.PhysicalSlot;
+            int physical = current.ResolveOfficerSource(person.Id)
+                ?? throw new InvalidDataException("Detached Person source identity is unknown.");
             if (person.LocationId is null) current.SetPersonFirstLocation(physical,Word("Person",physical,"E2"));
-            if (person.DistrictId is null && person.NativeLocationRuntime?.District118 is null)
+            if (person.DistrictId is null && person.LocationState?.Membership is null)
                 current.SetPersonDistrictSlot(physical,Byte("Person",physical,"E0"));
         }
         for (int physical=1;physical<1851;physical++)
@@ -63,7 +65,8 @@ public static class OwnedArmyLifecycleDetachedInputs
         var people = new Dictionary<int,OfficerState>(state.Officers);
         foreach (var person in people.Values.ToArray())
         {
-            int physical = person.NativeAbilityRuntime!.PhysicalSlot;
+            int physical = current.ResolveOfficerSource(person.Id)
+                ?? throw new InvalidDataException("Detached Person source identity is unknown.");
             ushort? first = current.ReadPersonFirstLocation(physical); byte? district = current.ReadPersonDistrictSlot(physical);
             if (first is ushort rawFirst) values[Key("Person",physical,"E2")] = rawFirst;
             if (district is byte rawDistrict) values[Key("Person",physical,"E0")] = rawDistrict;

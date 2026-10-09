@@ -123,7 +123,7 @@ public sealed class ArmyMoraleSource
         bool? valid=ReadCommanderValidity(state,army);
         if(valid is null)return null;
         if(!valid.Value)return new(BaseKind.City,null);
-        int physical=state.Officers[army.OfficerId].NativeAbilityRuntime!.PhysicalSlot;
+        if (definitions.ResolveOfficerSource(army.OfficerId) is not int physical) return null;
         if(definitions.ReadPersonFirstLocation(physical) is not ushort first)return null;
         try{return BaseLookup.Find(first,definitions);}
         catch(InvalidDataException){return null;}
@@ -131,15 +131,12 @@ public sealed class ArmyMoraleSource
 
     private bool? ReadCommanderValidity(GameState state,UnitState army)
     {
-        if(army.OfficerId is <0 or >6000||state.NativeArmySimulation?.Parameters is not { } parameters||definitions.StaticSource is not { } source||
+        if(army.OfficerId is <0 or >6000||state.NativeArmySimulation?.Parameters is null||definitions.StaticSource is not { } source||
             !state.Officers.TryGetValue(army.OfficerId,out OfficerState? officer)||
-            officer.NativeAbilityRuntime is not { } person||person.Revision!=TacticRemakeCurrentAbilities.ProfileId||
-            person.Language!=parameters.Language||person.RuleVersion!=parameters.RuleVersion||
-            person.SourceScenarioUri!=source.ResourceUri||person.SourceScenarioSha256!=source.Sha256||
-            person.PhysicalSlot is <1 or >1850||definitions.ReadPersonLookupReference(army.OfficerId)?.PhysicalSlot!=person.PhysicalSlot||
-            definitions.ReadPersonIdentity(person.PhysicalSlot)!=army.OfficerId||
+            state.ContentHashes.GetValueOrDefault(source.ResourceUri)!=source.Sha256||
+            definitions.ResolveOfficerSource(army.OfficerId) is not int physical||
             OfficerServiceStatusSourceAdapter.Encode(officer.ServiceStatus) is not byte status)return null;
-        return NativeValidity.PersonWithBehavior(person.PhysicalSlot, checked((ushort)officer.Id), officer.Behavior, status);
+        return NativeValidity.PersonWithBehavior(physical, checked((ushort)officer.Id), officer.Behavior, status);
     }
 
     private ArmyMoraleSourceEpoch? Epoch(GameState state,UnitState army,bool existing)

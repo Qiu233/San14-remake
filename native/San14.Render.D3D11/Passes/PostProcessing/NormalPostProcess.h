@@ -56,7 +56,7 @@ public:
     ComPtr<ID3D11Texture2D> execute(ID3D11Device* device,ID3D11DeviceContext* context,
         NativeSourceDepthState& logical,const fs::path& seasonalSource,
         const source_current_season::Frame* season,
-        const source_camera::Prefix& camera,float currentClock) {
+        const source_camera::CameraTransform& camera,float currentClock) {
         if(season) {
             if(loadedLutSeason_!=int(season->season)) {
                 const bool loaded=std::any_of(seasonLuts_.catalog.luts.begin(),seasonLuts_.catalog.luts.end(),

@@ -1,39 +1,22 @@
 #pragma once
-// Actual current V418 weather/Fog producer. The raw table and original pow
-// coefficients are imported once; accepted camera height is the runtime input.
-#include "../../Camera/CameraState.h"
+// Weather response, atmospheric scattering and altitude-based ambient lighting.
+// Binary profiles and fog records are decoded at the resource boundaries.
+#include "WeatherFogState.h"
 
 namespace source_weather_fog {
 using source_camera::A;using source_camera::S;using source_camera::M;using source_camera::D;
-using source_camera::V3;using source_camera::V4;using source_camera::Prefix;using source_camera::get;using source_camera::put;
+using source_camera::V3;using source_camera::V4;
 inline float F(uint32_t bits){float value;std::memcpy(&value,&bits,4);return value;}
+inline constexpr float AmbientTableScale=1e-5f;
+inline constexpr float CameraHeightScale=.01f;
+inline constexpr float BackgroundIntensity=.3f;
+inline const float MinimumFogDistance=F(0x37480000);
+inline const float IsotropicMiePhase=F(0x3da2f983); // 1/(4*pi), rounded to float32.
+inline const float RayleighPhase=F(0x3d747645); // 3/(16*pi), rounded to float32.
 __declspec(noinline) inline double DA(double a,double b){return a+b;}
 __declspec(noinline) inline double DS(double a,double b){return a-b;}
 __declspec(noinline) inline double DM(double a,double b){return a*b;}
 __declspec(noinline) inline double DD(double a,double b){return a/b;}
-struct Power {
-    std::array<double,257> reciprocal{},logarithms{};
-    std::array<double,64> exponentials{};std::array<double,11> constants{};
-};
-struct Profile {
-    std::array<float,46> fields{};Power power;
-    std::vector<uint16_t> ambient;
-};
-struct Frame {
-    std::array<uint8_t,72> main72{};float saturation=0,effectiveHeight=0,heightCoordinate=0,currentAltitude=0;
-    V4 sunAmbient{},moonAmbient{};
-};
-struct Shared {V4 fog{},color{};std::array<V4,4> scat{};};
-inline Profile readProfile(const std::filesystem::path& source){
-    Profile p;std::ifstream s(source/"profile.bin",std::ios::binary);
-    p.fields=source_camera::read<std::array<float,46>>(s);
-    p.power.reciprocal=source_camera::read<std::array<double,257>>(s);p.power.logarithms=source_camera::read<std::array<double,257>>(s);
-    p.power.exponentials=source_camera::read<std::array<double,64>>(s);p.power.constants=source_camera::read<std::array<double,11>>(s);
-    if(s.peek()!=std::char_traits<char>::eof())throw std::runtime_error("Weather Fog profile tail");
-    std::ifstream table(source/"ambient2d-half4.bin",std::ios::binary);p.ambient.resize(64*256*4);
-    table.read(reinterpret_cast<char*>(p.ambient.data()),p.ambient.size()*sizeof(uint16_t));
-    if(!table||table.peek()!=std::char_traits<char>::eof())throw std::runtime_error("Weather Ambient2D raw shape");return p;
-}
 inline float powSse(float value,float exponent,const Power& source){
     if(exponent==0)return 1;if(exponent==1)return value;if(value==0)return 0;
     double x=value,log,t=DS(x,1);
@@ -91,50 +74,53 @@ inline V4 hsvToRgb(V4 hsv){
 }
 inline V4 adjust(V4 rgb,float saturation){if(saturation>=1)return rgb;auto hsv=rgbToHsv(rgb);hsv.Y=M(hsv.Y,saturation);return hsvToRgb(hsv);}
 inline V4 sampleAmbient(const Profile& p,float effectiveHeight,float heightCoordinate,float angle){
-    if(p.fields[35]<effectiveHeight)return {1,1,1,1};auto sample=sampleGrid(p,heightCoordinate,angle);float scale=F(0x3727c5ac);
+    if(p.lighting.atmosphereTop<effectiveHeight)return {1,1,1,1};auto sample=sampleGrid(p,heightCoordinate,angle);float scale=AmbientTableScale;
     return {maximum(0,M(sample.X,scale)),maximum(0,M(sample.Y,scale)),maximum(0,M(sample.Z,scale)),maximum(0,M(sample.W,scale))};
 }
 inline Frame prepareCurrent(const Profile& p,float eyeY,float currentAltitude){
-    const auto& f=p.fields;Frame out;
-    float cloud=clamp(M(f[0],f[2])),humidityWeight=f[4]>f[3]?clamp(D(S(f[1],f[3]),S(f[4],f[3]))):f[1]>=f[3]?1.f:0.f;
-    float weather=M(cloud,humidityWeight),strength=f[5],heightBlend=A(M(strength,f[6]),S(1,strength));
-    float opacity=powSse(f[7],strength,p.power),weight=f[9]==f[8]?(f[1]>f[8]?1.f:0.f):clamp(D(S(f[1],f[8]),S(f[9],f[8]))),complement=S(1,weight);
-    float rayleighScale=A(M(weight,f[11]),M(complement,f[10])),heightDenominator=M(M(heightBlend,f[14]),100);
+    const auto& response=p.response;
+    const auto& settings=p.fog;
+    const auto& coefficients=p.scattering;
+    Frame out;
+    float cloud=clamp(M(p.conditions.cloudCover,response.cloudScale));
+    float humidityWeight=response.cloudHumidityEnd>response.cloudHumidityStart?clamp(D(S(p.conditions.humidity,response.cloudHumidityStart),S(response.cloudHumidityEnd,response.cloudHumidityStart))):p.conditions.humidity>=response.cloudHumidityStart?1.f:0.f;
+    float weather=M(cloud,humidityWeight),strength=response.strength,heightBlend=A(M(strength,response.heightMultiplier),S(1,strength));
+    float opacity=powSse(response.opacityBase,strength,p.power);
+    float weight=response.scatteringHumidityEnd==response.scatteringHumidityStart?(p.conditions.humidity>response.scatteringHumidityStart?1.f:0.f):clamp(D(S(p.conditions.humidity,response.scatteringHumidityStart),S(response.scatteringHumidityEnd,response.scatteringHumidityStart)));
+    float complement=S(1,weight);
+    float rayleighScale=A(M(weight,response.rayleighWetScale),M(complement,response.rayleighDryScale)),heightDenominator=M(M(heightBlend,response.atmosphereHeight),100);
     float raised=powSse(D(eyeY,heightDenominator),4,p.power),density=A(M(maximum(raised,1),strength),S(1,strength));
-    density=M(density,opacity);density=M(density,A(M(weight,f[13]),M(complement,f[12])));
-    float mieMaximum=maximum(f[28],maximum(f[30],f[29]));
-    V4 mie{M(M(density,f[22]),D(f[28],mieMaximum)),M(M(density,f[23]),D(f[29],mieMaximum)),M(M(density,f[24]),D(f[30],mieMaximum)),0};
-    V4 rayleigh{M(M(f[25],f[31]),rayleighScale),M(M(f[26],f[32]),rayleighScale),M(M(f[27],f[33]),rayleighScale),0};
-    out.saturation=f[15]==f[16]?(weather>f[16]?0.f:1.f):S(1,clamp(D(S(weather,f[15]),S(f[16],f[15]))));rayleigh=adjust(rayleigh,out.saturation);
-    out.currentAltitude=currentAltitude;out.effectiveHeight=A(M(currentAltitude,1000),M(eyeY,F(0x3c23d70a)));
-    out.heightCoordinate=clamp(powSse(clamp(D(out.effectiveHeight,f[35])),.5f,p.power));
-    out.sunAmbient=sampleAmbient(p,out.effectiveHeight,out.heightCoordinate,f[37]);out.moonAmbient=sampleAmbient(p,out.effectiveHeight,out.heightCoordinate,f[38]);
+    density=M(density,opacity);density=M(density,A(M(weight,response.mieWetScale),M(complement,response.mieDryScale)));
+    float mieMaximum=maximum(coefficients.mieExtinction.X,maximum(coefficients.mieExtinction.Z,coefficients.mieExtinction.Y));
+    V4 mie{M(M(density,coefficients.mie.X),D(coefficients.mieExtinction.X,mieMaximum)),M(M(density,coefficients.mie.Y),D(coefficients.mieExtinction.Y,mieMaximum)),M(M(density,coefficients.mie.Z),D(coefficients.mieExtinction.Z,mieMaximum)),0};
+    V4 rayleigh{M(M(coefficients.rayleigh.X,coefficients.rayleighExtinction.X),rayleighScale),M(M(coefficients.rayleigh.Y,coefficients.rayleighExtinction.Y),rayleighScale),M(M(coefficients.rayleigh.Z,coefficients.rayleighExtinction.Z),rayleighScale),0};
+    out.saturation=response.saturationStart==response.saturationEnd?(weather>response.saturationEnd?0.f:1.f):S(1,clamp(D(S(weather,response.saturationStart),S(response.saturationEnd,response.saturationStart))));rayleigh=adjust(rayleigh,out.saturation);
+    out.currentAltitude=currentAltitude;out.effectiveHeight=A(M(currentAltitude,1000),M(eyeY,CameraHeightScale));
+    out.heightCoordinate=clamp(powSse(clamp(D(out.effectiveHeight,p.lighting.atmosphereTop)),.5f,p.power));
+    out.sunAmbient=sampleAmbient(p,out.effectiveHeight,out.heightCoordinate,p.lighting.sunAngle);out.moonAmbient=sampleAmbient(p,out.effectiveHeight,out.heightCoordinate,p.lighting.moonAngle);
     V4 sun=adjust(out.sunAmbient,out.saturation),moon=adjust(out.moonAmbient,out.saturation);
-    V4 background{M(A(M(moon.X,f[42]),M(sun.X,f[39])),F(0x3e99999a)),M(A(M(moon.Y,f[43]),M(sun.Y,f[40])),F(0x3e99999a)),M(A(M(moon.Z,f[44]),M(sun.Z,f[41])),F(0x3e99999a)),0};
-    put(out.main72.data(),background);put(out.main72.data()+0x10,uint32_t(7));put(out.main72.data()+0x14,M(f[17],100));
-    put(out.main72.data()+0x18,M(M(heightBlend,f[14]),100));put(out.main72.data()+0x1c,f[34]);put(out.main72.data()+0x20,rayleigh);put(out.main72.data()+0x2c,1.f);
-    put(out.main72.data()+0x30,mie);put(out.main72.data()+0x3c,M(S(1,M(strength,F(0x3e99999a))),f[18]));
-    put(out.main72.data()+0x40,M(f[19],100));put(out.main72.data()+0x44,A(M(f[20],f[21]),S(1,f[20])));return out;
+    V4 background{M(A(M(moon.X,p.lighting.moonRgb.X),M(sun.X,p.lighting.sunRgb.X)),BackgroundIntensity),M(A(M(moon.Y,p.lighting.moonRgb.Y),M(sun.Y,p.lighting.sunRgb.Y)),BackgroundIntensity),M(A(M(moon.Z,p.lighting.moonRgb.Z),M(sun.Z,p.lighting.sunRgb.Z)),BackgroundIntensity),0};
+    out.fog={background,FogMode::Scattering,M(settings.startDistance,100),M(M(heightBlend,response.atmosphereHeight),100),
+        p.lighting.planetRadius,{rayleigh.X,rayleigh.Y,rayleigh.Z},1.f,{mie.X,mie.Y,mie.Z},
+        M(S(1,M(strength,BackgroundIntensity)),settings.anisotropy),M(settings.distancePivot,100),
+        A(M(settings.blendWeight,settings.blendTarget),S(1,settings.blendWeight))};
+    return out;
 }
-inline Frame prepareCurrent(const Profile& p,float eyeY){return prepareCurrent(p,eyeY,p.fields[36]);}
-inline void publish(Prefix& preparedMain,const Frame& frame){put(preparedMain.data()+0x210,frame.currentAltitude);put(preparedMain.data()+0x22c,frame.saturation);std::memcpy(preparedMain.data()+0x340,frame.main72.data(),72);}
-inline void publishMode6CameraFog(uint8_t* admittedCbc770LightData,const Frame& frame){
-    // Only the actual admitted CBC770 mode6 Camera-copy scope calls this.
-    // Raw mode0 light records must retain their own Fog96 instead.
-    std::memcpy(admittedCbc770LightData+0x150,frame.main72.data(),72);
-}
-inline Shared shared(const std::array<uint8_t,72>& record,V3 directionalRgb){
-    Shared out;out.color=get<V4>(record.data());float pivot=get<float>(record.data()+0x40),minimum=F(0x37480000),x=pivot>minimum?pivot:minimum;
-    out.fog={x,D(1,x),get<float>(record.data()+0x44),get<float>(record.data()+0x1c)};
-    V4 ray=get<V4>(record.data()+0x20),mie=get<V4>(record.data()+0x30);float sx=A(ray.X,mie.X),sy=A(mie.Y,ray.Y),sz=A(mie.Z,ray.Z);
+inline Frame prepareCurrent(const Profile& p,float eyeY){return prepareCurrent(p,eyeY,p.conditions.altitude);}
+inline Shared shared(const FogState& record,V3 directionalRgb){
+    Shared out;out.color=record.background;float pivot=record.distancePivot,minimum=MinimumFogDistance,x=pivot>minimum?pivot:minimum;
+    out.fog={x,D(1,x),record.blend,record.planetRadius};
+    V4 ray{record.rayleigh.X,record.rayleigh.Y,record.rayleigh.Z,record.density},mie{record.mie.X,record.mie.Y,record.mie.Z,record.anisotropy};float sx=A(ray.X,mie.X),sy=A(mie.Y,ray.Y),sz=A(mie.Z,ray.Z);
     if(ray.X>0)sx=D(ray.W,sx);if(ray.Y>0)sy=D(ray.W,sy);if(ray.Z>0)sz=D(ray.W,sz);
     sy=M(sy,directionalRgb.Y);sx=M(sx,directionalRgb.X);sz=M(sz,directionalRgb.Z);
-    float g2=M(mie.W,mie.W),phase=M(S(1,g2),F(0x3da2f983));
-    out.scat={V4{ray.X,ray.Y,ray.Z,get<float>(record.data()+0x14)},V4{mie.X,mie.Y,mie.Z,get<float>(record.data()+0x18)},
-        V4{M(sx,M(ray.X,F(0x3d747645))),M(sy,M(ray.Y,F(0x3d747645))),M(sz,M(ray.Z,F(0x3d747645))),M(mie.W,-2)},
+    float g2=M(mie.W,mie.W),phase=M(S(1,g2),IsotropicMiePhase);
+    out.scat={V4{ray.X,ray.Y,ray.Z,record.startDistance},V4{mie.X,mie.Y,mie.Z,record.endDistance},
+        V4{M(sx,M(ray.X,RayleighPhase)),M(sy,M(ray.Y,RayleighPhase)),M(sz,M(ray.Z,RayleighPhase)),M(mie.W,-2)},
         V4{M(sx,M(phase,mie.X)),M(sy,M(phase,mie.Y)),M(sz,M(phase,mie.Z)),A(g2,1)}};return out;
 }
-inline std::array<uint8_t,72> package(const Frame& frame,float main1EC){
-    auto record=frame.main72;if(main1EC>0){float blend=get<float>(record.data()+0x44);put(record.data()+0x44,A(M(S(1,main1EC),blend),main1EC));}return record;
+inline FogState package(const Frame& frame,float fogBlend){
+    auto result=frame.fog;
+    if(fogBlend>0)result.blend=A(M(S(1,fogBlend),result.blend),fogBlend);
+    return result;
 }
 } // namespace source_weather_fog

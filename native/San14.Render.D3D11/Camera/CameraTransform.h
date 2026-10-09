@@ -10,6 +10,7 @@ enum class ProjectionKind {Perspective,Orthographic};
 enum class ClipDepthRange {MinusOneToOne,ZeroToOne};
 struct CameraOptics {
     float nearPlane{},farPlane{},aspectRatio{},roll{};
+    float viewSpan{}; // Published vertical view span used by screen-space effects.
     ProjectionKind projectionKind=ProjectionKind::Perspective;
     bool reversedDepth{};
 };

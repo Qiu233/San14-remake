@@ -56,22 +56,17 @@ public sealed class BattleRemakeCurrentDamageBodyQueries : IBattleRemakeCurrentD
     public bool? ReadTargetHalfDamageTrait(GameState state, UnitState target)
     {
         if (current.ArmyValid(state, target) != true ||
-            state.NativeArmySimulation?.Parameters is not { } parameters ||
+            state.NativeArmySimulation?.Parameters is null ||
             definitions.StaticSource is not { } source ||
             state.ContentHashes.GetValueOrDefault(source.ResourceUri) != source.Sha256 ||
-            state.Officers.GetValueOrDefault(target.OfficerId) is not { } officer || officer.NativeAbilityRuntime is not { } person ||
-            person.Revision != TacticRemakeCurrentAbilities.ProfileId ||
-            person.Language != parameters.Language || person.RuleVersion != parameters.RuleVersion ||
-            person.SourceScenarioUri != source.ResourceUri || person.SourceScenarioSha256 != source.Sha256 ||
-            person.PhysicalSlot is < 1 or > 1850 ||
-            definitions.ReadPersonLookupReference(target.OfficerId)?.PhysicalSlot != person.PhysicalSlot ||
-            definitions.ReadPersonIdentity(person.PhysicalSlot) != target.OfficerId ||
+            state.Officers.GetValueOrDefault(target.OfficerId) is not { } officer ||
+            definitions.ResolveOfficerSource(target.OfficerId) is not int physical ||
             OfficerServiceStatusSourceAdapter.Encode(officer.ServiceStatus) is not byte status)
             return null;
-        bool? valid = NativeValidity.PersonWithBehavior(person.PhysicalSlot, checked((ushort)officer.Id), officer.Behavior, status);
+        bool? valid = NativeValidity.PersonWithBehavior(physical, checked((ushort)officer.Id), officer.Behavior, status);
         if (valid is null) return null;
         if (!valid.Value) return false; //2AB540 returns a null personality receiver.
-        return ReadFirstMatchingPermanentEffect(definitions, person.PhysicalSlot, 56);
+        return ReadFirstMatchingPermanentEffect(definitions, physical, 56);
     }
 
     /// <summary>Pure 230990 -> 2AB540 -> caller B4 predicate. Caller has proved

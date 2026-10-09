@@ -14,6 +14,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
     private readonly GameResourceRepository _repository;
     private readonly ArmyOperationContext _definitions;
     private readonly LoadedScenario _scenario;
+    internal int? ResolveOfficerSource(int officerId) => _definitions.ResolveOfficerSource(officerId);
     private readonly LoadedSkillDefinitions _skills;
     private readonly TacticSourceCatalog _catalog;
     private readonly LoadedMap _map;
@@ -171,7 +172,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         fresh = _moraleWaveInputs.InstallFresh(fresh);
         fresh = _rulerCaptureReleaseInputs.InstallFresh(fresh);
         fresh = CaptureBaseThreatInputs.InstallFresh(fresh);
-        fresh = PersonCaptureWorldCandidates.InstallFresh(fresh);
+        fresh = CommanderSelectionSource.InstallFresh(fresh);
         fresh = _baseCaptureResourceInputs.InstallFresh(fresh);
         fresh = _baseCaptureRewardInputs.InstallFresh(fresh);
         var epoch = new NativeArmySamplerEpoch(_scenario.ScenarioSource.ResourceUri, _scenario.ScenarioSource.Sha256,
@@ -327,13 +328,14 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             current.Officers[plan.OfficerId] = commander with
             {
                 Deployed = true,
-                NativeLocationRuntime = receipt.CommanderSecondLocation11C is ushort second
-                    ? commander.NativeLocationRuntime is { } location
-                        ? location with { Second11C = second }
-                        : new(receipt.Origin.Revision, second)
-                    : commander.NativeLocationRuntime
+                LocationState = receipt.CommanderPosition is { } position
+                    ? commander.LocationState is { } location
+                        ? location with { Position = position }
+                        : new(position, null)
+                    : commander.LocationState
             };
             current = current with { RandomState = receipt.RandomState,
+                ResourceState = receipt.ResourceState ?? current.ResourceState,
                 NativeArmyLifecycle = receipt.NativeLifecycle ?? current.NativeArmyLifecycle,
                 ArmyMapOccupancy = receipt.ArmyMapOccupancy ?? current.ArmyMapOccupancy };
             nextId++;
@@ -496,11 +498,18 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             NativeMapUiByte13C = state.NativeArmyLifecycle?.Slots[nativeArmySlot].MapUiByte13C,
             NativeCommandControl140 = state.NativeArmyLifecycle?.Slots[nativeArmySlot].CommandControl140,
             NativeRouteGoal1F8 = state.NativeArmyLifecycle?.Slots[nativeArmySlot].RouteGoal1F8,
-            CommanderSecondLocation11C = PersonArmyLocationSource.EncodeArmySecondLocation(nativeArmySlot),
+            CommanderPosition = OfficerLocationSourceAdapter.DecodePosition(
+                PersonArmyLocationSource.EncodeArmySecondLocation(nativeArmySlot), OfficerLocationSourceAdapter.Receivers(state)),
             NativeHomeSequence28 = state.NativeArmyLifecycle is null ? null :
                 ArmyHomeSequenceSource.ReadNextOrdinary(state, CaptureOwnedArmyReturnWorld(state).Context, army.OfficerId),
             NativeSavedRegionHex152 = selectedBase?.PhysicalSlot is not null
                 ? ArmyCurrentRegionSource.ResolveCreationRegion(selectedBase, definitions) : null };
+        var residues = OfficerLocationSourceResidues.From(state.ResourceState);
+        var previousLocationResidue = residues.Find(army.OfficerId);
+        result = result with { ResourceState = residues.With(new(army.OfficerId,
+            result.CommanderPosition?.Kind == OfficerPositionKind.Unresolved
+                ? PersonArmyLocationSource.EncodeArmySecondLocation(nativeArmySlot) : null,
+            previousLocationResidue?.DistrictCode)) };
         if (state.NativeArmyLifecycle is null) return result;
         UnitState created = army with { NativeArmyOrigin = result.Origin, NativeArmyConfiguration = result.Configuration,
             NativeTacticRuntime = result.Runtime, NativeMorale1A = result.NativeMorale1A,

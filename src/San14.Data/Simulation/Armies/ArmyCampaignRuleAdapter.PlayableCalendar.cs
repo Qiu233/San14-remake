@@ -30,7 +30,11 @@ public sealed partial class ArmyCampaignRuleAdapter
             var reports = returned.Receipts.Where(row => row.Arrival is not null).Select(row =>
             {
                 int person = row.Arrival!.PersonPhysical;
-                var officer = continued.Officers.Values.Single(officer => officer.NativeAbilityRuntime?.PhysicalSlot == person);
+                int id = _definitions.ReadOfficerSourceIdentity(person)
+                    ?? throw new InvalidDataException("Returning Person source identity is unknown.");
+                if (_definitions.ResolveOfficerSource(id) != person)
+                    throw new InvalidDataException("Returning Person source identity is inconsistent.");
+                var officer = continued.Officers[id];
                 return new PeriodReportEntry("officer_return", officer.ForceId ?? 0,
                     officer.LocationId, officer.Id) { RuleId = "ce-202360-Return8_22-32B190" };
             });

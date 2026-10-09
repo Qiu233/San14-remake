@@ -13,10 +13,11 @@ public sealed class GameplaySession
     private readonly SingleForceAuthority? _authority;
     private readonly Func<GameState, GameState>? _advanceCalendar;
     private readonly ICommandPlanner? _planner;
-    private readonly SessionSaveStore _saves = new(new JsonGzipSaveCodec());
+    private readonly SessionSaveStore _saves;
+    private readonly SaveStore _previewSaves;
 
     private GameplaySession(GameState world, PlayableRuleSet rules, int? playerForceId,
-        Func<GameState, GameState>? advanceCalendar)
+        Func<GameState, GameState>? advanceCalendar, ISaveCodec saveCodec)
     {
         _simulation = new GameSimulation(world);
         Rules = rules;
@@ -24,18 +25,20 @@ public sealed class GameplaySession
         _advanceCalendar = advanceCalendar;
         _authority = playerForceId is int player ? new SingleForceAuthority(player, LocalActor) : null;
         _planner = playerForceId is int human ? new PlayableAiPlanner(rules, new HashSet<int> { human }) : null;
+        _saves = new(saveCodec);
+        _previewSaves = new(saveCodec);
     }
 
     public GameState World => _simulation.State;
     public PlayableRuleSet Rules { get; }
     public int? PlayerForceId { get; }
 
-    public static GameplaySession Preview(GameState world, PlayableRuleSet rules) =>
-        new(world, rules, null, null);
+    public static GameplaySession Preview(GameState world, PlayableRuleSet rules, ISaveCodec? saveCodec = null) =>
+        new(world, rules, null, null, saveCodec ?? new JsonGzipSaveCodec());
 
     public static GameplaySession Restore(GameState world, int playerForceId,
-        PlayableRuleSet rules, Func<GameState, GameState> advanceCalendar) =>
-        new(world, rules, playerForceId, advanceCalendar);
+        PlayableRuleSet rules, Func<GameState, GameState> advanceCalendar, ISaveCodec? saveCodec = null) =>
+        new(world, rules, playerForceId, advanceCalendar, saveCodec ?? new JsonGzipSaveCodec());
 
     public CommandResult Issue(GameOrder order)
     {
@@ -61,14 +64,14 @@ public sealed class GameplaySession
 
     public void Save(string path) => _saves.Save(path, World, RequirePlayer());
 
-    public void SavePreview(string path) => new SaveStore(new JsonGzipSaveCodec()).Save(path, World);
+    public void SavePreview(string path) => _previewSaves.Save(path, World);
 
-    public static GameSessionSave ReadSave(string path) =>
-        new SessionSaveStore(new JsonGzipSaveCodec()).Load(path);
+    public static GameSessionSave ReadSave(string path, ISaveCodec? codec = null) =>
+        new SessionSaveStore(codec ?? new JsonGzipSaveCodec()).Load(path);
 
-    public static GameState ReadPreview(string path)
+    public static GameState ReadPreview(string path, ISaveCodec? codec = null)
     {
-        GameState world = new SaveStore(new JsonGzipSaveCodec()).Load(path);
+        GameState world = new SaveStore(codec ?? new JsonGzipSaveCodec()).Load(path);
         if (world.Phase != TurnPhase.Initializing)
             throw new InvalidDataException("This browser loads initialized-world snapshots only.");
         return world;

@@ -120,16 +120,15 @@ public sealed class ArmyLogisticsPreparation : IPlayableNativeArmyPreparationRul
         if (!state.Officers.TryGetValue(army.OfficerId, out OfficerState? commander) ||
             commander.LocationId is not int location) return null;
         BaseReference? reference;
-        if (commander.NativeAbilityRuntime is not null)
+        if (PlayableSkeleton.IsPlayableRuleset(state.RulesetId))
             reference = new ArmyMoraleSource(_current, _definitions, _current.Revision)
                 .ResolveCommanderBase(state, army);
         else
         {
             //The independent generic current-definition adapter can supply
             //these complete fields explicitly. Production owned campaigns use
-            //the saved Person owner above, including current flags and status.
-            TransferPersonReference? person = _definitions.ReadPersonLookupReference(commander.Id);
-            if (person?.PhysicalSlot is not int physical || _definitions.ReadPersonIdentity(physical) != commander.Id ||
+            //their current campaign fields above, including behavior and status.
+            if (_definitions.ResolveOfficerSource(commander.Id) is not int physical ||
                 _definitions.ReadPersonNativeValidity(physical) is not bool personValid) return null;
             if (!personValid) return 48400;
             if (_definitions.ReadPersonFirstLocation(physical) is not ushort first) return null;

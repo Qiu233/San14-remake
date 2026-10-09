@@ -69,8 +69,8 @@ internal static class PreparedPersonnelStage
             officers[move.OfficerId] = officers[move.OfficerId] with
             {
                 LocationId = target.Id, DistrictId = target.DistrictId,
-                NativeLocationRuntime = officers[move.OfficerId].NativeLocationRuntime is { } location
-                    ? location with { Second11C = null } : null
+                LocationState = officers[move.OfficerId].LocationState is { } location
+                    ? location with { Position = null } : null
             };
             reports.Add(new PeriodReportEntry("officer_move", move.ForceId,
                 target.Id, move.OfficerId, 0, cities[move.SourceCityId].HexId, target.HexId));

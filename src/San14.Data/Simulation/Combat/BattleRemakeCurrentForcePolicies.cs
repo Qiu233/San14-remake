@@ -87,14 +87,18 @@ public static class BattleRemakeCurrentForcePolicies
             void Add(int offset, int value) => values.Add(ForceFieldKey(force.Id, offset), value);
             ushort Word(int at) => BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(at, 2));
         }
+        var identities = new OfficerSourceDirectory();
+        identities.ClearLogicalReferences();
+        foreach (var row in source.Snapshot.Characters)
+        {
+            identities.SetRecordIdentity(row.Slot, row.CharacterId);
+            if (row.Slot == 0 || row.CharacterId != 0) identities.SetLogicalReference(row.CharacterId, row.Slot);
+        }
         foreach (CharacterPreviewRecord row in source.Snapshot.Characters.Where(row => row.CharacterId != 0))
         {
             OfficerState person = state.Officers[row.CharacterId];
-            if (person.Id != row.CharacterId || person.NativeAbilityRuntime is not { } runtime ||
-                runtime.Revision != TacticRemakeCurrentAbilities.ProfileId ||
-                runtime.Language != simulation.Parameters.Language || runtime.RuleVersion != simulation.Parameters.RuleVersion ||
-                runtime.SourceScenarioUri != source.ScenarioSource.ResourceUri || runtime.SourceScenarioSha256 != source.ScenarioSource.Sha256 ||
-                runtime.PhysicalSlot != row.Slot || row.Slot is < 1 or > 1850 || row.RawPolicySlot is not byte policy ||
+            if (person.Id != row.CharacterId || identities.ResolveOfficer(person.Id) != row.Slot ||
+                row.Slot is < 1 or > 1850 || row.RawPolicySlot is not byte policy ||
                 row.RawPolicyBaseCost is not byte rawBase || person.PolicyId != (policy is >= 1 and <= 120 ? policy : null) ||
                 person.PolicyBaseCost != OfficerSourceNormalization.PolicyBaseCost(rawBase, 0x66))
                 throw new InvalidDataException("Current Person policy/physical identity differs from its source allocation.");
@@ -197,13 +201,11 @@ public static class BattleRemakeCurrentForcePolicies
             if (personId == 0) return true;
             if (!state.Officers.TryGetValue(personId, out OfficerState? person) || person.Id != personId ||
                 values.GetValueOrDefault(PersonProfileKey(personId)) != Version ||
-                !values.TryGetValue(PersonIdentityKey(personId), out int personPhysical) || personPhysical is < 1 or > 1850 ||
-                person.NativeAbilityRuntime is not { } runtime || runtime.Revision != TacticRemakeCurrentAbilities.ProfileId ||
-                runtime.Language != simulation.Parameters.Language || runtime.RuleVersion != simulation.Parameters.RuleVersion ||
-                state.ContentHashes.GetValueOrDefault(runtime.SourceScenarioUri) != runtime.SourceScenarioSha256 ||
-                runtime.PhysicalSlot != personPhysical) return false;
-            if (operationCurrent is not null && operationCurrent.ReadPersonIdentity(personPhysical) != person.Id)
-                return false;
+                !values.TryGetValue(PersonIdentityKey(personId), out int personPhysical) || personPhysical is < 1 or > 1850) return false;
+            if (operationCurrent is not null &&
+                (operationCurrent.StaticSource is not { } source ||
+                 state.ContentHashes.GetValueOrDefault(source.ResourceUri) != source.Sha256 ||
+                 operationCurrent.ResolveOfficerSource(person.Id) != personPhysical)) return false;
             bool? valid = operationCurrent is null
                 ? NativeValidity.PersonWithBehavior(personPhysical, checked((ushort)person.Id),
                     person.Behavior, OfficerServiceStatusSourceAdapter.Encode(person.ServiceStatus))

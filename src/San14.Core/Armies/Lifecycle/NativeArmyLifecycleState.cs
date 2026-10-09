@@ -7,6 +7,9 @@ public sealed record NativeArmyLifecycleSlot(int PhysicalSlot, ushort? Commander
     ushort? Priority14, int? ActiveUnitId, UnitState? PendingImage, ArmyStoreKnowledge StoredResources,
     ushort[]? AuxiliaryAC, ushort[]? AuxiliaryF4)
 {
+    /// <summary>Stable campaign identity of this reusable receiver. It stays
+    /// assigned when the unit leaves, its header resets, or the slot is reused.</summary>
+    public ArmyReceiverId ReceiverId { get; init; }
     /// <summary>Free receiver reset/current source writes. Active/Pending
     /// images keep their own mutable raw fields; a missing reset is unknown.</summary>
     public NativeArmyOverrideTargetRuntime? OverrideTarget { get; init; }
@@ -55,10 +58,12 @@ public static class NativeArmyLifecycleStateValidation
         NativeArmyDestructorFlagsStateValidation.Validate(lifecycle);
         NativeArmyLifecycleTargetStateValidation.Validate(lifecycle);
         var units = new HashSet<int>();
+        var receivers = new HashSet<ArmyReceiverId>();
         for (int i = 0; i < lifecycle.Slots.Length; i++)
         {
             var slot = lifecycle.Slots[i];
-            if (slot is null || slot.StoredResources is null || slot.PhysicalSlot != i || slot.ActiveUnitId is < 0 ||
+            if (slot is null || slot.ReceiverId.Value <= 0 || !receivers.Add(slot.ReceiverId) ||
+                slot.StoredResources is null || slot.PhysicalSlot != i || slot.ActiveUnitId is < 0 ||
                 slot.AuxiliaryAC is { Length: not 36 } || slot.AuxiliaryF4 is { Length: not 36 } ||
                 slot.ActiveUnitId is not null && slot.PendingImage is not null)
                 throw new InvalidDataException("Native Army pointer-table/current slot image is incomplete or malformed.");

@@ -8,7 +8,6 @@
 
 namespace source_water_geometry {
 using source_water_camera::A;using source_water_camera::S;using source_water_camera::M;using source_water_camera::D;
-using Prefix=source_water_camera::Prefix;
 using Matrix=source_matrix::Matrix;
 using V4=source_camera::V4;
 struct Range {uint32_t start,count;};
@@ -43,7 +42,6 @@ inline Profile loadProfile(const std::filesystem::path& file) {
     for(uint32_t i=0;i<p.lodCount*p.lodCount*p.lodCount+1;i++)p.ranges.push_back(read<Range>(f));
     if(f.peek()!=std::char_traits<char>::eof())throw std::runtime_error("Trailing Ocean geometry profile");return p;
 }
-inline Matrix matrix(const Prefix& c,unsigned offset){Matrix out;std::memcpy(out.data(),c.data()+offset,64);return out;}
 // 1091250 intersects each of eight exact plane triples using3F6EB0.
 // It does not inverse-project a substituted NDC corner convention.
 inline std::array<V4,8> corners(const std::array<source_camera::Plane,6>& planes) {
@@ -79,20 +77,20 @@ inline bool intersectWater(float waterY,const std::array<V4,8>& c,std::array<flo
 inline uint32_t lod(const Profile& p,float depth) {
     uint32_t value=p.lodCount-1;while(value&&!(p.lodDistances[value]<depth))value--;return value;
 }
-inline Frame prepareCurrent(const Profile& p,const Prefix& camera,const std::array<float,8>& completedWaveBounds) {
-    using source_water_camera::get;auto data=camera.data();bool reverse=(get<uint32_t>(data+0x158)&2)!=0;
-    if(get<uint32_t>(data+0x158)&1)throw std::runtime_error("Ocean current source subset requires perspective");
-    Frame out;auto combined=matrix(camera,0x100);auto fullPlanes=source_camera::makePlanes(combined,reverse);
+inline Frame prepareCurrent(const Profile& p,const source_camera::CameraTransform& camera,const std::array<float,8>& completedWaveBounds) {
+    const bool reverse=camera.optics.reversedDepth;
+    if(camera.optics.projectionKind==source_camera::ProjectionKind::Orthographic)throw std::runtime_error("Ocean current source subset requires perspective");
+    Frame out;auto combined=camera.worldToClip;auto fullPlanes=source_camera::makePlanes(combined,reverse);
     out.corners=corners(fullPlanes);out.waterPlaneVisible=intersectWater(p.waterY,out.corners,out.farBounds);
     if(!out.waterPlaneVisible)return out;
-    float eyeX=get<float>(data+0x10),eyeY=get<float>(data+0x14),eyeZ=get<float>(data+0x18);
-    float dx=S(get<float>(data+0x20),eyeX),dy=S(get<float>(data+0x24),eyeY),dz=S(get<float>(data+0x28),eyeZ);
+    float eyeX=camera.eye.X,eyeY=camera.eye.Y,eyeZ=camera.eye.Z;
+    float dx=S(camera.target.X,eyeX),dy=S(camera.target.Y,eyeY),dz=S(camera.target.Z,eyeZ);
     // Original117F010 X/Y/Z normalization order.
     float inv=D(1,std::sqrt(A(A(M(dx,dx),M(dy,dy)),M(dz,dz))));dx=M(dx,inv);dy=M(dy,inv);dz=M(dz,inv);
     float halfX=M(p.cellX,.5f),halfZ=M(p.cellZ,.5f),horizontal=std::sqrt(S(1,M(dy,dy)));
     float cutoffRange=D(p.cutoff,std::max(horizontal,1.1920928955078125e-5f));
     float depth=A(A(M(M(dx,cutoffRange),dx),M(source_camera::flip(S(eyeY,p.waterY)),dy)),M(M(dz,cutoffRange),dz));
-    float nearClip=get<float>(data+0x140),farClip=get<float>(data+0x144),clip;
+    float nearClip=camera.optics.nearPlane,farClip=camera.optics.farPlane,clip;
     if(reverse)clip=D(M(S(depth,farClip),nearClip),M(S(nearClip,farClip),depth));
     else clip=D(M(S(depth,nearClip),farClip),M(S(farClip,nearClip),depth));
     out.waveClip={0,0,reverse?1.f:-1.f,reverse?source_camera::flip(S(clip,M(clip,.2f))):A(M(S(1,clip),.2f),clip)};
@@ -106,9 +104,9 @@ inline Frame prepareCurrent(const Profile& p,const Prefix& camera,const std::arr
     else reducedFar=std::min(reducedFar,M(A(A(p.maxDistance,p.cellX),p.cellZ),1.1f));
     Matrix reduced=combined;
     if(reducedFar!=farClip) {
-        auto projection=matrix(camera,0xc0);float na=reverse?reducedFar:nearClip,fa=reverse?nearClip:reducedFar;
+        auto projection=camera.projection;float na=reverse?reducedFar:nearClip,fa=reverse?nearClip:reducedFar;
         projection[10]=D(fa,S(na,fa));projection[14]=M(projection[10],na);
-        reduced=source_camera::compose(matrix(camera,0x80),projection);
+        reduced=source_camera::compose(camera.view,projection);
     }
     std::array<float,4> visibleBounds{};auto reducedPlanes=source_camera::makePlanes(reduced,reverse);
     if(!intersectWater(p.waterY,corners(reducedPlanes),visibleBounds))visibleBounds={0,0,0,0};
@@ -117,8 +115,8 @@ inline Frame prepareCurrent(const Profile& p,const Prefix& camera,const std::arr
     int nx=static_cast<int>(std::ceil(D(S(A(p.cellX,visibleBounds[2]),startX),p.cellX)));
     int nz=static_cast<int>(std::ceil(D(S(A(p.cellZ,visibleBounds[3]),startZ),p.cellZ)));
     float stepX=p.cellX,stepZ=p.cellZ;
-    if(S(get<float>(data+0x20),eyeX)<0){startX=A(M(float(nx-1),stepX),startX);stepX=source_camera::flip(stepX);}
-    if(S(get<float>(data+0x28),eyeZ)<0){startZ=A(M(float(nz-1),stepZ),startZ);stepZ=source_camera::flip(stepZ);}
+    if(S(camera.target.X,eyeX)<0){startX=A(M(float(nx-1),stepX),startX);stepX=source_camera::flip(stepX);}
+    if(S(camera.target.Z,eyeZ)<0){startZ=A(M(float(nz-1),stepZ),startZ);stepZ=source_camera::flip(stepZ);}
     float planarInv=D(1,std::sqrt(A(A(M(dx,dx),0),M(dz,dz)))),planarX=M(planarInv,dx),planarZ=M(planarInv,dz);
     auto bounds=completedWaveBounds;
     for(unsigned axis=0;axis<3;axis++)if(bounds[axis+4]==bounds[axis])bounds[axis+4]=S(bounds[axis+4],.0011920928955078125f);

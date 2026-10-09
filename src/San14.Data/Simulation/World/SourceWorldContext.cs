@@ -105,6 +105,8 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
     public ushort? ReadPersonSecondLocation(int physicalSlot)
     {
         Check(physicalSlot, 1851, "person physical slot");
+        if (BoundLocationOfficer(physicalSlot) is int id)
+            return OfficerLocationSourceAdapter.EncodePosition(_officerLocations[id]?.Position, _locationReceivers, _locationResidues.Find(id));
         return _persons.GetValueOrDefault(physicalSlot)?.Location;
     }
     public void WritePersonSecondLocation(int physicalSlot, ushort location)
@@ -112,6 +114,7 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
         Check(physicalSlot, 1851, "person physical slot");
         PersonFields old = _persons.GetValueOrDefault(physicalSlot) ?? new(null, null, null);
         _persons[physicalSlot] = old with { Location = location };
+        if (BoundLocationOfficer(physicalSlot) is int id) WriteBoundOfficerPosition(id, location);
     }
     public void WritePersonStatus(int physicalSlot, byte status)
     {
@@ -123,10 +126,13 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
     {
         Check(physicalSlot, 1851, "person physical slot");
         _personDistrictSlots[physicalSlot] = districtSlot;
+        if (BoundLocationOfficer(physicalSlot) is int id) WriteBoundOfficerMembership(id, districtSlot);
     }
     public byte? ReadPersonDistrictSlot(int physicalSlot)
     {
         Check(physicalSlot, 1851, "person physical slot");
+        if (BoundLocationOfficer(physicalSlot) is int id && _officerLocations[id]?.Membership is { } membership)
+            return OfficerLocationSourceAdapter.EncodeMembership(membership, _locationResidues.Find(id));
         return _personDistrictSlots.GetValueOrDefault(physicalSlot);
     }
     public bool? ReadPersonNativeValidity(int physicalSlot)
@@ -140,7 +146,7 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
         Check(physicalSlot, 1851, "person physical slot");
         if (!_persons.TryGetValue(physicalSlot, out PersonFields? value) || ReadPersonIdentity(physicalSlot) is not ushort id ||
             OfficerBehaviorSourceAdapter.EncodeFlags(value.Behavior) is not ushort flags || OfficerBehaviorSourceAdapter.EncodeMarker(value.Behavior) is not byte tail || value.Status is not byte status ||
-            value.Location is not ushort location) return null;
+            ReadPersonSecondLocation(physicalSlot) is not ushort location) return null;
         return new(physicalSlot, id, flags, tail, status, location);
     }
     public void SetDistrictRecord(NativeDistrict record)

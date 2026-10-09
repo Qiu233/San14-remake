@@ -39,7 +39,7 @@ public sealed class TacticRemakeParameterSeed
     /// Force/World/manager records. Save decode never calls this producer.</summary>
     public GameState CreateFreshOwnedSimulation(GameState state, string revision)
     {
-        if (state.NativeArmySimulation is not null || state.NativeClock is not null || state.Units.Count != 0)
+        if (state.NativeArmySimulation is not null || state.NativeClock is not null || state.CommanderSelection is not null || state.Units.Count != 0)
             throw new InvalidDataException("Fresh owned native simulation cannot replace a saved or populated instance.");
         GameState initialized = PlayableArmyCreation.InitializeClock(state, revision);
         return initialized with { Forces = initialized.Forces.ToDictionary(pair => pair.Key,
@@ -50,7 +50,8 @@ public sealed class TacticRemakeParameterSeed
                 Flags12 = 0, Flags194 = 0,
                 RelationsEA = pair.Value.SourceIndexedBytesEA?.ToArray()
             }),
-            new NativeArmyWorldState(0) { Flags165C = 0, PendingArmyIds = [], ObjectPairs = [] }) };
+            new NativeArmyWorldState { Flags165C = 0, PendingArmyIds = [], ObjectPairs = [] }),
+            CommanderSelection = new(0, null) };
     }
 
     private const int AbnormalCounterUpperBound = 120;

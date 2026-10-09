@@ -115,15 +115,13 @@ internal static class PreparedArmyDeploymentStage
                     ?? throw new InvalidDataException("Current ordinary Army construction inputs are unresolved.");
                 deployed = PlayableArmyCreation.Apply(creationState, deployed, created);
                 basis = PlayableArmyCreation.PublishOwners(basis, created);
-                if (created.CommanderSecondLocation11C is ushort secondLocation)
+                if (created.CommanderPosition is { } position)
                 {
                     OfficerState commander = officers[plan.OfficerId];
-                    if (commander.NativeAbilityRuntime is null)
-                        throw new InvalidDataException("Source commander location write has no native Person identity.");
-                    officers[plan.OfficerId] = commander with { NativeLocationRuntime =
-                        commander.NativeLocationRuntime is { } location
-                            ? location with { Second11C = secondLocation }
-                            : new(created.Origin.Revision, secondLocation) };
+                    officers[plan.OfficerId] = commander with { LocationState =
+                        commander.LocationState is { } location
+                            ? location with { Position = position }
+                            : new(position, null) };
                 }
                 randomState = created.RandomState;
             }

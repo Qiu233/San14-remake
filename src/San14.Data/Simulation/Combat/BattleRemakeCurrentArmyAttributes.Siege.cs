@@ -29,9 +29,9 @@ public sealed partial class BattleRemakeCurrentArmyAttributes
             army.NativeMorale1A is not byte morale ||
             army.NativeTacticRuntime is not { Status10: 1, Abnormal25: 0, StatModifiers4A.Length: 6 } native ||
             army.NativeArmyConfiguration is not { } configuration ||
-            state.Officers.GetValueOrDefault(army.OfficerId)?.NativeAbilityRuntime is not { } commander ||
-            definitions.ReadPersonIdentity(commander.PhysicalSlot) != army.OfficerId ||
-            definitions.ReadPersonNativeValidity(commander.PhysicalSlot) != true ||
+            !state.Officers.ContainsKey(army.OfficerId) ||
+            definitions.ResolveOfficerSource(army.OfficerId) is not int commanderPhysical ||
+            definitions.ReadPersonNativeValidity(commanderPhysical) != true ||
             abilities.Resolve(state, army.OfficerId) is not { } full ||
             queries.ReadSelectedFormationPhysicalSlot(state, army) is not int formation || formation is < 1 or > 20 ||
             queries.ReadArmyForcePhysicalSlot(state, army) is not int force || force is < 1 or > 45 ||
@@ -61,7 +61,7 @@ public sealed partial class BattleRemakeCurrentArmyAttributes
             siegeSource is null || wallSource is null || percent is null || siegeBonus is null || wallBonus is null ||
             siegeLimit is null || siegeStep is null || scale is null || wallLimit is null || wallStep is null ||
             leadDenominator is null || troopOffset is null || troopDenominator is null) return null;
-        int[]? traits = TacticRemakeCurrentTraits.ArmyContributions(definitions, commander.PhysicalSlot,
+        int[]? traits = TacticRemakeCurrentTraits.ArmyContributions(definitions, commanderPhysical,
             configuration.TraitSlots64);
         if (traits is not { Length: 127 }) return null;
         int? command = traits[31] == 0 && traits[97] == 0 ? 0 : queries.ReadCommandEffect(state, army);

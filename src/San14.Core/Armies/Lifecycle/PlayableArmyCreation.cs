@@ -42,7 +42,8 @@ public sealed record PlayableArmyCreationResolution(NativeArmyTacticRuntime Runt
     public ushort? NativeHomeSequence28 { get; init; }
     /// <summary>Explicit commander location write from the source creator.
     /// Core applies the receipt without deriving a native location encoding.</summary>
-    public ushort? CommanderSecondLocation11C { get; init; }
+    public OfficerPosition? CommanderPosition { get; init; }
+    public ICampaignResourceState? ResourceState { get; init; }
     public ArmyStores? CarriedStores { get; init; }
     /// <summary>Explicit saved arena writes produced alongside this receiver.
     /// Core retains the source pool/header owner between queued allocations.</summary>
@@ -69,6 +70,7 @@ public static class PlayableArmyCreation
 {
     internal static GameState PublishOwners(GameState state, PlayableArmyCreationResolution result) => state with
     {
+        ResourceState = result.ResourceState ?? state.ResourceState,
         NativeArmyLifecycle = result.NativeLifecycle ?? state.NativeArmyLifecycle,
         ArmyMapOccupancy = result.ArmyMapOccupancy ?? state.ArmyMapOccupancy
     };

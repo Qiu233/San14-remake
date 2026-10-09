@@ -124,17 +124,16 @@ public static class PersonArmyCaptureCustodySource
     {
         var r = packet.Receipt; var current = packet.Owner;
         OfficerState person = Person(state, current, r.PersonPhysical);
-        var location = person.NativeLocationRuntime ?? throw Missing("current.Person_location_owner");
+        var location = person.LocationState ?? throw Missing("current.Person_location_owner");
         var auxiliary = current.ReadPersonDestructionRuntimeFields(r.PersonPhysical)
             ?? throw Missing("current.Person_destruction_auxiliary_owner");
-        return state with { Officers = new(state.Officers) { [person.Id] = person with
+        return OfficerLocationSourceAdapter.PublishPosition(state with { Officers = new(state.Officers) { [person.Id] = person with
         {
             LocationId = Known(current.ReadPersonFirstLocation(r.PersonPhysical), "current.Person_first_E2"),
             Appointment = OfficerAppointment.Synchronize(73),
             ServiceStatus = OfficerServiceStatusSourceAdapter.Decode(Known(current.ReadPersonStatus(r.PersonPhysical), "current.Person_status_E6")),
-            NativeLocationRuntime = location with { Second11C = current.ReadPersonSecondLocation(r.PersonPhysical) },
             NativeDestructionRuntime = auxiliary
-        } } };
+        } } }, person.Id, current);
     }
 
     private static int CountOwnedCities(SourceWorldContext current, ForceReference force)
@@ -154,7 +153,7 @@ public static class PersonArmyCaptureCustodySource
     private static OfficerState Person(GameState state, SourceWorldContext current, int physical)
     {
         if (physical is < 1 or > 1850 || current.ReadPersonIdentity(physical) is not ushort id ||
-            !state.Officers.TryGetValue(id, out var person) || person.NativeAbilityRuntime?.PhysicalSlot != physical)
+            !state.Officers.TryGetValue(id, out var person) || current.ResolveOfficerSource(id) != physical)
             throw Missing("current.Person_saved_physical_identity");
         return person;
     }

@@ -17,7 +17,7 @@ inline Profile readProfile(const std::filesystem::path& source){
     }return result;
 }
 inline void apply(const Route& route,const source_weather_fog::Frame& weather,uint8_t* bytes,size_t size){
-    if(route.writes.empty())return;auto fields=source_weather_fog::shared(weather.main72,route.actualRgb);
+    if(route.writes.empty())return;auto fields=source_weather_fog::shared(weather.fog,route.actualRgb);
     for(const auto& w:route.writes){const void* src=nullptr;unsigned required=0;
         if(w.name=="fog"){src=&fields.fog;required=16;}
         else if(w.name=="cFog"){src=&fields.color;required=16;}

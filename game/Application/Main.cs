@@ -781,7 +781,7 @@ public partial class Main : Control
         var view = new OfficerDetailsView();
         _detailsView = view;
         AddChild(view);
-        view.Configure(_repository, _world, _selectedSnapshot, _officer.GetSelectedId(), _ui,
+        view.Configure(_repository, CampaignDetailViews.Officer(_world, _selectedSnapshot, _officer.GetSelectedId(), _ui), _ui,
             () => RunUiAction(() =>
             {
                 view.QueueFree();
@@ -932,7 +932,7 @@ public partial class Main : Control
                 world.Structures?.Count == 0 && world.NativeMapSeason is not null)
                 _residentMap.SetNativeWorldMapDependencyFactory(
                     SceneViewNativeMapWorldSourceFactory.Create());
-            _forceHud?.Refresh(world);
+            if (_forceHud is not null) _forceHud.Refresh(ForceHudView.Create(world, player, _selectedSnapshot, _ui));
             return;
         }
         var view = new MapSceneView();
@@ -970,7 +970,7 @@ public partial class Main : Control
         _mapHost.AddChild(hud);
         try
         {
-            hud.Configure(_repository, _ui, world, player, _selectedSnapshot,
+            hud.Configure(_repository, _ui, ForceHudView.Create(world, player, _selectedSnapshot, _ui),
                 () => RunPlayAction(AdvancePlayable),
                 () => RunUiAction(() => OpenForceDetailsFor(player, null)));
             hud.FitToMap(_mapHost.Size);
@@ -1031,13 +1031,14 @@ public partial class Main : Control
         {
             if (!_world.Cities.ContainsKey(cityId)) throw new InvalidDataException($"Selected city {cityId} is absent from the current world.");
             owner.SetDetailsOpen(true);
-            view.Configure(_repository, _world, _selectedSnapshot, cityId, _ui, () =>
+            view.Configure(_repository, CampaignDetailViews.City(_world, _selectedSnapshot, cityId, _ui,
+                CityCurrentCapacityFields.Capture(cityId, _ownedArmyCampaign?.CaptureCurrentDefinitions(_world))), _ui, () =>
             {
                 if (_detailsView != view) return;
                 view.Hide(); view.QueueFree(); _detailsView = null;
                 if ((_sceneView == owner || _residentMap == owner) && GodotObject.IsInstanceValid(owner))
                     owner.SetDetailsOpen(false);
-            }, _ownedArmyCampaign?.CaptureCurrentDefinitions(_world));
+            });
         }
         catch (Exception error)
         {
@@ -1063,7 +1064,7 @@ public partial class Main : Control
         AddChild(view);
         try
         {
-            view.Configure(_repository, _world, _selectedSnapshot, forceId, _ui, () => RunUiAction(() =>
+            view.Configure(_repository, CampaignDetailViews.Force(_world, _selectedSnapshot, forceId, _ui), _ui, () => RunUiAction(() =>
             {
                 view.Hide();
                 view.QueueFree();
@@ -1088,12 +1089,13 @@ public partial class Main : Control
         var view = new CityDetailsView();
         _detailsView = view;
         AddChild(view);
-        view.Configure(_repository, _world, _selectedSnapshot, cityId, _ui, () => RunUiAction(() =>
+        view.Configure(_repository, CampaignDetailViews.City(_world, _selectedSnapshot, cityId, _ui,
+            CityCurrentCapacityFields.Capture(cityId, _ownedArmyCampaign?.CaptureCurrentDefinitions(_world))), _ui, () => RunUiAction(() =>
         {
             view.QueueFree();
             _detailsView = null;
             _openCityDetails.GrabFocus();
-        }), _ownedArmyCampaign?.CaptureCurrentDefinitions(_world));
+        }));
     }
 
     private void BuildPlayControls(VBoxContainer parent)
@@ -2164,7 +2166,8 @@ public partial class Main : Control
 
     private void LoadPlayable()
     {
-        GameSessionSave restored = GameplaySession.ReadSave(PlayableSavePath(SelectedPlayableSaveSlot));
+        GameSessionSave restored = GameplaySession.ReadSave(PlayableSavePath(SelectedPlayableSaveSlot),
+            new ResourceSaveCodec(_repository!));
         int index = _shownScenarios.FindIndex(scenario =>
             GameResourceId.File(scenario.SourcePath).ToString() == restored.State.ScenarioKey);
         if (index < 0) throw new InvalidDataException("The saved scenario is unavailable in the selected language.");
@@ -2204,7 +2207,7 @@ public partial class Main : Control
         int index;
         try
         {
-            restored = GameplaySession.ReadPreview(InitialSavePath);
+            restored = GameplaySession.ReadPreview(InitialSavePath, new ResourceSaveCodec(_repository!));
             index = _shownScenarios.FindIndex(scenario =>
                 GameResourceId.File(scenario.SourcePath).ToString() == restored.ScenarioKey);
             if (index < 0) throw new InvalidDataException("The saved scenario is unavailable in the selected language.");

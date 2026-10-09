@@ -48,10 +48,10 @@ public sealed class ArmyMarchPenaltyCurrentProducer
             new(source.Language, SimulationRuleIdentity.ForLocale(source.Language)), Revision);
         if (context.ArmyValid(state, army) != true || army.NativeTacticRuntime?.Status10 != 1)
             return Missing("current.ordinary_Army_validity_Status10");
-        if (state.Officers.GetValueOrDefault(army.OfficerId)?.NativeAbilityRuntime is not { } commander ||
-            definitions.ReadPersonIdentity(commander.PhysicalSlot) != army.OfficerId)
+        if (!state.Officers.ContainsKey(army.OfficerId) ||
+            definitions.ResolveOfficerSource(army.OfficerId) is not int commanderPhysical)
             return Missing("current.commander_Person_identity");
-        bool? exempt = ReadActiveCommanderEffect51(definitions, commander.PhysicalSlot);
+        bool? exempt = ReadActiveCommanderEffect51(definitions, commanderPhysical);
         if (exempt is null) return Missing("current.commander_activation_mask_and_nine_personalities2306D0");
         if (exempt.Value) return Result(0, null, true, 0, 0, 0, 0, "active-commander-effect51");
         if (army.HexId is < 0 or >= 48400) return Missing("current.Army_Hex2A");

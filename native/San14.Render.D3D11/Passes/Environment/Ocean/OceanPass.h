@@ -38,7 +38,7 @@ class OceanPass {
     }
 
     void prepareWater(ID3D11Device* device,ID3D11DeviceContext* context,
-        const OceanSources& source,const OceanTargets& targets,const source_camera::Prefix& camera,float clock) {
+        const OceanSources& source,const OceanTargets& targets,const source_camera::CameraTransform& camera,float clock) {
         textures_=loadOceanTextures(device,source.textures);
         water_=prepareNativeOcean116(device,source.water,textures_,
             depth_.view.Get(),source.depthCopy/"target-sampler-desc.bin",targets.textures,targets.colors,targets.format,targets.depth,targets.width,targets.height,
@@ -62,7 +62,7 @@ class OceanPass {
         advanceNativeOcean116(water_,clock);
         queueNativeOceanFft(waves_,water_.clock.accumulatedTime);
     }
-    void updateCamera(ID3D11DeviceContext* context,const source_camera::Prefix& camera) {
+    void updateCamera(ID3D11DeviceContext* context,const source_camera::CameraTransform& camera) {
         updateNativeWaterCameraGpu(camera_,context,water_,camera,completedWaveBounds_);
     }
     void executeWater(ID3D11Device* device,ID3D11DeviceContext* context,NativeSourceDepthState& logical,float clock) {

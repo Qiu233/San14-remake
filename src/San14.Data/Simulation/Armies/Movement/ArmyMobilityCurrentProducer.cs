@@ -73,9 +73,9 @@ public sealed class ArmyMobilityCurrentProducer
         }
         int? percent = ForceFormationPercent(formation);
         if (percent is null) return Missing("current.Force_formation_effect41D5D0");
-        if (state.Officers.GetValueOrDefault(army.OfficerId)?.NativeAbilityRuntime is not { } commander ||
-            definitions.ReadPersonIdentity(commander.PhysicalSlot) != army.OfficerId ||
-            TacticRemakeCurrentTraits.ArmyContributions(definitions, commander.PhysicalSlot,
+        if (!state.Officers.ContainsKey(army.OfficerId) ||
+            definitions.ResolveOfficerSource(army.OfficerId) is not int commanderPhysical ||
+            TacticRemakeCurrentTraits.ArmyContributions(definitions, commanderPhysical,
                 army.NativeArmyConfiguration?.TraitSlots64) is not { Length: 127 } traits)
             return Missing("current.Person_and_Army_traits26A740");
         if (Parameter(SimulationParameterKeys.ArmyMobility.TraitMobilityLimit) is not int limit || Parameter(SimulationParameterKeys.ArmyMobility.TraitMobilityStep) is not int step)

@@ -115,17 +115,16 @@ public static partial class PersonReturnCommands
         var people = new Dictionary<int, OfficerState>(state.Officers);
         foreach (var person in people.Values.ToArray())
         {
-            var ability = person.NativeAbilityRuntime ?? throw Missing("person abilities");
-            var location = person.NativeLocationRuntime ?? throw Missing("person location");
+            int physical = current.ResolveOfficerSource(person.Id) ?? throw Missing("person source identity");
+            var location = person.LocationState ?? throw Missing("person location");
             people[person.Id] = person with
             {
-                Behavior = current.ReadPersonBehavior(ability.PhysicalSlot),
-                NativeLocationRuntime = location with { Second11C = current.ReadPersonSecondLocation(ability.PhysicalSlot) }
+                Behavior = current.ReadPersonBehavior(physical)
             };
         }
-        return state with { Officers = people, PersonnelReturns = owner,
+        return OfficerLocationSourceAdapter.PublishPositions(state with { Officers = people, PersonnelReturns = owner,
             NativeArmyLifecycle = state.NativeArmyLifecycle! with
-            { Indexes = (current.ReadOwnedCurrentListPool() ?? throw Missing("association registry")).ExportOwnedState() } };
+            { Indexes = (current.ReadOwnedCurrentListPool() ?? throw Missing("association registry")).ExportOwnedState() } }, current);
     }
 
     public static HexReference ResolvePersonPosition(GameState state, SourceWorldContext current,

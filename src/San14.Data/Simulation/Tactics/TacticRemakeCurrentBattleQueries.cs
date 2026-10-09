@@ -87,7 +87,7 @@ public sealed class TacticRemakeCurrentBattleQueries :
     public byte? ReadFinalDescriptorDivisor(GameState state, UnitState army)
     {
         if (CurrentCommander(state, army) is not { } commander ||
-            TacticRemakeCurrentTraits.CommanderImmune(definitions, commander.PhysicalSlot, 55) is not bool one) return null;
+            TacticRemakeCurrentTraits.CommanderImmune(definitions, commander, 55) is not bool one) return null;
         byte count;
         if (phaseDescriptors is not null)
         {
@@ -127,14 +127,13 @@ public sealed class TacticRemakeCurrentBattleQueries :
         body.ReadAttackingCityBranch(state, caster);
     public bool? ReadTargetHalfDamageTrait(GameState state, UnitState target) => body.ReadTargetHalfDamageTrait(state, target);
 
-    private NativePersonAbilityRuntime? CurrentCommander(GameState state, UnitState army)
+    private int? CurrentCommander(GameState state, UnitState army)
     {
         if (context.ArmyValid(state, army) != true || state.NativeArmySimulation?.Parameters is not { } parameters ||
-            state.Officers.GetValueOrDefault(army.OfficerId)?.NativeAbilityRuntime is not { } commander ||
-            commander.Revision != TacticRemakeCurrentAbilities.ProfileId ||
-            commander.Language != parameters.Language || commander.RuleVersion != parameters.RuleVersion ||
-            definitions.StaticSource is not { } source || commander.SourceScenarioUri != source.ResourceUri ||
-            commander.SourceScenarioSha256 != source.Sha256 || definitions.ReadPersonIdentity(commander.PhysicalSlot) != army.OfficerId) return null;
+            !state.Officers.ContainsKey(army.OfficerId) ||
+            definitions.ResolveOfficerSource(army.OfficerId) is not int commander ||
+            definitions.StaticSource is not { } source ||
+            state.ContentHashes.GetValueOrDefault(source.ResourceUri) != source.Sha256) return null;
         return commander;
     }
 }

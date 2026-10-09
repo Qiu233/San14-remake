@@ -85,13 +85,15 @@ public sealed class PersonNormalArmyRewardSource
         //22A490(Person,1) decodes the independent saved second-location
         //word, selects the native Army slot and compares Commander12. A Core
         //Deployed flag cannot supply the missing source writer.
-        if (person.NativeLocationRuntime?.Second11C is not ushort second ||
+        var receivers = OfficerLocationSourceAdapter.Receivers(input);
+        if (OfficerLocationSourceAdapter.EncodePosition(person.LocationState?.Position, receivers,
+                (input.ResourceState as OfficerLocationSourceResidues)?.Find(personId)) is not ushort second ||
             definitions.ReadPersonSecondLocation(physical) != second) return Unknown("second-location");
-        NativeLocation location = PersonPositionRepair.DecodeSecondLocation(second);
-        if (location.Kind != 27) return Skip(); //Real table0 invalid Army when second is not Army kind.
-        UnitState[] matches = input.Units.Values.Where(u => u.NativeArmyOrigin?.NativeSlotIndex == location.Index).ToArray();
-        if (matches.Length != 1) return Unknown("army-slot");
-        UnitState army = matches[0];
+        if (person.LocationState?.Position is not { Kind: OfficerPositionKind.ArmyReceiver, EntityId: int receiverId })
+            return person.LocationState?.Position?.Kind == OfficerPositionKind.Unresolved && second is >= 62 and <= 561
+                ? Unknown("army-slot") : Skip();
+        var receiver = input.NativeArmyLifecycle?.Slots.SingleOrDefault(slot => slot.ReceiverId.Value == receiverId);
+        if (receiver?.ActiveUnitId is not int armyId || !input.Units.TryGetValue(armyId, out UnitState? army)) return Unknown("army-slot");
         if (army.OfficerId != personId) return Skip(); //Real getter falls back to invalid Army0.
         if (current.ArmyValid(input, army) is not bool armyValid) return Unknown("army-validity");
         if (!armyValid) return Skip();

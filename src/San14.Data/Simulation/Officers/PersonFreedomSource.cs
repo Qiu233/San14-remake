@@ -10,7 +10,7 @@ public sealed record PersonFreedomReceipt(int PersonId, int PersonPhysical, int 
     public ArmyCause4Receipt? ArmyCleanup { get; init; }
     public ArmyReturnGovernorPacket? GovernorRepair { get; init; }
     public PersonAdvisorResetReceipt? AdvisorReset { get; init; }
-    public PersonCaptureWorldCandidatesReceipt? PlayerCandidates { get; init; }
+    public CommanderSelectionRemovalReceipt? PlayerCandidates { get; init; }
 }
 public sealed record PersonFreedomResult(GameState? State, PersonFreedomReceipt? Receipt, string? UnresolvedOwner);
 
@@ -127,11 +127,10 @@ public sealed class PersonFreedomSource(ArmyCampaignRuleAdapter package, LoadedS
                 { Int32Values = new(simulation.Parameters.Int32Values)
                     { [OwnedArmyReturnServiceInputs.Flags16A8Key] = unchecked((int)writtenFlags) } } } };
             }
-            PersonCaptureWorldCandidatesReceipt? playerCandidates = null;
+            CommanderSelectionRemovalReceipt? playerCandidates = null;
             if (playerPhysical == originalForce)
             {
-                var removed = PersonCaptureWorldCandidates.ApplyCurrent(input, current, physical,
-                    PersonCaptureCandidatesPresentationAbsent.IndependentClient);
+                var removed = CommanderSelectionSource.RemoveCurrentOfficer(input, current, physical);
                 input = removed.State ?? throw Missing(removed.UnresolvedOwner ?? "current.freedom_29CCB0");
                 playerCandidates = removed.Receipt;
                 effects.Add("2653xx.29CCB0_player_selected_Person_clear_after_departments");
@@ -203,8 +202,7 @@ public sealed class PersonFreedomSource(ArmyCampaignRuleAdapter package, LoadedS
                 {
                     ForceId = null, DistrictId = null, Role = OfficerRole.Free, Appointment = OfficerAppointment.Synchronize(73), Loyalty = loyalty <= 100 ? loyalty : null,
                     LocationId = destination,
-                    NativeLocationRuntime = person.NativeLocationRuntime! with { District118 = 0,
-                        Second11C = K(current.ReadPersonSecondLocation(physical), "current.freedom_final_PersonE4") },
+                    LocationState = person.LocationState! with { Membership = OfficerDistrictMembership.Unaffiliated },
                     ServiceStatus = OfficerServiceStatus.Free,
                     Behavior = OfficerBehaviorSourceAdapter.WithSourceFlags(person.Behavior, OfficerBehaviorSourceAdapter.ClearFreedomState(flags)),
                     MeritState = OfficerMeritRules.ResetAfterRelease(merit),
@@ -216,6 +214,7 @@ public sealed class PersonFreedomSource(ArmyCampaignRuleAdapter package, LoadedS
                 PersonnelReturns = detached.Owner,
                 NativeArmyLifecycle = result.NativeArmyLifecycle! with { Indexes = world.Pool.ExportOwnedState() }
             };
+            result = OfficerLocationSourceAdapter.PublishPosition(result, personId, current);
             effects.Add("265C50.Area_E4→Home_E2→Office73_Loyalty0_or255→actual_raw_resets");
             ArmyReturnGovernorPacket? governorRepair = null;
             if (repairGovernor && K(current.ReadArmyReturnBaseGovernor2E(oldHome), "current.freedom_old_Home2E_tail") == 0 &&

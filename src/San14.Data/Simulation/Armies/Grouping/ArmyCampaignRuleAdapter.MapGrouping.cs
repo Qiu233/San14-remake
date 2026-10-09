@@ -58,7 +58,6 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         //The existing definition boundary supplies current tables. Grouping
         //does not repeat whole-owner validation or import writable list storage.
-        if (state.Officers.Values.Any(person => person.NativeAbilityRuntime is null)) return null;
         var current = _definitions.Capture(state);
         if (current is null) return null;
         current.OverlayOwnedArmyReturnCurrentFields(state);

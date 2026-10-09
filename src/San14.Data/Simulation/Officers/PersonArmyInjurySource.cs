@@ -27,9 +27,8 @@ public static class PersonArmyInjurySource
         ArgumentNullException.ThrowIfNull(winnerPerson); ArgumentNullException.ThrowIfNull(abilities);
         int count = 0; int? descriptor = null;
         if (personPhysical is < 1 or > 1850 || current.ReadPersonIdentity(personPhysical) is not ushort id ||
-            !state.Officers.TryGetValue(id, out var person) || person.NativeAbilityRuntime is not { } native ||
-            native.PhysicalSlot != personPhysical || current.StaticSource is not { } source ||
-            native.SourceScenarioUri != source.ResourceUri || native.SourceScenarioSha256 != source.Sha256 ||
+            !state.Officers.TryGetValue(id, out var person) || current.ResolveOfficerSource(id) != personPhysical ||
+            current.StaticSource is not { } source || state.ContentHashes.GetValueOrDefault(source.ResourceUri) != source.Sha256 ||
             OfficerHealthSourceAdapter.ReadByte(current, personPhysical) is not byte healthIdentity)
             return Unknown("current.Person_identity_and_health161");
         var health = new OfficerHealth(healthIdentity);

@@ -1,13 +1,11 @@
 using Godot;
-using San14.Core;
+using San14.Client.Gameplay;
 using San14.Data;
 
 /// <summary>Compact resident map controls. All figures come from the current simulation state.</summary>
 public partial class PlayableForceHud : Control
 {
     private UiAssets? _assets;
-    private PreviewText? _text;
-    private int _forceId;
     private Label _date = null!;
     private Label _ruler = null!;
     private Label _orders = null!;
@@ -20,14 +18,12 @@ public partial class PlayableForceHud : Control
     private Label _districts = null!;
     private TextureButton _advance = null!;
 
-    internal void Configure(GameResourceRepository repository, PreviewText text, GameState world,
-        int forceId, ScenarioCityPreview? snapshot, Action advance, Action openForceDetails)
+    internal void Configure(GameResourceRepository repository, PreviewText text, ForceHudView view,
+        Action advance, Action openForceDetails)
     {
         Name = "PlayableForceHud";
         Size = new Vector2(600, 340);
         MouseFilter = MouseFilterEnum.Pass;
-        _text = text;
-        _forceId = forceId;
         _assets = new UiAssets(repository);
         Theme = new Theme
         {
@@ -41,8 +37,7 @@ public partial class PlayableForceHud : Control
             Size = new Vector2(176, 195), ClipContents = true, MouseFilter = MouseFilterEnum.Ignore
         };
         AddChild(portraitClip);
-        int? portraitCode = snapshot?.Characters.FirstOrDefault(person =>
-            person.CharacterId != 0 && person.CharacterId == world.Forces[forceId].RulerId)?.AppearanceCode;
+        int? portraitCode = view.PortraitAppearanceCode;
         if (portraitCode is int code)
         {
             var portrait = new PortraitView { Name = "RulerPortrait" };
@@ -88,47 +83,31 @@ public partial class PlayableForceHud : Control
         };
         forceDetails.Pressed += openForceDetails;
         AddChild(forceDetails);
-        Refresh(world);
+        Refresh(view);
         SetMeta("original_map_hud_layout_verified", false);
     }
 
-    internal void Refresh(GameState world)
+    internal void Refresh(ForceHudView view)
     {
-        if (_text is null) return;
-        ForceState force = world.Forces[_forceId];
-        CityState[] cities = world.Cities.Values.Where(city => city.ForceId == _forceId).ToArray();
-        _date.Text = _text.Format("play_map_date", world.Date.Year, world.Date.Month,
-            world.Date.Day);
-        _ruler.Text = force.Name;
-        int orders = world.Districts.Values.Where(district => district.ForceId == _forceId &&
-            district.Number == 1).Sum(district => district.OrdersRemaining ?? 0);
-        _orders.Text = _text.Format("play_map_orders", orders);
-        _doctrine.Text = force.DoctrineId is int doctrineId && world.Doctrines.TryGetValue(doctrineId,
-            out DoctrineDefinition? doctrine) ? doctrine.Name : "";
-        long gold = cities.Sum(city => (long)city.Gold);
-        long supplies = cities.Sum(city => (long)city.Supplies);
-        long troops = cities.Sum(city => (long)city.Troops) +
-            world.Gates.Values.Where(gate => gate.ForceId == _forceId).Sum(gate => (long)gate.Troops);
-        int officers = world.Officers.Values.Count(officer => officer.ForceId == _forceId &&
-            (officer.Presence is null or OfficerPresence.Present) &&
-            officer.Role is OfficerRole.Officer or OfficerRole.Ruler or OfficerRole.DistrictLeader or OfficerRole.Governor);
-        int districts = world.Districts.Values.Count(district => district.ForceId == _forceId);
-        _gold.Text = _text.Format("play_map_force_gold", gold);
-        _supplies.Text = _text.Format("play_map_force_supplies", supplies);
-        _troops.Text = _text.Format("play_map_force_troops", troops);
-        _cities.Text = _text.Format("play_map_force_cities", cities.Length);
-        _officers.Text = _text.Format("play_map_force_officers", officers);
-        _districts.Text = _text.Format("play_map_force_districts", districts);
-        _advance.Disabled = world.Phase != TurnPhase.Strategy ||
-            PlayableOutcome.Evaluate(world, _forceId) != PlayableResult.Ongoing;
-        SetMeta("force_id", _forceId);
-        SetMeta("world_period_number", world.PeriodNumber);
-        SetMeta("gold", gold);
-        SetMeta("supplies", supplies);
-        SetMeta("troops", troops);
-        SetMeta("cities", cities.Length);
-        SetMeta("officers", officers);
-        SetMeta("districts", districts);
+        _date.Text = view.Date;
+        _ruler.Text = view.ForceName;
+        _orders.Text = view.Orders;
+        _doctrine.Text = view.DoctrineName;
+        _gold.Text = view.Gold;
+        _supplies.Text = view.Supplies;
+        _troops.Text = view.Troops;
+        _cities.Text = view.Cities;
+        _officers.Text = view.Officers;
+        _districts.Text = view.Districts;
+        _advance.Disabled = !view.CanAdvance;
+        SetMeta("force_id", view.ForceId);
+        SetMeta("world_period_number", view.PeriodNumber);
+        SetMeta("gold", view.Figures.Gold);
+        SetMeta("supplies", view.Figures.Supplies);
+        SetMeta("troops", view.Figures.Troops);
+        SetMeta("cities", view.Figures.Cities);
+        SetMeta("officers", view.Figures.Officers);
+        SetMeta("districts", view.Figures.Districts);
     }
 
     internal void FitToMap(Vector2 mapSize)

@@ -8,6 +8,7 @@ namespace San14.Data;
 public sealed partial class ArmyOperationContext
 {
     private readonly LoadedScenario _source;
+    private readonly OfficerSourceDirectory _officerSources = new();
     private readonly LoadedMap _map;
     private readonly LoadedTerrainTypes _terrain;
     private readonly LoadedSkillDefinitions _skills;
@@ -26,10 +27,20 @@ public sealed partial class ArmyOperationContext
             personalities.Source.Sha256 != source.FixedDataSource.Sha256 ||
             objectDefinitions is not null && objectDefinitions.Source.Sha256 != source.FixedDataSource.Sha256)
             throw new InvalidDataException("Owned Army definitions require coherent complete CE source tables.");
+        _officerSources.ClearLogicalReferences();
+        foreach (var row in source.Snapshot.Characters)
+        {
+            _officerSources.SetRecordIdentity(row.Slot, row.CharacterId);
+            if (row.Slot == 0 || row.CharacterId != 0)
+                _officerSources.SetLogicalReference(row.CharacterId, row.Slot);
+        }
         _ = ScenarioTerritory.Build(map.Map, source.Snapshot);
         _mapTopology = new(map.Map.Width, map.Map.Height,
             map.Map.Cells.Select(cell => new MapTileDefinition(cell.Id, cell.AreaSlot, cell.SurfaceCode)));
     }
+
+    internal int? ResolveOfficerSource(int officerId) => _officerSources.ResolveOfficer(officerId);
+    internal int? ReadOfficerSourceIdentity(int record) => _officerSources.IdentityAt(record);
 
     public SourceWorldContext? Capture(GameState state)
     {

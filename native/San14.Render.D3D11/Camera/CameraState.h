@@ -62,7 +62,7 @@ template<class T> inline T read(std::ifstream& s){T v{};s.read(reinterpret_cast<
 inline CameraOptics decodeCameraOptics(const Prefix& packet){
     const auto flags=get<uint32_t>(packet.data()+0x158);
     return {get<float>(packet.data()+0x140),get<float>(packet.data()+0x144),
-        get<float>(packet.data()+0x14c),get<float>(packet.data()+0x150),
+        get<float>(packet.data()+0x14c),get<float>(packet.data()+0x150),get<float>(packet.data()+0x148),
         flags&1?ProjectionKind::Orthographic:ProjectionKind::Perspective,(flags&2)!=0};
 }
 inline CameraTransform decodeCameraTransform(const Prefix& packet){
@@ -76,6 +76,7 @@ inline Prefix encodePreparedCamera(const Prefix& formatTemplate,const CameraTran
     put(packet.data()+0x40,camera.unrolledView);put(packet.data()+0x80,camera.view);
     put(packet.data()+0xc0,camera.projection);put(packet.data()+0x100,camera.worldToClip);
     put(packet.data()+0x140,camera.optics.nearPlane);put(packet.data()+0x144,camera.optics.farPlane);
+    put(packet.data()+0x148,camera.optics.viewSpan);
     put(packet.data()+0x14c,camera.optics.aspectRatio);put(packet.data()+0x150,camera.optics.roll);
     auto flags=get<uint32_t>(packet.data()+0x158)&~3u;
     if(camera.optics.projectionKind==ProjectionKind::Orthographic)flags|=1;

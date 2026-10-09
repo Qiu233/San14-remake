@@ -599,7 +599,6 @@ public static class StateValidator
         NativeSubdayStateValidation.Validate(state);
         NativeNormalArmyCombatCalendarStateValidation.Validate(state);
         NativeArmyMarchStateValidation.Validate(state);
-        NativePersonAbilityRuntimeValidation.Validate(state);
         NativePersonDestructionRuntimeStateValidation.Validate(state);
         NativeArmyReturnCurrentStateValidation.Validate(state);
         NativeArmyLifecycleStateValidation.Validate(state);
@@ -610,7 +609,6 @@ public static class StateValidator
         NativeForceUnregisterCurrentStateValidation.Validate(state);
         NativePlayableTerminalStateValidation.Validate(state);
         NativeBaseCaptureCurrentStateValidation.Validate(state);
-        NativePersonCaptureWorldCandidatesStateValidation.Validate(state);
         foreach (DistrictState district in state.Districts.Values)
             if (district.OrdersRemaining is int remaining && CommandBookAvailability.Reserved(state, district.Id) > remaining)
                 throw new InvalidDataException($"Prepared orders overcommit district {district.Id}.");

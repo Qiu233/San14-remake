@@ -15,7 +15,7 @@ public sealed record NativeArmyForceState(byte? Flags193)
     public byte[]? RelationsEA { get; init; }
     public NativeNormalArmyForceAftermath? NormalAftermath { get; init; }
 }
-public sealed record NativeArmyWorldState(byte? SelectedCommanderCount165D)
+public sealed record NativeArmyWorldState
 {
     public NativeArmySamplerEpoch? SamplerEpoch { get; init; }
     public byte? Flags165C { get; init; }

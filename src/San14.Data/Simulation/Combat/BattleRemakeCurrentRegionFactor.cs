@@ -52,13 +52,9 @@ public sealed class BattleRemakeCurrentRegionFactor
     {
         if (state.NativeArmySimulation?.Parameters is not { } parameters || parameters.Language != seed.Language ||
             parameters.RuleVersion != seed.Source.RuleVersion || context.ArmyValid(state, army) != true ||
-            state.Officers.GetValueOrDefault(army.OfficerId)?.NativeAbilityRuntime is not { } person ||
-            person.Revision != TacticRemakeCurrentAbilities.ProfileId || person.Language != parameters.Language ||
-            person.RuleVersion != parameters.RuleVersion || definitions.StaticSource is not { } source ||
-            person.SourceScenarioUri != source.ResourceUri || person.SourceScenarioSha256 != source.Sha256 ||
-            state.ContentHashes.GetValueOrDefault(source.ResourceUri) != source.Sha256 || person.PhysicalSlot is < 1 or > 1850 ||
-            definitions.ReadPersonLookupReference(army.OfficerId)?.PhysicalSlot != person.PhysicalSlot ||
-            definitions.ReadPersonIdentity(person.PhysicalSlot) != army.OfficerId) return null;
+            !state.Officers.ContainsKey(army.OfficerId) || definitions.StaticSource is not { } source ||
+            state.ContentHashes.GetValueOrDefault(source.ResourceUri) != source.Sha256 ||
+            definitions.ResolveOfficerSource(army.OfficerId) is not int physical) return null;
         string revision = $"{Revision}:{parameters.Revision}" + (useCurrentHex ? ":current-hex" : "");
         ushort? selectedHex = useCurrentHex
             ? army.HexId is >= 0 and <= 48399 ? (ushort)army.HexId : null
@@ -70,7 +66,7 @@ public sealed class BattleRemakeCurrentRegionFactor
         //before reading firstLocation. A reached band reads that actual field.
         if (IsNativeBandPerson(army.OfficerId))
         {
-            if (definitions.ReadPersonFirstLocation(person.PhysicalSlot) is not ushort first) return null;
+            if (definitions.ReadPersonFirstLocation(physical) is not ushort first) return null;
             if (first is >= 1 and <= 61) return One("band-person");
         }
         return ResolveHexForceCore(state, army.ForceId, selectedHex, revision);

@@ -42,11 +42,9 @@ public sealed class ArmyMoraleAdjustmentSource(
         int? trait = null, scale = null;
         if (adjustment < 0)
         {
-            if (input.Officers.GetValueOrDefault(army.OfficerId)?.NativeAbilityRuntime is not { } person ||
-                person.Revision != TacticRemakeCurrentAbilities.ProfileId || person.Language != parameters.Language ||
-                person.RuleVersion != parameters.RuleVersion || person.SourceScenarioUri != source.ResourceUri ||
-                person.SourceScenarioSha256 != source.Sha256 || definitions.ReadPersonIdentity(person.PhysicalSlot) != army.OfficerId ||
-                TacticRemakeCurrentTraits.ArmyContributions(definitions, person.PhysicalSlot,
+            if (!input.Officers.ContainsKey(army.OfficerId) ||
+                definitions.ResolveOfficerSource(army.OfficerId) is not int physical ||
+                TacticRemakeCurrentTraits.ArmyContributions(definitions, physical,
                     army.NativeArmyConfiguration?.TraitSlots64) is not { Length: 127 } contributions)
                 return Unknown();
             trait = contributions[13];

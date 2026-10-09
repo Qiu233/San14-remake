@@ -28,12 +28,22 @@ public sealed class OwnedArmyGovernorComparatorInputs
     private readonly LoadedScenario _source;
     private readonly string _language, _ruleVersion;
     private readonly ArmyGovernorPersonSource[] _people;
+    private readonly OfficerSourceDirectory _identities = new();
     private readonly S14OfficeDefinition[] _offices;
 
     private OwnedArmyGovernorComparatorInputs(LoadedScenario source, string language,
         string ruleVersion, ArmyGovernorPersonSource[] people, S14OfficeDefinition[] offices)
-        => (_source, _language, _ruleVersion, _people, _offices) =
+    {
+        (_source, _language, _ruleVersion, _people, _offices) =
             (source, language, ruleVersion, people, offices);
+        _identities.ClearLogicalReferences();
+        foreach (var row in people)
+        {
+            _identities.SetRecordIdentity(row.PhysicalSlot, row.PersonId);
+            if (row.PhysicalSlot == 0 || row.PersonId != 0)
+                _identities.SetLogicalReference(row.PersonId, row.PhysicalSlot);
+        }
+    }
 
     public static OwnedArmyGovernorComparatorInputs Load(GameResourceRepository repository,
         LoadedScenario source, string language)
@@ -112,8 +122,8 @@ public sealed class OwnedArmyGovernorComparatorInputs
     {
         if (!Bound(state) || ReadInt(state, VersionKey) != 1 || (uint)physical >= _people.Length) return null;
         var source = _people[physical];
-        if (!state.Officers.TryGetValue(source.PersonId, out var person) ||
-            person.NativeAbilityRuntime is not { } ability || ability.PhysicalSlot != physical) return null;
+        if (!state.Officers.TryGetValue(source.PersonId, out var person) || person.Id != source.PersonId ||
+            _identities.ResolveOfficer(person.Id) != physical) return null;
         byte? currentOffice = OfficerAppointmentSourceAdapter.ReadOfficeId(person.Appointment);
         if (currentOffice is not byte office) return null;
         //Core retains ordinary0..100 loyalty and its actual personnel writes.

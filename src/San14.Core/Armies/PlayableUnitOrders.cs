@@ -111,8 +111,8 @@ public sealed class PlayableUnitOrders(IOrderRules originalCommands, PlayableLan
             var officersAfter = new Dictionary<int, OfficerState>(state.Officers)
             {
                 [officer.Id] = officer with { Deployed = false, LocationId = city.Id, DistrictId = city.DistrictId,
-                    NativeLocationRuntime = officer.NativeLocationRuntime is { } location
-                        ? location with { Second11C = null } : null }
+                    LocationState = officer.LocationState is { } location
+                        ? location with { Position = null } : null }
             };
             GameState retired = PlayableNativeArmyRetirement.PreservePendingImage(state with
             {
@@ -396,8 +396,8 @@ public sealed class PlayableUnitOrders(IOrderRules originalCommands, PlayableLan
                     //This provisional convoy has no native allocation receipt.
                     //Its independent second-location owner cannot retain the
                     //former in-base pointer or be inferred from a logical ID.
-                    NativeLocationRuntime = officer.NativeLocationRuntime is { } location
-                        ? location with { Second11C = null } : null
+                    LocationState = officer.LocationState is { } location
+                        ? location with { Position = null } : null
                 }
             },
             Districts = new Dictionary<int, DistrictState>(state.Districts)

@@ -7,10 +7,10 @@ namespace San14::Render {
 struct AtmosphereFrame {
     const source_current_season::Frame* season;
     const source_current_season_atmosphere::CloudLightInput& cloudLights;
-    const source_camera::Prefix& main;
+    float altitude;
     const source_weather_fog::Frame& weather;
     const source_camera::V3& globalRgb;
-    const source_camera::Prefix& camera;
+    const source_camera::CameraTransform& camera;
     NativeMainCloud& cloud;
 };
 
@@ -60,7 +60,7 @@ class AtmospherePass {
         if(frame.season){publishNativeCurrentSeasonAtmosphere(camera_,frame.cloud,*frame.season,&frame.cloudLights);
             publishNativeCurrentMainSkyMoonFace(camera_,*frame.season);}
         else {
-            publishNativeAtmosphereCurrentDirectPrefix(camera_,frame.main);
+            publishNativeAtmosphereCurrentDirectEnvironment(camera_,frame.altitude);
             publishNativeAtmosphereWeather(camera_,frame.cloud,frame.weather,frame.globalRgb);
         }
     }
