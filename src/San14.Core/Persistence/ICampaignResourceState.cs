@@ -20,6 +20,8 @@ public interface ICampaignResourceStateCodec
         IReadOnlyList<LegacyArmyTargetKnowledge> targets);
     ICampaignResourceState? MigrateArmyOverrides(ICampaignResourceState? state,
         IReadOnlyList<LegacyArmyOverrideKnowledge> targets);
+    ICampaignResourceState? MigrateArmyPositions(ICampaignResourceState? state,
+        IReadOnlyList<LegacyArmyPositionKnowledge> positions);
 }
 
 /// <summary>Only the historical save migration exposes these legacy source codes.</summary>
@@ -30,6 +32,8 @@ public sealed record LegacyOfficerAftermathKnowledge(int OfficerId, int? Unmappe
     int? PreviousForceCode, int? CaptureResetCode);
 public sealed record LegacyArmyTargetKnowledge(ArmyReceiverId ReceiverId, int? KindCode, int? IdentityCode);
 public sealed record LegacyArmyOverrideKnowledge(ArmyReceiverId? ReceiverId, int? UnitId, int? KindCode, int? IdentityCode);
+public sealed record LegacyArmyPositionKnowledge(int UnitId, bool DirectPositionUnavailable,
+    int? DirectConflictHex, int? MarchConflictHex);
 
 public sealed partial record GameState
 {

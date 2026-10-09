@@ -94,7 +94,7 @@ public static class FieldHexOccupantSource
         if (selected.GameplayArmyId is not int id || slot.ActiveUnitId != id ||
             !state.Units.TryGetValue(id, out var unit) || unit.NativeArmyOrigin?.NativeSlotIndex != physical)
             return null;
-        current.BindUnspecifiedOwnedArmyQueryPosition(physical, unit.NativeMarch?.CurrentHex2A ?? unit.NativeCurrentHex2A);
+        current.BindUnspecifiedOwnedArmyQueryPosition(physical, ArmyMarchSourceAdapter.ReadCurrentHex(state, unit));
         try { return !current.IsArmyUnitMapWriteSkipped(army); }
         catch (InvalidDataException) { return null; }
     }

@@ -12,12 +12,15 @@ internal static class PeriodOrderPreparation
         GameState current, PlayableLandRoutes routes, IPlayableTalentResolution talent,
         IOrderRules deploymentCancellation, IPlayableArmyCreationRules? armyCreationRules)
     {
-        // Allocate the initial identity before any personnel callback, preserving
-        // the established failure order when the current identity range is exhausted.
-        int firstUnitId = current.Units.Count == 0 ? 1 : checked(current.Units.Keys.Max() + 1);
+        current = ArmyIdentityAllocation.Initialize(current);
+        // Check the whole departure batch before personnel/source callbacks or debits.
+        int departures = periodEntry.PreparedDeployments.Values.Count(plan =>
+            !PlayableOfficerAvailability.IsSourceBusy(current, current.Officers[plan.OfficerId]));
+        if (departures > 0 && current.ArmyIdentities!.NextId + departures - 1 > int.MaxValue)
+            throw new InvalidOperationException("The campaign army identity sequence is exhausted.");
         var personnel = PreparedPersonnelStage.ExecuteOwned(periodEntry, current, talent);
         var deployments = PreparedArmyDeploymentStage.ExecuteOwned(periodEntry, personnel.State,
-            routes, deploymentCancellation, armyCreationRules, firstUnitId);
+            routes, deploymentCancellation, armyCreationRules);
         return new(deployments.State, [.. personnel.Reports, .. deployments.Reports]);
     }
 }

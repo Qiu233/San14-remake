@@ -84,7 +84,7 @@ public sealed partial class SourceWorldContext
             SetArmyUnitTablePointer(physical,physical); SetArmyUnitCommanderId(physical,slot.Commander12); SetArmyUnitStatusFlag10(physical,slot.Status10);
             var army=slot.ActiveUnitId is int id ? state.Units[id] : slot.PendingImage;
             if (army is null) continue;
-            SetArmyUnitRawHex2A(physical,army.NativeMarch?.CurrentHex2A ?? army.NativeCurrentHex2A); //No HexId fallback.
+            SetArmyUnitRawHex2A(physical,ArmyMarchSourceAdapter.ReadCurrentHex(state, army)); //No HexId fallback.
             SetArmyReturnResourceFields(physical,new(army.Troops is >=0 and <=65535 ? (ushort)army.Troops : null,
                 army.WoundedTroops is >=0 and <=65535 ? (ushort)army.WoundedTroops.Value : null,
                 army.NativeMorale1A,slot.StoredResources.Gold,slot.StoredResources.Food));

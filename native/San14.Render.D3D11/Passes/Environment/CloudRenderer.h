@@ -2,6 +2,7 @@
 // are prepared once; node3 phase, node124 ping and shader history persist.
 #pragma once
 #include <map>
+#include "CloudWeatherInputs.h"
 struct NativeMainCloudSurface {
     ComPtr<ID3D11Texture2D> texture;
     ComPtr<ID3D11ShaderResourceView> view;
@@ -26,6 +27,7 @@ struct NativeMainCloudPass {
 };
 struct NativeMainCloudAxis {
     UINT sourcePhase=0;
+    std::optional<source_current_cloud_weather::AnimationChannel> weatherChannel;
     int cbOffset=-1;
     float wind=0,period=0,position=0,scale=0,phase=0;
 };
@@ -115,7 +117,9 @@ static NativeMainCloud prepareNativeMainCloud(ID3D11Device* device,const fs::pat
     }
     std::ifstream animation(continuousSource/"animation.txt");NativeMainCloudAxis axis;
     if(!animation)throw std::runtime_error("Main Cloud retained animation source absent");
-    while(animation>>axis.sourcePhase>>axis.cbOffset>>axis.wind>>axis.period>>axis.position>>axis.scale){result.axes.push_back(axis);axis=NativeMainCloudAxis{};}
+    while(animation>>axis.sourcePhase>>axis.cbOffset>>axis.wind>>axis.period>>axis.position>>axis.scale){
+        axis.weatherChannel=source_current_cloud_weather::decodeAnimationChannel(axis.sourcePhase);
+        result.axes.push_back(axis);axis=NativeMainCloudAxis{};}
     std::ifstream pending(continuousSource/"pending-vector.txt");
     for(UINT i=0;i<3;++i)pending>>result.baseWind[i]>>result.basePeriod[i];
     if(!pending)throw std::runtime_error("Main Cloud displacement source absent");

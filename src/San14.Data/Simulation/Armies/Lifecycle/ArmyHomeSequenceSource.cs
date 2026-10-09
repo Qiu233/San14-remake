@@ -23,7 +23,7 @@ public static class ArmyHomeSequenceSource
                 if (!valid) continue;
                 UnitState? image = slot.PendingImage;
                 if (slot.ActiveUnitId is int id) state.Units.TryGetValue(id, out image);
-                current.BindUnspecifiedOwnedArmyQueryPosition(slot.PhysicalSlot, image?.NativeMarch?.CurrentHex2A ?? image?.NativeCurrentHex2A);
+                current.BindUnspecifiedOwnedArmyQueryPosition(slot.PhysicalSlot, image is null ? null : ArmyMarchSourceAdapter.ReadCurrentHex(state, image));
                 if (!current.IsArmyUnitMapWriteSkipped(army)) continue;
                 if (current.ReadArmyUnitCommanderId(army) is not ushort otherId ||
                     current.ReadPersonLookupReference(otherId)?.PhysicalSlot is not int otherPerson ||

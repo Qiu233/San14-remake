@@ -66,14 +66,14 @@ public:
                 loadedLutSeason_=int(season->season);
             }
             source_current_season_resources::installCurrent(seasonLuts_,*season,renderer_);
-            const auto caller=source_current_season_post::prepareCaller(callers_,*season,
+            const auto caller=source_current_season_post::prepareCaller(callers_,season->season,season->post,
                 camera_.selectedLightPresent!=0);
-            source_current_season_post::publishMode6SelectedSun(*season,caller.selection,camera_);
-            const auto values=source_current_season_post::prepareSimpleCurrent(*season,
-                caller.adaptationLocked,caller.lockedAdaptationBits,caller.autoExposure);
+            source_current_season_post::publishMode6SelectedSun(season->post,caller.selection,camera_);
+            const auto values=source_current_season_post::prepareSimpleCurrent(season->post,
+                caller.adaptationLocked,caller.lockedAdaptation,caller.autoExposure);
             source_current_season_post::publishSimpleCurrent(values,continuous_);
             projection_=source_current_season_post::publishProjectionBeforeBegin(
-                *season,camera_,continuous_);
+                season->post,camera_,continuous_);
         } else projection_=updateNativeNormalPostCameraBeforeBegin(camera_,camera,continuous_);
         auto plan=beginNativeNormalPostContinuousFromCommon(continuous_,currentClock);
         auto passes=selectNativeNormalPostContinuousPasses(plan,passUnion_);

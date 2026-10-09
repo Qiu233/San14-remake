@@ -236,6 +236,7 @@ public static class ScenarioInitializer
             Territory = territory.Cells.ToDictionary(cell => cell.HexId,
                 cell => new TerritoryState(cell.HexId, OptionalId(cell.AreaId), OptionalId(cell.ForceId)))
         };
+        state = ArmyIdentityAllocation.Initialize(state);
         StateValidator.Validate(state);
         return new InitializedScenario(state, loaded.ScenarioSource, loaded.FixedDataSource, map.Source);
     }

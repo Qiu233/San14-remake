@@ -159,7 +159,6 @@ public static class PlayableForceDefeat
                 //promoting it to a live Army or requiring a deployed commander.
                 GameState view = state with { Units = new() { [unit.Id] = unit } };
                 NativeSubdayStateValidation.Validate(view);
-                NativeArmyMarchStateValidation.Validate(view);
                 PlayableMilitaryStateValidation.Validate(view);
                 PlayableTacticStateValidation.Validate(view);
             }

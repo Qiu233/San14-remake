@@ -21,14 +21,6 @@ public abstract record MapStaticModelOwnedFrameInputs(
     /// earlier source opening.</summary>
     public CityVisualDescriptorOwner? CurrentCityDescriptors { get; init; }
 }
-public sealed record MapStaticModelCurrentOwnedInputs(TerritoryOwnedWorldSnapshot OwnedWorld,
-    MainMapCameraFrame MainCamera, int CurrentPlayerForceSlot, MapStaticModelGroundHeightSource CurrentGround,
-    IReadOnlyDictionary<int, CityVisualDamageInput>? CurrentCityDamage, CityVisualOpeningEvidence? OpeningEvidence,
-    bool OpeningEvidenceApplies, IReadOnlyList<MapStaticModelOwnedGateDefinition> GateDefinitions,
-    IReadOnlyList<MapStaticModelOwnedFacilityDefinition> FacilityDefinitions,
-    IReadOnlyDictionary<string, MapStaticModelPublication> CurrentNodePublications)
-    :MapStaticModelOwnedFrameInputs(MainCamera,CurrentPlayerForceSlot,CurrentGround,CurrentCityDamage,
-        OpeningEvidence,OpeningEvidenceApplies,GateDefinitions,FacilityDefinitions,CurrentNodePublications);
 public sealed record MapStaticModelCapturedOwnedInputs(MapStaticModelCapturedOwnedWorld CapturedOwnedWorld,
     MainMapCameraFrame MainCamera, int CurrentPlayerForceSlot, MapStaticModelGroundHeightSource CurrentGround,
     IReadOnlyDictionary<int, CityVisualDamageInput>? CurrentCityDamage, CityVisualOpeningEvidence? OpeningEvidence,
@@ -53,7 +45,7 @@ public sealed record MapStaticModelSourceCreatedCurrentNode(
 }
 public sealed record MapStaticModelCurrentOwnedFrame(MainMapCameraFrame MainCamera,
     MapStaticModelInstanceSet Population, MapStaticModelVisibleSet Visibility,
-    string OwnedWorldSnapshotSha256, string SourceRevision)
+    string SourceRevision)
 {
     public long FrameNumber => MainCamera.Camera.FrameNumber;
     public string CurrentOwnedWorldProvenance { get; init; } = "";
@@ -193,14 +185,6 @@ public sealed class MapStaticModelCurrentOwnedPopulation
         }
     }
 
-    public MapStaticModelCurrentOwnedFrame Prepare(MapStaticModelCurrentOwnedInputs input)
-    {
-        ArgumentNullException.ThrowIfNull(input);ArgumentNullException.ThrowIfNull(input.OwnedWorld);
-        // The public Territory snapshot keeps its independent-copy semantics.
-        return PrepareCurrent(input,MapStaticModelCapturedOwnedWorld.FromCapturedOwnedWorld(
-            input.OwnedWorld.CreateWorldCopy(),"public-independent-Territory-snapshot"),input.OwnedWorld.WorldSnapshotSha256);
-    }
-
     /// <summary>Normal SceneView has already detached the campaign when its
     /// GameState changed. Consume that attempt's actual Model projection;
     /// current placements, visual categories, matrices and visibility are
@@ -208,11 +192,11 @@ public sealed class MapStaticModelCurrentOwnedPopulation
     public MapStaticModelCurrentOwnedFrame PrepareCapturedOwnedWorld(MapStaticModelCapturedOwnedInputs input)
     {
         ArgumentNullException.ThrowIfNull(input);ArgumentNullException.ThrowIfNull(input.CapturedOwnedWorld);
-        return PrepareCurrent(input,input.CapturedOwnedWorld,"");
+        return PrepareCurrent(input,input.CapturedOwnedWorld);
     }
 
     private MapStaticModelCurrentOwnedFrame PrepareCurrent(MapStaticModelOwnedFrameInputs input,
-        MapStaticModelCapturedOwnedWorld world,string independentlyCapturedWorldSha256)
+        MapStaticModelCapturedOwnedWorld world)
     {
         ArgumentNullException.ThrowIfNull(input.MainCamera);
         ArgumentNullException.ThrowIfNull(input.CurrentGround); ArgumentNullException.ThrowIfNull(input.GateDefinitions);
@@ -280,7 +264,7 @@ public sealed class MapStaticModelCurrentOwnedPopulation
             try
             {
                 var current = new MapStaticModelCurrentOwnedFrame(input.MainCamera, population,
-                    _visibility.Select(population, camera), independentlyCapturedWorldSha256, _revision)
+                    _visibility.Select(population, camera), _revision)
                     {CurrentOwnedWorldProvenance=world.SourceProvenance};
                 if (_borrowSourceCreatedNode is not null)
                 {

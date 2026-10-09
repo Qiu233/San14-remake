@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Godot;
 using San14.Core;
 using San14.Data;
@@ -180,10 +179,9 @@ public partial class MapSceneView
             throw new InvalidDataException("Production map needs its loaded current world, prepared Main camera and original height source.");
         if (!ReferenceEquals(world, _nativeMapWorldSource))
         {
-            // Commands replace GameState. Capture once per replacement; moving
-            // the camera alone never serializes the entire campaign again.
-            _nativeMapDetachedWorld = JsonSerializer.Deserialize<GameState>(JsonSerializer.SerializeToUtf8Bytes(world))
-                ?? throw new InvalidDataException("Production map world capture failed.");
+            // Commands replace GameState. Detach mutable state once per
+            // publication; camera movement reuses that captured world.
+            _nativeMapDetachedWorld = GameStateCopy.Copy(world);
             _nativeMapWorldSource = world;
         }
         var groups = _activeTerrainPatches.Select(patch =>

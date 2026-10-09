@@ -62,7 +62,7 @@ public static class NativeArmyProgressAtomicRuntime
             // The source list belongs to this reached stage7/8 pair only.
             // Keep it inside the transaction: no reusable provider-held queue
             // may survive a failed block or supply a later saved request.
-            NativeArmyMovementQueue? movementQueue = null;
+            ArmyMovementQueue? movementQueue = null;
             for (byte stage = 0; stage < (byte)NativeArmyProgressStage.Count; stage++)
             {
                 var moment = new NativeArmyProgressStageMoment(ordinal, date, stage, cycle,
@@ -85,7 +85,7 @@ public static class NativeArmyProgressAtomicRuntime
                 }
                 else if (movementSource is not null && stage == (byte)NativeArmyProgressStage.Movement)
                 {
-                    var movement = NativeArmyMovementStage8AtomicRuntime.TryAdvanceOwned(working, moment,
+                    var movement = ArmyMovementStage.TryAdvanceOwned(working, moment,
                         movementQueue ?? throw new InvalidDataException("Reached movement stage8 lacks its same-cycle stage7 queue."),
                         movementSource);
                     movementQueue = null;

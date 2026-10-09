@@ -2,6 +2,9 @@
 // Same-request season interchange packet. Imported layout is decoded here;
 // loaded textures, programs and retained pass histories remain session resources.
 #include "../Shadows/SeasonShadowInputs.h"
+#include "CloudWeatherInputs.h"
+#include "../PostProcessing/SeasonPostInputs.h"
+#include "../../Camera/CameraState.h"
 #include <array>
 #include <cstdint>
 #include <cstring>
@@ -30,6 +33,8 @@ struct Frame {
     std::vector<HdrPass> hdr;
     source_current_season_shadow::Settings shadow;
     source_current_season_shadow::ReceiverStyle shadowReceiver;
+    source_current_cloud_weather::Conditions cloudWeather;
+    source_current_season_post::Settings post;
 };
 template<class T> inline T read(std::span<const uint8_t> bytes,size_t at){
     T result;std::memcpy(&result,bytes.data()+at,sizeof(result));return result;
@@ -70,6 +75,30 @@ inline void decodeShadowInputs(Frame& frame){
         light.shadowGeometry.receiverAmbientAlpha=read<float>(light.data,0xec);
     }
 }
+inline void decodeCloudWeatherInputs(Frame& frame){
+    frame.cloudWeather={read<float>(frame.main,0x1d0),read<float>(frame.main,0x1d8),
+        read<float>(frame.main,0x22c),read<float>(frame.main,0x278),
+        importedMainField<uint32_t>(frame,0x674).has_value(),
+        importedMainField<uint32_t>(frame,0x7a0).has_value()};
+}
+inline void decodePostInputs(Frame& frame){
+    auto& post=frame.post;
+    post.camera=source_camera::decodeCameraTransform(frame.main);
+    for(size_t i=0;i<frame.lights.size();++i)
+        post.lights[i]={frame.lights[i].object,frame.lights[i].mask};
+    post.selectedSunDirection=read<std::array<float,3>>(frame.main,0x2b8);
+    post.adaptation=read<std::array<float,2>>(frame.main,0x1c4);
+    post.exposureRange=read<std::array<float,2>>(frame.main,0x1b8);
+    post.heat={importedMainField<float>(frame,0x13c0),importedMainField<float>(frame,0x13c4)};
+    post.heatCoefficient=importedMainField<float>(frame,0x13c8);
+    post.spriteThreshold=importedMainField<float>(frame,0x1324);
+    post.userExposure=read<float>(frame.main,0x170);
+    post.depthOfFieldMode=importedMainField<uint32_t>(frame,0x1320);
+    const auto exposureFlags=importedMainField<uint32_t>(frame,0x1510);
+    if(exposureFlags)post.automaticExposure=(*exposureFlags&1)!=0;
+    post.transition={importedMainField<uint32_t>(frame,0x13f0),
+        importedMainField<float>(frame,0x13f4),importedMainField<float>(frame,0x13f8)};
+}
 inline Frame decode(std::span<const uint8_t> bytes){
     if(bytes.size()<32+0x3c0)throw std::runtime_error("Current season packet length");
     Frame r;r.mode=read<uint32_t>(bytes,0);r.season=read<uint32_t>(bytes,4);
@@ -101,6 +130,8 @@ inline Frame decode(std::span<const uint8_t> bytes){
     }
     if(at!=bytes.size())throw std::runtime_error("Current HDR packet tail");
     decodeShadowInputs(r);
+    decodeCloudWeatherInputs(r);
+    decodePostInputs(r);
     return r;
 }
 // World selection belongs to its ordinary owner. This is the original ordered

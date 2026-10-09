@@ -1,110 +1,108 @@
 #pragma once
-// Current Main numeric writes for the already selected normal193 owner.
-// No Begin/Init/history/Exposure mutation. Full optics, LUT and pass selection
-// still belong to their actual producers; see the companion source report.
+// Seasonal post-processing selection and current settings. Imported packet
+// layout belongs to SeasonFrame; retained optics, history and GPU resources
+// remain with their ordinary post-processing owners.
 #include "../Environment/SeasonFrame.h"
 #include "PostProcessCamera.h"
-#include "../../Camera/CameraState.h"
 
 namespace source_current_season_post {
-template<class T> inline T mainWord(const source_current_season::Frame& current,int offset) {
-    if(offset>=0&&size_t(offset)+sizeof(T)<=current.main.size())
-        return source_current_season::read<T>(current.main,size_t(offset));
-    for(const auto& word:current.words)if(word.offset==offset){T value;std::memcpy(&value,&word.bits,4);return value;}
-    throw std::runtime_error("Current normal post requires its actual Main word");
+enum class SelectedLightMode:uint32_t {CameraSun=6};
+inline constexpr uint32_t AdaptationTransitionGroup=1u<<30;
+template<class T> inline T requireSetting(const std::optional<T>& value){
+    if(!value)throw std::runtime_error("Current normal post requires its actual Main word");
+    return *value;
 }
 struct Selection {
     // Actual source CommonAux3F2 and current kind1 admission, not MainA00.
     uint32_t auxiliarySelector{};
     bool recordPresent{};
-    uint32_t sourceType10B0{};
+    SelectedLightMode lightMode{};
 };
-struct SourceLight {uint32_t object{},mask{},type10B0{};};
-struct SeasonCallerSource {uint32_t season{},groupMask13F0{},fadeBits13F4{},lumiBits13F8{};std::vector<SourceLight> lights;};
-struct CallerSources {uint32_t auxiliarySelector{},commonFlags8{},lockedAdaptationBits{};std::vector<SeasonCallerSource> seasons;};
+struct SourceLight {uint32_t object{},groupMask{};SelectedLightMode mode{};};
+struct SeasonCallerSource {uint32_t season{},transitionGroups{};float fade{},luminance{};std::vector<SourceLight> lights;};
+struct CallerSources {uint32_t auxiliarySelector{};bool automaticExposure{};float lockedAdaptation{};std::vector<SeasonCallerSource> seasons;};
 inline CallerSources readCallerSources(const std::filesystem::path& path) {
     CallerSources out;std::ifstream input(path,std::ios::binary);uint32_t count{};
     auto word=[&](){uint32_t value{};input.read(reinterpret_cast<char*>(&value),4);if(!input)throw std::runtime_error("Current post caller source truncated");return value;};
-    count=word();out.auxiliarySelector=word();out.commonFlags8=word();out.lockedAdaptationBits=word();
+    auto scalar=[&](){const auto bits=word();float value;std::memcpy(&value,&bits,4);return value;};
+    count=word();out.auxiliarySelector=word();out.automaticExposure=(word()&(1u<<25))!=0;out.lockedAdaptation=scalar();
     out.seasons.resize(count);
-    for(auto& season:out.seasons){season.season=word();season.groupMask13F0=word();season.fadeBits13F4=word();season.lumiBits13F8=word();
-        season.lights.resize(word());for(auto& light:season.lights){light.object=word();light.mask=word();light.type10B0=word();}}
+    for(auto& season:out.seasons){season.season=word();season.transitionGroups=word();season.fade=scalar();season.luminance=scalar();
+        season.lights.resize(word());for(auto& light:season.lights){light.object=word();light.groupMask=word();light.mode=static_cast<SelectedLightMode>(word());}}
     if(input.peek()!=std::char_traits<char>::eof())throw std::runtime_error("Current post caller source trailing bytes");return out;
 }
-inline const SeasonCallerSource& currentCallerSource(const CallerSources& source,const source_current_season::Frame& current) {
-    for(const auto& season:source.seasons)if(season.season==current.season)return season;
+inline const SeasonCallerSource& currentCallerSource(const CallerSources& source,uint32_t currentSeason) {
+    for(const auto& season:source.seasons)if(season.season==currentSeason)return season;
     throw std::runtime_error("Current post requires the installed season's actual caller source");
 }
-// The once-imported source supplies the selected p1020/1021/1022 branch for
-// this no-later-edit caller scope. Any explicit later current words take their
-// original priority; they are never overwritten by the loaded source values.
-inline uint32_t currentLateWord(const source_current_season::Frame& current,int offset,uint32_t loadedSource) {
-    for(const auto& word:current.words)if(word.offset==offset)return word.bits;return loadedSource;
-}
-inline const source_current_season::Light* firstSubset(const source_current_season::Frame& current,uint32_t selector) {
+// Selection uses ordered group-subset membership, independently of shadow's
+// first-intersecting query. A zero selector deliberately admits no record.
+inline const LightIdentity* firstSubset(const Settings& current,uint32_t selector) {
     if(!selector)return nullptr;
     const uint32_t mask=1u<<((selector-1)&31);
-    for(const auto& light:current.lights)if((light.mask&~mask)==0)return &light;
+    for(const auto& light:current.lights)if((light.groupMask&~mask)==0)return &light;
     return nullptr;
 }
 struct Caller {
-    Selection selection;uint32_t selectedObject{},lockedAdaptationBits{};
+    Selection selection;uint32_t selectedObject{};float lockedAdaptation{};
     bool adaptationLocked{},autoExposure{};
 };
-inline Caller prepareCaller(const CallerSources& source,const source_current_season::Frame& current,bool actualSelectedRecordAdmitted) {
-    const auto& season=currentCallerSource(source,current);Caller out;
+inline Caller prepareCaller(const CallerSources& source,uint32_t currentSeason,const Settings& current,bool actualSelectedRecordAdmitted) {
+    const auto& season=currentCallerSource(source,currentSeason);Caller out;
     out.selection.auxiliarySelector=source.auxiliarySelector;out.selection.recordPresent=actualSelectedRecordAdmitted;
-    out.lockedAdaptationBits=source.lockedAdaptationBits;
+    out.lockedAdaptation=source.lockedAdaptation;
     if(actualSelectedRecordAdmitted){
         const auto* selected=firstSubset(current,source.auxiliarySelector);
         if(!selected)throw std::runtime_error("Current post admitted View1B20 has no selected current record");
         out.selectedObject=selected->object;bool found=false;
-        for(const auto& light:season.lights)if(light.object==selected->object&&light.mask==selected->mask){out.selection.sourceType10B0=light.type10B0;found=true;break;}
+        for(const auto& light:season.lights)if(light.object==selected->object&&light.groupMask==selected->groupMask){out.selection.lightMode=light.mode;found=true;break;}
         if(!found)throw std::runtime_error("Current post selected record has no installed actual type10B0 source");
     }
-    uint32_t mask=currentLateWord(current,0x13f0,season.groupMask13F0);
-    uint32_t fadeBits=currentLateWord(current,0x13f4,season.fadeBits13F4),lumiBits=currentLateWord(current,0x13f8,season.lumiBits13F8);
-    float fade,lumi;std::memcpy(&fade,&fadeBits,4);std::memcpy(&lumi,&lumiBits,4);
-    out.adaptationLocked=(fade>0||lumi!=1)&&(mask&0x40000000u)!=0;
-    out.autoExposure=(source.commonFlags8&(1u<<25))!=0||(mainWord<uint32_t>(current,0x1510)&1)!=0;
+    const uint32_t mask=current.transition.groupMask.value_or(season.transitionGroups);
+    const float fade=current.transition.fade.value_or(season.fade),lumi=current.transition.luminance.value_or(season.luminance);
+    out.adaptationLocked=(fade>0||lumi!=1)&&(mask&AdaptationTransitionGroup)!=0;
+    // Keep source flag short-circuit: a missing current flag is irrelevant when
+    // the common caller already enables automatic exposure.
+    out.autoExposure=source.automaticExposure||requireSetting(current.automaticExposure);
     return out;
 }
 // Caller supplies true current admission and the installed selected record's
 // CBC770 mode. In mode6 the original source copies Main2B8 xyz to LightF80.
 // Other modes need their actual selected F80; numeric328 does not contain it.
-inline uint32_t publishMode6SelectedSun(const source_current_season::Frame& current,const Selection& selected,
+inline uint32_t publishMode6SelectedSun(const Settings& current,const Selection& selected,
     NativeNormalPostCamera& postCamera) {
     if(!selected.recordPresent){postCamera.selectedLightPresent=0;return 0;}
     const auto* light=firstSubset(current,selected.auxiliarySelector);
     if(!light)throw std::runtime_error("Current post selected View1B20 record absent");
-    if(selected.sourceType10B0!=6)throw std::runtime_error("Current post selected F80 needs its separate source mode writer");
-    std::memcpy(postCamera.selectedSunF80.data(),current.main.data()+0x2b8,12);
+    if(selected.lightMode!=SelectedLightMode::CameraSun)throw std::runtime_error("Current post selected F80 needs its separate source mode writer");
+    postCamera.selectedSunF80=current.selectedSunDirection;
     postCamera.selectedLightPresent=1;return light->object;
 }
 struct Inputs {
-    std::array<uint32_t,2> adaptationBits{},evBits{};
+    std::array<float,2> adaptation{},exposureRange{};
     std::array<float,4> nearFar{}; // CB18 difference,invNear,invDifference,-ratio.
     std::array<float,2> heat{};
     float heatCoefficient{},spriteThreshold{},userExposure{};
     uint32_t gatherC0{},enableDofA4{};
 };
-inline Inputs prepareSimpleCurrent(const source_current_season::Frame& current,bool actualAdaptationLock,
-    uint32_t actualLockedAdaptationBits,bool actualAutoExposure) {
+inline Inputs prepareSimpleCurrent(const Settings& current,bool actualAdaptationLock,
+    float actualLockedAdaptation,bool actualAutoExposure) {
     Inputs out;
-    out.adaptationBits={actualAdaptationLock?actualLockedAdaptationBits:mainWord<uint32_t>(current,0x1c4),
-        actualAdaptationLock?actualLockedAdaptationBits:mainWord<uint32_t>(current,0x1c8)};
-    out.evBits={mainWord<uint32_t>(current,0x1b8),mainWord<uint32_t>(current,0x1bc)};
-    const bool swap=(mainWord<uint32_t>(current,0x158)&2)!=0;
-    float clipNear=mainWord<float>(current,swap?0x144:0x140),clipFar=mainWord<float>(current,swap?0x140:0x144);
+    out.adaptation={actualAdaptationLock?actualLockedAdaptation:current.adaptation[0],
+        actualAdaptationLock?actualLockedAdaptation:current.adaptation[1]};
+    out.exposureRange=current.exposureRange;
+    const auto& optics=current.camera.optics;
+    float clipNear=optics.reversedDepth?optics.farPlane:optics.nearPlane;
+    float clipFar=optics.reversedDepth?optics.nearPlane:optics.farPlane;
     float invNear=postCameraDiv(1,clipNear),invFar=postCameraDiv(1,clipFar);
     float difference=postCameraSub(invFar,invNear),ratio=postCameraDiv(invNear,difference);
     uint32_t sign;std::memcpy(&sign,&ratio,4);sign^=0x80000000u;std::memcpy(&ratio,&sign,4);
     out.nearFar={difference,invNear,postCameraDiv(1,difference),ratio};
-    out.heat={mainWord<float>(current,0x13c0),mainWord<float>(current,0x13c4)};
-    out.heatCoefficient=mainWord<float>(current,0x13c8);
-    out.spriteThreshold=mainWord<float>(current,0x1324);
-    out.userExposure=actualAutoExposure?-1:mainWord<float>(current,0x170);
-    out.gatherC0=out.enableDofA4=mainWord<uint32_t>(current,0x1320)&7;
+    out.heat={requireSetting(current.heat[0]),requireSetting(current.heat[1])};
+    out.heatCoefficient=requireSetting(current.heatCoefficient);
+    out.spriteThreshold=requireSetting(current.spriteThreshold);
+    out.userExposure=actualAutoExposure?-1:current.userExposure;
+    out.gatherC0=out.enableDofA4=requireSetting(current.depthOfFieldMode)&7;
     return out;
 }
 inline bool cbFile(const std::string& key,const char* name){
@@ -129,9 +127,9 @@ inline void publishSimpleCurrent(const Inputs& current,ContinuousPostOwner& post
         }
         if(cbFile(item.first,"cb24.bin")){
             if(bytes.size()!=64)throw std::runtime_error("Current normal Eye CB24 extent");
-            std::memcpy(bytes.data(),current.adaptationBits.data(),8);
-            std::memcpy(bytes.data()+8,current.evBits.data(),4); // CB24 retains only EV minimum here.
-            float lo,hi;std::memcpy(&lo,&current.evBits[0],4);std::memcpy(&hi,&current.evBits[1],4);
+            std::memcpy(bytes.data(),current.adaptation.data(),8);
+            std::memcpy(bytes.data()+8,current.exposureRange.data(),4); // CB24 retains only EV minimum here.
+            const float lo=current.exposureRange[0],hi=current.exposureRange[1];
             float scale=postCameraDiv(1,postCameraSub(hi,lo)),negative=postCameraMul(lo,scale);
             uint32_t sign;std::memcpy(&sign,&negative,4);sign^=0x80000000u;std::memcpy(&negative,&sign,4);
             std::memcpy(bytes.data()+32,&scale,4);std::memcpy(bytes.data()+36,&negative,4);
@@ -141,12 +139,9 @@ inline void publishSimpleCurrent(const Inputs& current,ContinuousPostOwner& post
 // Reuse the already source-tested projection/CB22 writer on this final Main,
 // after publishing current selectedSun and other current Composite inputs.
 template<class ContinuousPostOwner>
-inline NativeNormalPostCameraProjection publishProjectionBeforeBegin(const source_current_season::Frame& current,
+inline NativeNormalPostCameraProjection publishProjectionBeforeBegin(const Settings& current,
     NativeNormalPostCamera& postCamera,ContinuousPostOwner& post) {
-    // The season publication is a distinct prepared-media packet: its camera
-    // need not match the motion rig's currently accepted transform. Decode at
-    // this input adapter; projection mathematics only receives the typed value.
-    return updateNativeNormalPostCameraBeforeBegin(postCamera,
-        source_camera::decodeCameraTransform(current.main),post);
+    // Season optics are independently published; never substitute the motion rig.
+    return updateNativeNormalPostCameraBeforeBegin(postCamera,current.camera,post);
 }
 } // namespace source_current_season_post

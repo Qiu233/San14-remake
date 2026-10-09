@@ -224,8 +224,7 @@ internal partial class D3D11ArmyMapLabels : Control
         {
             if (!card.Visible) continue;
             var unit = input.WorldState!.Units[card.Fields.UnitId];
-            ushort? rawHex = unit.NativeMarch?.CurrentHex2A ?? unit.NativeCurrentHex2A;
-            if (rawHex is not ushort hex) { missing.Add(unit.Id); continue; }
+            if (unit.ConfirmedHexId is not int hex) { missing.Add(unit.Id); continue; }
             int x = (int)card.Position.X, y = (int)card.Position.Y;
             if (card.IsSimple) { x -= 16; y -= 16; }
             var geometry = (card.IsSimple ? card.IsGroup ? _groupFlagHit : _singleFlagHit :

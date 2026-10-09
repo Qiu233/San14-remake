@@ -15,7 +15,7 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyHexOccupancyR
             return Unknown("current.position_commit_saved_Hex1C_owner");
         if (actor.NativeArmyOrigin?.NativeSlotIndex is not int physical || physical is < 1 or > 500)
             return Unknown("current.position_commit_Army_physical1_500");
-        ushort? nativeFrom = actor.NativeMarch?.CurrentHex2A ?? actor.NativeCurrentHex2A;
+        ushort? nativeFrom = ArmyMarchSourceAdapter.ReadCurrentHex(state, actor);
         if (nativeFrom is not ushort from || from != actor.HexId)
             return Unknown("current.position_commit_Army2A_projection");
         var current = CaptureCurrentDefinitions(state);

@@ -134,6 +134,8 @@ public sealed class ArmyConstruction : IPlayableArmyCreationRules
             0, 0, 0, new sbyte[6], new byte[6], null, primary == 0 ? clock.UpdateOrdinal : null);
         return new(runtime, 0, new(ProfileId, Language, RuleVersion) { NativeSlotIndex = slot }, state.RandomState)
         { CarriedStores = returnResources, OverrideTarget = overrideTarget,
+          ResourceState = state.ResourceState is CampaignSourceKnowledge knowledge
+              ? knowledge.WithoutArmyPosition(army.Id) : state.ResourceState,
           NativeRouteHold56 = _configuration.RouteHold40Input is int hold ? (byte)Math.Clamp(hold, 0, 9) : null,
           Configuration = new(formation.Bytes.Byte1B, formation.Bytes.Byte1C,
             (byte)Math.Clamp(_configuration.Action34, 0, 17), (byte)Math.Clamp(_configuration.Category44, 0, 2))

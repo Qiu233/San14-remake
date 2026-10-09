@@ -151,9 +151,8 @@ public sealed class D3D11ArmyPublisher:IDisposable
             var material=_flagMaterials;
             var current=new List<D3D11ArmyActor>();
             foreach(var frame in _ordinary.Frames.Values.OrderBy(f=>f.UnitId)){
-                var unit=world.Units[frame.UnitId];
-                if(unit.NativeCurrentHex2A is ushort nativeHex&&nativeHex!=unit.HexId)
-                    throw new InvalidDataException("Army visual Hex differs from its actual native current position.");
+                if(world.Units[frame.UnitId].PositionKnowledge==ArmyPositionKnowledge.Conflicting)
+                    throw new InvalidDataException("Army visual position has unresolved compatibility knowledge.");
                 foreach(var actor in frame.Publications.Values.OrderBy(a=>a.Key.DescriptorOffset).ThenBy(a=>a.Key.InstanceIndex)){
                     var key=new D3D11ArmyActorKey(frame.UnitId,actor.Category,actor.Key.DescriptorOffset,actor.Key.InstanceIndex);
                     Add(key,actor.WorldTransform,null);

@@ -67,9 +67,11 @@ public sealed class ArmyMovementEligibilityCurrentProducer
             if ((flags & 8) != 0) return Result(false, null, null, "2C7393.Status2-flags150-bit3");
         }
         if (runtime.Abnormal24 > 0) return Result(false, null, null, "2C739F.abnormal24");
-        if (army.NativeMarch is not { } march) return Missing("current.NativeMarch_word2C_and_override3C");
-        if (march.CurrentHex2A != army.HexId || march.CurrentHex2A > 48399)
-            return Missing("current.Army_Hex2A");
+        if (army.March is not { } march || ArmyMarchSourceAdapter.EncodeDestination(march.Target) is not ushort targetHex)
+            return Missing("current.march_target");
+        if (ArmyMarchSourceAdapter.ReadCurrentHex(state, army) is not ushort currentHex ||
+            currentHex != army.HexId || currentHex >= ArmyMarchSourceAdapter.SourceHexCount)
+            return Missing("current.army_position");
         var overrideFields = ArmyOverrideTargetSourceAdapter.Read(state, army);
         if (army.OverrideTarget?.Kind is not ArmyOverrideTargetKind overrideKind) return Missing("current.Army_override_category");
         int? currentTarget = ResolveCurrentTarget();
@@ -96,36 +98,36 @@ public sealed class ArmyMovementEligibilityCurrentProducer
         if (direct)
         {
             if (action is 1 or 13 or 15)
-                return Result(march.CurrentHex2A != goal || march.TargetHex2C <= 48399, currentTarget, goal, "2C746C.direct-action1-13-15");
+                return Result(currentHex != goal || targetHex <= 48399, currentTarget, goal, "2C746C.direct-action1-13-15");
             if (action is 2 or 3)
             {
-                if (march.CurrentHex2A == goal) return FinalAtGoal();
+                if (currentHex == goal) return FinalAtGoal();
                 if (targetType != 5) return Result(true, currentTarget, goal, "2C76B3.action2-3-other-target");
-                bool? adjacent = RingContains(goal.Value, march.CurrentHex2A, 1);
+                bool? adjacent = RingContains(goal.Value, currentHex, 1);
                 return adjacent is null ? Missing("current.fixed6_ring_boundary_stack_values") :
                     Result(!adjacent.Value, currentTarget, goal, "2C76D0.action2-3-city-ring1");
             }
             if (action == 14)
-                return Result(targetType == 9 && (march.CurrentHex2A != goal || march.TargetHex2C <= 48399),
+                return Result(targetType == 9 && (currentHex != goal || targetHex <= 48399),
                     currentTarget, goal, "2C7548.action14-target9");
             if (action is 8 or 9 or 10 or 16)
             {
-                bool distanceOne = SourceDistance(goal.Value, march.CurrentHex2A) == 1;
+                bool distanceOne = SourceDistance(goal.Value, currentHex) == 1;
                 if (!distanceOne) return Result(true, currentTarget, goal, "2C75D0.action8-10-16-distance-not1");
-                if (march.TargetHex2C <= 48399) return Result(true, currentTarget, goal, "2C75BA.first-current-word2C");
+                if (targetHex <= 48399) return Result(true, currentTarget, goal, "2C75BA.first-current-word2C");
                 if (fields!.TargetWords2CTo34 is not { Length: 5 } words)
                     return Missing("current.Army_all_five_target_words2C_to34");
-                if (words[0] != march.TargetHex2C) throw new InvalidDataException("Captured target words belong to another current word2C.");
-                return Result(words.Any(word => word <= 48399) || march.CurrentHex2A == goal,
+                if (words[0] != targetHex) throw new InvalidDataException("Captured target words belong to another current word2C.");
+                return Result(words.Any(word => word <= 48399) || currentHex == goal,
                     currentTarget, goal, "2C75A4.action8-10-16-five-current-targets");
             }
             if (action is 4 or 5 or 6 or 7)
             {
-                if (march.TargetHex2C <= 48399) return Result(true, currentTarget, goal, "2C74B4-2C75EB.current-word2C");
+                if (targetHex <= 48399) return Result(true, currentTarget, goal, "2C74B4-2C75EB.current-word2C");
                 bool? extended = ExtendedFormation();
                 if (extended is null) return Missing("current.Formation_A8_A6_and_Force193_for2C70A0");
                 int radius = action == 4 ? extended.Value ? 3 : 2 : extended.Value ? 2 : 1;
-                bool? contains = RingContains(goal.Value, march.CurrentHex2A, radius);
+                bool? contains = RingContains(goal.Value, currentHex, radius);
                 if (contains is null) return Missing("current.fixed6_18_36_ring_boundary_stack_values");
                 if (!contains.Value) return Result(true, currentTarget, goal, "2C74F3-2C769F.outside-target-ring");
                 if (!extended.Value) return Result(false, currentTarget, goal, "2C7675.inside-normal-target-ring");
@@ -153,7 +155,7 @@ public sealed class ArmyMovementEligibilityCurrentProducer
         if (overrideGoal is null) return Missing("current.override_goal2B5900_selected_owner");
         int overrideRadius = overrideKind == ArmyOverrideTargetKind.City && overrideExtended.Value ? 3 :
             !overrideExtended.Value && overrideKind != ArmyOverrideTargetKind.City ? 1 : 2;
-        bool? nearOverride = RingContains(overrideGoal.Value, march.CurrentHex2A, overrideRadius);
+        bool? nearOverride = RingContains(overrideGoal.Value, currentHex, overrideRadius);
         if (nearOverride is null) return Missing("current.override_fixed_ring_boundary_stack_values");
         return Result(!nearOverride.Value, currentTarget, goal, "2C76E4.override-target-ring");
 
@@ -163,7 +165,7 @@ public sealed class ArmyMovementEligibilityCurrentProducer
             if (action != 17 || !direct) return Result(false, currentTarget, goal, "2C7675.at-goal-other-action");
             if (owners?.ReadParentArmyHex2A(state, army, moment) is not ushort parent)
                 return Missing("current.parent_Army229EE0_Hex2A");
-            return Result(SourceDistance(march.CurrentHex2A, parent) > 3, currentTarget, goal, "2C77C8.action17-parent-distance");
+            return Result(SourceDistance(currentHex, parent) > 3, currentTarget, goal, "2C77C8.action17-parent-distance");
         }
         bool? ExtendedFormation()
         {
@@ -209,7 +211,7 @@ public sealed class ArmyMovementEligibilityCurrentProducer
         }
         int? ResolveCurrentTarget()
         {
-            if (overrideKind == ArmyOverrideTargetKind.None && march.TargetHex2C != 48400) return march.TargetHex2C;
+            if (overrideKind == ArmyOverrideTargetKind.None && targetHex != 48400) return targetHex;
             byte type; ushort value;
             if (overrideKind == ArmyOverrideTargetKind.None)
             {
@@ -218,7 +220,7 @@ public sealed class ArmyMovementEligibilityCurrentProducer
             }
             else
             {
-                if (overrideKind == ArmyOverrideTargetKind.Unresolved) return march.TargetHex2C;
+                if (overrideKind == ArmyOverrideTargetKind.Unresolved) return targetHex;
                 if (overrideFields.Kind3C is not byte encodedKind) return null;
                 type = encodedKind;
                 if (overrideFields.Identity3E is not ushort v) return null;
@@ -230,25 +232,25 @@ public sealed class ArmyMovementEligibilityCurrentProducer
                 var selected = type == 5 ? definitions.ReadCityTableReference(value <= 51 ? value : 0) :
                     definitions.ReadGateTableReference(value <= 10 ? value : 0);
                 if (selected is null || definitions.ReadBaseNativeValidity(selected) is not bool baseValid) return null;
-                if (!baseValid) return march.TargetHex2C;
+                if (!baseValid) return targetHex;
                 if (definitions.ReadBaseObjectLink(selected) is not ushort link) return null;
                 var obj = definitions.ReadObjectTableReference(link <= 3000 ? link : 0);
                 if (obj is null || definitions.ReadObjectNativeValidity(obj) is not bool objectValid) return null;
-                return objectValid ? definitions.ReadObjectHexIndex(obj) : march.TargetHex2C;
+                return objectValid ? definitions.ReadObjectHexIndex(obj) : targetHex;
             }
             if (type == 11)
             {
                 var obj = definitions.ReadObjectTableReference(value <= 3000 ? value : 0);
                 if (obj is null || definitions.ReadObjectNativeValidity(obj) is not bool objectValid) return null;
-                return objectValid ? definitions.ReadObjectHexIndex(obj) : march.TargetHex2C;
+                return objectValid ? definitions.ReadObjectHexIndex(obj) : targetHex;
             }
             if (type == 27)
             {
                 var selected = state.Units.Values.Where(u => u.NativeArmyOrigin?.NativeSlotIndex == (value <= 500 ? value : 0)).ToArray();
                 if (selected.Length != 1 || context.ArmyValid(state, selected[0]) is not bool targetValid) return null;
-                return targetValid ? selected[0].HexId : march.TargetHex2C;
+                return targetValid ? selected[0].HexId : targetHex;
             }
-            return march.TargetHex2C;
+            return targetHex;
         }
         ArmyMovementEligibilityCurrentResolution Result(bool eligible, int? target, int? goalHex, string branch) =>
             new(new(eligible, target, goalHex, branch, $"{Revision};{package.Seed.Source.RuleVersion};cycle={moment.CalendarCycleOrdinal};{branch}"), null);

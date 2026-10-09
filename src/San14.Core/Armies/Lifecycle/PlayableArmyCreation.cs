@@ -33,7 +33,7 @@ public sealed record PlayableArmyCreationResolution(NativeArmyTacticRuntime Runt
     public NativeArmyConfiguration? Configuration { get; init; }
     public byte? NativeMorale1A { get; init; }
     public ushort? NativeSavedRegionHex152 { get; init; }
-    public ushort? NativeCurrentHex2A { get; init; }
+    public int? CurrentHexId { get; init; }
     public byte? NativeDirection36 { get; init; }
     public byte? NativeMapUiByte13C { get; init; }
     public byte? NativeCommandControl140 { get; init; }
@@ -100,13 +100,15 @@ public static class PlayableArmyCreation
             state.NativeArmyLifecycle is not null && result.NativeLifecycle is null ||
             state.ArmyMapOccupancy is not null && result.ArmyMapOccupancy is null)
             throw new InvalidDataException("Source-created Army initialization is incomplete.");
+        if (result.CurrentHexId is int confirmedHex && confirmedHex != army.HexId)
+            throw new InvalidDataException("Army creation position differs from its deployment position.");
         NativeSubdayStateValidation.ValidateRuntime(state, result.Runtime);
         UnitState changed = army with
         {
             WoundedTroops = result.WoundedTroops, NativeArmyOrigin = result.Origin with { },
             NativeMorale1A = result.NativeMorale1A,
             NativeSavedRegionHex152 = result.NativeSavedRegionHex152,
-            NativeCurrentHex2A = result.NativeCurrentHex2A,
+            PositionKnowledge = result.CurrentHexId.HasValue ? ArmyPositionKnowledge.Confirmed : ArmyPositionKnowledge.Unknown,
             NativeDirection36 = result.NativeDirection36,
             NativeMapUiByte13C = result.NativeMapUiByte13C,
             NativeCommandControl140 = result.NativeCommandControl140,
@@ -133,13 +135,11 @@ public static class PlayableArmyCreation
             (army.NativeArmyOrigin is null || army.Mission?.Kind != UnitMissionKind.Transport ||
              transport.Waypoints2C is not { Length: 5 } || transport.Choice41 > 2))
             throw new InvalidDataException("Native transport fields require their actual source-created transport owner.");
-        if ((army.NativeMorale1A is not null || army.NativeSavedRegionHex152 is not null || army.NativeCurrentHex2A is not null || army.CarriedStores is not null) && (state.NativeClock is null ||
+        if ((army.NativeMorale1A is not null || army.NativeSavedRegionHex152 is not null || army.CarriedStores is not null) && (state.NativeClock is null ||
             army.NativeArmyOrigin is null || army.NativeArmyConfiguration is null))
             throw new InvalidDataException("Current native Army attributes require their explicit Army construction and clock.");
         if (army.NativeSavedRegionHex152 is > 48400)
             throw new InvalidDataException("Current native Army saved region Hex is outside the source map.");
-        if (army.NativeCurrentHex2A is > 48399)
-            throw new InvalidDataException("Current native Army position Hex is outside the source map.");
         if (army.NativeArmyOrigin is not { } origin) return;
         if (string.IsNullOrWhiteSpace(origin.Revision) || origin.Language is not ("SC" or "TC") ||
             string.IsNullOrWhiteSpace(origin.RuleVersion) ||

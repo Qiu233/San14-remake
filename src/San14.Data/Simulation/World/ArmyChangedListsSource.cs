@@ -108,8 +108,9 @@ public static class ArmyChangedListsSource
                         if (route.NextHex48Write.HasValue && transport is null)
                             throw new Missing("current.changed_lists_transport48_owner");
                         var changed = image with { NativeRouteGoal1F8 = route.Goal1F8Write ?? image.NativeRouteGoal1F8,
-                            NativeTransport = transport is null ? null : transport with {
-                                CurrentNextHex48 = route.NextHex48Write ?? transport.CurrentNextHex48 } };
+                            March = route.NextHex48Write is ushort next
+                                ? (image.March ?? new(null, null, null)) with { NextStep = ArmyMarchSourceAdapter.DecodeDestination(next) }
+                                : image.March };
                         working = working with { Units = new(working.Units) { [live] = changed } };
                         continue;
                     }

@@ -1,13 +1,8 @@
 namespace San14.Core;
 
-/// <summary>Actual creator writes, distinct from the provisional route.
-/// WrapperNextHex48 records only an actual optional wrapper write; current48
-/// is published by the creator/wrapper/setter rather than a Core route.</summary>
-public sealed record NativeTransportFields(ushort[] Waypoints2C, byte Choice41,
-    ushort InitialNextHex48, ushort? WrapperNextHex48)
-{
-    public ushort? CurrentNextHex48 { get; init; }
-}
+/// <summary>Transport-specific waypoint and behavior knowledge. The current
+/// next step belongs to the unit's shared marching state.</summary>
+public sealed record NativeTransportFields(ushort[] Waypoints2C, byte Choice41);
 
 public sealed partial record UnitState
 {

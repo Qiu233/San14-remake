@@ -32,7 +32,7 @@ public static partial class TransportArmyRouteSource
             if (K(army.NativeRouteHold56, "Army56") != 0) return Done(goal, [], null, null, 0, "301DD0.hold56");
             if (K(OwnedArmyDestructionCurrent.ReadArmyExcluded233560(state, current, physical), "second233560"))
                 return Done(goal, [], null, null, 0, "301DD0.second_excluded");
-            ushort start = K(army.NativeMarch?.CurrentHex2A ?? army.NativeCurrentHex2A, "Army2A");
+            ushort start = K(ArmyMarchSourceAdapter.ReadCurrentHex(state, army), "Army2A");
             if (start >= Count || goal is < 0 or >= Count) throw Missing("route_endpoint");
             var query = new Queries(state, current, army, start, goal, kind, identity);
             int[] path = Search(query, out int expanded);
@@ -52,7 +52,7 @@ public static partial class TransportArmyRouteSource
         SourceWorldContext current, UnitState army)
     {
         var (goal, kind, identity) = ReadCityGoal(state, current, army);
-        ushort start = K(army.NativeMarch?.CurrentHex2A ?? army.NativeCurrentHex2A, "Army2A");
+        ushort start = K(ArmyMarchSourceAdapter.ReadCurrentHex(state, army), "Army2A");
         if (start >= Count || goal is < 0 or >= Count) throw Missing("route_endpoint");
         int[] path = Search(new Queries(state, current, army, start, goal, kind, identity), out int expanded);
         return (goal, path, expanded);

@@ -83,7 +83,7 @@ public sealed class MapSourceCreatedViewRecordCounts
             }
         }
         return new(sourceFrame.FrameNumber, lighting.Binding.ViewIdentity,
-            publicationIdentity + $";sourceRevision={sourceFrame.SourceRevision};world={sourceFrame.OwnedWorldSnapshotSha256};" +
+            publicationIdentity + $";sourceRevision={sourceFrame.SourceRevision};" +
             "current-owned-world="+sourceFrame.CurrentOwnedWorldProvenance+";"+
             "one-primitive-per-draw=TC:F57CDD/F581B0/F5820E/F58213;ordinary-part=TC:ABB360/F587F0/C240C0;current-mask=TC:DB86A7/C39475;" +
             "current-exclusion=TC:C398E2;counter-append=TC:BB8680", result);

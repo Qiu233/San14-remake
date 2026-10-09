@@ -598,7 +598,6 @@ public static class StateValidator
         EconomyReportStateValidation.Validate(state);
         NativeSubdayStateValidation.Validate(state);
         NativeNormalArmyCombatCalendarStateValidation.Validate(state);
-        NativeArmyMarchStateValidation.Validate(state);
         NativeArmyReturnCurrentStateValidation.Validate(state);
         NativeArmyLifecycleStateValidation.Validate(state);
         ArmyMapOccupancySaveValidation.Validate(state);

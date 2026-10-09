@@ -1,72 +1,9 @@
 namespace San14.Core;
 
-/// <summary>Ends stale playable military references before new logical Army
-/// IDs can be allocated. This is not an original native target-pointer writer.</summary>
+/// <summary>Ends unavailable playable military goals at their scheduled settlement stage.</summary>
 public static class PlayableMilitaryTargetLifecycle
 {
     public const string PreparedTargetLostRuleId = "san14:provisional-prepared-unit-target-lost-v1";
-
-    /// <summary>Strategy transports allocate before the period boundary can
-    /// terminate lost references. Do not let their ID revive such a reference.</summary>
-    public static int NextImmediateAllocationId(GameState state)
-    {
-        var referenced = state.PreparedDeployments.Values
-            .SelectMany(plan => plan.Actions)
-            .Where(action => action.Target.Kind == DeploymentTargetKind.Unit)
-            .Select(action => action.Target.Id).ToHashSet();
-        foreach (UnitState unit in state.Units.Values)
-        {
-            if (unit.TacticRuntime?.Pending is { } tactic) referenced.Add(tactic.TargetUnitId);
-            //Native natural expiry changes25 without clearing3C/3E. Preserve
-            //the stored Unit identity independently of its counter or goal.
-            if (unit.NativeTacticRuntime?.ProvocationOwner is { Kind: DeploymentTargetKind.Unit } owner)
-                referenced.Add(owner.Id);
-            if (unit.MilitaryPlan is not { } plan) continue;
-            if (plan.Action.Target.Kind == DeploymentTargetKind.Unit) referenced.Add(plan.Action.Target.Id);
-            if (plan.IncidentalEnemyId is int incidental) referenced.Add(incidental);
-        }
-        foreach (NativeArmyLifecycleSlot slot in state.NativeArmyLifecycle?.Slots ?? [])
-            if (slot.PendingImage is { } pending) referenced.Add(pending.Id);
-        foreach (int unitId in state.PendingCombatSettlements?.ReferencedUnitIds() ?? []) referenced.Add(unitId);
-        foreach (int unitId in state.NativeArmyLifecycle?.Indexes.ReferencedUnitIds() ?? []) referenced.Add(unitId);
-        foreach (int unitId in state.NativeArmyLifecycle?.ArmyCautions?.ReferencedUnitIds() ?? []) referenced.Add(unitId);
-        foreach (int unitId in state.ArmyMapOccupancy?.ReferencedUnitIds() ?? []) referenced.Add(unitId);
-        return NextFreeId(state.Units, referenced,
-            state.Units.Count == 0 ? 1 : checked(state.Units.Keys.Max() + 1));
-    }
-
-    /// <summary>Military goals have been refreshed before period allocation,
-    /// but queued tactics settle afterwards. Keep their logical targets vacant
-    /// until they can report target_missing rather than selecting a new Army.
-    /// Stored native provocation references survive natural expiry and cannot
-    /// rebind until their source writer clears/replaces them. Historical effects
-    /// and reports are not active target reservations.</summary>
-    public static int NextPeriodAllocationId(IReadOnlyDictionary<int, UnitState> units, int firstCandidate,
-        NativeArmyLifecycleState? nativeLifecycle = null, CombatSettlementQueue? settlements = null,
-        ArmyMapOccupancyState? occupancy = null)
-    {
-        var referenced = units.Values.Where(unit => unit.TacticRuntime?.Pending is not null)
-            .Select(unit => unit.TacticRuntime!.Pending!.TargetUnitId).ToHashSet();
-        foreach (UnitState unit in units.Values)
-            if (unit.NativeTacticRuntime?.ProvocationOwner is { Kind: DeploymentTargetKind.Unit } owner)
-                referenced.Add(owner.Id);
-        foreach (NativeArmyLifecycleSlot slot in nativeLifecycle?.Slots ?? [])
-            if (slot.PendingImage is { } pending) referenced.Add(pending.Id);
-        foreach (int unitId in settlements?.ReferencedUnitIds() ?? []) referenced.Add(unitId);
-        foreach (int unitId in nativeLifecycle?.Indexes.ReferencedUnitIds() ?? []) referenced.Add(unitId);
-        foreach (int unitId in nativeLifecycle?.ArmyCautions?.ReferencedUnitIds() ?? []) referenced.Add(unitId);
-        foreach (int unitId in occupancy?.ReferencedUnitIds() ?? []) referenced.Add(unitId);
-        return NextFreeId(units, referenced, firstCandidate);
-    }
-
-    private static int NextFreeId(IReadOnlyDictionary<int, UnitState> units,
-        IReadOnlySet<int> referenced, int firstCandidate)
-    {
-        if (firstCandidate < 0) throw new ArgumentOutOfRangeException(nameof(firstCandidate));
-        int next = firstCandidate;
-        while (units.ContainsKey(next) || referenced.Contains(next)) next = checked(next + 1);
-        return next;
-    }
 
     public static bool PreparedUnitTargetIsUnavailable(PreparedDeployment plan,
         IReadOnlyDictionary<int, UnitState> units, Func<int, int?, bool> isHostile) =>

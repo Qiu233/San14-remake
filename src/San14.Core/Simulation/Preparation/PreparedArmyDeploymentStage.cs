@@ -8,9 +8,10 @@ internal static class PreparedArmyDeploymentStage
     // state or mutable world is retained after this method completes.
     internal static PreparedOrderStageResult ExecuteOwned(GameState periodEntry,
         GameState current, PlayableLandRoutes routes, IOrderRules deploymentCancellation,
-        IPlayableArmyCreationRules? armyCreationRules, int nextUnitId)
+        IPlayableArmyCreationRules? armyCreationRules)
     {
         GameState basis = current;
+        ArmyIdentitySequence identities = current.ArmyIdentities!;
         var cities = current.Cities;
         var gates = current.Gates;
         var districts = current.Districts;
@@ -23,11 +24,10 @@ internal static class PreparedArmyDeploymentStage
         GameState CurrentWorld() => basis with
         {
             Cities = cities, Gates = gates, Districts = districts, Officers = officers,
-            Units = units, RandomState = randomState
+            Units = units, RandomState = randomState, ArmyIdentities = identities
         };
         //Resolve disappearance against the current pre-allocation roster.
-        //Newly formed Armies may reuse logical IDs; they must never revive
-        //an older pending/active military target by coincidence.
+        //New armies have distinct identities; lost goals still need their ordinary cancellation report.
         int[] lostPreparedUnitTargets = periodEntry.PreparedDeployments.Values
             .Where(plan => PlayableMilitaryTargetLifecycle.PreparedUnitTargetIsUnavailable(plan, units, IsHostile))
             .Select(plan => plan.Id).ToArray();
@@ -50,10 +50,7 @@ internal static class PreparedArmyDeploymentStage
                 { LocationId = plan.SourceLocationId });
                 continue;
             }
-            //Queued tactics still refer to the pre-allocation roster and
-            //must not bind to a different Army reusing their vanished ID.
-            nextUnitId = PlayableMilitaryTargetLifecycle.NextPeriodAllocationId(units, nextUnitId,
-                basis.NativeArmyLifecycle, basis.PendingCombatSettlements, basis.ArmyMapOccupancy);
+            int nextUnitId = identities.Candidate;
             int sourceHex;
             int morale;
             if (cities.TryGetValue(plan.SourceLocationId, out CityState? city))
@@ -126,7 +123,7 @@ internal static class PreparedArmyDeploymentStage
                 randomState = created.RandomState;
             }
             units.Add(nextUnitId, deployed);
-            nextUnitId = checked(nextUnitId + 1);
+            identities = identities.Advance();
             officers[plan.OfficerId] = officers[plan.OfficerId] with { Deployed = true };
             reports.Add(new PeriodReportEntry("deploy", plan.ForceId,
                 cities.ContainsKey(plan.SourceLocationId) ? plan.SourceLocationId : null,

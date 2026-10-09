@@ -27,8 +27,8 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportRetarget
             DestinationHexId = city.HexId!.Value, Mission = mission with { DestinationCityId = city.Id },
             NativeArmyConfiguration = configuration with { Action37 = receipt.Action37 },
             NativeTacticRuntime = runtime with { Flags26 = receipt.Flags26 },
-            NativeTransport = transport with { Waypoints2C = receipt.Waypoints2C.ToArray(),
-                Choice41 = receipt.Choice41, CurrentNextHex48 = receipt.NextHex48 },
+            NativeTransport = transport with { Waypoints2C = receipt.Waypoints2C.ToArray(), Choice41 = receipt.Choice41 },
+            March = (unit.March ?? new(null, null, null)) with { NextStep = ArmyMarchSourceAdapter.DecodeDestination(receipt.NextHex48) },
             OverrideTarget = receipt.ClearOverride3C3E ? ArmyOverrideTargetState.Cleared : unit.OverrideTarget
         };
         if (arena.Targets is null) return null;

@@ -106,7 +106,7 @@ public sealed class ArmyMapUiCurrentSource
             if (row.Morale1A is byte morale && row.MoraleCapacity is int cap)
                 row = row with { EffectiveMorale = Math.Min((int)morale, cap) };
 
-            ushort? hex = unit.NativeMarch?.CurrentHex2A ?? unit.NativeCurrentHex2A;
+            ushort? hex = ArmyMarchSourceAdapter.ReadCurrentHex(world, unit);
             var hexPointer = hex is ushort hx ? current.ReadHexTableReference(hx <= 48399 ? hx : 0) : null;
             byte? surface = hexPointer is not null ? current.ReadHexSurfaceCode(hexPointer) : null;
             byte? selected = surface is byte code ? ((_terrain2C[code <= 30 ? code : 0] & 2) != 0

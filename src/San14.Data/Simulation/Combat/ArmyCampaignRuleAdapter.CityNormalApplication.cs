@@ -1,4 +1,3 @@
-﻿using System.Text.Json;
 using San14.Core;
 
 namespace San14.Data;
@@ -65,8 +64,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (requestedLoss < 0 || (isCity ? locationId is < 1 or > 51 || !input.Cities.ContainsKey(locationId)
             : physical is < 1 or > 10 || !input.Gates.ContainsKey(locationId)))
             return Unknown($"current.ordinary_{label}_nonnegative_loss");
-        GameState working = JsonSerializer.Deserialize<GameState>(JsonSerializer.SerializeToUtf8Bytes(input))
-            ?? throw new InvalidDataException("Base application state could not be detached.");
+        GameState working = GameStateCopy.Copy(input);
         try
         {
             if (!working.Units.TryGetValue(attackerArmyId, out var attacker) ||

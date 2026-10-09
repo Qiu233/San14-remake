@@ -18,7 +18,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         if (army.NativeArmyOrigin is not { NativeSlotIndex: int physical } ||
             army.NativeTacticRuntime is not { } runtime ||
-            army.NativeCurrentHex2A is not ushort currentHex || army.NativeDirection36 is not byte direction)
+            ArmyMarchSourceAdapter.ReadCreatedCurrentHex(state, army) is not ushort currentHex || army.NativeDirection36 is not byte direction)
             return null;
 
         ushort commander;

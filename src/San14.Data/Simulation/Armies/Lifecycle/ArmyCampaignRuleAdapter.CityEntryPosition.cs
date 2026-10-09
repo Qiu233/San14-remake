@@ -11,7 +11,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             arena.Slots[physical] is not { ActiveUnitId: var active, Commander12: var commander } slot ||
             active != army.Id || commander != army.OfficerId ||
             OwnedArmyLifecycleTargets.Read(state, slot.ReceiverId) is not { Kind38: 5, Identity3A: ushort target } || target != city.Id ||
-            army.NativeCurrentHex2A != army.HexId)
+            ArmyMarchSourceAdapter.ReadCreatedCurrentHex(state, army) != army.HexId)
             return new(null, "current.transport_entry_position_owner");
         var geometry = _definitions.ReadCityEntryGeometry(target);
         if (geometry.Goal != city.HexId) return new(null, "current.transport_entry_Object10");
@@ -35,7 +35,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
         }
         return ArmyCityEntryEligibilitySource.ReadPosition(new(physical, slot.Commander12, slot.Status10,
-            army.NativeArmyConfiguration?.Action37, army.NativeMarch?.CurrentHex2A ?? army.NativeCurrentHex2A,
+            army.NativeArmyConfiguration?.Action37, ArmyMarchSourceAdapter.ReadCreatedCurrentHex(state, army),
             OwnedArmyLifecycleTargets.Read(state, slot.ReceiverId), target, geometry.Valid, geometry.Location, geometry.Goal, rawForce, city.ForceId ?? 0,
             commanderValid));
     }

@@ -361,7 +361,8 @@ public sealed class PlayableUnitOrders(IOrderRules originalCommands, PlayableLan
         if (remaining - CommandBookAvailability.Reserved(state, district.Id) < 1)
             return CommandResult.Reject("District lacks an uncommitted command book.",
                 "transport.insufficient_orders");
-        int id = PlayableMilitaryTargetLifecycle.NextImmediateAllocationId(state);
+        state = ArmyIdentityAllocation.Initialize(state);
+        int id = state.ArmyIdentities!.Candidate;
         var unit = new UnitState(id, force.Id, officer.Id, sourceHex, destinationHex,
             order.Troops, order.Supplies, source.Morale ?? 100)
         {
@@ -375,7 +376,7 @@ public sealed class PlayableUnitOrders(IOrderRules originalCommands, PlayableLan
             return created is null
                 ? CommandResult.RuleUnavailable("transport.source_creation",
                     "Current source transport construction is unavailable.")
-                : CommandResult.Accept(created.State);
+                : CommandResult.Accept(created.State with { ArmyIdentities = state.ArmyIdentities.Advance() });
         }
         return CommandResult.Accept(state with
         {
@@ -404,7 +405,8 @@ public sealed class PlayableUnitOrders(IOrderRules originalCommands, PlayableLan
             {
                 [district.Id] = district with { OrdersRemaining = remaining - 1 }
             },
-            Units = new Dictionary<int, UnitState>(state.Units) { [id] = unit }
+            Units = new Dictionary<int, UnitState>(state.Units) { [id] = unit },
+            ArmyIdentities = state.ArmyIdentities.Advance()
         });
     }
 }

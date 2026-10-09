@@ -58,7 +58,8 @@ public sealed class PrototypeOrderRules : IOrderRules
             order.DestinationHexId == city.HexId)
             return CommandResult.Reject("Destination is invalid.");
 
-        int unitId = state.Units.Count == 0 ? 1 : checked(state.Units.Keys.Max() + 1);
+        state = ArmyIdentityAllocation.Initialize(state);
+        int unitId = state.ArmyIdentities!.Candidate;
         var forces = new Dictionary<int, ForceState>(state.Forces)
         {
             [force.Id] = force with { OrdersRemaining = force.OrdersRemaining - 1 }
@@ -79,7 +80,8 @@ public sealed class PrototypeOrderRules : IOrderRules
         };
         return CommandResult.Accept(state with
         {
-            Forces = forces, Cities = cities, Officers = officers, Units = units
+            Forces = forces, Cities = cities, Officers = officers, Units = units,
+            ArmyIdentities = state.ArmyIdentities.Advance()
         });
     }
 }

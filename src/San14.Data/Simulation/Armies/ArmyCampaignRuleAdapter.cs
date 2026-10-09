@@ -252,24 +252,17 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         if (preparedState.Phase != TurnPhase.Strategy || preparedState.NativeClock is null ||
             preparedState.NativeArmySimulation is null)
             return Unavailable("The pending native Army queue lacks its owned strategy clock or simulation.");
-        GameState current = preparedState with
+        GameState current = ArmyIdentityAllocation.Initialize(preparedState) with
         {
             Cities = new(preparedState.Cities), Gates = new(preparedState.Gates),
             Districts = new(preparedState.Districts), Officers = new(preparedState.Officers),
             Units = new(preparedState.Units)
         };
-        long nextId = current.Units.Count == 0 ? 1 : (long)current.Units.Keys.Max() + 1;
+        if (current.ArmyIdentities!.NextId + preparedState.PreparedDeployments.Count - 1 > int.MaxValue)
+            return Unavailable("The campaign army identity sequence is exhausted.");
         foreach (PreparedDeployment plan in preparedState.PreparedDeployments.Values.OrderBy(plan => plan.Id))
         {
-            if (nextId <= int.MaxValue)
-            {
-                try { nextId = PlayableMilitaryTargetLifecycle.NextPeriodAllocationId(current.Units, (int)nextId,
-                    current.NativeArmyLifecycle, current.PendingCombatSettlements, current.ArmyMapOccupancy); }
-                catch (OverflowException) { return Unavailable("The current logical Army allocation cursor is exhausted."); }
-            }
-            //Execution increments its cursor after every insertion as well.
-            if (nextId >= int.MaxValue)
-                return Unavailable("The current logical Army allocation cursor has no complete next insertion.");
+            int nextId = current.ArmyIdentities!.Candidate;
             int? sourceHex;
             int morale;
             if (current.Cities.TryGetValue(plan.SourceLocationId, out CityState? city))
@@ -299,7 +292,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                     return Unavailable("The pending district command debit is unavailable.");
                 current.Districts[district.Id] = district with { OrdersRemaining = remaining - 1 };
             }
-            var army = new UnitState((int)nextId, plan.ForceId, plan.OfficerId, hex, hex,
+            var army = new UnitState(nextId, plan.ForceId, plan.OfficerId, hex, hex,
                 plan.Troops, 0, morale)
             {
                 SourceLocationId = plan.SourceLocationId, FormationId = plan.FormationId,
@@ -315,7 +308,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                 NativeArmyOrigin = receipt.Origin, NativeArmyConfiguration = receipt.Configuration,
                 NativeTacticRuntime = receipt.Runtime, NativeMorale1A = receipt.NativeMorale1A,
                 NativeSavedRegionHex152 = receipt.NativeSavedRegionHex152,
-                NativeCurrentHex2A = receipt.NativeCurrentHex2A,
+                PositionKnowledge = receipt.CurrentHexId.HasValue ? ArmyPositionKnowledge.Confirmed : ArmyPositionKnowledge.Unknown,
                 NativeDirection36 = receipt.NativeDirection36,
                 NativeMapUiByte13C = receipt.NativeMapUiByte13C,
                 NativeCommandControl140 = receipt.NativeCommandControl140,
@@ -338,7 +331,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                 ResourceState = receipt.ResourceState ?? current.ResourceState,
                 NativeArmyLifecycle = receipt.NativeLifecycle ?? current.NativeArmyLifecycle,
                 ArmyMapOccupancy = receipt.ArmyMapOccupancy ?? current.ArmyMapOccupancy };
-            nextId++;
+            current = ArmyIdentityAllocation.Commit(current, army.Id);
         }
         return new(DeploymentDecisionStatus.Allowed);
 
@@ -493,7 +486,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         var morale = new ArmyMoraleSource(Context(definitions), definitions, Revision);
         BaseReference? selectedBase = morale.ResolveCommanderBase(state, army);
         var result = receipt with { NativeMorale1A = morale.ResolveCreationMorale(state, deployment, army),
-            NativeCurrentHex2A = ArmyConstruction.ResolveCurrentHex2A(definitions, army.OfficerId),
+            CurrentHexId = ArmyConstruction.ResolveCurrentHex2A(definitions, army.OfficerId),
             NativeDirection36 = state.NativeArmyLifecycle?.Slots[nativeArmySlot].Direction36,
             NativeMapUiByte13C = state.NativeArmyLifecycle?.Slots[nativeArmySlot].MapUiByte13C,
             NativeCommandControl140 = state.NativeArmyLifecycle?.Slots[nativeArmySlot].CommandControl140,
@@ -504,7 +497,8 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                 ArmyHomeSequenceSource.ReadNextOrdinary(state, CaptureOwnedArmyReturnWorld(state).Context, army.OfficerId),
             NativeSavedRegionHex152 = selectedBase?.PhysicalSlot is not null
                 ? ArmyCurrentRegionSource.ResolveCreationRegion(selectedBase, definitions) : null };
-        var residues = CampaignSourceKnowledge.From(state.ResourceState);
+        if (result.CurrentHexId is int confirmedHex && confirmedHex != army.HexId) return null;
+        var residues = CampaignSourceKnowledge.From(receipt.ResourceState ?? state.ResourceState);
         var previousLocationResidue = residues.Find(army.OfficerId);
         result = result with { ResourceState = residues.With(new(army.OfficerId,
             result.CommanderPosition?.Kind == OfficerPositionKind.Unresolved
@@ -515,7 +509,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             NativeTacticRuntime = result.Runtime, NativeMorale1A = result.NativeMorale1A,
             NativeSavedRegionHex152 = result.NativeSavedRegionHex152, CarriedStores = result.CarriedStores,
             OverrideTarget = result.OverrideTarget,
-            NativeCurrentHex2A = result.NativeCurrentHex2A,
+            PositionKnowledge = result.CurrentHexId.HasValue ? ArmyPositionKnowledge.Confirmed : ArmyPositionKnowledge.Unknown,
             NativeDirection36 = result.NativeDirection36,
             NativeMapUiByte13C = result.NativeMapUiByte13C,
             NativeCommandControl140 = result.NativeCommandControl140,

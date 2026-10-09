@@ -24,7 +24,7 @@ public static class TransportArmyCreationRouteSource
                 current.ClearTemporaryHexList(temporary); //Source669E60 precedes1845B0.
                 var (goal, path, expanded) = TransportArmyRouteSource.ReadCreationPath(state, current, createdArmy);
                 if (path.Length == 0) return Done(null, null, "2009B0.no_path");
-                ushort start = createdArmy.NativeMarch?.CurrentHex2A ?? createdArmy.NativeCurrentHex2A ??
+                ushort start = ArmyMarchSourceAdapter.ReadCurrentHex(state, createdArmy) ??
                     throw new InvalidDataException("current.transport_creation_route_Army2A");
                 var hex = current.ReadHexTableReference(start < 48400 ? start : 0) ??
                     throw new InvalidDataException("current.transport_creation_route_start_Hex_pointer");

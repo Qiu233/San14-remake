@@ -134,7 +134,7 @@ public static class OwnedArmyLifecycleCurrent
         var slots = arena.Slots.ToArray();
         slots[physical] = old with { Commander12 = (ushort)created.OfficerId, Status10 = status,
             //Ordinary uses packet+4; type2 creator independently writes0.
-            Priority14 = status == 2 ? (ushort)0 : created.NativeMarch?.Credit14,
+            Priority14 = status == 2 ? (ushort)0 : ArmyMarchSourceAdapter.EncodeCredit(created.March),
             ActiveUnitId = created.Id, PendingImage = null,
             GroupAssignmentReady = false,
             OverrideTarget = created.OverrideTarget, Direction36 = created.NativeDirection36,
@@ -144,6 +144,7 @@ public static class OwnedArmyLifecycleCurrent
             StoredResources = new(resources.Gold, resources.Food) };
         var registered = arena with { Slots = slots, Indexes = pool.ExportOwnedState() };
         var targetState = OwnedArmyLifecycleTargets.PublishCreation(state with { NativeArmyLifecycle = registered }, physical, packetTargetKind38, packetTargetIdentity3A);
+        targetState = targetState with { ResourceState = CampaignSourceKnowledge.From(targetState.ResourceState).WithoutArmyPosition(created.Id) };
         targetState = ArmyOverrideTargetSourceAdapter.InheritReceiverKnowledge(targetState, created);
         registered = targetState.NativeArmyLifecycle!;
         var admitted = OwnedArmyLifecycleAuxiliaries.PrepareCreation(registered, state, created, current, pool);

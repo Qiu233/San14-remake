@@ -51,14 +51,14 @@ public static class ArmyMarchSourceMath
 /// <summary>Finite ordinary direct-target/insufficient-cost branch of source
 ///2D99C0. Reaching a cross-Hex commit, occupied destination, action8 or unknown
 /// current owner rejects. This source does not claim pathfinding or full stage8.</summary>
-public sealed class ArmyMarchSourceRuntime : IPlayableNativeArmyMovementRules
+public sealed class ArmyMarchSourceRuntime : IArmyMovementRules
 {
     public const string Revision = "san14:ce-stage8-ordinary-insufficient-cost-march-20261003";
     private readonly IArmyMarchCurrentQueries queries;
     public ArmyMarchSourceRuntime(IArmyMarchCurrentQueries currentQueries)
         => queries = currentQueries ?? throw new ArgumentNullException(nameof(currentQueries));
 
-    public NativeArmyMovementQueue? PrepareStage7(GameState state, NativeArmyProgressStageMoment moment)
+    public ArmyMovementQueue? PrepareStage7(GameState state, NativeArmyProgressStageMoment moment)
     {
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(moment);
         if (moment.SchedulerStageIndex != (byte)NativeArmyProgressStage.PrepareMovement || moment.Boundary != NativeArmyProgressStageBoundary.StageEntry)
@@ -68,9 +68,10 @@ public sealed class ArmyMarchSourceRuntime : IPlayableNativeArmyMovementRules
         if (chain is null) return null;
         var expected = state.Units.Values.Where(u => u.NativeArmyOrigin is not null).Select(u => u.Id).ToArray();
         if (chain.Any(a => a is null) || chain.Select(a => a.UnitId).Distinct().Count() != expected.Length ||
+            chain.Select(a => a.NativePoolSlot).Distinct().Count() != chain.Count ||
             chain.Count != expected.Length || !chain.Select(a => a.UnitId).Order().SequenceEqual(expected.Order()))
             throw new InvalidDataException("Source stage7 requires its complete current manager chain, without ID sorting as an ordering substitute.");
-        var selected = new List<NativeArmyMovementQueueActor>();
+        var selected = new List<ArmyMovementQueueActor>();
         foreach (var actor in chain)
         {
             UnitState army = state.Units[actor.UnitId];
@@ -80,39 +81,46 @@ public sealed class ArmyMarchSourceRuntime : IPlayableNativeArmyMovementRules
             bool? eligible = queries.ReadSourceMovementEligibility2C7350(state, army, moment);
             if (eligible is null) return null;
             if (!eligible.Value) continue;
-            if (army.NativeMarch is not { } fields) return null;
-            selected.Add(new(actor.UnitId, actor.NativePoolSlot, fields.Credit14));
+            if (army.March is not { MovementCredit: int credit } march ||
+                ArmyMarchSourceAdapter.ReadCurrentHex(state, army) is not ushort hex || hex != army.HexId) return null;
+            ArmyReceiverId? receiver = state.NativeArmyLifecycle is { } arena
+                ? arena.Slots.Single(slot => slot.ActiveUnitId == army.Id).ReceiverId : null;
+            selected.Add(new(actor.UnitId, receiver, credit, hex, march));
         }
         // TC24B260 only moves a node when its word14 is strictly greater than
         // its preceding node. Equal-credit chain order is retained.
-        return new(moment, selected.OrderByDescending(a => a.CreditAtStage7).ToArray(), Revision);
+        return new(moment, Array.AsReadOnly(selected.OrderByDescending(a => a.CreditAtPreparation).ToArray()));
     }
 
-    public NativeArmyMovementUnitResolution? AdvanceArmy(GameState state, UnitState army, NativeArmyProgressStageMoment moment)
+    public ArmyMovementResolution? AdvanceArmy(GameState state, UnitState army, NativeArmyProgressStageMoment moment)
     {
         if (moment.SchedulerStageIndex != (byte)NativeArmyProgressStage.Movement || moment.Boundary != NativeArmyProgressStageBoundary.StageEntry)
             throw new InvalidDataException("Ordinary source march requires its reached stage8.");
         ValidateCurrentMoment(state, moment);
         if (state.Units.GetValueOrDefault(army.Id) != army || army.NativeArmyOrigin is null ||
             !HasCurrentRules(army) ||
-            army.NativeMarch is not { } fields || army.NativeArmyConfiguration?.Action37 is not byte action ||
-            fields.CurrentHex2A > 48399 ||
-            fields.CurrentHex2A != army.HexId || army.OverrideTarget?.Kind != ArmyOverrideTargetKind.None ||
-            fields.TargetHex2C > 48399 || fields.CurrentHex2A == fields.TargetHex2C || fields.NextHex48 > 48399 || action == 8)
+            army.March is not { } march || army.NativeArmyConfiguration?.Action37 is not byte action ||
+            ArmyMarchSourceAdapter.ReadCurrentHex(state, army) is not ushort current ||
+            current != army.HexId || current >= ArmyMarchSourceAdapter.SourceHexCount ||
+            ArmyMarchSourceAdapter.EncodeCredit(march) is not ushort formerCredit ||
+            ArmyMarchSourceAdapter.EncodeDestination(march.Target) is not ushort target ||
+            ArmyMarchSourceAdapter.EncodeDestination(march.NextStep) is not ushort next ||
+            army.OverrideTarget?.Kind != ArmyOverrideTargetKind.None ||
+            target >= ArmyMarchSourceAdapter.SourceHexCount || current == target || next >= ArmyMarchSourceAdapter.SourceHexCount || action == 8)
             return null;
         var input = queries.ReadOrdinaryCurrentInputs(state, army, moment);
         if (input is null || !input.ArmyValid || string.IsNullOrWhiteSpace(input.SourceProvenance) ||
             !input.CurrentTerrainPointerAvailable || !input.DestinationHexValid ||
             input.CachedMinimumTerrainCost1A24010 <= 0 || input.CachedMinimumTerrainCost1A24010 == int.MaxValue ||
             input.DestinationTerrainCostBDDD0 <= 0 ||
-            state.ArmyMapOccupancy?.HasArmyMarker(fields.NextHex48) != false || input.DestinationHexObjectWord1A != 0)
+            state.ArmyMapOccupancy?.HasArmyMarker(next) != false || input.DestinationHexObjectWord1A != 0)
             return null;
         int? speed = ArmyMarchSourceMath.ResolveCycleSpeed(input.Mobility2B0660, input.SpeedScale2695D0, input.Penalty2B5C10);
-        if (speed is not int reachedSpeed || unchecked(fields.Credit14 + reachedSpeed) >= input.CachedMinimumTerrainCost1A24010)
+        if (speed is not int reachedSpeed || unchecked(formerCredit + reachedSpeed) >= input.CachedMinimumTerrainCost1A24010)
             return null;
-        ushort credit = ArmyMarchSourceMath.AccumulateCredit(fields.Credit14, reachedSpeed, input.DestinationTerrainCostBDDD0);
+        ushort credit = ArmyMarchSourceMath.AccumulateCredit(formerCredit, reachedSpeed, input.DestinationTerrainCostBDDD0);
         if (credit >= input.DestinationTerrainCostBDDD0) return null;
-        return new(fields with { Credit14 = credit }, Revision + ";" + input.SourceProvenance);
+        return new(credit);
     }
     private static bool HasCurrentRules(UnitState army) => army.NativeArmyOrigin is { } origin &&
         origin.Language is "SC" or "TC" && origin.RuleVersion == SimulationRuleIdentity.Version;

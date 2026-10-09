@@ -54,16 +54,18 @@ public sealed record OfficerAftermathSourceResidue
 
 /// <summary>Immutable resource compatibility knowledge. Location and aftermath
 /// channels are independent and survive updates to either channel.</summary>
-public sealed class CampaignSourceKnowledge : ICampaignResourceState
+public sealed class CampaignSourceKnowledge : ICampaignResourceState, IArmyIdentityReferences
 {
     private readonly IReadOnlyDictionary<int, OfficerLocationSourceResidue> _officers;
     private readonly IReadOnlyDictionary<int, OfficerAftermathSourceResidue> _aftermath;
     private readonly IReadOnlyDictionary<ArmyReceiverId, ArmyTargetSourceResidue> _armyTargets;
     private readonly IReadOnlyDictionary<ArmyOverrideSourceOwner, ArmyOverrideTargetSourceResidue> _armyOverrides;
+    private readonly IReadOnlyDictionary<int, ArmyPositionSourceResidue> _armyPositions;
     public CampaignSourceKnowledge(IEnumerable<OfficerLocationSourceResidue> officers,
         IEnumerable<OfficerAftermathSourceResidue>? aftermath = null,
         IEnumerable<ArmyTargetSourceResidue>? armyTargets = null,
-        IEnumerable<ArmyOverrideTargetSourceResidue>? armyOverrides = null)
+        IEnumerable<ArmyOverrideTargetSourceResidue>? armyOverrides = null,
+        IEnumerable<ArmyPositionSourceResidue>? armyPositions = null)
     {
         _officers = new ReadOnlyDictionary<int, OfficerLocationSourceResidue>(officers.ToDictionary(item => item.OfficerId));
         _aftermath = new ReadOnlyDictionary<int, OfficerAftermathSourceResidue>(
@@ -72,6 +74,7 @@ public sealed class CampaignSourceKnowledge : ICampaignResourceState
             (armyTargets ?? []).ToDictionary(item => item.ReceiverId));
         _armyOverrides = new ReadOnlyDictionary<ArmyOverrideSourceOwner, ArmyOverrideTargetSourceResidue>(
             (armyOverrides ?? []).ToDictionary(item => item.Owner));
+        _armyPositions = new ReadOnlyDictionary<int, ArmyPositionSourceResidue>((armyPositions ?? []).ToDictionary(item => item.UnitId));
     }
     public OfficerLocationSourceResidue? Find(int officerId) => _officers.GetValueOrDefault(officerId);
     public OfficerAftermathSourceResidue? FindAftermath(int officerId) => _aftermath.GetValueOrDefault(officerId);
@@ -80,15 +83,25 @@ public sealed class CampaignSourceKnowledge : ICampaignResourceState
     public ArmyOverrideTargetSourceResidue? FindArmyOverride(ArmyOverrideSourceOwner owner) => _armyOverrides.GetValueOrDefault(owner);
     public IReadOnlyCollection<ArmyOverrideTargetSourceResidue> ArmyOverrides => _armyOverrides.Values.ToArray();
     public CampaignSourceKnowledge ReplaceArmyOverrides(IEnumerable<ArmyOverrideTargetSourceResidue> rows) =>
-        new(_officers.Values, _aftermath.Values, _armyTargets.Values, rows);
+        new(_officers.Values, _aftermath.Values, _armyTargets.Values, rows, _armyPositions.Values);
     public CampaignSourceKnowledge WithArmyOverride(ArmyOverrideTargetSourceResidue row) => ReplaceArmyOverrides(
         _armyOverrides.Values.Where(item => item.Owner != row.Owner).Append(row)
             .Where(item => item.KindCode is not null || item.IdentityCode is not null));
     public CampaignSourceKnowledge WithArmyTarget(ArmyTargetSourceResidue residue) => new(
         _officers.Values, _aftermath.Values, _armyTargets.Values.Where(item => item.ReceiverId != residue.ReceiverId)
-            .Append(residue).Where(item => item.KindCode is not null || item.IdentityCode is not null), _armyOverrides.Values);
+            .Append(residue).Where(item => item.KindCode is not null || item.IdentityCode is not null), _armyOverrides.Values, _armyPositions.Values);
     public CampaignSourceKnowledge ReplaceArmyTargets(IEnumerable<ArmyTargetSourceResidue> rows) => new(
-        _officers.Values, _aftermath.Values, rows, _armyOverrides.Values);
+        _officers.Values, _aftermath.Values, rows, _armyOverrides.Values, _armyPositions.Values);
+    public ArmyPositionSourceResidue? FindArmyPosition(int unitId) => _armyPositions.GetValueOrDefault(unitId);
+    public IReadOnlyCollection<ArmyPositionSourceResidue> ArmyPositions => _armyPositions.Values.ToArray();
+    IEnumerable<int> IArmyIdentityReferences.ReferencedArmyIds => _armyPositions.Keys.Concat(
+        _armyOverrides.Keys.Where(owner => owner.UnitId.HasValue).Select(owner => owner.UnitId!.Value));
+    public CampaignSourceKnowledge ReplaceArmyPositions(IEnumerable<ArmyPositionSourceResidue> rows) =>
+        new(_officers.Values, _aftermath.Values, _armyTargets.Values, _armyOverrides.Values, rows);
+    public CampaignSourceKnowledge WithArmyPosition(ArmyPositionSourceResidue row) =>
+        ReplaceArmyPositions(_armyPositions.Values.Where(item => item.UnitId != row.UnitId).Append(row));
+    public CampaignSourceKnowledge WithoutArmyPosition(int unitId) =>
+        ReplaceArmyPositions(_armyPositions.Values.Where(item => item.UnitId != unitId));
     internal static CampaignSourceKnowledge From(ICampaignResourceState? state) => state switch
     {
         null => new([]),
@@ -99,12 +112,12 @@ public sealed class CampaignSourceKnowledge : ICampaignResourceState
     public IReadOnlyCollection<OfficerAftermathSourceResidue> Aftermath => _aftermath.Values.ToArray();
     public CampaignSourceKnowledge With(OfficerLocationSourceResidue residue) => new(
         _officers.Values.Where(item => item.OfficerId != residue.OfficerId).Append(residue)
-            .Where(item => item.LocationCode is not null || item.DistrictCode is not null), _aftermath.Values, _armyTargets.Values, _armyOverrides.Values);
+            .Where(item => item.LocationCode is not null || item.DistrictCode is not null), _aftermath.Values, _armyTargets.Values, _armyOverrides.Values, _armyPositions.Values);
     public CampaignSourceKnowledge WithAftermath(OfficerAftermathSourceResidue residue) => new(
         _officers.Values, _aftermath.Values.Where(item => item.OfficerId != residue.OfficerId).Append(residue)
-            .Where(item => item.UnmappedResentmentTarget is not null || item.PreviousForceCode is not null || item.CaptureResetCode is not null), _armyTargets.Values, _armyOverrides.Values);
+            .Where(item => item.UnmappedResentmentTarget is not null || item.PreviousForceCode is not null || item.CaptureResetCode is not null), _armyTargets.Values, _armyOverrides.Values, _armyPositions.Values);
     public CampaignSourceKnowledge WithoutAftermath(int officerId) => new(
-        _officers.Values, _aftermath.Values.Where(item => item.OfficerId != officerId), _armyTargets.Values, _armyOverrides.Values);
+        _officers.Values, _aftermath.Values.Where(item => item.OfficerId != officerId), _armyTargets.Values, _armyOverrides.Values, _armyPositions.Values);
 }
 
 internal sealed class CampaignResourceStateCodec : ICampaignResourceStateCodec
@@ -128,8 +141,8 @@ internal sealed class CampaignResourceStateCodec : ICampaignResourceStateCodec
         foreach (var row in locations.ArmyOverrides)
             overrides.Add(new JsonObject { ["ReceiverId"] = row.Owner.ReceiverId?.Value, ["UnitId"] = row.Owner.UnitId,
                 ["KindCode"] = row.KindCode, ["IdentityCode"] = row.IdentityCode });
-        return new() { ["Kind"] = "campaign-source-knowledge", ["Version"] = 4,
-            ["Locations"] = rows, ["Aftermath"] = aftermath, ["ArmyTargets"] = targets, ["ArmyOverrides"] = overrides };
+        return new() { ["Kind"] = "campaign-source-knowledge", ["Version"] = 5,
+            ["Locations"] = rows, ["Aftermath"] = aftermath, ["ArmyTargets"] = targets, ["ArmyOverrides"] = overrides, ["ArmyPositions"] = ArmyPositionSourceKnowledge.Encode(locations.ArmyPositions) };
     }
     public ICampaignResourceState Decode(JsonObject document)
     {
@@ -137,14 +150,16 @@ internal sealed class CampaignResourceStateCodec : ICampaignResourceStateCodec
             document["Version"] is not JsonValue versionValue || !versionValue.TryGetValue<int>(out int version))
             throw new InvalidDataException("Campaign resource state identity is invalid.");
         bool legacy = kind == "officer-location-source-residues" && version == 1;
-        if ((!legacy && (kind != "campaign-source-knowledge" || version is not (2 or 3 or 4))) ||
+        if ((!legacy && (kind != "campaign-source-knowledge" || version is not (2 or 3 or 4 or 5))) ||
             document[legacy ? "Officers" : "Locations"] is not JsonArray rows ||
             (legacy && (document.ContainsKey("Locations") || document.ContainsKey("Aftermath"))) ||
             (!legacy && (document["Aftermath"] is not JsonArray || document.ContainsKey("Officers"))) ||
             (version >= 3 && document["ArmyTargets"] is not JsonArray) ||
             (version < 3 && document.ContainsKey("ArmyTargets")) ||
-            (version == 4 && document["ArmyOverrides"] is not JsonArray) ||
-            (version < 4 && document.ContainsKey("ArmyOverrides")))
+            (version >= 4 && document["ArmyOverrides"] is not JsonArray) ||
+            (version < 4 && document.ContainsKey("ArmyOverrides")) ||
+            (version >= 5 && document["ArmyPositions"] is not JsonArray) ||
+            (version < 5 && document.ContainsKey("ArmyPositions")))
             throw new InvalidDataException("Unknown or incomplete campaign resource state.");
         var values = new List<OfficerLocationSourceResidue>();
         foreach (var node in rows)
@@ -178,7 +193,7 @@ internal sealed class CampaignResourceStateCodec : ICampaignResourceStateCodec
                 targets.Add(new(new(receiverId), targetKind is int k ? (byte)k : null, identity is int i ? (ushort)i : null));
             }
         var overrides = new List<ArmyOverrideTargetSourceResidue>();
-        if (version == 4)
+        if (version >= 4)
             foreach (var node in (JsonArray)document["ArmyOverrides"]!)
             {
                 if (node is not JsonObject row || !row.ContainsKey("ReceiverId") || !row.ContainsKey("UnitId") ||
@@ -192,7 +207,8 @@ internal sealed class CampaignResourceStateCodec : ICampaignResourceStateCodec
                 int? category = Read(row["KindCode"], byte.MaxValue), identity = Read(row["IdentityCode"], ushort.MaxValue);
                 overrides.Add(new(owner, category is int k ? (byte)k : null, identity is int i ? (ushort)i : null));
             }
-        return new CampaignSourceKnowledge(values, aftermath, targets, overrides);
+        return new CampaignSourceKnowledge(values, aftermath, targets, overrides,
+            version >= 5 ? ArmyPositionSourceKnowledge.Decode((JsonArray)document["ArmyPositions"]!) : []);
     }
     public ICampaignResourceState? MigrateLocations(ICampaignResourceState? state, IReadOnlyList<LegacyOfficerLocationKnowledge> locations)
     {
@@ -239,6 +255,19 @@ internal sealed class CampaignResourceStateCodec : ICampaignResourceStateCodec
             if (result.FindArmyOverride(owner) is not null) throw new InvalidDataException("Conflicting historical override source knowledge.");
             result = result.WithArmyOverride(new(owner, item.KindCode is int kind ? checked((byte)kind) : null,
                 item.IdentityCode is int identity ? checked((ushort)identity) : null));
+        }
+        return result;
+    }
+    public ICampaignResourceState? MigrateArmyPositions(ICampaignResourceState? state, IReadOnlyList<LegacyArmyPositionKnowledge> positions)
+    {
+        var result = CampaignSourceKnowledge.From(state);
+        foreach (var row in positions)
+        {
+            if (result.FindArmyPosition(row.UnitId) is not null)
+                throw new InvalidDataException("Conflicting historical army position knowledge.");
+            result = result.WithArmyPosition(new(row.UnitId, row.DirectPositionUnavailable,
+                row.DirectConflictHex is int direct ? checked((ushort)direct) : null,
+                row.MarchConflictHex is int march ? checked((ushort)march) : null));
         }
         return result;
     }

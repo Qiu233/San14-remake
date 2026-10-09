@@ -101,7 +101,6 @@ public static class NativeArmyLifecycleStateValidation
         //one stored image. It is never published or treated as an active world.
         var view=state with { Units=new() { [image.Id]=image } };
         NativeSubdayStateValidation.Validate(view);
-        NativeArmyMarchStateValidation.Validate(view);
         PlayableMilitaryStateValidation.Validate(view);
         PlayableTacticStateValidation.Validate(view);
     }

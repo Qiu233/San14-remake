@@ -15,6 +15,8 @@ public sealed class ResourceSaveCodec : ISaveCodec
     public byte[] Encode(GameState state)
     {
         state = ArmyOverrideSourceKnowledgeValidation.PruneReplacedChannels(state);
+        state = ArmyPositionSourceKnowledge.PruneReplacedChannels(state);
+        ArmyPositionSourceKnowledge.Validate(state);
         ArmyOverrideSourceKnowledgeValidation.Validate(state);
         ArmyTargetSourceKnowledgeValidation.Validate(state);
         return new JsonGzipSaveCodec(resourceStateCodec: new CampaignResourceStateCodec()).Encode(state);
@@ -25,6 +27,7 @@ public sealed class ResourceSaveCodec : ISaveCodec
             new CampaignResourceStateCodec()).Decode(bytes);
         ArmyTargetSourceKnowledgeValidation.Validate(state);
         ArmyOverrideSourceKnowledgeValidation.Validate(state);
+        ArmyPositionSourceKnowledge.Validate(state);
         return state;
     }
 

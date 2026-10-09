@@ -43,7 +43,7 @@ public sealed class ArmyMapGroupingCurrentQueries : IArmyMapGroupingQueries
         bool? valid = physical == 0 || slot.Commander12 == 0 ? false : slot.Commander12 is null
             ? null : slot.Status10 is byte status ? status != 0 : null;
         return new(slot.ActiveUnitId ?? unit?.Id, valid, slot.Status10,
-            unit?.NativeMarch?.CurrentHex2A ?? unit?.NativeCurrentHex2A,
+            unit is null ? null : ArmyMarchSourceAdapter.ReadCurrentHex(_world, unit),
             unit is not null ? unit.NativeMapUiByte13C : slot.MapUiByte13C);
     }
 

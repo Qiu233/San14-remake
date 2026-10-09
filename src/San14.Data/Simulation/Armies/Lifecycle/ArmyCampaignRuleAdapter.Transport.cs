@@ -12,6 +12,8 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportCreation
     public PlayableTransportCreationResolution? CreateTransport(GameState state,
         DispatchTransportOrder order, UnitState projection)
     {
+        state = ArmyIdentityAllocation.Initialize(state);
+        if (state.ArmyIdentities!.Candidate != projection.Id) return null;
         if (projection.Mission?.Kind != UnitMissionKind.Transport || state.NativeClock is not { } clock ||
             state.NativeArmyLifecycle is not { } arena ||
             !state.Officers.TryGetValue(order.OfficerId, out var person) || person.Deployed ||
@@ -51,14 +53,15 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportCreation
                     { TraitSlots64 = new ushort[36] },
                 NativeTacticRuntime = new(2, fields.Flags26, 0, 0, 0, 0, 0, 0, new sbyte[6], new byte[6], null, clock.UpdateOrdinal),
                 NativeMorale1A = fields.Morale1A, NativeSavedRegionHex152 = fields.SavedHex152,
-                NativeCurrentHex2A = fields.CurrentHex2A, NativeDirection36 = arena.Slots[fields.NativeSlot].Direction36,
+                PositionKnowledge = ArmyPositionKnowledge.Confirmed, NativeDirection36 = arena.Slots[fields.NativeSlot].Direction36,
                 NativeMapUiByte13C = fields.MapUiByte13C,
                 NativeCommandControl140 = arena.Slots[fields.NativeSlot].CommandControl140,
                 NativeRouteHold56 = fields.Field56, NativeRouteGoal1F8 = arena.Slots[fields.NativeSlot].RouteGoal1F8,
                 OverrideTarget = fields.OverrideTarget,
                 CarriedStores = new(fields.Gold5C, fields.Supplies60),
                 NativeHomeSequence28 = fields.HomeSequence28,
-                NativeTransport = new(fields.Waypoints2C.ToArray(), fields.Choice41, fields.InitialNextHex48, null)
+                NativeTransport = new(fields.Waypoints2C.ToArray(), fields.Choice41),
+                March = new(null, null, ArmyMarchSourceAdapter.DecodeDestination(fields.InitialNextHex48))
             };
             var registered = OwnedArmyLifecycleCurrent.PrepareTransportCreationAdmission(state, created,
                 _definitions, fields.TargetKind38, fields.TargetIdentity3A);
@@ -79,13 +82,12 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportCreation
             var currentRoute = CaptureWritableTransportRouteCurrent(result);
             var route = TransportArmyCreationRouteSource.Prepare(result, currentRoute, created);
             if (route.Receipt is not { } initialRoute) return null;
-            var routed = created with { NativeTransport = created.NativeTransport! with {
-                WrapperNextHex48 = initialRoute.WrapperNextHex48Write,
-                CurrentNextHex48 = initialRoute.WrapperNextHex48Write ?? fields.InitialNextHex48 } };
+            var routed = created with { March = created.March! with { NextStep =
+                ArmyMarchSourceAdapter.DecodeDestination(initialRoute.WrapperNextHex48Write ?? fields.InitialNextHex48) } };
             result = result with { Units = new(result.Units) { [created.Id] = routed },
                 NativeArmyLifecycle = result.NativeArmyLifecycle! with {
                     Indexes = currentRoute.ReadOwnedCurrentListPool()!.ExportOwnedState() } };
-            return new(result, TransportCreationRevision);
+            return new(ArmyIdentityAllocation.Commit(result, created.Id), TransportCreationRevision);
         }
         catch (InvalidDataException) { return null; }
     }

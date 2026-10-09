@@ -38,7 +38,7 @@ public static class ArmyDirectionSource
     {
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(unit);
         if (state.MapWidth != 220 || state.MapHeight != 220 || unit.NativeArmyOrigin is null ||
-            unit.NativeCurrentHex2A != unit.HexId) return null;
+            ArmyMarchSourceAdapter.ReadCreatedCurrentHex(state, unit) != unit.HexId) return null;
         return ReadAdjacentDirection36(fromHex, toHex);
     }
 
