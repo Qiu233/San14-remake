@@ -6,7 +6,7 @@ namespace San14.Data;
 /// consumes ordered deferred retirements without presentation receivers.</summary>
 public static class OwnedArmyLifecycleAuxiliaries
 {
-    internal static NativeArmyLifecycleState InstallFresh(NativeArmyLifecycleState arena,
+    internal static ArmyLifecycleSourceView InstallFresh(ArmyLifecycleSourceView arena,
         SourceWorldContext current, WorldIndexContext pool)
     {
         //220A40/220A70/227F00/2269E0 constructors. These zero-byte scenario
@@ -25,7 +25,7 @@ public static class OwnedArmyLifecycleAuxiliaries
             ArmyCautions = new() };
     }
 
-    internal static NativeArmyLifecycleState? PrepareCreation(NativeArmyLifecycleState arena,
+    internal static ArmyLifecycleSourceView? PrepareCreation(ArmyLifecycleSourceView arena,
         GameState state, UnitState created, SourceWorldContext current, WorldIndexContext pool)
     {
         if (state.PendingCombatSettlements is null || arena.ArmyGroups is not { } groups) return null;
@@ -46,18 +46,18 @@ public static class OwnedArmyLifecycleAuxiliaries
     public static GameState? ConsumePending(GameState state, ArmyOperationContext definitions,
         Action<int>? committedReset = null)
     {
-        var arena = state.NativeArmyLifecycle;
-        if (arena is null || arena.ArmyGroups is not { } groups || arena.ArmyCautions is not { } cautions || state.PendingCombatSettlements is null || arena.Slots.Length != 501) return null;
+        var arena = state.ReadArmyLifecycle();
+        if (arena is null || arena.ArmyGroups is not { } groups || arena.ArmyCautions is not { } cautions || state.PendingCombatSettlements is null || arena.ReceiverSlots().Length != 501) return null;
         var current = OwnedArmyReturnCurrentFields.CaptureCurrent(state, definitions);
         var pool = WorldIndexContext.ImportOwnedState(current, arena.Indexes, state);
         current.BindArmyMapOccupancy(state);
-        RestoreHeaders(current, arena.Slots);
+        RestoreHeaders(current, arena.ReceiverSlots());
         var pendingOrder = Chain(current, current.ReadArmyReturnPending70Descriptor());
         if (pendingOrder.Any(x => x.Kind != RegistryKind.Army || x.PhysicalSlot is not (>= 1 and <= 500))) return null;
-        if (pendingOrder.Any(x => arena.Slots[x.PhysicalSlot!.Value].ActiveUnitId is not null ||
-            arena.Slots[x.PhysicalSlot.Value].PendingImage is null)) return null;
+        if (pendingOrder.Any(x => arena.ReceiverSlots()[x.PhysicalSlot!.Value].ActiveUnitId is not null ||
+            arena.ReceiverSlots()[x.PhysicalSlot.Value].PendingImage is null)) return null;
         var cautionMembers = arena.Indexes.CautionGroupMembers;
-        var slots = arena.Slots.ToArray();
+        var slots = arena.ReceiverSlots().ToArray();
         var armyFlags150 = arena.ArmyFlags150?.ToArray();
         OwnedArmyLifecycleTargets.BindCurrent(state, current);
         try
@@ -78,7 +78,7 @@ public static class OwnedArmyLifecycleAuxiliaries
                 foreach (int groupId in retiredCautions.ChangedGroupIds)
                     pool.ReplaceCautionGroupMembers(groupId, cautionMembers[groupId]!);
                 var roster = ArmyGroupSourceAdapter.Roster(arena, current);
-                var currentState = state with { NativeArmyLifecycle = arena with { Slots = slots } };
+                var currentState = state.WithArmyLifecycle(arena.WithReceiverSlots(slots));
                 var excluded = ArmyGroupSourceAdapter.Excluded(currentState, arena, current, roster);
                 groups = ArmyGroupRules.UpdateLeaderBeforeRetirement(groups, unitId, roster, excluded,
                     id => ArmyGroupSourceAdapter.Commander(arena, current, id))
@@ -104,12 +104,12 @@ public static class OwnedArmyLifecycleAuxiliaries
                     ?? throw new InvalidDataException("Current group retirement membership is unavailable.");
             }
             current.ClearTemporaryHexList(new(current.ReadArmyReturnPending70Descriptor()!.Identity));
-            var result = state with { ArmyMapOccupancy = current.ExportArmyMapOccupancy(), NativeArmyLifecycle = arena with { Indexes = pool.ExportOwnedState(), Slots = slots, ArmyFlags150 = armyFlags150,
-                ArmyGroups = groups, ArmyCautions = cautions } };
+            var result = (state with { ArmyMapOccupancy = current.ExportArmyMapOccupancy() }).WithArmyLifecycle(arena.WithReceiverSlots(slots) with { Indexes = pool.ExportOwnedState(), ArmyFlags150 = armyFlags150,
+                ArmyGroups = groups, ArmyCautions = cautions });
             result = OwnedArmyLifecycleTargets.PublishCurrent(result, current);
             if (result.ResourceState is CampaignSourceKnowledge knowledge)
             {
-                var resetReceivers = pendingOrder.Select(receiver => arena.Slots[receiver.PhysicalSlot!.Value].ReceiverId).ToHashSet();
+                var resetReceivers = pendingOrder.Select(receiver => arena.ReceiverSlots()[receiver.PhysicalSlot!.Value].ReceiverId).ToHashSet();
                 result = result with { ResourceState = knowledge.ReplaceArmyOverrides(knowledge.ArmyOverrides
                     .Where(row => row.Owner.ReceiverId is not { } id || !resetReceivers.Contains(id))) };
             }
@@ -119,7 +119,7 @@ public static class OwnedArmyLifecycleAuxiliaries
         catch (InvalidDataException) { return null; }
     }
 
-    internal static void RestoreCurrent(SourceWorldContext current, NativeArmyLifecycleState arena)
+    internal static void RestoreCurrent(SourceWorldContext current, ArmyLifecycleSourceView arena)
     {
         if (arena.ArmyGroups is not null) ArmyGroupSourceAdapter.RestoreAssignments(current, arena);
         if (arena.ArmyCautions is { } cautions) ArmyCautionSourceAdapter.Restore(current, cautions);
@@ -164,7 +164,7 @@ public static class OwnedArmyLifecycleAuxiliaries
           node = current.ReadRegistryNodeNext(node) ?? throw new InvalidDataException("Current lifecycle next is unknown."); }
         return values.ToArray();
     }
-    private static void RestoreHeaders(SourceWorldContext current, NativeArmyLifecycleSlot[] slots)
+    private static void RestoreHeaders(SourceWorldContext current, IReadOnlyList<ArmyLifecycleReceiverView> slots)
     {
         foreach (var slot in slots)
         { current.SetArmyUnitTablePointer(slot.PhysicalSlot, slot.PhysicalSlot); current.SetArmyUnitCommanderId(slot.PhysicalSlot, slot.Commander12);

@@ -11,8 +11,8 @@ public sealed partial class SourceWorldContext
     internal void BindArmyOverrides(GameState state)
     {
         _armyOverrides.Clear(); _armyOverrideResidues.Clear();
-        _overrideReceivers = state.NativeArmyLifecycle is { } arena ? new(arena) : null;
-        foreach (var slot in state.NativeArmyLifecycle?.Slots ?? [])
+        _overrideReceivers = state.ReadArmyLifecycle() is { } arena ? new(arena) : null;
+        foreach (var slot in (IEnumerable<ArmyLifecycleReceiverView>?)state.ReadArmyLifecycle()?.ReceiverSlots() ?? [])
         {
             var image = slot.ActiveUnitId is int id ? state.Units.GetValueOrDefault(id) : slot.PendingImage;
             var target = image?.OverrideTarget ?? slot.OverrideTarget;

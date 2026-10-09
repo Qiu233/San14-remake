@@ -153,15 +153,6 @@ public sealed partial class MapPostEffect3DepthOfField2ModuleResources:IAsyncDis
     internal void Release(MapPostEffect3DepthOfField2ExecutionOwner owner)
     {if(!ReferenceEquals(active,owner))throw new InvalidDataException("DOF2 frame released a foreign module borrow.");active=null;frames.Release();}
 
-    /// <summary>Original writer frame is retained. This lease is never relabeled
-    /// as next-frame readiness, and becomes stale when its physical B5 is written.</summary>
-    public IMapPostEffect3ComputeBufferLease CaptureRetainedArgumentContents(int actualPhysicalSide)
-    {
-        ObjectDisposedException.ThrowIf(retiring||disposed,this);
-        if(UnreturnedDeviceFailure is not null||!argumentContents.TryGetValue(actualPhysicalSide,out var actual))
-            throw new InvalidDataException("DOF2 physical side has no retained actual full32B counter publication.");
-        actual.RequireReadRange(0,32);return actual;
-    }
     public MapPostEffect3DepthOfField2PhysicalRetentionSnapshot CapturePhysicalRetention()
     {
         ObjectDisposedException.ThrowIf(retiring||disposed,this);

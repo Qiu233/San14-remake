@@ -13,11 +13,11 @@ public static class ArmyDestructionQueue
 
     public static int? ResolveUnitId(GameState state, int? physical)
     {
-        if (physical is not int slot || state.NativeArmyLifecycle is not { } lifecycle || (uint)slot >= lifecycle.Slots.Length) return null;
-        var entry = lifecycle.Slots[slot];
+        if (physical is not int slot || state.ReadArmyLifecycle() is not { } lifecycle || (uint)slot >= lifecycle.ReceiverSlots().Length) return null;
+        var entry = lifecycle.ReceiverSlots()[slot];
         return entry.ActiveUnitId ?? entry.PendingImage?.Id;
     }
-    public static int? ResolveUnitSlot(GameState state, int unitId) => state.NativeArmyLifecycle?.Slots
+    public static int? ResolveUnitSlot(GameState state, int unitId) => state.ReadArmyLifecycle()?.ReceiverSlots()
         .FirstOrDefault(slot => slot.ActiveUnitId == unitId || slot.PendingImage?.Id == unitId)?.PhysicalSlot;
 
     public static SettlementBase? ResolveBase(SourceWorldContext current, BaseReference reference)
@@ -50,14 +50,14 @@ public static class ArmyDestructionQueue
         {
             if (ResolveUnitSlot(state, unitId) is not int physical) return false;
             if (!readSavedArmyValidity) return current.ReadArmyUnitNativeValidity(new(physical));
-            var slot = state.NativeArmyLifecycle!.Slots[physical];
+            var slot = state.ReadArmyLifecycle()!.ReceiverSlots()[physical];
             return slot.Commander12 is ushort commander ? commander == 0 ? false : slot.Status10 is byte status ? status != 0 : null : null;
         }
         public bool? IsBaseValid(SettlementBase target) => current.ReadBaseNativeValidity(ResolveBaseReference(state, current, target));
         public bool? IsCaptureExclusionApplicable(int winnerUnitId)
         {
             if (ResolveUnitSlot(state, winnerUnitId) is not int physical) return false;
-            ushort? commander = readSavedArmyValidity ? state.NativeArmyLifecycle!.Slots[physical].Commander12 : current.ReadArmyUnitCommanderId(new(physical));
+            ushort? commander = readSavedArmyValidity ? state.ReadArmyLifecycle()!.ReceiverSlots()[physical].Commander12 : current.ReadArmyUnitCommanderId(new(physical));
             if (commander is null) return null;
             var person = commander <= 6000 ? current.ReadPersonLookupReference(commander.Value) : current.ReadTransferPersonTableReference(0);
             if (person?.PhysicalSlot is not int identity || current.ReadPersonNativeValidity(identity) is not bool valid) return null;

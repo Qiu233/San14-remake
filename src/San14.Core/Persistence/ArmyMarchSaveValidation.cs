@@ -4,7 +4,7 @@ internal static class ArmyMarchSaveValidation
 {
     public static void Validate(GameState state)
     {
-        foreach (var unit in state.Units.Values.Concat(state.NativeArmyLifecycle?.Slots
+        foreach (var unit in state.Units.Values.Concat(state.ArmyLifecycle?.Receivers.Entries
             .Where(slot => slot.PendingImage is not null).Select(slot => slot.PendingImage!) ?? []))
         {
             if (!Enum.IsDefined(unit.PositionKnowledge) || unit.March?.MovementCredit is < 0 ||

@@ -75,12 +75,12 @@ public sealed class MapPostEffect3WorldControlledModuleOwner:IAsyncDisposable
         if(!ReferenceEquals(dof.Library,library))throw new InvalidDataException("Retained module cannot replace its actual program library.");
         return dof;
     }
-    internal MapPostEffect3RetainedShapeWrapperMetadata CaptureRetainedShapeWrapperMetadata(
+    internal MapPostEffect3DepthOfField2ExternalExtent CaptureRetainedShapeExtent(
         MapPostEffect3Functor1ModuleInvocation invocation,MapPostEffect3WorldStockGraphicsSourceOwner world)
     {
         _=RequirePreviousFrontendReturn(invocation,world);
         return (dof??throw new InvalidDataException("Retained58 has no actual earlier DOF module resource owner."))
-            .CaptureCurrentShapeWrapperMetadata(invocation,world.TextureParameters);
+            .CaptureCurrentShapeExtent(invocation,world.TextureParameters);
     }
     internal MapPostEffect3WorldControlledFactoryFrame RequirePreviousForNext(
         MapPostEffect3WorldControlledPreparation.CurrentFrame next)
@@ -241,12 +241,4 @@ public sealed class MapPostEffect3WorldControlledPortReturnReceipt
     public bool ProvesNativeRawStateRestoration=>false;
     public bool ProvesNextFramePixelsReady=>false;
     public void RequireHistoricalAuthority()=>owner.RequireReturnedHistory(this);
-    public object CaptureEvidence()=>new{FrameNumber,HistoricalSubmissionCount,ProvesManagedFrontendEnd,ProvesNativeRawStateRestoration,
-        sourceFinishOrder=new[]{6,7,8,9},sourceEndArgument=uint.MaxValue,sourceSelectorsFlipped=22,
-        managedOuterParentRestored=Scope.OuterRestored,controllerGhostRegistryCleaned=true,controllerA1=0,
-        ApplyHistoryBit23AfterReturn,applyHistoryPostwriter="success-and-last-call/current-gather-size",
-        exposureWriterFrame=Exposure.WriterFrame,exposureContentsRevision=Exposure.WriterRevision,
-        physicalExposureStorageRid=Exposure.Texture.StorageRid.Id,ProvesNextFramePixelsReady,
-        acceptedDrawContinuation=Scope.DrawContinuation is{} c?new{c.FrameNumber,c.Counter,c.LastActualGraphicsPass,c.ColorStateF4,
-            c.Scissor,c.MinimumDepth,c.MaximumDepth,retainsOriginalRawScope=false}:null};
 }

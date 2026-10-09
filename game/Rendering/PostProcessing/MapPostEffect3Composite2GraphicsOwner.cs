@@ -96,10 +96,6 @@ public sealed partial class MapPostEffect3Composite2GraphicsOwner:IAsyncDisposab
     public MapPostEffect3TextureParameterState TextureParameters{get;}
     public MapPostEffect3Composite2CompletedGraphics? LastCompleted{get;private set;}
     public MapPostEffect3Composite2GraphicsCoverageReceipt? CurrentCoverage{get;private set;}
-    /// <summary>Optional numeric observer after the actual draw and pixel
-    /// publication, before its native release. It must not mutate resources
-    /// or call this execution owner. Normal construction leaves it unset.</summary>
-    public Func<MapPostEffect3Composite2GraphicsCoverageReceipt,Task>? CompletedDrawDiagnostic{get;set;}
     private readonly IMapPostEffect3Composite2GraphicsInvocationLease invocation;
     private readonly int cb22Side;
     private readonly SemaphoreSlim serial=new(1,1);
@@ -235,13 +231,12 @@ public sealed partial class MapPostEffect3Composite2GraphicsOwner:IAsyncDisposab
                     .Select(b=>b.ParameterIndex).Distinct().ToDictionary(i=>i,i=>i==22?cb22Side:
                         throw new NotSupportedException("Composite2 graphics needs another actual native constant-buffer side/writer."));
                 var input=new MapPostEffect3FullscreenFrameInputs(sourceDraw,TextureParameters,textures,samplers,sides,targets,context);
-                var historicalInputs=MapPostEffect3Functor1SubmissionLedger.FreezeGraphicsInputs(input);
+                MapPostEffect3Functor1SubmissionLedger.RequireGraphicsInputs(input);
                 var completed=await Executor.DrawAsync(pass,input);
-                lastHistoricalGraphicsInputs=(completed,compiled,historicalInputs);
+                lastSubmittedProgram=(completed,compiled);
                 CurrentCoverage=CaptureCoverage(recipe,target,completed);
                 if(completed.Writes.SingleOrDefault()?.PhysicalAllocationParameterIndex is not null)
                     Bank.PublishComposite2GraphicsCoverage(CurrentCoverage);
-                if(CompletedDrawDiagnostic is { } diagnostic)await diagnostic(CurrentCoverage);
                 await invocation.AcceptCompletedGraphicsAsync(CurrentCoverage);
                 RequireCurrent();selectedDraws.Add(completed);
             if(selectedDraws.Count!=Frame.Prepared.PassSelection.OrderedFactory9Passes.Count)return;

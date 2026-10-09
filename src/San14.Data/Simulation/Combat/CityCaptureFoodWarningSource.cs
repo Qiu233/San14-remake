@@ -83,7 +83,7 @@ public static class CityCaptureFoodWarningSource
                 {
                     int physical = K(entry.PhysicalSlot, "expense_Army_pointer");
                     if (K(OwnedArmyDestructionCurrent.ReadArmyExcluded233560(state, current, physical), "expense_Army233560")) continue;
-                    var slot = state.NativeArmyLifecycle?.Slots[physical] ?? throw Missing("expense_Army_current_slot");
+                    var slot = state.ReadArmyLifecycle()?.ReceiverSlots()[physical] ?? throw Missing("expense_Army_current_slot");
                     var image = slot.ActiveUnitId is int id ? state.Units.GetValueOrDefault(id) : slot.PendingImage;
                     byte flags = image?.NativeTacticRuntime?.Flags26 ?? throw Missing("expense_Army26");
                     if ((flags & 2) == 0) continue;

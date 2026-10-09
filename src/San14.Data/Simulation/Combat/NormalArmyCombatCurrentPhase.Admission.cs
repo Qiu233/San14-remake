@@ -28,9 +28,9 @@ public sealed partial class NormalArmyCombatCurrentPhase
         {
             if (!current.Units.TryGetValue(descriptor.ArmyId, out var army))
             {
-                if (current.NativeArmyLifecycle is not { } arena || descriptor.NativePoolSlot >= arena.Slots.Length)
+                if (current.ReadArmyLifecycle() is not { } arena || descriptor.NativePoolSlot >= arena.ReceiverSlots().Length)
                     return Result(NormalArmyPairAdmissionOutcome.CurrentInputsUnresolved, "current.receiver_header");
-                var slot = arena.Slots[descriptor.NativePoolSlot];
+                var slot = arena.ReceiverSlots()[descriptor.NativePoolSlot];
                 // Exact native validity short-circuit: commander0, then status0.
                 // PendingImage alone does not prove pending70 membership.
                 if (slot.PhysicalSlot != descriptor.NativePoolSlot || slot.ActiveUnitId is not null)

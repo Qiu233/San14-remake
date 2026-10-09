@@ -1,4 +1,4 @@
-﻿using San14.Core;
+using San14.Core;
 
 namespace San14.Data;
 
@@ -44,7 +44,7 @@ public sealed class OwnedCityCaptureStage(ArmyCampaignRuleAdapter package)
             if (!K(current.ReadDistrictNativeValidity(district), "winner_District_validity")) throw Missing("branch.invalid_winner_District");
             int newDistrict = K(district.PhysicalSlot, "winner_District_pointer");
             int newForce = K(current.ReadDistrictForceSlot(district), "winner_District10");
-            int unitId = K(input.NativeArmyLifecycle!.Slots[winnerSlot].ActiveUnitId, "winner_projection");
+            int unitId = K(input.ReadArmyLifecycle()!.ReceiverSlots()[winnerSlot].ActiveUnitId, "winner_projection");
             if (oldForce == newForce)
                 return new(input, new(location, oldForce, newForce, unitId, commanderId, null, null, null, null, [], true), null);
             if (oldForce is < 1 or > 45 || newForce is < 1 or > 45) throw Missing("branch.nonordinary_Force");

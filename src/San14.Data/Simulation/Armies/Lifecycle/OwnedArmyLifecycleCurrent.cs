@@ -11,7 +11,7 @@ public static class OwnedArmyLifecycleCurrent
     public static GameState InstallFresh(GameState state, ArmyOperationContext definitions)
     {
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(definitions);
-        if (state.NativeArmyLifecycle is not null || state.ArmyMapOccupancy is not null || state.Units.Count != 0 ||
+        if (state.ReadArmyLifecycle() is not null || state.ArmyMapOccupancy is not null || state.Units.Count != 0 ||
             state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } || state.NativeArmySimulation is null)
             throw new InvalidDataException("Fresh Army lifecycle requires its explicit initial owned campaign.");
         var current = OwnedArmyReturnCurrentFields.CaptureCurrent(state, definitions, ArmyReceiverSourceDirectory.CreateFresh(501));
@@ -25,18 +25,18 @@ public static class OwnedArmyLifecycleCurrent
             current.SetRegistryDescriptor(kind, Registry(pool.AllocateDescriptor()));
         current.SetArmyReturnPending70Descriptor(Registry(pool.AllocateDescriptor()));
 
-        var slots = new NativeArmyLifecycleSlot[501];
+        var slots = new ArmyReceiverSourceSlot[501];
         var receiverDirectory = ArmyReceiverSourceDirectory.CreateFresh(slots.Length);
         for (int physical = 0; physical < slots.Length; physical++)
         {
             //326990:501 x200-byte CArmy;2209A0:9 x10-byte list ctor;
             //2269E0: header/raw5C60 and all36-word64/AC/F4 reset.
             receiverDirectory.TryResolveReceiverId(physical, out var receiverId);
-            slots[physical] = new(physical, 0, 0, 0, null, null, ArmyStoreKnowledge.Empty, new ushort[36], new ushort[36])
+            slots[physical] = new(physical, 0, 0, 0)
                 { ReceiverId = receiverId,
-                    OverrideTarget = ArmyOverrideTargetState.Cleared, Direction36 = ArmyDirectionSource.ResetDirection36,
-                    MapUiByte13C = 0, CommandControl140 = 0, RouteHold56 = 0, RouteGoal1F8 = 0xBD10,
-                    GroupAssignmentReady = true };
+                    AuxiliaryAC = new ushort[36], AuxiliaryF4 = new ushort[36],
+                    Direction36 = ArmyDirectionSource.ResetDirection36,
+                    MapUiByte13C = 0, CommandControl140 = 0, RouteHold56 = 0, RouteGoal1F8 = 0xBD10 };
             current.SetArmyUnitTablePointer(physical, physical);
             current.SetArmyUnitCommanderId(physical, 0); current.SetArmyUnitStatusFlag10(physical, 0);
         }
@@ -63,31 +63,29 @@ public static class OwnedArmyLifecycleCurrent
             }
         var source = definitions.LifecycleScenarioSource;
         var parameters = state.NativeArmySimulation.Parameters;
-        var result = state with { NativeArmyLifecycle = new(Revision, parameters.Language, parameters.RuleVersion,
-            source.ResourceUri, source.Sha256, pool.ExportOwnedState(), slots) };
-        result = ArmyMapOccupancyAdapter.InstallFresh(result, result.NativeArmyLifecycle!);
-        result = result with { NativeArmyLifecycle = OwnedArmyLifecycleAuxiliaries.InstallFresh(result.NativeArmyLifecycle!, current, pool) };
+        var receivers = new ArmyReceiverRoster(slots.Select(slot => new ArmyReceiverState(slot.ReceiverId,
+            slot.PhysicalSlot != 0, ArmyReceiverPhase.Ready, null, null)
+            { OverrideTarget = ArmyOverrideTargetState.Cleared, GroupAssignmentReady = true }).ToArray());
+        var domain = new ArmyLifecycleState(receivers, pool.ExportOwnedState());
+        var sourceState = new ArmyLifecycleSourceState(Revision, parameters.Language, parameters.RuleVersion,
+            source.ResourceUri, source.Sha256) { Slots = slots };
+        var result = state.WithArmyLifecycle(new(domain, sourceState));
+        result = ArmyMapOccupancyAdapter.InstallFresh(result, result.ReadArmyLifecycle()!);
+        result = result.WithArmyLifecycle(OwnedArmyLifecycleAuxiliaries.InstallFresh(result.ReadArmyLifecycle()!, current, pool));
         result = OwnedArmyLifecycleDetachedInputs.InstallFresh(result, definitions);
         result = OwnedArmyDestructorFlags.InstallFresh(result);
         result = OwnedArmyLifecycleTargets.InstallFresh(result);
         result = ArmyDestructionQueue.InstallFreshOwned(result);
-        NativeArmyLifecycleStateValidation.Validate(result); return result;
+        ArmyLifecycleSaveValidation.Validate(result); return result;
     }
 
     /// <summary>The native501 scan chooses the first non-placeholder invalid
     /// header. Pending receivers retain their header until actual cleanup.</summary>
     public static int? FirstCreationSlot(GameState state)
     {
-        if (state.NativeArmyLifecycle is not { Slots.Length: 501 } arena) return null;
-        for (int physical = 1; physical < arena.Slots.Length; physical++)
-        {
-            var slot = arena.Slots[physical];
-            if (slot.Commander12 is null || slot.Commander12 != 0 && slot.Status10 is null) return null;
-            if (slot.Commander12 != 0 && slot.Status10 != 0) continue;
-            if (slot.ActiveUnitId is not null || slot.PendingImage is not null) return null;
-            return physical;
-        }
-        return null;
+        if (state.ReadArmyLifecycle() is not { Slots.Count: 501 } arena) return null;
+        return arena.Receivers.FirstAssignable() is { } receiver
+            ? arena.Slots.First(slot => slot.ReceiverId == receiver).PhysicalSlot : null;
     }
 
     /// <summary>Actual31F430 registration after the caller has constructed a
@@ -105,11 +103,11 @@ public static class OwnedArmyLifecycleCurrent
     private static ArmyLifecycleCreationAdmission? PrepareCreationAdmissionCore(GameState state, UnitState created,
         ArmyOperationContext definitions, byte status, byte? packetTargetKind38, ushort? packetTargetIdentity3A)
     {
-        if (state.NativeArmyLifecycle is not { } arena || created.NativeArmyOrigin is not { NativeSlotIndex: int physical } origin ||
+        if (state.ReadArmyLifecycle() is not { } arena || created.NativeArmyOrigin is not { NativeSlotIndex: int physical } origin ||
             origin.Language != arena.Language || origin.RuleVersion != arena.RuleVersion ||
             FirstCreationSlot(state) != physical || created.NativeTacticRuntime?.Status10 != status || created.OfficerId is < 1 or > 6000 ||
             created.CarriedStores is not { } resources) return null;
-        var old = arena.Slots[physical];
+        var old = arena.ReceiverSlots()[physical];
         if (state.ArmyMapOccupancy is not { } occupancy || old.OccupancyBindingId is not int binding) return null;
         var assignedOccupancy = ArmyMapOccupancyRules.AssignBinding(occupancy, binding, created.Id);
         if (assignedOccupancy is null) return null;
@@ -119,7 +117,7 @@ public static class OwnedArmyLifecycleCurrent
         var current = OwnedArmyReturnCurrentFields.CaptureCurrent(state, definitions);
         var pool = WorldIndexContext.ImportOwnedState(current, arena.Indexes, state);
         current.BindArmyMapOccupancy(state);
-        foreach (var slot in arena.Slots)
+        foreach (var slot in arena.ReceiverSlots())
         {
             current.SetArmyUnitTablePointer(slot.PhysicalSlot, slot.PhysicalSlot);
             current.SetArmyUnitCommanderId(slot.PhysicalSlot, slot.Commander12);
@@ -131,7 +129,7 @@ public static class OwnedArmyLifecycleCurrent
         var pointer = new RegistryObjectReference(RegistryKind.Army, physical);
         if (!ArmyMovementManagerLifecycle.Register(pointer, current) ||
             !ArmyMovementManagerLifecycle.ReadCurrentPointerOrder(current).Contains(pointer)) return null;
-        var slots = arena.Slots.ToArray();
+        var slots = arena.ReceiverSlots().ToArray();
         slots[physical] = old with { Commander12 = (ushort)created.OfficerId, Status10 = status,
             //Ordinary uses packet+4; type2 creator independently writes0.
             Priority14 = status == 2 ? (ushort)0 : ArmyMarchSourceAdapter.EncodeCredit(created.March),
@@ -142,11 +140,11 @@ public static class OwnedArmyLifecycleCurrent
             CommandControl140 = created.NativeCommandControl140,
             RouteHold56 = created.NativeRouteHold56, RouteGoal1F8 = created.NativeRouteGoal1F8,
             StoredResources = new(resources.Gold, resources.Food) };
-        var registered = arena with { Slots = slots, Indexes = pool.ExportOwnedState() };
-        var targetState = OwnedArmyLifecycleTargets.PublishCreation(state with { NativeArmyLifecycle = registered }, physical, packetTargetKind38, packetTargetIdentity3A);
+        var registered = arena.WithReceiverSlots(slots) with { Indexes = pool.ExportOwnedState() };
+        var targetState = OwnedArmyLifecycleTargets.PublishCreation(state.WithArmyLifecycle(registered), physical, packetTargetKind38, packetTargetIdentity3A);
         targetState = targetState with { ResourceState = CampaignSourceKnowledge.From(targetState.ResourceState).WithoutArmyPosition(created.Id) };
         targetState = ArmyOverrideTargetSourceAdapter.InheritReceiverKnowledge(targetState, created);
-        registered = targetState.NativeArmyLifecycle!;
+        registered = targetState.ReadArmyLifecycle()!;
         var admitted = OwnedArmyLifecycleAuxiliaries.PrepareCreation(registered, state, created, current, pool);
         return admitted is null ? null : new(admitted, assignedOccupancy) { ResourceState = targetState.ResourceState };
     }
@@ -154,11 +152,11 @@ public static class OwnedArmyLifecycleCurrent
     /// <summary>Only31F370's container operation for a known pooled pointer.
     /// The caller owns ordinary-return/destruction admission. This receipt
     /// does not retire a Unit, reset a header or execute28E6D0 cleanup.</summary>
-    public static NativeArmyLifecycleState? PreparePendingAdmission(GameState state, int physical,
+    public static ArmyLifecycleSourceView? PreparePendingAdmission(GameState state, int physical,
         ArmyOperationContext definitions)
     {
-        if (state.NativeArmyLifecycle is not { Slots.Length: 501 } arena || physical is < 1 or > 500 ||
-            arena.Slots[physical] is not { Commander12: > 0, Status10: > 0 } slot ||
+        if (state.ReadArmyLifecycle() is not { Slots.Count: 501 } arena || physical is < 1 or > 500 ||
+            arena.ReceiverSlots()[physical] is not { Commander12: > 0, Status10: > 0 } slot ||
             slot.ActiveUnitId is null && slot.PendingImage is null) return null;
         var current = OwnedArmyReturnCurrentFields.CaptureCurrent(state, definitions);
         var pool = WorldIndexContext.ImportOwnedState(current, arena.Indexes, state);

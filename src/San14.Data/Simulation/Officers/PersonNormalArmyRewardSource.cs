@@ -92,7 +92,7 @@ public sealed class PersonNormalArmyRewardSource
         if (person.LocationState?.Position is not { Kind: OfficerPositionKind.ArmyReceiver, EntityId: int receiverId })
             return person.LocationState?.Position?.Kind == OfficerPositionKind.Unresolved && second is >= 62 and <= 561
                 ? Unknown("army-slot") : Skip();
-        var receiver = input.NativeArmyLifecycle?.Slots.SingleOrDefault(slot => slot.ReceiverId.Value == receiverId);
+        var receiver = input.ReadArmyLifecycle()?.ReceiverSlots().SingleOrDefault(slot => slot.ReceiverId.Value == receiverId);
         if (receiver?.ActiveUnitId is not int armyId || !input.Units.TryGetValue(armyId, out UnitState? army)) return Unknown("army-slot");
         if (army.OfficerId != personId) return Skip(); //Real getter falls back to invalid Army0.
         if (current.ArmyValid(input, army) is not bool armyValid) return Unknown("army-validity");

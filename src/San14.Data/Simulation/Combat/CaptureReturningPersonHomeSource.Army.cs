@@ -10,7 +10,7 @@ public sealed partial class CaptureReturningPersonHomeSource : IPlayableCaptureA
 {
     public int[]? ReadCapturedArmyHomeOrder(GameState state, int capturedLocationId, int previousForceId)
     {
-        var arena = state.NativeArmyLifecycle;
+        var arena = state.ReadArmyLifecycle();
         if (arena?.Indexes.Registries.GetValueOrDefault(WorldEntityKind.Officer) is not { } order) return null;
         var targets = state.Units.Values.Where(x => x.ForceId == previousForceId && x.NativeArmyOrigin is not null &&
             x.Mission?.Kind != UnitMissionKind.Transport && state.Officers[x.OfficerId].LocationId == capturedLocationId).ToArray();
@@ -32,7 +32,7 @@ public sealed partial class CaptureReturningPersonHomeSource : IPlayableCaptureA
             if (person.DistrictId is not int district || !state.Districts.TryGetValue(district, out var districtState)) return null;
             if (districtState.ForceId != previousForceId) continue;
             if (person.LocationState?.Position is not { Kind: OfficerPositionKind.ArmyReceiver, EntityId: int receiverId }) return null;
-            var receiver = arena.Slots.SingleOrDefault(slot => slot.ReceiverId.Value == receiverId);
+            var receiver = arena.ReceiverSlots().SingleOrDefault(slot => slot.ReceiverId.Value == receiverId);
             if (receiver is null || receiver.PhysicalSlot is < 1 or > 500 ||
                 receiver.Commander12 != person.Id || receiver.Status10 is null or 0 ||
                 receiver.ActiveUnitId != army.Id || army.NativeArmyOrigin!.NativeSlotIndex != receiver.PhysicalSlot)
@@ -69,7 +69,7 @@ public sealed partial class CaptureReturningPersonHomeSource : IPlayableCaptureA
             receiver = current.ReadArmyUnitTableReference(0) ?? throw Missing("current.22A200_Army0");
         if (!Need(current.ReadArmyUnitNativeValidity(receiver), "current.22A200_Army_validity") ||
             receiver.PhysicalSlot is not (>= 1 and <= 500) || activeArmy.NativeArmyOrigin?.NativeSlotIndex != receiver.PhysicalSlot ||
-            state.NativeArmyLifecycle?.Slots[receiver.PhysicalSlot.Value].ActiveUnitId != activeArmy.Id)
+            state.ReadArmyLifecycle()?.ReceiverSlots()[receiver.PhysicalSlot.Value].ActiveUnitId != activeArmy.Id)
             throw Missing("branch.260310_not_effective_Commander_Army");
         int army = receiver.PhysicalSlot.Value;
         var members = NewTemporary(current);

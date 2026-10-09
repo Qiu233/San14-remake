@@ -54,7 +54,7 @@ public static class ArmyMovementStage
                 unit.March != actor.MarchAtPreparation || unit.March?.MovementCredit != actor.CreditAtPreparation ||
                 unit.HexId != actor.HexAtPreparation ||
                 actor.ReceiverId is { } receiver &&
-                    state.NativeArmyLifecycle?.Slots.SingleOrDefault(slot => slot.ReceiverId == receiver)?.ActiveUnitId != unit.Id)
+                    state.ArmyLifecycle?.Receivers.Find(receiver)?.ActiveUnitId != unit.Id)
                 throw new InvalidDataException("Movement actor changed after preparation.");
         }
         var working = state;

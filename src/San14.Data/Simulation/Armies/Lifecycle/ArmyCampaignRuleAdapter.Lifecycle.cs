@@ -13,7 +13,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     public ArmyLifecycleCreationAdmission? PrepareArmyLifecycleCreation(GameState state, UnitState created) =>
         OwnedArmyLifecycleCurrent.PrepareCreationAdmission(state, created, _definitions, _creation.Configuration.TargetKind38);
 
-    public NativeArmyLifecycleState? PrepareArmyLifecyclePending(GameState state, int physical) =>
+    public ArmyLifecycleSourceView? PrepareArmyLifecyclePending(GameState state, int physical) =>
         OwnedArmyLifecycleCurrent.PreparePendingAdmission(state, physical, _definitions);
 
     public GameState? ConsumeArmyLifecyclePending(GameState state) =>
@@ -43,7 +43,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         //receiver (570850). Its known absent branch continues eligibility.
         world.Context.ArmyReturnTransferMode = new(false, null);
         world.Context.TransferService = new();
-        OwnedArmyLifecycleAuxiliaries.RestoreCurrent(world.Context, state.NativeArmyLifecycle!);
+        OwnedArmyLifecycleAuxiliaries.RestoreCurrent(world.Context, state.ReadArmyLifecycle()!);
         PersonReturnCommands.BindCurrent(state, world.Context);
         return world;
     }

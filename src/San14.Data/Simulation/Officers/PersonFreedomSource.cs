@@ -196,9 +196,7 @@ public sealed class PersonFreedomSource(ArmyCampaignRuleAdapter package, LoadedS
             var values = new Dictionary<string, int>(result.NativeArmySimulation!.Parameters.Int32Values)
                 { [OwnedArmyGovernorComparatorInputs.PersonRawE8Key(physical)] = loyalty,
                     [OwnedArmyGovernorComparatorInputs.PersonWord166Key(physical)] = 0 };
-            result = result with
-            {
-                Officers = new(result.Officers) { [personId] = person with
+            result = (result with { Officers = new(result.Officers) { [personId] = person with
                 {
                     ForceId = null, DistrictId = null, Role = OfficerRole.Free, Appointment = OfficerAppointment.Synchronize(73), Loyalty = loyalty <= 100 ? loyalty : null,
                     LocationId = destination,
@@ -210,9 +208,7 @@ public sealed class PersonFreedomSource(ArmyCampaignRuleAdapter package, LoadedS
                 Cities = new(result.Cities) { [captured.Id] = result.Cities[captured.Id] with
                     { ForceId = captured.ForceId, DistrictId = captured.DistrictId, GovernorId = captured.GovernorId } },
                 NativeArmySimulation = result.NativeArmySimulation with { Parameters = result.NativeArmySimulation.Parameters with { Int32Values = values } },
-                PersonnelReturns = detached.Owner,
-                NativeArmyLifecycle = result.NativeArmyLifecycle! with { Indexes = world.Pool.ExportOwnedState() }
-            };
+                PersonnelReturns = detached.Owner }).WithArmyLifecycle(result.ReadArmyLifecycle()! with { Indexes = world.Pool.ExportOwnedState() });
             result = OfficerLocationSourceAdapter.PublishPosition(result, personId, current);
             result = current.PublishOfficerAftermath(result, personId);
             effects.Add("265C50.Area_E4→Home_E2→Office73_Loyalty0_or255→actual_raw_resets");
@@ -230,9 +226,9 @@ public sealed class PersonFreedomSource(ArmyCampaignRuleAdapter package, LoadedS
                         Role = write.StatusAfter == 3 ? OfficerRole.Governor : OfficerRole.Officer };
                 }
                 var city = result.Cities[captured.Id];
-                result = result with { Officers = officers, Cities = new(result.Cities) { [captured.Id] = city with
-                    { NativeReturnRuntime = city.NativeReturnRuntime! with { Governor2E = governorRepair.GovernorWord2EAfter } } },
-                    NativeArmyLifecycle = result.NativeArmyLifecycle! with { Indexes = world.Pool.ExportOwnedState() } };
+                result = (result with { Officers = officers,
+                Cities = new(result.Cities) { [captured.Id] = city with
+                    { NativeReturnRuntime = city.NativeReturnRuntime! with { Governor2E = governorRepair.GovernorWord2EAfter } } } }).WithArmyLifecycle(result.ReadArmyLifecycle()! with { Indexes = world.Pool.ExportOwnedState() });
                 effects.Add("265DBx.old_Base2E_still0_valid→22ACF0→282C10→26D090_actual_Governor");
             }
             StateValidator.Validate(result);

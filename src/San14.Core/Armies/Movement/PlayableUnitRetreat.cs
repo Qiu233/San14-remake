@@ -78,6 +78,6 @@ public static class PlayableUnitRetreat
         reports.Add(new PeriodReportEntry("retreat_arrived", unit.ForceId,
             reportCityId, unit.OfficerId, unit.Troops, unit.HexId, unit.HexId)
         { RuleId = cityResources?.RuleId ?? (onRetired is not null && unit.NativeArmyOrigin is not null
-            ? PlayableNativeArmyRetirement.RuleId : null) });
+            ? ArmyRetirement.RuleId : null) });
     }
 }

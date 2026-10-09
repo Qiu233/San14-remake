@@ -114,7 +114,7 @@ public sealed class PlayableUnitOrders(IOrderRules originalCommands, PlayableLan
                     LocationState = officer.LocationState is { } location
                         ? location with { Position = null } : null }
             };
-            GameState retired = PlayableNativeArmyRetirement.PreservePendingImage(state with
+            GameState retired = ArmyRetirement.PreservePendingImage(state with
             {
                 Cities = citiesAfter, Officers = officersAfter, Units = unitsAfter
             }, active);

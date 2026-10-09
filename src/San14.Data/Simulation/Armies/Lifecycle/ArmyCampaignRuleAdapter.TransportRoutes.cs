@@ -8,7 +8,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// capture. No whole-state JSON clone or per-Army map/PE loading is needed.</summary>
     public ArmyChangedListsResult CompleteChangedTransportRoutes(GameState state)
     {
-        if (state.NativeArmyLifecycle is not { } arena ||
+        if (state.ReadArmyLifecycle() is not { } arena ||
             arena.Indexes.ChangedPendingUnitIds is not { Count: > 0 })
             return ArmyChangedListsSource.TryAdvanceFinite(state);
         try
@@ -22,7 +22,7 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     private SourceWorldContext CaptureWritableTransportRouteCurrent(GameState state)
     {
-        var arena = state.NativeArmyLifecycle ?? throw new InvalidDataException("current.transport_route_saved_arena");
+        var arena = state.ReadArmyLifecycle() ?? throw new InvalidDataException("current.transport_route_saved_arena");
         var current = OwnedArmyReturnCurrentFields.CaptureCurrent(state, _definitions);
         _ = WorldIndexContext.ImportOwnedState(current, arena.Indexes, state);
         current.BindArmyMapOccupancy(state);

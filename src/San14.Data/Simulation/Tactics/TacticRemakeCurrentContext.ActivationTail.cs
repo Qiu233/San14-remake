@@ -19,9 +19,9 @@ public sealed partial class TacticRemakeCurrentContext
             program.Instructions.Any(instruction => instruction.Opcode is not (0 or 15 or 19 or 20 or 23)))
             return null;
         ushort? word12;
-        if (state.NativeArmyLifecycle is { } arena)
+        if (state.ReadArmyLifecycle() is { } arena)
         {
-            if (arena.Slots is not { Length: 501 } || arena.Slots[armySlot] is not { } slot ||
+            if (arena.ReceiverSlots() is not { Length: 501 } || arena.ReceiverSlots()[armySlot] is not { } slot ||
                 slot.PhysicalSlot != armySlot || slot.ActiveUnitId != caster.Id) return null;
             word12 = slot.Commander12;
         }

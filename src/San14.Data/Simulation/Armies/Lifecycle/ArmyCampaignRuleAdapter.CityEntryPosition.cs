@@ -6,9 +6,9 @@ public sealed partial class ArmyCampaignRuleAdapter
 {
     internal ArmyCityEntryEligibilityResult ReadTransportCityEntryPosition(GameState state, UnitState army, CityState city)
     {
-        if (army.NativeArmyOrigin?.NativeSlotIndex is not int physical || state.NativeArmyLifecycle is not { } arena ||
-            physical is < 1 or > 500 || physical >= arena.Slots.Length ||
-            arena.Slots[physical] is not { ActiveUnitId: var active, Commander12: var commander } slot ||
+        if (army.NativeArmyOrigin?.NativeSlotIndex is not int physical || state.ReadArmyLifecycle() is not { } arena ||
+            physical is < 1 or > 500 || physical >= arena.Slots.Count ||
+            arena.ReceiverSlots()[physical] is not { ActiveUnitId: var active, Commander12: var commander } slot ||
             active != army.Id || commander != army.OfficerId ||
             OwnedArmyLifecycleTargets.Read(state, slot.ReceiverId) is not { Kind38: 5, Identity3A: ushort target } || target != city.Id ||
             ArmyMarchSourceAdapter.ReadCreatedCurrentHex(state, army) != army.HexId)

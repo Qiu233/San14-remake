@@ -22,10 +22,10 @@ public sealed partial class ArmyCampaignRuleAdapter
             return null;
 
         ushort commander;
-        if (state.NativeArmyLifecycle is { } arena)
+        if (state.ReadArmyLifecycle() is { } arena)
         {
-            if ((uint)physical >= arena.Slots.Length ||
-                arena.Slots[physical] is not { } slot || slot.PhysicalSlot != physical ||
+            if ((uint)physical >= arena.ReceiverSlots().Length ||
+                arena.ReceiverSlots()[physical] is not { } slot || slot.PhysicalSlot != physical ||
                 slot.ActiveUnitId != army.Id || slot.Commander12 is not ushort actualCommander)
                 return null;
             commander = actualCommander;

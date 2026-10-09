@@ -2,7 +2,7 @@ using San14.Core;
 
 namespace San14.Data;
 
-public sealed record ArmyLifecycleCreationAdmission(NativeArmyLifecycleState Lifecycle, ArmyMapOccupancyState Occupancy)
+public sealed record ArmyLifecycleCreationAdmission(ArmyLifecycleSourceView Lifecycle, ArmyMapOccupancyState Occupancy)
 { public ICampaignResourceState? ResourceState { get; init; } }
 
 /// <summary>Operation-local translation between semantic map bindings and the
@@ -17,8 +17,8 @@ internal sealed class ArmyMapOccupancyAdapter
     internal ArmyMapOccupancyAdapter(GameState state)
     {
         State = state.ArmyMapOccupancy;
-        if (state.NativeArmyLifecycle is not { } lifecycle) return;
-        foreach (var slot in lifecycle.Slots)
+        if (state.ReadArmyLifecycle() is not { } lifecycle) return;
+        foreach (var slot in lifecycle.ReceiverSlots())
             if (slot.OccupancyBindingId is int binding)
             {
                 _bindingByReceiver.Add(slot.PhysicalSlot, binding);
@@ -88,18 +88,18 @@ internal sealed class ArmyMapOccupancyAdapter
             ?? throw new InvalidDataException("Current retiring occupancy binding is unavailable.");
     }
 
-    internal static GameState InstallFresh(GameState state, NativeArmyLifecycleState lifecycle)
+    internal static GameState InstallFresh(GameState state, ArmyLifecycleSourceView lifecycle)
     {
         var occupancy = new ArmyMapOccupancyState { DefaultCellKnowledge = ArmyMapDefaultCellKnowledge.Empty };
-        var slots = lifecycle.Slots.ToArray();
+        var slots = lifecycle.ReceiverSlots().ToArray();
         int nextBinding = 1;
-        foreach (var slot in lifecycle.Slots.Where(slot => slot.PhysicalSlot != 0))
+        foreach (var slot in lifecycle.ReceiverSlots().Where(slot => slot.PhysicalSlot != 0))
         {
             int binding = nextBinding++;
             occupancy.Bindings.Add(binding, ArmyOccupancyUnitReference.Vacant);
             slots[slot.PhysicalSlot] = slot with { OccupancyBindingId = binding };
         }
-        return state with { ArmyMapOccupancy = occupancy, NativeArmyLifecycle = lifecycle with { Slots = slots } };
+        return (state with { ArmyMapOccupancy = occupancy }).WithArmyLifecycle(lifecycle.WithReceiverSlots(slots));
     }
 }
 

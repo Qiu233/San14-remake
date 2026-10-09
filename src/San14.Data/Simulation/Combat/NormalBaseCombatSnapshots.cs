@@ -26,7 +26,7 @@ public static class NormalBaseCombatSnapshots
         string registry = kind.ToString();
         string sourceField = kind == BaseKind.City ? "World90_City" : "WorldA0_Gate";
         var registryKind = kind == BaseKind.City ? WorldEntityKind.City : WorldEntityKind.Gate;
-        if (state.NativeArmyLifecycle?.Indexes.Registries.GetValueOrDefault(registryKind) is not { } order)
+        if (state.ReadArmyLifecycle()?.Indexes.Registries.GetValueOrDefault(registryKind) is not { } order)
             return Unknown($"current.{sourceField}_registry");
         var actors = new List<NormalBaseCombatActor>();
         foreach (var entity in order)

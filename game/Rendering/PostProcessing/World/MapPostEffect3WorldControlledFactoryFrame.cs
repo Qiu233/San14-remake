@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using San14.Data;
 
 /// <summary>Fresh, source selected factory6..9 preparation on the actual
@@ -10,7 +9,6 @@ public sealed partial class MapPostEffect3WorldControlledFactoryFrame : IAsyncDi
 {
     private readonly MapPostEffect3WorldControlledPreparation.CurrentFrame preparation;
     private MapPostEffect3DepthOfField2ModuleResources? depthOfFieldResources;
-    private readonly MapPostEffect3RetainedShapeWrapperMetadata? retainedShapeMetadata;
     private bool disposed;
     public MapPostEffect3WorldControlledModuleOwner? ModuleLifetime{get;private set;}
     private MapPostEffect3WorldControlledFactoryFrame(
@@ -35,11 +33,9 @@ public sealed partial class MapPostEffect3WorldControlledFactoryFrame : IAsyncDi
         MapPostEffect3Composite2ExecutionFrame composite,
         MapPostEffect3FreshOwnedAllocationSides sides,
         MapPostEffect3WorldControlledModuleOwner module,
-        MapPostEffect3WorldNativeFullscreenFrontendOwner frontend,
-        MapPostEffect3RetainedShapeWrapperMetadata? retainedShapeMetadata)
+        MapPostEffect3WorldNativeFullscreenFrontendOwner frontend)
     {
         ModuleLifetime=module;
-        this.retainedShapeMetadata=retainedShapeMetadata;
         this.preparation=preparation;CpuModule=cpuModule;CpuInvocation=cpuInvocation;
         FactoryReturns=factoryReturns;Begin=cpuInvocation.Begin;Camera=camera;Textures=textures;World=world;
         Manager=manager;Carriers=carriers;HdrRead=hdr;DepthSource=depthSource;
@@ -197,7 +193,6 @@ public sealed partial class MapPostEffect3WorldControlledFactoryFrame : IAsyncDi
             var extent=new MapPostEffect3DepthOfField2ExternalExtent(table.Require(0),
                 checked((ushort)color.Extent.X),checked((ushort)color.Extent.Y),color.SourceEvidence);
             var dofExtents=new List<MapPostEffect3DepthOfField2ExternalExtent>();
-            MapPostEffect3RetainedShapeWrapperMetadata? shapeMetadata=null;
             foreach(string name in new[]{"DOF2SpriteDofAccumRear","DOF2InputColor","DOF2PrefilteredColor","DOF2PreComposite","DOF2ShapeInfo"})
             {
                 int index=camera.State.FindResourceIndex(MapPostEffect3ParameterResourceTable.Texture,name,
@@ -208,8 +203,7 @@ public sealed partial class MapPostEffect3WorldControlledFactoryFrame : IAsyncDi
                 if(pointer.Reference.PhysicalAllocationParameterIndex is not null)continue;
                 if(index==58)
                 {
-                    shapeMetadata=module.CaptureRetainedShapeWrapperMetadata(cpuInvocation,world);
-                    dofExtents.Add(shapeMetadata.Extent);
+                    dofExtents.Add(module.CaptureRetainedShapeExtent(cpuInvocation,world));
                 }
                 else
                 {
@@ -258,7 +252,7 @@ public sealed partial class MapPostEffect3WorldControlledFactoryFrame : IAsyncDi
             Record(returnSource.CaptureCompositeReturned(cpuInvocation,table,composite));
             var result=new MapPostEffect3WorldControlledFactoryFrame(repository,current,camera,table,world,
                 cpuModule,cpuInvocation,Array.AsReadOnly(factoryReturns.ToArray()),manager,
-                carriers,hdr,depthSource,lens,dof,eyeOwner,eye,eyeInputs,exposure,composite,sides,module,frontend,shapeMetadata);
+                carriers,hdr,depthSource,lens,dof,eyeOwner,eye,eyeInputs,exposure,composite,sides,module,frontend);
             result.RequireCurrent();module.Attach(result);return result;
         }
         catch(Exception failure)
@@ -312,29 +306,6 @@ public sealed partial class MapPostEffect3WorldControlledFactoryFrame : IAsyncDi
         else if(!ReferenceEquals(depthOfFieldResources.Library,programs)||!ReferenceEquals(depthOfFieldResources.Bank,bank))
             throw new InvalidDataException("Controlled DOF module resources cannot replace their physical bank or programs.");
         return depthOfFieldResources;
-    }
-
-    public object CapturePreparationEvidence()
-    {
-        RequireCurrent();string Hash(MapPostEffect3ParameterConstantBuffer cb)=>
-            Convert.ToHexString(SHA256.HashData(cb.Bytes.Span));
-        return new{actualWorldFrame=Camera.FrameNumber,sourceFunctor=1,sourceView=preparation.ApplyViewSlot.Index,
-            actualBeginCounter=Begin.Counter,
-            frontendIngress=Frontend.CaptureSourceIngressEvidence(),
-            retainedShapeWrapperMetadata=retainedShapeMetadata?.CaptureEvidence(),
-            cpuFactoryReturns=CpuInvocation.RecordedCpuFactoryReturns,
-            singleOwnedModuleBegin=true,sourceCpuFrontendBeginOnly=true,
-            sourceWrapperDirectoryEntries=WrapperDirectory.Wrappers.Count,
-            sourceMaskRejectedEntries=WrapperDirectory.Wrappers.Count(r=>!r.MaskAdmitsBefore),
-            wholeWrapperDirectoryReturned=false,
-            selectedPasses=OrderedSelectedPasses,lensPasses=Lens.PassSelection.OrderedFactory6Passes,
-            dofPasses=DepthOfField.PassSelection.OrderedFactory7Passes,
-            eyeIterations=Eye.OrderedIterations,compositePasses=Composite.Prepared.PassSelection.OrderedFactory9Passes,
-            lensCb17Sha256=Hash(Lens.ConstantBuffer),dofCb18Sha256=Hash(DepthOfField.ConstantBuffer),
-            bloomCb20Sha256=Hash(Eye.BloomMainConstants),exposureCb24Sha256=Hash(Exposure),
-            compositeCb22Sha256=Hash(Composite.Prepared.ConstantBuffer),
-            shapeSide=DepthOfField.ShapeRequirement.RequestedSide,mainViewKeepsOwnedExposure61=true,
-            controlledFactoryPreparationAccepted=true,selectedFunctorGpuCompleted=false,correctFinalAccepted=false,images=0};
     }
 
     public async ValueTask DisposeAsync()

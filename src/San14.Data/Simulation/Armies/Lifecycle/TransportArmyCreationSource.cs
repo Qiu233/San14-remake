@@ -42,7 +42,7 @@ public sealed class TransportArmyCreationSource
                 parameters.Language != _formations.CodeSource.Language || parameters.RuleVersion != _formations.CodeSource.RuleVersion ||
                 state.ContentHashes.GetValueOrDefault(_formations.Source.ResourceUri) != _formations.Source.Sha256)
                 return Missing("current.transport_formation_source");
-            if (state.NativeArmyLifecycle is not { Slots.Length: 501 } arena ||
+            if (state.ReadArmyLifecycle() is not { Slots.Count: 501 } arena ||
                 arena.Revision != OwnedArmyLifecycleCurrent.Revision)
                 return Missing("current.transport_owned_reset_arena");
             var recomposed = TransportArmyPacketSource.TryComposeCity(state, current, packet.Request);
@@ -68,7 +68,7 @@ public sealed class TransportArmyCreationSource
                 return Missing("branch.transport_existing_associated_command");
             int nativeSlot = OwnedArmyLifecycleCurrent.FirstCreationSlot(state) ?? 0;
             if (nativeSlot == 0) return Missing("current.transport_first_invalid_501_receiver");
-            var receiver = arena.Slots[nativeSlot];
+            var receiver = arena.ReceiverSlots()[nativeSlot];
             if (receiver.OverrideTarget is not { Kind: not null, Destination: not null } inherited)
                 return Missing("current.transport_reset_override3C3E");
 

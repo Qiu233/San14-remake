@@ -47,7 +47,7 @@ public sealed record PlayableArmyCreationResolution(NativeArmyTacticRuntime Runt
     public ArmyStores? CarriedStores { get; init; }
     /// <summary>Explicit saved arena writes produced alongside this receiver.
     /// Core retains the source pool/header owner between queued allocations.</summary>
-    public NativeArmyLifecycleState? NativeLifecycle { get; init; }
+    public ArmyLifecycleState? Lifecycle { get; init; }
     public ArmyMapOccupancyState? ArmyMapOccupancy { get; init; }
 }
 
@@ -71,7 +71,7 @@ public static class PlayableArmyCreation
     internal static GameState PublishOwners(GameState state, PlayableArmyCreationResolution result) => state with
     {
         ResourceState = result.ResourceState ?? state.ResourceState,
-        NativeArmyLifecycle = result.NativeLifecycle ?? state.NativeArmyLifecycle,
+        ArmyLifecycle = result.Lifecycle ?? state.ArmyLifecycle,
         ArmyMapOccupancy = result.ArmyMapOccupancy ?? state.ArmyMapOccupancy
     };
 
@@ -97,7 +97,7 @@ public static class PlayableArmyCreation
     {
         if (state.NativeClock is null || result.WoundedTroops is < 0 or > ushort.MaxValue ||
             result.Runtime is null || result.Origin is null ||
-            state.NativeArmyLifecycle is not null && result.NativeLifecycle is null ||
+            state.ArmyLifecycle is not null && result.Lifecycle is null ||
             state.ArmyMapOccupancy is not null && result.ArmyMapOccupancy is null)
             throw new InvalidDataException("Source-created Army initialization is incomplete.");
         if (result.CurrentHexId is int confirmedHex && confirmedHex != army.HexId)

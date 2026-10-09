@@ -4,7 +4,7 @@ public sealed partial class MapPostEffect3DepthOfField2ModuleResources
 {
     /// <summary>Before the new Prepare/Init or execution borrow, read only
     /// the retained wrapper dimensions from its actual texture creator.</summary>
-    internal MapPostEffect3RetainedShapeWrapperMetadata CaptureCurrentShapeWrapperMetadata(
+    internal MapPostEffect3DepthOfField2ExternalExtent CaptureCurrentShapeExtent(
         MapPostEffect3Functor1ModuleInvocation invocation,MapPostEffect3TextureParameterState table)
     {
         ObjectDisposedException.ThrowIf(retiring||disposed,this);Bank.RequireTexture(59,0);
@@ -16,8 +16,7 @@ public sealed partial class MapPostEffect3DepthOfField2ModuleResources
         var shape=Shape??throw new InvalidDataException("Retained shape pointer has no module-owned physical creator.");
         if(!shape.Rid.IsValid)
             throw new InvalidDataException("Retained shape's actual physical allocation has been retired.");
-        var extent=CaptureShapeWrapperExtent(shape,table);
-        return new(extent,shape.Rid.Id,LastCompletedFrameNumber!.Value,shape.WriterFrameNumber,shape.Revision);
+        return CaptureShapeWrapperExtent(shape,table);
     }
 
     //The numeric/pointer join is separately testable without a GPU. Only the
@@ -36,20 +35,4 @@ public sealed partial class MapPostEffect3DepthOfField2ModuleResources
             $";actual-module-shape-wrapper-metadata/physicalRID={shape.Rid.Id};tableFrame={table.FrameNumber}/slotRevision={pointer.SlotRevision};"+
             $"creator-width40/height42={side}/{side};nativeFormat3/DXGI10/M1;metadata-only/no-pixel-publication");
     }
-}
-
-internal sealed class MapPostEffect3RetainedShapeWrapperMetadata
-{
-    internal MapPostEffect3RetainedShapeWrapperMetadata(MapPostEffect3DepthOfField2ExternalExtent extent,
-        ulong storage,long componentFrame,long writerFrame,long revision)
-        =>(Extent,StorageRid,PreviousComponentFrame,ShapeWriterFrame,ShapeContentsRevision)=(extent,storage,componentFrame,writerFrame,revision);
-    internal MapPostEffect3DepthOfField2ExternalExtent Extent{get;}
-    internal ulong StorageRid{get;}
-    internal long PreviousComponentFrame{get;}
-    internal long ShapeWriterFrame{get;}
-    internal long ShapeContentsRevision{get;}
-    internal object CaptureEvidence()=>new{tableFrame=Extent.ActualTexture.FrameNumber,Extent.ActualTexture.ParameterIndex,
-        Extent.ActualTexture.SlotRevision,Extent.ActualTexture.Reference.InstanceIndex,StorageRid,PreviousComponentFrame,
-        ShapeWriterFrame,ShapeContentsRevision,Extent.Width40,Extent.Height42,Extent.SourceEvidence,
-        metadataOnly=true,grantsCurrentPixels=false,sourceShapeRecreated=false};
 }

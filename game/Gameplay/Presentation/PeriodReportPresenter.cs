@@ -1,6 +1,5 @@
 using San14.Core;
 using San14.Data;
-using System.Text.Json;
 
 namespace San14.Client.Presentation;
 
@@ -17,13 +16,8 @@ public sealed class PeriodReportText(
     public string MapSeparator { get; } = mapSeparator;
 }
 
-/// <summary>Existing UI receipt metadata, materialized during the same report projection.</summary>
-public sealed record PeriodReportMetadata(int MonthlyReceiptCount, string MonthlyReceiptsJson,
-    int SourceEventCount, string SourceEventsJson, string RuleReceiptsJson, string PeriodEntriesJson);
-
-/// <summary>Immutable text and receipt values; no mutable world or locale is retained.</summary>
-public sealed record PeriodReportPresentation(string Body, IReadOnlyList<string> Entries,
-    PeriodReportMetadata Metadata);
+/// <summary>Immutable localized report text; no mutable world or locale is retained.</summary>
+public sealed record PeriodReportPresentation(string Body, IReadOnlyList<string> Entries);
 
 /// <summary>
 /// Selects the player's report streams and resolves their display identities and text.
@@ -31,19 +25,15 @@ public sealed record PeriodReportPresentation(string Body, IReadOnlyList<string>
 /// </summary>
 public static class PeriodReportPresenter
 {
-    public static PeriodReportPresentation Create(GameState world, int playerForce, PeriodReportText text,
-        Action<PeriodReportMetadata>? publishMetadata = null)
+    public static PeriodReportPresentation Create(GameState world, int playerForce, PeriodReportText text)
     {
         ArgumentNullException.ThrowIfNull(world);
         ArgumentNullException.ThrowIfNull(text);
-        // The adapter's admission check is retained once; both body and metadata
-        // consume the same ordered current-period event projection.
-        CampaignEventReportView[] events = CampaignEventReportAdapter.Create(world, playerForce)
-            .Where(entry => entry.Period == world.PeriodNumber).ToArray();
-        PeriodReportMetadata metadata = CreateMetadata(world, playerForce, events);
-        // Main has always bound receipt metadata before formatting report text.
-        // Keep that observable prefix if a later missing identity/text fails.
-        publishMetadata?.Invoke(metadata);
+        EventReportDisplay[] events = (world.EventReports ?? [])
+            .Where(entry => (entry.ForceId is null || entry.ForceId == playerForce) &&
+                entry.Period == world.PeriodNumber)
+            .Select(entry => new EventReportDisplay(entry.Kind, entry.Source?.EventId,
+                entry.TargetId, entry.Amount)).ToArray();
         var identity = new ReportIdentityLookup(world, text);
         string[] entries = SelectPeriodEntries(world, playerForce)
             .Select(entry => RenderPeriodEntry(world, entry, identity, text))
@@ -58,7 +48,7 @@ public static class PeriodReportPresenter
                 .Select(entry => RenderSourceEventReport(world, entry, text))).ToArray();
         string body = text.Get("play_report_heading") + " " +
             (entries.Length == 0 ? text.Get("play_report_empty") : string.Join(text.MapSeparator, entries));
-        return new(body, Array.AsReadOnly(entries), metadata);
+        return new(body, Array.AsReadOnly(entries));
     }
 
     private static IEnumerable<PeriodReportEntry> SelectPeriodEntries(GameState world, int playerForce)
@@ -241,7 +231,7 @@ public static class PeriodReportPresenter
         };
 
     // This lookup is a synchronous read facade, not a detached world snapshot.
-    // Only the presentation's strings and receipt JSON escape Create.
+    // Only the presentation's strings escape Create.
     private sealed class ReportIdentityLookup(GameState world, PeriodReportText text)
     {
         public string OfficerName(int? id) => id is int known && world.Officers.TryGetValue(known, out OfficerState? officer)
@@ -303,7 +293,7 @@ public static class PeriodReportPresenter
             (entry.MissingRuleKeys is { Length: > 0 } missing ? "  " + text.Format("play_report_missing_rule_count", missing.Length) : "");
     }
 
-    private static string RenderSourceEventReport(GameState world, CampaignEventReportView entry, PeriodReportText text)
+    private static string RenderSourceEventReport(GameState world, EventReportDisplay entry, PeriodReportText text)
     {
         string identity = entry.EventId is int eventId ? text.Format("play_report_source_event_identity", eventId) : text.Get("play_report_event_identity");
         if (entry.Kind == "triggered") return text.Format("play_report_event_triggered", identity);
@@ -332,17 +322,5 @@ public static class PeriodReportPresenter
         return text.Format("play_report_event_effect_unknown", identity);
     }
 
-    private static PeriodReportMetadata CreateMetadata(GameState world, int playerForce,
-        CampaignEventReportView[] events)
-    {
-        // Income and period receipt metadata intentionally include every period;
-        // the visible income/event streams have their own current-period filter.
-        MonthlyIncomeReportEntry[] income = (world.MonthlyIncomeReports ?? [])
-            .Where(entry => entry.ForceId == playerForce).ToArray();
-        return new(income.Length, JsonSerializer.Serialize(income), events.Length,
-            JsonSerializer.Serialize(events),
-            JsonSerializer.Serialize(world.PeriodReports.Where(entry => entry.ForceId == playerForce &&
-                (entry.RuleId is not null || entry.MissingRuleKeys is not null))),
-            JsonSerializer.Serialize(world.PeriodReports.Where(entry => entry.ForceId == playerForce)));
-    }
+    private sealed record EventReportDisplay(string Kind, int? EventId, int? AreaId, int Amount);
 }

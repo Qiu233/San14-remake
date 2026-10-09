@@ -21,7 +21,7 @@ public static partial class TransportArmyRouteSource
         try
         {
             int physical = army.NativeArmyOrigin?.NativeSlotIndex ?? throw Missing("Army_physical");
-            var arena = state.NativeArmyLifecycle ?? throw Missing("lifecycle");
+            var arena = state.ReadArmyLifecycle() ?? throw Missing("lifecycle");
             var slot = arena.Slots[physical];
             if (K(slot.Commander12, "Army12") == 0 || K(slot.Status10, "Army10") == 0)
                 return Done(null, [], null, null, 0, "301DD0.invalid_Army");
@@ -66,7 +66,7 @@ public static partial class TransportArmyRouteSource
         if (army.NativeTransport is not { Waypoints2C.Length: 5 } transport ||
             army.OverrideTarget is not { Kind: ArmyOverrideTargetKind.None }) throw Missing("transport_waypoints_overrideFF");
         int physical = army.NativeArmyOrigin?.NativeSlotIndex ?? throw Missing("Army_physical");
-        var target = state.NativeArmyLifecycle is { } lifecycle
+        var target = state.ReadArmyLifecycle() is { } lifecycle
             ? OwnedArmyLifecycleTargets.Read(state, lifecycle.Slots[physical].ReceiverId) ?? throw Missing("Army38_3A")
             : throw Missing("Army38_3A");
         if (target.Kind38 is not byte kind || target.Identity3A is not ushort identity) throw Missing("Army38_3A");

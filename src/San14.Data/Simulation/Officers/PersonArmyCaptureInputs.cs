@@ -39,7 +39,7 @@ public sealed class PersonArmyCaptureInputs
         if (state.NativeArmySimulation is not { } simulation || simulation.Parameters.Language != _language ||
             state.ContentHashes.GetValueOrDefault(_source.ScenarioSource.ResourceUri) != _source.ScenarioSource.Sha256 ||
             state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } || state.Units.Count != 0 ||
-            simulation.Parameters.Int32Values.ContainsKey(VersionKey) || state.NativeArmyLifecycle is not { } arena ||
+            simulation.Parameters.Int32Values.ContainsKey(VersionKey) || state.ReadArmyLifecycle() is not { } arena ||
             current.ReadOwnedCurrentListPool() is not { } pool || current.ReadRegistryDescriptor(RegistryKind.Item) is not null ||
             state.Items is not { Count: 201 } itemTable || Enumerable.Range(1, 201).Any(id => !itemTable.ContainsKey(id)))
             throw new InvalidDataException("Capture Item fields/registry require their unused complete fresh owner.");
@@ -56,7 +56,7 @@ public sealed class PersonArmyCaptureInputs
                 throw new InvalidDataException("Fresh capture Item native validity is unknown.");
             _ = ObjectRegistration.Register(item, current);
         }
-        return next with { NativeArmyLifecycle = arena with { Indexes = pool.ExportOwnedState() } };
+        return next.WithArmyLifecycle(arena with { Indexes = pool.ExportOwnedState() });
     }
 
     public static void BindCurrent(GameState state, SourceWorldContext current)

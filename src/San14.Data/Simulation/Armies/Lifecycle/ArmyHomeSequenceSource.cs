@@ -9,13 +9,13 @@ public static class ArmyHomeSequenceSource
 {
     public static ushort? ReadNextOrdinary(GameState state, SourceWorldContext current, int commanderId)
     {
-        if (state.NativeArmyLifecycle is not { Slots.Length: 501 } arena ||
+        if (state.ReadArmyLifecycle() is not { Slots.Count: 501 } arena ||
             current.ReadPersonLookupReference(commanderId)?.PhysicalSlot is not int commander ||
             current.ReadPersonFirstLocation(commander) is not ushort home) return null;
         try
         {
             int sequence = 0;
-            foreach (var slot in arena.Slots)
+            foreach (var slot in arena.ReceiverSlots())
             {
                 current.BindUnspecifiedOwnedArmyQueryHeader(slot);
                 var army = new ArmyUnitReference(slot.PhysicalSlot);

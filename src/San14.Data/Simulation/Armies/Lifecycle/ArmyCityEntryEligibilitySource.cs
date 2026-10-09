@@ -77,9 +77,9 @@ public static class ArmyCityEntryEligibilitySource
         SourceWorldContext current, UnitState army)
     {
         if (army.NativeArmyOrigin?.NativeSlotIndex is not int physical || physical is < 1 or > 500 ||
-            state.NativeArmyLifecycle is not { } arena || physical >= arena.Slots.Length)
+            state.ReadArmyLifecycle() is not { } arena || physical >= arena.ReceiverSlots().Length)
             return Missing("saved_Army_slot");
-        var slot = arena.Slots[physical];
+        var slot = arena.ReceiverSlots()[physical];
         if (slot.PhysicalSlot != physical || slot.ActiveUnitId != army.Id || slot.Commander12 != army.OfficerId)
             return Missing("saved_active_Army_receiver");
         var fields = new ArmyCityEntryPositionInputs(physical, slot.Commander12, slot.Status10,

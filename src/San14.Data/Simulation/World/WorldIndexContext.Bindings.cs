@@ -26,7 +26,7 @@ public sealed partial class WorldIndexContext
     }
     public void BindWorld(GameState state)
     {
-        _armies.Replace(state.NativeArmyLifecycle?.Slots
+        _armies.Replace(state.ReadArmyLifecycle()?.ReceiverSlots()
             .Where(slot => (slot.ActiveUnitId ?? slot.PendingImage?.Id) is not null)
             .Select(slot => new EntitySourceBinding(slot.PhysicalSlot, slot.ActiveUnitId ?? slot.PendingImage!.Id)) ?? []);
         foreach (int retired in _traitHandles.Keys.Where(id => !_armies.ContainsEntity(id)).ToArray()) ReleaseTraitIndexes(retired);
@@ -75,7 +75,7 @@ public sealed partial class WorldIndexContext
     internal static int? FindArmyPhysical(GameState state, int? unitId)
     {
         if (unitId is null) return 0;
-        return state.NativeArmyLifecycle?.Slots.FirstOrDefault(slot => slot.ActiveUnitId == unitId || slot.PendingImage?.Id == unitId)?.PhysicalSlot;
+        return state.ReadArmyLifecycle()?.ReceiverSlots().FirstOrDefault(slot => slot.ActiveUnitId == unitId || slot.PendingImage?.Id == unitId)?.PhysicalSlot;
     }
     internal RegistryObjectReference ToSource(WorldEntityReference value)
     {

@@ -61,7 +61,7 @@ public sealed class ArmyMapUiCurrentSource
             int id = unit.Id;
             var row = new ArmyMapUiCurrentRow(id);
             if (unit.NativeArmyOrigin?.NativeSlotIndex is not int physical || physical is < 1 or > 500 ||
-                world.NativeArmyLifecycle?.Slots is not { } slots || physical >= slots.Length ||
+                world.ReadArmyLifecycle()?.ReceiverSlots() is not { } slots || physical >= slots.Length ||
                 slots[physical].PhysicalSlot != physical || slots[physical].ActiveUnitId != id)
             {
                 missing.Add(new(id, "current.Army_saved_receiver")); rows.Add(row); continue;

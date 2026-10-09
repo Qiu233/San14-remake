@@ -42,7 +42,7 @@ public static partial class PlayableTacticRuntime
         var details = new List<TacticReportEntry>();
         var summaries = new List<PeriodReportEntry>();
         ulong randomState = state.RandomState;
-        NativeArmyLifecycleState? lifecycle = state.NativeArmyLifecycle;
+        ArmyLifecycleState? lifecycle = state.ArmyLifecycle;
         ICampaignResourceState? resourceState = state.ResourceState;
 
         foreach (UnitState unit in periodBoundary ? units.Values.OrderBy(unit => unit.Id).ToArray() : [])
@@ -70,7 +70,7 @@ public static partial class PlayableTacticRuntime
             units[acting.Id] = acting with { TacticRuntime = runtime with { Pending = null } };
             acting = units[acting.Id];
             GameState current = state with { Units = units, Officers = officers, RandomState = randomState,
-                NativeArmyLifecycle = lifecycle, ResourceState = resourceState };
+                ArmyLifecycle = lifecycle, ResourceState = resourceState };
             PlayableTacticDefinition? definition = profiles is IPlayableTacticCasterSource casterSource
                 ? casterSource.ResolveForCaster(current, acting, pending.TacticId)
                 : profiles.Resolve(current, pending.TacticId);
@@ -136,11 +136,11 @@ public static partial class PlayableTacticRuntime
                 var stagedUnits = new Dictionary<int, UnitState>(units);
                 var stagedOfficers = new Dictionary<int, OfficerState>(officers);
                 var stagedSummaries = new List<PeriodReportEntry>();
-                NativeArmyLifecycleState? stagedLifecycle = lifecycle;
+                ArmyLifecycleState? stagedLifecycle = lifecycle;
                 ICampaignResourceState? stagedResourceState = resourceState;
                 sourceBatch = useSource.ResolveUse(state with
                     { Units = stagedUnits, Officers = stagedOfficers, RandomState = randomState,
-                        NativeArmyLifecycle = stagedLifecycle, ResourceState = stagedResourceState },
+                        ArmyLifecycle = stagedLifecycle, ResourceState = stagedResourceState },
                     stagedUnits[acting.Id], stagedUnits[pending.TargetUnitId], definition, routes)
                     ?? throw new InvalidDataException("Complete native tactic use inputs are unresolved.");
                 if (sourceBatch.Steps is null)
@@ -167,7 +167,7 @@ public static partial class PlayableTacticRuntime
                 var stagedUnits = new Dictionary<int, UnitState>(units);
                 var stagedOfficers = new Dictionary<int, OfficerState>(officers);
                 var stagedSummaries = new List<PeriodReportEntry>();
-                NativeArmyLifecycleState? stagedLifecycle = lifecycle;
+                ArmyLifecycleState? stagedLifecycle = lifecycle;
                 ICampaignResourceState? stagedResourceState = resourceState;
                 ulong stagedRandom = randomState;
                 foreach (int targetId in targets)
@@ -177,7 +177,7 @@ public static partial class PlayableTacticRuntime
                         throw new InvalidDataException("Source tactic lost a selected unit during effect preflight.");
                     TacticTargetResolution staged = profiles.ResolveEffects(state with
                         { Units = stagedUnits, Officers = stagedOfficers, RandomState = stagedRandom,
-                            NativeArmyLifecycle = stagedLifecycle, ResourceState = stagedResourceState },
+                            ArmyLifecycle = stagedLifecycle, ResourceState = stagedResourceState },
                         stagedCaster, stagedTarget, definition!)
                         ?? throw new InvalidDataException("Source tactic target inputs are unresolved.");
                     PlayableTacticStateValidation.ValidateDefinition(definition! with { Effects = staged.Effects });
@@ -219,7 +219,7 @@ public static partial class PlayableTacticRuntime
                     !units.TryGetValue(acting.Id, out UnitState? currentCaster)) continue;
                 TacticTargetResolution targetResult = preflight is not null ? preflight[targetId] : profiles.ResolveEffects(state with
                     { Units = units, Officers = officers, RandomState = randomState,
-                        NativeArmyLifecycle = lifecycle, ResourceState = resourceState },
+                        ArmyLifecycle = lifecycle, ResourceState = resourceState },
                     currentCaster, currentTarget, definition)
                     ?? throw new InvalidDataException("Tactic adapter returned an unresolved target resolution.");
                 PlayableTacticStateValidation.ValidateDefinition(definition with { Effects = targetResult.Effects });
@@ -242,7 +242,7 @@ public static partial class PlayableTacticRuntime
 
             void ApplyNativeCommanderTail(Dictionary<int, UnitState> currentUnits,
                 Dictionary<int, OfficerState> currentOfficers, ulong currentRandom,
-                NativeArmyLifecycleState? currentLifecycle, ICampaignResourceState? currentResourceState)
+                ArmyLifecycleState? currentLifecycle, ICampaignResourceState? currentResourceState)
             {
                 if (definition.NativeActivationWaiting is null || profiles is not IPlayableNativeTacticActivationTailSource
                     { HasNativeActivationCommanderTail: true } tail)
@@ -251,7 +251,7 @@ public static partial class PlayableTacticRuntime
                     throw new InvalidDataException("Native tactic effects removed the actor before its commander tail.");
                 OfficerState commander = tail.ResolveNativeActivationCommanderTail(state with
                     { Units = currentUnits, Officers = currentOfficers, RandomState = currentRandom,
-                        NativeArmyLifecycle = currentLifecycle, ResourceState = currentResourceState }, currentCaster, definition)
+                        ArmyLifecycle = currentLifecycle, ResourceState = currentResourceState }, currentCaster, definition)
                     ?? throw new InvalidDataException("The native activation commander tail has unresolved current inputs.");
                 if (commander.Id != currentCaster.OfficerId || !currentOfficers.ContainsKey(commander.Id))
                     throw new InvalidDataException("Native activation tail returned another commander.");
@@ -271,7 +271,7 @@ public static partial class PlayableTacticRuntime
             void ApplyTargetEffects(int targetId, TacticTargetResolution targetResult,
                 Dictionary<int, UnitState> targetUnits, Dictionary<int, OfficerState> targetOfficers,
                 List<TacticReportEntry>? targetDetails, List<PeriodReportEntry> targetSummaries,
-                ref NativeArmyLifecycleState? targetLifecycle, ref ICampaignResourceState? targetResourceState)
+                ref ArmyLifecycleState? targetLifecycle, ref ICampaignResourceState? targetResourceState)
             {
                 targetResourceState = targetResult.ResourceStateAfter ?? targetResourceState;
                 foreach (PlayableTacticEffect effect in targetResult.Effects)
@@ -326,11 +326,11 @@ public static partial class PlayableTacticRuntime
                         { NativeUpdateOrdinal = definition.NativeActivationWaiting is null ? null : state.NativeClock?.UpdateOrdinal });
                     if (changed.Troops <= 0 || changed.Morale <= 0)
                     {
-                        NativeArmyLifecycleState? retiredLifecycle = targetLifecycle;
+                        ArmyLifecycleState? retiredLifecycle = targetLifecycle;
                         Action<UnitState>? onRetired = retiredLifecycle is null ? null : image =>
-                            retiredLifecycle = PlayableNativeArmyRetirement.PreservePendingImage(state with
+                            retiredLifecycle = ArmyRetirement.PreservePendingImage(state with
                                 { Units = targetUnits, Officers = targetOfficers,
-                                    NativeArmyLifecycle = retiredLifecycle }, image).NativeArmyLifecycle;
+                                    ArmyLifecycle = retiredLifecycle }, image).ArmyLifecycle;
                         PlayableUnitAftermath.Destroy(changed, state.Cities, state.Gates,
                             targetOfficers, targetUnits, targetSummaries, state.MapWidth, onRetired);
                         //Each source preflight owns a separate receiver table;
@@ -369,7 +369,7 @@ public static partial class PlayableTacticRuntime
         summaryReports = summaries.ToArray();
         return state with { Units = units, Officers = officers,
             TacticReports = periodBoundary ? detailedReports : (state.TacticReports ?? []).Concat(detailedReports).ToArray(),
-            RandomState = randomState, NativeArmyLifecycle = lifecycle, ResourceState = resourceState };
+            RandomState = randomState, ArmyLifecycle = lifecycle, ResourceState = resourceState };
     }
 
     internal static string? CheckUse(GameState state, UnitState acting, int tacticId,

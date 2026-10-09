@@ -88,21 +88,21 @@ public sealed class ArmyMarchPenaltyCurrentProducer
             if (occupant < 0) return Missing("branch.nearby_negative_Army_pointer_index");
             if (occupant is >= 1 and <= 500)
             {
-                if (state.NativeArmyLifecycle is not { } arena)
+                if (state.ReadArmyLifecycle() is not { } arena)
                     return Missing("current.nearby_Army_receiver_owner");
                 var receiver = definitions.ReadArmyUnitTableReference(occupant);
                 if (receiver is null)
                 {
-                    if (occupant >= arena.Slots.Length || arena.Slots[occupant].PhysicalSlot != occupant)
+                    if (occupant >= arena.ReceiverSlots().Length || arena.ReceiverSlots()[occupant].PhysicalSlot != occupant)
                         return Missing("current.nearby_Army_pointer_table");
                     definitions.SetArmyUnitTablePointer(occupant, occupant);
                     receiver = new(occupant);
                 }
                 if (receiver.PhysicalSlot is int armyPhysical)
                 {
-                    if (armyPhysical >= arena.Slots.Length || arena.Slots[armyPhysical].PhysicalSlot != armyPhysical)
+                    if (armyPhysical >= arena.ReceiverSlots().Length || arena.ReceiverSlots()[armyPhysical].PhysicalSlot != armyPhysical)
                         return Missing("current.nearby_Army_receiver");
-                    var slot = arena.Slots[armyPhysical];
+                    var slot = arena.ReceiverSlots()[armyPhysical];
                     definitions.BindUnspecifiedOwnedArmyQueryHeader(slot);
                     if (definitions.ReadArmyUnitNativeValidity(receiver) is not bool valid)
                         return Missing("current.nearby_Army_native_validity");

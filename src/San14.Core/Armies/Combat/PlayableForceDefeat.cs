@@ -99,11 +99,11 @@ public static class PlayableForceDefeat
         //Keep the actual source receiver/header and list owners. Detaching its
         //active projection does not claim the native destructor ran or free a
         //slot. Existing PendingImage is the explicit unresolved source owner.
-        if (current.NativeArmyLifecycle is { } lifecycle)
+        if (current.ArmyLifecycle is { } lifecycle)
         {
-            current = current with { NativeArmyLifecycle = lifecycle with { Slots = lifecycle.Slots.Select(slot =>
+            current = current with { ArmyLifecycle = lifecycle with { Receivers = lifecycle.Receivers.WithEntries(lifecycle.Receivers.Entries.Select(slot =>
                 slot.ActiveUnitId is int id && currentImages.TryGetValue(id, out UnitState? image)
-                    ? slot with { ActiveUnitId = null, PendingImage = image } : slot).ToArray() } };
+                    ? slot with { Phase = ArmyReceiverPhase.Pending, ActiveUnitId = null, PendingImage = image } : slot).ToArray()) } };
         }
         if (current.Diplomacy is { } diplomacy)
         {

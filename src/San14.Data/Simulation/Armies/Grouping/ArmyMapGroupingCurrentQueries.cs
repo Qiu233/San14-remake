@@ -26,7 +26,7 @@ public sealed class ArmyMapGroupingCurrentQueries : IArmyMapGroupingQueries
 
     public IReadOnlyList<int>? ReadRegistry()
     {
-        if (_world.NativeArmyLifecycle?.Indexes.Registries.GetValueOrDefault(WorldEntityKind.Army) is not { } order) return null;
+        if (_world.ReadArmyLifecycle()?.Indexes.Registries.GetValueOrDefault(WorldEntityKind.Army) is not { } order) return null;
         var result = new List<int>(order.Count);
         foreach (var entity in order)
         {
@@ -154,9 +154,9 @@ public sealed class ArmyMapGroupingCurrentQueries : IArmyMapGroupingQueries
         return _abilities.Resolve(_world, id)?.Leadership;
     }
 
-    private NativeArmyLifecycleSlot? Slot(int physical) => _world.NativeArmyLifecycle?.Slots is { } slots &&
+    private ArmyLifecycleReceiverView? Slot(int physical) => _world.ReadArmyLifecycle()?.ReceiverSlots() is { } slots &&
         physical < slots.Length && slots[physical].PhysicalSlot == physical ? slots[physical] : null;
-    private UnitState? Unit(NativeArmyLifecycleSlot slot) => slot.ActiveUnitId is int id
+    private UnitState? Unit(ArmyLifecycleReceiverView slot) => slot.ActiveUnitId is int id
         ? _world.Units.GetValueOrDefault(id) : slot.PendingImage;
     private TransferPersonReference? Commander(int physical) => Slot(physical)?.Commander12 is ushort id
         ? _current.ReadPersonLookupReference(id <= 6000 ? id : 0) : null;
@@ -183,7 +183,7 @@ public sealed class ArmyMapGroupingCurrentQueries : IArmyMapGroupingQueries
     {
         public BaseReference? ReadCityZeroReference() => current.ReadCityZeroReference();
         public ushort? ReadBaseObjectLink(BaseReference reference) => current.ReadBaseObjectLink(reference);
-        public IReadOnlyList<BaseReference?>? ReadRegisteredBases() => world.NativeArmyLifecycle?.Indexes.Bases?.Select(entity =>
+        public IReadOnlyList<BaseReference?>? ReadRegisteredBases() => world.ReadArmyLifecycle()?.Indexes.Bases?.Select(entity =>
             entity.Kind switch
             {
                 WorldEntityKind.City => new BaseReference(BaseKind.City, entity.Id),

@@ -6,18 +6,18 @@ public static class OwnedArmyDestructorFlags
 {
     public static GameState InstallFresh(GameState state)
     {
-        if (state.NativeArmyLifecycle is not { Slots.Length: 501, ArmyFlags150: null } arena ||
+        if (state.ReadArmyLifecycle() is not { Slots.Count: 501, ArmyFlags150: null } arena ||
             state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } || state.Units.Count != 0)
             throw new InvalidDataException("Army flags150 require the unused fresh constructor allocation.");
         //Actual2269E0, called for all501 receivers from326990. Normal creator
         //reuses this receiver; it does not replace this byte from a default.
-        return state with { NativeArmyLifecycle = arena with { ArmyFlags150 = Enumerable.Repeat<byte?>(0, 501).ToArray() } };
+        return state.WithArmyLifecycle(arena with { ArmyFlags150 = Enumerable.Repeat<byte?>(0, 501).ToArray() });
     }
 
-    public static void BindCurrent(NativeArmyLifecycleState arena, SourceWorldContext current)
+    public static void BindCurrent(ArmyLifecycleSourceView arena, SourceWorldContext current)
     {
         if (arena.ArmyFlags150 is not { } flags) return;
-        for (int i = 0; i < flags.Length; i++) current.SetArmyUnitFlags150(i, flags[i]);
+        for (int i = 0; i < flags.Count; i++) current.SetArmyUnitFlags150(i, flags[i]);
     }
 
     public static bool SetSourceBit(SourceWorldContext current, int physical, int bit, bool enabled)
@@ -31,7 +31,7 @@ public static class OwnedArmyDestructorFlags
         return true;
     }
 
-    public static NativeArmyLifecycleState PublishCurrent(NativeArmyLifecycleState arena, SourceWorldContext current) =>
+    public static ArmyLifecycleSourceView PublishCurrent(ArmyLifecycleSourceView arena, SourceWorldContext current) =>
         arena.ArmyFlags150 is null ? arena : arena with { ArmyFlags150 = Enumerable.Range(0, 501)
             .Select(i => current.ReadArmyUnitFlags150(new(i))).ToArray() };
 }

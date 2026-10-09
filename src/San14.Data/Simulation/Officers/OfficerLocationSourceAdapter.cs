@@ -55,7 +55,7 @@ public static class OfficerLocationSourceAdapter
         new(officerId, state.Position?.Kind == OfficerPositionKind.Unresolved ? position : null,
             state.Membership?.Kind == OfficerDistrictMembershipKind.Unresolved ? district : null);
 
-    internal static ArmyReceiverSourceDirectory? Receivers(GameState state) => state.NativeArmyLifecycle is { } lifecycle
+    internal static ArmyReceiverSourceDirectory? Receivers(GameState state) => state.ReadArmyLifecycle() is { } lifecycle
         ? new(lifecycle) : null;
     internal static GameState PublishPosition(GameState state, int officerId, SourceWorldContext current)
     {

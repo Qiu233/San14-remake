@@ -223,8 +223,7 @@ public static partial class BaseCaptureRewardSource
         => current.CreateTemporaryHexList() ?? throw Missing("2851B0 temporary allocator");
     private static void Release(SourceWorldContext current, HexListHandle handle)
     { current.ClearTemporaryHexList(handle); current.ReleaseTemporaryHexList(handle); }
-    private static GameState WithCurrentPool(GameState state, SourceWorldContext current) => state with
-    { NativeArmyLifecycle = state.NativeArmyLifecycle! with { Indexes = (current.ReadOwnedCurrentListPool() ?? throw Missing("2851B0 current primary pool")).ExportOwnedState() } };
+    private static GameState WithCurrentPool(GameState state, SourceWorldContext current) => state.WithArmyLifecycle(state.ReadArmyLifecycle()! with { Indexes = (current.ReadOwnedCurrentListPool() ?? throw Missing("2851B0 current primary pool")).ExportOwnedState() });
     private static T K<T>(T? value, string name) where T : struct => value ?? throw Missing(name);
     private static MissingOwner Missing(string name) => new("current.BaseCaptureReward: " + name);
     private sealed class MissingOwner(string message) : Exception(message);

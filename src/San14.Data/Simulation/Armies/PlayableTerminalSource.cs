@@ -52,7 +52,7 @@ public sealed class PlayableTerminalSource(ArmyCampaignRuleAdapter package)
             if (input.NativePlayableTerminal is { } old) return new(input, old, null);
             var current = OrdinaryCurrent(input);
             int player = Player(input, current);
-            var saved = input.NativeArmyLifecycle ?? throw Missing("saved_C0_primary_owner");
+            var saved = input.ReadArmyLifecycle() ?? throw Missing("saved_C0_primary_owner");
             if (saved.Indexes.Registries.GetValueOrDefault(WorldEntityKind.Force) is not { } order)
                 throw Missing("saved_Force_index");
             int count = 0, only = 0;

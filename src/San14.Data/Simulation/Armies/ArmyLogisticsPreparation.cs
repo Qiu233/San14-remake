@@ -98,7 +98,7 @@ public sealed class ArmyLogisticsPreparation : IPlayableNativeArmyPreparationRul
     public byte? ResolveFlags150AfterLogistics(GameState state, UnitState army)
     {
         if (army.NativeArmyOrigin?.NativeSlotIndex is not int physical ||
-            state.NativeArmyLifecycle?.ArmyFlags150 is not { } flags || flags[physical] is not byte current)
+            state.ReadArmyLifecycle()?.ArmyFlags150 is not { } flags || flags[physical] is not byte current)
             return null;
         bool? valid = _current.ArmyValid(state, army);
         if (valid is null) return null;
@@ -111,7 +111,20 @@ public sealed class ArmyLogisticsPreparation : IPlayableNativeArmyPreparationRul
         //TC276DB0 always clears a present bit3 before its route requery.
         return (byte)(current & 0xF7);
     }
-    public bool ProvidesFlags150Preparation => true;
+    public ICampaignResourceState? ResolveResourceKnowledgeAfterLogistics(GameState state, UnitState army,
+        ICampaignResourceState? stagedKnowledge) => UpdateResourceKnowledge(army, stagedKnowledge,
+            () => ResolveFlags150AfterLogistics(state, army));
+
+    internal static ICampaignResourceState? UpdateResourceKnowledge(UnitState army,
+        ICampaignResourceState? stagedKnowledge, Func<byte?> resolve)
+    {
+        var knowledge = CampaignSourceKnowledge.From(stagedKnowledge);
+        if (knowledge.ArmyLifecycleSource?.ArmyFlags150 is not { } current ||
+            army.NativeArmyOrigin?.NativeSlotIndex is not int physical) return stagedKnowledge;
+        var flags = current.ToArray();
+        flags[physical] = resolve();
+        return knowledge.WithArmyLifecycleSource(knowledge.ArmyLifecycleSource with { ArmyFlags150 = flags });
+    }
 
     /// <summary>Current affiliation Base center consumed by native2C9560.
     /// Exposed for the primary battle-candidate predicate, which shares it.</summary>

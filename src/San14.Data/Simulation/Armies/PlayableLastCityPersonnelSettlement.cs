@@ -14,7 +14,7 @@ public sealed class PlayableLastCityPersonnelSettlement(ArmyCampaignRuleAdapter 
     {
         var resolved = new List<int>(); var reports = new List<PeriodReportEntry>();
         var working = postCapture;
-        var arena = postCapture.NativeArmyLifecycle;
+        var arena = postCapture.ReadArmyLifecycle();
         if (arena?.Indexes.Registries.GetValueOrDefault(WorldEntityKind.Officer) is not { } order)
             return new(postCapture, [], []);
         foreach (var entity in order)

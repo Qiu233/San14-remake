@@ -15,14 +15,14 @@ internal static class ArmyOverrideSourceKnowledgeValidation
         {
             if (row.Owner.UnitId is < 0 || row.Owner.ReceiverId is { Value: <= 0 } ||
                 row.Owner.UnitId is null && row.Owner.ReceiverId is null ||
-                row.Owner.ReceiverId is { } receiver && state.NativeArmyLifecycle?.Slots.Any(slot => slot.ReceiverId == receiver) != true)
+                row.Owner.ReceiverId is { } receiver && state.ArmyLifecycle?.Receivers.Find(receiver) is null)
                 throw new InvalidDataException("Override source knowledge has an invalid owner.");
             // Standalone units have no retained receiver image. Their normal
             // retreat/destruction removes the owner itself, so its resource
             // knowledge leaves the serialized campaign too. Loading remains
             // strict: only a live owner can appear in a saved extension.
             if (row.Owner.UnitId is int id && !state.Units.ContainsKey(id) &&
-                state.NativeArmyLifecycle?.Slots.Any(slot => slot.PendingImage?.Id == id) != true) continue;
+                state.ArmyLifecycle?.Receivers.Entries.Any(slot => slot.PendingImage?.Id == id) != true) continue;
             var target = Find(state, row.Owner);
             if (target is null) throw new InvalidDataException("Override source knowledge has no current owner.");
             if (row.KindCode is 5 or 6 or 9 or 11 or 27 or 255)
@@ -39,7 +39,7 @@ internal static class ArmyOverrideSourceKnowledgeValidation
     public static void Validate(GameState state)
     {
         var knowledge = state.ResourceState as CampaignSourceKnowledge;
-        var directory = state.NativeArmyLifecycle is { } arena ? new ArmyReceiverSourceDirectory(arena) : null;
+        var directory = knowledge?.ArmyLifecycleSource is { } source ? new ArmyReceiverSourceDirectory(source) : null;
         foreach (var row in knowledge?.ArmyOverrides ?? [])
         {
             var target = Find(state, row.Owner);
@@ -52,7 +52,7 @@ internal static class ArmyOverrideSourceKnowledgeValidation
                 throw new InvalidDataException("Decoded override identity is stored as source residue.");
         }
         foreach (var unit in state.Units.Values) Check(unit.OverrideTarget, ArmyOverrideTargetSourceAdapter.Owner(state, unit));
-        foreach (var slot in state.NativeArmyLifecycle?.Slots ?? [])
+        foreach (var slot in state.ArmyLifecycle?.Receivers.Entries ?? [])
         {
             Check(slot.OverrideTarget, new(slot.ReceiverId, null));
             if (slot.PendingImage is { } pending) Check(pending.OverrideTarget, ArmyOverrideTargetSourceAdapter.Owner(state, pending));
@@ -69,11 +69,11 @@ internal static class ArmyOverrideSourceKnowledgeValidation
     {
         if (owner.UnitId is int id)
         {
-            var unit = state.Units.GetValueOrDefault(id) ?? state.NativeArmyLifecycle?.Slots
+            var unit = state.Units.GetValueOrDefault(id) ?? state.ArmyLifecycle?.Receivers.Entries
                 .Select(slot => slot.PendingImage).SingleOrDefault(image => image?.Id == id);
             return unit is not null && ArmyOverrideTargetSourceAdapter.Owner(state, unit) == owner ? unit.OverrideTarget : null;
         }
-        return owner.ReceiverId is { } receiver ? state.NativeArmyLifecycle?.Slots
+        return owner.ReceiverId is { } receiver ? state.ArmyLifecycle?.Receivers.Entries
             .SingleOrDefault(slot => slot.ReceiverId == receiver)?.OverrideTarget : null;
     }
 }

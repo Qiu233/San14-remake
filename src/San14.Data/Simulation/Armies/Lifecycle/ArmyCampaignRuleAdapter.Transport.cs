@@ -15,7 +15,7 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportCreation
         state = ArmyIdentityAllocation.Initialize(state);
         if (state.ArmyIdentities!.Candidate != projection.Id) return null;
         if (projection.Mission?.Kind != UnitMissionKind.Transport || state.NativeClock is not { } clock ||
-            state.NativeArmyLifecycle is not { } arena ||
+            state.ReadArmyLifecycle() is not { } arena ||
             !state.Officers.TryGetValue(order.OfficerId, out var person) || person.Deployed ||
             OfficerBehaviorSourceAdapter.EncodeFlags(person.Behavior) is not ushort flags ||
             _definitions.ResolveOfficerSource(person.Id) is null ||
@@ -67,9 +67,7 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportCreation
                 _definitions, fields.TargetKind38, fields.TargetIdentity3A);
             if (registered is null) return null;
             CityState source = state.Cities[stocks.SourceCityPhysical];
-            var result = state with
-            {
-                Cities = new(state.Cities) { [source.Id] = source with
+            var result = (state with { Cities = new(state.Cities) { [source.Id] = source with
                     { Troops = stocks.TroopsAfter, Gold = stocks.GoldAfter, Supplies = stocks.SuppliesAfter } },
                 Officers = new(state.Officers) { [person.Id] = person with { Deployed = true,
                     Behavior = OfficerBehaviorSourceAdapter.WithSourceFlags(person.Behavior, OfficerBehaviorSourceAdapter.MarkReturn(flags)),
@@ -77,16 +75,16 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportCreation
                         new ArmyReceiverSourceDirectory(registered.Lifecycle)) } } },
                 Districts = new(state.Districts) { [districtId] = district with
                     { OrdersRemaining = Math.Clamp(unchecked(remaining - commandCost.Value), 0, 200) } },
-                Units = new(state.Units) { [created.Id] = created }, NativeArmyLifecycle = registered.Lifecycle, ArmyMapOccupancy = registered.Occupancy, ResourceState = registered.ResourceState
-            };
+                Units = new(state.Units) { [created.Id] = created },
+                ArmyMapOccupancy = registered.Occupancy,
+                ResourceState = registered.ResourceState }).WithArmyLifecycle(registered.Lifecycle);
             var currentRoute = CaptureWritableTransportRouteCurrent(result);
             var route = TransportArmyCreationRouteSource.Prepare(result, currentRoute, created);
             if (route.Receipt is not { } initialRoute) return null;
             var routed = created with { March = created.March! with { NextStep =
                 ArmyMarchSourceAdapter.DecodeDestination(initialRoute.WrapperNextHex48Write ?? fields.InitialNextHex48) } };
-            result = result with { Units = new(result.Units) { [created.Id] = routed },
-                NativeArmyLifecycle = result.NativeArmyLifecycle! with {
-                    Indexes = currentRoute.ReadOwnedCurrentListPool()!.ExportOwnedState() } };
+            result = (result with { Units = new(result.Units) { [created.Id] = routed } }).WithArmyLifecycle(result.ReadArmyLifecycle()! with {
+                    Indexes = currentRoute.ReadOwnedCurrentListPool()!.ExportOwnedState() });
             return new(ArmyIdentityAllocation.Commit(result, created.Id), TransportCreationRevision);
         }
         catch (InvalidDataException) { return null; }

@@ -17,12 +17,12 @@ public static class ArmyChangedListsSource
 
     public static GameState InstallFresh(GameState state, SourceWorldContext current)
     {
-        var arena = state.NativeArmyLifecycle ?? throw new InvalidDataException("current.changed_lists_primary_arena");
+        var arena = state.ReadArmyLifecycle() ?? throw new InvalidDataException("current.changed_lists_primary_arena");
         if (arena.Indexes.ChangedProcessing is not null || state.Units.Count != 0 || state.NativeClock is not { UpdateOrdinal: 0 })
             throw new InvalidDataException("Fresh changed-list constructor requires its unused owned campaign.");
         var pool = current.ReadOwnedCurrentListPool() ?? throw new InvalidDataException("current.changed_lists_primary_pool");
         pool.CreateChangedIndexes();
-        return state with { NativeArmyLifecycle = arena with { Indexes = pool.ExportOwnedState() } };
+        return state.WithArmyLifecycle(arena with { Indexes = pool.ExportOwnedState() });
     }
     /// <summary>Exact018CC0(...,1) tail append plus Army pointer store.
     /// It does not deduplicate or ask native validity before registering.</summary>
@@ -34,7 +34,7 @@ public static class ArmyChangedListsSource
     public static ArmyChangedListsResult Append(GameState state, int armyPhysical, SourceWorldContext current)
     {
         if (armyPhysical is < 0 or > 500) return Unknown("current.changed_lists_Army_pointer");
-        if (state.NativeArmyLifecycle is not { } arena || arena.Indexes.ChangedProcessing is null || arena.Indexes.ChangedPendingUnitIds is null)
+        if (state.ReadArmyLifecycle() is not { } arena || arena.Indexes.ChangedProcessing is null || arena.Indexes.ChangedPendingUnitIds is null)
             return Unknown("current.changed_lists_saved_owner");
         try
         {
@@ -44,7 +44,7 @@ public static class ArmyChangedListsSource
             if (at.Identity is null)
                 return Success(state, new("097E10.no_allocated_node", false, false));
             current.WriteRegistryNodePayload(at, new(RegistryKind.Army, armyPhysical));
-            return Success(state with { NativeArmyLifecycle = arena with { Indexes = pool.ExportOwnedState() } },
+            return Success(state.WithArmyLifecycle(arena with { Indexes = pool.ExportOwnedState() }),
                 new("097E10.append_tail", false, false, AllocatedNode: at.Identity));
         }
         catch (Missing error) { return Unknown(error.Message); }
@@ -61,7 +61,7 @@ public static class ArmyChangedListsSource
         SourceWorldContext currentQueries,
         Func<GameState, SourceWorldContext, UnitState, TransportArmyRouteResult>? rewriteTransportRoute = null)
     {
-        if (state.NativeArmyLifecycle is not { } arena || arena.Indexes.ChangedProcessing is null)
+        if (state.ReadArmyLifecycle() is not { } arena || arena.Indexes.ChangedProcessing is null)
             return Unknown("current.changed_lists_saved_owner");
         if (arena.Indexes.ChangedProcessing is null) return Unknown("current.changed_lists_Busy90");
         if (arena.Indexes.ChangedProcessing == true) return Unknown("current.changed_lists_running_worker_completion");
@@ -79,9 +79,9 @@ public static class ArmyChangedListsSource
             {
                 int? physical = pool.ArmyPhysical(payload);
                 if (physical is null or 0) continue;
-                if (arena.Slots.Length != 501 || physical is < 1 or > 500)
+                if (arena.ReceiverSlots().Length != 501 || physical is < 1 or > 500)
                     throw new Missing("current.changed_lists_Army_header");
-                var slot = working.NativeArmyLifecycle!.Slots[physical.Value];
+                var slot = working.ReadArmyLifecycle()!.ReceiverSlots()[physical.Value];
                 if (slot.Commander12 is not ushort commander)
                     throw new Missing("current.changed_lists_Army12");
                 if (commander == 0) continue;
@@ -92,7 +92,7 @@ public static class ArmyChangedListsSource
                 if (excluded.Value) continue;
                 if (status == 2)
                 {
-                    if (arena.ArmyFlags150 is not { Length: 501 } flags || flags[physical.Value] is not byte raw150)
+                    if (arena.ArmyFlags150 is not { Count: 501 } flags || flags[physical.Value] is not byte raw150)
                         throw new Missing("current.changed_lists_Army150_bit3");
                     if ((raw150 & 8) != 0) return PublishStopped(physical.Value, "17A620.type2_bit3_return");
                     var image = slot.ActiveUnitId is int id ? working.Units.GetValueOrDefault(id) : slot.PendingImage;
@@ -123,7 +123,7 @@ public static class ArmyChangedListsSource
             ArmyChangedListsResult PublishStopped(int physical, string sourceBranch)
             { pool.ChangedProcessing = false; return Publish(new(sourceBranch, true, false, physical)); }
             ArmyChangedListsResult Publish(ArmyChangedListsReceipt receipt)
-                => Success(working with { NativeArmyLifecycle = working.NativeArmyLifecycle! with { Indexes = pool.ExportOwnedState() } }, receipt);
+                => Success(working.WithArmyLifecycle(working.ReadArmyLifecycle()! with { Indexes = pool.ExportOwnedState() }), receipt);
         }
         catch (Missing error) { return Unknown(error.Message); }
         catch (InvalidDataException error) { return Unknown(error.Message); }

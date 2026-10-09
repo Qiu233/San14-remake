@@ -133,7 +133,7 @@ public static class PersonAdvisorResetSource
             foreach (var write in cities.Where(x => x.DurabilitySetterReached))
                 cityStates[write.CityPhysical] = cityStates[write.CityPhysical] with { Durability = write.DurabilityAfter };
             var units = new Dictionary<int, UnitState>(working.Units);
-            var slots = (working.NativeArmyLifecycle ?? throw Missing("Army_saved_arena")).Slots.ToArray();
+            var slots = (working.ReadArmyLifecycle() ?? throw Missing("Army_saved_arena")).ReceiverSlots().ToArray();
             foreach (var write in armies)
             {
                 var slot = slots[write.PhysicalSlot];
@@ -141,9 +141,11 @@ public static class PersonAdvisorResetSource
                 else if (slot.PendingImage is { } image) slots[write.PhysicalSlot] = slot with { PendingImage = image with { NativeMorale1A = write.After1A } };
                 else throw Missing("Army_publish_image");
             }
-            working = working with { Cities = cityStates, Gates = gateStates, Units = units, NativeArmySimulation = working.NativeArmySimulation! with
-                { Parameters = working.NativeArmySimulation.Parameters with { Int32Values = values } },
-                NativeArmyLifecycle = working.NativeArmyLifecycle with { Slots = slots, Indexes = pool.ExportOwnedState() } };
+            working = (working with { Cities = cityStates,
+                Gates = gateStates,
+                Units = units,
+                NativeArmySimulation = working.NativeArmySimulation! with
+                { Parameters = working.NativeArmySimulation.Parameters with { Int32Values = values } } }).WithArmyLifecycle(working.ReadArmyLifecycle()!.WithReceiverSlots(slots) with { Indexes = pool.ExportOwnedState() });
             return new(working, new(physical, level, cache, bases.ToArray(), armies.ToArray(), cities.ToArray(), policies.ToArray()), null);
 
             int ReadPolicy(ForceReference owner, int effect, bool mapped)

@@ -9,8 +9,8 @@ internal static class ArmyTargetSourceKnowledgeValidation
     public static void Validate(GameState state)
     {
         var knowledge = state.ResourceState as CampaignSourceKnowledge;
-        var arena = state.NativeArmyLifecycle;
-        var receivers = arena is null ? null : new ArmyReceiverSourceDirectory(arena);
+        var arena = state.ArmyLifecycle;
+        var receivers = knowledge?.ArmyLifecycleSource is { } source ? new ArmyReceiverSourceDirectory(source) : null;
         foreach (var residue in knowledge?.ArmyTargets ?? [])
         {
             var target = arena?.Targets?.Find(residue.ReceiverId);
@@ -19,7 +19,7 @@ internal static class ArmyTargetSourceKnowledgeValidation
                 throw new InvalidDataException("Army target source residue has no matching unresolved channel.");
             if (residue.IdentityCode is ushort code &&
                 (target.Kind == ArmyTargetKind.City && code is >= 1 and <= 51 ||
-                 target.Kind == ArmyTargetKind.ArmyReceiver && receivers!.TryResolveReceiverId(code, out _)))
+                 target.Kind == ArmyTargetKind.ArmyReceiver && receivers?.TryResolveReceiverId(code, out _) == true))
                 throw new InvalidDataException("Decoded army target identity is stored as unresolved knowledge.");
         }
         foreach (var row in arena?.Targets?.Assignments ?? [])

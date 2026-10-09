@@ -73,5 +73,5 @@ internal static class ArmyPositionSourceKnowledge
                 throw new InvalidDataException("Saved conflicting army position is missing its compatibility owner.");
     }
     private static IEnumerable<UnitState> Images(GameState state) => state.Units.Values.Concat(
-        state.NativeArmyLifecycle?.Slots.Where(slot => slot.PendingImage is not null).Select(slot => slot.PendingImage!) ?? []);
+        state.ArmyLifecycle?.Receivers.Entries.Where(slot => slot.PendingImage is not null).Select(slot => slot.PendingImage!) ?? []);
 }

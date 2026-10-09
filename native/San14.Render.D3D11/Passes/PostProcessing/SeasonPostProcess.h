@@ -83,7 +83,7 @@ struct Inputs {
     std::array<float,4> nearFar{}; // CB18 difference,invNear,invDifference,-ratio.
     std::array<float,2> heat{};
     float heatCoefficient{},spriteThreshold{},userExposure{};
-    uint32_t gatherC0{},enableDofA4{};
+    uint32_t gatherMode{},depthOfFieldMode{};
 };
 inline Inputs prepareSimpleCurrent(const Settings& current,bool actualAdaptationLock,
     float actualLockedAdaptation,bool actualAutoExposure) {
@@ -102,7 +102,7 @@ inline Inputs prepareSimpleCurrent(const Settings& current,bool actualAdaptation
     out.heatCoefficient=requireSetting(current.heatCoefficient);
     out.spriteThreshold=requireSetting(current.spriteThreshold);
     out.userExposure=actualAutoExposure?-1:current.userExposure;
-    out.gatherC0=out.enableDofA4=requireSetting(current.depthOfFieldMode)&7;
+    out.gatherMode=out.depthOfFieldMode=requireSetting(current.depthOfFieldMode)&7;
     return out;
 }
 inline bool cbFile(const std::string& key,const char* name){
@@ -112,12 +112,12 @@ inline bool cbFile(const std::string& key,const char* name){
 // complete gather/Shape producer and Eye log/pow fields. This function updates
 // only named lanes with these direct current writers. Invoke before Begin;
 // its existing full-buffer uploader then consumes the modified templates.
-template<class ContinuousPostOwner>
-inline void publishSimpleCurrent(const Inputs& current,ContinuousPostOwner& post) {
-    if(post.awaitingReturn)throw std::runtime_error("Current post must return before its next Main publication");
-    post.heatCoefficient=current.heatCoefficient;
-    post.gatherC0=current.gatherC0;post.enableDofA4=current.enableDofA4;
-    for(auto& item:post.staticConstants){auto& bytes=item.second;
+template<class PostTimeline>
+inline void publishSimpleCurrent(const Inputs& current,PostTimeline& post) {
+    if(post.history.applicationInProgress())throw std::runtime_error("Current post must return before its next Main publication");
+    post.templates.heatCoefficient=current.heatCoefficient;
+    post.templates.gatherMode=current.gatherMode;post.templates.depthOfFieldMode=current.depthOfFieldMode;
+    for(auto& item:post.templates.constants){auto& bytes=item.second;
         if(cbFile(item.first,"cb18.bin")){
             if(bytes.size()!=144)throw std::runtime_error("Current normal DOF CB18 extent");
             std::memcpy(bytes.data()+12,&current.userExposure,4);
@@ -138,9 +138,9 @@ inline void publishSimpleCurrent(const Inputs& current,ContinuousPostOwner& post
 }
 // Reuse the already source-tested projection/CB22 writer on this final Main,
 // after publishing current selectedSun and other current Composite inputs.
-template<class ContinuousPostOwner>
+template<class PostTimeline>
 inline NativeNormalPostCameraProjection publishProjectionBeforeBegin(const Settings& current,
-    NativeNormalPostCamera& postCamera,ContinuousPostOwner& post) {
+    NativeNormalPostCamera& postCamera,PostTimeline& post) {
     // Season optics are independently published; never substitute the motion rig.
     return updateNativeNormalPostCameraBeforeBegin(postCamera,current.camera,post);
 }

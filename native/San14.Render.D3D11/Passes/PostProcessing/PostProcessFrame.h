@@ -1,119 +1,135 @@
-// Fixed normal Main post193 CPU preparation. Original GPU objects stay in the
-// existing normal-post owner/passes. Include after NativeNormalPostPass helpers.
+// Resource import and constant-buffer output for the normal post timeline.
+// Include after NativeNormalPostPass helpers.
 #pragma once
 #include <map>
+#include "PostProcessHistory.h"
 
-struct NativeNormalPostContinuousConstant {
+struct PostConstantBinding {
     std::string stage,file;
     UINT slot{},parameter{};
 };
-struct NativeNormalPostContinuous {
-    float heatCoefficient{},priorApplyClock{};
-    UINT width{},height{},gatherC0{},enableDofA4{},count10{},stagingSide28{},beginCounter{};
-    bool history16{},changeFStop{},applyBit23{},awaitingReturn{};
-    std::vector<std::string> unionOrder;
-    std::map<std::string,std::vector<NativeNormalPostContinuousConstant>> bindings;
-    std::map<std::string,std::vector<char>> staticConstants;
-    std::map<std::string,UINT> selectors;
+enum class PostPassRole { Other, ApertureShape, CocInitialize, CocAccumulate, CocResolve, ScatterRear, ScatterFore };
+struct PostPassTemplate {
+    std::string name;
+    PostPassRole role{};
+    std::vector<PostConstantBinding> bindings;
 };
-struct NativeNormalPostContinuousPlan {
-    float common254{},actualDelta{};
-    UINT beginCounter{},countAtPrepare{},selectedStagingSide{},dofMask{};
-    bool isFirstExec{},shapeChanged{},history16{},needStagingRead{},before57Applied{};
-    bool rearClear{},foreClear{};
-    std::vector<std::string> orderedPasses;
+struct PostProcessTemplates {
+    float heatCoefficient{};
+    UINT gatherMode{},depthOfFieldMode{};
+    std::vector<PostPassTemplate> passes;
     std::map<std::string,std::vector<char>> constants;
-    std::map<std::string,UINT> selectors;
 };
+struct NormalPostTimeline {
+    San14::Render::PostProcessHistory history;
+    PostProcessTemplates templates;
+};
+struct PostFramePass {
+    std::string name;
+    PostPassRole role{};
+    size_t templateIndex{};
+};
+struct NormalPostFrame {
+    San14::Render::PostHistoryFrame history;
+    std::vector<PostFramePass> passes;
+    std::map<std::string,std::vector<char>> constants;
+};
+static PostPassRole postPassRole(const std::string& name) {
+    if(name=="053-dof")return PostPassRole::ApertureShape;
+    if(name=="066-dof")return PostPassRole::CocInitialize;
+    if(name=="067-dof")return PostPassRole::CocAccumulate;
+    if(name=="070-dof")return PostPassRole::CocResolve;
+    if(name=="062-dof")return PostPassRole::ScatterRear;
+    if(name=="063-dof")return PostPassRole::ScatterFore;
+    return PostPassRole::Other;
+}
 struct NativeNormalPostStagingMap {
     UINT side{};
     bool returnedNull{};
     std::array<char,32> bytes{}; // Meaningful only after a successful current Map.
 };
 
-static NativeNormalPostContinuous prepareNativeNormalPostContinuous(const fs::path& source) {
-    NativeNormalPostContinuous owner;UINT history,change,bit;
+static NormalPostTimeline prepareNormalPostTimeline(const fs::path& source) {
+    NormalPostTimeline owner;auto& templates=owner.templates;
+    San14::Render::PostHistorySeed seed;UINT width,height,history,change,applied;
     std::ifstream fixed(source/"continuous-fixed.txt");
-    fixed>>owner.heatCoefficient>>owner.width>>owner.height>>owner.gatherC0>>owner.enableDofA4>>owner.count10>>history>>owner.stagingSide28>>change>>bit>>owner.priorApplyClock;
-    if(!fixed)throw std::runtime_error("Continuous normal post fixed source inputs absent");
-    owner.history16=history!=0;owner.changeFStop=change!=0;owner.applyBit23=bit!=0;
+    fixed>>templates.heatCoefficient>>width>>height>>templates.gatherMode>>templates.depthOfFieldMode
+        >>seed.warmupApplications>>history>>seed.stagingReadSide>>change>>applied>>seed.previousApplyTime;
+    if(!fixed)throw std::runtime_error("Normal post fixed inputs absent");
+    seed.cocWriteSide=history!=0;seed.apertureChanged=change!=0;seed.previousGatherApplied=applied!=0;
+    owner.history=San14::Render::PostProcessHistory(seed);
     std::ifstream order(source/"ordered-required-color-passes.txt");std::string name;
-    if(!order)throw std::runtime_error("Continuous normal post static union absent");
+    if(!order)throw std::runtime_error("Normal post pass directory absent");
     while(order>>name) {
-        owner.unionOrder.push_back(name);std::ifstream cbs(source/name/"cbuffers.txt");
-        if(!cbs)throw std::runtime_error("Continuous normal post static CB layout absent");
-        NativeNormalPostContinuousConstant binding;
+        PostPassTemplate pass;pass.name=name;pass.role=postPassRole(name);
+        std::ifstream cbs(source/name/"cbuffers.txt");
+        if(!cbs)throw std::runtime_error("Normal post CB layout absent");
+        PostConstantBinding binding;
         while(cbs>>binding.stage>>binding.slot>>binding.file) {
-            if(binding.file.size()<7||binding.file.substr(0,2)!="cb")throw std::runtime_error("Unsupported continuous post CB filename");
+            if(binding.file.size()<7||binding.file.substr(0,2)!="cb")throw std::runtime_error("Unsupported post CB filename");
             binding.parameter=UINT(std::stoul(binding.file.substr(2,binding.file.size()-6)));
-            owner.bindings[name].push_back(binding);
+            pass.bindings.push_back(binding);
             const auto key=name+"/"+binding.file;
-            if(owner.staticConstants.find(key)==owner.staticConstants.end())owner.staticConstants[key]=load(source/name/binding.file);
+            if(templates.constants.find(key)==templates.constants.end())templates.constants[key]=load(source/name/binding.file);
         }
-        owner.bindings.try_emplace(name);
+        templates.passes.push_back(std::move(pass));
     }
+    // GPU pair aliases are imported separately by the renderer, their sole owner.
+    // Keep the resource-layout admission check without a second runtime mirror.
     std::ifstream pairs(source/"history-pairs.txt");std::string table;UINT index,side;
-    if(!pairs)throw std::runtime_error("Continuous normal post source count2 selectors absent");
-    while(pairs>>table>>index>>side)owner.selectors[table+":"+std::to_string(index)]=side;
-    if(owner.unionOrder.size()!=25||owner.selectors.size()!=22)throw std::runtime_error("Continuous normal post fixed source layout differs");
+    if(!pairs)throw std::runtime_error("Normal post history pair directory absent");
+    std::map<std::string,UINT> pairDirectory;
+    while(pairs>>table>>index>>side)pairDirectory[table+":"+std::to_string(index)]=side;
+    if(templates.passes.size()!=25||pairDirectory.size()!=22)throw std::runtime_error("Normal post resource layout differs");
     return owner;
 }
 
-// Caller supplies the shared current Common254 and actual D7B4D0 delta. No
-// internal clock advancement, source import, GPU upload or frame-number branch.
-static NativeNormalPostContinuousPlan beginNativeNormalPostContinuous(NativeNormalPostContinuous& owner,
-    float common254,float actualDelta,UINT argument3=0,UINT argument4=0) {
-    if(owner.awaitingReturn)throw std::runtime_error("Complete the current normal post source invocation before the next Prepare");
-    if(!std::isfinite(common254)||!std::isfinite(actualDelta))throw std::runtime_error("Continuous post caller time must be finite");
-    NativeNormalPostContinuousPlan plan;plan.common254=common254;plan.actualDelta=std::max(0.f,actualDelta);
-    plan.isFirstExec=argument3!=0||argument4!=0||(!owner.applyBit23&&owner.enableDofA4!=0);
-    plan.shapeChanged=owner.changeFStop; // Fixed 1080/non4K/nonmulti source scope.
-    owner.count10=plan.isFirstExec?2:owner.count10;
-    owner.history16=!owner.history16;owner.stagingSide28=owner.stagingSide28==0?1:0;
-    plan.countAtPrepare=owner.count10;plan.history16=owner.history16;plan.selectedStagingSide=owner.stagingSide28;
-    plan.needStagingRead=owner.count10==0;plan.selectors=owner.selectors;plan.beginCounter=++owner.beginCounter;
-    // Fixed quality7, SpriteDOF, functional diaphragm and heat-enabled source
-    // bits. 1157230 separately derives shape0 and first clear/retained AA bits.
-    plan.dofMask=0x141B4u|(plan.isFirstExec?0x800u:0x1000u)|(plan.shapeChanged?1u:0u);
-    const float heat=owner.heatCoefficient*common254;
-    for(const auto& name:owner.unionOrder) {
-        if(name=="053-dof"&&!plan.shapeChanged||name=="066-dof"&&!plan.isFirstExec||name=="067-dof"&&plan.isFirstExec)continue;
-        plan.orderedPasses.push_back(name);
-        for(const auto& binding:owner.bindings.at(name)) {
-            const auto key=name+"/"+binding.file;if(plan.constants.find(key)!=plan.constants.end())continue;
-            auto bytes=owner.staticConstants.at(key);
-            if(binding.parameter==18){if(bytes.size()!=144)throw std::runtime_error("Continuous complete CB18 differs");std::memcpy(bytes.data()+120,&heat,4);}
-            if(binding.parameter==24){if(bytes.size()!=64)throw std::runtime_error("Continuous complete CB24 differs");std::memcpy(bytes.data()+20,&plan.actualDelta,4);}
-            plan.constants.emplace(key,std::move(bytes));
+// Clock advancement is supplied by the accepted frame. The template directory
+// chooses resource programs; the timeline decides initialization and feedback.
+static NormalPostFrame beginNormalPostFrame(NormalPostTimeline& owner,
+    float applyTime,float actualDelta,bool resetHistory=false,bool resetView=false) {
+    NormalPostFrame frame;
+    frame.history=owner.history.prepare(applyTime,actualDelta,owner.templates.depthOfFieldMode!=0,resetHistory,resetView);
+    const float heat=owner.templates.heatCoefficient*applyTime;
+    for(size_t index=0;index<owner.templates.passes.size();++index) {
+        const auto& pass=owner.templates.passes[index];
+        if(pass.role==PostPassRole::ApertureShape&&!frame.history.rebuildAperture||
+            pass.role==PostPassRole::CocInitialize&&!frame.history.initializeCoc||
+            pass.role==PostPassRole::CocAccumulate&&frame.history.initializeCoc)continue;
+        frame.passes.push_back({pass.name,pass.role,index});
+        for(const auto& binding:pass.bindings) {
+            const auto key=pass.name+"/"+binding.file;if(frame.constants.find(key)!=frame.constants.end())continue;
+            auto bytes=owner.templates.constants.at(key);
+            if(binding.parameter==18){if(bytes.size()!=144)throw std::runtime_error("Complete post CB18 differs");std::memcpy(bytes.data()+120,&heat,4);}
+            if(binding.parameter==24){if(bytes.size()!=64)throw std::runtime_error("Complete post CB24 differs");std::memcpy(bytes.data()+20,&frame.history.deltaTime,4);}
+            frame.constants.emplace(key,std::move(bytes));
         }
     }
-    owner.priorApplyClock=common254;owner.awaitingReturn=true;
-    return plan;
+    owner.history.begin(frame.history);
+    return frame;
 }
-// Current nonpaused fixed Main adapter. Keep the explicit-delta overload for
-// other caller timing; heat Common254 is not a general substitute for DeltaTime.
-static NativeNormalPostContinuousPlan beginNativeNormalPostContinuousFromCommon(
-    NativeNormalPostContinuous& owner,float common254,UINT argument3=0,UINT argument4=0) {
-    const float actualDelta=common254-owner.priorApplyClock;
-    return beginNativeNormalPostContinuous(owner,common254,actualDelta,argument3,argument4);
+static NormalPostFrame beginNormalPostFrameFromClock(NormalPostTimeline& owner,float applyTime,
+    bool resetHistory=false,bool resetView=false) {
+    return beginNormalPostFrame(owner,applyTime,applyTime-owner.history.state().previousApplyTime,resetHistory,resetView);
 }
 
 // Clone only current pass arguments/COM references from the one-time GPU union.
 // Both physical CoC histories and module pairs already exist in the GPU owner.
-static std::vector<NativeNormalPostPass> selectNativeNormalPostContinuousPasses(
-    const NativeNormalPostContinuousPlan& plan,const std::vector<NativeNormalPostPass>& gpuUnion) {
-    std::vector<NativeNormalPostPass> selected;selected.reserve(plan.orderedPasses.size());
-    const std::string currentCoc=plan.history16?"Texture66":"Texture65";
-    for(const auto& name:plan.orderedPasses) {
+static std::vector<NativeNormalPostPass> selectNormalPostFramePasses(
+    const NormalPostFrame& frame,const std::vector<NativeNormalPostPass>& gpuUnion) {
+    std::vector<NativeNormalPostPass> selected;selected.reserve(frame.passes.size());
+    const std::string currentCoc=frame.history.cocWriteSide?"Texture66":"Texture65";
+    for(const auto& entry:frame.passes) {
+        const auto& name=entry.name;
         auto found=std::find_if(gpuUnion.begin(),gpuUnion.end(),[&](const auto& pass){return pass.name==name;});
         if(found==gpuUnion.end())throw std::runtime_error("Continuous normal post static GPU template absent");
         auto pass=*found;
-        if(name=="066-dof"||name=="067-dof")for(auto& target:pass.targets)if(target.slot==0)target.name=currentCoc;
-        if(name=="067-dof")for(auto& input:pass.srvs)if(input.stage=="PS"&&input.slot==1)input.name="Texture60"; // Last source setter.
-        if(name=="070-dof")for(auto& input:pass.srvs)if(input.stage=="PS"&&input.slot==1)input.name=currentCoc;
-        if(name=="062-dof"||name=="063-dof") {
-            pass.stagingSide=plan.selectedStagingSide;
-            // Before57 publishes these flags before the actual scatter draws.
+        if(entry.role==PostPassRole::CocInitialize||entry.role==PostPassRole::CocAccumulate)for(auto& target:pass.targets)if(target.slot==0)target.name=currentCoc;
+        if(entry.role==PostPassRole::CocAccumulate)for(auto& input:pass.srvs)if(input.stage=="PS"&&input.slot==1)input.name="Texture60"; // Last source setter.
+        if(entry.role==PostPassRole::CocResolve)for(auto& input:pass.srvs)if(input.stage=="PS"&&input.slot==1)input.name=currentCoc;
+        if(entry.role==PostPassRole::ScatterRear||entry.role==PostPassRole::ScatterFore) {
+            pass.stagingSide=frame.history.stagingReadSide;
+            // Feedback publishes these flags before the actual scatter draws.
             pass.clear=false;pass.clearMask=0;pass.clearPacked=0;
         }
         selected.push_back(std::move(pass));
@@ -121,48 +137,49 @@ static std::vector<NativeNormalPostPass> selectNativeNormalPostContinuousPasses(
     return selected;
 }
 
-// Invoke at actual Before57, after Init selected side28, before clearing/writing
-// this request's B5. The Map is external; this pure CPU helper never reads a GPU.
-static void applyNativeNormalPostBefore57(NativeNormalPostContinuous& owner,NativeNormalPostContinuousPlan& plan,
+// Runs just before scatter execution, before this application's counters are
+// cleared/written. Mapping remains in the GPU owner; binary decoding stays here.
+static void applyNormalPostScatterFeedback(NormalPostTimeline& owner,NormalPostFrame& frame,
     const NativeNormalPostStagingMap* actualMap,std::vector<NativeNormalPostPass>& selected) {
-    if(!owner.awaitingReturn||plan.before57Applied)throw std::runtime_error("Continuous normal post Before57 lifecycle differs");
-    if(plan.needStagingRead) {
-        if(!actualMap||actualMap->side!=plan.selectedStagingSide)throw std::runtime_error("Current Init-selected controller32B staging Map required");
-        if(actualMap->returnedNull){plan.rearClear=true;plan.foreClear=true;}
+    San14::Render::ScatterFeedback feedback;
+    if(!owner.history.applicationInProgress()||frame.history.feedbackApplied)
+        throw std::runtime_error("Normal post scatter feedback lifecycle differs");
+    if(frame.history.readScatterFeedback) {
+        if(!actualMap||actualMap->side!=frame.history.stagingReadSide)
+            throw std::runtime_error("Current post staging Map required");
+        if(actualMap->returnedNull)feedback={true,true};
         else {UINT rear,fore;std::memcpy(&rear,actualMap->bytes.data()+4,4);std::memcpy(&fore,actualMap->bytes.data()+20,4);
-            plan.rearClear=rear!=0;plan.foreClear=fore!=0;}
-    }else {plan.rearClear=true;plan.foreClear=true;}
-    for(auto& pass:selected)if(pass.name=="062-dof"||pass.name=="063-dof") {
-        pass.clear=pass.name=="062-dof"?plan.rearClear:plan.foreClear;
+            feedback={rear!=0,fore!=0};}
+    }
+    owner.history.acceptScatterFeedback(frame.history,feedback);
+    for(size_t index=0;index<frame.passes.size();++index) {
+        const auto role=frame.passes[index].role;
+        if(role!=PostPassRole::ScatterRear&&role!=PostPassRole::ScatterFore)continue;
+        auto& pass=selected.at(index);
+        pass.clear=role==PostPassRole::ScatterRear?frame.history.clearRearScatter:frame.history.clearForeScatter;
         pass.clearMask=pass.clear?15:0;pass.clearPacked=0;
     }
-    plan.before57Applied=true;
 }
 
 // Upload the full current bytes immediately before this request executes.
 // File/CB20 variants stay separate; no parameter-index-only buffer sharing.
-static void uploadNativeNormalPostContinuousConstants(ID3D11DeviceContext* context,
-    const NativeNormalPostContinuous& owner,const NativeNormalPostContinuousPlan& plan,
+static void uploadNormalPostFrameConstants(ID3D11DeviceContext* context,
+    const PostProcessTemplates& templates,const NormalPostFrame& frame,
     const std::vector<NativeNormalPostPass>& selected) {
     std::vector<ID3D11Buffer*> uploaded;
-    for(const auto& pass:selected)for(const auto& layout:owner.bindings.at(pass.name)) {
+    for(size_t index=0;index<selected.size();++index)for(const auto& layout:templates.passes.at(frame.passes.at(index).templateIndex).bindings) {
+        const auto& pass=selected[index];
         auto binding=std::find_if(pass.constants.begin(),pass.constants.end(),[&](const auto& cb){return cb.stage==layout.stage&&cb.slot==layout.slot;});
         if(binding==pass.constants.end())throw std::runtime_error("Continuous normal post prepared CB layout differs");
         auto buffer=binding->buffer.Get();if(std::find(uploaded.begin(),uploaded.end(),buffer)!=uploaded.end())continue;
-        const auto& bytes=plan.constants.at(pass.name+"/"+layout.file);
+        const auto& bytes=frame.constants.at(pass.name+"/"+layout.file);
         context->UpdateSubresource(buffer,0,nullptr,bytes.data(),0,0);uploaded.push_back(buffer);
     }
 }
 
-// Call only after actual directory execution, Finish, End/114AB40, outer
-// restoration and controller return. Root flips its GPU aliases exactly once
-// with endNormalPost; this function advances the independent CPU source owner.
-static void finishEndReturnedNativeNormalPostContinuous(NativeNormalPostContinuous& owner,
-    const NativeNormalPostContinuousPlan& plan,UINT returnAl=1,UINT callIndex=0,UINT callCount=1) {
-    if(!owner.awaitingReturn||!plan.before57Applied)throw std::runtime_error("Normal post Finish/End needs current Before57 and execution");
-    if(owner.count10) --owner.count10;
-    for(auto& entry:owner.selectors)entry.second^=1;
-    owner.changeFStop=false;
-    if(returnAl!=0&&callIndex==callCount-1)owner.applyBit23=owner.gatherC0!=0;
-    owner.awaitingReturn=false;
+// GPU aliases rotate first, then this accepted application completes its CPU
+// timeline. The next application sees the retained feedback and clock.
+static void completeNormalPostFrame(NormalPostTimeline& owner,const NormalPostFrame& frame,
+    UINT returned=1,UINT callIndex=0,UINT callCount=1) {
+    owner.history.complete(frame.history,owner.templates.gatherMode!=0,returned!=0,callIndex,callCount);
 }

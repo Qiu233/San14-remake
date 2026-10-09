@@ -143,7 +143,7 @@ public sealed partial class TacticRemakeCurrentContext
             if (army.NativeArmyOrigin?.NativeSlotIndex is not int ordinal || ordinal is < 1 or > 500) return null;
             var fields = new ArmyOverrideTargetSourceFields(27, (ushort)ordinal);
             var decoded = ArmyOverrideTargetSourceAdapter.Decode(fields,
-                state.NativeArmyLifecycle is { } arena ? new(arena) : null);
+                state.ReadArmyLifecycle() is { } arena ? new(arena) : null);
             return new(new(true, new(army.ForceId, DeploymentTargetKind.Unit, army.Id))
             { OverrideTarget = decoded, SourceResidue = ArmyOverrideTargetSourceAdapter.Residue(
                 ArmyOverrideTargetSourceAdapter.Owner(state, target), fields, decoded) }, state.RandomState);

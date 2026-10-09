@@ -22,10 +22,6 @@ internal sealed class MapPostEffect3Functor1EyeCloneCatalog
                 Texture.StorageRid!=Srv.StorageRid||Texture.StorageRid!=Rtv.StorageRid||!Srv.ViewRid.IsValid||!Rtv.ViewRid.IsValid)
                 throw new InvalidDataException("Eye cloned wrapper lost its exact bank physical resource/views.");
         }
-        internal object Snapshot()=>new{Source.PhysicalParameterIndex,Source.InstanceIndex,Source.NativeMipLevel,
-            Source.NativeWrapperWidth40,Source.NativeWrapperHeight42,Source.NativeMipLevelCount,
-            storage=Texture.StorageRid.Id,srv=Srv.ViewRid.Id,rtv=Rtv.ViewRid.Id,Source.SourceEvidence,
-            allocationOnly=true,grantsPixelReadiness=false};
     }
     private readonly Dictionary<MapPostEffect3EyeCloneWrapperDirectory.Entry,Entry> entries=[];
     internal MapPostEffect3EyeCloneWrapperDirectory Source{get;}
@@ -64,10 +60,7 @@ internal sealed class MapPostEffect3Functor1EyeCloneCatalog
             ";actual-canonical-Eye-clone-SRV="+entry.Srv.ViewRid.Id+"/RTV="+entry.Rtv.ViewRid.Id+";metadata/no-pixels",entry.RequireCurrent)
             {PhysicalProducer=entry};
     }
-    internal object Snapshot()=>new{Source.SourceEvidence,cloneCount=entries.Count,
-        entries=Source.Entries.Select(source=>entries[source].Snapshot()).ToArray(),
-        actualViewsCreated=true,grantsPixelReadiness=false};
-    internal object CaptureCompletedBindings(MapPostEffect3EyeBeforeBindings before,MapPostEffect3FullscreenCompletedPass completed)
+    internal void RequireCompletedBindings(MapPostEffect3EyeBeforeBindings before,MapPostEffect3FullscreenCompletedPass completed)
     {
         var target=RequireTargetView(before);
         if(completed.SourcePassIndex!=before.Iteration.SourcePassIndex||completed.FrameNumber!=Source.Frame.FrameNumber||
@@ -85,10 +78,7 @@ internal sealed class MapPostEffect3Functor1EyeCloneCatalog
                 read.NativeMipLevelCount!=1)
                 throw new InvalidDataException("Historical Eye source does not join its exact actual array/catalog clone SRV.");
         }
-        return new{target=target.Snapshot(),input=input?.Snapshot(),sourcePointerKind=before.RequiresDynamicPixelTextureBinding?
-            "Before-array-clone-t0":before.Iteration.NativeCachedPassOrdinal==0?"counted-Scene68/exposure61":"counted-clone-alias69",
-            targetPointerKind=before.RequiresDynamicTargetBinding?"Before-full-physical-wrapper-plus-mip":"counted-clone-alias69/mip=-1",
-            actualSubmissionAlreadyOwnerValidated=true,grantsPixelReadiness=false};
+
     }
 }
 

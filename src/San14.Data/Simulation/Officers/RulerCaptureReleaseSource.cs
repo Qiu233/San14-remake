@@ -172,11 +172,10 @@ public static class RulerCaptureReleaseSource
             GameState PublishPerson(GameState image)
             {
                 if (!image.Officers.TryGetValue(receipt.PersonId, out var officer) || current.ResolveOfficerSource(receipt.PersonId) != person ||
-                    officer.LocationState is not { } location || image.NativeArmyLifecycle is not { } arena)
+                    officer.LocationState is not { } location || image.ReadArmyLifecycle() is not { } arena)
                     throw Missing("current.Lord_saved_Person_owner");
-                return OfficerLocationSourceAdapter.PublishPosition(image with { Officers = new(image.Officers) { [receipt.PersonId] = officer with {
-                    LocationId = first, Behavior = current.ReadPersonBehavior(person) } },
-                    NativeArmyLifecycle = arena with { Indexes = (current.ReadOwnedCurrentListPool() ?? throw Missing("current.Lord_primary_pool")).ExportOwnedState() } },
+                return OfficerLocationSourceAdapter.PublishPosition((image with { Officers = new(image.Officers) { [receipt.PersonId] = officer with {
+                    LocationId = first, Behavior = current.ReadPersonBehavior(person) } } }).WithArmyLifecycle(arena with { Indexes = (current.ReadOwnedCurrentListPool() ?? throw Missing("current.Lord_primary_pool")).ExportOwnedState() }),
                     receipt.PersonId, current);
             }
         }

@@ -96,10 +96,10 @@ inline bool applyNativeNormalPostCameraConstants(StaticConstantMap& constants,co
     if(compositeCount!=3)throw std::runtime_error("Normal post source union must retain three complete CB22 templates");
     return compositeActive;
 }
-template<class ContinuousPostOwner>
+template<class PostTimeline>
 inline NativeNormalPostCameraProjection updateNativeNormalPostCameraBeforeBegin(const NativeNormalPostCamera& source,
-    const source_camera::CameraTransform& camera,ContinuousPostOwner& owner) {
-    if(owner.awaitingReturn)throw std::runtime_error("Return the current post invocation before updating its next camera fields");
+    const source_camera::CameraTransform& camera,PostTimeline& owner) {
+    if(owner.history.applicationInProgress())throw std::runtime_error("Return the current post invocation before updating its next camera fields");
     auto projection=calculateNativeNormalPostCamera(source,camera);
-    applyNativeNormalPostCameraConstants(owner.staticConstants,projection);return projection;
+    applyNativeNormalPostCameraConstants(owner.templates.constants,projection);return projection;
 }

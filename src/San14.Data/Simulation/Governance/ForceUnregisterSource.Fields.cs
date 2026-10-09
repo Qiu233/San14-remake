@@ -25,7 +25,7 @@ public sealed partial class ForceUnregisterSource
 
     private static void RequireNoTroopsDistrict(GameState state, SourceWorldContext current, int district)
     {
-        var arena = state.NativeArmyLifecycle ?? throw Missing("CTroops_current_lifecycle");
+        var arena = state.ReadArmyLifecycle() ?? throw Missing("CTroops_current_lifecycle");
         var groups = arena.ArmyGroups ?? throw Missing("CTroops_current_groups");
         var primary = ArmyGroupSourceAdapter.Roster(arena, current);
         var excluded = ArmyGroupSourceAdapter.Excluded(state, arena, current, primary);

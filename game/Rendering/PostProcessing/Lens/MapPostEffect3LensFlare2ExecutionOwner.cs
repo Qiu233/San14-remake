@@ -44,7 +44,6 @@ public sealed class MapPostEffect3LensFlare2MipCompletedDraw
     public Rid StorageRid{get;}
     public long WriterRevision{get;}
     public string SourceEvidence{get;}
-    internal string HistoricalSubmissionJson{get;init;}=string.Empty;
     public void RequireCurrentSubmission()=>validate();
 }
 
@@ -252,20 +251,7 @@ public sealed class MapPostEffect3LensFlare2ExecutionOwner:IAsyncDisposable
         await DrawStockAsync(read,write,sampler,quad,state,()=>{RequireAcceptedState();prior.RequireReadableMipRange((uint)step.SourceMipLevel,1);});
         return new(plan,step,side,texture.StorageRid,revision,plan.SourceEvidence+";"+state.SourceEvidence+
             ";actual-original-stock-VS/default3PS-draw6indices;sampler="+keyHex+";native-register-reset;not-hardware-generateMips",
-            RequireAcceptedState){HistoricalSubmissionJson=System.Text.Json.JsonSerializer.Serialize(new{
-                plan.FrameNumber,plan.ContextOwnerIdentity,plan.SourcePassIndex,step.SourceMipLevel,step.DestinationMipLevel,
-                side,storage=texture.StorageRid.Id,revision,shader=stock.ShaderRid.Id,
-                vertexSource=stock.VertexTranslation.SourceProgramSha256,vertexSpirv=stock.VertexAdapter.AdaptedSha256,
-                pixelSource=stock.PixelTranslation.SourceProgramSha256,pixelSpirv=stock.PixelTranslation.SpirvSha256,
-                readView=read.ViewRid.Id,read.FirstMipLevel,read.MipLevelCount,read.NativeViewFormat,read.Extent,
-                targetView=write.ViewRid.Id,targetMip=write.FirstMipLevel,targetFormat=write.NativeViewFormat,targetExtent=write.Extent,
-                sampler=sampler.Id,keyHex,
-                vertexConstants=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(quad.VertexConstantBytes.Span)),
-                alphaConstants=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(BitConverter.GetBytes(state.CurrentStockAlphaTestWord).Concat(new byte[12]).ToArray())),
-                vertices=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(quad.VertexBytes.Span)),
-                indices=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(quad.IndexBytes.Span)),indexCount=6,
-                context.OwnedFrontendIdentity,context.ViewIdentity,context.ActualViewport,context.ActualScissor,
-                context.ActualViewportMinimumDepth,context.ActualViewportMaximumDepth,raster=acceptedRaster,state.SourceEvidence})};
+            RequireAcceptedState);
     }
     private Task DrawStockAsync(MapPostEffect3ComputeMipView read,MapPostEffect3ComputeMipView write,Rid sampler,
         DeferredAuxiliaryStockQuad quad,IMapPostEffect3LensFlare2AfterStockLease state,Action validate)

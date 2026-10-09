@@ -16,7 +16,7 @@ public sealed record SaveEnvelope(int SchemaVersion, string FormatId, GameState 
 /// <summary>Local save format. A future original-save adapter can implement ISaveCodec.</summary>
 public sealed class JsonGzipSaveCodec : ISaveCodec
 {
-    public const int CurrentSchemaVersion = 86;
+    public const int CurrentSchemaVersion = 88;
     public string FormatId => "san14-remake-json-gzip";
     private readonly ILegacyOfficerAbilitySource? _legacyAbilitySource;
     private readonly ICampaignResourceStateCodec? _resourceStateCodec;
@@ -133,6 +133,10 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
                 resourceState = (_resourceStateCodec ?? throw new InvalidDataException(
                     "Historical conflicting army positions require the resource-state codec.")).MigrateArmyPositions(resourceState, positions);
         }
+        if (version < 87) LegacyArmyReceiverRosterSaveMigration.Apply((JsonObject)document["State"]!);
+        if (version < 88 && LegacyArmyLifecycleSaveMigration.Apply((JsonObject)document["State"]!) is { } armySource)
+            resourceState = (_resourceStateCodec ?? throw new InvalidDataException(
+                "Historical army source knowledge requires its resource-state codec.")).MigrateArmyLifecycle(resourceState, armySource);
         JsonObject stateDocument = (JsonObject)document["State"]!;
         if (version < 86 && stateDocument.ContainsKey("ArmyIdentities"))
             throw new InvalidDataException("Historical save contains a current army identity sequence.");
@@ -420,33 +424,35 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
         if (state["NativeForceUnregisterCurrent"] is JsonNode forceUnregister)
             _ = Require(forceUnregister, "current Force unregister", "Revision", "DistrictWindows10",
                 "ForceRankings", "ForceResetImages", "PlaceholderRelations13", "PlaceholderRelationsEA", "OtherForce1657");
-        if (state["NativeArmyLifecycle"] is JsonNode lifecycleNode)
+        if (state.ContainsKey("NativeArmyLifecycle"))
+            throw new InvalidDataException("Saved state contains an obsolete source army lifecycle envelope.");
+        if (!state.ContainsKey("ArmyLifecycle")) throw new InvalidDataException("Saved army lifecycle owner is missing.");
+        if (state["ArmyLifecycle"] is JsonNode lifecycleNode)
         {
-            JsonObject lifecycle = Require(lifecycleNode, "native Army lifecycle", "Revision", "Language", "RuleVersion",
-                "SourceScenarioUri", "SourceScenarioSha256", "Indexes", "Slots", "ArmyGroups", "ArmyCautions");
-            if (lifecycle.ContainsKey("HexRaw1C")) throw new InvalidDataException("Saved state contains an obsolete occupancy map.");
-            if (lifecycle["Pool"] is not null) throw new InvalidDataException("Saved state contains an obsolete world membership pool.");
-            if (lifecycle["Slots"] is not JsonArray slots) throw new InvalidDataException("Saved native slots are invalid.");
-            foreach (JsonNode? slotNode in slots)
+            JsonObject lifecycle = Require(lifecycleNode, "army lifecycle", "Receivers", "Indexes", "ArmyGroups", "ArmyCautions", "Targets");
+            if (lifecycle.ContainsKey("Slots") || lifecycle.ContainsKey("ArmyFlags150") || lifecycle.ContainsKey("Revision") ||
+                lifecycle.ContainsKey("Language") || lifecycle.ContainsKey("RuleVersion") || lifecycle.ContainsKey("SourceScenarioSha256") ||
+                lifecycle.ContainsKey("SourceScenarioUri") || lifecycle.ContainsKey("Pool") || lifecycle.ContainsKey("HexRaw1C"))
+                throw new InvalidDataException("Saved domain lifecycle contains obsolete source fields.");
+            var roster = Require(lifecycle["Receivers"], "army receiver roster", "Entries");
+            if (roster["Entries"] is not JsonArray receiverEntries)
+                throw new InvalidDataException("Saved army receiver entries are invalid.");
+            foreach (var entryNode in receiverEntries)
             {
-                JsonObject slot = Require(slotNode, "native Army slot", "ReceiverId", "PhysicalSlot", "Commander12", "Status10",
-                    "Priority14", "ActiveUnitId", "PendingImage", "StoredResources", "AuxiliaryAC", "AuxiliaryF4", "GroupAssignmentReady", "OccupancyBindingId", "OverrideTarget");
-                _ = Require(slot["ReceiverId"], "army receiver identity", "Value");
-                if (slot.ContainsKey("Gold5C") || slot.ContainsKey("Supplies60"))
-                    throw new InvalidDataException("Saved Army receiver contains obsolete stores fields.");
-                _ = Require(slot["StoredResources"], "retained Army stores", "Gold", "Food");
-                if (slot["OverrideTarget"] is JsonNode overrideTarget)
-                    CheckOverrideTarget(overrideTarget);
-                if (slot["PendingImage"] is JsonNode pendingNode)
+                var entry = Require(entryNode, "army receiver", "ReceiverId", "CanAssign", "Phase", "ActiveUnitId", "PendingImage",
+                    "StoredResources", "OverrideTarget", "GroupAssignmentReady", "OccupancyBindingId");
+                _ = Require(entry["ReceiverId"], "army receiver identity", "Value");
+                _ = Require(entry["StoredResources"], "retained army stores", "Gold", "Food");
+                if (entry["OverrideTarget"] is JsonNode receiverOverride) CheckOverrideTarget(receiverOverride);
+                if (entry["CanAssign"] is not JsonValue canAssign || !canAssign.TryGetValue<bool>(out _))
+                    throw new InvalidDataException("Saved army receiver assignment knowledge is invalid.");
+                if (entry["PendingImage"] is JsonNode pendingNode)
                 {
-                    JsonObject pending = Require(pendingNode, "pending Army image", "Id", "ForceId", "OfficerId", "HexId",
+                    JsonObject pending = Require(pendingNode, "pending army image", "Id", "ForceId", "OfficerId", "HexId",
                         "DestinationHexId", "Troops", "Supplies", "Morale");
                     CheckUnitModules(pending);
                 }
             }
-            if (lifecycle["ArmyFlags150"] is JsonNode flagsNode &&
-                (flagsNode is not JsonArray armyFlags || armyFlags.Count != 501))
-                throw new InvalidDataException("Saved native Army flags150 physical table is invalid.");
             if (lifecycle.ContainsKey("Targets38"))
                 throw new InvalidDataException("Saved army targets contain an obsolete source table.");
             if (!lifecycle.ContainsKey("Targets")) throw new InvalidDataException("Saved army target owner is missing.");

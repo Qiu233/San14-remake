@@ -10,13 +10,12 @@ public sealed record ArmyOverrideTargetSourceResidue(ArmyOverrideSourceOwner Own
 public static class ArmyOverrideTargetSourceAdapter
 {
     public static ArmyOverrideSourceOwner Owner(GameState state, UnitState unit) =>
-        unit.NativeArmyOrigin?.NativeSlotIndex is int ordinal && state.NativeArmyLifecycle is { } arena &&
-        new ArmyReceiverSourceDirectory(arena).TryResolveReceiverId(ordinal, out var receiver)
-            ? new(receiver, unit.Id) : new(null, unit.Id);
+        state.ArmyLifecycle?.Receivers.FindUnit(unit.Id) is { } receiver
+            ? new(receiver.ReceiverId, unit.Id) : new(null, unit.Id);
 
     public static GameState Write(GameState state, UnitState unit, ArmyOverrideTargetSourceFields fields)
     {
-        var target = Decode(fields, state.NativeArmyLifecycle is { } arena ? new(arena) : null);
+        var target = Decode(fields, state.ReadArmyLifecycle() is { } arena ? new(arena) : null);
         return state with
         {
             Units = new(state.Units) { [unit.Id] = unit with { OverrideTarget = target } },
@@ -25,10 +24,10 @@ public static class ArmyOverrideTargetSourceAdapter
     }
     public static ArmyOverrideTargetSourceFields ReadReceiver(GameState state, ArmyReceiverId receiver)
     {
-        var slot = state.NativeArmyLifecycle?.Slots.SingleOrDefault(item => item.ReceiverId == receiver);
+        var slot = state.ArmyLifecycle?.Receivers.Find(receiver);
         return slot?.OverrideTarget is { } target ? Encode(target,
             (state.ResourceState as CampaignSourceKnowledge)?.FindArmyOverride(new(receiver, null)),
-            new ArmyReceiverSourceDirectory(state.NativeArmyLifecycle!)) : new(null, null);
+            new ArmyReceiverSourceDirectory(state.ReadArmyLifecycle()!)) : new(null, null);
     }
     internal static GameState InheritReceiverKnowledge(GameState state, UnitState created)
     {
@@ -85,7 +84,7 @@ public static class ArmyOverrideTargetSourceAdapter
     public static ArmyOverrideTargetSourceFields Read(GameState state, UnitState unit) =>
         unit.OverrideTarget is { } target ? Encode(target,
             (state.ResourceState as CampaignSourceKnowledge)?.FindArmyOverride(Owner(state, unit)),
-            state.NativeArmyLifecycle is { } arena ? new(arena) : null) : new(null, null);
+            state.ReadArmyLifecycle() is { } arena ? new(arena) : null) : new(null, null);
 
     public static ArmyOverrideTargetSourceFields Encode(ArmyOverrideTargetState target,
         ArmyOverrideTargetSourceResidue? residue = null, ArmyReceiverSourceDirectory? receivers = null)

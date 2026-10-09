@@ -56,9 +56,14 @@ internal static class BaseCapturePublicationSource
                 windows[slot] = Enumerable.Range(0x10, 28).Select(at => current.ReadDistrictRawByte(slot, at)).ToArray();
             forceFields = forceFields with { DistrictWindows10 = windows };
         }
-        return working with { Cities = cities, Gates = gates, Areas = areas, Territory = territory,
-            ArmyMapOccupancy = current.ExportArmyMapOccupancy(), NativeForceUnregisterCurrent = forceFields, PendingCombatSettlements = current.OwnedDestructionQueue, NativeArmyLifecycle = working.NativeArmyLifecycle! with
-            { Indexes = pool.ExportOwnedState() } };
+        return (working with { Cities = cities,
+                Gates = gates,
+                Areas = areas,
+                Territory = territory,
+                ArmyMapOccupancy = current.ExportArmyMapOccupancy(),
+                NativeForceUnregisterCurrent = forceFields,
+                PendingCombatSettlements = current.OwnedDestructionQueue }).WithArmyLifecycle(working.ReadArmyLifecycle()! with
+            { Indexes = pool.ExportOwnedState() });
     }
     private static T K<T>(T? value, string field) where T : struct => value ?? throw Missing(field);
     private static InvalidDataException Missing(string field) => new("current.Base_capture_publication." + field);

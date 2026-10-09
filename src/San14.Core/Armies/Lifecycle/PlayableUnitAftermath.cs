@@ -30,7 +30,7 @@ public static class PlayableUnitAftermath
             home is int cityId && cities.ContainsKey(cityId) ? cityId : null,
             unit.OfficerId, 0, unit.HexId, unit.HexId)
         { RuleId = onRetired is not null && unit.NativeArmyOrigin is not null
-            ? PlayableNativeArmyRetirement.RuleId : null });
+            ? ArmyRetirement.RuleId : null });
     }
 
     public static void RemoveZeroMorale(IReadOnlyDictionary<int, CityState> cities,

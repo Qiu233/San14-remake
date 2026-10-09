@@ -12,14 +12,14 @@ public static class ArmyDestructionTrackingTail
     public static (GameState State, ArmyDestructionTrackingWrite[] Writes) ApplyCurrent(
         GameState state, SourceWorldContext current, int victimPhysical)
     {
-        var arena = state.NativeArmyLifecycle ?? throw Missing("current.manager60_saved_receiver");
+        var arena = state.ReadArmyLifecycle() ?? throw Missing("current.manager60_saved_receiver");
         Dictionary<int, UnitState>? units = null;
-        NativeArmyLifecycleSlot[]? slots = null;
+        ArmyLifecycleReceiverView[]? slots = null;
         var writes = new List<ArmyDestructionTrackingWrite>();
         foreach (var receiver in ArmyMovementManagerLifecycle.ReadCurrentPointerOrder(current))
         {
             int physical = receiver.PhysicalSlot ?? throw Missing("current.manager60_Army_pointer");
-            var slot = arena.Slots[physical];
+            var slot = arena.ReceiverSlots()[physical];
             var image = slot.ActiveUnitId is int active ? state.Units.GetValueOrDefault(active) : slot.PendingImage;
             if (image is null || ArmyOverrideTargetSourceAdapter.Read(state, image).Identity3E is not ushort identity)
             {
@@ -39,7 +39,7 @@ public static class ArmyDestructionTrackingTail
             byte after = cap < 0 ? unchecked((byte)cap) : (byte)0;
             var changed = ArmyOverrideTargetWrites.Apply(image with
             { NativeTacticRuntime = image.NativeTacticRuntime! with { Abnormal25 = after, ProvocationOwner = null } }, ArmyOverrideTargetState.Cleared);
-            slots ??= arena.Slots.ToArray();
+            slots ??= arena.ReceiverSlots().ToArray();
             if (slot.ActiveUnitId is int id)
             {
                 units ??= new(state.Units);
@@ -50,7 +50,7 @@ public static class ArmyDestructionTrackingTail
             writes.Add(new(physical, before, after));
         }
         return slots is null ? (state, []) :
-            (state with { Units = units ?? state.Units, NativeArmyLifecycle = arena with { Slots = slots } }, writes.ToArray());
+            ((state with { Units = units ?? state.Units }).WithArmyLifecycle(arena.WithReceiverSlots(slots)), writes.ToArray());
     }
 
     private static InvalidDataException Missing(string owner) => new("Ordinary Army destruction source owner is unknown: " + owner);

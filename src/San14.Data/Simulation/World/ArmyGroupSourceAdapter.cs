@@ -12,11 +12,11 @@ internal static class ArmyGroupSourceAdapter
         .Select(x => x.Kind == WorldEntityKind.Army && x.Id is int id ? id
             : throw new InvalidDataException("Current army roster member is unknown.")).ToArray();
 
-    internal static int UnitId(NativeArmyLifecycleState arena, int physical) =>
-        arena.Slots[physical].ActiveUnitId ?? arena.Slots[physical].PendingImage?.Id
+    internal static int UnitId(ArmyLifecycleSourceView arena, int physical) =>
+        arena.ReceiverSlots()[physical].ActiveUnitId ?? arena.ReceiverSlots()[physical].PendingImage?.Id
         ?? throw new InvalidDataException("Current group member has no logical unit identity.");
 
-    internal static int[] Roster(NativeArmyLifecycleState arena, SourceWorldContext current) =>
+    internal static int[] Roster(ArmyLifecycleSourceView arena, SourceWorldContext current) =>
         ArmyMovementManagerLifecycle.ReadCurrentPointerOrder(current)
         .Select(x => x.Kind == RegistryKind.Army && x.PhysicalSlot is int physical
             ? UnitId(arena, physical) : throw new InvalidDataException("Current army roster member is unknown.")).ToArray();
@@ -33,10 +33,10 @@ internal static class ArmyGroupSourceAdapter
         return new(ArmyGroupOfficerKind.Officer, officerId);
     }
 
-    internal static ArmyGroupCommander Commander(NativeArmyLifecycleState arena,
+    internal static ArmyGroupCommander Commander(ArmyLifecycleSourceView arena,
         SourceWorldContext current, int unitId)
     {
-        int physical = arena.Slots.First(x => x.ActiveUnitId == unitId || x.PendingImage?.Id == unitId).PhysicalSlot;
+        int physical = arena.ReceiverSlots().First(x => x.ActiveUnitId == unitId || x.PendingImage?.Id == unitId).PhysicalSlot;
         ushort sourceId = current.ReadArmyUnitCommanderId(new(physical))
             ?? throw new InvalidDataException("Current group commander is unknown.");
         var reference = Officer(current, sourceId);
@@ -51,23 +51,23 @@ internal static class ArmyGroupSourceAdapter
         return new(reference, valid, recognizedDistrict ? district : null, recognizedDistrict, sourceId < 6000);
     }
 
-    internal static HashSet<int> Excluded(GameState state, NativeArmyLifecycleState arena,
+    internal static HashSet<int> Excluded(GameState state, ArmyLifecycleSourceView arena,
         SourceWorldContext current, IReadOnlyList<int> roster)
     {
         var excluded = new HashSet<int>();
         foreach (int unitId in roster)
         {
-            int physical = arena.Slots.First(x => x.ActiveUnitId == unitId || x.PendingImage?.Id == unitId).PhysicalSlot;
+            int physical = arena.ReceiverSlots().First(x => x.ActiveUnitId == unitId || x.PendingImage?.Id == unitId).PhysicalSlot;
             if (OwnedArmyDestructionCurrent.ReadArmyExcluded233560(state, current, physical)
                 ?? throw new InvalidDataException("Current group exclusion is unknown.")) excluded.Add(unitId);
         }
         return excluded;
     }
 
-    internal static void RestoreAssignments(SourceWorldContext current, NativeArmyLifecycleState arena)
+    internal static void RestoreAssignments(SourceWorldContext current, ArmyLifecycleSourceView arena)
     {
         var groups = arena.ArmyGroups ?? throw new InvalidDataException("Current military groups are unknown.");
-        foreach (var slot in arena.Slots)
+        foreach (var slot in arena.ReceiverSlots())
         {
             int? unitId = slot.ActiveUnitId ?? slot.PendingImage?.Id;
             ushort? assignment;

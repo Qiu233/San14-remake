@@ -299,7 +299,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                 TacticIds = plan.TacticIds.ToArray(), WoundedTroops = 0
             };
             PlayableArmyCreationResolution? receipt = Create(current, plan, army);
-            if (receipt is null || current.NativeArmyLifecycle is not null && receipt.NativeLifecycle is null)
+            if (receipt is null || current.ReadArmyLifecycle() is not null && receipt.Lifecycle is null)
                 return Unavailable($"Current source construction is unavailable for officer {plan.OfficerId}.");
             //Only this detached rehearsal owns these objects. Record real
             //receipt allocation identity so the next preview cannot reuse it.
@@ -329,7 +329,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             };
             current = current with { RandomState = receipt.RandomState,
                 ResourceState = receipt.ResourceState ?? current.ResourceState,
-                NativeArmyLifecycle = receipt.NativeLifecycle ?? current.NativeArmyLifecycle,
+                ArmyLifecycle = receipt.Lifecycle ?? current.ArmyLifecycle,
                 ArmyMapOccupancy = receipt.ArmyMapOccupancy ?? current.ArmyMapOccupancy };
             current = ArmyIdentityAllocation.Commit(current, army.Id);
         }
@@ -487,13 +487,13 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         BaseReference? selectedBase = morale.ResolveCommanderBase(state, army);
         var result = receipt with { NativeMorale1A = morale.ResolveCreationMorale(state, deployment, army),
             CurrentHexId = ArmyConstruction.ResolveCurrentHex2A(definitions, army.OfficerId),
-            NativeDirection36 = state.NativeArmyLifecycle?.Slots[nativeArmySlot].Direction36,
-            NativeMapUiByte13C = state.NativeArmyLifecycle?.Slots[nativeArmySlot].MapUiByte13C,
-            NativeCommandControl140 = state.NativeArmyLifecycle?.Slots[nativeArmySlot].CommandControl140,
-            NativeRouteGoal1F8 = state.NativeArmyLifecycle?.Slots[nativeArmySlot].RouteGoal1F8,
+            NativeDirection36 = state.ReadArmyLifecycle()?.Slots[nativeArmySlot].Direction36,
+            NativeMapUiByte13C = state.ReadArmyLifecycle()?.Slots[nativeArmySlot].MapUiByte13C,
+            NativeCommandControl140 = state.ReadArmyLifecycle()?.Slots[nativeArmySlot].CommandControl140,
+            NativeRouteGoal1F8 = state.ReadArmyLifecycle()?.Slots[nativeArmySlot].RouteGoal1F8,
             CommanderPosition = OfficerLocationSourceAdapter.DecodePosition(
                 PersonArmyLocationSource.EncodeArmySecondLocation(nativeArmySlot), OfficerLocationSourceAdapter.Receivers(state)),
-            NativeHomeSequence28 = state.NativeArmyLifecycle is null ? null :
+            NativeHomeSequence28 = state.ReadArmyLifecycle() is null ? null :
                 ArmyHomeSequenceSource.ReadNextOrdinary(state, CaptureOwnedArmyReturnWorld(state).Context, army.OfficerId),
             NativeSavedRegionHex152 = selectedBase?.PhysicalSlot is not null
                 ? ArmyCurrentRegionSource.ResolveCreationRegion(selectedBase, definitions) : null };
@@ -504,7 +504,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             result.CommanderPosition?.Kind == OfficerPositionKind.Unresolved
                 ? PersonArmyLocationSource.EncodeArmySecondLocation(nativeArmySlot) : null,
             previousLocationResidue?.DistrictCode)) };
-        if (state.NativeArmyLifecycle is null) return result;
+        if (state.ReadArmyLifecycle() is null) return result;
         UnitState created = army with { NativeArmyOrigin = result.Origin, NativeArmyConfiguration = result.Configuration,
             NativeTacticRuntime = result.Runtime, NativeMorale1A = result.NativeMorale1A,
             NativeSavedRegionHex152 = result.NativeSavedRegionHex152, CarriedStores = result.CarriedStores,
@@ -517,8 +517,10 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             NativeHomeSequence28 = result.NativeHomeSequence28,
             WoundedTroops = result.WoundedTroops };
         ArmyLifecycleCreationAdmission? lifecycle = PrepareArmyLifecycleCreation(state, created);
-        return lifecycle is null ? null : result with { NativeLifecycle = lifecycle.Lifecycle, ArmyMapOccupancy = lifecycle.Occupancy,
-            ResourceState = CampaignSourceKnowledge.From(result.ResourceState).ReplaceArmyTargets(CampaignSourceKnowledge.From(lifecycle.ResourceState).ArmyTargets) };
+        return lifecycle is null ? null : result with { Lifecycle = lifecycle.Lifecycle.Domain, ArmyMapOccupancy = lifecycle.Occupancy,
+            ResourceState = CampaignSourceKnowledge.From(result.ResourceState)
+                .ReplaceArmyTargets(CampaignSourceKnowledge.From(lifecycle.ResourceState).ArmyTargets)
+                .WithArmyLifecycleSource(lifecycle.Lifecycle.Source) };
     }
     public PlayableTacticDefinition? Resolve(GameState state, int tacticId) => null; //Native usage requires a caster.
     public PlayableTacticDefinition? ResolveForCaster(GameState state, UnitState caster, int tacticId) =>
@@ -567,7 +569,9 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         return definitions is null ? null : new ArmyLogisticsPreparation(Context(definitions), definitions, _map, _terrain)
             .ResolveFlags150AfterLogistics(state, army);
     }
-    public bool ProvidesFlags150Preparation => true;
+    public ICampaignResourceState? ResolveResourceKnowledgeAfterLogistics(GameState state, UnitState army,
+        ICampaignResourceState? stagedKnowledge) => ArmyLogisticsPreparation.UpdateResourceKnowledge(
+            army, stagedKnowledge, () => ResolveFlags150AfterLogistics(state, army));
     public NativeArmyRegionPreparationResolution? ResolveSavedRegionAfterPreparation(GameState state, UnitState army)
     {
         SourceWorldContext? definitions = CaptureCurrentDefinitions(state);

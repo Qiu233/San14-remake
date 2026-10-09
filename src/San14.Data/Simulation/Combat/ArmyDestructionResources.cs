@@ -256,8 +256,8 @@ public static class ArmyDestructionResources
     {
         var cities = new Dictionary<int, CityState>(state.Cities);
         var units = new Dictionary<int, UnitState>(state.Units);
-        var arena = state.NativeArmyLifecycle ?? throw new InvalidDataException("Current resource publication lacks its saved Army owner.");
-        var slots = arena.Slots.ToArray();
+        var arena = state.ReadArmyLifecycle() ?? throw new InvalidDataException("Current resource publication lacks its saved Army owner.");
+        var slots = arena.ReceiverSlots().ToArray();
         foreach (var write in packet.Writes)
         {
             if (write.Base is { } target)
@@ -285,7 +285,8 @@ public static class ArmyDestructionResources
                 else slots[physical] = slot with { PendingImage = next };
             }
         }
-        return state with { Cities = cities, Units = units, NativeArmyLifecycle = arena with { Slots = slots } };
+        return (state with { Cities = cities,
+                Units = units }).WithArmyLifecycle(arena.WithReceiverSlots(slots));
     }
 
     private static bool ArmyValid(SourceWorldContext current, ArmyUnitReference? army)

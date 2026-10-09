@@ -62,7 +62,7 @@ public static class ArmyIdentityAllocation
     {
         foreach (int id in state.Units.Keys) yield return id;
         IEnumerable<UnitState> images = state.Units.Values.Concat(
-            state.NativeArmyLifecycle?.Slots.Where(slot => slot.PendingImage is not null)
+            state.ArmyLifecycle?.Receivers.Entries.Where(slot => slot.PendingImage is not null)
                 .Select(slot => slot.PendingImage!) ?? []).Concat(
             state.ForceDefeats.Values.SelectMany(record => record.WithdrawnUnits));
         foreach (UnitState unit in images)
@@ -82,14 +82,14 @@ public static class ArmyIdentityAllocation
             foreach (var action in plan.Actions)
                 if (action.Target.Kind == DeploymentTargetKind.Unit) yield return action.Target.Id;
         foreach (int id in state.PendingCombatSettlements?.ReferencedUnitIds() ?? []) yield return id;
-        foreach (int id in state.NativeArmyLifecycle?.Indexes.ReferencedUnitIds() ?? []) yield return id;
-        foreach (int id in state.NativeArmyLifecycle?.ArmyCautions?.ReferencedUnitIds() ?? []) yield return id;
-        if (state.NativeArmyLifecycle?.ArmyGroups is { } groups)
+        foreach (int id in state.ArmyLifecycle?.Indexes.ReferencedUnitIds() ?? []) yield return id;
+        foreach (int id in state.ArmyLifecycle?.ArmyCautions?.ReferencedUnitIds() ?? []) yield return id;
+        if (state.ArmyLifecycle?.ArmyGroups is { } groups)
             foreach (int id in groups.UnitAssignments.Keys) yield return id;
-        if (state.NativeArmyLifecycle?.Indexes is { } indexes)
+        if (state.ArmyLifecycle?.Indexes is { } indexes)
             foreach (var entity in (indexes.Bases ?? []).Concat(indexes.BaseIndexes.Select(row => row.Base)))
                 if (entity is { Kind: WorldEntityKind.Army, Id: int id }) yield return id;
-        foreach (var slot in state.NativeArmyLifecycle?.Slots ?? [])
+        foreach (var slot in state.ArmyLifecycle?.Receivers.Entries ?? [])
             if (slot.ActiveUnitId is int id) yield return id;
         foreach (int id in state.ArmyMapOccupancy?.ReferencedUnitIds() ?? []) yield return id;
         foreach (int id in state.NativeArmySimulation?.World.PendingArmyIds ?? []) yield return id;

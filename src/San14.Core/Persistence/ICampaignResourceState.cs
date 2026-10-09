@@ -11,6 +11,7 @@ public interface ICampaignResourceState { }
 public interface ICampaignResourceStateCodec
 {
     JsonObject Encode(ICampaignResourceState state);
+    ICampaignResourceState? MigrateArmyLifecycle(ICampaignResourceState? state, JsonObject source);
     ICampaignResourceState Decode(JsonObject document);
     ICampaignResourceState? MigrateLocations(ICampaignResourceState? state,
         IReadOnlyList<LegacyOfficerLocationKnowledge> locations);

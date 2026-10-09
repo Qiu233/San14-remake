@@ -122,8 +122,8 @@ public static class ArmyDestructionForce164
             state = state with { NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = integers } } };
         }
         if (packet.PoolOwner is { } pool)
-            state = state with { NativeArmyLifecycle = (state.NativeArmyLifecycle ?? throw new InvalidDataException("Force164 publication has no saved primary pool owner."))
-                with { Indexes = pool.ExportOwnedState() } };
+            state = state.WithArmyLifecycle((state.ReadArmyLifecycle() ?? throw new InvalidDataException("Force164 publication has no saved primary pool owner."))
+                with { Indexes = pool.ExportOwnedState() });
         return state;
     }
     private static bool ArmyValid(SourceWorldContext current, ArmyUnitReference? army)

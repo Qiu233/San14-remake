@@ -122,9 +122,9 @@ public static partial class PersonReturnCommands
                 Behavior = current.ReadPersonBehavior(physical)
             };
         }
-        return OfficerLocationSourceAdapter.PublishPositions(state with { Officers = people, PersonnelReturns = owner,
-            NativeArmyLifecycle = state.NativeArmyLifecycle! with
-            { Indexes = (current.ReadOwnedCurrentListPool() ?? throw Missing("association registry")).ExportOwnedState() } }, current);
+        return OfficerLocationSourceAdapter.PublishPositions((state with { Officers = people,
+                PersonnelReturns = owner }).WithArmyLifecycle(state.ReadArmyLifecycle()! with
+            { Indexes = (current.ReadOwnedCurrentListPool() ?? throw Missing("association registry")).ExportOwnedState() }), current);
     }
 
     public static HexReference ResolvePersonPosition(GameState state, SourceWorldContext current,

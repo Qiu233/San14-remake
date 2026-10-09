@@ -78,9 +78,8 @@ public static class PersonReturnArrivalSource
             ClearRelease(current, caller); caller = null; order.Add("32B190.caller_release");
             var result = OwnedArmyReturnCurrentFields.PublishCurrent(state, current);
             result = OwnedArmyLifecycleDetachedInputs.PublishCurrent(result, current);
-            result = result with { NativeArmyLifecycle = result.NativeArmyLifecycle! with { Indexes = pool.ExportOwnedState() },
-                PersonnelReturns = current.ReadOwnedPersonCommandManager() };
-            NativeArmyLifecycleStateValidation.Validate(result);
+            result = (result with { PersonnelReturns = current.ReadOwnedPersonCommandManager() }).WithArmyLifecycle(result.ReadArmyLifecycle()! with { Indexes = pool.ExportOwnedState() });
+            ArmyLifecycleSaveValidation.Validate(result);
             return new(result, new(receiverIdentity, person, target, destination, appended, OfficerHealthRules.IsInjured(health), 1,
                 governors.AsReadOnly(), order.AsReadOnly()), null);
 

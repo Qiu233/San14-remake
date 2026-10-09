@@ -38,10 +38,10 @@ public sealed class OwnedArmyCityReturnResourceStage : IPlayableCityEntryResourc
             origin.Language != parameters.Language || origin.RuleVersion != parameters.RuleVersion ||
             army.NativeTacticRuntime is not { Status10: 1 } runtime) return Missing("current.ordinary_source_Army");
         ArmyStoreKnowledge? receiver = null;
-        if (state.NativeArmyLifecycle is { } lifecycle)
+        if (state.ReadArmyLifecycle() is { } lifecycle)
         {
             int physical = origin.NativeSlotIndex!.Value;
-            if (physical >= lifecycle.Slots.Length || lifecycle.Slots[physical] is not { } arenaSlot ||
+            if (physical >= lifecycle.ReceiverSlots().Length || lifecycle.ReceiverSlots()[physical] is not { } arenaSlot ||
                 arenaSlot.ActiveUnitId != army.Id || arenaSlot.PhysicalSlot != physical)
                 return Missing("current.Arena_Army_resources5C60");
             receiver = arenaSlot.StoredResources;

@@ -5,8 +5,8 @@ internal static class ArmyTargetsSaveValidation
 {
     public static void Validate(GameState state)
     {
-        if (state.NativeArmyLifecycle is not { Targets: { } targets } arena) return;
-        var receivers = arena.Slots.Select(row => row.ReceiverId).ToHashSet();
+        if (state.ArmyLifecycle is not { Targets: { } targets } arena) return;
+        var receivers = arena.Receivers.Entries.Select(row => row.ReceiverId).ToHashSet();
         foreach (var row in targets.Assignments)
         {
             if (!receivers.Contains(row.ReceiverId) || row.Target.Kind is { } kind && !Enum.IsDefined(kind))

@@ -156,9 +156,9 @@ public static partial class TransportArmyRouteSource
             current.BindArmyMapOccupancy(state);
             int occupant = unchecked((short)K(current.ReadHexRaw1C(hex), "current_Hex1C"));
             if (occupant is < 1 or > 500) return 0; //2C6D20's real signed range.
-            if (state.NativeArmyLifecycle is not { } arena || occupant >= arena.Slots.Length)
+            if (state.ReadArmyLifecycle() is not { } arena || occupant >= arena.ReceiverSlots().Length)
                 throw Missing("occupant_Army_receiver");
-            var slot = arena.Slots[occupant];
+            var slot = arena.ReceiverSlots()[occupant];
             var other = slot.ActiveUnitId is int id ? state.Units.GetValueOrDefault(id) : slot.PendingImage;
             ushort commanderId = K(slot.Commander12, "occupant12");
             var commander = K(current.ReadPersonLookupReference(commanderId <= 6000 ? commanderId : 0), "occupant_Person_pointer");

@@ -100,15 +100,11 @@ public static class ArmyDestructionLoyalty
             throw new InvalidDataException("Current loyalty publication lacks its saved raw-E8 owner.");
         var values = new Dictionary<string, int>(simulation.Parameters.Int32Values)
         { [OwnedArmyGovernorComparatorInputs.PersonRawE8Key(packet.PersonPhysical)] = after };
-        return state with
-        {
-            Officers = new(state.Officers) { [id] = person with { Loyalty = after <= 100 ? after : null } },
-            NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = values } },
-            NativeArmyLifecycle = packet.PoolOwner is { } pool
-                ? (state.NativeArmyLifecycle ?? throw new InvalidDataException("Current loyalty pool has no saved lifecycle owner."))
+        return (state with { Officers = new(state.Officers) { [id] = person with { Loyalty = after <= 100 ? after : null } },
+                NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = values } } }).WithArmyLifecycle(packet.PoolOwner is { } pool
+                ? (state.ReadArmyLifecycle() ?? throw new InvalidDataException("Current loyalty pool has no saved lifecycle owner."))
                     with { Indexes = pool.ExportOwnedState() }
-                : state.NativeArmyLifecycle
-        };
+                : state.ReadArmyLifecycle());
     }
 
     private static byte? ReadCurrentRawE8(GameState state, SourceWorldContext current, int physical,

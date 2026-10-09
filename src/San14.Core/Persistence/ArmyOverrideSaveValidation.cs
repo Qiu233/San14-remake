@@ -5,13 +5,13 @@ internal static class ArmyOverrideSaveValidation
 {
     public static void Validate(GameState state)
     {
-        var receivers = state.NativeArmyLifecycle?.Slots.Select(slot => slot.ReceiverId).ToHashSet() ?? [];
+        var receivers = state.ArmyLifecycle?.Receivers.Entries.Select(slot => slot.ReceiverId).ToHashSet() ?? [];
         foreach (var unit in state.Units.Values) Target(unit.OverrideTarget);
-        foreach (var slot in state.NativeArmyLifecycle?.Slots ?? [])
+        foreach (var slot in state.ArmyLifecycle?.Receivers.Entries ?? [])
         {
-            Target(slot.OverrideTarget);
             if (slot.PendingImage is { } pending) Target(pending.OverrideTarget);
         }
+        foreach (var slot in state.ArmyLifecycle?.Receivers.Entries ?? []) Target(slot.OverrideTarget);
         void Target(ArmyOverrideTargetState? target)
         {
             if (target is null) return;

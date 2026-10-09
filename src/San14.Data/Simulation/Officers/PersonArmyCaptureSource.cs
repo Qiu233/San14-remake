@@ -214,8 +214,8 @@ public static class PersonArmyCaptureSource
     }
     private static UnitState ArmyImage(GameState state, ArmyUnitReference army)
     {
-        if (army.PhysicalSlot is not int physical || state.NativeArmyLifecycle is not { Slots.Length: 501 } arena) throw Missing("current.saved_Army_image");
-        var slot = arena.Slots[physical];
+        if (army.PhysicalSlot is not int physical || state.ReadArmyLifecycle() is not { Slots.Count: 501 } arena) throw Missing("current.saved_Army_image");
+        var slot = arena.ReceiverSlots()[physical];
         return (slot.ActiveUnitId is int id ? state.Units.GetValueOrDefault(id) : slot.PendingImage) ?? throw Missing("current.saved_Army_image");
     }
     private static int EffectiveFormation(GameState state, SourceWorldContext current, ArmyUnitReference army)

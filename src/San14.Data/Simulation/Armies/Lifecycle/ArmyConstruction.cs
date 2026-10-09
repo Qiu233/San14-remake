@@ -102,15 +102,15 @@ public sealed class ArmyConstruction : IPlayableArmyCreationRules
         ArmyStores? returnResources;
         ArmyOverrideTargetState? overrideTarget;
         ushort[]? traitSlots;
-        if (state.NativeArmyLifecycle is { } arena)
+        if (state.ReadArmyLifecycle() is { } arena)
         {
             //2D2D62 scans the actual501 headers, including pending receivers.
             //The creator does not run a new constructor or reset this slot.
             slot = OwnedArmyLifecycleCurrent.FirstCreationSlot(state) ?? 0;
-            if (slot == 0 || arena.Slots[slot].StoredResources.Gold is not int gold || arena.Slots[slot].StoredResources.Food is not int supplies)
+            if (slot == 0 || arena.ReceiverSlots()[slot].StoredResources.Gold is not int gold || arena.ReceiverSlots()[slot].StoredResources.Food is not int supplies)
                 return null;
             returnResources = new(gold, supplies);
-            overrideTarget = arena.Slots[slot].OverrideTarget;
+            overrideTarget = arena.ReceiverSlots()[slot].OverrideTarget;
             //This producer retains explicit reset receivers until construction.
             //An older foreign arena with no64 owner cannot acquire its zeros.
             traitSlots = arena.Revision == OwnedArmyLifecycleCurrent.Revision ? new ushort[36] : null;

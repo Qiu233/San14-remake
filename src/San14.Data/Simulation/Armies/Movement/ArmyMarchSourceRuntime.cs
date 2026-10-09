@@ -83,8 +83,8 @@ public sealed class ArmyMarchSourceRuntime : IArmyMovementRules
             if (!eligible.Value) continue;
             if (army.March is not { MovementCredit: int credit } march ||
                 ArmyMarchSourceAdapter.ReadCurrentHex(state, army) is not ushort hex || hex != army.HexId) return null;
-            ArmyReceiverId? receiver = state.NativeArmyLifecycle is { } arena
-                ? arena.Slots.Single(slot => slot.ActiveUnitId == army.Id).ReceiverId : null;
+            ArmyReceiverId? receiver = state.ReadArmyLifecycle() is { } arena
+                ? arena.ReceiverSlots().Single(slot => slot.ActiveUnitId == army.Id).ReceiverId : null;
             selected.Add(new(actor.UnitId, receiver, credit, hex, march));
         }
         // TC24B260 only moves a node when its word14 is strictly greater than

@@ -49,7 +49,7 @@ public:
         ID3D11ShaderResourceView* scene,ID3D11ShaderResourceView* depth,UINT width,UINT height) {
         renderer_=prepareNormalPost(device,initialSource,scene,depth,output_,width,height,
             &bootstrapExposure_);
-        continuous_=prepareNativeNormalPostContinuous(continuousSource);
+        timeline_=prepareNormalPostTimeline(continuousSource);
         camera_=prepareNativeNormalPostCamera(cameraSource);
         passUnion_=loadNativeNormalPostPasses(device,continuousSource,width,height);
     }
@@ -71,28 +71,28 @@ public:
             source_current_season_post::publishMode6SelectedSun(season->post,caller.selection,camera_);
             const auto values=source_current_season_post::prepareSimpleCurrent(season->post,
                 caller.adaptationLocked,caller.lockedAdaptation,caller.autoExposure);
-            source_current_season_post::publishSimpleCurrent(values,continuous_);
+            source_current_season_post::publishSimpleCurrent(values,timeline_);
             projection_=source_current_season_post::publishProjectionBeforeBegin(
-                season->post,camera_,continuous_);
-        } else projection_=updateNativeNormalPostCameraBeforeBegin(camera_,camera,continuous_);
-        auto plan=beginNativeNormalPostContinuousFromCommon(continuous_,currentClock);
-        auto passes=selectNativeNormalPostContinuousPasses(plan,passUnion_);
-        uploadNativeNormalPostContinuousConstants(context,continuous_,plan,passes);
+                season->post,camera_,timeline_);
+        } else projection_=updateNativeNormalPostCameraBeforeBegin(camera_,camera,timeline_);
+        auto plan=beginNormalPostFrameFromClock(timeline_,currentClock);
+        auto passes=selectNormalPostFramePasses(plan,passUnion_);
+        uploadNormalPostFrameConstants(context,timeline_.templates,plan,passes);
         NativeNormalPostStagingMap mapped;bool readStaging=false;
-        auto before57=[&]() {
-            if(plan.needStagingRead) {
-                mapped.side=plan.selectedStagingSide;D3D11_MAPPED_SUBRESOURCE bytes{};
+        auto beforeScatter=[&]() {
+            if(plan.history.readScatterFeedback) {
+                mapped.side=plan.history.stagingReadSide;D3D11_MAPPED_SUBRESOURCE bytes{};
                 auto buffer=renderer_.spriteStaging.at(mapped.side).Get();
                 const HRESULT result=context->Map(buffer,0,D3D11_MAP_READ,0,&bytes);
                 mapped.returnedNull=FAILED(result);
                 if(!mapped.returnedNull){std::memcpy(mapped.bytes.data(),bytes.pData,mapped.bytes.size());context->Unmap(buffer,0);}
                 readStaging=true;
             }
-            applyNativeNormalPostBefore57(continuous_,plan,readStaging?&mapped:nullptr,passes);
+            applyNormalPostScatterFeedback(timeline_,plan,readStaging?&mapped:nullptr,passes);
         };
-        auto result=executeNormalPost(device,context,logical,renderer_,passes,before57);
+        auto result=executeNormalPost(device,context,logical,renderer_,passes,beforeScatter);
         endNormalPost(renderer_);
-        finishEndReturnedNativeNormalPostContinuous(continuous_,plan);
+        completeNormalPostFrame(timeline_,plan);
         {
             const auto parent=NativeMainTargetScope::retain(context);
             ComPtr<ID3D11RasterizerState> priorRaster;context->RSGetState(&priorRaster);
@@ -113,7 +113,7 @@ private:
     NormalPostSurface bootstrapExposure_,output_;
     NativeNormalPost renderer_;
     std::vector<NativeNormalPostPass> passUnion_;
-    NativeNormalPostContinuous continuous_;
+    NormalPostTimeline timeline_;
     NativeNormalPostCamera camera_;
     NativeNormalPostCameraProjection projection_;
     source_current_season_resources::Bank seasonLuts_;

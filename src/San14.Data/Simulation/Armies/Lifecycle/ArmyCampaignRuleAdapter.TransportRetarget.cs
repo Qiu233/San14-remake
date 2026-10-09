@@ -9,8 +9,8 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportRetarget
     public PlayableTransportCreationResolution? RetargetTransport(GameState state, UnitState unit, CityState city)
     {
         if (unit.NativeArmyOrigin?.NativeSlotIndex is not int physical || physical is < 1 or > 500 ||
-            state.NativeArmyLifecycle is not { Indexes.ChangedPendingUnitIds: not null } arena || physical >= arena.Slots.Length ||
-            arena.Slots[physical] is not { ActiveUnitId: var id, Commander12: var commander, Status10: var status } ||
+            state.ReadArmyLifecycle() is not { Indexes.ChangedPendingUnitIds: not null } arena || physical >= arena.Slots.Count ||
+            arena.ReceiverSlots()[physical] is not { ActiveUnitId: var id, Commander12: var commander, Status10: var status } ||
             id != unit.Id || commander != unit.OfficerId || unit.NativeTransport is not { } transport ||
             unit.NativeArmyConfiguration is not { } configuration || unit.NativeTacticRuntime is not { } runtime ||
             unit.Mission is not { Kind: UnitMissionKind.Transport } mission || city.ForceId != unit.ForceId)
@@ -34,8 +34,8 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportRetarget
         if (arena.Targets is null) return null;
         var targetState = OwnedArmyLifecycleTargets.Write(state, arena.Slots[physical].ReceiverId,
             new(receipt.TargetKind38, receipt.TargetIdentity3A));
-        var submitted = state with { Units = new(state.Units) { [unit.Id] = staged },
-            NativeArmyLifecycle = targetState.NativeArmyLifecycle, ResourceState = targetState.ResourceState };
+        var submitted = (state with { Units = new(state.Units) { [unit.Id] = staged },
+                ResourceState = targetState.ResourceState }).WithArmyLifecycle(targetState.ReadArmyLifecycle());
         SourceWorldContext current;
         try { current = CaptureWritableTransportRouteCurrent(submitted); }
         catch (InvalidDataException) { return null; }

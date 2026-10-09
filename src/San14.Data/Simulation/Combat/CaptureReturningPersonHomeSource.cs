@@ -213,7 +213,7 @@ public sealed partial class CaptureReturningPersonHomeSource(ArmyCampaignRuleAda
             ClearRelease(current, cities); cities = null;
             var result = Publish(working, current, person, governors, writes160, pool, armyHome);
             if (idleResident) result = PublishIdleReturnFields(result, current, officerId, person);
-            NativeArmyLifecycleStateValidation.Validate(result);
+            ArmyLifecycleSaveValidation.Validate(result);
             var effects = new List<string> { idleResident ? "260310.232370_busy0" : "260310.232370_busy1", "224300.same_District_fixed_City_table",
                 "2AEDC0.mode8_count_to_City160", gateParent ? "260310.22A940_same_Force_District_Gate_parent_City" : "24C2F0.253F20_DistrictHome_distance160_CityID", "260B44.PersonE2",
                 "260B60.new_District2E9140", "260B6D.original_District2E9140" };
@@ -278,9 +278,11 @@ public sealed partial class CaptureReturningPersonHomeSource(ArmyCampaignRuleAda
         foreach (var row in distances) values[CityDistance160Key(row.Key)] = row.Value;
         var units = armyHome is null ? state.Units : new(state.Units)
             { [armyHome.UnitId] = state.Units[armyHome.UnitId] with { SourceLocationId = armyHome.CommanderHomeE2 } };
-        return state with { Officers = people, Cities = cities, Gates = gates, Units = units,
-            NativeArmyLifecycle = state.NativeArmyLifecycle! with { Indexes = pool.ExportOwnedState() },
-            NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = values } } };
+        return (state with { Officers = people,
+                Cities = cities,
+                Gates = gates,
+                Units = units,
+                NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = values } } }).WithArmyLifecycle(state.ReadArmyLifecycle()! with { Indexes = pool.ExportOwnedState() });
     }
     private static bool Preferred(ReturningPersonHomeCandidate left, ReturningPersonHomeCandidate right) =>
         left.DistrictHome != right.DistrictHome ? left.DistrictHome : left.Distance160 != right.Distance160

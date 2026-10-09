@@ -37,7 +37,7 @@ public sealed class ArmyTargetsState
             : Assignments.Append(new(receiverId, target)).ToArray());
 }
 
-public sealed partial record NativeArmyLifecycleState
+public sealed partial record ArmyLifecycleState
 {
     public ArmyTargetsState? Targets { get; init; }
 }

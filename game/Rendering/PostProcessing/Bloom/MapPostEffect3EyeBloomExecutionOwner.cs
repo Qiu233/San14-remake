@@ -155,13 +155,13 @@ public sealed partial class MapPostEffect3EyeBloomExecutionOwner : IAsyncDisposa
             if(actualAfterBindingContext is IMapPostEffect3EyeCloneBindingContext actualClones)
                 actualClones.RequireEyeCloneBindings(frame,before,target,reads);
             cpu?.Mark("07-input-and-clone-bindings");
-            var historicalInputs=MapPostEffect3Functor1SubmissionLedger.FreezeGraphicsInputs(inputs);
-            cpu?.Mark("08-freeze-input-json");
+            MapPostEffect3Functor1SubmissionLedger.RequireGraphicsInputs(inputs);
+            cpu?.Mark("08-validate-inputs");
             var actualProgram=await Graphics.Library.GetCompiledPassAsync(pass);
             cpu?.Mark("09-compiled-program");
             var completed = await Graphics.DrawAsync(pass, inputs);
             cpu?.Mark("10-fullscreen-draw");
-            lastHistoricalGraphicsInputs=(completed,frame,before,actualProgram,historicalInputs);
+            lastSubmittedProgram=(completed,frame,before,actualProgram);
             LastPublishedMip = Bank.PublishEyeGraphicsCoverage(coverage, Graphics, completed);
             lock (lifetime) completedDraws.Add(completed);
             cpu?.Mark("11-publish-coverage");

@@ -2,17 +2,6 @@ using San14.Data;
 
 public sealed partial class MapPostEffect3WorldNativeFullscreenFrontendOwner
 {
-    public object CaptureSourceIngressEvidence()
-    {
-        RequireCurrent();
-        return new{frameNumber=World.Context.FrameNumber,sourceKind=retainedIngress is null?"first-owned-constructor":"retained-actual-port-return",
-            stockPreviousCompletedSourceFrame=World.CurrentStock.PreviousCompletedSourceFrameNumber,
-            previousAcceptedPortFrame=retainedIngress?.Continuation.FrameNumber,
-            previousAcceptedGraphicsRelease=retainedIngress?.Continuation.LastActualGraphicsPass,
-            currentColorStateF4,currentScissor,currentMinimumDepth,currentMaximumDepth,
-            currentTargetRectangleCapturedAtBind=true,firstConstructorReapplied=retainedIngress is null,
-            originalRawScopeEquivalence=false,grantsPixels=false,SourceEvidence};
-    }
     /// <summary>A new current World loan of the exact completed module and
     /// frontend. Fresh constructor state is not reapplied to this generation.</summary>
     internal static MapPostEffect3WorldNativeFullscreenFrontendOwner CaptureRetainedSource(

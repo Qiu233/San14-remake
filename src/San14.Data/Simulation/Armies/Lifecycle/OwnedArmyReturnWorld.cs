@@ -16,8 +16,8 @@ public sealed class OwnedArmyReturnWorld
 
     public static OwnedArmyReturnWorld Capture(GameState state, ArmyOperationContext definitions)
     {
-        var saved = state.NativeArmyLifecycle ?? throw new InvalidDataException("current.complete_saved_Army_arena is unknown.");
-        if (saved.Slots.Length != 501) throw new InvalidDataException("CE native Army pointer table must have 501 exact slots.");
+        var saved = state.ReadArmyLifecycle() ?? throw new InvalidDataException("current.complete_saved_Army_arena is unknown.");
+        if (saved.ReceiverSlots().Length != 501) throw new InvalidDataException("CE native Army pointer table must have 501 exact slots.");
         var context = OwnedArmyReturnCurrentFields.CaptureCurrent(state, definitions);
         var pool = WorldIndexContext.ImportOwnedState(context,saved.Indexes,state);
         context.BindArmyMapOccupancy(state);
@@ -34,7 +34,7 @@ public sealed class OwnedArmyReturnWorld
         ArgumentNullException.ThrowIfNull(current); ArgumentNullException.ThrowIfNull(packet);
         if (!ReferenceEquals(current, _input) || !ReferenceEquals(packet.Owner,Context) || !ReferenceEquals(packet.Pool,Pool)) return null;
         int physical = packet.Army.PhysicalSlot ?? throw new InvalidDataException("Current return Army pointer is null.");
-        var original = _input.NativeArmyLifecycle!; var slot = original.Slots[physical];
+        var original = _input.ReadArmyLifecycle()!; var slot = original.ReceiverSlots()[physical];
         if (slot.ActiveUnitId is not int id || !_input.Units.TryGetValue(id,out var active))
             throw new InvalidDataException("Whole ordinary return must identify an active owned Army projection.");
         ArmyOrdinaryReturnRuntime.Commit(packet);
@@ -48,7 +48,7 @@ public sealed class OwnedArmyReturnWorld
         var units = result.Units.ToDictionary(x=>x.Key,x=>x.Value); units.Remove(id);
         var people = result.Officers.ToDictionary(x=>x.Key,x=>x.Value);
         people[active.OfficerId] = people[active.OfficerId] with { Deployed=false };
-        var slots = saved.Slots.ToArray();
+        var slots = saved.ReceiverSlots().ToArray();
         for (int i=0;i<slots.Length;i++)
         {
             var traits = Context.ReadArmyReturnTraitFields(new(i));
@@ -66,19 +66,21 @@ public sealed class OwnedArmyReturnWorld
                 AuxiliaryF4=traits?.AuxiliaryF4.ToArray() ?? old.AuxiliaryF4
             };
         }
-        result = result with { Units=units,Officers=people, ArmyMapOccupancy=Context.ExportArmyMapOccupancy(), NativeArmyLifecycle=saved with
+        result = (result with { Units=units,
+                Officers=people,
+                ArmyMapOccupancy=Context.ExportArmyMapOccupancy() }).WithArmyLifecycle(saved.WithReceiverSlots(slots) with
         {
-            Indexes = Pool.ExportOwnedState(), Slots=slots
-        } };
+            Indexes = Pool.ExportOwnedState()
+        });
         return result;
     }
 }
 
 public sealed partial class SourceWorldContext
 {
-    internal void RestoreOwnedArmyReturnSlots(GameState state,NativeArmyLifecycleState saved)
+    internal void RestoreOwnedArmyReturnSlots(GameState state,ArmyLifecycleSourceView saved)
     {
-        foreach (var slot in saved.Slots)
+        foreach (var slot in saved.ReceiverSlots())
         {
             int physical=slot.PhysicalSlot;
             SetArmyUnitTablePointer(physical,physical); SetArmyUnitCommanderId(physical,slot.Commander12); SetArmyUnitStatusFlag10(physical,slot.Status10);

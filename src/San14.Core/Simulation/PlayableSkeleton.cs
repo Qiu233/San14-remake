@@ -409,8 +409,8 @@ public static class PlayableSkeleton
             //The provisional return/destruction may retire a projection before
             //the source manager cleanup is available. Keep that actual current
             //receiver independently, without freeing or resetting native owners.
-            Action<UnitState>? onArmyRetired = state.NativeArmyLifecycle is null ? null :
-                image => periodBasis = PlayableNativeArmyRetirement.PreservePendingImage(CurrentWorld(), image);
+            Action<UnitState>? onArmyRetired = state.ArmyLifecycle is null ? null :
+                image => periodBasis = ArmyRetirement.PreservePendingImage(CurrentWorld(), image);
             void CompleteRetreat(UnitState actor, int locationId)
             {
                 if (EntryState(actor, locationId) is string ruleId)

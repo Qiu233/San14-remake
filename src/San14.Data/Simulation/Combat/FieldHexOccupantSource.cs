@@ -41,21 +41,21 @@ public static class FieldHexOccupantSource
         if (signed < 0) return Unknown("branch.16EB20_negative_Army_pointer_index");
         if (signed != 0)
         {
-            if (state.NativeArmyLifecycle is not { } arena)
+            if (state.ReadArmyLifecycle() is not { } arena)
                 return Unknown("current.16EB20_Army_pointer_table");
             int lookup = signed <= 500 ? signed : 0;
             var army = current.ReadArmyUnitTableReference(lookup);
             if (army is null)
             {
-                if (lookup >= arena.Slots.Length || arena.Slots[lookup].PhysicalSlot != lookup)
+                if (lookup >= arena.ReceiverSlots().Length || arena.ReceiverSlots()[lookup].PhysicalSlot != lookup)
                     return Unknown("current.16EB20_Army_pointer_table");
                 current.SetArmyUnitTablePointer(lookup, lookup);
                 army = new(lookup);
             }
             if (army.PhysicalSlot is int physical)
             {
-                if (physical >= arena.Slots.Length) return Unknown("current.16EB20_Army_header");
-                var slot = arena.Slots[physical];
+                if (physical >= arena.ReceiverSlots().Length) return Unknown("current.16EB20_Army_header");
+                var slot = arena.ReceiverSlots()[physical];
                 current.BindUnspecifiedOwnedArmyQueryHeader(slot);
                 bool? valid = current.ReadArmyUnitNativeValidity(army);
                 if (valid is null) return Unknown("current.16EB20_Army_header_validity");
@@ -83,9 +83,9 @@ public static class FieldHexOccupantSource
     {
         if (selected.NativeKind != 27) return false;
         int physical = selected.NativePhysicalSlot;
-        if (state.NativeArmyLifecycle is not { } arena || physical is < 1 or > 500 || physical >= arena.Slots.Length)
+        if (state.ReadArmyLifecycle() is not { } arena || physical is < 1 or > 500 || physical >= arena.ReceiverSlots().Length)
             return null;
-        var slot = arena.Slots[physical]; current.BindUnspecifiedOwnedArmyQueryHeader(slot);
+        var slot = arena.ReceiverSlots()[physical]; current.BindUnspecifiedOwnedArmyQueryHeader(slot);
         var army = new ArmyUnitReference(physical);
         if (current.ReadArmyUnitNativeValidity(army) is not bool valid) return null;
         if (!valid) return false;
@@ -114,7 +114,7 @@ public sealed partial class SourceWorldContext
 
     //Existing operation fields, including explicit unknowns, remain current.
     //Only an unbound field receives the actual saved receiver value.
-    internal void BindUnspecifiedOwnedArmyQueryHeader(NativeArmyLifecycleSlot slot)
+    internal void BindUnspecifiedOwnedArmyQueryHeader(ArmyLifecycleReceiverView slot)
     {
         _armyCommanderIds.TryAdd(slot.PhysicalSlot, slot.Commander12);
         _armyStatusFlags.TryAdd(slot.PhysicalSlot, slot.Status10);

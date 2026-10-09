@@ -47,7 +47,7 @@ public static class GameStateCopy
         PreparedOfficerMoves = CopyDictionary(value.PreparedOfficerMoves),
         PreparedTalentOrders = CopyDictionary(value.PreparedTalentOrders),
         Territory = CopyDictionary(value.Territory),
-        NativeArmyLifecycle = Copy(value.NativeArmyLifecycle),
+        ArmyLifecycle = Copy(value.ArmyLifecycle),
         ArmyMapOccupancy = value.ArmyMapOccupancy?.Copy(),
         NativeArmySimulation = Copy(value.NativeArmySimulation),
         NativeBaseCaptureCurrent = Copy(value.NativeBaseCaptureCurrent),
@@ -143,21 +143,12 @@ public static class GameStateCopy
     };
 
     [return: NotNullIfNotNull(nameof(value))]
-    internal static NativeArmyLifecycleSlot? Copy(NativeArmyLifecycleSlot? value) => value is null ? null : value with
+    internal static ArmyLifecycleState? Copy(ArmyLifecycleState? value) => value is null ? null : value with
     {
-        PendingImage = Copy(value.PendingImage),
-        AuxiliaryAC = CopyArray(value.AuxiliaryAC),
-        AuxiliaryF4 = CopyArray(value.AuxiliaryF4),
-    };
-
-    [return: NotNullIfNotNull(nameof(value))]
-    internal static NativeArmyLifecycleState? Copy(NativeArmyLifecycleState? value) => value is null ? null : value with
-    {
-        ArmyFlags150 = CopyArray(value.ArmyFlags150),
+        Receivers = value.Receivers.Copy(),
         ArmyCautions = value.ArmyCautions?.Copy(),
         Indexes = value.Indexes.Copy(),
         ArmyGroups = value.ArmyGroups?.Copy(),
-        Slots = CopyArray(value.Slots, item => Copy(item)!),
         Targets = value.Targets,
     };
 

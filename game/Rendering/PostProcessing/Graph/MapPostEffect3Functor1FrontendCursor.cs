@@ -11,7 +11,6 @@ public sealed class MapPostEffect3Functor1FrontendCursor
     internal MapPostEffect3Functor1GhostMetadataOwner GhostMetadata{get;}
     internal MapPostEffect3Functor1FrontendCacheOwner Cache{get;}
     private readonly List<MapPostEffect3Functor1CpuCallbackAttempt> attempts=[];
-    private readonly List<object> events=[];
     private MapPostEffect3Functor1ShaderCatalog.Entry? selected;
     private object? actualBefore;
     private object? actualBind;
@@ -43,10 +42,6 @@ public sealed class MapPostEffect3Functor1FrontendCursor
         throw new InvalidDataException("Actual source directory has not returned.");
     public bool ProvesActualFrontendEnd=>false;
     public bool CommitsFunctorHistory=>false;
-    public IReadOnlyList<object> OrderedFrontendEvents=>Array.AsReadOnly(events.ToArray());
-    public IReadOnlyList<object> OrderedResourceCacheEvents=>Cache.Events;
-    public object CaptureCurrentCacheSnapshot()=>Cache.Snapshot();
-    public object CaptureEyeCloneCatalogSnapshot()=>frame.EyeCloneCatalog!.Snapshot();
     internal MapPostEffect3Functor1EyeCloneCatalog RequireEyeCloneCatalog()
     {var actual=frame.EyeCloneCatalog??throw new InvalidDataException("Current source Eye clone catalog is absent.");
      actual.Source.RequireCurrentTextureTable(frame.Textures);return actual;}
@@ -80,13 +75,11 @@ public sealed class MapPostEffect3Functor1FrontendCursor
     {
         var entry=catalog.RequireEntry(recipe);selectionAl=entry.EvaluateActualSelectionAl();
         if(selectionAl==0)throw new NotSupportedException("Actual native CS/PS shader-wrapper selection failed.");
-        int mode=entry.SourceCsWrapper is not null?0:2;
-        Cache.SelectHeader(recipe,entry,mode);selected=entry;loop=0;lensAfterReset=false;attempts.Clear();
+        PostPipelineMode mode=entry.SourceCsWrapper is not null?PostPipelineMode.Compute:PostPipelineMode.Graphics;
+        Cache.SelectHeader(entry,mode);selected=entry;loop=0;lensAfterReset=false;attempts.Clear();
         foreach(var setter in source.ReadCountedSetters(frame.Camera.Allocation,recipe.SourcePassIndex))
-            Cache.SetCounted(setter,frame.CaptureDirectoryMetadata(setter.Binding),recipe.SourcePassIndex);
-        events.Add(new{operation="SelectReturned",recipe.SourcePassIndex,recipe.SourceDirectoryOrdinal,selectionAl,mode,
-            shader=entry.ActualOrdinaryProgram.ShaderRid.Id,sourceStage=entry.SourceCsWrapper?.Source.StageCode??entry.SourcePsWrapper!.Source.StageCode,
-            nativeShaderWrapperAvailability=true,grantsPixelReadiness=false});
+            Cache.SetCounted(setter,frame.CaptureDirectoryMetadata(setter.Binding));
+
     }
     private void RunSkippedWrapper()
     {
@@ -98,9 +91,9 @@ public sealed class MapPostEffect3Functor1FrontendCursor
         {
             byte result=source.ReadReturningBefore(recipe);
             if(result!=0)throw new InvalidDataException("Source mask rejected Before did not return AL0.");
-            attempts.Add(new(result,null,null,null));events.Add(new{operation="BeforeMaskRejected",recipe.SourcePassIndex,result});
+            attempts.Add(new(result,null,null,null));
         }
-        else events.Add(new{operation="EmptyNativeRepeat",recipe.SourcePassIndex});
+
         ResetFinalizeReturn();
     }
     internal void RecordBeforeReturned(object actualPacket,MapPostEffect3EyeBeforeBindings? eyeBefore=null)
@@ -109,11 +102,11 @@ public sealed class MapPostEffect3Functor1FrontendCursor
         if(actualBefore is not null)throw new InvalidDataException("Source Before returned twice.");
         beforeAl=source.ReadReturningBefore(recipe,recipe.FactoryIndex==8?frame.Eye:null,eyeBefore);
         if(beforeAl==0)throw new InvalidDataException("Selected actual CPU Before could not bind this iteration.");
-        actualBefore=actualPacket;events.Add(new{operation="ActualBeforeReturned",recipe.SourcePassIndex,loop,beforeAl});
+        actualBefore=actualPacket;
         //Both original manager carriers are real native Before SRV setters,
         //independent of whether the eventual shader declares sampler7/8.
-        Cache.SetBeforeTexture(2,7,frame.CaptureDirectoryCarrier(true),recipe.SourcePassIndex,"Before-carrier30-PS7");
-        Cache.SetBeforeTexture(2,8,frame.CaptureDirectoryCarrier(false),recipe.SourcePassIndex,"Before-carrier38-PS8");
+        Cache.SetBeforeTexture(2,7,frame.CaptureDirectoryCarrier(true));
+        Cache.SetBeforeTexture(2,8,frame.CaptureDirectoryCarrier(false));
     }
     internal void ApplyDepthBefore(MapPostEffect3DepthOfField2BeforeBindings before)
     {
@@ -121,31 +114,29 @@ public sealed class MapPostEffect3Functor1FrontendCursor
         {
             var actual=frame.CaptureDirectoryTextureMetadata(setter.ActualTexture.ParameterIndex);
             if(setter.Kind==MapPostEffect3DepthOfField2DynamicBindingKind.PixelTexture)
-                Cache.SetBeforeTexture(2,setter.NativeRegisterIndex,actual,before.SourcePassIndex,"DOF-Before-dynamic-texture");
-            else Cache.SetBeforeTarget(setter.NativeRegisterIndex,actual,-1,-1,before.SourcePassIndex,"DOF-Before-target0");
+                Cache.SetBeforeTexture(2,setter.NativeRegisterIndex,actual);
+            else Cache.SetBeforeTarget(setter.NativeRegisterIndex,actual,-1,-1);
         }
     }
     internal void ApplyEyeBefore(MapPostEffect3EyeBeforeBindings before)
     {
-        int pass=before.Iteration.SourcePassIndex;
         if(before.RequiresDynamicPixelTextureBinding&&before.SourceTextureParameterIndex is{} input)
         {
             var clones=RequireEyeCloneCatalog();
-            Cache.SetBeforeTexture(2,0,clones.Metadata(clones.RequireDynamicSource(before),input),pass,"Eye-Before-array-clone-t0");
+            Cache.SetBeforeTexture(2,0,clones.Metadata(clones.RequireDynamicSource(before),input));
         }
         if(before.RequiresDynamicTargetBinding&&before.TargetTextureParameterIndex is{} output)
-            Cache.SetBeforeTarget(0,frame.CaptureDirectoryTextureMetadata(output),before.TargetMipLevel!.Value,-1,pass,"Eye-Before-target-mip");
+            Cache.SetBeforeTarget(0,frame.CaptureDirectoryTextureMetadata(output),before.TargetMipLevel!.Value,-1);
     }
     internal void ApplyCompositeBefore(MapPostEffect3Composite2BeforeBindings before)
-    {if(before.ClearsNativeTarget0)Cache.SetBeforeTarget(0,null,-1,-1,before.SourcePassIndex,"Composite-Before-clear-target0");}
+    {if(before.ClearsNativeTarget0)Cache.SetBeforeTarget(0,null,-1,-1);}
     internal void RecordBindReturned(object actualPacket,object actualBinding)
     {
         RequireExecuting();
         if(!ReferenceEquals(actualBefore,actualPacket)||actualBind is not null)
             throw new InvalidDataException("Actual Bind did not return for the exact current Before packet.");
-        actualBind=actualBinding;Cache.FlushBeforeActualBind(selected!.Recipe.SourcePassIndex);
-        events.Add(new{operation="ActualBindReturned",selected.Recipe.SourcePassIndex,loop,
-            sourceBindReturnAl=source.ReadBindReturnAfterReturning(),bindAlIgnored=true});
+        actualBind=actualBinding;
+
     }
     internal void RequireActualVariant(MapPostEffect3ProgramLibrary actualLibrary,MapPostEffect3CompiledPass actualProgram,int pass)
     {
@@ -154,8 +145,7 @@ public sealed class MapPostEffect3Functor1FrontendCursor
             throw new InvalidDataException("Actual device program is not bound to this source cursor/library/Before.");
         catalog.RequireActualVariant(selected,actualProgram);
         actualVariantCaptured=true;
-        events.Add(new{operation="ActualBackendVariant",pass,loop,shader=actualProgram.ShaderRid.Id,
-            stages=actualProgram.Stages.Select(s=>new{s.Source.StageCode,s.Source.StageIndex,s.DeviceTranslation.SpirvSha256}).ToArray()});
+
     }
     internal void RequireOrdinaryActualProgram(MapPostEffect3ProgramLibrary actualLibrary,int pass,
         IReadOnlyList<MapPostEffect3NullShaderResource> actualNulls)
@@ -173,8 +163,7 @@ public sealed class MapPostEffect3Functor1FrontendCursor
             !actualVariantCaptured||actualIterationAccepted)
             throw new InvalidDataException("Actual device acceptance differs from this source Before/Bind/repeat.");
         actualIterationAccepted=true;
-        events.Add(new{operation="ActualExecuteAndAutomaticReleaseReturned",recipe.SourcePassIndex,loop,
-            sourceExecuteReturnAl=recipe.SourceExecuteReturnAlAfterReturning,actual.SourceEvidence});
+
         if(recipe.RequiresLensAfterDeviceJoin)return; //After is still pending.
         FinishIteration(recipe.SourceAfterReturnAlAfterReturning);
     }
@@ -183,7 +172,7 @@ public sealed class MapPostEffect3Functor1FrontendCursor
         RequireExecuting();if(selected?.Recipe.SourcePassIndex!=pass||!selected.Recipe.RequiresLensAfterDeviceJoin||actualBind is null||
             !actualIterationAccepted||lensAfterReset)
             throw new InvalidDataException("Lens After reset lacks its exact selected producer.");
-        Cache.ResetResources("LensAfter-internal-reset",pass);lensAfterReset=true;
+        Cache.ResetResources();lensAfterReset=true;
     }
     internal void AcceptCompleteLensAfter(IMapPostEffect3Functor1ActualDeviceReceipt actual)
     {
@@ -198,20 +187,20 @@ public sealed class MapPostEffect3Functor1FrontendCursor
     {
         var recipe=selected!.Recipe;
         attempts.Add(new(beforeAl,source.ReadBindReturnAfterReturning(),recipe.SourceExecuteReturnAlAfterReturning,after));
-        events.Add(new{operation="ActualAfterReturned",recipe.SourcePassIndex,loop,sourceAfterReturnAl=after});
+
         actualBefore=null;actualBind=null;actualVariantCaptured=false;actualIterationAccepted=false;loop++;
         if(recipe.FactoryIndex==8&&loop<recipe.NativeWrapperLoopBound&&after!=0)return;
         ResetFinalizeReturn();
     }
     private void ResetFinalizeReturn()
     {
-        var recipe=selected!.Recipe;Cache.ResetPass(recipe.SourcePassIndex);
+        var recipe=selected!.Recipe;Cache.ResetPass();
         byte finalize=source.ReturnFinalize(recipe);
         var trace=MapPostEffect3Functor1WrapperControlFlow.Read(recipe,new(selectionAl,Array.AsReadOnly(attempts.ToArray()),
             source.SourceEvidence+";actual-catalog/metadata-cache/callback-return-boundaries;selected-device-authority-separate"));
         if(!trace.FunctionReturned||trace.SourceFunctionReturnAl!=finalize)throw new InvalidDataException("Actual source finalize/CPU return differs.");
         frame.WrapperDirectory.RecordSourceFunctionReturn(recipe,trace);
-        events.Add(new{operation="FinalizeAndCpuFunctionReturn",recipe.SourcePassIndex,finalize,trace.CompletedCallbackIterations});
+
         next++;selected=null;attempts.Clear();loop=0;
     }
     public MapPostEffect3Functor1DirectoryReturnedReceipt CompleteDirectoryReturnedAndJoinHistory()
@@ -229,7 +218,7 @@ public sealed class MapPostEffect3Functor1FrontendCursor
             frame.SubmissionLedger.RequireHistoricalAuthority();
             var cpu=frame.WrapperDirectory.SealCpuDirectoryReturned();
             var device=frame.WrapperDirectory.JoinActualSelectedDeviceReceipts(frame.SubmissionLedger.HistoricalReceipts);
-            return returned=new(this,frame,cpu,device,events.Count,Cache.Snapshot(),source.SourceEvidence);
+            return returned=new(this,frame,cpu,device,source.SourceEvidence);
         }
         catch(Exception e){Fail(e);throw;}
     }
@@ -243,13 +232,13 @@ public sealed class MapPostEffect3Functor1FrontendCursor
     private void Fail(Exception e)
     {
         if(failed)return;
-        failed=true;events.Add(new{operation="UnreturnedFailure",next,active=selected?.Recipe.SourcePassIndex,error=e.Message});
+        failed=true;
         frame.CpuInvocation.MarkUnreturnedFailure("actual-source-cursor-unreturned;next="+next+";"+e.Message);
     }
     internal void RetireMetadataLoansForFrameDisposal()
     {
         //Exceptional/owner disposal is not original End or controller Return.
-        Cache.ResetResources("managed-owner-disposal/no-source-End",Math.Min(next,116));
+        Cache.ResetResources();
         if(returned is null&&!failed)
         {
             failed=true;
@@ -264,14 +253,12 @@ public sealed class MapPostEffect3Functor1DirectoryReturnedReceipt
     private readonly MapPostEffect3Functor1FrontendCursor owner;
     internal MapPostEffect3Functor1DirectoryReturnedReceipt(MapPostEffect3Functor1FrontendCursor owner,
         MapPostEffect3WorldControlledFactoryFrame frame,MapPostEffect3Functor1SourceReceipt cpu,
-        MapPostEffect3Functor1SelectedDeviceJoin device,int events,object cache,string evidence)
-        =>(this.owner,FrameNumber,CpuDirectoryReturned,SelectedDeviceJoin,FrontendEventCount,FinalCacheSnapshot,SourceEvidence)=
-            (owner,frame.Camera.FrameNumber,cpu,device,events,cache,evidence);
+        MapPostEffect3Functor1SelectedDeviceJoin device,string evidence)
+        =>(this.owner,FrameNumber,CpuDirectoryReturned,SelectedDeviceJoin,SourceEvidence)=
+            (owner,frame.Camera.FrameNumber,cpu,device,evidence);
     public long FrameNumber{get;}
     public MapPostEffect3Functor1SourceReceipt CpuDirectoryReturned{get;}
     public MapPostEffect3Functor1SelectedDeviceJoin SelectedDeviceJoin{get;}
-    public int FrontendEventCount{get;}
-    public object FinalCacheSnapshot{get;}
     public string SourceEvidence{get;}
     public bool ProvesActualFrontendEnd=>false;
     public bool CommitsFunctorHistory=>false;

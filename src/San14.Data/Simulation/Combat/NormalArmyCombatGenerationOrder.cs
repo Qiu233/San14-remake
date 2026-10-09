@@ -13,7 +13,7 @@ public static class NormalArmyCombatGenerationOrder
 {
     public static NormalArmyCombatGenerationOrderResult ReadArmyManager60(GameState state)
     {
-        if (state.NativeArmyLifecycle is not { Slots.Length: 501 } arena)
+        if (state.ReadArmyLifecycle() is not { Slots.Count: 501 } arena)
             return Unknown("current.Native_Army_lifecycle");
         if (arena.Indexes.Registries.GetValueOrDefault(WorldEntityKind.Army) is not { } order)
             return Unknown("current.Army_registry");

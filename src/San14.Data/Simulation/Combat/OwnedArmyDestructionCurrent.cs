@@ -19,9 +19,9 @@ public static class OwnedArmyDestructionCurrent
 
     public static bool? ReadArmyExcluded233560(GameState state, SourceWorldContext current, int physical)
     {
-        if (state.NativeArmyLifecycle is not { } arena || (uint)physical >= arena.Slots.Length) return null;
+        if (state.ReadArmyLifecycle() is not { } arena || (uint)physical >= arena.ReceiverSlots().Length) return null;
         if (arena.Indexes.PendingUnitIds is not { } pending) return null;
-        if ((arena.Slots[physical].ActiveUnitId ?? arena.Slots[physical].PendingImage?.Id) is int unitId && pending.Contains(unitId)) return true;
+        if ((arena.ReceiverSlots()[physical].ActiveUnitId ?? arena.ReceiverSlots()[physical].PendingImage?.Id) is int unitId && pending.Contains(unitId)) return true;
         if (state.PendingCombatSettlements is not { } queue) return null;
         return ArmyDestructionQueue.ResolveUnitId(state, physical) is int id
             ? CombatSettlementRules.ExcludesUnit(queue, id, ArmyDestructionQueue.BindCurrent(state, current, true)) : false;
@@ -39,9 +39,9 @@ public static class OwnedArmyDestructionCurrent
         SourceWorldContext current, int victimPhysical, int? attackerPhysical, int? attackerBaseLocation)
     {
         if (state.PendingCombatSettlements is not { } queue) return new(null, null, "Combat settlements are not initialized.");
-        if (state.NativeArmyLifecycle is not { } lifecycle || (uint)victimPhysical >= lifecycle.Slots.Length)
+        if (state.ReadArmyLifecycle() is not { } lifecycle || (uint)victimPhysical >= lifecycle.ReceiverSlots().Length)
             return new(null, null, "Victim army registry mapping is unavailable.");
-        var victimSlot = lifecycle.Slots[victimPhysical];
+        var victimSlot = lifecycle.ReceiverSlots()[victimPhysical];
         bool? victimValid = victimSlot.Commander12 is ushort commander ? commander == 0 ? false : victimSlot.Status10 is byte status ? status != 0 : null : null;
         if (victimValid is null) return new(null, null, "Victim army validity is unavailable.");
         if (!victimValid.Value) return new(state, null, null);

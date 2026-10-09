@@ -7,7 +7,7 @@ internal static class ArmyMapOccupancySaveValidation
     {
         if (state.ArmyMapOccupancy is not { } occupancy)
         {
-            if (state.NativeArmyLifecycle?.Slots.Any(slot => slot.OccupancyBindingId is not null) == true)
+            if (state.ArmyLifecycle?.Receivers.Entries.Any(slot => slot.OccupancyBindingId is not null) == true)
                 throw new InvalidDataException("Map occupancy links have no owner.");
             return;
         }
@@ -27,7 +27,7 @@ internal static class ArmyMapOccupancySaveValidation
                 (target.Kind == ArmyOccupancyUnitKind.Unit ? target.UnitId is not >= 0 : target.UnitId is not null))
                 throw new InvalidDataException("Map occupancy binding is invalid.");
         var seen = new HashSet<int>();
-        foreach (var slot in state.NativeArmyLifecycle?.Slots ?? [])
+        foreach (var slot in state.ArmyLifecycle?.Receivers.Entries ?? [])
         {
             if (slot.OccupancyBindingId is not int binding) continue;
             if (!seen.Add(binding) || !occupancy.Bindings.TryGetValue(binding, out var target))
@@ -35,7 +35,7 @@ internal static class ArmyMapOccupancySaveValidation
             int? current = slot.ActiveUnitId ?? slot.PendingImage?.Id;
             if (current is int unit && (target.Kind != ArmyOccupancyUnitKind.Unit || target.UnitId != unit))
                 throw new InvalidDataException("Map occupancy target disagrees with its current unit.");
-            if (current is null && (slot.Commander12 == 0 || slot.Status10 == 0) && target.Kind != ArmyOccupancyUnitKind.Vacant)
+            if (current is null && slot.Phase == ArmyReceiverPhase.Ready && target.Kind != ArmyOccupancyUnitKind.Vacant)
                 throw new InvalidDataException("Reset receiver has a nonvacant map occupancy target.");
         }
     }

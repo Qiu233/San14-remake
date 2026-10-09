@@ -296,9 +296,9 @@ public sealed partial class MapPostEffect3DepthOfField2ExecutionOwner:IAsyncDisp
                 CurrentSourceOperation="submit-original-graphics";
                 var graphicsInput=new MapPostEffect3FullscreenFrameInputs(MapPostEffect3FullscreenSourceDraw.CaptureDepthOfField2(Prepared,before),
                     TextureParameters,reads,samplers,sides,targets,context){TextureOverrides=setters};
-                var historicalInputs=MapPostEffect3Functor1SubmissionLedger.FreezeGraphicsInputs(graphicsInput);
+                MapPostEffect3Functor1SubmissionLedger.RequireGraphicsInputs(graphicsInput);
                 var completed=await Graphics.DrawAsync(pass,graphicsInput);
-                lastHistoricalGraphicsInputs=(completed,compiled,historicalInputs);
+                lastSubmittedProgram=(completed,compiled);
                 submitted.Add(completed);submittedIndices.Add(pass);
                 CurrentSourceOperation="publish-actual-graphics-coverage";
                 CurrentCoverage=CaptureCoverage(proof,Array.AsReadOnly(targets),completed,reads.Any(r=>r is ReadCapability{AllocatedOnlyUnusedHistory:true}));

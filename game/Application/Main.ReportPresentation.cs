@@ -8,20 +8,8 @@ public partial class Main
 
     private string RenderPlayReport(GameState world, int playerForce)
     {
-        PeriodReportPresentation report = PeriodReportPresenter.Create(world, playerForce,
-            new PeriodReportText(_ui.Get, _ui.Format, _ui.TacticReason, _ui.MapSeparator),
-            BindPeriodReportMetadata);
-        return report.Body;
-    }
-
-    private void BindPeriodReportMetadata(PeriodReportMetadata metadata)
-    {
-        SetMeta("play_report_monthly_receipt_count", metadata.MonthlyReceiptCount);
-        SetMeta("play_report_monthly_receipts_json", metadata.MonthlyReceiptsJson);
-        SetMeta("play_report_source_event_count", metadata.SourceEventCount);
-        SetMeta("play_report_source_events_json", metadata.SourceEventsJson);
-        SetMeta("play_report_rule_receipts_json", metadata.RuleReceiptsJson);
-        SetMeta("play_report_period_entries_json", metadata.PeriodEntriesJson);
+        return PeriodReportPresenter.Create(world, playerForce,
+            new PeriodReportText(_ui.Get, _ui.Format, _ui.TacticReason, _ui.MapSeparator)).Body;
     }
 
     private void RefreshPlayablePeriodReport()

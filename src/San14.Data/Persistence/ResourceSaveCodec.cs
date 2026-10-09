@@ -19,6 +19,7 @@ public sealed class ResourceSaveCodec : ISaveCodec
         ArmyPositionSourceKnowledge.Validate(state);
         ArmyOverrideSourceKnowledgeValidation.Validate(state);
         ArmyTargetSourceKnowledgeValidation.Validate(state);
+        ArmyReceiverSourceValidation.Validate(state);
         return new JsonGzipSaveCodec(resourceStateCodec: new CampaignResourceStateCodec()).Encode(state);
     }
     public GameState Decode(ReadOnlySpan<byte> bytes)
@@ -28,6 +29,7 @@ public sealed class ResourceSaveCodec : ISaveCodec
         ArmyTargetSourceKnowledgeValidation.Validate(state);
         ArmyOverrideSourceKnowledgeValidation.Validate(state);
         ArmyPositionSourceKnowledge.Validate(state);
+        ArmyReceiverSourceValidation.Validate(state);
         return state;
     }
 

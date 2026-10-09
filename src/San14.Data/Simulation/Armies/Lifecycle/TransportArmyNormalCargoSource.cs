@@ -30,8 +30,8 @@ public static class TransportArmyNormalCargoSource
                 throw Missing("branch.normal_cargo_not_type2");
             if (target.Troops is < 0 or > ushort.MaxValue || appliedLoss > target.Troops)
                 throw Missing("current.normal_cargo_capped_ushort16");
-            var arena = state.NativeArmyLifecycle!;
-            var slot = arena.Slots[physical];
+            var arena = state.ReadArmyLifecycle()!;
+            var slot = arena.ReceiverSlots()[physical];
             var resolved = ArmyStoreRules.Resolve(target.CarriedStores, slot.StoredResources);
             if (resolved.Status == ArmyStoreResolutionStatus.Unknown)
                 throw Missing("current.normal_cargo_saved5C60");
@@ -71,10 +71,10 @@ public static class TransportArmyNormalCargoSource
                 target.NativeMorale1A, afterGold, afterSupplies));
             var updated = target with { CarriedStores = new(afterGold, afterSupplies), Supplies = afterSupplies,
                 Mission = mission with { CargoGold = afterGold } };
-            var slots = arena.Slots.ToArray();
+            var slots = arena.ReceiverSlots().ToArray();
             slots[physical] = slot with { StoredResources = new(afterGold, afterSupplies) };
-            var result = state with { Cities = cityChanges, Units = new(state.Units) { [target.Id] = updated },
-                NativeArmyLifecycle = arena with { Slots = slots } };
+            var result = (state with { Cities = cityChanges,
+                Units = new(state.Units) { [target.Id] = updated } }).WithArmyLifecycle(arena.WithReceiverSlots(slots));
             return new(result, new(physical, target.Troops, appliedLoss, ratio, gold, supplies,
                 lostGold, lostSupplies, afterGold, afterSupplies, writes.ToArray()), null);
 
@@ -82,7 +82,7 @@ public static class TransportArmyNormalCargoSource
             {
                 if (state.Units.GetValueOrDefault(army.Id) != army ||
                     army.NativeArmyOrigin?.NativeSlotIndex is not int index || index is < 1 or > 500 ||
-                    state.NativeArmyLifecycle?.Slots is not { Length: 501 } rows || rows[index].ActiveUnitId != army.Id ||
+                    state.ReadArmyLifecycle()?.ReceiverSlots() is not { Length: 501 } rows || rows[index].ActiveUnitId != army.Id ||
                     rows[index].Commander12 is not ushort commander || rows[index].Status10 is not byte status)
                     throw Missing("current.normal_cargo_Army_receiver");
                 current.SetArmyUnitTablePointer(index, index);

@@ -201,7 +201,7 @@ static NativeNormalPost prepareNormalPost(ID3D11Device* device,
 
 static ComPtr<ID3D11Texture2D> executeNormalPost(ID3D11Device* device,ID3D11DeviceContext* context,NativeSourceDepthState& logical,
     NativeNormalPost& state,const std::vector<NativeNormalPostPass>& passes,
-    const std::function<void()>& before57={}) {
+    const std::function<void()>& beforeScatter={}) {
     // The incoming logical description remains independent of ignored D3D
     // hardware fields. Source11462D0 stores entry Test for its restored Write.
     const auto entryDepthDesc=logical.description;
@@ -233,7 +233,7 @@ static ComPtr<ID3D11Texture2D> executeNormalPost(ID3D11Device* device,ID3D11Devi
     for(const auto& pass:passes) {
         // Original Count0 reads selected controller staging here, after55
         // and before current57/58 produce the new B5 indirect arguments.
-        if(pass.name=="057-dof"&&before57)before57();
+        if(pass.name=="057-dof"&&beforeScatter)beforeScatter();
         normalPostUnbind(context);context->GSSetShader(nullptr,nullptr,0);context->HSSetShader(nullptr,nullptr,0);context->DSSetShader(nullptr,nullptr,0);
         for(const auto& binding:pass.constants) {
             auto raw=binding.buffer.Get();

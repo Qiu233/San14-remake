@@ -277,8 +277,7 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
         current.CreateTemporaryHexList() ?? throw Missing("Person temporary allocator");
     private static void Release(SourceWorldContext current, HexListHandle list)
     { current.ClearTemporaryHexList(list); current.ReleaseTemporaryHexList(list); }
-    private static GameState WithPool(GameState state, SourceWorldContext current) => state with
-    { NativeArmyLifecycle = state.NativeArmyLifecycle! with { Indexes = (current.ReadOwnedCurrentListPool() ?? throw Missing("current primary pool")).ExportOwnedState() } };
+    private static GameState WithPool(GameState state, SourceWorldContext current) => state.WithArmyLifecycle(state.ReadArmyLifecycle()! with { Indexes = (current.ReadOwnedCurrentListPool() ?? throw Missing("current primary pool")).ExportOwnedState() });
     private static T K<T>(T? value, string owner) where T : struct => value ?? throw Missing(owner);
     private static InvalidDataException Missing(string owner) => new("current.BaseCapturePersonPrefix: " + owner);
     private sealed record PersonNode(HexListNodeReference Node, int Person);

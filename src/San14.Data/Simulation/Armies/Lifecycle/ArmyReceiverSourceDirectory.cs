@@ -11,10 +11,14 @@ public sealed class ArmyReceiverSourceDirectory
 
     private ArmyReceiverSourceDirectory() { }
 
-    public ArmyReceiverSourceDirectory(NativeArmyLifecycleState lifecycle)
+    public ArmyReceiverSourceDirectory(ArmyLifecycleSourceView lifecycle)
     {
         foreach (var slot in lifecycle.Slots)
             Add(slot.PhysicalSlot, slot.ReceiverId);
+    }
+    public ArmyReceiverSourceDirectory(ArmyLifecycleSourceState source)
+    {
+        foreach (var slot in source.Slots) Add(slot.PhysicalSlot, slot.ReceiverId);
     }
 
     /// <summary>Allocates the initial receiver directory before either source

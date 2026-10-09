@@ -1,4 +1,4 @@
-﻿using San14.Core;
+using San14.Core;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -92,7 +92,7 @@ public sealed partial class TacticRemakeCurrentContext
     private bool TryOccupant(GameState state, int hexId, out Occupant? occupant)
     {
         occupant = null;
-        if (state.NativeArmyLifecycle is not null)
+        if (state.ReadArmyLifecycle() is not null)
         {
             var read = FieldHexOccupantSource.ReadCurrent(state, _definitions, hexId);
             if (read.Receipt is not { } current) return false;

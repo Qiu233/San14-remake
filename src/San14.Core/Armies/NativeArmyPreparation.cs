@@ -17,8 +17,8 @@ public interface IPlayableNativeArmyPreparationRules
     bool? PreservesTraitSlots64(GameState state, UnitState army) => null;
     NativeArmyMoralePreparationResolution? ResolveMoraleAfterLogistics(GameState state,
         UnitState army, bool connected) => null;
-    byte? ResolveFlags150AfterLogistics(GameState state, UnitState army) => null;
-    bool ProvidesFlags150Preparation => false;
+    ICampaignResourceState? ResolveResourceKnowledgeAfterLogistics(GameState state, UnitState army,
+        ICampaignResourceState? stagedKnowledge) => stagedKnowledge;
     bool ProvidesGlobalRegionPreparation => false;
     AreaStatisticsUpdate? ResolveGlobalRegionPreparation(GameState state) => null;
     /// <summary>Separate CTurnState step37, after all step36 receipts are
@@ -38,7 +38,7 @@ public static class NativeArmyPreparation
         var connected = new Dictionary<int, bool>();
         var traitsPreserved = new Dictionary<int, bool>();
         var morale = new Dictionary<int, byte?>();
-        var flags150 = state.NativeArmyLifecycle?.ArmyFlags150?.ToArray();
+        ICampaignResourceState? resourceKnowledge = state.ResourceState;
         foreach (UnitState army in working.Units.Values.Where(unit => unit.NativeArmyOrigin is not null).OrderBy(unit => unit.Id))
         {
             bool result = rules.ResolveLogisticsConnection(working, army)
@@ -46,8 +46,7 @@ public static class NativeArmyPreparation
             connected.Add(army.Id, result);
             traitsPreserved.Add(army.Id, rules.PreservesTraitSlots64(working, army) == true);
             morale.Add(army.Id, rules.ResolveMoraleAfterLogistics(working, army, result)?.NativeMorale1A);
-            if (rules.ProvidesFlags150Preparation && flags150 is not null && army.NativeArmyOrigin?.NativeSlotIndex is int physical)
-                flags150[physical] = rules.ResolveFlags150AfterLogistics(working, army);
+            resourceKnowledge = rules.ResolveResourceKnowledgeAfterLogistics(working, army, resourceKnowledge);
         }
         var units = new Dictionary<int, UnitState>(state.Units);
         foreach ((int id, bool connection) in connected)
@@ -62,8 +61,7 @@ public static class NativeArmyPreparation
         }
         //37 first refreshes global Area68/78, then snapshots every Army152.
         //Both consume the completed36 state. Neither may commit a prefix.
-        GameState prepared = state with { Units = units, NativeArmyLifecycle = state.NativeArmyLifecycle is { } lifecycle
-            ? lifecycle with { ArmyFlags150 = flags150 } : null };
+        GameState prepared = state with { Units = units, ResourceState = resourceKnowledge };
         GameState afterLogistics = GameStateSnapshot.Detach(prepared);
         bool globalPrepared = rules.ProvidesGlobalRegionPreparation && state.NativeArmySimulation is not null;
         if (globalPrepared)

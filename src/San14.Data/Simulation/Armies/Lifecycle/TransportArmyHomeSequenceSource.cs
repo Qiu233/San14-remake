@@ -10,9 +10,9 @@ public static class TransportArmyHomeSequenceSource
 {
     public static ushort? ReadCurrentWord28(GameState state, int nativeSlot)
     {
-        if (state.NativeArmyLifecycle is not { } arena || nativeSlot < 1 || nativeSlot >= arena.Slots.Length)
+        if (state.ReadArmyLifecycle() is not { } arena || nativeSlot < 1 || nativeSlot >= arena.ReceiverSlots().Length)
             return null;
-        var slot = arena.Slots[nativeSlot];
+        var slot = arena.ReceiverSlots()[nativeSlot];
         UnitState? image = slot.PendingImage;
         if (slot.ActiveUnitId is int id)
             state.Units.TryGetValue(id, out image);

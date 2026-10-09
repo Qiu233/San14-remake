@@ -11,7 +11,7 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyHexOccupancyR
     {
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(actor);
         if (traversed.IsEmpty) return new(state);
-        if (state.NativeArmyLifecycle is not { } arena)
+        if (state.ReadArmyLifecycle() is not { } arena)
             return Unknown("current.position_commit_saved_Hex1C_owner");
         if (actor.NativeArmyOrigin?.NativeSlotIndex is not int physical || physical is < 1 or > 500)
             return Unknown("current.position_commit_Army_physical1_500");

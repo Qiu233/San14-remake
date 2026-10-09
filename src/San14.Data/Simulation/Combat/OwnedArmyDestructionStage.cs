@@ -99,7 +99,7 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
             queue = CombatSettlementQueue.Create();
             current.BindOwnedDestructionQueue(queue, working);
             var result = PublishCurrent(working, current, world.Pool, destroyed, queue);
-            NativeArmyLifecycleStateValidation.Validate(result);
+            ArmyLifecycleSaveValidation.Validate(result);
             return new(result, receipts, null) { BaseReceipts = captures.ToArray(), CityReceipts = cityCaptures.ToArray(), SourceReports = reports.ToArray() };
         }
         catch (InvalidDataException error) { return new(null, receipts, error.Message); }
@@ -112,8 +112,8 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
     {
         if (request.WinnerUnitId == request.VictimUnitId)
             throw Missing("branch.ordinary_null_winner_mode1_cause0");
-        var arena = state.NativeArmyLifecycle!;
-        var slot = arena.Slots[physical];
+        var arena = state.ReadArmyLifecycle()!;
+        var slot = arena.ReceiverSlots()[physical];
         if (slot.ActiveUnitId is not int id || !state.Units.TryGetValue(id, out var army) || army.Troops != 0 ||
             army.NativeArmyConfiguration is null || army.NativeTacticRuntime is null)
             throw Missing("current.actual_zero_ready_Army_image");
@@ -259,7 +259,7 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         int? winnerUnitId = null;
         if (winnerPhysical is int winnerSlot)
         {
-            winnerUnitId = state.NativeArmyLifecycle!.Slots[winnerSlot].ActiveUnitId;
+            winnerUnitId = state.ReadArmyLifecycle()!.ReceiverSlots()[winnerSlot].ActiveUnitId;
             //The original victim has entered pending70 before2B9290. Publish
             //that current image only to this enclosing operation's draft;
             //phase26 still owns header reset/unregistration.
@@ -291,7 +291,7 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         {
             int index = Known(other.PhysicalSlot, "target_clear_Army");
             if (!Known(current.ReadArmyUnitNativeValidity(new(index)), "target_clear_Army_validity")) continue;
-            var saved = state.NativeArmyLifecycle!.Slots[index];
+            var saved = state.ReadArmyLifecycle()!.ReceiverSlots()[index];
             var image = saved.ActiveUnitId is int active ? state.Units.GetValueOrDefault(active) : saved.PendingImage;
             if (Known(image?.NativeArmyConfiguration?.Action37, "target_clear_Army37") != 7) continue;
             var target = current.ReadArmyTargetState(index) ?? throw Missing("current.target_clear_Army38");
@@ -313,10 +313,10 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
     {
         var result = OwnedArmyReturnCurrentFields.PublishCurrent(state, current);
         result = OwnedArmyLifecycleDetachedInputs.PublishCurrent(result, current);
-        var arena = result.NativeArmyLifecycle!;
+        var arena = result.ReadArmyLifecycle()!;
         var units = new Dictionary<int, UnitState>(result.Units);
         var people = new Dictionary<int, OfficerState>(result.Officers);
-        var slots = arena.Slots.ToArray();
+        var slots = arena.ReceiverSlots().ToArray();
         for (int i = 0; i < slots.Length; i++)
         {
             var old = slots[i];
@@ -340,10 +340,13 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                     AuxiliaryAC = traits?.PersonsAC.ToArray() ?? old.AuxiliaryAC, AuxiliaryF4 = traits?.AuxiliaryF4.ToArray() ?? old.AuxiliaryF4 };
             }
         }
-        arena = OwnedArmyDestructorFlags.PublishCurrent(arena, current)
-            with { Indexes = pool.ExportOwnedState(), Slots = slots };
-        return OwnedArmyLifecycleTargets.PublishCurrent(result with { Units = units, Officers = people, NativeArmyLifecycle = arena, ArmyMapOccupancy = current.ExportArmyMapOccupancy(), PendingCombatSettlements = queue,
-            PersonnelReturns = current.ReadOwnedPersonCommandManager() }, current);
+        arena = OwnedArmyDestructorFlags.PublishCurrent(arena, current).WithReceiverSlots(slots)
+            with { Indexes = pool.ExportOwnedState() };
+        return OwnedArmyLifecycleTargets.PublishCurrent((result with { Units = units,
+                Officers = people,
+                ArmyMapOccupancy = current.ExportArmyMapOccupancy(),
+                PendingCombatSettlements = queue,
+                PersonnelReturns = current.ReadOwnedPersonCommandManager() }).WithArmyLifecycle(arena), current);
     }
 
     private static bool PersonalityImmunity(GameState state, SourceWorldContext current, int commander)
