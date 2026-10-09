@@ -85,8 +85,8 @@ public sealed class ArmyMapUiCurrentSource
             var district = districtRaw is byte raw ? current.ReadDistrictTableReference(raw <= 51 ? raw : 0) : null;
             int? districtPhysical = district?.PhysicalSlot;
             bool? districtValid = district is not null ? current.ReadDistrictNativeValidity(district) : null;
-            byte? districtNumber = districtPhysical is int dp ? current.ReadDistrictRawByte(dp, 0x11) : null;
-            byte? forceRaw = districtValid == true && districtPhysical is int fd ? current.ReadDistrictRawByte(fd, 0x10) :
+            byte? districtNumber = districtPhysical is int dp ? current.ReadDistrictNumber(dp) : null;
+            byte? forceRaw = districtValid == true && districtPhysical is int fd ? current.ReadDistrictForceId(fd) :
                 districtValid == false ? (byte)0 : null;
             var force = forceRaw is byte fr ? current.ReadForceTableReference(fr <= 51 ? fr : 0) : null;
             int? forcePhysical = force?.PhysicalSlot;
@@ -161,7 +161,7 @@ public sealed class ArmyMapUiCurrentSource
         if (player is null || current.ReadForceNativeValidity(player) is not bool valid) return null;
         if (!valid) return false;
         if (district.PhysicalSlot is not int physical || player.PhysicalSlot is not int playerPhysical ||
-            current.ReadDistrictRawByte(physical, 0x10) is not byte force) return null;
+            current.ReadDistrictForceId(physical) is not byte force) return null;
         if (force != playerPhysical) return false;
         if (current.ReadDistrictLeader(physical) is not ushort leader) return null;
         var person = current.ReadPersonLookupReference(leader <= 6000 ? leader : 0);

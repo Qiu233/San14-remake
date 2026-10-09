@@ -179,16 +179,16 @@ public static class GateCaptureTerritorySource
         {
             var district = entry ?? throw Missing("advice_District_payload");
             int physical = K(district.PhysicalSlot, "advice_District_pointer");
-            if (playerPhysical is < 1 or > 51 || K(current.ReadDistrictRawByte(physical, 0x10), "advice_District10") != playerPhysical) continue;
+            if (playerPhysical is < 1 or > 51 || K(current.ReadDistrictForceId(physical), "advice_District10") != playerPhysical) continue;
             ushort ruler = K(current.ReadForceRecord(playerPhysical)?.RawRuler10, "advice_Force10");
             if (K(current.ReadDistrictLeader(physical), "advice_District12") == ruler ||
-                K(current.ReadDistrictRawByte(physical, 0x11), "advice_District11") == 1)
+                K(current.ReadDistrictNumber(physical), "advice_District11") == 1)
             { primary = district; break; }
         }
         if (!K(current.ReadDistrictNativeValidity(primary), "advice_District_validity")) return;
         if (!K(current.ReadForceNativeValidity(player), "advice_Player_validity")) return; //233880.
         int districtPhysical = K(primary.PhysicalSlot, "advice_primary_pointer");
-        int force = K(current.ReadDistrictRawByte(districtPhysical, 0x10), "advice_primary_Force10");
+        int force = K(current.ReadDistrictForceId(districtPhysical), "advice_primary_Force10");
         if (force != playerPhysical) return; //Native World9DF8 only feeds absent presentation.
         int advisorId = K(current.ReadAssignmentForceAdvisor52(force <= 51 ? force : 0), "advice_Force52");
         var advisor = advisorId <= 6000 ? current.ReadPersonLookupReference(advisorId) : current.ReadTransferPersonTableReference(0);

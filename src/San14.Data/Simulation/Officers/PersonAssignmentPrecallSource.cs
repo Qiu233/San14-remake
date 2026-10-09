@@ -120,7 +120,7 @@ public static class PersonAssignmentPrecallSource
             if (!Need(current.ReadForceNativeValidity(force), "Person Force validity")) return Result(0);
             int forcePhysical = Need(current.ReadForcePhysicalSlot(force), "Person Force physical");
             bool keepsForce = targetDistrict is not null && Need(current.ReadDistrictNativeValidity(targetDistrict), "29C430 target District validity") &&
-                Need(current.ReadDistrictRawByte(Need(targetDistrict.PhysicalSlot, "29C430 target District pointer"), 0x10), "29C430 target District Force10") ==
+                Need(current.ReadDistrictForceId(Need(targetDistrict.PhysicalSlot, "29C430 target District pointer")), "29C430 target District Force10") ==
                     Need(current.ReadPersonOldForceSlot(personPhysical), "29C430 Person22CF60 Force");
             bool changed = false;
             ushort advisor = Need(current.ReadAssignmentForceAdvisor52(forcePhysical), "Force52 current advisor");

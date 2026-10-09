@@ -127,15 +127,14 @@ public sealed class TacticRemakeCurrentAbilities : IEffectiveOfficerAbilities
         int? doctrine = officer.DoctrineId ?? (person.Doctrine184 == 0 ? 0 : null);
         if (doctrine == 0) return Zero;
         if (doctrine is not >= 1 or > 6 || officer.ForceId is not int forceId ||
-            state.NativeArmySimulation!.Forces.GetValueOrDefault(forceId) is not { } force ||
-            force.ActivePolicyBitmap1CB is not { Length: 10 } active) return null;
+            state.NativeArmySimulation!.Forces.GetValueOrDefault(forceId) is null ||
+            state.Forces.GetValueOrDefault(forceId)?.PolicyEffects is not { HasActivationKnowledge: true } effects) return null;
         var values = new int[5];
         for (int kind = 0; kind < 5; kind++)
         {
-            int effect = kind + doctrine.Value * 5 - 3, index = effect - 1, mask = 1 << (index & 7);
-            if ((active[index >> 3] & mask) == 0) continue;
-            if (force.SuppressedPolicyBitmap1D5 is not { Length: 10 } suppressed) return null;
-            if ((suppressed[index >> 3] & mask) != 0) continue;
+            int effect = kind + doctrine.Value * 5 - 3;
+            if (effects.IsEnabled(effect) is not bool enabled) return null;
+            if (!enabled) continue;
             //An active current definition7C requires its own definition writer;
             //a fixed catalog entry alone is not a current mutable value.
             return null;

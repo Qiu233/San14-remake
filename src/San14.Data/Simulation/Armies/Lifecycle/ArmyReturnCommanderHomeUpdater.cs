@@ -110,7 +110,7 @@ public static class ArmyReturnCommanderHomeUpdater
         bool valid = Get(state.ReadForceNativeValidity(player), "current.PlayerForce_validity");
         if (!valid) return false;
         int at = district.PhysicalSlot ?? throw Missing("current.District_pointer");
-        byte force = Get(state.ReadDistrictRawByte(at, 0x10), "current.District_force10");
+        byte force = Get(state.ReadDistrictForceId(at), "current.District_force10");
         int playerPhysical = Get(state.ReadForcePhysicalSlot(player), "current.PlayerForce_physical60");
         if (force != playerPhysical) return false;
         ushort leaderId = Get(state.ReadDistrictLeader(at), "current.District_leader12");

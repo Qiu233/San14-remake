@@ -23,7 +23,7 @@ public static class ArmySimpleOutlineSource
             return Selected(false, new(ArmySimpleOutlineColorKind.Preserve, 0));
         if (current.ReadCurrentPlayerForce()?.PhysicalSlot is not int player || player is < 0 or > 51)
             return Missing("current.Army_simple_Player_force_physical");
-        if (current.ReadDistrictRawByte(districtPhysical, 0x10) is not byte forceRaw)
+        if (current.ReadDistrictForceId(districtPhysical) is not byte forceRaw)
             return Missing("current.Army_simple_District10");
         var force = current.ReadForceTableReference(forceRaw <= 51 ? forceRaw : 0);
         if (force?.PhysicalSlot is not int forcePhysical) return Missing("current.Army_simple_District_Force_pointer");
@@ -35,7 +35,7 @@ public static class ArmySimpleOutlineSource
             if (current.ReadDistrictNativeValidity(district) is not bool valid)
                 return Missing("current.Army_simple_District_color_validity");
             if (!valid) return Selected(true, new(ArmySimpleOutlineColorKind.ForceFill, 61));
-            return current.ReadDistrictRawByte(districtPhysical, 0x11) is byte number
+            return current.ReadDistrictNumber(districtPhysical) is byte number
                 ? Selected(true, new(ArmySimpleOutlineColorKind.DistrictNumber, number))
                 : Missing("current.Army_simple_District11");
         }

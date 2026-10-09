@@ -12,6 +12,7 @@ public sealed class GameplaySession
     private readonly GameSimulation _simulation;
     private readonly SingleForceAuthority? _authority;
     private readonly Func<GameState, GameState>? _advanceCalendar;
+    private readonly ICommandPlanner? _planner;
     private readonly SessionSaveStore _saves = new(new JsonGzipSaveCodec());
 
     private GameplaySession(GameState world, PlayableRuleSet rules, int? playerForceId,
@@ -22,6 +23,7 @@ public sealed class GameplaySession
         PlayerForceId = playerForceId;
         _advanceCalendar = advanceCalendar;
         _authority = playerForceId is int player ? new SingleForceAuthority(player, LocalActor) : null;
+        _planner = playerForceId is int human ? new PlayableAiPlanner(rules, new HashSet<int> { human }) : null;
     }
 
     public GameState World => _simulation.State;
@@ -47,8 +49,7 @@ public sealed class GameplaySession
         int player = RequirePlayer();
         if (PlayableOutcome.Evaluate(World, player) != PlayableResult.Ongoing) return false;
         _simulation.AdvancePeriod(Rules.AdvancementRules,
-            state => PlayableAiPlanner.IssueCampaignOrders(state, Rules, new HashSet<int> { player }),
-            _advanceCalendar);
+            _planner, _advanceCalendar);
         return true;
     }
 

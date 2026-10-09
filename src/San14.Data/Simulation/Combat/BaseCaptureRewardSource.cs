@@ -205,7 +205,7 @@ public static partial class BaseCaptureRewardSource
         var player = current.ReadCurrentPlayerForce() ?? throw Missing("233A90 Player Force");
         if (!K(current.ReadForceNativeValidity(player), "233A90 Player validity")) return false;
         int physical = K(district.PhysicalSlot, "233A90 District pointer");
-        if (K(current.ReadDistrictRawByte(physical, 0x10), "233A90 District10") != K(current.ReadForcePhysicalSlot(player), "233A90 Player physical")) return false;
+        if (K(current.ReadDistrictForceId(physical), "233A90 District10") != K(current.ReadForcePhysicalSlot(player), "233A90 Player physical")) return false;
         ushort leader = K(current.ReadDistrictLeader(physical), "233A90 District12");
         var person = current.ReadPersonLookupReference(leader <= 6000 ? leader : 0) ?? throw Missing("233A90 leader pointer");
         return person.PhysicalSlot is int slot && K(current.ReadPersonNativeValidity(slot), "233A90 leader validity") &&

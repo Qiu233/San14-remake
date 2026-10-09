@@ -42,12 +42,13 @@ public sealed class TacticRemakeParameterSeed
         if (state.NativeArmySimulation is not null || state.NativeClock is not null || state.Units.Count != 0)
             throw new InvalidDataException("Fresh owned native simulation cannot replace a saved or populated instance.");
         GameState initialized = PlayableArmyCreation.InitializeClock(state, revision);
-        return initialized with { NativeArmySimulation = new(AllocateOwnedCurrentParameters(revision),
+        return initialized with { Forces = initialized.Forces.ToDictionary(pair => pair.Key,
+            pair => pair.Value with { PolicyEffects = ForcePolicyEffects.Empty }),
+            NativeArmySimulation = new(AllocateOwnedCurrentParameters(revision),
             initialized.Forces.ToDictionary(pair => pair.Key, pair => new NativeArmyForceState(0)
             {
                 Flags12 = 0, Flags194 = 0,
-                RelationsEA = pair.Value.SourceIndexedBytesEA?.ToArray(),
-                ActivePolicyBitmap1CB = new byte[10], SuppressedPolicyBitmap1D5 = new byte[10]
+                RelationsEA = pair.Value.SourceIndexedBytesEA?.ToArray()
             }),
             new NativeArmyWorldState(0) { Flags165C = 0, PendingArmyIds = [], ObjectPairs = [] }) };
     }

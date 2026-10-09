@@ -139,13 +139,13 @@ public sealed class ArmyMobilityCurrentProducer
         int policyValue = 0;
         if (policy is int requested)
         {
-            int index = requested - 1, mask = 1 << (index & 7);
-            var nativeForce = state.NativeArmySimulation.Forces[army.ForceId];
-            if (nativeForce.ActivePolicyBitmap1CB is not { Length: 10 } active) return Missing("current.Force_active_policy_bitmap1CB");
-            if ((active[index >> 3] & mask) != 0)
+            _ = state.NativeArmySimulation.Forces[army.ForceId];
+            ForcePolicyEffects? effects = state.Forces.GetValueOrDefault(army.ForceId)?.PolicyEffects;
+            if (effects?.ReadActivation(requested) is not bool active) return Missing("current.Force_active_policy_bitmap1CB");
+            if (active)
             {
-                if (nativeForce.SuppressedPolicyBitmap1D5 is not { Length: 10 } suppressed) return Missing("current.Force_suppressed_policy_bitmap1D5");
-                if ((suppressed[index >> 3] & mask) == 0) return Missing($"active_unsuppressed_policy{requested}.22C250_contribution");
+                if (effects.ReadSuppression(requested) is not bool suppressed) return Missing("current.Force_suppressed_policy_bitmap1D5");
+                if (!suppressed) return Missing($"active_unsuppressed_policy{requested}.22C250_contribution");
             }
             result *= (float)policyValue / source.Percent + source.One;
         }

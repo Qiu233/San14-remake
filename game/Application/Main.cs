@@ -1770,12 +1770,9 @@ public partial class Main : Control
             return;
         }
         int sourceId = _playCity.GetSelectedId();
-        CityState? city = world.Cities.GetValueOrDefault(sourceId);
-        GateState? gate = world.Gates.GetValueOrDefault(sourceId);
-        if (city is null && gate is null) { RefreshPlayFormationChoices(); return; }
-        foreach (CityState target in world.Cities.Values.Where(target =>
-                     target.ForceId == player && target.Id != sourceId && target.HexId is not null)
-                     .OrderBy(target => target.Id))
+        CityCommandChoices? choices = CityCommandChoices.Create(world, player, sourceId);
+        if (choices is null) { RefreshPlayFormationChoices(); return; }
+        foreach (NamedCommandChoice target in choices.DestinationCities)
         {
             _playTransportCity.AddItem(target.Name, target.Id);
             _playMoveCity.AddItem(target.Name, target.Id);
@@ -1786,59 +1783,39 @@ public partial class Main : Control
         int moveCityIndex = _playMoveCity.GetItemIndex(oldMoveCity);
         if (_playMoveCity.ItemCount > 0)
             _playMoveCity.Select(moveCityIndex < 0 ? 0 : moveCityIndex);
-        foreach (PreparedDeployment plan in world.PreparedDeployments.Values.Where(plan =>
-                     plan.ForceId == player && plan.SourceLocationId == sourceId)
-                     .OrderBy(plan => plan.Id))
+        foreach (PreparedArmyChoice plan in choices.PreparedArmies)
         {
-            DeploymentAction last = plan.Actions.Last();
-            _playPrepared.AddItem(last.ActionKey == "build"
+            _playPrepared.AddItem(plan.BuildTargetHexId is int buildHex
                 ? _ui.Format("play_prepared_build_item",
-                    world.Officers[plan.OfficerId].Name, plan.Troops, last.Target.Id)
+                    plan.CommanderName, plan.Troops, buildHex)
                 : _ui.Format("play_prepared_item",
-                    world.Officers[plan.OfficerId].Name, plan.Troops), plan.Id);
+                    plan.CommanderName, plan.Troops), plan.Id);
         }
         int preparedIndex = _playPrepared.GetItemIndex(oldPrepared);
         if (_playPrepared.ItemCount > 0)
             _playPrepared.Select(preparedIndex < 0 ? 0 : preparedIndex);
-        _playTransportSupplies.MaxValue = Math.Max(0, city?.Supplies ?? 0);
-        _playTransportGold.MaxValue = Math.Max(0, city?.Gold ?? 0);
+        _playTransportSupplies.MaxValue = choices.MaximumSupplies;
+        _playTransportGold.MaxValue = choices.MaximumGold;
         if (_playTransportSupplies.Value > _playTransportSupplies.MaxValue)
             _playTransportSupplies.Value = _playTransportSupplies.MaxValue;
         if (_playTransportGold.Value > _playTransportGold.MaxValue)
             _playTransportGold.Value = _playTransportGold.MaxValue;
-        foreach (int areaId in city?.AreaIds ?? [])
-            if (world.Areas.TryGetValue(areaId, out AreaState? area) && area.ForceId == player)
-                _playArea.AddItem(string.IsNullOrEmpty(area.Name) ? area.Id.ToString() : area.Name, area.Id);
+        foreach (NamedCommandChoice area in choices.Areas)
+            _playArea.AddItem(string.IsNullOrEmpty(area.Name) ? area.Id.ToString() : area.Name, area.Id);
         int areaIndex = _playArea.GetItemIndex(oldArea);
         if (_playArea.ItemCount > 0) _playArea.Select(areaIndex < 0 ? 0 : areaIndex);
-        OfficerState[] available = world.Officers.Values.Where(officer => officer.ForceId == player &&
-                     officer.LocationId == sourceId && !PlayableOfficerAvailability.IsSourceBusy(world, officer) &&
-                     officer.Presence is null or OfficerPresence.Present)
-                     .OrderBy(officer => officer.Id).ToArray();
-        foreach (OfficerState officer in available)
+        foreach (NamedCommandChoice officer in choices.Officers)
         {
             _playOfficer.AddItem(officer.Name, officer.Id);
-            if (city is not null)
+            if (choices.IsCity)
             {
                 _playAdminOfficer.AddItem(officer.Name, officer.Id);
                 _playDutyOfficer.AddItem(officer.Name, officer.Id);
             }
         }
-        foreach (OfficerState officer in available.Where(officer =>
-                     city is not null && officer.Presence == OfficerPresence.Present && !officer.Deployed &&
-                     world.PreparedTalentOrders?.ContainsKey(officer.Id) != true &&
-                     world.PreparedOfficerMoves?.ContainsKey(officer.Id) != true &&
-                     !world.PreparedDeployments.Values.Any(plan => plan.OfficerId == officer.Id) &&
-                     !world.Cities.Values.Any(active => active.Duties?.RecruiterId == officer.Id ||
-                         active.Duties?.TrainerId == officer.Id) &&
-                     !world.Areas.Values.Any(area =>
-                         area.Administration?.OverseerId == officer.Id)))
+        foreach (NamedCommandChoice officer in choices.TalentExecutors)
             _playTalentExecutor.AddItem(officer.Name, officer.Id);
-        foreach (OfficerState target in world.Officers.Values.Where(officer =>
-                     officer.Role == OfficerRole.Free && officer.Presence == OfficerPresence.Present &&
-                     city is not null && officer.ForceId is null && officer.LocationId == sourceId &&
-                     world.PreparedTalentOrders?.Values.Any(plan => plan.TargetOfficerId == officer.Id) != true)
-                     .OrderBy(officer => officer.Id))
+        foreach (NamedCommandChoice target in choices.TalentTargets)
             _playTalentTarget.AddItem(target.Name, target.Id);
         int talentExecutorIndex = _playTalentExecutor.GetItemIndex(oldTalentExecutor);
         if (_playTalentExecutor.ItemCount > 0)
@@ -1846,34 +1823,20 @@ public partial class Main : Control
         int talentTargetIndex = _playTalentTarget.GetItemIndex(oldTalentTarget);
         if (_playTalentTarget.ItemCount > 0)
             _playTalentTarget.Select(talentTargetIndex < 0 ? 0 : talentTargetIndex);
-        bool Movable(OfficerState officer) => officer.Role == OfficerRole.Officer && !PlayableOfficerAvailability.IsSourceBusy(world, officer) &&
-            officer.Presence == OfficerPresence.Present && !officer.Deployed &&
-            world.PreparedOfficerMoves?.ContainsKey(officer.Id) != true &&
-            !world.PreparedDeployments.Values.Any(plan => plan.OfficerId == officer.Id) &&
-            !world.Cities.Values.Any(owned => owned.GovernorId == officer.Id ||
-                owned.Duties?.RecruiterId == officer.Id || owned.Duties?.TrainerId == officer.Id) &&
-            !world.Areas.Values.Any(area => area.Administration?.OverseerId == officer.Id) &&
-            !world.Districts.Values.Any(district => district.LeaderId == officer.Id);
-        foreach (OfficerState officer in available.Where(officer => city is not null && Movable(officer)))
+        foreach (NamedCommandChoice officer in choices.MoveOfficers)
             _playMoveOfficer.AddItem(officer.Name, officer.Id);
-        foreach (OfficerState officer in world.Officers.Values.Where(officer =>
-                     city is not null && officer.ForceId == player && officer.LocationId != sourceId &&
-                     officer.LocationId is int sourceCityId &&
-                     world.Cities.ContainsKey(sourceCityId) && Movable(officer))
-                     .OrderBy(officer => officer.Id))
+        foreach (SummonOfficerChoice officer in choices.SummonOfficers)
             _playSummonOfficer.AddItem(_ui.Format("play_summon_item", officer.Name,
-                world.Cities[officer.LocationId!.Value].Name), officer.Id);
+                officer.SourceCityName), officer.Id);
         int moveOfficerIndex = _playMoveOfficer.GetItemIndex(oldMoveOfficer);
         if (_playMoveOfficer.ItemCount > 0)
             _playMoveOfficer.Select(moveOfficerIndex < 0 ? 0 : moveOfficerIndex);
         int summonOfficerIndex = _playSummonOfficer.GetItemIndex(oldSummonOfficer);
         if (_playSummonOfficer.ItemCount > 0)
             _playSummonOfficer.Select(summonOfficerIndex < 0 ? 0 : summonOfficerIndex);
-        if (city is not null) _playDutyOfficer.AddItem(_ui.Get("play_duty_none"), -1);
-        int defaultOfficer = world.Forces[player].RulerId ?? -1;
-        int defaultAdminOfficer = available.FirstOrDefault(officer => officer.Id != defaultOfficer &&
-            !officer.Deployed && !world.PreparedDeployments.Values.Any(plan => plan.OfficerId == officer.Id))?.Id ??
-            available.FirstOrDefault(officer => !officer.Deployed)?.Id ?? -1;
+        if (choices.IsCity) _playDutyOfficer.AddItem(_ui.Get("play_duty_none"), -1);
+        int defaultOfficer = choices.DefaultCommanderId;
+        int defaultAdminOfficer = choices.DefaultAdministratorId;
         int adminIndex = _playAdminOfficer.GetItemIndex(oldAdminOfficer);
         if (adminIndex < 0) adminIndex = _playAdminOfficer.GetItemIndex(defaultAdminOfficer);
         if (_playAdminOfficer.ItemCount > 0) _playAdminOfficer.Select(adminIndex < 0 ? 0 : adminIndex);
@@ -1884,15 +1847,13 @@ public partial class Main : Control
         int dutyIndex = _playDutyOfficer.GetItemIndex(oldDutyOfficer);
         if (dutyIndex < 0) dutyIndex = _playDutyOfficer.GetItemIndex(defaultAdminOfficer);
         if (_playDutyOfficer.ItemCount > 0) _playDutyOfficer.Select(dutyIndex < 0 ? 0 : dutyIndex);
-        if (city?.Duties is CityDutyState duties)
+        if (choices.Duties is CityDutyNames duties)
         {
-            string Name(int? id) => id is int officerId && world.Officers.TryGetValue(officerId,
-                out OfficerState? assigned) ? assigned.Name : _ui.Get("play_duty_none");
             _playDutyStatus.Text = _ui.Format("play_duty_status",
-                Name(duties.RecruiterId), Name(duties.TrainerId), duties.PreparationPeriods);
+                duties.Recruiter ?? _ui.Get("play_duty_none"), duties.Trainer ?? _ui.Get("play_duty_none"), duties.PreparationPeriods);
         }
-        else _playDutyStatus.Text = city is null ? "" : _ui.Get("play_duty_unknown");
-        _playTroops.MaxValue = Math.Max(1, city?.Troops ?? gate!.Troops);
+        else _playDutyStatus.Text = choices.IsCity ? _ui.Get("play_duty_unknown") : "";
+        _playTroops.MaxValue = choices.MaximumTroops;
         if (_playTroops.Value > _playTroops.MaxValue) _playTroops.Value = _playTroops.MaxValue;
         RefreshPlayDisbandAvailability();
         RefreshPlayOccupationAvailability();

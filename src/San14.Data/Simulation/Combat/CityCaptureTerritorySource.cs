@@ -81,7 +81,7 @@ public static class CityCaptureTerritorySource
         }
         finally { current.ClearNearbyTemporary(affected, true); }
         var reassigned = new List<int>();
-        if (K(current.ReadDistrictRawByte(newDistrictPhysical, 0x11), "new_District11") == 1)
+        if (K(current.ReadDistrictNumber(newDistrictPhysical), "new_District11") == 1)
             foreach (var entry in current.ReadArmyReturnRegisteredGates() ?? throw Missing("primary_Gate_managerA0"))
             {
                 var gate = entry ?? throw Missing("primary_Gate_pointer");
@@ -404,13 +404,13 @@ public static class CityCaptureTerritorySource
         foreach (var entry in current.ReadArmyReturnRegisteredDistricts() ?? throw Missing("advice_D0"))
         {
             var district = entry ?? throw Missing("advice_District_pointer"); int at = K(district.PhysicalSlot, "advice_District_identity");
-            if (force is < 1 or > 51 || K(current.ReadDistrictRawByte(at, 0x10), "advice_District10") != force) continue;
-            if (K(current.ReadDistrictLeader(at), "advice_District12") == K(current.ReadForceRecord(force)?.RawRuler10, "advice_Force10") || K(current.ReadDistrictRawByte(at, 0x11), "advice_District11") == 1)
+            if (force is < 1 or > 51 || K(current.ReadDistrictForceId(at), "advice_District10") != force) continue;
+            if (K(current.ReadDistrictLeader(at), "advice_District12") == K(current.ReadForceRecord(force)?.RawRuler10, "advice_Force10") || K(current.ReadDistrictNumber(at), "advice_District11") == 1)
             { primary = district; break; }
         }
         if (!K(current.ReadDistrictNativeValidity(primary), "advice_District_validity") || !K(current.ReadForceNativeValidity(player), "advice_Player_validity")) return;
         int primaryId = K(primary.PhysicalSlot, "advice_primary_identity");
-        int owner = K(current.ReadDistrictRawByte(primaryId, 0x10), "advice_primary_Force10"); if (owner != force) return;
+        int owner = K(current.ReadDistrictForceId(primaryId), "advice_primary_Force10"); if (owner != force) return;
         int id = K(current.ReadAssignmentForceAdvisor52(owner <= 51 ? owner : 0), "advice_current_Force52");
         var person = id <= 6000 ? current.ReadPersonLookupReference(id) : current.ReadTransferPersonTableReference(0);
         int atPerson = (person ?? throw Missing("advice_Person_pointer")).PhysicalSlot ?? throw Missing("advice_Person_null");

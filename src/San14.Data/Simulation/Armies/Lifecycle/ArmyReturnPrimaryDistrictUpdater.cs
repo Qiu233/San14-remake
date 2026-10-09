@@ -25,8 +25,8 @@ public static class ArmyReturnPrimaryDistrictUpdater
             int physical = district.PhysicalSlot ?? throw Missing("current.District_pointer");
             if (!Get(context.ReadDistrictNativeValidity(physical), "current.District_validity"))
                 throw Missing("branch.2E9140_invalid_district");
-            byte forceSlot = Get(context.ReadDistrictRawByte(physical, 0x10), "current.District_force10");
-            byte number = Get(context.ReadDistrictRawByte(physical, 0x11), "current.District_number11");
+            byte forceSlot = Get(context.ReadDistrictForceId(physical), "current.District_force10");
+            byte number = Get(context.ReadDistrictNumber(physical), "current.District_number11");
             ushort leaderId = Get(context.ReadDistrictLeader(physical), "current.District_leader12");
             var force = context.ReadForceTableReference(forceSlot <= 51 ? forceSlot : 0) ?? throw Missing("current.Force_table");
             int forcePhysical = Get(context.ReadForcePhysicalSlot(force), "current.Force_physical60");
@@ -86,11 +86,11 @@ public static class ArmyReturnPrimaryDistrictUpdater
             foreach (var candidate in districts)
             {
                 int at = candidate?.PhysicalSlot ?? throw Missing("current.District_managerD0_payload");
-                byte currentForce = Get(context.ReadDistrictRawByte(at, 0x10), "current.registered_District_force10");
+                byte currentForce = Get(context.ReadDistrictForceId(at), "current.registered_District_force10");
                 if (currentForce != forcePhysical) continue;
                 ushort currentLeader = Get(context.ReadDistrictLeader(at), "current.registered_District_leader12");
                 if (currentLeader == ruler) { primaryFound = true; break; }
-                byte currentNumber = Get(context.ReadDistrictRawByte(at, 0x11), "current.registered_District_number11");
+                byte currentNumber = Get(context.ReadDistrictNumber(at), "current.registered_District_number11");
                 if (currentNumber == 1) { primaryFound = true; break; }
             }
             if (!primaryFound)

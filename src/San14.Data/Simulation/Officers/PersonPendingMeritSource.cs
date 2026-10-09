@@ -117,7 +117,7 @@ public sealed class PersonPendingMeritSource
         if (forceValid)
         {
             if (!input.NativeArmySimulation!.Forces.TryGetValue(forceId, out var savedForce) ||
-                savedForce.Flags12 is not byte forceFlags || ReadPanel50(input, savedForce) is not int panel) return Unknown();
+                savedForce.Flags12 is not byte forceFlags || ReadPanel50(input, input.Forces.GetValueOrDefault(forceId)?.PolicyEffects) is not int panel) return Unknown();
             policy = panel;
             if ((forceFlags & 8) != 0) return Unknown(); //22C230 current doctrine/name validity owner absent.
         }
@@ -163,13 +163,10 @@ public sealed class PersonPendingMeritSource
             pending, value.PendingMerit, revision);
     }
 
-    private int? ReadPanel50(GameState state, NativeArmyForceState force)
+    private int? ReadPanel50(GameState state, ForcePolicyEffects? effects)
     {
-        if (force.ActivePolicyBitmap1CB is not { Length: 10 } active) return null;
-        const int index = 49, mask = 1 << (index & 7);
-        if ((active[index >> 3] & mask) == 0) return 0;
-        if (force.SuppressedPolicyBitmap1D5 is not { Length: 10 } suppressed) return null;
-        if ((suppressed[index >> 3] & mask) != 0) return 0;
+        if (effects?.IsEnabled(50) is not bool enabled) return null;
+        if (!enabled) return 0;
         var values = state.NativeArmySimulation!.Parameters.Int32Values;
         return values.GetValueOrDefault(VersionKey) == 1 && values.TryGetValue(Panel50Key, out int value) &&
             value is >= short.MinValue and <= short.MaxValue ? value : null;

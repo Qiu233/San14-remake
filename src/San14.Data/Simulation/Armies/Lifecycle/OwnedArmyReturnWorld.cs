@@ -87,7 +87,7 @@ public sealed partial class SourceWorldContext
             SetArmyUnitRawHex2A(physical,army.NativeMarch?.CurrentHex2A ?? army.NativeCurrentHex2A); //No HexId fallback.
             SetArmyReturnResourceFields(physical,new(army.Troops is >=0 and <=65535 ? (ushort)army.Troops : null,
                 army.WoundedTroops is >=0 and <=65535 ? (ushort)army.WoundedTroops.Value : null,
-                army.NativeMorale1A,slot.Gold5C,slot.Supplies60));
+                army.NativeMorale1A,slot.StoredResources.Gold,slot.StoredResources.Food));
             if (army.NativeArmyConfiguration?.TraitSlots64 is { } traits && slot.AuxiliaryAC is { } ac &&
                 slot.AuxiliaryF4 is { } f4 && OwnedIndexes?.TraitHandles(physical) is { } descriptors)
                 SetArmyReturnTraitFields(physical,new(traits,ac,f4,descriptors.Select(x=>new RegistryListHandle(x.Identity))));

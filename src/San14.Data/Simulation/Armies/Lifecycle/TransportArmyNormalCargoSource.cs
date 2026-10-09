@@ -32,17 +32,17 @@ public static class TransportArmyNormalCargoSource
                 throw Missing("current.normal_cargo_capped_ushort16");
             var arena = state.NativeArmyLifecycle!;
             var slot = arena.Slots[physical];
-            NativeArmyReturnResources? resources = target.NativeReturnResources;
-            if (slot.Gold5C is not int gold || slot.Supplies60 is not int supplies)
+            var resolved = ArmyStoreRules.Resolve(target.CarriedStores, slot.StoredResources);
+            if (resolved.Status == ArmyStoreResolutionStatus.Unknown)
                 throw Missing("current.normal_cargo_saved5C60");
-            var saved = new NativeArmyReturnResources(gold, supplies);
-            if (resources is not null && resources != saved)
+            if (resolved.Status == ArmyStoreResolutionStatus.Conflicting)
                 throw Missing("current.normal_cargo_owners_disagree");
-            float ratio = (float)appliedLoss / (float)target.Troops;
-            int lostSupplies = NativeInt((float)supplies * ratio);
-            int lostGold = NativeInt((float)gold * ratio);
-            int afterGold = Bound(unchecked(gold - lostGold), 100000);
-            int afterSupplies = Bound(unchecked(supplies - lostSupplies), 5000000);
+            var stores = resolved.Stores!;
+            int gold = stores.Gold, supplies = stores.Food;
+            var loss = ArmyStoreRules.LoseCargo(stores, target.Troops, appliedLoss);
+            float ratio = loss.Ratio;
+            int lostGold = loss.Lost.Gold, lostSupplies = loss.Lost.Food;
+            int afterGold = loss.Remaining.Gold, afterSupplies = loss.Remaining.Food;
             var writes = new List<TransportArmyNormalLootWrite>();
             var cityChanges = new Dictionary<int, CityState>(state.Cities);
             int winnerPhysical = Bind(attacker);
@@ -69,10 +69,10 @@ public static class TransportArmyNormalCargoSource
             current.SetArmyReturnResourceFields(physical, new((ushort)target.Troops,
                 target.WoundedTroops is >= 0 and <= ushort.MaxValue ? (ushort)target.WoundedTroops.Value : null,
                 target.NativeMorale1A, afterGold, afterSupplies));
-            var updated = target with { NativeReturnResources = new(afterGold, afterSupplies), Supplies = afterSupplies,
+            var updated = target with { CarriedStores = new(afterGold, afterSupplies), Supplies = afterSupplies,
                 Mission = mission with { CargoGold = afterGold } };
             var slots = arena.Slots.ToArray();
-            slots[physical] = slot with { Gold5C = afterGold, Supplies60 = afterSupplies };
+            slots[physical] = slot with { StoredResources = new(afterGold, afterSupplies) };
             var result = state with { Cities = cityChanges, Units = new(state.Units) { [target.Id] = updated },
                 NativeArmyLifecycle = arena with { Slots = slots } };
             return new(result, new(physical, target.Troops, appliedLoss, ratio, gold, supplies,
@@ -118,8 +118,6 @@ public static class TransportArmyNormalCargoSource
     }
 
     private static int Bound(int value, int upper) => value < 0 ? 0 : Math.Min(value, upper);
-    private static int NativeInt(float value) => !float.IsFinite(value) || value < int.MinValue || value >= 2147483648f
-        ? int.MinValue : (int)value;
     private static T Need<T>(T? value, string name) where T : struct => value ?? throw Missing("current.normal_cargo_" + name);
     private static MissingOwner Missing(string name) => new(name);
     private sealed class MissingOwner(string name) : Exception(name);

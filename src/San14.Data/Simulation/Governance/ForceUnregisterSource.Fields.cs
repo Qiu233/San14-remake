@@ -160,7 +160,6 @@ public sealed partial class ForceUnregisterSource
             forces[id] = forces[id] with { RelationsEA = relationEA[id],
                 NormalAftermath = forces[id].NormalAftermath! with { Relations13 = relation13[id] } };
         forces[victim] = forces[victim] with { Flags12 = 0, Flags193 = 0, Flags194 = 0,
-            ActivePolicyBitmap1CB = new byte[10], SuppressedPolicyBitmap1D5 = new byte[10],
             NormalAftermath = forces[victim].NormalAftermath! with { Development1BE = 0 } };
         var values = new Dictionary<string, int>(native.Parameters.Int32Values);
         foreach (int field in new[] { 0x10, 0x52, 0x16C }) values[BattleRemakeCurrentForcePolicies.ForceFieldKey(victim, field)] = 0;
@@ -184,7 +183,8 @@ public sealed partial class ForceUnregisterSource
         var rankings = new Dictionary<int, NativeForceRankingCurrent>(module.ForceRankings)
             { [victim] = module.ForceRankings[victim] with { Word1BC = 0 } };
         return state with { Forces = new(state.Forces) { [victim] = state.Forces[victim] with
-                { IsActive = false, CombatObjective = ForceCombatObjective.Inactive } },
+                { IsActive = false, CombatObjective = ForceCombatObjective.Inactive,
+                    PolicyEffects = ForcePolicyEffects.Empty } },
             NativeArmySimulation = native with { Forces = forces, Parameters = native.Parameters with { Int32Values = values } },
             NativeForceUnregisterCurrent = module with { ForceResetImages = resetImages, ForceRankings = rankings,
                 PlaceholderRelations13 = relation13[0], PlaceholderRelationsEA = relationEA[0] } };

@@ -4,7 +4,7 @@ namespace San14.Core;
 /// image is retained independently after its active gameplay projection leaves
 /// Units; this is not authority that original header cleanup already ran.</summary>
 public sealed record NativeArmyLifecycleSlot(int PhysicalSlot, ushort? Commander12, byte? Status10,
-    ushort? Priority14, int? ActiveUnitId, UnitState? PendingImage, int? Gold5C, int? Supplies60,
+    ushort? Priority14, int? ActiveUnitId, UnitState? PendingImage, ArmyStoreKnowledge StoredResources,
     ushort[]? AuxiliaryAC, ushort[]? AuxiliaryF4)
 {
     /// <summary>Free receiver reset/current source writes. Active/Pending
@@ -58,7 +58,7 @@ public static class NativeArmyLifecycleStateValidation
         for (int i = 0; i < lifecycle.Slots.Length; i++)
         {
             var slot = lifecycle.Slots[i];
-            if (slot is null || slot.PhysicalSlot != i || slot.ActiveUnitId is < 0 ||
+            if (slot is null || slot.StoredResources is null || slot.PhysicalSlot != i || slot.ActiveUnitId is < 0 ||
                 slot.AuxiliaryAC is { Length: not 36 } || slot.AuxiliaryF4 is { Length: not 36 } ||
                 slot.ActiveUnitId is not null && slot.PendingImage is not null)
                 throw new InvalidDataException("Native Army pointer-table/current slot image is incomplete or malformed.");

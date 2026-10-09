@@ -169,7 +169,7 @@ public sealed class ArmyMapGroupingCurrentQueries : IArmyMapGroupingQueries
     {
         var district = ArmyDistrict(physical);
         if (district is null || _current.ReadDistrictNativeValidity(district) is not bool valid) return null;
-        byte? raw = valid && district.PhysicalSlot is int at ? _current.ReadDistrictRawByte(at, 0x10) : (byte)0;
+        byte? raw = valid && district.PhysicalSlot is int at ? _current.ReadDistrictForceId(at) : (byte)0;
         return raw is byte force ? _current.ReadForceTableReference(force <= 51 ? force : 0) : null;
     }
     private BaseReference? CurrentBase(int physical)

@@ -110,7 +110,7 @@ public static class PersonReturnArrivalSource
         var player = current.ReadCurrentPlayerForce() ?? throw Unknown("current.Player_Force");
         if (!Known(current.ReadForceNativeValidity(player), "current.Player_Force_validity")) return false;
         int physical = Known(district.PhysicalSlot, "current.District_pointer");
-        if (Known(current.ReadDistrictRawByte(physical, 0x10), "current.District_force10") !=
+        if (Known(current.ReadDistrictForceId(physical), "current.District_force10") !=
             Known(current.ReadForcePhysicalSlot(player), "current.Player_Force_physical")) return false;
         ushort leader = Known(current.ReadDistrictLeader(physical), "current.District_leader12");
         var person = current.ReadPersonLookupReference(leader <= 6000 ? leader : 0) ?? throw Unknown("current.District_leader_pointer");

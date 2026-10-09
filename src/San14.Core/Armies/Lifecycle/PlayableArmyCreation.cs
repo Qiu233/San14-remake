@@ -43,7 +43,7 @@ public sealed record PlayableArmyCreationResolution(NativeArmyTacticRuntime Runt
     /// <summary>Explicit commander location write from the source creator.
     /// Core applies the receipt without deriving a native location encoding.</summary>
     public ushort? CommanderSecondLocation11C { get; init; }
-    public NativeArmyReturnResources? NativeReturnResources { get; init; }
+    public ArmyStores? CarriedStores { get; init; }
     /// <summary>Explicit saved arena writes produced alongside this receiver.
     /// Core retains the source pool/header owner between queued allocations.</summary>
     public NativeArmyLifecycleState? NativeLifecycle { get; init; }
@@ -112,7 +112,7 @@ public static class PlayableArmyCreation
             NativeRouteGoal1F8 = result.NativeRouteGoal1F8,
             NativeHomeSequence28 = result.NativeHomeSequence28,
             NativeOverrideTarget = result.NativeOverrideTarget,
-            NativeReturnResources = result.NativeReturnResources is null ? null : result.NativeReturnResources with { },
+            CarriedStores = result.CarriedStores,
             NativeArmyConfiguration = result.Configuration is null ? null : result.Configuration with
                 { TraitSlots64 = result.Configuration.TraitSlots64?.ToArray() },
             NativeTacticRuntime = result.Runtime with
@@ -131,7 +131,7 @@ public static class PlayableArmyCreation
             (army.NativeArmyOrigin is null || army.Mission?.Kind != UnitMissionKind.Transport ||
              transport.Waypoints2C is not { Length: 5 } || transport.Choice41 > 2))
             throw new InvalidDataException("Native transport fields require their actual source-created transport owner.");
-        if ((army.NativeMorale1A is not null || army.NativeSavedRegionHex152 is not null || army.NativeCurrentHex2A is not null || army.NativeReturnResources is not null) && (state.NativeClock is null ||
+        if ((army.NativeMorale1A is not null || army.NativeSavedRegionHex152 is not null || army.NativeCurrentHex2A is not null || army.CarriedStores is not null) && (state.NativeClock is null ||
             army.NativeArmyOrigin is null || army.NativeArmyConfiguration is null))
             throw new InvalidDataException("Current native Army attributes require their explicit Army construction and clock.");
         if (army.NativeSavedRegionHex152 is > 48400)
@@ -148,8 +148,8 @@ public static class PlayableArmyCreation
             army.Mission?.Kind == UnitMissionKind.Transport &&
                 (army.NativeTacticRuntime.Status10 != 2 || army.NativeTransport is not { Waypoints2C.Length: 5, Choice41: <= 2 } ||
                  army.NativeHomeSequence28 is null || army.FormationId != 19 ||
-                 army.NativeReturnResources is not { } cargo || cargo.Gold5C != army.Mission.CargoGold ||
-                 cargo.Supplies60 != army.Supplies) ||
+                 army.CarriedStores is not { } cargo || cargo.Gold != army.Mission.CargoGold ||
+                 cargo.Food != army.Supplies) ||
             army.NativeArmyConfiguration.TraitSlots64 is { Length: not 36 } ||
             army.NativeArmyConfiguration.Formation1B is byte landFormation && landFormation != army.FormationId)
             throw new InvalidDataException("Source-created Army provenance or current construction facts are incomplete.");

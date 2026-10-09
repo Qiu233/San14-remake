@@ -156,11 +156,9 @@ public sealed partial class BattleRemakeCurrentArmyAttributes
     private int? ActivePolicy(GameState state, UnitState army, int effect)
     {
         var force = state.NativeArmySimulation!.Forces.GetValueOrDefault(army.ForceId);
-        if (force?.ActivePolicyBitmap1CB is not { Length: 10 } active) return null;
-        int index = effect - 1, mask = 1 << (index & 7);
-        if ((active[index >> 3] & mask) == 0) return 0;
-        if (force.SuppressedPolicyBitmap1D5 is not { Length: 10 } suppressed) return null;
-        if ((suppressed[index >> 3] & mask) != 0) return 0;
+        if (force is null || state.Forces.GetValueOrDefault(army.ForceId)?.PolicyEffects?.IsEnabled(effect) is not bool enabled)
+            return null;
+        if (!enabled) return 0;
         return queries.ReadActiveForcePolicy(state, army, effect);
     }
     private float? TerrainFactor(GameState state, int formation, byte terrain)

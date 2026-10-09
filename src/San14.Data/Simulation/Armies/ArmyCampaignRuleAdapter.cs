@@ -321,7 +321,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                 NativeCommandControl140 = receipt.NativeCommandControl140,
                 NativeRouteHold56 = receipt.NativeRouteHold56, NativeRouteGoal1F8 = receipt.NativeRouteGoal1F8,
                 NativeHomeSequence28 = receipt.NativeHomeSequence28,
-                NativeReturnResources = receipt.NativeReturnResources, NativeOverrideTarget = receipt.NativeOverrideTarget,
+                CarriedStores = receipt.CarriedStores, NativeOverrideTarget = receipt.NativeOverrideTarget,
                 WoundedTroops = receipt.WoundedTroops
             });
             OfficerState commander = current.Officers[plan.OfficerId];
@@ -505,7 +505,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         if (state.NativeArmyLifecycle is null) return result;
         UnitState created = army with { NativeArmyOrigin = result.Origin, NativeArmyConfiguration = result.Configuration,
             NativeTacticRuntime = result.Runtime, NativeMorale1A = result.NativeMorale1A,
-            NativeSavedRegionHex152 = result.NativeSavedRegionHex152, NativeReturnResources = result.NativeReturnResources,
+            NativeSavedRegionHex152 = result.NativeSavedRegionHex152, CarriedStores = result.CarriedStores,
             NativeOverrideTarget = result.NativeOverrideTarget,
             NativeCurrentHex2A = result.NativeCurrentHex2A,
             NativeDirection36 = result.NativeDirection36,

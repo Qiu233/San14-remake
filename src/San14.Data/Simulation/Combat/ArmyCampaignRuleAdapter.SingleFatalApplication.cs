@@ -53,7 +53,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             draft.Units.GetValueOrDefault(targetId) is not { Troops: 0 } target)
             return Unknown(application.MissingPhase ?? $"current.{scope}_actual_zero_body");
         if (target.NativeTacticRuntime?.Status10 == 2 &&
-            (receipt.TransportCargo is null || target.NativeReturnResources is not { Gold5C: 0, Supplies60: 0 }))
+            (receipt.TransportCargo is null || target.CarriedStores is not { Gold: 0, Food: 0 }))
             return Unknown($"current.{scope}_actual_zero_transport_cargo");
         var definitions = CaptureCurrentDefinitions(draft);
         if (definitions is null) return Unknown($"current.{scope}_Force_definitions");

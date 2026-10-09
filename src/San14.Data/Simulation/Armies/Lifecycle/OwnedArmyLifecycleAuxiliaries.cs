@@ -89,7 +89,7 @@ public static class OwnedArmyLifecycleAuxiliaries
                 //descriptor chains; it does not replace their identities.
                 slots[army] = slots[army] with { Commander12 = 0, Status10 = 0, Priority14 = 0, ActiveUnitId = null,
                     GroupAssignmentReady = true,
-                    PendingImage = null, Gold5C = 0, Supplies60 = 0, AuxiliaryAC = new ushort[36], AuxiliaryF4 = new ushort[36],
+                    PendingImage = null, StoredResources = ArmyStoreKnowledge.Empty, AuxiliaryAC = new ushort[36], AuxiliaryF4 = new ushort[36],
                     OverrideTarget = new(0xFF, 0), Direction36 = ArmyDirectionSource.ResetDirection36,
                     MapUiByte13C = 0, CommandControl140 = 0, RouteHold56 = 0, RouteGoal1F8 = 0xBD10 };
                 current.ReleaseArmyOccupancyReceiver(army);
@@ -130,8 +130,8 @@ public static class OwnedArmyLifecycleAuxiliaries
         foreach (var receiver in Chain(current, new(current.ReadRegistryDescriptor(RegistryKind.District)!.Identity)))
         {
             int district = receiver.PhysicalSlot!.Value;
-            if (force is < 1 or > 51 || current.ReadDistrictRawByte(district, 0x10) != force) continue;
-            if (current.ReadDistrictLeader(district) == ruler || current.ReadDistrictRawByte(district, 0x11) == 1) return district;
+            if (force is < 1 or > 51 || current.ReadDistrictForceId(district) != force) continue;
+            if (current.ReadDistrictLeader(district) == ruler || current.ReadDistrictNumber(district) == 1) return district;
         }
         return 0;
     }

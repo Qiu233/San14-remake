@@ -18,20 +18,19 @@ public sealed class GameSimulation
     public CommandResult Apply(GameOrder order, IOrderRules rules,
         CommandContext context, IOrderAuthority authority)
     {
-        CommandResult? error = GameEngine.CheckOrder(State, order, context, authority);
-        if (error is not null) return error;
-        CommandResult result = GameEngine.ApplyOwned(State, GameStateCopy.Copy(State),
-            order, rules, context);
+        CommandResult result = GameEngine.ApplyCandidate(State, order, rules, context, authority);
         if (result.Accepted) State = result.State!;
         return result;
     }
 
     /// <summary>AI planning, simulation and calendar updates form one publication.</summary>
     public GameState AdvancePeriod(IAdvancementRules rules,
-        Func<GameState, GameState>? prepare = null, Func<GameState, GameState>? complete = null)
+        ICommandPlanner? planner = null, Func<GameState, GameState>? complete = null)
     {
         GameState working = GameStateCopy.Copy(State);
-        GameState prepared = prepare is null ? working : prepare(working);
+        var planning = new CommandPlanningContext(working);
+        planner?.Plan(planning);
+        GameState prepared = planning.Current;
         CheckAuxiliaryTransition(State, prepared);
         GameState advanced = GameEngine.AdvancePeriodOwned(State, prepared, rules);
         GameState result = advanced.NativePlayableTerminal is null && complete is not null

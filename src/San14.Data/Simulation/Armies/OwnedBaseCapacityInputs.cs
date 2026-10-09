@@ -80,12 +80,9 @@ public sealed class OwnedBaseCapacityInputs
     {
         if (!Bound(state) || effect is < 1 or > 79 ||
             state.NativeArmySimulation!.Parameters.Int32Values.GetValueOrDefault(VersionKey) != 1 ||
-            state.NativeArmySimulation.Forces.GetValueOrDefault(forceId) is not { } force ||
-            force.ActivePolicyBitmap1CB is not { Length: 10 } active) return null;
-        int index = effect - 1, mask = 1 << (index & 7);
-        if ((active[index >> 3] & mask) == 0) return 0;
-        if (force.SuppressedPolicyBitmap1D5 is not { Length: 10 } suppressed) return null;
-        if ((suppressed[index >> 3] & mask) != 0) return 0;
+            state.NativeArmySimulation.Forces.GetValueOrDefault(forceId) is null ||
+            state.Forces.GetValueOrDefault(forceId)?.PolicyEffects?.IsEnabled(effect) is not bool enabled) return null;
+        if (!enabled) return 0;
         int? value = Parameter(state, PanelKey(effect));
         return value is >= short.MinValue and <= short.MaxValue ? value : null;
     }

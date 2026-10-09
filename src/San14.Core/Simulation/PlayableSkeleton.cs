@@ -323,7 +323,6 @@ public static class PlayableSkeleton
                 {
                     Mission = new UnitMission(UnitMissionKind.Combat)
                 }, cities, gates, officers, routes, state.MapWidth, reports, interrupted);
-            int nextUnitId = units.Count == 0 ? 1 : checked(units.Keys.Max() + 1);
 
             ulong randomState = state.RandomState;
             // Source preparation and waiting can publish independent native
@@ -424,184 +423,15 @@ public static class PlayableSkeleton
                 else PlayableUnitRetreat.Complete(actor, locationId, cities, gates, officers, units,
                     reports, onArmyRetired, EntryResources(actor, locationId));
             }
-            foreach (PreparedTalentOrder task in (state.PreparedTalentOrders?.Values ??
-                         Enumerable.Empty<PreparedTalentOrder>())
-                         .OrderBy(task => task.ExecutorOfficerId))
-            {
-                if (PlayableOfficerAvailability.IsSourceBusy(periodBasis, officers[task.ExecutorOfficerId]))
-                {
-                    reports.Add(new PeriodReportEntry(task.Kind == TalentOrderKind.Search
-                        ? "talent_search_cancelled" : "talent_recruit_cancelled", task.ForceId,
-                        task.CityId, task.ExecutorOfficerId));
-                    continue;
-                }
-                TalentOrderOutcome outcome = talent.Resolve(state with
-                {
-                    Officers = officers, RandomState = randomState
-                }, task);
-                randomState = outcome.RandomState;
-                if (outcome.JoinedOfficerId is not int joinedId)
-                {
-                    reports.Add(new PeriodReportEntry(task.Kind == TalentOrderKind.Search
-                        ? "talent_search_none" : "talent_recruit_failed", task.ForceId,
-                        task.CityId, task.Kind == TalentOrderKind.Search
-                            ? task.ExecutorOfficerId : task.TargetOfficerId));
-                    continue;
-                }
-                if (!officers.TryGetValue(joinedId, out OfficerState? joined) ||
-                    joined.ForceId is not null || joined.LocationId != task.CityId ||
-                    (task.Kind == TalentOrderKind.Search
-                        ? joined.Presence != OfficerPresence.Undiscovered
-                        : joined.Id != task.TargetOfficerId || joined.Role != OfficerRole.Free ||
-                          joined.Presence != OfficerPresence.Present))
-                    throw new InvalidDataException("Talent outcome does not match the pending source officer.");
-                officers[joinedId] = joined with
-                {
-                    ForceId = task.ForceId, DistrictId = task.DistrictId,
-                    Role = OfficerRole.Officer, Presence = OfficerPresence.Present,
-                    Deployed = false
-                };
-                reports.Add(new PeriodReportEntry(task.Kind == TalentOrderKind.Search
-                    ? "talent_search_joined" : "talent_recruited", task.ForceId,
-                    task.CityId, joinedId));
-            }
-
-            foreach (PreparedOfficerMove move in (state.PreparedOfficerMoves?.Values ??
-                         Enumerable.Empty<PreparedOfficerMove>())
-                         .OrderBy(move => move.OfficerId))
-            {
-                if (PlayableOfficerAvailability.IsSourceBusy(periodBasis, officers[move.OfficerId]))
-                {
-                    reports.Add(new PeriodReportEntry("officer_move_cancelled", move.ForceId,
-                        move.DestinationCityId, move.OfficerId));
-                    continue;
-                }
-                CityState target = cities[move.DestinationCityId];
-                officers[move.OfficerId] = officers[move.OfficerId] with
-                {
-                    LocationId = target.Id, DistrictId = target.DistrictId,
-                    NativeLocationRuntime = officers[move.OfficerId].NativeLocationRuntime is { } location
-                        ? location with { Second11C = null } : null
-                };
-                reports.Add(new PeriodReportEntry("officer_move", move.ForceId,
-                    target.Id, move.OfficerId, 0, cities[move.SourceCityId].HexId, target.HexId));
-            }
-
-            //Resolve disappearance against the current pre-allocation roster.
-            //Newly formed Armies may reuse logical IDs; they must never revive
-            //an older pending/active military target by coincidence.
-            int[] lostPreparedUnitTargets = state.PreparedDeployments.Values
-                .Where(plan => PlayableMilitaryTargetLifecycle.PreparedUnitTargetIsUnavailable(plan, units, IsHostile))
-                .Select(plan => plan.Id).ToArray();
-            PlayableMilitaryTargetLifecycle.EndUnavailableTargets(units, cities, gates,
-                officers, territory ?? state.Territory, routes, state.MapWidth, reports,
-                IsHostile, structures);
             var deploymentCancellation = new DeploymentCommandRules(new DeploymentEligibilityRules(routes),
                 new DeploymentResourceRules());
-            foreach (PreparedDeployment plan in state.PreparedDeployments.Values.OrderBy(plan => plan.Id))
-            {
-                if (PlayableOfficerAvailability.IsSourceBusy(periodBasis, officers[plan.OfficerId]))
-                {
-                    CommandResult cancelled = deploymentCancellation.Apply(CurrentWorld(), state.Forces[plan.ForceId],
-                        new CancelPreparedDeploymentOrder(plan.ForceId, plan.Id), new("source-busy-cancellation", plan.DistrictId));
-                    if (!cancelled.Accepted)
-                        throw new InvalidDataException($"Unavailable officer deployment cancellation failed: {cancelled.Error}");
-                    periodBasis = cancelled.State!;
-                    cities = periodBasis.Cities; gates = periodBasis.Gates; districts = periodBasis.Districts;
-                    reports.Add(new PeriodReportEntry("deployment_cancelled", plan.ForceId,
-                        cities.ContainsKey(plan.SourceLocationId) ? plan.SourceLocationId : null,
-                        plan.OfficerId, plan.TroopsDebited ? plan.Troops : 0)
-                    { LocationId = plan.SourceLocationId });
-                    continue;
-                }
-                //Queued tactics still refer to the pre-allocation roster and
-                //must not bind to a different Army reusing their vanished ID.
-                nextUnitId = PlayableMilitaryTargetLifecycle.NextPeriodAllocationId(units, nextUnitId,
-                    periodBasis.NativeArmyLifecycle, periodBasis.PendingCombatSettlements, periodBasis.ArmyMapOccupancy);
-                int sourceHex;
-                int morale;
-                if (cities.TryGetValue(plan.SourceLocationId, out CityState? city))
-                {
-                    sourceHex = city.HexId ?? throw new InvalidDataException("Deployment source has no map cell.");
-                    morale = city.Morale ?? 100;
-                    if (!plan.TroopsDebited) city = city with { Troops = checked(city.Troops - plan.Troops) };
-                    cities[city.Id] = city;
-                }
-                else
-                {
-                    GateState gate = gates[plan.SourceLocationId];
-                    sourceHex = gate.HexId ?? throw new InvalidDataException("Deployment source has no map cell.");
-                    morale = 100;
-                    if (!plan.TroopsDebited) gates[gate.Id] = gate with { Troops = checked(gate.Troops - plan.Troops) };
-                }
-                if (!plan.CommandBookDebited)
-                {
-                    DistrictState district = districts[plan.DistrictId];
-                    districts[district.Id] = district with
-                    {
-                        OrdersRemaining = checked(district.OrdersRemaining!.Value - 1)
-                    };
-                }
-                DeploymentAction action = plan.Actions.Last();
-                bool occupyArea = action.ActionKey == "occupy" &&
-                                  action.Target.Kind == DeploymentTargetKind.Area;
-                bool buildStructure = action.ActionKey == "build" &&
-                                      action.Target.Kind == DeploymentTargetKind.Hex &&
-                                      PlayableConstructionRules.IsSupportedKind(action.StructureKindId);
-                int routeOrigin = plan.WaypointHexIds.Length > 0 ? plan.WaypointHexIds[^1] : sourceHex;
-                int destination = PlayableWaypointMarch.ResolveDestination(action, plan.ForceId,
-                    routeOrigin, cities, gates, units, territory ?? state.Territory,
-                    structures, routes, IsHostile, validate: false) ?? sourceHex;
-                UnitState deployed = new UnitState(nextUnitId, plan.ForceId, plan.OfficerId,
-                    sourceHex, destination, plan.Troops, 0, morale)
-                {
-                    SourceLocationId = plan.SourceLocationId, FormationId = plan.FormationId,
-                    TacticRuntime = UnitTacticRuntime.Empty(),
-                    WoundedTroops = 0, // Explicitly newly formed provisional Army; legacy/source units remain nullable.
-                    TacticIds = plan.TacticIds.ToArray(), Behavior = plan.Behavior,
-                    Mission = occupyArea
-                        ? new UnitMission(UnitMissionKind.OccupyArea, TargetAreaId: action.Target.Id)
-                        : buildStructure
-                        ? new UnitMission(UnitMissionKind.BuildStructure,
-                            StructureKindId: action.StructureKindId)
-                        : new UnitMission(UnitMissionKind.Combat)
-                };
-                deployed = PlayableWaypointMarch.AttachDeployment(deployed, plan);
-                if (armyCreationRules is not null)
-                {
-                    GameState creationState = CurrentWorld();
-                    GameState detachedCreation = GameStateSnapshot.Detach(creationState with
-                    { Units = new(units) { [deployed.Id] = deployed } });
-                    UnitState candidate = detachedCreation.Units[deployed.Id];
-                    detachedCreation.Units.Remove(deployed.Id);
-                    PreparedDeployment detachedPlan = detachedCreation.PreparedDeployments[plan.Id];
-                    PlayableArmyCreationResolution created = armyCreationRules.Create(detachedCreation, detachedPlan, candidate)
-                        ?? throw new InvalidDataException("Current ordinary Army construction inputs are unresolved.");
-                    deployed = PlayableArmyCreation.Apply(creationState, deployed, created);
-                    periodBasis = PlayableArmyCreation.PublishOwners(periodBasis, created);
-                    if (created.CommanderSecondLocation11C is ushort secondLocation)
-                    {
-                        OfficerState commander = officers[plan.OfficerId];
-                        if (commander.NativeAbilityRuntime is null)
-                            throw new InvalidDataException("Source commander location write has no native Person identity.");
-                        officers[plan.OfficerId] = commander with { NativeLocationRuntime =
-                            commander.NativeLocationRuntime is { } location
-                                ? location with { Second11C = secondLocation }
-                                : new(created.Origin.Revision, secondLocation, null, null) };
-                    }
-                    randomState = created.RandomState;
-                }
-                units.Add(nextUnitId, deployed);
-                nextUnitId = checked(nextUnitId + 1);
-                officers[plan.OfficerId] = officers[plan.OfficerId] with { Deployed = true };
-                reports.Add(new PeriodReportEntry("deploy", plan.ForceId,
-                    cities.ContainsKey(plan.SourceLocationId) ? plan.SourceLocationId : null,
-                    plan.OfficerId, plan.Troops, sourceHex, destination)
-                { LocationId = plan.SourceLocationId });
-                if (lostPreparedUnitTargets.Contains(plan.Id))
-                    units[deployed.Id] = PlayableMilitaryTargetLifecycle.CancelPreparedUnitTarget(deployed,
-                        cities, gates, officers, routes, state.MapWidth, reports);
-            }
+            PreparedOrderStageResult preparedOrders = PeriodOrderPreparation.ExecuteOwned(state,
+                CurrentWorld(), routes, talent, deploymentCancellation, armyCreationRules);
+            periodBasis = preparedOrders.State;
+            cities = periodBasis.Cities; gates = periodBasis.Gates; districts = periodBasis.Districts;
+            officers = periodBasis.Officers; units = periodBasis.Units;
+            randomState = periodBasis.RandomState;
+            reports.AddRange(preparedOrders.Reports);
 
             GameState preparedArmyState = NativeArmyPreparation.PrepareAfterDeployment(CurrentWorld(), nativeArmyPreparationRules);
             GameState tacticState = PlayableTacticRuntime.SettleBeforeMovement(preparedArmyState,

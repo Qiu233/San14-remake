@@ -206,11 +206,9 @@ public sealed class BattleRemakeCurrentRegionFactor
         int? Policy(int effect)
         {
             NativeArmyForceState? native = state.NativeArmySimulation!.Forces.GetValueOrDefault(nativeForceSlot);
-            if (native?.ActivePolicyBitmap1CB is not { Length: 10 } active) return null;
-            int index = effect - 1, mask = 1 << (index & 7);
-            if ((active[index >> 3] & mask) == 0) return 0;
-            if (native.SuppressedPolicyBitmap1D5 is not { Length: 10 } suppressed) return null;
-            if ((suppressed[index >> 3] & mask) != 0) return 0;
+            if (native is null || state.Forces.GetValueOrDefault(nativeForceSlot)?.PolicyEffects?.IsEnabled(effect) is not bool enabled)
+                return null;
+            if (!enabled) return 0;
             return remaining?.ReadActiveForcePolicy(state, nativeForceSlot, effect);
         }
     }

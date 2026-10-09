@@ -13,8 +13,6 @@ public sealed record NativeArmyForceState(byte? Flags193)
     public byte? Flags12 { get; init; }
     public byte? Flags194 { get; init; }
     public byte[]? RelationsEA { get; init; }
-    public byte[]? ActivePolicyBitmap1CB { get; init; }
-    public byte[]? SuppressedPolicyBitmap1D5 { get; init; }
     public NativeNormalArmyForceAftermath? NormalAftermath { get; init; }
 }
 public sealed record NativeArmyWorldState(byte? SelectedCommanderCount165D)
@@ -46,9 +44,7 @@ internal static class NativeArmySimulationStateValidation
             simulation.World is null || parameters.Int32Values.Keys.Concat(parameters.Float32Values.Keys)
                 .Any(string.IsNullOrWhiteSpace) || parameters.Float32Values.Values.Any(value => !float.IsFinite(value)) ||
             simulation.Forces.Any(pair => pair.Value is null || !state.Forces.ContainsKey(pair.Key) ||
-                pair.Value.RelationsEA is { Length: not 52 } ||
-                pair.Value.ActivePolicyBitmap1CB is { Length: not 10 } ||
-                pair.Value.SuppressedPolicyBitmap1D5 is { Length: not 10 }))
+                pair.Value.RelationsEA is { Length: not 52 }))
             throw new InvalidDataException("Owned native Army simulation inputs are incomplete or inconsistent.");
         foreach (UnitState army in state.Units.Values)
             if (army.NativeArmyOrigin is { } origin &&

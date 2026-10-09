@@ -43,12 +43,17 @@ public static class GameEngine
     public static CommandResult Apply(GameState state, GameOrder order, IOrderRules rules,
         CommandContext context, IOrderAuthority authority)
     {
-        CommandResult? error = CheckOrder(state, order, context, authority);
-        if (error is not null) return error;
-        CommandResult result = ApplyOwned(state, GameStateCopy.Copy(state), order, rules, context);
+        CommandResult result = ApplyCandidate(state, order, rules, context, authority);
         // The stateless API transfers a result to an independent caller. Session
         // operations below keep their transaction instead of making this second copy.
         return result.Accepted ? result with { State = GameStateCopy.Copy(result.State!) } : result;
+    }
+
+    internal static CommandResult ApplyCandidate(GameState state, GameOrder order,
+        IOrderRules rules, CommandContext context, IOrderAuthority authority)
+    {
+        CommandResult? error = CheckOrder(state, order, context, authority);
+        return error ?? ApplyOwned(state, GameStateCopy.Copy(state), order, rules, context);
     }
 
     internal static CommandResult? CheckOrder(GameState state, GameOrder order,

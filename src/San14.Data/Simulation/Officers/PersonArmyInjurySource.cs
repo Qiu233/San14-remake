@@ -247,7 +247,7 @@ public static class PersonArmyInjurySource
         if (!valid) return false;
         if (current.ReadPersonDistrictSlot(personPhysical) is not byte raw) return null;
         var district = current.ReadDistrictTableReference(raw <= 51 ? raw : 0);
-        if (district?.PhysicalSlot is not int physical || current.ReadDistrictRawByte(physical, 0x10) is not byte force) return null;
+        if (district?.PhysicalSlot is not int physical || current.ReadDistrictForceId(physical) is not byte force) return null;
         if (force != player.PhysicalSlot) return false;
         if (current.ReadDistrictLeader(physical) is not ushort leader) return null;
         var person = current.ReadPersonLookupReference(leader <= 6000 ? leader : 0);

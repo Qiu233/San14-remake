@@ -1,4 +1,4 @@
-﻿using San14.Core;
+using San14.Core;
 
 namespace San14.Data;
 
@@ -67,7 +67,7 @@ public static class ArmyDestructionQueue
             {
                 var district = current.ReadDistrictTableReference(0);
                 if (district?.PhysicalSlot is not int districtId || current.ReadDistrictNativeValidity(districtId) is not bool districtValid) return null;
-                force = districtValid ? current.ReadDistrictRawByte(districtId, 0x10) : (byte)0;
+                force = districtValid ? current.ReadDistrictForceId(districtId) : (byte)0;
             }
             // Source categories for special participants do not exclude a conquering army.
             return force is byte category ? category is not (>= 46 and <= 51) : null;

@@ -99,7 +99,7 @@ public sealed class ArmyConstruction : IPlayableArmyCreationRules
         if (initial is null || adjustment is null || reduction is null || cap0 is null || cap1 is null || cap2 is null)
             return null;
         int slot;
-        NativeArmyReturnResources? returnResources;
+        ArmyStores? returnResources;
         NativeArmyOverrideTargetRuntime? overrideTarget;
         ushort[]? traitSlots;
         if (state.NativeArmyLifecycle is { } arena)
@@ -107,7 +107,7 @@ public sealed class ArmyConstruction : IPlayableArmyCreationRules
             //2D2D62 scans the actual501 headers, including pending receivers.
             //The creator does not run a new constructor or reset this slot.
             slot = OwnedArmyLifecycleCurrent.FirstCreationSlot(state) ?? 0;
-            if (slot == 0 || arena.Slots[slot].Gold5C is not int gold || arena.Slots[slot].Supplies60 is not int supplies)
+            if (slot == 0 || arena.Slots[slot].StoredResources.Gold is not int gold || arena.Slots[slot].StoredResources.Food is not int supplies)
                 return null;
             returnResources = new(gold, supplies);
             overrideTarget = arena.Slots[slot].OverrideTarget;
@@ -133,7 +133,7 @@ public sealed class ArmyConstruction : IPlayableArmyCreationRules
             CreationCounter(cap1.Value, cap1.Value), CreationCounter(cap2.Value, cap2.Value),
             0, 0, 0, new sbyte[6], new byte[6], null, primary == 0 ? clock.UpdateOrdinal : null);
         return new(runtime, 0, new(ProfileId, Language, RuleVersion) { NativeSlotIndex = slot }, state.RandomState)
-        { NativeReturnResources = returnResources, NativeOverrideTarget = overrideTarget,
+        { CarriedStores = returnResources, NativeOverrideTarget = overrideTarget,
           NativeRouteHold56 = _configuration.RouteHold40Input is int hold ? (byte)Math.Clamp(hold, 0, 9) : null,
           Configuration = new(formation.Bytes.Byte1B, formation.Bytes.Byte1C,
             (byte)Math.Clamp(_configuration.Action34, 0, 17), (byte)Math.Clamp(_configuration.Category44, 0, 2))

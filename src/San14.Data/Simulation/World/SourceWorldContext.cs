@@ -17,8 +17,9 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
     private readonly Dictionary<int, ushort?> _personFirstLocations = [];
     private readonly Dictionary<int, ushort?> _forceRulers = [];
     private readonly Dictionary<int, int?> _districtPointers = [], _forcePointers = [];
-    // Data-only partial native district window. Unserialized bytes stay unknown.
-    private readonly Dictionary<int, byte?[]> _districtFields = [];
+    private readonly DistrictIdentityState _districtIdentities = new();
+    // Unresolved source extension fields are kept at the adapter boundary.
+    private readonly Dictionary<int, byte?[]> _districtSourceExtensions = [];
     private readonly Dictionary<int, ushort?> _cityLinks = [];
     private readonly Dictionary<int, byte?> _cityFlags = [];
     private readonly Dictionary<int, S14ConditionNativeObject> _objects = [];
@@ -145,19 +146,37 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
     public void SetDistrictRecord(NativeDistrict record)
     {
         ArgumentNullException.ThrowIfNull(record);
-        SetDistrictRawByte(record.PhysicalSlot, 0x10, record.RawForceSlot10);
-        SetDistrictRawByte(record.PhysicalSlot, 0x11, record.RawNumber11);
+        Check(record.PhysicalSlot, DistrictIdentitySourceProfile.RecordCount, "district physical slot");
+        _districtIdentities.SetAffiliation(record.PhysicalSlot, record.RawForceSlot10, record.RawNumber11);
         WriteDistrictLeader(record.PhysicalSlot, record.RawLeader12);
     }
     public NativeDistrict? ReadDistrictRecord(int physicalSlot)
     {
-        byte? force = ReadDistrictRawByte(physicalSlot, 0x10), number = ReadDistrictRawByte(physicalSlot, 0x11);
+        byte? force = ReadDistrictForceId(physicalSlot), number = ReadDistrictNumber(physicalSlot);
         ushort? leader = ReadDistrictLeader(physicalSlot);
         return force.HasValue && number.HasValue && leader.HasValue
             ? new(physicalSlot, force.Value, number.Value, leader.Value) : null;
     }
-    public bool? ReadDistrictNativeValidity(int physicalSlot) => NativeValidity.District(physicalSlot,
-        ReadDistrictRawByte(physicalSlot, 0x10), ReadDistrictRawByte(physicalSlot, 0x11), ReadDistrictLeader(physicalSlot));
+    public bool? ReadDistrictNativeValidity(int physicalSlot)
+    {
+        Check(physicalSlot, DistrictIdentitySourceProfile.RecordCount, "district physical slot");
+        return _districtIdentities.IsActive(physicalSlot);
+    }
+    public byte? ReadDistrictForceId(int physicalSlot)
+    {
+        Check(physicalSlot, DistrictIdentitySourceProfile.RecordCount, "district physical slot");
+        return _districtIdentities.ReadForceId(physicalSlot);
+    }
+    public byte? ReadDistrictNumber(int physicalSlot)
+    {
+        Check(physicalSlot, DistrictIdentitySourceProfile.RecordCount, "district physical slot");
+        return _districtIdentities.ReadNumber(physicalSlot);
+    }
+    public void WriteDistrictAffiliation(int physicalSlot, byte? forceId, byte? number)
+    {
+        Check(physicalSlot, DistrictIdentitySourceProfile.RecordCount, "district physical slot");
+        _districtIdentities.SetAffiliation(physicalSlot, forceId, number);
+    }
     public void SetDistrictTablePointer(int slot, int? physicalSlot) => SetPointer(_districtPointers, slot, 52, physicalSlot, 52);
     public void SetForceTablePointer(int slot, int? physicalSlot) => SetPointer(_forcePointers, slot, 52, physicalSlot, 52);
     public void SetForceRecord(NativeForce record)
@@ -184,7 +203,7 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
             if (!valid.HasValue) return null;
             if (valid.Value)
             {
-                byte? currentForce = ReadDistrictRawByte(district.Value, 0x10);
+                byte? currentForce = ReadDistrictForceId(district.Value);
                 if (!currentForce.HasValue) return null;
                 forceSlot = currentForce.Value <= 51 ? currentForce.Value : 0;
             }
@@ -198,7 +217,7 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
         if (!_districtPointers.TryGetValue(raw.Value <= 51 ? raw.Value : 0, out int? physical)) return null;
         if (!physical.HasValue) return 0;
         bool? valid = ReadDistrictNativeValidity(physical.Value);
-        return !valid.HasValue ? null : valid.Value ? ReadDistrictRawByte(physical.Value, 0x10) : (byte)0;
+        return !valid.HasValue ? null : valid.Value ? ReadDistrictForceId(physical.Value) : (byte)0;
     }
     public void TransferPersonDistrict(int physicalSlot, int requestedDistrict)
     {
@@ -216,7 +235,7 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
         Check(districtSlot, 52, "district lookup slot");
         if (!_districtPointers.TryGetValue(districtSlot, out int? physical)) return null;
         if (!physical.HasValue) throw new InvalidDataException("Target district pointer is explicitly null; native raw-force read would be unsafe.");
-        return ReadDistrictRawByte(physical.Value, 0x10);
+        return ReadDistrictForceId(physical.Value);
     }
     public ForceReference? ReadRequestedDistrictForce(int requestedDistrict)
     {
@@ -289,27 +308,35 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
     }
     public byte? ReadDistrictRawByte(int physicalSlot, int nativeOffset)
     {
-        Check(physicalSlot, 52, "district physical slot");
-        Check(nativeOffset - 0x10, 28, "district native window offset");
-        return _districtFields.TryGetValue(physicalSlot, out byte?[]? fields) ? fields[nativeOffset - 0x10] : null;
+        Check(physicalSlot, DistrictIdentitySourceProfile.RecordCount, "district physical slot");
+        Check(nativeOffset - DistrictIdentitySourceProfile.WindowStart, DistrictIdentitySourceProfile.WindowWidth, "district native window offset");
+        if (nativeOffset < DistrictIdentitySourceProfile.ExtensionStart)
+            return _districtIdentities.ReadSourceField(physicalSlot, DistrictIdentitySourceProfile.IdentityField(nativeOffset));
+        return _districtSourceExtensions.TryGetValue(physicalSlot, out byte?[]? fields)
+            ? fields[nativeOffset - DistrictIdentitySourceProfile.ExtensionStart] : null;
     }
     public void SetDistrictRawByte(int physicalSlot, int nativeOffset, byte? value)
     {
-        Check(physicalSlot, 52, "district physical slot");
-        Check(nativeOffset - 0x10, 28, "district native window offset");
-        if (!_districtFields.TryGetValue(physicalSlot, out byte?[]? fields))
-            _districtFields[physicalSlot] = fields = new byte?[28];
-        fields[nativeOffset - 0x10] = value;
+        Check(physicalSlot, DistrictIdentitySourceProfile.RecordCount, "district physical slot");
+        Check(nativeOffset - DistrictIdentitySourceProfile.WindowStart, DistrictIdentitySourceProfile.WindowWidth, "district native window offset");
+        if (nativeOffset < DistrictIdentitySourceProfile.ExtensionStart)
+        {
+            _districtIdentities.SetSourceField(physicalSlot, DistrictIdentitySourceProfile.IdentityField(nativeOffset), value);
+            return;
+        }
+        if (!_districtSourceExtensions.TryGetValue(physicalSlot, out byte?[]? fields))
+            _districtSourceExtensions[physicalSlot] = fields = new byte?[DistrictIdentitySourceProfile.ExtensionWidth];
+        fields[nativeOffset - DistrictIdentitySourceProfile.ExtensionStart] = value;
     }
     public ushort? ReadDistrictLeader(int physicalSlot)
     {
-        byte? low = ReadDistrictRawByte(physicalSlot, 0x12), high = ReadDistrictRawByte(physicalSlot, 0x13);
-        return low.HasValue && high.HasValue ? (ushort)(low.Value | high.Value << 8) : null;
+        Check(physicalSlot, DistrictIdentitySourceProfile.RecordCount, "district physical slot");
+        return _districtIdentities.ReadLeaderId(physicalSlot);
     }
     public void WriteDistrictLeader(int physicalSlot, ushort leaderId)
     {
-        SetDistrictRawByte(physicalSlot, 0x12, (byte)leaderId);
-        SetDistrictRawByte(physicalSlot, 0x13, (byte)(leaderId >> 8));
+        Check(physicalSlot, DistrictIdentitySourceProfile.RecordCount, "district physical slot");
+        _districtIdentities.SetLeaderId(physicalSlot, leaderId);
     }
     /// <summary>2260B0 resets only the proved members; byte23 and byte2B are untouched.</summary>
     public void ResetDistrict(int physicalSlot)
@@ -498,10 +525,10 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
         if (!raw.HasValue) return null;
         if (!_districtPointers.TryGetValue(raw.Value <= 51 ? raw.Value : 0, out int? district)) return null;
         if (!district.HasValue || district.Value == 0) return 0;
-        byte? force = ReadDistrictRawByte(district.Value, 0x10);
+        byte? force = ReadDistrictForceId(district.Value);
         if (!force.HasValue) return null;
         if (force.Value == 0) return 0;
-        byte? number = ReadDistrictRawByte(district.Value, 0x11);
+        byte? number = ReadDistrictNumber(district.Value);
         if (!number.HasValue) return null;
         return number.Value == 0 ? 0 : force.Value;
     }

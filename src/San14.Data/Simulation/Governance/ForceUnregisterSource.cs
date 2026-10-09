@@ -74,7 +74,7 @@ public sealed partial class ForceUnregisterSource(ArmyCampaignRuleAdapter packag
             effects.Add("293BD0.empty_Force_Army_and_Area→278090_current_associations→empty_Force_Person");
             var districtTemporary = Temporary(current);
             var districts = Chain(current, RegistryKind.District).Where(d =>
-                current.ReadDistrictRawByte(d, 0x10) == victim).ToArray();
+                current.ReadDistrictForceId(d) == victim).ToArray();
             foreach (int district in districts) Append(current, districtTemporary, RegistryKind.District, district);
             int removedDistrictNodes = 0; var governors = new List<ArmyReturnGovernorPacket>();
             foreach (int district in districts)

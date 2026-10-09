@@ -30,7 +30,7 @@ public static class OwnedArmyLifecycleCurrent
         {
             //326990:501 x200-byte CArmy;2209A0:9 x10-byte list ctor;
             //2269E0: header/raw5C60 and all36-word64/AC/F4 reset.
-            slots[physical] = new(physical, 0, 0, 0, null, null, 0, 0, new ushort[36], new ushort[36])
+            slots[physical] = new(physical, 0, 0, 0, null, null, ArmyStoreKnowledge.Empty, new ushort[36], new ushort[36])
                 { OverrideTarget = new(0xFF, 0), Direction36 = ArmyDirectionSource.ResetDirection36,
                     MapUiByte13C = 0, CommandControl140 = 0, RouteHold56 = 0, RouteGoal1F8 = 0xBD10,
                     GroupAssignmentReady = true };
@@ -105,13 +105,13 @@ public static class OwnedArmyLifecycleCurrent
         if (state.NativeArmyLifecycle is not { } arena || created.NativeArmyOrigin is not { NativeSlotIndex: int physical } origin ||
             origin.Language != arena.Language || origin.RuleVersion != arena.RuleVersion ||
             FirstCreationSlot(state) != physical || created.NativeTacticRuntime?.Status10 != status || created.OfficerId is < 1 or > 6000 ||
-            created.NativeReturnResources is not { } resources) return null;
+            created.CarriedStores is not { } resources) return null;
         var old = arena.Slots[physical];
         if (state.ArmyMapOccupancy is not { } occupancy || old.OccupancyBindingId is not int binding) return null;
         var assignedOccupancy = ArmyMapOccupancyRules.AssignBinding(occupancy, binding, created.Id);
         if (assignedOccupancy is null) return null;
         if (arena.ArmyGroups is not null && old.GroupAssignmentReady != true) return null;
-        if (status == 1 && (old.Gold5C != resources.Gold5C || old.Supplies60 != resources.Supplies60)) return null;
+        if (status == 1 && (old.StoredResources.Gold != resources.Gold || old.StoredResources.Food != resources.Food)) return null;
         if (status == 2 && (created.NativeTransport is null || created.Mission?.Kind != UnitMissionKind.Transport)) return null;
         var current = OwnedArmyReturnCurrentFields.CaptureCurrent(state, definitions);
         var pool = WorldIndexContext.ImportOwnedState(current, arena.Indexes, state);
@@ -138,7 +138,7 @@ public static class OwnedArmyLifecycleCurrent
             MapUiByte13C = created.NativeMapUiByte13C,
             CommandControl140 = created.NativeCommandControl140,
             RouteHold56 = created.NativeRouteHold56, RouteGoal1F8 = created.NativeRouteGoal1F8,
-            Gold5C = resources.Gold5C, Supplies60 = resources.Supplies60 };
+            StoredResources = new(resources.Gold, resources.Food) };
         var registered = arena with { Slots = slots, Indexes = pool.ExportOwnedState() };
         registered = OwnedArmyLifecycleTargets.PublishCreation(registered, physical, packetTargetKind38, packetTargetIdentity3A);
         var admitted = OwnedArmyLifecycleAuxiliaries.PrepareCreation(registered, state, created, current, pool);

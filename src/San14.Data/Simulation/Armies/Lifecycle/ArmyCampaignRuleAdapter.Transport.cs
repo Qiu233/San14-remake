@@ -55,7 +55,7 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportCreation
                 NativeCommandControl140 = arena.Slots[fields.NativeSlot].CommandControl140,
                 NativeRouteHold56 = fields.Field56, NativeRouteGoal1F8 = arena.Slots[fields.NativeSlot].RouteGoal1F8,
                 NativeOverrideTarget = fields.OverrideTarget,
-                NativeReturnResources = new(fields.Gold5C, fields.Supplies60),
+                CarriedStores = new(fields.Gold5C, fields.Supplies60),
                 NativeHomeSequence28 = fields.HomeSequence28,
                 NativeTransport = new(fields.Waypoints2C.ToArray(), fields.Choice41, fields.InitialNextHex48, null)
             };

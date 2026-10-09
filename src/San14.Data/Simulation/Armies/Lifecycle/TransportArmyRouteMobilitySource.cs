@@ -111,13 +111,13 @@ public static class TransportArmyRouteMobilitySource
                 policy = (formationFlags & 2) != 0 ? 59 : currentSurface is >= 8 and <= 11 ? 60 : null;
                 if (policy is int effect)
                 {
-                    var ownedForce = state.NativeArmySimulation.Forces[forcePhysical];
-                    byte[] active = ownedForce.ActivePolicyBitmap1CB is { Length: 10 } a ? a : throw Missing("Force1CB");
-                    int ordinal = effect - 1, mask = 1 << (ordinal & 7);
-                    if ((active[ordinal >> 3] & mask) != 0)
+                    _ = state.NativeArmySimulation.Forces[forcePhysical];
+                    ForcePolicyEffects? effects = state.Forces.GetValueOrDefault(forcePhysical)?.PolicyEffects;
+                    bool active = effects?.ReadActivation(effect) ?? throw Missing("Force1CB");
+                    if (active)
                     {
-                        byte[] suppressed = ownedForce.SuppressedPolicyBitmap1D5 is { Length: 10 } s ? s : throw Missing("Force1D5");
-                        if ((suppressed[ordinal >> 3] & mask) == 0)
+                        bool suppressed = effects!.ReadSuppression(effect) ?? throw Missing("Force1D5");
+                        if (!suppressed)
                         {
                             if (!parameters.Int32Values.TryGetValue(OwnedBaseCapacityInputs.PanelKey(effect), out policyValue) ||
                                 policyValue is < short.MinValue or > short.MaxValue) throw Missing($"Reform{effect}_word36");

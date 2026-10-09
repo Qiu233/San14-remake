@@ -37,19 +37,20 @@ public sealed class OwnedArmyCityReturnResourceStage : IPlayableCityEntryResourc
             army.NativeArmyOrigin is not { NativeSlotIndex: >= 1 and <= 500 } origin ||
             origin.Language != parameters.Language || origin.RuleVersion != parameters.RuleVersion ||
             army.NativeTacticRuntime is not { Status10: 1 } runtime) return Missing("current.ordinary_source_Army");
-        NativeArmyReturnResources? resources = army.NativeReturnResources;
+        ArmyStoreKnowledge? receiver = null;
         if (state.NativeArmyLifecycle is { } lifecycle)
         {
             int physical = origin.NativeSlotIndex!.Value;
             if (physical >= lifecycle.Slots.Length || lifecycle.Slots[physical] is not { } arenaSlot ||
-                arenaSlot.ActiveUnitId != army.Id || arenaSlot.PhysicalSlot != physical ||
-                arenaSlot.Gold5C is not int gold || arenaSlot.Supplies60 is not int supplies)
+                arenaSlot.ActiveUnitId != army.Id || arenaSlot.PhysicalSlot != physical)
                 return Missing("current.Arena_Army_resources5C60");
-            var saved = new NativeArmyReturnResources(gold, supplies);
-            if (resources is not null && resources != saved) return Missing("current.Army_resource_owners_disagree");
-            resources = saved;
+            receiver = arenaSlot.StoredResources;
+            if (receiver.Known is null) return Missing("current.Arena_Army_resources5C60");
         }
-        if (resources is null) return Missing("current.Army_resources5C60");
+        var resolved = ArmyStoreRules.Resolve(army.CarriedStores, receiver);
+        if (resolved.Status == ArmyStoreResolutionStatus.Conflicting)
+            return Missing("current.Army_resource_owners_disagree");
+        if (resolved.Stores is not { } resources) return Missing("current.Army_resources5C60");
         if (army.Troops is < 0 or > ushort.MaxValue || army.WoundedTroops is not >= 0 or > ushort.MaxValue ||
             army.NativeMorale1A is not byte morale) return Missing("current.Army16_18_1A");
         if (city.NativeReturnRuntime is not { Wounded40: not null, Morale44: not null })
@@ -61,7 +62,7 @@ public sealed class OwnedArmyCityReturnResourceStage : IPlayableCityEntryResourc
         context.SetArmyUnitCommanderId(slot, checked((ushort)army.OfficerId));
         context.SetArmyUnitStatusFlag10(slot, runtime.Status10);
         context.SetArmyReturnResourceFields(slot, new((ushort)army.Troops,
-            (ushort)army.WoundedTroops!.Value, morale, resources.Gold5C, resources.Supplies60));
+            (ushort)army.WoundedTroops!.Value, morale, resources.Gold, resources.Food));
         var prepared = ArmyReturnResourceUpdater.ApplyCurrentResourceOutputs(new(slot),
             new(BaseKind.City, cityId), context);
         if (prepared.Packet is not { } packet) return Missing(prepared.UnresolvedOwner ?? "current.return_resource_packet");

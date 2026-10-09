@@ -140,8 +140,6 @@ public static class GameStateCopy
     internal static NativeArmyForceState? Copy(NativeArmyForceState? value) => value is null ? null : value with
     {
         RelationsEA = CopyArray(value.RelationsEA),
-        ActivePolicyBitmap1CB = CopyArray(value.ActivePolicyBitmap1CB),
-        SuppressedPolicyBitmap1D5 = CopyArray(value.SuppressedPolicyBitmap1D5),
         NormalAftermath = Copy(value.NormalAftermath),
     };
 

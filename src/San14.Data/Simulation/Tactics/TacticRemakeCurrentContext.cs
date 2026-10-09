@@ -240,14 +240,14 @@ public sealed partial class TacticRemakeCurrentContext : ITacticEffectSourceCont
     {
         if (!Bound(state) || effect is < 1 or > 79 || !state.Forces.TryGetValue(forceId, out ForceState? force)) return null;
         NativeArmyForceState? native = state.NativeArmySimulation!.Forces.GetValueOrDefault(forceId);
-        if (native?.ActivePolicyBitmap1CB is { Length: 10 } active)
+        ForcePolicyEffects? effects = force.PolicyEffects;
+        if (native is not null && effects?.ReadActivation(effect) is bool active)
         {
-            int index = effect - 1, mask = 1 << (index & 7);
             //22C510 returns before reading suppressed bitmap/definition when
             //the current active bit is zero. Preserve this reached-read order.
-            if ((active[index >> 3] & mask) == 0) return 0;
-            if (native.SuppressedPolicyBitmap1D5 is not { Length: 10 } suppressed) return null;
-            if ((suppressed[index >> 3] & mask) != 0) return 0;
+            if (!active) return 0;
+            if (effects.ReadSuppression(effect) is not bool suppressed) return null;
+            if (suppressed) return 0;
         }
         return _remaining?.ReadForcePolicyEffect(state, force, effect);
     }

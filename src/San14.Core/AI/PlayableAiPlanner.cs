@@ -1,21 +1,32 @@
 namespace San14.Core;
 
 /// <summary>Deterministic, deliberately basic AI for the provisional playable ruleset.</summary>
-public static class PlayableAiPlanner
+public sealed class PlayableAiPlanner : ICommandPlanner
 {
     public const string DistrictAutonomyProfileId = "san14:provisional-district-autonomy-v1";
+    private readonly PlayableRuleSet _rules;
+    private readonly HashSet<int> _humanForceIds;
+    private readonly bool _districtAutonomy;
+
+    public PlayableAiPlanner(PlayableRuleSet rules, IReadOnlySet<int> humanForceIds,
+        bool districtAutonomy = true)
+    {
+        _rules = rules;
+        _humanForceIds = humanForceIds.ToHashSet();
+        _districtAutonomy = districtAutonomy;
+    }
 
     /// <summary>Legacy whole-force exclusion and primary-district planning.</summary>
     public static GameState IssueOrders(GameState state, PlayableRuleSet rules,
-        IReadOnlySet<int> humanForceIds) => IssueOrders(state, rules, humanForceIds, false);
+        IReadOnlySet<int> humanForceIds) => IssueStandalone(state, rules, humanForceIds, false);
 
     /// <summary>Basic campaign delegation: humans keep direct control of their
     /// first district; known later districts use the same provisional planner.
     /// This does not infer original delegation settings or ruler personality.</summary>
     public static GameState IssueCampaignOrders(GameState state, PlayableRuleSet rules,
-        IReadOnlySet<int> humanForceIds) => IssueOrders(state, rules, humanForceIds, true);
+        IReadOnlySet<int> humanForceIds) => IssueStandalone(state, rules, humanForceIds, true);
 
-    private static GameState IssueOrders(GameState state, PlayableRuleSet rules,
+    private static GameState IssueStandalone(GameState state, PlayableRuleSet rules,
         IReadOnlySet<int> humanForceIds, bool districtAutonomy)
     {
         ArgumentNullException.ThrowIfNull(state);
@@ -25,8 +36,21 @@ public static class PlayableAiPlanner
         if (state.RulesetId != PlayableSkeleton.RulesetId || state.Phase != TurnPhase.Strategy)
             throw new InvalidOperationException("AI orders require a playable strategy phase.");
         StateValidator.Validate(state);
+        var planning = new CommandPlanningContext(state);
+        new PlayableAiPlanner(rules, humanForceIds, districtAutonomy).Plan(planning);
+        return planning.Current;
+    }
+
+    public void Plan(CommandPlanningContext planning)
+    {
+        GameState state = planning.Current;
+        if (state.NativePlayableTerminal is not null) return;
+        if (state.RulesetId != PlayableSkeleton.RulesetId || state.Phase != TurnPhase.Strategy)
+            throw new InvalidOperationException("AI orders require a playable strategy phase.");
+        PlayableRuleSet rules = _rules;
+        IReadOnlySet<int> humanForceIds = _humanForceIds;
+        bool districtAutonomy = _districtAutonomy;
         rules.Routes.ValidateWorld(state);
-        GameState current = state;
         foreach (ForceState force in state.Forces.Values.Where(force => force.IsActive)
                      .OrderBy(force => force.Id))
         {
@@ -36,6 +60,7 @@ public static class PlayableAiPlanner
                          district.ForceId == force.Id && (districtAutonomy ? district.Number >= 1 : district.Number == 1))
                          .OrderBy(district => district.Number).ThenBy(district => district.Id))
             {
+                GameState current = planning.Current;
                 if (human && district.Number == 1) continue;
                 //Unknown or absent district leadership is not repaired by an AI
                 //pass. In the temporary profile it leaves this delegation idle.
@@ -47,19 +72,19 @@ public static class PlayableAiPlanner
                 string actor = districtAutonomy ? $"ai:{force.Id}:district:{district.Id}" : $"ai:{force.Id}";
                 var context = new CommandContext(actor, districtAutonomy ? district.Id : null);
                 var authority = new SingleForceAuthority(force.Id, actor, districtAutonomy ? [district.Id] : []);
-                current = IssueDistrictOrders(current, rules, force, district, context, authority, districtAutonomy);
+                IssueDistrictOrders(planning, rules, force, district, context, authority, districtAutonomy);
             }
         }
-        return current;
     }
 
-    private static GameState IssueDistrictOrders(GameState current, PlayableRuleSet rules,
+    private static void IssueDistrictOrders(CommandPlanningContext planning, PlayableRuleSet rules,
         ForceState force, DistrictState district, CommandContext context, IOrderAuthority authority, bool districtAutonomy)
     {
+        GameState current = planning.Current;
         CityState? city = current.Cities.Values.Where(city => city.ForceId == force.Id &&
                 city.DistrictId == district.Id && city.HexId is not null)
             .OrderByDescending(city => city.Troops).ThenBy(city => city.Id).FirstOrDefault();
-        if (!districtAutonomy && city is null) return current;
+        if (!districtAutonomy && city is null) return;
         bool DistrictUnit(UnitState unit) => unit.ForceId == force.Id &&
             (!districtAutonomy || current.Officers[unit.OfficerId].DistrictId == district.Id);
 
@@ -76,12 +101,12 @@ public static class PlayableAiPlanner
                 : new DisbandUnitOrder(force.Id, arrived.Id,
                     current.Cities.Values.FirstOrDefault(baseCity =>
                         baseCity.ForceId == force.Id && baseCity.HexId == arrived.HexId)?.Id ?? -1);
-            current = ApplyIfAccepted(current, followup, rules, context, authority);
+            current = ApplyIfAccepted(planning, followup, rules, context, authority);
         }
 
         //An Army can still receive its next order after its district's last
         //city was lost. City administration and new departure need a base.
-        if (city is null) return current;
+        if (city is null) return;
 
         OfficerState[] available = current.Officers.Values.Where(officer => officer.ForceId == force.Id &&
                 (!districtAutonomy || officer.DistrictId == district.Id) &&
@@ -110,7 +135,7 @@ public static class PlayableAiPlanner
                 [new DeploymentAction("move", new DeploymentTarget(DeploymentTargetKind.Hex,
                     destinationHex))])
             { Behavior = new DeploymentBehavior(true, true, false, DeploymentAfterAction.Stay) };
-            current = ApplyIfAccepted(current,
+            current = ApplyIfAccepted(planning,
                 new PrepareDeploymentOrder(force.Id, city.Id, [unit]), rules, context, authority);
         }
 
@@ -122,7 +147,7 @@ public static class PlayableAiPlanner
         if (vacant is not null && administrator is not null)
         {
             var focus = (AreaDevelopmentFocus)(current.PeriodNumber % 3);
-            current = ApplyIfAccepted(current,
+            current = ApplyIfAccepted(planning,
                 new SetAreaAdministrationOrder(force.Id, city.Id,
                     [new AreaAdministrationChange(vacant.Id, administrator.Id, focus)]),
                 rules, context, authority);
@@ -134,18 +159,17 @@ public static class PlayableAiPlanner
                 if (duties is null ||
                     (kind == CityDutyKind.Recruitment ? duties.RecruiterId : duties.TrainerId) is not null)
                     continue;
-                current = ApplyIfAccepted(current,
+                current = ApplyIfAccepted(planning,
                     new SetCityDutyOrder(force.Id, city.Id, kind, administrator.Id),
                     rules, context, authority);
             }
-        return current;
     }
 
-    private static GameState ApplyIfAccepted(GameState state, GameOrder order, PlayableRuleSet rules,
+    private static GameState ApplyIfAccepted(CommandPlanningContext planning, GameOrder order, PlayableRuleSet rules,
         CommandContext context, IOrderAuthority authority)
     {
-        CommandResult result = GameEngine.Apply(state, order, rules.OrderRules, context, authority);
-        return result.State ?? state;
+        planning.Apply(order, rules.OrderRules, context, authority);
+        return planning.Current;
     }
 
     private static CityState? SelectEnemyCity(GameState state, int forceId, int sourceHex,

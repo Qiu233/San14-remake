@@ -77,7 +77,7 @@ public sealed partial class SourceWorldContext : ICurrentGateMapState
         return _districtPointers.TryGetValue(raw.Value <= 51 ? raw.Value : 0, out int? physical) ? new(physical) : null;
     }
     public byte? ReadDistrictForceSlot(DistrictReference reference) =>
-        ReadDistrictRawByte(MapPhysical(reference.PhysicalSlot, 52, "district"), 0x10);
+        ReadDistrictForceId(MapPhysical(reference.PhysicalSlot, 52, "district"));
     public int? ReadDistrictPhysicalSlot(DistrictReference reference) =>
         MapPhysical(reference.PhysicalSlot, 52, "district");
 

@@ -39,8 +39,7 @@ public sealed partial class ArmyOperationContext
         foreach (DistrictState district in state.Districts.Values)
         {
             if (district.Id is < 1 or > 51 || district.ForceId is < 1 or > 51 || district.Number is < 0 or > 255) return null;
-            native.SetDistrictRawByte(district.Id, 0x10, (byte)district.ForceId);
-            native.SetDistrictRawByte(district.Id, 0x11, (byte)district.Number);
+            native.WriteDistrictAffiliation(district.Id, (byte)district.ForceId, (byte)district.Number);
             native.SetDistrictRawByte(district.Id, 0x12, district.LeaderId is int leader ? (byte)leader : null);
             native.SetDistrictRawByte(district.Id, 0x13, district.LeaderId is int high ? (byte)(high >> 8) : null);
         }
