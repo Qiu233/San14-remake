@@ -611,7 +611,7 @@ public static class PlayableSkeleton
             officers = tacticState.Officers;
             randomState = tacticState.RandomState;
             reports.AddRange(tacticSummaries);
-            GameState nativeState = NativeSubdayRuntime.CompletePeriod(tacticState, nativeSubdayRules);
+            GameState nativeState = NativeSubdayRuntime.CompletePeriodOwned(tacticState, nativeSubdayRules);
             if (nativePeriodContinuationRules is not null)
             {
                 //All prepared orders were consumed above. Calendar/Return

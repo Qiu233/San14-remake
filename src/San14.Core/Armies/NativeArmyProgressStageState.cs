@@ -1,36 +1,53 @@
 namespace San14.Core;
 
 public enum NativeArmyProgressStageBoundary { StageEntry, AfterArmyWaiting }
+public enum NativeArmyProgressStage : byte
+{
+    PersonnelReturn = 0,
+    Waiting = 2,
+    PrepareMovement = 7,
+    Movement = 8,
+    Combat = 13,
+    Defeat = 19,
+    ReleaseRetired = 26,
+    Count = 32
+}
 public sealed record NativeArmyProgressStageMoment(long CalendarCycleOrdinal,
     NativeMapSeasonDate PreWriterThirdDate, byte SchedulerStageIndex, int CycleWithinAtomicBlock,
     NativeArmyProgressStageBoundary Boundary);
 
-/// <summary>Current owned stage work over a private transaction. Null is unknown
-/// or busy. In particular stage8 may not be skipped to manufacture a later
-/// combat capture. The ordinary Army waiting update is manager(+60), invoking
-/// TC302520/SC3023F0. Stage2 entry owns any earlier work; AfterArmyWaiting owns
-/// the later manager(+150) work. Manager(+80) invokes the different302290 leaf.
-/// Other hour/stage-specific branches, including the separate hour6 stage2
-/// callback, belong to the stage provider. Returned provenance must identify
-/// the supported current branch; this interface asserts no full-world coverage.</summary>
-public sealed record NativeArmyProgressStageResolution(GameState State, string SourceProvenance);
+/// <summary>One completed stage and the rule branch that performed it.</summary>
+public sealed record NativeArmyProgressStageResolution(GameState State, string RuleId);
+/// <summary>Creates fresh temporary rule state for each attempted progress block.</summary>
+public interface IPlayableNativeArmyProgressStageSource
+{
+    IPlayableNativeArmyProgressStageRules BeginOperation();
+}
+
+/// <summary>Rules receive an operation-owned world and transfer the resulting
+/// world back to that operation. They may update it, but must not retain mutable
+/// world collections after the operation or return borrowed external collections.
+/// Calendar advancement belongs to the driver. Null means unresolved or busy.</summary>
 public interface IPlayableNativeArmyProgressStageRules
 {
     NativeArmyProgressStageResolution? AdvanceStage(GameState state, NativeArmyProgressStageMoment moment);
+    /// <summary>Reads the full current manager order without changing the supplied world.</summary>
     IReadOnlyList<int>? ReadCompleteWaitingArmyOrder(GameState state, NativeArmyProgressStageMoment moment);
 }
 
-/// <summary>One actual stage2 Army-manager update over a detached state.
-/// The complete current actor order belongs to the caller's native owner;
-/// logical IDs and pool slots are not fallback ordering keys.</summary>
+/// <summary>One waiting update over the complete caller-supplied manager order.</summary>
 public static class NativeArmyWaitingStageAtomicRuntime
 {
     public static GameState? TryAdvance(GameState state, IPlayableNativeSubdayRules rules,
         NativeSubdayMoment moment, IReadOnlyList<int> completeCurrentArmyOrder)
+        => TryAdvanceOwned(GameStateCopy.Copy(state), rules, moment, completeCurrentArmyOrder);
+
+    /// <summary>Uses the caller's private operation world; failure must discard that operation.</summary>
+    public static GameState? TryAdvanceOwned(GameState state, IPlayableNativeSubdayRules rules,
+        NativeSubdayMoment moment, IReadOnlyList<int> completeCurrentArmyOrder)
     {
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(rules);
         ArgumentNullException.ThrowIfNull(moment); ArgumentNullException.ThrowIfNull(completeCurrentArmyOrder);
-        NativeSubdayStateValidation.Validate(state);
         var clock = state.NativeClock ?? throw new InvalidDataException("Waiting stage requires its actual owned clock.");
         if (clock.UpdatesIntoPeriod == NativeSubdayStateValidation.UpdatesPerPeriod ||
             moment.AnchorDate != clock.AnchorDate || moment.UpdateOrdinal != checked(clock.UpdateOrdinal + 1) ||
@@ -42,7 +59,7 @@ public static class NativeArmyWaitingStageAtomicRuntime
             throw new InvalidDataException("Waiting stage requires every current Army manager actor exactly once in its actual order.");
         if (state.Units.Values.Any(u => u.TacticRuntime?.Pending?.NativeIssuedAtUpdateOrdinal is not null))
             return null;
-        GameState working = GameStateSnapshot.Detach(state);
+        GameState working = state;
         var nextClock = clock with { UpdateOrdinal = moment.UpdateOrdinal, UpdatesIntoPeriod = clock.UpdatesIntoPeriod + 1 };
         var units = new Dictionary<int, UnitState>(working.Units);
         var reports = (clock.UpdatesIntoPeriod == 0 ? [] : working.NativeSubdayReports ?? []).ToList();
@@ -63,7 +80,6 @@ public static class NativeArmyWaitingStageAtomicRuntime
         }
         GameState result = working with { Units = units, NativeClock = nextClock,
             RandomState = random, NativeSubdayReports = reports.ToArray() };
-        NativeSubdayStateValidation.Validate(result);
-        return GameStateSnapshot.Detach(result);
+        return result;
     }
 }

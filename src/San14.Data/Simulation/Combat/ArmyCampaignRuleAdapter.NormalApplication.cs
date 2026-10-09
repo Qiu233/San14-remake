@@ -1,4 +1,3 @@
-using System.Text.Json;
 using San14.Core;
 
 namespace San14.Data;
@@ -79,8 +78,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         Func<GameState, TacticRemakeCurrentContext?> captureCurrent)
     {
         ArgumentNullException.ThrowIfNull(input);
-        GameState working = JsonSerializer.Deserialize<GameState>(JsonSerializer.SerializeToUtf8Bytes(input))
-            ?? throw new InvalidDataException("Ordinary application state could not be detached.");
+        GameState working = GameStateCopy.Copy(input);
         if (!working.Units.TryGetValue(attackerId, out UnitState? attacker) ||
             !working.Units.ContainsKey(targetId) || captureCurrent(working) is not { } current ||
             current.ArmyValid(working, attacker) != true)
@@ -170,7 +168,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     wounds.Wounded18After, debit.Troops16After, leadership, debit.AppliedLoss, sampler);
                 if (moraleLoss.Loss > 0)
                 {
-                    var adjustment = TryApplyNativeMoraleAdjustment(working, target.Id, moraleLoss.NativeAdjustment);
+                    var adjustment = ApplyMoraleDuringArmyOperation(working, target.Id, moraleLoss.NativeAdjustment);
                     if (adjustment.Outcome != ArmyMoraleAdjustmentOutcome.Committed)
                         return Unknown($"morale-callback:{adjustment.Outcome}");
                     working = adjustment.State; moraleWrite = adjustment.Receipt;
@@ -190,11 +188,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         //174310 death/capture/removal still needs its real producer.
         if (working.Units[target.Id].Troops == 0)
         {
-            NativeSubdayStateValidation.Validate(working);
             return new(NormalArmyApplicationPrefixOutcome.ZeroTroopsCleanupRequired, input, receipt,
                 "174310-zero-troops-cleanup") { PendingCleanupState = working };
         }
-        NativeSubdayStateValidation.Validate(working);
         return new(NormalArmyApplicationPrefixOutcome.AwaitingForceAndAftermath, working, receipt, null);
 
         NormalArmyApplicationBodyResult Unknown(string phase) =>

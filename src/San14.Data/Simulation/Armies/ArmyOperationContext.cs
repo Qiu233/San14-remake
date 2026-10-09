@@ -13,6 +13,7 @@ public sealed partial class ArmyOperationContext
     private readonly LoadedSkillDefinitions _skills;
     private readonly LoadedPersonalities _personalities;
     private readonly LoadedObjectDefinitions? _objectDefinitions;
+    private readonly MapTopology _mapTopology;
 
     public ArmyOperationContext(LoadedScenario source, LoadedMap map,
         LoadedTerrainTypes terrain, LoadedSkillDefinitions skills, LoadedPersonalities personalities,
@@ -26,6 +27,8 @@ public sealed partial class ArmyOperationContext
             objectDefinitions is not null && objectDefinitions.Source.Sha256 != source.FixedDataSource.Sha256)
             throw new InvalidDataException("Owned Army definitions require coherent complete CE source tables.");
         _ = ScenarioTerritory.Build(map.Map, source.Snapshot);
+        _mapTopology = new(map.Map.Width, map.Map.Height,
+            map.Map.Cells.Select(cell => new MapTileDefinition(cell.Id, cell.AreaSlot, cell.SurfaceCode)));
     }
 
     public SourceWorldContext? Capture(GameState state)
@@ -73,7 +76,7 @@ public sealed partial class ArmyOperationContext
         foreach ((int id, TerritoryState cell) in state.Territory)
         {
             if (id != cell.Id || cell.Id is < 0 or >= 48400 || cell.ForceId is < 0 or > 51 ||
-                (cell.AreaId ?? 0) != _map.Map.Cells[cell.Id].AreaSlot) return null;
+                (cell.AreaId ?? 0) != _mapTopology.Tile(cell.Id).AreaId) return null;
             native.SetHexForceSlot(cell.Id, (byte)(cell.ForceId ?? 0));
         }
         if (state.Territory.Count != 48400) return null;
@@ -102,17 +105,12 @@ public sealed partial class ArmyOperationContext
     internal SourceWorldContext CaptureSourcePrefix()
     {
         var native = new SourceWorldContext();
+        native.BindMapIdentityDefinitions(_mapTopology);
         native.InitializeStaticTablePointers();
         if (_objectDefinitions is not null) native.MaterializeFixedObjectDefinitions(_objectDefinitions);
         //Fresh CHex ctor221660/2213B0 qword+16 zeroes Hex1A. This
         //explicit allocation precedes source/map-overlay writes.
-        foreach (var cell in _map.Map.Cells)
-        {
-            native.SetHexTablePointer(cell.Id, cell.Id);
-            native.SetHexAreaSlot(cell.Id, cell.AreaSlot);
-            native.SetHexSurfaceCode(cell.Id, cell.SurfaceCode);
-            native.SetHexObjectLink(cell.Id, 0);
-        }
+        native.BindMapDefinitions(_mapTopology);
         for (int physical = 0; physical < 1851; physical++) native.ResetPersonTraitFields(physical);
         native.InitializePersonalityStorage();
         native.MaterializeStaticSource(_source);

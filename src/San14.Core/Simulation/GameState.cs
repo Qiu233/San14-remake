@@ -26,7 +26,7 @@ public readonly record struct PeriodDate(int Year, int Month, int Day)
 
 // Force-level order fields are retained only for legacy saves and PrototypeOrderRules.
 // Original command books belong to districts; do not infer a district budget from these fields.
-public sealed record ForceState(int Id, string Name, int? OrdersRemaining, int? OrderLimit)
+public sealed partial record ForceState(int Id, string Name, int? OrdersRemaining, int? OrderLimit)
 {
     public int? RulerId { get; init; }
     public int? RankId { get; init; }
@@ -365,6 +365,7 @@ public static class StateValidator
                 (force.SourceIndexedBytes13 is null) != (force.SourceIndexedBytesEA is null) ||
                 (force.RankId is int rankId && !state.ForceRanks.ContainsKey(rankId)) ||
                 (force.DoctrineId is int doctrineId && !state.Doctrines.ContainsKey(doctrineId)) ||
+                force.CombatObjective?.TargetLocationId < 0 || force.CombatObjective?.Progress < 0 ||
                 force.OrdersRemaining < 0 || force.OrderLimit < force.OrdersRemaining ||
                 force.OrdersRemaining.HasValue != force.OrderLimit.HasValue)
                 throw new InvalidDataException($"Force {id} has invalid orders or ID.");

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using San14.Core;
 
 namespace San14.Data;
@@ -25,6 +24,13 @@ public sealed class ArmyMoraleAdjustmentSource(
     SourceWorldContext definitions, string revision)
 {
     public ArmyMoraleAdjustmentResult TryApply(GameState input, int armyId, int adjustment)
+        => Apply(input, armyId, adjustment, owned: false);
+
+    /// <summary>Applies the scalar write inside an already private Army operation.</summary>
+    internal ArmyMoraleAdjustmentResult TryApplyWithinArmyOperation(GameState input, int armyId, int adjustment)
+        => Apply(input, armyId, adjustment, owned: true);
+
+    private ArmyMoraleAdjustmentResult Apply(GameState input, int armyId, int adjustment, bool owned)
     {
         ArgumentNullException.ThrowIfNull(input);
         if (string.IsNullOrWhiteSpace(revision)) throw new InvalidDataException("Native morale adjustment needs source revision.");
@@ -61,13 +67,11 @@ public sealed class ArmyMoraleAdjustmentSource(
         if (receipt is null) return Unknown();
         if (receipt.RoutingTestValue == 0)
             return new(ArmyMoraleAdjustmentOutcome.ZeroMoraleAftermathUnresolved, input, receipt);
-        GameState detached = JsonSerializer.Deserialize<GameState>(JsonSerializer.SerializeToUtf8Bytes(input))
-            ?? throw new InvalidDataException("Native morale adjustment state failed to detach.");
-        var units = new Dictionary<int, UnitState>(detached.Units) {
-            [armyId] = detached.Units[armyId] with { NativeMorale1A = receipt.After1A }
+        GameState working = owned ? input : GameStateCopy.Copy(input);
+        var units = new Dictionary<int, UnitState>(working.Units) {
+            [armyId] = working.Units[armyId] with { NativeMorale1A = receipt.After1A }
         };
-        GameState result = detached with { Units = units };
-        NativeSubdayStateValidation.Validate(result);
+        GameState result = working with { Units = units };
         return new(ArmyMoraleAdjustmentOutcome.Committed, result, receipt);
 
         ArmyMoraleAdjustmentResult Unknown() => new(ArmyMoraleAdjustmentOutcome.CurrentInputsUnresolved, input, null);

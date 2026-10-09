@@ -118,7 +118,7 @@ public sealed class CampaignEventCatalog
                 rejections.Add(new(source.Index, source.Offset, source.Code, execution ?
                     "No complete execution binding for this original opcode." :
                     "No current basic condition binding for this original opcode."));
-            else if (!execution && source.Code == 9 && arguments[0] is < 0 or >= 1024)
+            else if (!execution && source.Code == 9 && arguments[0] is < 0 or >= S14EventSourceProfile.WorldFlagCount)
                 rejections.Add(new(source.Index, source.Offset, source.Code,
                     "Event flag selector is outside the supported native world bitmap."));
             else if (!execution && source.Code is 17 or 19 && arguments[1] < 0)

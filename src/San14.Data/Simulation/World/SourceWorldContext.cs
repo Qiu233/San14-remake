@@ -32,18 +32,8 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
     private readonly Dictionary<int, int?> _personPointers = [], _cityPointers = [], _objectPointers = [], _gatePointers = [];
     private bool _personLookupCleared, _basePointerKnown;
     private int? _basePerson;
-    private readonly Dictionary<int, bool?> _worldFlags = [], _resultFlags = [], _managerFlags = [];
-    private bool? _worldDefault, _resultDefault, _managerDefault;
-    private readonly List<S14EventEligibilityResult> _results = [];
-    private bool _resultsKnown;
-
-    public short? RawWorldField2E { get; set; }
-    public int? RawWorldField44 { get; set; }
-    public int? RawPastGameTime { get; set; }
-    public ushort? RawEmperorId { get; set; }
-    public bool? ManagerPresent { get; set; }
-    public bool? AvailableResult { get; private set; }
-    public IReadOnlyList<S14EventEligibilityResult>? Results => _resultsKnown ? _results.AsReadOnly() : null;
+    public EventConditionState EventConditions { get; } = new();
+    public EventEligibilitySession EventEligibility { get; } = new();
     public SourceProvenance? StaticSource { get; private set; }
     // Optional explicit query overrides. Defaults consume the current map state in this context.
     public Func<int, int?>? GateForceReader { get; set; }
@@ -53,35 +43,30 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
     public Action<AssociationRemovalReport>? AssociationRemovalReporter { get; set; }
     public Action<int, int, int>? TransferServiceRefresher { get; set; }
 
-    public short? ReadWorldField2E() => RawWorldField2E;
-    public int? ReadWorldField44() => RawWorldField44;
-    public int? ReadPastGameTime() => RawPastGameTime;
-    public ushort? ReadEmperorId() => RawEmperorId;
-    public bool? ReadEventManagerPresent() => ManagerPresent;
-    public bool? ReadWorldEventFlag(int index) => ReadBit(_worldFlags, _worldDefault, index, 1024);
-    public bool? ReadWorldResultFlag(int index) => ReadBit(_resultFlags, _resultDefault, index, 1024);
-    public bool? ReadManagerEventFlag(int index) => ReadBit(_managerFlags, _managerDefault, index, 992);
-    public void SetWorldEventFlag(int index, bool? value) => SetBit(_worldFlags, index, 1024, value);
-    public void SetWorldResultFlag(int index, bool? value) => SetBit(_resultFlags, index, 1024, value);
-    public void SetManagerEventFlag(int index, bool? value) => SetBit(_managerFlags, index, 992, value);
+    public short? ReadCurrentYear() => EventConditions.CurrentYear;
+    public int? ReadScenarioMode() => EventConditions.ScenarioMode;
+    public int? ReadPastGameTime() => EventConditions.PastGameTime;
+    public ushort? ReadEmperorId() => EventConditions.EmperorPersonId;
+    public bool? ReadEventManagerPresent() => EventEligibility.IsPresent;
+    public bool? ReadWorldEventFlag(int index)
+    { Check(index, S14EventSourceProfile.WorldFlagCount, "event bit"); return EventConditions.ReadEventFlag(index); }
+    public bool? ReadWorldResultFlag(int index)
+    { Check(index, S14EventSourceProfile.WorldFlagCount, "event bit"); return EventConditions.ReadResultFlag(index); }
+    public bool? ReadManagerEventFlag(int index)
+    { Check(index, S14EventSourceProfile.ManagerFlagCount, "event bit"); return EventEligibility.ReadBlockedFlag(index); }
+    public void SetWorldEventFlag(int index, bool? value)
+    { Check(index, S14EventSourceProfile.WorldFlagCount, "event bit"); EventConditions.SetEventFlag(index, value); }
+    public void SetWorldResultFlag(int index, bool? value)
+    { Check(index, S14EventSourceProfile.WorldFlagCount, "event bit"); EventConditions.SetResultFlag(index, value); }
+    public void SetManagerEventFlag(int index, bool? value)
+    { Check(index, S14EventSourceProfile.ManagerFlagCount, "event bit"); EventEligibility.SetBlockedFlag(index, value); }
     public void WriteManagerEventFlag(int index, bool value) => SetManagerEventFlag(index, value);
 
-    /// <summary>Only the two proved world bitmap reset windows; scalar state is untouched.</summary>
-    public void ResetWorldEventFlags()
-    {
-        _worldFlags.Clear(); _resultFlags.Clear();
-        _worldDefault = _resultDefault = false;
-    }
-
-    /// <summary>Only the 124-byte manager table; presence, results and availability are untouched.</summary>
-    public void ResetManagerEventFlags() { _managerFlags.Clear(); _managerDefault = false; }
-    public void ResetResults() { _results.Clear(); _resultsKnown = true; }
-    public void AppendResult(S14EventEligibilityResult result)
-    {
-        if (result is null || !_resultsKnown) throw new InvalidDataException("Current manager results are unknown; reset is required before append.");
-        _results.Add(result);
-    }
-    public void WriteAvailableResult(bool value) => AvailableResult = value;
+    public void ResetWorldEventFlags() => EventConditions.ResetFlags();
+    public void ResetManagerEventFlags() => EventEligibility.ResetBlockedFlags();
+    public void ResetResults() => EventEligibility.ResetResults();
+    public void AppendResult(S14EventEligibilityResult result) => EventEligibility.AppendResult(result);
+    public void WriteAvailableResult(bool value) => EventEligibility.SetAvailableResult(value);
 
     public void SetPersonRecord(S14ConditionNativePerson record)
     {
@@ -633,11 +618,11 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
             SetObjectForceSlot13(slot, value.RawField13);
             SetObjectTablePointer(slot, slot);
         }
-        RawWorldField2E = source.WorldParameters.RawWorldField2E;
-        RawWorldField44 = source.WorldParameters.RawModeValue;
+        EventConditions.CurrentYear = source.WorldParameters.RawCurrentYear;
+        EventConditions.ScenarioMode = source.WorldParameters.RawModeValue;
         RawWorldField48 = source.WorldParameters.RawField48;
-        RawPastGameTime = source.WorldParameters.RawPastGameTime;
-        RawEmperorId = source.WorldParameters.RawEmperorPersonId;
+        EventConditions.PastGameTime = source.WorldParameters.RawPastGameTime;
+        EventConditions.EmperorPersonId = source.WorldParameters.RawEmperorPersonId;
         RawWorldField450 = reportTime;
         MaterializeStaticSceneryState(loaded);
         MaterializeStaticPersonalityState(loaded);
@@ -656,13 +641,6 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
         if (physical.HasValue) Check(physical.Value, physicalCount, "physical pointer slot");
         pointers[slot] = physical;
     }
-    private static bool? ReadBit(Dictionary<int, bool?> flags, bool? fallback, int index, int count)
-    {
-        Check(index, count, "event bit");
-        return flags.TryGetValue(index, out bool? value) ? value : fallback;
-    }
-    private static void SetBit(Dictionary<int, bool?> flags, int index, int count, bool? value)
-    { Check(index, count, "event bit"); flags[index] = value; }
     private static void Check(int value, int count, string field)
     {
         if (value < 0 || value >= count) throw new InvalidDataException($"{field} {value} is outside the supported native profile 0..{count - 1}.");

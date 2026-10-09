@@ -221,7 +221,6 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         //Absent location owners overlay null masks; a reached conditional trait
         //must remain unknown while permanent traits can still resolve.
         if (state.Officers.Values.Any(person => person.NativeAbilityRuntime is null)) return null;
-        NativeArmyReturnCurrentStateValidation.Validate(state);
         SourceWorldContext? current = _definitions.Capture(state);
         if (current is null) return null;
         current.OverlayOwnedArmyReturnCurrentFields(state);
@@ -359,6 +358,15 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                 .TryApply(state, armyId, adjustment);
     }
 
+    internal ArmyMoraleAdjustmentResult ApplyMoraleDuringArmyOperation(GameState state, int armyId, int adjustment)
+    {
+        SourceWorldContext? definitions = CaptureCurrentDefinitions(state);
+        return definitions is null
+            ? new(ArmyMoraleAdjustmentOutcome.CurrentInputsUnresolved, state, null)
+            : new ArmyMoraleAdjustmentSource(Context(definitions), definitions, Revision)
+                .TryApplyWithinArmyOperation(state, armyId, adjustment);
+    }
+
     public PersonGrowthResult TryApplyNativePersonGrowth(GameState state, int officerId,
         int abilityIndex, int requestedGrowth, int reportContext = 0)
     {
@@ -388,6 +396,15 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         var current = CaptureCurrentDefinitions(state);
         return current is null ? new(NormalArmyForceResultOutcome.CurrentInputsUnresolved, state, null) :
             NormalArmyForceResultSource.TryApply(state, attackerForceSlot, targetForceSlot, cappedLoss,
+                killed, current, registry, _forceResultSeed, Revision);
+    }
+
+    internal NormalArmyForceResultApplication ApplyForceResultDuringArmyOperation(GameState state, int attackerForceId,
+        int targetForceId, int cappedLoss, bool killed, INormalArmyForceResultDefinitionQueries registry)
+    {
+        var current = CaptureCurrentDefinitions(state);
+        return current is null ? new(NormalArmyForceResultOutcome.CurrentInputsUnresolved, state, null) :
+            NormalArmyForceResultSource.ApplyWithinArmyOperation(state, attackerForceId, targetForceId, cappedLoss,
                 killed, current, registry, _forceResultSeed, Revision);
     }
 

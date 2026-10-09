@@ -1,4 +1,3 @@
-using System.Text.Json;
 using San14.Core;
 
 namespace San14.Data;
@@ -67,7 +66,7 @@ public sealed class PersonNormalArmyRewardSource
 
     private PersonNormalArmyRewardResult Apply(GameState input, SourceWorldContext definitions,
         TacticRemakeCurrentContext current, ArmyCampaignRuleAdapter package,
-        int personId, int kind, int amount, bool validateWorld)
+        int personId, int kind, int amount, bool detachCallbacks)
     {
         if (!Bound(input) || !current.IsBoundCurrentState(input) || !input.Officers.TryGetValue(personId, out var person) ||
             person.NativeAbilityRuntime is not { } ability || ability.Language != _language || ability.RuleVersion != _ruleVersion ||
@@ -104,17 +103,20 @@ public sealed class PersonNormalArmyRewardSource
         if (kind is < 0 or > 3) return Skip();
         if (ReadRequests(input, kind, amount) is not { } requests) return Unknown("request-parameters");
         return ApplyQualifiedRequests(input, personId, army.Id, requests,
-            validateWorld ? package.TryApplyNativePersonGrowth : package.ApplyPersonGrowthDuringArmyOperation,
-            validateWorld ? package.TryApplyNativePendingMerit : package.ApplyPendingMeritDuringArmyOperation,
-            $"{ProfileId}:{input.NativeArmySimulation!.Parameters.Revision}", validateWorld);
+            package.ApplyPersonGrowthDuringArmyOperation,
+            package.ApplyPendingMeritDuringArmyOperation,
+            $"{ProfileId}:{input.NativeArmySimulation!.Parameters.Revision}", detachCallbacks);
         PersonNormalArmyRewardResult Unknown(string phase) => new(PersonNormalArmyRewardOutcome.CurrentInputsUnresolved, input, null, phase);
         PersonNormalArmyRewardResult Skip() => new(PersonNormalArmyRewardOutcome.NativeSkip, input, null, null);
     }
 
-    /// <summary>Internal callback transaction for an already resolved native
+    /// <summary>Callback transaction for an already resolved native
     /// receiver and requests. It does not certify upstream Army eligibility.
-    /// Scratch state protects the caller even when an explicit callback rejects
-    /// after modifying its draft. Growth always precedes pending credit.</summary>
+    /// Each callback borrows the candidate and returns that candidate or a
+    /// replacement derived from it; a successful result transfers that state
+    /// to the caller. A callback must not retain the candidate for later writes.
+    /// Rejection discards candidate changes. External callback side effects
+    /// belong to the callback. Growth always precedes pending credit.</summary>
     public static PersonNormalArmyRewardResult TryApplyQualifiedRequests(GameState input, int personId, int? armyId,
         PersonNormalArmyRewardRequests requests,
         Func<GameState, int, int, int, int, PersonGrowthResult> growth,
@@ -124,18 +126,20 @@ public sealed class PersonNormalArmyRewardSource
     private static PersonNormalArmyRewardResult ApplyQualifiedRequests(GameState input, int personId, int? armyId,
         PersonNormalArmyRewardRequests requests,
         Func<GameState, int, int, int, int, PersonGrowthResult> growth,
-        Func<GameState, int, int, PersonPendingMeritResult> pending, string revision, bool validateWorld)
+        Func<GameState, int, int, PersonPendingMeritResult> pending, string revision, bool detachCallbacks)
     {
         ArgumentNullException.ThrowIfNull(input); ArgumentNullException.ThrowIfNull(requests);
         ArgumentNullException.ThrowIfNull(growth); ArgumentNullException.ThrowIfNull(pending);
         if (string.IsNullOrWhiteSpace(revision)) throw new InvalidDataException("Qualified normal reward needs source revision.");
-        GameState draft = JsonSerializer.Deserialize<GameState>(JsonSerializer.SerializeToUtf8Bytes(input))
-            ?? throw new InvalidDataException("Normal reward state could not be detached.");
+        //Public callbacks receive one independent candidate. The actual owned
+        //callbacks resolve first and return officer replacements: they cannot
+        //mutate this input, so their intermediate growth need not be published
+        //when pending merit rejects later.
+        GameState draft = detachCallbacks ? GameStateCopy.Copy(input) : input;
         var first = growth(draft, personId, 0, requests.LeadershipGrowth, 0);
         if (first.Outcome == PersonGrowthOutcome.CurrentInputsUnresolved) return Unknown("growth");
         var second = pending(first.State, personId, requests.PendingMerit);
         if (second.Outcome == PersonPendingMeritOutcome.CurrentInputsUnresolved) return Unknown("pending-merit");
-        if (validateWorld) StateValidator.Validate(second.State);
         var receipt = new PersonNormalArmyRewardReceipt(personId, armyId, requests, first.Outcome, second.Outcome,
             first.Receipt, second.Receipt, revision);
         bool wrote = first.Outcome == PersonGrowthOutcome.Committed || second.Outcome == PersonPendingMeritOutcome.Committed;
@@ -172,12 +176,7 @@ public sealed class PersonNormalArmyRewardSource
     }
 
     public static PersonNormalArmyRewardRequests CalculateRequests(int kind, int amount, int growth, int merit)
-        => kind switch {
-            0 or 1 => new(kind, amount, unchecked(growth * amount) / 100,
-                unchecked(unchecked(merit * amount) * 10) / 100),
-            2 => new(kind, amount, growth, unchecked(merit * 10)),
-            3 => new(kind, amount, growth, 0),
-            _ => throw new InvalidDataException("Normal reward kind is outside the source switch.") };
+        => PersonRewardArithmetic.CalculateRequests(kind, amount, growth, merit);
     private bool Bound(GameState input) => input.NativeClock is not null && input.NativeArmySimulation?.Parameters is { } p &&
         p.Language == _language && p.RuleVersion == _ruleVersion &&
         input.ContentHashes.GetValueOrDefault(_source.ScenarioSource.ResourceUri) == _source.ScenarioSource.Sha256 &&

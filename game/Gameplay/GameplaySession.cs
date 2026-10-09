@@ -35,17 +35,6 @@ public sealed class GameplaySession
         PlayableRuleSet rules, Func<GameState, GameState> advanceCalendar) =>
         new(world, rules, playerForceId, advanceCalendar);
 
-    /// <summary>Build the complete campaign before publishing a new session.</summary>
-    public GameplaySession Start(int playerForceId,
-        Func<GameState, int, CampaignConfiguration> configure)
-    {
-        int rulerId = World.Forces[playerForceId].RulerId ??
-            throw new InvalidDataException("The confirmed faction has no ruler.");
-        GameState started = PlayableSkeleton.Start(World);
-        CampaignConfiguration campaign = configure(started, rulerId);
-        return new(campaign.World, campaign.Rules, playerForceId, campaign.AdvanceCalendar);
-    }
-
     public CommandResult Issue(GameOrder order)
     {
         if (_authority is null) throw new InvalidOperationException("The campaign has not started.");
@@ -87,7 +76,3 @@ public sealed class GameplaySession
     private int RequirePlayer() => PlayerForceId ??
         throw new InvalidOperationException("The campaign has not started.");
 }
-
-/// <summary>Resource-dependent campaign assembly supplied by the composition root.</summary>
-public sealed record CampaignConfiguration(GameState World, PlayableRuleSet Rules,
-    Func<GameState, GameState> AdvanceCalendar);

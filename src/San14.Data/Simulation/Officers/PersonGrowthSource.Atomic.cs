@@ -1,4 +1,3 @@
-using System.Text.Json;
 using San14.Core;
 
 namespace San14.Data;
@@ -12,20 +11,21 @@ public sealed record PersonGrowthResult(PersonGrowthOutcome Outcome, GameState S
 
 public sealed partial class PersonGrowthSource
 {
-    /// <summary>Actual2B9FA0 atomic XP/base/258B40 vector writer. It is an
-    /// independent callback; normal2B9110 pending-merit remains unowned.</summary>
+    /// <summary>Standalone atomic XP/base/growth-notice update. A committed
+    /// result owns a detached world. NativeSkip and unknown return the input;
+    /// the compound normal reward owns its later pending-merit callback.</summary>
     public PersonGrowthResult TryApply(GameState input, SourceWorldContext current,
         PersonGrowthCurrentQueries queries, int personId, int abilityIndex, int requested, int reportContext = 0) =>
         Apply(input, current, queries, personId, abilityIndex, requested, reportContext, true);
 
-    //Source callbacks can run while earlier Army requests still own zero
-    //receivers. Whole-world validation belongs to the block's publication.
+    //The enclosing Army operation owns the candidate. Resolve every reached
+    //query before replacing this officer; unknown never publishes a prefix.
     internal PersonGrowthResult TryApplyWithinArmyOperation(GameState input, SourceWorldContext current,
         PersonGrowthCurrentQueries queries, int personId, int abilityIndex, int requested, int reportContext) =>
         Apply(input, current, queries, personId, abilityIndex, requested, reportContext, false);
 
     private PersonGrowthResult Apply(GameState input, SourceWorldContext current,
-        PersonGrowthCurrentQueries queries, int personId, int abilityIndex, int requested, int reportContext, bool validateWorld)
+        PersonGrowthCurrentQueries queries, int personId, int abilityIndex, int requested, int reportContext, bool detachStandalone)
     {
         if (!input.Officers.TryGetValue(personId, out OfficerState? person) || abilityIndex is < 0 or > 4 ||
             person.NativeAbilityRuntime is not { } owner || person.NativeGrowthRuntime is not { } growth ||
@@ -73,19 +73,17 @@ public sealed partial class PersonGrowthSource
                 queries.ReadCurrent(input, SimulationParameterKeys.PersonGrowth.PolicyGrowthScale) is not int scale40) return Unknown();
             policy = value; policyScale = scale40;
         }
-        uint bits = unchecked((uint)requested);
-        uint bonus = Math.Max(trait != 0 ? 1u : 0u, Percent(unchecked(traitScale * trait), bits));
-        bonus = unchecked(bonus + Percent(unchecked(advantageScale * advantage.Value), bits));
-        uint primary = forceValid ? Percent(unchecked(policyScale * policy + 100), bits) : bits;
-        int applied = unchecked((int)(bonus + primary));
+        int applied = PersonRewardArithmetic.CalculateGrowth(requested, trait, traitScale,
+            advantage.Value, advantageScale, forceValid, policy, policyScale);
         if (selector == 0)
         {
             if (BattleRemakeCurrentSettings.ReadAdvancedParameter(input, 24) is not int percent) return Unknown();
             applied = unchecked(applied * percent) / 100;
         }
-        uint after = unchecked(xp[abilityIndex] + (uint)applied);
-        byte beforeBase = (byte)raw[abilityIndex], afterBase = beforeBase;
-        while (afterBase < 100 && ReadColumn(afterBase + 1, abilityIndex) <= after) afterBase++;
+        var update = PersonRewardArithmetic.AdvanceAbility(xp[abilityIndex], (byte)raw[abilityIndex],
+            applied, nextBase => ReadColumn(nextBase, abilityIndex));
+        uint after = update.Experience;
+        byte beforeBase = (byte)raw[abilityIndex], afterBase = update.BaseAbility;
         NativePersonAbilityGrowthNotice[]? notices = growth.AbilityGrowthNotices?.ToArray();
         if (afterBase != beforeBase)
         {
@@ -95,22 +93,19 @@ public sealed partial class PersonGrowthSource
             if (index >= 0) notices[index] = notices[index] with { After4 = afterBase, ReportContext8 = reportContext };
             else notices = [..notices, new(abilityIndex, afterBase, beforeBase, reportContext, 0, 1)];
         }
-        GameState detached = JsonSerializer.Deserialize<GameState>(JsonSerializer.SerializeToUtf8Bytes(input))
-            ?? throw new InvalidDataException("Growth state could not be detached.");
-        uint[] nextXp = detached.Officers[personId].NativeGrowthRuntime!.Experience13C!.ToArray(); nextXp[abilityIndex] = after;
+        GameState candidate = detachStandalone ? GameStateCopy.Copy(input) : input;
+        uint[] nextXp = xp.ToArray(); nextXp[abilityIndex] = after;
         raw[abilityIndex] = afterBase;
-        OfficerState updated = detached.Officers[personId] with {
+        OfficerState updated = candidate.Officers[personId] with {
             BaseAbilities = new(raw[0], raw[1], raw[2], raw[3], raw[4]),
-            NativeGrowthRuntime = detached.Officers[personId].NativeGrowthRuntime! with {
+            NativeGrowthRuntime = candidate.Officers[personId].NativeGrowthRuntime! with {
                 Experience13C = nextXp, AbilityGrowthNotices = notices } };
-        GameState result = detached with { Officers = new(detached.Officers) { [personId] = updated } };
-        if (validateWorld) StateValidator.Validate(result);
+        GameState result = candidate with { Officers = new(candidate.Officers) { [personId] = updated } };
         var receipt = new PersonGrowthReceipt(personId, abilityIndex, requested, applied, xp[abilityIndex], after,
             beforeBase, afterBase, trait, advantage, notices?.ToArray(),
             $"{ProfileId}:{parameters.Revision}:{input.NativeClock!.Revision}:{source.Sha256}");
         return new(PersonGrowthOutcome.Committed, result, receipt);
         PersonGrowthResult Unknown() => new(PersonGrowthOutcome.CurrentInputsUnresolved, input, null);
         PersonGrowthResult Skip() => new(PersonGrowthOutcome.NativeSkip, input, null);
-        static uint Percent(int coefficient, uint quantity) => unchecked((uint)coefficient * quantity) / 100;
     }
 }

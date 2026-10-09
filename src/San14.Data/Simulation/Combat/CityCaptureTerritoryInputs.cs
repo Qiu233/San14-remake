@@ -54,6 +54,6 @@ public sealed class CityCaptureTerritoryInputs
         bank.Int32Values.TryGetValue(key, out int value) ? value : null;
     public static ushort? ReadEmperor1654(GameState state) => state.NativeArmySimulation?.Parameters.Int32Values is { } values &&
         values.GetValueOrDefault(VersionKey) == 1 && values.TryGetValue(Emperor1654Key, out int id) && id is >= 0 and <= 65535 ? (ushort)id : null;
-    public static void BindCurrentEmperor(GameState state, SourceWorldContext current) => current.RawEmperorId = ReadEmperor1654(state);
+    public static void BindCurrentEmperor(GameState state, SourceWorldContext current) => current.EventConditions.EmperorPersonId = ReadEmperor1654(state);
     private static InvalidDataException Missing(string field) => new("current.City_capture_inputs." + field);
 }

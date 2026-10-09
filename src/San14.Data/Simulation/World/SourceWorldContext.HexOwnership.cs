@@ -11,8 +11,12 @@ public sealed partial class SourceWorldContext : IHexOwnershipState, IAreaOwners
     public Func<SceneryLayoutReference?>? SceneryLayoutReader { get; set; }
     public void SetHexSurfaceCode(int physicalSlot, byte? value)
     { Check(physicalSlot, 48400, "hex physical slot"); _hexSurfaceCodes[physicalSlot] = value; }
-    public byte? ReadHexSurfaceCode(HexReference hex) =>
-        _hexSurfaceCodes.GetValueOrDefault(MapPhysical(hex.PhysicalSlot, 48400, "hex"));
+    public byte? ReadHexSurfaceCode(HexReference hex)
+    {
+        int physical = MapPhysical(hex.PhysicalSlot, 48400, "hex");
+        return _hexSurfaceCodes.TryGetValue(physical, out byte? surface) ? surface :
+            _hexTerrainDefinitions is not null ? (byte)_hexTerrainDefinitions.Tile(physical).TerrainTypeId : null;
+    }
     public void WriteHexForceSlot(HexReference hex, byte force) =>
         SetHexForceSlot(MapPhysical(hex.PhysicalSlot, 48400, "hex"), force);
     public void SetHexScenerySlot(int physicalSlot, byte? value)

@@ -29,8 +29,8 @@ public enum S14EventEligibilityStatus
 /// </summary>
 public interface IS14EventEligibilityState
 {
-    short? ReadWorldField2E();
-    int? ReadWorldField44();
+    short? ReadCurrentYear();
+    int? ReadScenarioMode();
     bool? ReadWorldEventFlag(int eventId);
     bool? ReadWorldResultFlag(int eventId);
     void ResetResults();
@@ -108,7 +108,7 @@ public static class S14EventEligibilityEvaluator
             ValidateRecord(record, conditionResource);
         }
         state.ResetResults();
-        short year = Known(state.ReadWorldField2E(), "signed world+2E scan input");
+        short year = Known(state.ReadCurrentYear(), "current year");
         var results = new List<S14EventEligibilityResult>();
         var usedRuntimes = new HashSet<IS14EventConditionRuntime>(ReferenceEqualityComparer.Instance);
         for (int ordinal = 0; ordinal < candidates.Count; ordinal++)
@@ -170,7 +170,7 @@ public static class S14EventEligibilityEvaluator
             int field = I32(raw, 0x0C);
             if (field != 0 && field < year) return false;
             int mode;
-            try { mode = Known(state.ReadWorldField44(), "world+44 scan input"); }
+            try { mode = Known(state.ReadScenarioMode(), "scenario mode"); }
             catch (InvalidDataException error) { throw Failure(record, error.Message, error); }
             if (mode == 2 && I32(raw, 4) == 4) return false;
         }
@@ -188,7 +188,7 @@ public static class S14EventEligibilityEvaluator
         S14EventRecord record = source with { RawBytes = source.RawBytes.ToArray() };
         try
         {
-            if (record.Id is < 0 or >= 992)
+            if (record.Id is < 0 or >= S14EventSourceProfile.ManagerFlagCount)
                 throw new InvalidDataException("Event ID is outside the supported 124-byte manager bitmap.");
             state.WriteManagerEventFlag(record.Id, false);
             bool worldFlag = Known(state.ReadWorldEventFlag(record.Id), "world+460 event bit");

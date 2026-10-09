@@ -3,7 +3,7 @@ using San14.Core;
 namespace San14.Data;
 
 public sealed record BaseCaptureForceResultReceipt(bool NativeReturn, bool WorldGate,
-    bool ResultGate, byte? Flags12After, ushort? Value162After, int Delta162);
+    bool ResultGate, byte? FlagsAfter, int? ProgressAfter, int ProgressDelta);
 public sealed record BaseCaptureForceResult(GameState? State,
     BaseCaptureForceResultReceipt? Receipt, string? UnresolvedOwner);
 public sealed record BaseCaptureCityCallbackGate(bool? Reached, int? MatchingForcePhysical,
@@ -37,41 +37,25 @@ public static partial class BaseCaptureRewardSource
             if (!K(current.ReadForceNativeValidity(winner), "257670 Force validity"))
                 return new(input, new(false, false, false, null, null, 0), null);
             int slot = K(current.ReadForcePhysicalSlot(winner), "257670 Force physical");
-            var force = Force(input, slot); var world = input.NativeArmySimulation!.World;
+            var force = Force(input, slot);
             int oldForce = ReadBaseForce(input, current, target);
             _ = ReadBaseKind(current, target);
-            byte worldFlags = K(world.Flags165C, "257670 World165C");
-            bool worldGate = false;
-            byte? flags = null;
-            if (worldFlags != 0)
-            {
-                flags = K(force.Flags12, "257670 Force12");
-                if ((flags.Value & 6) == 2)
-                    worldGate = oldForce == K(world.SelectedForce1656, "257670 World1656");
-            }
-            bool resultGate = false; ushort? before = null;
-            byte gate = K(force.ResultGate15F, "257670 Force15F");
-            if (gate is >= 1 and <= 51)
-            {
-                before = K(force.ResultValue162, "257670 Force162");
-                if (before < 60000)
-                {
-                    byte definition = K(force.ResultDefinition160, "257670 Force160");
-                    var resultBase = BaseLookup.Find(definition, current);
-                    resultGate = oldForce == ReadBaseForce(input, current, resultBase);
-                }
-            }
-            if (!worldGate && !resultGate)
+            var resolution = ForceCombatObjectiveRules.Resolve(new ForceCombatObjectiveCurrent(input, slot, current,
+                new NormalArmyForceResultDefinitions(current),
+                () => new(0, P(input, SimulationParameterKeys.ArmyDestruction.BaseCaptureResultGain)), true),
+                oldForce, 0, true) ?? throw Missing("force.combat_objective");
+            if (!resolution.Triggered)
                 return new(input, new(false, false, false, null, null, 0), null);
-            byte? nextFlags = worldGate ? (byte)(flags!.Value | 4) : null;
-            //Base caller uses loss0/killed1 with a known null second pointer.
-            //It therefore reaches only this Base constant, never Army498FC.
-            int delta = resultGate ? P(input, SimulationParameterKeys.ArmyDestruction.BaseCaptureResultGain) : 0;
-            ushort? next = resultGate ? (ushort)Math.Clamp(unchecked(before!.Value + delta), 0, 60000) : null;
+            byte? nextFlags = resolution.MarkSelectedForceDefeated ? (byte)(force.Flags12!.Value | 4) : null;
             var simulation = input.NativeArmySimulation!;
+            var domainForces = input.Forces;
+            if (resolution.ProgressAfter is int progress)
+                domainForces = new(domainForces) { [slot] = domainForces[slot] with
+                    { CombatObjective = domainForces[slot].CombatObjective! with { Progress = progress } } };
             var saved = input with { NativeArmySimulation = simulation with { Forces = new(simulation.Forces)
-                { [slot] = force with { Flags12 = nextFlags ?? force.Flags12, ResultValue162 = next ?? force.ResultValue162 } } } };
-            return new(saved, new(true, worldGate, resultGate, nextFlags, next, delta), null);
+                { [slot] = force with { Flags12 = nextFlags ?? force.Flags12 } } }, Forces = domainForces };
+            return new(saved, new(true, resolution.SelectedForceMatched, resolution.ObjectiveMatched,
+                nextFlags, resolution.ProgressAfter, resolution.ProgressDelta), null);
         }
         catch (MissingOwner error) { return new(null, null, error.Message); }
         catch (InvalidDataException error) { return new(null, null, error.Message); }
@@ -92,7 +76,8 @@ public static partial class BaseCaptureRewardSource
                 if (row?.Kind != RegistryKind.Force || row.PhysicalSlot is not int physical)
                     throw Missing("2851B0 ForceC0 payload");
                 //The source does not test each Force's native validity here.
-                if (K(Force(input, physical).ResultDefinition160, "2851B0 ForceC0 byte160") == location)
+                if (K(input.Forces.GetValueOrDefault(physical)?.CombatObjective?.TargetLocationId,
+                    "force.objective.target_location") == location)
                     return new(true, physical, null);
             }
             return new(false, null, null);

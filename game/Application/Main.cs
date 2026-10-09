@@ -582,24 +582,13 @@ public partial class Main : Control
     {
         if (index < 0 || index >= _shownScenarios.Count || _repository is null) return;
         EffectiveScenario selection = _shownSelections[(int)index];
-        LoadedScenario loaded = _repository.LoadScenario(selection);
-        LoadedMap loadedMap = _repository.LoadMapForScenario(selection);
+        CampaignLoadResult campaign = CampaignComposition.Load(_repository, selection,
+            _newGameOptions, restored, restoredPlayerForceId);
+        LoadedScenario loaded = campaign.Composition.Scenario;
+        LoadedMap loadedMap = campaign.Composition.Map;
         S14Entry selected = loaded.Metadata;
         ScenarioCityPreview snapshot = loaded.Snapshot;
-        ScenarioTerritory territory = ScenarioTerritory.Build(loadedMap.Map, snapshot);
-        InitializedScenario initialized = ScenarioInitializer.Create(loaded, loadedMap, 1,
-            _newGameOptions);
-        if (restored is not null)
-            ValidateRestoredCampaignContent(restored, initialized.State);
-        GameState world = restored ?? initialized.State;
-        PreparedPlayableSessionRules? restoredRules = restoredPlayerForceId is int player
-            ? PreparePlayableSessionRules(world, player, loaded, loadedMap, snapshot) : null;
-        PlayableRuleSet playRules = restoredRules?.Rules ??
-            PlayableSkeleton.Bind(new HexTravelMap(loadedMap));
-        GameplaySession session = restoredRules is not null
-            ? GameplaySession.Restore(world, restoredRules.PlayerForceId, playRules,
-                CampaignCalendar(restoredRules.Army))
-            : GameplaySession.Preview(world, playRules);
+        GameState world = campaign.Session.World;
         // Prepare source validation and campaign rules before replacing the live
         // session. A failed load must leave its player, orders and save path usable.
         ResetMilitaryDeploymentComposition();
@@ -607,13 +596,12 @@ public partial class Main : Control
         CloseResidentMap();
         _loadError = null;
         _map = loadedMap.Map;
-        _loadedScenario = loaded;
-        _ownedArmyCampaign = null;
+        _campaignComposition = campaign.Composition;
         _loadedMap = loadedMap;
-        _territory = territory;
-        _session = session;
+        _territory = campaign.Territory;
+        _session = campaign.Session;
         SyncNewGameOptions(world);
-        if (restoredRules is not null) PublishPlayableSessionRules(restoredRules);
+        PublishCampaignPresentation(campaign.Presentation);
         _detailsView?.QueueFree();
         _detailsView = null;
         _selectedForceSlot = null;
@@ -959,7 +947,7 @@ public partial class Main : Control
             view.SetNativeWorldMapDependencyFactory(
                 SceneViewNativeMapWorldSourceFactory.Create());
         var safeText = new PreviewText(_locale.Selected == 1, null);
-        var campaignQueries=PrepareOwnedArmyCampaign(world);
+        var campaignQueries = _campaignComposition!.PrepareArmyQueries(world);
         view.SetD3D11CurrentWorldQueries(campaignQueries.CaptureCurrentDefinitions,
             campaignQueries.CaptureGraphicsMotionInputs, campaignQueries.CaptureMapArmyGroups);
         view.Configure(_repository, _ui, safeText, () => { }, _map, world,
@@ -2051,30 +2039,13 @@ public partial class Main : Control
         _playDemolish.Disabled = !canTarget;
     }
 
-    private PreparedPlayableSessionRules BindPlayableSessionRules(GameState world, int playerForceId)
-    {
-        if (_repository is null || _loadedScenario is null || _loadedMap is null || _selectedSnapshot is null)
-            throw new InvalidOperationException("The selected source map is unavailable.");
-        PreparedPlayableSessionRules prepared = PreparePlayableSessionRules(world, playerForceId,
-            _loadedScenario, _loadedMap, _selectedSnapshot, _ownedArmyCampaign);
-        PublishPlayableSessionRules(prepared);
-        return prepared;
-    }
-
-    private static Func<GameState, GameState> CampaignCalendar(ArmyCampaignRuleAdapter? campaign) =>
-        campaign is null ? state => NormalArmyCombatCalendarRuntime.AdvanceCampaign(state) :
-            state => campaign.AdvancePlayableCalendar(state);
-
     private void StartPlayable()
     {
         if (_world is not GameState world || _selectedForceSlot is not int forceId ||
             world.Phase != TurnPhase.Initializing) return;
-        _session = _session!.Start(forceId, (started, rulerId) =>
-        {
-            GameState campaign = ConstructFreshOwnedCampaign(started, rulerId);
-            PreparedPlayableSessionRules prepared = BindPlayableSessionRules(campaign, forceId);
-            return new CampaignConfiguration(campaign, prepared.Rules, CampaignCalendar(prepared.Army));
-        });
+        CampaignStartResult campaign = _campaignComposition!.Start(_session!, forceId);
+        _session = campaign.Session;
+        PublishCampaignPresentation(campaign.Presentation);
         RefreshSceneAudioContext();
         _playMessage.Text = _ui.Get("play_started");
         RefreshCurrentPlayWorld();
@@ -2288,224 +2259,6 @@ public partial class Main : Control
         RefreshTileInfo();
         RefreshPlayControls();
         UpdateResidentMap();
-    }
-
-    private string RenderPlayReport(GameState world, int playerForce)
-    {
-        PreserveSourceReportMetadata(world, playerForce);
-        string OfficerName(int? id) => id is int known && world.Officers.TryGetValue(known, out OfficerState? officer)
-            ? officer.Name : id?.ToString() ?? "?";
-        string CityName(int? id) => id is int known && world.Cities.TryGetValue(known, out CityState? city)
-            ? city.Name : id?.ToString() ?? "?";
-        string AreaName(int id) => world.Areas.TryGetValue(id, out AreaState? area) &&
-            !string.IsNullOrWhiteSpace(area.Name) ? area.Name : id.ToString();
-        string ForceName(int id) => world.Forces.TryGetValue(id, out ForceState? force) ? force.Name : id.ToString();
-        string ItemName(int? id) => id is int itemId && world.Items?.TryGetValue(itemId, out ItemState? item) == true &&
-            world.ItemDefinitions.TryGetValue(item.DefinitionId, out ItemDefinition? definition) ? definition.Name : id?.ToString() ?? "?";
-        string OfficeName(int? id) => id is int officeId && world.OfficerOffices.TryGetValue(officeId, out OfficerOfficeDefinition? definition)
-            ? definition.Name : id?.ToString() ?? "?";
-        string PlaceName(PeriodReportEntry entry) => entry.LocationId is int locationId
-            ? world.Cities.GetValueOrDefault(locationId)?.Name ?? world.Gates.GetValueOrDefault(locationId)?.Name ?? _ui.Get("detail_unknown")
-            : entry.CityId is int cityId ? CityName(cityId) :
-            world.Gates.Values.FirstOrDefault(gate => gate.HexId == entry.FromHexId)?.Name ??
-            entry.FromHexId?.ToString() ?? "?";
-        string RetreatPlaceName(PeriodReportEntry entry) => entry.CityId is int cityId
-            ? CityName(cityId)
-            : world.Gates.Values.FirstOrDefault(gate => gate.HexId == entry.ToHexId)?.Name ??
-              entry.ToHexId?.ToString() ?? "?";
-        string[] entries = world.PeriodReports.Where(entry => (entry.ForceId == playerForce ||
-            entry.Kind == "period" || entry.Kind is ("force_defeated" or "campaign_player_defeated" or "campaign_unified" or "capture.last_city_person_freed" or "capture.last_city_personnel_unresolved" or "capture.last_city_force_unresolved") &&
-            world.ForceDefeats.TryGetValue(entry.ForceId, out var defeat) && defeat.CapturingForceId == playerForce) &&
-            entry.Kind is not ("item_granted" or "item_revoked" or "office_changed" or "tactic_used" or "tactic_fizzled" or "event_triggered") &&
-            !(entry.Kind == "monthly_income_unavailable" && (world.MonthlyIncomeReports ?? []).Any(receipt => receipt.CityId == entry.CityId))).Select(entry => entry.Kind switch
-            {
-                "period" => _ui.Format("play_report_period", world.PeriodNumber),
-                "deploy" => _ui.Format("play_report_deploy", OfficerName(entry.OfficerId),
-                    entry.FromHexId, entry.ToHexId, entry.Amount),
-                "move" => _ui.Format("play_report_move", OfficerName(entry.OfficerId),
-                    entry.FromHexId, entry.ToHexId, entry.Amount),
-                "arrive" => _ui.Format("play_report_arrive", OfficerName(entry.OfficerId), entry.ToHexId),
-                "unit_action_complete" => _ui.Format("play_report_unit_action_complete", OfficerName(entry.OfficerId)),
-                "unit_action_cancelled" => _ui.Format("play_report_unit_action_cancelled", OfficerName(entry.OfficerId)),
-                "unit_entered" => _ui.Format("play_report_unit_entered", OfficerName(entry.OfficerId), entry.Amount),
-                "unit_enter_unresolved" => _ui.Format("play_report_unit_enter_unresolved", OfficerName(entry.OfficerId),
-                    entry.LocationId is int entryLocation
-                        ? world.Cities.GetValueOrDefault(entryLocation)?.Name ?? world.Gates.GetValueOrDefault(entryLocation)?.Name ?? _ui.Get("detail_unknown")
-                        : CityName(entry.CityId)),
-                "officer_return" => _ui.Format("play_report_officer_return", OfficerName(entry.OfficerId), CityName(entry.CityId)),
-                "army_home_changed" => _ui.Format("play_report_army_home_changed", OfficerName(entry.OfficerId), CityName(entry.CityId)),
-                "person_return_unresolved" => _ui.Get("play_report_person_return_unresolved"),
-                "unit_encounter_avoided" => _ui.Format("play_report_unit_encounter_avoided", OfficerName(entry.OfficerId)),
-                "combat_unresolved" => _ui.Format("play_report_combat_unresolved", OfficerName(entry.OfficerId),
-                    entry.LocationId is int location ? world.Cities.GetValueOrDefault(location)?.Name ?? world.Gates.GetValueOrDefault(location)?.Name ?? _ui.Get("detail_unknown") :
-                    _ui.Format("play_report_hex_identity", entry.ToHexId)),
-                "movement_unresolved" => _ui.Format("play_report_movement_unresolved", OfficerName(entry.OfficerId)),
-                "army_route_unresolved" => _ui.Get("play_report_army_route_unresolved"),
-                "development_unresolved" or "training_unresolved" or "recruitment_unresolved" or "monthly_income_unavailable" => RenderEconomyRuleGap(world, entry),
-                "development_supplies_cost" => _ui.Format("play_report_development_supplies_cost", CityName(entry.CityId), entry.Amount),
-                "development_morale" => _ui.Format("play_report_development_morale", CityName(entry.CityId), entry.Amount),
-                "tactic_move_blocked" => _ui.Format("play_report_tactic_move_blocked", OfficerName(entry.OfficerId)),
-                "diplomacy_goodwill" => _ui.Format("play_report_diplomacy_goodwill", OfficerName(entry.OfficerId), ForceName(entry.Amount)),
-                "diplomacy_alliance" => _ui.Format("play_report_diplomacy_alliance", OfficerName(entry.OfficerId), ForceName(entry.Amount)),
-                "diplomacy_alliance_cancelled" => _ui.Format("play_report_diplomacy_alliance_cancelled", ForceName(entry.Amount)),
-                "diplomacy_attack_requested" => _ui.Format("play_report_diplomacy_attack_requested", ForceName(entry.Amount), CityName(entry.CityId)),
-                "diplomacy_mission_failed" => _ui.Format("play_report_diplomacy_mission_failed", OfficerName(entry.OfficerId), ForceName(entry.Amount)),
-                "diplomacy_mission_cancelled" => _ui.Format("play_report_diplomacy_mission_cancelled", OfficerName(entry.OfficerId), ForceName(entry.Amount)),
-                "diplomacy_treaty_expired" => _ui.Format("play_report_diplomacy_treaty_expired", ForceName(entry.Amount)),
-                "diplomacy_treaty_ended" => _ui.Format("play_report_diplomacy_treaty_ended", ForceName(entry.Amount)),
-                "diplomacy_attack_request_ended" => _ui.Format("play_report_diplomacy_attack_request_ended", ForceName(entry.Amount), CityName(entry.CityId)),
-                "assault" => _ui.Format("play_report_assault", OfficerName(entry.OfficerId),
-                    PlaceName(entry), entry.Amount),
-                "durability_damage" => _ui.Format("play_report_durability_damage",
-                    OfficerName(entry.OfficerId), PlaceName(entry), entry.Amount),
-                "garrison_scattered" => _ui.Format("play_report_garrison_scattered",
-                    PlaceName(entry), entry.Amount),
-                "field_attack" => _ui.Format("play_report_field_attack",
-                    OfficerName(entry.OfficerId), entry.Amount),
-                "field_defense" => _ui.Format("play_report_field_defense",
-                    OfficerName(entry.OfficerId), entry.Amount),
-                "field_destroyed" => _ui.Format("play_report_field_destroyed",
-                    OfficerName(entry.OfficerId)),
-                "retreat_started" => _ui.Format("play_report_retreat_started",
-                    OfficerName(entry.OfficerId), RetreatPlaceName(entry)),
-                "retreat_blocked" => _ui.Format("play_report_retreat_blocked",
-                    OfficerName(entry.OfficerId)),
-                "retreat_arrived" => _ui.Format("play_report_retreat_arrived",
-                    OfficerName(entry.OfficerId), entry.Amount),
-                "casualties" => _ui.Format("play_report_casualties", OfficerName(entry.OfficerId), entry.Amount),
-                "capture" => _ui.Format("play_report_capture", OfficerName(entry.OfficerId),
-                    PlaceName(entry)),
-                "force_defeated" => _ui.Format("play_report_force_defeated", ForceName(entry.ForceId), PlaceName(entry)),
-                "force_unit_withdrawn" => _ui.Format("play_report_force_unit_withdrawn", OfficerName(entry.OfficerId), entry.Amount),
-                "capture.last_city_person_freed" => _ui.Format("play_report_last_city_person_freed",
-                    OfficerName(entry.OfficerId), CityName(entry.Amount)),
-                "capture.last_city_personnel_unresolved" => _ui.Format("play_report_last_city_personnel_unresolved", OfficerName(entry.OfficerId)),
-                "capture.last_city_force_unresolved" => _ui.Format("play_report_last_city_force_unresolved", world.Forces[entry.ForceId].Name),
-                "campaign_player_defeated" => _ui.Get("play_defeated"),
-                "campaign_unified" => _ui.Get("play_unified"),
-                "campaign_unification_unresolved" => _ui.Get("play_report_unification_unresolved"),
-                "food_source_unresolved" => _ui.Get("play_report_food_source_unresolved"),
-                "food_mapped_shortage_unresolved" => _ui.Get("play_report_food_mapped_shortage_unresolved"),
-                PlayableBaseCaptureAftermath.EvacuatedReportKind => _ui.Format("play_report_base_capture_officer_evacuated",
-                    OfficerName(entry.OfficerId), PlaceName(entry)),
-                PlayableBaseCaptureAftermath.UnresolvedReportKind => _ui.Format("play_report_base_capture_officer_unresolved",
-                    OfficerName(entry.OfficerId), PlaceName(entry)),
-                PlayableOfficerArrivalAftermath.AssignmentsClearedReportKind => _ui.Format("play_report_officer_arrival_assignments_cleared",
-                    OfficerName(entry.OfficerId), PlaceName(entry)),
-                "transport_blocked" => _ui.Format("play_report_transport_blocked",
-                    OfficerName(entry.OfficerId), CityName(entry.CityId)),
-                "transport_troops" => _ui.Format("play_report_transport_troops",
-                    OfficerName(entry.OfficerId), CityName(entry.CityId), entry.Amount),
-                "transport_supplies" => _ui.Format("play_report_transport_supplies",
-                    CityName(entry.CityId), entry.Amount),
-                "transport_gold" => _ui.Format("play_report_transport_gold",
-                    CityName(entry.CityId), entry.Amount),
-                "transport_returning" => _ui.Format("play_report_transport_returning",
-                    OfficerName(entry.OfficerId), CityName(entry.CityId)),
-                "transport_returned" => _ui.Format("play_report_transport_returned",
-                    OfficerName(entry.OfficerId), CityName(entry.CityId)),
-                "officer_move" => _ui.Format("play_report_officer_move",
-                    OfficerName(entry.OfficerId), CityName(entry.CityId)),
-                "officer_move_cancelled" => _ui.Format("play_report_officer_move_cancelled",
-                    OfficerName(entry.OfficerId), CityName(entry.CityId)),
-                "deployment_cancelled" => _ui.Format("play_report_deployment_cancelled",
-                    OfficerName(entry.OfficerId)),
-                "talent_search_joined" => _ui.Format("play_report_talent_search_joined",
-                    OfficerName(entry.OfficerId), CityName(entry.CityId)),
-                "talent_search_none" => _ui.Format("play_report_talent_search_none",
-                    OfficerName(entry.OfficerId), CityName(entry.CityId)),
-                "talent_recruited" => _ui.Format("play_report_talent_recruited",
-                    OfficerName(entry.OfficerId), CityName(entry.CityId)),
-                "talent_recruit_failed" => _ui.Format("play_report_talent_recruit_failed",
-                    OfficerName(entry.OfficerId), CityName(entry.CityId)),
-                "talent_search_cancelled" => _ui.Format("play_report_talent_search_cancelled",
-                    OfficerName(entry.OfficerId), CityName(entry.CityId)),
-                "talent_recruit_cancelled" => _ui.Format("play_report_talent_recruit_cancelled",
-                    OfficerName(entry.OfficerId), CityName(entry.CityId)),
-                "food_upkeep" => _ui.Format("play_report_food_upkeep",
-                    CityName(entry.CityId), entry.Amount),
-                "food_source_changed" => _ui.Format("play_report_food_source_changed",
-                    CityName(entry.CityId)),
-                "gold_income" => _ui.Format("play_report_gold_income",
-                    CityName(entry.CityId), entry.Amount),
-                "supplies_income" => _ui.Format("play_report_supplies_income",
-                    CityName(entry.CityId), entry.Amount),
-                "development_cost" => _ui.Format("play_report_development_cost",
-                    CityName(entry.CityId), entry.Amount),
-                "development_unfunded" => _ui.Format("play_report_development_unfunded",
-                    CityName(entry.CityId), entry.Amount),
-                "food_shortage" => _ui.Format("play_report_food_shortage",
-                    CityName(entry.CityId), entry.Amount),
-                "food_desertion" => _ui.Format("play_report_food_desertion",
-                    CityName(entry.CityId), entry.Amount),
-                "food_unit_morale" => _ui.Format("play_report_food_unit_morale",
-                    OfficerName(entry.OfficerId), entry.Amount),
-                "supply_cut" => _ui.Format("play_report_supply_cut",
-                    OfficerName(entry.OfficerId), entry.Amount),
-                "territory" => _ui.Format("play_report_territory",
-                    OfficerName(entry.OfficerId), entry.Amount),
-                "area_capture" => _ui.Format("play_report_area_capture",
-                    OfficerName(entry.OfficerId), AreaName(entry.Amount), CityName(entry.CityId)),
-                "area_capture_unassigned" => _ui.Format("play_report_area_unassigned",
-                    OfficerName(entry.OfficerId), AreaName(entry.Amount)),
-                "officer_territory" => _ui.Format("play_report_officer_territory",
-                    OfficerName(entry.OfficerId), CityName(entry.CityId), entry.Amount),
-                "officer_territory_unknown" => _ui.Format("play_report_officer_territory_unknown",
-                    OfficerName(entry.OfficerId), AreaName(entry.Amount)),
-                "occupy_complete" => _ui.Format("play_report_occupy_complete",
-                    OfficerName(entry.OfficerId), AreaName(entry.Amount)),
-                "structure_start" => _ui.Format("play_report_structure_start",
-                    OfficerName(entry.OfficerId), entry.ToHexId, CityName(entry.CityId), entry.Amount),
-                "structure_progress" => _ui.Format("play_report_structure_progress",
-                    entry.ToHexId, entry.Amount),
-                "structure_complete" => _ui.Format("play_report_structure_complete", entry.ToHexId),
-                "structure_blocked" => _ui.Format("play_report_structure_blocked", entry.ToHexId),
-                "structure_repair_progress" => _ui.Format("play_report_structure_repair_progress",
-                    entry.ToHexId, entry.Amount),
-                "structure_repaired" => _ui.Format("play_report_structure_repaired", entry.ToHexId),
-                "structure_demolished" => _ui.Format("play_report_structure_demolished", entry.ToHexId),
-                "training_cost" => _ui.Format("play_report_training_cost", CityName(entry.CityId), entry.Amount),
-                "training" => _ui.Format("play_report_training", CityName(entry.CityId), entry.Amount),
-                "recruit_cost" => _ui.Format("play_report_recruit_cost", CityName(entry.CityId), entry.Amount),
-                "recruit" => _ui.Format("play_report_recruit", CityName(entry.CityId), entry.Amount),
-                "commerce" => _ui.Format("play_report_commerce", CityName(entry.CityId), entry.Amount),
-                "agriculture" => _ui.Format("play_report_agriculture", CityName(entry.CityId), entry.Amount),
-                "barracks" => _ui.Format("play_report_barracks", CityName(entry.CityId), entry.Amount),
-                "governance_active" => _ui.Format("play_report_governance_active", entry.Amount),
-                _ => _ui.Get("play_report_unknown")
-            }).Concat((world.PersonnelReports ?? []).Where(entry => entry.ForceId == playerForce &&
-                entry.ReportedInPeriod == world.PeriodNumber).Select(entry => entry.Kind switch
-            {
-                PersonnelActionKind.GrantItem => _ui.Format("play_report_item_granted", OfficerName(entry.OfficerId), ItemName(entry.ItemId)),
-                PersonnelActionKind.RevokeItem => _ui.Format("play_report_item_revoked", OfficerName(entry.OfficerId), ItemName(entry.ItemId)),
-                PersonnelActionKind.SetOffice => _ui.Format("play_report_office_changed", OfficerName(entry.OfficerId), OfficeName(entry.NextOfficeId)),
-                _ => throw new InvalidDataException("Unsupported personnel report kind.")
-            })).Concat((world.TacticReports ?? []).Where(entry => entry.ForceId == playerForce && entry.Period == world.PeriodNumber)
-                .Select(entry => RenderTacticReport(world, entry)))
-            .Concat((world.MonthlyIncomeReports ?? []).Where(entry => entry.ForceId == playerForce && entry.Period == world.PeriodNumber)
-                .Select(entry => RenderMonthlyIncomeReceipt(world, entry)))
-            .Concat(CampaignEventReportAdapter.Create(world, playerForce).Where(entry => entry.Period == world.PeriodNumber)
-                .Select(entry => RenderSourceEventReport(world, entry))).ToArray();
-        return _ui.Get("play_report_heading") + " " +
-            (entries.Length == 0 ? _ui.Get("play_report_empty") : string.Join(_ui.MapSeparator, entries));
-    }
-
-    private string RenderTacticReport(GameState world, TacticReportEntry entry)
-    {
-        string caster = world.Officers.GetValueOrDefault(entry.OfficerId)?.Name ?? entry.OfficerId.ToString();
-        string tactic = world.Tactics.GetValueOrDefault(entry.TacticId)?.Name ?? entry.TacticId.ToString();
-        string target = entry.TargetUnitId is int id && world.Units.TryGetValue(id, out UnitState? unit)
-            ? world.Officers.GetValueOrDefault(unit.OfficerId)?.Name ?? id.ToString() : entry.TargetUnitId?.ToString() ?? _ui.Get("detail_unknown");
-        string effect = entry.Effect is { } kind ? _ui.Get("play_tactic_effect_" + kind.ToString().ToLowerInvariant()) : _ui.Get("detail_unknown");
-        return entry.Kind switch
-        {
-            "used" => _ui.Format("play_report_tactic_used", caster, tactic, target),
-            "fizzled" => _ui.Format("play_report_tactic_fizzled", caster, tactic, _ui.TacticReason(entry.Reason)),
-            "effect" => _ui.Format("play_report_tactic_effect", tactic, target, effect, entry.Amount) +
-                (entry.ExpiresAtPeriod is int expiry ? "  " + _ui.Format("play_tactic_effect_until", expiry) : ""),
-            "expired" => _ui.Format("play_report_tactic_expired", target, tactic, effect),
-            _ => throw new InvalidDataException("Unsupported tactic report kind.")
-        };
     }
 
     private string PlayableSavePath(int slot)

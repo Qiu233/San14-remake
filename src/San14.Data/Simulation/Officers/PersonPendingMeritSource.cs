@@ -65,13 +65,13 @@ public sealed class PersonPendingMeritSource
     }
 
     public PersonPendingMeritResult TryApply(GameState input, SourceWorldContext current,
-        int personId, int requested) => Apply(input, current, personId, requested, true);
+        int personId, int requested) => Apply(input, current, personId, requested);
 
     internal PersonPendingMeritResult TryApplyWithinArmyOperation(GameState input, SourceWorldContext current,
-        int personId, int requested) => Apply(input, current, personId, requested, false);
+        int personId, int requested) => Apply(input, current, personId, requested);
 
     private PersonPendingMeritResult Apply(GameState input, SourceWorldContext current,
-        int personId, int requested, bool validateWorld)
+        int personId, int requested)
     {
         ArgumentNullException.ThrowIfNull(input); ArgumentNullException.ThrowIfNull(current);
         if (!Bound(input) || !input.Officers.TryGetValue(personId, out var person) ||
@@ -142,7 +142,6 @@ public sealed class PersonPendingMeritSource
         //transaction owns the other aggregates; no full-world serialization is needed.
         GameState result = input with { Officers = new(input.Officers) { [personId] = person with {
             NativeGrowthRuntime = growth with { PendingMerit1F8 = receipt.After1F8 } } } };
-        if (validateWorld) StateValidator.Validate(result);
         return new(PersonPendingMeritOutcome.Committed, result, receipt);
         PersonPendingMeritResult Unknown() => new(PersonPendingMeritOutcome.CurrentInputsUnresolved, input, null);
         PersonPendingMeritResult Skip() => new(PersonPendingMeritOutcome.NativeSkip, input, null);
@@ -157,19 +156,11 @@ public sealed class PersonPendingMeritSource
     {
         if (requested <= 0 || string.IsNullOrWhiteSpace(revision))
             throw new InvalidDataException("Pending merit arithmetic needs a reached positive request and revision.");
-        float traitProduct = (float)unchecked(traitScale * trait122) * (float)requested;
-        float scaled = traitProduct / 100f;
-        int trait = scaled < 0f && scaled > -1f ? -1 : scaled > 0f && scaled < 1f ? 1 : Truncate(scaled);
-        int panel = Percent(panel50, requested), doctrine = Percent(doctrineScale, requested);
-        int stage = stage1 ? Percent(stageScale, requested) : 0;
-        int total = Math.Max(0, unchecked(unchecked(unchecked(unchecked(stage + doctrine) + panel) + trait) + requested));
-        int earned = percent.HasValue ? Percent(percent.Value, total) : total;
-        int sum = unchecked((int)pending + earned);
-        ushort after = sum < 0 ? (ushort)0 : (ushort)Math.Min(sum, ushort.MaxValue);
-        return new(personId, requested, trait122, trait, panel, doctrine, stage, total, earned, pending, after, revision);
-        static int Percent(int coefficient, int amount) => unchecked(coefficient * amount) / 100;
-        static int Truncate(float value) => !float.IsFinite(value) || value >= 2147483648f || value < -2147483648f
-            ? int.MinValue : (int)value;
+        var value = PersonRewardArithmetic.CalculatePendingMerit(requested, pending, trait122, traitScale,
+            panel50, doctrineScale, stage1, stageScale, percent);
+        return new(personId, requested, trait122, value.TraitCorrection, value.PanelCorrection,
+            value.DoctrineCorrection, value.StageCorrection, value.BeforeScaling, value.Earned,
+            pending, value.PendingMerit, revision);
     }
 
     private int? ReadPanel50(GameState state, NativeArmyForceState force)

@@ -20,7 +20,16 @@ public sealed partial class SourceWorldContext : IStaticTablePostLoadState
     public void InitializeStaticTablePointers()
     {
         foreach (StaticTableRange range in StaticTablePostLoad.Ranges)
+        {
+            if (range.TableOffset == 0xE270 && _hexIdentityDefinitions is not null)
+            {
+                //The campaign definition already owns the identity table.
+                //A new allocation resets any local pointer substitutions.
+                _hexPointers.Clear();
+                continue;
+            }
             for (int slot = 0; slot < range.Count; slot++) SetStaticTablePointer(range.TableOffset,slot,slot);
+        }
     }
 
     public void SetStaticTablePointer(int tableOffset, int slot, int? physical)

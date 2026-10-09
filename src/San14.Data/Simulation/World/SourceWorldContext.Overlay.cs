@@ -12,8 +12,12 @@ public sealed partial class SourceWorldContext : IHexOverlayState, IMapOverlayIn
         _sceneryHexes.GetValueOrDefault(MapPhysical(reference.PhysicalSlot, 101, "scenery"));
     public void SetHexObjectLink(int physicalSlot, ushort? value)
     { Check(physicalSlot, 48400, "hex physical slot"); _hexObjectLinks[physicalSlot] = value; }
-    public ushort? ReadHexObjectLink(HexReference reference) =>
-        _hexObjectLinks.GetValueOrDefault(MapPhysical(reference.PhysicalSlot, 48400, "hex"));
+    public ushort? ReadHexObjectLink(HexReference reference)
+    {
+        int physical = MapPhysical(reference.PhysicalSlot, 48400, "hex");
+        return _hexObjectLinks.TryGetValue(physical, out ushort? link) ? link :
+            _emptyHexObjectLinksKnown ? (ushort)0 : null;
+    }
     public void WriteHexObjectLink(HexReference reference, ushort value) =>
         SetHexObjectLink(MapPhysical(reference.PhysicalSlot, 48400, "hex"), value);
     public void WriteHexSceneryLink(HexReference reference, byte value) =>

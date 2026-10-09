@@ -26,6 +26,7 @@ public sealed record NativeArmyMovementQueue(NativeArmyProgressStageMoment Stage
 public sealed record NativeArmyMovementUnitResolution(NativeArmyMarchState CurrentFields, string SourceProvenance);
 public interface IPlayableNativeArmyMovementRules
 {
+    /// <summary>Reads the current operation world without retaining or mutating its collections.</summary>
     NativeArmyMovementUnitResolution? AdvanceArmy(GameState state, UnitState army,
         NativeArmyProgressStageMoment stage8Moment);
 }
@@ -42,13 +43,20 @@ public static class NativeArmyMovementStage8AtomicRuntime
         NativeArmyProgressStageMoment stage8Moment, NativeArmyMovementQueue queue,
         IPlayableNativeArmyMovementRules rules)
     {
+        var result = TryAdvanceOwned(GameStateCopy.Copy(state), stage8Moment, queue, rules);
+        return result.Complete ? result : result with { State = state };
+    }
+
+    /// <summary>Consumes a queue inside the caller's private operation world.</summary>
+    public static NativeArmyMovementStage8Result TryAdvanceOwned(GameState state,
+        NativeArmyProgressStageMoment stage8Moment, NativeArmyMovementQueue queue,
+        IPlayableNativeArmyMovementRules rules)
+    {
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(stage8Moment);
         ArgumentNullException.ThrowIfNull(queue); ArgumentNullException.ThrowIfNull(rules);
-        NativeSubdayStateValidation.Validate(state);
-        NativeArmyMarchStateValidation.Validate(state);
-        if (stage8Moment.SchedulerStageIndex != 8 || stage8Moment.Boundary != NativeArmyProgressStageBoundary.StageEntry ||
+        if (stage8Moment.SchedulerStageIndex != (byte)NativeArmyProgressStage.Movement || stage8Moment.Boundary != NativeArmyProgressStageBoundary.StageEntry ||
             queue.Stage7Moment is null || queue.SelectedActors?.Any(a => a is null) == true ||
-            queue.Stage7Moment != stage8Moment with { SchedulerStageIndex = 7 } ||
+            queue.Stage7Moment != stage8Moment with { SchedulerStageIndex = (byte)NativeArmyProgressStage.PrepareMovement } ||
             string.IsNullOrWhiteSpace(queue.SourceProvenance) || queue.SelectedActors is null ||
             queue.SelectedActors.Select(a => a.UnitId).Distinct().Count() != queue.SelectedActors.Length ||
             queue.SelectedActors.Select(a => a.NativePoolSlot).Distinct().Count() != queue.SelectedActors.Length)
@@ -60,7 +68,7 @@ public static class NativeArmyMovementStage8AtomicRuntime
                 unit.NativeArmyOrigin?.NativeSlotIndex != actor.NativePoolSlot || unit.NativeMarch is not { } fields ||
                 fields.Credit14 != actor.CreditAtStage7 || fields.CurrentHex2A != unit.HexId)
                 throw new InvalidDataException("Movement actor fields changed after the current stage7 list was prepared.");
-        var working = GameStateSnapshot.Detach(state);
+        var working = state;
         var order = new List<int>();
         for (int index = 0; index < queue.SelectedActors.Length; index++)
         {
@@ -74,8 +82,7 @@ public static class NativeArmyMovementStage8AtomicRuntime
             working = working with { Units = new(working.Units) { [id] = army with { NativeMarch = fields with { } } } };
             order.Add(id);
         }
-        NativeSubdayStateValidation.Validate(working);
-        return new(true, GameStateSnapshot.Detach(working), null, order.ToArray(),
+        return new(true, working, null, order.ToArray(),
             (queue.SelectedActors.Length + SourceBatchSize - 1) / SourceBatchSize);
     }
 }

@@ -14,6 +14,7 @@ public sealed record ArmyMarchCurrentInputs(bool ArmyValid, float Mobility2B0660
     string SourceProvenance);
 public interface IArmyMarchCurrentQueries
 {
+    /// <summary>Queries borrow the supplied operation world for the duration of each call.</summary>
     IReadOnlyList<ArmyMovementManagerActor>? ReadCompleteCurrentManager60Chain(GameState state,
         NativeArmyProgressStageMoment stage7Moment);
     bool? ReadSourceMovementEligibility2C7350(GameState state, UnitState army,
@@ -60,9 +61,7 @@ public sealed class ArmyMarchSourceRuntime : IPlayableNativeArmyMovementRules
     public NativeArmyMovementQueue? PrepareStage7(GameState state, NativeArmyProgressStageMoment moment)
     {
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(moment);
-        NativeSubdayStateValidation.Validate(state);
-        NativeArmyMarchStateValidation.Validate(state);
-        if (moment.SchedulerStageIndex != 7 || moment.Boundary != NativeArmyProgressStageBoundary.StageEntry)
+        if (moment.SchedulerStageIndex != (byte)NativeArmyProgressStage.PrepareMovement || moment.Boundary != NativeArmyProgressStageBoundary.StageEntry)
             throw new InvalidDataException("Movement source list must be prepared at its reached stage7.");
         ValidateCurrentMoment(state, moment);
         var chain = queries.ReadCompleteCurrentManager60Chain(state, moment);
@@ -91,7 +90,7 @@ public sealed class ArmyMarchSourceRuntime : IPlayableNativeArmyMovementRules
 
     public NativeArmyMovementUnitResolution? AdvanceArmy(GameState state, UnitState army, NativeArmyProgressStageMoment moment)
     {
-        if (moment.SchedulerStageIndex != 8 || moment.Boundary != NativeArmyProgressStageBoundary.StageEntry)
+        if (moment.SchedulerStageIndex != (byte)NativeArmyProgressStage.Movement || moment.Boundary != NativeArmyProgressStageBoundary.StageEntry)
             throw new InvalidDataException("Ordinary source march requires its reached stage8.");
         ValidateCurrentMoment(state, moment);
         if (state.Units.GetValueOrDefault(army.Id) != army || army.NativeArmyOrigin is null ||

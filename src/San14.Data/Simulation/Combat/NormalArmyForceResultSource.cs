@@ -1,4 +1,3 @@
-using System.Text.Json;
 using San14.Core;
 
 namespace San14.Data;
@@ -19,48 +18,42 @@ public sealed class NormalArmyForceResultSourceParameters
     { Language=language;Source=source;SourceCodeProfile=profile;Fields=fields;Values=values;CurrentRevision=revision; }
 }
 
-/// <summary>Reached current native reads inside ordinary kind27/null-second-Force
-/// SC257420. Definition identity is the actual registry object's virtual B0 result,
-/// not a Core force ID. Missing values stop only if their branch is reached.</summary>
-public interface INormalArmyForceResultCurrent
-{
-    bool? ReadAttackerForceValidity();
-    byte? ReadWorldFlags165C();
-    byte? ReadAttackerFlags12();
-    byte? ReadWorldSelectedForce1656();
-    byte? ReadAttackerResultGate15F();
-    ushort? ReadAttackerResultValue162();
-    byte? ReadAttackerResultDefinition160();
-    int? ReadResultDefinitionIdentity(byte physicalSlot);
-    NormalArmyForceResultParameters? ReadCurrentParameters();
-}
-
 public sealed record NormalArmyForceResultReceipt(bool NativeReturn,
-    bool WorldGate, bool ResultGate, byte? Flags12After, ushort? Value162After,
-    int Delta162, string Revision);
+    bool WorldGate, bool ResultGate, byte? FlagsAfter, int? ProgressAfter,
+    int ProgressDelta, string Revision);
 public enum NormalArmyForceResultOutcome { Committed, ResolvedWithoutWrite, CurrentInputsUnresolved }
 public sealed record NormalArmyForceResultApplication(NormalArmyForceResultOutcome Outcome,
     GameState State, NormalArmyForceResultReceipt? Receipt);
 public interface INormalArmyForceResultDefinitionQueries
 {
-    int? ReadResultDefinitionIdentity(byte physicalSlot);
+    int? ReadResultDefinitionIdentity(int locationId);
 }
 
-/// <summary>Complete ordinary Army Force callback only. The caller passes a
-/// resolved null second Force pointer, target raw Force slot, capped loss and
-/// killed flag. Death/trait/report callbacks in the enclosing application are
-/// distinct; this method does not publish an enclosing battle result.</summary>
+/// <summary>Adapts ordinary troop-loss and destruction rewards to current
+/// source eligibility and location ownership. The enclosing battle owns
+/// death, trait and report processing; this leaf does not publish that battle.</summary>
 public static class NormalArmyForceResultSource
 {
     private const int TroopLossScale = 10;
     private const int KilledAddend = 100;
-    /// <summary>Writes only reached Force12/162 after every current input has
-    /// resolved. Missing owners preserve the entire input. Native validity uses
-    /// the matching current source definition snapshot; no UI alive inference.</summary>
+    /// <summary>Publishes the reached status flag and combat objective progress
+    /// after current inputs resolve. Unknown input leaves the caller unchanged.
+    /// A successful standalone result owns its mutable world collections.</summary>
     public static NormalArmyForceResultApplication TryApply(GameState input, int attackerForceSlot,
         int targetForceSlot, int cappedLoss, bool killed, SourceWorldContext definitions,
         INormalArmyForceResultDefinitionQueries registry,
         NormalArmyForceResultSourceParameters source, string revision)
+        => Apply(input, attackerForceSlot, targetForceSlot, cappedLoss, killed, definitions, registry, source, revision, false);
+
+    internal static NormalArmyForceResultApplication ApplyWithinArmyOperation(GameState input, int attackerForceSlot,
+        int targetForceSlot, int cappedLoss, bool killed, SourceWorldContext definitions,
+        INormalArmyForceResultDefinitionQueries registry, NormalArmyForceResultSourceParameters source, string revision)
+        => Apply(input, attackerForceSlot, targetForceSlot, cappedLoss, killed, definitions, registry, source, revision, true);
+
+    private static NormalArmyForceResultApplication Apply(GameState input, int attackerForceSlot,
+        int targetForceSlot, int cappedLoss, bool killed, SourceWorldContext definitions,
+        INormalArmyForceResultDefinitionQueries registry, NormalArmyForceResultSourceParameters source, string revision,
+        bool owned)
     {
         ArgumentNullException.ThrowIfNull(input); ArgumentNullException.ThrowIfNull(definitions);
         ArgumentNullException.ThrowIfNull(registry); ArgumentNullException.ThrowIfNull(source);
@@ -71,70 +64,32 @@ public static class NormalArmyForceResultSource
             definitions.StaticSource is not { } scenario ||
             input.ContentHashes.GetValueOrDefault(scenario.ResourceUri) != scenario.Sha256)
             return new(NormalArmyForceResultOutcome.CurrentInputsUnresolved,input,null);
-        var receipt = Resolve(new OwnedCurrent(input,attackerForceSlot,definitions,registry,source),
-            targetForceSlot,cappedLoss,killed,$"{revision}:{parameters.Revision}:{scenario.Sha256}");
-        if (receipt is null) return new(NormalArmyForceResultOutcome.CurrentInputsUnresolved,input,null);
-        if (receipt.Flags12After is null && receipt.Value162After is null)
+        if (cappedLoss is < 0 or > ushort.MaxValue || targetForceSlot is < 0 or > 51)
+            throw new InvalidDataException("Ordinary Force result requires capped Army loss and a native Force slot.");
+        var resolved = ForceCombatObjectiveRules.Resolve(new ForceCombatObjectiveCurrent(input, attackerForceSlot,
+            definitions, registry, () => ReadCurrent(input, source) is { } values
+                ? new(values.TroopLossScale, values.KilledAddend) : null), targetForceSlot, cappedLoss, killed);
+        if (resolved is null) return new(NormalArmyForceResultOutcome.CurrentInputsUnresolved,input,null);
+        byte? flags = resolved.MarkSelectedForceDefeated
+            ? (byte)(simulation.Forces[attackerForceSlot].Flags12!.Value | 4) : null;
+        var receipt = new NormalArmyForceResultReceipt(resolved.Triggered, resolved.SelectedForceMatched,
+            resolved.ObjectiveMatched, flags, resolved.ProgressAfter, resolved.ProgressDelta,
+            $"{revision}:{parameters.Revision}:{scenario.Sha256}");
+        if (receipt.FlagsAfter is null && receipt.ProgressAfter is null)
             return new(NormalArmyForceResultOutcome.ResolvedWithoutWrite,input,receipt);
         if (!simulation.Forces.ContainsKey(attackerForceSlot))
             return new(NormalArmyForceResultOutcome.CurrentInputsUnresolved,input,null);
-        var detached = JsonSerializer.Deserialize<GameState>(JsonSerializer.SerializeToUtf8Bytes(input))
-            ?? throw new InvalidDataException("Force result current state failed to detach.");
+        var detached = owned ? input : GameStateCopy.Copy(input);
         var owner = detached.NativeArmySimulation!;
         var before = owner.Forces[attackerForceSlot];
         var forces = new Dictionary<int,NativeArmyForceState>(owner.Forces)
-        { [attackerForceSlot] = before with { Flags12 = receipt.Flags12After ?? before.Flags12,
-            ResultValue162 = receipt.Value162After ?? before.ResultValue162 } };
-        GameState result = detached with { NativeArmySimulation = owner with { Forces = forces } };
-        NativeSubdayStateValidation.Validate(result);
+        { [attackerForceSlot] = before with { Flags12 = receipt.FlagsAfter ?? before.Flags12 } };
+        var domainForces = detached.Forces;
+        if (receipt.ProgressAfter is int progress)
+            domainForces = new(domainForces) { [attackerForceSlot] = domainForces[attackerForceSlot] with
+                { CombatObjective = domainForces[attackerForceSlot].CombatObjective! with { Progress = progress } } };
+        GameState result = detached with { NativeArmySimulation = owner with { Forces = forces }, Forces = domainForces };
         return new(NormalArmyForceResultOutcome.Committed,result,receipt);
-    }
-
-    public static NormalArmyForceResultReceipt? Resolve(INormalArmyForceResultCurrent current,
-        int targetForceSlot, int cappedLoss, bool killed, string revision)
-    {
-        ArgumentNullException.ThrowIfNull(current);
-        ArgumentException.ThrowIfNullOrWhiteSpace(revision);
-        if (cappedLoss is < 0 or > ushort.MaxValue || targetForceSlot is < 0 or > 51)
-            throw new InvalidDataException("Ordinary Force result requires capped Army loss and a native Force slot.");
-        if (current.ReadAttackerForceValidity() is not bool valid) return null;
-        if (!valid) return new(false, false, false, null, null, 0, revision);
-        if (current.ReadWorldFlags165C() is not byte worldFlags) return null;
-        bool worldGate = false;
-        byte? flags = null;
-        if (worldFlags > 0)
-        {
-            if (current.ReadAttackerFlags12() is not byte forceFlags) return null;
-            flags = forceFlags;
-            if ((forceFlags & 6) == 2)
-            {
-                if (current.ReadWorldSelectedForce1656() is not byte selected) return null;
-                worldGate = targetForceSlot == selected;
-            }
-        }
-        if (current.ReadAttackerResultGate15F() is not byte gate) return null;
-        bool resultGate = false;
-        ushort? before = null;
-        if (gate is >= 1 and <= 51)
-        {
-            if (current.ReadAttackerResultValue162() is not ushort value) return null;
-            before = value;
-            if (value < 60000)
-            {
-                if (current.ReadAttackerResultDefinition160() is not byte definition ||
-                    current.ReadResultDefinitionIdentity(definition) is not int identity) return null;
-                resultGate = targetForceSlot == identity && (cappedLoss > 0 || killed);
-            }
-        }
-        if (!worldGate && !resultGate) return new(false, false, false, null, null, 0, revision);
-        byte? flagsAfter = worldGate && killed ? (byte)(flags!.Value | 4) : null;
-        if (!resultGate) return new(true, worldGate, false, flagsAfter, null, 0, revision);
-        if (current.ReadCurrentParameters() is not { } parameters) return null;
-        int delta = cappedLoss > 0 ? unchecked(parameters.TroopLossScale * cappedLoss) / 10 : 0;
-        if (killed) delta = unchecked(delta + parameters.KilledAddend);
-        int sum = unchecked(before!.Value + delta);
-        ushort after = (ushort)Math.Clamp(sum, 0, 60000);
-        return new(true, worldGate, true, flagsAfter, after, delta, revision);
     }
 
     /// <summary>Project rules for the two parameters used by the ordinary Army Force result callback.</summary>
@@ -192,19 +147,4 @@ public static class NormalArmyForceResultSource
         return new(language, SimulationRuleIdentity.ForLocale(language));
     }
 
-    private sealed class OwnedCurrent(GameState state, int slot, SourceWorldContext definitions,
-        INormalArmyForceResultDefinitionQueries registry, NormalArmyForceResultSourceParameters source)
-        : INormalArmyForceResultCurrent
-    {
-        private NativeArmyForceState? Force => state.NativeArmySimulation?.Forces.GetValueOrDefault(slot);
-        public bool? ReadAttackerForceValidity() => definitions.ReadForceNativeValidity(new(slot));
-        public byte? ReadWorldFlags165C() => state.NativeArmySimulation?.World.Flags165C;
-        public byte? ReadAttackerFlags12() => Force?.Flags12;
-        public byte? ReadWorldSelectedForce1656() => state.NativeArmySimulation?.World.SelectedForce1656;
-        public byte? ReadAttackerResultGate15F() => Force?.ResultGate15F;
-        public ushort? ReadAttackerResultValue162() => Force?.ResultValue162;
-        public byte? ReadAttackerResultDefinition160() => Force?.ResultDefinition160;
-        public int? ReadResultDefinitionIdentity(byte physicalSlot) => registry.ReadResultDefinitionIdentity(physicalSlot);
-        public NormalArmyForceResultParameters? ReadCurrentParameters() => ReadCurrent(state,source);
-    }
 }

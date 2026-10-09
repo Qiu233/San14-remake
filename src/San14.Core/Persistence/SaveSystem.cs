@@ -16,7 +16,7 @@ public sealed record SaveEnvelope(int SchemaVersion, string FormatId, GameState 
 /// <summary>Local save format. A future original-save adapter can implement ISaveCodec.</summary>
 public sealed class JsonGzipSaveCodec : ISaveCodec
 {
-    public const int CurrentSchemaVersion = 66;
+    public const int CurrentSchemaVersion = 68;
     public string FormatId => "san14-remake-json-gzip";
 
     public byte[] Encode(GameState state)
@@ -58,6 +58,8 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
         if (version < 64) LegacyArmyGroupsSaveMigration.Apply((JsonObject)document["State"]!);
         if (version < 65) LegacyArmyCautionsSaveMigration.Apply((JsonObject)document["State"]!);
         if (version < 66) LegacyArmyMapOccupancySaveMigration.Apply((JsonObject)document["State"]!);
+        if (version < 67) LegacyOfficeBonusEncodingSaveMigration.Apply((JsonObject)document["State"]!);
+        if (version < 68) LegacyForceCombatObjectiveSaveMigration.Apply((JsonObject)document["State"]!, version);
         ValidateModuleSnapshotShape((JsonObject)document["State"]!, version);
         // A present options record must contain all choices. JSON constructor
         // defaults must not turn a missing boolean into a confirmed false choice.
@@ -131,6 +133,13 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
     // or an empty task queue through JSON constructor defaults.
     private static void ValidateModuleSnapshotShape(JsonObject state, int version)
     {
+        if (state["Forces"] is JsonObject domainForces)
+            foreach (JsonNode? force in domainForces.Select(pair => pair.Value))
+            {
+                JsonObject record = Require(force, "force state", "CombatObjective");
+                if (record["CombatObjective"] is JsonNode objective)
+                    _ = Require(objective, "force combat objective", "Enabled", "TargetLocationId", "Progress");
+            }
         if (!state.ContainsKey("ArmyMapOccupancy"))
             throw new InvalidDataException("Saved map occupancy owner is missing.");
         if (state["ArmyMapOccupancy"] is JsonNode occupancyNode)
@@ -393,16 +402,16 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
         {
             JsonObject simulation = Require(nativeSimulationNode, "owned native Army simulation", "Parameters", "Forces", "World");
             _ = Require(simulation["Parameters"], "owned native parameters", "Revision", "Language", "RuleVersion",
-                "Int32Values", "Float32Values");
+                "Int32Values", "Float32Values", "OfficeBonusEncoding");
             if (simulation["Forces"] is not JsonObject forceFields)
                 throw new InvalidDataException("Owned native force field collection is invalid.");
             foreach (JsonNode? forceFieldsNode in forceFields.Select(pair => pair.Value))
             {
                 _ = Require(forceFieldsNode, "owned native force fields", "Flags193", "Flags12", "Flags194", "RelationsEA",
                     "ActivePolicyBitmap1CB", "SuppressedPolicyBitmap1D5");
-                if (version >= 39)
-                    _ = Require(forceFieldsNode, "owned native force result fields",
-                        "ResultGate15F", "ResultDefinition160", "ResultValue162");
+                if (forceFieldsNode is JsonObject oldForce && (oldForce.ContainsKey("ResultGate15F") ||
+                    oldForce.ContainsKey("ResultDefinition160") || oldForce.ContainsKey("ResultValue162")))
+                    throw new InvalidDataException("Saved force contains an obsolete combat objective owner.");
                 if (forceFieldsNode is JsonObject forceFieldsObject && forceFieldsObject["NormalAftermath"] is JsonNode aftermath)
                     _ = Require(aftermath, "current Force normal aftermath", "Relations13", "Development1BE");
             }

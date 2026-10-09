@@ -21,7 +21,9 @@ public sealed record NativeSubdayReport(string Kind, long UpdateOrdinal, int Uni
 public sealed record NativeSubdayUnitResolution(NativeArmyTacticRuntime Runtime, ulong RandomState,
     NativeSubdayReport[] Reports);
 
-/// <summary>Source adapters supply reached per-update arithmetic and current inputs.</summary>
+/// <summary>Rules borrow the operation's current world for this callback only.
+/// They must not mutate or retain its collections. Returned runtime arrays are
+/// admitted into the operation by the waiting driver.</summary>
 public interface IPlayableNativeSubdayRules
 {
     NativeSubdayUnitResolution? AdvanceUnit(GameState state, UnitState unit, NativeSubdayMoment moment);
@@ -94,23 +96,29 @@ public static class NativeSubdayRuntime
     /// <summary>Advances one proven manager update; current rates and gates stay in the provider.</summary>
     public static GameState AdvanceOneUpdate(GameState state, IPlayableNativeSubdayRules rules)
     {
-        NativeSubdayStateValidation.Validate(state);
         if (state.NativeClock is not { } clock)
             throw new InvalidDataException("Native subday clock is unresolved.");
         if (clock.UpdatesIntoPeriod == NativeSubdayStateValidation.UpdatesPerPeriod) return state;
         GameState working = GameStateSnapshot.Detach(state);
         if (clock.UpdatesIntoPeriod == 0) working = working with { NativeSubdayReports = [] };
-        return GameStateSnapshot.Detach(AdvanceOwned(working, rules));
+        return AdvanceOwned(working, rules);
     }
 
     /// <summary>Completes the remaining updates once; a saved cursor never repeats completed ticks.</summary>
     public static GameState CompletePeriod(GameState state, IPlayableNativeSubdayRules? rules)
     {
+        if (state.NativeClock is null ||
+            state.NativeClock.UpdatesIntoPeriod == NativeSubdayStateValidation.UpdatesPerPeriod) return state;
+        return CompletePeriodOwned(GameStateCopy.Copy(state), rules);
+    }
+
+    /// <summary>Completes updates inside an existing private period operation.</summary>
+    public static GameState CompletePeriodOwned(GameState state, IPlayableNativeSubdayRules? rules)
+    {
         if (state.NativeClock is null) return state;
-        NativeSubdayStateValidation.Validate(state);
         if (state.NativeClock.UpdatesIntoPeriod == NativeSubdayStateValidation.UpdatesPerPeriod) return state;
         if (rules is null) throw new InvalidDataException("Native subday updater rules are unresolved.");
-        GameState working = GameStateSnapshot.Detach(state);
+        GameState working = state;
         if (working.NativeClock!.UpdatesIntoPeriod == 0) working = working with { NativeSubdayReports = [] };
         while (working.NativeClock!.UpdatesIntoPeriod < NativeSubdayStateValidation.UpdatesPerPeriod)
             working = AdvanceOwned(working, rules);
@@ -145,7 +153,6 @@ public static class NativeSubdayRuntime
             reports.AddRange(result.Reports);
         }
         GameState next = state with { Units = units, NativeClock = nextClock, RandomState = randomState, NativeSubdayReports = reports.ToArray() };
-        NativeSubdayStateValidation.Validate(next);
         return next;
     }
 }

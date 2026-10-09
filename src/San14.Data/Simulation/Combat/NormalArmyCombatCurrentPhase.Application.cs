@@ -68,7 +68,7 @@ public sealed partial class NormalArmyCombatCurrentPhase
             {
                 var attacker = transient.Units[original.Stage5.Pair.Attacker.ArmyId];
                 var target = transient.Units[original.Stage5.Pair.Target.ArmyId];
-                force = currentApplication.TryApplyNativeForceResult(transient, attacker.ForceId,
+                force = currentApplication.ApplyForceResultDuringArmyOperation(transient, attacker.ForceId,
                     target.ForceId, killedDebit.AppliedLoss, applied.Receipt.Killed!.Value, forceDefinitions);
                 if (force.Outcome == NormalArmyForceResultOutcome.CurrentInputsUnresolved)
                     return Unknown("normal-force-callback");
@@ -85,7 +85,7 @@ public sealed partial class NormalArmyCombatCurrentPhase
             //current15F or reached160 registry result rolls back both prefixes.
             var attacker = applied.State.Units[original.Stage5.Pair.Attacker.ArmyId];
             var target = applied.State.Units[original.Stage5.Pair.Target.ArmyId];
-            var force = currentApplication.TryApplyNativeForceResult(applied.State, attacker.ForceId,
+            var force = currentApplication.ApplyForceResultDuringArmyOperation(applied.State, attacker.ForceId,
                 target.ForceId, debit.AppliedLoss, applied.Receipt.Killed!.Value, forceDefinitions);
             if (force.Outcome == NormalArmyForceResultOutcome.CurrentInputsUnresolved)
                 return Unknown("normal-force-callback");

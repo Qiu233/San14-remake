@@ -46,7 +46,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         //The actual Base virtualB0 registry reads the output of all earlier
         //writes, not a definitions closure captured at contact entry.
         forceDefinitions ??= new NormalArmyForceResultDefinitions(CaptureCurrentDefinitions(application.State));
-        var force = TryApplyNativeForceResult(application.State, attacker.ForceId, target.ForceId,
+        var force = ApplyForceResultDuringArmyOperation(application.State, attacker.ForceId, target.ForceId,
             debit.AppliedLoss, false, forceDefinitions);
         if (force.Outcome == NormalArmyForceResultOutcome.CurrentInputsUnresolved)
             return Unknown("external-normal.Force_result_definition");

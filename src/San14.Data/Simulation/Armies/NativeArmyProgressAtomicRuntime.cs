@@ -1,4 +1,3 @@
-using System.Text.Json;
 using San14.Core;
 
 namespace San14.Data;
@@ -30,15 +29,12 @@ public static class NativeArmyProgressAtomicRuntime
 
     public static NativeArmyProgressBlockResult TryAdvanceBlock(GameState input,
         long expectedStartCalendarCycleOrdinal, IPlayableNativeSubdayRules waitingRules,
-        IPlayableNativeArmyProgressStageRules stageRules,
+        IPlayableNativeArmyProgressStageSource stageSource,
         Func<INormalArmyCombatPhaseLocalCaptureSource, INormalArmyCombatStage13Consumer>? createPhaseConsumer = null,
         ArmyMarchSourceRuntime? movementSource = null)
     {
         ArgumentNullException.ThrowIfNull(input); ArgumentNullException.ThrowIfNull(waitingRules);
-        ArgumentNullException.ThrowIfNull(stageRules);
-        NativeSubdayStateValidation.Validate(input);
-        NativeArmyMarchStateValidation.Validate(input);
-        NativeNormalArmyCombatCalendarStateValidation.Validate(input);
+        ArgumentNullException.ThrowIfNull(stageSource);
         var season = input.NativeMapSeason ?? throw new InvalidDataException("Source stage orchestration requires its actual World third-date owner.");
         var clock = input.NativeClock ?? throw new InvalidDataException("Source stage orchestration requires its actual Army waiting owner.");
         MapSeasonRuntime.ValidateOwned(season);
@@ -55,7 +51,8 @@ public static class NativeArmyProgressAtomicRuntime
             season.SourceScenarioUri, season.SourceScenarioSha256, season.SourceWorldSha256, clock.Revision,
             season.AdvancedCalendarSteps,
             season.AdvancedCalendarSteps, 0, [], NormalArmyCombatCalendarRuntime.Revision);
-        GameState working = Detach(input);
+        GameState working = GameStateCopy.Copy(input);
+        IPlayableNativeArmyProgressStageRules stageRules = stageSource.BeginOperation();
         var captures = new List<NormalArmyCombatPhaseLocalCapture>();
         NativeMapSeasonDate date = season.ThirdDate;
         int waitingUpdates = 0;
@@ -66,49 +63,49 @@ public static class NativeArmyProgressAtomicRuntime
             // Keep it inside the transaction: no reusable provider-held queue
             // may survive a failed block or supply a later saved request.
             NativeArmyMovementQueue? movementQueue = null;
-            for (byte stage = 0; stage < 32; stage++)
+            for (byte stage = 0; stage < (byte)NativeArmyProgressStage.Count; stage++)
             {
                 var moment = new NativeArmyProgressStageMoment(ordinal, date, stage, cycle,
                     NativeArmyProgressStageBoundary.StageEntry);
-                if (stage == 13)
+                if (stage == (byte)NativeArmyProgressStage.Combat)
                 {
-                    var normalMoment = new NormalArmyCombatPhaseMoment(ordinal, date, 13,
+                    var normalMoment = new NormalArmyCombatPhaseMoment(ordinal, date, (byte)NativeArmyProgressStage.Combat,
                         season.SourceScenarioUri, season.SourceScenarioSha256, season.SourceWorldSha256,
                         NormalArmyCombatCalendarRuntime.Revision);
                     if (NormalArmyCombatSourcePlanner.IsDueAtSourceCalendarPhase(normalMoment))
-                        captures.Add(new(normalMoment, Detach(working), Revision));
+                        captures.Add(new(normalMoment, GameStateCopy.Copy(working), Revision));
                 }
                 GameState? next;
-                if (movementSource is not null && stage == 7)
+                if (movementSource is not null && stage == (byte)NativeArmyProgressStage.PrepareMovement)
                 {
-                    movementQueue = movementSource.PrepareStage7(Detach(working), moment);
+                    movementQueue = movementSource.PrepareStage7(working, moment);
                     if (movementQueue is null)
                         return Blocked(NativeArmyProgressBlockOutcome.StageUnresolvedOrBusy, moment);
                     next = working;
                 }
-                else if (movementSource is not null && stage == 8)
+                else if (movementSource is not null && stage == (byte)NativeArmyProgressStage.Movement)
                 {
-                    var movement = NativeArmyMovementStage8AtomicRuntime.TryAdvance(working, moment,
+                    var movement = NativeArmyMovementStage8AtomicRuntime.TryAdvanceOwned(working, moment,
                         movementQueue ?? throw new InvalidDataException("Reached movement stage8 lacks its same-cycle stage7 queue."),
                         movementSource);
                     movementQueue = null;
                     next = movement.Complete ? movement.State : null;
                 }
-                else next = AdvanceProtectedStage(working, stageRules, moment);
+                else next = AdvanceStage(working, stageRules, moment);
                 if (next is null) return Blocked(NativeArmyProgressBlockOutcome.StageUnresolvedOrBusy, moment);
                 working = next;
-                if (stage == 2 && IsArmyWaitingDue(date))
+                if (stage == (byte)NativeArmyProgressStage.Waiting && IsArmyWaitingDue(date))
                 {
-                    var order = stageRules.ReadCompleteWaitingArmyOrder(Detach(working), moment);
+                    var order = stageRules.ReadCompleteWaitingArmyOrder(working, moment);
                     if (order is null) return Blocked(NativeArmyProgressBlockOutcome.WaitingUnresolved, moment);
                     var currentClock = working.NativeClock!;
                     var waitingMoment = new NativeSubdayMoment(currentClock.AnchorDate, checked(currentClock.UpdateOrdinal + 1),
                         currentClock.UpdatesIntoPeriod / 4, date.Hour);
-                    next = NativeArmyWaitingStageAtomicRuntime.TryAdvance(working, waitingRules, waitingMoment, order.ToArray());
+                    next = NativeArmyWaitingStageAtomicRuntime.TryAdvanceOwned(working, waitingRules, waitingMoment, order.ToArray());
                     if (next is null) return Blocked(NativeArmyProgressBlockOutcome.WaitingUnresolved, moment);
                     working = next; waitingUpdates++;
                     moment = moment with { Boundary = NativeArmyProgressStageBoundary.AfterArmyWaiting };
-                    next = AdvanceProtectedStage(working, stageRules, moment);
+                    next = AdvanceStage(working, stageRules, moment);
                     if (next is null) return Blocked(NativeArmyProgressBlockOutcome.StageUnresolvedOrBusy, moment);
                     working = next;
                 }
@@ -145,16 +142,13 @@ public static class NativeArmyProgressAtomicRuntime
                 NextCalendarCycleOrdinal = advancement.State.AdvancedCalendarSteps,
                 ReachedDuePhaseCount = checked(cursor.ReachedDuePhaseCount + diagnostics.Count),
                 LastAdvanceDiagnostics = diagnostics.ToArray() } };
-        NativeSubdayStateValidation.Validate(result);
-        NativeArmyMarchStateValidation.Validate(result);
-        NativeNormalArmyCombatCalendarStateValidation.Validate(result);
-        return new(NativeArmyProgressBlockOutcome.Committed, Detach(result), null, captures.ToArray(), resolutions.ToArray());
+        return new(NativeArmyProgressBlockOutcome.Committed, result, null, captures.ToArray(), resolutions.ToArray());
 
         NativeArmyProgressBlockResult Blocked(NativeArmyProgressBlockOutcome outcome, NativeArmyProgressStageMoment at)
             => new(outcome, input, at, [], []);
     }
 
-    private static GameState? AdvanceProtectedStage(GameState state, IPlayableNativeArmyProgressStageRules rules, NativeArmyProgressStageMoment moment)
+    private static GameState? AdvanceStage(GameState state, IPlayableNativeArmyProgressStageRules rules, NativeArmyProgressStageMoment moment)
     {
         var previousDate = state.Date;
         var previousClock = state.NativeClock;
@@ -162,15 +156,11 @@ public static class NativeArmyProgressAtomicRuntime
         var previousCalendar = state.NativeNormalArmyCombatCalendar;
         var resolution = rules.AdvanceStage(state, moment);
         if (resolution is null) return null;
-        if (resolution.State is null || string.IsNullOrWhiteSpace(resolution.SourceProvenance) ||
+        if (resolution.State is null ||
             resolution.State.Date != previousDate || resolution.State.NativeClock != previousClock ||
             resolution.State.NativeMapSeason != previousSeason || resolution.State.NativeNormalArmyCombatCalendar != previousCalendar)
-            throw new InvalidDataException("Owned stage changed the source calendar/cursor or omitted its current provenance.");
-        NativeSubdayStateValidation.Validate(resolution.State);
-        NativeArmyMarchStateValidation.Validate(resolution.State);
-        // A provider may retain its returned mutable dictionaries/arrays. Its
-        // earlier stage must not mutate a later owned prefix through that alias.
-        return ReferenceEquals(resolution.State, state) ? state : Detach(resolution.State);
+            throw new InvalidDataException("Army stage changed the driver calendar/cursor.");
+        return resolution.State;
     }
     private static void ValidateCursor(NativeNormalArmyCombatCalendarState? cursor)
     {
@@ -178,13 +168,11 @@ public static class NativeArmyProgressAtomicRuntime
             cursor.Revision != NormalArmyCombatCalendarRuntime.Revision))
             throw new InvalidDataException("Source stage cursor names another scheduler generation.");
     }
-    private static GameState Detach(GameState state) => JsonSerializer.Deserialize<GameState>(JsonSerializer.SerializeToUtf8Bytes(state))
-        ?? throw new InvalidDataException("Owned source stage snapshot failed to detach.");
     private sealed class ExactCaptures(IEnumerable<NormalArmyCombatPhaseLocalCapture> captures) : INormalArmyCombatPhaseLocalCaptureSource
     {
         private readonly Dictionary<long, NormalArmyCombatPhaseLocalCapture> values = captures.ToDictionary(c => c.Moment.CalendarCycleOrdinal);
         public NormalArmyCombatPhaseLocalCapture? Capture(NormalArmyCombatPhaseMoment moment)
             => values.TryGetValue(moment.CalendarCycleOrdinal, out var captured) && captured.Moment == moment
-                ? captured with { State = Detach(captured.State) } : null;
+                ? captured with { State = GameStateCopy.Copy(captured.State) } : null;
     }
 }

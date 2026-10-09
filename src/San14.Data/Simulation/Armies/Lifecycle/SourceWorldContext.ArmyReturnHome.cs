@@ -16,6 +16,7 @@ public sealed partial class SourceWorldContext
         Copy(_cityPointers, draft._cityPointers); Copy(_gatePointers, draft._gatePointers);
         Copy(_objectPointers, draft._objectPointers); Copy(_objects, draft._objects);
         Copy(_cityFlags, draft._cityFlags); Copy(_gateFlags, draft._gateFlags); Copy(_cityDistricts, draft._cityDistricts);
+        CopyHomeMapDefinitionsTo(draft);
         Copy(_hexPointers, draft._hexPointers); Copy(_areaPointers, draft._areaPointers);
         Copy(_hexAreas, draft._hexAreas); Copy(_hexForces, draft._hexForces); Copy(_areaValidityCodes, draft._areaValidityCodes);
         Copy(_areaCities, draft._areaCities); Copy(_areaHexes, draft._areaHexes);

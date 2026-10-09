@@ -7,7 +7,7 @@ namespace San14.Data;
 public sealed class NormalArmyForceResultDefinitions(SourceWorldContext? current)
     : INormalArmyForceResultDefinitionQueries
 {
-    public int? ReadResultDefinitionIdentity(byte selectedBase4E)
+    public int? ReadResultDefinitionIdentity(int selectedBase4E)
     {
         if (current is null) return null;
         try

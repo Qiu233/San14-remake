@@ -2,17 +2,12 @@ using San14.Core;
 
 namespace San14.Data;
 
-/// <summary>25B0C9's CPostData / CRankData input window. This is office and
-/// rank data, not doctrine.23F480's first static load really appends five
-/// encoded vector entries; the queried entry and current slot9 stay explicit.</summary>
+/// <summary>Current office and rank inputs for the morale wave. The office
+/// leadership bonus uses the selected encoding of its five-entry bonus vector.</summary>
 public sealed class OwnedArmyMoraleWaveInputs
 {
     private const string Prefix = "ce-army-morale-wave-current:";
     public const string VersionKey = Prefix + "version";
-    public const string PostSlot9Key = Prefix + "post-vtable:slot9";
-    //TC symbol used as the owned getter's semantic identity, not a foreign
-    //pointer or a claim about an SC physical code address.
-    public const int RotateByteGetter = 0x00D9D0;
     public static string ForceRank47Key(int p) => Prefix + $"force:{p}:47";
     public static string RankACKey(int p) => Prefix + $"rank:{p}:AC";
     public static string Post34Key(int p) => Prefix + $"post:{p}:34";
@@ -57,7 +52,7 @@ public sealed class OwnedArmyMoraleWaveInputs
             simulation.Parameters.Int32Values.Keys.Any(k => k.StartsWith(Prefix, StringComparison.Ordinal)))
             throw new InvalidDataException("Morale wave source inputs require their unused fresh current owner.");
         var values = new Dictionary<string, int>(simulation.Parameters.Int32Values)
-        { [VersionKey] = 1, [PostSlot9Key] = RotateByteGetter };
+        { [VersionKey] = 1 };
         foreach (var row in _source.Snapshot.Forces)
         {
             if (row.RankId is not int rank || rank is < 0 or > 255) throw new InvalidDataException("Unknown fresh Force rank47.");
@@ -75,7 +70,8 @@ public sealed class OwnedArmyMoraleWaveInputs
             byte x = (byte)(row.AbilityBonus.Leadership ^ (byte)row.Id);
             values.Add(PostVectorEntry1Key(row.Id), (byte)((x << 3) | (x >> 5)));
         }
-        return state with { NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = values } } };
+        return state with { NativeArmySimulation = simulation with { Parameters = simulation.Parameters with
+        { Int32Values = values, OfficeBonusEncoding = OfficeBonusEncoding.RotateByteXorOffice } } };
     }
     public void BindCurrent(GameState state, SourceWorldContext current)
     {
@@ -86,15 +82,11 @@ public sealed class OwnedArmyMoraleWaveInputs
                 : ReadByte(state, ForceRank47Key(p));
             current.SetForceRankSlot47(p, rank);
         }
-        current.MoraleWavePostSlot9Reader = (post, encodedLow, rotation) =>
-            ReadInt(state, PostSlot9Key) == RotateByteGetter ? DecodeSlot9(encodedLow, rotation, post) : null;
+        current.OfficeLeadershipBonusDecoder = (post, encodedLow, rotation) =>
+            ReadInt(state, VersionKey) == 1
+                ? OfficeBonusCodec.Decode(state.NativeArmySimulation?.Parameters.OfficeBonusEncoding, encodedLow, rotation, post)
+                : null;
         current.MoraleWavePersonPostE7Reader = physical => ReadPersonPostE7(state, current, physical);
-    }
-    public static byte DecodeSlot9(byte encodedLow, int rotation, int postPhysical)
-    {
-        uint input = encodedLow;
-        uint decoded = ((input >> ((8 - rotation) & 31)) | (input << (rotation & 31))) ^ (byte)postPhysical;
-        return unchecked((byte)decoded); //25B2DA MOVZX AL discards the wide getter result.
     }
     public static bool? ReadPostNativeValidity(GameState state, int post)
         => post == 0 ? false : ReadInt(state, Post34Key(post)) is int limit && limit is >= 0 and <= 65535 ? limit != 0 : null;
@@ -107,7 +99,7 @@ public sealed class OwnedArmyMoraleWaveInputs
         if (ReadInt(state, PostVectorCountKey(post)) is not int count) return null;
         if (count != 5) return ReadByte(state, Post38Key(post));
         if (ReadInt(state, PostVectorEntry1Key(post)) is not int encoded) return null;
-        return current.MoraleWavePostSlot9Reader?.Invoke(post, unchecked((byte)encoded), 5);
+        return current.OfficeLeadershipBonusDecoder?.Invoke(post, unchecked((byte)encoded), 5);
     }
     public static byte? ReadRankAC(GameState state, int rank) => ReadByte(state, RankACKey(rank is >= 0 and <= 12 ? rank : 0));
     public static byte? ReadPersonPostE7(GameState state, SourceWorldContext current, int physical)
@@ -124,7 +116,7 @@ public sealed class OwnedArmyMoraleWaveInputs
 public sealed partial class SourceWorldContext
 {
     private readonly Dictionary<int, byte?> _moraleWavePersonPostE7 = [];
-    public Func<int, byte, int, byte?>? MoraleWavePostSlot9Reader { get; set; }
+    public Func<int, byte, int, byte?>? OfficeLeadershipBonusDecoder { get; set; }
     public Func<int, byte?>? MoraleWavePersonPostE7Reader { get; set; }
     public byte? ReadMoraleWavePersonPostE7(int physical)
     { Check(physical, 1851, "current Person PostE7"); return _moraleWavePersonPostE7.TryGetValue(physical, out byte? value) ? value : MoraleWavePersonPostE7Reader?.Invoke(physical); }

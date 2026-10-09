@@ -1,4 +1,4 @@
-﻿using San14.Core;
+using San14.Core;
 
 namespace San14.Data;
 
@@ -59,7 +59,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (definitions is null) return Unknown($"current.{scope}_Force_definitions");
         //178EC0 reaches257670 with killed=true before1745B0. Dead targets
         //do not enter the nonfatal9-slot personality callback.
-        var force = TryApplyNativeForceResult(draft, attacker.ForceId, target.ForceId, debit.AppliedLoss, true,
+        var force = ApplyForceResultDuringArmyOperation(draft, attacker.ForceId, target.ForceId, debit.AppliedLoss, true,
             new NormalArmyForceResultDefinitions(definitions));
         if (force.Outcome == NormalArmyForceResultOutcome.CurrentInputsUnresolved)
             return Unknown($"current.{scope}_killed_Force_result");

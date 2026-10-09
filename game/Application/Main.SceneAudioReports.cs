@@ -1,5 +1,4 @@
 using Godot;
-using San14.Core;
 using San14.Data;
 using System.Text.Json;
 
@@ -68,66 +67,5 @@ public partial class Main
         _sceneAudioStatus.Text = _ui.Get("scene_audio_" + status);
         _sceneAudioStatus.TooltipText = _ui.Get("scene_audio_selection_unknown");
         SetMeta("scene_audio_status", status);
-    }
-
-    private string RenderMonthlyIncomeReceipt(GameState world, MonthlyIncomeReportEntry receipt)
-    {
-        string city = world.Cities[receipt.CityId].Name;
-        MonthlyIncomeQuote quote = receipt.Quote;
-        if (quote.Status == PeriodEconomyCalculationStatus.Available)
-            return _ui.Format("play_report_monthly_receipt_available", city, quote.Gold, quote.Supplies);
-        return _ui.Format(quote.Status == PeriodEconomyCalculationStatus.PartialCurrentContext
-                ? "play_report_monthly_receipt_partial" : "play_report_monthly_receipt_unavailable",
-            city, quote.MissingInputs.Length);
-    }
-
-    private string RenderEconomyRuleGap(GameState world, PeriodReportEntry entry)
-    {
-        string city = entry.CityId is int id && world.Cities.TryGetValue(id, out CityState? place)
-            ? place.Name : _ui.Get("detail_unknown");
-        return _ui.Format("play_report_" + entry.Kind, city) +
-            (entry.MissingRuleKeys is { Length: > 0 } missing ? "  " + _ui.Format("play_report_missing_rule_count", missing.Length) : "");
-    }
-
-    private string RenderSourceEventReport(GameState world, CampaignEventReportView entry)
-    {
-        string identity = entry.EventId is int eventId ? _ui.Format("play_report_source_event_identity", eventId) : _ui.Get("play_report_event_identity");
-        if (entry.Kind == "triggered") return _ui.Format("play_report_event_triggered", identity);
-        if (entry.Kind == nameof(PlayableEventEffectKind.Message))
-            return _ui.Format("play_report_event_message", identity);
-        string? effect = entry.Kind switch
-        {
-            nameof(PlayableEventEffectKind.SetAgriculture) => "agriculture_set",
-            nameof(PlayableEventEffectKind.AddAgriculture) => "agriculture_add",
-            nameof(PlayableEventEffectKind.SetCommerce) => "commerce_set",
-            nameof(PlayableEventEffectKind.AddCommerce) => "commerce_add",
-            nameof(PlayableEventEffectKind.SetBarracks) => "barracks_set",
-            nameof(PlayableEventEffectKind.AddBarracks) => "barracks_add",
-            nameof(PlayableEventEffectKind.SetSecurity) => "security_set",
-            nameof(PlayableEventEffectKind.AddSecurity) => "security_add",
-            _ => null
-        };
-        if (effect is not null)
-        {
-            string area = entry.AreaId is int id && world.Areas.TryGetValue(id, out AreaState? place) && !string.IsNullOrWhiteSpace(place.Name)
-                ? place.Name : _ui.Get("detail_unknown");
-            return _ui.Format("play_report_event_area_effect", identity, area, _ui.Get("play_report_event_effect_" + effect), entry.Amount);
-        }
-        if (entry.Kind == nameof(PlayableEventEffectKind.SetFlag)) return _ui.Format("play_report_event_flag", identity);
-        if (entry.Kind == nameof(PlayableEventEffectKind.AddCounter)) return _ui.Format("play_report_event_counter", identity);
-        return _ui.Format("play_report_event_effect_unknown", identity);
-    }
-
-    private void PreserveSourceReportMetadata(GameState world, int playerForce)
-    {
-        MonthlyIncomeReportEntry[] income = (world.MonthlyIncomeReports ?? []).Where(entry => entry.ForceId == playerForce).ToArray();
-        CampaignEventReportView[] events = CampaignEventReportAdapter.Create(world, playerForce).Where(entry => entry.Period == world.PeriodNumber).ToArray();
-        SetMeta("play_report_monthly_receipt_count", income.Length);
-        SetMeta("play_report_monthly_receipts_json", JsonSerializer.Serialize(income));
-        SetMeta("play_report_source_event_count", events.Length);
-        SetMeta("play_report_source_events_json", JsonSerializer.Serialize(events));
-        SetMeta("play_report_rule_receipts_json", JsonSerializer.Serialize(world.PeriodReports.Where(entry =>
-            entry.ForceId == playerForce && (entry.RuleId is not null || entry.MissingRuleKeys is not null))));
-        SetMeta("play_report_period_entries_json", JsonSerializer.Serialize(world.PeriodReports.Where(entry => entry.ForceId == playerForce)));
     }
 }

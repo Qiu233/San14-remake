@@ -109,14 +109,14 @@ public sealed class S14BasicEventConditionRuntime : IS14EventConditionRuntime
 
     private bool EventFlag(S14ConditionContext context, int index, int expected)
     {
-        if (index is < 0 or >= 1024)
+        if (index is < 0 or >= S14EventSourceProfile.WorldFlagCount)
             throw new InvalidDataException($"Event bitmap index {index} is outside the supported 128-byte source window.");
         bool firstRead = Known(_queries.ReadWorldEventFlag(index), "world+460 event bit");
         if (context.OrDepth == 0 && Known(_queries.ReadEventManagerPresent(), "event-manager pointer"))
         {
             // The manager bitmap has 124 bytes; the separate world bitmap has 128.
             // Only the expected-one branch reads manager bits in the native body.
-            if (expected == 1 && index >= 992)
+            if (expected == 1 && index >= S14EventSourceProfile.ManagerFlagCount)
                 throw new InvalidDataException($"Manager event bitmap index {index} is outside the supported 124-byte source window.");
             if (expected == 1 && Known(_queries.ReadManagerEventFlag(index), "manager+24 event bit"))
                 ConditionBlocked = true;

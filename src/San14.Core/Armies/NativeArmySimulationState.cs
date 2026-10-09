@@ -3,14 +3,15 @@ namespace San14.Core;
 /// <summary>Current parameters owned by this remake session. Source-created
 /// seeds and later writes are explicit; old saves never import image globals.</summary>
 public sealed record NativeArmyParameterState(string Revision, string Language,
-    string RuleVersion, Dictionary<string, int> Int32Values, Dictionary<string, float> Float32Values);
+    string RuleVersion, Dictionary<string, int> Int32Values, Dictionary<string, float> Float32Values)
+{
+    /// <summary>Null means the current bonus vector decoder is unavailable.</summary>
+    public OfficeBonusEncoding? OfficeBonusEncoding { get; init; }
+}
 public sealed record NativeArmyForceState(byte? Flags193)
 {
     public byte? Flags12 { get; init; }
     public byte? Flags194 { get; init; }
-    public byte? ResultGate15F { get; init; }
-    public byte? ResultDefinition160 { get; init; }
-    public ushort? ResultValue162 { get; init; }
     public byte[]? RelationsEA { get; init; }
     public byte[]? ActivePolicyBitmap1CB { get; init; }
     public byte[]? SuppressedPolicyBitmap1D5 { get; init; }

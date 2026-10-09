@@ -28,16 +28,15 @@ public static class NormalArmyForceFreshAllocation
             simulation.Parameters.Int32Values.ContainsKey(VersionKey) ||
             simulation.Parameters.Float32Values.ContainsKey(VersionKey) ||
             !simulation.Forces.Keys.Order().SequenceEqual(state.Forces.Keys.Order()) ||
-            simulation.Forces.Values.Any(force => force.ResultGate15F is not null ||
-                force.ResultDefinition160 is not null || force.ResultValue162 is not null))
+            state.Forces.Values.Any(force => force.CombatObjective is not null))
             throw new InvalidDataException("Force result constructor fields require the fresh unmodified owned static allocation.");
         //SC2213C0→2272E0 writes word15E=000B and qword160=0. The
         //SC237F20 static serializer writes only byte15E, then238282/238289
         //jumps to23862D without consuming15F/160/162. TC is paired in source.
-        var forces = simulation.Forces.ToDictionary(pair => pair.Key, pair => pair.Value with {
-            ResultGate15F = 0, ResultDefinition160 = 0, ResultValue162 = 0 });
+        var forces = state.Forces.ToDictionary(pair => pair.Key, pair => pair.Value with {
+            CombatObjective = ForceCombatObjective.Inactive });
         var integers = new Dictionary<string, int>(simulation.Parameters.Int32Values) { [VersionKey] = 1 };
-        return state with { NativeArmySimulation = simulation with { Forces = forces,
+        return state with { Forces = forces, NativeArmySimulation = simulation with {
             Parameters = simulation.Parameters with { Int32Values = integers } } };
     }
 

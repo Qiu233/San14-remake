@@ -32,6 +32,7 @@ public sealed partial class SourceWorldContext
         Copy(_armyStatusFlags, draft._armyStatusFlags); Copy(_armyUnitHexes2A, draft._armyUnitHexes2A);
         //Type2/bit20 reaches the actual Person Return mode8 search inside
         //this same transaction. Keep its immutable terrain inputs present.
+        CopyTransactionTerrainDefinitionsTo(draft);
         Copy(_hexSurfaceCodes, draft._hexSurfaceCodes);
         Copy(_surfaceTypePointers, draft._surfaceTypePointers); Copy(_surfaceTypeFields2A, draft._surfaceTypeFields2A);
         CopyArmyMapOccupancyTo(draft); Copy(_personTraitSlots150, draft._personTraitSlots150);

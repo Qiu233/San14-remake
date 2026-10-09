@@ -39,9 +39,17 @@ public sealed partial class SourceWorldContext : ICurrentGateMapState
     public ushort? ReadObjectHexIndex(ObjectReference reference) =>
         ReadPhysicalObject(MapPhysical(reference.PhysicalSlot, 3001, "object"))?.RawField10;
     public HexReference? ReadHexTableReference(int slot)
-    { Check(slot, 48400, "hex lookup slot"); return _hexPointers.TryGetValue(slot, out int? physical) ? new(physical) : null; }
-    public ushort? ReadHexAreaSlot(HexReference reference) =>
-        _hexAreas.GetValueOrDefault(MapPhysical(reference.PhysicalSlot, 48400, "hex"));
+    {
+        Check(slot, 48400, "hex lookup slot");
+        return _hexPointers.TryGetValue(slot, out int? physical) ? new(physical) :
+            _hexIdentityDefinitions is not null ? new(slot) : null;
+    }
+    public ushort? ReadHexAreaSlot(HexReference reference)
+    {
+        int physical = MapPhysical(reference.PhysicalSlot, 48400, "hex");
+        return _hexAreas.TryGetValue(physical, out ushort? area) ? area :
+            _hexAreaDefinitions is not null ? (ushort)_hexAreaDefinitions.Tile(physical).AreaId : null;
+    }
     public byte? ReadHexForceSlot(HexReference reference) =>
         _hexForces.GetValueOrDefault(MapPhysical(reference.PhysicalSlot, 48400, "hex"));
     public AreaReference? ReadAreaTableReference(int slot)
