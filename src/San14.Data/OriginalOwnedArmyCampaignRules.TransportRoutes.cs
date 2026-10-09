@@ -25,7 +25,7 @@ public sealed partial class OriginalOwnedArmyCampaignRules
         var arena = state.NativeArmyLifecycle ?? throw new InvalidDataException("current.transport_route_saved_arena");
         var current = OriginalOwnedArmyReturnCurrentFields.CaptureCurrent(state, _definitions);
         _ = WorldIndexContext.ImportOwnedState(current, arena.Indexes, state);
-        current.RestoreOwnedArmyReturnBindings(arena);
+        current.BindArmyMapOccupancy(state);
         current.RestoreOwnedArmyReturnSlots(state, arena);
         OriginalOwnedArmyDestructorFlags.BindCurrent(arena, current);
         OriginalOwnedArmyLifecycleTargets.BindCurrent(arena, current);

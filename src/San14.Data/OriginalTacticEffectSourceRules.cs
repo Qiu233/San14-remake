@@ -71,7 +71,7 @@ public interface IOriginalTacticEffectSourceContext
 /// <summary>Connects complete Army programs0/15/19/20/23 to the Core production
 /// provider using explicit current targets, permissions, factors and RNG. One
 /// unsupported instruction rejects the entire declaration before queuing.</summary>
-public sealed class OriginalTacticEffectSourceRules : IOriginalPlayableTacticSource, IPlayableTacticUseSource
+public sealed class OriginalTacticEffectSourceRules : ITacticRuleSource, IPlayableTacticUseSource
 {
     private readonly OriginalTacticSourceCatalog _catalog;
     private readonly IOriginalTacticEffectSourceContext _context;

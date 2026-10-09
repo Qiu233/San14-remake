@@ -50,7 +50,7 @@ public static class OriginalOwnedArmyLifecycleAuxiliaries
         if (arena is null || arena.ArmyGroups is not { } groups || arena.ArmyCautions is not { } cautions || state.PendingCombatSettlements is null || arena.Slots.Length != 501) return null;
         var current = OriginalOwnedArmyReturnCurrentFields.CaptureCurrent(state, definitions);
         var pool = WorldIndexContext.ImportOwnedState(current, arena.Indexes, state);
-        current.RestoreOwnedArmyReturnBindings(arena);
+        current.BindArmyMapOccupancy(state);
         RestoreHeaders(current, arena.Slots);
         var pendingOrder = Chain(current, current.ReadArmyReturnPending70Descriptor());
         if (pendingOrder.Any(x => x.Kind != OriginalRegistryKind.Army || x.PhysicalSlot is not (>= 1 and <= 500))) return null;
@@ -92,6 +92,7 @@ public static class OriginalOwnedArmyLifecycleAuxiliaries
                     PendingImage = null, Gold5C = 0, Supplies60 = 0, AuxiliaryAC = new ushort[36], AuxiliaryF4 = new ushort[36],
                     OverrideTarget = new(0xFF, 0), Direction36 = OriginalArmyDirectionSource.ResetDirection36,
                     MapUiByte13C = 0, CommandControl140 = 0, RouteHold56 = 0, RouteGoal1F8 = 0xBD10 };
+                current.ReleaseArmyOccupancyReceiver(army);
                 current.SetArmyUnitCommanderId(army, 0); current.SetArmyUnitStatusFlag10(army, 0);
                 if (armyFlags150 is not null) armyFlags150[army] = 0; //2269E0 byte150 explicit reset.
                 if (armyTargets38 is not null) armyTargets38[army] = new(0xFF, 0); //2269E0 target reset.
@@ -103,7 +104,7 @@ public static class OriginalOwnedArmyLifecycleAuxiliaries
                     ?? throw new InvalidDataException("Current group retirement membership is unavailable.");
             }
             current.ClearTemporaryHexList(new(current.ReadArmyReturnPending70Descriptor()!.Identity));
-            var result = state with { NativeArmyLifecycle = arena with { Indexes = pool.ExportOwnedState(), Slots = slots, ArmyFlags150 = armyFlags150, Targets38 = armyTargets38,
+            var result = state with { ArmyMapOccupancy = current.ExportArmyMapOccupancy(), NativeArmyLifecycle = arena with { Indexes = pool.ExportOwnedState(), Slots = slots, ArmyFlags150 = armyFlags150, Targets38 = armyTargets38,
                 ArmyGroups = groups, ArmyCautions = cautions } };
             foreach (var receiver in pendingOrder) committedReset?.Invoke(receiver.PhysicalSlot!.Value);
             return result;

@@ -339,9 +339,8 @@ public sealed partial class OriginalOwnedArmyDestructionStage(OriginalOwnedArmyC
             }
         }
         arena = OriginalOwnedArmyLifecycleTargets.PublishCurrent(OriginalOwnedArmyDestructorFlags.PublishCurrent(arena, current), current)
-            with { Indexes = pool.ExportOwnedState(), Slots = slots,
-            HexRaw1C = arena.HexRaw1C.ToDictionary(x => x.Key, x => current.ReadHexRaw1C(new(x.Key))) };
-        return result with { Units = units, Officers = people, NativeArmyLifecycle = arena, PendingCombatSettlements = queue,
+            with { Indexes = pool.ExportOwnedState(), Slots = slots };
+        return result with { Units = units, Officers = people, NativeArmyLifecycle = arena, ArmyMapOccupancy = current.ExportArmyMapOccupancy(), PendingCombatSettlements = queue,
             PersonnelReturns = current.ReadOwnedPersonCommandManager() };
     }
 

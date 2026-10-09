@@ -10,7 +10,7 @@ public sealed record OriginalArmyMovementManagerActor(int UnitId, int NativePool
 public sealed record OriginalArmyMarchCurrentInputs(bool ArmyValid, float Mobility2B0660,
     int SpeedScale2695D0, int Penalty2B5C10, int CachedMinimumTerrainCost1A24010,
     int DestinationTerrainCostBDDD0, bool CurrentTerrainPointerAvailable,
-    bool DestinationHexValid, short DestinationHexArmyWord1C, ushort DestinationHexObjectWord1A,
+    bool DestinationHexValid, ushort DestinationHexObjectWord1A,
     string SourceProvenance);
 public interface IOriginalArmyMarchCurrentQueries
 {
@@ -106,7 +106,7 @@ public sealed class OriginalArmyMarchSourceRuntime : IPlayableNativeArmyMovement
             !input.CurrentTerrainPointerAvailable || !input.DestinationHexValid ||
             input.CachedMinimumTerrainCost1A24010 <= 0 || input.CachedMinimumTerrainCost1A24010 == int.MaxValue ||
             input.DestinationTerrainCostBDDD0 <= 0 ||
-            input.DestinationHexArmyWord1C is >= 1 and <= 500 || input.DestinationHexObjectWord1A != 0)
+            state.ArmyMapOccupancy?.HasArmyMarker(fields.NextHex48) != false || input.DestinationHexObjectWord1A != 0)
             return null;
         int? speed = OriginalArmyMarchSourceMath.ResolveCycleSpeed(input.Mobility2B0660, input.SpeedScale2695D0, input.Penalty2B5C10);
         if (speed is not int reachedSpeed || unchecked(fields.Credit14 + reachedSpeed) >= input.CachedMinimumTerrainCost1A24010)

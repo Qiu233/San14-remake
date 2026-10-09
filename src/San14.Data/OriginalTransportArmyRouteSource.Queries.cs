@@ -151,11 +151,13 @@ public static partial class OriginalTransportArmyRouteSource
         }
         internal int OccupiedCost(int raw)
         {
-            int physicalHex = Hex(raw).PhysicalSlot ?? throw Missing("occupancy_Hex_pointer");
-            if (state.NativeArmyLifecycle is not { } arena || !arena.HexRaw1C.TryGetValue(physicalHex, out ushort? raw1C))
-                throw Missing("saved_Hex1C");
-            int occupant = unchecked((short)K(raw1C, "saved_Hex1C"));
+            var hex = Hex(raw);
+            _ = hex.PhysicalSlot ?? throw Missing("occupancy_Hex_pointer");
+            current.BindArmyMapOccupancy(state);
+            int occupant = unchecked((short)K(current.ReadHexRaw1C(hex), "current_Hex1C"));
             if (occupant is < 1 or > 500) return 0; //2C6D20's real signed range.
+            if (state.NativeArmyLifecycle is not { } arena || occupant >= arena.Slots.Length)
+                throw Missing("occupant_Army_receiver");
             var slot = arena.Slots[occupant];
             var other = slot.ActiveUnitId is int id ? state.Units.GetValueOrDefault(id) : slot.PendingImage;
             ushort commanderId = K(slot.Commander12, "occupant12");

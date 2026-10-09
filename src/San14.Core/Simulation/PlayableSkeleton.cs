@@ -91,10 +91,10 @@ public static class PlayableSkeleton
         IDiplomacyPolicy diplomacyPolicy = diplomacy ?? new ProvisionalDiplomacyPolicy();
         IPlayableTacticRules tactics = tacticRules ?? UnresolvedTacticRules.Instance;
         IPlayableEventRules events = eventRules ?? UnresolvedEventRules.Instance;
-        IOrderRules commands = new OriginalOrderRules(
-            new OriginalAdministrationRules(new AdministrationEligibilityRules()),
-            new OriginalDeploymentRules(new DeploymentEligibilityRules(routes), new DeploymentResourceRules()),
-            new OriginalGovernanceRules(new PlayableGovernanceCommandRules()));
+        IOrderRules commands = new OrderRuleDispatcher(
+            new AreaAdministrationRules(new AdministrationEligibilityRules()),
+            new DeploymentCommandRules(new DeploymentEligibilityRules(routes), new DeploymentResourceRules()),
+            new GovernanceCommandRules(new PlayableGovernanceCommandRules()));
         commands = new PlayableUnitOrders(commands, routes, cityEntryResources, cityEntryState, transportCreationRules);
         commands = new PlayableCityDutyOrders(commands);
         commands = new PlayableOfficerMoveOrders(commands);
@@ -496,7 +496,7 @@ public static class PlayableSkeleton
             PlayableMilitaryTargetLifecycle.EndUnavailableTargets(units, cities, gates,
                 officers, territory ?? state.Territory, routes, state.MapWidth, reports,
                 IsHostile, structures);
-            var deploymentCancellation = new OriginalDeploymentRules(new DeploymentEligibilityRules(routes),
+            var deploymentCancellation = new DeploymentCommandRules(new DeploymentEligibilityRules(routes),
                 new DeploymentResourceRules());
             foreach (PreparedDeployment plan in state.PreparedDeployments.Values.OrderBy(plan => plan.Id))
             {
@@ -517,7 +517,7 @@ public static class PlayableSkeleton
                 //Queued tactics still refer to the pre-allocation roster and
                 //must not bind to a different Army reusing their vanished ID.
                 nextUnitId = PlayableMilitaryTargetLifecycle.NextPeriodAllocationId(units, nextUnitId,
-                    periodBasis.NativeArmyLifecycle, periodBasis.PendingCombatSettlements);
+                    periodBasis.NativeArmyLifecycle, periodBasis.PendingCombatSettlements, periodBasis.ArmyMapOccupancy);
                 int sourceHex;
                 int morale;
                 if (cities.TryGetValue(plan.SourceLocationId, out CityState? city))
@@ -578,8 +578,7 @@ public static class PlayableSkeleton
                     PlayableArmyCreationResolution created = armyCreationRules.Create(detachedCreation, detachedPlan, candidate)
                         ?? throw new InvalidDataException("Current ordinary Army construction inputs are unresolved.");
                     deployed = PlayableArmyCreation.Apply(creationState, deployed, created);
-                    if (created.NativeLifecycle is { } createdLifecycle)
-                        periodBasis = periodBasis with { NativeArmyLifecycle = createdLifecycle };
+                    periodBasis = PlayableArmyCreation.PublishOwners(periodBasis, created);
                     if (created.CommanderSecondLocation11C is ushort secondLocation)
                     {
                         OfficerState commander = officers[plan.OfficerId];

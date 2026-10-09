@@ -26,11 +26,11 @@ public interface IAreaAdministrationEligibility
 /// Verified regional command structure and per-changed-region costs. Original initialization,
 /// appointment eligibility, city policy and period settlement remain separate rule/data requirements.
 /// </summary>
-public sealed class OriginalAdministrationRules : IOrderRules
+public sealed class AreaAdministrationRules : IOrderRules
 {
     private readonly IAreaAdministrationEligibility _eligibility;
 
-    public OriginalAdministrationRules(IAreaAdministrationEligibility eligibility) =>
+    public AreaAdministrationRules(IAreaAdministrationEligibility eligibility) =>
         _eligibility = eligibility ?? throw new ArgumentNullException(nameof(eligibility));
 
     public CommandResult Apply(GameState state, ForceState force, GameOrder order, CommandContext context)

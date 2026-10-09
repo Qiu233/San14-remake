@@ -45,7 +45,7 @@ public sealed partial class OriginalTacticRemakeCurrentContext : IOriginalTactic
         _programs = new(definitions, revision, (_, _, _, _) => null);
     }
 
-    public OriginalPlayableTacticRules CreateRules()
+    public TacticRuleAdapter CreateRules()
     {
         var routes = new PlayableLandRoutes(new OriginalHexTravelMap(_map));
         return new(new OriginalTacticEffectSourceRules(_catalog, this, routes,

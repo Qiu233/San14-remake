@@ -6,7 +6,7 @@ public sealed record OriginalUnitModelPostLoadResult(int MapWrites, int ModelPoi
 
 public sealed partial class OriginalEventInitializationContext
 {
-    private readonly Dictionary<int, ushort?> _armyUnitHexes2A = [], _hexRawValues1C = [];
+    private readonly Dictionary<int, ushort?> _armyUnitHexes2A = [];
     private readonly Dictionary<OriginalRegistryObjectReference, OriginalUnitModelReference?> _unitModelPointers = [];
     public OriginalUnitManagerReference? CurrentUnitManager { get; set; }
     public Func<OriginalUnitManagerReference?>? UnitManagerReader { get; set; }
@@ -28,19 +28,19 @@ public sealed partial class OriginalEventInitializationContext
     public ushort? ReadArmyUnitRawHex2A(OriginalArmyUnitReference army)
         => _armyUnitHexes2A.GetValueOrDefault(MapPhysical(army.PhysicalSlot, 501, "army raw2A"));
     public ushort? ReadHexRaw1C(OriginalHexReference hex)
-        => _hexRawValues1C.GetValueOrDefault(MapPhysical(hex.PhysicalSlot, 48400, "hex raw1C"));
+        => _armyMapOccupancy?.ReadSourceWord(MapPhysical(hex.PhysicalSlot, 48400, "hex raw1C"));
     public void SetHexRaw1C(int physical, ushort? value)
-    { Check(physical, 48400, "hex raw1C receiver"); _hexRawValues1C[physical] = value; }
+    { Check(physical, 48400, "hex raw1C receiver"); (_armyMapOccupancy ??= new()).WriteSourceWord(physical, value); }
     public OriginalUnitModelReference? ReadUnitModelPointer(OriginalRegistryObjectReference receiver)
     { _ = UnitModelPhysical(receiver); return _unitModelPointers.GetValueOrDefault(receiver); }
     public void SetUnitModelPointer(OriginalRegistryObjectReference receiver, OriginalUnitModelReference? model)
     { _ = UnitModelPhysical(receiver); if (model?.Identity is int identity) CheckOpaque(identity, "unit-model pointer"); _unitModelPointers[receiver] = model; }
 
-    /// <summary>Direct32EE00 sequence with explicit remaining predicates,
+    /// <summary>Direct unit-model post-load sequence with explicit remaining predicates,
     /// renderer factories and pair processing. Never changes Core readiness.</summary>
     public OriginalUnitModelPostLoadResult ApplyUnitModelPostLoad()
     {
-        int mapWrites = ApplyUnitMapWritePrepass(); //Unconditional2ED210.
+        int mapWrites = ApplyUnitMapWritePrepass(); //Ordered overwrite; no global clear.
         var manager = ReadCurrentUnitManager();
         if (!manager.Identity.HasValue) return new(mapWrites, 0);
         int modelWrites = 0;

@@ -94,11 +94,11 @@ public sealed class OriginalTacticRemakeCurrentAbilities : IEffectiveOfficerAbil
         OfficerAbilities? appointment = Appointment(state, officer, person, status);
         OfficerAbilities? doctrine = Doctrine(state, officer, person);
         if (health is null || secondary is null || appointment is null || doctrine is null ||
-            !OriginalItemAbilityBonuses.TryCalculate(state, officerId, out OfficerAbilities? items, 10)) return null;
+            !ItemAbilityBonuses.TryCalculate(state, officerId, out OfficerAbilities? items, 10)) return null;
         int ordinaryCap = DecodeCap(ordinaryEncoded, person.PhysicalSlot), charmCap = DecodeCap(charmEncoded, person.PhysicalSlot);
         int? forcedCharm = state.Items!.TryGetValue(123, out ItemState? seal) &&
             seal.IsPresent == true && seal.Holder?.OfficerId == officerId ? 100 : null;
-        int Calc(int kind, int cap, int? forced = null) => OriginalOfficerAbilities.Calculate(Values(basic)[kind],
+        int Calc(int kind, int cap, int? forced = null) => EffectiveOfficerAbilityResolver.Calculate(Values(basic)[kind],
             health.Value, secondary.Value, Values(doctrine)[kind], Values(appointment)[kind], Values(items!)[kind], cap, forced);
         return new(Calc(0, ordinaryCap), Calc(1, ordinaryCap), Calc(2, ordinaryCap), Calc(3, ordinaryCap), Calc(4, charmCap, forcedCharm));
     }

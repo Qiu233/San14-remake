@@ -33,10 +33,10 @@ internal sealed class PlayableGovernanceCommandRules : IGovernanceCommandRules
                 policy.DepartmentCode is not int group)
                 return Unavailable("rules.governance_policies");
             int cost;
-            if (OriginalPolicyCosts.TryCalculate(state, officer.Id, out PolicyCost sourceCost))
+            if (PolicyCosts.TryCalculate(state, officer.Id, out PolicyCost sourceCost))
                 cost = sourceCost.Total;
             else if (officer.PolicyBaseCost is int baseCost && baseCost >= 0)
-                cost = OriginalPolicyCosts.Calculate(baseCost, policy.CostAddition,
+                cost = PolicyCosts.Calculate(baseCost, policy.CostAddition,
                     sameDoctrine: false, isRuler: false, ignoreDoctrineDiscount: true).Total;
             else return Unavailable("rules.governance_policies");
             policies.Add(officer.Id, new GovernanceOfficerPolicy($"group-{group}", cost,

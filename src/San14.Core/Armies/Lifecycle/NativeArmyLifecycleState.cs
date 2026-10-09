@@ -19,10 +19,12 @@ public sealed record NativeArmyLifecycleSlot(int PhysicalSlot, ushort? Commander
     /// <summary>Whether this reusable receiver completed its group detachment.
     /// Unknown legacy readiness does not authorize another assignment.</summary>
     public bool? GroupAssignmentReady { get; init; }
+    /// <summary>Source presentation link to an independently owned map binding.</summary>
+    public int? OccupancyBindingId { get; init; }
 }
 public sealed partial record NativeArmyLifecycleState(string Revision, string Language, string RuleVersion,
     string SourceScenarioUri, string SourceScenarioSha256, WorldIndexesState Indexes,
-    NativeArmyLifecycleSlot[] Slots, Dictionary<int, ushort?> HexRaw1C)
+    NativeArmyLifecycleSlot[] Slots)
 {
     public ArmyGroupsState? ArmyGroups { get; init; }
     public ArmyCautionsState? ArmyCautions { get; init; }
@@ -45,8 +47,7 @@ public static class NativeArmyLifecycleStateValidation
             state.ContentHashes.GetValueOrDefault(lifecycle.SourceScenarioUri) != lifecycle.SourceScenarioSha256 ||
             state.NativeArmySimulation?.Parameters is not { } parameters || parameters.Language != lifecycle.Language ||
             parameters.RuleVersion != lifecycle.RuleVersion || lifecycle.Slots is not { Length: > 0 } ||
-            lifecycle.Indexes is null || lifecycle.HexRaw1C is null ||
-            lifecycle.HexRaw1C.Any(x => x.Key < 0 || x.Key >= (long)state.MapWidth * state.MapHeight))
+            lifecycle.Indexes is null)
             throw new InvalidDataException("Native Army lifecycle has missing or contradictory source ownership.");
         WorldIndexesSaveValidation.Validate(lifecycle.Indexes);
         ArmyGroupsSaveValidation.Validate(lifecycle.ArmyGroups);

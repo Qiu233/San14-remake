@@ -52,7 +52,8 @@ public sealed class OriginalArmyMapGroupingCurrentQueries : IOriginalArmyMapGrou
         var hex = _current.ReadHexTableReference(tableSlot);
         if (hex is null) return new(null, null, null);
         if (hex.PhysicalSlot is not int physical) return new(false, null, null);
-        ushort? occupant = _world.NativeArmyLifecycle?.HexRaw1C.GetValueOrDefault(physical);
+        _current.BindArmyMapOccupancy(_world);
+        ushort? occupant = _current.ReadHexRaw1C(hex);
         return new(true, physical, occupant); //CHex slot3 is true for every nonnull receiver, including0.
     }
 

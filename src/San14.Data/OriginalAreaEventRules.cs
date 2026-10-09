@@ -58,7 +58,7 @@ public sealed class OriginalAreaEventRules : IPlayableEventRules
             long directoryIndex = (long)registration.EventId - _document.NativeBaseId;
             if (directoryIndex < 0 || directoryIndex >= _document.ExecutionStreams.Count)
                 throw new InvalidDataException("Original event registration is outside the execution directory.");
-            var source = new OriginalEventSourceReference(resourceUri, _document.SourceSha256,
+            var source = new EventSourceReference(resourceUri, _document.SourceSha256,
                 (int)directoryIndex, registration.EventId);
             PlayableEventStateValidation.ValidateSource(source);
             candidates.Add(new(registration.Key, _document.SourceSha256, registration.RepeatEachPeriod,

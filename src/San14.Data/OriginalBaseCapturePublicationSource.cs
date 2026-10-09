@@ -57,9 +57,8 @@ internal static class OriginalBaseCapturePublicationSource
             forceFields = forceFields with { DistrictWindows10 = windows };
         }
         return working with { Cities = cities, Gates = gates, Areas = areas, Territory = territory,
-            NativeForceUnregisterCurrent = forceFields, PendingCombatSettlements = current.OwnedDestructionQueue, NativeArmyLifecycle = working.NativeArmyLifecycle! with
-            { Indexes = pool.ExportOwnedState(),
-                HexRaw1C = working.NativeArmyLifecycle!.HexRaw1C.ToDictionary(row => row.Key, row => current.ReadHexRaw1C(new(row.Key))) } };
+            ArmyMapOccupancy = current.ExportArmyMapOccupancy(), NativeForceUnregisterCurrent = forceFields, PendingCombatSettlements = current.OwnedDestructionQueue, NativeArmyLifecycle = working.NativeArmyLifecycle! with
+            { Indexes = pool.ExportOwnedState() } };
     }
     private static T K<T>(T? value, string field) where T : struct => value ?? throw Missing(field);
     private static InvalidDataException Missing(string field) => new("current.Base_capture_publication." + field);

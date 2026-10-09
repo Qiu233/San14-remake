@@ -7,7 +7,7 @@ namespace San14.Data;
 /// <summary>Production provider package for this game's owned campaign.
 /// Source effects receive a complete operation-local Base/Hex capture. Source
 /// Army construction and native ticks remain explicit opt-in providers.</summary>
-public sealed partial class OriginalOwnedArmyCampaignRules : IOriginalPlayableTacticSource,
+public sealed partial class OriginalOwnedArmyCampaignRules : ITacticRuleSource,
     IPlayableTacticUseSource, IPlayableArmyCreationRules, IPlayableNativeArmyPreparationRules,
     IPlayableArmyCreationPreparationRules, IPlayableNativeTacticActivationTailSource
 {
@@ -47,10 +47,10 @@ public sealed partial class OriginalOwnedArmyCampaignRules : IOriginalPlayableTa
     private readonly OriginalBaseCaptureResourceInputs _baseCaptureResourceInputs;
     private readonly OriginalBaseCaptureRewardInputs _baseCaptureRewardInputs;
     private readonly OriginalCityCaptureTerritoryInputs _cityCaptureTerritoryInputs;
-    private readonly OriginalPlayableTacticRules _ticks;
+    private readonly TacticRuleAdapter _ticks;
     public OriginalTacticRemakeParameterSeed Seed { get; }
     public string Revision { get; }
-    public OriginalPlayableTacticRules Tactics { get; }
+    public TacticRuleAdapter Tactics { get; }
 
     private OriginalOwnedArmyCampaignRules(OriginalGameRepository repository, OriginalOwnedArmyCurrentDefinitions definitions, LoadedScenario scenario,
         LoadedSkillDefinitions skills, OriginalTacticSourceCatalog catalog, LoadedMap map, LoadedTerrainTypes terrain,
@@ -265,7 +265,7 @@ public sealed partial class OriginalOwnedArmyCampaignRules : IOriginalPlayableTa
             if (nextId <= int.MaxValue)
             {
                 try { nextId = PlayableMilitaryTargetLifecycle.NextPeriodAllocationId(current.Units, (int)nextId,
-                    current.NativeArmyLifecycle, current.PendingCombatSettlements); }
+                    current.NativeArmyLifecycle, current.PendingCombatSettlements, current.ArmyMapOccupancy); }
                 catch (OverflowException) { return Unavailable("The current logical Army allocation cursor is exhausted."); }
             }
             //Execution increments its cursor after every insertion as well.
@@ -336,7 +336,8 @@ public sealed partial class OriginalOwnedArmyCampaignRules : IOriginalPlayableTa
                     : commander.NativeLocationRuntime
             };
             current = current with { RandomState = receipt.RandomState,
-                NativeArmyLifecycle = receipt.NativeLifecycle ?? current.NativeArmyLifecycle };
+                NativeArmyLifecycle = receipt.NativeLifecycle ?? current.NativeArmyLifecycle,
+                ArmyMapOccupancy = receipt.ArmyMapOccupancy ?? current.ArmyMapOccupancy };
             nextId++;
         }
         return new(DeploymentDecisionStatus.Allowed);
@@ -496,8 +497,8 @@ public sealed partial class OriginalOwnedArmyCampaignRules : IOriginalPlayableTa
             NativeRouteHold56 = result.NativeRouteHold56, NativeRouteGoal1F8 = result.NativeRouteGoal1F8,
             NativeHomeSequence28 = result.NativeHomeSequence28,
             WoundedTroops = result.WoundedTroops };
-        NativeArmyLifecycleState? lifecycle = PrepareArmyLifecycleCreation(state, created);
-        return lifecycle is null ? null : result with { NativeLifecycle = lifecycle };
+        ArmyLifecycleCreationAdmission? lifecycle = PrepareArmyLifecycleCreation(state, created);
+        return lifecycle is null ? null : result with { NativeLifecycle = lifecycle.Lifecycle, ArmyMapOccupancy = lifecycle.Occupancy };
     }
     public PlayableTacticDefinition? Resolve(GameState state, int tacticId) => null; //Native usage requires a caster.
     public PlayableTacticDefinition? ResolveForCaster(GameState state, UnitState caster, int tacticId) =>

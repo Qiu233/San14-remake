@@ -31,7 +31,7 @@ public interface IPlayableTacticUseSource
 
 /// <summary>The original source adapter resolves a complete program and its
 /// current usage inputs. It returns null if any instruction remains unknown.</summary>
-public interface IOriginalPlayableTacticSource : IPlayableTacticTargetSource,
+public interface ITacticRuleSource : IPlayableTacticTargetSource,
     IPlayableTacticCasterSource, IPlayableNativeSubdayRules
 {
     PlayableTacticDefinition? Resolve(GameState state, int tacticId);
@@ -43,13 +43,13 @@ public interface IOriginalPlayableTacticSource : IPlayableTacticTargetSource,
 
 /// <summary>Production tactic boundary with an explicit source adapter. There is
 /// no default original balance, runtime parameter table or eligibility result.</summary>
-public sealed class OriginalPlayableTacticRules : IPlayableTacticRules,
+public sealed class TacticRuleAdapter : IPlayableTacticRules,
     IPlayableTacticTargetSource, IPlayableTacticCasterSource, IPlayableNativeSubdayRules,
     IPlayableTacticUseSource, IPlayableNativeTacticActivationTailSource
 {
-    private readonly IOriginalPlayableTacticSource _source;
+    private readonly ITacticRuleSource _source;
 
-    public OriginalPlayableTacticRules(IOriginalPlayableTacticSource source) =>
+    public TacticRuleAdapter(ITacticRuleSource source) =>
         _source = source ?? throw new ArgumentNullException(nameof(source));
 
     public PlayableTacticDefinition? Resolve(GameState state, int tacticId)

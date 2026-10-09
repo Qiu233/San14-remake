@@ -170,7 +170,7 @@ public partial class MilitaryDeploymentBatchPanel : VBoxContainer
             if ((city?.DistrictId ?? gate?.DistrictId) is int district && world.Districts[district].OrdersRemaining is int remaining)
                 books = (remaining - CommandBookAvailability.Reserved(world, district) - _draft.Count).ToString(CultureInfo.InvariantCulture);
         }
-        _summary.Text = Format("play_deployment_batch_summary", _draft.Count, OriginalDeploymentRules.MaximumUnitsPerBatch, _draft.Troops, troops, books);
+        _summary.Text = Format("play_deployment_batch_summary", _draft.Count, DeploymentCommandRules.MaximumUnitsPerBatch, _draft.Troops, troops, books);
         SetMeta("deployment_draft_count", _draft.Count); SetMeta("deployment_draft_troops", _draft.Troops);
         UpdateEnabled();
     }
@@ -180,7 +180,7 @@ public partial class MilitaryDeploymentBatchPanel : VBoxContainer
         _action.Disabled = !_strategy; _target.Disabled = !_strategy || _target.ItemCount == 0;
         DeploymentAction? action = ResolveAction();
         DeploymentUnitRequest? request = action is null ? null : _capture?.Invoke(action);
-        _add.Disabled = !_strategy || request is null || _draft.Count >= OriginalDeploymentRules.MaximumUnitsPerBatch &&
+        _add.Disabled = !_strategy || request is null || _draft.Count >= DeploymentCommandRules.MaximumUnitsPerBatch &&
             !_draft.ContainsOfficer(request.OfficerId);
         _remove.Disabled = !_strategy || _units.GetSelectedItems().Length == 0;
         _clear.Disabled = _draft.Count == 0; _submit.Disabled = !_strategy || _draft.Count == 0;

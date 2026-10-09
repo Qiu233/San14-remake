@@ -23,10 +23,9 @@ public sealed partial class OriginalOwnedArmyCampaignRules : IPlayableArmyHexOcc
         var entry = current.ReadHexTableReference(from);
         if (entry?.PhysicalSlot is not int entryPhysical)
             return Unknown("current.position_commit_old_Hex_pointer");
-        if (!arena.HexRaw1C.TryGetValue(entryPhysical, out ushort? entryRaw) || entryRaw is null)
+        current.BindArmyMapOccupancy(state);
+        if (current.ReadHexRaw1C(entry) is null)
             return Unknown("current.position_commit_old_Hex_signed1C");
-        current.SetHexRaw1C(entryPhysical, entryRaw);
-        var saved = new Dictionary<int, ushort?>(arena.HexRaw1C);
         int edgeFrom = from;
         foreach (int edgeTo in traversed)
         {
@@ -34,10 +33,9 @@ public sealed partial class OriginalOwnedArmyCampaignRules : IPlayableArmyHexOcc
                 return Unknown("branch.position_commit_nonadjacent_traversal");
             var applied = OriginalArmyCurrentHexOccupancySource.TryApplyCurrent(current, physical, edgeFrom, edgeTo);
             if (applied.Receipt is not { } receipt) return Unknown(applied.UnresolvedOwner!);
-            foreach (var write in receipt.Writes) saved[write.PhysicalHex] = write.Raw1C;
             edgeFrom = edgeTo;
         }
-        return new(state with { NativeArmyLifecycle = arena with { HexRaw1C = saved } });
+        return new(state with { ArmyMapOccupancy = current.ExportArmyMapOccupancy() });
 
         static PlayableArmyHexOccupancyResult Unknown(string owner) => new(null, owner);
     }

@@ -13,7 +13,7 @@ public sealed record PlayableEventEffect(PlayableEventEffectKind Kind, int Targe
     int? SourceOperationIndex = null);
 
 public sealed record PlayableEventCandidate(string Key, string Revision, bool RepeatEachPeriod,
-    int? ForceId = null, OriginalEventSourceReference? Source = null);
+    int? ForceId = null, EventSourceReference? Source = null);
 
 public readonly record struct PlayableEventEligibility(bool? Eligible,
     string? MissingRuleKey = null, string? Reason = null);

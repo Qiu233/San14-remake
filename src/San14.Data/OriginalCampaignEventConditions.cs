@@ -3,7 +3,7 @@ using San14.Data.Formats;
 
 namespace San14.Data;
 
-public sealed record OriginalCampaignEventConditionAssessment(OriginalEventSourceReference Source,
+public sealed record OriginalCampaignEventConditionAssessment(EventSourceReference Source,
     S14EventEligibilityResult Eligibility, S14EventExecutionProgram? Execution,
     string? MissingExecutionRule, string? ExecutionReason)
 {
@@ -36,7 +36,7 @@ public static class OriginalCampaignEventConditions
         long directory = (long)eventId - document.NativeBaseId;
         if (directory < 0 || directory >= document.ConditionStreams.Count)
             throw new InvalidDataException("Assessment event ID is outside its source directory.");
-        var source = new OriginalEventSourceReference(loaded.Source.ResourceUri,
+        var source = new EventSourceReference(loaded.Source.ResourceUri,
             document.SourceSha256, (int)directory, eventId);
         PlayableEventStateValidation.ValidateSource(source);
         S14EventEligibilityResult result = S14EventEligibilityEvaluator.Evaluate(records[0], document,

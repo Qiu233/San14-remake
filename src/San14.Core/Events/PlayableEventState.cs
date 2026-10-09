@@ -11,7 +11,7 @@ public sealed partial record AreaState
 }
 
 /// <summary>Source identity remains independent from the engine's event key.</summary>
-public sealed record OriginalEventSourceReference(string ResourceUri, string ResourceSha256,
+public sealed record EventSourceReference(string ResourceUri, string ResourceSha256,
     int DirectoryIndex, int EventId);
 
 public sealed record PlayableEventExecutionStamp(string Revision, int LastPeriod,
@@ -30,7 +30,7 @@ public sealed record PlayableEventRuntimeState(int LastSettledPeriod,
 public sealed record PlayableEventReportEntry(string Kind, string EventKey,
     string Revision, int Period, int? ForceId = null, int? TargetId = null,
     int Amount = 0, string? MessageKey = null, string? RuntimeKey = null,
-    OriginalEventSourceReference? Source = null, int? SourceOperationIndex = null);
+    EventSourceReference? Source = null, int? SourceOperationIndex = null);
 
 public sealed partial record GameState
 {
@@ -83,7 +83,7 @@ public static class PlayableEventStateValidation
         }
     }
 
-    public static void ValidateSource(OriginalEventSourceReference? source)
+    public static void ValidateSource(EventSourceReference? source)
     {
         if (source is null) return;
         if (!ValidKey(source.ResourceUri) || !Uri.TryCreate(source.ResourceUri, UriKind.Absolute, out _) ||

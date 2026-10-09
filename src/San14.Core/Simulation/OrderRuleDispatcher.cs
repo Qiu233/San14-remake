@@ -1,12 +1,12 @@
 namespace San14.Core;
 
 /// <summary>Routes supported original commands through explicitly supplied, independently calibrated rules.</summary>
-public sealed class OriginalOrderRules(OriginalAdministrationRules administration, OriginalDeploymentRules deployment,
-    OriginalGovernanceRules? governance = null) : IOrderRules
+public sealed class OrderRuleDispatcher(AreaAdministrationRules administration, DeploymentCommandRules deployment,
+    GovernanceCommandRules? governance = null) : IOrderRules
 {
-    private readonly OriginalAdministrationRules _administration = administration ?? throw new ArgumentNullException(nameof(administration));
-    private readonly OriginalDeploymentRules _deployment = deployment ?? throw new ArgumentNullException(nameof(deployment));
-    private readonly OriginalGovernanceRules? _governance = governance;
+    private readonly AreaAdministrationRules _administration = administration ?? throw new ArgumentNullException(nameof(administration));
+    private readonly DeploymentCommandRules _deployment = deployment ?? throw new ArgumentNullException(nameof(deployment));
+    private readonly GovernanceCommandRules? _governance = governance;
 
     public CommandResult Apply(GameState state, ForceState force, GameOrder order, CommandContext context) => order switch
     {

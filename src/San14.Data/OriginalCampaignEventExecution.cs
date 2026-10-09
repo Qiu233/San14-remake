@@ -7,12 +7,12 @@ namespace San14.Data;
 /// <summary>A complete, immutable original presentation stream; it executes no native code.</summary>
 public sealed class OriginalCampaignEventExecutionProgram
 {
-    public OriginalEventSourceReference Source { get; }
+    public EventSourceReference Source { get; }
     public S14EventConditionProgram DispatchProgram { get; }
     public string StreamSha256 { get; }
     public string Revision => Source.ResourceSha256 + ":" + StreamSha256;
 
-    private OriginalCampaignEventExecutionProgram(OriginalEventSourceReference source,
+    private OriginalCampaignEventExecutionProgram(EventSourceReference source,
         S14EventConditionProgram dispatch)
     {
         Source = source;
@@ -34,7 +34,7 @@ public sealed class OriginalCampaignEventExecutionProgram
         long slot = (long)eventId - canonical.NativeBaseId;
         if (slot < 0 || slot >= canonical.ExecutionStreams.Count)
             throw new InvalidDataException("Original event execution ID is outside its native directory.");
-        var source = new OriginalEventSourceReference(loaded.Source.ResourceUri,
+        var source = new EventSourceReference(loaded.Source.ResourceUri,
             canonical.SourceSha256, (int)slot, eventId);
         PlayableEventStateValidation.ValidateSource(source);
         S14EventConditionProgram dispatch = S14EventConditionProgram.Read(canonical.ExecutionStreams[(int)slot]);
@@ -98,7 +98,7 @@ public sealed record OriginalCampaignEventAudio(int OperationIndex, int SourceOf
 public sealed class OriginalCampaignEventExecutionPlan
 {
     public OriginalCampaignEventExecutionProgram Program { get; }
-    public OriginalEventSourceReference Source => Program.Source;
+    public EventSourceReference Source => Program.Source;
     public IReadOnlyList<OriginalCampaignEventCommand> Commands { get; }
     public S14EventConditionResult DispatchResult { get; }
     public IReadOnlyList<int?>? FinalPersonParameters { get; }

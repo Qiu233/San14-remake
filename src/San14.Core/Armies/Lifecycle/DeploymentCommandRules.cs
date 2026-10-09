@@ -1,7 +1,7 @@
 namespace San14.Core;
 
 /// <summary>Original preparation/cancellation contracts. Unknown rules have no permissive defaults.</summary>
-public sealed class OriginalDeploymentRules(IDeploymentEligibility eligibility, IDeploymentResourceRules resources) : IOrderRules
+public sealed class DeploymentCommandRules(IDeploymentEligibility eligibility, IDeploymentResourceRules resources) : IOrderRules
 {
     public const int MaximumUnitsPerBatch = 9;
     private readonly IDeploymentEligibility _eligibility = eligibility ?? throw new ArgumentNullException(nameof(eligibility));

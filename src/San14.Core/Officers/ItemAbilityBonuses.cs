@@ -4,7 +4,7 @@ namespace San14.Core;
 /// The original item contribution to the five abilities. This is one additive term,
 /// independent of illness, rank, office, doctrine panels and the final ability caps.
 /// </summary>
-public static class OriginalItemAbilityBonuses
+public static class ItemAbilityBonuses
 {
     /// <summary>
     /// Requires a complete known inventory. Only present items held by this officer

@@ -24,7 +24,7 @@ public sealed class DeploymentCompositionDraft
         ArgumentNullException.ThrowIfNull(request);
         if (ForceId is null || SourceLocationId is null) return false;
         int index = _units.FindIndex(unit => unit.OfficerId == request.OfficerId);
-        if (index < 0 && Count >= OriginalDeploymentRules.MaximumUnitsPerBatch) return false;
+        if (index < 0 && Count >= DeploymentCommandRules.MaximumUnitsPerBatch) return false;
         DeploymentUnitRequest copied = Copy(request);
         if (index >= 0) _units[index] = copied;
         else _units.Add(copied);

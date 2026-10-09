@@ -72,7 +72,7 @@ public sealed partial class OriginalOwnedArmyCampaignRules : IPlayableTransportC
                     NativeLocationRuntime = location with { Second11C = fields.CommanderSecondE4 } } },
                 Districts = new(state.Districts) { [districtId] = district with
                     { OrdersRemaining = Math.Clamp(unchecked(remaining - commandCost.Value), 0, 200) } },
-                Units = new(state.Units) { [created.Id] = created }, NativeArmyLifecycle = registered
+                Units = new(state.Units) { [created.Id] = created }, NativeArmyLifecycle = registered.Lifecycle, ArmyMapOccupancy = registered.Occupancy
             };
             var currentRoute = CaptureWritableTransportRouteCurrent(result);
             var route = OriginalTransportArmyCreationRouteSource.Prepare(result, currentRoute, created);

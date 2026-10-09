@@ -48,6 +48,7 @@ public static class GameStateCopy
         PreparedTalentOrders = CopyDictionary(value.PreparedTalentOrders),
         Territory = CopyDictionary(value.Territory),
         NativeArmyLifecycle = Copy(value.NativeArmyLifecycle),
+        ArmyMapOccupancy = value.ArmyMapOccupancy?.Copy(),
         NativeArmySimulation = Copy(value.NativeArmySimulation),
         NativeBaseCaptureCurrent = Copy(value.NativeBaseCaptureCurrent),
         NativeForceUnregisterCurrent = Copy(value.NativeForceUnregisterCurrent),
@@ -160,7 +161,6 @@ public static class GameStateCopy
         Indexes = value.Indexes.Copy(),
         ArmyGroups = value.ArmyGroups?.Copy(),
         Slots = CopyArray(value.Slots, item => Copy(item)!),
-        HexRaw1C = CopyDictionary(value.HexRaw1C),
         Targets38 = CopyArray(value.Targets38),
     };
 

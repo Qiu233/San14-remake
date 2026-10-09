@@ -181,10 +181,9 @@ public sealed partial class OriginalOwnedArmyDestructionStage
             }
             var savedArena = OriginalOwnedArmyLifecycleTargets.PublishCurrent(
                 OriginalOwnedArmyDestructorFlags.PublishCurrent(state.NativeArmyLifecycle!, current), current) with
-            { Slots = slots, Indexes = pool.ExportOwnedState(), HexRaw1C = state.NativeArmyLifecycle!.HexRaw1C
-                .ToDictionary(x => x.Key, x => current.ReadHexRaw1C(new(x.Key))) };
+            { Slots = slots, Indexes = pool.ExportOwnedState() };
             var result = state with { Units = units, Officers = new(state.Officers) { [army.OfficerId] = state.Officers[army.OfficerId] with { Deployed = false } },
-                NativeArmyLifecycle = savedArena };
+                NativeArmyLifecycle = savedArena, ArmyMapOccupancy = current.ExportArmyMapOccupancy() };
             return new(result, new(physical, id, commander, effects, tracking.Writes)
                 { VictimHome = captured.VictimHome, WinnerReward = winnerReward, WinnerForce164Gain = forceGain }, null);
         }

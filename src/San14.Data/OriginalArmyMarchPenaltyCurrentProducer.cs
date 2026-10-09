@@ -4,8 +4,8 @@ namespace San14.Data;
 
 public sealed record OriginalArmyMarchPenaltyCurrentArmyFields(int UnitId, int NativePoolSlot,
     long OwnedUpdateOrdinal, byte Flag140, string SourceProvenance);
-/// <summary>Current actual Army140 is not present in Core yet. Providers must
-/// return an owned field capture, not infer it from a gameplay action or trait.</summary>
+/// <summary>Optional current field capture. The saved Army command control
+/// supplies the ordinary owner when no external capture is installed.</summary>
 public interface IOriginalArmyMarchPenaltyCurrentOwnerQueries
 {
     OriginalArmyMarchPenaltyCurrentArmyFields? ReadArmyFields(GameState state, UnitState army);
@@ -55,7 +55,10 @@ public sealed class OriginalArmyMarchPenaltyCurrentProducer
         if (exempt is null) return Missing("current.commander_activation_mask_and_nine_personalities2306D0");
         if (exempt.Value) return Result(0, null, true, 0, 0, 0, 0, "active-commander-effect51");
         if (army.HexId is < 0 or >= 48400) return Missing("current.Army_Hex2A");
-        var field = owners?.ReadArmyFields(state, army);
+        var field = owners is not null ? owners.ReadArmyFields(state, army) :
+            army.NativeCommandControl140 is byte commandControl && army.NativeArmyOrigin?.NativeSlotIndex is int savedReceiver
+                ? new OriginalArmyMarchPenaltyCurrentArmyFields(army.Id, savedReceiver, state.NativeClock!.UpdateOrdinal,
+                    commandControl, "saved-current-army-command-control") : null;
         if (field is not null && (field.UnitId != army.Id || field.NativePoolSlot != army.NativeArmyOrigin!.NativeSlotIndex ||
             field.OwnedUpdateOrdinal != state.NativeClock!.UpdateOrdinal || string.IsNullOrWhiteSpace(field.SourceProvenance)))
             throw new InvalidDataException("Penalty Army140 field belongs to another actor or current update.");
@@ -65,16 +68,7 @@ public sealed class OriginalArmyMarchPenaltyCurrentProducer
         var ring = OriginalTacticRemakeCurrentContext.NativeHexOrder(army.HexId, 3).Skip(1).ToArray();
         var radiusOne = OriginalTacticRemakeCurrentContext.NativeHexOrder(army.HexId, 1).Skip(1).ToHashSet();
         var radiusTwo = OriginalTacticRemakeCurrentContext.NativeHexOrder(army.HexId, 2).Skip(1).ToHashSet();
-        var armyAtHex = new Dictionary<int, UnitState>();
-        var slots = new HashSet<int>();
-        foreach (UnitState candidate in state.Units.Values)
-        {
-            bool? valid = context.ArmyValid(state, candidate);
-            if (valid is null) return Missing("current.complete_owned_Army_allocation");
-            if (!valid.Value) continue;
-            if (candidate.HexId is < 0 or >= 48400 || candidate.NativeArmyOrigin!.NativeSlotIndex is not int nativeSlot || !slots.Add(nativeSlot) ||
-                !armyAtHex.TryAdd(candidate.HexId, candidate)) return Missing("current.unique_native_Army_slot_and_Hex1C");
-        }
+        definitions.BindArmyMapOccupancy(state);
         int[] counts = new int[3]; int hostileHexes = 0;
         var countedObjects = new[] { new HashSet<int>(), new HashSet<int>(), new HashSet<int>() };
         foreach (int hexId in ring)
@@ -88,17 +82,66 @@ public sealed class OriginalArmyMarchPenaltyCurrentProducer
             if (hostileHex is null) return Missing("current.Hex_owner_Force_relation2CA650");
             if (hostileHex.Value) hostileHexes++;
             int maxIndex = radiusOne.Contains(hexId) ? 0 : radiusTwo.Contains(hexId) ? 1 : 2;
-            if (armyAtHex.TryGetValue(hexId, out UnitState? candidate))
+            if (definitions.ReadHexRaw1C(hex) is not ushort rawOccupant)
+                return Missing("current.radius3_Hex_signed1C");
+            int occupant = unchecked((short)rawOccupant);
+            if (occupant < 0) return Missing("branch.nearby_negative_Army_pointer_index");
+            if (occupant is >= 1 and <= 500)
             {
-                bool? excluded = context.ArmyManagerExcluded(state, candidate.Id);
-                if (excluded is null) return Missing("current.Army_manager233560");
-                if (!excluded.Value)
+                if (state.NativeArmyLifecycle is not { } arena)
+                    return Missing("current.nearby_Army_receiver_owner");
+                var receiver = definitions.ReadArmyUnitTableReference(occupant);
+                if (receiver is null)
                 {
-                    //26BDA0 passes candidateForce first; retain that direction.
-                    bool? hostile = OriginalArmyLogisticsPreparation.ReadNativeRelationGate(state, candidate.ForceId, army.ForceId);
-                    if (hostile is null) return Missing("current.Army_Force_relation2CA650");
-                    if (hostile.Value && candidate.NativeTacticRuntime is { Abnormal23: 0, Abnormal24: 0, Abnormal25: 0 })
-                        for (int i = maxIndex; i < 3; i++) counts[i]++;
+                    if (occupant >= arena.Slots.Length || arena.Slots[occupant].PhysicalSlot != occupant)
+                        return Missing("current.nearby_Army_pointer_table");
+                    definitions.SetArmyUnitTablePointer(occupant, occupant);
+                    receiver = new(occupant);
+                }
+                if (receiver.PhysicalSlot is int armyPhysical)
+                {
+                    if (armyPhysical >= arena.Slots.Length || arena.Slots[armyPhysical].PhysicalSlot != armyPhysical)
+                        return Missing("current.nearby_Army_receiver");
+                    var slot = arena.Slots[armyPhysical];
+                    definitions.BindUnspecifiedOwnedArmyQueryHeader(slot);
+                    if (definitions.ReadArmyUnitNativeValidity(receiver) is not bool valid)
+                        return Missing("current.nearby_Army_native_validity");
+                    if (valid)
+                    {
+                        if (definitions.ReadArmyExclusionForQuerySnapshot(state, armyPhysical) is not bool excluded)
+                            return Missing("current.Army_manager233560");
+                        if (!excluded)
+                        {
+                            if (definitions.ReadArmyUnitCommanderId(receiver) is not ushort commanderId)
+                                return Missing("current.nearby_Army_commander12");
+                            var person = definitions.ReadPersonLookupReference(commanderId <= 6000 ? commanderId : 0);
+                            if (person is null) return Missing("current.nearby_Army_Person_pointer");
+                            int candidateForce = 0;
+                            if (person.PhysicalSlot is int personPhysical)
+                            {
+                                if (definitions.ReadPersonNativeValidity(personPhysical) is not bool personValid)
+                                    return Missing("current.nearby_Army_Person_validity");
+                                if (personValid)
+                                {
+                                    if (definitions.ReadPersonOldForceSlot(personPhysical) is not byte force)
+                                        return Missing("current.nearby_Army_Force");
+                                    candidateForce = force;
+                                }
+                            }
+                            //26BDA0 passes candidateForce first; retain that direction.
+                            bool? hostile = OriginalArmyLogisticsPreparation.ReadNativeRelationGate(state, candidateForce, army.ForceId);
+                            if (hostile is null) return Missing("current.Army_Force_relation2CA650");
+                            if (hostile.Value)
+                            {
+                                var candidate = slot.ActiveUnitId is int id ? state.Units.GetValueOrDefault(id) : slot.PendingImage;
+                                if (candidate is null || candidate.NativeArmyOrigin?.NativeSlotIndex != armyPhysical || candidate.OfficerId != commanderId ||
+                                    candidate.NativeTacticRuntime is not { } runtime)
+                                    return Missing("current.nearby_Army_logical_projection_and_abnormal_counters");
+                                if (runtime is { Abnormal23: 0, Abnormal24: 0, Abnormal25: 0 })
+                                    for (int i = maxIndex; i < 3; i++) counts[i]++;
+                            }
+                        }
+                    }
                 }
             }
             var obj = definitions.ReadObjectTableReference(objectLink <= 3000 ? objectLink : 0);

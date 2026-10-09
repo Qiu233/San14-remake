@@ -20,7 +20,7 @@ public sealed class OriginalOwnedArmyReturnWorld
         if (saved.Slots.Length != 501) throw new InvalidDataException("CE native Army pointer table must have 501 exact slots.");
         var context = OriginalOwnedArmyReturnCurrentFields.CaptureCurrent(state, definitions);
         var pool = WorldIndexContext.ImportOwnedState(context,saved.Indexes,state);
-        context.RestoreOwnedArmyReturnBindings(saved);
+        context.BindArmyMapOccupancy(state);
         context.RestoreOwnedArmyReturnSlots(state,saved);
         OriginalOwnedArmyDestructorFlags.BindCurrent(saved,context);
         return new(state,context,pool);
@@ -66,10 +66,9 @@ public sealed class OriginalOwnedArmyReturnWorld
                 AuxiliaryF4=traits?.AuxiliaryF4.ToArray() ?? old.AuxiliaryF4
             };
         }
-        result = result with { Units=units,Officers=people, NativeArmyLifecycle=saved with
+        result = result with { Units=units,Officers=people, ArmyMapOccupancy=Context.ExportArmyMapOccupancy(), NativeArmyLifecycle=saved with
         {
-            Indexes = Pool.ExportOwnedState(), Slots=slots,
-            HexRaw1C=saved.HexRaw1C.ToDictionary(x=>x.Key,x=>Context.ReadHexRaw1C(new(x.Key)))
+            Indexes = Pool.ExportOwnedState(), Slots=slots
         } };
         return result;
     }
@@ -77,10 +76,6 @@ public sealed class OriginalOwnedArmyReturnWorld
 
 public sealed partial class OriginalEventInitializationContext
 {
-    internal void RestoreOwnedArmyReturnBindings(NativeArmyLifecycleState saved)
-    {
-        foreach (var row in saved.HexRaw1C) SetHexRaw1C(row.Key,row.Value);
-    }
     internal void RestoreOwnedArmyReturnSlots(GameState state,NativeArmyLifecycleState saved)
     {
         foreach (var slot in saved.Slots)

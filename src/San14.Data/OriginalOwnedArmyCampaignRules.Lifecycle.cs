@@ -1,4 +1,4 @@
-﻿using San14.Core;
+using San14.Core;
 
 namespace San14.Data;
 
@@ -10,7 +10,7 @@ public sealed partial class OriginalOwnedArmyCampaignRules
 
     /// <summary>Native manager receipt for the actually constructed image.
     /// The caller publishes it atomically with that Unit's creation.</summary>
-    public NativeArmyLifecycleState? PrepareArmyLifecycleCreation(GameState state, UnitState created) =>
+    public ArmyLifecycleCreationAdmission? PrepareArmyLifecycleCreation(GameState state, UnitState created) =>
         OriginalOwnedArmyLifecycleCurrent.PrepareCreationAdmission(state, created, _definitions, _creation.Configuration.TargetKind38);
 
     public NativeArmyLifecycleState? PrepareArmyLifecyclePending(GameState state, int physical) =>

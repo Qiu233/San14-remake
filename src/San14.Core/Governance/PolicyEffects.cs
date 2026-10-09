@@ -19,7 +19,7 @@ public readonly record struct PolicyEffectValue(int Level, int Value);
 /// iterator. This query does not derive contributors from configured/active governance,
 /// appoint anyone, calculate final personal levels, or restore command books.
 /// </summary>
-public static class OriginalPolicyEffects
+public static class PolicyEffects
 {
     /// <summary>
     /// The caller supplies the complete known sequence for this query, including any ruler

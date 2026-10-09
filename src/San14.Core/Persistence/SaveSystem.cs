@@ -16,7 +16,7 @@ public sealed record SaveEnvelope(int SchemaVersion, string FormatId, GameState 
 /// <summary>Local save format. A future original-save adapter can implement ISaveCodec.</summary>
 public sealed class JsonGzipSaveCodec : ISaveCodec
 {
-    public const int CurrentSchemaVersion = 65;
+    public const int CurrentSchemaVersion = 66;
     public string FormatId => "san14-remake-json-gzip";
 
     public byte[] Encode(GameState state)
@@ -57,6 +57,7 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
         if (version < 63) LegacyWorldIndexesSaveMigration.Apply((JsonObject)document["State"]!);
         if (version < 64) LegacyArmyGroupsSaveMigration.Apply((JsonObject)document["State"]!);
         if (version < 65) LegacyArmyCautionsSaveMigration.Apply((JsonObject)document["State"]!);
+        if (version < 66) LegacyArmyMapOccupancySaveMigration.Apply((JsonObject)document["State"]!);
         ValidateModuleSnapshotShape((JsonObject)document["State"]!, version);
         // A present options record must contain all choices. JSON constructor
         // defaults must not turn a missing boolean into a confirmed false choice.
@@ -130,6 +131,18 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
     // or an empty task queue through JSON constructor defaults.
     private static void ValidateModuleSnapshotShape(JsonObject state, int version)
     {
+        if (!state.ContainsKey("ArmyMapOccupancy"))
+            throw new InvalidDataException("Saved map occupancy owner is missing.");
+        if (state["ArmyMapOccupancy"] is JsonNode occupancyNode)
+        {
+            JsonObject occupancy = Require(occupancyNode, "map occupancy", "DefaultCellKnowledge", "Cells", "Bindings");
+            if (occupancy["Cells"] is not JsonObject cells || occupancy["Bindings"] is not JsonObject bindings)
+                throw new InvalidDataException("Saved map occupancy directories are invalid.");
+            foreach (JsonNode? cell in cells.Select(row => row.Value))
+                _ = Require(cell, "map occupancy cell", "Kind", "BindingId");
+            foreach (JsonNode? target in bindings.Select(row => row.Value))
+                _ = Require(target, "map occupancy target", "Kind", "UnitId");
+        }
         if (state["NativeBaseCaptureCurrent"] is JsonNode captureNode)
         {
             JsonObject capture = Require(captureNode, "native Base capture current", "Revision", "HexWords16", "Cities", "World1562");
@@ -254,13 +267,14 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
         if (state["NativeArmyLifecycle"] is JsonNode lifecycleNode)
         {
             JsonObject lifecycle = Require(lifecycleNode, "native Army lifecycle", "Revision", "Language", "RuleVersion",
-                "SourceScenarioUri", "SourceScenarioSha256", "Indexes", "Slots", "HexRaw1C", "ArmyGroups", "ArmyCautions");
+                "SourceScenarioUri", "SourceScenarioSha256", "Indexes", "Slots", "ArmyGroups", "ArmyCautions");
+            if (lifecycle.ContainsKey("HexRaw1C")) throw new InvalidDataException("Saved state contains an obsolete occupancy map.");
             if (lifecycle["Pool"] is not null) throw new InvalidDataException("Saved state contains an obsolete world membership pool.");
             if (lifecycle["Slots"] is not JsonArray slots) throw new InvalidDataException("Saved native slots are invalid.");
             foreach (JsonNode? slotNode in slots)
             {
                 JsonObject slot = Require(slotNode, "native Army slot", "PhysicalSlot", "Commander12", "Status10",
-                    "Priority14", "ActiveUnitId", "PendingImage", "Gold5C", "Supplies60", "AuxiliaryAC", "AuxiliaryF4", "GroupAssignmentReady");
+                    "Priority14", "ActiveUnitId", "PendingImage", "Gold5C", "Supplies60", "AuxiliaryAC", "AuxiliaryF4", "GroupAssignmentReady", "OccupancyBindingId");
                 if (slot["OverrideTarget"] is JsonNode overrideTarget)
                     _ = Require(overrideTarget, "native Army receiver override target", "Kind3C", "Identity3E");
                 if (slot["PendingImage"] is JsonNode pendingNode)

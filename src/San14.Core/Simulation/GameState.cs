@@ -607,6 +607,7 @@ public static class StateValidator
         NativePersonFreedomRuntimeValidation.Validate(state);
         NativeArmyReturnCurrentStateValidation.Validate(state);
         NativeArmyLifecycleStateValidation.Validate(state);
+        ArmyMapOccupancySaveValidation.Validate(state);
         NativeNormalArmyAftermathStateValidation.Validate(state);
         CombatSettlementSaveValidation.Validate(state.PendingCombatSettlements);
         PersonnelReturnSaveValidation.Validate(state.PersonnelReturns);

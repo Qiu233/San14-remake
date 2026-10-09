@@ -142,6 +142,7 @@ public sealed partial class OriginalEventInitializationContext
     internal ushort? ReadOwnedReturnPersonFlags(int physical) => _persons.GetValueOrDefault(physical)?.Flags;
     internal void OverlayOwnedArmyReturnCurrentFields(GameState state)
     {
+        BindArmyMapOccupancy(state);
         var ownedPeople = new HashSet<int>();
         foreach (var person in state.Officers.Values)
         {

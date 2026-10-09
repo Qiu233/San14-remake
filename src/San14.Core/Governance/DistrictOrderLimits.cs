@@ -16,7 +16,7 @@ public sealed record DistrictOrderLimitParameters(int Minimum, int Maximum);
 /// Verified CE command-book cap for a district. Initial stock, period recovery,
 /// refunds and their timing are separate rules; calculating a cap changes no state.
 /// </summary>
-public static class OriginalDistrictOrderLimits
+public static class DistrictOrderLimits
 {
     // Command-book defaults; a current rule set supplies its own bounds.
     public static DistrictOrderLimitParameters BaselineParameters { get; } = new(50, 200);

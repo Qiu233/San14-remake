@@ -1,7 +1,7 @@
 namespace San14.Core;
 
 /// <summary>Verified original appointment constraints with explicit unresolved eligibility and accounting decisions.</summary>
-public sealed class OriginalGovernanceRules(IGovernanceCommandRules rules) : IOrderRules
+public sealed class GovernanceCommandRules(IGovernanceCommandRules rules) : IOrderRules
 {
     private readonly IGovernanceCommandRules _rules = rules ?? throw new ArgumentNullException(nameof(rules));
 

@@ -30,11 +30,10 @@ public static class OriginalArmyCurrentHexOccupancySource
         //231660 sign-extends the old word. All dependencies are reached before
         //either write, so a missing destination/input cannot clear the old cell.
         short oldSigned = unchecked((short)oldRaw);
-        var writes = oldSigned == armyPhysical
-            ? new[] { new OriginalArmyCurrentHexOccupancyWrite(fromPhysical, 0),
-                new OriginalArmyCurrentHexOccupancyWrite(toPhysical, checked((ushort)armyPhysical)) }
-            : new[] { new OriginalArmyCurrentHexOccupancyWrite(toPhysical, checked((ushort)armyPhysical)) };
-        foreach (var write in writes) current.SetHexRaw1C(write.PhysicalHex, write.Raw1C);
+        if (!current.TryApplyArmyOccupancyTraversal(armyPhysical, fromPhysical, toPhysical, out var typedWrites))
+            return Unknown("current.position_commit_Army_occupancy_binding");
+        var writes = typedWrites.Select(write => new OriginalArmyCurrentHexOccupancyWrite(write.HexId,
+            write.Cell.Kind == San14.Core.ArmyMapCellKind.Empty ? (ushort)0 : checked((ushort)armyPhysical))).ToArray();
         return new(new(armyPhysical, fromHex, toHex, oldSigned, writes), null);
     }
 

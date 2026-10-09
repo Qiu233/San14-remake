@@ -34,7 +34,7 @@ public sealed partial class OriginalEventInitializationContext
         //this same transaction. Keep its immutable terrain inputs present.
         Copy(_hexSurfaceCodes, draft._hexSurfaceCodes);
         Copy(_surfaceTypePointers, draft._surfaceTypePointers); Copy(_surfaceTypeFields2A, draft._surfaceTypeFields2A);
-        Copy(_hexRawValues1C, draft._hexRawValues1C); Copy(_personTraitSlots150, draft._personTraitSlots150);
+        CopyArmyMapOccupancyTo(draft); Copy(_personTraitSlots150, draft._personTraitSlots150);
         Copy(_staticTablePointers, draft._staticTablePointers); Copy(_transferPersonPointers, draft._transferPersonPointers);
         Copy(_armyReturnPersonByte199, draft._armyReturnPersonByte199);
         Copy(_captureItemOwners4A, draft._captureItemOwners4A);
@@ -53,7 +53,7 @@ public sealed partial class OriginalEventInitializationContext
         Copy(draft._personDistrictSlots, _personDistrictSlots); Copy(draft._cityDistricts, _cityDistricts);
         Copy(draft._armyReturnGovernorWords2E, _armyReturnGovernorWords2E);
         Copy(draft._baseResources, _baseResources); Copy(draft._baseMorale44, _baseMorale44);
-        Copy(draft._armyReturnBaseWounded40, _armyReturnBaseWounded40); Copy(draft._hexRawValues1C, _hexRawValues1C);
+        Copy(draft._armyReturnBaseWounded40, _armyReturnBaseWounded40); CommitArmyMapOccupancyFrom(draft);
         CommitArmyReturnTraitFields(draft);
         CommitAssignmentCurrentFields(draft);
         CommitBaseCaptureCurrentFields(draft);

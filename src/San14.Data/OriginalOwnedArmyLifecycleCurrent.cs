@@ -11,7 +11,7 @@ public static class OriginalOwnedArmyLifecycleCurrent
     public static GameState InstallFresh(GameState state, OriginalOwnedArmyCurrentDefinitions definitions)
     {
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(definitions);
-        if (state.NativeArmyLifecycle is not null || state.Units.Count != 0 ||
+        if (state.NativeArmyLifecycle is not null || state.ArmyMapOccupancy is not null || state.Units.Count != 0 ||
             state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } || state.NativeArmySimulation is null)
             throw new InvalidDataException("Fresh Army lifecycle requires its explicit initial owned campaign.");
         var current = OriginalOwnedArmyReturnCurrentFields.CaptureCurrent(state, definitions);
@@ -61,8 +61,8 @@ public static class OriginalOwnedArmyLifecycleCurrent
         var source = definitions.LifecycleScenarioSource;
         var parameters = state.NativeArmySimulation.Parameters;
         var result = state with { NativeArmyLifecycle = new(Revision, parameters.Language, parameters.RuleVersion,
-            source.ResourceUri, source.Sha256, pool.ExportOwnedState(), slots,
-            Enumerable.Range(0, checked(state.MapWidth * state.MapHeight)).ToDictionary(x => x, _ => (ushort?)0)) };
+            source.ResourceUri, source.Sha256, pool.ExportOwnedState(), slots) };
+        result = ArmyMapOccupancyAdapter.InstallFresh(result, result.NativeArmyLifecycle!);
         result = result with { NativeArmyLifecycle = OriginalOwnedArmyLifecycleAuxiliaries.InstallFresh(result.NativeArmyLifecycle!, current, pool) };
         result = OriginalOwnedArmyLifecycleDetachedInputs.InstallFresh(result, definitions);
         result = OriginalOwnedArmyDestructorFlags.InstallFresh(result);
@@ -89,17 +89,17 @@ public static class OriginalOwnedArmyLifecycleCurrent
 
     /// <summary>Actual31F430 registration after the caller has constructed a
     /// complete Unit image. Does not execute creator governor/model tail.</summary>
-    public static NativeArmyLifecycleState? PrepareCreationAdmission(GameState state, UnitState created,
+    public static ArmyLifecycleCreationAdmission? PrepareCreationAdmission(GameState state, UnitState created,
         OriginalOwnedArmyCurrentDefinitions definitions, byte? packetTargetKind38 = null) =>
         PrepareCreationAdmissionCore(state, created, definitions, 1, packetTargetKind38, null);
 
     /// <summary>2D8FE0 writes cargo and status2 before the same31F430 owner.
     /// Ordinary allocation continues to preserve the prior receiver cargo.</summary>
-    public static NativeArmyLifecycleState? PrepareTransportCreationAdmission(GameState state, UnitState created,
+    public static ArmyLifecycleCreationAdmission? PrepareTransportCreationAdmission(GameState state, UnitState created,
         OriginalOwnedArmyCurrentDefinitions definitions, byte packetTargetKind38, ushort packetTargetIdentity3A) =>
         PrepareCreationAdmissionCore(state, created, definitions, 2, packetTargetKind38, packetTargetIdentity3A);
 
-    private static NativeArmyLifecycleState? PrepareCreationAdmissionCore(GameState state, UnitState created,
+    private static ArmyLifecycleCreationAdmission? PrepareCreationAdmissionCore(GameState state, UnitState created,
         OriginalOwnedArmyCurrentDefinitions definitions, byte status, byte? packetTargetKind38, ushort? packetTargetIdentity3A)
     {
         if (state.NativeArmyLifecycle is not { } arena || created.NativeArmyOrigin is not { NativeSlotIndex: int physical } origin ||
@@ -107,12 +107,15 @@ public static class OriginalOwnedArmyLifecycleCurrent
             FirstCreationSlot(state) != physical || created.NativeTacticRuntime?.Status10 != status || created.OfficerId is < 1 or > 6000 ||
             created.NativeReturnResources is not { } resources) return null;
         var old = arena.Slots[physical];
+        if (state.ArmyMapOccupancy is not { } occupancy || old.OccupancyBindingId is not int binding) return null;
+        var assignedOccupancy = ArmyMapOccupancyRules.AssignBinding(occupancy, binding, created.Id);
+        if (assignedOccupancy is null) return null;
         if (arena.ArmyGroups is not null && old.GroupAssignmentReady != true) return null;
         if (status == 1 && (old.Gold5C != resources.Gold5C || old.Supplies60 != resources.Supplies60)) return null;
         if (status == 2 && (created.NativeTransport is null || created.Mission?.Kind != UnitMissionKind.Transport)) return null;
         var current = OriginalOwnedArmyReturnCurrentFields.CaptureCurrent(state, definitions);
         var pool = WorldIndexContext.ImportOwnedState(current, arena.Indexes, state);
-        current.RestoreOwnedArmyReturnBindings(arena);
+        current.BindArmyMapOccupancy(state);
         foreach (var slot in arena.Slots)
         {
             current.SetArmyUnitTablePointer(slot.PhysicalSlot, slot.PhysicalSlot);
@@ -138,7 +141,8 @@ public static class OriginalOwnedArmyLifecycleCurrent
             Gold5C = resources.Gold5C, Supplies60 = resources.Supplies60 };
         var registered = arena with { Slots = slots, Indexes = pool.ExportOwnedState() };
         registered = OriginalOwnedArmyLifecycleTargets.PublishCreation(registered, physical, packetTargetKind38, packetTargetIdentity3A);
-        return OriginalOwnedArmyLifecycleAuxiliaries.PrepareCreation(registered, state, created, current, pool);
+        var admitted = OriginalOwnedArmyLifecycleAuxiliaries.PrepareCreation(registered, state, created, current, pool);
+        return admitted is null ? null : new(admitted, assignedOccupancy);
     }
 
     /// <summary>Only31F370's container operation for a known pooled pointer.
@@ -152,7 +156,7 @@ public static class OriginalOwnedArmyLifecycleCurrent
             slot.ActiveUnitId is null && slot.PendingImage is null) return null;
         var current = OriginalOwnedArmyReturnCurrentFields.CaptureCurrent(state, definitions);
         var pool = WorldIndexContext.ImportOwnedState(current, arena.Indexes, state);
-        current.RestoreOwnedArmyReturnBindings(arena);
+        current.BindArmyMapOccupancy(state);
         var outcome = OriginalArmyPending70Admission.EnqueueCurrentPointer(new(OriginalRegistryKind.Army, physical), new Pending(current));
         return outcome == OriginalArmyPending70AdmissionOutcome.KnownAllocationFailure ? null :
             arena with { Indexes = pool.ExportOwnedState() };

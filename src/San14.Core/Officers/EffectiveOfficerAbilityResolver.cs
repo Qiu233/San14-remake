@@ -6,27 +6,27 @@ namespace San14.Core;
 /// encoded cache is populated from definition values, not an extra bonus source.
 /// Null values are unresolved, never inferred as zero or 100.
 /// </summary>
-public sealed record OriginalOfficerAbilityContext(int? HealthPercent, int? SecondaryPercent,
+public sealed record OfficerAbilityContext(int? HealthPercent, int? SecondaryPercent,
     OfficerAbilities? DoctrineBonus, OfficerAbilities? AppointmentBonus,
     int? OrdinaryCap, int? CharmCap);
 
 /// <summary>Resolves current modifiers without mutating state or substituting source defaults.</summary>
-public interface IOriginalOfficerAbilityContext
+public interface IOfficerAbilityContext
 {
-    OriginalOfficerAbilityContext? Resolve(GameState state, int officerId);
+    OfficerAbilityContext? Resolve(GameState state, int officerId);
 }
 
 /// <summary>Original item-rule identities are configurable here, outside the generic state schema.</summary>
-public sealed record OriginalOfficerAbilityRules(int MaximumPerItem, int? CharmOverrideItemId,
+public sealed record OfficerAbilityRules(int MaximumPerItem, int? CharmOverrideItemId,
     int CharmOverrideValue)
 {
-    public static OriginalOfficerAbilityRules Baseline { get; } = new(10, 123, 100);
+    public static OfficerAbilityRules Baseline { get; } = new(10, 123, 100);
 }
 
 /// <summary>Frozen initial illness parameters; runtime parameter loading may replace these values.</summary>
-public sealed record OriginalIllnessPercentages(int State0, int State1, int State2, int State3)
+public sealed record IllnessPercentages(int State0, int State1, int State2, int State3)
 {
-    public static OriginalIllnessPercentages Baseline { get; } = new(100, 80, 50, 20);
+    public static IllnessPercentages Baseline { get; } = new(100, 80, 50, 20);
 
     public int ForState(int state) => state switch
     {
@@ -39,17 +39,17 @@ public sealed record OriginalIllnessPercentages(int State0, int State1, int Stat
 /// initialization and modifier eligibility are supplied separately. This implements
 /// IEffectiveOfficerAbilities so command-book and other consumers share one result.
 /// </summary>
-public sealed class OriginalOfficerAbilities : IEffectiveOfficerAbilities
+public sealed class EffectiveOfficerAbilityResolver : IEffectiveOfficerAbilities
 {
-    private readonly IOriginalOfficerAbilityContext context;
-    private readonly OriginalOfficerAbilityRules rules;
+    private readonly IOfficerAbilityContext context;
+    private readonly OfficerAbilityRules rules;
 
-    public OriginalOfficerAbilities(IOriginalOfficerAbilityContext context,
-        OriginalOfficerAbilityRules? rules = null)
+    public EffectiveOfficerAbilityResolver(IOfficerAbilityContext context,
+        OfficerAbilityRules? rules = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         this.context = context;
-        this.rules = rules ?? OriginalOfficerAbilityRules.Baseline;
+        this.rules = rules ?? OfficerAbilityRules.Baseline;
         ArgumentOutOfRangeException.ThrowIfNegative(this.rules.MaximumPerItem);
         if (this.rules.CharmOverrideItemId < 0)
             throw new ArgumentOutOfRangeException(nameof(rules), "Charm override item ID is negative.");
@@ -62,11 +62,11 @@ public sealed class OriginalOfficerAbilities : IEffectiveOfficerAbilities
             !state.Officers.TryGetValue(officerId, out OfficerState? officer) || officer is null ||
             officer.Id != officerId || officer.BaseAbilities is not { } basic)
             return null;
-        OriginalOfficerAbilityContext? current = context.Resolve(state, officerId);
+        OfficerAbilityContext? current = context.Resolve(state, officerId);
         if (current is not { HealthPercent: int health, SecondaryPercent: int secondary,
             DoctrineBonus: { } doctrine, AppointmentBonus: { } appointment,
             OrdinaryCap: int ordinaryCap, CharmCap: int charmCap } || ordinaryCap < 0 || charmCap < 0 ||
-            !OriginalItemAbilityBonuses.TryCalculate(state, officerId, out OfficerAbilities? items, rules.MaximumPerItem))
+            !ItemAbilityBonuses.TryCalculate(state, officerId, out OfficerAbilities? items, rules.MaximumPerItem))
             return null;
 
         // The original late charm branch enumerates the same current person-item

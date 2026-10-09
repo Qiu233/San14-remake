@@ -47,6 +47,7 @@ public sealed record PlayableArmyCreationResolution(NativeArmyTacticRuntime Runt
     /// <summary>Explicit saved arena writes produced alongside this receiver.
     /// Core retains the source pool/header owner between queued allocations.</summary>
     public NativeArmyLifecycleState? NativeLifecycle { get; init; }
+    public ArmyMapOccupancyState? ArmyMapOccupancy { get; init; }
 }
 
 /// <summary>Explicit initialization after this game's deployment allocation.
@@ -66,6 +67,12 @@ public interface IPlayableArmyCreationPreparationRules
 
 public static class PlayableArmyCreation
 {
+    internal static GameState PublishOwners(GameState state, PlayableArmyCreationResolution result) => state with
+    {
+        NativeArmyLifecycle = result.NativeLifecycle ?? state.NativeArmyLifecycle,
+        ArmyMapOccupancy = result.ArmyMapOccupancy ?? state.ArmyMapOccupancy
+    };
+
     /// <summary>Starts an owned native clock at the current strategy boundary.
     /// An existing clock is preserved and never reset during loading or deployment.</summary>
     public static GameState InitializeClock(GameState state, string revision)
@@ -88,7 +95,8 @@ public static class PlayableArmyCreation
     {
         if (state.NativeClock is null || result.WoundedTroops is < 0 or > ushort.MaxValue ||
             result.Runtime is null || result.Origin is null ||
-            state.NativeArmyLifecycle is not null && result.NativeLifecycle is null)
+            state.NativeArmyLifecycle is not null && result.NativeLifecycle is null ||
+            state.ArmyMapOccupancy is not null && result.ArmyMapOccupancy is null)
             throw new InvalidDataException("Source-created Army initialization is incomplete.");
         NativeSubdayStateValidation.ValidateRuntime(state, result.Runtime);
         UnitState changed = army with

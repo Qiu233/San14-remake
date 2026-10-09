@@ -7,7 +7,7 @@ public readonly record struct PolicyCost(int BeforeDiscount, int Total, bool Doc
 /// CE policy cost arithmetic verified against the original consumer. This is not an
 /// appointment, active-policy, policy-level or force-wide budget calculation.
 /// </summary>
-public static class OriginalPolicyCosts
+public static class PolicyCosts
 {
     /// <summary>All inputs are resolved values; neither doctrine comparison is an unknown/null comparison.</summary>
     public static PolicyCost Calculate(int personalBaseCost, int policyCostAddition,

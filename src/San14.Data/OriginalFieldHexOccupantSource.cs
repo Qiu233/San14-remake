@@ -32,17 +32,17 @@ public static class OriginalFieldHexOccupantSource
                 selected.PhysicalSlot!.Value, location, null, obj), null);
         }
 
-        //Formal reads always bind the latest saved1C. A static prefix's known
-        //zero must not mask current occupancy. Unpublished mutable callers must
-        //supply their current operation snapshot rather than an old State.
-        if (state.NativeArmyLifecycle is not { } arena ||
-            !arena.HexRaw1C.TryGetValue(hexPhysical, out ushort? savedRaw) || savedRaw is null)
-            return Unknown("current.16EB20_saved_Hex_signed1C");
-        current.SetHexRaw1C(hexPhysical, savedRaw);
-        int signed = unchecked((short)savedRaw.Value);
+        //An operation's current binding includes any earlier occupancy write.
+        //Only an unbound view imports the saved map owner.
+        current.BindArmyMapOccupancy(state);
+        if (current.ReadHexRaw1C(hex) is not ushort raw)
+            return Unknown("current.16EB20_Hex_signed1C");
+        int signed = unchecked((short)raw);
         if (signed < 0) return Unknown("branch.16EB20_negative_Army_pointer_index");
         if (signed != 0)
         {
+            if (state.NativeArmyLifecycle is not { } arena)
+                return Unknown("current.16EB20_Army_pointer_table");
             int lookup = signed <= 500 ? signed : 0;
             var army = current.ReadArmyUnitTableReference(lookup);
             if (army is null)
