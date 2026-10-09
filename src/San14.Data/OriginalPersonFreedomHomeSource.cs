@@ -226,12 +226,7 @@ public sealed class OriginalPersonFreedomHomeSource
     }
     private static void Relink(OriginalEventInitializationContext current, OriginalHexListHandle list, List<Entry> nodes)
     {
-        current.SetHexListHead(list, nodes[0].Node); current.SetHexListTail(list, nodes[^1].Node);
-        for (int i = 0; i < nodes.Count; i++)
-        {
-            current.SetHexListNodePrevious(nodes[i].Node, i == 0 ? new(null) : nodes[i - 1].Node);
-            current.SetHexListNodeNext(nodes[i].Node, i + 1 == nodes.Count ? new(null) : nodes[i + 1].Node);
-        }
+        current.ReorderCurrentList(list, nodes.Select(row => row.Node).ToArray());
     }
     private byte[] Links(OriginalBaseReference reference) => links.GetValueOrDefault(reference) ?? throw Missing("source.Base58_static_link_window");
     private static byte[] LinkWindow(IReadOnlyList<byte> values)

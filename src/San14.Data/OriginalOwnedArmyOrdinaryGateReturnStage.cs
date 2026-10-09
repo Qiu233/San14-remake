@@ -22,7 +22,7 @@ public sealed class OriginalOwnedArmyOrdinaryGateReturnStage(OriginalOwnedArmyCa
     {
         if (!state.Units.TryGetValue(unitId, out var unit) || !state.Gates.TryGetValue(gateId, out var gate) ||
             unit.NativeArmyOrigin?.NativeSlotIndex is not int physical ||
-            state.NativeArmyLifecycle?.Auxiliaries is null || unit.Mission?.Kind == UnitMissionKind.Transport ||
+            state.NativeArmyLifecycle is not { ArmyGroups: not null, ArmyCautions: not null } || unit.Mission?.Kind == UnitMissionKind.Transport ||
             gate.HexId != unit.HexId || gate.ForceId != unit.ForceId)
             return new(null, [], "current.owned_ordinary_gate_entry");
         try

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using San14.Core;
 
 namespace San14.Data;
@@ -139,11 +138,10 @@ public sealed class OriginalPersonPendingMeritSource
         if (stageScale is null) return Unknown();
         var receipt = Calculate(personId, requested, pending, trait, traitScale, policy, doctrine,
             stage == 1, stageScale.Value, scaling, $"{ProfileId}:{input.NativeArmySimulation!.Parameters.Revision}:{input.NativeClock!.Revision}");
-        GameState detached = JsonSerializer.Deserialize<GameState>(JsonSerializer.SerializeToUtf8Bytes(input))
-            ?? throw new InvalidDataException("Pending-merit state could not be detached.");
-        OfficerState next = detached.Officers[personId];
-        GameState result = detached with { Officers = new(detached.Officers) { [personId] = next with {
-            NativeGrowthRuntime = next.NativeGrowthRuntime! with { PendingMerit1F8 = receipt.After1F8 } } } };
+        //Only this officer's pending merit changes. The enclosing simulation
+        //transaction owns the other aggregates; no full-world serialization is needed.
+        GameState result = input with { Officers = new(input.Officers) { [personId] = person with {
+            NativeGrowthRuntime = growth with { PendingMerit1F8 = receipt.After1F8 } } } };
         if (validateWorld) StateValidator.Validate(result);
         return new(OriginalPersonPendingMeritOutcome.Committed, result, receipt);
         OriginalPersonPendingMeritResult Unknown() => new(OriginalPersonPendingMeritOutcome.CurrentInputsUnresolved, input, null);

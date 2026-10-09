@@ -51,5 +51,5 @@ public sealed partial class OriginalEventInitializationContext
     public OriginalForcePolicyScratchFields? ReadForcePolicyScratchFields(OriginalForcePolicyScratchReference reference) =>
         reference.Identity is int id ? _forcePolicyScratch.GetValueOrDefault(id) : null;
     internal void SetForcePolicyScratchPayload(OriginalHexListNodeReference node, OriginalForcePolicyScratchReference reference) =>
-        _nativeListPayloads[NodeIdentity(node)] = reference;
+        WriteCurrentListPayload(NodeIdentity(node), reference);
 }

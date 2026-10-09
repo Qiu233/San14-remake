@@ -180,12 +180,7 @@ public sealed partial class OriginalCaptureReturningPersonHomeSource(OriginalOwn
                         { candidates[at] = candidates[at - 1]; at--; }
                         candidates[at] = value;
                     }
-                    current.SetHexListHead(cities, candidates[0].Node); current.SetHexListTail(cities, candidates[^1].Node);
-                    for (int i = 0; i < candidates.Count; i++)
-                    {
-                        current.SetHexListNodePrevious(candidates[i].Node, i == 0 ? new(null) : candidates[i - 1].Node);
-                        current.SetHexListNodeNext(candidates[i].Node, i + 1 == candidates.Count ? new(null) : candidates[i + 1].Node);
-                    }
+                    current.ReorderCurrentList(cities, candidates.Select(row => row.Node).ToArray());
                 }
                 finally { ClearRelease(current, copiedFunctor); ClearRelease(current, functor); }
                 chosen = new(OriginalBaseKind.City, candidates[0].Evidence.CityPhysical);
@@ -197,8 +192,8 @@ public sealed partial class OriginalCaptureReturningPersonHomeSource(OriginalOwn
             current.WritePersonFirstLocation(person, destination);
             var queries = new Queries(state, governorInputs, current);
             var governors = new List<OriginalArmyReturnGovernorPacket>();
-            governors.AddRange(OriginalArmyReturnCommanderHomeUpdater.ApplyPrimaryOwned(newDistrict, current, pool, queries));
-            governors.AddRange(OriginalArmyReturnCommanderHomeUpdater.ApplyPrimaryOwned(district, current, pool, queries));
+            governors.AddRange(OriginalArmyReturnCommanderHomeUpdater.ApplyPrimaryOwned(newDistrict, current, queries));
+            governors.AddRange(OriginalArmyReturnCommanderHomeUpdater.ApplyPrimaryOwned(district, current, queries));
             OriginalCapturedArmyHomeWrites? armyHome = activeArmy is null ? null :
                 ApplyDeployedArmyPrisonerHomes(state, current, person, activeArmy);
             //Return/Area skips22A200's Army-kind27. A deployed commander
@@ -238,7 +233,7 @@ public sealed partial class OriginalCaptureReturningPersonHomeSource(OriginalOwn
     }
 
     private static GameState Publish(GameState state, OriginalEventInitializationContext current, int person,
-        IReadOnlyList<OriginalArmyReturnGovernorPacket> governors, Dictionary<int, int> distances, OriginalCurrentListPool pool,
+        IReadOnlyList<OriginalArmyReturnGovernorPacket> governors, Dictionary<int, int> distances, WorldIndexContext pool,
         OriginalCapturedArmyHomeWrites? armyHome)
     {
         var people = new Dictionary<int, OfficerState>(state.Officers);
@@ -286,7 +281,7 @@ public sealed partial class OriginalCaptureReturningPersonHomeSource(OriginalOwn
         var units = armyHome is null ? state.Units : new(state.Units)
             { [armyHome.UnitId] = state.Units[armyHome.UnitId] with { SourceLocationId = armyHome.CommanderHomeE2 } };
         return state with { Officers = people, Cities = cities, Gates = gates, Units = units,
-            NativeArmyLifecycle = state.NativeArmyLifecycle! with { Pool = pool.ExportOwnedState() },
+            NativeArmyLifecycle = state.NativeArmyLifecycle! with { Indexes = pool.ExportOwnedState() },
             NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = values } } };
     }
     private static bool Preferred(OriginalReturningPersonHomeCandidate left, OriginalReturningPersonHomeCandidate right) =>
@@ -314,7 +309,7 @@ public sealed partial class OriginalCaptureReturningPersonHomeSource(OriginalOwn
     {
         public OriginalArmyReturnGovernorComparatorFields? ReadCurrentComparatorFields(int physical) => inputs.ReadCurrentComparatorFields(state, physical);
         public int? ReadCurrentAssociatedVirtual98(OriginalPersonLinkedEntityReference reference) =>
-            reference.Identity is int receiver && current.ReadOwnedPersonCommandManager()?.Commands.GetValueOrDefault(receiver)?.Kind == "return"
+            reference.Identity is int receiver && current.ReadOwnedPersonCommandManager()?.Tasks.ContainsKey(receiver) == true
                 ? 15 : null; //Actual1EDB40, read only after a live associated receiver is reached.
     }
 }

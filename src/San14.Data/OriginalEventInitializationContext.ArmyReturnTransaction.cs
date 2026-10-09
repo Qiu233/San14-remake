@@ -1,7 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
-
 namespace San14.Data;
 
 public sealed partial class OriginalEventInitializationContext
@@ -51,17 +47,6 @@ public sealed partial class OriginalEventInitializationContext
         static void Copy<K,V>(Dictionary<K,V> source, Dictionary<K,V> target) where K : notnull
         { foreach (var row in source) target[row.Key] = row.Value; }
     }
-    internal string ArmyReturnTransactionFingerprint() => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
-    {
-        Persons = _persons.OrderBy(x => x.Key), First = _personFirstLocations.OrderBy(x => x.Key),
-        Districts = _personDistrictSlots.OrderBy(x => x.Key), Cities = _cityDistricts.OrderBy(x => x.Key),
-        Governors = _armyReturnGovernorWords2E.OrderBy(x => x.Key.Kind).ThenBy(x => x.Key.PhysicalSlot),
-        Resources = _baseResources.OrderBy(x => x.Key.Base.Kind).ThenBy(x => x.Key.Base.PhysicalSlot).ThenBy(x => x.Key.Kind),
-        Morale = _baseMorale44.OrderBy(x => x.Key.Kind).ThenBy(x => x.Key.PhysicalSlot),
-        Wounded = _armyReturnBaseWounded40.OrderBy(x => x.Key.Kind).ThenBy(x => x.Key.PhysicalSlot),
-        Hex = _hexRawValues1C.OrderBy(x => x.Key), TraitFields = ArmyReturnTraitFingerprint(),
-        Pending = _armyReturnPending70, ArmyReturnTransferMode
-    }))));
     internal void CommitArmyReturnTransactionFields(OriginalEventInitializationContext draft)
     {
         Copy(draft._persons, _persons); Copy(draft._personFirstLocations, _personFirstLocations);

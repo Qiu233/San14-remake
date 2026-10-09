@@ -1,48 +1,48 @@
-using System.Text.Json;
 using San14.Core;
 
 namespace San14.Data;
 
-/// <summary>Saved complete arena and current owned tables. This capture is
-/// not a fresh allocator/manager producer and cannot manufacture one.</summary>
+/// <summary>Operation-local current entity views over saved world indexes.
+/// Capturing retains registration order and pending receiver images rather
+/// than rebuilding membership from entity validity.</summary>
 public sealed class OriginalOwnedArmyReturnWorld
 {
     public OriginalEventInitializationContext Context { get; }
-    public OriginalCurrentListPool Pool { get; }
-    private readonly GameState _before;
+    public WorldIndexContext Pool { get; }
     private readonly GameState _input;
-    private OriginalOwnedArmyReturnWorld(GameState state, OriginalEventInitializationContext context, OriginalCurrentListPool pool)
-    { _input = state; _before = JsonSerializer.Deserialize<GameState>(JsonSerializer.SerializeToUtf8Bytes(state))!;
+    private OriginalOwnedArmyReturnWorld(GameState state, OriginalEventInitializationContext context, WorldIndexContext pool)
+    { _input = state;
         Context = context; Pool = pool; }
 
     public static OriginalOwnedArmyReturnWorld Capture(GameState state, OriginalOwnedArmyCurrentDefinitions definitions)
     {
-        NativeArmyLifecycleStateValidation.Validate(state);
         var saved = state.NativeArmyLifecycle ?? throw new InvalidDataException("current.complete_saved_Army_arena is unknown.");
         if (saved.Slots.Length != 501) throw new InvalidDataException("CE native Army pointer table must have 501 exact slots.");
         var context = OriginalOwnedArmyReturnCurrentFields.CaptureCurrent(state, definitions);
-        var pool = OriginalCurrentListPool.ImportOwnedState(context,saved.Pool);
+        var pool = WorldIndexContext.ImportOwnedState(context,saved.Indexes,state);
         context.RestoreOwnedArmyReturnBindings(saved);
         context.RestoreOwnedArmyReturnSlots(state,saved);
         OriginalOwnedArmyDestructorFlags.BindCurrent(saved,context);
         return new(state,context,pool);
     }
 
-    /// <summary>Only an actual sealed whole29F220 packet for THIS world may
-    /// publish. Active projection retirement leaves an independent pending
-    /// image; manager60/header deletion is still deferred to its source consumer.</summary>
+    /// <summary>Publishes this world's prepared return. The active unit becomes
+    /// an independent pending receiver image; deferred retirement still runs
+    /// through the campaign lifecycle operation.</summary>
     public GameState? CommitPrepared(GameState current, OriginalArmyOrdinaryReturnPacket packet)
     {
         ArgumentNullException.ThrowIfNull(current); ArgumentNullException.ThrowIfNull(packet);
         if (!ReferenceEquals(current, _input) || !ReferenceEquals(packet.Owner,Context) || !ReferenceEquals(packet.Pool,Pool)) return null;
         int physical = packet.Army.PhysicalSlot ?? throw new InvalidDataException("Current return Army pointer is null.");
-        var saved = _before.NativeArmyLifecycle!; var slot = saved.Slots[physical];
-        if (slot.ActiveUnitId is not int id || !_before.Units.TryGetValue(id,out var active))
+        var original = _input.NativeArmyLifecycle!; var slot = original.Slots[physical];
+        if (slot.ActiveUnitId is not int id || !_input.Units.TryGetValue(id,out var active))
             throw new InvalidDataException("Whole ordinary return must identify an active owned Army projection.");
-        if (!OriginalArmyOrdinaryReturnRuntime.ApplyPrepared(packet)) return null;
-        //All publication happens on a detached state. A failed validation cannot
-        //mutate the caller's game state or its saved arena.
-        var result = OriginalOwnedArmyReturnCurrentFields.PublishCurrent(packet.CaptivesState ?? _before,Context);
+        OriginalArmyOrdinaryReturnRuntime.Commit(packet);
+        //Detach retained receiver collections only when this operation succeeds.
+        //The simulation owns the enclosing world transaction; publication replaces
+        //the changed aggregates and never mutates the input's lifecycle leaves.
+        var saved = original.Copy();
+        var result = OriginalOwnedArmyReturnCurrentFields.PublishCurrent(packet.CaptivesState ?? _input,Context);
         if (packet.HasAssignmentCurrentWrites)
             result = OriginalPersonAssignmentPrecallInputs.PublishCurrent(result, Context);
         var units = result.Units.ToDictionary(x=>x.Key,x=>x.Value); units.Remove(id);
@@ -68,10 +68,10 @@ public sealed class OriginalOwnedArmyReturnWorld
         }
         result = result with { Units=units,Officers=people, NativeArmyLifecycle=saved with
         {
-            Pool=Pool.ExportOwnedState(), Slots=slots,
+            Indexes = Pool.ExportOwnedState(), Slots=slots,
             HexRaw1C=saved.HexRaw1C.ToDictionary(x=>x.Key,x=>Context.ReadHexRaw1C(new(x.Key)))
         } };
-        NativeArmyReturnCurrentStateValidation.Validate(result); NativeArmyLifecycleStateValidation.Validate(result); return result;
+        return result;
     }
 }
 
@@ -79,21 +79,6 @@ public sealed partial class OriginalEventInitializationContext
 {
     internal void RestoreOwnedArmyReturnBindings(NativeArmyLifecycleState saved)
     {
-        _registryDescriptors.Clear(); _baseHexListHandles.Clear(); _armyReturnBasePerson88.Clear();
-        foreach (var row in saved.RegistryDescriptors)
-        {
-            if (!Enum.TryParse<OriginalRegistryKind>(row.Key,out var kind) || !Enum.IsDefined(kind))
-                throw new InvalidDataException("Saved registry has an unrecognized native owner kind.");
-            SetRegistryDescriptor(kind,row.Value is null ? null : new(row.Value.Identity));
-        }
-        SetArmyReturnPending70Descriptor(saved.Pending70Descriptor is null ? null : new(saved.Pending70Descriptor.Identity));
-        SetBaseRegistryHandle(saved.BaseRegistryDescriptor is null ? null : new(saved.BaseRegistryDescriptor.Identity));
-        foreach (var row in saved.BaseLists)
-        {
-            var target = new OriginalBaseReference(row.Kind==NativeArmyBaseKind.City ? OriginalBaseKind.City : OriginalBaseKind.Gate,row.PhysicalSlot);
-            SetBaseHexListHandle(target,row.HexDescriptor is null ? null : new(row.HexDescriptor.Identity));
-            SetArmyReturnBasePerson88Descriptor(target,row.Person88Descriptor is null ? null : new(row.Person88Descriptor.Identity));
-        }
         foreach (var row in saved.HexRaw1C) SetHexRaw1C(row.Key,row.Value);
     }
     internal void RestoreOwnedArmyReturnSlots(GameState state,NativeArmyLifecycleState saved)
@@ -109,7 +94,7 @@ public sealed partial class OriginalEventInitializationContext
                 army.WoundedTroops is >=0 and <=65535 ? (ushort)army.WoundedTroops.Value : null,
                 army.NativeMorale1A,slot.Gold5C,slot.Supplies60));
             if (army.NativeArmyConfiguration?.TraitSlots64 is { } traits && slot.AuxiliaryAC is { } ac &&
-                slot.AuxiliaryF4 is { } f4 && slot.Trait160Descriptors is { } descriptors)
+                slot.AuxiliaryF4 is { } f4 && OwnedIndexes?.TraitHandles(physical) is { } descriptors)
                 SetArmyReturnTraitFields(physical,new(traits,ac,f4,descriptors.Select(x=>new OriginalRegistryListHandle(x.Identity))));
         }
     }

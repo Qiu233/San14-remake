@@ -145,22 +145,20 @@ public sealed partial class OriginalEventInitializationContext
         return true;
     }
 
-    private sealed record UnitModelListSnapshot(OriginalEventInitializationContext Context, int Capacity, bool Heads, bool Pool);
+    private sealed record UnitModelListSnapshot(OriginalEventInitializationContext Context, bool Heads, bool Pool);
     private UnitModelListSnapshot CaptureUnitModelLists()
     {
         var context = UnitModelContext();
-        int capacity = Profile().ListKeyCapacity ?? throw new InvalidDataException("Current unit-model list capacity is unknown.");
-        if (capacity < 0) throw new InvalidDataException("Negative unit-model list capacity.");
         bool heads = UnitModelHeadsPresent();
         bool pool = KnownPoolPresent();
-        return new(context, capacity, heads, pool);
+        return new(context, heads, pool);
     }
     private OriginalRegistryListNodeReference ResolveUnitModelHead(UnitModelListSnapshot snapshot, OriginalRegistryKind kind)
     {
         var descriptor = snapshot.Context.ReadRegistryDescriptor(kind) ?? throw new InvalidDataException("Current unit-model descriptor is unknown.");
         if (!descriptor.Identity.HasValue || !snapshot.Pool) return new(null);
         int key = RegistryKey(descriptor);
-        return snapshot.Heads && unchecked((uint)key) < (uint)snapshot.Capacity ? UnitModelStoredHead(key) : new(null);
+        return snapshot.Heads && NativeListKeyInRange(key) ? UnitModelStoredHead(key) : new(null);
     }
     private OriginalRegistryListNodeReference ResolveFreshUnitModelHead(OriginalRegistryKind kind, OriginalEventInitializationContext? context = null)
     {
@@ -171,7 +169,7 @@ public sealed partial class OriginalEventInitializationContext
     }
     private OriginalRegistryListNodeReference UnitModelStoredHead(int key)
     {
-        var node = _hexListHeads.GetValueOrDefault(key) ?? throw new InvalidDataException("Current unit-model list head is unknown.");
+        var node = ReadHexListHead(new(key)) ?? throw new InvalidDataException("Current unit-model list head is unknown.");
         return new(node.Identity);
     }
     private bool UnitModelHeadsPresent() => (RegistryHeadTablePresenceReader is null ? RegistryHeadTablePresent : RegistryHeadTablePresenceReader())

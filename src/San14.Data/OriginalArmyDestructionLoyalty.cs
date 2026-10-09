@@ -14,11 +14,11 @@ public sealed class OriginalArmyDestructionLoyaltyPacket
     public string Branch { get; }
     public bool WritesLoyalty => AfterE8.HasValue;
     internal OriginalEventInitializationContext Owner { get; }
-    internal OriginalCurrentListPool? PoolOwner { get; }
-    internal OriginalCurrentListPool? PreparedPool { get; }
+    internal WorldIndexContext? PoolOwner { get; }
+    internal WorldIndexContext? PreparedPool { get; }
     internal OriginalArmyDestructionLoyaltyPacket(OriginalEventInitializationContext owner, int physical,
         byte? before, byte? after, int? penalty, byte? lowByte, string branch,
-        OriginalCurrentListPool? poolOwner = null, OriginalCurrentListPool? preparedPool = null)
+        WorldIndexContext? poolOwner = null, WorldIndexContext? preparedPool = null)
     { Owner = owner; PersonPhysical = physical; BeforeE8 = before; AfterE8 = after;
         PenaltyInt32 = penalty; PenaltyLowByte = lowByte; Branch = branch;
         PoolOwner = poolOwner; PreparedPool = preparedPool; }
@@ -107,7 +107,7 @@ public static class OriginalArmyDestructionLoyalty
             NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = values } },
             NativeArmyLifecycle = packet.PoolOwner is { } pool
                 ? (state.NativeArmyLifecycle ?? throw new InvalidDataException("Current loyalty pool has no saved lifecycle owner."))
-                    with { Pool = pool.ExportOwnedState() }
+                    with { Indexes = pool.ExportOwnedState() }
                 : state.NativeArmyLifecycle
         };
     }

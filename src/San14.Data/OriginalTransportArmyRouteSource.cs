@@ -34,33 +34,12 @@ public static partial class OriginalTransportArmyRouteSource
                 return Done(goal, [], null, null, 0, "301DD0.second_excluded");
             ushort start = K(army.NativeMarch?.CurrentHex2A ?? army.NativeCurrentHex2A, "Army2A");
             if (start >= Count || goal is < 0 or >= Count) throw Missing("route_endpoint");
-            var clones = new List<OriginalHexListHandle>();
-            var excludedHexes = K(current.CreateTemporaryHexList(), "301DD0_CHex_temporary");
-            try
-            {
-                if (slot.Trait160Descriptors is not { Length: 9 } lists) throw Missing("clone_Army160_descriptors");
-                //0094D0/009410 copies each pointer list in increasing field
-                //order. The nine copy destructors run in reverse order.
-                foreach (var source in lists)
-                {
-                    var copy = K(current.CreateTemporaryHexList(), "clone_list_descriptor"); clones.Add(copy);
-                    current.CopyTransportRoutePointerList(copy, new(source.Identity));
-                }
-                var query = new Queries(state, current, army, start, goal, kind, identity);
-                int[] path = Search(query, out int expanded);
-                ushort? next = path.Length > 1 ? (ushort)Math.Clamp(path[1], 0, Count) : null;
-                //param3=1 recomputed the goal; both no path and short paths
-                //therefore reset1F8. No input old1F8 value affects this caller.
-                ushort future = path.Length > 4 ? unchecked((ushort)path[4]) : (ushort)Count;
-                return Done(goal, path, next, future, expanded, path.Length == 0 ?
-                    "301DD0.mode1_no_path" : "301DD0.mode1_source_path");
-            }
-            finally
-            {
-                for (int i = clones.Count - 1; i >= 0; i--)
-                { current.ClearTemporaryHexList(clones[i]); current.ReleaseTemporaryHexList(clones[i]); }
-                current.ClearTemporaryHexList(excludedHexes); current.ReleaseTemporaryHexList(excludedHexes);
-            }
+            var query = new Queries(state, current, army, start, goal, kind, identity);
+            int[] path = Search(query, out int expanded);
+            ushort? next = path.Length > 1 ? (ushort)Math.Clamp(path[1], 0, Count) : null;
+            ushort future = path.Length > 4 ? unchecked((ushort)path[4]) : (ushort)Count;
+            return Done(goal, path, next, future, expanded, path.Length == 0 ?
+                "301DD0.mode1_no_path" : "301DD0.mode1_source_path");
 
             OriginalTransportArmyRouteResult Done(int? goalHex, int[] path, ushort? next, ushort? future,
                 int expanded, string branch) => new(new(physical, goalHex, path, next, future, expanded, branch), null);
@@ -219,22 +198,4 @@ public static partial class OriginalTransportArmyRouteSource
     private static T K<T>(T? value, string name) where T : class => value ?? throw Missing(name);
     private static MissingOwner Missing(string name) => new("current.transport_route_" + name);
     internal sealed class MissingOwner(string owner) : Exception(owner);
-}
-
-public sealed partial class OriginalEventInitializationContext
-{
-    internal void CopyTransportRoutePointerList(OriginalHexListHandle destination, OriginalHexListHandle source)
-    {
-        ClearTemporaryHexList(destination); //7BDC20 clears before copying.
-        var at = ReadHexListHead(source) ?? throw new InvalidDataException("current.transport_route_clone_head");
-        while (at.Identity is int id)
-        {
-            if (!_nativeListPayloads.TryGetValue(id, out object? payload))
-                throw new InvalidDataException("current.transport_route_clone_payload");
-            var next = ReadHexListNodeNext(at) ?? throw new InvalidDataException("current.transport_route_clone_next");
-            var added = AllocateHexListNode(destination);
-            if (added.Identity is int key) _nativeListPayloads[key] = payload;
-            at = next;
-        }
-    }
 }

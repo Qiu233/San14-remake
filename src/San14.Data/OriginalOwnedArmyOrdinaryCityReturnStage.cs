@@ -33,7 +33,7 @@ public sealed class OriginalOwnedArmyOrdinaryCityReturnStage(OriginalOwnedArmyCa
     {
         if (!state.Units.TryGetValue(unitId, out var unit) || !state.Cities.TryGetValue(cityId, out var city) ||
             unit.NativeArmyOrigin?.NativeSlotIndex is not int physical ||
-            state.NativeArmyLifecycle?.Auxiliaries is null ||
+            state.NativeArmyLifecycle is not { ArmyGroups: not null, ArmyCautions: not null } ||
             (city.HexId != unit.HexId && IsEntryPositionAllowed(state, unit, city) != true) || city.ForceId != unit.ForceId)
             return new(null, [], "current.owned_ordinary_city_entry");
         try

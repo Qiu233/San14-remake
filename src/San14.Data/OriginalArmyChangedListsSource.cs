@@ -18,33 +18,29 @@ public static class OriginalArmyChangedListsSource
     public static GameState InstallFresh(GameState state, OriginalEventInitializationContext current)
     {
         var arena = state.NativeArmyLifecycle ?? throw new InvalidDataException("current.changed_lists_primary_arena");
-        if (arena.ChangedLists is not null || state.Units.Count != 0 || state.NativeClock is not { UpdateOrdinal: 0 })
+        if (arena.Indexes.ChangedProcessing is not null || state.Units.Count != 0 || state.NativeClock is not { UpdateOrdinal: 0 })
             throw new InvalidDataException("Fresh changed-list constructor requires its unused owned campaign.");
         var pool = current.ReadOwnedCurrentListPool() ?? throw new InvalidDataException("current.changed_lists_primary_pool");
-        //167900 writes each container+8=0 then01ABD0. Descriptor allocation
-        //does not reset a retained row; its real current pool owns that row.
-        var work = pool.AllocateDescriptor(); var pending = pool.AllocateDescriptor();
-        var owner = new NativeArmyChangedListsState(Revision, new(work.Identity), new(pending.Identity), 0);
-        return state with { NativeArmyLifecycle = arena with { Pool = pool.ExportOwnedState(), ChangedLists = owner } };
+        pool.CreateChangedIndexes();
+        return state with { NativeArmyLifecycle = arena with { Indexes = pool.ExportOwnedState() } };
     }
-
     /// <summary>Exact018CC0(...,1) tail append plus Army pointer store.
     /// It does not deduplicate or ask native validity before registering.</summary>
     public static OriginalArmyChangedListsResult Append(GameState state, int armyPhysical)
     {
         if (armyPhysical is < 0 or > 500) return Unknown("current.changed_lists_Army_pointer");
-        if (state.NativeArmyLifecycle is not { ChangedLists: { } owner } arena)
+        if (state.NativeArmyLifecycle is not { } arena || arena.Indexes.ChangedProcessing is null || arena.Indexes.ChangedPendingUnitIds is null)
             return Unknown("current.changed_lists_saved_owner");
         try
         {
             var current = new OriginalEventInitializationContext();
-            var pool = OriginalCurrentListPool.ImportOwnedState(current, arena.Pool);
-            var at = current.AllocateRegistryNode(new(owner.Pending18.Identity))
+            var pool = WorldIndexContext.ImportOwnedState(current, arena.Indexes, state);
+            var at = current.AllocateRegistryNode(new(pool.ChangedPendingHandle!.Identity))
                 ?? throw new Missing("current.changed_lists_append_node");
             if (at.Identity is null)
                 return Success(state, new("097E10.no_allocated_node", false, false));
             current.WriteRegistryNodePayload(at, new(OriginalRegistryKind.Army, armyPhysical));
-            return Success(state with { NativeArmyLifecycle = arena with { Pool = pool.ExportOwnedState() } },
+            return Success(state with { NativeArmyLifecycle = arena with { Indexes = pool.ExportOwnedState() } },
                 new("097E10.append_tail", false, false, AllocatedNode: at.Identity));
         }
         catch (Missing error) { return Unknown(error.Message); }
@@ -61,38 +57,23 @@ public static class OriginalArmyChangedListsSource
         OriginalEventInitializationContext currentQueries,
         Func<GameState, OriginalEventInitializationContext, UnitState, OriginalTransportArmyRouteResult>? rewriteTransportRoute = null)
     {
-        if (state.NativeArmyLifecycle is not { ChangedLists: { } owner } arena)
+        if (state.NativeArmyLifecycle is not { } arena || arena.Indexes.ChangedProcessing is null)
             return Unknown("current.changed_lists_saved_owner");
-        if (owner.Busy90 is null) return Unknown("current.changed_lists_Busy90");
-        if (owner.Busy90 != 0) return Unknown("current.changed_lists_running_worker_completion");
+        if (arena.Indexes.ChangedProcessing is null) return Unknown("current.changed_lists_Busy90");
+        if (arena.Indexes.ChangedProcessing == true) return Unknown("current.changed_lists_running_worker_completion");
         try
         {
-            var pending = ReadPointers(arena.Pool, owner.Pending18);
+            var pending = arena.Indexes.ChangedPendingUnitIds ?? throw new Missing("current.changed_pending_units");
             if (pending.Count == 0) return Success(state, new("17AFB0.no_pending", false, false));
-            //The route caller supplies one private writable capture of this
-            //state. Its allocator owns both queue and actual301DD0 scratch.
             var current = rewriteTransportRoute is null ? new OriginalEventInitializationContext() : currentQueries;
-            var pool = rewriteTransportRoute is null ? OriginalCurrentListPool.ImportOwnedState(current, arena.Pool) :
-                current.ReadOwnedCurrentListPool() ?? throw new Missing("current.changed_lists_route_primary_pool");
+            var pool = rewriteTransportRoute is null ? WorldIndexContext.ImportOwnedState(current, arena.Indexes, state) :
+                current.ReadOwnedCurrentListPool() ?? throw new Missing("current.changed_routes_index_owner");
+            var batch = pool.BeginChangedWork();
+            var copied = batch.ChangedWorkingUnitIds!;
             var working = state;
-            var work = new OriginalHexListHandle(owner.Work8.Identity);
-            current.ClearTemporaryHexList(work); //179FF0 replaces the old work chain.
-            var copied = new List<NativeSharedListPayload>();
-            foreach (var payload in pending)
-            {
-                var node = current.AllocateRegistryNode(new(owner.Work8.Identity))
-                    ?? throw new Missing("current.changed_lists_copy_node");
-                if (node.Identity is null) continue; //018CC0 failure skips only this pointer store.
-                if (payload.Kind == "Null") current.SetHexListNodePayload(new(node.Identity), null);
-                else current.WriteRegistryNodePayload(node, new(OriginalRegistryKind.Army, payload.Identity));
-                copied.Add(payload);
-            }
-            current.ClearTemporaryHexList(new(owner.Pending18.Identity));
-            //17AFB0 starts its worker and writes90=1. This finite synchronous
-            //operation completes that same reached worker and joins to90=0.
             foreach (var payload in copied)
             {
-                int? physical = payload.Kind == "Null" ? null : payload.Identity;
+                int? physical = pool.ArmyPhysical(payload);
                 if (physical is null or 0) continue;
                 if (arena.Slots.Length != 501 || physical is < 1 or > 500)
                     throw new Missing("current.changed_lists_Army_header");
@@ -131,33 +112,16 @@ public static class OriginalArmyChangedListsSource
                 }
                 throw new Missing($"current.changed_lists_Army{physical.Value}_301DD0_route_writer");
             }
-            current.ClearTemporaryHexList(work); //17A620 reaches null; only this path clears+8.
+            pool.CompleteChangedWork();
             return Publish(new("17A620.reached_null_clear_work", true, true));
 
             OriginalArmyChangedListsResult PublishStopped(int physical, string sourceBranch)
-                => Publish(new(sourceBranch, true, false, physical));
+            { pool.ChangedProcessing = false; return Publish(new(sourceBranch, true, false, physical)); }
             OriginalArmyChangedListsResult Publish(OriginalArmyChangedListsReceipt receipt)
-                => Success(working with { NativeArmyLifecycle = working.NativeArmyLifecycle! with { Pool = pool.ExportOwnedState(),
-                    ChangedLists = owner with { Busy90 = 0 } } }, receipt);
+                => Success(working with { NativeArmyLifecycle = working.NativeArmyLifecycle! with { Indexes = pool.ExportOwnedState() } }, receipt);
         }
         catch (Missing error) { return Unknown(error.Message); }
         catch (InvalidDataException error) { return Unknown(error.Message); }
-    }
-
-    private static List<NativeSharedListPayload> ReadPointers(NativeSharedListPoolState pool, NativeSharedListHandle descriptor)
-    {
-        if (descriptor.Identity is not int key) return [];
-        if (!pool.Descriptors.TryGetValue(key, out var row)) throw new Missing("current.changed_lists_descriptor");
-        var result = new List<NativeSharedListPayload>();
-        for (int? at = row.Head; at is int node;)
-        {
-            if (!pool.Nodes.TryGetValue(node, out var value) || value.Payload is not { } payload)
-                throw new Missing("current.changed_lists_node_payload");
-            if (payload.Kind is not ("Registry:Army" or "Null"))
-                throw new Missing("current.changed_lists_Army_pointer_kind");
-            result.Add(payload); at = value.Next;
-        }
-        return result;
     }
 
     private static OriginalArmyChangedListsResult Success(GameState state, OriginalArmyChangedListsReceipt receipt)

@@ -25,7 +25,7 @@ public static class OriginalPersonAdvisorResetSource
     }
 
     public static OriginalPersonAdvisorResetResult ApplyCurrent(GameState state,
-        OriginalEventInitializationContext current, OriginalCurrentListPool pool, OriginalForceReference force)
+        OriginalEventInitializationContext current, WorldIndexContext pool, OriginalForceReference force)
         => ApplyRefreshCurrent(state, current, pool, force, advisorRemoved: true);
 
     /// <summary>26DA10's changed-Force27BE40 only. Retains the current
@@ -35,7 +35,7 @@ public static class OriginalPersonAdvisorResetSource
         => ApplyRefreshCurrent(state, current, null, force, advisorRemoved: false);
 
     private static OriginalPersonAdvisorResetResult ApplyRefreshCurrent(GameState state,
-        OriginalEventInitializationContext current, OriginalCurrentListPool? pool, OriginalForceReference force, bool advisorRemoved)
+        OriginalEventInitializationContext current, WorldIndexContext? pool, OriginalForceReference force, bool advisorRemoved)
     {
         try
         {
@@ -143,7 +143,7 @@ public static class OriginalPersonAdvisorResetSource
             }
             working = working with { Cities = cityStates, Gates = gateStates, Units = units, NativeArmySimulation = working.NativeArmySimulation! with
                 { Parameters = working.NativeArmySimulation.Parameters with { Int32Values = values } },
-                NativeArmyLifecycle = working.NativeArmyLifecycle with { Slots = slots, Pool = pool.ExportOwnedState() } };
+                NativeArmyLifecycle = working.NativeArmyLifecycle with { Slots = slots, Indexes = pool.ExportOwnedState() } };
             return new(working, new(physical, level, cache, bases.ToArray(), armies.ToArray(), cities.ToArray(), policies.ToArray()), null);
 
             int ReadPolicy(OriginalForceReference owner, int effect, bool mapped)

@@ -26,7 +26,7 @@ public sealed partial class OriginalEventInitializationContext : IOriginalBaseRe
         ArgumentNullException.ThrowIfNull(node);
         ArgumentNullException.ThrowIfNull(reference);
         _ = BasePhysical(reference);
-        _nativeListPayloads[NodeIdentity(new(node.Identity))] = reference;
+        WriteCurrentListPayload(NodeIdentity(new(node.Identity)), reference);
     }
     public OriginalBaseReference? ReadBaseRegistryNodePayload(OriginalRegistryListNodeReference node)
     {

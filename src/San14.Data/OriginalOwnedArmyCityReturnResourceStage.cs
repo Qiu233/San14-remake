@@ -62,16 +62,14 @@ public sealed class OriginalOwnedArmyCityReturnResourceStage : IPlayableCityEntr
         context.SetArmyUnitStatusFlag10(slot, runtime.Status10);
         context.SetArmyReturnResourceFields(slot, new((ushort)army.Troops,
             (ushort)army.WoundedTroops!.Value, morale, resources.Gold5C, resources.Supplies60));
-        var prepared = OriginalArmyReturnResourceUpdater.PrepareResourceOutputs(new(slot),
+        var prepared = OriginalArmyReturnResourceUpdater.ApplyCurrentResourceOutputs(new(slot),
             new(OriginalBaseKind.City, cityId), context);
         if (prepared.Packet is not { } packet) return Missing(prepared.UnresolvedOwner ?? "current.return_resource_packet");
-        if (!OriginalArmyReturnResourceUpdater.ApplyPrepared(packet)) return Missing("current.resource_inputs_changed");
         CityState updated = city with { Troops = packet.Ready3CAfter, Gold = packet.Gold34After,
             Supplies = packet.Supplies38After, Morale = packet.Morale44After,
             NativeReturnRuntime = city.NativeReturnRuntime with
                 { Morale44 = packet.Morale44After, Wounded40 = packet.Wounded40After } };
         GameState result = state with { Cities = new(state.Cities) { [cityId] = updated } };
-        NativeArmyReturnCurrentStateValidation.Validate(result);
         return new(result, packet, null);
 
         OriginalOwnedArmyCityReturnResourceResult Missing(string reason) => new(state, null, reason);

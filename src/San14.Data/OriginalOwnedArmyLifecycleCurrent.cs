@@ -2,17 +2,12 @@ using San14.Core;
 
 namespace San14.Data;
 
-/// <summary>One-time source constructor/list owners for the independent
-/// campaign. Opaque keys identify this owned pool, not foreign addresses.
-/// Registration and pending receipts preserve its saved current chains.</summary>
+/// <summary>Initializes source receiver numeric fields and the campaign
+/// domain indexes. Source traversal cursors exist only inside an operation;
+/// saved registration and retirement order use logical entity IDs.</summary>
 public static class OriginalOwnedArmyLifecycleCurrent
 {
     public const string Revision = "san14:ce-owned-army-lifecycle-current-20261007";
-    // TC9365D0 -> 3FD570 -> 3FD3B0. Managed nodes are materialized lazily;
-    // allocation, free-chain reuse and exhaustion retain these source bounds.
-    public const int DescriptorCapacity = 0x14000;
-    public const int NodeCapacity = 0x18000;
-
     public static GameState InstallFresh(GameState state, OriginalOwnedArmyCurrentDefinitions definitions)
     {
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(definitions);
@@ -21,18 +16,9 @@ public static class OriginalOwnedArmyLifecycleCurrent
             throw new InvalidDataException("Fresh Army lifecycle requires its explicit initial owned campaign.");
         var current = OriginalOwnedArmyReturnCurrentFields.CaptureCurrent(state, definitions);
         definitions.BindFreshLifecycleUnprojectedReceivers(state, current);
-        var scratch = current.ReadOwnedCurrentListPool()?.ExportOwnedState()
-            ?? throw new InvalidDataException("Fresh source definition list owner is missing.");
-        // Keep the already executed Object/Base/Hex source prefix and its
-        // opaque identities. Extend storage once; do not rebuild saved chains.
-        var rows = new Dictionary<int, NativeSharedListDescriptor>(scratch.Descriptors);
-        for (int key = scratch.DescriptorCapacity; key < DescriptorCapacity; key++) rows.Add(key, new(null, null, 0));
-        var pool = OriginalCurrentListPool.ImportOwnedState(current, scratch with
-        {
-            DescriptorCapacity = DescriptorCapacity, NodeCapacity = NodeCapacity, Descriptors = rows,
-            FreeDescriptors = scratch.FreeDescriptors.Concat(Enumerable.Range(scratch.DescriptorCapacity,
-                DescriptorCapacity - scratch.DescriptorCapacity)).ToArray()
-        });
+        var pool = current.ReadOwnedCurrentListPool()
+            ?? throw new InvalidDataException("Fresh world indexes are missing.");
+        pool.BindWorld(state);
         //31ADB0: each manager container obtains one known empty descriptor.
         foreach (var kind in new[] { OriginalRegistryKind.Army, OriginalRegistryKind.Gate, OriginalRegistryKind.Force,
             OriginalRegistryKind.Area, OriginalRegistryKind.District, OriginalRegistryKind.Person })
@@ -44,14 +30,13 @@ public static class OriginalOwnedArmyLifecycleCurrent
         {
             //326990:501 x200-byte CArmy;2209A0:9 x10-byte list ctor;
             //2269E0: header/raw5C60 and all36-word64/AC/F4 reset.
-            var descriptors = Enumerable.Range(0, 9).Select(_ => new NativeSharedListHandle(pool.AllocateDescriptor().Identity)).ToArray();
-            slots[physical] = new(physical, 0, 0, 0, null, null, 0, 0, new ushort[36], new ushort[36], descriptors)
+            slots[physical] = new(physical, 0, 0, 0, null, null, 0, 0, new ushort[36], new ushort[36])
                 { OverrideTarget = new(0xFF, 0), Direction36 = OriginalArmyDirectionSource.ResetDirection36,
-                    MapUiByte13C = 0, CommandControl140 = 0, RouteHold56 = 0, RouteGoal1F8 = 0xBD10 };
+                    MapUiByte13C = 0, CommandControl140 = 0, RouteHold56 = 0, RouteGoal1F8 = 0xBD10,
+                    GroupAssignmentReady = true };
             current.SetArmyUnitTablePointer(physical, physical);
             current.SetArmyUnitCommanderId(physical, 0); current.SetArmyUnitStatusFlag10(physical, 0);
         }
-        var bases = new List<NativeArmyBaseListBinding>(63);
         foreach (var kind in new[] { OriginalBaseKind.City, OriginalBaseKind.Gate })
             for (int physical = 0; physical < (kind == OriginalBaseKind.City ? 52 : 11); physical++)
             {
@@ -60,8 +45,6 @@ public static class OriginalOwnedArmyLifecycleCurrent
                 var hexes = current.ReadBaseHexListHandle(target) ?? pool.AllocateDescriptor();
                 current.SetBaseHexListHandle(target, hexes);
                 var people = Registry(pool.AllocateDescriptor()); current.SetArmyReturnBasePerson88Descriptor(target, people);
-                bases.Add(new(kind == OriginalBaseKind.City ? NativeArmyBaseKind.City : NativeArmyBaseKind.Gate,
-                    physical, new(hexes.Identity), new(people.Identity)));
             }
         //Actual registration loops use current native physical receiver
         //tables and validity/status. They do not enumerate Core Officer IDs.
@@ -77,16 +60,9 @@ public static class OriginalOwnedArmyLifecycleCurrent
             }
         var source = definitions.LifecycleScenarioSource;
         var parameters = state.NativeArmySimulation.Parameters;
-        var registries = new Dictionary<string, NativeSharedListHandle?>();
-        foreach (var range in OriginalObjectRegistration.Ranges)
-        {
-            var descriptor = current.ReadRegistryDescriptor(range.Kind);
-            registries.Add(range.Kind.ToString(), descriptor is null ? null : new(descriptor.Identity));
-        }
         var result = state with { NativeArmyLifecycle = new(Revision, parameters.Language, parameters.RuleVersion,
-            source.ResourceUri, source.Sha256, pool.ExportOwnedState(), slots, registries,
-            new(current.ReadArmyReturnPending70Descriptor()!.Identity), new(current.ReadBaseRegistryHandle()!.Identity),
-            bases.ToArray(), Enumerable.Range(0, checked(state.MapWidth * state.MapHeight)).ToDictionary(x => x, _ => (ushort?)0)) };
+            source.ResourceUri, source.Sha256, pool.ExportOwnedState(), slots,
+            Enumerable.Range(0, checked(state.MapWidth * state.MapHeight)).ToDictionary(x => x, _ => (ushort?)0)) };
         result = result with { NativeArmyLifecycle = OriginalOwnedArmyLifecycleAuxiliaries.InstallFresh(result.NativeArmyLifecycle!, current, pool) };
         result = OriginalOwnedArmyLifecycleDetachedInputs.InstallFresh(result, definitions);
         result = OriginalOwnedArmyDestructorFlags.InstallFresh(result);
@@ -131,10 +107,11 @@ public static class OriginalOwnedArmyLifecycleCurrent
             FirstCreationSlot(state) != physical || created.NativeTacticRuntime?.Status10 != status || created.OfficerId is < 1 or > 6000 ||
             created.NativeReturnResources is not { } resources) return null;
         var old = arena.Slots[physical];
+        if (arena.ArmyGroups is not null && old.GroupAssignmentReady != true) return null;
         if (status == 1 && (old.Gold5C != resources.Gold5C || old.Supplies60 != resources.Supplies60)) return null;
         if (status == 2 && (created.NativeTransport is null || created.Mission?.Kind != UnitMissionKind.Transport)) return null;
         var current = OriginalOwnedArmyReturnCurrentFields.CaptureCurrent(state, definitions);
-        var pool = OriginalCurrentListPool.ImportOwnedState(current, arena.Pool);
+        var pool = WorldIndexContext.ImportOwnedState(current, arena.Indexes, state);
         current.RestoreOwnedArmyReturnBindings(arena);
         foreach (var slot in arena.Slots)
         {
@@ -142,6 +119,8 @@ public static class OriginalOwnedArmyLifecycleCurrent
             current.SetArmyUnitCommanderId(slot.PhysicalSlot, slot.Commander12);
             current.SetArmyUnitStatusFlag10(slot.PhysicalSlot, slot.Status10);
         }
+        pool.BindArmyIdentity(physical, created.Id);
+        pool.TraitHandles(physical);
         current.SetArmyUnitCommanderId(physical, (ushort)created.OfficerId); current.SetArmyUnitStatusFlag10(physical, status);
         var pointer = new OriginalRegistryObjectReference(OriginalRegistryKind.Army, physical);
         if (!OriginalArmyMovementManagerLifecycle.Register(pointer, current) ||
@@ -151,12 +130,13 @@ public static class OriginalOwnedArmyLifecycleCurrent
             //Ordinary uses packet+4; type2 creator independently writes0.
             Priority14 = status == 2 ? (ushort)0 : created.NativeMarch?.Credit14,
             ActiveUnitId = created.Id, PendingImage = null,
+            GroupAssignmentReady = false,
             OverrideTarget = created.NativeOverrideTarget, Direction36 = created.NativeDirection36,
             MapUiByte13C = created.NativeMapUiByte13C,
             CommandControl140 = created.NativeCommandControl140,
             RouteHold56 = created.NativeRouteHold56, RouteGoal1F8 = created.NativeRouteGoal1F8,
             Gold5C = resources.Gold5C, Supplies60 = resources.Supplies60 };
-        var registered = arena with { Slots = slots, Pool = pool.ExportOwnedState() };
+        var registered = arena with { Slots = slots, Indexes = pool.ExportOwnedState() };
         registered = OriginalOwnedArmyLifecycleTargets.PublishCreation(registered, physical, packetTargetKind38, packetTargetIdentity3A);
         return OriginalOwnedArmyLifecycleAuxiliaries.PrepareCreation(registered, state, created, current, pool);
     }
@@ -171,11 +151,11 @@ public static class OriginalOwnedArmyLifecycleCurrent
             arena.Slots[physical] is not { Commander12: > 0, Status10: > 0 } slot ||
             slot.ActiveUnitId is null && slot.PendingImage is null) return null;
         var current = OriginalOwnedArmyReturnCurrentFields.CaptureCurrent(state, definitions);
-        var pool = OriginalCurrentListPool.ImportOwnedState(current, arena.Pool);
+        var pool = WorldIndexContext.ImportOwnedState(current, arena.Indexes, state);
         current.RestoreOwnedArmyReturnBindings(arena);
         var outcome = OriginalArmyPending70Admission.EnqueueCurrentPointer(new(OriginalRegistryKind.Army, physical), new Pending(current));
         return outcome == OriginalArmyPending70AdmissionOutcome.KnownAllocationFailure ? null :
-            arena with { Pool = pool.ExportOwnedState() };
+            arena with { Indexes = pool.ExportOwnedState() };
     }
 
     private sealed class Pending(OriginalEventInitializationContext current) : IOriginalArmyPending70AdmissionState

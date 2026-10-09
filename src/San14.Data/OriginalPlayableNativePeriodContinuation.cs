@@ -7,7 +7,7 @@ public sealed class OriginalPlayableNativePeriodContinuation(OriginalOwnedArmyCa
 {
     public GameState CompleteWaiting(GameState state)
     {
-        if (state.NativeArmyLifecycle?.ChangedLists is not null)
+        if (state.NativeArmyLifecycle?.Indexes.ChangedProcessing is not null)
         {
             var changed = campaign.CompleteChangedTransportRoutes(state);
             if (changed.State is { } continued) state = continued;

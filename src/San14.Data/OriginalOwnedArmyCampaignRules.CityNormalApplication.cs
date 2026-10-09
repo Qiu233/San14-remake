@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using San14.Core;
 
 namespace San14.Data;
@@ -231,8 +231,7 @@ public sealed partial class OriginalOwnedArmyCampaignRules
                         Morale44 = moraleWrite is null ? savedGate.NativeCombatRuntime.Morale44 : Known(current.ReadBaseMorale44(target), "Gate_publish_raw44") } } } };
             }
             if (admission is not null)
-                working = working with { NativeArmyLifecycle = working.NativeArmyLifecycle! with
-                    { DeferredDestructionQueue = current.OwnedDestructionQueue } };
+                working = working with { PendingCombatSettlements = current.OwnedDestructionQueue };
             StateValidator.Validate(working);
             return new(fatal ? OriginalNormalCityApplicationOutcome.CommittedFatalApplication : OriginalNormalCityApplicationOutcome.CommittedNonfatal, working,
                 new(locationId, attackerArmyId, requestedLoss, applied, reward, debit, wounds, moraleLoss, moraleWrite,

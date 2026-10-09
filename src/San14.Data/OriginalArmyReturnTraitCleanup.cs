@@ -1,7 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
-
 namespace San14.Data;
 
 /// <summary>Actual presentation owner presence consumed by2A2340/2A2540.
@@ -14,49 +10,21 @@ public sealed class OriginalArmyReturnTraitCleanupPacket
     public OriginalArmyUnitReference Army { get; }
     public int ClearedRelatedSlotCount { get; }
     public int RemovedRelatedNodeCount { get; }
-    internal OriginalEventInitializationContext Owner { get; }
-    internal OriginalCurrentListPool Pool { get; }
-    internal OriginalCurrentListPool DraftPool { get; }
-    internal OriginalArmyReturnTraitPresentationOwners Presentation { get; }
-    internal string Fingerprint { get; }
-    internal OriginalArmyReturnTraitCleanupPacket(OriginalArmyUnitReference army, int slots, int nodes,
-        OriginalEventInitializationContext owner, OriginalCurrentListPool pool, OriginalCurrentListPool draft,
-        OriginalArmyReturnTraitPresentationOwners presentation, string fingerprint)
-    { Army = army; ClearedRelatedSlotCount = slots; RemovedRelatedNodeCount = nodes; Owner = owner; Pool = pool;
-        DraftPool = draft; Presentation = presentation; Fingerprint = fingerprint; }
+    internal OriginalArmyReturnTraitCleanupPacket(OriginalArmyUnitReference army, int slots, int nodes)
+    { Army = army; ClearedRelatedSlotCount = slots; RemovedRelatedNodeCount = nodes; }
 }
 
 /// <summary>29F220's exact nine2A2340 then36x2A2540 prefix. Static trait key
 /// lookup230730, actual related descriptor160 iteration/clear226770 and
-/// pointer removal228940→3DFB50→018920 execute on a detached owned pool.
+/// related-pointer removal execute within the enclosing return operation.
 /// Neither Army-manager60 nor all Core units can substitute for these lists.</summary>
 public static class OriginalArmyReturnTraitCleanup
 {
-    public static OriginalArmyReturnTraitCleanupResolution Prepare(OriginalArmyUnitReference army,
-        OriginalEventInitializationContext context, OriginalCurrentListPool pool, OriginalArmyReturnTraitPresentationOwners presentation)
-        => PrepareCore(army, context, pool, presentation, true);
-
-    /// <summary>Same-operation source path. The enclosing operation owns its
-    /// current world; no internal fingerprint or repeated preparation occurs.</summary>
-    public static OriginalArmyReturnTraitCleanupResolution ApplyCurrent(OriginalArmyUnitReference army,
-        OriginalEventInitializationContext context, OriginalCurrentListPool pool, OriginalArmyReturnTraitPresentationOwners presentation)
-    {
-        var result = PrepareCore(army, context, pool, presentation, false);
-        if (result.Packet is { } packet)
-        {
-            pool.CommitArmyReturnPool(packet.DraftPool);
-            context.CommitArmyReturnTraitFields(packet.DraftPool.ArmyReturnOwner);
-        }
-        return result;
-    }
-
-    private static OriginalArmyReturnTraitCleanupResolution PrepareCore(OriginalArmyUnitReference army,
-        OriginalEventInitializationContext context, OriginalCurrentListPool pool, OriginalArmyReturnTraitPresentationOwners presentation,
-        bool captureFingerprint)
+    internal static OriginalArmyReturnTraitCleanupResolution ApplyCurrent(OriginalArmyUnitReference army,
+        OriginalEventInitializationContext context, WorldIndexContext pool, OriginalArmyReturnTraitPresentationOwners presentation)
     {
         ArgumentNullException.ThrowIfNull(army); ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(pool); ArgumentNullException.ThrowIfNull(presentation);
-        var reads = new List<object>();
         try
         {
             if (!ReferenceEquals(pool.ArmyReturnOwner, context) || !pool.OwnsArmyReturnProfile()) throw Missing("current.complete_owned_shared_pool");
@@ -65,8 +33,7 @@ public static class OriginalArmyReturnTraitCleanup
                 throw Missing("current.owned_sequential_list_profile");
             if (!Get(context.ReadArmyUnitNativeValidity(army), "current.Army_validity")) throw Missing("branch.invalid_army");
             if (presentation.WeakArmyViewPresent != false) throw Missing("current.2A2340_weak_view_refresh1A3D70");
-            if (captureFingerprint) reads.Add(new { pool = pool.ArmyReturnFingerprint(), fields = context.ArmyReturnTraitFingerprint(), presentation });
-            var draft = context.CreateArmyReturnHomeDraft(); var draftPool = pool.DetachForArmyReturn(draft);
+            var draft = context; var draftPool = pool;
             ushort commanderId = Get(context.ReadArmyUnitCommanderId(army), "current.Army_commander12");
             int commander = Person(commanderId);
             int cleared = 0, removed = 0;
@@ -119,9 +86,7 @@ public static class OriginalArmyReturnTraitCleanup
                 }
                 draft.SetArmyReturnTraitFields(Physical(army), fields.ClearSlot(index));
             }
-            if (captureFingerprint) reads.Add(new { afterPool = draftPool.ArmyReturnFingerprint(), afterFields = draft.ArmyReturnTraitFingerprint(), cleared, removed });
-            string hash = captureFingerprint ? Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(reads)))) : "";
-            return new(new(army, cleared, removed, context, pool, draftPool, presentation, hash), null);
+            return new(new(army, cleared, removed), null);
 
             OriginalArmyReturnTraitFields Fields(OriginalArmyUnitReference value)
             {
@@ -133,27 +98,26 @@ public static class OriginalArmyReturnTraitCleanup
             int Person(ushort id)
             {
                 var person = context.ReadPersonLookupReference(id <= 6000 ? id : 0) ?? throw Missing("current.Person_lookup");
-                int physical = person.PhysicalSlot ?? throw Missing("current.Person_pointer"); reads.Add(new { personId = id, physical }); return physical;
+                return person.PhysicalSlot ?? throw Missing("current.Person_pointer");
             }
             ushort TraitKey(int person, int index)
             {
                 ushort id = Get(context.ReadPersonIdentity(person), "current.trait_Person_id10");
                 if (id is >= 5101 and <= 5200 && index >= 5)
-                { reads.Add(new { person, index, id }); return 0; }
+                    return 0;
                 ushort raw = Get(context.ReadPersonTraitSlot150(person, index), "current.trait_Person_word118");
                 ushort key = raw;
                 if (id is < 5101 or > 5200)
                 {
                     var definition = context.ReadPersonalityTableReference(raw <= 355 ? raw : 0) ?? throw Missing("current.Personality_table");
                     bool valid = Get(context.ReadSkillPersonalityValidity(definition), "current.Personality_validity");
-                    reads.Add(new { person, index, id, raw, definition, valid });
+
                     if (valid)
                     {
                         byte flags = Get(context.ReadSkillPersonalityFlags(definition), "current.Personality_flag4");
-                        reads.Add(new { flags }); if ((flags & 0x10) == 0) key = 0;
+                        if ((flags & 0x10) == 0) key = 0;
                     }
                 }
-                else reads.Add(new { person, index, id, raw });
                 return index < 5 ? key : (ushort)0;
             }
             int MatchingTrait(OriginalArmyUnitReference receiver, ushort key)
@@ -169,7 +133,7 @@ public static class OriginalArmyReturnTraitCleanup
                 var value = context.ReadArmyUnitTableReference(decoded.Kind == 27 ? decoded.Index : 0) ?? throw Missing("current.Person_Army_table");
                 ushort currentId = Get(context.ReadPersonIdentity(person), "current.Person_id10");
                 ushort actualCommander = Get(context.ReadArmyUnitCommanderId(value), "current.Person_Army_commander12");
-                reads.Add(new { person, location, value, currentId, actualCommander });
+
                 return actualCommander == currentId ? value : context.ReadArmyUnitTableReference(0) ?? throw Missing("current.Person_Army_fallback0");
             }
             List<OriginalRegistryListNodeReference> Nodes(OriginalRegistryListHandle descriptor)
@@ -195,14 +159,6 @@ public static class OriginalArmyReturnTraitCleanup
         }
         catch (MissingOwner error) { return new(null, error.Message); }
         catch (InvalidDataException error) { return new(null, "current.TraitCleanup_input: " + error.Message); }
-    }
-    public static bool ApplyPrepared(OriginalArmyReturnTraitCleanupPacket packet)
-    {
-        ArgumentNullException.ThrowIfNull(packet);
-        var current = Prepare(packet.Army, packet.Owner, packet.Pool, packet.Presentation).Packet;
-        if (current is null || current.Fingerprint != packet.Fingerprint) return false;
-        packet.Pool.CommitArmyReturnPool(current.DraftPool);
-        packet.Owner.CommitArmyReturnTraitFields(current.DraftPool.ArmyReturnOwner); return true;
     }
     private static T Get<T>(T? value, string field) where T : struct => value ?? throw Missing(field);
     private static MissingOwner Missing(string field) => new(field);

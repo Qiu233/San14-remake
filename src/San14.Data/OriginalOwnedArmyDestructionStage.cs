@@ -50,8 +50,7 @@ public sealed partial class OriginalOwnedArmyDestructionStage(OriginalOwnedArmyC
         //The legacy parameter name describes one consumer of World34's final
         //byte38. The same actual pre-writer ThirdDate also owns Return dates.
         var sourceDate = captureWorld38Date ?? state.NativeMapSeason?.ThirdDate;
-        if (state.NativeArmyLifecycle?.DeferredDestructionQueue is not { } queue ||
-            queue.Manager140DescriptorKey is not int key)
+        if (state.PendingCombatSettlements is not { } queue)
             return new(null, receipts, "current.manager140_destruction_queue");
         try
         {
@@ -59,55 +58,46 @@ public sealed partial class OriginalOwnedArmyDestructionStage(OriginalOwnedArmyC
             var current = world.Context;
             var working = state;
             var destroyed = new HashSet<int>();
-            //450830 loads this node's Next30 AFTER its callback, so an actual
-            //callback append would be seen. A prebuilt pointer snapshot is not
-            //the execution owner.
-            for (int? at = queue.Heads10[key]; at is int node; at = queue.Nodes[node].Next30)
+            // Read the current queue after every callback. A callback can append
+            // another request which must settle in this same phase.
+            for (int cursor = 0; cursor < queue.Requests.Count; cursor++)
             {
-                current.BindOwnedDestructionQueue(queue);
-                var payload = queue.Nodes[node].Payload48;
-                if (payload.VictimArmy0 is not { Kind: NativeArmyDestructionReceiverKind.Army } victim)
-                    throw Missing("current.request_VictimArmy0");
-                if (victim.PhysicalSlot is not int physical || current.ReadArmyUnitNativeValidity(new(physical)) == false)
+                current.BindOwnedDestructionQueue(queue, working);
+                var request = queue.Requests[cursor];
+                if (request is ExpiredCombatSettlement) continue;
+                if (request is BaseCaptureRequest capture)
                 {
-                    if (payload.VictimBase8 is null) throw Missing("current.request_VictimBase8");
-                    if (payload.VictimBase8.PhysicalSlot is not null)
+                    var target = OriginalArmyDestructionQueue.ResolveBaseReference(working, current, capture.Target);
+                    if (!Known(current.ReadBaseNativeValidity(target), "request_Base_validity")) continue;
+                    working = PublishCurrent(working, current, world.Pool, destroyed, queue);
+                    if (target.Kind == OriginalBaseKind.Gate)
                     {
-                        var target = new OriginalBaseReference(payload.VictimBase8.Kind == NativeArmyDestructionReceiverKind.Gate ?
-                            OriginalBaseKind.Gate : OriginalBaseKind.City, payload.VictimBase8.PhysicalSlot);
-                        if (!Known(current.ReadBaseNativeValidity(target), "request_Base_validity")) continue;
-                        working = PublishCurrent(working, current, world.Pool, destroyed, queue);
-                        if (target.Kind == OriginalBaseKind.Gate)
-                        {
-                            var captured = new OriginalOwnedGateCaptureStage(package).TryApply(working, payload, sourceDate, sampler);
-                            working = captured.State ?? throw Missing(captured.UnresolvedOwner ?? "Gate2851B0");
-                            captures.Add(captured.Receipt!); reports.AddRange(captured.Receipt!.Reports);
-                        }
-                        else
-                        {
-                            var captured = new OriginalOwnedCityCaptureStage(package).TryApply(working, payload, sourceDate, sampler);
-                            working = captured.State ?? throw Missing(captured.UnresolvedOwner ?? "City2851B0");
-                            cityCaptures.Add(captured.Receipt!); reports.AddRange(captured.Receipt!.Reports);
-                        }
-                        //Every callback owns its actual post-Return pool,
-                        //pending70 and current queue. Continue from that image,
-                        //not the context used before its Home/Return callbacks.
-                        world = package.CaptureOwnedArmyReturnWorld(working); current = world.Context;
-                        destroyed.Clear(); queue = current.OwnedDestructionQueue ?? throw Missing("current.Base_postcallback_manager140");
+                        var captured = new OriginalOwnedGateCaptureStage(package).TryApply(working, capture, sourceDate, sampler);
+                        working = captured.State ?? throw Missing(captured.UnresolvedOwner ?? "Gate2851B0");
+                        captures.Add(captured.Receipt!); reports.AddRange(captured.Receipt!.Reports);
                     }
+                    else
+                    {
+                        var captured = new OriginalOwnedCityCaptureStage(package).TryApply(working, capture, sourceDate, sampler);
+                        working = captured.State ?? throw Missing(captured.UnresolvedOwner ?? "City2851B0");
+                        cityCaptures.Add(captured.Receipt!); reports.AddRange(captured.Receipt!.Reports);
+                    }
+                    world = package.CaptureOwnedArmyReturnWorld(working); current = world.Context;
+                    destroyed.Clear(); queue = current.OwnedDestructionQueue ?? throw Missing("current.Base_postcallback_settlements");
                     continue;
                 }
-                if (current.ReadArmyUnitNativeValidity(new(physical)) is not true) throw Missing("current.victim_native_validity");
-                if (OriginalArmyPending70Admission.ContainsCurrentPointer(new(OriginalRegistryKind.Army, physical), new Pending(current)))
-                    continue; //259360's actual pending early return.
-                var receipt = DestroyCurrent(working, current, world.Pool, payload, physical,
+                var defeat = (UnitDefeatRequest)request;
+                if (OriginalArmyDestructionQueue.ResolveUnitSlot(working, defeat.VictimUnitId) is not int physical) continue;
+                if (current.ReadArmyUnitNativeValidity(new(physical)) is not bool valid) throw Missing("current.victim_validity");
+                if (!valid || OriginalArmyPending70Admission.ContainsCurrentPointer(new(OriginalRegistryKind.Army, physical), new Pending(current))) continue;
+                var receipt = DestroyCurrent(working, current, world.Pool, defeat, physical,
                     sampler ?? package.ReadArmyDestructionSampler(working, current), sourceDate);
                 working = receipt.State;
                 destroyed.Add(physical); receipts.Add(receipt.Receipt); reports.Add(receipt.Receipt.Report);
-                queue = current.OwnedDestructionQueue ?? throw Missing("current.operation_manager140");
+                queue = current.OwnedDestructionQueue ?? throw Missing("current.operation_settlements");
             }
-            queue = OriginalArmyDestructionQueue.Clear3261A0(queue);
-            current.BindOwnedDestructionQueue(queue);
+            queue = CombatSettlementQueue.Create();
+            current.BindOwnedDestructionQueue(queue, working);
             var result = PublishCurrent(working, current, world.Pool, destroyed, queue);
             NativeArmyLifecycleStateValidation.Validate(result);
             return new(result, receipts, null) { BaseReceipts = captures.ToArray(), CityReceipts = cityCaptures.ToArray(), SourceReports = reports.ToArray() };
@@ -116,12 +106,11 @@ public sealed partial class OriginalOwnedArmyDestructionStage(OriginalOwnedArmyC
     }
 
     private (GameState State, OriginalOwnedArmyDestructionReceipt Receipt) DestroyCurrent(GameState state,
-        OriginalEventInitializationContext current, OriginalCurrentListPool pool,
-        NativeArmyDestructionQueuePayload request, int physical, OriginalTacticSourceSamplerWorld? sampler,
+        OriginalEventInitializationContext current, WorldIndexContext pool,
+        UnitDefeatRequest request, int physical, OriginalTacticSourceSamplerWorld? sampler,
         NativeMapSeasonDate? sourceDate)
     {
-        if (request.NativeMode24 != 1 || request.Cause28 != 0 ||
-            request.AttackerArmy10 is null || request.AttackerArmy10.PhysicalSlot == physical)
+        if (request.WinnerUnitId == request.VictimUnitId)
             throw Missing("branch.ordinary_null_winner_mode1_cause0");
         var arena = state.NativeArmyLifecycle!;
         var slot = arena.Slots[physical];
@@ -129,10 +118,11 @@ public sealed partial class OriginalOwnedArmyDestructionStage(OriginalOwnedArmyC
             army.NativeArmyConfiguration is null || army.NativeTacticRuntime is null)
             throw Missing("current.actual_zero_ready_Army_image");
         var victim = new OriginalArmyUnitReference(physical);
-        var winner = new OriginalArmyUnitReference(request.AttackerArmy10.PhysicalSlot);
+        var winner = new OriginalArmyUnitReference(request.WinnerUnitId is int winnerIdForMapping
+            ? OriginalArmyDestructionQueue.ResolveUnitSlot(state, winnerIdForMapping) : null);
         bool winnerValid = Known(current.ReadArmyUnitNativeValidity(winner), "winner_Army_validity");
         if (!winnerValid) winner = new(null);
-        var winnerBase = ResolveWinnerBase(current, request.AttackerBase18, winnerValid);
+        var winnerBase = ResolveWinnerBase(state, current, request.WinnerBase, winnerValid);
         bool winnerBaseValid = Known(current.ReadBaseNativeValidity(winnerBase), "winner_Base_validity");
         int? winnerPhysical = winner.PhysicalSlot;
         int? winnerCommander = winnerValid ? Known(current.ReadArmyUnitCommanderId(winner), "winner_Commander12") : null;
@@ -317,7 +307,7 @@ public sealed partial class OriginalOwnedArmyDestructionStage(OriginalOwnedArmyC
     }
 
     private static GameState PublishCurrent(GameState state, OriginalEventInitializationContext current,
-        OriginalCurrentListPool pool, HashSet<int> destroyed, NativeArmyDestructionQueueState queue)
+        WorldIndexContext pool, HashSet<int> destroyed, CombatSettlementQueue queue)
     {
         var result = OriginalOwnedArmyReturnCurrentFields.PublishCurrent(state, current);
         result = OriginalOwnedArmyLifecycleDetachedInputs.PublishCurrent(result, current);
@@ -349,10 +339,10 @@ public sealed partial class OriginalOwnedArmyDestructionStage(OriginalOwnedArmyC
             }
         }
         arena = OriginalOwnedArmyLifecycleTargets.PublishCurrent(OriginalOwnedArmyDestructorFlags.PublishCurrent(arena, current), current)
-            with { Pool = pool.ExportOwnedState(), Slots = slots,
-            DeferredDestructionQueue = queue, HexRaw1C = arena.HexRaw1C.ToDictionary(x => x.Key, x => current.ReadHexRaw1C(new(x.Key))) };
-        return result with { Units = units, Officers = people, NativeArmyLifecycle = arena,
-            NativePersonReturnCommands = current.ReadOwnedPersonCommandManager() };
+            with { Indexes = pool.ExportOwnedState(), Slots = slots,
+            HexRaw1C = arena.HexRaw1C.ToDictionary(x => x.Key, x => current.ReadHexRaw1C(new(x.Key))) };
+        return result with { Units = units, Officers = people, NativeArmyLifecycle = arena, PendingCombatSettlements = queue,
+            PersonnelReturns = current.ReadOwnedPersonCommandManager() };
     }
 
     private static bool PersonalityImmunity(GameState state, OriginalEventInitializationContext current, int commander)

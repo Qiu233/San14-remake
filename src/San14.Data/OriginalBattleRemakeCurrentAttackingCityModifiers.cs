@@ -39,10 +39,9 @@ public static class OriginalBattleRemakeCurrentAttackingCityModifiers
             !state.Forces.TryGetValue(forceId, out var ownedForce)) return Missing("current.ordinary_valid_City_Force");
         //Identity is the actual manager owner; the caller captures/imports it
         //once for an operation. This producer never imports the81k arena.
-        if (saved.RegistryDescriptors.GetValueOrDefault("Person")?.Identity is not int personDescriptor ||
-            current.ReadRegistryDescriptor(OriginalRegistryKind.Person)?.Identity != personDescriptor ||
-            current.ReadOwnedCurrentListPool() is not { } pool || pool.DescriptorCapacity != saved.Pool.DescriptorCapacity)
-            return Missing("current.saved_Person_manager100_and_primary_pool");
+        if (saved.Indexes.Registries.GetValueOrDefault(WorldEntityKind.Officer) is null ||
+            current.ReadRegistryDescriptor(OriginalRegistryKind.Person) is null || current.OwnedIndexes is null)
+            return Missing("current.Officer_index_binding");
         try
         {
             int? policy21 = OriginalBattleRemakeCurrentForcePolicies.ReadForceEffect(state, ownedForce, 21, current);
@@ -73,10 +72,10 @@ public static class OriginalBattleRemakeCurrentAttackingCityModifiers
                     return Missing($"current.Person[{physical}].associated22AC00");
                 if (linkedValid)
                 {
-                    var command = associated.Identity is int receiver ? current.ReadOwnedPersonCommandManager()?.Commands.GetValueOrDefault(receiver) : null;
+                    var command = associated.Identity is int receiver ? current.ReadOwnedPersonCommandManager()?.Tasks.GetValueOrDefault(receiver) : null;
                     //The implemented Return's actual v98 is15, not16. Other
                     //valid command classes need their own current producer.
-                    if (command?.Kind != "return") return Missing($"current.Person[{physical}].associated_virtual98");
+                    if (command is null) return Missing($"current.Person[{physical}].associated_virtual98");
                 }
                 if (current.ReadPersonNativeValidity(physical) is not bool valid)
                     return Missing($"current.Person[{physical}].native_validity_2B3170");

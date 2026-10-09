@@ -16,7 +16,7 @@ public sealed record SaveEnvelope(int SchemaVersion, string FormatId, GameState 
 /// <summary>Local save format. A future original-save adapter can implement ISaveCodec.</summary>
 public sealed class JsonGzipSaveCodec : ISaveCodec
 {
-    public const int CurrentSchemaVersion = 61;
+    public const int CurrentSchemaVersion = 65;
     public string FormatId => "san14-remake-json-gzip";
 
     public byte[] Encode(GameState state)
@@ -36,141 +36,7 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
             ?? throw new InvalidDataException("Save data is empty.");
         int version = document["SchemaVersion"]?.GetValue<int>()
             ?? throw new InvalidDataException("Save schema version is missing.");
-        // Schema 1 stored PlayerForceId and Locale in GameState. They are ignored when
-        // reading it; controller assignments and language belong to each session/view.
-        // Schema 4 adds optional force-rank references and their source parameters.
-        // Earlier snapshots retain unknown rank references; decoding never guesses them.
-        // Schema 6 adds prepared deployments and source combat/area-link definitions.
-        // Old saves default to an empty pending queue and unknown capability/adjacency arrays.
-        // Schema 7 adds optional officer sex. Missing older values stay unknown;
-        // decoding does not depend on an installation, a name or a portrait lookup.
-        // Schema 8 adds independent office definitions and optional officer references.
-        // Missing older definitions remain empty and references remain unknown.
-        // Schema 9 adds optional officer presence, separate from role. Missing values
-        // stay unknown; neither role nor the installed scenario supplies a default.
-        // Schema 10 adds optional governance configurations and their pending accounting.
-        // Missing earlier governance remains unknown; fixed source data is never used to fill it.
-        // Schema 11 adds doctrine definitions and independent personal/force references.
-        // Missing older definitions remain empty and references unknown; decoding never
-        // derives the force's type from its current ruler or reads original resources.
-        // Schema 12 adds policy definitions and independent optional personal policy
-        // and base-cost fields. Missing older data remains empty/null, without source lookup.
-        // Schema 13 adds independent effect definitions and ordered policy effect
-        // references. Missing old tables remain empty and references null.
-        // Schema 14 adds independent item definitions and optional complete inventory.
-        // Missing legacy definitions stay empty; inventory, holders and presence remain
-        // unknown. Loading never consults original files to replenish an old inventory.
-        // Area focus None is appended at value 3. Existing 0/1/2 values retain their
-        // meaning; null is never migrated into a known None value.
-        // Schema 15 stores explicit new-game player options independently of their
-        // effects. Missing older options remain null; DifficultyId never supplies
-        // defaults for the other choices, and loading never reapplies initialization.
-        // Schema16 retains typed period reports. Missing older reports are known empty.
-        // Schema17 retains deployed unit configuration; older absent fields stay unknown.
-        // Schema18 retains city duty appointments and current recruitment preparation.
-        // Missing earlier duties remain unresolved, not verified vacant.
-        // Schema19 retains typed unit missions and transport cargo. Older null missions
-        // remain unknown in generic saves; playable sessions upgrade them to combat.
-        // Schema20 retains pending officer relocation plans. Older missing plans stay
-        // unknown in generic saves and become known empty only in playable sessions.
-        // Schema21 adds an optional target area to typed occupation missions. Older
-        // combat and transport missions have no occupation target.
-        // Schema22 adds the explicit retreat mission. Earlier mission enum values
-        // keep their numeric identities and remain readable without migration.
-        // Schema23 keeps combat food in source cities. Old playable combat-unit
-        // reservations are refunded once, while transport cargo stays with its unit.
-        // Schema24 retains talent tasks. Missing legacy plans remain unknown in generic
-        // saves and become known empty only through the playable-session upgrade.
-        // Schema25 adds nullable source policy group codes; older saves keep them unknown.
-        // Schema26 adds nullable map constructions and typed facility missions. Old saves
-        // do not invent existing buildings; earlier mission enum values stay stable.
-        // Schema27 retains sortie building types and completion separately from durability.
-        // Old playable schema26 full-durability structures gain completion on session upgrade.
-        // Schema28 retains candidate formation base coefficients from the selected source.
-        // Older saves leave them unknown; decoding does not re-read the installation.
-        // Schema29 retains two opaque CE force-row matrices. Earlier saves keep
-        // them unknown; neither matrix establishes a diplomatic rule by itself.
-        // Schema30 retains military waypoint cursors and terminal actions,
-        // independent diplomacy missions/treaties/requests, explicit tactic queues,
-        // cooldowns/statuses/detail reports, and optional city-or-gate report identity.
-        // It also retains optional per-field area development and independent event
-        // revisions, execution stamps, flags/counters and localized report keys.
-        // Immediate personnel changes retain quoted accounting, effect revision,
-        // reported-period identity and nullable current loyalty independently.
-        // Missing legacy values stay null in this generic codec. Only Start or
-        // UpgradeSession creates explicitly provisional playable state; decoding
-        // never consults the original installation or invents diplomatic treaties.
-        // Schema31 preserves independent raw area economy inputs, calculation
-        // provenance on period summaries and source monthly-income receipts.
-        // Missing older economy sources/receipts remain unknown; decoding never
-        // computes a receipt or copies raw coefficients into development progress.
-        // Schema32 preserves nullable wounded troops and explicit native subday
-        // clock/Army waiting, abnormal, modifier and readiness state. Legacy
-        // schema31 and earlier retain null; no original quantities or clock epoch
-        // are invented on decode or playable upgrade.
-        // Schema33 preserves source-created Army origin/configuration and the
-        // remake's explicit current native parameter/force/world owner. Earlier
-        // snapshots keep these facts null and never consult source files. It
-        // also preserves the independent second/third native map-season dates
-        // and their owned writer cursor; Game.Date is never copied into them.
-        // Optional owned Person ability fields extend this current owner. A
-        // missing record remains null, including older schema33 snapshots.
-        // Optional native Army morale1A is independent of provisional Morale;
-        // omitted older snapshots retain null without source reconstruction.
-        // Native saved-region Hex152 is also nullable and independent of the
-        // current movement Hex and Core RegionId.
-        // Schema34 retains the optional normal-combat calendar observation
-        // cursor. Older saves stay null; attaching at their current calendar
-        // boundary never invents historical phase-local Army snapshots.
-        // Schema36 retains current Person/City return fields and the owned
-        // Army lifecycle arena, including exact allocation order and pending
-        // images. Missing older modules remain unknown; loading never rebuilds
-        // an arena from active Units or rereads the original installation.
-        // Schema37 retains independent current Person XP, nullable pending
-        // merit and ordered per-Person ability-growth notifications. Missing
-        // older modules stay unknown; decoding does not initialize XP from
-        // ability values or manufacture an empty notification vector.
-        // Schema38 retains nullable current Person merit/reward counts/reset
-        // alongside the existing ability stage/tail and growth pending-merit
-        // owners. Old missing modules stay unknown; loading never runs fresh
-        // credit initialization or clears accumulated pending rewards.
-        // Schema39 adds optional Force result fields and World selection.
-        // Older missing fields remain unknown; constructor reset bytes are
-        // not promoted to final fresh or load-time defaults.
-        // Schema40 retains optional current Gate durability, independent of
-        // Base capacity. Older absent wall stocks stay unknown; decoding never
-        // reads source objects or substitutes a capacity/nominal wall value.
-        //Schema41 keeps remake command reports explicitly queued until the
-        //next successful formal report. Earlier missing queues stay empty;
-        //loading does not guess which old period entries were still unread.
-        //Schema42 preserves unresolved force-defeat Army/person disposition.
-        //Earlier missing ledgers stay empty; no lost cargo or prisoner history
-        //is reconstructed from current officers or the installed scenario.
-        //Schema43 preserves nullable native Army return resource dwords. Old
-        //saves retain unknown; loading never repeats constructor/reset writes.
-        //Schema46 preserves optional current Gate morale44/wounded40. Earlier
-        //missing owners stay unknown; loading does not rerun the shared ctor
-        //or borrow the scenario's initial morale as the current value.
-        //Schema47 preserves actual Army override target3C/3E. Missing legacy
-        //fields remain unknown; typed provocation owners do not synthesize raw.
-        //Schema48 preserves the nullable current native Person District byte,
-        //including real District0. Earlier missing values remain unknown.
-        //Schema51 retains the optional source terminal result. Missing earlier
-        //records stay null; decoding does not infer victory from ownership.
-        //Schema52 retains independent Hex16, CityC9/CF and World1562 current
-        //capture fields. Earlier missing modules stay unknown.
-        //Schema53 preserves independent native Army Home sequence28 and
-        //transport path/choice fields. Earlier saves keep them unknown.
-        //Schema54 preserves nullable current Army byte13C in units and free
-        //receivers. Missing older bytes remain unknown, never reset on load.
-        //Schema55 preserves native command control140 for current units and
-        //free receivers. Missing older values stay unknown on decoding.
-        //Schema56 preserves separate native changed-Army work/pending owners
-        //and optional current transport48. Older saves are not reinitialized.
-        //Schema58 removes the calendar writer code-window proof stamp. Prior
-        //saves retain the same cursor fields; the obsolete extra is ignored.
-        //Schema57 preserves independent nullable native route56/1F8 on units
-        //and free receivers. Decode never synthesizes a path or fresh reset.
+        // Historical schemas are migrated once; normal simulation uses the current domain state.
         if (version is < 1 or > CurrentSchemaVersion ||
             document["FormatId"]?.GetValue<string>() != FormatId)
             throw new InvalidDataException("Save format or schema version is unsupported.");
@@ -183,6 +49,14 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
         // boundary that recognizes historical source-address keys; values stay unchanged.
         if (version < 60) LegacySimulationParameterSaveMigration.Apply((JsonObject)document["State"]!);
         if (version < 61) LegacyAreaStatisticsSaveMigration.Apply((JsonObject)document["State"]!);
+        if (version < 62)
+        {
+            LegacyCombatSettlementSaveMigration.Apply((JsonObject)document["State"]!);
+            LegacyPersonnelReturnTasksMigration.Apply((JsonObject)document["State"]!);
+        }
+        if (version < 63) LegacyWorldIndexesSaveMigration.Apply((JsonObject)document["State"]!);
+        if (version < 64) LegacyArmyGroupsSaveMigration.Apply((JsonObject)document["State"]!);
+        if (version < 65) LegacyArmyCautionsSaveMigration.Apply((JsonObject)document["State"]!);
         ValidateModuleSnapshotShape((JsonObject)document["State"]!, version);
         // A present options record must contain all choices. JSON constructor
         // defaults must not turn a missing boolean into a confirmed false choice.
@@ -380,14 +254,13 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
         if (state["NativeArmyLifecycle"] is JsonNode lifecycleNode)
         {
             JsonObject lifecycle = Require(lifecycleNode, "native Army lifecycle", "Revision", "Language", "RuleVersion",
-                "SourceScenarioUri", "SourceScenarioSha256", "Pool", "Slots", "RegistryDescriptors",
-                "Pending70Descriptor", "BaseRegistryDescriptor", "BaseLists", "HexRaw1C");
-            CheckSavedPoolShape(lifecycle["Pool"], "native shared pool");
+                "SourceScenarioUri", "SourceScenarioSha256", "Indexes", "Slots", "HexRaw1C", "ArmyGroups", "ArmyCautions");
+            if (lifecycle["Pool"] is not null) throw new InvalidDataException("Saved state contains an obsolete world membership pool.");
             if (lifecycle["Slots"] is not JsonArray slots) throw new InvalidDataException("Saved native slots are invalid.");
             foreach (JsonNode? slotNode in slots)
             {
                 JsonObject slot = Require(slotNode, "native Army slot", "PhysicalSlot", "Commander12", "Status10",
-                    "Priority14", "ActiveUnitId", "PendingImage", "Gold5C", "Supplies60", "AuxiliaryAC", "AuxiliaryF4", "Trait160Descriptors");
+                    "Priority14", "ActiveUnitId", "PendingImage", "Gold5C", "Supplies60", "AuxiliaryAC", "AuxiliaryF4", "GroupAssignmentReady");
                 if (slot["OverrideTarget"] is JsonNode overrideTarget)
                     _ = Require(overrideTarget, "native Army receiver override target", "Kind3C", "Identity3E");
                 if (slot["PendingImage"] is JsonNode pendingNode)
@@ -396,18 +269,6 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
                         "DestinationHexId", "Troops", "Supplies", "Morale");
                     CheckUnitModules(pending);
                 }
-                if (slot["Trait160Descriptors"] is JsonArray traits)
-                    foreach (JsonNode? trait in traits) _ = Require(trait, "native trait descriptor handle", "Identity");
-            }
-            if (lifecycle["RegistryDescriptors"] is not JsonObject registries)
-                throw new InvalidDataException("Saved native registries are invalid.");
-            foreach (JsonNode? handle in registries.Select(pair => pair.Value)) CheckHandle(handle);
-            CheckHandle(lifecycle["Pending70Descriptor"]); CheckHandle(lifecycle["BaseRegistryDescriptor"]);
-            if (lifecycle["BaseLists"] is not JsonArray bases) throw new InvalidDataException("Saved native Base lists are invalid.");
-            foreach (JsonNode? baseNode in bases)
-            {
-                JsonObject binding = Require(baseNode, "native Base binding", "Kind", "PhysicalSlot", "HexDescriptor", "Person88Descriptor");
-                CheckHandle(binding["HexDescriptor"]); CheckHandle(binding["Person88Descriptor"]);
             }
             if (lifecycle["ArmyFlags150"] is JsonNode flagsNode &&
                 (flagsNode is not JsonArray armyFlags || armyFlags.Count != 501))
@@ -419,54 +280,36 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
                 foreach (JsonNode? target in armyTargets)
                     _ = Require(target, "native Army target", "Kind38", "Identity3A");
             }
-            if (lifecycle["DeferredDestructionQueue"] is JsonNode destructionNode)
+            if (lifecycle["DeferredDestructionQueue"] is not null)
+                throw new InvalidDataException("Saved state contains an obsolete combat queue owner.");
+            if (lifecycle["ArmyGroups"] is JsonNode groupsNode)
             {
-                JsonObject queue = Require(destructionNode, "native destruction queue", "Revision", "Language", "RuleVersion",
-                    "SourceScenarioUri", "SourceScenarioSha256", "Manager140DescriptorKey", "DescriptorFreeHead",
-                    "DescriptorLiveHead", "DescriptorLiveTail", "DescriptorLiveCount", "Descriptors", "Heads10", "Tails18",
-                    "Counts28", "FreeNodeHead20", "ActiveNodeCount30", "Nodes");
-                foreach (string field in new[] { "Heads10", "Tails18", "Counts28" })
-                    if (queue[field] is not JsonArray)
-                        throw new InvalidDataException("Saved native destruction array is invalid: " + field);
-                if (queue["Descriptors"] is not JsonArray destructionDescriptors || queue["Nodes"] is not JsonArray destructionNodes)
-                    throw new InvalidDataException("Saved native destruction physical tables are invalid.");
-                foreach (JsonNode? descriptor in destructionDescriptors)
-                    _ = Require(descriptor, "native destruction descriptor", "Key", "Next8", "Previous10");
-                foreach (JsonNode? node in destructionNodes)
+                var groups = Require(groupsNode, "army groups", "UnitAssignments", "Leaders", "ResetLeader");
+                _ = Require(groups["ResetLeader"], "group reset leader", "Kind", "OfficerId");
+                if (groups["UnitAssignments"] is not JsonObject assignments || groups["Leaders"] is not JsonObject leaders)
+                    throw new InvalidDataException("Saved army group maps are invalid.");
+                foreach (var row in assignments)
+                    _ = Require(row.Value, "group assignment", "IsKnown", "GroupId");
+                foreach (var row in leaders)
                 {
-                    JsonObject row = Require(node, "native destruction node", "Payload48", "Next30", "Previous38");
-                    JsonObject payload = Require(row["Payload48"], "native destruction payload", "VictimArmy0", "VictimBase8",
-                        "AttackerArmy10", "AttackerBase18", "Raw20", "NativeMode24", "Cause28", "Padding2C");
-                    foreach (string field in new[] { "VictimArmy0", "VictimBase8", "AttackerArmy10", "AttackerBase18" })
-                        if (payload[field] is JsonNode reference)
-                            _ = Require(reference, "native destruction receiver", "Kind", "PhysicalSlot");
+                    var leader = Require(row.Value, "group leader", "IsKnown", "Officer");
+                    _ = Require(leader["Officer"], "group officer", "Kind", "OfficerId");
                 }
             }
-            if (lifecycle["Auxiliaries"] is JsonNode auxiliariesNode)
+            if (lifecycle.ContainsKey("Auxiliaries"))
+                throw new InvalidDataException("Saved state contains obsolete army auxiliary tables.");
+            if (lifecycle["ArmyCautions"] is JsonNode cautionsNode)
             {
-                JsonObject auxiliaries = Require(auxiliariesNode, "native Army lifecycle auxiliaries", "Revision",
-                    "ArmyTroops58", "TroopsLeader2C", "CautionArmy10", "CautionArmy12", "CautionTroops18",
-                    "CautionArmy30Descriptors", "AssociatedCommand18Descriptor", "InteractionPairs140");
-                foreach (string field in new[] { "ArmyTroops58", "TroopsLeader2C", "CautionArmy10", "CautionArmy12", "CautionTroops18" })
-                    if (auxiliaries[field] is not JsonArray)
-                        throw new InvalidDataException("Saved native Army auxiliary array is invalid: " + field);
-                if (auxiliaries["CautionArmy30Descriptors"] is not JsonArray cautionDescriptors)
-                    throw new InvalidDataException("Saved native Caution Army descriptor array is invalid.");
-                foreach (JsonNode? descriptor in cautionDescriptors) CheckHandle(descriptor);
-                CheckHandle(auxiliaries["AssociatedCommand18Descriptor"]);
-                if (auxiliaries["InteractionPairs140"] is JsonArray pairs)
-                    foreach (JsonNode? pairNode in pairs)
-                    {
-                        JsonObject pair = Require(pairNode, "native Army interaction pair", "FirstArmy", "SecondArmy", "ThirdArmy");
-                        foreach (string field in new[] { "FirstArmy", "SecondArmy", "ThirdArmy" })
-                            if (pair[field] is JsonNode reference)
-                                _ = Require(reference, "native Army interaction reference", "PhysicalSlot");
-                    }
-            }
-            if (lifecycle["ChangedLists"] is JsonNode changedNode)
-            {
-                JsonObject changed = Require(changedNode, "native changed Army lists", "Revision", "Work8", "Pending18", "Busy90");
-                CheckHandle(changed["Work8"]); CheckHandle(changed["Pending18"]);
+                var cautions = Require(cautionsNode, "army cautions", "Relations", "GroupLabels");
+                if (cautions["Relations"] is not JsonObject relations || cautions["GroupLabels"] is not JsonObject labels)
+                    throw new InvalidDataException("Saved army caution maps are invalid.");
+                foreach (var row in relations)
+                {
+                    var relation = Require(row.Value, "caution relation", "Unit", "Base");
+                    _ = Require(relation["Unit"], "caution unit reference", "Kind", "UnitId");
+                    _ = Require(relation["Base"], "caution base resource reference", "IsKnown", "MapObjectId");
+                }
+                foreach (var row in labels) _ = Require(row.Value, "caution group label", "IsKnown", "Label");
             }
         }
         if (state["NativePersonCaptureWorldCandidates"] is JsonNode captureCandidatesNode)
@@ -477,41 +320,8 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
                 candidates["Values1668"] is not JsonArray candidateValues || candidateValues.Count != 5)
                 throw new InvalidDataException("Saved native World capture candidate arrays are not the source five-slot windows.");
         }
-        if (state["NativePersonReturnCommands"] is JsonNode commandsNode)
-        {
-            JsonObject manager = Require(commandsNode, "native Person return commands", "Revision", "FreeHeadEA8", "FreeNext30",
-                "NextReceiverIdentity", "IdToReceiver", "Commands", "Secondary28Descriptor", "MembersPool", "TargetsPool", "TargetNodeValues");
-            if (manager["FreeNext30"] is not JsonArray freeNext || freeNext.Count != 1852 ||
-                manager["IdToReceiver"] is not JsonObject || manager["Commands"] is not JsonObject commands ||
-                manager["TargetNodeValues"] is not JsonObject targetValues)
-                throw new InvalidDataException("Saved native Person command physical owners are invalid.");
-            CheckHandle(manager["Secondary28Descriptor"]);
-            CheckSavedPoolShape(manager["MembersPool"], "native command member pool");
-            CheckSavedPoolShape(manager["TargetsPool"], "native command target pool");
-            foreach (JsonNode? commandNode in commands.Select(pair => pair.Value))
-            {
-                JsonObject command = Require(commandNode, "native return command", "Kind", "RawFields", "Members20", "Targets38");
-                if (command["RawFields"] is not JsonArray rawFields || rawFields.Count != 128)
-                    throw new InvalidDataException("Saved native return command numeric window is invalid.");
-                CheckHandle(command["Members20"]); CheckHandle(command["Targets38"]);
-            }
-            foreach (JsonNode? value in targetValues.Select(pair => pair.Value))
-                _ = Require(value, "native command union value", "FirstKind8", "FirstPhysical0", "SecondKindC", "SecondPhysical10");
-        }
-        static void CheckSavedPoolShape(JsonNode? poolNode, string label)
-        {
-            JsonObject pool = Require(poolNode, label, "DescriptorCapacity", "NodeCapacity", "ActiveNodeCount", "CreatedNodeCount",
-                "FreeNodeHead", "NullDescriptorCount", "FreeDescriptors", "LiveDescriptors", "Descriptors", "Nodes");
-            CheckRows(pool["Descriptors"], "native list descriptor", ["Head", "Tail", "Count"]);
-            if (pool["Nodes"] is not JsonObject nodes) throw new InvalidDataException("Saved native nodes are invalid.");
-            foreach (JsonNode? node in nodes.Select(pair => pair.Value))
-            {
-                JsonObject row = Require(node, "native list node", "Next", "Previous", "Payload");
-                if (row["Payload"] is JsonNode payload) _ = Require(payload, "native list payload", "Kind", "Identity");
-            }
-        }
-        static void CheckHandle(JsonNode? handle)
-        { if (handle is not null) _ = Require(handle, "native list handle", "Identity"); }
+        if (state["NativePersonReturnCommands"] is not null)
+            throw new InvalidDataException("Saved state contains an obsolete personnel command owner.");
         static void CheckUnitModules(JsonObject unit)
         {
                 if (unit["MilitaryPlan"] is JsonNode planNode)

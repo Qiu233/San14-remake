@@ -215,7 +215,7 @@ public static class OriginalCityCaptureFoodWarningSource
             OriginalPersonPositionRepair.DecodeSecondLocation(K(current.ReadPersonSecondLocation(physical), "Governor_E4"))) return true;
         var linked = current.ReadPersonLinkedEntity(physical) ?? throw Missing("Governor_associated22AC00");
         if (!K(current.ReadLinkedEntityNativeValidity(linked), "Governor_associated_validity")) return false;
-        if (linked.Identity is int id && current.ReadOwnedPersonCommandManager()?.Commands.GetValueOrDefault(id)?.Kind == "return") return false; //v98=15.
+        if (linked.Identity is int id && current.ReadOwnedPersonCommandManager()?.Tasks.ContainsKey(id) == true) return false; //v98=15.
         throw Missing("Governor_associated_virtual98");
     }
     private static IEnumerable<OriginalBaseReference> MappedGates(OriginalEventInitializationContext current, OriginalBaseReference city)

@@ -4,10 +4,21 @@ namespace San14.Core;
 
 /// <summary>Copies the mutable parts of a world when ownership crosses a session or rule boundary.
 /// Immutable record leaves remain shared; dictionaries and arrays never do.</summary>
-internal static class GameStateCopy
+public static class GameStateCopy
 {
+    private static PersonnelReturnTasks? CopyPersonnelReturns(PersonnelReturnTasks? value) => value is null ? null : value with
+    {
+        AvailableDispatchSlots = value.AvailableDispatchSlots.ToArray(),
+        PendingRetirements = value.PendingRetirements.ToArray(),
+        Tasks = value.Tasks.ToDictionary(pair => pair.Key, pair => pair.Value with
+        {
+            MemberIds = pair.Value.MemberIds.ToArray(),
+            RouteDestinations = pair.Value.RouteDestinations.ToArray()
+        })
+    };
+
     [return: NotNullIfNotNull(nameof(value))]
-    internal static GameState? Copy(GameState? value) => value is null ? null : value with
+    public static GameState? Copy(GameState? value) => value is null ? null : value with
     {
         Diplomacy = Copy(value.Diplomacy),
         MonthlyIncomeReports = CopyArray(value.MonthlyIncomeReports, item => Copy(item)!),
@@ -42,7 +53,8 @@ internal static class GameStateCopy
         NativeForceUnregisterCurrent = Copy(value.NativeForceUnregisterCurrent),
         NativeNormalArmyCombatCalendar = Copy(value.NativeNormalArmyCombatCalendar),
         NativePersonCaptureWorldCandidates = Copy(value.NativePersonCaptureWorldCandidates),
-        NativePersonReturnCommands = Copy(value.NativePersonReturnCommands),
+        PersonnelReturns = CopyPersonnelReturns(value.PersonnelReturns),
+        PendingCombatSettlements = value.PendingCombatSettlements is null ? null : new([.. value.PendingCombatSettlements.Requests]),
         NativeSubdayReports = CopyArray(value.NativeSubdayReports),
         EventRuntime = Copy(value.EventRuntime),
         EventReports = CopyArray(value.EventReports),
@@ -122,15 +134,6 @@ internal static class GameStateCopy
         TraitSlots64 = CopyArray(value.TraitSlots64),
     };
 
-    [return: NotNullIfNotNull(nameof(value))]
-    internal static NativeArmyDestructionQueueState? Copy(NativeArmyDestructionQueueState? value) => value is null ? null : value with
-    {
-        Descriptors = CopyArray(value.Descriptors),
-        Heads10 = CopyArray(value.Heads10),
-        Tails18 = CopyArray(value.Tails18),
-        Counts28 = CopyArray(value.Counts28),
-        Nodes = CopyArray(value.Nodes),
-    };
 
     [return: NotNullIfNotNull(nameof(value))]
     internal static NativeArmyForceState? Copy(NativeArmyForceState? value) => value is null ? null : value with
@@ -142,36 +145,21 @@ internal static class GameStateCopy
     };
 
     [return: NotNullIfNotNull(nameof(value))]
-    internal static NativeArmyLifecycleAuxiliariesState? Copy(NativeArmyLifecycleAuxiliariesState? value) => value is null ? null : value with
-    {
-        ArmyTroops58 = CopyArray(value.ArmyTroops58),
-        TroopsLeader2C = CopyArray(value.TroopsLeader2C),
-        CautionArmy10 = CopyArray(value.CautionArmy10),
-        CautionArmy12 = CopyArray(value.CautionArmy12),
-        CautionTroops18 = CopyArray(value.CautionTroops18),
-        CautionArmy30Descriptors = CopyArray(value.CautionArmy30Descriptors),
-        InteractionPairs140 = CopyArray(value.InteractionPairs140),
-    };
-
-    [return: NotNullIfNotNull(nameof(value))]
     internal static NativeArmyLifecycleSlot? Copy(NativeArmyLifecycleSlot? value) => value is null ? null : value with
     {
         PendingImage = Copy(value.PendingImage),
         AuxiliaryAC = CopyArray(value.AuxiliaryAC),
         AuxiliaryF4 = CopyArray(value.AuxiliaryF4),
-        Trait160Descriptors = CopyArray(value.Trait160Descriptors),
     };
 
     [return: NotNullIfNotNull(nameof(value))]
     internal static NativeArmyLifecycleState? Copy(NativeArmyLifecycleState? value) => value is null ? null : value with
     {
-        DeferredDestructionQueue = Copy(value.DeferredDestructionQueue),
         ArmyFlags150 = CopyArray(value.ArmyFlags150),
-        Auxiliaries = Copy(value.Auxiliaries),
-        Pool = Copy(value.Pool),
+        ArmyCautions = value.ArmyCautions?.Copy(),
+        Indexes = value.Indexes.Copy(),
+        ArmyGroups = value.ArmyGroups?.Copy(),
         Slots = CopyArray(value.Slots, item => Copy(item)!),
-        RegistryDescriptors = CopyDictionary(value.RegistryDescriptors),
-        BaseLists = CopyArray(value.BaseLists),
         HexRaw1C = CopyDictionary(value.HexRaw1C),
         Targets38 = CopyArray(value.Targets38),
     };
@@ -241,22 +229,6 @@ internal static class GameStateCopy
         Values1668 = CopyArray(value.Values1668),
     };
 
-    [return: NotNullIfNotNull(nameof(value))]
-    internal static NativePersonCommandManagerState? Copy(NativePersonCommandManagerState? value) => value is null ? null : value with
-    {
-        FreeNext30 = CopyArray(value.FreeNext30),
-        IdToReceiver = CopyDictionary(value.IdToReceiver),
-        Commands = CopyDictionary(value.Commands, item => Copy(item)!),
-        MembersPool = Copy(value.MembersPool),
-        TargetsPool = Copy(value.TargetsPool),
-        TargetNodeValues = CopyDictionary(value.TargetNodeValues),
-    };
-
-    [return: NotNullIfNotNull(nameof(value))]
-    internal static NativePersonCommandState? Copy(NativePersonCommandState? value) => value is null ? null : value with
-    {
-        RawFields = CopyArray(value.RawFields),
-    };
 
     [return: NotNullIfNotNull(nameof(value))]
     internal static NativePersonGrowthRuntime? Copy(NativePersonGrowthRuntime? value) => value is null ? null : value with
@@ -271,14 +243,6 @@ internal static class GameStateCopy
         TraitExtras1BE = CopyArray(value.TraitExtras1BE),
     };
 
-    [return: NotNullIfNotNull(nameof(value))]
-    internal static NativeSharedListPoolState? Copy(NativeSharedListPoolState? value) => value is null ? null : value with
-    {
-        FreeDescriptors = CopyArray(value.FreeDescriptors),
-        LiveDescriptors = CopyArray(value.LiveDescriptors),
-        Descriptors = CopyDictionary(value.Descriptors),
-        Nodes = CopyDictionary(value.Nodes),
-    };
 
     [return: NotNullIfNotNull(nameof(value))]
     internal static NativeTransportFields? Copy(NativeTransportFields? value) => value is null ? null : value with

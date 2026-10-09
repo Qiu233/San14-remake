@@ -19,7 +19,7 @@ public sealed record OriginalPersonArmyCaptureWholeResult(GameState? State,
 public static class OriginalPersonArmyCaptureWholeSource
 {
     public static OriginalPersonArmyCaptureWholeResult ApplyOrdinaryWinnerArmy(GameState state,
-        OriginalEventInitializationContext current, OriginalCurrentListPool pool,
+        OriginalEventInitializationContext current, WorldIndexContext pool,
         OriginalOwnedArmyGovernorComparatorInputs governorInputs, int personPhysical,
         OriginalArmyUnitReference winnerArmy, OriginalCaptureApplicationOwners presentation)
     {
@@ -64,7 +64,7 @@ public static class OriginalPersonArmyCaptureWholeSource
             //primary branch executes actual temporary lists and governors;
             //secondary/reselection branches are not substituted by a return.
             if (Known(current.ReadDistrictNativeValidity(originalDistrict), "current.capture_District_validity"))
-                OriginalArmyReturnCommanderHomeUpdater.ApplyPrimaryOwned(originalDistrict, current, pool,
+                OriginalArmyReturnCommanderHomeUpdater.ApplyPrimaryOwned(originalDistrict, current,
                     new GovernorQueries(state, governorInputs));
             effects.Add("2E15A5.2E9140_saved_original_District");
             state = OriginalOwnedArmyReturnCurrentFields.PublishCurrent(state, current);
@@ -99,7 +99,7 @@ public static class OriginalPersonArmyCaptureWholeSource
 public sealed partial class OriginalOwnedArmyCampaignRules
 {
     internal OriginalPersonArmyCaptureWholeResult ApplyOrdinaryWinnerArmyCapture(GameState state,
-        OriginalEventInitializationContext current, OriginalCurrentListPool pool, int personPhysical,
+        OriginalEventInitializationContext current, WorldIndexContext pool, int personPhysical,
         OriginalArmyUnitReference winnerArmy) => OriginalPersonArmyCaptureWholeSource.ApplyOrdinaryWinnerArmy(
             state, current, pool, _governorInputs, personPhysical, winnerArmy, new(false));
 }

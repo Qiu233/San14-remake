@@ -155,7 +155,7 @@ public static class OriginalRulerCaptureReleaseSource
             var home = OriginalBaseLookup.Find(first, current);
             if (!K(current.ReadBaseNativeValidity(home), "current.Lord_release_Home_validity") || current.ReadBaseForceSlot(home) != ownForce.PhysicalSlot)
                 throw Missing("branch.Lord_release265250_lost_or_changed_Home");
-            var start = OriginalPersonReturnCommands.ReadPersonCurrentHex(working, current, person, returnCommandDate);
+            var start = OriginalPersonReturnCommands.ResolvePersonPosition(working, current, person, returnCommandDate);
             if (start.PhysicalSlot == current.ReadBaseCurrentHexIndex(home)) {
                 current.WritePersonSecondLocation(person, Math.Min(K(current.ReadBaseObjectLink(home), "current.Lord_release_Home4E"), (ushort)1061));
                 working = PublishPerson(working);
@@ -177,7 +177,7 @@ public static class OriginalRulerCaptureReleaseSource
                 return image with { Officers = new(image.Officers) { [receipt.PersonId] = officer with {
                     LocationId = first, NativeAbilityRuntime = ability with { Flags196 = current.ReadArmyReturnPersonFlags196(person) },
                     NativeLocationRuntime = location with { Second11C = current.ReadPersonSecondLocation(person) } } },
-                    NativeArmyLifecycle = arena with { Pool = (current.ReadOwnedCurrentListPool() ?? throw Missing("current.Lord_primary_pool")).ExportOwnedState() } };
+                    NativeArmyLifecycle = arena with { Indexes = (current.ReadOwnedCurrentListPool() ?? throw Missing("current.Lord_primary_pool")).ExportOwnedState() } };
             }
         }
         catch (InvalidDataException error) { return new(null, null, error.Message); }

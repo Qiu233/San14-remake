@@ -27,6 +27,9 @@ public static class PlayableMilitaryTargetLifecycle
         }
         foreach (NativeArmyLifecycleSlot slot in state.NativeArmyLifecycle?.Slots ?? [])
             if (slot.PendingImage is { } pending) referenced.Add(pending.Id);
+        foreach (int unitId in state.PendingCombatSettlements?.ReferencedUnitIds() ?? []) referenced.Add(unitId);
+        foreach (int unitId in state.NativeArmyLifecycle?.Indexes.ReferencedUnitIds() ?? []) referenced.Add(unitId);
+        foreach (int unitId in state.NativeArmyLifecycle?.ArmyCautions?.ReferencedUnitIds() ?? []) referenced.Add(unitId);
         return NextFreeId(state.Units, referenced,
             state.Units.Count == 0 ? 1 : checked(state.Units.Keys.Max() + 1));
     }
@@ -38,7 +41,7 @@ public static class PlayableMilitaryTargetLifecycle
     /// rebind until their source writer clears/replaces them. Historical effects
     /// and reports are not active target reservations.</summary>
     public static int NextPeriodAllocationId(IReadOnlyDictionary<int, UnitState> units, int firstCandidate,
-        NativeArmyLifecycleState? nativeLifecycle = null)
+        NativeArmyLifecycleState? nativeLifecycle = null, CombatSettlementQueue? settlements = null)
     {
         var referenced = units.Values.Where(unit => unit.TacticRuntime?.Pending is not null)
             .Select(unit => unit.TacticRuntime!.Pending!.TargetUnitId).ToHashSet();
@@ -47,6 +50,9 @@ public static class PlayableMilitaryTargetLifecycle
                 referenced.Add(owner.Id);
         foreach (NativeArmyLifecycleSlot slot in nativeLifecycle?.Slots ?? [])
             if (slot.PendingImage is { } pending) referenced.Add(pending.Id);
+        foreach (int unitId in settlements?.ReferencedUnitIds() ?? []) referenced.Add(unitId);
+        foreach (int unitId in nativeLifecycle?.Indexes.ReferencedUnitIds() ?? []) referenced.Add(unitId);
+        foreach (int unitId in nativeLifecycle?.ArmyCautions?.ReferencedUnitIds() ?? []) referenced.Add(unitId);
         return NextFreeId(units, referenced, firstCandidate);
     }
 

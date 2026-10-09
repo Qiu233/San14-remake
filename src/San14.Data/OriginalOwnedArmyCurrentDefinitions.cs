@@ -139,13 +139,9 @@ public sealed partial class OriginalOwnedArmyCurrentDefinitions
         native.TacticParameterDecoderTable = OriginalTacticCeParameterDecoderTable.Instance;
         native.ResetPersonIdLookup(); OriginalPostRegistrationLookups.RebuildPersonIds(native);
 
-        int baseSlots = _source.Snapshot.Cities.Count + _source.Snapshot.Gates.Count;
-        //Capacities bound managed storage from the actual table cardinalities;
-        //they are not inferred original runtime limits or gameplay quantities.
-        var pool = new OriginalCurrentListPool(native, baseSlots + 4,
-            _source.Snapshot.ObjectSourceRecords!.Objects.Count + baseSlots * 8 + _source.Snapshot.Cities.Count + 9);
+        var pool = new WorldIndexContext(native);
         native.SetRegistryDescriptor(OriginalRegistryKind.Object, new(pool.AllocateDescriptor().Identity));
-        foreach (var obj in _source.Snapshot.ObjectSourceRecords.Objects)
+        foreach (var obj in _source.Snapshot.ObjectSourceRecords!.Objects)
         {
             _ = OriginalObjectRegistration.Register(new(OriginalRegistryKind.Object, obj.PhysicalSlot), native);
             if (obj.PhysicalSlot is < 1 or > 61 || native.ReadObjectNativeValidity(new(obj.PhysicalSlot)) != true) continue;

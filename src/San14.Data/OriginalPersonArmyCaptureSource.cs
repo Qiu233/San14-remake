@@ -95,8 +95,8 @@ public static class OriginalPersonArmyCaptureSource
                                     //The custom branch obtains both current Hexes even
                                     //when its later category9 predicate is false.
                                     var date = operationDate ?? throw Missing("current.operation_date_for_Person_hex");
-                                    int otherHex = Hex(current, OriginalPersonReturnCommands.ReadPersonCurrentHex(state, current, commander, date));
-                                    int ownHex = Hex(current, OriginalPersonReturnCommands.ReadPersonCurrentHex(state, current, defeatedPhysical, date));
+                                    int otherHex = Hex(current, OriginalPersonReturnCommands.ResolvePersonPosition(state, current, commander, date));
+                                    int ownHex = Hex(current, OriginalPersonReturnCommands.ResolvePersonPosition(state, current, defeatedPhysical, date));
                                     if (Need(current.ReadPersonalityByte(trait, 0xA4), "current.protector_Personality_A4") == 9 &&
                                         Distance(ownHex, otherHex) <= TraitRadius(state, current, trait))
                                         return Result(false, "nearby-custom-escape-protector");

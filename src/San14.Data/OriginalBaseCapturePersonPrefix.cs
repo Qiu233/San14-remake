@@ -250,12 +250,7 @@ public sealed class OriginalBaseCapturePersonPrefix(OriginalOwnedArmyCampaignRul
             }
             nodes[at] = item;
         }
-        current.SetHexListHead(list, nodes[0].Node); current.SetHexListTail(list, nodes[^1].Node);
-        for (int i = 0; i < nodes.Count; i++)
-        {
-            current.SetHexListNodePrevious(nodes[i].Node, i == 0 ? new(null) : nodes[i - 1].Node);
-            current.SetHexListNodeNext(nodes[i].Node, i + 1 == nodes.Count ? new(null) : nodes[i + 1].Node);
-        }
+        current.ReorderCurrentList(list, nodes.Select(row => row.Node).ToArray());
     }
     private static int[] ReadOwnedCityLocations(OriginalEventInitializationContext current, int force)
     {
@@ -283,7 +278,7 @@ public sealed class OriginalBaseCapturePersonPrefix(OriginalOwnedArmyCampaignRul
     private static void Release(OriginalEventInitializationContext current, OriginalHexListHandle list)
     { current.ClearTemporaryHexList(list); current.ReleaseTemporaryHexList(list); }
     private static GameState WithPool(GameState state, OriginalEventInitializationContext current) => state with
-    { NativeArmyLifecycle = state.NativeArmyLifecycle! with { Pool = (current.ReadOwnedCurrentListPool() ?? throw Missing("current primary pool")).ExportOwnedState() } };
+    { NativeArmyLifecycle = state.NativeArmyLifecycle! with { Indexes = (current.ReadOwnedCurrentListPool() ?? throw Missing("current primary pool")).ExportOwnedState() } };
     private static T K<T>(T? value, string owner) where T : struct => value ?? throw Missing(owner);
     private static InvalidDataException Missing(string owner) => new("current.BaseCapturePersonPrefix: " + owner);
     private sealed record PersonNode(OriginalHexListNodeReference Node, int Person);

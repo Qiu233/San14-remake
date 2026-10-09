@@ -1,7 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
-
 namespace San14.Data;
 
 /// <summary>Actual current Army64/AC/F4 words and nine descriptor pointers.
@@ -48,31 +44,9 @@ public sealed partial class OriginalEventInitializationContext
         static void Copy<K,V>(Dictionary<K,V> source, Dictionary<K,V> target) where K : notnull
         { target.Clear(); foreach (var row in source) target.Add(row.Key, row.Value); }
     }
-    internal string ArmyReturnTraitFingerprint() => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
-    {
-        Armies = _armyReturnTraits.OrderBy(x => x.Key), Masks = _personTraitMasks1BC.OrderBy(x => x.Key),
-        Extras = _personTraitExtras1BE.OrderBy(x => x.Key.Person).ThenBy(x => x.Key.Index)
-    }))));
-
-    //018920's normal owned shared-pool branch. Payload is deliberately retained.
     internal void UnlinkArmyReturnTraitNode(OriginalRegistryListHandle descriptor, OriginalRegistryListNodeReference node)
     {
-        int key = RegistryKey(descriptor); if (!NativeListKeyInRange(key)) return;
-        int id = NodeIdentity(new(node.Identity));
-        var next = KnownNode(_hexListNext.GetValueOrDefault(id), "unlink next");
-        var previous = KnownNode(_hexListPrevious.GetValueOrDefault(id), "unlink previous");
-        var head = KnownNode(_hexListHeads.GetValueOrDefault(key), "unlink head");
-        var tail = KnownNode(_hexListTails.GetValueOrDefault(key), "unlink tail");
-        int count = _hexListCounts.GetValueOrDefault(key) ?? throw new InvalidDataException("Current unlink count is unknown.");
-        if (count <= 0) throw new InvalidDataException("Current unlink count is not positive.");
-        if (tail.Identity == id) _hexListTails[key] = previous;
-        if (head.Identity == id) _hexListHeads[key] = next;
-        if (previous.Identity is int p) _hexListNext[p] = next;
-        if (next.Identity is int n) _hexListPrevious[n] = previous;
-        _hexListNext[id] = _hexListPrevious[id] = new(null);
-        var profile = Profile();
-        (profile.NodeReturner ?? throw new InvalidDataException("Current unlink free-chain owner is unknown."))(new(key), new(id), new(id));
-        _hexListCounts[key] = count - 1;
-        (profile.NodeCountReturner ?? throw new InvalidDataException("Current unlink global count owner is unknown."))(new(key), 1);
+        int key = RegistryKey(descriptor);
+        if (NativeListKeyInRange(key)) _orderedLists.Remove(key, NodeIdentity(new(node.Identity)));
     }
 }

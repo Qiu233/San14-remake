@@ -26,21 +26,15 @@ public sealed class OriginalArmyMapGroupingCurrentQueries : IOriginalArmyMapGrou
 
     public IReadOnlyList<int>? ReadRegistry()
     {
-        if (_world.NativeArmyLifecycle is not { } arena ||
-            !arena.RegistryDescriptors.TryGetValue("Army", out var handle) || handle is null) return null;
-        if (handle.Identity is not int identity) return [];
-        if (!arena.Pool.Descriptors.TryGetValue(identity, out var descriptor)) return null;
-        var result = new List<int>();
-        for (int? at = descriptor.Head; at is int node;)
+        if (_world.NativeArmyLifecycle?.Indexes.Registries.GetValueOrDefault(WorldEntityKind.Army) is not { } order) return null;
+        var result = new List<int>(order.Count);
+        foreach (var entity in order)
         {
-            if (!arena.Pool.Nodes.TryGetValue(node, out var value) ||
-                value.Payload is not { Kind: "Registry:Army", Identity: int physical } || physical is < 0 or > 500)
-                return null;
-            result.Add(physical); at = value.Next;
+            if (entity.Kind != WorldEntityKind.Army) return null;
+            result.Add(WorldIndexContext.FindArmyPhysical(_world, entity.Id) ?? 0);
         }
         return result.AsReadOnly();
     }
-
     public OriginalArmyMapGroupingReceiver ReadReceiver(int physical)
     {
         var slot = Slot(physical);
@@ -188,37 +182,14 @@ public sealed class OriginalArmyMapGroupingCurrentQueries : IOriginalArmyMapGrou
     {
         public OriginalBaseReference? ReadCityZeroReference() => current.ReadCityZeroReference();
         public ushort? ReadBaseObjectLink(OriginalBaseReference reference) => current.ReadBaseObjectLink(reference);
-        public IReadOnlyList<OriginalBaseReference?>? ReadRegisteredBases() => world.NativeArmyLifecycle is { } arena &&
-            arena.BaseRegistryDescriptor is { } handle ? handle.Identity is int descriptor
-                ? new SavedBaseSequence(arena.Pool, descriptor) : [] : null;
-    }
-    private sealed class SavedBaseSequence(NativeSharedListPoolState pool, int descriptor) : IReadOnlyList<OriginalBaseReference?>
-    {
-        public IEnumerator<OriginalBaseReference?> GetEnumerator()
-        {
-            if (!pool.Descriptors.TryGetValue(descriptor, out var head)) throw new InvalidDataException("Current Base registry descriptor is missing.");
-            for (int? at = head.Head; at is int node;)
+        public IReadOnlyList<OriginalBaseReference?>? ReadRegisteredBases() => world.NativeArmyLifecycle?.Indexes.Bases?.Select(entity =>
+            entity.Kind switch
             {
-                if (!pool.Nodes.TryGetValue(node, out var value) || value.Payload is not { } payload)
-                    throw new InvalidDataException("Current Base registry node is missing.");
-                yield return payload.Kind switch
-                {
-                    "Base:City" => new(OriginalBaseKind.City, payload.Identity),
-                    "Base:Gate" => new(OriginalBaseKind.Gate, payload.Identity),
-                    _ => throw new InvalidDataException("Current Base registry payload is missing.")
-                };
-                at = value.Next;
-            }
-        }
-        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
-        public int Count { get { int count = 0; foreach (var _ in this) count++; return count; } }
-        public OriginalBaseReference? this[int index]
-        {
-            get
-            {
-                foreach (var item in this) if (index-- == 0) return item;
-                throw new ArgumentOutOfRangeException(nameof(index));
-            }
-        }
+                WorldEntityKind.City => new OriginalBaseReference(OriginalBaseKind.City, entity.Id),
+                WorldEntityKind.Gate => new OriginalBaseReference(OriginalBaseKind.Gate, entity.Id is int id ? id - 51 : null),
+                WorldEntityKind.FallbackCity => new OriginalBaseReference(OriginalBaseKind.City, 0),
+                WorldEntityKind.FallbackGate => new OriginalBaseReference(OriginalBaseKind.Gate, 0),
+                _ => throw new InvalidDataException("The base index identifies another entity kind.")
+            }).ToArray();
     }
 }

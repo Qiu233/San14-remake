@@ -37,7 +37,7 @@ public sealed partial class OriginalEventInitializationContext
             node = ReadHexListNodeNext(node) ?? throw new InvalidDataException("Current radius list next is unknown.");
         }
         int key = RegistryKey(new(output.Identity));
-        int count = _hexListCounts.GetValueOrDefault(key) ?? throw new InvalidDataException("Current neighbor output count is unknown.");
+        int count = ReadTemporaryHexListCount(new(key)) ?? throw new InvalidDataException("Current neighbor output count is unknown.");
         ReleaseObjectPairTemporary(inner);
         return count;
     }
@@ -129,7 +129,7 @@ public sealed partial class OriginalEventInitializationContext
         bool pool = KnownPoolPresent(); //Both collectors save this before descriptor guards.
         if (!handle.Identity.HasValue || !pool) return new(null);
         int key = RegistryKey(new(handle.Identity));
-        return UnitModelHeadsPresent() && NativeListKeyInRange(key) ? _hexListHeads.GetValueOrDefault(key)
+        return UnitModelHeadsPresent() && NativeListKeyInRange(key) ? ReadHexListHead(new(key))
             ?? throw new InvalidDataException("Current pair temporary head is unknown.") : new(null);
     }
     private void ClearObjectPairWrapper(OriginalHexListHandle handle)

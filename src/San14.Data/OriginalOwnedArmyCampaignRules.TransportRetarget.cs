@@ -9,7 +9,7 @@ public sealed partial class OriginalOwnedArmyCampaignRules : IPlayableTransportR
     public PlayableTransportCreationResolution? RetargetTransport(GameState state, UnitState unit, CityState city)
     {
         if (unit.NativeArmyOrigin?.NativeSlotIndex is not int physical || physical is < 1 or > 500 ||
-            state.NativeArmyLifecycle is not { ChangedLists: not null } arena || physical >= arena.Slots.Length ||
+            state.NativeArmyLifecycle is not { Indexes.ChangedPendingUnitIds: not null } arena || physical >= arena.Slots.Length ||
             arena.Slots[physical] is not { ActiveUnitId: var id, Commander12: var commander, Status10: var status } ||
             id != unit.Id || commander != unit.OfficerId || unit.NativeTransport is not { } transport ||
             unit.NativeArmyConfiguration is not { } configuration || unit.NativeTacticRuntime is not { } runtime ||
@@ -38,7 +38,6 @@ public sealed partial class OriginalOwnedArmyCampaignRules : IPlayableTransportR
             NativeArmyLifecycle = arena with { Targets38 = targets } };
         var registered = OriginalArmyChangedListsSource.Append(submitted, receipt.ChangedArmyList18PhysicalSlot);
         if (registered.State is not { } result) return null;
-        StateValidator.Validate(result);
         return new(result, TransportRetargetRevision);
     }
 }

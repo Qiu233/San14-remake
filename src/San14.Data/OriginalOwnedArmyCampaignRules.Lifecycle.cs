@@ -1,4 +1,4 @@
-using San14.Core;
+﻿using San14.Core;
 
 namespace San14.Data;
 
@@ -31,7 +31,7 @@ public sealed partial class OriginalOwnedArmyCampaignRules
         OriginalRulerCaptureReleaseSource.BindCurrent(state, world.Context);
         OriginalCaptureBaseThreatInputs.BindCurrent(state, world.Context);
         _personAssignmentPrecallInputs.BindCurrent(state, world.Context);
-        world.Context.BindOwnedDestructionQueue(state.NativeArmyLifecycle?.DeferredDestructionQueue);
+        world.Context.BindOwnedDestructionQueue(state.PendingCombatSettlements, state);
         world.Context.CurrentPlayerForce = OriginalOwnedCurrentPlayerForce.ReadCurrentReference(state, world.Context);
         _baseCapacityInputs.BindCurrent(state, world.Context);
         OriginalPersonAdvisorResetSource.BindCurrent(state, world.Context);

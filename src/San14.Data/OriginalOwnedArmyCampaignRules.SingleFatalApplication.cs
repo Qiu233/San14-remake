@@ -1,4 +1,4 @@
-using San14.Core;
+﻿using San14.Core;
 
 namespace San14.Data;
 
@@ -70,7 +70,7 @@ public sealed partial class OriginalOwnedArmyCampaignRules
         if (definitions is null) return Unknown($"current.{scope}_death_definitions");
         var admitted = OriginalOwnedArmyDestructionCurrent.AdmitOrdinaryArmy1745B0(draft, definitions,
             physical, winnerPhysical, null);
-        if (admitted.NativeReturn != 1 || admitted.State is not { } queued)
+        if (!admitted.IsPending || admitted.State is not { } queued)
             return Unknown(admitted.UnresolvedOwner ?? $"current.{scope}_death_queue");
         var destroyed = new OriginalOwnedArmyDestructionStage(this).TryConsumePhase19(queued, sampler, operationThirdDate);
         if (destroyed.State is not { } after19 || after19.Units.ContainsKey(targetId) ||

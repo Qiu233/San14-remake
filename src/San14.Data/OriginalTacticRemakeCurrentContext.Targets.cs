@@ -1,4 +1,4 @@
-using San14.Core;
+﻿using San14.Core;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -171,7 +171,7 @@ public sealed partial class OriginalTacticRemakeCurrentContext
 
     private bool? ArmyExcluded(GameState state, int unitId)
     {
-        if (state.NativeArmyLifecycle?.DeferredDestructionQueue is not null)
+        if (state.PendingCombatSettlements is not null)
             return state.Units.GetValueOrDefault(unitId)?.NativeArmyOrigin?.NativeSlotIndex is int physical
                 ? OriginalOwnedArmyDestructionCurrent.ReadArmyExcluded233560(state, _definitions, physical) : null;
         // Earlier saved/explicit narrow captures retain their current query
@@ -204,7 +204,7 @@ public sealed partial class OriginalTacticRemakeCurrentContext
 
     private bool? BaseExcluded(GameState state, int location)
     {
-        if (state.NativeArmyLifecycle?.DeferredDestructionQueue is not null)
+        if (state.PendingCombatSettlements is not null)
             return OriginalOwnedArmyDestructionCurrent.ReadBaseExcluded2334B0(state, _definitions, location);
         if (state.NativeArmySimulation!.World.ObjectPairs is not { } pairs) return null;
         foreach (NativeArmyObjectPairState pair in pairs)

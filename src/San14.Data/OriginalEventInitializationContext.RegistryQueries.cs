@@ -6,8 +6,10 @@ public sealed partial class OriginalEventInitializationContext
     private readonly Dictionary<int, int?> _registryItemPointers = [],
         _registryCautionTroopsPointers = [], _registryTable81B50Pointers = [];
     private readonly Dictionary<int, byte?> _registryItemFields50 = [];
-    private readonly Dictionary<int, ushort?> _registryCautionTroopsFields18 = [],
-        _registryTable81B50Fields10 = [], _registryTable81B50Fields12 = [];
+    private Func<int, bool?>? _cautionGroupEligibility, _cautionRelationEligibility;
+
+    internal void SetCautionEligibilityProjection(Func<int, bool?> group, Func<int, bool?> relation)
+    { _cautionGroupEligibility = group; _cautionRelationEligibility = relation; }
 
     /// <summary>Does not infer the physical person table from its independent ID lookup table.</summary>
     public void SetRegistryTablePointer(OriginalRegistryKind kind, int slot, int? physicalSlot)
@@ -74,12 +76,6 @@ public sealed partial class OriginalEventInitializationContext
     { Check(physicalSlot, 202, "item physical slot"); _registryItemFields50[physicalSlot] = value; }
     public byte? ReadRegistryItemRawField50(OriginalRegistryObjectReference reference) =>
         _registryItemFields50.GetValueOrDefault(RegistryQueryPhysical(reference, OriginalRegistryKind.Item, 202));
-    public void SetRegistryCautionTroopsRawField18(int physicalSlot, ushort? value)
-    { Check(physicalSlot, 501, "caution troops physical slot"); _registryCautionTroopsFields18[physicalSlot] = value; }
-    public void SetRegistryTable81B50RawField10(int physicalSlot, ushort? value)
-    { Check(physicalSlot, 1001, "caution army unit physical slot"); _registryTable81B50Fields10[physicalSlot] = value; }
-    public void SetRegistryTable81B50RawField12(int physicalSlot, ushort? value)
-    { Check(physicalSlot, 1001, "caution army unit physical slot"); _registryTable81B50Fields12[physicalSlot] = value; }
 
     private bool? ReadRegistryItemNativeValidity(OriginalRegistryObjectReference reference)
     {
@@ -94,19 +90,14 @@ public sealed partial class OriginalEventInitializationContext
         if (!reference.PhysicalSlot.HasValue) return false;
         int physical = RegistryQueryPhysical(reference, OriginalRegistryKind.CautionTroops, 501);
         if (physical == 0) return false;
-        ushort? value = _registryCautionTroopsFields18.GetValueOrDefault(physical);
-        return value.HasValue ? value.Value != 0 : null;
+        return _cautionGroupEligibility?.Invoke(physical);
     }
     private bool? ReadRegistryTable81B50NativeValidity(OriginalRegistryObjectReference reference)
     {
         if (!reference.PhysicalSlot.HasValue) return false;
         int physical = RegistryQueryPhysical(reference, OriginalRegistryKind.Table81B50, 1001);
         if (physical == 0) return false;
-        ushort? first = _registryTable81B50Fields10.GetValueOrDefault(physical);
-        if (!first.HasValue) return null;
-        if (first.Value is < 1 or > 500) return false;
-        ushort? second = _registryTable81B50Fields12.GetValueOrDefault(physical);
-        return second.HasValue ? second.Value is >= 1 and <= 61 : null;
+        return _cautionRelationEligibility?.Invoke(physical);
     }
     private static int RegistryQueryPhysical(OriginalRegistryObjectReference reference, OriginalRegistryKind expected, int count)
     {

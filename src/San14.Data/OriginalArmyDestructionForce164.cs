@@ -18,12 +18,12 @@ public sealed class OriginalArmyDestructionForce164Packet
     public bool LevelIncreased => BeforeLevel.HasValue && AfterLevel > BeforeLevel;
     public bool Writes164 => After164.HasValue;
     internal OriginalEventInitializationContext Owner { get; }
-    internal OriginalCurrentListPool? PoolOwner { get; }
-    internal OriginalCurrentListPool? PreparedPool { get; }
+    internal WorldIndexContext? PoolOwner { get; }
+    internal WorldIndexContext? PreparedPool { get; }
     internal OriginalArmyDestructionForce164Packet(OriginalEventInitializationContext owner, OriginalForceReference force,
         int? wounded = null, int? requested = null, int? before = null, int? after = null,
         int? oldLevel = null, int? newLevel = null, int? display = null, bool playerMaximum = false,
-        OriginalCurrentListPool? pool = null, OriginalCurrentListPool? prepared = null)
+        WorldIndexContext? pool = null, WorldIndexContext? prepared = null)
     { Owner = owner; Force = force; Wounded18 = wounded; RequestedGain = requested; Before164 = before; After164 = after;
         BeforeLevel = oldLevel; AfterLevel = newLevel; PlayerDisplayGain = display; PlayerReachedLevelTen = playerMaximum;
         PoolOwner = pool; PreparedPool = prepared; }
@@ -123,7 +123,7 @@ public static class OriginalArmyDestructionForce164
         }
         if (packet.PoolOwner is { } pool)
             state = state with { NativeArmyLifecycle = (state.NativeArmyLifecycle ?? throw new InvalidDataException("Force164 publication has no saved primary pool owner."))
-                with { Pool = pool.ExportOwnedState() } };
+                with { Indexes = pool.ExportOwnedState() } };
         return state;
     }
     private static bool ArmyValid(OriginalEventInitializationContext current, OriginalArmyUnitReference? army)

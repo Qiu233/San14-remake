@@ -265,7 +265,7 @@ public sealed partial class OriginalOwnedArmyCampaignRules : IOriginalPlayableTa
             if (nextId <= int.MaxValue)
             {
                 try { nextId = PlayableMilitaryTargetLifecycle.NextPeriodAllocationId(current.Units, (int)nextId,
-                    current.NativeArmyLifecycle); }
+                    current.NativeArmyLifecycle, current.PendingCombatSettlements); }
                 catch (OverflowException) { return Unavailable("The current logical Army allocation cursor is exhausted."); }
             }
             //Execution increments its cursor after every insertion as well.

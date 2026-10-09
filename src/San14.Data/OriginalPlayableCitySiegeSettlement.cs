@@ -1,4 +1,4 @@
-using San14.Core;
+﻿using San14.Core;
 
 namespace San14.Data;
 
@@ -97,7 +97,7 @@ public sealed class OriginalPlayableCitySiegeSettlement(OriginalOwnedArmyCampaig
         //separate returned resource image then carries this encounter's
         //surviving ready soldiers into actual29F220 once.
         var applied = campaign.TryApplyNativeNormalBaseFatalApplication(current, attacker.Id, locationId, damage.DefenderLoss);
-        if (applied is not { Outcome: OriginalNormalCityApplicationOutcome.CommittedFatalApplication, Receipt.Admission: { NativeReturn31F160: 1 } })
+        if (applied is not { Outcome: OriginalNormalCityApplicationOutcome.CommittedFatalApplication, Receipt.Admission.AdmissionKind: CombatSettlementAdmissionKind.Accepted or CombatSettlementAdmissionKind.Duplicate })
             return new(PlayableSiegeSettlementOutcome.Unresolved, state, damage) { UnresolvedOwner = applied.UnresolvedOwner ?? "playable.Base_fatal_admission" };
         var draft = applied.State with { Units = new(applied.State.Units)
             { [attacker.Id] = applied.State.Units[attacker.Id] with { Troops = damage.RemainingAttackers } } };

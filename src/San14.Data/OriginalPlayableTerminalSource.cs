@@ -53,20 +53,15 @@ public sealed class OriginalPlayableTerminalSource(OriginalOwnedArmyCampaignRule
             var current = OrdinaryCurrent(input);
             int player = Player(input, current);
             var saved = input.NativeArmyLifecycle ?? throw Missing("saved_C0_primary_owner");
-            if (saved.RegistryDescriptors.GetValueOrDefault(OriginalRegistryKind.Force.ToString())?.Identity is not int descriptor ||
-                !saved.Pool.LiveDescriptors.Contains(descriptor) || !saved.Pool.Descriptors.TryGetValue(descriptor, out var chain))
-                throw Missing("saved_C0_descriptor");
+            if (saved.Indexes.Registries.GetValueOrDefault(WorldEntityKind.Force) is not { } order)
+                throw Missing("saved_Force_index");
             int count = 0, only = 0;
             //288800 counts actualC0 nodes, without validity filtering or
             //deduplication. The saved pool has already been admitted on load.
-            int? at = chain.Head;
-            int visited = 0;
-            while (at is int node)
+            foreach (var entity in order)
             {
-                if (++visited > saved.Pool.CreatedNodeCount || !saved.Pool.Nodes.TryGetValue(node, out var item) ||
-                    item.Payload is not { Kind: "Registry:Force", Identity: int physical } || physical is < 0 or > 51)
-                    throw Missing("saved_C0_Force_payload");
-                at = item.Next;
+                if (entity.Kind != WorldEntityKind.Force || entity.Id is not int physical)
+                    throw Missing("saved_Force_index_value");
                 int force = current.ReadForcePhysicalSlot(new(physical)) ?? throw Missing("C0_Force_identity60");
                 if (force is >= 46 and <= 51) continue;
                 only = force; count++;

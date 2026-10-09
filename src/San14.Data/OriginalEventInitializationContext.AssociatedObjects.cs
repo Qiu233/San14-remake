@@ -40,7 +40,7 @@ public sealed partial class OriginalEventInitializationContext : IOriginalAssoci
     public OriginalPersonLinkedEntityReference? ReadAssociatedChainPayload(OriginalRegistryListNodeReference node)
         => ReadNativeListPayload<OriginalPersonLinkedEntityReference>(NodeIdentity(new(node.Identity)));
     public void SetAssociatedChainPayload(OriginalRegistryListNodeReference node, OriginalPersonLinkedEntityReference payload)
-    { ArgumentNullException.ThrowIfNull(payload); _nativeListPayloads[NodeIdentity(new(node.Identity))] = payload; }
+    { ArgumentNullException.ThrowIfNull(payload); WriteCurrentListPayload(NodeIdentity(new(node.Identity)), payload); }
     public void SetAssociatedPayloadPostLoadCallback(int identity, OriginalPostLoadCallback? callback)
     { CheckOpaque(identity, "associated payload"); _associatedPayloadPostLoadCallbacks[identity] = callback; }
     public void InvokeAssociatedPayloadSlot7(OriginalPersonLinkedEntityReference payload)

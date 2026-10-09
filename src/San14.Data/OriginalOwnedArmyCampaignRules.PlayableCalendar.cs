@@ -14,7 +14,7 @@ public sealed partial class OriginalOwnedArmyCampaignRules
         return OriginalNormalArmyCombatCalendarRuntime.AdvanceCampaign(state, beforeCalendarWriter: (current, date) =>
         {
             if (returnUnresolved || date.Hour is not (8 or 22) ||
-                current.NativePersonReturnCommands is not { Commands.Count: > 0 }) return current;
+                current.PersonnelReturns is not { Tasks.Count: > 0 }) return current;
             var returned = TryAdvancePersonReturnCommands(current, date);
             if (returned.State is not { } continued)
             {

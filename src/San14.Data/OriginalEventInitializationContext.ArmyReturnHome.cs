@@ -1,7 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
-
 namespace San14.Data;
 
 public sealed partial class OriginalEventInitializationContext
@@ -13,15 +9,6 @@ public sealed partial class OriginalEventInitializationContext
     { _ = BasePhysical(target); _armyReturnBasePerson88[target] = descriptor; }
     public OriginalRegistryListHandle? ReadArmyReturnBasePerson88Descriptor(OriginalBaseReference target)
     { _ = BasePhysical(target); return _armyReturnBasePerson88.GetValueOrDefault(target); }
-
-    internal string ArmyReturnSharedListFingerprint() => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
-    {
-        Heads = _hexListHeads.OrderBy(x => x.Key), Tails = _hexListTails.OrderBy(x => x.Key), Counts = _hexListCounts.OrderBy(x => x.Key),
-        Next = _hexListNext.OrderBy(x => x.Key), Previous = _hexListPrevious.OrderBy(x => x.Key),
-        Payloads = _nativeListPayloads.OrderBy(x => x.Key).Select(x => new
-        { x.Key, Kind = x.Value?.GetType().FullName, Value = x.Value is null ? null : JsonSerializer.Serialize(x.Value, x.Value.GetType()) }),
-        Base88 = _armyReturnBasePerson88.OrderBy(x => x.Key.Kind).ThenBy(x => x.Key.PhysicalSlot)
-    }))));
 
     internal OriginalEventInitializationContext CreateArmyReturnHomeDraft()
     {
@@ -54,9 +41,13 @@ public sealed partial class OriginalEventInitializationContext
     }
     internal void CommitArmyReturnSharedListFields(OriginalEventInitializationContext source)
     {
-        Copy(source._hexListHeads, _hexListHeads); Copy(source._hexListTails, _hexListTails); Copy(source._hexListCounts, _hexListCounts);
-        Copy(source._hexListNext, _hexListNext); Copy(source._hexListPrevious, _hexListPrevious);
-        Copy(source._nativeListPayloads, _nativeListPayloads); Copy(source._armyReturnBasePerson88, _armyReturnBasePerson88);
+        _orderedLists = source._orderedLists.Copy();
+        Copy(source._armyReturnBasePerson88, _armyReturnBasePerson88);
+        Copy(source._baseHexListHandles, _baseHexListHandles);
+        Copy(source._registryDescriptors, _registryDescriptors);
+        _baseRegistryConfigured = source._baseRegistryConfigured; _baseRegistryHandle = source._baseRegistryHandle;
+        Copy(source._associatedChainDescriptors, _associatedChainDescriptors);
+        _currentAssociatedContainer = source._currentAssociatedContainer;
         static void Copy<TKey, TValue>(Dictionary<TKey, TValue> from, Dictionary<TKey, TValue> to) where TKey : notnull
         { to.Clear(); foreach (var field in from) to.Add(field.Key, field.Value); }
     }

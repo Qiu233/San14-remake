@@ -1,4 +1,4 @@
-using San14.Core;
+﻿using San14.Core;
 
 namespace San14.Data;
 
@@ -21,17 +21,17 @@ public sealed record OriginalOwnedGateCaptureResult(GameState? State, OriginalOw
 public sealed class OriginalOwnedGateCaptureStage(OriginalOwnedArmyCampaignRules package)
 {
     public const string Revision = "ce-Gate-2851B0-26DA10-29F220-capture-20261008";
-    public OriginalOwnedGateCaptureResult TryApply(GameState input, NativeArmyDestructionQueuePayload request,
+    public OriginalOwnedGateCaptureResult TryApply(GameState input, BaseCaptureRequest request,
         NativeMapSeasonDate? operationThirdDate = null, OriginalTacticSourceSamplerWorld? sampler = null)
     {
         try
         {
-            if (request.VictimBase8 is not { Kind: NativeArmyDestructionReceiverKind.Gate, PhysicalSlot: >= 1 and <= 10 } victim ||
-                request.AttackerArmy10 is not { Kind: NativeArmyDestructionReceiverKind.Army, PhysicalSlot: int winnerSlot } || request.Raw20 != 0)
-                throw Missing("branch.ordinary_Gate_mode0_payload");
-            var target = new OriginalBaseReference(OriginalBaseKind.Gate, victim.PhysicalSlot);
-            var winner = new OriginalArmyUnitReference(winnerSlot);
+            if (request.Target.Kind != SettlementBaseKind.Gate || request.WinnerUnitId is not int winnerId)
+                throw Missing("branch.ordinary_Gate_settlement");
             var world = package.CaptureOwnedArmyReturnWorld(input); var current = world.Context;
+            var target = OriginalArmyDestructionQueue.ResolveBaseReference(input, current, request.Target);
+            int winnerSlot = OriginalArmyDestructionQueue.ResolveUnitSlot(input, winnerId) ?? throw Missing("winner_entity_mapping");
+            var winner = new OriginalArmyUnitReference(winnerSlot);
             if (!K(current.ReadBaseNativeValidity(target), "Gate_validity") || !K(current.ReadArmyUnitNativeValidity(winner), "winner_validity"))
                 throw Missing("branch.invalid_Gate_or_winner");
             int location = K(current.ReadBaseObjectLink(target), "Gate4E");

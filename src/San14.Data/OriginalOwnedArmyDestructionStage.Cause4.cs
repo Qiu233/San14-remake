@@ -18,7 +18,7 @@ public sealed partial class OriginalOwnedArmyDestructionStage
     ///to make soldiers zero. The enclosing freedom operation owns final Person
     ///placement and28E cleanup; this is an operation-local state draft.</summary>
     public OriginalArmyCause4Result ApplyFreeCommanderCause4Current(GameState state,
-        OriginalEventInitializationContext current, OriginalCurrentListPool pool, int physical)
+        OriginalEventInitializationContext current, WorldIndexContext pool, int physical)
         => ApplyCause4Current(state, current, pool, physical, new(null), null, true);
 
     /// <summary>2851B0's real2C96E0 HomeArmy branch. The Base still has its
@@ -26,12 +26,12 @@ public sealed partial class OriginalOwnedArmyDestructionStage
     /// position at that Home, and valid winner Army. Leaves the actual Army
     /// in pending70 for the later26 window; does not change employment/Home.</summary>
     public OriginalArmyCause4Result ApplyEmployedHomeCommanderCause4Current(GameState state,
-        OriginalEventInitializationContext current, OriginalCurrentListPool pool, int physical,
+        OriginalEventInitializationContext current, WorldIndexContext pool, int physical,
         OriginalArmyUnitReference winnerArmy, NativeMapSeasonDate? operationThirdDate = null)
         => ApplyCause4Current(state, current, pool, physical, winnerArmy, operationThirdDate, false);
 
     private OriginalArmyCause4Result ApplyCause4Current(GameState state,
-        OriginalEventInitializationContext current, OriginalCurrentListPool pool, int physical,
+        OriginalEventInitializationContext current, WorldIndexContext pool, int physical,
         OriginalArmyUnitReference winner, NativeMapSeasonDate? sourceDate, bool freeCommander)
     {
         try
@@ -99,7 +99,7 @@ public sealed partial class OriginalOwnedArmyDestructionStage
                 if (!Known(current.ReadBaseNativeValidity(home), "cause4_return_Home_validity") ||
                     current.ReadBaseForceSlot(home) != force.PhysicalSlot)
                     throw Missing("branch.cause4_return_changed_Home265250");
-                var position = OriginalPersonReturnCommands.ReadPersonCurrentHex(state, current, commander,
+                var position = OriginalPersonReturnCommands.ResolvePersonPosition(state, current, commander,
                     sourceDate ?? state.NativeMapSeason?.ThirdDate ?? throw Missing("current.cause4_return_World34_date"));
                 if (position.PhysicalSlot != current.ReadBaseCurrentHexIndex(home))
                     throw Missing("branch.cause4_return_remote_Command");
@@ -181,7 +181,7 @@ public sealed partial class OriginalOwnedArmyDestructionStage
             }
             var savedArena = OriginalOwnedArmyLifecycleTargets.PublishCurrent(
                 OriginalOwnedArmyDestructorFlags.PublishCurrent(state.NativeArmyLifecycle!, current), current) with
-            { Slots = slots, Pool = pool.ExportOwnedState(), HexRaw1C = state.NativeArmyLifecycle!.HexRaw1C
+            { Slots = slots, Indexes = pool.ExportOwnedState(), HexRaw1C = state.NativeArmyLifecycle!.HexRaw1C
                 .ToDictionary(x => x.Key, x => current.ReadHexRaw1C(new(x.Key))) };
             var result = state with { Units = units, Officers = new(state.Officers) { [army.OfficerId] = state.Officers[army.OfficerId] with { Deployed = false } },
                 NativeArmyLifecycle = savedArena };

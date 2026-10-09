@@ -87,7 +87,7 @@ public sealed partial class OriginalForceUnregisterSource(OriginalOwnedArmyCampa
                 var home = OriginalBaseLookup.Find(Need(current.ReadPersonFirstLocation(leader), "District_leaderE2"), current);
                 if (Known(current.ReadBaseNativeValidity(home), "District_leader_current_Home_validity"))
                 {
-                    var packet = package.ApplyPersonFreedomGovernorCurrent(working, current, pool, home);
+                    var packet = package.ApplyPersonFreedomGovernorCurrent(working, current, home);
                     governors.Add(packet); working = PublishGovernor(working, current, packet);
                 }
                 if ((current.ReadRegisteredPersonPhysicalSlots() ?? throw Missing("manager100")).Any(p =>
@@ -111,7 +111,7 @@ public sealed partial class OriginalForceUnregisterSource(OriginalOwnedArmyCampa
             var windows = saved.DistrictWindows10.ToDictionary(x => x.Key,
                 x => Enumerable.Range(0x10, 28).Select(o => current.ReadDistrictRawByte(x.Key, o)).ToArray());
             working = working with { NativeForceUnregisterCurrent = working.NativeForceUnregisterCurrent! with { DistrictWindows10 = windows },
-                NativeArmyLifecycle = working.NativeArmyLifecycle! with { Pool = pool.ExportOwnedState() } };
+                NativeArmyLifecycle = working.NativeArmyLifecycle! with { Indexes = pool.ExportOwnedState() } };
             effects.Add("32B710→3DFB50.all_equal_Force_nodes→2261B0.literal_numeric_reset_and_bidirectional_relations");
             //This finite caller admits no surviving pending header. It still
             //executes the normal28E window using the saved actual empty queue.
@@ -120,16 +120,15 @@ public sealed partial class OriginalForceUnregisterSource(OriginalOwnedArmyCampa
             working = package.ConsumeArmyLifecyclePending(working) ?? throw Missing("28E_current_empty_window");
             //The current operation's primary pool includes still-live outer
             //temporaries; the empty28E window has no numeric/pool writer.
-            working = working with { NativeArmyLifecycle = working.NativeArmyLifecycle! with { Pool = pool.ExportOwnedState() } };
+            working = working with { NativeArmyLifecycle = working.NativeArmyLifecycle! with { Indexes = pool.ExportOwnedState() } };
             effects.Add("28E6D0.actual_empty_pending70_window");
             var ranked = RankCurrent(working, current, pool);
             working = ranked.State; effects.Add("2924B0.actual_two_pointer_temporaries_and_shared_Int32_temporary");
             current.ClearTemporaryHexList(districtTemporary); current.ReleaseTemporaryHexList(districtTemporary);
             current.ClearTemporaryHexList(objectTemporary); current.ReleaseTemporaryHexList(objectTemporary);
             working = OriginalPersonAssignmentPrecallInputs.PublishCurrent(working, current);
-            working = working with { NativeArmyLifecycle = working.NativeArmyLifecycle! with { Pool = pool.ExportOwnedState() } };
+            working = working with { NativeArmyLifecycle = working.NativeArmyLifecycle! with { Indexes = pool.ExportOwnedState() } };
             NativeForceUnregisterCurrentStateValidation.Validate(working);
-            NativePersonCommandManagerStateValidation.Validate(working);
             return new(working, new(victim, captor, remaining.Length, playerCount, districts, changedHexes,
                 forceNodesRemoved, removedDistrictNodes, governors.ToArray(), ranked.Forces, effects.AsReadOnly()), null);
         }

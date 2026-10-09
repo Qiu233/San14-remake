@@ -1,4 +1,4 @@
-using San14.Core;
+﻿using San14.Core;
 
 namespace San14.Data;
 
@@ -33,11 +33,7 @@ public sealed partial class OriginalNormalArmyCombatCurrentPhase
                 pair.Target.NativePoolSlot, pair.Attacker.NativePoolSlot, null);
             //A full secondary queue returns0 and calls259360 immediately.
             //Do not replace that source branch with a convenient early reset.
-            if (admission.NativeReturn != 1 || admission.State is not { } queued ||
-                !admission.Duplicate && admission.AllocatedNode is null) return null;
-            //31F160 can also return1 after a failed node allocation. That
-            //branch contains no request for19/26 to consume; this finite
-            //continuation cannot publish its still-live zero Army.
+            if (!admission.IsPending || admission.State is not { } queued) return null;
             var aftermath = TryApplyPairAftermath(queued, index);
             if (aftermath.Outcome == OriginalNormalArmyPairAftermathOutcome.CurrentInputsUnresolved) return null;
             working = AppendOrdinaryReport(aftermath.State, pair, prefix.Application!.Receipt!.Request.FrameWord20After);

@@ -516,7 +516,8 @@ public static class PlayableSkeleton
                 }
                 //Queued tactics still refer to the pre-allocation roster and
                 //must not bind to a different Army reusing their vanished ID.
-                nextUnitId = PlayableMilitaryTargetLifecycle.NextPeriodAllocationId(units, nextUnitId, periodBasis.NativeArmyLifecycle);
+                nextUnitId = PlayableMilitaryTargetLifecycle.NextPeriodAllocationId(units, nextUnitId,
+                    periodBasis.NativeArmyLifecycle, periodBasis.PendingCombatSettlements);
                 int sourceHex;
                 int morale;
                 if (cities.TryGetValue(plan.SourceLocationId, out CityState? city))

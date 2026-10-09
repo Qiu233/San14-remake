@@ -26,8 +26,8 @@ public sealed partial class OriginalOwnedArmyDestructionStage
                     if (trait.PhysicalSlot is not null && Known(current.ReadSkillPersonalityValidity(trait), "protector_Personality_validity"))
                     {
                         var date = sourceDate ?? throw Missing("current.protector_Position_World34_date");
-                        var first = OriginalPersonReturnCommands.ReadPersonCurrentHex(state, current, person, date);
-                        var second = OriginalPersonReturnCommands.ReadPersonCurrentHex(state, current, CommanderPhysical(current, victim), date);
+                        var first = OriginalPersonReturnCommands.ResolvePersonPosition(state, current, person, date);
+                        var second = OriginalPersonReturnCommands.ResolvePersonPosition(state, current, CommanderPhysical(current, victim), date);
                         int distance = NativeDistance(Known(second.PhysicalSlot, "victim_Hex"), Known(first.PhysicalSlot, "protector_Hex"));
                         if (Known(current.ReadPersonalityByte(trait, 0xA4), "protector_Personality_A4") == 9 && distance <= Radius(state, current, trait))
                             return true;

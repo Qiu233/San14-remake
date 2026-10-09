@@ -25,23 +25,20 @@ public sealed partial class OriginalForceUnregisterSource
 
     private static void RequireNoTroopsDistrict(GameState state, OriginalEventInitializationContext current, int district)
     {
-        var aux = state.NativeArmyLifecycle?.Auxiliaries ?? throw Missing("CTroops_current_Army58");
-        var primary = Chain(current, OriginalRegistryKind.Army);
+        var arena = state.NativeArmyLifecycle ?? throw Missing("CTroops_current_lifecycle");
+        var groups = arena.ArmyGroups ?? throw Missing("CTroops_current_groups");
+        var primary = ArmyGroupSourceAdapter.Roster(arena, current);
+        var excluded = ArmyGroupSourceAdapter.Excluded(state, arena, current, primary);
         //Actual CTroops virtual validity is derived from the first eligible
         //Army member's current Commander District, not an old Core roster.
         for (int group = 1; group <= 500; group++)
-            foreach (int army in primary)
-            {
-                if (Need(aux.ArmyTroops58[army], "Army58") != group ||
-                    Known(OriginalOwnedArmyDestructionCurrent.ReadArmyExcluded233560(state, current, army), "CTroops_Army233560")) continue;
-                ushort id = Need(current.ReadArmyUnitCommanderId(new(army)), "CTroops_Army12");
-                int person = (id <= 6000 ? current.ReadPersonLookupReference(id) : current.ReadTransferPersonTableReference(0))
-                    ?.PhysicalSlot ?? throw Missing("CTroops_Commander");
-                if (Known(current.ReadPersonNativeValidity(person), "CTroops_Commander_validity") &&
-                    Need(current.ReadPersonDistrictSlot(person), "CTroops_CommanderE0") == district)
-                    throw Missing("branch.293490_valid_CTrops_in_District");
-                break;
-            }
+        {
+            var currentDistrict = ArmyGroupRules.GetDistrict(groups, group, primary, excluded,
+                id => ArmyGroupSourceAdapter.Commander(arena, current, id))
+                ?? throw Missing("CTroops_current_district");
+            if (currentDistrict.IsRecognized && currentDistrict.DistrictId == district)
+                throw Missing("branch.293490_valid_CTrops_in_District");
+        }
     }
 
     private static int[] SettleHexes(GameState state, OriginalEventInitializationContext current, int victim,

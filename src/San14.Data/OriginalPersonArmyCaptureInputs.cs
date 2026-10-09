@@ -56,9 +56,7 @@ public sealed class OriginalPersonArmyCaptureInputs
                 throw new InvalidDataException("Fresh capture Item native validity is unknown.");
             _ = OriginalObjectRegistration.Register(item, current);
         }
-        var registries = new Dictionary<string, NativeSharedListHandle?>(arena.RegistryDescriptors)
-            { [OriginalRegistryKind.Item.ToString()] = new(descriptor.Identity) };
-        return next with { NativeArmyLifecycle = arena with { RegistryDescriptors = registries, Pool = pool.ExportOwnedState() } };
+        return next with { NativeArmyLifecycle = arena with { Indexes = pool.ExportOwnedState() } };
     }
 
     public static void BindCurrent(GameState state, OriginalEventInitializationContext current)

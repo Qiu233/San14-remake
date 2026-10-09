@@ -25,19 +25,15 @@ public static class OriginalNormalBaseCombatSnapshots
     {
         string registry = kind.ToString();
         string sourceField = kind == OriginalBaseKind.City ? "World90_City" : "WorldA0_Gate";
-        int maximum = kind == OriginalBaseKind.City ? 51 : 10;
-        if (state.NativeArmyLifecycle is not { } arena ||
-            !arena.RegistryDescriptors.TryGetValue(registry, out var handle) || handle?.Identity is not int key ||
-            !arena.Pool.Descriptors.TryGetValue(key, out var descriptor) || descriptor.Count is not int count)
+        var registryKind = kind == OriginalBaseKind.City ? WorldEntityKind.City : WorldEntityKind.Gate;
+        if (state.NativeArmyLifecycle?.Indexes.Registries.GetValueOrDefault(registryKind) is not { } order)
             return Unknown($"current.{sourceField}_registry");
-        var actors = new List<OriginalNormalBaseCombatActor>(); int visited = 0;
-        for (int? at = descriptor.Head; at is int node; at = arena.Pool.Nodes[node].Next)
+        var actors = new List<OriginalNormalBaseCombatActor>();
+        foreach (var entity in order)
         {
-            if (!arena.Pool.Nodes.TryGetValue(node, out var value) ||
-                value.Payload is not { Identity: >= 0 } payload || payload.Identity > maximum || payload.Kind != "Base:" + registry)
-                return Unknown($"current.{sourceField}_registry_payload:{value?.Payload}");
-            visited++;
-            int physical = payload.Identity!.Value;
+            if (entity.Kind != registryKind || entity.Id is not int id)
+                return Unknown($"current.{sourceField}_registry_entity");
+            int physical = kind == OriginalBaseKind.Gate ? id - 51 : id;
             var city = new OriginalBaseReference(kind, physical);
             int location = kind == OriginalBaseKind.City ? physical : physical + 51;
             bool? excluded = OriginalOwnedArmyDestructionCurrent.ReadBaseExcluded2334B0(state, current, location);
@@ -57,7 +53,7 @@ public static class OriginalNormalBaseCombatSnapshots
             if (snapshot is null) return Unknown($"current.{registry}{physical}.descriptor");
             actors.Add(new(snapshot, kind == OriginalBaseKind.City ? 3 : 2));
         }
-        return visited == count ? new(actors.ToArray(), null) : Unknown($"current.{sourceField}_registry_count");
+        return new(actors.ToArray(), null);
     }
 
     /// <summary>Source target snapshot retains zero/negative troops, pending

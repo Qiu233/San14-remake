@@ -1,4 +1,4 @@
-using San14.Core;
+﻿using San14.Core;
 
 namespace San14.Data;
 
@@ -122,8 +122,7 @@ public sealed class OriginalPlayableArmyDestructionSettlement(OriginalOwnedArmyC
             return new(null, [], "playable.death_current_native_identity");
         var admitted = OriginalOwnedArmyDestructionCurrent.AdmitOrdinaryArmy1745B0(draft,
             definitions, physical, winnerArmySlot, winnerBaseLocation);
-        if (admitted.NativeReturn != 1 || admitted.State is not { } queued ||
-            !admitted.Duplicate && admitted.AllocatedNode is null)
+        if (!admitted.IsPending || admitted.State is not { } queued)
             return new(null, [], admitted.UnresolvedOwner ?? "playable.death_request_not_queued");
         var destroyed = new OriginalOwnedArmyDestructionStage(campaign).TryConsumePhase19(queued);
         if (destroyed.State is not { } consumed || consumed.Units.ContainsKey(victim.Id) ||

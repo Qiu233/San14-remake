@@ -16,7 +16,7 @@ public sealed record OriginalPersonReturnArrivalResult(GameState? State,
 public static class OriginalPersonReturnArrivalSource
 {
     public static OriginalPersonReturnArrivalResult Apply(GameState state,
-        OriginalEventInitializationContext current, OriginalCurrentListPool pool,
+        OriginalEventInitializationContext current, WorldIndexContext pool,
         int receiverIdentity, OriginalBaseReference target, IOriginalArmyReturnGovernorCurrentQueries queries)
     {
         OriginalHexListHandle? caller = null, affected = null;
@@ -26,18 +26,16 @@ public static class OriginalPersonReturnArrivalSource
             if (!ReferenceEquals(pool.ArmyReturnOwner, current) || !pool.OwnsArmyReturnProfile())
                 throw Unknown("current.primary_pool_owner");
             var manager = current.ReadOwnedPersonCommandManager() ?? throw Unknown("current.Command_manager");
-            var command = manager.Commands.GetValueOrDefault(receiverIdentity) ?? throw Unknown("current.Command_receiver");
-            if (command.Kind != "return" || OriginalPersonReturnCommands.ReadInt(command, 0x58) is not int id || id == -1)
+            var command = manager.Tasks.GetValueOrDefault(receiverIdentity) ?? throw Unknown("current.Command_receiver");
+            if (command.DispatchSlot is null)
                 throw Unknown("branch.invalid_Return_command");
             if (!Known(current.ReadBaseNativeValidity(target), "current.target_Base_validity"))
                 throw Unknown("branch.invalid_target_Base");
-            var members = new OriginalPersonCommandValuePool(manager.MembersPool);
-            if (members.Count(command.Members20) != 1) throw Unknown("branch.not_single_member_Return");
-            var member = members.Values(command.Members20).Single();
-            if (member is not { Kind: "MemberId32", Identity: >= 1 and <= 6000 })
-                throw Unknown("branch.invalid_member_ID");
-            int person = current.ReadPersonLookupReference(member.Identity.Value)?.PhysicalSlot
-                ?? throw Unknown("current.member_Person_pointer");
+            if (command.MemberIds.Length != 1) throw Unknown("return arrival requires one officer");
+            int member = command.MemberIds[0];
+            if (member is < 1 or > 6000) throw Unknown("invalid return officer identity");
+            int person = current.ReadPersonLookupReference(member)?.PhysicalSlot
+                ?? throw Unknown("return officer location");
             byte status = Known(current.ReadPersonStatus(person), "current.PersonE6");
             ushort flags = Known(current.ReadArmyReturnPersonFlags196(person), "current.Person_flags15E");
             ushort identity = Known(current.ReadPersonIdentity(person), "current.Person10");
@@ -59,7 +57,6 @@ public static class OriginalPersonReturnArrivalSource
             byte health = Known(current.ReadArmyReturnPersonByte199(person), "current.Person_health161");
             uint worldFlags = Known(current.ReadWorldTransferServiceFlags(), "current.World16A8");
             bool admit = (worldFlags & 0x100) == 0 && PlayerRulerDistrict(current, district);
-            var scoped = new PoolQueries(queries, pool);
 
             caller = NewTemporary(current); order.Add("32B190.caller_Person_temporary");
             if (!current.AppendPersonReturnTemporary(caller, person)) throw Unknown("branch.caller_Person_node_allocation");
@@ -81,22 +78,22 @@ public static class OriginalPersonReturnArrivalSource
             ClearRelease(current, caller); caller = null; order.Add("32B190.caller_release");
             var result = OriginalOwnedArmyReturnCurrentFields.PublishCurrent(state, current);
             result = OriginalOwnedArmyLifecycleDetachedInputs.PublishCurrent(result, current);
-            result = result with { NativeArmyLifecycle = result.NativeArmyLifecycle! with { Pool = pool.ExportOwnedState() },
-                NativePersonReturnCommands = current.ReadOwnedPersonCommandManager() };
+            result = result with { NativeArmyLifecycle = result.NativeArmyLifecycle! with { Indexes = pool.ExportOwnedState() },
+                PersonnelReturns = current.ReadOwnedPersonCommandManager() };
             NativeArmyLifecycleStateValidation.Validate(result);
             return new(result, new(receiverIdentity, person, target, destination, appended, health != 0, 1,
                 governors.AsReadOnly(), order.AsReadOnly()), null);
 
             void Governor(OriginalBaseReference at)
             {
-                var update = OriginalArmyReturnGovernorUpdater.PrepareCurrent(at, current, scoped);
+                var update = OriginalArmyReturnGovernorUpdater.PrepareCurrent(at, current, queries);
                 var packet = update.Packet ?? throw Unknown(update.UnresolvedOwner ?? "current.Governor_update");
                 OriginalArmyReturnCommanderHomeUpdater.ApplyGovernorOwned(current, packet);
                 governors.Add(packet); order.Add("282C10→26D090.Base" + at.PhysicalSlot);
             }
             void Primary(OriginalDistrictReference at)
             {
-                governors.AddRange(OriginalArmyReturnCommanderHomeUpdater.ApplyPrimaryOwned(at, current, pool, scoped));
+                governors.AddRange(OriginalArmyReturnCommanderHomeUpdater.ApplyPrimaryOwned(at, current, queries));
                 order.Add("2E9140.primary_District" + at.PhysicalSlot);
             }
         }
@@ -150,13 +147,6 @@ public static class OriginalPersonReturnArrivalSource
     }
     private static void ClearRelease(OriginalEventInitializationContext current, OriginalHexListHandle list)
     { current.ClearTemporaryHexList(list); current.ReleaseTemporaryHexList(list); }
-    private sealed class PoolQueries(IOriginalArmyReturnGovernorCurrentQueries queries, OriginalCurrentListPool pool)
-        : IOriginalArmyReturnGovernorCurrentQueries
-    {
-        public OriginalArmyReturnGovernorComparatorFields? ReadCurrentComparatorFields(int person) => queries.ReadCurrentComparatorFields(person);
-        public int? ReadCurrentAssociatedVirtual98(OriginalPersonLinkedEntityReference reference) => queries.ReadCurrentAssociatedVirtual98(reference);
-        public OriginalArmyReturnGovernorPoolCapacity? ReadCurrentTemporaryPoolCapacity() => pool.ArmyReturnCapacity;
-    }
     private static bool SpecialId(ushort id)
     { for (int i = 0; i < 5; i++) if (id >= 4111 + i * 20 && id <= 4120 + i * 20) return true; return false; }
     private static T Known<T>(T? value, string field) where T : struct => value ?? throw Unknown(field);

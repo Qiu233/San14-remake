@@ -104,7 +104,7 @@ public sealed partial class OriginalEventInitializationContext : IOriginalPerson
         int key = RegistryKey(new(handle.Identity));
         bool heads = (RegistryHeadTablePresenceReader is null ? RegistryHeadTablePresent : RegistryHeadTablePresenceReader())
             ?? throw new InvalidDataException("Current personality temporary head table is unknown.");
-        return heads && NativeListKeyInRange(key) ? _hexListHeads.GetValueOrDefault(key) : new(null);
+        return heads && NativeListKeyInRange(key) ? ReadHexListHead(new(key)) : new(null);
     }
     public OriginalPersonalityReference? ReadSkillTemporaryPayload(OriginalHexListNodeReference node)
         => ReadNativeListPayload<OriginalPersonalityReference>(NodeIdentity(node));
@@ -113,7 +113,7 @@ public sealed partial class OriginalEventInitializationContext : IOriginalPerson
         int key = RegistryKey(new(handle.Identity));
         OriginalHexListNodeReference node = AllocateNativeListNode(key);
         if (!node.Identity.HasValue) return false;
-        _nativeListPayloads[NodeIdentity(node)] = reference;
+        WriteCurrentListPayload(NodeIdentity(node), reference);
         return true;
     }
     public OriginalPersonRoleAndPositionResult PostProcessPerson(int receiver)

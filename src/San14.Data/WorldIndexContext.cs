@@ -1,0 +1,73 @@
+﻿namespace San14.Data;
+
+/// <summary>Operation-local adapter for resource-facing traversal APIs.
+/// Lists use ordinary owned collections; cursor tokens have no save identity.</summary>
+public sealed partial class WorldIndexContext
+{
+    private readonly OriginalEventInitializationContext _state;
+    private readonly Dictionary<int, int> _armyIds = [];
+    private readonly Dictionary<int, OriginalRegistryListHandle[]> _traitHandles = [];
+    private readonly Dictionary<int, OriginalHexListHandle> _cautionHandles = [];
+    internal OriginalHexListHandle? AssociatedTaskHandle { get; private set; }
+    internal OriginalHexListHandle? ChangedWorkingHandle { get; private set; }
+    internal OriginalHexListHandle? ChangedPendingHandle { get; private set; }
+    internal bool? ChangedProcessing { get; set; }
+
+    public WorldIndexContext(OriginalEventInitializationContext state)
+    {
+        _state = state; state.OwnedIndexes = this;
+        state.RegistryHeadTablePresent = true; state.RegistryLockEnabled = false;
+    }
+    public OriginalHexListHandle AllocateDescriptor() => _state.CreateTemporaryHexList()!;
+    public void BindArmyIdentity(int physical, int unitId) => _armyIds[physical] = unitId;
+    public void RemoveArmyIdentity(int physical)
+    {
+        _armyIds.Remove(physical);
+        if (_traitHandles.Remove(physical, out var handles))
+            foreach (var handle in handles)
+                if (handle.Identity is int key && _state.HasCurrentList(key)) _state.ReleaseTemporaryHexList(new(key));
+    }
+    internal OriginalRegistryListHandle[] TraitHandles(int physical)
+    {
+        if (!_traitHandles.TryGetValue(physical, out var handles))
+        {
+            handles = Enumerable.Range(0, 9).Select(_ => new OriginalRegistryListHandle(AllocateDescriptor().Identity)).ToArray();
+            _traitHandles.Add(physical, handles);
+        }
+        return handles;
+    }
+    internal OriginalHexListHandle CautionGroupHandle(int group)
+    {
+        if (!_cautionHandles.TryGetValue(group, out var handle))
+        { handle = AllocateDescriptor(); _cautionHandles.Add(group, handle); }
+        return handle;
+    }
+    internal void ReplaceCautionGroupMembers(int group, IReadOnlyList<int?> members)
+    {
+        var handle = CautionGroupHandle(group);
+        _state.ClearTemporaryHexList(handle);
+        foreach (int? id in members)
+            _state.AppendStoredIndexValue(handle, new UnitIndexValue(id));
+    }
+    internal OriginalHexListHandle CreateAssociatedTaskIndex()
+    {
+        AssociatedTaskHandle ??= AllocateDescriptor();
+        _state.SetCurrentAssociatedContainer(new(0));
+        _state.SetAssociatedChainDescriptor(0, new(AssociatedTaskHandle.Identity));
+        return AssociatedTaskHandle;
+    }
+    internal void CreateChangedIndexes(bool processing = false)
+    {
+        ChangedWorkingHandle ??= AllocateDescriptor(); ChangedPendingHandle ??= AllocateDescriptor();
+        ChangedProcessing = processing;
+    }
+    internal Dictionary<int, San14.Core.ArmyIndexState> ExportArmyIndexes(Func<OriginalHexListHandle?, List<int?>?> read)
+        => _traitHandles.Where(row => _armyIds.ContainsKey(row.Key)).ToDictionary(row => _armyIds[row.Key], row =>
+            new San14.Core.ArmyIndexState(_armyIds[row.Key], row.Value.Select(handle => read(new(handle.Identity))).ToArray()));
+    internal Dictionary<int, List<int?>?> ExportCautionIndexes(Func<OriginalHexListHandle?, List<int?>?> read)
+        => _cautionHandles.ToDictionary(row => row.Key, row => read(row.Value));
+    internal IEnumerable<int> BoundListKeys => _traitHandles.Where(row => _armyIds.ContainsKey(row.Key)).SelectMany(row => row.Value).Select(handle => handle.Identity)
+        .Concat(_cautionHandles.Values.Select(handle => handle.Identity))
+        .Concat([AssociatedTaskHandle?.Identity, ChangedWorkingHandle?.Identity, ChangedPendingHandle?.Identity])
+        .OfType<int>();
+}

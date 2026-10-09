@@ -40,7 +40,7 @@ public sealed partial class OriginalEventInitializationContext : IOriginalObject
         if (!headTable.HasValue) throw new InvalidDataException("Current registry head-table pointer is unknown.");
         if (!headTable.Value) return new(null);
         if (!NativeListKeyInRange(key)) return new(null);
-        OriginalHexListNodeReference? node=_hexListHeads.GetValueOrDefault(key);
+        OriginalHexListNodeReference? node=ReadHexListHead(new(key));
         return node is null ? null : new(node.Identity);
     }
     public OriginalRegistryListNodeReference? ReadRegistryNodeNext(OriginalRegistryListNodeReference node)
@@ -52,7 +52,7 @@ public sealed partial class OriginalEventInitializationContext : IOriginalObject
     public OriginalRegistryObjectReference? ReadRegistryNodePayload(OriginalRegistryListNodeReference node)
     {
         ArgumentNullException.ThrowIfNull(node);
-        object? payload=_nativeListPayloads.GetValueOrDefault(NodeIdentity(new(node.Identity)));
+        object? payload=ReadCurrentListPayload(NodeIdentity(new(node.Identity)));
         return payload switch
         {
             null=>null,
@@ -72,12 +72,12 @@ public sealed partial class OriginalEventInitializationContext : IOriginalObject
     {
         ArgumentNullException.ThrowIfNull(node); ArgumentNullException.ThrowIfNull(reference);
         if (reference.PhysicalSlot is int physical) CheckOpaque(physical,"registry payload pointer");
-        _nativeListPayloads[NodeIdentity(new(node.Identity))]=reference.Kind switch
+        WriteCurrentListPayload(NodeIdentity(new(node.Identity)), reference.Kind switch
         {
             OriginalRegistryKind.City=>new OriginalBaseReference(OriginalBaseKind.City,reference.PhysicalSlot),
             OriginalRegistryKind.Gate=>new OriginalBaseReference(OriginalBaseKind.Gate,reference.PhysicalSlot),
             _=>(object)reference
-        };
+        });
     }
     public bool? ReadRegistryLockEnabled()=>RegistryLockEnabledReader is null ? RegistryLockEnabled : RegistryLockEnabledReader();
     public void EnterRegistryLock()=> (RegistryLockEnterer ?? throw new InvalidDataException("Current registry lock operation is unknown."))();

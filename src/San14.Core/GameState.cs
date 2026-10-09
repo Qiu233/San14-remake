@@ -221,6 +221,8 @@ public sealed partial record GameState
     public Dictionary<int, OfficerState> Officers { get; init; } = [];
     public Dictionary<int, AreaState> Areas { get; init; } = [];
     public AreaMapStatisticsState? RegionStatistics { get; init; }
+    public CombatSettlementQueue? PendingCombatSettlements { get; init; }
+    public PersonnelReturnTasks? PersonnelReturns { get; init; }
     public Dictionary<int, UnitState> Units { get; init; } = [];
     // Null preserves unknown original/legacy map constructions. Empty is known empty.
     public Dictionary<int, StructureState>? Structures { get; init; }
@@ -606,7 +608,8 @@ public static class StateValidator
         NativeArmyReturnCurrentStateValidation.Validate(state);
         NativeArmyLifecycleStateValidation.Validate(state);
         NativeNormalArmyAftermathStateValidation.Validate(state);
-        NativePersonCommandManagerStateValidation.Validate(state);
+        CombatSettlementSaveValidation.Validate(state.PendingCombatSettlements);
+        PersonnelReturnSaveValidation.Validate(state.PersonnelReturns);
         NativeForceUnregisterCurrentStateValidation.Validate(state);
         NativePlayableTerminalStateValidation.Validate(state);
         NativeBaseCaptureCurrentStateValidation.Validate(state);

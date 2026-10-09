@@ -108,21 +108,21 @@ public sealed partial class OriginalEventInitializationContext
     {
         var node = AllocateHexListNode(handle);
         if (!node.Identity.HasValue) return false;
-        _nativeListPayloads[node.Identity.Value] = new OriginalReturnStaticTablePayload(kind, physical);
+        WriteCurrentListPayload(node.Identity.Value, new OriginalReturnStaticTablePayload(kind, physical));
         return true;
     }
     internal bool AppendCaptureBaseTemporary(OriginalHexListHandle handle, OriginalBaseReference city)
     {
         var node = AllocateHexListNode(handle);
         if (!node.Identity.HasValue) return false;
-        _nativeListPayloads[node.Identity.Value] = city; return true;
+        WriteCurrentListPayload(node.Identity.Value, city); return true;
     }
     internal bool ContainsCaptureStaticTemporary(OriginalHexListHandle handle, string kind, int physical)
     {
         var node = ReadHexListHead(handle) ?? throw new InvalidDataException("Current capture State list head is unknown.");
         while (node.Identity is int identity)
         {
-            if (_nativeListPayloads.GetValueOrDefault(identity) is not OriginalReturnStaticTablePayload payload || payload.TableKind != kind)
+            if (ReadCurrentListPayload(identity) is not OriginalReturnStaticTablePayload payload || payload.TableKind != kind)
                 throw new InvalidDataException("Current capture State list payload is unknown or of another kind.");
             if (payload.PhysicalSlot == physical) return true;
             node = ReadHexListNodeNext(node) ?? throw new InvalidDataException("Current capture State list next is unknown.");

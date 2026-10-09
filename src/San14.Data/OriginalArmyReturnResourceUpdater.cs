@@ -1,7 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
-
 namespace San14.Data;
 
 public sealed record OriginalArmyReturnResourceResolution(OriginalArmyReturnResourcePacket? Packet, string? UnresolvedOwner);
@@ -14,13 +10,9 @@ public sealed class OriginalArmyReturnResourcePacket
     public int Wounded40After { get; }
     public int Gold34After { get; }
     public int Supplies38After { get; }
-    public bool UsesResourceOutputProjection { get; }
-    internal OriginalEventInitializationContext Owner { get; }
-    internal string Fingerprint { get; }
     internal OriginalArmyReturnResourcePacket(OriginalArmyUnitReference army, OriginalBaseReference target,
-        byte morale, int ready, int wounded, int gold, int supplies, OriginalEventInitializationContext owner, string fingerprint,
-        bool resourceOutputProjection = false)
-    { Army = army; Base = target; Morale44After = morale; Ready3CAfter = ready; Wounded40After = wounded; Gold34After = gold; Supplies38After = supplies; Owner = owner; Fingerprint = fingerprint; UsesResourceOutputProjection = resourceOutputProjection; }
+        byte morale, int ready, int wounded, int gold, int supplies)
+    { Army = army; Base = target; Morale44After = morale; Ready3CAfter = ready; Wounded40After = wounded; Gold34After = gold; Supplies38After = supplies; }
 }
 
 /// <summary>Ordinary status1 resource block29F483..29F6E2. Actual current
@@ -29,35 +21,16 @@ public sealed class OriginalArmyReturnResourcePacket
 /// not authority that earlier traits/Home or later pending/Hex already ran.</summary>
 public static class OriginalArmyReturnResourceUpdater
 {
-    public static OriginalArmyReturnResourceResolution Prepare(OriginalArmyUnitReference army,
-        OriginalBaseReference target, OriginalEventInitializationContext context) => PrepareCore(army, target, context, false);
-
-    /// <summary>Same resource mathematics with the capacity helper's three
-    /// consumed outputs. This does not prove the whole capacity function's
-    /// fourth-output callbacks or the complete29F220/pool lifecycle.</summary>
-    public static OriginalArmyReturnResourceResolution PrepareResourceOutputs(OriginalArmyUnitReference army,
-        OriginalBaseReference target, OriginalEventInitializationContext context) => PrepareCore(army, target, context, true);
-
     internal static OriginalArmyReturnResourceResolution ApplyCurrentResourceOutputs(OriginalArmyUnitReference army,
         OriginalBaseReference target, OriginalEventInitializationContext context,
         Func<OriginalEventInitializationContext, int, string?>? transportMerit = null)
     {
-        var result = PrepareCore(army, target, context, true, false, transportMerit);
-        if (result.Packet is { } packet) WriteCurrent(packet);
-        return result;
-    }
-
-    private static OriginalArmyReturnResourceResolution PrepareCore(OriginalArmyUnitReference army,
-        OriginalBaseReference target, OriginalEventInitializationContext context, bool resourceOutputProjection,
-        bool captureFingerprint = true, Func<OriginalEventInitializationContext, int, string?>? transportMerit = null)
-    {
         ArgumentNullException.ThrowIfNull(army); ArgumentNullException.ThrowIfNull(target); ArgumentNullException.ThrowIfNull(context);
-        var reads = new List<object>();
         try
         {
             if (!Get(context.ReadArmyUnitNativeValidity(army), "current.Army_validity")) throw Missing("branch.invalid_army");
             byte status = Get(context.ReadArmyReturnUnitStatus10(army), "current.Army_status10");
-            if (status != 1 && !(status == 2 && !captureFingerprint && transportMerit is not null))
+            if (status != 1 && !(status == 2 && transportMerit is not null))
                 throw Missing("branch.return_resources_transport_merit");
             ushort commanderId = Get(context.ReadArmyUnitCommanderId(army), "current.Army_commander12");
             int commander = (context.ReadPersonLookupReference(commanderId <= 6000 ? commanderId : 0)
@@ -74,9 +47,7 @@ public static class OriginalArmyReturnResourceUpdater
             int oldReady = Get(context.ReadBaseResource(target, OriginalBaseResourceKind.Troops), "current.Base_ready3C");
             int oldWounded = Get(context.ReadArmyReturnBaseWounded40(target), "current.Base_wounded40");
             byte oldMorale = Get(context.ReadBaseMorale44(target), "current.Base_morale44");
-            reads.Add(new { status, commanderId, commander, forceSlot, baseForce, force, fields, oldReady, oldWounded, oldMorale });
             int armyCap = OriginalBasePostLoad.ReadMoraleUpper(force, context); //22EB30→2690D0.
-            reads.Add(new { armyCap });
             int mixed = oldMorale;
             if (ready != 0)
             {
@@ -88,14 +59,12 @@ public static class OriginalArmyReturnResourceUpdater
                 //It is roundf(midpoints away from zero), not the clock's floor.
                 float rounded = float.IsFinite(quotient) ? MathF.Round(quotient, MidpointRounding.AwayFromZero) : quotient;
                 mixed = !float.IsFinite(rounded) || rounded < int.MinValue || rounded >= 2147483648f ? int.MinValue : (int)rounded;
-                reads.Add(new { numerator, denominator, quotient = BitConverter.SingleToInt32Bits(quotient), rounded = BitConverter.SingleToInt32Bits(rounded), mixed });
             }
             int freshCap = OriginalBasePostLoad.ReadMoraleUpper(force, context); //22C990→22EBB0.
             int requestedMorale = Math.Min(mixed, freshCap);
-            var draft = captureFingerprint ? context.CreateArmyReturnHomeDraft() : context;
+            var draft = context;
             OriginalBasePostLoad.WriteMorale(target, requestedMorale, draft); //241790 fresh Force/cap.
             byte afterMorale = Get(draft.ReadBaseMorale44(target), "current.Base_morale_setter_result");
-            reads.Add(new { freshCap, requestedMorale, afterMorale });
             if (status == 2)
             {
                 int accepted = Math.Min((int)ready, unchecked(Cap().Troops - oldReady));
@@ -122,48 +91,27 @@ public static class OriginalArmyReturnResourceUpdater
             int oldSupplies = Get(context.ReadBaseResource(CurrencyBase(context), OriginalBaseResourceKind.Supplies), "current.Base_virtualA0_supplies");
             int suppliesRequest = Bound(unchecked(oldSupplies + incomingSupplies), suppliesCap1);
             int suppliesCap2 = CurrencyCap().Supplies; int afterSupplies = Bound(suppliesRequest, suppliesCap2); //virtualA8 setter.
-            reads.Add(new { readyCap1, readyCap2, woundedCap1, woundedCap2, oldGold, goldCap1, goldCap2, oldSupplies, suppliesCap1, suppliesCap2,
-                afterReady, afterWounded, afterGold, afterSupplies });
-            string fingerprint = captureFingerprint ? Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(reads)))) : "";
-            return new(new(army, target, afterMorale, afterReady, afterWounded, afterGold, afterSupplies, context, fingerprint, resourceOutputProjection), null);
-            OriginalBaseResourceCapacities Cap()
-            {
-                if (resourceOutputProjection)
-                { var projected = OriginalBasePostLoad.ReadResourceCapacities(target, draft); reads.Add(projected); return projected; }
-                var result = OriginalBasePostLoad.ReadCapacities(target, draft); reads.Add(result);
-                return new(result.Gold, result.Supplies, result.Troops);
-            }
+            var packet = new OriginalArmyReturnResourcePacket(army, target, afterMorale, afterReady, afterWounded,
+                afterGold, afterSupplies);
+            WriteCurrent(context, packet);
+            return new(packet, null);
+            OriginalBaseResourceCapacities Cap() => OriginalBasePostLoad.ReadResourceCapacities(target, draft);
             OriginalBaseReference CurrencyBase(OriginalEventInitializationContext current) =>
                 target.Kind == OriginalBaseKind.City ? target : OriginalCurrentGateMapQueries.FindCity(target, current);
-            OriginalBaseResourceCapacities CurrencyCap()
-            {
-                var at = CurrencyBase(draft);
-                if (resourceOutputProjection)
-                { var projected = OriginalBasePostLoad.ReadResourceCapacities(at, draft); reads.Add(projected); return projected; }
-                var result = OriginalBasePostLoad.ReadCapacities(at, draft); reads.Add(result);
-                return new(result.Gold, result.Supplies, result.Troops);
-            }
+            OriginalBaseResourceCapacities CurrencyCap() => OriginalBasePostLoad.ReadResourceCapacities(CurrencyBase(draft), draft);
         }
         catch (MissingOwner error) { return new(null, error.Message); }
         catch (InvalidDataException error) { return new(null, "current.ReturnResources_input: " + error.Message); }
     }
-    public static bool ApplyPrepared(OriginalArmyReturnResourcePacket packet)
+    private static void WriteCurrent(OriginalEventInitializationContext context, OriginalArmyReturnResourcePacket packet)
     {
-        ArgumentNullException.ThrowIfNull(packet);
-        var current = PrepareCore(packet.Army, packet.Base, packet.Owner, packet.UsesResourceOutputProjection).Packet;
-        if (current is null || current.Fingerprint != packet.Fingerprint) return false;
-        WriteCurrent(current); return true;
-    }
-    private static void WriteCurrent(OriginalArmyReturnResourcePacket packet)
-    {
-        packet.Owner.SetBaseMorale44(packet.Base, packet.Morale44After);
-        packet.Owner.SetBaseResource(packet.Base, OriginalBaseResourceKind.Troops, packet.Ready3CAfter);
-        packet.Owner.SetArmyReturnBaseWounded40(packet.Base, packet.Wounded40After);
+        context.SetBaseResource(packet.Base, OriginalBaseResourceKind.Troops, packet.Ready3CAfter);
+        context.SetArmyReturnBaseWounded40(packet.Base, packet.Wounded40After);
         //Gate2416F0/241380 independently reacquire mapped City22A940.
-        var goldBase = packet.Base.Kind == OriginalBaseKind.City ? packet.Base : OriginalCurrentGateMapQueries.FindCity(packet.Base, packet.Owner);
-        packet.Owner.SetBaseResource(goldBase, OriginalBaseResourceKind.Gold, packet.Gold34After);
-        var suppliesBase = packet.Base.Kind == OriginalBaseKind.City ? packet.Base : OriginalCurrentGateMapQueries.FindCity(packet.Base, packet.Owner);
-        packet.Owner.SetBaseResource(suppliesBase, OriginalBaseResourceKind.Supplies, packet.Supplies38After);
+        var goldBase = packet.Base.Kind == OriginalBaseKind.City ? packet.Base : OriginalCurrentGateMapQueries.FindCity(packet.Base, context);
+        context.SetBaseResource(goldBase, OriginalBaseResourceKind.Gold, packet.Gold34After);
+        var suppliesBase = packet.Base.Kind == OriginalBaseKind.City ? packet.Base : OriginalCurrentGateMapQueries.FindCity(packet.Base, context);
+        context.SetBaseResource(suppliesBase, OriginalBaseResourceKind.Supplies, packet.Supplies38After);
     }
     private static int Bound(int value, int upper) => value < 0 ? 0 : Math.Min(value, upper);
     private static T Get<T>(T? value, string name) where T : struct => value ?? throw Missing(name);

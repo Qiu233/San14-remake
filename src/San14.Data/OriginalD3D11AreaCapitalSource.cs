@@ -73,7 +73,7 @@ public sealed class OriginalD3D11AreaCapitalSource
             // A separate once roster owner borrows only the actual fixed
             // Area pointers/34. It cannot replace the Army Context's pool.
             registration=new OriginalEventInitializationContext();
-            var pool=new OriginalCurrentListPool(registration,1,501);
+            var pool=new WorldIndexContext(registration);
             registration.SetRegistryDescriptor(OriginalRegistryKind.Area,new(pool.AllocateDescriptor().Identity));
             for(int slot=0;slot<501;slot++){
                 var pointer=current.ReadAreaTableReference(slot)??throw new InvalidDataException("Actual fixed Area table pointer unknown.");
@@ -137,4 +137,3 @@ public sealed class OriginalD3D11AreaCapitalSource
     }
     static float F(byte[] b,int at)=>BinaryPrimitives.ReadSingleLittleEndian(b.AsSpan(at,4));
 }
-

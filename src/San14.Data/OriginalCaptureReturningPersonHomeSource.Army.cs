@@ -11,25 +11,20 @@ public sealed partial class OriginalCaptureReturningPersonHomeSource : IPlayable
     public int[]? ReadCapturedArmyHomeOrder(GameState state, int capturedLocationId, int previousForceId)
     {
         var arena = state.NativeArmyLifecycle;
-        if (arena is null || !arena.RegistryDescriptors.TryGetValue("Person", out var registry) || registry is null)
-            return null;
-        if (registry.Identity is not int descriptor) return [];
-        if (!arena.Pool.Descriptors.TryGetValue(descriptor, out var list) || list.Count is null) return null;
+        if (arena?.Indexes.Registries.GetValueOrDefault(WorldEntityKind.Officer) is not { } order) return null;
         var targets = state.Units.Values.Where(x => x.ForceId == previousForceId && x.NativeArmyOrigin is not null &&
             x.Mission?.Kind != UnitMissionKind.Transport && state.Officers[x.OfficerId].LocationId == capturedLocationId).ToArray();
         if (targets.Any(x => state.Officers[x.OfficerId].NativeAbilityRuntime is null)) return null;
-        var armies = targets.ToDictionary(x => state.Officers[x.OfficerId].NativeAbilityRuntime!.PhysicalSlot);
+        var armies = targets.ToDictionary(x => x.OfficerId);
         var result = new List<int>();
         //2851B0's234920/234D80 uses the actual manager100 Person chain.
         //This is the active-Commander intersection of that source order,
         //not execution of the full2851B0 personnel loop. Unrelated Person
         //E2/status owners cannot affect these already identified actors.
-        for (int? node = list.Head; node.HasValue;)
+        foreach (var entity in order)
         {
-            if (!arena.Pool.Nodes.TryGetValue(node.Value, out var entry) ||
-                entry.Payload is not { Kind: "Registry:Person", Identity: int physical }) return null;
-            node = entry.Next;
-            if (!armies.TryGetValue(physical, out var army)) continue;
+            if (entity.Kind != WorldEntityKind.Officer || entity.Id is not int id) return null;
+            if (!armies.TryGetValue(id, out var army)) continue;
             var person = state.Officers[army.OfficerId];
             if (person.LocationId != capturedLocationId) continue;
             if (person.NativeAbilityRuntime!.Status11E is not byte status) return null;

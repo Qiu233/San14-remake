@@ -15,14 +15,11 @@ public sealed class OriginalPlayableLastCityPersonnelSettlement(OriginalOwnedArm
         var resolved = new List<int>(); var reports = new List<PeriodReportEntry>();
         var working = postCapture;
         var arena = postCapture.NativeArmyLifecycle;
-        if (arena?.RegistryDescriptors.GetValueOrDefault(OriginalRegistryKind.Person.ToString())?.Identity is not int descriptor)
+        if (arena?.Indexes.Registries.GetValueOrDefault(WorldEntityKind.Officer) is not { } order)
             return new(postCapture, [], []);
-        var people = postCapture.Officers.Values.Where(x => x.NativeAbilityRuntime is not null)
-            .ToDictionary(x => x.NativeAbilityRuntime!.PhysicalSlot);
-        for (int? at = arena.Pool.Descriptors[descriptor].Head; at is int node; at = arena.Pool.Nodes[node].Next)
+        foreach (var entity in order)
         {
-            var payload = arena.Pool.Nodes[node].Payload;
-            if (payload is not { Kind: "Registry:Person", Identity: int physical } || !people.TryGetValue(physical, out var before)) continue;
+            if (entity.Kind != WorldEntityKind.Officer || entity.Id is not int id || !postCapture.Officers.TryGetValue(id, out var before)) continue;
             if (before.ForceId != defendingForceId || before.LocationId != beforeCaptureCity.Id) continue;
             //Earlier actual callbacks can appoint a later Person Governor.
             //Keep original manager order, but consume current role/busy fields.

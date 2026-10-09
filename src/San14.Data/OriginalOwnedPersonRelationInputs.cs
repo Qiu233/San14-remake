@@ -226,7 +226,7 @@ public sealed class OriginalOwnedPersonRelationInputs
 public sealed partial class OriginalEventInitializationContext
 {
     internal void SetPersonRelationListPayload(OriginalHexListNodeReference node, OriginalTransferPersonReference person)
-        => _nativeListPayloads[NodeIdentity(node)] = person;
+        => WriteCurrentListPayload(NodeIdentity(node), person);
     internal OriginalTransferPersonReference? ReadPersonRelationListPayload(OriginalHexListNodeReference node)
         => ReadNativeListPayload<OriginalTransferPersonReference>(NodeIdentity(node));
 }

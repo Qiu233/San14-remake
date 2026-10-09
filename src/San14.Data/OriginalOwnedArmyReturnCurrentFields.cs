@@ -55,7 +55,6 @@ public static class OriginalOwnedArmyReturnCurrentFields
     public static OriginalEventInitializationContext CaptureCurrent(GameState state,
         OriginalOwnedArmyCurrentDefinitions definitions)
     {
-        NativeArmyReturnCurrentStateValidation.Validate(state);
         var current = definitions.Capture(state) ?? throw new InvalidDataException("Return definitions/content identity mismatch.");
         current.OverlayOwnedArmyReturnCurrentFields(state);
         return current;
@@ -124,7 +123,7 @@ public static class OriginalOwnedArmyReturnCurrentFields
         }
         var result = state with { Officers = people, Cities = cities, Gates = gates };
         result = OriginalBaseReturnCaptivesInputs.PublishCurrent(result, current);
-        NativeArmyReturnCurrentStateValidation.Validate(result); return result;
+        return result;
         static int Known(int? value) => value ?? throw new InvalidDataException("Current Base numeric quantity is unknown.");
     }
 }

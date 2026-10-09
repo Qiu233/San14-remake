@@ -216,7 +216,7 @@ public sealed partial class OriginalEventInitializationContext
     {
         OriginalHexListNodeReference node = AllocateHexListNode(handle);
         if (!node.Identity.HasValue) return false;
-        _nativeListPayloads[node.Identity.Value] = new OriginalReturnStaticTablePayload("State", physical);
+        WriteCurrentListPayload(node.Identity.Value, new OriginalReturnStaticTablePayload("State", physical));
         return true;
     }
 }

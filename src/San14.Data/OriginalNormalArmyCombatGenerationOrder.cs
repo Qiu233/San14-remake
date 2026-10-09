@@ -15,18 +15,14 @@ public static class OriginalNormalArmyCombatGenerationOrder
     {
         if (state.NativeArmyLifecycle is not { Slots.Length: 501 } arena)
             return Unknown("current.Native_Army_lifecycle");
-        if (!arena.RegistryDescriptors.TryGetValue("Army", out var handle) || handle?.Identity is not int key ||
-            !arena.Pool.Descriptors.TryGetValue(key, out var row) || row.Count is not int count)
-            return Unknown("current.World60_Army_registry_descriptor");
-        var slots = new List<int>(count);
-        for (int? at = row.Head; at is int node; at = arena.Pool.Nodes[node].Next)
+        if (arena.Indexes.Registries.GetValueOrDefault(WorldEntityKind.Army) is not { } order)
+            return Unknown("current.Army_registry");
+        var slots = new List<int>(order.Count);
+        foreach (var entity in order)
         {
-            if (!arena.Pool.Nodes.TryGetValue(node, out var value) ||
-                value.Payload is not { Kind: "Registry:Army", Identity: >= 0 and <= 500 } payload)
-                return Unknown("current.World60_Army_registry_payload");
-            slots.Add(payload.Identity!.Value);
+            if (entity.Kind != WorldEntityKind.Army) return Unknown("current.Army_registry_entity_kind");
+            slots.Add(WorldIndexContext.FindArmyPhysical(state, entity.Id) ?? 0);
         }
-        if (slots.Count != count) return Unknown("current.World60_Army_registry_count");
         return new(slots.ToArray(), null);
     }
 

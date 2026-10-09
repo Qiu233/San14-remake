@@ -82,8 +82,7 @@ public sealed partial class OriginalOwnedArmyCampaignRules : IPlayableTransportC
                 CurrentNextHex48 = initialRoute.WrapperNextHex48Write ?? fields.InitialNextHex48 } };
             result = result with { Units = new(result.Units) { [created.Id] = routed },
                 NativeArmyLifecycle = result.NativeArmyLifecycle! with {
-                    Pool = currentRoute.ReadOwnedCurrentListPool()!.ExportOwnedState() } };
-            StateValidator.Validate(result);
+                    Indexes = currentRoute.ReadOwnedCurrentListPool()!.ExportOwnedState() } };
             return new(result, TransportCreationRevision);
         }
         catch (InvalidDataException) { return null; }

@@ -29,7 +29,7 @@ public static class OriginalPersonAssignmentPrecallSource
         {
             if (!Need(current.ReadDistrictNativeValidity(capturedOldDistrict), "2E9140 old District validity")) return new(0, [], null);
             var pool = current.ReadOwnedCurrentListPool() ?? throw Missing("2E9140 current primary pool");
-            var updates = OriginalArmyReturnCommanderHomeUpdater.ApplyPrimaryOwned(capturedOldDistrict, current, pool, queries);
+            var updates = OriginalArmyReturnCommanderHomeUpdater.ApplyPrimaryOwned(capturedOldDistrict, current, queries);
             return new(1, updates, null);
         }
         catch (InvalidDataException unknown) { return new(null, [], unknown.Message); }

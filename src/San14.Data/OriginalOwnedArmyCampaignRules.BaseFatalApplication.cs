@@ -1,10 +1,12 @@
-using San14.Core;
+﻿using San14.Core;
 
 namespace San14.Data;
 
 public sealed record OriginalBaseFatalAdmissionReceipt(OriginalBaseReference Target, int AttackerArmyId,
-    int AttackerPhysicalSlot, OriginalDistrictReference CurrentAttackerDistrict, int NativeReturn31F160,
-    int? AllocatedNode, bool Duplicate, bool ImmediateFallback);
+    int AttackerPhysicalSlot, OriginalDistrictReference CurrentAttackerDistrict, CombatSettlementAdmissionKind AdmissionKind)
+{
+    public bool ImmediateFallback => AdmissionKind == CombatSettlementAdmissionKind.Full;
+}
 public sealed record OriginalNormalBaseFatalApplicationReceipt(int LocationId, OriginalBaseKind Kind,
     int RequestedLoss, int AppliedLoss, OriginalPersonNormalArmyRewardResult AttackerReward,
     OriginalNormalCityCapacityWriteReceipt? TroopDebit, OriginalNormalCityWoundedReceipt? Wounded,
@@ -50,14 +52,12 @@ public sealed partial class OriginalOwnedArmyCampaignRules
         //the unused presentation result has no gameplay owner here.
         var queue = current.OwnedDestructionQueue
             ?? throw new InvalidDataException("current.Base1745B0.manager140");
-        var payload = new NativeArmyDestructionQueuePayload(new(NativeArmyDestructionReceiverKind.Army, null),
-            new(target.Kind == OriginalBaseKind.City ? NativeArmyDestructionReceiverKind.City : NativeArmyDestructionReceiverKind.Gate,
-                target.PhysicalSlot), new(NativeArmyDestructionReceiverKind.Army, physical),
-            new(NativeArmyDestructionReceiverKind.City, null), 0, 0, 4, null);
-        var admitted = OriginalArmyDestructionQueue.Admit31F160(queue, payload, OriginalArmyDestructionQueue.BindCurrent(current));
-        int nativeReturn = admitted.NativeReturn ?? throw new InvalidDataException(admitted.UnresolvedOwner ?? "current.Base1745B0.queue_admission");
-        current.BindOwnedDestructionQueue(admitted.State);
-        return new(target, attacker.Id, physical, district, nativeReturn, admitted.AllocatedNode,
-            admitted.Duplicate, nativeReturn == 0);
+        var entity = OriginalArmyDestructionQueue.ResolveBase(current, target)
+            ?? throw new InvalidDataException("Captured base entity mapping is unavailable.");
+        var admitted = CombatSettlementRules.Admit(queue, new BaseCaptureRequest(entity, attacker.Id),
+            OriginalArmyDestructionQueue.BindCurrent(state, current));
+        var kind = admitted.Kind ?? throw new InvalidDataException(admitted.MissingInput ?? "Base settlement admission is unavailable.");
+        current.BindOwnedDestructionQueue(admitted.Queue, state);
+        return new(target, attacker.Id, physical, district, kind);
     }
 }

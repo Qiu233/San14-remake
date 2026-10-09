@@ -73,7 +73,7 @@ public sealed partial class OriginalEventInitializationContext
         bool heads = (RegistryHeadTablePresenceReader is null ? RegistryHeadTablePresent : RegistryHeadTablePresenceReader())
             ?? throw new InvalidDataException("Current locked person head table is unknown.");
         OriginalRegistryListNodeReference node = heads && NativeListKeyInRange(key)
-            ? _hexListHeads.TryGetValue(key, out var head) && head is not null ? new(head.Identity)
+            ? ReadHexListHead(new(key)) is { } head ? new(head.Identity)
                 : throw new InvalidDataException("Current locked person head is unknown.")
             : new(null);
         int removed = 0;
@@ -92,37 +92,8 @@ public sealed partial class OriginalEventInitializationContext
         return removed;
     }
 
-    /// <summary>0188F0 normal owned profile. Preserve unlink/free-chain/count
-    /// write order and stale payload; validation failures do not roll back.</summary>
-    private void RemoveAddressableRegistryNode(int key, OriginalRegistryListNodeReference registryNode)
-    {
-        var node = new OriginalHexListNodeReference(registryNode.Identity);
-        int identity = NodeIdentity(node);
-        OriginalHexListAllocationProfile profile = Profile();
-        (profile.InternalPoolLockEnterer ?? throw new InvalidDataException("Current primary internal pool lock is unknown."))();
-        try
-        {
-            OriginalHexListNodeReference tail = KnownNode(_hexListTails.GetValueOrDefault(key), "remove tail");
-            if (tail == node) _hexListTails[key] = KnownNode(ReadHexListNodePrevious(node), "tail previous");
-            OriginalHexListNodeReference head = KnownNode(_hexListHeads.GetValueOrDefault(key), "remove head");
-            if (head == node) _hexListHeads[key] = KnownNode(ReadHexListNodeNext(node), "head next");
-            OriginalHexListNodeReference previous = KnownNode(ReadHexListNodePrevious(node), "remove previous");
-            if (previous.Identity.HasValue) _hexListNext[NodeIdentity(previous)] = KnownNode(ReadHexListNodeNext(node), "previous next");
-            OriginalHexListNodeReference next = KnownNode(ReadHexListNodeNext(node), "remove next");
-            if (next.Identity.HasValue) _hexListPrevious[NodeIdentity(next)] = KnownNode(ReadHexListNodePrevious(node), "next previous");
-            _hexListNext[identity] = new(null);
-            _hexListPrevious[identity] = new(null);
-            (profile.NodeReturner ?? throw new InvalidDataException("Current primary free-chain return is unknown."))(new(key), node, node);
-            int count = _hexListCounts.GetValueOrDefault(key)
-                ?? throw new InvalidDataException("Current primary local count is unknown after node unlink.");
-            _hexListCounts[key] = checked(count - 1);
-            (profile.NodeCountReturner ?? throw new InvalidDataException("Current primary global count decrement is unknown."))(new(key), 1);
-        }
-        finally
-        {
-            (profile.InternalPoolLockExiter ?? throw new InvalidDataException("Current primary internal pool unlock is unknown."))();
-        }
-    }
+    private void RemoveAddressableRegistryNode(int key, OriginalRegistryListNodeReference node)
+        => _orderedLists.Remove(key, NodeIdentity(new(node.Identity)));
     private OriginalRegistryListNodeReference PersonPruningHead()
         => ReadRegistryHead(ReadRegistryDescriptor(OriginalRegistryKind.Person)
             ?? throw new InvalidDataException("Current person descriptor100 is unknown at pruning."))

@@ -165,7 +165,7 @@ public sealed class OriginalPersonFreedomSource(OriginalOwnedArmyCampaignRules p
             }
             //22AC00→228890 is reached after the optional direct Army
             //destructor; removing a Return member does not retire its receiver.
-            var detached = OriginalPersonReturnCommands.DetachPersonFromFirstAssociated228890(input, current, physical);
+            var detached = OriginalPersonReturnCommands.DetachPersonFromFirstAssociated(input, current, physical);
             if (detached.Owner is null || detached.Receipt is null) throw Missing(detached.UnresolvedOwner ?? "current.freedom_228890");
             effects.Add("265C1C.22AC00→228890_member_only_detachment");
             current.WritePersonSecondLocation(physical, (ushort)Math.Clamp(areaPhysical + 561, 0, 1061));
@@ -217,15 +217,15 @@ public sealed class OriginalPersonFreedomSource(OriginalOwnedArmyCampaignRules p
                 Cities = new(result.Cities) { [captured.Id] = result.Cities[captured.Id] with
                     { ForceId = captured.ForceId, DistrictId = captured.DistrictId, GovernorId = captured.GovernorId } },
                 NativeArmySimulation = result.NativeArmySimulation with { Parameters = result.NativeArmySimulation.Parameters with { Int32Values = values } },
-                NativePersonReturnCommands = detached.Owner,
-                NativeArmyLifecycle = result.NativeArmyLifecycle! with { Pool = world.Pool.ExportOwnedState() }
+                PersonnelReturns = detached.Owner,
+                NativeArmyLifecycle = result.NativeArmyLifecycle! with { Indexes = world.Pool.ExportOwnedState() }
             };
             effects.Add("265C50.Area_E4→Home_E2→Office73_Loyalty0_or255→actual_raw_resets");
             OriginalArmyReturnGovernorPacket? governorRepair = null;
             if (repairGovernor && K(current.ReadArmyReturnBaseGovernor2E(oldHome), "current.freedom_old_Home2E_tail") == 0 &&
                 K(current.ReadBaseNativeValidity(oldHome), "current.freedom_old_Home_validity_tail"))
             {
-                governorRepair = package.ApplyPersonFreedomGovernorCurrent(result, current, world.Pool, oldHome);
+                governorRepair = package.ApplyPersonFreedomGovernorCurrent(result, current, oldHome);
                 var officers = new Dictionary<int, OfficerState>(result.Officers);
                 foreach (var write in governorRepair.PersonWrites)
                 {
@@ -237,7 +237,7 @@ public sealed class OriginalPersonFreedomSource(OriginalOwnedArmyCampaignRules p
                 var city = result.Cities[captured.Id];
                 result = result with { Officers = officers, Cities = new(result.Cities) { [captured.Id] = city with
                     { NativeReturnRuntime = city.NativeReturnRuntime! with { Governor2E = governorRepair.GovernorWord2EAfter } } },
-                    NativeArmyLifecycle = result.NativeArmyLifecycle! with { Pool = world.Pool.ExportOwnedState() } };
+                    NativeArmyLifecycle = result.NativeArmyLifecycle! with { Indexes = world.Pool.ExportOwnedState() } };
                 effects.Add("265DBx.old_Base2E_still0_valid→22ACF0→282C10→26D090_actual_Governor");
             }
             StateValidator.Validate(result);
