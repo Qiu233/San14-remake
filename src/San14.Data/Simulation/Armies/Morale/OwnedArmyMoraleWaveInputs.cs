@@ -106,7 +106,7 @@ public sealed class OwnedArmyMoraleWaveInputs
     {
         if (current.ReadPersonIdentity(physical) is not ushort id || !state.Officers.TryGetValue(id, out var person) ||
             person.NativeAbilityRuntime?.PhysicalSlot != physical) return null;
-        return person.OfficeId is int office ? office is >= 0 and <= 255 ? (byte)office : null : person.NativeAbilityRuntime.Office11F;
+        return OfficerAppointmentSourceAdapter.ReadOfficeId(person.Appointment);
     }
     private static int? ReadInt(GameState state, string key) => state.NativeArmySimulation?.Parameters.Int32Values is { } values &&
         values.GetValueOrDefault(VersionKey) == 1 && values.TryGetValue(key, out int v) ? v : null;

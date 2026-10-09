@@ -1,3 +1,5 @@
+using San14.Core;
+
 namespace San14.Data;
 
 /// <summary>Person reward numbers after the current-source queries have been
@@ -7,7 +9,7 @@ internal static class PersonRewardArithmetic
 {
     internal readonly record struct AbilityAdvance(uint Experience, byte BaseAbility);
     internal readonly record struct PendingMeritAdjustment(int TraitCorrection, int PanelCorrection,
-        int DoctrineCorrection, int StageCorrection, int BeforeScaling, int Earned, ushort PendingMerit);
+        int DoctrineCorrection, int StageCorrection, int BeforeScaling, int Earned, int PendingMerit);
 
     internal static PersonNormalArmyRewardRequests CalculateRequests(int kind, int amount, int growth, int merit)
         => kind switch
@@ -39,7 +41,7 @@ internal static class PersonRewardArithmetic
         return new(after, afterBase);
     }
 
-    internal static PendingMeritAdjustment CalculatePendingMerit(int requested, ushort pending,
+    internal static PendingMeritAdjustment CalculatePendingMerit(int requested, int pending,
         int trait, int traitScale, int panel, int doctrine, bool stageOne, int stageScale, int? percent)
     {
         float product = (float)unchecked(traitScale * trait) * (float)requested;
@@ -52,8 +54,8 @@ internal static class PersonRewardArithmetic
         int total = Math.Max(0, unchecked(unchecked(unchecked(unchecked(stageCorrection + doctrineCorrection) +
             panelCorrection) + traitCorrection) + requested));
         int earned = percent.HasValue ? SignedPercent(percent.Value, total) : total;
-        int sum = unchecked((int)pending + earned);
-        ushort after = sum < 0 ? (ushort)0 : (ushort)Math.Min(sum, ushort.MaxValue);
+        int sum = unchecked(pending + earned);
+        int after = Math.Clamp(sum, 0, OfficerMeritRules.MaximumPendingMerit);
         return new(traitCorrection, panelCorrection, doctrineCorrection, stageCorrection, total, earned, after);
     }
 

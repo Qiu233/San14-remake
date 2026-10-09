@@ -114,8 +114,7 @@ public sealed class OwnedArmyGovernorComparatorInputs
         var source = _people[physical];
         if (!state.Officers.TryGetValue(source.PersonId, out var person) ||
             person.NativeAbilityRuntime is not { } ability || ability.PhysicalSlot != physical) return null;
-        byte? currentOffice = person.OfficeId is int appointed
-            ? appointed is >= 0 and <= 255 ? (byte)appointed : null : ability.Office11F;
+        byte? currentOffice = OfficerAppointmentSourceAdapter.ReadOfficeId(person.Appointment);
         if (currentOffice is not byte office) return null;
         //Core retains ordinary0..100 loyalty and its actual personnel writes.
         //The saved raw byte retains special250/255 source values that Core does

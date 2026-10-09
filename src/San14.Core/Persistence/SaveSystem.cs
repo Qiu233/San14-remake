@@ -16,7 +16,7 @@ public sealed record SaveEnvelope(int SchemaVersion, string FormatId, GameState 
 /// <summary>Local save format. A future original-save adapter can implement ISaveCodec.</summary>
 public sealed class JsonGzipSaveCodec : ISaveCodec
 {
-    public const int CurrentSchemaVersion = 72;
+    public const int CurrentSchemaVersion = 76;
     public string FormatId => "san14-remake-json-gzip";
 
     public byte[] Encode(GameState state)
@@ -64,6 +64,10 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
         if (version < 70) LegacyArmyStoresSaveMigration.Apply((JsonObject)document["State"]!);
         if (version < 71) LegacyOfficerTraitActivationSaveMigration.Apply((JsonObject)document["State"]!);
         if (version < 72) LegacyOfficerHealthSaveMigration.Apply((JsonObject)document["State"]!);
+        if (version < 73) LegacyOfficerAppointmentSaveMigration.Apply((JsonObject)document["State"]!);
+        if (version < 74) LegacyOfficerServiceStatusSaveMigration.Apply((JsonObject)document["State"]!);
+        if (version < 75) LegacyOfficerBehaviorSaveMigration.Apply((JsonObject)document["State"]!);
+        if (version < 76) LegacyOfficerMeritSaveMigration.Apply((JsonObject)document["State"]!);
         ValidateModuleSnapshotShape((JsonObject)document["State"]!, version);
         // A present options record must contain all choices. JSON constructor
         // defaults must not turn a missing boolean into a confirmed false choice.
@@ -200,14 +204,21 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
                 if (officerNode is JsonObject destructionOwner && destructionOwner["NativeDestructionRuntime"] is JsonNode destruction)
                     _ = Require(destruction, "current Person destruction runtime", "Revision", "Word19A", "Byte19C",
                         "Byte19D", "Byte1A0", "Word1A4");
-                if (officerNode is JsonObject creditOwner && creditOwner["NativeCreditRuntime"] is JsonNode credit)
-                    _ = Require(credit, "current Person credit", "Revision", "Merit1F6",
-                        "FirstRewardCount1FA", "SecondRewardCount1FB", "Reset1FC");
+                if (officerNode is JsonObject meritOwner)
+                {
+                    if (!meritOwner.ContainsKey("MeritState") || meritOwner.ContainsKey("NativeCreditRuntime"))
+                        throw new InvalidDataException("Saved officer merit owner is missing or obsolete.");
+                    if (meritOwner["MeritState"] is JsonNode merit)
+                        _ = Require(merit, "officer merit cycle", "Merit", "PendingMerit", "RankStageId",
+                            "FirstSelectionCount", "SecondSelectionCount", "ResetCode");
+                }
                 if (officerNode is JsonObject growthOwner && growthOwner["NativeGrowthRuntime"] is JsonNode growthNode)
                 {
                     JsonObject growth = Require(growthNode, "current Person growth", "Revision",
                         "SourceExperienceUri", "SourceExperienceSha256", "Experience13C",
-                        "PendingMerit1F8", "AbilityGrowthNotices");
+                        "AbilityGrowthNotices");
+                    if (growth.ContainsKey("PendingMerit1F8"))
+                        throw new InvalidDataException("Saved growth contains an obsolete pending merit owner.");
                     if (growth["AbilityGrowthNotices"] is JsonNode noticesNode)
                     {
                         if (noticesNode is not JsonArray notices)
@@ -219,6 +230,18 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
                 }
                 if (officerNode is JsonObject locationOwner)
                 {
+                    if (!locationOwner.ContainsKey("Behavior"))
+                        throw new InvalidDataException("Saved officer behavior owner is missing.");
+                    if (locationOwner["Behavior"] is JsonNode behavior)
+                        _ = Require(behavior, "officer behavior", "UsesSpecialPersonRules", "PreservesMaximumLoyalty",
+                            "ReleaseAfterAiCapture", "UninterpretedFlags", "SpecialValidityMarker");
+                    if (!locationOwner.ContainsKey("ServiceStatus"))
+                        throw new InvalidDataException("Saved officer service status owner is missing.");
+                    if (locationOwner["ServiceStatus"] is JsonNode service)
+                        _ = Require(service, "officer service status", "KindId");
+                    _ = Require(locationOwner["Appointment"], "officer appointment", "AssignedOfficeId", "ObservedOfficeId");
+                    if (locationOwner.ContainsKey("OfficeId"))
+                        throw new InvalidDataException("Saved officer contains an obsolete declared appointment owner.");
                     if (!locationOwner.ContainsKey("Health"))
                         throw new InvalidDataException("Saved officer health owner is missing.");
                     if (locationOwner["Health"] is JsonNode health)
@@ -239,11 +262,12 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
                 if (officerNode is JsonObject officer && officer["NativeAbilityRuntime"] is JsonNode person)
                 {
                     JsonObject ability = Require(person, "owned Person ability runtime", "Revision", "Language", "RuleVersion",
-                        "SourceScenarioUri", "SourceScenarioSha256", "PhysicalSlot", "Status11E", "Office11F",
-                        "Doctrine184", "Flags196", "Secondary1F4", "Extra1FD",
+                        "SourceScenarioUri", "SourceScenarioSha256", "PhysicalSlot",
+                        "Doctrine184",
                         "EncodedOrdinaryCap224", "EncodedCharmCap225");
-                    if (ability.ContainsKey("Health199"))
-                        throw new InvalidDataException("Saved officer contains an obsolete health owner.");
+                    if (ability.ContainsKey("Health199") || ability.ContainsKey("Office11F") || ability.ContainsKey("Status11E") ||
+                        ability.ContainsKey("Flags196") || ability.ContainsKey("Extra1FD") || ability.ContainsKey("Secondary1F4"))
+                        throw new InvalidDataException("Saved officer contains an obsolete health, appointment or service status owner.");
                 }
             }
         if (state["Cities"] is JsonObject cities)

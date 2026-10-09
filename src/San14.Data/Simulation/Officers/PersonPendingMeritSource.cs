@@ -5,7 +5,7 @@ namespace San14.Data;
 public enum PersonPendingMeritOutcome { Committed, NativeSkip, CurrentInputsUnresolved }
 public sealed record PersonPendingMeritReceipt(int OfficerId, int Requested, int Trait122,
     int TraitCorrection, int Panel50Correction, int DoctrineCorrection, int Stage1Correction,
-    int BeforeScaling, int Earned, ushort Before1F8, ushort After1F8, string Revision);
+    int BeforeScaling, int Earned, int BeforePendingMerit, int AfterPendingMerit, string Revision);
 public sealed record PersonPendingMeritResult(PersonPendingMeritOutcome Outcome,
     GameState State, PersonPendingMeritReceipt? Receipt);
 
@@ -75,43 +75,40 @@ public sealed class PersonPendingMeritSource
     {
         ArgumentNullException.ThrowIfNull(input); ArgumentNullException.ThrowIfNull(current);
         if (!Bound(input) || !input.Officers.TryGetValue(personId, out var person) ||
-            person.NativeAbilityRuntime is not { } ability || person.NativeGrowthRuntime is not { } growth ||
-            ability.Revision != TacticRemakeCurrentAbilities.ProfileId ||
-            ability.Language != _language || ability.RuleVersion != _ruleVersion ||
-            ability.SourceScenarioUri != _source.ScenarioSource.ResourceUri || ability.SourceScenarioSha256 != _source.ScenarioSource.Sha256 ||
-            current.StaticSource?.ResourceUri != ability.SourceScenarioUri || current.StaticSource.Sha256 != ability.SourceScenarioSha256 ||
-            current.ReadPersonLookupReference(personId)?.PhysicalSlot != ability.PhysicalSlot ||
-            current.ReadPersonIdentity(ability.PhysicalSlot) != personId ||
-            ability.Status11E is not byte status || ability.Flags196 is not ushort flags ||
-            current.ReadPhysicalPerson(ability.PhysicalSlot) is not { } record ||
-            record.RawStatus11E != status || record.RawFlags196 != flags || record.RawFlag1FD != ability.Extra1FD)
+            current.StaticSource?.ResourceUri != _source.ScenarioSource.ResourceUri ||
+            current.StaticSource.Sha256 != _source.ScenarioSource.Sha256 ||
+            current.ReadPersonLookupReference(personId)?.PhysicalSlot is not int physical ||
+            current.ReadPersonIdentity(physical) != personId ||
+            OfficerServiceStatusSourceAdapter.Encode(person.ServiceStatus) is not byte status ||
+            person.Behavior?.UsesSpecialPersonRules is not bool ||
+            current.ReadPersonStatus(physical) != status ||
+            current.ReadPersonBehavior(physical) != person.Behavior)
             return Unknown();
         if (status is 1 or 5) return Skip();
         if (new[] { 4111, 4131, 4151, 4171, 4191 }.Any(start => unchecked((uint)(personId - start)) <= 9))
         {
-            if (current.ReadPersonFirstLocation(ability.PhysicalSlot) is not ushort location) return Unknown();
+            if (current.ReadPersonFirstLocation(physical) is not ushort location) return Unknown();
             if (location is >= 1 and <= 61)
             {
-                var bandForce = current.ReadPersonForce(ability.PhysicalSlot);
+                var bandForce = current.ReadPersonForce(physical);
                 if (bandForce?.PhysicalSlot is not int bandForceId) return Unknown();
                 if (bandForceId is not (>= 46 and <= 50)) return Skip();
             }
         }
-        if ((flags & 0x4000) != 0 || requested <= 0) return Skip();
-        var force = current.ReadPersonForce(ability.PhysicalSlot);
+        if (OfficerBehaviorRules.UsesOrdinaryPersonRules(person.Behavior) == false || requested <= 0) return Skip();
+        var force = current.ReadPersonForce(physical);
         if (force?.PhysicalSlot is not int forceId || person.ForceId != (forceId == 0 ? null : (int?)forceId)) return Unknown();
-        if (growth.Revision != PersonGrowthSource.ProfileId || growth.PendingMerit1F8 is not ushort pending ||
-            string.IsNullOrWhiteSpace(growth.SourceExperienceUri) ||
-            input.ContentHashes.GetValueOrDefault(growth.SourceExperienceUri) != growth.SourceExperienceSha256 ||
-            current.ReadPersonNativeValidity(ability.PhysicalSlot) is not bool valid ||
-            current.ReadForceNativeValidity(force) is not bool forceValid || ability.Secondary1F4 is not byte stage ||
+        if (person.MeritState is not { PendingMerit: int pending } meritState ||
+            OfficerMeritRules.IsStageOne(meritState) is not bool stageOne ||
+            current.ReadPersonNativeValidity(physical) is not bool valid ||
+            current.ReadForceNativeValidity(force) is not bool forceValid ||
             BattleRemakeCurrentSettings.ReadSelectorE58(input) is not int selector ||
             ReadCurrent(input, SimulationParameterKeys.PersonMerit.TraitPendingMeritScale) is not int traitScale)
             return Unknown();
         int trait = 0, policy = 0, doctrine = 0;
         if (valid)
         {
-            if (TacticRemakeCurrentTraits.CommanderEffectSum(current, ability.PhysicalSlot, 122) is not int value) return Unknown();
+            if (TacticRemakeCurrentTraits.CommanderEffectSum(current, physical, 122) is not int value) return Unknown();
             trait = value;
         }
         if (forceValid)
@@ -121,7 +118,7 @@ public sealed class PersonPendingMeritSource
             policy = panel;
             if ((forceFlags & 8) != 0) return Unknown(); //22C230 current doctrine/name validity owner absent.
         }
-        int? stageScale = stage == 1 ? ReadCurrent(input, SimulationParameterKeys.PersonMerit.StageOnePendingMeritBonusPercent) : 0;
+        int? stageScale = stageOne ? ReadCurrent(input, SimulationParameterKeys.PersonMerit.StageOnePendingMeritBonusPercent) : 0;
         int? scaling;
         if (selector == 0)
         {
@@ -137,11 +134,11 @@ public sealed class PersonPendingMeritSource
         }
         if (stageScale is null) return Unknown();
         var receipt = Calculate(personId, requested, pending, trait, traitScale, policy, doctrine,
-            stage == 1, stageScale.Value, scaling, $"{ProfileId}:{input.NativeArmySimulation!.Parameters.Revision}:{input.NativeClock!.Revision}");
+            stageOne, stageScale.Value, scaling, $"{ProfileId}:{input.NativeArmySimulation!.Parameters.Revision}:{input.NativeClock!.Revision}");
         //Only this officer's pending merit changes. The enclosing simulation
         //transaction owns the other aggregates; no full-world serialization is needed.
         GameState result = input with { Officers = new(input.Officers) { [personId] = person with {
-            NativeGrowthRuntime = growth with { PendingMerit1F8 = receipt.After1F8 } } } };
+            MeritState = meritState.WithPendingMerit(receipt.AfterPendingMerit) } } };
         return new(PersonPendingMeritOutcome.Committed, result, receipt);
         PersonPendingMeritResult Unknown() => new(PersonPendingMeritOutcome.CurrentInputsUnresolved, input, null);
         PersonPendingMeritResult Skip() => new(PersonPendingMeritOutcome.NativeSkip, input, null);
@@ -150,11 +147,11 @@ public sealed class PersonPendingMeritSource
     /// <summary>Qualified callback arithmetic: every integer multiply/add is
     /// native signed-i32 wrap. Trait122 rounds only nonzero fractions to ±1;
     /// exact zero remains zero. The pending store clamps after wrapped add.</summary>
-    public static PersonPendingMeritReceipt Calculate(int personId, int requested, ushort pending,
+    public static PersonPendingMeritReceipt Calculate(int personId, int requested, int pending,
         int trait122, int traitScale, int panel50, int doctrineScale, bool stage1, int stageScale,
         int? percent, string revision)
     {
-        if (requested <= 0 || string.IsNullOrWhiteSpace(revision))
+        if (requested <= 0 || pending < 0 || string.IsNullOrWhiteSpace(revision))
             throw new InvalidDataException("Pending merit arithmetic needs a reached positive request and revision.");
         var value = PersonRewardArithmetic.CalculatePendingMerit(requested, pending, trait122, traitScale,
             panel50, doctrineScale, stage1, stageScale, percent);

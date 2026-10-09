@@ -115,9 +115,9 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
                 string group;
                 if (wasCaptured)
                 {
-                    ushort flags = K(current.ReadArmyReturnPersonFlags196(person), "captured Person15E");
+                    bool ordinaryPerson = K(OfficerBehaviorRules.UsesOrdinaryPersonRules(current.ReadPersonBehavior(person)), "captured Person15E");
                     //233780(Person,5) is a status equality, not a callback.
-                    bool ordinary = (flags & 0x4000) == 0 || status == 5;
+                    bool ordinary = ordinaryPerson || status == 5;
                     group = ordinary ? "captured" : "special-captured";
                     _ = current.AppendPersonReturnTemporary(ordinary ? captured : special, person);
                 }

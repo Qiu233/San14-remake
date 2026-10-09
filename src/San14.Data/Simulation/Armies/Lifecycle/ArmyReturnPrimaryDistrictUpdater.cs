@@ -1,3 +1,4 @@
+using San14.Core;
 namespace San14.Data;
 
 public sealed record ArmyReturnPrimaryDistrictResolution(ArmyReturnPrimaryDistrictPacket? Packet, string? UnresolvedOwner);
@@ -59,7 +60,7 @@ public static class ArmyReturnPrimaryDistrictUpdater
                 if (status is < 1 or > 4) continue;
                 ushort id = Get(context.ReadPersonIdentity(person), $"current.Person[{person}].id10");
                 ushort first = Get(context.ReadPersonFirstLocation(person), $"current.Person[{person}].firstE2");
-                ushort flags = Get(context.ReadArmyReturnPersonFlags196(person), $"current.Person[{person}].flags15E");
+                bool ordinaryPerson = Get(OfficerBehaviorRules.UsesOrdinaryPersonRules(context.ReadPersonBehavior(person)), $"current.Person[{person}].flags15E");
                 //230350/230570(mode1,flag1): special synthetic IDs at a Base
                 //are excluded for ordinary Forces; flags bit14 also excludes.
                 if (SpecialId(id) && first is >= 1 and <= 61)
@@ -74,7 +75,7 @@ public static class ArmyReturnPrimaryDistrictUpdater
                     int currentIndex = Get(context.ReadForcePhysicalSlot(currentForce), "current.Person_force_virtual60");
                     if (currentIndex is >= 46 and <= 50) continue;
                 }
-                if ((flags & 0x4000) != 0) continue;
+                if (!ordinaryPerson) continue;
                 if (personForce == forcePhysical) forcePersonCount++;
                 if (personDistrict == physical) districtPersonCount++;
             }

@@ -110,6 +110,7 @@ static std::array<float,4> decode(const char* p, DXGI_FORMAT format) {
 #include "../Camera/CameraState.h"
 #include "../Camera/CameraMotion.h"
 #include "../Camera/CameraClock.h"
+#include "../Camera/CameraRig.h"
 #include "../Scene/Models/ModelFrame.h"
 #include "../Scene/Models/ModelView.h"
 #include "../Scene/Models/StaticModelResources.h"
@@ -144,8 +145,7 @@ static std::array<float,4> decode(const char* p, DXGI_FORMAT format) {
 #include "../Passes/Environment/AtmosphereCameraFrame.h"
 #include "../Passes/Environment/WeatherFogFrame.h"
 #include "../Passes/Environment/WeatherFogConstants.h"
-#include "../Passes/Environment/FogAccelerationRenderer.h"
-#include "../Passes/Environment/FogAccelerationConstants.h"
+#include "../Passes/Environment/FogAccelerationPass.h"
 #include "../Passes/Effects/SpecialEffectState.h"
 #include "../Passes/PostProcessing/MapExposure.h"
 #include "../Scene/Terrain/TerritoryRenderer.h"
@@ -196,6 +196,8 @@ static std::array<float,4> decode(const char* p, DXGI_FORMAT format) {
 #include "../Passes/Shadows/ShadowPass.h"
 #include "../Passes/PostProcessing/NormalPostProcess.h"
 #include "../Scene/Terrain/TerritoryPass.h"
+#include "../Scene/Models/ArmyRenderWorld.h"
+#include "../Scene/Models/BaseRenderWorld.h"
 San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host, RenderConfiguration configuration) {
     RenderCallbackScope callbacks{host};
     const auto& resources=configuration.resources;
@@ -254,56 +256,26 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         entry>>sourceHostFlags3E4>>actualHostQ7F8>>actualViewRainFlags19B4;
         if(!entry)throw std::runtime_error("Original Main entry fields absent");
     }
-    NativeFogAcceleration fogAcceleration;NativeSpecialEffects specialEffects;
+    FogAccelerationPass fogAcceleration;NativeSpecialEffects specialEffects;
     NormalPostProcess postProcessing;
     TerritoryPass territory;
     float heldMainB1C=0;
-    source_aux_camera::FogAccelerationConstants fogCamera;
     AtmospherePass atmosphere;
     std::optional<StaticModelResources> staticModels;
-    NativeCityPopulation cityModels;NativeCityPopulationPlan cityPlan;
-    NativeCityPopulation areaModels;NativeCityAreaPrimary primaryModels;
-    bool primaryPopulationChanged=false;
-    NativeCityAccessoryGpu cityAccessories;
-    NativeCityAccessoryGpu areaAccessories;
+    BaseRenderWorld bases{sourceAccessoryVisuals};
     source_default_player_phase::Profile defaultPlayerPhases;
-    San14::Render::CityGateFlagImports cityFlagImports;
-    UINT64 appliedCityGateRevision=0;
-    UINT64 appliedAreaCapitalRevision=0;
     ground_details::GroundDetails groundDetails;
     std::vector<char> currentMain18C0;
     uint32_t groundSourceFlags14=0,groundFrustumType64=0,groundCulling450=0,groundScanning454=0;
     uint16_t groundAppBaseFlags=0;
     unsigned accessoryOrdinaryCount=0;
-    NativeArmyPopulation armyModels;NativeArmyPlan armyPlan;NativeArmyQueues armyQueues;
-    std::vector<float> armyReturnedPhases;
-    std::optional<ArmyWorldTemplateLibrary> armyWorldTemplates;
-    ArmyWorldPopulationState armyWorldState;
-    NativeArmyAnimationGroups armyAnimationGroups;
-    std::optional<ArmyWorldModelPool<NativeArmyPopulation>> armyModelPool;
-    NativeSharedAccessories sharedCityAccessories,sharedAreaAccessories;
-    uint64_t armyCandidateRevision{},armyBindingRevision{},armyRenderRevision{};
-    std::map<int32_t,bool> armyPriorVisible;
-    std::map<int32_t,std::pair<uint32_t,uint32_t>> armyUnitSelections;
-    std::map<int32_t,ArmyUnitHeight> armyUnitHeights;
-    std::vector<bool> armySuccessfulSamples;
-    std::optional<NativeArmyGraphicsActions> armyGraphicsActions;
-    std::vector<const NativeAccessoryPoseSource*> armyActivePoses;
-    std::vector<bool> armyMainMembership;
+    ArmyRenderWorld armies{sourceArmyVisuals,sourceAccessoryVisuals};
     ShadowPass shadows;
-    const auto currentPrimaryInput=resources.directory(ResourceGroup::BaseVisuals)/"primary-templates";
     const auto jointShadowInput=resources.directory(ResourceGroup::BaseShadows);
-    NativeCityModelQueues ordinaryModelQueues;
     std::vector<unsigned> ordinaryPopulationCounts;
-    source_camera::Profile staticCameraProfile;source_camera::Frame staticCamera;
-    source_camera_motion::Profile cameraMotionProfile;source_camera_motion::Runtime cameraMotion;
-    auto& staticCameraRuntime=cameraMotion.camera;
-    source_camera::GroundHeightProfile cameraGround;
-    source_camera_motion::TerrainQualifier cameraTerrainQualifier;
-    NativeCameraClock cameraClock;
-    source_camera::RenderModePrefixProfile mainDirectProfile;source_camera::RenderModePrefixState mainDirectState;
-    source_far_main::Profile farMainProfile;source_far_main::Owner farMainOwner;
-    source_far_main::Current currentDisplay;
+    CameraRig cameraRig;
+    const auto& staticCamera=cameraRig.frame();
+    const auto& currentDisplay=cameraRig.display();
     San14::Render::FieldDisplay fieldDisplay;
     source_camera::Prefix mainDirectPrefix{};
     NativeDeferredCameraProfile deferredCameraProfile;NativeDeferredCameraFields deferredCameraFields;
@@ -317,18 +289,8 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     source_current_season_atmosphere::CloudLightInput currentCloudLights{};
     source_view::Profile viewProfile;source_view::Frame currentView;
     {
-        staticCameraProfile=source_camera::loadProfile(resources.directory(ResourceGroup::Camera)/"profile.bin");
-        mainDirectProfile=source_camera::loadRenderModePrefixProfile(resources.directory(ResourceGroup::Camera)/"render-mode-prefix-profile.bin");
-        mainDirectState=source_camera::createRenderModePrefixState(mainDirectProfile);
-        farMainProfile=source_far_main::loadProfile(resources.directory(ResourceGroup::DistantMap)/"profile.bin");
-        farMainOwner=source_far_main::createOwner(farMainProfile);
-        cameraMotionProfile=source_camera_motion::loadProfile(resources.directory(ResourceGroup::CameraMotion)/"motion-profile.bin");
-        cameraMotion=source_camera_motion::createRuntime(staticCameraProfile);
-        cameraGround=source_camera::loadGroundHeightProfile(resources.directory(ResourceGroup::Camera)/"ground-height-current");
-        cameraTerrainQualifier=[&](int band,const source_camera::State& candidate,double minimum,double maximum,double requested,double& pitch){
-            auto result=source_camera::qualifyTerrainPitch(cameraGround,{band,candidate,minimum,maximum,requested});pitch=result.pitch;return result.accepted;
-        };
-        cameraClock=prepareNativeCameraClock();
+        cameraRig.prepare(resources.directory(ResourceGroup::Camera),
+            resources.directory(ResourceGroup::DistantMap),resources.directory(ResourceGroup::CameraMotion));
         // Initialize only this renderer's consumed fields from project rules
         // and the current resource declarations; season publishes live fields.
         currentMain18C0=own_main_init::decode(load(resources.directory(ResourceGroup::CameraInitialState)/"profile.bin"));
@@ -337,14 +299,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         // Prepare the held World once; accepted camera requests reuse this owner.
         territory.prepareZones(resources.directory(ResourceGroup::TerritoryZones));
         staticModels.emplace(modelSource);
-        cityModels=prepareNativeCityPopulation(device.Get(),currentPrimaryInput);
-        if(!host.areaCapitalWorld)throw std::runtime_error("Native Main requires its actual Area Capital publication");
-        const auto& initialAreas=*host.areaCapitalWorld;
-        areaModels=prepareNativeAreaPrimaryPopulation(device.Get(),cityModels,
-            prepareNativeAreaPrimarySource(cityModels.source,
-                readNativeBaseVisualPrimary(initialAreas.models.primary.data(),initialAreas.models.primary.size()),
-                initialAreas.identities,cityModels.source.caller));
-        publishNativeCityAreaPrimary(primaryModels,cityModels,areaModels);
+        bases.preparePrimary(device.Get(),resources,host.areaCapitalWorld);
         const auto groundInput=resources.directory(ResourceGroup::GroundDetails);
         std::ifstream groundReference(groundInput/"source-directory.txt");std::string groundRelative;
         if(!std::getline(groundReference,groundRelative)||groundRelative.empty())throw std::runtime_error("Ground detail source directory import absent");
@@ -359,169 +314,30 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         if(sourceAccessoryVisuals||sourceArmyVisuals)
             defaultPlayerPhases=source_default_player_phase::readProfile(
                 resources.directory(ResourceGroup::AnimationDefaults)/"default-player-loop-source.bin");
-        if(sourceAccessoryVisuals) {
-            const auto accessorySource=resources.directory(ResourceGroup::BaseAccessories);
-            cityAccessories=prepareNativeCityAccessoryGpu(device.Get(),context.Get(),accessorySource,
-                false
-                );
-            if(cityAccessories.poseSource.duration8!=defaultPlayerPhases.categories[2].duration8)
-                throw std::runtime_error("Accessory source clip and default player duration differ");
-            cityFlagImports=San14::Render::loadCityGateFlagImports(accessorySource/"material-source",cityAccessories);
-            areaAccessories=prepareNativeAreaCapitalAccessories(cityAccessories,
-                readNativeAreaCapitalAccessories(host.areaCapitalWorld->models.accessories));
-            auto camera=prepareNativeDeferredCameraProfile(accessorySource/"hdr/initial/camera-source");
-            deferredCameraProfile.constants.merge(camera.constants);
-            auto weather=prepareNativeWeatherFogConsumers(accessorySource/"hdr/initial/weather-source");
-            weatherConsumers.insert(weatherConsumers.end(),weather.begin(),weather.end());
-        }
-        if(sourceArmyVisuals
-            ||sourceAccessoryVisuals
-            ) {
-            const auto armyDirectory=resources.directory(ResourceGroup::Armies);
-            armyModels=prepareNativeArmyPopulation(device.Get(),context.Get(),armyDirectory,false);
-            const auto materials=loadArmyWorldMaterialImport(armyDirectory,armyModels.source.templateCount);
-            armyWorldTemplates.emplace(armyModels.source,materials.materialTemplates,
-                captureCompletedArmyWorldMaterials(armyModels,materials));
-            prepareArmyWorldMaterialBank(device.Get(),context.Get(),armyDirectory,armyModels,*armyWorldTemplates,materials);
-            armyWorldTemplates->constructors=readArmyWorldConstructors(resources.directory(ResourceGroup::ArmyActions)/"constructor-worlds.bin");
-            auto modelCapacities=readArmyWorldPoolCapacities(resources.directory(ResourceGroup::ArmyActions)/"pool-banks.bin");
-            armyGraphicsActions=loadNativeArmyGraphicsActions(resources.directory(ResourceGroup::ArmyActions),armyModels.source);
-            for(unsigned category=4;category<=9;++category){
-                const auto directory=category<7?"army-mode-category"+std::to_string(category):
-                    "army-naval-category-"+std::to_string(category);
-                auto resource=importArmyWorldModeResources(device.Get(),resources.root()/directory,
-                    armyModels.source,armyWorldTemplates->tableOwners);
-                appendArmyWorldModeResources(std::move(resource),armyModels,*armyWorldTemplates,*armyGraphicsActions,modelCapacities);
-            }
-            armyModelPool.emplace(modelCapacities,
-                armyWorldTemplates->constructors,armyModels.source.poses,armyModels.source.defaultActions);
-            if(sourceAccessoryVisuals){
-                cityAccessories.templates.blend=armyModels.templates.blend;
-                for(const auto& primitive:armyWorldTemplates->primitives[2])
-                    cityAccessories.templates.draws.push_back(armyModels.templates.draws.at(primitive.sourceTemplate));
-                areaAccessories.templates=cityAccessories.templates;
-                sharedCityAccessories=prepareNativeSharedAccessories(cityAccessories.population,false);
-                sharedAreaAccessories=prepareNativeSharedAccessories(areaAccessories.population,true);
-            }
-            armyReturnedPhases.assign(armyModels.source.actors.size(),0.f);
-        }
+        bases.prepareAccessories(device.Get(),context.Get(),resources,host.areaCapitalWorld,
+            defaultPlayerPhases,deferredCameraProfile,weatherConsumers);
+        bases.withAccessories([&](auto& cityAccessories,auto& areaAccessories) {
+            armies.prepare(device.Get(),context.Get(),resources,cityAccessories,areaAccessories);
+        });
         const auto globalRgb=load(resources.directory(ResourceGroup::Weather)/"initial"/"weather"/"effective-light-rgb.bin");
         if(globalRgb.size()!=sizeof(globalAtmosphereRgb))throw std::runtime_error("Original global80 RGB extent differs");
         std::memcpy(&globalAtmosphereRgb,globalRgb.data(),globalRgb.size());
-        shadows.preparePopulation(jointShadowInput,staticModels->catalog(),cityModels.source,primaryModels);
-        shadows.bindFieldDisplay(fieldDisplay,farMainProfile,staticModels->catalog());
+        shadows.preparePopulation(jointShadowInput,staticModels->catalog(),bases.citySource(),bases.primary());
+        shadows.bindFieldDisplay(fieldDisplay,cameraRig.distantProfile(),staticModels->catalog());
         shadows.prepareRaster(resources.directory(ResourceGroup::ShadowRaster));
         viewProfile=source_view::loadProfile(resources.directory(ResourceGroup::View)/"profile.bin");
         // Normal ready STA, Camera kind0: D57E50/EBD510 select K1890's
         // original white Static. FE8 belongs to the older empty-registry lab.
         shadows.prepareDirectionalDiffuse(device.Get(),resources.directory(ResourceGroup::ShadowReceivers));
     }
-    auto syncArmyModels=[&]() {
-        if(!sourceArmyVisuals)return;
-        auto& pool=*armyModelPool;const auto& candidates=*host.armyWorld;
-        pool.releaseAbsent(candidates.unitCenters);
-        const bool bindingsChanged=armyBindingRevision!=pool.bindingRevision;
-        if(armyCandidateRevision==candidates.revision&&!bindingsChanged&&
-            armyWorldState.appliedMaterialRevision==armyWorldTemplates->materialRevision)return;
-        ArmyWorldPublication active=candidates;active.revision=++armyRenderRevision;active.actors.clear();
-        for(const auto& candidate:candidates.actors){
-            auto key=candidate.key;
-            if(key.descriptor==0x7A0||key.descriptor==0x818){auto member=pool.member(GraphicsModelFamily::Army,key.unit,key.descriptor,key.instance);
-                if(!member)continue;key=*member;}
-            auto* slot=pool.find(key);if(!slot)continue;
-            auto current=candidate;current.key=key;current.action=armyWorldTemplates->defaultActionOrdinals[key.category];
-            current.world=slot->presented.world;current.bounds=slot->presented.bounds;
-            active.actors.push_back(current);
-        }
-        // A logical key can bind another physical slot after leaving view.
-        // Draw objects belong to that slot, rather than the previous key.
-        if(bindingsChanged)armyWorldState.primitiveIndices.clear();
-        publishArmyWorldPopulation(armyModels,armyWorldState,*armyWorldTemplates,active,
-            [&](const ArmyWorldActorKey& key,unsigned primitive,unsigned index,const std::string& identity){
-                auto& model=resolveNativePhysicalModel(device.Get(),*pool.find(key),primitive,armyModels.templates.draws.at(index),
-                    armyModels.source.vertices.at(index));
-                // Material changes preserve the physical draw and its private CBs.
-                const auto& material=armyModels.templates.draws.at(index);
-                model.textures=material.textures;model.samplers=material.samplers;
-                auto draw=model;draw.identity=identity;return draw;
-            });
-        armyReturnedPhases.resize(armyModels.poses.size());armySuccessfulSamples.assign(armyModels.poses.size(),false);
-        armyActivePoses.resize(armyModels.poses.size());armyMainMembership.assign(armyModels.poses.size(),false);
-        for(const auto& [key,index]:armyWorldState.actorIndices){
-            auto& slot=*pool.find(key);auto& actor=armyModels.source.actors[index];
-            actor.world=slot.presented.world;actor.obb=slot.presented.bounds;
-            armyModels.poses[index]=slot.pose;armyModels.poseCaches[index]=slot.cache;
-            const auto& clock=slot.clock;int raw=clock.poseRawAction;
-            const auto& action=armyGraphicsActions->rows.at({unsigned(key.category),unsigned(raw)});
-            armyActivePoses[index]=action.pose?&*action.pose:&armyModels.source.poses[key.category];
-            armyReturnedPhases[index]=clock.returnedPhase;armySuccessfulSamples[index]=clock.hasSuccessfulSample;
-            // Ordinary TGK21 v28 publishes750/778/7C8. Banner7F0 requires
-            // the independent retiring branch, which is not this population.
-            armyMainMembership[index]=key.category!=2;
-        }
-        armyCandidateRevision=candidates.revision;armyBindingRevision=pool.bindingRevision;
-
-    };
     auto publishCurrentModels=[&]() {
-        if(sourceArmyVisuals)armyModelPool->snapshot(armyModels,armyWorldState);
-        if(sourceArmyVisuals){
-            observeArmyUnitHeightRoster(armyUnitHeights,host.armyWorld->unitCenters);
-            for(const auto& [id,current]:host.armyWorld->unitModelModes){
-                const auto selection=std::pair{current,host.armyWorld->unitNavalFormations.at(id)};
-                auto previous=armyUnitSelections.try_emplace(id,std::pair{0u,0u}).first;
-                if(previous->second==selection)continue;
-                // CE1C8D30 clears the old descriptor chains immediately,
-                // before visibility/admission or the next model acquisition.
-                if(current==1){
-                    for(int descriptor:{0x750,0x778,0x7C8,0x840})
-                        armyModelPool->releaseDescriptor(GraphicsModelFamily::Army,id,descriptor);
-                    if(armyWorldNavalCategory(selection.second)<0)
-                        armyModelPool->releaseDescriptor(GraphicsModelFamily::Army,id,0x818);
-                    armyModelPool->releaseDescriptor(GraphicsModelFamily::Army,id,0x7A0);
-                }else if(current==2)for(int descriptor:{0x750,0x778,0x7C8,0x818,0x840})
-                    armyModelPool->releaseDescriptor(GraphicsModelFamily::Army,id,descriptor);
-                else for(int descriptor:{0x818,0x7A0,0x840})
-                    armyModelPool->releaseDescriptor(GraphicsModelFamily::Army,id,descriptor);
-                previous->second=selection;armyUnitHeights[id].dirty30=true;
-            }
-            for(auto it=armyUnitSelections.begin();it!=armyUnitSelections.end();)
-                if(!host.armyWorld->unitCenters.contains(it->first))it=armyUnitSelections.erase(it);else ++it;
-        }
-        primaryPopulationChanged=false;
-        if(!host.cityGateWorld)throw std::runtime_error("Native Main requires its actual City/Gate World publication");
-        const auto& bases=*host.cityGateWorld;
-        if(appliedCityGateRevision!=bases.revision) {
-            if(sourceAccessoryVisuals)San14::Render::requireCurrentCityGateFlagImports(bases,cityFlagImports);
-            auto primaries=readNativeBaseVisualPrimary(bases.primary.data(),bases.primary.size());
-            updateNativeCityPopulation(cityModels,primaries);
-            if(sourceAccessoryVisuals){
-                auto current=readNativeBaseVisualAccessories(bases.accessories.data(),bases.accessories.size());
-                observeNativeSharedAccessorySource(sharedCityAccessories,cityAccessories.population,current);
-                publishNativeBaseVisualAccessories(cityAccessories,std::move(current));
-            }
-            primaryPopulationChanged=true;
-            appliedCityGateRevision=bases.revision;
-
-        }
-        const auto& capitals=*host.areaCapitalWorld;
-        if(appliedAreaCapitalRevision!=capitals.models.revision) {
-            if(capitals.identities!=areaModels.source.identities)throw std::runtime_error("Current Area roster needs an actual rebind/import");
-            if(sourceAccessoryVisuals)San14::Render::requireCurrentCityGateFlagImports(capitals.models,cityFlagImports);
-            updateNativeCityPopulation(areaModels,readNativeBaseVisualPrimary(capitals.models.primary.data(),capitals.models.primary.size()));
-            if(sourceAccessoryVisuals){
-                auto current=readNativeAreaCapitalAccessories(capitals.models.accessories);
-                observeNativeSharedAccessorySource(sharedAreaAccessories,areaAccessories.population,current);
-                publishNativeBaseVisualAccessories(areaAccessories,std::move(current));
-            }
-            appliedAreaCapitalRevision=capitals.models.revision;primaryPopulationChanged=true;
-        }
-        if(primaryPopulationChanged) {
-            publishNativeCityAreaPrimary(primaryModels,cityModels,areaModels);
-            shadows.publishPrimaryPopulation(staticModels->catalog(),primaryModels,
+        armies.publishArmy(host.armyWorld);
+        bases.publish(host.cityGateWorld,host.areaCapitalWorld,armies);
+        if(bases.populationChanged()) {
+            shadows.publishPrimaryPopulation(staticModels->catalog(),bases.primary(),
                 *staticModels);
-
         }
-        syncArmyModels();
+        if(sourceArmyVisuals)armies.synchronize(device.Get(),*host.armyWorld);
     };
     auto atmosphereFrame=[&]() {
         return clouds.atmosphereFrame(currentSeason,currentCloudLights,mainDirectPrefix,
@@ -534,18 +350,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         currentCloudLights={host.input.currentRawSunPosition,host.input.currentCloudGeometry40};
         territory.publishOwnership(context.Get(),host.territoryOwnership);
         publishCurrentModels();
-        if(host.input.contains(FrameInputFlag::PublishedCamera)) {
-            staticCameraRuntime.pose=host.input.controller;
-            staticCameraRuntime.zoom={host.input.band,host.input.fraction,
-                source_camera::A(float(host.input.band),source_camera::D(float(host.input.fraction),10000))};
-            staticCamera=source_camera::preparePublished(staticCameraProfile,host.input.camera,host.input.controller);
-        }else {
-        const int32_t inertiaClock=sampleNativeCameraClock(cameraClock);
-        const int32_t animationClock=sampleNativeCameraClock(cameraClock);
-        source_camera_motion::tick(staticCameraProfile,cameraMotionProfile,cameraMotion,inertiaClock,animationClock,cameraMotionProfile.inertiaTimeout,cameraTerrainQualifier);
-        staticCamera=source_camera::prepareCurrent(staticCameraProfile,staticCameraRuntime);
-        }
-        currentDisplay=source_far_main::prepareCurrent(farMainProfile,farMainOwner,staticCameraRuntime.zoom,staticCamera.prefix);
+        cameraRig.accept(host.input);
         currentRenderMode=currentDisplay.mode.ownerMode288;
         shadows.selectFamily(currentRenderMode);
         fieldDisplay.capture(currentDisplay);
@@ -556,32 +361,19 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             shadows.publishSeason(*currentSeason);
             std::memcpy(weatherCameraFrame.main72.data(),currentSeason->main.data()+0x340,72);
         }else {
-            mainDirectPrefix=source_camera::prepareCurrentRenderModeDirectPrefix(mainDirectProfile,mainDirectState,
-                source_camera::prepareCurrentRenderMode(staticCameraRuntime.zoom),staticCamera.prefix);
+            mainDirectPrefix=cameraRig.prepareDirectPrefix();
             weatherCameraFrame=source_weather_fog::prepareCurrent(weatherCameraProfile,staticCamera.eye.Y,source_camera::get<float>(mainDirectPrefix.data()+0x210));
         }
         atmosphere.publishAcceptedCamera(atmosphereFrame());
         staticModels->selectCamera(staticCamera,fieldDisplay);
-        cityPlan=selectNativeCityPopulation(primaryModels.source,staticCamera);
+        bases.selectCamera(staticCamera);
         shadows.prepareCamera(staticCamera,fieldDisplay);
         ordinaryPopulationCounts=shadows.frame().ordinaryRecordCounts;
-        if(sourceAccessoryVisuals) {
-            accessoryOrdinaryCount=selectNativeSharedAccessories(context.Get(),*armyModelPool,
-                sharedAreaAccessories,areaAccessories,staticCamera);
-            accessoryOrdinaryCount+=selectNativeSharedAccessories(context.Get(),*armyModelPool,
-                sharedCityAccessories,cityAccessories,staticCamera);
-            for(unsigned i=0;i<viewProfile.records.size();++i)
-                if(viewProfile.records[i].mask==1)ordinaryPopulationCounts[i]+=accessoryOrdinaryCount;
-        }
-        if(sourceArmyVisuals) {
-            armyPlan=selectNativeArmyPopulation(armyModels,staticCamera,armyReturnedPhases,
-                &armySuccessfulSamples,&armyActivePoses,&armyMainMembership
-                );
-            for(unsigned i=0;i<viewProfile.records.size();++i)
-                for(unsigned j=0;j<armyModels.source.recordMasks.size();++j)
-                    if(viewProfile.records[i].mask==armyModels.source.recordMasks[j])ordinaryPopulationCounts[i]+=armyPlan.ordinaryCounts[j];
-        }
-        if(ordinaryPopulationCounts.size()!=cityPlan.ordinaryCounts.size())throw std::runtime_error("Field/City ordinary record identities differ");
+        bases.withAccessories([&](auto& cityAccessories,auto& areaAccessories) {
+            armies.selectCamera(context.Get(),staticCamera,cityAccessories,areaAccessories,
+                viewProfile,ordinaryPopulationCounts,accessoryOrdinaryCount);
+        });
+        if(ordinaryPopulationCounts.size()!=bases.plan().ordinaryCounts.size())throw std::runtime_error("Field/City ordinary record identities differ");
         // D12A80 consumes this accepted Main, retaining its actual prepared
         // weather/wind tail. Geometry matrices use the ordinary source camera.
         std::memcpy(currentMain18C0.data(),mainDirectPrefix.data(),mainDirectPrefix.size());
@@ -590,7 +382,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         for(size_t row=0;row<3;++row)for(size_t column=0;column<4;++column)
             groundWV[row*4+column]=source_camera::get<float>(staticCamera.prefix.data()+0x80+column*16+row*4);
         const auto& mode=currentDisplay.mode;
-        const auto& groundCaller=cityModels.source.caller;
+        const auto& groundCaller=bases.citySource().caller;
         const auto& groundPopulation=groundDetails.prepare({staticCamera,
             {reinterpret_cast<const uint8_t*>(currentMain18C0.data()),currentMain18C0.size()},commonPublication,groundW2P,groundWV,
             {viewProfile.commonPresent!=0,viewProfile.commonFlags,groundSourceFlags14,viewProfile.commonExclusion,groundFrustumType64},
@@ -623,160 +415,33 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     };
     const auto animationFps=source_animation_cadence::readProfile(
         resources.directory(ResourceGroup::AnimationTiming)/"fps-source.bin");
-    if((sourceArmyVisuals||sourceAccessoryVisuals)&&armyModels.source.defaultActions.fps!=animationFps.fps)
-        throw std::runtime_error("Army and App imported FPS tables differ");
+    armies.requireAnimationTiming(animationFps);
     host.animationUpdate=[&](unsigned fpsMode) {
         if(fpsMode>=animationFps.fps.size())throw std::runtime_error("Actual FPS manager mode range");
         publishCurrentModels();
-        const auto eventCamera=source_camera::preparePublished(staticCameraProfile,host.input.camera,host.input.controller);
+        const auto eventCamera=cameraRig.publishedEventCamera(host.input);
         const auto zoom=source_camera::Zoom{host.input.band,host.input.fraction,
             source_camera::A(float(host.input.band),source_camera::D(float(host.input.fraction),10000))};
         const auto mode=source_far_main::currentMode(zoom);
-        resetNativeArmyAnimationGroups(armyAnimationGroups); // one manager, including an empty Army
-        if(sourceArmyVisuals) {
-            std::map<int32_t,std::vector<const ArmyWorldActor*>> candidates;
-            for(const auto& actor:host.armyWorld->actors)candidates[actor.key.unit].push_back(&actor);
-            std::array<std::vector<NativeAccessoryPoseJoint>,7> sampledGroupLocals;
-            auto materialReady=[&](const ArmyWorldActor& actor){
-                for(const auto& primitive:armyWorldTemplates->primitives[unsigned(actor.key.category)])
-                    if(primitive.clothMaterial&&!armyWorldTemplates->materials.count({primitive.sourceTemplate,actor.material}))return false;
-                return true;
-            };
-            for(const auto& [id,center]:host.armyWorld->unitCenters) {
-                const unsigned modelMode=host.armyWorld->unitModelModes.at(id);
-                const bool siege=modelMode==2,naval=modelMode==1;
-                auto& height=armyUnitHeights[id];height.observeMotion(host.armyWorld->unitMotionRevisions.at(id));
-                auto currentCenter=center;currentCenter[1]=height.y14;
-                auto gate=std::floor(mode.ecB0Index)<4?source_accessory_population::unitAdmission(currentCenter,
-                    reinterpret_cast<const char*>(eventCamera.prefix.data()),reinterpret_cast<const char*>(eventCamera.prefix.data()),
-                    mode.ownerMode288,mode.ecB0Index,host.input.controller.distance):source_accessory_population::UnitAdmission{};
-                const bool reached=gate.visible||armyPriorVisible[id];armyPriorVisible[id]=gate.visible;
-                unsigned resolved=0;
-                if(reached){
-                    if(!gate.visible)armyModelPool->releaseUnit(id);
-                    else for(int descriptor:{0x750,0x778,0x7A0,0x7C8,0x7F0,0x818,0x840})
-                    for(const auto* actor:candidates[id])if(actor->key.descriptor==descriptor&&materialReady(*actor)){
-                        const bool existing=(actor->key.descriptor==0x7A0||actor->key.descriptor==0x818)&&armyModelPool->member(GraphicsModelFamily::Army,
-                            id,actor->key.descriptor,actor->key.instance).has_value();
-                        if(!existing&&armyModelPool->acquire(actor->key))height.dirty30=true;
-                        if((naval?actor->key.descriptor==0x818:siege?actor->key.descriptor==0x7A0:actor->key.category<2)&&
-                            (existing||armyModelPool->find(actor->key)))++resolved;
-                    }
-                }
-                const bool dirtyBeforeV30=height.dirty30;
-                // Imported siege nodes are all ready; absent list nodes do not
-                // mark remainingDirty in this source branch.
-                const bool setter=height.updateGround(reached,true,host.armyWorld->unitGroundHeights.at(id),
-                    naval?resolved==1:siege||resolved==19,modelMode);
-                syncArmyModels();
-                // Complete this unit before the next caller can take any slots.
-                float siegeChainFrame=-1,navalChainFrame=-1;
-                for(const auto* candidate:candidates[id]) {
-                auto actor=*candidate;
-                if(actor.key.descriptor==0x7A0||actor.key.descriptor==0x818){
-                    auto member=armyModelPool->member(GraphicsModelFamily::Army,id,actor.key.descriptor,actor.key.instance);
-                    if(!member)continue;actor.key=*member;
-                }
-                auto index=armyWorldState.actorIndices.find(actor.key);if(index==armyWorldState.actorIndices.end())continue;
-                auto& presented=armyModels.source.actors[index->second];
-                if(setter){
-                    if(actor.key.descriptor==0x7A0||actor.key.descriptor==0x818){
-                        actor.world.scale=presented.world.scale; // v30 does not write scale.
-                        actor.world.translation.y=height.y14;
-                        actor.bounds=buildArmyWorldModeBounds(armyWorldTemplates->localBounds.at(unsigned(actor.key.category)),actor.world);
-                    }
-                    publishArmyWorldPresentation(presented,actor);
-                }
-                const unsigned category=unsigned(actor.key.category);
-                const bool siegeBody=category>=4&&category<=6,navalBody=category>=7&&category<=9;
-                const unsigned graphics=unsigned(host.armyWorld->graphicsActions.at(id));
-                const bool attacking=graphics==2&&host.armyWorld->unitSelectedFormations.at(id)!=8;
-                const unsigned raw=category<2?graphics:siegeBody&&attacking?2u:0u;
-                auto actionRow=armyGraphicsActions->rows.find({category,raw});
-                const auto* action=actionRow==armyGraphicsActions->rows.end()?nullptr:&actionRow->second;
-                auto& physical=*armyModelPool->find(actor.key);auto& player=physical.clock;
-                bool eligible=reached;
-                if(category==2||category==3)eligible=eligible&&gate.animateNear;
-                if(category==3)eligible=eligible&&std::floor(mode.ecB0Index)<1;
-                if(navalBody)eligible=eligible&&gate.animateNear;
-                if(siegeBody)eligible=eligible&&(graphics==2?
-                    host.armyWorld->unitSelectedFormations.at(id)!=8:dirtyBeforeV30);
-                const NativeArmyAnimationCallback callback{true,eligible,int(raw),
-                    siegeBody?siegeChainFrame:navalBody?navalChainFrame:-1,fpsMode};
-                const auto step=action?consumeNativeArmyAnimation(action->player,armyModels.source.defaultActions.fps,category,
-                    player,armyAnimationGroups,callback,
-                    [&](float requested,bool){return std::optional<float>(source_default_player_phase::defaultReturnedPhase(
-                        {action->player.clipDuration,action->player.loopDeclaration},requested));}):
-                    consumeNativeArmyUnavailableAction(player,callback);
-                if(siegeBody&&eligible)siegeChainFrame=step.nextFrame;
-                if(navalBody&&eligible)navalChainFrame=step.nextFrame;
-                armyReturnedPhases[index->second]=player.returnedPhase;
-                armySuccessfulSamples[index->second]=player.hasSuccessfulSample;
-                if(step.succeeded){
-                    const auto* pose=action->pose?&*action->pose:&armyModels.source.poses[category];
-                    armyActivePoses[index->second]=pose;
-                    // Consume every accepted action/phase in event order.
-                    // Sparse local writes must survive A→B→A before one draw.
-                    auto& owner=armyModels.poses[index->second];auto& cache=armyModels.poseCaches[index->second];
-                    const int slot=action->player.grouped?nativeArmyAnimationGroupSlot(category,raw):-1;
-                    if(step.cached)
-                        publishNativeArmySharedLocal(*pose,owner,cache,sampledGroupLocals[size_t(slot)],
-                            player.returnedPhase,presented.world);
-                    else{
-                        prepareNativeArmyCurrentPose(*pose,owner,cache,player.returnedPhase,presented.world,true,category>=2);
-                        if(slot>=0)sampledGroupLocals[size_t(slot)]=owner.frame.localPose;
-                    }
-                }
-                physical.presented={presented.world,presented.obb};
-                physical.pose=armyModels.poses[index->second];physical.cache=armyModels.poseCaches[index->second];
-                }
-            }
-            for(auto it=armyPriorVisible.begin();it!=armyPriorVisible.end();)
-                if(!host.armyWorld->unitCenters.count(it->first))it=armyPriorVisible.erase(it);else ++it;
-        }
-        if(sourceAccessoryVisuals) {
-            const auto& action=armyGraphicsActions->rows.at({2,0});
-            updateNativeSharedAccessoryFamily(device.Get(),*armyModelPool,sharedAreaAccessories,areaAccessories,
-                GraphicsModelFamily::AreaCapital,eventCamera,mode.ownerMode288,mode.ecB0Index,
-                host.input.controller.distance,action,armyModels.source.poses[2],animationFps.fps,fpsMode,armyAnimationGroups);
-            updateNativeSharedAccessoryFamily(device.Get(),*armyModelPool,sharedCityAccessories,cityAccessories,
-                GraphicsModelFamily::City,eventCamera,mode.ownerMode288,mode.ecB0Index,
-                host.input.controller.distance,action,armyModels.source.poses[2],animationFps.fps,fpsMode,armyAnimationGroups);
-            updateNativeSharedAccessoryFamily(device.Get(),*armyModelPool,sharedCityAccessories,cityAccessories,
-                GraphicsModelFamily::Gate,eventCamera,mode.ownerMode288,mode.ecB0Index,
-                host.input.controller.distance,action,armyModels.source.poses[2],animationFps.fps,fpsMode,armyAnimationGroups);
-        }
-        auto& state=host.animationState;++state.updates;state.fpsMode=fpsMode;
-        state.armyPlayers=sourceArmyVisuals?unsigned(armyWorldState.actorIndices.size()):0;
-        state.cityGroups=sourceAccessoryVisuals?unsigned(armyModelPool->boundCount(GraphicsModelFamily::City)+
-            armyModelPool->boundCount(GraphicsModelFamily::Gate)):0;
-        state.areaGroups=sourceAccessoryVisuals?unsigned(armyModelPool->boundCount(GraphicsModelFamily::AreaCapital)):0;
-        state.firstBodyPhase=state.firstFlagPhase=0;
-        bool body=false,flag=false;
-        if(sourceArmyVisuals)for(const auto& actor:host.armyWorld->actors){
-            auto key=actor.key;
-            if(key.descriptor==0x7A0||key.descriptor==0x818){auto member=armyModelPool->member(GraphicsModelFamily::Army,key.unit,key.descriptor,key.instance);
-                if(!member)continue;key=*member;}
-            if(auto* slot=armyModelPool->find(key)) {
-            if((key.category<2||key.category>=4)&&!body){state.firstBodyPhase=slot->clock.returnedPhase;body=true;}
-            if(actor.key.category==2&&!flag){state.firstFlagPhase=slot->clock.returnedPhase;flag=true;}
-            }
-        }
+        bases.withAccessories([&](auto& cityAccessories,auto& areaAccessories) {
+            armies.updateAnimation(device.Get(),context.Get(),host.armyWorld,host.input,eventCamera,mode,
+                animationFps,fpsMode,cityAccessories,areaAccessories,host.animationState);
+        });
     };
     if(host.input.contains(FrameInputFlag::InitialAnimationUpdate))host.animationUpdate(0); // explicit initial normal Map callback
     host.armyUnitPositions=[&]() {
         if(!sourceArmyVisuals)return std::vector<ArmyLabelUnitPosition>{};
-        return readArmyLabelUnitPositions(host.armyWorld->unitCenters,armyUnitHeights);
+        return armies.labelPositions(*host.armyWorld);
     };
     auto beginAcceptedMain=[&](float currentClock) {
 
         prepareAcceptedCamera(); // Current Main is available to node1, not only geometry.
         postProcessing.updateMapExposure(context.Get(),currentSeason,
             reinterpret_cast<const uint8_t*>(currentMain18C0.data()),mainDirectPrefix);
-        updateNativeFogAccelerationCamera(context.Get(),fogCamera,fogAcceleration,staticCamera.prefix);
+        fogAcceleration.updateCamera(context.Get(),staticCamera.prefix);
         specialEffects.queueFlags=0;contextFlags3F4=0; // EA9300 accepted node1.
 
-        executeNativeFogAcceleration(device.Get(),context.Get(),fogAcceleration);
+        fogAcceleration.execute(device.Get(),context.Get());
         clouds.updateAcceptedFrame(device.Get(),context.Get(),
             {resources.directory(ResourceGroup::CloudWeather),resources.directory(ResourceGroup::AmbientFrame)},
             {currentSeason,currentCloudLights,currentClock});
@@ -804,8 +469,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         {
 
             specialEffects=createNativeSpecialEffectsWithoutParticleOwner(sourceHostFlags3E4);
-            fogAcceleration=prepareNativeFogAcceleration(device.Get(),resources.directory(ResourceGroup::FogAcceleration));
-            fogCamera=prepareNativeFogAccelerationCamera(device.Get(),resources.directory(ResourceGroup::FogAcceleration),fogAcceleration);
+            fogAcceleration.prepare(device.Get(),resources.directory(ResourceGroup::FogAcceleration));
         }
         postProcessing.prepareExposure(device.Get(),context.Get(),resources.directory(ResourceGroup::MapExposure),normalInitialSource);
         litColor=createSourceHdr(device.Get(),resources.directory(ResourceGroup::DeferredLighting)/"node78-inner02",width,height);
@@ -824,7 +488,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     if(hasVisibleModels){
         {
             staticModels->prepareGeometry(device.Get());
-            shadows.connectGeometry(staticModels->geometry(),primaryModels.currentModels);
+            shadows.connectGeometry(staticModels->geometry(),bases.primary().currentModels);
             staticModels->prepareStencil(device.Get(),resources.directory(ResourceGroup::View),currentView,sourceHostFlags3E4);
             terrainPass.prepareCamera(device.Get(),input,indexCount,
                 currentSeason?resources.directory(ResourceGroup::SeasonalResources):fs::path{});
@@ -843,8 +507,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         geometryTargets.beginGeometry(context.Get());
         {
             const auto& staticSubmission=staticModels->updateSubmission(context.Get(),currentView);
-            auto cityQueues=updateSelectNativeCityAreaPrimary(context.Get(),primaryModels,cityPlan);
-            ordinaryModelQueues=mergeNativeCityPopulationWithField54(staticSubmission.plan,staticSubmission.models,primaryModels.source,cityPlan,cityQueues);
+            bases.updateSubmission(context.Get(),staticSubmission);
         }
         {
             groundDetails.update(context.Get());
@@ -857,21 +520,13 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                         (sourceRecord.classification&1)==0,source_view::ordinary54(viewProfile,currentView,primitive,record,sourceHostFlags3E4)},geometryTargets.colors().data(),geometryTargets.depthView(),geometryTargets.viewport());
                 }
             };
-            if(sourceArmyVisuals) {
-                armyQueues=updateSelectNativeArmyPopulation(context.Get(),armyModels,armyPlan);
-                drawNativeModels(context.Get(),armyQueues.ordinary49,geometryTargets.colors().data(),geometryTargets.depthView(),geometryTargets.viewport());
-                drawNativeModels(context.Get(),armyQueues.alpha50,geometryTargets.colors().data(),geometryTargets.depthView(),geometryTargets.viewport());
-                drawNativeModels(context.Get(),armyQueues.ordinary54,geometryTargets.colors().data(),geometryTargets.depthView(),geometryTargets.viewport());
-                drawNativeModels(context.Get(),armyQueues.alpha55,geometryTargets.colors().data(),geometryTargets.depthView(),geometryTargets.viewport());
-
-            }
-            if(sourceAccessoryVisuals) {
-                drawNativeSharedAccessories(context.Get(),*armyModelPool,sharedAreaAccessories,areaAccessories,geometryTargets.colors().data(),geometryTargets.depthView(),geometryTargets.viewport());
-                drawNativeSharedAccessories(context.Get(),*armyModelPool,sharedCityAccessories,cityAccessories,geometryTargets.colors().data(),geometryTargets.depthView(),geometryTargets.viewport());
-            }
-            drawNativeModels(context.Get(),ordinaryModelQueues.ordinary54,geometryTargets.colors().data(),geometryTargets.depthView(),geometryTargets.viewport());
+            bases.withAccessories([&](auto& cityAccessories,auto& areaAccessories) {
+                armies.drawOpaque(context.Get(),geometryTargets.colors().data(),geometryTargets.depthView(),
+                    geometryTargets.viewport(),cityAccessories,areaAccessories);
+            });
+            bases.drawOrdinary(context.Get(),geometryTargets.colors().data(),geometryTargets.depthView(),geometryTargets.viewport());
             drawGroundNode(54);
-            drawNativeModels(context.Get(),ordinaryModelQueues.alpha55,geometryTargets.colors().data(),geometryTargets.depthView(),geometryTargets.viewport());
+            bases.drawAlpha(context.Get(),geometryTargets.colors().data(),geometryTargets.depthView(),geometryTargets.viewport());
             drawGroundNode(55);
             const auto& detail=groundDetails.currentStatistics();
 
@@ -900,8 +555,8 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     }
     auto drawCurrentTerritory=[&](UINT node,UINT providerDrawFlags){
 
-        territory.draw(context.Get(),staticCameraRuntime.zoom.band,staticCameraRuntime.zoom.fraction,
-            staticCameraRuntime.pose.distance,staticCamera.prefix,heldMainB1C,
+        territory.draw(context.Get(),cameraRig.zoom().band,cameraRig.zoom().fraction,
+            cameraRig.distance(),staticCamera.prefix,heldMainB1C,
             postProcessing.mapExposureView(),providerDrawFlags,sourceDepth);
         updateNativeDepthMirror(context.Get(),mainDepth,node==122?"122 PB Pop40000007":"60 PB Pop40000007");
 
@@ -949,13 +604,13 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         if(pass==hdr166.bank().passes.end())throw std::runtime_error("Forward actual current inner02 producer absent");
         auto globals=std::find_if(pass->constants.begin(),pass->constants.end(),[](auto& cb){return !cb.vertex&&cb.slot==0;});
         if(globals==pass->constants.end())throw std::runtime_error("Forward actual current HDR globals absent");
-        primaryForwardFrame=prepareNativePrimaryForwardCurrent(primaryForwardSource,primaryModels.source,cityPlan,
+        primaryForwardFrame=prepareNativePrimaryForwardCurrent(primaryForwardSource,bases.primary().source,bases.plan(),
             mainDirectPrefix.data(),globals->bytes.data(),globals->bytes.size(),
             shadows.geometryReceiverConstants().data(),shadows.geometryReceiverConstants().size());
          //Allocation observation, not a source-pixel render.
-        executeNativePrimaryForwardGpu(context.Get(),sourceDepth,primaryForwardGpu,primaryForwardFrame,primaryModels.currentModels,
+        executeNativePrimaryForwardGpu(context.Get(),sourceDepth,primaryForwardGpu,primaryForwardFrame,bases.primary().currentModels,
             pass->target.Get(),geometryTargets.depthView(),geometryTargets.viewport(),shadows.shadowView(),shadows.directionalView(),hdr166.bank().ggx.Get(),
-            clouds.ambientView(),fogAcceleration.view.Get());
+            clouds.ambientView(),fogAcceleration.samplingView());
 
     };
     auto isolateCurrentShadowVisibility=[&]() {
@@ -1133,7 +788,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         }
         beginAcceptedMain(currentClock);
         {
-            shadows.updateAcceptedFrame(context.Get(),sourceDepth,primaryPopulationChanged,currentSeason,staticCamera);
+            shadows.updateAcceptedFrame(context.Get(),sourceDepth,bases.populationChanged(),currentSeason,staticCamera);
         }
         drawOpaqueGeometry();updateNativeDepthMirror(context.Get(),mainDepth,"59 new Main geometry");
 

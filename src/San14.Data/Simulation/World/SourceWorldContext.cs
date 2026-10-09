@@ -1,3 +1,4 @@
+using San14.Core;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -11,7 +12,7 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
     IDistrictPostLoadState, IPersonRoleLocationState, IPersonBaseSyncState,
     IPersonDistrictTransferState, IForcePersonAssociationState
 {
-    private sealed record PersonFields(ushort? Id, ushort? Flags, byte? Tail, byte? Status, ushort? Location);
+    private sealed record PersonFields(ushort? Id, OfficerBehavior? Behavior, byte? Status, ushort? Location);
     private readonly Dictionary<int, PersonFields> _persons = [];
     private readonly Dictionary<int, byte?> _personDistrictSlots = [];
     private readonly Dictionary<int, ushort?> _personFirstLocations = [];
@@ -73,13 +74,13 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
     {
         if (record is null) throw new InvalidDataException("Current person record is unknown.");
         Check(record.PhysicalSlot, 1851, "person physical slot");
-        _persons[record.PhysicalSlot] = new(record.CharacterId, record.RawFlags196,
-            record.RawFlag1FD, record.RawStatus11E, record.RawLocation11C);
+        _persons[record.PhysicalSlot] = new(record.CharacterId, OfficerBehaviorSourceAdapter.Decode(record.RawFlags196,
+            record.RawFlag1FD), record.RawStatus11E, record.RawLocation11C);
     }
     public void SetPersonIdentity(int physicalSlot, ushort? characterId)
     {
         Check(physicalSlot, 1851, "person physical slot");
-        PersonFields old = _persons.GetValueOrDefault(physicalSlot) ?? new(null, null, null, null, null);
+        PersonFields old = _persons.GetValueOrDefault(physicalSlot) ?? new(null, null, null, null);
         _persons[physicalSlot] = old with { Id = characterId };
     }
     public ushort? ReadPersonIdentity(int physicalSlot)
@@ -110,13 +111,13 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
     public void WritePersonSecondLocation(int physicalSlot, ushort location)
     {
         Check(physicalSlot, 1851, "person physical slot");
-        PersonFields old = _persons.GetValueOrDefault(physicalSlot) ?? new(null, null, null, null, null);
+        PersonFields old = _persons.GetValueOrDefault(physicalSlot) ?? new(null, null, null, null);
         _persons[physicalSlot] = old with { Location = location };
     }
     public void WritePersonStatus(int physicalSlot, byte status)
     {
         Check(physicalSlot, 1851, "person physical slot");
-        PersonFields old = _persons.GetValueOrDefault(physicalSlot) ?? new(null, null, null, null, null);
+        PersonFields old = _persons.GetValueOrDefault(physicalSlot) ?? new(null, null, null, null);
         _persons[physicalSlot] = old with { Status = status };
     }
     public void SetPersonDistrictSlot(int physicalSlot, byte? districtSlot)
@@ -133,13 +134,13 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
     {
         Check(physicalSlot, 1851, "person physical slot");
         PersonFields? value = _persons.GetValueOrDefault(physicalSlot);
-        return NativeValidity.Person(physicalSlot, value?.Id, value?.Flags, value?.Tail, value?.Status);
+        return NativeValidity.PersonWithBehavior(physicalSlot, value?.Id, value?.Behavior, value?.Status);
     }
     public S14ConditionNativePerson? ReadPhysicalPerson(int physicalSlot)
     {
         Check(physicalSlot, 1851, "person physical slot");
         if (!_persons.TryGetValue(physicalSlot, out PersonFields? value) || value.Id is not ushort id ||
-            value.Flags is not ushort flags || value.Tail is not byte tail || value.Status is not byte status ||
+            OfficerBehaviorSourceAdapter.EncodeFlags(value.Behavior) is not ushort flags || OfficerBehaviorSourceAdapter.EncodeMarker(value.Behavior) is not byte tail || value.Status is not byte status ||
             value.Location is not ushort location) return null;
         return new(physicalSlot, id, flags, tail, status, location);
     }
@@ -567,8 +568,8 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
             CharacterPreviewRecord person = source.Characters[slot];
             if (person.Slot != slot || person.CharacterId is < 0 or > ushort.MaxValue)
                 throw new InvalidDataException($"Event source person physical slot {slot} is invalid.");
-            _persons[slot] = new((ushort)person.CharacterId, person.CreditReference?.RawFlagsWord,
-                person.CreditReference?.RawTailCode, person.StatusCode, person.SecondaryCitySlot);
+            _persons[slot] = new((ushort)person.CharacterId, OfficerBehaviorSourceAdapter.Decode(person.CreditReference?.RawFlagsWord,
+                person.CreditReference?.RawTailCode), person.StatusCode, person.SecondaryCitySlot);
             SetPersonDistrictSlot(slot, person.DistrictSlot);
             SetPersonFirstLocation(slot, person.CitySlot);
             SetTransferPersonTablePointer(slot, slot);

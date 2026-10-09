@@ -2,9 +2,9 @@ namespace San14.Core;
 
 public static class PlayableOfficerAvailability
 {
-    //Original custody status6 overrides the coarse first-playable Officer role.
-    //Legacy states without native fields retain their existing eligibility.
-    public static bool IsCaptive(OfficerState officer) => officer.NativeAbilityRuntime?.Status11E == 6;
+    // Custody overrides the coarse role without requiring a source-layout owner.
+    // Unknown custody knowledge retains existing command eligibility.
+    public static bool IsCaptive(OfficerState officer) => OfficerServiceRules.IsCaptive(officer.ServiceStatus);
 
     public static bool IsSourceBusy(GameState state, OfficerState officer)
     {

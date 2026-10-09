@@ -1,5 +1,6 @@
 using Godot;
 using San14.Core;
+using San14.Client.Gameplay;
 using System.Globalization;
 
 /// <summary>Convoy objectives use city identities and the same command gate as
@@ -14,10 +15,7 @@ public partial class TransportOrdersPanel : VBoxContainer
     private readonly Button _source = new() { Name = "TransportRetargetSource" };
     private Func<string, string>? _text;
     private Action<GameOrder>? _issue;
-    private GameState? _world;
-    private UnitState? _unit;
-    private int? _force;
-    private bool _strategy;
+    private TransportCommandView _view = TransportCommandView.Empty;
 
     public TransportOrdersPanel()
     {
@@ -28,13 +26,13 @@ public partial class TransportOrdersPanel : VBoxContainer
         _destination.ItemSelected += _ => UpdateEnabled();
         _redirect.Pressed += () =>
         {
-            if (!_redirect.Disabled && _force is int force && _unit is { } unit)
+            if (!_redirect.Disabled && _view.ForceId is int force && _view.Unit is { } unit)
                 _issue?.Invoke(new RetargetTransportOrder(force, unit.Id, _destination.GetSelectedId()));
         };
         _source.Pressed += () =>
         {
-            if (!_source.Disabled && _force is int force && _unit?.SourceLocationId is int source)
-                _issue?.Invoke(new RetargetTransportOrder(force, _unit.Id, source));
+            if (!_source.Disabled && _view.ForceId is int force && _view.Unit?.SourceLocationId is int source)
+                _issue?.Invoke(new RetargetTransportOrder(force, _view.Unit.Id, source));
         };
         UpdateEnabled();
     }
@@ -50,49 +48,41 @@ public partial class TransportOrdersPanel : VBoxContainer
     public void Refresh(GameState? world, int? selectedUnitId, int? forceId)
     {
         int previous = _destination.Selected >= 0 ? _destination.GetSelectedId() : -1;
-        int? previousUnit = _unit?.Id;
-        int? previousOfficer = _unit?.OfficerId;
-        _world = world; _force = forceId;
-        _unit = world is not null && selectedUnitId is int id && world.Units.TryGetValue(id, out UnitState? unit) &&
-            unit.ForceId == forceId && unit.Mission?.Kind == UnitMissionKind.Transport ? unit : null;
-        _strategy = world is { Phase: TurnPhase.Strategy } && forceId is int force &&
-            world.Forces.TryGetValue(force, out ForceState? owner) && owner.IsActive &&
-            PlayableOutcome.Evaluate(world, force) == PlayableResult.Ongoing;
+        int? previousUnit = _view.Unit?.Id;
+        int? previousOfficer = _view.Unit?.OfficerId;
+        _view = TransportCommandView.Create(world, selectedUnitId, forceId);
         _destination.Clear();
-        if (_unit is not null && world is not null)
+        if (_view.Unit is { } unit)
         {
-            foreach (CityState city in world.Cities.Values.Where(city => city.ForceId == forceId && city.HexId is not null).OrderBy(city => city.Id))
+            foreach (NamedCommandChoice city in _view.Destinations)
                 _destination.AddItem(city.Name, city.Id);
-            int wanted = previousUnit == _unit.Id && previousOfficer == _unit.OfficerId ? previous : _unit.Mission!.DestinationCityId!.Value;
+            int wanted = previousUnit == unit.Id && previousOfficer == unit.OfficerId ? previous : unit.DestinationCityId;
             int index = _destination.GetItemIndex(wanted);
-            if (index < 0 && world.Cities.Values.FirstOrDefault(city => city.ForceId == forceId && city.HexId == _unit.HexId) is { } current)
-                index = _destination.GetItemIndex(current.Id);
+            if (index < 0 && unit.CurrentCityId is int current)
+                index = _destination.GetItemIndex(current);
             if (index >= 0) _destination.Select(index);
         }
-        Visible = _unit is not null;
+        Visible = _view.Unit is not null;
         RenderStatus(); UpdateEnabled();
     }
 
     private void RenderStatus()
     {
-        SetMeta("transport_command_unit_id", _unit?.Id ?? -1); SetMeta("transport_original_source", _unit?.SourceLocationId ?? -1);
-        SetMeta("transport_returning", _unit?.Mission?.Returning ?? false);
-        if (_text is null || _unit is null) { _status.Text = ""; return; }
-        UnitMission mission = _unit.Mission!;
+        TransportUnitView? unit = _view.Unit;
+        SetMeta("transport_command_unit_id", unit?.Id ?? -1); SetMeta("transport_original_source", unit?.SourceLocationId ?? -1);
+        SetMeta("transport_returning", unit?.Returning ?? false);
+        if (_text is null || unit is null) { _status.Text = ""; return; }
         _status.Text = string.Format(CultureInfo.InvariantCulture, _text("play_transport_orders_status"),
-            _world?.Officers.GetValueOrDefault(_unit.OfficerId)?.Name ?? _unit.OfficerId.ToString(),
-            _unit.Troops, _unit.Supplies, mission.CargoGold,
-            _unit.SourceLocationId is int source ? _world?.Cities.GetValueOrDefault(source)?.Name ?? _text("detail_unknown") : _text("detail_unknown"),
-            _world?.Cities.GetValueOrDefault(mission.DestinationCityId!.Value)?.Name ?? _text("detail_unknown"),
-            _text(mission.Returning ? "play_transport_stage_returning" : "play_transport_stage_outbound"),
-            _text(mission.Arrival == TransportArrivalDisposition.EnterCity ? "play_transport_enter_city" : "play_transport_return_city"));
+            unit.OfficerName, unit.Troops, unit.Supplies, unit.CargoGold,
+            unit.SourceCityName ?? _text("detail_unknown"), unit.DestinationCityName ?? _text("detail_unknown"),
+            _text(unit.Returning ? "play_transport_stage_returning" : "play_transport_stage_outbound"),
+            _text(unit.Arrival == TransportArrivalDisposition.EnterCity ? "play_transport_enter_city" : "play_transport_return_city"));
     }
 
     private void UpdateEnabled()
     {
-        _destination.Disabled = !_strategy || _unit is null || _destination.ItemCount == 0;
+        _destination.Disabled = !_view.CanIssue || _view.Unit is null || _destination.ItemCount == 0;
         _redirect.Disabled = _destination.Disabled || _destination.Selected < 0;
-        _source.Disabled = !_strategy || _unit?.SourceLocationId is not int source ||
-            _world?.Cities.GetValueOrDefault(source)?.ForceId != _force;
+        _source.Disabled = !_view.CanIssue || _view.Unit?.SourceCityOwned != true;
     }
 }

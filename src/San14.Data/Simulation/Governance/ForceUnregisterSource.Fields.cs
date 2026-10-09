@@ -113,7 +113,7 @@ public sealed partial class ForceUnregisterSource
             ushort id = Need(current.ReadPersonIdentity(write.PersonPhysical), "Governor_ID");
             if (!people.TryGetValue(id, out var person)) throw Missing("Governor_playable_Person");
             people[id] = person with { Role = write.StatusAfter == 3 ? OfficerRole.Governor : OfficerRole.Officer,
-                NativeAbilityRuntime = person.NativeAbilityRuntime! with { Status11E = write.StatusAfter } };
+                ServiceStatus = OfficerServiceStatusSourceAdapter.Decode(write.StatusAfter) };
         }
         var city = state.Cities[cityId];
         return state with { Officers = people, Cities = new(state.Cities) { [cityId] = city with

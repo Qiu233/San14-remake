@@ -11,12 +11,11 @@ public sealed partial class TacticRemakeCurrentContext
     {
         int? physical = CommanderPhysical(state, target);
         if (physical is null || officer.Role != OfficerRole.Ruler ||
-            officer.NativeAbilityRuntime is not { Status11E: 1 } person ||
+            officer.ServiceStatus != OfficerServiceStatus.Ruler || officer.NativeAbilityRuntime is not { } person ||
             person.Revision != TacticRemakeCurrentAbilities.ProfileId ||
             person.PhysicalSlot != physical || person.Language != _usage.Language ||
             person.RuleVersion != _usage.RuleVersion ||
             state.ContentHashes.GetValueOrDefault(person.SourceScenarioUri) != person.SourceScenarioSha256 ||
-            person.Flags196 is not ushort flags || person.Extra1FD is not byte tail ||
             !state.Forces.TryGetValue(target.ForceId, out ForceState? force) ||
             force.RulerId != officer.Id || force.RankId is not int rankId ||
             rankId is < 0 or > 12 ||
@@ -24,7 +23,9 @@ public sealed partial class TacticRemakeCurrentContext
             rank.CommandLimit is < 0 or > ushort.MaxValue) return null;
         //Person V18 reaches the current appendix tail for flags4000. A stale
         //serialized ruler status cannot turn an invalid current Person valid.
-        if ((flags & 0x4000) != 0 && tail == 0) return 0;
+        bool? valid = NativeValidity.PersonWithBehavior(person.PhysicalSlot, checked((ushort)officer.Id), officer.Behavior, OfficerServiceStatusSourceAdapter.Encode(officer.ServiceStatus));
+        if (valid is null) return null;
+        if (!valid.Value) return 0;
         //232CB0 can succeed only with current native Force IDs46..50;
         //2334A0's first2C70D0 test accepts only the five ten-ID bands.
         //A normal ruler in an ordinary force skips both special replacements.

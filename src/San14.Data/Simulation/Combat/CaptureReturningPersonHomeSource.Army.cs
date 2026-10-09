@@ -27,8 +27,8 @@ public sealed partial class CaptureReturningPersonHomeSource : IPlayableCaptureA
             if (!armies.TryGetValue(id, out var army)) continue;
             var person = state.Officers[army.OfficerId];
             if (person.LocationId != capturedLocationId) continue;
-            if (person.NativeAbilityRuntime!.Status11E is not byte status) return null;
-            if (status is < 1 or > 4) continue;
+            if (OfficerServiceStatusSourceAdapter.Encode(person.ServiceStatus) is null) return null;
+            if (!OfficerServiceRules.IsServing(person.ServiceStatus)) continue;
             if (person.DistrictId is not int district || !state.Districts.TryGetValue(district, out var districtState)) return null;
             if (districtState.ForceId != previousForceId) continue;
             if (person.NativeLocationRuntime?.Second11C is not ushort second) return null;

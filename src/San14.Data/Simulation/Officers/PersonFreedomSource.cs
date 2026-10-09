@@ -76,7 +76,7 @@ public sealed class PersonFreedomSource(ArmyCampaignRuleAdapter package, LoadedS
             var currentPlayer = current.ReadCurrentPlayerForce() ?? throw Missing("current.freedom_PlayerForce32EFA0");
             int playerPhysical = K(current.ReadForcePhysicalSlot(currentPlayer), "current.freedom_PlayerForce_physical");
             ushort flags = K(current.ReadArmyReturnPersonFlags196(physical), "current.freedom_Person15E");
-            if ((flags & 0x4000) != 0) throw Missing("branch.265250_appendix_World_unregister");
+            if (OfficerBehaviorRules.UsesOrdinaryPersonRules(current.ReadPersonBehavior(physical)) == false) throw Missing("branch.265250_appendix_World_unregister");
             ushort first = K(current.ReadPersonFirstLocation(physical), "current.freedom_PersonE2");
             var oldHome = BaseLookup.Find(first, current);
             if (oldHome.Kind != BaseKind.City || oldHome.PhysicalSlot != captured.Id || current.ReadBaseNativeValidity(oldHome) != true)
@@ -179,7 +179,7 @@ public sealed class PersonFreedomSource(ArmyCampaignRuleAdapter package, LoadedS
             ushort destination = (ushort)Math.Min(K(current.ReadBaseObjectLink(finalHome), "current.freedom_final_City4E"), (ushort)61);
             current.WritePersonFirstLocation(physical, destination);
             current.SetPersonDestructionRuntimeFields(physical, auxiliaries with { Byte19D = 0, Byte1A0 = 0 });
-            byte loyalty = (flags & 0x2000) == 0 ? (byte)0 : (byte)255;
+            byte loyalty = OfficerBehaviorRules.PreservesMaximumLoyalty(current.ReadPersonBehavior(physical)) == false ? (byte)0 : (byte)255;
             current.SetPersonDestructionLoyaltyE8(physical, loyalty);
             int? selector = BattleRemakeCurrentSettings.ReadSelectorE58(input);
             int? option = selector is int currentSelector
@@ -194,9 +194,6 @@ public sealed class PersonFreedomSource(ArmyCampaignRuleAdapter package, LoadedS
             //all unrelated City raw Districts would add an unneeded dependency.
             var result = PersonAssignmentPrecallInputs.PublishCurrent(input, current);
             person = result.Officers[personId];
-            var ability = person.NativeAbilityRuntime ?? throw Missing("current.freedom_ability_owner");
-            var credit = person.NativeCreditRuntime ?? throw Missing("current.freedom_credit_owner");
-            var growth = person.NativeGrowthRuntime ?? throw Missing("current.freedom_growth_owner");
             var values = new Dictionary<string, int>(result.NativeArmySimulation!.Parameters.Int32Values)
                 { [OwnedArmyGovernorComparatorInputs.PersonRawE8Key(physical)] = loyalty,
                     [OwnedArmyGovernorComparatorInputs.PersonWord166Key(physical)] = 0 };
@@ -204,13 +201,13 @@ public sealed class PersonFreedomSource(ArmyCampaignRuleAdapter package, LoadedS
             {
                 Officers = new(result.Officers) { [personId] = person with
                 {
-                    ForceId = null, DistrictId = null, Role = OfficerRole.Free, OfficeId = 73, Loyalty = loyalty <= 100 ? loyalty : null,
+                    ForceId = null, DistrictId = null, Role = OfficerRole.Free, Appointment = OfficerAppointment.Synchronize(73), Loyalty = loyalty <= 100 ? loyalty : null,
                     LocationId = destination,
                     NativeLocationRuntime = person.NativeLocationRuntime! with { District118 = 0,
                         Second11C = K(current.ReadPersonSecondLocation(physical), "current.freedom_final_PersonE4") },
-                    NativeAbilityRuntime = ability with { Status11E = 5, Office11F = 73, Secondary1F4 = 0, Flags196 = (ushort)(flags & 0xFFDF) },
-                    NativeCreditRuntime = credit with { Merit1F6 = merit, FirstRewardCount1FA = 0, SecondRewardCount1FB = 0, Reset1FC = 0 },
-                    NativeGrowthRuntime = growth with { PendingMerit1F8 = 0 },
+                    ServiceStatus = OfficerServiceStatus.Free,
+                    Behavior = OfficerBehaviorSourceAdapter.WithSourceFlags(person.Behavior, OfficerBehaviorSourceAdapter.ClearFreedomState(flags)),
+                    MeritState = OfficerMeritRules.ResetAfterRelease(merit),
                     NativeDestructionRuntime = auxiliaries with { Byte19D = 0, Byte1A0 = 0 },
                     NativeFreedomRuntime = new(Revision, 0, 0, 0)
                 } },
@@ -231,7 +228,7 @@ public sealed class PersonFreedomSource(ArmyCampaignRuleAdapter package, LoadedS
                 {
                     ushort id = K(current.ReadPersonIdentity(write.PersonPhysical), "current.freedom_reselected_Governor_ID");
                     var changed = officers[id];
-                    officers[id] = changed with { NativeAbilityRuntime = changed.NativeAbilityRuntime! with { Status11E = write.StatusAfter },
+                    officers[id] = changed with { ServiceStatus = OfficerServiceStatusSourceAdapter.Decode(write.StatusAfter),
                         Role = write.StatusAfter == 3 ? OfficerRole.Governor : OfficerRole.Officer };
                 }
                 var city = result.Cities[captured.Id];

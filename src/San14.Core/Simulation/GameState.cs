@@ -118,8 +118,6 @@ public sealed partial record OfficerState(int Id, string Name, int? ForceId, int
     // Independent of office/role. Null retains unresolved source or legacy state.
     // Present does not establish health, task availability or command eligibility.
     public OfficerPresence? Presence { get; init; }
-    // Null is unresolved. A known "no office" record has its own catalog reference.
-    public int? OfficeId { get; init; }
     public int? DoctrineId { get; init; }
     // Nullable values preserve unresolved original fields and older snapshots independently.
     public int? PolicyId { get; init; }
@@ -414,7 +412,7 @@ public static class StateValidator
                 gate.Troops < 0 || gate.Durability < 0)
                 throw new InvalidDataException($"Gate {id} is invalid.");
         foreach ((int id, OfficerState officer) in state.Officers)
-            if (id != officer.Id || !KnownForce(officer.ForceId) ||
+            if (id != officer.Id || officer.Appointment is null || !KnownForce(officer.ForceId) ||
                 !KnownDistrict(officer.DistrictId, officer.ForceId) ||
                 (officer.LocationId is int location && !state.Cities.ContainsKey(location) && !state.Gates.ContainsKey(location)) ||
                 ((officer.Presence is null or OfficerPresence.Present) &&
@@ -603,7 +601,6 @@ public static class StateValidator
         NativeArmyMarchStateValidation.Validate(state);
         NativePersonAbilityRuntimeValidation.Validate(state);
         NativePersonGrowthRuntimeValidation.Validate(state);
-        NativePersonCreditRuntimeValidation.Validate(state);
         NativePersonDestructionRuntimeStateValidation.Validate(state);
         NativePersonFreedomRuntimeValidation.Validate(state);
         NativeArmyReturnCurrentStateValidation.Validate(state);

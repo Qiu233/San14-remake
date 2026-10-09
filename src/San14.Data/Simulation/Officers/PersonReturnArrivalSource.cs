@@ -39,7 +39,7 @@ public static class PersonReturnArrivalSource
             byte status = Known(current.ReadPersonStatus(person), "current.PersonE6");
             ushort flags = Known(current.ReadArmyReturnPersonFlags196(person), "current.Person_flags15E");
             ushort identity = Known(current.ReadPersonIdentity(person), "current.Person10");
-            if (status is < 1 or > 4 || (flags & 0x4000) != 0 || SpecialId(identity))
+            if (status is < 1 or > 4 || OfficerBehaviorRules.UsesOrdinaryPersonRules(current.ReadPersonBehavior(person)) == false || SpecialId(identity))
                 throw Unknown("branch.nonordinary_Person");
             ushort destination = Known(current.ReadBaseObjectLink(target), "current.target_Base4E");
             ushort first = Known(current.ReadPersonFirstLocation(person), "current.PersonE2");
@@ -62,7 +62,7 @@ public static class PersonReturnArrivalSource
             if (!current.AppendPersonReturnTemporary(caller, person)) throw Unknown("branch.caller_Person_node_allocation");
             if (OfficerHealthRules.IsInjured(health))
             {
-                current.WriteArmyReturnPersonFlags196(person, (ushort)(flags | 1));
+                current.WriteArmyReturnPersonFlags196(person, OfficerBehaviorSourceAdapter.MarkReturn(flags));
                 order.Add("32B190.health161_flags15E_bit0");
             }
             //24E4C0's real one-node list has no next node: no comparator calls.

@@ -85,10 +85,9 @@ public static class OwnedArmyReturnCurrentFields
             people[person.Id] = person with
             {
                 LocationId = first == 0 ? null : first, DistrictId = district == 0 ? null : district, ForceId = forceId,
-                Role = current.ReadPersonStatus(physical) switch
-                { 1=>OfficerRole.Ruler,2=>OfficerRole.DistrictLeader,3=>OfficerRole.Governor,4=>OfficerRole.Officer,5=>OfficerRole.Free,_=>person.Role },
-                NativeAbilityRuntime = ability with { Status11E = current.ReadPersonStatus(physical),
-                    Flags196 = current.ReadOwnedReturnPersonFlags(physical) },
+                Role = OfficerServiceRules.PublishedRole(OfficerServiceStatusSourceAdapter.Decode(current.ReadPersonStatus(physical)), person.Role),
+                ServiceStatus = OfficerServiceStatusSourceAdapter.Decode(current.ReadPersonStatus(physical)),
+                Behavior = current.ReadPersonBehavior(physical),
                 Health = current.ReadOfficerHealth(person.Id),
                 NativeLocationRuntime = fields with { Second11C = current.ReadPersonSecondLocation(physical),
                     District118 = district },
@@ -139,7 +138,7 @@ public sealed partial class ArmyOperationContext
 
 public sealed partial class SourceWorldContext
 {
-    internal ushort? ReadOwnedReturnPersonFlags(int physical) => _persons.GetValueOrDefault(physical)?.Flags;
+    internal ushort? ReadOwnedReturnPersonFlags(int physical) => OfficerBehaviorSourceAdapter.EncodeFlags(_persons.GetValueOrDefault(physical)?.Behavior);
     internal void OverlayOwnedArmyReturnCurrentFields(GameState state)
     {
         BindArmyMapOccupancy(state);
@@ -153,8 +152,7 @@ public sealed partial class SourceWorldContext
             var location = person.NativeLocationRuntime;
             if (location?.District118 is byte district) SetPersonDistrictSlot(physical, district);
             var old = _persons[physical];
-            _persons[physical] = old with { Status = ability.Status11E, Flags = ability.Flags196,
-                Tail = ability.Extra1FD, Location = location?.Second11C };
+            _persons[physical] = old with { Status = OfficerServiceStatusSourceAdapter.Encode(person.ServiceStatus), Behavior = person.Behavior, Location = location?.Second11C };
             BindOfficerHealthSource(physical, person.Id, person.Health);
             OfficerTraitActivationSourceAdapter.Write(this, physical, person.TraitActivation);
         }
@@ -162,7 +160,7 @@ public sealed partial class SourceWorldContext
         //Their mutable fields are unknown until an independent current owner is
         //saved. Static scenario status/second/flags must not masquerade as current.
         foreach (int physical in _persons.Keys.Where(x => x != 0 && !ownedPeople.Contains(x)).ToArray())
-            _persons[physical] = _persons[physical] with { Status=null, Flags=null, Location=null };
+            _persons[physical] = _persons[physical] with { Status=null, Behavior=OfficerBehaviorSourceAdapter.WithSourceFlags(_persons[physical].Behavior, null), Location=null };
         foreach (var city in state.Cities.Values)
         {
             var target = new BaseReference(BaseKind.City,city.Id);

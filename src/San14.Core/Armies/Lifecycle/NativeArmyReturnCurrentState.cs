@@ -1,8 +1,8 @@
 namespace San14.Core;
 
 /// <summary>Current owned source-semantic location auxiliaries. Identity,
-/// status/flags stay in NativeAbilityRuntime; health has its independent
-/// OfficerState owner. Null is unresolved.</summary>
+/// flags stay in NativeAbilityRuntime; service and health have independent
+/// OfficerState owners. Null is unresolved.</summary>
 public sealed record NativePersonLocationRuntime(string Revision, ushort? Second11C)
 {
     //Native District0 means the actual free-Person owner. Core has no

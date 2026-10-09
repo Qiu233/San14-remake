@@ -197,8 +197,8 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                 //2F86F0 and returns1 BEFORE task/appointment/District custody
                 //callbacks. A real AI release can therefore close this early
                 //return without pretending that normal captivity has run.
-                ushort flags = Known(current.ReadArmyReturnPersonFlags196(commander), "captured_Person15E");
-                if ((flags & 0x4000) != 0)
+                bool ordinaryPerson = Known(OfficerBehaviorRules.UsesOrdinaryPersonRules(current.ReadPersonBehavior(commander)), "captured_Person15E");
+                if (!ordinaryPerson)
                     throw Missing("branch.2E0FC0_captured_Person_custody");
                 if (current.ReadPersonStatus(commander) == 1)
                 {

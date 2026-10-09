@@ -1,3 +1,4 @@
+using San14.Core;
 namespace San14.Data;
 
 public sealed record ArmyReturnCommanderHomeResolution(ArmyReturnCommanderHomePacket? Packet, string? UnresolvedOwner);
@@ -47,11 +48,11 @@ public static class ArmyReturnCommanderHomeUpdater
                 ?? throw Missing("current.Commander_lookup")).PhysicalSlot ?? throw Missing("current.Commander_pointer");
             if (!Get(context.ReadPersonNativeValidity(commander), "current.Commander_validity")) throw Missing("branch.invalid_commander");
             byte status = Get(context.ReadPersonStatus(commander), "current.Commander_statusE6");
-            ushort flags = Get(context.ReadArmyReturnPersonFlags196(commander), "current.Commander_flags15E");
+            bool ordinaryPerson = Get(OfficerBehaviorRules.UsesOrdinaryPersonRules(context.ReadPersonBehavior(commander)), "current.Commander_flags15E");
             ushort first = Get(context.ReadPersonFirstLocation(commander), "current.Commander_firstE2");
             ushort second = Get(context.ReadPersonSecondLocation(commander), "current.Commander_secondE4");
             ushort identity = Get(context.ReadPersonIdentity(commander), "current.Commander_id10");
-            if (status is < 1 or > 4 || (flags & 0x4000) != 0 || SpecialId(identity)) throw Missing("branch.nonordinary_commander");
+            if (status is < 1 or > 4 || !ordinaryPerson || SpecialId(identity)) throw Missing("branch.nonordinary_commander");
             if (!Get(context.ReadBaseNativeValidity(target), "current.target_Base_validity"))
                 throw Missing("branch.nonordinary_target_base");
             ushort location = Get(context.ReadBaseObjectLink(target), "current.target_Base_word4E");

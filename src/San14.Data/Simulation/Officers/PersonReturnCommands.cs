@@ -90,7 +90,7 @@ public static partial class PersonReturnCommands
                 throw Missing("personnel association registration");
             int startHex = Math.Clamp(Get(packet.Start.PhysicalSlot, "return starting hex"), 0, 48399);
             ushort flags = Get(current.ReadArmyReturnPersonFlags196(packet.PersonPhysical), "person return flags");
-            current.WriteArmyReturnPersonFlags196(packet.PersonPhysical, (ushort)(flags | 1));
+            current.WriteArmyReturnPersonFlags196(packet.PersonPhysical, OfficerBehaviorSourceAdapter.MarkReturn(flags));
             ushort area = Get(current.ReadHexAreaSlot(packet.Start), "return starting area");
             current.WritePersonSecondLocation(packet.PersonPhysical, area is >= 1 and <= 500 ? (ushort)(area + 561) : (ushort)0);
             var path = current.CreateNearbyTemporary();
@@ -119,7 +119,7 @@ public static partial class PersonReturnCommands
             var location = person.NativeLocationRuntime ?? throw Missing("person location");
             people[person.Id] = person with
             {
-                NativeAbilityRuntime = ability with { Flags196 = current.ReadArmyReturnPersonFlags196(ability.PhysicalSlot) },
+                Behavior = current.ReadPersonBehavior(ability.PhysicalSlot),
                 NativeLocationRuntime = location with { Second11C = current.ReadPersonSecondLocation(ability.PhysicalSlot) }
             };
         }

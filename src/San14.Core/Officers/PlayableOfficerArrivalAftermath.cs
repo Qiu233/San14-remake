@@ -53,10 +53,9 @@ public static class PlayableOfficerArrivalAftermath
                 current.Officers[officerId] = officer with
                 {
                     Role = role,
-                    // Core roles are not native byte encodings. A provisional
-                    // demotion invalidates only that independent status owner.
-                    NativeAbilityRuntime = officer.NativeAbilityRuntime is { } ability
-                        ? ability with { Status11E = null } : null
+                    // A provisional role change cannot establish an independent
+                    // service state. Preserve the remaining officer knowledge.
+                    ServiceStatus = null
                 };
             if (removed == 0 && role == officer.Role) continue;
             reports.Add(new(AssignmentsClearedReportKind, forceId,

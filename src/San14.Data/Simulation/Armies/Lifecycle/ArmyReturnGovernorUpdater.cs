@@ -1,3 +1,4 @@
+using San14.Core;
 namespace San14.Data;
 
 /// <summary>Only current comparator/getter fields absent from the shared
@@ -82,8 +83,8 @@ public static class ArmyReturnGovernorUpdater
                         int forceIndex = Get(context.ReadForcePhysicalSlot(force), "current.Force_virtual60");
                         if (forceIndex is < 46 or > 50) continue;
                     }
-                    ushort flags = Get(context.ReadArmyReturnPersonFlags196(physical), $"current.Person[{physical}].flags15E");
-                    if ((flags & 0x4000) == 0) candidates.Add(physical);
+                    bool ordinaryPerson = Get(OfficerBehaviorRules.UsesOrdinaryPersonRules(context.ReadPersonBehavior(physical)), $"current.Person[{physical}].flags15E");
+                    if (ordinaryPerson) candidates.Add(physical);
                 }
             }
             //24C840 moves only when254440(current,previous) is true.

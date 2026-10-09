@@ -140,7 +140,7 @@ public sealed class ArmyMapGroupingCurrentQueries : IArmyMapGroupingQueries
         if (Commander(physical)?.PhysicalSlot is not int at || _current.ReadPersonIdentity(at) is not ushort person ||
             !_world.Officers.TryGetValue(person, out var officer) || officer.NativeAbilityRuntime is not { } runtime)
             return null;
-        int? office = officer.OfficeId ?? runtime.Office11F;
+        int? office = OfficerAppointmentRules.ReadOfficeId(officer.Appointment);
         if (office is not >= 0 or > 255 || _source.Snapshot.RankParameters?.Offices is not { Count: 256 } rows) return null;
         if (office == 0) return 0;
         byte[] raw = Convert.FromHexString(rows[office.Value].RawBytesHex);

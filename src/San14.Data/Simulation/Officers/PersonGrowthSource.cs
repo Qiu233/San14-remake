@@ -78,7 +78,7 @@ public sealed partial class PersonGrowthSource
                 current.ReadPersonLookupReference(officer.Id)?.PhysicalSlot != owner.PhysicalSlot ||
                 current.ReadPersonIdentity(owner.PhysicalSlot) != officer.Id ||
                 current.ReadPersonNativeValidity(owner.PhysicalSlot) is not bool valid ||
-                owner.Status11E is not byte status || officer.BaseAbilities is not { } basic)
+                OfficerServiceStatusSourceAdapter.Encode(officer.ServiceStatus) is not byte status || officer.BaseAbilities is not { } basic)
                 throw new InvalidDataException("Fresh current growth has no complete current Person identity.");
             uint[]? xp = null;
             if (valid && status != 9)
@@ -92,7 +92,7 @@ public sealed partial class PersonGrowthSource
             //allocation establishes the known empty per-Person vector. The
             //separate complete fresh credit consumer owns pending merit later.
             officers[officer.Id] = officer with { NativeGrowthRuntime = new(ProfileId,
-                _source.ResourceUri, _source.Sha256, xp, null, []) };
+                _source.ResourceUri, _source.Sha256, xp, []) };
         }
         var hashes = new Dictionary<string, string>(state.ContentHashes) { [_source.ResourceUri] = _source.Sha256 };
         GameState result = state with { Officers = officers, ContentHashes = hashes };

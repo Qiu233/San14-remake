@@ -243,11 +243,9 @@ public sealed partial class CaptureReturningPersonHomeSource(ArmyCampaignRuleAda
         {
             int changedId = Need(current.ReadPersonIdentity(write.PersonPhysical), "current.Governor_PersonID");
             byte status = Need(current.ReadPersonStatus(write.PersonPhysical), "current.Governor_PersonE6");
-            var ability = people[changedId].NativeAbilityRuntime ?? throw Missing("current.Governor_Person_owner");
-            people[changedId] = people[changedId] with { Role = status switch
-                { 1 => OfficerRole.Ruler, 2 => OfficerRole.DistrictLeader, 3 => OfficerRole.Governor,
-                    4 => OfficerRole.Officer, 5 => OfficerRole.Free, _ => people[changedId].Role },
-                NativeAbilityRuntime = ability with { Status11E = status } };
+            people[changedId] = people[changedId] with { Role = OfficerServiceRules.PublishedRole(
+                    OfficerServiceStatusSourceAdapter.Decode(status), people[changedId].Role),
+                ServiceStatus = OfficerServiceStatusSourceAdapter.Decode(status) };
         }
         if (armyHome is not null)
             foreach (var write in armyHome.PrisonerHomeWrites)

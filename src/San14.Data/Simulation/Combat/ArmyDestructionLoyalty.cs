@@ -71,8 +71,7 @@ public static class ArmyDestructionLoyalty
             int penalty = nativeInt < 1 ? 0 : nativeInt;
             byte low = unchecked((byte)penalty); //Source takes BYTE of local int, not a255 clamp.
             byte after = unchecked((byte)Math.Clamp((int)raw - low, 0, 255));
-            ushort flags = Get(current.ReadArmyReturnPersonFlags196(personPhysical), "current.Person_flags15E");
-            bool strong = (flags & 0x2000) != 0;
+            bool strong = Get(OfficerBehaviorRules.PreservesMaximumLoyalty(current.ReadPersonBehavior(personPhysical)), "current.Person_flags15E");
             if (strong) after = 255;
             return new(new(current, personPhysical, raw, after, penalty, low,
                 strong ? "source.flags15E_bit13_output" : "source.numeric_E8", pool, preparedPool), null);

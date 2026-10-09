@@ -69,7 +69,7 @@ public sealed partial class CaptureReturningPersonHomeSource
         var location = officer.NativeLocationRuntime ?? throw Missing("current.idle_Home_Person_location_owner");
         return state with { Officers = new(state.Officers) { [officerId] = officer with
         {
-            NativeAbilityRuntime = ability with { Flags196 = Need(current.ReadArmyReturnPersonFlags196(person), "current.idle_Home_Person15E") },
+            Behavior = current.ReadPersonBehavior(person),
             NativeLocationRuntime = location with { Second11C = Need(current.ReadPersonSecondLocation(person), "current.idle_Home_PersonE4") }
         } } };
     }

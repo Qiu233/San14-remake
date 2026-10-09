@@ -29,7 +29,7 @@ public static class PersonArmyCaptureWholeSource
                 throw Missing("branch.original_TaskScene_capture_presentation");
             if (!Known(current.ReadPersonNativeValidity(personPhysical), "current.capture_Person_validity") ||
                 Known(current.ReadPersonStatus(personPhysical), "current.capture_PersonE6") is not (3 or 4) ||
-                (Known(current.ReadArmyReturnPersonFlags196(personPhysical), "current.capture_Person15E") & 0x4000) != 0)
+                !Known(OfficerBehaviorRules.UsesOrdinaryPersonRules(current.ReadPersonBehavior(personPhysical)), "current.capture_Person15E"))
                 throw Missing("branch.ordinary_status3_or4_capture_prefix");
             if (!Known(current.ReadArmyUnitNativeValidity(winnerArmy), "current.capture_winner_Army_validity"))
                 throw Missing("branch.capture_nonvalid_winner_Army");

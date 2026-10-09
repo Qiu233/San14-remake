@@ -201,7 +201,7 @@ public static class ArmyOrdinaryReturnRuntime
             void Marker(string step)
             {
                 ushort flags = Get(draft.ReadArmyReturnPersonFlags196(commander), "current.Commander_flags15E");
-                draft.WriteArmyReturnPersonFlags196(commander, (ushort)(flags | 1)); effects.Add(step);
+                draft.WriteArmyReturnPersonFlags196(commander, OfficerBehaviorSourceAdapter.MarkReturn(flags)); effects.Add(step);
             }
             int[] RegisteredPersons()
             {

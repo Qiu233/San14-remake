@@ -40,8 +40,8 @@ public static class PersonArmyCaptureCustodySource
             OfficerState person = Person(state, current, personPhysical);
             if (!Known(current.ReadPersonNativeValidity(personPhysical), "current.Person_native_validity"))
                 throw Missing("branch.invalid_Person");
-            ushort flags = Known(current.ReadArmyReturnPersonFlags196(personPhysical), "current.Person_flags15E");
-            if ((flags & 0x4000) != 0) throw Missing("branch.appendix_265250_or_status5_prefix");
+            bool ordinaryPerson = Known(OfficerBehaviorRules.UsesOrdinaryPersonRules(current.ReadPersonBehavior(personPhysical)), "current.Person_flags15E");
+            if (!ordinaryPerson) throw Missing("branch.appendix_265250_or_status5_prefix");
             byte status = Known(current.ReadPersonStatus(personPhysical), "current.Person_E6_after_prefix_callbacks");
             if (status == 1) throw Missing("branch.ruler_2F86F0_or_single_city_at_home_prefix");
             if (status is not (2 or 3 or 4)) throw Missing("branch.capture_prefix_requires_current_status2_or3_or4");
@@ -53,8 +53,8 @@ public static class PersonArmyCaptureCustodySource
             auxiliaries = auxiliaries with { Byte1A0 = 0 };
             current.WritePersonStatus(personPhysical, 6);
             current.SetPersonDestructionRuntimeFields(personPhysical, auxiliaries);
-            var updated = person with { OfficeId = 73,
-                NativeAbilityRuntime = person.NativeAbilityRuntime! with { Office11F = 73, Status11E = 6 },
+            var updated = person with { Appointment = OfficerAppointment.Synchronize(73),
+                ServiceStatus = OfficerServiceStatus.Captive,
                 NativeDestructionRuntime = auxiliaries };
             return new(state with { Officers = new(state.Officers) { [person.Id] = updated } },
                 new(personPhysical, (ushort)person.Id, status, district), null);
@@ -130,9 +130,8 @@ public static class PersonArmyCaptureCustodySource
         return state with { Officers = new(state.Officers) { [person.Id] = person with
         {
             LocationId = Known(current.ReadPersonFirstLocation(r.PersonPhysical), "current.Person_first_E2"),
-            OfficeId = 73,
-            NativeAbilityRuntime = person.NativeAbilityRuntime! with
-            { Office11F = 73, Status11E = Known(current.ReadPersonStatus(r.PersonPhysical), "current.Person_status_E6") },
+            Appointment = OfficerAppointment.Synchronize(73),
+            ServiceStatus = OfficerServiceStatusSourceAdapter.Decode(Known(current.ReadPersonStatus(r.PersonPhysical), "current.Person_status_E6")),
             NativeLocationRuntime = location with { Second11C = current.ReadPersonSecondLocation(r.PersonPhysical) },
             NativeDestructionRuntime = auxiliary
         } } };

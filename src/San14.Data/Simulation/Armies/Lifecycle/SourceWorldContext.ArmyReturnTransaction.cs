@@ -23,7 +23,7 @@ public sealed partial class SourceWorldContext
     {
         Check(person, 1851, "return person flags196");
         var old = _persons.GetValueOrDefault(person) ?? throw new InvalidDataException("Current return person fields are unknown.");
-        _persons[person] = old with { Flags = flags };
+        _persons[person] = old with { Behavior = OfficerBehaviorSourceAdapter.WithSourceFlags(old.Behavior, flags) };
     }
     //Mutable Home/trait/resource fields are already detached by HomeDraft.
     //These additional actual lookup/input windows let each source component

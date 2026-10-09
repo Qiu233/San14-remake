@@ -1,4 +1,5 @@
 using San14.Data.Formats;
+using San14.Core;
 
 namespace San14.Data;
 
@@ -16,13 +17,20 @@ public static class NativeValidity
     public static bool? Person(int physicalSlot, ushort? characterId, ushort? flags196,
         byte? tail1FD, byte? status11E)
     {
+        return PersonWithBehavior(physicalSlot, characterId,
+            OfficerBehaviorSourceAdapter.Decode(flags196, tail1FD), status11E);
+    }
+
+    public static bool? PersonWithBehavior(int physicalSlot, ushort? characterId,
+        OfficerBehavior? behavior, byte? serviceStatus)
+    {
         if (physicalSlot < 0) throw new InvalidDataException("Negative native person physical slot.");
         if (physicalSlot == 0) return false;
-        if (flags196 is not ushort flags) return null;
-        if ((flags & 0x4000) != 0) return tail1FD.HasValue ? tail1FD.Value != 0 : null;
+        if (behavior?.UsesSpecialPersonRules is not bool special) return null;
+        if (special) return OfficerBehaviorRules.SpecialPersonIsValid(behavior);
         if (characterId is not ushort id) return null;
         if (unchecked((ushort)(id - 5001)) <= 99) return true;
-        return status11E.HasValue ? status11E.Value != 0 : null;
+        return serviceStatus.HasValue ? serviceStatus.Value != 0 : null;
     }
 
     public static bool? District(int physicalSlot, byte? force10, byte? number11, ushort? leader12)

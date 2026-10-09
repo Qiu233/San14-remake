@@ -116,7 +116,7 @@ public sealed class ArmyReturnCaptivesSource(ArmyCampaignRuleAdapter package,
             //Source null571630 skips2441D0/573900. The final loop still runs.
             foreach (int person in people)
                 if (K(current.ReadPersonNativeValidity(person), "2F8F00 final Person validity"))
-                    current.WriteArmyReturnPersonFlags196(person, (ushort)(K(current.ReadArmyReturnPersonFlags196(person), "2F8F00 final15E") & 0xFFEF));
+                    current.WriteArmyReturnPersonFlags196(person, OfficerBehaviorSourceAdapter.FinishCaptiveProcessing(K(current.ReadArmyReturnPersonFlags196(person), "2F8F00 final15E")));
             return new(working, new(people, 1, merit, requirement, shortage), null);
         }
         catch (InvalidDataException error) { return new(null, null, error.Message); }
@@ -148,7 +148,7 @@ public sealed class ArmyReturnCaptivesSource(ArmyCampaignRuleAdapter package,
         if (!values.TryGetValue(OwnedArmyGovernorComparatorInputs.OfficeGuard36Key(selected), out int office) || office is < 0 or > 255)
             throw Missing("current.2B4DE0_Post36");
         int amount = unchecked(office * P(state, SimulationParameterKeys.ArmyDestruction.CaptiveGuardOfficeMultiplier));
-        if ((K(current.ReadArmyReturnPersonFlags196(person), "2B4DE0 Person15E") & 0x4000) != 0) amount = P(state, SimulationParameterKeys.ArmyDestruction.CaptiveGuardFlaggedAmount);
+        if (!K(OfficerBehaviorRules.UsesOrdinaryPersonRules(current.ReadPersonBehavior(person)), "2B4DE0 Person15E")) amount = P(state, SimulationParameterKeys.ArmyDestruction.CaptiveGuardFlaggedAmount);
         int effect = K(TacticRemakeCurrentTraits.CommanderEffectSum(current, person, 46), "2B4DE0 effect46");
         int trait = unchecked(P(state, SimulationParameterKeys.ArmyDestruction.CaptiveGuardTraitMultiplier) * effect);
         var force = current.ReadPersonForce(person) ?? throw Missing("2B4DE0 current PersonForce");

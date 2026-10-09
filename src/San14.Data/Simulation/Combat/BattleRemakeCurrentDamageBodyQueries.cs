@@ -59,18 +59,18 @@ public sealed class BattleRemakeCurrentDamageBodyQueries : IBattleRemakeCurrentD
             state.NativeArmySimulation?.Parameters is not { } parameters ||
             definitions.StaticSource is not { } source ||
             state.ContentHashes.GetValueOrDefault(source.ResourceUri) != source.Sha256 ||
-            state.Officers.GetValueOrDefault(target.OfficerId)?.NativeAbilityRuntime is not { } person ||
+            state.Officers.GetValueOrDefault(target.OfficerId) is not { } officer || officer.NativeAbilityRuntime is not { } person ||
             person.Revision != TacticRemakeCurrentAbilities.ProfileId ||
             person.Language != parameters.Language || person.RuleVersion != parameters.RuleVersion ||
             person.SourceScenarioUri != source.ResourceUri || person.SourceScenarioSha256 != source.Sha256 ||
             person.PhysicalSlot is < 1 or > 1850 ||
             definitions.ReadPersonLookupReference(target.OfficerId)?.PhysicalSlot != person.PhysicalSlot ||
             definitions.ReadPersonIdentity(person.PhysicalSlot) != target.OfficerId ||
-            person.Status11E is not byte status || person.Flags196 is not ushort flags || person.Extra1FD is not byte tail)
+            OfficerServiceStatusSourceAdapter.Encode(officer.ServiceStatus) is not byte status)
             return null;
-        bool valid = (flags & 0x4000) != 0 ? tail != 0 :
-            unchecked((uint)(target.OfficerId - 5001)) <= 99 || status != 0;
-        if (!valid) return false; //2AB540 returns a null personality receiver.
+        bool? valid = NativeValidity.PersonWithBehavior(person.PhysicalSlot, checked((ushort)officer.Id), officer.Behavior, status);
+        if (valid is null) return null;
+        if (!valid.Value) return false; //2AB540 returns a null personality receiver.
         return ReadFirstMatchingPermanentEffect(definitions, person.PhysicalSlot, 56);
     }
 

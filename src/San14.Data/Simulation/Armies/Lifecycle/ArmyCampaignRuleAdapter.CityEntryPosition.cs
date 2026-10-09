@@ -20,8 +20,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         bool? commanderValid = null;
         if (state.Officers.TryGetValue(army.OfficerId, out var person) && person.NativeAbilityRuntime is { } ability)
         {
-            commanderValid = NativeValidity.Person(ability.PhysicalSlot, checked((ushort)person.Id),
-                ability.Flags196, ability.Extra1FD, ability.Status11E);
+            commanderValid = NativeValidity.PersonWithBehavior(ability.PhysicalSlot, checked((ushort)person.Id),
+                person.Behavior, OfficerServiceStatusSourceAdapter.Encode(person.ServiceStatus));
             if (commanderValid == false) rawForce = 0;
             else if (commanderValid == true && person.NativeLocationRuntime?.District118 is byte districtId)
             {

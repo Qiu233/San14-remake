@@ -97,7 +97,7 @@ public sealed class PlayablePersonnelOrders(IOrderRules next, IPersonnelCommandR
         if (quote.LoyaltyDelta != 0 && target.Loyalty is null)
             return CommandResult.RuleUnavailable("personnel.loyalty", "Current loyalty is unresolved; effects cannot consume it as zero.");
         OfficerState changed = change.Kind == PersonnelActionKind.SetOffice
-            ? target with { OfficeId = change.NextOfficeId } : target;
+            ? target with { Appointment = target.Appointment.Assign(change.NextOfficeId) } : target;
         int actualLoyalty = quote.LoyaltyDelta == 0 ? 0 :
             Math.Clamp(checked(target.Loyalty!.Value + quote.LoyaltyDelta), 0, 100) - target.Loyalty.Value;
         if (quote.LoyaltyDelta != 0) changed = changed with { Loyalty = target.Loyalty!.Value + actualLoyalty };

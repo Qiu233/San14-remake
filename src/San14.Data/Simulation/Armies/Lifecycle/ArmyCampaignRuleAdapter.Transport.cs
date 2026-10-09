@@ -15,7 +15,8 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportCreation
         if (projection.Mission?.Kind != UnitMissionKind.Transport || state.NativeClock is not { } clock ||
             state.NativeArmyLifecycle is not { } arena ||
             !state.Officers.TryGetValue(order.OfficerId, out var person) || person.Deployed ||
-            person.NativeAbilityRuntime is not { Flags196: ushort flags } ability ||
+            OfficerBehaviorSourceAdapter.EncodeFlags(person.Behavior) is not ushort flags ||
+            person.NativeAbilityRuntime is not { } ability ||
             person.NativeLocationRuntime is not { } location || state.Units.ContainsKey(projection.Id)) return null;
         try
         {
@@ -68,7 +69,7 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportCreation
                 Cities = new(state.Cities) { [source.Id] = source with
                     { Troops = stocks.TroopsAfter, Gold = stocks.GoldAfter, Supplies = stocks.SuppliesAfter } },
                 Officers = new(state.Officers) { [person.Id] = person with { Deployed = true,
-                    NativeAbilityRuntime = ability with { Flags196 = (ushort)(flags | 1) },
+                    Behavior = OfficerBehaviorSourceAdapter.WithSourceFlags(person.Behavior, OfficerBehaviorSourceAdapter.MarkReturn(flags)),
                     NativeLocationRuntime = location with { Second11C = fields.CommanderSecondE4 } } },
                 Districts = new(state.Districts) { [districtId] = district with
                     { OrdersRemaining = Math.Clamp(unchecked(remaining - commandCost.Value), 0, 200) } },

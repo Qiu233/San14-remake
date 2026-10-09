@@ -205,8 +205,8 @@ public static class BattleRemakeCurrentForcePolicies
             if (operationCurrent is not null && operationCurrent.ReadPersonIdentity(personPhysical) != person.Id)
                 return false;
             bool? valid = operationCurrent is null
-                ? NativeValidity.Person(personPhysical, checked((ushort)person.Id),
-                    runtime.Flags196, runtime.Extra1FD, runtime.Status11E)
+                ? NativeValidity.PersonWithBehavior(personPhysical, checked((ushort)person.Id),
+                    person.Behavior, OfficerServiceStatusSourceAdapter.Encode(person.ServiceStatus))
                 : operationCurrent.ReadPersonNativeValidity(personPhysical);
             if (valid is null) return false;
             if (!valid.Value) return true;
@@ -232,13 +232,11 @@ public static class BattleRemakeCurrentForcePolicies
             //fields also make every remaining body path return0, without
             //guessing the unconsumed world/UI mode or static reward choices.
             bool zeroKind3 = operationCurrent is null
-                ? runtime.Status11E == 1 || (runtime.Flags196!.Value & 0x4000) != 0 ||
-                    runtime.Secondary1F4 == 0 || person.NativeCreditRuntime is
-                        { FirstRewardCount1FA: 0, SecondRewardCount1FB: 0 }
+                ? person.ServiceStatus == OfficerServiceStatus.Ruler || person.Behavior?.UsesSpecialPersonRules == true ||
+                    person.MeritState?.RankStageId == 0 || OfficerMeritRules.HasNoSelections(person.MeritState)
                 : operationCurrent.ReadPersonStatus(personPhysical) == 1 ||
-                    operationCurrent.ReadArmyReturnPersonFlags196(personPhysical) is ushort flags && (flags & 0x4000) != 0 ||
-                    unwrittenFreedomCredit && (runtime.Secondary1F4 == 0 || person.NativeCreditRuntime is
-                        { FirstRewardCount1FA: 0, SecondRewardCount1FB: 0 });
+                    operationCurrent.ReadPersonBehavior(personPhysical)?.UsesSpecialPersonRules == true ||
+                    unwrittenFreedomCredit && (person.MeritState?.RankStageId == 0 || OfficerMeritRules.HasNoSelections(person.MeritState));
             if (!zeroKind3 || ReadByte(PersonFieldKey(personId, 0x1BA)) is not byte basic || person.PolicyBaseCost != basic)
                 return false;
             int contribution = Math.Min((int)basic, 10);

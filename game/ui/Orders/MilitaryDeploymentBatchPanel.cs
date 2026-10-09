@@ -1,5 +1,6 @@
 using Godot;
 using San14.Core;
+using San14.Client.Gameplay;
 using System.Globalization;
 
 /// <summary>Local composition only. A single prepared batch reaches GameEngine
@@ -23,11 +24,7 @@ public partial class MilitaryDeploymentBatchPanel : VBoxContainer
     private Func<DeploymentAction, DeploymentUnitRequest?>? _capture;
     private Func<string?>? _constructionKind;
     private Func<PrepareDeploymentOrder, bool>? _issue;
-    private GameState? _world;
-    private int? _selectedHex;
-    private string? _scenario;
-    private int? _period;
-    private bool _strategy;
+    private DeploymentBatchView _view = DeploymentBatchView.Empty;
 
     public MilitaryDeploymentBatchPanel()
     {
@@ -81,17 +78,11 @@ public partial class MilitaryDeploymentBatchPanel : VBoxContainer
 
     public void Refresh(GameState? world, int? forceId, int? cityId, int? selectedHex)
     {
-        if (_scenario != world?.ScenarioKey || _period != world?.PeriodNumber || world?.Phase != TurnPhase.Strategy)
+        DeploymentBatchView next = DeploymentBatchView.Create(world, forceId, cityId, selectedHex);
+        if (_view.ScenarioKey != next.ScenarioKey || _view.PeriodNumber != next.PeriodNumber || !next.InStrategyPhase)
             _draft.Clear();
-        _world = world; _scenario = world?.ScenarioKey; _period = world?.PeriodNumber; _selectedHex = selectedHex;
+        _view = next;
         _draft.BindSource(forceId, cityId);
-        _strategy = world is { RulesetId: PlayableSkeleton.RulesetId, Phase: TurnPhase.Strategy } && forceId is int force &&
-            world.Forces.TryGetValue(force, out ForceState? owner) && owner.IsActive &&
-            PlayableOutcome.Evaluate(world, force) == PlayableResult.Ongoing && cityId is int id &&
-            (world.Cities.TryGetValue(id, out CityState? city) ? city.ForceId == force &&
-                city.DistrictId is int district && world.Districts[district].Number == 1 :
-                world.Gates.TryGetValue(id, out GateState? gate) && gate.ForceId == force &&
-                gate.DistrictId is int gateDistrict && world.Districts[gateDistrict].Number == 1);
         RefreshTargets(); RenderDraft();
     }
 
@@ -102,13 +93,13 @@ public partial class MilitaryDeploymentBatchPanel : VBoxContainer
     private string ActionKey => ActionKeys[_action.GetSelectedId()];
     private DeploymentAction? ResolveAction()
     {
-        if (!_strategy || _world is not { } world) return null;
+        if (!_view.CanCompose) return null;
         string key = ActionKey;
         if (key is "attack" or "enter")
             return _target.Selected >= 0 && _target.Selected < _targets.Count ? new(key, _targets[_target.Selected].Target) : null;
-        if (_selectedHex is not int hex || hex < 0 || hex >= checked(world.MapWidth * world.MapHeight)) return null;
+        if (_view.ActionHex is not int hex) return null;
         if (key == "occupy")
-            return world.Territory.GetValueOrDefault(hex)?.AreaId is int area ? new(key, new(DeploymentTargetKind.Area, area)) : null;
+            return _view.OccupationAreaId is int area ? new(key, new(DeploymentTargetKind.Area, area)) : null;
         if (key == "build")
             return _constructionKind?.Invoke() is { } kind ? new(key, new(DeploymentTargetKind.Hex, hex), kind) : null;
         return new(key, new(DeploymentTargetKind.Hex, hex));
@@ -120,28 +111,21 @@ public partial class MilitaryDeploymentBatchPanel : VBoxContainer
         _target.Clear(); _targets.Clear();
         string key = ActionKey;
         _target.Visible = key is "attack" or "enter";
-        if (_world is not { } world || _draft.ForceId is not int force || !_target.Visible) return;
-        if (key == "attack")
-            foreach (UnitState unit in world.Units.Values.Where(unit => PlayableDiplomacy.IsHostile(world, force, unit.ForceId)).OrderBy(unit => unit.Id))
-                Add(new(DeploymentTargetKind.Unit, unit.Id), unit.HexId,
-                    Format("play_military_target_unit", world.Officers.GetValueOrDefault(unit.OfficerId)?.Name ?? unit.OfficerId.ToString(), unit.Id));
-        foreach (CityState city in world.Cities.Values.OrderBy(city => city.Id)) AddLocation(city.Id, city.HexId, city.ForceId, city.Name);
-        foreach (GateState gate in world.Gates.Values.OrderBy(gate => gate.Id)) AddLocation(gate.Id, gate.HexId, gate.ForceId, gate.Name);
+        if (_draft.ForceId is null || !_target.Visible) return;
+        foreach (DeploymentTargetChoice choice in key == "attack" ? _view.AttackTargets : _view.EntryTargets)
+        {
+            string name = Format(choice.Target.Kind == DeploymentTargetKind.Unit ? "play_military_target_unit" : "play_military_target_location",
+                choice.Name, choice.Target.Id);
+            _targets.Add((choice.Target, choice.HexId, name)); _target.AddItem(name, choice.Target.Id);
+        }
         int index = _targets.FindIndex(item => item.Target == previous);
-        if (_selectedHex is int selected)
+        if (_view.SelectedHex is int selected)
         {
             int mapIndex = _targets.FindIndex(item => item.HexId == selected);
             if (mapIndex >= 0 && (index < 0 || _targets[index].HexId != selected)) index = mapIndex;
         }
         if (index >= 0) _target.Select(index);
 
-        void AddLocation(int id, int? hex, int? owner, string name)
-        {
-            if (hex is int locationHex && (key == "enter" ? owner == force : PlayableDiplomacy.IsHostile(world, force, owner)))
-                Add(new(DeploymentTargetKind.Location, id), locationHex, Format("play_military_target_location", name, id));
-        }
-        void Add(DeploymentTarget target, int hex, string name)
-        { _targets.Add((target, hex, name)); _target.AddItem(name, target.Id); }
     }
 
     private void RenderDraft()
@@ -149,27 +133,21 @@ public partial class MilitaryDeploymentBatchPanel : VBoxContainer
         _units.Clear();
         foreach (DeploymentUnitRequest unit in _draft.Snapshot())
         {
-            string officer = _world?.Officers.GetValueOrDefault(unit.OfficerId)?.Name ?? unit.OfficerId.ToString();
-            string formation = _world?.Formations.GetValueOrDefault(unit.FormationId)?.Name ?? unit.FormationId.ToString();
+            string officer = _view.OfficerName(unit.OfficerId);
+            string formation = _view.FormationName(unit.FormationId);
             DeploymentAction action = unit.Actions.Single();
             _units.AddItem(Format("play_deployment_batch_unit", officer, formation, unit.Troops,
                 _text?.Invoke("play_military_action_" + action.ActionKey) ?? action.ActionKey, action.Target.Id));
             int index = _units.ItemCount - 1; _units.SetItemMetadata(index, unit.OfficerId);
             _units.SetItemTooltip(index, Format("play_deployment_batch_configuration", string.Join(", ", unit.TacticIds.Select(id =>
-                _world?.Tactics.GetValueOrDefault(id)?.Name ?? id.ToString())),
+                _view.TacticName(id))),
                 string.Join(" → ", unit.WaypointHexIds), Setting(unit.Behavior?.AttackNearbyEnemies), Setting(unit.Behavior?.AllowRetreat),
                 Setting(unit.Behavior?.PursueRetreatingEnemies), _text?.Invoke(unit.Behavior?.AfterAction == DeploymentAfterAction.Retreat
                     ? "play_military_retreat" : "play_military_stay")));
         }
         string troops = "", books = _text?.Invoke("detail_unknown") ?? "";
-        if (_world is { } world && _draft.SourceLocationId is int source)
-        {
-            CityState? city = world.Cities.GetValueOrDefault(source); GateState? gate = world.Gates.GetValueOrDefault(source);
-            if (city is not null || gate is not null)
-                troops = ((city?.Troops ?? gate!.Troops) - DeploymentAvailability.ReservedTroops(world, source) - _draft.Troops).ToString(CultureInfo.InvariantCulture);
-            if ((city?.DistrictId ?? gate?.DistrictId) is int district && world.Districts[district].OrdersRemaining is int remaining)
-                books = (remaining - CommandBookAvailability.Reserved(world, district) - _draft.Count).ToString(CultureInfo.InvariantCulture);
-        }
+        if (_view.AvailableTroops is long remainingTroops) troops = (remainingTroops - _draft.Troops).ToString(CultureInfo.InvariantCulture);
+        if (_view.AvailableBooks is long remainingBooks) books = (remainingBooks - _draft.Count).ToString(CultureInfo.InvariantCulture);
         _summary.Text = Format("play_deployment_batch_summary", _draft.Count, DeploymentCommandRules.MaximumUnitsPerBatch, _draft.Troops, troops, books);
         SetMeta("deployment_draft_count", _draft.Count); SetMeta("deployment_draft_troops", _draft.Troops);
         UpdateEnabled();
@@ -177,13 +155,13 @@ public partial class MilitaryDeploymentBatchPanel : VBoxContainer
 
     private void UpdateEnabled()
     {
-        _action.Disabled = !_strategy; _target.Disabled = !_strategy || _target.ItemCount == 0;
+        _action.Disabled = !_view.CanCompose; _target.Disabled = !_view.CanCompose || _target.ItemCount == 0;
         DeploymentAction? action = ResolveAction();
         DeploymentUnitRequest? request = action is null ? null : _capture?.Invoke(action);
-        _add.Disabled = !_strategy || request is null || _draft.Count >= DeploymentCommandRules.MaximumUnitsPerBatch &&
+        _add.Disabled = !_view.CanCompose || request is null || _draft.Count >= DeploymentCommandRules.MaximumUnitsPerBatch &&
             !_draft.ContainsOfficer(request.OfficerId);
-        _remove.Disabled = !_strategy || _units.GetSelectedItems().Length == 0;
-        _clear.Disabled = _draft.Count == 0; _submit.Disabled = !_strategy || _draft.Count == 0;
+        _remove.Disabled = !_view.CanCompose || _units.GetSelectedItems().Length == 0;
+        _clear.Disabled = _draft.Count == 0; _submit.Disabled = !_view.CanCompose || _draft.Count == 0;
     }
     private string Format(string key, params object?[] args) => _text is null ? "" :
         string.Format(CultureInfo.InvariantCulture, _text(key), args);

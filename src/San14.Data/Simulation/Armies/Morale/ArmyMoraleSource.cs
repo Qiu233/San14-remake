@@ -138,8 +138,8 @@ public sealed class ArmyMoraleSource
             person.SourceScenarioUri!=source.ResourceUri||person.SourceScenarioSha256!=source.Sha256||
             person.PhysicalSlot is <1 or >1850||definitions.ReadPersonLookupReference(army.OfficerId)?.PhysicalSlot!=person.PhysicalSlot||
             definitions.ReadPersonIdentity(person.PhysicalSlot)!=army.OfficerId||
-            person.Status11E is not byte status||person.Flags196 is not ushort flags||person.Extra1FD is not byte tail)return null;
-        return (flags&0x4000)!=0?tail!=0:unchecked((uint)(army.OfficerId-5001))<=99||status!=0;
+            OfficerServiceStatusSourceAdapter.Encode(officer.ServiceStatus) is not byte status)return null;
+        return NativeValidity.PersonWithBehavior(person.PhysicalSlot, checked((ushort)officer.Id), officer.Behavior, status);
     }
 
     private ArmyMoraleSourceEpoch? Epoch(GameState state,UnitState army,bool existing)

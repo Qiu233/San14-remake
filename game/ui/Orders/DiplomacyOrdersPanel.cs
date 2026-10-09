@@ -1,5 +1,6 @@
 using Godot;
 using San14.Core;
+using San14.Client.Gameplay;
 using System.Globalization;
 
 /// <summary>Diplomatic selections and current state; command eligibility is decided by the shared core.</summary>
@@ -23,9 +24,7 @@ public partial class DiplomacyOrdersPanel : VBoxContainer
     private readonly Button _request = new() { Name = "DiplomacyRequestAttack" };
     private Func<string, string>? _text;
     private Action<GameOrder>? _submit;
-    private GameState? _world;
-    private int? _player;
-    private int? _city;
+    private DiplomacyCommandView _view = DiplomacyCommandView.Empty;
 
     public DiplomacyOrdersPanel()
     {
@@ -68,30 +67,19 @@ public partial class DiplomacyOrdersPanel : VBoxContainer
 
     public void Refresh(GameState? world, int? playerForceId, int? sourceCityId)
     {
-        _world = world; _player = playerForceId; _city = sourceCityId;
+        _view = DiplomacyCommandView.Create(world, playerForceId, sourceCityId);
         int oldExecutor = Selected(_executor), oldForce = Selected(_force), oldTarget = Selected(_target);
         _executor.Clear(); _force.Clear(); _target.Clear();
-        if (world is not null && playerForceId is int player && sourceCityId is int city &&
-            world.Cities.TryGetValue(city, out CityState? source) && source.ForceId == player)
-        {
-            // Lists describe currently selected objects. Busy-task, relationship,
-            // price and mission rules remain exclusively in GameEngine.Apply.
-            foreach (OfficerState officer in world.Officers.Values.Where(officer =>
-                         officer.ForceId == player && officer.LocationId == city &&
-                         officer.Presence == OfficerPresence.Present && !officer.Deployed).OrderBy(officer => officer.Id))
-                _executor.AddItem(officer.Name, officer.Id);
-            foreach (ForceState force in world.Forces.Values.Where(force => force.Id != player && force.IsActive).OrderBy(force => force.Id))
-                _force.AddItem(force.Name, force.Id);
-            foreach (CityState target in world.Cities.Values.Where(target => target.ForceId is not null && target.ForceId != player).OrderBy(target => target.Id))
-                _target.AddItem(target.Name, target.Id);
-        }
+        foreach (NamedCommandChoice officer in _view.Executors) _executor.AddItem(officer.Name, officer.Id);
+        foreach (DiplomaticForceChoice force in _view.Forces) _force.AddItem(force.Name, force.Id);
+        foreach (NamedCommandChoice target in _view.TargetCities) _target.AddItem(target.Name, target.Id);
         Restore(_executor, oldExecutor); Restore(_force, oldForce); Restore(_target, oldTarget);
         RefreshStatus();
     }
 
     private void Submit(DiplomaticMissionKind kind)
     {
-        if (_world?.Phase != TurnPhase.Strategy || _player is not int player || _city is not int city ||
+        if (!_view.InStrategyPhase || _view.PlayerForceId is not int player || _view.SourceCityId is not int city ||
             _executor.Selected < 0 || _force.Selected < 0 || kind == DiplomaticMissionKind.RequestAttack && _target.Selected < 0) return;
         _submit?.Invoke(new PrepareDiplomaticOrder(player, city, _executor.GetSelectedId(), _force.GetSelectedId(),
             kind, (int)_months.Value, kind == DiplomaticMissionKind.RequestAttack ? _target.GetSelectedId() : null));
@@ -99,32 +87,32 @@ public partial class DiplomacyOrdersPanel : VBoxContainer
 
     private void RefreshStatus()
     {
-        bool ready = _world is { Phase: TurnPhase.Strategy, Diplomacy: not null } && _player is not null && _city is not null &&
+        bool ready = _view.InStrategyPhase && _view.DiplomacyKnown && _view.PlayerForceId is not null && _view.SourceCityId is not null &&
             _force.Selected >= 0 && _executor.Selected >= 0;
         _goodwill.Disabled = !ready; _alliance.Disabled = !ready;
         _cancel.Disabled = !ready; _request.Disabled = !ready || _target.Selected < 0;
-        _executor.Disabled = !ready && _executor.ItemCount == 0 || _world?.Phase != TurnPhase.Strategy;
-        _force.Disabled = !ready && _force.ItemCount == 0 || _world?.Phase != TurnPhase.Strategy;
-        _target.Disabled = _world?.Phase != TurnPhase.Strategy || _target.ItemCount == 0;
-        _months.Editable = _world?.Phase == TurnPhase.Strategy;
+        _executor.Disabled = !ready && _executor.ItemCount == 0 || !_view.InStrategyPhase;
+        _force.Disabled = !ready && _force.ItemCount == 0 || !_view.InStrategyPhase;
+        _target.Disabled = !_view.InStrategyPhase || _target.ItemCount == 0;
+        _months.Editable = _view.InStrategyPhase;
         if (_text is null) return;
-        if (_world?.Diplomacy is not { } diplomacy || _player is not int player)
+        if (!_view.DiplomacyKnown || _view.PlayerForceId is null)
         {
             _status.Text = _text("play_diplomacy_unknown");
             _pending.Text = "";
             return;
         }
         int target = Selected(_force);
-        string relationship = target >= 0 && PlayableDiplomacy.TryGetRelation(_world, player, target, out DiplomaticRelation relation)
+        DiplomaticForceChoice? selected = _view.FindForce(target);
+        string relationship = selected?.Relation is DiplomaticRelation relation
             ? _text("play_diplomacy_relation_" + relation.ToString().ToLowerInvariant()) : _text("detail_unknown");
         string treaty = _text("play_diplomacy_no_treaty");
-        if (target >= 0 && diplomacy.Treaties.TryGetValue(PlayableDiplomacy.PairKey(player, target), out DiplomaticTreaty? current))
-            treaty = Format(current.Kind == DiplomaticTreatyKind.Alliance ? "play_diplomacy_treaty_alliance" : "play_diplomacy_treaty_truce",
-                Math.Max(0, current.ExpiresPeriod - _world.PeriodNumber));
+        if (selected?.TreatyKind is DiplomaticTreatyKind kind)
+            treaty = Format(kind == DiplomaticTreatyKind.Alliance ? "play_diplomacy_treaty_alliance" : "play_diplomacy_treaty_truce",
+                selected.TreatyRemainingPeriods!.Value);
         _status.Text = Format("play_diplomacy_relation_status", relationship, treaty);
-        _pending.Text = Format("play_diplomacy_pending", diplomacy.Missions.Values.Count(mission => mission.ForceId == player),
-            diplomacy.AttackRequests.Values.Count(request => request.RequestingForceId == player || request.RequestedForceId == player));
-        SetMeta("diplomacy_pending_missions", diplomacy.Missions.Values.Count(mission => mission.ForceId == player));
+        _pending.Text = Format("play_diplomacy_pending", _view.PendingMissions, _view.AttackRequests);
+        SetMeta("diplomacy_pending_missions", _view.PendingMissions);
         SetMeta("diplomacy_selected_target_force", target);
     }
 

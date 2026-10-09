@@ -26,17 +26,17 @@ public sealed class PlayableLastCityPersonnelSettlement(ArmyCampaignRuleAdapter 
             var actor = working.Officers[before.Id];
             bool busy = PlayableOfficerAvailability.IsSourceBusy(working, actor);
             var result = actor.Deployed
-                ? actor.NativeAbilityRuntime?.Status11E switch
+                ? actor.ServiceStatus?.KindId switch
                 {
-                    3 => freedom.TryApplyDeployedGovernor(working, actor.Id, beforeCaptureCity),
-                    4 => freedom.TryApplyDeployedResident(working, actor.Id, beforeCaptureCity),
+                    OfficerServiceKinds.Governor => freedom.TryApplyDeployedGovernor(working, actor.Id, beforeCaptureCity),
+                    OfficerServiceKinds.ServingOfficer => freedom.TryApplyDeployedResident(working, actor.Id, beforeCaptureCity),
                     _ => freedom.TryApplyDeployedRuler(working, actor.Id, beforeCaptureCity)
                 }
-                : actor.NativeAbilityRuntime?.Status11E switch
+                : actor.ServiceStatus?.KindId switch
                 {
-                    1 => busy ? freedom.TryApplyReturning(working, actor.Id, beforeCaptureCity)
+                    OfficerServiceKinds.Ruler => busy ? freedom.TryApplyReturning(working, actor.Id, beforeCaptureCity)
                         : freedom.TryApplyRulerResident(working, actor.Id, beforeCaptureCity),
-                    3 => busy ? freedom.TryApplyReturningGovernor(working, actor.Id, beforeCaptureCity)
+                    OfficerServiceKinds.Governor => busy ? freedom.TryApplyReturningGovernor(working, actor.Id, beforeCaptureCity)
                         : freedom.TryApplyGovernorResident(working, actor.Id, beforeCaptureCity),
                     _ => freedom.TryApplyResident(working, actor.Id, beforeCaptureCity)
                 };

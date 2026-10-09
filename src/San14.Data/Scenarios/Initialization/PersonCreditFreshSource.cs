@@ -20,8 +20,8 @@ public static class PersonCreditFreshSource
             state.ContentHashes.GetValueOrDefault(source.ScenarioSource.ResourceUri) != source.ScenarioSource.Sha256 ||
             state.ContentHashes.GetValueOrDefault(source.FixedDataSource.ResourceUri) != source.FixedDataSource.Sha256 ||
             source.Snapshot.CreditRankParameters is not { FormatMarker: 0x66, Ranks.Count: 7 } ranks ||
-            state.Officers.Values.Any(person => person.NativeCreditRuntime is not null ||
-                person.NativeGrowthRuntime is not { PendingMerit1F8: null }))
+            state.Officers.Values.Any(person => person.MeritState is not { Merit: null, PendingMerit: null, FirstSelectionCount: null,
+                    SecondSelectionCount: null, ResetCode: null }))
             throw new InvalidDataException("Fresh credit cannot replace a saved or incomplete CE Person owner.");
 
         //Current ordinary settings are explicit saved writers. The earlier
@@ -37,7 +37,7 @@ public static class PersonCreditFreshSource
         var officers = new Dictionary<int, OfficerState>(state.Officers);
         foreach (OfficerState person in state.Officers.Values)
         {
-            if (person.NativeAbilityRuntime is not { } ability || person.NativeGrowthRuntime is not { } growth ||
+            if (person.NativeAbilityRuntime is not { } ability ||
                 ability.Revision != TacticRemakeCurrentAbilities.ProfileId ||
                 ability.Language != parameters.Language || ability.RuleVersion != parameters.RuleVersion ||
                 ability.SourceScenarioUri != source.ScenarioSource.ResourceUri || ability.SourceScenarioSha256 != source.ScenarioSource.Sha256 ||
@@ -46,15 +46,15 @@ public static class PersonCreditFreshSource
                 current.ReadPersonIdentity(ability.PhysicalSlot) != person.Id)
                 throw new InvalidDataException("Fresh credit has no complete current Person identity.");
 
-            NativePersonCreditRuntime credit = new(ProfileId, null, null, null, null);
+            OfficerMeritState credit = new(null, null, person.MeritState!.RankStageId, null, null, null);
             CreditState? after = null;
             CharacterPreviewRecord row = source.Snapshot.Characters[ability.PhysicalSlot];
             if (prefixKnown && row.CharacterId == person.Id && row.CreditReference is { } appendix &&
-                AppendixMatches(appendix) && ability.Status11E == row.StatusCode && ability.Flags196 == appendix.RawFlagsWord &&
-                ability.Secondary1F4 == appendix.RawStageCode && ability.Extra1FD == appendix.RawTailCode &&
-                current.ReadPersonStatus(ability.PhysicalSlot) == ability.Status11E &&
+                AppendixMatches(appendix) && OfficerServiceStatusSourceAdapter.Encode(person.ServiceStatus) == row.StatusCode && OfficerBehaviorSourceAdapter.EncodeFlags(person.Behavior) == appendix.RawFlagsWord &&
+                OfficerMeritSourceAdapter.EncodeStage(person.MeritState) == appendix.RawStageCode && OfficerBehaviorSourceAdapter.EncodeMarker(person.Behavior) == appendix.RawTailCode &&
+                current.ReadPersonStatus(ability.PhysicalSlot) == OfficerServiceStatusSourceAdapter.Encode(person.ServiceStatus) &&
                 current.ReadPhysicalPerson(ability.PhysicalSlot) is { } captured &&
-                captured.RawFlags196 == ability.Flags196 && captured.RawFlag1FD == ability.Extra1FD &&
+                captured.RawFlags196 == OfficerBehaviorSourceAdapter.EncodeFlags(person.Behavior) && captured.RawFlag1FD == OfficerBehaviorSourceAdapter.EncodeMarker(person.Behavior) &&
                 Eligibility(person, ability, current) is bool eligible)
             {
                 //226720/226480 clears dword1FC on fresh allocation. The nine
@@ -62,14 +62,13 @@ public static class PersonCreditFreshSource
                 var before = CreditInitialization.ReadSource(appendix, 0);
                 after = CreditInitialization.Apply(before, eligible, row.StatusCode,
                     new(meritChoice == 0, surrenderChoice == 0), ranks);
-                credit = new(ProfileId, after.Merit, after.FirstSelectionCount, after.SecondSelectionCount, after.RawResetCode);
+                credit = OfficerMeritSourceAdapter.Decode(after.Merit, after.RawValue1, after.Stage,
+                    after.FirstSelectionCount, after.SecondSelectionCount, after.RawResetCode);
             }
             officers[person.Id] = person with
             {
-                NativeCreditRuntime = credit,
-                NativeGrowthRuntime = growth with { PendingMerit1F8 = after?.RawValue1 },
-                NativeAbilityRuntime = after is null ? ability : ability with
-                    { Secondary1F4 = after.Stage, Extra1FD = after.RawTailCode }
+                MeritState = credit,
+                Behavior = after is null ? person.Behavior : person.Behavior!.WithSpecialValidityMarker(after.RawTailCode)
             };
         }
         GameState result = state with { Officers = officers };
@@ -80,7 +79,7 @@ public static class PersonCreditFreshSource
         SourceWorldContext current)
     {
         if (current.ReadPersonNativeValidity(ability.PhysicalSlot) is not bool valid ||
-            ability.Status11E is not byte status || ability.Flags196 is not ushort flags) return null;
+            OfficerServiceStatusSourceAdapter.Encode(person.ServiceStatus) is not byte status || OfficerBehaviorSourceAdapter.EncodeFlags(person.Behavior) is not ushort flags) return null;
         if (!valid || status == 1) return false;
         bool band = new[] { 4111, 4131, 4151, 4171, 4191 }
             .Any(start => unchecked((uint)(person.Id - start)) <= 9);
@@ -92,7 +91,7 @@ public static class PersonCreditFreshSource
             if (current.ReadPersonFirstLocation(ability.PhysicalSlot) is not ushort location) return null;
             if (location is >= 1 and <= 61 && physical is not (>= 46 and <= 50)) return false;
         }
-        if (physical is >= 46 and <= 50 || (flags & 0x4000) != 0) return false;
+        if (physical is >= 46 and <= 50 || OfficerBehaviorRules.UsesOrdinaryPersonRules(person.Behavior) == false) return false;
         return true;
     }
 

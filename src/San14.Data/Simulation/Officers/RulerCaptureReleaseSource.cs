@@ -34,7 +34,7 @@ public static class RulerCaptureReleaseSource
             var ruler = rulerId <= 6000 ? current.ReadPersonLookupReference(rulerId) : current.ReadTransferPersonTableReference(0);
             rulerPhysical = ruler?.PhysicalSlot ?? throw Missing("current.Lord_winner_ruler_ID_lookup");
             if (Player(state, current, winnerForce)) return Done(RulerCaptureDecision.PlayerDecisionRequired, "player_806D00");
-            if ((K(current.ReadArmyReturnPersonFlags196(personPhysical), "current.Lord_flags15E") & 0x200) != 0)
+            if (K(OfficerBehaviorRules.MustReleaseAfterAiCapture(current.ReadPersonBehavior(personPhysical)), "current.Lord_flags15E"))
                 return Done(RulerCaptureDecision.Release, "Lord_flags15E_bit9");
             firstSample = Draw(1);
             short ownTendency = W(personPhysical, 0x17A);
@@ -175,7 +175,7 @@ public static class RulerCaptureReleaseSource
                     officer.NativeLocationRuntime is not { } location || image.NativeArmyLifecycle is not { } arena)
                     throw Missing("current.Lord_saved_Person_owner");
                 return image with { Officers = new(image.Officers) { [receipt.PersonId] = officer with {
-                    LocationId = first, NativeAbilityRuntime = ability with { Flags196 = current.ReadArmyReturnPersonFlags196(person) },
+                    LocationId = first, Behavior = current.ReadPersonBehavior(person),
                     NativeLocationRuntime = location with { Second11C = current.ReadPersonSecondLocation(person) } } },
                     NativeArmyLifecycle = arena with { Indexes = (current.ReadOwnedCurrentListPool() ?? throw Missing("current.Lord_primary_pool")).ExportOwnedState() } };
             }

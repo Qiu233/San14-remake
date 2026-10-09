@@ -27,7 +27,8 @@ public sealed class TacticRemakeCurrentAbilities : IEffectiveOfficerAbilities
     public GameState CreateFreshOwnedPeople(GameState state)
     {
         if (!Bound(state) || state.Units.Count != 0 || state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } ||
-            state.Officers.Values.Any(person => person.NativeAbilityRuntime is not null || person.Health is not null))
+            state.Officers.Values.Any(person => person.NativeAbilityRuntime is not null || person.Health is not null ||
+                person.ServiceStatus is not null || person.Behavior is not null || person.MeritState is not null))
             throw new InvalidDataException("Fresh Person ability fields cannot replace a saved or populated owner.");
         var officers = new Dictionary<int, OfficerState>(state.Officers);
         foreach (OfficerState officer in state.Officers.Values)
@@ -46,9 +47,11 @@ public sealed class TacticRemakeCurrentAbilities : IEffectiveOfficerAbilities
                 throw new InvalidDataException("Fresh current base abilities differ from the actual source normalization.");
             officers[officer.Id] = officer with { NativeAbilityRuntime = new(ProfileId, _language, _ruleVersion,
                 _source.ScenarioSource.ResourceUri, _source.ScenarioSource.Sha256, physical,
-                raw.StatusCode, raw.RawOfficeId, raw.RawDoctrineId, raw.CreditReference.RawFlagsWord,
-                raw.CreditReference.RawStageCode, raw.CreditReference.RawTailCode,
-                (byte)Read(0x224), (byte)Read(0x225)), Health = OfficerHealth.Healthy };
+                raw.RawDoctrineId,
+                (byte)Read(0x224), (byte)Read(0x225)), Health = OfficerHealth.Healthy,
+                Behavior = OfficerBehaviorSourceAdapter.Decode(raw.CreditReference.RawFlagsWord, raw.CreditReference.RawTailCode),
+                Appointment = officer.Appointment.Observe(raw.RawOfficeId), ServiceStatus = OfficerServiceStatusSourceAdapter.Decode(raw.StatusCode),
+                MeritState = new(null, null, raw.CreditReference.RawStageCode, null, null, null) };
             int Read(int offset) => _current.ReadPersonPostLoadByte(physical, offset)
                 ?? throw new InvalidDataException("Owned Person attribute operator left an unknown field.");
         }
@@ -65,16 +68,15 @@ public sealed class TacticRemakeCurrentAbilities : IEffectiveOfficerAbilities
             person.SourceScenarioSha256 != _source.ScenarioSource.Sha256 ||
             _current.ReadPersonLookupReference(officerId)?.PhysicalSlot != person.PhysicalSlot ||
             _current.ReadPersonIdentity(person.PhysicalSlot) != officerId ||
-            officer.BaseAbilities is not { } basic || person.Status11E is not byte status ||
-            person.Flags196 is not ushort flags || person.Extra1FD is not byte tail ||
-            officer.Health is not { } healthState || person.Secondary1F4 is not byte secondaryState ||
+            officer.BaseAbilities is not { } basic || OfficerServiceStatusSourceAdapter.Encode(officer.ServiceStatus) is not byte status ||
+            officer.Health is not { } healthState || OfficerMeritRules.IsStageOne(officer.MeritState) is not bool stageOne ||
             person.EncodedOrdinaryCap224 is not byte ordinaryEncoded || person.EncodedCharmCap225 is not byte charmEncoded)
             return null;
         //CPersonData V18: physical slot0 is invalid; the flags4000 branch uses
         //the current appendix tail, while ordinary identities use status11E.
-        bool valid = person.PhysicalSlot != 0 && ((flags & 0x4000) != 0 ? tail != 0 :
-            unchecked((uint)(officerId - 5001)) <= 99 || status != 0);
-        if (!valid) return new(0, 0, 0, 0, 0); //Army22E610's proved invalid-person result.
+        bool? valid = NativeValidity.PersonWithBehavior(person.PhysicalSlot, checked((ushort)officerId), officer.Behavior, status);
+        if (valid is null) return null;
+        if (!valid.Value) return new(0, 0, 0, 0, 0); //Army22E610's proved invalid-person result.
         if (!RoleMatches(officer.Role, status) || Values(basic).Any(value => value is < 0 or > 255)) return null;
         int? health = OfficerHealthRules.AbilityModifier(healthState) switch
         {
@@ -88,7 +90,7 @@ public sealed class TacticRemakeCurrentAbilities : IEffectiveOfficerAbilities
         //For native rulers and every stage except1, both settings outcomes
         //have the same baseline. Stage1 may additionally require the complete
         //special-person/affiliation gate; unresolved branches stay nullable.
-        if (status != 1 && (flags & 0x4000) == 0 && secondaryState == 1)
+        if (status != 1 && OfficerBehaviorRules.UsesOrdinaryPersonRules(officer.Behavior) == true && stageOne)
         {
             if (state.NewGameOptions is null) return null;
             if (state.NewGameOptions.CapturedOfficersEnabled)
@@ -97,7 +99,7 @@ public sealed class TacticRemakeCurrentAbilities : IEffectiveOfficerAbilities
                 secondary = Parameter(state, SimulationParameterKeys.Tactics.AbilitySecondaryAdjustment);
             }
         }
-        OfficerAbilities? appointment = Appointment(state, officer, person, status);
+        OfficerAbilities? appointment = Appointment(state, officer, status);
         OfficerAbilities? doctrine = Doctrine(state, officer, person);
         if (health is null || secondary is null || appointment is null || doctrine is null ||
             !ItemAbilityBonuses.TryCalculate(state, officerId, out OfficerAbilities? items, 10)) return null;
@@ -109,7 +111,7 @@ public sealed class TacticRemakeCurrentAbilities : IEffectiveOfficerAbilities
         return new(Calc(0, ordinaryCap), Calc(1, ordinaryCap), Calc(2, ordinaryCap), Calc(3, ordinaryCap), Calc(4, charmCap, forcedCharm));
     }
 
-    private static OfficerAbilities? Appointment(GameState state, OfficerState officer, NativePersonAbilityRuntime person, byte status)
+    private static OfficerAbilities? Appointment(GameState state, OfficerState officer, byte status)
     {
         if (status == 1)
         {
@@ -120,7 +122,7 @@ public sealed class TacticRemakeCurrentAbilities : IEffectiveOfficerAbilities
                 !state.ForceRanks.TryGetValue(rankId, out ForceRankDefinition? rank)) return null;
             return rankId == 0 ? Zero : rank.AbilityBonus;
         }
-        int? officeId = officer.OfficeId ?? (person.Office11F == 0 ? 0 : null);
+        int? officeId = OfficerAppointmentRules.ReadAbilityOfficeId(officer.Appointment);
         if (officeId is not int id || id is < 0 or > 255 ||
             !state.OfficerOffices.TryGetValue(id, out OfficerOfficeDefinition? office)) return null;
         //Current CPostData validity requires a nonzero physical slot and raw

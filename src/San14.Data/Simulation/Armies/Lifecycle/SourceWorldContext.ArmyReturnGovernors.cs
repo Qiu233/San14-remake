@@ -10,5 +10,11 @@ public sealed partial class SourceWorldContext
     public void SetArmyReturnBaseGovernor2E(BaseReference reference, ushort? value)
     { _ = BasePhysical(reference); _armyReturnGovernorWords2E[reference] = value; }
     public ushort? ReadArmyReturnPersonFlags196(int physical)
-    { Check(physical, 1851, "governor person"); return _persons.GetValueOrDefault(physical)?.Flags; }
+    { Check(physical, 1851, "governor person"); return OfficerBehaviorSourceAdapter.EncodeFlags(_persons.GetValueOrDefault(physical)?.Behavior); }
+    public San14.Core.OfficerBehavior? ReadPersonBehavior(int physical)
+    {
+        Check(physical, 1851, "officer behavior");
+        var row = _persons.GetValueOrDefault(physical);
+        return row?.Behavior;
+    }
 }

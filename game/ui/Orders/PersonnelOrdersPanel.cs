@@ -1,5 +1,6 @@
 using Godot;
 using San14.Core;
+using San14.Client.Gameplay;
 using System.Globalization;
 
 /// <summary>Known item holders and office definitions; changes use the shared personnel command policy.</summary>
@@ -19,8 +20,7 @@ public partial class PersonnelOrdersPanel : VBoxContainer
     private readonly Button _appoint = new() { Name = "PersonnelSetOffice" };
     private Func<string, string>? _text;
     private Action<GameOrder>? _submit;
-    private GameState? _world;
-    private int? _player;
+    private PersonnelCommandView _view = PersonnelCommandView.Empty;
     private bool _officeCommandsAvailable;
 
     public PersonnelOrdersPanel()
@@ -37,17 +37,17 @@ public partial class PersonnelOrdersPanel : VBoxContainer
         _grant.Pressed += () =>
         {
             if (CanSubmit() && _item.Selected >= 0 && _officer.Selected >= 0)
-                _submit?.Invoke(new GrantItemOrder(_player!.Value, _item.GetSelectedId(), _officer.GetSelectedId()));
+                _submit?.Invoke(new GrantItemOrder(_view.PlayerForceId!.Value, _item.GetSelectedId(), _officer.GetSelectedId()));
         };
         _revoke.Pressed += () =>
         {
-            if (CanSubmit() && SelectedItem()?.Holder?.OfficerId is int holder)
-                _submit?.Invoke(new RevokeItemOrder(_player!.Value, _item.GetSelectedId(), holder));
+            if (CanSubmit() && SelectedItem()?.HolderOfficerId is int holder)
+                _submit?.Invoke(new RevokeItemOrder(_view.PlayerForceId!.Value, _item.GetSelectedId(), holder));
         };
         _appoint.Pressed += () =>
         {
             if (CanSubmit() && _officer.Selected >= 0 && _office.Selected >= 0)
-                _submit?.Invoke(new SetOfficerOfficeOrder(_player!.Value, _officer.GetSelectedId(), _office.GetSelectedId()));
+                _submit?.Invoke(new SetOfficerOfficeOrder(_view.PlayerForceId!.Value, _officer.GetSelectedId(), _office.GetSelectedId()));
         };
         RefreshStatus();
     }
@@ -66,20 +66,12 @@ public partial class PersonnelOrdersPanel : VBoxContainer
 
     public void Refresh(GameState? world, int? playerForceId)
     {
-        _world = world; _player = playerForceId;
+        _view = PersonnelCommandView.Create(world, playerForceId);
         int officer = Selected(_officer), item = Selected(_item), office = Selected(_office);
         _officer.Clear(); _item.Clear(); _office.Clear();
-        if (world is not null && playerForceId is int player)
-        {
-            foreach (OfficerState target in world.Officers.Values.Where(target => target.ForceId == player).OrderBy(target => target.Id))
-                _officer.AddItem(target.Name, target.Id);
-            foreach (ItemState target in (world.Items?.Values ?? Enumerable.Empty<ItemState>()).Where(target =>
-                         target.Holder?.OfficerId is int owner && world.Officers.TryGetValue(owner, out OfficerState? holder) && holder.ForceId == player)
-                         .OrderBy(target => target.Id))
-                _item.AddItem(world.ItemDefinitions[target.DefinitionId].Name, target.Id);
-            foreach (OfficerOfficeDefinition definition in world.OfficerOffices.Values.OrderBy(definition => definition.Id))
-                _office.AddItem(definition.Name, definition.Id);
-        }
+        foreach (PersonnelOfficerChoice target in _view.Officers) _officer.AddItem(target.Name, target.Id);
+        foreach (PersonnelItemChoice target in _view.Items) _item.AddItem(target.Name, target.Id);
+        foreach (NamedCommandChoice definition in _view.Offices) _office.AddItem(definition.Name, definition.Id);
         Restore(_officer, officer); Restore(_item, item);
         if (_office.GetItemIndex(office) >= 0) Restore(_office, office);
         else SelectCurrentOffice();
@@ -93,35 +85,33 @@ public partial class PersonnelOrdersPanel : VBoxContainer
         _item.Disabled = !strategy || _item.ItemCount == 0;
         _office.Disabled = !strategy || _office.ItemCount == 0;
         _grant.Disabled = !strategy || _officer.Selected < 0 || _item.Selected < 0;
-        _revoke.Disabled = !strategy || SelectedItem()?.Holder?.OfficerId is null;
+        _revoke.Disabled = !strategy || SelectedItem()?.HolderOfficerId is null;
         _appoint.Disabled = !_officeCommandsAvailable || !strategy || _officer.Selected < 0 || _office.Selected < 0;
         if (_text is null) return;
         _appoint.TooltipText = _officeCommandsAvailable ? "" : _text("play_personnel_office_unverified");
         string currentOffice = _text("detail_unknown"), loyalty = _text("detail_unknown"), holderName = _text("detail_unknown");
-        if (_world is not null && _officer.Selected >= 0 && _world.Officers.TryGetValue(_officer.GetSelectedId(), out OfficerState? officer))
+        if (_officer.Selected >= 0 && _view.FindOfficer(_officer.GetSelectedId()) is { } officer)
         {
-            if (officer.OfficeId is int office && _world.OfficerOffices.TryGetValue(office, out OfficerOfficeDefinition? definition))
-                currentOffice = definition.Name;
+            if (officer.OfficeName is string officeName) currentOffice = officeName;
             if (officer.Loyalty is int known) loyalty = known.ToString(CultureInfo.InvariantCulture);
         }
-        if (SelectedItem()?.Holder?.OfficerId is int holder && _world!.Officers.TryGetValue(holder, out OfficerState? owner)) holderName = owner.Name;
+        if (SelectedItem()?.HolderName is string knownHolder) holderName = knownHolder;
         _status.Text = Format("play_personnel_status", currentOffice, loyalty, holderName);
-        _inventory.Text = _world?.Items is null ? _text("play_personnel_inventory_unknown") :
-            Format("play_personnel_inventory_known", _item.ItemCount,
-                _world.Items.Values.Count(value => value.Holder?.OfficerId is null || value.IsPresent is null));
+        _inventory.Text = !_view.InventoryKnown ? _text("play_personnel_inventory_unknown") :
+            Format("play_personnel_inventory_known", _item.ItemCount, _view.UnresolvedItemCount);
         SetMeta("personnel_force_items", _item.ItemCount);
         SetMeta("personnel_office_definitions", _office.ItemCount);
     }
 
-    private ItemState? SelectedItem() => _item.Selected >= 0 && _world?.Items?.TryGetValue(_item.GetSelectedId(), out ItemState? item) == true ? item : null;
+    private PersonnelItemChoice? SelectedItem() => _item.Selected >= 0 ? _view.FindItem(_item.GetSelectedId()) : null;
     private void SelectCurrentOffice()
     {
         _office.Select(-1);
-        if (_officer.Selected >= 0 && _world?.Officers.TryGetValue(_officer.GetSelectedId(), out OfficerState? officer) == true &&
+        if (_officer.Selected >= 0 && _view.FindOfficer(_officer.GetSelectedId()) is { } officer &&
             officer.OfficeId is int current && _office.GetItemIndex(current) is int index && index >= 0)
             _office.Select(index);
     }
-    private bool CanSubmit() => _world?.Phase == TurnPhase.Strategy && _player is int player && _world.Forces.TryGetValue(player, out ForceState? owner) && owner.IsActive;
+    private bool CanSubmit() => _view.CanIssue;
     private string Format(string key, params object[] values) => string.Format(CultureInfo.InvariantCulture, _text!(key), values);
     private static int Selected(OptionButton value) => value.Selected < 0 ? -1 : value.GetSelectedId();
     private static void Restore(OptionButton value, int id)
