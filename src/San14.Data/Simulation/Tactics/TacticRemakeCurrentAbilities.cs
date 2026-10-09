@@ -27,7 +27,7 @@ public sealed class TacticRemakeCurrentAbilities : IEffectiveOfficerAbilities
     public GameState CreateFreshOwnedPeople(GameState state)
     {
         if (!Bound(state) || state.Units.Count != 0 || state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } ||
-            state.Officers.Values.Any(person => person.NativeAbilityRuntime is not null))
+            state.Officers.Values.Any(person => person.NativeAbilityRuntime is not null || person.Health is not null))
             throw new InvalidDataException("Fresh Person ability fields cannot replace a saved or populated owner.");
         var officers = new Dictionary<int, OfficerState>(state.Officers);
         foreach (OfficerState officer in state.Officers.Values)
@@ -47,8 +47,8 @@ public sealed class TacticRemakeCurrentAbilities : IEffectiveOfficerAbilities
             officers[officer.Id] = officer with { NativeAbilityRuntime = new(ProfileId, _language, _ruleVersion,
                 _source.ScenarioSource.ResourceUri, _source.ScenarioSource.Sha256, physical,
                 raw.StatusCode, raw.RawOfficeId, raw.RawDoctrineId, raw.CreditReference.RawFlagsWord,
-                0, raw.CreditReference.RawStageCode, raw.CreditReference.RawTailCode,
-                (byte)Read(0x224), (byte)Read(0x225)) };
+                raw.CreditReference.RawStageCode, raw.CreditReference.RawTailCode,
+                (byte)Read(0x224), (byte)Read(0x225)), Health = OfficerHealth.Healthy };
             int Read(int offset) => _current.ReadPersonPostLoadByte(physical, offset)
                 ?? throw new InvalidDataException("Owned Person attribute operator left an unknown field.");
         }
@@ -67,7 +67,7 @@ public sealed class TacticRemakeCurrentAbilities : IEffectiveOfficerAbilities
             _current.ReadPersonIdentity(person.PhysicalSlot) != officerId ||
             officer.BaseAbilities is not { } basic || person.Status11E is not byte status ||
             person.Flags196 is not ushort flags || person.Extra1FD is not byte tail ||
-            person.Health199 is not byte healthState || person.Secondary1F4 is not byte secondaryState ||
+            officer.Health is not { } healthState || person.Secondary1F4 is not byte secondaryState ||
             person.EncodedOrdinaryCap224 is not byte ordinaryEncoded || person.EncodedCharmCap225 is not byte charmEncoded)
             return null;
         //CPersonData V18: physical slot0 is invalid; the flags4000 branch uses
@@ -76,8 +76,14 @@ public sealed class TacticRemakeCurrentAbilities : IEffectiveOfficerAbilities
             unchecked((uint)(officerId - 5001)) <= 99 || status != 0);
         if (!valid) return new(0, 0, 0, 0, 0); //Army22E610's proved invalid-person result.
         if (!RoleMatches(officer.Role, status) || Values(basic).Any(value => value is < 0 or > 255)) return null;
-        int? health = healthState switch { 0 => Parameter(state, SimulationParameterKeys.Tactics.HealthyAbilityPercent), 1 => Parameter(state, SimulationParameterKeys.Tactics.InjuryLevel1AbilityPercent),
-            2 => Parameter(state, SimulationParameterKeys.Tactics.InjuryLevel2AbilityPercent), 3 => Parameter(state, SimulationParameterKeys.Tactics.InjuryLevel3AbilityPercent), _ => 0 };
+        int? health = OfficerHealthRules.AbilityModifier(healthState) switch
+        {
+            HealthAbilityModifier.Healthy => Parameter(state, SimulationParameterKeys.Tactics.HealthyAbilityPercent),
+            HealthAbilityModifier.InjuryLevel1 => Parameter(state, SimulationParameterKeys.Tactics.InjuryLevel1AbilityPercent),
+            HealthAbilityModifier.InjuryLevel2 => Parameter(state, SimulationParameterKeys.Tactics.InjuryLevel2AbilityPercent),
+            HealthAbilityModifier.InjuryLevel3 => Parameter(state, SimulationParameterKeys.Tactics.InjuryLevel3AbilityPercent),
+            _ => 0
+        };
         int? secondary = Parameter(state, SimulationParameterKeys.Tactics.AbilitySecondaryBaseline);
         //For native rulers and every stage except1, both settings outcomes
         //have the same baseline. Stage1 may additionally require the complete

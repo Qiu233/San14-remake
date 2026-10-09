@@ -141,9 +141,10 @@ public static class PersonArmyCaptureSource
             finally { current.ClearNearbyTemporary(hexes, true); }
             var officer = state.Officers.GetValueOrDefault(defeatedId) ?? throw Missing("current.defeated_Officer_ability_owner");
             var native = officer.NativeAbilityRuntime ?? throw Missing("current.defeated_ability_runtime");
-            byte health = Need(current.ReadArmyReturnPersonByte199(defeatedPhysical), "current.defeated_health161");
-            var abilityState = native.Health199 == health ? state : state with { Officers = new(state.Officers) {
-                [defeatedId] = officer with { NativeAbilityRuntime = native with { Health199 = health } } } };
+            byte healthIdentity = Need(OfficerHealthSourceAdapter.ReadByte(current, defeatedPhysical), "current.defeated_health161");
+            var health = new OfficerHealth(healthIdentity);
+            var abilityState = officer.Health == health ? state : state with { Officers = new(state.Officers) {
+                [defeatedId] = officer with { Health = health } } };
             var effective = abilities.Resolve(abilityState, defeatedId) ?? throw Missing("current.defeated_22FE40_effective_abilities");
             int maxAbility = Math.Max(effective.Intelligence, effective.Strength);
             float abilityTerm = (float)unchecked((P(state, SimulationParameterKeys.ArmyDestruction.CaptureAbilityBaseline) - maxAbility + 5) * P(state, SimulationParameterKeys.ArmyDestruction.CaptureAbilityPercent)) / 100f;

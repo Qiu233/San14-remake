@@ -1,9 +1,9 @@
 namespace San14.Core;
 
-/// <summary>Current owned SC-semantic location/trait auxiliaries. Identity,
-/// status/flags/health stay in NativeAbilityRuntime. Null is unresolved.</summary>
-public sealed record NativePersonLocationRuntime(string Revision, ushort? Second11C,
-    ushort? TraitMask1BC, ushort[]? TraitExtras1BE)
+/// <summary>Current owned source-semantic location auxiliaries. Identity,
+/// status/flags stay in NativeAbilityRuntime; health has its independent
+/// OfficerState owner. Null is unresolved.</summary>
+public sealed record NativePersonLocationRuntime(string Revision, ushort? Second11C)
 {
     //Native District0 means the actual free-Person owner. Core has no
     //District0 entity; null in its projection must not lose this known raw0.
@@ -34,9 +34,8 @@ public static class NativeArmyReturnCurrentStateValidation
         foreach (var person in state.Officers.Values)
         {
             if (person.NativeLocationRuntime is not { } fields) continue;
-            if (person.NativeAbilityRuntime is null || string.IsNullOrWhiteSpace(fields.Revision) ||
-                fields.TraitExtras1BE is { Length: not 9 })
-                throw new InvalidDataException("Current native Person location/trait owner has invalid identity or windows.");
+            if (person.NativeAbilityRuntime is null || string.IsNullOrWhiteSpace(fields.Revision))
+                throw new InvalidDataException("Current native Person location owner has invalid identity.");
         }
         foreach (var city in state.Cities.Values)
             if (city.NativeReturnRuntime is { } fields &&

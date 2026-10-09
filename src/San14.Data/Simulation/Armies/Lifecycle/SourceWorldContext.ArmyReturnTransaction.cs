@@ -2,14 +2,21 @@ namespace San14.Data;
 
 public sealed partial class SourceWorldContext
 {
-    private readonly Dictionary<int, byte?> _armyReturnPersonByte199 = [];
+    private readonly Dictionary<int, San14.Core.OfficerHealth?> _officerHealth = [];
+    private readonly Dictionary<int, int> _healthSourceIdentities = [];
     private RegistryListHandle? _armyReturnPending70;
     /// <summary>Actual current external service-mode owner; absent whole value is unknown.</summary>
     public TransferModeState? ArmyReturnTransferMode { get; set; }
-    public void SetArmyReturnPersonByte199(int person, byte? value)
-    { Check(person, 1851, "return person byte199"); _armyReturnPersonByte199[person] = value; }
-    public byte? ReadArmyReturnPersonByte199(int person)
-    { Check(person, 1851, "return person byte199"); return _armyReturnPersonByte199.GetValueOrDefault(person); }
+    public void SetOfficerHealth(int officerId, San14.Core.OfficerHealth? value) => _officerHealth[officerId] = value;
+    public San14.Core.OfficerHealth? ReadOfficerHealth(int officerId) => _officerHealth.GetValueOrDefault(officerId);
+    internal void BindOfficerHealthSource(int physical, int officerId, San14.Core.OfficerHealth? value)
+    {
+        _healthSourceIdentities[physical] = officerId;
+        SetOfficerHealth(officerId, value);
+    }
+    internal San14.Core.OfficerHealth? ReadBoundOfficerHealth(int physical) =>
+        _healthSourceIdentities.TryGetValue(physical, out int identity) && ReadPersonIdentity(physical) == identity
+            ? ReadOfficerHealth(identity) : null;
     public void SetArmyReturnPending70Descriptor(RegistryListHandle? value) => _armyReturnPending70 = value;
     public RegistryListHandle? ReadArmyReturnPending70Descriptor() => _armyReturnPending70;
     internal void WriteArmyReturnPersonFlags196(int person, ushort flags)
@@ -37,7 +44,8 @@ public sealed partial class SourceWorldContext
         Copy(_surfaceTypePointers, draft._surfaceTypePointers); Copy(_surfaceTypeFields2A, draft._surfaceTypeFields2A);
         CopyArmyMapOccupancyTo(draft); Copy(_personTraitSlots150, draft._personTraitSlots150);
         Copy(_staticTablePointers, draft._staticTablePointers); Copy(_transferPersonPointers, draft._transferPersonPointers);
-        Copy(_armyReturnPersonByte199, draft._armyReturnPersonByte199);
+        Copy(_officerHealth, draft._officerHealth);
+        Copy(_healthSourceIdentities, draft._healthSourceIdentities);
         Copy(_captureItemOwners4A, draft._captureItemOwners4A);
         foreach (var row in _personalityFields) draft._personalityFields[row.Key] = row.Value.ToArray();
         foreach (var row in _personalityVectors)

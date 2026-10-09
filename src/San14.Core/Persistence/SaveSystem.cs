@@ -16,7 +16,7 @@ public sealed record SaveEnvelope(int SchemaVersion, string FormatId, GameState 
 /// <summary>Local save format. A future original-save adapter can implement ISaveCodec.</summary>
 public sealed class JsonGzipSaveCodec : ISaveCodec
 {
-    public const int CurrentSchemaVersion = 70;
+    public const int CurrentSchemaVersion = 72;
     public string FormatId => "san14-remake-json-gzip";
 
     public byte[] Encode(GameState state)
@@ -62,6 +62,8 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
         if (version < 68) LegacyForceCombatObjectiveSaveMigration.Apply((JsonObject)document["State"]!, version);
         if (version < 69) LegacyForcePolicyEffectsSaveMigration.Apply((JsonObject)document["State"]!);
         if (version < 70) LegacyArmyStoresSaveMigration.Apply((JsonObject)document["State"]!);
+        if (version < 71) LegacyOfficerTraitActivationSaveMigration.Apply((JsonObject)document["State"]!);
+        if (version < 72) LegacyOfficerHealthSaveMigration.Apply((JsonObject)document["State"]!);
         ValidateModuleSnapshotShape((JsonObject)document["State"]!, version);
         // A present options record must contain all choices. JSON constructor
         // defaults must not turn a missing boolean into a confirmed false choice.
@@ -215,15 +217,34 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
                                 "Before5", "ReportContext8", "RawC", "Raw10");
                     }
                 }
-                if (officerNode is JsonObject locationOwner && locationOwner["NativeLocationRuntime"] is JsonNode location)
-                    _ = Require(location, "current Person location", "Revision", "Second11C", "TraitMask1BC", "TraitExtras1BE");
+                if (officerNode is JsonObject locationOwner)
+                {
+                    if (!locationOwner.ContainsKey("Health"))
+                        throw new InvalidDataException("Saved officer health owner is missing.");
+                    if (locationOwner["Health"] is JsonNode health)
+                        _ = Require(health, "officer health", "StateId");
+                    if (!locationOwner.ContainsKey("TraitActivation"))
+                        throw new InvalidDataException("Saved officer activation owner is missing.");
+                    if (locationOwner["TraitActivation"] is JsonNode activation)
+                        _ = Require(activation, "officer trait activation", "ActiveSlots", "RemainingDurations");
+                    if (locationOwner["NativeLocationRuntime"] is JsonNode location)
+                    {
+                        JsonObject fields = Require(location, "current Person location", "Revision", "Second11C");
+                        if (fields.ContainsKey("TraitMask1BC") || fields.ContainsKey("TraitExtras1BE"))
+                            throw new InvalidDataException("Saved officer contains an obsolete trait activation owner.");
+                    }
+                }
                 if (officerNode is JsonObject freedomOwner && freedomOwner["NativeFreedomRuntime"] is JsonNode freedom)
                     _ = Require(freedom, "current Person freedom", "Revision", "Qword18A", "Dword192", "Word19E");
                 if (officerNode is JsonObject officer && officer["NativeAbilityRuntime"] is JsonNode person)
-                    _ = Require(person, "owned Person ability runtime", "Revision", "Language", "RuleVersion",
+                {
+                    JsonObject ability = Require(person, "owned Person ability runtime", "Revision", "Language", "RuleVersion",
                         "SourceScenarioUri", "SourceScenarioSha256", "PhysicalSlot", "Status11E", "Office11F",
-                        "Doctrine184", "Flags196", "Health199", "Secondary1F4", "Extra1FD",
+                        "Doctrine184", "Flags196", "Secondary1F4", "Extra1FD",
                         "EncodedOrdinaryCap224", "EncodedCharmCap225");
+                    if (ability.ContainsKey("Health199"))
+                        throw new InvalidDataException("Saved officer contains an obsolete health owner.");
+                }
             }
         if (state["Cities"] is JsonObject cities)
             foreach (JsonNode? cityNode in cities.Select(pair => pair.Value))

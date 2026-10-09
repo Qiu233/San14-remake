@@ -331,7 +331,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                 NativeLocationRuntime = receipt.CommanderSecondLocation11C is ushort second
                     ? commander.NativeLocationRuntime is { } location
                         ? location with { Second11C = second }
-                        : new(receipt.Origin.Revision, second, null, null)
+                        : new(receipt.Origin.Revision, second)
                     : commander.NativeLocationRuntime
             };
             current = current with { RandomState = receipt.RandomState,

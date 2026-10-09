@@ -6,7 +6,7 @@ namespace San14.Core;
 public sealed record NativePersonAbilityRuntime(string Revision, string Language,
     string RuleVersion, string SourceScenarioUri, string SourceScenarioSha256,
     int PhysicalSlot, byte? Status11E, byte? Office11F, byte? Doctrine184,
-    ushort? Flags196, byte? Health199, byte? Secondary1F4, byte? Extra1FD,
+    ushort? Flags196, byte? Secondary1F4, byte? Extra1FD,
     byte? EncodedOrdinaryCap224, byte? EncodedCharmCap225);
 
 public sealed partial record OfficerState

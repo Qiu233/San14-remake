@@ -2,7 +2,6 @@ using San14.Core;
 
 namespace San14.Client.Gameplay;
 
-public sealed record NamedCommandChoice(int Id, string Name);
 public sealed record PreparedArmyChoice(int Id, string CommanderName, int Troops, int? BuildTargetHexId);
 public sealed record SummonOfficerChoice(int Id, string Name, string SourceCityName);
 public sealed record CityDutyNames(string? Recruiter, string? Trainer, int PreparationPeriods);

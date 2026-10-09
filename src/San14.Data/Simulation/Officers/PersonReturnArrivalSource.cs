@@ -54,13 +54,13 @@ public static class PersonReturnArrivalSource
             if (CurrentGateMapQueries.FindCity(old, current) != CurrentGateMapQueries.FindCity(target, current))
                 throw Unknown("branch.different_City");
             var district = current.ReadCityDistrictReference(target) ?? throw Unknown("current.Base_virtual80");
-            byte health = Known(current.ReadArmyReturnPersonByte199(person), "current.Person_health161");
+            var health = OfficerHealthSourceAdapter.Read(current, person) ?? throw Unknown("current.Person_health161");
             uint worldFlags = Known(current.ReadWorldTransferServiceFlags(), "current.World16A8");
             bool admit = (worldFlags & 0x100) == 0 && PlayerRulerDistrict(current, district);
 
             caller = NewTemporary(current); order.Add("32B190.caller_Person_temporary");
             if (!current.AppendPersonReturnTemporary(caller, person)) throw Unknown("branch.caller_Person_node_allocation");
-            if (health != 0)
+            if (OfficerHealthRules.IsInjured(health))
             {
                 current.WriteArmyReturnPersonFlags196(person, (ushort)(flags | 1));
                 order.Add("32B190.health161_flags15E_bit0");
@@ -81,7 +81,7 @@ public static class PersonReturnArrivalSource
             result = result with { NativeArmyLifecycle = result.NativeArmyLifecycle! with { Indexes = pool.ExportOwnedState() },
                 PersonnelReturns = current.ReadOwnedPersonCommandManager() };
             NativeArmyLifecycleStateValidation.Validate(result);
-            return new(result, new(receiverIdentity, person, target, destination, appended, health != 0, 1,
+            return new(result, new(receiverIdentity, person, target, destination, appended, OfficerHealthRules.IsInjured(health), 1,
                 governors.AsReadOnly(), order.AsReadOnly()), null);
 
             void Governor(BaseReference at)

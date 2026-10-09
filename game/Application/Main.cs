@@ -1663,12 +1663,12 @@ public partial class Main : Control
 
     private void RefreshPlayGovernanceChoices()
     {
-        int priorSlot = _playGovernanceSlot.Selected >= 0 ? _playGovernanceSlot.GetSelectedId() : -1;
+        int? priorSlot = SelectionId(_playGovernanceSlot);
         _playGovernanceSlot.Clear();
         _playGovernanceOfficer.Clear();
-        if (_world is not GameState world || _playerForceId is not int player ||
-            !world.Forces.TryGetValue(player, out ForceState? force) ||
-            force.Governance is not GovernanceState governance)
+        GovernanceCommandChoices? choices = _world is GameState world && _playerForceId is int player
+            ? GovernanceCommandChoices.Create(world, player, priorSlot) : null;
+        if (choices is null)
         {
             _playGovernanceStatus.Text = _ui.Get("play_governance_unavailable");
             _playGovernanceSlot.Disabled = true;
@@ -1676,67 +1676,37 @@ public partial class Main : Control
             _playGovernanceApply.Disabled = true;
             return;
         }
-        foreach (GovernanceSlot slot in governance.OpenSlots.OrderBy(slot => slot.Id))
+        foreach (GovernanceSlotChoice slot in choices.Slots)
         {
             string label = slot.Kind == GovernanceSlotKind.Advisor
-                ? _ui.Get("play_governance_advisor")
-                : _ui.Format("play_governance_group", slot.Id);
+                ? _ui.Get("play_governance_advisor") : _ui.Format("play_governance_group", slot.Id);
             _playGovernanceSlot.AddItem(label, slot.Id);
         }
-        int slotIndex = _playGovernanceSlot.GetItemIndex(priorSlot);
-        if (_playGovernanceSlot.ItemCount > 0)
-            _playGovernanceSlot.Select(slotIndex < 0 ? 0 : slotIndex);
-        if (_playGovernanceSlot.Selected >= 0)
+        if (choices.SelectedSlotId is int selectedSlot)
         {
-            int slotId = _playGovernanceSlot.GetSelectedId();
-            GovernanceSlot slot = governance.OpenSlots.Single(item => item.Id == slotId);
-            int? assigned = governance.Configured.Assignments.FirstOrDefault(row => row.SlotId == slotId)?.OfficerId;
+            _playGovernanceSlot.Select(_playGovernanceSlot.GetItemIndex(selectedSlot));
             _playGovernanceOfficer.AddItem(_ui.Get("play_governance_vacant"), NoGovernanceOfficerId);
-            foreach (OfficerState officer in world.Officers.Values.Where(officer =>
-                         !PlayableOfficerAvailability.IsSourceBusy(world, officer) &&
-                         !PlayableDiplomacy.IsOfficerOnMission(world, officer.Id) && (officer.Id == assigned ||
-                         (officer.ForceId == player && officer.Presence == OfficerPresence.Present &&
-                         !officer.Deployed &&
-                         world.PreparedOfficerMoves?.ContainsKey(officer.Id) != true &&
-                         world.PreparedTalentOrders?.ContainsKey(officer.Id) != true &&
-                         !world.PreparedDeployments.Values.Any(plan => plan.OfficerId == officer.Id) &&
-                         officer.PolicyId is int policyId && policyId > 0 &&
-                         world.Policies.TryGetValue(policyId, out PolicyDefinition? policy) &&
-                         policy.DepartmentCode is int code &&
-                         (slot.Kind == GovernanceSlotKind.Advisor
-                             ? officer.Id != force.RulerId && officer.BaseAbilities?.Intelligence >= 70
-                             : slot.DepartmentKey == $"group-{code}"))))
-                     .OrderBy(officer => officer.Id))
-            {
-                string policyName = officer.PolicyId is int id && world.Policies.TryGetValue(id,
-                    out PolicyDefinition? definition) ? definition.Name : _ui.Get("detail_unknown");
-                _playGovernanceOfficer.AddItem($"{officer.Name} · {policyName}", officer.Id);
-            }
-            int officerIndex = _playGovernanceOfficer.GetItemIndex(assigned ?? NoGovernanceOfficerId);
+            foreach (GovernanceOfficerChoice officer in choices.Officers)
+                _playGovernanceOfficer.AddItem($"{officer.Name} · {officer.PolicyName ?? _ui.Get("detail_unknown")}", officer.Id);
+            int officerIndex = _playGovernanceOfficer.GetItemIndex(choices.SelectedOfficerId ?? NoGovernanceOfficerId);
             _playGovernanceOfficer.Select(officerIndex < 0 ? 0 : officerIndex);
         }
         _playGovernanceStatus.Text = _ui.Format("play_governance_status",
-            governance.Configured.Assignments.Length, governance.Active.Assignments.Length,
-            governance.Pending is null ? _ui.Get("play_governance_no_pending") :
-                _ui.Get("play_governance_pending"));
-        bool strategy = world.Phase == TurnPhase.Strategy &&
-            PlayableOutcome.Evaluate(world, player) == PlayableResult.Ongoing;
-        _playGovernanceSlot.Disabled = !strategy;
-        _playGovernanceOfficer.Disabled = !strategy || _playGovernanceOfficer.ItemCount == 0;
-        _playGovernanceApply.Disabled = !strategy || _playGovernanceOfficer.ItemCount == 0;
+            choices.ConfiguredCount, choices.ActiveCount, choices.HasPendingChange
+                ? _ui.Get("play_governance_pending") : _ui.Get("play_governance_no_pending"));
+        _playGovernanceSlot.Disabled = !choices.CanConfigure;
+        _playGovernanceOfficer.Disabled = !choices.CanConfigure || _playGovernanceOfficer.ItemCount == 0;
+        _playGovernanceApply.Disabled = !choices.CanConfigure || _playGovernanceOfficer.ItemCount == 0;
     }
 
     private void AssignPlayablePolicy()
     {
         if (_world is not GameState world || _playerForceId is not int player ||
-            _playGovernanceSlot.Selected < 0 || _playGovernanceOfficer.Selected < 0 ||
-            world.Forces[player].Governance is not GovernanceState governance) return;
-        int slotId = _playGovernanceSlot.GetSelectedId();
+            _playGovernanceSlot.Selected < 0 || _playGovernanceOfficer.Selected < 0) return;
         int officerId = _playGovernanceOfficer.GetSelectedId();
-        var assignments = governance.Configured.Assignments.Where(row => row.SlotId != slotId).ToList();
-        if (officerId != NoGovernanceOfficerId)
-            assignments.Add(new GovernanceAssignment(slotId, officerId));
-        ApplyPlayableOrder(new SetGovernanceOrder(player, assignments));
+        SetGovernanceOrder? order = GovernanceCommandComposer.ReplaceOfficer(world, player,
+            _playGovernanceSlot.GetSelectedId(), officerId == NoGovernanceOfficerId ? null : officerId);
+        if (order is not null) ApplyPlayableOrder(order);
     }
 
     private void RefreshPlayCityChoices()
@@ -1866,20 +1836,15 @@ public partial class Main : Control
     {
         int previous = _playFormation.Selected >= 0 ? _playFormation.GetSelectedId() : -1;
         _playFormation.Clear();
-        if (_world is GameState world && _playOfficer.Selected >= 0 &&
-            world.Officers.TryGetValue(_playOfficer.GetSelectedId(), out OfficerState? officer) &&
-            officer.BaseFormationIds is { } formationIds)
+        if (_world is GameState world)
         {
-            foreach (int id in formationIds.Where(id => id > 0).Distinct())
+            foreach (FormationCommandChoice formation in MilitaryLoadoutChoices.Formations(world, SelectionId(_playOfficer)))
             {
-                if (!world.Formations.TryGetValue(id, out FormationDefinition? formation))
-                    throw new InvalidDataException($"Officer {officer.Id} references missing formation {id}.");
-                _playFormation.AddItem(formation.Name, id);
+                _playFormation.AddItem(formation.Name, formation.Id);
                 _playFormation.SetItemTooltip(_playFormation.ItemCount - 1,
-                    formation.SourceBase is { } values
+                    formation.BaseCoefficients is { } values
                         ? _ui.Format("play_formation_source_base", values.Mobility,
-                            values.ArmyAttack, values.GarrisonAttack,
-                            values.DurabilityAttack, values.Defense)
+                            values.ArmyAttack, values.GarrisonAttack, values.DurabilityAttack, values.Defense)
                         : _ui.Get("play_formation_source_unknown"));
             }
             if (_playFormation.ItemCount > 0)
@@ -1897,107 +1862,51 @@ public partial class Main : Control
         int[] previous = _playTactics.Select(choice => choice.Selected >= 0
             ? choice.GetSelectedId() : -1).ToArray();
         foreach (OptionButton choice in _playTactics) choice.Clear();
-        if (_world is not GameState world || _playOfficer.Selected < 0 ||
-            _playFormation.Selected < 0 ||
-            !world.Officers.TryGetValue(_playOfficer.GetSelectedId(), out OfficerState? officer))
-            return;
-        int formationId = _playFormation.GetSelectedId();
-        int[] available = officer.BaseTacticIds is { } sourceIds
-            ? sourceIds.Where(id => id > 0).Distinct().Where(id =>
-            {
-                if (!world.Tactics.TryGetValue(id, out TacticDefinition? tactic))
-                    throw new InvalidDataException($"Officer {officer.Id} references missing tactic {id}.");
-                return tactic.FormationIds?.Contains(formationId) == true;
-            }).ToArray() : [];
+        IReadOnlyList<NamedCommandChoice>? available = _world is GameState world
+            ? MilitaryLoadoutChoices.Tactics(world, SelectionId(_playOfficer), SelectionId(_playFormation)) : null;
+        if (available is null) return;
         for (int slot = 0; slot < _playTactics.Length; slot++)
         {
             OptionButton choice = _playTactics[slot];
             choice.AddItem(_ui.Get("play_tactic_none"), NoTacticId);
-            foreach (int id in available) choice.AddItem(world.Tactics[id].Name, id);
+            foreach (NamedCommandChoice tactic in available) choice.AddItem(tactic.Name, tactic.Id);
             int index = choice.GetItemIndex(previous[slot]);
             choice.Select(index < 0 ? 0 : index);
         }
     }
 
+    private MilitarySelection SelectedMilitaryCommand() => new(
+        SelectionId(_playCity), SelectionId(_playOfficer), SelectionId(_playFormation),
+        SelectionId(_playUnit), SelectionId(_playStructureKind), _selectedCell?.Id);
+
+    private static int? SelectionId(OptionButton choice) =>
+        choice.Selected >= 0 ? choice.GetSelectedId() : null;
+
     private void RefreshPlayDeploymentAvailability()
     {
-        bool strategy = _world is { Phase: TurnPhase.Strategy } world &&
-            _playerForceId is int player && world.RulesetId == PlayableSkeleton.RulesetId &&
-            PlayableOutcome.Evaluate(world, player) == PlayableResult.Ongoing;
-        bool canDeploy = strategy && _playCity.Selected >= 0 && _playOfficer.Selected >= 0 &&
-            _playFormation.Selected >= 0 && _selectedCell is MapCell;
-        _playDeploy.Disabled = !canDeploy;
-        _playDeployOccupy.Disabled = !canDeploy || _selectedCell is not MapCell target ||
-            !_world!.Territory.TryGetValue(target.Id, out TerritoryState? land) ||
-            land.AreaId is null;
-        _playDeployBuild.Disabled = !canDeploy || _playStructureKind.Selected < 0 ||
-            _selectedCell is not MapCell buildTarget ||
-            _world is not GameState playable || _playerForceId is not int owner ||
-            _playRules is null ||
-            !PlayableConstructionRules.CanBuildAt(playable, _playRules.Routes, owner,
-                buildTarget.Id, playable.Structures ?? []);
+        DeploymentPreview preview = MilitaryCommandPreview.Deployment(_world, _playerForceId,
+            SelectedMilitaryCommand(), _playRules?.Routes);
+        _playDeploy.Disabled = !preview.Deploy;
+        _playDeployOccupy.Disabled = !preview.Occupy;
+        _playDeployBuild.Disabled = !preview.Build;
     }
 
-    private void RefreshPlayWithdrawalAvailability()
-    {
-        _playWithdraw.Disabled = _world is not GameState world ||
-            world.Phase != TurnPhase.Strategy || _playerForceId is not int player ||
-            PlayableOutcome.Evaluate(world, player) != PlayableResult.Ongoing ||
-            _playUnit.Selected < 0 ||
-            !world.Units.TryGetValue(_playUnit.GetSelectedId(), out UnitState? unit) ||
-            unit.ForceId != player ||
-            unit.Mission is null or { Kind: UnitMissionKind.Transport };
-    }
+    private void RefreshPlayWithdrawalAvailability() =>
+        _playWithdraw.Disabled = !MilitaryCommandPreview.Withdraw(_world, _playerForceId, SelectedMilitaryCommand());
 
-    private void RefreshPlayOccupationAvailability()
-    {
-        _playOccupy.Disabled = _world is not GameState world ||
-            world.Phase != TurnPhase.Strategy || _playerForceId is not int player ||
-            PlayableOutcome.Evaluate(world, player) != PlayableResult.Ongoing ||
-            _playUnit.Selected < 0 || _selectedCell is not MapCell target ||
-            !world.Units.TryGetValue(_playUnit.GetSelectedId(), out UnitState? unit) ||
-            unit.ForceId != player || unit.Mission is { Kind: UnitMissionKind.Transport } ||
-            !world.Territory.TryGetValue(target.Id, out TerritoryState? land) ||
-            land.AreaId is null;
-    }
+    private void RefreshPlayOccupationAvailability() =>
+        _playOccupy.Disabled = !MilitaryCommandPreview.Occupy(_world, _playerForceId, SelectedMilitaryCommand());
 
-    private void RefreshPlayDisbandAvailability()
-    {
-        _playDisband.Disabled = _world is not GameState world || world.Phase != TurnPhase.Strategy ||
-            _playerForceId is not int player || PlayableOutcome.Evaluate(world, player) != PlayableResult.Ongoing ||
-            _playUnit.Selected < 0 || _playCity.Selected < 0 ||
-            !world.Units.TryGetValue(_playUnit.GetSelectedId(), out UnitState? unit) ||
-            !world.Cities.TryGetValue(_playCity.GetSelectedId(), out CityState? city) ||
-            city.ForceId != _playerForceId || unit.ForceId != _playerForceId ||
-            city.HexId != unit.HexId;
-    }
+    private void RefreshPlayDisbandAvailability() =>
+        _playDisband.Disabled = !MilitaryCommandPreview.Disband(_world, _playerForceId, SelectedMilitaryCommand());
 
     private void RefreshPlayBuildAvailability()
     {
-        _playBuild.Disabled = _world is not GameState world ||
-            world.Phase != TurnPhase.Strategy || _playerForceId is not int player ||
-            PlayableOutcome.Evaluate(world, player) != PlayableResult.Ongoing ||
-            _playUnit.Selected < 0 || _playStructureKind.Selected < 0 ||
-            _selectedCell is not MapCell cell ||
-            !world.Units.TryGetValue(_playUnit.GetSelectedId(), out UnitState? unit) ||
-            unit.ForceId != player ||
-            unit.Mission is null or { Kind: UnitMissionKind.Transport or UnitMissionKind.Retreat } ||
-            !world.Territory.TryGetValue(cell.Id, out TerritoryState? land) ||
-            land.ForceId != player;
-        StructureState? selected = _world is GameState current && _selectedCell is MapCell target
-            ? current.Structures?.Values.FirstOrDefault(item => item.HexId == target.Id)
-            : null;
-        bool canTarget = _world is GameState active &&
-            active.Phase == TurnPhase.Strategy && _playerForceId is int owner &&
-            PlayableOutcome.Evaluate(active, owner) == PlayableResult.Ongoing &&
-            _playUnit.Selected >= 0 &&
-            active.Units.TryGetValue(_playUnit.GetSelectedId(), out UnitState? worker) &&
-            worker.ForceId == owner &&
-            worker.Mission is not (null or { Kind: UnitMissionKind.Transport or UnitMissionKind.Retreat }) &&
-            selected?.ForceId == owner;
-        _playRepair.Disabled = !canTarget || !selected!.Completed ||
-            selected.Durability >= selected.MaxDurability;
-        _playDemolish.Disabled = !canTarget;
+        StructureCommandPreview preview = MilitaryCommandPreview.Structures(_world, _playerForceId,
+            SelectedMilitaryCommand());
+        _playBuild.Disabled = !preview.Build;
+        _playRepair.Disabled = !preview.Repair;
+        _playDemolish.Disabled = !preview.Demolish;
     }
 
     private void StartPlayable()

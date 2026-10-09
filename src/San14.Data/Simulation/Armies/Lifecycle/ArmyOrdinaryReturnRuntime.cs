@@ -69,9 +69,9 @@ public static class ArmyOrdinaryReturnRuntime
             var draft = context.CreateArmyReturnTransactionDraft(); var stagedPool = pool.DetachForArmyReturn(draft);
             int commander = Person(Get(draft.ReadArmyUnitCommanderId(army), "current.Commander_word12"));
             if (!Get(draft.ReadPersonNativeValidity(commander), "current.Commander_validity")) throw Missing("branch.invalid_commander");
-            byte byte161 = Get(draft.ReadArmyReturnPersonByte199(commander), "current.Commander_byte161");
+            var health = OfficerHealthSourceAdapter.Read(draft, commander) ?? throw Missing("current.Commander_byte161");
 
-            if (byte161 != 0) Marker("29F2AB.Person15E_or1");
+            if (San14.Core.OfficerHealthRules.IsInjured(health)) Marker("29F2AB.Person15E_or1");
             //22BB10 returns the Commander's current DISTRICT pointer. Keep
             //that saved identity across Home writes and the ruler tail.
             byte rawDistrict = Get(draft.ReadPersonDistrictSlot(commander), "current.Commander_districtE0");

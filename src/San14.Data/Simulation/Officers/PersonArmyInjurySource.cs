@@ -3,7 +3,7 @@ using San14.Core;
 namespace San14.Data;
 
 public enum PersonArmyInjuryOutcome { NativeSkip, NotInjured, Injured, CurrentInputsUnresolved }
-public sealed record PersonArmyInjuryReceipt(int PersonId, byte BeforeHealth199, byte AfterHealth199,
+public sealed record PersonArmyInjuryReceipt(int PersonId, int BeforeHealthStateId, int AfterHealthStateId,
     int? Sample, int? Probability, int WinnerEffect52, int OwnEffect2F, int TemporaryPersonalityCount,
     int? TemporaryDescriptor, bool PlayerDistrictNotice, int? ArmyNoticeKind, int? ArmyNoticePhysical);
 public sealed record PersonArmyInjuryResult(PersonArmyInjuryOutcome Outcome,
@@ -30,8 +30,9 @@ public static class PersonArmyInjurySource
             !state.Officers.TryGetValue(id, out var person) || person.NativeAbilityRuntime is not { } native ||
             native.PhysicalSlot != personPhysical || current.StaticSource is not { } source ||
             native.SourceScenarioUri != source.ResourceUri || native.SourceScenarioSha256 != source.Sha256 ||
-            current.ReadArmyReturnPersonByte199(personPhysical) is not byte health)
+            OfficerHealthSourceAdapter.ReadByte(current, personPhysical) is not byte healthIdentity)
             return Unknown("current.Person_identity_and_health161");
+        var health = new OfficerHealth(healthIdentity);
         if (BattleRemakeCurrentSettings.ReadSelectorE58(state) is not int selector ||
             BattleRemakeCurrentSettings.ReadInt32(state, selector != 0 ? 0xD0 : 0x2B4) is not int prohibited)
             return Unknown("current.Environment_3EBE70");
@@ -90,17 +91,18 @@ public static class PersonArmyInjurySource
             //The original middle section can invoke the full295EE0 death and
             //succession callback for severe injuries. This module owns no such
             //callback; it must not report those receivers as a successful skip.
-            if (health > 1) return Unknown("branch.health2_or3_death_and_severe_injury");
+            if (!OfficerHealthRules.SupportsOrdinaryBattleInjury(health)) return Unknown("branch.health2_or3_death_and_severe_injury");
             if (samplerWorld is null) return Unknown("current.operation_World450_45C");
             if (SpecialForce(current, personPhysical) is not bool special)
                 return Unknown("current.Person_232A50_special_force");
-            string baselineKey = special ? health == 0 ? SimulationParameterKeys.ArmyDestruction.SpecialForceHealthyInjuryBase : SimulationParameterKeys.ArmyDestruction.SpecialForceInjuredInjuryBase : health == 0 ? SimulationParameterKeys.ArmyDestruction.OrdinaryForceHealthyInjuryBase : SimulationParameterKeys.ArmyDestruction.OrdinaryForceInjuredInjuryBase;
-            string divisorKey = special ? health == 0 ? SimulationParameterKeys.ArmyDestruction.SpecialForceHealthyAbilityDivisor : SimulationParameterKeys.ArmyDestruction.SpecialForceInjuredAbilityDivisor : health == 0 ? SimulationParameterKeys.ArmyDestruction.OrdinaryForceHealthyAbilityDivisor : SimulationParameterKeys.ArmyDestruction.OrdinaryForceInjuredAbilityDivisor;
+            bool healthy = !OfficerHealthRules.IsInjured(health);
+            string baselineKey = special ? healthy ? SimulationParameterKeys.ArmyDestruction.SpecialForceHealthyInjuryBase : SimulationParameterKeys.ArmyDestruction.SpecialForceInjuredInjuryBase : healthy ? SimulationParameterKeys.ArmyDestruction.OrdinaryForceHealthyInjuryBase : SimulationParameterKeys.ArmyDestruction.OrdinaryForceInjuredInjuryBase;
+            string divisorKey = special ? healthy ? SimulationParameterKeys.ArmyDestruction.SpecialForceHealthyAbilityDivisor : SimulationParameterKeys.ArmyDestruction.SpecialForceInjuredAbilityDivisor : healthy ? SimulationParameterKeys.ArmyDestruction.OrdinaryForceHealthyAbilityDivisor : SimulationParameterKeys.ArmyDestruction.OrdinaryForceInjuredAbilityDivisor;
             //A preceding source callback in this same uncommitted operation
             //may already have changed health. The effective-ability adapter
             //consumes the saved-field view, so give it the actual current byte.
-            var abilityState = native.Health199 == health ? state : state with { Officers = new(state.Officers)
-                { [id] = person with { NativeAbilityRuntime = native with { Health199 = health } } } };
+            var abilityState = person.Health == health ? state : state with { Officers = new(state.Officers)
+                { [id] = person with { Health = health } } };
             if (ArmyDestructionParameterSeed.ReadCurrent(state, baselineKey) is not int baseline ||
                 ArmyDestructionParameterSeed.ReadCurrent(state, divisorKey) is not int divisor ||
                 divisor == 0 || abilities.Resolve(abilityState, id) is not { } effective)
@@ -153,24 +155,24 @@ public static class PersonArmyInjurySource
             probability = unchecked(probability - ownEffect + unchecked(winnerEffect * 3));
             int sample = TacticEffectSourceSamplerMath.Sample(100, 1, id, 0, 0, 0, samplerWorld);
             bool hit = sample < probability; //3FCA30: no clamp in the healthy branch.
-            byte after = hit ? (byte)(health + 1) : health;
+            OfficerHealth after = hit ? OfficerHealthRules.WorsenOrdinaryBattleInjury(health) : health;
             bool playerNotice = false;
             if (hit)
             {
                 if (PlayerDistrict(state, current, personPhysical) is not bool notice)
                     return Unknown("current.233A90_player_District_notice");
                 playerNotice = notice;
-                current.SetArmyReturnPersonByte199(personPhysical, after);
+                current.SetOfficerHealth(id, after);
             }
             return new(hit ? PersonArmyInjuryOutcome.Injured : PersonArmyInjuryOutcome.NotInjured,
-                new(id, health, after, sample, probability, winnerEffect, ownEffect, count, descriptor,
+                new(id, health.StateId, after.StateId, sample, probability, winnerEffect, ownEffect, count, descriptor,
                     playerNotice, hit && ownValid ? 12 : null, hit && ownValid ? ownArmy.PhysicalSlot : null), null);
         }
         finally { current.ClearPersonInjuryTemporary(temporary, true); }
 
         PersonArmyInjuryResult Unknown(string owner) => new(PersonArmyInjuryOutcome.CurrentInputsUnresolved, null, owner);
-        PersonArmyInjuryResult Skip(int identity, byte before) => new(PersonArmyInjuryOutcome.NativeSkip,
-            new(identity, before, before, null, null, 0, 0, count, descriptor, false, null, null), null);
+        PersonArmyInjuryResult Skip(int identity, OfficerHealth before) => new(PersonArmyInjuryOutcome.NativeSkip,
+            new(identity, before.StateId, before.StateId, null, null, 0, 0, count, descriptor, false, null, null), null);
     }
 
     private static ArmyUnitReference? PersonArmy(SourceWorldContext current, int physical)

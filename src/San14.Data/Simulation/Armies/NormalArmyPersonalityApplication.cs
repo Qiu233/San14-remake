@@ -27,8 +27,8 @@ public static class NormalArmyPersonalityApplicationSource
             new(target.Id, target.OfficerId, false, [], revision), [], null);
         var steps = new List<NormalArmyPersonalityReactionStep>();
         var activations = new List<NormalArmyPersonalityActivation>();
-        ushort? mask = null; ushort[]? timers = null;
-        for (int index = 0; index < 9; index++)
+        var activation = new CommanderPersonalityActivation(state, target.OfficerId);
+        for (int index = 0; index < CommanderPersonalityActivation.TraitSlotCount; index++)
         {
             if (TacticRemakeCurrentTraits.ResolveCommanderPersonality(definitions, physical, index) is not { } trait ||
                 definitions.ReadSkillPersonalityValidity(trait) is not bool traitValid)
@@ -36,11 +36,12 @@ public static class NormalArmyPersonalityApplicationSource
             if (!traitValid) { Add(NormalArmyPersonalityReactionStepOutcome.InvalidPersonality); continue; }
             if (definitions.ReadPersonalityByte(trait, 0xA4) is not byte category) return Unknown("current.Personality_A4");
             if (category != 0x1E) { Add(NormalArmyPersonalityReactionStepOutcome.DifferentCategory, category); continue; }
-            ushort? currentTimer = timers is null ? definitions.ReadPersonTraitExtra1BE(physical, index) : timers[index];
+            ushort? currentTimer = activation.HasChanges ? activation.Timer(index, null) :
+                definitions.ReadPersonTraitExtra1BE(physical, index);
             if (currentTimer is not ushort timer) return Unknown("current.Person_timer1BE");
             if (timer > 0) { Add(NormalArmyPersonalityReactionStepOutcome.TimerRunning, category, timer); continue; }
-            mask ??= definitions.ReadPersonTraitMask1BC(physical);
-            if (mask is not ushort active) return Unknown("current.Person_mask1BC");
+            if (activation.Mask is null) activation.ReadMask(definitions.ReadPersonTraitMask1BC(physical));
+            if (activation.Mask is not ushort active) return Unknown("current.Person_mask1BC");
             if ((active & (1 << index)) != 0)
             { Add(NormalArmyPersonalityReactionStepOutcome.AlreadyActive, category, timer, active); continue; }
             if (definitions.ReadSkillPersonalityFlags(trait) is not byte flags) return Unknown("current.Personality_flags");
@@ -48,12 +49,8 @@ public static class NormalArmyPersonalityApplicationSource
             { Add(NormalArmyPersonalityReactionStepOutcome.ActivationFlagDisabled, category, timer, active, flags); continue; }
             if (trait.PhysicalSlot is not int traitPhysical || definitions.ReadPersonalityWord(trait, 0xB4) is not ushort duration)
                 return Unknown("current.Personality_durationB4");
-            if (state.Officers[target.OfficerId].NativeLocationRuntime is not { TraitExtras1BE: { Length: 9 } ownerTimers })
+            if (!activation.TryActivate(index, active, duration, out ushort after, out ushort afterTimer))
                 return Unknown("current.saved_Person_activation_owner");
-            timers ??= ownerTimers.ToArray();
-            ushort after = checked((ushort)(active | (1 << index)));
-            ushort afterTimer = (ushort)Math.Min(720, (int)duration);
-            timers[index] = afterTimer; mask = after;
             activations.Add(new(index, traitPhysical, active, after, duration, afterTimer));
             Add(NormalArmyPersonalityReactionStepOutcome.ActivationCallbackRequired, category, timer, active, flags);
 
@@ -63,10 +60,7 @@ public static class NormalArmyPersonalityApplicationSource
         }
         var receipt = new NormalArmyPersonalityReactionReceipt(target.Id, target.OfficerId, true, steps.ToArray(), revision);
         if (activations.Count == 0) return new(NormalArmyPersonalityApplicationOutcome.ResolvedWithoutWrite, state, receipt, [], null);
-        OfficerState commander = state.Officers[target.OfficerId];
-        GameState result = state with { Officers = new(state.Officers) { [commander.Id] = commander with
-            { NativeLocationRuntime = commander.NativeLocationRuntime! with { TraitMask1BC = mask, TraitExtras1BE = timers } } } };
-        NativeArmyReturnCurrentStateValidation.Validate(result);
+        GameState result = activation.Publish();
         return new(NormalArmyPersonalityApplicationOutcome.Committed, result, receipt, activations.ToArray(), null);
 
         NormalArmyPersonalityApplication Unknown(string owner) =>

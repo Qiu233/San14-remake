@@ -123,7 +123,7 @@ internal static class PreparedArmyDeploymentStage
                     officers[plan.OfficerId] = commander with { NativeLocationRuntime =
                         commander.NativeLocationRuntime is { } location
                             ? location with { Second11C = secondLocation }
-                            : new(created.Origin.Revision, secondLocation, null, null) };
+                            : new(created.Origin.Revision, secondLocation) };
                 }
                 randomState = created.RandomState;
             }

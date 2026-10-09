@@ -12,7 +12,7 @@ public static class OwnedArmyReturnCurrentFields
     {
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(definitions);
         if (state.Units.Count != 0 || state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } ||
-            state.Officers.Values.Any(x => x.NativeLocationRuntime is not null) ||
+            state.Officers.Values.Any(x => x.NativeLocationRuntime is not null || x.TraitActivation is not null) ||
             state.Cities.Values.Any(x => x.NativeReturnRuntime is not null) ||
             state.Gates.Values.Any(x => x.NativeCombatRuntime is not null))
             throw new InvalidDataException("Return fields may only be installed once in an explicit fresh session.");
@@ -23,11 +23,12 @@ public static class OwnedArmyReturnCurrentFields
             var ability = person.NativeAbilityRuntime ?? throw new InvalidDataException("Fresh Person source identity is missing.");
             if (prefix.ReadPersonIdentity(ability.PhysicalSlot) != person.Id)
                 throw new InvalidDataException("Fresh Person identity differs from the installed ability owner.");
-            var extras = Enumerable.Range(0,9).Select(i => prefix.ReadPersonTraitExtra1BE(ability.PhysicalSlot,i)).ToArray();
-            people[person.Id] = person with { NativeLocationRuntime = new(Revision,
-                prefix.ReadPersonSecondLocation(ability.PhysicalSlot), prefix.ReadPersonTraitMask1BC(ability.PhysicalSlot),
-                extras.All(x => x.HasValue) ? extras.Select(x => x!.Value).ToArray() : null)
-                { District118 = prefix.ReadPersonDistrictSlot(ability.PhysicalSlot) } };
+            people[person.Id] = person with
+            {
+                NativeLocationRuntime = new(Revision, prefix.ReadPersonSecondLocation(ability.PhysicalSlot))
+                    { District118 = prefix.ReadPersonDistrictSlot(ability.PhysicalSlot) },
+                TraitActivation = OfficerTraitActivationSourceAdapter.Read(prefix, ability.PhysicalSlot)
+            };
         }
         var cities = state.Cities.ToDictionary(x => x.Key, x => x.Value);
         foreach (var city in cities.Values.ToArray())
@@ -81,18 +82,17 @@ public static class OwnedArmyReturnCurrentFields
                     ?? throw new InvalidDataException("Current changed-District Person Force physical slot is unknown.");
                 forceId = nativeForce == 0 ? null : nativeForce;
             }
-            var extras = Enumerable.Range(0,9).Select(i => current.ReadPersonTraitExtra1BE(physical,i)).ToArray();
             people[person.Id] = person with
             {
                 LocationId = first == 0 ? null : first, DistrictId = district == 0 ? null : district, ForceId = forceId,
                 Role = current.ReadPersonStatus(physical) switch
                 { 1=>OfficerRole.Ruler,2=>OfficerRole.DistrictLeader,3=>OfficerRole.Governor,4=>OfficerRole.Officer,5=>OfficerRole.Free,_=>person.Role },
                 NativeAbilityRuntime = ability with { Status11E = current.ReadPersonStatus(physical),
-                    Flags196 = current.ReadOwnedReturnPersonFlags(physical), Health199 = current.ReadArmyReturnPersonByte199(physical) },
+                    Flags196 = current.ReadOwnedReturnPersonFlags(physical) },
+                Health = current.ReadOfficerHealth(person.Id),
                 NativeLocationRuntime = fields with { Second11C = current.ReadPersonSecondLocation(physical),
-                    District118 = district,
-                    TraitMask1BC = current.ReadPersonTraitMask1BC(physical),
-                    TraitExtras1BE = extras.All(x => x.HasValue) ? extras.Select(x => x!.Value).ToArray() : null }
+                    District118 = district },
+                TraitActivation = OfficerTraitActivationSourceAdapter.Read(current, physical)
             };
         }
         var cities = state.Cities.ToDictionary(x => x.Key,x => x.Value);
@@ -155,9 +155,8 @@ public sealed partial class SourceWorldContext
             var old = _persons[physical];
             _persons[physical] = old with { Status = ability.Status11E, Flags = ability.Flags196,
                 Tail = ability.Extra1FD, Location = location?.Second11C };
-            SetArmyReturnPersonByte199(physical, ability.Health199);
-            SetPersonTraitMask1BC(physical,location?.TraitMask1BC);
-            for (int i=0;i<9;i++) SetPersonTraitExtra1BE(physical,i,location?.TraitExtras1BE?[i]);
+            BindOfficerHealthSource(physical, person.Id, person.Health);
+            OfficerTraitActivationSourceAdapter.Write(this, physical, person.TraitActivation);
         }
         //The full manager may contain receivers outside the playable projection.
         //Their mutable fields are unknown until an independent current owner is
