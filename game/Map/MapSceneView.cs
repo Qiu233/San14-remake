@@ -5,6 +5,7 @@ using Godot;
 using San14.Data;
 using San14.Data.Formats;
 using San14.Core;
+using San14.Client.MapInteraction;
 
 /// <summary>Source-space preview with native unparented WorldPQ matrices.
 /// Camera, material execution and later parent binding remain separate.</summary>
@@ -21,9 +22,9 @@ public partial class MapSceneView : Control
     private Node3D _terrain = null!;
     private string _archive = "";
     private readonly List<uint> _sceneIds = [];
-    private readonly Dictionary<string, ModelMeshResult> _meshes = [];
+    private readonly MapModelMeshCache _modelMeshes = new();
     private TexturePreviewPolicy _texturePolicy = null!;
-    private ModelPreviewMaterials? _materialAssets;
+    private MapSceneModelResources? _sceneModels;
     private UiAssets? _markerAssets;
     private LoadedLayout? _markerLayout;
     private LoadedLayout? _unitMarkerLayout;
@@ -57,12 +58,6 @@ public partial class MapSceneView : Control
     private CeForceMapPalette? _sourceForcePalette;
     private IReadOnlyDictionary<string, string>? _sourceStructureNames;
     private LoadedSceneResources? _loadedSceneResources;
-    private readonly Dictionary<string, FacilityModelDisplays> _facilityModelDisplays = [];
-    private readonly Dictionary<int, FacilityModelDisplay> _cityModelDisplays = [];
-    private FacilityModelDisplay? _gateModelDisplay;
-    private CeCityVariantTable? _cityVariantTable;
-    private LoadedCityOpeningPostLoadSource? _sourceCityOpening;
-    private CityVisualAdapter? _cityVisualAdapter;
     private readonly Dictionary<uint, MapWorldProjectionPolicy> _projectionPolicies = [];
     private MapLocationLayer? _locations;
     private MapUnitLayer? _unitLayer;
@@ -96,10 +91,7 @@ public partial class MapSceneView : Control
     private Action<int>? _selectCommandUnit;
     private Action<int>? _acceptHex;
     private Action? _closeScene;
-    private int? _selectedCityId;
-    private int? _selectedCommandLocationId;
-    private int? _selectedAreaId;
-    private int? _selectedUnitId;
+    private readonly MapSelection _mapSelection = new();
     private bool _detailsOpen;
     private bool _embedded;
     private string _sceneSummary = "";
@@ -171,7 +163,7 @@ public partial class MapSceneView : Control
         terrainToggle.Toggled += visible => Run(() =>
         {
             _terrain.Visible = visible;
-            if (_selectionMarker is not null) _selectionMarker.Visible = visible && HasMeta("picked_hex_id");
+            if (_selectionMarker is not null) _selectionMarker.Visible = visible && _mapSelection.Current is not null;
         });
         toolbar.AddChild(terrainToggle);
         _terrainTextureToggle = new CheckButton { Name = "ShowTerrainTexture", Text = text.Get("scene_preview_terrain_texture"),
@@ -186,8 +178,8 @@ public partial class MapSceneView : Control
         };
         _useSelectedHex.Pressed += () => Run(() =>
         {
-            if (_acceptHex is not null && HasMeta("picked_hex_id"))
-                _acceptHex((int)GetMeta("picked_hex_id"));
+            if (_acceptHex is not null && _mapSelection.Current is { } selection)
+                _acceptHex(selection.HexId);
         });
         toolbar.AddChild(_useSelectedHex);
         var back = new Button { Name = "CloseScenePreview", Text = text.Get("scene_preview_close") };
@@ -211,7 +203,7 @@ public partial class MapSceneView : Control
         _openSelectedCity = new Button { Name = "OpenSceneCityDetails", Text = text.Get("detail_city_title"), Disabled = true };
         _openSelectedCity.Pressed += () => Run(() =>
         {
-            if (_selectedCityId is int cityId) _openCityDetails?.Invoke(cityId);
+            if (_mapSelection.Current?.CityDetails?.Id is int cityId) _openCityDetails?.Invoke(cityId);
         });
         locationBar.AddChild(_openSelectedCity);
         _locationNotice = new Label { Name = "SceneLocationNotice", SizeFlagsHorizontal = SizeFlags.ExpandFill,
@@ -271,7 +263,7 @@ public partial class MapSceneView : Control
             };
             _mapCityInformation.Pressed += () => Run(() =>
             {
-                if (_selectedCityId is int cityId) _openCityDetails(cityId);
+                if (_mapSelection.Current?.CityDetails?.Id is int cityId) _openCityDetails(cityId);
             });
             AddChild(_mapCityInformation);
         }
@@ -287,7 +279,7 @@ public partial class MapSceneView : Control
             };
             _mapCityOrders.Pressed += () => Run(() =>
             {
-                if (_selectedCommandLocationId is int locationId) _selectCommandCity(locationId);
+                if (_mapSelection.Current?.LocationCommand?.Id is int locationId) _selectCommandCity(locationId);
             });
             AddChild(_mapCityOrders);
         }
@@ -303,7 +295,7 @@ public partial class MapSceneView : Control
             };
             _mapAreaOrders.Pressed += () => Run(() =>
             {
-                if (_selectedAreaId is int areaId) _selectCommandArea?.Invoke(areaId);
+                if (_mapSelection.Current?.AreaCommand?.Id is int areaId) _selectCommandArea?.Invoke(areaId);
             });
             AddChild(_mapAreaOrders);
         }
@@ -319,7 +311,7 @@ public partial class MapSceneView : Control
             };
             _mapUnitOrders.Pressed += () => Run(() =>
             {
-                if (_selectedUnitId is int unitId) _selectCommandUnit(unitId);
+                if (_mapSelection.Current?.SelectedUnit?.Id is int unitId) _selectCommandUnit(unitId);
             });
             AddChild(_mapUnitOrders);
             _mapNextUnit = new Button
@@ -434,8 +426,7 @@ public partial class MapSceneView : Control
         RemoveMeta("playable_unit_marker_count");
         RemoveMeta("playable_structure_marker_count");
         if (_locations is not null) { _previewWorld.RemoveChild(_locations); _locations.Free(); _locations = null; }
-        _cityVisualAdapter?.Dispose(); _cityVisualAdapter = null;
-        _sourceCityOpening = null;
+        _sceneModels?.ReleaseCityDisplays();
         _locationSelection.Clear(); _locationSelection.Disabled = true;
         _focusLocation.Disabled = true; _showLocations.Disabled = true;
         _locationNotice.Text = "";
@@ -453,14 +444,10 @@ public partial class MapSceneView : Control
         _terrainMaterial?.Dispose();
         _terrainMaterial = null;
         _terrain.RemoveMeta("texture_preview_material");
-        _materialAssets?.Dispose();
-        _materialAssets = null;
+        _sceneModels?.Dispose();
+        _sceneModels = null;
         _mapProjectionSource = null;
         _loadedSceneResources = null;
-        _facilityModelDisplays.Clear();
-        _cityModelDisplays.Clear();
-        _gateModelDisplay = null;
-        _cityVariantTable = null;
         _markerAssets?.Dispose();
         _markerAssets = null;
         _markerLayout = null;
@@ -511,7 +498,6 @@ public partial class MapSceneView : Control
         _status.Text = _text.Get("scene_preview_loading");
         LoadedSceneResources scene = SceneResources.Load(_repository, _archive, _sceneIds[index]);
         ScenePlacements placements = ScenePlacementReader.Read(scene);
-        var currentMeshes = new Dictionary<uint, ModelMeshResult>();
         var effects = new Godot.Collections.Array<Godot.Collections.Dictionary>();
         int missingQuaternions = 0, modelCount = 0;
         Aabb bounds = default;
@@ -555,7 +541,8 @@ public partial class MapSceneView : Control
         }
         _loadedSceneResources = scene;
         _nativeMapInitialHeight = initialHeight;
-        _materialAssets = UseD3D11Map?null:new ModelPreviewMaterials(_repository, _texturePolicy);
+        _sceneModels = UseD3D11Map ? null : new(_repository, scene, _sourceSnapshot,
+            _text.SourceLocale, _texturePolicy, _modelMeshes);
         _terrainMeshes = preparedMeshes;
         // Install ownership before further source validation, so the existing
         // controlled load-error cleanup can release every uploaded resource.
@@ -637,15 +624,9 @@ public partial class MapSceneView : Control
                 new Vector3(nativeMatrix.M21,nativeMatrix.M22,nativeMatrix.M23),
                 new Vector3(nativeMatrix.M31,nativeMatrix.M32,nativeMatrix.M33)),
                 new Vector3(nativeMatrix.M41,nativeMatrix.M42,nativeMatrix.M43));
-            if (!currentMeshes.TryGetValue(reference.ModelFileId, out ModelMeshResult? model))
-            {
-                LoadedModelTransforms loaded = _repository.LoadModelTransforms("FieldEditor4", reference.ModelFileId);
-                string key = $"{loaded.Source.ResourceUri}/{loaded.Source.DecodedSha256}";
-                if (!_meshes.TryGetValue(key, out model))
-                    _meshes.Add(key, model = ModelMesh.Build(loaded));
-                currentMeshes.Add(reference.ModelFileId, model);
-            }
-            PreviewMaterialSet materials = _materialAssets!.Load(reference, model);
+            FacilityModelDisplay assets = _sceneModels!.LoadPlacement(reference);
+            ModelMeshResult model = assets.Mesh;
+            PreviewMaterialSet materials = assets.Materials;
             var node = new MeshInstance3D
             {
                 Name = $"Instance_{source.Index}_{source.Object.ObjectId:X8}", Mesh = model.Mesh, Transform = matrix
@@ -679,8 +660,8 @@ public partial class MapSceneView : Control
         SetMeta("displayed_model_count", modelCount);
         SetMeta("unshown_effect_count", effects.Count);
         SetMeta("unshown_effects", effects);
-        SetMeta("unique_mesh_count", currentMeshes.Count);
-        SetMeta("preview_texture_count", _materialAssets?.TextureCount ?? 0);
+        SetMeta("unique_mesh_count", (_sceneModels?.PlacementMeshCount ?? 0));
+        SetMeta("preview_texture_count", _sceneModels?.TextureCount ?? 0);
         SetMeta("native_map_legacy_preview_resources", !UseD3D11Map);
         SetMeta("terrain_patch_count", _activeTerrainPatches.Count);
         SetMeta("terrain_world_mapping_verified", false);
@@ -705,9 +686,9 @@ public partial class MapSceneView : Control
         if (generation != _sceneLoadGeneration || !GodotObject.IsInstanceValid(this) || !IsInsideTree()) return;
         SetMeta("scene_loaded", true);
         _status.Text = string.Format(CultureInfo.InvariantCulture, _text.Get("scene_preview_counts"),
-            placements.Instances.Count, modelCount, effects.Count, currentMeshes.Count, _materialAssets?.TextureCount ?? 0, _activeTerrainPatches.Count);
+            placements.Instances.Count, modelCount, effects.Count, (_sceneModels?.PlacementMeshCount ?? 0), _sceneModels?.TextureCount ?? 0, _activeTerrainPatches.Count);
         _sceneSummary = _status.Text;
-        GD.Print($"SCENE_PREVIEW_LOADED {scene.Scene.Source.ResourceUri} instances={placements.Instances.Count} models={modelCount} effects={effects.Count} meshes={currentMeshes.Count} missingQuaternion={missingQuaternions} textures={_materialAssets?.TextureCount ?? 0} terrainPatches={_activeTerrainPatches.Count}");
+        GD.Print($"SCENE_PREVIEW_LOADED {scene.Scene.Source.ResourceUri} instances={placements.Instances.Count} models={modelCount} effects={effects.Count} meshes={(_sceneModels?.PlacementMeshCount ?? 0)} missingQuaternion={missingQuaternions} textures={_sceneModels?.TextureCount ?? 0} terrainPatches={_activeTerrainPatches.Count}");
     }
 
     private static Vector3 ToGodot(System.Numerics.Vector3 value) => new(value.X, value.Y, value.Z);
@@ -846,7 +827,7 @@ public partial class MapSceneView : Control
         _locations.Build(projection, _terrainMeshes, _logicalWorld, _markerAssets,
             _markerLayout, _sourceMarkerColorCandidates,
             _acceptHex is null ? null : ResolveCityModelDisplays(_logicalWorld),
-            _acceptHex is null ? null : ResolveGateModelDisplays(_logicalWorld));
+            _acceptHex is null ? null : _sceneModels?.ResolveGates(_logicalWorld));
         _locations.SetViewportHeight(_surface.Size.Y);
         if (_acceptHex is not null && _playerForceId is int playerId &&
             _logicalWorld.Forces.TryGetValue(playerId, out ForceState? force))
@@ -877,7 +858,7 @@ public partial class MapSceneView : Control
             _previewWorld.AddChild(_structureLayer);
         _structureLayer.Build(projection, _terrainMeshes, _logicalWorld,
             _sourceMarkerColorCandidates, _sourceStructureNames,
-            ResolveFacilityModelDisplays(_logicalWorld));
+            _sceneModels?.ResolveFacilities(_logicalWorld));
             _structureLayer.SetViewportHeight(_surface.Size.Y);
         }
         for (int i = 0; i < _locations.Locations.Count; i++)
@@ -976,7 +957,7 @@ public partial class MapSceneView : Control
         if (world.MapWidth != policy.Width || world.MapHeight != policy.Height ||
             !world.MapSha256.Equals(policy.MapSha256, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Updated playable world and displayed source map differ.");
-        int selectedHex = HasMeta("picked_hex_id") ? (int)GetMeta("picked_hex_id") : -1;
+        int selectedHex = _mapSelection.Current?.HexId ?? -1;
         if(UseD3D11Map)
         {
             _logicalWorld=world;
@@ -1028,7 +1009,7 @@ public partial class MapSceneView : Control
             ?? throw new InvalidOperationException("Original map marker assets are unavailable."),
             _markerLayout ?? throw new InvalidOperationException("Original map marker layout is unavailable."),
             _sourceMarkerColorCandidates, ResolveCityModelDisplays(world),
-            ResolveGateModelDisplays(world));
+            _sceneModels?.ResolveGates(world));
         _locations.SetViewportHeight(_surface.Size.Y);
         _unitLayer = new MapUnitLayer();
         _previewWorld.AddChild(_unitLayer);
@@ -1042,7 +1023,7 @@ public partial class MapSceneView : Control
         _previewWorld.AddChild(_structureLayer);
         _structureLayer.Build(_projection, _terrainMeshes, world,
             _sourceMarkerColorCandidates, _sourceStructureNames,
-            ResolveFacilityModelDisplays(world));
+            _sceneModels?.ResolveFacilities(world));
         _structureLayer.SetViewportHeight(_surface.Size.Y);
         _locationSelection.Clear();
         foreach (ProjectedMapLocation location in _locations.Locations)
@@ -1063,160 +1044,14 @@ public partial class MapSceneView : Control
         ScheduleNativeMapFrame();
     }
 
-    private IReadOnlyDictionary<string, FacilityModelDisplays>? ResolveFacilityModelDisplays(GameState world)
-    {
-        if (_loadedSceneResources?.Scene.Source.FileId != CeFacilityModels.FieldSceneId ||
-            world.Structures is null || !world.Structures.Values.Any(item =>
-                PlayableConstructionRules.IsSupportedKind(item.KindId)))
-            return null;
-        if (_materialAssets is null)
-            throw new InvalidOperationException("Facility materials require the active source scene.");
-        FacilityModelDisplay Load(SceneModelReference reference)
-        {
-            LoadedModelTransforms loaded = _repository.LoadModelTransforms("FieldEditor4", reference.ModelFileId);
-            string key = $"{loaded.Source.ResourceUri}/{loaded.Source.DecodedSha256}";
-            if (!_meshes.TryGetValue(key, out ModelMeshResult? mesh))
-                _meshes.Add(key, mesh = ModelMesh.Build(loaded));
-            PreviewMaterialSet materials = _materialAssets.Load(reference, mesh);
-            return new(reference, mesh, materials);
-        }
-        foreach (string kindId in world.Structures.Values.Select(item => item.KindId)
-                     .Where(PlayableConstructionRules.IsSupportedKind).Distinct())
-        {
-            if (_facilityModelDisplays.ContainsKey(kindId)) continue;
-            int slot = PlayableConstructionRules.Describe(kindId).ObjectSlot;
-            var references = CeFacilityModels.Resolve(_repository,
-                _loadedSceneResources, slot);
-            _facilityModelDisplays.Add(kindId, new FacilityModelDisplays(
-                Load(references.Unfinished), Load(references.Completed),
-                _loadedSceneResources.Scene.Source.ResourceUri,
-                _loadedSceneResources.Scene.Source.DecodedSha256,
-                _loadedSceneResources.ModelCatalog.Source.ResourceUri,
-                _loadedSceneResources.ModelCatalog.Source.DecodedSha256));
-        }
-        return _facilityModelDisplays;
-    }
-
     private IReadOnlyDictionary<int, CityModelDisplay>? ResolveCityModelDisplays(GameState world)
     {
-        if (_loadedSceneResources?.Scene.Source.FileId != CeCityModels.FieldSceneId ||
-            _sourceSnapshot?.Number != 1 || _materialAssets is null)
-            return null;
-        _cityVariantTable ??= CeCityVariantTable.LoadCurrent(_text.SourceLocale);
-        _cityVisualAdapter ??= new CityVisualAdapter(_repository,_loadedSceneResources,
-            _cityVariantTable,_materialAssets);
-        if(_sourceCityOpening is null && world.NewGameOptions is { } options)
-        {
-            var metadata = _repository.EffectiveScenarios.Single(item =>
-                item.SourcePath == _sourceSnapshot.SourcePath && item.Locale == _sourceSnapshot.Locale);
-            _sourceCityOpening = CityOpeningPostLoadSource.LoadSourceCreatedOrdinary(_repository,
-                _repository.LoadScenario(metadata), _repository.LoadCeMap(), options, _cityVariantTable);
-        }
-        if(_sourceCityOpening is { } sourceOpening)
-        {
-            var seed = new List<CityVisualSelection>();
-            foreach(var record in sourceOpening.Cities.Values)
-            {
-                var state = new CityVisualState(record.Slot, record.HexId, record.SizeCode,
-                    record.ForcePhysicalSlot == 0 ? null : record.ForcePhysicalSlot, record.Durability);
-                var original = sourceOpening.SelectSourceCreatedOpening(_cityVariantTable, state);
-                if(original.Selection is { } selection)seed.Add(selection);
-            }
-            _cityVisualAdapter.SeedKnownSourceSelections(seed);
-        }
-        var currentDamage = new Dictionary<int,CityVisualDamageInput>();
-        if(_d3d11CurrentWorldQueries?.Invoke(world) is { } current)
-        {
-            foreach(var city in world.Cities.Values)
-            {
-                try
-                {
-                    byte tier = BasePostLoad.ReadFlag66(new(BaseKind.City, city.Id), current);
-                    currentDamage.Add(city.Id, CityVisualDamageInput.FromTier(tier,
-                        new("actual-current-Base/Object14/268230/2AA9B0", world.MapSha256,
-                            "actual-current-city-damage-tier")));
-                }
-                catch(InvalidDataException) { /* No current descriptor writer: keep the prior model explicit. */ }
-            }
-        }
-        CityVisualPlan plan=_cityVisualAdapter.Resolve(world,null,
-            currentDamage.Count==0?null:currentDamage,retainLastKnownModel:true);
-        SetMeta("city_visual_unresolved_count",plan.Unresolved.Count);
-        SetMeta("city_visual_retained_count",plan.Unresolved.Count(row=>row.KeptPreviousModel));
-        SetMeta("city_visual_unresolved_slots",plan.Unresolved.Select(row=>row.CityId).ToArray());
-        return plan.Displays.Count==0?null:plan.Displays;
-    }
-
-    private FacilityModelDisplay LoadCityModelDisplay(int category)
-    {
-        if (_cityModelDisplays.TryGetValue(category, out FacilityModelDisplay? asset)) return asset;
-        if (_materialAssets is null || _loadedSceneResources is null)
-            throw new InvalidOperationException("City materials require the active source scene.");
-        SceneModelReference reference = CeCityModels.ResolveByCategory(
-            _repository, _loadedSceneResources, category);
-        LoadedModelTransforms loaded = _repository.LoadModelTransforms("FieldEditor4", reference.ModelFileId);
-        string key = $"{loaded.Source.ResourceUri}/{loaded.Source.DecodedSha256}";
-        if (!_meshes.TryGetValue(key, out ModelMeshResult? mesh))
-            _meshes.Add(key, mesh = ModelMesh.Build(loaded));
-        PreviewMaterialSet materials = _materialAssets.Load(reference, mesh);
-        asset = new FacilityModelDisplay(reference, mesh, materials);
-        _cityModelDisplays.Add(category, asset);
-        return asset;
-    }
-
-    private IReadOnlyDictionary<int, GateModelDisplay>? ResolveGateModelDisplays(GameState world)
-    {
-        if (_loadedSceneResources?.Scene.Source.FileId != 0x0449AC47 ||
-            _sourceSnapshot is null ||
-            _sourceSnapshot.Locale is not ("SC" or "TC") ||
-            world.ScenarioKey != GameResourceId.File(_sourceSnapshot.SourcePath).ToString())
-            return null;
-        GatePreviewRecord[] sourceGates = _sourceSnapshot.Gates
-            .Where(item => item.Slot != 0).OrderBy(item => item.Slot).ToArray();
-        if (sourceGates.Length != 10)
-            throw new InvalidDataException("CE opening gate count differs from the verified source.");
-        if (_materialAssets is null)
-            throw new InvalidOperationException("Gate materials require the active source scene.");
-        if (_gateModelDisplay is null)
-        {
-            SceneModelReference reference = CeGateModels.ResolveByCategory(
-                _repository, _loadedSceneResources, 55);
-            LoadedModelTransforms loaded = _repository.LoadModelTransforms("FieldEditor4",
-                reference.ModelFileId);
-            string key = $"{loaded.Source.ResourceUri}/{loaded.Source.DecodedSha256}";
-            if (!_meshes.TryGetValue(key, out ModelMeshResult? mesh))
-                _meshes.Add(key, mesh = ModelMesh.Build(loaded));
-            PreviewMaterialSet materials = _materialAssets.Load(reference, mesh);
-            _gateModelDisplay = new FacilityModelDisplay(reference, mesh, materials);
-        }
-        string ruleVersion = CeHexWorldCoordinates.GetRuleVersion(_text.SourceLocale);
-        var displays = new Dictionary<int, GateModelDisplay>();
-        foreach (GatePreviewRecord sourceGate in sourceGates)
-        {
-            if (!world.Gates.TryGetValue(sourceGate.LocationSlot, out GateState? gate))
-                continue;
-            AreaPreviewRecord[] areaMatches = _sourceSnapshot.Areas.Where(item =>
-                item.Name == sourceGate.Name && item.HexId == sourceGate.HexId).ToArray();
-            if (areaMatches.Length != 1 || gate.HexId != sourceGate.HexId ||
-                gate.Name != sourceGate.Name)
-                throw new InvalidDataException($"CE opening gate {sourceGate.Slot} has no unique source area.");
-            AreaPreviewRecord sourceArea = areaMatches[0];
-            byte[] raw = Convert.FromHexString(sourceArea.StateRemainingBytesHex);
-            if (raw.Length != 4)
-                throw new InvalidDataException($"CE opening gate {sourceGate.Slot} rotation row changed.");
-            int degrees = BinaryPrimitives.ReadUInt16LittleEndian(raw.AsSpan(1, 2));
-            if (degrees >= 360)
-                throw new InvalidDataException($"CE opening gate {sourceGate.Slot} has an unsupported angle.");
-            float radians = degrees * MathF.PI / 180f;
-            displays.Add(gate.Id, new GateModelDisplay(_gateModelDisplay,
-                sourceGate.Slot, sourceArea.Slot, degrees, 55,
-                new Quaternion(Vector3.Up, radians), true, ruleVersion,
-                _loadedSceneResources.Scene.Source.ResourceUri,
-                _loadedSceneResources.Scene.Source.DecodedSha256,
-                _loadedSceneResources.ModelCatalog.Source.ResourceUri,
-                _loadedSceneResources.ModelCatalog.Source.DecodedSha256));
-        }
-        return displays.Count == 0 ? null : displays;
+        CityVisualPlan? plan = _sceneModels?.ResolveCities(world, _d3d11CurrentWorldQueries);
+        if (plan is null) return null;
+        SetMeta("city_visual_unresolved_count", plan.Unresolved.Count);
+        SetMeta("city_visual_retained_count", plan.Unresolved.Count(row => row.KeptPreviousModel));
+        SetMeta("city_visual_unresolved_slots", plan.Unresolved.Select(row => row.CityId).ToArray());
+        return plan.Displays.Count == 0 ? null : plan.Displays;
     }
 
     private void FocusLocation()
@@ -1257,10 +1092,7 @@ public partial class MapSceneView : Control
 
     private void ClearPickedCell()
     {
-        _selectedCityId = null;
-        _selectedCommandLocationId = null;
-        _selectedAreaId = null;
-        _selectedUnitId = null;
+        _mapSelection.Clear();
         _openSelectedCity.Disabled = true;
         if (_mapCityInformation is not null) _mapCityInformation.Visible = false;
         if (_mapCityOrders is not null) _mapCityOrders.Visible = false;
@@ -1281,87 +1113,55 @@ public partial class MapSceneView : Control
     private void ShowPickedCell(int hexId, Vector3 position)
     {
         GameState world = _logicalWorld ?? throw new InvalidOperationException("No logical world for map selection.");
-        if (!world.Territory.TryGetValue(hexId, out TerritoryState? territory))
-            throw new InvalidDataException($"Picked map cell {hexId} is absent from the current territory state.");
-        string none = _text.Get("neutral");
-        string area = territory.AreaId is int areaId ? world.Areas[areaId].Name : _text.Get("scene_preview_no_location");
-        string force = territory.ForceId is int forceId ? world.Forces[forceId].Name : none;
-        string locations = string.Join(_text.Get("list_separator"),
-            world.Cities.Values.Where(city => city.HexId == hexId).OrderBy(city => city.Id).Select(city => city.Name)
-                .Concat(world.Gates.Values.Where(gate => gate.HexId == hexId).OrderBy(gate => gate.Id).Select(gate => gate.Name)));
+        MapCellSelection selection = _mapSelection.Select(world, hexId, _playerForceId);
+        string area = selection.AreaName ?? _text.Get("scene_preview_no_location");
+        string force = selection.ForceName ?? _text.Get("neutral");
+        string locations = string.Join(_text.Get("list_separator"), selection.LocationNames);
         if (locations.Length == 0) locations = _text.Get("scene_preview_no_location");
         _cellInfo.Text = string.Format(CultureInfo.InvariantCulture, _text.Get("scene_preview_cell_info"), hexId, area, force, locations);
-        if (world.Structures?.Values.FirstOrDefault(item => item.HexId == hexId) is { } building)
+        if (selection.Structure is { } building)
             _cellInfo.Text += "\n" + _text.Format("play_map_structure_here",
-                _sourceStructureNames is not null &&
-                _sourceStructureNames.TryGetValue(building.KindId, out string? knownName)
+                _sourceStructureNames is not null && _sourceStructureNames.TryGetValue(building.KindId, out string? knownName)
                     ? knownName : building.KindId,
                 building.Durability, building.MaxDurability);
-        string[] unitsHere = world.Units.Values.Where(unit => unit.HexId == hexId)
-            .OrderBy(unit => unit.Id)
-            .Select(unit => _text.Format("play_map_unit_here",
-                world.Officers[unit.OfficerId].Name, unit.Troops))
-            .ToArray();
-        if (unitsHere.Length > 0)
-            _cellInfo.Text += "\n" + _text.Format("play_map_units_here",
-                string.Join(_text.Get("list_separator"), unitsHere));
-        int[] cities = world.Cities.Values.Where(city => city.HexId == hexId).Select(city => city.Id).ToArray();
-        _selectedCityId = cities.Length == 1 ? cities[0] : null;
-        _openSelectedCity.Disabled = _selectedCityId is null || _openCityDetails is null;
+        if (selection.Units.Count > 0)
+            _cellInfo.Text += "\n" + _text.Format("play_map_units_here", string.Join(_text.Get("list_separator"),
+                selection.Units.Select(unit => _text.Format("play_map_unit_here", unit.CommanderName, unit.Troops))));
+        _openSelectedCity.Disabled = selection.CityDetails is null || _openCityDetails is null;
         if (_mapCityInformation is not null)
         {
-            _mapCityInformation.Visible = _selectedCityId is not null;
-            if (_selectedCityId is int selectedCity)
-                _mapCityInformation.Text = _text.Format("play_city_information_item",
-                    world.Cities[selectedCity].Name);
+            _mapCityInformation.Visible = selection.CityDetails is not null;
+            if (selection.CityDetails is { } city)
+                _mapCityInformation.Text = _text.Format("play_city_information_item", city.Name);
         }
         if (_mapCityOrders is not null)
         {
-            var commandLocations = world.Cities.Values.Where(city => city.HexId == hexId && city.ForceId == _playerForceId)
-                .Select(city => (city.Id, city.Name)).Concat(world.Gates.Values.Where(gate =>
-                    gate.HexId == hexId && gate.ForceId == _playerForceId).Select(gate => (gate.Id, gate.Name))).ToArray();
-            _selectedCommandLocationId = commandLocations.Length == 1 ? commandLocations[0].Id : null;
-            _mapCityOrders.Visible = _selectedCommandLocationId is not null;
-            if (_mapCityOrders.Visible)
-                _mapCityOrders.Text = _text.Format("play_city_orders_item", commandLocations[0].Name);
+            _mapCityOrders.Visible = selection.LocationCommand is not null;
+            if (selection.LocationCommand is { } location)
+                _mapCityOrders.Text = _text.Format("play_city_orders_item", location.Name);
         }
-        if (_selectedCityId is int cityId) SetMeta("selected_city_id", cityId);
+        if (selection.CityDetails is { } selectedCity) SetMeta("selected_city_id", selectedCity.Id);
         else RemoveMeta("selected_city_id");
-        _selectedAreaId = territory.AreaId is int selectedArea &&
-            world.Areas.TryGetValue(selectedArea, out AreaState? areaState) &&
-            areaState.ForceId == _playerForceId &&
-            world.Cities.TryGetValue(areaState.CityId, out CityState? areaCity) &&
-            areaCity.ForceId == _playerForceId && areaCity.AreaIds.Contains(selectedArea)
-                ? selectedArea : null;
         if (_mapAreaOrders is not null)
         {
-            _mapAreaOrders.Visible = _selectedAreaId is not null;
-            if (_selectedAreaId is int commandArea)
-                _mapAreaOrders.Text = _text.Format("play_area_orders_item",
-                    world.Areas[commandArea].Name);
+            _mapAreaOrders.Visible = selection.AreaCommand is not null;
+            if (selection.AreaCommand is { } commandArea)
+                _mapAreaOrders.Text = _text.Format("play_area_orders_item", commandArea.Name);
         }
-        if (_selectedAreaId is int selectedAreaId) SetMeta("selected_area_id", selectedAreaId);
+        if (selection.AreaCommand is { } selectedArea) SetMeta("selected_area_id", selectedArea.Id);
         else RemoveMeta("selected_area_id");
-        UnitState[] ownUnits = world.Units.Values.Where(unit => unit.HexId == hexId &&
-            unit.ForceId == _playerForceId).OrderBy(unit => unit.Id).ToArray();
-        int? previousId = HasMeta("picked_hex_id") && (int)GetMeta("picked_hex_id") == hexId
-            ? _selectedUnitId : null;
-        UnitState? selectedUnit = ownUnits.FirstOrDefault(unit => unit.Id == previousId)
-            ?? ownUnits.FirstOrDefault();
-        _selectedUnitId = selectedUnit?.Id;
-        if (_mapNextUnit is not null) _mapNextUnit.Visible = ownUnits.Length > 1;
+        if (_mapNextUnit is not null) _mapNextUnit.Visible = selection.PlayerUnitCount > 1;
         if (_mapUnitOrders is not null)
         {
-            _mapUnitOrders.Visible = selectedUnit is not null;
-            if (selectedUnit is not null)
-                _mapUnitOrders.Text = _text.Format("play_unit_orders_item",
-                    world.Officers[selectedUnit.OfficerId].Name);
+            _mapUnitOrders.Visible = selection.SelectedUnit is not null;
+            if (selection.SelectedUnit is { } selectedUnit)
+                _mapUnitOrders.Text = _text.Format("play_unit_orders_item", selectedUnit.CommanderName);
         }
-        if (_selectedUnitId is int selectedUnitId) SetMeta("selected_unit_id", selectedUnitId);
+        if (selection.SelectedUnit is { } chosenUnit) SetMeta("selected_unit_id", chosenUnit.Id);
         else RemoveMeta("selected_unit_id");
         SetMeta("picked_hex_id", hexId); SetMeta("picked_world_position", position);
         _useSelectedHex.Disabled = _acceptHex is null;
-        _unitLayer?.SelectUnit(_selectedUnitId);
+        _unitLayer?.SelectUnit(selection.SelectedUnit?.Id);
         RemoveMeta("picked_patch_index"); RemoveMeta("picked_triangle_index");
         if (_selectionMarker is null)
         {
@@ -1382,19 +1182,11 @@ public partial class MapSceneView : Control
 
     private void SelectNextUnitAtPickedHex()
     {
-        if (_logicalWorld is not GameState world || _playerForceId is not int player ||
-            !HasMeta("picked_hex_id")) return;
-        int hexId = (int)GetMeta("picked_hex_id");
-        UnitState[] ownUnits = world.Units.Values.Where(unit => unit.HexId == hexId &&
-            unit.ForceId == player).OrderBy(unit => unit.Id).ToArray();
-        if (ownUnits.Length < 2) return;
-        int index = Array.FindIndex(ownUnits, unit => unit.Id == _selectedUnitId);
-        UnitState next = ownUnits[(index + 1) % ownUnits.Length];
-        _selectedUnitId = next.Id;
+        if (_logicalWorld is not GameState world || _mapSelection.CycleUnit(world, _playerForceId) is not { } next)
+            return;
         SetMeta("selected_unit_id", next.Id);
         if (_mapUnitOrders is not null)
-            _mapUnitOrders.Text = _text.Format("play_unit_orders_item",
-                world.Officers[next.OfficerId].Name);
+            _mapUnitOrders.Text = _text.Format("play_unit_orders_item", next.CommanderName);
         _unitLayer?.SelectUnit(next.Id);
     }
 
@@ -1438,14 +1230,13 @@ public partial class MapSceneView : Control
             ShowPickedCell(armyHit.HexId, new(armyHit.Position.X, armyHit.Position.Y, armyHit.Position.Z));
             //Source hit preserves root identity; the existing playable command
             //UI selects that live player unit. Full original dispatch is separate.
-            if (_logicalWorld!.Units.TryGetValue(armyHit.UnitId, out var army) && army.ForceId == _playerForceId)
+            if (_mapSelection.SelectUnit(_logicalWorld!, _playerForceId, armyHit.UnitId) is { } army)
             {
-                _selectedUnitId = army.Id;
                 SetMeta("selected_unit_id", army.Id);
                 if (_mapUnitOrders is not null)
                 {
                     _mapUnitOrders.Visible = true;
-                    _mapUnitOrders.Text = _text.Format("play_unit_orders_item", _logicalWorld.Officers[army.OfficerId].Name);
+                    _mapUnitOrders.Text = _text.Format("play_unit_orders_item", army.CommanderName);
                 }
                 _unitLayer?.SelectUnit(army.Id);
             }
@@ -1626,7 +1417,7 @@ public partial class MapSceneView : Control
                 {
                     _dragging = false;
                     PickTerrain(button.Position);
-                    if (_selectedCityId is int cityId) _openCityDetails(cityId);
+                    if (_mapSelection.Current?.CityDetails?.Id is int cityId) _openCityDetails(cityId);
                     return;
                 }
                 if (button.Pressed) { _dragging = true; _pressPosition = button.Position; _dragDistance = 0; }
@@ -1699,8 +1490,7 @@ public partial class MapSceneView : Control
         ReleaseNativeMap();
         _nativeMapInitialHeight = null;
         ReleaseArmyVisuals();
-        _cityVisualAdapter?.Dispose(); _cityVisualAdapter=null;
-        _sourceCityOpening=null;
+        _sceneModels?.ReleaseCityDisplays();
         ReleaseTerrainGeometry();
         _selectionMarkerMesh?.Dispose(); _selectionMarkerMesh = null;
         _selectionMarkerMaterial?.Dispose(); _selectionMarkerMaterial = null;
@@ -1710,13 +1500,12 @@ public partial class MapSceneView : Control
         _terrainGbiMaterial = null;
         _terrainMaterial?.Dispose();
         _terrainMaterial = null;
-        _materialAssets?.Dispose();
-        _materialAssets = null;
+        _sceneModels?.Dispose();
+        _sceneModels = null;
         _markerAssets?.Dispose();
         _markerAssets = null;
         _markerLayout = null;
         _unitMarkerLayout = null;
-        foreach (ModelMeshResult model in _meshes.Values) model.Mesh.Dispose();
-        _meshes.Clear();
+        _modelMeshes.Dispose();
     }
 }

@@ -104,7 +104,7 @@ public static class ArmyChangedListsSource
                         var rewritten = rewriteTransportRoute(working, current, image);
                         if (rewritten.Receipt is not { } route) throw new Missing(rewritten.UnresolvedOwner!);
                         if (route.ArmyPhysical != physical.Value) throw new Missing("current.changed_lists_route_Army_pointer");
-                        var transport = image.NativeTransport;
+                        var transport = image.TransportRoute;
                         if (route.NextHex48Write.HasValue && transport is null)
                             throw new Missing("current.changed_lists_transport48_owner");
                         var changed = image with { NativeRouteGoal1F8 = route.Goal1F8Write ?? image.NativeRouteGoal1F8,

@@ -113,7 +113,7 @@ public static class OwnedArmyLifecycleCurrent
         if (assignedOccupancy is null) return null;
         if (arena.ArmyGroups is not null && old.GroupAssignmentReady != true) return null;
         if (status == 1 && (old.StoredResources.Gold != resources.Gold || old.StoredResources.Food != resources.Food)) return null;
-        if (status == 2 && (created.NativeTransport is null || created.Mission?.Kind != UnitMissionKind.Transport)) return null;
+        if (status == 2 && (created.TransportRoute is null || created.Mission?.Kind != UnitMissionKind.Transport)) return null;
         var current = OwnedArmyReturnCurrentFields.CaptureCurrent(state, definitions);
         var pool = WorldIndexContext.ImportOwnedState(current, arena.Indexes, state);
         current.BindArmyMapOccupancy(state);

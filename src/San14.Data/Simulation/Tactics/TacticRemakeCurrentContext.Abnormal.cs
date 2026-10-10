@@ -56,7 +56,7 @@ public sealed partial class TacticRemakeCurrentContext
         if (!early)
         {
             int[]? traits = TacticRemakeCurrentTraits.ArmyContributions(_definitions,
-                commander, caster.NativeArmyConfiguration?.TraitSlots64);
+                commander, ArmyTraitSourceAdapter.Encode(state, caster));
             int? baseline = Parameter(state, SimulationParameterKeys.Tactics.AbnormalGateBaseline), higher = Parameter(state, SimulationParameterKeys.Tactics.AbnormalGateHigherAbilityScale),
                 lower = Parameter(state, SimulationParameterKeys.Tactics.AbnormalGateLowerAbilityScale), traitRate = Parameter(state, SimulationParameterKeys.Tactics.AbnormalGateTraitRate);
             if (traits is null || baseline is null || higher is null || lower is null || traitRate is null ||
@@ -113,10 +113,10 @@ public sealed partial class TacticRemakeCurrentContext
         if (specific is null) return null;
         if (specific.Value) return Receipt(true, false, true, null, null, null, null, null, null);
         int[]? targetValues = TacticRemakeCurrentTraits.ArmyContributions(_definitions,
-            targetPerson.Value, target.NativeArmyConfiguration?.TraitSlots64);
+            targetPerson.Value, ArmyTraitSourceAdapter.Encode(state, target));
         int? sourcePerson = CommanderPhysical(state, caster);
         int[]? sourceValues = sourcePerson is null ? null : TacticRemakeCurrentTraits.ArmyContributions(
-            _definitions, sourcePerson.Value, caster.NativeArmyConfiguration?.TraitSlots64);
+            _definitions, sourcePerson.Value, ArmyTraitSourceAdapter.Encode(state, caster));
         int? generalRate = Parameter(state, SimulationParameterKeys.Tactics.AbnormalGeneralResistanceRate);
         int? specificRate = Parameter(state, nativeIndex switch { 0 => SimulationParameterKeys.Tactics.AbnormalType0ResistanceRate, 1 => SimulationParameterKeys.Tactics.AbnormalType1ResistanceRate, _ => SimulationParameterKeys.Tactics.AbnormalType2ResistanceRate });
         int? sourceRate = Parameter(state, SimulationParameterKeys.Tactics.AbnormalSourceTraitRate);

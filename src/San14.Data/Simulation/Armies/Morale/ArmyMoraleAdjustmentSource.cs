@@ -45,7 +45,7 @@ public sealed class ArmyMoraleAdjustmentSource(
             if (!input.Officers.ContainsKey(army.OfficerId) ||
                 definitions.ResolveOfficerSource(army.OfficerId) is not int physical ||
                 TacticRemakeCurrentTraits.ArmyContributions(definitions, physical,
-                    army.NativeArmyConfiguration?.TraitSlots64) is not { Length: 127 } contributions)
+                    ArmyTraitSourceAdapter.Encode(input, army)) is not { Length: 127 } contributions)
                 return Unknown();
             trait = contributions[13];
             if (trait != 0)

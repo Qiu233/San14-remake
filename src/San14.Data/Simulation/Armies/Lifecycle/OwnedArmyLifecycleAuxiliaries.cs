@@ -110,8 +110,11 @@ public static class OwnedArmyLifecycleAuxiliaries
             if (result.ResourceState is CampaignSourceKnowledge knowledge)
             {
                 var resetReceivers = pendingOrder.Select(receiver => arena.ReceiverSlots()[receiver.PhysicalSlot!.Value].ReceiverId).ToHashSet();
+                var retiredUnits = pendingOrder.Select(receiver => arena.ReceiverSlots()[receiver.PhysicalSlot!.Value].PendingImage!.Id).ToHashSet();
                 result = result with { ResourceState = knowledge.ReplaceArmyOverrides(knowledge.ArmyOverrides
-                    .Where(row => row.Owner.ReceiverId is not { } id || !resetReceivers.Contains(id))) };
+                    .Where(row => row.Owner.ReceiverId is not { } id || !resetReceivers.Contains(id)))
+                    .ReplaceTransportRoutes(knowledge.TransportRoutes.Where(row => row.Owner.DefeatedForceId is not null || !retiredUnits.Contains(row.Owner.UnitId)))
+                    .ReplaceArmyTraits(knowledge.ArmyTraits.Where(row => row.Owner.DefeatedForceId is not null || !retiredUnits.Contains(row.Owner.UnitId))) };
             }
             foreach (var receiver in pendingOrder) committedReset?.Invoke(receiver.PhysicalSlot!.Value);
             return result;

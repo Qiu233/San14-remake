@@ -72,7 +72,7 @@ public sealed class ArmyLogisticsPreparation : IPlayableNativeArmyPreparationRul
         return unknown ? null : false;
     }
 
-    public bool? PreservesTraitSlots64(GameState state, UnitState army)
+    public bool? PreservesTraitRoster(GameState state, UnitState army)
     {
         bool? valid = _current.ArmyValid(state, army);
         if (valid is null) return null;
@@ -112,13 +112,18 @@ public sealed class ArmyLogisticsPreparation : IPlayableNativeArmyPreparationRul
         return (byte)(current & 0xF7);
     }
     public ICampaignResourceState? ResolveResourceKnowledgeAfterLogistics(GameState state, UnitState army,
-        ICampaignResourceState? stagedKnowledge) => UpdateResourceKnowledge(army, stagedKnowledge,
+        ICampaignResourceState? stagedKnowledge, bool traitRosterPreserved) => UpdateResourceKnowledge(army, stagedKnowledge, traitRosterPreserved,
             () => ResolveFlags150AfterLogistics(state, army));
 
     internal static ICampaignResourceState? UpdateResourceKnowledge(UnitState army,
-        ICampaignResourceState? stagedKnowledge, Func<byte?> resolve)
+        ICampaignResourceState? stagedKnowledge, bool traitRosterPreserved, Func<byte?> resolve)
     {
         var knowledge = CampaignSourceKnowledge.From(stagedKnowledge);
+        if (!traitRosterPreserved && knowledge.FindArmyTraits(army.Id) is not null)
+        {
+            knowledge = knowledge.WithoutArmyTraits(army.Id);
+            stagedKnowledge = knowledge;
+        }
         if (knowledge.ArmyLifecycleSource?.ArmyFlags150 is not { } current ||
             army.NativeArmyOrigin?.NativeSlotIndex is not int physical) return stagedKnowledge;
         var flags = current.ToArray();

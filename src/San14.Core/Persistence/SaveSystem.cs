@@ -16,7 +16,7 @@ public sealed record SaveEnvelope(int SchemaVersion, string FormatId, GameState 
 /// <summary>Local save format. A future original-save adapter can implement ISaveCodec.</summary>
 public sealed class JsonGzipSaveCodec : ISaveCodec
 {
-    public const int CurrentSchemaVersion = 88;
+    public const int CurrentSchemaVersion = 90;
     public string FormatId => "san14-remake-json-gzip";
     private readonly ILegacyOfficerAbilitySource? _legacyAbilitySource;
     private readonly ICampaignResourceStateCodec? _resourceStateCodec;
@@ -36,6 +36,8 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
         ArmyTargetsSaveValidation.Validate(state);
         ArmyOverrideSaveValidation.Validate(state);
         ArmyMarchSaveValidation.Validate(state);
+        TransportRouteSaveValidation.Validate(state);
+        ArmyTraitRosterSaveValidation.Validate(state);
         JsonObject document = JsonSerializer.SerializeToNode(new SaveEnvelope(CurrentSchemaVersion, FormatId, state))!.AsObject();
         if (state.ResourceState is { } resourceState)
             document["ResourceState"] = (_resourceStateCodec ?? throw new InvalidDataException(
@@ -138,6 +140,10 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
             resourceState = (_resourceStateCodec ?? throw new InvalidDataException(
                 "Historical army source knowledge requires its resource-state codec.")).MigrateArmyLifecycle(resourceState, armySource);
         JsonObject stateDocument = (JsonObject)document["State"]!;
+        if (version < 89)
+            resourceState = LegacyTransportRouteSaveMigration.Apply(stateDocument, resourceState, _resourceStateCodec);
+        if (version < 90)
+            resourceState = LegacyArmyTraitRosterSaveMigration.Apply(stateDocument, resourceState, _resourceStateCodec);
         if (version < 86 && stateDocument.ContainsKey("ArmyIdentities"))
             throw new InvalidDataException("Historical save contains a current army identity sequence.");
         if (version >= 86 && (stateDocument["ArmyIdentities"] is not JsonObject identities ||
@@ -196,6 +202,8 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
         ArmyTargetsSaveValidation.Validate(state);
         ArmyOverrideSaveValidation.Validate(state);
         ArmyMarchSaveValidation.Validate(state);
+        TransportRouteSaveValidation.Validate(state);
+        ArmyTraitRosterSaveValidation.Validate(state);
         return state;
     }
 
@@ -561,18 +569,31 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
                         if (march[key] is JsonNode destination) _ = Require(destination, "march destination", "Kind", "HexId");
                 }
                 if (unit["NativeArmyConfiguration"] is JsonNode armyConfiguration)
-                    _ = Require(armyConfiguration, "native Army configuration", "Formation1B", "Formation1C", "Action37", "Category40", "TraitSlots64");
+                {
+                    var configuration = Require(armyConfiguration, "native Army configuration", "Formation1B", "Formation1C", "Action37", "Category40");
+                    if (configuration.ContainsKey("TraitSlots64")) throw new InvalidDataException("Saved configuration contains an obsolete trait owner.");
+                }
+                if (!unit.ContainsKey("TraitRoster")) throw new InvalidDataException("Saved army trait roster is missing.");
+                if (unit["TraitRoster"] is JsonNode traitNode)
+                {
+                    var roster = Require(traitNode, "army trait roster", "TraitIds");
+                    if (roster.Count != 1 || roster["TraitIds"] is not JsonArray) throw new InvalidDataException("Saved army trait roster is invalid.");
+                }
                 if (unit.ContainsKey("NativeReturnResources"))
                     throw new InvalidDataException("Saved Army contains obsolete carried stores.");
                 if (!unit.ContainsKey("CarriedStores"))
                     throw new InvalidDataException("Saved Army stores observation is missing.");
                 if (unit["CarriedStores"] is JsonNode stores)
                     _ = Require(stores, "carried Army stores", "Gold", "Food");
-                if (unit["NativeTransport"] is JsonNode transport)
+                if (unit.ContainsKey("NativeTransport") || !unit.ContainsKey("TransportRoute"))
+                    throw new InvalidDataException("Saved transport route owner is missing or obsolete.");
+                if (unit["TransportRoute"] is JsonNode transport)
                 {
-                    JsonObject fields = Require(transport, "native transport fields", "Waypoints2C", "Choice41");
-                    if (fields.ContainsKey("InitialNextHex48") || fields.ContainsKey("WrapperNextHex48") || fields.ContainsKey("CurrentNextHex48"))
-                        throw new InvalidDataException("Saved transport contains an obsolete next-step owner.");
+                    JsonObject route = Require(transport, "transport route", "Waypoints");
+                    if (route.Count != 1 || route["Waypoints"] is not JsonArray waypoints)
+                        throw new InvalidDataException("Saved transport waypoints are invalid.");
+                    foreach (var waypoint in waypoints)
+                        if (waypoint is not null) _ = Require(waypoint, "transport waypoint", "Kind", "HexId");
                 }
         }
         if (state["NativeClock"] is JsonNode nativeClock)

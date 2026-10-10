@@ -14,7 +14,13 @@ public sealed record PlayableForceDefeatRecord(int ForceId, int Period,
 }
 
 public sealed record PlayableForceDefeatObservation(int ForceId, bool WasActive,
-    UnitState[] Units, int[] OfficerIds);
+    UnitState[] Units, int[] OfficerIds)
+{
+    // The immutable marker follows the observed image, even if cleanup replaces
+    // the current world's compatibility before the history is published.
+    [System.Text.Json.Serialization.JsonIgnore]
+    public ICampaignResourceState? ResourceState { get; init; }
+}
 
 public sealed partial record GameState
 {
@@ -41,7 +47,7 @@ public static class PlayableForceDefeat
     public static PlayableForceDefeatObservation ObserveBeforeDispositions(GameState state, int forceId) => new(
         forceId, state.Forces[forceId].IsActive,
         state.Units.Values.Where(unit => unit.ForceId == forceId).OrderBy(unit => unit.Id).ToArray(),
-        state.Officers.Values.Where(person => person.ForceId == forceId).Select(person => person.Id).Order().ToArray());
+        state.Officers.Values.Where(person => person.ForceId == forceId).Select(person => person.Id).Order().ToArray()) { ResourceState = state.ResourceState };
 
     public static PlayableForceDefeatResult AfterCityCapture(GameState state,
         int capturedCityId, int? previousForceId, int capturingForceId, int nextPeriod,
@@ -76,6 +82,8 @@ public static class PlayableForceDefeat
             WithdrawalRuleId, withdrawn, people.Except(resolved).ToArray(), missing)
             { ResolvedOfficerIds = resolvedOfficerIds is null ? null : resolved,
                 NativeUnregisterRuleId = nativeUnregisterRuleId });
+        if ((beforeDispositions is null ? current.ResourceState : beforeDispositions.ResourceState) is IArmyHistoryResourceState history)
+            current = current with { ResourceState = history.RecordWithdrawnArmies(current.ResourceState, forceId, withdrawn.Select(unit => unit.Id)) };
         var reports = new List<PeriodReportEntry>
         {
             new("force_defeated", forceId, capturedCityId) { LocationId = capturedCityId, RuleId = LastCityRuleId }

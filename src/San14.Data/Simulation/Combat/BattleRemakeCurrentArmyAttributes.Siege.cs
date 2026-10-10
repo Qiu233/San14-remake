@@ -62,7 +62,7 @@ public sealed partial class BattleRemakeCurrentArmyAttributes
             siegeLimit is null || siegeStep is null || scale is null || wallLimit is null || wallStep is null ||
             leadDenominator is null || troopOffset is null || troopDenominator is null) return null;
         int[]? traits = TacticRemakeCurrentTraits.ArmyContributions(definitions, commanderPhysical,
-            configuration.TraitSlots64);
+            ArmyTraitSourceAdapter.Encode(state, army));
         if (traits is not { Length: 127 }) return null;
         int? command = traits[31] == 0 && traits[97] == 0 ? 0 : queries.ReadCommandEffect(state, army);
         if (command is null) return null;

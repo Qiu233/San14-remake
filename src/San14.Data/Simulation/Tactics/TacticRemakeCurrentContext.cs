@@ -266,7 +266,7 @@ public sealed partial class TacticRemakeCurrentContext : ITacticEffectSourceCont
         if (!Bound(state) || unit.NativeArmyOrigin is not { } origin ||
             origin.Revision != ArmyConstruction.ProfileId &&
                 (origin.Revision != ArmyCampaignRuleAdapter.TransportCreationRevision ||
-                 unit.Mission?.Kind != UnitMissionKind.Transport || unit.NativeTransport is null) ||
+                 unit.Mission?.Kind != UnitMissionKind.Transport || unit.TransportRoute is null) ||
             origin.Language != _usage.Language || !origin.RuleVersion.Equals(_usage.RuleVersion, StringComparison.OrdinalIgnoreCase) ||
             unit.NativeTacticRuntime is not { } native || unit.NativeArmyConfiguration is null)
             return null;

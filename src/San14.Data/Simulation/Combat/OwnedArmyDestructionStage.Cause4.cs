@@ -165,7 +165,10 @@ public sealed partial class OwnedArmyDestructionStage
                 var old = slots[i]; var image = old.ActiveUnitId is int active ? units.GetValueOrDefault(active) : old.PendingImage;
                 var fields = current.ReadArmyReturnTraitFields(new(i));
                 if (image is not null && fields is not null)
-                    image = image with { NativeArmyConfiguration = image.NativeArmyConfiguration! with { TraitSlots64 = fields.Traits64.ToArray() } };
+                {
+                    image = image with { TraitRoster = ArmyTraitSourceAdapter.Decode(fields.Traits64) };
+                    state = state with { ResourceState = ArmyTraitSourceAdapter.Write(state.ResourceState, image.Id, fields.Traits64) };
+                }
                 if (image is not null && current.ReadArmyReturnResourceFields(new(i)) is { } quantity)
                     image = image with { NativeMorale1A = quantity.Morale1A, WoundedTroops = quantity.Wounded18 };
                 if (i == physical)

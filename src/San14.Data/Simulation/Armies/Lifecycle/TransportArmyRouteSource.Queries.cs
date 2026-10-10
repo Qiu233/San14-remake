@@ -133,7 +133,7 @@ public static partial class TransportArmyRouteSource
                 if (kind != 5 || destination != city) return false;
                 if (Distance(center, Start) >= 3) return true;
                 if (K(current.ReadBaseForceSlot(city), "City_ForceB0") != force ||
-                    army.NativeTransport!.Waypoints2C[0] != Count) return false;
+                    TransportRouteSourceAdapter.ReadWaypoint(state, army, 0) != Count) return false;
                 //2C5440(source six ring) only membership; no frame/terrain owner.
                 return Enumerable.Range(1, 6).Any(d => PersonReturnPathSource.Neighbor(center, d) == raw);
             }

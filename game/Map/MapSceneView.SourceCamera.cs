@@ -262,7 +262,7 @@ public partial class MapSceneView
                 if(button.Pressed&&button.DoubleClick&&_openCityDetails is not null)
                 {
                     ResetSourceCameraInput();PickTerrain(button.Position);
-                    if(_selectedCityId is int cityId)_openCityDetails(cityId);
+                    if(_mapSelection.Current?.CityDetails?.Id is int cityId)_openCityDetails(cityId);
                     return true;
                 }
                 _sourceCameraRawNow70[0]=button.Pressed;

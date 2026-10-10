@@ -103,7 +103,7 @@ public sealed partial class BattleRemakeCurrentArmyAttributes
         int command = 0, attackEffect = 0, defenseEffect = 0, shared = 0;
         if (native.Status10 == 1)
         {
-            int[]? traits = TacticRemakeCurrentTraits.ArmyContributions(definitions, commanderPhysical, configuration.TraitSlots64);
+            int[]? traits = TacticRemakeCurrentTraits.ArmyContributions(definitions, commanderPhysical, ArmyTraitSourceAdapter.Encode(state, army));
             if (traits is not { Length: 127 }) return null;
             //All return branches of2A6200 are zero when both actual source
             //contributions31/97 are zero, independent of its earlier age read.

@@ -1,13 +1,9 @@
 namespace San14.Core;
 
-/// <summary>Transport-specific waypoint and behavior knowledge. The current
-/// next step belongs to the unit's shared marching state.</summary>
-public sealed record NativeTransportFields(ushort[] Waypoints2C, byte Choice41);
-
 public sealed partial record UnitState
 {
     public ushort? NativeHomeSequence28 { get; init; }
-    public NativeTransportFields? NativeTransport { get; init; }
+    public TransportRouteState? TransportRoute { get; init; }
 }
 
 public sealed record PlayableTransportCreationResolution(GameState State, string RuleId);

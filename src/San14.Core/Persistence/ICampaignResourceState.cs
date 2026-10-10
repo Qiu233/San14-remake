@@ -7,12 +7,21 @@ namespace San14.Core;
 /// Simulation snapshots may share it; ordinary game rules do not inspect it.</summary>
 public interface ICampaignResourceState { }
 
+/// <summary>Resource knowledge may retain image-specific compatibility when the
+/// campaign records withdrawn armies. Core supplies only the history identity.</summary>
+public interface IArmyHistoryResourceState
+{
+    ICampaignResourceState RecordWithdrawnArmies(ICampaignResourceState? current, int defeatedForceId, IEnumerable<int> unitIds);
+}
+
 /// <summary>Serialization boundary for resource knowledge which Core does not interpret.</summary>
 public interface ICampaignResourceStateCodec
 {
     JsonObject Encode(ICampaignResourceState state);
     ICampaignResourceState? MigrateArmyLifecycle(ICampaignResourceState? state, JsonObject source);
     ICampaignResourceState Decode(JsonObject document);
+    ICampaignResourceState? MigrateArmyTraits(ICampaignResourceState? state, JsonObject unit, int? defeatedForceId = null);
+    ICampaignResourceState? MigrateTransportRoute(ICampaignResourceState? state, JsonObject unit, int? defeatedForceId = null);
     ICampaignResourceState? MigrateLocations(ICampaignResourceState? state,
         IReadOnlyList<LegacyOfficerLocationKnowledge> locations);
     ICampaignResourceState? MigrateAftermath(ICampaignResourceState? state,

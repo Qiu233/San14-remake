@@ -76,7 +76,7 @@ public sealed class ArmyMobilityCurrentProducer
         if (!state.Officers.ContainsKey(army.OfficerId) ||
             definitions.ResolveOfficerSource(army.OfficerId) is not int commanderPhysical ||
             TacticRemakeCurrentTraits.ArmyContributions(definitions, commanderPhysical,
-                army.NativeArmyConfiguration?.TraitSlots64) is not { Length: 127 } traits)
+                ArmyTraitSourceAdapter.Encode(state, army)) is not { Length: 127 } traits)
             return Missing("current.Person_and_Army_traits26A740");
         if (Parameter(SimulationParameterKeys.ArmyMobility.TraitMobilityLimit) is not int limit || Parameter(SimulationParameterKeys.ArmyMobility.TraitMobilityStep) is not int step)
             return Missing("current.mobility_trait_limit1A49C40_step1A4A8F4");

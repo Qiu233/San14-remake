@@ -55,7 +55,8 @@ public sealed class OwnedArmyReturnWorld
             var old = slots[i]; var image = old.ActiveUnitId is int unitId ? result.Units.GetValueOrDefault(unitId) : old.PendingImage;
             if (image is not null && traits is not null)
             {
-                image = image with { NativeArmyConfiguration = image.NativeArmyConfiguration! with { TraitSlots64=traits.Traits64.ToArray() } };
+                image = image with { TraitRoster = ArmyTraitSourceAdapter.Decode(traits.Traits64) };
+                result = result with { ResourceState = ArmyTraitSourceAdapter.Write(result.ResourceState, image.Id, traits.Traits64) };
                 if (old.ActiveUnitId is int live && live != id) units[live]=image;
             }
             slots[i] = old with
@@ -90,7 +91,7 @@ public sealed partial class SourceWorldContext
             SetArmyReturnResourceFields(physical,new(army.Troops is >=0 and <=65535 ? (ushort)army.Troops : null,
                 army.WoundedTroops is >=0 and <=65535 ? (ushort)army.WoundedTroops.Value : null,
                 army.NativeMorale1A,slot.StoredResources.Gold,slot.StoredResources.Food));
-            if (army.NativeArmyConfiguration?.TraitSlots64 is { } traits && slot.AuxiliaryAC is { } ac &&
+            if (ArmyTraitSourceAdapter.Encode(state, army) is { } traits && slot.AuxiliaryAC is { } ac &&
                 slot.AuxiliaryF4 is { } f4 && OwnedIndexes?.TraitHandles(physical) is { } descriptors)
                 SetArmyReturnTraitFields(physical,new(traits,ac,f4,descriptors.Select(x=>new RegistryListHandle(x.Identity))));
         }

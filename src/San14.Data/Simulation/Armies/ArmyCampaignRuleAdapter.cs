@@ -305,7 +305,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             //receipt allocation identity so the next preview cannot reuse it.
             current.Units.Add(army.Id, army with
             {
-                NativeArmyOrigin = receipt.Origin, NativeArmyConfiguration = receipt.Configuration,
+                NativeArmyOrigin = receipt.Origin, NativeArmyConfiguration = receipt.Configuration, TraitRoster = receipt.TraitRoster,
                 NativeTacticRuntime = receipt.Runtime, NativeMorale1A = receipt.NativeMorale1A,
                 NativeSavedRegionHex152 = receipt.NativeSavedRegionHex152,
                 PositionKnowledge = receipt.CurrentHexId.HasValue ? ArmyPositionKnowledge.Confirmed : ArmyPositionKnowledge.Unknown,
@@ -505,7 +505,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                 ? PersonArmyLocationSource.EncodeArmySecondLocation(nativeArmySlot) : null,
             previousLocationResidue?.DistrictCode)) };
         if (state.ReadArmyLifecycle() is null) return result;
-        UnitState created = army with { NativeArmyOrigin = result.Origin, NativeArmyConfiguration = result.Configuration,
+        UnitState created = army with { NativeArmyOrigin = result.Origin, NativeArmyConfiguration = result.Configuration, TraitRoster = result.TraitRoster,
             NativeTacticRuntime = result.Runtime, NativeMorale1A = result.NativeMorale1A,
             NativeSavedRegionHex152 = result.NativeSavedRegionHex152, CarriedStores = result.CarriedStores,
             OverrideTarget = result.OverrideTarget,
@@ -550,11 +550,11 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         return definitions is null ? null : new ArmyLogisticsPreparation(Context(definitions), definitions, _map, _terrain)
             .ResolveLogisticsConnection(state, army);
     }
-    public bool? PreservesTraitSlots64(GameState state, UnitState army)
+    public bool? PreservesTraitRoster(GameState state, UnitState army)
     {
         SourceWorldContext? definitions = CaptureCurrentDefinitions(state);
         return definitions is null ? null : new ArmyLogisticsPreparation(Context(definitions), definitions, _map, _terrain)
-            .PreservesTraitSlots64(state, army);
+            .PreservesTraitRoster(state, army);
     }
     public NativeArmyMoralePreparationResolution? ResolveMoraleAfterLogistics(GameState state,
         UnitState army, bool connected)
@@ -570,8 +570,8 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             .ResolveFlags150AfterLogistics(state, army);
     }
     public ICampaignResourceState? ResolveResourceKnowledgeAfterLogistics(GameState state, UnitState army,
-        ICampaignResourceState? stagedKnowledge) => ArmyLogisticsPreparation.UpdateResourceKnowledge(
-            army, stagedKnowledge, () => ResolveFlags150AfterLogistics(state, army));
+        ICampaignResourceState? stagedKnowledge, bool traitRosterPreserved) => ArmyLogisticsPreparation.UpdateResourceKnowledge(
+            army, stagedKnowledge, traitRosterPreserved, () => ResolveFlags150AfterLogistics(state, army));
     public NativeArmyRegionPreparationResolution? ResolveSavedRegionAfterPreparation(GameState state, UnitState army)
     {
         SourceWorldContext? definitions = CaptureCurrentDefinitions(state);

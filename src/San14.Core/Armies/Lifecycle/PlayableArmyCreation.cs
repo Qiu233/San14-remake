@@ -9,10 +9,7 @@ public sealed record NativeArmyOrigin(string Revision, string Language, string R
 /// <summary>Independent current native fields; an omitted byte remains unknown.
 /// Effective formation still requires the reached terrain branch.</summary>
 public sealed record NativeArmyConfiguration(byte? Formation1B, byte? Formation1C,
-    byte? Action37, byte? Category40)
-{
-    public ushort[]? TraitSlots64 { get; init; }
-}
+    byte? Action37, byte? Category40);
 
 public sealed partial record UnitState
 {
@@ -31,6 +28,7 @@ public sealed record PlayableArmyCreationResolution(NativeArmyTacticRuntime Runt
 {
     public ArmyOverrideTargetState? OverrideTarget { get; init; }
     public NativeArmyConfiguration? Configuration { get; init; }
+    public ArmyTraitRoster? TraitRoster { get; init; }
     public byte? NativeMorale1A { get; init; }
     public ushort? NativeSavedRegionHex152 { get; init; }
     public int? CurrentHexId { get; init; }
@@ -117,8 +115,8 @@ public static class PlayableArmyCreation
             NativeHomeSequence28 = result.NativeHomeSequence28,
             OverrideTarget = result.OverrideTarget,
             CarriedStores = result.CarriedStores,
-            NativeArmyConfiguration = result.Configuration is null ? null : result.Configuration with
-                { TraitSlots64 = result.Configuration.TraitSlots64?.ToArray() },
+            NativeArmyConfiguration = result.Configuration,
+            TraitRoster = result.TraitRoster,
             NativeTacticRuntime = result.Runtime with
             {
                 StatModifiers4A = result.Runtime.StatModifiers4A.ToArray(),
@@ -131,10 +129,8 @@ public static class PlayableArmyCreation
 
     internal static void Validate(GameState state, UnitState army)
     {
-        if (army.NativeTransport is { } transport &&
-            (army.NativeArmyOrigin is null || army.Mission?.Kind != UnitMissionKind.Transport ||
-             transport.Waypoints2C is not { Length: 5 } || transport.Choice41 > 2))
-            throw new InvalidDataException("Native transport fields require their actual source-created transport owner.");
+        if (army.TransportRoute is not null && army.Mission?.Kind != UnitMissionKind.Transport)
+            throw new InvalidDataException("Transport waypoints require a transport mission.");
         if ((army.NativeMorale1A is not null || army.NativeSavedRegionHex152 is not null || army.CarriedStores is not null) && (state.NativeClock is null ||
             army.NativeArmyOrigin is null || army.NativeArmyConfiguration is null))
             throw new InvalidDataException("Current native Army attributes require their explicit Army construction and clock.");
@@ -148,11 +144,10 @@ public static class PlayableArmyCreation
             army.WoundedTroops is null || army.FormationId is null ||
             army.TacticIds is null || army.SourceLocationId is null || army.Troops > ushort.MaxValue ||
             army.Mission?.Kind == UnitMissionKind.Transport &&
-                (army.NativeTacticRuntime.Status10 != 2 || army.NativeTransport is not { Waypoints2C.Length: 5, Choice41: <= 2 } ||
+                (army.NativeTacticRuntime.Status10 != 2 || army.TransportRoute is null ||
                  army.NativeHomeSequence28 is null || army.FormationId != 19 ||
                  army.CarriedStores is not { } cargo || cargo.Gold != army.Mission.CargoGold ||
                  cargo.Food != army.Supplies) ||
-            army.NativeArmyConfiguration.TraitSlots64 is { Length: not 36 } ||
             army.NativeArmyConfiguration.Formation1B is byte landFormation && landFormation != army.FormationId)
             throw new InvalidDataException("Source-created Army provenance or current construction facts are incomplete.");
     }

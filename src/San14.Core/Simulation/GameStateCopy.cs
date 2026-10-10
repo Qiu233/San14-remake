@@ -128,12 +128,6 @@ public static class GameStateCopy
         Quote = Copy(value.Quote),
     };
 
-    [return: NotNullIfNotNull(nameof(value))]
-    internal static NativeArmyConfiguration? Copy(NativeArmyConfiguration? value) => value is null ? null : value with
-    {
-        TraitSlots64 = CopyArray(value.TraitSlots64),
-    };
-
 
     [return: NotNullIfNotNull(nameof(value))]
     internal static NativeArmyForceState? Copy(NativeArmyForceState? value) => value is null ? null : value with
@@ -212,12 +206,6 @@ public static class GameStateCopy
 
 
     [return: NotNullIfNotNull(nameof(value))]
-    internal static NativeTransportFields? Copy(NativeTransportFields? value) => value is null ? null : value with
-    {
-        Waypoints2C = CopyArray(value.Waypoints2C),
-    };
-
-    [return: NotNullIfNotNull(nameof(value))]
     internal static OfficerState? Copy(OfficerState? value) => value is null ? null : value with
     {
         BaseFormationIds = CopyArray(value.BaseFormationIds),
@@ -285,9 +273,10 @@ public static class GameStateCopy
     {
         TacticIds = CopyArray(value.TacticIds),
         NativeTacticRuntime = Copy(value.NativeTacticRuntime),
-        NativeArmyConfiguration = Copy(value.NativeArmyConfiguration),
+        NativeArmyConfiguration = value.NativeArmyConfiguration,
+        TraitRoster = value.TraitRoster,
         TacticRuntime = Copy(value.TacticRuntime),
-        NativeTransport = Copy(value.NativeTransport),
+        TransportRoute = value.TransportRoute,
         MilitaryPlan = Copy(value.MilitaryPlan),
     };
 

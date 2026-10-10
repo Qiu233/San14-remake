@@ -4,6 +4,8 @@ namespace San14.Data;
 
 public sealed record CityVisualEvidence(string Uri, string Sha256, string Basis)
 {
+    public const string CurrentDamageUri = "current:city-damage";
+
     internal void Validate()
     {
         if (string.IsNullOrWhiteSpace(Uri) || string.IsNullOrWhiteSpace(Basis) ||

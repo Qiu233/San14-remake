@@ -14,11 +14,11 @@ public interface IPlayableNativeArmyPreparationRules
     bool? ResolveLogisticsConnection(GameState state, UnitState army);
     //An incomplete native aftermath cannot silently retain constructor cache
     //values. Null means the current trait cache becomes unavailable.
-    bool? PreservesTraitSlots64(GameState state, UnitState army) => null;
+    bool? PreservesTraitRoster(GameState state, UnitState army) => null;
     NativeArmyMoralePreparationResolution? ResolveMoraleAfterLogistics(GameState state,
         UnitState army, bool connected) => null;
     ICampaignResourceState? ResolveResourceKnowledgeAfterLogistics(GameState state, UnitState army,
-        ICampaignResourceState? stagedKnowledge) => stagedKnowledge;
+        ICampaignResourceState? stagedKnowledge, bool traitRosterPreserved) => stagedKnowledge;
     bool ProvidesGlobalRegionPreparation => false;
     AreaStatisticsUpdate? ResolveGlobalRegionPreparation(GameState state) => null;
     /// <summary>Separate CTurnState step37, after all step36 receipts are
@@ -44,9 +44,9 @@ public static class NativeArmyPreparation
             bool result = rules.ResolveLogisticsConnection(working, army)
                 ?? throw new InvalidDataException("Owned Army logistics preparation inputs are unresolved.");
             connected.Add(army.Id, result);
-            traitsPreserved.Add(army.Id, rules.PreservesTraitSlots64(working, army) == true);
+            traitsPreserved.Add(army.Id, rules.PreservesTraitRoster(working, army) == true);
             morale.Add(army.Id, rules.ResolveMoraleAfterLogistics(working, army, result)?.NativeMorale1A);
-            resourceKnowledge = rules.ResolveResourceKnowledgeAfterLogistics(working, army, resourceKnowledge);
+            resourceKnowledge = rules.ResolveResourceKnowledgeAfterLogistics(working, army, resourceKnowledge, traitsPreserved[army.Id]);
         }
         var units = new Dictionary<int, UnitState>(state.Units);
         foreach ((int id, bool connection) in connected)
@@ -56,8 +56,7 @@ public static class NativeArmyPreparation
             units[id] = army with { NativeTacticRuntime = runtime with
                 { Flags26 = (byte)((runtime.Flags26 & 0xFD) | (connection ? 2 : 0)) },
                 NativeMorale1A = morale[id],
-                NativeArmyConfiguration = army.NativeArmyConfiguration! with
-                    { TraitSlots64 = traitsPreserved[id] ? army.NativeArmyConfiguration!.TraitSlots64 : null } };
+                TraitRoster = traitsPreserved[id] ? army.TraitRoster : null };
         }
         //37 first refreshes global Area68/78, then snapshots every Army152.
         //Both consume the completed36 state. Neither may commit a prefix.

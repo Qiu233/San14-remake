@@ -1,6 +1,7 @@
 #pragma once
 #include "SceneEnvironment.h"
 #include "../Passes/Environment/SeasonFrame.h"
+#include "../Passes/Environment/WeatherFogRecordReader.h"
 
 namespace San14::Render::SceneEnvironmentPacket {
 template<class T> inline T read(std::span<const uint8_t> bytes,size_t offset){
@@ -62,6 +63,10 @@ inline InitialSceneEnvironment decodeInitial(std::span<const char> packet){
         publishWord(initial.vegetation,initial.exposureRectangleFlags,int(offset),bits);cursor+=8;
     }
     return initial;
+}
+// Season media carries a complete fog record independently of the live camera.
+inline source_weather_fog::FogState decodeSeasonFog(const source_current_season::Frame& season) {
+    return source_weather_fog::decodeFog(season.main.data()+0x340);
 }
 inline void acceptSeason(SceneEnvironment& environment,const source_current_season::Frame& season){
     auto vegetation=environment.vegetation();uint32_t exposureFlags=environment.exposureRectangleFlags();

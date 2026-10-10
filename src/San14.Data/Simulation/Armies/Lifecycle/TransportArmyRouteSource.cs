@@ -63,7 +63,7 @@ public static partial class TransportArmyRouteSource
     {
         if (army.NativeTacticRuntime?.Status10 != 2 || army.NativeArmyConfiguration?.Action37 != 2)
             throw Missing("ordinary_type2_Action2_scope");
-        if (army.NativeTransport is not { Waypoints2C.Length: 5 } transport ||
+        if (army.TransportRoute is null ||
             army.OverrideTarget is not { Kind: ArmyOverrideTargetKind.None }) throw Missing("transport_waypoints_overrideFF");
         int physical = army.NativeArmyOrigin?.NativeSlotIndex ?? throw Missing("Army_physical");
         var target = state.ReadArmyLifecycle() is { } lifecycle
@@ -71,7 +71,7 @@ public static partial class TransportArmyRouteSource
             : throw Missing("Army38_3A");
         if (target.Kind38 is not byte kind || target.Identity3A is not ushort identity) throw Missing("Army38_3A");
         if (kind != 5) throw Missing("ordinary_target_City_scope");
-        int goal = transport.Waypoints2C[0];
+        int goal = TransportRouteSourceAdapter.ReadWaypoint(state, army, 0) ?? throw Missing("transport_first_waypoint");
         if (goal == Count)
         {
             var city = K(current.ReadCityTableReference(identity <= 51 ? identity : 0), "goal_City_pointer");

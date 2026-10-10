@@ -75,7 +75,7 @@ public sealed class D3D11CityGateWorldSource
         var city66=new Dictionary<int,CityVisualDamageInput>();var gate66=new Dictionary<int,D3D11GateCurrentBinding>();
         foreach(var city in world.Cities.Values.OrderBy(c=>c.Id)){
             var row=Read("city:"+city.Id,new(BaseKind.City,city.Id),city.Durability,true);
-            if(row is not null)city66.Add(city.Id,CityVisualDamageInput.FromTier(row.Flag66,new("actual-current-Base/Object14/268230/2AA9B0",
+            if(row is not null)city66.Add(city.Id,CityVisualDamageInput.FromTier(row.Flag66,new(CityVisualEvidence.CurrentDamageUri,
                 world.MapSha256,"Actual current size/HP/district/policy32/settings; no retained opening tier")));
         }
         foreach(var gate in world.Gates.Values.OrderBy(g=>g.Id)){
