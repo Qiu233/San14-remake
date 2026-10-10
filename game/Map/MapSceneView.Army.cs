@@ -100,13 +100,13 @@ public partial class MapSceneView
     public void SetArmyPoseProvider(PlayableArmyPoseProvider? provider)
     {
         if (_armyVisualAdapter is not null && _armyVisualLayer is not null &&
-            _logicalWorld is GameState world && _projection is not null && _terrainMeshes is not null)
+            _logicalWorld is GameState world && _projection is not null && TerrainMeshes is not null)
         {
             // Validate a replacement before changing the stored provider or
             // any live component. The layer also validates the complete pose set.
             PlayableArmyVisualPlan plan = _armyVisualAdapter.Resolve(world, provider);
             ArmyStatuses = _armyVisualAdapter.Apply(_armyVisualLayer,
-                _projection, _terrainMeshes, world, plan);
+                _projection, TerrainMeshes, world, plan);
             ArmyPlan = plan;
             _armyPoseProvider = provider;
             _armyPoseOverride = true;
@@ -120,7 +120,7 @@ public partial class MapSceneView
 
     private void RefreshArmyVisuals(GameState world)
     {
-        if (_acceptHex is null || _projection is null || _terrainMeshes is null ||
+        if (_acceptHex is null || _projection is null || TerrainMeshes is null ||
             !PlayableSkeleton.IsPlayableRuleset(world.RulesetId))
         {
             ReleaseArmyVisuals();
@@ -142,12 +142,12 @@ public partial class MapSceneView
                 var adapter = PlayableArmyVisualAdapter.Load(_repository, map, language);
                 // Source identity changes retire old assets before a replacement
                 // is admitted. Unsupported map/table profiles keep unit signs.
-                _remakeArmyVisuals = new(_repository, language, _projection, _terrainMeshes.Source.HeightField);
+                _remakeArmyVisuals = new(_repository, language, _projection, TerrainMeshes.Source.HeightField);
                 PlayableArmyPoseProvider? poses = _armyPoseOverride ? _armyPoseProvider :
                     _remakeArmyVisuals.Prepare(world, adapter.Resolve(world));
                 PlayableArmyVisualPlan plan = adapter.Resolve(world, poses);
                 var layer = new ArmyVisualLayer();
-                layer.Initialize(_repository, _texturePolicy);
+                layer.Initialize(_repository, _sceneConfig.ModelTextures);
                 _previewWorld.AddChild(layer);
                 _armyClock = new()
                 {
@@ -160,7 +160,7 @@ public partial class MapSceneView
                 _armyVisualLayer = layer;
                 _armyRepository = _repository;
                 _armySceneSource = source;
-                ArmyStatuses = adapter.Apply(layer, _projection, _terrainMeshes, world, plan);
+                ArmyStatuses = adapter.Apply(layer, _projection, TerrainMeshes, world, plan);
                 ArmyPlan = plan;
                 RemoveMeta("original_army_source_unavailable_reason");
             }
@@ -181,7 +181,7 @@ public partial class MapSceneView
             PlayableArmyPoseProvider? poses = _armyPoseOverride ? _armyPoseProvider :
                 _remakeArmyVisuals!.Prepare(world, _armyVisualAdapter!.Resolve(world));
             PlayableArmyVisualPlan plan = _armyVisualAdapter!.Resolve(world, poses);
-            ArmyStatuses = _armyVisualAdapter.Apply(_armyVisualLayer!, _projection, _terrainMeshes, world, plan);
+            ArmyStatuses = _armyVisualAdapter.Apply(_armyVisualLayer!, _projection, TerrainMeshes, world, plan);
             ArmyPlan = plan;
         }
         RefreshArmyFlagVisuals(world);

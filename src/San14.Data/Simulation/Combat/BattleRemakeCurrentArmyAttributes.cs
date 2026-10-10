@@ -68,9 +68,9 @@ public sealed partial class BattleRemakeCurrentArmyAttributes
     private sealed record Direction(float Common, float Attack, float Defense);
     private Direction? Directional(GameState state, UnitState army, UnitState opponent)
     {
-        if (queries.ReadArmyValidity(state, army) != true || army.NativeMorale1A is not byte nativeMorale ||
+        if (queries.ReadArmyValidity(state, army) != true || ArmyMoraleSourceAdapter.Read(army) is not byte nativeMorale ||
             army.NativeTacticRuntime is not { StatModifiers4A.Length: 6 } native ||
-            army.NativeArmyConfiguration is not { } configuration ||
+            !ArmyConfigurationSourceAdapter.HasConfiguration(army) ||
             !state.Officers.ContainsKey(army.OfficerId) ||
             definitions.ResolveOfficerSource(army.OfficerId) is not int commanderPhysical ||
             abilities.Resolve(state, army.OfficerId) is not { } full ||

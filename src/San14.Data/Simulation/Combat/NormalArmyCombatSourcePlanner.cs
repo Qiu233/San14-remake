@@ -48,7 +48,7 @@ public sealed class NormalArmyCombatCurrentQueries : INormalArmyCombatCurrentQue
     public NormalArmyCombatDescriptor? ReadDescriptor(GameState state, UnitState army)
     {
         if (context.ArmyValid(state, army) != true || army.NativeArmyOrigin?.NativeSlotIndex is not int slot ||
-            slot is < 1 or > 500 || army.NativeMorale1A is not byte morale ||
+            slot is < 1 or > 500 || ArmyMoraleSourceAdapter.Read(army) is not byte morale ||
             context.ForceMoraleMaximum(state, army.ForceId) is not int maximum || maximum is < 0 or > 255 ||
             army.Troops is < 0 or > ushort.MaxValue ||
             context.ResolveArmyNativePrimaryCandidates(state, army) is not { } candidates ||

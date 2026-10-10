@@ -86,9 +86,9 @@ internal static class PreparedArmyDeploymentStage
                 routeOrigin, cities, gates, units, basis.Territory,
                 structures, routes, IsHostile, validate: false) ?? sourceHex;
             UnitState deployed = new UnitState(nextUnitId, plan.ForceId, plan.OfficerId,
-                sourceHex, destination, plan.Troops, 0, morale)
+                sourceHex, destination, plan.Troops, 0, new(morale, null))
             {
-                SourceLocationId = plan.SourceLocationId, FormationId = plan.FormationId,
+                SourceLocationId = plan.SourceLocationId, Formations = new(plan.FormationId, null, null),
                 TacticRuntime = UnitTacticRuntime.Empty(),
                 WoundedTroops = 0, // Explicitly newly formed provisional Army; legacy/source units remain nullable.
                 TacticIds = plan.TacticIds.ToArray(), Behavior = plan.Behavior,

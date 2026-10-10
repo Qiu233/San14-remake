@@ -25,11 +25,11 @@ public sealed partial class RemakeArmySceneVisuals
         foreach (var (id, selection) in plan.Selections)
         {
             var unit = world.Units[id];
-            if (unit.NativeArmyConfiguration?.Formation1B is not byte formation||
+            if (ArmyConfigurationSourceAdapter.ReadCurrentLand(world, unit) is not byte formation||
                 captureInputs(world, unit) is not { } inputs) continue;
             int mode=ArmyNativeFormationQueries.ModelMode(selection.Terrain,false,formation);
             if(mode is not(0 or 1 or 2))continue;
-            byte naval=unit.NativeArmyConfiguration.Formation1C??0;
+            byte naval=ArmyConfigurationSourceAdapter.ReadNaval(world, unit)??0;
             EnsureSourceModels();
             if(mode==2)EnsureIndependentSourceModel(formation-4);
             if(mode==1&&ArmyModelSelection.ChooseKnownDescriptor(1,null,naval).Category is int ship)

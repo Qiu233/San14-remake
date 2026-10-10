@@ -1,8 +1,7 @@
 namespace San14.Core;
 
-/// <summary>Independent current Army byte1A after the logistics operation.
-/// A null value explicitly leaves the reached native aftermath unknown.</summary>
-public sealed record NativeArmyMoralePreparationResolution(byte? NativeMorale1A);
+/// <summary>Current campaign morale after logistics. Null leaves that aftermath unknown.</summary>
+public sealed record ArmyMoralePreparationResolution(int? CurrentMorale);
 public sealed record NativeArmyRegionPreparationResolution(ushort? NativeSavedRegionHex152);
 /// <summary>Completed regional statistics, staged before army region effects are evaluated.</summary>
 public sealed record AreaStatisticsUpdate(AreaMapStatisticsState Statistics);
@@ -15,7 +14,7 @@ public interface IPlayableNativeArmyPreparationRules
     //An incomplete native aftermath cannot silently retain constructor cache
     //values. Null means the current trait cache becomes unavailable.
     bool? PreservesTraitRoster(GameState state, UnitState army) => null;
-    NativeArmyMoralePreparationResolution? ResolveMoraleAfterLogistics(GameState state,
+    ArmyMoralePreparationResolution? ResolveMoraleAfterLogistics(GameState state,
         UnitState army, bool connected) => null;
     ICampaignResourceState? ResolveResourceKnowledgeAfterLogistics(GameState state, UnitState army,
         ICampaignResourceState? stagedKnowledge, bool traitRosterPreserved) => stagedKnowledge;
@@ -37,7 +36,7 @@ public static class NativeArmyPreparation
         GameState working = GameStateSnapshot.Detach(state);
         var connected = new Dictionary<int, bool>();
         var traitsPreserved = new Dictionary<int, bool>();
-        var morale = new Dictionary<int, byte?>();
+        var morale = new Dictionary<int, int?>();
         ICampaignResourceState? resourceKnowledge = state.ResourceState;
         foreach (UnitState army in working.Units.Values.Where(unit => unit.NativeArmyOrigin is not null).OrderBy(unit => unit.Id))
         {
@@ -45,7 +44,7 @@ public static class NativeArmyPreparation
                 ?? throw new InvalidDataException("Owned Army logistics preparation inputs are unresolved.");
             connected.Add(army.Id, result);
             traitsPreserved.Add(army.Id, rules.PreservesTraitRoster(working, army) == true);
-            morale.Add(army.Id, rules.ResolveMoraleAfterLogistics(working, army, result)?.NativeMorale1A);
+            morale.Add(army.Id, rules.ResolveMoraleAfterLogistics(working, army, result)?.CurrentMorale);
             resourceKnowledge = rules.ResolveResourceKnowledgeAfterLogistics(working, army, resourceKnowledge, traitsPreserved[army.Id]);
         }
         var units = new Dictionary<int, UnitState>(state.Units);
@@ -55,7 +54,7 @@ public static class NativeArmyPreparation
             NativeArmyTacticRuntime runtime = army.NativeTacticRuntime!;
             units[id] = army with { NativeTacticRuntime = runtime with
                 { Flags26 = (byte)((runtime.Flags26 & 0xFD) | (connection ? 2 : 0)) },
-                NativeMorale1A = morale[id],
+                MoraleState = army.MoraleState with { CurrentValue = morale[id] },
                 TraitRoster = traitsPreserved[id] ? army.TraitRoster : null };
         }
         //37 first refreshes global Area68/78, then snapshots every Army152.

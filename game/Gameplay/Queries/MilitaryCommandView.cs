@@ -114,7 +114,7 @@ public sealed class MilitaryCommandViews
                 ? new(gateId, gate.Name, null, false) : null;
         return new(unit.Id, unit.OfficerId, unit.HexId,
             world.Officers.GetValueOrDefault(unit.OfficerId)?.Name ?? unit.OfficerId.ToString(),
-            unit.Troops, unit.NativeMorale1A is byte morale ? morale : unit.Morale, unit.NativeMorale1A,
+            unit.Troops, unit.MoraleState.CurrentValue ?? unit.Morale, unit.MoraleState.CurrentValue,
             unit.FormationId is int formation ? world.Formations.GetValueOrDefault(formation)?.Name : null,
             unit.Mission?.Kind == UnitMissionKind.Transport,
             unit.Mission is not null and not { Kind: UnitMissionKind.Transport },

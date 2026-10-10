@@ -293,9 +293,9 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                 current.Districts[district.Id] = district with { OrdersRemaining = remaining - 1 };
             }
             var army = new UnitState(nextId, plan.ForceId, plan.OfficerId, hex, hex,
-                plan.Troops, 0, morale)
+                plan.Troops, 0, new(morale, null))
             {
-                SourceLocationId = plan.SourceLocationId, FormationId = plan.FormationId,
+                SourceLocationId = plan.SourceLocationId, Formations = new(plan.FormationId, null, null),
                 TacticIds = plan.TacticIds.ToArray(), WoundedTroops = 0
             };
             PlayableArmyCreationResolution? receipt = Create(current, plan, army);
@@ -305,8 +305,8 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             //receipt allocation identity so the next preview cannot reuse it.
             current.Units.Add(army.Id, army with
             {
-                NativeArmyOrigin = receipt.Origin, NativeArmyConfiguration = receipt.Configuration, TraitRoster = receipt.TraitRoster,
-                NativeTacticRuntime = receipt.Runtime, NativeMorale1A = receipt.NativeMorale1A,
+                NativeArmyOrigin = receipt.Origin, Formations = receipt.Formations, FieldAttackPolicy = receipt.FieldAttackPolicy, TraitRoster = receipt.TraitRoster,
+                NativeTacticRuntime = receipt.Runtime, MoraleState = army.MoraleState with { CurrentValue = receipt.CurrentMorale },
                 NativeSavedRegionHex152 = receipt.NativeSavedRegionHex152,
                 PositionKnowledge = receipt.CurrentHexId.HasValue ? ArmyPositionKnowledge.Confirmed : ArmyPositionKnowledge.Unknown,
                 NativeDirection36 = receipt.NativeDirection36,
@@ -485,7 +485,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             return null;
         var morale = new ArmyMoraleSource(Context(definitions), definitions, Revision);
         BaseReference? selectedBase = morale.ResolveCommanderBase(state, army);
-        var result = receipt with { NativeMorale1A = morale.ResolveCreationMorale(state, deployment, army),
+        var result = receipt with { CurrentMorale = morale.ResolveCreationMorale(state, deployment, army),
             CurrentHexId = ArmyConstruction.ResolveCurrentHex2A(definitions, army.OfficerId),
             NativeDirection36 = state.ReadArmyLifecycle()?.Slots[nativeArmySlot].Direction36,
             NativeMapUiByte13C = state.ReadArmyLifecycle()?.Slots[nativeArmySlot].MapUiByte13C,
@@ -505,8 +505,8 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                 ? PersonArmyLocationSource.EncodeArmySecondLocation(nativeArmySlot) : null,
             previousLocationResidue?.DistrictCode)) };
         if (state.ReadArmyLifecycle() is null) return result;
-        UnitState created = army with { NativeArmyOrigin = result.Origin, NativeArmyConfiguration = result.Configuration, TraitRoster = result.TraitRoster,
-            NativeTacticRuntime = result.Runtime, NativeMorale1A = result.NativeMorale1A,
+        UnitState created = army with { NativeArmyOrigin = result.Origin, Formations = result.Formations, FieldAttackPolicy = result.FieldAttackPolicy, TraitRoster = result.TraitRoster,
+            NativeTacticRuntime = result.Runtime, MoraleState = army.MoraleState with { CurrentValue = result.CurrentMorale },
             NativeSavedRegionHex152 = result.NativeSavedRegionHex152, CarriedStores = result.CarriedStores,
             OverrideTarget = result.OverrideTarget,
             PositionKnowledge = result.CurrentHexId.HasValue ? ArmyPositionKnowledge.Confirmed : ArmyPositionKnowledge.Unknown,
@@ -556,7 +556,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         return definitions is null ? null : new ArmyLogisticsPreparation(Context(definitions), definitions, _map, _terrain)
             .PreservesTraitRoster(state, army);
     }
-    public NativeArmyMoralePreparationResolution? ResolveMoraleAfterLogistics(GameState state,
+    public ArmyMoralePreparationResolution? ResolveMoraleAfterLogistics(GameState state,
         UnitState army, bool connected)
     {
         SourceWorldContext? definitions = CaptureCurrentDefinitions(state);

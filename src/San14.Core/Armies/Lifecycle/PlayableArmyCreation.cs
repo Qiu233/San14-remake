@@ -6,18 +6,11 @@ public sealed record NativeArmyOrigin(string Revision, string Language, string R
 {
     public int? NativeSlotIndex { get; init; }
 }
-/// <summary>Independent current native fields; an omitted byte remains unknown.
-/// Effective formation still requires the reached terrain branch.</summary>
-public sealed record NativeArmyConfiguration(byte? Formation1B, byte? Formation1C,
-    byte? Action37, byte? Category40);
-
 public sealed partial record UnitState
 {
     public NativeArmyOrigin? NativeArmyOrigin { get; init; }
-    public NativeArmyConfiguration? NativeArmyConfiguration { get; init; }
-    /// <summary>Independent current native Army byte1A. Missing source writes
-    /// remain unknown; the provisional Morale value never fills this field.</summary>
-    public byte? NativeMorale1A { get; init; }
+    public ArmyFormationState? Formations { get; init; }
+    public ArmyOrdinaryFieldAttackPolicy? FieldAttackPolicy { get; init; }
     /// <summary>Current native Army saved region Hex152. Its source writer is
     /// independent of the unit's movement Hex and Core region identity.</summary>
     public ushort? NativeSavedRegionHex152 { get; init; }
@@ -27,9 +20,10 @@ public sealed record PlayableArmyCreationResolution(NativeArmyTacticRuntime Runt
     int WoundedTroops, NativeArmyOrigin Origin, ulong RandomState)
 {
     public ArmyOverrideTargetState? OverrideTarget { get; init; }
-    public NativeArmyConfiguration? Configuration { get; init; }
+    public ArmyFormationState? Formations { get; init; }
+    public ArmyOrdinaryFieldAttackPolicy? FieldAttackPolicy { get; init; }
     public ArmyTraitRoster? TraitRoster { get; init; }
-    public byte? NativeMorale1A { get; init; }
+    public int? CurrentMorale { get; init; }
     public ushort? NativeSavedRegionHex152 { get; init; }
     public int? CurrentHexId { get; init; }
     public byte? NativeDirection36 { get; init; }
@@ -104,7 +98,7 @@ public static class PlayableArmyCreation
         UnitState changed = army with
         {
             WoundedTroops = result.WoundedTroops, NativeArmyOrigin = result.Origin with { },
-            NativeMorale1A = result.NativeMorale1A,
+            MoraleState = army.MoraleState with { CurrentValue = result.CurrentMorale },
             NativeSavedRegionHex152 = result.NativeSavedRegionHex152,
             PositionKnowledge = result.CurrentHexId.HasValue ? ArmyPositionKnowledge.Confirmed : ArmyPositionKnowledge.Unknown,
             NativeDirection36 = result.NativeDirection36,
@@ -115,7 +109,7 @@ public static class PlayableArmyCreation
             NativeHomeSequence28 = result.NativeHomeSequence28,
             OverrideTarget = result.OverrideTarget,
             CarriedStores = result.CarriedStores,
-            NativeArmyConfiguration = result.Configuration,
+            Formations = result.Formations, FieldAttackPolicy = result.FieldAttackPolicy,
             TraitRoster = result.TraitRoster,
             NativeTacticRuntime = result.Runtime with
             {
@@ -131,8 +125,8 @@ public static class PlayableArmyCreation
     {
         if (army.TransportRoute is not null && army.Mission?.Kind != UnitMissionKind.Transport)
             throw new InvalidDataException("Transport waypoints require a transport mission.");
-        if ((army.NativeMorale1A is not null || army.NativeSavedRegionHex152 is not null || army.CarriedStores is not null) && (state.NativeClock is null ||
-            army.NativeArmyOrigin is null || army.NativeArmyConfiguration is null))
+        if ((army.NativeSavedRegionHex152 is not null || army.CarriedStores is not null) && (state.NativeClock is null ||
+            army.NativeArmyOrigin is null || army.FieldAttackPolicy is null))
             throw new InvalidDataException("Current native Army attributes require their explicit Army construction and clock.");
         if (army.NativeSavedRegionHex152 is > 48400)
             throw new InvalidDataException("Current native Army saved region Hex is outside the source map.");
@@ -140,15 +134,14 @@ public static class PlayableArmyCreation
         if (string.IsNullOrWhiteSpace(origin.Revision) || origin.Language is not ("SC" or "TC") ||
             string.IsNullOrWhiteSpace(origin.RuleVersion) ||
             origin.NativeSlotIndex is null or < 1 or > 500 ||
-            state.NativeClock is null || army.NativeTacticRuntime is null || army.NativeArmyConfiguration is null ||
+            state.NativeClock is null || army.NativeTacticRuntime is null || army.FieldAttackPolicy is null ||
             army.WoundedTroops is null || army.FormationId is null ||
             army.TacticIds is null || army.SourceLocationId is null || army.Troops > ushort.MaxValue ||
             army.Mission?.Kind == UnitMissionKind.Transport &&
                 (army.NativeTacticRuntime.Status10 != 2 || army.TransportRoute is null ||
                  army.NativeHomeSequence28 is null || army.FormationId != 19 ||
                  army.CarriedStores is not { } cargo || cargo.Gold != army.Mission.CargoGold ||
-                 cargo.Food != army.Supplies) ||
-            army.NativeArmyConfiguration.Formation1B is byte landFormation && landFormation != army.FormationId)
+                 cargo.Food != army.Supplies))
             throw new InvalidDataException("Source-created Army provenance or current construction facts are incomplete.");
     }
 }

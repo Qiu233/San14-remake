@@ -191,9 +191,9 @@ public sealed class D3D11ArmyPublisher:IDisposable
             new ReadOnlyDictionary<int,uint>(_ordinary.Frames.ToDictionary(pair=>pair.Key,pair=>pair.Value.MotionRevision)),
             new ReadOnlyDictionary<int,uint>(_ordinary.Frames.ToDictionary(pair=>pair.Key,pair=>(uint)pair.Value.Mode)),
             new ReadOnlyDictionary<int,uint>(_ordinary.Frames.ToDictionary(pair=>pair.Key,
-                pair=>(uint)world.Units[pair.Key].NativeArmyConfiguration!.Formation1B!.Value)),
+                pair=>(uint)ArmyConfigurationSourceAdapter.ReadCurrentLand(world, world.Units[pair.Key])!.Value)),
             new ReadOnlyDictionary<int,uint>(_ordinary.Frames.ToDictionary(pair=>pair.Key,
-                pair=>(uint)(world.Units[pair.Key].NativeArmyConfiguration!.Formation1C??0))));
+                pair=>(uint)(ArmyConfigurationSourceAdapter.ReadNaval(world, world.Units[pair.Key])??0))));
         _lastWorld=world;_motionChanged=false;_lastAnimation=returnedPhases;return _current=next;
     }
     public D3D11ArmyPublication AdvanceMotion(GameState world,uint fpsMode)

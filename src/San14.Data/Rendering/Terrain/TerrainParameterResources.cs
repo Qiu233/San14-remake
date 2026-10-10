@@ -31,7 +31,20 @@ public sealed record LoadedTerrainParameterResources(LoadedSceneResources Scene,
 /// </summary>
 public static class TerrainParameterResources
 {
+    private const uint LodDistanceScaleProperty = 0x0575B6F4;
     private static readonly uint[] ParameterNames = [0x859D80F7, 0xA69BBD47, 0x9AE52E66, 0xD2A48180, 0x03BB19B1];
+
+    /// <summary>Decode the required adaptive-geometry setting when that geometry is initialized.</summary>
+    public static float ReadLodDistanceScale(LoadedTerrainParameterResources parameters)
+    {
+        DokProperty[] scales = parameters.TerrainRoot.Properties.Where(p => p.NameHash == LodDistanceScaleProperty).ToArray();
+        if (scales.Length != 1 || scales[0].TypeCode != 8 || scales[0].ElementCount != 1 || scales[0].RawValue.Length != 4)
+            throw new InvalidDataException("Original Composition requires explicit LODDistanceScale.");
+        float scale = BinaryPrimitives.ReadSingleLittleEndian(scales[0].RawValue);
+        if (!float.IsFinite(scale) || scale < 0)
+            throw new InvalidDataException("Unsupported original LOD distance scale.");
+        return scale;
+    }
 
     public static LoadedTerrainParameterResources Read(LoadedSceneResources scene)
     {

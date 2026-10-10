@@ -280,7 +280,7 @@ public static class ArmyDestructionResources
                 var army = slot.ActiveUnitId is int id ? units.GetValueOrDefault(id) : slot.PendingImage;
                 if (army is null) throw new InvalidDataException("Current destruction Army numeric saved image is missing.");
                 var next = write.Kind == ArmyDestructionResourceWriteKind.ArmyWounded18
-                    ? army with { WoundedTroops = write.Value } : army with { NativeMorale1A = unchecked((byte)write.Value) };
+                    ? army with { WoundedTroops = write.Value } : ArmyMoraleSourceAdapter.WithCurrent(army, unchecked((byte)write.Value));
                 if (slot.ActiveUnitId is int active) units[active] = next;
                 else slots[physical] = slot with { PendingImage = next };
             }

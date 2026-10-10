@@ -92,7 +92,7 @@ public sealed class PlayableArmyVisualAdapter
                 unresolved.Add(new(unit.Id, "Transport creation uses a separate native path; the source unit marker remains visible."));
                 continue;
             }
-            if (unit.NativeArmyConfiguration?.Formation1B is not byte landByte)
+            if (ArmyConfigurationSourceAdapter.ReadCurrentLand(world, unit) is not byte landByte)
             {
                 unresolved.Add(new(unit.Id, "Current native Army.byte1B is unavailable."));
                 continue;
@@ -102,7 +102,7 @@ public sealed class PlayableArmyVisualAdapter
                 throw new InvalidDataException($"Playable Army {unit.Id} formation differs from the selected source table.");
             ArmyTerrainSelection terrain = ArmyNativeFormationQueries.Terrain(
                 _map, _terrainTypes, checked((ushort)unit.HexId));
-            if (terrain.UsesArmyByte1C && unit.NativeArmyConfiguration.Formation1C is null)
+            if (terrain.UsesArmyByte1C && ArmyConfigurationSourceAdapter.ReadNaval(world, unit) is null)
             {
                 unresolved.Add(new(unit.Id, "Water terrain requires the current native naval byte1C; the unit marker remains visible."));
                 continue;
@@ -112,7 +112,7 @@ public sealed class PlayableArmyVisualAdapter
                 unresolved.Add(new(unit.Id, "A naval formation choice does not establish an ordinary land sortie; the unit marker remains visible."));
                 continue;
             }
-            var creation=new ArmyFormationWriteResult(new(landByte,unit.NativeArmyConfiguration.Formation1C),
+            var creation=new ArmyFormationWriteResult(new(landByte,ArmyConfigurationSourceAdapter.ReadNaval(world, unit)),
                 true,false,_writer.Source,_writer.DecodedSha256,_writer.CodeSource);
             ArmyFormationSelection selected = ArmyNativeFormationQueries.Formation(
                 terrain, _definitions, creation.Bytes.Byte1B, creation.Bytes.Byte1C);

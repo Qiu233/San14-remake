@@ -26,9 +26,9 @@ public sealed partial class BattleRemakeCurrentArmyAttributes
         if (state.NativeArmySimulation?.Parameters is not { } parameters || parameters.Language != source.Language ||
             parameters.RuleVersion != source.Source.RuleVersion || state.Units.GetValueOrDefault(army.Id) != army ||
             army.NativeArmyOrigin?.NativeSlotIndex is not >= 1 or > 500 || queries.ReadArmyValidity(state, army) != true ||
-            army.NativeMorale1A is not byte morale ||
+            ArmyMoraleSourceAdapter.Read(army) is not byte morale ||
             army.NativeTacticRuntime is not { Status10: 1, Abnormal25: 0, StatModifiers4A.Length: 6 } native ||
-            army.NativeArmyConfiguration is not { } configuration ||
+            !ArmyConfigurationSourceAdapter.HasConfiguration(army) ||
             !state.Officers.ContainsKey(army.OfficerId) ||
             definitions.ResolveOfficerSource(army.OfficerId) is not int commanderPhysical ||
             definitions.ReadPersonNativeValidity(commanderPhysical) != true ||

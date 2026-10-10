@@ -84,7 +84,7 @@ public static class PlayableTacticCombat
     public static bool NativeConfusionBlocksOrdinaryFieldAttack(UnitState unit) =>
         unit.NativeArmyOrigin is not null && unit.ForceId is >= 1 and <= 45 &&
         unit.NativeTacticRuntime is { Status10: > 0, Abnormal23: > 0 } &&
-        unit.NativeArmyConfiguration?.Action37 is byte action && action != 0x10;
+        unit.FieldAttackPolicy?.UsesConfusionGate == true;
 
     /// <summary>Applies explicit percentage modifiers to an already resolved loss; not an original damage formula.</summary>
     public static int AdjustLoss(int resolvedLoss, UnitState attacker, UnitState defender, int period)

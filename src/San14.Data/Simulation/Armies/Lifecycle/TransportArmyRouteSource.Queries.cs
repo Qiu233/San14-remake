@@ -23,8 +23,8 @@ public static partial class TransportArmyRouteSource
         {
             this.state = state; this.current = current; this.army = army;
             Start = start; Goal = goal; this.kind = kind; this.target = target;
-            LandFormation = K(army.NativeArmyConfiguration?.Formation1B, "Army1B");
-            navalFormation = K(army.NativeArmyConfiguration?.Formation1C, "Army1C");
+            LandFormation = K(ArmyConfigurationSourceAdapter.ReadCurrentLand(state, army), "Army1B");
+            navalFormation = K(ArmyConfigurationSourceAdapter.ReadNaval(state, army), "Army1C");
             var person = K(current.ReadPersonLookupReference(army.OfficerId), "Person_pointer");
             int personPhysical = person.PhysicalSlot ?? throw Missing("Person_receiver");
             force = K(current.ReadPersonOldForceSlot(personPhysical), "Army_Force22CD80");
@@ -170,7 +170,7 @@ public static partial class TransportArmyRouteSource
             bool blocks = runtime.Abnormal24 >= Parameter(SimulationParameterKeys.TransportRoute.BlockingAbnormalThreshold);
             if (!blocks)
             {
-                if (other.NativeArmyConfiguration?.Action37 is not byte action) throw Missing("occupant_Action37");
+                if (ArmyConfigurationSourceAdapter.ReadAction(state, other) is not byte action) throw Missing("occupant_Action37");
                 //2C9830 action2/3/14 returns0 after its24 gate. The actual
                 //default switch returns1 without target/range queries.
                 if (action is 2 or 3 or 14) blocks = false;

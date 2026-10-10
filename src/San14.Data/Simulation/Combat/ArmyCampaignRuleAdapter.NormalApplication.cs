@@ -156,7 +156,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         //179186 skips this whole morale getter/calculation/callback for type2.
         if (!transport)
         {
-            if (captureCurrent(working) is not { } moraleCurrent || target.NativeMorale1A is not byte rawMorale ||
+            if (captureCurrent(working) is not { } moraleCurrent || ArmyMoraleSourceAdapter.Read(target) is not byte rawMorale ||
                 moraleCurrent.ForceMoraleMaximum(working, target.ForceId) is not int moraleCap)
                 return Unknown("morale-getter");
             if (Math.Min((int)rawMorale, moraleCap) > 0)

@@ -99,7 +99,7 @@ public sealed class ArmyMarchSourceRuntime : IArmyMovementRules
         ValidateCurrentMoment(state, moment);
         if (state.Units.GetValueOrDefault(army.Id) != army || army.NativeArmyOrigin is null ||
             !HasCurrentRules(army) ||
-            army.March is not { } march || army.NativeArmyConfiguration?.Action37 is not byte action ||
+            army.March is not { } march || ArmyConfigurationSourceAdapter.ReadAction(state, army) is not byte action ||
             ArmyMarchSourceAdapter.ReadCurrentHex(state, army) is not ushort current ||
             current != army.HexId || current >= ArmyMarchSourceAdapter.SourceHexCount ||
             ArmyMarchSourceAdapter.EncodeCredit(march) is not ushort formerCredit ||

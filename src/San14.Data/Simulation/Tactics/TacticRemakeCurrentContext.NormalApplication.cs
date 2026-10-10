@@ -15,7 +15,7 @@ public sealed partial class TacticRemakeCurrentContext
             CommanderPhysical(state, target) is not int targetPerson ||
             _definitions.ReadPersonNativeValidity(attackerPerson) is not bool attackerValid ||
             _definitions.ReadPersonNativeValidity(targetPerson) is not bool targetValid ||
-            ForceMoraleMaximum(state, target.ForceId) is not int cap || target.NativeMorale1A is not byte morale ||
+            ForceMoraleMaximum(state, target.ForceId) is not int cap || ArmyMoraleSourceAdapter.Read(target) is not byte morale ||
             CurrentSurfaceCode(target) is not byte surface ||
             _definitions.ReadSurfaceTypeTableReference(surface <= 30 ? surface : 0) is not { } terrain ||
             _definitions.ReadSurfaceTypeWoundedCategory42(terrain) is not byte category ||

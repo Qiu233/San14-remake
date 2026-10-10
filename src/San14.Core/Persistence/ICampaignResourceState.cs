@@ -20,6 +20,8 @@ public interface ICampaignResourceStateCodec
     JsonObject Encode(ICampaignResourceState state);
     ICampaignResourceState? MigrateArmyLifecycle(ICampaignResourceState? state, JsonObject source);
     ICampaignResourceState Decode(JsonObject document);
+    void MigrateArmyMorale(JsonObject state, JsonObject unit);
+    ICampaignResourceState? MigrateArmyConfiguration(ICampaignResourceState? state, JsonObject unit, int? defeatedForceId = null);
     ICampaignResourceState? MigrateArmyTraits(ICampaignResourceState? state, JsonObject unit, int? defeatedForceId = null);
     ICampaignResourceState? MigrateTransportRoute(ICampaignResourceState? state, JsonObject unit, int? defeatedForceId = null);
     ICampaignResourceState? MigrateLocations(ICampaignResourceState? state,

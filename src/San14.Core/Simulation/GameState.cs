@@ -154,14 +154,17 @@ public sealed record UnitMission(UnitMissionKind Kind, int? DestinationCityId = 
     int? TargetStructureId = null);
 /// <summary>In the playable ruleset Supplies is transport cargo only; combat food stays in the source city.</summary>
 public sealed partial record UnitState(int Id, int ForceId, int OfficerId, int HexId,
-    int DestinationHexId, int Troops, int Supplies, int Morale)
+    int DestinationHexId, int Troops, int Supplies, ArmyMoraleState MoraleState)
 {
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int Morale => MoraleState.ProvisionalValue;
     // Null retains unknown configuration in legacy saves and non-original prototypes.
     /// <summary>Current supporting Base. A source ordinary Army follows its
     /// commander's actual Home changes; construction provenance is separate.
     /// A transport keeps its own departure/source semantics.</summary>
     public int? SourceLocationId { get; init; }
-    public int? FormationId { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int? FormationId => Formations?.SelectedLandFormationId;
     public int[]? TacticIds { get; init; }
     public DeploymentBehavior? Behavior { get; init; }
     public UnitMission? Mission { get; init; }

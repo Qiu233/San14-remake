@@ -80,7 +80,7 @@ public sealed partial class TacticRemakeCurrentContext : ITacticEffectSourceCont
         }
         //When action is outside4/5/7 and25 is zero, both possible outcomes of
         //the unresolved ordinary-target equality branch pass17D450.
-        byte? action = caster.NativeArmyConfiguration?.Action37;
+        byte? action = ArmyConfigurationSourceAdapter.ReadAction(state, caster);
         bool? outer = native.Abnormal25 == 0 && action is byte knownAction && knownAction is not (4 or 5 or 7)
             ? true : native.ProvocationOwner is { Kind: DeploymentTargetKind.Unit } owner &&
                 owner.Id == caster.Id ? true : null;
@@ -174,7 +174,7 @@ public sealed partial class TacticRemakeCurrentContext : ITacticEffectSourceCont
         int? first = ForceMoraleMaximum(state, target.ForceId), second = ForceMoraleMaximum(state, target.ForceId),
             third = ForceMoraleMaximum(state, target.ForceId);
         return scale is null || first is null || second is null || third is null ||
-            ArmyValid(state, target) != true || target.NativeMorale1A is not byte morale ? null :
+            ArmyValid(state, target) != true || ArmyMoraleSourceAdapter.Read(target) is not byte morale ? null :
             new(scale, morale, first.Value, second.Value, third.Value);
     }
 
@@ -268,7 +268,7 @@ public sealed partial class TacticRemakeCurrentContext : ITacticEffectSourceCont
                 (origin.Revision != ArmyCampaignRuleAdapter.TransportCreationRevision ||
                  unit.Mission?.Kind != UnitMissionKind.Transport || unit.TransportRoute is null) ||
             origin.Language != _usage.Language || !origin.RuleVersion.Equals(_usage.RuleVersion, StringComparison.OrdinalIgnoreCase) ||
-            unit.NativeTacticRuntime is not { } native || unit.NativeArmyConfiguration is null)
+            unit.NativeTacticRuntime is not { } native || !ArmyConfigurationSourceAdapter.HasConfiguration(unit))
             return null;
         if (origin.NativeSlotIndex is not >= 1 or > 500) return null;
         if (!state.Units.TryGetValue(unit.Id, out UnitState? owned) || owned != unit) return null;
@@ -288,7 +288,7 @@ public sealed partial class TacticRemakeCurrentContext : ITacticEffectSourceCont
         if (CurrentSurfaceCode(unit) is not byte code) return null;
         int slot = code <= 30 ? code : 0;
         S14TerrainTypeDefinition terrain = _terrain.Catalog.Types[slot];
-        return (terrain.RawField2C & 2) != 0 ? unit.NativeArmyConfiguration!.Formation1C : unit.NativeArmyConfiguration!.Formation1B;
+        return (terrain.RawField2C & 2) != 0 ? ArmyConfigurationSourceAdapter.ReadNaval(state, unit) : ArmyConfigurationSourceAdapter.ReadCurrentLand(state, unit);
     }
 
     private int[]? AvailableTactics(GameState state, UnitState unit, int formation)

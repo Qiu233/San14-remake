@@ -14,7 +14,7 @@ public sealed record PlayableTacticEffect(PlayableTacticEffectKind Kind, int Amo
 {
     public TacticArmyHealingResult? HealingResult { get; init; }
     public NativeTacticAbnormalAssignment? NativeAbnormalAfter { get; init; }
-    public byte? NativeMoraleAfter { get; init; }
+    public int? CurrentMoraleAfter { get; init; }
 }
 
 /// <summary>A resolved profile supplied by an adapter. Its revision must remain stable across a queued use.</summary>
@@ -117,7 +117,7 @@ public static class PlayableTacticStateValidation
                 (effect.NativeAbnormalAfter is not null && effect.Kind is not
                     (PlayableTacticEffectKind.NativeAbnormalChange or PlayableTacticEffectKind.ClearAbnormalStatuses)) ||
                 (effect.Kind == PlayableTacticEffectKind.NativeMoraleChange
-                    ? effect.NativeMoraleAfter is null : effect.NativeMoraleAfter is not null))
+                    ? effect.CurrentMoraleAfter is null : effect.CurrentMoraleAfter is not null))
                 throw new InvalidDataException("Tactic effect profile is invalid.");
         }
         if (definition.NativeActivationWaiting is { } waiting && string.IsNullOrWhiteSpace(waiting.Revision))

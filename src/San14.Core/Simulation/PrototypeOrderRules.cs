@@ -76,7 +76,7 @@ public sealed class PrototypeOrderRules : IOrderRules
         var units = new Dictionary<int, UnitState>(state.Units)
         {
             [unitId] = new UnitState(unitId, force.Id, officer.Id, cityHex,
-                order.DestinationHexId, order.Troops, order.Supplies, 100)
+                order.DestinationHexId, order.Troops, order.Supplies, new(100, null))
         };
         return CommandResult.Accept(state with
         {

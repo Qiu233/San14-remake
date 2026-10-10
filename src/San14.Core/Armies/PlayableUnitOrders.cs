@@ -364,7 +364,7 @@ public sealed class PlayableUnitOrders(IOrderRules originalCommands, PlayableLan
         state = ArmyIdentityAllocation.Initialize(state);
         int id = state.ArmyIdentities!.Candidate;
         var unit = new UnitState(id, force.Id, officer.Id, sourceHex, destinationHex,
-            order.Troops, order.Supplies, source.Morale ?? 100)
+            order.Troops, order.Supplies, new(source.Morale ?? 100, null))
         {
             SourceLocationId = source.Id,
             Mission = new UnitMission(UnitMissionKind.Transport, destination.Id, order.Gold,

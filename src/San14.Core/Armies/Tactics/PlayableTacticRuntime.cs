@@ -294,7 +294,7 @@ public static partial class PlayableTacticRuntime
                         case PlayableTacticEffectKind.MoraleChange:
                             int morale = checked((int)Math.Clamp((long)target.Morale + effect.Amount, 0, 100));
                             amount = morale - target.Morale;
-                            changed = target with { Morale = morale };
+                            changed = target with { MoraleState = target.MoraleState with { ProvisionalValue = morale } };
                             break;
                         case PlayableTacticEffectKind.ClearHarmfulStatuses:
                         case PlayableTacticEffectKind.ClearAbnormalStatuses:

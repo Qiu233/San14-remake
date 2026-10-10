@@ -16,7 +16,7 @@ public sealed record SaveEnvelope(int SchemaVersion, string FormatId, GameState 
 /// <summary>Local save format. A future original-save adapter can implement ISaveCodec.</summary>
 public sealed class JsonGzipSaveCodec : ISaveCodec
 {
-    public const int CurrentSchemaVersion = 90;
+    public const int CurrentSchemaVersion = 92;
     public string FormatId => "san14-remake-json-gzip";
     private readonly ILegacyOfficerAbilitySource? _legacyAbilitySource;
     private readonly ICampaignResourceStateCodec? _resourceStateCodec;
@@ -38,6 +38,8 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
         ArmyMarchSaveValidation.Validate(state);
         TransportRouteSaveValidation.Validate(state);
         ArmyTraitRosterSaveValidation.Validate(state);
+        ArmyFormationSaveValidation.Validate(state);
+        ArmyMoraleSaveValidation.Validate(state);
         JsonObject document = JsonSerializer.SerializeToNode(new SaveEnvelope(CurrentSchemaVersion, FormatId, state))!.AsObject();
         if (state.ResourceState is { } resourceState)
             document["ResourceState"] = (_resourceStateCodec ?? throw new InvalidDataException(
@@ -144,6 +146,9 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
             resourceState = LegacyTransportRouteSaveMigration.Apply(stateDocument, resourceState, _resourceStateCodec);
         if (version < 90)
             resourceState = LegacyArmyTraitRosterSaveMigration.Apply(stateDocument, resourceState, _resourceStateCodec);
+        if (version < 91)
+            resourceState = LegacyArmyFormationSaveMigration.Apply(stateDocument, resourceState, _resourceStateCodec);
+        if (version < 92) LegacyArmyMoraleSaveMigration.Apply(stateDocument, _resourceStateCodec);
         if (version < 86 && stateDocument.ContainsKey("ArmyIdentities"))
             throw new InvalidDataException("Historical save contains a current army identity sequence.");
         if (version >= 86 && (stateDocument["ArmyIdentities"] is not JsonObject identities ||
@@ -204,6 +209,8 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
         ArmyMarchSaveValidation.Validate(state);
         TransportRouteSaveValidation.Validate(state);
         ArmyTraitRosterSaveValidation.Validate(state);
+        ArmyFormationSaveValidation.Validate(state);
+        ArmyMoraleSaveValidation.Validate(state);
         return state;
     }
 
@@ -273,8 +280,8 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
                     throw new InvalidDataException("Saved force defeat disposition collections are missing.");
                 foreach (JsonNode? unitNode in withdrawals)
                 {
-                    JsonObject unit = Require(unitNode, "withdrawn Army", "Id", "ForceId", "OfficerId", "HexId", "DestinationHexId", "Troops", "Supplies", "Morale",
-                        "SourceLocationId", "FormationId", "TacticIds", "Behavior", "Mission", "WoundedTroops", "MilitaryPlan", "TacticRuntime");
+                    JsonObject unit = Require(unitNode, "withdrawn Army", "Id", "ForceId", "OfficerId", "HexId", "DestinationHexId", "Troops", "Supplies", "MoraleState",
+                        "SourceLocationId", "Formations", "TacticIds", "Behavior", "Mission", "WoundedTroops", "MilitaryPlan", "TacticRuntime");
                     CheckUnitModules(unit);
                 }
             }
@@ -457,7 +464,7 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
                 if (entry["PendingImage"] is JsonNode pendingNode)
                 {
                     JsonObject pending = Require(pendingNode, "pending army image", "Id", "ForceId", "OfficerId", "HexId",
-                        "DestinationHexId", "Troops", "Supplies", "Morale");
+                        "DestinationHexId", "Troops", "Supplies", "MoraleState");
                     CheckUnitModules(pending);
                 }
             }
@@ -568,10 +575,23 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
                     foreach (string key in new[] { "Target", "NextStep" })
                         if (march[key] is JsonNode destination) _ = Require(destination, "march destination", "Kind", "HexId");
                 }
-                if (unit["NativeArmyConfiguration"] is JsonNode armyConfiguration)
+                if (unit.ContainsKey("Morale") || unit.ContainsKey("NativeMorale1A"))
+                    throw new InvalidDataException("Saved army contains an obsolete morale owner.");
+                var morale = Require(unit["MoraleState"], "army morale", "ProvisionalValue", "CurrentValue");
+                if (morale.Count != 2) throw new InvalidDataException("Saved army morale ownership is invalid.");
+                if (unit.ContainsKey("NativeArmyConfiguration") || unit.ContainsKey("FormationId"))
+                    throw new InvalidDataException("Saved army contains an obsolete configuration owner.");
+                if (!unit.ContainsKey("Formations") || !unit.ContainsKey("FieldAttackPolicy"))
+                    throw new InvalidDataException("Saved army formation or attack policy is missing.");
+                if (unit["Formations"] is JsonNode formationNode)
                 {
-                    var configuration = Require(armyConfiguration, "native Army configuration", "Formation1B", "Formation1C", "Action37", "Category40");
-                    if (configuration.ContainsKey("TraitSlots64")) throw new InvalidDataException("Saved configuration contains an obsolete trait owner.");
+                    var formations = Require(formationNode, "army formations", "SelectedLandFormationId", "CurrentLandFormationId", "NavalFormationId");
+                    if (formations.Count != 3) throw new InvalidDataException("Saved army formation ownership is invalid.");
+                }
+                if (unit["FieldAttackPolicy"] is JsonNode policyNode)
+                {
+                    var policy = Require(policyNode, "army field-attack policy", "UsesConfusionGate");
+                    if (policy.Count != 1) throw new InvalidDataException("Saved army field-attack policy is invalid.");
                 }
                 if (!unit.ContainsKey("TraitRoster")) throw new InvalidDataException("Saved army trait roster is missing.");
                 if (unit["TraitRoster"] is JsonNode traitNode)

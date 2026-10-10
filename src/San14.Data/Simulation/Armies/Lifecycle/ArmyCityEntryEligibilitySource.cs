@@ -83,7 +83,7 @@ public static class ArmyCityEntryEligibilitySource
         if (slot.PhysicalSlot != physical || slot.ActiveUnitId != army.Id || slot.Commander12 != army.OfficerId)
             return Missing("saved_active_Army_receiver");
         var fields = new ArmyCityEntryPositionInputs(physical, slot.Commander12, slot.Status10,
-            army.NativeArmyConfiguration?.Action37, ArmyMarchSourceAdapter.ReadCurrentHex(state, army),
+            ArmyConfigurationSourceAdapter.ReadAction(state, army), ArmyMarchSourceAdapter.ReadCurrentHex(state, army),
             OwnedArmyLifecycleTargets.Read(state, slot.ReceiverId),
             null, null, null, null, null, null);
         var prefix = ReadPosition(fields);

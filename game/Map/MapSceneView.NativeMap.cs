@@ -107,7 +107,6 @@ public partial class MapSceneView
     private sealed record NativeMapOwner(SceneViewNativeMapMountPackage Package);
     private SceneViewNativeMapDependencyFactory? _nativeMapDependencyFactory;
     private SceneViewNativeMapWorldDependencyFactory? _nativeWorldMapDependencyFactory;
-    private LoadedTerrainInitialHeightResources? _nativeMapInitialHeight;
     private readonly SemaphoreSlim _nativeMapGate = new(1, 1);
     private NativeMapOwner? _nativeMapOwner;
     private SceneViewNativeMapFrameCapture? _nativeMapActiveCapture, _nativeMapPendingCapture;
@@ -175,7 +174,7 @@ public partial class MapSceneView
     private SceneViewNativeMapFrameCapture CaptureNativeMapFrame(Vector2I? extent = null)
     {
         if (_logicalWorld is not { } world || _sourceMainCameraFrame is not { } frame ||
-            _terrainMeshes is null || _nativeMapInitialHeight is null || _terrainPicker is null)
+            TerrainMeshes is null || CurrentTerrainPicker is null)
             throw new InvalidDataException("Production map needs its loaded current world, prepared Main camera and original height source.");
         if (!ReferenceEquals(world, _nativeMapWorldSource))
         {
@@ -184,11 +183,11 @@ public partial class MapSceneView
             _nativeMapDetachedWorld = GameStateCopy.Copy(world);
             _nativeMapWorldSource = world;
         }
-        var groups = _activeTerrainPatches.Select(patch =>
+        var groups = _sceneTerrain!.ActivePatches.Select(patch =>
         {
             uint edges = checked((uint)patch.Mesh.GetMeta("source_patch_edge_flags").AsInt64());
-            var input = TerrainPatchInputMath.Ordinary(_terrainMeshes.Source.SpatialTree, patch.SourceNode,
-                _nativeMapInitialHeight.HeightBinding.Image.Width, _nativeMapInitialHeight.ControlBinding.Image.Width, edges);
+            var input = TerrainPatchInputMath.Ordinary(TerrainMeshes.Source.SpatialTree, patch.SourceNode,
+                _sceneTerrain!.InitialHeight.HeightBinding.Image.Width, _sceneTerrain!.InitialHeight.ControlBinding.Image.Width, edges);
             return (Coarse: patch.SourceNode.Level != 0, Input: input);
         }).GroupBy(row => row.Coarse).Select(group => new NativeTerrainBatch(group.Key,
             Array.AsReadOnly(group.Select(row => row.Input).ToArray()))).ToArray();
@@ -200,7 +199,7 @@ public partial class MapSceneView
         return new(_nativeMapDetachedWorld!, frame with { Camera = frame.Camera.CopyAcceptedSnapshot() },
             Array.AsReadOnly(groups), display, _sceneLoadGeneration, checked(++_nativeMapRequestNumber),
             "SceneView-loaded-current-source;scene-generation=" + _sceneLoadGeneration)
-            { PresentationElapsedSeconds = _nativeMapPresentationElapsedSeconds, TerrainPicker = _terrainPicker };
+            { PresentationElapsedSeconds = _nativeMapPresentationElapsedSeconds, TerrainPicker = CurrentTerrainPicker };
     }
 
     private SceneViewNativeMapFrameCapture RequireNativeMapAcceptedCapture(NativeMapFrameContext context)
@@ -265,11 +264,11 @@ public partial class MapSceneView
                 await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
                 if (!NativeMapGenerationIsCurrent(sceneGeneration, generation)) return;
             }
-            if (_loadedSceneResources is null || _terrainMeshes is null || _terrainGbiMaterial is null ||
-                _nativeMapInitialHeight is null || _projection is null || _sourceSnapshot is null || _playerForceId is not int player)
+            if (_loadedSceneResources is null || TerrainMeshes is null || _sceneTerrain?.Gbi is null ||
+                _projection is null || _sourceSnapshot is null || _playerForceId is not int player)
                 throw new InvalidDataException("SceneView production map sources are not yet loaded.");
-            loaded = new(_repository, _loadedSceneResources, _terrainMeshes.Source, _nativeMapInitialHeight,
-                _terrainGbiMaterial.Source, _projection, _sourceSnapshot, player,
+            loaded = new(_repository, _loadedSceneResources, TerrainMeshes.Source, _sceneTerrain!.InitialHeight,
+                _sceneTerrain!.Gbi!.Source, _projection, _sourceSnapshot, player,
                 CaptureNativeMapFrame(_nativeMapPendingExtent).WithPresentationDeltaSince(_nativeMapAcceptedPresentationSeconds));
             await _nativeMapRetirement;
             await _nativeMapGate.WaitAsync();

@@ -34,7 +34,7 @@ public sealed class ArmyContactSourceAdapter(ArmyCampaignRuleAdapter campaign) :
         if (actor.Troops == 0) return false;
         if (actor.NativeTacticRuntime is not { } native) return null;
         if (native.Abnormal23 != 0) return false;
-        if (actor.NativeArmyConfiguration?.Action37 is not byte action) return null;
+        if (ArmyConfigurationSourceAdapter.ReadAction(state, actor) is not byte action) return null;
         //2C9070 immediately returns0 for non16 actions or positive current
         //23/24/25. The remaining16 destination/path owner is not replaced
         //by the Core retreat plan. Actor23 already vetoed above.

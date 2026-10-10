@@ -1,6 +1,4 @@
-using System.Buffers.Binary;
 using System.Globalization;
-using System.Text.Json;
 using Godot;
 using San14.Data;
 using San14.Data.Formats;
@@ -20,26 +18,18 @@ public partial class MapSceneView : Control
     private Camera3D _camera = null!;
     private Node3D _models = null!;
     private Node3D _terrain = null!;
-    private string _archive = "";
-    private readonly List<uint> _sceneIds = [];
+    private MapSceneConfiguration _sceneConfig = null!;
     private readonly MapModelMeshCache _modelMeshes = new();
-    private TexturePreviewPolicy _texturePolicy = null!;
     private MapSceneModelResources? _sceneModels;
     private UiAssets? _markerAssets;
     private LoadedLayout? _markerLayout;
     private LoadedLayout? _unitMarkerLayout;
-    private TerrainMeshResult? _terrainMeshes;
-    private TerrainMeshCache? _terrainMeshCache;
-    private IReadOnlyList<TerrainPatch> _activeTerrainPatches = [];
-    private float _terrainLodDistanceScale;
-    private TerrainPreviewMaterial? _terrainMaterial;
-    private TerrainGbiMapMaterial? _terrainGbiMaterial;
-    private LoadedRdbAsset? _mapProjectionSource;
-    private ITerrainSurface? TerrainSurface => (ITerrainSurface?)_terrainGbiMaterial ?? _terrainMaterial;
+    private MapTerrainResources? _sceneTerrain;
+    private TerrainMeshResult? TerrainMeshes => _sceneTerrain?.Meshes;
+    private TerrainPicker? CurrentTerrainPicker => _sceneTerrain?.Picker;
+    private ITerrainSurface? TerrainSurface => _sceneTerrain?.Surface;
     private PlayableTerrainOverlay? _territoryOverlay;
-    private TerrainTexturePreviewPolicy _terrainTexturePolicy = null!;
     private CheckButton _terrainTextureToggle = null!;
-    private int _terrainDepth;
     private Vector3 _center;
     private float _radius = 1, _yaw = 0.7f, _pitch = 0.5f, _zoom = 1;
     // B/A distances fit three Zhang Jiao city marker centers in the original
@@ -53,12 +43,13 @@ public partial class MapSceneView : Control
     private MapDocument? _logicalMap;
     private GameState? _logicalWorld;
     private ScenarioCityPreview? _sourceSnapshot;
-    private IReadOnlyDictionary<int, Color>? _sourceForceColors;
-    private IReadOnlyDictionary<int, Color>? _sourceMarkerColorCandidates;
-    private CeForceMapPalette? _sourceForcePalette;
-    private IReadOnlyDictionary<string, string>? _sourceStructureNames;
+    private MapForcePresentation? _forcePresentation;
+    private MapStructureCatalog? _structureCatalog;
+    private IReadOnlyDictionary<int, Color>? ForceMapColors => _forcePresentation?.MapColors;
+    private IReadOnlyDictionary<int, Color>? ForceMarkerColors => _forcePresentation?.MarkerColors;
+    private CeForceMapPalette? ForcePalette => _forcePresentation?.Palette;
+    private IReadOnlyDictionary<string, string>? StructureNames => _structureCatalog?.Names;
     private LoadedSceneResources? _loadedSceneResources;
-    private readonly Dictionary<uint, MapWorldProjectionPolicy> _projectionPolicies = [];
     private MapLocationLayer? _locations;
     private MapUnitLayer? _unitLayer;
     private PlayableMapStructureLayer? _structureLayer;
@@ -71,7 +62,6 @@ public partial class MapSceneView : Control
     private Vector3 _overviewCenter;
     private Vector3? _playableCameraCenter;
     private MapWorldProjection? _projection;
-    private TerrainPicker? _terrainPicker;
     private Label _cellInfo = null!;
     private MeshInstance3D? _selectionMarker;
     private SphereMesh? _selectionMarkerMesh;
@@ -342,37 +332,14 @@ public partial class MapSceneView : Control
         _selection.ItemSelected += index => _ = StartSceneLoadAsync((int)index);
         Run(() =>
         {
-            using Godot.FileAccess file = Godot.FileAccess.Open("res://ui/scene-preview.json", Godot.FileAccess.ModeFlags.Read)
+            using Godot.FileAccess sceneFile = Godot.FileAccess.Open("res://ui/scene-preview.json", Godot.FileAccess.ModeFlags.Read)
                 ?? throw new InvalidDataException("Scene preview configuration is missing.");
-            using JsonDocument config = JsonDocument.Parse(file.GetAsText());
-            _archive = config.RootElement.GetProperty("archive").GetString()
-                ?? throw new InvalidDataException("Scene preview archive is missing.");
-            JsonElement texturePolicy = config.RootElement.GetProperty("texturePreview");
-            _texturePolicy = new(texturePolicy.GetProperty("kind").GetUInt16(), texturePolicy.GetProperty("uvLayer").GetUInt16());
-            _terrainDepth = config.RootElement.GetProperty("terrainPreviewDepth").GetInt32();
-            if (_embedded) _terrainDepth = Math.Max(_terrainDepth, 4);
-            JsonElement terrainPolicy = config.RootElement.GetProperty("terrainTexturePreview");
-            TerrainTextureGroupKind group = terrainPolicy.GetProperty("group").GetString() switch
-            {
-                "field" => TerrainTextureGroupKind.Field,
-                "root" => TerrainTextureGroupKind.Root,
-                "auxiliary" => TerrainTextureGroupKind.Auxiliary,
-                _ => throw new InvalidDataException("Scene preview terrain texture group is unknown.")
-            };
-            _terrainTexturePolicy = new(group, terrainPolicy.GetProperty("slot").GetUInt32(), terrainPolicy.GetProperty("layer").GetInt32(),
-                ReadVector2(terrainPolicy.GetProperty("uvScale")), ReadVector2(terrainPolicy.GetProperty("uvOffset")));
-            foreach (JsonElement entry in config.RootElement.GetProperty("scenes").EnumerateArray())
-            {
-                uint id = uint.Parse(entry.GetProperty("fileId").GetString()!, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-                if (_sceneIds.Contains(id)) throw new InvalidDataException("Scene preview configuration contains a duplicate source.");
-                _sceneIds.Add(id);
-                _selection.AddItem(text.Get(entry.GetProperty("labelKey").GetString()!));
-            }
-            if (_sceneIds.Count == 0) throw new InvalidDataException("Scene preview has no configured sources.");
-            LoadProjectionPolicies();
-            int initialScene = _acceptHex is null ? 0 :
-                _sceneIds.FindIndex(id => _projectionPolicies.ContainsKey(id));
-            if (initialScene < 0) initialScene = 0;
+            using Godot.FileAccess projectionFile = Godot.FileAccess.Open("res://ui/map-projection.json", Godot.FileAccess.ModeFlags.Read)
+                ?? throw new InvalidDataException("Map projection configuration is missing.");
+            _sceneConfig = MapSceneConfiguration.Parse(sceneFile.GetAsText(), projectionFile.GetAsText(), _embedded);
+            foreach (MapSceneDefinition scene in _sceneConfig.Scenes)
+                _selection.AddItem(text.Get(scene.LabelKey));
+            int initialScene = _sceneConfig.InitialSceneIndex(_acceptHex is not null);
             _selection.Select(initialScene);
             _ = StartSceneLoadAsync(initialScene);
         });
@@ -406,14 +373,11 @@ public partial class MapSceneView : Control
     private void ClearModels()
     {
         ReleaseNativeMap();
-        _nativeMapInitialHeight = null;
         ReleaseSourceCamera();
         ReleaseArmyVisuals();
         _dragging = false; _panning = false; _dragDistance = 0;
-        _projection = null; _terrainPicker = null;
-        _sourceForceColors = null;
-        _sourceMarkerColorCandidates = null;
-        _sourceForcePalette = null;
+        _projection = null;
+        _forcePresentation = null;
         RemoveMeta("source_force_map_palette_status");
         RemoveMeta("source_force_map_palette_count");
         RemoveMeta("source_force_map_palette_missing_force_slots");
@@ -439,14 +403,11 @@ public partial class MapSceneView : Control
         _territoryOverlay = null;
         _terrain.RemoveMeta("playable_territory_overlay");
         _terrain.RemoveMeta("gbi_material");
-        _terrainGbiMaterial?.Dispose();
-        _terrainGbiMaterial = null;
-        _terrainMaterial?.Dispose();
-        _terrainMaterial = null;
+        _sceneTerrain?.Dispose();
+        _sceneTerrain = null;
         _terrain.RemoveMeta("texture_preview_material");
         _sceneModels?.Dispose();
         _sceneModels = null;
-        _mapProjectionSource = null;
         _loadedSceneResources = null;
         _markerAssets?.Dispose();
         _markerAssets = null;
@@ -459,10 +420,7 @@ public partial class MapSceneView : Control
         // Detach instances before disposing meshes owned by adaptive batches.
         if (GodotObject.IsInstanceValid(_terrain))
             foreach (Node child in _terrain.GetChildren()) { _terrain.RemoveChild(child); child.Free(); }
-        _terrainPicker = null;
-        _activeTerrainPatches = [];
-        _terrainMeshCache?.Dispose(); _terrainMeshCache = null;
-        _terrainMeshes?.Dispose(); _terrainMeshes = null;
+        _sceneTerrain?.ReleaseGeometry();
     }
 
     private async Task StartSceneLoadAsync(int index)
@@ -490,77 +448,35 @@ public partial class MapSceneView : Control
 
     private async Task LoadSceneAsync(int index, uint generation)
     {
-        if ((uint)index >= _sceneIds.Count) throw new InvalidDataException("Scene preview selection is outside its configured sources.");
+        if ((uint)index >= _sceneConfig.Scenes.Count) throw new InvalidDataException("Scene preview selection is outside its configured sources.");
         _loaded = false;
         ClearModels();
         SetMeta("scene_loaded", false);
         RemoveMeta("scene_error");
         _status.Text = _text.Get("scene_preview_loading");
-        LoadedSceneResources scene = SceneResources.Load(_repository, _archive, _sceneIds[index]);
+        LoadedSceneResources scene = SceneResources.Load(_repository, _sceneConfig.Archive, _sceneConfig.Scenes[index].FileId);
         ScenePlacements placements = ScenePlacementReader.Read(scene);
         var effects = new Godot.Collections.Array<Godot.Collections.Dictionary>();
         int missingQuaternions = 0, modelCount = 0;
         Aabb bounds = default;
         bool haveBounds = false;
-        LoadedTerrainResources terrain = TerrainResources.Load(_repository, _archive, scene.TerrainBundle.Source.FileId);
-        if (terrain.Objects.Source.ResourceUri != scene.TerrainBundle.Source.ResourceUri ||
-            terrain.Objects.Source.DecodedSha256 != scene.TerrainBundle.Source.DecodedSha256)
-            throw new InvalidDataException($"Terrain bundle {scene.TerrainBundle.Source.ResourceUri} changed while loading the scene.");
-        LoadedTerrainParameterResources terrainParameters = TerrainParameterResources.Read(scene);
-        LoadedTerrainShaderResources terrainShader = TerrainShaderResources.Load(_repository, terrainParameters);
-        G2ShaderTextureBases terrainTextureBases = G2ShaderTextureBaseReader.Read(terrainShader.Shader.Source.Bytes);
-        LoadedTerrainInitialHeightResources initialHeight = TerrainInitialHeightResources.Load(_repository, terrain, terrainParameters);
-        // The playable path keeps one root prototype for source bounds/material
-        // setup, then displays the original camera-selected mixed-node plan.
-        TerrainMeshResult preparedMeshes = TerrainMesh.Build(terrain, initialHeight, _embedded ? 0 : _terrainDepth);
-        TerrainPreviewMaterial? preparedMaterial = null;
-        TerrainGbiMapMaterial? preparedGbi = null;
-        LoadedRdbAsset? nativeProjectionSource = null;
-        try
-        {
-            if(UseD3D11Map)
-            {
-                var field=TerrainTextureResources.LoadGroup(_repository,terrain,TerrainTextureGroupKind.Field);
-                nativeProjectionSource=TerrainInitialControlResources.LoadStockDefault(field).Binding.Resource.Source;
-            }
-            else
-            {
-                preparedMaterial = await TerrainPreviewMaterial.BuildAsync(_repository, preparedMeshes,
-                    _terrainTexturePolicy, terrainParameters);
-                try { preparedGbi = await TerrainGbiMapMaterial.BuildAsync(_repository, preparedMeshes, terrainParameters, _text.SourceLocale); }
-                catch { preparedMaterial.Dispose(); throw; }
-            }
-        }
-        catch { preparedMeshes.Dispose(); throw; }
+        MapTerrainResources preparedTerrain = await MapTerrainResources.PrepareAsync(_repository,
+            _sceneConfig.Archive, scene, _embedded ? 0 : _sceneConfig.TerrainDepth, UseD3D11Map, _sceneConfig.TerrainTextures, _text.SourceLocale);
         if (generation != _sceneLoadGeneration || !GodotObject.IsInstanceValid(this) || !IsInsideTree())
         {
-            preparedMaterial?.Dispose();
-            preparedGbi?.Dispose();
-            preparedMeshes.Dispose();
+            preparedTerrain.DiscardPrepared();
             return;
         }
         _loadedSceneResources = scene;
-        _nativeMapInitialHeight = initialHeight;
+        // Install the owner before adaptive setup so load-error cleanup releases every upload.
+        _sceneTerrain = preparedTerrain;
         _sceneModels = UseD3D11Map ? null : new(_repository, scene, _sourceSnapshot,
-            _text.SourceLocale, _texturePolicy, _modelMeshes);
-        _terrainMeshes = preparedMeshes;
-        // Install ownership before further source validation, so the existing
-        // controlled load-error cleanup can release every uploaded resource.
-        _terrainMaterial = preparedMaterial;
-        _terrainGbiMaterial = preparedGbi;
-        _mapProjectionSource = nativeProjectionSource ?? TerrainSurface!.ProjectionSource;
-        _activeTerrainPatches = preparedMeshes.Patches;
-        if (_embedded)
-        {
-            DokProperty[] lodScales = terrainParameters.TerrainRoot.Properties.Where(property => property.NameHash == 0x0575B6F4).ToArray();
-            if (lodScales.Length != 1 || lodScales[0].TypeCode != 8 || lodScales[0].ElementCount != 1 || lodScales[0].RawValue.Length != 4)
-                throw new InvalidDataException("Original Composition requires explicit LODDistanceScale.");
-            _terrainLodDistanceScale = BinaryPrimitives.ReadSingleLittleEndian(lodScales[0].RawValue);
-            if (!float.IsFinite(_terrainLodDistanceScale) || _terrainLodDistanceScale < 0)
-                throw new InvalidDataException("Unsupported original LOD distance scale.");
-            _terrainMeshCache = new(preparedMeshes, initialHeight);
-        }
-        if(!UseD3D11Map)((SubViewport)_surface.GetChild(0)).AnisotropicFilteringLevel = _terrainGbiMaterial!.RequiredAnisotropy switch
+            _text.SourceLocale, _sceneConfig.ModelTextures, _modelMeshes);
+        if (_embedded) _sceneTerrain.InitializeAdaptiveGeometry();
+        LoadedTerrainResources terrain = TerrainMeshes!.Source;
+        LoadedTerrainShaderResources terrainShader = _sceneTerrain.Shader;
+        G2ShaderTextureBases terrainTextureBases = _sceneTerrain.TextureBases;
+        if(!UseD3D11Map)((SubViewport)_surface.GetChild(0)).AnisotropicFilteringLevel = _sceneTerrain.Gbi!.RequiredAnisotropy switch
         {
             1 => Viewport.AnisotropicFiltering.Disabled,
             2 => Viewport.AnisotropicFiltering.Anisotropy2X,
@@ -569,14 +485,14 @@ public partial class MapSceneView : Control
             16 => Viewport.AnisotropicFiltering.Anisotropy16X,
             _ => throw new InvalidDataException("Unsupported original material anisotropy.")
         };
-        foreach (TerrainPatch patch in _terrainMeshes.Patches)
+        foreach (TerrainPatch patch in TerrainMeshes.Patches)
         {
             if(!UseD3D11Map)
             {
             var node = new MeshInstance3D
             {
                 Name = $"TerrainPatch_{patch.SourceNode.Index}", Mesh = patch.Mesh,
-                MaterialOverride = _terrainTextureToggle.ButtonPressed ? TerrainSurface!.Material : _terrainMeshes.PreviewMaterial
+                MaterialOverride = _terrainTextureToggle.ButtonPressed ? TerrainSurface!.Material : TerrainMeshes.PreviewMaterial
             };
             _terrain.AddChild(node);
             node.SetMeta("source_tree_node", patch.SourceNode.Index);
@@ -584,8 +500,8 @@ public partial class MapSceneView : Control
             bounds = haveBounds ? bounds.Merge(patch.Mesh.GetAabb()) : patch.Mesh.GetAabb();
             haveBounds = true;
         }
-        _terrain.SetMeta("tree_depth", _embedded ? -1 : _terrainDepth);
-        _terrain.SetMeta("patch_count", _terrainMeshes.Patches.Count);
+        _terrain.SetMeta("tree_depth", _embedded ? -1 : _sceneConfig.TerrainDepth);
+        _terrain.SetMeta("patch_count", TerrainMeshes.Patches.Count);
         _terrain.SetMeta("original_initial_height_adapter", true);
         _terrain.SetMeta("original_topology_verified", true);
         _terrain.SetMeta("original_world_mapping_verified", false);
@@ -593,8 +509,8 @@ public partial class MapSceneView : Control
         _terrain.SetMeta("height_decoded_sha256", terrain.HeightField.Source.DecodedSha256);
         if(!UseD3D11Map)
         {
-            _terrain.SetMeta("texture_preview_material", _terrainMaterial!.Material);
-            _terrain.SetMeta("gbi_material", _terrainGbiMaterial!.Material);
+            _terrain.SetMeta("texture_preview_material", _sceneTerrain!.Preview!.Material);
+            _terrain.SetMeta("gbi_material", _sceneTerrain!.Gbi!.Material);
         }
         _terrain.SetMeta("gbuffer_shader_resource_uri", terrainShader.Shader.Source.ResourceUri);
         _terrain.SetMeta("gbuffer_shader_decoded_sha256", terrainShader.Shader.Source.DecodedSha256);
@@ -663,7 +579,7 @@ public partial class MapSceneView : Control
         SetMeta("unique_mesh_count", (_sceneModels?.PlacementMeshCount ?? 0));
         SetMeta("preview_texture_count", _sceneModels?.TextureCount ?? 0);
         SetMeta("native_map_legacy_preview_resources", !UseD3D11Map);
-        SetMeta("terrain_patch_count", _activeTerrainPatches.Count);
+        SetMeta("terrain_patch_count", _sceneTerrain!.ActivePatches.Count);
         SetMeta("terrain_world_mapping_verified", false);
         SetMeta("missing_instance_quaternion_count", missingQuaternions);
         SetMeta("source_space_bounds", bounds);
@@ -679,35 +595,26 @@ public partial class MapSceneView : Control
         if (!_center.IsFinite() || !double.IsFinite(radius) || radius > float.MaxValue)
             throw new InvalidDataException("Scene bounds cannot be framed with finite preview coordinates.");
         _radius = Math.Max((float)radius, 1);
-        LoadLogicalLocations(_sceneIds[index]);
+        LoadLogicalLocations(_sceneConfig.Scenes[index].FileId);
         _loaded = true;
         ResetCamera();
         await InitializeNativeMapAsync(generation);
         if (generation != _sceneLoadGeneration || !GodotObject.IsInstanceValid(this) || !IsInsideTree()) return;
         SetMeta("scene_loaded", true);
         _status.Text = string.Format(CultureInfo.InvariantCulture, _text.Get("scene_preview_counts"),
-            placements.Instances.Count, modelCount, effects.Count, (_sceneModels?.PlacementMeshCount ?? 0), _sceneModels?.TextureCount ?? 0, _activeTerrainPatches.Count);
+            placements.Instances.Count, modelCount, effects.Count, (_sceneModels?.PlacementMeshCount ?? 0), _sceneModels?.TextureCount ?? 0, _sceneTerrain!.ActivePatches.Count);
         _sceneSummary = _status.Text;
-        GD.Print($"SCENE_PREVIEW_LOADED {scene.Scene.Source.ResourceUri} instances={placements.Instances.Count} models={modelCount} effects={effects.Count} meshes={(_sceneModels?.PlacementMeshCount ?? 0)} missingQuaternion={missingQuaternions} textures={_sceneModels?.TextureCount ?? 0} terrainPatches={_activeTerrainPatches.Count}");
+        GD.Print($"SCENE_PREVIEW_LOADED {scene.Scene.Source.ResourceUri} instances={placements.Instances.Count} models={modelCount} effects={effects.Count} meshes={(_sceneModels?.PlacementMeshCount ?? 0)} missingQuaternion={missingQuaternions} textures={_sceneModels?.TextureCount ?? 0} terrainPatches={_sceneTerrain!.ActivePatches.Count}");
     }
 
     private static Vector3 ToGodot(System.Numerics.Vector3 value) => new(value.X, value.Y, value.Z);
 
-    private static Vector2 ReadVector2(JsonElement value)
-    {
-        if (value.ValueKind != JsonValueKind.Array || value.GetArrayLength() != 2)
-            throw new InvalidDataException("Scene preview UV vector requires exactly two values.");
-        Vector2 vector = new(value[0].GetSingle(), value[1].GetSingle());
-        if (!vector.IsFinite()) throw new InvalidDataException("Scene preview UV vector must be finite.");
-        return vector;
-    }
-
     private void UpdateTerrainMaterial()
     {
-        if (_terrainMeshes is null || _terrainMaterial is null) return;
+        if (TerrainMeshes is null || _sceneTerrain?.Preview is null) return;
         foreach (MeshInstance3D patch in _terrain.GetChildren().OfType<MeshInstance3D>())
             patch.MaterialOverride = _territoryOverlay?.Material ??
-                (_terrainTextureToggle.ButtonPressed ? TerrainSurface!.Material : _terrainMeshes.PreviewMaterial);
+                (_terrainTextureToggle.ButtonPressed ? TerrainSurface!.Material : TerrainMeshes.PreviewMaterial);
     }
 
     private static Godot.Collections.Dictionary PlacementMetadata(ScenePlacement placement) => new()
@@ -761,36 +668,13 @@ public partial class MapSceneView : Control
         UpdateCamera();
     }
 
-    private void LoadProjectionPolicies()
-    {
-        using Godot.FileAccess file = Godot.FileAccess.Open("res://ui/map-projection.json", Godot.FileAccess.ModeFlags.Read)
-            ?? throw new InvalidDataException("Map projection configuration is missing.");
-        using JsonDocument config = JsonDocument.Parse(file.GetAsText());
-        if (config.RootElement.GetProperty("schemaVersion").GetInt32() != 1 ||
-            config.RootElement.GetProperty("originalWorldMappingVerified").GetBoolean())
-            throw new InvalidDataException("Unsupported fitted map projection configuration.");
-        foreach (JsonElement entry in config.RootElement.GetProperty("profiles").EnumerateArray())
-        {
-            uint scene = uint.Parse(entry.GetProperty("sceneFileId").GetString()!, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-            var policy = JsonSerializer.Deserialize<MapWorldProjectionPolicy>(entry.GetProperty("projection").GetRawText(),
-                new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true, RespectRequiredConstructorParameters = true,
-                    RespectNullableAnnotations = true
-                })
-                ?? throw new InvalidDataException("Map projection policy is missing.");
-            if (!_sceneIds.Contains(scene) || !_projectionPolicies.TryAdd(scene, policy))
-                throw new InvalidDataException("Map projection policy has a missing or duplicate scene source.");
-        }
-    }
-
     private void LoadLogicalLocations(uint scene)
     {
-        if (_logicalMap is null || _logicalWorld is null || _terrainMeshes is null || _mapProjectionSource is null ||
-            !_projectionPolicies.TryGetValue(scene, out MapWorldProjectionPolicy? policy) ||
+        if (_logicalMap is null || _logicalWorld is null || TerrainMeshes is null ||
+            !_sceneConfig.TryGetProjection(scene, out MapWorldProjectionPolicy? policy) ||
             !policy.MapSha256.Equals(_logicalWorld.MapSha256, StringComparison.OrdinalIgnoreCase) ||
-            policy.FieldResourceUri != _mapProjectionSource.ResourceUri ||
-            !policy.FieldDecodedSha256.Equals(_mapProjectionSource.DecodedSha256, StringComparison.OrdinalIgnoreCase))
+            policy.FieldResourceUri != _sceneTerrain!.ProjectionSource.ResourceUri ||
+            !policy.FieldDecodedSha256.Equals(_sceneTerrain!.ProjectionSource.DecodedSha256, StringComparison.OrdinalIgnoreCase))
         {
             _locationNotice.Text = _text.Get("scene_preview_projection_unavailable");
             return;
@@ -802,30 +686,30 @@ public partial class MapSceneView : Control
         _projection = projection;
         if(UseD3D11Map)
         {
-            _sourceForceColors=LoadSourceForceColors();
-            _terrainPicker=TerrainPicker.Build(_terrainMeshes);
+            _forcePresentation = LoadForcePresentation();
+            _sceneTerrain!.BuildPicker();
             InitializeD3D11MapLocations();
             return;
         }
         if (_acceptHex is not null)
         {
-            _sourceForceColors = LoadSourceForceColors();
-            _sourceStructureNames = LoadSourceStructureNames();
+            _forcePresentation = LoadForcePresentation();
+            _structureCatalog = LoadStructureCatalog();
             _territoryOverlay = PlayableTerrainOverlay.Build(TerrainSurface!, projection,
-                _logicalWorld, _sourceForceColors);
+                _logicalWorld, ForceMapColors);
             AnnotateColorSource(_territoryOverlay, _logicalWorld);
             UpdateTerrainMaterial();
             _terrain.SetMeta("playable_territory_overlay", _territoryOverlay.Material);
         }
-        _terrainPicker = TerrainPicker.Build(_terrainMeshes);
+        _sceneTerrain!.BuildPicker();
         _markerAssets ??= new UiAssets(_repository);
         _markerLayout ??= _repository.LoadLayout("ScreenLayout", 0xEDC35713);
         if (_acceptHex is not null)
             _unitMarkerLayout ??= _repository.LoadLayout("ScreenLayout", 0x3DA1641D);
         _locations = new MapLocationLayer { Visible = _showLocations.ButtonPressed };
         _previewWorld.AddChild(_locations);
-        _locations.Build(projection, _terrainMeshes, _logicalWorld, _markerAssets,
-            _markerLayout, _sourceMarkerColorCandidates,
+        _locations.Build(projection, TerrainMeshes, _logicalWorld, _markerAssets,
+            _markerLayout, ForceMarkerColors,
             _acceptHex is null ? null : ResolveCityModelDisplays(_logicalWorld),
             _acceptHex is null ? null : _sceneModels?.ResolveGates(_logicalWorld));
         _locations.SetViewportHeight(_surface.Size.Y);
@@ -849,15 +733,15 @@ public partial class MapSceneView : Control
         {
             _unitLayer = new MapUnitLayer();
             _previewWorld.AddChild(_unitLayer);
-            _unitLayer.Build(projection, _terrainMeshes, _logicalWorld, player, _markerAssets,
+            _unitLayer.Build(projection, TerrainMeshes, _logicalWorld, player, _markerAssets,
                 _unitMarkerLayout ?? throw new InvalidDataException("Original unit sign layout is unavailable."),
-                _sourceMarkerColorCandidates);
+                ForceMarkerColors);
             _unitLayer.SetViewportHeight(_surface.Size.Y);
             RefreshArmyVisuals(_logicalWorld);
             _structureLayer = new PlayableMapStructureLayer();
             _previewWorld.AddChild(_structureLayer);
-        _structureLayer.Build(projection, _terrainMeshes, _logicalWorld,
-            _sourceMarkerColorCandidates, _sourceStructureNames,
+        _structureLayer.Build(projection, TerrainMeshes, _logicalWorld,
+            ForceMarkerColors, StructureNames,
             _sceneModels?.ResolveFacilities(_logicalWorld));
             _structureLayer.SetViewportHeight(_surface.Size.Y);
         }
@@ -880,78 +764,50 @@ public partial class MapSceneView : Control
             SetMeta("world_period_number", _logicalWorld.PeriodNumber);
     }
 
-    // The palette is presentation data. Keep it outside GameState and saves so
-    // future map/force extensions can replace this source-specific resolver.
-    private IReadOnlyDictionary<int, Color>? LoadSourceForceColors()
+    private MapForcePresentation? LoadForcePresentation()
     {
         if (_sourceSnapshot is null || _logicalWorld is null)
         {
             SetMeta("source_force_map_palette_status", "scenario-snapshot-unavailable");
             return null;
         }
-        if (!_sourceSnapshot.Locale.Equals(_text.SourceLocale, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Scenario and displayed source locale differ.");
-        _sourceForcePalette = CeForceMapPalette.LoadCurrent(_text.SourceLocale);
-        var colors = new Dictionary<int, Color>();
-        var markerCandidates = new Dictionary<int, Color>();
-        foreach (ForcePreviewRecord force in _sourceSnapshot.Forces)
-        {
-            if (force.RawReportColor49 is not byte colorIndex || colorIndex >= 60) continue;
-            CeForceMapColor color = _sourceForcePalette.MapColor(colorIndex);
-            if (!colors.TryAdd(force.Slot,
-                new Color(color.RedFloat, color.GreenFloat, color.BlueFloat, color.AlphaFloat)))
-                throw new InvalidDataException($"Duplicate source force slot {force.Slot}.");
-            CeForceFirstTableColor marker = _sourceForcePalette.FirstTableColor(
-                colorIndex, 2);
-            markerCandidates.Add(force.Slot, new Color(marker.Red / 255f,
-                marker.Green / 255f, marker.Blue / 255f, marker.Alpha / 255f));
-        }
-        _sourceMarkerColorCandidates = markerCandidates;
-        return colors;
+        return MapForcePresentation.Load(_sourceSnapshot, _text.SourceLocale);
     }
 
-    private IReadOnlyDictionary<string, string>? LoadSourceStructureNames()
+    private MapStructureCatalog? LoadStructureCatalog()
     {
-        if (_sourceSnapshot?.ObjectSourceRecords is null || _logicalWorld is null)
-            return null;
-        LoadedObjectDefinitions loaded = _repository.LoadObjectDefinitions(
-            _sourceSnapshot.FixedDataPath);
-        if (!_logicalWorld.ContentHashes.TryGetValue(loaded.Source.ResourceUri,
-                out string? expectedSha) ||
-            !expectedSha.Equals(loaded.Source.Sha256, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Displayed building names and saved fixed-data source differ.");
-        var names = loaded.Catalog.Definitions.Where(row => !string.IsNullOrWhiteSpace(row.Name))
-            .ToDictionary(row => $"san14:object/{row.Slot}", row => row.Name);
-        SetMeta("structure_definition_source_uri", loaded.Source.ResourceUri);
-        SetMeta("structure_definition_source_sha256", loaded.Source.Sha256);
-        SetMeta("structure_definition_name_count", names.Count);
-        return names;
+        if (_sourceSnapshot?.ObjectSourceRecords is null || _logicalWorld is null) return null;
+        MapStructureCatalog catalog = MapStructureCatalog.Load(_repository, _sourceSnapshot, _logicalWorld);
+        SetMeta("structure_definition_source_uri", catalog.SourceUri);
+        SetMeta("structure_definition_source_sha256", catalog.SourceSha256);
+        SetMeta("structure_definition_name_count", catalog.Names.Count);
+        return catalog;
     }
 
     private void AnnotateColorSource(PlayableTerrainOverlay overlay, GameState world)
     {
         int[] missing = world.Forces.Keys.Where(forceId =>
-            _sourceForceColors is null || !_sourceForceColors.ContainsKey(forceId)).Order().ToArray();
-        SetMeta("source_force_map_palette_status", _sourceForcePalette is null
+            ForceMapColors is null || !ForceMapColors.ContainsKey(forceId)).Order().ToArray();
+        SetMeta("source_force_map_palette_status", ForcePalette is null
             ? "scenario-snapshot-unavailable" : missing.Length == 0 ? "all-current-forces" : "partial");
-        SetMeta("source_force_map_palette_count", _sourceForceColors?.Count ?? 0);
+        SetMeta("source_force_map_palette_count", ForceMapColors?.Count ?? 0);
         SetMeta("source_force_map_palette_missing_force_slots", string.Join(",", missing));
-        overlay.Material.SetMeta("source_force_map_palette_count", _sourceForceColors?.Count ?? 0);
+        overlay.Material.SetMeta("source_force_map_palette_count", ForceMapColors?.Count ?? 0);
         overlay.Material.SetMeta("source_force_map_palette_formula_id",
-            _sourceForcePalette?.SourceFormulaId ?? "");
+            ForcePalette?.SourceFormulaId ?? "");
         overlay.Material.SetMeta("force_map_palette_rule_version",
-            _sourceForcePalette?.ImplementationVersion ?? "");
-        SetMeta("source_marker_color_candidate_selector", 2);
+            ForcePalette?.ImplementationVersion ?? "");
+        SetMeta("source_marker_color_candidate_selector", MapForcePresentation.MarkerColorSelector);
         SetMeta("source_marker_color_candidate_count",
-            _sourceMarkerColorCandidates?.Count ?? 0);
+            ForceMarkerColors?.Count ?? 0);
         SetMeta("original_map_marker_force_color_binding_verified", false);
         overlay.Material.SetMeta("original_overlay_composite_verified", false);
     }
 
     internal void RefreshPlayableWorld(GameState world)
     {
-        if (!_embedded || !_loaded || _projection is null || _terrainMeshes is null ||
-            (!UseD3D11Map&&_terrainMaterial is null) || _playerForceId is not int player)
+        if (!_embedded || !_loaded || _projection is null || TerrainMeshes is null ||
+            (!UseD3D11Map&&_sceneTerrain?.Preview is null) || _playerForceId is not int player)
             throw new InvalidOperationException("Resident playable map is not ready for a world update.");
         MapWorldProjectionPolicy policy = _projection.Policy;
         if (world.MapWidth != policy.Width || world.MapHeight != policy.Height ||
@@ -961,13 +817,13 @@ public partial class MapSceneView : Control
         if(UseD3D11Map)
         {
             _logicalWorld=world;
-            _d3d11Markers!.RefreshWorld(world,_sourceMarkerColorCandidates);
+            _d3d11Markers!.RefreshWorld(world,ForceMarkerColors);
             RefreshD3D11MapLocationSelection();
             if(selectedHex>=0)
             {
                 var point=_projection.Project(selectedHex);
                 ShowPickedCell(selectedHex,new((float)point.X,
-                    MapGrounding.SampleHeight(_terrainMeshes,point.X,point.Z),(float)point.Z));
+                    MapGrounding.SampleHeight(TerrainMeshes,point.X,point.Z),(float)point.Z));
             }
             SetMeta("world_period_number",world.PeriodNumber);
             // Apply the selected season's actual V410 optics before capturing
@@ -976,7 +832,7 @@ public partial class MapSceneView : Control
             return;
         }
         PlayableTerrainOverlay nextOverlay = PlayableTerrainOverlay.Build(TerrainSurface!,
-            _projection, world, _sourceForceColors);
+            _projection, world, ForceMapColors);
         AnnotateColorSource(nextOverlay, world);
         PlayableTerrainOverlay? previousOverlay = _territoryOverlay;
         _territoryOverlay = nextOverlay;
@@ -1005,24 +861,24 @@ public partial class MapSceneView : Control
         }
         _locations = new MapLocationLayer { Visible = _showLocations.ButtonPressed };
         _previewWorld.AddChild(_locations);
-        _locations.Build(_projection, _terrainMeshes, world, _markerAssets
+        _locations.Build(_projection, TerrainMeshes, world, _markerAssets
             ?? throw new InvalidOperationException("Original map marker assets are unavailable."),
             _markerLayout ?? throw new InvalidOperationException("Original map marker layout is unavailable."),
-            _sourceMarkerColorCandidates, ResolveCityModelDisplays(world),
+            ForceMarkerColors, ResolveCityModelDisplays(world),
             _sceneModels?.ResolveGates(world));
         _locations.SetViewportHeight(_surface.Size.Y);
         _unitLayer = new MapUnitLayer();
         _previewWorld.AddChild(_unitLayer);
-        _unitLayer.Build(_projection, _terrainMeshes, world, player,
+        _unitLayer.Build(_projection, TerrainMeshes, world, player,
             _markerAssets ?? throw new InvalidOperationException("Original map marker assets are unavailable."),
             _unitMarkerLayout ?? throw new InvalidOperationException("Original unit sign layout is unavailable."),
-            _sourceMarkerColorCandidates);
+            ForceMarkerColors);
         _unitLayer.SetViewportHeight(_surface.Size.Y);
         RefreshArmyVisuals(world);
         _structureLayer = new PlayableMapStructureLayer();
         _previewWorld.AddChild(_structureLayer);
-        _structureLayer.Build(_projection, _terrainMeshes, world,
-            _sourceMarkerColorCandidates, _sourceStructureNames,
+        _structureLayer.Build(_projection, TerrainMeshes, world,
+            ForceMarkerColors, StructureNames,
             _sceneModels?.ResolveFacilities(world));
         _structureLayer.SetViewportHeight(_surface.Size.Y);
         _locationSelection.Clear();
@@ -1035,7 +891,7 @@ public partial class MapSceneView : Control
         if (selectedHex >= 0)
         {
             ProjectedMapPoint point = _projection.Project(selectedHex);
-            float ground = MapGrounding.SampleHeight(_terrainMeshes, (float)point.X, (float)point.Z);
+            float ground = MapGrounding.SampleHeight(TerrainMeshes, (float)point.X, (float)point.Z);
             ShowPickedCell(selectedHex, new Vector3((float)point.X, ground, (float)point.Z));
         }
         SetMeta("playable_unit_marker_count", _unitLayer.Units.Count);
@@ -1121,7 +977,7 @@ public partial class MapSceneView : Control
         _cellInfo.Text = string.Format(CultureInfo.InvariantCulture, _text.Get("scene_preview_cell_info"), hexId, area, force, locations);
         if (selection.Structure is { } building)
             _cellInfo.Text += "\n" + _text.Format("play_map_structure_here",
-                _sourceStructureNames is not null && _sourceStructureNames.TryGetValue(building.KindId, out string? knownName)
+                StructureNames is not null && StructureNames.TryGetValue(building.KindId, out string? knownName)
                     ? knownName : building.KindId,
                 building.Durability, building.MaxDurability);
         if (selection.Units.Count > 0)
@@ -1218,7 +1074,7 @@ public partial class MapSceneView : Control
 
     private void PickTerrain(Vector2 surfacePosition)
     {
-        if (!_loaded || _projection is null || _terrainPicker is null || !_terrain.Visible ||
+        if (!_loaded || _projection is null || CurrentTerrainPicker is null || !_terrain.Visible ||
             _surface.Size.X <= 0 || _surface.Size.Y <= 0) return;
         SubViewport viewport = (SubViewport)_surface.GetChild(0);
         // GUI events use container pixels; camera projection uses the actual SubViewport size.
@@ -1250,7 +1106,7 @@ public partial class MapSceneView : Control
         {
             var markerPoint=_projection.Project(markerHex);
             ShowPickedCell(markerHex,new((float)markerPoint.X,
-                MapGrounding.SampleHeight(_terrainMeshes!,markerPoint.X,markerPoint.Z),(float)markerPoint.Z));
+                MapGrounding.SampleHeight(TerrainMeshes!,markerPoint.X,markerPoint.Z),(float)markerPoint.Z));
             int markerIndex=Enumerable.Range(0,_d3d11Markers.Locations.Count)
                 .FirstOrDefault(i=>_d3d11Markers.Locations[i].HexId==markerHex,-1);
             _locationSelection.Select(markerIndex);_focusLocation.Disabled=markerIndex<0;
@@ -1259,7 +1115,7 @@ public partial class MapSceneView : Control
             return;
         }
         TerrainPick hit;
-        bool picked=_sourceMainCameraFrame is not null?TrySourceCameraPick(surfacePosition,out hit):_terrainPicker.TryPick(_camera,point,out hit);
+        bool picked=_sourceMainCameraFrame is not null?TrySourceCameraPick(surfacePosition,out hit):CurrentTerrainPicker.TryPick(_camera,point,out hit);
         if (!inside || !picked ||
             !_projection.TryPick(hit.Position.X, hit.Position.Z, out int hexId))
         {
@@ -1312,11 +1168,7 @@ public partial class MapSceneView : Control
             : Vector3.Up;
         _camera.LookAtFromPosition(position, _center, cameraUp);
         UpdateTerrainLod(position, aspect);
-        if (_terrainGbiMaterial is not null)
-        {
-            _terrainGbiMaterial.SetEye(_terrainGbiMaterial.Material, position);
-            if (_territoryOverlay is not null) _terrainGbiMaterial.SetEye(_territoryOverlay.Material, position);
-        }
+        _sceneTerrain?.UpdateEye(position, _territoryOverlay?.Material);
         _camera.SetMeta("framed_source_bounds", GetMeta("source_space_bounds"));
         _locations?.SetViewportHeight(_surface.Size.Y);
         _unitLayer?.SetViewportHeight(_surface.Size.Y);
@@ -1331,7 +1183,7 @@ public partial class MapSceneView : Control
 
     private void UpdateTerrainLod(Vector3 eye, float aspect,System.Numerics.Matrix4x4? sourceClip=null)
     {
-        if (_terrainMeshCache is null || _terrainMeshes is null) return;
+        if (_sceneTerrain?.HasAdaptiveGeometry != true) return;
         if (_camera.Projection != Camera3D.ProjectionType.Perspective || _camera.KeepAspect != Camera3D.KeepAspectEnum.Height)
             throw new InvalidDataException("Playable original LOD adapter requires explicit vertical-FOV perspective.");
         System.Numerics.Matrix4x4 clip;
@@ -1348,36 +1200,27 @@ public partial class MapSceneView : Control
             var projection = TerrainFrustumMath.Perspective(Mathf.DegToRad(_camera.Fov), aspect, _camera.Near, _camera.Far);
             clip=TerrainFrustumMath.Multiply(view, projection);
         }
-        TerrainFrustumPlanes planes = TerrainFrustumMath.Create(clip);
-        TerrainLodDrawPlan plan = TerrainLodDrawPlanner.Build(_terrainMeshes.Source.SpatialTree,
-            new(eye.X,eye.Y,eye.Z), _terrainLodDistanceScale, planes);
-        TerrainLodPatchSelection[] desired = plan.Rows.Select(row => row.Patch).ToArray();
-        bool changed = desired.Length != _activeTerrainPatches.Count || desired.Where((row,i) =>
-            row.Node.Index != _activeTerrainPatches[i].SourceNode.Index ||
-            row.EdgeFlags != (uint)_activeTerrainPatches[i].Mesh.GetMeta("source_patch_edge_flags").AsInt64()).Any();
-        if (changed)
+        TerrainLodUpdate update = _sceneTerrain.PrepareLod(eye, clip);
+        TerrainLodDrawPlan plan = update.Plan;
+        if (update.Patches is { } next)
         {
-            IReadOnlyList<TerrainPatch> next = _terrainMeshCache.Get(desired);
-            TerrainPicker picker = TerrainPicker.Build(next);
             foreach (Node old in _terrain.GetChildren()) { _terrain.RemoveChild(old); old.Free(); }
             if(!UseD3D11Map)foreach (TerrainPatch patch in next)
             {
                 var node = new MeshInstance3D { Name = $"TerrainPatch_{patch.SourceNode.Index}", Mesh = patch.Mesh,
                     MaterialOverride = _territoryOverlay?.Material ??
-                        (_terrainTextureToggle.ButtonPressed ? TerrainSurface!.Material : _terrainMeshes.PreviewMaterial) };
+                        (_terrainTextureToggle.ButtonPressed ? TerrainSurface!.Material : TerrainMeshes!.PreviewMaterial) };
                 node.SetMeta("source_tree_node", patch.SourceNode.Index);
                 _terrain.AddChild(node);
             }
-            _activeTerrainPatches = next;
-            _terrainPicker = picker;
-            _terrainMeshCache.Trim(next);
+            _sceneTerrain.CommitLod(update);
         }
         if(!UseD3D11Map)for (int i = 0; i < plan.Rows.Count; i++)
             _terrain.GetChild(i).SetMeta("source_draw_group", plan.Rows[i].Group);
-        _terrain.SetMeta("patch_count", _activeTerrainPatches.Count);
+        _terrain.SetMeta("patch_count", _sceneTerrain!.ActivePatches.Count);
         _terrain.SetMeta("lod_selected_count", plan.SelectedCount);
         _terrain.SetMeta("lod_culled_count", plan.CulledCount);
-        _terrain.SetMeta("lod_distance_scale", _terrainLodDistanceScale);
+        _terrain.SetMeta("lod_distance_scale", _sceneTerrain.LodDistanceScale);
         _terrain.SetMeta("lod_source_eye", eye);
         _terrain.SetMeta("lod_clip_matrix_rows", new float[] {clip.M11,clip.M12,clip.M13,clip.M14,clip.M21,clip.M22,clip.M23,clip.M24,
             clip.M31,clip.M32,clip.M33,clip.M34,clip.M41,clip.M42,clip.M43,clip.M44});
@@ -1385,8 +1228,8 @@ public partial class MapSceneView : Control
         _terrain.SetMeta("original_camera_values_observed", false);
         _terrain.SetMeta("source_main_camera_matrix_owned",sourceClip.HasValue);
         _terrain.SetMeta("lod_equal_sort_key_policy", "replica node index; native equal-key order unobserved; ordinary non-tessellated leaf groups share surface");
-        _terrain.SetMeta("lod_geometry_cache_count", _terrainMeshCache.Count);
-        SetMeta("terrain_patch_count", _activeTerrainPatches.Count);
+        _terrain.SetMeta("lod_geometry_cache_count", _sceneTerrain.CachedPatchCount);
+        SetMeta("terrain_patch_count", _sceneTerrain!.ActivePatches.Count);
     }
 
     private bool TryScreenPlane(Vector2 screenPosition, out Vector3 point)
@@ -1465,12 +1308,12 @@ public partial class MapSceneView : Control
             if (!delta.IsFinite()) return;
             _center.X += delta.X;
             _center.Z += delta.Z;
-            if (_terrainMeshes is not null)
+            if (TerrainMeshes is not null)
             {
-                var height = _terrainMeshes.Source.HeightField.HeightField;
+                var height = TerrainMeshes.Source.HeightField.HeightField;
                 _center.X = Math.Clamp(_center.X, 0, height.CellWidth * height.SampleSpacing);
                 _center.Z = Math.Clamp(_center.Z, 0, height.CellHeight * height.SampleSpacing);
-                _center.Y = MapGrounding.SampleHeight(_terrainMeshes, _center.X, _center.Z);
+                _center.Y = MapGrounding.SampleHeight(TerrainMeshes, _center.X, _center.Z);
             }
             UpdateCamera();
         }
@@ -1488,7 +1331,6 @@ public partial class MapSceneView : Control
     {
         _sceneLoadGeneration++;
         ReleaseNativeMap();
-        _nativeMapInitialHeight = null;
         ReleaseArmyVisuals();
         _sceneModels?.ReleaseCityDisplays();
         ReleaseTerrainGeometry();
@@ -1496,10 +1338,8 @@ public partial class MapSceneView : Control
         _selectionMarkerMaterial?.Dispose(); _selectionMarkerMaterial = null;
         _territoryOverlay?.Dispose();
         _territoryOverlay = null;
-        _terrainGbiMaterial?.Dispose();
-        _terrainGbiMaterial = null;
-        _terrainMaterial?.Dispose();
-        _terrainMaterial = null;
+        _sceneTerrain?.Dispose();
+        _sceneTerrain = null;
         _sceneModels?.Dispose();
         _sceneModels = null;
         _markerAssets?.Dispose();

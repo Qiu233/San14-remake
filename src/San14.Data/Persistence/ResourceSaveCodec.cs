@@ -14,6 +14,7 @@ public sealed class ResourceSaveCodec : ISaveCodec
     public string FormatId => "san14-remake-json-gzip";
     public byte[] Encode(GameState state)
     {
+        state = ArmyConfigurationSourceAdapter.PruneReplacedChannels(state);
         state = ArmyTraitSourceAdapter.PruneReplacedChannels(state);
         state = TransportRouteSourceAdapter.PruneReplacedChannels(state);
         state = ArmyOverrideSourceKnowledgeValidation.PruneReplacedChannels(state);
@@ -24,6 +25,7 @@ public sealed class ResourceSaveCodec : ISaveCodec
         ArmyReceiverSourceValidation.Validate(state);
         TransportRouteSourceAdapter.Validate(state);
         ArmyTraitSourceAdapter.Validate(state);
+        ArmyConfigurationSourceAdapter.Validate(state);
         return new JsonGzipSaveCodec(resourceStateCodec: new CampaignResourceStateCodec()).Encode(state);
     }
     public GameState Decode(ReadOnlySpan<byte> bytes)
@@ -36,6 +38,7 @@ public sealed class ResourceSaveCodec : ISaveCodec
         ArmyReceiverSourceValidation.Validate(state);
         TransportRouteSourceAdapter.Validate(state);
         ArmyTraitSourceAdapter.Validate(state);
+        ArmyConfigurationSourceAdapter.Validate(state);
         return state;
     }
 

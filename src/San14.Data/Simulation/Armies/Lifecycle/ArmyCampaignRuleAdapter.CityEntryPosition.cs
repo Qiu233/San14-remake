@@ -35,7 +35,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
         }
         return ArmyCityEntryEligibilitySource.ReadPosition(new(physical, slot.Commander12, slot.Status10,
-            army.NativeArmyConfiguration?.Action37, ArmyMarchSourceAdapter.ReadCreatedCurrentHex(state, army),
+            ArmyConfigurationSourceAdapter.ReadAction(state, army), ArmyMarchSourceAdapter.ReadCreatedCurrentHex(state, army),
             OwnedArmyLifecycleTargets.Read(state, slot.ReceiverId), target, geometry.Valid, geometry.Location, geometry.Goal, rawForce, city.ForceId ?? 0,
             commanderValid));
     }

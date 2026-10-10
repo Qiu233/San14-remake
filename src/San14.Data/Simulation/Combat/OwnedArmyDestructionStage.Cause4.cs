@@ -39,7 +39,7 @@ public sealed partial class OwnedArmyDestructionStage
             var arena = state.ReadArmyLifecycle() ?? throw Missing("current.cause4_saved_arena");
             var slot = arena.ReceiverSlots()[physical];
             if (slot.ActiveUnitId is not int id || !state.Units.TryGetValue(id, out var army) ||
-                army.NativeTacticRuntime is null || army.NativeArmyConfiguration is null)
+                army.NativeTacticRuntime is null || !ArmyConfigurationSourceAdapter.HasConfiguration(army))
                 throw Missing("current.cause4_live_Army_image");
             var victim = new ArmyUnitReference(physical);
             if (!Known(current.ReadArmyUnitNativeValidity(victim), "cause4_Army_validity")) throw Missing("branch.cause4_invalid_Army");
@@ -151,7 +151,7 @@ public sealed partial class OwnedArmyDestructionStage
                 if (!Known(current.ReadArmyUnitNativeValidity(new(index)), "cause4_target_clear_validity")) continue;
                 var saved = state.ReadArmyLifecycle()!.ReceiverSlots()[index];
                 var image = saved.ActiveUnitId is int active ? state.Units.GetValueOrDefault(active) : saved.PendingImage;
-                if (Known(image?.NativeArmyConfiguration?.Action37, "cause4_target_clear_Action37") != 7) continue;
+                if (Known(ArmyConfigurationSourceAdapter.ReadAction(state, image), "cause4_target_clear_Action37") != 7) continue;
                 var target = current.ReadArmyTargetState(index) ?? throw Missing("current.cause4_target38");
                 if (Known(target.Kind, "cause4_target38") == ArmyTargetKind.ArmyReceiver &&
                     current.TargetsArmyReceiver(target.Destination ?? throw Missing("current.cause4_target3A"), physical))
@@ -170,7 +170,7 @@ public sealed partial class OwnedArmyDestructionStage
                     state = state with { ResourceState = ArmyTraitSourceAdapter.Write(state.ResourceState, image.Id, fields.Traits64) };
                 }
                 if (image is not null && current.ReadArmyReturnResourceFields(new(i)) is { } quantity)
-                    image = image with { NativeMorale1A = quantity.Morale1A, WoundedTroops = quantity.Wounded18 };
+                    image = ArmyMoraleSourceAdapter.ApplySnapshot(image, quantity.Morale1A) with { WoundedTroops = quantity.Wounded18 };
                 if (i == physical)
                 {
                     if (image is null) throw Missing("current.cause4_retired_image");

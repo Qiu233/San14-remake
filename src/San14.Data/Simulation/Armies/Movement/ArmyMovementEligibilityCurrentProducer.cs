@@ -93,7 +93,7 @@ public sealed class ArmyMovementEligibilityCurrentProducer
         int? goal = ResolveRawGoal(targetType, targetValue);
         if (goal is null) return Missing("current.goal2B5610_selected_Base_Object_Army_owner");
         if (goal == 48400) return Result(false, currentTarget, goal, "2C73E3.no-goal");
-        if (army.NativeArmyConfiguration?.Action37 is not byte action) return Missing("current.Army_action37");
+        if (ArmyConfigurationSourceAdapter.ReadAction(state, army) is not byte action) return Missing("current.Army_action37");
         bool direct = overrideKind == ArmyOverrideTargetKind.None;
         if (direct)
         {

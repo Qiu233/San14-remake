@@ -44,7 +44,7 @@ public static class PlayableSupplyLines
             if (Distance(unit, cities, gates, territory, routes, isSupplyAlly) is not null) continue;
             int moraleLoss = Math.Min(Math.Max(unit.Morale, 0), 10);
             if (moraleLoss > 0)
-                units[unit.Id] = unit with { Morale = unit.Morale - moraleLoss };
+                units[unit.Id] = unit with { MoraleState = unit.MoraleState with { ProvisionalValue = unit.Morale - moraleLoss } };
             reports.Add(new PeriodReportEntry("supply_cut", unit.ForceId,
                 unit.SourceLocationId is int source && cities.ContainsKey(source) ? source : null,
                 unit.OfficerId, moraleLoss, unit.HexId, unit.HexId));

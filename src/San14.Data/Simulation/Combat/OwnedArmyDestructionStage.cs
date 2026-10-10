@@ -115,7 +115,7 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         var arena = state.ReadArmyLifecycle()!;
         var slot = arena.ReceiverSlots()[physical];
         if (slot.ActiveUnitId is not int id || !state.Units.TryGetValue(id, out var army) || army.Troops != 0 ||
-            army.NativeArmyConfiguration is null || army.NativeTacticRuntime is null)
+            !ArmyConfigurationSourceAdapter.HasConfiguration(army) || army.NativeTacticRuntime is null)
             throw Missing("current.actual_zero_ready_Army_image");
         var victim = new ArmyUnitReference(physical);
         var winner = new ArmyUnitReference(request.WinnerUnitId is int winnerIdForMapping
@@ -293,7 +293,7 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
             if (!Known(current.ReadArmyUnitNativeValidity(new(index)), "target_clear_Army_validity")) continue;
             var saved = state.ReadArmyLifecycle()!.ReceiverSlots()[index];
             var image = saved.ActiveUnitId is int active ? state.Units.GetValueOrDefault(active) : saved.PendingImage;
-            if (Known(image?.NativeArmyConfiguration?.Action37, "target_clear_Army37") != 7) continue;
+            if (Known(ArmyConfigurationSourceAdapter.ReadAction(state, image), "target_clear_Army37") != 7) continue;
             var target = current.ReadArmyTargetState(index) ?? throw Missing("current.target_clear_Army38");
             if (Known(target.Kind, "target_clear_Army38") == ArmyTargetKind.ArmyReceiver &&
                 current.TargetsArmyReceiver(target.Destination ?? throw Missing("current.target_clear_Army3A"), physical))
@@ -328,7 +328,7 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                 result = result with { ResourceState = ArmyTraitSourceAdapter.Write(result.ResourceState, image.Id, traits.Traits64) };
             }
             if (image is not null && current.ReadArmyReturnResourceFields(new(i)) is { } resources)
-                image = image with { NativeMorale1A = resources.Morale1A, WoundedTroops = resources.Wounded18 };
+                image = ArmyMoraleSourceAdapter.ApplySnapshot(image, resources.Morale1A) with { WoundedTroops = resources.Wounded18 };
             if (destroyed.Contains(i))
             {
                 if (image is null || old.ActiveUnitId is null && old.PendingImage is null) throw Missing("current.destroyed_Army_projection");

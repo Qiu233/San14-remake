@@ -35,7 +35,7 @@ public sealed class ArmyMoraleAdjustmentSource(
         ArgumentNullException.ThrowIfNull(input);
         if (string.IsNullOrWhiteSpace(revision)) throw new InvalidDataException("Native morale adjustment needs source revision.");
         if (!input.Units.TryGetValue(armyId, out var army) || current.ArmyValid(input, army) != true ||
-            army.NativeMorale1A is not byte raw || input.NativeArmySimulation?.Parameters is not { } parameters ||
+            ArmyMoraleSourceAdapter.Read(army) is not byte raw || input.NativeArmySimulation?.Parameters is not { } parameters ||
             definitions.StaticSource is not { } source ||
             input.ContentHashes.GetValueOrDefault(source.ResourceUri) != source.Sha256)
             return Unknown();
@@ -67,7 +67,7 @@ public sealed class ArmyMoraleAdjustmentSource(
             return new(ArmyMoraleAdjustmentOutcome.ZeroMoraleAftermathUnresolved, input, receipt);
         GameState working = owned ? input : GameStateCopy.Copy(input);
         var units = new Dictionary<int, UnitState>(working.Units) {
-            [armyId] = working.Units[armyId] with { NativeMorale1A = receipt.After1A }
+            [armyId] = ArmyMoraleSourceAdapter.WithCurrent(working.Units[armyId], receipt.After1A)
         };
         GameState result = working with { Units = units };
         return new(ArmyMoraleAdjustmentOutcome.Committed, result, receipt);

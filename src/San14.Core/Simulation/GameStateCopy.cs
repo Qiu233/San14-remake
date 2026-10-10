@@ -273,7 +273,8 @@ public static class GameStateCopy
     {
         TacticIds = CopyArray(value.TacticIds),
         NativeTacticRuntime = Copy(value.NativeTacticRuntime),
-        NativeArmyConfiguration = value.NativeArmyConfiguration,
+        Formations = value.Formations, FieldAttackPolicy = value.FieldAttackPolicy,
+        MoraleState = value.MoraleState,
         TraitRoster = value.TraitRoster,
         TacticRuntime = Copy(value.TacticRuntime),
         TransportRoute = value.TransportRoute,

@@ -96,10 +96,10 @@ public static partial class PlayableTacticRuntime
         }
         if (effect.Kind == PlayableTacticEffectKind.NativeMoraleChange)
         {
-            if (target.NativeMorale1A is not byte before || effect.NativeMoraleAfter is not byte after ||
-                after - before != effect.Amount)
-                throw new InvalidDataException("Native morale has an unknown byte or stale absolute receipt.");
-            return target with { NativeMorale1A = after };
+            if (target.MoraleState.CurrentValue is not int before || effect.CurrentMoraleAfter is not int after ||
+                (long)after - before != effect.Amount)
+                throw new InvalidDataException("Current morale has an unknown value or stale absolute receipt.");
+            return target with { MoraleState = target.MoraleState with { CurrentValue = after } };
         }
         if (effect.Kind is not (PlayableTacticEffectKind.NativeAbnormalChange or PlayableTacticEffectKind.ClearAbnormalStatuses) ||
             target.NativeTacticRuntime is not { } native || effect.NativeAbnormalAfter is not { } abnormal)

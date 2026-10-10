@@ -114,7 +114,8 @@ public static class OwnedArmyLifecycleAuxiliaries
                 result = result with { ResourceState = knowledge.ReplaceArmyOverrides(knowledge.ArmyOverrides
                     .Where(row => row.Owner.ReceiverId is not { } id || !resetReceivers.Contains(id)))
                     .ReplaceTransportRoutes(knowledge.TransportRoutes.Where(row => row.Owner.DefeatedForceId is not null || !retiredUnits.Contains(row.Owner.UnitId)))
-                    .ReplaceArmyTraits(knowledge.ArmyTraits.Where(row => row.Owner.DefeatedForceId is not null || !retiredUnits.Contains(row.Owner.UnitId))) };
+                    .ReplaceArmyTraits(knowledge.ArmyTraits.Where(row => row.Owner.DefeatedForceId is not null || !retiredUnits.Contains(row.Owner.UnitId)))
+                    .ReplaceArmyConfigurations(knowledge.ArmyConfigurations.Where(row => row.Owner.DefeatedForceId is not null || !retiredUnits.Contains(row.Owner.UnitId))) };
             }
             foreach (var receiver in pendingOrder) committedReset?.Invoke(receiver.PhysicalSlot!.Value);
             return result;

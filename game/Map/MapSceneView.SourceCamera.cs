@@ -173,11 +173,7 @@ public partial class MapSceneView
         var state=frame.ControllerState;
         _center=new((float)state.FocusX,(float)state.FocusY,(float)state.FocusZ);
         UpdateTerrainLod(position,camera.Lens.Aspect,camera.Matrices.WorldToProjection100);
-        if(!UseD3D11Map&&_terrainGbiMaterial is not null)
-        {
-            _terrainGbiMaterial.SetEye(_terrainGbiMaterial.Material,position);
-            if(_territoryOverlay is not null)_terrainGbiMaterial.SetEye(_territoryOverlay.Material,position);
-        }
+        if (!UseD3D11Map) _sceneTerrain?.UpdateEye(position, _territoryOverlay?.Material);
         _locations?.SetViewportHeight(_surface.Size.Y);
         _unitLayer?.SetViewportHeight(_surface.Size.Y);
         _structureLayer?.SetViewportHeight(_surface.Size.Y);
@@ -375,7 +371,7 @@ public partial class MapSceneView
         hit=default;
         if(UseD3D11Map && !D3D11MapInteractive)return false;
         var camera=_sourceMainCameraFrame;
-        var picker=_terrainPicker;
+        var picker=CurrentTerrainPicker;
         if(_d3d11PresentedInput is {SourceFrame:{ } nativeCamera,TerrainPicker:{ } nativePicker})
         {camera=nativeCamera;picker=nativePicker;}
         if(_nativeMapOwner is { } native && native.Package.HasAcceptedOutput && native.Package.Surface.Visible)

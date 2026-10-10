@@ -35,12 +35,12 @@ public sealed class ArmyMoraleSource
         return $"native-base-morale44:{(reference.Kind==BaseKind.City?"city":"gate")}:{reference.PhysicalSlot}";
     }
     public byte? ReadCurrentArmyMorale(GameState state,UnitState army)=>
-        Epoch(state,army,true) is not null?army.NativeMorale1A:null;
+        Epoch(state,army,true) is not null?ArmyMoraleSourceAdapter.Read(army):null;
 
     public ArmyMoraleSourceReceipt? ReadCurrentReceipt(GameState state,UnitState army)
     {
         var epoch=Epoch(state,army,true);
-        if(epoch is null||army.NativeMorale1A is not byte raw||current.ForceMoraleMaximum(state,army.ForceId) is not int cap)return null;
+        if(epoch is null||ArmyMoraleSourceAdapter.Read(army) is not byte raw||current.ForceMoraleMaximum(state,army.ForceId) is not int cap)return null;
         return new(raw,raw,Math.Min(raw,cap),cap,null,null,null,epoch,"raw1A + getter22EDA0/Force268DD0");
     }
     public byte? ResolveCreationMorale(GameState state,PreparedDeployment deployment,UnitState army)=>
@@ -89,7 +89,7 @@ public sealed class ArmyMoraleSource
     public ArmyMoraleSourceReceipt? ResolveLogisticsReceipt(GameState state,UnitState army,bool connected)
     {
         var epoch=Epoch(state,army,true);
-        if(epoch is null||army.NativeMorale1A is not byte raw||army.NativeTacticRuntime is not { } runtime)return null;
+        if(epoch is null||ArmyMoraleSourceAdapter.Read(army) is not byte raw||army.NativeTacticRuntime is not { } runtime)return null;
         bool former=(runtime.Flags26&2)!=0;
         if(former==connected)return new(raw,raw,null,null,null,null,null,epoch,"276AB0 unchanged logistics bit; retain1A");
         //TC276DB0 reconnect uses the same three-cap writer for type1/2.

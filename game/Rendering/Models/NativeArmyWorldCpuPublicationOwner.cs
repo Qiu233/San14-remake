@@ -36,9 +36,9 @@ public sealed class NativeArmyWorldCpuPublicationOwner
     {
         ArgumentNullException.ThrowIfNull(actualCurrentWorld);
         if (!actualCurrentWorld.Units.Keys.Order().SequenceEqual(actualOrdinary.Keys.Order()) ||
-            actualCurrentWorld.Units.Values.Any(u => u.NativeArmyOrigin is null || u.NativeArmyConfiguration is null ||
+            actualCurrentWorld.Units.Values.Any(u => u.NativeArmyOrigin is null || !ArmyConfigurationSourceAdapter.HasConfiguration(u) ||
                 !actualOrdinary.TryGetValue(u.Id, out var f) || f.HexId != u.HexId || f.FormationSlot != u.FormationId ||
-                u.NativeArmyConfiguration.Formation1B != u.FormationId))
+                ArmyConfigurationSourceAdapter.ReadCurrentLand(actualCurrentWorld, u) != u.FormationId))
             throw new InvalidDataException("World Army logical inventory needs every actual source-created current unit and matching Hex/formation pose.");
         return CaptureKnownCompleteInventory(actualOrdinary, actualModels, actualFlags);
     }

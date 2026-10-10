@@ -90,7 +90,7 @@ public static class PlayableSupplyUpkeep
                         unit.SourceLocationId != armyBasis.SourceLocationId) continue;
                     int lost = Math.Min(Math.Max(0, unit.Morale), 10);
                     if (lost == 0) continue;
-                    unitWrites[unit.Id] = unit with { Morale = unit.Morale - lost };
+                    unitWrites[unit.Id] = unit with { MoraleState = unit.MoraleState with { ProvisionalValue = unit.Morale - lost } };
                     additions.Add(new PeriodReportEntry("food_unit_morale", forceId,
                         city.Id, unit.OfficerId, lost));
                 }

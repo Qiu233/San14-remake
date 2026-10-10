@@ -137,8 +137,8 @@ public static class PersonAdvisorResetSource
             foreach (var write in armies)
             {
                 var slot = slots[write.PhysicalSlot];
-                if (slot.ActiveUnitId is int id) units[id] = units[id] with { NativeMorale1A = write.After1A };
-                else if (slot.PendingImage is { } image) slots[write.PhysicalSlot] = slot with { PendingImage = image with { NativeMorale1A = write.After1A } };
+                if (slot.ActiveUnitId is int id) units[id] = ArmyMoraleSourceAdapter.WithCurrent(units[id], write.After1A);
+                else if (slot.PendingImage is { } image) slots[write.PhysicalSlot] = slot with { PendingImage = ArmyMoraleSourceAdapter.WithCurrent(image, write.After1A) };
                 else throw Missing("Army_publish_image");
             }
             working = (working with { Cities = cityStates,

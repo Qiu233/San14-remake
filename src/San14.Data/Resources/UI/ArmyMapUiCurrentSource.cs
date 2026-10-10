@@ -71,7 +71,7 @@ public sealed class ArmyMapUiCurrentSource
                 ? commander != 0 && status != 0 : null;
             row = row with { ArmyPhysicalSlot = physical, ArmyValid = armyValid, Commander12 = saved.Commander12,
                 Ready16 = unit.Troops is >= 0 and <= ushort.MaxValue ? (ushort)unit.Troops : null,
-                Morale1A = unit.NativeMorale1A, Army13C = unit.NativeMapUiByte13C };
+                Morale1A = ArmyMoraleSourceAdapter.Read(unit), Army13C = unit.NativeMapUiByte13C };
             if (armyValid != true) { missing.Add(new(id, "current.Army_validity")); rows.Add(row); continue; }
             if (row.Ready16 is null) missing.Add(new(id, "current.Army_ready16"));
             if (row.Morale1A is null) missing.Add(new(id, "current.Army_raw1A"));
@@ -110,7 +110,7 @@ public sealed class ArmyMapUiCurrentSource
             var hexPointer = hex is ushort hx ? current.ReadHexTableReference(hx <= 48399 ? hx : 0) : null;
             byte? surface = hexPointer is not null ? current.ReadHexSurfaceCode(hexPointer) : null;
             byte? selected = surface is byte code ? ((_terrain2C[code <= 30 ? code : 0] & 2) != 0
-                ? unit.NativeArmyConfiguration?.Formation1C : unit.NativeArmyConfiguration?.Formation1B) : null;
+                ? ArmyConfigurationSourceAdapter.ReadNaval(world, unit) : ArmyConfigurationSourceAdapter.ReadCurrentLand(world, unit)) : null;
             byte? formationClass = selected is byte formation ? TacticRemakeCurrentFormations.ReadRawByte(world,
                 formation <= 20 ? formation : 0, 0x7E) : null;
             bool? predicate = row.IsCurrentPlayerForce == true && districtValid == true && district is not null

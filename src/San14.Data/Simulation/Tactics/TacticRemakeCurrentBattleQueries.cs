@@ -71,7 +71,7 @@ public sealed class TacticRemakeCurrentBattleQueries :
         UnitState army, byte finalDescriptorDivisor14)
     {
         if (context.ArmyValid(state, army) != true || finalDescriptorDivisor14 == 0 ||
-            army.NativeMorale1A is not byte morale || context.ForceMoraleMaximum(state, army.ForceId) is not int cap ||
+            ArmyMoraleSourceAdapter.Read(army) is not byte morale || context.ForceMoraleMaximum(state, army.ForceId) is not int cap ||
             cap is < 0 or > byte.MaxValue ||
             factors?.ReadAlternateMoraleGlobals(state, army) is not bool alternate ||
             factors.ReadRegionFactor(state, army) is not float region ||

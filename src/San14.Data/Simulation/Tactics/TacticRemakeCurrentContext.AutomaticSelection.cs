@@ -37,7 +37,7 @@ public sealed partial class TacticRemakeCurrentContext
         if (available.Length == 0 || native.Waiting20 != 0 || native.Abnormal23 != 0) return Skipped();
         //For25==0 and actions outside4/5/7, either native target-equality
         //outcome passes. Other reached3C/3E/38/3A paths remain unknown here.
-        if (native.Abnormal25 != 0 || caster.NativeArmyConfiguration?.Action37 is not byte action ||
+        if (native.Abnormal25 != 0 || ArmyConfigurationSourceAdapter.ReadAction(state, caster) is not byte action ||
             action is 4 or 5 or 7) return null;
         //17D4FF reaches the World player getter before checking selected mode.
         //Even when the known-empty commander list makes that mode false, a

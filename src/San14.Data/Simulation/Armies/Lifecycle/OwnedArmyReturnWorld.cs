@@ -90,7 +90,7 @@ public sealed partial class SourceWorldContext
             SetArmyUnitRawHex2A(physical,ArmyMarchSourceAdapter.ReadCurrentHex(state, army)); //No HexId fallback.
             SetArmyReturnResourceFields(physical,new(army.Troops is >=0 and <=65535 ? (ushort)army.Troops : null,
                 army.WoundedTroops is >=0 and <=65535 ? (ushort)army.WoundedTroops.Value : null,
-                army.NativeMorale1A,slot.StoredResources.Gold,slot.StoredResources.Food));
+                ArmyMoraleSourceAdapter.Read(army),slot.StoredResources.Gold,slot.StoredResources.Food));
             if (ArmyTraitSourceAdapter.Encode(state, army) is { } traits && slot.AuxiliaryAC is { } ac &&
                 slot.AuxiliaryF4 is { } f4 && OwnedIndexes?.TraitHandles(physical) is { } descriptors)
                 SetArmyReturnTraitFields(physical,new(traits,ac,f4,descriptors.Select(x=>new RegistryListHandle(x.Identity))));

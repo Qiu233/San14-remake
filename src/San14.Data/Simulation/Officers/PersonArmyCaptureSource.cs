@@ -224,9 +224,10 @@ public static class PersonArmyCaptureSource
         var hex = current.ReadHexTableReference(raw < 48400 ? raw : 0) ?? throw Missing("current.formation_Hex_pointer");
         byte surface = Need(current.ReadHexSurfaceCode(hex), "current.formation_Hex10");
         var terrain = current.ReadSurfaceTypeTableReference(surface <= 30 ? surface : 0) ?? throw Missing("current.formation_Terrain_pointer");
-        var config = ArmyImage(state, army).NativeArmyConfiguration ?? throw Missing("current.Army_configuration");
+        var image = ArmyImage(state, army);
+        if (!ArmyConfigurationSourceAdapter.HasConfiguration(image)) throw Missing("current.Army_configuration");
         bool water = terrain.PhysicalSlot is int physical && (Need(PersonArmyCaptureInputs.ReadTerrainFlags2C(state, physical), "current.Terrain2C") & 2) != 0;
-        return Need(water ? config.Formation1C : config.Formation1B, "current.Army_effective_formation1B_or1C");
+        return Need(water ? ArmyConfigurationSourceAdapter.ReadNaval(state, image) : ArmyConfigurationSourceAdapter.ReadCurrentLand(state, image), "current.Army_effective_formation1B_or1C");
     }
     private static PersonalityReference FirstPersonTrait(SourceWorldContext current, int person, byte effect)
     {

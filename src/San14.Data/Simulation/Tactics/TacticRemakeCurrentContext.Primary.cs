@@ -14,7 +14,7 @@ public sealed partial class TacticRemakeCurrentContext
     public TacticPrimaryArmyCandidatesSource? ResolveArmyNativePrimaryCandidates(GameState state, UnitState caster)
     {
         if (ArmyValid(state, caster) != true || caster.NativeTacticRuntime is not { } native ||
-            caster.NativeArmyConfiguration?.Action37 is not byte action || caster.ForceId is >= 46 and <= 51)
+            ArmyConfigurationSourceAdapter.ReadAction(state, caster) is not byte action || caster.ForceId is >= 46 and <= 51)
             return null;
         if (action == 0x10) return null; //2C8EF0 reaches additional owner/path inputs.
         var preparation = new ArmyLogisticsPreparation(this, _definitions, _map, _terrain);
@@ -68,10 +68,10 @@ public sealed partial class TacticRemakeCurrentContext
     public int? ReadArmyNativePrimaryRange(GameState state, UnitState army)
     {
         if (ArmyValid(state, army) != true || CurrentSurfaceCode(army) is not byte surface ||
-            army.NativeArmyConfiguration is not { } configuration) return null;
+            !ArmyConfigurationSourceAdapter.HasConfiguration(army)) return null;
         int terrainSlot = surface <= 30 ? surface : 0;
         byte? selected = (_terrain.Catalog.Types[terrainSlot].RawField2C & 2) != 0
-            ? configuration.Formation1C : configuration.Formation1B;
+            ? ArmyConfigurationSourceAdapter.ReadNaval(state, army) : ArmyConfigurationSourceAdapter.ReadCurrentLand(state, army);
         if (selected is null) return null;
         int formation = selected <= 20 ? selected.Value : 0;
         byte? bits = TacticRemakeCurrentFormations.ReadParameter(state, formation, 0xA6);

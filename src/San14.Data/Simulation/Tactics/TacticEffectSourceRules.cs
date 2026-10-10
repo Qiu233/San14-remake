@@ -274,21 +274,21 @@ public sealed class TacticEffectSourceRules : ITacticRuleSource, IPlayableTactic
     {
         if (instruction.Opcode == 15)
         {
-            if (target.NativeArmyOrigin is not null && target.NativeMorale1A is null) return null;
+            if ((target.NativeArmyOrigin is not null || target.MoraleState.CurrentValue is not null) && ArmyMoraleSourceAdapter.Read(target) is null) return null;
             TacticMoraleIncreaseSourceInput? input = _context.ResolveArmyMoraleIncrease(
                 state, caster, target, source, instruction);
             if (input is null) return null;
-            int current = target.NativeMorale1A ?? target.Morale;
+            int current = ArmyMoraleSourceAdapter.Read(target) ?? target.Morale;
             if (input.Scale.EffectValue != instruction.EffectValue || input.CurrentMorale != current)
                 throw new InvalidDataException("Current original morale input differs from its target or program.");
             int after = TacticEffectSourceMath.ArmyMoraleAfter(input);
             // The shared aftermath destroys zero-morale Armies; its source
             // counterpart must be bound before that native branch can execute.
-            if (target.NativeMorale1A is not null)
+            if (target.MoraleState.CurrentValue is not null)
             {
                 if (after is < 1 or > byte.MaxValue) return null;
                 return new([new(PlayableTacticEffectKind.NativeMoraleChange, checked(after - current))
-                    { NativeMoraleAfter = (byte)after }], state.RandomState);
+                    { CurrentMoraleAfter = after }], state.RandomState);
             }
             if (after is < 1 or > 100) return null;
             return new([new(PlayableTacticEffectKind.MoraleChange, checked(after - target.Morale))], state.RandomState);
@@ -489,9 +489,9 @@ public sealed class TacticEffectSourceRules : ITacticRuleSource, IPlayableTactic
     private static UnitState ApplyReceipt(UnitState target, PlayableTacticEffect effect)
     {
         if (effect.Kind == PlayableTacticEffectKind.MoraleChange)
-            target = target with { Morale = checked(target.Morale + effect.Amount) };
-        if (effect.NativeMoraleAfter is byte morale)
-            target = target with { NativeMorale1A = morale };
+            target = target with { MoraleState = target.MoraleState with { ProvisionalValue = checked(target.Morale + effect.Amount) } };
+        if (effect.CurrentMoraleAfter is int morale)
+            target = target with { MoraleState = target.MoraleState with { CurrentValue = morale } };
         if (effect.HealingResult is { } healing)
             target = target with { Troops = healing.TroopsAfter, WoundedTroops = healing.WoundedAfter };
         if (effect.NativeAbnormalAfter is { } after && target.NativeTacticRuntime is { } native)

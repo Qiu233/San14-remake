@@ -45,14 +45,14 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportCreation
                 remaining - CommandBookAvailability.Reserved(state, districtId) < commandCost.Value) return null;
             var created = projection with
             {
-                Troops = fields.Troops16, Supplies = fields.Supplies60, Morale = fields.Morale1A,
-                WoundedTroops = fields.Wounded18, FormationId = fields.Formation1B, TacticIds = [],
+                Troops = fields.Troops16, Supplies = fields.Supplies60, MoraleState = new(fields.Morale1A, fields.Morale1A),
+                WoundedTroops = fields.Wounded18, Formations = ArmyConfigurationSourceAdapter.DecodeFormations(fields.Formation1B, fields.Formation1B, fields.Formation1C), TacticIds = [],
                 NativeArmyOrigin = new(TransportCreationRevision, Seed.Language, SimulationRuleIdentity.ForLocale(Seed.Language))
                     { NativeSlotIndex = fields.NativeSlot },
-                NativeArmyConfiguration = new(fields.Formation1B, fields.Formation1C, fields.Action37, fields.Category40),
+                FieldAttackPolicy = ArmyConfigurationSourceAdapter.DecodePolicy(fields.Action37),
                 TraitRoster = ArmyTraitSourceAdapter.Decode(new ushort[36]),
                 NativeTacticRuntime = new(2, fields.Flags26, 0, 0, 0, 0, 0, 0, new sbyte[6], new byte[6], null, clock.UpdateOrdinal),
-                NativeMorale1A = fields.Morale1A, NativeSavedRegionHex152 = fields.SavedHex152,
+                NativeSavedRegionHex152 = fields.SavedHex152,
                 PositionKnowledge = ArmyPositionKnowledge.Confirmed, NativeDirection36 = arena.Slots[fields.NativeSlot].Direction36,
                 NativeMapUiByte13C = fields.MapUiByte13C,
                 NativeCommandControl140 = arena.Slots[fields.NativeSlot].CommandControl140,
@@ -77,8 +77,9 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportCreation
                     { OrdersRemaining = Math.Clamp(unchecked(remaining - commandCost.Value), 0, 200) } },
                 Units = new(state.Units) { [created.Id] = created },
                 ArmyMapOccupancy = registered.Occupancy,
-                ResourceState = TransportRouteSourceAdapter.Write(registered.ResourceState, created.Id,
-                    fields.Waypoints2C, fields.Choice41) }).WithArmyLifecycle(registered.Lifecycle);
+                ResourceState = ArmyConfigurationSourceAdapter.Write(
+                    TransportRouteSourceAdapter.Write(registered.ResourceState, created.Id, fields.Waypoints2C, fields.Choice41),
+                    created.Id, fields.Formation1B, fields.Formation1C, fields.Action37, fields.Category40) }).WithArmyLifecycle(registered.Lifecycle);
             var currentRoute = CaptureWritableTransportRouteCurrent(result);
             var route = TransportArmyCreationRouteSource.Prepare(result, currentRoute, created);
             if (route.Receipt is not { } initialRoute) return null;

@@ -233,7 +233,7 @@ public partial class MapSceneView
             [state.FocusX, state.FocusY, state.FocusZ, state.FocusW, state.Distance90, state.YawA8, state.PitchC0],
             frame.ZoomSelection.Band1E0, frame.ZoomSelection.Fraction1E4, delta, eligibleAnimationUpdate:initialManagerUpdate, sourceFrame: frame)
         {
-            TerrainPicker = _terrainPicker,
+            TerrainPicker = CurrentTerrainPicker,
             TerritoryOwnership = _d3d11Ownership?.Capture(_logicalWorld!),
             ArmyWorld = _d3d11Army?.Capture(_logicalWorld!),
             ArmyGroupingWorld = _d3d11ArmyGroupingQueries?.Invoke(_logicalWorld!),
@@ -277,16 +277,16 @@ public partial class MapSceneView
         _d3d11Markers = markers;
         var parent = _sourceMainCameraAspect as Control ?? _surface.GetParent() as Control ?? this;
         parent.AddChild(markers); markers.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        markers.Configure(_repository, _logicalWorld!, _projection!, _terrainMeshes!.Source, _sourceMarkerColorCandidates,
+        markers.Configure(_repository, _logicalWorld!, _projection!, TerrainMeshes!.Source, ForceMarkerColors,
             _text.SourceLocale, _playerForceId, _sourceSnapshot!);
         var scenario = _sourceSnapshot ?? throw new InvalidDataException("Native playable map requires its actual scenario snapshot.");
         _d3d11Ownership = new(scenario, _repository.LoadCeMap(),
             _repository.LoadTerrainTypes(scenario.FixedDataPath), _logicalWorld!,
-            _sourceForcePalette ?? throw new InvalidDataException("Native playable map source palette is unavailable."));
+            ForcePalette ?? throw new InvalidDataException("Native playable map source palette is unavailable."));
         var metadata = _repository.EffectiveScenarios.Single(s =>
             GameResourceId.File(s.SourcePath).ToString() == _logicalWorld!.ScenarioKey && s.Locale == _text.SourceLocale);
         _d3d11Army = new(_repository, _repository.LoadScenario(metadata), _repository.LoadCeMap(),
-            _projection!, _terrainMeshes.Source.HeightField, _text.SourceLocale,_d3d11ArmyMotionQueries);
+            _projection!, TerrainMeshes.Source.HeightField, _text.SourceLocale,_d3d11ArmyMotionQueries);
         RefreshD3D11MapLocationSelection();
         SetMeta("map_projection_available", true);
         SetMeta("map_projection_policy_id", _projection!.Policy.Id);

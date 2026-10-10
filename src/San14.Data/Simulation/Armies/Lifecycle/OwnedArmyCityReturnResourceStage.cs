@@ -52,7 +52,7 @@ public sealed class OwnedArmyCityReturnResourceStage : IPlayableCityEntryResourc
             return Missing("current.Army_resource_owners_disagree");
         if (resolved.Stores is not { } resources) return Missing("current.Army_resources5C60");
         if (army.Troops is < 0 or > ushort.MaxValue || army.WoundedTroops is not >= 0 or > ushort.MaxValue ||
-            army.NativeMorale1A is not byte morale) return Missing("current.Army16_18_1A");
+            ArmyMoraleSourceAdapter.Read(army) is not byte morale) return Missing("current.Army16_18_1A");
         if (city.NativeReturnRuntime is not { Wounded40: not null, Morale44: not null })
             return Missing("current.Base40_44");
         var context = package.CaptureCurrentDefinitions(state);

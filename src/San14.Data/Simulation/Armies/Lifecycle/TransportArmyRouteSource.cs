@@ -61,7 +61,7 @@ public static partial class TransportArmyRouteSource
     private static (int Goal, byte Kind, ushort Identity) ReadCityGoal(GameState state,
         SourceWorldContext current, UnitState army)
     {
-        if (army.NativeTacticRuntime?.Status10 != 2 || army.NativeArmyConfiguration?.Action37 != 2)
+        if (army.NativeTacticRuntime?.Status10 != 2 || ArmyConfigurationSourceAdapter.ReadAction(state, army) != 2)
             throw Missing("ordinary_type2_Action2_scope");
         if (army.TransportRoute is null ||
             army.OverrideTarget is not { Kind: ArmyOverrideTargetKind.None }) throw Missing("transport_waypoints_overrideFF");
