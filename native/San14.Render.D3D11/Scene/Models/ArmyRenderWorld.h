@@ -1,5 +1,6 @@
 #pragma once
 #include "ArmyPopulation.h"
+#include "../View/MapViewSettings.h"
 #include "ArmyAnimation.h"
 #include "ArmyGraphicsActions.h"
 #include "ArmyWorldMaterialImport.h"
@@ -140,22 +141,22 @@ public:
 
     void selectCamera(ID3D11DeviceContext* context,const source_camera::Frame& staticCamera,
         NativeCityAccessoryGpu& cityAccessories,NativeCityAccessoryGpu& areaAccessories,
-        const source_view::Profile& viewProfile,std::vector<unsigned>& ordinaryPopulationCounts,unsigned& accessoryOrdinaryCount) {
+        const MapViewDefinition& viewDefinition,std::vector<unsigned>& ordinaryPopulationCounts,unsigned& accessoryOrdinaryCount) {
         if(sourceAccessoryVisuals) {
             accessoryOrdinaryCount=selectNativeSharedAccessories(context,*armyModelPool,
                 sharedAreaAccessories,areaAccessories,staticCamera);
             accessoryOrdinaryCount+=selectNativeSharedAccessories(context,*armyModelPool,
                 sharedCityAccessories,cityAccessories,staticCamera);
-            for(unsigned i=0;i<viewProfile.records.size();++i)
-                if(viewProfile.records[i].mask==1)ordinaryPopulationCounts[i]+=accessoryOrdinaryCount;
+            for(unsigned i=0;i<viewDefinition.records.size();++i)
+                if(viewDefinition.records[i].groupMask==1)ordinaryPopulationCounts[i]+=accessoryOrdinaryCount;
         }
         if(sourceArmyVisuals) {
             armyPlan=selectNativeArmyPopulation(armyModels,staticCamera,armyReturnedPhases,
                 &armySuccessfulSamples,&armyActivePoses,&armyMainMembership
                 );
-            for(unsigned i=0;i<viewProfile.records.size();++i)
+            for(unsigned i=0;i<viewDefinition.records.size();++i)
                 for(unsigned j=0;j<armyModels.source.recordMasks.size();++j)
-                    if(viewProfile.records[i].mask==armyModels.source.recordMasks[j])ordinaryPopulationCounts[i]+=armyPlan.ordinaryCounts[j];
+                    if(viewDefinition.records[i].groupMask==armyModels.source.recordMasks[j])ordinaryPopulationCounts[i]+=armyPlan.ordinaryCounts[j];
         }
     }
 

@@ -14,16 +14,15 @@ public static class D3D11OwnedNumericInputPreparation
     {
         D3D11OwnedRuleInputPreparation.WriteFreshClockAndDefaultPlayers(repository, inputRoot);
         var words = current.PreparedWords.ToDictionary(word => word.Offset, word => word.Bits);
-        int selector = unchecked((int)words[0xA00]);
+        int selector = current.ViewSettings.Shadow.LightGroup;
         if (selector is < 1 or > 32)
             throw new NotSupportedException("Initial View requires its current kind1 selector.");
         var selected = current.Lights.First(light => (light.GroupMask & (1u << (selector - 1))) != 0);
         D3D11OwnedRuleInputPreparation.WriteFreshView(Path.Combine(inputRoot, "view-continuous-input"),
-            repository, scene, current.Rgb.Inputs.Source.Selection.FirstPackage, words,
-            resources.Source.DirectionalDeclarations, selected.CompleteData.Span);
-        var global = current.Lights.First(light => (light.GroupMask & 0x80) != 0).ShaderData328.Span;
-        var rgb = new Vector3(BinaryPrimitives.ReadSingleLittleEndian(global[0x10..]),
-            BinaryPrimitives.ReadSingleLittleEndian(global[0x14..]), BinaryPrimitives.ReadSingleLittleEndian(global[0x18..]));
+            repository, scene, current.ViewSettings,
+            resources.Source.DirectionalDeclarations, selected.Lighting.ShadowModes);
+        var global = current.Lights.First(light => (light.GroupMask & 0x80) != 0).Lighting.Directional[0].Color;
+        var rgb = new Vector3(global.X, global.Y, global.Z);
         D3D11OwnedRuleInputPreparation.WriteWeather(
             Path.Combine(inputRoot, "weather-fog-camera-input", "initial", "weather"),
             current.Rgb, current.Present.AcceptedWeather, rgb);

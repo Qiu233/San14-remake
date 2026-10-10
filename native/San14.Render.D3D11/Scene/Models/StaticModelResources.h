@@ -3,7 +3,7 @@
 // helpers, just as ModelRenderer/ModelFrame; no additional ambient dependency.
 #include "ModelRenderer.h"
 #include "ModelFrame.h"
-#include "ModelView.h"
+#include "Interop/ModelStencilCatalogCodec.h"
 #include <map>
 
 namespace San14::Render {
@@ -24,10 +24,10 @@ class StaticModelResources {
     void prepareGeometry(ID3D11Device *device) {
         geometry_ = prepareNativeModelContinuousGpu(device, catalog_, source_);
     }
-    void prepareStencil(ID3D11Device *device, const fs::path &viewSource,
-                        const source_view::Frame &initialView, unsigned contextFlags) {
+    void prepareStencil(ID3D11Device *device, const fs::path &viewSource, const MapViewDefinition &definition,
+                        const MapViewFrame &initialView, unsigned contextFlags) {
         stencil_ =
-            createStencilState(device, viewSource, catalog_, geometry_, initialView, contextFlags);
+            createStencilState(device, viewSource, definition, catalog_, geometry_, initialView, contextFlags);
     }
 
     template <class AcceptedCameraFrame, class CurrentFieldDisplay>
@@ -39,7 +39,7 @@ class StaticModelResources {
     // Upload each selected primitive's constants, then filter its ordinary54
     // stencil. This request never loads files or creates device objects.
     const Submission &updateSubmission(ID3D11DeviceContext *context,
-                                       const source_view::Frame &currentView) {
+                                       const MapViewFrame &currentView) {
         submission_.models = updateSelectNativeModelContinuous(context, candidate_, geometry_);
         submission_.plan = filterSubmission(stencil_, currentView, candidate_, submission_.models);
         return submission_;
@@ -51,21 +51,24 @@ class StaticModelResources {
 
   private:
     struct StencilState {
-        source_view::Profile profile;
-        std::vector<source_view::Primitive> primitives;
-        std::vector<unsigned> records;
+        std::vector<MapViewRecord> records;
+        ModelStencilSettings settings;
+        std::vector<ModelStencilBinding> primitives;
+        std::vector<unsigned> recordIndices;
         std::vector<ComPtr<ID3D11DepthStencilState>> states;
-        unsigned contextFlags{};
+        ModelStencilTarget target{};
     };
     static StencilState createStencilState(ID3D11Device *device, const fs::path &source,
+                                           const MapViewDefinition &definition,
                                            const NativeModelContinuous &catalog,
                                            const NativeModelInputs &allModels,
-                                           const source_view::Frame &initialView,
+                                           const MapViewFrame &initialView,
                                            unsigned contextFlags) {
         StencilState result;
-        result.profile = source_view::loadProfile(source / "profile.bin");
-        result.primitives = source_view::loadPrimitives(source / "model-stencil-catalog.bin");
-        result.contextFlags = contextFlags;
+        result.records = definition.records;
+        result.settings = definition.modelStencil;
+        result.primitives = Interop::readModelStencilCatalog(source / "model-stencil-catalog.bin");
+        result.target = Interop::decodeModelStencilTarget(contextFlags);
         if (result.primitives.size() != catalog.primitives.size() ||
             allModels.draws.size() != catalog.primitives.size())
             throw std::runtime_error("Ordinary54 complete primitive catalogue differs");
@@ -76,14 +79,14 @@ class StaticModelResources {
             const auto &primitive = result.primitives[i];
             const auto &model = catalog.primitives[i];
             if (primitive.instanceIndex != model.instanceIndex ||
-                primitive.drawIndex != model.drawIndex || !primitive.allowedRecordBits ||
-                (primitive.allowedRecordBits & (primitive.allowedRecordBits - 1)))
+                primitive.drawIndex != model.drawIndex || !primitive.recordMembership ||
+                (primitive.recordMembership & (primitive.recordMembership - 1)))
                 throw std::runtime_error("Imported ordinary54 class18 record identity differs");
             unsigned record = 0;
-            while ((primitive.allowedRecordBits & (1u << record)) == 0)
+            while ((primitive.recordMembership & (1u << record)) == 0)
                 ++record;
-            auto stencil = source_view::ordinary54(result.profile, initialView, primitive, record,
-                                                   contextFlags);
+            auto stencil = selectModelStencil(result.records, result.settings, initialView, primitive, record,
+                                              result.target);
             if (!stencil.submit)
                 throw std::runtime_error("Initial normal class18 source record absent");
             D3D11_DEPTH_STENCIL_DESC description{};
@@ -102,13 +105,13 @@ class StaticModelResources {
             if (!state)
                 check(device->CreateDepthStencilState(&description, &state),
                       "Current source ordinary54 stencil");
-            result.records.push_back(record);
+            result.recordIndices.push_back(record);
             result.states.push_back(state);
         }
         return result;
     }
     static NativeModelContinuousPlan filterSubmission(const StencilState &owner,
-                                                      const source_view::Frame &view,
+                                                      const MapViewFrame &view,
                                                       const NativeModelContinuousPlan &plan,
                                                       NativeModelInputs &selected) {
         NativeModelContinuousPlan submittedPlan;
@@ -119,8 +122,8 @@ class StaticModelResources {
         submitted.reserve(selected.draws.size());
         for (size_t i = 0; i < plan.draws.size(); ++i) {
             unsigned index = plan.draws[i].primitiveIndex;
-            auto stencil = source_view::ordinary54(owner.profile, view, owner.primitives[index],
-                                                   owner.records[index], owner.contextFlags);
+            auto stencil = selectModelStencil(owner.records, owner.settings, view, owner.primitives[index],
+                                              owner.recordIndices[index], owner.target);
             if (!stencil.submit)
                 continue;
             auto draw = std::move(selected.draws[i]);

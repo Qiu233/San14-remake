@@ -7,7 +7,7 @@
 #include "GroundDetailSeason.h"
 #include "TreeWindFrame.h"
 #include "GroundDetailFrame.h"
-#include "../Models/ModelView.h"
+#include "../Models/ModelStencilRules.h"
 #include <span>
 #include <optional>
 #include <unordered_map>
@@ -23,7 +23,7 @@ struct Statistics {
 struct RecordInputs {
     uint32_t excludedCategories,ordinaryPrimitiveCount,contextFlags;
     bool ordinaryGeometryKind;
-    source_view::Stencil dispatcherStencil; // source_view::ordinary54 current result
+    San14::Render::ModelStencilDirective dispatcherStencil;
 };
 // Source D7AD80 publications are complete typed records, not initialized spare
 // capacity. The native owned constructor starts each count at zero.

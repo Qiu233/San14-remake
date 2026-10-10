@@ -31,23 +31,20 @@ public static class D3D11OwnedRuleInputPreparation
     /// <summary>Only the source-created Common scope: its exclusion word is
     /// constructor zero until a settings overlay is installed.</summary>
     public static void WriteFreshView(string directory, GameResourceRepository repository,
-        LoadedSceneResources scene, MapSeasonCameraPackage selectedPackage,
-        IReadOnlyDictionary<int, uint> currentMainWords,
+        LoadedSceneResources scene, CameraViewSettings currentCamera,
         MapSeasonDirectionalLightSourceSet directional,
-        ReadOnlySpan<byte> selectedLightData)
+        HdrShadowModes selectedShadowModes)
     {
         var common = D3D11TimingInputPreparation.LoadSourceCommon(repository);
         var terrain = TerrainViewPublicationSource.ReadFieldScene(TerrainParameterResources.Read(scene));
         var queue = ModelRendererStateSourceReader.ReadQueue(repository.LoadRenderGraph("system", 0x024496EE), 54);
         var records = MapSourceCreatedWorldKind1Publication.ReadSeasonSourceRecords(directional);
-        uint Word(int offset, int ordinal) => currentMainWords.TryGetValue(offset, out uint current)
-            ? current : BinaryPrimitives.ReadUInt32LittleEndian(selectedPackage.Camera.Properties[ordinal].RawValue);
         Directory.CreateDirectory(directory);
         using var writer = new BinaryWriter(File.Create(Path.Combine(directory, "profile.bin")));
         writer.Write(0x31505756u); writer.Write(records.Count);
-        writer.Write(unchecked((int)Word(0xA00, 24))); writer.Write(BitConverter.UInt32BitsToSingle(Word(0xA28, 129)));
-        writer.Write(Word(0xA3C, 26)); writer.Write(Word(0xAC0, 65)); writer.Write(Word(0x12A8, 701));
-        writer.Write(terrain.Exclusion2B8); writer.Write((uint)selectedLightData[0xF1D]);
+        writer.Write(currentCamera.Shadow.LightGroup); writer.Write(currentCamera.Shadow.DirectionScale);
+        writer.Write(currentCamera.Shadow.CascadeMode); writer.Write(currentCamera.OceanGroup); writer.Write(currentCamera.RainGroup);
+        writer.Write(terrain.Exclusion2B8); writer.Write((uint)selectedShadowModes.Receive);
         writer.Write(1u); writer.Write(common.Flags8); writer.Write((uint)common.ViewAux3F2);
         writer.Write(0u); writer.Write((uint)common.ModelGroupSelector400);
         writer.Write((uint)queue.Flag); writer.Write(queue.Flag2); writer.Write((uint)queue.ShaderStateOffset);

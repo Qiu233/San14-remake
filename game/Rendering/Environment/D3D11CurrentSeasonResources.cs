@@ -10,7 +10,7 @@ public sealed class D3D11CurrentSeasonResources
     internal sealed record Light(uint ObjectId, uint GroupMask,
         DirectionalLightProviderTemporary DefaultCaller);
     internal IReadOnlyList<Light> Lights { get; }
-    internal IReadOnlyDictionary<int, uint> SelectedShadowWords { get; }
+    internal CameraViewSettings ViewDefaults { get; }
     public SceneViewNativeMapSeasonResourceBundle Source { get; }
     public MapSeasonSelection Selection => Source.Selection;
     public D3D11CurrentSeasonCpuResources? CpuResources { get; private set; }
@@ -24,7 +24,7 @@ public sealed class D3D11CurrentSeasonResources
         if (source.CameraSource.Selection.SecondPackage is not null)
             throw new NotSupportedException("Current Main needs its actual paired selection writer.");
         var selected = source.CameraSource.Selection.FirstPackage;
-        SelectedShadowWords = DeferredEarlyShadowCurrentMainSource.LoadSelectedWords(selected);
+        ViewDefaults = CameraViewSettingsImport.Load(selected);
         var geometry = selected.Camera.Properties[614];
         if (geometry.Index != 614 || geometry.NameHash != 0x59633E4E || geometry.TypeCode != 8 ||
             geometry.ElementCount != 1 || geometry.ElementSize != 4 || geometry.RawValue.Length != 4)

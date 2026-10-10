@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Text;
 using San14.Data;
 using San14.Data.Formats;
 
@@ -18,8 +17,8 @@ public sealed record D3D11CurrentHdrRoute(D3D11PreparedHdrPass Pass, int Slot,
     public DxbcResourceDefinitions PixelDefinitions => Pass.Program.PixelDefinitions;
 }
 
-/// <summary>Typed HDR routes and source-owned shader layouts. Ordinary requests
-/// patch current lighting only, retaining camera, material and unused CB bytes.
+/// <summary>Typed HDR routes and shader layouts used by current numeric encoding.
+/// Camera, material and unused CB bytes retain their existing owners.
 /// Media selection belongs to the caller, independently of this layout catalog.</summary>
 public sealed class D3D11CurrentHdrCatalog
 {
@@ -81,25 +80,5 @@ public sealed class D3D11CurrentHdrCatalog
             routes.Add(new(pass, slot, globals.ByteSize, common.SuppressAmbient, fogOwner, writes.AsReadOnly()));
         }
         return new(resources, routes, ambientRate);
-    }
-
-    /// <summary>Only current field bytes and actual selected destination ranges.
-    /// No source I/O, hashes, shader creation or whole CB template copies.</summary>
-    public byte[] PrepareCurrentBytes(D3D11CurrentSeasonFrame frame)
-    {
-        using var stream = new MemoryStream(); using var writer = new BinaryWriter(stream);
-        writer.Write(Routes.Count);
-        foreach (var route in Routes)
-        {
-            var fields = frame.DeferredNamedFields(route.OuterMask, route.InnerMask,
-                route.Arg18, AmbientMapsRate, route.FogOwnerEnabled);
-            byte[] identity = Encoding.UTF8.GetBytes(route.Identity);
-            writer.Write(identity.Length); writer.Write(route.Slot);
-            writer.Write(route.ConstantBytes); writer.Write(route.Writes.Count); writer.Write(identity);
-            foreach (var write in route.Writes)
-            { writer.Write(write.Offset); writer.Write(write.Bytes);
-                writer.Write(fields[write.Name].AsSpan(write.SourceOffset, write.Bytes)); }
-        }
-        return stream.ToArray();
     }
 }

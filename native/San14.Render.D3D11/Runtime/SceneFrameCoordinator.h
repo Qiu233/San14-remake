@@ -1,6 +1,8 @@
 #pragma once
 #include "../Camera/CameraRig.h"
 #include "../Scene/SceneEnvironmentPacket.h"
+#include "../Scene/View/PreparedMapView.h"
+#include "../Scene/View/Interop/MapViewProfileCodec.h"
 
 namespace San14::Render {
 
@@ -39,7 +41,7 @@ public:
         std::memcpy(&globalLight_,globalRgb.data(),globalRgb.size());
     }
     void prepareView(const PreparedResourceDirectories& resources) {
-        viewProfile_=source_view::loadProfile(resources.directory(ResourceGroup::View)/"profile.bin");
+        mapView_.emplace(Interop::readMapViewProfile(resources.directory(ResourceGroup::View)/"profile.bin"));
     }
     void bindFieldDisplay(ShadowPass& shadows,const NativeModelContinuous& catalog) {
         shadows.bindFieldDisplay(fieldDisplay_,cameraRig_.distantProfile(),catalog);
@@ -71,12 +73,15 @@ public:
         models.selectCamera(cameraRig_.frame(),fieldDisplay_);
         bases.selectCamera(cameraRig_.frame());
         shadows.prepareCamera(cameraRig_.frame(),fieldDisplay_);
-        ordinaryCounts_=shadows.frame().ordinaryRecordCounts;
+        auto& view=*mapView_;
+        view.beginPopulation(shadows.frame().ordinaryRecordCounts);
         bases.withAccessories([&](auto& cityAccessories,auto& areaAccessories) {
-            armies.selectCamera(context,cameraRig_.frame(),cityAccessories,areaAccessories,
-                viewProfile_,ordinaryCounts_,accessoryCount_);
+            view.withArmyPopulation([&](const auto& profile,auto& counts,auto& accessoryCount) {
+                armies.selectCamera(context,cameraRig_.frame(),cityAccessories,areaAccessories,
+                    profile,counts,accessoryCount);
+            });
         });
-        if(ordinaryCounts_.size()!=bases.plan().ordinaryCounts.size())throw std::runtime_error("Field/City ordinary record identities differ");
+        view.requirePrimaryRecordCount(bases.plan().ordinaryCounts.size());
         // Vegetation follows the accepted camera and retains current weather
         // and wind. Geometry uses the ordinary camera transform.
         environment_.publishVegetationCamera();
@@ -84,35 +89,26 @@ public:
         const auto& groundCaller=bases.citySource().caller;
         const auto& groundPopulation=groundDetails.prepare({cameraRig_.frame(),
             environment_.vegetation(),clock,
-            {viewProfile_.commonPresent!=0,viewProfile_.commonFlags,viewProfile_.commonExclusion},settingsFlags,
+            {view.definition().common.present,view.definition().common.featureFlags,view.definition().common.excludedCategories},settingsFlags,
             {groundCaller.callerFirst,groundCaller.callerSecond,groundCaller.callerShadow,groundCaller.registered3330,groundCaller.successful3340,0},
             {mode.sceneMode,mode.zoomLevel,true,false,0},season_?season_->season:0});
-        if(groundPopulation.seasonPopulationChanged) {
-            for(size_t record=0;record<viewProfile_.records.size();++record)
-                ordinaryCounts_[record]+=groundDetails.preparedCountForRecord(viewProfile_.records[record].mask);
-        }
+        view.addGroundDetails(groundPopulation.seasonPopulationChanged,
+            [&](unsigned mask) { return groundDetails.preparedCountForRecord(mask); });
         // The joint source profile already counts every admitted primary World
         // once before its ordinary54/55 split. Do not add the rows again here.
-        source_view::Inputs population;
-        population.ordinaryCounts=ordinaryCounts_;
-        population.collectionPrimitiveCounts=shadows.frame().primitiveCounts;
-        population.subWrapperCount1BFC=0; // This finite renderer owns no optional wrapper.
-        population.terrainPresent=!cameraRig_.frame().instances.empty();
-        population.selectedCompactPresent=shadows.frame().passes[0].shadowAvailable!=0;
-        population.selectedLitPresent=shadows.directionalView()!=nullptr;
-        population.selectedReceiveShadowMode=viewProfile_.initialReceiveShadowMode; // Initial non-season import only.
+        MapViewPopulation population;
+        population.shadowCasterCounts=shadows.frame().primitiveCounts;
+        population.subShadowPrimitiveCount=0; // This finite renderer owns no optional wrapper.
+        population.terrainVisible=!cameraRig_.frame().instances.empty();
+        population.compactShadowAvailable=shadows.frame().passes[0].shadowAvailable!=0;
+        population.directionalDiffuseAvailable=shadows.directionalView()!=nullptr;
+        std::optional<MapViewShadowSelection> shadow;
         if(season_) {
-            viewProfile_.mainA00=shadows.seasonParameters().selectedLightGroup;
-            viewProfile_.mainA28=shadows.seasonParameters().planeScale;
-            viewProfile_.mainA3C=static_cast<uint32_t>(source_current_season_shadow::required(season_->shadow.compactMode));
-            population.selectedReceiveShadowMode=0; // Disabled selection does not query World.
-            if(viewProfile_.mainA00>0) {
-                // publishSeason already selected and admitted this same ordered World light.
-                const auto& selected=*source_current_season::firstMatching(*season_,shadows.seasonParameters().selectedMask);
-                population.selectedReceiveShadowMode=selected.shadowModes.receive;
-            }
+            const auto& current=shadows.seasonParameters();
+            shadow.emplace(MapViewShadowSelection{*season_,current.selectedLightGroup,
+                current.planeScale,current.selectedMask,season_->shadow.compactMode});
         }
-        view_=source_view::prepareCurrent(viewProfile_,population);
+        view.publishPopulation(std::move(population),shadow);
 
         deferredFields_=prepareNativeDeferredCameraFields(cameraRig_.frame());
         fieldDisplay_.finishPreparation();
@@ -127,8 +123,8 @@ public:
     source_camera::Frame publishedEventCamera(const RenderInput& input)const {return cameraRig_.publishedEventCamera(input);}
     const source_camera::Frame& camera()const {return cameraRig_.frame();}
     const SceneEnvironment& environment()const {return environment_;}
-    const source_view::Profile& viewProfile()const {return viewProfile_;}
-    const source_view::Frame& view()const {return view_;}
+    const MapViewDefinition& viewDefinition()const {return mapView_->definition();}
+    const MapViewFrame& view()const {return mapView_->frame();}
     const NativeDeferredCameraProfile& deferredProfile()const {return deferredProfile_;}
     const NativeWeatherFogConsumers& weatherConsumers()const {return weatherConsumers_;}
     const source_current_season::Frame* season()const {return season_;}
@@ -145,10 +141,7 @@ private:
     source_weather_fog::Frame weather_;
     source_camera::V3 globalLight_{};
     NativeWeatherFogConsumers weatherConsumers_;
-    source_view::Profile viewProfile_;
-    source_view::Frame view_;
-    std::vector<unsigned> ordinaryCounts_;
-    unsigned accessoryCount_{};
+    std::optional<PreparedMapView> mapView_;
     const source_current_season::Frame* season_{};
     source_current_season_atmosphere::CloudLightInput cloudLights_{};
 };
