@@ -18,7 +18,8 @@ public static class D3D11OwnCameraInputPreparation
         GameResourceRepository repository,LoadedSceneResources scene,
         D3D11CameraContinuousInputs camera,D3D11CameraDirectProfileInputs direct,
         MapStaticModelGroundHeightSource currentField,string inputRoot,
-        D3D11ModelInputPreparation? preparedModels = null)
+        D3D11ModelInputPreparation? preparedModels = null,
+        D3D11TerrainInputPreparation? preparedTerrain = null)
     {
         ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(scene);
         ArgumentNullException.ThrowIfNull(camera);ArgumentNullException.ThrowIfNull(direct);
@@ -27,7 +28,7 @@ public static class D3D11OwnCameraInputPreparation
         if(currentField.Scene.Scene.Source.ResourceUri!=scene.Scene.Source.ResourceUri||
             currentField.Scene.Scene.Source.DecodedSha256!=scene.Scene.Source.DecodedSha256)
             throw new InvalidDataException("Camera grid and scene inputs belong to different loaded resource generations.");
-        var terrain=D3D11TerrainInputPreparation.Load(repository,scene,main.Camera.ExecutableLocale);
+        var terrain=preparedTerrain ?? D3D11TerrainInputPreparation.Load(repository,scene,main.Camera.ExecutableLocale);
         var preparation=D3D11CameraInputPreparation.Load(repository,main.Camera.ExecutableLocale,terrain);
         var models=preparedModels ?? D3D11ModelInputPreparation.Load(repository,scene,ScenePlacementReader.Read(scene),main.Camera,
             placement=>MapStaticModelPublication.FreshUnparented($"camera-init-field/{placement.Source.Index}"));

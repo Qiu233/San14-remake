@@ -117,10 +117,6 @@ struct NativeTerrainCameraDrawBindings {
     std::array<ID3D11RenderTargetView*,5> colors{};
     ID3D11DepthStencilView* depthTarget=nullptr;
     D3D11_VIEWPORT viewport{};
-    ID3D11RasterizerState* raster=nullptr;
-    ID3D11DepthStencilState* depthState=nullptr;
-    UINT stencilReference=0;
-    ID3D11BlendState* blend=nullptr;
     std::array<ID3D11ShaderResourceView*,16> vertexViews{},pixelViews{};
     std::array<ID3D11SamplerState*,16> vertexSamplers{},pixelSamplers{};
 };
@@ -131,8 +127,7 @@ inline UINT drawNativeTerrainCameraGpu(ID3D11DeviceContext* context,const Native
     context->IASetIndexBuffer(owner.indices.Get(),DXGI_FORMAT_R16_UINT,0);context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     context->VSSetShaderResources(0,16,binding.vertexViews.data());context->PSSetShaderResources(0,16,binding.pixelViews.data());
     context->VSSetSamplers(0,16,binding.vertexSamplers.data());context->PSSetSamplers(0,16,binding.pixelSamplers.data());
-    context->RSSetState(binding.raster);context->OMSetDepthStencilState(binding.depthState,binding.stencilReference);
-    context->OMSetBlendState(binding.blend,nullptr,~0u);context->RSSetViewports(1,&binding.viewport);
+    context->RSSetViewports(1,&binding.viewport);
     context->OMSetRenderTargets(5,binding.colors.data(),binding.depthTarget);
     UINT draws=0;
     for(auto batch:owner.batches){const UINT program=batch.coarse?1:0;

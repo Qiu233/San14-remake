@@ -2,6 +2,8 @@
 // Session-owned G-buffer attachments and immutable entry states. A frame may
 // borrow views and descriptions; only the target owner allocates or clears them.
 #include "RenderTargetScope.h"
+#include "DepthState.h"
+#include "../Scene/Terrain/TerrainRasterRules.h"
 
 namespace San14::Render {
 struct GBufferConfiguration {
@@ -11,15 +13,14 @@ struct GBufferConfiguration {
     DXGI_FORMAT depthFormat;
     std::array<std::string, 6> targetNames;
     std::array<UINT, 6> surfaces;
-    UINT cull, front, depthCompare, colorMasks, stencilEnable, stencilRef;
-    float depthClear;
+    bool reversedDepth;
 };
 
 class GBufferTargets {
   public:
     GBufferTargets(ID3D11Device *device, ID3D11DeviceContext *context,
                    const GBufferConfiguration &configuration)
-        : depthClear_(configuration.depthClear) {
+        : device_(device),depthClear_(geometryDepthClear(configuration.reversedDepth)) {
         D3D11_TEXTURE2D_DESC td{};
         td.Width = configuration.width;
         td.Height = configuration.height;
@@ -61,31 +62,14 @@ class GBufferTargets {
         depthView.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
         check(device->CreateDepthStencilView(depth_.Get(), &depthView, &depthView_), "depth DSV");
         context->ClearDepthStencilView(depthView_.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL,
-                                       configuration.depthClear, 0);
-        depthDescription_.DepthEnable = TRUE;
-        depthDescription_.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
-        depthDescription_.DepthFunc = D3D11_COMPARISON_FUNC(configuration.depthCompare);
-        depthDescription_.StencilEnable = configuration.stencilEnable;
-        depthDescription_.StencilReadMask = depthDescription_.StencilWriteMask = 255;
-        depthDescription_.FrontFace.StencilFunc = depthDescription_.BackFace.StencilFunc =
-            D3D11_COMPARISON_ALWAYS;
-        depthDescription_.FrontFace.StencilPassOp = depthDescription_.BackFace.StencilPassOp =
-            D3D11_STENCIL_OP_REPLACE;
-        depthDescription_.FrontFace.StencilFailOp = depthDescription_.FrontFace.StencilDepthFailOp =
-            depthDescription_.BackFace.StencilFailOp = depthDescription_.BackFace.StencilDepthFailOp =
-                D3D11_STENCIL_OP_KEEP;
+                                       depthClear_, 0);
+        depthDescription_=geometryEntryDepth(configuration.reversedDepth);
         check(device->CreateDepthStencilState(&depthDescription_, &depthState_), "depth/stencil state");
-        context->OMSetDepthStencilState(depthState_.Get(), configuration.stencilRef);
-        rasterDescription_.FillMode = D3D11_FILL_SOLID;
-        rasterDescription_.CullMode = D3D11_CULL_MODE(configuration.cull);
-        rasterDescription_.FrontCounterClockwise = configuration.front;
-        rasterDescription_.DepthClipEnable = TRUE;
+        context->OMSetDepthStencilState(depthState_.Get(), 0);
+        rasterDescription_=geometryEntryRaster();
         check(device->CreateRasterizerState(&rasterDescription_, &raster_), "rasterizer");
         context->RSSetState(raster_.Get());
-        blendDescription_.IndependentBlendEnable = TRUE;
-        for (int i = 0; i < 5; ++i)
-            blendDescription_.RenderTarget[i].RenderTargetWriteMask =
-                uint8_t((configuration.colorMasks >> (i * 4)) & 15);
+        blendDescription_=geometryEntryBlend();
         check(device->CreateBlendState(&blendDescription_, &blendState_), "color masks");
         context->OMSetBlendState(blendState_.Get(), nullptr, ~0u);
         viewport_ = {0, 0, float(configuration.width), float(configuration.height), 0, 1};
@@ -117,7 +101,15 @@ class GBufferTargets {
 
     // Node33 starts each geometry request. Color was cleared once on allocation;
     // repeated requests clear only the retained depth/stencil attachment.
-    void beginGeometry(ID3D11DeviceContext *context) {
+    void beginGeometry(ID3D11DeviceContext *context,bool reversedDepth,NativeSourceDepthState& logical) {
+        const auto entry=geometryEntryDepth(reversedDepth);
+        if(entry.DepthFunc!=depthDescription_.DepthFunc) {
+            check(device_->CreateDepthStencilState(&entry,&depthState_),"Geometry current depth convention");
+            depthDescription_=entry;
+        }
+        depthClear_=geometryDepthClear(reversedDepth);
+        logical.bind(context,depthState_.Get(),depthDescription_,0);
+        context->RSSetState(raster_.Get());context->OMSetBlendState(blendState_.Get(),nullptr,~0u);
         std::array<ID3D11ShaderResourceView *, 32> empty{};
         context->VSSetShaderResources(0, 32, empty.data());
         context->PSSetShaderResources(0, 32, empty.data());
@@ -146,6 +138,7 @@ class GBufferTargets {
     const NativeMainTargetScope &sixTargetScope() const { return expandedTargets_; }
 
   private:
+    ComPtr<ID3D11Device> device_;
     std::array<ComPtr<ID3D11Texture2D>, 5> textures_;
     std::array<ComPtr<ID3D11RenderTargetView>, 5> views_;
     std::array<ID3D11RenderTargetView *, 5> colors_{};

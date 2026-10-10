@@ -1,3 +1,4 @@
+#pragma once
 // Source CPU state survives disabled hardware fields. D3D11 GetDesc may
 // canonicalize ignored depth/stencil fields, so it is not the source state.
 struct NativeSourceDepthState {

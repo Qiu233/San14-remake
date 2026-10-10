@@ -5,11 +5,6 @@ using San14.Data.Formats;
 
 namespace San14.Data;
 
-/// <summary>The caller's terrain raster state. The terrain source does not
-/// invent the preceding model's inherited state or a current View.</summary>
-public sealed record D3D11TerrainInputRaster(uint CullMode, bool FrontCounterClockwise,
-    uint DepthCompare, uint ColorMasks, bool StencilEnabled, uint StencilReference, float DepthClear);
-
 public sealed record D3D11TerrainInputBatch(int Group, int StartInstance, int InstanceCount, bool Coarse);
 
 /// <summary>A selected initial submission supplied by the camera/terrain owner.
@@ -17,7 +12,7 @@ public sealed record D3D11TerrainInputBatch(int Group, int StartInstance, int In
 /// the caller's order and near/coarse selection.</summary>
 public sealed record D3D11TerrainInputFrame(int Width, int Height,
     IReadOnlyList<TerrainPatchInput> Patches, DeferredCameraInputs Camera,
-    Matrix4x4 Projection, D3D11TerrainInputRaster Raster,
+    Matrix4x4 Projection,
     IReadOnlyList<D3D11TerrainInputBatch>? Batches = null);
 
 public sealed record D3D11TerrainTextureInputSource(string Stage, uint Slot, string Filename,
@@ -31,7 +26,7 @@ public sealed record D3D11TerrainPreparedInputs(int GridSize, int PatchCount, in
 /// user's installed resources. Generated DXBC, texels and streams are local
 /// cache contents, not distributable project assets. Load this source owner
 /// once and call WriteNativeInputs when preparing a cache; normal requests use
-/// the already prepared native resources. Camera selection, inherited raster,
+/// the already prepared native resources. Inherited raster,
 /// later terrain setters and the other Main input packages belong to callers.</summary>
 public sealed class D3D11TerrainInputPreparation
 {
@@ -110,25 +105,46 @@ public sealed class D3D11TerrainInputPreparation
         return new(scene, terrain, parameters, material, height, scalar, materialDraw, callFlags, targets);
     }
 
+    /// <summary>Select the initial grouped stream from the accepted camera.
+    /// Both the first upload and subsequent Native requests use the ordinary
+    /// terrain planner; the scene's preview prototype is not an initial View.</summary>
+    public D3D11TerrainInputFrame PrepareInitialFrame(MapCameraConstructionPacket camera,
+        int width, int height)
+    {
+        var tree = Terrain.SpatialTree;
+        var eye = camera.Geometry.Eye;
+        var plan = TerrainLodDrawPlanner.Build(tree, new(eye.X, eye.Y, eye.Z),
+            TerrainParameterResources.ReadLodDistanceScale(Parameters),
+            TerrainFrustumMath.Create(camera.SourceWorldToProjection, camera.Lens.ReverseDepth));
+        var patches = plan.Rows.Select(row => TerrainPatchInputMath.Ordinary(tree, row.Patch.Node,
+            Height.HeightBinding.Image.Width, Height.ControlBinding.Image.Width, row.Patch.EdgeFlags)).ToArray();
+        var batches = new List<D3D11TerrainInputBatch>();
+        for (int start = 0; start < plan.Rows.Count;)
+        {
+            int group = plan.Rows[start].Group;
+            int end = start + 1;
+            while (end < plan.Rows.Count && plan.Rows[end].Group == group) end++;
+            batches.Add(new(group, start, end - start, group == 2));
+            start = end;
+        }
+        return new(width, height, Array.AsReadOnly(patches), camera.SceneInputs,
+            camera.SourceProjection, batches.AsReadOnly());
+    }
+
     /// <summary>Writes only the base terrain input directory. The caller must
-    /// supply the accepted initial camera, patches and raster; this method does
+    /// supply the accepted initial camera and patches; this method does
     /// not read an exported receipt or select a fixed position/date/frame.</summary>
     public D3D11TerrainPreparedInputs WriteNativeInputs(string directory,
         D3D11TerrainInputFrame frame)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directory); ArgumentNullException.ThrowIfNull(frame);
-        ArgumentNullException.ThrowIfNull(frame.Camera); ArgumentNullException.ThrowIfNull(frame.Raster);
+        ArgumentNullException.ThrowIfNull(frame.Camera);
         ArgumentNullException.ThrowIfNull(frame.Patches);
         if (frame.Width <= 0 || frame.Height <= 0 || frame.Patches.Count == 0)
             throw new InvalidDataException("Initial terrain input requires positive viewport dimensions and selected patches.");
         int grid = checked((int)frame.Patches[0].GridSize);
         if (frame.Patches.Any(p => p.GridSize != grid))
             throw new InvalidDataException("Initial terrain patches must use the source common grid.");
-        var raster = frame.Raster;
-        if (raster.CullMode is < 1 or > 3 || raster.DepthCompare is < 1 or > 8 ||
-            raster.ColorMasks > 0xFFFFF || raster.StencilReference > 255 ||
-            !float.IsFinite(raster.DepthClear) || raster.DepthClear is < 0 or > 1)
-            throw new InvalidDataException("Initial terrain raster fields cannot be encoded by the native loader.");
         if (frame.Batches is { } batches)
         {
             int next = 0;
@@ -183,13 +199,9 @@ public sealed class D3D11TerrainInputPreparation
             var f = RenderTextureFormatMath.Resolve(t.Texture);
             return $"{t.ObjectNameHash} {t.SurfaceId} {f.ResourceFormat} {f.ShaderViewFormat} {f.TargetViewFormat}";
         }).Append($"{targets.DepthObjectNameHash} {targets.DepthSurfaceId} {depth.ResourceFormat} {depth.ShaderViewFormat} {depth.TargetViewFormat}"));
-        string rasterWords = $"{raster.CullMode} {(raster.FrontCounterClockwise ? 1 : 0)} {raster.DepthCompare} " +
-            $"{raster.ColorMasks} {(raster.StencilEnabled ? 1 : 0)} {raster.StencilReference}";
         File.WriteAllText(Path.Combine(directory, "scene.txt"),
             $"{frame.Width} {frame.Height} {frame.Patches.Count} {indices.Length}\n" +
-            string.Join(" ", formats) + $" {depth.TargetViewFormat}\n{rasterWords}\n");
-        File.WriteAllText(Path.Combine(directory, "terrain-raster.txt"),
-            rasterWords + " " + raster.DepthClear.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "\n");
+            string.Join(" ", formats) + $" {depth.TargetViewFormat}\n");
         if (frame.Batches is not null)
         {
             File.WriteAllLines(Path.Combine(directory, "batches.txt"), frame.Batches.Select(b =>
@@ -202,7 +214,7 @@ public sealed class D3D11TerrainInputPreparation
             sourceScene = Scene.Scene.Source.ResourceUri, sceneSha256 = Scene.Scene.Source.DecodedSha256,
             sourceShader = shader.Source.ResourceUri, shaderSha256 = shader.Source.DecodedSha256,
             locale = Scalar.Locale, width = frame.Width, height = frame.Height, gridSize = grid,
-            scope = "installed-source stock ordinary terrain input; caller supplies current camera/patch/raster; other Main packages required"
+            scope = "installed-source stock ordinary terrain media; accepted camera/patch stream; raster inherited at draw; other Main packages required"
         }, new JsonSerializerOptions { WriteIndented = true }));
         return new(grid, frame.Patches.Count, indices.Length, input);
 

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Godot;
 using San14.Data;
 using San14.Core;
@@ -43,22 +42,18 @@ public partial class MapSceneView
             _d3d11Markers!.ConfigureArmyLabels(_repository, _sourceSnapshot!, _d3d11CurrentWorldQueries,
                 _sourceMainCamera!.Parameters);
             string source = Path.GetFullPath(ProjectSettings.GlobalizePath(ProjectSettings.GetSetting(
-                "san14/render/source_package", "res://../.local/render-d3d11-e2e/input").AsString()));
+                "san14/render/source_package",
+                $"user://render-cache/{_text.SourceLocale}/{scene.Scene.Source.DecodedSha256}/input").AsString()));
             string libraryDefault = OS.HasFeature("editor")
                 ? "res://../native/San14.Render.D3D11/bin/x64/Release/San14.Render.D3D11.dll"
                 : Path.Combine(Path.GetDirectoryName(OS.GetExecutablePath())!, "native", "windows-x64", "San14.Render.D3D11.dll");
             string librarySetting = System.Environment.GetEnvironmentVariable("SAN14_RENDER_NATIVE_LIBRARY")
                 ?? ProjectSettings.GetSetting("san14/render/native_library", libraryDefault).AsString();
             string library = Path.GetFullPath(ProjectSettings.GlobalizePath(librarySetting));
-            // Match the imported source package once at the scene loading boundary.
-            // Camera requests reuse it; no package/executable hashes run per frame.
-            using (var metadata = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(source, "source.json"))))
-            {
-                var root = metadata.RootElement;
-                if (root.GetProperty("sourceScene").GetString() != scene.Scene.Source.ResourceUri ||
-                    root.GetProperty("sceneSha256").GetString() != scene.Scene.Source.DecodedSha256)
-                    throw new InvalidDataException("Imported native map package belongs to another Scene revision.");
-            }
+            // These banks are produced from this scene and accepted camera.
+            // Their metadata describes this output, not a required offline package.
+            var sceneMedia = D3D11SceneMediaPreparation.Prepare(_repository, scene, frame.Camera,
+                source, D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
             string inputs = Path.GetDirectoryName(source)!;
             D3D11ProjectShaderInputPreparation.WriteNativeInputs(source, _text.SourceLocale);
             D3D11TimingInputPreparation.Load(_repository, _text.SourceLocale)
@@ -143,16 +138,13 @@ public partial class MapSceneView
                     {
                         var cameraInputs = _sourceMainCameraInputs!;
                         var post = current.Rgb.Inputs.MainPostSelection!;
-                        var fieldModels = D3D11ModelInputPreparation.Load(_repository, scene,
-                            ScenePlacementReader.Read(scene), currentMain.Camera,
-                            placement => MapStaticModelPublication.FreshUnparented(
-                                $"camera-init-field/{placement.Source.Index}"));
+                        var fieldModels = sceneMedia.FieldModels;
                         D3D11OwnCameraInputPreparation.WriteFreshNativeInputs(_repository, scene,
                             new(currentMain, cameraInputs.CurrentMaximumYOverride,
                                 cameraInputs.NativeClipProfile, cameraInputs.TangentDispatch),
                             new(post.QualityOption18, post.MainMode288, post.AppFlags,
                                 post.PriorCloudy430Bits, post.SelectedCloudy430Bits),
-                            _sourceMainCameraTerrain!.CurrentField, inputs, fieldModels);
+                            _sourceMainCameraTerrain!.CurrentField, inputs, fieldModels, sceneMedia.Terrain);
                         var initialMainNumeric = D3D11MainCameraInitialNumericInputs.Create(_repository, currentMain);
                         initialMainNumeric.WriteNativeInputs(inputs);
                         D3D11NormalShadowReceiverInitialInputs.WriteFreshNativeInputs(_repository,

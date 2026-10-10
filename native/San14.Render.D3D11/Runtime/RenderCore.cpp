@@ -209,18 +209,13 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     const bool sourceArmyVisuals=configuration.world.armies;
     const bool sourceAccessoryVisuals=configuration.world.accessories;
     UINT width,height,instanceCount,indexCount;std::array<DXGI_FORMAT,5> formats;DXGI_FORMAT depthFormat;
-    UINT cull,front,depthCompare,colorMasks,stencilEnable,stencilRef;
+    UINT stencilRef;
     std::ifstream scene(input/"scene.txt");if(!scene)throw std::runtime_error("scene.txt absent");
     scene>>width>>height>>instanceCount>>indexCount;
     for(auto& format:formats){int n;scene>>n;format=DXGI_FORMAT(n);}int df;scene>>df;depthFormat=DXGI_FORMAT(df);
-    scene>>cull>>front>>depthCompare>>colorMasks>>stencilEnable>>stencilRef;
-    float depthClear=1;
-    scene>>depthClear;
-    std::ifstream sourceRaster(input/"terrain-raster.txt");
-    if(sourceRaster)sourceRaster>>cull>>front>>depthCompare>>colorMasks>>stencilEnable>>stencilRef>>depthClear;
     {
         std::ifstream reference(resources.directory(ResourceGroup::Stencil)/"terrain-reference.txt");reference>>stencilRef;
-        if(!reference)throw std::runtime_error("Actual source Terrain stencil absent");stencilEnable=1;
+        if(!reference)throw std::runtime_error("Actual source Terrain stencil absent");
     }
     bool groupedTerrain=fs::exists(input/"batches.txt");
     if(groupedTerrain){std::ifstream geometry(input/"geometry.txt");geometry>>width>>height>>instanceCount>>indexCount;}
@@ -388,7 +383,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     TerrainPass terrainPass{device.Get(),context.Get(),input,groupedTerrain};
     GBufferTargets geometryTargets{device.Get(),context.Get(),
         {width,height,resourceFormats,formats,depthFormat,targetNames,surfaces,
-            cull,front,depthCompare,colorMasks,stencilEnable,stencilRef,depthClear}};
+            staticCamera.optics.reversedDepth}};
     postProcessing.prepareOutput(device.Get(),resources.directory(ResourceGroup::FinalOutput),width,height);
     geometryTargets.prepareExpandedTargets(device.Get(),formats[3]);
     const bool hasVisibleModels=fs::exists(modelSource/"models.txt");
@@ -411,7 +406,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     auto callerTargets=NativeMainTargetScope::retain(context.Get());
     NativeSourceDepthState sourceDepth{geometryTargets.depthDescription(),stencilRef};
     auto drawOpaqueGeometry=[&]() {
-        geometryTargets.beginGeometry(context.Get());
+        geometryTargets.beginGeometry(context.Get(),staticCamera.optics.reversedDepth,sourceDepth);
         {
             const auto& staticSubmission=staticModels->updateSubmission(context.Get(),frameState.view());
             bases.updateSubmission(context.Get(),staticSubmission);
@@ -440,11 +435,21 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     {
         NativeTerrainCameraDrawBindings binding;
         binding.colors=geometryTargets.colors();binding.depthTarget=geometryTargets.depthView();binding.viewport=geometryTargets.viewport();
-        binding.raster=geometryTargets.rasterState();binding.depthState=geometryTargets.depthState();binding.stencilReference=stencilRef;binding.blend=geometryTargets.blendState();
-        terrainPass.draw(context.Get(),staticCamera,
-            frameState.season()?std::optional<uint32_t>{frameState.season()->season}:std::nullopt,binding);
+        for(const auto& record:frameState.viewProfile().records) {
+            if((frameState.viewProfile().terrainExclusion&record.mask)!=0)continue;
+            uint32_t lightBits=0;
+            if(terrainMaskNeedsSelectedLight(sourceHostFlags3E4,specialEffects.queueFlags)) {
+                const auto* light=frameState.season()?source_current_season::firstMatching(*frameState.season(),record.mask):nullptr;
+                if(!light)throw std::runtime_error("Terrain current View record has no selected World light");
+                lightBits=light->terrainMaskScalarBits;
+            }
+            const auto masks=terrainColorWriteMasks(sourceHostFlags3E4,specialEffects.queueFlags,lightBits,(_mm_getcsr()&0x40)!=0);
+            terrainPass.draw(context.Get(),staticCamera,
+                frameState.season()?std::optional<uint32_t>{frameState.season()->season}:std::nullopt,
+                binding,sourceDepth,record.mask&255,masks);
+        }
     }
-        sourceDepth.bind(context.Get(),geometryTargets.depthState(),geometryTargets.depthDescription(),stencilRef);
+
     };
     drawOpaqueGeometry();
     auto mainDepth=createNativeDepthMirror(device.Get(),geometryTargets.depthTexture(),shaderFormats[5]);
@@ -673,7 +678,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                         ComPtr<ID3D11DepthStencilView> tailDepth;context->OMGetRenderTargets(0,nullptr,&tailDepth);
                         //204 is open;205 makes no attachment change.206 only
                         //clears depth/stencil if the actual caller has a DSV.
-                        if(tailDepth)context->ClearDepthStencilView(tailDepth.Get(),D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL,depthClear,0);
+                        if(tailDepth)context->ClearDepthStencilView(tailDepth.Get(),D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL,geometryDepthClear(staticCamera.optics.reversedDepth),0);
 
                     }
                 }

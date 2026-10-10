@@ -3,12 +3,13 @@
 // Targets, frame camera and season are borrowed only for the current request.
 #include "SeasonTerrainPalette.h"
 #include "TerrainCameraConstants.h"
+#include "TerrainRasterState.h"
 
 namespace San14::Render {
 class TerrainPass {
   public:
     TerrainPass(ID3D11Device *device, ID3D11DeviceContext *context, const fs::path &input,
-                bool groupedTerrain) {
+                bool groupedTerrain):raster_(device) {
         prepareProgramsAndGeometry(device, input, groupedTerrain);
         bindInitialGeometry(context);
         prepareMaterials(device, context, input);
@@ -30,7 +31,8 @@ class TerrainPass {
     }
 
     UINT draw(ID3D11DeviceContext *context, const source_camera::Frame &current,
-              std::optional<uint32_t> season, NativeTerrainCameraDrawBindings bindings) {
+              std::optional<uint32_t> season, NativeTerrainCameraDrawBindings bindings,
+              NativeSourceDepthState& logical,UINT stencilReference,uint32_t colorMasks) {
         if (season)
             source_current_season_terrain::patchNativeCurrent(seasonPalette_, seasonBinding_, *season,
                                                               camera_);
@@ -39,7 +41,10 @@ class TerrainPass {
         bindings.pixelViews = pixelViews_;
         bindings.vertexSamplers = vertexSamplers_;
         bindings.pixelSamplers = pixelSamplers_;
-        return drawNativeTerrainCameraGpu(context, camera_, bindings);
+        raster_.begin(context,logical,stencilReference,colorMasks);
+        const auto draws=drawNativeTerrainCameraGpu(context, camera_, bindings);
+        raster_.finish(context,logical);
+        return draws;
     }
 
   private:
@@ -162,6 +167,7 @@ class TerrainPass {
         }
     }
 
+    TerrainRasterState raster_;
     std::vector<char> pixelProgramBytes_;
     ComPtr<ID3D11VertexShader> vertexShader_, coarseVertexShader_;
     ComPtr<ID3D11PixelShader> pixelShader_, coarsePixelShader_;
