@@ -6,9 +6,10 @@ public readonly record struct D3D11PreparedMainWord(int Offset, uint Bits);
 public sealed class D3D11CurrentSeasonLight
 {
     internal D3D11CurrentSeasonLight(uint objectId, uint groupMask, byte[] data)
-    { ObjectId = objectId; GroupMask = groupMask; CompleteData = data; }
+    { ObjectId = objectId; GroupMask = groupMask; CompleteData = data; Lighting = HdrLightEncoding.Read(data); }
     public uint ObjectId { get; }
     public uint GroupMask { get; }
+    public HdrLightState Lighting { get; }
     internal ReadOnlyMemory<byte> CompleteData { get; }
     public ReadOnlyMemory<byte> ShaderData328 => CompleteData[..0x328];
     public uint TerrainMaskScalarBits => BinaryPrimitives.ReadUInt32LittleEndian(CompleteData.Span[0xF24..]);
@@ -53,7 +54,7 @@ public sealed class D3D11CurrentSeasonFrame
     public byte[] ToNativeBytes(D3D11CurrentHdrCatalog? hdr = null)
     {
         // Header32, Main3C0, sorted (int32 offset,uint32 bits) writes,
-        // then five (uint32 object,mask,terrainMaskScalarBits,reserved)+numeric LightData328,
+        // then five (uint32 object,mask,terrainMaskScalarBits; byte receiveShadow,localShadow; ushort reserved)+numeric LightData328,
         // Atmosphere296, current selected Exposure32 and the HDR routes.
         byte[] hdrBytes = hdr?.PrepareCurrentBytes(this) ?? [];
         byte[] result = new byte[32 + 960 + PreparedWords.Count * 8 + Lights.Count * (16 + 0x328) + D3D11CurrentAtmosphereFrame.ByteLength + D3D11CurrentExposureLight.ByteLength + hdrBytes.Length];
@@ -76,6 +77,8 @@ public sealed class D3D11CurrentSeasonFrame
             BinaryPrimitives.WriteUInt32LittleEndian(bytes[at..], light.ObjectId);
             BinaryPrimitives.WriteUInt32LittleEndian(bytes[(at + 4)..], light.GroupMask);
             BinaryPrimitives.WriteUInt32LittleEndian(bytes[(at + 8)..], light.TerrainMaskScalarBits);
+            bytes[at + 12] = light.Lighting.ShadowModes.Receive;
+            bytes[at + 13] = light.Lighting.ShadowModes.Local;
             light.ShaderData328.Span.CopyTo(bytes[(at + 16)..]); at += 16 + 0x328;
         }
         Atmosphere.NumericBytes.Span.CopyTo(bytes[at..]);

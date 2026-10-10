@@ -179,13 +179,13 @@ public sealed class WorldGeometryLateCpuStateOwner
         phase = 1; return new(57, recipe.HasCurrentView, false, 0, 0, 0);
     }
     public WorldGeometryLateCpuUpdates Apply58(int actualView19D4Stored, int actualView19D0Capacity,
-        object? currentView1C18, MapFreshCommonResourceSnapshot actualCommon, float actualCommonTime254,
+        object? currentView1C18, MapCommonRenderState actualCommon, float actualCommonTime254,
         int actualBoundColorCount, IReadOnlyList<WorldGeometryLateRecord> completeCurrentKind1Records)
     {
         RequireCurrent(); if (phase != 1) throw new InvalidOperationException("Source58 CPU update follows actual57 update.");
         ArgumentNullException.ThrowIfNull(actualCommon); ArgumentNullException.ThrowIfNull(completeCurrentKind1Records);
-        var ctx = current(); var recipe = source.Prepare58Entry(ctx, actualCommon.CommonViewResource240Present,
-            actualCommon.CommonViewFlags8, actualView19D4Stored, actualView19D0Capacity, currentView1C18);
+        var ctx = current(); var recipe = source.Prepare58Entry(ctx, actualCommon.AuxiliaryPresent,
+            actualCommon.CommonFlags, actualView19D4Stored, actualView19D0Capacity, currentView1C18);
         if (!recipe.HasCurrentView) { phase = 2; return new(58, false, false, 0, 0, 0); }
         if (!float.IsFinite(actualCommonTime254) ||
             (recipe.ViewRecordCount is int actualRows && completeCurrentKind1Records.Count != actualRows) ||
@@ -241,7 +241,7 @@ public sealed class WorldGeometryLateCpuStateOwner
                     if (recordColors.HasRecordMaskWriter) State.SetActiveColors(recordColors.ExitState);
                 }
                 State.SetStencilEnabled(false);
-                if (actualCommon.CommonViewResource240Present) State.ClipWord1F0 = 0;
+                if (actualCommon.AuxiliaryPresent) State.ClipWord1F0 = 0;
                 parameters.ClearActualSixGenericResources58();
             }
             }, () => State.Depth = source.Prepare58ExitDepth(current().ContextFlags3E4, State.Depth));

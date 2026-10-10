@@ -12,7 +12,7 @@ public sealed class SceneViewNativeMapF103SourceOwner
     private readonly MapSourceCreatedF103CurrentFrameFactory f103;
     private readonly SceneViewNativeMapSourceFields scalars;
     private readonly MainMapContextCurrentSource contextOwner;
-    private readonly LoadedMapFreshCommonSource commonSource;
+    private readonly CommonRenderSettings commonSource;
     private readonly MainMapCameraModeOwner mainMode;
     private readonly NativeTerrainCurrentViewOwner terrainOwner;
     private readonly TerrainViewPublicationSource terrainSource;
@@ -51,7 +51,7 @@ public sealed class SceneViewNativeMapF103SourceOwner
         var repo=loaded.Repository; string locale=loaded.InitialFrame.MainCamera.Camera.ExecutableLocale;
         scalars=SceneViewNativeMapSourceFields.CreateFreshRetainedMain(loaded.InitialFrame.MainCamera.Camera);
         contextOwner=MainMapContextCurrentSource.CreateFresh(repo,locale,generation+"/Host");
-        commonSource=MapFreshCommonResources.ReadSourceTemplate(repo.LoadObjects("KIDSSystemResource",0x6D011726));
+        commonSource=CommonRenderResources.ImportSettings(repo.LoadObjects("KIDSSystemResource",0x6D011726));
         f103=new(plan,MapSourceCreatedF103ColorScope.FreshSourceNamedModulesWithoutHeaderEdits);
         terrainSource=TerrainViewPublicationSource.ReadFieldScene(loaded.TerrainMaterial.Parameters);
         terrainOwner=NativeTerrainCurrentViewOwner.CreateFreshFieldSceneNoExternalAssignments(loaded.TerrainMaterial);
@@ -109,19 +109,19 @@ public sealed class SceneViewNativeMapF103SourceOwner
                 contextOwner.Host.ContextFlags3E4,delta,MapLightingRuntimeTable.Present,
                 MapLightingCameraScope.LightingPrefix,scalars.PrepareBuiltinAmbientCameraRate(capture.MainCamera.Camera),
                 null,new(),PresentSeasonCamera:present));
-        var common=MapFreshCommonResources.PrepareSourceCreatedBeforeAmbientPublication(commonSource,
+        var common=MapCommonRenderState.FromSettings(commonSource,
             number,generation+"/source-Common-settings",generation+"/Common",Binding.ViewIdentity,
             generation+"/properties-applied-before-ambient");
         // These are newly created managed source kind1 records. The queue
         // really owns every pair/record identity and complete shared payload;
         // it is not a process address or an inference from a counter row.
-        var masks=MapSourceCreatedViewFields.SourceKind1RecordMasks(lighting,common.CurrentViewAux3F2!.Value);
+        var masks=MapSourceCreatedViewFields.SourceKind1RecordMasks(lighting,common.ViewGroupSelector!.Value);
         var queue=masks.Select((mask,index)=>new TerrainCurrentKind1WorldPQPublication(number,Binding.ViewIdentity,
             generation+"/queue/"+number,index,0x10000000,generation+"/pair/"+number+"/"+index,
             generation+"/record/"+number+"/"+index,mask,true,generation+"/owned-CE31D0-kind1-construction")).ToArray();
         var sourceCameraTail=MapSourceCreatedViewFields.ReadFreshRetainedCameraFields(capture.MainCamera.Camera);
         int shadowGroup=sourceCameraTail.ViewSignedA00;
-        if(shadowGroup is <1 or >32 || common.CurrentViewAux3F2 is not byte skySelector || skySelector is <1 or >32)
+        if(shadowGroup is <1 or >32 || common.ViewGroupSelector is not byte skySelector || skySelector is <1 or >32)
             throw new NotSupportedException("This nonnull owned selection needs actual MainA00 and Common3F2 group fields.");
         uint shadowSelectionMask=1u<<(shadowGroup-1);
         uint skySelectionMask=1u<<(skySelector-1);

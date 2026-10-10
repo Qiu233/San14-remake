@@ -10,13 +10,13 @@ public readonly record struct D3D11FrameClockInitialState(uint SettingsFlags10,
 /// a current settings31 mode, counter delta or App callback admission.</summary>
 public sealed class D3D11TimingInputPreparation
 {
-    private D3D11TimingInputPreparation(LoadedMapFreshCommonSource common,
+    private D3D11TimingInputPreparation(CommonRenderSettings common,
         uint[] fps)
     {
         Common = common;
         FpsModeTable = Array.AsReadOnly(fps);
     }
-    public LoadedMapFreshCommonSource Common { get; }
+    public CommonRenderSettings Common { get; }
     public string RuleVersion => RenderRuleIdentity.Version;
     public IReadOnlyList<uint> FpsModeTable { get; }
 
@@ -28,17 +28,17 @@ public sealed class D3D11TimingInputPreparation
         return new(common, CreateFpsModeTable());
     }
 
-    public static LoadedMapFreshCommonSource LoadSourceCommon(GameResourceRepository repository)
+    public static CommonRenderSettings LoadSourceCommon(GameResourceRepository repository)
     {
         ArgumentNullException.ThrowIfNull(repository);
-        return MapFreshCommonResources.ReadSourceTemplate(
-            repository.LoadObjects("KIDSSystemResource", MapFreshCommonResources.SourceFileId));
+        return CommonRenderResources.ImportSettings(
+            repository.LoadObjects("KIDSSystemResource", CommonRenderResources.SourceFileId));
     }
 
     /// <summary>Only for newly source-created Common3348 and Apply1E4 owners,
     /// whose constructors write zero. Retained Title/Map history instead uses
     /// WriteFrameClockInputs with the caller's actual initial state.</summary>
-    public static void WriteSourceCreatedFrameClockInputs(string directory, LoadedMapFreshCommonSource common)
+    public static void WriteSourceCreatedFrameClockInputs(string directory, CommonRenderSettings common)
     {
         ArgumentNullException.ThrowIfNull(common);
         WriteFrameClockInputs(directory, new(common.Flags10, 0, 0));

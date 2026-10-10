@@ -106,7 +106,7 @@ public sealed class SceneViewNativeMapWorldGeometrySourceOwner : IAsyncDisposabl
         queue55=ModelRendererStateSourceReader.ReadQueue(graph,55);
         lateSource=WorldGeometryLateCpuSource.Load(repository,locale);
         var rs4=OrdinaryRs4Source.Read(graph,repository.LoadObjects("system",0x93FB3280),lateSource.Native);
-        rs4CpuSource=new(rs4,repository.LoadObjects("KIDSSystemResource",MapFreshCommonResources.SourceFileId));
+        rs4CpuSource=new(rs4,repository.LoadObjects("KIDSSystemResource",CommonRenderResources.SourceFileId));
         rs4Population=new(rs4);Targets=new(stage,rs4);
         packed58=WorldGeometryNode58PackedParameterSource.Read(lateSource.Queue58);
         effectSource=LoadedWorldGeometryLateEffectSource.Load(repository,locale);
@@ -263,7 +263,7 @@ public sealed class SceneViewNativeMapWorldGeometrySourceOwner : IAsyncDisposabl
             var owner=new WorldGeometryLateCpuStateOwner(lateSource,colors,actual53,state,
                 ()=>new(true,geometry.Lighting.ContextFlags3E4,Flags(),selection.CurrentContextWord3F8!.Value,true),parameters);
             var common=current.GeometryFirst.Common;
-            Last57=owner.Apply57(common.CommonViewResource240Present,(common.CommonViewFlags8&4)!=0,null);
+            Last57=owner.Apply57(common.AuxiliaryPresent,(common.CommonFlags&4)!=0,null);
             var publication=staticOrder.RequireCurrentTuples();
             var actualArmy=armyQueues??throw new InvalidDataException("World58 has no current Army first-bank tuple preparation.");
             actualArmy.RequireCurrent();actualArmy.Tuples.Tables.RequireCurrent();

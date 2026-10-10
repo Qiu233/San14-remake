@@ -16,7 +16,7 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
         for(int layer=0;layer<3;layer++)
         {
             var source=settings.Layer(layer);uint mode=source.Mode;
-            int type=MapFreshCommonResources.ClassifyE41710(mode);
+            int type=(int)CommonRenderEncoding.ClassifyAmbient(mode);
             height=DeferredHeightFogMath.SetLayerType(height,(uint)layer,type);
             if(type<0)continue;
             float start=source.HeightStart,end=source.HeightEnd;

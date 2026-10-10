@@ -199,10 +199,10 @@ public sealed class MapSourceCreatedViewFieldsPacket
     /// <summary>The actual queue generation which produced World kind1
     /// counters. Legacy HDRI publication has no such world queue binding.</summary>
     public MapWorldKind1CurrentQueue? CurrentWorldQueue { get; }
-    public DeferredF103CurrentViewInputs CreateF103Inputs(bool? currentCommonViewResource240Present,
-        uint? currentResource240Flags0C) => new(Camera.FrameNumber, Binding.ViewIdentity,
+    public DeferredF103CurrentViewInputs CreateF103Inputs(bool? currentAuxiliaryPresent,
+        uint? currentAuxiliaryLightingFlags) => new(Camera.FrameNumber, Binding.ViewIdentity,
         Binding.CameraOwnerIdentity, Camera.ViewSignedA00, ViewFlags19AC, Camera.ViewA28,
-        Camera.ViewA3C, View1BD0CpuVtable, currentCommonViewResource240Present, currentResource240Flags0C,
+        Camera.ViewA3C, View1BD0CpuVtable, currentAuxiliaryPresent, currentAuxiliaryLightingFlags,
         Binding.LightOwnerIdentity, SourceProvenance);
 }
 

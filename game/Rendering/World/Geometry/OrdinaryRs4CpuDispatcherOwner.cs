@@ -77,8 +77,8 @@ public sealed class OrdinaryRs4CpuDispatcherOwner
         RequireCurrent();
         if(phase<0||sourceNode!=44+phase)throw new InvalidOperationException("Earlier RS4 queues execute44,45,46 once in source order.");
         var queue=source.Source.Queues[sourceNode];var ctx=current();var common=world.Passes[0].Frame.Common;
-        var entry=source.PrepareCurrentEntry(sourceNode,ctx,common.CommonViewResource240Present,
-            common.CommonViewFlags8,actualView19D4Stored,actualView19D0Capacity,actualView1C18);
+        var entry=source.PrepareCurrentEntry(sourceNode,ctx,common.AuxiliaryPresent,
+            common.CommonFlags,actualView19D4Stored,actualView19D0Capacity,actualView1C18);
         if(!float.IsFinite(actualCommonTime254))throw new InvalidDataException("Earlier RS4 requires its actual current Common254 clock.");
         var rows=world.View.CurrentWorldQueue?.Records ??throw new InvalidDataException("RS4 has no current complete View record queue.");
         if(entry.CurrentRecordCount is int count&&rows.Count!=count)
@@ -105,7 +105,7 @@ public sealed class OrdinaryRs4CpuDispatcherOwner
                         var aux=colors.ReadCurrentAuxiliaryMasks(common);
                         parameters.EnterGeneric();State.SetStencilEnabled(true);
                         State.Stencil=State.Stencil with{Fail=0,DepthFail=0,Pass=2};
-                        if(common.CommonViewResource240Present)State.ClipWord1F0=source.PrepareCurrentClipWord(common);
+                        if(common.AuxiliaryPresent)State.ClipWord1F0=source.PrepareCurrentClipWord(common);
                         foreach(var record in rows)
                         {
                             RequireCurrent();
@@ -145,7 +145,7 @@ public sealed class OrdinaryRs4CpuDispatcherOwner
                             visits.Add(new(record.RecordOwnerIdentity,record.Mask78,stencil.RecordSelected,bank.Count,groups,nullPrimitives,stencil));
                         }
                         State.SetStencilEnabled(false);
-                        if(common.CommonViewResource240Present)State.ClipWord1F0=0;
+                        if(common.AuxiliaryPresent)State.ClipWord1F0=0;
                         parameters.ClearSixResources();
                     }
                 }

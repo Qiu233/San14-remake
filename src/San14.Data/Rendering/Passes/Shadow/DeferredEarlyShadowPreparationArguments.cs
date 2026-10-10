@@ -26,11 +26,11 @@ public readonly record struct DeferredEarlyShadowContextConstructorFields(
 
 public sealed class DeferredEarlyShadowCurrentPreparationArguments
 {
-    internal DeferredEarlyShadowCurrentPreparationArguments(MapFreshCommonResourceSnapshot common,
+    internal DeferredEarlyShadowCurrentPreparationArguments(MapCommonRenderState common,
         MapSourceCreatedViewCameraFields camera, uint quality,
         DeferredEarlyShadowPreparationArguments values, string evidence)
         => (Common, Camera, CameraA88, Values, SourceEvidence) = (common, camera, quality, values, evidence);
-    public MapFreshCommonResourceSnapshot Common { get; }
+    public MapCommonRenderState Common { get; }
     public MapSourceCreatedViewCameraFields Camera { get; }
     public uint CameraA88 { get; }
     public DeferredEarlyShadowPreparationArguments Values { get; }
@@ -78,13 +78,13 @@ public sealed class LoadedDeferredEarlyShadowPreparationArgumentsSource
     /// current overlay or application quality callback needs its actual
     /// CommonContext values/CameraA88 and SelectCurrentQuality instead.</summary>
     public DeferredEarlyShadowCurrentPreparationArguments PrepareSourceCreatedRetainedMain(
-        MapFreshCommonResourceSnapshot actualFreshCommon,
+        MapCommonRenderState actualFreshCommon,
         MapSourceCreatedViewCameraFields actualRetainedCamera,
         MapCameraConstructionPacket actualCamera)
     {
         ArgumentNullException.ThrowIfNull(actualFreshCommon); ArgumentNullException.ThrowIfNull(actualRetainedCamera);
         ArgumentNullException.ThrowIfNull(actualCamera);
-        if (actualFreshCommon.Scope != MapFreshCommonResourceScope.SourceCreatedNoCallbackBeforeAmbientPublication ||
+        if (actualFreshCommon.Scope != CommonRenderPublicationKind.InitialSettings ||
             actualFreshCommon.FrameNumber != actualRetainedCamera.FrameNumber ||
             actualRetainedCamera.CameraObjectId != DefaultView0Source.MainCameraObjectId)
             throw new InvalidDataException("Retained source shadow arguments require the actual fresh context and same-frame Main tail scope.");

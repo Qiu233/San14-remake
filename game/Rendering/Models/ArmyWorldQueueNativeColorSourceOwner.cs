@@ -14,7 +14,7 @@ public sealed partial class ArmyWorldQueueNativeColorSourceOwner : IArmyWorldQue
     private readonly Dictionary<string,IReadOnlyList<ModelBlendAttachment>> byRecord = new(StringComparer.Ordinal);
     private ArmyWorldQueueNativeColorSourceOwner(LoadedModelFrontendColorSource source,
         ArmyWorldQueuePrimitivePlan plan, ModelQueueStateSource actualQueue,
-        MapFreshCommonResourceSnapshot common, ModelFrontendColorState actualPrevious, Action current)
+        MapCommonRenderState common, ModelFrontendColorState actualPrevious, Action current)
     {
         this.source=source;this.plan=plan;node=actualQueue.Node.Index;requireActualCurrentScope=current;
         if(node is not(49 or 50)||common.FrameNumber!=plan.Publication.Counts.Queue.FrameNumber ||
@@ -30,7 +30,7 @@ public sealed partial class ArmyWorldQueueNativeColorSourceOwner : IArmyWorldQue
     public ModelFrontendColorState ExitNativeState => EntryNativeState;
     public static ArmyWorldQueueNativeColorSourceOwner CaptureActualEntry(LoadedModelFrontendColorSource source,
         ArmyWorldQueuePrimitivePlan actualPlan, ModelQueueStateSource actualQueue,
-        MapFreshCommonResourceSnapshot actualCommon, ModelFrontendColorState actualEightSlotPrevious,
+        MapCommonRenderState actualCommon, ModelFrontendColorState actualEightSlotPrevious,
         Action requireActualCurrentScope)
     {
         ArgumentNullException.ThrowIfNull(source);ArgumentNullException.ThrowIfNull(actualPlan);

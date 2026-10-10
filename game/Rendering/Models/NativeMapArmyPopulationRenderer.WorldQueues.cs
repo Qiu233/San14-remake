@@ -38,7 +38,7 @@ public sealed partial class NativeMapArmyPopulationRenderer
 
     public Task<ArmyWorldPrimitivePublication> PrepareCurrentWorldPrimitivePublicationAsync(
         NativeMapArmyPreparedFrame prepared, MapWorldKind1CurrentQueue actualWorldQueue,
-        MapFreshCommonResourceSnapshot actualCommon, ArmyCurrentWorldVisibilityView? actualView,
+        MapCommonRenderState actualCommon, ArmyCurrentWorldVisibilityView? actualView,
         string currentPublicationIdentity)
     {
         ArgumentNullException.ThrowIfNull(prepared); Accept();
@@ -46,7 +46,7 @@ public sealed partial class NativeMapArmyPopulationRenderer
     }
     private async Task<ArmyWorldPrimitivePublication> PrepareWorldCpuAcceptedAsync(
         NativeMapArmyPreparedFrame prepared, MapWorldKind1CurrentQueue queue,
-        MapFreshCommonResourceSnapshot common, ArmyCurrentWorldVisibilityView? view, string identity)
+        MapCommonRenderState common, ArmyCurrentWorldVisibilityView? view, string identity)
     {
         await _gate.WaitAsync();
         try
@@ -87,7 +87,7 @@ public sealed partial class NativeMapArmyPopulationRenderer
     public Task<NativeMapArmyWorldQueuePreparation> PrepareWorldQueuesAsync(
         NativeMapArmyPreparedFrame prepared, ArmyWorldPrimitivePublication actualPublication,
         NativeArmyCurrentAdmission actualAdmission, MainMapCameraFrame actualMainCamera,
-        MapFreshCommonResourceSnapshot actualCommon, uint actualContextFlags3E4,
+        MapCommonRenderState actualCommon, uint actualContextFlags3E4,
         NativeWorldShaderTableRegistry actualSharedShaderTables, WorldPrimitiveOrderSource actualViewOrder,
         IReadOnlyList<ModelBlendAttachment> actualSixColorStates,
         IArmyWorldFlagMaterialTablePublication? actualFlagMaterialPublication, Action requireActualCurrentWorld)
@@ -102,7 +102,7 @@ public sealed partial class NativeMapArmyPopulationRenderer
     private async Task<NativeMapArmyWorldQueuePreparation> PrepareWorldQueuesAcceptedAsync(
         NativeMapArmyPreparedFrame prepared, ArmyWorldPrimitivePublication publication,
         NativeArmyCurrentAdmission admission, MainMapCameraFrame camera,
-        MapFreshCommonResourceSnapshot common, uint flags, NativeWorldShaderTableRegistry tables,
+        MapCommonRenderState common, uint flags, NativeWorldShaderTableRegistry tables,
         WorldPrimitiveOrderSource viewOrder, IReadOnlyList<ModelBlendAttachment> colors,
         IArmyWorldFlagMaterialTablePublication? materialPublication, Action currentWorld)
     {

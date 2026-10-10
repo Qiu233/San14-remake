@@ -73,22 +73,18 @@ public sealed class MapPostEffect3OwnedDirectCaller
         ArgumentException.ThrowIfNullOrWhiteSpace(actualOutputTarget.TargetAndContextEvidence);
         var current=actualWorldFrame.Lighting.CapturePreparedCameraFromSameAcceptedMain(actualWorldFrame.Camera);
         var common=actualWorldFrame.Common;
-        var sourceCommon=MapFreshCommonResources.ReadSourceTemplate(selectedCommonTemplate);
+        var sourceCommon=CommonRenderResources.ImportSettings(selectedCommonTemplate);
         if(current.ExecutableLocale!=actualGraphics.ExecutableLocale||current.ExecutableLocale!=actualWorldFrame.Context.Source.Host.Locale||
             current.FrameNumber<=0||actualWorldFrame.FrameNumber!=common.FrameNumber||
             actualOutputTarget.FrameNumber!=current.FrameNumber||actualWorldFrame.Context.FrameNumber!=current.FrameNumber||
             actualOutputTarget.ContextOwnerIdentity!=actualWorldFrame.Context.Source.OwnedHostIdentity||
             actualWorldFrame.Context.Source.Host.RuleVersion!=RenderRuleIdentity.Version||actualOutputTarget.ContextVirtual80Result||
-            common.Scope!=MapFreshCommonResourceScope.SourceCreatedNoCallbackBeforeAmbientPublication||
-            !common.CommonViewResource240Present||common.CommonViewFlags8!=sourceCommon.Flags8||
-            common.CurrentViewAux3F2!=sourceCommon.ViewAux3F2||actualResolvedApplyViewIndex is <0 or >=32||
+            common.Scope!=CommonRenderPublicationKind.InitialSettings||
+            !common.AuxiliaryPresent||common.CommonFlags!=sourceCommon.Flags8||
+            common.ViewGroupSelector!=sourceCommon.ViewAux3F2||actualResolvedApplyViewIndex is <0 or >=32||
             !float.IsFinite(actualRendererElapsedDelta))
             throw new InvalidDataException("Direct Apply needs the actual same-locale/frame World/Common/output owners, fresh no-callback scope and finite owned clock.");
-        var row=selectedCommonTemplate.Document.Objects.Single(o=>o.ObjectId==MapFreshCommonResources.SourceObjectId);
-        var fxaa=row.Properties[10];
-        if(fxaa.Index!=10||fxaa.NameHash!=0xBB7C520E||fxaa.TypeCode!=4||fxaa.ElementCount!=1||fxaa.RawValue.Length!=4)
-            throw new InvalidDataException("Direct Apply Common3A8 differs from its source FXAA loader field.");
-        int auxFxaa=BinaryPrimitives.ReadInt32LittleEndian(fxaa.RawValue);
+        int auxFxaa = unchecked((int)CommonRenderResources.ReadScalar(selectedCommonTemplate, 0xBB7C520E, 4));
         var raw=MapPostEffect3ApplyUncontrolledCameraInputs.ConstructFreshSource(current,
             common.SelectedViewOwnerIdentity+"Direct-camera");
         int cameraFxaa=unchecked((int)current.Optics.Fxaa.Enable);
@@ -115,7 +111,7 @@ public sealed class MapPostEffect3OwnedDirectCaller
             ":shaft-predicate"+common.ProducerProvenance+";"+
             actualOutputTarget.TargetAndContextEvidence+";"+actualGraphics.SourceEvidence+";"+actualApplyViewIndexEvidence;
         var simple=new MapPostEffect3ApplyUncontrolledSimpleInputs(current.FrameNumber,auxFxaa|cameraFxaa,
-            gamma,delta,actualGraphics.GammaEnableWord,common.CommonViewFlags8,evidence);
+            gamma,delta,actualGraphics.GammaEnableWord,common.CommonFlags,evidence);
         return new(current.CopyAcceptedSnapshot(),simple,shaft,actualResolvedApplyViewIndex,sourceCommon.ViewAux3F2,
             common.CommonTableOwnerIdentity,evidence+":~(1u<<((Aux3F2-1)&31));-current-ViewIndex");
     }

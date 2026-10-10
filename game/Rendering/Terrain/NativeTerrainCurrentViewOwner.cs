@@ -31,7 +31,7 @@ public sealed class NativeTerrainCurrentViewOwner
     }
     public NativeTerrainCurrentViewFrame PrepareWithSelectedKind1Record(NativeMapFrameContext context,
         MapSourceCreatedLightingPacket lighting, MapSourceCreatedViewPublicationState current,
-        TerrainSelectedKind1Record selectedRecord, MapFreshCommonResourceSnapshot currentCommon)
+        TerrainSelectedKind1Record selectedRecord, MapCommonRenderState currentCommon)
     {
         currentFrame = null; RequireCurrent(); ArgumentNullException.ThrowIfNull(selectedRecord);
         ArgumentNullException.ThrowIfNull(currentCommon);
@@ -61,10 +61,10 @@ public sealed class NativeTerrainCurrentViewFrame
     private readonly NativeTerrainCurrentViewOwner owner;
     private readonly IReadOnlyList<NativeTerrainBatch> batches;
     private readonly (bool Coarse, TerrainPatchInput[] Patches)[] snapshot;
-    private readonly MapFreshCommonResourceSnapshot? selectedShadowCommon;
+    private readonly MapCommonRenderState? selectedShadowCommon;
     internal NativeTerrainCurrentViewFrame(NativeTerrainCurrentViewOwner owner,
         NativeMapFrameContext context, IReadOnlyList<NativeTerrainBatch> batches,
-        MapSourceCreatedViewPublicationState publication, MapFreshCommonResourceSnapshot? selectedShadowCommon = null)
+        MapSourceCreatedViewPublicationState publication, MapCommonRenderState? selectedShadowCommon = null)
     { this.owner = owner; Context = context; this.batches = batches; CurrentViewPublication = publication;
       this.selectedShadowCommon = selectedShadowCommon;
       snapshot = batches.Select(b => (b.Coarse, b.Patches.ToArray())).ToArray(); }

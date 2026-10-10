@@ -23,16 +23,16 @@ public sealed class LoadedDeferredEarlyShadowDirectionAuxSource
     public uint SourceFlags8 { get; }
     public int SourceSigned3F4 { get; }
     public string SourceEvidence { get; }
-    public DeferredEarlyShadowDirectionAuxFields CaptureCurrent(MapFreshCommonResourceSnapshot actualCommon)
+    public DeferredEarlyShadowDirectionAuxFields CaptureCurrent(MapCommonRenderState actualCommon)
     {
         ArgumentNullException.ThrowIfNull(actualCommon);
-        if (!actualCommon.CommonViewResource240Present) return new(false, actualCommon.CommonViewFlags8, null);
-        if (actualCommon.CopyCurrentAuxiliary460() is { } actualAux)
-            return new(true, actualCommon.CommonViewFlags8, BinaryPrimitives.ReadInt32LittleEndian(actualAux.AsSpan(0x3F4)));
-        if (actualCommon.Scope != MapFreshCommonResourceScope.SourceCreatedNoCallbackBeforeAmbientPublication ||
-            actualCommon.CommonViewFlags8 != SourceFlags8)
+        if (!actualCommon.AuxiliaryPresent) return new(false, actualCommon.CommonFlags, null);
+        if (actualCommon.Auxiliary?.ShadowAngleMode is { } mode)
+            return new(true, actualCommon.CommonFlags, mode);
+        if (actualCommon.Scope != CommonRenderPublicationKind.InitialSettings ||
+            actualCommon.CommonFlags != SourceFlags8)
             throw new NotSupportedException("Current shadow angle gate needs its actual3F4 or the retained source-loader scope.");
-        return new(true, actualCommon.CommonViewFlags8, SourceSigned3F4);
+        return new(true, actualCommon.CommonFlags, SourceSigned3F4);
     }
 }
 
@@ -65,12 +65,12 @@ public readonly record struct DeferredEarlyShadowDirectionNumericFields(
 public sealed class DeferredEarlyShadowCurrentDirectionFields
 {
     internal DeferredEarlyShadowCurrentDirectionFields(DeferredEarlyShadowCurrentMainFields main,
-        TerrainSelectedKind1Record record, MapFreshCommonResourceSnapshot common,
+        TerrainSelectedKind1Record record, MapCommonRenderState common,
         DeferredEarlyShadowDirectionAuxFields aux, DeferredEarlyShadowDirectionNumericFields numeric, string evidence)
         => (Main, Record, Common, Aux, Numeric, SourceEvidence) = (main, record, common, aux, numeric, evidence);
     public DeferredEarlyShadowCurrentMainFields Main { get; }
     public TerrainSelectedKind1Record Record { get; }
-    public MapFreshCommonResourceSnapshot Common { get; }
+    public MapCommonRenderState Common { get; }
     public DeferredEarlyShadowDirectionAuxFields Aux { get; }
     public DeferredEarlyShadowDirectionNumericFields Numeric { get; }
     public string SourceEvidence { get; }
@@ -83,12 +83,9 @@ public static class DeferredEarlyShadowDirectionSource
 {
     public static LoadedDeferredEarlyShadowDirectionAuxSource ReadSourceCreatedTemplate(LoadedObjects actualCommonSource)
     {
-        var actual = MapFreshCommonResources.ReadSourceTemplate(actualCommonSource);
-        var field = actualCommonSource.Document.Objects.Single(value => value.ObjectId == MapFreshCommonResources.SourceObjectId).Properties[24];
-        if (field.Index != 24 || field.NameHash != 0x00D3B791 || field.TypeCode != 4 || field.ElementCount != 1 ||
-            field.ElementSize != 4 || field.RawValue.Length != 4)
-            throw new InvalidDataException("Shadow Aux3F4 differs from its actual saved Common p24 binding.");
-        return new(actual.Flags8, BinaryPrimitives.ReadInt32LittleEndian(field.RawValue), actual.SourceIdentity +
+        var actual = CommonRenderResources.ImportSettings(actualCommonSource);
+        int angleMode = unchecked((int)CommonRenderResources.ReadScalar(actualCommonSource, 0x00D3B791, 4));
+        return new(actual.Flags8, angleMode, actual.SourceIdentity +
             ";TC:D223C0-pointertable2A0/360-index24->scratchRBP-58;D23099/D2309C->Aux3F4;D1E719/D1E720-preserved-copy");
     }
 
@@ -96,7 +93,7 @@ public static class DeferredEarlyShadowDirectionSource
         DeferredEarlyShadowCurrentMainFields actualMain,
         TerrainSelectedKind1Record actualSelectedRecord,
         MapSourceCreatedLightingPacket actualLighting,
-        MapFreshCommonResourceSnapshot actualCommon,
+        MapCommonRenderState actualCommon,
         LoadedDeferredEarlyShadowDirectionAuxSource actualLoadedAux,
         DeferredEarlyShadowPreparationArguments actualArguments)
     {

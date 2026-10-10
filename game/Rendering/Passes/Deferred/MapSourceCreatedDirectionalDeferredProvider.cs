@@ -105,7 +105,7 @@ public sealed class MapSourceCreatedDirectionalDeferredProvider : IDisposable
         var common = passes[0].Frame.Common;
         var actualPlan = DeferredF103WorldPassAssociations.Prepare(world.Plan.Source, world.Plan.Queue,
             world.View, world.Plan.CurrentView.ConstructorFlags594Retained,
-            common.CommonViewResource240Present, common.CurrentViewAux3F2);
+            common.AuxiliaryPresent, common.ViewGroupSelector);
         if (!actualPlan.Associations.SequenceEqual(world.Plan.Associations))
             throw new InvalidDataException("Ordered deferred input differs from the actual source World association plan.");
         var packets = new List<NativeDeferredPacket>(passes.Length);

@@ -62,7 +62,7 @@ public sealed class MapSourceCreatedWorldDeferredFrameAssembler : IAsyncDisposab
             cameraFilters.RequireSameMain(main);
             commonFilters.ValidateFrame(context.FrameNumber,sourceFrame.Common.CommonTableOwnerIdentity,lighting.Binding.ViewIdentity);
             var expectedTransparency=cameraFilters.ReadTransparencySelection(
-                sourceFrame.Common.CommonViewResource240Present?commonFilters.TransparencyResolution8C:null);
+                sourceFrame.Common.AuxiliaryPresent?commonFilters.TransparencyResolution8C:null);
             if(input.CurrentSamplers.EffectiveBindings.Interface.Sha256!=Lighting.Program.Translation.SpirvSha256||
                 geometry.TransparencySelection!=expectedTransparency)
                 throw new InvalidDataException("Current World sampler interface or transparency differs from its exact selected source.");

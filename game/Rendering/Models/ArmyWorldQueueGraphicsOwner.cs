@@ -60,7 +60,7 @@ public sealed class ArmyWorldQueuePreparedFrame
 {
     internal ArmyWorldQueuePreparedFrame(ArmyWorldQueueGraphicsOwner owner,
         ArmyWorldQueuePreparedPackets body, ArmyWorldQueuePreparedPackets flags,
-        ArmyWorldQueuePrimitivePlan plan, MapFreshCommonResourceSnapshot common,
+        ArmyWorldQueuePrimitivePlan plan, MapCommonRenderState common,
         uint contextFlags, IReadOnlyDictionary<string,ModelGbufferInstancePacket> packets,
         IArmyWorldQueueCurrentSource current)
         => (Owner, Body, Flags, Plan, Common, ActualContextFlags3E4, Packets, CurrentSource) =
@@ -69,7 +69,7 @@ public sealed class ArmyWorldQueuePreparedFrame
     public ArmyWorldQueuePreparedPackets Body { get; }
     public ArmyWorldQueuePreparedPackets Flags { get; }
     public ArmyWorldQueuePrimitivePlan Plan { get; }
-    public MapFreshCommonResourceSnapshot Common { get; }
+    public MapCommonRenderState Common { get; }
     public uint ActualContextFlags3E4 { get; }
     internal IReadOnlyDictionary<string,ModelGbufferInstancePacket> Packets { get; }
     internal IArmyWorldQueueCurrentSource CurrentSource { get; }
@@ -121,7 +121,7 @@ public sealed class ArmyWorldQueueGraphicsOwner : IAsyncDisposable
 
     public ArmyWorldQueuePreparedFrame PrepareActualQueues(ArmyWorldQueuePreparedPackets body,
         ArmyWorldQueuePreparedPackets flags, ArmyWorldPrimitivePublication actualPublication,
-        MapFreshCommonResourceSnapshot actualCommon, uint actualContextFlags3E4,
+        MapCommonRenderState actualCommon, uint actualContextFlags3E4,
         IArmyWorldQueueCurrentSource actualCurrentSource)
     {
         ObjectDisposedException.ThrowIf(retired, this);

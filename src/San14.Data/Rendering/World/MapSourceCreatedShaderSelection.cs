@@ -5,10 +5,10 @@ namespace San14.Data;
 // Compatibility input carriers. New callers use HdrSelectionSettings directly.
 public sealed record DeferredF103CurrentVariantInputs(
     long FrameNumber, uint ContextFlags3F0, uint NativeColorMode,
-    uint CommonViewFlags8, bool QueryD5BeA0,
+    uint CommonFlags, bool AmbientSelectionPresent,
     int ReflectionQueryD57E20, bool SelectedCamera1808Present,
-    bool CommonViewResource788Registered, bool CommonViewResource78CRegistered,
-    bool CommonViewResource8B8Registered, string CurrentProducerProvenance);
+    bool AmbientMapFirstAvailable, bool AmbientMapSecondAvailable,
+    bool AmbientMapThirdAvailable, string CurrentProducerProvenance);
 
 /// <summary>Compatibility view of a typed HDR selection. Original encoding is
 /// produced only by its legacy getters; it is not retained as current state.</summary>

@@ -68,7 +68,7 @@ public sealed record MapSourceCreatedWorldF103Frames(MapSourceCreatedViewFieldsP
         MapStaticModelCurrentOwnedFrame population, MapWorldKind1CurrentQueue queue,
         MapSourceCreatedLightingPacket primaryLighting,
         IReadOnlyDictionary<string, MapSourceCreatedLightingPacket> completeRecordLighting,
-        MapFreshCommonResourceSnapshot common, MainMapContextCurrentPacket context,
+        MapCommonRenderState common, MainMapContextCurrentPacket context,
         MapSourceCreatedF103PopulationPublicationInputs publication,
         IReadOnlyDictionary<string, int>? completeOtherCountsByRecordOwner,
         int? reflectionQuery, bool? constructorFlags594Retained, string preparationIdentity)
@@ -99,7 +99,7 @@ public sealed record MapSourceCreatedWorldF103Frames(MapSourceCreatedViewFieldsP
         var seed = factory.PrepareFromWorldPopulation(population, queue, primaryLighting, common, context,
             publication, completeOtherCountsByRecordOwner, reflectionQuery, preparationIdentity + "/counted-View");
         var plan = DeferredF103WorldPassAssociations.Prepare(source, queue, seed.ViewFields, constructorFlags594Retained,
-            common.CommonViewResource240Present, common.CurrentViewAux3F2);
+            common.AuxiliaryPresent, common.ViewGroupSelector);
         var passes = new List<MapSourceCreatedWorldF103Pass>();
         MapSourceCreatedF103FeaturePacket? previous = null;
         foreach (var association in plan.Associations)

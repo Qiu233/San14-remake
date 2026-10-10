@@ -24,7 +24,7 @@ public static class ModelOrdinaryDispatcherStencilSource
 {
     public static ModelOrdinaryDispatcherStencilPacket Prepare(
         ModelQueueStateSource sourceQueue, ModelOrdinaryDispatcherRecord currentRecord,
-        MapFreshCommonResourceSnapshot currentCommon, uint actualContextFlags3E4)
+        MapCommonRenderState currentCommon, uint actualContextFlags3E4)
     {
         ArgumentNullException.ThrowIfNull(sourceQueue); ArgumentNullException.ThrowIfNull(currentRecord);
         ArgumentNullException.ThrowIfNull(currentCommon);
@@ -32,7 +32,7 @@ public static class ModelOrdinaryDispatcherStencilSource
             currentRecord.ViewIdentity != currentCommon.SelectedViewOwnerIdentity ||
             currentRecord.TypedKind1Record != true || currentRecord.CurrentSelectedCounterCount is not int count || count < 0 ||
             currentRecord.AcceptedLateOrdinaryBranch != true || string.IsNullOrWhiteSpace(currentRecord.CurrentPublicationProvenance) ||
-            sourceQueue.RenderType != 0 || (sourceQueue.Flag & 2) == 0 || currentCommon.CurrentModelGroupSelector400 is not byte selector)
+            sourceQueue.RenderType != 0 || (sourceQueue.Flag & 2) == 0 || currentCommon.ModelGroupSelector is not byte selector)
             throw new InvalidDataException("Ordinary stencil needs the actual accepted kind1 record, nonnegative current counter, source late branch and current Common selector.");
         bool positive = (currentRecord.RecordMask78 & 0x80000000u) == 0;
         bool selected = positive == ((sourceQueue.Flag & 0x20) == 0);

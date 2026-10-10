@@ -37,7 +37,7 @@ public sealed class MapSceneProxySourcePolicy
         var defaults=DefaultView0Source.LoadDeclarationDefaults(repository);
         var camera=actualWorld.Lighting.CapturePreparedCameraFromSameAcceptedMain(actualWorld.Camera);
         var native=RenderSamplerSourceAdapters.LoadMapSceneProxySource(repository.SourceDirectory,camera.ExecutableLocale);
-        var template=MapFreshCommonResources.ReadSourceTemplate(repository.LoadObjects("KIDSSystemResource",0x6D011726));
+        var template=CommonRenderResources.ImportSettings(repository.LoadObjects("KIDSSystemResource",0x6D011726));
         RequireFresh(camera,actualWorld.Common,defaults,template.Flags8,template.Flags0C,native.Locale);
         var graph=repository.LoadRenderGraph("system",0x024496EE);
         const string graphSha="B9AE1EC8209C067DBC73084CDC0EB149A65E282C25D4B8AD398F43071072971D";
@@ -125,19 +125,19 @@ public sealed class MapSceneProxySourcePolicy
         if(camera.ExecutableLocale!=native.Locale||camera.Source.Camera.ObjectId!=DefaultView0Source.MainCameraObjectId||
             camera.Source.Resource.Source.ResourceUri!=cameraUri||camera.Source.Resource.Source.DecodedSha256!=cameraSha||
             BinaryPrimitives.ReadInt32LittleEndian(camera.Prefix.Span.Slice(0x1CC,4))!=-1||
-            common.FrameNumber!=camera.FrameNumber||!common.CommonViewResource240Present||
-            common.Scope!=MapFreshCommonResourceScope.SourceCreatedNoCallbackBeforeAmbientPublication||
-            common.CommonViewFlags8!=flags8||common.Resource240Flags0C!=flags0C)
+            common.FrameNumber!=camera.FrameNumber||!common.AuxiliaryPresent||
+            common.Scope!=CommonRenderPublicationKind.InitialSettings||
+            common.CommonFlags!=flags8||common.AuxiliaryLightingFlags!=flags0C)
             throw new InvalidDataException("Scene proxy allocation policy differs from the actual selected View/Common frame.");
     }
     private static void RequireFresh(MapCameraConstructionPacket camera,
-        MapFreshCommonResourceSnapshot common,LoadedDefaultView0Source defaults,uint f8,uint f0C,string locale)
+        MapCommonRenderState common,LoadedDefaultView0Source defaults,uint f8,uint f0C,string locale)
     {
         if(camera.ExecutableLocale!=locale||camera.FrameNumber<=0||camera.Source.Camera.ObjectId!=defaults.MainCameraObjectId||
             BinaryPrimitives.ReadInt32LittleEndian(camera.Prefix.Span.Slice(0x1CC,4))!=-1||
-            common.FrameNumber!=camera.FrameNumber||!common.CommonViewResource240Present||
-            common.Scope!=MapFreshCommonResourceScope.SourceCreatedNoCallbackBeforeAmbientPublication||
-            common.CommonViewFlags8!=f8||common.Resource240Flags0C!=f0C)
+            common.FrameNumber!=camera.FrameNumber||!common.AuxiliaryPresent||
+            common.Scope!=CommonRenderPublicationKind.InitialSettings||
+            common.CommonFlags!=f8||common.AuxiliaryLightingFlags!=f0C)
             throw new InvalidDataException("Fresh Scene proxy needs the actual Main0 prepared View and source Common Aux owners.");
     }
 }

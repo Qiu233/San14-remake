@@ -106,7 +106,7 @@ public sealed class SceneViewNativeMapWorldSkySourceOwner : IAsyncDisposable
         if (execution.SelectedViewIndex != 0 || outer.Binding != world.First.Lighting.Binding ||
             !outer.LocalLightData.Span.SequenceEqual(world.First.Lighting.LocalLightData.Span) ||
             !ReferenceEquals(world.Rgb, world.Present.AcceptedSeasonCamera) ||
-            world.First.Common.CurrentViewAux3F2 is not byte selector || selector is < 1 or > 32)
+            world.First.Common.ViewGroupSelector is not byte selector || selector is < 1 or > 32)
             throw new InvalidDataException("World Sky requires its actual primary Main/View, RGB/Present and current Common selector.");
         uint mask = 1u << (selector - 1);
         var selected = world.Queue.FirstOrDefault(r => (r.CurrentWorldPQWord78 & ~mask) == 0)

@@ -7,7 +7,7 @@ public sealed partial class ArmyWorldQueueNativeColorSourceOwner
     /// native inactive factors or unbound-slot history are reconstructed.</summary>
     public static ArmyWorldQueueActiveColorSourceOwner CaptureActualActiveEntry(
         LoadedModelFrontendColorSource source,ArmyWorldQueuePrimitivePlan actualPlan,
-        ModelQueueStateSource actualQueue,MapFreshCommonResourceSnapshot actualCommon,
+        ModelQueueStateSource actualQueue,MapCommonRenderState actualCommon,
         int actualBoundColorCount,Action requireActualCurrentScope)
     {
         ArgumentNullException.ThrowIfNull(source);ArgumentNullException.ThrowIfNull(actualPlan);
@@ -32,7 +32,7 @@ public sealed class ArmyWorldQueueActiveColorSourceOwner : IArmyWorldQueueNative
 
     internal ArmyWorldQueueActiveColorSourceOwner(LoadedModelFrontendColorSource source,
         ArmyWorldQueuePrimitivePlan plan,ModelQueueStateSource queue,
-        MapFreshCommonResourceSnapshot common,int actualBoundColorCount,Action current)
+        MapCommonRenderState common,int actualBoundColorCount,Action current)
     {
         this.source=source;this.plan=plan;node=queue.Node.Index;requireActualCurrentScope=current;
         if(node is not(49 or 50)||actualBoundColorCount!=6||

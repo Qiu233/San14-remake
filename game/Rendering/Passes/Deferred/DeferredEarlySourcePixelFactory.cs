@@ -225,7 +225,7 @@ public sealed class DeferredEarlySourcePixelFactory : IAsyncDisposable
                 currentView.Binding.CameraOwnerIdentity != accepted.Feature.Binding.CameraOwnerIdentity ||
                 !currentSelections.Select(s => s.SourcePlan.Node.Index).Order().SequenceEqual(new[] { 77, 78, 79, 80 }))
                 throw new InvalidDataException("Early draw requires one complete accepted Camera/View/Q source frame.");
-            if ((accepted.Feature.CurrentView.CommonViewResource240Present == true) != currentCommonViewAux3F2.HasValue)
+            if ((accepted.Feature.CurrentView.AuxiliaryPresent == true) != currentCommonViewAux3F2.HasValue)
                 throw new InvalidDataException("Early outer cache requires the current CommonView+240 presence and its actual byte3F2.");
             if (registration is not null) await registration.ValidateAsync();
             await PrepareTargetAsync(accepted.Context, currentSelections[0].SourcePlan.Graph);
@@ -340,7 +340,7 @@ public sealed class DeferredEarlySourcePixelFactory : IAsyncDisposable
             lock(lifetime)ObjectDisposedException.ThrowIf(retiring,this);
             LastCompletedFrame=null;
             string provenance=first.Selection.Current.CurrentProducerProvenance;
-            var common=world.Passes[0].Frame.Common.CurrentViewAux3F2;
+            var common=world.Passes[0].Frame.Common.ViewGroupSelector;
             var q=world.Passes[0].Frame.Context;
             await PrepareTargetAsync(first.Context,currentPasses[0].Selections[0].SourcePlan.Graph);
             DeferredEarlyShaderDepthPublication? sharedTransport=null;

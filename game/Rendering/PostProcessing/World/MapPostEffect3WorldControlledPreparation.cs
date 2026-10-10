@@ -43,7 +43,7 @@ public sealed partial class MapPostEffect3WorldControlledPreparation
         GraphicsConfiguration=callerSource.CreateFreshOwnedConfiguration(allocation.ContextOwnerIdentity+"/actual-owned-native-configuration");
         // Fresh FrameSync/Common and Apply clock owners initialize these
         // fields to zero.
-        commonClock=new(callerSource,MapFreshCommonResources.ReadSourceTemplate(commonTemplate));
+        commonClock=new(callerSource,CommonRenderResources.ImportSettings(commonTemplate));
     }
     public MapFinalOutputPostEffect3Source Source{get;}
     public string ExecutableLocale=>native.Camera.Native.Locale;
@@ -72,7 +72,7 @@ public sealed partial class MapPostEffect3WorldControlledPreparation
             throw new InvalidDataException("World controlled preparation requires the actual complete source3SPK allocation plan.");
         return new(actualDependencies,actualHost,actualBankSource,source,
             MapPostEffect3OwnedControlledCameraSources.Load(repo,locale),
-            repo.LoadObjects("KIDSSystemResource",MapFreshCommonResources.SourceFileId),
+            repo.LoadObjects("KIDSSystemResource",CommonRenderResources.SourceFileId),
             repo.LoadObjects("KIDSSystemResource",0xD2ECCCDF),MapSeasonPreparedLutSource.Load(repo,locale),
             MapPostEffect3LutSelectorSource.Load(repo,locale),MapPostEffect3ControlledAuxSource.Load(repo,locale),
             RenderSamplerSourceAdapters.ReadFallbackCameraRectangleNativeSource(
@@ -160,7 +160,7 @@ public sealed partial class MapPostEffect3WorldControlledPreparation
     }
 
     private (float Time254,float ApplyDelta) CaptureActualSourceClock(NativeMapFrameContext context,
-        MapFreshCommonResourceSnapshot actualCommon,MapPostEffect3FirstWorldFrontendPreparationInputs actualClock)
+        MapCommonRenderState actualCommon,MapPostEffect3FirstWorldFrontendPreparationInputs actualClock)
     {
         // Normal geometry has already published this request. Legacy
         // diagnostic captures use the same entry if none was prepared;

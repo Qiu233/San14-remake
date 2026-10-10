@@ -52,9 +52,9 @@ public sealed class D3D11CurrentSeasonResources
 
         // Resolve this caller scope once at its load boundary. The current Eye
         // is not involved in the actual force=-1, pair0/0, weight0 branch.
-        var commonSource = MapFreshCommonResources.ReadSourceTemplate(
-            repository.LoadObjects("KIDSSystemResource", MapFreshCommonResources.SourceFileId));
-        var common = MapFreshCommonResources.PrepareSourceCreatedBeforeAmbientPublication(
+        var commonSource = CommonRenderResources.ImportSettings(
+            repository.LoadObjects("KIDSSystemResource", CommonRenderResources.SourceFileId));
+        var common = MapCommonRenderState.FromSettings(
             commonSource, initialMain.Camera.FrameNumber, "d3d11-season/settings",
             "d3d11-season/common", "d3d11-season/view", "fresh-source-before-ambient");
         _ = DirectionalLightProviderCaller.CaptureFreshOwnedCaller(repository,
@@ -62,7 +62,7 @@ public sealed class D3D11CurrentSeasonResources
         var lights = actualOrderedRoots.Select(root => new Light(root.SourceObjectId,
             root.Metadata.SourceGroupMask,
             DirectionalLightConstruction.ConstructProviderRootZeroPairTemporary(root))).ToArray();
-        return new(source, lights, common.CurrentViewAux3F2 ?? 0);
+        return new(source, lights, common.ViewGroupSelector ?? 0);
     }
 
     /// <summary>Load at initial creation or a real World-third-date season

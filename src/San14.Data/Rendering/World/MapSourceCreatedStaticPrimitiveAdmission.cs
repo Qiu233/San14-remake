@@ -88,8 +88,8 @@ public sealed class MapSourceCreatedStaticPrimitiveAdmissionPlan
             actualPublication.FreshWorldPqOrdinaryMaskFields328And334Retained != true ||
             actualPublication.ActualGeometryInputFallbackOwnsSource != true ||
             !SamePublication(actualPublication.CurrentViewPublication, currentFrame.ViewFields.CurrentPublication) ||
-            currentFrame.Common.CurrentAuxiliaryExclusion404 is not uint commonExclusion ||
-            currentFrame.Common.CurrentViewAux3F2 is not byte selector ||
+            currentFrame.Common.ModelExclusionMask is not uint commonExclusion ||
+            currentFrame.Common.ViewGroupSelector is not byte selector ||
             string.IsNullOrWhiteSpace(actualPublication.CpuPublicationIdentity))
             throw new InvalidDataException("Static admission requires this complete current Main publication, retained ordinary mask and source geometry fallback.");
         var recordMasks = MapSourceCreatedViewFields.SourceKind1RecordMasks(currentFrame.Lighting, selector);
@@ -148,7 +148,7 @@ public sealed class MapSourceCreatedStaticPrimitiveAdmissionPlan
             actualPublication.FreshWorldPqOrdinaryMaskFields328And334Retained != true ||
             actualPublication.ActualGeometryInputFallbackOwnsSource != true ||
             !SamePublication(actualPublication.CurrentViewPublication, currentFrame.ViewFields.CurrentPublication) ||
-            currentFrame.Common.CurrentAuxiliaryExclusion404 is not uint commonExclusion ||
+            currentFrame.Common.ModelExclusionMask is not uint commonExclusion ||
             string.IsNullOrWhiteSpace(actualPublication.CpuPublicationIdentity) ||
             actualPublication.OtherCurrentOrdinaryPrimitiveCounts is not null ||
             (completeOtherCountsByRecordOwner is null ? actualPublication.OtherOrdinaryPublishersAbsent != true :

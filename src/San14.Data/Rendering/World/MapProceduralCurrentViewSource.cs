@@ -10,16 +10,9 @@ public sealed record ProceduralViewSettings(uint CullingType450, uint ScanningTy
     /// selected fresh CommonView without a subsequent callback or overlay.</summary>
     public static ProceduralViewSettings FreshSelected(LoadedObjects actualCommonTemplate)
     {
-        var source=MapFreshCommonResources.ReadSourceTemplate(actualCommonTemplate);
-        var row=actualCommonTemplate.Document.Objects.Single(o=>o.ObjectId==MapFreshCommonResources.SourceObjectId);
-        uint Read(int index,uint hash)
-        {
-            var p=row.Properties[index];
-            if(p.Index!=index||p.NameHash!=hash||p.TypeCode!=5||p.ElementCount!=1||p.RawValue.Length!=4)
-                throw new InvalidDataException("Procedural current CommonView source property differs.");
-            return BinaryPrimitives.ReadUInt32LittleEndian(p.RawValue);
-        }
-        return new(Read(100,0x5F8F6D22),Read(101,0x2696E06D),source.SourceIdentity+";D223C0->D1E410 no-overlay current450/454");
+        var source=CommonRenderResources.ImportSettings(actualCommonTemplate);
+        uint Read(uint hash) => CommonRenderResources.ReadScalar(actualCommonTemplate, hash, 5);
+        return new(Read(0x5F8F6D22),Read(0x2696E06D),source.SourceIdentity+";D223C0->D1E410 no-overlay current450/454");
     }
 }
 

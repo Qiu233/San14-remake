@@ -109,7 +109,7 @@ public static class D3D11OwnedNumericInputPreparation
 
     private static void WritePostCallers(GameResourceRepository repository,
         D3D11CurrentSeasonLibrary library, string inputRoot,
-        LoadedMapFreshCommonSource common, uint lockedAdaptationBits)
+        CommonRenderSettings common, uint lockedAdaptationBits)
     {
         var main = MapCameraConstructionSource.ReadPerspective(
             repository.LoadObjects("system", 0x908AB6E2), MainMapCameraAdapter.MainCameraObjectId).Camera;

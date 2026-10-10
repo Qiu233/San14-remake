@@ -145,7 +145,7 @@ public sealed class SkyAmbientSourceEnableInputs
     public bool AllowsWorkInitialization { get; }
     public string SourceProvenance { get; }
     public static SkyAmbientSourceEnableInputs PrepareCurrentSourcePresentTable(
-        SkySeasonMainCameraRgbFrame camera,MapFreshCommonResourceSnapshot common,
+        SkySeasonMainCameraRgbFrame camera,MapCommonRenderState common,
         string currentSelectedViewIdentity)
     {
         ArgumentNullException.ThrowIfNull(camera);ArgumentNullException.ThrowIfNull(common);
@@ -154,13 +154,13 @@ public sealed class SkyAmbientSourceEnableInputs
         if(camera.Inputs.MainFrame.Camera.Source.Camera.ObjectId!=0x38D04576||
             !camera.Inputs.Source.UsesSourceCreatedEmptyAxes)
             throw new NotSupportedException("Sky source enable requires the owned direct Main source present-table producer.");
-        byte? value=common.CurrentAuxiliaryByte12;
-        if(common.CommonViewResource240Present&&value is null)
+        byte? value=common.SkyEnableFlags;
+        if(common.AuxiliaryPresent&&value is null)
             throw new InvalidDataException("Present current Common Aux requires its actual byte12; partial fresh fields cannot disable Sky.");
-        if(!common.CommonViewResource240Present&&value is not null)
+        if(!common.AuxiliaryPresent&&value is not null)
             throw new InvalidDataException("Sky Common absence and current Aux publication disagree.");
         bool enable=value is null||(value.Value&1)==0;
-        return new(camera.Inputs.FrameNumber,currentSelectedViewIdentity,common.CommonViewResource240Present,
+        return new(camera.Inputs.FrameNumber,currentSelectedViewIdentity,common.AuxiliaryPresent,
             value,enable,common.ProducerProvenance+";"+camera.SourceProvenance+
             ";TC:EA3DAB-EA3DFD;actual-Common-byte12-and-owned-source-Main1680");
     }

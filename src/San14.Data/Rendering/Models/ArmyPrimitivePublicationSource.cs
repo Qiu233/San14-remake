@@ -127,7 +127,7 @@ public sealed class ArmyCurrentPrimitivePublication
     /// for every independent World record. Nonempty armies require record
     /// identities and per-record capacity admission before using this path.</summary>
     public static ArmyCurrentPrimitivePublication PrepareEmptyWorld(
-        MapSourceCreatedLightingPacket lighting, MapFreshCommonResourceSnapshot common,
+        MapSourceCreatedLightingPacket lighting, MapCommonRenderState common,
         MapWorldKind1CurrentQueue queue,
         IReadOnlyList<ArmyCurrentPrimitiveActor> completeCurrentActors, string currentPublicationIdentity)
     {
@@ -140,7 +140,7 @@ public sealed class ArmyCurrentPrimitivePublication
             throw new NotSupportedException("Nonempty World Army publication needs actual per-record primitive admission.");
         if (queue.FrameNumber != lighting.FrameNumber || queue.Binding != lighting.Binding ||
             lighting.SourceLightClassId != DirectionalLightSource.SourceClass ||
-            common.CurrentAuxiliaryExclusion404 is null || queue.Records.Count != 5 ||
+            common.ModelExclusionMask is null || queue.Records.Count != 5 ||
             queue.Records.Select(r => r.Mask78).Distinct().Count() != queue.Records.Count ||
             !queue.Records.Any(r => r.Source.SourceObjectId == lighting.SourceIdentity.MainLightObjectId))
             throw new InvalidDataException("Empty Army publication requires its exact five-record current World and Common.");

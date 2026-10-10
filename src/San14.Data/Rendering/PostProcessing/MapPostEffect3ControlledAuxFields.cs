@@ -51,27 +51,20 @@ public sealed class LoadedMapPostEffect3ControlledAuxSource
     public LoadedDeferredSamplerNativeSource Native{get;}
     public string SourceEvidence{get;}
     public MapPostEffect3ControlledAuxFields CaptureFreshSelectedTemplate(LoadedObjects template,
-        MapFreshCommonResourceSnapshot actualCommon,MapExposureViewAux actualSelectedViewAux)
+        MapCommonRenderState actualCommon,MapExposureViewAux actualSelectedViewAux)
     {
         ArgumentNullException.ThrowIfNull(actualCommon);ArgumentNullException.ThrowIfNull(actualSelectedViewAux);
-        var canonical=MapFreshCommonResources.ReadSourceTemplate(template);
-        if(actualCommon.Scope!=MapFreshCommonResourceScope.SourceCreatedNoCallbackBeforeAmbientPublication||
-            !actualCommon.CommonViewResource240Present||actualCommon.CommonViewFlags8!=canonical.Flags8||
-            actualCommon.Resource240Flags0C!=canonical.Flags0C||actualCommon.CurrentViewAux3F2!=canonical.ViewAux3F2)
+        var canonical=CommonRenderResources.ImportSettings(template);
+        if(actualCommon.Scope!=CommonRenderPublicationKind.InitialSettings||
+            !actualCommon.AuxiliaryPresent||actualCommon.CommonFlags!=canonical.Flags8||
+            actualCommon.AuxiliaryLightingFlags!=canonical.Flags0C||actualCommon.ViewGroupSelector!=canonical.ViewAux3F2)
             throw new NotSupportedException("Controlled Aux source fields require the actual fresh selected template with no later callback or overlay.");
-        var selected=MapExposureViewAux.ReadTemplate(template,MapFreshCommonResources.SourceObjectId);
+        var selected=MapExposureViewAux.ReadTemplate(template,CommonRenderResources.SourceObjectId);
         if(actualSelectedViewAux!=selected)
             throw new InvalidDataException("Controlled Aux template differs from the Host's actual selected View settings.");
-        var row=template.Document.Objects.Single(o=>o.ObjectId==MapFreshCommonResources.SourceObjectId);
-        int Word(int ordinal,uint hash,uint type)
-        {
-            var p=row.Properties[ordinal];
-            if(p.Index!=ordinal||p.NameHash!=hash||p.TypeCode!=type||p.ElementCount!=1||p.ElementSize!=4||p.RawValue.Length!=4)
-                throw new InvalidDataException("Controlled Aux source field differs from its exact loader declaration.");
-            return BinaryPrimitives.ReadInt32LittleEndian(p.RawValue);
-        }
+        int Word(uint hash,uint type) => unchecked((int)CommonRenderResources.ReadScalar(template, hash, type));
         var fields=new MapPostEffect3ControlledAuxFields(actualCommon.FrameNumber,actualCommon.SelectedViewOwnerIdentity,
-            canonical.Flags8,Word(31,0x668912BD,4),Word(10,0xBB7C520E,4),Word(92,0x6B8FE283,5),Word(95,0x29DA6891,5),
+            canonical.Flags8,Word(0x668912BD,4),Word(0xBB7C520E,4),Word(0x6B8FE283,5),Word(0x29DA6891,5),
             true,
             SourceEvidence+";"+canonical.SourceIdentity+";"+actualCommon.ProducerProvenance+
             "-Aux108-source-null/-no-writer/-F0-arena-current-copy;actual-selected-View;only-read-fields;not-a-synthesized460-record");

@@ -25,7 +25,7 @@ public sealed partial class MapPostEffect3WorldControlledPreparation
     /// before57/58 consume Common254. Pass the actual App/renderer clock input,
     /// not a presentation duration substituted for that source input.</summary>
     public MapPostEffect3WorldCommonClockPublication PrepareCommonClockBeforeGeometry(
-        NativeMapFrameContext actualContext,MapFreshCommonResourceSnapshot actualCommon,
+        NativeMapFrameContext actualContext,MapCommonRenderState actualCommon,
         MapPostEffect3FirstWorldFrontendPreparationInputs actualClock)
     {
         ArgumentNullException.ThrowIfNull(actualContext);ArgumentNullException.ThrowIfNull(actualCommon);
@@ -57,7 +57,7 @@ public sealed partial class MapPostEffect3WorldControlledPreparation
             RequireCurrentClockWorld(actual.Context,common);
         }
     }
-    private void RequireCurrentClockWorld(NativeMapFrameContext context,MapFreshCommonResourceSnapshot common)
+    private void RequireCurrentClockWorld(NativeMapFrameContext context,MapCommonRenderState common)
     {
         var prepared=host.Session.CurrentFrame??throw new InvalidDataException("Common clock requires current World CPU preparation.");
         var world=host.Session.CurrentWorld??throw new InvalidDataException("Common clock requires the same actual World source owner.");

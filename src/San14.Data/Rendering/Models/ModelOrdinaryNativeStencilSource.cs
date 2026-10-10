@@ -132,7 +132,7 @@ public sealed class ModelOrdinaryNativeStencilSource
     /// plugin registry, callback, binding or context override must have its
     /// separate complete current source recipe.</summary>
     public ModelOrdinaryNativeStencilReceipt PrepareCurrent(
-        ModelOrdinaryDispatcherRecord actualRecord, MapFreshCommonResourceSnapshot currentCommon,
+        ModelOrdinaryDispatcherRecord actualRecord, MapCommonRenderState currentCommon,
         uint actualContextFlags3E4, ModelFreshOwnedStencilPublication current)
     {
         ArgumentNullException.ThrowIfNull(actualRecord); ArgumentNullException.ThrowIfNull(current);

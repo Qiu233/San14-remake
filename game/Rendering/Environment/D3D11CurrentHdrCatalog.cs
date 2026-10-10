@@ -36,12 +36,12 @@ public sealed class D3D11CurrentHdrCatalog
         MainMapCameraFrame initialMain, HdrShaderResources resources,
         IReadOnlyList<D3D11PreparedHdrPass> preparedPasses)
     {
-        var common = MapFreshCommonResources.PrepareSourceCreatedBeforeAmbientPublication(
-            MapFreshCommonResources.ReadSourceTemplate(repository.LoadObjects(
-                "KIDSSystemResource", MapFreshCommonResources.SourceFileId)),
+        var common = MapCommonRenderState.FromSettings(
+            CommonRenderResources.ImportSettings(repository.LoadObjects(
+                "KIDSSystemResource", CommonRenderResources.SourceFileId)),
             initialMain.Camera.FrameNumber, "current-hdr/settings", "current-hdr/common",
             "current-hdr/view", "source-created-before-ambient");
-        uint selector = common.CurrentViewAux3F2 is > 0 ? common.CurrentViewAux3F2.Value
+        uint selector = common.ViewGroupSelector is > 0 ? common.ViewGroupSelector.Value
             : resources[HdrShaderResources.MainLightingNode].LightGroup;
         uint outerMask = 1u << (int)((selector - 1) & 31);
         bool fogOwner = SkySceneSourceDefaults.SharedContextInitializer().FogEnabled120;
@@ -78,7 +78,7 @@ public sealed class D3D11CurrentHdrCatalog
                     writes.Add(new(Names[i], variable.StartOffset + begin, begin, local - begin));
                 }
             }
-            routes.Add(new(pass, slot, globals.ByteSize, common.NativeArg18, fogOwner, writes.AsReadOnly()));
+            routes.Add(new(pass, slot, globals.ByteSize, common.SuppressAmbient, fogOwner, writes.AsReadOnly()));
         }
         return new(resources, routes, ambientRate);
     }

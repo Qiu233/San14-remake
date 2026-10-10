@@ -14,7 +14,7 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
     private readonly MapSourceCreatedF103CurrentFrameFactory factory;
     private readonly DeferredF103WorldPassSource associationSource;
     private readonly MainMapContextCurrentSource contextOwner;
-    private readonly LoadedMapFreshCommonSource commonSource;
+    private readonly CommonRenderSettings commonSource;
     private readonly LoadedDeferredEarlyShadowDirectionAuxSource shadowDirectionAux;
     private readonly DeferredEarlyShadowContextConstructorFields shadowContextFields;
     private readonly LoadedDeferredEarlyShadowForceFitSource shadowForceFitSource;
@@ -130,7 +130,7 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
         associationSource=DeferredF103WorldPassAssociations.ReadNode166(plan.Graph);
         contextOwner=MainMapContextCurrentSource.CreateFresh(repo,locale,generation+"/Host");
         var commonObjects=repo.LoadObjects("KIDSSystemResource",0x6D011726);
-        commonSource=MapFreshCommonResources.ReadSourceTemplate(commonObjects);
+        commonSource=CommonRenderResources.ImportSettings(commonObjects);
         shadowDirectionAux=DeferredEarlyShadowDirectionSource.ReadSourceCreatedTemplate(commonObjects);
         armyCommonView=MapModelNativeVisibilitySources.ReadCommonViewTemplate(commonObjects,0x899F101B);
         scalars=SceneViewNativeMapSourceFields.CreateFreshRetainedMain(loaded.InitialFrame.MainCamera.Camera);
@@ -217,7 +217,7 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
         resources.RequireCurrentLightSources(sources);
         string Record(int index)=>generation+"/World-record/"+index;
         string Light(int index)=>index==2?Binding.LightOwnerIdentity:generation+"/Directional-data/"+index;
-        var common=MapFreshCommonResources.PrepareSourceCreatedBeforeAmbientPublication(commonSource,number,
+        var common=MapCommonRenderState.FromSettings(commonSource,number,
             generation+"/source-Common-settings",generation+"/Common",Binding.ViewIdentity,generation+"/properties-before-ambient");
         var provider=providers?.Invoke(declarations);
         var caller=provider is null?null:DirectionalLightProviderCaller.CaptureFreshOwnedCaller(loaded.Repository,
@@ -271,7 +271,7 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
             throw new InvalidDataException("World Army publication differs from its actual BeforeFrame canonical source inventory.");
         Mark("current-army-visibility-and-record-counts");
         var tail=MapSourceCreatedViewFields.ReadFreshRetainedCameraFields(capture.MainCamera.Camera);
-        if(tail.ViewSignedA00 is <1 or >32||common.CurrentViewAux3F2 is not byte sky||sky is <1 or >32)
+        if(tail.ViewSignedA00 is <1 or >32||common.ViewGroupSelector is not byte sky||sky is <1 or >32)
             throw new NotSupportedException("Current World needs its actual shadow and Sky selectors.");
         uint shadowMask=1u<<(tail.ViewSignedA00-1),skyMask=1u<<(sky-1);
         var shadow=queue.FirstOrDefault(r=>(r.CurrentWorldPQWord78&shadowMask)!=0)??throw new InvalidDataException("Actual shadow root is absent.");

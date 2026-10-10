@@ -152,7 +152,7 @@ public sealed partial class NativeMapArmyPopulationRenderer:IAsyncDisposable
 
     public async Task<ArmyCurrentPrimitivePublication> PrepareCurrentPrimitivePublicationAsync(
         NativeMapArmyPreparedFrame prepared,MapSourceCreatedLightingPacket lighting,
-        MapFreshCommonResourceSnapshot common,NativeArmyCurrentEligibility? currentEligibility=null)
+        MapCommonRenderState common,NativeArmyCurrentEligibility? currentEligibility=null)
     {
         ArgumentNullException.ThrowIfNull(prepared);Accept();await _gate.WaitAsync();
         try
@@ -169,7 +169,7 @@ public sealed partial class NativeMapArmyPopulationRenderer:IAsyncDisposable
 
     public async Task<ArmyCurrentPrimitivePublication> PrepareCurrentEmptyWorldPrimitivePublicationAsync(
         NativeMapArmyPreparedFrame prepared, MapSourceCreatedLightingPacket lighting,
-        MapFreshCommonResourceSnapshot common, MapWorldKind1CurrentQueue actualWorldQueue)
+        MapCommonRenderState common, MapWorldKind1CurrentQueue actualWorldQueue)
     {
         ArgumentNullException.ThrowIfNull(prepared); Accept(); await _gate.WaitAsync();
         try

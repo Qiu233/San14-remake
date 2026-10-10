@@ -26,7 +26,7 @@ public sealed class MapSourceCreatedF103CurrentFrame
 {
     internal MapSourceCreatedF103CurrentFrame(MapCameraConstructionPacket camera,
         MapSourceCreatedLightingPacket lighting, MapSourceCreatedViewFieldsPacket fields,
-        MapFreshCommonResourceSnapshot common, MainMapContextCurrentPacket context,
+        MapCommonRenderState common, MainMapContextCurrentPacket context,
         MapSourceCreatedF103ColorPacket color, DeferredF103CurrentViewInputs view,
         DeferredF103CurrentVariantInputs variant, MapSourceCreatedF103FeaturePacket feature,
         DeferredF103SelectedSource selection, MapSourceCreatedReflectionQueryScope reflectionScope,
@@ -41,7 +41,7 @@ public sealed class MapSourceCreatedF103CurrentFrame
     public MapCameraConstructionPacket Camera { get; }
     public MapSourceCreatedLightingPacket Lighting { get; }
     public MapSourceCreatedViewFieldsPacket ViewFields { get; }
-    public MapFreshCommonResourceSnapshot Common { get; }
+    public MapCommonRenderState Common { get; }
     public MainMapContextCurrentPacket Context { get; }
     public MapSourceCreatedF103ColorPacket Color { get; }
     public DeferredF103CurrentViewInputs View { get; }
@@ -80,14 +80,14 @@ public sealed class MapSourceCreatedF103CurrentFrameFactory
     public MapSourceCreatedF103CurrentFrame PrepareFromPopulation(
         MapStaticModelCurrentOwnedFrame currentCpuPopulation,
         MapSourceCreatedLightingSource sourceLighting, MapSourceCreatedLightingPacket currentLighting,
-        MapFreshCommonResourceSnapshot currentCommon, MainMapContextCurrentPacket currentContext,
+        MapCommonRenderState currentCommon, MainMapContextCurrentPacket currentContext,
         MapSourceCreatedF103PopulationPublicationInputs publication,
         int? actualReflectionQueryD57E20, string currentPreparationIdentity)
     {
         ArgumentNullException.ThrowIfNull(currentCpuPopulation); ArgumentNullException.ThrowIfNull(sourceLighting);
         ArgumentNullException.ThrowIfNull(currentLighting); ArgumentNullException.ThrowIfNull(currentCommon);
         ArgumentNullException.ThrowIfNull(publication); ArgumentException.ThrowIfNullOrWhiteSpace(publication.CpuPublicationIdentity);
-        if (!currentCpuPopulation.Population.Complete || currentCommon.CurrentViewAux3F2 is not byte selector)
+        if (!currentCpuPopulation.Population.Complete || currentCommon.ViewGroupSelector is not byte selector)
             throw new InvalidDataException("F103 population publication needs the complete CPU population and actual Common3F2 selector.");
         if (publication.OtherCurrentOrdinaryPrimitiveCounts is null && publication.OtherOrdinaryPublishersAbsent != true ||
             publication.OtherCurrentOrdinaryPrimitiveCounts is not null && publication.OtherOrdinaryPublishersAbsent != false)
@@ -98,7 +98,7 @@ public sealed class MapSourceCreatedF103CurrentFrameFactory
                 publication.CpuPublicationIdentity + ";ordinary-geometry-from-current-owned-source"))).ToArray();
         var counts = MapSourceCreatedViewFields.PrepareFreshModelPopulationCounts(currentCpuPopulation,
             sourceLighting, currentLighting, selector, publication.FreshWorldPqOrdinaryMaskFields328And334Retained,
-            currentCommon.CurrentAuxiliaryExclusion404, publication.CurrentExclusionOverrides, draws,
+            currentCommon.ModelExclusionMask, publication.CurrentExclusionOverrides, draws,
             publication.ActualGeometryInputFallbackOwnsSource, publication.CpuPublicationIdentity);
         if (publication.OtherCurrentOrdinaryPrimitiveCounts is { } other)
         {
@@ -124,7 +124,7 @@ public sealed class MapSourceCreatedF103CurrentFrameFactory
     public MapSourceCreatedF103CurrentFrame Prepare(
         MapCameraConstructionPacket acceptedMainCamera, MapSourceCreatedLightingPacket currentLighting,
         MapSourceCreatedViewFieldsPacket currentPublishedView,
-        MapFreshCommonResourceSnapshot currentCommon, MainMapContextCurrentPacket currentContext,
+        MapCommonRenderState currentCommon, MainMapContextCurrentPacket currentContext,
         int? actualReflectionQueryD57E20, string currentPreparationIdentity,
         MapStaticModelCurrentOwnedFrame? sameCurrentCpuPopulation = null,
         MapSourceCreatedLightingPacket? currentInnerModifierLighting = null,
@@ -151,8 +151,8 @@ public sealed class MapSourceCreatedF103CurrentFrameFactory
         if (!color.PreparationEnabled) throw new InvalidDataException("The native F103 color gate rejects this current preparation.");
         string provenance = currentPreparationIdentity + ";frame=" + camera.FrameNumber + ";" +
             currentPublishedView.SourceProvenance + ";" + currentCommon.ProducerProvenance + ";" + color.SourceProvenance;
-        var view = currentPublishedView.CreateF103Inputs(currentCommon.CommonViewResource240Present,
-            currentCommon.Resource240Flags0C) with { CurrentProducerProvenance = provenance };
+        var view = currentPublishedView.CreateF103Inputs(currentCommon.AuxiliaryPresent,
+            currentCommon.AuxiliaryLightingFlags) with { CurrentProducerProvenance = provenance };
         var reflectionScope = actualReflectionQueryD57E20.HasValue
             ? MapSourceCreatedReflectionQueryScope.ExplicitCurrentQuery
             : MapSourceCreatedReflectionQueryScope.InactiveBecauseSourceCamera1808IsNull;
@@ -162,10 +162,10 @@ public sealed class MapSourceCreatedF103CurrentFrameFactory
         // null, so either query result yields the same variant writer. Zero
         // here is only the inactive projection; no native getter0 is claimed.
         var variant = new DeferredF103CurrentVariantInputs(camera.FrameNumber, currentContext.ContextFlags3F0,
-            color.NativeColorMode, currentCommon.CommonViewFlags8, currentCommon.QueryD5BeA0,
+            color.NativeColorMode, currentCommon.CommonFlags, currentCommon.AmbientSelectionPresent,
             actualReflectionQueryD57E20 ?? 0, currentPublishedView.SelectedCamera1808Present,
-            currentCommon.CommonViewResource788Registered, currentCommon.CommonViewResource78CRegistered,
-            currentCommon.CommonViewResource8B8Registered, provenance);
+            currentCommon.AmbientMapFirstAvailable, currentCommon.AmbientMapSecondAvailable,
+            currentCommon.AmbientMapThirdAvailable, provenance);
         var feature = previousOrderedFeature is null
             ? currentInnerModifierLighting is null
                 ? MapSourceCreatedF103Feature.PrepareFirstKind1(camera, currentLighting, view)
@@ -186,7 +186,7 @@ public sealed class MapSourceCreatedF103CurrentFrameFactory
         MapStaticModelCurrentOwnedFrame currentCpuPopulation,
         MapWorldKind1CurrentQueue currentWorldQueue,
         MapSourceCreatedLightingPacket currentSelectedLighting,
-        MapFreshCommonResourceSnapshot currentCommon, MainMapContextCurrentPacket currentContext,
+        MapCommonRenderState currentCommon, MainMapContextCurrentPacket currentContext,
         MapSourceCreatedF103PopulationPublicationInputs publication,
         IReadOnlyDictionary<string, int>? completeOtherCountsByRecordOwner,
         int? actualReflectionQueryD57E20, string currentPreparationIdentity,
@@ -207,7 +207,7 @@ public sealed class MapSourceCreatedF103CurrentFrameFactory
                 publication.CpuPublicationIdentity + ";ordinary-geometry-from-current-owned-source"))).ToArray();
         var counts = MapSourceCreatedWorldKind1Publication.PrepareFreshModelPopulationCounts(
             currentCpuPopulation, currentWorldQueue, publication.FreshWorldPqOrdinaryMaskFields328And334Retained,
-            currentCommon.CurrentAuxiliaryExclusion404, publication.CurrentExclusionOverrides, draws,
+            currentCommon.ModelExclusionMask, publication.CurrentExclusionOverrides, draws,
             publication.ActualGeometryInputFallbackOwnsSource, publication.CpuPublicationIdentity);
         if (completeOtherCountsByRecordOwner is not null)
             counts = MapSourceCreatedWorldKind1Publication.MergeCompleteOtherCounts(counts,

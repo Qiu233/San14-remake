@@ -92,12 +92,12 @@ public static class D3D11NormalPostInitialInputPreparation
         var lens=MapPostEffect3LensPresetSource.LoadForCamera(repository,camera.Source,locale);
         var lookups=MapPostEffect3ApplyFreshLutLookups.ConstructFreshSource(camera,owner,lens,hdr,ldr);
         var hdrRecipe=MapPostEffect3StaticHdrNativeSource.Load(repository,locale).ReadSelectedCurrent(hdr);
-        var commonTemplate=repository.LoadObjects("KIDSSystemResource",MapFreshCommonResources.SourceFileId);
-        var common=MapFreshCommonResources.PrepareSourceCreatedBeforeAmbientPublication(
-            MapFreshCommonResources.ReadSourceTemplate(commonTemplate),frame,
+        var commonTemplate=repository.LoadObjects("KIDSSystemResource",CommonRenderResources.SourceFileId);
+        var common=MapCommonRenderState.FromSettings(
+            CommonRenderResources.ImportSettings(commonTemplate),frame,
             owner+"/Settings",owner+"/Common",owner+"/View","fresh-native-post-numeric-owner");
         var aux=MapPostEffect3ControlledAuxSource.Load(repository,locale).CaptureFreshSelectedTemplate(
-            commonTemplate,common,MapExposureViewAux.ReadTemplate(commonTemplate,MapFreshCommonResources.SourceObjectId));
+            commonTemplate,common,MapExposureViewAux.ReadTemplate(commonTemplate,CommonRenderResources.SourceObjectId));
         var callerSource=MapPostEffect3ControlledFreshCallerSource.Load(repository,locale);
         var fresh=callerSource.CaptureFreshCurrent(camera,transfer,lookups);
         var configuration=callerSource.CreateFreshOwnedConfiguration(owner+"/Configuration");

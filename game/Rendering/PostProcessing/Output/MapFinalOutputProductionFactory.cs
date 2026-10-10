@@ -53,7 +53,7 @@ public sealed record MapFinalOutputProductionFrameInputs(
     {
         ArgumentNullException.ThrowIfNull(world);
         if(!ReferenceEquals(current.PreparedSourceFrame,world.First)||
-            world.First.Common.CurrentViewAux3F2 is not byte selector||selector is <1 or >32)
+            world.First.Common.ViewGroupSelector is not byte selector||selector is <1 or >32)
             throw new InvalidDataException("World Final requires its actual selected View and same prepared primary source.");
         uint mask=1u<<(selector-1);
         var selected=world.Queue.FirstOrDefault(record=>(record.CurrentWorldPQWord78&~mask)==0)

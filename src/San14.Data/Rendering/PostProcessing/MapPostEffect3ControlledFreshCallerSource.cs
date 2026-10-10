@@ -133,19 +133,19 @@ public sealed class LoadedMapPostEffect3ControlledFreshCallerSource
     /// current clock, then publish block254. The scalar input is the renderer's
     /// actual current delta. Pause is the actual selected template flags10.bit3.</summary>
     public float AdvanceOwnedFrameSyncTime(float actualPrior3348,float actualRendererDelta,
-        LoadedObjects actualSelectedTemplate,MapFreshCommonResourceSnapshot actualCurrentCommon)
+        LoadedObjects actualSelectedTemplate,MapCommonRenderState actualCurrentCommon)
         => AdvanceOwnedFrameSyncTime(actualPrior3348,actualRendererDelta,
-            MapFreshCommonResources.ReadSourceTemplate(actualSelectedTemplate),actualCurrentCommon);
+            CommonRenderResources.ImportSettings(actualSelectedTemplate),actualCurrentCommon);
 
     /// <summary>Normal requests borrow the already imported selected template.
     /// Current Common ownership/fields remain current inputs; no DOK is read.</summary>
     public float AdvanceOwnedFrameSyncTime(float actualPrior3348,float actualRendererDelta,
-        LoadedMapFreshCommonSource actualSelectedTemplate,MapFreshCommonResourceSnapshot actualCurrentCommon)
+        CommonRenderSettings actualSelectedTemplate,MapCommonRenderState actualCurrentCommon)
     {
         ArgumentNullException.ThrowIfNull(actualSelectedTemplate);ArgumentNullException.ThrowIfNull(actualCurrentCommon);
         var source=actualSelectedTemplate;
-        if(actualCurrentCommon.Scope!=MapFreshCommonResourceScope.SourceCreatedNoCallbackBeforeAmbientPublication||
-            actualCurrentCommon.CommonViewFlags8!=source.Flags8||actualCurrentCommon.Resource240Flags0C!=source.Flags0C||
+        if(actualCurrentCommon.Scope!=CommonRenderPublicationKind.InitialSettings||
+            actualCurrentCommon.CommonFlags!=source.Flags8||actualCurrentCommon.AuxiliaryLightingFlags!=source.Flags0C||
             !float.IsFinite(actualPrior3348)||!float.IsFinite(actualRendererDelta))
             throw new InvalidDataException("Current FrameSync time requires this retained source Common and finite actual clock.");
         return MapCommonFrameClockSource.PrepareFrameSyncTime(actualPrior3348,actualRendererDelta,source.Flags10).CurrentTime3348;

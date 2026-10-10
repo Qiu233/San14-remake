@@ -209,21 +209,18 @@ public sealed class LoadedWorldGeometryLateEffectSource
     public static LoadedWorldGeometryLateEffectSource Load(GameResourceRepository repository, string locale)
     {
         ArgumentNullException.ThrowIfNull(repository);
-        var common=repository.LoadObjects("KIDSSystemResource",MapFreshCommonResources.SourceFileId);
-        _=MapFreshCommonResources.ReadSourceTemplate(common); // canonical source acceptance at load only.
-        var mode=common.Document.Objects.Single(o=>o.ObjectId==MapFreshCommonResources.SourceObjectId).Properties[43];
-        if(mode.Index!=43||mode.NameHash!=0xA1BA4B90||mode.TypeCode!=5||mode.ElementCount!=1||mode.RawValue.Length!=4)
-            throw new InvalidDataException("Late Aux408 differs from its source loader property43 binding.");
-        return new(RenderSamplerSourceAdapters.LoadWorldGeometryLateEffectNativeSource(repository.SourceDirectory, locale),
-            BinaryPrimitives.ReadUInt32LittleEndian(mode.RawValue));
+        var common=repository.LoadObjects("KIDSSystemResource",CommonRenderResources.SourceFileId);
+        _=CommonRenderResources.ImportSettings(common); // canonical source acceptance at load only.
+        uint mode = CommonRenderResources.ReadScalar(common, 0xA1BA4B90, 5);
+        return new(RenderSamplerSourceAdapters.LoadWorldGeometryLateEffectNativeSource(repository.SourceDirectory, locale), mode);
     }
     public WorldGeometryLateEffectParameterState ConstructRegisteredSourceModules(
         LoadedWorldGeometryLateHostSource actualHostSource) => new(this,actualHostSource);
-    public WorldGeometryLateAuxParameters ReadSourceCreatedAux(MapFreshCommonResourceSnapshot actualCommon)
+    public WorldGeometryLateAuxParameters ReadSourceCreatedAux(MapCommonRenderState actualCommon)
     {
         ArgumentNullException.ThrowIfNull(actualCommon);
-        if (actualCommon.Scope != MapFreshCommonResourceScope.SourceCreatedNoCallbackBeforeAmbientPublication ||
-            !actualCommon.CommonViewResource240Present)
+        if (actualCommon.Scope != CommonRenderPublicationKind.InitialSettings ||
+            !actualCommon.AuxiliaryPresent)
             throw new NotSupportedException("Late Aux fields require the current owned source-created no-callback publication or explicit resource owners.");
         // D02010 clears338/348; D223C0 never writes either physical qword.
         // D1E410 copies both from the retained saved settings. Null callback

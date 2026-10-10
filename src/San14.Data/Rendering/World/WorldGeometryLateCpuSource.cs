@@ -60,7 +60,7 @@ public sealed class LoadedWorldGeometryLateCpuSource
         return new(true, true, count != 0, count, count == 0 ? null : new(true, false, 2, false));
     }
     public ModelOrdinaryDispatcherStencilPacket Prepare58Record(
-        ModelOrdinaryDispatcherRecord current, MapFreshCommonResourceSnapshot common, uint contextFlags3E4)
+        ModelOrdinaryDispatcherRecord current, MapCommonRenderState common, uint contextFlags3E4)
         => ModelOrdinaryDispatcherStencilSource.Prepare(Queue58, current, common, contextFlags3E4);
     public static int EffectiveCurrentCount(int stored, int capacity)
     {

@@ -52,17 +52,7 @@ public sealed record MapExposureViewAux(uint Flags8, int ToneType3A4,
     /// does not claim that the original process selected the same context entry.</summary>
     public static MapExposureViewAux ReadTemplate(LoadedObjects source,uint objectId)
     {
-        ArgumentNullException.ThrowIfNull(source);
-        var rows=source.Document.Objects.Where(o=>o.ObjectId==objectId).ToArray();
-        if(rows.Length!=1||rows[0].Kind!=DokObjectKind.Inline||rows[0].ClassId!=0xEF3D849D||rows[0].Properties.Count!=102)
-            throw new InvalidDataException("Exposure requires an explicitly selected102-property CommonViewSetting template.");
-        uint Word(uint hash)
-        {
-            var fields=rows[0].Properties.Where(p=>p.NameHash==hash).ToArray();
-            if(fields.Length!=1||fields[0].TypeCode!=4||fields[0].ElementCount!=1||fields[0].RawValue.Length!=4)
-                throw new InvalidDataException("Exposure CommonViewSetting field has no original typed scalar.");
-            return BinaryPrimitives.ReadUInt32LittleEndian(fields[0].RawValue);
-        }
+        uint Word(uint hash) => CommonRenderResources.ReadScalar(source, hash, 4, objectId);
         return new(Word(0x74C9D1B9),unchecked((int)Word(0x71564E51)),true,
             source.Source.ResourceUri+$"#object/{objectId:X8}@{source.Source.DecodedSha256};constructor=D02D40;loader=D230F0;selected-remake-template")
             {CommonMode3C0=unchecked((int)Word(0x668912BD))};

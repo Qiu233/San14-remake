@@ -29,12 +29,12 @@ public sealed class ArmyWorldPrimitivePublication
     public IReadOnlyDictionary<string, int> CompleteCountsByRecordOwner => Counts.CompleteCurrentCpuCounts;
 
     public static ArmyWorldPrimitivePublication Prepare(MapWorldKind1CurrentQueue actualQueue,
-        MapFreshCommonResourceSnapshot actualCommon,
+        MapCommonRenderState actualCommon,
         IReadOnlyList<ArmyWorldCurrentPrimitiveActor> completeCurrentActors, string currentPublicationIdentity)
         => Prepare(actualQueue, actualCommon, completeCurrentActors, currentPublicationIdentity, null);
 
     public static ArmyWorldPrimitivePublication Prepare(MapWorldKind1CurrentQueue actualQueue,
-        MapFreshCommonResourceSnapshot actualCommon,
+        MapCommonRenderState actualCommon,
         IReadOnlyList<ArmyWorldCurrentPrimitiveActor> completeCurrentActors, string currentPublicationIdentity,
         DeferredCameraInputs? actualVisibilityCamera)
     {
@@ -43,7 +43,7 @@ public sealed class ArmyWorldPrimitivePublication
         ArgumentException.ThrowIfNullOrWhiteSpace(currentPublicationIdentity);
         if (actualCommon.FrameNumber != actualQueue.FrameNumber ||
             actualCommon.SelectedViewOwnerIdentity != actualQueue.Binding.ViewIdentity ||
-            actualCommon.CurrentAuxiliaryExclusion404 is not uint commonExclude ||
+            actualCommon.ModelExclusionMask is not uint commonExclude ||
             completeCurrentActors.Any(a => a is null || a.Source is null || a.Visibility is null ||
                 string.IsNullOrWhiteSpace(a.ActorIdentity) || a.Family is not ("ArmyOrdinary" or "ArmyFlag")) ||
             completeCurrentActors.Select(a => a.ActorIdentity).Distinct(StringComparer.Ordinal).Count() != completeCurrentActors.Count)

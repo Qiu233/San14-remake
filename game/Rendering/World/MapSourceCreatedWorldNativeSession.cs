@@ -279,7 +279,7 @@ public sealed partial class MapSourceCreatedWorldNativeSession : IAsyncDisposabl
         DeferredTransparencyImageSelection Selection) PrepareTransparency(
         MapSourceCreatedF103CurrentFrame frame,MapCommonViewFilterSource source)
     {
-        if(frame.Common.Scope!=MapFreshCommonResourceScope.SourceCreatedNoCallbackBeforeAmbientPublication)
+        if(frame.Common.Scope!=CommonRenderPublicationKind.InitialSettings)
             throw new NotSupportedException("World transparency requires its actual fresh source Common filter owner.");
         var main=frame.Lighting.AcceptedInputs.PresentSeasonCamera?.AcceptedSeasonCamera.Inputs.MainFrame
             ??throw new InvalidDataException("World transparency needs the actual current Main/season source.");
@@ -287,7 +287,7 @@ public sealed partial class MapSourceCreatedWorldNativeSession : IAsyncDisposabl
             AuxiliaryCameraFilterScope.SourceLoadedCameraNoLaterFilterWriter);
         var common=source.PrepareAppliedCurrent(frame.FrameNumber,frame.Common.CommonTableOwnerIdentity,frame.Lighting.Binding.ViewIdentity);
         return (camera,common,camera.ReadTransparencySelection(
-            frame.Common.CommonViewResource240Present?common.TransparencyResolution8C:null));
+            frame.Common.AuxiliaryPresent?common.TransparencyResolution8C:null));
     }
     public ValueTask DisposeAsync(){lock(lifetime){retiring=true;return new(disposal??=RetireAsync());}}
     private async Task RetireAsync()

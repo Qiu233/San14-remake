@@ -36,7 +36,7 @@ public sealed class SceneViewNativeMapSkyCurrentSelectionOwner
             throw new NotSupportedException("Initial Sky source requires the actual same-frame primary owned View and accepted RGB/Present pair.");
         var common = actualSource.Common;
         common.ValidateFrame(actualSource.FrameNumber, common.CommonTableOwnerIdentity, binding.ViewIdentity);
-        if (common.CurrentViewAux3F2 is not byte selector || selector is < 1 or > 32)
+        if (common.ViewGroupSelector is not byte selector || selector is < 1 or > 32)
             throw new InvalidDataException("Sky1B20 needs its actual current Common3F2 selector.");
         var record = actualSource.ViewFields.CurrentPublication.SelectedShadowRecord1BD0 ??
             throw new InvalidDataException("This finite same-record source branch requires its complete owned current kind1 record.");

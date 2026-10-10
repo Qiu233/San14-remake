@@ -19,12 +19,11 @@ public static class D3D11ShadowInputs
         var metadata=MapSourceCreatedWorldKind1Publication.ReadSeasonSourceRecords(resources.Source.DirectionalDeclarations);
         var lights=current.Lights.Select(light=>new D3D11ShadowInitialLight(light.ObjectId,light.GroupMask,
             metadata.Single(record=>record.SourceObjectId==light.ObjectId).MaxPrimitiveNum,light.CompleteData)).ToArray();
-        var commonObjects=repository.LoadObjects("KIDSSystemResource",MapFreshCommonResources.SourceFileId);
-        var common=MapFreshCommonResources.PrepareSourceCreatedBeforeAmbientPublication(
-            MapFreshCommonResources.ReadSourceTemplate(commonObjects),current.Mode.AcceptedMainFrame.Camera.FrameNumber,
+        var commonObjects=repository.LoadObjects("KIDSSystemResource",CommonRenderResources.SourceFileId);
+        var common=MapCommonRenderState.FromSettings(
+            CommonRenderResources.ImportSettings(commonObjects),current.Mode.AcceptedMainFrame.Camera.FrameNumber,
             "d3d11-season/settings","d3d11-season/common","d3d11-season/view","fresh-source-before-ambient");
-        var raster=commonObjects.Document.Objects.Single(value=>value.ObjectId==MapFreshCommonResources.SourceObjectId).Properties[26];
-        uint commonRaster=BinaryPrimitives.ReadUInt32LittleEndian(raster.RawValue)&255;
+        uint commonRaster = CommonRenderResources.ReadScalar(commonObjects, 0xC932E0FB, 4) & 255;
         var post=current.Rgb.Inputs.MainPostSelection
             ?? throw new InvalidDataException("Startup shadow requires the same owned App post-selection.");
         var rules=MapMainCameraPostSelectionSource.CreateDefaults(locale);

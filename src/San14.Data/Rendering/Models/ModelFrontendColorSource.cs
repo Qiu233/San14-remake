@@ -135,16 +135,14 @@ public sealed class LoadedModelFrontendColorSource
     /// <summary>Capture the four actual current words once per selected Aux.
     /// The finite source-created no-callback/no-overlay scope has their
     /// loaded FFFFFFFF values. Explicit current values come from its full Aux.</summary>
-    public ModelAuxiliaryColorMasks ReadCurrentAuxiliaryMasks(MapFreshCommonResourceSnapshot actualCommon)
+    public ModelAuxiliaryColorMasks ReadCurrentAuxiliaryMasks(MapCommonRenderState actualCommon)
     {
         ArgumentNullException.ThrowIfNull(actualCommon);
-        if(!actualCommon.CommonViewResource240Present)
+        if(!actualCommon.AuxiliaryPresent)
             throw new NotSupportedException("Ordinary per-record color selection needs its actual current T240 Aux.");
-        if(actualCommon.Scope==MapFreshCommonResourceScope.SourceCreatedNoCallbackBeforeAmbientPublication)
+        if(actualCommon.Scope==CommonRenderPublicationKind.InitialSettings)
             return new(uint.MaxValue,uint.MaxValue,uint.MaxValue,uint.MaxValue);
-        byte[] aux=actualCommon.CopyCurrentAuxiliary460()??throw new InvalidDataException("Explicit current Aux bytes are absent.");
-        uint Word(int offset)=>BinaryPrimitives.ReadUInt32LittleEndian(aux.AsSpan(offset,4));
-        return new(Word(0xC8),Word(0xCC),Word(0xD0),Word(0xD4));
+        return actualCommon.Auxiliary!.ColorWriteMasks!.Value;
     }
 
     /// <summary>D486E4..D48742 selects the mask; FFFFFFFF/index>=4 retains

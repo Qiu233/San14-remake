@@ -24,7 +24,7 @@ public sealed class MapPostEffect3WorldInputNoiseSourceOwner
         var current=host.Session.CurrentFrame??throw new InvalidDataException("Noise source has no current World.");
         var common=current.PreparedSourceFrame!.Common;
         var field=currentCamera.Source.Camera.Properties[140];
-        if(common.Scope!=MapFreshCommonResourceScope.SourceCreatedNoCallbackBeforeAmbientPublication||
+        if(common.Scope!=CommonRenderPublicationKind.InitialSettings||
             field.Index!=140||field.NameHash!=0x9CBC0FA6||field.TypeCode!=5||field.ElementCount!=1||field.RawValue.Length!=4||
             System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(field.RawValue)!=0)
             throw new NotSupportedException("InputNoise needs another actual producer for a later Common callback or Camera noise override.");

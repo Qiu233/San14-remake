@@ -13,14 +13,8 @@ public sealed class OrdinaryRs4CpuSource
         LoadedObjects actualSavedCommonSource)
     {
         Source = actualSource ?? throw new ArgumentNullException(nameof(actualSource));
-        _ = MapFreshCommonResources.ReadSourceTemplate(actualSavedCommonSource);
-        // D225BB/C0 maps bulk ordinal4 to stack50; D22F79/7D writes
-        // the same word to Aux380. D1E575/7C retains it through copies.
-        var clip = actualSavedCommonSource.Document.Objects.Single(o =>
-            o.ObjectId == MapFreshCommonResources.SourceObjectId).Properties[4];
-        if (clip.Index != 4 || clip.NameHash != 0x880FE0E8 || clip.TypeCode != 4 || clip.ElementCount != 1 || clip.RawValue.Length != 4)
-            throw new InvalidDataException("RS4 current clip needs the actual saved Common ordinal4 writer.");
-        sourceClipMask380 = BinaryPrimitives.ReadUInt32LittleEndian(clip.RawValue);
+        _ = CommonRenderResources.ImportSettings(actualSavedCommonSource);
+        sourceClipMask380 = CommonRenderResources.ReadScalar(actualSavedCommonSource, 0x880FE0E8, 4);
         packed = new[] {44,45,46}.ToDictionary(n => n,
             n => WorldGeometryNode58PackedParameterSource.Read(Source.Queues[n]));
         foreach (int n in new[] {44,45,46})
@@ -58,19 +52,18 @@ public sealed class OrdinaryRs4CpuSource
                 actualView19D0Capacity??throw new InvalidDataException("Negative actual19D4 requires its consumed current19D0 capacity."));
         return new(true,true,count,count!=0);
     }
-    public uint ReadCurrentClipMask380(MapFreshCommonResourceSnapshot actualCommon)
+    public uint ReadCurrentClipMask380(MapCommonRenderState actualCommon)
     {
         ArgumentNullException.ThrowIfNull(actualCommon);
-        if (!actualCommon.CommonViewResource240Present)
+        if (!actualCommon.AuxiliaryPresent)
             throw new NotSupportedException("RS4 selected Aux clip fields are absent.");
-        return actualCommon.Scope == MapFreshCommonResourceScope.SourceCreatedNoCallbackBeforeAmbientPublication
-            ? sourceClipMask380 : BinaryPrimitives.ReadUInt32LittleEndian(
-                (actualCommon.CopyCurrentAuxiliary460() ?? throw new InvalidDataException("Actual current Aux is absent.")).AsSpan(0x380,4));
+        return actualCommon.Scope == CommonRenderPublicationKind.InitialSettings
+            ? sourceClipMask380 : actualCommon.Auxiliary!.ClipPlaneMask!.Value;
     }
     /// <summary>D4A7A0's mask-zero branch still writes frontend clip=0.
     /// Nonzero enabled planes need the actual View100 matrix/plane writer,
     /// rather than a guessed no-clip state.</summary>
-    public uint PrepareCurrentClipWord(MapFreshCommonResourceSnapshot actualCommon)
+    public uint PrepareCurrentClipWord(MapCommonRenderState actualCommon)
     {
         if ((ReadCurrentClipMask380(actualCommon) & 63) != 0)
             throw new NotSupportedException("RS4 current Aux380 enables actual D4A7A0 clip planes; its plane producer is required.");
@@ -91,7 +84,7 @@ public sealed class OrdinaryRs4CpuSource
             actualCurrent with { Write = true, Compare =
                 (entryContextFlags3E4 & 0x20000000) != 0 ? 6u : 3u };
     public ModelOrdinaryDispatcherStencilPacket PrepareRecord(int queueNode,
-        ModelOrdinaryDispatcherRecord record, MapFreshCommonResourceSnapshot actualCommon,
+        ModelOrdinaryDispatcherRecord record, MapCommonRenderState actualCommon,
         uint currentContextFlags3E4)
         => ModelOrdinaryDispatcherStencilSource.Prepare(Source.Queues[queueNode], record,
             actualCommon, currentContextFlags3E4);

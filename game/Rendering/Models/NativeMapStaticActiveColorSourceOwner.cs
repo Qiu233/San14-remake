@@ -15,7 +15,7 @@ public sealed class NativeMapStaticActiveColorSourceOwner
 
     private NativeMapStaticActiveColorSourceOwner(LoadedModelFrontendColorSource source,
         NativeMapStaticQueuePlan plan,ModelQueueStateSource queue,
-        MapFreshCommonResourceSnapshot common,Action current)
+        MapCommonRenderState common,Action current)
     {
         this.source=source;this.plan=plan;node=queue.Node.Index;requireActualCurrentScope=current;
         if(node is not(54 or 55)||!ReferenceEquals(common,plan.Admission.Frame.Common)||
@@ -38,7 +38,7 @@ public sealed class NativeMapStaticActiveColorSourceOwner
 
     public static NativeMapStaticActiveColorSourceOwner CaptureActualEntry(
         LoadedModelFrontendColorSource source,NativeMapStaticQueuePlan actualPlan,
-        ModelQueueStateSource actualQueue,MapFreshCommonResourceSnapshot actualCommon,
+        ModelQueueStateSource actualQueue,MapCommonRenderState actualCommon,
         Action requireActualCurrentScope)
     {
         ArgumentNullException.ThrowIfNull(source);ArgumentNullException.ThrowIfNull(actualPlan);

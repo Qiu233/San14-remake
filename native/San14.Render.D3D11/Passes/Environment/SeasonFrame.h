@@ -15,9 +15,11 @@
 
 namespace source_current_season {
 struct Word {int32_t offset;uint32_t bits;};
+struct ShadowModes {uint8_t receive{},local{};};
 struct Light {
     uint32_t object,mask;
     uint32_t terrainMaskScalarBits{};
+    ShadowModes shadowModes;
     std::array<uint8_t,0x328> data;
     source_current_season_shadow::LightGeometry shadowGeometry;
 };
@@ -111,6 +113,7 @@ inline Frame decode(std::span<const uint8_t> bytes){
     r.words.resize(count);for(auto& w:r.words){w=read<Word>(bytes,at);at+=8;}
     for(auto& l:r.lights){l.object=read<uint32_t>(bytes,at);l.mask=read<uint32_t>(bytes,at+4);
         l.terrainMaskScalarBits=read<uint32_t>(bytes,at+8);
+        l.shadowModes={read<uint8_t>(bytes,at+12),read<uint8_t>(bytes,at+13)};
         std::memcpy(l.data.data(),bytes.data()+at+16,l.data.size());at+=16+l.data.size();}
     std::memcpy(r.atmosphere.data(),bytes.data()+at,296);at+=296;
     r.exposure=read<ExposureLight>(bytes,at);at+=sizeof(ExposureLight);

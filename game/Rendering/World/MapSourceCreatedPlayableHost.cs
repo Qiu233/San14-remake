@@ -508,7 +508,7 @@ public sealed class MapSourceCreatedPlayableHost : IAsyncDisposable
         var selections = currentEarlySelections ?? throw new InvalidDataException("Actual early selections were not prepared before source consumers.");
         if(selections.Any(s=>s.Current.FrameNumber!=context.FrameNumber||s.EarlyCurrent!=currentVariant))
             throw new InvalidDataException("Early selections belong to another current source attempt.");
-        var early = await Early.DrawAsync(frame, source.Context, source.ViewFields, selections, source.Common.CurrentViewAux3F2,
+        var early = await Early.DrawAsync(frame, source.Context, source.ViewFields, selections, source.Common.ViewGroupSelector,
             selected => PrepareEarlyParametersAsync(frame, selected));
         // Reject a producer superseded during early preparation/submission.
         geometry.ValidateCurrent(frame,population,army,terrain);
@@ -559,7 +559,7 @@ public sealed class MapSourceCreatedPlayableHost : IAsyncDisposable
         currentEarlyQueries=queries;
         currentEarlySelections=Early.PrepareCurrentSelections(frame,early);
         var active=currentEarlySelections.Where(s=>DeferredEarlySourceExecution.ReadBins(
-            s.SourcePlan,source.Context,source.ViewFields,source.Common.CurrentViewAux3F2).Count!=0).ToArray();
+            s.SourcePlan,source.Context,source.ViewFields,source.Common.ViewGroupSelector).Count!=0).ToArray();
         CurrentConsumerReceipt=RetainedNormalization?.RequireCurrentConsumers(frame.Lighting.AcceptedInputs,
             frame.Lighting,frame.Feature,frame.Selection,active,RetainedNormalization.GenericFogOwner);
         if(current.AfterCurrentPreparedWithLighting is { } typed)

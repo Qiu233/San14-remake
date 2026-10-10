@@ -14,7 +14,7 @@ public sealed class DirectionalProviderCallerProjection
 {
     private readonly byte[] eye;
     internal DirectionalProviderCallerProjection(MainMapCameraFrame main,
-        MapFreshCommonResourceSnapshot common,uint flags,byte checkType,int forceset,string provenance)
+        MapCommonRenderState common,uint flags,byte checkType,int forceset,string provenance)
     {
         FrameNumber=main.Camera.FrameNumber;MainSourceUri=main.Camera.Source.Resource.Source.ResourceUri;
         MainSourceSha256=main.Camera.Source.Resource.Source.DecodedSha256;MainObjectId=main.Camera.Source.Camera.ObjectId;
@@ -29,7 +29,7 @@ public sealed class DirectionalProviderCallerProjection
     public string MainSourceUri{get;}
     public string MainSourceSha256{get;}
     public uint MainObjectId{get;}
-    public MapFreshCommonResourceSnapshot Common{get;}
+    public MapCommonRenderState Common{get;}
     public uint AuxFlags8{get;}
     public byte CheckLocationType{get;}
     public int ForceSetIndex{get;}
@@ -49,11 +49,11 @@ public sealed class DirectionalProviderCallerProjection
 public static class DirectionalLightProviderCaller
 {
     public static DirectionalProviderCallerProjection CaptureFreshOwnedCaller(GameResourceRepository repository,
-        MainMapCameraFrame main,MapFreshCommonResourceSnapshot common,DirectionalProviderCallerScope scope)
+        MainMapCameraFrame main,MapCommonRenderState common,DirectionalProviderCallerScope scope)
     {
         ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(main);ArgumentNullException.ThrowIfNull(common);
         if(scope!=DirectionalProviderCallerScope.FreshOwnedCameraClearedLateControlsNoLaterSelectorWriter||
-            common.Scope!=MapFreshCommonResourceScope.SourceCreatedNoCallbackBeforeAmbientPublication||
+            common.Scope!=CommonRenderPublicationKind.InitialSettings||
             common.FrameNumber!=main.Camera.FrameNumber||main.Camera.FrameNumber<=0||main.Camera.Prefix.Length!=0x3C0||
             main.Camera.Source.Camera.ObjectId!=MainMapCameraAdapter.MainCameraObjectId)
             throw new InvalidDataException("Fresh Directional caller requires the actual same-frame Main and owned no-callback Aux scope.");
@@ -62,19 +62,12 @@ public static class DirectionalLightProviderCaller
         if(selector.NameHash!=0x2D4CC9AF||selector.TypeCode!=5||selector.ElementCount!=1||selector.ElementSize!=4||
             selector.RawValue.Length!=4||BinaryPrimitives.ReadUInt32LittleEndian(selector.RawValue)!=0)
             throw new NotSupportedException("Fresh Main external selector requires another actual current override owner.");
-        var commonObjects=repository.LoadObjects("KIDSSystemResource",MapFreshCommonResources.SourceFileId);
-        var source=MapFreshCommonResources.ReadSourceTemplate(commonObjects);
-        if(common.CommonViewFlags8!=source.Flags8||!common.ProducerProvenance.Contains(source.SourceIdentity,StringComparison.Ordinal))
+        var commonObjects=repository.LoadObjects("KIDSSystemResource",CommonRenderResources.SourceFileId);
+        var source=CommonRenderResources.ImportSettings(commonObjects);
+        if(common.CommonFlags!=source.Flags8||!common.ProducerProvenance.Contains(source.SourceIdentity,StringComparison.Ordinal))
             throw new InvalidDataException("Fresh provider Aux differs from its actual saved source generation.");
-        var declaration=commonObjects.Document.Objects.Single(o=>o.ObjectId==MapFreshCommonResources.SourceObjectId);
-        uint Word(int ordinal,uint hash)
-        {
-            var p=declaration.Properties[ordinal];
-            if(p.Index!=ordinal||p.NameHash!=hash||p.TypeCode!=4||p.ElementCount!=1||p.ElementSize!=4||p.RawValue.Length!=4)
-                throw new InvalidDataException("Directional provider Aux source descriptor differs from its exact loader.");
-            return BinaryPrimitives.ReadUInt32LittleEndian(p.RawValue);
-        }
-        uint type=Word(23,0x6AEA4989),force=Word(24,0x00D3B791);
+        uint Word(uint hash) => CommonRenderResources.ReadScalar(commonObjects, hash, 4);
+        uint type=Word(0x6AEA4989),force=Word(0x00D3B791);
         if(type!=0||force!=uint.MaxValue)
             throw new NotSupportedException("Default Directional caller requires another actual Aux selector branch.");
         return new(main,common,source.Flags8,(byte)type,unchecked((int)force),

@@ -36,16 +36,16 @@ public static class D3D11PrimaryForwardInputs
         if (unchecked((int)ActualWord(0xA00, 24, 0x0611DBC4, 4)) <= 0)
             throw new NotSupportedException("Forward requires the current normal receiver's selected light writer.");
         var graph = repository.LoadRenderGraph("system", 0x024496EE);
-        var common = MapFreshCommonResources.PrepareSourceCreatedBeforeAmbientPublication(
-            MapFreshCommonResources.ReadSourceTemplate(repository.LoadObjects("KIDSSystemResource", MapFreshCommonResources.SourceFileId)),
+        var common = MapCommonRenderState.FromSettings(
+            CommonRenderResources.ImportSettings(repository.LoadObjects("KIDSSystemResource", CommonRenderResources.SourceFileId)),
             main.FrameNumber, "d3d11-season/settings", "d3d11-season/common", "d3d11-season/view", "fresh-source-before-ambient");
-        uint selector = common.CurrentViewAux3F2 is > 0 ? common.CurrentViewAux3F2.Value :
+        uint selector = common.ViewGroupSelector is > 0 ? common.ViewGroupSelector.Value :
             Word(graph.Document.Nodes[166].Call.Arguments.Single(value => value.NameHash == 0x59BD6FC4).RawValue);
         uint outerMask = 1u << (unchecked((int)selector - 1) & 31);
         var outer = current.Lights.First(light => (light.GroupMask & outerMask) != 0);
         var inner = current.Lights.FirstOrDefault(light => (light.GroupMask & 2) != 0) ?? outer;
         byte[] effective = DeferredF103Kind1Modifier.ApplyWithModifier(
-            outer.CompleteData.Span, inner.CompleteData.Span, common.NativeArg18).Bytes;
+            outer.CompleteData.Span, inner.CompleteData.Span, common.SuppressAmbient).Bytes;
         ReadOnlyMemory<byte> modifier = DeferredF103Kind1Modifier.HasBuiltinModifier(inner.CompleteData.Span)
             ? inner.CompleteData : effective;
         int count = 4;

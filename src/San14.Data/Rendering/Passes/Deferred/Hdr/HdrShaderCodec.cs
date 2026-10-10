@@ -42,8 +42,8 @@ public static class HdrShaderCodec
                 (flags&0x8000)==0,(flags&0x10000)==0,(flags&0x20000)==0,
                 (flags&0x100000)!=0,(flags&0x40000000)==0),
             current.ReflectionQueryD57E20 != 0 && current.SelectedCamera1808Present,
-            (current.CommonViewFlags8&0x200)!=0 && current.QueryD5BeA0 &&
-                (current.CommonViewResource788Registered || current.CommonViewResource78CRegistered || current.CommonViewResource8B8Registered),
+            (current.CommonFlags&0x200)!=0 && current.AmbientSelectionPresent &&
+                (current.AmbientMapFirstAvailable || current.AmbientMapSecondAvailable || current.AmbientMapThirdAvailable),
             localLightQueriesEmpty,preRendererPresent);
     }
 

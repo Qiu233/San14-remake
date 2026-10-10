@@ -9,7 +9,7 @@ public sealed record DeferredF103CurrentViewInputs(
     long FrameNumber, string ViewIdentity, string CameraOwnerIdentity,
     int ViewSignedA00, uint ViewFlags19AC, float? ViewA28,
     uint? ViewA3C, ulong? View1BD0CpuVtable,
-    bool? CommonViewResource240Present, uint? Resource240Flags0C,
+    bool? AuxiliaryPresent, uint? AuxiliaryLightingFlags,
     string SelectedRecordLightOwnerIdentity, string CurrentProducerProvenance);
 
 /// <summary>A native reference represented by its owned producer and exact
@@ -88,8 +88,8 @@ public sealed class MapSourceCreatedF103FeaturePacket
     public int DirectionalCapacity4 => 4;
     public bool DirectOrdinaryLightData => !EffectiveLightDataCopied;
     public bool EffectiveLightDataCopied { get; }
-    public bool NativeArg18 => CurrentView.CommonViewResource240Present == true &&
-        (CurrentView.Resource240Flags0C!.Value & 0x800) == 0;
+    public bool SuppressAmbient => CurrentView.AuxiliaryPresent == true &&
+        (CurrentView.AuxiliaryLightingFlags!.Value & 0x800) == 0;
     public bool StateRebuilt { get; }
     public DeferredF103Kind1Scratch Scratch { get; }
     public MapCameraConstructionPacket AcceptedCamera => camera.CopyAcceptedSnapshot();
@@ -206,14 +206,14 @@ public static class MapSourceCreatedF103Feature
             lighting.Binding.BasePath != MapLightingBasePath.UnmodifiedOrdinary ||
             lighting.Binding.DirectionalShaderCapacity != DirectionalCapacity)
             throw new InvalidDataException("F103 kind1 requires complete source LightData and the original caller capacity4.");
-        if (current.CommonViewResource240Present is null ||
+        if (current.AuxiliaryPresent is null ||
             string.IsNullOrWhiteSpace(current.SelectedRecordLightOwnerIdentity) ||
             current.SelectedRecordLightOwnerIdentity != lighting.Binding.LightOwnerIdentity)
             throw new InvalidDataException("F103 requires the current CommonView+240 selection and the same owned selected/current kind1 LightData record.");
         bool arg18 = false;
-        if (current.CommonViewResource240Present.Value)
+        if (current.AuxiliaryPresent.Value)
         {
-            if (current.Resource240Flags0C is not uint flags)
+            if (current.AuxiliaryLightingFlags is not uint flags)
                 throw new InvalidDataException("Present CommonView+240 owner requires its current flags+0C.");
             arg18 = (flags & 0x800) == 0;
         }

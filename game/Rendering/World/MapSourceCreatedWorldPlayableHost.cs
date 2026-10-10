@@ -643,7 +643,7 @@ public sealed class MapSourceCreatedWorldPlayableHost : IAsyncDisposable
         var source=frame.PreparedSourceFrame!;
         var world=Session.CurrentWorld!;
         var active=currentEarlySelections!.Where(s=>DeferredEarlySourceExecution.ReadWorldBins(
-            s.SourcePlan,source.Context,source.ViewFields,source.Common.CurrentViewAux3F2,world.World).Count!=0).ToArray();
+            s.SourcePlan,source.Context,source.ViewFields,source.Common.ViewGroupSelector,world.World).Count!=0).ToArray();
         Mark("current-early-selection");
         CurrentConsumerReceipt=RetainedNormalization?.CreateCurrentReceipt(frame.Lighting);
         if (RetainedNormalization is not null)

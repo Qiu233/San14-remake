@@ -27,7 +27,7 @@ public sealed class DeferredEarlyCausticsSourceNull
         EffectiveLightOwnerIdentity=selected.OwnedFeatureSource!.EffectiveLightOwnerIdentity;
         Binding=selected.OwnedFeatureSource.Binding;
         CurrentViewProducerProvenance=selected.OwnedFeatureSource.CurrentView.CurrentProducerProvenance;
-        QueryD5BeA0=selected.Current.QueryD5BeA0;
+        AmbientSelectionPresent=selected.Current.AmbientSelectionPresent;
     }
     public long FrameNumber { get; }
     public string SourceOwnerIdentity { get; }
@@ -41,7 +41,7 @@ public sealed class DeferredEarlyCausticsSourceNull
     public string CurrentViewProducerProvenance { get; }
     /// <summary>The actual A40 reader result. False skips the active Caustics
     /// branch before size tests; true uses the owned source zero-size gate.</summary>
-    public bool QueryD5BeA0 { get; }
+    public bool AmbientSelectionPresent { get; }
     public uint PixelRegister=>1;
     public uint SamplerRegister=>1;
     public void Validate(DeferredEarlyF103SelectedSource selected)
@@ -52,7 +52,7 @@ public sealed class DeferredEarlyCausticsSourceNull
             selected.PixelProgramSha256!=PixelProgramSha256||Hash(selected.Camera.Prefix.Span)!=AcceptedCameraPrefixSha256||
             selected.OwnedFeatureSource?.EffectiveLightOwnerIdentity!=EffectiveLightOwnerIdentity||
             selected.OwnedFeatureSource?.Binding!=Binding||
-            selected.Current.QueryD5BeA0!=QueryD5BeA0||
+            selected.Current.AmbientSelectionPresent!=AmbientSelectionPresent||
             selected.OwnedFeatureSource?.CurrentView.CurrentProducerProvenance!=CurrentViewProducerProvenance)
             throw new InvalidDataException("Caustics source-null authority belongs to another accepted Camera/light frame.");
     }
@@ -116,8 +116,8 @@ public sealed class DeferredEarlyCausticsOwner
     {
         ArgumentNullException.ThrowIfNull(frame);
         ValidateSelection(selected);
-        var raw = frame.ViewFields.CreateF103Inputs(frame.Common.CommonViewResource240Present,
-            frame.Common.Resource240Flags0C) with { CurrentProducerProvenance = frame.View.CurrentProducerProvenance };
+        var raw = frame.ViewFields.CreateF103Inputs(frame.Common.AuxiliaryPresent,
+            frame.Common.AuxiliaryLightingFlags) with { CurrentProducerProvenance = frame.View.CurrentProducerProvenance };
         // F103 adds its preparation/Common/color provenance to the raw View
         // provenance. Join the actual immutable frame, not equal label strings.
         if (!ReferenceEquals(selected.OwnedFeatureSource, frame.Feature) ||
@@ -189,14 +189,14 @@ public sealed class DeferredEarlyCausticsOwner
                 return renewedPacket;
             }
         }
-        string cachePhase=selected.Current.QueryD5BeA0
+        string cachePhase=selected.Current.AmbientSelectionPresent
             ? retainedPacket is null?"fresh-View1B90-absent/published-source-cache":
                 "retained-owned-View1B90-source-cache/from-frame="+retainedPacket.FrameNumber
             : "owned-Caustics-plugin-default-cache;D5BEA0-false/no-A40-copy";
         string provenance=native.SourceProvenance+";"+canonical.ConstructorOrigin+";"+currentView.SourceProvenance+
             ";frame="+selected.Current.FrameNumber+";owner="+SourceOwnerIdentity+
             ";"+cachePhase+"/no-external-packet-or-plugin-assignments;"+
-            (selected.Current.QueryD5BeA0
+            (selected.Current.AmbientSelectionPresent
                 ? "AA4-AA8/2064-2068/ViewD34-D38/A40-A00-A04:exact-source-zero;strict-size-gate-skipped;"
                 : "EAD5F3-read-result0/EAE3B0-skip-before-size-tests;no-native-A40-publication-claim;")+
             "Caustics9BF150:range+50=zero/scaler+60=one/matrix+70=source-literal;"+
@@ -219,7 +219,7 @@ public sealed class DeferredEarlyCausticsOwner
             throw new InvalidDataException("Caustics source-null scope requires actual owned node78/126/95 Main38D/View0/Color60/Q0 or source57-OR40. " +
                 $"Actual node={selected.SourcePlan.Node.Index}, view={selected.SourcePlan.ViewId}, combo={selected.Combination.Index}, " +
                 $"PS={selected.PixelProgramIndex}, camera={selected.Camera.Source.Camera.ObjectId:X8}, color={selected.Current.NativeColorMode:X}, " +
-                $"Q={selected.Current.ContextFlags3F0:X}, query={selected.Current.QueryD5BeA0}, ownedFeature={selected.OwnedFeatureSource is not null}.");
+                $"Q={selected.Current.ContextFlags3F0:X}, query={selected.Current.AmbientSelectionPresent}, ownedFeature={selected.OwnedFeatureSource is not null}.");
         var globals=selected.PixelDefinitions.Buffers.Single(b=>b.Name.Text=="$Globals");
         if(globals.ByteSize!=480||new[]{("fCausticsScaler",192,4),("vCausticsRange",352,16),("mW2Ca",368,64)}
             .Any(f=>!globals.Variables.Any(v=>v.Name.Text==f.Item1&&v.StartOffset==f.Item2&&v.ByteSize==f.Item3)))

@@ -10,7 +10,7 @@
 namespace source_view {
 struct Record {unsigned mask{},capacity{},classification{};};
 struct Profile {
- int mainA00{};float mainA28{};unsigned mainA3C{},oceanGroup{},rainGroup{},terrainExclusion{},selectedF1D{};
+ int mainA00{};float mainA28{};unsigned mainA3C{},oceanGroup{},rainGroup{},terrainExclusion{},initialReceiveShadowMode{};
  unsigned commonPresent{},commonFlags{},outerGroup{},commonExclusion{},modelSelector{},queueFlag{},queueFlag2{},queueState{};
  std::vector<Record> records;
 };
@@ -18,7 +18,7 @@ struct Primitive {unsigned instanceIndex{},drawIndex{},exclusion{},allowedRecord
 inline Profile loadProfile(const std::filesystem::path& path) {
  std::ifstream in(path,std::ios::binary);Profile p;unsigned magic,n;
  auto read=[&](auto& value){in.read(reinterpret_cast<char*>(&value),sizeof(value));};
- read(magic);read(n);read(p.mainA00);read(p.mainA28);read(p.mainA3C);read(p.oceanGroup);read(p.rainGroup);read(p.terrainExclusion);read(p.selectedF1D);
+ read(magic);read(n);read(p.mainA00);read(p.mainA28);read(p.mainA3C);read(p.oceanGroup);read(p.rainGroup);read(p.terrainExclusion);read(p.initialReceiveShadowMode);
  read(p.commonPresent);read(p.commonFlags);read(p.outerGroup);read(p.commonExclusion);read(p.modelSelector);read(p.queueFlag);read(p.queueFlag2);read(p.queueState);
  if(magic!=0x31505756u||n>32)throw std::runtime_error("Source View import schema");
  p.records.resize(n);for(auto& r:p.records){read(r.mask);read(r.capacity);read(r.classification);if(r.classification&1)throw std::runtime_error("Alternate source counter classification");}
@@ -32,7 +32,7 @@ inline std::vector<Primitive> loadPrimitives(const std::filesystem::path& path) 
 }
 struct Inputs {
  std::vector<unsigned> ordinaryCounts;std::array<unsigned,4> collectionPrimitiveCounts{};
- unsigned subWrapperCount1BFC{};bool terrainPresent{},selectedCompactPresent{},selectedLitPresent{};
+ unsigned subWrapperCount1BFC{},selectedReceiveShadowMode{};bool terrainPresent{},selectedCompactPresent{},selectedLitPresent{};
 };
 struct Frame {
  std::vector<unsigned> ordinaryCounts;unsigned flags19AC{},ocean19B0{},rain19B4{},subWrapperCount1BFC{};
@@ -52,7 +52,7 @@ inline Frame prepareCurrent(const Profile& p,const Inputs& current) {
  bool shadowPopulation=current.subWrapperCount1BFC!=0;
  for(unsigned count:current.collectionPrimitiveCounts)shadowPopulation|=count!=0;
  if(shadowPopulation)f.flags19AC|=0x40000000u;
- f.selectedShadowGate=p.mainA00>0&&(f.flags19AC&0x40000000u)&&p.selectedF1D!=0;
+ f.selectedShadowGate=p.mainA00>0&&(f.flags19AC&0x40000000u)&&current.selectedReceiveShadowMode!=0;
  f.selectedCompactPresent=f.selectedShadowGate&&current.selectedCompactPresent;
  f.noSubProvider=!current.selectedLitPresent||(current.subWrapperCount1BFC&15)==0||!f.selectedCompactPresent;
  f.rs68Gate=(f.flags19AC&0x9FFFFFFFu)!=0;f.rs119Gate=f.rs68Gate&&f.ocean19B0!=0;return f;

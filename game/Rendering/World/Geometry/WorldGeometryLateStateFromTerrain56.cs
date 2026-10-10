@@ -52,6 +52,6 @@ public static class WorldGeometryLateStateFromTerrain56
         // here and stay unrepresented; the owning frontend retains them.
         return WorldGeometryLateCpuState.CreateActiveProjection(depth, colors,
             actualAlphaEnabled: null, stencil,
-            actualClipWord1F0: sourceFrame.Common.CommonViewResource240Present ? 0u : null);
+            actualClipWord1F0: sourceFrame.Common.AuxiliaryPresent ? 0u : null);
     }
 }

@@ -44,16 +44,16 @@ public sealed class SceneViewNativeMapShadowPopulationSourceOwner
         DeferredEarlyShadowCompleteModelCandidates models,
         DeferredEarlyShadowCurrentViewMaskFields masks,
         DeferredEarlyShadowCurrentCasterLightRows lights,
-        MapFreshCommonResourceSnapshot common,bool selectedShadowRecordPresent)
+        MapCommonRenderState common,bool selectedShadowRecordPresent)
     {
         if(models.FrameNumber!=masks.FrameNumber||models.ViewIdentity!=masks.ViewIdentity||
             common.FrameNumber!=models.FrameNumber||common.SelectedViewOwnerIdentity!=models.ViewIdentity)
             throw new InvalidDataException("Shadow Model callers require the same current View and Common.");
-        uint exclusion=common.CurrentAuxiliaryExclusion404??
+        uint exclusion=common.ModelExclusionMask??
             throw new NotSupportedException("Shadow Model caller requires the current Common404 writer.");
         var rows=models.Models.Select(model=>new SceneViewNativeMapShadowModelAdmission(model,
             DeferredEarlyShadowCasterAdmissionSource.PrepareCurrentFirstCasterAdmission(
-                masks,model.WorldCaller,lights,common.CommonViewResource240Present,common.CommonViewFlags8,
+                masks,model.WorldCaller,lights,common.AuxiliaryPresent,common.CommonFlags,
                 exclusion,model.PerViewOpacityB0,selectedShadowRecordPresent))).ToArray();
         return new(models,common,Array.AsReadOnly(rows));
     }
@@ -65,5 +65,5 @@ public sealed record SceneViewNativeMapShadowModelAdmission(
 
 public sealed record SceneViewNativeMapShadowModelAdmissions(
     DeferredEarlyShadowCompleteModelCandidates Models,
-    MapFreshCommonResourceSnapshot Common,
+    MapCommonRenderState Common,
     IReadOnlyList<SceneViewNativeMapShadowModelAdmission> Rows);

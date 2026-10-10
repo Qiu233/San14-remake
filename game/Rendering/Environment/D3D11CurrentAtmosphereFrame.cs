@@ -90,17 +90,13 @@ public static class D3D11CurrentLightingFields
         var outer = frame.Lights.FirstOrDefault(light => (light.GroupMask & outerMask) != 0)
             ?? throw new InvalidDataException("Current HDR has no actual matching outer light.");
         var inner = frame.Lights.FirstOrDefault(light => (light.GroupMask & innerMask) != 0) ?? outer;
-        byte[] effective = DeferredF103Kind1Modifier.ApplyWithModifier(
-            outer.CompleteData.Span, inner.CompleteData.Span, arg18).Bytes;
-        ReadOnlyMemory<byte> selectedModifier = DeferredF103Kind1Modifier.HasBuiltinModifier(inner.CompleteData.Span)
-            ? inner.CompleteData : effective;
-        int count = 4;
-        float F(int at) => BinaryPrimitives.ReadSingleLittleEndian(effective.AsSpan(at));
-        while (count > 1)
-        { int at = (count - 1) * 32 + 16; if (F(at) > 0 || F(at + 4) > 0 || F(at + 8) > 0) break; count--; }
-        var lighting = DeferredSceneConstants.ReadPreparedBaseLighting(effective.AsSpan(0, 0x1B0), count);
-        var fog = DeferredSceneConstants.ReadSharedFog(effective.AsSpan(0, 0x1B0), fogOwnerEnabled);
-        var ambient = DeferredSceneConstants.ReadAmbientModifier(selectedModifier.Span.Slice(0x1B0, 0x178), ambientMapsRate);
+        var lighting = outer.Lighting.PrepareLighting(inner.Lighting, arg18).Lighting;
+        int count = lighting.Lights.Count;
+        var firstColor = lighting.Lights[0].Color;
+        var fog = DeferredSceneConstants.ReadSharedFog(outer.CompleteData.Span[..0x1B0],
+            fogOwnerEnabled, new Vector3(firstColor.X, firstColor.Y, firstColor.Z));
+        var selectedModifier = inner.Lighting.Modifier.Present ? inner.Lighting : outer.Lighting;
+        var ambient = selectedModifier.PrepareAmbient(ambientMapsRate);
         var result = new Dictionary<string, byte[]>();
         void Add(string name, params float[] values)
         { byte[] bytes = new byte[values.Length * 4]; for (int i = 0; i < values.Length; i++)

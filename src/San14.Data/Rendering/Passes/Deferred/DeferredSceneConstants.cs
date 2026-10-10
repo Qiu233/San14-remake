@@ -143,10 +143,20 @@ public static class DeferredSceneConstants
     {
         if (effectiveLightData.Length != 0x1B0)
             throw new InvalidDataException("Shared fog requires the complete effective LightData 0x1B0 prefix.");
+        return ReadSharedFog(effectiveLightData, explicitOwnerFogEnabled,
+            new(ReadFloat(effectiveLightData, 0x10), ReadFloat(effectiveLightData, 0x14), ReadFloat(effectiveLightData, 0x18)));
+    }
+
+    /// <summary>Fog belongs to the outer light; scattering uses its current
+    /// modified directional color, independently of the selected modifier.</summary>
+    public static DeferredFogInputs ReadSharedFog(ReadOnlySpan<byte> effectiveLightData,
+        bool explicitOwnerFogEnabled, Vector3 directionalRgb)
+    {
+        if (effectiveLightData.Length != 0x1B0)
+            throw new InvalidDataException("Shared fog requires the complete effective LightData 0x1B0 prefix.");
         ReadOnlySpan<byte> record = effectiveLightData.Slice(0x150, 96);
         SkyFogPacket fog = SkyFogMath.Generate(7, 2, explicitOwnerFogEnabled, record);
-        SkyScatteringPacket scatter = fog.ScatteringOverride ?? SkyScatteringMath.Generate(7, record,
-            new(ReadFloat(effectiveLightData, 0x10), ReadFloat(effectiveLightData, 0x14), ReadFloat(effectiveLightData, 0x18)));
+        SkyScatteringPacket scatter = fog.ScatteringOverride ?? SkyScatteringMath.Generate(7, record, directionalRgb);
         return new(ReadVector(record, 0), fog.Value, Array.AsReadOnly(scatter.Values.ToArray()));
     }
 

@@ -147,6 +147,7 @@ static std::array<float,4> decode(const char* p, DXGI_FORMAT format) {
 #include "../Passes/Environment/WeatherFogProfileReader.h"
 #include "../Passes/Environment/WeatherFogConstants.h"
 #include "../Passes/Environment/FogAccelerationPass.h"
+#include "MainRenderPhaseState.h"
 #include "../Passes/Effects/SpecialEffectState.h"
 #include "../Passes/PostProcessing/MapExposure.h"
 #include "../Scene/Terrain/TerritoryRenderer.h"
@@ -246,13 +247,14 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     const auto normalInitialSource=normalNextSource/"prior-cpu";
     const float initialCommonClock=commonPublication.common254;
 
-    UINT sourceHostFlags3E4=0,contextFlags3F4=0,actualViewRainFlags19B4=0;
-    uint64_t actualHostQ7F8=0;
+    UINT sourceHostFlags3E4=0,actualViewRainFlags19B4=0;
+    uint64_t initialHostCompletion=0;
     {
         std::ifstream entry(resources.directory(ResourceGroup::DeferredLighting)/"main-entry.txt");
-        entry>>sourceHostFlags3E4>>actualHostQ7F8>>actualViewRainFlags19B4;
+        entry>>sourceHostFlags3E4>>initialHostCompletion>>actualViewRainFlags19B4;
         if(!entry)throw std::runtime_error("Original Main entry fields absent");
     }
+    MainRenderPhaseState phase{initialHostCompletion};
     FogAccelerationPass fogAcceleration;NativeSpecialEffects specialEffects;
     NormalPostProcess postProcessing;
     TerritoryPass territory;
@@ -341,21 +343,15 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         postProcessing.updateMapExposure(context.Get(),frameState.season(),
             {frameState.environment().camera().exposure,frameState.environment().camera().luminance},frameState.environment().exposureRectangleFlags());
         fogAcceleration.updateCamera(context.Get(),staticCamera);
-        specialEffects.queueFlags=0;contextFlags3F4=0; // EA9300 accepted node1.
+        phase.beginMain();
 
         fogAcceleration.execute(device.Get(),context.Get());
         clouds.updateAcceptedFrame(device.Get(),context.Get(),
             {resources.directory(ResourceGroup::CloudWeather),resources.directory(ResourceGroup::AmbientFrame)},
             {frameState.season(),frameState.cloudLights(),currentClock});
     };
-    auto publishThinSurfaceFlags=[&](UINT node) {
-        if(frameState.view().rain19B4!=0)specialEffects.queueFlags|=0x400;
-
-    };
-    auto finishNormalApply=[&]() {
-        actualHostQ7F8|=3; // EB8027/EB8040 retained Host writer.
-        specialEffects.queueFlags|=0x20; // E9E6D4 outer193, including zero draw.
-
+    auto publishThinSurface=[&]() {
+        phase.publishThinSurface(frameState.view().rain19B4!=0);
     };
     {
         UINT sourceResource,sourceShader,sourceTarget,sourceWidth,sourceHeight;
@@ -438,12 +434,12 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         for(const auto& record:frameState.viewProfile().records) {
             if((frameState.viewProfile().terrainExclusion&record.mask)!=0)continue;
             uint32_t lightBits=0;
-            if(terrainMaskNeedsSelectedLight(sourceHostFlags3E4,specialEffects.queueFlags)) {
+            if(terrainMaskNeedsSelectedLight(sourceHostFlags3E4,phase.deferredQueueFlags())) {
                 const auto* light=frameState.season()?source_current_season::firstMatching(*frameState.season(),record.mask):nullptr;
                 if(!light)throw std::runtime_error("Terrain current View record has no selected World light");
                 lightBits=light->terrainMaskScalarBits;
             }
-            const auto masks=terrainColorWriteMasks(sourceHostFlags3E4,specialEffects.queueFlags,lightBits,(_mm_getcsr()&0x40)!=0);
+            const auto masks=terrainColorWriteMasks(sourceHostFlags3E4,phase.deferredQueueFlags(),lightBits,(_mm_getcsr()&0x40)!=0);
             terrainPass.draw(context.Get(),staticCamera,
                 frameState.season()?std::optional<uint32_t>{frameState.season()->season}:std::nullopt,
                 binding,sourceDepth,record.mask&255,masks);
@@ -474,7 +470,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
 
     };
     drawCurrentTerritory(60,1);
-    publishThinSurfaceFlags(60);
+    publishThinSurface();
     callerTargets.restore(context.Get());
     OceanPass ocean;
     postProcessing.prepareSeason(resources.directory(ResourceGroup::SeasonalResources),frameState.season());
@@ -589,7 +585,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                 isolateCurrentShadowVisibility();
                 mainTargets.restore(context.Get()); //121
                 drawCurrentTerritory(122,2);
-                publishThinSurfaceFlags(122);
+                publishThinSurface();
                 hdr123.prepare(device.Get(),earlySource,"ocean-passes.txt",litColor.Get(),geometryTargets.textures(),shaderFormats,ggx.Get());
                 {
                     hdr123.initializeRefractionFrame(context.Get(),frameState.lightingFrame(),waterCameraInput/"receiver-refraction-writes.txt",ocean.refractionCamera());
@@ -603,7 +599,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                 atmosphere.executeSky(device.Get(),context.Get(),sourceDepth);
                 mainTargets.restore(context.Get());
 
-                clouds.execute(device.Get(),context.Get(),sourceDepth,geometryTargets.depthView(),initialCommonClock,UINT(actualHostQ7F8));
+                clouds.execute(device.Get(),context.Get(),sourceDepth,geometryTargets.depthView(),initialCommonClock,UINT(phase.hostCompletionFlags()));
                 mainTargets.restore(context.Get());
                 atmosphere.executeFog(device.Get(),context.Get(),sourceDepth,
                     resources.directory(ResourceGroup::HeightFog)/"source-profile.bin",frameState.season(),initialCommonClock,
@@ -625,13 +621,13 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                 //callback makes142's requested mirror update a no-op.
                 context->OMSetRenderTargets(0,nullptr,ocean.depthTarget()); //138
                 ;
-                applyNativeSpecialEffects(device.Get(),context.Get(),sourceDepth,specialEffects,141);
+                applyNativeSpecialEffects(device.Get(),context.Get(),sourceDepth,specialEffects,phase,141);
                 mainTargets.restore(context.Get()); //142, B616 has no mirror
                 geometryTargets.sixTargetScope().restore(context.Get()); //143
                 std::array<ID3D11RenderTargetView*,6> sixExpected{};
                 for(UINT i=0;i<6;++i)sixExpected[i]=geometryTargets.sixTargetScope().colors[i].Get();
                 ;
-                applyNativeSpecialEffects(device.Get(),context.Get(),sourceDepth,specialEffects,147);
+                applyNativeSpecialEffects(device.Get(),context.Get(),sourceDepth,specialEffects,phase,147);
                 updateNativeDepthMirror(context.Get(),mainDepth,"148 after source special zero-tail state");
                 mainTargets.restore(context.Get());
                 // Q400 closes150/154;142 belongs to distinct B616, not MainD1.
@@ -639,7 +635,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                 ;
                 updateNativeDepthMirror(context.Get(),mainDepth,"160 Rain writers pending");
                 mainTargets.restore(context.Get());
-                publishThinSurfaceFlags(161);
+                publishThinSurface();
                 //162/165 retain their source RS3 scope; this finite cohort
                 //has no process60 writer between them.
                 context->OMSetRenderTargets(1,&rsTarget,geometryTargets.depthView());
@@ -667,7 +663,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                         scene.Get(),mainDepth.depth.Get(),width,height);
 
                     finalColor=executeCurrentPost(initialCommonClock);
-                    finishNormalApply();
+                    phase.completeOuterApply();
                     {
                         const auto postCaller=NativeMainTargetScope::retain(context.Get());
                         auto sameOutput=postProcessing.outputTarget();
@@ -700,7 +696,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         drawOpaqueGeometry();updateNativeDepthMirror(context.Get(),mainDepth,"59 new Main geometry");
 
         drawCurrentTerritory(60,1);
-        publishThinSurfaceFlags(60);
+        publishThinSurface();
         callerTargets.restore(context.Get());
         auto abTarget=geometryTargets.colors()[0];context->OMSetRenderTargets(1,&abTarget,geometryTargets.depthView());
         shadows.executeContact(context.Get(),sourceDepth,geometryTargets.viewport());callerTargets.restore(context.Get());
@@ -725,7 +721,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         shadows.executeWaterReceiver(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView());mainTargets.restore(context.Get());
         isolateCurrentShadowVisibility();
         drawCurrentTerritory(122,2);
-        publishThinSurfaceFlags(122);
+        publishThinSurface();
         {
             hdr123.update(context.Get(),frameState.lightingFrame(&ocean.refractionCamera()));
         }
@@ -733,16 +729,16 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             nullptr,nullptr,currentClock,frameState.view().flags19AC,frameState.view().ocean19B0);
         atmosphere.updateCamera(context.Get(),frameState.atmosphereFrame(clouds));
         mainTargets.restore(context.Get());atmosphere.executeSky(device.Get(),context.Get(),sourceDepth);mainTargets.restore(context.Get());
-        clouds.execute(device.Get(),context.Get(),sourceDepth,geometryTargets.depthView(),currentClock,UINT(actualHostQ7F8));mainTargets.restore(context.Get());
+        clouds.execute(device.Get(),context.Get(),sourceDepth,geometryTargets.depthView(),currentClock,UINT(phase.hostCompletionFlags()));mainTargets.restore(context.Get());
         atmosphere.executeFog(device.Get(),context.Get(),sourceDepth,
             resources.directory(ResourceGroup::HeightFog)/"source-profile.bin",frameState.season(),currentClock,frameState.view().flags19AC);mainTargets.restore(context.Get());
         ocean.executeFilters(context.Get(),sourceDepth);mainTargets.restore(context.Get());
         std::array<ID3D11ShaderResourceView*,32> empty{};context->VSSetShaderResources(0,32,empty.data());context->PSSetShaderResources(0,32,empty.data());
-        context->OMSetRenderTargets(0,nullptr,ocean.depthTarget());applyNativeSpecialEffects(device.Get(),context.Get(),sourceDepth,specialEffects,141);
-        mainTargets.restore(context.Get());geometryTargets.sixTargetScope().restore(context.Get());applyNativeSpecialEffects(device.Get(),context.Get(),sourceDepth,specialEffects,147);
+        context->OMSetRenderTargets(0,nullptr,ocean.depthTarget());applyNativeSpecialEffects(device.Get(),context.Get(),sourceDepth,specialEffects,phase,141);
+        mainTargets.restore(context.Get());geometryTargets.sixTargetScope().restore(context.Get());applyNativeSpecialEffects(device.Get(),context.Get(),sourceDepth,specialEffects,phase,147);
         updateNativeDepthMirror(context.Get(),mainDepth,"148 new Main special");mainTargets.restore(context.Get());
         geometryTargets.sixTargetScope().restore(context.Get());updateNativeDepthMirror(context.Get(),mainDepth,"160 new Main rain source-closed");mainTargets.restore(context.Get());
-        publishThinSurfaceFlags(161);
+        publishThinSurface();
         context->OMSetRenderTargets(1,&rsTarget,geometryTargets.depthView());mainTargets.restore(context.Get());
         {
             hdr166.update(context.Get(),frameState.lightingFrame(&ocean.refractionCamera()));
@@ -756,7 +752,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         updateNativeDepthMirror(context.Get(),mainDepth,"191 new Main; particle owner pending");callerTargets.restore(context.Get());
         groundDetails.finishRenderNode();
         executeCurrentPost(currentClock);
-        finishNormalApply();
+        phase.completeOuterApply();
         //194/203 alias the same Final109;206 remains closed with null callerDSV.
         const auto postCaller=NativeMainTargetScope::retain(context.Get());auto sameOutput=postProcessing.outputTarget();
         context->OMSetRenderTargets(1,&sameOutput,geometryTargets.depthView());postCaller.restore(context.Get());

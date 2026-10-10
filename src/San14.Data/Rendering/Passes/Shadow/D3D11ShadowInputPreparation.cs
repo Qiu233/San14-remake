@@ -10,7 +10,7 @@ public sealed record D3D11ShadowInitialLight(uint ObjectId,uint GroupMask,
     int MaximumCasters,ReadOnlyMemory<byte> CurrentData);
 public sealed record D3D11ShadowInitialFamily(ReadOnlyMemory<byte> MainPrefix,
     IReadOnlyDictionary<int,uint> MainWords,IReadOnlyList<D3D11ShadowInitialLight> Lights,
-    MapFreshCommonResourceSnapshot Common,uint CommonRaster3F3);
+    MapCommonRenderState Common,uint CommonRaster3F3);
 
 /// <summary>Mount-time SHC1/SGP1 preparation from current Main/light values,
 /// project shadow rules and the already prepared resource model mappings.</summary>
@@ -42,7 +42,7 @@ public sealed class D3D11ShadowInputPreparation
             throw new NotSupportedException("Shadow startup supports its depth4E/class5 resource.");
         arguments=DeferredEarlyShadowPreparationArgumentsSource.Read(DefaultView0Source.LoadDeclarationDefaults(repository));
         directionAux=DeferredEarlyShadowDirectionSource.ReadSourceCreatedTemplate(
-            repository.LoadObjects("KIDSSystemResource",MapFreshCommonResources.SourceFileId));
+            repository.LoadObjects("KIDSSystemResource",CommonRenderResources.SourceFileId));
         forceFit=LoadedDeferredEarlyShadowForceFitSource.Load(repository,locale);
         task=LoadedDeferredEarlyShadowTaskModelCollectionSource.Load(repository).ReadTask(22);
         clip=MainMapCameraStartupSource.Load(repository,locale).StaticProjectionProfile;
@@ -164,8 +164,8 @@ public sealed class D3D11ShadowInputPreparation
                 {
                     var caller=new DeferredEarlyShadowCurrentWorldCallerFields(uint.MaxValue,uint.MaxValue,uint.MaxValue,true,world.Exclusion,world.Flags,"fresh resource Model WorldPQ");
                     var masks=DeferredEarlyShadowCasterAdmissionSource.ReadCurrentMasks(view,caller,
-                        input.Common.CommonViewResource240Present,input.Common.CommonViewFlags8,world.Opacity);
-                    var light=masks.ShadowSlotEligible?input.Lights.FirstOrDefault(light=>(light.GroupMask&(world.Exclusion|input.Common.CurrentAuxiliaryExclusion404!.Value))==0):null;
+                        input.Common.AuxiliaryPresent,input.Common.CommonFlags,world.Opacity);
+                    var light=masks.ShadowSlotEligible?input.Lights.FirstOrDefault(light=>(light.GroupMask&(world.Exclusion|input.Common.ModelExclusionMask!.Value))==0):null;
                     uint allowed=light is not null&&DeferredEarlyShadowCasterSource.ReadFirstCasterGate(light.CurrentData.Span[0xF1C],(world.Flags&1)!=0)?15u:0u;
                     writer.Write(world.Index);writer.Write(allowed);writer.Write(world.Exclusion);writer.Write(world.Flags);writer.Write(world.Opacity);writer.Write(world.PrimitiveCount);
                 }
@@ -177,7 +177,7 @@ public sealed class D3D11ShadowInputPreparation
                 writer.Write(templates.Length);foreach(var template in templates){writer.Write(template.Index);writer.Write(template.Bytes);writer.Write(template.LocalToProjection?1u:0u);writer.Write(-1);}
                 writer.Write(F(0x9F0));writer.Write(cascades.Far9EC);Vector(writer,direction.BasisB0);Vector(writer,direction.BasisC0);Vector(writer,direction.DirectionD0);writer.Write(Word(0xA38));
             }
-            admission.Write(input.Common.CurrentAuxiliaryExclusion404!.Value);admission.Write(1u);admission.Write(input.Lights.Count);
+            admission.Write(input.Common.ModelExclusionMask!.Value);admission.Write(1u);admission.Write(input.Lights.Count);
             foreach(var light in input.Lights){admission.Write(light.GroupMask);admission.Write((uint)light.CurrentData.Span[0xF1C]);admission.Write((uint)light.CurrentData.Span[0xF1F]);admission.Write((uint)light.CurrentData.Span[0xF20]);admission.Write(0u);}
             WriteRaster(Path.Combine(inputsDirectory,"shadow-raster-source-input",name),input,compact.PassCount);
         }

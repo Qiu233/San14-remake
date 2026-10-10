@@ -83,7 +83,7 @@ public sealed class NativeArmyWorldCpuPublicationOwner
     }
 
     public ArmyWorldPrimitivePublication PrepareActualBeforeFrame(NativeMapArmyPreparedFrame actualArmy,
-        MapWorldKind1CurrentQueue actualQueue, MapFreshCommonResourceSnapshot actualCommon,
+        MapWorldKind1CurrentQueue actualQueue, MapCommonRenderState actualCommon,
         ArmyCurrentWorldVisibilityView actualView, string currentPublicationIdentity)
     {
         ArgumentNullException.ThrowIfNull(actualArmy);
@@ -99,7 +99,7 @@ public sealed class NativeArmyWorldCpuPublicationOwner
 
     public ArmyWorldPrimitivePublication PrepareLogicalCurrent(
         IReadOnlyList<NativeArmyWorldLogicalActor> completeActualActors, DeferredCameraInputs actualCamera,
-        MapWorldKind1CurrentQueue actualQueue, MapFreshCommonResourceSnapshot actualCommon,
+        MapWorldKind1CurrentQueue actualQueue, MapCommonRenderState actualCommon,
         ArmyCurrentWorldVisibilityView actualView, string currentPublicationIdentity)
     {
         RequireRetained(); ArgumentNullException.ThrowIfNull(completeActualActors); ArgumentNullException.ThrowIfNull(actualCamera);

@@ -71,7 +71,7 @@ public sealed class SceneViewNativeMapStockBackendSourceOwner
                 selected.Combination.Index!=first.Combination.Index||selected.PixelProgramSha256!=first.PixelProgramSha256||
                 selected.Current.ContextFlags3F0!=first.Current.ContextFlags3F0||
                 selected.Current.NativeColorMode!=first.Current.NativeColorMode||
-                selected.Current.QueryD5BeA0!=first.Current.QueryD5BeA0||
+                selected.Current.AmbientSelectionPresent!=first.Current.AmbientSelectionPresent||
                 !selected.RequestedVariant96.Span.SequenceEqual(first.RequestedVariant96.Span))
                 throw new NotSupportedException("Another early source changes the stock-field retention scope.");
         }

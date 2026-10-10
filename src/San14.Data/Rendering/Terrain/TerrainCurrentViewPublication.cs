@@ -54,7 +54,7 @@ public sealed class TerrainCurrentViewPublication
 {
     private readonly TerrainPatchInput[] patches;
     private TerrainSelectedKind1Record? selectedShadow;
-    private MapFreshCommonResourceSnapshot? shadowCommon;
+    private MapCommonRenderState? shadowCommon;
     private TerrainCurrentViewPublication(TerrainViewPublicationSource source,
         MapSourceCreatedLightingPacket lighting, TerrainPatchInput[] patches, string provenance)
     { Source = source; FrameNumber = lighting.FrameNumber; ViewIdentity = lighting.Binding.ViewIdentity;
@@ -73,7 +73,7 @@ public sealed class TerrainCurrentViewPublication
     public static TerrainCurrentViewPublication PrepareWithSelectedKind1Record(
         TerrainViewPublicationSource source, MapSourceCreatedLightingPacket lighting,
         IReadOnlyList<TerrainPatchInput> completeAcceptedPatches, TerrainSelectedKind1Record selected,
-        MapFreshCommonResourceSnapshot currentCommon, string currentCpuProvenance)
+        MapCommonRenderState currentCommon, string currentCpuProvenance)
     {
         ArgumentNullException.ThrowIfNull(source); ArgumentNullException.ThrowIfNull(lighting);
         ArgumentNullException.ThrowIfNull(completeAcceptedPatches); ArgumentNullException.ThrowIfNull(selected);
@@ -82,12 +82,12 @@ public sealed class TerrainCurrentViewPublication
         currentCommon.ValidateFrame(lighting.FrameNumber, currentCommon.CommonTableOwnerIdentity, lighting.Binding.ViewIdentity);
         if (lighting.FrameNumber <= 0 || completeAcceptedPatches.Count == 0 || completeAcceptedPatches.Any(p => p is null))
             throw new InvalidDataException("Present selected-shadow Terrain publication needs the complete nonempty actual patch inventory.");
-        if (currentCommon.CommonViewResource240Present && (currentCommon.CommonViewFlags8 & 0x2000) != 0)
+        if (currentCommon.AuxiliaryPresent && (currentCommon.CommonFlags & 0x2000) != 0)
             throw new NotSupportedException("Current Aux240 permits Terrain shadows; this branch requires its actual record20 CPU128 and shadow-geometry producer before 2C6 can be published.");
         var result = new TerrainCurrentViewPublication(source, lighting, completeAcceptedPatches.ToArray(),
             currentCpuProvenance + ";" + source.SourceIdentity + ";" + selected.SourceProvenance + ";" + currentCommon.ProducerProvenance +
             ";D64610/D08910-actual-Landscape1BB8;D5CDF0/D5D1F6-clear2C6;" +
-            (currentCommon.CommonViewResource240Present ? "D5CE2D/D5D284-Aux240+8-bit13-clear" : "D5CE2D/D5D262-current-Aux240-absent") +
+            (currentCommon.AuxiliaryPresent ? "D5CE2D/D5D284-Aux240+8-bit13-clear" : "D5CE2D/D5D262-current-Aux240-absent") +
             ";D61730-no-shadow-contribution;selected1BD0-remains-present");
         result.selectedShadow = selected; result.shadowCommon = currentCommon;
         return result;
@@ -127,7 +127,7 @@ public sealed class TerrainCurrentViewPublication
                 shadowCommon is null || !sourceKind1Masks.Contains(selectedShadow.RecordWord78))
                 throw new InvalidDataException("Present selected Terrain record must retain the actual same-frame kind1 owner and current Aux branch.");
             shadowCommon.ValidateFrame(FrameNumber, shadowCommon.CommonTableOwnerIdentity, ViewIdentity);
-            if (shadowCommon.CommonViewResource240Present && (shadowCommon.CommonViewFlags8 & 0x2000) != 0)
+            if (shadowCommon.AuxiliaryPresent && (shadowCommon.CommonFlags & 0x2000) != 0)
                 throw new InvalidDataException("Current Aux240 no longer supplies the accepted finite Terrain shadow branch.");
         }
         uint flags = 0;

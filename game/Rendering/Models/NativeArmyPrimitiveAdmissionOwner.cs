@@ -50,12 +50,12 @@ public sealed class NativeArmyPrimitiveAdmissionOwner
     }
 
     public ArmyCurrentPrimitivePublication PrepareCurrent(NativeArmyCpuPrimitivePopulation population,
-        MapSourceCreatedLightingPacket lighting, MapFreshCommonResourceSnapshot common,
+        MapSourceCreatedLightingPacket lighting, MapCommonRenderState common,
         NativeArmyCurrentEligibility actualEligibility)
     {
         ArgumentNullException.ThrowIfNull(population); ArgumentNullException.ThrowIfNull(actualEligibility); RequireRetained();
         if (!ReferenceEquals(actualEligibility.Context, population.Context) ||
-            population.Context.FrameNumber != lighting.FrameNumber || common.CurrentViewAux3F2 is not byte selector ||
+            population.Context.FrameNumber != lighting.FrameNumber || common.ViewGroupSelector is not byte selector ||
             string.IsNullOrWhiteSpace(actualEligibility.CurrentSourceProvenance) ||
             !population.Actors.Select(a => a.Actor).Order(StringComparer.Ordinal)
                 .SequenceEqual(actualEligibility.CompleteCurrentActorEligibility.Keys.Order(StringComparer.Ordinal)))
@@ -64,12 +64,12 @@ public sealed class NativeArmyPrimitiveAdmissionOwner
             actualEligibility.CompleteCurrentActorEligibility[a.Actor], true, a.Source.Exclusion78,
             OwnerIdentity + "/retained-owned-WorldPQ-prefix;" + actualEligibility.CurrentSourceProvenance)).ToArray();
         return ArmyCurrentPrimitivePublication.Prepare(population.Context.FrameNumber, lighting, selector,
-            common.CurrentAuxiliaryExclusion404, actors, OwnerIdentity + "/" + population.Prepared.SourceRevision);
+            common.ModelExclusionMask, actors, OwnerIdentity + "/" + population.Prepared.SourceRevision);
     }
 
     public ArmyCurrentPrimitivePublication PrepareCurrentEmptyWorld(
         NativeArmyCpuPrimitivePopulation population, MapSourceCreatedLightingPacket lighting,
-        MapFreshCommonResourceSnapshot common, MapWorldKind1CurrentQueue queue)
+        MapCommonRenderState common, MapWorldKind1CurrentQueue queue)
     {
         ArgumentNullException.ThrowIfNull(population); RequireRetained();
         if (population.Context.FrameNumber != lighting.FrameNumber || population.Actors.Count != 0 ||

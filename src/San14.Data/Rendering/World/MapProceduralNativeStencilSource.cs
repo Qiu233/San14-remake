@@ -58,7 +58,7 @@ public sealed class MapProceduralNativeStencilSource
     /// <summary>Consume current owned renderer fields. Later modifier or
     /// SSSTransmit writes require their real writer before this finite scope.</summary>
     public ModelOrdinaryDispatcherStencilPacket PrepareCurrent(
-        ModelOrdinaryDispatcherRecord actualRecord, MapFreshCommonResourceSnapshot currentCommon,
+        ModelOrdinaryDispatcherRecord actualRecord, MapCommonRenderState currentCommon,
         uint actualContextFlags3E4, uint actualModifierFlags4, bool actualSsstransmitPresent)
     {
         if ((actualModifierFlags4 & 0x6EA) != 0 || actualSsstransmitPresent)

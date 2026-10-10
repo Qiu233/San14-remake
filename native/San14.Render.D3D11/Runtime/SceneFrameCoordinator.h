@@ -100,10 +100,17 @@ public:
         population.terrainPresent=!cameraRig_.frame().instances.empty();
         population.selectedCompactPresent=shadows.frame().passes[0].shadowAvailable!=0;
         population.selectedLitPresent=shadows.directionalView()!=nullptr;
+        population.selectedReceiveShadowMode=viewProfile_.initialReceiveShadowMode; // Initial non-season import only.
         if(season_) {
             viewProfile_.mainA00=shadows.seasonParameters().selectedLightGroup;
             viewProfile_.mainA28=shadows.seasonParameters().planeScale;
             viewProfile_.mainA3C=static_cast<uint32_t>(source_current_season_shadow::required(season_->shadow.compactMode));
+            population.selectedReceiveShadowMode=0; // Disabled selection does not query World.
+            if(viewProfile_.mainA00>0) {
+                // publishSeason already selected and admitted this same ordered World light.
+                const auto& selected=*source_current_season::firstMatching(*season_,shadows.seasonParameters().selectedMask);
+                population.selectedReceiveShadowMode=selected.shadowModes.receive;
+            }
         }
         view_=source_view::prepareCurrent(viewProfile_,population);
 

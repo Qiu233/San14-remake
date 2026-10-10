@@ -83,7 +83,7 @@ public sealed class D3D11ModelInputPreparation
         var fields=WorldPrimitiveSortDescriptor.ReadActualFields(order.Descriptor(WorldPrimitiveSortFamily.Opaque).ToArray());
         if(!fields.SequenceEqual(new[]{14,3}))throw new NotSupportedException("Current Model first-bank sort is outside opaque14->3.");
         var common=MapModelNativeVisibilitySources.ReadCommonViewTemplate(
-            repo.LoadObjects("KIDSSystemResource",MapFreshCommonResources.SourceFileId),MapFreshCommonResources.SourceObjectId);
+            repo.LoadObjects("KIDSSystemResource",CommonRenderResources.SourceFileId),CommonRenderResources.SourceObjectId);
         const string output=".";
         var files=new Dictionary<string,byte[]>(StringComparer.Ordinal);
         var profiles=new Dictionary<string,List<Profile>>();

@@ -40,10 +40,10 @@ public static class MapCommonFrameClockSource
 public sealed class MapCommonClockPublication
 {
     internal MapCommonClockPublication(MapOwnedCommonFrameClock owner,long frame,
-        MapFreshCommonResourceSnapshot common,string clockOwner,float delta,MapCommonFrameSyncTime time)
+        MapCommonRenderState common,string clockOwner,float delta,MapCommonFrameSyncTime time)
         =>(Owner,FrameNumber,Common,ActualClockOwnerIdentity,ActualInputDelta,Time)=(owner,frame,common,clockOwner,delta,time);
     internal MapOwnedCommonFrameClock Owner{get;}
-    internal MapFreshCommonResourceSnapshot Common{get;}
+    internal MapCommonRenderState Common{get;}
     internal float ActualInputDelta{get;}
     public long FrameNumber{get;}
     public string ActualClockOwnerIdentity{get;}
@@ -53,7 +53,7 @@ public sealed class MapCommonClockPublication
     public string SourceEvidence=>Owner.SourceEvidence+$";frame={FrameNumber};actual-clock={ActualClockOwnerIdentity};"+
         "F40628-owned3348-once/D12ACB-D61BB4-Common254/D12AB6-D61BBC-Common258;CPU-publication-only";
     public void RequireCurrent()=>Owner.RequireCurrent(this);
-    public void RequireCurrentForCommon(MapFreshCommonResourceSnapshot actualCommon)
+    public void RequireCurrentForCommon(MapCommonRenderState actualCommon)
     {
         RequireCurrent();
         if(!ReferenceEquals(actualCommon,Common))throw new InvalidDataException("Published Common time belongs to another current table packet.");
@@ -80,12 +80,12 @@ public sealed class MapOwnedCommonFrameClock
 {
     private readonly object gate=new();
     private readonly LoadedMapPostEffect3ControlledFreshCallerSource caller;
-    private readonly LoadedMapFreshCommonSource template;
+    private readonly CommonRenderSettings template;
     private float currentTime3348,previousApplyTime1E4;
     private MapCommonClockPublication? current;
     private MapApplyClockConsumption? apply;
     public MapOwnedCommonFrameClock(LoadedMapPostEffect3ControlledFreshCallerSource loadedCaller,
-        LoadedMapFreshCommonSource loadedSelectedTemplate)
+        CommonRenderSettings loadedSelectedTemplate)
     {
         caller=loadedCaller??throw new ArgumentNullException(nameof(loadedCaller));
         template=loadedSelectedTemplate??throw new ArgumentNullException(nameof(loadedSelectedTemplate));
@@ -93,7 +93,7 @@ public sealed class MapOwnedCommonFrameClock
     public string SourceEvidence=>caller.SourceEvidence+";"+template.SourceIdentity+
         ";actual-owned-Common-D0176F3348zero/Apply-E6BB1C1E4zero;retained-source-clock";
 
-    public MapCommonClockPublication PrepareCurrent(long frame,MapFreshCommonResourceSnapshot actualCommon,
+    public MapCommonClockPublication PrepareCurrent(long frame,MapCommonRenderState actualCommon,
         float actualRendererDelta,string actualClockOwnerIdentity)
     {
         ArgumentNullException.ThrowIfNull(actualCommon);ArgumentException.ThrowIfNullOrWhiteSpace(actualClockOwnerIdentity);

@@ -47,7 +47,7 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
     {
         var graph=repository.LoadRenderGraph("system",0x024496EE);
         var textures=repository.LoadObjects("system",0x93FB3280);
-        var common=MapFreshCommonResources.ReadSourceTemplate(repository.LoadObjects("KIDSSystemResource",0x6D011726));
+        var common=CommonRenderResources.ImportSettings(repository.LoadObjects("KIDSSystemResource",0x6D011726));
         uint Name(uint hash)=>BinaryPrimitives.ReadUInt32LittleEndian(graph.Document.Nodes[1].Call.Arguments.Single(argument=>argument.NameHash==hash).RawValue);
         int selector=BinaryPrimitives.ReadInt32LittleEndian(present.PreparedCameraPrefix.Span[0x1CC..]);
         uint? terminal=MapSceneProxySourcePolicy.ReadSourceCreatedFreshTerminal(selector,common.Flags8,common.Flags0C,

@@ -99,11 +99,11 @@ public sealed class DeferredEarlyShadowCascadeNumericFields
 
 public sealed class DeferredEarlyShadowCurrentCascadeFields
 {
-    internal DeferredEarlyShadowCurrentCascadeFields(MapFreshCommonResourceSnapshot common,
+    internal DeferredEarlyShadowCurrentCascadeFields(MapCommonRenderState common,
         MapSourceCreatedViewCameraFields fields, MapCameraConstructionPacket camera,
         DeferredEarlyShadowCascadeNumericFields numeric, string evidence)
         => (Common, CameraFields, AcceptedMain, Numeric, SourceEvidence) = (common, fields, camera, numeric, evidence);
-    public MapFreshCommonResourceSnapshot Common { get; }
+    public MapCommonRenderState Common { get; }
     public MapSourceCreatedViewCameraFields CameraFields { get; }
     public MapCameraConstructionPacket AcceptedMain { get; }
     public DeferredEarlyShadowCascadeNumericFields Numeric { get; }
@@ -121,13 +121,13 @@ public sealed class LoadedDeferredEarlyShadowCascadeSource
     public string SourceEvidence { get; }
 
     public DeferredEarlyShadowCurrentCascadeFields PrepareSourceCreatedRetainedMain(
-        MapFreshCommonResourceSnapshot actualCommon,
+        MapCommonRenderState actualCommon,
         MapSourceCreatedViewCameraFields actualCameraFields,
         MapCameraConstructionPacket actualAcceptedMain)
     {
         ArgumentNullException.ThrowIfNull(actualCommon); ArgumentNullException.ThrowIfNull(actualCameraFields);
         ArgumentNullException.ThrowIfNull(actualAcceptedMain);
-        if (actualCommon.Scope != MapFreshCommonResourceScope.SourceCreatedNoCallbackBeforeAmbientPublication ||
+        if (actualCommon.Scope != CommonRenderPublicationKind.InitialSettings ||
             actualCommon.FrameNumber != actualCameraFields.FrameNumber ||
             actualCameraFields.CameraObjectId != DefaultView0Source.MainCameraObjectId)
             throw new InvalidDataException("Shadow cascade source retention requires the actual fresh Common and same-frame Main tail.");
