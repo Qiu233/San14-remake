@@ -86,7 +86,7 @@ public static class MainMapCameraDeferredSource
         DeferredF103SelectedSource selected,MainMapCameraDeferredFreshInputs current)
     {
         ArgumentNullException.ThrowIfNull(selected);ArgumentNullException.ThrowIfNull(current);
-        selected.Validate();
+
         var shader=selected.SourcePlan.Shader;
         _=LoadedFactories.GetValue(shader.Source, source=>
         {

@@ -79,7 +79,7 @@ public static class DeferredEarlySceneConstants
         ArgumentNullException.ThrowIfNull(selected); ArgumentNullException.ThrowIfNull(lighting);
         ArgumentNullException.ThrowIfNull(currentOcclusion); ArgumentNullException.ThrowIfNull(currentShadowFade);
         ArgumentNullException.ThrowIfNull(currentCausticsWrites);
-        selected.Validate();
+
         if (selected.SourcePlan.Node.Index != 78 || selected.Combination.Index != 126 || selected.PixelProgramIndex != 95 ||
             selected.PixelProgramSha256 != "19103754FF90ADC50E3CC7269C1AA93013D0FC3EA8341D3EE7BB2396D9F3030C" ||
             selected.OwnedFeatureSource is not { } feature || lighting.SceneInputs.Camera is null || lighting.SceneInputs.Ambient is null)

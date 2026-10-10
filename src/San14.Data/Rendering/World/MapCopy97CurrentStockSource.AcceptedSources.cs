@@ -28,7 +28,6 @@ public sealed partial class MapCopy97CurrentStockSource
         private readonly MapCopy97CurrentStockPacket packet;
         private readonly byte[] camera,lightingCamera,light,feature,lateFeature,lateVariant,lateRow,lateBinding,
             earlyCamera,earlyFeature,earlyVariant,earlyRow,earlyBinding;
-        private readonly DeferredF103VariantWrite[] lateWrites,earlyWrites;
         internal MapOwnedGraphicsMaskAcceptedSourceSnapshot Mask{get;}
         internal AcceptedStockSources(MapCopy97CurrentStockSource owner,MapCopy97CurrentStockPacket packet,
             MapOwnedGraphicsMaskAcceptedSourceSnapshot mask)
@@ -37,10 +36,10 @@ public sealed partial class MapCopy97CurrentStockSource
             camera=frame.Camera.Prefix.ToArray();lightingCamera=frame.Lighting.PreparedCameraPrefix.ToArray();light=frame.Lighting.LocalLightData.ToArray();
             feature=frame.Feature.CurrentFeature48.ToArray();lateFeature=frame.Selection.CurrentFeature48.ToArray();
             lateVariant=frame.Selection.RequestedVariant96.ToArray();lateRow=frame.Selection.Combination.RawRow.ToArray();
-            lateBinding=frame.Selection.BindingVariant.RawBytes.ToArray();lateWrites=frame.Selection.Writes.ToArray();
+            lateBinding=frame.Selection.BindingVariant.RawBytes.ToArray();
             earlyCamera=packet.Early.Camera.Prefix.ToArray();earlyFeature=packet.Early.CurrentFeature48.ToArray();
             earlyVariant=packet.Early.RequestedVariant96.ToArray();earlyRow=packet.Early.Combination.RawRow.ToArray();
-            earlyBinding=packet.Early.BindingVariant.RawBytes.ToArray();earlyWrites=packet.Early.Writes.ToArray();
+            earlyBinding=packet.Early.BindingVariant.RawBytes.ToArray();
         }
         internal void RequireCurrent(MapCopy97CurrentStockPacket actual)
         {
@@ -53,10 +52,9 @@ public sealed partial class MapCopy97CurrentStockSource
                 !frame.Lighting.LocalLightData.Span.SequenceEqual(light)||!frame.Feature.CurrentFeature48.Span.SequenceEqual(feature)||
                 !frame.Selection.CurrentFeature48.Span.SequenceEqual(lateFeature)||!frame.Selection.RequestedVariant96.Span.SequenceEqual(lateVariant)||
                 !frame.Selection.Combination.RawRow.AsSpan().SequenceEqual(lateRow)||!frame.Selection.BindingVariant.RawBytes.AsSpan().SequenceEqual(lateBinding)||
-                !frame.Selection.Writes.SequenceEqual(lateWrites)||!packet.Early.Camera.Prefix.Span.SequenceEqual(earlyCamera)||
+                !packet.Early.Camera.Prefix.Span.SequenceEqual(earlyCamera)||
                 !packet.Early.CurrentFeature48.Span.SequenceEqual(earlyFeature)||!packet.Early.RequestedVariant96.Span.SequenceEqual(earlyVariant)||
-                !packet.Early.Combination.RawRow.AsSpan().SequenceEqual(earlyRow)||!packet.Early.BindingVariant.RawBytes.AsSpan().SequenceEqual(earlyBinding)||
-                !packet.Early.Writes.SequenceEqual(earlyWrites))
+                !packet.Early.Combination.RawRow.AsSpan().SequenceEqual(earlyRow)||!packet.Early.BindingVariant.RawBytes.AsSpan().SequenceEqual(earlyBinding))
                 throw new InvalidDataException("Accepted stock semantic snapshot changed its current native Camera/light/feature/variant packet or frontend epoch.");
             packet.Terrain.Source.RequireRetainedAcceptedScope();
         }

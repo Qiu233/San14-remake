@@ -135,7 +135,7 @@ public sealed class MapSourceCreatedNativeSession : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(borrowedArmy);
         ArgumentNullException.ThrowIfNull(materials);ArgumentNullException.ThrowIfNull(bootstrapSelection);
         ArgumentNullException.ThrowIfNull(current);ArgumentNullException.ThrowIfNull(gpu);
-        bootstrapSelection.Validate();
+
         if(bootstrapSelection.Combination.Index!=1022||bootstrapSelection.PixelProgramIndex!=767||
             bootstrapSelection.Camera.Source.Camera.ObjectId!=0x38D04576||
             bootstrapSelection.OwnedFeatureSource is not { } feature||
@@ -230,7 +230,7 @@ public sealed class MapSourceCreatedNativeSession : IAsyncDisposable
                 !input.MainCamera.Prefix.Span.SequenceEqual(prepared.Camera.Prefix.Span)||
                 !ReferenceEquals(prepared.Selection.OwnedFeatureSource,prepared.Feature))
                 throw new InvalidDataException("Borrowed F103 preparation differs from the same source lighting, owner, Camera or current attempt.");
-            prepared.Feature.ValidateFrame(prepared.Camera,prepared.Lighting);prepared.Selection.Validate();
+            prepared.Feature.ValidateFrame(prepared.Camera,prepared.Lighting);
             if(prepared.Lighting.SceneInputs.Camera!=context.PreparedCamera)
                 throw new InvalidDataException("Borrowed source lighting differs from the already accepted geometry Camera.");
             lighting=prepared.Lighting;feature=prepared.Feature;selected=prepared.Selection;

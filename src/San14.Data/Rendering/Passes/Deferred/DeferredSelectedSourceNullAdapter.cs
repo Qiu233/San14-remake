@@ -158,7 +158,7 @@ public static class DeferredSelectedSourceNullAdapter
         DeferredSelectedSourceNullSpirv specialized)
     {
         ArgumentNullException.ThrowIfNull(original);ArgumentNullException.ThrowIfNull(specialized);
-        specialized.SelectedSource.Validate();
+
         ValidateProofOwners(specialized.SelectedSource,specialized.ProofPairs,specialized.SourceNullIes,specialized.SourceLocalAmbient);
         foreach(var pair in specialized.ProofPairs)pair.ValidateForSelection(specialized.SelectedSource);
         byte[] bytes=specialized.Bytes;
@@ -203,7 +203,7 @@ public static class DeferredSelectedSourceNullAdapter
     private static void ValidateSource(ShaderSpirv original,TranslatedShaderBindings bindings,DeferredF103SelectedSource selection)
     {
         ArgumentNullException.ThrowIfNull(original);ArgumentNullException.ThrowIfNull(bindings);ArgumentNullException.ThrowIfNull(selection);
-        selection.Validate();var profile=Profile(selection);
+        var profile=Profile(selection);
         if(original.SourceProgramSha256!=profile.Pixel||selection.PixelProgramSha256!=profile.Pixel||
             original.SpirvSha256!=profile.Spirv||Convert.ToHexString(SHA256.HashData(original.Bytes))!=profile.Spirv||
             bindings.Interface.Sha256!=profile.Spirv||bindings.Bindings.Count!=profile.Descriptors||

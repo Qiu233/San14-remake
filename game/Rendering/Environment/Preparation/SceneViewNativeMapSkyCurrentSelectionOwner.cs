@@ -29,7 +29,7 @@ public sealed class SceneViewNativeMapSkyCurrentSelectionOwner
         ArgumentNullException.ThrowIfNull(actualRgb); ArgumentNullException.ThrowIfNull(actualViewExecution);
         if (!retained || actualSource.Lighting.Binding != binding)
             throw new InvalidDataException("Sky selection owner was edited or belongs to another current Main/View.");
-        actualSource.Selection.Validate(); actualSource.Feature.ValidateFrame(actualSource.Camera, actualSource.Lighting);
+         actualSource.Feature.ValidateFrame(actualSource.Camera, actualSource.Lighting);
         actualViewExecution.RequireSelectedView(actualSource.FrameNumber, binding);
         if (actualViewExecution.SelectedViewIndex != 0 || actualRgb.Inputs.FrameNumber != actualSource.FrameNumber ||
             !ReferenceEquals(actualRgb, actualPresent.AcceptedSeasonCamera))
@@ -59,7 +59,7 @@ public sealed class SceneViewNativeMapSkyCurrentSelectionOwner
     {
         if (!retained || !ReferenceEquals(actual, current))
             throw new InvalidDataException("Sky selection receipt is superseded, edited or belongs to another source owner.");
-        actual.Source.Selection.Validate(); actual.Source.Feature.ValidateFrame(actual.Source.Camera, actual.Source.Lighting);
+         actual.Source.Feature.ValidateFrame(actual.Source.Camera, actual.Source.Lighting);
         if (!ReferenceEquals(actual.SelectedSkyRecord, actual.Source.ViewFields.CurrentPublication.SelectedShadowRecord1BD0) ||
             !actual.SelectedSkyRecord.CompleteLightData.Span.SequenceEqual(actual.Source.Lighting.LocalLightData.Span))
             throw new InvalidDataException("Current Sky record was replaced after this accepted source selection.");

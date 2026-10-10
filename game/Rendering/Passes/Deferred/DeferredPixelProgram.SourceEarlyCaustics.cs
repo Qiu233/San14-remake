@@ -11,7 +11,7 @@ public sealed partial class DeferredPixelProgram
         DeferredEarlyCausticsSourceNull sourceNull)
     {
         ArgumentNullException.ThrowIfNull(selected); ArgumentNullException.ThrowIfNull(compiler);
-        ArgumentNullException.ThrowIfNull(sourceNull); selected.Validate(); sourceNull.Validate(selected);
+        ArgumentNullException.ThrowIfNull(sourceNull);  sourceNull.Validate(selected);
         var source = selected.SourcePlan.Shader;
         byte[] vertex = source.Container.GetProgramBytes(source.Source.Bytes, selected.VertexProgramIndex).ToArray();
         if (Convert.ToHexString(SHA256.HashData(vertex)) != "C51D71A59DC89E4B23B68395180A41473B35914AD33BCE80C92AF636A379757D")

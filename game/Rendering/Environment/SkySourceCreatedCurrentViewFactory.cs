@@ -15,7 +15,7 @@ public static class SkySourceCreatedCurrentViewFactory
         SkySceneSharedAtmosphere currentAtmosphere, SkySceneProducerFrame producers)
     {
         ArgumentNullException.ThrowIfNull(currentView); ArgumentNullException.ThrowIfNull(currentSeasonCamera);
-        currentView.Selection.Validate(); currentView.Feature.ValidateFrame(currentView.MainCamera, currentView.Lighting);
+         currentView.Feature.ValidateFrame(currentView.MainCamera, currentView.Lighting);
         if (currentView.Context.FrameNumber != currentView.Lighting.FrameNumber ||
             currentView.Context.FrameNumber != currentSeasonCamera.Inputs.FrameNumber ||
             currentView.Context.PreparedCamera is null ||

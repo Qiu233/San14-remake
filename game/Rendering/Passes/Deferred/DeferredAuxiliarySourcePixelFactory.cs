@@ -46,7 +46,7 @@ public static class DeferredAuxiliarySourcePixelFactory
         var current = inputs.Current;
         var sourceFrame = accepted.PreparedSourceFrame ?? throw new InvalidDataException("Auxiliary source chain needs its complete owned current publication.");
         inputs.Prefix.Validate(sourceFrame, current.Context, inputs.Prefix.ViewGenerationIdentity);
-        accepted.Selection.Validate(); accepted.Feature.ValidateFrame(accepted.MainCamera, accepted.Lighting);
+         accepted.Feature.ValidateFrame(accepted.MainCamera, accepted.Lighting);
         var checkedCurrent = MapSourceCreatedAuxiliaryCurrentFactory.Prepare(accepted, current.Common,
             current.Context, current.CommonSettingsOwnerIdentity);
         long frame = accepted.Context.FrameNumber;

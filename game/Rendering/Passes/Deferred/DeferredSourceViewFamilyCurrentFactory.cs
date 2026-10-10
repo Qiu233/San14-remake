@@ -132,7 +132,7 @@ public sealed class DeferredSourceViewFamilyCurrentPublication
                 throw new InvalidDataException("Legacy View family publication needs its two actual current Army layer submissions.");
             models.RequireCurrent(); ordinary.RequireCurrent(); flags.RequireCurrent();
         }
-        accepted.Selection.Validate(); accepted.Feature.ValidateFrame(accepted.MainCamera, accepted.Lighting);
+         accepted.Feature.ValidateFrame(accepted.MainCamera, accepted.Lighting);
     }
 
     private static DeferredSourceMode16Candidate[] ReadCompleteCandidates(

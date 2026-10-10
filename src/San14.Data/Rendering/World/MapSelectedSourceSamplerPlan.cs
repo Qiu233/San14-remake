@@ -54,7 +54,7 @@ public sealed class MapSelectedSourceSamplerPlan
         LoadedDeferredSamplerNativeSource native, short encodedRole, LoadedRdbAsset source,
         string actualProducerFragment, ReadOnlySpan<byte> finalKey)
     {
-        ArgumentNullException.ThrowIfNull(plan); plan.Selection.Validate(); _ = ReadImportedAsset(source);
+        ArgumentNullException.ThrowIfNull(plan);  _ = ReadImportedAsset(source);
         ArgumentException.ThrowIfNullOrWhiteSpace(actualProducerFragment);
         var consumer = plan.Images.SingleOrDefault(i => i.EncodedParameter == encodedRole)
             ?? throw Error("producer role is absent from this selected program");
@@ -122,7 +122,7 @@ public sealed class MapSelectedSourceSamplerPlan
         DeferredSelectedSourceNullSpirv? sourceNullSpecialization,
         IReadOnlyList<DeferredSourceNull2D> actualCurrentPairs)
     {
-        ArgumentNullException.ThrowIfNull(imagePlan); imagePlan.Selection.Validate();
+        ArgumentNullException.ThrowIfNull(imagePlan);
         ArgumentNullException.ThrowIfNull(native); ArgumentNullException.ThrowIfNull(originalPixel);
         ArgumentNullException.ThrowIfNull(explicitCurrentProducers);
         var selection = imagePlan.Selection;
@@ -188,7 +188,7 @@ public sealed class MapSelectedSourceSamplerPlan
 
     public void Validate()
     {
-        Selection.Validate();
+
         foreach (var pair in CurrentNullProofPairs) pair.ValidateForSelection(Selection);
     }
 

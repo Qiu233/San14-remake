@@ -53,7 +53,7 @@ public sealed class DeferredSelected383PluginOwner
     public DeferredSelected383PluginPacket Prepare(DeferredF103SelectedSource selected,
         MapSourceCreatedLightingPacket lighting)
     {
-        ArgumentNullException.ThrowIfNull(selected); ArgumentNullException.ThrowIfNull(lighting); selected.Validate(); VerifyShader(selected.SourcePlan.Shader);
+        ArgumentNullException.ThrowIfNull(selected); ArgumentNullException.ThrowIfNull(lighting);  VerifyShader(selected.SourcePlan.Shader);
         if (selected.Combination.Index != 510 || selected.PixelProgramIndex != 383 || selected.PixelProgramSha256 != DeferredSelected383Constants.PixelProgramSha256 ||
             selected.SourcePlan.Shader.Source.ResourceUri != shaderUri || selected.SourcePlan.Shader.Source.DecodedSha256 != shaderHash)
             throw new InvalidDataException("PS383 plugin preparation requires its actual same source shader selection.");

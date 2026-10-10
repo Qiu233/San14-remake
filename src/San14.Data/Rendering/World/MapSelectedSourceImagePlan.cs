@@ -49,7 +49,7 @@ public sealed class MapSelectedSourceImagePlan
 
     public static MapSelectedSourceImagePlan Read(DeferredF103SelectedSource selection)
     {
-        ArgumentNullException.ThrowIfNull(selection); selection.Validate();
+        ArgumentNullException.ThrowIfNull(selection);
         var textures = selection.ReadSelectedTexturePlan();
         ValidateAsset(textures.TextureObjects.Source);
         var shader = textures.Shader;
@@ -150,7 +150,7 @@ public sealed class MapSelectedSourceImagePlan
         // The private Read constructor already imported the source roles and
         // declarations. Reuse them while checking this actual current source
         // selection; normal consumers do not reparse sealed internal fields.
-        Selection.Validate();
+
     }
     private static void ValidateAsset(LoadedRdbAsset source)
     {

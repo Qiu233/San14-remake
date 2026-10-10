@@ -9,7 +9,7 @@ public static partial class DeferredBufferSources
     /// existing current record/count/membership validators remain unchanged.</summary>
     public static LoadedDeferredBufferLayout ReadSelectedLayout(DeferredF103SelectedSource selected)
     {
-        ArgumentNullException.ThrowIfNull(selected); selected.Validate();
+        ArgumentNullException.ThrowIfNull(selected);
         var shader = new LoadedShaderContainer(G2ShaderContainerReader.Read(selected.SourcePlan.Shader.Source.Bytes),
             selected.SourcePlan.Shader.Source);
         var definitions = shader.ReadResourceDefinitions(selected.PixelProgramIndex);

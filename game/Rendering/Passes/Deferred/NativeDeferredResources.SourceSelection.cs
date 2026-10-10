@@ -13,7 +13,7 @@ public sealed partial class NativeDeferredResources
         ArgumentNullException.ThrowIfNull(program); ArgumentNullException.ThrowIfNull(explicitTable);
         ArgumentNullException.ThrowIfNull(borrowedNativeGgx);
         var selected = program.SourceSelection ?? throw new InvalidDataException("Selected resources require the complete current F103 selection.");
-        selected.Validate();
+
         var effective = program.ReadValidatedSelectedSourceDeviceBindings();
         var plan = selected.ReadSelectedTexturePlan();
         if (!SameShader(program.Source, plan.Shader) || !SameShader(program.Source, explicitTable.Shader) ||

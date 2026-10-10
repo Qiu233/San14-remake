@@ -99,7 +99,7 @@ public static class DeferredSelected383Constants
         DeferredSceneInputs scene, string currentProducerProvenance, DeferredSelected383HatchingIeeeProof? hatchingIeeeProof = null)
     {
         ArgumentNullException.ThrowIfNull(selected); ArgumentNullException.ThrowIfNull(scene);
-        ArgumentException.ThrowIfNullOrWhiteSpace(currentProducerProvenance); selected.Validate();
+        ArgumentException.ThrowIfNullOrWhiteSpace(currentProducerProvenance);
         if (selected.Combination.Index != 510 || selected.PixelProgramIndex != 383 || selected.PixelProgramSha256 != PixelProgramSha256)
             throw new NotSupportedException("The PS383 factory requires its exact original combo510 shader.");
         var globals = selected.PixelDefinitions.Buffers.Single(buffer => buffer.Name.Text == "$Globals");

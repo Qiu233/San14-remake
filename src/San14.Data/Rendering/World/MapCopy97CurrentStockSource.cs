@@ -211,7 +211,7 @@ public sealed partial class MapCopy97CurrentStockSource
             models.Count==0)
             throw new InvalidDataException("Current stock fields require this exact owned attempt and completed prior output, View/Q/light and nonempty model source prefix.");
         RequireGeometryContextJoin(frame,geometryFrame,terrain);
-        prefix.RequireCanonicalSkyDeclaredHookScope();frame.Selection.Validate();
+        prefix.RequireCanonicalSkyDeclaredHookScope();
         bool legacy = frame.Selection.Combination.Index==1022 && frame.Selection.PixelProgramIndex==767;
         bool world = frame.Selection.Combination.Index==510 && frame.Selection.PixelProgramIndex==383 &&
             frame.Selection.PixelProgramSha256==DeferredSelected383Constants.PixelProgramSha256 &&

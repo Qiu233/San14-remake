@@ -138,7 +138,7 @@ public static class DeferredSelected767Constants
     {
         ArgumentNullException.ThrowIfNull(selected);ArgumentNullException.ThrowIfNull(scene);
         ArgumentException.ThrowIfNullOrWhiteSpace(currentProducerProvenance);
-        selected.Validate();
+
         if(selected.Combination.Index!=1022||selected.PixelProgramIndex!=767||
             selected.PixelProgramSha256!=PixelProgramSha256)
             throw new NotSupportedException("The no-retained-template constant factory is scoped to actual combo1022/PS767.");

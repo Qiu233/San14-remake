@@ -56,13 +56,12 @@ public sealed class MapPostEffect3WorldSubmittedImmutableSourceReceipt
     {
         private readonly MapSourceCreatedNativeSessionPreparedFrame frame;
         private readonly byte[] camera,lightingCamera,light,feature,selectionFeature,variant,row,binding;
-        private readonly DeferredF103VariantWrite[] writes;
         internal FrameSnapshot(MapSourceCreatedNativeSessionPreparedFrame frame)
         {
             this.frame=frame;camera=frame.MainCamera.Prefix.ToArray();lightingCamera=frame.Lighting.PreparedCameraPrefix.ToArray();
             light=frame.Lighting.LocalLightData.ToArray();feature=frame.Feature.CurrentFeature48.ToArray();selectionFeature=frame.Selection.CurrentFeature48.ToArray();
             variant=frame.Selection.RequestedVariant96.ToArray();row=frame.Selection.Combination.RawRow.ToArray();
-            binding=frame.Selection.BindingVariant.RawBytes.ToArray();writes=frame.Selection.Writes.ToArray();
+            binding=frame.Selection.BindingVariant.RawBytes.ToArray();
         }
         internal void RequireCurrent()
         {
@@ -70,8 +69,7 @@ public sealed class MapPostEffect3WorldSubmittedImmutableSourceReceipt
                 !frame.MainCamera.Prefix.Span.SequenceEqual(camera)||!frame.Lighting.PreparedCameraPrefix.Span.SequenceEqual(lightingCamera)||
                 !frame.Lighting.LocalLightData.Span.SequenceEqual(light)||!frame.Feature.CurrentFeature48.Span.SequenceEqual(feature)||
                 !frame.Selection.CurrentFeature48.Span.SequenceEqual(selectionFeature)||!frame.Selection.RequestedVariant96.Span.SequenceEqual(variant)||
-                !frame.Selection.Combination.RawRow.AsSpan().SequenceEqual(row)||!frame.Selection.BindingVariant.RawBytes.AsSpan().SequenceEqual(binding)||
-                !frame.Selection.Writes.SequenceEqual(writes))
+                !frame.Selection.Combination.RawRow.AsSpan().SequenceEqual(row)||!frame.Selection.BindingVariant.RawBytes.AsSpan().SequenceEqual(binding))
                 throw new InvalidDataException("Accepted submitted World changed its current native Camera/lighting/feature/variant packet.");
         }
     }

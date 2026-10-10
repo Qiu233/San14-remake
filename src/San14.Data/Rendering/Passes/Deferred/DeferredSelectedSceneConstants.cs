@@ -18,7 +18,7 @@ public static class DeferredSelectedSceneConstants
         DeferredSelected767HatchingIeeeProof? hatchingIeeeProof)
     {
         ArgumentNullException.ThrowIfNull(selected); ArgumentNullException.ThrowIfNull(input);
-        selected.Validate();
+
         if ((selected.Combination.Index, selected.PixelProgramIndex, selected.PixelProgramSha256) is not
             (128, 97, "FF1CE5BFD5F4A8B3397E789C59045BCC72186644AA6C7D22EE523D633CBB384F") and not
             (510, 383, "91C2A580A1D05CA6144FD7CDE4F0AC24CD7ED425F2CFB4BCAAA4E9A4F62A3AF1") and not

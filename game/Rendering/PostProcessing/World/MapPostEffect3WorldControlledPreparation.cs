@@ -94,7 +94,7 @@ public sealed partial class MapPostEffect3WorldControlledPreparation
         var prepared=host.Session.CurrentFrame??throw new InvalidDataException("Actual World preparation is absent.");
         var world=dependencies.WorldSource.RequireCurrent(actualContext);
         RequireCurrent(actualContext,prepared,world,actualFrontendParent);
-        prepared.Selection.Validate();prepared.Feature.ValidateFrame(prepared.MainCamera,prepared.Lighting);
+        prepared.Feature.ValidateFrame(prepared.MainCamera,prepared.Lighting);
         var camera=prepared.Lighting.CapturePreparedCameraFromSameAcceptedMain(prepared.MainCamera);
         var worldCamera=world.PreparedMainCamera;
         camera.RequireEquivalentCurrentPostEffectScalars(worldCamera);

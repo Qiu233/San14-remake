@@ -89,7 +89,7 @@ public sealed class SceneViewNativeMapSkySourceOwner : IAsyncDisposable
         MainSceneNode51Execution actualExecution, float explicitOwnedGeometryDeltaSeconds)
     {
         var source = actual.PreparedSourceFrame ?? throw new InvalidDataException("Sky requires actual current owned View publication.");
-        actual.Selection.Validate(); actual.Feature.ValidateFrame(actual.MainCamera, actual.Lighting);
+         actual.Feature.ValidateFrame(actual.MainCamera, actual.Lighting);
         if (actual.Context.FrameNumber != present.FrameNumber || actual.Feature.CurrentView.ViewIdentity != recordGeneration)
             throw new InvalidDataException("Sky current View and actual final Present-season prefix belong to different attempts.");
         var selectedRecord = source.ViewFields.CurrentPublication.SelectedShadowRecord1BD0 ??

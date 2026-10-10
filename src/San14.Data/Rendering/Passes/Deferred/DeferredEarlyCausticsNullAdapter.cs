@@ -34,7 +34,7 @@ public static class DeferredEarlyCausticsNullAdapter
     {
         ArgumentNullException.ThrowIfNull(original); ArgumentNullException.ThrowIfNull(bindings);
         ArgumentNullException.ThrowIfNull(selected); ArgumentNullException.ThrowIfNull(proof);
-        selected.Validate(); proof.Validate(selected);
+         proof.Validate(selected);
         if (selected.SourcePlan.Node.Index != 78 || selected.Combination.Index != 126 || selected.PixelProgramIndex != 95 ||
             selected.PixelProgramSha256 != PixelSha256 || original.SourceProgramSha256 != PixelSha256 ||
             original.CompilerLibrarySha256 != CompilerSha256 || original.SpirvSha256 != SpirvSha256 ||

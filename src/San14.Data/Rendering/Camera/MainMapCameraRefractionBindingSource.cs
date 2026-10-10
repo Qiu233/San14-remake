@@ -32,7 +32,7 @@ public sealed class MainMapCameraRefractionBindingSource
 
     public static MainMapCameraRefractionBindingSource ReadSource(DeferredF103SelectedSource selection)
     {
-        ArgumentNullException.ThrowIfNull(selection);selection.Validate();
+        ArgumentNullException.ThrowIfNull(selection);
         var plan=selection.SourcePlan;var reference=plan.ShaderReference;
         if(selection.Camera.Source.Camera.ObjectId!=MainMapCameraAdapter.MainCameraObjectId||plan.ViewId!=0||
             selection.Current.NativeColorMode!=0x60||plan.Node.Index!=166||
@@ -81,7 +81,7 @@ public sealed class MainMapCameraRefractionBindingSource
     public void ValidateTarget(DeferredAuxiliaryTargetSource actualTarget,long frameNumber)
     {
         ArgumentNullException.ThrowIfNull(actualTarget);DeferredAuxiliaryTargetSources.Validate(actualTarget);
-        Selection.Validate();
+
         if(frameNumber!=FrameNumber||actualTarget.Texture.Object.ObjectId!=RefractionDepth.Texture.Object.ObjectId||
             actualTarget.Texture.Source.Source.ResourceUri!=RefractionDepth.Texture.Source.Source.ResourceUri||
             actualTarget.Texture.Source.Source.DecodedSha256!=RefractionDepth.Texture.Source.Source.DecodedSha256||

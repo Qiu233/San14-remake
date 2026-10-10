@@ -100,7 +100,7 @@ public static class MainMapCameraDeferredReadySource
     {
         ArgumentNullException.ThrowIfNull(accepted);ArgumentNullException.ThrowIfNull(viewport);
         ArgumentNullException.ThrowIfNull(borrowedProgram);ArgumentNullException.ThrowIfNull(actualRefractionDepth);
-        accepted.Selection.Validate();accepted.Feature.ValidateFrame(accepted.MainCamera,accepted.Lighting);
+        accepted.Feature.ValidateFrame(accepted.MainCamera,accepted.Lighting);
         viewport.ValidateFrame(accepted.Selection,accepted.Feature.Binding.ViewIdentity);
         borrowedProgram.ValidateCompatibleCurrentSelection(accepted.Selection);
         if(!borrowedProgram.ShaderRid.IsValid||

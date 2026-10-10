@@ -13,7 +13,7 @@ public sealed partial class DeferredPixelProgram
     public static async Task<DeferredPixelProgram> BuildAsync(
         DeferredF103SelectedSource selected, Vkd3dShaderCompiler compiler)
     {
-        ArgumentNullException.ThrowIfNull(selected); selected.Validate();
+        ArgumentNullException.ThrowIfNull(selected);
         var program = await BuildCoreAsync(selected.SourcePlan.Shader, selected.Combination.Index, compiler, [], selected: selected);
         try
         {
@@ -33,7 +33,7 @@ public sealed partial class DeferredPixelProgram
         DeferredSourceLocalAmbient? explicitFreshLocalAmbient = null)
     {
         ArgumentNullException.ThrowIfNull(selected); ArgumentNullException.ThrowIfNull(explicitFreshPairs);
-        selected.Validate();
+
         var program = await BuildCoreAsync(selected.SourcePlan.Shader, selected.Combination.Index, compiler,
             explicitFreshPairs.ToArray(), explicitFreshLocalAmbient, explicitFreshIes, selected);
         try { _ = program.ReadValidatedSelectedSourceDeviceBindings(); return program; }
@@ -53,7 +53,7 @@ public sealed partial class DeferredPixelProgram
     private TranslatedShaderBindings ImportSelectedSourceDeviceBindings()
     {
         var selected = SourceSelection ?? throw new InvalidDataException("Original selected Deferred requires its complete source selection packet.");
-        selected.Validate();
+
         if (Source.Source.DecodedSha256 != MapSourceCreatedShaderSelection.ShaderSha256 ||
             Combination.Index != selected.Combination.Index ||
             UnspecializedTranslation.SourceProgramSha256 != selected.PixelProgramSha256 ||
@@ -95,7 +95,7 @@ public sealed partial class DeferredPixelProgram
     /// are recomputed by the caller; the first frame is never reused as evidence.</summary>
     public void ValidateCompatibleCurrentSelection(DeferredF103SelectedSource current)
     {
-        ArgumentNullException.ThrowIfNull(current); current.Validate();
+        ArgumentNullException.ThrowIfNull(current);
         var initial = SourceSelection ?? throw new InvalidDataException("Compatible selected frames require the compiled source selection generation.");
         _ = ReadValidatedSelectedSourceDeviceBindings();
         if (current.Combination.Index != initial.Combination.Index || current.PixelProgramIndex != initial.PixelProgramIndex ||

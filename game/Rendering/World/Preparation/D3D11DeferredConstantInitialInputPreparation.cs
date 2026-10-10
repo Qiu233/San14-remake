@@ -10,14 +10,8 @@ public static class D3D11DeferredConstantInitialInputPreparation
         D3D11CurrentSeasonFrame current, D3D11CurrentHdrCatalog catalog,
         int outputWidth,int outputHeight)
     {
-        var shader = repository.LoadShaderContainer("system",0x9D8E811F);
+        var shader = catalog.Resources[HdrShaderResources.MainLightingNode].Shader;
         var canonical = shader.ReadResourceDefinitions(1);
-        var plan = DeferredTexturePlan.Read(repository.LoadRenderGraph("system",0x024496EE),166,
-            repository.LoadObjects("system",0x718CCB8B),repository.LoadObjects("system",0x93FB3280),shader,0);
-        var reference = plan.ShaderReference;
-        if(reference.ShaderObject.ClassId!=RenderGraphShaderReferences.ShaderObjectClassId ||
-            reference.ShaderObject.ObjectId!=0xC96F6A61 || reference.ShaderFileHash!=0x9D8E811F || plan.ViewId!=0)
-            throw new NotSupportedException("Deferred initialization requires the actual fresh868 Main/View0 header.");
         var caustics = RenderSamplerSourceAdapters.LoadEarlyCaustics(repository.SourceDirectory,current.Rgb.Inputs.MainFrame.Camera.ExecutableLocale);
         var raw = current.PreparedMain.Span;
         var camera = PreparedCameraSceneSource.ReadCompletePrefix(raw);
@@ -56,7 +50,7 @@ public static class D3D11DeferredConstantInitialInputPreparation
                 TranslucencyViewport:viewport,Occlusion:DeferredSelected383PluginOwner.CreateFreshOcclusionParameters(),
                 ShadowFade:DeferredSelected383PluginOwner.CreateFreshShadowFadeParameters());
             var packet = D3D11DeferredConstantInputPreparation.Prepare(canonical,
-                route.PixelDefinitions ?? throw new InvalidDataException("HDR route has no loaded RDB program layout."),
+                route.PixelDefinitions,
                 scene,caustics,route.Node==166&&route.PixelProgramIndex==383);
             File.WriteAllBytes(Path.Combine(route.ResourceDirectory,"ps-b0.bin"),packet.Bytes);
             D3D11DeferredConstantInputPreparation.WriteNativeInputs(route.CameraResourceDirectory,packet);

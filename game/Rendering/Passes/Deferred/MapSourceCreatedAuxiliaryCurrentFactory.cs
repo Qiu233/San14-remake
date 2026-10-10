@@ -29,7 +29,7 @@ public static class MapSourceCreatedAuxiliaryCurrentFactory
     {
         ArgumentNullException.ThrowIfNull(acceptedView);ArgumentNullException.ThrowIfNull(currentCommon);
         ArgumentNullException.ThrowIfNull(currentContext);
-        acceptedView.Selection.Validate();acceptedView.Feature.ValidateFrame(acceptedView.MainCamera,acceptedView.Lighting);
+        acceptedView.Feature.ValidateFrame(acceptedView.MainCamera,acceptedView.Lighting);
         long frame=acceptedView.Context.FrameNumber;
         currentCommon.ValidateFrame(frame,actualCommonSettingsOwnerIdentity,acceptedView.Feature.CurrentView.ViewIdentity);
         currentContext.Source.Validate(currentContext);

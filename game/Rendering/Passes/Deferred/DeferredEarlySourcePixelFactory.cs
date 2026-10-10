@@ -151,7 +151,7 @@ public sealed class DeferredEarlySourcePixelFactory : IAsyncDisposable
         {
             foreach (var selected in originals.OrderBy(p => p.Key).Select(p => p.Value))
             {
-                selected.Validate();
+
                 if (selected.SourcePlan.Node.Index == 78)
                 {
                     if (bootstrapCausticsSourceNull is null)

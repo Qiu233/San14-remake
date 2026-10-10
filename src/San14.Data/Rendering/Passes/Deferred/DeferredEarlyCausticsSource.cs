@@ -210,7 +210,7 @@ public sealed class DeferredEarlyCausticsOwner
 
     internal static void ValidateSelection(DeferredEarlyF103SelectedSource selected)
     {
-        ArgumentNullException.ThrowIfNull(selected);selected.Validate();
+        ArgumentNullException.ThrowIfNull(selected);
         if(selected.SourcePlan.Node.Index!=78||selected.SourcePlan.ViewId!=0||selected.Combination.Index!=126||
             selected.PixelProgramIndex!=95||selected.PixelProgramSha256!=PixelProgramSha256||
             selected.SourcePlan.Shader.Source.DecodedSha256!=ShaderSourceSha256||

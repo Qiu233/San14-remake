@@ -67,7 +67,7 @@ public sealed partial class MapSourceCreatedWorldNativeSession : IAsyncDisposabl
     {
         ArgumentNullException.ThrowIfNull(repo);ArgumentNullException.ThrowIfNull(compiler);
         ArgumentNullException.ThrowIfNull(current);ArgumentNullException.ThrowIfNull(gpu);ArgumentNullException.ThrowIfNull(ambient);
-        var selected=bootstrap.Selection;selected.Validate();
+        var selected=bootstrap.Selection;
         var source=lightOwner.Sources.Single(s=>s.Identity==bootstrap.Lighting.SourceIdentity);
         var pairs=DeferredSourceNull2D.FromFreshDirectionalConstruction(source.Construction,
             DeferredImageStateScope.FreshSourceConstructionNoAssignments);

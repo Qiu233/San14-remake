@@ -158,7 +158,7 @@ public sealed class MapSourceCreatedLightingRetainedNormalization
             actualLightingInput.SelectedSharedFogOwnerEnabled is not null || actualLightingInput.AdditionalSceneInputs.Fog is not null ||
             lighting.SceneInputs.Fog is not null || lighting.FrameNumber<lastAcceptedFrame)
             throw new InvalidDataException("Retained normalization requires the same actual input, skipped raw SharedFog and this fresh inactive Generic owner.");
-        feature.ValidateFrame(actualLateSelected.Camera,lighting); actualLateSelected.Validate();
+        feature.ValidateFrame(actualLateSelected.Camera,lighting);
         if(actualLateSelected.OwnedFeatureSource is not { } selectedFeature ||
             selectedFeature.EffectiveLightOwnerIdentity!=feature.EffectiveLightOwnerIdentity ||
             !selectedFeature.CurrentFeature48.Span.SequenceEqual(feature.CurrentFeature48.Span) ||

@@ -38,7 +38,7 @@ public sealed class DeferredRefractionSourceNullPlan
         MapSourceCreatedF103CurrentFrame frame, DeferredSourceViewFamilyPacket families)
     {
         ArgumentNullException.ThrowIfNull(frame);ArgumentNullException.ThrowIfNull(families);
-        families.ValidateCurrent(frame);frame.Selection.Validate();
+        families.ValidateCurrent(frame);
         if(!families.Shapes1C18Absent || families.SpecializedFullscreenCount1550!=0 ||
             !families.TerrainExcludedByRenderType0 || families.SelectedMode16ShaderSubmissions!=0)
             throw new NotSupportedException("Refraction requires execution of its current non-null source families.");

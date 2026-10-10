@@ -121,7 +121,7 @@ public sealed class DeferredSelected383SkyProjectionOwner
     private void RequireSelection(DeferredF103SelectedSource selection, MapSourceCreatedLightingPacket lighting)
     {
         ArgumentNullException.ThrowIfNull(selection);ArgumentNullException.ThrowIfNull(lighting);
-        selection.Validate();selection.OwnedFeatureSource?.ValidateFrame(selection.Camera,lighting);
+        selection.OwnedFeatureSource?.ValidateFrame(selection.Camera,lighting);
         if (selection.OwnedFeatureSource is null || selection.Combination.Index!=510 || selection.PixelProgramIndex!=383 ||
             selection.PixelProgramSha256!=DeferredSelected383Constants.PixelProgramSha256 ||
             selection.Camera.ExecutableLocale!=locale || lighting.Binding!=binding || lighting.FrameNumber<=0 ||

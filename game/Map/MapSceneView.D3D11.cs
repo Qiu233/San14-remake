@@ -67,7 +67,9 @@ public partial class MapSceneView
             var season = new D3D11CurrentSeasonPublisher(_repository, seasonResources, resourceLibrary: seasonLibrary);
             var writtenSeasonResources = seasonResources;
             int writtenSeasonCount = seasonLibrary.LoadedInstallations.Count;
-            var hdr = D3D11CurrentHdrCatalog.Load(_repository, frame, source);
+            var hdrResources = HdrShaderResources.Load(_repository);
+            var hdrMedia = D3D11PreparedHdrMedia.Prepare(hdrResources, source);
+            var hdr = D3D11CurrentHdrCatalog.Create(_repository, frame, hdrResources, hdrMedia);
             var scenarioMetadata = _repository.EffectiveScenarios.Single(s =>
                 GameResourceId.File(s.SourcePath).ToString() == _logicalWorld!.ScenarioKey && s.Locale == _text.SourceLocale);
             // CPU clips/players only; retained category geometry and materials

@@ -84,7 +84,7 @@ public sealed class DeferredSelected767PluginOwner
         MapSourceCreatedLightingPacket lighting)
     {
         ArgumentNullException.ThrowIfNull(selected);ArgumentNullException.ThrowIfNull(lighting);
-        selected.Validate();VerifyShader(selected.SourcePlan.Shader);
+        VerifyShader(selected.SourcePlan.Shader);
         if(selected.Combination.Index!=1022||selected.PixelProgramIndex!=767||
             selected.PixelProgramSha256!=DeferredSelected767Constants.PixelProgramSha256||
             selected.SourcePlan.Shader.Source.ResourceUri!=shaderUri||selected.SourcePlan.Shader.Source.DecodedSha256!=shaderHash)

@@ -35,7 +35,7 @@ public sealed record MapFinalOutputProductionFrameInputs(
         SkySeasonMainCameraRgbFrame? appliedSeasonCamera=null)
     {
         ArgumentNullException.ThrowIfNull(current);ArgumentNullException.ThrowIfNull(context);
-        current.Selection.Validate();current.Feature.ValidateFrame(current.MainCamera,current.Lighting);
+        current.Feature.ValidateFrame(current.MainCamera,current.Lighting);
         if(!ReferenceEquals(current.Context,context)||!ReferenceEquals(current.Selection.OwnedFeatureSource,current.Feature)||
             current.Feature.CurrentView.SelectedRecordLightOwnerIdentity!=current.Lighting.Binding.LightOwnerIdentity||
             current.Feature.FrameNumber!=context.FrameNumber)

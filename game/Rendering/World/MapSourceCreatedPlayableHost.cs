@@ -305,7 +305,7 @@ public sealed class MapSourceCreatedPlayableHost : IAsyncDisposable
             OutputExtents = sceneSource.OutputExtents.ToDictionary(p => p.Key, p => p.Value)
         };
         firstFrame = SnapshotTerrainFrame(firstFrame);
-        bootstrap.Selection.Validate(); bootstrap.Feature.ValidateFrame(bootstrap.Camera, bootstrap.Lighting);
+         bootstrap.Feature.ValidateFrame(bootstrap.Camera, bootstrap.Lighting);
         if (bootstrap.Selection.Combination.Index != 1022 || bootstrap.Selection.PixelProgramIndex != 767 ||
             bootstrap.Camera.Source.Camera.ObjectId != MainMapCameraAdapter.MainCameraObjectId ||
             bootstrap.Lighting.SourceIdentity != borrowedLighting.Source.Identity || bootstrap.CpuPopulation is null)

@@ -32,7 +32,7 @@ public sealed class MainMapViewportDepthPacket
     {
         ArgumentNullException.ThrowIfNull(selected);
         ArgumentException.ThrowIfNullOrWhiteSpace(ownedViewOwner);
-        selected.Validate();
+
         if (!ReferenceEquals(selected, acceptedSelection) || ownedViewOwner != ViewOwnerIdentity ||
             selected.Camera.FrameNumber != FrameNumber || selected.Current.FrameNumber != FrameNumber ||
             selected.Camera.ExecutableLocale != Locale)
@@ -102,7 +102,7 @@ public sealed class MainMapViewportDepthSource
     {
         ArgumentNullException.ThrowIfNull(selected);
         ArgumentException.ThrowIfNullOrWhiteSpace(ownedViewOwner);
-        selected.Validate();
+
         var camera = selected.Camera; var source = selected.SourcePlan;
         var reference = source.ShaderReference;
         if (!known)

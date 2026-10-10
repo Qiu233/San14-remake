@@ -98,7 +98,7 @@ public sealed class DeferredFullscreenRasterSources
     /// Actual execution, readiness and exit-state receipts stay with the Game owner.</summary>
     public DeferredFullscreenRasterDefinition PrepareF103(DeferredF103SelectedSource current)
     {
-        ArgumentNullException.ThrowIfNull(current);RequireRetained();current.Validate();
+        ArgumentNullException.ThrowIfNull(current);RequireRetained();
         if(current.SourcePlan.Node.Index!=166 || current.SourcePlan.Shader.Source.ResourceUri!="san14://rdb/system/9D8E811F" ||
             current.SourcePlan.Graph.Source.ResourceUri!="san14://rdb/system/024496EE")
             throw new InvalidDataException("Current F103 source key is foreign to this raster owner.");

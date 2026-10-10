@@ -116,7 +116,7 @@ public sealed class DeferredAuxiliaryPixelProducer : IAsyncDisposable
 
     private void ValidateFrame(DeferredF103SelectedSource selection,string currentProducer)
     {
-        selection.Validate();
+
         if(selection.Camera.ExecutableLocale!=NativeSamplers.Locale||string.IsNullOrWhiteSpace(currentProducer)||
             selection.SourcePlan.Graph.Source.ResourceUri!=Source.Graph.Source.ResourceUri||
             selection.SourcePlan.Graph.Source.DecodedSha256!=Source.Graph.Source.DecodedSha256)
@@ -193,7 +193,7 @@ public sealed class DeferredAuxiliaryPixelProducer : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(retiring,this);
-            var selection=current.AcceptedSelection;selection.Validate();
+            var selection=current.AcceptedSelection;
             if(selection.Camera.ExecutableLocale!=NativeSamplers.Locale||
                 selection.SourcePlan.Graph.Source.ResourceUri!=Source.Graph.Source.ResourceUri||
                 selection.SourcePlan.Graph.Source.DecodedSha256!=Source.Graph.Source.DecodedSha256||
