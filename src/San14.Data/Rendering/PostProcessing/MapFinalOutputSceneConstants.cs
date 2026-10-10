@@ -34,10 +34,10 @@ public static class MapFinalOutputSceneConstants
         if(camera.FrameNumber!=input.FrameNumber||input.PreparedCameraPrefix.Length!=0x3C0||
             !camera.Prefix.Span[..0x170].SequenceEqual(input.PreparedCameraPrefix.Span[..0x170]))
             throw new InvalidDataException("Final scene source scalar copies differ from the accepted Camera frame/optical prefix.");
-        uint dof=camera.Source.CpuWord(0xBF0);
+        uint dof=camera.Source.Declaration.DepthOfFieldMode;
         return Apply(program,completeRetainedTemplate,input with{
-            LimbDarkeningStart=BitConverter.UInt32BitsToSingle(camera.Source.CpuWord(0x51C)),
-            LimbDarkeningEnd=BitConverter.UInt32BitsToSingle(camera.Source.CpuWord(0x520)),
+            LimbDarkeningStart=camera.Source.OpticsDefaults.Limb.Start,
+            LimbDarkeningEnd=camera.Source.OpticsDefaults.Limb.End,
             ResolvedDofType=dof<=2?dof:0});
     }
     public static MapFinalOutputConstantPacket Apply(

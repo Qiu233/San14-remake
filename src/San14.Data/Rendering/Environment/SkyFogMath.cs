@@ -22,20 +22,36 @@ public static class SkyFogMath
     {
         if (explicitRendererFogMode != 7)
             throw new NotSupportedException("Original sky fog supports only explicit renderer fog mode7.");
-        if (fogRecord96.Length != 96)
-            throw new InvalidDataException("Original sky fog requires the complete96-byte source record.");
-        uint sourceMode = BinaryPrimitives.ReadUInt32LittleEndian(fogRecord96.Slice(0x10, 4));
+        return GenerateResolved(explicitProfile,explicitFogEnabled,
+            SkyWeatherFogEncoding.DecodeProjection(fogRecord96,explicitProfile,explicitFogEnabled));
+    }
+
+    public static SkyFogPacket GenerateWeather(SkyWeatherFogValues fog,int profile,bool enabled)
+    {
+        if (profile != 1 || enabled)
+        { Finite(fog.Pivot); Finite(fog.Blend); Finite(fog.PlanetRadius); }
+        if (profile != 1 && !enabled) { Finite(fog.Start); Finite(fog.End); }
+        return GenerateResolved(profile,enabled,new(7,fog.Pivot,fog.Blend,fog.PlanetRadius,fog.Start,fog.End));
+    }
+
+    private static void Finite(float value)
+    { if (!float.IsFinite(value)) throw new InvalidDataException("Nonfinite named mode7 fog input."); }
+
+    private static SkyFogPacket GenerateResolved(int explicitProfile,bool explicitFogEnabled,SkyFogProjectionInputs input)
+    {
+        const int explicitRendererFogMode=7;
+        uint sourceMode = input.Mode;
         bool active = explicitFogEnabled && sourceMode != 0;
         Vector4 value = Vector4.Zero;
         if (explicitProfile != 1 || active)
         {
-            float pivot = Read(fogRecord96, 0x40);
+            float pivot = input.Pivot;
             float minimum = BitConverter.UInt32BitsToSingle(0x37480000);
             // MAXSS selects its second operand on equality, preserving native
             // signed-zero behavior; the finite input contract excludes NaNs.
             float x = pivot > minimum ? pivot : minimum;
             float y = Divide(1, x);
-            float z = Read(fogRecord96, 0x44), w = Read(fogRecord96, 0x1C);
+            float z = input.Blend, w = input.PlanetRadius;
             value = new(x, y, z, w);
         }
         byte[] bytes = new byte[16];
@@ -47,8 +63,8 @@ public static class SkyFogMath
         SkyScatteringPacket? scatteringOverride = null;
         if (neutral)
         {
-            Vector4[] rows = [new(0, 0, 0, Read(fogRecord96, 0x14)),
-                new(0, 0, 0, Read(fogRecord96, 0x18)), Vector4.Zero, new(0, 0, 0, 1)];
+            Vector4[] rows = [new(0, 0, 0, input.Start),
+                new(0, 0, 0, input.End), Vector4.Zero, new(0, 0, 0, 1)];
             byte[] neutralBytes = new byte[64];
             for (int row = 0; row < rows.Length; row++)
             {
@@ -66,14 +82,6 @@ public static class SkyFogMath
         // record caching, token2 color writes, or lazy coefficient initialization.
         return new(explicitRendererFogMode, explicitProfile, explicitFogEnabled,
             sourceMode, value, bytes, neutral, scatteringOverride);
-    }
-
-    private static float Read(ReadOnlySpan<byte> record, int offset)
-    {
-        float value = BinaryPrimitives.ReadSingleLittleEndian(record.Slice(offset, 4));
-        if (!float.IsFinite(value))
-            throw new InvalidDataException($"Nonfinite original mode7 fog input at record+{offset:X}.");
-        return value;
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]

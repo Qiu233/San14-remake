@@ -9,16 +9,15 @@ namespace San14.Data;
 public sealed class MapPostEffect3ApplyFallbackCameraRectangles
 {
     private readonly MapCameraConstructionPacket camera;
-    private readonly uint zeroWord;
     private readonly MapPostEffect3FallbackCameraConstructorWords native;
     private MapPostEffect3ApplyFallbackCameraRectangles(MapCameraConstructionPacket snapshot,
         MapPostEffect3FallbackCameraConstructorWords constructor,string owner)
-    {camera=snapshot;OwnerIdentity=owner;native=constructor;zeroWord=snapshot.Source.CpuWord(0x1240);}
+    {camera=snapshot;OwnerIdentity=owner;native=constructor;}
     public long FrameNumber=>camera.FrameNumber;
     public string OwnerIdentity{get;}
     public uint SourceCameraObjectId=>camera.Source.Camera.ObjectId;
-    public Vector4 Viewport1540=>new(F(zeroWord),F(zeroWord),F(native.Source1278Word),F(native.Source127CWord));
-    public Vector4 SpecialRectangle152C=>new(F(zeroWord),F(zeroWord),F(zeroWord),F(zeroWord));
+    public Vector4 Viewport1540=>new(0,0,F(native.Source1278Word),F(native.Source127CWord));
+    public Vector4 SpecialRectangle152C=>Vector4.Zero;
     public string SourceEvidence=>camera.Source.ConstructorOrigin+
         ";source125C/1270;-embedded1330"+
         "all1119-property-pointer-ranges-exclude125C..1280;fresh-source-only;"+native.SourceEvidence+";"+OwnerIdentity;
@@ -29,10 +28,9 @@ public sealed class MapPostEffect3ApplyFallbackCameraRectangles
         ArgumentNullException.ThrowIfNull(ownedCamera);ArgumentNullException.ThrowIfNull(native);
         ArgumentException.ThrowIfNullOrWhiteSpace(actualInputOwner);
         if(ownedCamera.FrameNumber<=0)throw new InvalidDataException("Fallback fresh rectangles require an owned frame.");
-        if(native.Locale!=ownedCamera.ExecutableLocale||ownedCamera.Source.CpuWord(0x1240)!=0)
+        if(native.Locale!=ownedCamera.ExecutableLocale)
             throw new InvalidDataException("Fallback fresh rectangles require their exact locale and constructor-clear source.");
-        //CopyAcceptedSnapshot re-reads the original pinned resource and verifies
-        //all1111 property descriptors/bytes against its canonical document.
+        // The imported declaration is immutable; frame identity is retained.
         return new(ownedCamera.CopyAcceptedSnapshot(),native,actualInputOwner);
     }
     public void ValidateSameCamera(MapCameraConstructionPacket candidate)

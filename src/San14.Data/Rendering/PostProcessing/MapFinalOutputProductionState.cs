@@ -102,7 +102,7 @@ public sealed class MapFinalOutputProductionState
         var current=parameters.ToDictionary(p=>p.Key,p=>(ReadOnlyMemory<byte>)p.Value.ToArray());
         current[14]=Floats(0,0,1,1);current[15]=Floats(0,0,1,1);current[16]=Floats(weight.EyeToAtLength);
         foreach(var (index,at) in new[]{(17,0x15C),(18,0x148),(19,0x140),(20,0x144)})current[index]=camera.Prefix.Slice(at,4).ToArray();
-        uint dof=camera.Source.CpuWord(0xBF0);current[25]=Floats(dof<=2?dof:0);
+        uint dof=camera.Source.Declaration.DepthOfFieldMode;current[25]=Floats(dof<=2?dof:0);
         if(dof!=0)throw new NotSupportedException("Production final source owner selects its proved DOF0 route.");
         current=MapFinalOutputBloomStarFlare.ApplySourceCreatedCameraParameters(Graph,camera,current,actualFrameOwner,
             trueHdr,resolvedBloomMaxLum??0).ToDictionary(p=>p.Key,p=>p.Value);

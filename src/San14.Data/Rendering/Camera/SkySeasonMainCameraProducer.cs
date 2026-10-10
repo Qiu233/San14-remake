@@ -42,6 +42,7 @@ public sealed class SkySeasonMainCameraSource
     public SkySeasonTransmittanceSource Transmittance{get;}
     public bool UsesSourceCreatedEmptyAxes{get;}
     public MapSeasonCameraPrefixScalars CameraPrefixScalars{get;}
+    public WeatherFogProfile WeatherProfile => WeatherFogProfileImport.FromPackage(Selection.FirstPackage);
     public LoadedMapSeasonCameraPostEffectScalarSource PostEffectScalarSource{get;}
     public long FrameNumber=>Season.Calendar.FrameNumber;
     public string SourceProvenance=>Season.Calendar.SourceProvenance+";"+Selection.SourceEvidence+
@@ -54,9 +55,11 @@ public sealed class SkySeasonMainCameraInputs
     private readonly byte[] prefix;
     internal SkySeasonMainCameraInputs(SkySeasonMainCameraSource source,
         MainMapCameraFrame main,MapSeasonMainCameraPhaseResult phase,byte[] prefix,float kelvin,
-        MapMainCameraPostSelectionPacket? mainPostSelection)
-    {Source=source;MainFrame=main with{Camera=main.Camera.CopyAcceptedSnapshot()};
+        MapMainCameraPostSelectionPacket? mainPostSelection, SkyLightingState lighting, SkyWeatherFrameInputs weather)
+    {Weather=weather;Lighting=lighting;Source=source;MainFrame=main with{Camera=main.Camera.CopyAcceptedSnapshot()};
         Phase=phase;this.prefix=prefix;CurrentColorTemperature21C=kelvin;MainPostSelection=mainPostSelection;}
+    public SkyWeatherFrameInputs Weather { get; }
+    public SkyLightingState Lighting { get; }
     public SkySeasonMainCameraSource Source{get;}
     public MainMapCameraFrame MainFrame{get;}
     public MapSeasonMainCameraPhaseResult Phase{get;}
@@ -120,7 +123,7 @@ public static class SkySeasonMainCameraProducer
         SkySeasonMainCameraSource source,MainMapCameraFrame currentMain,
         int currentOwnerMode288,MapSeasonMainCameraPhaseSource nativePhase,
         float? explicitlyEditedColorTemperature21C=null,
-        SkySeasonMainCameraRgbFrame? previousAcceptedRgbFrame=null,
+        AcceptedSkyLightingState? previousAcceptedLightingState=null,
         MapMainCameraPostSelectionPacket? mainPostSelection=null)
     {
         ArgumentNullException.ThrowIfNull(source);ArgumentNullException.ThrowIfNull(currentMain);
@@ -142,24 +145,18 @@ public static class SkySeasonMainCameraProducer
             post.ValidateSameSelection(source.Selection);
             if(post.MainMode288!=currentOwnerMode288)
                 throw new InvalidDataException("Main post-selection and phase use different current modes.");
-            if(post.TryReadPreparedWord(0x210,out uint altitude))
-                phase=phase with{Parameters=phase.Parameters with{Altitude=BitConverter.UInt32BitsToSingle(altitude)}};
+            if(post.QualityPatch.AltitudeOffset is { } altitude)
+                phase=phase with{Parameters=phase.Parameters with{Altitude=altitude}};
         }
         byte[] retained=source.CameraPrefixScalars.ApplyToPrefix(currentMain.Camera.Prefix.Span);
-        if(previousAcceptedRgbFrame is not null)
+        SkyLightingState lighting;
+        if(previousAcceptedLightingState is not null)
         {
-            var previous=previousAcceptedRgbFrame.Inputs.MainFrame;
-            if(previous.Camera.FrameNumber>=currentMain.Camera.FrameNumber||
-                previous.Camera.Source.Resource.Source.ResourceUri!=currentMain.Camera.Source.Resource.Source.ResourceUri||
-                previous.Camera.Source.Resource.Source.DecodedSha256!=currentMain.Camera.Source.Resource.Source.DecodedSha256||
-                previous.InitialFocus!=currentMain.InitialFocus)
-                throw new InvalidDataException("Retained source Camera RGB transition belongs to another or nonpreceding Main owner frame.");
-            // The current pose/lens/package and shared Fog keep their own
-            // writers. Only this producer's accepted RGB/transition storage
-            // follows the native embedded Camera across subsequent frames.
-            previousAcceptedRgbFrame.SunMoonRgb.Prefix.Span.Slice(0x2AC,0x88).CopyTo(retained.AsSpan(0x2AC,0x88));
-            previousAcceptedRgbFrame.SunMoonRgb.Prefix.Span.Slice(0x3B0,0x10).CopyTo(retained.AsSpan(0x3B0,0x10));
+            previousAcceptedLightingState.RequirePreceding(currentMain);
+            lighting=previousAcceptedLightingState.Lighting;
+            SkyLightingEncoding.Write(retained,lighting);
         }
+        else lighting=SkyLightingEncoding.Decode(retained);
         byte[] prefix=PreparedCameraLightingSource.ApplyResolvedInputsToPrefix(phase.LightingController,
             phase.Parameters,retained);
         // Main17E19 / conditional17E11: adaptation and Cloudy, not clock fields.
@@ -178,7 +175,12 @@ public static class SkySeasonMainCameraProducer
         if(!float.IsFinite(kelvin)||kelvin<0||(double)kelvin>uint.MaxValue||MathF.Truncate(kelvin)!=kelvin)
             throw new InvalidDataException("Current Camera color temperature must be finite integral uint32 Kelvin.");
         BinaryPrimitives.WriteUInt32LittleEndian(prefix.AsSpan(0x21C,4),checked((uint)kelvin));
-        return new(source,currentMain,phase,prefix,kelvin,mainPostSelection);
+        var climate=source.CameraPrefixScalars.Climate;
+        float cloudiness=currentOwnerMode288>=3?0:climate.Cloudiness;
+        if(mainPostSelection?.QualityPatch.Cloudiness is { } finalCloudiness) cloudiness=finalCloudiness;
+        var weather=new SkyWeatherFrameInputs(climate with{Cloudiness=cloudiness},
+            currentMain.Camera.Geometry.Eye.Y,phase.Parameters.Altitude);
+        return new(source,currentMain,phase,prefix,kelvin,mainPostSelection,lighting,weather);
     }
 
     public static SkySeasonMainCameraRgbFrame PrepareSunMoonAndSky(
@@ -187,9 +189,10 @@ public static class SkySeasonMainCameraProducer
         SkySceneSky2Parameters completeRetainedSky2)
     {
         ArgumentNullException.ThrowIfNull(input);
-        var rgb=SkySeasonPreparedCameraRgb.PrepareWithSourceTransmittanceRgb(input.Phase.LightingController,
-            input.Phase.Parameters,input.BeforeFinalPreparationPrefix.Span,frameDelta,
+        var lighting=SkySeasonPreparedCameraRgb.PrepareLighting(input.Phase.LightingController,
+            input.Phase.Parameters,input.Lighting,frameDelta,
             input.Source.Transmittance,dispatch,input.CurrentColorTemperature21C);
+        var rgb=new PreparedCameraLightingPacket(input.BeforeFinalPreparationPrefix.Span,lighting);
         var current=SkySceneCurrentCameraProducer.PrepareSelectedView(input.FrameNumber,rgb.Prefix.Span,
             input.MainFrame.Camera.FrameProvenance+";"+input.Phase.SourceProvenance+
                 ";present-source-table-SunMoon-RGB-only;Fog/weather-separate-producer",

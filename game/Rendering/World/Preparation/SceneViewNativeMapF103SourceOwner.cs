@@ -24,7 +24,7 @@ public sealed class SceneViewNativeMapF103SourceOwner
     private readonly DeferredEarlySourceViewQueriesOwner early;
     private readonly string generation;
     private readonly ConditionalWeakTable<NativeMapFrameContext, CurrentFrame> current = new();
-    private SkySeasonMainCameraRgbFrame? previousRgb;
+    private AcceptedSkyLightingState? previousLighting;
     public MapLightingBinding Binding { get; }
     public MapSourceCreatedF103CurrentFrame Bootstrap { get; }
     public DeferredEarlySourceViewQueriesPacket BootstrapEarly { get; }
@@ -99,7 +99,7 @@ public sealed class SceneViewNativeMapF103SourceOwner
         var selectedSeason=SkySeasonMainCameraProducer.ResolveOwnedSource(loaded.Repository,
             MapSeasonRuntime.ResolveSourceFrame(loaded.Repository,season,number),capture.MainCamera.Camera.ExecutableLocale);
         var before=SkySeasonMainCameraProducer.PrepareBeforeFinalPreparation(selectedSeason,capture.MainCamera,
-            mode.Mode288,seasonPhase,previousAcceptedRgbFrame:previousRgb);
+            mode.Mode288,seasonPhase,previousAcceptedLightingState:previousLighting);
         var rgb=SkySeasonMainCameraProducer.PrepareSunMoonAndSky(before,delta,NativeCameraTangentDispatch.Sse,
             SkySceneSourceDefaults.CreateControllerConstructor(),SkySceneSourceDefaults.CreateSky2Parameters(107));
         var weather=SkySeasonMainWeatherFog.PrepareSourceDatabaseResetFrame(rgb,weatherPower,NativeCameraTangentDispatch.Sse);
@@ -201,7 +201,7 @@ public sealed class SceneViewNativeMapF103SourceOwner
         return stencil.PrepareFromGeneralScene(accepted.Context,frame.F103,frame.Terrain!,actualTerrainRecord,terrainExecution,raster);
     }
     public void CommitCompleteFrame(NativeMapFrameContext context)
-    { previousRgb=Require(context).Rgb; }
+    { previousLighting=AcceptedSkyLightingState.Capture(Require(context).Rgb); }
     private CurrentFrame Require(NativeMapFrameContext context)
         =>current.TryGetValue(context,out var value)?value:throw new InvalidDataException("This accepted context has no actual current owned source View.");
 }

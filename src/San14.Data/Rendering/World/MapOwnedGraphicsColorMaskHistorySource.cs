@@ -140,7 +140,7 @@ public sealed partial class MapOwnedGraphicsColorMaskHistorySource
         if(actualCompletedFinal.FrameNumber!=prefix.FrameNumber || exposure.FrameNumber!=prefix.FrameNumber ||
             actualCompletedFinal.Camera.FrameNumber!=prefix.FrameNumber || exposure.ToneType3A4!=2 || exposure.HalfRectangle ||
             (exposure.ViewFlags8&((1u<<22)|(1u<<23)))!=0 ||
-            actualCompletedFinal.Camera.Source.CpuWord(0xBF0)!=0 ||
+            actualCompletedFinal.Camera.Source.Declaration.DepthOfFieldMode!=0 ||
             !actualCompletedFinal.CurrentParameters.TryGetValue(25,out var dof) || dof.Length!=4 ||
             BinaryPrimitives.ReadUInt32LittleEndian(dof.Span)!=0 ||
             string.IsNullOrWhiteSpace(actualCompletedFinal.SourceEvidence))

@@ -25,6 +25,7 @@ public sealed class MapSourceCreatedSeasonLightingFrame
     }
     public SkySeasonMainCameraRgbFrame AcceptedSeasonCamera { get; }
     public SkySeasonMainWeatherFogFrame AcceptedWeather { get; }
+    public SkyWeatherResult Weather => AcceptedWeather.Weather;
     public long FrameNumber=>AcceptedSeasonCamera.Inputs.FrameNumber;
     public float FrameDelta { get; }
     public CameraLightingController Controller=>AcceptedSeasonCamera.Inputs.Phase.LightingController;
@@ -66,7 +67,7 @@ public sealed class MapSourceCreatedSeasonLightingFrame
             throw new InvalidDataException("Present lighting requires the actual same-frame source Main RGB/weather producers and their explicit SSE delta.");
         if(camera.Inputs.Phase.LightingController.DeclaredTransmittanceTable!=SkyAtmoTableResources.ObjectId ||
             camera.Inputs.Source.Transmittance.Atan.Locale!=camera.Inputs.MainFrame.Camera.ExecutableLocale ||
-            BinaryPrimitives.ReadUInt32LittleEndian(camera.SunMoonRgb.Prefix.Span.Slice(0x3B8,4))!=0x3F800000)
+            BitConverter.SingleToUInt32Bits(camera.SunMoonRgb.Lighting.Transition.Continuation)!=0x3F800000)
             throw new InvalidDataException("Present lighting differs from its successfully loaded source table or the actual Camera3B8=1 continuation.");
         return new(camera,weather,delta);
     }

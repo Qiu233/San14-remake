@@ -162,9 +162,7 @@ public sealed class SkyAppliedSourceCloudOwner
         Copy(0x9C,0x624);Copy(0xB4,0x628);v[0x90]=w.ReadBits(0x638);v[0x94]=w.ReadBits(0x63C);
         Copy(0x98,0x640);Copy(0xA0,0x648);Copy(0xA4,0x64C);Copy(0xAC,0x658);Copy(0xB8,0x67C);
         Copy(0x260,0x664);Copy(0x264,0x668);v[0x268]=w.ReadBits(0x66C);Copy(0x26C,0x670);
-        v[0xD8]=BinaryPrimitives.ReadSingleLittleEndian(present.PreparedCameraPrefix.Span.Slice(0x22C,4));
-        if(BitConverter.SingleToUInt32Bits(v[0xD8])!=BitConverter.SingleToUInt32Bits(present.AcceptedWeather.SourceWeatherSaturation22C))
-            throw new InvalidDataException("Cloud saturation inputD8 differs from this accepted Main22C weather writer.");
+        v[0xD8]=present.Weather.Saturation;
         v[0xC8]=ClampSigned(C(0x680));v[0xCC]=ClampSigned(C(0x684));Copy(0xD0,0x688);Copy(0xD4,0x68C);
         Copy(0xF0,0x690,3);for(int lane=0;lane<3;lane++)v[0xF0+lane*4]=Size(v[0xF0+lane*4]);
         Copy(0x100,0x69C,3);Copy(0x110,0x6A8,3);

@@ -128,7 +128,7 @@ public sealed class SkyAmbientCurrentFilterSelection
             property.ElementCount!=1 || property.RawValue.Length!=4)
             throw new InvalidDataException("Main sample count differs from its exact source property/CPU binding.");
         uint count=BinaryPrimitives.ReadUInt32LittleEndian(present.PreparedCameraPrefix.Span.Slice(0x3A4,4));
-        if(count!=camera.Source.CpuWord(0x158) || count!=BinaryPrimitives.ReadUInt32LittleEndian(property.RawValue) ||
+        if(count!=camera.Source.Declaration.Ambient.FilterSampleCount || count!=BinaryPrimitives.ReadUInt32LittleEndian(property.RawValue) ||
             count!=BinaryPrimitives.ReadUInt32LittleEndian(camera.Prefix.Span.Slice(0x3A4,4)) ||
             count!=BinaryPrimitives.ReadUInt32LittleEndian(present.AcceptedSeasonCamera.Inputs.BeforeFinalPreparationPrefix.Span.Slice(0x3A4,4)) ||
             count!=BinaryPrimitives.ReadUInt32LittleEndian(present.AcceptedSeasonCamera.SunMoonRgb.Prefix.Span.Slice(0x3A4,4)))

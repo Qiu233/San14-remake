@@ -53,7 +53,7 @@ public sealed class SkyAppliedSourceCloudWeatherFields
             if(f.Type==8&&!float.IsFinite(BitConverter.UInt32BitsToSingle(bits)))throw new InvalidDataException("Cloud source field is nonfinite.");
             values.Add(f.Camera,bits);
         }
-        uint cloudyBits=BinaryPrimitives.ReadUInt32LittleEndian(present.AcceptedSeasonCamera.SunMoonRgb.Prefix.Span.Slice(0x1D0,4));
+        uint cloudyBits=BitConverter.SingleToUInt32Bits(present.AcceptedSeasonCamera.Inputs.Weather.Climate.Cloudiness);
         string finalWriter="declared-cloud-quality-without-Main-post-selection-receipt";
         if(present.AcceptedSeasonCamera.Inputs.MainPostSelection is { } post)
         {
@@ -67,7 +67,7 @@ public sealed class SkyAppliedSourceCloudWeatherFields
             finalWriter=post.SourceEvidence+";actual-final-Main674/7A0/1D0;CG_QUALITY="+post.QualityOption18;
         }
         values.Add(0x1D0,cloudyBits);
-        uint humidityBits=BinaryPrimitives.ReadUInt32LittleEndian(present.AcceptedSeasonCamera.SunMoonRgb.Prefix.Span.Slice(0x1D8,4));
+        uint humidityBits=BitConverter.SingleToUInt32Bits(present.AcceptedSeasonCamera.Inputs.Weather.Climate.Humidity);
         values.Add(0x1D8,humidityBits);
         float R(int at)=>values.TryGetValue(at,out uint v)?BitConverter.UInt32BitsToSingle(v):throw new InvalidDataException($"Missing Cloud source field {at:X}.");
         void W(int at,float v){if(!float.IsFinite(v))throw new InvalidDataException("Cloud current weather result is nonfinite.");values[at]=BitConverter.SingleToUInt32Bits(v);}
@@ -98,7 +98,7 @@ public sealed class SkyAppliedSourceCloudWeatherFields
         float humidityCirrus=Weight(humidity,R(0x794),R(0x798));
         W(0x748,M(S(1,humidityCirrus),cirrusStrength));W(0x754,M(S(1,humidityCirrus),cloudDistortion));
         W(0x640,cloudyWeight);W(0x628,detail);W(0x64C,erodeWeight);W(0x658,coefficient);
-        if(values[0x640]!=BitConverter.SingleToUInt32Bits(present.AcceptedWeather.SourceWeather640))
+        if(values[0x640]!=BitConverter.SingleToUInt32Bits(present.Weather.Strength))
             throw new InvalidDataException("Cloud finite current640 differs from the accepted Main weather writer.");
         return new(present,values,present.SourceProvenance+";"+finalWriter+";C452A8/C45322-final-Main1D0/1D8-inputs;exact C4F6F0 loader->C409C0 extendedCamera->C452A8..C45693 finite weather stores;no Camera padding/default fallback");
     }

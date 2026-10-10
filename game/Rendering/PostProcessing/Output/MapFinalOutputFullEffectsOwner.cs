@@ -47,7 +47,7 @@ public sealed class MapFinalOutputFullEffectsOwner:IAsyncDisposable
         parameters[14]=Floats(0,0,1,1);parameters[15]=Floats(0,0,1,1);
         parameters[16]=Floats(weight.EyeToAtLength);
         foreach(var (index,at) in new[]{(17,0x15C),(18,0x148),(19,0x140),(20,0x144)})parameters[index]=camera.Prefix.Slice(at,4).ToArray();
-        uint dof=camera.Source.CpuWord(0xBF0);parameters[25]=Floats(dof<=2?dof:0);
+        uint dof=camera.Source.Declaration.DepthOfFieldMode;parameters[25]=Floats(dof<=2?dof:0);
         if(Graph.ShouldRunDistantDofPasses(parameters)||dof!=0)throw new NotSupportedException("Complete source effects currently instantiate the proved source DOF0 activation route.");
         // State already resolved the actual Apply working-target and whole
         // Camera Bloom caller. Preserve those source writers when repeating the

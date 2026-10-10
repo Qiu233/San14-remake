@@ -20,7 +20,7 @@ public sealed class MapFinalOutputDeadColorCorrection
     {
         ArgumentNullException.ThrowIfNull(camera);
         var canonical=MapCameraConstructionSource.ReadPerspective(camera.Resource,camera.Camera.ObjectId);
-        if(canonical.CpuWord(0x10EC)!=0||canonical.CpuWord(0x10F0)!=0||canonical.CpuWord(0x10F8)!=0)
+        if(canonical.OpticsDefaults.ColorGrading.Lut1!=0||canonical.OpticsDefaults.ColorGrading.Lut2!=0||BitConverter.SingleToUInt32Bits(canonical.OpticsDefaults.ColorGrading.Intensity)!=0)
             throw new InvalidDataException("Final dead color correction requires the actual source-created zero intensity and both zero LUT indices.");
         return new(canonical);
     }

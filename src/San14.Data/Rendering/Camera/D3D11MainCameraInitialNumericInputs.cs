@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using System.Text;
 
 namespace San14.Data;
@@ -13,9 +12,10 @@ public sealed class D3D11MainCameraInitialNumericInputs
     private readonly byte[] prefix;
     private readonly D3D11MainCameraInitialWord[] words;
     private D3D11MainCameraInitialNumericInputs(MainMapCameraFrame initialMain,byte[] prefix,
-        D3D11MainCameraInitialWord[] words, string sourceEvidence)
+        CameraStartupSettings settings, string sourceEvidence)
     {
-        InitialMain=initialMain; this.prefix=prefix; this.words=words; SourceEvidence=sourceEvidence;
+        InitialMain=initialMain; this.prefix=prefix; Settings=settings;
+        words=CameraStartupEncoding.Words(settings); SourceEvidence=sourceEvidence;
         NumericWords=Array.AsReadOnly(words);
     }
 
@@ -25,23 +25,12 @@ public sealed class D3D11MainCameraInitialNumericInputs
     public const string NativeFilename="profile.bin";
     public string SourceEvidence { get; }
     public MainMapCameraFrame InitialMain { get; }
+    public CameraStartupSettings Settings { get; }
     public IReadOnlyList<D3D11MainCameraInitialWord> NumericWords { get; }
 
-    // GroundDetails wind, held territory B1C, exposure1510, and the two
-    // startup shadow families. Each tail word has an actual V418 transport.
-    private static readonly int[] Offsets=
-    [
-        0x9EC,0x9F0,0x9F4,0x9F8,0x9FC,0xA00,0xA04,0xA08,0xA10,0xA18,0xA20,
-        0xA28,0xA2C,0xA38,0xA3C,0xA40,0xA84,0xA88,
-        0xB1C,0xDC0,0xDC4,0xDC8,0xDCC,0xDD0,0xDD4,0xDD8,0xDDC,0xDE0,0xDE4,0xDE8,0xDEC,
-        0xDF4,0xDF8,0x141C,0x1438,0x143C,0x1510
-    ];
-
-    /// <summary>Prepare once from this actual owned Main frame and its loaded
-    /// RDB declaration. The raw constructor and direct property loader feed
-    /// the existing numeric transports; no Lens/STA/reference owner is invented
-    /// for fields whose writers do not read those owners. Actual current scalar
-    /// stores, when present on the frame, keep precedence over its declaration.</summary>
+    /// <summary>Prepare the consumed startup settings from the imported camera
+    /// declaration. Current prepared values take precedence over the declaration;
+    /// the current frame owns exposure rectangle flags.</summary>
     public static D3D11MainCameraInitialNumericInputs Create(
         GameResourceRepository repository, MainMapCameraFrame actualMain)
     {
@@ -50,27 +39,11 @@ public sealed class D3D11MainCameraInitialNumericInputs
         if(camera.Source.Camera.ObjectId!=MainMapCameraAdapter.MainCameraObjectId ||
             camera.Prefix.Length!=MapCameraConstruction.PrefixByteLength)
             throw new NotSupportedException("Native initial fields require the actual owned Main38D frame.");
-        var construction=MainMapRawCameraNumericConstructionSource.Load(repository,camera.ExecutableLocale);
-        var declaration=construction.ReadStockPerspectiveDeclaration(camera.Source.Resource,camera.Source.Camera.ObjectId);
-        var preparation=MainMapRawCameraPreparationSource.Load(repository,camera.ExecutableLocale);
-        byte[] raw=new byte[LoadedMainMapRawCameraNumericConstructionSource.NativeAllocationByteLength];
-        construction.ApplyFreshConstructor(raw);
-        declaration.ApplyDirectCpuProperties(raw);
-        preparation.ApplyCurrentNumericFields(raw);
-        var words=new D3D11MainCameraInitialWord[Offsets.Length];
-        for(int i=0;i<Offsets.Length;i++)
-        {
-            int offset=Offsets[i], rawOffset=LoadedMainMapRawCameraPreparationSource.EmbeddedCameraOffset+offset;
-            uint bits=BinaryPrimitives.ReadUInt32LittleEndian(raw.AsSpan(rawOffset,4));
-            if(camera.CurrentSeasonPostEffectScalars is{}current && current.TryReadWord(offset,out uint currentBits))
-                bits=currentBits;
-            if(offset==0x1510)bits=camera.SourceSpecialRectangleFlag1510;
-            words[i]=new(offset,bits);
-        }
-        return new(actualMain,camera.Prefix.Slice(PrefixOffset,PrefixByteLength).ToArray(),words,
+        var settings=CameraStartupEncoding.ApplyPreparedOverrides(CameraStartupImport.Load(camera.Source),
+            camera.CurrentSeasonPostEffectScalars,camera.SourceSpecialRectangleFlag1510);
+        return new(actualMain,camera.Prefix.Slice(PrefixOffset,PrefixByteLength).ToArray(),settings,
             RenderRuleIdentity.For("main-camera-initial-consumed-numerics",camera.ExecutableLocale)+";"+
-            declaration.SourceEvidence+";owned-frame="+camera.FrameNumber+
-            ";actual-prefix8..3C0;direct-V418-numeric-tail;not-full-Camera/not-V460/not-registry");
+            camera.Source.Resource.Source.ResourceUri+";owned-frame="+camera.FrameNumber);
     }
 
     public uint ReadWord(int offset)

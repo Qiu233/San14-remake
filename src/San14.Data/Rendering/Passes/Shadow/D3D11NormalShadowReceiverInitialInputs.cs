@@ -16,7 +16,7 @@ public static class D3D11NormalShadowReceiverInitialInputs
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(initialMain); ArgumentNullException.ThrowIfNull(actualPreparedMainWords);
         uint actualMainA3C=actualPreparedMainWords.TryGetValue(0xA3C,out uint currentMode)
-            ? currentMode : initialMain.ReadWord(0xA3C);
+            ? currentMode : initialMain.Settings.Shadow.CascadeMode;
         // PS5 computes all four matrices before cascade selection. A fresh
         // smaller pass set needs its own original module initialization path.
         if(actualMainA3C!=11)

@@ -90,5 +90,5 @@ public sealed class MapCameraConstructionPacket
     public uint SourceSpecularOcclusionType3C0 => Optics.Surface.SpecularOcclusionType;
     public uint SourceTemporalAaEnable133C => Optics.TemporalAa.Enable;
     public uint SourceSpecialRectangleFlag1510 =>
-        CurrentSeasonPostEffectWriteIdentity?.PreparedSpecialRectangleFlag1510??Source.CpuWord(0x1240);
+        CurrentSeasonPostEffectWriteIdentity?.PreparedSpecialRectangleFlag1510??CameraDeclarationDefaults.InitialExposureRectangleFlags;
 }

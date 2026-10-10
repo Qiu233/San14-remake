@@ -61,7 +61,7 @@ public sealed class SkyAmbientSourceBudgetOwner
             main.Camera.ObjectId!=0x38D04576)
             throw new InvalidDataException("Sky budget requires the actual source Main Camera and explicit fresh node/clock owners.");
         var canonical=MapCameraConstructionSource.ReadPerspective(main.Resource,main.Camera.ObjectId);
-        if(canonical.CpuWord(0x128)!=0x3F800000||canonical.CpuWord(0x12C)!=0x3F800000||canonical.CpuWord(0x15C)!=0)
+        if(BitConverter.SingleToUInt32Bits(canonical.Declaration.Ambient.Frequency)!=0x3F800000||BitConverter.SingleToUInt32Bits(canonical.Declaration.Ambient.InterpolationRate)!=0x3F800000||canonical.Declaration.Ambient.TriggerMode!=0)
             throw new InvalidDataException("Sky source budget requires the exact mode0/frequency1/interpolation1 Main declaration.");
         return new(nodeOwnerIdentity,actualClockOwnerIdentity,canonical);
     }

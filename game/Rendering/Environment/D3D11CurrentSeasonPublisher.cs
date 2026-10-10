@@ -41,7 +41,8 @@ public sealed class D3D11CurrentSeasonFrame
     public CameraOpticsSettings Optics { get; }
     public int MainMode => Mode.Mode288;
     public int SeasonIndex => Rgb.Inputs.Source.Season.Resources.Selection.SeasonIndex;
-    public ReadOnlyMemory<byte> MainFog72 => PreparedMain.Slice(0x340, 72);
+    public SkyWeatherResult Weather => Present.Weather;
+    public ReadOnlyMemory<byte> MainFog72 => Weather.Fog.Known72;
     public uint HdrLutKey => Optics.ColorGrading.HdrLutKey;
     public uint LdrLutKey => Optics.ColorGrading.LdrLutKey;
 
@@ -105,7 +106,7 @@ public sealed class D3D11CurrentSeasonPublisher
     private readonly SkySceneControllerSourceProfile _skyController;
     private readonly SkySceneSky2Parameters _sky;
     private readonly LoadedSkyDirectionalSetterColorNativeSource _color;
-    private SkySeasonMainCameraRgbFrame? _previousRgb;
+    private AcceptedSkyLightingState? _previousLighting;
     private readonly D3D11CurrentSeasonLibrary? _library;
 
     public D3D11CurrentSeasonPublisher(GameResourceRepository repository,
@@ -151,7 +152,7 @@ public sealed class D3D11CurrentSeasonPublisher
         var post = _post.PrepareCurrent(selected, mode, _quality);
         var before = SkySeasonMainCameraProducer.PrepareBeforeFinalPreparation(
             selected, currentMain, mode.Mode288, _phase,
-            previousAcceptedRgbFrame: _previousRgb, mainPostSelection: post);
+            previousAcceptedLightingState: _previousLighting, mainPostSelection: post);
         var rgb = SkySeasonMainCameraProducer.PrepareSunMoonAndSky(before,
             elapsedSeconds, NativeCameraTangentDispatch.Sse, _skyController, _sky);
         var weather = SkySeasonMainWeatherFog.PrepareSourceDatabaseResetFrame(rgb,
@@ -172,5 +173,5 @@ public sealed class D3D11CurrentSeasonPublisher
             CameraOpticsEncoding.DecodePrefix(currentMain.Camera.Source, prefix.Span, actual.Scalars.ApplyOpticalTailTo(currentMain.Camera.Optics)));
     }
 
-    public void AcceptCurrent(D3D11CurrentSeasonFrame frame) => _previousRgb = frame.Rgb;
+    public void AcceptCurrent(D3D11CurrentSeasonFrame frame) => _previousLighting = AcceptedSkyLightingState.Capture(frame.Rgb);
 }

@@ -10,7 +10,12 @@ public sealed class MapSeasonCameraPrefixScalars
 {
     private readonly byte[] words;
     private MapSeasonCameraPrefixScalars(byte[] copiedWords,string evidence)
-    {words=copiedWords;SourceEvidence=evidence;}
+    {words=copiedWords;SourceEvidence=evidence;
+        Climate=new(BinaryPrimitives.ReadSingleLittleEndian(copiedWords.AsSpan(36)),
+            BinaryPrimitives.ReadSingleLittleEndian(copiedWords.AsSpan(40)),
+            BinaryPrimitives.ReadSingleLittleEndian(copiedWords.AsSpan(44)),
+            BinaryPrimitives.ReadSingleLittleEndian(copiedWords.AsSpan(48)));}
+    public CameraWeatherClimate Climate { get; }
     public uint Exposure170Bits=>BinaryPrimitives.ReadUInt32LittleEndian(words);
     public uint Gamma174Bits=>BinaryPrimitives.ReadUInt32LittleEndian(words.AsSpan(4));
     public uint Scalar178Bits=>BinaryPrimitives.ReadUInt32LittleEndian(words.AsSpan(8));

@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 
@@ -12,15 +11,16 @@ public sealed class SkySeasonMainWeatherFogFrame
     internal SkySeasonMainWeatherFogFrame(SkySeasonMainCameraRgbFrame camera,
         SkyWeatherKnownFogRows fog,SkyWeatherAmbientSample sun,
         SkyWeatherAmbientSample moon,float sourceWeather640,float sourceWeatherSaturation22C,string provenance)
-    {AcceptedSeasonCamera=camera;Fog=fog;SunAmbient=sun;MoonAmbient=moon;
-        SourceWeather640=sourceWeather640;SourceWeatherSaturation22C=sourceWeatherSaturation22C;SourceProvenance=provenance;}
+    {AcceptedSeasonCamera=camera;Weather=new(fog,sourceWeather640,sourceWeatherSaturation22C);SunAmbient=sun;MoonAmbient=moon;
+        SourceProvenance=provenance;}
     public SkySeasonMainCameraRgbFrame AcceptedSeasonCamera{get;}
     public long FrameNumber=>AcceptedSeasonCamera.Inputs.FrameNumber;
-    public SkyWeatherKnownFogRows Fog{get;}
+    public SkyWeatherResult Weather { get; }
+    public SkyWeatherKnownFogRows Fog=>Weather.Fog;
     public SkyWeatherAmbientSample SunAmbient{get;}
     public SkyWeatherAmbientSample MoonAmbient{get;}
-    public float SourceWeather640{get;}
-    public float SourceWeatherSaturation22C { get; }
+    public float SourceWeather640=>Weather.Strength;
+    public float SourceWeatherSaturation22C=>Weather.Saturation;
     public string SourceProvenance{get;}
     public bool NativeWholeFog96IdentityPreserved=>false;
     public void RequireCurrent(SkySeasonMainCameraRgbFrame actual)
@@ -31,12 +31,7 @@ public sealed class SkySeasonMainWeatherFogFrame
     public byte[] ApplyKnownWritesToCurrentPreparedPrefix(SkySeasonMainCameraRgbFrame actual)
     {
         RequireCurrent(actual);
-        byte[] prefix=actual.SunMoonRgb.Prefix.ToArray();
-        // Original V418 C45C9C (paired SC writer) unconditionally publishes
-        // the same XMM6 used by the Fog saturation adjustment. The later
-        // embedded Main copy and Cloud inputD8 read this exact field.
-        BinaryPrimitives.WriteSingleLittleEndian(prefix.AsSpan(0x22C,4),SourceWeatherSaturation22C);
-        Fog.Known72.Span.CopyTo(prefix.AsSpan(0x340,72));return prefix;
+        return SkyWeatherFogEncoding.ApplyToCamera(actual.SunMoonRgb.Prefix.Span,Weather);
     }
 }
 
@@ -59,41 +54,33 @@ public static class SkySeasonMainWeatherFog
             throw new NotSupportedException("Source-created Main weather/Fog requires the actual fresh database reset, Root package, native6500 and matched executable; later edited/interpolated weather is explicit.");
         if(dispatch!=NativeCameraTangentDispatch.Sse)
             throw new NotSupportedException("Current Main weather/Fog implements the actual SSE power dispatch only.");
-        var package=SkySeasonPackageTextures.Read(source.Selection.FirstPackage).Package.Camera;
-        float Field(int ordinal,int lane=0)
-        {
-            var prop=package.Properties.Single(x=>x.Index==ordinal);
-            if(prop.TypeCode!=8||prop.ElementSize!=4||prop.RawValue.Length!=prop.ElementCount*4||
-                lane>=prop.ElementCount)throw new InvalidDataException("Source Main weather property layout differs from its actual loader copy.");
-            float value=BinaryPrimitives.ReadSingleLittleEndian(prop.RawValue.AsSpan(lane*4,4));
-            if(!float.IsFinite(value))throw new InvalidDataException("Source Main weather property is nonfinite.");
-            return value;
-        }
+        var profile=source.WeatherProfile;
+        var inputs=camera.Inputs.Weather;
         // C452A8/C45382 -> C45668: only Cloudy/Humidity enter current640.
-        float cloud=Clamp(M(BinaryPrimitives.ReadSingleLittleEndian(camera.SunMoonRgb.Prefix.Span[0x1D0..]),Field(770)));
-        float humidity=BinaryPrimitives.ReadSingleLittleEndian(camera.SunMoonRgb.Prefix.Span[0x1D8..]),low=Field(879),high=Field(880);
+        float cloud=Clamp(M(inputs.Climate.Cloudiness,profile.CloudinessScale));
+        float humidity=inputs.Climate.Humidity,low=profile.CloudHumidityLow,high=profile.CloudHumidityHigh;
         float humidityWeight=high>low?Clamp(D(S(humidity,low),S(high,low))):humidity>=low?1:0;
         float current640=M(cloud,humidityWeight);
-        float strength=Field(923),heightBlend=M(strength,Field(925));heightBlend=A(heightBlend,S(1,strength));
-        float opacity=SkyWeatherNativePower.PowSse(Field(924),strength,power);
-        float hStart=Field(896),hEnd=Field(897),weather=humidity;
+        float strength=profile.FogStrength,heightBlend=M(strength,profile.FogHeightBlend);heightBlend=A(heightBlend,S(1,strength));
+        float opacity=SkyWeatherNativePower.PowSse(profile.FogOpacity,strength,power);
+        float hStart=profile.AtmosphereHumidityLow,hEnd=profile.AtmosphereHumidityHigh,weather=humidity;
         float weatherWeight=hEnd==hStart?(weather>hStart?1:0):Clamp(D(S(weather,hStart),S(hEnd,hStart)));
         float complement=S(1,weatherWeight);
-        float rayleighScale=A(M(weatherWeight,Field(899)),M(complement,Field(898)));
-        float heightDenominator=M(M(heightBlend,Field(920)),100);
-        float eyeY=BinaryPrimitives.ReadSingleLittleEndian(camera.Inputs.MainFrame.Camera.Prefix.Span.Slice(0x14,4));
+        float rayleighScale=A(M(weatherWeight,profile.WetRayleighScale),M(complement,profile.DryRayleighScale));
+        float heightDenominator=M(M(heightBlend,profile.FogDepthScale),100);
+        float eyeY=inputs.EyeHeight;
         float raised=SkyWeatherNativePower.PowSse(D(eyeY,heightDenominator),4,power);
         float density=A(M(Max(raised,1),strength),S(1,strength));density=M(density,opacity);
-        float mieScale=A(M(weatherWeight,Field(901)),M(complement,Field(900)));density=M(density,mieScale);
+        float mieScale=A(M(weatherWeight,profile.WetMieScale),M(complement,profile.DryMieScale));density=M(density,mieScale);
         var table=source.Transmittance.Tables;
         float maximum=Max(table.MieExtinction.X,Max(table.MieExtinction.Z,table.MieExtinction.Y));
-        Vector4 mie=new(M(M(density,Field(926,0)),D(table.MieExtinction.X,maximum)),
-            M(M(density,Field(926,1)),D(table.MieExtinction.Y,maximum)),
-            M(M(density,Field(926,2)),D(table.MieExtinction.Z,maximum)),0);
-        Vector4 rayleigh=new(M(M(Field(927,0),table.RayleighExtinction.X),rayleighScale),
-            M(M(Field(927,1),table.RayleighExtinction.Y),rayleighScale),
-            M(M(Field(927,2),table.RayleighExtinction.Z),rayleighScale),0);
-        float saturationStart=Field(973),saturationEnd=Field(974);
+        Vector4 mie=new(M(M(density,profile.MieTint.X),D(table.MieExtinction.X,maximum)),
+            M(M(density,profile.MieTint.Y),D(table.MieExtinction.Y,maximum)),
+            M(M(density,profile.MieTint.Z),D(table.MieExtinction.Z,maximum)),0);
+        Vector4 rayleigh=new(M(M(profile.RayleighTint.X,table.RayleighExtinction.X),rayleighScale),
+            M(M(profile.RayleighTint.Y,table.RayleighExtinction.Y),rayleighScale),
+            M(M(profile.RayleighTint.Z,table.RayleighExtinction.Z),rayleighScale),0);
+        float saturationStart=profile.SaturationLow,saturationEnd=profile.SaturationHigh;
         float saturation=saturationStart==saturationEnd?(current640>saturationEnd?0:1):
             S(1,Clamp(D(S(current640,saturationStart),S(saturationEnd,saturationStart))));
         Vector4 Adjust(Vector4 color)
@@ -103,19 +90,20 @@ public static class SkySeasonMainWeatherFog
             return SkylightColorMath.HsvToRgb(hsv);
         }
         rayleigh=Adjust(rayleigh);
-        float height=SkyWeatherAmbientSampler.EffectiveHeight(camera.Inputs.Phase.Parameters.Altitude,eyeY);
-        var sun=SkyWeatherAmbientSampler.Sample(source.Transmittance,power,camera.SunMoonRgb.Directions.Sun,height,dispatch);
-        var moon=SkyWeatherAmbientSampler.Sample(source.Transmittance,power,camera.SunMoonRgb.Directions.Moon,height,dispatch);
+        float height=SkyWeatherAmbientSampler.EffectiveHeight(inputs.Altitude,eyeY);
+        var sun=SkyWeatherAmbientSampler.Sample(source.Transmittance,power,camera.SunMoonRgb.Lighting.Sun.Direction,height,dispatch);
+        var moon=SkyWeatherAmbientSampler.Sample(source.Transmittance,power,camera.SunMoonRgb.Lighting.Moon.Direction,height,dispatch);
         Vector4 sunAmbient=Adjust(sun.Value),moonAmbient=Adjust(moon.Value);
-        float ReadRgb(int at)=>BinaryPrimitives.ReadSingleLittleEndian(camera.SunMoonRgb.Prefix.Span.Slice(at,4));
-        Vector4 background=new(M(A(M(moonAmbient.X,ReadRgb(0x308)),M(sunAmbient.X,ReadRgb(0x2C4))),F(0x3E99999A)),
-            M(A(M(moonAmbient.Y,ReadRgb(0x30C)),M(sunAmbient.Y,ReadRgb(0x2C8))),F(0x3E99999A)),
-            M(A(M(moonAmbient.Z,ReadRgb(0x310)),M(sunAmbient.Z,ReadRgb(0x2CC))),F(0x3E99999A)),0);
+        var lighting=camera.SunMoonRgb.Lighting;
+        var sunBase=lighting.Sun.BaseColor; var moonBase=lighting.Moon.BaseColor;
+        Vector4 background=new(M(A(M(moonAmbient.X,moonBase.X),M(sunAmbient.X,sunBase.X)),F(0x3E99999A)),
+            M(A(M(moonAmbient.Y,moonBase.Y),M(sunAmbient.Y,sunBase.Y)),F(0x3E99999A)),
+            M(A(M(moonAmbient.Z,moonBase.Z),M(sunAmbient.Z,sunBase.Z)),F(0x3E99999A)),0);
         // Original source CPU DB4 -> prepared1054 is the loaded anisotropy.
         var fog=SkyWeatherFogAssembler.Generate(new(background,rayleigh,mie,
-            M(Field(921),100),M(M(heightBlend,Field(920)),100),table.PlanetRadius,1,
-            M(S(1,M(strength,F(0x3E99999A))),Field(595)),M(Field(919),100),
-            A(M(Field(914),Field(915)),S(1,Field(914)))));
+            M(profile.FogStart,100),M(M(heightBlend,profile.FogDepthScale),100),table.PlanetRadius,1,
+            M(S(1,M(strength,F(0x3E99999A))),profile.Anisotropy),M(profile.FogPivot,100),
+            A(M(profile.FogBlend,profile.FogBlendScale),S(1,profile.FogBlend))));
         return new(camera,fog,sun,moon,current640,saturation,camera.SourceProvenance+";"+power.SourceProvenance+
             ";same-Main-V418-Root-source-database-reset-weather;computed-saturation-Main22C-write;actual72-semantic-writes;"+
             "Fog48..5F-retained-unknown;unrelated-V418-weather-outputs-not-published");

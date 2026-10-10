@@ -87,7 +87,7 @@ public sealed class MapPostEffect3ApplyMode1Completed
             Exposure.Camera!=Camera.SceneInputs||
             Exposure.Bytes.Length!=32||BinaryPrimitives.ReadUInt32LittleEndian(Exposure.Bytes.Span)!=BinaryPrimitives.ReadUInt32LittleEndian(Camera.Prefix.Span.Slice(0x170,4))||
             Exposure.ToneType3A4!=2||Exposure.HalfRectangle||(Exposure.ViewFlags8&((1u<<22)|(1u<<23)))!=0||
-            Camera.Source.CpuWord(0xBF0)!=0||Camera.ExecutableLocale is not("SC" or "TC")||
+            Camera.Source.Declaration.DepthOfFieldMode!=0||Camera.ExecutableLocale is not("SC" or "TC")||
             Viewport.Inputs.ActualCamera1CC!=BinaryPrimitives.ReadUInt32LittleEndian(Camera.Prefix.Span.Slice(0x1CC,4)))
             throw new InvalidDataException("Mode1 completion requires the same retained Camera/Exposure and admitted full output frame.");
         if(!Route.ExecutesToneFallback||Route.ExecutesModuleFunctor||!Route.BypassesLegacyA1Branch||

@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using System.Numerics;
 
 namespace San14.Data;
@@ -14,9 +13,9 @@ public sealed record SkyWeatherFogAssemblerArguments(Vector4 Background,
 /// of the native Fog96 transport are retained, and have no invented value.</summary>
 public sealed class SkyWeatherKnownFogRows
 {
-    private readonly byte[] known;
-    internal SkyWeatherKnownFogRows(byte[] known)=>this.known=known;
-    public ReadOnlyMemory<byte> Known72=>known.ToArray();
+    internal SkyWeatherKnownFogRows(SkyWeatherFogValues values)=>Values=values;
+    public SkyWeatherFogValues Values { get; }
+    public ReadOnlyMemory<byte> Known72=>SkyWeatherFogEncoding.Encode(Values);
     public bool NativeWholeFog96IdentityPreserved=>false;
     public bool CoversMode4ScatteringReadSet=>true;
     public bool CoversMode7FinalFogReadSet=>true;
@@ -26,14 +25,13 @@ public sealed class SkyWeatherKnownFogRows
     /// backend representation; it is never native retained-byte evidence.</summary>
     public byte[] MaterializeNamedConsumerRecord()
     {
-        byte[] record=new byte[96];known.CopyTo(record,0);return record;
+        return SkyWeatherFogEncoding.MaterializeRecord(Values,new byte[24]);
     }
     /// <summary>Whole native storage is available only when its actual retained
     /// trailing allocation is explicitly supplied. No constructor zero implied.</summary>
     public byte[] MaterializeWithExplicitRetainedTail(ReadOnlySpan<byte> actualTail24)
     {
-        if(actualTail24.Length!=24)throw new InvalidDataException("Native Fog96 requires exactly its retained24-byte tail.");
-        byte[] record=new byte[96];known.CopyTo(record,0);actualTail24.CopyTo(record.AsSpan(72));return record;
+        return SkyWeatherFogEncoding.MaterializeRecord(Values,actualTail24);
     }
 }
 
@@ -45,8 +43,7 @@ public static class SkyWeatherFogAssembler
         int currentProfile,bool currentFogEnabled)
     {
         ArgumentNullException.ThrowIfNull(known);
-        return SkyFogMath.Generate(7,currentProfile,currentFogEnabled,
-            known.MaterializeNamedConsumerRecord());
+        return SkyFogMath.GenerateWeather(known.Values,currentProfile,currentFogEnabled);
     }
     public static SkyWeatherKnownFogRows Generate(SkyWeatherFogAssemblerArguments args)
     {
@@ -56,14 +53,9 @@ public static class SkyWeatherFogAssembler
             args.MieCoefficients.X,args.MieCoefficients.Y,args.MieCoefficients.Z,args.Start14,args.End18,
             args.Radius1C,args.Density2C,args.Anisotropy3C,args.Pivot40,args.Blend44})
             if(!float.IsFinite(value))throw new InvalidDataException("Known source Fog semantic writes require finite consumed words.");
-        byte[] output=new byte[72];
-        void Write(int at,float value)=>BinaryPrimitives.WriteSingleLittleEndian(output.AsSpan(at,4),value);
-        void Vector(int at,Vector4 value){Write(at,value.X);Write(at+4,value.Y);Write(at+8,value.Z);Write(at+12,value.W);}
-        Vector(0,args.Background);BinaryPrimitives.WriteUInt32LittleEndian(output.AsSpan(0x10,4),7);
-        Write(0x14,args.Start14);Write(0x18,args.End18);Write(0x1C,args.Radius1C);
-        Vector(0x20,args.RayleighCoefficients);Write(0x2C,args.Density2C);
-        Vector(0x30,args.MieCoefficients);Write(0x3C,args.Anisotropy3C);
-        Write(0x40,args.Pivot40);Write(0x44,args.Blend44);
-        return new(output);
+        return new(new(args.Background,args.Start14,args.End18,args.Radius1C,
+            new(args.RayleighCoefficients.X,args.RayleighCoefficients.Y,args.RayleighCoefficients.Z),args.Density2C,
+            new(args.MieCoefficients.X,args.MieCoefficients.Y,args.MieCoefficients.Z),args.Anisotropy3C,
+            args.Pivot40,args.Blend44));
     }
 }

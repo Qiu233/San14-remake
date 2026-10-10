@@ -1,25 +1,19 @@
-using System.Buffers.Binary;
-using System.Numerics;
-using System.Runtime.CompilerServices;
-
 namespace San14.Data;
 
 public sealed class PreparedCameraLightingPacket
 {
     private readonly byte[] bytes;
-    internal PreparedCameraLightingPacket(byte[] bytes, SkylightDirections directions,
-        SkylightBaseColors colors, uint state, float elapsed)
-    { this.bytes = bytes; Directions = directions; BaseColors = colors; State = state; Elapsed = elapsed; }
+    internal PreparedCameraLightingPacket(ReadOnlySpan<byte> retainedPrefix, SkyLightingState lighting, bool clearAbsentTableFog = false)
+    { Lighting = lighting; bytes = SkyLightingEncoding.Apply(retainedPrefix, lighting, clearAbsentTableFog); }
     public ReadOnlyMemory<byte> Prefix => bytes;
-    public SkylightDirections Directions { get; }
-    public SkylightBaseColors BaseColors { get; }
-    public uint State { get; }
-    public float Elapsed { get; }
+    public SkyLightingState Lighting { get; }
+    public SkylightDirections Directions => new(Lighting.Sun.Direction, Lighting.Moon.Direction);
+    public SkylightBaseColors BaseColors => new(Lighting.Sun.BaseColor, Lighting.Moon.BaseColor);
+    public uint State => SkyLightingEncoding.EncodeOrder(Lighting.Transition);
+    public float Elapsed => Lighting.Transition.Elapsed;
 }
 
-/// <summary>Original C44ED0 lighting production with an explicitly absent
-/// runtime transmittance table. A caller supplies resolved Skylight/clock inputs
-/// and prior transition storage, never a presumed active Camera or cached CPU snapshot.</summary>
+/// <summary>Absent-table lighting compatibility entry point. Retained celestial math is shared.</summary>
 public static class PreparedCameraLighting
 {
     public const int PrefixByteLength = 0x3C0;
@@ -30,141 +24,21 @@ public static class PreparedCameraLighting
     /// caller-owned. It does not reset an already running Camera implicitly.</summary>
     public static byte[] InitializeConstructorLightingFields(ReadOnlySpan<byte> explicitPrefix)
     {
-        if (explicitPrefix.Length != PrefixByteLength)
-            throw new InvalidDataException("Original Camera constructor lighting requires an explicit 3C0-byte prefix.");
-        byte[] result = explicitPrefix.ToArray();
-        result.AsSpan(0x2AC, 0x88).Clear(); // Raw/selected directions, baseline/computed/previous RGB and words.
-        result.AsSpan(0x340, 0x60).Clear(); // Shared Fog source rows.
-        result.AsSpan(0x3B0, 0x10).Clear(); // State, elapsed and two transition scalars.
-        return result;
+        return SkyLightingEncoding.InitializeConstructorLighting(explicitPrefix);
     }
 
-    /// <summary>Writes only the original lighting-owned output fields in a new 3C0 prefix.
-    /// The six-row Fog block is retained except for its mode word at 350, which this
-    /// source branch clears. The original auto-clock tail and weather fields outside
-    /// this prefix are separate work; resolvedParameters must be provided explicitly.
-    /// State initialization is also explicit; this API does not invent constructor bytes.</summary>
     public static PreparedCameraLightingPacket PrepareWithoutTransmittanceTable(
         CameraLightingController controller, SkylightParameters resolvedParameters,
         ReadOnlySpan<byte> priorPrefix, float frameDelta)
     {
         ArgumentNullException.ThrowIfNull(controller); ArgumentNullException.ThrowIfNull(resolvedParameters);
         if (priorPrefix.Length != PrefixByteLength)
-            throw new InvalidDataException("Prepared original Camera lighting requires an explicit 3C0-byte prior prefix.");
-        // The declared resource key is not the current table wrapper. This
-        // entry point's caller has resolved runtime absence; even a nonzero
-        // declaration can have a null wrapper. A present table requires the
-        // separate table/weather producer and cannot use this branch.
-        foreach (float value in new[] { controller.TransitionSpan, controller.TransitionSuppression, controller.SunMargin,
-            controller.SunHueSaturation.X, controller.SunHueSaturation.Y, controller.MoonHueSaturation.X,
-            controller.MoonHueSaturation.Y, frameDelta, ReadFloat(priorPrefix, 0x3B4) }) Finite(value);
-        SkylightDirections directions = SkylightDirectionMath.Calculate(resolvedParameters);
-        SkylightBaseColors colors = SkylightColorMath.Prepare(controller.SunHueSaturation, controller.MoonHueSaturation);
-        bool below = controller.SunMargin >= directions.Sun.Y;
-        var transition = AdvanceState(BinaryPrimitives.ReadUInt32LittleEndian(priorPrefix.Slice(0x3B0, 4)),
-            ReadFloat(priorPrefix, 0x3B4), controller.TransitionSpan, frameDelta, below);
-        uint state = transition.State; float elapsed = transition.Elapsed;
-        bool primarySun = state is 0 or 1 or 5;
-        Vector4 sun = colors.Sun, moon = colors.Moon;
-        bool updateDirections = state is 0 or 3;
-        if (!updateDirections)
-        {
-            float t = controller.TransitionSpan > 0 ? SkylightColorMath.Clamp01(D(elapsed, controller.TransitionSpan)) : 1;
-            float u = SkylightColorMath.Clamp01(state < 3 ? A(t, t) : A(S(t, .5f), S(t, .5f)));
-            float weight = state < 3 ? S(1, Curve(S(1, u), controller.TransitionSuppression)) : Curve(u, controller.TransitionSuppression);
-            Vector3 oldSun = ReadRgb(priorPrefix, 0x2E4), oldMoon = ReadRgb(priorPrefix, 0x328);
-            sun = new(Blend(colors.Sun.X, oldSun.X, weight), Blend(colors.Sun.Y, oldSun.Y, weight),
-                Blend(colors.Sun.Z, oldSun.Z, weight), ReadFloat(priorPrefix, 0x2E0));
-            moon = new(Blend(colors.Moon.X, oldMoon.X, t), Blend(colors.Moon.Y, oldMoon.Y, t),
-                Blend(colors.Moon.Z, oldMoon.Z, t), ReadFloat(priorPrefix, 0x324));
-            primarySun = Luma(sun) >= Luma(moon);
-            updateDirections = (!primarySun && state < 3) || (primarySun && state > 3);
-        }
-        byte[] result = priorPrefix.ToArray();
-        WriteVector(result, 0x2C4, colors.Sun); WriteVector(result, 0x308, colors.Moon);
-        WriteRgb(result, 0x2B8, directions.Sun); WriteRgb(result, 0x2FC, directions.Moon);
-        BinaryPrimitives.WriteUInt32LittleEndian(result.AsSpan(0x350, 4), 0);
-        if (updateDirections)
-        { WriteRgb(result, 0x2AC, directions.Sun); WriteRgb(result, 0x2F0, directions.Moon); }
-        WriteVector(result, 0x2D4, sun); WriteVector(result, 0x318, moon);
-        if (state is 0 or 3)
-        { WriteRgb(result, 0x2E4, colors.Sun); WriteRgb(result, 0x328, colors.Moon); }
-        WriteFloat(result, 0x3B4, elapsed); WriteFloat(result, 0x3B8, 1);
-        float strength = 1;
-        if (controller.TransitionSpan > 0)
-        {
-            float centered = MathF.Abs(S(elapsed, M(controller.TransitionSpan, .5f)));
-            strength = SkylightColorMath.Clamp01(D(A(centered, centered), controller.TransitionSpan));
-        }
-        WriteFloat(result, 0x3BC, strength);
-        uint order = state | (primarySun ? 0x80000000u : 0);
-        BinaryPrimitives.WriteUInt32LittleEndian(result.AsSpan(0x3B0, 4), order);
-        return new(result, directions, colors, order, elapsed);
+            throw new InvalidDataException("Prepared Camera lighting requires an explicit complete prior prefix.");
+        var prior = SkyLightingEncoding.Decode(priorPrefix);
+        SkyLightingTransition.ValidateInputs(controller, prior, frameDelta);
+        var directions = SkylightDirectionMath.Calculate(resolvedParameters);
+        var colors = SkylightColorMath.Prepare(controller.SunHueSaturation, controller.MoonHueSaturation);
+        var lighting = SkyLightingTransition.Prepare(controller, directions, colors, colors, prior, frameDelta);
+        return new(priorPrefix, lighting, clearAbsentTableFog: true);
     }
-
-    private static (uint State, float Elapsed) AdvanceState(uint encodedState, float elapsed, float duration, float delta, bool below)
-    {
-        uint state = encodedState & 0x7FFFFFFF;
-        switch (state)
-        {
-            case 0: if (!below) return (1, elapsed); break;
-            case 3: if (below) return (4, elapsed); break;
-            case 1:
-                if (!below) { if (elapsed >= M(duration, .5f)) state = 2; }
-                else { state = 5; float remaining = S(duration, elapsed); elapsed = duration;
-                    if (remaining < duration) elapsed = Max(M(duration, .5f), remaining); }
-                elapsed = Min(A(elapsed, delta), duration); break;
-            case 2:
-                if (!below) { if (elapsed >= duration) state = 3; }
-                else { state = 4; float remaining = S(duration, elapsed); elapsed = M(duration, .5f);
-                    if (remaining < elapsed) elapsed = Max(0, remaining); }
-                elapsed = Min(A(elapsed, delta), duration); break;
-            case 4:
-                if (below) { if (elapsed >= M(duration, .5f)) state = 5; }
-                else { state = 2; float remaining = S(duration, elapsed); elapsed = duration;
-                    if (remaining < duration) elapsed = Max(M(duration, .5f), remaining); }
-                elapsed = Min(A(elapsed, delta), duration); break;
-            case 5:
-                if (below) { if (elapsed >= duration) state = 0; }
-                else { state = 1; float remaining = S(duration, elapsed); elapsed = M(duration, .5f);
-                    if (remaining < elapsed) elapsed = Max(0, remaining); }
-                elapsed = Min(A(elapsed, delta), duration); break;
-            default: state = below ? 0u : 3u; break;
-        }
-        if (state is 0 or 3) elapsed = 0;
-        Finite(elapsed);
-        return (state, elapsed);
-    }
-
-    // Verified original 101EC10 finite special branches. General library pow
-    // remains explicit until its polynomial/table path has been ported.
-    private static float Curve(float value, float exponent)
-    {
-        if (exponent == 1) return value;
-        if (exponent == 0 || value == 1) return 1;
-        if (value == 0 && exponent > 0) return 0;
-        throw new NotSupportedException("Original Skylight transition curve needs the unresolved 101EC10 general-power producer for this explicit input; no framework pow substitution is used.");
-    }
-
-    private static float Blend(float baseline, float previous, float weight) => A(M(S(1, weight), previous), M(weight, baseline));
-    private static float Luma(Vector4 value) => A(A(M(value.X, 0.29899999499320984f), M(value.Y, 0.5870000123977661f)), M(value.Z, 0.11400000005960464f));
-    private static float Min(float a, float b) => a < b ? a : b;
-    private static float Max(float a, float b) => a > b ? a : b;
-    private static Vector3 ReadRgb(ReadOnlySpan<byte> bytes, int offset)
-    {
-        Vector3 value = new(ReadFloat(bytes, offset), ReadFloat(bytes, offset + 4), ReadFloat(bytes, offset + 8));
-        Finite(value.X); Finite(value.Y); Finite(value.Z); return value;
-    }
-    private static float ReadFloat(ReadOnlySpan<byte> bytes, int offset) => BinaryPrimitives.ReadSingleLittleEndian(bytes.Slice(offset, 4));
-    private static void WriteFloat(Span<byte> bytes, int offset, float value) => BinaryPrimitives.WriteSingleLittleEndian(bytes.Slice(offset, 4), value);
-    private static void WriteRgb(Span<byte> bytes, int offset, Vector4 value)
-    { WriteFloat(bytes, offset, value.X); WriteFloat(bytes, offset + 4, value.Y); WriteFloat(bytes, offset + 8, value.Z); }
-    private static void WriteVector(Span<byte> bytes, int offset, Vector4 value)
-    { WriteRgb(bytes, offset, value); WriteFloat(bytes, offset + 12, value.W); }
-    private static void Finite(float value)
-    { if (!float.IsFinite(value)) throw new InvalidDataException("Original prepared Camera lighting input/result is not finite."); }
-    private static float A(float a, float b) => NativeFloat.Add(a, b);
-    private static float S(float a, float b) => NativeFloat.Subtract(a, b);
-    private static float M(float a, float b) => NativeFloat.Multiply(a, b);
-    [MethodImpl(MethodImplOptions.NoInlining)] private static float D(float a, float b) => a / b;
 }

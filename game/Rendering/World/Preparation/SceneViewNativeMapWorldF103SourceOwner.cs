@@ -43,7 +43,7 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
     private readonly DeferredEarlySourceViewQueriesOwner early;
     private readonly string generation;
     private long listFrame;
-    private SkySeasonMainCameraRgbFrame? previousRgb;
+    private AcceptedSkyLightingState? previousLighting;
     public MapLightingBinding Binding { get; }
     public CurrentFrame Bootstrap { get; }
     public DeferredEarlySourceViewQueriesPacket BootstrapEarly { get; }
@@ -205,7 +205,7 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
         var selectedSeason=resources.CameraSource.WithCalendar(MapSeasonRuntime.PrepareFrame(season,number));
         var post=mainPostSelection.PrepareCurrent(selectedSeason,mode,graphicsQuality);
         var before=SkySeasonMainCameraProducer.PrepareBeforeFinalPreparation(selectedSeason,capture.MainCamera,mode.Mode288,phase,
-            previousAcceptedRgbFrame:previousRgb,mainPostSelection:post);
+            previousAcceptedLightingState:previousLighting,mainPostSelection:post);
         var rgb=SkySeasonMainCameraProducer.PrepareSunMoonAndSky(before,delta,NativeCameraTangentDispatch.Sse,
             SkySceneSourceDefaults.CreateControllerConstructor(),SkySceneSourceDefaults.CreateSky2Parameters(107));
         var fog=SkySeasonMainWeatherFog.PrepareSourceDatabaseResetFrame(rgb,weather,NativeCameraTangentDispatch.Sse);
@@ -394,5 +394,5 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
         if(eligible.Length!=1)throw new NotSupportedException("Actual World cannot provide one ordinary Field record.");
         return stencil.PrepareFromGeneralScene(accepted.Context,f.First,f.Terrain!,eligible[0],terrainExecution,raster);
     }
-    public void CommitCompleteFrame(NativeMapFrameContext context)=>previousRgb=RequireCurrent(context).Rgb;
+    public void CommitCompleteFrame(NativeMapFrameContext context)=>previousLighting=AcceptedSkyLightingState.Capture(RequireCurrent(context).Rgb);
 }

@@ -69,7 +69,7 @@ public sealed class D3D11CameraInputPreparation
         Directory.CreateDirectory(directory);
         using var writer = new BinaryWriter(File.Create(Path.Combine(directory, "profile.bin")));
         writer.Write(0x31504343u); writer.Write(prefix);
-        writer.Write(tangent); writer.Write(BitConverter.UInt32BitsToSingle(camera.Source.CpuWord(0x0C)));
+        writer.Write(tangent); writer.Write(camera.Source.Declaration.Perspective.LookDistance);
         writer.Write(current.NativeClipProfile); writer.Write(LodScale);
         writer.Write(terrain.Height.Height.Width); writer.Write(terrain.Material.InitialControl.SourceMap.Width);
         for (int band = 0; band < 7; band++) writer.Write(Parameters.ZoomAnchor(band));

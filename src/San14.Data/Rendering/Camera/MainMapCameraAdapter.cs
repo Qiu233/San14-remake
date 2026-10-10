@@ -62,8 +62,8 @@ public sealed class MainMapCameraAdapter
         Source = source;
         Parameters = parameters;
         InitialFocus = focus;
-        retainedFov12E8 = BitConverter.UInt32BitsToSingle(source.CpuWord(0x12E8));
-        retainedFar14 = BitConverter.UInt32BitsToSingle(source.CpuWord(0x14));
+        retainedFov12E8 = source.Declaration.Perspective.Lens.VerticalFovRadians;
+        retainedFar14 = source.Declaration.Perspective.Lens.Far;
         var state = MapCameraController.InitialFocus(parameters,
             new(focus.RequestedWorldFocus.X, focus.RequestedWorldFocus.Y, focus.RequestedWorldFocus.Z),
             currentMaximumYOverride);
@@ -181,7 +181,7 @@ public sealed class MainMapCameraAdapter
     }
 
     /// <summary>Consume EFB0/E790 results from the same owned Main camera
-    /// frame. Cursor coordinates retain the source's canonical1920×1080 domain.</summary>
+    /// frame. Cursor coordinates retain the source's canonical 1920 x 1080 domain.</summary>
     public bool QueueWheelZoomFromFrame(MainMapCameraFrame currentFrame, int signedWheelDelta,
         int canonicalPixelX, int canonicalPixelY, int sourceClock, bool currentMaximumYOverride,
         Func<MainMapCameraTerrainPitchInput, MainMapCameraTerrainPitchResult>? lowBandTerrainQualifier = null)

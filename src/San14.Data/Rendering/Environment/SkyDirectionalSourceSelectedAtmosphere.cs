@@ -65,7 +65,7 @@ public sealed class SkyDirectionalRendererFeatureReceipt
         var main=present.AcceptedSeasonCamera.Inputs.MainFrame.Camera;
         // Source binding is ordinal928/hash273D81CE/type8/1 ->CPU98;
         // native TC C40B86/SC C42236 copy ->embedded1330+1EC.
-        uint sourceWord=main.Source.CpuWord(0x98);
+        uint sourceWord=BitConverter.SingleToUInt32Bits(main.Source.Declaration.FogLightingBlend);
         mainPrefix=present.PreparedCameraPrefix.ToArray();
         if(BinaryPrimitives.ReadUInt32LittleEndian(main.Prefix.Span.Slice(0x1EC,4))!=sourceWord||
             BinaryPrimitives.ReadUInt32LittleEndian(mainPrefix.AsSpan(0x1EC,4))!=sourceWord||
