@@ -215,7 +215,7 @@ public sealed class MapSourceCreatedNativeSession : IAsyncDisposable
         lock(lifetime)ObjectDisposedException.ThrowIf(retiring,this);
         var input=current(context)??throw new InvalidDataException("Current owned Main/View source producer is unavailable.");
         if(input.MainCamera.Source.Camera.ObjectId!=0x38D04576||input.MainCamera.FrameNumber!=context.FrameNumber||
-            context.PreparedCamera is null||PreparedCameraSceneSource.ReadCompletePrefix(input.MainCamera.Prefix.Span)!=context.PreparedCamera||
+            context.PreparedCamera is null||input.MainCamera.SceneInputs!=context.PreparedCamera||
             input.View.ViewIdentity!=Binding.ViewIdentity||input.View.CameraOwnerIdentity!=Binding.CameraOwnerIdentity||
             input.View.SelectedRecordLightOwnerIdentity!=Binding.LightOwnerIdentity)
             throw new InvalidDataException("Session Main/View/current record belongs to a different accepted camera, owner or attempt.");

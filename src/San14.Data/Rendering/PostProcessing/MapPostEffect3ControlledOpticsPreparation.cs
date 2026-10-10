@@ -185,7 +185,7 @@ public sealed class LoadedMapPostEffect3ControlledOpticsSource
         var initial=Calculate(camera.FrameNumber,actualControllerScalarOwner,1,B(0x3D4CCCCD),B(0x40B33333),
             B(0x3F4CCCCD),B(0x3F8CCCCD),0,16,false,initialDimensions,actualOwnedLogDispatch,true);
         var current=Calculate(camera.FrameNumber,actualControllerScalarOwner,distance,focal,stop,limbStart,limbEnd,
-            camera.ExtraScalars.LimbDarkeningWeight7B0,tail.Int(0x1344),anamorphic,
+            camera.Optics.Limb.Weight,unchecked((int)tail.Settings.LensEffects.GhostNum),anamorphic,
             dimensions,actualOwnedLogDispatch,dirty);
         current.AcceptFreshInitialization(initial,Array.AsReadOnly(new[]{
             new MapPostEffect3ApplyValueWrite("HaloAberrationWavesRateRB",MapPostEffect3WriteStage.OpticsHaloAberrationWavesRateRB,PackFloats(.98f,1.02f),SourceEvidence+";fresh-two-float-writer"),

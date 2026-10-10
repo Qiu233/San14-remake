@@ -115,8 +115,8 @@ public sealed class LoadedMapPostEffect3ControlledFreshCallerSource
         if(selectedMask!=0){mask=selectedMask;fade=Season(1020,0xDB86C1F7,8);lumi=Season(1022,0x14515444,8);}
         bool locked=(BitConverter.UInt32BitsToSingle(fade)>0||BitConverter.UInt32BitsToSingle(lumi)!=1)&&(mask&0x40000000)!=0;
         var tail=MapPostEffect3ApplyFreshCameraScalars.ConstructFreshSource(camera,"actual-controlled-caller-fields");
-        uint dof=tail.Word(0x1320);
-        return new(camera,(int)(dof&7),locked,tail.Int(0x1348),(int)((dof>>3)&1),SourceEvidence+";"+
+        uint dof=tail.Settings.DepthOfField.Flags;
+        return new(camera,(int)(dof&7),locked,unchecked((int)tail.Settings.LensEffects.DiaphragmBladeCounts),(int)((dof>>3)&1),SourceEvidence+";"+
             actualTransfer.SourceEvidence+";"+actualLookups.SourceEvidence+
             ";actual-external971/972-key0-cache-transfer;LDR1830/1840-null->xmm9zero;"+
             "Camera1320&7-localC0;source-current-LightGroup13F0/13F4/13F8-adaptation-predicate");

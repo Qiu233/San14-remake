@@ -80,7 +80,7 @@ public static class PersonAdvisorResetSource
                 int requested = Math.Min(Math.Min((int)before, getter), cap);
                 int setter = BasePostLoad.ReadMoraleUpper(current.ReadArmyUnitForceReference(army), current); //241720.
                 byte after = unchecked((byte)(requested < 0 ? 0 : Math.Min(requested, setter)));
-                current.SetArmyReturnResourceFields(slot, fields with { Morale1A = after });
+                current.WriteArmyReturnMorale(slot, after);
                 armies.Add(new(slot, before, after));
             }
 
@@ -146,6 +146,7 @@ public static class PersonAdvisorResetSource
                 Units = units,
                 NativeArmySimulation = working.NativeArmySimulation! with
                 { Parameters = working.NativeArmySimulation.Parameters with { Int32Values = values } } }).WithArmyLifecycle(working.ReadArmyLifecycle()!.WithReceiverSlots(slots) with { Indexes = pool.ExportOwnedState() });
+            foreach (var write in armies) current.AcknowledgeArmyReturnNumerics(write.PhysicalSlot, morale: true);
             return new(working, new(physical, level, cache, bases.ToArray(), armies.ToArray(), cities.ToArray(), policies.ToArray()), null);
 
             int ReadPolicy(ForceReference owner, int effect, bool mapped)

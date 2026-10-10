@@ -80,11 +80,11 @@ public static class MapPostEffect3ApplyUncontrolledSimpleWriters
         bool auto=((caller.OptionalAuxFlags8??0)&(1u<<25))!=0||(camera.SourceSpecialRectangleFlag1510&1)!=0;
         // Unlike controller 's +1/-1 sentinel, this native writer is0/1.
         Word("AutoExposureEnable",MapPostEffect3WriteStage.NoControllerAutoExposureEnable,auto?1u:0u);
-        if(!auto)Word("ExposureValue",MapPostEffect3WriteStage.NoControllerExposureValue,CameraWord(0x170));
+        if(!auto)Word("ExposureValue",MapPostEffect3WriteStage.NoControllerExposureValue,BitConverter.SingleToUInt32Bits(camera.Optics.Exposure.UserScale));
         Word("ReverseZ",MapPostEffect3WriteStage.NoControllerReverseZ,(CameraWord(0x158)>>1)&1);
-        Word("LowLuminanceBloomingFix",MapPostEffect3WriteStage.NoControllerLowLuminanceBloomingFix,CameraWord(0x1368));
-        Word("DofEnable",MapPostEffect3WriteStage.NoControllerDofEnable,CameraWord(0x1320)&1);
-        Word("MotionBlurEnable",MapPostEffect3WriteStage.NoControllerMotionBlurEnable,cameraInputs.Float(0x130C)>0?1u:0u);
+        Word("LowLuminanceBloomingFix",MapPostEffect3WriteStage.NoControllerLowLuminanceBloomingFix,camera.Optics.LensEffects.LowLuminanceBloomingFix);
+        Word("DofEnable",MapPostEffect3WriteStage.NoControllerDofEnable,camera.Optics.DepthOfField.Flags&1);
+        Word("MotionBlurEnable",MapPostEffect3WriteStage.NoControllerMotionBlurEnable,cameraInputs.Settings.LensSimulation.ShutterSpeed>0?1u:0u);
         Word("LensFlareEnable",MapPostEffect3WriteStage.NoControllerLensFlareEnable,1);
         var pointers=new MapPostEffect3ApplyUncontrolledPointerWrite[]{
             new("LensPresetSplit",lensPreset.SplitOwner,evidence+";Camera1810.Data20.Cpu08"),

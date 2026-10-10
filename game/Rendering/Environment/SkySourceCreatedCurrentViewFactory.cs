@@ -19,7 +19,7 @@ public static class SkySourceCreatedCurrentViewFactory
         if (currentView.Context.FrameNumber != currentView.Lighting.FrameNumber ||
             currentView.Context.FrameNumber != currentSeasonCamera.Inputs.FrameNumber ||
             currentView.Context.PreparedCamera is null ||
-            currentView.Context.PreparedCamera != PreparedCameraSceneSource.ReadCompletePrefix(currentView.MainCamera.Prefix.Span) ||
+            currentView.Context.PreparedCamera != currentView.MainCamera.SceneInputs ||
             currentView.Selection.Combination.Index != 1022 || currentView.Selection.PixelProgramIndex != 767 ||
             !ReferenceEquals(currentView.Selection.OwnedFeatureSource, currentView.Feature))
             throw new InvalidDataException("Source Sky publication requires the actual same-frame accepted Main/View kind1 and selected original1022/767 program.");

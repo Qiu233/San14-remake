@@ -158,37 +158,10 @@ public sealed partial class OwnedArmyDestructionStage
                     current.ClearArmyTargetToPlaceholder(index);
             }
             effects.Add("25C4xx.manager60_target38_3A_clear");
-            var slots = state.ReadArmyLifecycle()!.ReceiverSlots().ToArray();
-            var units = new Dictionary<int, UnitState>(state.Units);
-            for (int i = 0; i < slots.Length; i++)
-            {
-                var old = slots[i]; var image = old.ActiveUnitId is int active ? units.GetValueOrDefault(active) : old.PendingImage;
-                var fields = current.ReadArmyReturnTraitFields(new(i));
-                if (image is not null && fields is not null)
-                {
-                    image = image with { TraitRoster = ArmyTraitSourceAdapter.Decode(fields.Traits64) };
-                    state = state with { ResourceState = ArmyTraitSourceAdapter.Write(state.ResourceState, image.Id, fields.Traits64) };
-                }
-                if (image is not null && current.ReadArmyReturnResourceFields(new(i)) is { } quantity)
-                    image = ArmyMoraleSourceAdapter.ApplySnapshot(image, quantity.Morale1A) with { WoundedTroops = quantity.Wounded18 };
-                if (i == physical)
-                {
-                    if (image is null) throw Missing("current.cause4_retired_image");
-                    units.Remove(id); slots[i] = old with { ActiveUnitId = null, PendingImage = image,
-                        AuxiliaryAC = fields?.PersonsAC.ToArray(), AuxiliaryF4 = fields?.AuxiliaryF4.ToArray() };
-                }
-                else if (image is not null)
-                {
-                    if (old.ActiveUnitId is int activeId) units[activeId] = image;
-                    slots[i] = old with { PendingImage = old.PendingImage is null ? null : image,
-                        AuxiliaryAC = fields?.PersonsAC.ToArray() ?? old.AuxiliaryAC, AuxiliaryF4 = fields?.AuxiliaryF4.ToArray() ?? old.AuxiliaryF4 };
-                }
-            }
-            var savedArena = OwnedArmyDestructorFlags.PublishCurrent(state.ReadArmyLifecycle()!, current).WithReceiverSlots(slots) with
-            { Indexes = pool.ExportOwnedState() };
-            var result = (state with { Units = units,
-                Officers = new(state.Officers) { [army.OfficerId] = state.Officers[army.OfficerId] with { Deployed = false } },
-                ArmyMapOccupancy = current.ExportArmyMapOccupancy() }).WithArmyLifecycle(savedArena);
+            var result = ArmyReturnImagePublication.Publish(state, current, [physical]);
+            var savedArena = OwnedArmyDestructorFlags.PublishCurrent(result.ReadArmyLifecycle()!, current)
+                with { Indexes = pool.ExportOwnedState() };
+            result = (result with { ArmyMapOccupancy = current.ExportArmyMapOccupancy() }).WithArmyLifecycle(savedArena);
             result = OwnedArmyLifecycleTargets.PublishCurrent(result, current);
             return new(result, new(physical, id, commander, effects, tracking.Writes)
                 { VictimHome = captured.VictimHome, WinnerReward = winnerReward, WinnerForce164Gain = forceGain }, null);

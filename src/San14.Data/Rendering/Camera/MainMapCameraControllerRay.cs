@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using System.Numerics;
 
 namespace San14.Data;
@@ -13,22 +12,14 @@ public static partial class MapCameraController
         return new(new(currentPose.Position80,1),new(f.X,f.Y,f.Z,1));
     }
 
-    /// <summary>EFB0's current source V420 prefix. Input pixels are the native
-    /// canonical1920×1080 coordinate pair; conversion from physical viewport
-    /// coordinates belongs to the input producer. No viewport aspect is substituted.</summary>
-    public static MainMapCameraCursorRay CursorRay(ReadOnlySpan<byte> completeSourceCameraPrefix,
+    /// <summary>Build a picking ray from the displayed view. Pixel coordinates
+    /// use the canonical 1920×1080 viewport; client scaling happens before this call.</summary>
+    public static MainMapCameraCursorRay CursorRay(MapCameraGeometry camera,
         int canonicalPixelX,int canonicalPixelY)
     {
-        if(completeSourceCameraPrefix.Length!=MapCameraConstruction.PrefixByteLength)
-            throw new InvalidDataException("Native cursor ray requires its complete owned3C0 current Camera prefix.");
-        byte[] prefix=completeSourceCameraPrefix.ToArray();
-        float F(int offset)=>BinaryPrimitives.ReadSingleLittleEndian(prefix.AsSpan(offset,4));
-        float[] raw=new float[16];for(int i=0;i<16;i++)raw[i]=F(0x100+i*4);
-        var matrix=new Matrix4x4(raw[0],raw[1],raw[2],raw[3],raw[4],raw[5],raw[6],raw[7],
-            raw[8],raw[9],raw[10],raw[11],raw[12],raw[13],raw[14],raw[15]);
-        Matrix4x4 inverse=AffineInverse11510(matrix);
+        Matrix4x4 inverse=InvertAffine(camera.Matrices.WorldToProjection100);
         float x=D(unchecked(canonicalPixelX-960),960f),y=D(unchecked(540-canonicalPixelY),540f),
-            ratio=D(F(0x144),F(0x140)),farX=M(ratio,x),farY=M(ratio,y);
+            ratio=D(camera.Lens.Far,camera.Lens.Near),farX=M(ratio,x),farY=M(ratio,y);
         float Near(float r0,float r1,float r2,float r3)=>A(A(A(M(r1,y),M(r0,x)),M(r2,0)),r3);
         float Far(float r0,float r1,float r2,float r3)=>A(S(A(M(r1,farY),M(r0,farX)),r2),r3);
         float dx=S(Far(inverse.M11,inverse.M21,inverse.M31,inverse.M41),Near(inverse.M11,inverse.M21,inverse.M31,inverse.M41)),
@@ -37,14 +28,14 @@ public static partial class MapCameraController
         float factor=D(1f,MathF.Sqrt(A(A(M(dy,dy),M(dx,dx)),M(dz,dz))));
         var direction=new Vector4(M(dx,factor),M(dy,factor),M(dz,factor),
             Far(inverse.M14,inverse.M24,inverse.M34,inverse.M44));
-        var origin=new Vector4(F(0x10),F(0x14),F(0x18),F(0x1C));
+        var origin=camera.Eye;
         bool invalid=new[]{origin.X,origin.Y,origin.Z,origin.W,direction.X,direction.Y,direction.Z,direction.W}.Any(float.IsNaN);
         return invalid?new(new(0,0,0,1),new(0,0,0,1),false):new(origin,direction,true);
     }
 
-    /// <summary>11510 inverts only the source3×3 and affine translation, ignores
-    /// its fourth column and writes(0,0,0,1). EFB0 applies this to K+100.</summary>
-    public static Matrix4x4 AffineInverse11510(Matrix4x4 m)
+    /// <summary>Invert the 3×3 basis and translation. Picking intentionally uses
+    /// this affine form of the combined projection, with a final (0,0,0,1) column.</summary>
+    public static Matrix4x4 InvertAffine(Matrix4x4 m)
     {
         float a=m.M11,b=m.M12,c=m.M13,d=m.M21,e=m.M22,f=m.M23,g=m.M31,h=m.M32,i=m.M33;
         float c00=S(M(e,i),M(f,h)),c01=S(M(c,h),M(b,i)),c02=S(M(b,f),M(c,e));

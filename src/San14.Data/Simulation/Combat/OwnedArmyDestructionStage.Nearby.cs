@@ -121,8 +121,8 @@ public sealed partial class OwnedArmyDestructionStage
         int oldLimit = BasePostLoad.ReadMoraleUpper(current.ReadArmyUnitForceReference(army), current);
         int request = Math.Min(unchecked(Math.Min(Known(fields.Morale1A, "morale_Army1A"), oldLimit) + amount), limit);
         int setter = BasePostLoad.ReadMoraleUpper(current.ReadArmyUnitForceReference(army), current);
-        current.SetArmyReturnResourceFields(Known(army.PhysicalSlot, "morale_Army_physical"), fields with
-            { Morale1A = ArmyMoraleSource.SetByte2419A0(request, setter) });
+        current.WriteArmyReturnMorale(Known(army.PhysicalSlot, "morale_Army_physical"),
+            ArmyMoraleSource.SetByte2419A0(request, setter));
     }
     private static PersonalityReference FirstPersonTrait(SourceWorldContext current, int person, byte effect)
     {

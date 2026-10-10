@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using System.Numerics;
 using San14.Core;
 
@@ -28,7 +27,7 @@ public sealed record MainMapCameraFrame(MapCameraConstructionPacket Camera,
         SelectTerritory(ControllerState, ZoomSelection, retainedMapControls);
 
     public MainMapCameraCursorRay CursorRay(int canonicalPixelX, int canonicalPixelY) =>
-        MapCameraController.CursorRay(Camera.Prefix.Span, canonicalPixelX, canonicalPixelY);
+        MapCameraController.CursorRay(Camera.Geometry, canonicalPixelX, canonicalPixelY);
     public MainMapCameraEyeForward EyeForward =>
         MapCameraController.EyeForward(Camera.CurrentPose);
 
@@ -85,7 +84,10 @@ public sealed class MainMapCameraAdapter
         string ownedWorldProvenance, bool currentMaximumYOverride)
     {
         ArgumentNullException.ThrowIfNull(repository);
-        return FromSources(DefaultView0Source.LoadDeclarationDefaults(repository).MainCamera,
+        var declaration = DefaultView0Source.LoadDeclarationDefaults(repository);
+        var camera = MapCameraConstructionSource.ReadPerspective(
+            declaration.CopyCameraDefinitions(), declaration.MainCameraObjectId);
+        return FromSources(camera,
             MainMapCameraControllerParameters.LoadSourceDefaults(repository, locale),
             currentOwnedWorld, currentNativePlayerForceSlot, ownedWorldProvenance, currentMaximumYOverride);
     }
@@ -295,27 +297,15 @@ public sealed class MainMapCameraAdapter
             BitConverter.SingleToUInt32Bits(camera.Lens.VerticalFovRadians) ||
             BitConverter.SingleToUInt32Bits(preparedFar)!=BitConverter.SingleToUInt32Bits(camera.Lens.Far))
         {
-            byte[] prefix = camera.Prefix.ToArray();
-            BinaryPrimitives.WriteSingleLittleEndian(prefix.AsSpan(0x148, 4), fov);
-            BinaryPrimitives.WriteSingleLittleEndian(prefix.AsSpan(0x144, 4),preparedFar);
             var lens = camera.Lens with { VerticalFovRadians = fov,Far=preparedFar };
-            var matrices = MapCameraConstructionMath.CompleteAB6C60(
-                ReadVector(prefix, 0x10), ReadVector(prefix, 0x20), ReadVector(prefix, 0x30),
-                lens, input.NativeClipProfile, input.TangentDispatch);
-            matrices.WriteEarlyMatrices(prefix);
-            prefix[0x160] = prefix[0x161] = 0;
-            camera = new(prefix, Source, pose, lens, matrices, Parameters.Locale,
+            var geometry = camera.Geometry.WithLens(lens, input.NativeClipProfile, input.TangentDispatch);
+            camera = new(camera.Prefix.ToArray(), Source, geometry, Parameters.Locale,
                 input.FrameNumber, provenance + (applied
                     ? ";same-update-positive-owner290-fov" : input.SourceSelectedFovV410 is not null
-                        ? ";same-update-source-V468-V410-fov" : ";retained-sourceCPU12E8"));
+                        ? ";same-update-source-V468-V410-fov" : ";retained-sourceCPU12E8"), optics: camera.Optics);
         }
         retainedFov12E8 = fov;
         return new(camera, runtime.Pose, CurrentZoom, InitialFocus, applied);
     }
 
-    private static Vector4 ReadVector(ReadOnlySpan<byte> prefix, int offset) => new(
-        BinaryPrimitives.ReadSingleLittleEndian(prefix.Slice(offset, 4)),
-        BinaryPrimitives.ReadSingleLittleEndian(prefix.Slice(offset + 4, 4)),
-        BinaryPrimitives.ReadSingleLittleEndian(prefix.Slice(offset + 8, 4)),
-        BinaryPrimitives.ReadSingleLittleEndian(prefix.Slice(offset + 12, 4)));
 }

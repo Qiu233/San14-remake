@@ -47,7 +47,7 @@ public static class ArmyMoraleNonzeroCurrent
             int setter = BasePostLoad.ReadMoraleUpper(current.ReadArmyUnitForceReference(army), current);
             var receipt = ArmyMoraleAdjustmentSource.Calculate(raw, adjustment, trait, scale,
                 getter, clamp, setter, Revision) ?? throw Missing("2709A0_scalar_inputs");
-            current.SetArmyReturnResourceFields(Known(army.PhysicalSlot, "Army_physical"), fields with { Morale1A = receipt.After1A });
+            current.WriteArmyReturnMorale(Known(army.PhysicalSlot, "Army_physical"), receipt.After1A);
             return receipt.RoutingTestValue != 0 ? new(0, receipt, null)
                 : new(null, receipt, "branch.2709A0_zero_morale_routing");
         }

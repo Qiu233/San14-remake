@@ -37,7 +37,7 @@ public static class MapSourceCreatedAuxiliaryCurrentFactory
             currentContext.Source.Host.Locale!=acceptedView.MainCamera.ExecutableLocale||
             (currentContext.ContextFlags3F0&~0x400u)!=(acceptedView.Selection.Current.ContextFlags3F0&~0x400u)||
             acceptedView.Context.PreparedCamera is null||
-            acceptedView.Context.PreparedCamera!=PreparedCameraSceneSource.ReadCompletePrefix(acceptedView.MainCamera.Prefix.Span))
+            acceptedView.Context.PreparedCamera!=acceptedView.MainCamera.SceneInputs)
             throw new InvalidDataException("Auxiliary current sources differ from the accepted Main/View/context frame or current original selection.");
         // Only the closed subsequent OR400 may differ from the earlier shader
         // selection snapshot. Its audited F103 requested-key writers do not

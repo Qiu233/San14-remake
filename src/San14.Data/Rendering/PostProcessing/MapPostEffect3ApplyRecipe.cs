@@ -45,7 +45,7 @@ public sealed class MapPostEffect3ApplyValueWrite
 }
 
 /// <summary>Only writers whose actual inputs are available from the complete
-/// prepared Camera prefix, its independently audited ExtraScalars and explicit
+/// prepared camera, its optical settings and explicit
 /// Aux are admitted. This partial recipe never authorizes a complete 3SPK draw.</summary>
 public sealed record MapPostEffect3ApplyKnownWrites(long FrameNumber,
     IReadOnlyList<MapPostEffect3ApplyValueWrite> Writes,string CameraEvidence)
@@ -120,10 +120,10 @@ public static class MapPostEffect3ApplyRecipe
         F("SpriteDofThreshold",MapPostEffect3WriteStage.ControlledSpriteDofThreshold,0x1324);
         // is an exact 8-byte pair from the existing prepared prefix.
         writes.Add(Value(camera.ExecutableLocale,"EvRangeMinMax",MapPostEffect3WriteStage.ControlledEvRangeMinMax,camera.Prefix.Span.Slice(0x1B8,8).ToArray(),evidence+";Camera1B8/1BC"));
-        byte[] omitted=new byte[8];BinaryPrimitives.WriteUInt32LittleEndian(omitted,tail.Word(0x1374));
-        BinaryPrimitives.WriteUInt32LittleEndian(omitted.AsSpan(4),tail.Word(0x1378));
+        byte[] omitted=new byte[8];BinaryPrimitives.WriteUInt32LittleEndian(omitted,BitConverter.SingleToUInt32Bits(tail.Settings.Exposure.LowBrightnessPercent));
+        BinaryPrimitives.WriteUInt32LittleEndian(omitted.AsSpan(4),BitConverter.SingleToUInt32Bits(tail.Settings.Exposure.HighBrightnessPercent));
         writes.Add(Value(camera.ExecutableLocale,"OmittedLuminancePercentsLowHigh",MapPostEffect3WriteStage.ControlledOmittedLuminancePercentsLowHigh,omitted,evidence+";Camera1374/1378"));
-        byte[] chromaType=new byte[4];BinaryPrimitives.WriteInt32LittleEndian(chromaType,Math.Clamp(tail.Int(0x137C),0,3));
+        byte[] chromaType=new byte[4];BinaryPrimitives.WriteInt32LittleEndian(chromaType,Math.Clamp(unchecked((int)tail.Settings.LensEffects.AberraType),0,3));
         writes.Add(Value(camera.ExecutableLocale,"TinyChromaAberraType",MapPostEffect3WriteStage.ControlledTinyChromaAberraType,chromaType,evidence+";Camera137C;native-clamp0..3"));
         F("CrossFilterWeight",MapPostEffect3WriteStage.ControlledCrossFilter,0x139C);
         F("CrossFilterLength",MapPostEffect3WriteStage.ControlledCrossFilter,0x13A0);
@@ -187,11 +187,9 @@ public static class MapPostEffect3ApplyRecipe
         ArgumentNullException.ThrowIfNull(camera);ArgumentNullException.ThrowIfNull(aux);aux.ValidateFrame(camera.FrameNumber);
         if(camera.FrameNumber<=0||camera.Prefix.Length!=0x3C0||aux.Mode3C0!=1)
             throw new InvalidDataException("Known PostEffect3 writes require this owned Camera and explicit prepared mode1 Aux.");
-        byte[] prefix=camera.Prefix.ToArray();var extra=camera.ExtraScalars;
+        byte[] prefix=camera.Prefix.ToArray();var extra=camera.Optics;
         var result=new List<MapPostEffect3ApplyValueWrite>();
         string evidence=Scope(camera.ExecutableLocale)+";whole-Camera-copy-base-rbp140;"+camera.FrameProvenance+";"+aux.SourceEvidence;
-        void Raw(string name,MapPostEffect3WriteStage stage,int offset,int size)
-            =>result.Add(Value(camera.ExecutableLocale,name,stage,prefix.AsSpan(offset,size).ToArray(),evidence+$";Camera{offset:X}"));
         void Int(string name,MapPostEffect3WriteStage stage,int value)
         {byte[] b=new byte[4];BinaryPrimitives.WriteInt32LittleEndian(b,value);result.Add(Value(camera.ExecutableLocale,name,stage,b,evidence));}
         void Float(string name,MapPostEffect3WriteStage stage,float value)
@@ -204,17 +202,17 @@ public static class MapPostEffect3ApplyRecipe
         bool autoExposure=(aux.Flags8&(1u<<25))!=0||(camera.SourceSpecialRectangleFlag1510&1)!=0;
         // encodes enabled=+1 and disabled=-1, unlike the other bool setters.
         Int("EnableAutoExposure",MapPostEffect3WriteStage.ControlledEnableAutoExposure,autoExposure?1:-1);
-        if(!autoExposure)Raw("UserExposureScale",MapPostEffect3WriteStage.ControlledUserExposureScale,0x170,4);
-        Raw("BloomIntensity",MapPostEffect3WriteStage.ControlledBloomIntensity,0x180,4);
+        if(!autoExposure)Float("UserExposureScale",MapPostEffect3WriteStage.ControlledUserExposureScale,camera.Optics.Exposure.UserScale);
+        Float("BloomIntensity",MapPostEffect3WriteStage.ControlledBloomIntensity,camera.Optics.Output.BloomIntensity);
         Int("UseBloomAntiFlicker",MapPostEffect3WriteStage.ControlledUseBloomAntiFlicker,1);
         Int("Enable4KCBFix",MapPostEffect3WriteStage.ControlledEnable4KCBFix,0);
         Int("EnableBloomColorFix",MapPostEffect3WriteStage.ControlledEnableBloomColorFix,
             aux.BloomColorFix448==1?1:0);
-        Raw("LensFlareIntensity",MapPostEffect3WriteStage.ControlledLensFlareIntensity,0x188,4);
-        Float("FXAAEdgeThreshold",MapPostEffect3WriteStage.ControlledFXAAEdgeThreshold,extra.FxaaEdgeSensitivity404);
-        Float("FXAAEdgeThresholdMin",MapPostEffect3WriteStage.ControlledFXAAEdgeThreshold,extra.FxaaEdgeSensitivityMin408);
-        Float("FXAAEdgeSharpness",MapPostEffect3WriteStage.ControlledFXAAEdgeSharpness,extra.FxaaSharpness40C);
-        Float("FXAAPixelRange",MapPostEffect3WriteStage.ControlledFXAAPixelRange,extra.FxaaPixelRange410);
+        Float("LensFlareIntensity",MapPostEffect3WriteStage.ControlledLensFlareIntensity,camera.Optics.Output.LensFlareIntensity);
+        Float("FXAAEdgeThreshold",MapPostEffect3WriteStage.ControlledFXAAEdgeThreshold,extra.Fxaa.EdgeThreshold);
+        Float("FXAAEdgeThresholdMin",MapPostEffect3WriteStage.ControlledFXAAEdgeThreshold,extra.Fxaa.EdgeThresholdMin);
+        Float("FXAAEdgeSharpness",MapPostEffect3WriteStage.ControlledFXAAEdgeSharpness,extra.Fxaa.EdgeSharpness);
+        Float("FXAAPixelRange",MapPostEffect3WriteStage.ControlledFXAAPixelRange,extra.Fxaa.PixelRange);
         return new(camera.FrameNumber,Array.AsReadOnly(result.ToArray()),evidence);
     }
 }

@@ -57,11 +57,9 @@ public static class MainMapCameraDeferredSource
         ArgumentException.ThrowIfNullOrWhiteSpace(current.CurrentOwnerProvenance);
         if(current.FrameNumber!=camera.FrameNumber)
             throw new InvalidDataException("Deferred camera module values belong to a different Main frame.");
-        var raw=camera.Prefix.Span;
-        var prepared=PreparedCameraSceneSource.ReadCompletePrefix(raw);
-        var target=new Vector3(BinaryPrimitives.ReadSingleLittleEndian(raw.Slice(0x20,4)),
-            BinaryPrimitives.ReadSingleLittleEndian(raw.Slice(0x24,4)),
-            BinaryPrimitives.ReadSingleLittleEndian(raw.Slice(0x28,4)));
+        var prepared=camera.SceneInputs;
+        var aim=camera.Geometry.Target;
+        var target=new Vector3(aim.X,aim.Y,aim.Z);
         var refraction=DeferredRefractionMath.Prepare(prepared,target,camera.Lens.Near,camera.Lens.Far,
             camera.Lens.ReverseDepth,current.ViewportMinimumDepth,current.ViewportMaximumDepth,
             current.RefractionTexturePresent);

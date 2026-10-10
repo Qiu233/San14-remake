@@ -43,10 +43,11 @@ public sealed class MapSourceCreatedSeasonLightingFrame
         var inputs=AcceptedSeasonCamera.Inputs;
         var main=inputs.MainFrame.Camera;
         var optics=inputs.Source.PostEffectScalarSource.CaptureActualMainPreparation(inputs,main);
-        return new(current.ToArray(),main.Source,main.CurrentPose,main.Lens,main.Matrices,
+        return new(current.ToArray(),main.Source,main.Geometry,
             main.ExecutableLocale,FrameNumber,
             main.FrameProvenance+";"+SourceProvenance+";owned-current-season-post-Camera",
-            optics.Scalars,optics);
+            optics.Scalars,optics,
+            optics.Scalars.ApplyOpticalTailTo(CameraOpticsEncoding.DecodePrefix(main.Source,current)));
     }
 
     /// <summary>The two actual source producers must share the same accepted

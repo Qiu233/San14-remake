@@ -129,7 +129,7 @@ public sealed class MapFinalOutputProductionFactory:IAsyncDisposable
         if(context.PreparedCamera is null||input.Camera.FrameNumber!=context.FrameNumber||
             input.Lighting.FrameNumber!=context.FrameNumber||input.CurrentSeason.FrameNumber!=context.FrameNumber||
             input.Lighting.SceneInputs.Camera!=context.PreparedCamera||
-            PreparedCameraSceneSource.ReadCompletePrefix(input.Camera.Prefix.Span)!=context.PreparedCamera||
+            input.Camera.SceneInputs!=context.PreparedCamera||
             !context.OutputFrame.Textures.TryGetValue(0x064B746B,out var scene))
             throw new InvalidDataException("Production final hook must consume the exact accepted scene Camera/lighting/season frame.");
         var camera=input.Camera.CopyAcceptedSnapshot();var lighting=input.Lighting.CopyAcceptedSnapshot();

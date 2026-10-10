@@ -76,7 +76,19 @@ public static class MapCameraConstructionSource
         LoadedRdbAsset ownedSource = source with { Bytes = source.Bytes.ToArray() };
         DokDocument canonical = DokReader.Read(ownedSource.Bytes);
         VerifyDocument(resource.Document, canonical);
-        DokObject[] selected = canonical.Objects.Where(item => item.ObjectId == objectId).ToArray();
+        var declaration = ReadCameraDeclaration(canonical, objectId);
+        var ownedResource = new LoadedObjects(canonical, ownedSource);
+        string origin = SourceResourceUri + $"#object/{objectId:X8}@{source.DecodedSha256};" +
+            "fresh-source-constructor=SC:C3D610/TC:C3BF60;" +
+            "property-loader=SC:C50CF0/TC:C4F6F0;" +
+            "native-descriptors=SC:C89DA0/TC:C88780;literal1240=SC:C3F6C2";
+        return new(ownedResource, declaration.Camera, declaration.Words, origin);
+    }
+
+    internal static (DokObject Camera, IReadOnlyDictionary<int, uint> Words) ReadCameraDeclaration(
+        DokDocument document, uint objectId)
+    {
+        DokObject[] selected = document.Objects.Where(item => item.ObjectId == objectId).ToArray();
         if (selected.Length != 1 || selected[0].Kind != DokObjectKind.Inline ||
             selected[0].ClassId != PerspectiveCameraClassId || selected[0].Reference is not null ||
             selected[0].Properties.Count != 1111)
@@ -97,12 +109,7 @@ public static class MapCameraConstructionSource
         // The only unbound retained word is explicitly cleared by the source
         // constructor at SC C3F6C2, inside the paired C3D610/C3BF60 constructors.
         values.Add(0x1240, 0u);
-        var ownedResource = new LoadedObjects(canonical, ownedSource);
-        string origin = SourceResourceUri + $"#object/{objectId:X8}@{source.DecodedSha256};" +
-            "fresh-source-constructor=SC:C3D610/TC:C3BF60;" +
-            "property-loader=SC:C50CF0/TC:C4F6F0;" +
-            "native-descriptors=SC:C89DA0/TC:C88780;literal1240=SC:C3F6C2";
-        return new(ownedResource, camera, values, origin);
+        return (camera, values);
     }
 
     private static void VerifyDocument(DokDocument supplied, DokDocument canonical)

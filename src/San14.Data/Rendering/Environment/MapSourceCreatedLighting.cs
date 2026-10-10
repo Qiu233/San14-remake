@@ -114,6 +114,7 @@ public sealed partial class MapSourceCreatedLightingPacket
         SourceLightClassId=accepted.SourceLightClassId;
         directionalConstruction=accepted.directionalConstruction;
         directionalProviderFrame=accepted.directionalProviderFrame;
+        Optics=accepted.Optics;
         directionalCameraApplied=accepted.directionalCameraApplied;
         directionalRowsSwapped=accepted.directionalRowsSwapped;
         acceptedInputs=MapSourceCreatedLighting.SnapshotInputs(accepted.acceptedInputs);
@@ -128,6 +129,7 @@ public sealed partial class MapSourceCreatedLightingPacket
             $"LightOwner={Binding.LightOwnerIdentity};frame={FrameNumber}"+
             (input.PresentSeasonCamera is { } present ? ";"+present.SourceProvenance : "");
         this.camera = camera; lightData = local.Bytes; SceneInputs = scene; Clock = clock;
+        Optics=CameraOpticsEncoding.DecodePrefix(source.CameraConstructionSource,camera);
         SelectedController = controller; LightingSkylightParameters = input.LightingSkylightParameters;
         RuntimeTable = input.RuntimeTable; ContextFlags3E4 = input.ContextFlags3E4;
         CameraContextApplied = local.ContextApplied;
@@ -138,6 +140,7 @@ public sealed partial class MapSourceCreatedLightingPacket
     public MapSourceCreatedLightingIdentity SourceIdentity { get; }
     public string SourceProvenance { get; }
     public ReadOnlyMemory<byte> PreparedCameraPrefix => camera;
+    public CameraOpticsSettings Optics { get; }
     public ReadOnlyMemory<byte> LocalLightData => lightData;
     public DeferredSceneInputs SceneInputs { get; }
     public CameraLightingController SelectedController { get; }

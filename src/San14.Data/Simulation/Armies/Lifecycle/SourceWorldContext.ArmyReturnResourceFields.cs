@@ -6,8 +6,20 @@ public sealed partial class SourceWorldContext
 {
     private readonly Dictionary<int, ArmyReturnResourceFields> _armyReturnResourceFields = [];
     private readonly Dictionary<BaseReference, int?> _armyReturnBaseWounded40 = [];
-    public void SetArmyReturnResourceFields(int physical, ArmyReturnResourceFields fields)
+    public void BindArmyReturnResourceFields(int physical, ArmyReturnResourceFields fields)
     { Check(physical, 501, "return Army resources"); ArgumentNullException.ThrowIfNull(fields); _armyReturnResourceFields[physical] = fields; }
+    public void WriteArmyReturnWounded(int physical, ushort? value)
+    {
+        var fields = ReadArmyReturnResourceFields(new(physical)) ?? throw new InvalidDataException("Current army resource view is unknown.");
+        BindArmyReturnResourceFields(physical, fields with { Wounded18 = value });
+        _armyReturnImageChanges?.WriteWounded(physical, value);
+    }
+    public void WriteArmyReturnMorale(int physical, byte? value)
+    {
+        var fields = ReadArmyReturnResourceFields(new(physical)) ?? throw new InvalidDataException("Current army resource view is unknown.");
+        BindArmyReturnResourceFields(physical, fields with { Morale1A = value });
+        _armyReturnImageChanges?.WriteMorale(physical, value);
+    }
     public ArmyReturnResourceFields? ReadArmyReturnResourceFields(ArmyUnitReference army) =>
         _armyReturnResourceFields.GetValueOrDefault(MapPhysical(army.PhysicalSlot, 501, "return Army resources"));
     public void SetArmyReturnBaseWounded40(BaseReference target, int? value)
@@ -17,6 +29,7 @@ public sealed partial class SourceWorldContext
 
     internal void CopyArmyReturnResourceInputsTo(SourceWorldContext draft)
     {
+        draft._armyReturnImageChanges = _armyReturnImageChanges?.Copy();
         Copy(_armyReturnResourceFields, draft._armyReturnResourceFields); Copy(_armyReturnBaseWounded40, draft._armyReturnBaseWounded40);
         Copy(_baseResources, draft._baseResources); Copy(_baseMorale44, draft._baseMorale44);
         Copy(_citySizesB8, draft._citySizesB8); Copy(_baseFields46, draft._baseFields46);

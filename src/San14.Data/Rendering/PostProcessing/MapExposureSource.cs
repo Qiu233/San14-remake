@@ -84,7 +84,11 @@ public sealed record MapExposureViewAux(uint Flags8, int ToneType3A4,
 /// and view mask are explicit tail fields outside the prepared3C0 prefix.</summary>
 public sealed record MapExposureInputs(long FrameNumber, ReadOnlyMemory<byte> PreparedCameraPrefix,
     string CameraSourceProvenance, MapExposureViewAux ViewAux, MapExposureSurface Surface,
-    bool CameraSpecialRectangleFlag1510, int? CameraViewMask19B8, float? SelectedExternalLuminance=null);
+    bool CameraSpecialRectangleFlag1510, int? CameraViewMask19B8, float? SelectedExternalLuminance=null)
+{
+    public CameraExposureSettings? OpticalExposure { get; init; }
+    public DeferredCameraInputs? CameraInputs { get; init; }
+}
 
 public sealed class MapExposurePacket
 {
@@ -95,7 +99,7 @@ public sealed class MapExposurePacket
         ViewFlags8=input.ViewAux.Flags8;ToneType3A4=input.ViewAux.ToneType3A4;
         // The existing130-byte reader is based at native Camera+10:
         // Eye+0, View+70 and Projection+F0 map to native+10/+80/+100.
-        Camera=DeferredSceneConstants.ReadPreparedCamera(input.PreparedCameraPrefix.Span.Slice(0x10,0x130));
+        Camera=input.CameraInputs ?? DeferredSceneConstants.ReadPreparedCamera(input.PreparedCameraPrefix.Span.Slice(0x10,0x130));
         SourceProvenance=input.CameraSourceProvenance+";ViewAux="+input.ViewAux.SourceProvenance+
             ";Surface="+input.Surface.SelectionProvenance+$";frame={FrameNumber};native=EAA964..EAAA9E";
     }
@@ -157,8 +161,9 @@ public static class MapExposureSource
             throw new InvalidDataException("Exposure requires a positive accepted frame, complete3C0 Camera and explicit source identities.");
         if(!input.ViewAux.CustomPixelShaderAbsent)
             throw new NotSupportedException("Exposure custom pixel mode5 requires its selected original program.");
-        float exposure=BinaryPrimitives.ReadSingleLittleEndian(input.PreparedCameraPrefix.Span.Slice(0x170,4));
-        float luminance=input.SelectedExternalLuminance??BinaryPrimitives.ReadSingleLittleEndian(input.PreparedCameraPrefix.Span.Slice(0x17C,4));
+        CameraExposureSettings optical=input.OpticalExposure ?? CameraOpticsEncoding.DecodeExposure(input.PreparedCameraPrefix.Span);
+        float exposure=optical.UserScale;
+        float luminance=input.SelectedExternalLuminance??optical.Luminance;
         int cameraMode=BinaryPrimitives.ReadInt32LittleEndian(input.PreparedCameraPrefix.Span.Slice(0x1CC,4));
         if(!float.IsFinite(exposure)||!float.IsFinite(luminance))
             throw new InvalidDataException("Prepared source Exposure and selected luminance must be finite.");

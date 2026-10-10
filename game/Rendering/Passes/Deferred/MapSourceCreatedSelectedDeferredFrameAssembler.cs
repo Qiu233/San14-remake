@@ -142,7 +142,7 @@ public sealed class MapSourceCreatedSelectedDeferredFrameAssembler : IAsyncDispo
             ObjectDisposedException.ThrowIf(retiring, this);
             ValidateCurrentProgramScope(currentSamplers);
             if (currentSamplers.Selection.Current.FrameNumber != context.FrameNumber || context.PreparedCamera is null ||
-                PreparedCameraSceneSource.ReadCompletePrefix(currentSamplers.Selection.Camera.Prefix.Span) != context.PreparedCamera ||
+                currentSamplers.Selection.Camera.SceneInputs != context.PreparedCamera ||
                 PreparedCameraSceneSource.ReadCompletePrefix(input.PriorPreparedCameraPrefix.Span) != context.PreparedCamera)
                 throw new InvalidDataException("Selected lighting and source selection require the actual accepted terrain Camera and attempt.");
             if (currentSamplers.SourceNullSpecialization?.SourceLocalAmbient is { } las)
@@ -185,7 +185,7 @@ public sealed class MapSourceCreatedSelectedDeferredFrameAssembler : IAsyncDispo
                 !ReferenceEquals(geometry.ModelAcceptedContext.OutputFrame, accepted.OutputFrame) ||
                 geometry.ModelAcceptedContext.PreparedCamera != accepted.PreparedCamera || accepted.PreparedCamera is null ||
                 lighting.FrameNumber != accepted.FrameNumber || lighting.SceneInputs.Camera != accepted.PreparedCamera ||
-                PreparedCameraSceneSource.ReadCompletePrefix(input.CurrentSelection.Camera.Prefix.Span) != accepted.PreparedCamera)
+                input.CurrentSelection.Camera.SceneInputs != accepted.PreparedCamera)
                 throw new InvalidDataException("Selected Deferred requires successful same-frame geometry, actual targets, current selection and source Camera.");
             uint[] remaining = geometry.RemainingSourceImages.Select(i => i?.SourceBindPoint ?? uint.MaxValue).Order().ToArray();
             if (!remaining.SequenceEqual(RequiredRemainingImageRegisters) || geometry.RemainingSourceImages.Any(i =>

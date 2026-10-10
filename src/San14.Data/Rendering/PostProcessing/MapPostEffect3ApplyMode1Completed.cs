@@ -77,7 +77,6 @@ public sealed class MapPostEffect3ApplyMode1Completed
     {
         Route.ValidateSameCamera(Camera);
         WriterScope?.Validate(Camera,Route);
-        _=Camera.CopyAcceptedSnapshot(); // reparse and validate the retained source document
         if(FrameNumber<=0||Exposure.FrameNumber!=FrameNumber||Route.FrameNumber!=FrameNumber||
             Viewport.FrameNumber!=FrameNumber||Bindings.FrameNumber!=FrameNumber||
             !Camera.Prefix.Span.SequenceEqual(cameraBytes)||!Exposure.Bytes.Span.SequenceEqual(exposureBytes)||
@@ -85,7 +84,7 @@ public sealed class MapPostEffect3ApplyMode1Completed
             !Bindings.BeforeDraw.SequenceEqual(before)||!Bindings.AfterDraw.SequenceEqual(after)||
             Bindings.GenericShaderParameters.Count!=parameterBytes.Length||
             Bindings.GenericShaderParameters.Where((p,i)=>!p.Bytes.Span.SequenceEqual(parameterBytes[i])).Any()||
-            Exposure.Camera!=DeferredSceneConstants.ReadPreparedCamera(Camera.Prefix.Span.Slice(0x10,0x130))||
+            Exposure.Camera!=Camera.SceneInputs||
             Exposure.Bytes.Length!=32||BinaryPrimitives.ReadUInt32LittleEndian(Exposure.Bytes.Span)!=BinaryPrimitives.ReadUInt32LittleEndian(Camera.Prefix.Span.Slice(0x170,4))||
             Exposure.ToneType3A4!=2||Exposure.HalfRectangle||(Exposure.ViewFlags8&((1u<<22)|(1u<<23)))!=0||
             Camera.Source.CpuWord(0xBF0)!=0||Camera.ExecutableLocale is not("SC" or "TC")||

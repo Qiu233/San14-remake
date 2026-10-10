@@ -34,7 +34,7 @@ public sealed record SceneViewNativeMapFrameCapture(
         ArgumentNullException.ThrowIfNull(context);
         var camera = MainCamera.Camera.CopyAcceptedSnapshotForOwnedFrame(context.FrameNumber,
             MainCamera.Camera.FrameProvenance + ";" + SourceProvenance + ";accepted-scene-attempt=" + context.FrameNumber);
-        var prepared = PreparedCameraSceneSource.ReadCompletePrefix(camera.Prefix.Span);
+        var prepared = camera.SceneInputs;
         if (context.PreparedCamera != prepared)
             throw new InvalidDataException("SceneView production capture differs from the camera submitted to this exact Scene attempt.");
         return this with { MainCamera = MainCamera with { Camera = camera } };
@@ -389,7 +389,7 @@ public partial class MapSceneView
     {
         var request = package.PrepareTerrainFrame(capture)
             ?? throw new InvalidDataException("Current production terrain writer returned no frame.");
-        if (request.Camera != PreparedCameraSceneSource.ReadCompletePrefix(capture.MainCamera.Camera.Prefix.Span) ||
+        if (request.Camera != capture.MainCamera.Camera.SceneInputs ||
             request.Batches.Count != capture.TerrainBatches.Count || request.Batches.Where((batch, i) =>
                 batch.Coarse != capture.TerrainBatches[i].Coarse || !batch.Patches.SequenceEqual(capture.TerrainBatches[i].Patches)).Any())
             throw new InvalidDataException("Production frame writer changed the captured camera or source-selected terrain batch.");

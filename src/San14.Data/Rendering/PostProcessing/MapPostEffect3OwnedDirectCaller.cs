@@ -91,8 +91,8 @@ public sealed class MapPostEffect3OwnedDirectCaller
         int auxFxaa=BinaryPrimitives.ReadInt32LittleEndian(fxaa.RawValue);
         var raw=MapPostEffect3ApplyUncontrolledCameraInputs.ConstructFreshSource(current,
             common.SelectedViewOwnerIdentity+"Direct-camera");
-        int cameraFxaa=unchecked((int)raw.Word(0x414));
-        float sourceGamma=BinaryPrimitives.ReadSingleLittleEndian(current.Prefix.Span.Slice(0x174,4));
+        int cameraFxaa=unchecked((int)current.Optics.Fxaa.Enable);
+        float sourceGamma=current.Optics.Exposure.Gamma;
         float gamma=ResolveGammaArgument(sourceGamma,actualOutputTarget.NativeTarget60Equals1,actualOutputTarget.ContextVirtual80Result);
         // /E621C..E6247 uses the prepared Camera's E28 and E1C/E20/E24.
         // This fresh-source scope has no later tail writer, so the exact source

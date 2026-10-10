@@ -109,7 +109,7 @@ public sealed partial class MapFinalOutputSceneChain
         var fields=Graph.Passes[28].ConstantBuffers.Single(b=>b.StageCode==0&&b.Register==0).SourceParameterSlices;
         uint Bits(int index)=>BinaryPrimitives.ReadUInt32LittleEndian(cb.Span.Slice(fields.Single(f=>f.ParameterIndex==index).Offset,4));
         uint expectedHdr=input.HdrRoute?.ResolvedTrueHdr==true?0x3F800000u:0u;
-        if(Bits(1)!=0x3E4CCCCD||Bits(2)!=expectedHdr||Bits(52)!=BitConverter.SingleToUInt32Bits(input.Camera.ExtraScalars.FxaaEdgeSensitivityMin408))
+        if(Bits(1)!=0x3E4CCCCD||Bits(2)!=expectedHdr||Bits(52)!=BitConverter.SingleToUInt32Bits(input.Camera.Optics.Fxaa.EdgeThresholdMin))
             throw new InvalidDataException("Complete source route requires Tone2, its actual resolved HDR receipt and FXAA1 camera minimum.");
         Final.Program.DeadColorCorrection!.ValidateFrame(cb.Span);
         return input with{Camera=input.Camera.CopyAcceptedSnapshot(),Exposure=input.Exposure.CopyAcceptedSnapshot(),

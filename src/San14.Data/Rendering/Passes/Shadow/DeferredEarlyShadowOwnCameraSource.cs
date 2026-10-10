@@ -96,7 +96,7 @@ public static class DeferredEarlyShadowOwnCameraSource
         var projection = MapCameraConstructionMath.ProjectionFromTangentAB7040(
             lens.VerticalFovRadians, lens.Aspect, lens.Near, lens.Far, nativeClipProfile, 1, nativeTangentOfHalfFov);
         var combined = UnitWorldTransformMath.ComposeAffine17ADD0(view, projection);
-        new MapCameraConstructionMatrices(raw, view, projection, combined).WriteEarlyMatrices(local);
+        CameraGeometryEncoding.WriteMatrices(local, new(raw, view, projection, combined));
         local[0x160] = local[0x161] = 0;
         // D12470's R9 points at local Camera+10: the source header is omitted.
         byte[] own = local.AsSpan(0x10, 0x150).ToArray();

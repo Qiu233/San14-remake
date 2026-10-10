@@ -49,7 +49,7 @@ public sealed record MapStaticModelCurrentOwnedFrame(MainMapCameraFrame MainCame
 {
     public long FrameNumber => MainCamera.Camera.FrameNumber;
     public string CurrentOwnedWorldProvenance { get; init; } = "";
-    public DeferredCameraInputs PreparedCamera => PreparedCameraSceneSource.ReadCompletePrefix(MainCamera.Camera.Prefix.Span);
+    public DeferredCameraInputs PreparedCamera => MainCamera.Camera.SceneInputs;
 }
 
 /// <summary>Stable source-created population factory. It owns asset/placement
@@ -255,7 +255,7 @@ public sealed class MapStaticModelCurrentOwnedPopulation
                 throw new InvalidDataException("Current owned Model edit names an absent or unsupported node identity.");
             if (!population.Complete)
                 throw new InvalidDataException("Owned source model population is unresolved: " + string.Join("; ", population.Unresolved.Select(f => f.InstanceKey + ": " + f.Reason)));
-            var deferred = PreparedCameraSceneSource.ReadCompletePrefix(input.MainCamera.Camera.Prefix.Span);
+            var deferred = input.MainCamera.Camera.SceneInputs;
             var camera = MapStaticModelCamera.FromExplicitRows(Rows(deferred.SourceWorldToProjection),
                 Rows(Matrix4x4.Transpose(deferred.SourceWorldToView))[..12]);
             _preparing = input;

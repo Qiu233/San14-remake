@@ -9,8 +9,6 @@ public sealed class LoadedMapSeasonCameraPostEffectScalarSource
     public string Locale{get;}
     public string RuleVersion=>RenderRuleIdentity.Version;
     public string SourceEvidence{get;}
-    public int VerifiedCodeWindowCount=>0;
-    public int VerifiedMainPreparationWindowCount=>8;
     public MapSeasonCameraPostEffectScalarWriteIdentity CaptureDirectSelection(
         MapSeasonCameraSelection selected,MapCameraConstructionPacket camera)
     {
@@ -103,15 +101,15 @@ public sealed class MapSeasonCameraPostEffectScalarWriteIdentity
     public uint WeightBits{get;}
     public uint? PreparedSpecialRectangleFlag1510{get;}
     public string SourceEvidence=>Native.SourceEvidence+";"+Scalars.SourceEvidence+
-        (PreparedSpecialRectangleFlag1510 is null?";direct-copy-only/no-Main-late-flags":
-            ";Main17BD0-flags8/CB379C-post-copy-CPU1240-OR1/V418-prepared1510");
+        (PreparedSpecialRectangleFlag1510 is null?";selected-optics":";main-optics");
     internal MapSeasonCameraPostEffectScalarWriteIdentity ForOwnedFrame(long frame,string evidence)
         =>new(this,frame,evidence);
     public MapCameraConstructionPacket ApplyToSameAcceptedCamera(MapCameraConstructionPacket camera)
     {
         Scalars.ValidateForCamera(camera);
-        return new(camera.Prefix.ToArray(),camera.Source,camera.CurrentPose,camera.Lens,camera.Matrices,
-            camera.ExecutableLocale,camera.FrameNumber,camera.FrameProvenance+";"+SourceEvidence,Scalars,this);
+        return new(camera.Prefix.ToArray(), camera.Source, camera.Geometry,
+            camera.ExecutableLocale, camera.FrameNumber, camera.FrameProvenance, Scalars, this,
+            Scalars.ApplyOpticalTailTo(camera.Optics));
     }
     internal void RequireActualMainPreparation(SkySeasonMainCameraInputs inputs,
         MapCameraConstructionPacket camera)
@@ -163,11 +161,6 @@ public static partial class RenderSamplerSourceAdapters
     {
         if(native.Locale is not ("TC" or "SC"))throw new NotSupportedException("Season optics requires its paired SC/TC native source.");
 
-        return new(native.Locale,native.RenderRuleIdentity+
-            ";paired-thirteen-source-code-windows;V468-actual-direct-selected-copy;selected-R8/target-RDX;"+
-            "five-optics-and-three-flags-and-two-LUT-raw-keys;C3845E..C38476/SC-C39B0E..C39B26;"+
-            "three-limb-and-two-brightness-current-words;C367F5/C4191B/C38A4F/C43B4A;"+
-            "full-copy-body-pins-same-first-RDI-source-and-skipped1078/near-far/FOV/aspect;"+
-            "eight-paired-Main17BD0-flag-windows-and-exact-V468/V418-table;no-resource-lookup-or-GPU-current-frame-claim");
+        return new(native.Locale,native.RenderRuleIdentity+";season-camera-optics");
     }
 }

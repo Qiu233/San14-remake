@@ -82,7 +82,7 @@ public static class DeferredSelected383Constants
         if (feature.Scratch.Mode50 != 7 || lighting.AcceptedInputs.SelectedSharedFogOwnerEnabled is not bool fogEnabled ||
             lighting.AcceptedInputs.SelectedBuiltinAmbientCameraRate is not float mapOcclusionRate || !float.IsFinite(mapOcclusionRate) ||
             lighting.FrameNumber != selected.Current.FrameNumber || lighting.SceneInputs.Camera is null ||
-            lighting.SceneInputs.Camera != PreparedCameraSceneSource.ReadCompletePrefix(selected.Camera.Prefix.Span))
+            lighting.SceneInputs.Camera != selected.Camera.SceneInputs)
             throw new InvalidDataException("PS383 requires its same-frame mode7 effective light, actual accepted Camera and known fog/Camera map-occlusion owners.");
         var scene = new DeferredSceneInputs(
             Lighting: DeferredSceneConstants.ReadPreparedBaseLighting(feature.EffectiveLocalLightData.Span[..0x1B0], checked((int)feature.Scratch.DirectionalCount)),
@@ -111,7 +111,7 @@ public static class DeferredSelected383Constants
         if (scene.Lighting is null || scene.Camera is null || scene.Fog is null || scene.Fog.Scattering.Count != 4 || scene.Ambient is null ||
             scene.Occlusion is null || scene.Refraction is null || scene.Refraction.WorldToTexture is not { Count: 3 } ||
             scene.ShadowFade is null || scene.Hatching is null || scene.TranslucencyViewport is null || scene.Projection is null ||
-            scene.Camera != PreparedCameraSceneSource.ReadCompletePrefix(selected.Camera.Prefix.Span))
+            scene.Camera != selected.Camera.SceneInputs)
             throw new InvalidDataException("PS383 reads all26 fields: every current writer group, four mode7 scattering rows and the accepted Camera must be explicit.");
         hatchingIeeeProof?.Validate(selected, scene.Hatching);
         var evaluation = scene;

@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
-using System.Text.Json;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -14,6 +13,7 @@ public sealed class LoadedDefaultView0Source
         uint viewMask, uint[] cameraLists)
     {
         viewSource = view; cameraSource = camera; graphSource = graph;
+        CameraSourceIdentity = (camera.ResourceUri, camera.FileId, camera.DecodedSha256);
         DeclaredViewMask = viewMask; DeclaredCameraListObjectIds = Array.AsReadOnly(cameraLists.ToArray());
         SourceIdentity = $"{graph.ResourceUri}@{graph.DecodedSha256}#node/9;" +
             $"{view.ResourceUri}@{view.DecodedSha256}#object/E1B6A687/slot0;" +
@@ -31,11 +31,8 @@ public sealed class LoadedDefaultView0Source
     public IReadOnlyList<uint> DeclaredCameraListObjectIds { get; }
     public uint DeclaredOptionalDependencyFileHash => 0x22704EBB;
     public string SourceIdentity { get; }
+    internal (string ResourceUri, uint FileId, string DecodedSha256) CameraSourceIdentity { get; }
 
-    /// <summary>Independent canonical Main declaration and audited construction
-    /// words selected through View0's Reference. Each result owns its arrays.</summary>
-    public LoadedMapCameraConstructionSource MainCamera =>
-        MapCameraConstructionSource.ReadPerspective(CopyCameraDefinitions(), MainCameraObjectId);
     public DokObject CopyViewParameterDeclaration() => CopyCameraDefinitions().Document.Objects.Single(
         value => value.ObjectId == ViewParameterObjectId);
     public LoadedObjects CopyViewDefinitions() => CopyObjects(viewSource);
@@ -70,24 +67,21 @@ public static class DefaultView0Source
     public static LoadedDefaultView0Source LoadDeclarationDefaults(GameResourceRepository repository)
     {
         ArgumentNullException.ThrowIfNull(repository);
-        return ReadDeclarationDefaults(repository.LoadObjects("system", ViewResourceId),
-            repository.LoadObjects("system", CameraResourceId), repository.LoadTaskGraph("system", TaskGraphResourceId));
+        return ReadDeclarationDefaults(repository.LoadRdbAsset("system", ViewResourceId),
+            repository.LoadRdbAsset("system", CameraResourceId), repository.LoadRdbAsset("system", TaskGraphResourceId));
     }
 
-    public static LoadedDefaultView0Source ReadDeclarationDefaults(LoadedObjects viewDefinitions,
-        LoadedObjects cameraDefinitions, LoadedTaskGraph taskGraph)
+    public static LoadedDefaultView0Source ReadDeclarationDefaults(LoadedRdbAsset viewDefinitions,
+        LoadedRdbAsset cameraDefinitions, LoadedRdbAsset taskGraph)
     {
         ArgumentNullException.ThrowIfNull(viewDefinitions); ArgumentNullException.ThrowIfNull(cameraDefinitions);
         ArgumentNullException.ThrowIfNull(taskGraph);
-        LoadedRdbAsset viewSource = Snapshot(viewDefinitions.Source, ViewResourceId, ViewResourceSha256);
-        LoadedRdbAsset cameraSource = Snapshot(cameraDefinitions.Source, CameraResourceId,
+        LoadedRdbAsset viewSource = Snapshot(viewDefinitions, ViewResourceId, ViewResourceSha256);
+        LoadedRdbAsset cameraSource = Snapshot(cameraDefinitions, CameraResourceId,
             MapCameraConstructionSource.SourceSha256);
-        LoadedRdbAsset graphSource = Snapshot(taskGraph.Source, TaskGraphResourceId, TaskGraphResourceSha256);
+        LoadedRdbAsset graphSource = Snapshot(taskGraph, TaskGraphResourceId, TaskGraphResourceSha256);
         DokDocument view = DokReader.Read(viewSource.Bytes), cameras = DokReader.Read(cameraSource.Bytes);
         CompiledGraphDocument graph = TaskGraphReader.Read(graphSource.Bytes);
-        RequireMetadata(viewDefinitions.Document, view, "View DOK");
-        RequireMetadata(cameraDefinitions.Document, cameras, "Camera DOK");
-        RequireMetadata(taskGraph.Document, graph, "TGK");
 
         DokObject declaredView = Object(view, ViewObjectId, 0x97AF26FD, 52);
         DokProperty viewParameters = Property(declaredView, 0, 0x03464480, 5, 9, 4);
@@ -126,9 +120,8 @@ public static class DefaultView0Source
         if (Word(key.RawValue, 0) != ViewObjectId || Word(mask.RawValue, 0) != 0xFFFF003F ||
             !listValues.SequenceEqual(expectedLists))
             throw new InvalidDataException("DefaultView0 node9 source View/mask/camera-list inputs changed.");
-        // Validate the existing construction adapter now, so this packet cannot
-        // defer an incompatible Camera declaration failure to the caller.
-        MapCameraConstructionSource.ReadPerspective(new(cameras, cameraSource), MainCameraObjectId);
+        // Construction and View selection use the same decoded declaration.
+        MapCameraConstructionSource.ReadCameraDeclaration(cameras, MainCameraObjectId);
         return new(viewSource, cameraSource, graphSource, Word(mask.RawValue, 0), listValues);
     }
 
@@ -143,12 +136,6 @@ public static class DefaultView0Source
         if (Convert.ToHexString(SHA256.HashData(bytes)) != sha)
             throw new InvalidDataException("DefaultView0 source bytes differ from the pinned SHA256.");
         return source with { Bytes = bytes };
-    }
-    private static void RequireMetadata<T>(T supplied, T canonical, string kind)
-    {
-        if (supplied is null || !JsonSerializer.SerializeToUtf8Bytes(supplied).AsSpan()
-            .SequenceEqual(JsonSerializer.SerializeToUtf8Bytes(canonical)))
-            throw new InvalidDataException($"Supplied DefaultView0 {kind} metadata differs from canonical source bytes.");
     }
     private static DokObject Object(DokDocument document, uint id, uint classId, int properties)
     {

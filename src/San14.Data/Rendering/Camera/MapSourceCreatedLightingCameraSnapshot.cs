@@ -27,8 +27,9 @@ public sealed partial class MapSourceCreatedLightingPacket
             throw new InvalidDataException("Current prepared season Camera does not belong to this exact accepted Main/lighting source generation.");
         var main=acceptedMain.CopyAcceptedSnapshot();
         var optics=source.PostEffectScalarSource.CaptureActualMainPreparation(present.AcceptedSeasonCamera.Inputs,main);
-        return new(camera.ToArray(),main.Source,main.CurrentPose,main.Lens,main.Matrices,
+        return new(camera.ToArray(),main.Source,main.Geometry,
             main.ExecutableLocale,FrameNumber,
-            main.FrameProvenance+";"+present.SourceProvenance+";actual-post-season-Camera3C0-from-owned-lighting-writer",optics.Scalars,optics);
+            main.FrameProvenance+";"+present.SourceProvenance+";actual-post-season-Camera3C0-from-owned-lighting-writer",optics.Scalars,optics,
+            optics.Scalars.ApplyOpticalTailTo(CameraOpticsEncoding.DecodePrefix(main.Source,camera)));
     }
 }

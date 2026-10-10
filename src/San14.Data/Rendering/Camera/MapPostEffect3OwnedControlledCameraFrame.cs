@@ -313,7 +313,7 @@ public sealed class MapPostEffect3OwnedControlledCameraFrame
         var newTail=MapPostEffect3ApplyFreshCameraScalars.ConstructFreshSource(camera,previous.State.OwnerIdentity);
         if(fields.Any(o=>before.Word(o)!=now.Word(o))||oldTail.Int(0x1344)!=newTail.Int(0x1344)||
             oldTail.Int(0x1348)!=newTail.Int(0x1348)||oldTail.Word(0x1320)!=newTail.Word(0x1320)||
-            previous.camera.ExtraScalars.LimbDarkeningWeight7B0!=camera.ExtraScalars.LimbDarkeningWeight7B0||
+            previous.camera.Optics.Limb.Weight!=camera.Optics.Limb.Weight||
             previous.Derived.EffectiveWidth80!=derived.EffectiveWidth80||previous.Derived.EffectiveHeight84!=derived.EffectiveHeight84||
             previous.Derived.AspectRatioF4!=derived.AspectRatioF4||previous.Derived.SensorHeightRatioF0!=derived.SensorHeightRatioF0||
             inputs.ActualOwnedLogDispatch!=NativeLogDispatch.Sse)
@@ -362,19 +362,19 @@ public sealed class LoadedMapPostEffect3ControlledCameraSource
         {byte[] bytes=new byte[checked(words.Length*4)];for(int i=0;i<words.Length;i++)BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(i*4),words[i]);writes.Add(new(name,stage,bytes,evidence));}
         void F(string name,MapPostEffect3WriteStage stage,params float[] values)=>W(name,stage,values.Select(BitConverter.SingleToUInt32Bits).ToArray());
         W("AdaptedScaleLight",MapPostEffect3WriteStage.ControlledAdaptedScaleLight,caller.ActualAdaptationLockPredicate?lockedAdaptationBits:
-            BinaryPrimitives.ReadUInt32LittleEndian(camera.Prefix.Span[0x1C4..]));
+            BitConverter.SingleToUInt32Bits(camera.Optics.Exposure.LightAdaptationScale));
         W("AdaptedScaleDark",MapPostEffect3WriteStage.ControlledAdaptedScaleLight,caller.ActualAdaptationLockPredicate?lockedAdaptationBits:
-            BinaryPrimitives.ReadUInt32LittleEndian(camera.Prefix.Span[0x1C8..]));
+            BitConverter.SingleToUInt32Bits(camera.Optics.Exposure.DarkAdaptationScale));
         float height=derived.EffectiveHeight84;
         float gather=MathF.Min(BitConverter.UInt32BitsToSingle(gatherMaximumBits),
             D(M(A(A(caller.ActualGatherSizeTypeC0,caller.ActualGatherSizeTypeC0),1),BitConverter.UInt32BitsToSingle(gatherFactorBits)),height));
         W("GatherSizeType",MapPostEffect3WriteStage.ControlledGather,unchecked((uint)caller.ActualGatherSizeTypeC0));
         F("GatherMaxCoC",MapPostEffect3WriteStage.ControlledGather,gather);
-        F("DOF2HeatSimmerParams",MapPostEffect3WriteStage.ControlledDOF2HeatSimmerParams,tail.Float(0x13C0),tail.Float(0x13C4),
-            M(tail.Float(0x13C8),caller.ActualContextHeatScale254));
+        F("DOF2HeatSimmerParams",MapPostEffect3WriteStage.ControlledDOF2HeatSimmerParams,tail.Settings.HeatShimmer.Vibra,tail.Settings.HeatShimmer.Cycle,
+            M(tail.Settings.HeatShimmer.Speed,caller.ActualContextHeatScale254));
         W("EnableSeparateHdrLut",MapPostEffect3WriteStage.ControlledHdrDisplay,
             aux.SeparateHdrMode440==2&&selector.Selector==2?1u:0u);
-        W("HdrTvNit",MapPostEffect3WriteStage.ControlledHdrDisplay,tail.Word(0x13CC));W("BaseTvNit",MapPostEffect3WriteStage.ControlledHdrDisplay,tail.Word(0x13D0));
+        W("HdrTvNit",MapPostEffect3WriteStage.ControlledHdrDisplay,tail.Settings.ColorGrading.HdrTvNit);W("BaseTvNit",MapPostEffect3WriteStage.ControlledHdrDisplay,tail.Settings.ColorGrading.BaseTvNit);
         F("LdrLutIntensity",MapPostEffect3WriteStage.ControlledLdrLutIntensity,caller.ActualLdrLutIntensityXmm9);
         W("GammaEnable",MapPostEffect3WriteStage.ControlledGamma,1);F("GammaValue",MapPostEffect3WriteStage.ControlledGamma,D(1,caller.ActualGammaDivisorXmm13));
         uint CameraSourceWord(int ordinal,uint hash,uint type)
@@ -392,11 +392,11 @@ public sealed class LoadedMapPostEffect3ControlledCameraSource
         Vector4 projection=CalculateLensProjection(camera.Prefix,light.ReadSelectedLight(camera),caller.ActualProjectionClipMode);
         F("LensFlareProjPosFovScale",MapPostEffect3WriteStage.ControlledLensFlareProjPosFovScale,projection.X,projection.Y,projection.Z,projection.W);
         W("EnableFXAA",MapPostEffect3WriteStage.ControlledEnableFXAA,caller.ActualFxaaMode==1?1u:0u);
-        W("FXAAType",MapPostEffect3WriteStage.ControlledFXAAType,raw.Word(0x418));
-        W("FXAAQualityEdgeThreshold",MapPostEffect3WriteStage.ControlledFxaaEdges,raw.Word(0x41C));
-        W("FXAAQualityEdgeThresholdMin",MapPostEffect3WriteStage.ControlledFxaaEdges,raw.Word(0x420));
-        W("FXAAQualitySubpixSharpness",MapPostEffect3WriteStage.ControlledFXAAQualitySubpixSharpness,raw.Word(0x424));
-        W("FXAAQualityLevel",MapPostEffect3WriteStage.ControlledFxaaQuality,raw.Word(0x428));W("FXAAQualityPerformance",MapPostEffect3WriteStage.ControlledFxaaQuality,raw.Word(0x42C));
+        W("FXAAType",MapPostEffect3WriteStage.ControlledFXAAType,raw.Settings.Fxaa.Type);
+        W("FXAAQualityEdgeThreshold",MapPostEffect3WriteStage.ControlledFxaaEdges,BitConverter.SingleToUInt32Bits(raw.Settings.Fxaa.QualityEdgeThreshold));
+        W("FXAAQualityEdgeThresholdMin",MapPostEffect3WriteStage.ControlledFxaaEdges,BitConverter.SingleToUInt32Bits(raw.Settings.Fxaa.QualityEdgeThresholdMin));
+        W("FXAAQualitySubpixSharpness",MapPostEffect3WriteStage.ControlledFXAAQualitySubpixSharpness,BitConverter.SingleToUInt32Bits(raw.Settings.Fxaa.QualitySubpixSharpness));
+        W("FXAAQualityLevel",MapPostEffect3WriteStage.ControlledFxaaQuality,raw.Settings.Fxaa.QualityLevel);W("FXAAQualityPerformance",MapPostEffect3WriteStage.ControlledFxaaQuality,raw.Settings.Fxaa.QualityPerformance);
         F("Viewport",MapPostEffect3WriteStage.ControlledViewport,0,0,caller.ActualViewport1540.Z,caller.ActualViewport1540.W);
         F("CompositeLastViewport",MapPostEffect3WriteStage.ControlledCompositeLastViewport,caller.ActualCompositeLastViewport.X,caller.ActualCompositeLastViewport.Y,
             caller.ActualCompositeLastViewport.Z,caller.ActualCompositeLastViewport.W);

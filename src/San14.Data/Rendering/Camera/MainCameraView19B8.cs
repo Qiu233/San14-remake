@@ -45,8 +45,7 @@ public sealed class MainCameraView19B8Owner
 
     private MainCameraView19B8Owner(LoadedDefaultView0Source declaration, string identity)
     {
-        var source = declaration.MainCamera.Resource.Source;
-        mainSource = (source.ResourceUri, source.FileId, source.DecodedSha256);
+        mainSource = declaration.CameraSourceIdentity;
         CameraOwnerIdentity = identity;
         // TC C3BF88/C3BF9B, SC C3D638/C3D64B: r10=0; [MainCPU+8]=r10.
         header08 = 0;
@@ -62,9 +61,7 @@ public sealed class MainCameraView19B8Owner
     {
         ArgumentNullException.ThrowIfNull(actualDeclaration);
         ArgumentException.ThrowIfNullOrWhiteSpace(cameraOwnerIdentity);
-        var owned = DefaultView0Source.ReadDeclarationDefaults(actualDeclaration.CopyViewDefinitions(),
-            actualDeclaration.CopyCameraDefinitions(), actualDeclaration.CopyTaskGraph());
-        return new(owned, cameraOwnerIdentity);
+        return new(actualDeclaration, cameraOwnerIdentity);
     }
 
     /// <summary>Project the owned Main v420 result after the supplied current

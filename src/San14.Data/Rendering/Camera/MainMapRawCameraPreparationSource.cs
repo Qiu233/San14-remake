@@ -121,7 +121,7 @@ public sealed class LoadedMainMapRawCameraPreparationSource
         var lens=CameraLens.DecodePrefix(sameCurrentCpu.Slice(EmbeddedCameraOffset,CameraLens.PrefixBytes));
         var matrices=MapCameraConstructionMath.CompleteAB6C60(
             pose.Eye10,pose.Target20,pose.Up30,lens,nativeClipProfile,tangentDispatch);
-        matrices.WriteEarlyMatrices(sameCurrentCpu[EmbeddedCameraOffset..]);
+        CameraGeometryEncoding.WriteMatrices(sameCurrentCpu[EmbeddedCameraOffset..], matrices);
         sameCurrentCpu[0x1490]=sameCurrentCpu[0x1491]=0;
         W(sameCurrentCpu,8,U(sameCurrentCpu,8)&0x7FFFFFFF);
         return new(actualGetters,lens,matrices,wroteLens,SourceEvidence+";same-retained-rawCPU;current1202-words;"+

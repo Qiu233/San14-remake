@@ -68,7 +68,7 @@ public sealed class SceneViewNativeMapTerrainSourceOwner
 
     public MapSourceCreatedPlayableTerrainFrame PrepareFrame(SceneViewNativeMapFrameCapture capture)
     {
-        var camera = PreparedCameraSceneSource.ReadCompletePrefix(capture.MainCamera.Camera.Prefix.Span);
+        var camera = capture.MainCamera.Camera.SceneInputs;
         var clear = targetSources.PrepareInitialDepthStencilClear(capture.MainCamera.Camera.FrameNumber,
             contextIdentity, currentFlags3E4);
         // This CPU source plan is an unconsumed request hint. The mandatory
@@ -99,7 +99,7 @@ public sealed class SceneViewNativeMapTerrainSourceOwner
     {
         if (capture.SceneGeneration != loaded.InitialFrame.SceneGeneration || capture.TerrainBatches.Count == 0)
             throw new InvalidDataException("Terrain source parameters require this loaded generation and actual nonempty patch inventory.");
-        var camera = PreparedCameraSceneSource.ReadCompletePrefix(capture.MainCamera.Camera.Prefix.Span);
+        var camera = capture.MainCamera.Camera.SceneInputs;
         // Ordinary F8 replaces the generic owner's constructor cSpec through
         // the shared material setter before packing near/coarse draws.
         // GBuffer callback writes nMtrID0; this Landscape has no tool edit.

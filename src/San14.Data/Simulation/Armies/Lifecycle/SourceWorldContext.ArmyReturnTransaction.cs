@@ -64,6 +64,8 @@ public sealed partial class SourceWorldContext
         Copy(draft._armyReturnGovernorWords2E, _armyReturnGovernorWords2E);
         Copy(draft._baseResources, _baseResources); Copy(draft._baseMorale44, _baseMorale44);
         Copy(draft._armyReturnBaseWounded40, _armyReturnBaseWounded40); CommitArmyMapOccupancyFrom(draft);
+        Copy(draft._armyReturnResourceFields, _armyReturnResourceFields);
+        _armyReturnImageChanges = draft._armyReturnImageChanges?.Copy();
         CommitArmyReturnTraitFields(draft);
         CommitAssignmentCurrentFields(draft);
         CommitBaseCaptureCurrentFields(draft);

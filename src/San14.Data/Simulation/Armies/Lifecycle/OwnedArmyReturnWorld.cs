@@ -35,44 +35,15 @@ public sealed class OwnedArmyReturnWorld
         if (!ReferenceEquals(current, _input) || !ReferenceEquals(packet.Owner,Context) || !ReferenceEquals(packet.Pool,Pool)) return null;
         int physical = packet.Army.PhysicalSlot ?? throw new InvalidDataException("Current return Army pointer is null.");
         var original = _input.ReadArmyLifecycle()!; var slot = original.ReceiverSlots()[physical];
-        if (slot.ActiveUnitId is not int id || !_input.Units.TryGetValue(id,out var active))
+        if (slot.ActiveUnitId is not int id || !_input.Units.ContainsKey(id))
             throw new InvalidDataException("Whole ordinary return must identify an active owned Army projection.");
         ArmyOrdinaryReturnRuntime.Commit(packet);
-        //Detach retained receiver collections only when this operation succeeds.
-        //The simulation owns the enclosing world transaction; publication replaces
-        //the changed aggregates and never mutates the input's lifecycle leaves.
-        var saved = original.Copy();
         var result = OwnedArmyReturnCurrentFields.PublishCurrent(packet.CaptivesState ?? _input,Context);
         if (packet.HasAssignmentCurrentWrites)
             result = PersonAssignmentPrecallInputs.PublishCurrent(result, Context);
-        var units = result.Units.ToDictionary(x=>x.Key,x=>x.Value); units.Remove(id);
-        var people = result.Officers.ToDictionary(x=>x.Key,x=>x.Value);
-        people[active.OfficerId] = people[active.OfficerId] with { Deployed=false };
-        var slots = saved.ReceiverSlots().ToArray();
-        for (int i=0;i<slots.Length;i++)
-        {
-            var traits = Context.ReadArmyReturnTraitFields(new(i));
-            var old = slots[i]; var image = old.ActiveUnitId is int unitId ? result.Units.GetValueOrDefault(unitId) : old.PendingImage;
-            if (image is not null && traits is not null)
-            {
-                image = image with { TraitRoster = ArmyTraitSourceAdapter.Decode(traits.Traits64) };
-                result = result with { ResourceState = ArmyTraitSourceAdapter.Write(result.ResourceState, image.Id, traits.Traits64) };
-                if (old.ActiveUnitId is int live && live != id) units[live]=image;
-            }
-            slots[i] = old with
-            {
-                ActiveUnitId=i==physical ? null : old.ActiveUnitId,
-                PendingImage=i==physical || old.PendingImage is not null ? image : null,
-                AuxiliaryAC=traits?.PersonsAC.ToArray() ?? old.AuxiliaryAC,
-                AuxiliaryF4=traits?.AuxiliaryF4.ToArray() ?? old.AuxiliaryF4
-            };
-        }
-        result = (result with { Units=units,
-                Officers=people,
-                ArmyMapOccupancy=Context.ExportArmyMapOccupancy() }).WithArmyLifecycle(saved.WithReceiverSlots(slots) with
-        {
-            Indexes = Pool.ExportOwnedState()
-        });
+        result = ArmyReturnImagePublication.Publish(result, Context, [physical]);
+        result = (result with { ArmyMapOccupancy = Context.ExportArmyMapOccupancy() })
+            .WithArmyLifecycle(result.ReadArmyLifecycle()! with { Indexes = Pool.ExportOwnedState() });
         return result;
     }
 }
@@ -81,6 +52,7 @@ public sealed partial class SourceWorldContext
 {
     internal void RestoreOwnedArmyReturnSlots(GameState state,ArmyLifecycleSourceView saved)
     {
+        BindArmyReturnImages(saved);
         foreach (var slot in saved.ReceiverSlots())
         {
             int physical=slot.PhysicalSlot;
@@ -88,12 +60,12 @@ public sealed partial class SourceWorldContext
             var army=slot.ActiveUnitId is int id ? state.Units[id] : slot.PendingImage;
             if (army is null) continue;
             SetArmyUnitRawHex2A(physical,ArmyMarchSourceAdapter.ReadCurrentHex(state, army)); //No HexId fallback.
-            SetArmyReturnResourceFields(physical,new(army.Troops is >=0 and <=65535 ? (ushort)army.Troops : null,
+            BindArmyReturnResourceFields(physical,new(army.Troops is >=0 and <=65535 ? (ushort)army.Troops : null,
                 army.WoundedTroops is >=0 and <=65535 ? (ushort)army.WoundedTroops.Value : null,
                 ArmyMoraleSourceAdapter.Read(army),slot.StoredResources.Gold,slot.StoredResources.Food));
             if (ArmyTraitSourceAdapter.Encode(state, army) is { } traits && slot.AuxiliaryAC is { } ac &&
                 slot.AuxiliaryF4 is { } f4 && OwnedIndexes?.TraitHandles(physical) is { } descriptors)
-                SetArmyReturnTraitFields(physical,new(traits,ac,f4,descriptors.Select(x=>new RegistryListHandle(x.Identity))));
+                BindArmyReturnTraitFields(physical,new(traits,ac,f4,descriptors.Select(x=>new RegistryListHandle(x.Identity))));
         }
     }
 }

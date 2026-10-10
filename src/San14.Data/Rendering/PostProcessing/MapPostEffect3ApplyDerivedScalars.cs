@@ -102,7 +102,7 @@ public static class MapPostEffect3ApplyDerivedScalars
             I(init,"EnableDebugBloomSoftKneeCurve",MapPostEffect3WriteStage.InitialDebugBloom,0);
             I(init,"EnableDebugHistgram",MapPostEffect3WriteStage.InitialDebugHistogram,0);
         }
-        uint flags=tail.Word(0x1320);
+        uint flags=tail.Settings.DepthOfField.Flags;
         bool useWorkingExtent=(flags&(1u<<4))!=0;
         bool multiResolutionFix=(flags&(1u<<5))!=0;
         if(retained is not null&&(useWorkingExtent||multiResolutionFix))
@@ -120,17 +120,17 @@ public static class MapPostEffect3ApplyDerivedScalars
             I(apply,"EnableMultiResFix",MapPostEffect3WriteStage.ControlledResize,multiResolutionFix?1:0);
         }
         // writes the internal A9 byte, not a named shader parameter.
-        bool spriteDof=tail.Float(0x1324)>=0;
+        bool spriteDof=tail.Settings.DepthOfField.SpriteThreshold>=0;
         F(apply,"LuminanceRangeMinMax",MapPostEffect3WriteStage.ControlledLuminanceRangeMinMax,
-            Pow(2,tail.Float(0x136C),actualSsePower),Pow(2,tail.Float(0x1370),actualSsePower));
+            Pow(2,tail.Settings.Exposure.MinBrightness,actualSsePower),Pow(2,tail.Settings.Exposure.MaxBrightness,actualSsePower));
         F(apply,"AdjustMiddleGray",MapPostEffect3WriteStage.ControlledAdjustMiddleGray,
-            M(Pow(2,tail.Float(0x1328),actualSsePower),B(0x3E5EDC7F)));
+            M(Pow(2,BitConverter.UInt32BitsToSingle(tail.Settings.DepthOfField.CompareBrightnessBits),actualSsePower),B(0x3E5EDC7F)));
         F(apply,"BloomThresholdCurveParams",MapPostEffect3WriteStage.ControlledBloomThresholdCurveParams,
-            Pow(tail.Float(0x1354),B(0x400CCCCD),actualSsePower),tail.Float(0x1358));
-        F(apply,"TinyChromaAberraAmount",MapPostEffect3WriteStage.ControlledTinyChromaAberraAmount,M(D(64,dimensions.Diagonal98),tail.Float(0x1380)));
+            Pow(tail.Settings.LensEffects.BloomThreshold,B(0x400CCCCD),actualSsePower),tail.Settings.LensEffects.BloomThresholdSoftKnee);
+        F(apply,"TinyChromaAberraAmount",MapPostEffect3WriteStage.ControlledTinyChromaAberraAmount,M(D(64,dimensions.Diagonal98),tail.Settings.LensEffects.AberraAmount));
         F(apply,"LensFlareThreshold",MapPostEffect3WriteStage.ControlledLensFlareThreshold,
-            Pow(tail.Float(0x1360),B(0x400CCCCD),actualSsePower));
-        float limb=Pow(camera.ExtraScalars.LimbDarkeningWeight7B0,B(0x3EE8BA2E),actualSsePower);
+            Pow(tail.Settings.LensEffects.LensFlareThreshold,B(0x400CCCCD),actualSsePower));
+        float limb=Pow(camera.Optics.Limb.Weight,B(0x3EE8BA2E),actualSsePower);
         // first publishes prior controller70 if enabled, otherwise -.5.
         // Fresh memset leaves70 zero, and then replaces it.
         F(apply,"LimbDarkenningLinFade",MapPostEffect3WriteStage.ControlledResetLimbDarkening,-.5f);
@@ -143,7 +143,7 @@ public static class MapPostEffect3ApplyDerivedScalars
             float diagonal=MathF.Sqrt(A(Pow(M(aspectScale,width),2,actualSsePower),Pow(height,2,actualSsePower)));
             f4=D(dimensions.DeviceAspect94,aspectScale);f0=D(height,diagonal);
         }
-        float dc=tail.Float(0x135C);
+        float dc=tail.Settings.LensEffects.BloomRadius;
         float intensity=BinaryPrimitives.ReadSingleLittleEndian(camera.Prefix.Span.Slice(0x180,4));
         // writes byteAA only; writes floatDC only. They are not
         // shader-name writes despite adjacent wrapper code.

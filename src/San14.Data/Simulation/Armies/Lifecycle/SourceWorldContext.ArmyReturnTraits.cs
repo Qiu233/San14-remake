@@ -26,8 +26,13 @@ public sealed class ArmyReturnTraitFields
 public sealed partial class SourceWorldContext
 {
     private readonly Dictionary<int, ArmyReturnTraitFields> _armyReturnTraits = [];
-    public void SetArmyReturnTraitFields(int physical, ArmyReturnTraitFields fields)
+    public void BindArmyReturnTraitFields(int physical, ArmyReturnTraitFields fields)
     { Check(physical, 501, "return Army trait receiver"); ArgumentNullException.ThrowIfNull(fields); _armyReturnTraits[physical] = fields; }
+    public void WriteArmyReturnTraitFields(int physical, ArmyReturnTraitFields fields)
+    {
+        BindArmyReturnTraitFields(physical, fields);
+        _armyReturnImageChanges?.WriteTraits(physical, fields);
+    }
     public ArmyReturnTraitFields? ReadArmyReturnTraitFields(ArmyUnitReference army)
         => _armyReturnTraits.GetValueOrDefault(MapPhysical(army.PhysicalSlot, 501, "return Army trait receiver"));
 

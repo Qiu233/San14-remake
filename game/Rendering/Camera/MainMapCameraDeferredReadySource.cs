@@ -108,7 +108,7 @@ public static class MainMapCameraDeferredReadySource
             accepted.Context.FrameNumber!=accepted.MainCamera.FrameNumber||
             accepted.Context.FrameNumber!=accepted.Lighting.FrameNumber||
             accepted.Context.PreparedCamera is null||
-            accepted.Context.PreparedCamera!=PreparedCameraSceneSource.ReadCompletePrefix(accepted.MainCamera.Prefix.Span))
+            accepted.Context.PreparedCamera!=accepted.MainCamera.SceneInputs)
             throw new InvalidDataException("Ready Main Camera requires its actual accepted Main/View/light/program frame.");
         var source=MainMapCameraRefractionBindingSource.ReadSource(accepted.Selection);
         source.ValidateTarget(actualRefractionDepth.Construction,accepted.Context.FrameNumber);

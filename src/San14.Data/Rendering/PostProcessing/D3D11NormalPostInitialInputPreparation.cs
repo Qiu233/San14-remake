@@ -200,7 +200,7 @@ public static class D3D11NormalPostInitialInputPreparation
             return FormattableString.Invariant($"{p.Table} {p.ParameterIndex} {side}");
         }).ToArray();
         var tail=MapPostEffect3ApplyFreshCameraScalars.ConstructFreshSource(camera,owner+"/tail");
-        return new(allocation,owned,dofController,passes.AsReadOnly(),tail.Float(0x13C8),fresh.GatherSizeTypeC0,
+        return new(allocation,owned,dofController,passes.AsReadOnly(),tail.Settings.HeatShimmer.Speed,fresh.GatherSizeTypeC0,
             fresh.GatherSizeTypeC0,Array.AsReadOnly(history));
 
         D3D11NormalPostInitialPass Pass(string name,int pass,

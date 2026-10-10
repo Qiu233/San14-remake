@@ -26,7 +26,7 @@ public sealed class MapExposureSelectedLightReceipt
         SelectedExternalLuminance=MapExposureSource.ResolveSelectedLuminance(true,selectedData);
         Branch=UsesSelectedBaselineRgb?MapExposureLuminanceBranch.SelectedRecordBaselineRgbFA0:
             MapExposureLuminanceBranch.RetainedSameCamera17C;
-        SameCameraLuminance17C=BinaryPrimitives.ReadSingleLittleEndian(lighting.PreparedCameraPrefix.Span.Slice(0x17C,4));
+        SameCameraLuminance17C=lighting.Optics.Exposure.Luminance;
         if(!float.IsFinite(SameCameraLuminance17C))throw new InvalidDataException("Exposure's selected same Camera17C is not finite.");
         SourceProvenance=selected.SourceProvenance+";"+lighting.SourceProvenance+
             $";owned-nonnull-ApplyLuminance-reference={applyReference};TC-EA9784/D59120:View1B20-record8;"+

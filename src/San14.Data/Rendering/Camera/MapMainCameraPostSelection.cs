@@ -46,12 +46,12 @@ public sealed class LoadedMapMainCameraPostSelectionSource
         W(0xAC0,4);
         W(0xB3C,low?Distance200000:Distance5000);
         W(0xB08,low?ScalarFourThirdsApproximation:ScalarOne);
-        W(0x414,low?0u:1u);W(0x418,low?0u:2u);
+
         W(0x840,low?1u:0u);W(0x84C,low?3u:0u);
         W(0x8E0,low?1u:0u);W(0x868,low?3u:0u);
-        W(0x180,low?ScalarPointOne:0u);W(0x188,low?ScalarOne:0u);
-        W(0x1320,low?1u:0u);W(0x1324,low?ScalarPointOne:ScalarMinusOne);
-        W(0x1344,low?16u:0u);W(0x674,low?2u:1u);W(0x7A0,low?1u:2u);
+
+
+        W(0x674,low?2u:1u);W(0x7A0,low?1u:2u);
         W(0x101C,low||(flags2&1)!=0?ScalarOne:0u);
         float currentCloudy=BitConverter.UInt32BitsToSingle(cloudy);
         W(0x210,previousCloudy430==currentCloudy?0u:ScalarPoint001);
@@ -68,8 +68,20 @@ public sealed class LoadedMapMainCameraPostSelectionSource
         }
         else W(0xA00,0);
         W(0xF74,m<3?ScalarTwo:0u);W(0xF60,m<3?Distance300:0u);W(0xF80,m<3?1u:0u);
+        foreach (var pair in CameraOpticsEncoding.WrittenWords(PrepareOpticalOverrides(currentQuality))) words.Add(pair.Key, pair.Value);
         return new ReadOnlyDictionary<int,uint>(words);
     }
+
+    public CameraOpticsPatch PrepareOpticalOverrides(int quality) => new()
+    {
+        FxaaEnable = quality < 1 ? 0u : 1u,
+        FxaaType = quality < 1 ? 0u : 2u,
+        OutputBloomIntensity = quality < 1 ? BitConverter.UInt32BitsToSingle(ScalarPointOne) : 0,
+        OutputLensFlareIntensity = quality < 1 ? 1 : 0,
+        DepthOfFieldFlags = quality < 1 ? 1u : 0u,
+        DepthOfFieldSpriteThreshold = quality < 1 ? BitConverter.UInt32BitsToSingle(ScalarPointOne) : -1,
+        LensEffectsGhostNum = quality < 1 ? 16u : 0u
+    };
 
 }
 
@@ -138,6 +150,8 @@ public sealed class MapMainCameraPostSelectionPacket
         uint appFlags,uint priorCloudy,uint selectedCloudy,string evidence)
     {FrameNumber=main.FrameNumber;locale=main.ExecutableLocale;uri=main.Source.Resource.Source.ResourceUri;
         sha=main.Source.Resource.Source.DecodedSha256;PreparedWords=new ReadOnlyDictionary<int,uint>(words);
+        OpticsPatch=MapMainCameraPostSelectionSource.CreateDefaults(main.ExecutableLocale).PrepareOpticalOverrides(quality);
+        QualityPatch=CameraRenderQualityEncoding.Import(words.Where(pair=>!CameraOpticsEncoding.TryRead(OpticsPatch,pair.Key,out _)));
         selectedUri=selected.FirstPackage.Objects.Source.ResourceUri;selectedSha=selected.FirstPackage.Objects.Source.DecodedSha256;
         selectedCamera=selected.FirstPackage.Camera.ObjectId;selectedIndex=selected.FirstIndex;
         QualityOption18=quality;MainMode288=mode;AppFlags=appFlags;PriorCloudy430Bits=priorCloudy;
@@ -149,6 +163,8 @@ public sealed class MapMainCameraPostSelectionPacket
     public uint PriorCloudy430Bits{get;}
     public uint SelectedCloudy430Bits{get;}
     public IReadOnlyDictionary<int,uint> PreparedWords{get;}
+    public CameraOpticsPatch OpticsPatch { get; }
+    public CameraRenderQualityPatch QualityPatch { get; }
     public string SourceEvidence{get;}
     public bool TryReadPreparedWord(int offset,out uint word)=>PreparedWords.TryGetValue(offset,out word);
     public void ValidateSameSelection(MapSeasonCameraSelection selected)

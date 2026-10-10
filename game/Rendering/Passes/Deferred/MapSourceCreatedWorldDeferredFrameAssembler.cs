@@ -52,7 +52,7 @@ public sealed class MapSourceCreatedWorldDeferredFrameAssembler : IAsyncDisposab
                 !ReferenceEquals(geometry.ModelAcceptedContext,context)||!geometry.Models.Complete||
                 !ReferenceEquals(input.CurrentSamplers.Selection,input.CurrentSelection)||lighting.FrameNumber!=context.FrameNumber||
                 context.PreparedCamera is null||lighting.SceneInputs.Camera!=context.PreparedCamera||
-                PreparedCameraSceneSource.ReadCompletePrefix(input.CurrentSelection.Camera.Prefix.Span)!=context.PreparedCamera)
+                input.CurrentSelection.Camera.SceneInputs!=context.PreparedCamera)
                 throw new InvalidDataException("World Deferred requires its actual successful geometry and same accepted View/Main frame.");
             if(!ReferenceEquals(accepted.Context,context)||!ReferenceEquals(accepted.Selection,input.CurrentSelection)||
                 !ReferenceEquals(accepted.Lighting,lighting)||accepted.PreparedSourceFrame is not { } sourceFrame)

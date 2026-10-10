@@ -236,8 +236,9 @@ public static class ArmyDestructionResources
             switch (write.Kind)
             {
                 case ArmyDestructionResourceWriteKind.ArmyWounded18:
+                    current.WriteArmyReturnWounded(write.Army!.PhysicalSlot!.Value, write.ArmyFieldsAfter!.Wounded18); break;
                 case ArmyDestructionResourceWriteKind.ArmyMorale1A:
-                    current.SetArmyReturnResourceFields(write.Army!.PhysicalSlot!.Value, write.ArmyFieldsAfter!); break;
+                    current.WriteArmyReturnMorale(write.Army!.PhysicalSlot!.Value, write.ArmyFieldsAfter!.Morale1A); break;
                 case ArmyDestructionResourceWriteKind.BaseWounded40:
                     current.SetArmyReturnBaseWounded40(write.Base!, write.Value); break;
                 case ArmyDestructionResourceWriteKind.BaseMorale44:
@@ -257,7 +258,7 @@ public static class ArmyDestructionResources
         var cities = new Dictionary<int, CityState>(state.Cities);
         var units = new Dictionary<int, UnitState>(state.Units);
         var arena = state.ReadArmyLifecycle() ?? throw new InvalidDataException("Current resource publication lacks its saved Army owner.");
-        var slots = arena.ReceiverSlots().ToArray();
+        var receivers = new Dictionary<ArmyReceiverId, ArmyReceiverState>();
         foreach (var write in packet.Writes)
         {
             if (write.Base is { } target)
@@ -276,17 +277,25 @@ public static class ArmyDestructionResources
             else
             {
                 int physical = write.Army!.PhysicalSlot!.Value;
-                var slot = slots[physical];
+                var source = arena.Slots[physical];
+                var slot = receivers.GetValueOrDefault(source.ReceiverId) ?? arena.Receivers.Find(source.ReceiverId)!;
+                packet.Owner.RequireArmyReturnImage(physical, slot);
                 var army = slot.ActiveUnitId is int id ? units.GetValueOrDefault(id) : slot.PendingImage;
                 if (army is null) throw new InvalidDataException("Current destruction Army numeric saved image is missing.");
                 var next = write.Kind == ArmyDestructionResourceWriteKind.ArmyWounded18
                     ? army with { WoundedTroops = write.Value } : ArmyMoraleSourceAdapter.WithCurrent(army, unchecked((byte)write.Value));
                 if (slot.ActiveUnitId is int active) units[active] = next;
-                else slots[physical] = slot with { PendingImage = next };
+                else receivers[slot.ReceiverId] = slot with { PendingImage = next };
             }
         }
-        return (state with { Cities = cities,
-                Units = units }).WithArmyLifecycle(arena.WithReceiverSlots(slots));
+        var result = (state with { Cities = cities,
+                Units = units }).WithArmyLifecycle(arena with { Receivers = receivers.Count == 0 ? arena.Receivers :
+                    arena.Receivers.WithEntries(receivers.Values.ToArray()) });
+        foreach (var write in packet.Writes.Where(write => write.Army is not null))
+            packet.Owner.AcknowledgeArmyReturnNumerics(write.Army!.PhysicalSlot!.Value,
+                wounded: write.Kind == ArmyDestructionResourceWriteKind.ArmyWounded18,
+                morale: write.Kind == ArmyDestructionResourceWriteKind.ArmyMorale1A);
+        return result;
     }
 
     private static bool ArmyValid(SourceWorldContext current, ArmyUnitReference? army)

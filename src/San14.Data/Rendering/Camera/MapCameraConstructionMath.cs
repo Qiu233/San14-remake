@@ -41,24 +41,6 @@ public readonly record struct MapCameraConstructionMatrices(
     public Matrix4x4 ProjectionToWorld3F6EB0() =>
         NativeMatrixMath.Invert(WorldToProjection100, out _);
 
-    /// <summary>Writes only the native +40..+13F matrix fields into an explicit prefix.</summary>
-    public void WriteEarlyMatrices(Span<byte> cameraPrefix)
-    {
-        if (cameraPrefix.Length < 0x140)
-            throw new InvalidDataException("Camera matrix destination does not include the four native matrix slots.");
-        Write(cameraPrefix[0x40..], RawWorldToView40);
-        Write(cameraPrefix[0x80..], WorldToView80);
-        Write(cameraPrefix[0xC0..], ProjectionC0);
-        Write(cameraPrefix[0x100..], WorldToProjection100);
-    }
-
-    private static void Write(Span<byte> destination, Matrix4x4 m)
-    {
-        float[] rows = [m.M11,m.M12,m.M13,m.M14,m.M21,m.M22,m.M23,m.M24,
-            m.M31,m.M32,m.M33,m.M34,m.M41,m.M42,m.M43,m.M44];
-        for (int i = 0; i < rows.Length; i++)
-            BinaryPrimitives.WriteSingleLittleEndian(destination[(i * 4)..], rows[i]);
-    }
 }
 
 /// <summary>Original eye/target/up, view-offset, perspective and forced matrix update kernels.</summary>

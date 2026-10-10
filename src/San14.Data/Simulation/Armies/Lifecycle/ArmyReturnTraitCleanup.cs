@@ -57,7 +57,7 @@ public static class ArmyReturnTraitCleanup
                         //gate the following slot stores in2A2463..246C.
                         var actualOwner = PersonArmy(Person(fields.PersonsAC[i]));
                         _ = Get(context.ReadArmyUnitNativeValidity(actualOwner), "current.related_source_owner_validity");
-                        draft.SetArmyReturnTraitFields(Physical(receiver), fields.ClearSlot(i)); cleared++;
+                        draft.WriteArmyReturnTraitFields(Physical(receiver), fields.ClearSlot(i)); cleared++;
                     }
                 }
                 //226770 finds an actual match, has no fallback and retains
@@ -84,7 +84,7 @@ public static class ArmyReturnTraitCleanup
                     }
                     if (presentation.ManagerView20Present != false) throw Missing("current.2A2540_manager_view_refresh1A3D70");
                 }
-                draft.SetArmyReturnTraitFields(Physical(army), fields.ClearSlot(index));
+                draft.WriteArmyReturnTraitFields(Physical(army), fields.ClearSlot(index));
             }
             return new(new(army, cleared, removed), null);
 

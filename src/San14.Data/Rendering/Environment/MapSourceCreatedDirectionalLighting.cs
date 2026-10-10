@@ -22,6 +22,7 @@ public sealed partial class MapSourceCreatedLightingPacket
         SourceProvenance = provenance + (providerFrame is null?"":";"+providerFrame.SourceProvenance) + $";View={Binding.ViewIdentity};CameraOwner={Binding.CameraOwnerIdentity};" +
             $"LightOwner={Binding.LightOwnerIdentity};frame={FrameNumber};" + present.SourceProvenance;
         this.camera = camera.ToArray(); lightData = local.Bytes.ToArray(); SceneInputs = scene;
+        Optics = CameraOpticsEncoding.DecodePrefix(actualCamera.Source, camera);
         Clock = present.Clock; SelectedController = present.Controller;
         LightingSkylightParameters = input.LightingSkylightParameters; RuntimeTable = input.RuntimeTable;
         ContextFlags3E4 = input.ContextFlags3E4; CameraContextApplied = (input.ContextFlags3E4 & 3) == 1;

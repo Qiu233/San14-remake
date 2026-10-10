@@ -51,7 +51,7 @@ public sealed class LoadedMapPostEffect3RetainedResizeSource
         if(camera.ExecutableLocale!=Locale||power.Locale!=Locale||previous.ExecutableLocale!=Locale||
             camera.FrameNumber!=previous.FrameNumber+1)
             throw new InvalidDataException("Retained derived Apply needs the same controller's next current Camera.");
-        if((currentTail.Word(0x1320)&0x30)!=0||(previousTail.Word(0x1320)&0x30)!=0)
+        if((currentTail.Settings.DepthOfField.Flags&0x30)!=0||(previousTail.Settings.DepthOfField.Flags&0x30)!=0)
             throw new NotSupportedException("Retained FC/FD changes or enabled extent overrides require their actual  AF writer");
         var plan=MapPostEffect3ApplyDerivedScalars.PrepareRetainedExtentDisabledSource(
             camera,currentTail,previous,actualWorkingSceneWidth,actualWorkingSceneHeight,power);

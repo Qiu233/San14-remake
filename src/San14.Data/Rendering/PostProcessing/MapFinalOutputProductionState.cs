@@ -86,11 +86,13 @@ public sealed class MapFinalOutputProductionState
             acceptedLighting.LocalLightData.Span[0x10B0]!=2||(acceptedLighting.LocalLightData.Span[0xFDC]&1)!=0)
             throw new InvalidDataException("Production final exposure requires the actual owned mode2/FDC0 Camera-luminance branch; external selected-light ownership is unresolved.");
         var camera=new MapCameraConstructionPacket(acceptedLighting.PreparedCameraPrefix.ToArray(),currentCamera.Source,
-            currentCamera.CurrentPose,currentCamera.Lens,currentCamera.Matrices,currentCamera.ExecutableLocale,
-            currentCamera.FrameNumber,currentCamera.FrameProvenance+";"+acceptedLighting.SourceProvenance+";"+currentSeason.SourceProvenance);
+            currentCamera.Geometry,currentCamera.ExecutableLocale,
+            currentCamera.FrameNumber,currentCamera.FrameProvenance+";"+acceptedLighting.SourceProvenance+";"+currentSeason.SourceProvenance,
+            optics: CameraOpticsEncoding.DecodePrefix(currentCamera.Source, acceptedLighting.PreparedCameraPrefix.Span));
         var exposure=MapExposureSource.Prepare(new(camera.FrameNumber,camera.Prefix,camera.FrameProvenance,selectedViewAux,
             MapExposureSurface.ExistingViewModeInvariant(selectedViewAux,actualFrameOwner+"/actual-node73-working-surface"),
-            camera.SourceSpecialRectangleFlag1510!=0,null,selectedExposure?.SelectedExternalLuminance));
+            camera.SourceSpecialRectangleFlag1510!=0,null,selectedExposure?.SelectedExternalLuminance)
+            { OpticalExposure = camera.Optics.Exposure, CameraInputs = camera.SceneInputs });
         // EA97E2..EA98A3 updates the same reference18 consumed by Final.
         // Exposure's own tone packet uses the unclamped selected luminance.
         float epsilon=BitConverter.UInt32BitsToSingle(0x358637BD);

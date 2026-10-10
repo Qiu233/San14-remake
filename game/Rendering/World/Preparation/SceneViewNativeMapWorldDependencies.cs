@@ -81,7 +81,7 @@ public sealed record SceneViewNativeMapWorldDependencies(
         SceneViewNativeMapFrameCapture capture)
     {
         var request=PrepareTerrainFrame(capture)??throw new InvalidDataException("World captured terrain producer returned no frame.");
-        if(request.Camera!=PreparedCameraSceneSource.ReadCompletePrefix(capture.MainCamera.Camera.Prefix.Span)||
+        if(request.Camera!=capture.MainCamera.Camera.SceneInputs||
             request.Batches.Count!=capture.TerrainBatches.Count||request.Batches.Where((batch,index)=>
                 batch.Coarse!=capture.TerrainBatches[index].Coarse||
                 !batch.Patches.SequenceEqual(capture.TerrainBatches[index].Patches)).Any())

@@ -112,7 +112,7 @@ public static class DeferredSelected767Constants
             throw new InvalidDataException("PS767 constants require the actual owned kind1 feature generation.");
         feature.ValidateFrame(selected.Camera,lighting);
         if(lighting.FrameNumber!=selected.Current.FrameNumber||lighting.SceneInputs.Camera is null||
-            lighting.SceneInputs.Camera!=PreparedCameraSceneSource.ReadCompletePrefix(selected.Camera.Prefix.Span)||
+            lighting.SceneInputs.Camera!=selected.Camera.SceneInputs||
             lighting.SceneInputs.Ambient is null)
             throw new InvalidDataException("PS767 constants require the accepted Camera and source ambient modifier from the same lighting frame.");
         var scene=new DeferredSceneInputs(
@@ -151,7 +151,7 @@ public static class DeferredSelected767Constants
             scene.Refraction.WorldToTexture is not {Count:3}||scene.ShadowFade is null||scene.Hatching is null||
             scene.Ambient is null||scene.TranslucencyViewport is null||scene.Projection is null)
             throw new InvalidDataException("PS767 reads all 23 named fields: all nine source writer groups and refraction rows are required.");
-        if(scene.Camera!=PreparedCameraSceneSource.ReadCompletePrefix(selected.Camera.Prefix.Span))
+        if(scene.Camera!=selected.Camera.SceneInputs)
             throw new InvalidDataException("PS767 constant Camera differs from the same current source-selected Camera.");
         hatchingIeeeProof?.ValidateCurrent(selected);hatchingIeeeProof?.Validate(scene.Hatching);
         var prepared=DeferredSelectedSceneConstants.Apply(selected,new byte[ByteSize],scene,hatchingIeeeProof);

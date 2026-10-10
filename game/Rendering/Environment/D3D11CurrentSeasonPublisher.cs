@@ -23,11 +23,11 @@ public sealed class D3D11CurrentSeasonFrame
         MapSourceCreatedSeasonLightingFrame present,
         D3D11PreparedMainWord[] words, D3D11CurrentSeasonLight[] lights,
         D3D11CurrentAtmosphereFrame atmosphere,
-        D3D11CurrentExposureLight exposureLight)
+        D3D11CurrentExposureLight exposureLight, CameraOpticsSettings optics)
     {
         Mode = mode; WorldSeason = worldSeason; Rgb = rgb; Present = present;
         PreparedMain = present.PreparedCameraPrefix; PreparedWords = Array.AsReadOnly(words);
-        Lights = Array.AsReadOnly(lights); Atmosphere = atmosphere; ExposureLight = exposureLight;
+        Lights = Array.AsReadOnly(lights); Atmosphere = atmosphere; ExposureLight = exposureLight; Optics = optics;
     }
     public MainMapCameraModePacket Mode { get; }
     public NativeMapSeasonState WorldSeason { get; }
@@ -38,11 +38,12 @@ public sealed class D3D11CurrentSeasonFrame
     public IReadOnlyList<D3D11CurrentSeasonLight> Lights { get; }
     public D3D11CurrentAtmosphereFrame Atmosphere { get; }
     public D3D11CurrentExposureLight ExposureLight { get; }
+    public CameraOpticsSettings Optics { get; }
     public int MainMode => Mode.Mode288;
     public int SeasonIndex => Rgb.Inputs.Source.Season.Resources.Selection.SeasonIndex;
     public ReadOnlyMemory<byte> MainFog72 => PreparedMain.Slice(0x340, 72);
-    public uint HdrLutKey => PreparedWords.Single(word => word.Offset == 0xEB8).Bits;
-    public uint LdrLutKey => PreparedWords.Single(word => word.Offset == 0xEBC).Bits;
+    public uint HdrLutKey => Optics.ColorGrading.HdrLutKey;
+    public uint LdrLutKey => Optics.ColorGrading.LdrLutKey;
 
     /// <summary>Minimal numeric payload for native upload. No pointers or
     /// resource hashes. Full LightData handles are deliberately not serialized.
@@ -157,14 +158,7 @@ public sealed class D3D11CurrentSeasonPublisher
             selected.Transmittance.Power, NativeCameraTangentDispatch.Sse);
         var present = MapSourceCreatedSeasonLightingFrame.CapturePreparedSeason(rgb, weather);
         var actual = selected.PostEffectScalarSource.CaptureActualMainPreparation(before, currentMain.Camera);
-        var words = actual.Scalars.PreparedCameraOffsets.ToDictionary(at => at, at =>
-            actual.Scalars.TryReadWord(at, out uint bits)
-                ? bits : throw new InvalidDataException("Current Main scalar writer is missing its word."));
-        // C358A0 selected copies precede the actual V418 writers. They supply
-        // only missing words; dynamic post/quality stores retain precedence.
-        foreach (var word in _resources.SelectedShadowWords) words.TryAdd(word.Key, word.Value);
-        if (actual.PreparedSpecialRectangleFlag1510 is { } flag)
-            words[0x1510] = flag;
+        var words = D3D11CurrentSeasonEncoding.MainWrites(actual, _resources.SelectedShadowWords);
         var prefix = present.PreparedCameraPrefix;
         var lights = _resources.Lights.Select(light => new D3D11CurrentSeasonLight(
             light.ObjectId, light.GroupMask,
@@ -174,8 +168,8 @@ public sealed class D3D11CurrentSeasonPublisher
             lights.First(light => (light.GroupMask & 0x80) != 0).CompleteData.Span,
             _resources.ControllerGeometry40);
         return new(mode, season, rgb, present,
-            words.OrderBy(word => word.Key).Select(word => new D3D11PreparedMainWord(word.Key, word.Value)).ToArray(), lights, atmosphere,
-            D3D11CurrentExposureLight.Capture(_resources.FreshExposureSelector, lights));
+            words, lights, atmosphere, D3D11CurrentExposureLight.Capture(_resources.FreshExposureSelector, lights),
+            CameraOpticsEncoding.DecodePrefix(currentMain.Camera.Source, prefix.Span, actual.Scalars.ApplyOpticalTailTo(currentMain.Camera.Optics)));
     }
 
     public void AcceptCurrent(D3D11CurrentSeasonFrame frame) => _previousRgb = frame.Rgb;

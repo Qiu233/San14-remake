@@ -13,13 +13,6 @@ public static class ArmyMoraleSourceAdapter
     internal static UnitState WithCurrent(UnitState unit, byte? value) => unit with {
         MoraleState = unit.MoraleState with { CurrentValue = value } };
 
-    /// <summary>A source snapshot can omit a known game value it cannot encode.
-    /// That observation does not constitute a morale write. An observed byte,
-    /// or unknown source state previously representable here, retains its meaning.</summary>
-    internal static UnitState ApplySnapshot(UnitState unit, byte? capturedValue) =>
-        capturedValue is null && unit.MoraleState.CurrentValue is not null && Read(unit) is null
-            ? unit : WithCurrent(unit, capturedValue);
-
     internal static void Migrate(JsonObject state, JsonObject unit)
     {
         if (unit.ContainsKey("MoraleState") || unit["Morale"] is not JsonValue provisional ||

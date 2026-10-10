@@ -73,26 +73,14 @@ public sealed class MapPostEffect3LensPresetCallerInputs
     public static MapPostEffect3LensPresetCallerInputs CaptureFreshSource(MapCameraConstructionPacket camera)
     {
         ArgumentNullException.ThrowIfNull(camera);
-        var source=MapCameraConstructionSource.ReadPerspective(camera.Source.Resource,camera.Source.Camera.ObjectId);
-        camera.CurrentSeasonPostEffectScalars?.ValidateForCamera(camera);
-        float Field(int ordinal,uint hash)
-        {
-            var p=source.Camera.Properties[ordinal];
-            if(p.Index!=ordinal||p.NameHash!=hash||p.TypeCode!=8||p.ElementCount!=1||p.RawValue.Length!=4)
-                throw new InvalidDataException("Lens caller original scalar declaration differs.");
-            // consumes the actual CPU74/78 as well as1048..1054.
-            //Main17E19/17E11 post-selection writes are transported to1C4/1C8;
-            //retain those current words before LensPreset's later23word writer.
-            int offset=ordinal switch{274=>0x12FC,275=>0x1300,276=>0x1304,277=>0x1308,
-                54=>0x1C4,55=>0x1C8,_=>-1};
-            if(camera.CurrentSeasonPostEffectScalars is{}current&&current.TryReadWord(offset,out uint written))
-                return BitConverter.UInt32BitsToSingle(written);
-            return BinaryPrimitives.ReadSingleLittleEndian(p.RawValue);
-        }
-        return CaptureCurrentFields(camera,Field(274,0xEE9D93F9),Field(275,0x995A7B0E),Field(276,0x04CFDD5D),
-            Field(277,0x6934EE7C),Field(6,0xA70685F8),Field(54,0x907B67C1),Field(55,0x800DB8FF),
-            source.ConstructorOrigin+";"+(camera.CurrentSeasonPostEffectScalars?.SourceEvidence??
-                "explicit-owned-source-Camera-caller-fields/no-later-lens-scalar-writer"));
+        var optics = camera.Optics;
+        var caller = camera.CurrentSeasonPostEffectScalars?.QualityPatch;
+        return CaptureCurrentFields(camera, optics.LensSimulation.ObjectDistance,
+            optics.LensSimulation.InfiniteFocalLength, optics.LensSimulation.FStop,
+            optics.LensSimulation.ExposureDial, optics.LensSimulation.SensorAspect,
+            caller?.LightAdaptationScale ?? optics.Exposure.LightAdaptationScale,
+            caller?.DarkAdaptationScale ?? optics.Exposure.DarkAdaptationScale,
+            "camera-optics/lens-preset-caller");
     }
 }
 

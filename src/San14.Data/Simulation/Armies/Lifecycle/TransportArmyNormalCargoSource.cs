@@ -66,7 +66,7 @@ public static class TransportArmyNormalCargoSource
             }
             //All reached reads succeeded before the first business write.
             foreach (var write in writes) current.SetBaseResource(write.CurrencyCity, write.Kind, write.After);
-            current.SetArmyReturnResourceFields(physical, new((ushort)target.Troops,
+            current.BindArmyReturnResourceFields(physical, new((ushort)target.Troops,
                 target.WoundedTroops is >= 0 and <= ushort.MaxValue ? (ushort)target.WoundedTroops.Value : null,
                 ArmyMoraleSourceAdapter.Read(target), afterGold, afterSupplies));
             var updated = target with { CarriedStores = new(afterGold, afterSupplies), Supplies = afterSupplies,

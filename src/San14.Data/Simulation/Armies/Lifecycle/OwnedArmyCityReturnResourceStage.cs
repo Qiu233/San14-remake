@@ -61,7 +61,7 @@ public sealed class OwnedArmyCityReturnResourceStage : IPlayableCityEntryResourc
         context.SetArmyUnitTablePointer(slot, slot);
         context.SetArmyUnitCommanderId(slot, checked((ushort)army.OfficerId));
         context.SetArmyUnitStatusFlag10(slot, runtime.Status10);
-        context.SetArmyReturnResourceFields(slot, new((ushort)army.Troops,
+        context.BindArmyReturnResourceFields(slot, new((ushort)army.Troops,
             (ushort)army.WoundedTroops!.Value, morale, resources.Gold, resources.Food));
         var prepared = ArmyReturnResourceUpdater.ApplyCurrentResourceOutputs(new(slot),
             new(BaseKind.City, cityId), context);

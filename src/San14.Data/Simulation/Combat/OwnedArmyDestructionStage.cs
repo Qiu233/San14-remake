@@ -313,40 +313,10 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
     {
         var result = OwnedArmyReturnCurrentFields.PublishCurrent(state, current);
         result = OwnedArmyLifecycleDetachedInputs.PublishCurrent(result, current);
-        var arena = result.ReadArmyLifecycle()!;
-        var units = new Dictionary<int, UnitState>(result.Units);
-        var people = new Dictionary<int, OfficerState>(result.Officers);
-        var slots = arena.ReceiverSlots().ToArray();
-        for (int i = 0; i < slots.Length; i++)
-        {
-            var old = slots[i];
-            var image = old.ActiveUnitId is int active ? units.GetValueOrDefault(active) : old.PendingImage;
-            var traits = current.ReadArmyReturnTraitFields(new(i));
-            if (image is not null && traits is not null)
-            {
-                image = image with { TraitRoster = ArmyTraitSourceAdapter.Decode(traits.Traits64) };
-                result = result with { ResourceState = ArmyTraitSourceAdapter.Write(result.ResourceState, image.Id, traits.Traits64) };
-            }
-            if (image is not null && current.ReadArmyReturnResourceFields(new(i)) is { } resources)
-                image = ArmyMoraleSourceAdapter.ApplySnapshot(image, resources.Morale1A) with { WoundedTroops = resources.Wounded18 };
-            if (destroyed.Contains(i))
-            {
-                if (image is null || old.ActiveUnitId is null && old.PendingImage is null) throw Missing("current.destroyed_Army_projection");
-                if (old.ActiveUnitId is int id) units.Remove(id);
-                people[image.OfficerId] = people[image.OfficerId] with { Deployed = false };
-                slots[i] = old with { ActiveUnitId = null, PendingImage = image, AuxiliaryAC = traits?.PersonsAC.ToArray(), AuxiliaryF4 = traits?.AuxiliaryF4.ToArray() };
-            }
-            else if (image is not null)
-            {
-                if (old.ActiveUnitId is int id) units[id] = image;
-                slots[i] = old with { PendingImage = old.PendingImage is null ? null : image,
-                    AuxiliaryAC = traits?.PersonsAC.ToArray() ?? old.AuxiliaryAC, AuxiliaryF4 = traits?.AuxiliaryF4.ToArray() ?? old.AuxiliaryF4 };
-            }
-        }
-        arena = OwnedArmyDestructorFlags.PublishCurrent(arena, current).WithReceiverSlots(slots)
+        result = ArmyReturnImagePublication.Publish(result, current, destroyed);
+        var arena = OwnedArmyDestructorFlags.PublishCurrent(result.ReadArmyLifecycle()!, current)
             with { Indexes = pool.ExportOwnedState() };
-        return OwnedArmyLifecycleTargets.PublishCurrent((result with { Units = units,
-                Officers = people,
+        return OwnedArmyLifecycleTargets.PublishCurrent((result with {
                 ArmyMapOccupancy = current.ExportArmyMapOccupancy(),
                 PendingCombatSettlements = queue,
                 PersonnelReturns = current.ReadOwnedPersonCommandManager() }).WithArmyLifecycle(arena), current);
