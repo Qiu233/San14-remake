@@ -57,7 +57,7 @@ public sealed class SkySceneFrameUpdater
             var current = await Scene.GetProgressAsync();
             if (current.Phase is not (SkyScenePhase.Idle or SkyScenePhase.Faulted))
                 throw new InvalidOperationException("Complete the staged sky frame before submitting another source frame.");
-            var prepared = SkySceneFramePreparation.Prepare(_retainedFaces, explicitSources);
+            var prepared = SkySceneFramePreparation.Prepare(_retainedFaces, explicitSources, Scene.Sky2Program.PixelBindings.SourceDefinitions);
             var starPackets = SnapshotStars(explicitProducers);
             var cloudPackets = SnapshotCloud(explicitProducers);
             foreach (var branch in new[] { explicitProducers.Scene, explicitProducers.Contribution })

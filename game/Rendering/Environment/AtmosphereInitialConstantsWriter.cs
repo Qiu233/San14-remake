@@ -10,23 +10,25 @@ public static class AtmosphereInitialConstantsWriter
         D3D11CurrentSeasonFrame current,int width,int height,float cloudElapsedSeconds,float commonClock,
         string atmosphereDirectory,string mainSkyDirectory,string mainCloudDirectory,string fogDirectory,
         D3D11CloudProgramMedia programs,D3D11CloudRenderResources resources,
+        SkyMainProgramResources skyPrograms, Sky2TextureBindingSnapshot sampling,
         HeightFogProgramResources? fogPrograms = null)
     {
         var target=D3D11AtmosphereInitialConstantPreparation.LoadFreshMainTarget(repository,current.Present);
         var options=new D3D11AtmosphereInitialOptions(width,height,target.PixelFormat,
             D3D11AtmosphereInitialCallerRules.FreshMainCloudClip,cloudElapsedSeconds,commonClock);
-        return WriteNativeInputs(repository,current,options,atmosphereDirectory,mainSkyDirectory,mainCloudDirectory,fogDirectory,programs,resources,fogPrograms);
+        return WriteNativeInputs(repository,current,options,atmosphereDirectory,mainSkyDirectory,mainCloudDirectory,fogDirectory,programs,resources,skyPrograms,sampling,fogPrograms);
     }
 
     public static San14.Data.AtmosphereInitialConstants Prepare(GameResourceRepository repository,
         D3D11CurrentSeasonFrame current,D3D11AtmosphereInitialOptions options,
         D3D11CloudProgramMedia programs,D3D11CloudRenderResources resources,
+        SkyMainProgramResources skyPrograms, Sky2TextureBindingSnapshot sampling,
         HeightFogProgramResources? fogPrograms = null)
     {
         var inputs = CreateInputs(current, options);
         var cloud = D3D11AtmosphereInitialConstantPreparation.PrepareCloudConstants(
             inputs, programs.Resources, resources);
-        return D3D11AtmosphereInitialConstantPreparation.Prepare(repository, inputs, cloud,fogPrograms);
+        return D3D11AtmosphereInitialConstantPreparation.Prepare(repository, inputs, cloud,skyPrograms,sampling,fogPrograms);
     }
 
     public static D3D11MainCloudConstants PrepareCloud(D3D11CurrentSeasonFrame current,
@@ -54,9 +56,10 @@ public static class AtmosphereInitialConstantsWriter
         D3D11CurrentSeasonFrame current,D3D11AtmosphereInitialOptions options,
         string atmosphereDirectory,string mainSkyDirectory,string mainCloudDirectory,string fogDirectory,
         D3D11CloudProgramMedia programs,D3D11CloudRenderResources resources,
+        SkyMainProgramResources skyPrograms, Sky2TextureBindingSnapshot sampling,
         HeightFogProgramResources? fogPrograms = null)
     {
-        var constants=Prepare(repository,current,options,programs,resources,fogPrograms);
+        var constants=Prepare(repository,current,options,programs,resources,skyPrograms,sampling,fogPrograms);
         D3D11AtmosphereInitialConstantPreparation.WriteNativeInputs(constants,
             atmosphereDirectory,mainSkyDirectory,mainCloudDirectory,fogDirectory);
         return constants;

@@ -53,8 +53,12 @@ public static class D3D11AmbientWorkInputPreparation
         directional.PrepareLights(skyShader, textureBindings);
         var frame=directional.PrepareSourceSelectedSeasonFrame(ambient.SpecularTargets[0],
             SkyDirectionalAtmosphereNativeSource.Load(repository,locale,NativeLogDispatch.Sse),2,skyShader,stages,textureBindings);
-        var prepared=SkySceneFramePreparation.PrepareFreshDirectionalFullyWritten(frame.SourceFrame,directional);
-        var desired=directional.CaptureDesiredSelection(skyShader,frame).GetSelection(false).Combination;
+        var selections=directional.CaptureDesiredSelection(skyShader,frame);
+        var desired=selections.GetSelection(false).Combination;
+        var atmosphereProgram=selections.GetSelection(true).Combination.Stages.Single(stage=>stage.StageCode==0).Entry!.ProgramIndex;
+        var prepared=SkySceneFramePreparation.PrepareFreshDirectionalFullyWritten(frame.SourceFrame,directional,
+            skyShader.ReadResourceDefinitions(atmosphereProgram),
+            skyShader.ReadResourceDefinitions(desired.Stages.Single(stage=>stage.StageCode==0).Entry!.ProgramIndex));
         var vertexDefinitions=skyShader.ReadResourceDefinitions(Program(desired,1));
         var pixelDefinitions=skyShader.ReadResourceDefinitions(Program(desired,0));
         var general=MainSceneNode51Source.Load(repository,locale);
@@ -65,13 +69,12 @@ public static class D3D11AmbientWorkInputPreparation
         var clouds=SkyAppliedSourceCloudOwner.CreateFresh(repository,locale,"ambient-work/clouds",cloudPrograms)
             .PrepareDirectionalBootstrap(frame,present,stages,view,0,"fresh-owned-Cloud-phase0;native-shares-node3-phase",directional);
         var cloudPackets=clouds.SixPackets.ToArray();
-        var trig=MapPostEffect3PresentLightMathSource.Load(repository,locale);
         for(int face=0;face<6;face++)
         {
             if(face is 0 or 1 or 4 or 5)
             {
                 var plane=SkyWorkCloudClipPreparation.Prepare(present.PreparedCameraPrefix.Span,
-                    frame.SourceFrame.SixCameras[face],face,present.AcceptedSeasonCamera.Inputs.Source.Transmittance.Tables.PlanetRadius,trig);
+                    frame.SourceFrame.SixCameras[face],face,present.AcceptedSeasonCamera.Inputs.Source.Transmittance.Tables.PlanetRadius);
                 Vector(cloudPackets[face].VertexBytes,0,plane);
             }
         }

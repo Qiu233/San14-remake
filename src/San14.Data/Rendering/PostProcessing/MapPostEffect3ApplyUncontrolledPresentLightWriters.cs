@@ -42,14 +42,14 @@ public static class MapPostEffect3ApplyUncontrolledPresentLightWriters
     public static IReadOnlyList<MapPostEffect3ApplyValueWrite> PrepareFreshSource(
         MapPostEffect3ApplyPreparationSelection selection,MapCameraConstructionPacket camera,
         MapPostEffect3ApplyUncontrolledPresentLightInputs input,
-        MapPostEffect3PresentLightMathSource math,LoadedNativeCameraTangentSource tangent,
+        LoadedNativeCameraTangentSource tangent,
         NativeCameraTangentDispatch explicitDispatch)
     {
         ArgumentNullException.ThrowIfNull(selection);ArgumentNullException.ThrowIfNull(camera);ArgumentNullException.ThrowIfNull(input);
-        ArgumentNullException.ThrowIfNull(math);ArgumentNullException.ThrowIfNull(tangent);
+        ArgumentNullException.ThrowIfNull(tangent);
         if(selection.Variant!=MapPostEffect3ApplyUncontrolledVariant.LensPresetCameraFields)
             throw new NotSupportedException("Present light preparation requires the actual  descriptor route");
-        if(input.FrameNumber!=camera.FrameNumber||math.Locale!=camera.ExecutableLocale||tangent.Language!=camera.ExecutableLocale||
+        if(input.FrameNumber!=camera.FrameNumber||tangent.Language!=camera.ExecutableLocale||
             input.Light.SourceIdentity.CameraObjectId!=camera.Source.Camera.ObjectId||
             !input.Light.PreparedCameraPrefix.Span.SequenceEqual(camera.Prefix.Span))
             throw new InvalidDataException("Present light does not belong to this exact prepared Camera frame and native math locale.");
@@ -67,8 +67,8 @@ public static class MapPostEffect3ApplyUncontrolledPresentLightWriters
         // .. copies CPU B88..B98 into embedded Camera E18..E28.
         var values=CalculateExplicitCurrentFields(camera.Prefix,V3(0),V3(0xFA0),P(134,0xEBCADD79),
             new(P(135,0x41C4B441,0,3),P(135,0x41C4B441,1,3),P(135,0x41C4B441,2,3)),
-            P(136,0xB2EB70EA),P(290,0xEB8B5927),math,tangent,explicitDispatch);
-        string evidence=selection.SourceEvidence+";"+input.SourceEvidence+";"+math.SourceEvidence+
+            P(136,0xB2EB70EA),P(290,0xEB8B5927),tangent,explicitDispatch);
+        string evidence=selection.SourceEvidence+";"+input.SourceEvidence+";"+
             "TC;SC;selected-positive;fresh-Camera-E18/E1C/E28/1318";
         MapPostEffect3ApplyValueWrite W(string name,MapPostEffect3WriteStage stage,params float[] fields)
         {byte[] b=new byte[fields.Length*4];for(int i=0;i<fields.Length;i++)BinaryPrimitives.WriteSingleLittleEndian(b.AsSpan(i*4,4),fields[i]);return new(name,stage,b,evidence);}
@@ -88,11 +88,11 @@ public static class MapPostEffect3ApplyUncontrolledPresentLightWriters
     public static MapPostEffect3PresentLightCalculatedValues CalculateExplicitCurrentFields(
         ReadOnlyMemory<byte> currentCameraPrefix,Vector3 nativeLightDirection0,Vector3 nativeLightRgbFa0,
         float cameraE18Length,Vector3 cameraE1cColor,float cameraE28Step,float camera1318Radius,
-        MapPostEffect3PresentLightMathSource math,LoadedNativeCameraTangentSource tangent,
+        LoadedNativeCameraTangentSource tangent,
         NativeCameraTangentDispatch explicitDispatch)
     {
-        ArgumentNullException.ThrowIfNull(math);ArgumentNullException.ThrowIfNull(tangent);
-        if(currentCameraPrefix.Length!=0x3C0||math.Locale!=tangent.Language||explicitDispatch!=NativeCameraTangentDispatch.Sse)
+        ArgumentNullException.ThrowIfNull(tangent);
+        if(currentCameraPrefix.Length!=0x3C0||explicitDispatch!=NativeCameraTangentDispatch.Sse)
             throw new NotSupportedException("Present light requires a complete actual Camera and matching finite SSE source arithmetic.");
         if(new[]{nativeLightDirection0.X,nativeLightDirection0.Y,nativeLightDirection0.Z,nativeLightRgbFa0.X,nativeLightRgbFa0.Y,nativeLightRgbFa0.Z,
             cameraE18Length,cameraE1cColor.X,cameraE1cColor.Y,cameraE1cColor.Z,cameraE28Step,camera1318Radius}.Any(x=>!float.IsFinite(x)))
@@ -113,7 +113,7 @@ public static class MapPostEffect3ApplyUncontrolledPresentLightWriters
         var projected=new Vector3(M(inverse,clipX),M(inverse,clipY),M(inverse,clipZ));
         if((BinaryPrimitives.ReadUInt32LittleEndian(currentCameraPrefix.Span.Slice(0x158,4))&2)!=0)projected.Z=S(1,projected.Z);
         float eyeX=S(C(0x10),C(0x20)),eyeY=S(C(0x14),C(0x24)),eyeZ=S(C(0x18),C(0x28));
-        float norm=MapPostEffect3PresentLightMath.Sqrt(A(A(M(eyeY,eyeY),M(eyeX,eyeX)),M(eyeZ,eyeZ)));
+        float norm=FiniteInverseTrigonometry.Sqrt(A(A(M(eyeY,eyeY),M(eyeX,eyeX)),M(eyeZ,eyeZ)));
         float eyeInverse=V(1,norm);
         float dot=A(A(M(M(eyeX,eyeInverse),nativeLightDirection0.X),M(M(eyeY,eyeInverse),nativeLightDirection0.Y)),M(M(eyeZ,eyeInverse),nativeLightDirection0.Z));
         float attenuation=MathF.Abs(M(M(dot,dot),dot));
@@ -123,13 +123,13 @@ public static class MapPostEffect3ApplyUncontrolledPresentLightWriters
         float viewZ=A(A(M(nativeLightDirection0.Y,C(0x98)),M(nativeLightDirection0.X,C(0x88))),M(nativeLightDirection0.Z,C(0xA8)));
         // .. and .. round the reciprocal first,
         // then multiply Z. Combining these into Z length changes bits.
-        float vertical=M(V(1,Max(MapPostEffect3PresentLightMath.Sqrt(A(A(M(viewY,viewY),0),M(viewZ,viewZ))),epsilon)),viewZ);
+        float vertical=M(V(1,Max(FiniteInverseTrigonometry.Sqrt(A(A(M(viewY,viewY),0),M(viewZ,viewZ))),epsilon)),viewZ);
         float halfField=Max(Tan(M(C(0x148),.5f),tangent),epsilon),horizontalField=M(halfField,C(0x14C));
-        float angularRadius=MapPostEffect3PresentLightMath.Asin(V(camera1318Radius,Max(epsilon,cameraE18Length)),math);
-        float horizontal=M(V(1,Max(MapPostEffect3PresentLightMath.Sqrt(A(A(M(viewX,viewX),0),M(viewZ,viewZ))),epsilon)),viewZ);
+        float angularRadius=FiniteInverseTrigonometry.Asin(V(camera1318Radius,Max(epsilon,cameraE18Length)));
+        float horizontal=M(V(1,Max(FiniteInverseTrigonometry.Sqrt(A(A(M(viewX,viewX),0),M(viewZ,viewZ))),epsilon)),viewZ);
         float Scale(float direction,float field)
         {
-            float angle=MapPostEffect3PresentLightMath.Acos(direction,math);
+            float angle=FiniteInverseTrigonometry.Acos(direction);
             float upper=Tan(A(angle,angularRadius),tangent),lower=Tan(S(angle,angularRadius),tangent);
             float clippedUpper=upper>=field?field:Max(0,upper),clippedLower=lower>=field?field:Max(0,lower);
             return V(M(S(clippedUpper,clippedLower),.5f),field);

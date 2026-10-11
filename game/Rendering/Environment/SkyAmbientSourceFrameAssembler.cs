@@ -218,7 +218,8 @@ public sealed class SkyAmbientSourceFrameAssembler : IAsyncDisposable
         var initial=Prepare(camera,lighting,copied,ambient.SpecularTargets[0],firstAcceptedFrame,
             SkySceneSourceDefaults.CreateSky2Parameters(ambient.SpecularTargets[0].PixelFormat),
             SkySceneSourceDefaults.CreateControllerConstructor(),null,null,true);
-        var faces=SkySceneFramePreparation.Prepare(copied.SixRetainedFaces,initial.Source.SourceFrame);
+        var faces=SkySceneFramePreparation.Prepare(copied.SixRetainedFaces,initial.Source.SourceFrame,
+            shader.ReadResourceDefinitions(selectedCombination.Stages.Single(stage=>stage.StageCode==0).Entry!.ProgramIndex));
         var selections=sta.Select((s,i)=>SkySceneTextureSelection.FromStatic("source-sta"+i,s,10))
             .Concat(assignedTextures.Select(SkySceneTextureSelection.FromSampling)).ToArray();
         var textures=new SkySceneTextures(selections);
@@ -312,7 +313,9 @@ public sealed class SkyAmbientSourceFrameAssembler : IAsyncDisposable
         var controller=SkySceneSourceDefaults.ApplySourceCameraControllerInputs(
             SkySceneSourceDefaults.CreateControllerConstructor(),camera);
         var initial=Prepare(camera,lighting,copied,ambient.SpecularTargets[0],firstAcceptedFrame,parameters,controller,null,null);
-        var faces=SkySceneFramePreparation.Prepare(copied.SixRetainedFaces,initial.Source.SourceFrame);
+        var skyCombination=skySource.ReadG1ResourceBindings(copied.ProgramSelection.Sky2Combination).Combination;
+        var faces=SkySceneFramePreparation.Prepare(copied.SixRetainedFaces,initial.Source.SourceFrame,
+            skySource.ReadResourceDefinitions(skyCombination.Stages.Single(stage=>stage.StageCode==0).Entry!.ProgramIndex));
         var textures=new SkySceneTextures(sta.Select((s,i)=>SkySceneTextureSelection.FromStatic("source-sta"+i,s,10))
             .Concat(assignedTextures.Select(SkySceneTextureSelection.FromSampling)).ToArray());
         SkyScene? scene=null;SkyStarProducer? stars=null;SkyCloudColorProducer? cloud=null;Rid consumerSampler=default;

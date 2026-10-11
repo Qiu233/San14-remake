@@ -43,8 +43,9 @@ class CloudEnvironmentPass {
     AtmosphereFrame atmosphereFrame(const source_current_season::Frame* season,
         const source_current_season_atmosphere::CloudLightInput& lights,
         float altitude,const source_weather_fog::Frame& weather,
-        const source_camera::V3& globalRgb,const source_camera::CameraTransform& camera) {
-        return AtmosphereFrame{season,lights,altitude,weather,globalRgb,camera,cloud_};
+        const source_camera::V3& globalRgb,const source_camera::CameraTransform& camera,
+        const CommonRenderPolicy& commonPolicy) {
+        return AtmosphereFrame{season,lights,altitude,weather,globalRgb,camera,cloud_,commonPolicy};
     }
 
     void updateAcceptedFrame(ID3D11Device* device,ID3D11DeviceContext* context,

@@ -7,6 +7,7 @@
 #include "../Lighting/Interop/HdrLightingInput.h"
 #include "../Lighting/Interop/HdrProgramBankInput.h"
 #include "Ocean/OceanWaveSettings.h"
+#include "SkyMaterialState.h"
 #include "Ocean/OceanSurfaceSettings.h"
 #include "Ocean/OceanOpticsSettings.h"
 #include "Ocean/Interop/OceanTextureMaterialInput.h"
@@ -39,7 +40,7 @@ struct Frame {
     uint32_t mode=0,season=0;int64_t cameraIdentity=0,worldOrdinal=0;
     std::array<uint8_t,0x3c0> main{};
     std::vector<Word> words;std::array<Light,5> lights{};
-    std::array<float,74> atmosphere{};
+    std::array<float,79> atmosphere{};
     ExposureLight exposure;
     std::optional<San14::Render::HdrLightingSettings> hdrLighting;
     std::optional<San14::Render::HdrCurrentSelectionSettings> hdrSelection;
@@ -53,6 +54,7 @@ struct Frame {
     San14::Render::OceanTextureMaterialSettings oceanTextureMaterial;
     San14::Render::OceanBubbleMaterialSettings oceanBubbleMaterial;
     San14::Render::CommonRenderPolicy commonRenderPolicy;
+    San14::Render::SkyDrawPolicy skyPolicy;
     San14::Render::HeightFogSettings heightFog;
     source_current_season_post::Settings post;
 };
@@ -164,7 +166,7 @@ inline Frame decode(std::span<const uint8_t> bytes){
     if(bytes.size()<32+0x3c0)throw std::runtime_error("Current season packet length");
     Frame r;r.mode=read<uint32_t>(bytes,0);r.season=read<uint32_t>(bytes,4);
     uint32_t count=read<uint32_t>(bytes,8),lights=read<uint32_t>(bytes,12);
-    if(lights!=5||bytes.size()<32+0x3c0+size_t(count)*8+lights*(16+0x328)+296+sizeof(ExposureLight))
+    if(lights!=5||bytes.size()<32+0x3c0+size_t(count)*8+lights*(16+0x328)+316+sizeof(ExposureLight))
         throw std::runtime_error("Current season packet layout");
     r.cameraIdentity=read<int64_t>(bytes,16);r.worldOrdinal=read<int64_t>(bytes,24);
     std::memcpy(r.main.data(),bytes.data()+32,r.main.size());size_t at=32+0x3c0;
@@ -173,7 +175,7 @@ inline Frame decode(std::span<const uint8_t> bytes){
         l.terrainMaskScalarBits=read<uint32_t>(bytes,at+8);
         l.shadowModes={read<uint8_t>(bytes,at+12),read<uint8_t>(bytes,at+13)};
         std::memcpy(l.data.data(),bytes.data()+at+16,l.data.size());at+=16+l.data.size();}
-    std::memcpy(r.atmosphere.data(),bytes.data()+at,296);at+=296;
+    std::memcpy(r.atmosphere.data(),bytes.data()+at,316);at+=316;
     r.exposure=read<ExposureLight>(bytes,at);at+=sizeof(ExposureLight);
     constexpr auto materialBytes=San14::Render::Interop::OceanTextureMaterialInputBytes;
     if(bytes.size()-at<materialBytes)throw std::runtime_error("Current Ocean texture material block absent");
@@ -216,6 +218,7 @@ inline Frame decode(std::span<const uint8_t> bytes){
     if (at != bytes.size()) throw std::runtime_error("Current HDR lighting packet tail");
     decodeShadowInputs(r);
     decodeCloudWeatherInputs(r);
+    r.skyPolicy=San14::Render::skyDrawPolicy(read<std::uint32_t>(r.main,0x3b0));
     r.oceanLightGroup=importedMainField<std::uint32_t>(r,0xac0);
     decodeOceanWaveInputs(r);
     decodeOceanSurfaceInputs(r);

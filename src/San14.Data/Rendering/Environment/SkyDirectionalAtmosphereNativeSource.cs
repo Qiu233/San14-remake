@@ -8,13 +8,12 @@ namespace San14.Data;
 public sealed class LoadedSkyDirectionalAtmosphereNativeSource
 {
     internal LoadedSkyDirectionalAtmosphereNativeSource(LoadedSkyAtmosphereNativeSource scattering,
-        string fogProvenance, float fallback, LoadedSky2MoonGeometryNativeSource moonGeometry)
-        => (ScatteringSource, FogSourceProvenance, IntervalFallback, MoonGeometrySource) = (scattering, fogProvenance, fallback, moonGeometry);
+        string fogProvenance, float fallback)
+        => (ScatteringSource, FogSourceProvenance, IntervalFallback) = (scattering, fogProvenance, fallback);
     public LoadedSkyAtmosphereNativeSource ScatteringSource { get; }
     public string RuleVersion => RenderRuleIdentity.For("directional-sky-atmosphere", ScatteringSource.Locale);
     public string FogSourceProvenance { get; }
     public float IntervalFallback { get; }
-    public LoadedSky2MoonGeometryNativeSource MoonGeometrySource { get; }
     public string SourceSelectedEvidence { get; internal init; } = "";
     public LoadedSkyDirectionalSetterColorNativeSource ColorSetterContinuationSource { get; internal init; } = null!;
 }
@@ -37,7 +36,7 @@ public static class SkyDirectionalAtmosphereNativeSource
         evidence += ";" + RenderSamplerSourceAdapters.ReadSelectedSkyPackageNativeRecipe(repository.SourceDirectory, locale) +
             $";sourceShader={shader.Source.ResourceUri}@{shader.Source.DecodedSha256};VS0=exact-Fog-MOV-transport";
         return new(SkyAtmosphereNativeSource.Load(repository, locale, dispatch), evidence,
-            BitConverter.UInt32BitsToSingle(0x7F7FFFFF),Sky2MoonGeometryNativeSource.Load(repository,locale))
+            BitConverter.UInt32BitsToSingle(0x7F7FFFFF))
             {SourceSelectedEvidence=RenderSamplerSourceAdapters.ReadDirectionalSkySourceSelectedRecipe(repository.SourceDirectory,locale),
                 ColorSetterContinuationSource=SkyDirectionalSetterColorNativeSource.Load(repository,locale)};
     }

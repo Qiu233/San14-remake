@@ -9,7 +9,7 @@ namespace San14.Data;
 public static class SkyWorkCloudClipPreparation
 {
     public static Vector4 Prepare(ReadOnlySpan<byte> main,SkyScenePreparedCamera camera,
-        int face,float planetRadius,MapPostEffect3PresentLightMathSource inverseTrig)
+        int face,float planetRadius)
     {
         if(face is not (0 or 1 or 4 or 5))return Vector4.Zero;
         Vector4 originalEye=V(main,0x10),originalTarget=V(main,0x20),eye=camera.Position;
@@ -27,12 +27,12 @@ public static class SkyWorkCloudClipPreparation
         reciprocal=D(1,MathF.Sqrt(A(A(M(rotationAxis.Y,rotationAxis.Y),M(rotationAxis.X,rotationAxis.X)),M(rotationAxis.Z,rotationAxis.Z))));
         rotationAxis=new(M(rotationAxis.X,reciprocal),M(rotationAxis.Y,reciprocal),M(rotationAxis.Z,reciprocal),0);
         float altitude=eye.Y<=0?0:eye.Y;
-        float angle=MapPostEffect3PresentLightMath.Asin(D(planetRadius,A(altitude,planetRadius)),inverseTrig);
+        float angle=FiniteInverseTrigonometry.Asin(D(planetRadius,A(altitude,planetRadius)));
         var horizon=Rotate(new(0,-1,0,0),rotationAxis,angle);
         reciprocal=D(1,MathF.Sqrt(A(A(M(horizon.X,horizon.X),M(horizon.Y,horizon.Y)),M(horizon.Z,horizon.Z))));
         float dot=A(A(M(M(horizon.X,reciprocal),dx),M(M(dy,horizon.Y),reciprocal)),M(M(horizon.Z,reciprocal),dz));
         float clamped=dot<1?(dot>=-1?dot:-1):1;
-        float horizonY=D(Tangent(MapPostEffect3PresentLightMath.Acos(clamped,inverseTrig)),Tangent(M(camera.Scalar138,.5f)));
+        float horizonY=D(Tangent(FiniteInverseTrigonometry.Acos(clamped)),Tangent(M(camera.Scalar138,.5f)));
         if(M(horizon.Y,reciprocal)<dy)horizonY=Neg(horizonY);
         var transform=TerrainFrustumMath.Multiply(NativeMatrixMath.Invert(cloneProjection,out _),camera.MatrixF0);
         float far=(camera.Flags148&2)!=0?0:1;

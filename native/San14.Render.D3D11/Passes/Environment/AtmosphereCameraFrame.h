@@ -4,6 +4,7 @@
 #include "../../Camera/CameraState.h"
 #include "../../Camera/CameraMatrix.h"
 #include "WeatherFogFrame.h"
+#include "SkyMaterialInputs.h"
 
 namespace source_atmosphere_camera {
 using source_camera::A;using source_camera::S;using source_camera::M;using source_camera::D;
@@ -32,12 +33,15 @@ struct Packet {
     Profile profile;
     DirectEnvironment direct;
     CelestialEnvironment environment;
-    std::array<uint8_t,144> skyVertex{};std::array<uint8_t,336> skyPixel{};
+    San14::Render::SkyMaterialState sky;
+    San14::Render::SkyDrawPolicy skyPolicy;
+    bool milkyTexturePresent{};
     std::array<uint8_t,176> cloudVertex{};std::array<uint8_t,560> cloudPixel{};
 };
 struct Frame {
     CameraTransform skyCamera{};
-    std::array<uint8_t,144> skyVertex{};std::array<uint8_t,336> skyPixel{};
+    San14::Render::SkyMaterialState sky;
+    San14::Render::SkyDrawPolicy skyPolicy;
     std::array<uint8_t,176> cloudVertex{};std::array<uint8_t,560> cloudPixel{};
     std::array<uint8_t,32> cloudHistoryVertex{};
     V4 fogProjection{},fogEye{};
@@ -49,7 +53,7 @@ template<size_t N> inline std::array<uint8_t,N> readBytes(const std::filesystem:
     if(!s||s.peek()!=std::char_traits<char>::eof())throw std::runtime_error("Atmosphere camera source packet size: "+path.string());
     return result;
 }
-inline Packet readPacket(const std::filesystem::path& source){
+inline Packet readPacket(const std::filesystem::path& source,const std::filesystem::path& skySource){
     Packet r;auto& p=r.profile;std::ifstream s(source/"profile.bin",std::ios::binary);
     const auto preparedCamera=source_camera::read<Prefix>(s);
     p.initialCamera=source_camera::decodeCameraTransform(preparedCamera);r.direct=decodeDirectEnvironment(preparedCamera);
@@ -60,7 +64,9 @@ inline Packet readPacket(const std::filesystem::path& source){
     environment.sunIntensity=source_camera::read<float>(s);environment.moonIntensity=source_camera::read<float>(s);environment.halfFovTangent=source_camera::read<float>(s);
     p.width=source_camera::read<int>(s);p.height=source_camera::read<int>(s);
     if(s.peek()!=std::char_traits<char>::eof())throw std::runtime_error("Atmosphere camera profile tail");
-    r.skyVertex=readBytes<144>(source/"main-sky-vs-b0.bin");r.skyPixel=readBytes<336>(source/"main-sky-ps-b0.bin");
+    r.sky=San14::Render::Interop::readSkyInitialState(skySource/"initial-state.bin");
+    r.milkyTexturePresent=San14::Render::Interop::readSkySamplingPresence(skySource/"sampling-presence.bin").milky;
+    r.skyPolicy=San14::Render::skyDrawPolicy(get<std::uint32_t>(preparedCamera.data()+0x3b0));
     r.cloudVertex=readBytes<176>(source/"cloud/pass1-vs-b0.bin");r.cloudPixel=readBytes<560>(source/"cloud/pass1-ps-b0.bin");
     p.cloudSunDirectionW=get<float>(r.cloudPixel.data()+476);
     return r;
@@ -69,7 +75,7 @@ inline source_weather_fog::Shared publishWeather(Packet& packet,const source_wea
     packet.direct.altitude=weather.currentAltitude;
     auto record=source_weather_fog::package(weather,packet.direct.fogBlend);
     auto atmosphere=source_weather_fog::shared(record,actualGlobal80Rgb);
-    put(packet.skyPixel.data(),atmosphere.fog);put(packet.skyPixel.data()+16,atmosphere.scat);
+    packet.sky.fog=atmosphere.fog;packet.sky.scattering=atmosphere.scat;
     put(packet.cloudPixel.data()+32,atmosphere.fog);put(packet.cloudPixel.data()+48,atmosphere.scat);return atmosphere;
 }
 inline void publishDirectStage(Packet& packet,float altitude) {
@@ -120,7 +126,8 @@ inline Frame prepareCurrent(const Packet& packet,const CameraTransform& ordinary
     V4 negative{M(eye.X,-1),M(eye.Y,-1),M(eye.Z,-1),M(eye.W,-1)};
     for(int row=0;row<4;++row){int a=row*4;float w=rigid[a+3];rigid[a]=A(M(w,negative.X),rigid[a]);rigid[a+1]=A(M(w,negative.Y),rigid[a+1]);rigid[a+2]=A(M(w,negative.Z),rigid[a+2]);}
     Matrix c2l=source_camera::compose(source_camera::compose(source_matrix::inverse(projected),rigid),p.skyTransform);
-    f.skyVertex=packet.skyVertex;f.skyPixel=packet.skyPixel;put(f.skyVertex.data(),c2l);put(f.skyVertex.data()+64,0.f);put(f.skyVertex.data()+80,p.localToGlobal);
+    f.sky=packet.sky;f.skyPolicy=packet.skyPolicy;
+    f.sky.cameraToLocal=c2l;f.sky.projectionFarZ=0;f.sky.localToGlobal=p.localToGlobal;
     // The physical sky offset is derived from the accepted altitude.
     float skyYOffset=M(packet.direct.altitude,1000);
     float x=M(eye.X,.01f),y=A(A(M(eye.Y,.01f),p.altitude.Z),skyYOffset),z=M(eye.Z,.01f),w=eye.W;
@@ -129,13 +136,13 @@ inline Frame prepareCurrent(const Packet& packet,const CameraTransform& ordinary
         A(A(A(M(x,m[1]),M(y,m[5])),M(z,m[9])),M(w,m[13])),
         A(A(A(M(x,m[2]),M(y,m[6])),M(z,m[10])),M(w,m[14])),
         A(A(A(M(x,m[3]),M(y,m[7])),M(z,m[11])),M(w,m[15]))};
-    put(f.skyPixel.data()+80,viewPosition);
+    f.sky.viewPosition=viewPosition;
     float sunLiteral=F(0x3c187400),moonLiteral=F(0x3c142917);
     float pixel=D(fov,float(packet.profile.height*2)),sunRadius=M(M(p.sunSize,sunLiteral),.5f),moonRadius=M(M(p.moonSize,moonLiteral),.5f);
-    put(f.skyPixel.data()+96,V4{pixel>sunRadius?pixel:sunRadius,pixel>moonRadius?pixel:moonRadius,p.sunIntensity,p.moonIntensity});
-    put(f.skyPixel.data()+256,screenPosition(p.sunProjection,w2p,fov,aspect,packet.profile.width,packet.profile.height,p.sunSize,sunLiteral));
+    f.sky.skyInfo0={pixel>sunRadius?pixel:sunRadius,pixel>moonRadius?pixel:moonRadius,p.sunIntensity,p.moonIntensity};
+    f.sky.sunScreenPosition=screenPosition(p.sunProjection,w2p,fov,aspect,packet.profile.width,packet.profile.height,p.sunSize,sunLiteral);
     V4 moon{M(p.moonPosition.X,-1),M(p.moonPosition.Y,-1),M(p.moonPosition.Z,-1),M(p.moonPosition.W,-1)};
-    put(f.skyPixel.data()+272,screenPosition(moon,w2p,fov,aspect,packet.profile.width,packet.profile.height,p.moonSize,moonLiteral));
+    f.sky.moonScreenPosition=screenPosition(moon,w2p,fov,aspect,packet.profile.width,packet.profile.height,p.moonSize,moonLiteral);
 
     // Cloud direction rays use a separate origin camera with near 1 / far 100.
     // Its vectors are near minus far.
@@ -178,13 +185,8 @@ struct NativeAtmosphereCamera {
     source_atmosphere_camera::Packet packet;
     source_atmosphere_camera::Frame current;
 };
-static NativeAtmosphereCamera prepareNativeAtmosphereCamera(ID3D11Device* device,const fs::path& source,
-    NativeMainSky& sky){
-    NativeAtmosphereCamera r;r.packet=source_atmosphere_camera::readPacket(source);
-    auto make=[&](const auto& bytes){std::vector<char> copy(bytes.size());std::memcpy(copy.data(),bytes.data(),bytes.size());return nativeMainCloudBuffer(device,copy);};
-    // Only the camera-updated buffers change usage. Programs, typed textures,
-    // samplers, geometry, views and existing Cloud history remain owned.
-    sky.vertexConstants=make(r.packet.skyVertex);sky.pixelConstants=make(r.packet.skyPixel);
+static NativeAtmosphereCamera prepareNativeAtmosphereCamera(const fs::path& source,const fs::path& skySource){
+    NativeAtmosphereCamera r;r.packet=source_atmosphere_camera::readPacket(source,skySource);
     r.current=source_atmosphere_camera::prepareCurrent(r.packet,r.packet.profile.initialCamera);
     return r;
 }
@@ -201,10 +203,10 @@ static void publishNativeAtmosphereCurrentDirectEnvironment(NativeAtmosphereCame
     source_atmosphere_camera::publishDirectStage(r.packet,altitude);
 }
 static void updateNativeAtmosphereCamera(ID3D11DeviceContext* context,NativeAtmosphereCamera& r,
-    const source_camera::CameraTransform& ordinaryCamera,NativeMainSky& sky,NativeMainCloud& cloud){
+    const source_camera::CameraTransform& ordinaryCamera,NativeMainSky& sky,NativeMainCloud& cloud,bool publishSkyCloud){
     r.current=source_atmosphere_camera::prepareCurrent(r.packet,ordinaryCamera);const auto& f=r.current;
-    context->UpdateSubresource(sky.vertexConstants.Get(),0,nullptr,f.skyVertex.data(),0,0);
-    context->UpdateSubresource(sky.pixelConstants.Get(),0,nullptr,f.skyPixel.data(),0,0);
+    if(!publishSkyCloud)return;
+    publishNativeMainSkyMaterial(context,sky,f.sky);
     for(auto& pass:cloud.passes){
         if(pass.name=="pass1"){
             std::memcpy(pass.vbytes.data()+16,f.cloudVertex.data()+16,136);

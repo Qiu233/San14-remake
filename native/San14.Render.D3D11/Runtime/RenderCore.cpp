@@ -606,10 +606,10 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                 atmosphere.prepare(device.Get(),context.Get(),resources.directory(ResourceGroup::Sky),
                     resources.directory(ResourceGroup::Atmosphere),resources.directory(ResourceGroup::AtmosphereCamera)/"initial",
                     litColor.Get(),mainDepth.depth.Get(),fogAcceleration.samplingView(),geometryTargets.depthView(),width,height,frameState.atmosphereFrame(clouds));
-                atmosphere.executeSky(device.Get(),context.Get(),sourceDepth);
-                mainTargets.restore(context.Get());
-
-                clouds.execute(device.Get(),context.Get(),sourceDepth,geometryTargets.depthView(),initialCommonClock,UINT(phase.hostCompletionFlags()));
+                if(atmosphere.executeSky(device.Get(),context.Get(),sourceDepth)) {
+                    mainTargets.restore(context.Get());
+                    clouds.execute(device.Get(),context.Get(),sourceDepth,geometryTargets.depthView(),initialCommonClock,UINT(phase.hostCompletionFlags()));
+                }
                 mainTargets.restore(context.Get());
                 atmosphere.executeFog(device.Get(),context.Get(),sourceDepth,
                     frameState.season(),initialCommonClock,
@@ -744,8 +744,12 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         hdr123.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),clouds.ambientView(),ocean.refractionDepth(),ocean.transmittedScene(),
             nullptr,currentClock,frameState.view().activeGroups,frameState.view().oceanGroups);
         atmosphere.updateCamera(context.Get(),frameState.atmosphereFrame(clouds));
-        mainTargets.restore(context.Get());atmosphere.executeSky(device.Get(),context.Get(),sourceDepth);mainTargets.restore(context.Get());
-        clouds.execute(device.Get(),context.Get(),sourceDepth,geometryTargets.depthView(),currentClock,UINT(phase.hostCompletionFlags()));mainTargets.restore(context.Get());
+        mainTargets.restore(context.Get());
+        if(atmosphere.executeSky(device.Get(),context.Get(),sourceDepth)) {
+            mainTargets.restore(context.Get());
+            clouds.execute(device.Get(),context.Get(),sourceDepth,geometryTargets.depthView(),currentClock,UINT(phase.hostCompletionFlags()));
+        }
+        mainTargets.restore(context.Get());
         atmosphere.executeFog(device.Get(),context.Get(),sourceDepth,
             frameState.season(),currentClock,frameState.view().activeGroups);mainTargets.restore(context.Get());
         ocean.executeFilters(context.Get(),sourceDepth,currentSpecularSource());mainTargets.restore(context.Get());

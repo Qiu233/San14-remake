@@ -107,10 +107,11 @@ public sealed partial class SkyDirectionalAmbientDeviceOwner : IAsyncDisposable
         var nativeAtmosphere=SkyDirectionalAtmosphereNativeSource.Load(repository,locale,NativeLogDispatch.Sse);
         initialSource.PrepareLights(shader,textureSnapshot);
         var sourceFrame=initialSource.PrepareSourceSelectedSeasonFrame(ambient.SpecularTargets[0],nativeAtmosphere,2,shader,initialStages,textureSnapshot);
-        var prepared=SkySceneFramePreparation.PrepareFreshDirectionalFullyWritten(sourceFrame.SourceFrame,initialSource);
         var desiredSelection=CaptureDesiredSelection(shader,initialSource,sourceFrame);
         var desired=desiredSelection.GetSelection(false);var atmosphereSelection=desiredSelection.GetSelection(true);
         RequireSelectedFamily(desired,atmosphereSelection);
+        var prepared=SkySceneFramePreparation.PrepareFreshDirectionalFullyWritten(sourceFrame.SourceFrame,initialSource,
+            shader.ReadResourceDefinitions(Pixel(desired)),shader.ReadResourceDefinitions(Pixel(atmosphereSelection)));
         var selections=StaticTextureResources.Load(repository,ambient.Resource,"system",[0xF81F0562,0xF8ED83E3,0xF9BC0264])
             .Select((s,i)=>SkySceneTextureSelection.FromStatic("source-sta"+i,s,10)).ToList();
         foreach(var role in new[]{SkySamplingRole.Earth,SkySamplingRole.Moon,SkySamplingRole.MilkyWay})

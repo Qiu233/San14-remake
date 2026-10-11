@@ -51,6 +51,8 @@ struct SeasonEnvironment {
     float opacityClamp{};
     float skyHeightOffset{};
     V4 moonFaceDirection{};
+    float milkyIntensity{};
+    V4 stableDimensions{};
 };
 inline SeasonEnvironment decodeEnvironment(const source_current_season::Frame& current) {
     SeasonEnvironment result;
@@ -65,6 +67,8 @@ inline SeasonEnvironment decodeEnvironment(const source_current_season::Frame& c
     result.skyLights=get<source_camera::Matrix>(fields+232);
     result.skyHeightOffset=get<float>(fields+176);
     result.moonFaceDirection=get<V4>(fields+280);
+    result.milkyIntensity=get<float>(fields+296);
+    result.stableDimensions=get<V4>(fields+300);
     result.direct=source_atmosphere_camera::decodeDirectEnvironment(current.main);
     result.opacityClamp=get<float>(current.main.data()+0x278);
     return result;
@@ -91,19 +95,26 @@ inline Shared publishPacket(source_atmosphere_camera::Packet& packet,
     packet.environment=environment.celestial;packet.direct=environment.direct;
     const auto& profile=packet.environment;
     // Four current light fields in the sky shader layout.
-    put(packet.skyPixel.data()+128,environment.skyLights);put(packet.skyPixel.data()+288,profile.altitude);
+    std::memcpy(&packet.sky.sunRgb,environment.skyLights.data(),16);
+    std::memcpy(&packet.sky.sunDirection,environment.skyLights.data()+4,16);
+    std::memcpy(&packet.sky.moonRgb,environment.skyLights.data()+8,16);
+    std::memcpy(&packet.sky.moonDirection,environment.skyLights.data()+12,16);
+    packet.sky.altitudeInfo=profile.altitude;
+    packet.sky.stableDimensions=environment.stableDimensions;
+    packet.sky.skyInfo1.Z=packet.milkyTexturePresent?environment.milkyIntensity:0.f;
+    packet.skyPolicy=current.skyPolicy;
     const auto& global=selected(current,0x80);
     auto fog=packageFog(global,packet.direct.fogBlend);
     if(fog.mode!=FogMode::Scattering)
         throw std::runtime_error("Current Sky renderer mode4 needs its original selected mode4 producer/program");
     auto shared=sharedMode7Profile2(fog,lightRgb(global));
-    put(packet.skyPixel.data(),shared.fog);put(packet.skyPixel.data()+16,shared.scat);
+    packet.sky.fog=shared.fog;packet.sky.scattering=shared.scat;
     put(packet.cloudPixel.data(),get<V4>(global.data.data()));
     put(packet.cloudPixel.data()+32,shared.fog);put(packet.cloudPixel.data()+48,shared.scat);
     V4 package=get<V4>(global.data.data()),moon=profile.moonPosition;
-    put(packet.skyPixel.data()+124,package.X==moon.X&&package.Y==moon.Y&&package.Z==moon.Z&&package.W==moon.W?1.f:0.f);
+    packet.sky.skyInfo1.W=package.X==moon.X&&package.Y==moon.Y&&package.Z==moon.Z&&package.W==moon.W?1.f:0.f;
     float clamp=M(environment.opacityClamp,100);
-    put(packet.skyPixel.data()+332,M(clamp,.01f));put(packet.cloudPixel.data()+556,clamp);
+    packet.sky.clampValue.W=M(clamp,.01f);put(packet.cloudPixel.data()+556,clamp);
     if(cloudLights)publishCloudLights(packet,environment,*cloudLights);
     // Each Fog draw selects and publishes its own current local light through
     // the Height Fog program owner. Global weather remains Sky/Cloud input.

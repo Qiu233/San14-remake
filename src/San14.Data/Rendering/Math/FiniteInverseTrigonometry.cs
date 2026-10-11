@@ -1,35 +1,18 @@
-using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
 namespace San14.Data;
 
-/// <summary>Installed paired acos/asin operands, not the Sky
-/// atan kernel. uses these two different float rational functions.</summary>
-public sealed class MapPostEffect3PresentLightMathSource
-{
-    private MapPostEffect3PresentLightMathSource(string locale)=>Locale=locale;
-    public string Locale{get;}
-    public string RuleVersion=>RenderRuleIdentity.Version;
-    public string SourceEvidence=>RenderRuleIdentity.For("present-light-acos-asin",Locale)+";finite-SSE";
-    public static MapPostEffect3PresentLightMathSource Load(GameResourceRepository repository,string locale)
-    {
-        ArgumentNullException.ThrowIfNull(repository);
-        if(locale is not ("SC" or "TC"))throw new ArgumentOutOfRangeException(nameof(locale));
-        return new(locale);
-    }
-}
-
 /// <summary>Finite float ports retain each SSE operation and the native split
 /// constants. No MathF.Acos/Asin substitution or unverified exception handling.</summary>
-public static class MapPostEffect3PresentLightMath
+public static class FiniteInverseTrigonometry
 {
     private static float F(uint bits)=>BitConverter.UInt32BitsToSingle(bits);
     private static double D(ulong bits)=>BitConverter.UInt64BitsToDouble(bits);
-    public static float Acos(float input,MapPostEffect3PresentLightMathSource source)
+    public static float Acos(float input)
     {
-        ArgumentNullException.ThrowIfNull(source);Domain(input);
+        Domain(input);
         uint bits=BitConverter.SingleToUInt32Bits(input);bool negative=(bits&0x80000000)!=0;
         float abs=F(bits&0x7FFFFFFF);
         if(abs==1)return negative?F(0x40490FDB):0;
@@ -50,9 +33,9 @@ public static class MapPostEffect3PresentLightMath
         // Small branch uses the original signed input in both products.
         return (float)DS(halfPi,DS((double)input,DS(low,(double)M(ratio,input))));
     }
-    public static float Asin(float input,MapPostEffect3PresentLightMathSource source)
+    public static float Asin(float input)
     {
-        ArgumentNullException.ThrowIfNull(source);Domain(input);
+        Domain(input);
         uint bits=BitConverter.SingleToUInt32Bits(input);bool negative=(bits&0x80000000)!=0;
         float abs=F(bits&0x7FFFFFFF);
         if(abs==1)return negative?F(0xBFC90FDB):F(0x3FC90FDB);
@@ -79,14 +62,14 @@ public static class MapPostEffect3PresentLightMath
         numerator=M(numerator,square);
         return V(numerator,S(F(0x3F8D6FA5),M(square,F(0x3F561F0D))));
     }
-    public static float Sqrt(float input)
+    internal static float Sqrt(float input)
     {
         if(!Sse.IsSupported||!float.IsFinite(input)||input<0)
-            throw new InvalidDataException("Present light requires finite native SQRTSS inputs.");
+            throw new InvalidDataException("Inverse trigonometry requires finite SSE square-root inputs.");
         return Sse.SqrtScalar(Vector128.CreateScalar(input)).GetElement(0);
     }
     private static void Domain(float input)
-    {if(!float.IsFinite(input)||MathF.Abs(input)>1)throw new NotSupportedException("Present light inverse trig exceptional domain requires its native status branch.");}
+    {if(!float.IsFinite(input)||MathF.Abs(input)>1)throw new NotSupportedException("Inverse trigonometry supports finite inputs in [-1,1].");}
     [MethodImpl(MethodImplOptions.NoInlining)]private static float A(float a,float b)=>a+b;
     [MethodImpl(MethodImplOptions.NoInlining)]private static float S(float a,float b)=>a-b;
     [MethodImpl(MethodImplOptions.NoInlining)]private static float M(float a,float b)=>a*b;

@@ -5,30 +5,9 @@ using System.Runtime.Intrinsics.X86;
 
 namespace San14.Data;
 
-/// <summary>The installed paired MoonFace/Screen writers and distinct native
-/// 3F7280 sine/cosine polynomial. Loading reads only inert executable bytes.</summary>
-public sealed class LoadedSky2MoonGeometryNativeSource
-{
-    internal LoadedSky2MoonGeometryNativeSource(MapPostEffect3PresentLightMathSource acos,string evidence)
-        =>(AcosSource,SourceEvidence)=(acos,evidence);
-    internal MapPostEffect3PresentLightMathSource AcosSource{get;}
-    public string Locale=>AcosSource.Locale;
-    public string SourceEvidence{get;}
-}
-
-public static class Sky2MoonGeometryNativeSource
-{
-    public static LoadedSky2MoonGeometryNativeSource Load(GameResourceRepository repository,string locale)
-    {
-        ArgumentNullException.ThrowIfNull(repository);
-        return new(MapPostEffect3PresentLightMathSource.Load(repository,locale),
-            RenderSamplerSourceAdapters.ReadSky2MoonGeometryRecipe(repository.SourceDirectory,locale));
-    }
-}
-
 public sealed record Sky2MoonScreenPosition(Vector4 Position,bool InFront);
 public sealed record Sky2MoonGeometryPacket(Matrix4x4 MoonFace,
-    Sky2MoonScreenPosition Screen,string SourceEvidence);
+    Sky2MoonScreenPosition Screen);
 
 /// <summary>Original118E6B0 MoonFace and118E7B0 MoonScreen, from actual
 /// normalized rotation-derived Moon direction and raw selected Moon position.
@@ -38,20 +17,18 @@ public static class Sky2MoonGeometryPreparation
     public static Sky2MoonGeometryPacket? Prepare(bool moonSetterPresent,
         Vector3 preparedRotationDerivedMoonDirection,Vector4 rawMoonPosition,
         ReadOnlySpan<float> preparedCameraF0,float preparedCamera138,float preparedCamera13C,
-        int targetWidth,int targetHeight,float moonSize1498,LoadedSky2MoonGeometryNativeSource native)
+        int targetWidth,int targetHeight,float moonSize1498)
     {
         if(!moonSetterPresent)return null;
-        ArgumentNullException.ThrowIfNull(native);
-        return new(PrepareFace(true,preparedRotationDerivedMoonDirection,native)!.Value,
+        return new(PrepareFace(true,preparedRotationDerivedMoonDirection)!.Value,
             PrepareScreen(true,rawMoonPosition,preparedCameraF0,preparedCamera138,preparedCamera13C,
-                targetWidth,targetHeight,moonSize1498)!,native.SourceEvidence);
+                targetWidth,targetHeight,moonSize1498)!);
     }
 
     public static Matrix4x4? PrepareFace(bool moonSetterPresent,
-        Vector3 preparedRotationDerivedMoonDirection,LoadedSky2MoonGeometryNativeSource native)
+        Vector3 preparedRotationDerivedMoonDirection)
     {
         if(!moonSetterPresent)return null;
-        ArgumentNullException.ThrowIfNull(native);
         var d=preparedRotationDerivedMoonDirection;Finite(d.X);Finite(d.Y);Finite(d.Z);
         // Do not choose an arbitrary axis at the actual zero-cross degeneracy.
         float ax=S(M(d.Z,-1),M(d.Y,0)),ay=S(M(d.X,0),M(d.Z,0)),az=S(M(d.Y,0),M(d.X,-1));
@@ -62,7 +39,7 @@ public static class Sky2MoonGeometryPreparation
         float length=Sse.Sqrt(Vector128.Create(lengthSquared)).GetElement(0);
         if(length!=0){ax=D(ax,length);ay=D(ay,length);az=D(az,length);}
         else ax=ay=az=0;
-        float angle=Neg(MapPostEffect3PresentLightMath.Acos(dot,native.AcosSource));
+        float angle=Neg(FiniteInverseTrigonometry.Acos(dot));
         var (s,c)=SinCos3F7280(angle);float t=S(1,c);
         float dx=A(M(M(t,ax),ax),c),dy=A(M(M(t,ay),ay),c),dz=A(M(M(t,az),az),c);
         float yz=M(M(ay,t),az),zx=M(M(az,t),ax),xy=M(M(ax,t),ay);

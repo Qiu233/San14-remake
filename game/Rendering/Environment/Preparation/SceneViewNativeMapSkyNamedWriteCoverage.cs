@@ -20,7 +20,7 @@ public static class SceneViewNativeMapSkyNamedWriteCoverage
             actualPixelProgram is not (3 or 4) || actual.SixCameras.Count != 6 || actual.Controller is null ||
             !actual.Lights.SunPresent || !actual.Lights.MoonPresent || actual.Lights.SourceZeroMoon is null)
             throw new NotSupportedException("Full named write coverage requires actual stock Sky PS3/4, all six current cameras, present source Sun/Moon and its complete current controller.");
-        var prepared = SkySceneFramePreparation.PrepareFreshFullyWritten(actual);
+        var prepared = SkySceneFramePreparation.PrepareFreshFullyWritten(actual, actualStockSkyShader.ReadResourceDefinitions(actualPixelProgram));
         // Owned backing zero only covers named-buffer padding; all meaningful
         // words are supplied by the actual prepared source writes above.
         var vertexDefinition = actualStockSkyShader.ReadResourceDefinitions(0);

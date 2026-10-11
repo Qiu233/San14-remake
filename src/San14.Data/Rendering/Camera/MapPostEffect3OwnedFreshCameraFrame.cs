@@ -8,15 +8,13 @@ public sealed class MapPostEffect3OwnedFreshCameraSources
         LoadedMapPostEffect3ScalarZeroAllocationSource allocator,
         MapPostEffect3LensPresetIntermediateMathSources lensMath,
         MapPostEffect3LightShaftExponential shaftMath,
-        MapPostEffect3ParameterCompositeMathSources compositeMath,
-        MapPostEffect3PresentLightMathSource sunMath)
-        =>(Lens,Allocator,LensMath,ShaftMath,CompositeMath,SunMath)=(lens,allocator,lensMath,shaftMath,compositeMath,sunMath);
+        MapPostEffect3ParameterCompositeMathSources compositeMath)
+        =>(Lens,Allocator,LensMath,ShaftMath,CompositeMath)=(lens,allocator,lensMath,shaftMath,compositeMath);
     public LoadedMapPostEffect3LensPresetSource Lens{get;}
     public LoadedMapPostEffect3ScalarZeroAllocationSource Allocator{get;}
     public MapPostEffect3LensPresetIntermediateMathSources LensMath{get;}
     public MapPostEffect3LightShaftExponential ShaftMath{get;}
     public MapPostEffect3ParameterCompositeMathSources CompositeMath{get;}
-    public MapPostEffect3PresentLightMathSource SunMath{get;}
     public static MapPostEffect3OwnedFreshCameraSources Load(GameResourceRepository repository,
         MapCameraConstructionPacket camera)
     {
@@ -26,8 +24,7 @@ public sealed class MapPostEffect3OwnedFreshCameraSources
             MapPostEffect3ScalarZeroAllocationSource.Load(repository,"TC"),
             MapPostEffect3LensPresetIntermediateMathSources.Load(repository,"TC"),
             MapPostEffect3LightShaftExponential.LoadSseSource(repository,"TC"),
-            MapPostEffect3ParameterCompositeMathSources.Load(repository,"TC"),
-            MapPostEffect3PresentLightMathSource.Load(repository,"TC"));
+            MapPostEffect3ParameterCompositeMathSources.Load(repository,"TC"));
     }
 }
 
@@ -107,7 +104,7 @@ public sealed class MapPostEffect3OwnedFreshCameraFrame:IDisposable
         var direct=MapPostEffect3ApplyUncontrolledDirectWriters.PrepareFreshSource(snapshot,raw,route.Preparation.Variant,route.SourceEvidence);
         var light=inputs.SelectedLight is{}selected?
             MapPostEffect3ApplyUncontrolledPresentLightWriters.PrepareFreshSource(route.Preparation,snapshot,selected,
-                native.SunMath,native.LensMath.Tangent,inputs.NativeDispatch):
+                native.LensMath.Tangent,inputs.NativeDispatch):
             MapPostEffect3ApplyUncontrolledAbsentLightWriters.Prepare(route.Preparation,inputs.AbsentLight!);
         if(inputs.AbsentLight is{}absent&&absent.FrameNumber!=snapshot.FrameNumber)
             throw new InvalidDataException("Absent light lookup belongs to another Camera frame.");

@@ -1,4 +1,5 @@
 using System.Numerics;
+using San14.Data.Formats;
 
 namespace San14.Data;
 
@@ -55,7 +56,6 @@ public sealed record SkySceneSourceFrame(
     SkySceneTexturePresence Textures,
     SkySceneSharedAtmosphere Atmosphere)
 {
-    public LoadedSky2MoonGeometryNativeSource? MoonGeometrySource { get; init; }
     public SkyDirectionalSourceSelectedAtmosphereReceipt? SourceSelectedAtmosphere { get; init; }
 }
 
@@ -71,7 +71,8 @@ public static class SkySceneFramePreparation
     /// those programs. No prior semantic cache is manufactured. Source zero
     /// Moon capability pins the exact default programs and absent Moon texture.
     /// Constant-buffer backing/padding remains an explicit device-owner input.</summary>
-    public static SkyScenePreparedFrame PrepareFreshFullyWritten(SkySceneSourceFrame currentSourceFrame)
+    public static SkyScenePreparedFrame PrepareFreshFullyWritten(SkySceneSourceFrame currentSourceFrame,
+        params DxbcResourceDefinitions[] pixelPrograms)
     {
         ArgumentNullException.ThrowIfNull(currentSourceFrame);
         if(currentSourceFrame.Controller is null||!currentSourceFrame.Lights.SunPresent||
@@ -79,36 +80,35 @@ public static class SkySceneFramePreparation
             currentSourceFrame.Textures.Moon||currentSourceFrame.Textures.Milky)
             throw new NotSupportedException("Fresh fully written Sky requires present controller/non-null source Sun+zero-Moon and the default PS3/4 texture scope.");
         return PrepareCore(null,currentSourceFrame.SixCameras,currentSourceFrame.Parameters,currentSourceFrame.Controller,
-            currentSourceFrame.Lights,currentSourceFrame.Textures,currentSourceFrame.Atmosphere);
+            currentSourceFrame.Lights,currentSourceFrame.Textures,currentSourceFrame.Atmosphere,pixelPrograms);
     }
 
     /// <summary>Fresh named caches from the actual selected Directional
     /// mode6 Camera writer. Finite Moon or its distinct PS10/4 zero capability
     /// is required; no mode2 constructor or synthetic previous face is used.</summary>
     public static SkyScenePreparedFrame PrepareFreshDirectionalFullyWritten(
-        SkySceneSourceFrame currentSourceFrame, SkyDirectionalSelectedLightSource source)
+        SkySceneSourceFrame currentSourceFrame, SkyDirectionalSelectedLightSource source,
+        params DxbcResourceDefinitions[] pixelPrograms)
     {
         ArgumentNullException.ThrowIfNull(currentSourceFrame); ArgumentNullException.ThrowIfNull(source);
         source.ValidatePreparedLights(currentSourceFrame.Lights);
         currentSourceFrame.SourceSelectedAtmosphere?.ValidateSourceFrame(currentSourceFrame,source);
         if (currentSourceFrame.Controller is null || currentSourceFrame.Textures.Moon || currentSourceFrame.Textures.Milky)
             throw new NotSupportedException("Fresh Directional Sky requires a present controller and the explicit source-null Moon/Milky texture family.");
-        if(currentSourceFrame.MoonGeometrySource is not { } moonNative ||
-            source.AcceptedLighting.AcceptedInputs.PresentSeasonCamera?.AcceptedSeasonCamera.Inputs.MainFrame.Camera.ExecutableLocale!=moonNative.Locale)
-            throw new InvalidDataException("Fresh Directional Moon geometry needs its actual same-locale native writer source.");
         return PrepareCore(null,currentSourceFrame.SixCameras,currentSourceFrame.Parameters,currentSourceFrame.Controller,
-            currentSourceFrame.Lights,currentSourceFrame.Textures,currentSourceFrame.Atmosphere,moonNative);
+            currentSourceFrame.Lights,currentSourceFrame.Textures,currentSourceFrame.Atmosphere,pixelPrograms);
     }
     public static SkyScenePreparedFrame Prepare(
         IReadOnlyList<SkySceneSky2FaceCache> previousSixFaces,
-        SkySceneSourceFrame explicitSourceFrame)
+        SkySceneSourceFrame explicitSourceFrame,
+        params DxbcResourceDefinitions[] pixelPrograms)
     {
         ArgumentNullException.ThrowIfNull(previousSixFaces);
         ArgumentNullException.ThrowIfNull(explicitSourceFrame);
         return PrepareCore(previousSixFaces, explicitSourceFrame.SixCameras,
             explicitSourceFrame.Parameters, explicitSourceFrame.Controller,
             explicitSourceFrame.Lights, explicitSourceFrame.Textures,
-            explicitSourceFrame.Atmosphere,explicitSourceFrame.MoonGeometrySource);
+            explicitSourceFrame.Atmosphere,pixelPrograms);
     }
 
     public static SkyScenePreparedFrame Prepare(
@@ -118,19 +118,27 @@ public static class SkySceneFramePreparation
         SkySceneSky2Controller? explicitController,
         SkySceneLights explicitLights,
         SkySceneTexturePresence explicitTexturePresence,
-        SkySceneSharedAtmosphere explicitAtmosphere,LoadedSky2MoonGeometryNativeSource? moonNative=null)
+        SkySceneSharedAtmosphere explicitAtmosphere,params DxbcResourceDefinitions[] pixelPrograms)
     {
         ArgumentNullException.ThrowIfNull(previousSixFaces);
         return PrepareCore(previousSixFaces,explicitSixCameras,explicitParameters,explicitController,
-            explicitLights,explicitTexturePresence,explicitAtmosphere,moonNative);
+            explicitLights,explicitTexturePresence,explicitAtmosphere,pixelPrograms);
     }
     private static SkyScenePreparedFrame PrepareCore(
         IReadOnlyList<SkySceneSky2FaceCache>? previousSixFaces,
         IReadOnlyList<SkyScenePreparedCamera> explicitSixCameras,
         SkySceneSky2Parameters explicitParameters,SkySceneSky2Controller? explicitController,
         SkySceneLights explicitLights,SkySceneTexturePresence explicitTexturePresence,
-        SkySceneSharedAtmosphere explicitAtmosphere,LoadedSky2MoonGeometryNativeSource? moonNative=null)
+        SkySceneSharedAtmosphere explicitAtmosphere,params DxbcResourceDefinitions[] pixelPrograms)
     {
+        ArgumentNullException.ThrowIfNull(pixelPrograms);
+        if (pixelPrograms.Length == 0)
+            throw new ArgumentException("Sky frame preparation requires its actual pixel program definitions.", nameof(pixelPrograms));
+        // One prepared frame can feed atmosphere and contribution programs.
+        // Only their actual live Moon fields require the complete geometry.
+        bool needsMoonGeometry = pixelPrograms.SelectMany(program => program.Buffers)
+            .SelectMany(buffer => buffer.Variables).Any(variable =>
+                (variable.Flags & 2) != 0 && (variable.Name.Text is "g_mMoonFace" or "g_vMoonScreenPos"));
         ArgumentNullException.ThrowIfNull(explicitSixCameras);
         ArgumentNullException.ThrowIfNull(explicitParameters);
         ArgumentNullException.ThrowIfNull(explicitLights);
@@ -143,8 +151,7 @@ public static class SkySceneFramePreparation
         var provenance = explicitSixCameras.Select(c => c.SourceProvenance)
             .Concat([explicitParameters.SourceProvenance, explicitLights.SourceProvenance,
                 explicitAtmosphere.SourceProvenance])
-            .Concat(explicitController is null ? Array.Empty<string>() : [explicitController.SourceProvenance])
-            .Concat(moonNative is null?Array.Empty<string>():[moonNative.SourceEvidence]).ToArray();
+            .Concat(explicitController is null ? Array.Empty<string>() : [explicitController.SourceProvenance]).ToArray();
         if (provenance.Any(string.IsNullOrWhiteSpace))
             throw new InvalidDataException("Every sky frame source needs explicit retained provenance.");
         var p = explicitParameters; var l = explicitLights; var controller = explicitController;
@@ -186,10 +193,10 @@ public static class SkySceneFramePreparation
                 ? Sky2GeometryPreparation.PrepareSunScreenPosition(true, preparedSun,
                     Words(c.MatrixF0), c.Scalar138, c.Scalar13C, c.TargetWidth, c.TargetHeight, p.SunSize1490)
                 : null;
-            var moonGeometry=moonNative is not null&&moon is not null
+            var moonGeometry=needsMoonGeometry&&moon is not null
                 ? Sky2MoonGeometryPreparation.Prepare(l.MoonPresent,
                     new Vector3(moon.Direction.X,moon.Direction.Y,moon.Direction.Z),l.RawMoonPosition,
-                    Words(c.MatrixF0),c.Scalar138,c.Scalar13C,c.TargetWidth,c.TargetHeight,p.MoonSize1498,moonNative)
+                    Words(c.MatrixF0),c.Scalar138,c.Scalar13C,c.TargetWidth,c.TargetHeight,p.MoonSize1498)
                 : null;
             Sky2DrawInputs draw;
             if(old is not null)draw=Sky2Constants.ApplyPreparedCameraAndLights(old.Draw,camera,sun,moon,screen,moonGeometry);

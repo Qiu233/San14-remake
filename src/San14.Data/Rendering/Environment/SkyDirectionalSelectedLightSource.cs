@@ -206,8 +206,7 @@ public sealed class SkyDirectionalSelectedLightSource
         var frame=SkySceneSourceFrameProvider.PrepareAppliedSeason(
             present.AcceptedSeasonCamera.Inputs.Source.Selection,camera,AcceptedLighting,target,
             preparedLights,atmosphere.Atmosphere,controller,nativeClipProfile,textureBindings);
-        frame=frame with{SourceFrame=frame.SourceFrame with{MoonGeometrySource=native.MoonGeometrySource,
-            SourceSelectedAtmosphere=atmosphere},SourceProvenance=frame.SourceProvenance+";"+feature.SourceEvidence};
+        frame=frame with{SourceFrame=frame.SourceFrame with{SourceSelectedAtmosphere=atmosphere},SourceProvenance=frame.SourceProvenance+";"+feature.SourceEvidence};
         preparedLights=frame.SourceFrame.Lights;preparedAppliedFrame=frame;
         preparedSetterRevision=checked(preparedSetterRevision+1);
         atmosphere.ValidateFrame(frame,this);return frame;
@@ -240,7 +239,6 @@ public sealed class SkyDirectionalSelectedLightSource
         var frame = SkySceneSourceFrameProvider.PrepareAppliedSeason(
             present.AcceptedSeasonCamera.Inputs.Source.Selection, camera, AcceptedLighting, target,
             preparedLights, PrepareAtmosphere(native), controller, nativeClipProfile, textureBindings);
-        frame=frame with { SourceFrame=frame.SourceFrame with { MoonGeometrySource=native.MoonGeometrySource } };
         preparedLights = frame.SourceFrame.Lights;
         preparedAppliedFrame = frame;
         preparedSetterRevision = checked(preparedSetterRevision + 1);

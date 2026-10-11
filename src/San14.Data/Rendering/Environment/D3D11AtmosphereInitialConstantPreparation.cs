@@ -36,10 +36,13 @@ public sealed record D3D11AtmosphereInitialFogConstants(string Name,
 }
 
 public sealed record AtmosphereInitialConstants(byte[] CameraProfile,
-    D3D11AtmosphereProgramSelection SkyPrograms,byte[] SkyVertexBytes,byte[] SkyPixelBytes,
+    SkyMainProgramSelection SkyProgram,
     D3D11MainCloudConstants Cloud,
-    HeightFogInitialFrame HeightFog)
+    HeightFogInitialFrame HeightFog, Sky2DrawInputs SkyMaterial)
 {
+    public D3D11AtmosphereProgramSelection SkyPrograms => SkyProgram.Programs;
+    public byte[] SkyVertexBytes => SkyProgram.MaterialLayout.Pack(SkyMaterial, 1);
+    public byte[] SkyPixelBytes => SkyProgram.MaterialLayout.Pack(SkyMaterial, 0);
     public IReadOnlyList<D3D11AtmosphereInitialFogConstants> Fog => HeightFog.Passes;
 }
 
@@ -114,26 +117,18 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
 
     public static AtmosphereInitialConstants Prepare(GameResourceRepository repository,
         D3D11AtmosphereInitialInputs input,D3D11MainCloudConstants cloud,
+        SkyMainProgramResources skyResources, Sky2TextureBindingSnapshot sampling,
         HeightFogProgramResources? fogPrograms = null)
     {
         var present=input.Present;var options=input.Options;
-        var skyShader=repository.LoadShaderContainer("system",0x340AC335);
+        sampling.RequireCurrent();
+        var skyShader=skyResources.Shader;
         var skyTables=skyShader.ReadG1Bindings();
         var context = PrepareContext(input, skyTables);
-        var package=present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage;
         byte[] main = context.Main;
         var selected = context.Light;
-        int skyFeature = context.FeatureIndex;
-        bool earth = context.EarthPresent;
-        bool moonTexture=TextureReference(package.Camera,0xF83B0CC1);
-        bool milky=TextureReference(package.Camera,0x66BCE906);
-        if(moonTexture||milky)throw new NotSupportedException("Fresh Main Sky needs its actual Moon/Milky descriptor installation.");
-        byte[] skyVariant=new byte[12];BinaryPrimitives.WriteUInt32LittleEndian(skyVariant,1);
-        BinaryPrimitives.WriteUInt32LittleEndian(skyVariant.AsSpan(8),selected.Span[0x10B0]==4||(selected.Span[0xFDC]&2)!=0?1u:0u);
-        var skyBinding=skyTables.Variants.Match(skyVariant)??throw new InvalidDataException("Main Sky current binding variant is absent.");
-        uint skyPass=F(main,0x1D0)==0||earth?0u:1u;
-        var skyCombination=skyTables.ResolveCombination([(uint)skyFeature,0,0,0,0,0,(uint)skyBinding.Index],skyPass);
-        var skyPrograms=Programs(skyCombination);
+        var presence = sampling.Presence;
+        var skyProgram = SelectSkyProgram(present, selected.Span, skyResources, presence);
         var atmosphere = context.Atmosphere;
         var fog = atmosphere.Fog;
         var scattering = atmosphere.Scattering;
@@ -149,27 +144,39 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
             Words(matrices.WorldToProjection100),lens.VerticalFovRadians,lens.Aspect,options.Width,options.Height,parameters.SunSize1490)!;
         var moonGeometry=Sky2MoonGeometryPreparation.Prepare(true,
             new(input.Moon.Direction.X,input.Moon.Direction.Y,input.Moon.Direction.Z),input.Controller.MoonPosition!.Value,
-            Words(matrices.WorldToProjection100),lens.VerticalFovRadians,lens.Aspect,options.Width,options.Height,parameters.MoonSize1498,
-            Sky2MoonGeometryNativeSource.Load(repository,present.AcceptedSeasonCamera.Inputs.MainFrame.Camera.ExecutableLocale))!;
-        var skyVertex=new Fields();
-        skyVertex.Set("g_mC2L",Words(camera.CameraToLocal));skyVertex.Set("g_fProjFarZ",camera.ProjectionFarZ);skyVertex.Set("g_mL2G",Words(ctl.Matrix1B0));
-        var skyPixel=new Fields();
-        skyPixel.Set("fog",Words(fog.Value));skyPixel.Set("Scat",scattering.SelectMany(Words).ToArray());
-        skyPixel.Set("g_vViewPos",Words(Sky2ParameterPreparation.PrepareViewPosition(eye,parameters.AltitudeInfo,parameters.SkyYOffset1438,transform)));
-        skyPixel.Set("g_vSkyInfo0",Words(Sky2ParameterPreparation.PrepareSkyInfo0(lens.VerticalFovRadians,options.Height,
-            true,parameters.SunSize1490,true,parameters.MoonSize1498,ctl.SkyInfoZW7C78)));
-        skyPixel.Set("g_vSkyInfo1",Words(Sky2ParameterPreparation.PrepareSkyInfo1(earth,false,false,parameters.MilkyScale14A0,
-            parameters.MilkyStrength1484,V(selected.Span,0),input.Controller.MoonPosition.Value)));
-        skyPixel.Set("g_vSunRGB",Words(input.Sun.Rgb));skyPixel.Set("g_vSunDir",Words(input.Sun.Direction));
-        skyPixel.Set("g_vMoonRGB",Words(input.Moon.Rgb));skyPixel.Set("g_vMoonDir",Words(input.Moon.Direction));
-        skyPixel.Set("g_mMoonFace",Words(moonGeometry.MoonFace));skyPixel.Set("g_vSunScreenPos",Words(sunScreen.Position));
-        skyPixel.Set("g_vMoonScreenPos",Words(moonGeometry.Screen.Position));skyPixel.Set("g_vAltitudeInfo",Words(parameters.AltitudeInfo));
-        skyPixel.Set("g_vStableDim",Words(parameters.StableDimensions));
-        skyPixel.Set("g_vClampValue",Words(Sky2ParameterPreparation.PrepareClampValue(options.NativeTargetFormat,parameters.ClampDelta1610,ctl.Scalar1F0)));
+            Words(matrices.WorldToProjection100),lens.VerticalFovRadians,lens.Aspect,options.Width,options.Height,parameters.MoonSize1498)!;
+        var vertexInputs = new Sky2VertexInputs(fog.Value, camera.CameraToLocal, camera.ProjectionFarZ, ctl.Matrix1B0);
+        var pixelInputs = new Sky2PixelInputs(fog.Value, Array.AsReadOnly(scattering.ToArray()),
+            Sky2ParameterPreparation.PrepareViewPosition(eye,parameters.AltitudeInfo,parameters.SkyYOffset1438,transform),
+            Sky2ParameterPreparation.PrepareSkyInfo0(lens.VerticalFovRadians,options.Height,
+                true,parameters.SunSize1490,true,parameters.MoonSize1498,ctl.SkyInfoZW7C78),
+            Sky2ParameterPreparation.PrepareSkyInfo1(presence.Earth, presence.Moon, presence.Milky, parameters.MilkyScale14A0,
+                parameters.MilkyStrength1484,V(selected.Span,0),input.Controller.MoonPosition.Value),
+            input.Sun.Rgb,input.Sun.Direction,input.Moon.Rgb,input.Moon.Direction,
+            sunScreen.Position,parameters.AltitudeInfo,parameters.StableDimensions,
+            Sky2ParameterPreparation.PrepareClampValue(options.NativeTargetFormat,parameters.ClampDelta1610,ctl.Scalar1F0),
+            moonGeometry.MoonFace,moonGeometry.Screen.Position);
+        var skyMaterial = new Sky2DrawInputs(vertexInputs, pixelInputs);
         var fogPackets=PrepareFog(repository,input,main,lens,fogPrograms ?? HeightFogProgramResources.Load(repository));
-        return new(Profile(input,main,transform,lens),skyPrograms,
-            Pack(skyShader.ReadResourceDefinitions(skyPrograms.VertexProgram),144,skyVertex),
-            Pack(skyShader.ReadResourceDefinitions(skyPrograms.PixelProgram),336,skyPixel),cloud,fogPackets);
+        return new(Profile(input,main,transform,lens),skyProgram,cloud,fogPackets,skyMaterial);
+    }
+
+    /// <summary>Select the normal Main's two nonnull prepared light inputs.
+    /// Texture presence comes from the installed logical binding, not package keys.</summary>
+    public static SkyMainProgramSelection SelectSkyProgram(MapSourceCreatedSeasonLightingFrame present,
+        ReadOnlySpan<byte> selectedLight, SkyMainProgramResources resources, SkySceneTexturePresence textures)
+    {
+        var tables = resources.Shader.ReadG1Bindings();
+        int feature = Feature(tables, SkyDirectionalRendererFeatureWriter.WriteRequest(selectedLight));
+        byte[] variant = new byte[12];
+        BinaryPrimitives.WriteUInt32LittleEndian(variant, 1); // Moon light is present; Sun light is nonnull.
+        BinaryPrimitives.WriteUInt32LittleEndian(variant.AsSpan(8),
+            selectedLight[0x10B0] == 4 || (selectedLight[0xFDC] & 2) != 0 ? 1u : 0u);
+        var binding = tables.Variants.Match(variant)
+            ?? throw new NotSupportedException("Current Main Sky light variant has no selected resource combination.");
+        uint pass = F(present.PreparedCameraPrefix.Span, 0x1D0) == 0 || textures.Earth ? 0u : 1u;
+        var combination = tables.ResolveCombination([(uint)feature, 0, 0, 0, 0, 0, (uint)binding.Index], pass);
+        return resources.ImportSelection(Programs(combination));
     }
 
     public static void WriteNativeInputs(AtmosphereInitialConstants constants,
@@ -177,8 +184,7 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
     {
         void Write(string root,string name,byte[] bytes){string path=Path.Combine(root,name);Directory.CreateDirectory(Path.GetDirectoryName(path)!);File.WriteAllBytes(path,bytes);}
         Write(atmosphereDirectory,"profile.bin",constants.CameraProfile);
-        foreach(string root in new[]{atmosphereDirectory,mainSkyDirectory})
-        {Write(root,"main-sky-vs-b0.bin",constants.SkyVertexBytes);Write(root,"main-sky-ps-b0.bin",constants.SkyPixelBytes);}
+        SkyMainMaterialEncoding.WriteNativeInputs(mainSkyDirectory, constants.SkyMaterial);
         foreach(string root in new[]{Path.Combine(atmosphereDirectory,"cloud"),mainCloudDirectory})
         {
             Write(root,"pass1-vs-b0.bin",constants.Cloud.Vertex);Write(root,"pass1-ps-b0.bin",constants.Cloud.Pixel);

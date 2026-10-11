@@ -9,8 +9,9 @@ public sealed class D3D11CurrentAtmosphereFrame
 {
     // 64 SkyTransform,64 LocalToGlobal,16 projectedSun,16 rawMoon,16 altitude,
     // 6 floats(offset,sizeSun,sizeMoon,infoZ,infoW,tangent),32 currentD3RGB.
-    // The final64 bytes are directly uploadable SunRGB/SunDir/MoonRGB/MoonDir.
-    public const int ByteLength = 296;
+    // Then 64 bytes of SunRGB/SunDir/MoonRGB/MoonDir, followed by the
+    // current Milky coefficient and StableDimensions. Presence belongs to media.
+    public const int ByteLength = 316;
     public ReadOnlyMemory<byte> NumericBytes { get; }
     public SkyScenePreparedController Controller { get; }
     public SkySceneSky2Parameters Parameters { get; }
@@ -71,6 +72,12 @@ public sealed class D3D11CurrentAtmosphereFrame
         float[] shaderLights = [..Words(sun.Rgb), ..Words(sun.Direction), ..Words(moon.Rgb), ..Words(moon.Direction)];
         for (int i = 0; i < shaderLights.Length; i++)
             BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(232 + i * 4), shaderLights[i]);
+        // The device owner applies its actual retained Milky texture gate.
+        BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(296),
+            parameters.MilkyScale14A0 * parameters.MilkyStrength1484);
+        float[] stable = Words(parameters.StableDimensions);
+        for (int i = 0; i < stable.Length; i++)
+            BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(300 + i * 4), stable[i]);
         return new(bytes, controller, parameters, sun, moon, moonRgb, moonMaximum, controllerGeometry40);
     }
     private static Vector3 ReadRgb(ReadOnlySpan<byte> bytes) => new(

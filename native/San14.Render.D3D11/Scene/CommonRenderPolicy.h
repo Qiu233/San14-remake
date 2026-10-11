@@ -6,5 +6,9 @@ namespace San14::Render {
 struct CommonRenderPolicy {
     bool present{};
     bool suppressOceanDrawing{};
+    bool enableSkyDrawing{};
 };
+inline bool skyCloudDrawingEnabled(const CommonRenderPolicy& policy) {
+    return !policy.present||policy.enableSkyDrawing;
+}
 } // namespace San14::Render

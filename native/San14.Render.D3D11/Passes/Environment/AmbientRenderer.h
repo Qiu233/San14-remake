@@ -3,6 +3,7 @@
 // optional Star and Cloud animation consume the shared Main clock update.
 #pragma once
 #include "AmbientStarFrame.h"
+#include <optional>
 
 struct AmbientNativeProgram {
     ComPtr<ID3D11VertexShader> vs;
@@ -55,12 +56,14 @@ struct AmbientNativeTextureBinding {
     ComPtr<ID3D11SamplerState> sampler;
 };
 static std::vector<AmbientNativeTextureBinding> ambientTextures(ID3D11Device* device,const fs::path& source,
-    const char* tableName,UINT expectedCount,bool allowEmpty=false) {
+    const char* tableName,std::optional<UINT> expectedCount,bool allowEmpty=false) {
     std::ifstream rows(source/tableName);
     if(!rows)throw std::runtime_error(std::string(tableName)+" missing");
     std::vector<AmbientNativeTextureBinding> result;
     std::string program,prefix;UINT slot,dimension,width,height,depth,mips,resourceFormat,viewFormat;
-    while(rows>>program>>slot>>dimension>>width>>height>>depth>>mips>>resourceFormat>>viewFormat>>prefix) {
+    while(rows>>program) {
+        if(!(rows>>slot>>dimension>>width>>height>>depth>>mips>>resourceFormat>>viewFormat>>prefix))
+            throw std::runtime_error("Malformed Sky/Cloud texture table row");
         if(dimension!=4&&dimension!=8)throw std::runtime_error("Ambient actual texture is not2D/3D");
         std::vector<std::vector<char>> data(mips);std::vector<D3D11_SUBRESOURCE_DATA> initial(mips);
         for(UINT mip=0;mip<mips;++mip) {
@@ -95,7 +98,7 @@ static std::vector<AmbientNativeTextureBinding> ambientTextures(ID3D11Device* de
         check(device->CreateShaderResourceView(binding.resource.Get(),&sd,&binding.view),"ambient original source SRV");
         binding.sampler=ambientSampler(device,source/(prefix+"-sampler.bin"));result.push_back(std::move(binding));
     }
-    if(result.size()!=expectedCount&&!(allowEmpty&&result.empty()))throw std::runtime_error("Source Sky/Cloud texture table count differs");
+    if(expectedCount&&result.size()!=*expectedCount&&!(allowEmpty&&result.empty()))throw std::runtime_error("Source Sky/Cloud texture table count differs");
     return result;
 }
 struct AmbientNativeCube {

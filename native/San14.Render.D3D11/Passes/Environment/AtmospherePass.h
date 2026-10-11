@@ -12,6 +12,7 @@ struct AtmosphereFrame {
     const source_camera::V3& globalRgb;
     const source_camera::CameraTransform& camera;
     NativeMainCloud& cloud;
+    const CommonRenderPolicy& commonPolicy;
 };
 
 class AtmospherePass {
@@ -24,9 +25,9 @@ class AtmospherePass {
         const fs::path& skySource,const fs::path& fogSource,const fs::path& cameraSource,
         ID3D11Texture2D* hdr,ID3D11ShaderResourceView* depth,ID3D11ShaderResourceView* acceleration,
         ID3D11DepthStencilView* dsv,UINT width,UINT height,const AtmosphereFrame& frame) {
-        sky_=prepareNativeMainSky(device,skySource,hdr,dsv,width,height);
+        sky_=prepareNativeMainSky(device,skySource,width,height);
         fog_=prepareNativeMapFog(device,fogSource,hdr,depth,acceleration,dsv,width,height);
-        camera_=prepareNativeAtmosphereCamera(device,cameraSource,sky_);
+        camera_=prepareNativeAtmosphereCamera(cameraSource,skySource);
         publishCurrent(frame);
         ready_=true;
         updateCamera(context,frame);
@@ -39,11 +40,13 @@ class AtmospherePass {
     }
 
     void updateCamera(ID3D11DeviceContext* context,const AtmosphereFrame& frame) {
-        updateNativeAtmosphereCamera(context,camera_,frame.camera,sky_,frame.cloud);
+        updateNativeAtmosphereCamera(context,camera_,frame.camera,sky_,frame.cloud,skyCloudEnabled_);
     }
 
-    void executeSky(ID3D11Device* device,ID3D11DeviceContext* context,NativeSourceDepthState& logical) {
-        executeNativeMainSky(device,context,logical,sky_);
+    bool executeSky(ID3D11Device* device,ID3D11DeviceContext* context,NativeSourceDepthState& logical) {
+        if(!skyCloudEnabled_)return false;
+        executeNativeMainSky(device,context,logical,sky_,camera_.current.skyPolicy);
+        return true;
     }
 
     // This operation remains after Cloud's draw and its target restoration.
@@ -58,6 +61,18 @@ class AtmospherePass {
 
   private:
     void publishCurrent(const AtmosphereFrame& frame) {
+        skyCloudEnabled_=skyCloudDrawingEnabled(frame.commonPolicy);
+        if(!skyCloudEnabled_) {
+            // Fog125 remains a separate consumer of the ordinary camera. Keep
+            // its current geometric inputs without evaluating a skipped Sky.
+            if(frame.season) {
+                const auto environment=source_current_season_atmosphere::decodeEnvironment(*frame.season);
+                camera_.packet.environment=environment.celestial;
+                camera_.packet.direct=environment.direct;
+                camera_.packet.skyPolicy=frame.season->skyPolicy;
+            }
+            return;
+        }
         if(frame.season){publishNativeCurrentSeasonAtmosphere(camera_,frame.cloud,*frame.season,&frame.cloudLights);
             publishNativeCurrentMainSkyMoonFace(camera_,*frame.season);}
         else {
@@ -70,5 +85,6 @@ class AtmospherePass {
     NativeMapFog fog_;
     NativeAtmosphereCamera camera_;
     bool ready_=false;
+    bool skyCloudEnabled_=false;
 };
 } // namespace San14::Render
