@@ -8,11 +8,14 @@ namespace San14.Data;
 /// a named View. This resource owner does not assert GPU or renderer readiness.</summary>
 public sealed class NamedViewRendererResources
 {
-    private NamedViewRendererResources(LoadedObjects definitions, DokObject renderer,
+    private NamedViewRendererResources(LoadedObjects definitions, DokObject view, DokObject renderer,
         OceanGridSettings declaredGrid, uint dimensionOverride,
         uint normalVolumeGroup, uint normalNoiseGroup, uint oceanWaveShaderFileId, uint cloudShaderFileId)
     {
         Definitions = definitions;
+        ViewObjectId = view.ObjectId;
+        RendererObjectId = renderer.ObjectId;
+        DimensionOverride = dimensionOverride;
         DeclaredGrid = declaredGrid;
         OceanGrid = dimensionOverride == 0 ? declaredGrid : declaredGrid with
         { Columns = dimensionOverride, Rows = dimensionOverride };
@@ -24,6 +27,9 @@ public sealed class NamedViewRendererResources
     }
 
     internal LoadedObjects Definitions { get; }
+    public uint ViewObjectId { get; }
+    public uint RendererObjectId { get; }
+    public uint DimensionOverride { get; }
     public OceanGridSettings DeclaredGrid { get; }
     public OceanGridSettings OceanGrid { get; }
     public uint NormalVolumeGroup { get; }
@@ -63,7 +69,7 @@ public sealed class NamedViewRendererResources
             Float(Field(renderer, 0x601A5D90, 8, 1), 0),
             Word(Field(renderer, 0x9731A846, 5, 1), 0),
             Float(Field(renderer, 0x0CAE2711, 8, 1), 0));
-        return new(definitions, renderer, grid, dimensionOverride,
+        return new(definitions, view, renderer, grid, dimensionOverride,
             Word(Field(renderer, 0xD322225E, 5, 1), 0),
             Word(Field(renderer, 0x7852C9D5, 5, 1), 0),
             Word(Field(renderer, 0x70DDC332, 5, 1), 0),

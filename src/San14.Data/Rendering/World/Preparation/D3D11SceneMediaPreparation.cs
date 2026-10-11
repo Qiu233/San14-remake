@@ -39,6 +39,8 @@ public sealed class D3D11SceneMediaPreparation
         models.WriteNativeInputs(Path.Combine(inputs, "model-continuous-input"));
         OceanGridSettingsEncoding.WriteNativeInputs(
             Path.Combine(inputs, OceanGridSettingsEncoding.NativeDirectory), renderer.OceanGrid);
+        NamedViewRendererEncoding.WriteNativeInputs(
+            Path.Combine(inputs, OceanGridSettingsEncoding.NativeDirectory), renderer, viewIndex: 0);
         D3D11OceanTextureInputPreparation.Load(repository, renderer, "system", "RRPreview")
             .WriteNativeInputs(Path.Combine(inputs, "ocean-texture-input"));
         var oceanShaders = OceanShaderResources.LoadPb2Wave(repository, renderer);

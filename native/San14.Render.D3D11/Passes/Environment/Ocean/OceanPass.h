@@ -1,6 +1,5 @@
 #pragma once
 // Include after the Ocean geometry, FFT, water camera and refraction writers.
-#include "Interop/OceanGridInput.h"
 #include "Interop/OceanWaveInput.h"
 #include "Interop/OceanSurfaceInput.h"
 #include "Interop/OceanOpticsInput.h"
@@ -44,24 +43,25 @@ class OceanPass {
     }
 
     void prepareWater(ID3D11Device* device,ID3D11DeviceContext* context,
-        const OceanSources& source,const OceanTargets& targets,const source_camera::CameraTransform& camera,float clock,
+        const OceanSources& source,const OceanTargets& targets,OceanGrid& grid,
+        const source_camera::CameraTransform& camera,float clock,
         RenderRandomContext& randomContext,uint32_t startupSeed,const OceanWaveSettings* currentWave,
         const OceanSurfaceSettings* currentSurface,const OceanOpticsSettings* currentOptics,
         const OceanTextureMaterialSettings* currentTextureMaterial) {
         const auto surface=currentSurface?*currentSurface:Interop::readOceanSurfaceSettings(source.grid/"ocean-surface.bin");
-        grid_=constructOceanGrid(Interop::readOceanGridSettings(source.grid/"ocean-grid.bin"),surface);
+        grid_ = &grid;
         const auto wave=currentWave?*currentWave:Interop::readOceanWaveSettings(source.grid/"ocean-wave.bin");
         const auto optics=currentOptics?*currentOptics:Interop::readOceanOpticsSettings(source.grid/"ocean-optics.bin");
         const auto material=currentTextureMaterial?*currentTextureMaterial:
             Interop::readOceanTextureMaterialSettings(source.grid/"ocean-texture-material.bin");
-        waves_=prepareNativeOceanFftSchedule(grid_.settings,wave,randomContext,startupSeed);
+        waves_=prepareNativeOceanFftSchedule(grid_->settings,wave,randomContext,startupSeed);
         const auto initialSide=waves_.fft.activeSide;
         textures_=loadOceanTextures(device,source.textures);
-        water_=prepareNativeOcean116(device,source.water,textures_,grid_,waves_.fft.vertices[initialSide].data(),
+        water_=prepareNativeOcean116(device,source.water,textures_,*grid_,waves_.fft.vertices[initialSide].data(),
             depth_.view.Get(),source.depthCopy/"target-sampler-desc.bin",targets.textures,targets.colors,targets.format,targets.depth,targets.width,targets.height,
             surface,optics,sceneCopy_.has_value()&&depthCopy_.has_value());
         applyNativeOceanTextureMaterialSettings(water_,material);
-        camera_=prepareNativeWaterCameraGpu(device,grid_,water_);
+        camera_=prepareNativeWaterCameraGpu(device,*grid_,water_);
         // The first displayed frame follows the same publication cadence as
         // later frames: phase0 is published once, then the first Common delta
         // advances the clock and queues the elapsed job on the other side.
@@ -79,7 +79,7 @@ class OceanPass {
         completedWaveBounds_=waves_.publishedBounds;
         if(currentWave)applyNativeOceanWaveSettings(waves_.fft,*currentWave);
         if(currentSurface) {
-            applyOceanSurfaceSettings(grid_.visibility,*currentSurface);
+            applyOceanSurfaceSettings(grid_->visibility,*currentSurface);
             applyOceanSurfaceSettings(camera_.profile,*currentSurface);
             applyNativeOceanSurfaceSettings(water_,*currentSurface);
         }
@@ -121,7 +121,8 @@ class OceanPass {
     NativeRefractionDepth depth_;
     NativeRefractionColors colors_;
     OceanNativeTextures textures_;
-    OceanGrid grid_;
+    // The Scene named renderer owns this grid and outlives this pass.
+    OceanGrid* grid_ = nullptr;
     NativeOcean116 water_;
     NativeWaterCameraGpu camera_;
     std::array<float,8> completedWaveBounds_{};

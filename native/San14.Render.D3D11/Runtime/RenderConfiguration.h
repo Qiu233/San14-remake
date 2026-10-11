@@ -8,6 +8,7 @@ namespace San14::Render {
 // Subdirectories are a prepared-resource format contract. Keep that disk
 // format at the import boundary; passes address resources by purpose.
 enum class ResourceGroup {
+    NamedRenderer,
     Models,
     ShadowCasters,
     AmbientClouds,
@@ -69,6 +70,7 @@ public:
     const std::filesystem::path& root() const noexcept { return packageRoot; }
     std::filesystem::path directory(ResourceGroup group) const {
         switch(group) {
+        case ResourceGroup::NamedRenderer: return packageRoot/"named-renderer-input";
         case ResourceGroup::Models: return packageRoot/"model-continuous-input";
         case ResourceGroup::ShadowCasters: return packageRoot/"shadow-caster-input";
         case ResourceGroup::AmbientClouds: return packageRoot/"ambient-cloud-continuous-input";

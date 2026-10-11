@@ -3,6 +3,10 @@
 #include "../Scene/SceneEnvironmentPacket.h"
 #include "../Scene/View/PreparedMapView.h"
 #include "../Scene/View/Interop/MapViewProfileCodec.h"
+#include "../Scene/View/Interop/NamedMapRendererInput.h"
+#include "../Passes/Environment/Ocean/Interop/OceanGridInput.h"
+#include "../Passes/Environment/Ocean/Interop/OceanSurfaceInput.h"
+#include <memory>
 
 namespace San14::Render {
 
@@ -41,7 +45,16 @@ public:
         std::memcpy(&globalLight_,globalRgb.data(),globalRgb.size());
     }
     void prepareView(const PreparedResourceDirectories& resources) {
-        mapView_.emplace(Interop::readMapViewProfile(resources.directory(ResourceGroup::View)/"profile.bin"));
+        const auto directory = resources.directory(ResourceGroup::NamedRenderer);
+        const auto surface = season_ ? season_->oceanSurface
+            : Interop::readOceanSurfaceSettings(directory / "ocean-surface.bin");
+        namedRenderer_.emplace(
+            Interop::readNamedMapRendererDeclaration(directory / "scene-renderer.bin"),
+            Interop::readOceanGridSettings(directory / "ocean-grid.bin"), surface, std::nullopt);
+        initialHeightFog_ = Interop::readHeightFogSettings(
+            resources.directory(ResourceGroup::Atmosphere) / "initial-height.bin");
+        viewPreparation_.emplace(Interop::readMapViewProfile(
+            resources.directory(ResourceGroup::View) / "profile.bin"));
     }
     void bindFieldDisplay(ShadowPass& shadows,const NativeModelContinuous& catalog) {
         shadows.bindFieldDisplay(fieldDisplay_,cameraRig_.distantProfile(),catalog);
@@ -73,7 +86,7 @@ public:
         models.selectCamera(cameraRig_.frame(),fieldDisplay_);
         bases.selectCamera(cameraRig_.frame());
         shadows.prepareCamera(cameraRig_.frame(),fieldDisplay_);
-        auto& view=*mapView_;
+        auto& view=*viewPreparation_;
         view.beginPopulation(shadows.frame().ordinaryRecordCounts);
         bases.withAccessories([&](auto& cityAccessories,auto& areaAccessories) {
             view.withArmyPopulation([&](const auto& profile,auto& counts,auto& accessoryCount) {
@@ -108,11 +121,24 @@ public:
             shadow.emplace(MapViewShadowSelection{*season_,current.selectedLightGroup,
                 current.planeScale,current.selectedMask,season_->shadow.compactMode});
         }
-        view.publishPopulation(std::move(population),shadow);
-
-        deferredFields_=prepareNativeDeferredCameraFields(cameraRig_.frame());
+        auto frame = view.preparePopulation(std::move(population), shadow);
+        auto camera = prepareNativeDeferredCameraFields(cameraRig_.frame());
+        const auto& heightFog = season_ ? season_->heightFog : initialHeightFog_;
+        std::array<std::uint32_t, 3> modes;
+        for (std::size_t i = 0; i < modes.size(); ++i) modes[i] = heightFog.layers[i].mode;
+        auto prepared = std::make_unique<PreparedMapView>(0, std::move(frame), modes);
         fieldDisplay_.finishPreparation();
+        deferredFields_ = std::move(camera);
+        mapView_ = std::move(prepared);
     }
+    // Scene publication follows the actual View construction operation and
+    // precedes Main traversal. Repeated queries never trigger publication.
+    void publishHdrAmbientSelection() {
+        if (mapView_) mapView_->publishAmbientSelection(
+            namedRenderer_ ? &*namedRenderer_ : nullptr);
+    }
+    NamedMapRenderer& namedRenderer() { return namedRenderer_.value(); }
+    const PreparedMapView& preparedView() const { return *mapView_; }
     AtmosphereFrame atmosphereFrame(CloudEnvironmentPass& clouds) {
         return clouds.atmosphereFrame(season_,cloudLights_,environment_.camera().weatherHeight,
             weather_,globalLight_,cameraRig_.frame());
@@ -123,7 +149,7 @@ public:
     source_camera::Frame publishedEventCamera(const RenderInput& input)const {return cameraRig_.publishedEventCamera(input);}
     const source_camera::Frame& camera()const {return cameraRig_.frame();}
     const SceneEnvironment& environment()const {return environment_;}
-    const MapViewDefinition& viewDefinition()const {return mapView_->definition();}
+    const MapViewDefinition& viewDefinition()const {return viewPreparation_->definition();}
     const MapViewFrame& view()const {return mapView_->frame();}
     const NativeDeferredCameraProfile& deferredProfile()const {return deferredProfile_;}
     const NativeWeatherFogConsumers& weatherConsumers()const {return weatherConsumers_;}
@@ -141,7 +167,10 @@ private:
     source_weather_fog::Frame weather_;
     source_camera::V3 globalLight_{};
     NativeWeatherFogConsumers weatherConsumers_;
-    std::optional<PreparedMapView> mapView_;
+    std::optional<MapViewPreparation> viewPreparation_;
+    std::unique_ptr<PreparedMapView> mapView_;
+    std::optional<NamedMapRenderer> namedRenderer_;
+    HeightFogSettings initialHeightFog_;
     const source_current_season::Frame* season_{};
     source_current_season_atmosphere::CloudLightInput cloudLights_{};
 };

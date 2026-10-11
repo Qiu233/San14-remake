@@ -316,6 +316,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         atmosphere.publishAcceptedCamera(frameState.atmosphereFrame(clouds));
         frameState.preparePopulation(context.Get(),*staticModels,bases,armies,shadows,groundDetails,
             commonPublication,commonClock.settingsFlags10);
+        frameState.publishHdrAmbientSelection();
 
     };
     const auto animationFps=source_animation_cadence::readProfile(
@@ -570,7 +571,8 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                     resources.directory(ResourceGroup::Water),resources.directory(ResourceGroup::Refraction)/"copy97",
                     resources.root()/"named-renderer-input"};
                 const OceanTargets oceanTargets{geometryTargets.textures(),geometryTargets.colors(),formats[3],geometryTargets.depthView(),width,height};
-                ocean.prepareWater(device.Get(),context.Get(),oceanSources,oceanTargets,staticCamera,initialCommonClock,
+                ocean.prepareWater(device.Get(),context.Get(),oceanSources,oceanTargets,
+                    frameState.namedRenderer().oceanGrid(),staticCamera,initialCommonClock,
                     renderRandom,sampleRenderRandomSeed(renderRandomClock),frameState.season()?&frameState.season()->oceanWave:nullptr,
                     frameState.season()?&frameState.season()->oceanSurface:nullptr,
                     frameState.season()?&frameState.season()->oceanOptics:nullptr,

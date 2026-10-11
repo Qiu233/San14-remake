@@ -1,6 +1,7 @@
 #pragma once
 #include "MapViewPopulation.h"
 #include "../../Passes/Environment/SeasonFrame.h"
+#include "../NamedMapRenderer.h"
 #include <optional>
 #include <utility>
 
@@ -13,15 +14,15 @@ struct MapViewShadowSelection {
     std::optional<source_current_season_shadow::CompactMode> compactMode;
 };
 
-// One loaded View owns its working population and published frame. Loading a
-// new View replaces this owner; population updates do not reset its lifecycle.
-class PreparedMapView {
+// Working counters and applied camera settings survive individual preparation
+// attempts. Successful preparation returns a new frame for a View generation.
+class MapViewPreparation {
 public:
-    explicit PreparedMapView(ImportedMapView imported)
+    explicit MapViewPreparation(ImportedMapView imported)
         :definition_(std::move(imported.definition)),camera_(imported.camera),
          initialReceiveShadowMode_(imported.initialReceiveShadowMode){}
-    PreparedMapView(const PreparedMapView&)=delete;
-    PreparedMapView& operator=(const PreparedMapView&)=delete;
+    MapViewPreparation(const MapViewPreparation&)=delete;
+    MapViewPreparation& operator=(const MapViewPreparation&)=delete;
 
     void beginPopulation(const std::vector<unsigned>& shadowCounts) { ordinaryCounts_=shadowCounts; }
     template<class Append> void withArmyPopulation(Append&& append) {
@@ -35,7 +36,7 @@ public:
             for(std::size_t record=0;record<definition_.records.size();++record)
                 ordinaryCounts_[record]+=count(definition_.records[record].groupMask);
     }
-    void publishPopulation(MapViewPopulation population,
+    MapViewFrame preparePopulation(MapViewPopulation population,
         const std::optional<MapViewShadowSelection>& shadow=std::nullopt) {
         population.ordinaryCounts=ordinaryCounts_;
         population.selectedReceiveShadowMode=initialReceiveShadowMode_;
@@ -54,17 +55,54 @@ public:
         }
         // A failed preparation leaves the preceding publication intact. Working
         // counts and the already applied camera prefix retain their writes.
-        frame_=prepareMapViewFrame(definition_,camera_,population);
+        return prepareMapViewFrame(definition_,camera_,population);
     }
     const MapViewDefinition& definition()const { return definition_; }
     const MapViewCameraSettings& cameraSettings()const { return camera_; }
-    const MapViewFrame& frame()const { return frame_; }
 private:
     const MapViewDefinition definition_;
     MapViewCameraSettings camera_;
     const std::uint32_t initialReceiveShadowMode_;
-    MapViewFrame frame_;
     std::vector<unsigned> ordinaryCounts_;
     unsigned accessoryCount_{};
+};
+enum class HdrAmbientMapVariant : int { Unsupported = -1, First, Second, Third };
+struct HdrAmbientSelection {
+    std::array<HdrAmbientMapVariant, 3> layers;
+};
+
+// This is one successful normal View preparation, separate from the retained
+// working domain. Its publication contains only HDR ambient classifications.
+class PreparedMapView {
+public:
+    PreparedMapView(std::uint32_t slot, MapViewFrame frame,
+        std::array<std::uint32_t, 3> heightFogModes)
+        : slot_(slot), frame_(std::move(frame)), heightFogModes_(heightFogModes) {}
+    PreparedMapView(const PreparedMapView&) = delete;
+    PreparedMapView& operator=(const PreparedMapView&) = delete;
+
+    const MapViewFrame& frame() const { return frame_; }
+    const std::optional<HdrAmbientSelection>& ambientSelection() const { return ambient_; }
+
+    bool publishAmbientSelection(NamedMapRenderer* renderer) {
+        if (ambient_) return false;
+        if (!renderer || renderer->viewSlot() != slot_) return false;
+        renderer->prepareAmbientDimensions();
+        HdrAmbientSelection selection;
+        for (std::size_t i = 0; i < heightFogModes_.size(); ++i) {
+            const auto mode = heightFogModes_[i] & 0x7fffffffu;
+            selection.layers[i] = mode >= 1 && mode <= 3
+                ? static_cast<HdrAmbientMapVariant>(mode - 1)
+                : HdrAmbientMapVariant::Unsupported;
+        }
+        ambient_ = selection;
+        return true;
+    }
+
+private:
+    const std::uint32_t slot_;
+    const MapViewFrame frame_;
+    const std::array<std::uint32_t, 3> heightFogModes_;
+    std::optional<HdrAmbientSelection> ambient_;
 };
 } // namespace San14::Render
