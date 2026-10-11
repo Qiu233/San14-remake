@@ -81,36 +81,3 @@ public sealed class D3D11CurrentAtmosphereFrame
     private static float[] Words(Matrix4x4 v) => [v.M11,v.M12,v.M13,v.M14,v.M21,v.M22,v.M23,v.M24,
         v.M31,v.M32,v.M33,v.M34,v.M41,v.M42,v.M43,v.M44];
 }
-
-public static class D3D11CurrentLightingFields
-{
-    public static IReadOnlyDictionary<string, byte[]> Create(D3D11CurrentSeasonFrame frame,
-        uint outerMask, uint innerMask, bool arg18, float ambientMapsRate, bool fogOwnerEnabled)
-    {
-        var outer = frame.Lights.FirstOrDefault(light => (light.GroupMask & outerMask) != 0)
-            ?? throw new InvalidDataException("Current HDR has no actual matching outer light.");
-        var inner = frame.Lights.FirstOrDefault(light => (light.GroupMask & innerMask) != 0) ?? outer;
-        var lighting = outer.Lighting.PrepareLighting(inner.Lighting, arg18).Lighting;
-        int count = lighting.Lights.Count;
-        var firstColor = lighting.Lights[0].Color;
-        var fog = DeferredSceneConstants.ReadSharedFog(outer.CompleteData.Span[..0x1B0],
-            fogOwnerEnabled, new Vector3(firstColor.X, firstColor.Y, firstColor.Z));
-        var selectedModifier = inner.Lighting.Modifier.Present ? inner.Lighting : outer.Lighting;
-        var ambient = selectedModifier.PrepareAmbient(ambientMapsRate);
-        var result = new Dictionary<string, byte[]>();
-        void Add(string name, params float[] values)
-        { byte[] bytes = new byte[values.Length * 4]; for (int i = 0; i < values.Length; i++)
-            BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(i * 4), values[i]); result.Add(name, bytes); }
-        var dirs = Enumerable.Range(0, 4).Select(i => i < count ? lighting.Lights[i].Direction : new Vector4(0, 1, 0, 0));
-        var cols = Enumerable.Range(0, 4).Select(i => i < count ? lighting.Lights[i].Color : Vector4.Zero);
-        Add("litDir", dirs.SelectMany(Words).ToArray()); Add("litCol", cols.SelectMany(Words).ToArray());
-        Add("litOcc", Enumerable.Range(0, 4).Select(i => i < count ? lighting.Lights[i].Occurrence : 1).ToArray());
-        Add("ambLit", Words(lighting.Ambient));
-        byte[] dirCount = new byte[4]; BinaryPrimitives.WriteInt32LittleEndian(dirCount, count - 1); result.Add("nDirLit", dirCount);
-        Add("fog", Words(fog.Coefficients)); Add("cFog", Words(fog.Color)); Add("Scat", fog.Scattering.SelectMany(Words).ToArray());
-        Add("fAmbMapsDORate", ambient.MapsDirectionalOcclusionRate);
-        Add("vAmbDifScl", Words(ambient.DiffuseScale)); Add("vAmbSpcScl", Words(ambient.SpecularScale));
-        return result;
-    }
-    private static float[] Words(Vector4 v) => [v.X,v.Y,v.Z,v.W];
-}

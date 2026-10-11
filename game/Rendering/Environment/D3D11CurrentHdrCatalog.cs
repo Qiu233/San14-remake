@@ -1,35 +1,26 @@
 using System.Buffers.Binary;
 using San14.Data;
-using San14.Data.Formats;
 
-public sealed record D3D11CurrentHdrWrite(string Name, int Offset, int SourceOffset, int Bytes);
-public sealed record D3D11CurrentHdrRoute(D3D11PreparedHdrPass Pass, int Slot,
-    int ConstantBytes, bool Arg18,
-    bool FogOwnerEnabled, IReadOnlyList<D3D11CurrentHdrWrite> Writes)
-{
-    public string Identity => Pass.Identity;
-    public int Node => Pass.Declaration.NodeIndex;
-    public uint OuterMask => Pass.OuterMask;
-    public uint InnerMask => Pass.InnerMask;
-    public string ResourceDirectory => Pass.ResourceDirectory;
-    public string CameraResourceDirectory => Pass.CameraResourceDirectory;
-    public int PixelProgramIndex => Pass.Program.PixelProgramIndex;
-    public DxbcResourceDefinitions PixelDefinitions => Pass.Program.PixelDefinitions;
-}
-
-/// <summary>Typed HDR routes and shader layouts used by current numeric encoding.
-/// Camera, material and unused CB bytes retain their existing owners.
-/// Media selection belongs to the caller, independently of this layout catalog.</summary>
+/// <summary>Scene lighting policy and prepared HDR media. Numeric layouts are
+/// written once from resource programs; current requests borrow only policy.
+/// The caller still owns the transitional cached media selection.</summary>
 public sealed class D3D11CurrentHdrCatalog
 {
+    private sealed record LightingWrite(string Name, int Offset, int SourceOffset, int Bytes);
     private static readonly string[] Names = ["litDir", "litCol", "litOcc", "ambLit", "nDirLit",
         "fog", "cFog", "Scat", "fAmbMapsDORate", "vAmbDifScl", "vAmbSpcScl"];
     private static readonly int[] Sizes = [64,64,16,16,4,16,16,64,4,16,16];
-    public IReadOnlyList<D3D11CurrentHdrRoute> Routes { get; }
+    public IReadOnlyList<D3D11PreparedHdrPass> Routes { get; }
     public float AmbientMapsRate { get; }
+    public bool SuppressAmbient { get; }
+    public bool FogOwnerEnabled { get; }
     public HdrShaderResources Resources { get; }
-    private D3D11CurrentHdrCatalog(HdrShaderResources resources, List<D3D11CurrentHdrRoute> routes, float ambientMapsRate)
-    { Resources = resources; Routes = routes.AsReadOnly(); AmbientMapsRate = ambientMapsRate; }
+    private D3D11CurrentHdrCatalog(HdrShaderResources resources, IReadOnlyList<D3D11PreparedHdrPass> routes,
+        float ambientMapsRate, bool suppressAmbient, bool fogOwnerEnabled)
+    {
+        Resources = resources; Routes = routes; AmbientMapsRate = ambientMapsRate;
+        SuppressAmbient = suppressAmbient; FogOwnerEnabled = fogOwnerEnabled;
+    }
 
     public static D3D11CurrentHdrCatalog Create(GameResourceRepository repository,
         MainMapCameraFrame initialMain, HdrShaderResources resources,
@@ -50,7 +41,6 @@ public sealed class D3D11CurrentHdrCatalog
         if (ambient.TypeCode != 8 || ambient.RawValue.Length != 4)
             throw new InvalidDataException("Main ambient maps rate requires a scalar float declaration.");
         float ambientRate = BinaryPrimitives.ReadSingleLittleEndian(ambient.RawValue);
-        var routes = new List<D3D11CurrentHdrRoute>();
         foreach (var pass in preparedPasses)
         {
             if (pass.OuterMask != outerMask)
@@ -62,7 +52,7 @@ public sealed class D3D11CurrentHdrCatalog
                 binding.Name.Text == "$Globals").BindPoint);
             bool normalized383 = node == HdrShaderResources.MainLightingNode && pass.Program.PixelProgramIndex == 383;
             var active = normalized383 ? DeferredSelected383Constants.ActiveScalarByteOffsets.ToHashSet() : null;
-            var writes = new List<D3D11CurrentHdrWrite>();
+            var writes = new List<LightingWrite>();
             for (int i = 0; i < Names.Length; i++)
             {
                 var variable = globals.Variables.SingleOrDefault(field => field.Name.Text == Names[i]);
@@ -77,8 +67,24 @@ public sealed class D3D11CurrentHdrCatalog
                     writes.Add(new(Names[i], variable.StartOffset + begin, begin, local - begin));
                 }
             }
-            routes.Add(new(pass, slot, globals.ByteSize, common.SuppressAmbient, fogOwner, writes.AsReadOnly()));
+            WriteLightingLayout(pass.ResourceDirectory, slot, globals.ByteSize, writes);
         }
-        return new(resources, routes, ambientRate);
+        return new(resources, Array.AsReadOnly(preparedPasses.ToArray()), ambientRate, common.SuppressAmbient, fogOwner);
+    }
+
+    // Layout belongs to program preparation. Current requests carry the same
+    // typed light inputs regardless of route identity, shader slot or offsets.
+    private static void WriteLightingLayout(string directory, int slot, int constantBytes,
+        IReadOnlyList<LightingWrite> writes)
+    {
+        using var stream = File.Create(Path.Combine(directory, "hdr-lighting-layout.bin"));
+        using var writer = new BinaryWriter(stream);
+        writer.Write(0x314C4C48u); // HLL1: HDR lighting layout.
+        writer.Write(slot); writer.Write(constantBytes); writer.Write(writes.Count);
+        foreach (var write in writes)
+        {
+            writer.Write(Array.IndexOf(Names, write.Name)); writer.Write(write.Offset);
+            writer.Write(write.SourceOffset); writer.Write(write.Bytes);
+        }
     }
 }

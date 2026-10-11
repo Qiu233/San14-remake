@@ -17,7 +17,8 @@ internal static class D3D11CurrentSeasonEncoding
     {
         // Header32, Main3C0, sorted (int32 offset,uint32 bits) writes,
         // then ordered light headers (object,mask,terrain scalar,shadow modes,reserved) and numeric light data,
-        // Atmosphere296, current selected Exposure32, OUM1 material, HFO1 layers and the HDR routes.
+        // Atmosphere296, current selected Exposure32, OUM1 material, HFO1 layers
+        // and optional HLC1 typed lighting inputs, without shader layouts.
         byte[] hdrBytes = hdr is null ? [] : D3D11HdrFrameEncoding.Write(frame, hdr);
         byte[] result = new byte[HeaderBytes + MainPrefixBytes + frame.PreparedWords.Count * MainWordBytes + frame.Lights.Count * (LightHeaderBytes + LightNumericBytes) + D3D11CurrentAtmosphereFrame.ByteLength + D3D11CurrentExposureEncoding.ByteLength + OceanTextureMaterialEncoding.ByteLength + HeightFogSettingsEncoding.ByteLength + hdrBytes.Length];
         var bytes = result.AsSpan();

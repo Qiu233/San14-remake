@@ -59,13 +59,6 @@ public sealed class D3D11CurrentSeasonFrame
     public uint HdrLutKey => Optics.ColorGrading.HdrLutKey;
     public uint LdrLutKey => Optics.ColorGrading.LdrLutKey;
 
-    /// <summary>Same actual World group query and modifier for each HDR pass.
-    /// Caller provides that pass's masks/arg18, current ambient rate and Fog
-    /// owner. The result's names are bound using that shader's loaded RDEF.</summary>
-    public IReadOnlyDictionary<string, byte[]> DeferredNamedFields(uint outerMask,
-        uint innerMask, bool arg18, float ambientMapsRate, bool fogOwnerEnabled)
-        => D3D11CurrentLightingFields.Create(this, outerMask, innerMask,
-            arg18, ambientMapsRate, fogOwnerEnabled);
 }
 
 /// <summary>Retained CPU current producer for the native D3D11 session. Load

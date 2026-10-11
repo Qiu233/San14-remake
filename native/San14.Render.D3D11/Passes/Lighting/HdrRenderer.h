@@ -2,6 +2,7 @@
 // Actual selection, bindings, CBs and per-record stencil come from the exporter.
 #include <optional>
 #include "HdrPopulationAdmission.h"
+#include "Interop/HdrLightingInput.h"
 static void applySourceModelStencil(ID3D11Device* device,NativeModelInputs& models,const fs::path& source) {
     std::ifstream rows(source/"model-references.txt");std::string directory;
     UINT enabled,reference,readMask,writeMask,compare,fail,depthFail,pass;
@@ -45,6 +46,8 @@ struct NativeSourceHdrDynamicBinding {
 struct NativeSourceHdrPass {
     std::string identity;
     std::optional<source_hdr_population::Gate> populationGate;
+    std::optional<San14::Render::HdrLightingLayout> lightingLayout;
+    std::size_t lightingConstantIndex{};
     std::vector<char> vertexDxbc,pixelDxbc,materialBytes;
     ComPtr<ID3D11VertexShader> vs;
     ComPtr<ID3D11PixelShader> ps;
@@ -117,6 +120,15 @@ static NativeSourceHdrPasses prepareSourceHdrPasses(ID3D11Device* device,
             NativeSourceHdrConstant cb{stage=="VS",slot,file,load(directory/file),{}};
             cb.buffer=sourceHdrDefaultBuffer(device,cb.bytes,D3D11_BIND_CONSTANT_BUFFER);
             pass.constants.push_back(std::move(cb));
+        }
+        if (useCurrentPopulation) {
+            pass.lightingLayout = San14::Render::Interop::readHdrLightingLayout(directory / "hdr-lighting-layout.bin");
+            const auto& layout = *pass.lightingLayout;
+            const auto constant = std::find_if(pass.constants.begin(), pass.constants.end(),
+                [&](const auto& value) { return !value.vertex && value.slot == layout.slot; });
+            if (constant == pass.constants.end() || constant->bytes.size() != layout.constantBytes)
+                throw std::runtime_error("HDR lighting layout does not match its selected pixel constant");
+            pass.lightingConstantIndex = std::size_t(std::distance(pass.constants.begin(), constant));
         }
         if(fs::exists(directory/"material-table.bin")) {
             pass.materialBytes=load(directory/"material-table.bin");

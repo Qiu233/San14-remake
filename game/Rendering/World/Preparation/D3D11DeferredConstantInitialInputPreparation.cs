@@ -28,30 +28,24 @@ public static class D3D11DeferredConstantInitialInputPreparation
         {
             var outer = current.Lights.First(light=>(light.GroupMask&route.OuterMask)!=0);
             var inner = current.Lights.FirstOrDefault(light=>(light.GroupMask&route.InnerMask)!=0) ?? outer;
-            byte[] effective = DeferredF103Kind1Modifier.ApplyWithModifier(
-                outer.CompleteData.Span,inner.CompleteData.Span,route.Arg18).Bytes;
-            var modifier = DeferredF103Kind1Modifier.HasBuiltinModifier(inner.CompleteData.Span)
-                ? inner.CompleteData : effective;
+            var lighting = outer.Lighting.PrepareLighting(inner.Lighting,catalog.SuppressAmbient).Lighting;
+            var modifierLight = inner.Lighting.Modifier.Present ? inner : outer;
+            var modifier = modifierLight.CompleteData;
             if((modifier.Span[0x1F7]&1)==0 || (BinaryPrimitives.ReadUInt32LittleEndian(modifier.Span[0x1F8..])&0x40)==0)
                 throw new NotSupportedException("HDR initialization needs its edited Hatching/Fade module producer.");
-            int count=4;
-            while(count>1)
-            {
-                int offset=(count-1)*32+16;
-                if(F(effective,offset)>0||F(effective,offset+4)>0||F(effective,offset+8)>0)break;
-                count--;
-            }
+            var firstColor = lighting.Lights[0].Color;
             var scene = new DeferredSceneInputs(
-                Lighting:DeferredSceneConstants.ReadPreparedBaseLighting(effective.AsSpan(0,0x1B0),count),
-                Camera:camera,Fog:DeferredSceneConstants.ReadSharedFog(effective.AsSpan(0,0x1B0),route.FogOwnerEnabled),
-                Ambient:DeferredSceneConstants.ReadAmbientModifier(modifier.Span.Slice(0x1B0,0x178),catalog.AmbientMapsRate),
+                Lighting:lighting,
+                Camera:camera,Fog:DeferredSceneConstants.ReadSharedFog(outer.CompleteData.Span[..0x1B0],
+                    catalog.FogOwnerEnabled,new Vector3(firstColor.X,firstColor.Y,firstColor.Z)),
+                Ambient:modifierLight.Lighting.PrepareAmbient(catalog.AmbientMapsRate),
                 Hatching:DeferredSelected383PluginOwner.CreateFreshHatchingResetParameters(),
                 PixelToTexture:pixel,Refraction:refraction,Projection:projection,LocalAmbientOcclusion:local,
                 TranslucencyViewport:viewport,Occlusion:DeferredSelected383PluginOwner.CreateFreshOcclusionParameters(),
                 ShadowFade:DeferredSelected383PluginOwner.CreateFreshShadowFadeParameters());
             var packet = D3D11DeferredConstantInputPreparation.Prepare(canonical,
-                route.PixelDefinitions,
-                scene,caustics,route.Node==166&&route.PixelProgramIndex==383);
+                route.Program.PixelDefinitions,
+                scene,caustics,route.Declaration.NodeIndex==166&&route.Program.PixelProgramIndex==383);
             File.WriteAllBytes(Path.Combine(route.ResourceDirectory,"ps-b0.bin"),packet.Bytes);
             D3D11DeferredConstantInputPreparation.WriteNativeInputs(route.CameraResourceDirectory,packet);
         }
