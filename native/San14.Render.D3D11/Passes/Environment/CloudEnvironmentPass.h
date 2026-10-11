@@ -68,10 +68,9 @@ class CloudEnvironmentPass {
         const auto& target=patternTargets_.value().prepare(device,index);
         const auto& light=baseLight.selection();
         if(!skyCloudDrawingEnabled(common)||!light) {patternSelector_=index;return false;}
-        const auto selection=currentPatternSelection(inputs,light->fogMode);
         const auto& atmosphere=atmosphereResources_.value();
         patternRenderer_.value().execute(device,context,target.surface.Get(),target.description.width,
-            target.description.height,selection,sharedVariant_,patternNoise_,[&] {
+            target.description.height,sharedVariant_,patternNoise_,[&] {
                 const auto& direction=light->direction;
                 const auto projection=source_sky_pattern::prepareProjection(
                     {camera.eye.X,camera.eye.Z,camera.optics.farPlane,camera.optics.viewSpan,
@@ -79,7 +78,8 @@ class CloudEnvironmentPass {
                     halfFovTangent);
                 patternMatrix_=projection.worldToPattern;
                 const auto cameras=source_sky_pattern::prepareCameras(camera,projection,2);
-                return prepareSkyPatternMaterial(cameras,clipPlane,volume_.value(),atmosphere.settings().planetRadius);
+                auto material=prepareSkyPatternMaterial(cameras,clipPlane,volume_.value(),atmosphere.settings().planetRadius);
+                return std::pair{std::move(material),currentPatternSelection(inputs,light->fogMode)};
             });
         patternSelector_=index;
         return true;
@@ -128,7 +128,6 @@ class CloudEnvironmentPass {
         const CloudEnvironmentSources& source,const CloudEnvironmentFrame& frame) {
         float currentPlanet=0;
         if(frame.season) {
-            currentPattern_=frame.season->pattern;
             if(frame.season->ambientFilterSampleCount!=environment_.samples)
                 throw std::runtime_error("Ambient sample count changed; prepare a new resource generation");
             if(!weather_ || std::none_of(weather_->profiles.seasons.begin(),
@@ -166,21 +165,23 @@ class CloudEnvironmentPass {
     }
 
     void execute(ID3D11Device* device,ID3D11DeviceContext* context,NativeSourceDepthState& logical,
-        ID3D11DepthStencilView* depth,float clock,UINT hostFlags) {
-        // D77's five writes and Main's reached setters affect the same shader
-        // request later consumed by Pattern. The supported Main route owns
-        // four history targets; it never enters the two-target depth setter28.
-        const auto selection=currentPatternSelection(currentPattern_.value(),0);
-        SkyPatternProgramBank::applyCurrentVariant(selection,sharedVariant_);
-        bool fourHistory=true;
-        for(const char* name:{"current-rgb","current-alpha","previous-rgb","previous-alpha"}) {
-            const auto found=cloud_.surfaces.find(name);
-            fourHistory=fourHistory&&found!=cloud_.surfaces.end()&&bool(found->second.target);
+        ID3D11DepthStencilView* depth,float clock,UINT hostFlags,const CommonRenderPolicy& common) {
+        const bool positive=prepareNativeMainCloudHistory(context,cloud_,hostFlags);
+        const bool drawEnabled=positive&&skyCloudDrawingEnabled(common);
+        if(drawEnabled) {
+            // Main's reached tail setters affect Pattern's next request. Its
+            // first-five selection also needs a scene reference and remains owned by
+            // the existing Main media path; never substitute Pattern's inputs.
+            bool fourHistory=true;
+            for(const char* name:{"current-rgb","current-alpha","previous-rgb","previous-alpha"}) {
+                const auto found=cloud_.surfaces.find(name);
+                fourHistory=fourHistory&&found!=cloud_.surfaces.end()&&bool(found->second.target);
+            }
+            if(!fourHistory)throw std::runtime_error("Main Cloud two-target route requires its actual depth-assistance producer");
+            sharedVariant_[5]=fourHistory;
+            sharedVariant_[8]=!viewRectangle_.value().unit();
         }
-        if(!fourHistory)throw std::runtime_error("Main Cloud two-target route requires its actual depth-assistance producer");
-        sharedVariant_[5]=fourHistory;
-        sharedVariant_[8]=!viewRectangle_.value().unit();
-        executeNativeMainCloud(device,context,logical,cloud_,depth,clock,hostFlags);
+        executeNativeMainCloud(device,context,logical,cloud_,depth,clock,drawEnabled);
     }
 
     ID3D11ShaderResourceView* ambientView() const { return ambient_.Get(); }
@@ -202,10 +203,11 @@ class CloudEnvironmentPass {
     std::optional<NativeSkyPatternTargets> patternTargets_;
     std::optional<NativeSkyPatternRenderer> patternRenderer_;
     NativeSkyPatternNoise patternNoise_;
+    // Pattern produces words0..4 on each operation; actual Main persists only
+    // the shared tail values consumed here. WORK's temporary edits restore them.
     SkyPatternVariant sharedVariant_{};
     UINT patternSelector_{};
     source_camera::Matrix patternMatrix_{};
-    std::optional<SkyPatternCurrentInputs> currentPattern_;
     std::optional<FullTargetViewRectangle> viewRectangle_;
     std::optional<NativeSkyAtmosphereResources> atmosphereResources_;
     NativeMainCloud cloud_;

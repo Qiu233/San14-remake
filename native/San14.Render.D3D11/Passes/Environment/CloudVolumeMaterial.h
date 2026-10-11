@@ -9,6 +9,9 @@ struct CloudVolumeMaterial {
     std::array<float, 2> distortOffset{}, distortScale{}, raySampleSlopeAndMaximum{};
     std::array<float, 4> layerGeometry{}, densityParameters{}, distortionScale{};
     std::array<float, 2> erosionScale{};
+    std::array<float, 2> cirrusOffset{}, cirrusScale{}, cirrusDistortOffset{}, cirrusDistortScale{};
+    std::array<float, 4> cirrusParameters{};
+    std::array<float, 2> cirrusDistortionScale{};
     float cirrusAltitude{};
 };
 
@@ -25,6 +28,10 @@ inline std::optional<float> cloudVolumeOffset(const CloudVolumeMaterial& volume,
     case AnimationChannel::DetailZ: return volume.detailOffset[2];
     case AnimationChannel::DistortX: return volume.distortOffset[0];
     case AnimationChannel::DistortY: return volume.distortOffset[1];
+    case AnimationChannel::CirrusX: return volume.cirrusOffset[0];
+    case AnimationChannel::CirrusY: return volume.cirrusOffset[1];
+    case AnimationChannel::CirrusDistortX: return volume.cirrusDistortOffset[0];
+    case AnimationChannel::CirrusDistortY: return volume.cirrusDistortOffset[1];
     default: return std::nullopt;
     }
 }

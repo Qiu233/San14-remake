@@ -57,6 +57,10 @@ class AtmospherePass {
         publishCurrent(frame);
     }
 
+    float currentHalfFovTangent() const {
+        return camera_.packet.environment.halfFovTangent;
+    }
+
     void updateCamera(ID3D11DeviceContext* context,const AtmosphereFrame& frame) {
         updateNativeAtmosphereCamera(context,camera_,frame.camera,sky_,frame.cloud,skyCloudEnabled_);
     }

@@ -26,6 +26,9 @@ public sealed class SkyCloudPatternMaterialLayout
         ("g_vDistortTexOffset",8,2,0), ("g_vDistortTexScale",8,2,0),
         ("g_vRaySampleNum",16,4,0), ("g_vEarthRadius",16,4,0),
         ("g_vCloudParams0",16,4,0), ("g_vCloudParams1",16,4,0), ("g_vDistortScale",16,4,0), ("g_vErodeScale",8,2,0),
+        ("g_vCirrusTexOffset",8,2,0), ("g_vCirrusTexScale",8,2,0),
+        ("g_vCirrusDistortTexOffset",8,2,0), ("g_vCirrusDistortTexScale",8,2,0),
+        ("g_vCirrusParams",16,4,0), ("g_vCirrusDistortScale",8,2,0),
     ];
 
     private SkyCloudPatternMaterialLayout(DxbcResourceDefinitions vertex, DxbcResourceDefinitions pixel)
@@ -49,7 +52,7 @@ public sealed class SkyCloudPatternMaterialLayout
             uint dimension = texture.Name.Text switch
             {
                 "sBase" or "sDetail" => 8,
-                "sDistort" => 4,
+                "sDistort" or "sCirrus" => 4,
                 _ => throw new NotSupportedException($"Pattern has no source for {texture.Name.Text}."),
             };
             var sampler = samplers.SingleOrDefault(value => value.Name.Text == "__smp" + texture.Name.Text);
@@ -92,7 +95,7 @@ public sealed class SkyCloudPatternMaterialLayout
         {
             uint role = texture.Name switch
             {
-                "sBase" => 0u, "sDetail" => 1u, "sDistort" => 2u,
+                "sBase" => 0u, "sDetail" => 1u, "sDistort" => 2u, "sCirrus" => 3u,
                 _ => throw new InvalidOperationException("Pattern imported an unknown texture role.")
             };
             writer.Write(role); writer.Write(texture.Slot); writer.Write(texture.Dimension);
@@ -181,7 +184,8 @@ public sealed class SkyCloudPatternMaterialLayout
         var m = values[1];
         return new(new(V4(0), new(m[0],m[1],m[2],m[3],m[4],m[5],m[6],m[7],m[8],m[9],m[10],m[11],m[12],m[13],m[14],m[15]),
             new(V4(2),V4(2,4),V4(2,8),V4(2,12)),V2(3)),
-            new(V4(4),V3(5),V3(6),V3(7),V3(8),V2(9),V2(10),V4(11),V4(12),V4(13),V4(14),V4(15),V2(16)));
+            new(V4(4),V3(5),V3(6),V3(7),V3(8),V2(9),V2(10),V4(11),V4(12),V4(13),V4(14),V4(15),V2(16),
+                V2(17),V2(18),V2(19),V2(20),V4(21),V2(22)));
     }
 
     private static void ReadField(SkyCloudPatternField field, ReadOnlySpan<byte> source, float[] values)
@@ -209,6 +213,9 @@ public sealed class SkyCloudPatternMaterialLayout
             7 => V3(pixel.DetailTextureOffset), 8 => V3(pixel.DetailTextureScale), 9 => V2(pixel.DistortTextureOffset),
             10 => V2(pixel.DistortTextureScale), 11 => V4(pixel.RaySampleCount), 12 => V4(pixel.EarthRadius),
             13 => V4(pixel.CloudParameters0), 14 => V4(pixel.CloudParameters1), 15 => V4(pixel.DistortionScale), 16 => V2(pixel.ErosionScale),
+            17 => V2(pixel.CirrusTextureOffset), 18 => V2(pixel.CirrusTextureScale),
+            19 => V2(pixel.CirrusDistortTextureOffset), 20 => V2(pixel.CirrusDistortTextureScale),
+            21 => V4(pixel.CirrusParameters), 22 => V2(pixel.CirrusDistortionScale),
             _ => throw new ArgumentOutOfRangeException(nameof(semantic)),
         };
     }

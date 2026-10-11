@@ -9,8 +9,12 @@ public sealed record SkyCloudVolumeMaterial(
     Vector3 DetailTextureOffset, Vector3 DetailTextureScale,
     Vector2 DistortTextureOffset, Vector2 DistortTextureScale,
     Vector2 RaySampleSlopeAndMaximum, Vector4 LayerGeometry, Vector4 DensityParameters,
-    Vector4 DistortionScale, Vector2 ErosionScale, float CirrusAltitude)
+    Vector4 DistortionScale, Vector2 ErosionScale,
+    Vector2 CirrusTextureOffset, Vector2 CirrusTextureScale,
+    Vector2 CirrusDistortTextureOffset, Vector2 CirrusDistortTextureScale,
+    Vector4 CirrusParameters, Vector2 CirrusDistortionScale)
 {
+    public float CirrusAltitude => CirrusParameters.X;
     public SkyCloudPatternPixelMaterial PreparePixel(Vector4 eye, float verticalFieldOfView, float planetRadius)
     {
         float bottomRadius = NativeFloat.Add(LayerGeometry.X, planetRadius);
@@ -19,6 +23,8 @@ public sealed record SkyCloudVolumeMaterial(
         return new(eye, BaseTextureOffset, BaseTextureScale, DetailTextureOffset, DetailTextureScale,
             DistortTextureOffset, DistortTextureScale,
             new(RaySampleSlopeAndMaximum, 0, verticalFieldOfView), earthRadius,
-            LayerGeometry, DensityParameters, DistortionScale, ErosionScale);
+            LayerGeometry, DensityParameters, DistortionScale, ErosionScale,
+            CirrusTextureOffset, CirrusTextureScale, CirrusDistortTextureOffset, CirrusDistortTextureScale,
+            CirrusParameters, CirrusDistortionScale);
     }
 }

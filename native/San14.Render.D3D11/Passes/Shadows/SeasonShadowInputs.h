@@ -31,4 +31,7 @@ struct ReceiverStyle {
     int32_t patternCameraBranch{};
     float patternScale{}, depthFade{};
 };
+struct ReceiverBias {
+    float scale{}, offset{1};
+};
 } // namespace source_current_season_shadow

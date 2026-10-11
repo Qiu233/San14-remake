@@ -192,6 +192,7 @@ static std::array<float,4> decode(const char* p, DXGI_FORMAT format) {
 #include "RenderSession.h"
 #include "../Scene/Terrain/TerrainPass.h"
 #include "../Device/GBufferTargets.h"
+#include "../Device/GraphicsClipState.h"
 #include "../Passes/Lighting/DeferredLightingPass.h"
 #include "../Passes/Environment/AtmospherePass.h"
 #include "../Passes/Environment/CloudEnvironmentPass.h"
@@ -264,6 +265,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     const auto jointShadowInput=resources.directory(ResourceGroup::BaseShadows);
     SceneFrameCoordinator frameState{host.currentSeason?&*host.currentSeason:nullptr};
     CloudEnvironmentPass clouds; // Retires before its borrowed Star and numerical resource owners.
+    GraphicsClipState frontendClip;
     const auto& staticCamera=frameState.camera();
     UINT64 completedMainRequests=1;
     {
@@ -348,6 +350,10 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             {resources.directory(ResourceGroup::CloudWeather),resources.directory(ResourceGroup::AmbientFrame)},
             {frameState.season(),frameState.cloudLights(),currentClock});
         atmosphere.updateMainStars(device.Get(),frameState.atmosphereFrame(clouds),node3Delta);
+        if (const auto* current = frameState.season())
+            clouds.executePattern(device.Get(),context.Get(),current->pattern,frameState.camera(),
+                atmosphere.currentHalfFovTangent(),frameState.preparedView().baseLight(),
+                frameState.commonRenderPolicy(),frontendClip.shaderPlane(0));
         clouds.generateAmbient(context.Get(),currentClock);
     };
     auto publishThinSurface=[&]() {
@@ -368,6 +374,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             atmosphere.stars(),frameState.atmosphereFrame(clouds).power);
         clouds.prepareAtmosphereResources(device.Get(),resources.directory(ResourceGroup::SkyAtmosphere));
         clouds.preparePatternTargets(resources.directory(ResourceGroup::SkyPattern));
+        clouds.preparePatternPrograms(resources.directory(ResourceGroup::SkyPattern)/"program-bank");
         context->ClearState(); // Bootstrap ends before any Main entry; not a per-request operation.
         {
 
@@ -613,11 +620,11 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                 atmosphere.prepare(device.Get(),context.Get(),resources.directory(ResourceGroup::Sky),
                     resources.directory(ResourceGroup::Atmosphere),
                     litColor.Get(),mainDepth.depth.Get(),fogAcceleration.samplingView(),geometryTargets.depthView(),width,height,frameState.atmosphereFrame(clouds));
-                if(atmosphere.executeSky(device.Get(),context.Get(),sourceDepth,frameState.atmosphereFrame(clouds),mainTargets,
-                    postProcessing.mapExposureView(),postProcessing.mapExposureSampler())) {
-                    mainTargets.restore(context.Get());
-                    clouds.execute(device.Get(),context.Get(),sourceDepth,geometryTargets.depthView(),initialCommonClock,UINT(phase.hostCompletionFlags()));
-                }
+                atmosphere.executeSky(device.Get(),context.Get(),sourceDepth,frameState.atmosphereFrame(clouds),mainTargets,
+                    postProcessing.mapExposureView(),postProcessing.mapExposureSampler());
+                mainTargets.restore(context.Get());
+                clouds.execute(device.Get(),context.Get(),sourceDepth,geometryTargets.depthView(),initialCommonClock,
+                    UINT(phase.hostCompletionFlags()),frameState.commonRenderPolicy());
                 mainTargets.restore(context.Get());
                 atmosphere.executeFog(device.Get(),context.Get(),sourceDepth,
                     frameState.season(),initialCommonClock,
@@ -753,11 +760,11 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             nullptr,currentClock,frameState.view().activeGroups,frameState.view().oceanGroups);
         atmosphere.updateCamera(context.Get(),frameState.atmosphereFrame(clouds));
         mainTargets.restore(context.Get());
-        if(atmosphere.executeSky(device.Get(),context.Get(),sourceDepth,frameState.atmosphereFrame(clouds),mainTargets,
-            postProcessing.mapExposureView(),postProcessing.mapExposureSampler())) {
-            mainTargets.restore(context.Get());
-            clouds.execute(device.Get(),context.Get(),sourceDepth,geometryTargets.depthView(),currentClock,UINT(phase.hostCompletionFlags()));
-        }
+        atmosphere.executeSky(device.Get(),context.Get(),sourceDepth,frameState.atmosphereFrame(clouds),mainTargets,
+            postProcessing.mapExposureView(),postProcessing.mapExposureSampler());
+        mainTargets.restore(context.Get());
+        clouds.execute(device.Get(),context.Get(),sourceDepth,geometryTargets.depthView(),currentClock,
+            UINT(phase.hostCompletionFlags()),frameState.commonRenderPolicy());
         mainTargets.restore(context.Get());
         atmosphere.executeFog(device.Get(),context.Get(),sourceDepth,
             frameState.season(),currentClock,frameState.view().activeGroups);mainTargets.restore(context.Get());

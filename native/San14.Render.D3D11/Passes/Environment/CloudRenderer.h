@@ -188,19 +188,25 @@ static UINT consumeNativeMainCloud(NativeMainCloud& cloud,NativeMainCloudPass& p
     cloud.pendingVector.fill(0);cloud.bayerCounter=usedBayer==15?0:usedBayer+1;
     return usedBayer;
 }
-static void executeNativeMainCloud(ID3D11Device* device,ID3D11DeviceContext* context,NativeSourceDepthState& logical,
-    NativeMainCloud& cloud,ID3D11DepthStencilView* mainDsv,float currentCommonClock,UINT actualQ7F8) {
-    // Node3 already advanced owned CC/phase/pending at the Main entry.
-    // This node124 consumer never advances time itself.
-    bool positive=cloud.cloudy>0;
+static bool prepareNativeMainCloudHistory(ID3D11DeviceContext* context,NativeMainCloud& cloud,UINT actualQ7F8) {
+    // History preparation observes Cloudy before positive cloud drawing.
+    // Zero frames still reach this resource preparation.
+    const bool positive=cloud.cloudy>0;
     if(cloud.historiesNew||(!cloud.previousCloudPositive&&positive)||(actualQ7F8&8)!=0) {
         const float zero[4]{};
         for(const char* role:{"current-rgb","previous-rgb","current-alpha","previous-alpha"})context->ClearRenderTargetView(cloud.surfaces.at(role).target.Get(),zero);
         cloud.historiesNew=false;
     }
     cloud.previousCloudPositive=positive;
+    return positive;
+}
+static void executeNativeMainCloud(ID3D11Device* device,ID3D11DeviceContext* context,NativeSourceDepthState& logical,
+    NativeMainCloud& cloud,ID3D11DepthStencilView* mainDsv,float currentCommonClock,bool drawEnabled) {
+    // Node3 already advanced owned CC/phase/pending at the Main entry.
+    // This consumer never advances time itself. Only positive cloud drawing is
+    // gated; the unconditional ping-side exit also follows a skipped draw.
     UINT usedBayer=cloud.bayerCounter;
-    for(auto& pass:cloud.passes) {
+    if(drawEnabled)for(auto& pass:cloud.passes) {
         if(pass.name=="pass1") {
             //1191FE0 emits old DWORD counter, consumes pending, then advances.
             usedBayer=consumeNativeMainCloud(cloud,pass);

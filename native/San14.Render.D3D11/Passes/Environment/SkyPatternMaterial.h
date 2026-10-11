@@ -3,6 +3,7 @@
 #include "CloudVolumeMaterial.h"
 #include <algorithm>
 #include <cstring>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <span>
@@ -38,20 +39,32 @@ inline SkyPatternFieldView skyPatternField(const SkyPatternMaterial& material, s
         PATTERN_FIELD(11, raySamples); PATTERN_FIELD(12, earthRadius);
         PATTERN_FIELD(13, volume.layerGeometry); PATTERN_FIELD(14, volume.densityParameters);
         PATTERN_FIELD(15, volume.distortionScale); PATTERN_FIELD(16, volume.erosionScale);
+        PATTERN_FIELD(17, volume.cirrusOffset); PATTERN_FIELD(18, volume.cirrusScale);
+        PATTERN_FIELD(19, volume.cirrusDistortOffset); PATTERN_FIELD(20, volume.cirrusDistortScale);
+        PATTERN_FIELD(21, volume.cirrusParameters); PATTERN_FIELD(22, volume.cirrusDistortionScale);
         default: throw std::runtime_error("Unknown Pattern material semantic");
     }
 #undef PATTERN_FIELD
 }
-inline constexpr std::array<std::uint32_t, 17> SkyPatternFieldBytes{
-    16, 64, 64, 8, 16, 12, 12, 12, 12, 8, 8, 16, 16, 16, 16, 16, 8};
+inline constexpr std::array<std::uint32_t, 23> SkyPatternFieldBytes{
+    16, 64, 64, 8, 16, 12, 12, 12, 12, 8, 8, 16, 16, 16, 16, 16, 8,
+    8, 8, 8, 8, 16, 8};
 struct SkyPatternMaterialWrite { std::uint32_t field{}, offset{}, bytes{}; };
 struct SkyPatternStageLayout {
     std::uint32_t slot{}, bytes{};
     std::vector<SkyPatternMaterialWrite> writes;
     void pack(const SkyPatternMaterial& material, std::span<char> output) const {
         if (output.size() != bytes) throw std::runtime_error("Pattern material stage extent");
-        for (const auto& write : writes)
-            std::memcpy(output.data() + write.offset, skyPatternField(material, write.field).data, write.bytes);
+        for (const auto& write : writes) {
+            const auto* source=static_cast<const char*>(skyPatternField(material, write.field).data);
+            // The actual used RDEF fields share Data's finite material domain.
+            // Unused semantic values do not add a draw-admission condition.
+            for(std::uint32_t offset=0;offset<write.bytes;offset+=4) {
+                float value;std::memcpy(&value,source+offset,4);
+                if(!std::isfinite(value))throw std::runtime_error("Pattern used material field is nonfinite");
+            }
+            std::memcpy(output.data() + write.offset, source, write.bytes);
+        }
     }
 };
 struct SkyPatternTextureRoute { std::uint32_t role{}, slot{}, dimension{}; };
@@ -93,7 +106,7 @@ inline SkyPatternMaterialLayout readSkyPatternMaterialLayout(const std::filesyst
     stage(result.vertex, vertexCount, true); stage(result.pixel, pixelCount, false);
     for (std::uint32_t index = 0; index < textureCount; ++index) {
         SkyPatternTextureRoute route{word(), word(), word()};
-        if (route.role >= 3 || route.slot >= 128 || route.dimension != (route.role < 2 ? 8u : 4u))
+        if (route.role >= 4 || route.slot >= 128 || route.dimension != (route.role < 2 ? 8u : 4u))
             throw std::runtime_error("Pattern material texture role");
         result.textures.push_back(route);
     }

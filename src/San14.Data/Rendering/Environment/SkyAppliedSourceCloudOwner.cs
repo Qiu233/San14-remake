@@ -193,11 +193,20 @@ public sealed class SkyAppliedSourceCloudOwner
         var distortScale=new Vector2(D(1,R(0x168)),D(1,R(0x16C)));
         var distortOffset=new Vector2(M(A(R(0x160),R(0x170)),distortScale.X),
             M(A(R(0x164),R(0x174)),distortScale.Y));
+        (Vector2 Offset,Vector2 Scale) Plane(int phase,int offset,int size)
+        {
+            var scale=new Vector2(D(1,R(size)),D(1,R(size+4)));
+            return (new(M(A(R(phase),R(offset)),scale.X),M(A(R(phase+4),R(offset+4)),scale.Y)),scale);
+        }
+        var cirrus=Plane(0x190,0x1A0,0x198);
+        var cirrusDistort=Plane(0x1B0,0x1C0,0x1B8);
         return new(baseLayer.Offset,baseLayer.Scale,detailLayer.Offset,detailLayer.Scale,distortOffset,distortScale,
             new(S(R(0x90),R(0x94)),R(0x94)),new(R(0x9C),R(0xA0),D(1,R(0xA0)),R(0x22C)),
             new(S(1,R(0x98)),R(0xAC),R(0xB4),D(R(0xA4),R(0xA8))),
             new(M(D(1,R(0x130)),R(0x180)),M(D(1,R(0x134)),R(0x184)),M(D(1,R(0x138)),R(0x188)),R(0xD8)),
-            new(R(0xC0),R(0xC4)),R(0x218));
+            new(R(0xC0),R(0xC4)),cirrus.Offset,cirrus.Scale,cirrusDistort.Offset,cirrusDistort.Scale,
+            new(R(0x218),S(1,R(0x21C)),R(0x220),R(0x224)),
+            new(M(R(0x1D0),D(1,R(0x198))),M(R(0x1D4),D(1,R(0x19C)))));
     }
     private static SkyCloudConstantPacket Packet(SkyAppliedSourceCloudSelection s,SkySceneSourceFrame frame,
         int face,Dictionary<int,float> input,SkyCloudVolumeMaterial volume,uint maximum,Vector4 clip,Vector3 rawSun,float geometry40)
@@ -227,14 +236,10 @@ public sealed class SkyAppliedSourceCloudOwner
         Set("g_vDetailTexScale",common.DetailTextureScale.X,common.DetailTextureScale.Y,common.DetailTextureScale.Z);
         Set("g_vDistortTexOffset",common.DistortTextureOffset.X,common.DistortTextureOffset.Y);
         Set("g_vDistortTexScale",common.DistortTextureScale.X,common.DistortTextureScale.Y);
-        for(int group=3;group<5;group++)
-        {
-            string name=new[]{"Base","Detail","Distort","Cirrus","CirrusDistort"}[group];
-            int n=group<2?3:2;int phase=new[]{0xE0,0x120,0x160,0x190,0x1B0}[group],offset=new[]{0x100,0x140,0x170,0x1A0,0x1C0}[group],size=new[]{0xF0,0x130,0x168,0x198,0x1B8}[group];
-            float[] scales=new float[n],offsets=new float[n];
-            for(int lane=0;lane<n;lane++){scales[lane]=D(1,R(size+lane*4));offsets[lane]=M(A(R(phase+lane*4),R(offset+lane*4)),scales[lane]);}
-            Set("g_v"+name+"TexOffset",offsets);Set("g_v"+name+"TexScale",scales);
-        }
+        Set("g_vCirrusTexOffset",common.CirrusTextureOffset.X,common.CirrusTextureOffset.Y);
+        Set("g_vCirrusTexScale",common.CirrusTextureScale.X,common.CirrusTextureScale.Y);
+        Set("g_vCirrusDistortTexOffset",common.CirrusDistortTextureOffset.X,common.CirrusDistortTextureOffset.Y);
+        Set("g_vCirrusDistortTexScale",common.CirrusDistortTextureScale.X,common.CirrusDistortTextureScale.Y);
         Set("g_vRaySampleNum",Words(common.RaySampleCount));
         Set("g_vEarthRadius",Words(common.EarthRadius));
         // Actual1742230 descriptor23/24/25 -> cache C50/CD0/D50.
@@ -243,8 +248,8 @@ public sealed class SkyAppliedSourceCloudOwner
         Set("g_vCloudParams2",D(R(0xB8),4),M(R(0xB8),2.5f),D(1,R(0xA8)),R(0xB0));
         Set("g_vCloudParams0",Words(common.CloudParameters0));
         Set("g_vDistortScale",Words(common.DistortionScale));
-        Set("g_vCirrusParams",R(0x218),S(1,R(0x21C)),R(0x220),R(0x224));
-        Set("g_vCirrusDistortScale",M(R(0x1D0),D(1,R(0x198))),M(R(0x1D4),D(1,R(0x19C))));Set("g_vErodeScale",common.ErosionScale.X,common.ErosionScale.Y);
+        Set("g_vCirrusParams",Words(common.CirrusParameters));
+        Set("g_vCirrusDistortScale",common.CirrusDistortionScale.X,common.CirrusDistortionScale.Y);Set("g_vErodeScale",common.ErosionScale.X,common.ErosionScale.Y);
         float h0=M(R(0xC8),R(0xC8)),h1=M(R(0xCC),R(0xCC));
         Set("g_vHgParams0",M(D(S(1,h0),F(0x41490FDB)),R(0xD4)),M(R(0xC8),-2),A(h0,1),R(0xD0));
         Set("g_vHgParams1",M(D(S(1,h1),F(0x41490FDB)),R(0xD4)),M(R(0xCC),-2),A(h1,1),0);

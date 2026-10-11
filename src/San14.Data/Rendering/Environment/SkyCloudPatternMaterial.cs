@@ -11,7 +11,10 @@ public sealed record SkyCloudPatternVertexMaterial(Vector4 ClipPlane, Matrix4x4 
 public sealed record SkyCloudPatternPixelMaterial(Vector4 Eye,
     Vector3 BaseTextureOffset, Vector3 BaseTextureScale, Vector3 DetailTextureOffset, Vector3 DetailTextureScale,
     Vector2 DistortTextureOffset, Vector2 DistortTextureScale, Vector4 RaySampleCount, Vector4 EarthRadius,
-    Vector4 CloudParameters0, Vector4 CloudParameters1, Vector4 DistortionScale, Vector2 ErosionScale);
+    Vector4 CloudParameters0, Vector4 CloudParameters1, Vector4 DistortionScale, Vector2 ErosionScale,
+    Vector2 CirrusTextureOffset, Vector2 CirrusTextureScale,
+    Vector2 CirrusDistortTextureOffset, Vector2 CirrusDistortTextureScale,
+    Vector4 CirrusParameters, Vector2 CirrusDistortionScale);
 
 /// <summary>Named values consumed by the cloud-mask operation. This material
 /// contains no device buffer, selected option, animation clock or source template.</summary>

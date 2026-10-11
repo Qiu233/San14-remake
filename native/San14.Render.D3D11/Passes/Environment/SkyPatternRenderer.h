@@ -17,6 +17,7 @@ struct NativeSkyPatternNoise {
     };
     std::array<Image,3> layers;
     Image cirrus;
+    const Image& image(std::uint32_t role) const {return role==3?cirrus:layers.at(role);}
 };
 
 class NativeSkyPatternRenderer {
@@ -60,7 +61,7 @@ public:
     template<class PrepareMaterial>
     void execute(ID3D11Device* device,ID3D11DeviceContext* context,
         ID3D11RenderTargetView* target,UINT width,UINT height,
-        const SkyPatternSelectionInputs& selection,SkyPatternVariant& retained,
+        SkyPatternVariant& retained,
         const NativeSkyPatternNoise& noise,PrepareMaterial&& prepareMaterial) {
         DrawScope scope(context);
         std::array<ID3D11ShaderResourceView*,128> empty{};
@@ -73,10 +74,11 @@ public:
 
         // This callback first publishes worldToPattern, then prepares the
         // temporary cameras. Subsequent errors retain that earlier publication.
-        const auto material=prepareMaterial();
+        const auto [material,selection]=prepareMaterial();
         const auto selected=bank_.select(selection,retained);
         auto& program=prepareProgram(device,selected.program);
-        if(program.layout.usesIntegration) {
+        if(program.layout.usesIntegration&&material.volume.densityParameters[0]<1&&
+            material.volume.densityParameters[3]>0) {
             const auto& ray=material.raySamples;
             if(!std::isfinite(ray.X)||!std::isfinite(ray.Y)||!std::isfinite(ray.W)||
                 !(ray.Y>0)||!(ray.Y+std::min(0.f,ray.X)>0)||!(ray.W>0)||std::ceil(ray.Y)>4096)
@@ -91,13 +93,13 @@ public:
         context->RSSetState(drawRaster_.Get());
         context->OMSetBlendState(drawBlend_.Get(),scope.factors,scope.sampleMask);
         for(const auto& route:program.layout.textures) {
-            auto view=noise.layers.at(route.role).view.Get();
+            auto view=noise.image(route.role).view.Get();
             context->PSSetShaderResources(route.slot,1,&view);
         }
         for(const auto& route:program.layout.samplers) {
             const auto texture=std::find_if(program.layout.textures.begin(),program.layout.textures.end(),
                 [&](const auto& value){return value.slot==route.textureSlot;});
-            auto sampler=noise.layers.at(texture->role).sampler.Get();
+            auto sampler=noise.image(texture->role).sampler.Get();
             context->PSSetSamplers(route.slot,1,&sampler);
         }
         auto vertexConstants=program.vertexConstants.Get(),pixelConstants=program.pixelConstants.Get();
