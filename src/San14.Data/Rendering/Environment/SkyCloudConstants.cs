@@ -6,21 +6,17 @@ namespace San14.Data;
 public sealed record SkyCloudConstantPacket(byte[] VertexBytes, byte[] PixelBytes,
     bool CloudIntegrationEnabled, uint MaximumRaySamples);
 
-/// <summary>Retains two complete explicit native pass5 packets. Source values
-/// are supplied by the caller; only consumed float words are checked, retaining
-/// float3/tail padding unchanged. Work limits reject unsafe input rather than
-/// changing the original shader's counts or constants.</summary>
+/// <summary>Compatibility encoding for explicit cloud materials. Pattern inputs
+/// become named values through the imported layout; Color retains its existing
+/// numerical contract. Work limits do not change shader counts.</summary>
 public static class SkyCloudConstants
 {
     public static SkyCloudConstantPacket Read(DxbcResourceDefinitions vertex,
         DxbcResourceDefinitions pixel, ReadOnlySpan<byte> vertexBytes,
         ReadOnlySpan<byte> pixelBytes, uint explicitMaximumRaySamples)
     {
-        Validate(vertex, vertexBytes, 160, ["ksgClipPlane", "g_mtP2W", "g_vCameraDirVectors", "g_vProjFarNear"]);
-        Validate(pixel, pixelBytes, 192, ["vEye", "g_vBaseTexOffset", "g_vBaseTexScale",
-            "g_vDetailTexOffset", "g_vDetailTexScale", "g_vDistortTexOffset", "g_vDistortTexScale",
-            "g_vRaySampleNum", "g_vEarthRadius", "g_vCloudParams0", "g_vCloudParams1", "g_vDistortScale", "g_vErodeScale"]);
-        return ReadValidated(pixel, vertexBytes, pixelBytes, explicitMaximumRaySamples);
+        var layout = SkyCloudPatternMaterialLayout.Import(vertex, pixel);
+        return layout.Pack(layout.ReadMaterial(vertexBytes, pixelBytes), explicitMaximumRaySamples);
     }
 
     public static SkyCloudConstantPacket ReadColor(DxbcResourceDefinitions vertex,

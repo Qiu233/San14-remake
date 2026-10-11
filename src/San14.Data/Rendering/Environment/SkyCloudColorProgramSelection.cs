@@ -29,12 +29,15 @@ public sealed class SkyCloudColorProgramSelection
     {
         var shader=resources.Shader;
         var tables=resources.Bindings;
+        var feature=tables.Features.FirstOrDefault()?.Feature;
+        if(feature is null||feature.Words[6]!=0||feature.Words[7]!=1)
+            throw new NotSupportedException("Cloud WORK color requires renderer0/profile1 scattering in its selected feature.");
         // D77E3D..53 performs an unsigned clamp of prepared30 to2.
         byte[] requested=tables.Variants.Records[0].RawBytes.ToArray();
         foreach(var word in new[]{(0,level),(4,4u),(8,1u),(12,1u),(16,0u),(20,0u)})
             BinaryPrimitives.WriteUInt32LittleEndian(requested.AsSpan(word.Item1,4),word.Item2);
         var row=tables.Variants.Match(requested)??throw new InvalidDataException("Cloud exact source request has no original variant row.");
-        var combination=tables.Combinations.Rows[checked(row.Index*(int)tables.PassCount)];
+        var combination=tables.ResolveCombination([0,0,0,0,0,0,(uint)row.Index],0);
         if(combination.Stages.Count(s=>s.Entry is not null)!=2||
             combination.Stages.Any(s=>s.Entry is not null&&s.StageCode is not(0 or 1)))
             throw new InvalidDataException("Cloud pass0 requires its exact vertex/pixel source pair.");

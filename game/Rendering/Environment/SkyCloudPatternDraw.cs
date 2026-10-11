@@ -2,11 +2,13 @@ using Godot;
 using San14.Data;
 
 /// <summary>Original VCLOUD pass5 draws four VertexIDs into one R8 PatternMap.
-/// Inputs are complete source-sized packets plus typed 3D/3D/2D bindings;
+/// Inputs are named material values plus actual sampled texture bindings;
 /// no sky RGB, color table or missing noise is substituted.</summary>
 public sealed class SkyCloudPatternDraw : IAsyncDisposable
 {
-    public SkyCloudConstantPacket Constants { get; private set; }
+    public SkyCloudPatternMaterial Material { get; private set; }
+    public uint MaximumRaySamples { get; private set; }
+    public SkyCloudConstantPacket Constants => _program.PatternLayout.Pack(Material, MaximumRaySamples);
     public SkyPatternMapDevice Target { get; }
     public IReadOnlyList<Sky2DeviceInput> Inputs { get; }
     private readonly SkyCloudProgram _program;
@@ -15,25 +17,33 @@ public sealed class SkyCloudPatternDraw : IAsyncDisposable
     private Task? _disposal;
 
     private SkyCloudPatternDraw(SkyCloudProgram program,
-        SkyCloudConstantPacket constants, SkyPatternMapDevice target,
+        SkyCloudPatternMaterial material, uint maximumRaySamples, SkyPatternMapDevice target,
         IReadOnlyList<Sky2DeviceInput> inputs, Rid pipeline, Rid vs, Rid ps,
         Rid vcb, Rid pcb, List<Rid> owned)
-        => (_program, Constants, Target, Inputs, _pipeline, _vertexSet, _pixelSet, _vertexBuffer, _pixelBuffer, _owned)
-            = (program, constants, target, inputs, pipeline, vs, ps, vcb, pcb, owned.AsReadOnly());
+        => (_program, Material, MaximumRaySamples, Target, Inputs, _pipeline, _vertexSet, _pixelSet, _vertexBuffer, _pixelBuffer, _owned)
+            = (program, material, maximumRaySamples, target, inputs, pipeline, vs, ps, vcb, pcb, owned.AsReadOnly());
 
     public static Task<SkyCloudPatternDraw> BuildAsync(SkyCloudProgram program,
         SkyPatternMapDevice target, ReadOnlyMemory<byte> explicitVertexConstants,
         ReadOnlyMemory<byte> explicitPixelConstants, uint explicitMaximumRaySamples,
         IReadOnlyList<Sky2DeviceInput> explicitInputs)
+        => BuildAsync(program, target, program.PatternLayout.ReadMaterial(explicitVertexConstants.Span,
+            explicitPixelConstants.Span), explicitMaximumRaySamples, explicitInputs);
+
+    public static Task<SkyCloudPatternDraw> BuildAsync(SkyCloudProgram program,
+        SkyPatternMapDevice target, SkyCloudPatternMaterial material, uint explicitMaximumRaySamples,
+        IReadOnlyList<Sky2DeviceInput> explicitInputs)
     {
         ArgumentNullException.ThrowIfNull(program); ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(explicitInputs);
-        var packet = SkyCloudConstants.Read(program.VertexBindings.SourceDefinitions,
-            program.PixelBindings.SourceDefinitions, explicitVertexConstants.Span,
-            explicitPixelConstants.Span, explicitMaximumRaySamples);
-        var inputs = explicitInputs.Select(i => i with { SourceSamplerDescriptor = i.SourceSamplerDescriptor.ToArray() }).ToArray();
-        if (inputs.Length != 3 || inputs.Select(i => i.SourceBindPoint).Distinct().Count() != 3)
-            throw new InvalidDataException("Cloud draw requires exactly three original texture inputs.");
+        var layout = program.PatternLayout;
+        var packet = layout.Pack(material, explicitMaximumRaySamples);
+        var inputs = layout.TextureBindings.Select(binding =>
+        {
+            var input = explicitInputs.SingleOrDefault(value => value.SourceBindPoint == binding.Slot) ??
+                throw new InvalidDataException($"Pattern texture {binding.Name} has no actual device input.");
+            return input with { SourceSamplerDescriptor = input.SourceSamplerDescriptor.ToArray() };
+        }).ToArray();
         foreach (var b in program.PixelBindings.Bindings.Where(b => b.DescriptorKind == "Texture"))
         {
             var i = inputs.SingleOrDefault(i => i.SourceBindPoint == b.Source.BindPoint);
@@ -60,8 +70,9 @@ public sealed class SkyCloudPatternDraw : IAsyncDisposable
                         format.Format.ToString().Contains("Sint")) throw new InvalidDataException("Cloud source view is not the original floating texture shape.");
                     samplers.Add(i.SourceBindPoint, Own(DeviceSampler.Create(rd, i.SourceSamplerDescriptor.Span)));
                 }
-                Rid vcb = Own(rd.UniformBufferCreate(160, packet.VertexBytes)), pcb = Own(rd.UniformBufferCreate(192, packet.PixelBytes));
-                Rid Set(TranslatedShaderBindings bindings, uint set, Rid cb)
+                Rid vcb = Own(rd.UniformBufferCreate((uint)layout.VertexByteLength, packet.VertexBytes)),
+                    pcb = Own(rd.UniformBufferCreate((uint)layout.PixelByteLength, packet.PixelBytes));
+                Rid Set(TranslatedShaderBindings bindings, uint set, Rid cb, uint slot)
                 {
                     var uniforms = new Godot.Collections.Array<RDUniform>();
                     try
@@ -69,10 +80,10 @@ public sealed class SkyCloudPatternDraw : IAsyncDisposable
                         foreach (var b in bindings.Bindings)
                         {
                             RenderingDevice.UniformType type; Rid input;
-                            if (b.DescriptorKind == "UniformBuffer" && b.Source.BindPoint == 0)
+                            if (b.DescriptorKind == "UniformBuffer" && b.Source.BindPoint == slot)
                                 (type, input) = (RenderingDevice.UniformType.UniformBuffer, cb);
-                            else if (b.DescriptorKind == "Sampler" && samplers.TryGetValue(b.Source.BindPoint, out var sampler))
-                                (type, input) = (RenderingDevice.UniformType.Sampler, sampler);
+                            else if (b.DescriptorKind == "Sampler")
+                                (type, input) = (RenderingDevice.UniformType.Sampler, samplers[layout.ResolveSamplerTextureSlot(b.Source.BindPoint)]);
                             else if (b.DescriptorKind == "Texture")
                                 (type, input) = (RenderingDevice.UniformType.Texture, inputs.Single(i => i.SourceBindPoint == b.Source.BindPoint).ShaderView);
                             else throw new InvalidDataException("Cloud descriptor is unsupported.");
@@ -85,7 +96,7 @@ public sealed class SkyCloudPatternDraw : IAsyncDisposable
                     }
                     finally { foreach (var u in uniforms) u.Dispose(); }
                 }
-                Rid vs = Set(program.VertexBindings, 1, vcb), ps = Set(program.PixelBindings, 0, pcb);
+                Rid vs = Set(program.VertexBindings, 1, vcb, layout.VertexSlot), ps = Set(program.PixelBindings, 0, pcb, layout.PixelSlot);
                 using var raster = new RDPipelineRasterizationState { CullMode = RenderingDevice.PolygonCullMode.Disabled };
                 using var multi = new RDPipelineMultisampleState();
                 using var depth = new RDPipelineDepthStencilState { EnableDepthTest = false, EnableDepthWrite = false };
@@ -94,24 +105,26 @@ public sealed class SkyCloudPatternDraw : IAsyncDisposable
                 Rid pipeline = Own(rd.RenderPipelineCreate(program.ShaderRid, rd.FramebufferGetFormat(target.Framebuffer), -1,
                     RenderingDevice.RenderPrimitive.TriangleStrips, raster, multi, depth, blend));
                 if (!rd.RenderPipelineIsValid(pipeline)) throw new InvalidDataException("Cloud pipeline is invalid.");
-                return new SkyCloudPatternDraw(program, packet, target, Array.AsReadOnly(inputs), pipeline, vs, ps, vcb, pcb, owned);
+                return new SkyCloudPatternDraw(program, material, explicitMaximumRaySamples, target, Array.AsReadOnly(inputs), pipeline, vs, ps, vcb, pcb, owned);
             }
             catch { for (int i = owned.Count - 1; i >= 0; i--) rd.FreeRid(owned[i]); throw; }
         });
     }
 
     public Task UpdateConstantsAsync(ReadOnlyMemory<byte> vertex, ReadOnlyMemory<byte> pixel, uint maximumRaySamples)
+        => UpdateMaterialAsync(_program.PatternLayout.ReadMaterial(vertex.Span, pixel.Span), maximumRaySamples);
+
+    public Task UpdateMaterialAsync(SkyCloudPatternMaterial material, uint maximumRaySamples)
     {
         ObjectDisposedException.ThrowIf(_disposal is not null, this);
-        var packet = SkyCloudConstants.Read(_program.VertexBindings.SourceDefinitions,
-            _program.PixelBindings.SourceDefinitions, vertex.Span, pixel.Span, maximumRaySamples);
+        var packet = _program.PatternLayout.Pack(material, maximumRaySamples);
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
             ObjectDisposedException.ThrowIf(_disposal is not null, this);
-            if (rd.BufferUpdate(_vertexBuffer, 0, 160, packet.VertexBytes) != Error.Ok ||
-                rd.BufferUpdate(_pixelBuffer, 0, 192, packet.PixelBytes) != Error.Ok)
+            if (rd.BufferUpdate(_vertexBuffer, 0, (uint)packet.VertexBytes.Length, packet.VertexBytes) != Error.Ok ||
+                rd.BufferUpdate(_pixelBuffer, 0, (uint)packet.PixelBytes.Length, packet.PixelBytes) != Error.Ok)
                 throw new InvalidDataException("Device rejected cloud constant update.");
-            Constants = packet; return true;
+            Material = material; MaximumRaySamples = maximumRaySamples; return true;
         });
     }
 

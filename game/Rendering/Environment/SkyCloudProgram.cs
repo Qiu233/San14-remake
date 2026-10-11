@@ -18,33 +18,48 @@ public sealed class SkyCloudProgram : IAsyncDisposable
     public TranslatedShaderBindings PixelBindings { get; }
     public Rid ShaderRid { get; }
     public SkyCloudOperation Operation { get; }
+    private readonly SkyCloudPatternMaterialLayout? patternLayout;
+    public SkyCloudPatternMaterialLayout PatternLayout => patternLayout ??
+        throw new InvalidOperationException("A Color program has no Pattern material layout.");
     private Task? _disposal;
     private readonly object _disposalGate=new();
 
     private SkyCloudProgram(LoadedShaderContainer source, G2ShaderCombination combination,
         ShaderSpirv vertex, AdaptedVertexShader adapter, ShaderSpirv pixel,
-        TranslatedShaderBindings vb, TranslatedShaderBindings pb, Rid shader, SkyCloudOperation operation)
-        => (Source, Combination, VertexTranslation, VertexAdapter, PixelTranslation, VertexBindings, PixelBindings, ShaderRid, Operation)
-            = (source, combination, vertex, adapter, pixel, vb, pb, shader, operation);
+        TranslatedShaderBindings vb, TranslatedShaderBindings pb, Rid shader, SkyCloudOperation operation,
+        SkyCloudPatternMaterialLayout? patternLayout)
+        => (Source, Combination, VertexTranslation, VertexAdapter, PixelTranslation, VertexBindings, PixelBindings, ShaderRid, Operation, this.patternLayout)
+            = (source, combination, vertex, adapter, pixel, vb, pb, shader, operation, patternLayout);
 
     public static Task<SkyCloudProgram> BuildAsync(LoadedShaderContainer source,
         int explicitCombinationIndex, Vkd3dShaderCompiler compiler) =>
-        BuildCoreAsync(source,explicitCombinationIndex,compiler,null);
+        BuildCoreAsync(source,explicitCombinationIndex,compiler,null,null);
 
     public static Task<SkyCloudProgram> BuildAsync(SkyCloudColorProgramSelection selection,Vkd3dShaderCompiler compiler)
     {
         ArgumentNullException.ThrowIfNull(selection);
-        return BuildCoreAsync(selection.Shader,selection.Combination.Index,compiler,selection);
+        return BuildCoreAsync(selection.Shader,selection.Combination.Index,compiler,selection,null);
+    }
+
+    public static Task<SkyCloudProgram> BuildAsync(SkyCloudPatternProgramSelection selection, Vkd3dShaderCompiler compiler)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        return BuildCoreAsync(selection.Shader, selection.Combination.Index, compiler, null, selection);
     }
 
     private static async Task<SkyCloudProgram> BuildCoreAsync(LoadedShaderContainer source,
-        int explicitCombinationIndex,Vkd3dShaderCompiler compiler,SkyCloudColorProgramSelection? applied)
+        int explicitCombinationIndex,Vkd3dShaderCompiler compiler,SkyCloudColorProgramSelection? applied,
+        SkyCloudPatternProgramSelection? pattern)
     {
         ArgumentNullException.ThrowIfNull(source); ArgumentNullException.ThrowIfNull(compiler);
-        var combination = applied?.Combination ?? source.ReadG1ResourceBindings(explicitCombinationIndex).Combination;
+        var combination = applied?.Combination ?? pattern?.Combination ?? source.ReadG1ResourceBindings(explicitCombinationIndex).Combination;
         var operation = applied is null ? SkyCloudOperation.Pattern : SkyCloudOperation.Color;
-        if (combination.Index % 6 != (operation == SkyCloudOperation.Pattern ? 5 : 0))
-            throw new InvalidDataException("Cloud operation must match the explicit source pass.");
+        if (applied is null && pattern is null)
+        {
+            uint passCount = source.ReadG1Bindings().PassCount;
+            if (passCount <= 5 || (uint)combination.Index % passCount != 5)
+                throw new InvalidDataException("Explicit Pattern combination must belong to actual pass five.");
+        }
         if (combination.Stages.Any(s => s.Entry is not null && s.StageCode is not (0 or 1)))
             throw new InvalidDataException("Cloud producer requires one vertex/pixel source pair.");
         var vs = combination.Stages.Single(s => s.StageCode == 1 && s.Entry is not null);
@@ -55,17 +70,20 @@ public sealed class SkyCloudProgram : IAsyncDisposable
             throw new InvalidDataException("Cloud renderer pair differs from its actual source-selected low-cost contract.");
         var vertex = compiler.Compile(vertexBytes, 1); var pixel = compiler.Compile(pixelBytes);
         var adapter = VertexShaderAdapter.Adapt(vertex.Bytes, 0, 0, 0);
-        var vb = TranslatedShaderBindingReader.Read(applied?.VertexDefinitions ?? source.ReadResourceDefinitions(vs.Entry.ProgramIndex), adapter.Bytes);
-        var pb = TranslatedShaderBindingReader.Read(applied?.PixelDefinitions ?? source.ReadResourceDefinitions(ps.Entry.ProgramIndex), pixel.Bytes);
-        if (vb.Bindings.Count != 1 || pb.Bindings.Count != (operation == SkyCloudOperation.Pattern ? 7 : 15) ||
+        var vb = TranslatedShaderBindingReader.Read(applied?.VertexDefinitions ?? pattern?.VertexDefinitions ?? source.ReadResourceDefinitions(vs.Entry.ProgramIndex), adapter.Bytes);
+        var pb = TranslatedShaderBindingReader.Read(applied?.PixelDefinitions ?? pattern?.PixelDefinitions ?? source.ReadResourceDefinitions(ps.Entry.ProgramIndex), pixel.Bytes);
+        var patternLayout = operation == SkyCloudOperation.Pattern
+            ? SkyCloudPatternMaterialLayout.Import(vb.SourceDefinitions, pb.SourceDefinitions) : null;
+        if ((operation == SkyCloudOperation.Color && (vb.Bindings.Count != 1 || pb.Bindings.Count != 15)) ||
             vb.Bindings.Any(b => b.Device.DescriptorSet != 1) || pb.Bindings.Any(b => b.Device.DescriptorSet != 0) ||
             vb.Interface.StageVariables.Any(v => v.StorageClass == 1 && v.Location is not null))
             throw new InvalidDataException("Original cloud descriptors or VertexID contract differs.");
-        foreach (var pair in new[] { (Bindings: vb, Size: 160),
-            (Bindings: pb, Size: operation == SkyCloudOperation.Pattern ? 192 : 512) })
+        foreach (var pair in new[] { (Bindings: vb, Size: patternLayout?.VertexByteLength ?? 160, Slot: patternLayout?.VertexSlot ?? 0),
+            (Bindings: pb, Size: patternLayout?.PixelByteLength ?? 512, Slot: patternLayout?.PixelSlot ?? 0) })
         {
             var cb = pair.Bindings.Bindings.Single(b => b.DescriptorKind == "UniformBuffer");
-            if (cb.Source.BindPoint != 0 || cb.ConstantBuffer?.ByteSize != pair.Size || cb.Device.RequiredBufferBytes != pair.Size)
+            if (cb.Source.BindPoint != pair.Slot || cb.ConstantBuffer?.ByteSize != pair.Size ||
+                cb.Device.RequiredBufferBytes > pair.Size || (operation == SkyCloudOperation.Color && cb.Device.RequiredBufferBytes != pair.Size))
                 throw new InvalidDataException("Original cloud constant buffer length differs.");
         }
         Rid shader = await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
@@ -77,7 +95,7 @@ public sealed class SkyCloudProgram : IAsyncDisposable
             if (!rid.IsValid) throw new InvalidDataException("Device rejected original cloud program.");
             return rid;
         });
-        return new(source, combination, vertex, adapter, pixel, vb, pb, shader, operation);
+        return new(source, combination, vertex, adapter, pixel, vb, pb, shader, operation, patternLayout);
     }
 
     public ValueTask DisposeAsync()

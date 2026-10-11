@@ -26,7 +26,7 @@ class CloudEnvironmentPass {
         environment_=prepareNativeAmbient(device,source,stars,power);
         // Bootstrap supplies all three history slots once, before Main entry.
         for(UINT slot=0;slot<3;++slot)executeNativeAmbientBatch(context,environment_,slot);
-        executeNativeAmbientBlend(context,environment_,0,0);environment_.selected=0;
+        executeNativeAmbientBlend(context,environment_,0,0);
         ambient_=environment_.selectedView();
     }
 

@@ -4,23 +4,21 @@ using San14.Data.Formats;
 
 namespace San14.Data;
 
-/// <summary>The selected Cloud shader and its imported WORK color programs.
-/// Frame owners share these resources while retaining their own current
-/// selection, animation and clip lifecycle.</summary>
+/// <summary>The selected Cloud shader and its imported Main, WORK-color and
+/// Pattern programs. Frame owners share resources while retaining their own
+/// current shader axes, animation and clip lifecycle.</summary>
 public sealed class SkyCloudProgramResources
 {
     private static readonly ConditionalWeakTable<LoadedShaderContainer, SkyCloudProgramResources> Imported = new();
     private readonly ConcurrentDictionary<uint, SkyCloudColorProgramSelection> colors = new();
     private readonly ConcurrentDictionary<(int Feature,uint Level,uint Rays,bool Earth),SkyCloudMainProgramSelection> mains = new();
+    private readonly ConcurrentDictionary<(int Feature,int Variant),SkyCloudPatternProgramSelection> patterns = new();
     private SkyCloudProgramResources(LoadedShaderContainer shader)
     {
         Shader = shader;
         Bindings = shader.ReadG1Bindings();
-        if (Bindings.Variants.RecordWidth != 36 || Bindings.PassCount != 6 || Bindings.Variants.Records.Count == 0)
-            throw new NotSupportedException("Cloud WORK requires nonempty 36-byte variants and six source passes.");
-        var feature = Bindings.Features.FirstOrDefault()?.Feature;
-        if (feature is null || feature.Words[6] != 0 || feature.Words[7] != 1)
-            throw new NotSupportedException("Cloud WORK requires renderer0/profile1 scattering in the selected feature.");
+        if (Bindings.Variants.RecordWidth != 36 || Bindings.Variants.Records.Count == 0)
+            throw new NotSupportedException("Cloud selection requires nonempty nine-word shader variants.");
     }
     public LoadedShaderContainer Shader { get; }
     internal G1ShaderBindingTables Bindings { get; }
@@ -34,7 +32,7 @@ public sealed class SkyCloudProgramResources
         ArgumentNullException.ThrowIfNull(renderer);
         uint key = renderer.CloudShaderFileId;
         if (key == 0)
-            throw new NotSupportedException("The selected Renderer declares no Cloud shader for WORK production.");
+            throw new NotSupportedException("The selected Renderer declares no Cloud shader.");
         return Import(repository.LoadShaderContainer("system", key));
     }
 
@@ -54,5 +52,21 @@ public sealed class SkyCloudProgramResources
         if(feature.RowIndex<0)throw new NotSupportedException("Main Cloud renderer feature is absent.");
         return mains.GetOrAdd((feature.RowIndex,Math.Min(lowCostLevel,2u),Math.Clamp(raySamples,4u,6u),earthPresent),
             key=>SkyCloudMainProgramSelection.Import(this,key.Feature,key.Level,key.Rays,key.Earth));
+    }
+
+    /// <summary>Resolve the Pattern operation from the current renderer axes.
+    /// Unwritten axes come from that renderer's retained variant, rather than
+    /// a default row or the later WORK-color request.</summary>
+    public SkyCloudPatternProgramSelection SelectPattern(ReadOnlySpan<byte> retainedRendererVariant,
+        SkyCloudPatternProgramInputs current)
+    {
+        var request=SkyCloudPatternProgramSelection.PrepareVariant(retainedRendererVariant,current);
+        uint[] featureWords=[0,1,0,0,0,1,current.LightFogMode,current.LightFogMode==7?2u:1u,0,0,0,0];
+        var feature=G1ShaderFeatureMatcher.Select(featureWords,Bindings.Features.Select(row=>row.Feature).ToArray());
+        if(feature.RowIndex<0)throw new NotSupportedException("Current Pattern renderer feature is absent.");
+        var variant=Bindings.Variants.Match(request)
+            ??throw new NotSupportedException("Current Pattern renderer variant is absent.");
+        return patterns.GetOrAdd((feature.RowIndex,variant.Index),
+            key=>SkyCloudPatternProgramSelection.Import(this,key.Feature,key.Variant,request));
     }
 }

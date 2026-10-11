@@ -134,7 +134,7 @@ static ComPtr<ID3D11BlendState> ambientBlend(ID3D11Device* device,bool enable,D3
     ComPtr<ID3D11BlendState> result;check(device->CreateBlendState(&desc,&result),"ambient source composition");return result;
 }
 
-#include "AmbientBudget.h"
+#include "AmbientGeneration.h"
 #include "MainStarRenderer.h"
 struct NativeAmbientFaceConstants {ComPtr<ID3D11Buffer> vs,ps,gs;};
 struct NativeAmbientFilterSamples {ComPtr<ID3D11Buffer> directions,weights;ComPtr<ID3D11ShaderResourceView> directionView,weightView;float weightSum{};};
@@ -182,7 +182,7 @@ static void publishNativeAmbientMaterial(ID3D11DeviceContext* context,NativeAmbi
 }
 struct NativeAmbientDrawCounts {UINT stars=0,sky=0,clouds=0,copy=0,filter=0,blend=0;};
 struct NativeAmbient {
-    UINT width=0,levels=0,samples=0,selected=0,skyEnabled=0;
+    UINT width=0,levels=0,samples=0,skyEnabled=0;
     San14::Render::AmbientResourceDescription description;
     AmbientNativeProgram sky,clouds;
     std::array<NativeAmbientMaterialProgram,3> materialPrograms;
@@ -212,10 +212,8 @@ struct NativeAmbient {
     San14::Render::MainStarPass* starOwner{};
     const source_weather_fog::Power* starPower{};
     NativeAmbientStarCameras starCameras;
-    NativeAmbientBudget budget;
-    UINT state168=0;
-    float elapsed20=0,priorClock18=0;
-    ID3D11ShaderResourceView* selectedView() const{return outputs.at(selected).view.Get();}
+    AmbientGeneration generation;
+    ID3D11ShaderResourceView* selectedView() const{return outputs.at(generation.selectedOutput()).view.Get();}
 };
 static NativeAmbient prepareNativeAmbient(ID3D11Device* device,const fs::path& source,
     San14::Render::MainStarPass& stars,const source_weather_fog::Power& power) {
@@ -410,34 +408,30 @@ static UINT executeNativeAmbientBlend(ID3D11DeviceContext* context,NativeAmbient
 }
 static ID3D11ShaderResourceView* executeNativeAmbientBatch(ID3D11DeviceContext* context,NativeAmbient& owner,UINT destination=0) {
     // Explicit finite backend batch, not a native node5 clock/initialization receipt.
-    auto plan=planNativeAmbientWork(destination,0,1,43);executeNativeAmbientWork(context,owner,plan);owner.selected=destination;
-    return owner.selectedView();
+    AmbientGenerationProgress initial;initial.generation=destination;
+    auto plan=planNativeAmbientWork(initial,0,1,ambient_schedule::workUnits);
+    executeNativeAmbientWork(context,owner,plan);return owner.outputs.at(destination).view.Get();
 }
 static ID3D11ShaderResourceView* executeNativeAmbientNode5(ID3D11DeviceContext* context,NativeAmbient& owner,
     float currentCommonClock,bool allowsWorkInitialization) {
-    auto request=prepareNativeAmbientBudget(owner.budget,currentCommonClock);
-    float elapsed=owner.elapsed20;
-    if(!allowsWorkInitialization)owner.state168|=0x40000000u;
-    else {
+    const auto update=owner.generation.prepare(currentCommonClock,allowsWorkInitialization);
+    if(update.enabled) {
         // Prepare has actually created all four typed top-level WORK inputs.
-        // E4690E/E46918 publishes bit31 before1197140 clears only the two
-        // internal cubes: D0 then78, mip-major then face. External cubes,
-        // color2D18 and depth2D20 are deliberately not initialized by this.
-        if((owner.state168&0x80000000u)==0){
-            owner.state168=(owner.state168&~0x40000000u)|0x80000000u;
+        // Initialization is recorded before clearing the two internal cubes:
+        // snapshot then working cube, mip-major then face. External outputs,
+        // the color target and depth target are not initialized by this step.
+        if(owner.generation.needsInitialization()){
+            owner.generation.recordInitialization();
             const float zero[4]{};
             for(auto* cube:{&owner.lightSnapshot,&owner.work})for(UINT mip=0;mip<owner.levels;++mip)for(UINT face=0;face<6;++face)
                 context->ClearRenderTargetView(cube->surfaces[face*owner.levels+mip].Get(),zero);
         }
-        auto plan=planNativeAmbientWork(owner.state168,elapsed,1.f,request.units);
+        const auto& plan=update.work;
         executeNativeAmbientWork(context,owner,plan);
-        if(plan.blend)executeNativeAmbientBlend(context,owner,(plan.exitState168&3u),plan.blendFraction);
-        owner.state168=plan.exitState168;elapsed=plan.elapsed;
+        if(plan.blend)executeNativeAmbientBlend(context,owner,plan.next.generation,plan.blendFraction);
     }
-    owner.selected=(owner.state168>>8)&3u;
-    owner.elapsed20=nativeAmbientBudgetAdd(elapsed,std::max(nativeAmbientBudgetSub(currentCommonClock,owner.priorClock18),0.f));
-    owner.priorClock18=currentCommonClock;completeNativeAmbientBudget(owner.budget,request);
+    owner.generation.complete(update);
     // Source selection is not a claim that a fresh selected slot has pixels.
-    // Caller can inspect completed[selected]; no substitute cube is selected.
+    // Completed output contents are tracked separately; no substitute is selected.
     return owner.selectedView();
 }
