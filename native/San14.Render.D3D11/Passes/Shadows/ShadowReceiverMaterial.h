@@ -1,6 +1,7 @@
 #pragma once
 #include "SeasonShadowInputs.h"
 #include "../../Camera/CameraMatrix.h"
+#include "../../Camera/CameraState.h"
 #include <cstring>
 #include <span>
 #include <stdexcept>
@@ -20,6 +21,13 @@ struct ShadowReceiverPatternState {
     }
     void reset() {*this=construct();}
 };
+inline bool installShadowReceiverPattern(ShadowReceiverPatternState& state,float scale,
+    const source_camera::Matrix* selectedMatrix) {
+    bool changed=false;
+    if(scale!=0){state.scale=scale;changed=true;}
+    if(selectedMatrix){state.worldToPattern=*selectedMatrix;changed=true;}
+    return changed;
+}
 
 // Retained cascade values are independent of the selected shader's physical
 // layout. A smaller current pass set changes only its actually published rows.

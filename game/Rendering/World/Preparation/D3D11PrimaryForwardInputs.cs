@@ -64,14 +64,8 @@ public static class D3D11PrimaryForwardInputs
         if (query != 1024) throw new NotSupportedException("Forward needs the selected Sub wrapper for this Main query.");
         var subKeys = graph.Document.Nodes[187].Call.Arguments.Single(value => value.NameHash == 0xBC31BFD4).RawValue;
         var sub = RenderTextureResources.Read(textures, Word(subKeys.AsSpan(4, 4)));
-        var declaration = PatternCameraResourceSource.Load(repository, resources.Source.Locale)
-            .ReadDeclaration(package.Camera, "same fresh Forward Main declaration");
-        int kind = BinaryPrimitives.ReadInt32LittleEndian(current.PreparedMain.Span.Slice(0x3AC, 4));
-        if (kind != 0 || declaration.SkylightStaKey == 0 || declaration.MergedPatternKey != 0 || declaration.OfflinePatternKey != 0)
-            throw new NotSupportedException("Forward retained Pattern extras require the current special/ordinary owner for this Main.");
-        // In this normal ready STA branch D74FCD preserves the factory extras;
-        // only the receiver's scalar and matrix can be replaced. It does not
-        // run the ordinary modifier's E4/E8 writer.
+        // These are factory entry values. Native applies this draw's actual
+        // special or ordinary camera and modifier before uploading the fields.
         var pattern = LoadedDeferredEarlyIndirectPatternMapSource.Load(repository, resources.Source.Locale)
             .ConstructAfterSourceFactoryPreparation();
         Vector4[] patternExtras = [Vector(pattern.PatternPlaneSubAndPattern1.Span, 0), Vector(pattern.PatternPlaneSubAndPattern1.Span, 16)];
@@ -96,6 +90,7 @@ public static class D3D11PrimaryForwardInputs
         File.WriteAllBytes(Path.Combine(baseDirectory, "ps.dxbc"), shader.Container.GetProgramBytes(shader.Source.Bytes, 11).ToArray());
         D3D11PrimaryForwardNumericInputPreparation.WriteNativeRanges(baseDirectory, packet);
         WriteLightingLayout(shader, baseDirectory);
+        WritePatternLayout(shader, baseDirectory);
         int eligible = WriteTemplates(repository, primary, shader, packet, baseDirectory);
         File.WriteAllText(Path.Combine(bankDirectory, "base-input.txt"), "../" + BaseDirectory + "\n");
         File.WriteAllText(Path.Combine(bankDirectory, "template-count.txt"), primary.TemplateCount.ToString(CultureInfo.InvariantCulture) + "\n");
@@ -181,6 +176,21 @@ public static class D3D11PrimaryForwardInputs
         // independently of HDR layout.
         File.WriteAllLines(Path.Combine(directory,"forward-lighting-writes.txt"),rows);
     }
+    private static void WritePatternLayout(LoadedShaderContainer shader, string directory)
+    {
+        var vertex = shader.ReadResourceDefinitions(0).Buffers.Single(buffer => buffer.Name.Text == "$Globals");
+        var pixel = shader.ReadResourceDefinitions(11).Buffers.Single(buffer => buffer.Name.Text == "$Globals");
+        var rows = new List<string>();
+        foreach (var field in new[] { (Id: 0, Name: "mW2Pt", Bytes: 64, Buffer: vertex),
+            (Id: 1, Name: "fPtn", Bytes: 4, Buffer: pixel), (Id: 2, Name: "fPtnPlSub", Bytes: 32, Buffer: pixel) })
+        {
+            var variable = field.Buffer.Variables.Single(value => value.Name.Text == field.Name);
+            if (variable.ByteSize != field.Bytes)
+                throw new NotSupportedException("Forward Pattern field shape requires its actual producer: " + field.Name);
+            rows.Add(FormattableString.Invariant($"{field.Id} {variable.StartOffset} 0 {variable.ByteSize}"));
+        }
+        File.WriteAllLines(Path.Combine(directory, "forward-pattern-writes.txt"), rows);
+    }
     private static void WriteAuxiliary(GameResourceRepository repository, string locale, LoadedShaderContainer shader,
         LoadedObjects textures, string directory)
     {
@@ -201,7 +211,7 @@ public static class D3D11PrimaryForwardInputs
         File.WriteAllBytes(Path.Combine(directory, "sampler3.bin"), RenderSamplerSourceAdapters.BackendDefaultDescriptor(native));
         WriteSampler(10, RenderSamplerSourceAdapters.RenderTextureKey(native, 1));
         WriteSampler(11, RenderSamplerSourceAdapters.FromAmbientCube(native, CubeRenderTextureResources.Read(textures, 0x23F44EB5)).SourceKey);
-        var white = SourceResourceRegistrationFixed.LoadGameDefault(repository).Single(value => value.Definition.ObjectId == 0x80F9DB7B);
+        var white = StaticTextureResources.Load(repository, textures, "system", [0x80F9DB7B]).Single();
         File.WriteAllBytes(Path.Combine(directory, "sampler6.bin"), G1TextureSamplerReader.ReadRetainedSource(white.Image).EncodeD3D11Descriptor());
         var depth = DeferredEarlyPredecessorSource.Load(repository, locale).ShadowDepthDeclaration;
         if (depth.PixelFormat != 0x4E) throw new NotSupportedException("Forward requires another depth sampler class.");

@@ -7,11 +7,15 @@ public sealed class D3D11CurrentSeasonLight
     {
         ObjectId = objectId; GroupMask = groupMask; CompleteData = data;
         Lighting = HdrLightEncoding.Read(data); Exposure = D3D11CurrentExposureEncoding.ReadLight(data);
+        ReceiverBias = ShadowReceiverBiasEncoding.ReadLight(data);
+        PatternModifier = PatternCurrentEncoding.ReadLight(data, Lighting.Modifier.Present);
     }
     public uint ObjectId { get; }
     public uint GroupMask { get; }
     public HdrLightState Lighting { get; }
     public LightExposureSettings Exposure { get; }
+    public ShadowReceiverBias ReceiverBias { get; }
+    public PatternLightModifier PatternModifier { get; }
     internal ReadOnlyMemory<byte> CompleteData { get; }
 }
 
@@ -28,7 +32,8 @@ public sealed class D3D11CurrentSeasonFrame
         D3D11CurrentExposureLight exposureLight, CameraOpticsSettings optics, CameraViewSettings viewSettings,
         OceanWaveSettings oceanWaves, OceanSurfaceSettings oceanSurface, OceanOpticsSettings oceanOptics,
         OceanTextureMaterialSettings oceanTextureMaterial, HeightFogSettings heightFog,
-        CommonRenderPolicy commonPolicy, OceanBubbleMaterialSettings oceanBubbleMaterial, SkyStarSettings stars)
+        CommonRenderPolicy commonPolicy, OceanBubbleMaterialSettings oceanBubbleMaterial, SkyStarSettings stars,
+        PatternCameraSettings patternSettings)
     {
         Mode = mode; WorldSeason = worldSeason; Rgb = rgb; Present = present;
         PreparedMain = present.PreparedCameraPrefix; PreparedWords = Array.AsReadOnly(words);
@@ -39,6 +44,7 @@ public sealed class D3D11CurrentSeasonFrame
         CommonPolicy = commonPolicy;
         OceanBubbleMaterial = oceanBubbleMaterial;
         Stars = stars;
+        PatternSettings = patternSettings;
     }
     public MainMapCameraModePacket Mode { get; }
     public NativeMapSeasonState WorldSeason { get; }
@@ -57,6 +63,7 @@ public sealed class D3D11CurrentSeasonFrame
     public OceanTextureMaterialSettings OceanTextureMaterial { get; }
     public OceanBubbleMaterialSettings OceanBubbleMaterial { get; }
     public SkyStarSettings Stars { get; }
+    public PatternCameraSettings PatternSettings { get; }
     public HeightFogSettings HeightFog { get; }
     public CommonRenderPolicy CommonPolicy { get; }
     public int MainMode => Mode.Mode288;
@@ -153,7 +160,7 @@ public sealed class D3D11CurrentSeasonPublisher
             _resources.ControllerGeometry40);
         return new(mode, season, rgb, present,
             words, lights, atmosphere, D3D11CurrentExposureLight.Capture(_resources.FreshExposureSelector, lights),
-            CameraOpticsEncoding.DecodePrefix(currentMain.Camera.Source, prefix.Span, actual.Scalars.ApplyOpticalTailTo(currentMain.Camera.Optics)), viewSettings, _resources.OceanWaves, surface, oceanOptics, _resources.OceanTextureMaterial, heightFog, _resources.CommonPolicy, _resources.OceanBubbleMaterial, _resources.Stars);
+            CameraOpticsEncoding.DecodePrefix(currentMain.Camera.Source, prefix.Span, actual.Scalars.ApplyOpticalTailTo(currentMain.Camera.Optics)), viewSettings, _resources.OceanWaves, surface, oceanOptics, _resources.OceanTextureMaterial, heightFog, _resources.CommonPolicy, _resources.OceanBubbleMaterial, _resources.Stars, _resources.PatternSettings);
     }
 
     public void AcceptCurrent(D3D11CurrentSeasonFrame frame) => _previousLighting = AcceptedSkyLightingState.Capture(frame.Rgb);

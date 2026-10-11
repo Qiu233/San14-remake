@@ -19,6 +19,8 @@ public sealed class D3D11CurrentSeasonResources
     internal HeightFogSettings HeightFog { get; }
     internal CommonRenderPolicy CommonPolicy { get; }
     internal SkyCloudShaderSettings CloudShaderSettings { get; }
+    internal PatternCameraSettings PatternSettings { get; }
+    internal IReadOnlyList<PatternLightTextureSource> PatternTextures { get; }
     public SceneViewNativeMapSeasonResourceBundle Source { get; }
     public MapSeasonSelection Selection => Source.Selection;
     public D3D11CurrentSeasonCpuResources? CpuResources { get; private set; }
@@ -30,11 +32,20 @@ public sealed class D3D11CurrentSeasonResources
         CommonRenderPolicy commonPolicy)
     {
         Source = source; Lights = lights; FreshExposureSelector = exposureSelector;
+        PatternTextures = Array.AsReadOnly(lights.Select(light =>
+        {
+            var root = light.DefaultCaller.Root;
+            var slot = root.ResourceSlots.Single(value => value.LightDataOffset == 0xFE8);
+            uint? key = slot.EffectiveDataHandle == 0 ? null : root.ResourceBindings
+                .Single(binding => binding.DataHandle == slot.EffectiveDataHandle).SourceObjectKey;
+            return new PatternLightTextureSource(light.ObjectId, key);
+        }).ToArray());
         CommonPolicy = commonPolicy;
         if (source.CameraSource.Selection.SecondPackage is not null)
             throw new NotSupportedException("Current Main needs its actual paired selection writer.");
         var selected = source.CameraSource.Selection.FirstPackage;
         CloudShaderSettings = SkyCloudShaderSettings.Import(selected);
+        PatternSettings = PatternCameraSettingsImport.Load(selected);
         ViewDefaults = CameraViewSettingsImport.Load(selected);
         OceanWaves = OceanWaveSettingsImport.Load(selected);
         OceanSurface = OceanSurfaceSettingsImport.Load(selected);
@@ -109,8 +120,8 @@ public sealed class D3D11CurrentSeasonResources
             ownedSeason, initialMain.Camera.ExecutableLocale, initialMain.Camera.FrameNumber);
         var declarations = source.DirectionalDeclarations;
         var providers = MapDirectionalLightProviderOwner.Load(repository, declarations);
-        var white = SourceResourceRegistrationFixed.LoadGameDefault(repository)
-            .Single(binding => binding.Definition.ObjectId == 0x80F9DB7B);
+        var white = StaticTextureResources.Load(repository,
+            repository.LoadObjects("system", 0x93FB3280), "system", [0x80F9DB7B]).Single();
         var diffuse = SourceResourceRegistrationDirectionalDiffuse.Load(repository);
         var representation = DirectionalLightRetainedNormalization.LoadKnownConsumers(
             repository, "native-current-season/CPU-numeric-consumers");

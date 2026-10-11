@@ -4,6 +4,10 @@
 // Shader sources: state0 2F9960EF/8F6C9FB9, matrix0, combo14 VS0/PS11.
 #include "../Lighting/HdrLightingState.h"
 #include "../Environment/SeasonFrame.h"
+#include "../Shadows/ShadowReceiverMaterial.h"
+#include "../Shadows/ShadowReceiverResources.h"
+#include "../Shadows/PatternTransform.h"
+#include "../Environment/SkyPatternPalette.h"
 #include "../../Scene/View/MapViewSettings.h"
 #include <array>
 #include <cstring>
@@ -21,12 +25,16 @@ struct NativePrimaryForwardLightingWrite {unsigned field{}, destination{}, sourc
 struct NativePrimaryForwardSource {
     std::vector<NativePrimaryForwardTemplate> templates;
     std::vector<NativePrimaryForwardLightingWrite> lightingWrites;
+    std::vector<NativePrimaryForwardLightingWrite> patternWrites;
     unsigned lightGroup{};
 };
 struct NativePrimaryForwardDraw {
     unsigned primitiveIndex{},templateIndex{};
     std::array<char,480> vertex{};
     std::array<char,1360> pixel{};
+    // The long-lived Pattern resource owner outlives this per-frame draw list.
+    ID3D11ShaderResourceView* litView{};
+    ID3D11SamplerState* litSampler{};
 };
 struct NativePrimaryForwardFrame {std::vector<NativePrimaryForwardDraw> draws;};
 inline NativePrimaryForwardSource prepareNativePrimaryForwardSource(const std::filesystem::path& directory) {
@@ -47,8 +55,17 @@ inline NativePrimaryForwardSource prepareNativePrimaryForwardSource(const std::f
             throw std::runtime_error("Forward named lighting layout range");
         p.lightingWrites.push_back(write);
     }
+    std::ifstream patternWrites(directory/"forward-pattern-writes.txt");
+    while(patternWrites>>write.field>>write.destination>>write.source>>write.bytes) {
+        constexpr std::array<unsigned,3> widths{64,4,32};
+        if(write.field>=widths.size()||!write.bytes||
+            std::uint64_t(write.source)+write.bytes>widths[write.field]||
+            std::uint64_t(write.destination)+write.bytes>(write.field==0?480u:1360u))
+            throw std::runtime_error("Forward named Pattern layout range");
+        p.patternWrites.push_back(write);
+    }
     std::ifstream group(directory/"forward-light-group.txt"); group>>p.lightGroup;
-    if(!rows.eof()||!writes.eof()||!group||p.lightingWrites.empty())
+    if(!rows.eof()||!writes.eof()||!patternWrites.eof()||!group||p.lightingWrites.empty()||p.patternWrites.empty())
         throw std::runtime_error("Forward lighting source is incomplete");
     return p;
 }
@@ -56,9 +73,12 @@ inline NativePrimaryForwardSource prepareNativePrimaryForwardSource(const std::f
 inline NativePrimaryForwardFrame prepareNativePrimaryForwardCurrent(const NativePrimaryForwardSource& source,
     const NativeCityPopulationSource& currentWorld, const NativeCityPopulationPlan& currentPlan,
     const San14::Render::MapViewDefinition& view, const source_current_season::Frame& current,
-    const std::array<float,4>& eye, const char* currentShadowReceiver, size_t receiverBytes) {
-    if (receiverBytes != 768 || !current.hdrLighting)
+    const std::array<float,4>& eye, const San14::Render::ShadowReceiverShadowValues& shadow,
+    const San14::Render::SkyPatternPalette& palette,
+    const San14::Render::NativeShadowReceiverResources& patternResources,float commonClock) {
+    if (!current.hdrLighting)
         throw std::runtime_error("Forward requires current lighting and its real shadow receiver");
+    const bool special=current.shadowReceiver.patternCameraBranch!=5;
     auto group = source.lightGroup & 0x7fffffffu;
     const bool overridden = view.common.present && view.common.outerLightGroupOverride != 0;
     if (overridden) group = view.common.outerLightGroupOverride;
@@ -86,7 +106,18 @@ inline NativePrimaryForwardFrame prepareNativePrimaryForwardCurrent(const Native
                     // Forward has its own current light association. It shares
                     // typed numeric preparation, not a selected HDR byte layout.
                     const auto lighting = San14::Render::prepareHdrLighting(outer.lighting, inner.lighting, *current.hdrLighting);
+                    auto pattern=San14::Render::ShadowReceiverPatternState::construct();
+                    if(special)San14::Render::installShadowReceiverPattern(pattern,current.shadowReceiver.patternScale,
+                        palette.selected?&palette.worldToPattern:nullptr);
+                    else San14::Render::installOrdinaryPattern(pattern,current.patternCamera,
+                        inner.patternModifier.present?inner.patternModifier:outer.patternModifier,
+                        patternResources.mergedPresent(),commonClock);
+                    const auto sampling=special?San14::Render::PatternSampling{
+                        palette.selected?palette.selected->view.Get():patternResources.fallback().view.Get(),
+                        palette.selected?palette.selected->sampler.Get():patternResources.fallback().sampler.Get()}:
+                        patternResources.ordinaryLit(outer.object,current.patternCamera.mergedOverrideEnabled);
                     NativePrimaryForwardDraw draw;
+                    draw.litView=sampling.view;draw.litSampler=sampling.sampler;
                     draw.primitiveIndex = ordinary.primitiveIndex; draw.templateIndex = primitive.templateIndex;
                     draw.vertex = retained.vertex; draw.pixel = retained.pixel;
                     std::memcpy(draw.vertex.data(), ordinary.vertex.data(), 160);
@@ -100,12 +131,21 @@ inline NativePrimaryForwardFrame prepareNativePrimaryForwardCurrent(const Native
                     }
                     // Forward's shadow module consumes the receiver ambient
                     // alpha and shadow group even where HDR did not read them.
-                    std::memcpy(draw.pixel.data()+156, currentShadowReceiver+12, 4);
-                    std::memcpy(draw.vertex.data()+160, currentShadowReceiver+16, 64);
-                    std::memcpy(draw.pixel.data()+288, currentShadowReceiver+80, 4);
-                    std::memcpy(draw.vertex.data()+224, currentShadowReceiver+96, 256);
-                    for (const auto& field : std::array<std::array<unsigned,2>,7>{{{352,64},{416,16},{432,16},{448,16},{464,4},{480,192},{672,16}}})
-                        std::memcpy(draw.pixel.data()+field[0], currentShadowReceiver+field[0], field[1]);
+                    std::memcpy(draw.pixel.data()+156, &lighting.ambient.W, 4);
+                    for(const auto& write:source.patternWrites) {
+                        const void* value=write.field==0?static_cast<const void*>(pattern.worldToPattern.data()):
+                            write.field==1?static_cast<const void*>(&pattern.scale):static_cast<const void*>(pattern.extra.data());
+                        auto destination=write.field==0?draw.vertex.data():draw.pixel.data();
+                        std::memcpy(destination+write.destination,static_cast<const char*>(value)+write.source,write.bytes);
+                    }
+                    std::memcpy(draw.vertex.data()+224, shadow.worldToShadow.data(), sizeof(shadow.worldToShadow));
+                    std::memcpy(draw.pixel.data()+352, shadow.atlasTransforms.data(), sizeof(shadow.atlasTransforms));
+                    std::memcpy(draw.pixel.data()+416, &shadow.depthPlane, sizeof(shadow.depthPlane));
+                    std::memcpy(draw.pixel.data()+432, &shadow.splitEnds, sizeof(shadow.splitEnds));
+                    std::memcpy(draw.pixel.data()+448, &shadow.atlasScale, sizeof(shadow.atlasScale));
+                    std::memcpy(draw.pixel.data()+464, &shadow.sampleLoopCount, sizeof(shadow.sampleLoopCount));
+                    std::memcpy(draw.pixel.data()+480, shadow.lightPlanes.data(), sizeof(shadow.lightPlanes));
+                    std::memcpy(draw.pixel.data()+672, &shadow.shadowDepthPlane, sizeof(shadow.shadowDepthPlane));
                     frame.draws.push_back(std::move(draw)); supplied = true;
                 }
             }

@@ -42,6 +42,13 @@ public static class ModelStageTextures
     public static uint ReadNativeViewFormat(G1TextureImage image)
     {
         ArgumentNullException.ThrowIfNull(image);
+        // The original 0500 single-mip planar loader has no extended color
+        // field and uses the ordinary view. Its sampler reader follows the
+        // same legacy format branch rather than inventing an extra header.
+        if (image.RawContainerVersion == "0500" && image.TextureSystem == 0 &&
+            image.LayerCount == 1 && image.PixelFormat == 1 && image.MipCount == 1 &&
+            image.RawHeader.Length == 8 && (image.RawHeader[7] >> 4) == 0)
+            return ModelTextureFormatMath.Resolve(image.PixelFormat, 0).ShaderViewFormat;
         if (image.TextureSystem != 0 || image.LayerCount != 1 ||
             image.SubresourceLayout != G1TextureSubresourceLayout.SingleLayerMipChain ||
             image.RawHeader.Length < 20 || (image.RawHeader[7] >> 4) != 1)

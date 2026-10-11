@@ -64,6 +64,7 @@ public partial class MapSceneView
             D3D11AmbientRenderResources? ambientResources=null;
             D3D11CloudProgramMedia? cloudMedia=null;
             D3D11CloudRenderResources? cloudResources = null;
+            ShadowReceiverPatternResources? receiverPatterns = null;
             string inputs = Path.GetDirectoryName(source)!;
             D3D11ProjectShaderInputPreparation.WriteNativeInputs(source, _text.SourceLocale);
             D3D11TimingInputPreparation.Load(_repository, _text.SourceLocale)
@@ -186,8 +187,11 @@ public partial class MapSceneView
                             _sourceMainCameraTerrain!.CurrentField, inputs, fieldModels, sceneMedia.Terrain);
                         var initialMainNumeric = D3D11MainCameraInitialNumericInputs.Create(_repository, currentMain);
                         initialMainNumeric.WriteNativeInputs(inputs);
-                        D3D11NormalShadowReceiverInitialInputs.WriteFreshNativeInputs(_repository,
-                            initialMainNumeric, current.PreparedWords.ToDictionary(word => word.Offset, word => word.Bits), inputs);
+                        ShadowReceiverResources.Load(_repository).WriteNativeInputs(inputs);
+                        ShadowReceiverSamplerEncoding.WriteNativeInputs(_repository, _text.SourceLocale, inputs);
+                        receiverPatterns = ShadowReceiverPatternResources.Load(_repository, starPackage, _text.SourceLocale,
+                            season.LoadedResources.PatternTextures);
+                        receiverPatterns.WriteNativeInputs(inputs);
                         D3D11ShadowInputs.WriteNativeInputs(_repository, fieldModels, source,
                             cityGatePublisher.PreparedBank, season.LoadedResources, current);
                         D3D11OwnedNumericInputPreparation.WriteFreshNativeInputs(_repository, scene,
@@ -241,6 +245,9 @@ public partial class MapSceneView
                     }
                     if (!ReferenceEquals(writtenSeasonResources, season.LoadedResources))
                     {
+                        receiverPatterns!.RequireCompatible(_repository,
+                            current.Present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage,
+                            season.LoadedResources.PatternTextures);
                         int loadedCount = seasonLibrary.LoadedInstallations.Count;
                         if (loadedCount != writtenSeasonCount)
                         {

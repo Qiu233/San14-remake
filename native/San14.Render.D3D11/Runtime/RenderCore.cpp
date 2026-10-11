@@ -293,7 +293,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         frameState.prepareView(resources);
         // Normal ready STA, Camera kind0: D57E50/EBD510 select K1890's
         // original white Static. FE8 belongs to the older empty-registry lab.
-        shadows.prepareDirectionalDiffuse(device.Get(),resources.directory(ResourceGroup::ShadowReceivers));
+        shadows.prepareReceiverResources(device.Get(),resources.directory(ResourceGroup::ShadowReceivers));
     }
     auto publishCurrentModels=[&]() {
         armies.publishArmy(host.armyWorld);
@@ -508,8 +508,12 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     ComPtr<ID3D11BlendState> cloudEntryBlend;
     ComPtr<ID3D11RasterizerState> cloudEntryRaster;
     UINT cloudEntryReference=0,cloudEntrySampleMask=~0u;float cloudEntryFactor[4]{};
-    const auto receiver68Source=resources.directory(ResourceGroup::ShadowReceivers)/"initial"/"rs68";
-    const auto receiver119Source=resources.directory(ResourceGroup::ShadowReceivers)/"initial"/"rs119";
+    const auto receiverDepthObject=static_cast<std::uint32_t>(std::stoul(geometryTargets.depthKey()));
+    auto receiverCurrentFrame=[&]() -> const source_current_season::Frame& {
+        const auto* current=frameState.season();
+        if(!current)throw std::runtime_error("Shadow receiver requires current season inputs");
+        return *current;
+    };
     NativeRs69Fallback fallback69;
     DeferredLightingPass hdr78,hdr123,hdr166;
     ComPtr<ID3D11RenderTargetView> indirectTarget;
@@ -517,7 +521,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     NativePrimaryForwardGpu primaryForwardGpu;
     NativePrimaryForwardFrame primaryForwardFrame;
     bool primaryForwardReady=false;
-    auto drawCurrentPrimaryForward=[&]() {
+    auto drawCurrentPrimaryForward=[&](float commonClock) {
 
         if(!primaryForwardReady) {
             const auto directory=resources.directory(ResourceGroup::ForwardLighting);
@@ -527,13 +531,14 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             primaryForwardReady=true;
         }
         if (!frameState.season()) throw std::runtime_error("Forward requires current typed lighting");
+        const auto palette=clouds.receiverPatternPalette();
         primaryForwardFrame=prepareNativePrimaryForwardCurrent(primaryForwardSource,bases.primary().source,bases.plan(),
             frameState.viewDefinition(),*frameState.season(),frameState.environment().camera().eye,
-            shadows.geometryReceiverConstants().data(),shadows.geometryReceiverConstants().size());
+            shadows.receiverShadowValues(),palette,shadows.patternResources(),commonClock);
          //Allocation observation, not a source-pixel render.
         executeNativePrimaryForwardGpu(context.Get(),sourceDepth,primaryForwardGpu,primaryForwardFrame,bases.primary().currentModels,
-            hdr166.targetView(),geometryTargets.depthView(),geometryTargets.viewport(),shadows.shadowView(),shadows.directionalView(),hdr166.bank().ggx.Get(),
-            clouds.ambientView(),fogAcceleration.samplingView());
+            hdr166.targetView(),geometryTargets.depthView(),geometryTargets.viewport(),shadows.shadowView(),
+            hdr166.bank().ggx.Get(),clouds.ambientView(),fogAcceleration.samplingView());
 
     };
     auto isolateCurrentShadowVisibility=[&]() {
@@ -551,9 +556,9 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     callerTargets.restore(context.Get()); //64
     {auto raw=indirectTarget.Get();context->OMSetRenderTargets(1,&raw,geometryTargets.depthView());} //67
     {
-        shadows.prepareGeometryReceiver(device.Get(),context.Get(),receiver68Source,input/"rs68"/"directional-diffuse.tex",
-            geometryTargets.textures()[2].Get(),formats[2],width,height,frameState.season(),staticCamera);
-        shadows.executeGeometryReceiver(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView());
+        shadows.prepareGeometryReceiver(staticCamera);
+        shadows.executeGeometryReceiver(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),receiverDepthObject,
+            receiverCurrentFrame(),frameState.preparedView(),clouds.receiverPatternPalette(),initialCommonClock);
     }
     fallback69=prepareRs69Fallback(device.Get(),input,geometryTargets.textures()[2].Get(),formats[2],width,height);
     executeRs69Fallback(device.Get(),context.Get(),sourceDepth,fallback69,geometryTargets.depthView());
@@ -603,9 +608,9 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                 // explicitly empty SDF owner used at69 preserves RG at120;
                 // 121 pops this target scope without copying depth.
                 auto rsTarget=indirectTarget.Get();context->OMSetRenderTargets(1,&rsTarget,geometryTargets.depthView()); //118
-                shadows.prepareWaterReceiver(device.Get(),context.Get(),receiver119Source,
-                    geometryTargets.textures()[2].Get(),formats[2],width,height,frameState.season(),staticCamera);
-                shadows.executeWaterReceiver(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView());
+                shadows.prepareWaterReceiver(staticCamera);
+                shadows.executeWaterReceiver(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),receiverDepthObject,
+                    receiverCurrentFrame(),frameState.preparedView(),clouds.receiverPatternPalette(),initialCommonClock);
                 isolateCurrentShadowVisibility();
                 mainTargets.restore(context.Get()); //121
                 drawCurrentTerritory(122,2);
@@ -674,7 +679,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                 mainTargets.restore(context.Get()); //165 and late HDR return to73
                 ;
                 {
-                    drawCurrentPrimaryForward(); //184..187, before Effects188 and mirror191.
+                    drawCurrentPrimaryForward(initialCommonClock); //184..187, before Effects188 and mirror191.
                     //188 reads160.189's independent View1 remains outside this
                     //cohort; do not duplicate View0's population into it.
 
@@ -732,7 +737,8 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         auto abTarget=geometryTargets.colors()[0];context->OMSetRenderTargets(1,&abTarget,geometryTargets.depthView());
         shadows.executeContact(context.Get(),sourceDepth,geometryTargets.viewport());callerTargets.restore(context.Get());
         auto rsTarget=indirectTarget.Get();context->OMSetRenderTargets(1,&rsTarget,geometryTargets.depthView());
-        shadows.executeGeometryReceiver(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView());
+        shadows.executeGeometryReceiver(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),receiverDepthObject,
+            receiverCurrentFrame(),frameState.preparedView(),clouds.receiverPatternPalette(),currentClock);
         executeRs69Fallback(device.Get(),context.Get(),sourceDepth,fallback69,geometryTargets.depthView());callerTargets.restore(context.Get());
         isolateCurrentShadowVisibility();
         auto mainTargets=NativeMainTargetScope::main73(postProcessing.sceneTarget(),geometryTargets.depthView(),geometryTargets.viewport(),geometryTargets.scissor());
@@ -749,7 +755,8 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         ocean.executeWater(context.Get(),sourceDepth,frameState.oceanLightGroup(),frameState.commonRenderPolicy());
         updateNativeDepthMirror(context.Get(),mainDepth,"117 new Main Ocean");mainTargets.restore(context.Get());
         context->OMSetRenderTargets(1,&rsTarget,geometryTargets.depthView());
-        shadows.executeWaterReceiver(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView());mainTargets.restore(context.Get());
+        shadows.executeWaterReceiver(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),receiverDepthObject,
+            receiverCurrentFrame(),frameState.preparedView(),clouds.receiverPatternPalette(),currentClock);mainTargets.restore(context.Get());
         isolateCurrentShadowVisibility();
         drawCurrentTerritory(122,2);
         publishThinSurface();
@@ -781,7 +788,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         }
         hdr166.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),clouds.ambientView(),ocean.refractionDepth(),ocean.transmittedScene(),ocean.blurredDepth(),
             currentClock,frameState.view().activeGroups,frameState.view().oceanGroups);
-        drawCurrentPrimaryForward();
+        drawCurrentPrimaryForward(currentClock);
 
         mainTargets.restore(context.Get());
 

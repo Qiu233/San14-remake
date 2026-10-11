@@ -57,15 +57,18 @@ public:
         return result;
     }
     ShadowReceiverVariant initialVariant() const{return variants_.front();}
-    std::optional<ShadowReceiverProgramSelection> select(const ShaderFeatureKey& feature,
+    const std::vector<ShadowReceiverProgramReference>& programs() const{return programs_;}
+    ShadowReceiverProgramSelection select(const ShaderFeatureKey& feature,
         ShadowReceiverVariant& requested,ShadowReceiverVariant& committed) const {
-        const auto variant=std::find(variants_.begin(),variants_.end(),requested);
-        if(variant==variants_.end()) {requested=committed;return std::nullopt;}
+        auto variant=std::find(variants_.begin(),variants_.end(),requested);
+        if(variant==variants_.end()) {
+            requested=committed;variant=std::find(variants_.begin(),variants_.end(),committed);
+            if(variant==variants_.end())throw std::runtime_error("Receiver committed variant is outside its imported bank");
+        }
         const auto featureIndex=ShaderFeatureSelection::select(feature,features_);
         const auto variantIndex=std::size_t(variant-variants_.begin());
         committed=requested;
-        return ShadowReceiverProgramSelection{featureIndex,variantIndex,
-            programs_[featureIndex*variants_.size()+variantIndex]};
+        return {featureIndex,variantIndex,programs_[featureIndex*variants_.size()+variantIndex]};
     }
 private:
     std::vector<ShaderFeatureKey> features_;

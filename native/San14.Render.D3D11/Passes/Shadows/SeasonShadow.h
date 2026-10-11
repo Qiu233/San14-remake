@@ -93,19 +93,4 @@ inline void publish(const Parameters& current,source_shadow_camera::Profile& cpu
     gpu.mainNear=current.nearDistance;gpu.mainFar=current.maximumDistance;
     gpu.basisB=current.basisB;gpu.basisC=current.basisC;gpu.direction=current.direction;gpu.loops=current.sampleLoopCount;
 }
-// Normal white-lit PS5 receiver with no selected pattern wrapper: clear ambient
-// RGB while preserving the selected light's alpha. Keep its authored pattern
-// matrix and every unrelated retained constant-buffer lane.
-inline void publishNormalPs5ReceiverBase(const source_current_season::Frame& current,
-        const Parameters& parameters,std::array<char,768>& constants) {
-    if(parameters.selectedLightGroup<=0)return;
-    if(current.shadowReceiver.patternCameraBranch!=0)
-        throw std::runtime_error("Receiver requires another pattern camera branch");
-    const auto* light=source_current_season::firstMatching(current,parameters.selectedMask);
-    const std::array<uint32_t,3> cleared{};
-    std::memcpy(constants.data(),cleared.data(),12);
-    std::memcpy(constants.data()+12,&light->shadowGeometry.receiverAmbientAlpha,4);
-    std::memcpy(constants.data()+80,&current.shadowReceiver.patternScale,4);
-    std::memcpy(constants.data()+752,&current.shadowReceiver.depthFade,4);
-}
 }

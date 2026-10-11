@@ -78,24 +78,10 @@ public static class DeferredEarlyIndirectPatternCameraSource
         {
             if (package.Camera.ClassId != MapCameraConstructionSource.PerspectiveCameraClassId)
                 throw new InvalidDataException("Early68 PatternMap numeric source is not its selected Perspective package.");
-            (int Ordinal, uint Hash)[] bindings =
-            [ (305, 0x2280A0FA), (306, 0xC3D45CFC), (307, 0x700D565D), (308, 0x1161125F),
-              (940, 0xC3FB2C2F), (941, 0x35884FC0), (942, 0x448A1A29) ];
-            Values = bindings.Select(binding =>
-            {
-                var field = package.Camera.Properties[binding.Ordinal];
-                if (field.Index != binding.Ordinal || field.NameHash != binding.Hash || field.TypeCode != 8 ||
-                    field.ElementCount != 1 || field.ElementSize != 4 || field.RawValue.Length != 4)
-                    throw new InvalidDataException("Early68 selected PatternMap field differs at package import.");
-                float value = BinaryPrimitives.ReadSingleLittleEndian(field.RawValue);
-                if (!float.IsFinite(value)) throw new InvalidDataException("Early68 selected PatternMap numeric source is nonfinite.");
-                return value;
-            }).ToArray();
-            var overrideField = package.Camera.Properties[309];
-            if (overrideField.Index != 309 || overrideField.NameHash != 0x46D194A5 || overrideField.TypeCode != 4 ||
-                overrideField.ElementCount != 1 || overrideField.ElementSize != 4 || overrideField.RawValue.Length != 4)
-                throw new InvalidDataException("Early68 selected PatternMap override field differs at package import.");
-            Camera544 = BinaryPrimitives.ReadUInt32LittleEndian(overrideField.RawValue);
+            var pattern = PatternCameraSettingsImport.Load(package);
+            Values = [pattern.Scale.X, pattern.Scale.Y, pattern.Velocity.X, pattern.Velocity.Y,
+                pattern.RotationAngles.X, pattern.RotationAngles.Y, pattern.RotationAngles.Z];
+            Camera544 = Word(309, 0x46D194A5, 4);
             uint Word(int ordinal, uint hash, uint type)
             {
                 var field = package.Camera.Properties[ordinal];

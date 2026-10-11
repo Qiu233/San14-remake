@@ -3,6 +3,7 @@
 #include "SkyAtmosphereResources.h"
 #include "CloudVolumePreparation.h"
 #include "SkyPatternRenderer.h"
+#include "SkyPatternPalette.h"
 #include "../../Scene/View/PreparedViewBaseLight.h"
 // Include after the cloud, ambient, weather and atmosphere publication writers.
 namespace San14::Render {
@@ -86,6 +87,10 @@ class CloudEnvironmentPass {
     }
     UINT patternSelector() const {return patternSelector_;}
     const source_camera::Matrix& patternMatrix() const {return patternMatrix_;}
+    SkyPatternPalette receiverPatternPalette() const {
+        const auto& targets=patternTargets_.value();
+        return {atmosphereResources_.value(),patternSelector_<4?targets.prepared(patternSelector_):nullptr,patternMatrix_};
+    }
 
     void prepareAtmosphereResources(ID3D11Device* device,const fs::path& source) {
         auto prepared=NativeSkyAtmosphereResources::prepare(device,source,environment_.textures);

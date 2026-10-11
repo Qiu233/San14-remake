@@ -3,6 +3,7 @@
 // the usual load/check helpers. Device work is prepared once, not per frame.
 #pragma once
 #include "ShadowCameraFrame.h"
+#include "ShadowReceiverMaterial.h"
 #include <array>
 #include <fstream>
 #include <vector>
@@ -159,35 +160,40 @@ inline source_camera::V4 transform(source_camera::V4 v, const source_camera::Mat
             rowDotX(v, {m[1], m[5], m[9], m[13]}), rowDotX(v, {m[2], m[6], m[10], m[14]}),
             rowDotX(v, {m[3], m[7], m[11], m[15]})};
 }
-inline std::array<char, 768> receiverConstants(const Profile &p, const source_shadow_camera::Profile &cpu,
+inline San14::Render::ShadowReceiverMaterial receiverMaterial(const Profile &p, const source_shadow_camera::Profile &cpu,
                                                const source_camera::Frame &camera,
                                                const source_shadow_camera::Frame &shadow,
-                                               const std::array<char, 768> &original) {
+                                               const San14::Render::ShadowReceiverMaterial &original) {
     using namespace source_shadow_camera;
-    auto bytes = original;
+    auto material = original;
+    if(!material.shadow) {
+        if(shadow.passCount!=4)throw std::runtime_error("Fresh receiver cascade tails require four initialized passes");
+        material.shadow.emplace();
+    }
+    auto& values=*material.shadow;
     std::array<Matrix, 4> textures;
     for (unsigned i = 0; i < unsigned(shadow.passCount); i++) {
         textures[i] = i != 0 && !(shadow.touchedMask & (1u << i))
                           ? Matrix{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}
                           : textureMatrix(shadow.passes[i].shadow);
-        std::memcpy(bytes.data() + 96 + i * 64, textures[i].data(), 64);
+        values.worldToShadow[i]=textures[i];
     }
     for (unsigned i = 0; i < 4; i++)
-        std::memcpy(bytes.data() + 352 + i * 16, &shadow.atlas[i].scaleOffset, 16);
-    std::memcpy(bytes.data() + 416, &shadow.depthPlane, 16);
-    std::memcpy(bytes.data() + 432, &shadow.relativeEnds, 16);
+        values.atlasTransforms[i]=shadow.atlas[i].scaleOffset;
+    values.depthPlane=shadow.depthPlane;
+    values.splitEnds=shadow.relativeEnds;
     V4 scales{D(1, float(cpu.width)), D(1, float(cpu.height)), float(cpu.width), float(cpu.height)};
-    std::memcpy(bytes.data() + 448, &scales, 16);
-    std::memcpy(bytes.data() + 464, &p.loops, 4);
+    values.atlasScale=scales;
+    values.sampleLoopCount=static_cast<std::int32_t>(p.loops);
     for (unsigned i = 0; i < unsigned(shadow.passCount); i++) {
         auto b = transform(p.basisB, textures[i]), c = transform(p.basisC, textures[i]);
-        std::memcpy(bytes.data() + 480 + i * 32, &b, 16);
-        std::memcpy(bytes.data() + 496 + i * 32, &c, 16);
+        values.lightPlanes[i*2]=b;
+        values.lightPlanes[i*2+1]=c;
         auto inverse =
             i == 0 || (shadow.touchedMask & (1u << i)) ? source_matrix::inverse(textures[i]) : textures[i];
         V4 plane{rowDotX(p.direction, row(inverse, 0)), rowDotX(p.direction, row(inverse, 1)),
                  rowDotX(p.direction, row(inverse, 2)), shadow.compactFar};
-        std::memcpy(bytes.data() + 608 + i * 16, &plane, 16);
+        values.lightPlanes[8+i]=plane;
     }
     Matrix worldToProjection = camera.worldToClip;
     V4 depth;
@@ -200,10 +206,11 @@ inline std::array<char, 768> receiverConstants(const Profile &p, const source_sh
     auto inverse = source_matrix::inverse(textures[0]);
     V4 depthPlane{dotPlane(depth, row(inverse, 0)), dotPlane(depth, row(inverse, 1)),
                   dotPlane(depth, row(inverse, 2)), dotPlane(depth, row(inverse, 3))};
-    std::memcpy(bytes.data() + 672, &depthPlane, 16);
+    values.shadowDepthPlane=depthPlane;
     auto projectionToWorld = source_matrix::inverse(worldToProjection);
-    std::memcpy(bytes.data() + 688, projectionToWorld.data(), 64);
-    return bytes;
+    material.projectionToWorld=projectionToWorld;
+    material.viewToWorld=source_matrix::inverse(camera.view);
+    return material;
 }
 } // namespace source_shadow_gpu
 
@@ -348,34 +355,4 @@ inline void executeNativeShadowCameraGpu(ID3D11DeviceContext *context, LogicalDe
 // Existing receiver68/119 device owners retain their exact shader/groups/
 // samplers/depth logical states. Replace its immutable CB only at preparation,
 // then update the complete source768 packet before the existing execute helper.
-struct NativeShadowCameraReceiver {
-    std::array<char, 768> current;
-};
-template <class Receiver>
-inline NativeShadowCameraReceiver prepareNativeShadowCameraReceiver(ID3D11Device *device, Receiver &receiver,
-                                                                    const fs::path &source) {
-    auto bytes = load(source / "ps-b0.bin");
-    if (bytes.size() != 768)
-        throw std::runtime_error("Current source receiver requires exact768B globals");
-    NativeShadowCameraReceiver out;
-    std::memcpy(out.current.data(), bytes.data(), 768);
-    D3D11_BUFFER_DESC d{};
-    d.ByteWidth = 768;
-    d.Usage = D3D11_USAGE_DEFAULT;
-    d.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    D3D11_SUBRESOURCE_DATA initial{};
-    initial.pSysMem = bytes.data();
-    check(device->CreateBuffer(&d, &initial, &receiver.constants), "mutable complete source receiver768");
-    return out;
-}
-template <class Receiver>
-inline void
-updateNativeShadowCameraReceiver(ID3D11DeviceContext *context, Receiver &receiver,
-                                 NativeShadowCameraReceiver &owned, const NativeShadowCameraGpu &gpu,
-                                 const source_shadow_camera::Profile &cpu, const source_camera::Frame &camera,
-                                 const source_shadow_camera::Frame &shadow) {
-    auto bytes = source_shadow_gpu::receiverConstants(gpu.profile, cpu, camera, shadow, owned.current);
-    owned.current = bytes;
-    context->UpdateSubresource(receiver.constants.Get(), 0, nullptr, bytes.data(), 0, 0);
-}
 #endif

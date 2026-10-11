@@ -2,6 +2,7 @@
 // Same-request season interchange packet. Imported layout is decoded here;
 // loaded textures, programs and retained pass histories remain session resources.
 #include "../Shadows/SeasonShadowInputs.h"
+#include "../Shadows/PatternTransform.h"
 #include "CloudWeatherInputs.h"
 #include "SkyPatternCurrentInputs.h"
 #include "HeightFogInputs.h"
@@ -36,6 +37,8 @@ struct Light {
     uint32_t object,mask;
     uint32_t terrainMaskScalarBits{};
     ShadowModes shadowModes;
+    source_current_season_shadow::ReceiverBias receiverBias;
+    San14::Render::PatternLightModifier patternModifier;
     std::array<uint8_t,0x328> data;
     source_current_season_shadow::LightGeometry shadowGeometry;
     San14::Render::HdrLightState lighting;
@@ -55,6 +58,7 @@ struct Frame {
     source_current_season_shadow::ReceiverStyle shadowReceiver;
     source_current_cloud_weather::Conditions cloudWeather;
     San14::Render::SkyPatternCurrentInputs pattern;
+    San14::Render::OrdinaryPatternCameraSettings patternCamera;
     std::optional<std::uint32_t> oceanLightGroup;
     San14::Render::OceanWaveSettings oceanWave;
     San14::Render::OceanSurfaceSettings oceanSurface;
@@ -223,6 +227,34 @@ inline Frame decode(std::span<const uint8_t> bytes){
     if(bytes.size()-at<starBytes)throw std::runtime_error("Current Main Star block absent");
     r.mainStar=San14::Render::Interop::decodeMainStarInputs(bytes.subspan(at,starBytes));
     at+=starBytes;
+    constexpr size_t receiverBiasBytes=4+5*8;
+    if(bytes.size()-at<receiverBiasBytes||read<uint32_t>(bytes,at)!=0x31435253u)
+        throw std::runtime_error("Current shadow receiver bias block absent");
+    at+=4;
+    for(auto& light:r.lights) {
+        light.receiverBias={read<float>(bytes,at),read<float>(bytes,at+4)};
+        at+=8;
+    }
+    constexpr size_t ordinaryPatternBytes=4+32+5*44;
+    if(bytes.size()-at<ordinaryPatternBytes||read<uint32_t>(bytes,at)!=0x3143504fu)
+        throw std::runtime_error("Current ordinary Pattern block absent");
+    at+=4;
+    r.patternCamera.scale=read<std::array<float,2>>(bytes,at);
+    r.patternCamera.velocity=read<std::array<float,2>>(bytes,at+8);
+    r.patternCamera.angles=read<std::array<float,3>>(bytes,at+16);
+    r.patternCamera.mergedOverrideEnabled=read<uint32_t>(bytes,at+28)!=0;
+    at+=32;
+    for(auto& light:r.lights) {
+        auto& modifier=light.patternModifier;
+        modifier.present=read<uint32_t>(bytes,at)!=0;
+        modifier.preservePatternOverride=read<uint32_t>(bytes,at+4)!=0;
+        modifier.strength=read<float>(bytes,at+8);
+        modifier.planeSub=read<std::array<float,2>>(bytes,at+12);
+        modifier.scale=read<std::array<float,2>>(bytes,at+20);
+        modifier.velocity=read<std::array<float,2>>(bytes,at+28);
+        modifier.offset=read<std::array<float,2>>(bytes,at+36);
+        at+=44;
+    }
     if (at < bytes.size()) {
         std::array<San14::Render::HdrLightModifier, 5> modifiers;
         if (bytes.size() - at < San14::Render::Interop::HdrLightingInputBytes)

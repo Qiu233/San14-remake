@@ -28,14 +28,6 @@ public:
         raster_[0]=loadNativeShadowRasterSource(source/"initial");
         raster_[1]=loadNativeShadowRasterSource(source/"mode1");
     }
-    void prepareDirectionalDiffuse(ID3D11Device* device,const fs::path& source) {
-        auto diffuse=loadTexture(device,source/"white-80F9.tex");
-        D3D11_SHADER_RESOURCE_VIEW_DESC diffuseView{};
-        diffuseView.Format=DXGI_FORMAT_B8G8R8A8_UNORM;
-        diffuseView.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;
-        diffuseView.Texture2D.MipLevels=1;
-        check(device->CreateShaderResourceView(diffuse.Get(),&diffuseView,&directionalDiffuse_),"Normal source K1890 white80F9 owner");
-    }
     void publishPrimaryPopulation(const NativeModelContinuous& field,
         const NativeCityAreaPrimary& primary,const StaticModelResources& models) {
         publishNativeCityAreaJointShadow(population_,*cityGate_,field,primary,cameras_,parameters_);
@@ -68,8 +60,8 @@ public:
         plan_=source_shadow_gpu::preparePlan(gpu_.profile,frame_,population_.catalog);
         executeNativeShadowCameraGpu(context,logical,gpu_,frame_,plan_,population_.catalog,population_.allModels,family_);
         map_=gpu_.map;
-        updateReceiver(context,receiver_,receiverCamera_,season,camera);
-        updateReceiver(context,waterReceiver_,waterReceiverCamera_,season,camera);
+        if(receiver_)updateReceiver(*receiver_,camera);
+        if(waterReceiver_)updateReceiver(*waterReceiver_,camera);
     }
     void prepareContact(ID3D11Device* device,const fs::path& source,
         const NativeSourceDepthState& logical,const D3D11_RASTERIZER_DESC& raster,const D3D11_BLEND_DESC& blend,
@@ -80,33 +72,26 @@ public:
     void executeContact(ID3D11DeviceContext* context,NativeSourceDepthState& logical,const D3D11_VIEWPORT& viewport) {
         executeNativeSubShadow63(context,logical,contact_,viewport);
     }
-    void prepareGeometryReceiver(ID3D11Device* device,ID3D11DeviceContext* context,
-        const fs::path& source,const fs::path& fallbackDiffuse,ID3D11Texture2D* indirect,
-        DXGI_FORMAT format,UINT width,UINT height,const source_current_season::Frame* season,const source_camera::Frame& camera) {
-        if(!directionalDiffuse_){auto diffuseTexture=loadTexture(device,fallbackDiffuse);
-            check(device->CreateShaderResourceView(diffuseTexture.Get(),nullptr,&directionalDiffuse_),"held original directional diffuse");}
-        receiver_=prepareSourceShadowReceiver(device,source,map_.view.Get(),directionalDiffuse_.Get(),indirect,format,width,height);
-        {
-            receiverCamera_=prepareNativeShadowCameraReceiver(device,receiver_,source);
-            updateReceiver(context,receiver_,receiverCamera_,season,camera);
-        }
+    void prepareReceiverResources(ID3D11Device* device,const fs::path& source) {
+        receiverResources_.prepare(device,source);
     }
-    void prepareWaterReceiver(ID3D11Device* device,ID3D11DeviceContext* context,
-        const fs::path& source,ID3D11Texture2D* indirect,DXGI_FORMAT format,UINT width,UINT height,
-        const source_current_season::Frame* season,const source_camera::Frame& camera) {
-        waterReceiver_=prepareSourceShadowReceiver(device,source,map_.view.Get(),directionalDiffuse_.Get(),indirect,format,width,height);
-        {
-            waterReceiverCamera_=prepareNativeShadowCameraReceiver(device,waterReceiver_,source);
-            updateReceiver(context,waterReceiver_,waterReceiverCamera_,season,camera);
-        }
+    void prepareGeometryReceiver(const source_camera::Frame& camera) {
+        receiver_.emplace(receiverResources_,68);updateReceiver(*receiver_,camera);
+    }
+    void prepareWaterReceiver(const source_camera::Frame& camera) {
+        waterReceiver_.emplace(receiverResources_,119);updateReceiver(*waterReceiver_,camera);
     }
     void executeGeometryReceiver(ID3D11Device* device,ID3D11DeviceContext* context,
-        NativeSourceDepthState& logical,ID3D11ShaderResourceView* depth,ID3D11DepthStencilView* mainDepth) {
-        executeSourceShadowReceiver(device,context,logical,receiver_,depth,mainDepth);
+        NativeSourceDepthState& logical,ID3D11ShaderResourceView* depth,std::uint32_t depthObject,
+        const source_current_season::Frame& current,const PreparedMapView& view,const SkyPatternPalette& palette,float commonClock) {
+        executeSourceShadowReceiver(device,context,logical,receiver_.value(),receiverResources_,map_.view.Get(),
+            depth,depthObject,current,view,palette,commonClock);
     }
     void executeWaterReceiver(ID3D11Device* device,ID3D11DeviceContext* context,
-        NativeSourceDepthState& logical,ID3D11ShaderResourceView* depth,ID3D11DepthStencilView* mainDepth) {
-        executeSourceShadowReceiver(device,context,logical,waterReceiver_,depth,mainDepth);
+        NativeSourceDepthState& logical,ID3D11ShaderResourceView* depth,std::uint32_t depthObject,
+        const source_current_season::Frame& current,const PreparedMapView& view,const SkyPatternPalette& palette,float commonClock) {
+        executeSourceShadowReceiver(device,context,logical,waterReceiver_.value(),receiverResources_,map_.view.Get(),
+            depth,depthObject,current,view,palette,commonClock);
     }
     const source_shadow_camera::Frame& frame() const {return frame_;}
     const source_shadow_camera::Profile& compactCpuProvider() const {
@@ -114,15 +99,15 @@ public:
         return cameras_[family_];
     }
     const source_current_season_shadow::Parameters& seasonParameters() const {return season_;}
-    const std::array<char,768>& geometryReceiverConstants() const {return receiverCamera_.current;}
+    const ShadowReceiverShadowValues& receiverShadowValues() const {return receiver_.value().material.shadow.value();}
     ID3D11ShaderResourceView* shadowView() const {return gpu_.map.view.Get();}
-    ID3D11ShaderResourceView* directionalView() const {return directionalDiffuse_.Get();}
+    ID3D11ShaderResourceView* directionalView() const {return receiverResources_.fallback().view.Get();}
+    ID3D11SamplerState* fallbackSampler() const {return receiverResources_.fallback().sampler.Get();}
+    const NativeShadowReceiverResources& patternResources() const {return receiverResources_;}
 
 private:
-    void updateReceiver(ID3D11DeviceContext* context,NativeSourceShadowReceiver& receiver,
-        NativeShadowCameraReceiver& owned,const source_current_season::Frame* season,const source_camera::Frame& camera) {
-        if(season)source_current_season_shadow::publishNormalPs5ReceiverBase(*season,season_,owned.current);
-        updateNativeShadowCameraReceiver(context,receiver,owned,gpu_,cameras_[family_],camera,frame_);
+    void updateReceiver(NativeSourceShadowReceiver& receiver,const source_camera::Frame& camera) {
+        receiver.material=source_shadow_gpu::receiverMaterial(gpu_.profile,cameras_[family_],camera,frame_,receiver.material);
     }
     NativeJointPopulationShadow population_;
     std::optional<NativeCityGateShadowSource> cityGate_;
@@ -138,8 +123,7 @@ private:
     NativeShadowCameraGpu gpu_;
     source_shadow_gpu::Plan plan_;
     NativeSubShadow contact_;
-    NativeSourceShadowReceiver receiver_,waterReceiver_;
-    NativeShadowCameraReceiver receiverCamera_,waterReceiverCamera_;
-    ComPtr<ID3D11ShaderResourceView> directionalDiffuse_;
+    NativeShadowReceiverResources receiverResources_;
+    std::optional<NativeSourceShadowReceiver> receiver_,waterReceiver_;
 };
 } // namespace San14::Render
