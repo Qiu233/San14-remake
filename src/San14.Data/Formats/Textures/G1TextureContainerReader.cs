@@ -77,17 +77,17 @@ public static class G1TextureContainerReader
         string version = Encoding.ASCII.GetString(data.Slice(4, 4));
         uint platform = U32(data, 20);
         int table = I32(data, 12), count = I32(data, 16);
-        bool legacyEarth = version == "0500" && platform == 0;
-        if (!legacyEarth && (version is not ("0600" or "1600" or "4600") || platform != 0x0A))
+        bool legacyContainer = version == "0500" && platform == 0;
+        if (!legacyContainer && (version is not ("0600" or "1600" or "4600") || platform != 0x0A))
             throw new InvalidDataException($"Unsupported G1T container version/platform: {version}/{platform:X8}.");
-        if (legacyEarth && (table != 32 || count != 1))
+        if (legacyContainer && (table != 32 || count != 1))
             throw new InvalidDataException("Legacy0500 supports only the verified single-image directory family.");
         // Native955C20 does not consume header08 for these Windows versions:
         // it reads magic/version/count, platform and directory offset instead.
         // The original half-float LUT retains a BGRA8-sized declared length.
         // Keep that raw word, and validate every actual image/body byte below;
         // resource overrides need not reproduce one particular LUT's header.
-        bool nativeIgnoresDeclaredLength=!legacyEarth;
+        bool nativeIgnoresDeclaredLength=!legacyContainer;
         if ((!nativeIgnoresDeclaredLength&&I32(data,8)!=data.Length) || count < 1 || count > 10_000 || table < 28 ||
             table > 4096 || table > data.Length - 4L * count)
             throw new InvalidDataException("G1T container total length or directory is invalid.");
@@ -124,8 +124,8 @@ public static class G1TextureContainerReader
     {
         if (image.Length < 8) throw new InvalidDataException("G1T texture header is truncated.");
         byte rawMips = (byte)(image[0] >> 4), system = (byte)(image[0] & 15);
-        if(version == "0500" && (system != 0 || rawMips != 1 || image[1] != 1 || (image[7] >> 4) != 0))
-            throw new InvalidDataException("Legacy0500 requires the verified planar BGRA8 single-mip base header.");
+        if(version == "0500" && (system != 0 || rawMips != 1 || image[1] is not (1 or 6) || (image[7] >> 4) != 0))
+            throw new InvalidDataException("Legacy0500 requires a supported planar BGRA8 or BC1 single-mip base header.");
         int mips = Math.Max(1, (int)rawMips);
         if(system == 2 && rawMips == 0)
             throw new InvalidDataException("Original system2 volume requires an explicit nonzero mip count.");
@@ -137,6 +137,7 @@ public static class G1TextureContainerReader
             0x00 or 0x01 or 0x02 => 4,
             0x03 => 8,
             0x04 => 16,
+            0x06 when version == "0500" => 8,
             0x59 or 0x5C => 8,
             0x5B or 0x5E or 0x5F => 16,
             _ => throw new InvalidDataException($"Unsupported G1T encoded pixel format {format:X2}.")
@@ -187,7 +188,7 @@ public static class G1TextureContainerReader
         int w = width, h = height, d = depth;
         for (int level = 0; level < mips; level++)
         {
-            long units = format is 0x59 or 0x5B or 0x5C or 0x5E or 0x5F
+            long units = format is 0x06 or 0x59 or 0x5B or 0x5C or 0x5E or 0x5F
                 ? ((w + 3L) / 4) * ((h + 3L) / 4) : (long)w * h;
             // The original BC7 volume uploader does not clamp to a minimum block.
             // Support its demonstrated complete 4x4 blocks, refuse smaller mips.

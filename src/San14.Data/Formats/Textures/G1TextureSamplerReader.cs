@@ -32,7 +32,7 @@ public static class G1TextureSamplerReader
         ArgumentNullException.ThrowIfNull(image);
         ReadOnlySpan<byte> header=image.RawHeader;
         bool legacy=image.RawContainerVersion=="0500" && image.TextureSystem==0 &&
-            image.PixelFormat==1 && image.MipCount==1 && header.Length==8 && (header[7]>>4)==0;
+            image.LayerCount==1 && image.MipCount==1 && header.Length==8 && (header[7]>>4)==0;
         if(!legacy && (image.TextureSystem is not (0 or 2 or 3) || header.Length<20 || (header[7]>>4)!=1 || image.MipCount<1))
             throw Error("requires a supported system0/2/3 image with one explicit extra header");
         // Original0500 skips extended fields and supplies bias/minLOD zero;

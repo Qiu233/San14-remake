@@ -16,6 +16,9 @@ struct ShadowReceiverPatternState {
     float scale{};
     std::array<ReceiverVector,2> extra{};
     static ShadowReceiverPatternState construct() {
+        // A drawable shader has already completed factory preparation, which
+        // resets its Pattern module. Bare parameter construction (identity,
+        // strength one) is not an observable entry state for these consumers.
         const float inverse=source_camera::D(1,32000);
         return {{inverse,0,0,0, 0,0,-1,0, 0,inverse,0,0, 0,0,0,1},0,{}};
     }

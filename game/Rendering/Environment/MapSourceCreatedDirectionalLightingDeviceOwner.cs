@@ -9,18 +9,18 @@ public sealed record DirectionalLightingAllocation(ReadOnlyMemory<byte> Complete
 /// are explicit inputs; constructing roots does not select their providers.</summary>
 public sealed partial class MapSourceCreatedDirectionalLightingDeviceOwner : IAsyncDisposable
 {
-    public SourceResourceRegistrationDirectionalDiffuseDevice Diffuse { get; }
+    public RegisteredTextureDevice Diffuse { get; }
     public IReadOnlyList<MapSourceCreatedDirectionalLightingSource> Sources { get; private set; }
     public DirectionalLightRetainedNormalization? RetainedNormalization { get; private set; }
     public MapDirectionalLightProviderOwner? Providers { get; private set; }
-    private SourceResourceRegistrationFixedDevice? fixedWhite;
+    private RegisteredTextureDevice? fixedWhite;
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly object lifetimeGate = new();
     private volatile bool retiring;
     private Task? disposal;
 
     private MapSourceCreatedDirectionalLightingDeviceOwner(
-        SourceResourceRegistrationDirectionalDiffuseDevice diffuse,
+        RegisteredTextureDevice diffuse,
         MapSourceCreatedDirectionalLightingSource[] sources)
         => (Diffuse, Sources) = (diffuse, Array.AsReadOnly(sources));
 
@@ -31,8 +31,8 @@ public sealed partial class MapSourceCreatedDirectionalLightingDeviceOwner : IAs
     public static async Task<MapSourceCreatedDirectionalLightingDeviceOwner> CreateSourceReadyNormalizedAsync(
         GameResourceRepository repository, MapSeasonDirectionalLightSourceSet season,
         LoadedMapCameraConstructionSource mainCamera, uint contextFlags3E4,
-        string backendOwnerIdentity, uint explicitDiffuseViewFormat = 71,
-        uint explicitWhiteViewFormat = 87, bool allowReadback = false)
+        string backendOwnerIdentity, uint? explicitDiffuseViewFormat = null,
+        uint? explicitWhiteViewFormat = null, bool allowReadback = false)
     {
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(season);
         ArgumentNullException.ThrowIfNull(mainCamera); ArgumentException.ThrowIfNullOrWhiteSpace(backendOwnerIdentity);
@@ -41,14 +41,14 @@ public sealed partial class MapSourceCreatedDirectionalLightingDeviceOwner : IAs
             throw new InvalidDataException("Ready seasonal resources require the actual Main38D Camera constructor.");
         var providers = MapDirectionalLightProviderOwner.Load(repository, actual);
         var normalization = DirectionalLightRetainedNormalization.LoadKnownConsumers(repository, backendOwnerIdentity);
-        SourceResourceRegistrationFixedDevice? white = null;
-        SourceResourceRegistrationDirectionalDiffuseDevice? diffuse = null;
+        RegisteredTextureDevice? white = null;
+        RegisteredTextureDevice? diffuse = null;
         try
         {
-            white = await SourceResourceRegistrationFixedDevice.BuildAsync(repository, explicitWhiteViewFormat, allowReadback);
-            diffuse = await SourceResourceRegistrationDirectionalDiffuseDevice.BuildAsync(repository, explicitDiffuseViewFormat, allowReadback);
-            var whiteBinding = await white.GetDirectionalBindingAsync();
-            var diffuseBinding = await diffuse.GetBindingAsync();
+            white = await RegisteredTextureDevice.BuildAsync(SourceResourceRegistrationFixed.LoadWhite(repository), explicitWhiteViewFormat, allowReadback);
+            diffuse = await RegisteredTextureDevice.BuildAsync(SourceResourceRegistrationDirectionalDiffuse.Load(repository), explicitDiffuseViewFormat, allowReadback);
+            var whiteBinding = white.GetBinding();
+            var diffuseBinding = diffuse.GetBinding();
             var sources = actual.Roots.Select(root =>
             {
                 var available = new[] { providers.GetBinding(root.Root.ObjectId), whiteBinding, diffuseBinding };
@@ -67,8 +67,8 @@ public sealed partial class MapSourceCreatedDirectionalLightingDeviceOwner : IAs
         }
         catch
         {
-            if (diffuse is not null) await diffuse.DisposeAsync();
-            if (white is not null) await white.DisposeAsync();
+            try { if (diffuse is not null) await diffuse.DisposeAsync(); }
+            finally { if (white is not null) await white.DisposeAsync(); }
             throw;
         }
     }
@@ -79,8 +79,8 @@ public sealed partial class MapSourceCreatedDirectionalLightingDeviceOwner : IAs
         try
         {
             ObjectDisposedException.ThrowIf(retiring, this);
-            await Diffuse.ValidateAsync();
-            if (fixedWhite is not null) await fixedWhite.ValidateAsync();
+            Diffuse.RequireAvailable();
+            fixedWhite?.RequireAvailable();
         }
         finally { gate.Release(); }
     }
@@ -93,7 +93,7 @@ public sealed partial class MapSourceCreatedDirectionalLightingDeviceOwner : IAs
         GameResourceRepository repository, MapSeasonDirectionalLightSourceSet season,
         LoadedMapCameraConstructionSource mainCamera, uint contextFlags3E4,
         IReadOnlyDictionary<uint, IReadOnlyList<DirectionalLightResourceBinding>> actualOtherLookupResults,
-        string backendOwnerIdentity, uint explicitNativeViewFormat = 71, bool allowReadback = false)
+        string backendOwnerIdentity, uint? explicitNativeViewFormat = null, bool allowReadback = false)
     {
         ArgumentNullException.ThrowIfNull(actualOtherLookupResults);
         var actual = MapSeasonDirectionalLightSources.Read(season.Database);
@@ -121,7 +121,7 @@ public sealed partial class MapSourceCreatedDirectionalLightingDeviceOwner : IAs
         GameResourceRepository repository, MapSeasonDirectionalLightSourceSet season,
         LoadedMapCameraConstructionSource mainCamera, uint contextFlags3E4,
         IReadOnlyDictionary<uint, DirectionalLightingAllocation> allocations,
-        uint explicitNativeViewFormat = 71, bool allowReadback = false)
+        uint? explicitNativeViewFormat = null, bool allowReadback = false)
     {
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(season);
         ArgumentNullException.ThrowIfNull(mainCamera); ArgumentNullException.ThrowIfNull(allocations);
@@ -141,11 +141,11 @@ public sealed partial class MapSourceCreatedDirectionalLightingDeviceOwner : IAs
             return allocation with { CompleteTemplate = allocation.CompleteTemplate.ToArray(),
                 OtherLookupResults = Array.AsReadOnly(allocation.OtherLookupResults.ToArray()) };
         });
-        var diffuse = await SourceResourceRegistrationDirectionalDiffuseDevice.BuildAsync(repository,
+        var diffuse = await RegisteredTextureDevice.BuildAsync(SourceResourceRegistrationDirectionalDiffuse.Load(repository),
             explicitNativeViewFormat, allowReadback);
         try
         {
-            var binding = await diffuse.GetBindingAsync();
+            var binding = diffuse.GetBinding();
             var sources = roots.Select(id =>
             {
                 var allocation = inputs[id];
@@ -178,8 +178,8 @@ public sealed partial class MapSourceCreatedDirectionalLightingDeviceOwner : IAs
             ObjectDisposedException.ThrowIf(retiring, this);
             if (!Sources.Select(s => s.Construction.SourceObjectId).Order().SequenceEqual(inputs.Keys.Order()))
                 throw new InvalidDataException("Current seasonal frame must include all five independent root inputs.");
-            await Diffuse.ValidateAsync();
-            if (fixedWhite is not null) await fixedWhite.ValidateAsync();
+            Diffuse.RequireAvailable();
+            fixedWhite?.RequireAvailable();
             var frames = Sources.ToDictionary(s => s.Construction.SourceObjectId,
                 s => s.PrepareFrame(inputs[s.Construction.SourceObjectId]));
             var first = frames.Values.First();
@@ -195,15 +195,21 @@ public sealed partial class MapSourceCreatedDirectionalLightingDeviceOwner : IAs
 
     public ValueTask DisposeAsync()
     {
-        lock (lifetimeGate) { retiring = true; return new(disposal ??= RetireAsync()); }
+        lock (lifetimeGate)
+        {
+            retiring = true;
+            if (disposal is null || disposal.IsFaulted || disposal.IsCanceled)
+                disposal = RetireAsync();
+            return new(disposal);
+        }
     }
     private async Task RetireAsync()
     {
         await gate.WaitAsync();
         try
         {
-            await Diffuse.DisposeAsync();
-            if (fixedWhite is not null) await fixedWhite.DisposeAsync();
+            try { await Diffuse.DisposeAsync(); }
+            finally { if (fixedWhite is not null) await fixedWhite.DisposeAsync(); }
         }
         finally { gate.Release(); }
     }

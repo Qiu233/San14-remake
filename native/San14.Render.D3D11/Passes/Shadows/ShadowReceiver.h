@@ -164,7 +164,7 @@ inline void executeSourceShadowReceiver(ID3D11Device* device,ID3D11DeviceContext
             palette.selected?palette.selected->sampler.Get():resources.fallback().sampler.Get()}:
             resources.ordinaryLit(light.object,current.patternCamera.mergedOverrideEnabled);
         const auto groups=special?std::vector<ShadowReceiverPatternGroup>{{15,nullptr}}:
-            prepareShadowReceiverPatternGroups(current,index,receiver.node.process?
+            prepareShadowReceiverPatternGroups(current.lights,index,receiver.node.process?
                 view.frame().oceanGroups:view.frame().activeGroups&0x9fffffffu);
         for(const auto& group:groups) {
             const auto changed=special?installShadowReceiverPattern(receiver.material.pattern,current.shadowReceiver.patternScale,

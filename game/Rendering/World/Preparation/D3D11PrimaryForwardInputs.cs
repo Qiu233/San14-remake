@@ -130,11 +130,14 @@ public static class D3D11PrimaryForwardInputs
                 if (ModelShaderResources.ResolveType16Interface(named, 10).Provider is not null)
                     throw new NotSupportedException("Forward state10 redirect requires its actual owner.");
                 var selected = state0.Provider is { } provider ? ModelShaderResources.LoadDeclaredG1S(repository, provider) : null;
+                var configuration = selected is null ? null : G1ShaderConfigurationReader.Read(selected.Source.Bytes, selected.Container);
                 bool eligible = selected is not null && !selected.Container.NamePrefix.StartsWith("CNS-", StringComparison.Ordinal) &&
-                    G1ShaderConfigurationReader.Read(selected.Source.Bytes, selected.Container).Records.Any(value => value.Name is "AlphaTest" or "Dissolve");
+                    configuration!.Records.Any(value => value.Name is "AlphaTest" or "Dissolve");
                 if (!eligible) { rows.Add(index, $"{index} 0 -"); continue; }
                 if (named.Object.ObjectId != 0x2F9960EF || selected!.Source.FileId != shader.Source.FileId)
                     throw new NotSupportedException("Forward template selects another state0 shader family.");
+                if (configuration!.Records.Any(value => value.Name == "LightMap"))
+                    throw new NotSupportedException("Forward LightMap requires its current primitive Pattern-skip flag producer.");
                 var matrix = ModelMatrixBindingSourceReader.PrepareUnboundGroup(bindings, draw)
                     ?? throw new NotSupportedException("Forward template needs its nonrigid owner.");
                 if (ModelMatrixBindingSourceReader.Select(shader, matrix).Selection.RowIndex != 0)

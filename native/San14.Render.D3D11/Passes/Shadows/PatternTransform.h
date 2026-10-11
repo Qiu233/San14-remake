@@ -40,14 +40,16 @@ inline ReceiverMatrix ordinaryPatternMatrix(const std::array<float,2>& scale,
         result=source_sky_pattern::translate(result,{source_camera::flip(halfX),source_camera::flip(halfY),0,0});
         result=source_camera::compose(result,{1,0,0,0, 0,0,1,0, 0,-1,0,0, 0,0,0,1});
         constexpr float radians=.017453292f;
-        const auto yaw=source_camera::sinCos(M(angles[2],radians));
+        const auto yawAngle=M(angles[2],radians);
+        const std::array<float,2> yaw{std::sin(yawAngle),std::cos(yawAngle)};
         for(unsigned row=0;row<4;++row) {
             const unsigned i=row*4;const auto x=result[i],z=result[i+2];
             result[i]=A(M(z,yaw[0]),M(x,yaw[1]));
             result[i+2]=S(M(z,yaw[1]),M(x,yaw[0]));
         }
-        const auto xRotation=source_camera::sinCos(M(angles[0],radians));
-        const auto yRotation=source_camera::sinCos(M(angles[1],radians));
+        const auto xAngle=M(angles[0],radians),yAngle=M(angles[1],radians);
+        const std::array<float,2> xRotation{std::sin(xAngle),std::cos(xAngle)},
+            yRotation{std::sin(yAngle),std::cos(yAngle)};
         const auto sx=xRotation[0],cx=xRotation[1],sy=yRotation[0],cy=yRotation[1];
         for(unsigned row=0;row<4;++row) {
             const unsigned i=row*4;const auto x=result[i],y=result[i+1],z=result[i+2];
@@ -57,6 +59,7 @@ inline ReceiverMatrix ordinaryPatternMatrix(const std::array<float,2>& scale,
         }
         result=source_sky_pattern::translate(result,{halfX,halfY,0,0});
         bool wrote;result=source_sky_pattern::affineInverse(result,wrote);
+        if(!wrote)throw std::runtime_error("Singular rotated Pattern transform requires its retained inverse scratch owner");
     }
     result[12]=A(M(commonClock,velocity[0]),offset[0]);
     result[13]=A(M(commonClock,velocity[1]),offset[1]);

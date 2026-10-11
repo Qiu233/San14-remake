@@ -59,11 +59,11 @@ struct ShadowReceiverPatternGroup {
     const PatternLightModifier* modifier{};
 };
 inline std::vector<ShadowReceiverPatternGroup> prepareShadowReceiverPatternGroups(
-    const source_current_season::Frame& current,std::size_t outer,std::uint32_t activeGroups) {
+    std::span<const source_current_season::Light> lights,std::size_t outer,std::uint32_t activeGroups) {
     std::vector<ShadowReceiverPatternGroup> groups;
     const PatternLightModifier absent;
-    for(std::size_t index=0;index<current.lights.size();++index) {
-        const auto& inner=current.lights[index];
+    for(std::size_t index=0;index<lights.size();++index) {
+        const auto& inner=lights[index];
         if(index==outer||!(inner.mask&activeGroups))continue;
         const auto& modifier=inner.patternModifier;
         auto found=std::find_if(groups.begin(),groups.end(),[&](const auto& group) {
@@ -71,7 +71,6 @@ inline std::vector<ShadowReceiverPatternGroup> prepareShadowReceiverPatternGroup
         });
         if(found!=groups.end())found->mask|=inner.mask;
         else {
-            if(groups.size()==4)throw std::runtime_error("Receiver supports at most four distinct Pattern modifier groups");
             groups.push_back({inner.mask,modifier.present?&modifier:nullptr});
         }
     }

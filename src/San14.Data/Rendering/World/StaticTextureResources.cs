@@ -13,6 +13,20 @@ public sealed record StaticTextureBinding(LoadedObjects Definitions,DokObject De
 /// hash and TID. Object IDs are never treated as file IDs; namespace stays explicit.</summary>
 public static class StaticTextureResources
 {
+    public const uint TextureInterfaceClassId = 0xB672FAA2;
+
+    /// <summary>Detach an imported planar image before creating its device
+    /// owner. Default view and sampler come from the selected image.</summary>
+    public static SkyTextureSource Import2D(StaticTextureBinding source, uint? nativeViewFormat = null)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        var image = SkyTextureSource.Import(source.Resource, source.ImageIndex,
+            nativeViewFormat ?? ModelStageTextures.ReadNativeViewFormat(source.Image));
+        if (image.SourceDimension != 4)
+            throw new NotSupportedException("Registered planar textures require a two-dimensional image.");
+        return image;
+    }
+
     public static IReadOnlyList<StaticTextureBinding> Load(GameResourceRepository repository,
         LoadedObjects definitions,string explicitArchive,IReadOnlyList<uint> explicitObjectIds)
     {

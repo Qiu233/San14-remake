@@ -12,7 +12,7 @@ public sealed record DirectionalLightConstructorMetadata(uint SourceObjectId, ui
     uint ProviderObjectKey, byte SourceF20);
 public sealed record DirectionalLightByteRange(int Offset,int Length);
 public sealed record DirectionalLightResourceSlot(int Slot,int LightDataOffset,uint DeclaredObjectKey,
-    ulong EffectiveDataHandle,uint RequiredInterfaceClassId);
+    ulong EffectiveDataHandle,uint RequiredInterfaceClassId,uint? ResolvedObjectKey);
 
 public sealed class DirectionalLightCurrentCameraPacket
 {
@@ -34,7 +34,7 @@ public sealed class DirectionalLightConstructionPacket
     internal DirectionalLightConstructionPacket(uint objectId, string sourceUri, string sourceHash,
         DirectionalLightConstructionInputs input,
         byte[] constructor, byte[] loaderPrepared, DirectionalLightConstructorMetadata metadata,
-        byte[] sourceWriteMask,uint[] declaredSlotKeys)
+        byte[] sourceWriteMask,uint[] declaredSlotKeys,uint?[] resolvedSlotKeys)
     {
         SourceObjectId=objectId; SourceUri=sourceUri; SourceSha256=sourceHash;
         inputs=input;
@@ -45,7 +45,7 @@ public sealed class DirectionalLightConstructionPacket
         ConstructorRetainedRanges=DirectionalLightConstruction.Ranges(sourceWriteMask,0);
         ResourceSlots=Array.AsReadOnly(declaredSlotKeys.Select((key,slot)=>new DirectionalLightResourceSlot(slot,
             0xFE0+slot*8,key,BinaryPrimitives.ReadUInt64LittleEndian(prepared.AsSpan(0xFE0+slot*8,8)),
-            slot==21?0x970DB365u:0xB672FAA2u)).ToArray());
+            slot==21?0x970DB365u:0xB672FAA2u,resolvedSlotKeys[slot])).ToArray());
     }
     public uint SourceObjectId { get; }
     public string SourceUri { get; }
@@ -102,7 +102,7 @@ public static partial class DirectionalLightConstruction
         var metadata=new DirectionalLightConstructorMetadata(sourceObjectId,Word(0x30),Word(0x34),Word(0x38),
             Word(0x3C),Word(0x40),Word(0x44),provider,result.Prepared[0xF20]);
         return new(sourceObjectId,checkedSource.Source.ResourceUri,checkedSource.Source.DecodedSha256,
-            ownedInput,result.Constructor,result.Prepared,metadata,result.SeedWriteMask,result.DeclaredSlotKeys);
+            ownedInput,result.Constructor,result.Prepared,metadata,result.SeedWriteMask,result.DeclaredSlotKeys,result.ResolvedSlotKeys);
     }
 
     public static DirectionalLightCurrentCameraPacket ApplyCurrentCamera(DirectionalLightConstructionPacket construction,
@@ -151,5 +151,5 @@ public static partial class DirectionalLightConstruction
         return rows.AsReadOnly();
     }
 
-    internal sealed record ConstructionResult(byte[] Constructor,byte[] Prepared,byte[] Cpu,byte[] SeedWriteMask,uint[] DeclaredSlotKeys);
+    internal sealed record ConstructionResult(byte[] Constructor,byte[] Prepared,byte[] Cpu,byte[] SeedWriteMask,uint[] DeclaredSlotKeys,uint?[] ResolvedSlotKeys);
 }

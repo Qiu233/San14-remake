@@ -15,7 +15,15 @@ public static class SourceResourceRegistrationFixed
 {
     public const string Archive = "system";
     public const uint StaticClassId = 0xFF7DBFD4;
-    public const uint TextureInterfaceClassId = 0xB672FAA2;
+    public const uint TextureInterfaceClassId = StaticTextureResources.TextureInterfaceClassId;
+    public const uint WhiteObjectKey = 0x80F9DB7B, WhiteDefinitionResourceId = 0x93FB3280;
+
+    public static StaticTextureBinding LoadWhite(GameResourceRepository repository)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        return StaticTextureResources.Load(repository,
+            repository.LoadObjects(Archive, WhiteDefinitionResourceId), Archive, [WhiteObjectKey]).Single();
+    }
     public static IReadOnlyList<SourceResourceRegistrationFixedIdentity> Identities { get; } =
         Array.AsReadOnly(new SourceResourceRegistrationFixedIdentity[]
         {

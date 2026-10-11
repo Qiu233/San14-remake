@@ -43,17 +43,22 @@ public sealed class ShadowReceiverPatternResources
         uint key = declaration.OfflinePatternKey == 0 ? source.OfflineFallbackKey : declaration.OfflinePatternKey;
         // These are the actual libraries registered by the current renderer.
         // An unknown producer is not a completed registry lookup returning null.
-        var libraries = new[] { package.Objects, repository.LoadObjects("system", 0x93FB3280),
-            repository.LoadObjects("system", 0x718CCB8B) };
+        (LoadedObjects Objects, string TextureArchive)[] libraries = [ (package.Objects, "system"),
+            (repository.LoadObjects("system", 0x93FB3280), "system"),
+            (repository.LoadObjects("system", 0x718CCB8B), "system"),
+            (repository.LoadObjects(SourceResourceRegistrationDirectionalDiffuse.DefinitionArchive,
+                SourceResourceRegistrationDirectionalDiffuse.DefinitionResourceId),
+                SourceResourceRegistrationDirectionalDiffuse.TextureArchive) ];
         var textures = new Dictionary<uint, SkyTextureSource>();
         SkyTextureSource Resolve(uint objectId)
         {
             if (textures.TryGetValue(objectId, out var retained)) return retained;
-            var matches = libraries.DistinctBy(value => value.Source.ResourceUri)
-                .Where(value => value.Document.Objects.Any(item => item.ObjectId == objectId)).ToArray();
+            var matches = libraries.DistinctBy(value => value.Objects.Source.ResourceUri)
+                .Where(value => value.Objects.Document.Objects.Any(item => item.ObjectId == objectId)).ToArray();
             if (matches.Length != 1)
                 throw new NotSupportedException("Pattern sampling requires one supported registered resource owner.");
-            var binding = StaticTextureResources.Load(repository, matches[0], "system", [objectId]).Single();
+            var binding = StaticTextureResources.Load(repository, matches[0].Objects,
+                matches[0].TextureArchive, [objectId]).Single();
             var texture = SkyTextureSource.Import(binding.Resource, binding.ImageIndex,
                 ModelStageTextures.ReadNativeViewFormat(binding.Image));
             if (texture.SourceDimension != 4)

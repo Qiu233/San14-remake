@@ -36,9 +36,7 @@ public sealed class D3D11CurrentSeasonResources
         {
             var root = light.DefaultCaller.Root;
             var slot = root.ResourceSlots.Single(value => value.LightDataOffset == 0xFE8);
-            uint? key = slot.EffectiveDataHandle == 0 ? null : root.ResourceBindings
-                .Single(binding => binding.DataHandle == slot.EffectiveDataHandle).SourceObjectKey;
-            return new PatternLightTextureSource(light.ObjectId, key);
+            return new PatternLightTextureSource(light.ObjectId, slot.ResolvedObjectKey);
         }).ToArray());
         CommonPolicy = commonPolicy;
         if (source.CameraSource.Selection.SecondPackage is not null)
@@ -120,14 +118,13 @@ public sealed class D3D11CurrentSeasonResources
             ownedSeason, initialMain.Camera.ExecutableLocale, initialMain.Camera.FrameNumber);
         var declarations = source.DirectionalDeclarations;
         var providers = MapDirectionalLightProviderOwner.Load(repository, declarations);
-        var white = StaticTextureResources.Load(repository,
-            repository.LoadObjects("system", 0x93FB3280), "system", [0x80F9DB7B]).Single();
+        var white = SourceResourceRegistrationFixed.LoadWhite(repository);
         var diffuse = SourceResourceRegistrationDirectionalDiffuse.Load(repository);
         var representation = DirectionalLightRetainedNormalization.LoadKnownConsumers(
             repository, "native-current-season/CPU-numeric-consumers");
         // The IDs address these retained CPU owners only. Their distinct keys
         // resolve each actual lookup; they are never interpreted as pointers.
-        var whiteBinding = new DirectionalLightResourceBinding(0x80F9DB7B, 1,
+        var whiteBinding = new DirectionalLightResourceBinding(SourceResourceRegistrationFixed.WhiteObjectKey, 1,
             white.Resource.Source.ResourceUri, true, SourceResourceRegistrationFixed.TextureInterfaceClassId);
         var diffuseBinding = new DirectionalLightResourceBinding(
             SourceResourceRegistrationDirectionalDiffuse.ObjectKey, 2,

@@ -52,7 +52,7 @@ public sealed class SkyTextureSource
                 : image.Depth!=1 || image.SubresourceLayout!=G1TextureSubresourceLayout.SingleLayerMipChain))
             throw new InvalidDataException("Sky texture requires a complete planar or volume mip chain.");
         if((image.PixelFormat,nativeViewFormat) is not
-            ((0x01,87) or (0x01,91) or (0x03,10) or (0x59,71) or
+            ((0x01,87) or (0x01,91) or (0x03,10) or (0x06,71) or (0x06,72) or (0x59,71) or
              (0x59,72) or (0x5F,98) or (0x5F,99)))
             throw new InvalidDataException("Sky texture encoding does not match its selected native view.");
         if(retainedSampler is {Length:not 52})

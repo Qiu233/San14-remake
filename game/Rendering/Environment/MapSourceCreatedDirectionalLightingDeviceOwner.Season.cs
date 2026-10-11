@@ -38,8 +38,8 @@ public sealed partial class MapSourceCreatedDirectionalLightingDeviceOwner
                 throw new InvalidDataException("Season constructors require the same actual Main38D source.");
             var providers=MapDirectionalLightProviderOwner.Load(repository,declarations);
             var next=normalization.CreateSeasonConstructionCandidate();
-            var whiteBinding=await white.GetDirectionalBindingAsync();
-            var diffuseBinding=await Diffuse.GetBindingAsync();
+            var whiteBinding=white.GetBinding();
+            var diffuseBinding=Diffuse.GetBinding();
             var sources=declarations.Roots.Select(root=>
             {
                 var available=new[]{providers.GetBinding(root.Root.ObjectId),whiteBinding,diffuseBinding};

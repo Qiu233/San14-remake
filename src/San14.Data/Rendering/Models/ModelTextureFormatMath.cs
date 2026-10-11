@@ -18,7 +18,7 @@ public static class ModelTextureFormatMath
             0x02 => (Resource: 39u, Base: 41u, Alternate: 0u),
             0x03 => (Resource: 9u, Base: 10u, Alternate: 0u),
             0x04 => (Resource: 1u, Base: 2u, Alternate: 0u),
-            0x59 => (Resource: 70u, Base: 71u, Alternate: 72u),
+            0x06 or 0x59 => (Resource: 70u, Base: 71u, Alternate: 72u),
             0x5B => (Resource: 76u, Base: 77u, Alternate: 78u),
             0x5C => (Resource: 79u, Base: 80u, Alternate: 0u),
             0x5E => (Resource: 94u, Base: 95u, Alternate: 0u),

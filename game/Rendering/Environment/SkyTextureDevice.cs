@@ -9,15 +9,18 @@ public sealed class SkyTextureDevice : IAsyncDisposable
     public uint NativeViewFormat => Source.NativeViewFormat;
     public IReadOnlyList<string> MipSha256 => Source.MipSha256;
     public Rid TextureRid { get; }
+    internal RenderingDevice.DataFormat Format { get; }
+    private readonly bool allowReadback;
     private Task? _disposal;
 
-    private SkyTextureDevice(SkyTextureSource source,Rid rid)=>(Source,TextureRid)=(source,rid);
+    private SkyTextureDevice(SkyTextureSource source,Rid rid,RenderingDevice.DataFormat format,bool allowReadback)
+        =>(Source,TextureRid,Format,this.allowReadback)=(source,rid,format,allowReadback);
 
     public static Task<SkyTextureDevice> BuildAsync(LoadedTextureContainer source,int imageIndex,
         uint explicitNativeViewFormat)
         => BuildAsync(SkyTextureSource.Import(source,imageIndex,explicitNativeViewFormat));
 
-    public static async Task<SkyTextureDevice> BuildAsync(SkyTextureSource source)
+    public static async Task<SkyTextureDevice> BuildAsync(SkyTextureSource source,bool allowReadback=true)
     {
         ArgumentNullException.ThrowIfNull(source);
         var format=source.NativeViewFormat switch {
@@ -32,7 +35,8 @@ public sealed class SkyTextureDevice : IAsyncDisposable
         byte[] bytes=source.GetEncodedChain();
         Rid rid=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
-            var usage=RenderingDevice.TextureUsageBits.SamplingBit|RenderingDevice.TextureUsageBits.CanCopyFromBit;
+            var usage=RenderingDevice.TextureUsageBits.SamplingBit;
+            if(allowReadback)usage|=RenderingDevice.TextureUsageBits.CanCopyFromBit;
             if(!rd.TextureIsFormatSupportedForUsage(format,usage))
                 throw new NotSupportedException("Device cannot retain the requested original sky texture encoding.");
             using var shape=new RDTextureFormat{Format=format,Width=(uint)source.Width,Height=(uint)source.Height,
@@ -51,12 +55,13 @@ public sealed class SkyTextureDevice : IAsyncDisposable
             }
             catch{rd.FreeRid(created);throw;}
         });
-        return new(source,rid);
+        return new(source,rid,format,allowReadback);
     }
 
     public Task<byte[]> ReadEncodedChainAsync()
     {
         ObjectDisposedException.ThrowIf(_disposal is not null,this);
+        if(!allowReadback)throw new InvalidOperationException("The encoded image was not created for readback.");
         return TerrainDeviceTexture.OnRenderThreadAsync(rd=>rd.TextureGetData(TextureRid,0));
     }
 

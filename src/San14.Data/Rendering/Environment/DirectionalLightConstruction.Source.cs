@@ -1165,14 +1165,15 @@ public static partial class DirectionalLightConstruction
         constructor.AsSpan(first+16,16).CopyTo(constructor.AsSpan(0xFA0,16));
         constructor.AsSpan(second+16,16).CopyTo(constructor.AsSpan(0xFB0,16));
         uint[] declared=DeclaredKeys(fields);
-        ResolveResources(fields,declared,input.ResourceBindings,false,constructor);
+        uint?[] resolved=new uint?[declared.Length];
+        ResolveResources(fields,declared,input.ResourceBindings,false,constructor,resolved);
         byte[] cpu=new byte[0x48];
         PutWord(cpu,0x30, (fields[3][0]&2)!=0 ? 0x70000000u : 0u);
         PutWord(cpu,0x34,ReadWord(fields[7],0));PutWord(cpu,0x38,ReadWord(fields[8],0));
         PutWord(cpu,0x3C,ReadWord(fields[160],0));PutWord(cpu,0x40,ReadWord(fields[161],0));
         PutWord(cpu,0x44,ReadWord(fields[162],0));
         byte[] prepared=constructor.ToArray();PrepareNullCamera(prepared,input.ContextFlags3E4);
-        return new(constructor,prepared,cpu,mask,declared);
+        return new(constructor,prepared,cpu,mask,declared,resolved);
     }
 
     private static uint[] DeclaredKeys(byte[][] fields)
@@ -1182,11 +1183,12 @@ public static partial class DirectionalLightConstruction
             .Concat(textureFields.Select(i=>ReadWord(fields[i],0))).Append(ReadWord(fields[63],0)).ToArray();
     }
     private static IReadOnlyList<uint> ResolveResources(byte[][] fields,uint[] declared,
-        IReadOnlyList<DirectionalLightResourceBinding> bindings,bool enumerate,byte[]? light)
+        IReadOnlyList<DirectionalLightResourceBinding> bindings,bool enumerate,byte[]? light,uint?[]? resolvedKeys=null)
     {
         var requests=new HashSet<uint>();
-        ulong Resolve(uint key,uint requiredClass)
+        ulong Resolve(uint key,uint requiredClass,out uint? resolvedKey)
         {
+            resolvedKey=null;
             if(key==0)return 0;
             requests.Add(key);
             var b=bindings.SingleOrDefault(b=>b.SourceObjectKey==key);
@@ -1195,22 +1197,26 @@ public static partial class DirectionalLightConstruction
                 if(enumerate)return 0;
                 throw new InvalidDataException($"Directional resource {key:X8} needs an explicit lookup result.");
             }
-            return b.CpuDataReady&&(requiredClass==0||b.InterfaceClassId==requiredClass)?b.DataHandle:0;
+            if(!b.CpuDataReady||(requiredClass!=0&&b.InterfaceClassId!=requiredClass))return 0;
+            resolvedKey=b.SourceObjectKey;
+            return b.DataHandle;
         }
-        ulong providerData=Resolve(declared[21],0x970DB365);
+        ulong providerData=Resolve(declared[21],0x970DB365,out var providerKey);
+        if(resolvedKeys is not null)resolvedKeys[21]=providerKey;
         for(int i=0;i<21;i++)
         {
-            ulong handle=Resolve(declared[i],0xB672FAA2);
-            if(i==1&&handle==0)handle=Resolve(0x80F9DB7B,0xB672FAA2);
+            ulong handle=Resolve(declared[i],0xB672FAA2,out var resolvedKey);
+            if(i==1&&handle==0)handle=Resolve(0x80F9DB7B,0xB672FAA2,out resolvedKey);
+            if(resolvedKeys is not null)resolvedKeys[i]=resolvedKey;
             if(light is not null)PutHandle(light,0xFE0+i*8,handle);
         }
         if(light is not null)PutHandle(light,0x1088,providerData);
         for(int i=0;i<3;i++)
         {
-            ulong handle=Resolve(ReadWord(fields[42],i*4),i==1?0x3059B9C3u:0xB672FAA2u);
+            ulong handle=Resolve(ReadWord(fields[42],i*4),i==1?0x3059B9C3u:0xB672FAA2u,out _);
             if(light is not null)PutHandle(light,0xF68+i*8,handle);
         }
-        Resolve(ReadWord(fields[18],0),0);Resolve(ReadWord(fields[57],0),0);
+        Resolve(ReadWord(fields[18],0),0,out _);Resolve(ReadWord(fields[57],0),0,out _);
         if(!enumerate&&!requests.SetEquals(bindings.Select(b=>b.SourceObjectKey)))
             throw new InvalidDataException("Directional bindings include an unused source key.");
         return Array.AsReadOnly(requests.Order().ToArray());
