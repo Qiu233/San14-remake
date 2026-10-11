@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Numerics;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -22,6 +23,40 @@ public sealed class SkyStarMaterialLayout
     internal static SkyStarMaterialLayout Import(DxbcResourceDefinitions vertex,
         DxbcResourceDefinitions geometry, DxbcResourceDefinitions pixel)
         => new([ImportStage(vertex, 1, 0xFFFE), ImportStage(geometry, 2, 0x4753), ImportStage(pixel, 0, 0xFFFF)]);
+
+    /// <summary>Encode the controller-point pass through its imported named
+    /// destinations. WORK supplies its own camera and retained draw values.</summary>
+    public SkyStarConstantPacket EncodeController(Matrix4x4 eyeToClip, Vector4 phase,
+        ReadOnlySpan<float> twinkleTable, Vector4 starInfo, Vector4 pointScale)
+    {
+        if (twinkleTable.Length != 64)
+            throw new ArgumentException("Star twinkle table requires sixteen float4 entries.", nameof(twinkleTable));
+        var values = new byte[368];
+        float[] matrix = [eyeToClip.M11, eyeToClip.M12, eyeToClip.M13, eyeToClip.M14,
+            eyeToClip.M21, eyeToClip.M22, eyeToClip.M23, eyeToClip.M24,
+            eyeToClip.M31, eyeToClip.M32, eyeToClip.M33, eyeToClip.M34,
+            eyeToClip.M41, eyeToClip.M42, eyeToClip.M43, eyeToClip.M44];
+        for (int index = 0; index < matrix.Length; index++) Put(index * 4, matrix[index]);
+        Vector(64, phase);
+        for (int index = 0; index < twinkleTable.Length; index++) Put(80 + index * 4, twinkleTable[index]);
+        Vector(336, starInfo); Vector(352, pointScale);
+        byte[] Encode(uint stage)
+        {
+            var layout = stages.Single(value => value.Stage == stage);
+            var bytes = new byte[layout.Bytes];
+            foreach (var write in layout.Writes)
+            {
+                int source = write.Field switch { 0 => 0, 1 => 64, 2 => 80, 3 => 336, 4 => 352,
+                    _ => throw new NotSupportedException("Controller Star pass cannot produce generated-stream material fields.") };
+                values.AsSpan(source, checked((int)write.Bytes)).CopyTo(bytes.AsSpan(checked((int)write.Destination)));
+            }
+            return bytes;
+        }
+        return new(Encode(1), Encode(2), Encode(0));
+        void Put(int offset, float value) => BinaryPrimitives.WriteSingleLittleEndian(values.AsSpan(offset, 4), value);
+        void Vector(int offset, Vector4 value)
+        { Put(offset, value.X); Put(offset + 4, value.Y); Put(offset + 8, value.Z); Put(offset + 12, value.W); }
+    }
 
     private static SkyStarMaterialStage ImportStage(DxbcResourceDefinitions definitions, uint stage, uint shaderType)
     {

@@ -57,6 +57,7 @@ struct Frame {
     San14::Render::CommonRenderPolicy commonRenderPolicy;
     San14::Render::SkyDrawPolicy skyPolicy;
     bool updateStarOrientation{};
+    std::uint32_t ambientFilterSampleCount{};
     San14::Render::HeightFogSettings heightFog;
     San14::Render::MainStarCurrentInputs mainStar;
     source_current_season_post::Settings post;
@@ -227,6 +228,7 @@ inline Frame decode(std::span<const uint8_t> bytes){
     decodeCloudWeatherInputs(r);
     r.skyPolicy=San14::Render::skyDrawPolicy(read<std::uint32_t>(r.main,0x3b0));
     r.updateStarOrientation=read<std::uint32_t>(r.main,0x3a0)==0;
+    r.ambientFilterSampleCount=read<std::uint32_t>(r.main,0x3a4);
     r.oceanLightGroup=importedMainField<std::uint32_t>(r,0xac0);
     decodeOceanWaveInputs(r);
     decodeOceanSurfaceInputs(r);

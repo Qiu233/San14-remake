@@ -67,6 +67,8 @@ inline MainStarMaterialLayout readMainStarMaterialLayout(const std::filesystem::
             layout.writes.reserve(count);
             for(std::uint32_t i=0;i<count;++i) {
                 MainStarMaterialWrite write{word(),word(),word(),word()};
+                if(pass==0&&write.field>4)
+                    throw std::runtime_error("Controller Star pass has no generated-stream material producer");
                 const auto field=mainStarField(shape,write.field);
                 if(!write.bytes||write.source>field.bytes||write.bytes>field.bytes-write.source||
                     write.destination>layout.byteSize||write.bytes>layout.byteSize-write.destination)

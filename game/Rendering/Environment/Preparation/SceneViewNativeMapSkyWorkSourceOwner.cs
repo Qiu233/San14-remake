@@ -45,7 +45,8 @@ public sealed class SceneViewNativeMapSkyWorkSourceOwner : IAsyncDisposable
         var selection = SceneViewNativeMapSkyCurrentSelectionOwner.CreateFresh(loaded.Repository,
             locale, bootstrap.Lighting.Binding, workIdentity, bootstrap.Camera.Source);
         var first = selection.PrepareCurrent(bootstrap, present, rgb, actualBootstrapView);
-        var stars = SkyAppliedSourceStarOwner.CreateFresh(loaded.Repository, locale, workIdentity + "/Star");
+        var stars = SkyAppliedSourceStarOwner.CreateFresh(loaded.Repository, locale, workIdentity + "/Star",
+            NamedViewRendererResources.Load(loaded.Repository),present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage);
         var cloud = SceneViewNativeMapSkyCloudSourceOwner.ReadSource(loaded, compiler, first);
         // Separate unconsumed bootstrap source plan for cached GPU pipeline
         // construction. The actual attempt's typed prefix is published later,
@@ -141,7 +142,7 @@ public sealed class SceneViewNativeMapSkyWorkSourceOwner : IAsyncDisposable
         scene = actualScene;
         if (bootstrapRasterPlan.SkyStarNativeCullMode != 1)
             throw new InvalidDataException("Unknown original first WORK Star cull mode.");
-        var star = await SkyStarProducer.BuildAsync(stars.Shader, 0, compiler, scene.PrimaryWork,
+        var star = await SkyStarProducer.BuildAsync(stars.Shader, stars.Program.Combination.Index, compiler, scene.PrimaryWork,
             stars.Geometry, bootstrapWork.Producers.StarFaces!, null, bootstrapRasterPlan.ColorWriteMask,
             new(Godot.RenderingDevice.PolygonCullMode.Disabled, false, false, Godot.RenderingDevice.CompareOperator.Always),
             bootstrapWork.Producers.StarGate!);

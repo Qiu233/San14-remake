@@ -1,7 +1,6 @@
 using Godot;
 using San14.Data;
 using San14.Data.Formats;
-using System.Security.Cryptography;
 
 public enum SkyCubeOperation { Copy, Filter }
 
@@ -40,7 +39,6 @@ public sealed class SkyCubeProgram : IAsyncDisposable
             throw new InvalidDataException("Unknown sky cube operation.");
         var sampleSelection=SkyAmbientFilterSelection.FromExplicitCombination(source,
             explicitCombinationIndex,operation==SkyCubeOperation.Filter);
-        sampleSelection.ValidatePrograms();
         var combination = operation==SkyCubeOperation.Filter?
             sampleSelection.FilterCombination:sampleSelection.CopyCombination;
         if (combination.Stages.Any(s => s.Entry is not null && s.StageCode is not (0 or 1)))
@@ -49,13 +47,6 @@ public sealed class SkyCubeProgram : IAsyncDisposable
         var ps = combination.Stages.Single(s => s.StageCode == 0 && s.Entry is not null);
         var vertexBytes = source.Container.GetProgramBytes(source.Source.Bytes, vs.Entry!.ProgramIndex);
         var pixelBytes = source.Container.GetProgramBytes(source.Source.Bytes, ps.Entry!.ProgramIndex);
-        string pixelHash=operation switch {
-            SkyCubeOperation.Copy=>SkyAmbientFilterSelection.CopyPixelSha256,
-            SkyCubeOperation.Filter=>sampleSelection.FilterPixelSha256,
-            _=>throw new InvalidDataException("Unknown sky cube operation.") };
-        if (Convert.ToHexString(SHA256.HashData(vertexBytes)) != SkyAmbientFilterSelection.VertexSha256 ||
-            Convert.ToHexString(SHA256.HashData(pixelBytes)) != pixelHash)
-            throw new InvalidDataException("Selected source combination is outside the verified sky cube program contract.");
         var vertex = compiler.Compile(vertexBytes, 1);
         var pixel = compiler.Compile(pixelBytes);
         var adapter = VertexShaderAdapter.Adapt(vertex.Bytes, 0, 0, 0);
@@ -70,7 +61,7 @@ public sealed class SkyCubeProgram : IAsyncDisposable
                 binding.Device.RequiredBufferBytes != 16 || binding.ConstantBuffer is not { ByteSize: 16 } buffer ||
                 buffer.Variables.Count != 1 || buffer.Variables[0].Name.Text != "g_vMipInfo" ||
                 buffer.Variables[0].StartOffset != 0 || buffer.Variables[0].ByteSize != 16))
-                throw new InvalidDataException("Sky cube g_vMipInfo layout differs from the original 16-byte buffer.");
+                throw new NotSupportedException("Godot cube draws require a 16-byte g_vMipInfo buffer at slot zero and field offset zero.");
         Rid shader = await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
             using var stages = new RDShaderSpirV();

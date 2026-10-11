@@ -5,10 +5,11 @@ using San14.Data;
 public static class D3D11AmbientWorkInitialConstants
 {
     public static D3D11AmbientWorkConstants Prepare(GameResourceRepository repository,
-        D3D11CurrentSeasonFrame current,D3D11CurrentSeasonResources resources,D3D11CloudProgramMedia programs)
+        D3D11CurrentSeasonFrame current,D3D11CurrentSeasonResources resources,D3D11CloudProgramMedia programs,
+        SkyMainProgramResources? skyPrograms = null)
     {
         var selected=resources.Lights.First(light=>(light.GroupMask&0x80)!=0);
-        return D3D11AmbientWorkInputPreparation.Prepare(repository,current.Present,selected.DefaultCaller,programs.Resources);
+        return D3D11AmbientWorkInputPreparation.Prepare(repository,current.Present,selected.DefaultCaller,programs.Resources,skyPrograms);
     }
 
     public static D3D11AmbientWorkConstants WriteFreshNativeInputs(GameResourceRepository repository,

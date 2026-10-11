@@ -60,6 +60,7 @@ public partial class MapSceneView
             var skyPrograms=SkyMainProgramResources.Load(_repository,sceneMedia.Renderer);
             SkyMainResourceOwner? skyResources=null;
             SkyStarResources? starResources=null;
+            D3D11AmbientRenderResources? ambientResources=null;
             D3D11CloudProgramMedia? cloudMedia=null;
             D3D11CloudRenderResources? cloudResources = null;
             string inputs = Path.GetDirectoryName(source)!;
@@ -149,7 +150,8 @@ public partial class MapSceneView
                             current.Lights.First(light=>(light.GroupMask&0x80)!=0).CompleteData.Span);
                         cloudMedia.WriteNativeInputs(inputs);
                         var work = D3D11AmbientWorkInitialConstants.Prepare(_repository,
-                            current, season.LoadedResources, cloudMedia);
+                            current, season.LoadedResources, cloudMedia, skyPrograms);
+                        ambientResources = D3D11AmbientRenderResources.Load(_repository,work,season.LoadedResources.Source.Locale);
                         cloudResources = D3D11CloudRenderResources.Prepare(_repository, current.Present,
                             D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight, work, cloudMedia);
                         cloudResources.WriteNativeInputs(inputs);
@@ -204,7 +206,7 @@ public partial class MapSceneView
                             skyPrograms,skyResources.Sampling,fogPrograms);
                         skyResources.Prepare(atmosphere.SkyProgram).WriteNativeInputs(Path.Combine(inputs, "main-sky-input"));
                         D3D11AmbientWorkInputPreparation.WriteNativeInputs(_repository,
-                            work, inputs, season.LoadedResources.Source.Locale);
+                            work, inputs, season.LoadedResources.Source.Locale,ambientResources);
                         D3D11NormalPostInitialConstantPreparation.WriteNativeInputs(_repository,
                             current, inputs, D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
                         D3D11PrimaryForwardInputs.WriteFreshNativeInputs(_repository,
@@ -214,6 +216,7 @@ public partial class MapSceneView
                     }
                     else
                     {
+                        ambientResources!.RequireCurrent(current.Present);
                         cloudMedia!.RequireCurrent(current.Present,
                             current.Lights.First(light=>(light.GroupMask&0x80)!=0).CompleteData.Span);
                         cloudResources!.RequireCurrent(_repository, current.Present,

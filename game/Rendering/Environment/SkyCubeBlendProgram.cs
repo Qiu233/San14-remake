@@ -1,7 +1,6 @@
 using Godot;
 using San14.Data;
 using San14.Data.Formats;
-using System.Security.Cryptography;
 
 /// <summary>Explicit source pass7 cube interpolation pair. Creation does not
 /// select the active variant, interpolation scalar or rotating source cubes.</summary>
@@ -27,16 +26,13 @@ public sealed class SkyCubeBlendProgram : IAsyncDisposable
         int explicitCombinationIndex,Vkd3dShaderCompiler compiler)
     {
         ArgumentNullException.ThrowIfNull(source);ArgumentNullException.ThrowIfNull(compiler);
-        var combination=source.ReadG1ResourceBindings(explicitCombinationIndex).Combination;
+        var combination=SkyAmbientFilterSelection.FromExplicitBlendCombination(source,explicitCombinationIndex).BlendCombination;
         if(combination.Stages.Any(s=>s.Entry is not null && s.StageCode is not (0 or 1)))
             throw new InvalidDataException("Cube blend requires the explicit vertex/pixel pair.");
         var vs=combination.Stages.Single(s=>s.StageCode==1&&s.Entry is not null);
         var ps=combination.Stages.Single(s=>s.StageCode==0&&s.Entry is not null);
         var vertexBytes=source.Container.GetProgramBytes(source.Source.Bytes,vs.Entry!.ProgramIndex);
         var pixelBytes=source.Container.GetProgramBytes(source.Source.Bytes,ps.Entry!.ProgramIndex);
-        if(Convert.ToHexString(SHA256.HashData(vertexBytes))!="7475462B7D9271047D8613A51ACBC2BDABA3CA3C51BC13AA5ADA2BD22D7627D6" ||
-            Convert.ToHexString(SHA256.HashData(pixelBytes))!="2787A0C867E1BFD7BCE4C29872C98E4381AAB58B8B992DD7E48DAF7469410406")
-            throw new InvalidDataException("Selected source pair is outside the verified cube blend contract.");
         var vertex=compiler.Compile(vertexBytes,1);var pixel=compiler.Compile(pixelBytes);
         var adapter=VertexShaderAdapter.Adapt(vertex.Bytes,0,0,0);
         var vb=TranslatedShaderBindingReader.Read(source.ReadResourceDefinitions(vs.Entry.ProgramIndex),adapter.Bytes);
@@ -51,7 +47,7 @@ public sealed class SkyCubeBlendProgram : IAsyncDisposable
             if(b.Source.BindPoint!=0||b.Device.RequiredBufferBytes!=size||b.ConstantBuffer is not { } cb ||
                 cb.ByteSize!=size||cb.Variables.Count!=1||cb.Variables[0].Name.Text!=name||
                 cb.Variables[0].StartOffset!=0||cb.Variables[0].ByteSize!=size)
-                throw new InvalidDataException("Cube blend constant layout differs from the original source.");
+                throw new NotSupportedException("Godot cube blend draws require their fixed constant-buffer slots and field layouts.");
         }
         CheckConstant(vb,64,"g_mC2W");CheckConstant(pb,16,"g_vIntInfo");
         Rid shader=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>

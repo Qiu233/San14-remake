@@ -13,7 +13,6 @@ enum class ResourceGroup {
     ShadowCasters,
     AmbientClouds,
     Ambient,
-    AmbientStars,
     AnimationTiming,
     ArmyActions,
     Armies,
@@ -73,7 +72,6 @@ public:
         case ResourceGroup::ShadowCasters: return packageRoot/"shadow-caster-input";
         case ResourceGroup::AmbientClouds: return packageRoot/"ambient-cloud-continuous-input";
         case ResourceGroup::Ambient: return packageRoot/"ambient-input";
-        case ResourceGroup::AmbientStars: return packageRoot/"ambient-stars-continuous-input";
         case ResourceGroup::AnimationTiming: return packageRoot/"animation-cadence-input";
         case ResourceGroup::ArmyActions: return packageRoot/"army-graphics-action-input";
         case ResourceGroup::Armies: return packageRoot/"army-visual-input";

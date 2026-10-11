@@ -237,7 +237,6 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     ComPtr<ID3D11Texture2D> litColor,finalColor;
     DXGI_FORMAT lightingShaderFormat=DXGI_FORMAT_UNKNOWN,lightingTargetFormat=DXGI_FORMAT_UNKNOWN;
     StarTwinklePhase starTwinkle;
-    CloudEnvironmentPass clouds;
     NativeFrameClock commonClock;NativeFrameClockPublication commonPublication;
     UINT commonBaseSettingsFlags=0;
     commonClock=prepareNativeFrameClock(resources.directory(ResourceGroup::FrameClock));
@@ -264,6 +263,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     ShadowPass shadows;
     const auto jointShadowInput=resources.directory(ResourceGroup::BaseShadows);
     SceneFrameCoordinator frameState{host.currentSeason?&*host.currentSeason:nullptr};
+    CloudEnvironmentPass clouds; // Retires before its borrowed Star and numerical resource owners.
     const auto& staticCamera=frameState.camera();
     UINT64 completedMainRequests=1;
     {
@@ -348,7 +348,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             {resources.directory(ResourceGroup::CloudWeather),resources.directory(ResourceGroup::AmbientFrame)},
             {frameState.season(),frameState.cloudLights(),currentClock});
         atmosphere.updateMainStars(device.Get(),frameState.atmosphereFrame(clouds),node3Delta);
-        clouds.generateAmbient(context.Get(),currentClock,node3Delta);
+        clouds.generateAmbient(context.Get(),currentClock);
     };
     auto publishThinSurface=[&]() {
         phase.publishThinSurface(frameState.view().rainGroups!=0);
@@ -362,7 +362,10 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         // Source resource initialization precedes Main traversal. Running it
         // between68 and78 would clear the real receiver's retained state.
         ggx=generateGgx(device.Get(),context.Get(),lightingSource);
-        clouds.prepareAmbient(device.Get(),context.Get(),resources.directory(ResourceGroup::Ambient));
+        atmosphere.prepareMainStars(device.Get(),resources.directory(ResourceGroup::Sky),
+            resources.directory(ResourceGroup::AtmosphereCamera)/"initial",starTwinkle);
+        clouds.prepareAmbient(device.Get(),context.Get(),resources.directory(ResourceGroup::Ambient),
+            atmosphere.stars(),frameState.atmosphereFrame(clouds).power);
         context->ClearState(); // Bootstrap ends before any Main entry; not a per-request operation.
         {
 
@@ -373,10 +376,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         lightingTarget=createSourceHdr(device.Get(),resources.directory(ResourceGroup::HdrProgramBank),width,height);
         litColor=lightingTarget.texture;lightingShaderFormat=lightingTarget.shaderFormat;lightingTargetFormat=lightingTarget.targetFormat;
         clouds.prepareClouds(device.Get(),resources.directory(ResourceGroup::Clouds),
-            resources.directory(ResourceGroup::CloudAnimation),resources.directory(ResourceGroup::AmbientClouds),
-            resources.directory(ResourceGroup::AmbientStars),litColor.Get(),starTwinkle);
-        atmosphere.prepareMainStars(device.Get(),resources.directory(ResourceGroup::Sky),
-            resources.directory(ResourceGroup::AtmosphereCamera)/"initial",starTwinkle);
+            resources.directory(ResourceGroup::CloudAnimation),resources.directory(ResourceGroup::AmbientClouds),litColor.Get());
         beginAcceptedMain(initialCommonClock);
     }
     TerrainPass terrainPass{device.Get(),context.Get(),input,groupedTerrain};

@@ -23,6 +23,9 @@ class AtmospherePass {
     AtmospherePass(const AtmospherePass&)=delete;
     AtmospherePass& operator=(const AtmospherePass&)=delete;
 
+    // WORK borrows the same Star resources and retained draw setters as Main.
+    MainStarPass& stars() { return stars_; }
+
     // Main node 3 needs the current raised camera and particle owner before
     // node 124 creates Sky/Fog device passes. This preparation advances no time.
     void prepareMainStars(ID3D11Device* device,const fs::path& skySource,const fs::path& cameraSource,

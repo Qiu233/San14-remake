@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using Godot;
 using San14.Data;
 using San14.Data.Formats;
@@ -32,9 +31,6 @@ public sealed class SkyStarProgram : IAsyncDisposable
         int explicitCombinationIndex, Vkd3dShaderCompiler compiler)
     {
         ArgumentNullException.ThrowIfNull(source); ArgumentNullException.ThrowIfNull(compiler);
-        if (Convert.ToHexString(SHA256.HashData(source.Source.Bytes)) !=
-            "0918D4ABA52CC627D454C7376A8E72645ABF56B8194481193B938AE5CD9CF918" || explicitCombinationIndex != 0)
-            throw new InvalidDataException("Star program requires verified7180A527 native-pass0 default combination0.");
         var combination = source.ReadG1ResourceBindings(explicitCombinationIndex).Combination;
         if (combination.Stages.Count(s => s.Entry is not null) != 3)
             throw new InvalidDataException("Star program requires all original vertex, geometry and pixel stages.");

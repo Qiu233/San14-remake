@@ -2,14 +2,17 @@
 #include "MainStarResources.h"
 #include "MainStarRuntime.h"
 #include "MainSkyBlendState.h"
+#include "SkyMaterialState.h"
 
 namespace San14::Render {
 class MainStarPass {
 public:
+    bool ownerPresent() const {return resources_.ownerPresent;}
     void prepare(ID3D11Device* device,const fs::path& source,StarTwinklePhase& phase) {
         resources_=prepareNativeMainStarResources(device,source);
         initial_=Interop::readMainStarInputs(source/"current-state.bin");
         runtime_.bindTwinklePhase(phase);
+        runtime_.installInitialInputs(initial_);
     }
     void updateNode3(ID3D11Device* device,const MainStarCurrentInputs* current,float delta,
         const source_camera::CameraTransform& camera,float heightTerm,bool updateOrientation,
@@ -44,8 +47,9 @@ public:
         // The caller installs its reached blend before the draw body tests
         // geometry count and diameter. A skipped body does not undo that state.
         bindNativeMainSkyBlend(device,context,blend_[pass],false,true,common.skyAlphaBlend,targetCount);
+        if(!pass)runtime_.installMainSize(settings.diameterTexel);
         const auto count=pass?UINT(runtime_.showerCapacity()):resources_.pointCount;
-        if(!count||!(settings.diameterTexel>=.5f))return;
+        if(!count||!(runtime_.firstSize()>=.5f))return;
         const unsigned variant=settings.exposureScale<0?1u:0u;
         if(variant&&(!exposure||!exposureSampler))
             throw std::runtime_error("Main Star exposure variant needs the actual output texture and sampler");
@@ -56,29 +60,48 @@ public:
             context->Unmap(showerBuffers_[next].Get(),0);activeSide_=next;runtime_.acceptUpload();
         }
         auto& program=resources_.variants[variant][pass];
-        const auto material=runtime_.prepareDraw(camera,width,height,controllerWidth,
+        auto material=runtime_.prepareDraw(StarDrawCamera::from(camera),width,height,controllerWidth,
             resources_.twinkleTable,!resources_.textures.empty(),power);
+        if(pass)runtime_.prepareShowerMaterial(material,StarDrawCamera::from(camera),height);
+        auto vertices=pass?showerBuffers_[activeSide_].Get():resources_.controllerPoints.Get();
+        bindAndDraw(context,program,material,vertices,pass?32u:20u,count,
+            variant?exposure:nullptr,variant?exposureSampler:nullptr,true);
+    }
+
+    // WORK binds the same stage-zero program and point owner after the Main
+    // caller has cleaned its temporary Star and exposure sampling setters.
+    // Its face camera and target width are supplied by the WORK generation.
+    bool executeWorkFace(ID3D11DeviceContext* context,const StarDrawCamera& camera,
+        UINT width,UINT height,const source_weather_fog::Power& power) {
+        if(!resources_.ownerPresent||!resources_.pointCount||!(runtime_.firstSize()>=.5f))return false;
+        const auto material=runtime_.prepareDraw(camera,width,height,width,
+            resources_.twinkleTable,false,power);
+        bindAndDraw(context,resources_.variants[0][0],material,resources_.controllerPoints.Get(),
+            20,resources_.pointCount,nullptr,nullptr,false);
+        return true;
+    }
+private:
+    void bindAndDraw(ID3D11DeviceContext* context,NativeMainStarProgram& program,
+        const MainStarMaterialState& material,ID3D11Buffer* vertices,UINT stride,UINT count,
+        ID3D11ShaderResourceView* exposure,ID3D11SamplerState* exposureSampler,bool starSampling) {
         publishNativeMainStarMaterial(context,program,material);
         context->IASetInputLayout(program.shaders.layout.Get());
         context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_POINTLIST);
-        auto vertices=pass?showerBuffers_[activeSide_].Get():resources_.controllerPoints.Get();
-        UINT stride=pass?32u:20u,offset=0;context->IASetVertexBuffers(0,1,&vertices,&stride,&offset);
+        UINT offset=0;context->IASetVertexBuffers(0,1,&vertices,&stride,&offset);
         context->VSSetShader(program.shaders.vs.Get(),nullptr,0);
         context->GSSetShader(program.shaders.gs.Get(),nullptr,0);
         context->PSSetShader(program.shaders.ps.Get(),nullptr,0);
         context->HSSetShader(nullptr,nullptr,0);context->DSSetShader(nullptr,nullptr,0);
-        ID3D11ShaderResourceView* starView=resources_.textures.empty()?nullptr:resources_.textures.front().view.Get();
-        ID3D11SamplerState* starSampler=resources_.textures.empty()?nullptr:resources_.textures.front().sampler.Get();
-        auto exposureView=variant?exposure:nullptr;auto sampler=variant?exposureSampler:nullptr;
+        ID3D11ShaderResourceView* starView=!starSampling||resources_.textures.empty()?nullptr:resources_.textures.front().view.Get();
+        ID3D11SamplerState* starSampler=!starSampling||resources_.textures.empty()?nullptr:resources_.textures.front().sampler.Get();
         context->PSSetShaderResources(0,1,&starView);context->PSSetSamplers(0,1,&starSampler);
-        context->VSSetShaderResources(8,1,&exposureView);context->VSSetSamplers(8,1,&sampler);
+        context->VSSetShaderResources(8,1,&exposure);context->VSSetSamplers(8,1,&exposureSampler);
         context->Draw(count,0);
         ID3D11ShaderResourceView* noView=nullptr;ID3D11SamplerState* noSampler=nullptr;
         context->PSSetShaderResources(0,1,&noView);context->PSSetSamplers(0,1,&noSampler);
         context->VSSetShaderResources(8,1,&noView);context->VSSetSamplers(8,1,&noSampler);
         context->GSSetShader(nullptr,nullptr,0);
     }
-private:
     NativeMainStarResources resources_;
     MainStarCurrentInputs initial_;
     MainStarRuntime runtime_;

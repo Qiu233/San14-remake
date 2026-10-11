@@ -60,6 +60,9 @@ struct MainStarShowerConfiguration {
 class MainStarRuntime {
 public:
     void bindTwinklePhase(StarTwinklePhase& phase) {phase_=&phase;}
+    void installInitialInputs(const MainStarCurrentInputs& inputs) {inputs_=inputs;}
+    void installMainSize(float size) {firstSize_=size;}
+    float firstSize() const {return firstSize_;}
     float phase() const {return phase_->value;}
     float emissionAccumulator() const {return emissionAccumulator_;}
     const std::vector<MainStarShowerVertex>& output() const {return configuration_.output;}
@@ -165,26 +168,30 @@ public:
         }
         previousCamera_=camera;dirty_=true;
     }
-    MainStarMaterialState prepareDraw(const source_camera::CameraTransform& raisedCamera,
+    MainStarMaterialState prepareDraw(const StarDrawCamera& camera,
         std::uint32_t viewportWidth,std::uint32_t viewportHeight,std::uint32_t controllerWidth,
         const std::array<source_camera::V4,16>& table,
         bool texturePresent,const source_weather_fog::Power& power) {
         using namespace main_star_math;
-        phase_->advance(raisedCamera.eye.Y,controllerDelta_);
-        const float size=M(inputs_.settings.diameterTexel,.5f);
-        float angular=D(raisedCamera.optics.viewSpan,float(controllerWidth));angular=M(angular,angular);
+        phase_->advance(camera.eyeHeight,controllerDelta_);
+        const float size=M(firstSize_,.5f);
+        float angular=D(camera.viewSpan,float(controllerWidth));angular=M(angular,angular);
         float intensity=M(source_weather_fog::powSse(10.f,bits(0xc10126eau),power),1.f);
         intensity=M(intensity,inputs_.controllerBrightness);intensity=M(intensity,bits(0x3fa2f983u));
         intensity=D(intensity,angular);intensity=D(intensity,bits(0x3e5edc7fu));
         intensity=M(intensity,D(256.f,M(size,size)));
         MainStarMaterialState result;
-        result.eyeToClip=source_camera::compose(inputs_.controllerMatrix,raisedCamera.worldToClip);
+        result.eyeToClip=source_camera::compose(inputs_.controllerMatrix,camera.worldToClip);
         result.phase={phase_->value,16,3,0};result.twinkleTable=table;
         result.starInfo={intensity,size,D(bits(0x3b000000u),inputs_.settings.exposureScale),texturePresent?1.f:0.f};
         result.pointScale={D(1.f,float(viewportWidth)),D(1.f,float(viewportHeight)),0,0};
-        result.showerInfo0={D(D(float(viewportHeight),raisedCamera.optics.viewSpan),inputs_.settings.diameterTexel),velocityToDelta_,0,0};
-        result.showerInfo1=result.starInfo;
         return result;
+    }
+    void prepareShowerMaterial(MainStarMaterialState& material,const StarDrawCamera& camera,
+        std::uint32_t viewportHeight) const {
+        using namespace main_star_math;
+        material.showerInfo0={D(D(float(viewportHeight),camera.viewSpan),firstSize_),velocityToDelta_,0,0};
+        material.showerInfo1=material.starInfo;
     }
 private:
     static float radius() {return main_star_math::bits(0x4ac21780u);}
@@ -219,6 +226,7 @@ private:
     bool configured_{},dirty_{};
     std::uint32_t randomState_{};
     StarTwinklePhase* phase_{};
+    float firstSize_=8.f;
     float controllerDelta_{},emissionAccumulator_{},emissionInterval_{},velocityToDelta_{};
     source_camera::V4 previousCamera_{};
     source_camera::Matrix generationOrientation_{1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};

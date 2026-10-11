@@ -14,12 +14,13 @@ public sealed class SkyStarResources
     private readonly LoadedObjects definitions;
     private readonly G1ShaderBindingTables tables;
     private MapSeasonCameraPackage acceptedPackage;
+    private MapSeasonCameraPackage acceptedControllerPackage;
 
     private SkyStarResources(LoadedShaderContainer shader, LoadedObjects definitions,
         MapSeasonCameraPackage package, uint controller, SkyStarGeometry? geometry,
         LoadedSkySamplingResource? texture)
     {
-        Shader = shader; this.definitions = definitions; acceptedPackage = package;
+        Shader = shader; this.definitions = definitions; acceptedPackage = package; acceptedControllerPackage = package;
         tables = shader.ReadG1Bindings();
         ControllerObjectId = controller; Geometry = geometry; StarTexture = texture;
     }
@@ -33,15 +34,25 @@ public sealed class SkyStarResources
     /// it does not assert absence of the separate generated-stream CPU state.</summary>
     public static SkyStarResources? Load(GameResourceRepository repository,
         NamedViewRendererResources renderer, MapSeasonCameraPackage package)
+        => Load(repository, renderer, package, true);
+
+    /// <summary>WORK does not install the package's Main Star texture. Import
+    /// only the shader and controller points consumed by its untextured pass.</summary>
+    public static SkyStarResources? LoadControllerPass(GameResourceRepository repository,
+        NamedViewRendererResources renderer, MapSeasonCameraPackage package)
+        => Load(repository, renderer, package, false);
+
+    private static SkyStarResources? Load(GameResourceRepository repository,
+        NamedViewRendererResources renderer, MapSeasonCameraPackage package, bool importSampling)
     {
         var declaration = renderer.Definitions.Document.Objects.Single(value => value.ObjectId == renderer.RendererObjectId);
         uint shaderKey = Key(declaration, 0xE0918EA2);
         if (shaderKey == 0) return null;
         uint controller = Key(package.Camera, 0x8D316B8D);
         var geometry = ReadGeometry(repository, renderer.Definitions, controller);
-        var sampling = SkySeasonPackageTextures.Read(package).Star;
+        var sampling = importSampling ? SkySeasonPackageTextures.Read(package).Star : null;
         return new(repository.LoadShaderContainer("system", shaderKey), renderer.Definitions, package,
-            controller, geometry, sampling.IsSourceReferenceZero ? null : SkySeasonPackageTextures.LoadSampling(repository, sampling));
+            controller, geometry, sampling is null || sampling.IsSourceReferenceZero ? null : SkySeasonPackageTextures.LoadSampling(repository, sampling));
     }
 
     /// <summary>The actual exposure setter supplies the one-word variant.
@@ -62,9 +73,7 @@ public sealed class SkyStarResources
     public void RequireCompatiblePackage(GameResourceRepository repository, MapSeasonCameraPackage package)
     {
         if (ReferenceEquals(package, acceptedPackage)) return;
-        var candidate = ReadGeometry(repository, definitions, Key(package.Camera, 0x8D316B8D));
-        if (Geometry?.SourceResourceUri != candidate?.SourceResourceUri || Geometry?.SourceSha256 != candidate?.SourceSha256)
-            throw new NotSupportedException("Changed Star controller points require scene resource replacement.");
+        RequireCompatibleController(repository, package);
         var sampling = SkySeasonPackageTextures.Read(package).Star;
         if (!sampling.IsSourceReferenceZero)
         {
@@ -74,6 +83,17 @@ public sealed class SkyStarResources
                 throw new NotSupportedException("Changed Star sampling requires scene resource replacement.");
         }
         acceptedPackage = package;
+    }
+
+    /// <summary>Check the actual point-stream generation independently of Main
+    /// texture assignments. A WORK borrower never consumes those assignments.</summary>
+    public void RequireCompatibleController(GameResourceRepository repository, MapSeasonCameraPackage package)
+    {
+        if (ReferenceEquals(package, acceptedControllerPackage)) return;
+        var candidate = ReadGeometry(repository, definitions, Key(package.Camera, 0x8D316B8D));
+        if (Geometry?.SourceResourceUri != candidate?.SourceResourceUri || Geometry?.SourceSha256 != candidate?.SourceSha256)
+            throw new NotSupportedException("Changed Star controller points require scene resource replacement.");
+        acceptedControllerPackage = package;
     }
 
     private static SkyStarGeometry? ReadGeometry(GameResourceRepository repository, LoadedObjects definitions, uint controllerKey)

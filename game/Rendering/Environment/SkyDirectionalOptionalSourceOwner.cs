@@ -87,7 +87,8 @@ public sealed class SkyDirectionalOptionalSourceOwner : IAsyncDisposable
             throw new NotSupportedException("Optional Directional source requires the actual retained write mask and original Star cull1.");
         var groups=SkyAppliedSeasonCloudTextures.Load(repository,present.AcceptedSeasonCamera.Inputs.Source);
         var selection=SkyAppliedSourceCloudSelectionOwner.CreateFresh(repository,locale,cloudPrograms).PrepareCurrent(present,initialStages,groups);
-        return new(compiler,SkyAppliedSourceStarOwner.CreateFresh(repository,locale,ownedProducerIdentity+"/Star"),
+        return new(compiler,SkyAppliedSourceStarOwner.CreateFresh(repository,locale,ownedProducerIdentity+"/Star",
+                NamedViewRendererResources.Load(repository),present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage),
             SkyAppliedSourceCloudOwner.CreateFresh(repository,locale,ownedProducerIdentity+"/Cloud",cloudPrograms),
             SceneViewNativeMapSkyCloudTextureOwner.ReadSource(selection,groups),initialSource,initialStages,initialExecution,actualWriteMask);
     }
@@ -101,7 +102,7 @@ public sealed class SkyDirectionalOptionalSourceOwner : IAsyncDisposable
         if(built)throw new InvalidOperationException("Directional optional devices already built.");
         var present=initialSource.AcceptedLighting.AcceptedInputs.PresentSeasonCamera!;
         var prepared=Prepare(initialSource,initialStages,initialExecution,initialFrame,present,null,0,true);
-        var star=await SkyStarProducer.BuildAsync(stars.Shader,0,compiler,scene.PrimaryWork,
+        var star=await SkyStarProducer.BuildAsync(stars.Shader,stars.Program.Combination.Index,compiler,scene.PrimaryWork,
             stars.Geometry,prepared.Producers.StarFaces!,null,writeMask,
             new(RenderingDevice.PolygonCullMode.Disabled,false,false,RenderingDevice.CompareOperator.Always),prepared.Producers.StarGate!);
         try

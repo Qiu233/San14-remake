@@ -3,9 +3,16 @@
 #include <array>
 
 namespace San14::Render {
-// Each real Main Star draw prepares these named values. The two passes share
-// the twinkle table and phase owner, while their geometry and material inputs
-// remain separate from WORK's six cameras and complete constant packets.
+// Main and WORK stage zero use the same material writer with their actual
+// cameras. The generated second stream remains exclusive to Main stage one.
+struct StarDrawCamera {
+    float eyeHeight{},viewSpan{};
+    source_camera::Matrix worldToClip{};
+    static StarDrawCamera from(const source_camera::CameraTransform& camera) {
+        return {camera.eye.Y,camera.optics.viewSpan,camera.worldToClip};
+    }
+};
+
 struct MainStarMaterialState {
     source_camera::Matrix eyeToClip{};
     source_camera::V4 phase{};

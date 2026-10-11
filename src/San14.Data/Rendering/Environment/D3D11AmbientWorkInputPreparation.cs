@@ -6,13 +6,15 @@ namespace San14.Data;
 
 public sealed record D3D11AmbientWorkConstants(
     IReadOnlyList<SkyScenePreparedCamera> Cameras,
-    IReadOnlyList<byte[]> SkyVertex,IReadOnlyList<byte[]> SkyPixel,
+    IReadOnlyList<Sky2DrawInputs> SkyFaces,D3D11MainSkyInputPreparation SkyMedia,
     IReadOnlyList<SkyCloudConstantPacket> Clouds,
-    IReadOnlyList<SkyStarConstantPacket> Stars,float StarClockScale,
     IReadOnlyList<D3D11CloudAnimationAxis> CloudAxes,
-    CubeRenderTextureDefinition Target,SkyAmbientFilterSelection Filter,uint StarPointCount,bool SkyEnabled,
-    uint SelectedCameraObjectId,SkyCloudColorProgramSelection CloudProgram,
-    SkyTextureSource? EarthTexture,SkyAppliedCloudTextureSet CloudTextures);
+    LoadedSkyAmbientResources Ambient,SkyAmbientFilterSelection Filter,bool SkyEnabled,
+    SkyCloudColorProgramSelection CloudProgram,
+    SkyTextureSource? EarthTexture,SkyAppliedCloudTextureSet CloudTextures)
+{
+    public CubeRenderTextureDefinition Target => Ambient.SpecularTargets[0];
+}
 
 public sealed record D3D11CloudAnimationAxis(int SourcePhase,int PixelOffset,
     float Wind,float Period,float Position,float Scale);
@@ -24,7 +26,8 @@ public static class D3D11AmbientWorkInputPreparation
 {
     public static D3D11AmbientWorkConstants Prepare(GameResourceRepository repository,
         MapSourceCreatedSeasonLightingFrame present,
-        DirectionalLightProviderTemporary defaultCaller,SkyCloudProgramResources cloudPrograms)
+        DirectionalLightProviderTemporary defaultCaller,SkyCloudProgramResources cloudPrograms,
+        SkyMainProgramResources? skyPrograms = null)
     {
         string locale=present.AcceptedSeasonCamera.Inputs.MainFrame.Camera.ExecutableLocale;
         var hdr=repository.LoadShaderContainer("system",0x9D8E811F);
@@ -43,7 +46,8 @@ public static class D3D11AmbientWorkInputPreparation
             .PrepareCurrent(present,lighting);
         var ambient=SkyAmbientResources.Load(repository,repository.LoadObjects("system",0xDAB638B2),
             0x910603AC,repository.LoadObjects("system",0x718CCB8B),repository.LoadObjects("system",0x93FB3280));
-        var skyShader=repository.LoadShaderContainer("system",0x340AC335);
+        skyPrograms ??= SkyMainProgramResources.Load(repository,NamedViewRendererResources.Load(repository));
+        var skyShader=skyPrograms.Shader;
         // This preparation owns its binding state while producing initial numeric inputs.
         using var bindings = new Sky2TextureBindings();
         bindings.ApplyPackage(SkySeasonPackageTextures.Read(
@@ -59,13 +63,10 @@ public static class D3D11AmbientWorkInputPreparation
         var prepared=SkySceneFramePreparation.PrepareFreshDirectionalFullyWritten(frame.SourceFrame,directional,
             skyShader.ReadResourceDefinitions(atmosphereProgram),
             skyShader.ReadResourceDefinitions(desired.Stages.Single(stage=>stage.StageCode==0).Entry!.ProgramIndex));
-        var vertexDefinitions=skyShader.ReadResourceDefinitions(Program(desired,1));
-        var pixelDefinitions=skyShader.ReadResourceDefinitions(Program(desired,0));
+        var skyProgram=skyPrograms.ImportSelection(new(desired.Index,Program(desired,1),Program(desired,0)));
         var general=MainSceneNode51Source.Load(repository,locale);
         var view=general.PrepareCurrent(new(present.FrameNumber,"ambient-work/node51","ambient-work/view-collection",
             general.ViewCollectionSourceNameHash,true,true,null,0,binding,true,"owned-first-Main-selected-view0"));
-        var starOwner=SkyAppliedSourceStarOwner.CreateFresh(repository,locale,"ambient-work/stars");
-        var stars=starOwner.PrepareCurrent(frame,present,stages,view,0,"fresh-owned-Star-phase0;native-shares-node3-delta");
         var clouds=SkyAppliedSourceCloudOwner.CreateFresh(repository,locale,"ambient-work/clouds",cloudPrograms)
             .PrepareDirectionalBootstrap(frame,present,stages,view,0,"fresh-owned-Cloud-phase0;native-shares-node3-phase",directional);
         var cloudPackets=clouds.SixPackets.ToArray();
@@ -78,84 +79,50 @@ public static class D3D11AmbientWorkInputPreparation
                 Vector(cloudPackets[face].VertexBytes,0,plane);
             }
         }
-        byte[][] skyVertex=prepared.DrawPackets.Select(draw=>Sky2Constants.Vertex(vertexDefinitions,
-            new byte[vertexDefinitions.Buffers.Single().ByteSize],draw.Vertex).Bytes).ToArray();
-        byte[][] skyPixel=prepared.DrawPackets.Select(draw=>Sky2Constants.Pixel(pixelDefinitions,
-            new byte[pixelDefinitions.Buffers.Single().ByteSize],draw.Pixel).Bytes).ToArray();
-        var package=present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage.Camera;
-        float starScale=BinaryPrimitives.ReadSingleLittleEndian(package.Properties[621].RawValue);
+        var skyMedia=D3D11MainSkyInputPreparation.Load(skyProgram,clouds.Bindings,textureBindings);
         var filter=SkyAmbientCurrentFilterSelection.CaptureCurrent(ambient.Shader,present).Selection;
-        return new(frame.SourceFrame.SixCameras,skyVertex,skyPixel,cloudPackets,stars.SixPackets,starScale,
+        return new(frame.SourceFrame.SixCameras,prepared.DrawPackets,skyMedia,cloudPackets,
             CloudAxes(clouds.Weather,clouds.Selection.ProgramSelection.PixelDefinitions),
-            ambient.SpecularTargets[0],filter,checked((uint)starOwner.Geometry.PointCount),stages.Sky2Enabled,package.ObjectId,clouds.Selection.ProgramSelection,
+            ambient,filter,stages.Sky2Enabled,clouds.Selection.ProgramSelection,
             textureBindings.GetTexture(SkySamplingRole.Earth)?.Texture,clouds.Bindings);
     }
 
     public static void WriteNativeInputs(GameResourceRepository repository,
-        D3D11AmbientWorkConstants constants,string inputRoot,string locale)
+        D3D11AmbientWorkConstants constants,string inputRoot,string locale,
+        D3D11AmbientRenderResources? preparedResources = null)
     {
         string ambient=Path.Combine(inputRoot,"ambient-input"),cloud=Path.Combine(inputRoot,"ambient-cloud-continuous-input"),
-            stars=Path.Combine(inputRoot,"ambient-stars-continuous-input"),current=Path.Combine(inputRoot,"current-ambient-frame-input"),
+            current=Path.Combine(inputRoot,"current-ambient-frame-input"),
             initial=Path.Combine(current,"spring");
-        foreach(string root in new[]{ambient,cloud,stars,initial})Directory.CreateDirectory(root);
+        foreach(string root in new[]{ambient,cloud,initial})Directory.CreateDirectory(root);
         void Write(string root,string name,byte[] data)=>File.WriteAllBytes(Path.Combine(root,name),data);
-        var formats=RenderTextureFormatMath.Resolve(constants.Target.PixelFormat,constants.Target.ColorSpace,constants.Target.OutputColorSpace);
-        File.WriteAllText(Path.Combine(ambient,"ambient-native.txt"),FormattableString.Invariant(
-            $"{constants.Target.Width} {constants.Target.LevelNum} {formats.TargetViewFormat} {constants.Filter.SampleCount} 0 {constants.StarPointCount} {(constants.SkyEnabled?1:0)}\n"));
-        var sampler=RenderSamplerSourceAdapters.Load(repository.SourceDirectory,locale);
-        byte[] samplerKey=RenderSamplerSourceAdapters.AmbientSpecularKey(RenderSamplerSourceAdapters.CubeTextureKey(sampler,constants.Target.LevelNum));
-        Write(ambient,"cube-sampler-key.bin",samplerKey);Write(ambient,"cube-sampler-desc.bin",RenderSamplerSourceAdapters.DecodeKey(sampler,samplerKey).EncodeD3D11Descriptor());
+        (preparedResources ?? D3D11AmbientRenderResources.Load(repository,constants,locale)).WriteNativeInputs(inputRoot);
         Write(ambient,"quad-position-xy.bin",Floats([-1,1,-1,-1,1,1,1,-1]));
         for(int face=0;face<6;face++)
         {
-            var c=constants.Clouds[face];var s=constants.Stars[face];
-            Write(ambient,$"sky-current-face{face}-vs-b0.bin",constants.SkyVertex[face]);
-            Write(ambient,$"sky-current-face{face}-ps-b0.bin",constants.SkyPixel[face]);
+            var c=constants.Clouds[face];
             Write(ambient,$"clouds-face{face}-vs-b0.bin",c.VertexBytes);Write(ambient,$"clouds-face{face}-ps-b0.bin",c.PixelBytes);
-            Write(ambient,$"stars-face{face}-vs-b0.bin",s.VertexBytes);Write(ambient,$"stars-face{face}-gs-b0.bin",s.GeometryBytes);
-            Write(ambient,$"stars-face{face}-ps-b0.bin",s.PixelBytes);
-            Write(ambient,$"blend-face{face}-vs-b0.bin",SkyCubeBlendFaceMath.EncodeNativeFaceMatrix((uint)face));
             Write(cloud,$"base-face{face}-vs-b0.bin",c.VertexBytes);Write(cloud,$"base-face{face}-ps-b0.bin",c.PixelBytes);
-            Write(stars,$"stars-face{face}-vs-b0.bin",s.VertexBytes);Write(stars,$"stars-face{face}-gs-b0.bin",s.GeometryBytes);
-            Write(stars,$"stars-face{face}-ps-b0.bin",s.PixelBytes);
-            Write(initial,$"sky-face{face}-vs.bin",constants.SkyVertex[face]);Write(initial,$"sky-face{face}-ps.bin",constants.SkyPixel[face]);
             Write(initial,$"cloud-face{face}-vs.bin",c.VertexBytes);Write(initial,$"cloud-face{face}-ps.bin",c.PixelBytes);
-            Write(initial,$"star-face{face}-vs.bin",s.VertexBytes);Write(initial,$"star-face{face}-gs.bin",s.GeometryBytes);Write(initial,$"star-face{face}-ps.bin",s.PixelBytes);
         }
-        Write(ambient,"blend-t0-ps-b0.bin",new byte[16]);
-        Write(stars,"star-clock-parameters.bin",Floats([constants.StarClockScale,..constants.Cameras.Select(c=>c.Position.Y),0]));
+        WriteStarCameras(Path.Combine(ambient,"star-cameras.bin"),constants.Cameras);
         File.WriteAllLines(cloud+"/animation.txt",constants.CloudAxes.Select(a=>FormattableString.Invariant(
             $"{a.SourcePhase} {a.PixelOffset} {a.Wind:R} {a.Period:R} {a.Position:R} {a.Scale:R}")));
         File.WriteAllLines(ambient+"/work-face-depth.txt",constants.Cameras.Select((c,face)=>FormattableString.Invariant(
             $"{face} {c.Flags148} {((c.Flags148&2)!=0?0:1)}")));
-        WriteClockScales(repository,current,constants.SelectedCameraObjectId);
-        var samples=new Dictionary<uint,SkyFilterGeneratedSamples>();
-        for(uint mip=1;mip<constants.Target.LevelNum;mip++)
-        {
-            var sample=SkyFilterSampleMath.GenerateMip(constants.Filter.SampleCount,checked((ushort)constants.Target.Width),
-                constants.Target.LevelNum,mip,NativeLogTables.Load(repository.SourceDirectory,locale),NativeLogDispatch.AvxFma,constants.Filter.SampleCount);
-            samples.Add(mip,sample);Write(ambient,$"filter-mip{mip}-t17-half4.bin",sample.Packet.DirectionBytes.ToArray());
-            Write(ambient,$"filter-mip{mip}-t18-float.bin",sample.Packet.WeightBytes.ToArray());
-        }
-        foreach(var step in SkySceneSchedule.BasePreparation(constants.Target.LevelNum))
-        {
-            float width=step.Operation==SkySceneCopyOperation.WorkMip?
-                CubeRenderTextureResources.ResolveSurface(constants.Target,step.DestinationSurfaceId).Extent:constants.Target.Width;
-            Write(ambient,$"copy-surface{step.DestinationSurfaceId}-b0.bin",Floats([width,0,0,step.Face]));
-        }
-        foreach(var step in SkySceneSchedule.Filter(constants.Target.LevelNum,6,uint.MaxValue))
-            Write(ambient,$"filter-surface{step.DestinationSurfaceId}-b0.bin",Floats([constants.Target.Width,samples[step.Mip].Packet.WeightSum,0,step.Face]));
     }
 
-    private static void WriteClockScales(GameResourceRepository repository,string directory,uint selectedCameraObjectId)
+    private static void WriteStarCameras(string path,IReadOnlyList<SkyScenePreparedCamera> cameras)
     {
-        using var writer=new BinaryWriter(File.Create(Path.Combine(directory,"star-clock-scales.bin")));writer.Write(4u);
-        foreach(int month in new[]{2,6,9,12})
+        if(cameras.Count!=6)throw new InvalidDataException("WORK Star preparation requires six actual cameras.");
+        using var writer=new BinaryWriter(File.Create(path));
+        writer.Write(0x31435357u); // WSC1: WORK Star cameras, independent of material storage.
+        foreach(var camera in cameras)
         {
-            var action=MapSeasonResourceConsumer.LoadActionSource(repository,month);
-            var database=MapSeasonResourceConsumer.LoadActionDatabase(repository,action);
-            var camera=MapSeasonResourceConsumer.ReadCameraPackage(database,selectedCameraObjectId).Camera;
-            writer.Write((uint)action.Selection.SeasonIndex);writer.Write(BinaryPrimitives.ReadSingleLittleEndian(camera.Properties[621].RawValue));
+            writer.Write(camera.Position.Y);writer.Write(camera.Scalar138);
+            var m=camera.MatrixF0;
+            foreach(float value in new[]{m.M11,m.M12,m.M13,m.M14,m.M21,m.M22,m.M23,m.M24,
+                m.M31,m.M32,m.M33,m.M34,m.M41,m.M42,m.M43,m.M44})writer.Write(value);
         }
     }
 

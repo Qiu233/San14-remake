@@ -1,48 +1,38 @@
-using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
-using San14.Data.Formats;
 
 namespace San14.Data;
 
-/// <summary>Actual fresh Star constructor/table and current11902E0 writer.
-/// The explicit owned backend clock is an input; no original Clock254 or
-/// original current shader variant is inferred. Phase candidates commit only
+/// <summary>Untextured controller-point preparation for the translated backend.
+/// Selected resources and material destinations are imported once. The owned
+/// backend clock is explicit. Phase candidates commit only
 /// after a complete caller output succeeds, so failed output retries do not
 /// advance the accepted animation twice.</summary>
 public sealed class SkyAppliedSourceStarOwner
 {
-    private readonly LoadedShaderContainer shader;
-    private readonly SkyStarGeometry geometry;
+    private readonly GameResourceRepository repository;
+    private readonly SkyStarResources resources;
     private readonly SkyWeatherNativePowerSource power;
     private readonly float[] table;
     private readonly string recipe;
     private float committedPhase;
     private long committedFrame;
     private SkyAppliedSourceStarFrame? candidate;
-    private SkyAppliedSourceStarOwner(LoadedShaderContainer shader,SkyStarGeometry geometry,
+    private SkyAppliedSourceStarOwner(GameResourceRepository repository,SkyStarResources resources,
         SkyWeatherNativePowerSource power,string owner,string recipe)
-    {this.shader=shader;this.geometry=geometry;this.power=power;OwnerIdentity=owner;this.recipe=recipe;table=SkyStarTwinkle.CreateTable();}
+    {this.repository=repository;this.resources=resources;this.power=power;OwnerIdentity=owner;this.recipe=recipe;table=SkyStarTwinkle.CreateTable();Program=resources.Select(0,false);}
     public string OwnerIdentity{get;}
     public float CommittedPhase=>committedPhase;
-    public LoadedShaderContainer Shader=>shader;
-    public SkyStarGeometry Geometry=>geometry with{VertexBytes=geometry.VertexBytes.ToArray()};
-    public static SkyAppliedSourceStarOwner CreateFresh(GameResourceRepository repository,string locale,string ownedStarIdentity)
+    public LoadedShaderContainer Shader=>resources.Shader;
+    public SkyStarProgramSelection Program{get;}
+    public SkyStarGeometry? Geometry=>resources.Geometry is { } geometry ? geometry with{VertexBytes=geometry.VertexBytes.ToArray()} : null;
+    public static SkyAppliedSourceStarOwner CreateFresh(GameResourceRepository repository,string locale,string ownedStarIdentity,
+        NamedViewRendererResources renderer,MapSeasonCameraPackage package)
     {
         ArgumentNullException.ThrowIfNull(repository);ArgumentException.ThrowIfNullOrWhiteSpace(ownedStarIdentity);
-        var shader=repository.LoadShaderContainer("system",0x7180A527);
-        RequireSource(shader.Source,"san14://rdb/system/7180A527","0918D4ABA52CC627D454C7376A8E72645ABF56B8194481193B938AE5CD9CF918");
-        var definitions=repository.LoadObjects("system",0xDAB638B2);
-        var controller=definitions.Document.Objects.Single(o=>o.ObjectId==0x6DDC0D75);
-        if(controller.Kind!=DokObjectKind.Inline||controller.ClassId!=0x12BD9185||controller.Properties.Count!=1||
-            Scalar(controller,0,0x78051B9F,5)!=0xAF8EBDD2)
-            throw new InvalidDataException("Actual source Sky2Controller geometry declaration changed.");
-        var points=repository.LoadRdbAsset("system",0xAF8EBDD2);
-        RequireSource(points,"san14://rdb/system/AF8EBDD2","815777E13CB07567FB9B08AB38C10147ABF2E9AC42AE37321C07DB4F67A0005D");
-        var geometry=SkyStarGeometry.Read(points);
-        if(geometry.PointCount!=121318)throw new InvalidDataException("Actual Star point stream count changed.");
-        return new(shader,geometry,SkyWeatherNativePowerSource.Load(repository,locale),ownedStarIdentity,
+        var resources=SkyStarResources.LoadControllerPass(repository,renderer,package)??
+            throw new NotSupportedException("This optional Star producer requires a selected Star resource owner.");
+        return new(repository,resources,SkyWeatherNativePowerSource.Load(repository,locale),ownedStarIdentity,
             RenderSamplerSourceAdapters.ReadAppliedStarNativeRecipe(repository.SourceDirectory,locale));
     }
     public SkyAppliedSourceStarFrame PrepareCurrent(SkySceneSourceFramePacket sourceFrame,
@@ -52,7 +42,6 @@ public sealed class SkyAppliedSourceStarOwner
         ArgumentNullException.ThrowIfNull(sourceFrame);ArgumentNullException.ThrowIfNull(present);
         ArgumentNullException.ThrowIfNull(stages);ArgumentNullException.ThrowIfNull(actualSelectedView);
         ArgumentException.ThrowIfNullOrWhiteSpace(ownedClockProvenance);
-        RequireSource(shader.Source,"san14://rdb/system/7180A527","0918D4ABA52CC627D454C7376A8E72645ABF56B8194481193B938AE5CD9CF918");
         actualSelectedView.RequireSelectedView(present.FrameNumber,sourceFrame.Binding);
         var lighting=stages.AcceptedLighting;var selected=present.AcceptedSeasonCamera.Inputs.Source.Selection;
         stages.ValidateCurrent(lighting,selected,present.CurrentSkyCamera);
@@ -62,18 +51,18 @@ public sealed class SkyAppliedSourceStarOwner
             !float.IsFinite(explicitOwnedClockDelta)||explicitOwnedClockDelta<0)
             throw new InvalidDataException("Star current packet requires the same accepted source frame and finite explicit owned clock.");
         var package=selected.FirstPackage;
-        var sourceCamera=SkySceneSourceDefaults.ReadPerspectiveCamera(package.Objects,package.Camera.ObjectId);
-        if(sourceCamera.References.Sky2Controller!=0x6DDC0D75||
-            !SkySeasonPackageTextures.Read(package).Star.IsSourceReferenceZero)
-            throw new NotSupportedException("Applied source Star requires its actual loaded controller and fresh null Star descriptor.");
+        resources.RequireCompatibleController(repository,package);
         // C5197F/86 and C519E1/E8 load CPU56C/588; C419BD/C41A11
         // project them to Camera7F8/814. D4BD30's current packet has a
         // distinct -1 branch for nonprimary View, never HDRI setter slot3/4.
-        float geometry40=actualSelectedView.SelectedViewIndex==0?
-            F(Scalar(package.Camera,614,0x59633E4E,8)):-1f;
-        float clockScale=F(Scalar(package.Camera,621,0x4C16B0AE,8));
+        var settings=SkyStarSettings.Import(package);
+        float geometry40=actualSelectedView.SelectedViewIndex==0?settings.ExposureScale:-1f;
+        float clockScale=settings.BlinkSpeed;
         float geometryDelta=M(clockScale,explicitOwnedClockDelta);
         var frame=sourceFrame.SourceFrame;
+        if(resources.Geometry is not { PointCount: > 0 })
+            return candidate=new(this,sourceFrame,present,stages,actualSelectedView,[],committedPhase,committedPhase,
+                geometry40,geometryDelta,recipe+";no-controller-points;phase-retained;owner="+OwnerIdentity);
         if(frame.SixCameras.Count!=6||frame.Controller is null||!frame.Lights.SunPresent||!frame.Lights.MoonPresent)
             throw new NotSupportedException("Actual source Star requires six current cameras and the complete same-frame controller/light path.");
         var controller=SkySceneSourceDefaults.PrepareController(present.CurrentSkyCamera.Controller,
@@ -100,36 +89,20 @@ public sealed class SkyAppliedSourceStarOwner
             intensity=D(intensity,angular);intensity=D(intensity,F(0x3E5EDC7F));
             float size=M(8,.5f);intensity=M(intensity,D(256,M(size,size)));
             Vector4 info=new(intensity,size,D(F(0x3B000000),geometry40),0);
-            byte[] vs=new byte[352],gs=new byte[16],ps=new byte[16];
-            Matrix(vs,TerrainFrustumMath.Multiply(controller.MatrixF0,c.MatrixF0));
-            Vector(vs,64,new(phase,16,3,0));
-            for(int i=0;i<64;i++)Float(vs,80+i*4,table[i]);
-            Vector(vs,336,info);Vector(gs,0,new(D(1,c.TargetWidth),D(1,c.TargetHeight),0,0));Vector(ps,0,info);
-            packets[face]=SkyStarConstants.Read(shader.ReadResourceDefinitions(0),shader.ReadResourceDefinitions(5),
-                shader.ReadResourceDefinitions(4),vs,gs,ps);
+            packets[face]=Program.MaterialLayout.EncodeController(
+                TerrainFrustumMath.Multiply(controller.MatrixF0,c.MatrixF0),new(phase,16,3,0),table,
+                info,new(D(1,c.TargetWidth),D(1,c.TargetHeight),0,0));
         }
         return candidate=new(this,sourceFrame,present,stages,actualSelectedView,packets,committedPhase,phase,
             geometry40,geometryDelta,recipe+";"+sourceFrame.SourceProvenance+";"+ownedClockProvenance+
-            ";source614/621->Camera7F8/814->packet38/54;controller6DDC0D75/AF8EBDD2;fresh-Star15C0=1/15C4=8/16B2=0/texture=null;"+
+            ";selected-Star-resources;fresh-diameter=8;texture=null;"+
             "native-Star-faces0/1/2/4/5;pure-phase-candidate-until-complete-output-commit;owner="+OwnerIdentity);
     }
     public void CommitCompleteFrame(SkyAppliedSourceStarFrame frame)
     {RequireCandidate(frame);committedPhase=frame.CandidatePhase;committedFrame=frame.FrameNumber;candidate=null;}
     internal void RequireCandidate(SkyAppliedSourceStarFrame frame)
     {if(!ReferenceEquals(candidate,frame))throw new InvalidDataException("Star candidate is stale, superseded or already committed.");}
-    private static uint Scalar(DokObject o,int ordinal,uint hash,uint type)
-    {
-        var p=o.Properties[ordinal];if(p.Index!=ordinal||p.NameHash!=hash||p.TypeCode!=type||p.ElementCount!=1||p.ElementSize!=4||p.RawValue.Length!=4)
-            throw new InvalidDataException("Applied Star exact typed source property changed.");
-        return BinaryPrimitives.ReadUInt32LittleEndian(p.RawValue);
-    }
-    private static void RequireSource(LoadedRdbAsset s,string uri,string sha)
-    {if(s.ResourceUri!=uri||s.OverrideSource is not null||s.DecodedSha256!=sha||Convert.ToHexString(SHA256.HashData(s.Bytes))!=sha)throw new InvalidDataException("Applied Star exact source URI/hash changed.");}
     private static float F(uint b)=>BitConverter.UInt32BitsToSingle(b);
-    private static void Float(byte[] b,int at,float value)=>BinaryPrimitives.WriteSingleLittleEndian(b.AsSpan(at,4),value);
-    private static void Vector(byte[] b,int at,Vector4 v){Float(b,at,v.X);Float(b,at+4,v.Y);Float(b,at+8,v.Z);Float(b,at+12,v.W);}
-    private static void Matrix(byte[] b,Matrix4x4 m)
-    {float[] f=[m.M11,m.M12,m.M13,m.M14,m.M21,m.M22,m.M23,m.M24,m.M31,m.M32,m.M33,m.M34,m.M41,m.M42,m.M43,m.M44];for(int i=0;i<16;i++)Float(b,i*4,f[i]);}
     [MethodImpl(MethodImplOptions.NoInlining)]private static float A(float a,float b)=>a+b;
     [MethodImpl(MethodImplOptions.NoInlining)]private static float S(float a,float b)=>a-b;
     [MethodImpl(MethodImplOptions.NoInlining)]private static float M(float a,float b)=>a*b;

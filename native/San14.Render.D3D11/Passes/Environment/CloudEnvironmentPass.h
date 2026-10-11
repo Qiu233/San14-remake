@@ -21,8 +21,9 @@ class CloudEnvironmentPass {
     CloudEnvironmentPass(const CloudEnvironmentPass&)=delete;
     CloudEnvironmentPass& operator=(const CloudEnvironmentPass&)=delete;
 
-    void prepareAmbient(ID3D11Device* device,ID3D11DeviceContext* context,const fs::path& source) {
-        environment_=prepareNativeAmbient(device,source);
+    void prepareAmbient(ID3D11Device* device,ID3D11DeviceContext* context,const fs::path& source,
+        MainStarPass& stars,const source_weather_fog::Power& power) {
+        environment_=prepareNativeAmbient(device,source,stars,power);
         // Bootstrap supplies all three history slots once, before Main entry.
         for(UINT slot=0;slot<3;++slot)executeNativeAmbientBatch(context,environment_,slot);
         executeNativeAmbientBlend(context,environment_,0,0);environment_.selected=0;
@@ -31,11 +32,9 @@ class CloudEnvironmentPass {
 
     void prepareClouds(ID3D11Device* device,const fs::path& cloudSource,
         const fs::path& animationSource,const fs::path& ambientCloudSource,
-        const fs::path& starSource,ID3D11Texture2D* hdr,StarTwinklePhase& twinkle) {
+        ID3D11Texture2D* hdr) {
         cloud_=prepareNativeMainCloud(device,cloudSource,animationSource,hdr);
         environmentCloud_=prepareNativeAmbientCloudContinuous(device,ambientCloudSource,environment_,cloud_);
-        environment_.starAnimation=prepareNativeAmbientStarContinuous(starSource,twinkle);
-        environment_.starAnimationEnabled=true;
     }
 
     // Atmosphere's camera and season writers require this call-scoped publication
@@ -52,6 +51,8 @@ class CloudEnvironmentPass {
         const CloudEnvironmentSources& source,const CloudEnvironmentFrame& frame) {
         float currentPlanet=0;
         if(frame.season) {
+            if(frame.season->ambientFilterSampleCount!=environment_.samples)
+                throw std::runtime_error("Ambient sample count changed; prepare a new resource generation");
             if(!weather_ || std::none_of(weather_->profiles.seasons.begin(),
                 weather_->profiles.seasons.end(),[&](const auto& profile){return profile.season==frame.season->season;}))
                 weather_=readNativeCurrentCloudWeather(source.weather);
@@ -73,10 +74,10 @@ class CloudEnvironmentPass {
     }
 
     // Node 5 consumes completed Cloud and Main Star updates from node 3.
-    void generateAmbient(ID3D11DeviceContext* context,float clock,float node3Delta) {
+    void generateAmbient(ID3D11DeviceContext* context,float clock) {
         const auto parent=NativeMainTargetScope::retain(context);
         // Generation selection can change; retain the actual returned view.
-        ambient_=executeNativeAmbientNode5(context,environment_,clock,true,node3Delta);
+        ambient_=executeNativeAmbientNode5(context,environment_,clock,true);
         parent.restore(context);
     }
 
