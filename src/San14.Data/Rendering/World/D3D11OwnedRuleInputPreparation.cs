@@ -53,6 +53,8 @@ public static class D3D11OwnedRuleInputPreparation
             writer.Write(record.DeclaredGroupMask); writer.Write(record.MaxPrimitiveNum);
             writer.Write((uint)record.SourceLightDataF20);
         }
+        CommonRenderPolicyEncoding.WriteNativeInputs(directory,
+            CommonRenderPolicy.FromAuxiliary(common.InitialAuxiliary));
     }
 
     public static void WriteWeather(string directory, SkySeasonMainCameraRgbFrame camera,

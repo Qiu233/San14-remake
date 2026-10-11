@@ -13,7 +13,8 @@ public sealed class CommonRenderSettings
         ViewAux3F2 = viewAux3F2; ModelGroupSelector400 = modelGroupSelector400;
         SourceIdentity = sourceIdentity;
         InitialAuxiliary = new(flags8, (CommonLightingOptions)flags0C, 0,
-            viewAux3F2, modelGroupSelector400, (byte)(flags10 >> 16));
+            viewAux3F2, modelGroupSelector400, (byte)(flags10 >> 16),
+            SuppressOceanDrawing: (flags10 & 1u) != 0);
     }
     public uint Flags8 { get; }
     public uint Flags0C { get; }

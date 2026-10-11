@@ -570,14 +570,13 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                 const OceanSources oceanSources{resources.directory(ResourceGroup::OceanTextures),
                     resources.directory(ResourceGroup::Water),resources.directory(ResourceGroup::Refraction)/"copy97",
                     resources.root()/"named-renderer-input"};
-                const OceanTargets oceanTargets{geometryTargets.textures(),geometryTargets.colors(),formats[3],geometryTargets.depthView(),width,height};
-                ocean.prepareWater(device.Get(),context.Get(),oceanSources,oceanTargets,
+                ocean.prepareWater(device.Get(),context.Get(),oceanSources,geometryTargets.sixTargetScope(),
                     frameState.namedRenderer().oceanGrid(),staticCamera,initialCommonClock,
                     renderRandom,sampleRenderRandomSeed(renderRandomClock),frameState.season()?&frameState.season()->oceanWave:nullptr,
                     frameState.season()?&frameState.season()->oceanSurface:nullptr,
                     frameState.season()?&frameState.season()->oceanOptics:nullptr,
                     frameState.season()?&frameState.season()->oceanTextureMaterial:nullptr);
-                ocean.executeWater(device.Get(),context.Get(),sourceDepth);
+                ocean.executeWater(context.Get(),sourceDepth,frameState.oceanLightGroup(),frameState.commonRenderPolicy());
                 ;
                 updateNativeDepthMirror(context.Get(),mainDepth,"117 after Ocean");
                 mainTargets.restore(context.Get());
@@ -727,7 +726,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         ocean.copyScene(context.Get(),sourceDepth);
         ocean.copyDepth(context.Get(),sourceDepth);mainTargets.restore(context.Get());
         ocean.updateCamera(context.Get(),staticCamera);
-        ocean.executeWater(device.Get(),context.Get(),sourceDepth);
+        ocean.executeWater(context.Get(),sourceDepth,frameState.oceanLightGroup(),frameState.commonRenderPolicy());
         updateNativeDepthMirror(context.Get(),mainDepth,"117 new Main Ocean");mainTargets.restore(context.Get());
         context->OMSetRenderTargets(1,&rsTarget,geometryTargets.depthView());
         shadows.executeWaterReceiver(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView());mainTargets.restore(context.Get());

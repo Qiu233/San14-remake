@@ -1,6 +1,8 @@
 // Original Main WV water. Prepare device objects once, then execute source strips.
 #pragma once
 #include "OceanClock.h"
+#include "OceanDrawState.h"
+#include "../../../Device/RenderTargetScope.h"
 #include "Interop/OceanMaterialConstants.h"
 #include "OceanGrid.h"
 #include <memory>
@@ -42,12 +44,8 @@ struct NativeOcean116 {
     ComPtr<ID3D11SamplerState> refractionSampler;
     std::array<ComPtr<ID3D11RenderTargetView>,6> targets;
     ComPtr<ID3D11DepthStencilView> depthTarget;
-    ComPtr<ID3D11RasterizerState> raster;
-    ComPtr<ID3D11BlendState> blend;
-    ComPtr<ID3D11DepthStencilState> depth;
-    D3D11_DEPTH_STENCIL_DESC depthDescription{};
+    NativeOceanDrawState drawState;
     D3D11_VIEWPORT viewport{};
-    UINT stencilReference=0,colorMasks=0;
 };
 
 static void applyNativeOceanSurfaceSettings(NativeOcean116& ocean,const San14::Render::OceanSurfaceSettings& settings) {
@@ -93,14 +91,15 @@ static NativeOcean116 prepareNativeOcean116(ID3D11Device* device,
     const fs::path& source,const OceanNativeTextures& textures,
     const San14::Render::OceanGrid& grid,const void* initialWaves,
     ID3D11ShaderResourceView* refractionDepth,const fs::path& refractionSampler,
-    const std::array<ComPtr<ID3D11Texture2D>,5>& targets,
-    const std::array<ID3D11RenderTargetView*,5>& rt,DXGI_FORMAT rrFormat,
-    ID3D11DepthStencilView* dsv,UINT width,UINT height,
+    const NativeMainTargetScope& targets,
     const San14::Render::OceanSurfaceSettings& surface,const San14::Render::OceanOpticsSettings& optics,
     bool refractionMaterialBound) {
     NativeOcean116 result;
-    result.textures=textures;result.refractionDepth=refractionDepth;result.depthTarget=dsv;
-    result.viewport={0,0,float(width),float(height),0,1};
+    result.textures=textures;result.refractionDepth=refractionDepth;
+    if(targets.colorCount!=6 || targets.viewportCount!=1 || !targets.depth)
+        throw std::runtime_error("Ocean requires its actual six-target geometry scope");
+    result.depthTarget=targets.depth;result.viewport=targets.viewports[0];result.drawState.device=device;
+    for(UINT i=0;i<6;++i)result.targets[i]=targets.colors[i];
     result.bubbleMaskGroup=std::make_unique<OceanBubbleMaskGroup>();result.bubbleMaskIndex=0;
     applyNativeOceanSurfaceSettings(result,surface);
     applyNativeOceanOpticsSettings(result,optics);result.refractionMaterialBound=refractionMaterialBound;
@@ -146,32 +145,6 @@ static NativeOcean116 prepareNativeOcean116(ID3D11Device* device,
             check(device->CreateBuffer(&desc,&initial,&target),"original WV mutable complete CB");
         }
     }
-    UINT cull,front,compare,masks,stencilEnabled,reference,test,write,blendEnabled;float clear;
-    std::ifstream raster(source/"ocean-wave-raster.txt"),depthBlend(source/"ocean-depth-blend.txt");
-    raster>>cull>>front>>compare>>masks>>stencilEnabled>>reference>>clear;
-    depthBlend>>test>>write>>blendEnabled;
-    if(!raster||!depthBlend)throw std::runtime_error("Original WV state absent");
-    result.stencilReference=reference;result.colorMasks=masks;
-    D3D11_RASTERIZER_DESC rd{};rd.FillMode=D3D11_FILL_SOLID;rd.CullMode=D3D11_CULL_MODE(cull);
-    rd.FrontCounterClockwise=front;rd.DepthClipEnable=TRUE;
-    check(device->CreateRasterizerState(&rd,&result.raster),"original WV raster");
-    auto& dd=result.depthDescription;
-    dd.DepthEnable=test;dd.DepthWriteMask=write?D3D11_DEPTH_WRITE_MASK_ALL:D3D11_DEPTH_WRITE_MASK_ZERO;
-    dd.DepthFunc=D3D11_COMPARISON_FUNC(compare); // Preparation seed; execution inherits logical compare.
-    dd.StencilEnable=stencilEnabled;dd.StencilReadMask=dd.StencilWriteMask=255;
-    dd.FrontFace.StencilFunc=D3D11_COMPARISON_ALWAYS;
-    dd.FrontFace.StencilFailOp=dd.FrontFace.StencilDepthFailOp=D3D11_STENCIL_OP_KEEP;
-    dd.FrontFace.StencilPassOp=D3D11_STENCIL_OP_REPLACE;dd.BackFace=dd.FrontFace;
-    check(device->CreateDepthStencilState(&dd,&result.depth),"original WV depth/stencil");
-    // D3C310 does not assign color masks. These are the imported inherited
-    // source-created Main masks, including all six original MRT writes.
-    D3D11_BLEND_DESC bd{};bd.IndependentBlendEnable=TRUE;
-    for(UINT i=0;i<6;++i){bd.RenderTarget[i].BlendEnable=blendEnabled;bd.RenderTarget[i].RenderTargetWriteMask=BYTE((masks>>(4*i))&15);}
-    check(device->CreateBlendState(&bd,&result.blend),"original WV six color masks");
-    for(UINT i=0;i<5;++i)result.targets[i]=rt[i];
-    D3D11_RENDER_TARGET_VIEW_DESC rr{};rr.Format=rrFormat;rr.ViewDimension=D3D11_RTV_DIMENSION_TEXTURE2DARRAY;
-    rr.Texture2DArray.FirstArraySlice=1;rr.Texture2DArray.ArraySize=1;
-    check(device->CreateRenderTargetView(targets[3].Get(),&rr,&result.targets[5]),"original WV RR1");
     auto samplerBytes=load(refractionSampler);D3D11_SAMPLER_DESC sd{};
     if(samplerBytes.size()!=sizeof(sd))throw std::runtime_error("WV refraction sampler requires52B");
     std::memcpy(&sd,samplerBytes.data(),sizeof(sd));
@@ -179,8 +152,10 @@ static NativeOcean116 prepareNativeOcean116(ID3D11Device* device,
     return result;
 }
 
-static UINT executeNativeOcean116(ID3D11Device* device,ID3D11DeviceContext* context,
-    NativeSourceDepthState& logical,NativeOcean116& ocean) {
+static UINT executeNativeOcean116(ID3D11DeviceContext* context,
+    NativeSourceDepthState& logical,NativeOcean116& ocean,std::uint32_t group,
+    const San14::Render::CommonRenderPolicy& policy) {
+    if(!oceanDrawEnabled(group,ocean.optics.refractionTransparency,policy))return 0;
     writeNativeOceanAnimation(ocean);
     if(ocean.constantsDirty) {
         for(UINT flat=0;flat<2;++flat) {
@@ -189,13 +164,7 @@ static UINT executeNativeOcean116(ID3D11Device* device,ID3D11DeviceContext* cont
         }
         ocean.constantsDirty=false;
     }
-    // WV changes Test/Write and its stencil writer, but leaves depth compare.
-    // Recreate this device state only if an actual inherited compare changes.
-    if(ocean.depthDescription.DepthFunc!=logical.description.DepthFunc) {
-        ocean.depthDescription.DepthFunc=logical.description.DepthFunc;
-        ocean.depth.Reset();
-        check(device->CreateDepthStencilState(&ocean.depthDescription,&ocean.depth),"original WV changed inherited depth compare");
-    }
+    NativeOceanDrawScope drawState(ocean.drawState,context,logical,group);
     std::array<ID3D11ShaderResourceView*,32> pixelViews{};
     pixelViews[0]=oceanTextureView(ocean.textures.normal3d);pixelViews[2]=ocean.refractionDepth.Get();
     pixelViews[3]=oceanTextureView(ocean.textures.normalNoise2d);pixelViews[4]=oceanTextureView(ocean.textures.wvBubble);
@@ -208,9 +177,7 @@ static UINT executeNativeOcean116(ID3D11Device* device,ID3D11DeviceContext* cont
     context->IASetInputLayout(ocean.layout.Get());context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
     context->VSSetShader(ocean.vertexShader.Get(),nullptr,0);context->PSSetShader(ocean.pixelShader.Get(),nullptr,0);
     context->HSSetShader(nullptr,nullptr,0);context->DSSetShader(nullptr,nullptr,0);context->GSSetShader(nullptr,nullptr,0);
-    context->RSSetViewports(1,&ocean.viewport);context->RSSetState(ocean.raster.Get());
-    logical.bind(context,ocean.depth.Get(),ocean.depthDescription,ocean.stencilReference);
-    context->OMSetBlendState(ocean.blend.Get(),nullptr,~0u);
+    context->RSSetViewports(1,&ocean.viewport);
     std::array<ID3D11RenderTargetView*,6> rt{};
     for(UINT i=0;i<6;++i)rt[i]=ocean.targets[i].Get();
     context->OMSetRenderTargets(UINT(rt.size()),rt.data(),ocean.depthTarget.Get());
@@ -223,7 +190,7 @@ static UINT executeNativeOcean116(ID3D11Device* device,ID3D11DeviceContext* cont
         context->DrawIndexed(packet.indexCount,packet.startIndex,packet.baseVertex);
     }
     // Source117 owns attachment Pop and Main mirror copy. Release bindings for
-    // that transition; leave reached depth/stencil, blend and raster state.
+    // that transition. The draw scope then publishes the reached exit state.
     context->OMSetRenderTargets(0,nullptr,nullptr);
     pixelViews.fill(nullptr);vertexViews.fill(nullptr);
     context->PSSetShaderResources(0,UINT(pixelViews.size()),pixelViews.data());context->VSSetShaderResources(0,2,vertexViews.data());

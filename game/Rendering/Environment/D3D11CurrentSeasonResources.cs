@@ -16,6 +16,7 @@ public sealed class D3D11CurrentSeasonResources
     internal OceanOpticsSettings OceanOptics { get; }
     internal OceanTextureMaterialSettings OceanTextureMaterial { get; }
     internal HeightFogSettings HeightFog { get; }
+    internal CommonRenderPolicy CommonPolicy { get; }
     public SceneViewNativeMapSeasonResourceBundle Source { get; }
     public MapSeasonSelection Selection => Source.Selection;
     public D3D11CurrentSeasonCpuResources? CpuResources { get; private set; }
@@ -23,9 +24,11 @@ public sealed class D3D11CurrentSeasonResources
     public byte FreshExposureSelector { get; }
 
     private D3D11CurrentSeasonResources(
-        SceneViewNativeMapSeasonResourceBundle source, Light[] lights, byte exposureSelector)
+        SceneViewNativeMapSeasonResourceBundle source, Light[] lights, byte exposureSelector,
+        CommonRenderPolicy commonPolicy)
     {
         Source = source; Lights = lights; FreshExposureSelector = exposureSelector;
+        CommonPolicy = commonPolicy;
         if (source.CameraSource.Selection.SecondPackage is not null)
             throw new NotSupportedException("Current Main needs its actual paired selection writer.");
         var selected = source.CameraSource.Selection.FirstPackage;
@@ -72,7 +75,8 @@ public sealed class D3D11CurrentSeasonResources
         var lights = actualOrderedRoots.Select(root => new Light(root.SourceObjectId,
             root.Metadata.SourceGroupMask,
             DirectionalLightConstruction.ConstructProviderRootZeroPairTemporary(root))).ToArray();
-        return new(source, lights, common.ViewGroupSelector ?? 0);
+        return new(source, lights, common.ViewGroupSelector ?? 0,
+            CommonRenderPolicy.FromAuxiliary(common.Auxiliary));
     }
 
     /// <summary>Load at initial creation or a real World-third-date season

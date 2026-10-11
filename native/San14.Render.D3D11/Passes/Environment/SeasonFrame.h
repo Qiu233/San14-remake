@@ -12,6 +12,7 @@
 #include "Ocean/Interop/OceanTextureMaterialInput.h"
 #include "../PostProcessing/SeasonPostInputs.h"
 #include "../../Camera/CameraState.h"
+#include "../../Scene/View/Interop/CommonRenderPolicyInput.h"
 #include <array>
 #include <cstdint>
 #include <cstring>
@@ -44,10 +45,12 @@ struct Frame {
     source_current_season_shadow::Settings shadow;
     source_current_season_shadow::ReceiverStyle shadowReceiver;
     source_current_cloud_weather::Conditions cloudWeather;
+    std::optional<std::uint32_t> oceanLightGroup;
     San14::Render::OceanWaveSettings oceanWave;
     San14::Render::OceanSurfaceSettings oceanSurface;
     San14::Render::OceanOpticsSettings oceanOptics;
     San14::Render::OceanTextureMaterialSettings oceanTextureMaterial;
+    San14::Render::CommonRenderPolicy commonRenderPolicy;
     San14::Render::HeightFogSettings heightFog;
     source_current_season_post::Settings post;
 };
@@ -174,6 +177,10 @@ inline Frame decode(std::span<const uint8_t> bytes){
     if(bytes.size()-at<materialBytes)throw std::runtime_error("Current Ocean texture material block absent");
     r.oceanTextureMaterial=San14::Render::Interop::decodeOceanTextureMaterialSettings(bytes.subspan(at,materialBytes));
     at+=materialBytes;
+    constexpr auto commonBytes=San14::Render::Interop::CommonRenderPolicyInputBytes;
+    if(bytes.size()-at<commonBytes)throw std::runtime_error("Current Common render policy block absent");
+    r.commonRenderPolicy=San14::Render::Interop::decodeCommonRenderPolicy(bytes.subspan(at,commonBytes));
+    at+=commonBytes;
     constexpr auto heightBytes=San14::Render::Interop::HeightFogInputBytes;
     if(bytes.size()-at<heightBytes)throw std::runtime_error("Current Height Fog block absent");
     r.heightFog=San14::Render::Interop::decodeHeightFogSettings(bytes.subspan(at,heightBytes));
@@ -203,11 +210,19 @@ inline Frame decode(std::span<const uint8_t> bytes){
     if (at != bytes.size()) throw std::runtime_error("Current HDR lighting packet tail");
     decodeShadowInputs(r);
     decodeCloudWeatherInputs(r);
+    r.oceanLightGroup=importedMainField<std::uint32_t>(r,0xac0);
     decodeOceanWaveInputs(r);
     decodeOceanSurfaceInputs(r);
     decodeOceanOpticsInputs(r);
     decodePostInputs(r);
     return r;
+}
+// A current season owns its group declaration. Only a caller without a season
+// uses the initial View camera setting; missing current data is not absence.
+inline std::uint32_t currentOceanLightGroup(const Frame* current,std::uint32_t initialGroup) {
+    if(!current)return initialGroup;
+    if(!current->oceanLightGroup)throw std::runtime_error("Current Ocean light group is absent");
+    return *current->oceanLightGroup;
 }
 // World selection belongs to its ordinary owner. This is the original ordered
 // first-intersecting group query over this same five-record publication.

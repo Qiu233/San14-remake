@@ -11,13 +11,7 @@ namespace San14::Render {
 struct OceanSources {
     fs::path textures,water,depthCopy,grid;
 };
-struct OceanTargets {
-    const std::array<ComPtr<ID3D11Texture2D>,5>& textures;
-    const std::array<ID3D11RenderTargetView*,5>& colors;
-    DXGI_FORMAT format;
-    ID3D11DepthStencilView* depth;
-    UINT width,height;
-};
+
 
 class OceanPass {
   public:
@@ -48,7 +42,7 @@ class OceanPass {
     }
 
     void prepareWater(ID3D11Device* device,ID3D11DeviceContext* context,
-        const OceanSources& source,const OceanTargets& targets,OceanGrid& grid,
+        const OceanSources& source,const NativeMainTargetScope& targets,OceanGrid& grid,
         const source_camera::CameraTransform& camera,float clock,
         RenderRandomContext& randomContext,uint32_t startupSeed,const OceanWaveSettings* currentWave,
         const OceanSurfaceSettings* currentSurface,const OceanOpticsSettings* currentOptics,
@@ -63,7 +57,7 @@ class OceanPass {
         const auto initialSide=waves_.fft.activeSide;
         textures_=loadOceanTextures(device,source.textures);
         water_=prepareNativeOcean116(device,source.water,textures_,*grid_,waves_.fft.vertices[initialSide].data(),
-            depth_.view.Get(),source.depthCopy/"target-sampler-desc.bin",targets.textures,targets.colors,targets.format,targets.depth,targets.width,targets.height,
+            depth_.view.Get(),source.depthCopy/"target-sampler-desc.bin",targets,
             surface,optics,sceneCopy_.has_value()&&depthCopy_.has_value());
         applyNativeOceanTextureMaterialSettings(water_,material);
         camera_=prepareNativeWaterCameraGpu(device,*grid_,water_);
@@ -97,8 +91,9 @@ class OceanPass {
     void updateCamera(ID3D11DeviceContext* context,const source_camera::CameraTransform& camera) {
         updateNativeWaterCameraGpu(camera_,context,water_,camera,completedWaveBounds_);
     }
-    void executeWater(ID3D11Device* device,ID3D11DeviceContext* context,NativeSourceDepthState& logical) {
-        executeNativeOcean116(device,context,logical,water_);
+    void executeWater(ID3D11DeviceContext* context,NativeSourceDepthState& logical,std::uint32_t group,
+        const CommonRenderPolicy& policy) {
+        executeNativeOcean116(context,logical,water_,group,policy);
     }
 
     // Filtering remains after sky/cloud/fog, separate from the initial copies.

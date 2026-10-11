@@ -2,6 +2,7 @@
 // Include after ComPtr/fs/load/buffer/check and NativeSourceDepthState.
 #pragma once
 #include <map>
+#include "../../../Device/DepthState.h"
 #include "Interop/RefractionTargetInputs.h"
 #include "Interop/RefractionCopyInputs.h"
 
@@ -111,15 +112,6 @@ static NativeRefractionGeometry prepareRefractionGeometry(ID3D11Device* device,c
     out.viewport=readRefractionViewport(source);return out;
 }
 
-static bool sameRefractionStencilFace(const D3D11_DEPTH_STENCILOP_DESC& a,const D3D11_DEPTH_STENCILOP_DESC& b) {
-    return a.StencilFailOp==b.StencilFailOp&&a.StencilDepthFailOp==b.StencilDepthFailOp&&a.StencilPassOp==b.StencilPassOp&&a.StencilFunc==b.StencilFunc;
-}
-static bool sameRefractionDepthDescription(const D3D11_DEPTH_STENCIL_DESC& a,const D3D11_DEPTH_STENCIL_DESC& b) {
-    return a.DepthEnable==b.DepthEnable&&a.DepthWriteMask==b.DepthWriteMask&&a.DepthFunc==b.DepthFunc&&a.StencilEnable==b.StencilEnable&&
-        a.StencilReadMask==b.StencilReadMask&&a.StencilWriteMask==b.StencilWriteMask&&
-        sameRefractionStencilFace(a.FrontFace,b.FrontFace)&&sameRefractionStencilFace(a.BackFace,b.BackFace);
-}
-
 // Only the inherited state fields need the real execution entry. Cache the
 // temporary override until that actual state changes; no per-request files or textures.
 struct NativeRefractionStateOverrides {
@@ -150,7 +142,7 @@ struct NativeRefractionStateOverrides {
         }
     }
     void prepareDepth(const D3D11_DEPTH_STENCIL_DESC& requested) {
-        if(!depthReady||!sameRefractionDepthDescription(depthDescription,requested)) {
+        if(!depthReady||!sameDepthStencilDescription(depthDescription,requested)) {
             check(device->CreateDepthStencilState(&requested,depth.ReleaseAndGetAddressOf()),"original refraction depth override");
             depthDescription=requested;depthReady=true;
         }
@@ -235,7 +227,7 @@ static const NativeRefractionDepth& executeNativeRefractionDepth(NativePreparedR
     // CE E9E6F0 restores saved Host+138 after 95A7B0 restores entry1BF.
     // The explicit write1D8=1 persists; stencil fields are never overridden.
     D3D11_DEPTH_STENCIL_DESC exit=entry;exit.DepthWriteMask=ds.DepthWriteMask;
-    if(!prepared.exitDepthReady||!sameRefractionDepthDescription(prepared.exitDescription,exit)) {
+    if(!prepared.exitDepthReady||!sameDepthStencilDescription(prepared.exitDescription,exit)) {
         check(prepared.states.device->CreateDepthStencilState(&exit,prepared.exitDepth.ReleaseAndGetAddressOf()),"node97 source depth exit");
         prepared.exitDescription=exit;prepared.exitDepthReady=true;
     }

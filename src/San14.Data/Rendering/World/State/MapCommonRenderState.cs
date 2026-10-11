@@ -15,7 +15,7 @@ public readonly record struct AmbientMapSelection(AmbientMapVariant First,
 public sealed record CommonAuxiliaryState(uint Flags, CommonLightingOptions LightingOptions,
     uint ModelExclusionMask, byte ViewGroupSelector, byte ModelGroupSelector,
     byte SkyEnableFlags, int? ShadowAngleMode = null, uint? ClipPlaneMask = null,
-    ModelAuxiliaryColorMasks? ColorWriteMasks = null);
+    ModelAuxiliaryColorMasks? ColorWriteMasks = null, bool? SuppressOceanDrawing = null);
 
 /// <summary>Current Common render state. Raw resource and runtime record layouts
 /// are decoded at their respective import boundaries, never retained here.</summary>

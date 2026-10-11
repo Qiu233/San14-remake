@@ -23,7 +23,8 @@ public static class CommonRenderEncoding
         if (bytes.Length != 0x460) throw new InvalidDataException("Common auxiliary record length.");
         return new(Word(bytes, 8), (CommonLightingOptions)Word(bytes, 0xC), Word(bytes, 0x404), bytes[0x3F2], bytes[0x400], bytes[0x12],
             BinaryPrimitives.ReadInt32LittleEndian(bytes[0x3F4..]), Word(bytes, 0x380),
-            new(Word(bytes, 0xC8), Word(bytes, 0xCC), Word(bytes, 0xD0), Word(bytes, 0xD4)));
+            new(Word(bytes, 0xC8), Word(bytes, 0xCC), Word(bytes, 0xD0), Word(bytes, 0xD4)),
+            SuppressOceanDrawing: (Word(bytes, 0x10) & 1u) != 0);
     }
 
     public static AmbientMapSelection ReadAmbient(ReadOnlySpan<byte> bytes)

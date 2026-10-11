@@ -3,6 +3,7 @@
 #include "../Scene/SceneEnvironmentPacket.h"
 #include "../Scene/View/PreparedMapView.h"
 #include "../Scene/View/Interop/MapViewProfileCodec.h"
+#include "../Scene/View/Interop/CommonRenderPolicyInput.h"
 #include "../Scene/View/Interop/NamedMapRendererInput.h"
 #include "../Passes/Environment/Ocean/Interop/OceanGridInput.h"
 #include "../Passes/Environment/Ocean/Interop/OceanSurfaceInput.h"
@@ -53,6 +54,8 @@ public:
             resources.directory(ResourceGroup::Atmosphere) / "initial-height.bin");
         viewPreparation_.emplace(Interop::readMapViewProfile(
             resources.directory(ResourceGroup::View) / "profile.bin"));
+        initialCommonPolicy_=Interop::readCommonRenderPolicy(
+            resources.directory(ResourceGroup::View) / "common-render-policy.bin");
     }
     void bindFieldDisplay(ShadowPass& shadows,const NativeModelContinuous& catalog) {
         shadows.bindFieldDisplay(fieldDisplay_,cameraRig_.distantProfile(),catalog);
@@ -159,6 +162,12 @@ public:
     const source_camera::Frame& camera()const {return cameraRig_.frame();}
     const SceneEnvironment& environment()const {return environment_;}
     const MapViewDefinition& viewDefinition()const {return viewPreparation_->definition();}
+    std::uint32_t oceanLightGroup()const {
+        return source_current_season::currentOceanLightGroup(season_,viewPreparation_->cameraSettings().oceanGroup);
+    }
+    const CommonRenderPolicy& commonRenderPolicy()const {
+        return season_ ? season_->commonRenderPolicy : initialCommonPolicy_;
+    }
     const MapViewFrame& view()const {return mapView_->frame();}
     const source_current_season::Frame* season()const {return season_;}
     const source_current_season_atmosphere::CloudLightInput& cloudLights()const {return cloudLights_;}
@@ -176,6 +185,7 @@ private:
     std::unique_ptr<PreparedMapView> mapView_;
     std::optional<NamedMapRenderer> namedRenderer_;
     HeightFogSettings initialHeightFog_;
+    CommonRenderPolicy initialCommonPolicy_;
     const source_current_season::Frame* season_{};
     source_current_season_atmosphere::CloudLightInput cloudLights_{};
 };
