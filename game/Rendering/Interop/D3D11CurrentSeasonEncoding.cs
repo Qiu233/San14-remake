@@ -52,10 +52,11 @@ internal static class D3D11CurrentSeasonEncoding
     }
 
     internal static D3D11PreparedMainWord[] MainWrites(MapSeasonCameraPostEffectScalarWriteIdentity actual,
-        CameraViewSettings selectedViewDefaults)
+        CameraViewSettings selectedViewDefaults, OceanWaveSettings oceanWaves)
     {
         var words = actual.Scalars.EncodedWrites.ToDictionary(pair => pair.Key, pair => pair.Value);
         foreach (var pair in CameraViewSettingsEncoding.ShadowWords(selectedViewDefaults)) words.TryAdd(pair.Key, pair.Value);
+        foreach (var pair in OceanWaveSettingsEncoding.MainWords(oceanWaves)) words[pair.Key] = pair.Value;
         if (actual.PreparedSpecialRectangleFlag1510 is uint flag) words[0x1510] = flag;
         return words.OrderBy(pair => pair.Key).Select(pair => new D3D11PreparedMainWord(pair.Key, pair.Value)).ToArray();
     }

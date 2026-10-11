@@ -2,6 +2,7 @@
 // Held source profile2/perspective, ordinary pass0, empty retained ripple population.
 #pragma once
 #include "WaterCameraFrame.h"
+#include "OceanGrid.h"
 #include "../../../Camera/CameraState.h"
 #include "../../../Camera/CameraMatrix.h"
 #include <limits>
@@ -10,13 +11,8 @@ namespace source_water_geometry {
 using source_water_camera::A;using source_water_camera::S;using source_water_camera::M;using source_water_camera::D;
 using Matrix=source_matrix::Matrix;
 using V4=source_camera::V4;
-struct Range {uint32_t start,count;};
-struct Profile {
-    float waterY=0,cellX=0,cellZ=0,cutoff=0,maxDistance=0,directX=0,directZ=0,displacement=0;
-    uint32_t lodCount=0,capacity=0;
-    std::vector<float> lodDistances;
-    std::vector<Range> ranges;
-};
+using Range=San14::Render::OceanIndexRange;
+using Profile=San14::Render::OceanVisibilityGrid;
 struct Instance {float x,z,ordinal;};
 static_assert(sizeof(Instance)==12,"Original Ocean instance ABI");
 struct Vertex {float x,y,z;uint16_t normalX,normalZ;};
@@ -31,17 +27,6 @@ struct Frame {
     std::array<float,4> farBounds{};
     bool waterPlaneVisible=false;
 };
-inline Profile loadProfile(const std::filesystem::path& file) {
-    using source_water_camera::read;std::ifstream f(file,std::ios::binary);
-    if(!f||read<uint32_t>(f)!=0x31474357u)throw std::runtime_error("Ocean geometry source WCG1 profile absent");
-    auto values=read<std::array<float,8>>(f);Profile p;
-    p.waterY=values[0];p.cellX=values[1];p.cellZ=values[2];p.cutoff=values[3];p.maxDistance=values[4];
-    p.directX=values[5];p.directZ=values[6];p.displacement=values[7];p.lodCount=read<uint32_t>(f);p.capacity=read<uint32_t>(f);
-    if(p.lodCount!=6||p.capacity<2||p.cellX<=0||p.cellZ<=0)throw std::runtime_error("Ocean finite grid profile differs");
-    for(uint32_t i=0;i<p.lodCount;i++)p.lodDistances.push_back(read<float>(f));
-    for(uint32_t i=0;i<p.lodCount*p.lodCount*p.lodCount+1;i++)p.ranges.push_back(read<Range>(f));
-    if(f.peek()!=std::char_traits<char>::eof())throw std::runtime_error("Trailing Ocean geometry profile");return p;
-}
 // 1091250 intersects each of eight exact plane triples using3F6EB0.
 // It does not inverse-project a substituted NDC corner convention.
 inline std::array<V4,8> corners(const std::array<source_camera::Plane,6>& planes) {

@@ -3,6 +3,7 @@
 // loaded textures, programs and retained pass histories remain session resources.
 #include "../Shadows/SeasonShadowInputs.h"
 #include "CloudWeatherInputs.h"
+#include "Ocean/OceanWaveSettings.h"
 #include "../PostProcessing/SeasonPostInputs.h"
 #include "../../Camera/CameraState.h"
 #include <array>
@@ -37,6 +38,7 @@ struct Frame {
     source_current_season_shadow::Settings shadow;
     source_current_season_shadow::ReceiverStyle shadowReceiver;
     source_current_cloud_weather::Conditions cloudWeather;
+    San14::Render::OceanWaveSettings oceanWave;
     source_current_season_post::Settings post;
 };
 template<class T> inline T read(std::span<const uint8_t> bytes,size_t at){
@@ -83,6 +85,16 @@ inline void decodeCloudWeatherInputs(Frame& frame){
         read<float>(frame.main,0x22c),read<float>(frame.main,0x278),
         importedMainField<uint32_t>(frame,0x674).has_value(),
         importedMainField<uint32_t>(frame,0x7a0).has_value()};
+}
+inline void decodeOceanWaveInputs(Frame& frame) {
+    auto required=[&](int offset) {
+        const auto value=importedMainField<float>(frame,offset);
+        if(!value)throw std::runtime_error("Current Ocean wave scalar absent");
+        return *value;
+    };
+    frame.oceanWave={required(0xb20),required(0xb24),required(0xb28),
+        required(0xb2c),required(0xb30),required(0xb34)};
+    San14::Render::validateOceanWaveSettings(frame.oceanWave);
 }
 inline void decodePostInputs(Frame& frame){
     auto& post=frame.post;
@@ -136,6 +148,7 @@ inline Frame decode(std::span<const uint8_t> bytes){
     if(at!=bytes.size())throw std::runtime_error("Current HDR packet tail");
     decodeShadowInputs(r);
     decodeCloudWeatherInputs(r);
+    decodeOceanWaveInputs(r);
     decodePostInputs(r);
     return r;
 }

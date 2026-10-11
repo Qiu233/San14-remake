@@ -33,7 +33,7 @@ public sealed class D3D11OceanTextureInputPreparation
     /// receipt, research JSON or fallback texture is used. All resource IO,
     /// hash/profile validation and byte encoding happens at this boundary.</summary>
     public static D3D11OceanTextureInputPreparation Load(GameResourceRepository repository,
-        string normalTextureArchive,string waveTextureArchive)
+        NamedViewRendererResources renderer,string normalTextureArchive,string waveTextureArchive)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentException.ThrowIfNullOrWhiteSpace(normalTextureArchive);
@@ -41,9 +41,9 @@ public sealed class D3D11OceanTextureInputPreparation
         var files=new Dictionary<string,byte[]>(StringComparer.Ordinal);
         var rows=new List<string>();var sources=new List<D3D11OceanTextureInputSource>();
         var contexts=new Dictionary<(string Archive,uint Context),LoadedTextureContainer>();
-        var common=repository.LoadObjects("system",0xDAB638B2);
-        AddGroup(0xAD454C5A,Role.Normal3d,"normal3d","PS",0);
-        AddGroup(0x5E034506,Role.NormalNoise2d,"normal-noise2d","PS",3);
+        var common=renderer.Definitions;
+        AddGroup(renderer.NormalVolumeGroup,Role.Normal3d,"normal3d","PS",0);
+        AddGroup(renderer.NormalNoiseGroup,Role.NormalNoise2d,"normal-noise2d","PS",3);
         var waveDefinitions=repository.LoadObjects("KIDSSystemResource",0xD2ECCCDF);
         Add(waveDefinitions,0x93CD9BB8,waveTextureArchive,Role.Bubble,"wv-bubble","PS",4);
         Add(waveDefinitions,0x5F6373E6,waveTextureArchive,Role.HeightMask,"wv-height-mask","VS",0);

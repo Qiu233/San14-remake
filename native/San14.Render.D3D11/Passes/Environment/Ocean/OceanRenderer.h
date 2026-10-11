@@ -1,6 +1,7 @@
 // Original Main WV water. Prepare device objects once, then execute source strips.
 #pragma once
 #include <xmmintrin.h>
+#include "OceanGrid.h"
 struct NativeOceanGeometry {
     std::array<ComPtr<ID3D11Buffer>,3> wave;
     ComPtr<ID3D11Buffer> farVertices,waveIndices,farIndices;
@@ -94,6 +95,7 @@ static void updateNativeOceanGeometry(ID3D11DeviceContext* context,NativeOcean11
 // target resize/replacement; ordinary requests perform no file or resource reads.
 static NativeOcean116 prepareNativeOcean116(ID3D11Device* device,
     const fs::path& source,const OceanNativeTextures& textures,
+    const San14::Render::OceanGrid& grid,const void* initialWaves,
     ID3D11ShaderResourceView* refractionDepth,const fs::path& refractionSampler,
     const std::array<ComPtr<ID3D11Texture2D>,5>& targets,
     const std::array<ID3D11RenderTargetView*,5>& rt,DXGI_FORMAT rrFormat,
@@ -107,27 +109,24 @@ static NativeOcean116 prepareNativeOcean116(ID3D11Device* device,
         >>result.clock.bubbleMode>>result.clock.bubblePeriods[0]>>result.clock.bubblePeriods[1];
     if(!clock)throw std::runtime_error("Original Ocean clock parameters absent");
     result.clock.lastCommonClock=initialCommonClock;
-    const auto geometry=source/"runtime-geometry";
-    std::string kind,file,format;UINT slot,stride,offset,count,recordStride;
-    std::ifstream streams(geometry/"ocean-streams.txt");
-    if(!streams)throw std::runtime_error("Original WV stream declarations absent");
-    while(streams>>kind>>slot>>file>>stride>>offset>>count>>recordStride) {
-        auto bytes=load(geometry/file);ComPtr<ID3D11Buffer> vb;
-        if(kind!="far"&&slot==0) {
-            D3D11_BUFFER_DESC desc{};desc.ByteWidth=UINT(bytes.size());desc.Usage=D3D11_USAGE_DEFAULT;desc.BindFlags=D3D11_BIND_VERTEX_BUFFER;
-            D3D11_SUBRESOURCE_DATA initial{};initial.pSysMem=bytes.data();
-            check(device->CreateBuffer(&desc,&initial,&vb),"original WV retained mutable wave VB");
-        } else vb=buffer(device,bytes,D3D11_BIND_VERTEX_BUFFER);
-        if(kind=="far")result.geometry.farVertices=vb;
-        else {result.geometry.wave.at(slot)=vb;result.geometry.strides.at(slot)=stride;result.geometry.offsets.at(slot)=offset;}
-    }
-    std::ifstream indices(geometry/"ocean-indices.txt");
-    if(!indices)throw std::runtime_error("Original WV index declarations absent");
-    while(indices>>kind>>file>>format>>count) {
-        if(format!="R16_UINT")throw std::runtime_error("Original Ocean index format differs");
-        auto ib=buffer(device,load(geometry/file),D3D11_BIND_INDEX_BUFFER);
-        if(kind=="far")result.geometry.farIndices=ib;else result.geometry.waveIndices=ib;
-    }
+    // The static stream layout and topology are constructed from the named
+    // renderer declaration. Completed FFT output supplies the first wave side.
+    D3D11_BUFFER_DESC wave{};
+    wave.ByteWidth=UINT(grid.vertexCount()*16);wave.Usage=D3D11_USAGE_DEFAULT;
+    wave.BindFlags=D3D11_BIND_VERTEX_BUFFER;
+    D3D11_SUBRESOURCE_DATA initial{};initial.pSysMem=initialWaves;
+    check(device->CreateBuffer(&wave,&initial,&result.geometry.wave[0]),"Ocean constructed mutable wave VB");
+    std::vector<char> uv(grid.bubbleUvs.size()*sizeof(San14::Render::OceanBubbleUv));
+    std::memcpy(uv.data(),grid.bubbleUvs.data(),uv.size());
+    result.geometry.wave[2]=buffer(device,uv,D3D11_BIND_VERTEX_BUFFER);
+    result.geometry.strides={16,0,4};
+    std::vector<std::uint16_t> narrowIndices(grid.indices.begin(),grid.indices.end());
+    std::vector<char> indices(narrowIndices.size()*sizeof(std::uint16_t));
+    std::memcpy(indices.data(),narrowIndices.data(),indices.size());
+    result.geometry.waveIndices=buffer(device,indices,D3D11_BIND_INDEX_BUFFER);
+    std::vector<char> farIndices(sizeof(grid.farIndices));
+    std::memcpy(farIndices.data(),grid.farIndices.data(),farIndices.size());
+    result.geometry.farIndices=buffer(device,farIndices,D3D11_BIND_INDEX_BUFFER);
     auto vertex=load(source/"ocean-210A931F-p0.dxbc"),pixel=load(source/"ocean-210A931F-p1.dxbc");
     check(device->CreateVertexShader(vertex.data(),vertex.size(),nullptr,&result.vertexShader),"original WV VS");
     check(device->CreatePixelShader(pixel.data(),pixel.size(),nullptr,&result.pixelShader),"original WV PS");
@@ -180,14 +179,6 @@ static NativeOcean116 prepareNativeOcean116(ID3D11Device* device,
     if(samplerBytes.size()!=sizeof(sd))throw std::runtime_error("WV refraction sampler requires52B");
     std::memcpy(&sd,samplerBytes.data(),sizeof(sd));
     check(device->CreateSamplerState(&sd,&result.refractionSampler),"original WV refraction sampler");
-    std::ifstream packets(geometry/"ocean-draws.txt");
-    if(!packets)throw std::runtime_error("Original WV draw packets absent");
-    NativeOceanStrip packet;std::string clip;
-    while(packets>>packet.ordinal>>packet.flat>>packet.indexCount>>packet.startIndex>>packet.baseVertex
-        >>packet.offsets[1]>>packet.offsets[0]>>packet.offsets[2]>>clip) {
-        if(packet.flat>1)throw std::runtime_error("Original WV strip selects an absent CB/geometry set");
-        result.strips.push_back(packet);
-    }
     return result;
 }
 
@@ -240,20 +231,4 @@ static UINT executeNativeOcean116(ID3D11Device* device,ID3D11DeviceContext* cont
     pixelViews.fill(nullptr);vertexViews.fill(nullptr);
     context->PSSetShaderResources(0,UINT(pixelViews.size()),pixelViews.data());context->VSSetShaderResources(0,2,vertexViews.data());
     return UINT(ocean.strips.size());
-}
-
-// Compatibility for the earlier single-request lab caller. Continuous callers
-// retain NativeOcean116 and call executeNativeOcean116 directly.
-static UINT drawNativeOcean(ID3D11Device* device,ID3D11DeviceContext* context,NativeSourceDepthState& logical,
-    const fs::path& source,const OceanNativeTextures& textures,
-    ID3D11ShaderResourceView* refractionDepth,const fs::path& refractionSampler,
-    const std::array<ComPtr<ID3D11Texture2D>,5>& targets,
-    const std::array<ID3D11RenderTargetView*,5>& rt,DXGI_FORMAT rrFormat,
-    ID3D11DepthStencilView* dsv,UINT width,UINT height) {
-    auto ocean=prepareNativeOcean116(device,source,textures,refractionDepth,refractionSampler,targets,rt,rrFormat,dsv,width,height,
-        source.parent_path()/"ocean-prepare-input"/"ocean-clock.txt",0);
-    auto draws=executeNativeOcean116(device,context,logical,ocean,0);
-    std::cout<<"source WV draws="<<draws<<" topology=strip stencil="<<ocean.stencilReference
-        <<" colorMasks="<<ocean.colorMasks<<" slot1Stride="<<ocean.geometry.strides[1]<<" no-clear\n";
-    return draws;
 }

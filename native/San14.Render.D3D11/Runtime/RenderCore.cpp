@@ -110,6 +110,7 @@ static std::array<float,4> decode(const char* p, DXGI_FORMAT format) {
 #include "../Camera/CameraState.h"
 #include "../Camera/CameraMotion.h"
 #include "../Camera/CameraClock.h"
+#include "RenderRandomClock.h"
 #include "../Camera/CameraRig.h"
 #include "../Scene/Models/ModelFrame.h"
 #include "../Scene/Models/ModelStencilRules.h"
@@ -472,6 +473,8 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     drawCurrentTerritory(60,1);
     publishThinSurface();
     callerTargets.restore(context.Get());
+    RenderRandomContext renderRandom;
+    const auto renderRandomClock=prepareNativeCameraClock();
     OceanPass ocean;
     postProcessing.prepareSeason(resources.directory(ResourceGroup::SeasonalResources),frameState.season());
     auto executeCurrentPost=[&](float currentClock) {
@@ -565,9 +568,11 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             {
                 const OceanSources oceanSources{resources.directory(ResourceGroup::OceanTextures),
                     resources.directory(ResourceGroup::Water),waterCameraInput,resources.directory(ResourceGroup::OceanWaves),
-                    resources.directory(ResourceGroup::OceanClock),resources.directory(ResourceGroup::Refraction)/"copy97"};
+                    resources.directory(ResourceGroup::OceanClock),resources.directory(ResourceGroup::Refraction)/"copy97",
+                    resources.root()/"named-renderer-input"};
                 const OceanTargets oceanTargets{geometryTargets.textures(),geometryTargets.colors(),formats[3],geometryTargets.depthView(),width,height};
-                ocean.prepareWater(device.Get(),context.Get(),oceanSources,oceanTargets,staticCamera,initialCommonClock);
+                ocean.prepareWater(device.Get(),context.Get(),oceanSources,oceanTargets,staticCamera,initialCommonClock,
+                    renderRandom,sampleRenderRandomSeed(renderRandomClock),frameState.season()?&frameState.season()->oceanWave:nullptr);
                 ocean.executeWater(device.Get(),context.Get(),sourceDepth,initialCommonClock);
                 ;
                 updateNativeDepthMirror(context.Get(),mainDepth,"117 after Ocean");
@@ -686,7 +691,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         {
             // Normal1184320: publish completed geometry BEFORE the shared
             // grid clock writer starts the next job. No frame-number gate.
-            ocean.publishCompletedGeometry(context.Get(),currentClock);
+            ocean.publishCompletedGeometry(context.Get(),currentClock,host.currentSeason?&host.currentSeason->oceanWave:nullptr);
 
         }
         beginAcceptedMain(currentClock);

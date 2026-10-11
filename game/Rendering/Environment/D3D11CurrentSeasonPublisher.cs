@@ -25,12 +25,13 @@ public sealed class D3D11CurrentSeasonFrame
         MapSourceCreatedSeasonLightingFrame present,
         D3D11PreparedMainWord[] words, D3D11CurrentSeasonLight[] lights,
         D3D11CurrentAtmosphereFrame atmosphere,
-        D3D11CurrentExposureLight exposureLight, CameraOpticsSettings optics, CameraViewSettings viewSettings)
+        D3D11CurrentExposureLight exposureLight, CameraOpticsSettings optics, CameraViewSettings viewSettings,
+        OceanWaveSettings oceanWaves)
     {
         Mode = mode; WorldSeason = worldSeason; Rgb = rgb; Present = present;
         PreparedMain = present.PreparedCameraPrefix; PreparedWords = Array.AsReadOnly(words);
         Lights = Array.AsReadOnly(lights); Atmosphere = atmosphere; ExposureLight = exposureLight;
-        Optics = optics; ViewSettings = viewSettings;
+        Optics = optics; ViewSettings = viewSettings; OceanWaves = oceanWaves;
     }
     public MainMapCameraModePacket Mode { get; }
     public NativeMapSeasonState WorldSeason { get; }
@@ -43,6 +44,7 @@ public sealed class D3D11CurrentSeasonFrame
     public D3D11CurrentExposureLight ExposureLight { get; }
     public CameraOpticsSettings Optics { get; }
     public CameraViewSettings ViewSettings { get; }
+    public OceanWaveSettings OceanWaves { get; }
     public int MainMode => Mode.Mode288;
     public int SeasonIndex => Rgb.Inputs.Source.Season.Resources.Selection.SeasonIndex;
     public SkyWeatherResult Weather => Present.Weather;
@@ -127,7 +129,7 @@ public sealed class D3D11CurrentSeasonPublisher
         var present = MapSourceCreatedSeasonLightingFrame.CapturePreparedSeason(rgb, weather);
         var actual = selected.PostEffectScalarSource.CaptureActualMainPreparation(before, currentMain.Camera);
         var viewSettings = CameraViewSettingsEncoding.ApplyPreparedOverrides(_resources.ViewDefaults, actual.Scalars);
-        var words = D3D11CurrentSeasonEncoding.MainWrites(actual, _resources.ViewDefaults);
+        var words = D3D11CurrentSeasonEncoding.MainWrites(actual, _resources.ViewDefaults, _resources.OceanWaves);
         var prefix = present.PreparedCameraPrefix;
         var lights = _resources.Lights.Select(light => new D3D11CurrentSeasonLight(
             light.ObjectId, light.GroupMask,
@@ -138,7 +140,7 @@ public sealed class D3D11CurrentSeasonPublisher
             _resources.ControllerGeometry40);
         return new(mode, season, rgb, present,
             words, lights, atmosphere, D3D11CurrentExposureLight.Capture(_resources.FreshExposureSelector, lights),
-            CameraOpticsEncoding.DecodePrefix(currentMain.Camera.Source, prefix.Span, actual.Scalars.ApplyOpticalTailTo(currentMain.Camera.Optics)), viewSettings);
+            CameraOpticsEncoding.DecodePrefix(currentMain.Camera.Source, prefix.Span, actual.Scalars.ApplyOpticalTailTo(currentMain.Camera.Optics)), viewSettings, _resources.OceanWaves);
     }
 
     public void AcceptCurrent(D3D11CurrentSeasonFrame frame) => _previousLighting = AcceptedSkyLightingState.Capture(frame.Rgb);

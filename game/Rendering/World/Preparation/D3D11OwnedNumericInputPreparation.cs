@@ -27,6 +27,8 @@ public static class D3D11OwnedNumericInputPreparation
             Path.Combine(inputRoot, "weather-fog-camera-input", "initial", "weather"),
             current.Rgb, current.Present.AcceptedWeather, rgb);
         WriteAtmosphereProfile(inputRoot, current, outputWidth, outputHeight);
+        OceanWaveSettingsEncoding.WriteNativeInputs(
+            Path.Combine(inputRoot, OceanGridSettingsEncoding.NativeDirectory), current.OceanWaves);
 
         string locale = actualMain.Camera.ExecutableLocale;
         var common = D3D11TimingInputPreparation.LoadSourceCommon(repository);

@@ -11,6 +11,7 @@ public sealed class D3D11CurrentSeasonResources
         DirectionalLightProviderTemporary DefaultCaller);
     internal IReadOnlyList<Light> Lights { get; }
     internal CameraViewSettings ViewDefaults { get; }
+    internal OceanWaveSettings OceanWaves { get; }
     public SceneViewNativeMapSeasonResourceBundle Source { get; }
     public MapSeasonSelection Selection => Source.Selection;
     public D3D11CurrentSeasonCpuResources? CpuResources { get; private set; }
@@ -25,6 +26,7 @@ public sealed class D3D11CurrentSeasonResources
             throw new NotSupportedException("Current Main needs its actual paired selection writer.");
         var selected = source.CameraSource.Selection.FirstPackage;
         ViewDefaults = CameraViewSettingsImport.Load(selected);
+        OceanWaves = OceanWaveSettingsImport.Load(selected);
         var geometry = selected.Camera.Properties[614];
         if (geometry.Index != 614 || geometry.NameHash != 0x59633E4E || geometry.TypeCode != 8 ||
             geometry.ElementCount != 1 || geometry.ElementSize != 4 || geometry.RawValue.Length != 4)

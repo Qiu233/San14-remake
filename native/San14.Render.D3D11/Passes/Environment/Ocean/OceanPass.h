@@ -1,10 +1,12 @@
 #pragma once
 // Include after the Ocean geometry, FFT, water camera and refraction writers.
+#include "Interop/OceanGridInput.h"
+#include "Interop/OceanWaveInput.h"
 namespace San14::Render {
 
 // Inputs are borrowed only during preparation or the accepted-camera call.
 struct OceanSources {
-    fs::path textures,water,camera,waves,clock,depthCopy;
+    fs::path textures,water,camera,waves,clock,depthCopy,grid;
 };
 struct OceanTargets {
     const std::array<ComPtr<ID3D11Texture2D>,5>& textures;
@@ -38,27 +40,31 @@ class OceanPass {
     }
 
     void prepareWater(ID3D11Device* device,ID3D11DeviceContext* context,
-        const OceanSources& source,const OceanTargets& targets,const source_camera::CameraTransform& camera,float clock) {
+        const OceanSources& source,const OceanTargets& targets,const source_camera::CameraTransform& camera,float clock,
+        RenderRandomContext& randomContext,uint32_t startupSeed,const OceanWaveSettings* currentWave) {
+        grid_=constructOceanGrid(Interop::readOceanGridSettings(source.grid/"ocean-grid.bin"),
+            Interop::readOceanSurfaceState(source.camera/"geometry-profile.bin"));
+        const auto wave=currentWave?*currentWave:Interop::readOceanWaveSettings(source.grid/"ocean-wave.bin");
+        waves_=prepareNativeOceanFftSchedule(source.waves,grid_.settings,wave,randomContext,startupSeed);
+        const auto initialSide=waves_.fft.activeSide;
         textures_=loadOceanTextures(device,source.textures);
-        water_=prepareNativeOcean116(device,source.water,textures_,
+        water_=prepareNativeOcean116(device,source.water,textures_,grid_,waves_.fft.vertices[initialSide].data(),
             depth_.view.Get(),source.depthCopy/"target-sampler-desc.bin",targets.textures,targets.colors,targets.format,targets.depth,targets.width,targets.height,
             source.clock/"ocean-clock.txt",clock);
-        {
-            camera_=prepareNativeWaterCameraGpu(device,source.camera/"geometry-profile.bin",water_);
-            const auto bounds=load(source.camera/"initial"/"runtime-geometry"/"ocean-current-phase-wave-bounds.bin");
-            if(bounds.size()!=sizeof(completedWaveBounds_))throw std::runtime_error("Completed Ocean wave AABB source extent differs");
-            std::memcpy(completedWaveBounds_.data(),bounds.data(),bounds.size());
-            updateNativeWaterCameraGpu(camera_,context,water_,camera,completedWaveBounds_);
-        }
-        waves_=prepareNativeOceanFftSchedule(source.waves);
+        camera_=prepareNativeWaterCameraGpu(device,grid_,water_);
+        completedWaveBounds_=waves_.fft.bounds[initialSide];
+        // Borrow the completed first side without publishing/flipping it here;
+        // the next accepted frame retains completion -> clock -> queue order.
+        updateNativeWaterCameraGpu(camera_,context,water_,camera,completedWaveBounds_);
     }
 
     // Completion is published before the clock advances and queues its next
     // wave job. This cadence precedes accepted Main camera preparation.
-    void publishCompletedGeometry(ID3D11DeviceContext* context,float clock) {
+    void publishCompletedGeometry(ID3D11DeviceContext* context,float clock,const OceanWaveSettings* currentWave) {
         const auto& published=publishNativeOceanFftCompleted(waves_);
         updateNativeOceanGeometry(context,water_,published.data(),UINT(published.size()*sizeof(NativeOceanFftVertex)));
         completedWaveBounds_=waves_.publishedBounds;
+        if(currentWave)applyNativeOceanWaveSettings(waves_.fft,*currentWave);
         advanceNativeOcean116(water_,clock);
         queueNativeOceanFft(waves_,water_.clock.accumulatedTime);
     }
@@ -92,6 +98,7 @@ class OceanPass {
     NativeRefractionDepth depth_;
     NativeRefractionColors colors_;
     OceanNativeTextures textures_;
+    OceanGrid grid_;
     NativeOcean116 water_;
     NativeWaterCameraGpu camera_;
     std::array<float,8> completedWaveBounds_{};

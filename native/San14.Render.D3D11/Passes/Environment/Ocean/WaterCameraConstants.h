@@ -12,12 +12,12 @@ struct NativeWaterCameraGpu {
     source_water_camera::RefractionDerived refraction;
 };
 
-// Once at source import/device creation. The original capacity is12500*12;
-// the source sentinel is part of that capacity. Update before first submission.
+// Capacity and visibility ranges belong to the constructed grid.
+// The final instance sentinel is included in that capacity.
 inline NativeWaterCameraGpu prepareNativeWaterCameraGpu(ID3D11Device* device,
-    const std::filesystem::path& geometryProfile,NativeOcean116& ocean) {
+    const San14::Render::OceanGrid& grid,NativeOcean116& ocean) {
     NativeWaterCameraGpu result;
-    result.profile=source_water_geometry::loadProfile(geometryProfile);
+    result.profile=grid.visibility;
     D3D11_BUFFER_DESC description{};
     description.ByteWidth=result.profile.capacity*UINT(sizeof(source_water_geometry::Instance));
     description.Usage=D3D11_USAGE_DEFAULT;description.BindFlags=D3D11_BIND_VERTEX_BUFFER;

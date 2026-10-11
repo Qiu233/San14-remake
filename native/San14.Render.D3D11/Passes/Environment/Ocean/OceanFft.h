@@ -1,5 +1,9 @@
-// Original CE fixed-parameter Ocean CPU wave producer. No GPU or process access.
+// Ocean CPU spectrum and retained FFT producer. No GPU or process access.
 #pragma once
+#include "OceanGrid.h"
+#include "OceanSpectrum.h"
+#include "RenderRandom.h"
+#include <optional>
 #include <cstdint>
 #include <cstring>
 #include <utility>
@@ -130,16 +134,17 @@ inline void OceanSourceFFT(uint32_t n, uint32_t log2n, uint32_t stride,
 }
 
 
-struct NativeOceanFftCell {
-    float h0Real,h0Imag,mirrorReal,mirrorImag,kx,kz,kLength,omega;
-};
+using NativeOceanFftCell=San14::Render::OceanSpectrumCell;
 struct NativeOceanFftVertex {float x,y,z;uint16_t nx,nz;};
 static_assert(sizeof(NativeOceanFftCell)==32&&sizeof(NativeOceanFftVertex)==16,"Original Ocean FFT storage");
 struct NativeOceanFft {
     uint32_t nx=0,nz=0,workers=0,logNx=0,logNz=0,activeSide=0;
     float sizeX=0,sizeZ=0,cycle=0,choppy=0,phase=0;
-    std::vector<NativeOceanFftCell> cells; // Original stage0 h0 and mirror, cached while wave properties remain fixed.
-    std::array<std::vector<float>,2> gaussian; // Actual immutable B8/C0 caches; never regenerated from a guessed seed.
+    San14::Render::OceanGridSettings spectrumGrid;
+    San14::Render::OceanWaveSettings waveSettings;
+    std::optional<San14::Render::RenderRandomObject> random;
+    std::vector<NativeOceanFftCell> cells;
+    std::array<std::vector<float>,2> gaussian; // Drawn once per Ocean object, retained across current wave changes.
     std::array<std::vector<float>,10> spectra;
     std::array<std::vector<float>,2> twiddleX,twiddleZ;
     std::array<std::vector<NativeOceanFftVertex>,2> vertices;
@@ -155,18 +160,33 @@ static uint16_t nativeOceanFftHalf(float value) {
     if(exponent>-19)return sign|uint16_t(((bits&0x7FFFFF)|0x800000)>>((13-exponent)&31));
     return sign;
 }
-static NativeOceanFft prepareNativeOceanFft(const fs::path& source) {
-    NativeOceanFft fft;std::ifstream parameters(source/"fft-parameters.txt");
-    parameters>>fft.nx>>fft.nz>>fft.workers>>fft.sizeX>>fft.sizeZ>>fft.cycle>>fft.choppy>>fft.phase>>fft.activeSide;
-    if(!parameters)throw std::runtime_error("Original Ocean FFT parameters absent");
-    auto bytes=load(source/"fft-cell-inputs.bin");
-    if(bytes.size()!=size_t(fft.nx)*fft.nz*sizeof(NativeOceanFftCell))throw std::runtime_error("Original Ocean FFT cell count differs");
-    fft.cells.resize(size_t(fft.nx)*fft.nz);std::memcpy(fft.cells.data(),bytes.data(),bytes.size());
-    for(uint32_t lane=0;lane<2;++lane) {
-        auto data=load(source/(lane?"fft-gaussian-C0.bin":"fft-gaussian-B8.bin"));
-        if(data.size()!=fft.cells.size()*4)throw std::runtime_error("Original Ocean Gaussian count differs");
-        fft.gaussian[lane].resize(fft.cells.size());std::memcpy(fft.gaussian[lane].data(),data.data(),data.size());
-    }
+// Timing remains a transitional import. Legacy dimensions/choppy have no
+// authority; only the queued phase, worker count and active side are retained.
+struct OceanFftTimingInput {uint32_t workers{},activeSide{};float phase{};};
+static OceanFftTimingInput readOceanFftTimingInput(const fs::path& source) {
+    std::ifstream input(source/"fft-parameters.txt");
+    uint32_t oldColumns{},oldRows{};float oldSizeX{},oldSizeZ{},oldCycle{},oldChoppy{};
+    OceanFftTimingInput timing;
+    input>>oldColumns>>oldRows>>timing.workers>>oldSizeX>>oldSizeZ>>oldCycle>>oldChoppy>>timing.phase>>timing.activeSide;
+    if(!input)throw std::runtime_error("Ocean transitional queued timing absent or malformed");
+    input>>std::ws;
+    if(input.peek()!=std::char_traits<char>::eof()||timing.workers==0||timing.activeSide>1||!std::isfinite(timing.phase)||timing.phase<0)
+        throw std::runtime_error("Ocean transitional queued timing absent or malformed");
+    return timing;
+}
+static NativeOceanFft prepareNativeOceanFft(const fs::path& source,const San14::Render::OceanGridSettings& grid,
+    const San14::Render::OceanWaveSettings& wave,San14::Render::RenderRandomContext& randomContext,uint32_t startupSeed) {
+    San14::Render::validateOceanGridSettings(grid);San14::Render::validateOceanWaveSettings(wave);
+    const auto timing=readOceanFftTimingInput(source);
+    NativeOceanFft fft;fft.workers=timing.workers;fft.phase=timing.phase;fft.activeSide=timing.activeSide;
+    fft.nx=grid.columns;fft.nz=grid.rows;
+    fft.sizeX=grid.sizeX;fft.sizeZ=grid.sizeZ;fft.cycle=grid.cycle;fft.choppy=wave.choppyFactor;
+    fft.spectrumGrid=grid;fft.waveSettings=wave;
+    fft.cells.resize(size_t(fft.nx)*fft.nz);
+    for(auto& lane:fft.gaussian)lane.resize(fft.cells.size());
+    fft.random.emplace(startupSeed);
+    randomContext.fillGaussian(*fft.random,fft.gaussian[0],fft.gaussian[1]);
+    San14::Render::constructOceanSpectrum(fft.cells,fft.gaussian,grid,wave,{true,true,true});
     for(auto& field:fft.spectra)field.resize(fft.cells.size());
     for(auto& side:fft.vertices)side.resize(size_t(fft.nx+3)*(fft.nz+3));
     for(uint32_t n=fft.nx;n>1;n>>=1)++fft.logNx;
@@ -177,8 +197,14 @@ static NativeOceanFft prepareNativeOceanFft(const fs::path& source) {
     OceanSourceTwiddle(fft.nz,fft.twiddleZ[0].data(),fft.twiddleZ[1].data());
     return fft;
 }
-// Original stage1 11BBF30. The fixed k/quantized dispersion and h0 inputs
-// came from original stage0/parameters, not a guessed spectrum or new seed.
+static void applyNativeOceanWaveSettings(NativeOceanFft& fft,const San14::Render::OceanWaveSettings& wave) {
+    San14::Render::validateOceanWaveSettings(wave);
+    const auto changes=San14::Render::oceanSpectrumChanges(fft.spectrumGrid,fft.waveSettings,fft.spectrumGrid,wave);
+    if(changes.initialSpectrum||changes.dispersion)
+        San14::Render::constructOceanSpectrum(fft.cells,fft.gaussian,fft.spectrumGrid,wave,changes);
+    fft.waveSettings=wave;fft.choppy=wave.choppyFactor;
+}
+// Time spectrum consumes constructed h0, modular mirrors and current dispersion.
 static void nativeOceanFftTimeSpectrum(NativeOceanFft& fft,float phase) {
     fft.phase=phase;
     for(size_t i=0;i<fft.cells.size();++i) {
@@ -269,8 +295,9 @@ struct NativeOceanFftSchedule {
     std::array<float,8> publishedBounds{};
     bool completedJob=false;
 };
-static NativeOceanFftSchedule prepareNativeOceanFftSchedule(const fs::path& source) {
-    NativeOceanFftSchedule state;state.fft=prepareNativeOceanFft(source);
+static NativeOceanFftSchedule prepareNativeOceanFftSchedule(const fs::path& source,const San14::Render::OceanGridSettings& grid,
+    const San14::Render::OceanWaveSettings& wave,San14::Render::RenderRandomContext& randomContext,uint32_t startupSeed) {
+    NativeOceanFftSchedule state;state.fft=prepareNativeOceanFft(source,grid,wave,randomContext,startupSeed);
     // Explicit original geometry154 supplies the already queued current job;
     // it is not inferred from non-atomic double20 observation.
     realizeNativeOceanFft(state.fft,state.fft.phase);state.completedJob=true;

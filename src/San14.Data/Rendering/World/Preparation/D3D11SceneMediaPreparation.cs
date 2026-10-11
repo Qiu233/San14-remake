@@ -6,16 +6,19 @@ namespace San14.Data;
 public sealed class D3D11SceneMediaPreparation
 {
     private D3D11SceneMediaPreparation(D3D11TerrainInputPreparation terrain,
-        D3D11ModelInputPreparation fieldModels, D3D11TerrainInputFrame initialTerrain)
+        D3D11ModelInputPreparation fieldModels, D3D11TerrainInputFrame initialTerrain,
+        NamedViewRendererResources renderer)
     {
         Terrain = terrain;
         FieldModels = fieldModels;
         InitialTerrain = initialTerrain;
+        Renderer = renderer;
     }
 
     public D3D11TerrainInputPreparation Terrain { get; }
     public D3D11ModelInputPreparation FieldModels { get; }
     public D3D11TerrainInputFrame InitialTerrain { get; }
+    public NamedViewRendererResources Renderer { get; }
 
     /// <summary>Run once at scene loading, before any consumer opens a bank.
     /// Reuse these same model and terrain sources for camera and shadow setup.</summary>
@@ -23,6 +26,7 @@ public sealed class D3D11SceneMediaPreparation
         LoadedSceneResources scene, MapCameraConstructionPacket camera,
         string terrainDirectory, int width, int height)
     {
+        var renderer = NamedViewRendererResources.Load(repository);
         var terrain = D3D11TerrainInputPreparation.Load(repository, scene, camera.ExecutableLocale);
         var initialTerrain = terrain.PrepareInitialFrame(camera, width, height);
         var models = D3D11ModelInputPreparation.Load(repository, scene,
@@ -31,8 +35,10 @@ public sealed class D3D11SceneMediaPreparation
         string inputs = Path.GetDirectoryName(Path.GetFullPath(terrainDirectory))!;
         terrain.WriteNativeInputs(terrainDirectory, initialTerrain);
         models.WriteNativeInputs(Path.Combine(inputs, "model-continuous-input"));
-        D3D11OceanTextureInputPreparation.Load(repository, "system", "RRPreview")
+        OceanGridSettingsEncoding.WriteNativeInputs(
+            Path.Combine(inputs, OceanGridSettingsEncoding.NativeDirectory), renderer.OceanGrid);
+        D3D11OceanTextureInputPreparation.Load(repository, renderer, "system", "RRPreview")
             .WriteNativeInputs(Path.Combine(inputs, "ocean-texture-input"));
-        return new(terrain, models, initialTerrain);
+        return new(terrain, models, initialTerrain, renderer);
     }
 }
