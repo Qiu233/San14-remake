@@ -150,7 +150,7 @@ public:
     const PreparedMapView& preparedView() const { return *mapView_; }
     AtmosphereFrame atmosphereFrame(CloudEnvironmentPass& clouds) {
         return clouds.atmosphereFrame(season_,cloudLights_,environment_.camera().weatherHeight,
-            weather_,globalLight_,cameraRig_.frame(),commonRenderPolicy());
+            weather_,globalLight_,cameraRig_.frame(),commonRenderPolicy(),weatherProfile_.power);
     }
     DeferredLightingFrame lightingFrame(std::uint32_t phaseFlags, float commonClock,
         const source_water_camera::RefractionDerived* refraction=nullptr,

@@ -28,6 +28,7 @@ struct Profile {
     CameraTransform initialCamera{};
     int width=0,height=0;
     float cloudSunDirectionW{};
+    bool updateStarOrientation{};
 };
 struct Packet {
     Profile profile;
@@ -57,6 +58,7 @@ inline Packet readPacket(const std::filesystem::path& source,const std::filesyst
     Packet r;auto& p=r.profile;std::ifstream s(source/"profile.bin",std::ios::binary);
     const auto preparedCamera=source_camera::read<Prefix>(s);
     p.initialCamera=source_camera::decodeCameraTransform(preparedCamera);r.direct=decodeDirectEnvironment(preparedCamera);
+    p.updateStarOrientation=get<std::uint32_t>(preparedCamera.data()+0x3a0)==0;
     auto& environment=r.environment;environment.skyTransform=source_camera::read<Matrix>(s);environment.localToGlobal=source_camera::read<Matrix>(s);
     environment.sunProjection=source_camera::read<V4>(s);environment.moonPosition=source_camera::read<V4>(s);environment.altitude=source_camera::read<V4>(s);
     source_camera::read<float>(s); // Retired prepared offset; every frame derives it from altitude.
@@ -105,14 +107,18 @@ inline V4 screenPosition(V4 v,const Matrix& m,float fov,float aspect,int width,i
 inline V4 rayTransform(float x,float y,float z,const Matrix& m){
     V4 r;float* v=&r.X;for(int col=0;col<4;++col)v[col]=A(A(A(M(x,m[col]),M(y,m[4+col])),M(z,m[8+col])),m[12+col]);return r;
 }
-inline Frame prepareCurrent(const Packet& packet,const CameraTransform& ordinaryCamera){
-    const auto& p=packet.environment;Frame f;
-    f.skyCamera=ordinaryCamera;
-    auto& camera=f.skyCamera;
+inline CameraTransform prepareSkyCamera(const Packet& packet,const CameraTransform& ordinaryCamera) {
+    auto camera=ordinaryCamera;
     camera.eye.Y=A(M(packet.direct.altitude,100000),camera.eye.Y);
     camera.unrolledView=source_camera::lookTo(camera.eye,camera.target,camera.up);
     camera.view=adjustedView(camera.unrolledView,camera.optics.roll);
     camera.worldToClip=source_camera::compose(camera.view,camera.projection);
+    return camera;
+}
+inline Frame prepareCurrent(const Packet& packet,const CameraTransform& ordinaryCamera){
+    const auto& p=packet.environment;Frame f;
+    f.skyCamera=prepareSkyCamera(packet,ordinaryCamera);
+    const auto& camera=f.skyCamera;
     const auto eye=camera.eye,target=camera.target,up=camera.up;
     const auto& view=camera.view;const auto& projected=camera.projection;const auto& w2p=camera.worldToClip;
     const float fov=camera.optics.viewSpan,aspect=camera.optics.aspectRatio;

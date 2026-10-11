@@ -23,7 +23,7 @@ public sealed class SkyAppliedSourceStarOwner
     private SkyAppliedSourceStarFrame? candidate;
     private SkyAppliedSourceStarOwner(LoadedShaderContainer shader,SkyStarGeometry geometry,
         SkyWeatherNativePowerSource power,string owner,string recipe)
-    {this.shader=shader;this.geometry=geometry;this.power=power;OwnerIdentity=owner;this.recipe=recipe;table=CreateTable();}
+    {this.shader=shader;this.geometry=geometry;this.power=power;OwnerIdentity=owner;this.recipe=recipe;table=SkyStarTwinkle.CreateTable();}
     public string OwnerIdentity{get;}
     public float CommittedPhase=>committedPhase;
     public LoadedShaderContainer Shader=>shader;
@@ -117,20 +117,6 @@ public sealed class SkyAppliedSourceStarOwner
     {RequireCandidate(frame);committedPhase=frame.CandidatePhase;committedFrame=frame.FrameNumber;candidate=null;}
     internal void RequireCandidate(SkyAppliedSourceStarFrame frame)
     {if(!ReferenceEquals(candidate,frame))throw new InvalidDataException("Star candidate is stale, superseded or already committed.");}
-    private static float[] CreateTable()
-    {
-        var samples=new float[48];
-        for(int n=0;n<48;n++)
-        {
-            float angle=D(M(n,F(0x40490FDB)),48);
-            float amplitude=M(A(ArmyAnimationSampler.SourceSinCos(angle).Sin,2),F(0x3D75C28F));
-            float value=F(0x3F4CCCCD);
-            for(int j=0;j<8;j++)
-            {angle=A(angle,angle);amplitude=M(amplitude,F(0x3F59999A));value=A(value,M(ArmyAnimationSampler.SourceSinCos(angle).Sin,amplitude));}
-            samples[n]=value;
-        }
-        return Enumerable.Range(0,64).Select(i=>samples[((i/4)*3+i%4)%48]).ToArray();
-    }
     private static uint Scalar(DokObject o,int ordinal,uint hash,uint type)
     {
         var p=o.Properties[ordinal];if(p.Index!=ordinal||p.NameHash!=hash||p.TypeCode!=type||p.ElementCount!=1||p.ElementSize!=4||p.RawValue.Length!=4)

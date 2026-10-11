@@ -8,8 +8,10 @@ namespace San14.Data;
 public sealed class LoadedMapExposureSource
 {
     internal LoadedMapExposureSource(LoadedRenderGraph graph, RenderTextureDefinition texture,
-        LoadedDeferredSamplerNativeSource native, byte[] vertex, byte[] pixel, G1TextureSamplerRecipe sampler)
-    { Graph=graph; Texture=texture; Native=native; this.vertex=vertex; this.pixel=pixel; InputSampler=sampler; }
+        LoadedDeferredSamplerNativeSource native, byte[] vertex, byte[] pixel,
+        G1TextureSamplerRecipe inputSampler, G1TextureSamplerRecipe outputSampler)
+    { Graph=graph; Texture=texture; Native=native; this.vertex=vertex; this.pixel=pixel;
+        InputSampler=inputSampler; OutputSampler=outputSampler; }
     private readonly byte[] vertex,pixel;
     public LoadedRenderGraph Graph { get; }
     public RenderTextureDefinition Texture { get; }
@@ -17,6 +19,7 @@ public sealed class LoadedMapExposureSource
     public ReadOnlyMemory<byte> VertexProgram => vertex;
     public ReadOnlyMemory<byte> PixelProgram => pixel;
     public G1TextureSamplerRecipe InputSampler { get; }
+    public G1TextureSamplerRecipe OutputSampler { get; }
     public string SourceResourceUri => Texture.Source.Source.ResourceUri+"#object/6C5630BB/exposure/node1";
 }
 
@@ -139,7 +142,9 @@ public static class MapExposureSource
         var native=RenderSamplerSourceAdapters.Load(repository.SourceDirectory,locale);
         byte[] vertex=ProjectStockShaders.Vertex.Dxbc,pixel=ProjectStockShaders.Default3.Dxbc;
         var sampler=RenderSamplerSourceAdapters.DecodeKey(native,RenderSamplerSourceAdapters.RenderTextureKey(native,1));
-        return new(graph,texture,native,vertex,pixel,sampler);
+        var outputSampler=RenderSamplerSourceAdapters.DecodeKey(native,
+            RenderSamplerSourceAdapters.FinalRenderTextureKey(native,texture));
+        return new(graph,texture,native,vertex,pixel,sampler,outputSampler);
     }
 
     public static MapExposurePacket Prepare(MapExposureInputs input)

@@ -39,6 +39,7 @@ public sealed class D3D11MapExposureInputPreparation
             profile.Write(currentViewMask19B8);
         }
         File.WriteAllBytes(Path.Combine(directory, "sampler-desc.bin"), Source.InputSampler.EncodeD3D11Descriptor());
+        File.WriteAllBytes(Path.Combine(directory, "output-sampler-desc.bin"), Source.OutputSampler.EncodeD3D11Descriptor());
         WriteFloats("vs-b0.bin", [1, -2, -1, 1, 1, 1, 1, 1]);
         WriteFloats("ps-b0.bin", [-float.MaxValue, 0, 0, 0]);
         File.WriteAllText(Path.Combine(directory, "layout.txt"),

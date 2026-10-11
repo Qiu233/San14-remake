@@ -31,10 +31,10 @@ class CloudEnvironmentPass {
 
     void prepareClouds(ID3D11Device* device,const fs::path& cloudSource,
         const fs::path& animationSource,const fs::path& ambientCloudSource,
-        const fs::path& starSource,ID3D11Texture2D* hdr) {
+        const fs::path& starSource,ID3D11Texture2D* hdr,StarTwinklePhase& twinkle) {
         cloud_=prepareNativeMainCloud(device,cloudSource,animationSource,hdr);
         environmentCloud_=prepareNativeAmbientCloudContinuous(device,ambientCloudSource,environment_,cloud_);
-        environment_.starAnimation=prepareNativeAmbientStarContinuous(starSource);
+        environment_.starAnimation=prepareNativeAmbientStarContinuous(starSource,twinkle);
         environment_.starAnimationEnabled=true;
     }
 
@@ -44,11 +44,11 @@ class CloudEnvironmentPass {
         const source_current_season_atmosphere::CloudLightInput& lights,
         float altitude,const source_weather_fog::Frame& weather,
         const source_camera::V3& globalRgb,const source_camera::CameraTransform& camera,
-        const CommonRenderPolicy& commonPolicy) {
-        return AtmosphereFrame{season,lights,altitude,weather,globalRgb,camera,cloud_,commonPolicy};
+        const CommonRenderPolicy& commonPolicy,const source_weather_fog::Power& power) {
+        return AtmosphereFrame{season,lights,altitude,weather,globalRgb,camera,cloud_,commonPolicy,power};
     }
 
-    void updateAcceptedFrame(ID3D11Device* device,ID3D11DeviceContext* context,
+    float updateAcceptedFrame(ID3D11Device* device,ID3D11DeviceContext* context,
         const CloudEnvironmentSources& source,const CloudEnvironmentFrame& frame) {
         float currentPlanet=0;
         if(frame.season) {
@@ -69,9 +69,14 @@ class CloudEnvironmentPass {
             publishNativeCurrentAmbientFrame(context,*currentAmbient_,environment_,environmentCloud_,&cloudClip);
         }
         updateNativeAmbientCloudContinuous(context,environmentCloud_,cloud_);
+        return node3Delta;
+    }
+
+    // Node 5 consumes completed Cloud and Main Star updates from node 3.
+    void generateAmbient(ID3D11DeviceContext* context,float clock,float node3Delta) {
         const auto parent=NativeMainTargetScope::retain(context);
         // Generation selection can change; retain the actual returned view.
-        ambient_=executeNativeAmbientNode5(context,environment_,frame.clock,true,node3Delta);
+        ambient_=executeNativeAmbientNode5(context,environment_,clock,true,node3Delta);
         parent.restore(context);
     }
 

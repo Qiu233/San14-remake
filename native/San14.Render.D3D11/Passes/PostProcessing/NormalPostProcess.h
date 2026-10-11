@@ -105,6 +105,7 @@ public:
 
     }
     ID3D11ShaderResourceView* mapExposureView() const {return mapExposure_.view.Get();}
+    ID3D11SamplerState* mapExposureSampler() const {return mapExposure_.outputSampler.Get();}
     ID3D11RenderTargetView* outputTarget() const {return output_.targets[0].Get();}
     ID3D11RenderTargetView* sceneTarget() const {return renderer_.surfaces.at("SceneColor").targets[0].Get();}
 

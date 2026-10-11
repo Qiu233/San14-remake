@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using San14.Core;
 using San14.Data;
 
@@ -16,6 +15,7 @@ public sealed class D3D11CurrentSeasonResources
     internal OceanOpticsSettings OceanOptics { get; }
     internal OceanTextureMaterialSettings OceanTextureMaterial { get; }
     internal OceanBubbleMaterialSettings OceanBubbleMaterial { get; }
+    internal SkyStarSettings Stars { get; }
     internal HeightFogSettings HeightFog { get; }
     internal CommonRenderPolicy CommonPolicy { get; }
     public SceneViewNativeMapSeasonResourceBundle Source { get; }
@@ -39,12 +39,9 @@ public sealed class D3D11CurrentSeasonResources
         OceanOptics = OceanOpticsSettingsImport.Load(selected);
         OceanTextureMaterial = OceanTextureMaterialSettingsImport.Load(selected);
         OceanBubbleMaterial = OceanBubbleMaterialSettingsImport.Load(selected);
+        Stars = SkyStarSettings.Import(selected);
         HeightFog = HeightFogResourceImport.Load(selected);
-        var geometry = selected.Camera.Properties[614];
-        if (geometry.Index != 614 || geometry.NameHash != 0x59633E4E || geometry.TypeCode != 8 ||
-            geometry.ElementCount != 1 || geometry.ElementSize != 4 || geometry.RawValue.Length != 4)
-            throw new InvalidDataException("Current Main Cloud controller40 selected loader binding changed.");
-        ControllerGeometry40 = BinaryPrimitives.ReadSingleLittleEndian(geometry.RawValue);
+        ControllerGeometry40 = Stars.ExposureScale;
     }
 
     /// <summary>Bind the actual fresh Main/Aux default caller: force=-1,

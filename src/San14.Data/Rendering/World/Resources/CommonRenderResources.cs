@@ -7,14 +7,14 @@ namespace San14.Data;
 public sealed class CommonRenderSettings
 {
     public CommonRenderSettings(uint flags8, uint flags0C, uint flags10,
-        byte viewAux3F2, byte modelGroupSelector400, string sourceIdentity)
+        byte viewAux3F2, byte modelGroupSelector400, SkyAlphaBlendMode skyAlphaBlend, string sourceIdentity)
     {
         Flags8 = flags8; Flags0C = flags0C; Flags10 = flags10;
         ViewAux3F2 = viewAux3F2; ModelGroupSelector400 = modelGroupSelector400;
         SourceIdentity = sourceIdentity;
         InitialAuxiliary = new(flags8, (CommonLightingOptions)flags0C, 0,
             viewAux3F2, modelGroupSelector400, (byte)(flags10 >> 16),
-            SuppressOceanDrawing: (flags10 & 1u) != 0);
+            SuppressOceanDrawing: (flags10 & 1u) != 0, SkyAlphaBlend: skyAlphaBlend);
     }
     public uint Flags8 { get; }
     public uint Flags0C { get; }
@@ -54,6 +54,7 @@ public static class CommonRenderResources
             throw new InvalidDataException("Common group selectors require byte values.");
         return new(ReadScalar(source, 0x74C9D1B9, 4), ReadScalar(source, 0xF668216E, 5),
             ReadScalar(source, 0xAABBEBFF, 5), (byte)viewGroup, (byte)modelGroup,
+            CommonRenderEncoding.DecodeSkyAlphaBlend(ReadScalar(source, 0xABA611F7, 4)),
             source.Source.ResourceUri + $"#object/{SourceObjectId:X8}@{source.Source.DecodedSha256};CommonViewSetting");
     }
 

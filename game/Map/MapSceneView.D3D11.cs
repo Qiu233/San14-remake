@@ -59,6 +59,7 @@ public partial class MapSceneView
             var fogPrograms=HeightFogProgramResources.Load(_repository);
             var skyPrograms=SkyMainProgramResources.Load(_repository,sceneMedia.Renderer);
             SkyMainResourceOwner? skyResources=null;
+            SkyStarResources? starResources=null;
             D3D11CloudProgramMedia? cloudMedia=null;
             D3D11CloudRenderResources? cloudResources = null;
             string inputs = Path.GetDirectoryName(source)!;
@@ -154,6 +155,16 @@ public partial class MapSceneView
                         cloudResources.WriteNativeInputs(inputs);
                         skyResources = SkyMainResourceOwner.CreateFresh(_repository, current.Present, skyPrograms, work.CloudTextures);
                         _d3d11SkyResources = skyResources;
+                        var starPackage = current.Present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage;
+                        starResources = SkyStarResources.Load(_repository, sceneMedia.Renderer, starPackage);
+                        string starDirectory = Path.Combine(inputs, "main-sky-input", "stars");
+                        Directory.CreateDirectory(starDirectory);
+                        File.WriteAllBytes(Path.Combine(starDirectory, "program-presence.bin"),
+                            BitConverter.GetBytes(starResources is not null ? 1u : 0u));
+                        if (starResources is not null)
+                            D3D11MainStarInputPreparation.Load(starResources).WriteNativeInputs(starDirectory);
+                        SkyStarCurrentEncoding.WriteNativeInputs(starDirectory, current.Stars,
+                            current.Atmosphere.Controller.MatrixF0, current.Atmosphere.Controller.Controller.Scalar38);
                         var cameraInputs = _sourceMainCameraInputs!;
                         var post = current.Rgb.Inputs.MainPostSelection!;
                         var fieldModels = sceneMedia.FieldModels;
@@ -213,6 +224,8 @@ public partial class MapSceneView
                             current.Lights.First(light=>(light.GroupMask&0x80)!=0).CompleteData.Span,
                             skyPrograms, skyResources.Sampling.Presence);
                         skyResources.RequireCurrent(selectedSky);
+                        starResources?.RequireCompatiblePackage(_repository,
+                            current.Present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage);
                     }
                     if (!ReferenceEquals(writtenSeasonResources, season.LoadedResources))
                     {

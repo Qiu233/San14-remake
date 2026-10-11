@@ -236,6 +236,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     NativeSourceHdrTarget lightingTarget;
     ComPtr<ID3D11Texture2D> litColor,finalColor;
     DXGI_FORMAT lightingShaderFormat=DXGI_FORMAT_UNKNOWN,lightingTargetFormat=DXGI_FORMAT_UNKNOWN;
+    StarTwinklePhase starTwinkle;
     CloudEnvironmentPass clouds;
     NativeFrameClock commonClock;NativeFrameClockPublication commonPublication;
     UINT commonBaseSettingsFlags=0;
@@ -343,9 +344,11 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         phase.beginMain();
 
         fogAcceleration.execute(device.Get(),context.Get());
-        clouds.updateAcceptedFrame(device.Get(),context.Get(),
+        const auto node3Delta=clouds.updateAcceptedFrame(device.Get(),context.Get(),
             {resources.directory(ResourceGroup::CloudWeather),resources.directory(ResourceGroup::AmbientFrame)},
             {frameState.season(),frameState.cloudLights(),currentClock});
+        atmosphere.updateMainStars(device.Get(),frameState.atmosphereFrame(clouds),node3Delta);
+        clouds.generateAmbient(context.Get(),currentClock,node3Delta);
     };
     auto publishThinSurface=[&]() {
         phase.publishThinSurface(frameState.view().rainGroups!=0);
@@ -371,7 +374,9 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         litColor=lightingTarget.texture;lightingShaderFormat=lightingTarget.shaderFormat;lightingTargetFormat=lightingTarget.targetFormat;
         clouds.prepareClouds(device.Get(),resources.directory(ResourceGroup::Clouds),
             resources.directory(ResourceGroup::CloudAnimation),resources.directory(ResourceGroup::AmbientClouds),
-            resources.directory(ResourceGroup::AmbientStars),litColor.Get());
+            resources.directory(ResourceGroup::AmbientStars),litColor.Get(),starTwinkle);
+        atmosphere.prepareMainStars(device.Get(),resources.directory(ResourceGroup::Sky),
+            resources.directory(ResourceGroup::AtmosphereCamera)/"initial",starTwinkle);
         beginAcceptedMain(initialCommonClock);
     }
     TerrainPass terrainPass{device.Get(),context.Get(),input,groupedTerrain};
@@ -604,9 +609,10 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                     nullptr,initialCommonClock,frameState.view().activeGroups,frameState.view().oceanGroups);
                 mainTargets.restore(context.Get());
                 atmosphere.prepare(device.Get(),context.Get(),resources.directory(ResourceGroup::Sky),
-                    resources.directory(ResourceGroup::Atmosphere),resources.directory(ResourceGroup::AtmosphereCamera)/"initial",
+                    resources.directory(ResourceGroup::Atmosphere),
                     litColor.Get(),mainDepth.depth.Get(),fogAcceleration.samplingView(),geometryTargets.depthView(),width,height,frameState.atmosphereFrame(clouds));
-                if(atmosphere.executeSky(device.Get(),context.Get(),sourceDepth)) {
+                if(atmosphere.executeSky(device.Get(),context.Get(),sourceDepth,frameState.atmosphereFrame(clouds),mainTargets,
+                    postProcessing.mapExposureView(),postProcessing.mapExposureSampler())) {
                     mainTargets.restore(context.Get());
                     clouds.execute(device.Get(),context.Get(),sourceDepth,geometryTargets.depthView(),initialCommonClock,UINT(phase.hostCompletionFlags()));
                 }
@@ -745,7 +751,8 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             nullptr,currentClock,frameState.view().activeGroups,frameState.view().oceanGroups);
         atmosphere.updateCamera(context.Get(),frameState.atmosphereFrame(clouds));
         mainTargets.restore(context.Get());
-        if(atmosphere.executeSky(device.Get(),context.Get(),sourceDepth)) {
+        if(atmosphere.executeSky(device.Get(),context.Get(),sourceDepth,frameState.atmosphereFrame(clouds),mainTargets,
+            postProcessing.mapExposureView(),postProcessing.mapExposureSampler())) {
             mainTargets.restore(context.Get());
             clouds.execute(device.Get(),context.Get(),sourceDepth,geometryTargets.depthView(),currentClock,UINT(phase.hostCompletionFlags()));
         }

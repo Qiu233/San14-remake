@@ -8,6 +8,7 @@
 #include "../Lighting/Interop/HdrProgramBankInput.h"
 #include "Ocean/OceanWaveSettings.h"
 #include "SkyMaterialState.h"
+#include "MainStarInputs.h"
 #include "Ocean/OceanSurfaceSettings.h"
 #include "Ocean/OceanOpticsSettings.h"
 #include "Ocean/Interop/OceanTextureMaterialInput.h"
@@ -55,7 +56,9 @@ struct Frame {
     San14::Render::OceanBubbleMaterialSettings oceanBubbleMaterial;
     San14::Render::CommonRenderPolicy commonRenderPolicy;
     San14::Render::SkyDrawPolicy skyPolicy;
+    bool updateStarOrientation{};
     San14::Render::HeightFogSettings heightFog;
+    San14::Render::MainStarCurrentInputs mainStar;
     source_current_season_post::Settings post;
 };
 template<class T> inline T read(std::span<const uint8_t> bytes,size_t at){
@@ -193,6 +196,10 @@ inline Frame decode(std::span<const uint8_t> bytes){
     if(bytes.size()-at<heightBytes)throw std::runtime_error("Current Height Fog block absent");
     r.heightFog=San14::Render::Interop::decodeHeightFogSettings(bytes.subspan(at,heightBytes));
     at+=heightBytes;
+    constexpr auto starBytes=San14::Render::Interop::MainStarInputBytes;
+    if(bytes.size()-at<starBytes)throw std::runtime_error("Current Main Star block absent");
+    r.mainStar=San14::Render::Interop::decodeMainStarInputs(bytes.subspan(at,starBytes));
+    at+=starBytes;
     if (at < bytes.size()) {
         std::array<San14::Render::HdrLightModifier, 5> modifiers;
         if (bytes.size() - at < San14::Render::Interop::HdrLightingInputBytes)
@@ -219,6 +226,7 @@ inline Frame decode(std::span<const uint8_t> bytes){
     decodeShadowInputs(r);
     decodeCloudWeatherInputs(r);
     r.skyPolicy=San14::Render::skyDrawPolicy(read<std::uint32_t>(r.main,0x3b0));
+    r.updateStarOrientation=read<std::uint32_t>(r.main,0x3a0)==0;
     r.oceanLightGroup=importedMainField<std::uint32_t>(r,0xac0);
     decodeOceanWaveInputs(r);
     decodeOceanSurfaceInputs(r);

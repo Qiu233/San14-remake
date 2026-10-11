@@ -2,7 +2,6 @@
 #include "../../Camera/CameraTransform.h"
 #include <array>
 #include <cstdint>
-#include <stdexcept>
 
 namespace San14::Render {
 struct SkyDrawPolicy {
@@ -21,8 +20,5 @@ struct SkyMaterialState {
 };
 inline SkyDrawPolicy skyDrawPolicy(std::uint32_t preparedTransitionOrder) {
     return {(preparedTransitionOrder&0x80000000u)!=0};
-}
-inline void requireSupportedMainSkyPolicy(const SkyDrawPolicy& policy) {
-    if(!policy.suppressStars)throw std::runtime_error("Active Main Star drawing needs its actual producer");
 }
 } // namespace San14::Render

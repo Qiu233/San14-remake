@@ -64,7 +64,7 @@ struct NativeMapExposure {
     ComPtr<ID3D11PixelShader> pixel;
     ComPtr<ID3D11InputLayout> layout;
     ComPtr<ID3D11Buffer> vertexConstants,pixelConstants,fullQuad,halfQuad,publicationQuad,publicationIndices;
-    ComPtr<ID3D11SamplerState> sampler;
+    ComPtr<ID3D11SamplerState> sampler,outputSampler;
     ComPtr<ID3D11BlendState> blend;
     ComPtr<ID3D11RasterizerState> raster;
     D3D11_VIEWPORT viewport{};
@@ -109,9 +109,14 @@ static NativeMapExposure prepareNativeMapExposure(ID3D11Device* device,const fs:
     auto bytesOf=[](const void* source,size_t size){std::vector<char> bytes(size);std::memcpy(bytes.data(),source,size);return bytes;};
     out.publicationQuad=buffer(device,bytesOf(publication,sizeof publication),D3D11_BIND_VERTEX_BUFFER);
     out.publicationIndices=buffer(device,bytesOf(publicationIndices,sizeof publicationIndices),D3D11_BIND_INDEX_BUFFER);
-    auto bytes=load(source/"sampler-desc.bin");D3D11_SAMPLER_DESC sampler{};
-    if(bytes.size()!=sizeof sampler)throw std::runtime_error("Map Exposure sampler52B source shape");std::memcpy(&sampler,bytes.data(),sizeof sampler);
-    check(device->CreateSamplerState(&sampler,&out.sampler),"node1 original ring input sampler");
+    auto readSampler=[&](const char* filename,ComPtr<ID3D11SamplerState>& output) {
+        const auto bytes=load(source/filename);D3D11_SAMPLER_DESC sampler{};
+        if(bytes.size()!=sizeof sampler)throw std::runtime_error("Map Exposure sampler source shape");
+        std::memcpy(&sampler,bytes.data(),sizeof sampler);
+        check(device->CreateSamplerState(&sampler,&output),"Map Exposure imported sampler");
+    };
+    readSampler("sampler-desc.bin",out.sampler);
+    readSampler("output-sampler-desc.bin",out.outputSampler);
     D3D11_BLEND_DESC blend{};for(auto& rt:blend.RenderTarget){rt.SrcBlend=rt.SrcBlendAlpha=D3D11_BLEND_ONE;
         rt.DestBlend=rt.DestBlendAlpha=D3D11_BLEND_ZERO;rt.BlendOp=rt.BlendOpAlpha=D3D11_BLEND_OP_ADD;}blend.RenderTarget[0].RenderTargetWriteMask=15;
     check(device->CreateBlendState(&blend,&out.blend),"node1 no blend/writeRGBA");

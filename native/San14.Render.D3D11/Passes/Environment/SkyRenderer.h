@@ -1,6 +1,7 @@
 #pragma once
 #include "SkyMaterialInputs.h"
 #include "SkyDrawState.h"
+#include "MainSkyBlendState.h"
 #include "../../Device/DepthState.h"
 
 // Device resources belong to the selected Main Sky generation. Numeric camera,
@@ -14,7 +15,7 @@ struct NativeMainSky {
     ComPtr<ID3D11Buffer> vertices,vertexConstants,pixelConstants;
     San14::Render::Interop::SkyMaterialLayout materialLayout;
     std::vector<char> vertexBytes,pixelBytes;
-    ComPtr<ID3D11BlendState> blend,blendEntry;
+    NativeMainSkyBlendCache blend;
     ComPtr<ID3D11DepthStencilState> depth;
     ComPtr<ID3D11RasterizerState> raster,rasterEntry;
     D3D11_DEPTH_STENCIL_DESC depthDescription{};
@@ -50,13 +51,8 @@ static void publishNativeMainSkyMaterial(ID3D11DeviceContext* context,NativeMain
     context->UpdateSubresource(sky.vertexConstants.Get(),0,nullptr,sky.vertexBytes.data(),0,0);
     context->UpdateSubresource(sky.pixelConstants.Get(),0,nullptr,sky.pixelBytes.data(),0,0);
 }
-static void executeNativeMainSky(ID3D11Device* device,ID3D11DeviceContext* context,
-    NativeSourceDepthState& logical,NativeMainSky& sky,const San14::Render::SkyDrawPolicy& policy) {
-    // Clear SunPrimary needs the two actual Main Star paths. WORK's separate
-    // Star owner is not a substitute for those missing producers.
-    San14::Render::requireSupportedMainSkyPolicy(policy);
-    context->PSSetShaderResources(0,UINT(sky.views.size()),sky.views.data());
-    context->PSSetSamplers(0,UINT(sky.samplers.size()),sky.samplers.data());
+static void prepareNativeMainSkyReachedState(ID3D11Device* device,ID3D11DeviceContext* context,
+    NativeSourceDepthState& logical,NativeMainSky& sky) {
     const auto ds=reachedMainSkyDepth(logical.description);
     if(!sky.depth||!sameDepthStencilDescription(ds,sky.depthDescription)) {
         sky.depth.Reset();check(device->CreateDepthStencilState(&ds,&sky.depth),"Main Sky reached depth/stencil");
@@ -70,21 +66,14 @@ static void executeNativeMainSky(ID3D11Device* device,ID3D11DeviceContext* conte
         sky.raster.Reset();check(device->CreateRasterizerState(&rs,&sky.raster),"Main Sky CullNone");
         sky.rasterEntry=entryRaster;
     }
-    ComPtr<ID3D11BlendState> entryBlend;float blendFactor[4];UINT sampleMask;
-    context->OMGetBlendState(&entryBlend,blendFactor,&sampleMask);
-    if(!sky.blend||(entryBlend.Get()!=sky.blendEntry.Get()&&entryBlend.Get()!=sky.blend.Get())) {
-        D3D11_BLEND_DESC bd{};
-        for(auto& target:bd.RenderTarget) {
-            target.SrcBlend=target.SrcBlendAlpha=D3D11_BLEND_ONE;
-            target.DestBlend=target.DestBlendAlpha=D3D11_BLEND_ZERO;
-            target.BlendOp=target.BlendOpAlpha=D3D11_BLEND_OP_ADD;
-            target.RenderTargetWriteMask=D3D11_COLOR_WRITE_ENABLE_ALL;
-        }
-        if(entryBlend)entryBlend->GetDesc(&bd);
-        bd=reachedMainSkyBlend(bd);
-        sky.blend.Reset();check(device->CreateBlendState(&bd,&sky.blend),"Main Sky suppressed-Star blend");
-        sky.blendEntry=entryBlend;
-    }
+    context->RSSetState(sky.raster.Get());logical.bind(context,sky.depth.Get(),ds,0);
+}
+static void executeNativeMainSky(ID3D11Device* device,ID3D11DeviceContext* context,
+    NativeMainSky& sky,const San14::Render::SkyDrawPolicy& policy,
+    const San14::Render::CommonRenderPolicy& common,UINT targetCount) {
+    context->PSSetShaderResources(0,UINT(sky.views.size()),sky.views.data());
+    context->PSSetSamplers(0,UINT(sky.samplers.size()),sky.samplers.data());
+    bindNativeMainSkyBlend(device,context,sky.blend,policy.suppressStars,false,common.skyAlphaBlend,targetCount);
     context->IASetInputLayout(sky.program.layout.Get());context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
     auto vb=sky.vertices.Get();UINT stride=8,offset=0;context->IASetVertexBuffers(0,1,&vb,&stride,&offset);
     context->VSSetShader(sky.program.vs.Get(),nullptr,0);context->PSSetShader(sky.program.ps.Get(),nullptr,0);
@@ -92,10 +81,6 @@ static void executeNativeMainSky(ID3D11Device* device,ID3D11DeviceContext* conte
     auto vcb=sky.vertexConstants.Get(),pcb=sky.pixelConstants.Get();
     context->VSSetConstantBuffers(sky.materialLayout.vertex.slot,1,&vcb);
     context->PSSetConstantBuffers(sky.materialLayout.pixel.slot,1,&pcb);
-    D3D11_VIEWPORT viewport{0,0,float(sky.width),float(sky.height),0,1};
-    context->RSSetViewports(1,&viewport);context->RSSetState(sky.raster.Get());
-    logical.bind(context,sky.depth.Get(),ds,0);
-    context->OMSetBlendState(sky.blend.Get(),blendFactor,sampleMask);
     // The caller's actual Scene HDR target remains bound. Sky neither pushes
     // a private target nor clears it, and the reached state continues to Cloud.
     context->Draw(4,0);

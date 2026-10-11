@@ -1,6 +1,7 @@
 // Fixed source Main/season, CE11902E0 Star phase writer. Include after D3D11.
 // No clock is advanced here: share node3's current Common254-priorCC delta.
 #pragma once
+#include "StarTwinklePhase.h"
 #include <array>
 #include <algorithm>
 #include <cstring>
@@ -16,16 +17,14 @@ struct NativeAmbientStarPacket {
 struct NativeAmbientStarContinuous {
     std::array<NativeAmbientStarPacket,6> faces;
     std::array<float,6> faceHeight{};
-    float clockScale=0,phase=0;
+    float clockScale=0;
+    San14::Render::StarTwinklePhase* phase{};
 };
 static float nativeStarFloat(const char* bytes) {float value;std::memcpy(&value,bytes,4);return value;}
-// Explicit scalar operations match SSE mul/sub/div/add; no fused expression.
-__declspec(noinline) static float nativeStarAdd(float a,float b) {return a+b;}
-__declspec(noinline) static float nativeStarSub(float a,float b) {return a-b;}
-__declspec(noinline) static float nativeStarMul(float a,float b) {return a*b;}
-__declspec(noinline) static float nativeStarDiv(float a,float b) {return a/b;}
-static NativeAmbientStarContinuous prepareNativeAmbientStarContinuous(const std::filesystem::path& source) {
+static NativeAmbientStarContinuous prepareNativeAmbientStarContinuous(const std::filesystem::path& source,
+    San14::Render::StarTwinklePhase& phase) {
     NativeAmbientStarContinuous owner;
+    owner.phase=&phase;
     auto read=[&](const std::string& name,char* bytes,size_t size) {
         std::ifstream stream(source/name,std::ios::binary|std::ios::ate);
         if(!stream||stream.tellg()!=std::streamoff(size))throw std::runtime_error("Star source input size: "+name);
@@ -33,7 +32,9 @@ static NativeAmbientStarContinuous prepareNativeAmbientStarContinuous(const std:
         if(!stream)throw std::runtime_error("Star source input read: "+name);
     };
     std::array<char,32> parameters{};read("star-clock-parameters.bin",parameters.data(),parameters.size());
-    owner.clockScale=nativeStarFloat(parameters.data());owner.phase=nativeStarFloat(parameters.data()+28);
+    owner.clockScale=nativeStarFloat(parameters.data());
+    // The final legacy word is not a private phase restore. The shared session
+    // owner has its own fresh constructor and is also used by Main draws.
     for(unsigned face=0;face<6;++face) {
         owner.faceHeight[face]=nativeStarFloat(parameters.data()+4+face*4);
         const auto prefix="stars-face"+std::to_string(face);
@@ -44,16 +45,12 @@ static NativeAmbientStarContinuous prepareNativeAmbientStarContinuous(const std:
 }
 static bool prepareNativeAmbientStarFace(NativeAmbientStarContinuous& owner,unsigned face,float sharedNode3Delta) {
     if(face!=3) {
-        constexpr float ceiling=80000.f; // actual CE479C4000, Star+14B8 constructor
-        const float height=std::max(0.f,nativeStarSub(ceiling,owner.faceHeight.at(face)));
         // D7CED0 ->11775A0 stores controller34 once during node3 update.
-        const float geometryDelta34=nativeStarMul(owner.clockScale,sharedNode3Delta);
-        const float step=nativeStarMul(nativeStarDiv(nativeStarMul(height,geometryDelta34),ceiling),.5f);
-        owner.phase=nativeStarAdd(owner.phase,step);
-        if(owner.phase>=1.f)owner.phase=nativeStarAdd(owner.phase,-1.f); // one source subtraction, no fmod
+        const float geometryDelta34=San14::Render::star_twinkle_math::multiply(owner.clockScale,sharedNode3Delta);
+        owner.phase->advance(owner.faceHeight.at(face),geometryDelta34);
     }
     // face3 packet is unused by E40540 but has the current shared phase.
-    std::memcpy(owner.faces.at(face).vs.data()+64,&owner.phase,4);
+    std::memcpy(owner.faces.at(face).vs.data()+64,&owner.phase->value,4);
     return face!=3;
 }
 template<class FaceConstants> static bool updateNativeAmbientStarFace(ID3D11DeviceContext* context,
