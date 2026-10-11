@@ -1,6 +1,7 @@
 // Original node97 and node137 inputs. Include after the native lab helpers.
 #pragma once
 #include "RefractionDepth.h"
+#include "Interop/RefractionFilterInputs.h"
 
 struct NativeRefractionColorTarget {
     ComPtr<ID3D11Texture2D> texture;
@@ -8,7 +9,7 @@ struct NativeRefractionColorTarget {
     std::string logicalKey;
 };
 struct NativeRefractionColors {
-    NativeRefractionColorTarget scene97, specular, blurredDepth;
+    NativeRefractionColorTarget scene97, blurredDepth;
 };
 
 // Only states touched by these finite screen draws. Original screen scopes restore
@@ -88,21 +89,23 @@ struct NativePreparedRefractionScene97 {
     NativeRefractionStateOverrides states;
 };
 static NativePreparedRefractionScene97 prepareNativeRefractionScene97(ID3D11Device* device,
-    const fs::path& source,ID3D11Texture2D* hdr,DXGI_FORMAT hdrViewFormat,
+    const fs::path& source,ID3D11Texture2D* hdr,DXGI_FORMAT hdrViewFormat,std::string_view sourceKey,
     const NativeRefractionTargetDeclaration& declared) {
     UINT resource,view,target,width,height;std::ifstream rows(source/"target.txt");rows>>resource>>view>>target>>width>>height;
     if(!rows)throw std::runtime_error("Original Scene97 target absent");
-    requireNativeRefractionMedia(declared,resource,view,target,width,height);
+    requireNativeRefractionMedia(declared,resource,view,target,width,height,1);
     NativePreparedRefractionScene97 out;out.hdr=hdr;
     out.output=createRefractionColorTarget(device,declared.width,declared.height,1,DXGI_FORMAT(declared.resourceFormat),DXGI_FORMAT(declared.shaderFormat));
     out.output.logicalKey=declared.logicalKey;
     NativeRefractionConstantFiles constants;out.programs=prepareRefractionPrograms(device,source,constants);
     out.geometry=prepareRefractionGeometry(device,source,out.programs.vertexCode);
+    requireRefractionCopyViewport(out.geometry.viewport,declared);
     out.states=prepareRefractionStateOverrides(device,source,true);
     D3D11_RENDER_TARGET_VIEW_DESC rd{};rd.Format=DXGI_FORMAT(declared.targetFormat);rd.ViewDimension=D3D11_RTV_DIMENSION_TEXTURE2D;
     check(device->CreateRenderTargetView(out.output.texture.Get(),&rd,&out.target),"Scene97 original half-size RTV");
     D3D11_SHADER_RESOURCE_VIEW_DESC sd{};sd.Format=hdrViewFormat;sd.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;sd.Texture2D.MipLevels=1;
-    check(device->CreateShaderResourceView(hdr,&sd,&out.input),"Scene97 persistent early HDR SRV");return out;
+    check(device->CreateShaderResourceView(hdr,&sd,&out.input),"Scene97 persistent early HDR SRV");
+    requireRefractionCopySourceOwner(source,out.input.Get(),sourceKey);return out;
 }
 // Call at node97 with the fixed Main HDR object's then-current contents.
 static const NativeRefractionColorTarget& executeNativeRefractionScene97(NativePreparedRefractionScene97& prepared,
@@ -124,6 +127,7 @@ struct NativeRefractionFilterTarget {
 };
 struct NativeRefractionFilterPass {
     std::string name;
+    unsigned sourceIndex{};
     NativeRefractionPrograms programs;
     ComPtr<ID3D11ShaderResourceView> input;
     ComPtr<ID3D11RenderTargetView> target;
@@ -131,84 +135,115 @@ struct NativeRefractionFilterPass {
     D3D11_VIEWPORT viewport{};
     D3D11_PRIMITIVE_TOPOLOGY topology=D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 };
+struct NativeRefractionMipZero {
+    bool direct{};
+    NativeRefractionPrograms programs;
+    NativeRefractionGeometry geometry;
+    ComPtr<ID3D11RenderTargetView> target;
+};
 struct NativePreparedRefractionFilters137 {
     ComPtr<ID3D11Texture2D> hdr;
-    ComPtr<ID3D11ShaderResourceView> mainDepth;
+    ComPtr<ID3D11ShaderResourceView> hdrView,mainDepth;
     std::map<std::string,NativeRefractionFilterTarget> targets;
     std::vector<NativeRefractionFilterPass> passes;
-    NativeRefractionColorTarget specular,blurredDepth;
+    std::array<NativeRefractionColorTarget,2> specular;
+    std::array<NativeRefractionMipZero,2> mipZero;
+    NativeRefractionColorTarget blurredDepth;
     NativeRefractionStateOverrides states;
 };
 static NativePreparedRefractionFilters137 prepareNativeRefractionFilters137(ID3D11Device* device,
     const fs::path& source,ID3D11Texture2D* hdr,DXGI_FORMAT hdrViewFormat,ID3D11ShaderResourceView* mainDepthView,
-    const NativeRefractionTargetDeclaration& specularDeclaration,const NativeRefractionTargetDeclaration& blurredDeclaration) {
+    const NativeRefractionTargetDeclaration& halfDeclaration,const NativeRefractionTargetDeclaration& fullDeclaration,
+    const NativeRefractionTargetDeclaration& blurredDeclaration) {
     NativePreparedRefractionFilters137 out;out.hdr=hdr;out.mainDepth=mainDepthView;
-    std::ifstream rows(source/"targets.txt");std::string key;UINT width,height,mips,resource,view,target;
-    if(!rows)throw std::runtime_error("Original137 target list absent");
-    while(rows>>key>>width>>height>>mips>>resource>>view>>target) {
-        out.targets.emplace(key,NativeRefractionFilterTarget{createRefractionColorTarget(device,width,height,mips,DXGI_FORMAT(resource),DXGI_FORMAT(view)),
-            width,height,mips,DXGI_FORMAT(view),DXGI_FORMAT(target)});
+    const auto inputs=readNativeRefractionFilterInputs(source);
+    for(const auto& [key,target]:inputs.targets) {
+        auto image=createRefractionColorTarget(device,target.width,target.height,target.mips,
+            DXGI_FORMAT(target.resourceFormat),DXGI_FORMAT(target.shaderFormat));
+        image.logicalKey=key;
+        out.targets.emplace(key,NativeRefractionFilterTarget{std::move(image),target.width,target.height,target.mips,
+            DXGI_FORMAT(target.shaderFormat),DXGI_FORMAT(target.targetFormat)});
     }
-    if(!rows.eof())throw std::runtime_error("Invalid original137 target list");
     auto selected=[&](const NativeRefractionTargetDeclaration& declared)->const NativeRefractionFilterTarget& {
         auto found=out.targets.find(declared.logicalKey);
         if(found==out.targets.end())throw std::runtime_error("Refraction filter has no created target for the selected logical key");
-        auto& target=found->second;D3D11_TEXTURE2D_DESC texture{};target.output.texture->GetDesc(&texture);
-        requireNativeRefractionMedia(declared,unsigned(texture.Format),unsigned(target.view),unsigned(target.target),target.width,target.height);
-        target.output.logicalKey=declared.logicalKey;return target;
+        const auto& target=found->second;D3D11_TEXTURE2D_DESC texture{};target.output.texture->GetDesc(&texture);
+        requireNativeRefractionMedia(declared,unsigned(texture.Format),unsigned(target.view),unsigned(target.target),
+            target.width,target.height,texture.MipLevels);
+        return target;
     };
-    const auto& specular=selected(specularDeclaration);const auto& blurred=selected(blurredDeclaration);
-    D3D11_TEXTURE2D_DESC hdrDesc{},specDesc{};hdr->GetDesc(&hdrDesc);specular.output.texture->GetDesc(&specDesc);
-    if(hdrDesc.Width!=specular.width||hdrDesc.Height!=specular.height||hdrDesc.Format!=specDesc.Format||hdrViewFormat!=specular.view||hdrDesc.SampleDesc.Count!=1)
-        throw std::runtime_error("Original137 mip0 requires matching persistent HDR attachment");
-    if(specular.mips!=7)throw std::runtime_error("Original137 requires seven specular mips");
-    out.specular=specular.output;out.blurredDepth=blurred.output;out.states=prepareRefractionStateOverrides(device,source,true);
-    NativeRefractionConstantFiles constants;std::ifstream passes(source/"passes.txt");std::string relative;
-    if(!passes)throw std::runtime_error("Original137 pass list absent");
-    bool writesSpecular=false,writesBlurred=false;
-    while(passes>>relative) {
-        NativeRefractionFilterPass pass;pass.name=relative;auto directory=source/relative;
-        UINT sourceMip,mipCount,targetMip;std::string sourceKey,targetKey;
-        std::ifstream inputs(directory/"input.txt"),outputs(directory/"target.txt");
-        inputs>>pass.inputSlot>>sourceKey>>sourceMip>>mipCount;outputs>>targetKey>>targetMip;
-        if(!inputs||!outputs||pass.inputSlot!=0)throw std::runtime_error("Original137 source/target view absent");
-        writesSpecular|=targetKey==specularDeclaration.logicalKey;writesBlurred|=targetKey==blurredDeclaration.logicalKey;
-        const auto& destination=out.targets.at(targetKey);
-        if(targetMip>=destination.mips)throw std::runtime_error("Original137 target mip out of range");
-        if(sourceKey=="E13DDB4F") {
-            if(!mainDepthView||sourceMip!=0||mipCount!=1)throw std::runtime_error("Original137 Main D1 input absent");
+    const std::array<const NativeRefractionFilterTarget*,2> specular{&selected(halfDeclaration),&selected(fullDeclaration)};
+    out.blurredDepth=selected(blurredDeclaration).output;
+    D3D11_TEXTURE2D_DESC hdrDesc{};hdr->GetDesc(&hdrDesc);
+    D3D11_SHADER_RESOURCE_VIEW_DESC hd{};hd.Format=hdrViewFormat;hd.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;hd.Texture2D.MipLevels=1;
+    check(device->CreateShaderResourceView(hdr,&hd,&out.hdrView),"Refraction filter current HDR source view");
+    NativeRefractionConstantFiles constants;
+    for(unsigned side=0;side<2;++side) {
+        const auto& target=*specular[side];out.specular[side]=target.output;
+        D3D11_TEXTURE2D_DESC td{};target.output.texture->GetDesc(&td);
+        auto& copy=out.mipZero[side];
+        copy.direct=hdrDesc.Width==td.Width&&hdrDesc.Height==td.Height&&hdrDesc.Format==td.Format&&
+            hdrViewFormat==target.view&&hdrDesc.SampleDesc.Count==1;
+        if(!copy.direct) {
+            const auto directory=source/("mip0-"+std::to_string(side));
+            copy.programs=prepareRefractionPrograms(device,directory,constants);
+            copy.geometry=prepareRefractionGeometry(device,directory,copy.programs.vertexCode);
+            if(copy.geometry.viewport.Width!=float(td.Width)||copy.geometry.viewport.Height!=float(td.Height))
+                throw std::runtime_error("Refraction stock copy viewport differs from its actual destination");
+            D3D11_RENDER_TARGET_VIEW_DESC rd{};rd.Format=target.target;rd.ViewDimension=D3D11_RTV_DIMENSION_TEXTURE2D;
+            check(device->CreateRenderTargetView(target.output.texture.Get(),&rd,&copy.target),"Refraction sampled mip-zero target");
+        }
+    }
+    out.states=prepareRefractionStateOverrides(device,source,true);
+    for(const auto& route:inputs.routes) {
+        NativeRefractionFilterPass pass;pass.name=route.directory;pass.sourceIndex=route.sourceIndex;pass.inputSlot=route.inputSlot;
+        const auto directory=source/route.directory;
+        const auto& destination=out.targets.at(route.targetKey);
+        if(route.sourceKey==inputs.mainDepthKey) {
+            if(!mainDepthView)throw std::runtime_error("Refraction filter Main depth owner is absent");
             pass.input=mainDepthView;
         } else {
-            const auto& selected=out.targets.at(sourceKey);
-            if(sourceMip+mipCount>selected.mips)throw std::runtime_error("Original137 source mip out of range");
-            D3D11_SHADER_RESOURCE_VIEW_DESC sd{};sd.Format=selected.view;sd.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;
-            sd.Texture2D.MostDetailedMip=sourceMip;sd.Texture2D.MipLevels=mipCount;
-            check(device->CreateShaderResourceView(selected.output.texture.Get(),&sd,&pass.input),"Original137 explicit source mip SRV");
+            const auto& image=out.targets.at(route.sourceKey);
+            D3D11_SHADER_RESOURCE_VIEW_DESC sd{};sd.Format=image.view;sd.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;
+            sd.Texture2D.MostDetailedMip=route.sourceMip;sd.Texture2D.MipLevels=route.mipCount;
+            check(device->CreateShaderResourceView(image.output.texture.Get(),&sd,&pass.input),"Refraction Gaussian source mip view");
         }
         pass.programs=prepareRefractionPrograms(device,directory,constants);
-        D3D11_RENDER_TARGET_VIEW_DESC rd{};rd.Format=destination.target;rd.ViewDimension=D3D11_RTV_DIMENSION_TEXTURE2D;rd.Texture2D.MipSlice=targetMip;
-        check(device->CreateRenderTargetView(destination.output.texture.Get(),&rd,&pass.target),"Original137 explicit target mip RTV");
+        D3D11_RENDER_TARGET_VIEW_DESC rd{};rd.Format=destination.target;rd.ViewDimension=D3D11_RTV_DIMENSION_TEXTURE2D;
+        rd.Texture2D.MipSlice=route.targetMip;
+        check(device->CreateRenderTargetView(destination.output.texture.Get(),&rd,&pass.target),"Refraction Gaussian destination mip view");
         pass.viewport=readRefractionViewport(directory);out.passes.push_back(std::move(pass));
     }
-    if(out.passes.size()!=14)throw std::runtime_error("Original137 requires12 specular and2 depth draws");
-    if(!writesSpecular||!writesBlurred)throw std::runtime_error("Refraction filter has no actual draw producer for the selected output key");
     return out;
 }
-// After node123, before137: copy new HDR mip0, then execute all14 original draws.
+// Mip zero borrows the then-current HDR attachment. The selected resolution
+// owns a distinct sampled copy and Gaussian chain; depth filtering is shared.
 static void executeNativeRefractionFilters137(NativePreparedRefractionFilters137& prepared,
-    ID3D11DeviceContext* context,NativeSourceDepthState& logical,NativeRefractionColors& out) {
+    ID3D11DeviceContext* context,NativeSourceDepthState& logical,unsigned sourceIndex,NativeRefractionColors& out) {
+    if(sourceIndex>1)throw std::runtime_error("Refraction specular source index");
     NativeRefractionScreenScope prior(context,logical);
     prepared.states.prepareRasterBlend(prior.raster.Get(),prior.blend.Get());
     prepared.states.bindRasterBlend(context,prior.factor,prior.sampleMask);
-    // No depth override in the original137 helper: inherit the logical entry.
     context->OMSetRenderTargets(0,nullptr,nullptr);
-    context->CopySubresourceRegion(prepared.specular.texture.Get(),0,0,0,0,prepared.hdr.Get(),0,nullptr);
+    const auto& copy=prepared.mipZero[sourceIndex];
+    if(copy.direct) context->CopySubresourceRegion(prepared.specular[sourceIndex].texture.Get(),0,0,0,0,prepared.hdr.Get(),0,nullptr);
+    else {
+        auto depth=logical.description;depth.DepthEnable=FALSE;prepared.states.prepareDepth(depth);
+        logical.bind(context,prepared.states.depth.Get(),depth,prior.reference);
+        copy.programs.bind(context);copy.geometry.bind(context);
+        auto target=copy.target.Get();auto input=prepared.hdrView.Get();
+        context->OMSetRenderTargets(1,&target,nullptr);context->PSSetShaderResources(0,1,&input);
+        context->DrawIndexed(copy.geometry.indexCount,0,0);
+        input=nullptr;context->PSSetShaderResources(0,1,&input);context->OMSetRenderTargets(0,nullptr,nullptr);
+        logical.bind(context,prior.depth.Get(),prior.logicalEntry,prior.reference);
+    }
     for(const auto& pass:prepared.passes) {
+        if(pass.sourceIndex!=sourceIndex&&pass.sourceIndex!=2)continue;
         pass.programs.bind(context);auto target=pass.target.Get();auto input=pass.input.Get();
         context->OMSetRenderTargets(1,&target,nullptr);context->PSSetShaderResources(pass.inputSlot,1,&input);
         context->RSSetViewports(1,&pass.viewport);context->IASetInputLayout(nullptr);context->IASetPrimitiveTopology(pass.topology);
         context->Draw(pass.vertexCount,pass.startVertex);
         input=nullptr;context->PSSetShaderResources(pass.inputSlot,1,&input);context->OMSetRenderTargets(0,nullptr,nullptr);
     }
-    out.specular=prepared.specular;out.blurredDepth=prepared.blurredDepth;
+    out.blurredDepth=prepared.blurredDepth;
 }

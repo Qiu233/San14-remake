@@ -150,9 +150,10 @@ public:
             weather_,globalLight_,cameraRig_.frame());
     }
     DeferredLightingFrame lightingFrame(std::uint32_t phaseFlags, float commonClock,
-        const source_water_camera::RefractionDerived* refraction=nullptr)const {
+        const source_water_camera::RefractionDerived* refraction=nullptr,
+        NativeSourceHdrSpecularImages specular={})const {
         return {deferredFields_,*mapView_,viewPreparation_->definition(),viewPreparation_->cameraSettings(),
-            season_,phaseFlags,commonClock,refraction};
+            season_,phaseFlags,commonClock,refraction,std::move(specular)};
     }
     source_camera::Frame publishedEventCamera(const RenderInput& input)const {return cameraRig_.publishedEventCamera(input);}
     const source_camera::Frame& camera()const {return cameraRig_.frame();}

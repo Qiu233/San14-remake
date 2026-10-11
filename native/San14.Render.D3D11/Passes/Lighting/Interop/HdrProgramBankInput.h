@@ -5,11 +5,11 @@
 
 namespace San14::Render::Interop {
 inline HdrCurrentSelectionSettings decodeHdrSelectionSettings(std::span<const std::uint8_t> input) {
-    if (input.size() != 16) throw std::runtime_error("HDR current selection settings extent");
-    std::array<std::uint32_t, 4> words;
+    if (input.size() != 20) throw std::runtime_error("HDR current selection settings extent");
+    std::array<std::uint32_t, 5> words;
     std::memcpy(words.data(), input.data(), input.size());
-    if (words[0] != 0x31435348u) throw std::runtime_error("HDR current selection settings signature");
-    return {words[1], words[2], words[3]};
+    if (words[0] != 0x31435348u || words[4] > 1) throw std::runtime_error("HDR current selection settings signature");
+    return {words[1], words[2], words[3], words[4]};
 }
 struct ImportedHdrProgramBank {
     HdrProgramBank bank;

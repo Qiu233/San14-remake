@@ -11,6 +11,7 @@ struct DeferredLightingFrame {
     std::uint32_t phaseFlags{};
     float commonClock{};
     const source_water_camera::RefractionDerived* refraction{};
+    NativeSourceHdrSpecularImages specular;
 };
 
 // Each execution entry owns a complete imported resource bank. Its current
@@ -28,16 +29,16 @@ public:
     void update(ID3D11DeviceContext* context, const DeferredLightingFrame& frame) {
         if (!frame.season) throw std::runtime_error("Live HDR selection requires current typed lights and Camera settings");
         live_.update(context, frame.view, frame.definition, frame.cameraSettings, frame.camera,
-            *frame.season, frame.phaseFlags, frame.commonClock, frame.refraction);
+            *frame.season, frame.phaseFlags, frame.commonClock, frame.refraction, frame.specular);
     }
     void execute(ID3D11Device* device, ID3D11DeviceContext* context, NativeSourceDepthState& logical,
         ID3D11ShaderResourceView* sampledD1, ID3D11DepthStencilView* dsv,
         ID3D11ShaderResourceView* ambient, ID3D11ShaderResourceView* refraction,
-        ID3D11ShaderResourceView* transmitted, ID3D11ShaderResourceView* specular,
+        ID3D11ShaderResourceView* transmitted,
         ID3D11ShaderResourceView* blurredDepth, float currentCommonClock,
         uint32_t view19AC, uint32_t view19B0) {
         executeSourceHdrPasses(device, context, logical, live_.passes(), sampledD1, dsv,
-            ambient, refraction, transmitted, specular, blurredDepth, currentCommonClock, view19AC, view19B0);
+            ambient, refraction, transmitted, blurredDepth, currentCommonClock, view19AC, view19B0);
     }
     const NativeSourceHdrPasses& bank() const { return live_.passes(); }
     ID3D11RenderTargetView* targetView() const { return live_.targetView(); }

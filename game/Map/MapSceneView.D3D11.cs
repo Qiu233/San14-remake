@@ -167,6 +167,15 @@ public partial class MapSceneView
                         D3D11OwnedNumericInputPreparation.WriteFreshNativeInputs(_repository, scene,
                             currentMain, current, season.LoadedResources, seasonLibrary, inputs,
                             D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
+                        D3D11HdrResourceBindings.WriteProducerTargets(_repository,
+                            Path.Combine(inputs, "hdr-bank"),
+                            D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
+                        D3D11RefractionCopyInputPreparation.WriteNativeInputs(_repository, current,
+                            Path.Combine(inputs, "refraction-source-input"),
+                            D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
+                        D3D11RefractionFilterInputPreparation.WriteNativeInputs(_repository, current,
+                            Path.Combine(inputs, "refraction-source-input", "filter137"),
+                            D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
                         D3D11HdrProgramMediaPreparation.WriteNativeInputs(_repository,
                             current, season.LoadedResources, hdr, inputs,
                             D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);

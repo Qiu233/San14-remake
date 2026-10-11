@@ -13,6 +13,8 @@ internal static class CameraDeclarationImport
         var lens = new CameraLens(p.Scalar(3, 0x06741408u, 1, 0), p.Scalar(4, 0x003546E9u, 1, 0), p.Scalar(5, 0xBA7543EAu, 1, 0), p.Scalar(6, 0xA70685F8u, 1, 0), p.Scalar(7, 0x0624AD1Du, 1, 0), 0, 0);
         return new(new PerspectiveCameraDeclaration(pose, lens, p.Scalar(2, 0x04C1A415u, 1, 0)),
             new CameraAmbientDefaults(p.Scalar(840, 0xAA84CF1Cu, 1, 0), p.Scalar(841, 0x71003548u, 1, 0), p.Word(864, 0x0B6C81F1u, 4, 1, 0), p.Word(842, 0x2F288D0Cu, 4, 1, 0)),
-            p.Word(165, 0xF3CBBCABu, 4, 1, 0), p.Scalar(928, 0x273D81CEu, 1, 0));
+            p.Word(165, 0xF3CBBCABu, 4, 1, 0), p.Scalar(928, 0x273D81CEu, 1, 0),
+            new CameraRefractionFilterSettings(unchecked((int)p.Word(1040, 0xA29E490Du, 4, 1, 0)),
+                unchecked((int)p.Word(1041, 0x5692BB6Eu, 4, 1, 0))));
     }
 }

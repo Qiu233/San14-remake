@@ -111,7 +111,7 @@ public static class D3D11HdrProgramMediaPreparation
                             FormattableString.Invariant($"{write.Kind} {write.Destination} 0 {write.Bytes}")));
                 }
                 reasons.AddRange(D3D11HdrResourceBindings.Write(repository,declaration,program,
-                    recipe.Directory,resources.Source.Locale,current,resources));
+                    recipe.Directory,resources.Source.Locale,current,resources,outputWidth,outputHeight));
                 if(program.PixelDefinitions.Bindings.Any(binding=>binding.Name.Text=="tMaterialTable"))
                 {
                     var material=catalog.Resources.MaterialTable(declaration.NodeIndex);

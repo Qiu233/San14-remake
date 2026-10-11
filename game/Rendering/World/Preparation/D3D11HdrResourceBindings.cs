@@ -30,7 +30,7 @@ public static class D3D11HdrResourceBindings
         }
     }
     private sealed record TextureRecipe(string Role, string Key, byte[]? SamplerKey = null,
-        bool UsesBackendDefaultSampler = false);
+        bool UsesBackendDefaultSampler = false, string? AlternateKey = null, byte[]? AlternateSamplerKey = null);
     private sealed record ProducerKeys(uint Depth, uint Transmitted, uint HalfFiltered, uint Filtered, uint Blurred);
     private static readonly ConditionalWeakTable<HdrShaderDeclaration, Targets> ImportedTargets = new();
 
@@ -44,7 +44,8 @@ public static class D3D11HdrResourceBindings
         var imported = new Targets(repository);
         var keys = imported.Refraction.Value;
         (string Role, uint Key)[] outputs = [("RefractionDepth", keys.Depth),
-            ("TransmittedSpecular", keys.Transmitted), ("FilteredSpecular", keys.Filtered),
+            ("TransmittedSpecular", keys.Transmitted), ("HalfFilteredSpecular", keys.HalfFiltered),
+            ("FilteredSpecular", keys.Filtered),
             ("BlurredDepth", keys.Blurred)];
         var rows = new List<string>(outputs.Length);
         foreach (var (role, key) in outputs)
@@ -55,12 +56,23 @@ public static class D3D11HdrResourceBindings
             var formats = RenderTextureFormatMath.Resolve(texture);
             int width = DeferredAuxiliaryTargetSources.ResolveNativeDimension(texture.Width, outputWidth);
             int height = DeferredAuxiliaryTargetSources.ResolveNativeDimension(texture.Height, outputHeight);
-            if (width <= 0 || height <= 0)
-                throw new InvalidDataException("HDR refraction producer resolved an empty target: " + role);
-            rows.Add(FormattableString.Invariant($"{role} {key:X8} {formats.ResourceFormat} {formats.ShaderViewFormat} {formats.TargetViewFormat} {width} {height}"));
+            byte mipCount = ResolveMipCount(texture, width, height);
+            rows.Add(FormattableString.Invariant($"{role} {key:X8} {formats.ResourceFormat} {formats.ShaderViewFormat} {formats.TargetViewFormat} {width} {height} {mipCount}"));
         }
         Directory.CreateDirectory(hdrBankDirectory);
         File.WriteAllLines(Path.Combine(hdrBankDirectory, "refraction-targets.txt"), rows);
+    }
+
+    private static byte ResolveMipCount(RenderTextureDefinition texture, int width, int height)
+    {
+        if (width <= 0 || height <= 0)
+            throw new InvalidDataException("HDR target resolved an empty extent.");
+        int maximumMips = 1;
+        for (int largest = Math.Max(width, height); largest > 1; largest >>= 1) maximumMips++;
+        int mipCount = texture.LevelNum == 0 ? maximumMips : texture.LevelNum;
+        if (mipCount > maximumMips)
+            throw new InvalidDataException("HDR target mip count exceeds its resolved extent.");
+        return checked((byte)mipCount);
     }
 
     private static ProducerKeys ReadProducerKeys(LoadedRenderGraph graph)
@@ -85,7 +97,7 @@ public static class D3D11HdrResourceBindings
 
     public static IReadOnlyList<string> Write(GameResourceRepository repository,
         HdrShaderDeclaration declaration, HdrShaderProgram program, string directory, string locale,
-        D3D11CurrentSeasonFrame current, D3D11CurrentSeasonResources resources)
+        D3D11CurrentSeasonFrame current, D3D11CurrentSeasonResources resources, int outputWidth, int outputHeight)
     {
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(declaration);
         ArgumentNullException.ThrowIfNull(program); ArgumentNullException.ThrowIfNull(current);
@@ -110,7 +122,8 @@ public static class D3D11HdrResourceBindings
             else recipe = Texture(binding);
             if (!textures.TryAdd(name, recipe))
                 throw new InvalidDataException("HDR selected program repeats a texture name: " + name);
-            textureRows.Add(FormattableString.Invariant($"{binding.BindPoint} {recipe.Role} {recipe.Key}"));
+            textureRows.Add(FormattableString.Invariant($"{binding.BindPoint} {recipe.Role} {recipe.Key}") +
+                (recipe.AlternateKey is null ? "" : " " + recipe.AlternateKey));
         }
         foreach (var binding in definitions.Bindings.Where(b => b.InputType == 3))
         {
@@ -118,18 +131,39 @@ public static class D3D11HdrResourceBindings
             string imageName = name == "__smpsShadowPointSampler" ? "sGBuf3" :
                 name.StartsWith("__smp", StringComparison.Ordinal) ? name[5..] : "";
             string file = "sampler-" + binding.BindPoint.ToString(CultureInfo.InvariantCulture) + ".bin";
-            samplerRows.Add(FormattableString.Invariant($"{binding.BindPoint} {file}"));
-            byte[]? descriptor = null;
-            if (binding.BindCount != 1 || binding.Dimension != 0 ||
-                !textures.TryGetValue(imageName, out var image))
+            textures.TryGetValue(imageName, out var image);
+            string? alternateFile = image?.AlternateKey is null ? null :
+                "sampler-" + binding.BindPoint.ToString(CultureInfo.InvariantCulture) + "-alternate.bin";
+            samplerRows.Add(FormattableString.Invariant($"{binding.BindPoint} {file}") +
+                (alternateFile is null ? "" : " " + alternateFile));
+            byte[]? descriptor = null, alternateDescriptor = null;
+            if (binding.BindCount != 1 || binding.Dimension != 0 || image is null)
                 Missing(name, "no unique selected image owns its sampler");
             else if (name != "__smpsShadowPointSampler" &&
                 definitions.Bindings.Single(b => b.InputType == 2 && b.Name.Text == imageName).BindPoint != binding.BindPoint)
                 throw new InvalidDataException("HDR ordinary sampler differs from its selected image slot: " + name);
-            else if (image.UsesBackendDefaultSampler) descriptor = RenderSamplerSourceAdapters.BackendDefaultDescriptor(native);
-            else if (image.SamplerKey is not null)
-                descriptor = RenderSamplerSourceAdapters.DecodeKey(native, image.SamplerKey).EncodeD3D11Descriptor();
-            else Missing(name, "its image has no completed sampler-key producer");
+            else
+            {
+                if (image.UsesBackendDefaultSampler) descriptor = RenderSamplerSourceAdapters.BackendDefaultDescriptor(native);
+                else if (image.SamplerKey is not null)
+                    descriptor = RenderSamplerSourceAdapters.DecodeKey(native, image.SamplerKey).EncodeD3D11Descriptor();
+                else Missing(name, "its image has no completed sampler-key producer");
+                if (alternateFile is not null)
+                {
+                    if (image.AlternateSamplerKey is not null)
+                        alternateDescriptor = RenderSamplerSourceAdapters.DecodeKey(native, image.AlternateSamplerKey).EncodeD3D11Descriptor();
+                    else Missing(name, "its alternate image has no completed sampler-key producer");
+                }
+            }
+            WriteSampler(file, descriptor);
+            if (alternateFile is not null) WriteSampler(alternateFile, alternateDescriptor);
+        }
+        File.WriteAllLines(Path.Combine(directory, "textures.txt"), textureRows);
+        File.WriteAllLines(Path.Combine(directory, "samplers.txt"), samplerRows);
+        return Array.AsReadOnly(reasons.Distinct(StringComparer.Ordinal).ToArray());
+
+        void WriteSampler(string file, byte[]? descriptor)
+        {
             string path = Path.Combine(directory, file);
             if (descriptor is not null)
             {
@@ -138,10 +172,6 @@ public static class D3D11HdrResourceBindings
             }
             else if (File.Exists(path)) File.Delete(path); // Never retain an old ready descriptor.
         }
-        File.WriteAllLines(Path.Combine(directory, "textures.txt"), textureRows);
-        File.WriteAllLines(Path.Combine(directory, "samplers.txt"), samplerRows);
-        return Array.AsReadOnly(reasons.Distinct(StringComparer.Ordinal).ToArray());
-
         void Missing(string name, string reason) => reasons.Add(name + ": " + reason + ".");
         void Shape(DxbcRdefBinding binding, uint dimension, uint returnType = 5)
         {
@@ -178,7 +208,11 @@ public static class D3D11HdrResourceBindings
                 throw new InvalidDataException("HDR graph target dimension differs from its selected shader role.");
             if (producerKey is not null && key != producerKey.Value)
                 Missing(binding.Name.Text, "its graph reference does not name the actual " + role + " producer target");
-            return new(role, key.ToString("X8"), RenderSamplerSourceAdapters.FinalRenderTextureKey(native, target));
+            int width = DeferredAuxiliaryTargetSources.ResolveNativeDimension(target.Width, outputWidth);
+            int height = DeferredAuxiliaryTargetSources.ResolveNativeDimension(target.Height, outputHeight);
+            byte mipCount = ResolveMipCount(target, width, height);
+            return new(role, key.ToString("X8"),
+                RenderSamplerSourceAdapters.FinalRenderTextureKey(native, target with { LevelNum = mipCount }));
         }
         bool NullDirectionalSlot(int slot)
         {
@@ -212,15 +246,11 @@ public static class D3D11HdrResourceBindings
                 case "sTrnsSpc":
                     if (declaration.OceanRendering)
                         return Target(binding, "TransmittedSpecular", 34, 0x7AA5F8D7, 4, imported.Refraction.Value.Transmitted);
-                    // Native chooses the current Camera/Common image. A static
-                    // descriptor is valid only if both real targets agree.
+                    // Native selects the image and its own sampler together
+                    // using the actual current Camera/Common SourceIndex.
                     var fullSpecular = Target(binding, "TranslucentSpecular", 34, 0x1D2BAAE7, 4, imported.Refraction.Value.Filtered);
                     var specular = Target(binding, "TranslucentSpecular", 34, 0x7AA5F8D7, 4, imported.Refraction.Value.HalfFiltered);
-                    if (fullSpecular.SamplerKey is not null && specular.SamplerKey is not null &&
-                        !RenderSamplerSourceAdapters.DecodeKey(native, fullSpecular.SamplerKey).EncodeD3D11Descriptor()
-                            .AsSpan().SequenceEqual(RenderSamplerSourceAdapters.DecodeKey(native, specular.SamplerKey).EncodeD3D11Descriptor()))
-                        Missing(binding.Name.Text, "different current specular target samplers require the actual dynamic sampler owner");
-                    return specular;
+                    return specular with { AlternateKey = fullSpecular.Key, AlternateSamplerKey = fullSpecular.SamplerKey };
                 case "sTrnsDpt": return Target(binding, "BlurredDepth", 4, 0x1424ADE6, 4, imported.Refraction.Value.Blurred);
                 case "sGxAmbLut":
                     Shape(binding, 4); Mapping(binding, 54);

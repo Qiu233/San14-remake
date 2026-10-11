@@ -20,7 +20,8 @@ class GBufferTargets {
   public:
     GBufferTargets(ID3D11Device *device, ID3D11DeviceContext *context,
                    const GBufferConfiguration &configuration)
-        : device_(device),depthClear_(geometryDepthClear(configuration.reversedDepth)) {
+        : device_(device),depthKey_(configuration.targetNames[5]),depthSurface_(configuration.surfaces[5]),
+          depthClear_(geometryDepthClear(configuration.reversedDepth)) {
         D3D11_TEXTURE2D_DESC td{};
         td.Width = configuration.width;
         td.Height = configuration.height;
@@ -126,6 +127,8 @@ class GBufferTargets {
     const std::array<ComPtr<ID3D11Texture2D>, 5> &textures() const { return textures_; }
     const std::array<ID3D11RenderTargetView *, 5> &colors() const { return colors_; }
     ID3D11Texture2D *depthTexture() const { return depth_.Get(); }
+    const std::string& depthKey() const { return depthKey_; }
+    UINT depthSurface() const { return depthSurface_; }
     ID3D11DepthStencilView *depthView() const { return depthView_.Get(); }
     ID3D11DepthStencilState *depthState() const { return depthState_.Get(); }
     ID3D11RasterizerState *rasterState() const { return raster_.Get(); }
@@ -139,6 +142,8 @@ class GBufferTargets {
 
   private:
     ComPtr<ID3D11Device> device_;
+    std::string depthKey_;
+    UINT depthSurface_{};
     std::array<ComPtr<ID3D11Texture2D>, 5> textures_;
     std::array<ComPtr<ID3D11RenderTargetView>, 5> views_;
     std::array<ID3D11RenderTargetView *, 5> colors_{};

@@ -3,14 +3,14 @@
 #include "HdrCurrentSelection.h"
 #include "HdrHeightFogState.h"
 #include "Interop/HdrProgramBankInput.h"
+#include "Interop/HdrProgramBindingInputs.h"
 #include <map>
 #include <memory>
 #include <set>
 #include <type_traits>
 
 namespace San14::Render {
-struct HdrTextureRecipe { unsigned slot{}; std::string role, key; };
-struct HdrSamplerRecipe { unsigned slot{}; D3D11_SAMPLER_DESC description{}; };
+struct HdrSamplerRecipe { unsigned slot{}; std::array<D3D11_SAMPLER_DESC,2> descriptions{}; bool paired{}; };
 struct HdrProgramRecipe {
     std::string unsupported;
     std::vector<NativeSourceHdrConstant> constants;
@@ -94,7 +94,8 @@ public:
     void update(ID3D11DeviceContext* context, const PreparedMapView& view,
         const MapViewDefinition& definition, const MapViewCameraSettings& cameraSettings,
         const NativeDeferredCameraFields& camera, const source_current_season::Frame& current,
-        unsigned phaseFlags, float commonClock, const source_water_camera::RefractionDerived* refraction) {
+        unsigned phaseFlags, float commonClock, const source_water_camera::RefractionDerived* refraction,
+        const NativeSourceHdrSpecularImages& specular) {
         if (!current.hdrSelection) throw std::runtime_error("HDR current selection settings are absent");
         const auto& imported = imported_.value();
         const auto color = prepareHdrColorMode(imported.constructorFlags, imported.bank.ocean(), phaseFlags);
@@ -129,6 +130,13 @@ public:
                 : passes_.passes[std::size_t(std::distance(routes_.begin(), old))];
             pass.identity = "HDR" + std::to_string(imported.bank.node()) + ":" + std::to_string(association.outer) + ":" + std::to_string(association.inner);
             pass.reference = association.innerGroup | static_cast<unsigned>(*color);
+            pass.specularSourceIndex=current.hdrSelection->specularSourceIndex;
+            for (const auto& texture:recipe.textures) if(texture.role=="TranslucentSpecular") {
+                const auto side=pass.specularSourceIndex;
+                selectHdrSpecularKey(texture,side,specular.logicalKeys);
+                if (!specular.views[side]) throw std::runtime_error("Selected HDR specular physical image is absent");
+                pass.fixedPixelViews[texture.slot]=specular.views[side];
+            }
             auto& constant = pass.constants.at(pass.lightingConstantIndex);
             writeHdrLighting(recipe.lighting, route.lighting, constant.bytes);
             if (!recipe.heightFog.empty()) {
@@ -171,7 +179,7 @@ private:
         std::ifstream policy(directory / "policy.txt"); policy >> hatching >> fade;
         if (!policy || hatching > 1 || fade > 1) throw std::runtime_error("HDR program live writer policy format");
         result.hasHatching = hatching != 0; result.hasShadowFade = fade != 0;
-        std::string stage, file, role, key; unsigned slot{};
+        std::string stage, file; unsigned slot{};
         std::ifstream constants(directory / "cbuffers.txt");
         if (!constants) throw std::runtime_error("HDR program constant declarations are absent");
         while (constants >> stage >> slot >> file) {
@@ -197,22 +205,22 @@ private:
         fields("camera-writes.txt", result.camera, std::array<unsigned, 6>{16, 64, 48, 64, 64, 64});
         fields("refraction-writes.txt", result.refraction, std::array<unsigned, 5>{12, 12, 12, 8, 48});
         fields("height-fog-writes.txt", result.heightFog, std::array<unsigned, 4>{12,48,48,240});
-        std::ifstream textures(directory / "textures.txt");
-        if (!textures) throw std::runtime_error("HDR selected texture declarations are absent");
-        while (textures >> slot >> role >> key) {
-            if (slot >= 32) throw std::runtime_error("HDR selected texture register range");
-            result.textures.push_back({slot, role, key});
+        result.textures=Interop::readHdrTextureRecipes(directory / "textures.txt");
+        for (const auto& file:Interop::readHdrSamplerFiles(directory / "samplers.txt")) {
+            HdrSamplerRecipe sampler;sampler.slot=file.slot;sampler.paired=file.paired;
+            const auto image=std::find_if(result.textures.begin(),result.textures.end(),[&](const auto& texture){return texture.slot==file.slot;});
+            if(file.paired&&(image==result.textures.end()||image->role!="TranslucentSpecular"))
+                throw std::runtime_error("HDR paired sampler has no matching specular image declaration");
+            if(image!=result.textures.end()&&image->role=="TranslucentSpecular"&&!file.paired)
+                throw std::runtime_error("HDR late specular requires both actual sampler recipes");
+            for(unsigned side=0;side<(file.paired?2u:1u);++side) {
+                const auto bytes=load(directory/file.files[side]);
+                if(bytes.size()!=sizeof(D3D11_SAMPLER_DESC))throw std::runtime_error("HDR sampler descriptor format");
+                std::memcpy(&sampler.descriptions[side],bytes.data(),bytes.size());
+            }
+            if(!file.paired)sampler.descriptions[1]=sampler.descriptions[0];
+            result.samplers.push_back(sampler);
         }
-        if (!textures.eof()) throw std::runtime_error("HDR selected texture declaration is truncated");
-        std::ifstream samplers(directory / "samplers.txt");
-        if (!samplers) throw std::runtime_error("HDR selected sampler declarations are absent");
-        while (samplers >> slot >> file) {
-            auto bytes = load(directory / file);
-            if (slot >= 16 || bytes.size() != sizeof(D3D11_SAMPLER_DESC)) throw std::runtime_error("HDR sampler format");
-            HdrSamplerRecipe sampler{slot, {}};
-            std::memcpy(&sampler.description, bytes.data(), bytes.size()); result.samplers.push_back(sampler);
-        }
-        if (!samplers.eof()) throw std::runtime_error("HDR selected sampler declaration is truncated");
         if (fs::exists(directory / "material-table.bin")) result.material = load(directory / "material-table.bin");
         return result;
     }
@@ -263,18 +271,20 @@ private:
             else if (role == "AmbientSpecular") { producer = NativeSourceHdrProducer::Ambient; dynamic = true; }
             else if (role == "RefractionDepth") { producer = NativeSourceHdrProducer::Refraction; dynamic = true; }
             else if (role == "TransmittedSpecular") { producer = NativeSourceHdrProducer::Transmitted; dynamic = true; }
-            else if (role == "TranslucentSpecular") { producer = NativeSourceHdrProducer::Specular; dynamic = true; }
+            else if (role == "TranslucentSpecular") continue; // Installed from its current physical owner in update.
             else if (role == "BlurredDepth") { producer = NativeSourceHdrProducer::BlurredDepth; dynamic = true; }
-            else if (!sourceNullTexture(role, texture.key))
+            else if (!sourceNullTexture(role, texture.keys[0]))
                 throw std::runtime_error("Selected HDR texture role has no actual owner: " + role);
             if (dynamic) pass.dynamicBindings.push_back({texture.slot, producer, role});
-            else if (!fixed && role != "Caustics" && !sourceNullTexture(role, texture.key))
+            else if (!fixed && role != "Caustics" && !sourceNullTexture(role, texture.keys[0]))
                 throw std::runtime_error("Selected HDR fixed texture owner is absent: " + role);
             pass.fixedPixelViews[texture.slot] = fixed;
         }
         for (const auto& source : recipe.samplers) {
-            NativeSourceHdrSampler sampler{source.slot, source.description, {}};
-            check(device_->CreateSamplerState(&sampler.description, &sampler.state), "HDR selected resource sampler");
+            NativeSourceHdrSampler sampler;sampler.slot=source.slot;sampler.descriptions=source.descriptions;sampler.paired=source.paired;
+            for(unsigned side=0;side<(sampler.paired?2u:1u);++side)
+                check(device_->CreateSamplerState(&sampler.descriptions[side], &sampler.states[side]), "HDR selected resource sampler");
+            if(!sampler.paired)sampler.states[1]=sampler.states[0];
             pass.samplers.push_back(std::move(sampler));
         }
         pass.target = target_; pass.viewport = viewport_; pass.count = 3; pass.topology = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;

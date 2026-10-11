@@ -3,6 +3,7 @@
 #pragma once
 #include <map>
 #include "Interop/RefractionTargetInputs.h"
+#include "Interop/RefractionCopyInputs.h"
 
 struct NativeRefractionDepth {
     ComPtr<ID3D11Texture2D> texture;
@@ -54,12 +55,11 @@ struct NativeRefractionConstantFiles {
     }
 };
 static NativeRefractionPrograms prepareRefractionPrograms(ID3D11Device* device,const fs::path& source,
-    NativeRefractionConstantFiles& constants,bool depthCopy=false) {
+    NativeRefractionConstantFiles& constants) {
     NativeRefractionPrograms out;out.vertexCode=load(source/"vs.dxbc");auto pixelCode=load(source/"ps.dxbc");
     check(device->CreateVertexShader(out.vertexCode.data(),out.vertexCode.size(),nullptr,&out.vs),"original refraction VS");
     check(device->CreatePixelShader(pixelCode.data(),pixelCode.size(),nullptr,&out.ps),"original refraction PS");
-    if(depthCopy)out.constants.push_back({"VS",0,constants.get(device,source/"vs-b0.bin")});
-    else {
+    {
         std::ifstream cb(source/"cbuffers.txt"),sm(source/"samplers.txt");std::string stage,file;UINT slot;
         if(!cb||!sm)throw std::runtime_error("Original refraction CB/sampler list absent");
         while(cb>>stage>>slot>>file) {
@@ -165,6 +165,28 @@ static NativeRefractionStateOverrides prepareRefractionStateOverrides(ID3D11Devi
     if(!raster||!blend)throw std::runtime_error("Original refraction raster/blend absent");return out;
 }
 
+// These checks run once while the graph-selected source is attached to the
+// prepared copy. The draw borrows the retained view without reading media.
+static void requireRefractionCopySourceOwner(const fs::path& source,
+    ID3D11ShaderResourceView* view,std::string_view logicalKey) {
+    if(!view)throw std::runtime_error("Refraction copy source owner is absent");
+    D3D11_SHADER_RESOURCE_VIEW_DESC sampled{};view->GetDesc(&sampled);
+    ComPtr<ID3D11Resource> resource;view->GetResource(&resource);
+    ComPtr<ID3D11Texture2D> texture;check(resource.As(&texture),"Refraction copy source texture");
+    D3D11_TEXTURE2D_DESC description{};texture->GetDesc(&description);
+    if(sampled.ViewDimension!=D3D11_SRV_DIMENSION_TEXTURE2D ||
+        sampled.Texture2D.MostDetailedMip!=0 || description.ArraySize!=1 || description.SampleDesc.Count!=1)
+        throw std::runtime_error("Refraction copy requires a single-surface mip-zero source");
+    requireNativeRefractionCopySource(readNativeRefractionCopySource(source),logicalKey,
+        unsigned(description.Format),unsigned(sampled.Format),description.Width,description.Height);
+}
+static void requireRefractionCopyViewport(const D3D11_VIEWPORT& viewport,
+    const NativeRefractionTargetDeclaration& target) {
+    if(viewport.TopLeftX!=0 || viewport.TopLeftY!=0 || viewport.Width!=float(target.width) ||
+        viewport.Height!=float(target.height) || viewport.MinDepth!=0 || viewport.MaxDepth!=1)
+        throw std::runtime_error("Refraction copy viewport does not match its destination");
+}
+
 struct NativePreparedRefractionDepth {
     NativeRefractionDepth output;
     ComPtr<ID3D11ShaderResourceView> input;
@@ -178,12 +200,13 @@ struct NativePreparedRefractionDepth {
     D3D11_COMPARISON_FUNC depthCompare{};
 };
 static NativePreparedRefractionDepth prepareNativeRefractionDepth(ID3D11Device* device,
-    const fs::path& source,ID3D11ShaderResourceView* input,UINT width,UINT height,
+    const fs::path& source,ID3D11ShaderResourceView* input,std::string_view sourceKey,
     const NativeRefractionTargetDeclaration& declared) {
-    UINT resource,shader,target,sourceWidth,sourceHeight;std::ifstream file(source/"target.txt");
-    file>>resource>>shader>>target>>sourceWidth>>sourceHeight;
-    if(!file||width!=sourceWidth||height!=sourceHeight)throw std::runtime_error("Re-export node97 for the Main extent");
-    requireNativeRefractionMedia(declared,resource,shader,target,sourceWidth,sourceHeight);
+    requireRefractionCopySourceOwner(source,input,sourceKey);
+    UINT resource,shader,target,width,height;std::ifstream file(source/"target.txt");
+    file>>resource>>shader>>target>>width>>height;
+    if(!file)throw std::runtime_error("Refraction depth copy target declaration is absent");
+    requireNativeRefractionMedia(declared,resource,shader,target,width,height,1);
     NativePreparedRefractionDepth out;out.input=input;out.output.logicalKey=declared.logicalKey;
     D3D11_TEXTURE2D_DESC td{};td.Width=declared.width;td.Height=declared.height;td.ArraySize=td.MipLevels=1;
     td.Format=DXGI_FORMAT(declared.resourceFormat);td.SampleDesc.Count=1;td.BindFlags=D3D11_BIND_DEPTH_STENCIL|D3D11_BIND_SHADER_RESOURCE;
@@ -192,8 +215,9 @@ static NativePreparedRefractionDepth prepareNativeRefractionDepth(ID3D11Device* 
     check(device->CreateDepthStencilView(out.output.texture.Get(),&dd,&out.output.depth),"node97 original DSV");
     D3D11_SHADER_RESOURCE_VIEW_DESC sd{};sd.Format=DXGI_FORMAT(declared.shaderFormat);sd.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;sd.Texture2D.MipLevels=1;
     check(device->CreateShaderResourceView(out.output.texture.Get(),&sd,&out.output.view),"node97 original SRV");
-    NativeRefractionConstantFiles constants;out.programs=prepareRefractionPrograms(device,source,constants,true);
+    NativeRefractionConstantFiles constants;out.programs=prepareRefractionPrograms(device,source,constants);
     out.geometry=prepareRefractionGeometry(device,source,out.programs.vertexCode);
+    requireRefractionCopyViewport(out.geometry.viewport,declared);
     UINT compare;std::ifstream depth(source/"depth.txt");depth>>out.depthTest>>out.depthWrite>>compare;
     if(!depth)throw std::runtime_error("node97 source depth absent");out.depthCompare=D3D11_COMPARISON_FUNC(compare);
     out.states=prepareRefractionStateOverrides(device,source,false);return out;

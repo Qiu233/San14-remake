@@ -9,17 +9,20 @@ public sealed class D3D11CurrentHdrCatalog
     public uint CommonLightingOptions { get; }
     public uint CommonEffectMode { get; }
     public uint CameraReflectionDeclaration { get; }
+    public int CommonTransparencyResolution { get; }
     public bool SuppressAmbient => (CommonLightingOptions & 0x800) == 0;
     public bool FogOwnerEnabled { get; }
     public HdrShaderResources Resources { get; }
 
     private D3D11CurrentHdrCatalog(HdrShaderResources resources, float ambientMapsRate,
-        uint lightingOptions, bool fogEnabled,uint cameraReflectionDeclaration,uint commonEffectMode)
+        uint lightingOptions, bool fogEnabled,uint cameraReflectionDeclaration,uint commonEffectMode,
+        int commonTransparencyResolution)
     {
         Resources=resources; AmbientMapsRate=ambientMapsRate;
         CommonLightingOptions=lightingOptions; FogOwnerEnabled=fogEnabled;
         CameraReflectionDeclaration=cameraReflectionDeclaration;
         CommonEffectMode=commonEffectMode;
+        CommonTransparencyResolution=commonTransparencyResolution;
     }
 
     public static D3D11CurrentHdrCatalog Create(GameResourceRepository repository,
@@ -36,6 +39,7 @@ public sealed class D3D11CurrentHdrCatalog
         return new(resources,BinaryPrimitives.ReadSingleLittleEndian(ambient.RawValue),
             (uint)common.InitialAuxiliary.LightingOptions,SkySceneSourceDefaults.SharedContextInitializer().FogEnabled120,
             BinaryPrimitives.ReadUInt32LittleEndian(reflection.RawValue),
-            CommonRenderResources.ReadScalar(commonSource,0xA1BA4B90,5));
+            CommonRenderResources.ReadScalar(commonSource,0xA1BA4B90,5),
+            unchecked((int)CommonRenderResources.ReadScalar(commonSource,0xA29E490D,5)));
     }
 }

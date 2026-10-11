@@ -30,13 +30,14 @@ class OceanPass {
     }
 
     void prepareSceneCopy(ID3D11Device* device,ID3D11DeviceContext* context,
-        NativeSourceDepthState& logical,const fs::path& source,ID3D11Texture2D* hdr,DXGI_FORMAT format) {
-        sceneCopy_=prepareNativeRefractionScene97(device,source,hdr,format,refractionTargets_.at("TransmittedSpecular"));
+        NativeSourceDepthState& logical,const fs::path& source,ID3D11Texture2D* hdr,DXGI_FORMAT format,std::string_view sourceKey) {
+        sceneCopy_=prepareNativeRefractionScene97(device,source,hdr,format,sourceKey,refractionTargets_.at("TransmittedSpecular"));
         colors_.scene97=executeNativeRefractionScene97(*sceneCopy_,context,logical);
     }
     void prepareDepthCopy(ID3D11Device* device,ID3D11DeviceContext* context,
-        NativeSourceDepthState& logical,const fs::path& source,ID3D11ShaderResourceView* depth,UINT width,UINT height) {
-        depthCopy_=prepareNativeRefractionDepth(device,source,depth,width,height,refractionTargets_.at("RefractionDepth"));
+        NativeSourceDepthState& logical,const fs::path& source,ID3D11ShaderResourceView* depth,std::string_view sourceKey,UINT sourceSurface) {
+        if(sourceSurface!=0)throw std::runtime_error("Refraction depth copy requires geometry depth surface zero");
+        depthCopy_=prepareNativeRefractionDepth(device,source,depth,sourceKey,refractionTargets_.at("RefractionDepth"));
         depth_=executeNativeRefractionDepth(*depthCopy_,context,logical);
     }
     void copyScene(ID3D11DeviceContext* context,NativeSourceDepthState& logical) {
@@ -104,16 +105,17 @@ class OceanPass {
     void prepareFilters(ID3D11Device* device,const fs::path& source,
         ID3D11Texture2D* hdr,DXGI_FORMAT format,ID3D11ShaderResourceView* depth) {
         filters_=prepareNativeRefractionFilters137(device,source,hdr,format,depth,
-            refractionTargets_.at("FilteredSpecular"),refractionTargets_.at("BlurredDepth"));
+            refractionTargets_.at("HalfFilteredSpecular"),refractionTargets_.at("FilteredSpecular"),refractionTargets_.at("BlurredDepth"));
     }
-    void executeFilters(ID3D11DeviceContext* context,NativeSourceDepthState& logical) {
-        executeNativeRefractionFilters137(filters_,context,logical,colors_);
+    void executeFilters(ID3D11DeviceContext* context,NativeSourceDepthState& logical,unsigned sourceIndex) {
+        executeNativeRefractionFilters137(filters_,context,logical,sourceIndex,colors_);
     }
 
     ID3D11ShaderResourceView* refractionDepth() const {return depth_.view.Get();}
     ID3D11DepthStencilView* depthTarget() const {return depth_.depth.Get();}
     ID3D11ShaderResourceView* transmittedScene() const {return colors_.scene97.view.Get();}
-    ID3D11ShaderResourceView* filteredSpecular() const {return colors_.specular.view.Get();}
+    ID3D11ShaderResourceView* filteredSpecular(unsigned sourceIndex) const {return filters_.specular.at(sourceIndex).view.Get();}
+    const std::string& filteredSpecularKey(unsigned sourceIndex) const {return filters_.specular.at(sourceIndex).logicalKey;}
     ID3D11ShaderResourceView* blurredDepth() const {return colors_.blurredDepth.view.Get();}
     const source_water_camera::RefractionDerived& refractionCamera() const {return camera_.refraction;}
 

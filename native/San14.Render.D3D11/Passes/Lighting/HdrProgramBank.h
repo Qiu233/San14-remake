@@ -31,7 +31,7 @@ struct HdrSelectionSettings {
     bool reflectionAvailable{}, refractionResourcesAvailable{}, localLightQueriesEmpty{}, preRendererPresent{};
 };
 struct HdrCurrentSelectionSettings {
-    std::uint32_t cameraSpecularOcclusion{}, cameraReflectionDeclaration{}, commonEffectMode{};
+    std::uint32_t cameraSpecularOcclusion{}, cameraReflectionDeclaration{}, commonEffectMode{}, specularSourceIndex{};
 };
 struct HdrShaderPlugins { bool ocean{}, refraction{}, thinSpecularSource{}, volumetricFog{}, caustics{}; };
 struct HdrProgramReference { std::uint32_t combination{}, vertex{}, pixel{}; };

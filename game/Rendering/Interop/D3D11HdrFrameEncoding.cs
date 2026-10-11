@@ -1,7 +1,7 @@
 /// <summary>Current HDR lighting inputs, independent of selected programs and layouts.</summary>
 internal static class D3D11HdrFrameEncoding
 {
-    internal const int ByteLength = 236;
+    internal const int ByteLength = 240;
 
     /// <summary>Modifiers follow the same ordered light records in the season
     /// packet. The native lighting owner prepares actual outer/inner values.</summary>
@@ -27,6 +27,9 @@ internal static class D3D11HdrFrameEncoding
         writer.Write(frame.Optics.Surface.SpecularOcclusionType);
         writer.Write(catalog.CameraReflectionDeclaration);
         writer.Write(catalog.CommonEffectMode);
+        var filters=frame.Mode.AcceptedMainFrame.Camera.Source.Declaration.RefractionFilters;
+        writer.Write((uint)new San14.Data.DeferredTransparencyImageSelection(
+            filters.TransparencyResolutionOverride,catalog.CommonTransparencyResolution).SourceIndex);
         writer.Write(0x31434F48u); // HOC1: ordered modifier occlusion rates.
         foreach(var light in frame.Lights)
         {

@@ -8,7 +8,12 @@ public sealed record CameraAmbientDefaults(float Frequency, float InterpolationR
 
 /// <summary>Declaration defaults remain distinct from current frame settings.</summary>
 public sealed record CameraDeclarationDefaults(PerspectiveCameraDeclaration Perspective,
-    CameraAmbientDefaults Ambient, uint DepthOfFieldMode, float FogLightingBlend)
+    CameraAmbientDefaults Ambient, uint DepthOfFieldMode, float FogLightingBlend,
+    CameraRefractionFilterSettings RefractionFilters)
 {
     public const uint InitialExposureRectangleFlags = 0;
 }
+
+/// <summary>Negative overrides use the loaded Common filter settings.</summary>
+public readonly record struct CameraRefractionFilterSettings(
+    int TransparencyResolutionOverride, int DepthFilterOverride);

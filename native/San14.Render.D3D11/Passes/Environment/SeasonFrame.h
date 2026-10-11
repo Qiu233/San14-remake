@@ -188,9 +188,9 @@ inline Frame decode(std::span<const uint8_t> bytes){
             r.lights[i].lighting = San14::Render::Interop::decodeHdrLight(r.lights[i].data, modifiers[i]);
         at += San14::Render::Interop::HdrLightingInputBytes;
         if (at < bytes.size()) {
-            if (bytes.size() - at < 16) throw std::runtime_error("Current HDR selection settings are truncated");
-            r.hdrSelection = San14::Render::Interop::decodeHdrSelectionSettings(bytes.subspan(at,16));
-            at += 16;
+            if (bytes.size() - at < 20) throw std::runtime_error("Current HDR selection settings are truncated");
+            r.hdrSelection = San14::Render::Interop::decodeHdrSelectionSettings(bytes.subspan(at,20));
+            at += 20;
             if (bytes.size() - at != 44 || read<std::uint32_t>(bytes,at) != 0x31434F48u)
                 throw std::runtime_error("Current HDR occlusion rates format");
             at += 4;
