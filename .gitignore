@@ -18,6 +18,7 @@ game/generated/
 /src/San14.Import/
 /game.godot/
 /AGENTS.md
+/PROGRESS.md
 /native/San14.Render.D3D11/build.ps1
 /native/windows-x64/
 /game/tests/

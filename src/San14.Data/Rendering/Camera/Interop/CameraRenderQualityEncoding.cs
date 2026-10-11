@@ -17,6 +17,8 @@ internal static class CameraRenderQualityEncoding
                 0x1C8 => result with { DarkAdaptationScale = value },
                 0x1D0 => result with { Cloudiness = value },
                 0x210 => result with { AltitudeOffset = value },
+                0xB3C => result with { OceanCutoffDistance = value },
+                0xB08 => result with { OceanRefractionIndex = value },
                 0x674 => result with { CloudLowCostMode = bits },
                 0x7A0 => result with { CloudResolutionMode = bits },
                 0x840 => result with { PrimaryFogFade = bits },
@@ -25,7 +27,7 @@ internal static class CameraRenderQualityEncoding
                 0x868 => result with { SecondaryFogMode = bits },
                 _ => result
             };
-            if (at is not (0x1C4 or 0x1C8 or 0x1D0 or 0x210 or 0x674 or 0x7A0 or 0x840 or 0x84C or 0x8E0 or 0x868))
+            if (at is not (0x1C4 or 0x1C8 or 0x1D0 or 0x210 or 0xB3C or 0xB08 or 0x674 or 0x7A0 or 0x840 or 0x84C or 0x8E0 or 0x868))
                 compatibility.Add(new(at, bits));
         }
         return result with { Compatibility = compatibility.ToImmutable() };
@@ -36,6 +38,8 @@ internal static class CameraRenderQualityEncoding
         if (patch.DarkAdaptationScale is float dark) yield return new(0x1C8, BitConverter.SingleToUInt32Bits(dark));
         if (patch.Cloudiness is float cloud) yield return new(0x1D0, BitConverter.SingleToUInt32Bits(cloud));
         if (patch.AltitudeOffset is float altitude) yield return new(0x210, BitConverter.SingleToUInt32Bits(altitude));
+        if (patch.OceanCutoffDistance is float cutoff) yield return new(0xB3C, BitConverter.SingleToUInt32Bits(cutoff));
+        if (patch.OceanRefractionIndex is float eta) yield return new(0xB08, BitConverter.SingleToUInt32Bits(eta));
         if (patch.CloudLowCostMode is uint lowCost) yield return new(0x674, lowCost);
         if (patch.CloudResolutionMode is uint resolution) yield return new(0x7A0, resolution);
         if (patch.PrimaryFogFade is uint fade) yield return new(0x840, fade);

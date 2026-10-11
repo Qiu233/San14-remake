@@ -4,13 +4,13 @@ using San14.Data.Formats;
 
 namespace San14.Data;
 
-/// <summary>The water construction and normal texture declarations selected by
+/// <summary>The water construction, texture and Cloud program declarations selected by
 /// a named View. This resource owner does not assert GPU or renderer readiness.</summary>
 public sealed class NamedViewRendererResources
 {
     private NamedViewRendererResources(LoadedObjects definitions, DokObject renderer,
         OceanGridSettings declaredGrid, uint dimensionOverride,
-        uint normalVolumeGroup, uint normalNoiseGroup)
+        uint normalVolumeGroup, uint normalNoiseGroup, uint oceanWaveShaderFileId, uint cloudShaderFileId)
     {
         Definitions = definitions;
         DeclaredGrid = declaredGrid;
@@ -18,6 +18,8 @@ public sealed class NamedViewRendererResources
         { Columns = dimensionOverride, Rows = dimensionOverride };
         NormalVolumeGroup = normalVolumeGroup;
         NormalNoiseGroup = normalNoiseGroup;
+        OceanWaveShaderFileId = oceanWaveShaderFileId;
+        CloudShaderFileId = cloudShaderFileId;
         SourceIdentity = $"{definitions.Source.ResourceUri}@{definitions.Source.DecodedSha256}#object/{renderer.ObjectId:X8}";
     }
 
@@ -26,6 +28,8 @@ public sealed class NamedViewRendererResources
     public OceanGridSettings OceanGrid { get; }
     public uint NormalVolumeGroup { get; }
     public uint NormalNoiseGroup { get; }
+    public uint OceanWaveShaderFileId { get; }
+    public uint CloudShaderFileId { get; }
     public string SourceIdentity { get; }
 
     /// <summary>Uses the normal map's registered definition libraries and its
@@ -42,14 +46,13 @@ public sealed class NamedViewRendererResources
     public static NamedViewRendererResources Read(LoadedObjects viewDefinitions, uint viewObjectId,
         LoadedObjects rendererDefinitions, uint dimensionOverride)
     {
-        // Decode source bytes here; parsed caller metadata is not an authority.
-        var view = DokReader.Read(viewDefinitions.Source.Bytes).Objects.Single(value => value.ObjectId == viewObjectId);
+        var view = viewDefinitions.Document.Objects.Single(value => value.ObjectId == viewObjectId);
         if (view.Kind != DokObjectKind.Inline || view.ClassId != 0x97AF26FD)
             throw new NotSupportedException("Renderer selection requires an inline View declaration.");
         uint rendererId = Word(Field(view, 0xCA75FFCD, 5, 1), 0);
         if (rendererId == 0)
             throw new NotSupportedException("The selected View declares no renderer for Ocean preparation.");
-        var definitions = new LoadedObjects(DokReader.Read(rendererDefinitions.Source.Bytes), rendererDefinitions.Source);
+        var definitions = rendererDefinitions;
         var renderer = definitions.Document.Objects.Single(value => value.ObjectId == rendererId);
         if (renderer.Kind != DokObjectKind.Inline || renderer.ClassId != 0x83F5B40D)
             throw new NotSupportedException("Ocean preparation requires an inline renderer declaration in the selected library.");
@@ -62,7 +65,9 @@ public sealed class NamedViewRendererResources
             Float(Field(renderer, 0x0CAE2711, 8, 1), 0));
         return new(definitions, renderer, grid, dimensionOverride,
             Word(Field(renderer, 0xD322225E, 5, 1), 0),
-            Word(Field(renderer, 0x7852C9D5, 5, 1), 0));
+            Word(Field(renderer, 0x7852C9D5, 5, 1), 0),
+            Word(Field(renderer, 0x70DDC332, 5, 1), 0),
+            Word(Field(renderer, 0x32AE949E, 5, 1), 0));
     }
 
     private static DokProperty Field(DokObject owner, uint name, uint type, int count)

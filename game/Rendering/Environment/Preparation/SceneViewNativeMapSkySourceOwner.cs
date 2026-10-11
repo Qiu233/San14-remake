@@ -11,6 +11,9 @@ public sealed class SceneViewNativeMapSkySourceOwner : IAsyncDisposable
     private readonly SkySelectedLightAtmosphereOwner atmosphere;
     private readonly SceneViewNativeMapSkyWorkSourceOwner work;
     private readonly string recordGeneration;
+    private readonly Sky2TextureBindings textureBindings;
+    private readonly Sky2TextureBindingSnapshot textureSnapshot;
+    private SkySeasonPackageSampling sampling;
     private NativeMapFrameContext? completedWorkContext;
     public void BindActualGraphicsColorMaskOwner(MapSourceCreatedGraphicsColorMaskOwner actualOwner)
         => work.BindActualGraphicsColorMaskOwner(actualOwner);
@@ -21,8 +24,9 @@ public sealed class SceneViewNativeMapSkySourceOwner : IAsyncDisposable
     }
     private SceneViewNativeMapSkySourceOwner(SkyAmbientSourceFrameAssembler assembler,
         SkySelectedLightAtmosphereOwner atmosphere, SceneViewNativeMapSkyWorkSourceOwner work,
-        string generation)
-    { this.assembler = assembler; this.atmosphere = atmosphere; this.work = work; recordGeneration = generation; }
+        string generation,Sky2TextureBindings textureBindings,Sky2TextureBindingSnapshot textureSnapshot,
+        SkySeasonPackageSampling sampling)
+    { this.textureBindings=textureBindings;this.textureSnapshot=textureSnapshot;this.sampling=sampling;this.assembler = assembler; this.atmosphere = atmosphere; this.work = work; recordGeneration = generation; }
 
     public static async Task<SceneViewNativeMapSkySourceOwner> BuildAsync(
         SceneViewNativeMapLoadInputs loaded, Vkd3dShaderCompiler compiler,
@@ -32,6 +36,10 @@ public sealed class SceneViewNativeMapSkySourceOwner : IAsyncDisposable
     {
         string locale = loaded.InitialFrame.MainCamera.Camera.ExecutableLocale;
         var repo = loaded.Repository;
+        var sampling=SkySeasonPackageTextures.Read(bootstrapPresent.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage);
+        var textureBindings=new Sky2TextureBindings();
+        textureBindings.ApplyPackage(sampling,reference=>SkySeasonPackageTextures.LoadSampling(repo,reference));
+        var textureSnapshot=textureBindings.Capture();
         var atmosphere = SkySelectedLightAtmosphereOwner.CreateFresh(repo, locale,
             bootstrap.Lighting.Binding.ViewIdentity + "/owned-Generic-package", NativeLogDispatch.Sse);
         // Actual activation/typed optional-stage gates are distinct from the
@@ -41,7 +49,7 @@ public sealed class SceneViewNativeMapSkySourceOwner : IAsyncDisposable
         try
         {
         var core = PrepareCore(repo, atmosphere, bootstrap.Feature, bootstrap.Lighting,
-            work.BootstrapSelectedSkyRecord, bootstrapPresent);
+            work.BootstrapSelectedSkyRecord, bootstrapPresent,textureSnapshot);
         var ambient = SkyAmbientResources.Load(repo, repo.LoadObjects("system", 0xDAB638B2), 0x910603AC,
             repo.LoadObjects("system", 0x718CCB8B), repo.LoadObjects("system", 0x93FB3280));
         var applied = core.AppliedSeason;
@@ -49,7 +57,7 @@ public sealed class SceneViewNativeMapSkySourceOwner : IAsyncDisposable
             applied.CurrentCamera.Parameters, applied.CurrentCameraLights.SunPresent, applied.CurrentCameraLights.MoonPresent);
         var frame = SkySceneSourceFrameProvider.PrepareAppliedSeason(applied.Selection,
             applied.CurrentCamera, bootstrap.Lighting, ambient.SpecularTargets[0], applied.CurrentCameraLights,
-            core.SharedAtmosphere, controller, 2);
+            core.SharedAtmosphere, controller, 2,textureSnapshot);
         work.PrepareBootstrapProducers(frame);
         var first = core.CreateInputs(work.BootstrapProducers, work.BootstrapStages);
         var complete = SceneViewNativeMapSkyNamedWriteCoverage.PrepareCompleteCurrent(
@@ -62,14 +70,15 @@ public sealed class SceneViewNativeMapSkySourceOwner : IAsyncDisposable
             complete.Frame.Faces, applied.CurrentCameraLights,
             new("applied-route-does-not-read-ordinary-row-associations;package10-actual-row0", null, null, 0, false, false),
             complete.OwnedVertexPaddingTemplate, complete.OwnedPixelPaddingTemplate, 2,
-            work.RequireSourceProgramSelection(ambient));
+            work.RequireSourceProgramSelection(ambient) with{TextureBindings=textureSnapshot});
         var assembler = await SkyAmbientSourceFrameAssembler.CreateAppliedSeasonAsync(repo, compiler,
-            lighting.Registration, lighting.Source, construction, first, work.BuildOptionalProducersAsync,
+            lighting.Registration, lighting.Source, construction, first,textureBindings, work.BuildOptionalProducersAsync,
             allowReadback: false);
-        return new(assembler, atmosphere, work, bootstrap.Lighting.Binding.ViewIdentity);
+        return new(assembler, atmosphere, work, bootstrap.Lighting.Binding.ViewIdentity,textureBindings,textureSnapshot,sampling);
         }
         catch (Exception buildFailure)
         {
+            textureBindings.Dispose();
             var partial = new NativeMapBorrowerRetirementPackage(
                 bootstrap.Lighting.Binding.ViewIdentity + "/source-Sky-partial/" + Guid.NewGuid().ToString("N"),
                 buildFailure is NativeMapBorrowerConstructionException nested ? nested.RetainedPackage : null,
@@ -97,14 +106,22 @@ public sealed class SceneViewNativeMapSkySourceOwner : IAsyncDisposable
         // Work scope proves 1B20==this record; 1BD0 alone does not identify
         // the Sky selection. Its source predicates are validated independently.
         var currentSelection = work.PrepareCurrentSelection(actual, present, rgb, selectedRecord, actualExecution);
+        var selectedSampling=SkySeasonPackageTextures.Read(present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage);
+        if(!ReferenceEquals(selectedSampling,sampling))
+        {
+            textureBindings.RequireCompatiblePackage(selectedSampling,
+                reference=>SkySeasonPackageTextures.LoadSampling(work.Repository,reference));
+            sampling=selectedSampling;
+        }
+        textureSnapshot.RequireCurrent();
         var core = PrepareCore(work.Repository, atmosphere, actual.Feature, actual.Lighting,
-            currentSelection.SelectedSkyRecord, present);
+            currentSelection.SelectedSkyRecord, present,textureSnapshot);
         var applied = core.AppliedSeason;
         var controller = SkySceneSourceDefaults.PrepareController(applied.CurrentCamera.Controller,
             applied.CurrentCamera.Parameters, applied.CurrentCameraLights.SunPresent, applied.CurrentCameraLights.MoonPresent);
         var sourceFrame = SkySceneSourceFrameProvider.PrepareAppliedSeason(applied.Selection,
             applied.CurrentCamera, actual.Lighting, assembler.Scene.SpecularTargets[0].Source,
-            applied.CurrentCameraLights, core.SharedAtmosphere, controller, 2);
+            applied.CurrentCameraLights, core.SharedAtmosphere, controller, 2,textureSnapshot);
         var workFrame = work.PrepareCurrentWork(actual.Context, currentSelection, sourceFrame, explicitOwnedGeometryDeltaSeconds);
         var input = core.CreateInputs(workFrame.Producers, workFrame.Stages);
         if (!workFrame.Enable.AllowsWorkInitialization)
@@ -143,7 +160,7 @@ public sealed class SceneViewNativeMapSkySourceOwner : IAsyncDisposable
     private static PreparedCore PrepareCore(GameResourceRepository repo,
         SkySelectedLightAtmosphereOwner owner, MapSourceCreatedF103FeaturePacket feature,
         MapSourceCreatedLightingPacket lighting, TerrainSelectedKind1Record actualSkyRecord,
-        MapSourceCreatedSeasonLightingFrame present)
+        MapSourceCreatedSeasonLightingFrame present,Sky2TextureBindingSnapshot textureSnapshot)
     {
         if (present.FrameNumber != lighting.FrameNumber ||
             !present.PreparedCameraPrefix.Span.SequenceEqual(lighting.PreparedCameraPrefix.Span))
@@ -156,8 +173,7 @@ public sealed class SceneViewNativeMapSkySourceOwner : IAsyncDisposable
         var currentAtmosphere = owner.PrepareCurrent(selected, lighting);
         currentAtmosphere.ValidateCurrent(owner, selected, lighting);
         var season = present.AcceptedSeasonCamera.Inputs.Source;
-        var sourceMoon = Sky2SourceNull2D.FromAppliedSeasonOnFreshShader(season.Selection.FirstPackage,
-            SkySamplingRole.Moon, SkyTextureStateScope.AppliedSourceSeasonOnFreshShader);
+        var sourceMoon = textureSnapshot.RequireNull(SkySamplingRole.Moon);
         var moon = Sky2SourceZeroMoon.Create(repo.LoadShaderContainer("system", 0x340AC335),
             sourceMoon, lighting, selected);
         var raw = selected.CompleteLightData.Span;
@@ -172,6 +188,7 @@ public sealed class SceneViewNativeMapSkySourceOwner : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        textureBindings.Dispose();
         await assembler.DisposeAsync();
         await work.DisposeAsync();
     }

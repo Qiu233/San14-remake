@@ -15,9 +15,9 @@ public sealed class SceneViewNativeMapSkyCurrentSelectionOwner
 
     public static SceneViewNativeMapSkyCurrentSelectionOwner CreateFresh(
         GameResourceRepository repository, string locale, MapLightingBinding actualBinding,
-        string ownedWorkIdentity)
+        string ownedWorkIdentity, LoadedMapCameraConstructionSource actualMain)
         => new(SkyAppliedSourceStageOwner.CreateFresh(repository, locale, ownedWorkIdentity,
-            actualBinding.CameraOwnerIdentity), actualBinding);
+            actualBinding.CameraOwnerIdentity, actualMain), actualBinding);
 
     public SceneViewNativeMapSkyCurrentSelection PrepareCurrent(
         MapSourceCreatedF103CurrentFrame actualSource,

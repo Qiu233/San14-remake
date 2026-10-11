@@ -23,25 +23,81 @@ public sealed record D3D11AtmosphereInitialLight(uint GroupMask,ReadOnlyMemory<b
 public sealed record D3D11AtmosphereInitialInputs(MapSourceCreatedSeasonLightingFrame Present,
     IReadOnlyDictionary<int,uint> CurrentMainWords,IReadOnlyList<D3D11AtmosphereInitialLight> Lights,
     SkyScenePreparedController Controller,Sky2PreparedLight Sun,Sky2PreparedLight Moon,
-    Vector3 SunRgb,Vector3 MoonRgb,float ControllerGeometry40,D3D11AtmosphereInitialOptions Options);
+    Vector3 SunRgb,Vector3 MoonRgb,float ControllerGeometry40,D3D11AtmosphereInitialOptions Options,
+    HeightFogSettings? HeightFog = null,uint? ActiveFogGroups = null);
 
 public sealed record D3D11AtmosphereProgramSelection(int Combination,int VertexProgram,int PixelProgram);
 
 public sealed record D3D11AtmosphereInitialFogConstants(string Name,
-    D3D11AtmosphereProgramSelection Programs,byte[] VertexBytes,byte[] PixelBytes,
-    IReadOnlyList<(int Offset,float Velocity)> Phases);
+    HeightFogProgram? Program,byte[] VertexBytes,byte[] PixelBytes,
+    IReadOnlyList<(int Offset,float Velocity)> Phases,uint Mask)
+{
+    public D3D11AtmosphereProgramSelection? Programs => Program?.Programs;
+}
 
 public sealed record AtmosphereInitialConstants(byte[] CameraProfile,
     D3D11AtmosphereProgramSelection SkyPrograms,byte[] SkyVertexBytes,byte[] SkyPixelBytes,
-    D3D11AtmosphereProgramSelection CloudPrograms,byte[] CloudVertexBytes,byte[] CloudPixelBytes,
-    byte[] CloudHistoryVertexBytes,byte[] CloudHistoryPixelBytes,
-    IReadOnlyList<D3D11AtmosphereInitialFogConstants> Fog);
+    D3D11MainCloudConstants Cloud,
+    HeightFogInitialFrame HeightFog)
+{
+    public IReadOnlyList<D3D11AtmosphereInitialFogConstants> Fog => HeightFog.Passes;
+}
+
+public sealed record D3D11MainCloudConstants(SkyCloudMainProgramSelection Programs,byte[] Vertex,byte[] Pixel,
+    byte[] HistoryVertex,byte[] HistoryPixel,byte[] CompositeVertex,byte[] CompositePixel,
+    IReadOnlyList<D3D11CloudAnimationAxis> Axes,byte[] CurrentW2P,float Cloudy);
 
 /// <summary>Fresh complete named Sky/MainCloud/SSFog constants from the actual
 /// current Main and season. It reads resource declarations and owned scalar
 /// rules; retained history and subsequent clock updates remain native owners.</summary>
 public static partial class D3D11AtmosphereInitialConstantPreparation
 {
+    private sealed record CurrentAtmosphereContext(byte[] Main, ReadOnlyMemory<byte> Light,
+        byte[] RendererRequest, int FeatureIndex, SkySceneSharedAtmosphere Atmosphere,
+        Vector4 Eye, Vector4 Target, Vector4 Up, CameraLens Lens,
+        MapCameraConstructionMatrices Matrices, bool EarthPresent);
+
+    private static CurrentAtmosphereContext PrepareContext(D3D11AtmosphereInitialInputs input,
+        G1ShaderBindingTables tables)
+    {
+        var present = input.Present;
+        var options = input.Options;
+        if (options.Width <= 0 || options.Height <= 0 || !float.IsFinite(options.CloudElapsedSeconds) ||
+            options.CloudElapsedSeconds < 0 || !float.IsFinite(options.CommonClock))
+            throw new InvalidDataException("Atmosphere initialization needs actual finite clocks and target dimensions.");
+        if (present.AcceptedSeasonCamera.Inputs.Source.Selection.SecondPackage is not null)
+            throw new NotSupportedException("Atmosphere initialization needs the actual paired-package numeric producer.");
+        byte[] main = present.PreparedCameraPrefix.ToArray();
+        var selected = input.Lights.First(light => (light.GroupMask & 0x80) != 0).CompleteData;
+        byte[] request = SkyDirectionalRendererFeatureWriter.WriteRequest(selected.Span);
+        int featureIndex = Feature(tables, request);
+        var feature = tables.Features[featureIndex].Feature.Words;
+        if (feature[6] != 7)
+            throw new NotSupportedException("Initial atmosphere requires its selected renderer Fog/Scat producer.");
+        byte[] fog96 = SkyDirectionalRendererFeatureWriter.CopyPackageFog96(selected.Span.Slice(0x150, 96), F(main, 0x1EC));
+        var fog = SkyFogMath.Generate(7, checked((int)feature[7]), true, fog96);
+        var scattering = fog.RequiresMode7NeutralScattering ? fog.ScatteringOverride!.Values :
+            SkyScatteringMath.Generate(7, fog96, Rgb(selected.Span, 0x10)).Values;
+        var atmosphere = new SkySceneSharedAtmosphere("owned-current-Main/selected-group80", fog, scattering);
+        Vector4 eye = V(main, 0x10), target = V(main, 0x20), up = V(main, 0x30);
+        eye.Y = A(M(F(main, 0x210), 100000), eye.Y);
+        var lens = CameraLens.DecodePrefix(main.AsSpan(0, 0x160));
+        var matrices = MapCameraConstructionMath.CompleteAB6C60(eye, target, up, lens, 2, NativeCameraTangentDispatch.Sse);
+        bool earth = TextureReference(present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage.Camera, 0xB0EE87B8);
+        return new(main, selected, request, featureIndex, atmosphere, eye, target, up, lens, matrices, earth);
+    }
+
+    /// <summary>Prepares Main Cloud independently of Sky geometry and height-fog
+    /// program support. The combined preparation uses the same context and writer.</summary>
+    public static D3D11MainCloudConstants PrepareCloudConstants(D3D11AtmosphereInitialInputs input,
+        SkyCloudProgramResources cloudPrograms, D3D11CloudRenderResources cloudResources)
+    {
+        var context = PrepareContext(input, cloudPrograms.Bindings);
+        return PrepareCloud(cloudPrograms, cloudResources, input, context.Eye, context.Target, context.Up,
+            context.Lens, context.Matrices.WorldToProjection100, context.Atmosphere,
+            context.RendererRequest, context.EarthPresent);
+    }
+
     public static RenderTextureDefinition LoadFreshMainTarget(GameResourceRepository repository,
         MapSourceCreatedSeasonLightingFrame present)
     {
@@ -57,21 +113,18 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
     }
 
     public static AtmosphereInitialConstants Prepare(GameResourceRepository repository,
-        D3D11AtmosphereInitialInputs input)
+        D3D11AtmosphereInitialInputs input,D3D11MainCloudConstants cloud,
+        HeightFogProgramResources? fogPrograms = null)
     {
         var present=input.Present;var options=input.Options;
-        if(options.Width<=0||options.Height<=0||!float.IsFinite(options.CloudElapsedSeconds)||options.CloudElapsedSeconds<0||
-            !float.IsFinite(options.CommonClock))throw new InvalidDataException("Atmosphere initialization needs actual finite clocks and target dimensions.");
-        var package=present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage;
-        if(present.AcceptedSeasonCamera.Inputs.Source.Selection.SecondPackage is not null)
-            throw new NotSupportedException("Atmosphere initialization needs the actual paired-package numeric producer.");
-        byte[] main=present.PreparedCameraPrefix.ToArray();
-        var selected=input.Lights.First(light=>(light.GroupMask&0x80)!=0).CompleteData;
         var skyShader=repository.LoadShaderContainer("system",0x340AC335);
         var skyTables=skyShader.ReadG1Bindings();
-        byte[] request=SkyDirectionalRendererFeatureWriter.WriteRequest(selected.Span);
-        int skyFeature=Feature(skyTables,request);
-        bool earth=TextureReference(package.Camera,0xB0EE87B8);
+        var context = PrepareContext(input, skyTables);
+        var package=present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage;
+        byte[] main = context.Main;
+        var selected = context.Light;
+        int skyFeature = context.FeatureIndex;
+        bool earth = context.EarthPresent;
         bool moonTexture=TextureReference(package.Camera,0xF83B0CC1);
         bool milky=TextureReference(package.Camera,0x66BCE906);
         if(moonTexture||milky)throw new NotSupportedException("Fresh Main Sky needs its actual Moon/Milky descriptor installation.");
@@ -81,19 +134,14 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
         uint skyPass=F(main,0x1D0)==0||earth?0u:1u;
         var skyCombination=skyTables.ResolveCombination([(uint)skyFeature,0,0,0,0,0,(uint)skyBinding.Index],skyPass);
         var skyPrograms=Programs(skyCombination);
-        var feature=skyTables.Features[skyFeature].Feature.Words;
-        if(feature[6]!=7)throw new NotSupportedException("Initial Main Sky requires its selected non-mode7 Fog/Scat producer.");
-        byte[] fog96=SkyDirectionalRendererFeatureWriter.CopyPackageFog96(selected.Span.Slice(0x150,96),F(main,0x1EC));
-        var fog=SkyFogMath.Generate(7,checked((int)feature[7]),true,fog96);
-        var scattering=fog.RequiresMode7NeutralScattering?fog.ScatteringOverride!.Values:
-            SkyScatteringMath.Generate(7,fog96,Rgb(selected.Span,0x10)).Values;
-        var atmosphere=new SkySceneSharedAtmosphere("owned-current-Main/selected-group80",fog,scattering);
+        var atmosphere = context.Atmosphere;
+        var fog = atmosphere.Fog;
+        var scattering = atmosphere.Scattering;
         var parameters=present.CurrentSkyCamera.Parameters with{NativeTargetFormat=options.NativeTargetFormat,ClampDelta1610=D3D11AtmosphereInitialCallerRules.MainSkyClamp};
         var transform=Sky2GeometryPreparation.PrepareSkyTransform(parameters.Angle1430,parameters.Angle1434,parameters.Angle143C);
-        Vector4 eye=V(main,0x10),target=V(main,0x20),up=V(main,0x30);
-        eye.Y=A(M(F(main,0x210),100000),eye.Y);
-        var lens=CameraLens.DecodePrefix(main.AsSpan(0,0x160));
-        var matrices=MapCameraConstructionMath.CompleteAB6C60(eye,target,up,lens,2,NativeCameraTangentDispatch.Sse);
+        Vector4 eye = context.Eye;
+        var lens = context.Lens;
+        var matrices = context.Matrices;
         var ctl=input.Controller.Controller;
         var camera=Sky2CameraLightPreparation.PrepareCamera(matrices.WorldToView80,matrices.ProjectionC0,
             eye,transform,lens.Flags,2,ctl.Matrix1B0);
@@ -118,12 +166,10 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
         skyPixel.Set("g_vMoonScreenPos",Words(moonGeometry.Screen.Position));skyPixel.Set("g_vAltitudeInfo",Words(parameters.AltitudeInfo));
         skyPixel.Set("g_vStableDim",Words(parameters.StableDimensions));
         skyPixel.Set("g_vClampValue",Words(Sky2ParameterPreparation.PrepareClampValue(options.NativeTargetFormat,parameters.ClampDelta1610,ctl.Scalar1F0)));
-        var cloud=PrepareCloud(repository,input,eye,target,up,lens,matrices.WorldToProjection100,atmosphere,request,earth);
-        var fogPackets=PrepareFog(repository,input,main,lens);
+        var fogPackets=PrepareFog(repository,input,main,lens,fogPrograms ?? HeightFogProgramResources.Load(repository));
         return new(Profile(input,main,transform,lens),skyPrograms,
             Pack(skyShader.ReadResourceDefinitions(skyPrograms.VertexProgram),144,skyVertex),
-            Pack(skyShader.ReadResourceDefinitions(skyPrograms.PixelProgram),336,skyPixel),cloud.Programs,cloud.Vertex,cloud.Pixel,
-            cloud.HistoryVertex,cloud.HistoryPixel,fogPackets);
+            Pack(skyShader.ReadResourceDefinitions(skyPrograms.PixelProgram),336,skyPixel),cloud,fogPackets);
     }
 
     public static void WriteNativeInputs(AtmosphereInitialConstants constants,
@@ -135,18 +181,19 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
         {Write(root,"main-sky-vs-b0.bin",constants.SkyVertexBytes);Write(root,"main-sky-ps-b0.bin",constants.SkyPixelBytes);}
         foreach(string root in new[]{Path.Combine(atmosphereDirectory,"cloud"),mainCloudDirectory})
         {
-            Write(root,"pass1-vs-b0.bin",constants.CloudVertexBytes);Write(root,"pass1-ps-b0.bin",constants.CloudPixelBytes);
-            Write(root,"pass2-vs-b0.bin",constants.CloudHistoryVertexBytes);Write(root,"pass2-ps-b0.bin",constants.CloudHistoryPixelBytes);
-            Write(root,"pass4-vs-b0.bin",constants.CloudHistoryVertexBytes);
+            Write(root,"pass1-vs-b0.bin",constants.Cloud.Vertex);Write(root,"pass1-ps-b0.bin",constants.Cloud.Pixel);
+            Write(root,"pass2-vs-b0.bin",constants.Cloud.HistoryVertex);Write(root,"pass2-ps-b0.bin",constants.Cloud.HistoryPixel);
+            Write(root,"pass4-vs-b0.bin",constants.Cloud.CompositeVertex);
+            if(constants.Cloud.CompositePixel.Length!=0)Write(root,"pass4-ps-b0.bin",constants.Cloud.CompositePixel);
+            else File.Delete(Path.Combine(root,"pass4-ps-b0.bin"));
         }
-        foreach(var fog in constants.Fog)
-        {
-            Write(atmosphereDirectory,"fog/"+fog.Name+"-vs-b0.bin",fog.VertexBytes);
-            Write(atmosphereDirectory,"fog/"+fog.Name+"-ps-b0.bin",fog.PixelBytes);
-            Write(fogDirectory,fog.Name+"/vs-b0.bin",fog.VertexBytes);Write(fogDirectory,fog.Name+"/ps-b0.bin",fog.PixelBytes);
-            File.WriteAllLines(Path.Combine(fogDirectory,fog.Name,"phase-velocities.txt"),fog.Phases.Select(row=>
-                row.Offset.ToString(CultureInfo.InvariantCulture)+" "+row.Velocity.ToString("R",CultureInfo.InvariantCulture)));
-        }
+        string continuous=Path.Combine(Path.GetDirectoryName(mainCloudDirectory)!,"main-cloud-continuous-input");
+        Write(continuous,"current-w2p.bin",constants.Cloud.CurrentW2P);
+        Write(continuous,"cloudy.bin",BitConverter.GetBytes(constants.Cloud.Cloudy));
+        File.WriteAllLines(Path.Combine(continuous,"animation.txt"),constants.Cloud.Axes.Select(axis=>FormattableString.Invariant(
+            $"{axis.SourcePhase} {axis.PixelOffset} {axis.Wind:R} {axis.Period:R} {axis.Position:R} {axis.Scale:R}")));
+        File.WriteAllLines(Path.Combine(continuous,"pending-vector.txt"),constants.Cloud.Axes.Take(3).Select(axis=>FormattableString.Invariant($"{axis.Wind:R} {axis.Period:R}")));
+        constants.HeightFog.WriteNativeInputs(fogDirectory);
     }
 
     private static byte[] Profile(D3D11AtmosphereInitialInputs input,byte[] main,float[] transform,CameraLens lens)

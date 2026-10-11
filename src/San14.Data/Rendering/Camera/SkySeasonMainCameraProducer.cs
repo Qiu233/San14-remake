@@ -107,8 +107,7 @@ public static class SkySeasonMainCameraProducer
             throw new InvalidDataException("Current selected Camera package belongs to another owned source season generation.");
         if(selection.SecondPackage is not null)
             throw new NotSupportedException("The seven Skylight pair interpolation is available separately; this full source-controller producer requires its exact direct selected package until other controller blend instructions are closed.");
-        var sampling=SkySeasonPackageTextures.Read(selection.FirstPackage);
-        var controller=PreparedCameraLightingSource.ReadController(sampling.Package.Camera);
+        var controller=PreparedCameraLightingSource.ReadController(selection.FirstPackage.Camera);
         float kelvin=SkySeasonMoonTemperature.ReadKelvin(selection);
         return new(ownedSeason,selection,seed,controller,kelvin,
             SkySeasonTransmittanceSource.Load(repository,selection.FirstPackage,locale),explicitlySelectedPackage is null,
@@ -130,7 +129,6 @@ public static class SkySeasonMainCameraProducer
         ArgumentNullException.ThrowIfNull(nativePhase);
         if(source.FrameNumber!=currentMain.Camera.FrameNumber||source.FrameNumber<1||
             currentMain.Camera.Source.Camera.ObjectId!=MainMapCameraAdapter.MainCameraObjectId||
-            currentMain.Camera.Source.Resource.Source.OverrideSource is not null||
             nativePhase.Locale!=currentMain.Camera.ExecutableLocale||
             source.Transmittance.Atan.Locale!=currentMain.Camera.ExecutableLocale)
             throw new InvalidDataException("Applied season Camera requires this same actual source Main38D frame and executable generation.");

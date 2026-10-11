@@ -7,6 +7,7 @@
 #include <vector>
 #include <limits>
 #include <stdexcept>
+#include "OceanSurfaceSettings.h"
 
 namespace San14::Render {
 struct OceanGridSettings {
@@ -14,9 +15,6 @@ struct OceanGridSettings {
     float sizeX{}, sizeZ{}, cycle{};
     std::uint32_t declaredLodCount{};
     float maximumDistance{};
-};
-struct OceanSurfaceState {
-    float waterHeight{}, cutoffDistance{}, directionX{}, directionZ{}, displacement{};
 };
 struct OceanIndexRange { std::uint32_t start{}, count{}; };
 struct OceanVisibilityGrid {
@@ -162,17 +160,19 @@ inline void validateOceanGridSettings(const OceanGridSettings& settings) {
     if(!std::isfinite(radius)||radius>8192)
         throw std::runtime_error("Ocean grid instance capacity exceeds the supported buffer extent");
 }
-inline OceanGrid constructOceanGrid(const OceanGridSettings& settings,const OceanSurfaceState& surface) {
+inline void applyOceanSurfaceSettings(OceanVisibilityGrid& visible,const OceanSurfaceSettings& surface) {
+    validateOceanSurfaceSettings(surface);
+    const auto direction=oceanTextureWaveDirection(surface);
+    visible.waterY=surface.waterHeight;
+    visible.cutoff=surface.cutoffDistance<visible.maxDistance?std::max(1e-5f,surface.cutoffDistance):visible.maxDistance;
+    visible.directX=direction[0];visible.directZ=direction[1];visible.displacement=surface.displacement;
+}
+inline OceanGrid constructOceanGrid(const OceanGridSettings& settings,const OceanSurfaceSettings& surface) {
     validateOceanGridSettings(settings);
-    if(!std::isfinite(surface.waterHeight)||!std::isfinite(surface.cutoffDistance)||
-       !std::isfinite(surface.directionX)||!std::isfinite(surface.directionZ)||
-       !std::isfinite(surface.displacement)||surface.cutoffDistance<0)
-        throw std::runtime_error("Ocean current surface inputs must be finite");
     OceanGrid grid;grid.settings=settings;
     auto& visible=grid.visibility;
-    visible.waterY=surface.waterHeight;visible.cellX=settings.sizeX;visible.cellZ=settings.sizeZ;
-    visible.cutoff=surface.cutoffDistance;visible.maxDistance=settings.maximumDistance;
-    visible.directX=surface.directionX;visible.directZ=surface.directionZ;visible.displacement=surface.displacement;
+    visible.cellX=settings.sizeX;visible.cellZ=settings.sizeZ;visible.maxDistance=settings.maximumDistance;
+    applyOceanSurfaceSettings(visible,surface);
     visible.lodCount=6;
     const auto radius=std::uint32_t(std::ceil(settings.maximumDistance/std::min(settings.sizeX,settings.sizeZ)));
     visible.capacity=std::max(30u,5*radius*radius);

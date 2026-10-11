@@ -111,11 +111,11 @@ public static class SourceResourceRegistrationFixed
     private static void ValidateDefinitions(LoadedObjects definitions,
         SourceResourceRegistrationFixedIdentity identity)
     {
+        // The shared library also declares unrelated render targets. Their
+        // overrides do not change this Static texture's required interface.
         if (definitions.Source.ResourceUri != GameResourceId.Rdb(Archive, identity.DefinitionResourceId).ToString() ||
-            definitions.Source.FileId != identity.DefinitionResourceId || definitions.Source.OverrideSource is not null ||
-            definitions.Source.DecodedSha256 != identity.DefinitionSha256 ||
-            Convert.ToHexString(SHA256.HashData(definitions.Source.Bytes)) != identity.DefinitionSha256)
-            throw new InvalidDataException("Fixed Static registration requires its exact complete original definition document.");
+            definitions.Source.FileId != identity.DefinitionResourceId)
+            throw new InvalidDataException("Fixed Static registration requires its declared resource library.");
         DokObject[] matches = definitions.Document.Objects.Where(value => value.ObjectId == identity.ObjectKey).ToArray();
         if (matches.Length != 1 || matches[0].Kind != DokObjectKind.Inline || matches[0].ClassId != StaticClassId)
             throw new InvalidDataException("Fixed Static registration definition is missing, ambiguous or has a different class.");

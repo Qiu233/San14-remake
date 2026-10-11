@@ -34,15 +34,14 @@ struct Packet {
     CelestialEnvironment environment;
     std::array<uint8_t,144> skyVertex{};std::array<uint8_t,336> skyPixel{};
     std::array<uint8_t,176> cloudVertex{};std::array<uint8_t,560> cloudPixel{};
-    std::array<std::array<uint8_t,1152>,3> fogPixel{};
 };
 struct Frame {
     CameraTransform skyCamera{};
     std::array<uint8_t,144> skyVertex{};std::array<uint8_t,336> skyPixel{};
     std::array<uint8_t,176> cloudVertex{};std::array<uint8_t,560> cloudPixel{};
     std::array<uint8_t,32> cloudHistoryVertex{};
-    std::array<uint8_t,16> fogVertex{};
-    std::array<std::array<uint8_t,1152>,3> fogPixel{};
+    V4 fogProjection{},fogEye{};
+    Matrix fogInverseView{};
 };
 template<size_t N> inline std::array<uint8_t,N> readBytes(const std::filesystem::path& path){
     std::ifstream s(path,std::ios::binary);std::array<uint8_t,N> result{};
@@ -64,7 +63,6 @@ inline Packet readPacket(const std::filesystem::path& source){
     r.skyVertex=readBytes<144>(source/"main-sky-vs-b0.bin");r.skyPixel=readBytes<336>(source/"main-sky-ps-b0.bin");
     r.cloudVertex=readBytes<176>(source/"cloud/pass1-vs-b0.bin");r.cloudPixel=readBytes<560>(source/"cloud/pass1-ps-b0.bin");
     p.cloudSunDirectionW=get<float>(r.cloudPixel.data()+476);
-    int i=0;for(const char* name:{"fog-mask02","fog-mask08","fog-background"})r.fogPixel[i++]=readBytes<1152>(source/"fog"/(std::string(name)+"-ps-b0.bin"));
     return r;
 }
 inline source_weather_fog::Shared publishWeather(Packet& packet,const source_weather_fog::Frame& weather,V3 actualGlobal80Rgb){
@@ -168,8 +166,9 @@ inline Frame prepareCurrent(const Packet& packet,const CameraTransform& ordinary
     float mainNear=ordinaryCamera.optics.nearPlane,mainFar=ordinaryCamera.optics.farPlane;
     float a=reverse?mainFar:mainNear,b=reverse?mainNear:mainFar;
     V4 vP2V{D(b,S(a,b)),D(M(b,a),S(b,a)),M(p.halfFovTangent,aspect),p.halfFovTangent};
-    put(f.fogVertex.data(),vP2V);Matrix inverseView=source_matrix::inverse(ordinaryCamera.view);
-    f.fogPixel=packet.fogPixel;for(auto& bytes:f.fogPixel){put(bytes.data()+1072,vP2V);put(bytes.data()+1088,inverseView);}
+    f.fogProjection=vP2V;
+    f.fogInverseView=source_matrix::inverse(ordinaryCamera.view);
+    f.fogEye=ordinaryCamera.eye;
     return f;
 }
 } // namespace source_atmosphere_camera
@@ -180,16 +179,14 @@ struct NativeAtmosphereCamera {
     source_atmosphere_camera::Frame current;
 };
 static NativeAtmosphereCamera prepareNativeAtmosphereCamera(ID3D11Device* device,const fs::path& source,
-    NativeMainSky& sky,NativeMapFog& fog){
+    NativeMainSky& sky){
     NativeAtmosphereCamera r;r.packet=source_atmosphere_camera::readPacket(source);
     auto make=[&](const auto& bytes){std::vector<char> copy(bytes.size());std::memcpy(copy.data(),bytes.data(),bytes.size());return nativeMainCloudBuffer(device,copy);};
     // Only the camera-updated buffers change usage. Programs, typed textures,
     // samplers, geometry, views and existing Cloud history remain owned.
     sky.vertexConstants=make(r.packet.skyVertex);sky.pixelConstants=make(r.packet.skyPixel);
-    // Fog VS is the actual16-byte vP2V, not the1152-byte pixel package.
-    auto initial=source_atmosphere_camera::prepareCurrent(r.packet,r.packet.profile.initialCamera);
-    for(auto& pass:fog.passes)for(auto& constant:pass.constants)if(constant.vertex)constant.buffer=make(initial.fogVertex);
-    r.current=std::move(initial);return r;
+    r.current=source_atmosphere_camera::prepareCurrent(r.packet,r.packet.profile.initialCamera);
+    return r;
 }
 static void publishNativeAtmosphereWeather(NativeAtmosphereCamera& r,NativeMainCloud& cloud,
     const source_weather_fog::Frame& weather,source_camera::V3 actualGlobal80Rgb){
@@ -204,7 +201,7 @@ static void publishNativeAtmosphereCurrentDirectEnvironment(NativeAtmosphereCame
     source_atmosphere_camera::publishDirectStage(r.packet,altitude);
 }
 static void updateNativeAtmosphereCamera(ID3D11DeviceContext* context,NativeAtmosphereCamera& r,
-    const source_camera::CameraTransform& ordinaryCamera,NativeMainSky& sky,NativeMainCloud& cloud,NativeMapFog& fog){
+    const source_camera::CameraTransform& ordinaryCamera,NativeMainSky& sky,NativeMainCloud& cloud){
     r.current=source_atmosphere_camera::prepareCurrent(r.packet,ordinaryCamera);const auto& f=r.current;
     context->UpdateSubresource(sky.vertexConstants.Get(),0,nullptr,f.skyVertex.data(),0,0);
     context->UpdateSubresource(sky.pixelConstants.Get(),0,nullptr,f.skyPixel.data(),0,0);
@@ -218,10 +215,7 @@ static void updateNativeAtmosphereCamera(ID3D11DeviceContext* context,NativeAtmo
     std::memcpy(cloud.currentW2P.data(),f.skyCamera.worldToClip.data(),64);
     //previousW2P remains the previous submitted camera. The existing pass1
     //Draw must finish before its normal store current -> previous occurs.
-    for(auto& pass:fog.passes)for(auto& constant:pass.constants){
-        if(constant.vertex){std::memcpy(constant.bytes.data(),f.fogVertex.data(),16);context->UpdateSubresource(constant.buffer.Get(),0,nullptr,constant.bytes.data(),0,0);}
-        else{std::memcpy(constant.bytes.data()+1072,f.fogVertex.data(),16);std::memcpy(constant.bytes.data()+1088,f.fogPixel[0].data()+1088,64);}
-        //Fog execute still advances its source24 phases and uploads the PCB.
-    }
+    // Fog consumes these semantic camera values after selecting its current
+    // program layout, immediately before its existing phase upload and draw.
 }
 #endif

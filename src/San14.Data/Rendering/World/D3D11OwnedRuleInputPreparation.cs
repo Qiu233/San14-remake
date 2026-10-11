@@ -60,7 +60,9 @@ public static class D3D11OwnedRuleInputPreparation
     {
         weather.RequireCurrent(camera);
         var tables = camera.Inputs.Source.Transmittance.Tables;
-        var package = SkySeasonPackageTextures.Read(camera.Inputs.Source.Selection.FirstPackage).Package.Camera;
+        if(tables.Width!=64||tables.Height!=256)
+            throw new NotSupportedException("The current Native weather input format requires a 64 by 256 atmosphere table.");
+        var package = camera.Inputs.Source.Selection.FirstPackage.Camera;
         float Field(int ordinal, int lane = 0) => BinaryPrimitives.ReadSingleLittleEndian(
             package.Properties.Single(p => p.Index == ordinal).RawValue.AsSpan(lane * 4, 4));
         float Prefix(int offset) => BinaryPrimitives.ReadSingleLittleEndian(camera.SunMoonRgb.Prefix.Span.Slice(offset, 4));
@@ -88,7 +90,7 @@ public static class D3D11OwnedRuleInputPreparation
             for (int index = 0; index < 64; index++) writer.Write(power.Exponential(index));
             for (int index = 0; index < 11; index++) writer.Write(power.Constant(index));
         }
-        File.WriteAllBytes(Path.Combine(directory, "ambient2d-half4.bin"), tables.Ambient2D.Bytes);
+        File.WriteAllBytes(Path.Combine(directory, "ambient2d-half4.bin"), tables.Ambient2D.CopyBytes());
         using var rgbWriter = new BinaryWriter(File.Create(Path.Combine(directory, "effective-light-rgb.bin")));
         rgbWriter.Write(actualGlobalLightRgb.X); rgbWriter.Write(actualGlobalLightRgb.Y); rgbWriter.Write(actualGlobalLightRgb.Z);
     }

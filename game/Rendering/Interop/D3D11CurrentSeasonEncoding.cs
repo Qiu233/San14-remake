@@ -17,9 +17,9 @@ internal static class D3D11CurrentSeasonEncoding
     {
         // Header32, Main3C0, sorted (int32 offset,uint32 bits) writes,
         // then ordered light headers (object,mask,terrain scalar,shadow modes,reserved) and numeric light data,
-        // Atmosphere296, current selected Exposure32 and the HDR routes.
+        // Atmosphere296, current selected Exposure32, OUM1 material, HFO1 layers and the HDR routes.
         byte[] hdrBytes = hdr is null ? [] : D3D11HdrFrameEncoding.Write(frame, hdr);
-        byte[] result = new byte[HeaderBytes + MainPrefixBytes + frame.PreparedWords.Count * MainWordBytes + frame.Lights.Count * (LightHeaderBytes + LightNumericBytes) + D3D11CurrentAtmosphereFrame.ByteLength + D3D11CurrentExposureEncoding.ByteLength + hdrBytes.Length];
+        byte[] result = new byte[HeaderBytes + MainPrefixBytes + frame.PreparedWords.Count * MainWordBytes + frame.Lights.Count * (LightHeaderBytes + LightNumericBytes) + D3D11CurrentAtmosphereFrame.ByteLength + D3D11CurrentExposureEncoding.ByteLength + OceanTextureMaterialEncoding.ByteLength + HeightFogSettingsEncoding.ByteLength + hdrBytes.Length];
         var bytes = result.AsSpan();
         BinaryPrimitives.WriteUInt32LittleEndian(bytes, (uint)frame.MainMode);
         BinaryPrimitives.WriteUInt32LittleEndian(bytes[4..], (uint)frame.SeasonIndex);
@@ -47,16 +47,23 @@ internal static class D3D11CurrentSeasonEncoding
         frame.Atmosphere.NumericBytes.Span.CopyTo(bytes[at..]);
         at += D3D11CurrentAtmosphereFrame.ByteLength;
         D3D11CurrentExposureEncoding.Write(frame.ExposureLight, bytes[at..]);
-        hdrBytes.CopyTo(bytes[(at + D3D11CurrentExposureEncoding.ByteLength)..]);
+        at += D3D11CurrentExposureEncoding.ByteLength;
+        OceanTextureMaterialEncoding.Write(frame.OceanTextureMaterial, bytes[at..]);
+        at += OceanTextureMaterialEncoding.ByteLength;
+        HeightFogSettingsEncoding.Write(frame.HeightFog, bytes[at..]);
+        at += HeightFogSettingsEncoding.ByteLength;
+        hdrBytes.CopyTo(bytes[at..]);
         return result;
     }
 
     internal static D3D11PreparedMainWord[] MainWrites(MapSeasonCameraPostEffectScalarWriteIdentity actual,
-        CameraViewSettings selectedViewDefaults, OceanWaveSettings oceanWaves)
+        CameraViewSettings selectedViewDefaults, OceanWaveSettings oceanWaves, OceanSurfaceSettings oceanSurface, OceanOpticsSettings oceanOptics)
     {
         var words = actual.Scalars.EncodedWrites.ToDictionary(pair => pair.Key, pair => pair.Value);
         foreach (var pair in CameraViewSettingsEncoding.ShadowWords(selectedViewDefaults)) words.TryAdd(pair.Key, pair.Value);
         foreach (var pair in OceanWaveSettingsEncoding.MainWords(oceanWaves)) words[pair.Key] = pair.Value;
+        foreach (var pair in OceanSurfaceSettingsEncoding.MainWords(oceanSurface)) words[pair.Key] = pair.Value;
+        foreach (var pair in OceanOpticsSettingsEncoding.MainWords(oceanOptics)) words[pair.Key] = pair.Value;
         if (actual.PreparedSpecialRectangleFlag1510 is uint flag) words[0x1510] = flag;
         return words.OrderBy(pair => pair.Key).Select(pair => new D3D11PreparedMainWord(pair.Key, pair.Value)).ToArray();
     }

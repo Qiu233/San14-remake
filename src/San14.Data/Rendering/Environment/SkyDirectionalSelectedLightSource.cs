@@ -62,13 +62,14 @@ public sealed class SkyDirectionalSelectedLightSource
     /// <summary>Nonnull setters consume the actual current global fields.
     /// Exact zero Moon enters its separately pinned PS10/4 or PS3/4 capability;
     /// other packets use the ordinary finite setter preparation.</summary>
-    public SkySceneLights PrepareLights(LoadedShaderContainer skyShader, Sky2SourceNull2D sourceMoonTexture)
+    public SkySceneLights PrepareLights(LoadedShaderContainer skyShader, Sky2TextureBindingSnapshot textureBindings)
     {
+        textureBindings.RequireCurrent();
         ValidateCurrent();
         preparedColorReceipt=null;colorSetterRevision=checked(colorSetterRevision+1);
         if (HasExactZeroMoonRgb)
         {
-            var zero = Sky2SourceZeroMoon.CreateDirectionalSelected(skyShader, sourceMoonTexture, this);
+            var zero = Sky2SourceZeroMoon.CreateDirectionalSelected(skyShader, textureBindings.RequireNull(SkySamplingRole.Moon), this);
             preparedLights = SkySceneSelectedViewLightSource.PrepareSourceZeroMoonLights(SelectedPacket,
                 Fields.PackagePosition, SelectedPacket.Identity.ProviderRecordOwner + "/D3A850-package-row0", zero);
         }
@@ -82,15 +83,16 @@ public sealed class SkyDirectionalSelectedLightSource
     /// <summary>D3A850's actual global baseline→same Main HS/temperature
     /// continuation before nonnull Sun/Moon setters. Legacy two-argument D7
     /// preparation remains a distinct direct-baseline scope.</summary>
-    public SkySceneLights PrepareD3PackageLights(LoadedShaderContainer skyShader,Sky2SourceNull2D sourceMoonTexture,
+    public SkySceneLights PrepareD3PackageLights(LoadedShaderContainer skyShader,Sky2TextureBindingSnapshot textureBindings,
         LoadedSkyDirectionalSetterColorNativeSource native)
     {
+        textureBindings.RequireCurrent();
         ValidateCurrent();long next=checked(colorSetterRevision+1);
         var receipt=new SkyDirectionalSetterColorReceipt(this,native,next);
         SkySceneLights lights;
         if(HasExactZeroMoonRgb)
         {
-            var zero=Sky2SourceZeroMoon.CreateDirectionalSelected(skyShader,sourceMoonTexture,this);
+            var zero=Sky2SourceZeroMoon.CreateDirectionalSelected(skyShader,textureBindings.RequireNull(SkySamplingRole.Moon),this);
             lights=SkySceneSelectedViewLightSource.PrepareSourceZeroMoonLights(SelectedPacket,Fields.PackagePosition,
                 SelectedPacket.Identity.ProviderRecordOwner+"/D3A850-package-row0",zero);
             if(receipt.MoonRgb!=Vector3.Zero)throw new InvalidDataException("Source-zero Moon capability cannot cover a changed D3 color.");
@@ -190,22 +192,20 @@ public sealed class SkyDirectionalSelectedLightSource
     /// desired variant state or execute an atmosphere pass.</summary>
     public SkySceneSourceFramePacket PrepareSourceSelectedSeasonFrame(
         CubeRenderTextureDefinition target,LoadedSkyDirectionalAtmosphereNativeSource native,
-        int nativeClipProfile,LoadedShaderContainer skyShader,SkyAppliedSourceStageFrame actualStages)
+        int nativeClipProfile,LoadedShaderContainer skyShader,SkyAppliedSourceStageFrame actualStages,
+        Sky2TextureBindingSnapshot textureBindings)
     {
         ArgumentNullException.ThrowIfNull(target);ArgumentNullException.ThrowIfNull(native);ValidateCurrent();
         if(preparedLights is null||AcceptedLighting.AcceptedInputs.PresentSeasonCamera is not { } present)
             throw new InvalidDataException("Source-selected season frame needs its actual nonnull Sun/Moon setter receipts and Main.");
-        var package=present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage;
-        var nullMoon=Sky2SourceNull2D.FromAppliedSeasonOnFreshShader(package,SkySamplingRole.Moon,
-            SkyTextureStateScope.AppliedSourceSeasonOnFreshShader);
-        PrepareD3PackageLights(skyShader,nullMoon,native.ColorSetterContinuationSource);
+        PrepareD3PackageLights(skyShader,textureBindings,native.ColorSetterContinuationSource);
         var feature=CaptureSourceRendererFeature(skyShader,native,actualStages);
         var atmosphere=PrepareSourceSelectedAtmosphere(feature,native);
         var camera=present.CurrentSkyCamera;
         var controller=PrepareActualMainController(present);
         var frame=SkySceneSourceFrameProvider.PrepareAppliedSeason(
             present.AcceptedSeasonCamera.Inputs.Source.Selection,camera,AcceptedLighting,target,
-            preparedLights,atmosphere.Atmosphere,controller,nativeClipProfile);
+            preparedLights,atmosphere.Atmosphere,controller,nativeClipProfile,textureBindings);
         frame=frame with{SourceFrame=frame.SourceFrame with{MoonGeometrySource=native.MoonGeometrySource,
             SourceSelectedAtmosphere=atmosphere},SourceProvenance=frame.SourceProvenance+";"+feature.SourceEvidence};
         preparedLights=frame.SourceFrame.Lights;preparedAppliedFrame=frame;
@@ -229,7 +229,7 @@ public sealed class SkyDirectionalSelectedLightSource
     /// clone or unrelated seasonal Camera can acquire this receipt.</summary>
     public SkySceneSourceFramePacket PrepareAppliedSeasonFrame(
         CubeRenderTextureDefinition target, LoadedSkyDirectionalAtmosphereNativeSource native,
-        int nativeClipProfile)
+        int nativeClipProfile, Sky2TextureBindingSnapshot textureBindings)
     {
         ArgumentNullException.ThrowIfNull(target); ArgumentNullException.ThrowIfNull(native);
         ValidateCurrent();
@@ -239,7 +239,7 @@ public sealed class SkyDirectionalSelectedLightSource
         var controller = PrepareActualMainController(present);
         var frame = SkySceneSourceFrameProvider.PrepareAppliedSeason(
             present.AcceptedSeasonCamera.Inputs.Source.Selection, camera, AcceptedLighting, target,
-            preparedLights, PrepareAtmosphere(native), controller, nativeClipProfile);
+            preparedLights, PrepareAtmosphere(native), controller, nativeClipProfile, textureBindings);
         frame=frame with { SourceFrame=frame.SourceFrame with { MoonGeometrySource=native.MoonGeometrySource } };
         preparedLights = frame.SourceFrame.Lights;
         preparedAppliedFrame = frame;

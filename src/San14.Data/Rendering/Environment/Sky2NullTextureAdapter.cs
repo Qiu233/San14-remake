@@ -4,92 +4,20 @@ using San14.Data.Formats;
 
 namespace San14.Data;
 
-public enum SkyTextureStateScope { FreshSourceConstruction, CurrentOrEditedState, AppliedSourceSeasonOnFreshShader }
-
-/// <summary>The selected fresh source has no texture assignment after the
-/// original118CFA0 constructor initialized its Sky2 texture pointers to null.
-/// A zero Camera key alone does not establish a current null GPU binding.</summary>
-public sealed class Sky2SourceNull2D
-{
-    public SkySamplingReference CameraReference { get; }
-    public uint PixelRegister => SkySamplingResources.PixelRegister(CameraReference.Role);
-    public SkyTextureStateScope Scope{get;}
-    private readonly MapSeasonCameraPackage? appliedSeasonPackage;
-    public string SourceEvidence { get; }
-    private Sky2SourceNull2D(SkySamplingReference reference,
-        MapSeasonCameraPackage? package=null)
-    {CameraReference=reference;appliedSeasonPackage=package;Scope=package is null?
-        SkyTextureStateScope.FreshSourceConstruction:SkyTextureStateScope.AppliedSourceSeasonOnFreshShader;
-      SourceEvidence=package is null
-        ? SkySamplingResources.ExplainFreshNull(reference)+";Sky2Ctor118CFA0:null1678/1688/1698"
-        : SkySeasonPackageTextures.ExplainNullAssignment(SkySeasonPackageTextures.Read(package))+
-            ";scope=AppliedSourceSeasonOnFreshSky2Shader;118CFA0-null-then-source-null-wrapper-skips-setter;no-intervening-nonnull-assignment"+
-            ";source-null-contract-sha256=DC60552E6C96977D7897BA5C7FF92E3B654D755D802605081F5A2160CCF6EB6B";
-    }
-
-    public static Sky2SourceNull2D FromFreshConstruction(SkySamplingReference reference,
-        SkyTextureStateScope explicitScope)
-    {
-        ArgumentNullException.ThrowIfNull(reference);
-        if (explicitScope != SkyTextureStateScope.FreshSourceConstruction)
-            throw new InvalidDataException("A current or edited Sky2 texture state requires its actual applied resource; source zero is insufficient.");
-        var canonical = SkySamplingResources.ReadCameraReference(reference.Definitions,
-            reference.Camera.ObjectId, reference.Role);
-        if (!canonical.IsSourceReferenceZero || canonical.Role == SkySamplingRole.Star)
-            throw new InvalidDataException("Sky2 null2D requires a verified fresh Earth/Moon/Milky source zero and no subsequent provider assignment.");
-        return new(canonical);
-    }
-
-    /// <summary>A separate lifecycle: actual seasonal package pointer-copy on
-    /// a newly created Sky2 shader. Source-null wrappers skip its setters, so
-    /// constructor-null remains. Existing arbitrary shader state cannot enter
-    /// this scope. The owning assembler freezes this source family and rejects
-    /// later non-null assignments to the adapted slot.</summary>
-    public static Sky2SourceNull2D FromAppliedSeasonOnFreshShader(MapSeasonCameraPackage package,
-        SkySamplingRole role,SkyTextureStateScope explicitScope)
-    {
-        if(explicitScope!=SkyTextureStateScope.AppliedSourceSeasonOnFreshShader||
-            role is not (SkySamplingRole.MilkyWay or SkySamplingRole.Moon))
-            throw new InvalidDataException("Applied season null proof requires its separate fresh-shader source lifecycle and a declared zero Milky/Moon role.");
-        var sampling=SkySeasonPackageTextures.Read(package);
-        var reference=role==SkySamplingRole.MilkyWay?sampling.MilkyWay:sampling.Moon;
-        _=SkySeasonPackageTextures.ExplainNullAssignment(sampling);
-        return new(reference,sampling.Package);
-    }
-
-    public void Validate()
-    {
-        if(appliedSeasonPackage is not null)
-        {
-            if(!CameraReference.IsSourceReferenceZero ||
-                CameraReference.Role is not (SkySamplingRole.MilkyWay or SkySamplingRole.Moon) ||
-                Scope!=SkyTextureStateScope.AppliedSourceSeasonOnFreshShader)
-                throw new InvalidDataException("Loaded season null descriptor has an invalid role or descriptor scope.");
-            return;
-        }
-        // FromFreshConstruction already imported the complete source. A newly
-        // loaded/changed asset must construct its own proof; packet validation
-        // checks this proof's role and current presence, not the file again.
-        if (!CameraReference.IsSourceReferenceZero || CameraReference.Role == SkySamplingRole.Star ||
-            Scope != SkyTextureStateScope.FreshSourceConstruction)
-            throw new InvalidDataException("The loaded fresh null texture has an invalid role or descriptor scope.");
-    }
-}
-
 public sealed record Sky2NullTextureSpirv(byte[] Bytes, string Sha256,
     string UnspecializedTranslationSha256, IReadOnlyList<uint> NullPixelRegisters,
     IReadOnlyList<string> SourceEvidence, int ReplacedSamples, int RetainedInstructions)
 {
     public int SourcePhysicalPixelProgramIndex { get; internal init; }
     public string SourcePixelSha256 { get; internal init; } = "";
-    public IReadOnlyList<Sky2SourceNull2D> SourceNullProofs { get; internal init; } = [];
+    public IReadOnlyList<Sky2NullTextureBinding> NullTextureBindings { get; internal init; } = [];
 }
 
 /// <summary>Pinned Sky2 PS3/PS4 and finite Moon PS5/PS11/PS6/PS14/PS15 adapter for the
 /// original D3D11 null2D result. Default Earth/Milky or finite Moon Milky/Moon
-/// samples become float4(+0) only with their exact typed source-null proof.
+/// samples become float4(+0) only for captured null slots of the current binding owner.
 /// Non-null programs and all other instructions remain unchanged. No bitmap
-/// or GPU texture is allocated. This does not handle unknown current bindings.</summary>
+/// or GPU texture is allocated. Binding changes invalidate the captured program generation.</summary>
 public static partial class Sky2NullTextureAdapter
 {
     public const string DefaultPixelSourceSha = "890FB3C9182BAE2D52C20BA993471769F8BD8DBFB959997474827ACAFCDAB11A";
@@ -98,7 +26,7 @@ public static partial class Sky2NullTextureAdapter
     public const string ContributionPixelTranslationSha = "8F84EBDE83AAD5EE55886B25D32CBD66DC4AB270C34C92139913E037456EB86D";
 
     public static Sky2NullTextureSpirv Adapt(ShaderSpirv pixel,
-        TranslatedShaderBindings originalBindings, IReadOnlyList<Sky2SourceNull2D> explicitNulls)
+        TranslatedShaderBindings originalBindings, IReadOnlyList<Sky2NullTextureBinding> explicitNulls)
     {
         ArgumentNullException.ThrowIfNull(pixel); ArgumentNullException.ThrowIfNull(originalBindings);
         ArgumentNullException.ThrowIfNull(explicitNulls);
@@ -112,7 +40,15 @@ public static partial class Sky2NullTextureAdapter
             originalBindings.Interface.Sha256 != pixel.SpirvSha256 ||
             originalBindings.Interface.EntryPoints.Single().ExecutionModel != 4 || explicitNulls.Count == 0)
             throw new InvalidDataException("Null2D adapter requires the exact original Sky2 PS3/PS4 or finite Moon PS5/PS11/PS6/PS14/PS15 and its complete translated interface.");
-        foreach (var proof in explicitNulls) { ArgumentNullException.ThrowIfNull(proof); proof.Validate(); }
+        var bindingOwner = explicitNulls[0].Snapshot;
+        foreach (var binding in explicitNulls)
+        {
+            ArgumentNullException.ThrowIfNull(binding);
+            binding.Validate();
+            if (!ReferenceEquals(binding.Snapshot.Owner, bindingOwner.Owner) ||
+                binding.Snapshot.Revision != bindingOwner.Revision)
+                throw new InvalidDataException("Sky2 null bindings must belong to one program binding generation.");
+        }
         uint[] slots = explicitNulls.Select(p => p.PixelRegister).Order().ToArray();
         if (slots.Distinct().Count() != slots.Length ||
             (finiteMoon is null ? slots.Any(s => s is not (3 or 4)) : slots.Any(s => s is not (4 or 5))))
@@ -179,11 +115,11 @@ public static partial class Sky2NullTextureAdapter
             result.Descriptors.Any(d => resources.Contains(d.VariableId)))
             throw new InvalidDataException("Null2D adapter changed the remaining source interface.");
         return new(bytes, result.Sha256, pixel.SpirvSha256, Array.AsReadOnly(slots),
-            Array.AsReadOnly(explicitNulls.Select(p => p.SourceEvidence).ToArray()), replaced, retained)
+            Array.AsReadOnly(explicitNulls.Select(p => p.Role.ToString()).ToArray()), replaced, retained)
         {
             SourcePhysicalPixelProgramIndex = finiteMoon?.Index ?? (contribution ? 4 : 3),
             SourcePixelSha256 = pixel.SourceProgramSha256,
-            SourceNullProofs = Array.AsReadOnly(explicitNulls.ToArray())
+            NullTextureBindings = Array.AsReadOnly(explicitNulls.ToArray())
         };
     }
 

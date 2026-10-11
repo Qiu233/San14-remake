@@ -13,15 +13,15 @@ public sealed class Sky2SourceZeroMoon
     public const string AtmosphereProgramSha256 = Sky2NullTextureAdapter.DefaultPixelSourceSha;
     public const string ContributionProgramSha256 = "FA1B12A79D043104E98FE73A57F85D658B8913630802F8C7133A4ECDEAF7FEFA";
     public const string DirectionalAtmosphereProgramSha256 = "3EF36F9A865187ECECF785135F322C5CAFD62D7E0A2EF7B70731FFAD565BBE06";
-    private readonly Sky2SourceNull2D sourceMoonTexture;
+    private readonly Sky2NullTextureBinding sourceMoonTexture;
     private readonly SkyDirectionalSelectedLightSource? directionalSource;
-    private Sky2SourceZeroMoon(Sky2SourceNull2D moon,
+    private Sky2SourceZeroMoon(Sky2NullTextureBinding moon,
         SkySceneSelectedViewLightPacket packet, MapSourceCreatedLightingPacket lighting,
         SkyDirectionalSelectedLightSource? directional = null)
     {
         sourceMoonTexture = moon; Identity = packet.Identity;
         directionalSource = directional;
-        SourceProvenance = packet.SourceProvenance + ";" + lighting.SourceProvenance + ";" + moon.SourceEvidence +
+        SourceProvenance = packet.SourceProvenance + ";" + lighting.SourceProvenance + ";" + moon.Role.ToString() +
             ";nonnull-Moon-setter118D7E0:+0-max,+Inf-reciprocal,three-native-invalid-products;" +
             "118DC30:raw-MoonRGB,+Inf-amplitude;original-selected-MoonRGB-unused;no-program-transform" +
             (directional is null ? ";mode2-PS3/4-MoonDir-unused" : ";" + directional.SourceProvenance +
@@ -31,14 +31,13 @@ public sealed class Sky2SourceZeroMoon
     public string SourceProvenance { get; }
 
     public static Sky2SourceZeroMoon Create(LoadedShaderContainer shader,
-        Sky2SourceNull2D sourceMoonTexture, MapSourceCreatedLightingPacket acceptedLighting,
+        Sky2NullTextureBinding sourceMoonTexture, MapSourceCreatedLightingPacket acceptedLighting,
         SkySceneSelectedViewLightPacket selectedViewPacket)
     {
         ArgumentNullException.ThrowIfNull(shader); ArgumentNullException.ThrowIfNull(sourceMoonTexture);
         ArgumentNullException.ThrowIfNull(acceptedLighting); ArgumentNullException.ThrowIfNull(selectedViewPacket);
         sourceMoonTexture.Validate();
-        if (sourceMoonTexture.CameraReference.Role != SkySamplingRole.Moon ||
-            sourceMoonTexture.Scope != SkyTextureStateScope.AppliedSourceSeasonOnFreshShader ||
+        if (sourceMoonTexture.Role != SkySamplingRole.Moon ||
             shader.Source.OverrideSource is not null || shader.Source.FileId != 0x340AC335)
             throw new InvalidDataException("Source zero Moon requires the exact applied-source fresh shader and both unchanged default original programs.");
         var id = selectedViewPacket.Identity; var binding = acceptedLighting.Binding;
@@ -62,12 +61,11 @@ public sealed class Sky2SourceZeroMoon
     /// (or the swapped PS3/4) may ignore its unused RGB amplitude. PS11 reads
     /// MoonRGB and never receives this capability.</summary>
     public static Sky2SourceZeroMoon CreateDirectionalSelected(LoadedShaderContainer shader,
-        Sky2SourceNull2D sourceMoonTexture, SkyDirectionalSelectedLightSource source)
+        Sky2NullTextureBinding sourceMoonTexture, SkyDirectionalSelectedLightSource source)
     {
         ArgumentNullException.ThrowIfNull(shader); ArgumentNullException.ThrowIfNull(sourceMoonTexture);
         ArgumentNullException.ThrowIfNull(source); source.ValidateCurrent(); sourceMoonTexture.Validate();
-        if (!source.HasExactZeroMoonRgb || sourceMoonTexture.CameraReference.Role != SkySamplingRole.Moon ||
-            sourceMoonTexture.Scope != SkyTextureStateScope.AppliedSourceSeasonOnFreshShader ||
+        if (!source.HasExactZeroMoonRgb || sourceMoonTexture.Role != SkySamplingRole.Moon ||
             shader.Source.OverrideSource is not null || shader.Source.FileId != 0x340AC335)
             throw new InvalidDataException("Directional zero Moon requires its exact same-frame source and original MoonRGB-unused program scope.");
         return new(sourceMoonTexture, source.SelectedPacket, source.AcceptedLighting, source);

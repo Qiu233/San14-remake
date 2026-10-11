@@ -7,7 +7,7 @@ namespace San14.Data;
 public enum DeferredAuxiliaryPrefixQueryState { RetainedFreshSource, EditedOrImported, Unresolved }
 public enum DeferredAuxiliaryPrefixSceneState { ConstructorNullRetained, CachedOrImported, Unresolved }
 
-/// <summary>The actual owned Main RLR query fields initialized from the pinned
+/// <summary>The actual owned Main RLR query fields initialized from its imported
 /// source declaration and retained through Camera/View cloning. These fields
 /// are outside the accepted Camera's3C0 prefix. Their owner must invalidate
 /// this scope after a later RLR assignment or an imported Camera generation.</summary>
@@ -73,7 +73,7 @@ public sealed class DeferredAuxiliaryPrefixPacket
     {
         Source = source; FrameNumber = frame.FrameNumber; CurrentQ = q; QueryOwner = queries;
         ViewIdentity = queries.ViewIdentity; CameraOwnerIdentity = queries.CameraOwnerIdentity;
-        ViewGenerationIdentity = generation; camera = frame.Camera.CopyAcceptedSnapshot();
+        ViewGenerationIdentity = generation; camera = frame.Camera;
         view = frame.ViewFields; queryRevision = queries.Revision; sceneRevision = source.SceneRevision;
         CurrentProducerProvenance = queries.SourceProducerProvenance + ";" + frame.ViewFields.SourceProvenance + ";" + q.SourceProvenance;
     }
@@ -102,7 +102,7 @@ public sealed class DeferredAuxiliaryPrefixPacket
         ArgumentNullException.ThrowIfNull(acceptedFrame); ArgumentNullException.ThrowIfNull(actualCurrentQ);
         if (FrameNumber != acceptedFrame.FrameNumber || queryRevision != QueryOwner.Revision || sceneRevision != Source.SceneRevision ||
             !ReferenceEquals(view, acceptedFrame.ViewFields) ||
-            !camera.Prefix.Span.SequenceEqual(acceptedFrame.Camera.Prefix.Span) ||
+            !ReferenceEquals(camera, acceptedFrame.Camera) ||
             !ReferenceEquals(CurrentQ.Source, actualCurrentQ.Source) || CurrentQ.FrameNumber != actualCurrentQ.FrameNumber ||
             CurrentQ.Flags3F0And3F4 != actualCurrentQ.Flags3F0And3F4 || CurrentQ.WriterProvenance != actualCurrentQ.WriterProvenance)
             throw new InvalidDataException("Auxiliary prefix packet precedes a later Camera/query/Scene/Q assignment or belongs to another frame.");
@@ -116,12 +116,17 @@ public sealed class DeferredAuxiliaryPrefixPacket
 public sealed class DeferredAuxiliaryPrefixSource
 {
     public const string GraphSha256 = "B9AE1EC8209C067DBC73084CDC0EB149A65E282C25D4B8AD398F43071072971D";
-    public const string CameraSha256 = "3CB072E68CA9A2086D0230E3F9F86AD1B9B10E08CEA521A474CE1057A0E23B06";
     public const string NativeNoOp134 = "TC:E6BC31/E6BC41;E9FE85/E9FE94;E9FF27/E9FF54/E9FF56/E9FFAF/E9FFFB;EA06EE/EA06F3->EA0A56";
     public const string NativeNoOp135 = "TC:EB2FBD..EB2FE0;current-Q3F0-signed-nonnegative/bit20-clear";
-    private readonly byte[] cameraBytes;
-    private DeferredAuxiliaryPrefixSource(byte[] cameraSource, int maxSamples, int resolution, string generation)
-    { cameraBytes = cameraSource.ToArray(); RlrMaxRaySamples = maxSamples; RlrResolution = resolution; GraphGenerationIdentity = generation; }
+    private readonly LoadedMapCameraConstructionSource cameraSource;
+    private DeferredAuxiliaryPrefixSource(LoadedMapCameraConstructionSource cameraSource,
+        int maxSamples, int resolution, string generation)
+    {
+        this.cameraSource = cameraSource;
+        RlrMaxRaySamples = maxSamples;
+        RlrResolution = resolution;
+        GraphGenerationIdentity = generation;
+    }
     public int RlrMaxRaySamples { get; }
     public int RlrResolution { get; }
     public string GraphGenerationIdentity { get; }
@@ -134,8 +139,9 @@ public sealed class DeferredAuxiliaryPrefixSource
         ArgumentNullException.ThrowIfNull(graph); ArgumentNullException.ThrowIfNull(cameraObjects);
         ArgumentException.ThrowIfNullOrWhiteSpace(actualFreshGraphGenerationIdentity);
         Exact(graph.Source, "san14://rdb/system/024496EE", 0x024496EE, GraphSha256);
-        Exact(cameraObjects.Source, "san14://rdb/system/908AB6E2", 0x908AB6E2, CameraSha256);
-        var canonical = RenderGraphReader.Read(graph.Source.Bytes);
+        if (cameraObjects.Source.ResourceUri != "san14://rdb/system/908AB6E2" || cameraObjects.Source.FileId != 0x908AB6E2)
+            throw new InvalidDataException("Auxiliary queries require the supported Main camera library.");
+        var canonical = graph.Document;
         foreach (var item in new (int Index, uint Class, string Sha)[]
         {
             (73, 0xE2C0442A, "35CE6C656D0D1F9B06A03C2E36CA0CCFAEF325FAFCFAB7CCE48789175B2E000E"),
@@ -148,17 +154,14 @@ public sealed class DeferredAuxiliaryPrefixSource
                 throw new InvalidDataException("Auxiliary prefix requires exact original Begin73/RLR134/Merge135 records.");
         }
         var source = MapCameraConstructionSource.ReadPerspective(cameraObjects, 0x38D04576);
-        int Property(int ordinal, uint hash, int descriptor, int value)
+        int Property(uint hash)
         {
-            var field = source.Camera.Properties[ordinal];
-            if (field.Index != ordinal || field.NameHash != hash || field.TypeCode != 4 || field.ElementCount != 1 ||
-                field.ElementSize != 4 || field.RawValue.Length != 4 || field.DescriptorOffset != descriptor || field.ValueOffset != value ||
-                BinaryPrimitives.ReadInt32LittleEndian(field.RawValue) != 0)
-                throw new InvalidDataException("Auxiliary RLR query declaration differs from the exact Main source ordinal/type/value.");
-            return BinaryPrimitives.ReadInt32LittleEndian(field.RawValue);
+            var fields = source.Camera.Properties.Where(field => field.NameHash == hash).ToArray();
+            if (fields.Length != 1 || fields[0].TypeCode != 4 || fields[0].ElementCount != 1 || fields[0].RawValue.Length != 4)
+                throw new InvalidDataException("Auxiliary RLR queries require declared integer scalars.");
+            return BinaryPrimitives.ReadInt32LittleEndian(fields[0].RawValue);
         }
-        return new(cameraObjects.Source.Bytes, Property(168, 0x134DEF8B, 40212, 52404),
-            Property(320, 0xC91C4DDC, 42036, 53064), actualFreshGraphGenerationIdentity);
+        return new(source, Property(0x134DEF8B), Property(0xC91C4DDC), actualFreshGraphGenerationIdentity);
     }
 
     public DeferredAuxiliaryPrefixQueryOwner CreateFreshQueryOwner(MapCameraConstructionPacket acceptedCamera,
@@ -200,11 +203,8 @@ public sealed class DeferredAuxiliaryPrefixSource
     internal void ValidateCamera(MapCameraConstructionPacket camera)
     {
         ArgumentNullException.ThrowIfNull(camera);
-        var source = camera.Source.Resource.Source;
-        Exact(source, "san14://rdb/system/908AB6E2", 0x908AB6E2, CameraSha256);
-        if (camera.Source.Camera.ObjectId != 0x38D04576 || camera.Source.Camera.ClassId != 0x23E7C64E ||
-            !source.Bytes.AsSpan().SequenceEqual(cameraBytes))
-            throw new InvalidDataException("Auxiliary RLR query owner requires the same exact source Main Camera generation.");
+        if (!ReferenceEquals(camera.Source, cameraSource))
+            throw new InvalidDataException("Auxiliary queries belong to another imported Main camera generation.");
     }
     private static void Exact(LoadedRdbAsset source, string uri, uint id, string sha)
     {

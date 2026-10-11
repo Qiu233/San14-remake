@@ -160,25 +160,12 @@ static uint16_t nativeOceanFftHalf(float value) {
     if(exponent>-19)return sign|uint16_t(((bits&0x7FFFFF)|0x800000)>>((13-exponent)&31));
     return sign;
 }
-// Timing remains a transitional import. Legacy dimensions/choppy have no
-// authority; only the queued phase, worker count and active side are retained.
-struct OceanFftTimingInput {uint32_t workers{},activeSide{};float phase{};};
-static OceanFftTimingInput readOceanFftTimingInput(const fs::path& source) {
-    std::ifstream input(source/"fft-parameters.txt");
-    uint32_t oldColumns{},oldRows{};float oldSizeX{},oldSizeZ{},oldCycle{},oldChoppy{};
-    OceanFftTimingInput timing;
-    input>>oldColumns>>oldRows>>timing.workers>>oldSizeX>>oldSizeZ>>oldCycle>>oldChoppy>>timing.phase>>timing.activeSide;
-    if(!input)throw std::runtime_error("Ocean transitional queued timing absent or malformed");
-    input>>std::ws;
-    if(input.peek()!=std::char_traits<char>::eof()||timing.workers==0||timing.activeSide>1||!std::isfinite(timing.phase)||timing.phase<0)
-        throw std::runtime_error("Ocean transitional queued timing absent or malformed");
-    return timing;
-}
-static NativeOceanFft prepareNativeOceanFft(const fs::path& source,const San14::Render::OceanGridSettings& grid,
+// Ordinary Ocean construction uses two configured workers and begins with
+// side0 at phase0. Historical queued timing is not a resource declaration.
+static NativeOceanFft prepareNativeOceanFft(const San14::Render::OceanGridSettings& grid,
     const San14::Render::OceanWaveSettings& wave,San14::Render::RenderRandomContext& randomContext,uint32_t startupSeed) {
     San14::Render::validateOceanGridSettings(grid);San14::Render::validateOceanWaveSettings(wave);
-    const auto timing=readOceanFftTimingInput(source);
-    NativeOceanFft fft;fft.workers=timing.workers;fft.phase=timing.phase;fft.activeSide=timing.activeSide;
+    NativeOceanFft fft;fft.workers=2;
     fft.nx=grid.columns;fft.nz=grid.rows;
     fft.sizeX=grid.sizeX;fft.sizeZ=grid.sizeZ;fft.cycle=grid.cycle;fft.choppy=wave.choppyFactor;
     fft.spectrumGrid=grid;fft.waveSettings=wave;
@@ -295,11 +282,11 @@ struct NativeOceanFftSchedule {
     std::array<float,8> publishedBounds{};
     bool completedJob=false;
 };
-static NativeOceanFftSchedule prepareNativeOceanFftSchedule(const fs::path& source,const San14::Render::OceanGridSettings& grid,
+static NativeOceanFftSchedule prepareNativeOceanFftSchedule(const San14::Render::OceanGridSettings& grid,
     const San14::Render::OceanWaveSettings& wave,San14::Render::RenderRandomContext& randomContext,uint32_t startupSeed) {
-    NativeOceanFftSchedule state;state.fft=prepareNativeOceanFft(source,grid,wave,randomContext,startupSeed);
-    // Explicit original geometry154 supplies the already queued current job;
-    // it is not inferred from non-atomic double20 observation.
+    NativeOceanFftSchedule state;state.fft=prepareNativeOceanFft(grid,wave,randomContext,startupSeed);
+    // Complete the fresh phase0 job before publishing any GPU geometry.
+    // This coherent constructor does not replay original startup thread races.
     realizeNativeOceanFft(state.fft,state.fft.phase);state.completedJob=true;
     return state;
 }

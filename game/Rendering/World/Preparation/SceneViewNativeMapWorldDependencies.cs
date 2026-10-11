@@ -181,7 +181,7 @@ public sealed class SceneViewNativeMapWorldPackage : IAsyncDisposable
             if(committed is null||!ReferenceEquals(Host.Scene.LastCompletedContext,committed)||
                 !Host.HasCompletedCurrentFinal(committed))
                 throw new InvalidDataException("Season resources can replace only after this same Host's complete source output and request drained.");
-            var next=await SceneViewNativeMapWorldSeasonReplacement.PrepareAsync(Dependencies,actualCapture,
+            await using var next=await SceneViewNativeMapWorldSeasonReplacement.PrepareAsync(Dependencies,actualCapture,
                 Dependencies.WorldSource.RequireCurrent(committed).First.Context);
             next.Install(Dependencies);return next;
         }

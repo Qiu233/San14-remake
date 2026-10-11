@@ -102,8 +102,8 @@ public static class DeferredEarlyShadowPreparationArgumentsSource
         LoadedDefaultView0Source actualLoadedView0)
     {
         ArgumentNullException.ThrowIfNull(actualLoadedView0);
-        var view = actualLoadedView0.CopyViewDefinitions().Document.Objects.Single(o => o.ObjectId == actualLoadedView0.ViewObjectId);
-        var camera = actualLoadedView0.CopyCameraDefinitions().Document.Objects.Single(o => o.ObjectId == actualLoadedView0.MainCameraObjectId);
+        var view = actualLoadedView0.ViewDefinitions.Document.Objects.Single(o => o.ObjectId == actualLoadedView0.ViewObjectId);
+        var camera = actualLoadedView0.CameraDefinitions.Document.Objects.Single(o => o.ObjectId == actualLoadedView0.MainCameraObjectId);
         var first = Field(view, 11, 0x69749B4A, 4, 1);
         var second = Field(view, 12, 0xF7ABF8FD, 4, 1);
         var directions = Field(view, 23, 0x87EC2FBE, 8, 2);

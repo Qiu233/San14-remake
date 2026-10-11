@@ -7,10 +7,8 @@ namespace San14.Data;
 
 public static partial class D3D11AtmosphereInitialConstantPreparation
 {
-    private sealed record CloudConstants(D3D11AtmosphereProgramSelection Programs,byte[] Vertex,byte[] Pixel,
-        byte[] HistoryVertex,byte[] HistoryPixel);
-
-    private static CloudConstants PrepareCloud(GameResourceRepository repository,D3D11AtmosphereInitialInputs current,
+    private static D3D11MainCloudConstants PrepareCloud(SkyCloudProgramResources resources,
+        D3D11CloudRenderResources renderResources,D3D11AtmosphereInitialInputs current,
         Vector4 eye,Vector4 target,Vector4 up,CameraLens lens,Matrix4x4 worldToProjection,
         SkySceneSharedAtmosphere atmosphere,byte[] rendererRequest,bool earthPresent)
     {
@@ -39,7 +37,12 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
         }
         var vertex=new Fields();vertex.Set("ksgClipPlane",Words(options.CloudClipPlane));vertex.Set("g_mtP2W",Words(p2w));
         vertex.Set("g_vCameraDirVectors",vectors);vertex.Set("g_vProjFarNear",far,near);vertex.SetInt("g_iBayerPosNum",0);
-        vertex.Set("g_vProcSize",options.Width,options.Height,D(1,options.Width),D(1,options.Height));
+        // Bayer offsets use the reconstruction grid. The color pass viewport
+        // is smaller, while the history target owns this grid's dimensions.
+        int reconstructionWidth = renderResources.ReconstructionWidth;
+        int reconstructionHeight = renderResources.ReconstructionHeight;
+        vertex.Set("g_vProcSize", reconstructionWidth, reconstructionHeight,
+            D(1, reconstructionWidth), D(1, reconstructionHeight));
         var pixel=new Fields();
         var outer=current.Lights.First(light=>(light.GroupMask&0x80)!=0).CompleteData;
         pixel.Set("litDir",Words(V(outer.Span,0)));pixel.Set("vEye",Words(eye));pixel.Set("fog",Words(atmosphere.Fog.Value));
@@ -82,20 +85,31 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
         pixel.Set("g_vSky2RayleighExtinction",rayleigh.X,rayleigh.Y,rayleigh.Z,A(R(0x22C),R(0x228)));
         pixel.Set("g_vSky2MieExtinction",M(tables.MieExtinction.X,.01f),M(tables.MieExtinction.Y,.01f),M(tables.MieExtinction.Z,.01f),0);
         pixel.Set("g_vClampValue",0,0,0,ctl.Scalar1F0);
-        var shader=repository.LoadShaderContainer("system",0x42ED52ED);var bindings=shader.ReadG1Bindings();
-        byte[] requested=bindings.Variants.Records[0].RawBytes.ToArray();
-        foreach(var edit in new[]{(0,Math.Min(weather.ReadBits(0x674),2u)),(4,Math.Clamp(weather.ReadBits(0x678),4u,6u)),
-            (8,earthPresent?0u:1u),(12,1u),(16,0u),(20,1u),(32,0u)})BinaryPrimitives.WriteUInt32LittleEndian(requested.AsSpan(edit.Item1),edit.Item2);
-        var variant=bindings.Variants.Match(requested)??throw new NotSupportedException("Main Cloud current binding variant is absent.");
-        int feature=Feature(bindings,rendererRequest);
-        G2ShaderCombination Combo(uint pass)=>bindings.ResolveCombination([(uint)feature,0,0,0,0,0,(uint)variant.Index],pass);
-        var color=Programs(Combo(1));var history=Programs(Combo(2));
+        var programs=resources.SelectMain(rendererRequest,weather.ReadBits(0x674),weather.ReadBits(0x678),earthPresent);
         var historyVertex=new Fields();historyVertex.Set("ksgClipPlane",Words(options.CloudClipPlane));historyVertex.Set("g_vProjFarNear",far,near);
         var historyPixel=new Fields();historyPixel.SetInt("g_iBayerPosNum",0);historyPixel.Set("g_vPrevVector",previousVector);
-        historyPixel.Set("g_vProcSize",options.Width,options.Height,D(1,options.Width),D(1,options.Height));
-        return new(color,Pack(shader.ReadResourceDefinitions(color.VertexProgram),176,vertex),
-            Pack(shader.ReadResourceDefinitions(color.PixelProgram),560,pixel),
-            Pack(shader.ReadResourceDefinitions(history.VertexProgram),32,historyVertex),Pack(shader.ReadResourceDefinitions(history.PixelProgram),48,historyPixel));
+        historyPixel.Set("g_vProcSize", reconstructionWidth, reconstructionHeight,
+            D(1, reconstructionWidth), D(1, reconstructionHeight));
+        var compositeVertex=new Fields();compositeVertex.Set("ksgClipPlane",Words(options.CloudClipPlane));compositeVertex.Set("g_vProjFarNear",far,near);
+        var compositePixel=new Fields();
+        var axes=new List<D3D11CloudAnimationAxis>();
+        foreach(var group in CloudTextureGroups)
+        {
+            int offset=programs.Color.PixelDefinitions.Buffers.Single().Variables.Single(field=>field.Name.Text=="g_v"+group.Name+"TexOffset").StartOffset;
+            for(int lane=0;lane<group.Lanes;lane++)
+            {
+                var axis=CloudAxes.Single(axis=>axis.Phase==group.Phase+lane*4);
+                axes.Add(new(axis.Phase,offset+lane*4,R(axis.Wind),R(axis.Period),R(group.Offset+lane*4),D(1,R(axis.Period))));
+            }
+        }
+        foreach(int phase in new[]{0x1D8,0x1DC,0x1F8,0x1FC})axes.Add(new(phase,-1,0,2000000,0,1f/2000000));
+        byte[] matrixBytes=new byte[64];var matrix=Words(worldToProjection);
+        for(int i=0;i<matrix.Length;i++)BinaryPrimitives.WriteSingleLittleEndian(matrixBytes.AsSpan(i*4),matrix[i]);
+        byte[] PackCompositePixel()=>programs.Composite.PixelDefinitions.Buffers.Count==0?Array.Empty<byte>():
+            Pack(programs.Composite.PixelDefinitions,programs.Composite.PixelDefinitions.Buffers.Single().ByteSize,compositePixel);
+        return new(programs,Pack(programs.Color.VertexDefinitions,176,vertex),Pack(programs.Color.PixelDefinitions,560,pixel),
+            Pack(programs.History.VertexDefinitions,32,historyVertex),Pack(programs.History.PixelDefinitions,48,historyPixel),
+            Pack(programs.Composite.VertexDefinitions,32,compositeVertex),PackCompositePixel(),axes.AsReadOnly(),matrixBytes,weather.ReadFloat(0x1D0));
     }
 
     private static Dictionary<int,float> CloudInputs(SkyAppliedSourceCloudWeatherFields w,MapSourceCreatedSeasonLightingFrame present)

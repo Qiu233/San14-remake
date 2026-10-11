@@ -36,6 +36,7 @@ public sealed class OwnedWorldLists
     private readonly Dictionary<uint, ListState> lists;
     private readonly uint[] clearNames;
     private readonly int maximumCapacity;
+    private readonly string definitionResourceUri, definitionSha256;
     private long nextDataIdentity;
     private long frame;
 
@@ -47,6 +48,8 @@ public sealed class OwnedWorldLists
             throw new ArgumentOutOfRangeException(nameof(maximumCapacity));
         lists = source.Declarations.ToDictionary(d => d.ObjectId, d => new ListState(d));
         clearNames = source.FrameSyncClearNames.ToArray();
+        definitionResourceUri = source.DefinitionResourceUri;
+        definitionSha256 = source.DefinitionSha256;
         this.maximumCapacity = maximumCapacity; frame = firstFrame;
     }
 
@@ -124,8 +127,8 @@ public sealed class OwnedWorldLists
             var list = RequireList(expectedFrame, name);
             var entries = list.Entries.Select(entry => entry is null ? null :
                 new OwnedWorldListEntry(entry.Identity, entry.CpuState)).ToArray();
-            return new(frame, name, GameResourceId.Rdb("system", OwnedWorldListSource.DefinitionsResourceId).ToString(),
-                OwnedWorldListSource.DefinitionsSha256, list.Capacity, Array.AsReadOnly(entries));
+            return new(frame, name, definitionResourceUri,
+                definitionSha256, list.Capacity, Array.AsReadOnly(entries));
         }
     }
 

@@ -10,9 +10,9 @@ public sealed record Sky2DeviceInput(uint SourceBindPoint,uint SourceDimension,R
     public static Sky2DeviceInput FromRetainedSource(uint bindPoint,SkyTextureDevice texture)
     {
         ArgumentNullException.ThrowIfNull(texture);
-        var sampler=San14.Data.Formats.G1TextureSamplerReader.ReadRetainedSource(texture.Image);
-        return new(bindPoint,texture.Image.TextureSystem==2?8u:4u,texture.TextureRid,texture.TextureRid,
-            sampler.EncodeD3D11Descriptor(),texture.Source.Source.ResourceUri+"#image="+texture.Image.Index);
+        var source=texture.Source;
+        return new(bindPoint,source.SourceDimension,texture.TextureRid,texture.TextureRid,
+            source.GetSourceSamplerDescriptor(),source.ResourceUri+"#image="+source.ImageIndex);
     }
 }
 
@@ -39,6 +39,8 @@ public sealed class Sky2Draw : IAsyncDisposable
     private readonly byte[] _vertexTemplate,_pixelTemplate;
     private readonly IReadOnlyList<Rid> _owned;
     private Task? _disposal;
+    private readonly object _disposalGate=new();
+    private int _releasedResources;
 
     private Sky2Draw(Sky2Program program,byte[] vc,byte[] pc,byte[] geometry,IReadOnlyList<Sky2DeviceInput> inputs,
         CubeRenderDeviceSurface target,Rid pipeline,Rid vertices,Rid vs,Rid ps,Rid vcb,Rid pcb,List<Rid> owned,
@@ -58,7 +60,7 @@ public sealed class Sky2Draw : IAsyncDisposable
         IReadOnlyList<Sky2DeviceInput> explicitInputs,
         Sky2NativeComposition? explicitNativeComposition=null)
     {
-        ArgumentNullException.ThrowIfNull(program);ArgumentNullException.ThrowIfNull(explicitConstants);
+        ArgumentNullException.ThrowIfNull(program);ArgumentNullException.ThrowIfNull(explicitConstants);program.RequireCurrent();
         var vertex=Sky2Constants.Vertex(program.VertexBindings.SourceDefinitions,
             explicitVertexTemplate.Span,explicitConstants.Vertex);
         var pixel=Sky2Constants.Pixel(program.PixelBindings.SourceDefinitions,
@@ -98,6 +100,7 @@ public sealed class Sky2Draw : IAsyncDisposable
         var surface=target.Surfaces[(int)surfaceId];
         return TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
+            program.RequireCurrent();
             var owned=new List<Rid>();
             Rid Own(Rid rid){if(!rid.IsValid)throw new InvalidDataException("Sky2 device allocation failed.");owned.Add(rid);return rid;}
             try
@@ -175,16 +178,15 @@ public sealed class Sky2Draw : IAsyncDisposable
     /// texture bindings and pipeline. Await this before submitting the draw.</summary>
     public Task UpdateConstantsAsync(Sky2DrawInputs explicitConstants)
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null,this);
+        ObjectDisposedException.ThrowIf(_disposal is not null,this);_program.RequireCurrent();
         ArgumentNullException.ThrowIfNull(explicitConstants);
         byte[] vc=Sky2Constants.Vertex(_program.VertexBindings.SourceDefinitions,
             _vertexTemplate,explicitConstants.Vertex).Bytes;
         byte[] pc=Sky2Constants.Pixel(_program.PixelBindings.SourceDefinitions,
             _pixelTemplate,explicitConstants.Pixel).Bytes;
-        _program.ValidateNullTexturePacket(pc);
         return TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
-            ObjectDisposedException.ThrowIf(_disposal is not null,this);
+            ObjectDisposedException.ThrowIf(_disposal is not null,this);_program.RequireCurrent();
             if(rd.BufferUpdate(_vertexBuffer,0,(uint)vc.Length,vc)!=Error.Ok||rd.BufferUpdate(_pixelBuffer,0,(uint)pc.Length,pc)!=Error.Ok)
                 throw new InvalidDataException("Device rejected an original Sky2 constant update.");
             VertexConstantBytes=vc;PixelConstantBytes=pc;return true;
@@ -193,10 +195,10 @@ public sealed class Sky2Draw : IAsyncDisposable
 
     public Task DrawAsync()
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null,this);
+        ObjectDisposedException.ThrowIf(_disposal is not null,this);_program.RequireCurrent();
         return TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
-            ObjectDisposedException.ThrowIf(_disposal is not null,this);
+            ObjectDisposedException.ThrowIf(_disposal is not null,this);_program.RequireCurrent();
             long list=rd.DrawListBegin(Target.Framebuffer,RenderingDevice.DrawFlags.DefaultAll);
             try{rd.DrawListBindRenderPipeline(list,_pipeline);rd.DrawListBindVertexArray(list,_vertices);
                 rd.DrawListBindUniformSet(list,_pixelSet,0);rd.DrawListBindUniformSet(list,_vertexSet,1);rd.DrawListDraw(list,false,1,4);}
@@ -204,6 +206,21 @@ public sealed class Sky2Draw : IAsyncDisposable
         });
     }
 
-    public ValueTask DisposeAsync()=>new(_disposal??=TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-    {for(int i=_owned.Count-1;i>=0;i--)rd.FreeRid(_owned[i]);return true;}));
+    public ValueTask DisposeAsync()
+    {
+        lock(_disposalGate)
+        {
+            if(_disposal is null||_disposal.IsFaulted||_disposal.IsCanceled)
+                _disposal=TerrainDeviceTexture.OnRenderThreadAsync(rd=>
+                {
+                    while(_releasedResources<_owned.Count)
+                    {
+                        rd.FreeRid(_owned[_owned.Count-1-_releasedResources]);
+                        _releasedResources++;
+                    }
+                    return true;
+                });
+            return new(_disposal);
+        }
+    }
 }

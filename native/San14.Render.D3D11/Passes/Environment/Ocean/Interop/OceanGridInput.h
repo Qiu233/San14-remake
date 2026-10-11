@@ -14,13 +14,4 @@ inline OceanGridSettings readOceanGridSettings(const std::filesystem::path& path
     validateOceanGridSettings(result);
     return result;
 }
-// Only unresolved current surface inputs are retained from this legacy media.
-// Construction dimensions, capacity, thresholds and topology have no authority here.
-inline OceanSurfaceState readOceanSurfaceState(const std::filesystem::path& path) {
-    std::ifstream input(path,std::ios::binary);std::uint32_t magic{};std::array<float,8> values{};
-    input.read(reinterpret_cast<char*>(&magic),sizeof(magic));
-    input.read(reinterpret_cast<char*>(values.data()),sizeof(values));
-    if(!input||magic!=0x31474357u)throw std::runtime_error("Ocean current surface state WCG1 absent");
-    return {values[0],values[3],values[5],values[6],values[7]};
-}
 } // namespace San14::Render::Interop

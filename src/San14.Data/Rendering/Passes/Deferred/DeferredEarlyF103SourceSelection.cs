@@ -3,7 +3,7 @@ using San14.Data.Formats;
 namespace San14.Data;
 
 public sealed record DeferredEarlyF103CurrentVariantInputs(DeferredF103CurrentVariantInputs Common,
-    uint RawQueryD5BA00,uint RawQueryD5B9D0,string RawQueryProducerProvenance);
+    PreparedViewLocalLightQueries LocalLightQueries);
 
 public sealed class DeferredEarlyF103SelectedSource
 {
@@ -60,7 +60,7 @@ public static partial class DeferredEarlyF103SourceSelection
         var imported=HdrCompatibilitySelectionSource.Read(source);
         var selected=imported.Bank.Select(HdrShaderCodec.ReadFeature(feature),
             HdrShaderCodec.ReadSettings(current.Common,camera.SourceSpecularOcclusionType3C0,
-                current.RawQueryD5BA00==0&&current.RawQueryD5B9D0==0));
+                current.LocalLightQueries.AreEmpty));
         return new(imported,camera,current,selected,ownedFeature);
     }
 }

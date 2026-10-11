@@ -18,15 +18,8 @@ public static class SkySeasonMoonTemperature
 
     public static uint ReadKelvin(MapSeasonCameraPackage package)
     {
-        var canonical = SkySeasonPackageTextures.Read(package).Package;
-        var property = canonical.Camera.Properties[PropertyOrdinal];
-        if (package.Camera.ClassId != canonical.Camera.ClassId || package.Camera.Properties.Count != canonical.Camera.Properties.Count)
-            throw new InvalidDataException("Seasonal Moon temperature retained Camera metadata differs from its source.");
-        var retained = package.Camera.Properties[PropertyOrdinal];
-        if (retained.Index != property.Index || retained.NameHash != property.NameHash || retained.TypeCode != property.TypeCode ||
-            retained.ElementCount != property.ElementCount || retained.ElementSize != property.ElementSize ||
-            !retained.RawValue.AsSpan().SequenceEqual(property.RawValue))
-            throw new InvalidDataException("Seasonal Moon temperature retained property differs from its canonical source declaration.");
+        ArgumentNullException.ThrowIfNull(package);
+        var property = package.Camera.Properties[PropertyOrdinal];
         if (property.Index != PropertyOrdinal || property.NameHash != PropertyHash || property.TypeCode != 4 ||
             property.ElementCount != 1 || property.ElementSize != 4 || property.RawValue.Length != 4 ||
             BinaryPrimitives.ReadUInt32LittleEndian(property.RawValue) != SupportedKelvin)

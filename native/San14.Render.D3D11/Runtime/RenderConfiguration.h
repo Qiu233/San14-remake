@@ -24,7 +24,6 @@ enum class ResourceGroup {
     BaseShadows,
     AmbientFrame,
     CloudWeather,
-    HeightFog,
     SeasonalResources,
     AnimationDefaults,
     DeferredCamera,
@@ -45,8 +44,6 @@ enum class ResourceGroup {
     PostAnimation,
     FinalOutput,
     PostEffects,
-    OceanWaves,
-    OceanClock,
     OceanTextures,
     PostTargets,
     ForwardLighting,
@@ -88,7 +85,6 @@ public:
         case ResourceGroup::BaseShadows: return packageRoot/"city-gate-shadow-input";
         case ResourceGroup::AmbientFrame: return packageRoot/"current-ambient-frame-input";
         case ResourceGroup::CloudWeather: return packageRoot/"current-cloud-weather-input";
-        case ResourceGroup::HeightFog: return packageRoot/"current-height-fog-input";
         case ResourceGroup::SeasonalResources: return packageRoot/"current-season-resource-input";
         case ResourceGroup::AnimationDefaults: return packageRoot/"default-player-phase-input";
         case ResourceGroup::DeferredCamera: return packageRoot/"deferred-camera-continuous-input";
@@ -109,8 +105,6 @@ public:
         case ResourceGroup::PostAnimation: return packageRoot/"normal-post-continuous-input";
         case ResourceGroup::FinalOutput: return packageRoot/"normal-post-input";
         case ResourceGroup::PostEffects: return packageRoot/"normal-post-next-input";
-        case ResourceGroup::OceanWaves: return packageRoot/"ocean-fft-input";
-        case ResourceGroup::OceanClock: return packageRoot/"ocean-prepare-input";
         case ResourceGroup::OceanTextures: return packageRoot/"ocean-texture-input";
         case ResourceGroup::PostTargets: return packageRoot/"post-input";
         case ResourceGroup::ForwardLighting: return packageRoot/"primary-forward-current-bank-input";

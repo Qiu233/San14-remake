@@ -29,6 +29,12 @@ public static class D3D11OwnedNumericInputPreparation
         WriteAtmosphereProfile(inputRoot, current, outputWidth, outputHeight);
         OceanWaveSettingsEncoding.WriteNativeInputs(
             Path.Combine(inputRoot, OceanGridSettingsEncoding.NativeDirectory), current.OceanWaves);
+        OceanSurfaceSettingsEncoding.WriteNativeInputs(
+            Path.Combine(inputRoot, OceanGridSettingsEncoding.NativeDirectory), current.OceanSurface);
+        OceanOpticsSettingsEncoding.WriteNativeInputs(
+            Path.Combine(inputRoot, OceanGridSettingsEncoding.NativeDirectory), current.OceanOptics);
+        OceanTextureMaterialEncoding.WriteNativeInputs(
+            Path.Combine(inputRoot, OceanGridSettingsEncoding.NativeDirectory), current.OceanTextureMaterial);
 
         string locale = actualMain.Camera.ExecutableLocale;
         var common = D3D11TimingInputPreparation.LoadSourceCommon(repository);
@@ -47,7 +53,7 @@ public static class D3D11OwnedNumericInputPreparation
             projectionRules, actualMain.Camera.FrameNumber, projectionLight?.CompleteData,
             projectionLight is null ? null : actualMain.Camera.FrameNumber, configuration.ProjectionConvention);
         WritePostCallers(repository, library, inputRoot, common, projectionRules.LockedAdaptationBits);
-        WriteCloudWeather(repository, library, inputRoot);
+        WriteCloudWeatherProfiles(library, inputRoot);
     }
 
     /// <summary>Refresh only installed season declarations at a real load
@@ -59,7 +65,7 @@ public static class D3D11OwnedNumericInputPreparation
         string locale = library.LoadedInstallations[0].Resources.Source.Locale;
         var rules = D3D11NormalPostCameraInputPreparation.LoadRules(repository, locale);
         WritePostCallers(repository, library, inputRoot, common, rules.LockedAdaptationBits);
-        WriteCloudWeather(repository, library, inputRoot);
+        WriteCloudWeatherProfiles(library, inputRoot);
     }
 
     private static void WriteAtmosphereProfile(string inputRoot, D3D11CurrentSeasonFrame current,
@@ -72,17 +78,10 @@ public static class D3D11OwnedNumericInputPreparation
         writer.Write(outputWidth); writer.Write(outputHeight);
     }
 
-    private static void WriteCloudWeather(GameResourceRepository repository,
-        D3D11CurrentSeasonLibrary library, string inputRoot)
+    private static void WriteCloudWeatherProfiles(D3D11CurrentSeasonLibrary library, string inputRoot)
     {
         string directory = Path.Combine(inputRoot, "current-cloud-weather-input");
         Directory.CreateDirectory(directory);
-        var shader = repository.LoadShaderContainer("system", 0x42ED52ED);
-        string[] names = ["g_vBaseTexScale","g_vDetailTexScale","g_vDistortTexScale","g_vCirrusTexScale",
-            "g_vCirrusDistortTexScale","g_vRaySampleNum","g_vEarthRadius","g_vCloudParams1","g_vCloudParams2",
-            "g_vCloudParams0","g_vDistortScale","g_vCirrusParams","g_vCirrusDistortScale","g_vErodeScale",
-            "g_vHgParams0","g_vHgParams1","g_vSky2RayleighExtinction","g_vSky2MieExtinction","g_vStableDim","g_vClampValue"];
-        WriteLayout(184, "main-layout.txt"); WriteLayout(47, "work-layout.txt");
         var seasons = library.LoadedInstallations.OrderBy(row => row.SeasonIndex).ToArray();
         using var writer = new BinaryWriter(File.Create(Path.Combine(directory, "profiles.bin")));
         writer.Write((uint)seasons.Length);
@@ -97,15 +96,6 @@ public static class D3D11OwnedNumericInputPreparation
         }
         void Vector(Vector4 vector)
         { writer.Write(vector.X); writer.Write(vector.Y); writer.Write(vector.Z); writer.Write(vector.W); }
-        void WriteLayout(int program, string filename)
-        {
-            var globals = shader.ReadResourceDefinitions(program).Buffers.Single();
-            List<string> lines = [globals.ByteSize.ToString(System.Globalization.CultureInfo.InvariantCulture)];
-            for (int index = 0; index < names.Length; index++)
-                if (globals.Variables.SingleOrDefault(variable => variable.Name.Text == names[index]) is { } variable)
-                    lines.Add(FormattableString.Invariant($"{index} {variable.StartOffset} {variable.ByteSize / 4}"));
-            File.WriteAllLines(Path.Combine(directory, filename), lines);
-        }
     }
 
     private static void WritePostCallers(GameResourceRepository repository,

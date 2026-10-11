@@ -65,7 +65,7 @@ public sealed class MapSourceCreatedSeasonLightingFrame
             camera.Inputs.MainFrame.Camera.Source.Camera.ObjectId!=MainMapCameraAdapter.MainCameraObjectId ||
             camera.Inputs.BeforeFinalPreparationPrefix.Length!=0x3C0 || camera.SunMoonRgb.Prefix.Length!=0x3C0)
             throw new InvalidDataException("Present lighting requires the actual same-frame source Main RGB/weather producers and their explicit SSE delta.");
-        if(camera.Inputs.Phase.LightingController.DeclaredTransmittanceTable!=SkyAtmoTableResources.ObjectId ||
+        if(camera.Inputs.Phase.LightingController.DeclaredTransmittanceTable!=camera.Inputs.Source.Transmittance.Tables.ObjectId ||
             camera.Inputs.Source.Transmittance.Atan.Locale!=camera.Inputs.MainFrame.Camera.ExecutableLocale ||
             BitConverter.SingleToUInt32Bits(camera.SunMoonRgb.Lighting.Transition.Continuation)!=0x3F800000)
             throw new InvalidDataException("Present lighting differs from its successfully loaded source table or the actual Camera3B8=1 continuation.");

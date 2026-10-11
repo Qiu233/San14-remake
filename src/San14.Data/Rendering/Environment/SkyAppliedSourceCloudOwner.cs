@@ -38,10 +38,11 @@ public sealed class SkyAppliedSourceCloudOwner
         if(frame.Clip.IsConstructorPlan)throw new InvalidDataException("Cloud constructor plan cannot identify an actual current clip submission.");
         return frame.Clip;
     }
-    public static SkyAppliedSourceCloudOwner CreateFresh(GameResourceRepository repository,string locale,string ownedCloudIdentity)
+    public static SkyAppliedSourceCloudOwner CreateFresh(GameResourceRepository repository,string locale,string ownedCloudIdentity,
+        SkyCloudProgramResources programs)
     {
         ArgumentNullException.ThrowIfNull(repository);ArgumentException.ThrowIfNullOrWhiteSpace(ownedCloudIdentity);
-        return new(repository,locale,ownedCloudIdentity,SkyAppliedSourceCloudSelectionOwner.CreateFresh(repository,locale),
+        return new(repository,locale,ownedCloudIdentity,SkyAppliedSourceCloudSelectionOwner.CreateFresh(repository,locale,programs),
             SkyCloudSourceClipPlane.CreateFresh(repository,locale),RenderSamplerSourceAdapters.ReadAppliedCloudCurrentWriterNativeRecipe(repository.SourceDirectory,locale));
     }
     public SkyAppliedSourceCloudFrame PrepareBootstrap(SkySceneSourceFramePacket sourceFrame,
@@ -87,9 +88,10 @@ public sealed class SkyAppliedSourceCloudOwner
             var loaded=SkyAppliedSeasonCloudTextures.Load(repository,actualSource);
             loadedTexturePackage=selected.FirstPackage;loadedTextures=loaded;
         }
-        var textures=loadedTextures!.ForCurrent(actualSource);
+        var textures=loadedTextures!;
         var selection=selectionOwner.PrepareCurrent(present,stages,textures);
-        var bindings=SkyAppliedCloudTextureBindings.PrepareCurrent(selection,textures);
+        var bindings=SkyAppliedCloudTextureSet.Import(textures);
+        SkyAppliedCloudTextureBindings.ValidateProgram(selection,bindings);
         var clipPacket=constructorPlan?clip.PrepareConstructorPlan(sourceFrame,present,stages,selectedView):
             clip.PrepareCurrent(currentClipScope??throw new InvalidDataException("Cloud current clip requires a typed owned frontend prefix."),sourceFrame,present,stages,selectedView);
         var weather=SkyAppliedSourceCloudWeatherFields.PrepareCurrent(present);
@@ -117,9 +119,7 @@ public sealed class SkyAppliedSourceCloudOwner
                 throw new InvalidDataException("Directional Cloud requires its current Sky mode4 Fog/Scat owner before the renderer0/profile1 stage.");
             }
         }
-        var feature=selection.Shader.ReadG1Bindings().Features[0].Feature;
-        if(feature.Words[6]!=0||feature.Words[7]!=1)throw new InvalidDataException("Cloud source row0 no longer retains Sky2 Scat under renderer0/profile1.");
-        var sourceCamera=SkySeasonPackageTextures.Read(selected.FirstPackage).Package.Camera;
+        var sourceCamera=selected.FirstPackage.Camera;
         var geometryField=sourceCamera.Properties.Single(p=>p.Index==614);
         if(geometryField.NameHash!=0x59633E4E||geometryField.TypeCode!=8||geometryField.ElementCount!=1||geometryField.ElementSize!=4||geometryField.RawValue.Length!=4)
             throw new InvalidDataException("Cloud controller40 source614 geometry field changed.");
@@ -232,8 +232,8 @@ public sealed class SkyAppliedSourceCloudOwner
         Set("g_vSky2MoonDir",M(l.RawMoonPosition.X,-1),M(l.RawMoonPosition.Y,-1),M(l.RawMoonPosition.Z,-1),0);
         Set("g_vSky2RayleighExtinction",0,0,0,A(R(0x22C),R(0x228)));Set("g_vSky2MieExtinction",0,0,0,0);
         Set("g_vStableDim",R(0x60),R(0x64),R(0x68),R(0x6C));Set("g_vClampValue",0,0,0,controller.Scalar1F0);
-        var vertexDefinitions=s.Shader.ReadResourceDefinitions(s.ColorVertexProgram);
-        var pixelDefinitions=s.Shader.ReadResourceDefinitions(s.ColorPixelProgram);
+        var vertexDefinitions=s.ProgramSelection.VertexDefinitions;
+        var pixelDefinitions=s.ProgramSelection.PixelDefinitions;
         byte[] vertexBytes=Pack(vertexDefinitions,160,vertexValues),pixel=Pack(pixelDefinitions,s.PixelConstantByteLength,pixelValues);
         return SkyCloudConstants.ReadColor(vertexDefinitions,pixelDefinitions,vertexBytes,pixel,maximum);
     }
@@ -287,14 +287,14 @@ public sealed class SkyAppliedSourceCloudFrame
 {
     internal SkyAppliedSourceCloudOwner SourceCreatedInputOwner => owner;
     private readonly SkyAppliedSourceCloudOwner owner;private readonly SkyCloudConstantPacket[] packets;private readonly Dictionary<int,float> phase;
-    internal SkyAppliedSourceCloudFrame(SkyAppliedSourceCloudOwner owner,SkySceneSourceFramePacket source,MapSourceCreatedSeasonLightingFrame present,SkyAppliedSourceStageFrame stages,MainSceneNode51Execution view,SkyAppliedSourceCloudSelection selection,IReadOnlyList<SkyAppliedCloudTextureBinding> bindings,SkyAppliedSourceCloudWeatherFields weather,SkyCloudSourceClipPlanePacket clip,SkyCloudConstantPacket[] packets,Dictionary<int,float> phase,string provenance)
+    internal SkyAppliedSourceCloudFrame(SkyAppliedSourceCloudOwner owner,SkySceneSourceFramePacket source,MapSourceCreatedSeasonLightingFrame present,SkyAppliedSourceStageFrame stages,MainSceneNode51Execution view,SkyAppliedSourceCloudSelection selection,SkyAppliedCloudTextureSet bindings,SkyAppliedSourceCloudWeatherFields weather,SkyCloudSourceClipPlanePacket clip,SkyCloudConstantPacket[] packets,Dictionary<int,float> phase,string provenance)
     {this.owner=owner;SourceFrame=source;AcceptedPresent=present;Stages=stages;SelectedView=view;Selection=selection;Bindings=bindings;Weather=weather;Clip=clip;this.packets=packets;this.phase=phase;SourceProvenance=provenance;}
     public SkySceneSourceFramePacket SourceFrame {get;}
     public MapSourceCreatedSeasonLightingFrame AcceptedPresent {get;}
     public SkyAppliedSourceStageFrame Stages {get;}
     public MainSceneNode51Execution SelectedView {get;}
     public SkyAppliedSourceCloudSelection Selection {get;}
-    public IReadOnlyList<SkyAppliedCloudTextureBinding> Bindings {get;}
+    public SkyAppliedCloudTextureSet Bindings {get;}
     public SkyAppliedSourceCloudWeatherFields Weather {get;}
     public SkyCloudSourceClipPlanePacket Clip{get;}
     public long FrameNumber=>AcceptedPresent.FrameNumber;

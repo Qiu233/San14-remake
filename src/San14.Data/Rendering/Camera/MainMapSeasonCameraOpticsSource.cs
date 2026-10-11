@@ -83,18 +83,7 @@ public sealed class LoadedMainMapSeasonCameraOpticsSource
             if(lens!=0x3D60C3C7)
                 throw new NotSupportedException("Selected Main optics needs its declared LensPreset payload producer.");
             var definitions=repository.LoadObjects("system",0xDAB638B2);
-            var matches=definitions.Document.Objects.Where(o=>o.ObjectId==lens).ToArray();
-            if(definitions.Source.DecodedSha256!=MapPostEffect3LensPresetSource.ResourceSha256||
-                matches.Length!=1||matches[0].Kind!=DokObjectKind.Inline||
-                matches[0].ClassId!=0x162FB139||matches[0].Properties.Count!=29)
-                throw new InvalidDataException("Selected Main optics LensPreset source differs from its original class162FB139.");
-            foreach(var(index,hash)in new[]{(27,0x29B2A52Eu),(28,0x081439EAu)})
-            {
-                var field=matches[0].Properties[index];
-                if(field.Index!=index||field.NameHash!=hash||field.TypeCode!=4||field.RawValue.Length!=4||
-                    BinaryPrimitives.ReadUInt32LittleEndian(field.RawValue)!=0)
-                    throw new NotSupportedException("Selected optics supports the actual original LensPreset builtin0/flags0 payload.");
-            }
+            MapPostEffect3LensPresetSource.ReadBuiltinDeclaration(definitions,lens);
             lensResolved=true;evidence+=definitions.Source.ResourceUri+"#3D60C3C7;owned-builtin0-payload-resolved;";
         }
         byte[] builtin=MapPostEffect3LensPresetBuiltin0.CopyPrimitive();

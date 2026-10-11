@@ -11,12 +11,19 @@ public sealed record OwnedWorldListDeclaration(uint ObjectId, int InitialCapacit
 public sealed class OwnedWorldListSource
 {
     public const uint DefinitionsResourceId = 0x908AB6E2;
-    public const string DefinitionsSha256 = "3CB072E68CA9A2086D0230E3F9F86AD1B9B10E08CEA521A474CE1057A0E23B06";
     private readonly OwnedWorldListDeclaration[] declarations;
     private readonly uint[] clearNames;
 
-    private OwnedWorldListSource(OwnedWorldListDeclaration[] declarations, uint[] clearNames)
-    { this.declarations = declarations; this.clearNames = clearNames; }
+    private OwnedWorldListSource(OwnedWorldListDeclaration[] declarations, uint[] clearNames, LoadedRdbAsset source)
+    {
+        this.declarations = declarations;
+        this.clearNames = clearNames;
+        DefinitionResourceUri = source.ResourceUri;
+        DefinitionSha256 = source.DecodedSha256;
+    }
+
+    public string DefinitionResourceUri { get; }
+    public string DefinitionSha256 { get; }
 
     public IReadOnlyList<OwnedWorldListDeclaration> Declarations => Array.AsReadOnly(declarations);
     public IReadOnlyList<uint> FrameSyncClearNames => Array.AsReadOnly(clearNames);
@@ -24,31 +31,39 @@ public sealed class OwnedWorldListSource
     public static OwnedWorldListSource Load(GameResourceRepository repository)
     {
         ArgumentNullException.ThrowIfNull(repository);
-        return Read(repository.LoadObjects("system", DefinitionsResourceId).Source,
-            repository.LoadTaskGraph("system", DefaultView0Source.TaskGraphResourceId).Source);
+        return Read(repository.LoadObjects("system", DefinitionsResourceId),
+            repository.LoadTaskGraph("system", DefaultView0Source.TaskGraphResourceId));
     }
 
     public static OwnedWorldListSource Read(LoadedRdbAsset definitions, LoadedRdbAsset graph)
     {
-        Verify(definitions, DefinitionsResourceId, DefinitionsSha256);
-        Verify(graph, DefaultView0Source.TaskGraphResourceId, DefaultView0Source.TaskGraphResourceSha256);
-        var dok = DokReader.Read(definitions.Bytes);
+        return Read(new LoadedObjects(DokReader.Read(definitions.Bytes), definitions),
+            new LoadedTaskGraph(TaskGraphReader.Read(graph.Bytes), graph));
+    }
+
+    public static OwnedWorldListSource Read(LoadedObjects definitions, LoadedTaskGraph graph)
+    {
+        if (definitions.Source.FileId != DefinitionsResourceId ||
+            definitions.Source.ResourceUri != GameResourceId.Rdb("system", DefinitionsResourceId).ToString())
+            throw new InvalidDataException("World list declarations require the supported definition library.");
+        Verify(graph.Source, DefaultView0Source.TaskGraphResourceId, DefaultView0Source.TaskGraphResourceSha256);
+        var dok = definitions.Document;
         uint[] names = [0x175E5FDB, 0x204AB825];
         var declarations = names.Select(name =>
         {
             var obj = dok.Objects.Single(o => o.ObjectId == name);
-            if (obj.Kind != DokObjectKind.Inline || obj.ClassId != 0x2EB79141 || obj.Properties.Count != 3)
+            if (obj.Kind != DokObjectKind.Inline || obj.ClassId != 0x2EB79141)
                 throw new InvalidDataException("World list declaration is not the audited ListContainer class.");
-            var capacity = Scalar(obj.Properties[0], 0xFC63FB31);
-            var growth = Scalar(obj.Properties[1], 0x04E203A7);
-            var initial = obj.Properties[2];
+            var capacity = Scalar(obj.Properties.Single(p => p.NameHash == 0xFC63FB31), 0xFC63FB31);
+            var growth = Scalar(obj.Properties.Single(p => p.NameHash == 0x04E203A7), 0x04E203A7);
+            var initial = obj.Properties.Single(p => p.NameHash == 0xFF26EE41);
             if (initial.NameHash != 0xFF26EE41 || initial.TypeCode != 5 || initial.ElementCount != 0 || initial.RawValue.Length != 0)
                 throw new NotSupportedException("Nonempty declared ListContainer needs a resolved initial Data owner.");
             if (capacity == 0 || growth == 0 || capacity > int.MaxValue || growth > int.MaxValue)
                 throw new NotSupportedException("World list managed allocation requires positive bounded capacity/growth.");
             return new OwnedWorldListDeclaration(name, (int)capacity, (int)growth);
         }).ToArray();
-        var task = TaskGraphReader.Read(graph.Bytes).Nodes.Single(n => n.Index == 1);
+        var task = graph.Document.Nodes.Single(n => n.Index == 1);
         if (task.Call.FactoryClassId != 0xAB5B4109)
             throw new InvalidDataException("World list clear task is not the audited FrameSync node.");
         var clear = task.Call.Arguments.Single(a => a.NameHash == 0x94AFB4B5);
@@ -57,7 +72,7 @@ public sealed class OwnedWorldListSource
         uint[] clearNames = Enumerable.Range(0, 8).Select(i => BinaryPrimitives.ReadUInt32LittleEndian(clear.RawValue.AsSpan(i * 4, 4))).ToArray();
         if (!clearNames.Contains(0x175E5FDBu) || clearNames.Contains(0x204AB825u))
             throw new InvalidDataException("FrameSync world-list clear roles differ from the audited source.");
-        return new(declarations, clearNames);
+        return new(declarations, clearNames, definitions.Source);
     }
 
     private static uint Scalar(DokProperty property, uint hash)

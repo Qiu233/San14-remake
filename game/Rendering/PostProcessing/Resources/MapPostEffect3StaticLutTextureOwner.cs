@@ -13,8 +13,8 @@ public sealed partial class MapPostEffect3StaticLutTextureOwner : IAsyncDisposab
     public StaticTextureBinding Binding { get; }
     public uint NativeViewFormat => texture.NativeViewFormat;
     public Rid TextureRid => texture.TextureRid;
-    public int VolumeDepth => texture.Image.Depth;
-    public int MipCount => texture.Image.MipCount;
+    public int VolumeDepth => texture.Source.Depth;
+    public int MipCount => texture.Source.MipCount;
     public IReadOnlyList<string> MipSha256 => texture.MipSha256;
     public string EncodedVolumeSha256 { get; }
     public string DefinitionSourceSha256 { get; }
@@ -36,7 +36,7 @@ public sealed partial class MapPostEffect3StaticLutTextureOwner : IAsyncDisposab
         contextBytes=binding.ContextReference.RawValue!.ToArray();imageBytes=binding.ImageReference.RawValue!.ToArray();
         DefinitionSourceSha256=binding.Definitions.Source.DecodedSha256;
         TextureSourceSha256=binding.Resource.Source.DecodedSha256;
-        EncodedVolumeSha256=Hash(texture.Image.EncodedDataRange.Slice(binding.Resource.Source.Bytes));
+        EncodedVolumeSha256=Hash(texture.Source.GetEncodedChain());
         SourceEvidence=$"{binding.Definitions.Source.ResourceUri}@{DefinitionSourceSha256}#Static/{binding.Definition.ObjectId:X8};"+
             $"{binding.Resource.Source.ResourceUri}@{TextureSourceSha256}#image/{binding.ImageIndex};"+
             $"explicit-native-SRV-format={texture.NativeViewFormat};"+explicitViewEvidence;
@@ -118,7 +118,7 @@ public sealed partial class MapPostEffect3StaticLutTextureOwner : IAsyncDisposab
             10=>RenderingDevice.DataFormat.R16G16B16A16Sfloat,
             98=>RenderingDevice.DataFormat.Bc7UnormBlock,99=>RenderingDevice.DataFormat.Bc7SrgbBlock,
             _=>throw new InvalidDataException("Uploaded LUT native view is outside supported volume encodings.")};
-        public Vector3I Extent=>new(Owner.texture.Image.Width,Owner.texture.Image.Height,Owner.VolumeDepth);
+        public Vector3I Extent=>new(Owner.texture.Source.Width,Owner.texture.Source.Height,Owner.VolumeDepth);
         public string ProducerOwnerIdentity=>Owner.OwnerIdentity;
         public string SourceEvidence=>Accepted.Reference.SourceEvidence+";complete-original-Static-volume-upload";
         public void RequireCurrent()

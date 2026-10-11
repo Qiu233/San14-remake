@@ -110,7 +110,7 @@ public static class SceneViewNativeMapWorldSourceFactory
                 DeferredSourceViewFamilyScope.FreshSourceMainNoExternalFamilyAssignments);
             var filters = MapCommonViewFilterSource.LoadGameDefault(repo);
             var prefixSource = DeferredAuxiliaryPrefixSource.Read(graph,
-                repo.LoadObjects("system", 0x908AB6E2), generation);
+                current.Bootstrap.First.Camera.Source.Resource, generation);
             var prefixOwner = prefixSource.CreateFreshQueryOwner(current.Bootstrap.First.Camera,
                 current.Bootstrap.First.ViewFields, generation, generation + "/source-RLR-construction");
             var actualArmy = army;

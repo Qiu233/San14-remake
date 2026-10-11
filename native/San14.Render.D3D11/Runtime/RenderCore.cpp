@@ -567,13 +567,15 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             mainTargets.restore(context.Get());
             {
                 const OceanSources oceanSources{resources.directory(ResourceGroup::OceanTextures),
-                    resources.directory(ResourceGroup::Water),waterCameraInput,resources.directory(ResourceGroup::OceanWaves),
-                    resources.directory(ResourceGroup::OceanClock),resources.directory(ResourceGroup::Refraction)/"copy97",
+                    resources.directory(ResourceGroup::Water),resources.directory(ResourceGroup::Refraction)/"copy97",
                     resources.root()/"named-renderer-input"};
                 const OceanTargets oceanTargets{geometryTargets.textures(),geometryTargets.colors(),formats[3],geometryTargets.depthView(),width,height};
                 ocean.prepareWater(device.Get(),context.Get(),oceanSources,oceanTargets,staticCamera,initialCommonClock,
-                    renderRandom,sampleRenderRandomSeed(renderRandomClock),frameState.season()?&frameState.season()->oceanWave:nullptr);
-                ocean.executeWater(device.Get(),context.Get(),sourceDepth,initialCommonClock);
+                    renderRandom,sampleRenderRandomSeed(renderRandomClock),frameState.season()?&frameState.season()->oceanWave:nullptr,
+                    frameState.season()?&frameState.season()->oceanSurface:nullptr,
+                    frameState.season()?&frameState.season()->oceanOptics:nullptr,
+                    frameState.season()?&frameState.season()->oceanTextureMaterial:nullptr);
+                ocean.executeWater(device.Get(),context.Get(),sourceDepth);
                 ;
                 updateNativeDepthMirror(context.Get(),mainDepth,"117 after Ocean");
                 mainTargets.restore(context.Get());
@@ -600,14 +602,14 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                 mainTargets.restore(context.Get());
                 atmosphere.prepare(device.Get(),context.Get(),resources.directory(ResourceGroup::Sky),
                     resources.directory(ResourceGroup::Atmosphere),resources.directory(ResourceGroup::AtmosphereCamera)/"initial",
-                    litColor.Get(),mainDepth.depth.Get(),geometryTargets.depthView(),width,height,frameState.atmosphereFrame(clouds));
+                    litColor.Get(),mainDepth.depth.Get(),fogAcceleration.samplingView(),geometryTargets.depthView(),width,height,frameState.atmosphereFrame(clouds));
                 atmosphere.executeSky(device.Get(),context.Get(),sourceDepth);
                 mainTargets.restore(context.Get());
 
                 clouds.execute(device.Get(),context.Get(),sourceDepth,geometryTargets.depthView(),initialCommonClock,UINT(phase.hostCompletionFlags()));
                 mainTargets.restore(context.Get());
                 atmosphere.executeFog(device.Get(),context.Get(),sourceDepth,
-                    resources.directory(ResourceGroup::HeightFog)/"source-profile.bin",frameState.season(),initialCommonClock,
+                    frameState.season(),initialCommonClock,
                     std::optional<unsigned>(frameState.view().activeGroups));
                 ;
                 mainTargets.restore(context.Get());
@@ -691,7 +693,10 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         {
             // Normal1184320: publish completed geometry BEFORE the shared
             // grid clock writer starts the next job. No frame-number gate.
-            ocean.publishCompletedGeometry(context.Get(),currentClock,host.currentSeason?&host.currentSeason->oceanWave:nullptr);
+            ocean.publishCompletedGeometry(context.Get(),currentClock,host.currentSeason?&host.currentSeason->oceanWave:nullptr,
+                host.currentSeason?&host.currentSeason->oceanSurface:nullptr,
+                host.currentSeason?&host.currentSeason->oceanOptics:nullptr,
+                host.currentSeason?&host.currentSeason->oceanTextureMaterial:nullptr);
 
         }
         beginAcceptedMain(currentClock);
@@ -720,7 +725,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         ocean.copyScene(context.Get(),sourceDepth);
         ocean.copyDepth(context.Get(),sourceDepth);mainTargets.restore(context.Get());
         ocean.updateCamera(context.Get(),staticCamera);
-        ocean.executeWater(device.Get(),context.Get(),sourceDepth,currentClock);
+        ocean.executeWater(device.Get(),context.Get(),sourceDepth);
         updateNativeDepthMirror(context.Get(),mainDepth,"117 new Main Ocean");mainTargets.restore(context.Get());
         context->OMSetRenderTargets(1,&rsTarget,geometryTargets.depthView());
         shadows.executeWaterReceiver(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView());mainTargets.restore(context.Get());
@@ -736,7 +741,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         mainTargets.restore(context.Get());atmosphere.executeSky(device.Get(),context.Get(),sourceDepth);mainTargets.restore(context.Get());
         clouds.execute(device.Get(),context.Get(),sourceDepth,geometryTargets.depthView(),currentClock,UINT(phase.hostCompletionFlags()));mainTargets.restore(context.Get());
         atmosphere.executeFog(device.Get(),context.Get(),sourceDepth,
-            resources.directory(ResourceGroup::HeightFog)/"source-profile.bin",frameState.season(),currentClock,frameState.view().activeGroups);mainTargets.restore(context.Get());
+            frameState.season(),currentClock,frameState.view().activeGroups);mainTargets.restore(context.Get());
         ocean.executeFilters(context.Get(),sourceDepth);mainTargets.restore(context.Get());
         std::array<ID3D11ShaderResourceView*,32> empty{};context->VSSetShaderResources(0,32,empty.data());context->PSSetShaderResources(0,32,empty.data());
         context->OMSetRenderTargets(0,nullptr,ocean.depthTarget());applyNativeSpecialEffects(device.Get(),context.Get(),sourceDepth,specialEffects,phase,141);

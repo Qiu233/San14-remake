@@ -1,6 +1,8 @@
 // Include after the lab's ComPtr/fs/load/check helpers. No draw or context mutation.
 #pragma once
 #include <sstream>
+#include <optional>
+#include "OceanTextureMaterialSettings.h"
 
 struct OceanNativeTexture {
     ComPtr<ID3D11Resource> resource;
@@ -10,12 +12,21 @@ struct OceanNativeTexture {
     DXGI_FORMAT resourceFormat=DXGI_FORMAT_UNKNOWN,viewFormat=DXGI_FORMAT_UNKNOWN;
 };
 struct OceanNativeTextures {
-    OceanNativeTexture normal3d;       // PS t0/s0, unchanged original BC5 volume.
-    OceanNativeTexture normalNoise2d;  // PS t3/s3, unchanged original BC4 planar.
-    OceanNativeTexture wvBubble;       // WV PS t4/s4, original60 BGRA slices.
-    OceanNativeTexture wvHeightMask;   // WV VS t0/s0, original R32 height mask.
-    OceanNativeTexture horizontalDisplacement; // WV VS t1/s1: selected WaveMap442=0, source-null.
+    std::optional<OceanNativeTexture> normal3d;       // PS t0/s0, unchanged original BC5 volume.
+    std::optional<OceanNativeTexture> normalNoise2d;  // PS t3/s3, unchanged original BC4 planar.
+    std::optional<OceanNativeTexture> wvBubble;       // WV PS t4/s4, original60 BGRA slices.
+    std::optional<OceanNativeTexture> wvHeightMask;   // WV VS t0/s0, original R32 height mask.
+    std::optional<OceanNativeTexture> horizontalDisplacement; // WV VS t1/s1: selected WaveMap442=0, source-null.
+    San14::Render::OceanMaterialTextureBindings materialBindings() const {
+        return {normal3d.has_value(),normalNoise2d.has_value(),wvHeightMask.has_value()};
+    }
 };
+static ID3D11ShaderResourceView* oceanTextureView(const std::optional<OceanNativeTexture>& texture) {
+    return texture?texture->view.Get():nullptr;
+}
+static ID3D11SamplerState* oceanTextureSampler(const std::optional<OceanNativeTexture>& texture) {
+    return texture?texture->sampler.Get():nullptr;
+}
 static OceanNativeTextures loadOceanTextures(ID3D11Device* device,const fs::path& source) {
     std::ifstream rows(source/"ocean-textures.tsv");
     if(!rows)throw std::runtime_error("ocean-textures.tsv missing");
@@ -27,16 +38,16 @@ static OceanNativeTextures loadOceanTextures(ID3D11Device* device,const fs::path
         if(!(row>>prefix>>slot>>dimension>>width>>height>>depth>>mips>>layers>>resourceFormat>>viewFormat))
             throw std::runtime_error("Malformed original Ocean texture row");
         OceanNativeTexture* binding;unsigned role;
-        if(prefix=="normal3d") {binding=&result.normal3d;role=1;
+        if(prefix=="normal3d") {binding=&result.normal3d.emplace();role=1;
             if(slot!=0||dimension!=8||layers!=1||resourceFormat!=82||viewFormat!=83)
                 throw std::runtime_error("Original Ocean normal3d resource/SRV contract differs");
-        } else if(prefix=="normal-noise2d") {binding=&result.normalNoise2d;role=2;
+        } else if(prefix=="normal-noise2d") {binding=&result.normalNoise2d.emplace();role=2;
             if(slot!=3||dimension!=4||layers!=1||resourceFormat!=79||viewFormat!=80)
                 throw std::runtime_error("Original Ocean normal noise resource/SRV contract differs");
-        } else if(prefix=="wv-bubble") {binding=&result.wvBubble;role=4;
+        } else if(prefix=="wv-bubble") {binding=&result.wvBubble.emplace();role=4;
             if(slot!=4||dimension!=5||resourceFormat!=90||viewFormat!=91)
                 throw std::runtime_error("Original Ocean WV bubble resource/SRV contract differs");
-        } else if(prefix=="wv-height-mask") {binding=&result.wvHeightMask;role=8;
+        } else if(prefix=="wv-height-mask") {binding=&result.wvHeightMask.emplace();role=8;
             if(slot!=0||dimension!=4||layers!=1||resourceFormat!=39||viewFormat!=41)
                 throw std::runtime_error("Original Ocean WV height resource/SRV contract differs");
         } else throw std::runtime_error("Unknown original Ocean texture role: "+prefix);

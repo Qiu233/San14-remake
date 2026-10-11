@@ -23,8 +23,8 @@ public sealed class PatternCameraStaDataOwner : IPatternCameraCurrentNamedData, 
     }
     public LoadedSkyAtmoTableReadySource Source { get; }
     public SkyAtmoTableCpuOwner Cpu { get; }
-    public uint ObjectKey => SkyAtmoTableResources.ObjectId;
-    public uint FactoryClassId => SkyAtmoTableResources.ClassId;
+    public uint ObjectKey => Source.Tables.ObjectId;
+    public uint FactoryClassId => Source.Tables.ClassId;
     public object CurrentDataOwner { get { RequireCurrent(); return Cpu; } }
     public string SourceEvidence => Cpu.SourceEvidence + ";actual-normal-Context-owned-registered-raw-Data;Pattern-K1680-STA";
 
@@ -60,11 +60,11 @@ public sealed class PatternCameraStaDataOwner : IPatternCameraCurrentNamedData, 
             var actual = actualEntries[i]; var expected = source.Plane.Entries[i];
             ArgumentNullException.ThrowIfNull(actual); ArgumentNullException.ThrowIfNull(actual.RequireCurrentOwner);
             var device = actual.CurrentDescriptor;
-            if (actual.Source.Definition.ObjectId != expected.Definition.ObjectId || actual.Source.ImageIndex != i ||
+            if (actual.Source.Definition.ObjectId != expected.Definition.ObjectId || actual.Source.ImageIndex != expected.ImageIndex ||
                 actual.Source.Resource.Source.ResourceUri != expected.Resource.Source.ResourceUri ||
                 actual.Source.Resource.Source.DecodedSha256 != expected.Resource.Source.DecodedSha256 ||
-                device.SourceResourceUri != expected.Resource.Source.ResourceUri + "#image=" + i ||
-                device.SourceDimension != (i == 0 ? 8u : 4u) || !device.ShaderView.IsValid || !device.OwnerTexture.IsValid ||
+                device.SourceResourceUri != expected.Resource.Source.ResourceUri + "#image=" + expected.ImageIndex ||
+                device.SourceDimension != (expected.Image.TextureSystem == 2 ? 8u : 4u) || !device.ShaderView.IsValid || !device.OwnerTexture.IsValid ||
                 actual.NativeViewFormat != source.Plane.ReadSourceShaderViewFormat(i) ||
                 !device.SourceSamplerDescriptor.Span.SequenceEqual(source.Plane.ReadSourceSamplerDescriptor(i)))
                 throw new InvalidDataException("STA ready Plane descriptor differs from its actual source Static/TID/view/sampler.");
@@ -99,13 +99,11 @@ public sealed class PatternCameraStaDataOwner : IPatternCameraCurrentNamedData, 
         {
             this.plane = plane; this.requireContexts = requireContexts;
             AssetContextOwner = asset; PreparationContextOwner = preparation; requireContexts();
-            // Actual B41860 creation and registration in the current source
-            // domain. Constructor reservation order is Amb2D then TTable;
-            // ready dependency indices use the prepended TTable/Amb2D list.
-            raw = new() {
-                [SkyAtmoTableResources.Ambient2DFileId] = source.CreateRegisteredRawContext(SkyAtmoTableResources.Ambient2DFileId),
-                [SkyAtmoTableResources.TransmittanceFileId] = source.CreateRegisteredRawContext(SkyAtmoTableResources.TransmittanceFileId)
-            };
+            // A declaration may use the same raw resource for both outputs.
+            // Register each actual key once; ready still prepares both copies.
+            raw=new();
+            foreach(uint key in new[]{source.Tables.Transmittance.FileId,source.Tables.Ambient2D.FileId})
+                if(!raw.ContainsKey(key))raw.Add(key,source.CreateRegisteredRawContext(key));
         }
         public object AssetContextOwner { get; }
         public object PreparationContextOwner { get; }

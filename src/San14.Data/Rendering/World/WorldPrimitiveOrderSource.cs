@@ -30,7 +30,7 @@ public sealed class WorldPrimitiveOrderSource
     public static WorldPrimitiveOrderSource LoadDefaultView0(GameResourceRepository repository)
     {
         var view = DefaultView0Source.LoadDeclarationDefaults(repository);
-        return Read(view.CopyViewParameterDeclaration(), view.SourceIdentity);
+        return Read(view.ViewParameterDeclaration, view.SourceIdentity);
     }
 
     public static WorldPrimitiveOrderSource Read(DokObject actualViewParameter, string sourceIdentity)

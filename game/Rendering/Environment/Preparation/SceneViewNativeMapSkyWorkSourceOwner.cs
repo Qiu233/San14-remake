@@ -43,7 +43,7 @@ public sealed class SceneViewNativeMapSkyWorkSourceOwner : IAsyncDisposable
         string locale = loaded.InitialFrame.MainCamera.Camera.ExecutableLocale;
         string workIdentity = bootstrap.Lighting.Binding.ViewIdentity + "/fresh-owned-Sky-WORK";
         var selection = SceneViewNativeMapSkyCurrentSelectionOwner.CreateFresh(loaded.Repository,
-            locale, bootstrap.Lighting.Binding, workIdentity);
+            locale, bootstrap.Lighting.Binding, workIdentity, bootstrap.Camera.Source);
         var first = selection.PrepareCurrent(bootstrap, present, rgb, actualBootstrapView);
         var stars = SkyAppliedSourceStarOwner.CreateFresh(loaded.Repository, locale, workIdentity + "/Star");
         var cloud = SceneViewNativeMapSkyCloudSourceOwner.ReadSource(loaded, compiler, first);

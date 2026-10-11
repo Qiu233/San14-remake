@@ -23,11 +23,12 @@ public sealed class DeferredSourceViewFamilyOwner
     private const string CatalogSha = "67115E16E1B21065B4F04E25109F8182AB027B7DBD38B98979CB02BCFD1291B9";
     private readonly LoadedDeferredSamplerNativeSource native;
     private readonly MapLightingBinding binding;
-    private readonly byte[] cameraSource;
-    // The original catalog is immutable for this owner generation. Keep its
-    // canonical parse, while validating its mutable source bytes before reuse.
+    private readonly LoadedMapCameraConstructionSource cameraSource;
+    // Catalog and null state imports belong to this View owner generation.
+    // External family writers invalidate the owner before further publication.
     private readonly Dictionary<LoadedRdbAsset, LoadedObjects> finalCatalogs =
         new(ReferenceEqualityComparer.Instance);
+    private readonly HashSet<NamedModelShader> nullFinalOwners = new(ReferenceEqualityComparer.Instance);
     private bool retained = true;
     private long revision;
     public string ViewGenerationIdentity { get; }
@@ -38,7 +39,7 @@ public sealed class DeferredSourceViewFamilyOwner
         LoadedMapCameraConstructionSource source, MapLightingBinding binding, string generation)
     {
         this.native = native; this.binding = binding; ViewGenerationIdentity = generation;
-        cameraSource = source.Resource.Source.Bytes.ToArray();
+        cameraSource = source;
         SourceProvenance = native.RenderRuleIdentity + ";Main38D/source-Camera1550-zero-retained;" +
             "TC:C3E1AD/C3E1BF/C3E1C6/C3F000/AB5990/C409C0/D05D54/D05D5A;" +
             "View1C18-null=TC:D072CB;fresh-owned/no-external-family-assignments;ViewGeneration=" + generation;
@@ -53,11 +54,10 @@ public sealed class DeferredSourceViewFamilyOwner
         if (scope != DeferredSourceViewFamilyScope.FreshSourceMainNoExternalFamilyAssignments)
             throw new NotSupportedException("Imported or edited View families require their current source publishers.");
         if (source.Camera.ObjectId != 0x38D04576 ||
-            source.Resource.Source.ResourceUri != "san14://rdb/system/908AB6E2" || source.Resource.Source.OverrideSource is not null ||
-            source.Resource.Source.DecodedSha256 != DeferredAuxiliaryPrefixSource.CameraSha256 ||
-            Hash(source.Resource.Source.Bytes) != source.Resource.Source.DecodedSha256 ||
+            source.Camera.Kind != DokObjectKind.Inline || source.Camera.ClassId != 0x23E7C64E ||
+            source.Resource.Source.ResourceUri != "san14://rdb/system/908AB6E2" || source.Resource.Source.FileId != 0x908AB6E2 ||
             string.IsNullOrWhiteSpace(binding.ViewIdentity) || string.IsNullOrWhiteSpace(binding.CameraOwnerIdentity))
-            throw new InvalidDataException("Fresh View families require the exact source Main and its actual owner generation.");
+            throw new InvalidDataException("Fresh View families require the imported Main camera and its actual owner generation.");
         return new(native, source, binding, actualViewGenerationIdentity);
     }
 
@@ -85,8 +85,8 @@ public sealed class DeferredSourceViewFamilyOwner
             (c.InstanceKey, c.SourceDrawIndex, c.ModelResourceUri, c.ModelSha256)).ToHashSet();
         if (!expectedStatic.SetEquals(currentStatic))
             throw new InvalidDataException("Mode16 publication omits or replaces an actual visible static source draw.");
-        var finalOwners = CaptureNullFinalOwners(candidates);
-        return new(this, frame, revision, candidates, actualCompleteCandidatePublicationProvenance, finalOwners);
+        ImportNullFinalOwners(candidates);
+        return new(this, frame, revision, candidates, actualCompleteCandidatePublicationProvenance);
     }
 
     internal void ValidateFrame(MapSourceCreatedF103CurrentFrame frame)
@@ -94,43 +94,37 @@ public sealed class DeferredSourceViewFamilyOwner
         if (!retained || frame.FrameNumber <= 0 || frame.Camera.ExecutableLocale != native.Locale ||
             frame.ViewFields.Binding != binding || frame.CpuPopulation is null ||
             frame.Camera.Source.Camera.ObjectId != 0x38D04576 ||
-            !frame.Camera.Source.Resource.Source.Bytes.AsSpan().SequenceEqual(cameraSource))
+            !ReferenceEquals(frame.Camera.Source, cameraSource))
             throw new InvalidDataException("Current View family publication differs from its retained source Main generation.");
         frame.ViewFields.Camera.Validate(frame.Camera);
     }
     internal long Revision => revision;
-    private NullFinalOwnerValidation CaptureNullFinalOwners(DeferredSourceMode16Candidate[] candidates)
+    private void ImportNullFinalOwners(DeferredSourceMode16Candidate[] candidates)
     {
-        var sources = new HashSet<LoadedRdbAsset>(ReferenceEqualityComparer.Instance);
-        var owners = new Dictionary<NamedModelShader, NamedModelShader>(ReferenceEqualityComparer.Instance);
         foreach (var candidate in candidates)
         {
             var owner = candidate.FinalParent ?? throw new InvalidDataException("Current final primitive parent is unknown.");
-            var source = owner.Objects.Source;
-            if (sources.Add(source)) ValidateCatalog(source);
-            if (owner.Object.ClassId != 0x18EB1E56 ||
-                owner.Object.ObjectId is not (0x3E8912BC or 0x2F9960EF or 0xE83A2EF7 or 0x739D10B8))
-                throw new InvalidDataException("Mode16 final owner is outside the exact supported original primitive creators.");
-            if (!owners.ContainsKey(owner))
-            {
-                if (!finalCatalogs.TryGetValue(source, out var catalog))
-                {
-                    catalog = new LoadedObjects(DokReader.Read(source.Bytes), source);
-                    finalCatalogs.Add(source, catalog);
-                }
-                var canonical = ModelShaderResources.ReadDeclaredShader(catalog, owner.Object.ObjectId);
-                if (canonical.ShaderFileHash != owner.ShaderFileHash || canonical.DependencyObjectHashes.Count != 24 ||
-                    !canonical.DependencyObjectHashes.SequenceEqual(owner.DependencyObjectHashes) ||
-                    !ModelShaderResources.ResolveType16Interface(canonical, 16).IsNull)
-                    throw new InvalidDataException("Current primitive has no exact literal-null source state16.");
-                // Do not expose the cached canonical parse through the packet.
-                owners.Add(owner, canonical with { DependencyObjectHashes = canonical.DependencyObjectHashes.ToArray() });
-            }
             if (candidate.Family == "StaticModel" && owner.Object.ObjectId == 0x739D10B8 ||
                 candidate.Family.StartsWith("Army", StringComparison.Ordinal) && owner.Object.ObjectId is not (0x739D10B8 or 0x2F9960EF))
                 throw new InvalidDataException("Current primitive final owner differs from its actual source family.");
+            if (nullFinalOwners.Contains(owner)) continue;
+            var source = owner.Objects.Source;
+            if (!finalCatalogs.TryGetValue(source, out var catalog))
+            {
+                ValidateCatalog(source);
+                catalog = owner.Objects;
+                finalCatalogs.Add(source, catalog);
+            }
+            if (owner.Object.ClassId != 0x18EB1E56 ||
+                owner.Object.ObjectId is not (0x3E8912BC or 0x2F9960EF or 0xE83A2EF7 or 0x739D10B8))
+                throw new InvalidDataException("Mode16 final owner is outside the supported original primitive creators.");
+            var declared = ModelShaderResources.ReadDeclaredShader(catalog, owner.Object.ObjectId);
+            if (declared.ShaderFileHash != owner.ShaderFileHash || declared.DependencyObjectHashes.Count != 24 ||
+                !declared.DependencyObjectHashes.SequenceEqual(owner.DependencyObjectHashes) ||
+                !ModelShaderResources.ResolveType16Interface(declared, 16).IsNull)
+                throw new InvalidDataException("Current primitive has no declared null source state16.");
+            nullFinalOwners.Add(owner);
         }
-        return new(sources.ToArray(), owners.ToArray());
     }
 
     private static void ValidateCatalog(LoadedRdbAsset source)
@@ -140,32 +134,6 @@ public sealed class DeferredSourceViewFamilyOwner
             throw new InvalidDataException("Mode16 final owner differs from its exact original catalog source.");
     }
 
-    internal sealed class NullFinalOwnerValidation
-    {
-        private readonly LoadedRdbAsset[] sources;
-        private readonly KeyValuePair<NamedModelShader, NamedModelShader>[] owners;
-        internal NullFinalOwnerValidation(LoadedRdbAsset[] sources,
-            KeyValuePair<NamedModelShader, NamedModelShader>[] owners)
-            => (this.sources, this.owners) = (sources, owners);
-
-        internal void ValidateCurrent()
-        {
-            // Bytes and dependency lists are externally mutable. Check them,
-            // once per source/owner, without rebuilding the full DOK for each
-            // visible instance every time a current-frame lease is required.
-            foreach (var source in sources) ValidateCatalog(source);
-            foreach (var pair in owners)
-            {
-                var actual = pair.Key;
-                var canonical = pair.Value;
-                if (!ReferenceEquals(actual.Objects.Source, canonical.Objects.Source) ||
-                    actual.Object.ClassId != canonical.Object.ClassId || actual.Object.ObjectId != canonical.Object.ObjectId ||
-                    actual.ShaderFileHash != canonical.ShaderFileHash ||
-                    !actual.DependencyObjectHashes.SequenceEqual(canonical.DependencyObjectHashes))
-                    throw new InvalidDataException("Current primitive has changed its accepted literal-null source state16 owner.");
-            }
-        }
-    }
     private static string Hash(ReadOnlySpan<byte> bytes) => Convert.ToHexString(SHA256.HashData(bytes));
 }
 
@@ -175,18 +143,15 @@ public sealed class DeferredSourceViewFamilyOwner
 public sealed class DeferredSourceViewFamilyPacket
 {
     private readonly MapSourceCreatedF103CurrentFrame frame;
-    private readonly byte[] camera;
+    private readonly MapCameraConstructionPacket camera;
     private readonly long revision;
     private readonly DeferredSourceMode16Candidate[] candidates;
-    private readonly DeferredSourceViewFamilyOwner.NullFinalOwnerValidation finalOwners;
     internal DeferredSourceViewFamilyPacket(DeferredSourceViewFamilyOwner owner,
         MapSourceCreatedF103CurrentFrame frame, long revision,
-        DeferredSourceMode16Candidate[] candidates, string provenance,
-        DeferredSourceViewFamilyOwner.NullFinalOwnerValidation finalOwners)
+        DeferredSourceMode16Candidate[] candidates, string provenance)
     {
-        Owner = owner; this.frame = frame; this.revision = revision; camera = frame.Camera.Prefix.ToArray();
+        Owner = owner; this.frame = frame; this.revision = revision; camera = frame.Camera;
         this.candidates = candidates.ToArray(); CurrentCandidatePublicationProvenance = provenance;
-        this.finalOwners = finalOwners;
         LightDataF20 = frame.Lighting.LocalLightData.Span[0xF20];
     }
     public DeferredSourceViewFamilyOwner Owner { get; }
@@ -204,12 +169,9 @@ public sealed class DeferredSourceViewFamilyPacket
     public void ValidateCurrent(MapSourceCreatedF103CurrentFrame acceptedFrame)
     {
         if (!ReferenceEquals(frame, acceptedFrame) || revision != Owner.Revision ||
-            !camera.AsSpan().SequenceEqual(acceptedFrame.Camera.Prefix.Span) ||
+            !ReferenceEquals(camera, acceptedFrame.Camera) ||
             acceptedFrame.Lighting.LocalLightData.Span[0xF20] != LightDataF20)
             throw new InvalidDataException("View family receipt is stale or belongs to another accepted Camera/LightData frame.");
         Owner.ValidateFrame(acceptedFrame);
-        // Source resources retain mutable byte arrays. A later edited final
-        // provider must invalidate the receipt before its no-op is submitted.
-        finalOwners.ValidateCurrent();
     }
 }

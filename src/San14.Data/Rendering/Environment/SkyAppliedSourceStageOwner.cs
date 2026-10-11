@@ -1,74 +1,98 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
 
-/// <summary>Fresh owned WORK and applied source Main Camera optional stage
-/// gates. Canonical zero SkyDomeDisplaysetFactory follows the actual loader,
-/// reference projection and Camera copy. This scope has no runtime scene or
-/// Work1F2 edits; it does not infer original persistent runtime absence.</summary>
+/// <summary>
+/// Optional Sky stages for a fresh WORK owner and an explicitly imported Main
+/// camera. Nonzero scene declarations require a scene producer; this owner
+/// does not infer absence for imported runtime state or external WORK edits.
+/// </summary>
 public sealed class SkyAppliedSourceStageOwner
 {
     private readonly string recipe;
+    private readonly LoadedMapCameraConstructionSource main;
+    private MapSeasonCameraPackage? selectedPackage;
     private SkyAppliedSourceStageFrame? current;
     private long revision;
-    private SkyAppliedSourceStageOwner(string locale,string work,string main,string recipe)
-    {Locale=locale;OwnedWorkIdentity=work;OwnedMainIdentity=main;this.recipe=recipe;}
-    public string Locale{get;}
-    public string OwnedWorkIdentity{get;}
-    public string OwnedMainIdentity{get;}
-    public static SkyAppliedSourceStageOwner CreateFresh(GameResourceRepository repository,string locale,
-        string ownedWorkIdentity,string ownedMainIdentity)
+
+    private SkyAppliedSourceStageOwner(string locale, string workIdentity, string mainIdentity,
+        string recipe, LoadedMapCameraConstructionSource main)
     {
-        ArgumentNullException.ThrowIfNull(repository);ArgumentException.ThrowIfNullOrWhiteSpace(ownedWorkIdentity);
-        ArgumentException.ThrowIfNullOrWhiteSpace(ownedMainIdentity);
-        var main=repository.LoadObjects("system",0x908AB6E2);
-        ValidateMainSource(main);
-        return new(locale,ownedWorkIdentity,ownedMainIdentity,
-            RenderSamplerSourceAdapters.ReadAppliedSkyStageNativeRecipe(repository.SourceDirectory,locale));
+        Locale = locale;
+        OwnedWorkIdentity = workIdentity;
+        OwnedMainIdentity = mainIdentity;
+        this.recipe = recipe;
+        this.main = main;
     }
+
+    public string Locale { get; }
+    public string OwnedWorkIdentity { get; }
+    public string OwnedMainIdentity { get; }
+
+    public static SkyAppliedSourceStageOwner CreateFresh(GameResourceRepository repository, string locale,
+        string ownedWorkIdentity, string ownedMainIdentity, LoadedMapCameraConstructionSource actualMain)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        ArgumentException.ThrowIfNullOrWhiteSpace(ownedWorkIdentity);
+        ArgumentException.ThrowIfNullOrWhiteSpace(ownedMainIdentity);
+        ArgumentNullException.ThrowIfNull(actualMain);
+        if (actualMain.Camera.ObjectId != MainMapCameraAdapter.MainCameraObjectId)
+            throw new InvalidDataException("Applied Sky stages require the imported Main camera declaration.");
+        RequireNullScene(actualMain.Camera);
+        return new(locale, ownedWorkIdentity, ownedMainIdentity,
+            RenderSamplerSourceAdapters.ReadAppliedSkyStageNativeRecipe(repository.SourceDirectory, locale), actualMain);
+    }
+
     public SkyAppliedSourceStageFrame PrepareCurrent(MapSourceCreatedSeasonLightingFrame present,
         MapSourceCreatedLightingPacket acceptedLighting)
     {
-        ArgumentNullException.ThrowIfNull(present);ArgumentNullException.ThrowIfNull(acceptedLighting);
+        ArgumentNullException.ThrowIfNull(present);
+        ArgumentNullException.ThrowIfNull(acceptedLighting);
         present.ValidatePreparedLighting(acceptedLighting);
-        var input=present.AcceptedSeasonCamera.Inputs;
-        if(input.MainFrame.Camera.ExecutableLocale!=Locale||acceptedLighting.Binding.CameraOwnerIdentity!=OwnedMainIdentity)
-            throw new InvalidDataException("Applied Sky stages require this exact owned Main and locale.");
-        ValidateMainSource(input.MainFrame.Camera.Source.Resource);
-        var selection=input.Source.Selection;selection.Validate();
-        if(selection.SecondPackage is not null)
-            throw new NotSupportedException("Applied Sky stage owner closes the direct source package branch.");
-        var canonical=SkySeasonPackageTextures.Read(selection.FirstPackage).Package;
-        RequireNullScene(canonical.Camera);
-        uint order=BinaryPrimitives.ReadUInt32LittleEndian(present.PreparedCameraPrefix.Span.Slice(0x3B0,4));
-        revision=checked(revision+1);
-        return current=new(this,revision,present,acceptedLighting,(order&0x80000000)!=0,
-            recipe+";sourceMain="+input.MainFrame.Camera.Source.Resource.Source.ResourceUri+
-            ";selectedCamera="+canonical.SourceEvidence+";SkyDomeDisplaysetFactory=B25B4066/type5/ordinal157/0;"+
-            "owned-fresh-WORK-no-1F2-edit;scene-null->Sky2-nativepass1/VS0/PS4;work="+OwnedWorkIdentity+
-            ";Main="+OwnedMainIdentity+";frame="+present.FrameNumber);
+        var input = present.AcceptedSeasonCamera.Inputs;
+        if (input.MainFrame.Camera.ExecutableLocale != Locale ||
+            acceptedLighting.Binding.CameraOwnerIdentity != OwnedMainIdentity)
+            throw new InvalidDataException("Applied Sky stages require this owned Main and locale.");
+        if (!ReferenceEquals(input.MainFrame.Camera.Source, main))
+            throw new InvalidDataException("Applied Sky stages belong to another imported Main camera generation.");
+
+        var selection = input.Source.Selection;
+        selection.Validate();
+        if (selection.SecondPackage is not null)
+            throw new NotSupportedException("Applied Sky stage owner supports the direct source package branch.");
+        var package = selection.FirstPackage;
+        if (!ReferenceEquals(package, selectedPackage))
+        {
+            RequireNullScene(package.Camera);
+            selectedPackage = package;
+        }
+
+        uint order = BinaryPrimitives.ReadUInt32LittleEndian(present.PreparedCameraPrefix.Span.Slice(0x3B0, 4));
+        revision = checked(revision + 1);
+        return current = new(this, revision, present, acceptedLighting, (order & 0x80000000) != 0,
+            recipe + ";sourceMain=" + main.Resource.Source.ResourceUri +
+            ";selectedCamera=" + package.SourceEvidence + ";SkyDomeDisplaysetFactory=B25B4066/type5/0;" +
+            "owned-fresh-WORK-no-1F2-edit;scene-null->Sky2-nativepass1/VS0/PS4;work=" + OwnedWorkIdentity +
+            ";Main=" + OwnedMainIdentity + ";frame=" + present.FrameNumber);
     }
-    internal void Validate(SkyAppliedSourceStageFrame frame,long capturedRevision)
-    {if(!ReferenceEquals(frame,current)||revision!=capturedRevision)throw new InvalidDataException("Applied Sky stage receipt is stale or superseded.");}
-    private static void ValidateMainSource(LoadedObjects main)
+
+    internal void Validate(SkyAppliedSourceStageFrame frame, long capturedRevision)
     {
-        var s=main.Source;
-        if(s.ResourceUri!="san14://rdb/system/908AB6E2"||s.OverrideSource is not null||
-            s.DecodedSha256!="3CB072E68CA9A2086D0230E3F9F86AD1B9B10E08CEA521A474CE1057A0E23B06"||
-            Convert.ToHexString(SHA256.HashData(s.Bytes))!=s.DecodedSha256)
-            throw new InvalidDataException("Applied Sky stage Main requires its exact original source.");
-        var canonical=DokReader.Read(s.Bytes).Objects.Single(o=>o.ObjectId==MainMapCameraAdapter.MainCameraObjectId);
-        RequireNullScene(canonical);
+        if (!ReferenceEquals(frame, current) || revision != capturedRevision)
+            throw new InvalidDataException("Applied Sky stage receipt is stale or superseded.");
     }
+
     private static void RequireNullScene(DokObject camera)
     {
-        var fields=camera.Properties.Where(p=>p.NameHash==0xB25B4066).ToArray();
-        if(camera.ClassId!=0x23E7C64E||fields.Length!=1||fields[0].Index!=157||fields[0].TypeCode!=5||
-            fields[0].ElementCount!=1||fields[0].ElementSize!=4||fields[0].RawValue.Length!=4||
-            BinaryPrimitives.ReadUInt32LittleEndian(fields[0].RawValue)!=0)
-            throw new NotSupportedException("Fresh applied Sky stage requires the actual zero source SkyDomeDisplaysetFactory; nonzero runtime scene needs its producer.");
+        var fields = camera.Properties.Where(property => property.NameHash == 0xB25B4066).ToArray();
+        if (camera.Kind != DokObjectKind.Inline || camera.Reference is not null ||
+            camera.ClassId != MapCameraConstructionSource.PerspectiveCameraClassId ||
+            fields.Length != 1 || fields[0].TypeCode != 5 || fields[0].ElementCount != 1 ||
+            fields[0].ElementSize != 4 || fields[0].RawValue.Length != 4)
+            throw new InvalidDataException("Applied Sky stages require a typed SkyDomeDisplaysetFactory declaration.");
+        if (BinaryPrimitives.ReadUInt32LittleEndian(fields[0].RawValue) != 0)
+            throw new NotSupportedException("Nonzero SkyDomeDisplaysetFactory requires its actual scene producer.");
     }
 }
 

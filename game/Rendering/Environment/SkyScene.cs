@@ -9,7 +9,7 @@ public sealed record SkySceneProgramSelection(int Sky2Combination,
 {
     public int? LightCombination { get; init; }
     public uint? Sky2ColorWriteMask { get; init; }
-    public IReadOnlyList<Sky2SourceNull2D>? FreshNullTextures { get; init; }
+    public Sky2TextureBindingSnapshot TextureBindings { get; init; } = null!;
 }
 
 public sealed record SkySceneProgress(SkyScenePhase Phase,
@@ -57,11 +57,11 @@ public sealed record SkySceneOptionalLightInputs(
 /// per-face state and samplers. Optional light requires its native pass12
 /// program, full packets, LUT and retained final P mip explicitly.
 /// Native time/dirty/active selection and the diffuse writer are not guessed.</summary>
-public sealed class SkyScene : IAsyncDisposable
+public sealed partial class SkyScene : IAsyncDisposable
 {
     public LoadedSkyAmbientResources Source { get; }
-    public SkySceneProgramSelection Selection { get; }
-    public Sky2Program Sky2Program { get; }
+    public SkySceneProgramSelection Selection { get; private set; }
+    public Sky2Program Sky2Program => sky2Resources.Program;
     public SkyCubeProgram CopyProgram { get; }
     public SkyCubeProgram FilterProgram { get; }
     public SkyCubeBlendProgram? BlendProgram { get; }
@@ -78,7 +78,9 @@ public sealed class SkyScene : IAsyncDisposable
     public bool DiffuseGenerated => false;
 
     private readonly IReadOnlyList<IAsyncDisposable> _owned;
-    private readonly IReadOnlyList<Sky2Draw> _skyFaces;
+    private Sky2Resources sky2Resources;
+    private IReadOnlyList<Sky2Draw> _skyFaces => sky2Resources.Faces;
+    private bool sky2NeedsCurrentFrame;
     private readonly Dictionary<(uint Target, uint Surface), SkyCubeDraw> _baseCopies;
     private readonly Dictionary<uint, SkyCubeDraw> _workMipCopies;
     private readonly Dictionary<(uint Target, uint Surface), SkyCubeDraw> _filters;
@@ -183,11 +185,12 @@ public sealed class SkyScene : IAsyncDisposable
         SkyLightProgram? lightProgram, IReadOnlyList<SkyCubeDraw> lightCopies,
         List<IAsyncDisposable> owned)
     {
-        (Source, Selection, Sky2Program, CopyProgram, FilterProgram, BlendProgram,
+        sky2Resources = new(sky, skyFaces);
+        (Source, Selection, CopyProgram, FilterProgram, BlendProgram,
             PrimaryWork, LightWork, SpecularTargets, GeneratedFilterSamples,
-            _skyFaces, _baseCopies, _workMipCopies, _filters, _owned) =
-            (source, selection, sky, copy, filter, blend, work, lightWork, targets,
-                generated, skyFaces, baseCopies, workMipCopies, filters, owned.AsReadOnly());
+            _baseCopies, _workMipCopies, _filters, _owned) =
+            (source, selection, copy, filter, blend, work, lightWork, targets,
+                generated, baseCopies, workMipCopies, filters, owned.AsReadOnly());
         (LightProgram, _lightSnapshotCopies) = (lightProgram, lightCopies);
     }
 
@@ -208,6 +211,7 @@ public sealed class SkyScene : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(ambient); ArgumentNullException.ThrowIfNull(selection);
         ArgumentNullException.ThrowIfNull(logTables); ArgumentNullException.ThrowIfNull(compiler);
         ArgumentNullException.ThrowIfNull(explicitTextures);
+        ArgumentNullException.ThrowIfNull(selection.TextureBindings);selection.TextureBindings.RequireCurrent();
         ArgumentNullException.ThrowIfNull(explicitSixFaceInputs);
         if (ambient.SpecularTargets.Count != 4 || explicitSixFaceInputs.Count != 6 ||
             explicitCopySampler.Length != 52 || explicitFilterSampler.Length != 52)
@@ -228,7 +232,7 @@ public sealed class SkyScene : IAsyncDisposable
         try
         {
             var sky = await Sky2Program.BuildAsync(skySource, selection.Sky2Combination,
-                compiler, selection.Sky2Operation, selection.FreshNullTextures); owned.Add(sky);
+                compiler, selection.Sky2Operation, selection.TextureBindings); owned.Add(sky);
             var copy = await SkyCubeProgram.BuildAsync(ambient.Shader,
                 selection.CopyCombination, compiler, SkyCubeOperation.Copy); owned.Add(copy);
             var filter = await SkyCubeProgram.BuildAsync(ambient.Shader,
@@ -312,6 +316,9 @@ public sealed class SkyScene : IAsyncDisposable
                         step.DestinationSurfaceId, filterSampler, sampleBuffers[step.Mip]);
                     filters.Add((target, step.DestinationSurfaceId), draw); owned.Add(draw);
                 }
+            // Sky2 has a replaceable lifetime; the other resources stay scene-owned.
+            owned.Remove(sky);
+            foreach (var face in faces) owned.Remove(face);
             return new(ambient, selection, sky, copy, filter, blend, work, lightWork,
                 targets.AsReadOnly(), generated.AsReadOnly(), faces.AsReadOnly(), bases, mipCopies, filters,
                 lightProgram, lightCopies.AsReadOnly(), owned);
@@ -392,6 +399,7 @@ public sealed class SkyScene : IAsyncDisposable
             { for (int i = lightFaces.Count - 1; i >= 0; i--) await lightFaces[i].DisposeAsync(); _phase = SkyScenePhase.Faulted; throw; }
             for (int i = _lightFaces.Count - 1; i >= 0; i--) await _lightFaces[i].DisposeAsync();
             _lightFaces = lightFaces.AsReadOnly();
+            sky2NeedsCurrentFrame = false;
             _ready[explicitGenerationIndex] = false;
             _generationIndex = explicitGenerationIndex; _nextSkyFace = 0; _filterFlat = 6;
             _stages = explicitStages;
@@ -410,6 +418,8 @@ public sealed class SkyScene : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(_retiring, this);
+            if (sky2NeedsCurrentFrame)
+                throw new InvalidOperationException("Replacement Sky2 requires a complete current generation before submitting work.");
             if (_phase == SkyScenePhase.Faulted)
                 throw new InvalidOperationException("A failed sky generation requires explicit restart.");
             uint used = 0, draws = 0, producerCalls = 0;
@@ -621,6 +631,7 @@ public sealed class SkyScene : IAsyncDisposable
         ReadOnlyMemory<byte> pixelTemplate)
     {
         ArgumentNullException.ThrowIfNull(faces);
+        program.RequireCurrent();
         if (faces.Count != 6 || faces.Any(p => p is null))
             throw new InvalidDataException("Sky scene requires six complete explicit face packets.");
         var packets = faces.Select(p => new Sky2DrawInputs(p.Vertex,
@@ -628,8 +639,7 @@ public sealed class SkyScene : IAsyncDisposable
         foreach (var packet in packets)
         {
             _ = Sky2Constants.Vertex(program.VertexBindings.SourceDefinitions, vertexTemplate.Span, packet.Vertex);
-            var pixel=Sky2Constants.Pixel(program.PixelBindings.SourceDefinitions, pixelTemplate.Span, packet.Pixel);
-            program.ValidateNullTexturePacket(pixel.Bytes);
+            _ = Sky2Constants.Pixel(program.PixelBindings.SourceDefinitions, pixelTemplate.Span, packet.Pixel);
         }
         return packets;
     }
@@ -655,6 +665,7 @@ public sealed class SkyScene : IAsyncDisposable
             {await draw.DisposeAsync();_blendDrawOwners.Remove(draw);}
             _blendDraws.Clear();
             for (int i = _lightFaces.Count - 1; i >= 0; i--) await _lightFaces[i].DisposeAsync();
+            await sky2Resources.DisposeAsync();
             for (int i = _owned.Count - 1; i >= 0; i--) await _owned[i].DisposeAsync();
         }
         finally { _gate.Release(); }

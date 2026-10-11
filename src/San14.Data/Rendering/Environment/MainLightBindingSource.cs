@@ -24,7 +24,6 @@ public static class MainLightBindingSource
     public const string DecodedSha256 = "75025658F0551D2EFC51FFFEE4B3C6BBE8B4F69CC02BD0D7705C6023213C7E61";
     public const uint ViewObjectId = 0xE1B6A687;
     public const uint CameraResourceId = 0x908AB6E2;
-    public const string CameraDecodedSha256 = "3CB072E68CA9A2086D0230E3F9F86AD1B9B10E08CEA521A474CE1057A0E23B06";
 
     public static LoadedMainLightBindingSource LoadGameDefault(GameResourceRepository repository)
     {
@@ -61,9 +60,9 @@ public static class MainLightBindingSource
             _ => throw new ArgumentOutOfRangeException(nameof(viewSlot), "The native Game HDRI setter targets only View source slots3 and4.")
         };
         LoadedObjects resource = repository.LoadObjects("system", CameraResourceId);
-        if (!resource.Source.DecodedSha256.Equals(CameraDecodedSha256, StringComparison.OrdinalIgnoreCase) ||
-            resource.Source.OverrideSource is not null)
-            throw new InvalidDataException("Native Game HDRI setter Camera requires the exact original908AB6E2 source and decoded SHA256.");
+        if (resource.Source.FileId != CameraResourceId ||
+            resource.Source.ResourceUri != GameResourceId.Rdb("system", CameraResourceId).ToString())
+            throw new InvalidDataException("The HDRI setter Camera requires the supported camera library.");
         return new(viewSlot, viewParam, PreparedCameraLightingSource.ReadPerspective(resource, objectId));
     }
 

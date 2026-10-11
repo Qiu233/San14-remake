@@ -63,7 +63,7 @@ public sealed record MapSourceCreatedPlayableCurrentSources(
     Func<NativeMapFrameContext, NativeMapArmyPreparedFrame,
         MapLightingBinding, MapSourceCreatedF103CurrentFrame> PrepareCurrent,
     Func<MapSourceCreatedNativeSessionPreparedFrame,
-        DeferredEarlySourceViewQueriesPacket> PrepareEarlyCurrent,
+        PreparedViewLocalLightQueries> PrepareEarlyCurrent,
     Func<MapSourceCreatedNativeSessionPreparedFrame, NativeMapModelPopulationAcceptedFrame,
         DeferredEarlySourceCompletedFrame, MapSourceCreatedPlayableAuxiliaryOwners,
         Task<MapSourceCreatedPlayableAuxiliaryCompletion>> ProduceAuxiliary,
@@ -97,7 +97,7 @@ public sealed record MapSourceCreatedPlayableCurrentSources(
     public static MapSourceCreatedPlayableCurrentSources FromSourcePixelFactory(
         Func<NativeMapFrameContext, NativeMapArmyPreparedFrame, MapLightingBinding,
             MapSourceCreatedF103CurrentFrame> prepareCurrent,
-        Func<MapSourceCreatedNativeSessionPreparedFrame, DeferredEarlySourceViewQueriesPacket> prepareEarlyCurrent,
+        Func<MapSourceCreatedNativeSessionPreparedFrame, PreparedViewLocalLightQueries> prepareEarlyCurrent,
         NativeMapArmyPopulationRenderer borrowedArmy,
         Func<MapSourceCreatedNativeSessionPreparedFrame, NativeMapModelPopulationAcceptedFrame,
             DeferredEarlySourceCompletedFrame,
@@ -127,7 +127,7 @@ public sealed record MapSourceCreatedPlayableCurrentSources(
     public static MapSourceCreatedPlayableCurrentSources FromSourceNullGeometryPixelFactory(
         Func<NativeMapFrameContext, NativeMapArmyPreparedFrame, MapLightingBinding,
             MapSourceCreatedF103CurrentFrame> prepareCurrent,
-        Func<MapSourceCreatedNativeSessionPreparedFrame, DeferredEarlySourceViewQueriesPacket> prepareEarlyCurrent,
+        Func<MapSourceCreatedNativeSessionPreparedFrame, PreparedViewLocalLightQueries> prepareEarlyCurrent,
         NativeMapArmyPopulationRenderer borrowedArmy,
         DeferredSourceViewFamilyOwner borrowedViewFamilies,
         Func<MapSourceCreatedNativeSessionPreparedFrame, NativeMapModelPopulationAcceptedFrame,
@@ -265,7 +265,7 @@ public sealed class MapSourceCreatedPlayableHost : IAsyncDisposable
     private bool retiring;
     private Task? disposal;
     private IReadOnlyList<DeferredEarlyF103SelectedSource>? currentEarlySelections;
-    private DeferredEarlySourceViewQueriesPacket? currentEarlyQueries;
+    private PreparedViewLocalLightQueries? currentEarlyQueries;
     private NativeTerrainStencilPreparedFrame? currentTerrainStencil;
 
     private MapSourceCreatedPlayableHost(GameResourceRepository repository, Vkd3dShaderCompiler compiler,
@@ -289,7 +289,7 @@ public sealed class MapSourceCreatedPlayableHost : IAsyncDisposable
         NativeMapModelPopulationRenderer borrowedPopulation,
         NativeMapArmyPopulationRenderer borrowedArmy, MapMaterialCachePrepared materials,
         MapSourceCreatedF103CurrentFrame bootstrap,
-        DeferredEarlySourceViewQueriesPacket bootstrapEarly,
+        PreparedViewLocalLightQueries bootstrapEarly,
         MapSourceCreatedPlayableCurrentSources current,
         MapSourceCreatedPlayableTerrainFrame firstFrame,
         NativeMapSceneStages? preceding = null,
@@ -466,9 +466,8 @@ public sealed class MapSourceCreatedPlayableHost : IAsyncDisposable
 
     private static IReadOnlyList<DeferredEarlyF103SelectedSource> PrepareEarlySelections(
         GameResourceRepository repository, MapSourceCreatedF103CurrentFrame frame,
-        DeferredEarlySourceViewQueriesPacket queries)
+        PreparedViewLocalLightQueries queries)
     {
-        queries.ValidateCurrent(frame.ViewFields);
         var current = queries.BindCurrentFrame(frame, frame.Variant.NativeColorMode);
         var graph = repository.LoadRenderGraph("system", 0x024496EE);
         var shaderObjects = repository.LoadObjects("system", 0x718CCB8B);
@@ -502,8 +501,7 @@ public sealed class MapSourceCreatedPlayableHost : IAsyncDisposable
         terrain.RequireCurrent(context);
         var preparedTerrain = currentTerrainStencil ?? throw new InvalidDataException("Host has no actual source terrain raster for this accepted attempt.");
         var geometry = NativeSceneGeometryStencilCompletedFrame.Complete(frame,population,army,preparedTerrain,terrain);
-        var queries = currentEarlyQueries ?? throw new InvalidDataException("Early shader selection has no accepted View-bank owner packet.");
-        queries.ValidateCurrent(source.ViewFields);
+        var queries = currentEarlyQueries ?? throw new InvalidDataException("Early shader selection has no accepted View local-light queries.");
         var currentVariant = queries.BindCurrentFrame(source, source.Variant.NativeColorMode);
         var selections = currentEarlySelections ?? throw new InvalidDataException("Actual early selections were not prepared before source consumers.");
         if(selections.Any(s=>s.Current.FrameNumber!=context.FrameNumber||s.EarlyCurrent!=currentVariant))
@@ -553,8 +551,7 @@ public sealed class MapSourceCreatedPlayableHost : IAsyncDisposable
     private async Task PrepareCurrentConsumersAsync(MapSourceCreatedNativeSessionPreparedFrame frame)
     {
         var source=frame.PreparedSourceFrame??throw new InvalidDataException("Current source publication is unavailable.");
-        var queries=current.PrepareEarlyCurrent(frame)??throw new InvalidDataException("Current native View-bank query publication is unavailable.");
-        queries.ValidateCurrent(source.ViewFields);
+        var queries=current.PrepareEarlyCurrent(frame)??throw new InvalidDataException("Current View local-light queries are unavailable.");
         var early=queries.BindCurrentFrame(source,source.Variant.NativeColorMode);
         currentEarlyQueries=queries;
         currentEarlySelections=Early.PrepareCurrentSelections(frame,early);

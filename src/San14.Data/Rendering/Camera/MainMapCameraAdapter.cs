@@ -86,7 +86,7 @@ public sealed class MainMapCameraAdapter
         ArgumentNullException.ThrowIfNull(repository);
         var declaration = DefaultView0Source.LoadDeclarationDefaults(repository);
         var camera = MapCameraConstructionSource.ReadPerspective(
-            declaration.CopyCameraDefinitions(), declaration.MainCameraObjectId);
+            declaration.CameraDefinitions, declaration.MainCameraObjectId);
         return FromSources(camera,
             MainMapCameraControllerParameters.LoadSourceDefaults(repository, locale),
             currentOwnedWorld, currentNativePlayerForceSlot, ownedWorldProvenance, currentMaximumYOverride);

@@ -62,7 +62,16 @@ inline bool intersectWater(float waterY,const std::array<V4,8>& c,std::array<flo
 inline uint32_t lod(const Profile& p,float depth) {
     uint32_t value=p.lodCount-1;while(value&&!(p.lodDistances[value]<depth))value--;return value;
 }
-inline Frame prepareCurrent(const Profile& p,const source_camera::CameraTransform& camera,const std::array<float,8>& completedWaveBounds) {
+inline void expandHorizontalDisplacementBounds(source_camera::V3& lo,source_camera::V3& hi,
+    const Profile& profile,bool textureOwnerPresent) {
+    if(!textureOwnerPresent)return;
+    const float x=profile.directX*profile.displacement*1000.0f;
+    const float z=profile.directZ*profile.displacement*1000.0f;
+    if(profile.directX<=0)lo.X+=x;else hi.X+=x;
+    if(profile.directZ<=0)lo.Z+=z;else hi.Z+=z;
+}
+inline Frame prepareCurrent(const Profile& p,const source_camera::CameraTransform& camera,
+    const std::array<float,8>& completedWaveBounds,bool horizontalDisplacementOwnerPresent=false) {
     const bool reverse=camera.optics.reversedDepth;
     if(camera.optics.projectionKind==source_camera::ProjectionKind::Orthographic)throw std::runtime_error("Ocean current source subset requires perspective");
     Frame out;auto combined=camera.worldToClip;auto fullPlanes=source_camera::makePlanes(combined,reverse);
@@ -111,9 +120,7 @@ inline Frame prepareCurrent(const Profile& p,const source_camera::CameraTransfor
             float z=A(zBase,halfZ);
             source_camera::V3 hi{A(bounds[0],x),A(bounds[1],p.waterY),A(bounds[2],z)};
             source_camera::V3 lo{A(bounds[4],x),A(bounds[5],p.waterY),A(bounds[6],z)};
-            float ex=M(M(p.directX,p.displacement),1000),ez=M(M(p.directZ,p.displacement),1000);
-            if(p.directX<=0)lo.X=A(lo.X,ex);else hi.X=A(hi.X,ex);
-            if(p.directZ<=0)lo.Z=A(lo.Z,ez);else hi.Z=A(hi.Z,ez);
+            expandHorizontalDisplacementBounds(lo,hi,p,horizontalDisplacementOwnerPresent);
             float beyond=S(A(A(M(S(x,eyeX),planarX),M(0,0)),M(S(z,eyeZ),planarZ)),p.cutoff);
             if(source_camera::intersects(fullPlanes,lo,hi)&&!(beyond>0&&std::sqrt(A(M(halfZ,halfZ),M(halfX,halfX)))<=beyond)) {
                 auto distance=[&](float px,float pz){return A(A(M(S(p.waterY,eyeY),dy),M(S(px,eyeX),dx)),M(S(pz,eyeZ),dz));};

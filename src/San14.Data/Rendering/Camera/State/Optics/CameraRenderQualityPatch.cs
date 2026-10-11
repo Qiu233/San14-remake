@@ -9,6 +9,8 @@ public sealed record CameraRenderQualityPatch
     public float? DarkAdaptationScale { get; init; }
     public float? Cloudiness { get; init; }
     public float? AltitudeOffset { get; init; }
+    public float? OceanCutoffDistance { get; init; }
+    public float? OceanRefractionIndex { get; init; }
     public uint? CloudLowCostMode { get; init; }
     public uint? CloudResolutionMode { get; init; }
     public uint? PrimaryFogFade { get; init; }
@@ -22,6 +24,8 @@ public sealed record CameraRenderQualityPatch
         DarkAdaptationScale = later.DarkAdaptationScale ?? DarkAdaptationScale,
         Cloudiness = later.Cloudiness ?? Cloudiness,
         AltitudeOffset = later.AltitudeOffset ?? AltitudeOffset,
+        OceanCutoffDistance = later.OceanCutoffDistance ?? OceanCutoffDistance,
+        OceanRefractionIndex = later.OceanRefractionIndex ?? OceanRefractionIndex,
         CloudLowCostMode = later.CloudLowCostMode ?? CloudLowCostMode,
         CloudResolutionMode = later.CloudResolutionMode ?? CloudResolutionMode,
         PrimaryFogFade = later.PrimaryFogFade ?? PrimaryFogFade,

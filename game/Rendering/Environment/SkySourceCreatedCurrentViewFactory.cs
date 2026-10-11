@@ -12,7 +12,8 @@ public static class SkySourceCreatedCurrentViewFactory
         GameResourceRepository repository, MapSourceCreatedNativeSessionPreparedFrame currentView,
         SkySeasonMainCameraRgbFrame currentSeasonCamera, string ownedSelectedRecordIdentity,
         Vector4 actualPackageLightPosition, string actualPackageLightOwner,
-        SkySceneSharedAtmosphere currentAtmosphere, SkySceneProducerFrame producers)
+        SkySceneSharedAtmosphere currentAtmosphere, SkySceneProducerFrame producers,
+        Sky2TextureBindingSnapshot textureBindings)
     {
         ArgumentNullException.ThrowIfNull(currentView); ArgumentNullException.ThrowIfNull(currentSeasonCamera);
          currentView.Feature.ValidateFrame(currentView.MainCamera, currentView.Lighting);
@@ -25,6 +26,6 @@ public static class SkySourceCreatedCurrentViewFactory
             throw new InvalidDataException("Source Sky publication requires the actual same-frame accepted Main/View kind1 and selected original1022/767 program.");
         return SkyAmbientSourceFrameAssembler.CreateAppliedOwnedSeasonSourceInputs(repository,
             currentView.Lighting, currentSeasonCamera, currentView.Feature, ownedSelectedRecordIdentity,
-            actualPackageLightPosition, actualPackageLightOwner, currentAtmosphere, producers);
+            actualPackageLightPosition, actualPackageLightOwner, currentAtmosphere, producers, textureBindings);
     }
 }

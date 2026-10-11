@@ -40,7 +40,10 @@ public sealed partial class SkyDirectionalAmbientDeviceOwner : IAsyncDisposable
     private readonly GameResourceRepository repository;
     private readonly LoadedShaderContainer shader;
     private readonly LoadedSkyDirectionalAtmosphereNativeSource atmosphere;
-    private readonly SkySceneTextures textures;
+    private SkySceneTextures textures;
+    private readonly Vkd3dShaderCompiler compiler;
+    private Sky2TextureBindings textureBindings;
+    private Sky2TextureBindingSnapshot textureSnapshot;
     private readonly SkySceneFrameUpdater updater;
     private readonly SkyDirectionalDeviceProducers optional;
     private readonly SkyCpuState168Owner state;
@@ -71,8 +74,9 @@ public sealed partial class SkyDirectionalAmbientDeviceOwner : IAsyncDisposable
         SkyScene scene,SkySceneTextures textures,SkySceneFrameUpdater updater,
         SkyDirectionalDeviceProducers optional,SkyCpuState168Owner state,
         MapLightingBinding binding,SkySceneSourceFramePacket initialFrame,SkyDirectionalDesiredSelectionReceipt desiredSelection,
-        SkyAmbientCurrentFilterSelection filterSelection,byte[] key,byte[] sampler,Rid samplerRid)
-    {this.repository=repository;this.shader=shader;this.atmosphere=atmosphere;Scene=scene;this.textures=textures;
+        SkyAmbientCurrentFilterSelection filterSelection,byte[] key,byte[] sampler,Rid samplerRid,
+        Sky2TextureBindings textureBindings,Sky2TextureBindingSnapshot textureSnapshot,Vkd3dShaderCompiler compiler)
+    {this.compiler=compiler;this.textureBindings=textureBindings;this.textureSnapshot=textureSnapshot;this.repository=repository;this.shader=shader;this.atmosphere=atmosphere;Scene=scene;this.textures=textures;
       this.updater=updater;this.optional=optional;this.state=state;Binding=binding;InitialSourceFrame=initialFrame;preparedCurrent=initialFrame;
       DesiredSelectionReceipt=desiredSelection;DesiredAtmosphereCombination=desiredSelection.GetSelection(true).Combination.Index;
       CurrentFilterSelection=filterSelection;
@@ -92,26 +96,26 @@ public sealed partial class SkyDirectionalAmbientDeviceOwner : IAsyncDisposable
         var present=RequireSourceStages(initialSource,initialStages);
         if(present.AcceptedSeasonCamera.Inputs.MainFrame.Camera.ExecutableLocale!=locale)
             throw new InvalidDataException("Directional Sky executable locale differs from its actual selected Camera.");
+        var package=present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage;
+        var textureBindings=new Sky2TextureBindings();
+        textureBindings.ApplyPackage(SkySeasonPackageTextures.Read(package),reference=>SkySeasonPackageTextures.LoadSampling(repository,reference));
+        var textureSnapshot=textureBindings.Capture();
         var ambient=SkyAmbientResources.Load(repository,repository.LoadObjects("system",0xDAB638B2),0x910603AC,
             repository.LoadObjects("system",0x718CCB8B),repository.LoadObjects("system",0x93FB3280));
         var filterSelection=SkyAmbientCurrentFilterSelection.CaptureCurrent(ambient.Shader,present);
         var shader=repository.LoadShaderContainer("system",0x340AC335);
         var nativeAtmosphere=SkyDirectionalAtmosphereNativeSource.Load(repository,locale,NativeLogDispatch.Sse);
-        var package=present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage;
-        var nullMoon=Sky2SourceNull2D.FromAppliedSeasonOnFreshShader(package,SkySamplingRole.Moon,
-            SkyTextureStateScope.AppliedSourceSeasonOnFreshShader);
-        var nullMilky=Sky2SourceNull2D.FromAppliedSeasonOnFreshShader(package,SkySamplingRole.MilkyWay,
-            SkyTextureStateScope.AppliedSourceSeasonOnFreshShader);
-        initialSource.PrepareLights(shader,nullMoon);
-        var sourceFrame=initialSource.PrepareSourceSelectedSeasonFrame(ambient.SpecularTargets[0],nativeAtmosphere,2,shader,initialStages);
+        initialSource.PrepareLights(shader,textureSnapshot);
+        var sourceFrame=initialSource.PrepareSourceSelectedSeasonFrame(ambient.SpecularTargets[0],nativeAtmosphere,2,shader,initialStages,textureSnapshot);
         var prepared=SkySceneFramePreparation.PrepareFreshDirectionalFullyWritten(sourceFrame.SourceFrame,initialSource);
         var desiredSelection=CaptureDesiredSelection(shader,initialSource,sourceFrame);
         var desired=desiredSelection.GetSelection(false);var atmosphereSelection=desiredSelection.GetSelection(true);
         RequireSelectedFamily(desired,atmosphereSelection);
         var selections=StaticTextureResources.Load(repository,ambient.Resource,"system",[0xF81F0562,0xF8ED83E3,0xF9BC0264])
             .Select((s,i)=>SkySceneTextureSelection.FromStatic("source-sta"+i,s,10)).ToList();
-        var earth=SkySeasonPackageTextures.LoadEarth(repository,package);
-        selections.Add(SkySceneTextureSelection.FromSampling(earth));
+        foreach(var role in new[]{SkySamplingRole.Earth,SkySamplingRole.Moon,SkySamplingRole.MilkyWay})
+            if(textureSnapshot.GetTexture(role) is { } assigned)
+                selections.Add(SkySceneTextureSelection.FromSampling(assigned));
         var textures=new SkySceneTextures(selections);
         var samplers=RenderSamplerSourceAdapters.Load(repository.SourceDirectory,locale);
         byte[] key=RenderSamplerSourceAdapters.AmbientSpecularKey(RenderSamplerSourceAdapters.CubeTextureKey(samplers,ambient.SpecularTargets[0].LevelNum));
@@ -122,14 +126,17 @@ public sealed partial class SkyDirectionalAmbientDeviceOwner : IAsyncDisposable
             var definitions=shader.ReadResourceDefinitions(Pixel(desired));
             if(!definitions.Bindings.Where(b=>b.InputType==2).Select(b=>b.BindPoint).Order().SequenceEqual(new uint[]{1,4,5})||
                 definitions.Buffers.Single().ByteSize!=336)
-                throw new InvalidDataException("Actual Directional source-null Contribution texture interface changed.");
-            // The selected PS6/15 consumes Ttable1 and null Milky4/Moon5. Earth and all
-            // three real STA selections stay owned for their source roles.
-            var inputs=new[]{await textures.GetRetainedInputAsync(1,"source-sta1")};
+                throw new InvalidDataException("Actual Directional Contribution texture interface changed.");
+            // The selected PS6/15 consumes Ttable1 plus installed Milky4/Moon5.
+            // Earth and all three STA selections retain their own source roles.
+            var inputs=new List<Sky2DeviceInput>{await textures.GetRetainedInputAsync(1,"source-sta1")};
+            foreach(var role in new[]{SkySamplingRole.MilkyWay,SkySamplingRole.Moon})
+                if(textureSnapshot.GetTexture(role) is { } assigned)
+                    inputs.Add(await textures.GetInputAsync(assigned.PixelRegister,assigned.SourceName));
             var selectedFilter=filterSelection.Selection;
             var selection=new SkySceneProgramSelection(desired.Combination.Index,Sky2Operation.Contribution,
                 selectedFilter.CopyCombination.Index,selectedFilter.FilterCombination.Index,selectedFilter.BlendCombination.Index)
-                {Sky2ColorWriteMask=actualSourceColorWriteMask,FreshNullTextures=[nullMilky,nullMoon]};
+                {Sky2ColorWriteMask=actualSourceColorWriteMask,TextureBindings=textureSnapshot};
             scene=await SkyScene.BuildAsync(ambient,shader,selection,compiler,prepared.DrawPackets,
                 new byte[shader.ReadResourceDefinitions(Vertex(desired)).Buffers.Single().ByteSize],
                 new byte[definitions.Buffers.Single().ByteSize],inputs,sampler,sampler,
@@ -141,10 +148,11 @@ public sealed partial class SkyDirectionalAmbientDeviceOwner : IAsyncDisposable
             if(!samplerRid.IsValid)throw new InvalidDataException("Device rejected the actual Directional ambient source sampler.");
             var state=SkyCpuState168Owner.CreateFresh(repository,locale,ownedSkyIdentity,actualClock254OwnerIdentity);
             return new(repository,shader,nativeAtmosphere,scene,textures,updater,optional,state,
-                initialSource.AcceptedLighting.Binding,sourceFrame,desiredSelection,filterSelection,key,sampler,samplerRid);
+                initialSource.AcceptedLighting.Binding,sourceFrame,desiredSelection,filterSelection,key,sampler,samplerRid,textureBindings,textureSnapshot,compiler);
         }
         catch(Exception buildFailure)
         {
+            textureBindings.Dispose();
             var partial=new NativeMapBorrowerRetirementPackage(
                 ownedSkyIdentity+"/Directional-Sky-partial/"+Guid.NewGuid().ToString("N"),
                 buildFailure is NativeMapBorrowerConstructionException nested?nested.RetainedPackage:null,
@@ -176,6 +184,7 @@ public sealed partial class SkyDirectionalAmbientDeviceOwner : IAsyncDisposable
                 actualProducerFrame.Sky2Enabled!=stages.Sky2Enabled||actualProducerFrame.Scene is not null||actualProducerFrame.Contribution is not null||
                 actualProducerFrame.StarFaces?.Count!=6||actualProducerFrame.StarGate is null||actualProducerFrame.CloudFaces?.Count!=6)
                 throw new InvalidDataException("Backend startup requires this exact untouched actual factory source and all actual optional packets.");
+            RequireTextureFrame(actualSameSourceFrame);
             source.ValidatePreparedLights(actualSameSourceFrame.SourceFrame.Lights);
             var before=state.CaptureForConsumer(actualSameSourceFrame.FrameNumber);
             var progress=await Scene.GetProgressAsync();
@@ -237,6 +246,7 @@ public sealed partial class SkyDirectionalAmbientDeviceOwner : IAsyncDisposable
             if(preparedSource is not null&&!ReferenceEquals(preparedCurrent,preparedSource))
                 throw new InvalidDataException("Directional optional producers must use this device owner's actual prepared source frame.");
             var frame=preparedSource??PrepareCurrentSourceFrame(source,stages);
+            RequireTextureFrame(frame);
             CurrentFilterSelection.ValidateCurrent(present);
             CurrentFilterSelection.RequireSameProgramSampleCount(Scene.FilterProgram.SourceSampleSelection);
             source.ValidatePreparedLights(frame.SourceFrame.Lights);
@@ -299,13 +309,9 @@ public sealed partial class SkyDirectionalAmbientDeviceOwner : IAsyncDisposable
         if(source.AcceptedLighting.Binding!=Binding)throw new InvalidDataException("Directional current packet belongs to another producer View/light owner.");
         var filterSelection=SkyAmbientCurrentFilterSelection.CaptureCurrent(Scene.FilterProgram.Source,present);
         filterSelection.RequireSameProgramSampleCount(Scene.FilterProgram.SourceSampleSelection);
-        var package=present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage;
-        var nullMoon=Sky2SourceNull2D.FromAppliedSeasonOnFreshShader(package,SkySamplingRole.Moon,
-            SkyTextureStateScope.AppliedSourceSeasonOnFreshShader);
-        _=Sky2SourceNull2D.FromAppliedSeasonOnFreshShader(package,SkySamplingRole.MilkyWay,
-            SkyTextureStateScope.AppliedSourceSeasonOnFreshShader);
-        source.PrepareLights(shader,nullMoon);
-        var currentFrame=source.PrepareSourceSelectedSeasonFrame(Scene.SpecularTargets[0].Source,atmosphere,2,shader,stages);
+        textureSnapshot.RequireCurrent();
+        source.PrepareLights(shader,textureSnapshot);
+        var currentFrame=source.PrepareSourceSelectedSeasonFrame(Scene.SpecularTargets[0].Source,atmosphere,2,shader,stages,textureSnapshot);
         var desiredSelection=CaptureDesiredSelection(shader,source,currentFrame);
         var desired=desiredSelection.GetSelection(false);var desiredAtmosphere=desiredSelection.GetSelection(true);
         RequireSelectedFamily(desired,desiredAtmosphere);
@@ -352,6 +358,13 @@ public sealed partial class SkyDirectionalAmbientDeviceOwner : IAsyncDisposable
             throw new NotSupportedException("Directional thin adapter closes actual source-null Scene/no-1F2 WORK only.");
         return present;
     }
+    private void RequireTextureFrame(SkySceneSourceFramePacket frame)
+    {
+        textureSnapshot.RequireCurrent();
+        if(frame.TextureBindings is not { } bound||!ReferenceEquals(bound.Owner,textureBindings))
+            throw new InvalidDataException("Sky frame belongs to another texture binding owner.");
+        bound.RequireCurrent();
+    }
     private static SkyDirectionalDesiredSelectionReceipt CaptureDesiredSelection(LoadedShaderContainer shader,
         SkyDirectionalSelectedLightSource source,SkySceneSourceFramePacket actualFrame)
     {
@@ -372,15 +385,31 @@ public sealed partial class SkyDirectionalAmbientDeviceOwner : IAsyncDisposable
               mode7&&Vertex(contribution)==2&&Vertex(atmosphere)==2&&Pixel(contribution)==15&&Pixel(atmosphere)==14))
             throw new NotSupportedException("Directional WORK requires its source-selected mode4/profile1 or mode7/profile2 nonnull Sun/Moon shader pair.");
     }
-    public ValueTask DisposeAsync(){lock(lifetimeGate){retiring=true;return new(disposal??=DisposeCoreAsync());}}
+    private NativeMapBorrowerRetirementPackage? finalRetirement;
+    private bool finalRetirementRegistered;
+    public ValueTask DisposeAsync()
+    {
+        lock(lifetimeGate)
+        {
+            retiring=true;textureBindings.Dispose();
+            if(disposal is null||disposal.IsFaulted||disposal.IsCanceled)disposal=DisposeCoreAsync();
+            return new(disposal);
+        }
+    }
     private async Task DisposeCoreAsync()
     {
         await gate.WaitAsync();
         try
         {
-            var package=new NativeMapBorrowerRetirementPackage(OwnedSkyIdentity+"/Directional-Sky-retire",
+            await RetireSeasonResourcesCoreAsync();
+            finalRetirement??=new(OwnedSkyIdentity+"/Directional-Sky-retire",
                 optional.Cloud,optional.Stars,new NativeMapOwnedSamplerRetirement(samplerRid),Scene,textures);
-            try{await package.DisposeAsync();}catch{package.RetainFailure();throw;}
+            try{await finalRetirement.DisposeAsync();}
+            catch
+            {
+                if(!finalRetirementRegistered){finalRetirement.RetainFailure();finalRetirementRegistered=true;}
+                throw;
+            }
         }
         finally{gate.Release();}
     }

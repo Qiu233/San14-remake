@@ -22,7 +22,10 @@ public sealed class SkyDirectionalOptionalSourceOwner : IAsyncDisposable
     private readonly Vkd3dShaderCompiler compiler;
     private readonly SkyAppliedSourceStarOwner stars;
     private readonly SkyAppliedSourceCloudOwner cloud;
-    private readonly SceneViewNativeMapSkyCloudTextureOwner cloudTextures;
+    private SceneViewNativeMapSkyCloudTextureOwner cloudTextures;
+    private SkyCloudColorProducer? cloudProducer;
+    internal SceneViewNativeMapSkyCloudTextureOwner TextureOwner=>cloudTextures;
+    internal SkyCloudColorProducer CloudProducer=>cloudProducer??throw new InvalidOperationException("Cloud device has not been built.");
     private readonly SkyDirectionalSelectedLightSource initialSource;
     private readonly SkyAppliedSourceStageFrame initialStages;
     private readonly MainSceneNode51Execution initialExecution;
@@ -40,21 +43,29 @@ public sealed class SkyDirectionalOptionalSourceOwner : IAsyncDisposable
     }
     public Task<IReadOnlyList<PatternCameraStaReadyPlaneEntry>> BorrowReadyStaPlaneEntriesAsync()
     {
-        ObjectDisposedException.ThrowIf(retiring, this);
-        var frame = current ?? throw new InvalidOperationException("STA adoption requires the actual current Cloud producer.");
-        ValidateCandidate(frame);
-        return cloudTextures.BorrowReadyStaPlaneEntriesAsync(frame.Cloud.Selection);
+        RequireCurrentResourceContext();
+        return cloudTextures.BorrowReadyStaPlaneEntriesAsync();
     }
-    public void RequireCompatibleSeasonSources(SceneViewNativeMapSeasonResourceBundle resources)
+    internal SceneViewNativeMapSkyCloudTextureOwner? PrepareSeasonTextures(SkyAppliedSeasonCloudTextureSources groups)
     {
-        ObjectDisposedException.ThrowIf(retiring,this);
-        cloudTextures.RequireCompatibleSeasonSources(resources.CloudTextures);
+        RequireCurrentResourceContext();
+        var imported=SkyAppliedCloudTextureSet.Import(groups);
+        return cloudTextures.TextureSet.SamePhysical(imported)?null:SceneViewNativeMapSkyCloudTextureOwner.Create(groups,imported);
     }
-    /// <summary>Keep Cloud/Star/Clip phase owners and all actual draws. Only
-    /// the independently loaded, physically compatible season association is
-    /// replaced before the next current packet is prepared.</summary>
-    public void InstallCompatibleSeasonSources(SceneViewNativeMapSeasonResourceBundle resources)
-    {RequireCompatibleSeasonSources(resources);cloudTextures.InstallCompatibleSeasonSources(resources.CloudTextures);}
+    internal void RequirePreparedSeasonTextures(SceneViewNativeMapSkyCloudTextureOwner previous)
+    {
+        RequireCurrentResourceContext();
+        if(!ReferenceEquals(previous,cloudTextures))throw new InvalidOperationException("Cloud textures changed after season preparation.");
+    }
+    internal SceneViewNativeMapSkyCloudTextureOwner InstallPreparedSeasonTextures(
+        SkyAppliedSeasonCloudTextureSources groups,SceneViewNativeMapSkyCloudTextureOwner? replacement)
+    {
+        var previous=cloudTextures;
+        if(replacement is not null)cloudTextures=replacement;
+        cloudTextures.InstallPreparedSeasonSources(groups);
+        current=null;initialCandidate=null;
+        return previous;
+    }
     private SkyDirectionalOptionalSourceOwner(Vkd3dShaderCompiler compiler,
         SkyAppliedSourceStarOwner stars,SkyAppliedSourceCloudOwner cloud,
         SceneViewNativeMapSkyCloudTextureOwner textures,
@@ -65,7 +76,7 @@ public sealed class SkyDirectionalOptionalSourceOwner : IAsyncDisposable
     public static SkyDirectionalOptionalSourceOwner ReadSource(GameResourceRepository repository,string locale,
         Vkd3dShaderCompiler compiler,SkyDirectionalSelectedLightSource initialSource,
         SkyAppliedSourceStageFrame initialStages,MainSceneNode51Execution initialExecution,
-        uint actualWriteMask,uint actualStarNativeCullMode,string ownedProducerIdentity)
+        uint actualWriteMask,uint actualStarNativeCullMode,string ownedProducerIdentity,SkyCloudProgramResources cloudPrograms)
     {
         ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(compiler);
         ArgumentException.ThrowIfNullOrWhiteSpace(ownedProducerIdentity);initialSource.ValidateCurrent();
@@ -75,9 +86,9 @@ public sealed class SkyDirectionalOptionalSourceOwner : IAsyncDisposable
         if(actualWriteMask>15||actualStarNativeCullMode!=1)
             throw new NotSupportedException("Optional Directional source requires the actual retained write mask and original Star cull1.");
         var groups=SkyAppliedSeasonCloudTextures.Load(repository,present.AcceptedSeasonCamera.Inputs.Source);
-        var selection=SkyAppliedSourceCloudSelectionOwner.CreateFresh(repository,locale).PrepareCurrent(present,initialStages,groups);
+        var selection=SkyAppliedSourceCloudSelectionOwner.CreateFresh(repository,locale,cloudPrograms).PrepareCurrent(present,initialStages,groups);
         return new(compiler,SkyAppliedSourceStarOwner.CreateFresh(repository,locale,ownedProducerIdentity+"/Star"),
-            SkyAppliedSourceCloudOwner.CreateFresh(repository,locale,ownedProducerIdentity+"/Cloud"),
+            SkyAppliedSourceCloudOwner.CreateFresh(repository,locale,ownedProducerIdentity+"/Cloud",cloudPrograms),
             SceneViewNativeMapSkyCloudTextureOwner.ReadSource(selection,groups),initialSource,initialStages,initialExecution,actualWriteMask);
     }
 
@@ -96,9 +107,9 @@ public sealed class SkyDirectionalOptionalSourceOwner : IAsyncDisposable
         try
         {
             var inputs=await cloudTextures.GetCurrentInputsAsync(prepared.Cloud.Selection);
-            var clouds=await SkyCloudColorProducer.BuildAsync(prepared.Cloud.Selection.Shader,
-                prepared.Cloud.Selection.ColorCombination,compiler,scene.PrimaryWork,inputs,prepared.Producers.CloudFaces!,writeMask);
-            initialCandidate=prepared;built=true;return new(star,clouds);
+            var clouds=await SkyCloudColorProducer.BuildAsync(prepared.Cloud.Selection.ProgramSelection,
+                compiler,scene.PrimaryWork,inputs,prepared.Producers.CloudFaces!,writeMask);
+            cloudProducer=clouds;initialCandidate=prepared;built=true;return new(star,clouds);
         }
         catch(Exception failure)
         {
@@ -145,6 +156,8 @@ public sealed class SkyDirectionalOptionalSourceOwner : IAsyncDisposable
             clouds=cloud.PrepareDirectionalCurrent(frame,present,stages,execution,delta,
                 "explicit-owned-geometry-delta;candidate-until-complete-Host",directional);
         }
+        if(cloudProducer is { } producer&&producer.Program.Combination.Index!=clouds.Selection.ColorCombination)
+            throw new NotSupportedException("Changed Cloud program selection requires its actual program lifecycle.");
         cloudTextures.ValidateCurrent(clouds.Selection);
         var starPackets=star.SixPackets.Select(p=>new SkyStarFacePacket(p.VertexBytes,p.GeometryBytes,p.PixelBytes)).ToArray();
         var cloudPackets=clouds.SixPackets.Select(p=>new SkyCloudColorFacePacket(p.VertexBytes,p.PixelBytes,p.MaximumRaySamples)).ToArray();

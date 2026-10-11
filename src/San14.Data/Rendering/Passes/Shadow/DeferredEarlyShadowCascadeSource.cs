@@ -67,7 +67,7 @@ public readonly record struct DeferredEarlyShadowCascadeMainFields(
     float Far9EC, float Split9F4, float Split9F8, float Split9FC,
     float FarOverrideA2C, uint RectangleOverrideA84);
 
-/// <summary>D09550→D6F230's finite own CPU output. Four pass-end slots are
+/// <summary>D09550鈫扗6F230's finite own CPU output. Four pass-end slots are
 /// always written, including the unused slots filled by the last endpoint.</summary>
 public sealed class DeferredEarlyShadowCascadeNumericFields
 {
@@ -176,7 +176,7 @@ public static class DeferredEarlyShadowCascadeSource
     public static LoadedDeferredEarlyShadowCascadeSource Read(LoadedDefaultView0Source actualLoadedView0)
     {
         ArgumentNullException.ThrowIfNull(actualLoadedView0);
-        var main = actualLoadedView0.CopyCameraDefinitions().Document.Objects.Single(value =>
+        var main = actualLoadedView0.CameraDefinitions.Document.Objects.Single(value =>
             value.ObjectId == actualLoadedView0.MainCameraObjectId);
         float F(int ordinal, uint hash) => BinaryPrimitives.ReadSingleLittleEndian(Field(main, ordinal, hash, 8).RawValue);
         uint rectangle = BinaryPrimitives.ReadUInt32LittleEndian(Field(main, 578, 0x7D733C4E, 4).RawValue);

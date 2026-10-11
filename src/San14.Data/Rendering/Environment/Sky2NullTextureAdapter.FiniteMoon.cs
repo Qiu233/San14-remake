@@ -54,26 +54,26 @@ public static partial class Sky2NullTextureAdapter
         return profile;
     }
 
-    /// <summary>Validate the same typed null proofs retained at program creation
+    /// <summary>Validate the same null bindings retained at program creation
     /// and the complete current CB. This checks texture presence, not light
     /// setter absence: MoonRGB remains finite and is still read by PS5/11/6/14/15.
     /// SourceZeroMoon's unused-RGB exemption cannot authorize this family.</summary>
     public static void ValidateNullTexturePacket(Sky2NullTextureSpirv adapter,
-        IReadOnlyList<Sky2SourceNull2D> actualProgramProofs,
+        IReadOnlyList<Sky2NullTextureBinding> actualProgramProofs,
         DxbcResourceDefinitions originalDefinitions, ReadOnlySpan<byte> completePixelPacket)
         => ReadLoadedPacketInterface(adapter, originalDefinitions)
             .Validate(actualProgramProofs, originalDefinitions, completePixelPacket);
 
     /// <summary>Import the fixed compiled program/interface once. Current
-    /// packet presence and finite Moon reads are still checked on every update.</summary>
+    /// packet layout and finite Moon inputs are checked at draw construction.</summary>
     public static Sky2LoadedNullTexturePacketInterface ReadLoadedPacketInterface(
         Sky2NullTextureSpirv adapter, DxbcResourceDefinitions originalDefinitions)
     {
         ArgumentNullException.ThrowIfNull(adapter);
         ArgumentNullException.ThrowIfNull(originalDefinitions);
         if (HashFiniteMoon(adapter.Bytes) != adapter.Sha256 ||
-            adapter.SourceNullProofs.Count == 0 ||
-            !adapter.SourceNullProofs.Select(p => p.PixelRegister).Order().SequenceEqual(adapter.NullPixelRegisters))
+            adapter.NullTextureBindings.Count == 0 ||
+            !adapter.NullTextureBindings.Select(p => p.PixelRegister).Order().SequenceEqual(adapter.NullPixelRegisters))
             throw new InvalidDataException("Loaded Sky2 null interface requires its exact compiled adapter and texture proof roster.");
         var profile = FiniteMoonProfileFor(adapter.SourcePixelSha256);
         if (profile is not null)
@@ -92,12 +92,12 @@ public static partial class Sky2NullTextureAdapter
         int packetLength = profile is null ? 256 : 336;
         if (buffer.ByteSize != packetLength || presence.ByteSize != 16)
             throw new InvalidDataException("Loaded Sky2 null interface has a different complete source CB/presence field.");
-        var lanes = new int[adapter.SourceNullProofs.Count];
+        var lanes = new int[adapter.NullTextureBindings.Count];
         for (int index = 0; index < lanes.Length; index++)
         {
-            var proof = adapter.SourceNullProofs[index];
+            var proof = adapter.NullTextureBindings[index];
             proof.Validate();
-            lanes[index] = proof.CameraReference.Role switch
+            lanes[index] = proof.Role switch
             {
                 SkySamplingRole.Earth when profile is null && proof.PixelRegister == 3 => 0,
                 SkySamplingRole.MilkyWay when proof.PixelRegister == 4 => 2,
@@ -105,7 +105,7 @@ public static partial class Sky2NullTextureAdapter
                 _ => throw new InvalidDataException("Sky2 current null packet's typed role differs from its admitted source shader.")
             };
         }
-        return new(adapter.SourceNullProofs, originalDefinitions, packetLength,
+        return new(adapter.NullTextureBindings, originalDefinitions, packetLength,
             presence.StartOffset, lanes, profile is not null);
     }
 

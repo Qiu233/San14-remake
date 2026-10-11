@@ -40,13 +40,12 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
     private SceneViewNativeMapSeasonResourceBundle seasonResources;
     private readonly Dictionary<uint,OwnedWorldData> data = new();
     private readonly ConditionalWeakTable<NativeMapFrameContext,CurrentFrame> current = new();
-    private readonly DeferredEarlySourceViewQueriesOwner early;
     private readonly string generation;
     private long listFrame;
     private AcceptedSkyLightingState? previousLighting;
     public MapLightingBinding Binding { get; }
     public CurrentFrame Bootstrap { get; }
-    public DeferredEarlySourceViewQueriesPacket BootstrapEarly { get; }
+    public PreparedViewLocalLightQueries BootstrapEarly => Bootstrap.Queries;
     public MainSceneNode51Execution BootstrapNode51 { get; }
     public SceneViewNativeMapSeasonResourceBundle SeasonResources => seasonResources;
     public IReadOnlyList<NativeMapStageTiming> LastCurrentPreparationTimings { get; private set; } = [];
@@ -72,7 +71,8 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
         MapSourceCreatedStaticPrimitiveAdmissionPlan Admission,
         MainCameraView19B8Projection Camera19B8,
         ArmyWorldPrimitivePublication ArmyPublication,
-        ArmyCurrentWorldVisibilityView ArmyVisibilityView)
+        ArmyCurrentWorldVisibilityView ArmyVisibilityView,
+        PreparedViewLocalLightQueries Queries)
     {
         public MapSourceCreatedF103CurrentFrame First => World.Passes[0].Frame;
         public MapSourceCreatedWorldF103Frames GeometryWorld { get; init; } = World;
@@ -167,9 +167,6 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
             throw new InvalidDataException("World bootstrap Army inventory disagrees with its actual captured unit population.");
         Bootstrap=Prepare(boot,null,0,null,actualBootstrapArmyInventory);
         BootstrapNode51=bootstrapNode51.PublishAndPrepareCurrent(1,Binding);
-        early=DeferredEarlySourceViewQueriesOwner.CreateFromFreshSourceGroupPools(Bootstrap.World.View,generation,0,
-            generation+"/fresh-group-pools",generation+"/actual-owned-world-construction");
-        BootstrapEarly=early.PrepareCurrent(Bootstrap.World.View,generation+"/bootstrap-query");
     }
 
     public CurrentFrame PrepareCurrent(NativeMapFrameContext context,SceneViewNativeMapFrameCapture capture,
@@ -179,7 +176,6 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
             !ReferenceEquals(actual.Prepared,army)||army.WorldPeriodNumber!=capture.World.PeriodNumber||army.Unresolved.Count!=0)
             throw new InvalidDataException("World source assembly needs its actual complete same-frame Army BeforeFrame inventory.");
         var frame=Prepare(capture,context,delta,army,null);current.Add(context,frame);
-        early.ApplySourceBankReset(frame.World.View,generation+"/actual-view-reset/"+context.FrameNumber);
         return frame;
     }
 
@@ -302,8 +298,9 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
         var admission=MapSourceCreatedStaticPrimitiveAdmissionPlan.PrepareFreshWorld(world.Passes[0].Frame,inputs,counted,
             armyPublication.CompleteCountsByRecordOwner);
         var execution=context is null?null:node51.PublishAndPrepareCurrent(number,Binding);
+        var queries=PreparedViewLocalLightQueries.CreateFresh(world.View,0);
         var result=new CurrentFrame(world,inputs,rgb,present,queue,counted,terrain,execution,admission,
-            header.ProjectCurrentMain0(capture.MainCamera.Camera,generation+"/actual-View19B8/"+number),armyPublication,armyView)
+            header.ProjectCurrentMain0(capture.MainCamera.Camera,generation+"/actual-View19B8/"+number),armyPublication,armyView,queries)
             {ActualArmyPreparedFrame=actualArmy};
         var shadowMain=result.PreparedShadowMain;
         var shadowArguments=shadowMain.SelectCurrentPreparationArguments(shadowContextFields);
@@ -380,8 +377,8 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
         current.Remove(context); current.Add(context, after);
         return after;
     }
-    public DeferredEarlySourceViewQueriesPacket PrepareEarly(MapSourceCreatedNativeSessionPreparedFrame accepted)=>
-        early.PrepareCurrent(RequireCurrent(accepted.Context).World.View,generation+"/current-early-query");
+    public PreparedViewLocalLightQueries PrepareEarly(MapSourceCreatedNativeSessionPreparedFrame accepted) =>
+        RequireCurrent(accepted.Context).Queries;
     public MainMapContextCurrentPacket PrepareAuxiliaryContext(MapSourceCreatedNativeSessionPreparedFrame accepted)
     {var f=RequireCurrent(accepted.Context).First;return contextOwner.ApplyExecutedThinSurfaceFlagWriter(f.Context,
         checked((int)f.ViewFields.RainDropFlags19B4),generation+"/thin-surface",f.ViewFields.SourceProvenance);}

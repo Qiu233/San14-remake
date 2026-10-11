@@ -21,13 +21,12 @@ public sealed class SceneViewNativeMapF103SourceOwner
     private readonly MainSceneNode51Execution bootstrapNode51;
     private readonly MapSeasonMainCameraPhaseSource seasonPhase;
     private readonly SkyWeatherNativePowerSource weatherPower;
-    private readonly DeferredEarlySourceViewQueriesOwner early;
     private readonly string generation;
     private readonly ConditionalWeakTable<NativeMapFrameContext, CurrentFrame> current = new();
     private AcceptedSkyLightingState? previousLighting;
     public MapLightingBinding Binding { get; }
     public MapSourceCreatedF103CurrentFrame Bootstrap { get; }
-    public DeferredEarlySourceViewQueriesPacket BootstrapEarly { get; }
+    public PreparedViewLocalLightQueries BootstrapEarly { get; }
     public MapStaticModelCurrentOwnedFrame BootstrapPopulation => Bootstrap.CpuPopulation!;
     private MapSourceCreatedSeasonLightingFrame bootstrapPresent = null!;
     private SkySeasonMainCameraRgbFrame bootstrapRgb = null!;
@@ -39,7 +38,8 @@ public sealed class SceneViewNativeMapF103SourceOwner
         SkySeasonMainCameraRgbFrame Rgb, MapSourceCreatedSeasonLightingFrame Present,
         IReadOnlyList<TerrainCurrentKind1WorldPQPublication> Queue,
         NativeTerrainCurrentViewFrame? Terrain, MainSceneNode51Execution? Node51,
-        MapSourceCreatedStaticPrimitiveAdmissionPlan Admission);
+        MapSourceCreatedStaticPrimitiveAdmissionPlan Admission,
+        PreparedViewLocalLightQueries Queries);
 
     public SceneViewNativeMapF103SourceOwner(SceneViewNativeMapLoadInputs loaded,
         SceneViewNativeMapCpuSourceOwner cpu, MapSourceCreatedLightingDeviceOwner lighting,
@@ -63,14 +63,12 @@ public sealed class SceneViewNativeMapF103SourceOwner
         weatherPower=SkyWeatherNativePowerSource.Load(repo,locale);
         var boot=loaded.InitialFrame with {MainCamera=loaded.InitialFrame.MainCamera with {
             Camera=loaded.InitialFrame.MainCamera.Camera.CopyAcceptedSnapshotForOwnedFrame(1,generation+"/bootstrap-optics")}};
-        var prepared=Prepare(boot,null,0);
-        Bootstrap=prepared.F103;
-        bootstrapPresent=prepared.Present;
-        bootstrapRgb=prepared.Rgb;
+        var bootstrap=Prepare(boot,null,0);
+        Bootstrap=bootstrap.F103;
+        bootstrapPresent=bootstrap.Present;
+        bootstrapRgb=bootstrap.Rgb;
         bootstrapNode51=bootstrapNode51Owner.PublishAndPrepareCurrent(Bootstrap.FrameNumber,Binding);
-        early=DeferredEarlySourceViewQueriesOwner.CreateFromFreshSourceGroupPools(Bootstrap.ViewFields,
-            generation,0,generation+"/fresh-group-pools",generation+"/actual-owned-group-construction");
-        BootstrapEarly=early.PrepareCurrent(Bootstrap.ViewFields,generation+"/bootstrap-query-publication");
+        BootstrapEarly=bootstrap.Queries;
     }
 
     public MapSourceCreatedF103CurrentFrame PrepareCurrent(NativeMapFrameContext context,
@@ -83,7 +81,6 @@ public sealed class SceneViewNativeMapF103SourceOwner
             throw new InvalidDataException("Initial source factory requires its actual same-context empty Army publication; nonempty/unknown visibility cannot become empty.");
         var frame=Prepare(capture,context,explicitPresentationDelta);
         current.Add(context,frame);
-        early.ApplySourceBankReset(frame.F103.ViewFields,generation+"/actual-owned-view-reset/"+context.FrameNumber);
         return frame.F103;
     }
 
@@ -163,13 +160,14 @@ public sealed class SceneViewNativeMapF103SourceOwner
             generation+"/actual-current-source-F103/"+number);
         var admission=MapSourceCreatedStaticPrimitiveAdmissionPlan.PrepareFresh(frame,admissionInput);
         MainSceneNode51Execution? execution=accepted is null?null:node51.PublishAndPrepareCurrent(number,Binding);
-        return new(frame,admissionInput,rgb,present,queue,terrain,execution,admission);
+        var queries=PreparedViewLocalLightQueries.CreateFresh(frame.ViewFields,0);
+        return new(frame,admissionInput,rgb,present,queue,terrain,execution,admission,queries);
     }
 
     public MapStaticModelCurrentOwnedFrame RequirePopulation(NativeMapFrameContext context)=>Require(context).F103.CpuPopulation!;
     public MapSourceCreatedStaticPrimitiveAdmissionPlan RequireAdmission(NativeMapFrameContext context)=>Require(context).Admission;
-    public DeferredEarlySourceViewQueriesPacket PrepareEarly(MapSourceCreatedNativeSessionPreparedFrame accepted)
-        =>early.PrepareCurrent(Require(accepted.Context).F103.ViewFields,generation+"/actual-current-early-query");
+    public PreparedViewLocalLightQueries PrepareEarly(MapSourceCreatedNativeSessionPreparedFrame accepted) =>
+        Require(accepted.Context).Queries;
     public SkySeasonMainCameraRgbFrame RequireSeasonRgb(NativeMapFrameContext context)=>Require(context).Rgb;
     public MainSceneNode51Execution RequireBootstrapNode51Execution()
     { bootstrapNode51Owner.ValidateCurrent(bootstrapNode51); return bootstrapNode51; }

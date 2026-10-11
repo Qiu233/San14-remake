@@ -47,9 +47,10 @@ public sealed class LoadedDeferredEarlyShadowTaskModelCollectionSource
         var objects = repository.LoadObjects("system", OwnedWorldListSource.DefinitionsResourceId);
         Verify(graphAsset.Source, DefaultView0Source.TaskGraphResourceId,
             DefaultView0Source.TaskGraphResourceSha256);
-        Verify(objects.Source, OwnedWorldListSource.DefinitionsResourceId,
-            OwnedWorldListSource.DefinitionsSha256);
-        var graph = TaskGraphReader.Read(graphAsset.Source.Bytes);
+        if (objects.Source.FileId != OwnedWorldListSource.DefinitionsResourceId ||
+            objects.Source.ResourceUri != GameResourceId.Rdb("system", OwnedWorldListSource.DefinitionsResourceId).ToString())
+            throw new InvalidDataException("Model task controls and lists require the supported definition library.");
+        var graph = graphAsset.Document;
         if (graph.Nodes.Count != 27 || graph.Nodes[16].Call.FactoryClassId != 0x0296E56B)
             throw new InvalidDataException("The actual startup World registration fork differs from the source.");
         uint[] fork = graph.Nodes[16].Call.ConnectedNodeIndices.ToArray();
@@ -68,12 +69,14 @@ public sealed class LoadedDeferredEarlyShadowTaskModelCollectionSource
                 throw new NotSupportedException("Model task needs its actual nondefault Scene registration source.");
             var control = objects.Document.Objects.Single(o => o.ObjectId == controlId);
             var list = objects.Document.Objects.Single(o => o.ObjectId == listId);
-            if (control.Kind != DokObjectKind.Inline || control.ClassId != 0xEDDA84F3 || control.Properties.Count != 2 ||
-                list.Kind != DokObjectKind.Inline || list.ClassId != 0x2EB79141 || list.Properties.Count != 3)
+            if (control.Kind != DokObjectKind.Inline || control.ClassId != 0xEDDA84F3 ||
+                list.Kind != DokObjectKind.Inline || list.ClassId != 0x2EB79141)
                 throw new InvalidDataException("Actual model task control/ListContainer declarations differ from source.");
-            uint threshold = Scalar(control.Properties[0], 0xD787B5A5), mode = Scalar(control.Properties[1], 0x9749A0C1, 4);
-            uint capacity = Scalar(list.Properties[0], 0xFC63FB31), growth = Scalar(list.Properties[1], 0x04E203A7);
-            var initial = list.Properties[2];
+            uint threshold = Scalar(control.Properties.Single(p => p.NameHash == 0xD787B5A5), 0xD787B5A5);
+            uint mode = Scalar(control.Properties.Single(p => p.NameHash == 0x9749A0C1), 0x9749A0C1, 4);
+            uint capacity = Scalar(list.Properties.Single(p => p.NameHash == 0xFC63FB31), 0xFC63FB31);
+            uint growth = Scalar(list.Properties.Single(p => p.NameHash == 0x04E203A7), 0x04E203A7);
+            var initial = list.Properties.Single(p => p.NameHash == 0xFF26EE41);
             if (initial.NameHash != 0xFF26EE41 || initial.TypeCode != 5 || initial.ElementCount != 0 || initial.RawValue.Length != 0)
                 throw new NotSupportedException("Model list's nonempty source declaration needs an actual Data owner.");
             if (capacity == 0 || growth == 0 || capacity > int.MaxValue || growth > int.MaxValue)

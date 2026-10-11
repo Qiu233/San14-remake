@@ -17,6 +17,8 @@ public sealed class SkyCloudColorDraw : IAsyncDisposable
     private readonly Rid _pipeline, _vertexSet, _pixelSet, _vertexBuffer, _pixelBuffer;
     private readonly IReadOnlyList<Rid> _owned;
     private Task? _disposal;
+    private readonly object disposalGate=new();
+    private int releasedResources;
 
     private SkyCloudColorDraw(SkyCloudProgram program,
         SkyCloudConstantPacket constants, CubeRenderDeviceSurface target,
@@ -152,6 +154,18 @@ public sealed class SkyCloudColorDraw : IAsyncDisposable
             return true;
         });
     }
-    public ValueTask DisposeAsync() => new(_disposal ??= TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-    { for (int i = _owned.Count - 1; i >= 0; i--) rd.FreeRid(_owned[i]); return true; }));
+    public ValueTask DisposeAsync()
+    {
+        lock(disposalGate)
+        {
+            if(_disposal is null||_disposal.IsFaulted||_disposal.IsCanceled)
+                _disposal=TerrainDeviceTexture.OnRenderThreadAsync(rd=>
+                {
+                    while(releasedResources<_owned.Count)
+                    {rd.FreeRid(_owned[_owned.Count-1-releasedResources]);releasedResources++;}
+                    return true;
+                });
+            return new(_disposal);
+        }
+    }
 }

@@ -105,12 +105,8 @@ inline Shared publishPacket(source_atmosphere_camera::Packet& packet,
     float clamp=M(environment.opacityClamp,100);
     put(packet.skyPixel.data()+332,M(clamp,.01f));put(packet.cloudPixel.data()+556,clamp);
     if(cloudLights)publishCloudLights(packet,environment,*cloudLights);
-    // Existing SSFog125 imports are raw mode0 feature0/PS64. Their two local
-    // groups retain their own inactive Fog96; do not publish global weather.
-    // An active mode7 record requires another actual SSFog program/resource
-    // installation. This helper intentionally does not invent that selection.
-    for(uint32_t mask:{2u,8u})if(fogRecord(selected(current,mask)).mode==FogMode::Scattering)
-        throw std::runtime_error("Current SSFog active mode7 requires its selected program/resources");
+    // Each Fog draw selects and publishes its own current local light through
+    // the Height Fog program owner. Global weather remains Sky/Cloud input.
     return shared;
 }
 inline void applyEffectFog(const source_weather_fog_consumers::Route& route,

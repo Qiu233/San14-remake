@@ -2,7 +2,6 @@ using System.Buffers.Binary;
 using System.Collections.ObjectModel;
 using System.Numerics;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -25,6 +24,38 @@ public static class MapFinalOutputShaft
     public const uint LightSceneObjectId=0x2A691F4A;
     public const uint LightScenePixelFormat=0x6B;
     public const string LightSceneStockPixelSha256="F2C4CB1A2BE802F1E80CEEA3C27810BD102410687B9394029F8CE4D0816FBBD2";
+
+    private sealed record ShaftCameraSettings(float Length, float Scale, float Frequency,
+        float Weight, Vector3 Color, uint SceneType);
+    private static readonly ConditionalWeakTable<LoadedMapCameraConstructionSource, ShaftCameraSettings> CameraSettings = new();
+
+    private static ShaftCameraSettings ImportCameraSettings(LoadedMapCameraConstructionSource source)
+    {
+        var asset = source.Resource.Source;
+        if (asset.FileId != MapCameraConstructionSource.SourceFileId ||
+            asset.ResourceUri != GameResourceId.Rdb("system", MapCameraConstructionSource.SourceFileId).ToString())
+            throw new InvalidDataException("Shaft settings require the supported camera library.");
+        byte[] Property(uint hash, uint type, uint count)
+        {
+            var fields = source.Camera.Properties.Where(field => field.NameHash == hash).ToArray();
+            if (fields.Length != 1 || fields[0].TypeCode != type || fields[0].ElementCount != count || fields[0].RawValue.Length != count * 4)
+                throw new InvalidDataException("Shaft settings require declared typed camera fields.");
+            return fields[0].RawValue;
+        }
+        float Scalar(uint hash) => BinaryPrimitives.ReadSingleLittleEndian(Property(hash, 8, 1));
+        uint group = BinaryPrimitives.ReadUInt32LittleEndian(Property(0x5AE536A8, 5, 1));
+        if (group != 0)
+            throw new NotSupportedException("Shaft selected light groups require their actual light projection producer.");
+        float length = Scalar(0xB2EB70EA), scale = Scalar(0xAD7E9994),
+            frequency = Scalar(0x834DC2A6), weight = Scalar(0x7AD72492);
+        var rgb = Property(0x41C4B441, 8, 3);
+        var color = new Vector3(BinaryPrimitives.ReadSingleLittleEndian(rgb),
+            BinaryPrimitives.ReadSingleLittleEndian(rgb.AsSpan(4)), BinaryPrimitives.ReadSingleLittleEndian(rgb.AsSpan(8)));
+        if (new[] { length, scale, frequency, weight, color.X, color.Y, color.Z }.Any(value => !float.IsFinite(value)))
+            throw new InvalidDataException("Shaft source Camera contains nonfinite scalar fields.");
+        return new(length, scale, frequency, weight, color,
+            BinaryPrimitives.ReadUInt32LittleEndian(Property(0x4168C674, 5, 1)));
+    }
 
     /// <summary>Original shared SPK quad113FA60. The runner's POSITION4/UV2
     /// layout keeps every referenced component from the native128B rows;
@@ -59,28 +90,10 @@ public static class MapFinalOutputShaft
         if(camera.FrameNumber<=0||applyWidth==0||applyHeight==0||string.IsNullOrWhiteSpace(nativeContextSource)||
             camera.Prefix.Length!=0x3C0||graph.Parameters.Count!=80)
             throw new InvalidDataException("Shaft writers require an accepted source Camera, original SPK parameters and actual Apply extent.");
-        var asset=camera.Source.Resource.Source;
-        if(asset.FileId!=MapCameraConstructionSource.SourceFileId||
-            asset.DecodedSha256!=MapCameraConstructionSource.SourceSha256||
-            Convert.ToHexString(SHA256.HashData(asset.Bytes))!=MapCameraConstructionSource.SourceSha256)
-            throw new InvalidDataException("Shaft source Camera identity differs from its original property bytes.");
-        var source=DokReader.Read(asset.Bytes).Objects.Single(o=>o.ObjectId==camera.Source.Camera.ObjectId);
-        ReadOnlySpan<byte> Property(int ordinal,uint hash,uint type,int count)
-        {
-            var p=source.Properties[ordinal];
-            if(p.Index!=ordinal||p.NameHash!=hash||p.TypeCode!=type||p.ElementCount!=count||p.RawValue.Length!=count*4)
-                throw new InvalidDataException("Shaft source Camera property differs from its native loader binding.");
-            return p.RawValue;
-        }
-        float Scalar(int ordinal,uint hash)=>BinaryPrimitives.ReadSingleLittleEndian(Property(ordinal,hash,8,1));
-        int group=BinaryPrimitives.ReadInt32LittleEndian(Property(141,0x5AE536A8,5,1));
-        if(group!=0)throw new NotSupportedException("Shaft selected light groups require their actual D586B0/E897A0 light projection producer.");
-        float length=Scalar(136,0xB2EB70EA),scale=Scalar(137,0xAD7E9994),frequency=Scalar(138,0x834DC2A6),weight=Scalar(139,0x7AD72492);
-        var rgb=Property(135,0x41C4B441,8,3);
-        float r=BinaryPrimitives.ReadSingleLittleEndian(rgb),g=BinaryPrimitives.ReadSingleLittleEndian(rgb[4..]),b=BinaryPrimitives.ReadSingleLittleEndian(rgb[8..]);
-        int sceneType=BinaryPrimitives.ReadInt32LittleEndian(Property(142,0x4168C674,5,1));
-        if(new[]{length,scale,frequency,weight,r,g,b}.Any(v=>!float.IsFinite(v)))
-            throw new InvalidDataException("Shaft source Camera contains nonfinite scalar fields.");
+        var source = CameraSettings.GetValue(camera.Source, ImportCameraSettings);
+        float length = source.Length, scale = source.Scale, frequency = source.Frequency, weight = source.Weight;
+        float r = source.Color.X, g = source.Color.Y, b = source.Color.Z;
+        uint sceneType = source.SceneType;
         var parameters=new Dictionary<int,ReadOnlyMemory<byte>>();
         foreach(var declaration in graph.Parameters)
         {

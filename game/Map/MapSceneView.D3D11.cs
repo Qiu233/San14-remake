@@ -54,6 +54,10 @@ public partial class MapSceneView
             // Their metadata describes this output, not a required offline package.
             var sceneMedia = D3D11SceneMediaPreparation.Prepare(_repository, scene, frame.Camera,
                 source, D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
+            var cloudPrograms=SkyCloudProgramResources.Load(_repository,sceneMedia.Renderer);
+            var fogPrograms=HeightFogProgramResources.Load(_repository);
+            D3D11CloudProgramMedia? cloudMedia=null;
+            D3D11CloudRenderResources? cloudResources = null;
             string inputs = Path.GetDirectoryName(source)!;
             D3D11ProjectShaderInputPreparation.WriteNativeInputs(source, _text.SourceLocale);
             D3D11TimingInputPreparation.Load(_repository, _text.SourceLocale)
@@ -138,6 +142,14 @@ public partial class MapSceneView
                     var current = season.PrepareCurrent(input.WorldState!, currentMain, (float)input.ElapsedSeconds);
                     if (!nativeRuleInputsPrepared)
                     {
+                        cloudMedia=D3D11CloudProgramMedia.Prepare(cloudPrograms,current.Present,
+                            current.Lights.First(light=>(light.GroupMask&0x80)!=0).CompleteData.Span);
+                        cloudMedia.WriteNativeInputs(inputs);
+                        var work = D3D11AmbientWorkInitialConstants.Prepare(_repository,
+                            current, season.LoadedResources, cloudMedia);
+                        cloudResources = D3D11CloudRenderResources.Prepare(_repository, current.Present,
+                            D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight, work, cloudMedia);
+                        cloudResources.WriteNativeInputs(inputs);
                         var cameraInputs = _sourceMainCameraInputs!;
                         var post = current.Rgb.Inputs.MainPostSelection!;
                         var fieldModels = sceneMedia.FieldModels;
@@ -163,15 +175,23 @@ public partial class MapSceneView
                             cloudElapsedSeconds: 0, commonClock: 0,
                             Path.Combine(inputs, "atmosphere-camera-continuous-input", "initial"),
                             Path.Combine(inputs, "main-sky-input"), Path.Combine(inputs, "main-cloud-input"),
-                            Path.Combine(inputs, "ssfog-population-input"));
-                        D3D11AmbientWorkInitialConstants.WriteFreshNativeInputs(_repository,
-                            current, season.LoadedResources, inputs);
+                            Path.Combine(inputs, "ssfog-population-input"),cloudMedia,cloudResources,fogPrograms);
+                        D3D11AmbientWorkInputPreparation.WriteNativeInputs(_repository,
+                            work, inputs, season.LoadedResources.Source.Locale);
                         D3D11NormalPostInitialConstantPreparation.WriteNativeInputs(_repository,
                             current, inputs, D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
                         D3D11PrimaryForwardInputs.WriteFreshNativeInputs(_repository,
                             cityGatePublisher.PreparedBank, season.LoadedResources, current, inputs,
                             D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
                         nativeRuleInputsPrepared = true;
+                    }
+                    else
+                    {
+                        cloudMedia!.RequireCurrent(current.Present,
+                            current.Lights.First(light=>(light.GroupMask&0x80)!=0).CompleteData.Span);
+                        cloudResources!.RequireCurrent(_repository, current.Present,
+                            D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
+                        fogPrograms.RequireCurrentMask(current.Present);
                     }
                     if (!ReferenceEquals(writtenSeasonResources, season.LoadedResources))
                     {

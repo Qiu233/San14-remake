@@ -1,7 +1,10 @@
 // Original Main WV water. Prepare device objects once, then execute source strips.
 #pragma once
-#include <xmmintrin.h>
+#include "OceanClock.h"
+#include "Interop/OceanMaterialConstants.h"
 #include "OceanGrid.h"
+#include <memory>
+#include <optional>
 struct NativeOceanGeometry {
     std::array<ComPtr<ID3D11Buffer>,3> wave;
     ComPtr<ID3D11Buffer> farVertices,waveIndices,farIndices;
@@ -12,11 +15,11 @@ struct NativeOceanStrip {
     int baseVertex=0;
     std::array<UINT,3> offsets{};
 };
-struct NativeOceanClock {
-    double accumulatedTime=0;
-    float waveTime=0,normalSpeed=0,lastCommonClock=0;
-    UINT bubbleMode=0;
-    std::array<float,2> bubblePeriods{};
+// The ordinary constructor allocates one initially empty texture-group entry.
+// Group ownership and selected index admit bubble scalar setters independently
+// of child/metadata readiness. Current resource rebinding remains separate.
+struct OceanBubbleMaskGroup {
+    std::array<std::optional<OceanNativeTexture>,1> entries;
 };
 struct NativeOcean116 {
     NativeOceanGeometry geometry;
@@ -26,10 +29,16 @@ struct NativeOcean116 {
     ComPtr<ID3D11InputLayout> layout;
     std::array<ComPtr<ID3D11Buffer>,2> vertexConstants,pixelConstants;
     std::array<std::vector<char>,2> vertexBytes,pixelBytes;
-    NativeOceanClock clock;
+    San14::Render::OceanClock clock;
+    San14::Render::OceanSurfaceSettings surface;
+    San14::Render::OceanOpticsSettings optics;
+    San14::Render::OceanTextureMaterialState textureMaterial;
+    std::unique_ptr<OceanBubbleMaskGroup> bubbleMaskGroup;
+    int bubbleMaskIndex=-1;
     bool constantsDirty=false;
     OceanNativeTextures textures; // Retains already uploaded external resources; no second upload.
     ComPtr<ID3D11ShaderResourceView> refractionDepth;
+    bool refractionMaterialBound=false;
     ComPtr<ID3D11SamplerState> refractionSampler;
     std::array<ComPtr<ID3D11RenderTargetView>,6> targets;
     ComPtr<ID3D11DepthStencilView> depthTarget;
@@ -41,46 +50,33 @@ struct NativeOcean116 {
     UINT stencilReference=0,colorMasks=0;
 };
 
-// Original117DEFD/1184A49 preserve distinct double20 and float738 clocks.
-// The selected RDEF consumes only these named phase lanes from the clock.
-static bool advanceNativeOcean116(NativeOcean116& ocean,float currentCommonClock) {
-    auto& clock=ocean.clock;
-    float delta=_mm_cvtss_f32(_mm_sub_ss(_mm_set_ss(currentCommonClock),_mm_set_ss(clock.lastCommonClock)));
-    // EBAC40's actual node116 CPU90 owns a single 3600-second correction.
-    // This is neither Common258 nor node3's uncorrected CC difference.
-    if(clock.lastCommonClock>currentCommonClock)
-        delta=_mm_cvtss_f32(_mm_add_ss(_mm_set_ss(delta),_mm_set_ss(3600.f)));
-    clock.lastCommonClock=currentCommonClock;
-    if(delta==0)return false;
-    clock.accumulatedTime+=double(delta);clock.waveTime=delta+clock.waveTime;
-    // 117C520: the current volume depth comes from the original texture;
-    // float20 and the product are rounded separately before modff.
-    float integral;
-    const float rate=clock.normalSpeed/float(ocean.textures.normal3d.depth);
-    const float scaled=rate*float(clock.accumulatedTime);
-    const float normalPhase=std::modf(scaled,&integral);
-    auto store=[](std::vector<char>& bytes,UINT offset,float value){std::memcpy(bytes.data()+offset,&value,4);};
-    for(UINT flat=0;flat<2;++flat) {
-        store(ocean.vertexBytes[flat],200,normalPhase); // vNormalNoiseParam.z
-        store(ocean.pixelBytes[flat],104,normalPhase);
-        store(ocean.vertexBytes[flat],264,clock.waveTime); // vWaveParameter.z
+static void applyNativeOceanSurfaceSettings(NativeOcean116& ocean,const San14::Render::OceanSurfaceSettings& settings) {
+    auto accepted=settings;
+    if(!ocean.bubbleMaskGroup||ocean.bubbleMaskIndex<0) {
+        accepted.bubbleMode=ocean.surface.bubbleMode;
+        accepted.bubblePeriods=ocean.surface.bubblePeriods;
     }
-    // AAADC0: surface/inner array color row2.w uses a double fmod, parity,
-    // then the original paired float quintic. Far explicitly zeroes both.
-    for(UINT layer=0;layer<2;++layer) {
-        float phase;
-        if(clock.bubbleMode<2)phase=float(clock.bubbleMode);
-        else {
-            const float period=clock.bubblePeriods[layer];
-            if(period<=0)continue; // Source does not replace this lane.
-            phase=float(std::fmod(clock.accumulatedTime,double(period))/double(period));
-            if(static_cast<long long>(clock.accumulatedTime/double(period))&1)phase=1.0f-phase;
-            phase=((phase*6.0f-15.0f)*phase+10.0f)*phase*phase*phase;
-        }
-        store(ocean.pixelBytes[0],layer?364:300,phase);
-    }
+    ocean.surface=accepted;
+}
+static void applyNativeOceanTextureMaterialSettings(NativeOcean116& ocean,
+    const San14::Render::OceanTextureMaterialSettings& settings) {
+    San14::Render::applyOceanTextureMaterialSettings(ocean.textureMaterial,settings,ocean.textures.materialBindings());
+}
+static void applyNativeOceanOpticsSettings(NativeOcean116& ocean,const San14::Render::OceanOpticsSettings& settings) {
+    ocean.optics=San14::Render::acceptOceanOpticsSettings(settings);
+}
+
+// Material callbacks publish phases even when elapsed time is unchanged.
+// The accepted Common clock is advanced only by the Ocean lifetime owner.
+static void writeNativeOceanAnimation(NativeOcean116& ocean) {
+    const auto phases=San14::Render::deriveOceanAnimationPhases(ocean.clock,ocean.surface,ocean.textures.normal3d?ocean.textures.normal3d->depth:0u);
+    San14::Render::Interop::writeOceanAnimationPhases(ocean.vertexBytes,ocean.pixelBytes,phases,ocean.textures.normal3d.has_value());
+    San14::Render::Interop::writeOceanSurfaceConstants(ocean.vertexBytes,ocean.surface);
+    San14::Render::Interop::writeOceanOpticsConstants(ocean.pixelBytes,ocean.optics,ocean.refractionMaterialBound);
+    San14::Render::Interop::writeOceanMaterialUvConstants(ocean.vertexBytes,ocean.pixelBytes,
+        ocean.textureMaterial,ocean.textures.materialBindings());
+    San14::Render::Interop::writeOceanTextureWaveConstants(ocean.vertexBytes,ocean.textureMaterial);
     ocean.constantsDirty=true;
-    return true;
 }
 
 // 1183A40 publishes the completed CPU buffer into the retained GPU wave VB.
@@ -100,15 +96,14 @@ static NativeOcean116 prepareNativeOcean116(ID3D11Device* device,
     const std::array<ComPtr<ID3D11Texture2D>,5>& targets,
     const std::array<ID3D11RenderTargetView*,5>& rt,DXGI_FORMAT rrFormat,
     ID3D11DepthStencilView* dsv,UINT width,UINT height,
-    const fs::path& clockInput,float initialCommonClock) {
+    const San14::Render::OceanSurfaceSettings& surface,const San14::Render::OceanOpticsSettings& optics,
+    bool refractionMaterialBound) {
     NativeOcean116 result;
     result.textures=textures;result.refractionDepth=refractionDepth;result.depthTarget=dsv;
     result.viewport={0,0,float(width),float(height),0,1};
-    std::ifstream clock(clockInput);
-    clock>>result.clock.accumulatedTime>>result.clock.waveTime>>result.clock.normalSpeed
-        >>result.clock.bubbleMode>>result.clock.bubblePeriods[0]>>result.clock.bubblePeriods[1];
-    if(!clock)throw std::runtime_error("Original Ocean clock parameters absent");
-    result.clock.lastCommonClock=initialCommonClock;
+    result.bubbleMaskGroup=std::make_unique<OceanBubbleMaskGroup>();result.bubbleMaskIndex=0;
+    applyNativeOceanSurfaceSettings(result,surface);
+    applyNativeOceanOpticsSettings(result,optics);result.refractionMaterialBound=refractionMaterialBound;
     // The static stream layout and topology are constructed from the named
     // renderer declaration. Completed FFT output supplies the first wave side.
     D3D11_BUFFER_DESC wave{};
@@ -127,7 +122,7 @@ static NativeOcean116 prepareNativeOcean116(ID3D11Device* device,
     std::vector<char> farIndices(sizeof(grid.farIndices));
     std::memcpy(farIndices.data(),grid.farIndices.data(),farIndices.size());
     result.geometry.farIndices=buffer(device,farIndices,D3D11_BIND_INDEX_BUFFER);
-    auto vertex=load(source/"ocean-210A931F-p0.dxbc"),pixel=load(source/"ocean-210A931F-p1.dxbc");
+    auto vertex=load(source/"shaders/vs.dxbc"),pixel=load(source/"shaders/ps.dxbc");
     check(device->CreateVertexShader(vertex.data(),vertex.size(),nullptr,&result.vertexShader),"original WV VS");
     check(device->CreatePixelShader(pixel.data(),pixel.size(),nullptr,&result.pixelShader),"original WV PS");
     std::array<D3D11_INPUT_ELEMENT_DESC,4> elements{{
@@ -140,6 +135,8 @@ static NativeOcean116 prepareNativeOcean116(ID3D11Device* device,
         std::string prefix=flat?"ocean-far":"ocean-wave";
         result.vertexBytes[flat]=load(source/(prefix+"-vs-cb0.bin"));
         result.pixelBytes[flat]=load(source/(prefix+"-ps-cb0.bin"));
+        if(result.vertexBytes[flat].size()!=384||result.pixelBytes[flat].size()!=864)
+            throw std::runtime_error("Ocean material requires selected VS384/PS864 layout");
         for(UINT stage=0;stage<2;++stage) {
             auto& bytes=stage?result.pixelBytes[flat]:result.vertexBytes[flat];
             auto& target=stage?result.pixelConstants[flat]:result.vertexConstants[flat];
@@ -183,8 +180,8 @@ static NativeOcean116 prepareNativeOcean116(ID3D11Device* device,
 }
 
 static UINT executeNativeOcean116(ID3D11Device* device,ID3D11DeviceContext* context,
-    NativeSourceDepthState& logical,NativeOcean116& ocean,float currentCommonClock) {
-    advanceNativeOcean116(ocean,currentCommonClock);
+    NativeSourceDepthState& logical,NativeOcean116& ocean) {
+    writeNativeOceanAnimation(ocean);
     if(ocean.constantsDirty) {
         for(UINT flat=0;flat<2;++flat) {
             context->UpdateSubresource(ocean.vertexConstants[flat].Get(),0,nullptr,ocean.vertexBytes[flat].data(),0,0);
@@ -200,13 +197,13 @@ static UINT executeNativeOcean116(ID3D11Device* device,ID3D11DeviceContext* cont
         check(device->CreateDepthStencilState(&ocean.depthDescription,&ocean.depth),"original WV changed inherited depth compare");
     }
     std::array<ID3D11ShaderResourceView*,32> pixelViews{};
-    pixelViews[0]=ocean.textures.normal3d.view.Get();pixelViews[2]=ocean.refractionDepth.Get();
-    pixelViews[3]=ocean.textures.normalNoise2d.view.Get();pixelViews[4]=ocean.textures.wvBubble.view.Get();
+    pixelViews[0]=oceanTextureView(ocean.textures.normal3d);pixelViews[2]=ocean.refractionDepth.Get();
+    pixelViews[3]=oceanTextureView(ocean.textures.normalNoise2d);pixelViews[4]=oceanTextureView(ocean.textures.wvBubble);
     context->PSSetShaderResources(0,UINT(pixelViews.size()),pixelViews.data());
-    std::array<ID3D11ShaderResourceView*,2> vertexViews{ocean.textures.wvHeightMask.view.Get(),ocean.textures.horizontalDisplacement.view.Get()};
+    std::array<ID3D11ShaderResourceView*,2> vertexViews{oceanTextureView(ocean.textures.wvHeightMask),oceanTextureView(ocean.textures.horizontalDisplacement)};
     context->VSSetShaderResources(0,2,vertexViews.data());
-    std::array<ID3D11SamplerState*,5> pixelSamplers{ocean.textures.normal3d.sampler.Get(),nullptr,ocean.refractionSampler.Get(),ocean.textures.normalNoise2d.sampler.Get(),ocean.textures.wvBubble.sampler.Get()};
-    std::array<ID3D11SamplerState*,2> vertexSamplers{ocean.textures.wvHeightMask.sampler.Get(),ocean.textures.horizontalDisplacement.sampler.Get()};
+    std::array<ID3D11SamplerState*,5> pixelSamplers{oceanTextureSampler(ocean.textures.normal3d),nullptr,ocean.refractionSampler.Get(),oceanTextureSampler(ocean.textures.normalNoise2d),oceanTextureSampler(ocean.textures.wvBubble)};
+    std::array<ID3D11SamplerState*,2> vertexSamplers{oceanTextureSampler(ocean.textures.wvHeightMask),oceanTextureSampler(ocean.textures.horizontalDisplacement)};
     context->PSSetSamplers(0,5,pixelSamplers.data());context->VSSetSamplers(0,2,vertexSamplers.data());
     context->IASetInputLayout(ocean.layout.Get());context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
     context->VSSetShader(ocean.vertexShader.Get(),nullptr,0);context->PSSetShader(ocean.pixelShader.Get(),nullptr,0);

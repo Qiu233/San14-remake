@@ -33,7 +33,7 @@ inline NativeWaterCameraGpu prepareNativeWaterCameraGpu(ID3D11Device* device,
 inline const source_water_geometry::Frame& writeNativeWaterCameraCpu(
     NativeWaterCameraGpu& camera,NativeOcean116& ocean,
     const source_camera::CameraTransform& transform,const std::array<float,8>& completedWaveBounds) {
-    auto frame=source_water_geometry::prepareCurrent(camera.profile,transform,completedWaveBounds);
+    auto frame=source_water_geometry::prepareCurrent(camera.profile,transform,completedWaveBounds,ocean.textures.horizontalDisplacement.has_value());
     if(frame.instances.size()>camera.profile.capacity)
         throw std::runtime_error("Source Ocean current instance capacity exceeded");
     source_water_camera::Packets packets;

@@ -21,7 +21,7 @@ public sealed class SkyAppliedSourceCloudWeatherFields
     /// Current1D0/1D8 and later weather stores are not part of this source.</summary>
     public static IReadOnlyDictionary<int,uint> LoadSelectedReadset(MapSeasonCameraPackage package)
     {
-        var camera=SkySeasonPackageTextures.Read(package).Package.Camera;
+        var camera=package.Camera;
         Dictionary<int,uint> values=[];
         foreach(var f in Fields)
         {
@@ -42,7 +42,7 @@ public sealed class SkyAppliedSourceCloudWeatherFields
         var source=present.AcceptedSeasonCamera.Inputs.Source;source.Selection.Validate();
         if(!source.UsesSourceCreatedEmptyAxes||source.Selection.SecondPackage is not null||source.Selection.FirstPackage.Camera.ObjectId!=MapSeasonCameraApplication.RootCameraObjectId)
             throw new NotSupportedException("Cloud weather continuation requires the actual source-created direct Root package; edited weather/interpolated packages require their own writer.");
-        var camera=SkySeasonPackageTextures.Read(source.Selection.FirstPackage).Package.Camera;
+        var camera=source.Selection.FirstPackage.Camera;
         Dictionary<int,uint> values=[];
         foreach(var f in Fields)
         {

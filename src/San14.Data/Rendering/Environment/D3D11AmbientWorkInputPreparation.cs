@@ -9,11 +9,12 @@ public sealed record D3D11AmbientWorkConstants(
     IReadOnlyList<byte[]> SkyVertex,IReadOnlyList<byte[]> SkyPixel,
     IReadOnlyList<SkyCloudConstantPacket> Clouds,
     IReadOnlyList<SkyStarConstantPacket> Stars,float StarClockScale,
-    IReadOnlyList<D3D11AmbientCloudAxis> CloudAxes,
+    IReadOnlyList<D3D11CloudAnimationAxis> CloudAxes,
     CubeRenderTextureDefinition Target,SkyAmbientFilterSelection Filter,uint StarPointCount,bool SkyEnabled,
-    uint SelectedCameraObjectId);
+    uint SelectedCameraObjectId,SkyCloudColorProgramSelection CloudProgram,
+    SkyTextureSource? EarthTexture,SkyAppliedCloudTextureSet CloudTextures);
 
-public sealed record D3D11AmbientCloudAxis(int SourcePhase,int PixelOffset,
+public sealed record D3D11CloudAnimationAxis(int SourcePhase,int PixelOffset,
     float Wind,float Period,float Position,float Scale);
 
 /// <summary>Fresh WORK constants from the actual current Main and its selected
@@ -23,7 +24,7 @@ public static class D3D11AmbientWorkInputPreparation
 {
     public static D3D11AmbientWorkConstants Prepare(GameResourceRepository repository,
         MapSourceCreatedSeasonLightingFrame present,
-        DirectionalLightProviderTemporary defaultCaller)
+        DirectionalLightProviderTemporary defaultCaller,SkyCloudProgramResources cloudPrograms)
     {
         string locale=present.AcceptedSeasonCamera.Inputs.MainFrame.Camera.ExecutableLocale;
         var hdr=repository.LoadShaderContainer("system",0x9D8E811F);
@@ -37,16 +38,21 @@ public static class D3D11AmbientWorkInputPreparation
         var selected=SkySceneSelectedViewLightSource.Capture(lighting.LocalLightData.Span,
             new(present.FrameNumber,binding.ViewIdentity,"ambient-work/selected80",binding.LightOwnerIdentity));
         var directional=SkyDirectionalSelectedLightSource.ReadCurrent(selected,lighting);
-        var stages=SkyAppliedSourceStageOwner.CreateFresh(repository,locale,"ambient-work/work",binding.CameraOwnerIdentity)
+        var stages=SkyAppliedSourceStageOwner.CreateFresh(repository,locale,"ambient-work/work",binding.CameraOwnerIdentity,
+            present.AcceptedSeasonCamera.Inputs.MainFrame.Camera.Source)
             .PrepareCurrent(present,lighting);
         var ambient=SkyAmbientResources.Load(repository,repository.LoadObjects("system",0xDAB638B2),
             0x910603AC,repository.LoadObjects("system",0x718CCB8B),repository.LoadObjects("system",0x93FB3280));
         var skyShader=repository.LoadShaderContainer("system",0x340AC335);
-        directional.PrepareLights(skyShader,Sky2SourceNull2D.FromAppliedSeasonOnFreshShader(
-            present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage,SkySamplingRole.Moon,
-            SkyTextureStateScope.AppliedSourceSeasonOnFreshShader));
+        // This preparation owns its binding state while producing initial numeric inputs.
+        using var bindings = new Sky2TextureBindings();
+        bindings.ApplyPackage(SkySeasonPackageTextures.Read(
+            present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage),
+            reference => SkySeasonPackageTextures.LoadSampling(repository, reference));
+        var textureBindings = bindings.Capture();
+        directional.PrepareLights(skyShader, textureBindings);
         var frame=directional.PrepareSourceSelectedSeasonFrame(ambient.SpecularTargets[0],
-            SkyDirectionalAtmosphereNativeSource.Load(repository,locale,NativeLogDispatch.Sse),2,skyShader,stages);
+            SkyDirectionalAtmosphereNativeSource.Load(repository,locale,NativeLogDispatch.Sse),2,skyShader,stages,textureBindings);
         var prepared=SkySceneFramePreparation.PrepareFreshDirectionalFullyWritten(frame.SourceFrame,directional);
         var desired=directional.CaptureDesiredSelection(skyShader,frame).GetSelection(false).Combination;
         var vertexDefinitions=skyShader.ReadResourceDefinitions(Program(desired,1));
@@ -56,7 +62,7 @@ public static class D3D11AmbientWorkInputPreparation
             general.ViewCollectionSourceNameHash,true,true,null,0,binding,true,"owned-first-Main-selected-view0"));
         var starOwner=SkyAppliedSourceStarOwner.CreateFresh(repository,locale,"ambient-work/stars");
         var stars=starOwner.PrepareCurrent(frame,present,stages,view,0,"fresh-owned-Star-phase0;native-shares-node3-delta");
-        var clouds=SkyAppliedSourceCloudOwner.CreateFresh(repository,locale,"ambient-work/clouds")
+        var clouds=SkyAppliedSourceCloudOwner.CreateFresh(repository,locale,"ambient-work/clouds",cloudPrograms)
             .PrepareDirectionalBootstrap(frame,present,stages,view,0,"fresh-owned-Cloud-phase0;native-shares-node3-phase",directional);
         var cloudPackets=clouds.SixPackets.ToArray();
         var trig=MapPostEffect3PresentLightMathSource.Load(repository,locale);
@@ -77,8 +83,9 @@ public static class D3D11AmbientWorkInputPreparation
         float starScale=BinaryPrimitives.ReadSingleLittleEndian(package.Properties[621].RawValue);
         var filter=SkyAmbientCurrentFilterSelection.CaptureCurrent(ambient.Shader,present).Selection;
         return new(frame.SourceFrame.SixCameras,skyVertex,skyPixel,cloudPackets,stars.SixPackets,starScale,
-            CloudAxes(clouds.Weather,clouds.Selection.Shader.ReadResourceDefinitions(clouds.Selection.ColorPixelProgram)),
-            ambient.SpecularTargets[0],filter,checked((uint)starOwner.Geometry.PointCount),stages.Sky2Enabled,package.ObjectId);
+            CloudAxes(clouds.Weather,clouds.Selection.ProgramSelection.PixelDefinitions),
+            ambient.SpecularTargets[0],filter,checked((uint)starOwner.Geometry.PointCount),stages.Sky2Enabled,package.ObjectId,clouds.Selection.ProgramSelection,
+            textureBindings.GetTexture(SkySamplingRole.Earth)?.Texture,clouds.Bindings);
     }
 
     public static void WriteNativeInputs(GameResourceRepository repository,
@@ -149,9 +156,9 @@ public static class D3D11AmbientWorkInputPreparation
         }
     }
 
-    private static IReadOnlyList<D3D11AmbientCloudAxis> CloudAxes(SkyAppliedSourceCloudWeatherFields weather,DxbcResourceDefinitions definitions)
+    private static IReadOnlyList<D3D11CloudAnimationAxis> CloudAxes(SkyAppliedSourceCloudWeatherFields weather,DxbcResourceDefinitions definitions)
     {
-        var rows=new List<D3D11AmbientCloudAxis>();var buffer=definitions.Buffers.Single();
+        var rows=new List<D3D11CloudAnimationAxis>();var buffer=definitions.Buffers.Single();
         foreach(var group in new[]{("Base",0xE0,0x6A8,0x690,0x69C,3),("Detail",0x120,0x6F0,0x6B8,0x6E4,3),
             ("Distort",0x160,0x730,0x720,0x728,2),("Cirrus",0x190,0x76C,0x764,-1,2),("CirrusDistort",0x1B0,0x77C,0x774,-1,2)})
         {

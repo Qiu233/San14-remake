@@ -2,7 +2,10 @@ namespace San14.Data;
 
 public sealed record SkySceneSourceFramePacket(long FrameNumber,
     MapLightingBinding Binding, string SourceProvenance,
-    SkySceneSourceFrame SourceFrame, bool UsesSourceConstructorDefaults);
+    SkySceneSourceFrame SourceFrame, bool UsesSourceConstructorDefaults)
+{
+    public Sky2TextureBindingSnapshot? TextureBindings { get; init; }
+}
 
 /// <summary>Source-created Camera/HDRI lighting and original cube-camera
 /// construction feed one coherent sky frame. Ordinary row ownership, prepared
@@ -18,7 +21,8 @@ public static class SkySceneSourceFrameProvider
         MapSeasonCameraSelection appliedSelection,SkySceneCurrentCameraParameters currentCamera,
         MapSourceCreatedLightingPacket acceptedLighting,CubeRenderTextureDefinition target,
         SkySceneLights currentCameraLights,SkySceneSharedAtmosphere atmosphere,
-        SkyScenePreparedController preparedController,int nativeClipProfile)
+        SkyScenePreparedController preparedController,int nativeClipProfile,
+        Sky2TextureBindingSnapshot textureBindings)
     {
         ArgumentNullException.ThrowIfNull(appliedSelection);ArgumentNullException.ThrowIfNull(currentCamera);
         ArgumentNullException.ThrowIfNull(acceptedLighting);ArgumentNullException.ThrowIfNull(target);
@@ -26,8 +30,7 @@ public static class SkySceneSourceFrameProvider
         ArgumentNullException.ThrowIfNull(preparedController);appliedSelection.Validate();
         if(currentCamera.FrameNumber!=acceptedLighting.FrameNumber||currentCamera.Parameters.NativeTargetFormat!=target.PixelFormat)
             throw new InvalidDataException("Applied season Sky and accepted HDRI lighting require one explicit frame and target format.");
-        foreach(var package in new[]{appliedSelection.FirstPackage,appliedSelection.SecondPackage}.Where(p=>p is not null))
-            _=SkySeasonPackageTextures.Read(package!);
+        ArgumentNullException.ThrowIfNull(textureBindings); textureBindings.RequireCurrent();
         var cameras=SkySceneSourceDefaults.PrepareCubeCameras(currentCamera.PreparedCameraPrefix.Span,
             currentCamera.CameraOwnerProvenance,nativeClipProfile,target.Width,target.Width);
         var parameters=currentCamera.Parameters with{MilkyStrength1484=preparedController.MilkyStrength1484};
@@ -39,9 +42,10 @@ public static class SkySceneSourceFrameProvider
             SourceProvenance=currentCameraLights.SourceProvenance+";D7CF68-attached-global-records;11775C0-position-update-after-RGB-setters"};
         var copiedAtmosphere=atmosphere with{Scattering=Array.AsReadOnly(atmosphere.Scattering.ToArray())};
         string evidence=acceptedLighting.SourceProvenance+";separate-selected-View-Camera="+currentCamera.CameraOwnerProvenance+
-            ";applied-source-season="+appliedSelection.SourceEvidence+";actual-Earth622DC967;fresh-shader-retained-null-Moon-Milky";
+            ";applied-source-season="+appliedSelection.SourceEvidence;
         return new(acceptedLighting.FrameNumber,acceptedLighting.Binding,evidence,
-            new(cameras,parameters,preparedController.Controller,lights,new(true,false,false),copiedAtmosphere),false);
+            new(cameras,parameters,preparedController.Controller,lights,textureBindings.Presence,copiedAtmosphere),false)
+            { TextureBindings = textureBindings };
     }
 
     public static SkySceneSourceFramePacket PrepareFresh(

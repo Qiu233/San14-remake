@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -58,7 +57,6 @@ public sealed class LoadedMapPostEffect3LensPresetSource
 
 public static class MapPostEffect3LensPresetSource
 {
-    public const string ResourceSha256="357F6A380CF19EB2A86B439AF24CF2BACDD38074AAF9BC3AE99F0EAD21EE9271";
     internal static void RequireCameraKey(LoadedMapCameraConstructionSource source)
     {
         var p=source.Camera.Properties[285];
@@ -74,30 +72,33 @@ public static class MapPostEffect3LensPresetSource
         var camera=MapCameraConstructionSource.ReadPerspective(cameraSource.Resource,cameraSource.Camera.ObjectId);
         RequireCameraKey(camera);
         var source=repository.LoadObjects("system",0xDAB638B2);
-        if(source.Source.OverrideSource is not null||source.Source.DecodedSha256!=ResourceSha256||
-            Convert.ToHexString(SHA256.HashData(source.Source.Bytes))!=ResourceSha256)
-            throw new InvalidDataException("LensPreset source archive differs from the pinned original DAB638B2.");
-        var rows=DokReader.Read(source.Source.Bytes).Objects.Where(o=>o.ObjectId==0x3D60C3C7).ToArray();
-        if(rows.Length!=1||rows[0].Kind!=DokObjectKind.Inline||rows[0].ClassId!=0x162FB139||rows[0].Properties.Count!=29)
-            throw new InvalidDataException("Original LensPreset object/class/29-property declaration differs.");
-        var preset=rows[0];
-        foreach(var (index,hash) in new[]{(27,0x29B2A52Eu),(28,0x081439EAu)})
-        {
-            var p=preset.Properties[index];
-            if(p.Index!=index||p.NameHash!=hash||p.TypeCode!=4||p.ElementCount!=1||p.RawValue.Length!=4)
-                throw new InvalidDataException("LensPreset native branch scalar declaration differs.");
-            if(BinaryPrimitives.ReadUInt32LittleEndian(p.RawValue)!=0)
-                throw new NotSupportedException("LensPreset source currently supports the actual stock builtin0, flags0 branch only.");
-        }
-        byte[] primitive=MapPostEffect3LensPresetBuiltin0.CopyPrimitive();
-        if(primitive.Length!=656||Convert.ToHexString(SHA256.HashData(primitive))!=MapPostEffect3LensPresetBuiltin0.PrimitiveSha256)
-            throw new InvalidDataException("LensPreset builtin0 recovered source bytes differ.");
-        string evidence=$"{source.Source.ResourceUri}#object/3D60C3C7@{ResourceSha256};"+
+        ReadBuiltinDeclaration(source,0x3D60C3C7);
+        string evidence=$"{source.Source.ResourceUri}#object/3D60C3C7@{source.Source.DecodedSha256};"+
             $"Camera285/A4541BE1={camera.Camera.ObjectId:X8};source-created-successful-builtin0-resolution;"+
             "TC-;SC-paired-opcodes-and-readonly-data"+
             "payload656/alloc672/ghost4/flare16;retained-padding10-backend-zero/non-native-byte-identity;"+
             "Split=Data20.Cpu08.payload;Intermediate=Camera15CC-separate-current-producer;locale="+locale;
         return new(camera.Camera.ObjectId,camera.Resource.Source.DecodedSha256,locale,evidence);
+    }
+
+    internal static DokObject ReadBuiltinDeclaration(LoadedObjects source,uint objectId)
+    {
+        var rows=source.Document.Objects.Where(o=>o.ObjectId==objectId).ToArray();
+        if(rows.Length!=1||rows[0].Kind!=DokObjectKind.Inline||rows[0].ClassId!=0x162FB139)
+            throw new InvalidDataException("LensPreset requires its supported inline declaration class.");
+        var preset=rows[0];
+        foreach(uint hash in new[]{0x29B2A52Eu,0x081439EAu})
+        {
+            var fields=preset.Properties.Where(p=>p.NameHash==hash).ToArray();
+            if(fields.Length!=1)
+                throw new InvalidDataException("LensPreset requires one declaration for each branch scalar.");
+            var p=fields[0];
+            if(p.TypeCode!=4||p.ElementCount!=1||p.ElementSize!=4||p.RawValue.Length!=4)
+                throw new InvalidDataException("LensPreset native branch scalar declaration differs.");
+            if(BinaryPrimitives.ReadUInt32LittleEndian(p.RawValue)!=0)
+                throw new NotSupportedException("LensPreset source currently supports the actual stock builtin0, flags0 branch only.");
+        }
+        return preset;
     }
 }
 

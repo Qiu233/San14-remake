@@ -1,7 +1,6 @@
-// Original Sky WORK -> MakeSkyAmbient for the native D3D11 lab. Device inputs
-// and cube resources persist; node5 owns its numerical cadence/selection.
-// Main/season matrices and weather stay fixed in this experiment. Optional
-// Star/Cloud animation consumes the shared original node3 update.
+// Prepared Sky and Cloud inputs feed the persistent WORK cube resources.
+// Current matrices and weather are updated independently of device creation;
+// optional Star and Cloud animation consume the shared Main clock update.
 #pragma once
 #include "AmbientStarFrame.h"
 
@@ -56,7 +55,7 @@ struct AmbientNativeTextureBinding {
     ComPtr<ID3D11SamplerState> sampler;
 };
 static std::vector<AmbientNativeTextureBinding> ambientTextures(ID3D11Device* device,const fs::path& source,
-    const char* tableName="ambient-textures.tsv",UINT expectedCount=8) {
+    const char* tableName,UINT expectedCount,bool allowEmpty=false) {
     std::ifstream rows(source/tableName);
     if(!rows)throw std::runtime_error(std::string(tableName)+" missing");
     std::vector<AmbientNativeTextureBinding> result;
@@ -96,7 +95,7 @@ static std::vector<AmbientNativeTextureBinding> ambientTextures(ID3D11Device* de
         check(device->CreateShaderResourceView(binding.resource.Get(),&sd,&binding.view),"ambient original source SRV");
         binding.sampler=ambientSampler(device,source/(prefix+"-sampler.bin"));result.push_back(std::move(binding));
     }
-    if(result.size()!=expectedCount)throw std::runtime_error("Source Sky/Cloud texture table count differs");
+    if(result.size()!=expectedCount&&!(allowEmpty&&result.empty()))throw std::runtime_error("Source Sky/Cloud texture table count differs");
     return result;
 }
 struct AmbientNativeCube {
@@ -196,7 +195,10 @@ static NativeAmbient prepareNativeAmbient(ID3D11Device* device,const fs::path& s
     for(UINT mip=0;mip<owner.levels;++mip){D3D11_SHADER_RESOURCE_VIEW_DESC sd{};sd.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;sd.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;
         sd.Texture2D.MostDetailedMip=mip;sd.Texture2D.MipLevels=1;ComPtr<ID3D11ShaderResourceView> view;
         check(device->CreateShaderResourceView(owner.workColor.Get(),&sd,&view),"WORK28 original single-mip color view");owner.workColorMips.push_back(std::move(view));}
-    owner.textures=ambientTextures(device,source);owner.cubeSampler=ambientSampler(device,source/"cube-sampler-desc.bin");
+    owner.textures=ambientTextures(device,source,"sky-textures.tsv",1,true);
+    auto clouds=ambientTextures(device,source,"cloud-textures.tsv",7);
+    for(auto& texture:clouds)owner.textures.push_back(std::move(texture));
+    owner.cubeSampler=ambientSampler(device,source/"cube-sampler-desc.bin");
     auto samplerBytes=load(source/"cube-sampler-desc.bin");D3D11_SAMPLER_DESC cubeDescription{};std::memcpy(&cubeDescription,samplerBytes.data(),sizeof(cubeDescription));
     for(UINT mip=0;mip<owner.levels;++mip){cubeDescription.MinLOD=float(mip);ComPtr<ID3D11SamplerState> sampler;
         check(device->CreateSamplerState(&cubeDescription,&sampler),"Ambient blend original per-mip MinLOD");owner.blendMipSamplers.push_back(std::move(sampler));}

@@ -8,6 +8,8 @@ internal readonly struct CameraNumericPropertyReader(DokObject camera)
 {
     internal uint Word(int ordinal, uint hash, uint type, int count = 1, int component = 0)
     {
+        if ((uint)ordinal >= camera.Properties.Count)
+            throw new InvalidDataException($"Camera numeric property {ordinal} is missing from its declaration.");
         var field = camera.Properties[ordinal];
         if (field.Index != ordinal || field.NameHash != hash || field.TypeCode != type ||
             field.ElementCount != count || field.RawValue.Length != count * 4)

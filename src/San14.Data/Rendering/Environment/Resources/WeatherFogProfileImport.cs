@@ -12,7 +12,7 @@ internal static class WeatherFogProfileImport
 
     private static WeatherFogProfile Read(MapSeasonCameraPackage source)
     {
-        var camera = SkySeasonPackageTextures.Read(source).Package.Camera;
+        var camera = source.Camera;
         float Field(int ordinal, int lane = 0)
         {
             var prop = camera.Properties.Single(x => x.Index == ordinal);

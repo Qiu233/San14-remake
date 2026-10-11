@@ -36,7 +36,7 @@ public sealed class SkyAtmoPlaneDataOwner
                 throw new InvalidDataException("Plane STA current Static Data does not follow its complete literal CSV order.");
     }
     public LoadedSkyAtmoTableReadySource Source { get; }
-    public uint ObjectKey => 0x98026BD5;
+    public uint ObjectKey => Source.Plane.ObjectId;
     public uint FactoryClassId => 0x3059B9C3;
     /// <summary>The actual owned Textures CPU exists before its ready stages.
     /// Its descriptor entries are published only by the stage1 loop.</summary>
@@ -90,18 +90,14 @@ public sealed class SkyAtmoRegisteredRawContext
 {
     private readonly byte[] payload;
     private bool retained = true;
-    internal SkyAtmoRegisteredRawContext(LoadedRdbAsset source)
-    {
-        Source = source;
-        using var stream = new MemoryStream(source.Bytes, false);
-        payload = new byte[checked((int)stream.Length)];
-        stream.ReadExactly(payload);
-    }
-    public LoadedRdbAsset Source { get; }
+    internal SkyAtmoRegisteredRawContext(SkyAtmoRawTableData source)
+    {Source=source;payload=source.CopyBytes();}
+    public SkyAtmoRawTableData Source { get; }
     public uint ResourceKey => Source.FileId;
     public uint ResourceType => SkyAtmoTableResources.RawResourceType;
     public int ByteLength => payload.Length;
-    public ReadOnlyMemory<byte> Payload { get { RequireCurrent(); return payload; } }
+    internal ReadOnlyMemory<byte> Payload { get { RequireCurrent(); return payload; } }
+    public byte[] CopyBytes(){RequireCurrent();return payload.ToArray();}
     public string SourceEvidence => $"{Source.ResourceUri}@{Source.DecodedSha256};D7F47FB1/B41860;context0-owned-stream-copy/context8-length";
     public void RequireCurrent() => ObjectDisposedException.ThrowIf(!retained, this);
     public void Retire() => retained = false;
@@ -186,14 +182,15 @@ public sealed class SkyAtmoTableCpuOwner
         // B40360 prepends constructor reservations [Amb2D,TTable], hence
         // B43790 index0 is TTable and index1 is Amb2D. B45450 gates both
         // registered contexts before preparing the retained Plane Data.
-        uint[] keys = [SkyAtmoTableResources.TransmittanceFileId, SkyAtmoTableResources.Ambient2DFileId];
+        SkyAtmoRawTableData[] dependencies=[Source.Tables.Transmittance,Source.Tables.Ambient2D];
+        uint[] keys=[dependencies[0].FileId,dependencies[1].FileId];
         var registered = new SkyAtmoRegisteredRawContext?[2];
         for (int i = 0; i < keys.Length; i++)
         {
             registered[i] = context.ReadRegisteredRawContext(keys[i]);
             if (registered[i] is null) return SkyAtmoReadyResult.Waiting;
             registered[i]!.RequireCurrent();
-            if (registered[i]!.ResourceKey != keys[i] || registered[i]!.ResourceType != SkyAtmoTableResources.RawResourceType)
+            if (registered[i]!.ResourceKey != keys[i] || registered[i]!.ResourceType != SkyAtmoTableResources.RawResourceType||registered[i]!.ByteLength!=dependencies[i].ByteLength)
                 throw new InvalidDataException("STA dependency index selected another registered raw context.");
         }
         var planeResult = PlaneData.PrepareCurrent();
@@ -210,6 +207,7 @@ public sealed class SkyAtmoTableCpuOwner
             { memory.Release(allocation); return SkyAtmoReadyResult.Failed; }
             // E49FF0/FF9 then E4A0A4/AD: each successful length/pointer
             // pair is stored immediately. A retry in stage0 recopies table0.
+            if(tables[i] is { } previous)memory.Release(previous);
             tables[i] = allocation;
         }
         PreparationStage++;
@@ -245,10 +243,11 @@ public sealed class LoadedSkyAtmoTableReadySource
     public SkyAtmoPlaneDataOwner CreatePlaneData(IReadOnlyList<ISkyAtmoCurrentStaticTextureData> actualStaticData)
     { ArgumentNullException.ThrowIfNull(actualStaticData); return new(this, actualStaticData); }
     public SkyAtmoRegisteredRawContext CreateRegisteredRawContext(uint fileId)
-        => new(fileId switch {
-            SkyAtmoTableResources.TransmittanceFileId => Tables.Transmittance,
-            SkyAtmoTableResources.Ambient2DFileId => Tables.Ambient2D,
-            _ => throw new InvalidDataException("STA raw factory does not have this declared dependency.") });
+    {
+        if(fileId==Tables.Transmittance.FileId)return new(Tables.Transmittance);
+        if(fileId==Tables.Ambient2D.FileId)return new(Tables.Ambient2D);
+        throw new InvalidDataException("STA raw factory does not have this declared dependency.");
+    }
     public SkyAtmoTableCpuOwner CreateFreshCpu(ISkyAtmoTablePreparationContext actualContext,
         ISkyAtmoTableMemory? actualMemory = null)
     { ArgumentNullException.ThrowIfNull(actualContext); return new(this, actualContext, actualMemory ?? SkyAtmoManagedTableMemory.Instance); }
@@ -260,19 +259,14 @@ public static class SkyAtmoTableReadySource
         LoadedSkyAtmoTableSources actualTables, SkyCloudSourceTextureGroup actualPlane)
     {
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(actualTables); ArgumentNullException.ThrowIfNull(actualPlane);
-        SkyAtmoTableResources.Validate(actualTables);
-        if (actualPlane.ObjectId != actualTables.PlaneStaObjectId || actualPlane.Entries.Count != 4 ||
-            actualPlane.TableResourceUri != "san14://rdb/system/546F00D7" ||
-            actualPlane.TableSha256 != "8B2BE83D0712260B78DA3A8E9E28D60091E0803C4627AD68AD2BB626BDCA14D6")
-            throw new InvalidDataException("STA Plane requires its complete original four-slot Textures source.");
-        uint[] expected = [0xF81F0562, 0xF8ED83E3, 0xF9BC0264, 0xFA8A80E5];
-        for (int i = 0; i < expected.Length; i++)
+        if (actualPlane.ObjectId != actualTables.PlaneStaObjectId || actualPlane.Entries.Count != 4)
+            throw new InvalidDataException("STA Plane requires its declared complete four-slot Textures source.");
+        for (int i = 0; i < actualPlane.Entries.Count; i++)
         {
             var binding = actualPlane.Entries[i];
-            if (binding.Definition.ObjectId != expected[i] || binding.Definition.ClassId != 0xFF7DBFD4 || binding.ImageIndex != i ||
-                binding.Resource.Source.ResourceUri != "san14://rdb/system/7FC7BE7D" ||
-                binding.Resource.Source.DecodedSha256 != "A40492CD7DF66B5750B137571DBFBC784D67B86417ECD60F4FE24C2416A25B2F")
-                throw new InvalidDataException("STA Plane Static source/TID differs from its literal registered slot.");
+            if (binding.Definition.ClassId != 0xFF7DBFD4 ||
+                (binding.Image.TextureSystem==2?8u:4u)!=(i==0?8u:4u))
+                throw new InvalidDataException("STA Plane entry does not supply its declared Static texture dimension.");
         }
         string native = RenderSamplerSourceAdapters.LoadSkyAtmoTableReadyNativeSource(repository.SourceDirectory, locale);
         return new(locale, native, actualTables, actualPlane);

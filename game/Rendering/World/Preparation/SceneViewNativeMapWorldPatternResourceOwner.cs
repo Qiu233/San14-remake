@@ -54,18 +54,50 @@ public sealed class SceneViewNativeMapWorldPatternResourceOwner : IAsyncDisposab
         catch { sta.Dispose(); plane.Retire(); throw; }
     }
 
+    internal bool UsesTables(LoadedSkyAtmoTableSources tables)=>Sta.Source.Tables.SameResources(tables);
+
+    /// <summary>Build a new STA/Plane and registry generation from the candidate
+    /// physical entries. It owns no submitted frame and leaves the old cache alive.</summary>
+    internal async Task<SceneViewNativeMapWorldPatternResourceOwner> PrepareSeasonReplacementAsync(
+        GameResourceRepository repository,string locale,SceneViewNativeMapSeasonResourceBundle resources,
+        SceneViewNativeMapSkyCloudTextureOwner textures,SkyDirectionalOptionalSourceOwner context)
+    {
+        ObjectDisposedException.ThrowIf(retired,this);
+        var planeSource=resources.CloudTextures.SkylightSta;
+        var source=SkyAtmoTableReadySource.Load(repository,locale,resources.CameraSource.Transmittance.Tables,planeSource);
+        var readyEntries=await textures.BorrowReadyStaPlaneEntriesAsync();
+        // A new declaration can name the same physical images. Adopt its keys
+        // while borrowing the already prepared descriptors and lifetime owner.
+        var entries=readyEntries.Select((entry,index)=>entry with{Source=planeSource.Entries[index]}).ToArray();
+        var plane=PatternCameraStaDataOwner.CreatePlaneFromReadyEntries(source,entries);
+        var sta=PatternCameraStaDataOwner.CreateFresh(source,plane,repository,context,context.RequireCurrentResourceContext);
+        try
+        {
+            if(sta.PrepareCurrent()!=SkyAtmoReadyResult.Ready)
+                throw new InvalidDataException("Replacement STA has not completed its four actual textures and registered tables.");
+            var replacement=new SceneViewNativeMapWorldPatternResourceOwner(loader,sta,plane,entries,White,context,contextFlags3E4);
+            replacement.BindPackage(resources.CameraSource.Selection.FirstPackage);
+            return replacement;
+        }
+        catch{sta.Dispose();plane.Retire();throw;}
+    }
+    private DeferredEarlyIndirectPatternResourceOwner BindPackage(MapSeasonCameraPackage package)
+    {
+        if(!packages.TryGetValue(package,out var owner))
+        {
+            owner=DeferredEarlyIndirectPatternResourceOwner.BindLoadedPackage(loader,package,registry,contextFlags3E4);
+            packages.Add(package,owner);
+        }
+        return owner;
+    }
+
     public DeferredEarlyIndirectCurrentPatternResources CaptureCurrent(
         SceneViewNativeMapWorldF103SourceOwner.CurrentFrame world)
     {
         ObjectDisposedException.ThrowIf(retired, this);
         var tail = world.EarlyPatternCameraTail;
         var package = tail.MainInputs.Source.Selection.FirstPackage;
-        if (!packages.TryGetValue(package, out var owner))
-        {
-            owner = DeferredEarlyIndirectPatternResourceOwner.BindLoadedPackage(loader, package, registry, contextFlags3E4);
-            packages.Add(package, owner);
-        }
-        var resources = owner.CaptureCurrent(tail);
+        var resources = BindPackage(package).CaptureCurrent(tail);
         CurrentIndirectRecords = DeferredEarlyIndirectCurrentGroups.Prepare(
             world.GeometryFirst, world.GeometryWorld, tail, resources);
         return Current = resources;

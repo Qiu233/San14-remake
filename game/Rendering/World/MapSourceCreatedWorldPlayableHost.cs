@@ -7,7 +7,7 @@ public sealed record MapSourceCreatedWorldPlayableCurrentSources(
     Func<NativeMapFrameContext, NativeMapArmyPreparedFrame,
         SceneViewNativeMapWorldF103SourceOwner.CurrentFrame> PrepareCurrent,
     Func<MapSourceCreatedNativeSessionPreparedFrame,
-        DeferredEarlySourceViewQueriesPacket> PrepareEarlyCurrent,
+        PreparedViewLocalLightQueries> PrepareEarlyCurrent,
     Func<MapSourceCreatedNativeSessionPreparedFrame, NativeMapModelPopulationAcceptedFrame,
         DeferredEarlySourceCompletedFrame, MapSourceCreatedPlayableAuxiliaryOwners,
         Task<MapSourceCreatedPlayableAuxiliaryCompletion>> ProduceAuxiliary,
@@ -56,7 +56,7 @@ public sealed record MapSourceCreatedWorldPlayableCurrentSources(
     public static MapSourceCreatedWorldPlayableCurrentSources FromSourcePixelFactory(
         Func<NativeMapFrameContext, NativeMapArmyPreparedFrame,
             SceneViewNativeMapWorldF103SourceOwner.CurrentFrame> prepareCurrent,
-        Func<MapSourceCreatedNativeSessionPreparedFrame, DeferredEarlySourceViewQueriesPacket> prepareEarlyCurrent,
+        Func<MapSourceCreatedNativeSessionPreparedFrame, PreparedViewLocalLightQueries> prepareEarlyCurrent,
         NativeMapArmyPopulationRenderer borrowedArmy,
         Func<MapSourceCreatedNativeSessionPreparedFrame, NativeMapModelPopulationAcceptedFrame,
             DeferredEarlySourceCompletedFrame,
@@ -89,7 +89,7 @@ public sealed record MapSourceCreatedWorldPlayableCurrentSources(
     public static MapSourceCreatedWorldPlayableCurrentSources FromSourceNullGeometryPixelFactory(
         Func<NativeMapFrameContext, NativeMapArmyPreparedFrame,
             SceneViewNativeMapWorldF103SourceOwner.CurrentFrame> prepareCurrent,
-        Func<MapSourceCreatedNativeSessionPreparedFrame, DeferredEarlySourceViewQueriesPacket> prepareEarlyCurrent,
+        Func<MapSourceCreatedNativeSessionPreparedFrame, PreparedViewLocalLightQueries> prepareEarlyCurrent,
         NativeMapArmyPopulationRenderer borrowedArmy,
         DeferredSourceViewFamilyOwner borrowedViewFamilies,
         Func<MapSourceCreatedNativeSessionPreparedFrame, NativeMapModelPopulationAcceptedFrame,
@@ -152,7 +152,7 @@ public sealed class MapSourceCreatedWorldPlayableHost : IAsyncDisposable
     private Task? disposal;
     private IReadOnlyList<DeferredEarlyF103SelectedSource>? currentEarlySelections;
     private IReadOnlyList<DeferredEarlyWorldPreparedPass>? currentWorldEarlyPasses;
-    private DeferredEarlySourceViewQueriesPacket? currentEarlyQueries;
+    private PreparedViewLocalLightQueries? currentEarlyQueries;
     private NativeTerrainStencilPreparedFrame? currentTerrainStencil;
     private MapSourceCreatedPlayableAuxiliaryCompletion? currentAuxiliaryCompletion;
 
@@ -179,7 +179,7 @@ public sealed class MapSourceCreatedWorldPlayableHost : IAsyncDisposable
         NativeMapModelPopulationRenderer borrowedPopulation,
         NativeMapArmyPopulationRenderer borrowedArmy, MapMaterialCachePrepared materials,
         MapSourceCreatedF103CurrentFrame bootstrap,
-        DeferredEarlySourceViewQueriesPacket bootstrapEarly,
+        PreparedViewLocalLightQueries bootstrapEarly,
         MapSourceCreatedWorldPlayableCurrentSources current,
         MapSourceCreatedPlayableTerrainFrame firstFrame,
         NativeMapSceneStages? preceding = null,
@@ -420,9 +420,8 @@ public sealed class MapSourceCreatedWorldPlayableHost : IAsyncDisposable
 
     private static IReadOnlyList<DeferredEarlyF103SelectedSource> PrepareEarlySelections(
         GameResourceRepository repository, MapSourceCreatedF103CurrentFrame frame,
-        DeferredEarlySourceViewQueriesPacket queries)
+        PreparedViewLocalLightQueries queries)
     {
-        queries.ValidateCurrent(frame.ViewFields);
         var current = queries.BindCurrentFrame(frame, frame.Variant.NativeColorMode);
         var graph = repository.LoadRenderGraph("system", 0x024496EE);
         var shaderObjects = repository.LoadObjects("system", 0x718CCB8B);
@@ -557,8 +556,8 @@ public sealed class MapSourceCreatedWorldPlayableHost : IAsyncDisposable
         terrain.RequireCurrent(context);
         var preparedTerrain = currentTerrainStencil ?? throw new InvalidDataException("Host has no actual source terrain raster for this accepted attempt.");
         var geometry = NativeSceneGeometryStencilCompletedFrame.Complete(RequireGeometry(context),population,army,preparedTerrain,terrain);
-        var queries = currentEarlyQueries ?? throw new InvalidDataException("Early shader selection has no accepted View-bank owner packet.");
-        queries.ValidateCurrent(source.ViewFields);
+        var queries = currentEarlyQueries ?? throw new InvalidDataException("Early shader selection has no accepted View local-light queries.");
+        queries.RequireView(source.ViewFields);
         var passes=currentWorldEarlyPasses??throw new InvalidDataException("Actual World early pass owners were not prepared.");
         var world=Session.CurrentWorld??throw new InvalidDataException("Actual World early publication is unavailable.");
         Mark("current-geometry-and-early-scope");
@@ -616,8 +615,7 @@ public sealed class MapSourceCreatedWorldPlayableHost : IAsyncDisposable
     {
         var source=frame.PreparedSourceFrame??throw new InvalidDataException("Current source publication is unavailable.");
         SourceSceneProxyPolicy?.ValidateCurrent(source);
-        var queries=current.PrepareEarlyCurrent(frame)??throw new InvalidDataException("Current native View-bank query publication is unavailable.");
-        queries.ValidateCurrent(source.ViewFields);
+        var queries=current.PrepareEarlyCurrent(frame)??throw new InvalidDataException("Current View local-light queries are unavailable.");
         var world=Session.CurrentWorld??throw new InvalidDataException("Current source World publication is unavailable.");
         currentEarlyQueries=queries;
         currentWorldEarlyPasses=Array.AsReadOnly(Session.CurrentPasses.Select((pass,index)=>

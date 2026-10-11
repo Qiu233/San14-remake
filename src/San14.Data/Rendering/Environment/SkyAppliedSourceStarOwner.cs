@@ -34,9 +34,8 @@ public sealed class SkyAppliedSourceStarOwner
         var shader=repository.LoadShaderContainer("system",0x7180A527);
         RequireSource(shader.Source,"san14://rdb/system/7180A527","0918D4ABA52CC627D454C7376A8E72645ABF56B8194481193B938AE5CD9CF918");
         var definitions=repository.LoadObjects("system",0xDAB638B2);
-        RequireSource(definitions.Source,"san14://rdb/system/DAB638B2","357F6A380CF19EB2A86B439AF24CF2BACDD38074AAF9BC3AE99F0EAD21EE9271");
-        var controller=DokReader.Read(definitions.Source.Bytes).Objects.Single(o=>o.ObjectId==0x6DDC0D75);
-        if(controller.ClassId!=0x12BD9185||controller.Properties.Count!=1||
+        var controller=definitions.Document.Objects.Single(o=>o.ObjectId==0x6DDC0D75);
+        if(controller.Kind!=DokObjectKind.Inline||controller.ClassId!=0x12BD9185||controller.Properties.Count!=1||
             Scalar(controller,0,0x78051B9F,5)!=0xAF8EBDD2)
             throw new InvalidDataException("Actual source Sky2Controller geometry declaration changed.");
         var points=repository.LoadRdbAsset("system",0xAF8EBDD2);
@@ -62,7 +61,7 @@ public sealed class SkyAppliedSourceStarOwner
             present.AcceptedSeasonCamera.Inputs.MainFrame.Camera.ExecutableLocale!=power.Locale||
             !float.IsFinite(explicitOwnedClockDelta)||explicitOwnedClockDelta<0)
             throw new InvalidDataException("Star current packet requires the same accepted source frame and finite explicit owned clock.");
-        var package=SkySeasonPackageTextures.Read(selected.FirstPackage).Package;
+        var package=selected.FirstPackage;
         var sourceCamera=SkySceneSourceDefaults.ReadPerspectiveCamera(package.Objects,package.Camera.ObjectId);
         if(sourceCamera.References.Sky2Controller!=0x6DDC0D75||
             !SkySeasonPackageTextures.Read(package).Star.IsSourceReferenceZero)

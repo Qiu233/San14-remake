@@ -63,7 +63,7 @@ public sealed record SceneViewNativeMapDependencies(
     NativeMapModelPopulationRenderer Population, NativeMapArmyPopulationRenderer Army,
     MapSourceCreatedPlayableSceneSource SceneSource, MapMaterialCachePrepared Materials,
     MapSourceCreatedF103CurrentFrame Bootstrap,
-    DeferredEarlySourceViewQueriesPacket BootstrapEarly,
+    PreparedViewLocalLightQueries BootstrapEarly,
     MapSourceCreatedPlayableCurrentSources Current,
     Func<SceneViewNativeMapFrameCapture, MapSourceCreatedPlayableTerrainFrame> PrepareTerrainFrame,
     Func<SceneViewNativeMapFrameCapture, SceneViewNativeMapResizeInputs> PrepareResize)

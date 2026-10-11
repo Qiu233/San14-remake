@@ -84,7 +84,7 @@ public static class SkySeasonTransmittance
     {
         ArgumentNullException.ThrowIfNull(selectedController);ArgumentNullException.ThrowIfNull(parameters);
         ArgumentNullException.ThrowIfNull(directions);ArgumentNullException.ThrowIfNull(source);
-        if(selectedController.DeclaredTransmittanceTable!=SkyAtmoTableResources.ObjectId)
+        if(selectedController.DeclaredTransmittanceTable!=source.Tables.ObjectId)
             throw new InvalidDataException("Applied seasonal Camera and its actual source transmittance table differ.");
         var colors=SkylightColorMath.Prepare(selectedController.SunHueSaturation,selectedController.MoonHueSaturation);
         float height=M(parameters.Altitude,1000f);

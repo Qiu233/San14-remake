@@ -7,14 +7,14 @@ namespace San14.Data;
 /// Sky2 program. It stores no current Camera/light values or device readiness.</summary>
 public sealed class Sky2LoadedNullTexturePacketInterface
 {
-    private readonly Sky2SourceNull2D[] proofs;
+    private readonly Sky2NullTextureBinding[] proofs;
     private readonly DxbcResourceDefinitions definitions;
     private readonly int packetLength, presenceOffset;
     private readonly int[] presenceLanes;
     private readonly bool finiteMoon;
 
     internal Sky2LoadedNullTexturePacketInterface(
-        IReadOnlyList<Sky2SourceNull2D> proofs, DxbcResourceDefinitions definitions,
+        IReadOnlyList<Sky2NullTextureBinding> proofs, DxbcResourceDefinitions definitions,
         int packetLength, int presenceOffset, int[] presenceLanes, bool finiteMoon)
     {
         this.proofs = proofs.ToArray(); this.definitions = definitions;
@@ -22,7 +22,7 @@ public sealed class Sky2LoadedNullTexturePacketInterface
         this.presenceLanes = presenceLanes; this.finiteMoon = finiteMoon;
     }
 
-    public void Validate(IReadOnlyList<Sky2SourceNull2D> actualProgramProofs,
+    public void Validate(IReadOnlyList<Sky2NullTextureBinding> actualProgramProofs,
         DxbcResourceDefinitions actualDefinitions, ReadOnlySpan<byte> completePixelPacket)
     {
         ArgumentNullException.ThrowIfNull(actualProgramProofs);

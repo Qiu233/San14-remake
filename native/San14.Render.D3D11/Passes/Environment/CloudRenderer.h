@@ -1,13 +1,18 @@
-// Original normal node124, fixed exported SourceMain camera. Device inputs
-// are prepared once; node3 phase, node124 ping and shader history persist.
+// Cloud device inputs come from the prepared renderer and target declarations.
+// The session retains animation phase, ping surfaces and camera history.
 #pragma once
 #include <map>
 #include "CloudWeatherInputs.h"
+#include "CloudProgramInputs.h"
 struct NativeMainCloudSurface {
     ComPtr<ID3D11Texture2D> texture;
     ComPtr<ID3D11ShaderResourceView> view;
     ComPtr<ID3D11RenderTargetView> target;
     DXGI_FORMAT sampled=DXGI_FORMAT_UNKNOWN;
+};
+struct NativeMainCloudSampler {
+    UINT slot=0;
+    std::array<ComPtr<ID3D11SamplerState>,2> sides;
 };
 struct NativeMainCloudPass {
     std::string name;
@@ -17,7 +22,7 @@ struct NativeMainCloudPass {
     ComPtr<ID3D11Buffer> vcb,pcb;
     std::vector<char> vbytes,pbytes;
     std::vector<std::pair<UINT,std::string>> inputs,outputs;
-    std::vector<std::pair<UINT,ComPtr<ID3D11SamplerState>>> samplers;
+    std::vector<NativeMainCloudSampler> samplers;
     ComPtr<ID3D11DepthStencilState> depth;
     ComPtr<ID3D11RasterizerState> raster;
     ComPtr<ID3D11BlendState> blend;
@@ -91,10 +96,14 @@ static NativeMainCloud prepareNativeMainCloud(ID3D11Device* device,const fs::pat
     std::string geometryKind;std::ifstream geometry(source/"geometry.txt");geometry>>geometryKind>>result.topology>>result.first>>result.count;
     if(!geometry||geometryKind!="SV_VertexID")throw std::runtime_error("Main Cloud source geometry absent");
     std::ifstream passRows(source/"passes.txt");NativeMainCloudPass p;
+    const auto programs=source_cloud_programs::read(source/"programs.txt");
     std::map<UINT,ComPtr<ID3D11VertexShader>> vertexPrograms;
     std::map<UINT,ComPtr<ID3D11PixelShader>> pixelPrograms;
     if(!passRows)throw std::runtime_error("Main Cloud source pass list absent");
-    while(passRows>>p.name>>p.combination>>p.vsIndex>>p.psIndex>>p.width>>p.height>>p.rtCount>>p.withDsv) {
+    // Program selection and render target preparation have separate owners.
+    while(passRows>>p.name>>p.width>>p.height>>p.rtCount>>p.withDsv) {
+        const auto& program=programs.at(p.name);
+        p.combination=program.combination;p.vsIndex=program.vertex;p.psIndex=program.pixel;
         auto foundVs=vertexPrograms.find(p.vsIndex);
         if(foundVs==vertexPrograms.end()) {
             auto vb=load(source/(p.name+"-vs.dxbc"));
@@ -107,12 +116,24 @@ static NativeMainCloud prepareNativeMainCloud(ID3D11Device* device,const fs::pat
             check(device->CreatePixelShader(pb.data(),pb.size(),nullptr,&p.ps),"Main Cloud original PS");
             pixelPrograms.emplace(p.psIndex,p.ps);
         } else p.ps=foundPs->second;
-        p.vbytes=load(source/(p.name+"-vs-b0.bin"));p.vcb=nativeMainCloudBuffer(device,p.vbytes);
-        if(fs::exists(source/(p.name+"-ps-b0.bin"))){p.pbytes=load(source/(p.name+"-ps-b0.bin"));p.pcb=nativeMainCloudBuffer(device,p.pbytes);}
+        p.vbytes=load(source/(p.name+"-vs-b0.bin"));
+        if(p.vbytes.size()!=program.vertexConstantBytes)throw std::runtime_error("Cloud VS constants differ from selected RDEF");
+        p.vcb=nativeMainCloudBuffer(device,p.vbytes);
+        if(program.pixelConstantBytes) {
+            p.pbytes=load(source/(p.name+"-ps-b0.bin"));
+            if(p.pbytes.size()!=program.pixelConstantBytes)throw std::runtime_error("Cloud PS constants differ from selected RDEF");
+            p.pcb=nativeMainCloudBuffer(device,p.pbytes);
+        }
         std::ifstream textureRows(source/"textures.txt");std::string rowPass,role,file;UINT slot;
         while(textureRows>>rowPass>>slot>>role)if(rowPass==p.name)p.inputs.emplace_back(slot,role);
         std::ifstream rtvRows(source/"rtvs.txt");while(rtvRows>>rowPass>>slot>>role)if(rowPass==p.name)p.outputs.emplace_back(slot,role);
-        std::ifstream samplerRows(source/"samplers.txt");while(samplerRows>>rowPass>>slot>>file)if(rowPass==p.name)p.samplers.emplace_back(slot,ambientSampler(device,source/file));
+        std::ifstream samplerRows(source/"samplers.txt");std::string oppositeFile;
+        while(samplerRows>>rowPass>>slot>>file>>oppositeFile)if(rowPass==p.name) {
+            NativeMainCloudSampler sampler;sampler.slot=slot;
+            sampler.sides[0]=ambientSampler(device,source/file);
+            sampler.sides[1]=file==oppositeFile?sampler.sides[0]:ambientSampler(device,source/oppositeFile);
+            p.samplers.push_back(std::move(sampler));
+        }
         result.passes.push_back(std::move(p));p=NativeMainCloudPass{};
     }
     std::ifstream animation(continuousSource/"animation.txt");NativeMainCloudAxis axis;
@@ -195,7 +216,9 @@ static void executeNativeMainCloud(ID3D11Device* device,ID3D11DeviceContext* con
         for(auto& input:pass.inputs)inputs.at(input.first)=nativeMainCloudRole(cloud,input.second).view.Get();
         for(auto& texture:cloud.staticTextures)if(texture.program==pass.name)inputs.at(texture.slot)=texture.view.Get();
         context->PSSetShaderResources(0,UINT(inputs.size()),inputs.data());
-        for(auto& sampler:pass.samplers){auto raw=sampler.second.Get();context->PSSetSamplers(sampler.first,1,&raw);}
+        // Samplers follow the same physical ping side as their texture views.
+        // Static inputs share one state across both sides.
+        for(auto& sampler:pass.samplers){auto raw=sampler.sides[cloud.currentSide].Get();context->PSSetSamplers(sampler.slot,1,&raw);}
         auto vcb=pass.vcb.Get(),pcb=pass.pcb.Get();context->VSSetConstantBuffers(0,1,&vcb);context->PSSetConstantBuffers(0,1,&pcb);
         std::array<ID3D11RenderTargetView*,8> output{};
         for(auto& target:pass.outputs)output.at(target.first)=target.second=="current-scene"?cloud.sceneTarget.Get():nativeMainCloudRole(cloud,target.second).target.Get();

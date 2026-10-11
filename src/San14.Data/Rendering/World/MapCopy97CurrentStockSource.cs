@@ -235,7 +235,7 @@ public sealed partial class MapCopy97CurrentStockSource
         early.ValidateParameterFrame(frame.Camera,frame.Lighting);caustics.Validate(early);
         if(early.SourcePlan.Node.Index!=78 || early.Combination.Index!=126 || early.PixelProgramIndex!=95 ||
             !ReferenceEquals(early.OwnedFeatureSource,frame.Feature) || early.Current.ContextFlags3F0!=frame.Context.ContextFlags3F0 ||
-            early.Current.NativeColorMode!=0x60 || early.EarlyCurrent.RawQueryD5BA00!=0 || early.EarlyCurrent.RawQueryD5B9D0!=0)
+            early.Current.NativeColorMode!=0x60 || !early.EarlyCurrent.LocalLightQueries.AreEmpty)
             throw new NotSupportedException("Current stock source proof requires actual ordinary78/126/95 and its source-null Caustics owner.");
     }
 }

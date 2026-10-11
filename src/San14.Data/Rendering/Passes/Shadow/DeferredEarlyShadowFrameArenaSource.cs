@@ -139,7 +139,7 @@ public static class DeferredEarlyShadowFrameArenaSource
     {
         ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(alreadyLoadedDefaultView0);
         var native=RenderSamplerSourceAdapters.LoadEarlyShadowFrameArenaNativeSource(repository.SourceDirectory,locale);
-        var definitions=alreadyLoadedDefaultView0.CopyViewDefinitions();
+        var definitions=alreadyLoadedDefaultView0.ViewDefinitions;
         var view=definitions.Document.Objects.Single(value=>value.ObjectId==DefaultView0Source.ViewObjectId&&
             value.Kind==DokObjectKind.Inline&&value.ClassId==0x97AF26FD);
         uint Word(int ordinal,uint hash)

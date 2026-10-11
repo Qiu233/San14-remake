@@ -1,7 +1,6 @@
 using Godot;
 using San14.Data;
 using San14.Data.Formats;
-using System.Security.Cryptography;
 
 public enum Sky2Operation { Atmosphere, Contribution }
 
@@ -22,35 +21,42 @@ public sealed class Sky2Program : IAsyncDisposable
     public int VertexConstantByteLength => VertexBindings.SourceDefinitions.Buffers.Single().ByteSize;
     public int PixelConstantByteLength => PixelBindings.SourceDefinitions.Buffers.Single().ByteSize;
     public Rid ShaderRid { get; }
-    private readonly Sky2SourceNull2D[] sourceNullProofs;
+    private readonly Sky2NullTextureBinding[] nullBindings;
+    public Sky2TextureBindingSnapshot TextureBindings { get; }
     private readonly Sky2LoadedNullTexturePacketInterface? nullPacketInterface;
     private Task? _disposal;
+    private readonly object _disposalGate=new();
+
+    public void RequireCurrent()
+    {
+        ObjectDisposedException.ThrowIf(_disposal is not null,this);
+        TextureBindings.RequireCurrent();
+    }
 
     public void ValidateNullTexturePacket(ReadOnlySpan<byte> pixelPacket)
     {
-        nullPacketInterface?.Validate(sourceNullProofs,PixelBindings.SourceDefinitions,pixelPacket);
+        RequireCurrent();
+        nullPacketInterface?.Validate(nullBindings,PixelBindings.SourceDefinitions,pixelPacket);
     }
 
     private Sky2Program(LoadedShaderContainer source,G2ShaderCombination combination,Sky2Operation operation,
         ShaderSpirv vertex,AdaptedVertexShader adapter,ShaderSpirv pixel,
         TranslatedShaderBindings vb,TranslatedShaderBindings pb,uint location,Rid shader,
-        Sky2NullTextureSpirv? nullAdapter,Sky2SourceNull2D[] nullProofs,
-        Sky2LoadedNullTexturePacketInterface? loadedNullInterface)
+        Sky2NullTextureSpirv? nullAdapter,Sky2NullTextureBinding[] nullTokens,
+        Sky2TextureBindingSnapshot textureBindings,Sky2LoadedNullTexturePacketInterface? loadedNullInterface)
     {
         (Source,Combination,Operation,VertexTranslation,VertexAdapter,PixelTranslation,VertexBindings,PixelBindings,PositionLocation,ShaderRid,NullTextureAdapter)
             =(source,combination,operation,vertex,adapter,pixel,vb,pb,location,shader,nullAdapter);
-        sourceNullProofs=nullProofs;
-        nullPacketInterface=loadedNullInterface;
+        nullBindings=nullTokens;
+        TextureBindings=textureBindings;nullPacketInterface=loadedNullInterface;
     }
 
     public static async Task<Sky2Program> BuildAsync(LoadedShaderContainer source,int explicitCombinationIndex,
         Vkd3dShaderCompiler compiler,Sky2Operation operation,
-        IReadOnlyList<Sky2SourceNull2D>? explicitFreshNullTextures=null)
+        Sky2TextureBindingSnapshot textureBindings)
     {
         ArgumentNullException.ThrowIfNull(source);ArgumentNullException.ThrowIfNull(compiler);
-        if(Convert.ToHexString(SHA256.HashData(source.Source.Bytes))!=
-            "CE4CEC6271BDE59E40D5B97746A7A1877188E133550A0C608D41C353A4999424")
-            throw new InvalidDataException("Sky2 programs require the verified complete 340AC335 source.");
+        ArgumentNullException.ThrowIfNull(textureBindings);textureBindings.RequireCurrent();
         var combination=source.ReadG1ResourceBindings(explicitCombinationIndex).Combination;
         if(operation is not (Sky2Operation.Atmosphere or Sky2Operation.Contribution) ||
             (combination.Index%2==0)!=(operation==Sky2Operation.Atmosphere))
@@ -87,10 +93,13 @@ public sealed class Sky2Program : IAsyncDisposable
                 throw new InvalidDataException("Sky2 constant buffer size differs from the original source.");
         }
         Sky2NullTextureSpirv? nullAdapter=null;
-        var nullProofs=explicitFreshNullTextures?.ToArray()??[];
-        if(nullProofs.Length>0)
+        var sampledSlots=pb.Bindings.Where(b=>b.DescriptorKind=="Texture").Select(b=>b.Source.BindPoint).ToHashSet();
+        var nullTokens=new[]{SkySamplingRole.Earth,SkySamplingRole.MilkyWay,SkySamplingRole.Moon}
+            .Where(role=>sampledSlots.Contains(SkySamplingResources.PixelRegister(role))&&textureBindings.GetTexture(role) is null)
+            .Select(textureBindings.RequireNull).ToArray();
+        if(nullTokens.Length>0)
         {
-            nullAdapter=Sky2NullTextureAdapter.Adapt(pixel,pb,nullProofs);
+            nullAdapter=Sky2NullTextureAdapter.Adapt(pixel,pb,nullTokens);
             var finalInterface=SpirvShaderInterfaceReader.Read(nullAdapter.Bytes);
             pb=new(finalInterface,pb.SourceDefinitions,Array.AsReadOnly(pb.Bindings
                 .Where(b=>b.DescriptorKind is not ("Texture" or "Sampler") || !nullAdapter.NullPixelRegisters.Contains(b.Source.BindPoint))
@@ -101,6 +110,7 @@ public sealed class Sky2Program : IAsyncDisposable
             Sky2NullTextureAdapter.ReadLoadedPacketInterface(nullAdapter,pb.SourceDefinitions);
         Rid shader=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
+            textureBindings.RequireCurrent();
             using var stages=new RDShaderSpirV();
             stages.SetStageBytecode(RenderingDevice.ShaderStage.Vertex,adapter.Bytes);
             stages.SetStageBytecode(RenderingDevice.ShaderStage.Fragment,nullAdapter?.Bytes??pixel.Bytes);
@@ -109,9 +119,17 @@ public sealed class Sky2Program : IAsyncDisposable
             return rid;
         });
         return new(source,combination,operation,vertex,adapter,pixel,vb,pb,position[0].Location!.Value,shader,
-            nullAdapter,nullProofs,loadedNullInterface);
+            nullAdapter,nullTokens,textureBindings,loadedNullInterface);
     }
 
-    public ValueTask DisposeAsync()=>new(_disposal??=TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-    {rd.FreeRid(ShaderRid);return true;}));
+    public ValueTask DisposeAsync()
+    {
+        lock(_disposalGate)
+        {
+            if(_disposal is null||_disposal.IsFaulted||_disposal.IsCanceled)
+                _disposal=TerrainDeviceTexture.OnRenderThreadAsync(rd=>
+                {rd.FreeRid(ShaderRid);return true;});
+            return new(_disposal);
+        }
+    }
 }

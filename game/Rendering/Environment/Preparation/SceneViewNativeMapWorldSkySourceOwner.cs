@@ -8,7 +8,12 @@ public sealed class SceneViewNativeMapWorldSkySourceOwner : IAsyncDisposable
     public IReadOnlyList<NativeMapStageTiming> LastCurrentTimings { get; private set; } =
         Array.Empty<NativeMapStageTiming>();
     public SkyDirectionalAmbientDeviceOwner Device { get; }
-    public SceneViewNativeMapWorldPatternResourceOwner PatternResources { get; }
+    public SceneViewNativeMapWorldPatternResourceOwner PatternResources { get; private set; }
+    private readonly GameResourceRepository repository;
+    private readonly List<NativeMapBorrowerRetirementPackage> replacedCloudResources=new();
+    private readonly SemaphoreSlim retirementGate=new(1,1);
+    private NativeMapBorrowerRetirementPackage? finalRetirement;
+    public Exception? LastCloudRetirementFailure { get; private set; }
     public Task<IReadOnlyList<PatternCameraStaReadyPlaneEntry>> BorrowReadyStaPlaneEntriesAsync()
     {
         ObjectDisposedException.ThrowIf(retiring, this);
@@ -35,10 +40,10 @@ public sealed class SceneViewNativeMapWorldSkySourceOwner : IAsyncDisposable
         SkyAppliedSourceStageOwner stages, SkyDirectionalOptionalSourceOwner optional,
         SkyDirectionalAmbientDeviceOwner device, DeferredSelected383SkyProjectionOwner projection,
         LoadedSkyDirectionalAtmosphereNativeSource atmosphere, LoadedShaderContainer shader, string clockIdentity,
-        SceneViewNativeMapWorldPatternResourceOwner patternResources)
-        => (this.lighting, this.stages, this.optional, Device, this.projection,
+        SceneViewNativeMapWorldPatternResourceOwner patternResources,GameResourceRepository repository)
+        => (this.repository,this.lighting, this.stages, this.optional, Device, this.projection,
             this.atmosphere, this.shader, this.clockIdentity, PatternResources) =
-            (lighting, stages, optional, device, projection, atmosphere, shader, clockIdentity, patternResources);
+            (repository,lighting, stages, optional, device, projection, atmosphere, shader, clockIdentity, patternResources);
 
     public static async Task<SceneViewNativeMapWorldSkySourceOwner> BuildAsync(
         SceneViewNativeMapLoadInputs loaded, Vkd3dShaderCompiler compiler,
@@ -50,19 +55,20 @@ public sealed class SceneViewNativeMapWorldSkySourceOwner : IAsyncDisposable
         if (configureBeforeStartup is not null && !allowReadback)
             throw new InvalidOperationException("Sky numeric observation requires explicit readback construction.");
         var repo = loaded.Repository;
+        var cloudPrograms = SkyCloudProgramResources.Load(repo);
         string locale = loaded.InitialFrame.MainCamera.Camera.ExecutableLocale;
         string identity = bootstrap.First.Lighting.Binding.ViewIdentity + "/Directional-Sky";
         string clock = identity + "/owned-presentation-clock254";
         var source = SelectSource(bootstrap, bootstrap.First.Lighting, bootstrapExecution);
         var stages = SkyAppliedSourceStageOwner.CreateFresh(repo, locale, identity,
-            source.AcceptedLighting.Binding.CameraOwnerIdentity);
+            source.AcceptedLighting.Binding.CameraOwnerIdentity, bootstrap.First.Camera.Source);
         var firstStages = stages.PrepareCurrent(bootstrap.Present, source.AcceptedLighting);
         var raster = SkyFirstGraphicsPrefixSource.ReadFresh(locale,
             identity + "/bootstrap-pipeline-plan", source.AcceptedLighting.Binding.ViewIdentity)
             .PrepareFirstPrefix(new(bootstrap.First.FrameNumber, source.AcceptedLighting.Binding.ViewIdentity,
                 true, "original fresh frontend pipeline plan; no WORK submission or Host acknowledgement"));
         var optional = SkyDirectionalOptionalSourceOwner.ReadSource(repo, locale, compiler, source,
-            firstStages, bootstrapExecution, raster.ColorWriteMask, raster.SkyStarNativeCullMode, identity + "/optional");
+            firstStages, bootstrapExecution, raster.ColorWriteMask, raster.SkyStarNativeCullMode, identity + "/optional",cloudPrograms);
         SkyDirectionalAmbientDeviceOwner? device = null;
         SceneViewNativeMapWorldPatternResourceOwner? patternResources = null;
         try
@@ -80,7 +86,7 @@ public sealed class SceneViewNativeMapWorldSkySourceOwner : IAsyncDisposable
                 source.AcceptedLighting.Binding, identity + "/Q80", identity);
             patternResources = await SceneViewNativeMapWorldPatternResourceOwner.BuildAsync(
                 repo, locale, bootstrap, optional, lighting);
-            return new(lighting, stages, optional, device, projection, native, shader, clock, patternResources);
+            return new(lighting, stages, optional, device, projection, native, shader, clock, patternResources,repo);
         }
         catch (Exception failure)
         {
@@ -138,16 +144,112 @@ public sealed class SceneViewNativeMapWorldSkySourceOwner : IAsyncDisposable
     /// <summary>Load/reload boundary only. The caller has drained this Host's
     /// accepted request before installing a new source season. This retains
     /// state168, WORK/cubes, clock, optional phases and paired Clip history.</summary>
-    public void RequireCompatibleSeasonResources(SceneViewNativeMapSeasonResourceBundle resources)
+    private void RequireRetainedSeasonResources(SceneViewNativeMapSeasonResourceBundle resources)
     {
         ObjectDisposedException.ThrowIf(retiring,this);ArgumentNullException.ThrowIfNull(resources);
         if(resources.Locale!=stages.Locale)
             throw new InvalidDataException("Season Sky resources must use this live owner's executable locale.");
-        optional.RequireCompatibleSeasonSources(resources);
-        Device.RequireCompatibleSeasonResources(resources.CameraSource);
+        if(!SkySeasonPackageTextures.Read(resources.CameraSource.Selection.FirstPackage).Star.IsSourceReferenceZero)
+            throw new NotSupportedException("Seasonal Star texture replacement requires its own producer lifecycle.");
     }
-    public void InstallCompatibleSeasonResources(SceneViewNativeMapSeasonResourceBundle resources)
-    {RequireCompatibleSeasonResources(resources);optional.InstallCompatibleSeasonSources(resources);}
+    internal sealed class PreparedCloudSeasonResources : IAsyncDisposable
+    {
+        internal readonly SceneViewNativeMapSkyCloudTextureOwner previousTextures,textures;
+        internal readonly SceneViewNativeMapWorldPatternResourceOwner previousPattern,pattern;
+        internal readonly SkyCloudColorProducer.PreparedTextureReplacement? draws;
+        internal readonly bool StaChanged,OwnsTextures;
+        private readonly NativeMapBorrowerRetirementPackage retirement;
+        internal bool installed;
+        internal PreparedCloudSeasonResources(SceneViewNativeMapSkyCloudTextureOwner previousTextures,
+            SceneViewNativeMapSkyCloudTextureOwner textures,SceneViewNativeMapWorldPatternResourceOwner previousPattern,
+            SceneViewNativeMapWorldPatternResourceOwner pattern,SkyCloudColorProducer.PreparedTextureReplacement? draws)
+        {
+            this.previousTextures=previousTextures;this.textures=textures;this.previousPattern=previousPattern;this.pattern=pattern;this.draws=draws;
+            OwnsTextures=!ReferenceEquals(previousTextures,textures);
+            StaChanged=OwnsTextures&&!previousTextures.TextureSet.SameSta(textures.TextureSet);
+            retirement=new("World-atmosphere-pending/"+Guid.NewGuid().ToString("N"),draws,pattern,OwnsTextures?textures:null);
+        }
+        public ValueTask DisposeAsync()=>installed?ValueTask.CompletedTask:retirement.DisposeAsync();
+    }
+    internal async Task<PreparedCloudSeasonResources?> PrepareCloudSeasonResourcesAsync(SceneViewNativeMapSeasonResourceBundle resources)
+    {
+        RequireRetainedSeasonResources(resources);
+        var pendingTextures=optional.PrepareSeasonTextures(resources.CloudTextures);
+        if(pendingTextures is null&&PatternResources.UsesTables(resources.CameraSource.Transmittance.Tables))return null;
+        var textures=pendingTextures??optional.TextureOwner;
+        SkyCloudColorProducer.PreparedTextureReplacement? draws=null;
+        SceneViewNativeMapWorldPatternResourceOwner? pattern=null;
+        try
+        {
+            if(pendingTextures is not null)
+                draws=await optional.CloudProducer.PrepareTextureReplacementAsync(await textures.GetInputsAsync());
+            // Numeric-only changes retain the installed textures and Cloud
+            // draws. Any new texture owner also needs fresh Plane callbacks.
+            pattern=await PatternResources.PrepareSeasonReplacementAsync(repository,resources.Locale,resources,textures,optional);
+            return new(optional.TextureOwner,textures,PatternResources,pattern,draws);
+        }
+        catch(Exception failure)
+        {
+            var partial=new NativeMapBorrowerRetirementPackage("World-Cloud-partial/"+Guid.NewGuid().ToString("N"),
+                failure is NativeMapBorrowerConstructionException nested?nested.RetainedPackage:null,draws,pattern,pendingTextures);
+            try{await partial.DisposeAsync();}
+            catch(Exception cleanup){partial.RetainFailure();throw new NativeMapBorrowerConstructionException(failure,cleanup,partial);}
+            throw;
+        }
+    }
+    internal Task<SkyDirectionalAmbientDeviceOwner.PreparedSeasonResources?> PrepareSeasonResourcesAsync(
+        SceneViewNativeMapSeasonResourceBundle resources,PreparedCloudSeasonResources? clouds)
+        =>Device.PrepareSeasonResourcesAsync(resources.CameraSource,clouds is {StaChanged:true}?clouds.textures.TextureSet.StaInputs:null);
+
+    internal void RequirePreparedSeasonResources(SkyDirectionalAmbientDeviceOwner.PreparedSeasonResources? prepared,
+        PreparedCloudSeasonResources? clouds)
+    {
+        ObjectDisposedException.ThrowIf(retiring,this);
+        Device.RequirePreparedSeasonResources(prepared);
+        if(clouds is null)return;
+        optional.RequirePreparedSeasonTextures(clouds.previousTextures);
+        if(clouds.draws is { } draws)optional.CloudProducer.RequirePreparedTextureReplacement(draws);
+        if(clouds.installed||!ReferenceEquals(clouds.previousPattern,PatternResources))
+            throw new InvalidOperationException("Pattern resources changed after this Cloud replacement was prepared.");
+        clouds.textures.RequireCurrentOwner();clouds.pattern.Sta.RequireCurrent();
+    }
+    internal void InstallPreparedSeasonResources(SceneViewNativeMapSeasonResourceBundle resources,
+        SkyDirectionalAmbientDeviceOwner.PreparedSeasonResources? prepared,PreparedCloudSeasonResources? clouds)
+    {
+        Device.InstallPreparedSeasonResources(prepared);
+        if(clouds is not null)
+        {
+            var oldDraws=clouds.draws is { } draws?optional.CloudProducer.InstallTextureReplacement(draws):null;
+            var oldPattern=PatternResources;PatternResources=clouds.pattern;
+            var previousTextures=optional.InstallPreparedSeasonTextures(resources.CloudTextures,clouds.OwnsTextures?clouds.textures:null);
+            var oldTextures=clouds.OwnsTextures?previousTextures:null;
+            clouds.installed=true;
+            lock(lifetime)replacedCloudResources.Add(new("World-Cloud-replaced/"+Guid.NewGuid().ToString("N"),oldDraws,oldPattern,oldTextures));
+        }
+        else optional.InstallPreparedSeasonTextures(resources.CloudTextures,null);
+        completed=null;candidate=null;prefix=null;
+    }
+    public async Task RetireReplacedSeasonResourcesAsync()
+    {
+        await Device.RetireReplacedSeasonResourcesAsync();
+        try{await RetireCloudResourcesCoreAsync();LastCloudRetirementFailure=null;}
+        catch(Exception failure){LastCloudRetirementFailure=failure;}
+    }
+    private async Task RetireCloudResourcesCoreAsync()
+    {
+        await retirementGate.WaitAsync();
+        try
+        {
+            while(true)
+            {
+                NativeMapBorrowerRetirementPackage package;
+                lock(lifetime){if(replacedCloudResources.Count==0)return;package=replacedCloudResources[0];}
+                await package.DisposeAsync();
+                lock(lifetime)replacedCloudResources.RemoveAt(0);
+            }
+        }
+        finally{retirementGate.Release();}
+    }
 
     public async Task SubmitCurrentAsync(MapSourceCreatedNativeSessionPreparedFrame frame,
         SceneViewNativeMapWorldF103SourceOwner.CurrentFrame world,
@@ -210,7 +312,21 @@ public sealed class SceneViewNativeMapWorldSkySourceOwner : IAsyncDisposable
     public void CommitCompleteFrame(NativeMapFrameContext context)
     { ValidateCompleteFrameCandidate(context); optional.CommitCompleteHost(candidate!); candidate = null; }
     public ValueTask DisposeAsync()
-    { lock (lifetime) { retiring = true; return new(disposal ??= RetireAsync()); } }
+    {
+        lock(lifetime)
+        {
+            retiring=true;
+            if(disposal is null||disposal.IsFaulted||disposal.IsCanceled)disposal=RetireAsync();
+            return new(disposal);
+        }
+    }
     private async Task RetireAsync()
-    { await Device.DisposeAsync(); await PatternResources.DisposeAsync(); await optional.DisposeAsync(); }
+    {
+        // Old draws still borrow the stable Cloud program. Drain them before
+        // the Device releases that program, then retire current Pattern/Plane
+        // borrowers before their textures.
+        await RetireCloudResourcesCoreAsync();
+        finalRetirement??=new("World-Sky-retire/"+Guid.NewGuid().ToString("N"),Device,PatternResources,optional);
+        await finalRetirement.DisposeAsync();
+    }
 }

@@ -22,12 +22,13 @@ public sealed class SceneViewNativeMapSkyCloudSourceOwner : IAsyncDisposable
     {
         bootstrap.RequireCurrent();
         string locale = loaded.InitialFrame.MainCamera.Camera.ExecutableLocale;
+        var programs = SkyCloudProgramResources.Load(loaded.Repository);
         var groups = SkyAppliedSeasonCloudTextures.Load(loaded.Repository,
             bootstrap.Present.AcceptedSeasonCamera.Inputs.Source);
-        var prototype = SkyAppliedSourceCloudSelectionOwner.CreateFresh(loaded.Repository, locale)
+        var prototype = SkyAppliedSourceCloudSelectionOwner.CreateFresh(loaded.Repository, locale, programs)
             .PrepareCurrent(bootstrap.Present, bootstrap.Stages, groups);
         return new(SkyAppliedSourceCloudOwner.CreateFresh(loaded.Repository, locale,
-            bootstrap.Source.Lighting.Binding.ViewIdentity + "/fresh-owned-current-Cloud"),
+            bootstrap.Source.Lighting.Binding.ViewIdentity + "/fresh-owned-current-Cloud", programs),
             SceneViewNativeMapSkyCloudTextureOwner.ReadSource(prototype, groups), compiler);
     }
 
@@ -66,10 +67,8 @@ public sealed class SceneViewNativeMapSkyCloudSourceOwner : IAsyncDisposable
         native.ValidateCandidate(packet, present);
         textures.ValidateCurrent(native.Selection);
         var selection=native.Selection;
-        var expected=SkyCloudColorProgramSelection.ReadExplicitAppliedCombination(selection.Shader,selection.ColorCombination);
-        if (native.SixPackets.Count != 6 || selection.ColorVertexProgram != expected.VertexProgram ||
-            selection.ColorPixelProgram != expected.PixelProgram || selection.PixelConstantByteLength != expected.PixelConstantByteLength)
-            throw new InvalidDataException("Cloud current packet differs from its actual selected complete WORK program.");
+        if (native.SixPackets.Count != 6)
+            throw new InvalidDataException("Cloud current packet requires all six WORK faces.");
         if(allocatedProgram is { } allocated&&(allocated.Vertex!=selection.ColorVertexProgram||allocated.Pixel!=selection.ColorPixelProgram))
             throw new NotSupportedException("Cloud quality changed its original shader pair; retire and rebuild this owned Cloud producer before accepting the frame.");
         var packets = native.SixPackets.Select(p => new SkyCloudColorFacePacket(
@@ -85,8 +84,8 @@ public sealed class SceneViewNativeMapSkyCloudSourceOwner : IAsyncDisposable
         ValidateCandidate(prepared);
         var inputs = await textures.GetCurrentInputsAsync(prepared.Native.Selection);
         ValidateCandidate(prepared);
-        var producer=await SkyCloudColorProducer.BuildAsync(prepared.Native.Selection.Shader,
-            prepared.Native.Selection.ColorCombination, compiler, scene.PrimaryWork, inputs,
+        var producer=await SkyCloudColorProducer.BuildAsync(prepared.Native.Selection.ProgramSelection,
+            compiler, scene.PrimaryWork, inputs,
             prepared.SixPackets, actualColorWriteMask);
         try
         {

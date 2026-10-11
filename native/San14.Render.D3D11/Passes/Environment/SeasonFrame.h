@@ -3,7 +3,11 @@
 // loaded textures, programs and retained pass histories remain session resources.
 #include "../Shadows/SeasonShadowInputs.h"
 #include "CloudWeatherInputs.h"
+#include "HeightFogInputs.h"
 #include "Ocean/OceanWaveSettings.h"
+#include "Ocean/OceanSurfaceSettings.h"
+#include "Ocean/OceanOpticsSettings.h"
+#include "Ocean/Interop/OceanTextureMaterialInput.h"
 #include "../PostProcessing/SeasonPostInputs.h"
 #include "../../Camera/CameraState.h"
 #include <array>
@@ -39,6 +43,10 @@ struct Frame {
     source_current_season_shadow::ReceiverStyle shadowReceiver;
     source_current_cloud_weather::Conditions cloudWeather;
     San14::Render::OceanWaveSettings oceanWave;
+    San14::Render::OceanSurfaceSettings oceanSurface;
+    San14::Render::OceanOpticsSettings oceanOptics;
+    San14::Render::OceanTextureMaterialSettings oceanTextureMaterial;
+    San14::Render::HeightFogSettings heightFog;
     source_current_season_post::Settings post;
 };
 template<class T> inline T read(std::span<const uint8_t> bytes,size_t at){
@@ -96,6 +104,37 @@ inline void decodeOceanWaveInputs(Frame& frame) {
         required(0xb2c),required(0xb30),required(0xb34)};
     San14::Render::validateOceanWaveSettings(frame.oceanWave);
 }
+inline void decodeOceanSurfaceInputs(Frame& frame) {
+    auto required=[&]<class T>(int offset) {
+        const Word* found=nullptr;
+        for(const auto& word:frame.words)if(word.offset==offset) {
+            if(found)throw std::runtime_error("Duplicate current Ocean surface scalar");
+            found=&word;
+        }
+        if(!found)throw std::runtime_error("Current Ocean surface scalar absent");
+        T result;std::memcpy(&result,&found->bits,sizeof(result));return result;
+    };
+    frame.oceanSurface={required.operator()<float>(0xb1c),required.operator()<float>(0xb3c),
+        required.operator()<float>(0xba8),required.operator()<float>(0xbac),
+        required.operator()<float>(0xb9c),required.operator()<float>(0xb54),
+        required.operator()<uint32_t>(0xd18),
+        {required.operator()<float>(0xc24),required.operator()<float>(0xc5c)}};
+    San14::Render::validateOceanSurfaceSettings(frame.oceanSurface);
+}
+inline void decodeOceanOpticsInputs(Frame& frame) {
+    auto required=[&](int offset) {
+        const Word* found=nullptr;
+        for(const auto& word:frame.words)if(word.offset==offset) {
+            if(found)throw std::runtime_error("Duplicate current Ocean optics scalar");
+            found=&word;
+        }
+        if(!found)throw std::runtime_error("Current Ocean optics scalar absent");
+        float result;std::memcpy(&result,&found->bits,sizeof(result));return result;
+    };
+    frame.oceanOptics={required(0xb08),required(0xb0c),
+        {required(0xb60),required(0xb64),required(0xb68),required(0xb6c)},
+        {required(0xb70),required(0xb74),required(0xb78)},required(0xb80),required(0xb84)};
+}
 inline void decodePostInputs(Frame& frame){
     auto& post=frame.post;
     post.camera=source_camera::decodeCameraTransform(frame.main);
@@ -129,6 +168,14 @@ inline Frame decode(std::span<const uint8_t> bytes){
         std::memcpy(l.data.data(),bytes.data()+at+16,l.data.size());at+=16+l.data.size();}
     std::memcpy(r.atmosphere.data(),bytes.data()+at,296);at+=296;
     r.exposure=read<ExposureLight>(bytes,at);at+=sizeof(ExposureLight);
+    constexpr auto materialBytes=San14::Render::Interop::OceanTextureMaterialInputBytes;
+    if(bytes.size()-at<materialBytes)throw std::runtime_error("Current Ocean texture material block absent");
+    r.oceanTextureMaterial=San14::Render::Interop::decodeOceanTextureMaterialSettings(bytes.subspan(at,materialBytes));
+    at+=materialBytes;
+    constexpr auto heightBytes=San14::Render::Interop::HeightFogInputBytes;
+    if(bytes.size()-at<heightBytes)throw std::runtime_error("Current Height Fog block absent");
+    r.heightFog=San14::Render::Interop::decodeHeightFogSettings(bytes.subspan(at,heightBytes));
+    at+=heightBytes;
     if(at<bytes.size()){
         auto word=[&](){if(at+4>bytes.size())throw std::runtime_error("Current HDR packet length");
             uint32_t value=read<uint32_t>(bytes,at);at+=4;return value;};
@@ -149,6 +196,8 @@ inline Frame decode(std::span<const uint8_t> bytes){
     decodeShadowInputs(r);
     decodeCloudWeatherInputs(r);
     decodeOceanWaveInputs(r);
+    decodeOceanSurfaceInputs(r);
+    decodeOceanOpticsInputs(r);
     decodePostInputs(r);
     return r;
 }

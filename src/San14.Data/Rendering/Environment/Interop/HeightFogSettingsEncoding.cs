@@ -5,6 +5,53 @@ namespace San14.Data;
 /// <summary>Adapt prepared-camera words to typed fog settings at publication.</summary>
 public static class HeightFogSettingsEncoding
 {
+    public const int ByteLength = 392;
+
+    public static HeightFogSettings ApplyQualityPatch(HeightFogSettings settings, CameraRenderQualityPatch patch)
+        => settings with
+        {
+            FirstLayer = settings.FirstLayer with
+            {
+                Mode = patch.PrimaryFogMode ?? settings.FirstLayer.Mode,
+                DistanceFadeEnabled = patch.PrimaryFogFade ?? settings.FirstLayer.DistanceFadeEnabled
+            },
+            SecondLayer = settings.SecondLayer with
+            {
+                Mode = patch.SecondaryFogMode ?? settings.SecondLayer.Mode,
+                DistanceFadeEnabled = patch.SecondaryFogFade ?? settings.SecondLayer.DistanceFadeEnabled
+            }
+        };
+
+    public static byte[] WriteNative(HeightFogSettings settings)
+    {
+        using var output = new MemoryStream(ByteLength);
+        using var writer = new BinaryWriter(output);
+        writer.Write(0x314F4648u); // HFO1: three current layers and their shared mask.
+        for (int layer = 0; layer < 3; layer++)
+        {
+            var value = settings.Layer(layer);
+            writer.Write(value.Mode); writer.Write(value.DistanceFadeEnabled);
+            writer.Write(value.DistanceStart); writer.Write(value.DistanceEnd);
+            writer.Write(value.HeightStart); writer.Write(value.HeightEnd);
+            WriteVector(value.Color);
+            writer.Write(value.Velocity);
+            for (int wave = 0; wave < 4; wave++)
+            {
+                var component = value.Wave(wave);
+                writer.Write(component.Amplitude); writer.Write(component.FrequencyX);
+                writer.Write(component.VelocityX); writer.Write(component.FrequencyY); writer.Write(component.VelocityY);
+            }
+        }
+        WriteVector(settings.Mask);
+        return output.ToArray();
+
+        void WriteVector(Vector4 value)
+        { writer.Write(value.X); writer.Write(value.Y); writer.Write(value.Z); writer.Write(value.W); }
+    }
+
+    public static void Write(HeightFogSettings settings, Span<byte> destination)
+        => WriteNative(settings).CopyTo(destination);
+
     public static HeightFogSettings ApplyPreparedOverrides(HeightFogSettings settings,
         IReadOnlyDictionary<int, uint> current)
     {
