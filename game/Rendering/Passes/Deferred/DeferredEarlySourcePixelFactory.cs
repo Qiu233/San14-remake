@@ -227,7 +227,7 @@ public sealed class DeferredEarlySourcePixelFactory : IAsyncDisposable
                 throw new InvalidDataException("Early draw requires one complete accepted Camera/View/Q source frame.");
             if ((accepted.Feature.CurrentView.AuxiliaryPresent == true) != currentCommonViewAux3F2.HasValue)
                 throw new InvalidDataException("Early outer cache requires the current CommonView+240 presence and its actual byte3F2.");
-            if (registration is not null) await registration.ValidateAsync();
+            registration?.RequireAvailable();
             await PrepareTargetAsync(accepted.Context, currentSelections[0].SourcePlan.Graph);
             await shaderDepth.CopyAsync(accepted.Context.TerrainFrame.Textures[0xE13DDB4F], accepted.Context.FrameNumber,
                 provenance, "same accepted Scene after successful ordered terrain/static/Army geometry; " +

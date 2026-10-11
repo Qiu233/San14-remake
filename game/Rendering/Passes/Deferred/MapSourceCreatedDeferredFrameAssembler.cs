@@ -73,7 +73,7 @@ public sealed class MapSourceCreatedDeferredFrameAssembler : IAsyncDisposable
             .Select(d => d.Source.BindPoint).Order().ToArray());
     }
 
-    public static async Task<MapSourceCreatedDeferredFrameAssembler> FromSourceOwnersAsync(
+    public static MapSourceCreatedDeferredFrameAssembler FromSourceOwners(
         DeferredPixelProgram program, SourceResourceRegistrationDevice registration,
         MapSourceCreatedLightingSource source, MapLightingBinding binding,
         NativeDeferredResources resources, NativeDeferredSamplerOwner samplers,
@@ -84,7 +84,7 @@ public sealed class MapSourceCreatedDeferredFrameAssembler : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(source); ArgumentNullException.ThrowIfNull(binding);
         ArgumentNullException.ThrowIfNull(resources); ArgumentNullException.ThrowIfNull(samplers);
         ArgumentNullException.ThrowIfNull(images); ArgumentNullException.ThrowIfNull(initializedMaterials);
-        await registration.ValidateAsync(); registration.ValidateConstructionSource(source);
+        registration.ValidateConstructionSource(source);
         if (!ReferenceEquals(resources.Program, program) ||
             buffers is not null && !ReferenceEquals(buffers.Program, program) ||
             !SamePlan(resources.SourcePlan, images.Source.Deferred) ||
@@ -187,11 +187,10 @@ public sealed class MapSourceCreatedDeferredFrameAssembler : IAsyncDisposable
             var auxiliary = await Images.ReadTargetBindingsAsync(input.TransparencySelection,
                 input.ProducedAuxiliaryTargets, explicitRefractionEnabled: true);
             var registration = LightingProvider.Registration!;
-            await registration.ValidateAsync(); registration.ValidateConstructionSource(LightingProvider.Source);
+            registration.RequireAvailable();
             var cube = registration.Entries[SourceResourceRegistrationAmbientCube.ObjectKey];
             if (BinaryPrimitives.ReadUInt64LittleEndian(lighting.LocalLightData.Span.Slice(0xFE0, 8)) != cube.TextureRid.Id)
                 throw new InvalidDataException("Kind1 ambient must retain the same actual constructed LightData+FE0 source cube owner.");
-            ValidateStaticAmbientSampler();
             var ambient = new DeferredDeviceBinding("Texture", 7, cube.TextureRid, cube.TextureRid,
                 cube.OwnerProvenance + ";kind1-LightDataFE0;D77162/D189D0");
             var bufferBindings = Buffers is null ? [] : Buffers.Combine([]);
@@ -201,7 +200,7 @@ public sealed class MapSourceCreatedDeferredFrameAssembler : IAsyncDisposable
                 throw new InvalidDataException("Source producers override another source-owned Deferred register.");
             var template = await Resources.AssemblePacketAsync(accepted.TerrainFrame,
                 input.CompleteConstantBuffers, Array.AsReadOnly(combined), input.Raster);
-            var deferred = await LightingProvider.PrepareDeferredAsync(accepted, template, lighting);
+            var deferred = LightingProvider.PrepareDeferred(accepted, template, lighting, out _);
             return new(accepted, lighting, materials, deferred);
         }
         finally { gate.Release(); }

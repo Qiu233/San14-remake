@@ -24,6 +24,17 @@ public sealed record G1TextureImage(int Index, byte PixelFormat, int Width, int 
     G1EncodedRange ImageRange, G1EncodedRange EncodedDataRange, byte[] RawHeader,
     IReadOnlyList<G1TextureMip> Mips, int Depth = 1, string RawContainerVersion = "")
 {
+    /// <summary>Gather a planar image or one physical array layer's complete
+    /// encoded mip chain. Unsupported array ordering is rejected by GetEncodedMip.</summary>
+    public byte[] GetEncodedLayerChain(ReadOnlySpan<byte> source, int layer = 0)
+    {
+        if ((uint)layer >= LayerCount) throw new ArgumentOutOfRangeException(nameof(layer));
+        using var chain = new MemoryStream();
+        for (int level = 0; level < MipCount; level++)
+            chain.Write(GetEncodedMip(source, level, layer));
+        return chain.ToArray();
+    }
+
     /// <summary>One original system2 subresource contains all depth slices at that mip.</summary>
     public ReadOnlySpan<byte> GetEncodedVolumeMip(ReadOnlySpan<byte> source, int mipLevel)
     {
@@ -33,8 +44,8 @@ public sealed record G1TextureImage(int Index, byte PixelFormat, int Width, int 
         return Mips[mipLevel].EncodedRange!.Slice(source);
     }
     /// <summary>
-    /// Returns encoded bytes, without color conversion. Only the independently
-    /// verified Windows terrain-array profile supports mip-major layer slicing.
+    /// Returns encoded bytes, without color conversion. Single-mip arrays have
+    /// unambiguous layer order; supported multi-mip arrays use their parsed layout.
     /// </summary>
     public ReadOnlySpan<byte> GetEncodedMip(ReadOnlySpan<byte> source, int mipLevel, int layer = 0)
     {
@@ -208,6 +219,10 @@ public static class G1TextureContainerReader
         var layout = system == 2 ? G1TextureSubresourceLayout.VolumeMipChain
             : layers == 1 ? G1TextureSubresourceLayout.SingleLayerMipChain
             : G1TextureSubresourceLayout.ArrayOrderUnresolved;
+        // With a single mip, mip-major and layer-major storage have the same
+        // physical order. No multi-mip ordering assumption is needed to slice it.
+        if (layers > 1 && mips == 1)
+            layout = G1TextureSubresourceLayout.MipMajorArray;
         // Current CE's native system-3 BC3 reader traverses mip then layer, writing
         // subresource=mip+layer*mipCount. The verified Windows header family retains
         // that order independently of dimensions/count; other families stay unresolved.

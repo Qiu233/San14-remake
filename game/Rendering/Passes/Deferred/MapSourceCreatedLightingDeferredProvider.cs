@@ -38,7 +38,7 @@ public sealed class MapSourceCreatedLightingDeferredProvider : IDisposable
         lock (gate)
         {
             ObjectDisposedException.ThrowIf(retired, this);
-            Registration?.ValidateConstructionSource(Source);
+            Registration?.RequireAvailable();
             if (input.Binding != Binding)
                 throw new InvalidDataException("Source-created lighting frame belongs to another remake owner or shader selection.");
             return MapSourceCreatedLighting.Prepare(Source, input);
@@ -66,7 +66,7 @@ public sealed class MapSourceCreatedLightingDeferredProvider : IDisposable
                 throw new NotSupportedException("Source-created Native Deferred lighting requires all five ready source resource lookups; null lookup fallback producers are unresolved.");
             if (Registration is null)
                 throw new NotSupportedException("Native Deferred lighting requires the actual five-source device registration owner for this constructed handle generation.");
-            Registration.ValidateConstructionSource(Source);
+            Registration.RequireAvailable();
             ValidateCompleteTemplate(explicitTemplate);
             NativeDeferredPacket projected;
             if (Program.SourceSelection is { } selected)
@@ -91,17 +91,6 @@ public sealed class MapSourceCreatedLightingDeferredProvider : IDisposable
                 projected.Constants.ToDictionary(p => p.Key, p => (ReadOnlyMemory<byte>)p.Value.ToArray()));
             return projected with { Constants = constants, Inputs = Array.AsReadOnly(projected.Inputs.ToArray()) };
         }
-    }
-
-    /// <summary>Validate the actual five source owners on the RenderingDevice
-    /// before accepting their lighting into this frame's complete GPU packet.</summary>
-    public async Task<NativeDeferredPacket> PrepareDeferredAsync(NativeMapFrameContext frame,
-        NativeDeferredPacket explicitTemplate, MapSourceCreatedLightingPacket lighting,
-        DeferredF103SelectedSource? currentSelection = null)
-    {
-        var registration = Registration ?? throw new NotSupportedException("Source-created Deferred submission requires its actual device registration owner.");
-        await registration.ValidateAsync();
-        return PrepareDeferred(frame, explicitTemplate, lighting, out _, currentSelection);
     }
 
     private void ValidateCompleteTemplate(NativeDeferredPacket packet)

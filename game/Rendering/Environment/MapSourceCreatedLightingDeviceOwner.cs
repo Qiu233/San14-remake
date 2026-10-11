@@ -36,7 +36,7 @@ public sealed class MapSourceCreatedLightingDeviceOwner : IAsyncDisposable
         try
         {
             registration=await SourceResourceRegistrationDevice.BuildAsync(repository,cube,87,allowReadback);
-            var actual=await registration.GetConstructionInputsAsync(context.ContextFlags3E4,
+            var actual=registration.GetConstructionInputs(context.ContextFlags3E4,
                 normalization.SourceProvenance+";"+context.SourceProvenance);
             var constructed=normalization.ApplyConstructor(MainLightBindingSource.LoadGameDefault(repository),
                 context.ContextFlags3E4,actual.ResourceBindings);
@@ -46,8 +46,9 @@ public sealed class MapSourceCreatedLightingDeviceOwner : IAsyncDisposable
         }
         catch
         {
-            if(registration is not null)await registration.DisposeAsync();
-            await cube.DisposeAsync();throw;
+            try { if(registration is not null)await registration.DisposeAsync(); }
+            finally { await cube.DisposeAsync(); }
+            throw;
         }
     }
 
@@ -107,7 +108,7 @@ public sealed class MapSourceCreatedLightingDeviceOwner : IAsyncDisposable
         try
         {
             registration = await SourceResourceRegistrationDevice.BuildAsync(repository, cube, 87, allowReadback);
-            var inputs = await registration.GetConstructionInputsAsync(contextFlags3E4,
+            var inputs = registration.GetConstructionInputs(contextFlags3E4,
                 retainedProvenance + ";explicit-native-retained210;source-writes4078");
             var packet = SourceResourceRegistration.ConstructGameDefault(repository, registration.Source, template, inputs);
             var source = MapSourceCreatedLightingSource.FromGameDefault(repository, setterCameraSlot, packet);
@@ -116,13 +117,21 @@ public sealed class MapSourceCreatedLightingDeviceOwner : IAsyncDisposable
         }
         catch
         {
-            if (registration is not null) await registration.DisposeAsync();
-            await cube.DisposeAsync(); throw;
+            try { if (registration is not null) await registration.DisposeAsync(); }
+            finally { await cube.DisposeAsync(); }
+            throw;
         }
     }
 
     public ValueTask DisposeAsync()
-    { lock (lifetimeGate) return new(disposal ??= RetireAsync()); }
+    {
+        lock (lifetimeGate)
+        {
+            if (disposal is null || disposal.IsFaulted || disposal.IsCanceled)
+                disposal = RetireAsync();
+            return new(disposal);
+        }
+    }
     private async Task RetireAsync()
-    { await Registration.DisposeAsync(); await Cube.DisposeAsync(); }
+    { try { await Registration.DisposeAsync(); } finally { await Cube.DisposeAsync(); } }
 }

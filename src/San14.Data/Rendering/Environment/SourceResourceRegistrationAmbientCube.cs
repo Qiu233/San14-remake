@@ -12,7 +12,6 @@ public static class SourceResourceRegistrationAmbientCube
     public const uint ObjectKey = 0x5A53AD58;
     public const uint DefinitionResourceId = 0x7DB38795;
     public const string DefinitionArchive = "KIDSSystemResource";
-    public const string DefinitionSha256 = "89D3FA7CB1B6CE19B4CF8C8F8D5E383B2579187B692A27955E6364AA155FC5A5";
     public const uint TextureContextResourceId = 0xDF292339;
     public const string TextureArchive = "RRPreview";
     public const string TextureSha256 = "0DE62FDCD990277879D5F066277621005BF80B63B5140F94C694791142CF5705";
@@ -32,7 +31,11 @@ public static class SourceResourceRegistrationAmbientCube
     public static StaticTextureBinding ReadGameDefault(LoadedObjects definitions, LoadedRdbAsset texture)
     {
         ArgumentNullException.ThrowIfNull(definitions); ArgumentNullException.ThrowIfNull(texture);
-        ValidateAsset(definitions.Source, DefinitionArchive, DefinitionResourceId, DefinitionSha256);
+        // The library also contains the independent LUT declaration. Check
+        // this cube's fields below, without freezing unrelated library contents.
+        if (definitions.Source.ResourceUri != GameResourceId.Rdb(DefinitionArchive, DefinitionResourceId).ToString() ||
+            definitions.Source.FileId != DefinitionResourceId)
+            throw new InvalidDataException("Ambient Cube requires its registered declaration library.");
         ValidateAsset(texture, TextureArchive, TextureContextResourceId, TextureSha256);
         // Reparse complete original bytes so a supplied mutable metadata record
         // cannot select a different Static object or texture context.
@@ -132,6 +135,6 @@ public static class SourceResourceRegistrationAmbientCube
         if (source.ResourceUri != GameResourceId.Rdb(archive, id).ToString() || source.FileId != id ||
             source.OverrideSource is not null || source.DecodedSha256 != sha ||
             Convert.ToHexString(SHA256.HashData(source.Bytes)) != sha)
-            throw new InvalidDataException("Ambient Cube requires the exact complete original definition and texture bytes.");
+            throw new InvalidDataException("Ambient Cube requires the supported complete encoded texture.");
     }
 }

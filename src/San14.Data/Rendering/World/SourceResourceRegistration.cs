@@ -24,7 +24,7 @@ public sealed class SourceResourceRegistrationGameDefault
     public IReadOnlyDictionary<uint, StaticTextureBinding> Resources => resources;
 }
 
-/// <summary>Explicit remake registration of the exact original five Static
+/// <summary>Explicit remake registration of the default light's five Static
 /// declarations. This does not infer which original runtime source document was
 /// loaded or turn source bytes into ready GPU resources.</summary>
 public static class SourceResourceRegistration
@@ -35,32 +35,6 @@ public static class SourceResourceRegistration
         return new(SourceResourceRegistrationAmbientCube.LoadGameDefault(repository),
             SourceResourceRegistrationFixed.LoadGameDefault(repository),
             SourceResourceRegistrationLut.LoadGameDefault(repository));
-    }
-
-    public static void Validate(uint sourceObjectKey, StaticTextureBinding source)
-    {
-        ArgumentNullException.ThrowIfNull(source);
-        if (source.Definition.ObjectId != sourceObjectKey)
-            throw new InvalidDataException("Resource registration object key differs from its actual Static declaration.");
-        switch (sourceObjectKey)
-        {
-            case SourceResourceRegistrationAmbientCube.ObjectKey:
-                SourceResourceRegistrationAmbientCube.Validate(source); break;
-            case SourceResourceRegistrationLut.ObjectKey:
-                SourceResourceRegistrationLut.Validate(source); break;
-            case 0x80F9DB7B or 0x7F97260C or 0x54F8C0DE:
-                SourceResourceRegistrationFixed.Validate(source,
-                    SourceResourceRegistrationFixed.Identities.Single(value => value.ObjectKey == sourceObjectKey)); break;
-            default: throw new InvalidDataException("Default main-light resource registration has no other source keys.");
-        }
-    }
-
-    public static string SourceProvenance(uint sourceObjectKey, StaticTextureBinding source)
-    {
-        Validate(sourceObjectKey, source);
-        return $"{source.Definitions.Source.ResourceUri}#{source.Definition.ObjectId:X8}@{source.Definitions.Source.DecodedSha256};" +
-            $"Static=FF7DBFD4;interface=B672FAA2;" +
-            $"texture={source.Resource.Source.ResourceUri};TID={source.ImageIndex}@{source.Resource.Source.DecodedSha256}";
     }
 
     /// <summary>Associate a completed device generation's explicit receipts with
@@ -74,7 +48,6 @@ public static class SourceResourceRegistration
         ArgumentNullException.ThrowIfNull(completedDeviceInputs);
         if (resources.Resources.Count != 5 || completedDeviceInputs.ResourceBindings.Count != 5)
             throw new InvalidDataException("Source-created main-light construction requires all five exact resource owners.");
-        foreach (var pair in resources.Resources) Validate(pair.Key, pair.Value);
         foreach (MainLightConstructionResourceBinding ready in completedDeviceInputs.ResourceBindings)
         {
             if (!resources.Resources.TryGetValue(ready.SourceObjectKey, out StaticTextureBinding? resource) ||

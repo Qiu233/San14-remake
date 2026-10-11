@@ -28,6 +28,7 @@ public sealed class MapSourceCreatedSelectedDeferredFrameAssembler : IAsyncDispo
     private bool retiring;
     private Task? disposal;
     private readonly SortedDictionary<long, MapSelectedSourceImageBindings> auxiliaryLeases = [];
+    private readonly byte[] staticAmbientSamplerKey;
     private long begunAttempt;
 
     /// <summary>F103 EADEE8 passes the literal directional capacity4. The three
@@ -53,6 +54,9 @@ public sealed class MapSourceCreatedSelectedDeferredFrameAssembler : IAsyncDispo
     {
         LightingProvider = lighting; Resources = resources; Samplers = samplers;
         Images = images; Buffers = buffers; InitializedMaterials = initializedMaterials; PopulationRenderer = populationRenderer;
+        var cube = lighting.Registration!.Entries[SourceResourceRegistrationAmbientCube.ObjectKey];
+        staticAmbientSamplerKey = RenderSamplerSourceAdapters.AmbientSpecularKey(
+            SourceResourceRegistrationAmbientCube.GetSamplerKey(cube.Source));
         var known = images.Source.GraphTargets.Select(t => t.PixelBinding.BindPoint)
             .Append(images.Source.RequireRole("AmbientSpecular").Declaration.BindPoint).ToHashSet();
         RequiredRemainingImageRegisters = Array.AsReadOnly(resources.RequiredExplicitInputs
@@ -60,7 +64,7 @@ public sealed class MapSourceCreatedSelectedDeferredFrameAssembler : IAsyncDispo
             .Select(d => d.Source.BindPoint).Order().ToArray());
     }
 
-    public static async Task<MapSourceCreatedSelectedDeferredFrameAssembler> FromSourceOwnersAsync(
+    public static MapSourceCreatedSelectedDeferredFrameAssembler FromSourceOwners(
         DeferredPixelProgram program, SourceResourceRegistrationDevice registration,
         MapSourceCreatedLightingSource source, MapLightingBinding binding,
         NativeDeferredResources resources, MapSelectedSourceSamplerOwner samplers,
@@ -76,7 +80,7 @@ public sealed class MapSourceCreatedSelectedDeferredFrameAssembler : IAsyncDispo
         if (binding.DirectionalShaderCapacity != 4)
             throw new InvalidDataException("Actual source node166 uses its proved F103 directional capacity4.");
         _ = program.ReadValidatedSelectedSourceDeviceBindings();
-        await registration.ValidateAsync(); registration.ValidateConstructionSource(source);
+        registration.ValidateConstructionSource(source);
         if (!ReferenceEquals(resources.Program, program) || buffers is not null && !ReferenceEquals(buffers.Program, program) ||
             !ReferenceEquals(images.Source.Selection, selected) || !ReferenceEquals(samplers.Source.Selection, selected) ||
             !SameSourceGraph(resources.SourcePlan, selected.SourcePlan))
@@ -209,7 +213,7 @@ public sealed class MapSourceCreatedSelectedDeferredFrameAssembler : IAsyncDispo
             else auxiliary = await Images.ReadTargetBindingsAsync(currentImages, geometry.TransparencySelection,
                 geometry.ProducedAuxiliaryTargets, explicitRefractionEnabled: true);
             var registration = LightingProvider.Registration!;
-            await registration.ValidateAsync(); registration.ValidateConstructionSource(LightingProvider.Source);
+            registration.RequireAvailable();
             var cube = registration.Entries[SourceResourceRegistrationAmbientCube.ObjectKey];
             if (BinaryPrimitives.ReadUInt64LittleEndian(lighting.LocalLightData.Span.Slice(0xFE0, 8)) != cube.TextureRid.Id)
                 throw new InvalidDataException("Selected kind1 ambient must retain the actual constructed FE0 static cube generation.");
@@ -223,7 +227,7 @@ public sealed class MapSourceCreatedSelectedDeferredFrameAssembler : IAsyncDispo
                 throw new InvalidDataException("Selected source producers override another owned resource role.");
             var template = await Resources.AssemblePacketAsync(accepted.TerrainFrame, geometry.CompleteConstantBuffers,
                 Array.AsReadOnly(combined), geometry.Raster);
-            var deferred = await LightingProvider.PrepareDeferredAsync(accepted, template, lighting, input.CurrentSelection);
+            var deferred = LightingProvider.PrepareDeferred(accepted, template, lighting, out _, input.CurrentSelection);
             if (pendingAuxiliary is not null)
             {
                 lock (lifetimeGate)
@@ -328,12 +332,10 @@ public sealed class MapSourceCreatedSelectedDeferredFrameAssembler : IAsyncDispo
 
     private void ValidateStaticAmbientSampler(MapSelectedSourceSamplerPlan current)
     {
-        var cube = LightingProvider.Registration!.Entries[SourceResourceRegistrationAmbientCube.ObjectKey];
-        byte[] key = RenderSamplerSourceAdapters.AmbientSpecularKey(SourceResourceRegistrationAmbientCube.GetSamplerKey(cube.Source));
         var consumer = current.ImagePlan.Samplers.Single(s => s.KeySource.Role == "AmbientSpecular");
         var binding = current.Bindings.SingleOrDefault(b => b.Register == consumer.Declaration.BindPoint);
-        byte[] descriptor = RenderSamplerSourceAdapters.DecodeKey(current.Native, key).EncodeD3D11Descriptor();
-        if (binding is null || !binding.Recipe.RawKey.AsSpan().SequenceEqual(key) ||
+        byte[] descriptor = RenderSamplerSourceAdapters.DecodeKey(current.Native, staticAmbientSamplerKey).EncodeD3D11Descriptor();
+        if (binding is null || !binding.Recipe.RawKey.AsSpan().SequenceEqual(staticAmbientSamplerKey) ||
             !current.SourceDescriptors.TryGetValue(binding.Register, out var actual) || !actual.Span.SequenceEqual(descriptor))
             throw new InvalidDataException("Selected static ambient requires its real FE0 cube and final native key159430.");
     }

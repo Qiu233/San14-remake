@@ -181,7 +181,7 @@ public sealed class SkyAmbientSourceFrameAssembler : IAsyncDisposable
             !ReferenceEquals(prior.Owner,textureBindings))
             throw new InvalidDataException("Applied Sky construction belongs to another texture binding owner.");
         ValidateAppliedStageSelection(explicitRetained.ProgramSelection,firstAcceptedFrame,applied);
-        await registration.ValidateAsync();registration.ValidateConstructionSource(lighting);
+        registration.ValidateConstructionSource(lighting);
         var camera=SkySceneSourceDefaults.ReadPerspectiveCamera(repository.LoadObjects("system",0x908AB6E2),lighting.Identity.CameraObjectId);
         var ambient=SkyAmbientResources.Load(repository,repository.LoadObjects("system",0xDAB638B2),0x910603AC,
             repository.LoadObjects("system",0x718CCB8B),repository.LoadObjects("system",0x93FB3280));
@@ -279,7 +279,7 @@ public sealed class SkyAmbientSourceFrameAssembler : IAsyncDisposable
             explicitRetained.ProgramSelection.Sky2Combination!=0||
             explicitRetained.ProgramSelection.Sky2Operation!=Sky2Operation.Atmosphere)
             throw new InvalidDataException("Fresh source assembler requires the explicit original default PS3 pass.");
-        await registration.ValidateAsync();registration.ValidateConstructionSource(lighting);
+        registration.ValidateConstructionSource(lighting);
         var cameraDefinitions=repository.LoadObjects("system",0x908AB6E2);
         var camera=SkySceneSourceDefaults.ReadPerspectiveCamera(cameraDefinitions,lighting.Identity.CameraObjectId);
         var ambient=SkyAmbientResources.Load(repository,repository.LoadObjects("system",0xDAB638B2),0x910603AC,
@@ -350,8 +350,7 @@ public sealed class SkyAmbientSourceFrameAssembler : IAsyncDisposable
         await gate.WaitAsync();
         try
         {
-            ObjectDisposedException.ThrowIf(retiring,this);await Registration.ValidateAsync();
-            Registration.ValidateConstructionSource(LightingSource);
+            ObjectDisposedException.ThrowIf(retiring,this);Registration.RequireAvailable();
             if(input.Lighting is null||input.Lighting.Binding!=Binding)
                 throw new InvalidDataException("Combined source frame belongs to another View, Camera owner or shader binding.");
             if(current is not null && input.Lighting.FrameNumber<=current.FrameNumber)
@@ -412,7 +411,7 @@ public sealed class SkyAmbientSourceFrameAssembler : IAsyncDisposable
         {
             ObjectDisposedException.ThrowIf(retiring,this);
             if(current is null)throw new InvalidOperationException("No combined source frame has been submitted.");
-            await Registration.ValidateAsync();Registration.ValidateConstructionSource(LightingSource);
+            Registration.RequireAvailable();
             current=current with{SkyUpdate=await AmbientProvider.AdvanceAsync(maximumWorkUnits)};
             return current;
         }
@@ -444,7 +443,7 @@ public sealed class SkyAmbientSourceFrameAssembler : IAsyncDisposable
             if(current is null||current.FrameNumber!=frameNumber||identity!=LightingSource.Identity||
                 current.Lighting.SourceIdentity!=identity)
                 throw new InvalidDataException("Ambient borrowing requires this same accepted source lighting frame.");
-            await Registration.ValidateAsync();Registration.ValidateConstructionSource(LightingSource);
+            Registration.RequireAvailable();
             if(generated)
             {
                 var ready=current.SkyUpdate.Ambient??throw new InvalidOperationException("This source frame's generated cube has not finished filtering.");

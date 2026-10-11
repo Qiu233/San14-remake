@@ -17,6 +17,10 @@ public sealed class SourceResourceRegistrationAmbientCubeDevice : IAsyncDisposab
     public string SourceProvenance { get; }
     private readonly bool allowReadback;
     private readonly object lifetimeGate=new();
+    private readonly SemaphoreSlim gate=new(1,1);
+    private volatile bool retiring;
+    private bool samplerReleased;
+    private bool textureReleased;
     private Task? disposal;
 
     private SourceResourceRegistrationAmbientCubeDevice(StaticTextureBinding source,
@@ -76,26 +80,63 @@ public sealed class SourceResourceRegistrationAmbientCubeDevice : IAsyncDisposab
                 return(texture,sampler);
             }
             catch
-            {if(sampler.IsValid)rd.FreeRid(sampler);if(texture.IsValid)rd.FreeRid(texture);throw;}
+            {
+                try { if(sampler.IsValid)rd.FreeRid(sampler); }
+                finally { if(texture.IsValid)rd.FreeRid(texture); }
+                throw;
+            }
         });
         return new(source,image,made.texture,made.sampler,hashes,provenance,allowReadback);
     }
 
-    public Task<byte[]> ReadEncodedFaceAsync(uint face)
+    public void RequireAvailable() => ObjectDisposedException.ThrowIf(retiring, this);
+
+    public async Task<byte[]> ReadEncodedFaceAsync(uint face)
     {
-        lock(lifetimeGate)
+        if(!allowReadback)throw new InvalidOperationException("Encoded source cube readback requires its explicit validation flag.");
+        if(face>=6)throw new ArgumentOutOfRangeException(nameof(face));
+        await gate.WaitAsync();
+        try
         {
-            ObjectDisposedException.ThrowIf(disposal is not null,this);
-            if(!allowReadback)throw new InvalidOperationException("Encoded source cube readback requires its explicit validation flag.");
-            if(face>=6)throw new ArgumentOutOfRangeException(nameof(face));
-            return TerrainDeviceTexture.OnRenderThreadAsync(rd=>rd.TextureGetData(TextureRid,face));
+            RequireAvailable();
+            return await TerrainDeviceTexture.OnRenderThreadAsync(rd=>rd.TextureGetData(TextureRid,face));
         }
+        finally { gate.Release(); }
     }
 
     public ValueTask DisposeAsync()
     {
         lock(lifetimeGate)
-            return new(disposal??=TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-                {rd.FreeRid(SamplerRid);rd.FreeRid(TextureRid);return true;}));
+        {
+            retiring=true;
+            if(disposal is null||disposal.IsFaulted||disposal.IsCanceled)
+                disposal=DisposeCoreAsync();
+            return new(disposal);
+        }
+    }
+
+    private async Task DisposeCoreAsync()
+    {
+        await gate.WaitAsync();
+        try
+        {
+            await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
+            {
+                List<Exception> failures=[];
+                try
+                {
+                    if(!samplerReleased){rd.FreeRid(SamplerRid);samplerReleased=true;}
+                }
+                catch(Exception error){failures.Add(error);}
+                try
+                {
+                    if(!textureReleased){rd.FreeRid(TextureRid);textureReleased=true;}
+                }
+                catch(Exception error){failures.Add(error);}
+                if(failures.Count!=0)throw new AggregateException("Ambient cube cleanup failed.",failures);
+                return true;
+            });
+        }
+        finally { gate.Release(); }
     }
 }

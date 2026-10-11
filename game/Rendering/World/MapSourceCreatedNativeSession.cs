@@ -159,7 +159,7 @@ public sealed class MapSourceCreatedNativeSession : IAsyncDisposable
             images=MapSelectedSourceImageOwner.FromSource(imagePlan);
             var binding=MapSourceCreatedSelectedDeferredFrameAssembler.CreateSourceBinding(program,
                 feature.Binding.ViewIdentity,feature.Binding.CameraOwnerIdentity,feature.Binding.LightOwnerIdentity);
-            assembler=await MapSourceCreatedSelectedDeferredFrameAssembler.FromSourceOwnersAsync(program,
+            assembler=MapSourceCreatedSelectedDeferredFrameAssembler.FromSourceOwners(program,
                 borrowedLighting.Registration,borrowedLighting.Source,binding,resources,samplers,images,null,
                 materials,borrowedPopulation);
             var plugins=DeferredSelected767PluginOwner.CreateAfterSuccessfulGraphicsInitialization(
