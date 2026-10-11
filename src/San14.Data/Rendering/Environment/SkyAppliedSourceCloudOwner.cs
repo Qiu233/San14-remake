@@ -143,9 +143,10 @@ public sealed class SkyAppliedSourceCloudOwner
         foreach(var p in phase)input[p.Key]=p.Value;
         uint maximum=weather.ReadBits(0x63C);
         if(maximum is <1 or >4096)throw new NotSupportedException("Current source ray samples exceed the finite GPU work contract.");
+        var volume=PrepareVolume(input);
         var packets=new SkyCloudConstantPacket[6];
-        for(int face=0;face<6;face++)packets[face]=Packet(selection,source,face,input,maximum,clipPacket.Value,rawSun,geometry40);
-        return candidate=new(this,sourceFrame,present,stages,selectedView,selection,bindings,weather,clipPacket,packets,phase,
+        for(int face=0;face<6;face++)packets[face]=Packet(selection,source,face,input,volume,maximum,clipPacket.Value,rawSun,geometry40);
+        return candidate=new(this,sourceFrame,present,stages,selectedView,selection,bindings,weather,clipPacket,packets,phase,volume,maximum,
             native+";"+weather.SourceProvenance+";"+clipPacket.Provenance+";"+ownedClockProvenance+
             ";same-frame1193A90-full-named-VS160/PS512;once1191B40-pure-phase-candidate;owner="+OwnerIdentity);
     }
@@ -178,8 +179,28 @@ public sealed class SkyAppliedSourceCloudOwner
         foreach(float f in v.Values)if(!float.IsFinite(f))throw new InvalidDataException("Cloud finite source input overflowed.");
         return v;
     }
+    private static SkyCloudVolumeMaterial PrepareVolume(Dictionary<int,float> input)
+    {
+        float R(int at)=>input[at];
+        (Vector3 Offset,Vector3 Scale) Layer(int phase,int offset,int size)
+        {
+            var scale=new Vector3(D(1,R(size)),D(1,R(size+4)),D(1,R(size+8)));
+            return (new(M(A(R(phase),R(offset)),scale.X),M(A(R(phase+4),R(offset+4)),scale.Y),
+                M(A(R(phase+8),R(offset+8)),scale.Z)),scale);
+        }
+        var baseLayer=Layer(0xE0,0x100,0xF0);
+        var detailLayer=Layer(0x120,0x140,0x130);
+        var distortScale=new Vector2(D(1,R(0x168)),D(1,R(0x16C)));
+        var distortOffset=new Vector2(M(A(R(0x160),R(0x170)),distortScale.X),
+            M(A(R(0x164),R(0x174)),distortScale.Y));
+        return new(baseLayer.Offset,baseLayer.Scale,detailLayer.Offset,detailLayer.Scale,distortOffset,distortScale,
+            new(S(R(0x90),R(0x94)),R(0x94)),new(R(0x9C),R(0xA0),D(1,R(0xA0)),R(0x22C)),
+            new(S(1,R(0x98)),R(0xAC),R(0xB4),D(R(0xA4),R(0xA8))),
+            new(M(D(1,R(0x130)),R(0x180)),M(D(1,R(0x134)),R(0x184)),M(D(1,R(0x138)),R(0x188)),R(0xD8)),
+            new(R(0xC0),R(0xC4)),R(0x218));
+    }
     private static SkyCloudConstantPacket Packet(SkyAppliedSourceCloudSelection s,SkySceneSourceFrame frame,
-        int face,Dictionary<int,float> input,uint maximum,Vector4 clip,Vector3 rawSun,float geometry40)
+        int face,Dictionary<int,float> input,SkyCloudVolumeMaterial volume,uint maximum,Vector4 clip,Vector3 rawSun,float geometry40)
     {
         float R(int at)=>input.TryGetValue(at,out float v)?v:throw new InvalidDataException($"Cloud source input{at:X} has no writer.");
         var c=frame.SixCameras[face];var l=frame.Lights;var controller=frame.Controller!;
@@ -199,7 +220,14 @@ public sealed class SkyAppliedSourceCloudOwner
         Dictionary<string,float[]> vertexValues=new(){["ksgClipPlane"]=Words(clip),["g_mtP2W"]=Words(p2w),["g_vCameraDirVectors"]=vectors,["g_vProjFarNear"]=[far,near]};
         Dictionary<string,float[]> pixelValues=new(){["litDir"]=Words(l.PackageLightPosition),["vEye"]=Words(c.Position),["fog"]=Words(Vector4.Zero),["Scat"]=frame.Atmosphere.Scattering.SelectMany(Words).ToArray()};
         void Set(string name,params float[] words){pixelValues.Add(name,words);}
-        for(int group=0;group<5;group++)
+        var common=volume.PreparePixel(c.Position,c.Scalar138,R(0x228));
+        Set("g_vBaseTexOffset",common.BaseTextureOffset.X,common.BaseTextureOffset.Y,common.BaseTextureOffset.Z);
+        Set("g_vBaseTexScale",common.BaseTextureScale.X,common.BaseTextureScale.Y,common.BaseTextureScale.Z);
+        Set("g_vDetailTexOffset",common.DetailTextureOffset.X,common.DetailTextureOffset.Y,common.DetailTextureOffset.Z);
+        Set("g_vDetailTexScale",common.DetailTextureScale.X,common.DetailTextureScale.Y,common.DetailTextureScale.Z);
+        Set("g_vDistortTexOffset",common.DistortTextureOffset.X,common.DistortTextureOffset.Y);
+        Set("g_vDistortTexScale",common.DistortTextureScale.X,common.DistortTextureScale.Y);
+        for(int group=3;group<5;group++)
         {
             string name=new[]{"Base","Detail","Distort","Cirrus","CirrusDistort"}[group];
             int n=group<2?3:2;int phase=new[]{0xE0,0x120,0x160,0x190,0x1B0}[group],offset=new[]{0x100,0x140,0x170,0x1A0,0x1C0}[group],size=new[]{0xF0,0x130,0x168,0x198,0x1B8}[group];
@@ -207,16 +235,16 @@ public sealed class SkyAppliedSourceCloudOwner
             for(int lane=0;lane<n;lane++){scales[lane]=D(1,R(size+lane*4));offsets[lane]=M(A(R(phase+lane*4),R(offset+lane*4)),scales[lane]);}
             Set("g_v"+name+"TexOffset",offsets);Set("g_v"+name+"TexScale",scales);
         }
-        Set("g_vRaySampleNum",S(R(0x90),R(0x94)),R(0x94),0,c.Scalar138);
-        float bottom=A(R(0x9C),R(0x228));Set("g_vEarthRadius",R(0x228),bottom,A(bottom,R(0xA0)),A(R(0x218),R(0x228)));
+        Set("g_vRaySampleNum",Words(common.RaySampleCount));
+        Set("g_vEarthRadius",Words(common.EarthRadius));
         // Actual1742230 descriptor23/24/25 -> cache C50/CD0/D50.
         // Their names are not the arithmetic preparation order.
-        Set("g_vCloudParams1",S(1,R(0x98)),R(0xAC),R(0xB4),D(R(0xA4),R(0xA8)));
+        Set("g_vCloudParams1",Words(common.CloudParameters1));
         Set("g_vCloudParams2",D(R(0xB8),4),M(R(0xB8),2.5f),D(1,R(0xA8)),R(0xB0));
-        Set("g_vCloudParams0",R(0x9C),R(0xA0),D(1,R(0xA0)),R(0x22C));
-        Set("g_vDistortScale",M(D(1,R(0x130)),R(0x180)),M(D(1,R(0x134)),R(0x184)),M(D(1,R(0x138)),R(0x188)),R(0xD8));
+        Set("g_vCloudParams0",Words(common.CloudParameters0));
+        Set("g_vDistortScale",Words(common.DistortionScale));
         Set("g_vCirrusParams",R(0x218),S(1,R(0x21C)),R(0x220),R(0x224));
-        Set("g_vCirrusDistortScale",M(R(0x1D0),D(1,R(0x198))),M(R(0x1D4),D(1,R(0x19C))));Set("g_vErodeScale",R(0xC0),R(0xC4));
+        Set("g_vCirrusDistortScale",M(R(0x1D0),D(1,R(0x198))),M(R(0x1D4),D(1,R(0x19C))));Set("g_vErodeScale",common.ErosionScale.X,common.ErosionScale.Y);
         float h0=M(R(0xC8),R(0xC8)),h1=M(R(0xCC),R(0xCC));
         Set("g_vHgParams0",M(D(S(1,h0),F(0x41490FDB)),R(0xD4)),M(R(0xC8),-2),A(h0,1),R(0xD0));
         Set("g_vHgParams1",M(D(S(1,h1),F(0x41490FDB)),R(0xD4)),M(R(0xCC),-2),A(h1,1),0);
@@ -287,8 +315,8 @@ public sealed class SkyAppliedSourceCloudFrame
 {
     internal SkyAppliedSourceCloudOwner SourceCreatedInputOwner => owner;
     private readonly SkyAppliedSourceCloudOwner owner;private readonly SkyCloudConstantPacket[] packets;private readonly Dictionary<int,float> phase;
-    internal SkyAppliedSourceCloudFrame(SkyAppliedSourceCloudOwner owner,SkySceneSourceFramePacket source,MapSourceCreatedSeasonLightingFrame present,SkyAppliedSourceStageFrame stages,MainSceneNode51Execution view,SkyAppliedSourceCloudSelection selection,SkyAppliedCloudTextureSet bindings,SkyAppliedSourceCloudWeatherFields weather,SkyCloudSourceClipPlanePacket clip,SkyCloudConstantPacket[] packets,Dictionary<int,float> phase,string provenance)
-    {this.owner=owner;SourceFrame=source;AcceptedPresent=present;Stages=stages;SelectedView=view;Selection=selection;Bindings=bindings;Weather=weather;Clip=clip;this.packets=packets;this.phase=phase;SourceProvenance=provenance;}
+    internal SkyAppliedSourceCloudFrame(SkyAppliedSourceCloudOwner owner,SkySceneSourceFramePacket source,MapSourceCreatedSeasonLightingFrame present,SkyAppliedSourceStageFrame stages,MainSceneNode51Execution view,SkyAppliedSourceCloudSelection selection,SkyAppliedCloudTextureSet bindings,SkyAppliedSourceCloudWeatherFields weather,SkyCloudSourceClipPlanePacket clip,SkyCloudConstantPacket[] packets,Dictionary<int,float> phase,SkyCloudVolumeMaterial volume,uint maximumRaySamples,string provenance)
+    {this.owner=owner;SourceFrame=source;AcceptedPresent=present;Stages=stages;SelectedView=view;Selection=selection;Bindings=bindings;Weather=weather;Clip=clip;this.packets=packets;this.phase=phase;Volume=volume;MaximumRaySamples=maximumRaySamples;SourceProvenance=provenance;}
     public SkySceneSourceFramePacket SourceFrame {get;}
     public MapSourceCreatedSeasonLightingFrame AcceptedPresent {get;}
     public SkyAppliedSourceStageFrame Stages {get;}
@@ -297,6 +325,21 @@ public sealed class SkyAppliedSourceCloudFrame
     public SkyAppliedCloudTextureSet Bindings {get;}
     public SkyAppliedSourceCloudWeatherFields Weather {get;}
     public SkyCloudSourceClipPlanePacket Clip{get;}
+    public SkyCloudVolumeMaterial Volume {get;}
+    public uint MaximumRaySamples {get;}
+    /// <summary>Borrow the current volume without advancing its clock or decoding a color buffer.
+    /// Pattern uses its own camera and the actual atmosphere CPU's planet radius.</summary>
+    public SkyCloudPatternMaterial PreparePatternMaterial(SkyAtmoTableCpuOwner atmosphere,
+        SkyPatternPreparedCameras cameras,Vector4 actualClipPlane)
+    {
+        ArgumentNullException.ThrowIfNull(atmosphere);
+        ValidateCandidate(SourceFrame,AcceptedPresent);
+        atmosphere.RequireCurrent();
+        if(!atmosphere.Source.Tables.SameResources(AcceptedPresent.AcceptedSeasonCamera.Inputs.Source.Transmittance.Tables))
+            throw new InvalidDataException("Pattern atmosphere belongs to another selected resource generation.");
+        return new(cameras.PrepareVertexMaterial(actualClipPlane),
+            Volume.PreparePixel(cameras.Temporary.Eye,cameras.Temporary.Lens.VerticalFovRadians,atmosphere.PlanetRadius58));
+    }
     public long FrameNumber=>AcceptedPresent.FrameNumber;
     public string SourceProvenance {get;}
     internal IReadOnlyDictionary<int,float> CandidatePhase=>phase;

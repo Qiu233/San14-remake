@@ -152,6 +152,8 @@ public partial class MapSceneView
                         var work = D3D11AmbientWorkInitialConstants.Prepare(_repository,
                             current, season.LoadedResources, cloudMedia, skyPrograms);
                         ambientResources = D3D11AmbientRenderResources.Load(_repository,work,season.LoadedResources.Source.Locale);
+                        D3D11PatternRenderResources.Load(_repository,work.Ambient,season.LoadedResources.Source.Locale)
+                            .WriteNativeInputs(inputs);
                         cloudResources = D3D11CloudRenderResources.Prepare(_repository, current.Present,
                             D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight, work, cloudMedia);
                         cloudResources.WriteNativeInputs(inputs);

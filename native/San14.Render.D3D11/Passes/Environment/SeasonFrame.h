@@ -27,6 +27,10 @@
 namespace source_current_season {
 struct Word {int32_t offset;uint32_t bits;};
 struct ShadowModes {uint8_t receive{},local{};};
+struct ViewBaseLightValues {
+    std::array<float,3> direction{};
+    std::uint32_t fogMode{};
+};
 struct Light {
     uint32_t object,mask;
     uint32_t terrainMaskScalarBits{};
@@ -34,6 +38,7 @@ struct Light {
     std::array<uint8_t,0x328> data;
     source_current_season_shadow::LightGeometry shadowGeometry;
     San14::Render::HdrLightState lighting;
+    ViewBaseLightValues viewBase;
 };
 struct ExposureLight {uint32_t auxiliarySelector{},object{},present{},type{},flags{};std::array<float,3> rgb{};};
 static_assert(sizeof(ExposureLight)==32);
@@ -74,6 +79,12 @@ template<class T> inline std::optional<T> importedMainField(const Frame& frame,i
         T result;std::memcpy(&result,&word.bits,sizeof(result));return result;
     }
     return std::nullopt;
+}
+inline void decodeViewBaseLightInputs(Frame& frame) {
+    for(auto& light:frame.lights) {
+        light.viewBase={{read<float>(light.data,0),read<float>(light.data,4),read<float>(light.data,8)},
+            read<std::uint32_t>(light.data,0x160)};
+    }
 }
 inline void decodeShadowInputs(Frame& frame){
     auto& settings=frame.shadow;
@@ -224,6 +235,7 @@ inline Frame decode(std::span<const uint8_t> bytes){
         }
     }
     if (at != bytes.size()) throw std::runtime_error("Current HDR lighting packet tail");
+    decodeViewBaseLightInputs(r);
     decodeShadowInputs(r);
     decodeCloudWeatherInputs(r);
     r.skyPolicy=San14::Render::skyDrawPolicy(read<std::uint32_t>(r.main,0x3b0));

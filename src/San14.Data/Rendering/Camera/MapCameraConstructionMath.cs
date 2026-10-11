@@ -43,8 +43,8 @@ public readonly record struct MapCameraConstructionMatrices(
 
 }
 
-/// <summary>Original eye/target/up, view-offset, perspective and forced matrix update kernels.</summary>
-public static class MapCameraConstructionMath
+/// <summary>Original eye/target/up, view-offset, projection and forced matrix update kernels.</summary>
+public static partial class MapCameraConstructionMath
 {
     /// <summary>SC C11350 / TC C0FE40: rotate the exact source +Z axis, then normalize XYZ in native scalar order.</summary>
     public static Vector4 ForwardC11350(Quaternion sourceQuaternion) =>
@@ -368,20 +368,20 @@ public static class MapCameraConstructionMath
             nativeClipProfile,projectionScale,tangent);
     }
 
-    /// <summary>Fresh/forced SC AB6C60 / TC AB5BD0 update of both matrices. Perspective uses source literal scale1;
-    /// Camera +154 is unused. The supplied tangent must belong to float32(FOV * .5f).</summary>
+    /// <summary>Fresh/forced SC AB6C60 / TC AB5BD0 update of both matrices. Perspective uses literal scale1;
+    /// orthographic projection reads Camera +154. The tangent belongs to float32(FOV * .5f).</summary>
     public static MapCameraConstructionMatrices CompleteFromTangentAB6C60(
         Vector4 eye, Vector4 target, Vector4 up, CameraLens lens,
         uint nativeClipProfile, float nativeTangentOfHalfFov)
     {
-        if (lens.IsOrthographic)
-            throw new InvalidDataException("This camera construction contract requires the native perspective branch.");
         if (!float.IsFinite(lens.Near) || !float.IsFinite(lens.Far) || lens.Near <= 0 || lens.Far <= lens.Near)
             throw new InvalidDataException("Original camera lens near/far values are not ordered positive distances.");
         MapCameraViewMatrices view = ViewAB6BC0(eye,target,up,lens.ViewOffset);
-        Matrix4x4 projection = ProjectionFromTangentAB7040(lens.VerticalFovRadians, lens.Aspect,
-            lens.ReverseDepth ? lens.Far : lens.Near, lens.ReverseDepth ? lens.Near : lens.Far,
-            nativeClipProfile, 1, nativeTangentOfHalfFov);
+        Matrix4x4 projection = lens.IsOrthographic
+            ? OrthographicFromTangent(eye, target, lens, nativeClipProfile, nativeTangentOfHalfFov)
+            : ProjectionFromTangentAB7040(lens.VerticalFovRadians, lens.Aspect,
+                lens.ReverseDepth ? lens.Far : lens.Near, lens.ReverseDepth ? lens.Near : lens.Far,
+                nativeClipProfile, 1, nativeTangentOfHalfFov);
         Matrix4x4 combined = UnitWorldTransformMath.ComposeAffine17ADD0(view.WorldToView80, projection);
         return new(view.RawWorldToView40, view.WorldToView80, projection, combined);
     }

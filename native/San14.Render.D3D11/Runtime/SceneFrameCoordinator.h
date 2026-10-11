@@ -135,7 +135,12 @@ public:
         }
         PreparedHdrViewInputs hdr{view.localLightQueries(),view.preRenderer(),&shadows.compactCpuProvider(),
             selectedShadow,shadows.frame().passes[0].shadowAvailable != 0};
-        auto prepared = std::make_unique<PreparedMapView>(0, std::move(frame), modes, std::move(hdr));
+        // Base light uses the Common View-group subset rule, independently of
+        // shadow selection. Capture values now so a later request cannot change
+        // the association retained by this successful View generation.
+        auto baseLight = PreparedViewBaseLight::select(season_, view.definition().common);
+        auto prepared = std::make_unique<PreparedMapView>(0, std::move(frame), modes,
+            std::move(hdr), std::move(baseLight));
         fieldDisplay_.finishPreparation();
         deferredFields_ = std::move(camera);
         mapView_ = std::move(prepared);

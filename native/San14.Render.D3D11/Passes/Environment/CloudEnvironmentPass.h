@@ -1,4 +1,5 @@
 #pragma once
+#include "SkyPatternTargets.h"
 // Include after the cloud, ambient, weather and atmosphere publication writers.
 namespace San14::Render {
 
@@ -20,6 +21,13 @@ class CloudEnvironmentPass {
     CloudEnvironmentPass()=default;
     CloudEnvironmentPass(const CloudEnvironmentPass&)=delete;
     CloudEnvironmentPass& operator=(const CloudEnvironmentPass&)=delete;
+
+    // These targets share the retained Sky environment lifetime. Importing
+    // declarations does not select a palette or produce target contents.
+    void preparePatternTargets(const fs::path& source) {
+        patternTargets_.emplace(Interop::readSkyPatternTargetInputs(source));
+    }
+    NativeSkyPatternTargets& patternTargets() {return patternTargets_.value();}
 
     void prepareAmbient(ID3D11Device* device,ID3D11DeviceContext* context,const fs::path& source,
         MainStarPass& stars,const source_weather_fog::Power& power) {
@@ -89,6 +97,7 @@ class CloudEnvironmentPass {
     ID3D11ShaderResourceView* ambientView() const { return ambient_.Get(); }
 
   private:
+    std::optional<NativeSkyPatternTargets> patternTargets_;
     NativeMainCloud cloud_;
     std::optional<NativeCurrentCloudWeather> weather_;
     NativeAmbient environment_;

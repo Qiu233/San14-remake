@@ -1,6 +1,7 @@
 #pragma once
 #include "MapViewPopulation.h"
 #include "HdrViewInputs.h"
+#include "PreparedViewBaseLight.h"
 #include "../../Passes/Environment/SeasonFrame.h"
 #include "../NamedMapRenderer.h"
 #include <optional>
@@ -79,18 +80,22 @@ struct HdrAmbientSelection {
 };
 
 // This is one successful normal View preparation, separate from the retained
-// working domain. Its publication contains only HDR ambient classifications.
+// working domain. Base-light association is captured from the same accepted
+// World independently of the later HDR ambient classification publication.
 class PreparedMapView {
 public:
     PreparedMapView(std::uint32_t slot, MapViewFrame frame,
-        std::array<std::uint32_t, 3> heightFogModes, PreparedHdrViewInputs hdr)
-        : slot_(slot), frame_(std::move(frame)), heightFogModes_(heightFogModes), hdr_(std::move(hdr)) {}
+        std::array<std::uint32_t, 3> heightFogModes, PreparedHdrViewInputs hdr,
+        PreparedViewBaseLight baseLight)
+        : slot_(slot), frame_(std::move(frame)), heightFogModes_(heightFogModes),
+          hdr_(std::move(hdr)), baseLight_(std::move(baseLight)) {}
     PreparedMapView(const PreparedMapView&) = delete;
     PreparedMapView& operator=(const PreparedMapView&) = delete;
 
     const MapViewFrame& frame() const { return frame_; }
     std::uint32_t slot() const { return slot_; }
     const PreparedHdrViewInputs& hdrInputs() const { return hdr_; }
+    const PreparedViewBaseLight& baseLight() const { return baseLight_; }
     const std::optional<HdrAmbientSelection>& ambientSelection() const { return ambient_; }
 
     bool publishAmbientSelection(NamedMapRenderer* renderer) {
@@ -113,6 +118,7 @@ private:
     const MapViewFrame frame_;
     const std::array<std::uint32_t, 3> heightFogModes_;
     const PreparedHdrViewInputs hdr_;
+    const PreparedViewBaseLight baseLight_;
     std::optional<HdrAmbientSelection> ambient_;
 };
 } // namespace San14::Render
