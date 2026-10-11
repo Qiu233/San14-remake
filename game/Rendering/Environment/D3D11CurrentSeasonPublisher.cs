@@ -141,7 +141,8 @@ public sealed class D3D11CurrentSeasonPublisher
         var oceanOptics = _resources.OceanOptics with
         { RefractionIndex = actual.Scalars.QualityPatch.OceanRefractionIndex ?? _resources.OceanOptics.RefractionIndex };
         var heightFog = HeightFogSettingsEncoding.ApplyQualityPatch(_resources.HeightFog, actual.Scalars.QualityPatch);
-        var words = D3D11CurrentSeasonEncoding.MainWrites(actual, _resources.ViewDefaults, _resources.OceanWaves, surface, oceanOptics);
+        var words = D3D11CurrentSeasonEncoding.MainWrites(actual, _resources.ViewDefaults, _resources.OceanWaves, surface, oceanOptics,
+            _resources.CloudShaderSettings);
         var prefix = present.PreparedCameraPrefix;
         var lights = _resources.Lights.Select(light => new D3D11CurrentSeasonLight(
             light.ObjectId, light.GroupMask,

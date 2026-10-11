@@ -3,6 +3,7 @@
 // loaded textures, programs and retained pass histories remain session resources.
 #include "../Shadows/SeasonShadowInputs.h"
 #include "CloudWeatherInputs.h"
+#include "SkyPatternCurrentInputs.h"
 #include "HeightFogInputs.h"
 #include "../Lighting/Interop/HdrLightingInput.h"
 #include "../Lighting/Interop/HdrProgramBankInput.h"
@@ -53,6 +54,7 @@ struct Frame {
     source_current_season_shadow::Settings shadow;
     source_current_season_shadow::ReceiverStyle shadowReceiver;
     source_current_cloud_weather::Conditions cloudWeather;
+    San14::Render::SkyPatternCurrentInputs pattern;
     std::optional<std::uint32_t> oceanLightGroup;
     San14::Render::OceanWaveSettings oceanWave;
     San14::Render::OceanSurfaceSettings oceanSurface;
@@ -117,6 +119,15 @@ inline void decodeCloudWeatherInputs(Frame& frame){
         read<float>(frame.main,0x22c),read<float>(frame.main,0x278),
         importedMainField<uint32_t>(frame,0x674).has_value(),
         importedMainField<uint32_t>(frame,0x7a0).has_value()};
+}
+inline void decodePatternInputs(Frame& frame) {
+    auto& pattern = frame.pattern;
+    pattern.cameraKind = read<std::int32_t>(frame.main, 0x3ac);
+    pattern.scale = read<float>(frame.main, 0x27c);
+    pattern.height = read<float>(frame.main, 0x210);
+    pattern.lowCostLevel = importedMainField<std::uint32_t>(frame, 0x674);
+    pattern.rayExponent = importedMainField<std::uint32_t>(frame, 0x678);
+    pattern.skyDomeLightGroupId = importedMainField<std::uint32_t>(frame, 0xe40);
 }
 inline void decodeOceanWaveInputs(Frame& frame) {
     auto required=[&](int offset) {
@@ -238,6 +249,7 @@ inline Frame decode(std::span<const uint8_t> bytes){
     decodeViewBaseLightInputs(r);
     decodeShadowInputs(r);
     decodeCloudWeatherInputs(r);
+    decodePatternInputs(r);
     r.skyPolicy=San14::Render::skyDrawPolicy(read<std::uint32_t>(r.main,0x3b0));
     r.updateStarOrientation=read<std::uint32_t>(r.main,0x3a0)==0;
     r.ambientFilterSampleCount=read<std::uint32_t>(r.main,0x3a4);

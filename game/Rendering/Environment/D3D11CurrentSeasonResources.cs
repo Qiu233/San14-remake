@@ -18,6 +18,7 @@ public sealed class D3D11CurrentSeasonResources
     internal SkyStarSettings Stars { get; }
     internal HeightFogSettings HeightFog { get; }
     internal CommonRenderPolicy CommonPolicy { get; }
+    internal SkyCloudShaderSettings CloudShaderSettings { get; }
     public SceneViewNativeMapSeasonResourceBundle Source { get; }
     public MapSeasonSelection Selection => Source.Selection;
     public D3D11CurrentSeasonCpuResources? CpuResources { get; private set; }
@@ -33,6 +34,7 @@ public sealed class D3D11CurrentSeasonResources
         if (source.CameraSource.Selection.SecondPackage is not null)
             throw new NotSupportedException("Current Main needs its actual paired selection writer.");
         var selected = source.CameraSource.Selection.FirstPackage;
+        CloudShaderSettings = SkyCloudShaderSettings.Import(selected);
         ViewDefaults = CameraViewSettingsImport.Load(selected);
         OceanWaves = OceanWaveSettingsImport.Load(selected);
         OceanSurface = OceanSurfaceSettingsImport.Load(selected);

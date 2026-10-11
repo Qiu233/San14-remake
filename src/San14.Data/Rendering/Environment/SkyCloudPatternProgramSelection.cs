@@ -7,7 +7,7 @@ namespace San14.Data;
 /// Fog mode belongs to the selected base light, not an arbitrary Main light.
 /// Retained axes and actual texture presence are supplied by their owners.</summary>
 public readonly record struct SkyCloudPatternProgramInputs(uint LowCostLevel,uint RayExponent,
-    bool EarthTexturePresent,bool EarthWeightNonzero,bool CirrusGroupPresent,uint LightFogMode);
+    bool EarthTexturePresent,bool SkyDomeLightGroupNonzero,bool CirrusGroupPresent,uint LightFogMode);
 
 public sealed class SkyCloudPatternProgramSelection
 {
@@ -42,7 +42,7 @@ public sealed class SkyCloudPatternProgramSelection
         if(retained.Length!=36)throw new InvalidDataException("Pattern selection needs the current nine-word Cloud variant.");
         byte[] request=retained.ToArray();
         uint[] edits=[Math.Min(current.LowCostLevel,2u),Math.Clamp(current.RayExponent,4u,6u),
-            current.EarthTexturePresent&&current.EarthWeightNonzero?0u:1u,current.CirrusGroupPresent?1u:0u,0];
+            current.EarthTexturePresent&&current.SkyDomeLightGroupNonzero?0u:1u,current.CirrusGroupPresent?1u:0u,0];
         for(int word=0;word<edits.Length;word++)
             BinaryPrimitives.WriteUInt32LittleEndian(request.AsSpan(word*4,4),edits[word]);
         return request;

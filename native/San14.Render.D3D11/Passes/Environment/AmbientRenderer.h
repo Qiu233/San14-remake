@@ -5,6 +5,7 @@
 #include "AmbientStarFrame.h"
 #include "AmbientResourceInputs.h"
 #include "SkyMaterialInputs.h"
+#include "SkyTextureIdentity.h"
 #include <optional>
 
 struct AmbientNativeProgram {
@@ -48,6 +49,7 @@ static ComPtr<ID3D11SamplerState> ambientSampler(ID3D11Device* device,const fs::
 struct AmbientNativeTextureBinding {
     std::string program;
     UINT slot;
+    San14::Render::SkyTextureIdentity identity;
     ComPtr<ID3D11Resource> resource;
     ComPtr<ID3D11ShaderResourceView> view;
     ComPtr<ID3D11SamplerState> sampler;
@@ -57,10 +59,15 @@ static std::vector<AmbientNativeTextureBinding> ambientTextures(ID3D11Device* de
     std::ifstream rows(source/tableName);
     if(!rows)throw std::runtime_error(std::string(tableName)+" missing");
     std::vector<AmbientNativeTextureBinding> result;
-    std::string program,prefix;UINT slot,dimension,width,height,depth,mips,resourceFormat,viewFormat;
-    while(rows>>program) {
-        if(!(rows>>slot>>dimension>>width>>height>>depth>>mips>>resourceFormat>>viewFormat>>prefix))
-            throw std::runtime_error("Malformed Sky/Cloud texture table row");
+    std::string line;
+    while(std::getline(rows,line)) {
+        const auto imported=San14::Render::Interop::readSkyTextureBindingRow(line);
+        if(!imported)continue;
+        const auto& row=*imported;
+        const auto& program=row.program;
+        const auto& prefix=row.prefix;
+        const UINT slot=row.slot,dimension=row.dimension,width=row.width,height=row.height,
+            depth=row.depth,mips=row.levels,resourceFormat=row.resourceFormat,viewFormat=row.viewFormat;
         if(dimension!=4&&dimension!=8)throw std::runtime_error("Ambient actual texture is not2D/3D");
         std::vector<std::vector<char>> data(mips);std::vector<D3D11_SUBRESOURCE_DATA> initial(mips);
         for(UINT mip=0;mip<mips;++mip) {
@@ -74,7 +81,7 @@ static std::vector<AmbientNativeTextureBinding> ambientTextures(ID3D11Device* de
             if(data[mip].size()!=size_t(slice)*z)throw std::runtime_error("Ambient original mip layout differs: "+prefix);
             initial[mip]={data[mip].data(),pitch,slice};
         }
-        AmbientNativeTextureBinding binding;binding.program=program;binding.slot=slot;
+        AmbientNativeTextureBinding binding;binding.program=program;binding.slot=slot;binding.identity=row.identity;
         D3D11_SHADER_RESOURCE_VIEW_DESC sd{};sd.Format=DXGI_FORMAT(viewFormat);
         if(dimension==8) {
             D3D11_TEXTURE3D_DESC td{};td.Width=width;td.Height=height;td.Depth=depth;td.MipLevels=mips;

@@ -14,6 +14,7 @@ enum class ResourceGroup {
     AmbientClouds,
     Ambient,
     SkyPattern,
+    SkyAtmosphere,
     AnimationTiming,
     ArmyActions,
     Armies,
@@ -74,6 +75,7 @@ public:
         case ResourceGroup::AmbientClouds: return packageRoot/"ambient-cloud-continuous-input";
         case ResourceGroup::Ambient: return packageRoot/"ambient-input";
         case ResourceGroup::SkyPattern: return packageRoot/"pattern-input";
+        case ResourceGroup::SkyAtmosphere: return packageRoot/"atmosphere-input";
         case ResourceGroup::AnimationTiming: return packageRoot/"animation-cadence-input";
         case ResourceGroup::ArmyActions: return packageRoot/"army-graphics-action-input";
         case ResourceGroup::Armies: return packageRoot/"army-visual-input";

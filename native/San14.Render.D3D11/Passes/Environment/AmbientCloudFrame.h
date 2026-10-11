@@ -1,4 +1,5 @@
 #pragma once
+#include "CloudVolumeMaterial.h"
 // Current fixed Main/season WORK Cloud consumes node3's already advanced
 // global phase. It never advances animation or consumes Main Bayer/history.
 struct NativeAmbientCloudAxis {UINT sourcePhase=0,sharedIndex=0,cbOffset=0;float position=0,scale=0;};
@@ -31,13 +32,18 @@ static NativeAmbientCloudContinuous prepareNativeAmbientCloudContinuous(ID3D11De
 }
 __declspec(noinline) static float nativeAmbientCloudOffsetAdd(float a,float b){return a+b;}
 __declspec(noinline) static float nativeAmbientCloudOffsetMul(float a,float b){return a*b;}
-static void updateNativeAmbientCloudPixels(NativeAmbientCloudContinuous& cloud,const NativeMainCloud& sharedNode3Cloud) {
+static void updateNativeAmbientCloudPixels(NativeAmbientCloudContinuous& cloud,const NativeMainCloud& sharedNode3Cloud,
+    const San14::Render::CloudVolumeMaterial* volume=nullptr) {
     for(auto& bytes:cloud.pixelBytes)for(const auto& axis:cloud.axes){
-        float value=nativeAmbientCloudOffsetMul(nativeAmbientCloudOffsetAdd(sharedNode3Cloud.axes[axis.sharedIndex].phase,axis.position),axis.scale);
+        const auto& shared=sharedNode3Cloud.axes[axis.sharedIndex];
+        const auto offset=volume&&shared.weatherChannel?
+            San14::Render::cloudVolumeOffset(*volume,*shared.weatherChannel):std::nullopt;
+        float value=offset?*offset:nativeAmbientCloudOffsetMul(nativeAmbientCloudOffsetAdd(shared.phase,axis.position),axis.scale);
         std::memcpy(bytes.data()+axis.cbOffset,&value,4);
     }
 }
-static void updateNativeAmbientCloudContinuous(ID3D11DeviceContext* context,NativeAmbientCloudContinuous& cloud,const NativeMainCloud& sharedNode3Cloud) {
-    updateNativeAmbientCloudPixels(cloud,sharedNode3Cloud);
+static void updateNativeAmbientCloudContinuous(ID3D11DeviceContext* context,NativeAmbientCloudContinuous& cloud,const NativeMainCloud& sharedNode3Cloud,
+    const San14::Render::CloudVolumeMaterial* volume=nullptr) {
+    updateNativeAmbientCloudPixels(cloud,sharedNode3Cloud,volume);
     for(UINT face=0;face<6;++face)context->UpdateSubresource(cloud.pixelConstants[face].Get(),0,nullptr,cloud.pixelBytes[face].data(),0,0);
 }

@@ -59,6 +59,7 @@ public partial class MapSceneView
             var fogPrograms=HeightFogProgramResources.Load(_repository);
             var skyPrograms=SkyMainProgramResources.Load(_repository,sceneMedia.Renderer);
             SkyMainResourceOwner? skyResources=null;
+            D3D11SkyAtmosphereResources? atmosphereResources=null;
             SkyStarResources? starResources=null;
             D3D11AmbientRenderResources? ambientResources=null;
             D3D11CloudProgramMedia? cloudMedia=null;
@@ -149,9 +150,14 @@ public partial class MapSceneView
                         cloudMedia=D3D11CloudProgramMedia.Prepare(cloudPrograms,current.Present,
                             current.Lights.First(light=>(light.GroupMask&0x80)!=0).CompleteData.Span);
                         cloudMedia.WriteNativeInputs(inputs);
+                        D3D11CloudPatternProgramMedia.Prepare(cloudMedia.Resources).WriteNativeInputs(inputs);
                         var work = D3D11AmbientWorkInitialConstants.Prepare(_repository,
                             current, season.LoadedResources, cloudMedia, skyPrograms);
                         ambientResources = D3D11AmbientRenderResources.Load(_repository,work,season.LoadedResources.Source.Locale);
+                        atmosphereResources = D3D11SkyAtmosphereResources.Load(
+                            current.Present.AcceptedSeasonCamera.Inputs.Source.Transmittance.Tables,
+                            SkyAppliedSeasonCloudTextures.Load(_repository, current.Present.AcceptedSeasonCamera.Inputs.Source), work);
+                        atmosphereResources.WriteNativeInputs(inputs);
                         D3D11PatternRenderResources.Load(_repository,work.Ambient,season.LoadedResources.Source.Locale)
                             .WriteNativeInputs(inputs);
                         cloudResources = D3D11CloudRenderResources.Prepare(_repository, current.Present,
@@ -219,6 +225,7 @@ public partial class MapSceneView
                     else
                     {
                         ambientResources!.RequireCurrent(current.Present);
+                        atmosphereResources!.RequireCurrent(current.Present.AcceptedSeasonCamera.Inputs.Source.Transmittance.Tables);
                         cloudMedia!.RequireCurrent(current.Present,
                             current.Lights.First(light=>(light.GroupMask&0x80)!=0).CompleteData.Span);
                         cloudResources!.RequireCurrent(_repository, current.Present,

@@ -14,6 +14,6 @@ internal static class SkyTextureInputEncoding
         for (int mip = 0; mip < texture.MipCount; mip++)
             files.Add(directory + $"{prefix}-mip{mip}.bin", texture.GetEncodedMip(mip));
         files.Add(directory + prefix + "-sampler.bin", texture.GetSamplerDescriptor());
-        return FormattableString.Invariant($"{program} {slot} {texture.SourceDimension} {texture.Width} {texture.Height} {texture.Depth} {texture.MipCount} {formats.ResourceFormat} {formats.ShaderViewFormat} {prefix}");
+        return FormattableString.Invariant($"{program} {slot} {texture.SourceDimension} {texture.Width} {texture.Height} {texture.Depth} {texture.MipCount} {formats.ResourceFormat} {formats.ShaderViewFormat} {prefix} {texture.ResourceUri} {texture.ImageIndex} {texture.SourceSha256} {texture.SamplerDescriptorSha256}");
     }
 }

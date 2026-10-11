@@ -72,6 +72,36 @@ public sealed class SkyCloudPatternMaterialLayout
     public uint ResolveSamplerTextureSlot(uint samplerSlot) => samplerTextures.TryGetValue(samplerSlot, out uint slot)
         ? slot : throw new NotSupportedException("Pattern sampler has no imported source role.");
 
+    /// <summary>Export the already imported named layout for the Native Pattern
+    /// producer. Semantic IDs are this format's field order, not a memory arena.</summary>
+    public byte[] EncodeNativeLayout()
+    {
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream);
+        writer.Write(0x314C4D50u); // PML1
+        writer.Write(vertex.Slot); writer.Write((uint)vertex.Bytes); writer.Write((uint)vertex.Fields.Count);
+        writer.Write(pixel.Slot); writer.Write((uint)pixel.Bytes); writer.Write((uint)pixel.Fields.Count);
+        writer.Write((uint)TextureBindings.Count); writer.Write((uint)samplerTextures.Count);
+        writer.Write(usesIntegration ? 1u : 0u);
+        foreach (var stage in new[] { vertex, pixel })
+            foreach (var field in stage.Fields)
+            {
+                writer.Write((uint)field.Semantic); writer.Write((uint)field.Offset); writer.Write((uint)field.Bytes);
+            }
+        foreach (var texture in TextureBindings)
+        {
+            uint role = texture.Name switch
+            {
+                "sBase" => 0u, "sDetail" => 1u, "sDistort" => 2u,
+                _ => throw new InvalidOperationException("Pattern imported an unknown texture role.")
+            };
+            writer.Write(role); writer.Write(texture.Slot); writer.Write(texture.Dimension);
+        }
+        foreach (var sampler in samplerTextures.OrderBy(pair => pair.Key))
+        { writer.Write(sampler.Key); writer.Write(sampler.Value); }
+        return stream.ToArray();
+    }
+
     public static SkyCloudPatternMaterialLayout Import(DxbcResourceDefinitions vertex, DxbcResourceDefinitions pixel)
         => imported.GetValue(vertex, static _ => new()).GetValue(pixel, value => new(vertex, value));
 

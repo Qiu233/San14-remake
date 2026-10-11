@@ -366,6 +366,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             resources.directory(ResourceGroup::AtmosphereCamera)/"initial",starTwinkle);
         clouds.prepareAmbient(device.Get(),context.Get(),resources.directory(ResourceGroup::Ambient),
             atmosphere.stars(),frameState.atmosphereFrame(clouds).power);
+        clouds.prepareAtmosphereResources(device.Get(),resources.directory(ResourceGroup::SkyAtmosphere));
         clouds.preparePatternTargets(resources.directory(ResourceGroup::SkyPattern));
         context->ClearState(); // Bootstrap ends before any Main entry; not a per-request operation.
         {
