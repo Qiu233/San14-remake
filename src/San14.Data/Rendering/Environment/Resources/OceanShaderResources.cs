@@ -9,18 +9,24 @@ namespace San14.Data;
 public sealed class OceanShaderResources
 {
     private readonly byte[] vertex, pixel;
+    private readonly OceanMaterialLayout materialLayout;
 
     private OceanShaderResources(LoadedRdbAsset source, int vertexIndex, int pixelIndex,
-        byte[] vertex, byte[] pixel)
+        byte[] vertex, byte[] pixel, OceanMaterialLayout materialLayout, int? generatorAnnotation)
     {
         SourceIdentity = $"{source.ResourceUri}@{source.DecodedSha256}";
         VertexProgramIndex = vertexIndex; PixelProgramIndex = pixelIndex;
         this.vertex = vertex; this.pixel = pixel;
+        this.materialLayout = materialLayout;
+        GeneratorAnnotation = generatorAnnotation;
     }
 
     public string SourceIdentity { get; }
     public int VertexProgramIndex { get; }
     public int PixelProgramIndex { get; }
+    /// <summary>The first declared Generator annotation, if present.
+    /// Only integer one enables its frame channel; it does not control CPU spawn.</summary>
+    public int? GeneratorAnnotation { get; }
 
     /// <summary>Import the named Renderer's explicit PB2/WV declaration. The
     /// supported Native water path uses selector1, PB2 context, WV accessory
@@ -51,8 +57,25 @@ public sealed class OceanShaderResources
             ?? throw new InvalidDataException("Ocean wave shader has no pixel stage.");
         byte[] vertex = container.GetProgramBytes(bytes, vertexIndex).ToArray();
         byte[] pixel = container.GetProgramBytes(bytes, pixelIndex).ToArray();
-        OceanShaderAbi.RequireSupported(vertex, pixel);
-        return new(shader.Source, vertexIndex, pixelIndex, vertex, pixel);
+        var layout = OceanShaderAbi.ImportLayout(vertex, pixel);
+        int? generator = ReadGeneratorAnnotation(bytes, container);
+        return new(shader.Source, vertexIndex, pixelIndex, vertex, pixel, layout, generator);
+    }
+
+    private static int? ReadGeneratorAnnotation(byte[] bytes, G2ShaderContainer container)
+    {
+        var resources = G1ShaderConfigurationReader.Read(bytes, container).Records;
+        // These declared factories have actual owners in the supported wave
+        // material. Unknown factories need their own participation semantics.
+        if(resources.Any(resource => resource.Name is not
+            ("OcWave" or "OcNormalMap" or "OcRefraction" or "OcSurfaceTexture" or "GBuffer")))
+            throw new NotSupportedException("Ocean material declares an unsupported shader resource factory.");
+        // Resource enumeration stops at the first declaration containing the
+        // annotation. A later value must not override an earlier zero.
+        foreach(var resource in resources)
+            if(resource.Find("Generator") is { } annotation)
+                return annotation.IntegerValue;
+        return null;
     }
 
     public void WriteNativeInputs(string waterDirectory)
@@ -61,6 +84,11 @@ public sealed class OceanShaderResources
         Directory.CreateDirectory(directory);
         File.WriteAllBytes(Path.Combine(directory, "vs.dxbc"), vertex);
         File.WriteAllBytes(Path.Combine(directory, "ps.dxbc"), pixel);
+        materialLayout.WriteNativeInputs(waterDirectory);
+        byte[] features = new byte[8];
+        BinaryPrimitives.WriteUInt32LittleEndian(features, 0x31464D4F); // OMF1: material features.
+        BinaryPrimitives.WriteUInt32LittleEndian(features.AsSpan(4), GeneratorAnnotation == 1 ? 1u : 0u);
+        File.WriteAllBytes(Path.Combine(waterDirectory, "material-features.bin"), features);
     }
 
 }

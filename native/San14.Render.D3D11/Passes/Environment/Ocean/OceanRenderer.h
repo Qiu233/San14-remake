@@ -3,7 +3,8 @@
 #include "OceanClock.h"
 #include "OceanDrawState.h"
 #include "../../../Device/RenderTargetScope.h"
-#include "Interop/OceanMaterialConstants.h"
+#include "OceanMaterialComposition.h"
+#include "Interop/OceanMaterialLayout.h"
 #include "OceanGrid.h"
 #include <memory>
 #include <optional>
@@ -35,9 +36,17 @@ struct NativeOcean116 {
     San14::Render::OceanSurfaceSettings surface;
     San14::Render::OceanOpticsSettings optics;
     San14::Render::OceanTextureMaterialState textureMaterial;
+    San14::Render::OceanBubbleMaterialSettings bubbleMaterial;
+    San14::Render::OceanBubbleRuntime bubbleRuntime;
+    San14::Render::OceanHorizontalDisplacementBinding horizontalDisplacement;
+    source_water_camera::CurrentCamera materialCamera;
+    std::array<float,4> waveClip{},farClip{};
+    std::array<float,2> gridSize{};
+    std::array<San14::Render::OceanDrawMaterialState,2> materials;
+    San14::Render::Interop::OceanMaterialLayout materialLayout;
+    bool generatorEnabled=false;
     std::unique_ptr<OceanBubbleMaskGroup> bubbleMaskGroup;
     int bubbleMaskIndex=-1;
-    bool constantsDirty=false;
     OceanNativeTextures textures; // Retains already uploaded external resources; no second upload.
     ComPtr<ID3D11ShaderResourceView> refractionDepth;
     bool refractionMaterialBound=false;
@@ -64,17 +73,24 @@ static void applyNativeOceanOpticsSettings(NativeOcean116& ocean,const San14::Re
     ocean.optics=San14::Render::acceptOceanOpticsSettings(settings);
 }
 
-// Material callbacks publish phases even when elapsed time is unchanged.
-// The accepted Common clock is advanced only by the Ocean lifetime owner.
-static void writeNativeOceanAnimation(NativeOcean116& ocean) {
-    const auto phases=San14::Render::deriveOceanAnimationPhases(ocean.clock,ocean.surface,ocean.textures.normal3d?ocean.textures.normal3d->depth:0u);
-    San14::Render::Interop::writeOceanAnimationPhases(ocean.vertexBytes,ocean.pixelBytes,phases,ocean.textures.normal3d.has_value());
-    San14::Render::Interop::writeOceanSurfaceConstants(ocean.vertexBytes,ocean.surface);
-    San14::Render::Interop::writeOceanOpticsConstants(ocean.pixelBytes,ocean.optics,ocean.refractionMaterialBound);
-    San14::Render::Interop::writeOceanMaterialUvConstants(ocean.vertexBytes,ocean.pixelBytes,
-        ocean.textureMaterial,ocean.textures.materialBindings());
-    San14::Render::Interop::writeOceanTextureWaveConstants(ocean.vertexBytes,ocean.textureMaterial);
-    ocean.constantsDirty=true;
+static void applyNativeOceanBubbleMaterialSettings(NativeOcean116& ocean,
+    const San14::Render::OceanBubbleMaterialSettings& settings) {
+    ocean.bubbleMaterial=San14::Render::acceptOceanBubbleMaterialSettings(settings);
+    ocean.horizontalDisplacement.install(settings.horizontalLengths);
+}
+
+// Packing is a pure current-state publication. Clock and spawned points are
+// advanced by the accepted Ocean update rather than by either near/far draw.
+static void packNativeOceanMaterial(NativeOcean116& ocean) {
+    ocean.materials=San14::Render::composeOceanDrawMaterials(ocean.clock,ocean.surface,ocean.optics,
+        ocean.textureMaterial,ocean.bubbleMaterial,ocean.bubbleRuntime,ocean.horizontalDisplacement,
+        ocean.materialCamera,ocean.waveClip,ocean.farClip,ocean.gridSize[0],ocean.gridSize[1],
+        ocean.textures.normal3d?ocean.textures.normal3d->depth:0u,ocean.refractionMaterialBound,
+        ocean.generatorEnabled);
+    for(unsigned flat=0;flat<2;++flat) {
+        ocean.materialLayout.vertex.pack(ocean.materials[flat],ocean.vertexBytes[flat]);
+        ocean.materialLayout.pixel.pack(ocean.materials[flat],ocean.pixelBytes[flat]);
+    }
 }
 
 // 1183A40 publishes the completed CPU buffer into the retained GPU wave VB.
@@ -96,6 +112,8 @@ static NativeOcean116 prepareNativeOcean116(ID3D11Device* device,
     bool refractionMaterialBound) {
     NativeOcean116 result;
     result.textures=textures;result.refractionDepth=refractionDepth;
+    result.gridSize={grid.settings.sizeX,grid.settings.sizeZ};
+    if(textures.bubbleFrameRanges)result.bubbleRuntime.installFrameRanges(*textures.bubbleFrameRanges);
     if(targets.colorCount!=6 || targets.viewportCount!=1 || !targets.depth)
         throw std::runtime_error("Ocean requires its actual six-target geometry scope");
     result.depthTarget=targets.depth;result.viewport=targets.viewports[0];result.drawState.device=device;
@@ -130,19 +148,19 @@ static NativeOcean116 prepareNativeOcean116(ID3D11Device* device,
         {"TEXCOORD",0,DXGI_FORMAT_R32G32B32_FLOAT,1,0,D3D11_INPUT_PER_INSTANCE_DATA,1},
         {"TEXCOORD",1,DXGI_FORMAT_R16G16_FLOAT,2,0,D3D11_INPUT_PER_VERTEX_DATA,0}}};
     check(device->CreateInputLayout(elements.data(),UINT(elements.size()),vertex.data(),vertex.size(),&result.layout),"original WV input layout");
+    result.materialLayout=San14::Render::Interop::readOceanMaterialLayout(source/"material-layout.bin");
+    result.generatorEnabled=San14::Render::Interop::decodeOceanGeneratorEnabled(
+        San14::Render::Interop::readOceanMetadata<8>(source/"material-features.bin"));
     for(UINT flat=0;flat<2;++flat) {
-        std::string prefix=flat?"ocean-far":"ocean-wave";
-        result.vertexBytes[flat]=load(source/(prefix+"-vs-cb0.bin"));
-        result.pixelBytes[flat]=load(source/(prefix+"-ps-cb0.bin"));
-        if(result.vertexBytes[flat].size()!=384||result.pixelBytes[flat].size()!=864)
-            throw std::runtime_error("Ocean material requires selected VS384/PS864 layout");
+        result.vertexBytes[flat].resize(result.materialLayout.vertex.byteSize);
+        result.pixelBytes[flat].resize(result.materialLayout.pixel.byteSize);
         for(UINT stage=0;stage<2;++stage) {
             auto& bytes=stage?result.pixelBytes[flat]:result.vertexBytes[flat];
             auto& target=stage?result.pixelConstants[flat]:result.vertexConstants[flat];
             D3D11_BUFFER_DESC desc{};desc.ByteWidth=UINT(bytes.size());
             desc.Usage=D3D11_USAGE_DEFAULT;desc.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
             D3D11_SUBRESOURCE_DATA initial{};initial.pSysMem=bytes.data();
-            check(device->CreateBuffer(&desc,&initial,&target),"original WV mutable complete CB");
+            check(device->CreateBuffer(&desc,&initial,&target),"Ocean selected-layout material CB");
         }
     }
     auto samplerBytes=load(refractionSampler);D3D11_SAMPLER_DESC sd{};
@@ -156,13 +174,10 @@ static UINT executeNativeOcean116(ID3D11DeviceContext* context,
     NativeSourceDepthState& logical,NativeOcean116& ocean,std::uint32_t group,
     const San14::Render::CommonRenderPolicy& policy) {
     if(!oceanDrawEnabled(group,ocean.optics.refractionTransparency,policy))return 0;
-    writeNativeOceanAnimation(ocean);
-    if(ocean.constantsDirty) {
-        for(UINT flat=0;flat<2;++flat) {
-            context->UpdateSubresource(ocean.vertexConstants[flat].Get(),0,nullptr,ocean.vertexBytes[flat].data(),0,0);
-            context->UpdateSubresource(ocean.pixelConstants[flat].Get(),0,nullptr,ocean.pixelBytes[flat].data(),0,0);
-        }
-        ocean.constantsDirty=false;
+    packNativeOceanMaterial(ocean);
+    for(UINT flat=0;flat<2;++flat) {
+        context->UpdateSubresource(ocean.vertexConstants[flat].Get(),0,nullptr,ocean.vertexBytes[flat].data(),0,0);
+        context->UpdateSubresource(ocean.pixelConstants[flat].Get(),0,nullptr,ocean.pixelBytes[flat].data(),0,0);
     }
     NativeOceanDrawScope drawState(ocean.drawState,context,logical,group);
     std::array<ID3D11ShaderResourceView*,32> pixelViews{};
@@ -186,7 +201,8 @@ static UINT executeNativeOcean116(ID3D11DeviceContext* context,
         context->IASetVertexBuffers(0,3,vertices,ocean.geometry.strides.data(),packet.offsets.data());
         context->IASetIndexBuffer(packet.flat?ocean.geometry.farIndices.Get():ocean.geometry.waveIndices.Get(),DXGI_FORMAT_R16_UINT,0);
         auto vc=ocean.vertexConstants[packet.flat].Get(),pc=ocean.pixelConstants[packet.flat].Get();
-        context->VSSetConstantBuffers(0,1,&vc);context->PSSetConstantBuffers(0,1,&pc);
+        context->VSSetConstantBuffers(ocean.materialLayout.vertex.slot,1,&vc);
+        context->PSSetConstantBuffers(ocean.materialLayout.pixel.slot,1,&pc);
         context->DrawIndexed(packet.indexCount,packet.startIndex,packet.baseVertex);
     }
     // Source117 owns attachment Pop and Main mirror copy. Release bindings for

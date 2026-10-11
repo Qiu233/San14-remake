@@ -575,7 +575,9 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                     renderRandom,sampleRenderRandomSeed(renderRandomClock),frameState.season()?&frameState.season()->oceanWave:nullptr,
                     frameState.season()?&frameState.season()->oceanSurface:nullptr,
                     frameState.season()?&frameState.season()->oceanOptics:nullptr,
-                    frameState.season()?&frameState.season()->oceanTextureMaterial:nullptr);
+                    frameState.season()?&frameState.season()->oceanTextureMaterial:nullptr,
+                    frameState.season()?&frameState.season()->oceanBubbleMaterial:nullptr,
+                    frameState.oceanLightGroup(),frameState.commonRenderPolicy());
                 ocean.executeWater(context.Get(),sourceDepth,frameState.oceanLightGroup(),frameState.commonRenderPolicy());
                 ;
                 updateNativeDepthMirror(context.Get(),mainDepth,"117 after Ocean");
@@ -697,7 +699,10 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             ocean.publishCompletedGeometry(context.Get(),currentClock,host.currentSeason?&host.currentSeason->oceanWave:nullptr,
                 host.currentSeason?&host.currentSeason->oceanSurface:nullptr,
                 host.currentSeason?&host.currentSeason->oceanOptics:nullptr,
-                host.currentSeason?&host.currentSeason->oceanTextureMaterial:nullptr);
+                host.currentSeason?&host.currentSeason->oceanTextureMaterial:nullptr,
+                host.currentSeason?&host.currentSeason->oceanBubbleMaterial:nullptr,
+                frameState.oceanLightGroup(host.currentSeason?&*host.currentSeason:nullptr),
+                frameState.commonRenderPolicy(host.currentSeason?&*host.currentSeason:nullptr));
 
         }
         beginAcceptedMain(currentClock);

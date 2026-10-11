@@ -28,7 +28,7 @@ public sealed class D3D11CurrentSeasonFrame
         D3D11CurrentExposureLight exposureLight, CameraOpticsSettings optics, CameraViewSettings viewSettings,
         OceanWaveSettings oceanWaves, OceanSurfaceSettings oceanSurface, OceanOpticsSettings oceanOptics,
         OceanTextureMaterialSettings oceanTextureMaterial, HeightFogSettings heightFog,
-        CommonRenderPolicy commonPolicy)
+        CommonRenderPolicy commonPolicy, OceanBubbleMaterialSettings oceanBubbleMaterial)
     {
         Mode = mode; WorldSeason = worldSeason; Rgb = rgb; Present = present;
         PreparedMain = present.PreparedCameraPrefix; PreparedWords = Array.AsReadOnly(words);
@@ -37,6 +37,7 @@ public sealed class D3D11CurrentSeasonFrame
         OceanOptics = oceanOptics; OceanTextureMaterial = oceanTextureMaterial;
         HeightFog = heightFog;
         CommonPolicy = commonPolicy;
+        OceanBubbleMaterial = oceanBubbleMaterial;
     }
     public MainMapCameraModePacket Mode { get; }
     public NativeMapSeasonState WorldSeason { get; }
@@ -53,6 +54,7 @@ public sealed class D3D11CurrentSeasonFrame
     public OceanSurfaceSettings OceanSurface { get; }
     public OceanOpticsSettings OceanOptics { get; }
     public OceanTextureMaterialSettings OceanTextureMaterial { get; }
+    public OceanBubbleMaterialSettings OceanBubbleMaterial { get; }
     public HeightFogSettings HeightFog { get; }
     public CommonRenderPolicy CommonPolicy { get; }
     public int MainMode => Mode.Mode288;
@@ -148,7 +150,7 @@ public sealed class D3D11CurrentSeasonPublisher
             _resources.ControllerGeometry40);
         return new(mode, season, rgb, present,
             words, lights, atmosphere, D3D11CurrentExposureLight.Capture(_resources.FreshExposureSelector, lights),
-            CameraOpticsEncoding.DecodePrefix(currentMain.Camera.Source, prefix.Span, actual.Scalars.ApplyOpticalTailTo(currentMain.Camera.Optics)), viewSettings, _resources.OceanWaves, surface, oceanOptics, _resources.OceanTextureMaterial, heightFog, _resources.CommonPolicy);
+            CameraOpticsEncoding.DecodePrefix(currentMain.Camera.Source, prefix.Span, actual.Scalars.ApplyOpticalTailTo(currentMain.Camera.Optics)), viewSettings, _resources.OceanWaves, surface, oceanOptics, _resources.OceanTextureMaterial, heightFog, _resources.CommonPolicy, _resources.OceanBubbleMaterial);
     }
 
     public void AcceptCurrent(D3D11CurrentSeasonFrame frame) => _previousLighting = AcceptedSkyLightingState.Capture(frame.Rgb);

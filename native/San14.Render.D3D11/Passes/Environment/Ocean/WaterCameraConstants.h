@@ -28,26 +28,25 @@ inline NativeWaterCameraGpu prepareNativeWaterCameraGpu(ID3D11Device* device,
     return result;
 }
 
-// CPU publication is also usable in the byte verifier without a device/context.
-// Current complete CB bytes are retained, including all time/material writers.
+// CPU geometry preparation publishes named camera and clip values. It also
+// installs the camera retained for the following Ocean bubble update.
 inline const source_water_geometry::Frame& writeNativeWaterCameraCpu(
     NativeWaterCameraGpu& camera,NativeOcean116& ocean,
     const source_camera::CameraTransform& transform,const std::array<float,8>& completedWaveBounds) {
-    auto frame=source_water_geometry::prepareCurrent(camera.profile,transform,completedWaveBounds,ocean.textures.horizontalDisplacement.has_value());
+    // NativeOcean116's ordinary constructor owns the CPU displacement wrapper.
+    // Its empty GPU child does not remove that owner or its visibility effect.
+    auto frame=source_water_geometry::prepareCurrent(camera.profile,transform,completedWaveBounds,true);
     if(frame.instances.size()>camera.profile.capacity)
         throw std::runtime_error("Source Ocean current instance capacity exceeded");
-    source_water_camera::Packets packets;
-    for(unsigned flat=0;flat<2;++flat) {
-        packets.constants[flat*2]=ocean.vertexBytes[flat];
-        packets.constants[flat*2+1]=ocean.pixelBytes[flat];
+    ocean.materialCamera=source_water_camera::prepareCurrentCamera(transform);
+    camera.refraction=ocean.materialCamera.refraction;
+    if(frame.waterPlaneVisible) {
+        ocean.waveClip=frame.waveClip;
+        ocean.farClip=frame.farClip;
+        ocean.bubbleRuntime.installGeometryCamera(
+            {transform.eye.X,transform.eye.Y,transform.eye.Z,transform.eye.W},
+            {transform.target.X,transform.target.Y,transform.target.Z,transform.target.W});
     }
-    camera.refraction=source_water_camera::writeCurrentCamera(packets,transform).refraction;
-    source_water_geometry::writeCurrentClips(packets,frame);
-    for(unsigned flat=0;flat<2;++flat) {
-        ocean.vertexBytes[flat]=std::move(packets.constants[flat*2]);
-        ocean.pixelBytes[flat]=std::move(packets.constants[flat*2+1]);
-    }
-    ocean.constantsDirty=true;
     ocean.strips.clear();ocean.strips.reserve(frame.strips.size());
     for(const auto& strip:frame.strips) {
         NativeOceanStrip target;
@@ -61,7 +60,7 @@ inline const source_water_geometry::Frame& writeNativeWaterCameraCpu(
 
 // Every accepted camera request, after publishing that wave side's VB/AABB and
 // before116. Instance stride0, original layouts and index ranges stay retained.
-// executeNativeOcean116 performs the existing complete-CB upload when dirty.
+// executeNativeOcean116 composes and uploads the actual selected material layout.
 inline const source_water_geometry::Frame& updateNativeWaterCameraGpu(
     NativeWaterCameraGpu& camera,ID3D11DeviceContext* context,NativeOcean116& ocean,
     const source_camera::CameraTransform& transform,const std::array<float,8>& completedWaveBounds) {
@@ -77,7 +76,8 @@ inline const source_water_geometry::Frame& updateNativeWaterCameraGpu(
 }
 
 // Once-exported selected HDR RDEF writes: position,direction,viewY,D2Z,W2Texture.
-// No Ocean384/864 offsets are reused for the distinct F103 PS b0 layouts.
+// These selected HDR writes borrow named refraction values independently of
+// the Ocean shader layout.
 struct NativeWaterRefractionWrite {unsigned kind=0,offset=0,sourceOffset=0,bytes=0;};
 inline void applyNativeWaterRefractionConstant(const std::vector<NativeWaterRefractionWrite>& writes,
     const source_water_camera::RefractionDerived& current,std::vector<char>& bytes) {

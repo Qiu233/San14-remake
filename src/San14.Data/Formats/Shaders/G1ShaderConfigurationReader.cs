@@ -3,12 +3,16 @@ using System.Text;
 
 namespace San14.Data.Formats;
 
-public sealed record G1ShaderConfigurationParameter(int Index, int SourceOffset, uint NameHash, uint RawValue);
+public sealed record G1ShaderConfigurationParameter(int Index, int SourceOffset, uint NameHash, uint RawValue)
+{
+    public int IntegerValue => unchecked((int)RawValue);
+}
 public sealed record G1ShaderConfigurationRecord(int Index, int SourceOffset, uint NameHash,
     uint RawSecondWord, string Name, DxbcRange NameRange, IReadOnlyList<G1ShaderConfigurationParameter> Parameters)
 {
     /// <summary>Native lookup uses the first matching parameter, preserving duplicate rows.</summary>
     public G1ShaderConfigurationParameter? Find(uint hash) => Parameters.FirstOrDefault(p => p.NameHash == hash);
+    public G1ShaderConfigurationParameter? Find(string name) => Find(G1ShaderConfigurationReader.ComputeLookupHash(name));
 }
 public sealed record G1ShaderConfigurations(DxbcRange DirectoryRange,
     IReadOnlyList<G1ShaderConfigurationRecord> Records);
@@ -17,6 +21,21 @@ public sealed record G1ShaderConfigurations(DxbcRange DirectoryRange,
 /// factory and GBufferLayout lookup. A source record is not a created runtime plugin.</summary>
 public static class G1ShaderConfigurationReader
 {
+    /// <summary>Shader resource/parameter lookup uses a rolling base-27 hash,
+    /// independently of the resource-name hash used by object declarations.</summary>
+    public static uint ComputeLookupHash(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        uint hash = 0;
+        foreach (char character in name)
+        {
+            if (character is '\0' or > '\x7F')
+                throw new InvalidDataException("Shader lookup requires a native ASCII name without an embedded terminator.");
+            hash = unchecked(hash * 27 + character);
+        }
+        return hash;
+    }
+
     public static G1ShaderConfigurations Read(ReadOnlySpan<byte> source)
         => Read(source, G2ShaderContainerReader.Read(source));
 

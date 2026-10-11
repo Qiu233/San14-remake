@@ -3,6 +3,7 @@
 #include <sstream>
 #include <optional>
 #include "OceanTextureMaterialSettings.h"
+#include "Interop/OceanBubbleMetadataInput.h"
 
 struct OceanNativeTexture {
     ComPtr<ID3D11Resource> resource;
@@ -12,6 +13,7 @@ struct OceanNativeTexture {
     DXGI_FORMAT resourceFormat=DXGI_FORMAT_UNKNOWN,viewFormat=DXGI_FORMAT_UNKNOWN;
 };
 struct OceanNativeTextures {
+    std::optional<San14::Render::OceanBubbleFrameRanges> bubbleFrameRanges;
     std::optional<OceanNativeTexture> normal3d;       // PS t0/s0, unchanged original BC5 volume.
     std::optional<OceanNativeTexture> normalNoise2d;  // PS t3/s3, unchanged original BC4 planar.
     std::optional<OceanNativeTexture> wvBubble;       // WV PS t4/s4, original60 BGRA slices.
@@ -96,5 +98,7 @@ static OceanNativeTextures loadOceanTextures(ID3D11Device* device,const fs::path
         binding->resourceFormat=DXGI_FORMAT(resourceFormat);binding->viewFormat=DXGI_FORMAT(viewFormat);
     }
     if(seen!=15)throw std::runtime_error("All four original Ocean texture roles required");
+    result.bubbleFrameRanges=San14::Render::Interop::decodeOceanBubbleFrameRanges(
+        San14::Render::Interop::readOceanMetadata<32>(source/"bubble-frames.bin"));
     return result;
 }

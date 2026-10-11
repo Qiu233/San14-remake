@@ -140,11 +140,4 @@ inline Frame prepareCurrent(const Profile& p,const source_camera::CameraTransfor
         Vertex{out.farBounds[0],0,out.farBounds[3],0,0},Vertex{out.farBounds[2],0,out.farBounds[3],0,0}};
     return out;
 }
-// Original slot0 plane changes with the current117F010 clip threshold. Other
-// five source reset planes remain untouched in the complete VS CBs.
-inline void writeCurrentClips(source_water_camera::Packets& packets,const Frame& frame) {
-    if(!frame.waterPlaneVisible)return;
-    source_water_camera::copy(packets.constants[0],80,frame.waveClip.data(),16);
-    source_water_camera::copy(packets.constants[2],80,frame.farClip.data(),16);
-}
 } // namespace source_water_geometry

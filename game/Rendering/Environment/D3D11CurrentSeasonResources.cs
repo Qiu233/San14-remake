@@ -15,6 +15,7 @@ public sealed class D3D11CurrentSeasonResources
     internal OceanSurfaceSettings OceanSurface { get; }
     internal OceanOpticsSettings OceanOptics { get; }
     internal OceanTextureMaterialSettings OceanTextureMaterial { get; }
+    internal OceanBubbleMaterialSettings OceanBubbleMaterial { get; }
     internal HeightFogSettings HeightFog { get; }
     internal CommonRenderPolicy CommonPolicy { get; }
     public SceneViewNativeMapSeasonResourceBundle Source { get; }
@@ -37,6 +38,7 @@ public sealed class D3D11CurrentSeasonResources
         OceanSurface = OceanSurfaceSettingsImport.Load(selected);
         OceanOptics = OceanOpticsSettingsImport.Load(selected);
         OceanTextureMaterial = OceanTextureMaterialSettingsImport.Load(selected);
+        OceanBubbleMaterial = OceanBubbleMaterialSettingsImport.Load(selected);
         HeightFog = HeightFogResourceImport.Load(selected);
         var geometry = selected.Camera.Properties[614];
         if (geometry.Index != 614 || geometry.NameHash != 0x59633E4E || geometry.TypeCode != 8 ||

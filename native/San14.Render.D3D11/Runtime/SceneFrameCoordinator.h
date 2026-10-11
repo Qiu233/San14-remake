@@ -162,12 +162,14 @@ public:
     const source_camera::Frame& camera()const {return cameraRig_.frame();}
     const SceneEnvironment& environment()const {return environment_;}
     const MapViewDefinition& viewDefinition()const {return viewPreparation_->definition();}
-    std::uint32_t oceanLightGroup()const {
-        return source_current_season::currentOceanLightGroup(season_,viewPreparation_->cameraSettings().oceanGroup);
+    std::uint32_t oceanLightGroup(const source_current_season::Frame* current)const {
+        return source_current_season::currentOceanLightGroup(current,viewPreparation_->cameraSettings().oceanGroup);
     }
-    const CommonRenderPolicy& commonRenderPolicy()const {
-        return season_ ? season_->commonRenderPolicy : initialCommonPolicy_;
+    std::uint32_t oceanLightGroup()const {return oceanLightGroup(season_);}
+    const CommonRenderPolicy& commonRenderPolicy(const source_current_season::Frame* current)const {
+        return current ? current->commonRenderPolicy : initialCommonPolicy_;
     }
+    const CommonRenderPolicy& commonRenderPolicy()const {return commonRenderPolicy(season_);}
     const MapViewFrame& view()const {return mapView_->frame();}
     const source_current_season::Frame* season()const {return season_;}
     const source_current_season_atmosphere::CloudLightInput& cloudLights()const {return cloudLights_;}

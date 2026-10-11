@@ -10,6 +10,7 @@
 #include "Ocean/OceanSurfaceSettings.h"
 #include "Ocean/OceanOpticsSettings.h"
 #include "Ocean/Interop/OceanTextureMaterialInput.h"
+#include "Ocean/Interop/OceanBubbleMaterialInput.h"
 #include "../PostProcessing/SeasonPostInputs.h"
 #include "../../Camera/CameraState.h"
 #include "../../Scene/View/Interop/CommonRenderPolicyInput.h"
@@ -50,6 +51,7 @@ struct Frame {
     San14::Render::OceanSurfaceSettings oceanSurface;
     San14::Render::OceanOpticsSettings oceanOptics;
     San14::Render::OceanTextureMaterialSettings oceanTextureMaterial;
+    San14::Render::OceanBubbleMaterialSettings oceanBubbleMaterial;
     San14::Render::CommonRenderPolicy commonRenderPolicy;
     San14::Render::HeightFogSettings heightFog;
     source_current_season_post::Settings post;
@@ -177,6 +179,10 @@ inline Frame decode(std::span<const uint8_t> bytes){
     if(bytes.size()-at<materialBytes)throw std::runtime_error("Current Ocean texture material block absent");
     r.oceanTextureMaterial=San14::Render::Interop::decodeOceanTextureMaterialSettings(bytes.subspan(at,materialBytes));
     at+=materialBytes;
+    constexpr auto bubbleBytes=San14::Render::Interop::OceanBubbleMaterialInputBytes;
+    if(bytes.size()-at<bubbleBytes)throw std::runtime_error("Current Ocean bubble material block absent");
+    r.oceanBubbleMaterial=San14::Render::Interop::decodeOceanBubbleMaterialSettings(bytes.subspan(at,bubbleBytes));
+    at+=bubbleBytes;
     constexpr auto commonBytes=San14::Render::Interop::CommonRenderPolicyInputBytes;
     if(bytes.size()-at<commonBytes)throw std::runtime_error("Current Common render policy block absent");
     r.commonRenderPolicy=San14::Render::Interop::decodeCommonRenderPolicy(bytes.subspan(at,commonBytes));

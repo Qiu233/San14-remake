@@ -8,12 +8,16 @@ namespace San14::Render {
 struct OceanClock {
     double accumulatedTime{};
     float waveTime{},lastCommonClock{};
-    void advance(float currentCommonClock) {
+    // The render node observes every Common clock, including rejected Ocean
+    // calls. Only an admitted update accumulates the delta or advances jobs.
+    void observe(float currentCommonClock) { lastCommonClock=currentCommonClock; }
+    float advance(float currentCommonClock) {
         float delta=_mm_cvtss_f32(_mm_sub_ss(_mm_set_ss(currentCommonClock),_mm_set_ss(lastCommonClock)));
         if(lastCommonClock>currentCommonClock)
             delta=_mm_cvtss_f32(_mm_add_ss(_mm_set_ss(delta),_mm_set_ss(3600.0f)));
         lastCommonClock=currentCommonClock;
         accumulatedTime+=double(delta);waveTime=delta+waveTime;
+        return delta;
     }
 };
 struct OceanAnimationPhases {

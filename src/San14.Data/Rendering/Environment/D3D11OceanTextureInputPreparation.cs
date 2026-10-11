@@ -92,6 +92,9 @@ public sealed class D3D11OceanTextureInputPreparation
                 throw new InvalidDataException($"Ocean {prefix} Static TID{imageIndex} lies outside {resource.Source.ResourceUri}.");
             var binding=new StaticTextureBinding(definitions,definition,context,tid,resource,(int)imageIndex);
             var image=binding.Image;
+            if(role==Role.Bubble)
+                files.Add("bubble-frames.bin",EncodeBubbleFrames(
+                    G1TextureOptionalMetadataReader.Read(resource.Source.Bytes).Images[binding.ImageIndex].Find(8)));
             if(image.RawHeader.Length!=20||BinaryPrimitives.ReadUInt32LittleEndian(image.RawHeader.AsSpan(8,4))!=12)
                 throw new InvalidDataException($"Ocean {prefix} requires the original 12-byte texture extra header.");
             byte colorSpace=(byte)(image.RawHeader[19]&1);
@@ -152,6 +155,42 @@ public sealed class D3D11OceanTextureInputPreparation
             fields[0].RawValue is not{Length:4})
             throw new InvalidDataException($"Ocean source {obj.ObjectId:X8} requires one type{type} scalar {hash:X8}.");
         return fields[0];
+    }
+
+    // Optional child metadata controls frame ranges independently of physical
+    // array layers. Absent or inactive records leave the retained ranges intact.
+    private static byte[] EncodeBubbleFrames(G1TextureOptionalRecord? record)
+    {
+        uint[] starts = [0, 1, 2], counts = [0, 0, 0];
+        bool present = false;
+        if(record is not null)
+        {
+            var words = record.Words;
+            if(words.Count == 0) throw new InvalidDataException("Ocean bubble frame metadata has no flags.");
+            if((words[0] & 2) != 0)
+            {
+                if(words.Count < 5) throw new InvalidDataException("Ocean bubble contiguous frame metadata is incomplete.");
+                counts = [words[2], words[3], words[4]];
+                starts = [0, words[2], unchecked(words[2] + words[3])];
+                present = true;
+            }
+            else if((words[0] & 4) != 0)
+            {
+                if(words.Count < 8) throw new InvalidDataException("Ocean bubble explicit frame metadata is incomplete.");
+                starts = [words[2], words[4], words[6]];
+                counts = [words[3], words[5], words[7]];
+                present = true;
+            }
+        }
+        byte[] bytes = new byte[32];
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes, 0x3146424F); // OBF1: optional bubble frame ranges.
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(4), present ? 1u : 0u);
+        for(int index=0;index<3;index++)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(8 + index*4), starts[index]);
+            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(20 + index*4), counts[index]);
+        }
+        return bytes;
     }
 
     // Only Ocean's three extra source families are adapted here. The shared

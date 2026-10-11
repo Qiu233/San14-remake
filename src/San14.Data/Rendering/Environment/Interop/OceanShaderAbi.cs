@@ -3,63 +3,61 @@ using San14.Data.Formats;
 namespace San14.Data;
 
 /// <summary>The selected water material ABI consumed by the Native constant
-/// writers, vertex streams and texture bindings. Check it once at resource import;
-/// another layout needs its own writer rather than reusing cached material bytes.</summary>
+/// producers, vertex streams and texture bindings. Import named destinations once
+/// from the selected program; domain producers never depend on buffer offsets.</summary>
 internal static class OceanShaderAbi
 {
-    private static readonly (string Name, int Offset, int Size)[] vsFields =
+    private static readonly (string Name, int Id, int Size)[] vsFields =
     [
         ("vEye", 0, 16),
-        ("mW2P", 16, 64),
-        ("ksgClipPlane", 80, 96),
-        ("vNormalParam", 176, 16),
-        ("vNormalNoiseParam", 192, 12),
-        ("vHeightMaskUV", 208, 16),
-        ("fWaterLevel", 224, 4),
-        ("vWaveDirect", 240, 16),
-        ("vWaveParameter", 256, 16),
-        ("vWaveParameter2", 272, 16),
-        ("vWaveFigure", 288, 16),
-        ("vWaveNoiseTextureParam", 304, 16),
-        ("vShoreBubbleParam", 320, 16),
-        ("vBubbleShoalingAjustParam", 336, 16),
-        ("vCameraDirXZ", 352, 16),
-        ("fShoalingScale", 368, 4),
+        ("mW2P", 1, 64),
+        ("ksgClipPlane", 2, 96),
+        ("vNormalParam", 3, 16),
+        ("vNormalNoiseParam", 4, 12),
+        ("vHeightMaskUV", 5, 16),
+        ("fWaterLevel", 6, 4),
+        ("vWaveDirect", 7, 16),
+        ("vWaveParameter", 8, 16),
+        ("vWaveParameter2", 9, 16),
+        ("vWaveFigure", 10, 16),
+        ("vWaveNoiseTextureParam", 11, 16),
+        ("vShoreBubbleParam", 12, 16),
+        ("vBubbleShoalingAjustParam", 13, 16),
+        ("vCameraDirXZ", 14, 16),
+        ("fShoalingScale", 15, 4),
     ];
 
-    private static readonly (string Name, int Offset, int Size)[] psFields =
+    private static readonly (string Name, int Id, int Size)[] psFields =
     [
         ("vEye", 0, 16),
         ("mWV", 16, 48),
-        ("fAmbMapsDORate", 64, 4),
-        ("vAmbDifScl", 80, 16),
-        ("vNormalNoiseParam", 96, 12),
-        ("mRrW2T", 112, 48),
-        ("fRrRefractiveIndex", 160, 4),
-        ("fRrTransparency", 164, 4),
-        ("fDiffuseTransparency", 168, 4),
-        ("vRrParam", 176, 16),
-        ("vD2Z", 192, 8),
-        ("vRrCameraPos", 208, 16),
-        ("vRrCameraDir", 224, 16),
-        ("vWaveBubbleColorScale", 240, 16),
-        ("vWaveSurfaceBubbleColor", 256, 48),
-        ("vWaveSurfaceBubbleParam", 304, 16),
-        ("vWaveInnerBubbleColor", 320, 48),
-        ("vWaveInnerBubbleParam", 368, 16),
-        ("vShoreBubbleColor", 384, 48),
-        ("vShoreBubbleParam", 432, 16),
-        ("vBubbleShoalingAjustParam", 448, 16),
-        ("vOceanScatteringColor", 464, 16),
-        ("vWaveBubbleSpawnPointArray", 480, 256),
-        ("vBubbleDepth", 736, 16),
-        ("vBubbleTextureArrayNo", 752, 16),
-        ("vWaveSurfaceBubbleScale", 768, 16),
-        ("vWaveInnerBubbleScale", 784, 16),
-        ("vShoreBubbleScale", 800, 16),
-        ("vWaveBubbleOffset", 816, 8),
-        ("vAlbedoColor", 832, 16),
-        ("vReflectance", 848, 16),
+        ("vNormalNoiseParam", 4, 12),
+        ("mRrW2T", 17, 48),
+        ("fRrRefractiveIndex", 18, 4),
+        ("fRrTransparency", 19, 4),
+        ("fDiffuseTransparency", 20, 4),
+        ("vRrParam", 21, 16),
+        ("vD2Z", 22, 8),
+        ("vRrCameraPos", 23, 16),
+        ("vRrCameraDir", 24, 16),
+        ("vWaveBubbleColorScale", 25, 16),
+        ("vWaveSurfaceBubbleColor", 26, 48),
+        ("vWaveSurfaceBubbleParam", 27, 16),
+        ("vWaveInnerBubbleColor", 28, 48),
+        ("vWaveInnerBubbleParam", 29, 16),
+        ("vShoreBubbleColor", 30, 48),
+        ("vShoreBubbleParam", 12, 16),
+        ("vBubbleShoalingAjustParam", 13, 16),
+        ("vOceanScatteringColor", 31, 16),
+        ("vWaveBubbleSpawnPointArray", 32, 256),
+        ("vBubbleDepth", 33, 16),
+        ("vBubbleTextureArrayNo", 34, 16),
+        ("vWaveSurfaceBubbleScale", 35, 16),
+        ("vWaveInnerBubbleScale", 36, 16),
+        ("vShoreBubbleScale", 37, 16),
+        ("vWaveBubbleOffset", 38, 8),
+        ("vAlbedoColor", 39, 16),
+        ("vReflectance", 40, 16),
     ];
 
     private static readonly (string Name, uint Type, uint Dimension, uint Slot)[] vsBindings =
@@ -77,10 +75,10 @@ internal static class OceanShaderAbi
         ("__smpsOceanBubbleMap", 3, 0, 4), ("sOceanBubbleMap", 2, 5, 4)
     ];
 
-    internal static void RequireSupported(byte[] vertex, byte[] pixel)
+    internal static OceanMaterialLayout ImportLayout(byte[] vertex, byte[] pixel)
     {
-        RequireStage(vertex, 0xFFFE, 384, vsFields, vsBindings);
-        RequireStage(pixel, 0xFFFF, 864, psFields, psBindings);
+        var vertexLayout = ImportStage(vertex, 0xFFFE, 1, vsFields, vsBindings);
+        var pixelLayout = ImportStage(pixel, 0xFFFF, 0, psFields, psBindings);
         var vertexSignature = DxbcSignatureReader.Read(vertex);
         var pixelSignature = DxbcSignatureReader.Read(pixel);
         var input = vertexSignature.Parts.Single(part => part.Kind == DxbcSignatureKind.Input);
@@ -103,23 +101,30 @@ internal static class OceanShaderAbi
             parameter.SemanticName.Text.Equals("SV_Target", StringComparison.OrdinalIgnoreCase) &&
             parameter.SemanticIndex == target && parameter.ComponentType == 3 && parameter.Mask == 15)))
             throw Unsupported("six water render targets");
+        return new(vertexLayout, pixelLayout);
     }
 
-    private static void RequireStage(byte[] bytecode, ushort stage, int size,
-        (string Name, int Offset, int Size)[] fields,
+    private static OceanMaterialStageLayout ImportStage(byte[] bytecode, ushort stage, uint stageCode,
+        (string Name, int Id, int Size)[] fields,
         (string Name, uint Type, uint Dimension, uint Slot)[] bindings)
     {
         var definitions = DxbcResourceDefinitionReader.Read(bytecode);
         if (definitions.RawShaderType != stage || definitions.Buffers.Count != 1)
             throw Unsupported("shader stage or constant buffers");
         var globals = definitions.Buffers[0];
-        if (globals.Name.Text != "$Globals" || globals.ByteSize != size || globals.Variables.Count != fields.Length ||
-            fields.Any(field => !globals.Variables.Any(variable => variable.Name.Text == field.Name &&
-                variable.StartOffset == field.Offset && variable.ByteSize == field.Size)))
-            throw Unsupported("named constant layout");
-        foreach (var field in fields)
+        if (globals.Name.Text != "$Globals" || globals.BufferType != 0 ||
+            globals.ByteSize <= 0 || globals.ByteSize > 65536 || globals.ByteSize % 16 != 0)
+            throw Unsupported("constant buffer storage");
+        if (globals.Variables.Select(value => value.Name.Text).Distinct().Count() != globals.Variables.Count)
+            throw Unsupported("duplicate constant names");
+        var writes = new List<OceanMaterialFieldWrite>();
+        foreach (var variable in globals.Variables)
         {
-            var variable = globals.Variables.Single(value => value.Name.Text == field.Name);
+            // Unused declarations and padding receive explicit zero storage.
+            // No ambient provider is inferred from an unused declaration.
+            if ((variable.Flags & 2) == 0) continue;
+            var field = fields.SingleOrDefault(value => value.Name == variable.Name.Text);
+            if (field.Name is null) throw Unsupported($"live material field {variable.Name.Text}");
             var type = definitions.Types.Single(value => value.Offset == variable.TypeOffset);
             (int Class, int Rows, int Columns, int Elements) shape = field.Name switch
             {
@@ -129,17 +134,26 @@ internal static class OceanShaderAbi
                 "vWaveBubbleSpawnPointArray" => (1, 1, 4, 16),
                 _ => (field.Size == 4 ? 0 : 1, 1, field.Size / 4, 0)
             };
-            bool used = field.Name is not ("fAmbMapsDORate" or "vAmbDifScl");
-            if (type.BaseType != 3 || type.Class != shape.Class || type.Rows != shape.Rows ||
-                type.Columns != shape.Columns || type.Elements != shape.Elements || type.Members.Count != 0 ||
-                ((variable.Flags & 2) != 0) != used)
+            if (variable.ByteSize != field.Size || variable.StartOffset % 4 != 0 ||
+                type.BaseType != 3 || type.Class != shape.Class || type.Rows != shape.Rows ||
+                type.Columns != shape.Columns || type.Elements != shape.Elements || type.Members.Count != 0)
                 throw Unsupported($"typed material field {field.Name}");
+            writes.Add(new((uint)field.Id, (uint)variable.StartOffset, 0, (uint)field.Size));
         }
+        var ordered = writes.OrderBy(value => value.Destination).ToArray();
+        for (int index = 1; index < ordered.Length; index++)
+            if (ordered[index - 1].Destination + ordered[index - 1].ByteCount > ordered[index].Destination)
+                throw Unsupported("overlapping live constants");
+        var constant = definitions.Bindings.SingleOrDefault(value => value.Name.Text == "$Globals");
+        if (constant is null || constant.InputType != 0 || constant.Dimension != 0 ||
+            constant.BindCount != 1 || constant.BindPoint >= 14)
+            throw Unsupported("constant buffer binding");
         if (definitions.Bindings.Count != bindings.Length || bindings.Any(expected => !definitions.Bindings.Any(binding =>
             binding.Name.Text == expected.Name && binding.InputType == expected.Type && binding.Dimension == expected.Dimension &&
-            binding.BindPoint == expected.Slot && binding.BindCount == 1 &&
+            (expected.Type == 0 || binding.BindPoint == expected.Slot) && binding.BindCount == 1 &&
             (expected.Type != 2 || binding.ReturnType == 5))))
             throw Unsupported("texture, sampler or constant binding");
+        return new(stageCode, constant.BindPoint, (uint)globals.ByteSize, Array.AsReadOnly(ordered));
     }
 
     private static NotSupportedException Unsupported(string part) =>

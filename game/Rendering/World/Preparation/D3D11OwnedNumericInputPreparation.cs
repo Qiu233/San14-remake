@@ -35,6 +35,8 @@ public static class D3D11OwnedNumericInputPreparation
             Path.Combine(inputRoot, OceanGridSettingsEncoding.NativeDirectory), current.OceanOptics);
         OceanTextureMaterialEncoding.WriteNativeInputs(
             Path.Combine(inputRoot, OceanGridSettingsEncoding.NativeDirectory), current.OceanTextureMaterial);
+        OceanBubbleMaterialEncoding.WriteNativeInputs(
+            Path.Combine(inputRoot, OceanGridSettingsEncoding.NativeDirectory), current.OceanBubbleMaterial);
 
         string locale = actualMain.Camera.ExecutableLocale;
         var common = D3D11TimingInputPreparation.LoadSourceCommon(repository);

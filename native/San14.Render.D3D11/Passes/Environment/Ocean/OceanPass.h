@@ -4,6 +4,7 @@
 #include "Interop/OceanSurfaceInput.h"
 #include "Interop/OceanOpticsInput.h"
 #include "Interop/OceanTextureMaterialInput.h"
+#include "Interop/OceanBubbleMaterialInput.h"
 #include <optional>
 namespace San14::Render {
 
@@ -46,13 +47,17 @@ class OceanPass {
         const source_camera::CameraTransform& camera,float clock,
         RenderRandomContext& randomContext,uint32_t startupSeed,const OceanWaveSettings* currentWave,
         const OceanSurfaceSettings* currentSurface,const OceanOpticsSettings* currentOptics,
-        const OceanTextureMaterialSettings* currentTextureMaterial) {
+        const OceanTextureMaterialSettings* currentTextureMaterial,
+        const OceanBubbleMaterialSettings* currentBubbleMaterial,
+        std::uint32_t group,const CommonRenderPolicy& policy) {
         const auto surface=currentSurface?*currentSurface:Interop::readOceanSurfaceSettings(source.grid/"ocean-surface.bin");
         grid_ = &grid;
         const auto wave=currentWave?*currentWave:Interop::readOceanWaveSettings(source.grid/"ocean-wave.bin");
         const auto optics=currentOptics?*currentOptics:Interop::readOceanOpticsSettings(source.grid/"ocean-optics.bin");
         const auto material=currentTextureMaterial?*currentTextureMaterial:
             Interop::readOceanTextureMaterialSettings(source.grid/"ocean-texture-material.bin");
+        const auto bubble=currentBubbleMaterial?*currentBubbleMaterial:
+            Interop::readOceanBubbleMaterialSettings(source.grid/"ocean-bubble-material.bin");
         waves_=prepareNativeOceanFftSchedule(grid_->settings,wave,randomContext,startupSeed);
         const auto initialSide=waves_.fft.activeSide;
         textures_=loadOceanTextures(device,source.textures);
@@ -60,19 +65,28 @@ class OceanPass {
             depth_.view.Get(),source.depthCopy/"target-sampler-desc.bin",targets,
             surface,optics,sceneCopy_.has_value()&&depthCopy_.has_value());
         applyNativeOceanTextureMaterialSettings(water_,material);
+        applyNativeOceanBubbleMaterialSettings(water_,bubble);
         camera_=prepareNativeWaterCameraGpu(device,*grid_,water_);
         // The first displayed frame follows the same publication cadence as
         // later frames: phase0 is published once, then the first Common delta
         // advances the clock and queues the elapsed job on the other side.
-        publishCompletedGeometry(context,clock,&wave,&surface,&optics,&material);
-        updateNativeWaterCameraGpu(camera_,context,water_,camera,completedWaveBounds_);
+        publishCompletedGeometry(context,clock,&wave,&surface,&optics,&material,&bubble,group,policy);
+        updateCamera(context,camera);
     }
 
     // Completion is published before the clock advances and queues its next
     // wave job. This cadence precedes accepted Main camera preparation.
     void publishCompletedGeometry(ID3D11DeviceContext* context,float clock,const OceanWaveSettings* currentWave,
         const OceanSurfaceSettings* currentSurface,const OceanOpticsSettings* currentOptics,
-        const OceanTextureMaterialSettings* currentTextureMaterial) {
+        const OceanTextureMaterialSettings* currentTextureMaterial,
+        const OceanBubbleMaterialSettings* currentBubbleMaterial,
+        std::uint32_t group,const CommonRenderPolicy& policy) {
+        const float transparency=currentOptics?currentOptics->refractionTransparency:water_.optics.refractionTransparency;
+        updateAdmitted_=oceanDrawEnabled(group,transparency,policy);
+        if(!updateAdmitted_) {
+            water_.clock.observe(clock);
+            return;
+        }
         const auto& published=publishNativeOceanFftCompleted(waves_);
         updateNativeOceanGeometry(context,water_,published.data(),UINT(published.size()*sizeof(NativeOceanFftVertex)));
         completedWaveBounds_=waves_.publishedBounds;
@@ -84,16 +98,17 @@ class OceanPass {
         }
         if(currentOptics)applyNativeOceanOpticsSettings(water_,*currentOptics);
         if(currentTextureMaterial)applyNativeOceanTextureMaterialSettings(water_,*currentTextureMaterial);
-        water_.clock.advance(clock);
-        writeNativeOceanAnimation(water_);
+        if(currentBubbleMaterial)applyNativeOceanBubbleMaterialSettings(water_,*currentBubbleMaterial);
+        const float delta=water_.clock.advance(clock);
+        water_.bubbleRuntime.update(delta,water_.bubbleMaterial.spawn,water_.surface,water_.textureMaterial.wave);
         queueNativeOceanFft(waves_,water_.clock.accumulatedTime);
     }
     void updateCamera(ID3D11DeviceContext* context,const source_camera::CameraTransform& camera) {
-        updateNativeWaterCameraGpu(camera_,context,water_,camera,completedWaveBounds_);
+        if(updateAdmitted_)updateNativeWaterCameraGpu(camera_,context,water_,camera,completedWaveBounds_);
     }
     void executeWater(ID3D11DeviceContext* context,NativeSourceDepthState& logical,std::uint32_t group,
         const CommonRenderPolicy& policy) {
-        executeNativeOcean116(context,logical,water_,group,policy);
+        if(updateAdmitted_)executeNativeOcean116(context,logical,water_,group,policy);
     }
 
     // Filtering remains after sky/cloud/fog, separate from the initial copies.
@@ -127,6 +142,7 @@ class OceanPass {
     // The Scene named renderer owns this grid and outlives this pass.
     OceanGrid* grid_ = nullptr;
     NativeOcean116 water_;
+    bool updateAdmitted_=false;
     NativeWaterCameraGpu camera_;
     std::array<float,8> completedWaveBounds_{};
     NativeOceanFftSchedule waves_;

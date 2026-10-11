@@ -99,8 +99,10 @@ public static class G1TextureContainerReader
                 (i > 0 && offsets[i] <= offsets[i - 1]))
                 throw new InvalidDataException("G1T texture directory overlaps or lies outside the file.");
         }
-        if (offsets[0] != 4L * count)
-            throw new InvalidDataException("G1T data before the first texture is unsupported.");
+        // Optional records live between the directory and the first image.
+        // Their ownership comes from each image's base-header record count,
+        // independently of its physical texture array layers.
+        _ = G1TextureOptionalMetadataReader.Read(data);
         var textures = new G1TextureImage[count];
         for (int i = 0; i < count; i++)
         {
@@ -127,7 +129,7 @@ public static class G1TextureContainerReader
         int mips = Math.Max(1, (int)rawMips);
         if(system == 2 && rawMips == 0)
             throw new InvalidDataException("Original system2 volume requires an explicit nonzero mip count.");
-        if (system is not (0 or 2 or 3) || (system != 2 && image[3] != 0))
+        if (system is not (0 or 2 or 3) || (system != 2 && (image[3] & 15) != 0))
             throw new InvalidDataException("Unsupported G1T texture system, depth or external attribute headers.");
         byte format = image[1];
         int blockBytes = format switch
