@@ -1,6 +1,7 @@
 #pragma once
 #include "../Environment/WeatherFogFrame.h"
 #include <span>
+#include <optional>
 
 namespace San14::Render {
 using HdrVector = source_camera::V4;
@@ -8,6 +9,7 @@ struct HdrLightModifier {
     bool present{}, adjustsLighting{};
     std::array<float, 4> directionalFactors{};
     float ambientFactor{}, hemisphereFactor{};
+    std::optional<std::array<float, 2>> occlusionRates;
 };
 struct HdrDirectionalLight {
     HdrVector direction{}, color{};
@@ -24,6 +26,7 @@ struct HdrLightState {
     float diffuseIntensity{}, specularIntensity{};
     HdrHemisphereLighting hemisphere;
     source_weather_fog::FogState fog;
+    bool preservesFreshHatching{}, preservesFreshShadowFade{}, causticsUpdateDisabled{};
 };
 struct HdrLightingSettings {
     float ambientMapsRate{};
@@ -31,10 +34,10 @@ struct HdrLightingSettings {
 };
 enum class HdrLightingField : std::uint32_t {
     Direction, Color, Occurrence, Ambient, DirectionalCount, Fog, FogColor,
-    Scattering, AmbientMapsRate, AmbientDiffuseScale, AmbientSpecularScale
+    Scattering, AmbientMapsRate, AmbientDiffuseScale, AmbientSpecularScale, OcclusionRates
 };
-inline constexpr std::array<std::uint32_t, 11> HdrLightingFieldBytes{
-    64, 64, 16, 16, 4, 16, 16, 64, 4, 16, 16};
+inline constexpr std::array<std::uint32_t, 12> HdrLightingFieldBytes{
+    64, 64, 16, 16, 4, 16, 16, 64, 4, 16, 16, 8};
 struct HdrLightingValues {
     std::array<HdrVector, 4> directions{}, colors{};
     std::array<float, 4> occurrences{};
@@ -44,6 +47,7 @@ struct HdrLightingValues {
     float ambientMapsRate{};
     HdrVector ambientDiffuseScale{}, ambientSpecularScale{};
     HdrHemisphereLighting hemisphere;
+    std::optional<std::array<float, 2>> occlusionRates;
 };
 inline HdrVector scaleHdrRgb(HdrVector color, float factor) {
     if (!std::isfinite(factor)) throw std::runtime_error("Nonfinite HDR color multiplier");
@@ -60,6 +64,7 @@ inline HdrLightingValues prepareHdrLighting(const HdrLightState& outer,
     const auto& modifier = selected.modifier;
     const bool adjust = modifier.present && (settings.suppressAmbient || modifier.adjustsLighting);
     HdrLightingValues result;
+    result.occlusionRates = modifier.occlusionRates;
     result.ambient = outer.ambient;
     result.hemisphere = outer.hemisphere;
     for (std::size_t i = 0; i < outer.directional.size(); ++i) {
@@ -123,6 +128,9 @@ inline std::span<const std::uint8_t> hdrLightingField(const HdrLightingValues& v
         case HdrLightingField::AmbientMapsRate: return bytes(values.ambientMapsRate);
         case HdrLightingField::AmbientDiffuseScale: return bytes(values.ambientDiffuseScale);
         case HdrLightingField::AmbientSpecularScale: return bytes(values.ambientSpecularScale);
+        case HdrLightingField::OcclusionRates:
+            if (!values.occlusionRates) throw std::runtime_error("HDR current occlusion rates are unresolved");
+            return bytes(*values.occlusionRates);
     }
     throw std::runtime_error("HDR lighting field is not supported");
 }

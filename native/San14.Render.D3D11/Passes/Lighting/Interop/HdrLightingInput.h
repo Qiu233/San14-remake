@@ -46,6 +46,9 @@ inline HdrLightState decodeHdrLight(std::span<const std::uint8_t> input, HdrLigh
     result.hemisphere = {get<HdrVector>(input.data() + 0x100), get<HdrVector>(input.data() + 0x110),
         get<HdrVector>(input.data() + 0x130), get<HdrVector>(input.data() + 0x140)};
     result.fog = source_weather_fog::decodeFog(input.data() + 0x150);
+    result.preservesFreshHatching = (get<std::uint32_t>(input.data() + 0x1F8) & 0x40) != 0;
+    result.preservesFreshShadowFade = (input[0x1F7] & 1) != 0;
+    result.causticsUpdateDisabled = (get<std::uint32_t>(input.data() + 0x1F4) & 0x40000000u) != 0;
     return result;
 }
 inline HdrLightingLayout readHdrLightingLayout(const std::filesystem::path& path) {

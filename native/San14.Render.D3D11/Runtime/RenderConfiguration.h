@@ -27,8 +27,7 @@ enum class ResourceGroup {
     CloudWeather,
     SeasonalResources,
     AnimationDefaults,
-    DeferredCamera,
-    DeferredLighting,
+    HdrProgramBank,
     DistantMap,
     FogAcceleration,
     FrameClock,
@@ -58,7 +57,6 @@ enum class ResourceGroup {
     WaterCamera,
     Water,
     Weather,
-    WeatherFog,
     Atmosphere,
 };
 
@@ -89,8 +87,7 @@ public:
         case ResourceGroup::CloudWeather: return packageRoot/"current-cloud-weather-input";
         case ResourceGroup::SeasonalResources: return packageRoot/"current-season-resource-input";
         case ResourceGroup::AnimationDefaults: return packageRoot/"default-player-phase-input";
-        case ResourceGroup::DeferredCamera: return packageRoot/"deferred-camera-continuous-input";
-        case ResourceGroup::DeferredLighting: return packageRoot/"early-hdr-input";
+        case ResourceGroup::HdrProgramBank: return packageRoot/"hdr-bank";
         case ResourceGroup::DistantMap: return packageRoot/"far-main-source-input";
         case ResourceGroup::FogAcceleration: return packageRoot/"fog-accel-input";
         case ResourceGroup::FrameClock: return packageRoot/"frame-clock-input";
@@ -120,7 +117,6 @@ public:
         case ResourceGroup::WaterCamera: return packageRoot/"water-camera-continuous-input";
         case ResourceGroup::Water: return packageRoot/"water-input";
         case ResourceGroup::Weather: return packageRoot/"weather-fog-camera-input";
-        case ResourceGroup::WeatherFog: return packageRoot/"weather-fog-consumer-input";
         case ResourceGroup::Atmosphere: return packageRoot/"ssfog-population-input";
         }
         throw std::invalid_argument("Unknown prepared resource group");

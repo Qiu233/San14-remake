@@ -1,5 +1,6 @@
 #pragma once
 #include "MapViewPopulation.h"
+#include "HdrViewInputs.h"
 #include "../../Passes/Environment/SeasonFrame.h"
 #include "../NamedMapRenderer.h"
 #include <optional>
@@ -59,12 +60,18 @@ public:
     }
     const MapViewDefinition& definition()const { return definition_; }
     const MapViewCameraSettings& cameraSettings()const { return camera_; }
+    const PreparedViewLocalLightQueries& localLightQueries() const { return localLightQueries_; }
+    HdrPreRendererState preRenderer() const { return preRenderer_; }
 private:
     const MapViewDefinition definition_;
     MapViewCameraSettings camera_;
     const std::uint32_t initialReceiveShadowMode_;
     std::vector<unsigned> ordinaryCounts_;
     unsigned accessoryCount_{};
+    // The normal constructor owns fresh empty group pools. Generations capture
+    // these retained states and do not reset them during population preparation.
+    PreparedViewLocalLightQueries localLightQueries_{LocalLightQuery::absent(), LocalLightQuery::absent()};
+    HdrPreRendererState preRenderer_{HdrPreRendererState::Absent};
 };
 enum class HdrAmbientMapVariant : int { Unsupported = -1, First, Second, Third };
 struct HdrAmbientSelection {
@@ -76,12 +83,14 @@ struct HdrAmbientSelection {
 class PreparedMapView {
 public:
     PreparedMapView(std::uint32_t slot, MapViewFrame frame,
-        std::array<std::uint32_t, 3> heightFogModes)
-        : slot_(slot), frame_(std::move(frame)), heightFogModes_(heightFogModes) {}
+        std::array<std::uint32_t, 3> heightFogModes, PreparedHdrViewInputs hdr)
+        : slot_(slot), frame_(std::move(frame)), heightFogModes_(heightFogModes), hdr_(std::move(hdr)) {}
     PreparedMapView(const PreparedMapView&) = delete;
     PreparedMapView& operator=(const PreparedMapView&) = delete;
 
     const MapViewFrame& frame() const { return frame_; }
+    std::uint32_t slot() const { return slot_; }
+    const PreparedHdrViewInputs& hdrInputs() const { return hdr_; }
     const std::optional<HdrAmbientSelection>& ambientSelection() const { return ambient_; }
 
     bool publishAmbientSelection(NamedMapRenderer* renderer) {
@@ -103,6 +112,7 @@ private:
     const std::uint32_t slot_;
     const MapViewFrame frame_;
     const std::array<std::uint32_t, 3> heightFogModes_;
+    const PreparedHdrViewInputs hdr_;
     std::optional<HdrAmbientSelection> ambient_;
 };
 } // namespace San14::Render

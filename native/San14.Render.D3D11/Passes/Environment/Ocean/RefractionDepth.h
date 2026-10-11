@@ -2,11 +2,13 @@
 // Include after ComPtr/fs/load/buffer/check and NativeSourceDepthState.
 #pragma once
 #include <map>
+#include "Interop/RefractionTargetInputs.h"
 
 struct NativeRefractionDepth {
     ComPtr<ID3D11Texture2D> texture;
     ComPtr<ID3D11DepthStencilView> depth;
     ComPtr<ID3D11ShaderResourceView> view;
+    std::string logicalKey;
 };
 
 struct NativeRefractionConstantBinding {
@@ -176,17 +178,19 @@ struct NativePreparedRefractionDepth {
     D3D11_COMPARISON_FUNC depthCompare{};
 };
 static NativePreparedRefractionDepth prepareNativeRefractionDepth(ID3D11Device* device,
-    const fs::path& source,ID3D11ShaderResourceView* input,UINT width,UINT height) {
+    const fs::path& source,ID3D11ShaderResourceView* input,UINT width,UINT height,
+    const NativeRefractionTargetDeclaration& declared) {
     UINT resource,shader,target,sourceWidth,sourceHeight;std::ifstream file(source/"target.txt");
     file>>resource>>shader>>target>>sourceWidth>>sourceHeight;
     if(!file||width!=sourceWidth||height!=sourceHeight)throw std::runtime_error("Re-export node97 for the Main extent");
-    NativePreparedRefractionDepth out;out.input=input;
-    D3D11_TEXTURE2D_DESC td{};td.Width=width;td.Height=height;td.ArraySize=td.MipLevels=1;
-    td.Format=DXGI_FORMAT(resource);td.SampleDesc.Count=1;td.BindFlags=D3D11_BIND_DEPTH_STENCIL|D3D11_BIND_SHADER_RESOURCE;
+    requireNativeRefractionMedia(declared,resource,shader,target,sourceWidth,sourceHeight);
+    NativePreparedRefractionDepth out;out.input=input;out.output.logicalKey=declared.logicalKey;
+    D3D11_TEXTURE2D_DESC td{};td.Width=declared.width;td.Height=declared.height;td.ArraySize=td.MipLevels=1;
+    td.Format=DXGI_FORMAT(declared.resourceFormat);td.SampleDesc.Count=1;td.BindFlags=D3D11_BIND_DEPTH_STENCIL|D3D11_BIND_SHADER_RESOURCE;
     check(device->CreateTexture2D(&td,nullptr,&out.output.texture),"node97 original target");
-    D3D11_DEPTH_STENCIL_VIEW_DESC dd{};dd.Format=DXGI_FORMAT(target);dd.ViewDimension=D3D11_DSV_DIMENSION_TEXTURE2D;
+    D3D11_DEPTH_STENCIL_VIEW_DESC dd{};dd.Format=DXGI_FORMAT(declared.targetFormat);dd.ViewDimension=D3D11_DSV_DIMENSION_TEXTURE2D;
     check(device->CreateDepthStencilView(out.output.texture.Get(),&dd,&out.output.depth),"node97 original DSV");
-    D3D11_SHADER_RESOURCE_VIEW_DESC sd{};sd.Format=DXGI_FORMAT(shader);sd.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;sd.Texture2D.MipLevels=1;
+    D3D11_SHADER_RESOURCE_VIEW_DESC sd{};sd.Format=DXGI_FORMAT(declared.shaderFormat);sd.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;sd.Texture2D.MipLevels=1;
     check(device->CreateShaderResourceView(out.output.texture.Get(),&sd,&out.output.view),"node97 original SRV");
     NativeRefractionConstantFiles constants;out.programs=prepareRefractionPrograms(device,source,constants,true);
     out.geometry=prepareRefractionGeometry(device,source,out.programs.vertexCode);
@@ -220,11 +224,4 @@ static const NativeRefractionDepth& executeNativeRefractionDepth(NativePreparedR
     // Retain write1 and the former blend/viewport/IA effects.
     context->RSSetState(priorRaster.Get());logical.bind(context,prepared.exitDepth.Get(),exit,reference);
     return prepared.output;
-}
-
-// Transitional single-use API. A persistent caller owns prepare+execute instead.
-static NativeRefractionDepth produceRefractionDepth(ID3D11Device* device,ID3D11DeviceContext* context,NativeSourceDepthState& logical,
-    const fs::path& source,ID3D11ShaderResourceView* input,UINT width,UINT height) {
-    auto prepared=prepareNativeRefractionDepth(device,source,input,width,height);
-    return executeNativeRefractionDepth(prepared,context,logical);
 }

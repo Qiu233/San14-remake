@@ -27,17 +27,15 @@ public:
         environment_.initialize(SceneEnvironmentPacket::decodeInitial(
             load(resources.directory(ResourceGroup::CameraInitialState)/"profile.bin")));
     }
-    void prepareLightingProfiles(const PreparedResourceDirectories& resources) {
-        deferredProfile_=prepareNativeDeferredCameraProfile(resources.directory(ResourceGroup::DeferredCamera));
+    void prepareWeatherProfile(const PreparedResourceDirectories& resources) {
         weatherProfile_=source_weather_fog::readProfile(resources.directory(ResourceGroup::Weather)/"initial"/"weather");
-        weatherConsumers_=prepareNativeWeatherFogConsumers(resources.directory(ResourceGroup::WeatherFog));
     }
-    // Accessories extend these retained profiles once. The mutable profile
-    // borrow is confined to this resource preparation call, never exposed.
+    // Accessories retain their device and animation owners independently from
+    // HDR program selection and its current numeric layouts.
     void prepareBaseAccessories(ID3D11Device* device,ID3D11DeviceContext* context,
         const PreparedResourceDirectories& resources,const std::optional<AreaCapitalWorldPublication>& areaWorld,
         const source_default_player_phase::Profile& defaults,BaseRenderWorld& bases) {
-        bases.prepareAccessories(device,context,resources,areaWorld,defaults,deferredProfile_,weatherConsumers_);
+        bases.prepareAccessories(device,context,resources,areaWorld,defaults);
     }
     void prepareWeatherLight(const PreparedResourceDirectories& resources) {
         const auto globalRgb=load(resources.directory(ResourceGroup::Weather)/"initial"/"weather"/"effective-light-rgb.bin");
@@ -126,7 +124,15 @@ public:
         const auto& heightFog = season_ ? season_->heightFog : initialHeightFog_;
         std::array<std::uint32_t, 3> modes;
         for (std::size_t i = 0; i < modes.size(); ++i) modes[i] = heightFog.layers[i].mode;
-        auto prepared = std::make_unique<PreparedMapView>(0, std::move(frame), modes);
+        std::optional<std::size_t> selectedShadow;
+        if (season_ && shadows.seasonParameters().selectedLightGroup > 0) {
+            const auto* selected = source_current_season::firstMatching(*season_, shadows.seasonParameters().selectedMask);
+            if (!selected) throw std::runtime_error("Prepared HDR View has no selected shadow light");
+            selectedShadow = std::size_t(selected - season_->lights.data());
+        }
+        PreparedHdrViewInputs hdr{view.localLightQueries(),view.preRenderer(),&shadows.compactCpuProvider(),
+            selectedShadow,shadows.frame().passes[0].shadowAvailable != 0};
+        auto prepared = std::make_unique<PreparedMapView>(0, std::move(frame), modes, std::move(hdr));
         fieldDisplay_.finishPreparation();
         deferredFields_ = std::move(camera);
         mapView_ = std::move(prepared);
@@ -143,16 +149,16 @@ public:
         return clouds.atmosphereFrame(season_,cloudLights_,environment_.camera().weatherHeight,
             weather_,globalLight_,cameraRig_.frame());
     }
-    DeferredLightingFrame lightingFrame(const source_water_camera::RefractionDerived* refraction=nullptr)const {
-        return {deferredProfile_,deferredFields_,season_,weatherConsumers_,weather_,refraction};
+    DeferredLightingFrame lightingFrame(std::uint32_t phaseFlags, float commonClock,
+        const source_water_camera::RefractionDerived* refraction=nullptr)const {
+        return {deferredFields_,*mapView_,viewPreparation_->definition(),viewPreparation_->cameraSettings(),
+            season_,phaseFlags,commonClock,refraction};
     }
     source_camera::Frame publishedEventCamera(const RenderInput& input)const {return cameraRig_.publishedEventCamera(input);}
     const source_camera::Frame& camera()const {return cameraRig_.frame();}
     const SceneEnvironment& environment()const {return environment_;}
     const MapViewDefinition& viewDefinition()const {return viewPreparation_->definition();}
     const MapViewFrame& view()const {return mapView_->frame();}
-    const NativeDeferredCameraProfile& deferredProfile()const {return deferredProfile_;}
-    const NativeWeatherFogConsumers& weatherConsumers()const {return weatherConsumers_;}
     const source_current_season::Frame* season()const {return season_;}
     const source_current_season_atmosphere::CloudLightInput& cloudLights()const {return cloudLights_;}
     source_camera::Zoom zoom()const {return cameraRig_.zoom();}
@@ -161,12 +167,10 @@ private:
     CameraRig cameraRig_;
     FieldDisplay fieldDisplay_;
     SceneEnvironment environment_;
-    NativeDeferredCameraProfile deferredProfile_;
     NativeDeferredCameraFields deferredFields_;
     source_weather_fog::Profile weatherProfile_;
     source_weather_fog::Frame weather_;
     source_camera::V3 globalLight_{};
-    NativeWeatherFogConsumers weatherConsumers_;
     std::optional<MapViewPreparation> viewPreparation_;
     std::unique_ptr<PreparedMapView> mapView_;
     std::optional<NamedMapRenderer> namedRenderer_;

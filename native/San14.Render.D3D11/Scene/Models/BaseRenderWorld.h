@@ -2,8 +2,6 @@
 #include "CityPopulation.h"
 #include "StaticModelResources.h"
 #include "AreaCapitalAccessories.h"
-#include "../../Passes/Lighting/DeferredCameraFrame.h"
-#include "../../Passes/Environment/WeatherFogConstants.h"
 #include "AreaPrimaryPopulation.h"
 #include "CityGateFlagImports.h"
 #include "ArmyRenderWorld.h"
@@ -32,8 +30,7 @@ public:
 
     void prepareAccessories(ID3D11Device* device,ID3D11DeviceContext* context,
         const PreparedResourceDirectories& resources,const std::optional<AreaCapitalWorldPublication>& areaWorld,
-        const source_default_player_phase::Profile& defaultPlayerPhases,
-        NativeDeferredCameraProfile& deferredCameraProfile,NativeWeatherFogConsumers& weatherConsumers) {
+        const source_default_player_phase::Profile& defaultPlayerPhases) {
         if(sourceAccessoryVisuals) {
             const auto accessorySource=resources.directory(ResourceGroup::BaseAccessories);
             cityAccessories=prepareNativeCityAccessoryGpu(device,context,accessorySource,
@@ -44,10 +41,6 @@ public:
             cityFlagImports=San14::Render::loadCityGateFlagImports(accessorySource/"material-source",cityAccessories);
             areaAccessories=prepareNativeAreaCapitalAccessories(cityAccessories,
                 readNativeAreaCapitalAccessories(areaWorld->models.accessories));
-            auto camera=prepareNativeDeferredCameraProfile(accessorySource/"hdr/initial/camera-source");
-            deferredCameraProfile.constants.merge(camera.constants);
-            auto weather=prepareNativeWeatherFogConsumers(accessorySource/"hdr/initial/weather-source");
-            weatherConsumers.insert(weatherConsumers.end(),weather.begin(),weather.end());
         }
     }
 

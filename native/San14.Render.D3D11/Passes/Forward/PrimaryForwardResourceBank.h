@@ -34,6 +34,4 @@ inline NativePrimaryForwardGpu prepareNativePrimaryForwardCurrentBankGpu(ID3D11D
     if(!rows.eof())throw std::runtime_error("Forward bank GPU metadata incomplete");return result;
 }
 #endif
-// Per request, reuse prepareNativePrimaryForwardCurrent(result,currentSource,
-// currentPlan,currentMain,currentHdr02,736,currentReceiver,768). No new resource
-// creation, loading, hashes or catalog selection takes place in that call.
+// Current publication borrows its real primary record bindings and typed lights.

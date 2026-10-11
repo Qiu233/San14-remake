@@ -9,7 +9,7 @@ struct MapViewRecord {
 };
 struct MapViewCommonSettings {
     bool present{};
-    std::uint32_t featureFlags{}, excludedCategories{};
+    std::uint32_t featureFlags{}, excludedCategories{}, outerLightGroupOverride{};
 };
 struct MapViewShadowSettings {
     int lightGroup{};

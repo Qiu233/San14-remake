@@ -5,6 +5,7 @@
 #include "CloudWeatherInputs.h"
 #include "HeightFogInputs.h"
 #include "../Lighting/Interop/HdrLightingInput.h"
+#include "../Lighting/Interop/HdrProgramBankInput.h"
 #include "Ocean/OceanWaveSettings.h"
 #include "Ocean/OceanSurfaceSettings.h"
 #include "Ocean/OceanOpticsSettings.h"
@@ -39,6 +40,7 @@ struct Frame {
     std::array<float,74> atmosphere{};
     ExposureLight exposure;
     std::optional<San14::Render::HdrLightingSettings> hdrLighting;
+    std::optional<San14::Render::HdrCurrentSelectionSettings> hdrSelection;
     source_current_season_shadow::Settings shadow;
     source_current_season_shadow::ReceiverStyle shadowReceiver;
     source_current_cloud_weather::Conditions cloudWeather;
@@ -178,10 +180,25 @@ inline Frame decode(std::span<const uint8_t> bytes){
     at+=heightBytes;
     if (at < bytes.size()) {
         std::array<San14::Render::HdrLightModifier, 5> modifiers;
-        r.hdrLighting = San14::Render::Interop::decodeHdrLightingInputs(bytes.subspan(at), modifiers);
+        if (bytes.size() - at < San14::Render::Interop::HdrLightingInputBytes)
+            throw std::runtime_error("Current HDR lighting packet is truncated");
+        r.hdrLighting = San14::Render::Interop::decodeHdrLightingInputs(
+            bytes.subspan(at, San14::Render::Interop::HdrLightingInputBytes), modifiers);
         for (std::size_t i = 0; i < r.lights.size(); ++i)
             r.lights[i].lighting = San14::Render::Interop::decodeHdrLight(r.lights[i].data, modifiers[i]);
         at += San14::Render::Interop::HdrLightingInputBytes;
+        if (at < bytes.size()) {
+            if (bytes.size() - at < 16) throw std::runtime_error("Current HDR selection settings are truncated");
+            r.hdrSelection = San14::Render::Interop::decodeHdrSelectionSettings(bytes.subspan(at,16));
+            at += 16;
+            if (bytes.size() - at != 44 || read<std::uint32_t>(bytes,at) != 0x31434F48u)
+                throw std::runtime_error("Current HDR occlusion rates format");
+            at += 4;
+            for (auto& light : r.lights) {
+                light.lighting.modifier.occlusionRates = read<std::array<float,2>>(bytes,at);
+                at += 8;
+            }
+        }
     }
     if (at != bytes.size()) throw std::runtime_error("Current HDR lighting packet tail");
     decodeShadowInputs(r);

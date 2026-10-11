@@ -79,57 +79,10 @@ inline const source_water_geometry::Frame& updateNativeWaterCameraGpu(
 // Once-exported selected HDR RDEF writes: position,direction,viewY,D2Z,W2Texture.
 // No Ocean384/864 offsets are reused for the distinct F103 PS b0 layouts.
 struct NativeWaterRefractionWrite {unsigned kind=0,offset=0,sourceOffset=0,bytes=0;};
-struct NativeWaterRefractionReceiver {
-    size_t passIndex=0,constantIndex=0;
-    std::vector<NativeWaterRefractionWrite> writes;
-};
-struct NativeWaterRefractionGpu {std::vector<NativeWaterRefractionReceiver> receivers;};
-
-inline NativeWaterRefractionGpu prepareNativeWaterRefractionGpu(
-    const std::filesystem::path& layoutFile,const NativeSourceHdrPasses& passes) {
-    std::ifstream input(layoutFile);std::string name;NativeWaterRefractionWrite write;
-    if(!input)throw std::runtime_error("Selected HDR refraction source layout absent");
-    std::map<std::string,std::vector<NativeWaterRefractionWrite>> layouts;
-    constexpr unsigned widths[]{12,12,12,8,48};
-    while(input>>name>>write.kind>>write.offset>>write.sourceOffset>>write.bytes) {
-        if(write.kind>=std::size(widths)||write.sourceOffset+write.bytes>widths[write.kind])
-            throw std::runtime_error("Selected HDR refraction source value range differs");
-        layouts[name].push_back(write);
-    }
-    if(!input.eof())throw std::runtime_error("Incomplete selected HDR refraction source layout");
-    NativeWaterRefractionGpu result;
-    for(size_t pi=0;pi<passes.passes.size();++pi) {
-        const auto& pass=passes.passes[pi];auto found=layouts.find(pass.identity);
-        if(found==layouts.end())continue; // Selected node78 has no refraction group.
-        bool bound=false;
-        for(size_t ci=0;ci<pass.constants.size();++ci) {
-            const auto& constant=pass.constants[ci];
-            if(constant.vertex||constant.slot!=0)continue;
-            for(const auto& field:found->second)if(field.offset+field.bytes>constant.bytes.size())
-                throw std::runtime_error("Selected HDR refraction write exceeds complete PS b0");
-            result.receivers.push_back({pi,ci,found->second});bound=true;
-        }
-        if(!bound)throw std::runtime_error("Selected HDR refraction receiver PS b0 absent");
-    }
-    return result;
-}
-
 inline void applyNativeWaterRefractionConstant(const std::vector<NativeWaterRefractionWrite>& writes,
     const source_water_camera::RefractionDerived& current,std::vector<char>& bytes) {
     const void* values[]{current.position.data(),current.direction.data(),current.viewY.data(),
         current.depthToZ.data(),current.worldToTexture.data()};
     for(const auto& field:writes)std::memcpy(bytes.data()+field.offset,
         static_cast<const char*>(values[field.kind])+field.sourceOffset,field.bytes);
-}
-
-// Separate publication at123/166: derive from their current prepared Main and
-// the actual copy-Main refraction branch. This does not execute97/114/137 copies.
-inline void updateNativeWaterRefractionGpu(ID3D11DeviceContext* context,
-    const NativeWaterRefractionGpu& source,const source_water_camera::RefractionDerived& current,
-    NativeSourceHdrPasses& passes) {
-    for(const auto& receiver:source.receivers) {
-        auto& constant=passes.passes[receiver.passIndex].constants[receiver.constantIndex];
-        applyNativeWaterRefractionConstant(receiver.writes,current,constant.bytes);
-        context->UpdateSubresource(constant.buffer.Get(),0,nullptr,constant.bytes.data(),0,0);
-    }
 }

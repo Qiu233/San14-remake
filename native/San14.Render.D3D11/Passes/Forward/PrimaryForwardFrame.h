@@ -2,6 +2,9 @@
 // CPU-only adapter after city-model-population-native.h. Import/static recipe
 // stays owned; each request uses the real current catalog and ordinary plan.
 // Shader sources: state0 2F9960EF/8F6C9FB9, matrix0, combo14 VS0/PS11.
+#include "../Lighting/HdrLightingState.h"
+#include "../Environment/SeasonFrame.h"
+#include "../../Scene/View/MapViewSettings.h"
 #include <array>
 #include <cstring>
 #include <filesystem>
@@ -14,10 +17,11 @@ struct NativePrimaryForwardTemplate {
     std::array<char,480> vertex{};
     std::array<char,1360> pixel{};
 };
-struct NativePrimaryForwardSharedWrite {unsigned destination{},source{},bytes{};};
+struct NativePrimaryForwardLightingWrite {unsigned field{}, destination{}, source{}, bytes{};};
 struct NativePrimaryForwardSource {
     std::vector<NativePrimaryForwardTemplate> templates;
-    std::vector<NativePrimaryForwardSharedWrite> hdrWrites;
+    std::vector<NativePrimaryForwardLightingWrite> lightingWrites;
+    unsigned lightGroup{};
 };
 struct NativePrimaryForwardDraw {
     unsigned primitiveIndex{},templateIndex{};
@@ -33,46 +37,80 @@ inline NativePrimaryForwardSource prepareNativePrimaryForwardSource(const std::f
         std::ifstream v(directory/name/"vs-b0.bin",std::ios::binary),b(directory/name/"ps-b0.bin",std::ios::binary);
         v.read(t.vertex.data(),t.vertex.size());b.read(t.pixel.data(),t.pixel.size());
         if(!v||!b)throw std::runtime_error("Original forward complete source CB template absent");}
-    std::ifstream writes(directory/"hdr-to-forward.txt");NativePrimaryForwardSharedWrite write;
-    while(writes>>write.destination>>write.source>>write.bytes)p.hdrWrites.push_back(write);
-    if(!rows.eof()||p.hdrWrites.empty())throw std::runtime_error("Original forward source profile incomplete");return p;
+    std::ifstream writes(directory/"forward-lighting-writes.txt");
+    NativePrimaryForwardLightingWrite write;
+    while(writes>>write.field>>write.destination>>write.source>>write.bytes) {
+        const auto width = write.field < San14::Render::HdrLightingFieldBytes.size()
+            ? San14::Render::HdrLightingFieldBytes[write.field] : write.field == 12 ? 16u : 0u;
+        if (width == 0 || write.bytes == 0 || std::uint64_t(write.source) + write.bytes > width ||
+            std::uint64_t(write.destination) + write.bytes > 1360)
+            throw std::runtime_error("Forward named lighting layout range");
+        p.lightingWrites.push_back(write);
+    }
+    std::ifstream group(directory/"forward-light-group.txt"); group>>p.lightGroup;
+    if(!rows.eof()||!writes.eof()||!group||p.lightingWrites.empty())
+        throw std::runtime_error("Forward lighting source is incomplete");
+    return p;
 }
+
 inline NativePrimaryForwardFrame prepareNativePrimaryForwardCurrent(const NativePrimaryForwardSource& source,
-    const NativeCityPopulationSource& currentWorld,const NativeCityPopulationPlan& currentPlan,
-    const std::array<float,4>& eye,const char* currentHdrInner02,size_t hdrBytes,
-    const char* currentShadowReceiver,size_t receiverBytes) {
-    // Held-lens season/MainMode0/1 is this imported producer's source scope.
-    // Its lens-dependent Cluster/Volume scalars are stable, not fingerprinted
-    // on each request. A changed lens uses its actual numeric producer.
-    if(hdrBytes!=736||receiverBytes!=768)throw std::runtime_error("Forward current source CB layout differs");
-    NativePrimaryForwardFrame frame;frame.draws.reserve(currentPlan.models.draws.size());
-    for(const auto& ordinary:currentPlan.models.draws){
-        const auto& primitive=currentWorld.catalog.primitives.at(ordinary.primitiveIndex);
-        const auto& retained=source.templates.at(primitive.templateIndex);if(!retained.eligible)continue;
-        NativePrimaryForwardDraw draw;draw.primitiveIndex=ordinary.primitiveIndex;draw.templateIndex=primitive.templateIndex;
-        draw.vertex=retained.vertex;draw.pixel=retained.pixel;
-        // Source current primitive LOCAL/World + actual V418 mW2P. Plan is
-        // already sorted with actual14->3 keys and owns current admission.
-        std::memcpy(draw.vertex.data(),ordinary.vertex.data(),160);
-        std::memcpy(draw.pixel.data()+192,ordinary.pixel.data(),16); // cSpec
-        std::memcpy(draw.pixel.data()+336,ordinary.pixel.data()+64,4); // actual AlphaTest value
-        for(const auto& w:source.hdrWrites)std::memcpy(draw.pixel.data()+w.destination,currentHdrInner02+w.source,w.bytes);
-        std::memcpy(draw.pixel.data()+176,eye.data(),sizeof(eye));
-        // HDR PS383 normalizes unread ambLit.W, but forward's actual Shadow
-        // module uses it. The normal receiver has the same full E0 writer.
-        std::memcpy(draw.pixel.data()+156,currentShadowReceiver+12,4);
-        // Same normal ready Pattern factory/cache, not old FE8 world fit.
-        std::memcpy(draw.vertex.data()+160,currentShadowReceiver+16,64); // mW2Pt
-        std::memcpy(draw.pixel.data()+288,currentShadowReceiver+80,4); // fPtn
-        std::memcpy(draw.vertex.data()+224,currentShadowReceiver+96,256); // current retained mW2S
-        // Source PS5/768 positions coincide with the actual forward PS11
-        // shadow named group. Compact count2 retains its inactive owner rows.
-        for(const auto& field:std::array<std::array<unsigned,2>,7>{{{352,64},{416,16},{432,16},{448,16},{464,4},{480,192},{672,16}}})
-            std::memcpy(draw.pixel.data()+field[0],currentShadowReceiver+field[0],field[1]);
-        frame.draws.push_back(draw);
+    const NativeCityPopulationSource& currentWorld, const NativeCityPopulationPlan& currentPlan,
+    const San14::Render::MapViewDefinition& view, const source_current_season::Frame& current,
+    const std::array<float,4>& eye, const char* currentShadowReceiver, size_t receiverBytes) {
+    if (receiverBytes != 768 || !current.hdrLighting)
+        throw std::runtime_error("Forward requires current lighting and its real shadow receiver");
+    auto group = source.lightGroup & 0x7fffffffu;
+    const bool overridden = view.common.present && view.common.outerLightGroupOverride != 0;
+    if (overridden) group = view.common.outerLightGroupOverride;
+    else if (source.lightGroup & 0x80000000u)
+        throw std::runtime_error("Forward negative outer-light group requires its unimplemented producer");
+    const auto exclusion = ~(1u << ((group - 1) & 31));
+    NativePrimaryForwardFrame frame;
+    frame.draws.reserve(currentPlan.models.draws.size());
+    for (const auto& ordinary : currentPlan.models.draws) {
+        const auto& primitive = currentWorld.catalog.primitives.at(ordinary.primitiveIndex);
+        const auto& retained = source.templates.at(primitive.templateIndex);
+        if (!retained.eligible) continue;
+        const auto& binding = currentWorld.templates.at(primitive.templateIndex);
+        const auto& world = currentWorld.worlds.at(primitive.instanceIndex);
+        const auto masks = nativeCityModelCurrentMasks(world);
+        bool supplied = false;
+        for (std::size_t record = 0; record < view.records.size(); ++record) {
+            const auto mask = view.records[record].groupMask;
+            if ((binding.allowedRecords & (1u << record)) == 0 ||
+                (masks.first & world.successful3340 & mask) == 0) continue;
+            for (const auto& outer : current.lights) {
+                if (outer.mask & exclusion) continue;
+                for (const auto& inner : current.lights) {
+                    if (inner.mask != mask) continue;
+                    // Forward has its own current light association. It shares
+                    // typed numeric preparation, not a selected HDR byte layout.
+                    const auto lighting = San14::Render::prepareHdrLighting(outer.lighting, inner.lighting, *current.hdrLighting);
+                    NativePrimaryForwardDraw draw;
+                    draw.primitiveIndex = ordinary.primitiveIndex; draw.templateIndex = primitive.templateIndex;
+                    draw.vertex = retained.vertex; draw.pixel = retained.pixel;
+                    std::memcpy(draw.vertex.data(), ordinary.vertex.data(), 160);
+                    std::memcpy(draw.pixel.data()+192, ordinary.pixel.data(), 16);
+                    std::memcpy(draw.pixel.data()+336, ordinary.pixel.data()+64, 4);
+                    for (const auto& write : source.lightingWrites) {
+                        const auto bytes = write.field == 12
+                            ? std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(eye.data()), sizeof(eye))
+                            : San14::Render::hdrLightingField(lighting, San14::Render::HdrLightingField(write.field));
+                        std::memcpy(draw.pixel.data()+write.destination, bytes.data()+write.source, write.bytes);
+                    }
+                    // Forward's shadow module consumes the receiver ambient
+                    // alpha and shadow group even where HDR did not read them.
+                    std::memcpy(draw.pixel.data()+156, currentShadowReceiver+12, 4);
+                    std::memcpy(draw.vertex.data()+160, currentShadowReceiver+16, 64);
+                    std::memcpy(draw.pixel.data()+288, currentShadowReceiver+80, 4);
+                    std::memcpy(draw.vertex.data()+224, currentShadowReceiver+96, 256);
+                    for (const auto& field : std::array<std::array<unsigned,2>,7>{{{352,64},{416,16},{432,16},{448,16},{464,4},{480,192},{672,16}}})
+                        std::memcpy(draw.pixel.data()+field[0], currentShadowReceiver+field[0], field[1]);
+                    frame.draws.push_back(std::move(draw)); supplied = true;
+                }
+            }
+        }
+        if (!supplied) throw std::runtime_error("Forward primitive has no actual current light association");
     }
     return frame;
 }
-// The caller supplies actual HDR inner02 and normal receiver bytes after their
-// source CPU writers. Never pick an initial/pan/mode1 template by frame/camera.
-// GPU owner retains the actual undefined t16 allocation and sparse b1/b2.

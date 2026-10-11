@@ -25,14 +25,18 @@ class OceanPass {
     OceanPass(const OceanPass&)=delete;
     OceanPass& operator=(const OceanPass&)=delete;
 
+    void prepareRefractionTargets(const fs::path& declarations) {
+        refractionTargets_=readNativeRefractionTargets(declarations);
+    }
+
     void prepareSceneCopy(ID3D11Device* device,ID3D11DeviceContext* context,
         NativeSourceDepthState& logical,const fs::path& source,ID3D11Texture2D* hdr,DXGI_FORMAT format) {
-        sceneCopy_=prepareNativeRefractionScene97(device,source,hdr,format);
+        sceneCopy_=prepareNativeRefractionScene97(device,source,hdr,format,refractionTargets_.at("TransmittedSpecular"));
         colors_.scene97=executeNativeRefractionScene97(*sceneCopy_,context,logical);
     }
     void prepareDepthCopy(ID3D11Device* device,ID3D11DeviceContext* context,
         NativeSourceDepthState& logical,const fs::path& source,ID3D11ShaderResourceView* depth,UINT width,UINT height) {
-        depthCopy_=prepareNativeRefractionDepth(device,source,depth,width,height);
+        depthCopy_=prepareNativeRefractionDepth(device,source,depth,width,height,refractionTargets_.at("RefractionDepth"));
         depth_=executeNativeRefractionDepth(*depthCopy_,context,logical);
     }
     void copyScene(ID3D11DeviceContext* context,NativeSourceDepthState& logical) {
@@ -99,7 +103,8 @@ class OceanPass {
     // Filtering remains after sky/cloud/fog, separate from the initial copies.
     void prepareFilters(ID3D11Device* device,const fs::path& source,
         ID3D11Texture2D* hdr,DXGI_FORMAT format,ID3D11ShaderResourceView* depth) {
-        filters_=prepareNativeRefractionFilters137(device,source,hdr,format,depth);
+        filters_=prepareNativeRefractionFilters137(device,source,hdr,format,depth,
+            refractionTargets_.at("FilteredSpecular"),refractionTargets_.at("BlurredDepth"));
     }
     void executeFilters(ID3D11DeviceContext* context,NativeSourceDepthState& logical) {
         executeNativeRefractionFilters137(filters_,context,logical,colors_);
@@ -115,6 +120,7 @@ class OceanPass {
   private:
     // Engaged only by successful real preparation. Material binding depends on
     // both owners, independently of whether either owner's child view is null.
+    std::map<std::string,NativeRefractionTargetDeclaration> refractionTargets_;
     std::optional<NativePreparedRefractionScene97> sceneCopy_;
     std::optional<NativePreparedRefractionDepth> depthCopy_;
     NativePreparedRefractionFilters137 filters_;

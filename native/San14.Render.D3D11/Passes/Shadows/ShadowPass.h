@@ -18,6 +18,7 @@ public:
         parameters_[1]=source_shadow_gpu::loadProfile(source/"mode1"/"gpu-profile.bin");
         cityGate_=loadNativeCityGateShadowSource(source,field,cities);
         publishNativeCityAreaJointShadow(population_,*cityGate_,field,primary,cameras_,parameters_);
+        populationPrepared_=true;
     }
     void bindFieldDisplay(FieldDisplay& display,const source_far_main::Profile& source,
         const NativeModelContinuous& field) const {
@@ -108,6 +109,10 @@ public:
         executeSourceShadowReceiver(device,context,logical,waterReceiver_,depth,mainDepth);
     }
     const source_shadow_camera::Frame& frame() const {return frame_;}
+    const source_shadow_camera::Profile& compactCpuProvider() const {
+        if (!populationPrepared_) throw std::runtime_error("HDR shadow CPU provider has not been prepared");
+        return cameras_[family_];
+    }
     const source_current_season_shadow::Parameters& seasonParameters() const {return season_;}
     const std::array<char,768>& geometryReceiverConstants() const {return receiverCamera_.current;}
     ID3D11ShaderResourceView* shadowView() const {return gpu_.map.view.Get();}
@@ -125,6 +130,7 @@ private:
     std::array<source_shadow_gpu::Profile,2> parameters_;
     std::array<NativeShadowRasterSource,2> raster_;
     unsigned family_=0;
+    bool populationPrepared_{};
     source_current_season_shadow::Parameters season_;
     source_shadow_camera::Frame frame_;
     source_shadow_camera::Owner history_;

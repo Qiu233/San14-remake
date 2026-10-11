@@ -8,7 +8,7 @@ namespace San14::Render::Interop {
 inline ImportedMapView readMapViewProfile(const std::filesystem::path& path) {
     std::ifstream input(path,std::ios::binary);
     ImportedMapView result;
-    std::uint32_t magic{}, count{}, commonPresent{}, unusedOuterGroup{};
+    std::uint32_t magic{}, count{}, commonPresent{};
     std::uint32_t modelSelector{}, queueFlags{}, secondaryFlags{}, queueState{};
     auto read=[&](auto& value) { input.read(reinterpret_cast<char*>(&value),sizeof(value)); };
     auto& definition=result.definition;
@@ -16,7 +16,7 @@ inline ImportedMapView readMapViewProfile(const std::filesystem::path& path) {
     read(magic);read(count);read(camera.shadow.lightGroup);read(camera.shadow.planeScale);
     read(camera.shadow.cascadeMode);read(camera.oceanGroup);read(camera.rainGroup);
     read(definition.terrainExcludedGroups);read(result.initialReceiveShadowMode);
-    read(commonPresent);read(definition.common.featureFlags);read(unusedOuterGroup);
+    read(commonPresent);read(definition.common.featureFlags);read(definition.common.outerLightGroupOverride);
     read(definition.common.excludedCategories);read(modelSelector);
     read(queueFlags);read(secondaryFlags);read(queueState);
     if(magic!=0x31505756u||count>32)throw std::runtime_error("Source View import schema");

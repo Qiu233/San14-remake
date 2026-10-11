@@ -35,6 +35,7 @@ public sealed class HdrShaderProgram
         G1ShaderResourceBindings bindings)
     {this.combination=combination;Prepared=prepared;this.bindings=bindings;}
     public int CombinationIndex=>combination.Index;
+    internal uint ResourceTableIdentity=>combination.RawValue4;
     public HdrPreparedProgram Prepared {get;}
     public int VertexProgramIndex=>Prepared.VertexProgramIndex;
     public int PixelProgramIndex=>Prepared.PixelProgramIndex;
@@ -66,10 +67,11 @@ public sealed class HdrProgramBank
     private readonly HdrPreparedProgram[] preparedPrograms;
     private HdrProgramBank(HdrFeatureKey[] features,HdrVariantKey[] variants,int[] offsets,
         HdrShaderPlugins plugins,HdrShaderProgram[] programs,HdrPreparedProgram[] prepared,
-        DxbcResourceDefinitions canonical)
+        DxbcResourceDefinitions canonical,uint constructorColorFlags)
     {
         this.features=features;this.variants=variants;variantOffsets=offsets;this.plugins=plugins;
         Programs=Array.AsReadOnly(programs);preparedPrograms=prepared;CanonicalPixelDefinitions=canonical;
+        ConstructorColorFlags=constructorColorFlags;
         var indices=new Dictionary<HdrVariantKey,int>();
         for(int i=0;i<variants.Length;i++) indices.TryAdd(variants[i],i);
         variantIndices=indices.ToFrozenDictionary();
@@ -79,6 +81,10 @@ public sealed class HdrProgramBank
     public IReadOnlyList<HdrShaderProgram> Programs {get;}
     public HdrVariantKey InitialVariant=>variants[0];
     internal DxbcResourceDefinitions CanonicalPixelDefinitions {get;}
+    internal ReadOnlySpan<HdrFeatureKey> FeatureDeclarations=>features;
+    internal ReadOnlySpan<HdrVariantKey> VariantDeclarations=>variants;
+    internal HdrShaderPlugins Plugins=>plugins;
+    public uint ConstructorColorFlags {get;}
 
     public static HdrProgramBank Import(LoadedShaderContainer shader,bool oceanRendering=false)
     {
@@ -92,7 +98,14 @@ public sealed class HdrProgramBank
         var configs=G1ShaderConfigurationReader.Read(bytes,owned.Container);
         var thin=configs.Records.SingleOrDefault(config=>config.Name=="ThinSurfaceBSDF");
         var plugins=new HdrShaderPlugins(oceanRendering,configs.Records.Any(config=>config.Name=="Refraction"),
-            thin?.Find(0xFEB72A6D)?.RawValue==1,configs.Records.Any(config=>config.Name=="VolumetricFog"));
+            thin?.Find(0xFEB72A6D)?.RawValue==1,configs.Records.Any(config=>config.Name=="VolumetricFog"),
+            configs.Records.Any(config=>config.Name=="Caustics"));
+        uint colorFlags=plugins.Refraction?4u:0u;
+        if(thin is not null)colorFlags|=thin.Find(0x2BC1B848)?.RawValue is >0?8u:2u;
+        if(plugins.ThinSpecularSource)colorFlags|=0x10;
+        if(thin?.Find(0x42B7E6DD)?.RawValue==2)colorFlags|=0x200;
+        if(configs.Records.Any(config=>config.Name=="PB2HairHighlight"))colorFlags|=0x40;
+        if(configs.Records.Any(config=>config.Name=="SecondaryHighlight"))colorFlags|=0x80;
         var prepared=new Dictionary<(int Vertex,int Pixel),HdrPreparedProgram>();
         var bindingTables=new Dictionary<uint,G1ShaderResourceBindings>();
         var programs=new List<HdrShaderProgram>();
@@ -116,7 +129,7 @@ public sealed class HdrProgramBank
         return new(tables.Features.Select(row=>HdrShaderCodec.ReadFeature(row.Feature.RawBytes)).ToArray(),
             tables.Variants.Records.Select(row=>HdrShaderCodec.ReadVariant(row.RawBytes)).ToArray(),
             tables.Variants.Records.Select(row=>row.SourceOffset).ToArray(),plugins,programs.ToArray(),prepared.Values.ToArray(),
-            HdrShaderCodec.FreezeDefinitions(owned.ReadResourceDefinitions(1)));
+            HdrShaderCodec.FreezeDefinitions(owned.ReadResourceDefinitions(1)),colorFlags);
     }
 
     public HdrProgramSelection Select(HdrFeatureKey feature,HdrSelectionSettings settings)

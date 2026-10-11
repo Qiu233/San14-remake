@@ -5,7 +5,10 @@ using San14.Data.Formats;
 namespace San14.Data;
 
 public sealed record D3D11DeferredConstantPacket(byte[] Bytes,
-    IReadOnlyList<string> NamedFields, IReadOnlyList<string> CameraWriteLayout);
+    IReadOnlyList<string> NamedFields, IReadOnlyList<string> CameraWriteLayout)
+{
+    public IReadOnlyList<string> MissingFields { get; init; } = [];
+}
 
 /// <summary>Full named-field initialization from typed scene values. Only
 /// undeclared buffer gaps and a proven unread PS383 domain are normalized.</summary>
@@ -17,6 +20,20 @@ public static class D3D11DeferredConstantInputPreparation
         DxbcResourceDefinitions canonical, DxbcResourceDefinitions selected,
         DeferredSceneInputs scene, LoadedDeferredEarlyCausticsSource caustics,
         bool normalizeUnread383)
+        => PrepareCore(canonical,selected,scene,caustics,normalizeUnread383,true);
+
+    /// <summary>Import every resource candidate while retaining explicit gaps.
+    /// A recipe with missing fields cannot be installed as an executable pass.</summary>
+    public static D3D11DeferredConstantPacket PrepareRecipe(
+        DxbcResourceDefinitions canonical, DxbcResourceDefinitions selected,
+        DeferredSceneInputs scene, LoadedDeferredEarlyCausticsSource caustics,
+        bool normalizeUnread383)
+        => PrepareCore(canonical,selected,scene,caustics,normalizeUnread383,false);
+
+    private static D3D11DeferredConstantPacket PrepareCore(
+        DxbcResourceDefinitions canonical, DxbcResourceDefinitions selected,
+        DeferredSceneInputs scene, LoadedDeferredEarlyCausticsSource caustics,
+        bool normalizeUnread383,bool requireComplete)
     {
         var globals = selected.Buffers.Single(buffer => buffer.Name.Text == "$Globals");
         var canonicalGlobals = canonical.Buffers.Single(buffer => buffer.Name.Text == "$Globals");
@@ -32,11 +49,17 @@ public static class D3D11DeferredConstantInputPreparation
             var source = canonicalGlobals.Variables.SingleOrDefault(variable => variable.Name.Text == target.Name.Text);
             if (source is null || !computed.Writes.Any(write => write.Name == target.Name.Text)) continue;
             if (source.ByteSize != target.ByteSize)
-                throw new InvalidDataException("Deferred field extent differs: " + target.Name.Text);
+            {
+                if(requireComplete)throw new InvalidDataException("Deferred field extent differs: " + target.Name.Text);
+                continue;
+            }
             var a = canonical.Types.Single(type => type.Offset == source.TypeOffset);
             var b = selected.Types.Single(type => type.Offset == target.TypeOffset);
             if (a.Class != b.Class || a.BaseType != b.BaseType || a.Rows != b.Rows || a.Columns != b.Columns || a.Elements != b.Elements)
-                throw new InvalidDataException("Deferred field type differs: " + target.Name.Text);
+            {
+                if(requireComplete)throw new InvalidDataException("Deferred field type differs: " + target.Name.Text);
+                continue;
+            }
             computed.Bytes.AsSpan(source.StartOffset,source.ByteSize).CopyTo(bytes.AsSpan(target.StartOffset,target.ByteSize));
             supplied.Add(target.Name.Text);
             int kind = Array.IndexOf(CameraNames,target.Name.Text);
@@ -64,7 +87,8 @@ public static class D3D11DeferredConstantInputPreparation
             Write("hsUVMat",rows);
         }
         string[] missing=globals.Variables.Where(variable=>!supplied.Contains(variable.Name.Text)).Select(variable=>variable.Name.Text).ToArray();
-        if (missing.Length!=0) throw new NotSupportedException("Deferred initialization has no typed producer for: "+string.Join(", ",missing));
+        if (requireComplete && missing.Length!=0)
+            throw new NotSupportedException("Deferred initialization has no typed producer for: "+string.Join(", ",missing));
         if(active is not null)
         {
             if(globals.ByteSize!=DeferredSelected383Constants.ByteSize)
@@ -72,13 +96,18 @@ public static class D3D11DeferredConstantInputPreparation
             for(int offset=0;offset<bytes.Length;offset+=4)
                 if(!active.Contains(offset))bytes.AsSpan(offset,4).Clear();
         }
-        return new(bytes,supplied.Order(StringComparer.Ordinal).ToArray(),cameraWrites.AsReadOnly());
+        return new(bytes,supplied.Order(StringComparer.Ordinal).ToArray(),cameraWrites.AsReadOnly())
+            { MissingFields=Array.AsReadOnly(missing) };
 
         void Write(string name,ReadOnlySpan<byte> values)
         {
             var target=globals.Variables.SingleOrDefault(variable=>variable.Name.Text==name);
             if(target is null)return;
-            if(values.Length!=target.ByteSize)throw new InvalidDataException("Deferred initializer field extent differs: "+name);
+            if(values.Length!=target.ByteSize)
+            {
+                if(requireComplete)throw new InvalidDataException("Deferred initializer field extent differs: "+name);
+                return;
+            }
             values.CopyTo(bytes.AsSpan(target.StartOffset,target.ByteSize)); supplied.Add(name);
         }
         static byte[] Float(float value) {byte[] bytes=new byte[4];BinaryPrimitives.WriteSingleLittleEndian(bytes,value);return bytes;}

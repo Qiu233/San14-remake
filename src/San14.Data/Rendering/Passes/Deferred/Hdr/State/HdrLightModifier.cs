@@ -8,6 +8,7 @@ namespace San14.Data;
 public readonly record struct HdrLightModifier(bool Present, bool AdjustsLighting,
     Vector4 DirectionalFactors, float AmbientFactor, float HemisphereFactor)
 {
+    public Vector2 OcclusionRates { get; init; } = Vector2.One;
     public bool RequiresAdjustment(bool suppressAmbient) => suppressAmbient || Present && AdjustsLighting;
 
     public float DirectionalFactor(int index) => index switch

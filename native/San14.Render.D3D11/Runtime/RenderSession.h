@@ -14,6 +14,7 @@
 #include "../Scene/Models/ArmyWorldPublication.h"
 #include "../Scene/Models/ArmyUnitHeight.h"
 #include "RenderConfiguration.h"
+#include "MainRenderPhaseState.h"
 #include "../Scene/Models/CityGateWorldPublication.h"
 #include "../Scene/Models/AreaCapitalWorldPublication.h"
 #include "../Passes/Environment/SeasonFrame.h"
@@ -61,6 +62,8 @@ struct AnimationState {
     float firstBodyPhase{},firstFlagPhase{};
 };
 struct RenderHost {
+    std::uint32_t mainFlags{MainRenderPhaseState::FreshHostFlags};
+    MainRenderPhaseState mainPhase;
     ID3D11Device* device{};
     ID3D11DeviceContext* context{};
     RenderInput input;

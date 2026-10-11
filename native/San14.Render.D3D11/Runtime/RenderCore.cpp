@@ -122,7 +122,7 @@ static std::array<float,4> decode(const char* p, DXGI_FORMAT format) {
 #include "../Passes/Environment/Ocean/RefractionDepth.h"
 #include "../Passes/Environment/Ocean/OceanTextures.h"
 #include "../Passes/Lighting/HdrRenderer.h"
-#include "../Passes/Lighting/DeferredCameraConstants.h"
+#include "../Passes/Lighting/DeferredCameraFrame.h"
 #include "../Passes/Shadows/ShadowCameraFrame.h"
 #include "../Passes/Shadows/ShadowCameraConstants.h"
 #include "../Passes/Environment/Ocean/OceanRenderer.h"
@@ -177,7 +177,6 @@ static std::array<float,4> decode(const char* p, DXGI_FORMAT format) {
 #include "../Scene/Models/ArmyWorldModelPool.h"
 #include "../Scene/Models/SharedCategory2Accessories.h"
 #include "../Passes/Shadows/SeasonShadow.h"
-#include "../Passes/Lighting/SeasonHdrConstants.h"
 #include "../Passes/Environment/SeasonAtmosphereConstants.h"
 #include "../Passes/PostProcessing/SeasonPostProcess.h"
 #include "../Passes/Environment/CloudWeather.h"
@@ -235,6 +234,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     fs::path lightingSource;
     ComPtr<ID3D11Texture2D> ggx;
     ComPtr<ID3D11Texture2D> litColor,finalColor;
+    DXGI_FORMAT lightingShaderFormat=DXGI_FORMAT_UNKNOWN,lightingTargetFormat=DXGI_FORMAT_UNKNOWN;
     CloudEnvironmentPass clouds;
     NativeFrameClock commonClock;NativeFrameClockPublication commonPublication;
     UINT commonBaseSettingsFlags=0;
@@ -248,14 +248,8 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     const auto normalInitialSource=normalNextSource/"prior-cpu";
     const float initialCommonClock=commonPublication.common254;
 
-    UINT sourceHostFlags3E4=0,actualViewRainFlags19B4=0;
-    uint64_t initialHostCompletion=0;
-    {
-        std::ifstream entry(resources.directory(ResourceGroup::DeferredLighting)/"main-entry.txt");
-        entry>>sourceHostFlags3E4>>initialHostCompletion>>actualViewRainFlags19B4;
-        if(!entry)throw std::runtime_error("Original Main entry fields absent");
-    }
-    MainRenderPhaseState phase{initialHostCompletion};
+    const auto& sourceHostFlags3E4=host.mainFlags;
+    auto& phase=host.mainPhase;
     FogAccelerationPass fogAcceleration;NativeSpecialEffects specialEffects;
     NormalPostProcess postProcessing;
     TerritoryPass territory;
@@ -279,7 +273,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         bases.preparePrimary(device.Get(),resources,host.areaCapitalWorld);
         groundDetails.prepareResources(device.Get(),resources.directory(ResourceGroup::GroundDetails),
             frameState.season()?resources.directory(ResourceGroup::SeasonalGroundDetails):fs::path{});
-        frameState.prepareLightingProfiles(resources);
+        frameState.prepareWeatherProfile(resources);
         if(sourceAccessoryVisuals||sourceArmyVisuals)
             defaultPlayerPhases=source_default_player_phase::readProfile(
                 resources.directory(ResourceGroup::AnimationDefaults)/"default-player-loop-source.bin");
@@ -372,7 +366,8 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             fogAcceleration.prepare(device.Get(),resources.directory(ResourceGroup::FogAcceleration));
         }
         postProcessing.prepareExposure(device.Get(),context.Get(),resources.directory(ResourceGroup::MapExposure),normalInitialSource);
-        litColor=createSourceHdr(device.Get(),resources.directory(ResourceGroup::DeferredLighting)/"node78-inner02",width,height);
+        litColor=createSourceHdr(device.Get(),resources.directory(ResourceGroup::HdrProgramBank),width,height,
+            lightingShaderFormat,lightingTargetFormat);
         clouds.prepareClouds(device.Get(),resources.directory(ResourceGroup::Clouds),
             resources.directory(ResourceGroup::CloudAnimation),resources.directory(ResourceGroup::AmbientClouds),
             resources.directory(ResourceGroup::AmbientStars),litColor.Get());
@@ -477,6 +472,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     RenderRandomContext renderRandom;
     const auto renderRandomClock=prepareNativeCameraClock();
     OceanPass ocean;
+    ocean.prepareRefractionTargets(resources.directory(ResourceGroup::HdrProgramBank)/"refraction-targets.txt");
     postProcessing.prepareSeason(resources.directory(ResourceGroup::SeasonalResources),frameState.season());
     auto executeCurrentPost=[&](float currentClock) {
         return postProcessing.execute(device.Get(),context.Get(),sourceDepth,
@@ -492,7 +488,6 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     const auto receiver119Source=resources.directory(ResourceGroup::ShadowReceivers)/"initial"/"rs119";
     NativeRs69Fallback fallback69;
     DeferredLightingPass hdr78,hdr123,hdr166;
-    const auto waterCameraInput=resources.directory(ResourceGroup::WaterCamera);
     ComPtr<ID3D11RenderTargetView> indirectTarget;
     NativePrimaryForwardSource primaryForwardSource;
     NativePrimaryForwardGpu primaryForwardGpu;
@@ -507,16 +502,13 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
 
             primaryForwardReady=true;
         }
-        auto pass=std::find_if(hdr166.bank().passes.begin(),hdr166.bank().passes.end(),[](auto& p){return p.identity=="node166-inner02";});
-        if(pass==hdr166.bank().passes.end())throw std::runtime_error("Forward actual current inner02 producer absent");
-        auto globals=std::find_if(pass->constants.begin(),pass->constants.end(),[](auto& cb){return !cb.vertex&&cb.slot==0;});
-        if(globals==pass->constants.end())throw std::runtime_error("Forward actual current HDR globals absent");
+        if (!frameState.season()) throw std::runtime_error("Forward requires current typed lighting");
         primaryForwardFrame=prepareNativePrimaryForwardCurrent(primaryForwardSource,bases.primary().source,bases.plan(),
-            frameState.environment().camera().eye,globals->bytes.data(),globals->bytes.size(),
+            frameState.viewDefinition(),*frameState.season(),frameState.environment().camera().eye,
             shadows.geometryReceiverConstants().data(),shadows.geometryReceiverConstants().size());
          //Allocation observation, not a source-pixel render.
         executeNativePrimaryForwardGpu(context.Get(),sourceDepth,primaryForwardGpu,primaryForwardFrame,bases.primary().currentModels,
-            pass->target.Get(),geometryTargets.depthView(),geometryTargets.viewport(),shadows.shadowView(),shadows.directionalView(),hdr166.bank().ggx.Get(),
+            hdr166.targetView(),geometryTargets.depthView(),geometryTargets.viewport(),shadows.shadowView(),shadows.directionalView(),hdr166.bank().ggx.Get(),
             clouds.ambientView(),fogAcceleration.samplingView());
 
     };
@@ -543,22 +535,20 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     executeRs69Fallback(device.Get(),context.Get(),sourceDepth,fallback69,geometryTargets.depthView());
     isolateCurrentShadowVisibility();
     callerTargets.restore(context.Get()); //70
-    DXGI_FORMAT lightingShaderFormat=DXGI_FORMAT_UNKNOWN,lightingTargetFormat=DXGI_FORMAT_UNKNOWN;
     {
         {
-            auto earlySource=resources.directory(ResourceGroup::DeferredLighting);
-            D3D11_RENDER_TARGET_VIEW_DESC hdrDesc{};hdrDesc.Format=DXGI_FORMAT_R11G11B10_FLOAT;hdrDesc.ViewDimension=D3D11_RTV_DIMENSION_TEXTURE2D;
+            auto earlySource=resources.directory(ResourceGroup::HdrProgramBank);
+            D3D11_RENDER_TARGET_VIEW_DESC hdrDesc{};hdrDesc.Format=lightingTargetFormat;hdrDesc.ViewDimension=D3D11_RTV_DIMENSION_TEXTURE2D;
             ComPtr<ID3D11RenderTargetView> hdrTarget;check(device->CreateRenderTargetView(litColor.Get(),&hdrDesc,&hdrTarget),"Main73 retained HDR target");
             auto mainTargets=NativeMainTargetScope::main73(hdrTarget.Get(),geometryTargets.depthView(),geometryTargets.viewport(),geometryTargets.scissor());
             mainTargets.restore(context.Get());
-            hdr78.prepare(device.Get(),earlySource,"passes.txt",litColor.Get(),geometryTargets.textures(),shaderFormats,ggx.Get(),sourceAccessoryVisuals?resources.directory(ResourceGroup::BaseAccessories)/"hdr/initial":fs::path{});
+            hdr78.prepare(device.Get(),earlySource,78,litColor.Get(),geometryTargets.textures(),shaderFormats,ggx.Get());
             {
-                hdr78.update(context.Get(),frameState.lightingFrame());
+                hdr78.update(context.Get(),frameState.lightingFrame(phase.deferredQueueFlags(),initialCommonClock));
             }
             hdr78.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),clouds.ambientView(),nullptr,nullptr,
                 nullptr,nullptr,initialCommonClock,frameState.view().activeGroups,frameState.view().oceanGroups);
             mainTargets.restore(context.Get());
-            lightingShaderFormat=lightingTargetFormat=DXGI_FORMAT_R11G11B10_FLOAT;
             {
                 ocean.prepareSceneCopy(device.Get(),context.Get(),sourceDepth,
                     resources.directory(ResourceGroup::Refraction)/"copy-scene97",litColor.Get(),lightingShaderFormat);
@@ -595,9 +585,9 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                 mainTargets.restore(context.Get()); //121
                 drawCurrentTerritory(122,2);
                 publishThinSurface();
-                hdr123.prepare(device.Get(),earlySource,"ocean-passes.txt",litColor.Get(),geometryTargets.textures(),shaderFormats,ggx.Get());
+                hdr123.prepare(device.Get(),earlySource,123,litColor.Get(),geometryTargets.textures(),shaderFormats,ggx.Get());
                 {
-                    hdr123.initializeRefractionFrame(context.Get(),frameState.lightingFrame(),waterCameraInput/"receiver-refraction-writes.txt",ocean.refractionCamera());
+                    hdr123.update(context.Get(),frameState.lightingFrame(phase.deferredQueueFlags(),initialCommonClock,&ocean.refractionCamera()));
                 }
                 hdr123.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),clouds.ambientView(),ocean.refractionDepth(),ocean.transmittedScene(),
                     nullptr,nullptr,initialCommonClock,frameState.view().activeGroups,frameState.view().oceanGroups);
@@ -649,9 +639,9 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                 //has no process60 writer between them.
                 context->OMSetRenderTargets(1,&rsTarget,geometryTargets.depthView());
                 mainTargets.restore(context.Get());
-                hdr166.prepare(device.Get(),earlySource,"late-passes.txt",litColor.Get(),geometryTargets.textures(),shaderFormats,ggx.Get(),sourceAccessoryVisuals?resources.directory(ResourceGroup::BaseAccessories)/"hdr/initial":fs::path{});
+                hdr166.prepare(device.Get(),earlySource,166,litColor.Get(),geometryTargets.textures(),shaderFormats,ggx.Get());
                 {
-                    hdr166.initializeRefractionFrame(context.Get(),frameState.lightingFrame(),waterCameraInput/"receiver-refraction-writes.txt",ocean.refractionCamera());
+                    hdr166.update(context.Get(),frameState.lightingFrame(phase.deferredQueueFlags(),initialCommonClock,&ocean.refractionCamera()));
                 }
                 hdr166.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),clouds.ambientView(),ocean.refractionDepth(),ocean.transmittedScene(),
                     ocean.filteredSpecular(),ocean.blurredDepth(),initialCommonClock,frameState.view().activeGroups,frameState.view().oceanGroups);
@@ -719,7 +709,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         auto mainTargets=NativeMainTargetScope::main73(postProcessing.sceneTarget(),geometryTargets.depthView(),geometryTargets.viewport(),geometryTargets.scissor());
         mainTargets.restore(context.Get());
         {
-            hdr78.update(context.Get(),frameState.lightingFrame());
+            hdr78.update(context.Get(),frameState.lightingFrame(phase.deferredQueueFlags(),currentClock));
         }
         hdr78.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),clouds.ambientView(),nullptr,nullptr,
             nullptr,nullptr,currentClock,frameState.view().activeGroups,frameState.view().oceanGroups);
@@ -735,7 +725,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         drawCurrentTerritory(122,2);
         publishThinSurface();
         {
-            hdr123.update(context.Get(),frameState.lightingFrame(&ocean.refractionCamera()));
+            hdr123.update(context.Get(),frameState.lightingFrame(phase.deferredQueueFlags(),currentClock,&ocean.refractionCamera()));
         }
         hdr123.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),clouds.ambientView(),ocean.refractionDepth(),ocean.transmittedScene(),
             nullptr,nullptr,currentClock,frameState.view().activeGroups,frameState.view().oceanGroups);
@@ -753,7 +743,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         publishThinSurface();
         context->OMSetRenderTargets(1,&rsTarget,geometryTargets.depthView());mainTargets.restore(context.Get());
         {
-            hdr166.update(context.Get(),frameState.lightingFrame(&ocean.refractionCamera()));
+            hdr166.update(context.Get(),frameState.lightingFrame(phase.deferredQueueFlags(),currentClock,&ocean.refractionCamera()));
         }
         hdr166.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),clouds.ambientView(),ocean.refractionDepth(),ocean.transmittedScene(),ocean.filteredSpecular(),ocean.blurredDepth(),
             currentClock,frameState.view().activeGroups,frameState.view().oceanGroups);

@@ -72,8 +72,7 @@ public partial class MapSceneView
             var writtenSeasonResources = seasonResources;
             int writtenSeasonCount = seasonLibrary.LoadedInstallations.Count;
             var hdrResources = HdrShaderResources.Load(_repository);
-            var hdrMedia = D3D11PreparedHdrMedia.Prepare(hdrResources, source);
-            var hdr = D3D11CurrentHdrCatalog.Create(_repository, frame, hdrResources, hdrMedia);
+            var hdr = D3D11CurrentHdrCatalog.Create(_repository, frame, hdrResources);
             var scenarioMetadata = _repository.EffectiveScenarios.Single(s =>
                 GameResourceId.File(s.SourcePath).ToString() == _logicalWorld!.ScenarioKey && s.Locale == _text.SourceLocale);
             // CPU clips/players only; retained category geometry and materials
@@ -168,8 +167,9 @@ public partial class MapSceneView
                         D3D11OwnedNumericInputPreparation.WriteFreshNativeInputs(_repository, scene,
                             currentMain, current, season.LoadedResources, seasonLibrary, inputs,
                             D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
-                        D3D11DeferredConstantInitialInputPreparation.WriteNativeInputs(_repository,
-                            current, hdr, D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
+                        D3D11HdrProgramMediaPreparation.WriteNativeInputs(_repository,
+                            current, season.LoadedResources, hdr, inputs,
+                            D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
                         AtmosphereInitialConstantsWriter.WriteFreshNativeInputs(_repository, current,
                             D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight,
                             cloudElapsedSeconds: 0, commonClock: 0,

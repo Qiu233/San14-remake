@@ -1,4 +1,4 @@
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using System.Globalization;
 using System.Numerics;
 using San14.Data;
@@ -39,29 +39,24 @@ public static class D3D11PrimaryForwardInputs
         var common = MapCommonRenderState.FromSettings(
             CommonRenderResources.ImportSettings(repository.LoadObjects("KIDSSystemResource", CommonRenderResources.SourceFileId)),
             main.FrameNumber, "d3d11-season/settings", "d3d11-season/common", "d3d11-season/view", "fresh-source-before-ambient");
-        uint selector = common.ViewGroupSelector is > 0 ? common.ViewGroupSelector.Value :
-            Word(graph.Document.Nodes[166].Call.Arguments.Single(value => value.NameHash == 0x59BD6FC4).RawValue);
+        var groupArgument=graph.Document.Nodes[187].Call.Arguments.Single(value=>value.NameHash==0x59BD6FC4);
+        if(groupArgument.RawValue.Length!=4)throw new InvalidDataException("Forward light group requires its scalar declaration.");
+        uint declaredLightGroup=Word(groupArgument.RawValue);
+        uint selector=common.ViewGroupSelector is >0?common.ViewGroupSelector.Value:declaredLightGroup&0x7FFFFFFF;
         uint outerMask = 1u << (unchecked((int)selector - 1) & 31);
         var outer = current.Lights.First(light => (light.GroupMask & outerMask) != 0);
         var inner = current.Lights.FirstOrDefault(light => (light.GroupMask & 2) != 0) ?? outer;
-        byte[] effective = DeferredF103Kind1Modifier.ApplyWithModifier(
-            outer.CompleteData.Span, inner.CompleteData.Span, common.SuppressAmbient).Bytes;
-        ReadOnlyMemory<byte> modifier = DeferredF103Kind1Modifier.HasBuiltinModifier(inner.CompleteData.Span)
-            ? inner.CompleteData : effective;
-        int count = 4;
-        while (count > 1)
-        {
-            int at = (count - 1) * 32 + 16;
-            if (Float(effective, at) > 0 || Float(effective, at + 4) > 0 || Float(effective, at + 8) > 0) break;
-            count--;
-        }
+        var preparedLighting=outer.Lighting.PrepareLighting(inner.Lighting,common.SuppressAmbient).Lighting;
+        var modifierLight=inner.Lighting.Modifier.Present?inner:outer;
         float ambientRate = Float(Field(package.Camera, 977, 0x08367252, 8), 0);
+        var firstColor=preparedLighting.Lights[0].Color;
         var lighting = new DeferredSceneInputs(
-            Lighting: DeferredSceneConstants.ReadPreparedBaseLighting(effective.AsSpan(0, 0x1B0), count),
-            Camera: DeferredSceneConstants.ReadPreparedCamera(current.PreparedMain.Span.Slice(0x10, 0x130)),
-            Fog: DeferredSceneConstants.ReadSharedFog(effective.AsSpan(0, 0x1B0), SkySceneSourceDefaults.SharedContextInitializer().FogEnabled120),
-            Ambient: DeferredSceneConstants.ReadAmbientModifier(modifier.Span.Slice(0x1B0, 0x178), ambientRate),
-            Occlusion: new(new(Float(modifier.Span, 0x1B0 + 0x17C), Float(modifier.Span, 0x1B0 + 0x180))));
+            Lighting:preparedLighting,
+            Camera:DeferredSceneConstants.ReadPreparedCamera(current.PreparedMain.Span.Slice(0x10,0x130)),
+            Fog:DeferredSceneConstants.ReadSharedFog(outer.CompleteData.Span[..0x1B0],
+                SkySceneSourceDefaults.SharedContextInitializer().FogEnabled120,new(firstColor.X,firstColor.Y,firstColor.Z)),
+            Ambient:modifierLight.Lighting.PrepareAmbient(ambientRate),
+            Occlusion:new(modifierLight.Lighting.Modifier.OcclusionRates));
         var textures = repository.LoadObjects("system", 0x93FB3280);
         int query = unchecked((int)ActualWord(0xA98, 359, 0x32CD5688, 5));
         // C99980's supported normal query1024 selects mode1. Other queries
@@ -95,11 +90,12 @@ public static class D3D11PrimaryForwardInputs
             DeferredClusterFloatLogPath.Sse);
         string baseDirectory = Path.Combine(inputRoot, BaseDirectory), bankDirectory = Path.Combine(inputRoot, NativeDirectory);
         Directory.CreateDirectory(baseDirectory); Directory.CreateDirectory(bankDirectory);
+        File.WriteAllText(Path.Combine(baseDirectory,"forward-light-group.txt"),declaredLightGroup.ToString(CultureInfo.InvariantCulture)+"\n");
         var shader = repository.LoadShaderContainer("system", 0x8F6C9FB9);
         File.WriteAllBytes(Path.Combine(baseDirectory, "vs.dxbc"), shader.Container.GetProgramBytes(shader.Source.Bytes, 0).ToArray());
         File.WriteAllBytes(Path.Combine(baseDirectory, "ps.dxbc"), shader.Container.GetProgramBytes(shader.Source.Bytes, 11).ToArray());
         D3D11PrimaryForwardNumericInputPreparation.WriteNativeRanges(baseDirectory, packet);
-        WriteHdrCopies(repository, shader, baseDirectory);
+        WriteLightingLayout(shader, baseDirectory);
         int eligible = WriteTemplates(repository, primary, shader, packet, baseDirectory);
         File.WriteAllText(Path.Combine(bankDirectory, "base-input.txt"), "../" + BaseDirectory + "\n");
         File.WriteAllText(Path.Combine(bankDirectory, "template-count.txt"), primary.TemplateCount.ToString(CultureInfo.InvariantCulture) + "\n");
@@ -168,28 +164,23 @@ public static class D3D11PrimaryForwardInputs
         return eligibleCount;
     }
 
-    private static void WriteHdrCopies(GameResourceRepository repository, LoadedShaderContainer shader, string directory)
+    private static void WriteLightingLayout(LoadedShaderContainer shader,string directory)
     {
-        var forward = shader.ReadResourceDefinitions(11).Buffers.Single(value => value.Name.Text == "$Globals");
-        var hdr = repository.LoadShaderContainer("system", 0x9D8E811F).ReadResourceDefinitions(383).Buffers.Single(value => value.Name.Text == "$Globals");
-        var active = DeferredSelected383Constants.ActiveScalarByteOffsets.ToHashSet();
-        string[] names = ["litDir", "litCol", "litOcc", "ambLit", "nDirLit", "vEye", "vOccRate", "fog", "cFog", "Scat", "fAmbMapsDORate", "vAmbDifScl", "vAmbSpcScl"];
-        var rows = new List<string>();
-        foreach (string name in names)
+        var forward=shader.ReadResourceDefinitions(11).Buffers.Single(value=>value.Name.Text=="$Globals");
+        string[] names=["litDir","litCol","litOcc","ambLit","nDirLit","fog","cFog","Scat",
+            "fAmbMapsDORate","vAmbDifScl","vAmbSpcScl","vOccRate","vEye"];
+        int[] sizes=[64,64,16,16,4,16,16,64,4,16,16,8,16];
+        var rows=new List<string>();
+        for(int field=0;field<names.Length;field++)
         {
-            var a = forward.Variables.Single(value => value.Name.Text == name); var b = hdr.Variables.Single(value => value.Name.Text == name);
-            if (a.ByteSize != b.ByteSize) throw new InvalidDataException("Forward/HDR field shapes differ: " + name);
-            for (int at = 0; at < b.ByteSize;)
-            {
-                if (!active.Contains(b.StartOffset + at)) { at += 4; continue; }
-                int first = at; at += 4;
-                while (at < b.ByteSize && active.Contains(b.StartOffset + at)) at += 4;
-                rows.Add($"{a.StartOffset + first} {b.StartOffset + first} {at - first}");
-            }
+            var variable=forward.Variables.Single(value=>value.Name.Text==names[field]);
+            if(variable.ByteSize!=sizes[field])throw new InvalidDataException("Forward lighting field shape differs: "+names[field]);
+            rows.Add(FormattableString.Invariant($"{field} {variable.StartOffset} 0 {variable.ByteSize}"));
         }
-        File.WriteAllLines(Path.Combine(directory, "hdr-to-forward.txt"), rows);
+        // These rows consume current lighting, modifier occlusion and Eye,
+        // independently of HDR layout.
+        File.WriteAllLines(Path.Combine(directory,"forward-lighting-writes.txt"),rows);
     }
-
     private static void WriteAuxiliary(GameResourceRepository repository, string locale, LoadedShaderContainer shader,
         LoadedObjects textures, string directory)
     {

@@ -7,8 +7,9 @@ namespace San14::Render {
 // completion persists on the Host across accepted camera requests.
 class MainRenderPhaseState {
 public:
-    explicit MainRenderPhaseState(std::uint64_t initialHostCompletion)
+    explicit MainRenderPhaseState(std::uint64_t initialHostCompletion=0)
         :hostCompletion_(initialHostCompletion){}
+    static constexpr std::uint32_t FreshHostFlags = 0x20000001u;
 
     void beginMain() { deferredQueue_=0; }
     void publishThinSurface(bool rainPresent) { if(rainPresent)deferredQueue_|=ThinSurface; }

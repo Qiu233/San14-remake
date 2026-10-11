@@ -28,7 +28,8 @@ public static class HdrLightEncoding
         bool present = (flags & 0xFFFFF0FF) != 0xFFFFF0FF ||
             (BinaryPrimitives.ReadUInt32LittleEndian(bytes[0x1F8..]) & 0x1FF) != 0x1FF;
         return new(present, (flags & 0x202000) != 0x202000,
-            Vector(bytes, 0x350), Float(bytes, 0x360), Float(bytes, 0x364));
+            Vector(bytes, 0x350), Float(bytes, 0x360), Float(bytes, 0x364))
+            { OcclusionRates=new(Float(bytes,0x32C),Float(bytes,0x330)) };
     }
 
     private static float Float(ReadOnlySpan<byte> bytes, int offset) =>

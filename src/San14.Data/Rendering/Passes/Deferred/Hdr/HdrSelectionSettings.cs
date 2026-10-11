@@ -38,7 +38,7 @@ internal enum HdrVariantField
 }
 
 internal readonly record struct HdrShaderPlugins(bool Ocean, bool Refraction,
-    bool ThinSpecularSource, bool VolumetricFog);
+    bool ThinSpecularSource, bool VolumetricFog,bool Caustics);
 
 public readonly record struct HdrOceanRecord(uint EnabledGroups,uint Group)
 {
