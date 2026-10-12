@@ -32,14 +32,14 @@ public sealed class D3D11CloudProgramMedia
     private static (SkyCloudMainProgramSelection Main,SkyCloudColorProgramSelection Work) SelectCurrentPrograms(
         SkyCloudProgramResources resources,MapSourceCreatedSeasonLightingFrame present,ReadOnlySpan<byte> selectedLight)
     {
-        var weather=SkyAppliedSourceCloudWeatherFields.PrepareCurrent(present);
+        var weather=present.CloudWeather.State;
         // The Cloud caller tests the current Camera reference. A zero reference
         // can coexist with a retained image in the independent Sky binding owner.
         bool earthReferenceNonzero=!SkySeasonPackageTextures.Read(
             present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage).Earth.IsSourceReferenceZero;
         return (resources.SelectMain(SkyDirectionalRendererFeatureWriter.WriteRequest(selectedLight),
-            weather.ReadBits(0x674),weather.ReadBits(0x678),earthReferenceNonzero),
-            resources.SelectColor(weather.ReadBits(0x674)));
+            weather.LowCostLevel,weather.Settings.RayExponent,earthReferenceNonzero),
+            resources.SelectColor(weather.LowCostLevel));
     }
 
     public void WriteNativeInputs(string inputRoot)

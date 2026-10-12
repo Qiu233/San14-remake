@@ -1,8 +1,6 @@
 using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.CompilerServices;
-using System.Runtime.Intrinsics;
-using System.Runtime.Intrinsics.X86;
 using San14.Data.Formats;
 namespace San14.Data;
 
@@ -15,7 +13,7 @@ public sealed class SkyAppliedSourceCloudOwner
     private readonly SkyAppliedSourceCloudSelectionOwner selectionOwner;
     private readonly SkyCloudSourceClipPlane clip;
     private readonly string native,locale;
-    private readonly Dictionary<int,float> acceptedPhase;
+    private SkyCloudAnimationState acceptedAnimation=SkyCloudAnimationState.Fresh;
     private SkyAppliedSourceCloudFrame? candidate;
     private long acceptedFrame;
     private MapOwnedGraphicsMaskPrefix? currentClipScope;
@@ -23,8 +21,7 @@ public sealed class SkyAppliedSourceCloudOwner
     { ArgumentNullException.ThrowIfNull(scope);scope.RequireCanonicalSkyDeclaredHookScope();currentClipScope=scope; }
     private SkyAppliedSourceCloudOwner(GameResourceRepository repo,string locale,string owner,
         SkyAppliedSourceCloudSelectionOwner selection,SkyCloudSourceClipPlane clip,string native)
-    {repository=repo;this.locale=locale;OwnerIdentity=owner;selectionOwner=selection;this.clip=clip;this.native=native;
-        acceptedPhase=PhaseOffsets.ToDictionary(x=>x,x=>0f);}
+    {repository=repo;this.locale=locale;OwnerIdentity=owner;selectionOwner=selection;this.clip=clip;this.native=native;}
     public string OwnerIdentity {get;}
     /// <summary>The privately created special-cache owner, borrowed by the
     /// actual complete final wrapper. It cannot be replaced by a caller.</summary>
@@ -87,7 +84,7 @@ public sealed class SkyAppliedSourceCloudOwner
         SkyAppliedCloudTextureBindings.ValidateProgram(selection,bindings);
         var clipPacket=constructorPlan?clip.PrepareConstructorPlan(sourceFrame,present,stages,selectedView):
             clip.PrepareCurrent(currentClipScope??throw new InvalidDataException("Cloud current clip requires a typed owned frontend prefix."),sourceFrame,present,stages,selectedView);
-        var weather=SkyAppliedSourceCloudWeatherFields.PrepareCurrent(present);
+        var weather=present.CloudWeather;
         var source=sourceFrame.SourceFrame;
         if(source.SixCameras.Count!=6||source.Controller is null||!source.Lights.SunPresent||!source.Lights.MoonPresent)
             throw new NotSupportedException("Cloud actual branch requires six source cameras and the complete current controller/light path.");
@@ -126,85 +123,26 @@ public sealed class SkyAppliedSourceCloudOwner
         if(directional?.CurrentColorSetterReceipt is { } colorReceipt)
         {colorReceipt.ValidateFrame(sourceFrame,directional);rawSun=colorReceipt.SunRgb;}
         if(directional is null&&source.Lights.RawMoonRgb!=Vector3.Zero)throw new NotSupportedException("Cloud current Moon branch requires its actual nonnull zero-RGB source setter.");
-        var input=Input(weather,present);var phase=new Dictionary<int,float>(acceptedPhase);
-        foreach(var row in AnimatedAxes)
-        {
-            float current=S(phase[row.Phase],M(explicitOwnedClockDelta,input[row.Wind]));
-            phase[row.Phase]=NativeFiniteRemainder(current,input[row.Size]);
-        }
-        for(int lane=0;lane<3;lane++)phase[0x280+lane*4]=NativeFiniteRemainder(A(phase[0x280+lane*4],M(explicitOwnedClockDelta,input[0x110+lane*4])),input[0xF0+lane*4]);
-        foreach(var p in phase)input[p.Key]=p.Value;
-        uint maximum=weather.ReadBits(0x63C);
+        var material=present.CloudMaterial;
+        var animation=acceptedAnimation.Advance(material,explicitOwnedClockDelta);
+        uint maximum=weather.Settings.MinimumRaySamples;
         if(maximum is <1 or >4096)throw new NotSupportedException("Current source ray samples exceed the finite GPU work contract.");
-        var volume=PrepareVolume(input);
+        var volume=material.PrepareVolume(animation);
+        float planetRadius=actualSource.RequireRenderingAtmosphere().PlanetRadius;
         var packets=new SkyCloudConstantPacket[6];
-        for(int face=0;face<6;face++)packets[face]=Packet(selection,source,face,input,volume,maximum,clipPacket.Value,rawSun,geometry40);
-        return candidate=new(this,sourceFrame,present,stages,selectedView,selection,bindings,weather,clipPacket,packets,phase,volume,maximum,
+        for(int face=0;face<6;face++)packets[face]=Packet(selection,source,face,material,volume,planetRadius,maximum,clipPacket.Value,rawSun,geometry40);
+        return candidate=new(this,sourceFrame,present,stages,selectedView,selection,bindings,clipPacket,packets,material,animation,volume,maximum,
             native+";"+weather.SourceProvenance+";"+clipPacket.Provenance+";"+ownedClockProvenance+
             ";same-frame1193A90-full-named-VS160/PS512;once1191B40-pure-phase-candidate;owner="+OwnerIdentity);
     }
     internal void RequireCandidate(SkyAppliedSourceCloudFrame frame)
     {if(!ReferenceEquals(candidate,frame))throw new InvalidDataException("Cloud candidate is stale, superseded or already committed.");}
     public void CommitCompleteFrame(SkyAppliedSourceCloudFrame frame)
-    {RequireCandidate(frame);if(frame.Clip.IsConstructorPlan)throw new InvalidDataException("Cloud constructor plan cannot acknowledge an actual completed Host frame.");frame.ValidateCandidate(frame.SourceFrame,frame.AcceptedPresent);clip.RequireCompletedPacket(frame.Clip);foreach(var p in frame.CandidatePhase)acceptedPhase[p.Key]=p.Value;acceptedFrame=frame.FrameNumber;candidate=null;}
+    {RequireCandidate(frame);if(frame.Clip.IsConstructorPlan)throw new InvalidDataException("Cloud constructor plan cannot acknowledge an actual completed Host frame.");frame.ValidateCandidate(frame.SourceFrame,frame.AcceptedPresent);clip.RequireCompletedPacket(frame.Clip);acceptedAnimation=frame.Animation;acceptedFrame=frame.FrameNumber;candidate=null;}
 
-    private static Dictionary<int,float> Input(SkyAppliedSourceCloudWeatherFields w,MapSourceCreatedSeasonLightingFrame present)
-    {
-        var v=CtorInputs.ToDictionary(p=>p.Offset,p=>F(p.Bits));
-        float C(int at)=>w.ReadFloat(at);
-        void Copy(int target,int camera,int n=1){for(int lane=0;lane<n;lane++)v[target+lane*4]=C(camera+lane*4);}
-        Copy(0x9C,0x624);Copy(0xB4,0x628);v[0x90]=w.ReadBits(0x638);v[0x94]=w.ReadBits(0x63C);
-        Copy(0x98,0x640);Copy(0xA0,0x648);Copy(0xA4,0x64C);Copy(0xAC,0x658);Copy(0xB8,0x67C);
-        Copy(0x260,0x664);Copy(0x264,0x668);v[0x268]=w.ReadBits(0x66C);Copy(0x26C,0x670);
-        v[0xD8]=present.AcceptedWeather.SourceWeatherSaturation22C;
-        v[0xC8]=ClampSigned(C(0x680));v[0xCC]=ClampSigned(C(0x684));Copy(0xD0,0x688);Copy(0xD4,0x68C);
-        Copy(0xF0,0x690,3);for(int lane=0;lane<3;lane++)v[0xF0+lane*4]=Size(v[0xF0+lane*4]);
-        Copy(0x100,0x69C,3);Copy(0x110,0x6A8,3);
-        Copy(0xC0,0x6B4);Copy(0xC4,0x71C);Copy(0x130,0x6B8,3);for(int lane=0;lane<3;lane++)v[0x130+lane*4]=Size(v[0x130+lane*4]);
-        Copy(0x140,0x6E4,3);Copy(0x150,0x6F0,3);v[0x168]=Size(C(0x720));v[0x16C]=Size(C(0x724));
-        Copy(0x170,0x728,2);Copy(0x178,0x730,2);Copy(0x180,0x738,3);
-        // Current D7D4C2 exact Cirrus wrapper is nonnull in the loaded owner.
-        Copy(0x218,0x744,4);v[0x198]=Size(C(0x764));v[0x19C]=Size(C(0x768));
-        Copy(0x1A8,0x76C,2);v[0x1B8]=Size(C(0x774));v[0x1BC]=Size(C(0x778));Copy(0x1C8,0x77C,4);
-        v[0x228]=present.AcceptedSeasonCamera.Inputs.Source.RequireRenderingAtmosphere().PlanetRadius;
-        //11919E0 follows the actual2A0 input constructor and explicitly sets60.
-        v[0x60]=32;v[0x64]=128;v[0x68]=32;v[0x6C]=8;
-        foreach(float f in v.Values)if(!float.IsFinite(f))throw new InvalidDataException("Cloud finite source input overflowed.");
-        return v;
-    }
-    private static SkyCloudVolumeMaterial PrepareVolume(Dictionary<int,float> input)
-    {
-        float R(int at)=>input[at];
-        (Vector3 Offset,Vector3 Scale) Layer(int phase,int offset,int size)
-        {
-            var scale=new Vector3(D(1,R(size)),D(1,R(size+4)),D(1,R(size+8)));
-            return (new(M(A(R(phase),R(offset)),scale.X),M(A(R(phase+4),R(offset+4)),scale.Y),
-                M(A(R(phase+8),R(offset+8)),scale.Z)),scale);
-        }
-        var baseLayer=Layer(0xE0,0x100,0xF0);
-        var detailLayer=Layer(0x120,0x140,0x130);
-        var distortScale=new Vector2(D(1,R(0x168)),D(1,R(0x16C)));
-        var distortOffset=new Vector2(M(A(R(0x160),R(0x170)),distortScale.X),
-            M(A(R(0x164),R(0x174)),distortScale.Y));
-        (Vector2 Offset,Vector2 Scale) Plane(int phase,int offset,int size)
-        {
-            var scale=new Vector2(D(1,R(size)),D(1,R(size+4)));
-            return (new(M(A(R(phase),R(offset)),scale.X),M(A(R(phase+4),R(offset+4)),scale.Y)),scale);
-        }
-        var cirrus=Plane(0x190,0x1A0,0x198);
-        var cirrusDistort=Plane(0x1B0,0x1C0,0x1B8);
-        return new(baseLayer.Offset,baseLayer.Scale,detailLayer.Offset,detailLayer.Scale,distortOffset,distortScale,
-            new(S(R(0x90),R(0x94)),R(0x94)),new(R(0x9C),R(0xA0),D(1,R(0xA0)),R(0x22C)),
-            new(S(1,R(0x98)),R(0xAC),R(0xB4),D(R(0xA4),R(0xA8))),
-            new(M(D(1,R(0x130)),R(0x180)),M(D(1,R(0x134)),R(0x184)),M(D(1,R(0x138)),R(0x188)),R(0xD8)),
-            new(R(0xC0),R(0xC4)),cirrus.Offset,cirrus.Scale,cirrusDistort.Offset,cirrusDistort.Scale,
-            new(R(0x218),S(1,R(0x21C)),R(0x220),R(0x224)),
-            new(M(R(0x1D0),D(1,R(0x198))),M(R(0x1D4),D(1,R(0x19C)))));
-    }
     private static SkyCloudConstantPacket Packet(SkyAppliedSourceCloudSelection s,SkySceneSourceFrame frame,
-        int face,Dictionary<int,float> input,SkyCloudVolumeMaterial volume,uint maximum,Vector4 clip,Vector3 rawSun,float geometry40)
+        int face,SkyCloudMaterial material,SkyCloudVolumeMaterial volume,float planetRadius,uint maximum,Vector4 clip,Vector3 rawSun,float geometry40)
     {
-        float R(int at)=>input.TryGetValue(at,out float v)?v:throw new InvalidDataException($"Cloud source input{at:X} has no writer.");
         var c=frame.SixCameras[face];var l=frame.Lights;var controller=frame.Controller!;
         if(c.NativeClipProfile!=2||(c.Flags148&~2u)!=0)throw new NotSupportedException("Cloud current source writer closes ordinary Perspective clip2 only.");
         float far=(c.Flags148&2)!=0?0:1,near=(c.Flags148&2)!=0?1:0;
@@ -222,7 +160,7 @@ public sealed class SkyAppliedSourceCloudOwner
         Dictionary<string,float[]> vertexValues=new(){["ksgClipPlane"]=Words(clip),["g_mtP2W"]=Words(p2w),["g_vCameraDirVectors"]=vectors,["g_vProjFarNear"]=[far,near]};
         Dictionary<string,float[]> pixelValues=new(){["litDir"]=Words(l.PackageLightPosition),["vEye"]=Words(c.Position),["fog"]=Words(Vector4.Zero),["Scat"]=frame.Atmosphere.Scattering.SelectMany(Words).ToArray()};
         void Set(string name,params float[] words){pixelValues.Add(name,words);}
-        var common=volume.PreparePixel(c.Position,c.Scalar138,R(0x228));
+        var common=volume.PreparePixel(c.Position,c.Scalar138,planetRadius);
         Set("g_vBaseTexOffset",common.BaseTextureOffset.X,common.BaseTextureOffset.Y,common.BaseTextureOffset.Z);
         Set("g_vBaseTexScale",common.BaseTextureScale.X,common.BaseTextureScale.Y,common.BaseTextureScale.Z);
         Set("g_vDetailTexOffset",common.DetailTextureOffset.X,common.DetailTextureOffset.Y,common.DetailTextureOffset.Z);
@@ -238,14 +176,13 @@ public sealed class SkyAppliedSourceCloudOwner
         // Actual1742230 descriptor23/24/25 -> cache C50/CD0/D50.
         // Their names are not the arithmetic preparation order.
         Set("g_vCloudParams1",Words(common.CloudParameters1));
-        Set("g_vCloudParams2",D(R(0xB8),4),M(R(0xB8),2.5f),D(1,R(0xA8)),R(0xB0));
+        Set("g_vCloudParams2",Words(material.SampleStepParameters));
         Set("g_vCloudParams0",Words(common.CloudParameters0));
         Set("g_vDistortScale",Words(common.DistortionScale));
         Set("g_vCirrusParams",Words(common.CirrusParameters));
         Set("g_vCirrusDistortScale",common.CirrusDistortionScale.X,common.CirrusDistortionScale.Y);Set("g_vErodeScale",common.ErosionScale.X,common.ErosionScale.Y);
-        float h0=M(R(0xC8),R(0xC8)),h1=M(R(0xCC),R(0xCC));
-        Set("g_vHgParams0",M(D(S(1,h0),F(0x41490FDB)),R(0xD4)),M(R(0xC8),-2),A(h0,1),R(0xD0));
-        Set("g_vHgParams1",M(D(S(1,h1),F(0x41490FDB)),R(0xD4)),M(R(0xCC),-2),A(h1,1),0);
+        Set("g_vHgParams0",Words(material.HgParameters0));
+        Set("g_vHgParams1",Words(material.HgParameters1));
         float sun=controller.SkyInfoZW7C78.X,moon=controller.SkyInfoZW7C78.Y;
         if(sun>0&&M(l.RawSunPosition.Y,-1)>F(0xBE19999A))
         {
@@ -253,11 +190,11 @@ public sealed class SkyAppliedSourceCloudOwner
             if(D(F(0x3B000000),geometry40)>intensity)moon=0;
         }
         Set("g_vSky2SunRGB",M(rawSun.X,sun),M(rawSun.Y,sun),M(rawSun.Z,sun),sun);
-        Set("g_vSky2SunDir",M(l.RawSunPosition.X,-1),M(l.RawSunPosition.Y,-1),M(l.RawSunPosition.Z,-1),R(0x230));
+        Set("g_vSky2SunDir",M(l.RawSunPosition.X,-1),M(l.RawSunPosition.Y,-1),M(l.RawSunPosition.Z,-1),SkyCloudMaterial.SunHorizonOffset);
         Set("g_vSky2MoonRGB",M(l.RawMoonRgb.X,moon),M(l.RawMoonRgb.Y,moon),M(l.RawMoonRgb.Z,moon),moon);
         Set("g_vSky2MoonDir",M(l.RawMoonPosition.X,-1),M(l.RawMoonPosition.Y,-1),M(l.RawMoonPosition.Z,-1),0);
-        Set("g_vSky2RayleighExtinction",0,0,0,A(R(0x22C),R(0x228)));Set("g_vSky2MieExtinction",0,0,0,0);
-        Set("g_vStableDim",R(0x60),R(0x64),R(0x68),R(0x6C));Set("g_vClampValue",0,0,0,controller.Scalar1F0);
+        Set("g_vSky2RayleighExtinction",0,0,0,A(SkyCloudMaterial.AtmosphereHeight,planetRadius));Set("g_vSky2MieExtinction",0,0,0,0);
+        Set("g_vStableDim",Words(material.StableDimensions));Set("g_vClampValue",0,0,0,controller.Scalar1F0);
         var vertexDefinitions=s.ProgramSelection.VertexDefinitions;
         var pixelDefinitions=s.ProgramSelection.PixelDefinitions;
         byte[] vertexBytes=Pack(vertexDefinitions,160,vertexValues),pixel=Pack(pixelDefinitions,s.PixelConstantByteLength,pixelValues);
@@ -286,43 +223,28 @@ public sealed class SkyAppliedSourceCloudOwner
     private static Vector4 Transform(float x,float y,float z,Matrix4x4 m)=>new(A(A(A(M(x,m.M11),M(y,m.M21)),M(z,m.M31)),m.M41),A(A(A(M(x,m.M12),M(y,m.M22)),M(z,m.M32)),m.M42),A(A(A(M(x,m.M13),M(y,m.M23)),M(z,m.M33)),m.M43),A(A(A(M(x,m.M14),M(y,m.M24)),M(z,m.M34)),m.M44));
     private static float[] Words(Vector4 v)=>[v.X,v.Y,v.Z,v.W];
     private static float[] Words(Matrix4x4 v)=>[v.M11,v.M12,v.M13,v.M14,v.M21,v.M22,v.M23,v.M24,v.M31,v.M32,v.M33,v.M34,v.M41,v.M42,v.M43,v.M44];
-    private static float Size(float v)=>v>=float.MaxValue?float.MaxValue:v>F(0x3A9C4000)?v:F(0x3A9C4000);
-    private static float ClampSigned(float v)=>v>=F(0x3F7FFF38)?F(0x3F7FFF38):v>F(0xBF7FFF38)?v:F(0xBF7FFF38);
-    private static float NativeFiniteRemainder(float value,float period)
-    {
-        if(!float.IsFinite(value)||!float.IsFinite(period)||period<=0)throw new InvalidDataException("Native finite Cloud phase remainder requires finite positive period.");
-        double x=Math.Abs((double)value),y=period;if(x==y)return F(BitConverter.SingleToUInt32Bits(value)&0x80000000u);if(x<y)return value;
-        int a=(int)((BitConverter.DoubleToUInt64Bits(x)>>52)&2047),b=(int)((BitConverter.DoubleToUInt64Bits(y)>>52)&2047),blocks=a>b?(a-b)/24:0;
-        double scaled=DM(y,BitConverter.UInt64BitsToDouble((ulong)(blocks*24+1023)<<52));
-        for(int n=0;n<blocks;n++){x=DS(x,DM((int)DD(x,scaled),scaled));scaled=DM(scaled,BitConverter.UInt64BitsToDouble(0x3E70000000000000));}
-        x=DS(x,DM((int)DD(x,scaled),scaled));if(value<0)x=-x;return(float)x;
-    }
     private static float F(uint bits)=>BitConverter.UInt32BitsToSingle(bits);
     [MethodImpl(MethodImplOptions.NoInlining)]private static float A(float a,float b)=>a+b;
     [MethodImpl(MethodImplOptions.NoInlining)]private static float S(float a,float b)=>a-b;
     [MethodImpl(MethodImplOptions.NoInlining)]private static float M(float a,float b)=>a*b;
     [MethodImpl(MethodImplOptions.NoInlining)]private static float D(float a,float b)=>a/b;
-    [MethodImpl(MethodImplOptions.NoInlining)]private static double DM(double a,double b)=>a*b;
-    [MethodImpl(MethodImplOptions.NoInlining)]private static double DS(double a,double b)=>a-b;
-    [MethodImpl(MethodImplOptions.NoInlining)]private static double DD(double a,double b)=>a/b;
-    private static readonly int[] PhaseOffsets=[0xE0,0xE4,0xE8,0x120,0x124,0x128,0x160,0x164,0x190,0x194,0x1B0,0x1B4,0x1D8,0x1DC,0x1F8,0x1FC,0x280,0x284,0x288];
-    private static readonly (int Phase,int Wind,int Size)[] AnimatedAxes=[(0xE0,0x110,0xF0),(0xE4,0x114,0xF4),(0xE8,0x118,0xF8),(0x120,0x150,0x130),(0x124,0x154,0x134),(0x128,0x158,0x138),(0x160,0x178,0x168),(0x164,0x17C,0x16C),(0x190,0x1A8,0x198),(0x194,0x1AC,0x19C),(0x1B0,0x1C8,0x1B8),(0x1B4,0x1CC,0x1BC),(0x1D8,0x1F0,0x1E0),(0x1DC,0x1F4,0x1E4),(0x1F8,0x210,0x200),(0x1FC,0x214,0x204)];
-    private static readonly (int Offset,uint Bits)[] CtorInputs=[(0xA8,0x447A0000u),(0xB0,0x3F800000u),(0x198,0x4AE4E1C0u),(0x19C,0x4AE4E1C0u),(0x1A0,0u),(0x1A4,0u),(0x1A8,0u),(0x1AC,0u),(0x1B8,0x48F42400u),(0x1BC,0x48F42400u),(0x1C0,0u),(0x1C4,0u),(0x1C8,0u),(0x1CC,0u),(0x1D0,0x47927C00u),(0x1D4,0x47927C00u),(0x1E0,0x49F42400u),(0x1E4,0x49F42400u),(0x1E8,0u),(0x1EC,0u),(0x1F0,0u),(0x1F4,0u),(0x200,0x49F42400u),(0x204,0x49F42400u),(0x208,0u),(0x20C,0u),(0x210,0u),(0x214,0u),(0x218,0x49742400u),(0x21C,0x3F000000u),(0x220,0x3F000000u),(0x224,0u),(0x22C,0x4AF42400u),(0x230,0xBD75C28Fu)];
+
 }
 public sealed class SkyAppliedSourceCloudFrame
 {
     internal SkyAppliedSourceCloudOwner SourceCreatedInputOwner => owner;
-    private readonly SkyAppliedSourceCloudOwner owner;private readonly SkyCloudConstantPacket[] packets;private readonly Dictionary<int,float> phase;
-    internal SkyAppliedSourceCloudFrame(SkyAppliedSourceCloudOwner owner,SkySceneSourceFramePacket source,MapSourceCreatedSeasonLightingFrame present,SkyAppliedSourceStageFrame stages,MainSceneNode51Execution view,SkyAppliedSourceCloudSelection selection,SkyAppliedCloudTextureSet bindings,SkyAppliedSourceCloudWeatherFields weather,SkyCloudSourceClipPlanePacket clip,SkyCloudConstantPacket[] packets,Dictionary<int,float> phase,SkyCloudVolumeMaterial volume,uint maximumRaySamples,string provenance)
-    {this.owner=owner;SourceFrame=source;AcceptedPresent=present;Stages=stages;SelectedView=view;Selection=selection;Bindings=bindings;Weather=weather;Clip=clip;this.packets=packets;this.phase=phase;Volume=volume;MaximumRaySamples=maximumRaySamples;SourceProvenance=provenance;}
+    private readonly SkyAppliedSourceCloudOwner owner;private readonly SkyCloudConstantPacket[] packets;
+    internal SkyAppliedSourceCloudFrame(SkyAppliedSourceCloudOwner owner,SkySceneSourceFramePacket source,MapSourceCreatedSeasonLightingFrame present,SkyAppliedSourceStageFrame stages,MainSceneNode51Execution view,SkyAppliedSourceCloudSelection selection,SkyAppliedCloudTextureSet bindings,SkyCloudSourceClipPlanePacket clip,SkyCloudConstantPacket[] packets,SkyCloudMaterial material,SkyCloudAnimationState animation,SkyCloudVolumeMaterial volume,uint maximumRaySamples,string provenance)
+    {this.owner=owner;SourceFrame=source;AcceptedPresent=present;Stages=stages;SelectedView=view;Selection=selection;Bindings=bindings;Clip=clip;this.packets=packets;Material=material;Animation=animation;Volume=volume;MaximumRaySamples=maximumRaySamples;SourceProvenance=provenance;}
     public SkySceneSourceFramePacket SourceFrame {get;}
     public MapSourceCreatedSeasonLightingFrame AcceptedPresent {get;}
     public SkyAppliedSourceStageFrame Stages {get;}
     public MainSceneNode51Execution SelectedView {get;}
     public SkyAppliedSourceCloudSelection Selection {get;}
     public SkyAppliedCloudTextureSet Bindings {get;}
-    public SkyAppliedSourceCloudWeatherFields Weather {get;}
     public SkyCloudSourceClipPlanePacket Clip{get;}
+    public SkyCloudMaterial Material {get;}
+    public SkyCloudAnimationState Animation {get;}
     public SkyCloudVolumeMaterial Volume {get;}
     public uint MaximumRaySamples {get;}
     /// <summary>Borrow the current volume without advancing its clock or decoding a color buffer.
@@ -340,10 +262,9 @@ public sealed class SkyAppliedSourceCloudFrame
     }
     public long FrameNumber=>AcceptedPresent.FrameNumber;
     public string SourceProvenance {get;}
-    internal IReadOnlyDictionary<int,float> CandidatePhase=>phase;
     public IReadOnlyList<SkyCloudConstantPacket> SixPackets=>Array.AsReadOnly(packets.Select(p=>p with{VertexBytes=p.VertexBytes.ToArray(),PixelBytes=p.PixelBytes.ToArray()}).ToArray());
     public void ValidateCandidate(SkySceneSourceFramePacket source,MapSourceCreatedSeasonLightingFrame present)
-    {if(!ReferenceEquals(SourceFrame,source)||!ReferenceEquals(AcceptedPresent,present))throw new InvalidDataException("Cloud candidate belongs to another exact accepted frame.");SourceFrame.SourceFrame.SourceSelectedAtmosphere?.ValidateFrame(SourceFrame);SourceFrame.SourceFrame.SourceSelectedAtmosphere?.ValidateStage(Stages);Selection.ValidateCurrent(present,Stages);Weather.ValidateCurrent(present);Clip.ValidateCurrent(source,present);owner.RequireCandidate(this);}
+    {if(!ReferenceEquals(SourceFrame,source)||!ReferenceEquals(AcceptedPresent,present))throw new InvalidDataException("Cloud candidate belongs to another exact accepted frame.");SourceFrame.SourceFrame.SourceSelectedAtmosphere?.ValidateFrame(SourceFrame);SourceFrame.SourceFrame.SourceSelectedAtmosphere?.ValidateStage(Stages);Selection.ValidateCurrent(present,Stages);Clip.ValidateCurrent(source,present);owner.RequireCandidate(this);}
 }
 
 

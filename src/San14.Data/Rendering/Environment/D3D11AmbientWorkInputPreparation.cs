@@ -11,9 +11,6 @@ public sealed record D3D11AmbientWorkConstants(
     IReadOnlyList<D3D11CloudAnimationAxis> CloudAxes,
     CubeRenderTextureDefinition Target, SkyCloudColorProgramSelection CloudProgram);
 
-public sealed record D3D11CloudAnimationAxis(int SourcePhase,int PixelOffset,
-    float Wind,float Period,float Position,float Scale);
-
 /// <summary>Fresh WORK constants from the actual current Main and its selected
 /// default-caller light. Animation/history remain owned by the native session.
 /// No numeric cache is read by this preparation.</summary>
@@ -75,7 +72,7 @@ public static class D3D11AmbientWorkInputPreparation
         }
         var skyMedia=D3D11MainSkyInputPreparation.Load(skyProgram,clouds.Bindings,textureBindings);
         return new(frame.SourceFrame.SixCameras,prepared.DrawPackets,skyMedia,cloudPackets,
-            CloudAxes(clouds.Weather,clouds.Selection.ProgramSelection.PixelDefinitions),
+            SkyCloudAnimationEncoding.CreateAxes(clouds.Material,clouds.Selection.ProgramSelection.PixelDefinitions),
             ambient.SpecularTargets[0],clouds.Selection.ProgramSelection);
     }
 
@@ -122,22 +119,6 @@ public static class D3D11AmbientWorkInputPreparation
         }
     }
 
-    private static IReadOnlyList<D3D11CloudAnimationAxis> CloudAxes(SkyAppliedSourceCloudWeatherFields weather,DxbcResourceDefinitions definitions)
-    {
-        var rows=new List<D3D11CloudAnimationAxis>();var buffer=definitions.Buffers.Single();
-        foreach(var group in new[]{("Base",0xE0,0x6A8,0x690,0x69C,3),("Detail",0x120,0x6F0,0x6B8,0x6E4,3),
-            ("Distort",0x160,0x730,0x720,0x728,2),("Cirrus",0x190,0x76C,0x764,-1,2),("CirrusDistort",0x1B0,0x77C,0x774,-1,2)})
-        {
-            int offset=buffer.Variables.Single(v=>v.Name.Text=="g_v"+group.Item1+"TexOffset").StartOffset;
-            for(int lane=0;lane<group.Item6;lane++)
-            {
-                float period=weather.ReadFloat(group.Item4+lane*4);period=period>=float.MaxValue?float.MaxValue:period>.0011920929f?period:.0011920929f;
-                rows.Add(new(group.Item2+lane*4,offset+lane*4,weather.ReadFloat(group.Item3+lane*4),period,
-                    group.Item5<0?0:weather.ReadFloat(group.Item5+lane*4),1/period));
-            }
-        }
-        return rows;
-    }
     private static int Program(G2ShaderCombination combination,int stage)=>combination.Stages.Single(s=>s.StageCode==stage&&s.Entry is not null).Entry!.ProgramIndex;
     private static byte[] Floats(float[] values){byte[] bytes=new byte[values.Length*4];for(int i=0;i<values.Length;i++)BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(i*4),values[i]);return bytes;}
     private static void Vector(byte[] bytes,int offset,Vector4 v)=>Floats([v.X,v.Y,v.Z,v.W]).CopyTo(bytes,offset);

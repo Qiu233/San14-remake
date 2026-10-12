@@ -8,6 +8,7 @@ namespace San14.Data;
 /// once per explicit resource load and shared by calendar updates.</summary>
 public sealed class SkySeasonMainCameraSource
 {
+    private readonly Lazy<SkyCloudWeatherSettings> cloudWeatherSettings;
     internal SkySeasonMainCameraSource(GameResourceRepository repository,MapSeasonResolvedSourceFrame season,
         MapSeasonCameraSelection selection,MapSeasonSceneClockSeed seed,
         CameraLightingController controller,float kelvin,
@@ -21,7 +22,8 @@ public sealed class SkySeasonMainCameraSource
             selection.FirstPackage.Camera.ObjectId).References.PlaneSta;
         RenderingAtmosphere=transmittance.Tables ?? (fallback==0 ? null : SkyAtmoTableResources.Load(repository,fallback));
         AtmosphereScattering=SkyAtmosphereNativeSource.Load(repository,transmittance.Atan.Locale,NativeLogDispatch.Sse);
-        CloudTextures=SkyAppliedSeasonCloudTextures.Read(repository,this);}
+        CloudTextures=SkyAppliedSeasonCloudTextures.Read(repository,this);
+        cloudWeatherSettings=new(() => SkyCloudWeatherSettingsImport.Import(selection.FirstPackage));}
     private SkySeasonMainCameraSource(MapSeasonRuntimeFrame calendar,
         SkySeasonMainCameraSource loaded)
     {
@@ -33,6 +35,7 @@ public sealed class SkySeasonMainCameraSource
         CloudTextures=loaded.CloudTextures;
         RenderingAtmosphere=loaded.RenderingAtmosphere;
         AtmosphereScattering=loaded.AtmosphereScattering;
+        cloudWeatherSettings=loaded.cloudWeatherSettings;
     }
     /// <summary>Bind this request's calendar while retaining the parsed source
     /// package. A different season requires its actual resource generation.</summary>
@@ -60,6 +63,9 @@ public sealed class SkySeasonMainCameraSource
     public bool UsesSourceCreatedEmptyAxes{get;}
     public MapSeasonCameraPrefixScalars CameraPrefixScalars{get;}
     public WeatherFogProfile WeatherProfile => WeatherFogProfileImport.FromPackage(Selection.FirstPackage);
+    /// <summary>Cloud declarations belong to this loaded source, independently
+    /// of calendar changes. Lighting-only consumers need not prepare Cloud.</summary>
+    public SkyCloudWeatherSettings CloudWeatherSettings => cloudWeatherSettings.Value;
     public LoadedMapSeasonCameraPostEffectScalarSource PostEffectScalarSource{get;}
     public long FrameNumber=>Season.Calendar.FrameNumber;
     public string SourceProvenance=>Season.Calendar.SourceProvenance+";"+Selection.SourceEvidence+

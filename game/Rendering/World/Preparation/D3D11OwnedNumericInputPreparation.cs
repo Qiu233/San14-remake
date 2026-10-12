@@ -90,7 +90,7 @@ public static class D3D11OwnedNumericInputPreparation
         foreach (var season in seasons)
         {
             var source = season.Resources.Source.CameraSource;
-            var words = SkyAppliedSourceCloudWeatherFields.LoadSelectedReadset(source.Selection.FirstPackage);
+            var words = SkyCloudWeatherEncoding.EncodeSelected(source.CloudWeatherSettings);
             writer.Write((uint)season.SeasonIndex); writer.Write((uint)words.Count);
             foreach (var word in words.OrderBy(word => word.Key)) { writer.Write(word.Key); writer.Write(word.Value); }
         }

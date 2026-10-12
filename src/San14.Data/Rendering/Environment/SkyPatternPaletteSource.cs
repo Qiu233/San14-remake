@@ -17,7 +17,7 @@ public sealed record SkyPatternCurrentCameraInputs(float CloudWeight640,
         actualWeather.ValidateCurrent(present);
         if (!ReferenceEquals(present.AcceptedSeasonCamera.Inputs, actualCamera.MainInputs))
             throw new InvalidDataException("Sky Pattern Camera and weather must use the same current Main preparation.");
-        return new(actualWeather.ReadFloat(0x640), actualWeather.ReadFloat(0x748),
+        return new(actualWeather.State.Coverage, actualWeather.State.CirrusCoverage,
             actualCamera.CameraPattern27C, actualResources.PatternMap1680Present, actualCamera.CameraKind3Ac);
     }
 }

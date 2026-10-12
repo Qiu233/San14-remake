@@ -8,6 +8,8 @@ namespace San14.Data;
 public sealed class MapSourceCreatedSeasonLightingFrame
 {
     private readonly byte[] prior, current;
+    private readonly Lazy<SkyAppliedSourceCloudWeatherFields> cloudWeather;
+    private readonly Lazy<SkyCloudMaterial> cloudMaterial;
     private MapSourceCreatedSeasonLightingFrame(SkySeasonMainCameraRgbFrame camera,
         SkySeasonMainWeatherFogFrame weather, float delta)
     {
@@ -21,10 +23,18 @@ public sealed class MapSourceCreatedSeasonLightingFrame
         CurrentSkyCamera=SkySceneCurrentCameraProducer.PrepareSelectedView(FrameNumber,current,
             SourceProvenance,SkySceneSourceDefaults.ApplyPreparedMainControllerInputs(
                 camera.CurrentSkyCamera.Controller,current),camera.CurrentSkyCamera.Parameters);
+        cloudWeather=new(() => SkyAppliedSourceCloudWeatherFields.Create(this));
+        cloudMaterial=new(() => SkyCloudMaterial.Prepare(CloudWeather.State));
     }
     public SkySeasonMainCameraRgbFrame AcceptedSeasonCamera { get; }
     public SkySeasonMainWeatherFogFrame AcceptedWeather { get; }
     public SkyWeatherResult Weather => AcceptedWeather.Weather;
+    /// <summary>One current Cloud preparation shared by program selection,
+    /// Main and WORK consumers. Unsupported Cloud branches remain lazy.</summary>
+    public SkyAppliedSourceCloudWeatherFields CloudWeather => cloudWeather.Value;
+    /// <summary>The current render material shared by Main and WORK. Animation
+    /// and history remain with the consumer that advances and commits them.</summary>
+    public SkyCloudMaterial CloudMaterial => cloudMaterial.Value;
     public long FrameNumber=>AcceptedSeasonCamera.Inputs.FrameNumber;
     public float FrameDelta { get; }
     public CameraLightingController Controller=>AcceptedSeasonCamera.Inputs.Phase.LightingController;
