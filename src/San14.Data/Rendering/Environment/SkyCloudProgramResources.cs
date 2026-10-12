@@ -11,7 +11,7 @@ public sealed class SkyCloudProgramResources
 {
     private static readonly ConditionalWeakTable<LoadedShaderContainer, SkyCloudProgramResources> Imported = new();
     private readonly ConcurrentDictionary<uint, SkyCloudColorProgramSelection> colors = new();
-    private readonly ConcurrentDictionary<(int Feature,uint Level,uint Rays,bool Earth),SkyCloudMainProgramSelection> mains = new();
+    private readonly ConcurrentDictionary<(int Feature,uint Level,uint Rays,bool EarthReferenceNonzero),SkyCloudMainProgramSelection> mains = new();
     private readonly ConcurrentDictionary<(int Feature,int Variant),SkyCloudPatternProgramSelection> patterns = new();
     private SkyCloudProgramResources(LoadedShaderContainer shader)
     {
@@ -45,13 +45,15 @@ public sealed class SkyCloudProgramResources
     public SkyCloudColorProgramSelection SelectColor(uint sourceLowCostLevel) =>
         colors.GetOrAdd(Math.Min(sourceLowCostLevel, 2u), level => SkyCloudColorProgramSelection.ImportLevel(this, level));
 
-    public SkyCloudMainProgramSelection SelectMain(ReadOnlySpan<byte> rendererRequest,uint lowCostLevel,uint raySamples,bool earthPresent)
+    /// <summary>The Main Cloud caller tests its current Earth reference.
+    /// Retained Sky image bindings have an independent lifetime.</summary>
+    public SkyCloudMainProgramSelection SelectMain(ReadOnlySpan<byte> rendererRequest,uint lowCostLevel,uint raySamples,bool earthReferenceNonzero)
     {
         var feature=G1ShaderFeatureMatcher.Select(G1ShaderFeatureRowReader.ReadRow(rendererRequest).Words.ToArray(),
             Bindings.Features.Select(row=>row.Feature).ToArray());
         if(feature.RowIndex<0)throw new NotSupportedException("Main Cloud renderer feature is absent.");
-        return mains.GetOrAdd((feature.RowIndex,Math.Min(lowCostLevel,2u),Math.Clamp(raySamples,4u,6u),earthPresent),
-            key=>SkyCloudMainProgramSelection.Import(this,key.Feature,key.Level,key.Rays,key.Earth));
+        return mains.GetOrAdd((feature.RowIndex,Math.Min(lowCostLevel,2u),Math.Clamp(raySamples,4u,6u),earthReferenceNonzero),
+            key=>SkyCloudMainProgramSelection.Import(this,key.Feature,key.Level,key.Rays,key.EarthReferenceNonzero));
     }
 
     /// <summary>Resolve the Pattern operation from the current renderer axes.

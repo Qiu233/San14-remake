@@ -54,9 +54,8 @@ inline Frame prepareCurrent(const Profile &profile, const Environment &environme
     auto shared = source_current_season_atmosphere::sharedSkyCloud(environment.selectedFog,
                                                                         environment.selectedRadiance);
     auto moonMatrix = moonFace(environment.sky.moonFaceDirection);
-    source_atmosphere_camera::Packet lightPacket;
-    lightPacket.profile.cloudSunDirectionW = profile.cloudSunDirectionW;
-    source_current_season_atmosphere::publishCloudLights(lightPacket, environment.sky, cloudLight);
+    std::array<uint8_t,560> lightPixel{};
+    source_current_season_atmosphere::publishCloudLights(lightPixel, profile.cloudSunDirectionW, environment.sky, cloudLight);
     for (unsigned face = 0; face < 6; ++face) {
         auto &f = out.faces[face];
         f.camera = prepareFaceCamera(environment.camera, faceGeometry, face);
@@ -126,7 +125,7 @@ inline Frame prepareCurrent(const Profile &profile, const Environment &environme
         put(f.cloudPs.data() + 16, eye);
         put(f.cloudPs.data() + 32, V4{});
         put(f.cloudPs.data() + 48, shared.scat);
-        std::memcpy(f.cloudPs.data() + 384, lightPacket.cloudPixel.data() + 448, 64);
+        std::memcpy(f.cloudPs.data() + 384, lightPixel.data() + 448, 64);
         put(f.cloudPs.data() + 508, M(environment.sky.opacityClamp, 100));
     }
     return out;
@@ -146,7 +145,7 @@ static NativeCurrentAmbientFrame prepareNativeCurrentAmbientFrame(ID3D11Device *
     r.profile = source_current_ambient::readProfile(source);
     r.profile.width = ambient.width;
     r.profile.milkyTexturePresent = ambient.skySampling.milky;
-    for (unsigned face = 0; face < 6; ++face) r.profile.skySeed[face] = ambient.skyFaces[face].state;
+    for (unsigned face = 0; face < 6; ++face) r.profile.skySeed[face] = ambient.faces.value().skyFaces[face].state;
     auto make = [&](const auto &bytes) {
         std::vector<char> data(bytes.size());
         std::memcpy(data.data(), bytes.data(), bytes.size());
@@ -156,16 +155,9 @@ static NativeCurrentAmbientFrame prepareNativeCurrentAmbientFrame(ID3D11Device *
         // Keep the actual shared WORK Cloud byte cache/buffer used by its phase
         // updater. Only its immutable VS needs to become a current DEFAULT buffer.
         cloud.vertexConstants[face] = make(cloud.vertexBytes[face]);
-        ambient.cloudConstants[face].vs = cloud.vertexConstants[face];
+        ambient.faces.value().cloudConstants[face].vs = cloud.vertexConstants[face];
     }
     return r;
-}
-static void
-prepareNativeCurrentAmbientInputs(NativeCurrentAmbientFrame &owner,
-                                  const source_current_season::Frame &current,
-                                  const source_current_season_atmosphere::CloudLightInput &cloudLight) {
-    owner.current = source_current_ambient::prepareCurrent(
-        owner.profile, source_current_ambient::decodeEnvironment(current), cloudLight);
 }
 static void
 publishNativeCurrentAmbientFrame(ID3D11DeviceContext *context, NativeCurrentAmbientFrame &owner,
@@ -188,7 +180,7 @@ publishNativeCurrentAmbientFrame(ID3D11DeviceContext *context, NativeCurrentAmbi
                                    cloud.vertexBytes[face].data(), 0, 0);
         // Existing updateNativeAmbientCloudContinuous uploads this same PCB after
         // consuming node3's already advanced offsets. Do not overwrite weather/phase.
-        ambient.starCameras.faces[face] = San14::Render::StarDrawCamera::from(current.camera);
+        ambient.faces.value().starCameras.faces[face] = San14::Render::StarDrawCamera::from(current.camera);
     }
 }
 #endif

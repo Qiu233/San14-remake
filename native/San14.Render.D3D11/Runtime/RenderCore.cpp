@@ -372,7 +372,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         atmosphere.prepareMainStars(device.Get(),resources.directory(ResourceGroup::Sky),
             resources.directory(ResourceGroup::AtmosphereCamera)/"initial",starTwinkle);
         clouds.prepareAmbient(device.Get(),context.Get(),resources.directory(ResourceGroup::Ambient),
-            atmosphere.stars(),frameState.atmosphereFrame(clouds).power);
+            atmosphere.stars(),frameState.framePower());
         clouds.prepareAtmosphereResources(device.Get(),resources.directory(ResourceGroup::SkyAtmosphere));
         clouds.bootstrapAmbient(context.Get(),frameState.commonRenderPolicy());
         clouds.preparePatternTargets(resources.directory(ResourceGroup::SkyPattern));

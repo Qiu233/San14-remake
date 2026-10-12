@@ -17,21 +17,29 @@ public sealed class D3D11CloudProgramMedia
     public static D3D11CloudProgramMedia Prepare(SkyCloudProgramResources resources,
         MapSourceCreatedSeasonLightingFrame present,ReadOnlySpan<byte> selectedLight)
     {
-        var weather=SkyAppliedSourceCloudWeatherFields.PrepareCurrent(present);
-        bool earth=!SkySeasonPackageTextures.Read(present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage).Earth.IsSourceReferenceZero;
-        return new(resources,resources.SelectMain(SkyDirectionalRendererFeatureWriter.WriteRequest(selectedLight),
-            weather.ReadBits(0x674),weather.ReadBits(0x678),earth),resources.SelectColor(weather.ReadBits(0x674)));
+        var programs=SelectCurrentPrograms(resources,present,selectedLight);
+        return new(resources,programs.Main,programs.Work);
     }
     public void RequireCurrent(MapSourceCreatedSeasonLightingFrame present,ReadOnlySpan<byte> selectedLight)
     {
-        var weather=SkyAppliedSourceCloudWeatherFields.PrepareCurrent(present);
-        bool earth=!SkySeasonPackageTextures.Read(present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage).Earth.IsSourceReferenceZero;
-        var main=Resources.SelectMain(SkyDirectionalRendererFeatureWriter.WriteRequest(selectedLight),weather.ReadBits(0x674),weather.ReadBits(0x678),earth);
-        var work=Resources.SelectColor(weather.ReadBits(0x674));
+        var programs=SelectCurrentPrograms(Resources,present,selectedLight);
         bool Same(SkyCloudMainPass a,SkyCloudMainPass b)=>a.VertexProgram==b.VertexProgram&&a.PixelProgram==b.PixelProgram;
-        if(!Same(Main.Color,main.Color)||!Same(Main.History,main.History)||!Same(Main.Composite,main.Composite)||
-            Work.VertexProgram!=work.VertexProgram||Work.PixelProgram!=work.PixelProgram)
+        if(!Same(Main.Color,programs.Main.Color)||!Same(Main.History,programs.Main.History)||!Same(Main.Composite,programs.Main.Composite)||
+            Work.VertexProgram!=programs.Work.VertexProgram||Work.PixelProgram!=programs.Work.PixelProgram)
             throw new NotSupportedException("Changed Native Cloud programs require a new program resource lifecycle.");
+    }
+
+    private static (SkyCloudMainProgramSelection Main,SkyCloudColorProgramSelection Work) SelectCurrentPrograms(
+        SkyCloudProgramResources resources,MapSourceCreatedSeasonLightingFrame present,ReadOnlySpan<byte> selectedLight)
+    {
+        var weather=SkyAppliedSourceCloudWeatherFields.PrepareCurrent(present);
+        // The Cloud caller tests the current Camera reference. A zero reference
+        // can coexist with a retained image in the independent Sky binding owner.
+        bool earthReferenceNonzero=!SkySeasonPackageTextures.Read(
+            present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage).Earth.IsSourceReferenceZero;
+        return (resources.SelectMain(SkyDirectionalRendererFeatureWriter.WriteRequest(selectedLight),
+            weather.ReadBits(0x674),weather.ReadBits(0x678),earthReferenceNonzero),
+            resources.SelectColor(weather.ReadBits(0x674)));
     }
 
     public void WriteNativeInputs(string inputRoot)

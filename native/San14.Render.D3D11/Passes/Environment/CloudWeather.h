@@ -4,6 +4,7 @@
 // only in their importers and in the reflected constant-buffer publisher.
 #include "SeasonFrame.h"
 #include "CloudWeatherProfiles.h"
+#include "SkyAtmosphereInputs.h"
 #include <cfloat>
 
 namespace source_current_cloud_weather {
@@ -22,8 +23,12 @@ inline float signedClamp(float x){return x>=MaximumHgAsymmetry?MaximumHgAsymmetr
     (x>MinimumHgAsymmetry?x:MinimumHgAsymmetry);}
 inline float blend(Endpoints values,float factor){return A(M(S(1,factor),values.clear),M(factor,values.cloudy));}
 template<size_t N> inline void clampPeriods(NoiseLayer<N>& layer){for(auto& period:layer.period)period=size(period);}
+struct AtmosphericScattering {
+    float planetRadius{};
+    V4 rayleigh{},mie{};
+};
 struct Frame {
-    float cloudy{},planetRadius{},bottomAltitude{},thickness{},raySamples{},minimumRaySamples{};
+    float cloudy{},bottomAltitude{},thickness{},raySamples{},minimumRaySamples{};
     float coverage{},density{},detailAmount{},erosion{},sampleStep{},baseErosion{},detailErosion{};
     std::array<float,2> hgAsymmetry{};float hgWeight{},hgIntensity{},saturation{};
     NoiseLayer<3> base,detail;
@@ -32,16 +37,17 @@ struct Frame {
     std::array<float,2> cirrusDistortAmplitude{};
     float cirrusAltitude{},cirrusCoverage{};
     Endpoints cirrusCoverageResponse;
-    V4 rayleigh{},mie{};
+    std::optional<AtmosphericScattering> atmosphere;
 };
-inline Frame prepareCurrent(const Profiles& profiles,uint32_t season,const Conditions& current){
+inline Frame prepareCurrent(const Profiles& profiles,uint32_t season,const Conditions& current,
+    const San14::Render::SkyAtmosphereSettings* atmosphere=nullptr){
     const Profile* selected=nullptr;for(const auto& profile:profiles.seasons)
         if(profile.season==season){selected=&profile;break;}
     if(!selected)throw std::runtime_error("Cloud weather requires loaded actual season");
     const auto& p=*selected;
     if(!current.cloudQualityPublished||!current.ambientQualityPublished)
         throw std::runtime_error("Cloud final Main quality write absent");
-    Frame out;out.cloudy=current.cloudiness;out.planetRadius=p.planetRadius;
+    Frame out;out.cloudy=current.cloudiness;
     const float humidity=current.humidity,complement=S(1,out.cloudy);
     float cw=clamp(M(out.cloudy,p.cloudCoverageFactor));
     float ew=clamp(A(M(complement,p.erosion.clear),M(out.cloudy,p.erosion.cloudy)));
@@ -67,13 +73,19 @@ inline Frame prepareCurrent(const Profiles& profiles,uint32_t season,const Condi
     out.hgAsymmetry={signedClamp(p.hgAsymmetry[0]),signedClamp(p.hgAsymmetry[1])};
     out.hgWeight=p.hgWeight;out.hgIntensity=p.hgIntensity;out.saturation=current.saturation;
     out.cirrusAltitude=p.cirrusAltitude;
-    out.rayleigh=source_weather_fog::adjust({M(p.rayleigh.X,.01f),M(p.rayleigh.Y,.01f),M(p.rayleigh.Z,.01f),0},current.saturation);
-    out.rayleigh.W=A(AtmosphereHeight,p.planetRadius);
-    out.mie={M(p.mie.X,.01f),M(p.mie.Y,.01f),M(p.mie.Z,.01f),0};
+    if(atmosphere) {
+        AtmosphericScattering value;value.planetRadius=atmosphere->planetRadius;
+        const auto& r=atmosphere->rayleighExtinction;const auto& m=atmosphere->mieExtinction;
+        value.rayleigh=source_weather_fog::adjust({M(r[0],.01f),M(r[1],.01f),M(r[2],.01f),0},current.saturation);
+        value.rayleigh.W=A(AtmosphereHeight,value.planetRadius);
+        value.mie={M(m[0],.01f),M(m[1],.01f),M(m[2],.01f),0};
+        out.atmosphere=value;
+    }
     return out;
 }
-inline Frame prepareCurrent(const Profiles& profiles,const source_current_season::Frame& current){
-    return prepareCurrent(profiles,current.season,current.cloudWeather);
+inline Frame prepareCurrent(const Profiles& profiles,const source_current_season::Frame& current,
+    const San14::Render::SkyAtmosphereSettings* atmosphere=nullptr){
+    return prepareCurrent(profiles,current.season,current.cloudWeather,atmosphere);
 }
 struct AnimationInput {float velocity{},period{},position{};};
 template<size_t N> inline AnimationInput animationInput(const NoiseLayer<N>& layer,size_t axis){
@@ -118,7 +130,7 @@ template<size_t N> inline std::array<float,4> inversePeriods(const NoiseLayer<N>
 }
 inline std::array<float,4> field(const Frame& f,ShaderField index,bool work,float clampValue){
     // Keep float32 evaluation order, including the two anisotropy squares.
-    const float bottom=A(f.bottomAltitude,f.planetRadius),h0=M(f.hgAsymmetry[0],f.hgAsymmetry[0]),
+    const float h0=M(f.hgAsymmetry[0],f.hgAsymmetry[0]),
         h1=M(f.hgAsymmetry[1],f.hgAsymmetry[1]);
     switch(index){
       case ShaderField::BaseTexScale:return inversePeriods(f.base);
@@ -127,7 +139,10 @@ inline std::array<float,4> field(const Frame& f,ShaderField index,bool work,floa
       case ShaderField::CirrusTexScale:return inversePeriods(f.cirrus);
       case ShaderField::CirrusDistortTexScale:return inversePeriods(f.cirrusDistort);
       case ShaderField::RaySampleNum:return {S(f.raySamples,f.minimumRaySamples),f.minimumRaySamples,0,0};
-      case ShaderField::EarthRadius:return {f.planetRadius,bottom,A(bottom,f.thickness),A(f.cirrusAltitude,f.planetRadius)};
+      case ShaderField::EarthRadius: {
+        const float radius=f.atmosphere.value().planetRadius,bottom=A(f.bottomAltitude,radius);
+        return {radius,bottom,A(bottom,f.thickness),A(f.cirrusAltitude,radius)};
+      }
       case ShaderField::CloudParams1:return {S(1,f.coverage),f.density,f.detailAmount,D(f.erosion,DensityDistance)};
       case ShaderField::CloudParams2:return {D(f.sampleStep,4),M(f.sampleStep,2.5f),D(1,DensityDistance),1};
       case ShaderField::CloudParams0:return {f.bottomAltitude,f.thickness,D(1,f.thickness),AtmosphereHeight};
@@ -140,10 +155,10 @@ inline std::array<float,4> field(const Frame& f,ShaderField index,bool work,floa
       case ShaderField::ErodeScale:return {f.baseErosion,f.detailErosion,0,0};
       case ShaderField::HgParams0:return {M(D(S(1,h0),FourPi),f.hgIntensity),M(f.hgAsymmetry[0],-2),A(h0,1),f.hgWeight};
       case ShaderField::HgParams1:return {M(D(S(1,h1),FourPi),f.hgIntensity),M(f.hgAsymmetry[1],-2),A(h1,1),0};
-      case ShaderField::RayleighExtinction:return work?std::array<float,4>{0,0,0,f.rayleigh.W}:
-        std::array<float,4>{f.rayleigh.X,f.rayleigh.Y,f.rayleigh.Z,f.rayleigh.W};
+      case ShaderField::RayleighExtinction:return work?std::array<float,4>{0,0,0,f.atmosphere.value().rayleigh.W}:
+        std::array<float,4>{f.atmosphere.value().rayleigh.X,f.atmosphere.value().rayleigh.Y,f.atmosphere.value().rayleigh.Z,f.atmosphere.value().rayleigh.W};
       case ShaderField::MieExtinction:return work?std::array<float,4>{0,0,0,0}:
-        std::array<float,4>{f.mie.X,f.mie.Y,f.mie.Z,f.mie.W};
+        std::array<float,4>{f.atmosphere.value().mie.X,f.atmosphere.value().mie.Y,f.atmosphere.value().mie.Z,f.atmosphere.value().mie.W};
       case ShaderField::StableDim:return {32,128,32,8};
       case ShaderField::ClampValue:return {0,0,0,clampValue};
       default:throw std::runtime_error("Cloud weather field");
@@ -159,21 +174,32 @@ inline void publish(const Frame& frame,const Layout& layout,std::span<char> byte
 } // namespace source_current_cloud_weather
 
 #ifndef SOURCE_CURRENT_CLOUD_WEATHER_CPU_ONLY
-struct NativeCurrentCloudWeather {source_current_cloud_weather::Profiles profiles;source_current_cloud_weather::Layout main,work;};
-static NativeCurrentCloudWeather readNativeCurrentCloudWeather(const fs::path& source){return {source_current_cloud_weather::readProfiles(source/"profiles.bin"),source_current_cloud_weather::readLayout(source/"main-layout.txt",false),source_current_cloud_weather::readLayout(source/"work-layout.txt",true)};}
+struct NativeCurrentCloudWeather {source_current_cloud_weather::Profiles profiles;std::optional<source_current_cloud_weather::Layout> main;};
+static NativeCurrentCloudWeather readNativeCurrentCloudWeather(const fs::path& source,const NativeMainCloud& cloud){
+    NativeCurrentCloudWeather result;result.profiles=source_current_cloud_weather::readProfiles(source/"profiles.bin");
+    if(cloud.draw)result.main=source_current_cloud_weather::readLayout(source/"main-layout.txt",false);
+    return result;
+}
 static source_current_cloud_weather::Frame publishNativeCurrentCloudWeatherBeforeClock(const NativeCurrentCloudWeather& source,
-    const source_current_season::Frame& current,NativeMainCloud& cloud,NativeAmbientCloudContinuous& work){
-    auto frame=source_current_cloud_weather::prepareCurrent(source.profiles,current);cloud.cloudy=frame.cloudy;
+    const source_current_season::Frame& current,NativeMainCloud& cloud,
+    const San14::Render::SkyAtmosphereSettings* atmosphere){
+    auto frame=source_current_cloud_weather::prepareCurrent(source.profiles,current,atmosphere);cloud.cloudy=frame.cloudy;
     for(auto& axis:cloud.axes)if(axis.weatherChannel){
         const auto input=source_current_cloud_weather::animationInput(frame,*axis.weatherChannel);
         axis.wind=input.velocity;axis.period=input.period;axis.position=input.position;axis.scale=source_camera::D(1,axis.period);}
     cloud.baseWind=frame.base.velocity;cloud.basePeriod=frame.base.period;
-    for(auto& axis:work.axes){const auto& shared=cloud.axes[axis.sharedIndex];axis.position=shared.position;axis.scale=shared.scale;}
     // Current clamp is supplied by the atmosphere owner, before this publication.
     const float value=source_camera::M(current.cloudWeather.clampValue,100);
-    for(auto& pass:cloud.passes)if(pass.name=="pass1")source_current_cloud_weather::publish(frame,source.main,pass.pbytes,value);
-    for(auto& bytes:work.pixelBytes)source_current_cloud_weather::publish(frame,source.work,bytes,value);
+    if(cloud.draw)for(auto& pass:cloud.draw->passes)if(pass.name=="pass1")source_current_cloud_weather::publish(frame,source.main.value(),pass.pbytes,value);
     // No phase, pendingVector, previous camera, Bayer, side or history mutation.
     return frame;
+}
+static void publishNativeCurrentCloudWeatherToWork(const source_current_cloud_weather::Frame& frame,
+    const source_current_cloud_weather::Layout& layout,float clampValue,const NativeMainCloud& cloud,
+    NativeAmbientCloudContinuous& work) {
+    for(auto& axis:work.axes) {
+        const auto& shared=cloud.axes[axis.sharedIndex];axis.position=shared.position;axis.scale=shared.scale;
+    }
+    for(auto& bytes:work.pixelBytes)source_current_cloud_weather::publish(frame,layout,bytes,source_camera::M(clampValue,100));
 }
 #endif

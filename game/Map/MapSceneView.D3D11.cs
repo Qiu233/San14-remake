@@ -152,19 +152,20 @@ public partial class MapSceneView
                             current.Lights.First(light=>(light.GroupMask&0x80)!=0).CompleteData.Span);
                         cloudMedia.WriteNativeInputs(inputs);
                         D3D11CloudPatternProgramMedia.Prepare(cloudMedia.Resources).WriteNativeInputs(inputs);
-                        var work = D3D11AmbientWorkInitialConstants.Prepare(_repository,
-                            current, season.LoadedResources, cloudMedia, skyPrograms);
-                        ambientResources = D3D11AmbientRenderResources.Load(_repository,work,season.LoadedResources.Source.Locale);
+                        ambientResources = D3D11AmbientRenderResources.Load(_repository,current.Present,season.LoadedResources.Source.Locale);
+                        ambientResources.WriteNativeInputs(inputs);
+                        var images = SkyAppliedCloudTextureSet.Import(current.Present.AcceptedSeasonCamera.Inputs.Source.CloudTextures);
                         atmosphereResources = D3D11SkyAtmosphereResources.Load(
-                            current.Present.AcceptedSeasonCamera.Inputs.Source, work);
+                            current.Present.AcceptedSeasonCamera.Inputs.Source, images);
                         atmosphereResources.WriteNativeInputs(inputs);
-                        D3D11PatternRenderResources.Load(_repository,work.Ambient,season.LoadedResources.Source.Locale)
+                        D3D11PatternRenderResources.Load(_repository,ambientResources.Declaration,season.LoadedResources.Source.Locale)
                             .WriteNativeInputs(inputs);
-                        cloudResources = D3D11CloudRenderResources.Prepare(_repository, current.Present,
-                            D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight, work, cloudMedia);
-                        cloudResources.WriteNativeInputs(inputs);
-                        skyResources = SkyMainResourceOwner.CreateFresh(_repository, current.Present, skyPrograms, work.CloudTextures);
+                        skyResources = SkyMainResourceOwner.CreateFresh(_repository, current.Present, skyPrograms, images);
                         _d3d11SkyResources = skyResources;
+                        cloudResources = D3D11CloudRenderResources.Prepare(_repository, current.Present,
+                            D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight, images,
+                            skyResources.Sampling, cloudMedia);
+                        cloudResources.WriteNativeInputs(inputs);
                         var starPackage = current.Present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage;
                         starResources = SkyStarResources.Load(_repository, sceneMedia.Renderer, starPackage);
                         string starDirectory = Path.Combine(inputs, "main-sky-input", "stars");
@@ -215,9 +216,14 @@ public partial class MapSceneView
                             Path.Combine(inputs, "main-sky-input"), Path.Combine(inputs, "main-cloud-input"),
                             Path.Combine(inputs, "ssfog-population-input"),cloudMedia,cloudResources,
                             skyPrograms,skyResources.Sampling,fogPrograms);
-                        skyResources.Prepare(atmosphere.SkyProgram).WriteNativeInputs(Path.Combine(inputs, "main-sky-input"));
-                        D3D11AmbientWorkInputPreparation.WriteNativeInputs(_repository,
-                            work, inputs, season.LoadedResources.Source.Locale,ambientResources);
+                        if (atmosphere.Sky is { } sky)
+                            skyResources.Prepare(sky.Program).WriteNativeInputs(Path.Combine(inputs, "main-sky-input"));
+                        if (current.Present.AcceptedSeasonCamera.Inputs.Source.RenderingAtmosphere is not null)
+                        {
+                            var work = D3D11AmbientWorkInitialConstants.Prepare(_repository,
+                                current, season.LoadedResources, cloudMedia, ambientResources.Declaration, skyPrograms);
+                            D3D11AmbientWorkInputPreparation.WriteNativeInputs(work, inputs);
+                        }
                         D3D11NormalPostInitialConstantPreparation.WriteNativeInputs(_repository,
                             current, inputs, D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
                         D3D11PrimaryForwardInputs.WriteFreshNativeInputs(_repository,
@@ -231,14 +237,18 @@ public partial class MapSceneView
                         atmosphereResources!.RequireCurrent(current.Present.AcceptedSeasonCamera.Inputs.Source);
                         cloudMedia!.RequireCurrent(current.Present,
                             current.Lights.First(light=>(light.GroupMask&0x80)!=0).CompleteData.Span);
-                        cloudResources!.RequireCurrent(_repository, current.Present,
-                            D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
-                        fogPrograms.RequireCurrentMask(current.Present);
                         skyResources!.RequireCompatibleGeneration(_repository, skyPrograms, current.Present);
-                        var selectedSky = D3D11AtmosphereInitialConstantPreparation.SelectSkyProgram(current.Present,
-                            current.Lights.First(light=>(light.GroupMask&0x80)!=0).CompleteData.Span,
-                            skyPrograms, skyResources.Sampling.Presence);
-                        skyResources.RequireCurrent(selectedSky);
+                        cloudResources!.RequireCurrent(current.Present,
+                            D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight,
+                            skyResources.Sampling.GetTexture(SkySamplingRole.Earth)?.Texture);
+                        fogPrograms.RequireCurrentMask(current.Present);
+                        if (current.Present.AcceptedSeasonCamera.Inputs.Source.RenderingAtmosphere is not null)
+                        {
+                            var selectedSky = D3D11AtmosphereInitialConstantPreparation.SelectSkyProgram(current.Present,
+                                current.Lights.First(light=>(light.GroupMask&0x80)!=0).CompleteData.Span,
+                                skyPrograms, skyResources.Sampling.Presence);
+                            skyResources.RequireCurrent(selectedSky);
+                        }
                         starResources?.RequireCompatiblePackage(_repository,
                             current.Present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage);
                     }

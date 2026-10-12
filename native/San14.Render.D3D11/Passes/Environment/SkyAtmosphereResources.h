@@ -20,7 +20,7 @@ public:
         auto inputs = Interop::readSkyAtmosphereInputs(source);
         if(inputs.settings.objectKey!=selectedObjectKey)
             throw std::runtime_error("Atmosphere SAT1 owner differs from its actual SAS1 selection");
-        auto fallback = ambientTextures(device, source, "textures.tsv", std::nullopt);
+        auto fallback = ambientTextures(device, source, "textures.tsv", std::nullopt, false, &existing);
         std::vector<NativeSkyAtmospherePlaneEntry> plane(inputs.plane.size());
         for (std::size_t index = 0; index < plane.size(); ++index) {
             const auto& declared = inputs.plane[index];

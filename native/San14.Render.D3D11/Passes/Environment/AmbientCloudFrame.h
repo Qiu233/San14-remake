@@ -14,8 +14,8 @@ static NativeAmbientCloudContinuous readNativeAmbientCloudContinuous(const fs::p
     while(rows>>sourcePhase>>cbOffset>>wind>>period>>position>>scale){
         auto found=std::find_if(sharedNode3Cloud.axes.begin(),sharedNode3Cloud.axes.end(),[&](const auto& axis){return axis.sourcePhase==sourcePhase;});
         if(found==sharedNode3Cloud.axes.end())throw std::runtime_error("WORK Cloud phase is absent from shared node3 source");
-        if(found->wind!=wind||found->period!=period)throw std::runtime_error("WORK Cloud and shared node3 use different fixed weather inputs");
-        result.axes.push_back({sourcePhase,UINT(found-sharedNode3Cloud.axes.begin()),cbOffset,position,scale});
+        // Initial media identify the axis; node three owns its current weather.
+        result.axes.push_back({sourcePhase,UINT(found-sharedNode3Cloud.axes.begin()),cbOffset,found->position,found->scale});
     }
     for(UINT face=0;face<6;++face){result.vertexBytes[face]=load(source/("base-face"+std::to_string(face)+"-vs-b0.bin"));result.pixelBytes[face]=load(source/("base-face"+std::to_string(face)+"-ps-b0.bin"));}
     return result;
@@ -27,7 +27,7 @@ static NativeAmbientCloudContinuous prepareNativeAmbientCloudContinuous(ID3D11De
         result.pixelConstants[face]=nativeMainCloudBuffer(device,result.pixelBytes[face]);
         // One-time attachment replaces the old constructor immutable CBs.
         // The ambient owner and this numerical updater retain the same buffers.
-        ambient.cloudConstants[face].vs=result.vertexConstants[face];ambient.cloudConstants[face].ps=result.pixelConstants[face];}
+        ambient.faces.value().cloudConstants[face].vs=result.vertexConstants[face];ambient.faces.value().cloudConstants[face].ps=result.pixelConstants[face];}
     return result;
 }
 __declspec(noinline) static float nativeAmbientCloudOffsetAdd(float a,float b){return a+b;}

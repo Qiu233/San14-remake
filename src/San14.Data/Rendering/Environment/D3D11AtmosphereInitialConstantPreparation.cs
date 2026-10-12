@@ -35,20 +35,19 @@ public sealed record D3D11AtmosphereInitialFogConstants(string Name,
     public D3D11AtmosphereProgramSelection? Programs => Program?.Programs;
 }
 
+public sealed record D3D11MainSkyConstants(SkyMainProgramSelection Program, Sky2DrawInputs Material);
+
 public sealed record AtmosphereInitialConstants(byte[] CameraProfile,
-    SkyMainProgramSelection SkyProgram,
-    D3D11MainCloudConstants Cloud,
-    HeightFogInitialFrame HeightFog, Sky2DrawInputs SkyMaterial)
+    D3D11MainSkyConstants? Sky, D3D11MainCloudConstants Cloud, HeightFogInitialFrame HeightFog)
 {
-    public D3D11AtmosphereProgramSelection SkyPrograms => SkyProgram.Programs;
-    public byte[] SkyVertexBytes => SkyProgram.MaterialLayout.Pack(SkyMaterial, 1);
-    public byte[] SkyPixelBytes => SkyProgram.MaterialLayout.Pack(SkyMaterial, 0);
     public IReadOnlyList<D3D11AtmosphereInitialFogConstants> Fog => HeightFog.Passes;
 }
 
-public sealed record D3D11MainCloudConstants(SkyCloudMainProgramSelection Programs,byte[] Vertex,byte[] Pixel,
+public sealed record D3D11MainCloudColorConstants(byte[] Vertex, byte[] Pixel);
+
+public sealed record D3D11MainCloudConstants(SkyCloudMainProgramSelection Programs,D3D11MainCloudColorConstants? Color,
     byte[] HistoryVertex,byte[] HistoryPixel,byte[] CompositeVertex,byte[] CompositePixel,
-    IReadOnlyList<D3D11CloudAnimationAxis> Axes,byte[] CurrentW2P,float Cloudy);
+    IReadOnlyList<D3D11CloudAnimationAxis> Axes,byte[] CurrentW2P,byte[] PreviousW2P,float Cloudy);
 
 /// <summary>Fresh complete named Sky/MainCloud/SSFog constants from the actual
 /// current Main and season. It reads resource declarations and owned scalar
@@ -56,21 +55,34 @@ public sealed record D3D11MainCloudConstants(SkyCloudMainProgramSelection Progra
 public static partial class D3D11AtmosphereInitialConstantPreparation
 {
     private sealed record CurrentAtmosphereContext(byte[] Main, ReadOnlyMemory<byte> Light,
-        byte[] RendererRequest, int FeatureIndex, SkySceneSharedAtmosphere Atmosphere,
+        SkySceneSharedAtmosphere Atmosphere,
         Vector4 Eye, Vector4 Target, Vector4 Up, CameraLens Lens,
-        MapCameraConstructionMatrices Matrices, bool EarthPresent);
+        MapCameraConstructionMatrices Matrices);
 
-    private static CurrentAtmosphereContext PrepareContext(D3D11AtmosphereInitialInputs input,
-        G1ShaderBindingTables tables)
+    private sealed record CurrentCameraContext(byte[] Main, Vector4 Eye, Vector4 Target, Vector4 Up,
+        CameraLens Lens, MapCameraConstructionMatrices Matrices);
+
+    private static CurrentCameraContext PrepareCameraContext(D3D11AtmosphereInitialInputs input)
     {
-        var present = input.Present;
         var options = input.Options;
         if (options.Width <= 0 || options.Height <= 0 || !float.IsFinite(options.CloudElapsedSeconds) ||
             options.CloudElapsedSeconds < 0 || !float.IsFinite(options.CommonClock))
             throw new InvalidDataException("Atmosphere initialization needs actual finite clocks and target dimensions.");
-        if (present.AcceptedSeasonCamera.Inputs.Source.Selection.SecondPackage is not null)
+        if (input.Present.AcceptedSeasonCamera.Inputs.Source.Selection.SecondPackage is not null)
             throw new NotSupportedException("Atmosphere initialization needs the actual paired-package numeric producer.");
-        byte[] main = present.PreparedCameraPrefix.ToArray();
+        byte[] main = input.Present.PreparedCameraPrefix.ToArray();
+        Vector4 eye = V(main, 0x10), target = V(main, 0x20), up = V(main, 0x30);
+        eye.Y = A(M(F(main, 0x210), 100000), eye.Y);
+        var lens = CameraLens.DecodePrefix(main.AsSpan(0, 0x160));
+        var matrices = MapCameraConstructionMath.CompleteAB6C60(eye, target, up, lens, 2, NativeCameraTangentDispatch.Sse);
+        return new(main, eye, target, up, lens, matrices);
+    }
+
+    private static CurrentAtmosphereContext PrepareContext(D3D11AtmosphereInitialInputs input,
+        G1ShaderBindingTables tables, CurrentCameraContext camera)
+    {
+        var present = input.Present;
+        byte[] main = camera.Main;
         var selected = input.Lights.First(light => (light.GroupMask & 0x80) != 0).CompleteData;
         byte[] request = SkyDirectionalRendererFeatureWriter.WriteRequest(selected.Span);
         int featureIndex = Feature(tables, request);
@@ -95,23 +107,20 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
         }
         else throw new NotSupportedException("Initial atmosphere requires its actual selected Fog/scattering producer.");
         var atmosphere = new SkySceneSharedAtmosphere("owned-current-Main/selected-group80", fog, scattering);
-        Vector4 eye = V(main, 0x10), target = V(main, 0x20), up = V(main, 0x30);
-        eye.Y = A(M(F(main, 0x210), 100000), eye.Y);
-        var lens = CameraLens.DecodePrefix(main.AsSpan(0, 0x160));
-        var matrices = MapCameraConstructionMath.CompleteAB6C60(eye, target, up, lens, 2, NativeCameraTangentDispatch.Sse);
-        bool earth = TextureReference(present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage.Camera, 0xB0EE87B8);
-        return new(main, selected, request, featureIndex, atmosphere, eye, target, up, lens, matrices, earth);
+        return new(main, selected, atmosphere, camera.Eye, camera.Target,
+            camera.Up, camera.Lens, camera.Matrices);
     }
 
     /// <summary>Prepares Main Cloud independently of Sky geometry and height-fog
     /// program support. The combined preparation uses the same context and writer.</summary>
     public static D3D11MainCloudConstants PrepareCloudConstants(D3D11AtmosphereInitialInputs input,
-        SkyCloudProgramResources cloudPrograms, D3D11CloudRenderResources cloudResources)
+        D3D11CloudProgramMedia cloudPrograms, D3D11CloudRenderResources cloudResources)
     {
-        var context = PrepareContext(input, cloudPrograms.Bindings);
-        return PrepareCloud(cloudPrograms, cloudResources, input, context.Eye, context.Target, context.Up,
-            context.Lens, context.Matrices.WorldToProjection100, context.Atmosphere,
-            context.RendererRequest, context.EarthPresent);
+        var camera = PrepareCameraContext(input);
+        var context = input.Present.AcceptedSeasonCamera.Inputs.Source.RenderingAtmosphere is null
+            ? null : PrepareContext(input, cloudPrograms.Resources.Bindings, camera);
+        return PrepareCloud(cloudPrograms.Main, cloudResources, input, camera.Eye, camera.Target, camera.Up,
+            camera.Lens, camera.Matrices.WorldToProjection100, context?.Atmosphere);
     }
 
     public static RenderTextureDefinition LoadFreshMainTarget(GameResourceRepository repository,
@@ -135,9 +144,16 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
     {
         var present=input.Present;var options=input.Options;
         sampling.RequireCurrent();
+        var baseCamera = PrepareCameraContext(input);
+        var parameters=present.CurrentSkyCamera.Parameters with{NativeTargetFormat=options.NativeTargetFormat,ClampDelta1610=D3D11AtmosphereInitialCallerRules.MainSkyClamp};
+        var transform=Sky2GeometryPreparation.PrepareSkyTransform(parameters.Angle1430,parameters.Angle1434,parameters.Angle143C);
+        var fogPackets=PrepareFog(repository,input,baseCamera.Main,baseCamera.Lens,fogPrograms ?? HeightFogProgramResources.Load(repository));
+        var profile=Profile(input,baseCamera.Main,transform,baseCamera.Lens);
+        if (present.AcceptedSeasonCamera.Inputs.Source.RenderingAtmosphere is null)
+            return new(profile,null,cloud,fogPackets);
         var skyShader=skyResources.Shader;
         var skyTables=skyShader.ReadG1Bindings();
-        var context = PrepareContext(input, skyTables);
+        var context = PrepareContext(input, skyTables, baseCamera);
         byte[] main = context.Main;
         var selected = context.Light;
         var presence = sampling.Presence;
@@ -145,8 +161,6 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
         var atmosphere = context.Atmosphere;
         var fog = atmosphere.Fog;
         var scattering = atmosphere.Scattering;
-        var parameters=present.CurrentSkyCamera.Parameters with{NativeTargetFormat=options.NativeTargetFormat,ClampDelta1610=D3D11AtmosphereInitialCallerRules.MainSkyClamp};
-        var transform=Sky2GeometryPreparation.PrepareSkyTransform(parameters.Angle1430,parameters.Angle1434,parameters.Angle143C);
         Vector4 eye = context.Eye;
         var lens = context.Lens;
         var matrices = context.Matrices;
@@ -170,8 +184,7 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
             Sky2ParameterPreparation.PrepareClampValue(options.NativeTargetFormat,parameters.ClampDelta1610,ctl.Scalar1F0),
             moonGeometry.MoonFace,moonGeometry.Screen.Position);
         var skyMaterial = new Sky2DrawInputs(vertexInputs, pixelInputs);
-        var fogPackets=PrepareFog(repository,input,main,lens,fogPrograms ?? HeightFogProgramResources.Load(repository));
-        return new(Profile(input,main,transform,lens),skyProgram,cloud,fogPackets,skyMaterial);
+        return new(profile,new(skyProgram,skyMaterial),cloud,fogPackets);
     }
 
     /// <summary>Select the normal Main's two nonnull prepared light inputs.
@@ -197,10 +210,14 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
     {
         void Write(string root,string name,byte[] bytes){string path=Path.Combine(root,name);Directory.CreateDirectory(Path.GetDirectoryName(path)!);File.WriteAllBytes(path,bytes);}
         Write(atmosphereDirectory,"profile.bin",constants.CameraProfile);
-        SkyMainMaterialEncoding.WriteNativeInputs(mainSkyDirectory, constants.SkyMaterial);
+        if (constants.Sky is { } sky)
+            SkyMainMaterialEncoding.WriteNativeInputs(mainSkyDirectory, sky.Material);
         foreach(string root in new[]{Path.Combine(atmosphereDirectory,"cloud"),mainCloudDirectory})
         {
-            Write(root,"pass1-vs-b0.bin",constants.Cloud.Vertex);Write(root,"pass1-ps-b0.bin",constants.Cloud.Pixel);
+            if (constants.Cloud.Color is { } color)
+            {
+                Write(root,"pass1-vs-b0.bin",color.Vertex);Write(root,"pass1-ps-b0.bin",color.Pixel);
+            }
             Write(root,"pass2-vs-b0.bin",constants.Cloud.HistoryVertex);Write(root,"pass2-ps-b0.bin",constants.Cloud.HistoryPixel);
             Write(root,"pass4-vs-b0.bin",constants.Cloud.CompositeVertex);
             if(constants.Cloud.CompositePixel.Length!=0)Write(root,"pass4-ps-b0.bin",constants.Cloud.CompositePixel);
@@ -208,6 +225,7 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
         }
         string continuous=Path.Combine(Path.GetDirectoryName(mainCloudDirectory)!,"main-cloud-continuous-input");
         Write(continuous,"current-w2p.bin",constants.Cloud.CurrentW2P);
+        Write(continuous,"previous-w2p.bin",constants.Cloud.PreviousW2P);
         Write(continuous,"cloudy.bin",BitConverter.GetBytes(constants.Cloud.Cloudy));
         File.WriteAllLines(Path.Combine(continuous,"animation.txt"),constants.Cloud.Axes.Select(axis=>FormattableString.Invariant(
             $"{axis.SourcePhase} {axis.PixelOffset} {axis.Wind:R} {axis.Period:R} {axis.Position:R} {axis.Scale:R}")));
@@ -266,13 +284,6 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
     private static D3D11AtmosphereProgramSelection Programs(G2ShaderCombination combination)=>new(combination.Index,
         combination.Stages.Single(stage=>stage.StageCode==1).Entry!.ProgramIndex,
         combination.Stages.Single(stage=>stage.StageCode==0).Entry!.ProgramIndex);
-    private static bool TextureReference(DokObject camera,uint nameHash)
-    {
-        var reference=camera.Properties.Single(property=>property.NameHash==nameHash);
-        if(reference.TypeCode!=5||reference.ElementCount!=1||reference.ElementSize!=4)
-            throw new NotSupportedException("Atmosphere texture reference requires a scalar resource key.");
-        return BinaryPrimitives.ReadUInt32LittleEndian(reference.RawValue)!=0;
-    }
     private static float F(ReadOnlySpan<byte> bytes,int at)=>BinaryPrimitives.ReadSingleLittleEndian(bytes[at..]);
     private static Vector4 V(ReadOnlySpan<byte> bytes,int at)=>new(F(bytes,at),F(bytes,at+4),F(bytes,at+8),F(bytes,at+12));
     private static Vector3 Rgb(ReadOnlySpan<byte> bytes,int at)=>new(F(bytes,at),F(bytes,at+4),F(bytes,at+8));

@@ -73,7 +73,7 @@ public sealed class SkyMainResourceOwner : IDisposable
         bindings.RequireCompatiblePackage(SkySeasonPackageTextures.Read(package),
             reference => SkySeasonPackageTextures.LoadSampling(repository, reference));
         var candidate = SkyAppliedCloudTextureSet.Import(groups);
-        foreach (var input in Media.Textures.Where(input => input.Slot < 3))
+        foreach (var input in media?.Textures.Where(input => input.Slot < 3) ?? Enumerable.Empty<D3D11MainSkyTextureInput>())
         {
             var replacement = candidate.StaInputs[checked((int)input.Slot)];
             if (input.Texture.Identity != replacement.Identity ||

@@ -7,7 +7,7 @@ namespace source_current_cloud_weather {
 using source_camera::V4;
 struct Profile {
     uint32_t season{};
-    float planetRadius{},bottomAltitude{},thickness{};
+    float bottomAltitude{},thickness{};
     uint32_t raySamples{},minimumRaySamples{};
     Endpoints detail{},erosion{},density{},cirrusCoverage{};
     float humidDetailThreshold{},cloudCoverageFactor{},sampleStep{},baseErosion{},detailErosion{};
@@ -20,7 +20,6 @@ struct Profile {
     NoiseLayer<2> distort,cirrus,cirrusDistort;
     std::array<float,2> cirrusDistortAmplitude{};
     float cirrusAltitude{};
-    V4 rayleigh{},mie{};
 };
 struct Profiles {std::vector<Profile> seasons;};
 inline Profiles readProfiles(const std::filesystem::path& path){
@@ -56,10 +55,7 @@ inline Profiles readProfiles(const std::filesystem::path& path){
         vector(0x784,p.cirrusDistortAmplitude);
         p.humidityResponse={scalar(0x78c),scalar(0x790)};
         p.cirrusHumidityResponse={scalar(0x794),scalar(0x798)};
-        p.planetRadius=source_weather_fog::F(word());
-        float* r=&p.rayleigh.X;float* m=&p.mie.X;
-        for(int i=0;i<4;++i)r[i]=source_weather_fog::F(word());
-        for(int i=0;i<4;++i)m[i]=source_weather_fog::F(word());
+
     }
     if(in.peek()!=std::char_traits<char>::eof())throw std::runtime_error("Cloud weather source trailing bytes");
     return result;

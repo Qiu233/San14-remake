@@ -27,7 +27,7 @@ public static class AtmosphereInitialConstantsWriter
     {
         var inputs = CreateInputs(current, options);
         var cloud = D3D11AtmosphereInitialConstantPreparation.PrepareCloudConstants(
-            inputs, programs.Resources, resources);
+            inputs, programs, resources);
         return D3D11AtmosphereInitialConstantPreparation.Prepare(repository, inputs, cloud,skyPrograms,sampling,fogPrograms);
     }
 
@@ -35,7 +35,7 @@ public static class AtmosphereInitialConstantsWriter
         D3D11AtmosphereInitialOptions options, D3D11CloudProgramMedia programs,
         D3D11CloudRenderResources resources)
         => D3D11AtmosphereInitialConstantPreparation.PrepareCloudConstants(
-            CreateInputs(current, options), programs.Resources, resources);
+            CreateInputs(current, options), programs, resources);
 
     private static D3D11AtmosphereInitialInputs CreateInputs(D3D11CurrentSeasonFrame current,
         D3D11AtmosphereInitialOptions options)

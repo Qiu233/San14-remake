@@ -96,7 +96,7 @@ inline SeasonEnvironment decodeEnvironment(const source_current_season::Frame& c
     result.opacityClamp=get<float>(current.main.data()+0x278);
     return result;
 }
-inline void publishCloudLights(source_atmosphere_camera::Packet& packet,
+inline void publishCloudLights(std::span<uint8_t> cloudPixel,float directionW,
     const SeasonEnvironment& environment,const CloudLightInput& input){
     const auto sunRgb=environment.sunRgb,moonRgb=environment.moonRgb;const auto rawMoon=environment.celestial.moonPosition;
     float sun=environment.celestial.sunIntensity,moon=environment.celestial.moonIntensity;
@@ -105,12 +105,11 @@ inline void publishCloudLights(source_atmosphere_camera::Packet& packet,
             M(moonRgb.Z,source_weather_fog::F(0x3eaaaaab)));
         if(D(source_weather_fog::F(0x3b000000),input.geometry40)>intensity)moon=0;
     }
-    put(packet.cloudPixel.data()+448,V4{M(sunRgb.X,sun),M(sunRgb.Y,sun),M(sunRgb.Z,sun),sun});
+    put(cloudPixel.data()+448,V4{M(sunRgb.X,sun),M(sunRgb.Y,sun),M(sunRgb.Z,sun),sun});
     // Actual Cloud11919E0 ctor230=BD75C28F is a retained loaded constant.
-    float directionW=packet.profile.cloudSunDirectionW;
-    put(packet.cloudPixel.data()+464,V4{M(input.rawSun.X,-1),M(input.rawSun.Y,-1),M(input.rawSun.Z,-1),directionW});
-    put(packet.cloudPixel.data()+480,V4{M(moonRgb.X,moon),M(moonRgb.Y,moon),M(moonRgb.Z,moon),moon});
-    put(packet.cloudPixel.data()+496,V4{M(rawMoon.X,-1),M(rawMoon.Y,-1),M(rawMoon.Z,-1),0});
+    put(cloudPixel.data()+464,V4{M(input.rawSun.X,-1),M(input.rawSun.Y,-1),M(input.rawSun.Z,-1),directionW});
+    put(cloudPixel.data()+480,V4{M(moonRgb.X,moon),M(moonRgb.Y,moon),M(moonRgb.Z,moon),moon});
+    put(cloudPixel.data()+496,V4{M(rawMoon.X,-1),M(rawMoon.Y,-1),M(rawMoon.Z,-1),0});
 }
 inline Shared publishPacket(source_atmosphere_camera::Packet& packet,
     const source_current_season::Frame& current,const CloudLightInput* cloudLights=nullptr){
@@ -118,25 +117,25 @@ inline Shared publishPacket(source_atmosphere_camera::Packet& packet,
     packet.environment=environment.celestial;packet.direct=environment.direct;
     const auto& profile=packet.environment;
     // Four current light fields in the sky shader layout.
-    std::memcpy(&packet.sky.sunRgb,environment.skyLights.data(),16);
-    std::memcpy(&packet.sky.sunDirection,environment.skyLights.data()+4,16);
-    std::memcpy(&packet.sky.moonRgb,environment.skyLights.data()+8,16);
-    std::memcpy(&packet.sky.moonDirection,environment.skyLights.data()+12,16);
-    packet.sky.altitudeInfo=profile.altitude;
-    packet.sky.stableDimensions=environment.stableDimensions;
-    packet.sky.skyInfo1.Z=packet.milkyTexturePresent?environment.milkyIntensity:0.f;
+    std::memcpy(&packet.draw.value().sky.sunRgb,environment.skyLights.data(),16);
+    std::memcpy(&packet.draw.value().sky.sunDirection,environment.skyLights.data()+4,16);
+    std::memcpy(&packet.draw.value().sky.moonRgb,environment.skyLights.data()+8,16);
+    std::memcpy(&packet.draw.value().sky.moonDirection,environment.skyLights.data()+12,16);
+    packet.draw.value().sky.altitudeInfo=profile.altitude;
+    packet.draw.value().sky.stableDimensions=environment.stableDimensions;
+    packet.draw.value().sky.skyInfo1.Z=packet.draw.value().milkyTexturePresent?environment.milkyIntensity:0.f;
     packet.skyPolicy=current.skyPolicy;
     const auto& global=selected(current,0x80);
     auto fog=packageFog(global,packet.direct.fogBlend);
     auto shared=sharedSkyCloud(fog,lightRgb(global));
-    packet.sky.fog=shared.fog;packet.sky.scattering=shared.scat;
-    put(packet.cloudPixel.data(),get<V4>(global.data.data()));
-    put(packet.cloudPixel.data()+32,shared.fog);put(packet.cloudPixel.data()+48,shared.scat);
+    packet.draw.value().sky.fog=shared.fog;packet.draw.value().sky.scattering=shared.scat;
+    put(packet.draw.value().cloudPixel.data(),get<V4>(global.data.data()));
+    put(packet.draw.value().cloudPixel.data()+32,shared.fog);put(packet.draw.value().cloudPixel.data()+48,shared.scat);
     V4 package=get<V4>(global.data.data()),moon=profile.moonPosition;
-    packet.sky.skyInfo1.W=package.X==moon.X&&package.Y==moon.Y&&package.Z==moon.Z&&package.W==moon.W?1.f:0.f;
+    packet.draw.value().sky.skyInfo1.W=package.X==moon.X&&package.Y==moon.Y&&package.Z==moon.Z&&package.W==moon.W?1.f:0.f;
     float clamp=M(environment.opacityClamp,100);
-    packet.sky.clampValue.W=M(clamp,.01f);put(packet.cloudPixel.data()+556,clamp);
-    if(cloudLights)publishCloudLights(packet,environment,*cloudLights);
+    packet.draw.value().sky.clampValue.W=M(clamp,.01f);put(packet.draw.value().cloudPixel.data()+556,clamp);
+    if(cloudLights)publishCloudLights(packet.draw.value().cloudPixel,packet.profile.cloudSunDirectionW,environment,*cloudLights);
     // Each Fog draw selects and publishes its own current local light through
     // the Height Fog program owner. Global weather remains Sky/Cloud input.
     return shared;
@@ -159,13 +158,13 @@ static void publishNativeCurrentSeasonAtmosphere(NativeAtmosphereCamera& owner,N
     const source_current_season::Frame& current,
     const source_current_season_atmosphere::CloudLightInput* currentCloudLights=nullptr){
     source_current_season_atmosphere::publishPacket(owner.packet,current,currentCloudLights);
-    for(auto& pass:cloud.passes)if(pass.name=="pass1"){
+    if(cloud.draw)for(auto& pass:cloud.draw->passes)if(pass.name=="pass1"){
         // Normal camera writer follows, then Cloud execute repacks its owned
         // phases/Bayer/previousW2P and uploads. Preserve those retained fields.
-        std::memcpy(pass.pbytes.data(),owner.packet.cloudPixel.data(),16);
-        std::memcpy(pass.pbytes.data()+32,owner.packet.cloudPixel.data()+32,80);
-        if(currentCloudLights)std::memcpy(pass.pbytes.data()+448,owner.packet.cloudPixel.data()+448,64);
-        std::memcpy(pass.pbytes.data()+556,owner.packet.cloudPixel.data()+556,4);
+        std::memcpy(pass.pbytes.data(),owner.packet.draw.value().cloudPixel.data(),16);
+        std::memcpy(pass.pbytes.data()+32,owner.packet.draw.value().cloudPixel.data()+32,80);
+        if(currentCloudLights)std::memcpy(pass.pbytes.data()+448,owner.packet.draw.value().cloudPixel.data()+448,64);
+        std::memcpy(pass.pbytes.data()+556,owner.packet.draw.value().cloudPixel.data()+556,4);
     }
 }
 // Existing source consumer receipt says retained View1B20 L80 for all the

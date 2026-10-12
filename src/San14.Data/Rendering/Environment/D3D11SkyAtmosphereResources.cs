@@ -15,7 +15,7 @@ public sealed class D3D11SkyAtmosphereResources
     private readonly uint declaredAtmosphere, declaredFallbackPlane;
 
     private D3D11SkyAtmosphereResources(SkySeasonMainCameraSource source,
-        D3D11AmbientWorkConstants? work)
+        SkyAppliedCloudTextureSet? images)
     {
         ArgumentNullException.ThrowIfNull(source);
         var tables = source.RenderingAtmosphere;
@@ -36,10 +36,10 @@ public sealed class D3D11SkyAtmosphereResources
             files.Add("selection.bin", selection.ToArray());
         }
         if (tables is null) return;
-        if (work is null)
-            throw new InvalidOperationException("A present atmosphere requires its actual prepared WORK images.");
+        if (images is null)
+            throw new InvalidOperationException("A present atmosphere requires its actual prepared Plane images.");
         if (tables.PlaneStaObjectId != sources.RequireAtmospherePlane().ObjectId ||
-            !work.CloudTextures.SameSta(SkyAppliedCloudTextureSet.Import(sources)))
+            !images.SameSta(SkyAppliedCloudTextureSet.Import(sources)))
             throw new InvalidDataException("Atmosphere tables and device images must belong to the same selected Plane.");
 
         using var settings = new MemoryStream();
@@ -71,13 +71,12 @@ public sealed class D3D11SkyAtmosphereResources
         if(tables.AmbientTable is { } ambient)
             files.Add("ambient-half4.bin", ambient.CopyBytes());
 
-        var existing = work.CloudTextures.CloudInputs.Select(input => input.Texture)
-            .Concat(work.SkyMedia.Textures.Select(input => input.Texture)).ToArray();
+        var existing = images.CloudInputs.Select(input => input.Texture).ToArray();
         var planeRows = new List<string>();
         var additionalRows = new List<string>();
-        for (int index = 0; index < work.CloudTextures.StaInputs.Count; index++)
+        for (int index = 0; index < images.StaInputs.Count; index++)
         {
-            var texture = work.CloudTextures.StaInputs[index];
+            var texture = images.StaInputs[index];
             uint objectId = sources.RequireAtmospherePlane().Entries[index].Definition.ObjectId;
             planeRows.Add(FormattableString.Invariant($"{index} {objectId} {texture.ResourceUri} {texture.ImageIndex} {texture.NativeViewFormat} {texture.SourceSha256} {texture.SamplerDescriptorSha256}"));
             if (existing.Any(candidate => candidate.Identity == texture.Identity &&
@@ -91,7 +90,7 @@ public sealed class D3D11SkyAtmosphereResources
     }
 
     public static D3D11SkyAtmosphereResources Load(SkySeasonMainCameraSource source,
-        D3D11AmbientWorkConstants? work = null) => new(source, work);
+        SkyAppliedCloudTextureSet? images = null) => new(source, images);
 
     /// <summary>Numeric frame updates may borrow this resource generation.
     /// Replacing its tables or constructor settings requires a new Native owner.</summary>

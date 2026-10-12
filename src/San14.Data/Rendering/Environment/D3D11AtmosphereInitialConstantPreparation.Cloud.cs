@@ -7,10 +7,10 @@ namespace San14.Data;
 
 public static partial class D3D11AtmosphereInitialConstantPreparation
 {
-    private static D3D11MainCloudConstants PrepareCloud(SkyCloudProgramResources resources,
+    private static D3D11MainCloudConstants PrepareCloud(SkyCloudMainProgramSelection programs,
         D3D11CloudRenderResources renderResources,D3D11AtmosphereInitialInputs current,
         Vector4 eye,Vector4 target,Vector4 up,CameraLens lens,Matrix4x4 worldToProjection,
-        SkySceneSharedAtmosphere atmosphere,byte[] rendererRequest,bool earthPresent)
+        SkySceneSharedAtmosphere? atmosphere)
     {
         var present=current.Present;var weather=SkyAppliedSourceCloudWeatherFields.PrepareCurrent(present);
         var options=current.Options;var input=CloudInputs(weather,present);
@@ -20,72 +20,78 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
         foreach(var axis in CloudAxes)input[axis.Phase]=CloudRemainder(S(0,M(options.CloudElapsedSeconds,R(axis.Wind))),R(axis.Period));
         float[] previousVector=new float[4];
         for(int lane=0;lane<3;lane++)previousVector[lane]=CloudRemainder(M(options.CloudElapsedSeconds,R(0x110+lane*4)),R(0xF0+lane*4));
-        var p2w=NativeMatrixMath.Invert(worldToProjection,out _);
-        Vector3 direction=new(S(target.X,eye.X),S(target.Y,eye.Y),S(target.Z,eye.Z));
-        float length=(float)Math.Sqrt(A(A(M(direction.X,direction.X),M(direction.Y,direction.Y)),M(direction.Z,direction.Z)));
-        float inverse=D(1,length);direction=new(M(direction.X,inverse),M(direction.Y,inverse),M(direction.Z,inverse));
-        var rayCamera=MapCameraConstructionMath.CompleteAB6C60(new(0,0,0,1),new(direction,1),up,
-            lens with{Near=1,Far=100},2,NativeCameraTangentDispatch.Sse);
-        var rays=NativeMatrixMath.Invert(rayCamera.WorldToProjection100,out _);
-        float far=lens.ReverseDepth?0:1,near=lens.ReverseDepth?1:0;float[] vectors=new float[16];
-        for(int corner=0;corner<4;corner++)
+        float far=lens.ReverseDepth?0:1,near=lens.ReverseDepth?1:0;
+        int reconstructionWidth=renderResources.ReconstructionWidth;
+        int reconstructionHeight=renderResources.ReconstructionHeight;
+        D3D11MainCloudColorConstants? color=null;
+        if(atmosphere is not null)
         {
-            float x=(corner>>1)*2-1,y=1-(corner&1)*2;
-            Vector4 a=Transform(x,y,far,rays),b=Transform(x,y,near,rays);float ai=D(1,a.W),bi=D(1,b.W);
-            vectors[corner*4]=S(M(b.X,bi),M(a.X,ai));vectors[corner*4+1]=S(M(b.Y,bi),M(a.Y,ai));
-            vectors[corner*4+2]=S(M(b.Z,bi),M(a.Z,ai));vectors[corner*4+3]=S(M(b.W,bi),M(a.W,ai));
+            input[0x228]=present.AcceptedSeasonCamera.Inputs.Source.RequireRenderingAtmosphere().PlanetRadius;
+            var p2w=NativeMatrixMath.Invert(worldToProjection,out _);
+            Vector3 direction=new(S(target.X,eye.X),S(target.Y,eye.Y),S(target.Z,eye.Z));
+            float length=(float)Math.Sqrt(A(A(M(direction.X,direction.X),M(direction.Y,direction.Y)),M(direction.Z,direction.Z)));
+            float inverse=D(1,length);direction=new(M(direction.X,inverse),M(direction.Y,inverse),M(direction.Z,inverse));
+            var rayCamera=MapCameraConstructionMath.CompleteAB6C60(new(0,0,0,1),new(direction,1),up,
+                lens with{Near=1,Far=100},2,NativeCameraTangentDispatch.Sse);
+            var rays=NativeMatrixMath.Invert(rayCamera.WorldToProjection100,out _);
+            float[] vectors=new float[16];
+            for(int corner=0;corner<4;corner++)
+            {
+                float x=(corner>>1)*2-1,y=1-(corner&1)*2;
+                Vector4 a=Transform(x,y,far,rays),b=Transform(x,y,near,rays);float ai=D(1,a.W),bi=D(1,b.W);
+                vectors[corner*4]=S(M(b.X,bi),M(a.X,ai));vectors[corner*4+1]=S(M(b.Y,bi),M(a.Y,ai));
+                vectors[corner*4+2]=S(M(b.Z,bi),M(a.Z,ai));vectors[corner*4+3]=S(M(b.W,bi),M(a.W,ai));
+            }
+            var vertex=new Fields();vertex.Set("ksgClipPlane",Words(options.CloudClipPlane));vertex.Set("g_mtP2W",Words(p2w));
+            vertex.Set("g_vCameraDirVectors",vectors);vertex.Set("g_vProjFarNear",far,near);vertex.SetInt("g_iBayerPosNum",0);
+            // Bayer offsets use the reconstruction grid. The color pass viewport
+            // is smaller, while the history target owns this grid's dimensions.
+            vertex.Set("g_vProcSize", reconstructionWidth, reconstructionHeight,
+                D(1, reconstructionWidth), D(1, reconstructionHeight));
+            var pixel=new Fields();
+            var outer=current.Lights.First(light=>(light.GroupMask&0x80)!=0).CompleteData;
+            pixel.Set("litDir",Words(V(outer.Span,0)));pixel.Set("vEye",Words(eye));pixel.Set("fog",Words(atmosphere.Fog.Value));
+            pixel.Set("Scat",atmosphere.Scattering.SelectMany(Words).ToArray());pixel.Set("g_mtPrevW2P",Words(Matrix4x4.Identity));
+            foreach(var group in CloudTextureGroups)
+            {
+                float[] scale=new float[group.Lanes],offset=new float[group.Lanes];
+                for(int lane=0;lane<group.Lanes;lane++)
+                {scale[lane]=D(1,R(group.Period+lane*4));offset[lane]=M(A(R(group.Phase+lane*4),R(group.Offset+lane*4)),scale[lane]);}
+                pixel.Set("g_v"+group.Name+"TexOffset",offset);pixel.Set("g_v"+group.Name+"TexScale",scale);
+            }
+            pixel.Set("g_vRaySampleNum",S(R(0x90),R(0x94)),R(0x94),0,lens.VerticalFovRadians);
+            float bottom=A(R(0x9C),R(0x228));pixel.Set("g_vEarthRadius",R(0x228),bottom,A(bottom,R(0xA0)),A(R(0x218),R(0x228)));
+            pixel.Set("g_vCloudParams1",S(1,R(0x98)),R(0xAC),R(0xB4),D(R(0xA4),R(0xA8)));
+            pixel.Set("g_vCloudParams2",D(R(0xB8),4),M(R(0xB8),2.5f),D(1,R(0xA8)),R(0xB0));
+            pixel.Set("g_vCloudParams0",R(0x9C),R(0xA0),D(1,R(0xA0)),R(0x22C));
+            pixel.Set("g_vDistortScale",M(D(1,R(0x130)),R(0x180)),M(D(1,R(0x134)),R(0x184)),M(D(1,R(0x138)),R(0x188)),R(0xD8));
+            pixel.Set("g_vCirrusParams",R(0x218),S(1,R(0x21C)),R(0x220),R(0x224));
+            pixel.Set("g_vCirrusDistortScale",M(R(0x1D0),D(1,R(0x198))),M(R(0x1D4),D(1,R(0x19C))));pixel.Set("g_vErodeScale",R(0xC0),R(0xC4));
+            float h0=M(R(0xC8),R(0xC8)),h1=M(R(0xCC),R(0xCC));
+            pixel.Set("g_vHgParams0",M(D(S(1,h0),12.566371f),R(0xD4)),M(R(0xC8),-2),A(h0,1),R(0xD0));
+            pixel.Set("g_vHgParams1",M(D(S(1,h1),12.566371f),R(0xD4)),M(R(0xCC),-2),A(h1,1),0);
+            var ctl=current.Controller.Controller;float sun=ctl.SkyInfoZW7C78.X,moon=ctl.SkyInfoZW7C78.Y;
+            Vector4 rawSun=current.Controller.SunPosition!.Value,rawMoon=current.Controller.MoonPosition!.Value;
+            if(sun>0&&M(rawSun.Y,-1)>-.15f)
+            {
+                float intensity=A(A(M(current.MoonRgb.Y,1f/3),M(current.MoonRgb.X,1f/3)),M(current.MoonRgb.Z,1f/3));
+                if(D(.001953125f,current.ControllerGeometry40)>intensity)moon=0;
+            }
+            // Keep actual D3 setter RGB. Reconstructing it from Sky2's normalized
+            // cache and maximum would introduce a separate binary32 round trip.
+            Vector3 sunRgb=current.SunRgb;
+            pixel.Set("g_vSky2SunRGB",M(sunRgb.X,sun),M(sunRgb.Y,sun),M(sunRgb.Z,sun),sun);
+            pixel.Set("g_vSky2SunDir",M(rawSun.X,-1),M(rawSun.Y,-1),M(rawSun.Z,-1),R(0x230));
+            pixel.Set("g_vSky2MoonRGB",M(current.MoonRgb.X,moon),M(current.MoonRgb.Y,moon),M(current.MoonRgb.Z,moon),moon);
+            pixel.Set("g_vSky2MoonDir",M(rawMoon.X,-1),M(rawMoon.Y,-1),M(rawMoon.Z,-1),0);
+            var tables=present.AcceptedSeasonCamera.Inputs.Source.RequireRenderingAtmosphere();
+            Vector4 rayleigh=new(M(tables.RayleighExtinction.X,.01f),M(tables.RayleighExtinction.Y,.01f),M(tables.RayleighExtinction.Z,.01f),0);
+            if(R(0xD8)<1){var hsv=SkylightColorMath.RgbToHsv(rayleigh);hsv.Y=M(hsv.Y,R(0xD8));rayleigh=SkylightColorMath.HsvToRgb(hsv);}
+            pixel.Set("g_vSky2RayleighExtinction",rayleigh.X,rayleigh.Y,rayleigh.Z,A(R(0x22C),R(0x228)));
+            pixel.Set("g_vSky2MieExtinction",M(tables.MieExtinction.X,.01f),M(tables.MieExtinction.Y,.01f),M(tables.MieExtinction.Z,.01f),0);
+            pixel.Set("g_vClampValue",0,0,0,ctl.Scalar1F0);
+            color=new(Pack(programs.Color.VertexDefinitions,176,vertex),Pack(programs.Color.PixelDefinitions,560,pixel));
         }
-        var vertex=new Fields();vertex.Set("ksgClipPlane",Words(options.CloudClipPlane));vertex.Set("g_mtP2W",Words(p2w));
-        vertex.Set("g_vCameraDirVectors",vectors);vertex.Set("g_vProjFarNear",far,near);vertex.SetInt("g_iBayerPosNum",0);
-        // Bayer offsets use the reconstruction grid. The color pass viewport
-        // is smaller, while the history target owns this grid's dimensions.
-        int reconstructionWidth = renderResources.ReconstructionWidth;
-        int reconstructionHeight = renderResources.ReconstructionHeight;
-        vertex.Set("g_vProcSize", reconstructionWidth, reconstructionHeight,
-            D(1, reconstructionWidth), D(1, reconstructionHeight));
-        var pixel=new Fields();
-        var outer=current.Lights.First(light=>(light.GroupMask&0x80)!=0).CompleteData;
-        pixel.Set("litDir",Words(V(outer.Span,0)));pixel.Set("vEye",Words(eye));pixel.Set("fog",Words(atmosphere.Fog.Value));
-        pixel.Set("Scat",atmosphere.Scattering.SelectMany(Words).ToArray());pixel.Set("g_mtPrevW2P",Words(Matrix4x4.Identity));
-        foreach(var group in CloudTextureGroups)
-        {
-            float[] scale=new float[group.Lanes],offset=new float[group.Lanes];
-            for(int lane=0;lane<group.Lanes;lane++)
-            {scale[lane]=D(1,R(group.Period+lane*4));offset[lane]=M(A(R(group.Phase+lane*4),R(group.Offset+lane*4)),scale[lane]);}
-            pixel.Set("g_v"+group.Name+"TexOffset",offset);pixel.Set("g_v"+group.Name+"TexScale",scale);
-        }
-        pixel.Set("g_vRaySampleNum",S(R(0x90),R(0x94)),R(0x94),0,lens.VerticalFovRadians);
-        float bottom=A(R(0x9C),R(0x228));pixel.Set("g_vEarthRadius",R(0x228),bottom,A(bottom,R(0xA0)),A(R(0x218),R(0x228)));
-        pixel.Set("g_vCloudParams1",S(1,R(0x98)),R(0xAC),R(0xB4),D(R(0xA4),R(0xA8)));
-        pixel.Set("g_vCloudParams2",D(R(0xB8),4),M(R(0xB8),2.5f),D(1,R(0xA8)),R(0xB0));
-        pixel.Set("g_vCloudParams0",R(0x9C),R(0xA0),D(1,R(0xA0)),R(0x22C));
-        pixel.Set("g_vDistortScale",M(D(1,R(0x130)),R(0x180)),M(D(1,R(0x134)),R(0x184)),M(D(1,R(0x138)),R(0x188)),R(0xD8));
-        pixel.Set("g_vCirrusParams",R(0x218),S(1,R(0x21C)),R(0x220),R(0x224));
-        pixel.Set("g_vCirrusDistortScale",M(R(0x1D0),D(1,R(0x198))),M(R(0x1D4),D(1,R(0x19C))));pixel.Set("g_vErodeScale",R(0xC0),R(0xC4));
-        float h0=M(R(0xC8),R(0xC8)),h1=M(R(0xCC),R(0xCC));
-        pixel.Set("g_vHgParams0",M(D(S(1,h0),12.566371f),R(0xD4)),M(R(0xC8),-2),A(h0,1),R(0xD0));
-        pixel.Set("g_vHgParams1",M(D(S(1,h1),12.566371f),R(0xD4)),M(R(0xCC),-2),A(h1,1),0);
-        var ctl=current.Controller.Controller;float sun=ctl.SkyInfoZW7C78.X,moon=ctl.SkyInfoZW7C78.Y;
-        Vector4 rawSun=current.Controller.SunPosition!.Value,rawMoon=current.Controller.MoonPosition!.Value;
-        if(sun>0&&M(rawSun.Y,-1)>-.15f)
-        {
-            float intensity=A(A(M(current.MoonRgb.Y,1f/3),M(current.MoonRgb.X,1f/3)),M(current.MoonRgb.Z,1f/3));
-            if(D(.001953125f,current.ControllerGeometry40)>intensity)moon=0;
-        }
-        // Keep actual D3 setter RGB. Reconstructing it from Sky2's normalized
-        // cache and maximum would introduce a separate binary32 round trip.
-        Vector3 sunRgb=current.SunRgb;
-        pixel.Set("g_vSky2SunRGB",M(sunRgb.X,sun),M(sunRgb.Y,sun),M(sunRgb.Z,sun),sun);
-        pixel.Set("g_vSky2SunDir",M(rawSun.X,-1),M(rawSun.Y,-1),M(rawSun.Z,-1),R(0x230));
-        pixel.Set("g_vSky2MoonRGB",M(current.MoonRgb.X,moon),M(current.MoonRgb.Y,moon),M(current.MoonRgb.Z,moon),moon);
-        pixel.Set("g_vSky2MoonDir",M(rawMoon.X,-1),M(rawMoon.Y,-1),M(rawMoon.Z,-1),0);
-        var tables=present.AcceptedSeasonCamera.Inputs.Source.RequireRenderingAtmosphere();
-        Vector4 rayleigh=new(M(tables.RayleighExtinction.X,.01f),M(tables.RayleighExtinction.Y,.01f),M(tables.RayleighExtinction.Z,.01f),0);
-        if(R(0xD8)<1){var hsv=SkylightColorMath.RgbToHsv(rayleigh);hsv.Y=M(hsv.Y,R(0xD8));rayleigh=SkylightColorMath.HsvToRgb(hsv);}
-        pixel.Set("g_vSky2RayleighExtinction",rayleigh.X,rayleigh.Y,rayleigh.Z,A(R(0x22C),R(0x228)));
-        pixel.Set("g_vSky2MieExtinction",M(tables.MieExtinction.X,.01f),M(tables.MieExtinction.Y,.01f),M(tables.MieExtinction.Z,.01f),0);
-        pixel.Set("g_vClampValue",0,0,0,ctl.Scalar1F0);
-        var programs=resources.SelectMain(rendererRequest,weather.ReadBits(0x674),weather.ReadBits(0x678),earthPresent);
         var historyVertex=new Fields();historyVertex.Set("ksgClipPlane",Words(options.CloudClipPlane));historyVertex.Set("g_vProjFarNear",far,near);
         var historyPixel=new Fields();historyPixel.SetInt("g_iBayerPosNum",0);historyPixel.Set("g_vPrevVector",previousVector);
         historyPixel.Set("g_vProcSize", reconstructionWidth, reconstructionHeight,
@@ -105,11 +111,13 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
         foreach(int phase in new[]{0x1D8,0x1DC,0x1F8,0x1FC})axes.Add(new(phase,-1,0,2000000,0,1f/2000000));
         byte[] matrixBytes=new byte[64];var matrix=Words(worldToProjection);
         for(int i=0;i<matrix.Length;i++)BinaryPrimitives.WriteSingleLittleEndian(matrixBytes.AsSpan(i*4),matrix[i]);
+        byte[] previousMatrixBytes=new byte[64];var previousMatrix=Words(Matrix4x4.Identity);
+        for(int i=0;i<previousMatrix.Length;i++)BinaryPrimitives.WriteSingleLittleEndian(previousMatrixBytes.AsSpan(i*4),previousMatrix[i]);
         byte[] PackCompositePixel()=>programs.Composite.PixelDefinitions.Buffers.Count==0?Array.Empty<byte>():
             Pack(programs.Composite.PixelDefinitions,programs.Composite.PixelDefinitions.Buffers.Single().ByteSize,compositePixel);
-        return new(programs,Pack(programs.Color.VertexDefinitions,176,vertex),Pack(programs.Color.PixelDefinitions,560,pixel),
+        return new(programs,color,
             Pack(programs.History.VertexDefinitions,32,historyVertex),Pack(programs.History.PixelDefinitions,48,historyPixel),
-            Pack(programs.Composite.VertexDefinitions,32,compositeVertex),PackCompositePixel(),axes.AsReadOnly(),matrixBytes,weather.ReadFloat(0x1D0));
+            Pack(programs.Composite.VertexDefinitions,32,compositeVertex),PackCompositePixel(),axes.AsReadOnly(),matrixBytes,previousMatrixBytes,weather.ReadFloat(0x1D0));
     }
 
     private static Dictionary<int,float> CloudInputs(SkyAppliedSourceCloudWeatherFields w,MapSourceCreatedSeasonLightingFrame present)
@@ -129,7 +137,6 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
         Copy(0x168,0x720,2);Copy(0x170,0x728,2);Copy(0x178,0x730,2);Copy(0x180,0x738,3);
         Copy(0x218,0x744,4);Copy(0x198,0x764,2);Copy(0x1A8,0x76C,2);Copy(0x1B8,0x774,2);Copy(0x1C8,0x77C,4);
         foreach(int period in new[]{0xF0,0xF4,0xF8,0x130,0x134,0x138,0x168,0x16C,0x198,0x19C,0x1B8,0x1BC})v[period]=CloudSize(v[period]);
-        v[0x228]=present.AcceptedSeasonCamera.Inputs.Source.RequireRenderingAtmosphere().PlanetRadius;
         return v;
     }
     private static float CloudSize(float value)=>value>=float.MaxValue?float.MaxValue:value>.0011920929f?value:.0011920929f;

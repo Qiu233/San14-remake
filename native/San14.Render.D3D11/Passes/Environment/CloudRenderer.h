@@ -36,18 +36,23 @@ struct NativeMainCloudAxis {
     int cbOffset=-1;
     float wind=0,period=0,position=0,scale=0,phase=0;
 };
+namespace San14::Render {class NativeSkyAtmosphereResources;}
+struct NativeMainCloudDrawResources {
+    std::vector<NativeMainCloudPass> passes;
+    std::vector<AmbientNativeTextureBinding> staticTextures;
+    UINT topology=0,first=0,count=0;
+    UINT bayerVsOffset=0,bayerPsOffset=0,previousMatrixOffset=0,previousVectorOffset=0;
+};
 struct NativeMainCloud {
     // Names retain physical source ping0/ping1 identities. Dynamic current /
     // previous roles are resolved from C4 while all three passes execute.
     std::map<std::string,NativeMainCloudSurface> surfaces;
-    std::vector<NativeMainCloudPass> passes;
-    std::vector<AmbientNativeTextureBinding> staticTextures;
+    std::optional<NativeMainCloudDrawResources> draw;
     ComPtr<ID3D11RenderTargetView> sceneTarget;
     std::vector<NativeMainCloudAxis> axes;
     std::array<float,3> baseWind{},basePeriod{},pendingVector{};
     std::array<char,64> currentW2P{},previousW2P{};
-    UINT topology=0,first=0,count=0,currentSide=0,lastWrittenSide=0,bayerCounter=0;
-    UINT bayerVsOffset=0,bayerPsOffset=0,previousMatrixOffset=0,previousVectorOffset=0;
+    UINT currentSide=0,lastWrittenSide=0,bayerCounter=0;
     float lastUpdateClock=0,cloudy=0;
     bool historiesNew=true,previousCloudPositive=false;
     const NativeMainCloudSurface& lastRgb() const {return surfaces.at(lastWrittenSide?"previous-rgb":"current-rgb");}
@@ -74,7 +79,8 @@ static ComPtr<ID3D11Buffer> nativeMainCloudBuffer(ID3D11Device* device,const std
     check(device->CreateBuffer(&d,&initial,&result),"Main Cloud retained constant buffer");return result;
 }
 static NativeMainCloud prepareNativeMainCloud(ID3D11Device* device,const fs::path& source,
-    const fs::path& continuousSource,ID3D11Texture2D* hdr) {
+    const fs::path& continuousSource,ID3D11Texture2D* hdr,
+    const San14::Render::NativeSkyAtmosphereResources* renderingAtmosphere) {
     NativeMainCloud result;
     std::ifstream targets(source/"targets.txt");std::string name,key;UINT width,height,resource,sampled,rendered;
     if(!targets)throw std::runtime_error("Main Cloud source targets absent");
@@ -89,11 +95,13 @@ static NativeMainCloud prepareNativeMainCloud(ID3D11Device* device,const fs::pat
         check(device->CreateRenderTargetView(surface.texture.Get(),&rd,&surface.target),"Main Cloud source RTV");
         result.surfaces.emplace(name,std::move(surface));
     }
-    result.staticTextures=ambientTextures(device,source,"pass1-textures.tsv",std::nullopt);
     D3D11_TEXTURE2D_DESC hdrDesc{};hdr->GetDesc(&hdrDesc);
     D3D11_RENDER_TARGET_VIEW_DESC sceneDesc{};sceneDesc.Format=hdrDesc.Format;sceneDesc.ViewDimension=D3D11_RTV_DIMENSION_TEXTURE2D;
     check(device->CreateRenderTargetView(hdr,&sceneDesc,&result.sceneTarget),"Main Cloud retained Scene RTV");
-    std::string geometryKind;std::ifstream geometry(source/"geometry.txt");geometry>>geometryKind>>result.topology>>result.first>>result.count;
+    if(renderingAtmosphere) {
+    NativeMainCloudDrawResources draw;
+    draw.staticTextures=ambientTextures(device,source,"pass1-textures.tsv",std::nullopt);
+    std::string geometryKind;std::ifstream geometry(source/"geometry.txt");geometry>>geometryKind>>draw.topology>>draw.first>>draw.count;
     if(!geometry||geometryKind!="SV_VertexID")throw std::runtime_error("Main Cloud source geometry absent");
     std::ifstream passRows(source/"passes.txt");NativeMainCloudPass p;
     const auto programs=source_cloud_programs::read(source/"programs.txt");
@@ -134,7 +142,9 @@ static NativeMainCloud prepareNativeMainCloud(ID3D11Device* device,const fs::pat
             sampler.sides[1]=file==oppositeFile?sampler.sides[0]:ambientSampler(device,source/oppositeFile);
             p.samplers.push_back(std::move(sampler));
         }
-        result.passes.push_back(std::move(p));p=NativeMainCloudPass{};
+        draw.passes.push_back(std::move(p));p=NativeMainCloudPass{};
+    }
+    result.draw.emplace(std::move(draw));
     }
     std::ifstream animation(continuousSource/"animation.txt");NativeMainCloudAxis axis;
     if(!animation)throw std::runtime_error("Main Cloud retained animation source absent");
@@ -144,18 +154,22 @@ static NativeMainCloud prepareNativeMainCloud(ID3D11Device* device,const fs::pat
     std::ifstream pending(continuousSource/"pending-vector.txt");
     for(UINT i=0;i<3;++i)pending>>result.baseWind[i]>>result.basePeriod[i];
     if(!pending)throw std::runtime_error("Main Cloud displacement source absent");
+    if(result.draw) {
     std::ifstream layout(continuousSource/"cb-layout.txt");std::string stage,field;UINT offset;
     if(!layout)throw std::runtime_error("Main Cloud CB layout source absent");
     while(layout>>stage>>field>>offset) {
-        if(field=="previous_w2p")result.previousMatrixOffset=offset;
-        else if(field=="previous_vector")result.previousVectorOffset=offset;
-        else if(stage=="pass1-vs")result.bayerVsOffset=offset;
-        else if(stage=="pass2-ps")result.bayerPsOffset=offset;
+        if(field=="previous_w2p")result.draw.value().previousMatrixOffset=offset;
+        else if(field=="previous_vector")result.draw.value().previousVectorOffset=offset;
+        else if(stage=="pass1-vs")result.draw.value().bayerVsOffset=offset;
+        else if(stage=="pass2-ps")result.draw.value().bayerPsOffset=offset;
+    }
     }
     auto matrix=load(continuousSource/"current-w2p.bin");
     if(matrix.size()!=64)throw std::runtime_error("Main Cloud actual W2P is not64B");
     std::memcpy(result.currentW2P.data(),matrix.data(),64);
-    for(auto& pass:result.passes)if(pass.name=="pass1")std::memcpy(result.previousW2P.data(),pass.pbytes.data()+result.previousMatrixOffset,64);
+    const auto previous=load(continuousSource/"previous-w2p.bin");
+    if(previous.size()!=64)throw std::runtime_error("Main Cloud initial previous W2P is not64B");
+    std::memcpy(result.previousW2P.data(),previous.data(),64);
     auto cloud=load(continuousSource/"cloudy.bin");
     if(cloud.size()!=4)throw std::runtime_error("Main Cloud current Cloudy source is not4B");
     std::memcpy(&result.cloudy,cloud.data(),4);
@@ -177,13 +191,13 @@ static float advanceNativeMainCloud(NativeMainCloud& cloud,float currentCommonCl
 }
 static UINT consumeNativeMainCloud(NativeMainCloud& cloud,NativeMainCloudPass& pass) {
     UINT usedBayer=cloud.bayerCounter;
-    std::memcpy(pass.vbytes.data()+cloud.bayerVsOffset,&usedBayer,4);
-    std::memcpy(pass.pbytes.data()+cloud.previousMatrixOffset,cloud.previousW2P.data(),64);
+    std::memcpy(pass.vbytes.data()+cloud.draw.value().bayerVsOffset,&usedBayer,4);
+    std::memcpy(pass.pbytes.data()+cloud.draw.value().previousMatrixOffset,cloud.previousW2P.data(),64);
     for(auto& a:cloud.axes)if(a.cbOffset>=0)nativeMainCloudFloat(pass.pbytes,UINT(a.cbOffset),(a.phase+a.position)*a.scale);
-    for(auto& next:cloud.passes)if(next.name=="pass2") {
-        std::memcpy(next.pbytes.data()+cloud.bayerPsOffset,&usedBayer,4);
-        for(UINT i=0;i<3;++i)nativeMainCloudFloat(next.pbytes,cloud.previousVectorOffset+i*4,cloud.pendingVector[i]);
-        nativeMainCloudFloat(next.pbytes,cloud.previousVectorOffset+12,0);
+    for(auto& next:cloud.draw.value().passes)if(next.name=="pass2") {
+        std::memcpy(next.pbytes.data()+cloud.draw.value().bayerPsOffset,&usedBayer,4);
+        for(UINT i=0;i<3;++i)nativeMainCloudFloat(next.pbytes,cloud.draw.value().previousVectorOffset+i*4,cloud.pendingVector[i]);
+        nativeMainCloudFloat(next.pbytes,cloud.draw.value().previousVectorOffset+12,0);
     }
     cloud.pendingVector.fill(0);cloud.bayerCounter=usedBayer==15?0:usedBayer+1;
     return usedBayer;
@@ -206,7 +220,7 @@ static void executeNativeMainCloud(ID3D11Device* device,ID3D11DeviceContext* con
     // This consumer never advances time itself. Only positive cloud drawing is
     // gated; the unconditional ping-side exit also follows a skipped draw.
     UINT usedBayer=cloud.bayerCounter;
-    if(drawEnabled)for(auto& pass:cloud.passes) {
+    if(drawEnabled)for(auto& pass:cloud.draw.value().passes) {
         if(pass.name=="pass1") {
             //1191FE0 emits old DWORD counter, consumes pending, then advances.
             usedBayer=consumeNativeMainCloud(cloud,pass);
@@ -220,7 +234,7 @@ static void executeNativeMainCloud(ID3D11Device* device,ID3D11DeviceContext* con
         D3D11_VIEWPORT entryViewport{};UINT viewportCount=1;context->RSGetViewports(&viewportCount,&entryViewport);
         std::array<ID3D11ShaderResourceView*,32> inputs{};context->OMSetRenderTargets(0,nullptr,nullptr);context->PSSetShaderResources(0,UINT(inputs.size()),inputs.data());
         for(auto& input:pass.inputs)inputs.at(input.first)=nativeMainCloudRole(cloud,input.second).view.Get();
-        for(auto& texture:cloud.staticTextures)if(texture.program==pass.name)inputs.at(texture.slot)=texture.view.Get();
+        for(auto& texture:cloud.draw.value().staticTextures)if(texture.program==pass.name)inputs.at(texture.slot)=texture.view.Get();
         context->PSSetShaderResources(0,UINT(inputs.size()),inputs.data());
         // The optional ambient-altitude role must not inherit a prior draw's
         // sampler when the selected three-image Plane does not provide it.
@@ -244,14 +258,14 @@ static void executeNativeMainCloud(ID3D11Device* device,ID3D11DeviceContext* con
         if(!pass.blend||std::memcmp(&bd,&pass.blendDescription,sizeof(bd))!=0){pass.blend.Reset();check(device->CreateBlendState(&bd,&pass.blend),"Main Cloud retained temporary blend");pass.blendDescription=bd;}
         D3D11_VIEWPORT viewport{0,0,float(pass.width),float(pass.height),0,1};context->RSSetViewports(1,&viewport);context->RSSetState(pass.raster.Get());
         logical.bind(context,pass.depth.Get(),ds,entryRef);context->OMSetBlendState(pass.blend.Get(),entryFactor,entrySampleMask);
-        context->IASetInputLayout(nullptr);context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY(cloud.topology));
+        context->IASetInputLayout(nullptr);context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY(cloud.draw.value().topology));
         context->VSSetShader(pass.vs.Get(),nullptr,0);context->PSSetShader(pass.ps.Get(),nullptr,0);context->GSSetShader(nullptr,nullptr,0);context->HSSetShader(nullptr,nullptr,0);context->DSSetShader(nullptr,nullptr,0);
-        context->OMSetRenderTargets(pass.rtCount,output.data(),pass.withDsv?mainDsv:nullptr);context->Draw(cloud.count,cloud.first);
+        context->OMSetRenderTargets(pass.rtCount,output.data(),pass.withDsv?mainDsv:nullptr);context->Draw(cloud.draw.value().count,cloud.draw.value().first);
         if(pass.name=="pass1")cloud.previousW2P=cloud.currentW2P; //119269C..26DC after the draw, for the next request.
         context->OMSetRenderTargets(0,nullptr,nullptr);inputs.fill(nullptr);context->PSSetShaderResources(0,UINT(inputs.size()),inputs.data());
         context->RSSetViewports(1,&entryViewport);context->RSSetState(entryRaster.Get());logical.bind(context,entryDepth.Get(),entryDepthDescription,entryRef);
         context->OMSetBlendState(entryBlend.Get(),entryFactor,entrySampleMask);
-        std::cout<<"source MainCloud124 "<<pass.name<<" combo="<<pass.combination<<" VS="<<pass.vsIndex<<" PS="<<pass.psIndex<<" draw="<<cloud.count
+        std::cout<<"source MainCloud124 "<<pass.name<<" combo="<<pass.combination<<" VS="<<pass.vsIndex<<" PS="<<pass.psIndex<<" draw="<<cloud.draw.value().count
             <<" extent="<<pass.width<<'x'<<pass.height<<" MRT="<<pass.rtCount<<" MainDSV="<<pass.withDsv<<" inheritedStencil="<<entryRef
             <<" historySide="<<cloud.currentSide<<" bayer="<<usedBayer<<" clock="<<currentCommonClock<<"\n";
     }

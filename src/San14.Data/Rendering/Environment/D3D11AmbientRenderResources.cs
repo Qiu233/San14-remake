@@ -11,15 +11,15 @@ public sealed class D3D11AmbientRenderResources
         RenderTextureFormats Formats, uint DepthFormat = 0);
 
     private readonly Dictionary<string, byte[]> files = new(StringComparer.Ordinal);
-    private readonly D3D11MainSkyInputPreparation sky;
     private readonly SkyAmbientFilterSelection filter;
 
     private D3D11AmbientRenderResources(GameResourceRepository repository,
-        D3D11AmbientWorkConstants work, string locale)
+        LoadedSkyAmbientResources declaration, MapSourceCreatedSeasonLightingFrame present, string locale)
     {
-        sky = work.SkyMedia;
-        filter = work.Filter;
-        var cubes = work.Ambient.SpecularTargets;
+        Declaration = declaration;
+        filter = SkyAmbientCurrentFilterSelection.CaptureCurrent(declaration.Shader, present).Selection;
+        bool skyEnabled = (BinaryPrimitives.ReadUInt32LittleEndian(present.PreparedCameraPrefix.Span.Slice(0x3B0, 4)) & 0x80000000) != 0;
+        var cubes = declaration.SpecularTargets;
         if (cubes.Count != 4 || cubes.Select(value => value.Object.ObjectId).Distinct().Count() != 4)
             throw new NotSupportedException("Specular environment needs four distinct output declarations for its generation and interpolation consumers.");
         var first = cubes[0];
@@ -43,7 +43,7 @@ public sealed class D3D11AmbientRenderResources
         {
             using var writer = new BinaryWriter(stream);
             writer.Write(0x31525341u); // ASR1: ambient specular resource declarations.
-            writer.Write(filter.SampleCount); writer.Write(work.SkyEnabled ? 1u : 0u); writer.Write((uint)targets.Count);
+            writer.Write(filter.SampleCount); writer.Write(skyEnabled ? 1u : 0u); writer.Write((uint)targets.Count);
             foreach (var target in targets)
             {
                 writer.Write(target.Role); writer.Write(target.Key);
@@ -81,17 +81,17 @@ public sealed class D3D11AmbientRenderResources
             BinaryPrimitives.WriteSingleLittleEndian(weightSum, generated.Packet.WeightSum);
             files.Add($"filter-mip{mip}-weight-sum.bin", weightSum);
         }
-        for (int face = 0; face < work.SkyFaces.Count; face++)
-        {
-            byte[] material = new byte[SkyMainMaterialEncoding.ByteLength];
-            SkyMainMaterialEncoding.Write(work.SkyFaces[face], material);
-            files.Add($"sky/face{face}.bin", material);
-        }
     }
 
     public static D3D11AmbientRenderResources Load(GameResourceRepository repository,
-        D3D11AmbientWorkConstants work, string locale) => new(repository, work, locale);
+        MapSourceCreatedSeasonLightingFrame present, string locale)
+    {
+        var declaration = SkyAmbientResources.Load(repository, repository.LoadObjects("system", 0xDAB638B2),
+            0x910603AC, repository.LoadObjects("system", 0x718CCB8B), repository.LoadObjects("system", 0x93FB3280));
+        return new(repository, declaration, present, locale);
+    }
 
+    public LoadedSkyAmbientResources Declaration { get; }
     public uint SampleCount => filter.SampleCount;
 
     /// <summary>A new sample request needs matching programs and sample buffers.
@@ -113,7 +113,6 @@ public sealed class D3D11AmbientRenderResources
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllBytes(path, file.Value);
         }
-        sky.WriteNativeInputs(Path.Combine(directory, "sky"));
         filter.WriteNativeInputs(directory);
     }
 

@@ -29,7 +29,7 @@ public sealed class D3D11CloudRenderResources
 
     private D3D11CloudRenderResources(GameResourceRepository repository,
         MapSourceCreatedSeasonLightingFrame present, int width, int height,
-        D3D11AmbientWorkConstants work, D3D11CloudProgramMedia programs)
+        SkyAppliedCloudTextureSet cloudTextures, Sky2TextureBindingSnapshot sampling, D3D11CloudProgramMedia programs)
     {
         if (width <= 0 || height <= 0)
             throw new ArgumentOutOfRangeException(nameof(width));
@@ -73,8 +73,15 @@ public sealed class D3D11CloudRenderResources
         BayerHeight = targets[0].Height;
         ReconstructionWidth = targets[3].Width;
         ReconstructionHeight = targets[3].Height;
-        cloudTextures = work.CloudTextures;
-        earthTexture = work.EarthTexture;
+        this.cloudTextures = cloudTextures;
+        sampling.RequireCurrent();
+        earthTexture = sampling.GetTexture(SkySamplingRole.Earth)?.Texture;
+        byte[] presence = new byte[8];
+        BinaryPrimitives.WriteUInt32LittleEndian(presence, 0x31424D53); // SMB1: installed shared Sky sampling.
+        BinaryPrimitives.WriteUInt32LittleEndian(presence.AsSpan(4),
+            (sampling.Presence.Earth ? 1u : 0u) | (sampling.Presence.Moon ? 2u : 0u) |
+            (sampling.Presence.Milky ? 4u : 0u));
+        files.Add("ambient-input/sampling-presence.bin", presence);
         ValidateAliases(programs.Main.Color, [("sBase", 0), ("sCirrus", 3),
             ("sSkyAmbientAltitude2dTable", 4), ("sTransmit2dTable", 5)]);
         ValidateAliases(programs.Main.History, [("sReprojRaymarchedCloud", 0),
@@ -92,13 +99,13 @@ public sealed class D3D11CloudRenderResources
 
     public static D3D11CloudRenderResources Prepare(GameResourceRepository repository,
         MapSourceCreatedSeasonLightingFrame present, int width, int height,
-        D3D11AmbientWorkConstants work, D3D11CloudProgramMedia programs)
-        => new(repository, present, width, height, work, programs);
+        SkyAppliedCloudTextureSet cloudTextures, Sky2TextureBindingSnapshot sampling, D3D11CloudProgramMedia programs)
+        => new(repository, present, width, height, cloudTextures, sampling, programs);
 
     /// <summary>Reject changes that need a physical Native replacement before
     /// accepting the candidate scale. Zero selected scales retain the Main value.</summary>
-    public void RequireCurrent(GameResourceRepository repository,
-        MapSourceCreatedSeasonLightingFrame present, int width, int height)
+    public void RequireCurrent(MapSourceCreatedSeasonLightingFrame present,
+        int width, int height, SkyTextureSource? currentEarth)
     {
         if (width != SceneWidth || height != SceneHeight)
             throw new NotSupportedException("Native Cloud backend resizing requires target and history replacement.");
@@ -119,11 +126,10 @@ public sealed class D3D11CloudRenderResources
         if (!ReferenceEquals(package, acceptedPackage) || !ReferenceEquals(groups, acceptedCloudTextures))
         {
             var textures = SkyAppliedCloudTextureSet.Import(groups);
-            var sampling = SkySeasonPackageTextures.Read(package);
-            var earth = sampling.Earth.IsSourceReferenceZero ? null :
-                SkySeasonPackageTextures.LoadSampling(repository, sampling.Earth).Texture;
-            if (!cloudTextures.SamePhysical(textures) || !SameTexture(earthTexture, earth))
-                throw new NotSupportedException("Changed Native Cloud or WORK Sky images require a physical resource replacement.");
+            // The Main sampling owner applies zero-reference retention. A new
+            // package's declaration alone does not describe its installed image.
+            if (!cloudTextures.SamePhysical(textures) || !SameTexture(earthTexture, currentEarth))
+                throw new NotSupportedException("Changed Native Cloud or Main Sky images require a physical resource replacement.");
         }
         retainedScale = candidateScale;
         acceptedEffectiveScale = effectiveScale;

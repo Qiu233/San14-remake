@@ -96,6 +96,14 @@ class CloudEnvironmentPass {
 
     void prepareAtmosphereResources(ID3D11Device* device,const fs::path& source) {
         auto prepared=NativeSkyAtmosphereOwner::prepare(device,source,environment_.textures);
+        if(const auto* selected=prepared.renderingAtmosphere()) {
+            for(std::size_t index=0;index<selected->planeCount();++index) {
+                const auto& image=selected->plane(index).texture;
+                const bool shared=std::any_of(environment_.textures.begin(),environment_.textures.end(),
+                    [&](const auto& existing){return existing.identity==image.identity;});
+                if(!shared)environment_.textures.push_back(image);
+            }
+        }
         atmosphereOwner_.emplace(std::move(prepared));
     }
     const NativeSkyAtmosphereResources* atmosphereResources() const {return atmosphereOwner_.value().atmosphere();}
@@ -103,7 +111,9 @@ class CloudEnvironmentPass {
 
     void prepareAmbient(ID3D11Device* device,ID3D11DeviceContext* context,const fs::path& source,
         MainStarPass& stars,const source_weather_fog::Power& power) {
-        environment_=prepareNativeAmbient(device,source,stars,power);
+        auto prepared=prepareNativeAmbient(device,source,stars,power);
+        prepareNativeAmbientImages(device,prepared);
+        environment_=std::move(prepared);
     }
 
     void bootstrapAmbient(ID3D11DeviceContext* context,const CommonRenderPolicy& common) {
@@ -111,15 +121,15 @@ class CloudEnvironmentPass {
         // recipe requiring Ambient still needs its own actual fallback owner.
         if(!ambientGenerationEnabled(common)||!skyCloudDrawingEnabled(common))return;
         // Bootstrap supplies all three history slots once, before Main entry.
-        for(UINT slot=0;slot<3;++slot)executeNativeAmbientBatch(context,environment_,renderingAtmosphere()!=nullptr,slot);
+        for(UINT slot=0;slot<3;++slot)executeNativeAmbientBatch(context,environment_,renderingAtmosphere()!=nullptr,[&]{prepareWorkFaces(context);},slot);
         executeNativeAmbientBlend(context,environment_,0,0);
     }
 
     void prepareClouds(ID3D11Device* device,const fs::path& cloudSource,
         const fs::path& animationSource,const fs::path& ambientCloudSource,
         ID3D11Texture2D* hdr) {
-        cloud_=prepareNativeMainCloud(device,cloudSource,animationSource,hdr);
-        environmentCloud_=prepareNativeAmbientCloudContinuous(device,ambientCloudSource,environment_,cloud_);
+        cloud_=prepareNativeMainCloud(device,cloudSource,animationSource,hdr,renderingAtmosphere());
+        ambientCloudSource_=ambientCloudSource;workPublicationPending_=true;
         // This backend constructs a full-target View and has no partial-View
         // API. This rectangle belongs to that View, not a temporary RS viewport.
         D3D11_TEXTURE2D_DESC target{};hdr->GetDesc(&target);
@@ -134,22 +144,24 @@ class CloudEnvironmentPass {
         float altitude,const source_weather_fog::Frame& weather,
         const source_camera::V3& globalRgb,const source_camera::CameraTransform& camera,
         const CommonRenderPolicy& commonPolicy,const source_weather_fog::Power& power,bool weatherSamplingEnabled) {
-        return AtmosphereFrame{season,lights,altitude,weather,globalRgb,camera,cloud_,commonPolicy,power,weatherSamplingEnabled};
+        return AtmosphereFrame{season,lights,altitude,weather,globalRgb,camera,cloud_,commonPolicy,power,weatherSamplingEnabled,renderingAtmosphere()};
     }
 
     float updateAcceptedFrame(ID3D11Device* device,ID3D11DeviceContext* context,
         const CloudEnvironmentSources& source,const CloudEnvironmentFrame& frame) {
-        float currentPlanet=0;
         if(frame.season) {
-            if(frame.season->ambientFilterSampleCount!=environment_.samples)
-                throw std::runtime_error("Ambient sample count changed; prepare a new resource generation");
+            currentSampleCount_=frame.season->ambientFilterSampleCount;
             if(!weather_ || std::none_of(weather_->profiles.seasons.begin(),
                 weather_->profiles.seasons.end(),[&](const auto& profile){return profile.season==frame.season->season;}))
-                weather_=readNativeCurrentCloudWeather(source.weather);
-            currentWeather_=publishNativeCurrentCloudWeatherBeforeClock(*weather_,*frame.season,cloud_,environmentCloud_);
-            currentPlanet=currentWeather_->planetRadius;
-            if(!currentAmbient_)currentAmbient_=prepareNativeCurrentAmbientFrame(device,
-                source.ambientFrame,environment_,environmentCloud_);
+                weather_=readNativeCurrentCloudWeather(source.weather,cloud_);
+            currentWeather_=publishNativeCurrentCloudWeatherBeforeClock(*weather_,*frame.season,cloud_,
+                renderingAtmosphere()?&renderingAtmosphere()->settings():nullptr);
+            // Retain current typed inputs, not a borrowed frame or an initial
+            // six-face publication. First activation consumes this same update.
+            acceptedEnvironment_=source_current_ambient::decodeEnvironment(*frame.season);
+            acceptedCloudLight_=frame.lights;
+            acceptedClamp_=frame.season->cloudWeather.clampValue;
+            ambientFrameSource_=source.ambientFrame;weatherSource_=source.weather;
         }
         const float node3Delta=advanceNativeMainCloud(cloud_,frame.clock); // Once before geometry.
         if(currentWeather_) {
@@ -158,22 +170,18 @@ class CloudEnvironmentPass {
                 phases[std::size_t(*axis.weatherChannel)]=axis.phase;
             volume_=prepareCloudVolumeMaterial(*currentWeather_,phases);
         }
-        if(frame.season) {
-            prepareNativeCurrentAmbientInputs(*currentAmbient_,*frame.season,frame.lights);
-            std::array<source_camera::V4,6> cloudClip{};
-            for(unsigned face:{0u,1u,4u,5u})cloudClip[face]=source_work_cloud_clip::prepareCurrentWorkCloudClip(
-                currentPlanet,currentAmbient_->current.faces[face].camera,2);
-            publishNativeCurrentAmbientFrame(context,*currentAmbient_,environment_,environmentCloud_,&cloudClip);
-        }
-        updateNativeAmbientCloudContinuous(context,environmentCloud_,cloud_,volume_?&*volume_:nullptr);
+        workPublicationPending_=true;
         return node3Delta;
     }
 
     // Node 5 consumes completed Cloud and Main Star updates from node 3.
     void generateAmbient(ID3D11DeviceContext* context,float clock,const CommonRenderPolicy& common) {
         const auto parent=NativeMainTargetScope::retain(context);
-        executeNativeAmbientNode5(context,environment_,clock,ambientGenerationEnabled(common),
-            skyCloudDrawingEnabled(common)&&renderingAtmosphere()!=nullptr);
+        const bool enabled=ambientGenerationEnabled(common);
+        if(enabled&&currentSampleCount_&&*currentSampleCount_!=environment_.samples)
+            throw std::runtime_error("Ambient sample count changed; prepare a new resource generation");
+        executeNativeAmbientNode5(context,environment_,clock,enabled,
+            skyCloudDrawingEnabled(common)&&renderingAtmosphere()!=nullptr,[&]{prepareWorkFaces(context);});
         parent.restore(context);
     }
 
@@ -211,6 +219,32 @@ class CloudEnvironmentPass {
     const CloudVolumeMaterial& cloudVolume() const { return volume_.value(); }
 
   private:
+    void prepareWorkFaces(ID3D11DeviceContext* context) {
+        ensureNativeAmbientFaces(context,environment_);
+        // Bootstrap uses the actual initial face media before Main Cloud exists.
+        // Current activation uses node three's accepted weather and phase; this
+        // function never advances a clock or modifies Main Cloud history.
+        if(ambientCloudSource_.empty())return;
+        if(environmentCloud_&&!workPublicationPending_)return;
+        ComPtr<ID3D11Device> device;context->GetDevice(&device);
+        if(!environmentCloud_)
+            environmentCloud_=prepareNativeAmbientCloudContinuous(device.Get(),ambientCloudSource_,environment_,cloud_);
+        if(acceptedEnvironment_) {
+            if(!currentAmbient_)
+                currentAmbient_=prepareNativeCurrentAmbientFrame(device.Get(),ambientFrameSource_,environment_,*environmentCloud_);
+            if(!workWeatherLayout_)
+                workWeatherLayout_=source_current_cloud_weather::readLayout(weatherSource_/"work-layout.txt",true);
+            publishNativeCurrentCloudWeatherToWork(currentWeather_.value(),*workWeatherLayout_,acceptedClamp_,cloud_,*environmentCloud_);
+            currentAmbient_->current=source_current_ambient::prepareCurrent(
+                currentAmbient_->profile,*acceptedEnvironment_,acceptedCloudLight_);
+            std::array<source_camera::V4,6> cloudClip{};
+            for(unsigned face:{0u,1u,4u,5u})cloudClip[face]=source_work_cloud_clip::prepareCurrentWorkCloudClip(
+                renderingAtmosphere()->settings().planetRadius,currentAmbient_->current.faces[face].camera,2);
+            publishNativeCurrentAmbientFrame(context,*currentAmbient_,environment_,*environmentCloud_,&cloudClip);
+        }
+        updateNativeAmbientCloudContinuous(context,*environmentCloud_,cloud_,volume_?&*volume_:nullptr);
+        workPublicationPending_=false;
+    }
     bool ambientGenerationEnabled(const CommonRenderPolicy& common) const {
         return (!common.present||common.allowAmbientGeneration)&&atmosphereResources()!=nullptr;
     }
@@ -241,7 +275,14 @@ class CloudEnvironmentPass {
     std::optional<source_current_cloud_weather::Frame> currentWeather_;
     std::optional<CloudVolumeMaterial> volume_;
     NativeAmbient environment_;
-    NativeAmbientCloudContinuous environmentCloud_;
+    std::optional<NativeAmbientCloudContinuous> environmentCloud_;
+    fs::path ambientCloudSource_,ambientFrameSource_,weatherSource_;
+    std::optional<source_current_ambient::Environment> acceptedEnvironment_;
+    source_current_season_atmosphere::CloudLightInput acceptedCloudLight_{};
+    std::optional<source_current_cloud_weather::Layout> workWeatherLayout_;
+    std::optional<UINT> currentSampleCount_;
+    float acceptedClamp_{};
+    bool workPublicationPending_{};
     std::optional<NativeCurrentAmbientFrame> currentAmbient_;
 };
 } // namespace San14::Render

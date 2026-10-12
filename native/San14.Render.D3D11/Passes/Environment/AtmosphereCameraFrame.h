@@ -5,6 +5,7 @@
 #include "../../Camera/CameraMatrix.h"
 #include "WeatherFogFrame.h"
 #include "SkyMaterialInputs.h"
+#include <optional>
 
 namespace source_atmosphere_camera {
 using source_camera::A;using source_camera::S;using source_camera::M;using source_camera::D;
@@ -30,21 +31,27 @@ struct Profile {
     float cloudSunDirectionW{};
     bool updateStarOrientation{};
 };
+struct DrawMaterial {
+    San14::Render::SkyMaterialState sky;
+    bool milkyTexturePresent{};
+    std::array<uint8_t,176> cloudVertex{};std::array<uint8_t,560> cloudPixel{};
+};
 struct Packet {
     Profile profile;
     DirectEnvironment direct;
     CelestialEnvironment environment;
-    San14::Render::SkyMaterialState sky;
     San14::Render::SkyDrawPolicy skyPolicy;
-    bool milkyTexturePresent{};
+    std::optional<DrawMaterial> draw;
+};
+struct DrawFrame {
+    San14::Render::SkyMaterialState sky;
     std::array<uint8_t,176> cloudVertex{};std::array<uint8_t,560> cloudPixel{};
+    std::array<uint8_t,32> cloudHistoryVertex{};
 };
 struct Frame {
     CameraTransform skyCamera{};
-    San14::Render::SkyMaterialState sky;
     San14::Render::SkyDrawPolicy skyPolicy;
-    std::array<uint8_t,176> cloudVertex{};std::array<uint8_t,560> cloudPixel{};
-    std::array<uint8_t,32> cloudHistoryVertex{};
+    std::optional<DrawFrame> draw;
     V4 fogProjection{},fogEye{};
     Matrix fogInverseView{};
 };
@@ -54,7 +61,7 @@ template<size_t N> inline std::array<uint8_t,N> readBytes(const std::filesystem:
     if(!s||s.peek()!=std::char_traits<char>::eof())throw std::runtime_error("Atmosphere camera source packet size: "+path.string());
     return result;
 }
-inline Packet readPacket(const std::filesystem::path& source,const std::filesystem::path& skySource){
+inline Packet readPacket(const std::filesystem::path& source){
     Packet r;auto& p=r.profile;std::ifstream s(source/"profile.bin",std::ios::binary);
     const auto preparedCamera=source_camera::read<Prefix>(s);
     p.initialCamera=source_camera::decodeCameraTransform(preparedCamera);r.direct=decodeDirectEnvironment(preparedCamera);
@@ -66,19 +73,25 @@ inline Packet readPacket(const std::filesystem::path& source,const std::filesyst
     environment.sunIntensity=source_camera::read<float>(s);environment.moonIntensity=source_camera::read<float>(s);environment.halfFovTangent=source_camera::read<float>(s);
     p.width=source_camera::read<int>(s);p.height=source_camera::read<int>(s);
     if(s.peek()!=std::char_traits<char>::eof())throw std::runtime_error("Atmosphere camera profile tail");
-    r.sky=San14::Render::Interop::readSkyInitialState(skySource/"initial-state.bin");
-    r.milkyTexturePresent=San14::Render::Interop::readSkySamplingPresence(skySource/"sampling-presence.bin").milky;
     r.skyPolicy=San14::Render::skyDrawPolicy(get<std::uint32_t>(preparedCamera.data()+0x3b0));
-    r.cloudVertex=readBytes<176>(source/"cloud/pass1-vs-b0.bin");r.cloudPixel=readBytes<560>(source/"cloud/pass1-ps-b0.bin");
-    p.cloudSunDirectionW=get<float>(r.cloudPixel.data()+476);
     return r;
+}
+inline void prepareDrawMaterial(Packet& packet,const std::filesystem::path& source,
+    const std::filesystem::path& skySource) {
+    DrawMaterial draw;
+    draw.sky=San14::Render::Interop::readSkyInitialState(skySource/"initial-state.bin");
+    draw.milkyTexturePresent=San14::Render::Interop::readSkySamplingPresence(skySource/"sampling-presence.bin").milky;
+    draw.cloudVertex=readBytes<176>(source/"cloud/pass1-vs-b0.bin");
+    draw.cloudPixel=readBytes<560>(source/"cloud/pass1-ps-b0.bin");
+    packet.profile.cloudSunDirectionW=get<float>(draw.cloudPixel.data()+476);
+    packet.draw.emplace(std::move(draw));
 }
 inline source_weather_fog::Shared publishWeather(Packet& packet,const source_weather_fog::Frame& weather,V3 actualGlobal80Rgb){
     packet.direct.altitude=weather.currentAltitude;
     auto record=source_weather_fog::package(weather,packet.direct.fogBlend);
     auto atmosphere=source_weather_fog::shared(record,actualGlobal80Rgb);
-    packet.sky.fog=atmosphere.fog;packet.sky.scattering=atmosphere.scat;
-    put(packet.cloudPixel.data()+32,atmosphere.fog);put(packet.cloudPixel.data()+48,atmosphere.scat);return atmosphere;
+    packet.draw.value().sky.fog=atmosphere.fog;packet.draw.value().sky.scattering=atmosphere.scat;
+    put(packet.draw.value().cloudPixel.data()+32,atmosphere.fog);put(packet.draw.value().cloudPixel.data()+48,atmosphere.scat);return atmosphere;
 }
 inline void publishDirectStage(Packet& packet,float altitude) {
     // Fog blend retains the imported atmosphere setting. Only current altitude
@@ -115,9 +128,19 @@ inline CameraTransform prepareSkyCamera(const Packet& packet,const CameraTransfo
     camera.worldToClip=source_camera::compose(camera.view,camera.projection);
     return camera;
 }
-inline Frame prepareCurrent(const Packet& packet,const CameraTransform& ordinaryCamera){
+inline Frame prepareCurrent(const Packet& packet,const CameraTransform& ordinaryCamera,bool publishDraw=true){
     const auto& p=packet.environment;Frame f;
     f.skyCamera=prepareSkyCamera(packet,ordinaryCamera);
+    f.skyPolicy=packet.skyPolicy;
+    // Fog reconstruction uses the ordinary camera rather than the raised sky camera.
+    float mainNear=ordinaryCamera.optics.nearPlane,mainFar=ordinaryCamera.optics.farPlane;
+    float a=ordinaryCamera.optics.reversedDepth?mainFar:mainNear,b=ordinaryCamera.optics.reversedDepth?mainNear:mainFar;
+    V4 vP2V{D(b,S(a,b)),D(M(b,a),S(b,a)),M(p.halfFovTangent,ordinaryCamera.optics.aspectRatio),p.halfFovTangent};
+    f.fogProjection=vP2V;
+    f.fogInverseView=source_matrix::inverse(ordinaryCamera.view);
+    f.fogEye=ordinaryCamera.eye;
+    if(!publishDraw||!packet.draw)return f;
+    f.draw.emplace();
     const auto& camera=f.skyCamera;
     const auto eye=camera.eye,target=camera.target,up=camera.up;
     const auto& view=camera.view;const auto& projected=camera.projection;const auto& w2p=camera.worldToClip;
@@ -132,8 +155,8 @@ inline Frame prepareCurrent(const Packet& packet,const CameraTransform& ordinary
     V4 negative{M(eye.X,-1),M(eye.Y,-1),M(eye.Z,-1),M(eye.W,-1)};
     for(int row=0;row<4;++row){int a=row*4;float w=rigid[a+3];rigid[a]=A(M(w,negative.X),rigid[a]);rigid[a+1]=A(M(w,negative.Y),rigid[a+1]);rigid[a+2]=A(M(w,negative.Z),rigid[a+2]);}
     Matrix c2l=source_camera::compose(source_camera::compose(source_matrix::inverse(projected),rigid),p.skyTransform);
-    f.sky=packet.sky;f.skyPolicy=packet.skyPolicy;
-    f.sky.cameraToLocal=c2l;f.sky.projectionFarZ=0;f.sky.localToGlobal=p.localToGlobal;
+    f.draw.value().sky=packet.draw.value().sky;f.skyPolicy=packet.skyPolicy;
+    f.draw.value().sky.cameraToLocal=c2l;f.draw.value().sky.projectionFarZ=0;f.draw.value().sky.localToGlobal=p.localToGlobal;
     // The physical sky offset is derived from the accepted altitude.
     float skyYOffset=M(packet.direct.altitude,1000);
     float x=M(eye.X,.01f),y=A(A(M(eye.Y,.01f),p.altitude.Z),skyYOffset),z=M(eye.Z,.01f),w=eye.W;
@@ -142,18 +165,18 @@ inline Frame prepareCurrent(const Packet& packet,const CameraTransform& ordinary
         A(A(A(M(x,m[1]),M(y,m[5])),M(z,m[9])),M(w,m[13])),
         A(A(A(M(x,m[2]),M(y,m[6])),M(z,m[10])),M(w,m[14])),
         A(A(A(M(x,m[3]),M(y,m[7])),M(z,m[11])),M(w,m[15]))};
-    f.sky.viewPosition=viewPosition;
+    f.draw.value().sky.viewPosition=viewPosition;
     float sunLiteral=F(0x3c187400),moonLiteral=F(0x3c142917);
     float pixel=D(fov,float(packet.profile.height*2)),sunRadius=M(M(p.sunSize,sunLiteral),.5f),moonRadius=M(M(p.moonSize,moonLiteral),.5f);
-    f.sky.skyInfo0={pixel>sunRadius?pixel:sunRadius,pixel>moonRadius?pixel:moonRadius,p.sunIntensity,p.moonIntensity};
-    f.sky.sunScreenPosition=screenPosition(p.sunProjection,w2p,fov,aspect,packet.profile.width,packet.profile.height,p.sunSize,sunLiteral);
+    f.draw.value().sky.skyInfo0={pixel>sunRadius?pixel:sunRadius,pixel>moonRadius?pixel:moonRadius,p.sunIntensity,p.moonIntensity};
+    f.draw.value().sky.sunScreenPosition=screenPosition(p.sunProjection,w2p,fov,aspect,packet.profile.width,packet.profile.height,p.sunSize,sunLiteral);
     V4 moon{M(p.moonPosition.X,-1),M(p.moonPosition.Y,-1),M(p.moonPosition.Z,-1),M(p.moonPosition.W,-1)};
-    f.sky.moonScreenPosition=screenPosition(moon,w2p,fov,aspect,packet.profile.width,packet.profile.height,p.moonSize,moonLiteral);
+    f.draw.value().sky.moonScreenPosition=screenPosition(moon,w2p,fov,aspect,packet.profile.width,packet.profile.height,p.moonSize,moonLiteral);
 
     // Cloud direction rays use a separate origin camera with near 1 / far 100.
     // Its vectors are near minus far.
-    f.cloudVertex=packet.cloudVertex;f.cloudPixel=packet.cloudPixel;
-    put(f.cloudVertex.data()+16,source_matrix::inverse(w2p));
+    f.draw.value().cloudVertex=packet.draw.value().cloudVertex;f.draw.value().cloudPixel=packet.draw.value().cloudPixel;
+    put(f.draw.value().cloudVertex.data()+16,source_matrix::inverse(w2p));
     V4 direction{S(target.X,eye.X),S(target.Y,eye.Y),S(target.Z,eye.Z),1};
     float norm=std::sqrt(A(A(M(direction.X,direction.X),M(direction.Y,direction.Y)),M(direction.Z,direction.Z))),inv=D(1,norm);
     direction={M(direction.X,inv),M(direction.Y,inv),M(direction.Z,inv),1};
@@ -170,18 +193,11 @@ inline Frame prepareCurrent(const Packet& packet,const CameraTransform& ordinary
     float farDepth=reverse?0.f:1.f,nearDepth=reverse?1.f:0.f;
     for(int corner=0;corner<4;++corner){float cx=float((corner>>1)*2-1),cy=float(1-(corner&1)*2);
         V4 a=rayTransform(cx,cy,farDepth,rays),b=rayTransform(cx,cy,nearDepth,rays);float ai=D(1,a.W),bi=D(1,b.W);
-        put(f.cloudVertex.data()+80+corner*16,V4{S(M(b.X,bi),M(a.X,ai)),S(M(b.Y,bi),M(a.Y,ai)),S(M(b.Z,bi),M(a.Z,ai)),S(M(b.W,bi),M(a.W,ai))});}
-    put(f.cloudVertex.data()+144,farDepth);put(f.cloudVertex.data()+148,nearDepth);
-    put(f.cloudPixel.data()+16,eye);put(f.cloudPixel.data()+300,fov);
-    put(f.cloudHistoryVertex.data()+16,farDepth);put(f.cloudHistoryVertex.data()+20,nearDepth);
+        put(f.draw.value().cloudVertex.data()+80+corner*16,V4{S(M(b.X,bi),M(a.X,ai)),S(M(b.Y,bi),M(a.Y,ai)),S(M(b.Z,bi),M(a.Z,ai)),S(M(b.W,bi),M(a.W,ai))});}
+    put(f.draw.value().cloudVertex.data()+144,farDepth);put(f.draw.value().cloudVertex.data()+148,nearDepth);
+    put(f.draw.value().cloudPixel.data()+16,eye);put(f.draw.value().cloudPixel.data()+300,fov);
+    put(f.draw.value().cloudHistoryVertex.data()+16,farDepth);put(f.draw.value().cloudHistoryVertex.data()+20,nearDepth);
 
-    // Fog reconstruction uses the ordinary camera rather than the raised sky camera.
-    float mainNear=ordinaryCamera.optics.nearPlane,mainFar=ordinaryCamera.optics.farPlane;
-    float a=reverse?mainFar:mainNear,b=reverse?mainNear:mainFar;
-    V4 vP2V{D(b,S(a,b)),D(M(b,a),S(b,a)),M(p.halfFovTangent,aspect),p.halfFovTangent};
-    f.fogProjection=vP2V;
-    f.fogInverseView=source_matrix::inverse(ordinaryCamera.view);
-    f.fogEye=ordinaryCamera.eye;
     return f;
 }
 } // namespace source_atmosphere_camera
@@ -191,8 +207,8 @@ struct NativeAtmosphereCamera {
     source_atmosphere_camera::Packet packet;
     source_atmosphere_camera::Frame current;
 };
-static NativeAtmosphereCamera prepareNativeAtmosphereCamera(const fs::path& source,const fs::path& skySource){
-    NativeAtmosphereCamera r;r.packet=source_atmosphere_camera::readPacket(source,skySource);
+static NativeAtmosphereCamera prepareNativeAtmosphereCamera(const fs::path& source){
+    NativeAtmosphereCamera r;r.packet=source_atmosphere_camera::readPacket(source);
     r.current=source_atmosphere_camera::prepareCurrent(r.packet,r.packet.profile.initialCamera);
     return r;
 }
@@ -201,7 +217,7 @@ static void publishNativeAtmosphereWeather(NativeAtmosphereCamera& r,NativeMainC
     auto atmosphere=source_atmosphere_camera::publishWeather(r.packet,weather,actualGlobal80Rgb);
     //The retained Main Cloud owner uploads this same package in its existing
     //pass1 execution. Fog begins32, Scat48 and previousW2P112 stays untouched.
-    for(auto& pass:cloud.passes)if(pass.name=="pass1"){
+    if(cloud.draw)for(auto& pass:cloud.draw->passes)if(pass.name=="pass1"){
         std::memcpy(pass.pbytes.data()+32,&atmosphere.fog,16);std::memcpy(pass.pbytes.data()+48,atmosphere.scat.data(),64);
     }
 }
@@ -209,16 +225,16 @@ static void publishNativeAtmosphereCurrentDirectEnvironment(NativeAtmosphereCame
     source_atmosphere_camera::publishDirectStage(r.packet,altitude);
 }
 static void updateNativeAtmosphereCamera(ID3D11DeviceContext* context,NativeAtmosphereCamera& r,
-    const source_camera::CameraTransform& ordinaryCamera,NativeMainSky& sky,NativeMainCloud& cloud,bool publishSkyCloud){
-    r.current=source_atmosphere_camera::prepareCurrent(r.packet,ordinaryCamera);const auto& f=r.current;
+    const source_camera::CameraTransform& ordinaryCamera,NativeMainSky* sky,NativeMainCloud& cloud,bool publishSkyCloud){
+    r.current=source_atmosphere_camera::prepareCurrent(r.packet,ordinaryCamera,publishSkyCloud);const auto& f=r.current;
     if(!publishSkyCloud)return;
-    publishNativeMainSkyMaterial(context,sky,f.sky);
-    for(auto& pass:cloud.passes){
+    publishNativeMainSkyMaterial(context,*sky,f.draw.value().sky);
+    if(cloud.draw)for(auto& pass:cloud.draw->passes){
         if(pass.name=="pass1"){
-            std::memcpy(pass.vbytes.data()+16,f.cloudVertex.data()+16,136);
-            std::memcpy(pass.pbytes.data()+16,f.cloudPixel.data()+16,16);std::memcpy(pass.pbytes.data()+300,f.cloudPixel.data()+300,4);
+            std::memcpy(pass.vbytes.data()+16,f.draw.value().cloudVertex.data()+16,136);
+            std::memcpy(pass.pbytes.data()+16,f.draw.value().cloudPixel.data()+16,16);std::memcpy(pass.pbytes.data()+300,f.draw.value().cloudPixel.data()+300,4);
             //pass1's normal execute repacks Bayer/phase/previous and uploads.
-        }else{std::memcpy(pass.vbytes.data()+16,f.cloudHistoryVertex.data()+16,8);context->UpdateSubresource(pass.vcb.Get(),0,nullptr,pass.vbytes.data(),0,0);}
+        }else{std::memcpy(pass.vbytes.data()+16,f.draw.value().cloudHistoryVertex.data()+16,8);context->UpdateSubresource(pass.vcb.Get(),0,nullptr,pass.vbytes.data(),0,0);}
     }
     std::memcpy(cloud.currentW2P.data(),f.skyCamera.worldToClip.data(),64);
     //previousW2P remains the previous submitted camera. The existing pass1

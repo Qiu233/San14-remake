@@ -9,12 +9,7 @@ public sealed record D3D11AmbientWorkConstants(
     IReadOnlyList<Sky2DrawInputs> SkyFaces,D3D11MainSkyInputPreparation SkyMedia,
     IReadOnlyList<SkyCloudConstantPacket> Clouds,
     IReadOnlyList<D3D11CloudAnimationAxis> CloudAxes,
-    LoadedSkyAmbientResources Ambient,SkyAmbientFilterSelection Filter,bool SkyEnabled,
-    SkyCloudColorProgramSelection CloudProgram,
-    SkyTextureSource? EarthTexture,SkyAppliedCloudTextureSet CloudTextures)
-{
-    public CubeRenderTextureDefinition Target => Ambient.SpecularTargets[0];
-}
+    CubeRenderTextureDefinition Target, SkyCloudColorProgramSelection CloudProgram);
 
 public sealed record D3D11CloudAnimationAxis(int SourcePhase,int PixelOffset,
     float Wind,float Period,float Position,float Scale);
@@ -27,6 +22,7 @@ public static class D3D11AmbientWorkInputPreparation
     public static D3D11AmbientWorkConstants Prepare(GameResourceRepository repository,
         MapSourceCreatedSeasonLightingFrame present,
         DirectionalLightProviderTemporary defaultCaller,SkyCloudProgramResources cloudPrograms,
+        LoadedSkyAmbientResources ambient,
         SkyMainProgramResources? skyPrograms = null)
     {
         string locale=present.AcceptedSeasonCamera.Inputs.MainFrame.Camera.ExecutableLocale;
@@ -44,8 +40,6 @@ public static class D3D11AmbientWorkInputPreparation
         var stages=SkyAppliedSourceStageOwner.CreateFresh(repository,locale,"ambient-work/work",binding.CameraOwnerIdentity,
             present.AcceptedSeasonCamera.Inputs.MainFrame.Camera.Source)
             .PrepareCurrent(present,lighting);
-        var ambient=SkyAmbientResources.Load(repository,repository.LoadObjects("system",0xDAB638B2),
-            0x910603AC,repository.LoadObjects("system",0x718CCB8B),repository.LoadObjects("system",0x93FB3280));
         skyPrograms ??= SkyMainProgramResources.Load(repository,NamedViewRendererResources.Load(repository));
         var skyShader=skyPrograms.Shader;
         // This preparation owns its binding state while producing initial numeric inputs.
@@ -80,23 +74,25 @@ public static class D3D11AmbientWorkInputPreparation
             }
         }
         var skyMedia=D3D11MainSkyInputPreparation.Load(skyProgram,clouds.Bindings,textureBindings);
-        var filter=SkyAmbientCurrentFilterSelection.CaptureCurrent(ambient.Shader,present).Selection;
         return new(frame.SourceFrame.SixCameras,prepared.DrawPackets,skyMedia,cloudPackets,
             CloudAxes(clouds.Weather,clouds.Selection.ProgramSelection.PixelDefinitions),
-            ambient,filter,stages.Sky2Enabled,clouds.Selection.ProgramSelection,
-            textureBindings.GetTexture(SkySamplingRole.Earth)?.Texture,clouds.Bindings);
+            ambient.SpecularTargets[0],clouds.Selection.ProgramSelection);
     }
 
-    public static void WriteNativeInputs(GameResourceRepository repository,
-        D3D11AmbientWorkConstants constants,string inputRoot,string locale,
-        D3D11AmbientRenderResources? preparedResources = null)
+    public static void WriteNativeInputs(D3D11AmbientWorkConstants constants,string inputRoot)
     {
         string ambient=Path.Combine(inputRoot,"ambient-input"),cloud=Path.Combine(inputRoot,"ambient-cloud-continuous-input"),
             current=Path.Combine(inputRoot,"current-ambient-frame-input"),
             initial=Path.Combine(current,"spring");
         foreach(string root in new[]{ambient,cloud,initial})Directory.CreateDirectory(root);
         void Write(string root,string name,byte[] data)=>File.WriteAllBytes(Path.Combine(root,name),data);
-        (preparedResources ?? D3D11AmbientRenderResources.Load(repository,constants,locale)).WriteNativeInputs(inputRoot);
+        constants.SkyMedia.WriteNativeInputs(Path.Combine(ambient,"sky"));
+        for(int face=0;face<constants.SkyFaces.Count;face++)
+        {
+            byte[] material=new byte[SkyMainMaterialEncoding.ByteLength];
+            SkyMainMaterialEncoding.Write(constants.SkyFaces[face],material);
+            Write(Path.Combine(ambient,"sky"),$"face{face}.bin",material);
+        }
         Write(ambient,"quad-position-xy.bin",Floats([-1,1,-1,-1,1,1,1,-1]));
         for(int face=0;face<6;face++)
         {

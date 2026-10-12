@@ -159,6 +159,7 @@ public:
     }
     NamedMapRenderer& namedRenderer() { return namedRenderer_.value(); }
     const PreparedMapView& preparedView() const { return *mapView_; }
+    const source_weather_fog::Power& framePower() const {return weatherPower_;}
     AtmosphereFrame atmosphereFrame(CloudEnvironmentPass& clouds) {
         return clouds.atmosphereFrame(season_,cloudLights_,environment_.camera().weatherHeight,
             weather_,globalLight_,cameraRig_.frame(),commonRenderPolicy(),weatherPower_,weatherProfile_.has_value());
