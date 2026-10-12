@@ -17,6 +17,10 @@ public sealed class SkySeasonMainCameraSource
         SourceColorTemperature21C=kelvin;Transmittance=transmittance;UsesSourceCreatedEmptyAxes=sourceEmptyAxes;
         CameraPrefixScalars=MapSeasonCameraPrefixScalars.ReadDirectSelection(selection);
         PostEffectScalarSource=postEffectScalarSource;
+        uint fallback=SkySceneSourceDefaults.ReadPerspectiveCamera(selection.FirstPackage.Objects,
+            selection.FirstPackage.Camera.ObjectId).References.PlaneSta;
+        RenderingAtmosphere=transmittance.Tables ?? (fallback==0 ? null : SkyAtmoTableResources.Load(repository,fallback));
+        AtmosphereScattering=SkyAtmosphereNativeSource.Load(repository,transmittance.Atan.Locale,NativeLogDispatch.Sse);
         CloudTextures=SkyAppliedSeasonCloudTextures.Read(repository,this);}
     private SkySeasonMainCameraSource(MapSeasonRuntimeFrame calendar,
         SkySeasonMainCameraSource loaded)
@@ -27,6 +31,8 @@ public sealed class SkySeasonMainCameraSource
         UsesSourceCreatedEmptyAxes=loaded.UsesSourceCreatedEmptyAxes;
         CameraPrefixScalars=loaded.CameraPrefixScalars;PostEffectScalarSource=loaded.PostEffectScalarSource;
         CloudTextures=loaded.CloudTextures;
+        RenderingAtmosphere=loaded.RenderingAtmosphere;
+        AtmosphereScattering=loaded.AtmosphereScattering;
     }
     /// <summary>Bind this request's calendar while retaining the parsed source
     /// package. A different season requires its actual resource generation.</summary>
@@ -43,6 +49,13 @@ public sealed class SkySeasonMainCameraSource
     public CameraLightingController Controller{get;}
     public float SourceColorTemperature21C{get;}
     public SkySeasonTransmittanceSource Transmittance{get;}
+    /// <summary>The actual rendering provider prefers the primary atmosphere,
+    /// then the independently declared Plane provider. It does not change the
+    /// primary-table presence used by seasonal lighting or Pattern.</summary>
+    public LoadedSkyAtmoTableSources? RenderingAtmosphere{get;}
+    public LoadedSkyAtmosphereNativeSource AtmosphereScattering{get;}
+    public LoadedSkyAtmoTableSources RequireRenderingAtmosphere() => RenderingAtmosphere ??
+        throw new NotSupportedException("This rendering operation has no selected atmosphere provider.");
     public SkyAppliedSeasonCloudTextureSources CloudTextures{get;}
     public bool UsesSourceCreatedEmptyAxes{get;}
     public MapSeasonCameraPrefixScalars CameraPrefixScalars{get;}

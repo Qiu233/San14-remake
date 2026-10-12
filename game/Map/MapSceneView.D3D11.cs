@@ -156,8 +156,7 @@ public partial class MapSceneView
                             current, season.LoadedResources, cloudMedia, skyPrograms);
                         ambientResources = D3D11AmbientRenderResources.Load(_repository,work,season.LoadedResources.Source.Locale);
                         atmosphereResources = D3D11SkyAtmosphereResources.Load(
-                            current.Present.AcceptedSeasonCamera.Inputs.Source.Transmittance.RequireTables(),
-                            current.Present.AcceptedSeasonCamera.Inputs.Source.CloudTextures, work);
+                            current.Present.AcceptedSeasonCamera.Inputs.Source, work);
                         atmosphereResources.WriteNativeInputs(inputs);
                         D3D11PatternRenderResources.Load(_repository,work.Ambient,season.LoadedResources.Source.Locale)
                             .WriteNativeInputs(inputs);
@@ -229,7 +228,7 @@ public partial class MapSceneView
                     else
                     {
                         ambientResources!.RequireCurrent(current.Present);
-                        atmosphereResources!.RequireCurrent(current.Present.AcceptedSeasonCamera.Inputs.Source.Transmittance.RequireTables());
+                        atmosphereResources!.RequireCurrent(current.Present.AcceptedSeasonCamera.Inputs.Source);
                         cloudMedia!.RequireCurrent(current.Present,
                             current.Lights.First(light=>(light.GroupMask&0x80)!=0).CompleteData.Span);
                         cloudResources!.RequireCurrent(_repository, current.Present,

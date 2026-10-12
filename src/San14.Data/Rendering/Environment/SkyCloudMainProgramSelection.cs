@@ -48,8 +48,8 @@ public sealed class SkyCloudMainProgramSelection
     {
         var tables=resources.Bindings;
         var selected=tables.Features[feature].Feature.Words;
-        if(selected[6]!=7||selected[7]!=2)
-            throw new NotSupportedException("Native Main Cloud currently requires renderer7/profile2 scattering.");
+        if((selected[6],selected[7]) is not ((7,2) or (0,1)))
+            throw new NotSupportedException("Main Cloud requires a supported current renderer/profile interface.");
         byte[] request=tables.Variants.Records[0].RawBytes.ToArray();
         foreach(var edit in new[]{(0,level),(4,rays),(8,earth?0u:1u),(12,1u),(16,0u),(20,1u),(32,0u)})
             BinaryPrimitives.WriteUInt32LittleEndian(request.AsSpan(edit.Item1),edit.Item2);

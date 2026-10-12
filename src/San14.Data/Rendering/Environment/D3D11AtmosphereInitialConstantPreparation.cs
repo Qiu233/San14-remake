@@ -75,12 +75,25 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
         byte[] request = SkyDirectionalRendererFeatureWriter.WriteRequest(selected.Span);
         int featureIndex = Feature(tables, request);
         var feature = tables.Features[featureIndex].Feature.Words;
-        if (feature[6] != 7)
-            throw new NotSupportedException("Initial atmosphere requires its selected renderer Fog/Scat producer.");
         byte[] fog96 = SkyDirectionalRendererFeatureWriter.CopyPackageFog96(selected.Span.Slice(0x150, 96), F(main, 0x1EC));
-        var fog = SkyFogMath.Generate(7, checked((int)feature[7]), true, fog96);
-        var scattering = fog.RequiresMode7NeutralScattering ? fog.ScatteringOverride!.Values :
-            SkyScatteringMath.Generate(7, fog96, Rgb(selected.Span, 0x10)).Values;
+        SkyFogPacket fog;
+        IReadOnlyList<Vector4> scattering;
+        if(feature[6]==7)
+        {
+            fog=SkyFogMath.Generate(7,checked((int)feature[7]),true,fog96);
+            scattering=fog.RequiresMode7NeutralScattering ? fog.ScatteringOverride!.Values :
+                SkyScatteringMath.Generate(7,fog96,Rgb(selected.Span,0x10)).Values;
+        }
+        else if(feature[6] is 0 or 4&&feature[7]==1&&BinaryPrimitives.ReadUInt32LittleEndian(fog96.AsSpan(0x10))==0)
+        {
+            // Cloud's feature0 and Sky's feature4 use different program-bank
+            // codes. The same inactive package still prepares its inherited
+            // mode4 scattering; Cloud's no-fog program does not consume it.
+            fog=new(4,1,true,0,Vector4.Zero,new byte[16],false,null);
+            scattering=SkyScatteringMode4.Generate(fog96,new(Rgb(selected.Span,0x10),1,Vector4.Zero,null),
+                present.AcceptedSeasonCamera.Inputs.Source.AtmosphereScattering).Values;
+        }
+        else throw new NotSupportedException("Initial atmosphere requires its actual selected Fog/scattering producer.");
         var atmosphere = new SkySceneSharedAtmosphere("owned-current-Main/selected-group80", fog, scattering);
         Vector4 eye = V(main, 0x10), target = V(main, 0x20), up = V(main, 0x30);
         eye.Y = A(M(F(main, 0x210), 100000), eye.Y);

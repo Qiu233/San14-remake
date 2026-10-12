@@ -274,7 +274,7 @@ static NativeAmbient prepareNativeAmbient(ID3D11Device* device,const fs::path& s
         owner.workColorMips.push_back(std::move(resource));
     }
     owner.textures=ambientTextures(device,skySource,"main-sky-textures.tsv",std::nullopt);
-    auto clouds=ambientTextures(device,source,"cloud-textures.tsv",7);
+    auto clouds=ambientTextures(device,source,"cloud-textures.tsv",std::nullopt);
     for(auto& texture:clouds)owner.textures.push_back(std::move(texture));
     owner.cubeSampler=ambientSampler(device,source/"cube4-sampler-desc.bin");
     for(UINT output=0;output<4;++output) {

@@ -24,16 +24,21 @@ public sealed class SkyAtmoRawTableData
         => FileId==other.FileId&&ResourceUri==other.ResourceUri&&DecodedSha256==other.DecodedSha256&&ByteLength==other.ByteLength;
 }
 
-/// <summary>One imported atmosphere declaration owns its settings and both
-/// numeric tables. Scene preparation and ordinary sampling borrow this owner.</summary>
+/// <summary>One imported atmosphere declaration owns its settings and every
+/// declared numeric table. Rendering can borrow a provider with no ambient
+/// table; CPU sampling still requires its actual requested table.</summary>
 public sealed class LoadedSkyAtmoTableSources
 {
     public uint ObjectId { get; }
     public uint ClassId => SkyAtmoTableResources.ClassId;
     public string DefinitionResourceUri { get; }
     public string DefinitionSha256 { get; }
-    public SkyAtmoRawTableData Transmittance { get; }
-    public SkyAtmoRawTableData Ambient2D { get; }
+    public SkyAtmoRawTableData? TransmittanceTable { get; }
+    public SkyAtmoRawTableData? AmbientTable { get; }
+    public SkyAtmoRawTableData Transmittance => TransmittanceTable ??
+        throw new NotSupportedException("The selected atmosphere declares no CPU transmittance table.");
+    public SkyAtmoRawTableData Ambient2D => AmbientTable ??
+        throw new NotSupportedException("The selected atmosphere declares no CPU ambient table.");
     public uint PlaneStaObjectId { get; }
     public int Width { get; }
     public int Height { get; }
@@ -48,18 +53,19 @@ public sealed class LoadedSkyAtmoTableSources
     public string SourceEvidence { get; }
 
     internal LoadedSkyAtmoTableSources(uint objectId,LoadedRdbAsset definitions,
-        LoadedRdbAsset transmittance,LoadedRdbAsset ambient2D,
+        LoadedRdbAsset? transmittance,LoadedRdbAsset? ambient2D,
         uint plane,int width,int height,uint flags,Vector4 mie,Vector4 rayleigh,
         float mieHeight,float rayleighHeight,float planetRadius,float atmoTopHeight)
     {
         ObjectId=objectId;DefinitionResourceUri=definitions.ResourceUri;DefinitionSha256=definitions.DecodedSha256;
-        Transmittance=new(transmittance);Ambient2D=new(ambient2D);
+        TransmittanceTable=transmittance is null ? null : new(transmittance);
+        AmbientTable=ambient2D is null ? null : new(ambient2D);
         PlaneStaObjectId=plane;Width=width;Height=height;Flags=flags;
         MieExtinction=mie;RayleighExtinction=rayleigh;MieHeight=mieHeight;RayleighHeight=rayleighHeight;
         PlanetRadius=planetRadius;AtmoTopHeight=atmoTopHeight;
         SourceEvidence=$"{DefinitionResourceUri}@{DefinitionSha256}#object={ObjectId:X8}/class={ClassId:X8};"+
-            $"TTable={Transmittance.ResourceUri}@{Transmittance.DecodedSha256};"+
-            $"Amb2d={Ambient2D.ResourceUri}@{Ambient2D.DecodedSha256};imported-atmosphere-half4-tables";
+            $"TTable={TableEvidence(TransmittanceTable)};"+
+            $"Amb2d={TableEvidence(AmbientTable)};imported-declared-atmosphere-half4-tables";
     }
 
     public Vector4 SampleGrid(float heightCoordinate,float angleCoordinate,
@@ -74,8 +80,12 @@ public sealed class LoadedSkyAtmoTableSources
             Same(MieExtinction,other.MieExtinction)&&Same(RayleighExtinction,other.RayleighExtinction)&&
             Same(MieHeight,other.MieHeight)&&Same(RayleighHeight,other.RayleighHeight)&&
             Same(PlanetRadius,other.PlanetRadius)&&Same(AtmoTopHeight,other.AtmoTopHeight)&&
-            Transmittance.SameResource(other.Transmittance)&&Ambient2D.SameResource(other.Ambient2D);
+            SameTable(TransmittanceTable,other.TransmittanceTable)&&SameTable(AmbientTable,other.AmbientTable);
     }
+    private static string TableEvidence(SkyAtmoRawTableData? table)
+        => table is null ? "declared-absent" : $"{table.ResourceUri}@{table.DecodedSha256}";
+    private static bool SameTable(SkyAtmoRawTableData? left,SkyAtmoRawTableData? right)
+        => ReferenceEquals(left,right) || left is not null && right is not null && left.SameResource(right);
     private static bool Same(float left,float right)
         => BitConverter.SingleToUInt32Bits(left)==BitConverter.SingleToUInt32Bits(right);
     private static bool Same(Vector4 left,Vector4 right)

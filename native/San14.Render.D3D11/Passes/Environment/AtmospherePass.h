@@ -1,6 +1,7 @@
 #pragma once
 #include "MainStarRenderer.h"
 // Include after the sky, fog, atmosphere camera and season publication writers.
+namespace San14::Render { class NativeSkyAtmosphereResources; }
 namespace San14::Render {
 
 // These inputs are borrowed only for the call. Cloud history has its own
@@ -15,6 +16,7 @@ struct AtmosphereFrame {
     NativeMainCloud& cloud;
     const CommonRenderPolicy& commonPolicy;
     const source_weather_fog::Power& power;
+    bool weatherSamplingEnabled;
 };
 
 class AtmospherePass {
@@ -67,8 +69,9 @@ class AtmospherePass {
 
     bool executeSky(ID3D11Device* device,ID3D11DeviceContext* context,NativeSourceDepthState& logical,
         const AtmosphereFrame& frame,const NativeMainTargetScope& targets,
-        ID3D11ShaderResourceView* exposure,ID3D11SamplerState* exposureSampler) {
-        if(!skyCloudEnabled_)return false;
+        ID3D11ShaderResourceView* exposure,ID3D11SamplerState* exposureSampler,
+        const NativeSkyAtmosphereResources* renderingAtmosphere) {
+        if(!skyCloudEnabled_||!renderingAtmosphere)return false;
         prepareNativeMainSkyReachedState(device,context,logical,sky_);
         const auto& camera=camera_.current.skyCamera;
         const auto& policy=camera_.current.skyPolicy;
@@ -109,7 +112,8 @@ class AtmospherePass {
             publishNativeCurrentMainSkyMoonFace(camera_,*frame.season);}
         else {
             publishNativeAtmosphereCurrentDirectEnvironment(camera_,frame.altitude);
-            publishNativeAtmosphereWeather(camera_,frame.cloud,frame.weather,frame.globalRgb);
+            if(frame.weatherSamplingEnabled)
+                publishNativeAtmosphereWeather(camera_,frame.cloud,frame.weather,frame.globalRgb);
         }
     }
 

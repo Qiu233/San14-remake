@@ -29,7 +29,8 @@ public:
             load(resources.directory(ResourceGroup::CameraInitialState)/"profile.bin")));
     }
     void prepareWeatherProfile(const PreparedResourceDirectories& resources) {
-        weatherProfile_=source_weather_fog::readProfile(resources.directory(ResourceGroup::Weather)/"initial"/"weather");
+        auto imported=source_weather_fog::readWeatherProfile(resources.directory(ResourceGroup::Weather)/"initial"/"weather");
+        weatherProfile_=std::move(imported.profile);weatherPower_=std::move(imported.power);
     }
     // Accessories retain their device and animation owners independently from
     // HDR program selection and its current numeric layouts.
@@ -77,7 +78,12 @@ public:
         }else {
             const auto directCamera=cameraRig_.prepareDirectPrefix();
             environment_.acceptCamera(directCamera,SceneEnvironmentPacket::decodeCamera(directCamera));
-            weather_=source_weather_fog::prepareCurrent(weatherProfile_,cameraRig_.frame().eye.Y,environment_.camera().weatherHeight);
+            if(weatherProfile_)
+                weather_=source_weather_fog::prepareCurrent(*weatherProfile_,cameraRig_.frame().eye.Y,environment_.camera().weatherHeight);
+            else {
+                weather_.fog=source_weather_fog::decodeFog(directCamera.data()+0x340);
+                weather_.fog.mode=source_weather_fog::FogMode::Inactive;
+            }
         }
     }
     // Atmosphere publication remains between acceptCamera and this call.
@@ -155,7 +161,7 @@ public:
     const PreparedMapView& preparedView() const { return *mapView_; }
     AtmosphereFrame atmosphereFrame(CloudEnvironmentPass& clouds) {
         return clouds.atmosphereFrame(season_,cloudLights_,environment_.camera().weatherHeight,
-            weather_,globalLight_,cameraRig_.frame(),commonRenderPolicy(),weatherProfile_.power);
+            weather_,globalLight_,cameraRig_.frame(),commonRenderPolicy(),weatherPower_,weatherProfile_.has_value());
     }
     DeferredLightingFrame lightingFrame(std::uint32_t phaseFlags, float commonClock,
         const source_water_camera::RefractionDerived* refraction=nullptr,
@@ -185,7 +191,8 @@ private:
     FieldDisplay fieldDisplay_;
     SceneEnvironment environment_;
     NativeDeferredCameraFields deferredFields_;
-    source_weather_fog::Profile weatherProfile_;
+    std::optional<source_weather_fog::Profile> weatherProfile_;
+    source_weather_fog::Power weatherPower_;
     source_weather_fog::Frame weather_;
     source_camera::V3 globalLight_{};
     std::optional<MapViewPreparation> viewPreparation_;

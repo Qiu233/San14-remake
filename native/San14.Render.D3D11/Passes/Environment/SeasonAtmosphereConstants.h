@@ -34,6 +34,29 @@ inline Shared sharedMode7Profile2(const FogState& fog,V3 rgb,bool enabled=true){
         result.scat={V4{0,0,0,fog.startDistance},V4{0,0,0,fog.endDistance},V4{},V4{0,0,0,1}};
     return result;
 }
+// The fresh Sky/Cloud context uses profile one when its current Fog is
+// inactive. It still publishes mode-four scattering from the retained record;
+// its ambient package is genuinely zero and has no hemisphere rows.
+inline Shared sharedSkyCloud(const FogState& fog,V3 rgb) {
+    if(fog.mode==FogMode::Scattering)return sharedMode7Profile2(fog,rgb);
+    if(fog.mode!=FogMode::Inactive)
+        throw std::runtime_error("Unsupported Sky/Cloud atmosphere mode");
+    Shared result;result.color=fog.background;
+    const float x=A(fog.mie.X,fog.rayleigh.X),y=A(fog.mie.Y,fog.rayleigh.Y),z=A(fog.mie.Z,fog.rayleigh.Z);
+    const float bound=source_weather_fog::MinimumFogDistance;
+    auto ratio=[&](float value){return value<-bound||value>bound?D(fog.density,value):value;};
+    const float rx=M(ratio(x),rgb.X),ry=M(ratio(y),rgb.Y),rz=M(ratio(z),rgb.Z);
+    const float conversion=D(-1.f,std::log(2.f));
+    const float phase=M(M(S(1.f,fog.anisotropy),source_weather_fog::IsotropicMiePhase),S(1.f,fog.anisotropy));
+    result.scat={
+        V4{M(x,conversion),M(y,conversion),M(z,conversion),fog.background.W},
+        V4{M(0.f,fog.planetRadius),M(0.f,fog.planetRadius),M(0.f,fog.planetRadius),0.f},
+        V4{M(rx,M(fog.rayleigh.X,source_weather_fog::RayleighPhase)),
+           M(ry,M(fog.rayleigh.Y,source_weather_fog::RayleighPhase)),
+           M(rz,M(fog.rayleigh.Z,source_weather_fog::RayleighPhase)),M(fog.anisotropy,-2.f)},
+        V4{M(rx,M(phase,fog.mie.X)),M(ry,M(phase,fog.mie.Y)),M(rz,M(phase,fog.mie.Z)),A(M(fog.anisotropy,fog.anisotropy),1.f)}};
+    return result;
+}
 inline V3 lightRgb(const source_current_season::Light& light){return get<V3>(light.data.data()+0x10);}
 inline Shared sharedLight(const source_current_season::Light& light,bool enabled=true){
     return sharedMode7Profile2(fogRecord(light),lightRgb(light),enabled);
@@ -105,9 +128,7 @@ inline Shared publishPacket(source_atmosphere_camera::Packet& packet,
     packet.skyPolicy=current.skyPolicy;
     const auto& global=selected(current,0x80);
     auto fog=packageFog(global,packet.direct.fogBlend);
-    if(fog.mode!=FogMode::Scattering)
-        throw std::runtime_error("Current Sky renderer mode4 needs its original selected mode4 producer/program");
-    auto shared=sharedMode7Profile2(fog,lightRgb(global));
+    auto shared=sharedSkyCloud(fog,lightRgb(global));
     packet.sky.fog=shared.fog;packet.sky.scattering=shared.scat;
     put(packet.cloudPixel.data(),get<V4>(global.data.data()));
     put(packet.cloudPixel.data()+32,shared.fog);put(packet.cloudPixel.data()+48,shared.scat);

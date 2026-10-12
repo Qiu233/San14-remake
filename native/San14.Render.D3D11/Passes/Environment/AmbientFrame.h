@@ -51,7 +51,7 @@ inline Frame prepareCurrent(const Profile &profile, const Environment &environme
     const float sz = celestial.sunIntensity, mw = celestial.moonIntensity;
     const auto faceGeometry = prepareFaceGeometry(environment.camera, environment.sky.direct.altitude);
     const auto eye = faceGeometry.eye;
-    auto shared = source_current_season_atmosphere::sharedMode7Profile2(environment.selectedFog,
+    auto shared = source_current_season_atmosphere::sharedSkyCloud(environment.selectedFog,
                                                                         environment.selectedRadiance);
     auto moonMatrix = moonFace(environment.sky.moonFaceDirection);
     source_atmosphere_camera::Packet lightPacket;

@@ -373,6 +373,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         clouds.prepareAmbient(device.Get(),context.Get(),resources.directory(ResourceGroup::Ambient),
             atmosphere.stars(),frameState.atmosphereFrame(clouds).power);
         clouds.prepareAtmosphereResources(device.Get(),resources.directory(ResourceGroup::SkyAtmosphere));
+        clouds.bootstrapAmbient(context.Get());
         clouds.preparePatternTargets(resources.directory(ResourceGroup::SkyPattern));
         clouds.preparePatternPrograms(resources.directory(ResourceGroup::SkyPattern)/"program-bank");
         context->ClearState(); // Bootstrap ends before any Main entry; not a per-request operation.
@@ -626,7 +627,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                     resources.directory(ResourceGroup::Atmosphere),
                     litColor.Get(),mainDepth.depth.Get(),fogAcceleration.samplingView(),geometryTargets.depthView(),width,height,frameState.atmosphereFrame(clouds));
                 atmosphere.executeSky(device.Get(),context.Get(),sourceDepth,frameState.atmosphereFrame(clouds),mainTargets,
-                    postProcessing.mapExposureView(),postProcessing.mapExposureSampler());
+                    postProcessing.mapExposureView(),postProcessing.mapExposureSampler(),clouds.renderingAtmosphere());
                 mainTargets.restore(context.Get());
                 clouds.execute(device.Get(),context.Get(),sourceDepth,geometryTargets.depthView(),initialCommonClock,
                     UINT(phase.hostCompletionFlags()),frameState.commonRenderPolicy());
@@ -768,7 +769,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         atmosphere.updateCamera(context.Get(),frameState.atmosphereFrame(clouds));
         mainTargets.restore(context.Get());
         atmosphere.executeSky(device.Get(),context.Get(),sourceDepth,frameState.atmosphereFrame(clouds),mainTargets,
-            postProcessing.mapExposureView(),postProcessing.mapExposureSampler());
+            postProcessing.mapExposureView(),postProcessing.mapExposureSampler(),clouds.renderingAtmosphere());
         mainTargets.restore(context.Get());
         clouds.execute(device.Get(),context.Get(),sourceDepth,geometryTargets.depthView(),currentClock,
             UINT(phase.hostCompletionFlags()),frameState.commonRenderPolicy());

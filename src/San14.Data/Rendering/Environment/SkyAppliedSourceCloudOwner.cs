@@ -166,7 +166,7 @@ public sealed class SkyAppliedSourceCloudOwner
         // Current D7D4C2 exact Cirrus wrapper is nonnull in the loaded owner.
         Copy(0x218,0x744,4);v[0x198]=Size(C(0x764));v[0x19C]=Size(C(0x768));
         Copy(0x1A8,0x76C,2);v[0x1B8]=Size(C(0x774));v[0x1BC]=Size(C(0x778));Copy(0x1C8,0x77C,4);
-        v[0x228]=present.AcceptedSeasonCamera.Inputs.Source.Transmittance.RequireTables().PlanetRadius;
+        v[0x228]=present.AcceptedSeasonCamera.Inputs.Source.RequireRenderingAtmosphere().PlanetRadius;
         //11919E0 follows the actual2A0 input constructor and explicitly sets60.
         v[0x60]=32;v[0x64]=128;v[0x68]=32;v[0x6C]=8;
         foreach(float f in v.Values)if(!float.IsFinite(f))throw new InvalidDataException("Cloud finite source input overflowed.");

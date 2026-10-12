@@ -75,7 +75,7 @@ public static class D3D11AmbientWorkInputPreparation
             if(face is 0 or 1 or 4 or 5)
             {
                 var plane=SkyWorkCloudClipPreparation.Prepare(present.PreparedCameraPrefix.Span,
-                    frame.SourceFrame.SixCameras[face],face,present.AcceptedSeasonCamera.Inputs.Source.Transmittance.RequireTables().PlanetRadius);
+                    frame.SourceFrame.SixCameras[face],face,present.AcceptedSeasonCamera.Inputs.Source.RequireRenderingAtmosphere().PlanetRadius);
                 Vector(cloudPackets[face].VertexBytes,0,plane);
             }
         }

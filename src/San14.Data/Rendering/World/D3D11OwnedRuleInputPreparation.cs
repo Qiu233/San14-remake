@@ -61,7 +61,34 @@ public static class D3D11OwnedRuleInputPreparation
         SkySeasonMainWeatherFogFrame weather, Vector3 actualGlobalLightRgb)
     {
         weather.RequireCurrent(camera);
-        var tables = camera.Inputs.Source.Transmittance.RequireTables();
+        void WriteSelection()
+        {
+            using var writer=new BinaryWriter(File.Create(Path.Combine(directory,"selection.bin")));
+            writer.Write(0x31534657u); // WFS1: actual primary atmosphere used by weather sampling.
+            writer.Write(camera.Inputs.Source.Controller.DeclaredTransmittanceTable);
+        }
+        void WritePower(BinaryWriter writer)
+        {
+            var power=camera.Inputs.Source.Transmittance.Power;
+            for(int index=0;index<257;index++)writer.Write(power.Reciprocal(index));
+            for(int index=0;index<257;index++)writer.Write(power.Logarithm(index));
+            for(int index=0;index<64;index++)writer.Write(power.Exponential(index));
+            for(int index=0;index<11;index++)writer.Write(power.Constant(index));
+        }
+        void WriteRgb()
+        {
+            using var writer=new BinaryWriter(File.Create(Path.Combine(directory,"effective-light-rgb.bin")));
+            writer.Write(actualGlobalLightRgb.X);writer.Write(actualGlobalLightRgb.Y);writer.Write(actualGlobalLightRgb.Z);
+        }
+        var tables = camera.Inputs.Source.Transmittance.Tables;
+        if(tables is null)
+        {
+            Directory.CreateDirectory(directory);
+            WriteSelection();
+            using(var writer=new BinaryWriter(File.Create(Path.Combine(directory,"power.bin"))))WritePower(writer);
+            WriteRgb();
+            return;
+        }
         if(tables.Width!=64||tables.Height!=256)
             throw new NotSupportedException("The current Native weather input format requires a 64 by 256 atmosphere table.");
         var package = camera.Inputs.Source.Selection.FirstPackage.Camera;
@@ -83,17 +110,13 @@ public static class D3D11OwnedRuleInputPreparation
             Angle(weather.MoonAmbient,camera.SunMoonRgb.Directions.Moon),
             Prefix(0x2C4),Prefix(0x2C8),Prefix(0x2CC),Prefix(0x308),Prefix(0x30C),Prefix(0x310),Prefix(0x1EC)];
         Directory.CreateDirectory(directory);
+        WriteSelection();
         using (var writer = new BinaryWriter(File.Create(Path.Combine(directory, "profile.bin"))))
         {
             foreach (float field in fields) writer.Write(field);
-            var power = camera.Inputs.Source.Transmittance.Power;
-            for (int index = 0; index < 257; index++) writer.Write(power.Reciprocal(index));
-            for (int index = 0; index < 257; index++) writer.Write(power.Logarithm(index));
-            for (int index = 0; index < 64; index++) writer.Write(power.Exponential(index));
-            for (int index = 0; index < 11; index++) writer.Write(power.Constant(index));
+            WritePower(writer);
         }
         File.WriteAllBytes(Path.Combine(directory, "ambient2d-half4.bin"), tables.Ambient2D.CopyBytes());
-        using var rgbWriter = new BinaryWriter(File.Create(Path.Combine(directory, "effective-light-rgb.bin")));
-        rgbWriter.Write(actualGlobalLightRgb.X); rgbWriter.Write(actualGlobalLightRgb.Y); rgbWriter.Write(actualGlobalLightRgb.Z);
+        WriteRgb();
     }
 }

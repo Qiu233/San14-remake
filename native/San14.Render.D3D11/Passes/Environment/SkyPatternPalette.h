@@ -7,7 +7,7 @@ namespace San14::Render {
 // This is a synchronous borrow of the retained environment. Wrapper presence
 // is independent of whether the most recent Pattern operation drew pixels.
 struct SkyPatternPalette {
-    const NativeSkyAtmosphereResources& atmosphere;
+    const NativeSkyAtmosphereResources* atmosphere;
     const NativeSkyPatternTarget* selected;
     const source_camera::Matrix& worldToPattern;
 };

@@ -1,5 +1,6 @@
 #pragma once
 #include "WeatherFogState.h"
+#include <optional>
 namespace source_weather_fog {
 inline Profile readProfile(const std::filesystem::path& source){
     Profile p;std::ifstream s(source/"profile.bin",std::ios::binary);
@@ -19,5 +20,30 @@ inline Profile readProfile(const std::filesystem::path& source){
     std::ifstream table(source/"ambient2d-half4.bin",std::ios::binary);p.ambient.resize(64*256*4);
     table.read(reinterpret_cast<char*>(p.ambient.data()),p.ambient.size()*sizeof(uint16_t));
     if(!table||table.peek()!=std::char_traits<char>::eof())throw std::runtime_error("Weather Ambient2D raw shape");return p;
+}
+// Primary atmosphere absence disables seasonal table sampling, while the
+// same real power table remains available to independent Star consumers.
+struct ImportedWeatherProfile {
+    std::optional<Profile> profile;
+    Power power;
+};
+inline ImportedWeatherProfile readWeatherProfile(const std::filesystem::path& source) {
+    std::ifstream selection(source/"selection.bin",std::ios::binary);
+    const auto words=source_camera::read<std::array<std::uint32_t,2>>(selection);
+    if(words[0]!=0x31534657u||selection.peek()!=std::char_traits<char>::eof())
+        throw std::runtime_error("Weather WFS1 selection format");
+    ImportedWeatherProfile result;
+    if(words[1]) {
+        result.profile=readProfile(source);
+        result.power=result.profile->power;
+    } else {
+        std::ifstream power(source/"power.bin",std::ios::binary);
+        result.power.reciprocal=source_camera::read<std::array<double,257>>(power);
+        result.power.logarithms=source_camera::read<std::array<double,257>>(power);
+        result.power.exponentials=source_camera::read<std::array<double,64>>(power);
+        result.power.constants=source_camera::read<std::array<double,11>>(power);
+        if(power.peek()!=std::char_traits<char>::eof())throw std::runtime_error("Weather power table tail");
+    }
+    return result;
 }
 } // namespace source_weather_fog

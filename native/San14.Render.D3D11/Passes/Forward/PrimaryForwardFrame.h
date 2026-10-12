@@ -78,7 +78,7 @@ inline NativePrimaryForwardFrame prepareNativePrimaryForwardCurrent(const Native
     const San14::Render::NativeShadowReceiverResources& patternResources,float commonClock) {
     if (!current.hdrLighting)
         throw std::runtime_error("Forward requires current lighting and its real shadow receiver");
-    const bool special=current.shadowReceiver.patternCameraBranch!=5;
+    const bool special=palette.atmosphere&&current.shadowReceiver.patternCameraBranch!=5;
     auto group = source.lightGroup & 0x7fffffffu;
     const bool overridden = view.common.present && view.common.outerLightGroupOverride != 0;
     if (overridden) group = view.common.outerLightGroupOverride;

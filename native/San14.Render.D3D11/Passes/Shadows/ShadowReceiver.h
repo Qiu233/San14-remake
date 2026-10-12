@@ -147,7 +147,7 @@ inline void executeSourceShadowReceiver(ID3D11Device* device,ID3D11DeviceContext
     const PreparedMapView& view,const SkyPatternPalette& palette,float commonClock) {
     if(!(view.frame().activeGroups&0x9fffffffu)||(receiver.node.process&&!view.frame().oceanGroups))return;
     if(depthObject!=receiver.node.depthObject)throw std::runtime_error("Receiver depth declaration does not match its actual producer");
-    const bool special=current.shadowReceiver.patternCameraBranch!=5;
+    const bool special=palette.atmosphere&&current.shadowReceiver.patternCameraBranch!=5;
     const auto providerId=(view.frame().subShadowPrimitiveCount&15)==0?
         receiver.node.noSub:receiver.node.primary;
     if(providerId==receiver.node.primary)

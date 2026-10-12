@@ -93,7 +93,7 @@ public static class D3D11OwnedNumericInputPreparation
             var words = SkyAppliedSourceCloudWeatherFields.LoadSelectedReadset(source.Selection.FirstPackage);
             writer.Write((uint)season.SeasonIndex); writer.Write((uint)words.Count);
             foreach (var word in words.OrderBy(word => word.Key)) { writer.Write(word.Key); writer.Write(word.Value); }
-            var tables = source.Transmittance.RequireTables();
+            var tables = source.RequireRenderingAtmosphere();
             writer.Write(tables.PlanetRadius); Vector(tables.RayleighExtinction); Vector(tables.MieExtinction);
         }
         void Vector(Vector4 vector)

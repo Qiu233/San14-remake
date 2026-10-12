@@ -89,7 +89,7 @@ static NativeMainCloud prepareNativeMainCloud(ID3D11Device* device,const fs::pat
         check(device->CreateRenderTargetView(surface.texture.Get(),&rd,&surface.target),"Main Cloud source RTV");
         result.surfaces.emplace(name,std::move(surface));
     }
-    result.staticTextures=ambientTextures(device,source,"pass1-textures.tsv",6);
+    result.staticTextures=ambientTextures(device,source,"pass1-textures.tsv",std::nullopt);
     D3D11_TEXTURE2D_DESC hdrDesc{};hdr->GetDesc(&hdrDesc);
     D3D11_RENDER_TARGET_VIEW_DESC sceneDesc{};sceneDesc.Format=hdrDesc.Format;sceneDesc.ViewDimension=D3D11_RTV_DIMENSION_TEXTURE2D;
     check(device->CreateRenderTargetView(hdr,&sceneDesc,&result.sceneTarget),"Main Cloud retained Scene RTV");
@@ -222,6 +222,9 @@ static void executeNativeMainCloud(ID3D11Device* device,ID3D11DeviceContext* con
         for(auto& input:pass.inputs)inputs.at(input.first)=nativeMainCloudRole(cloud,input.second).view.Get();
         for(auto& texture:cloud.staticTextures)if(texture.program==pass.name)inputs.at(texture.slot)=texture.view.Get();
         context->PSSetShaderResources(0,UINT(inputs.size()),inputs.data());
+        // The optional ambient-altitude role must not inherit a prior draw's
+        // sampler when the selected three-image Plane does not provide it.
+        ID3D11SamplerState* absentSampler=nullptr;context->PSSetSamplers(4,1,&absentSampler);
         // Samplers follow the same physical ping side as their texture views.
         // Static inputs share one state across both sides.
         for(auto& sampler:pass.samplers){auto raw=sampler.sides[cloud.currentSide].Get();context->PSSetSamplers(sampler.slot,1,&raw);}

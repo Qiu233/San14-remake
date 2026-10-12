@@ -23,8 +23,8 @@ public static class SkyAtmoTableResources
         var definitions=repository.LoadObjects("system",DefinitionFileId);
         var declaration=ReadDeclaration(definitions,objectId);
         uint transmittance=Key(declaration,0x4E513F7C),ambient=Key(declaration,0x54489708);
-        return Read(definitions,repository.LoadRdbAsset("system",transmittance),
-            repository.LoadRdbAsset("system",ambient),objectId);
+        return Read(definitions,transmittance==0 ? null : repository.LoadRdbAsset("system",transmittance),
+            ambient==0 ? null : repository.LoadRdbAsset("system",ambient),objectId);
     }
 
     public static LoadedSkyAtmoTableSources? LoadForSeason(GameResourceRepository repository,
@@ -36,7 +36,7 @@ public static class SkyAtmoTableResources
     }
 
     public static LoadedSkyAtmoTableSources Read(LoadedObjects definitions,
-        LoadedRdbAsset transmittance, LoadedRdbAsset ambient2D,uint objectId=ObjectId)
+        LoadedRdbAsset? transmittance, LoadedRdbAsset? ambient2D,uint objectId=ObjectId)
     {
         ArgumentNullException.ThrowIfNull(definitions);
         var declaration=ReadDeclaration(definitions,objectId);
@@ -70,8 +70,8 @@ public static class SkyAtmoTableResources
     public static Vector4 SampleGrid(LoadedSkyAtmoTableSources source,
         float heightCoordinate, float angleCoordinate, SkyAtmoRawTable table = SkyAtmoRawTable.Transmittance)
     {
-        // Read/Load already checks the source declaration and both complete
-        // raw tables. Ordinary sampling consumes that loaded generation.
+        // Read/Load checks each declared complete raw table. The requested
+        // sampling capability below rejects a genuinely absent table.
         ArgumentNullException.ThrowIfNull(source);
         if (!float.IsFinite(heightCoordinate) || !float.IsFinite(angleCoordinate) ||
             heightCoordinate is < 0 or > 1 || angleCoordinate is < 0 or > 1 ||
@@ -126,8 +126,13 @@ public static class SkyAtmoTableResources
             throw new InvalidDataException("Atmosphere declaration field has an unsupported type or element layout.");
         return field;
     }
-    private static void RequireTable(LoadedRdbAsset source,uint fileId,int bytes)
+    private static void RequireTable(LoadedRdbAsset? source,uint fileId,int bytes)
     {
+        if(fileId==0)
+        {
+            if(source is not null)throw new InvalidDataException("An absent atmosphere table declaration cannot accept supplied raw data.");
+            return;
+        }
         ArgumentNullException.ThrowIfNull(source);
         if (source.ResourceUri != GameResourceId.Rdb("system", fileId).ToString() || source.FileId != fileId ||
             source.Bytes.Length != bytes)

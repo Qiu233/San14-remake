@@ -12,8 +12,9 @@ public sealed record SkyAppliedSeasonCloudTextureSources(MapSeasonCameraPackage 
     SkyCloudSourceTextureGroup? SkylightSta,string SourceProvenance)
 {
     public uint DeclaredFallbackPlane { get; init; }
-    public SkyCloudSourceTextureGroup RequireAtmospherePlane() => SkylightSta ??
-        throw new NotSupportedException("This operation requires the actual Static atmosphere Plane; a declared fallback needs its own producer.");
+    public SkyCloudSourceTextureGroup? RenderingPlane { get; init; }
+    public SkyCloudSourceTextureGroup RequireAtmospherePlane() => RenderingPlane ??
+        throw new NotSupportedException("This operation requires the selected atmosphere provider's actual Plane.");
     public void RequireSelectedPackage(MapSeasonCameraPackage actual)
     {
         if(Package.Camera.ObjectId!=actual.Camera.ObjectId||
@@ -90,17 +91,11 @@ public static class SkyAppliedSeasonCloudTextures
         var definitions=repository.LoadObjects("system",0xDAB638B2);
         var noise=Group(repository,definitions,camera.References.CloudNoise);
         var cirrus=Group(repository,definitions,camera.References.CloudCirrus);
-        SkyCloudSourceTextureGroup? sta=null;
-        if(camera.References.SkylightSta!=0)
-        {
-            var staProvider=definitions.Document.Objects.SingleOrDefault(o=>o.ObjectId==camera.References.SkylightSta);
-            if(staProvider is null||staProvider.ClassId!=0x1AA5B65E)
-                throw new InvalidDataException("Cloud Skylight reference does not select a supported provider declaration.");
-            sta=Group(repository,definitions,Scalar(staProvider,0xE67B59E3));
-        }
-        return new(package,noise,cirrus,sta,actualSelectedSource.SourceProvenance+";actual-declared-season-Cloud-Noise/Cirrus->DAB638B2->UTF8names->Static/G1T;"+
-            "noise-count3/cirrus-count1;full-volume-mips-and-source-samplers;GPUformat/CB/current-variant-separate")
-            { DeclaredFallbackPlane=camera.References.PlaneSta };
+        var plane=actualSelectedSource.RenderingAtmosphere is { } provider
+            ? Group(repository,definitions,provider.PlaneStaObjectId) : null;
+        return new(package,noise,cirrus,camera.References.SkylightSta==0 ? null : plane,actualSelectedSource.SourceProvenance+";actual-declared-season-Cloud-Noise/Cirrus->DAB638B2->UTF8names->Static/G1T;"+
+            "noise-count3/cirrus-count1;selected-primary-or-fallback-Plane;full-volume-mips-and-source-samplers;GPUformat/CB/current-variant-separate")
+            { DeclaredFallbackPlane=camera.References.PlaneSta, RenderingPlane=plane };
     }
     private static SkyCloudSourceTextureGroup Group(GameResourceRepository repository,LoadedObjects definitions,uint groupId)
     {

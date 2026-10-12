@@ -60,6 +60,8 @@ class CloudEnvironmentPass {
         float halfFovTangent,const PreparedViewBaseLight& baseLight,
         const CommonRenderPolicy& common,source_camera::V4 clipPlane) {
         if(!common.present)return false;
+        const auto* atmosphere=atmosphereResources();
+        if(!atmosphere) {patternSelector_=4;return false;}
         const auto& weather=currentWeather_.value();
         if(!(weather.coverage>0)||!(weather.cirrusCoverage>0)||inputs.scale==0||
             inputs.cameraKind<1||inputs.cameraKind>4) {
@@ -69,7 +71,6 @@ class CloudEnvironmentPass {
         const auto& target=patternTargets_.value().prepare(device,index);
         const auto& light=baseLight.selection();
         if(!skyCloudDrawingEnabled(common)||!light) {patternSelector_=index;return false;}
-        const auto& atmosphere=atmosphereResources_.value();
         patternRenderer_.value().execute(device,context,target.surface.Get(),target.description.width,
             target.description.height,sharedVariant_,patternNoise_,[&] {
                 const auto& direction=light->direction;
@@ -79,7 +80,7 @@ class CloudEnvironmentPass {
                     halfFovTangent);
                 patternMatrix_=projection.worldToPattern;
                 const auto cameras=source_sky_pattern::prepareCameras(camera,projection,2);
-                auto material=prepareSkyPatternMaterial(cameras,clipPlane,volume_.value(),atmosphere.settings().planetRadius);
+                auto material=prepareSkyPatternMaterial(cameras,clipPlane,volume_.value(),atmosphere->settings().planetRadius);
                 return std::pair{std::move(material),currentPatternSelection(inputs,light->fogMode)};
             });
         patternSelector_=index;
@@ -88,19 +89,25 @@ class CloudEnvironmentPass {
     UINT patternSelector() const {return patternSelector_;}
     const source_camera::Matrix& patternMatrix() const {return patternMatrix_;}
     SkyPatternPalette receiverPatternPalette() const {
-        const auto& targets=patternTargets_.value();
-        return {atmosphereResources_.value(),patternSelector_<4?targets.prepared(patternSelector_):nullptr,patternMatrix_};
+        const auto* atmosphere=atmosphereResources();
+        return {atmosphere,patternSelector_<4?patternTargets_.value().prepared(patternSelector_):nullptr,patternMatrix_};
     }
 
     void prepareAtmosphereResources(ID3D11Device* device,const fs::path& source) {
-        auto prepared=NativeSkyAtmosphereResources::prepare(device,source,environment_.textures);
-        atmosphereResources_.emplace(std::move(prepared));
+        auto prepared=NativeSkyAtmosphereOwner::prepare(device,source,environment_.textures);
+        atmosphereOwner_.emplace(std::move(prepared));
     }
-    const NativeSkyAtmosphereResources& atmosphereResources() const {return atmosphereResources_.value();}
+    const NativeSkyAtmosphereResources* atmosphereResources() const {return atmosphereOwner_.value().atmosphere();}
+    const NativeSkyAtmosphereResources* renderingAtmosphere() const {return atmosphereOwner_.value().renderingAtmosphere();}
 
     void prepareAmbient(ID3D11Device* device,ID3D11DeviceContext* context,const fs::path& source,
         MainStarPass& stars,const source_weather_fog::Power& power) {
         environment_=prepareNativeAmbient(device,source,stars,power);
+    }
+
+    void bootstrapAmbient(ID3D11DeviceContext* context) {
+        if(!renderingAtmosphere())
+            throw std::runtime_error("WORK bootstrap requires a prepared rendering atmosphere provider");
         // Bootstrap supplies all three history slots once, before Main entry.
         for(UINT slot=0;slot<3;++slot)executeNativeAmbientBatch(context,environment_,slot);
         executeNativeAmbientBlend(context,environment_,0,0);
@@ -125,8 +132,8 @@ class CloudEnvironmentPass {
         const source_current_season_atmosphere::CloudLightInput& lights,
         float altitude,const source_weather_fog::Frame& weather,
         const source_camera::V3& globalRgb,const source_camera::CameraTransform& camera,
-        const CommonRenderPolicy& commonPolicy,const source_weather_fog::Power& power) {
-        return AtmosphereFrame{season,lights,altitude,weather,globalRgb,camera,cloud_,commonPolicy,power};
+        const CommonRenderPolicy& commonPolicy,const source_weather_fog::Power& power,bool weatherSamplingEnabled) {
+        return AtmosphereFrame{season,lights,altitude,weather,globalRgb,camera,cloud_,commonPolicy,power,weatherSamplingEnabled};
     }
 
     float updateAcceptedFrame(ID3D11Device* device,ID3D11DeviceContext* context,
@@ -172,7 +179,7 @@ class CloudEnvironmentPass {
     void execute(ID3D11Device* device,ID3D11DeviceContext* context,NativeSourceDepthState& logical,
         ID3D11DepthStencilView* depth,float clock,UINT hostFlags,const CommonRenderPolicy& common) {
         const bool positive=prepareNativeMainCloudHistory(context,cloud_,hostFlags);
-        const bool drawEnabled=positive&&skyCloudDrawingEnabled(common);
+        const bool drawEnabled=positive&&skyCloudDrawingEnabled(common)&&renderingAtmosphere();
         if(drawEnabled) {
             // Main's reached tail setters affect Pattern's next request. Its
             // first-five selection also needs a scene reference and remains owned by
@@ -214,7 +221,7 @@ class CloudEnvironmentPass {
     UINT patternSelector_{};
     source_camera::Matrix patternMatrix_{};
     std::optional<FullTargetViewRectangle> viewRectangle_;
-    std::optional<NativeSkyAtmosphereResources> atmosphereResources_;
+    std::optional<NativeSkyAtmosphereOwner> atmosphereOwner_;
     NativeMainCloud cloud_;
     std::optional<NativeCurrentCloudWeather> weather_;
     std::optional<source_current_cloud_weather::Frame> currentWeather_;
