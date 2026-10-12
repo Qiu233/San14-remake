@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Numerics;
+using System.Runtime.InteropServices;
 
 namespace San14.Data;
 
@@ -19,6 +20,13 @@ public static class SkyMainMaterialEncoding
             throw new ArgumentException("Main Sky requires a complete SMI1 packet.", nameof(destination));
         var vertex = material.Vertex;
         var pixel = material.Pixel;
+        // Main and WORK publish one shared fog value to both shader stages.
+        // SMI1 field 3 carries that value; distinct stage inputs cannot be
+        // represented by this packet, including differences in signed zero.
+        ReadOnlySpan<float> vertexFog = [vertex.Fog.X, vertex.Fog.Y, vertex.Fog.Z, vertex.Fog.W];
+        ReadOnlySpan<float> pixelFog = [pixel.Fog.X, pixel.Fog.Y, pixel.Fog.Z, pixel.Fog.W];
+        if (!MemoryMarshal.AsBytes(vertexFog).SequenceEqual(MemoryMarshal.AsBytes(pixelFog)))
+            throw new ArgumentException("Main Sky requires the same fog bits in both shader stages.", nameof(material));
         if(pixel.Scattering.Count != 4 || pixel.MoonFace is null || pixel.MoonScreenPosition is null)
             throw new NotSupportedException("Main Sky needs its complete scattering and Moon producers.");
         float[] values =

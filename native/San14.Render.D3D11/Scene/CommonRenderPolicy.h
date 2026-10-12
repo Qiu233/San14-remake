@@ -10,6 +10,7 @@ struct CommonRenderPolicy {
     bool suppressOceanDrawing{};
     bool enableSkyDrawing{};
     SkyAlphaBlendMode skyAlphaBlend{SkyAlphaBlendMode::Maximum};
+    bool allowAmbientGeneration{true};
 };
 inline bool skyCloudDrawingEnabled(const CommonRenderPolicy& policy) {
     return !policy.present||policy.enableSkyDrawing;

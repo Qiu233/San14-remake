@@ -105,11 +105,12 @@ class CloudEnvironmentPass {
         environment_=prepareNativeAmbient(device,source,stars,power);
     }
 
-    void bootstrapAmbient(ID3D11DeviceContext* context) {
-        if(!renderingAtmosphere())
-            throw std::runtime_error("WORK bootstrap requires a prepared rendering atmosphere provider");
+    void bootstrapAmbient(ID3D11DeviceContext* context,const CommonRenderPolicy& common) {
+        // A disabled environment supplies no bootstrap pixels. A downstream
+        // recipe requiring Ambient still needs its own actual fallback owner.
+        if(!ambientGenerationEnabled(common)||!skyCloudDrawingEnabled(common))return;
         // Bootstrap supplies all three history slots once, before Main entry.
-        for(UINT slot=0;slot<3;++slot)executeNativeAmbientBatch(context,environment_,slot);
+        for(UINT slot=0;slot<3;++slot)executeNativeAmbientBatch(context,environment_,renderingAtmosphere()!=nullptr,slot);
         executeNativeAmbientBlend(context,environment_,0,0);
         ambient_=environment_.selectedView();
     }
@@ -169,10 +170,11 @@ class CloudEnvironmentPass {
     }
 
     // Node 5 consumes completed Cloud and Main Star updates from node 3.
-    void generateAmbient(ID3D11DeviceContext* context,float clock) {
+    void generateAmbient(ID3D11DeviceContext* context,float clock,const CommonRenderPolicy& common) {
         const auto parent=NativeMainTargetScope::retain(context);
         // Generation selection can change; retain the actual returned view.
-        ambient_=executeNativeAmbientNode5(context,environment_,clock,true);
+        ambient_=executeNativeAmbientNode5(context,environment_,clock,ambientGenerationEnabled(common),
+            skyCloudDrawingEnabled(common)&&renderingAtmosphere()!=nullptr);
         parent.restore(context);
     }
 
@@ -196,10 +198,13 @@ class CloudEnvironmentPass {
         executeNativeMainCloud(device,context,logical,cloud_,depth,clock,drawEnabled);
     }
 
-    ID3D11ShaderResourceView* ambientView() const { return ambient_.Get(); }
+    ID3D11ShaderResourceView* ambientView() const { return environment_.generation.disabled()?nullptr:ambient_.Get(); }
     const CloudVolumeMaterial& cloudVolume() const { return volume_.value(); }
 
   private:
+    bool ambientGenerationEnabled(const CommonRenderPolicy& common) const {
+        return (!common.present||common.allowAmbientGeneration)&&atmosphereResources()!=nullptr;
+    }
     struct FullTargetViewRectangle {
         std::array<float,4> normalized;
         UINT targetWidth,targetHeight;

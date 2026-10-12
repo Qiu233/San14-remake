@@ -354,7 +354,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             clouds.executePattern(device.Get(),context.Get(),current->pattern,frameState.camera(),
                 atmosphere.currentHalfFovTangent(),frameState.preparedView().baseLight(),
                 frameState.commonRenderPolicy(),frontendClip.shaderPlane(0));
-        clouds.generateAmbient(context.Get(),currentClock);
+        clouds.generateAmbient(context.Get(),currentClock,frameState.commonRenderPolicy());
     };
     auto publishThinSurface=[&]() {
         phase.publishThinSurface(frameState.view().rainGroups!=0);
@@ -373,7 +373,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         clouds.prepareAmbient(device.Get(),context.Get(),resources.directory(ResourceGroup::Ambient),
             atmosphere.stars(),frameState.atmosphereFrame(clouds).power);
         clouds.prepareAtmosphereResources(device.Get(),resources.directory(ResourceGroup::SkyAtmosphere));
-        clouds.bootstrapAmbient(context.Get());
+        clouds.bootstrapAmbient(context.Get(),frameState.commonRenderPolicy());
         clouds.preparePatternTargets(resources.directory(ResourceGroup::SkyPattern));
         clouds.preparePatternPrograms(resources.directory(ResourceGroup::SkyPattern)/"program-bank");
         context->ClearState(); // Bootstrap ends before any Main entry; not a per-request operation.

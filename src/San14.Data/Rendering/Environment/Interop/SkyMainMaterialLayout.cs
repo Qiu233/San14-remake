@@ -15,7 +15,7 @@ public sealed class SkyMainMaterialLayout
         => (this.vertex, this.pixel) = (vertex, pixel);
 
     private static readonly (string Name, uint Id, int Size)[] vertexFields =
-    [ ("g_mC2L", 0, 64), ("g_fProjFarZ", 1, 4), ("g_mL2G", 2, 64) ];
+    [ ("g_mC2L", 0, 64), ("g_fProjFarZ", 1, 4), ("g_mL2G", 2, 64), ("fog", 3, 16) ];
     private static readonly (string Name, uint Id, int Size)[] pixelFields =
     [
         ("fog", 3, 16), ("Scat", 4, 64), ("g_vViewPos", 5, 16),

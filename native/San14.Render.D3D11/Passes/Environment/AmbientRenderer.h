@@ -354,31 +354,39 @@ static void cleanupNativeAmbient(ID3D11DeviceContext* context) {
     context->PSSetSamplers(0,UINT(samplers.size()),samplers.data());context->VSSetSamplers(0,UINT(samplers.size()),samplers.data());
     context->GSSetShader(nullptr,nullptr,0);
 }
-static UINT executeNativeAmbientWork(ID3D11DeviceContext* context,NativeAmbient& owner,const NativeAmbientWorkPlan& plan) {
-    auto& output=owner.outputs.at(plan.generation);
-    for(UINT face=plan.firstBaseFace;face<plan.firstBaseFace+plan.baseFaces;++face){
-        // E40540 first push: RGBA black plus independent WORK20 depth.
-        // Face-camera158 owns reverse depth; Main3E4 is not its operand.
-        const float clear[4]{};context->ClearRenderTargetView(owner.work.surfaces[face*owner.levels].Get(),clear);
-        context->ClearDepthStencilView(owner.workDsv.Get(),D3D11_CLEAR_DEPTH,owner.faceDepthClear[face],0);
-        if(face==3)continue;
-        if(owner.starOwner->ownerPresent()) {
-            selectNativeAmbientState(context,owner,owner.starBlend.Get());targetNativeAmbient(context,owner,owner.work,face,0,true);
-            if(owner.starOwner->executeWorkFace(context,owner.starCameras.faces[face],owner.width,owner.width,*owner.starPower))
-                ++owner.draws.stars;
+static NativeAmbientWorkResult executeNativeAmbientWork(ID3D11DeviceContext* context,NativeAmbient& owner,
+    AmbientGeneration& generation,const AmbientGenerationUpdate& update,bool faceProducerEnabled) {
+    auto& output=owner.outputs.at(generation.progress().generation);
+    auto renderFaces=[&](UINT first,UINT remaining)->UINT {
+        // A disabled face producer prevents the entire face operation,
+        // including its clear and independent Star stage.
+        if(!faceProducerEnabled)return 0;
+        const UINT count=std::min(remaining,ambient_schedule::cubeFaces-first);
+        for(UINT face=first;face<first+count;++face){
+            // E40540 first push: RGBA black plus independent WORK20 depth.
+            // Face-camera158 owns reverse depth; Main3E4 is not its operand.
+            const float clear[4]{};context->ClearRenderTargetView(owner.work.surfaces[face*owner.levels].Get(),clear);
+            context->ClearDepthStencilView(owner.workDsv.Get(),D3D11_CLEAR_DEPTH,owner.faceDepthClear[face],0);
+            if(face==3)continue;
+            if(owner.starOwner->ownerPresent()) {
+                selectNativeAmbientState(context,owner,owner.starBlend.Get());targetNativeAmbient(context,owner,owner.work,face,0,true);
+                if(owner.starOwner->executeWorkFace(context,owner.starCameras.faces[face],owner.width,owner.width,*owner.starPower))
+                    ++owner.draws.stars;
+            }
+            ID3D11Buffer* vb=nullptr;UINT stride=0,offset=0;
+            if(owner.skyEnabled) {
+                selectNativeAmbient(context,owner,owner.sky,owner.skyBlend.Get());targetNativeAmbient(context,owner,owner.work,face,0,true);texturesNativeAmbient(context,owner,"main-sky");
+                auto vertex=owner.skyFaces[face].constants.vs.Get(),pixel=owner.skyFaces[face].constants.ps.Get();
+                context->VSSetConstantBuffers(owner.skyLayout.vertex.slot,1,&vertex);context->PSSetConstantBuffers(owner.skyLayout.pixel.slot,1,&pixel);
+                vb=owner.quad.Get();stride=8;offset=0;context->IASetVertexBuffers(0,1,&vb,&stride,&offset);
+                context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);context->Draw(4,0);++owner.draws.sky;
+            }
+            selectNativeAmbient(context,owner,owner.clouds,owner.cloudBlend.Get());targetNativeAmbient(context,owner,owner.work,face,0,true);texturesNativeAmbient(context,owner,"clouds");
+            constantsNativeAmbient(context,owner.cloudConstants[face]);vb=nullptr;stride=offset=0;context->IASetVertexBuffers(0,1,&vb,&stride,&offset);
+            context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);context->Draw(4,0);++owner.draws.clouds;
         }
-        ID3D11Buffer* vb=nullptr;UINT stride=0,offset=0;
-        if(owner.skyEnabled) {
-            selectNativeAmbient(context,owner,owner.sky,owner.skyBlend.Get());targetNativeAmbient(context,owner,owner.work,face,0,true);texturesNativeAmbient(context,owner,"main-sky");
-            auto vertex=owner.skyFaces[face].constants.vs.Get(),pixel=owner.skyFaces[face].constants.ps.Get();
-            context->VSSetConstantBuffers(owner.skyLayout.vertex.slot,1,&vertex);context->PSSetConstantBuffers(owner.skyLayout.pixel.slot,1,&pixel);
-            vb=owner.quad.Get();stride=8;offset=0;context->IASetVertexBuffers(0,1,&vb,&stride,&offset);
-            context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);context->Draw(4,0);++owner.draws.sky;
-        }
-        selectNativeAmbient(context,owner,owner.clouds,owner.cloudBlend.Get());targetNativeAmbient(context,owner,owner.work,face,0,true);texturesNativeAmbient(context,owner,"clouds");
-        constantsNativeAmbient(context,owner.cloudConstants[face]);vb=nullptr;stride=offset=0;context->IASetVertexBuffers(0,1,&vb,&stride,&offset);
-        context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);context->Draw(4,0);++owner.draws.clouds;
-    }
+        return count;
+    };
     auto cubeDraw=[&](unsigned operation,AmbientNativeCube& destination,UINT face,UINT mip,
         ID3D11ShaderResourceView* input,const source_camera::V4& info,
         ID3D11ShaderResourceView* directions=nullptr,ID3D11ShaderResourceView* weights=nullptr){
@@ -389,17 +397,26 @@ static UINT executeNativeAmbientWork(ID3D11DeviceContext* context,NativeAmbient&
         ID3D11Buffer* vb=nullptr;UINT stride=0,offset=0;
         context->IASetVertexBuffers(0,1,&vb,&stride,&offset);context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
     };
-    if(plan.copy)for(UINT face=0;face<6;++face)for(UINT mip=0;mip<owner.levels;++mip){
+    auto prepareMips=[&] {
+      for(UINT face=0;face<6;++face)for(UINT mip=0;mip<owner.levels;++mip){
         const float extent=float(mip?std::max(1u,owner.width>>mip):owner.width);
         cubeDraw(0,mip==0?output:owner.work,face,mip,
             mip==0?owner.work.view.Get():owner.work.singleMips[mip-1].Get(),{extent,0,0,float(face)});
         context->Draw(3,0);++owner.draws.copy;}
-    for(UINT flat=plan.firstFilter;flat<plan.firstFilter+plan.filterFaces;++flat){UINT face=flat%6,mip=flat/6;
+    };
+    auto filterFaces=[&](UINT first,UINT remaining)->UINT {
+      const UINT count=std::min(remaining,ambient_schedule::filteredFaceEnd-first);
+      for(UINT flat=first;flat<first+count;++flat){UINT face=flat%6,mip=flat/6;
         auto& sample=owner.filterSamples[mip];
         cubeDraw(1,output,face,mip,owner.work.view.Get(),{float(owner.width),sample.weightSum,0,float(face)},
             sample.directionView.Get(),sample.weightView.Get());
         context->Draw(3,0);++owner.draws.filter;}
-    if(plan.completed)owner.completed.at(plan.completedIndex)=true;cleanupNativeAmbient(context);return plan.units;
+      return count;
+    };
+    const auto result=generation.execute(update,renderFaces,prepareMips,filterFaces);
+    if(result.completed)owner.completed.at(result.completedIndex)=true;
+    if(update.enabled)cleanupNativeAmbient(context);
+    return result;
 }
 static UINT executeNativeAmbientBlend(ID3D11DeviceContext* context,NativeAmbient& owner,UINT nextGeneration,float fraction) {
     UINT first=(nextGeneration+1)%3,second=(nextGeneration+2)%3;auto& program=owner.materialPrograms[2];
@@ -413,15 +430,19 @@ static UINT executeNativeAmbientBlend(ID3D11DeviceContext* context,NativeAmbient
     }
     owner.completed[3]=owner.completed[first]&&owner.completed[second];cleanupNativeAmbient(context);return 6;
 }
-static ID3D11ShaderResourceView* executeNativeAmbientBatch(ID3D11DeviceContext* context,NativeAmbient& owner,UINT destination=0) {
+static ID3D11ShaderResourceView* executeNativeAmbientBatch(ID3D11DeviceContext* context,NativeAmbient& owner,
+    bool faceProducerEnabled,UINT destination=0) {
     // Explicit finite backend batch, not a native node5 clock/initialization receipt.
-    AmbientGenerationProgress initial;initial.generation=destination;
-    auto plan=planNativeAmbientWork(initial,0,1,ambient_schedule::workUnits);
-    executeNativeAmbientWork(context,owner,plan);return owner.outputs.at(destination).view.Get();
+    AmbientGeneration batch(destination);
+    const AmbientGenerationUpdate update{{ambient_schedule::workUnits,0},true,1};
+    const auto result=executeNativeAmbientWork(context,owner,batch,update,faceProducerEnabled);
+    if(result.units!=ambient_schedule::workUnits||!result.completed)
+        throw std::runtime_error("Ambient bootstrap batch did not complete its actual callbacks");
+    return owner.outputs.at(destination).view.Get();
 }
 static ID3D11ShaderResourceView* executeNativeAmbientNode5(ID3D11DeviceContext* context,NativeAmbient& owner,
-    float currentCommonClock,bool allowsWorkInitialization) {
-    const auto update=owner.generation.prepare(currentCommonClock,allowsWorkInitialization);
+    float currentCommonClock,bool enabled,bool faceProducerEnabled) {
+    const auto update=owner.generation.prepare(currentCommonClock,enabled);
     if(update.enabled) {
         // Prepare has actually created all four typed top-level WORK inputs.
         // Initialization is recorded before clearing the two internal cubes:
@@ -433,10 +454,9 @@ static ID3D11ShaderResourceView* executeNativeAmbientNode5(ID3D11DeviceContext* 
             for(auto* cube:{&owner.lightSnapshot,&owner.work})for(UINT mip=0;mip<owner.levels;++mip)for(UINT face=0;face<6;++face)
                 context->ClearRenderTargetView(cube->surfaces[face*owner.levels+mip].Get(),zero);
         }
-        const auto& plan=update.work;
-        executeNativeAmbientWork(context,owner,plan);
-        if(plan.blend)executeNativeAmbientBlend(context,owner,plan.next.generation,plan.blendFraction);
     }
+    const auto result=executeNativeAmbientWork(context,owner,owner.generation,update,faceProducerEnabled);
+    if(result.blend)executeNativeAmbientBlend(context,owner,owner.generation.progress().generation,result.blendFraction);
     owner.generation.complete(update);
     // Source selection is not a claim that a fresh selected slot has pixels.
     // Completed output contents are tracked separately; no substitute is selected.

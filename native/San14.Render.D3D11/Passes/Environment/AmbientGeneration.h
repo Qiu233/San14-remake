@@ -1,4 +1,6 @@
 #pragma once
+#include <algorithm>
+#include <cmath>
 #include "AmbientBudget.h"
 
 enum class AmbientGenerationStage { SkyFaces, PrepareMips, FilterFaces };
@@ -10,74 +12,78 @@ struct AmbientGenerationProgress {
     AmbientGenerationStage stage=AmbientGenerationStage::SkyFaces;
 };
 
-struct NativeAmbientWorkPlan {
-    UINT generation=0,firstBaseFace=0,baseFaces=0,firstFilter=0,filterFaces=0,units=0;
-    UINT completedIndex=0;
-    bool copy=false,completed=false,blend=false;
-    float elapsed=0,blendFraction=0;
-    AmbientGenerationProgress next;
+struct NativeAmbientWorkResult {
+    UINT units=0,completedIndex=0;
+    bool completed=false,blend=false;
+    float blendFraction=0;
 };
-
-static NativeAmbientWorkPlan planNativeAmbientWork(const AmbientGenerationProgress& current,
-    float elapsed,float interpolationSpan,UINT requestedUnits) {
-    NativeAmbientWorkPlan plan;plan.generation=current.generation;
-    plan.firstBaseFace=current.nextFace;plan.next=current;plan.elapsed=elapsed;
-    auto& next=plan.next;UINT remaining=requestedUnits;
-    if(next.stage==AmbientGenerationStage::SkyFaces) {
-        plan.baseFaces=std::min(remaining,ambient_schedule::cubeFaces-next.nextFace);
-        next.nextFace+=plan.baseFaces;remaining-=plan.baseFaces;plan.units=plan.baseFaces;
-        if(next.nextFace==ambient_schedule::cubeFaces)next.stage=AmbientGenerationStage::PrepareMips;
-    }
-    if(next.stage==AmbientGenerationStage::PrepareMips&&remaining>0) {
-        plan.copy=true;--remaining;++plan.units;next.stage=AmbientGenerationStage::FilterFaces;
-    }
-    plan.firstFilter=next.nextFace;
-    if(next.stage==AmbientGenerationStage::FilterFaces) {
-        plan.filterFaces=std::min(remaining,ambient_schedule::filteredFaceEnd-next.nextFace);
-        next.nextFace+=plan.filterFaces;plan.units+=plan.filterFaces;
-    }
-    if(next.nextFace==ambient_schedule::filteredFaceEnd) {
-        plan.completed=true;plan.completedIndex=next.generation;
-        next.generation=(next.generation+1)%ambient_schedule::historySlots;
-        next.nextFace=0;next.stage=AmbientGenerationStage::SkyFaces;plan.elapsed=0;
-    }
-    if(interpolationSpan<=0)next.selectedOutput=(next.generation+2)%ambient_schedule::historySlots;
-    else {
-        plan.blendFraction=nativeAmbientBudgetDiv(plan.elapsed,interpolationSpan);
-        if(plan.blendFraction<=0)next.selectedOutput=(next.generation+1)%ambient_schedule::historySlots;
-        else if(plan.blendFraction>=1)next.selectedOutput=(next.generation+2)%ambient_schedule::historySlots;
-        else {next.selectedOutput=ambient_schedule::interpolatedOutput;plan.blend=true;}
-    }
-    return plan;
-}
 
 struct AmbientGenerationUpdate {
     NativeAmbientBudgetRequest budget;
-    NativeAmbientWorkPlan work;
     bool enabled=false;
+    float interpolationSpan=1.f;
 };
 
-// The resource owner supplies GPU work. This owner alone retains its schedule,
-// selected output, interpolation time and clock budget. A plan does not publish
-// progress: complete follows successful work and interpolation submission.
+// The resource layer reports reached callback units, independently of its Draw
+// counts. Each normal callback return commits that prefix immediately. Parent
+// clocks commit separately after work and interpolation return normally.
 class AmbientGeneration {
   public:
+    explicit AmbientGeneration(UINT initialGeneration=0) {progress_.generation=initialGeneration;}
     UINT selectedOutput() const {return progress_.selectedOutput;}
     const AmbientGenerationProgress& progress() const {return progress_;}
+    bool disabled() const {return disabled_;}
     bool needsInitialization() const {return !initialized_;}
     void recordInitialization() {initialized_=true;}
 
     AmbientGenerationUpdate prepare(float currentCommonClock,bool enabled,float interpolationSpan=1.f) {
-        AmbientGenerationUpdate update;update.enabled=enabled;
-        update.budget=prepareNativeAmbientBudget(budget_,currentCommonClock);
-        if(enabled)update.work=planNativeAmbientWork(progress_,elapsed_,interpolationSpan,update.budget.units);
-        return update;
+        return {prepareNativeAmbientBudget(budget_,currentCommonClock),enabled,interpolationSpan};
+    }
+
+    // Face/filter callbacks receive the remaining budget and bound their own
+    // loops to the stage endpoint. Mip preparation consumes one unit regardless
+    // of its internal face count. A zero base return skips subsequent stages.
+    template<class RenderFaces,class PrepareMips,class FilterFaces>
+    NativeAmbientWorkResult execute(const AmbientGenerationUpdate& update,
+        RenderFaces&& renderFaces,PrepareMips&& prepareMips,FilterFaces&& filterFaces) {
+        NativeAmbientWorkResult result;disabled_=!update.enabled;
+        if(disabled_)return result;
+        UINT remaining=update.budget.units;
+        bool baseStopped=false;
+        if(progress_.stage==AmbientGenerationStage::SkyFaces&&remaining>0) {
+            const UINT reached=renderFaces(progress_.nextFace,remaining);
+            progress_.nextFace+=reached;remaining-=reached;result.units+=reached;
+            baseStopped=reached==0;
+            if(progress_.nextFace==ambient_schedule::cubeFaces)
+                progress_.stage=AmbientGenerationStage::PrepareMips;
+        }
+        if(!baseStopped&&progress_.stage==AmbientGenerationStage::PrepareMips&&remaining>0) {
+            prepareMips();--remaining;++result.units;
+            progress_.stage=AmbientGenerationStage::FilterFaces;
+        }
+        if(!baseStopped&&progress_.stage==AmbientGenerationStage::FilterFaces&&remaining>0) {
+            const UINT reached=filterFaces(progress_.nextFace,remaining);
+            progress_.nextFace+=reached;result.units+=reached;
+        }
+        if(progress_.nextFace==ambient_schedule::filteredFaceEnd) {
+            result.completed=true;result.completedIndex=progress_.generation;
+            progress_.generation=(progress_.generation+1)%ambient_schedule::historySlots;
+            progress_.nextFace=0;progress_.stage=AmbientGenerationStage::SkyFaces;elapsed_=0;
+        }
+        if(update.interpolationSpan<=0)
+            progress_.selectedOutput=(progress_.generation+2)%ambient_schedule::historySlots;
+        else {
+            result.blendFraction=nativeAmbientBudgetDiv(elapsed_,update.interpolationSpan);
+            if(result.blendFraction<=0)progress_.selectedOutput=(progress_.generation+1)%ambient_schedule::historySlots;
+            else if(result.blendFraction>=1)progress_.selectedOutput=(progress_.generation+2)%ambient_schedule::historySlots;
+            else {progress_.selectedOutput=ambient_schedule::interpolatedOutput;result.blend=true;}
+        }
+        return result;
     }
 
     void complete(const AmbientGenerationUpdate& update) {
-        if(update.enabled){progress_=update.work.next;elapsed_=update.work.elapsed;}
-        // Budget and interpolation advance at the same successful return, so
-        // they share the previous accepted clock instead of retaining mirrors.
+        // Disabled and zero-work returns still observe the ordinary parent
+        // clock, accumulating time without changing the disabled selection.
         elapsed_=nativeAmbientBudgetAdd(elapsed_,
             std::max(nativeAmbientBudgetSub(update.budget.clock,budget_.priorClock),0.f));
         completeNativeAmbientBudget(budget_,update.budget);
@@ -87,5 +93,5 @@ class AmbientGeneration {
     AmbientGenerationProgress progress_;
     NativeAmbientBudget budget_;
     float elapsed_=0;
-    bool initialized_=false;
+    bool initialized_=false,disabled_=false;
 };
