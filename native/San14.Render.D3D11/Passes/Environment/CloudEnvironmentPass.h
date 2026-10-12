@@ -5,6 +5,7 @@
 #include "SkyPatternRenderer.h"
 #include "SkyPatternPalette.h"
 #include "../../Scene/View/PreparedViewBaseLight.h"
+#include "../../Device/ContextEnvironmentResources.h"
 // Include after the cloud, ambient, weather and atmosphere publication writers.
 namespace San14::Render {
 
@@ -112,7 +113,6 @@ class CloudEnvironmentPass {
         // Bootstrap supplies all three history slots once, before Main entry.
         for(UINT slot=0;slot<3;++slot)executeNativeAmbientBatch(context,environment_,renderingAtmosphere()!=nullptr,slot);
         executeNativeAmbientBlend(context,environment_,0,0);
-        ambient_=environment_.selectedView();
     }
 
     void prepareClouds(ID3D11Device* device,const fs::path& cloudSource,
@@ -172,8 +172,7 @@ class CloudEnvironmentPass {
     // Node 5 consumes completed Cloud and Main Star updates from node 3.
     void generateAmbient(ID3D11DeviceContext* context,float clock,const CommonRenderPolicy& common) {
         const auto parent=NativeMainTargetScope::retain(context);
-        // Generation selection can change; retain the actual returned view.
-        ambient_=executeNativeAmbientNode5(context,environment_,clock,ambientGenerationEnabled(common),
+        executeNativeAmbientNode5(context,environment_,clock,ambientGenerationEnabled(common),
             skyCloudDrawingEnabled(common)&&renderingAtmosphere()!=nullptr);
         parent.restore(context);
     }
@@ -198,7 +197,17 @@ class CloudEnvironmentPass {
         executeNativeMainCloud(device,context,logical,cloud_,depth,clock,drawEnabled);
     }
 
-    ID3D11ShaderResourceView* ambientView() const { return environment_.generation.disabled()?nullptr:ambient_.Get(); }
+    // The finite normal Main View owns this Sky CPU even when generation is
+    // disabled. Its disabled query is a genuine absent wrapper override, not
+    // an absent Sky CPU or a failed resource preparation.
+    std::optional<EnvironmentImage> environmentImage() const {
+        if(environment_.generation.disabled())return std::nullopt;
+        const auto selected=environment_.generation.selectedOutput();
+        const auto view=environment_.outputs.at(selected).view.Get();
+        const auto sampler=environment_.outputSamplers.at(selected).Get();
+        if(!view||!sampler)throw std::runtime_error("HDR Sky environment has not been prepared");
+        return EnvironmentImage{view,sampler};
+    }
     const CloudVolumeMaterial& cloudVolume() const { return volume_.value(); }
 
   private:
@@ -234,6 +243,5 @@ class CloudEnvironmentPass {
     NativeAmbient environment_;
     NativeAmbientCloudContinuous environmentCloud_;
     std::optional<NativeCurrentAmbientFrame> currentAmbient_;
-    ComPtr<ID3D11ShaderResourceView> ambient_;
 };
 } // namespace San14::Render

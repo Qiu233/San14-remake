@@ -4,6 +4,7 @@
 #include <optional>
 #include "HdrLightingState.h"
 #include "Interop/HdrProgramBindingInputs.h"
+#include "../../Device/ContextEnvironmentResources.h"
 static void applySourceModelStencil(ID3D11Device* device,NativeModelInputs& models,const fs::path& source) {
     std::ifstream rows(source/"model-references.txt");std::string directory;
     UINT enabled,reference,readMask,writeMask,compare,fail,depthFail,pass;
@@ -50,6 +51,7 @@ struct NativeSourceHdrSampler {
     std::array<D3D11_SAMPLER_DESC,2> descriptions;
     std::array<ComPtr<ID3D11SamplerState>,2> states;
     bool paired{};
+    bool environment{};
 };
 struct NativeSourceHdrDynamicBinding {
     UINT slot;
@@ -132,7 +134,7 @@ static ID3D11RasterizerState* sourceHdrRasterObject(ID3D11Device* device,ID3D11D
 }
 static void executeSourceHdrPasses(ID3D11Device* device,ID3D11DeviceContext* context,NativeSourceDepthState& logical,
     NativeSourceHdrPasses& cache,ID3D11ShaderResourceView* sampledD1,ID3D11DepthStencilView* dsv,
-    ID3D11ShaderResourceView* ambient,ID3D11ShaderResourceView* refraction,
+    const San14::Render::EnvironmentImage& ambient,ID3D11ShaderResourceView* refraction,
     ID3D11ShaderResourceView* transmitted,
     ID3D11ShaderResourceView* blurredDepth=nullptr,float currentCommonClock=0.f,
     uint32_t view19AC=~0u,uint32_t view19B0=~0u) {
@@ -151,7 +153,7 @@ static void executeSourceHdrPasses(ID3D11Device* device,ID3D11DeviceContext* con
             ID3D11ShaderResourceView* selected=nullptr;
             switch(binding.producer) {
                 case NativeSourceHdrProducer::SampledD1:selected=sampledD1;break;
-                case NativeSourceHdrProducer::Ambient:selected=ambient;break;
+                case NativeSourceHdrProducer::Ambient:selected=ambient.view;break;
                 case NativeSourceHdrProducer::Refraction:selected=refraction;break;
                 case NativeSourceHdrProducer::Transmitted:selected=transmitted;break;
                 case NativeSourceHdrProducer::BlurredDepth:selected=blurredDepth;break;
@@ -160,7 +162,11 @@ static void executeSourceHdrPasses(ID3D11Device* device,ID3D11DeviceContext* con
             views[binding.slot]=selected;
         }
         context->PSSetShaderResources(0,UINT(views.size()),views.data());
-        for(auto& sampler:pass.samplers){auto raw=sampler.states[San14::Render::hdrSamplerSide(sampler.paired,pass.specularSourceIndex)].Get();context->PSSetSamplers(sampler.slot,1,&raw);}
+        for(auto& sampler:pass.samplers){
+            auto raw=sampler.environment?ambient.sampler:
+                sampler.states[San14::Render::hdrSamplerSide(sampler.paired,pass.specularSourceIndex)].Get();
+            context->PSSetSamplers(sampler.slot,1,&raw);
+        }
         D3D11_DEPTH_STENCIL_DESC saved=logical.description;UINT savedReference=logical.reference;
         // The actual source writer changes testing and per-record stencil.
         // The exported write/compare declarations are not additional writers.

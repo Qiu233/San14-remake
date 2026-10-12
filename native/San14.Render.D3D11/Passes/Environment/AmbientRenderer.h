@@ -199,6 +199,7 @@ struct NativeAmbient {
     std::array<source_camera::Matrix,6> blendCameras;
     AmbientNativeCube work;
     std::array<AmbientNativeCube,4> outputs;
+    std::array<ComPtr<ID3D11SamplerState>,4> outputSamplers;
     std::array<bool,4> completed{};
     std::array<float,6> faceDepthClear{};
     // The original WORK has two cubes (+78/+D0), depth2D(+20), color2D(+18).
@@ -220,7 +221,6 @@ struct NativeAmbient {
     const source_weather_fog::Power* starPower{};
     NativeAmbientStarCameras starCameras;
     AmbientGeneration generation;
-    ID3D11ShaderResourceView* selectedView() const{return outputs.at(generation.selectedOutput()).view.Get();}
 };
 static NativeAmbient prepareNativeAmbient(ID3D11Device* device,const fs::path& source,
     San14::Render::MainStarPass& stars,const source_weather_fog::Power& power) {
@@ -281,6 +281,7 @@ static NativeAmbient prepareNativeAmbient(ID3D11Device* device,const fs::path& s
         const auto bytes=load(source/("cube"+std::to_string(output)+"-sampler-desc.bin"));
         if(bytes.size()!=sizeof(D3D11_SAMPLER_DESC))throw std::runtime_error("Ambient output sampler extent");
         D3D11_SAMPLER_DESC description{};std::memcpy(&description,bytes.data(),sizeof(description));
+        check(device->CreateSamplerState(&description,&owner.outputSamplers[output]),"Ambient output wrapper sampler");
         for(UINT mip=0;mip<owner.levels;++mip) {
             description.MinLOD=float(mip);ComPtr<ID3D11SamplerState> sampler;
             check(device->CreateSamplerState(&description,&sampler),"Ambient output-specific mip sampler");
@@ -430,7 +431,7 @@ static UINT executeNativeAmbientBlend(ID3D11DeviceContext* context,NativeAmbient
     }
     owner.completed[3]=owner.completed[first]&&owner.completed[second];cleanupNativeAmbient(context);return 6;
 }
-static ID3D11ShaderResourceView* executeNativeAmbientBatch(ID3D11DeviceContext* context,NativeAmbient& owner,
+static void executeNativeAmbientBatch(ID3D11DeviceContext* context,NativeAmbient& owner,
     bool faceProducerEnabled,UINT destination=0) {
     // Explicit finite backend batch, not a native node5 clock/initialization receipt.
     AmbientGeneration batch(destination);
@@ -438,9 +439,8 @@ static ID3D11ShaderResourceView* executeNativeAmbientBatch(ID3D11DeviceContext* 
     const auto result=executeNativeAmbientWork(context,owner,batch,update,faceProducerEnabled);
     if(result.units!=ambient_schedule::workUnits||!result.completed)
         throw std::runtime_error("Ambient bootstrap batch did not complete its actual callbacks");
-    return owner.outputs.at(destination).view.Get();
 }
-static ID3D11ShaderResourceView* executeNativeAmbientNode5(ID3D11DeviceContext* context,NativeAmbient& owner,
+static void executeNativeAmbientNode5(ID3D11DeviceContext* context,NativeAmbient& owner,
     float currentCommonClock,bool enabled,bool faceProducerEnabled) {
     const auto update=owner.generation.prepare(currentCommonClock,enabled);
     if(update.enabled) {
@@ -460,5 +460,4 @@ static ID3D11ShaderResourceView* executeNativeAmbientNode5(ID3D11DeviceContext* 
     owner.generation.complete(update);
     // Source selection is not a claim that a fresh selected slot has pixels.
     // Completed output contents are tracked separately; no substitute is selected.
-    return owner.selectedView();
 }

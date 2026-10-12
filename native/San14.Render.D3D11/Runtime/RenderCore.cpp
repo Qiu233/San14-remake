@@ -232,6 +232,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     width=configuration.width;height=configuration.height;
     ComPtr<ID3D11Device> device;ComPtr<ID3D11DeviceContext> context;D3D_FEATURE_LEVEL level;
     device=host.device;context=host.context;level=device->GetFeatureLevel();
+    ContextEnvironmentResources contextEnvironment(device.Get());
     fs::path lightingSource;
     ComPtr<ID3D11Texture2D> ggx;
     NativeSourceHdrTarget lightingTarget;
@@ -539,7 +540,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
          //Allocation observation, not a source-pixel render.
         executeNativePrimaryForwardGpu(context.Get(),sourceDepth,primaryForwardGpu,primaryForwardFrame,bases.primary().currentModels,
             hdr166.targetView(),geometryTargets.depthView(),geometryTargets.viewport(),shadows.shadowView(),
-            hdr166.bank().ggx.Get(),clouds.ambientView(),fogAcceleration.samplingView());
+            hdr166.bank().ggx.Get(),[&]{return contextEnvironment.select(clouds.environmentImage());},fogAcceleration.samplingView());
 
     };
     auto isolateCurrentShadowVisibility=[&]() {
@@ -576,7 +577,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             {
                 hdr78.update(context.Get(),frameState.lightingFrame(phase.deferredQueueFlags(),initialCommonClock));
             }
-            hdr78.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),clouds.ambientView(),nullptr,nullptr,
+            hdr78.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),contextEnvironment.select(clouds.environmentImage()),nullptr,nullptr,
                 nullptr,initialCommonClock,frameState.view().activeGroups,frameState.view().oceanGroups);
             mainTargets.restore(context.Get());
             {
@@ -620,7 +621,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                 {
                     hdr123.update(context.Get(),frameState.lightingFrame(phase.deferredQueueFlags(),initialCommonClock,&ocean.refractionCamera()));
                 }
-                hdr123.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),clouds.ambientView(),ocean.refractionDepth(),ocean.transmittedScene(),
+                hdr123.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),contextEnvironment.select(clouds.environmentImage()),ocean.refractionDepth(),ocean.transmittedScene(),
                     nullptr,initialCommonClock,frameState.view().activeGroups,frameState.view().oceanGroups);
                 mainTargets.restore(context.Get());
                 atmosphere.prepare(device.Get(),context.Get(),resources.directory(ResourceGroup::Sky),
@@ -675,7 +676,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                 {
                     hdr166.update(context.Get(),frameState.lightingFrame(phase.deferredQueueFlags(),initialCommonClock,&ocean.refractionCamera(),filteredSpecularImages()));
                 }
-                hdr166.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),clouds.ambientView(),ocean.refractionDepth(),ocean.transmittedScene(),
+                hdr166.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),contextEnvironment.select(clouds.environmentImage()),ocean.refractionDepth(),ocean.transmittedScene(),
                     ocean.blurredDepth(),initialCommonClock,frameState.view().activeGroups,frameState.view().oceanGroups);
                 mainTargets.restore(context.Get()); //165 and late HDR return to73
                 ;
@@ -747,7 +748,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         {
             hdr78.update(context.Get(),frameState.lightingFrame(phase.deferredQueueFlags(),currentClock));
         }
-        hdr78.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),clouds.ambientView(),nullptr,nullptr,
+        hdr78.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),contextEnvironment.select(clouds.environmentImage()),nullptr,nullptr,
             nullptr,currentClock,frameState.view().activeGroups,frameState.view().oceanGroups);
         mainTargets.restore(context.Get());
         ocean.copyScene(context.Get(),sourceDepth);
@@ -764,7 +765,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         {
             hdr123.update(context.Get(),frameState.lightingFrame(phase.deferredQueueFlags(),currentClock,&ocean.refractionCamera()));
         }
-        hdr123.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),clouds.ambientView(),ocean.refractionDepth(),ocean.transmittedScene(),
+        hdr123.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),contextEnvironment.select(clouds.environmentImage()),ocean.refractionDepth(),ocean.transmittedScene(),
             nullptr,currentClock,frameState.view().activeGroups,frameState.view().oceanGroups);
         atmosphere.updateCamera(context.Get(),frameState.atmosphereFrame(clouds));
         mainTargets.restore(context.Get());
@@ -787,7 +788,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         {
             hdr166.update(context.Get(),frameState.lightingFrame(phase.deferredQueueFlags(),currentClock,&ocean.refractionCamera(),filteredSpecularImages()));
         }
-        hdr166.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),clouds.ambientView(),ocean.refractionDepth(),ocean.transmittedScene(),ocean.blurredDepth(),
+        hdr166.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),contextEnvironment.select(clouds.environmentImage()),ocean.refractionDepth(),ocean.transmittedScene(),ocean.blurredDepth(),
             currentClock,frameState.view().activeGroups,frameState.view().oceanGroups);
         drawCurrentPrimaryForward(currentClock);
 

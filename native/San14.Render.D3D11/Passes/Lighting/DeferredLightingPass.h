@@ -33,7 +33,7 @@ public:
     }
     void execute(ID3D11Device* device, ID3D11DeviceContext* context, NativeSourceDepthState& logical,
         ID3D11ShaderResourceView* sampledD1, ID3D11DepthStencilView* dsv,
-        ID3D11ShaderResourceView* ambient, ID3D11ShaderResourceView* refraction,
+        const EnvironmentImage& ambient, ID3D11ShaderResourceView* refraction,
         ID3D11ShaderResourceView* transmitted,
         ID3D11ShaderResourceView* blurredDepth, float currentCommonClock,
         uint32_t view19AC, uint32_t view19B0) {

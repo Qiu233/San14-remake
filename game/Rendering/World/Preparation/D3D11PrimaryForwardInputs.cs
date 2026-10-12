@@ -213,7 +213,6 @@ public static class D3D11PrimaryForwardInputs
         }
         File.WriteAllBytes(Path.Combine(directory, "sampler3.bin"), RenderSamplerSourceAdapters.BackendDefaultDescriptor(native));
         WriteSampler(10, RenderSamplerSourceAdapters.RenderTextureKey(native, 1));
-        WriteSampler(11, RenderSamplerSourceAdapters.FromAmbientCube(native, CubeRenderTextureResources.Read(textures, 0x23F44EB5)).SourceKey);
         var white = StaticTextureResources.Load(repository, textures, "system", [0x80F9DB7B]).Single();
         File.WriteAllBytes(Path.Combine(directory, "sampler6.bin"), G1TextureSamplerReader.ReadRetainedSource(white.Image).EncodeD3D11Descriptor());
         var depth = DeferredEarlyPredecessorSource.Load(repository, locale).ShadowDepthDeclaration;
@@ -226,7 +225,8 @@ public static class D3D11PrimaryForwardInputs
         byte[] pointKey = RenderSamplerSourceAdapters.RenderTextureKey(native, 1);
         BinaryPrimitives.WriteUInt16LittleEndian(pointKey, (ushort)(BinaryPrimitives.ReadUInt16LittleEndian(pointKey) & 0x3FF));
         WriteSampler(15, pointKey);
-        File.WriteAllLines(Path.Combine(directory, "samplers.txt"), new[] { 2, 3, 6, 8, 9, 10, 11, 15 }.Select(slot => $"{slot} sampler{slot}.bin"));
+        // The current environment image owner supplies its sampler at each draw.
+        File.WriteAllLines(Path.Combine(directory, "samplers.txt"), new[] { 2, 3, 6, 8, 9, 10, 15 }.Select(slot => $"{slot} sampler{slot}.bin"));
         File.WriteAllBytes(Path.Combine(directory, "volume-white-pixel4.bin"), [255, 255, 255, 255]);
         void WriteSampler(int slot, byte[] selectedKey) => File.WriteAllBytes(Path.Combine(directory, $"sampler{slot}.bin"),
             RenderSamplerSourceAdapters.DecodeKey(native, selectedKey).EncodeD3D11Descriptor());

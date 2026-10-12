@@ -90,6 +90,9 @@ inline NativePrimaryForwardGpu prepareNativePrimaryForwardGpu(ID3D11Device* devi
     if(!out.sparseConstants[0]||!out.sparseConstants[1])throw std::runtime_error("Forward actual point/spot CB owners absent");
     std::ifstream samplerRows(input/"samplers.txt");std::string file;
     while(samplerRows>>slot>>file) {
+        // Environment sampling belongs to the selected image wrapper, even
+        // when an older input directory still lists a fixed sampler here.
+        if(slot==11)continue;
         auto source=load(input/file);D3D11_SAMPLER_DESC desc{};std::memcpy(&desc,source.data(),sizeof(desc));
         check(device->CreateSamplerState(&desc,&out.samplers.at(slot)),"original forward source sampler");
     }
@@ -155,11 +158,11 @@ inline void captureNativePrimaryForwardClusterHeader(ID3D11Device* device,ID3D11
         <<",\"spotCountMax\":"<<spotMax<<",\"nonzeroCountClusters\":"<<nonzero<<",\"totalCounts\":"<<total<<"}\n";
     std::cout<<"forward actual node71 header pointMax="<<pointMax<<" spotMax="<<spotMax<<" nonzeroClusters="<<nonzero<<'\n';
 }
-template<class LogicalDepth,class Frame> inline void executeNativePrimaryForwardGpu(ID3D11DeviceContext* context,
+template<class LogicalDepth,class Frame,class EnvironmentQuery> inline void executeNativePrimaryForwardGpu(ID3D11DeviceContext* context,
         LogicalDepth& logical,NativePrimaryForwardGpu& gpu,const Frame& frame,const NativeModelInputs& currentModels,
         ID3D11RenderTargetView* scene,ID3D11DepthStencilView* mainDepth,const D3D11_VIEWPORT& viewport,
         ID3D11ShaderResourceView* shadow,ID3D11ShaderResourceView* ggx,
-        ID3D11ShaderResourceView* ambient,ID3D11ShaderResourceView* fog) {
+        EnvironmentQuery&& environmentImage,ID3D11ShaderResourceView* fog) {
     context->OMSetRenderTargets(1,&scene,mainDepth);context->RSSetViewports(1,&viewport);
     context->OMSetBlendState(gpu.blend.Get(),nullptr,~0u);
     // D71500 writes only enable when queue bit7 is clear. Ignored stencil
@@ -181,9 +184,13 @@ template<class LogicalDepth,class Frame> inline void executeNativePrimaryForward
     for(unsigned i=0;i<views.size();++i)views[i]=gpu.resources[i].Get();
     for(unsigned i=0;i<samplers.size();++i)samplers[i]=gpu.samplers[i].Get();
     views[2]=shadow;
-    views[10]=ggx;views[11]=ambient;views[26]=fog;
+    views[10]=ggx;views[26]=fog;
     gpu.draws=0;
     for(auto& row:frame.draws) {
+        // Each admitted lit Main material installs its own paired resource.
+        // No environment query is reached when this draw list is empty.
+        const auto environment=environmentImage();
+        views[11]=environment.view;samplers[11]=environment.sampler;
         views[6]=row.litView;samplers[6]=row.litSampler;
         auto& geometry=currentModels.draws.at(row.primitiveIndex);
         for(auto pair:{std::array<unsigned,2>{0,0},{1,1},{4,2},{5,3}}) {

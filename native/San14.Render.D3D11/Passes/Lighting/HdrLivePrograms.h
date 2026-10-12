@@ -282,9 +282,14 @@ private:
         }
         for (const auto& source : recipe.samplers) {
             NativeSourceHdrSampler sampler;sampler.slot=source.slot;sampler.descriptions=source.descriptions;sampler.paired=source.paired;
-            for(unsigned side=0;side<(sampler.paired?2u:1u);++side)
-                check(device_->CreateSamplerState(&sampler.descriptions[side], &sampler.states[side]), "HDR selected resource sampler");
-            if(!sampler.paired)sampler.states[1]=sampler.states[0];
+            sampler.environment=std::any_of(recipe.textures.begin(),recipe.textures.end(),[&](const auto& texture) {
+                return texture.role=="AmbientSpecular"&&texture.slot==source.slot;
+            });
+            if(!sampler.environment) {
+                for(unsigned side=0;side<(sampler.paired?2u:1u);++side)
+                    check(device_->CreateSamplerState(&sampler.descriptions[side], &sampler.states[side]), "HDR selected resource sampler");
+                if(!sampler.paired)sampler.states[1]=sampler.states[0];
+            }
             pass.samplers.push_back(std::move(sampler));
         }
         pass.target = target_; pass.viewport = viewport_; pass.count = 3; pass.topology = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
