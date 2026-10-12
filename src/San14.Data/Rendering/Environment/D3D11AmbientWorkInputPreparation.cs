@@ -20,7 +20,7 @@ public static class D3D11AmbientWorkInputPreparation
         MapSourceCreatedSeasonLightingFrame present,
         DirectionalLightProviderTemporary defaultCaller,SkyCloudProgramResources cloudPrograms,
         LoadedSkyAmbientResources ambient,
-        SkyMainProgramResources? skyPrograms = null)
+        SkyMainProgramResources? skyPrograms = null, Sky2TextureBindingSnapshot? sampling = null)
     {
         string locale=present.AcceptedSeasonCamera.Inputs.MainFrame.Camera.ExecutableLocale;
         var hdr=repository.LoadShaderContainer("system",0x9D8E811F);
@@ -39,12 +39,15 @@ public static class D3D11AmbientWorkInputPreparation
             .PrepareCurrent(present,lighting);
         skyPrograms ??= SkyMainProgramResources.Load(repository,NamedViewRendererResources.Load(repository));
         var skyShader=skyPrograms.Shader;
-        // This preparation owns its binding state while producing initial numeric inputs.
-        using var bindings = new Sky2TextureBindings();
-        bindings.ApplyPackage(SkySeasonPackageTextures.Read(
-            present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage),
-            reference => SkySeasonPackageTextures.LoadSampling(repository, reference));
-        var textureBindings = bindings.Capture();
+        // A retained WORK owner supplies its own sampling generation. Standalone
+        // initial preparation keeps the original fresh-binding behavior.
+        using var bindings = sampling is null ? new Sky2TextureBindings() : null;
+        if (bindings is not null)
+            bindings.ApplyPackage(SkySeasonPackageTextures.Read(
+                present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage),
+                reference => SkySeasonPackageTextures.LoadSampling(repository, reference));
+        var textureBindings = sampling ?? bindings!.Capture();
+        textureBindings.RequireCurrent();
         directional.PrepareLights(skyShader, textureBindings);
         var frame=directional.PrepareSourceSelectedSeasonFrame(ambient.SpecularTargets[0],
             SkyDirectionalAtmosphereNativeSource.Load(repository,locale,NativeLogDispatch.Sse),2,skyShader,stages,textureBindings);

@@ -4,9 +4,9 @@ using San14.Data.Formats;
 
 namespace San14.Data;
 
-/// <summary>One Native session's declared Cloud surfaces and imported image inputs.
-/// The owner encodes prepared resources; it does not use an earlier render cache
-/// as a source or change the session's animation and history state.</summary>
+/// <summary>One Native session's declared Cloud surfaces and retained scale.
+/// Independent image candidates reuse these targets and sampler routes without
+/// changing animation or history state.</summary>
 public sealed class D3D11CloudRenderResources
 {
     private sealed record Target(string Role, uint Key, RenderTextureDefinition Declaration,
@@ -21,10 +21,7 @@ public sealed class D3D11CloudRenderResources
     private readonly Dictionary<uint, RenderTextureFormats> formats = new();
     private uint acceptedSplit, acceptedResolution;
     private float acceptedEffectiveScale;
-    private readonly SkyAppliedCloudTextureSet cloudTextures;
-    private readonly SkyTextureSource? earthTexture;
-    private MapSeasonCameraPackage acceptedPackage;
-    private SkyAppliedSeasonCloudTextureSources acceptedCloudTextures;
+    private readonly List<string> surfaceSamplerRows = new();
     private float retainedScale;
 
     private D3D11CloudRenderResources(GameResourceRepository repository,
@@ -61,9 +58,8 @@ public sealed class D3D11CloudRenderResources
         declarations = bayerRgb.Concat(bayerAlpha).Concat(bayerInfo).Concat(historyRgb)
             .Concat(historyAlpha).Distinct().ToDictionary(key => key, key => RenderTextureResources.Read(objects, key));
 
-        acceptedPackage = present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage;
-        acceptedCloudTextures = present.AcceptedSeasonCamera.Inputs.Source.CloudTextures;
-        var selected = ReadCamera(acceptedPackage);
+        var package = present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage;
+        var selected = ReadCamera(package);
         retainedScale = ApplySelectedScale(ReadScale(present.AcceptedSeasonCamera.Inputs.MainFrame.Camera.Source.Camera), selected.Scale);
         acceptedSplit = selected.Split;
         acceptedResolution = Resolution(present, selected);
@@ -73,15 +69,7 @@ public sealed class D3D11CloudRenderResources
         BayerHeight = targets[0].Height;
         ReconstructionWidth = targets[3].Width;
         ReconstructionHeight = targets[3].Height;
-        this.cloudTextures = cloudTextures;
-        sampling.RequireCurrent();
-        earthTexture = sampling.GetTexture(SkySamplingRole.Earth)?.Texture;
-        byte[] presence = new byte[8];
-        BinaryPrimitives.WriteUInt32LittleEndian(presence, 0x31424D53); // SMB1: installed shared Sky sampling.
-        BinaryPrimitives.WriteUInt32LittleEndian(presence.AsSpan(4),
-            (sampling.Presence.Earth ? 1u : 0u) | (sampling.Presence.Moon ? 2u : 0u) |
-            (sampling.Presence.Milky ? 4u : 0u));
-        files.Add("ambient-input/sampling-presence.bin", presence);
+        Images = D3D11CloudImageResources.Prepare(cloudTextures, sampling);
         ValidateAliases(programs.Main.Color, [("sBase", 0), ("sCirrus", 3),
             ("sSkyAmbientAltitude2dTable", 4), ("sTransmit2dTable", 5)]);
         ValidateAliases(programs.Main.History, [("sReprojRaymarchedCloud", 0),
@@ -89,6 +77,10 @@ public sealed class D3D11CloudRenderResources
         ValidateAliases(programs.Main.Composite, [("sReprojectedVolumetricCloud", 0)]);
         Encode(repository, present.AcceptedSeasonCamera.Inputs.MainFrame.Camera.ExecutableLocale);
     }
+
+    /// <summary>The image preparation used by the compatible cold entry.
+    /// Subsequent replacements are independently owned by the caller.</summary>
+    public D3D11CloudImageResources Images { get; }
 
     public int SceneWidth { get; }
     public int SceneHeight { get; }
@@ -106,6 +98,15 @@ public sealed class D3D11CloudRenderResources
     /// accepting the candidate scale. Zero selected scales retain the Main value.</summary>
     public void RequireCurrent(MapSourceCreatedSeasonLightingFrame present,
         int width, int height, SkyTextureSource? currentEarth)
+        => RequireCurrentCore(present, width, height, currentEarth, true);
+
+    /// <summary>Validate and retain the existing surfaces while an independent
+    /// candidate replaces only images and samplers.</summary>
+    public void RequireCurrentSurfaces(MapSourceCreatedSeasonLightingFrame present,
+        int width, int height) => RequireCurrentCore(present, width, height, null, false);
+
+    private void RequireCurrentCore(MapSourceCreatedSeasonLightingFrame present,
+        int width, int height, SkyTextureSource? currentEarth, bool requireImages)
     {
         if (width != SceneWidth || height != SceneHeight)
             throw new NotSupportedException("Native Cloud backend resizing requires target and history replacement.");
@@ -122,24 +123,39 @@ public sealed class D3D11CloudRenderResources
                 pair.First.Formats == pair.Second.Formats))
                 throw new NotSupportedException("Changed Native Cloud targets require a physical resource replacement.");
         }
-        var groups = present.AcceptedSeasonCamera.Inputs.Source.CloudTextures;
-        if (!ReferenceEquals(package, acceptedPackage) || !ReferenceEquals(groups, acceptedCloudTextures))
-        {
-            var textures = SkyAppliedCloudTextureSet.Import(groups);
-            // The Main sampling owner applies zero-reference retention. A new
-            // package's declaration alone does not describe its installed image.
-            if (!cloudTextures.SamePhysical(textures) || !SameTexture(earthTexture, currentEarth))
-                throw new NotSupportedException("Changed Native Cloud or Main Sky images require a physical resource replacement.");
-        }
+        if (requireImages)
+            Images.RequireCompatible(SkyAppliedCloudTextureSet.Import(
+                present.AcceptedSeasonCamera.Inputs.Source.CloudTextures), currentEarth);
         retainedScale = candidateScale;
         acceptedEffectiveScale = effectiveScale;
         acceptedSplit = selected.Split;
         acceptedResolution = resolution;
-        acceptedPackage = package;
-        acceptedCloudTextures = groups;
     }
 
     public void WriteNativeInputs(string inputRoot)
+    {
+        WriteSurfaceInputs(inputRoot);
+        WriteImageInputs(inputRoot, Images);
+    }
+
+    /// <summary>Export this installed owner's actual stable surface metadata
+    /// into a replacement candidate without rebuilding its targets.</summary>
+    public void WriteSurfaceInputs(string inputRoot) => WriteFiles(inputRoot, files);
+
+    /// <summary>Write a prepared image candidate with this same surface owner's
+    /// sampler routes. Only this method assembles the complete sampler manifest.</summary>
+    public void WriteImageInputs(string inputRoot, D3D11CloudImageResources images)
+    {
+        ArgumentNullException.ThrowIfNull(images);
+        images.WriteNativeInputs(inputRoot);
+        string directory = Path.Combine(inputRoot, "main-cloud-input");
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(Path.Combine(directory, "samplers.txt"),
+            string.Join("\n", surfaceSamplerRows.Concat(images.MainSamplerRows)) + "\n",
+            new UTF8Encoding(false));
+    }
+
+    private static void WriteFiles(string inputRoot, IReadOnlyDictionary<string, byte[]> files)
     {
         foreach (var file in files)
         {
@@ -224,10 +240,6 @@ public sealed class D3D11CloudRenderResources
         return result;
     }
 
-    private static bool SameTexture(SkyTextureSource? first, SkyTextureSource? second)
-        => first is null ? second is null : second is not null &&
-            first.Identity == second.Identity && first.SamplerDescriptorSha256 == second.SamplerDescriptorSha256;
-
     private static void ValidateAliases(SkyCloudMainPass pass, (string Name, int Slot)[] expected)
     {
         var aliases = pass.Shader.ReadG1ResourceBindings(pass.Combination.Index).Entries;
@@ -242,7 +254,7 @@ public sealed class D3D11CloudRenderResources
 
     private void Encode(GameResourceRepository repository, string locale)
     {
-        const string main = "main-cloud-input/", ambient = "ambient-input/";
+        const string main = "main-cloud-input/";
         var targetRows = targets.Select(target => FormattableString.Invariant(
             $"{target.Role} {target.Key:X8} {target.Width} {target.Height} {target.Formats.ResourceFormat} {target.Formats.ShaderViewFormat} {target.Formats.TargetViewFormat}"));
         Text(main + "targets.txt", string.Join("\n", targetRows) + "\n");
@@ -254,7 +266,6 @@ public sealed class D3D11CloudRenderResources
         Text(main + "textures.txt", "pass2 0 bayer-rgb\npass2 1 bayer-alpha\npass2 2 bayer-info\npass2 3 previous-rgb\npass2 4 previous-alpha\npass4 0 current-rgb\npass4 1 current-alpha\n");
         Text(main + "rtvs.txt", "pass1 0 bayer-rgb\npass1 1 bayer-alpha\npass1 2 bayer-info\npass2 0 current-rgb\npass2 1 current-alpha\npass4 0 current-scene\n");
         var native = RenderSamplerSourceAdapters.Load(repository.SourceDirectory, locale);
-        var samplerRows = new List<string>();
         foreach (var route in new[] { ("pass2", 0, 0, 0), ("pass2", 1, 1, 1), ("pass2", 2, 2, 2),
             ("pass2", 3, 5, 3), ("pass2", 4, 6, 4), ("pass4", 0, 3, 5), ("pass4", 1, 4, 6) })
         {
@@ -274,26 +285,7 @@ public sealed class D3D11CloudRenderResources
             // A history role changes physical image with ping. Its sampler must
             // follow the same declaration, including the composite override.
             string side1 = route.Item3 == route.Item4 ? side0 : EncodeSampler(route.Item4, "-swap");
-            samplerRows.Add($"{route.Item1} {route.Item2} {side0} {side1}");
+            surfaceSamplerRows.Add($"{route.Item1} {route.Item2} {side0} {side1}");
         }
-        var mainRows = new List<string>();
-        var cloudRows = new List<string>();
-        foreach (var input in cloudTextures.CloudInputs)
-        {
-            string prefix = $"cloud-slot{input.SourceBindPoint}";
-            cloudRows.Add(Texture(ambient, "clouds", input.SourceBindPoint, prefix, input.Texture));
-            if (input.SourceBindPoint < 6)
-            {
-                mainRows.Add(Texture(main, "pass1", input.SourceBindPoint, prefix, input.Texture));
-                samplerRows.Add($"pass1 {input.SourceBindPoint} {prefix}-sampler.bin {prefix}-sampler.bin");
-            }
-        }
-        Text(main + "pass1-textures.tsv", string.Join("\n", mainRows) + "\n");
-        Text(main + "samplers.txt", string.Join("\n", samplerRows) + "\n");
-        Text(ambient + "cloud-textures.tsv", string.Join("\n", cloudRows) + "\n");
-        Text(ambient + "sky-textures.tsv", earthTexture is null ? "" : Texture(ambient, "sky-current", 0, "sky-earth", earthTexture) + "\n");
     }
-
-    private string Texture(string directory, string program, uint slot, string prefix, SkyTextureSource texture)
-        => SkyTextureInputEncoding.Add(files, directory, program, slot, prefix, texture);
 }

@@ -144,7 +144,7 @@ static NativeCurrentAmbientFrame prepareNativeCurrentAmbientFrame(ID3D11Device *
     NativeCurrentAmbientFrame r;
     r.profile = source_current_ambient::readProfile(source);
     r.profile.width = ambient.width;
-    r.profile.milkyTexturePresent = ambient.skySampling.milky;
+    r.profile.milkyTexturePresent = ambient.workSkySampling.milky;
     for (unsigned face = 0; face < 6; ++face) r.profile.skySeed[face] = ambient.faces.value().skyFaces[face].state;
     auto make = [&](const auto &bytes) {
         std::vector<char> data(bytes.size());

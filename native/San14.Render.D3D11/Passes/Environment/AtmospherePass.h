@@ -64,6 +64,25 @@ class AtmospherePass {
         publishCurrent(frame);
     }
 
+    const std::vector<AmbientNativeTextureBinding>& skyImages() const {
+        static const std::vector<AmbientNativeTextureBinding> empty;
+        return sky_?sky_->textures:empty;
+    }
+    std::optional<NativeMainSkyImages> prepareImageReplacement(ID3D11Device* device,const fs::path& source,
+        const std::vector<AmbientNativeTextureBinding>& shared,bool renderingPresent) const {
+        if(renderingPresent!=sky_.has_value())
+            throw std::runtime_error("Atmosphere replacement cannot create or remove the Main Sky child");
+        if(!sky_)return std::nullopt;
+        return prepareNativeMainSkyImages(device,source,sky_.value(),shared);
+    }
+    void installImageReplacement(std::optional<NativeMainSkyImages> prepared) noexcept {
+        if(!prepared)return;
+        sky_->textures=std::move(prepared->textures);sky_->views=prepared->views;sky_->samplers=prepared->samplers;
+        camera_.packet.draw->milkyTexturePresent=prepared->sampling.milky;
+        camera_.packet.draw->sky.skyInfo1.X=prepared->sampling.earth?1.f:0.f;
+        camera_.packet.draw->sky.skyInfo1.Y=prepared->sampling.moon?1.f:0.f;
+    }
+
     float currentHalfFovTangent() const {
         return camera_.packet.environment.halfFovTangent;
     }

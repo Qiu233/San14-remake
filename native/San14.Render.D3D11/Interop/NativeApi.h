@@ -31,6 +31,7 @@ struct San14RenderInput {
     uint32_t cityGateWorldBytes; //0 retains the current population.
     const uint8_t* areaCapitalWorld; //Independent282 port/prefecture source publication.
     uint32_t areaCapitalWorldBytes;
+    const wchar_t* atmosphereResourceDirectory; // Immutable replacement candidate; next only, null retains resources.
 };
 struct San14RenderReceipt {
     uint8_t camera[960];

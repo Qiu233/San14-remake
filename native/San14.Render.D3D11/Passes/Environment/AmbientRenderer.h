@@ -9,6 +9,7 @@
 #include <optional>
 
 struct AmbientNativeProgram {
+    std::vector<char> vertexCode,pixelCode;
     ComPtr<ID3D11VertexShader> vs;
     ComPtr<ID3D11PixelShader> ps;
     ComPtr<ID3D11GeometryShader> gs;
@@ -38,7 +39,13 @@ static AmbientNativeProgram ambientProgram(ID3D11Device* device,const fs::path& 
     }
     if(!inputs.empty())check(device->CreateInputLayout(inputs.data(),UINT(inputs.size()),vc.data(),vc.size(),
         &result.layout),"ambient original input layout");
+    result.vertexCode=std::move(vc);result.pixelCode=std::move(pc);
     return result;
+}
+static void requireAmbientProgram(const AmbientNativeProgram& installed,const fs::path& source,const char* name) {
+    if(load(source/(std::string(name)+"-vs.dxbc"))!=installed.vertexCode||
+        load(source/(std::string(name)+"-ps.dxbc"))!=installed.pixelCode)
+        throw std::runtime_error("Atmosphere replacement cannot change an installed shader pair");
 }
 static ComPtr<ID3D11SamplerState> ambientSampler(ID3D11Device* device,const fs::path& path) {
     auto bytes=load(path);D3D11_SAMPLER_DESC desc{};
@@ -204,6 +211,7 @@ struct NativeAmbientDrawCounts {UINT stars=0,sky=0,clouds=0,copy=0,filter=0,blen
 struct NativeAmbientFaceMedia {
     AmbientNativeProgram sky,clouds;
     San14::Render::Interop::SkyMaterialLayout skyLayout;
+    std::vector<char> skyLayoutBytes;
     std::array<NativeAmbientSkyFace,6> skyFaces;
     std::array<float,6> faceDepthClear{};
     NativeAmbientStarCameras starCameras;
@@ -234,7 +242,8 @@ struct NativeAmbient {
     std::array<bool,4> completed{};
     // These identity-bearing images also serve Main, Pattern and atmosphere.
     std::vector<AmbientNativeTextureBinding> textures;
-    San14::Render::Interop::SkySamplingPresence skySampling;
+    San14::Render::Interop::SkySamplingPresence skySampling,workSkySampling;
+    std::optional<std::vector<AmbientNativeTextureBinding>> workSkyTextures;
     std::optional<NativeAmbientInternalResources> internal;
     std::optional<NativeAmbientFaceMedia> faces;
     NativeAmbientDrawCounts draws;
@@ -341,6 +350,7 @@ static void ensureNativeAmbientFaces(ID3D11DeviceContext* context,NativeAmbient&
     const auto skySource=source/"sky";
     owner.sky=ambientProgram(device.Get(),skySource,"main-sky");owner.clouds=ambientProgram(device.Get(),source,"clouds");
     owner.skyLayout=San14::Render::Interop::readSkyMaterialLayout(skySource/"material-layout.bin");
+    owner.skyLayoutBytes=load(skySource/"material-layout.bin");
     for(unsigned face=0;face<6;++face) {
         auto& sky=owner.skyFaces[face];
         sky.state=San14::Render::Interop::readSkyInitialState(skySource/("face"+std::to_string(face)+".bin"));
@@ -357,8 +367,16 @@ static void ensureNativeAmbientFaces(ID3D11DeviceContext* context,NativeAmbient&
         owner.cloudConstants[face]={buffer(device.Get(),load(source/(prefix+"-vs-b0.bin")),D3D11_BIND_CONSTANT_BUFFER),
             buffer(device.Get(),load(source/(prefix+"-ps-b0.bin")),D3D11_BIND_CONSTANT_BUFFER),{}};
     }
-    auto textures=ambientTextures(device.Get(),skySource,"main-sky-textures.tsv",std::nullopt,false,&ambient.textures);
-    for(auto& texture:textures)ambient.textures.push_back(std::move(texture));
+    if(!ambient.workSkyTextures) {
+        auto textures=ambientTextures(device.Get(),skySource,"main-sky-textures.tsv",std::nullopt,false,&ambient.textures);
+        ambient.workSkySampling=San14::Render::Interop::readSkySamplingPresence(skySource/"sampling-presence.bin");
+        for(const auto& texture:textures)ambient.textures.push_back(texture);
+        ambient.workSkyTextures.emplace(std::move(textures));
+    }
+    for(auto& face:owner.skyFaces) {
+        face.state.skyInfo1.X=ambient.workSkySampling.earth?1.f:0.f;
+        face.state.skyInfo1.Y=ambient.workSkySampling.moon?1.f:0.f;
+    }
     ambient.faces.emplace(std::move(owner));
 }
 static void publishNativeAmbientSkyFace(ID3D11DeviceContext* context,NativeAmbient& owner,UINT face,

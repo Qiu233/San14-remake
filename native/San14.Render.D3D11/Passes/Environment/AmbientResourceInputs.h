@@ -12,6 +12,7 @@
 namespace San14::Render {
 struct AmbientTargetDescription {
     std::uint32_t role{},key{},width{},height{},levels{},resourceFormat{},shaderFormat{},targetFormat{},depthFormat{},samples{};
+    bool operator==(const AmbientTargetDescription&) const = default;
 };
 struct AmbientResourceDescription {
     std::uint32_t filterSamples{};

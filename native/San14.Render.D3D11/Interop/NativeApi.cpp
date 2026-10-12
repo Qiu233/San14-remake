@@ -14,7 +14,7 @@ namespace fs=std::filesystem;
 using namespace San14::Render;
 thread_local std::string lastError;
 static_assert(sizeof(San14RenderInput)==sizeof(RenderInput));
-static_assert(sizeof(San14RenderInput)==1152);
+static_assert(sizeof(San14RenderInput)==1160);
 static_assert(sizeof(San14RenderReceipt)==968);
 static_assert(sizeof(San14AnimationState)==sizeof(AnimationState));
 static_assert(sizeof(San14ArmyUnitPosition)==20);
@@ -55,8 +55,17 @@ struct Owner {
         host.input.currentSeason=nullptr;host.input.currentSeasonBytes=0;
         host.input.cityGateWorld=nullptr;host.input.cityGateWorldBytes=0;
         host.input.areaCapitalWorld=nullptr;host.input.areaCapitalWorldBytes=0;
+        host.input.atmosphereResourceDirectory=nullptr;
     }
     void publish(ID3D12Resource* output,const San14RenderInput& input,OutputUse use,San14RenderReceipt& receipt) {
+        if(input.atmosphereResourceDirectory) {
+            // Copy the caller string before invoking retained session owners.
+            // A preparation failure occurs before request acceptance or resume.
+            const fs::path candidate(input.atmosphereResourceDirectory);
+            if(candidate.empty()||!host.replaceAtmosphereResources)
+                throw std::runtime_error("Atmosphere replacement requires an initialized session and a candidate directory");
+            host.replaceAtmosphereResources(candidate);
+        }
         accept(input);
         interop.prepareOutput(output,use);
         const auto& frame=session.render();

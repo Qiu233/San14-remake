@@ -14,7 +14,7 @@ struct NativeMainSky {
     std::array<ID3D11SamplerState*,16> samplers{};
     ComPtr<ID3D11Buffer> vertices,vertexConstants,pixelConstants;
     San14::Render::Interop::SkyMaterialLayout materialLayout;
-    std::vector<char> vertexBytes,pixelBytes;
+    std::vector<char> vertexBytes,pixelBytes,layoutBytes;
     NativeMainSkyBlendCache blend;
     ComPtr<ID3D11DepthStencilState> depth;
     ComPtr<ID3D11RasterizerState> raster,rasterEntry;
@@ -27,6 +27,7 @@ static NativeMainSky prepareNativeMainSky(ID3D11Device* device,const fs::path& s
     sky.textures=ambientTextures(device,source,"main-sky-textures.tsv",std::nullopt);
     sky.vertices=buffer(device,load(source/"quad-position-xy.bin"),D3D11_BIND_VERTEX_BUFFER);
     sky.materialLayout=San14::Render::Interop::readSkyMaterialLayout(source/"material-layout.bin");
+    sky.layoutBytes=load(source/"material-layout.bin");
     sky.vertexBytes.resize(sky.materialLayout.vertex.byteSize);
     sky.pixelBytes.resize(sky.materialLayout.pixel.byteSize);
     auto constantBuffer=[&](const std::vector<char>& bytes) {
@@ -43,6 +44,28 @@ static NativeMainSky prepareNativeMainSky(ID3D11Device* device,const fs::path& s
         sky.views[texture.slot]=texture.view.Get();sky.samplers[texture.slot]=texture.sampler.Get();
     }
     return sky;
+}
+// Images may be prepared independently of the retained program and mutable CBs.
+struct NativeMainSkyImages {
+    std::vector<AmbientNativeTextureBinding> textures;
+    std::array<ID3D11ShaderResourceView*,128> views{};
+    std::array<ID3D11SamplerState*,16> samplers{};
+    San14::Render::Interop::SkySamplingPresence sampling;
+};
+static NativeMainSkyImages prepareNativeMainSkyImages(ID3D11Device* device,const fs::path& source,
+    const NativeMainSky& installed,const std::vector<AmbientNativeTextureBinding>& shared) {
+    requireAmbientProgram(installed.program,source,"main-sky");
+    if(load(source/"material-layout.bin")!=installed.layoutBytes)
+        throw std::runtime_error("Atmosphere replacement cannot change Main Sky layout");
+    NativeMainSkyImages result;
+    result.sampling=San14::Render::Interop::readSkySamplingPresence(source/"sampling-presence.bin");
+    result.textures=ambientTextures(device,source,"main-sky-textures.tsv",std::nullopt,false,&shared);
+    for(const auto& texture:result.textures) {
+        if(texture.slot>=result.samplers.size())
+            throw std::runtime_error("Main Sky texture/sampler slot exceeds the supported pair interface");
+        result.views[texture.slot]=texture.view.Get();result.samplers[texture.slot]=texture.sampler.Get();
+    }
+    return result;
 }
 static void publishNativeMainSkyMaterial(ID3D11DeviceContext* context,NativeMainSky& sky,
     const San14::Render::SkyMaterialState& state) {

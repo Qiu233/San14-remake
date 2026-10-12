@@ -32,6 +32,26 @@ public:
         auto imported=source_weather_fog::readWeatherProfile(resources.directory(ResourceGroup::Weather)/"initial"/"weather");
         weatherProfile_=std::move(imported.profile);weatherPower_=std::move(imported.power);
     }
+    struct WeatherResourceReplacement {
+        std::optional<source_weather_fog::Profile> profile;
+        source_camera::V3 globalLight;
+    };
+    WeatherResourceReplacement prepareWeatherResourceReplacement(const fs::path& source,
+        std::uint32_t primaryObjectKey) const {
+        auto imported=source_weather_fog::readWeatherProfile(source);
+        if(imported.primaryObjectKey!=primaryObjectKey||imported.profile.has_value()!=weatherProfile_.has_value())
+            throw std::runtime_error("Weather replacement requires the same primary-atmosphere presence and selection");
+        // Star and other borrowers keep the same installed power owner.
+        if(imported.profile)imported.profile->power=weatherPower_;
+        const auto bytes=load(source/"effective-light-rgb.bin");
+        source_camera::V3 rgb{};
+        if(bytes.size()!=sizeof(rgb))throw std::runtime_error("Weather replacement global RGB extent");
+        std::memcpy(&rgb,bytes.data(),sizeof(rgb));
+        return {std::move(imported.profile),rgb};
+    }
+    void installWeatherResourceReplacement(WeatherResourceReplacement prepared) noexcept {
+        weatherProfile_=std::move(prepared.profile);globalLight_=prepared.globalLight;
+    }
     // Accessories retain their device and animation owners independently from
     // HDR program selection and its current numeric layouts.
     void prepareBaseAccessories(ID3D11Device* device,ID3D11DeviceContext* context,

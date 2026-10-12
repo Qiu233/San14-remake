@@ -24,6 +24,7 @@ inline Profile readProfile(const std::filesystem::path& source){
 // Primary atmosphere absence disables seasonal table sampling, while the
 // same real power table remains available to independent Star consumers.
 struct ImportedWeatherProfile {
+    std::uint32_t primaryObjectKey{};
     std::optional<Profile> profile;
     Power power;
 };
@@ -32,7 +33,7 @@ inline ImportedWeatherProfile readWeatherProfile(const std::filesystem::path& so
     const auto words=source_camera::read<std::array<std::uint32_t,2>>(selection);
     if(words[0]!=0x31534657u||selection.peek()!=std::char_traits<char>::eof())
         throw std::runtime_error("Weather WFS1 selection format");
-    ImportedWeatherProfile result;
+    ImportedWeatherProfile result;result.primaryObjectKey=words[1];
     if(words[1]) {
         result.profile=readProfile(source);
         result.power=result.profile->power;

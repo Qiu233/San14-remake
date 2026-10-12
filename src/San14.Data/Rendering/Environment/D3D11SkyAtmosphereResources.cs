@@ -12,12 +12,14 @@ public sealed class D3D11SkyAtmosphereResources
     public const string NativeDirectory = "atmosphere-input";
     private readonly Dictionary<string, byte[]> files = new(StringComparer.Ordinal);
     private LoadedSkyAtmoTableSources? acceptedTables;
+    private readonly SkyAppliedCloudTextureSet? images;
     private readonly uint declaredAtmosphere, declaredFallbackPlane;
 
     private D3D11SkyAtmosphereResources(SkySeasonMainCameraSource source,
         SkyAppliedCloudTextureSet? images)
     {
         ArgumentNullException.ThrowIfNull(source);
+        this.images = images;
         var tables = source.RenderingAtmosphere;
         var sources = source.CloudTextures;
         declaredAtmosphere = source.Controller.DeclaredTransmittanceTable;
@@ -92,19 +94,31 @@ public sealed class D3D11SkyAtmosphereResources
     public static D3D11SkyAtmosphereResources Load(SkySeasonMainCameraSource source,
         SkyAppliedCloudTextureSet? images = null) => new(source, images);
 
-    /// <summary>Numeric frame updates may borrow this resource generation.
-    /// Replacing its tables or constructor settings requires a new Native owner.</summary>
-    public void RequireCurrent(SkySeasonMainCameraSource source)
+    public bool HasRenderingAtmosphere => acceptedTables is not null;
+
+    /// <summary>Prepare new immutable media when the selected tables, settings
+    /// or Plane images change. Device consumers install this candidate together.</summary>
+    public D3D11SkyAtmosphereResources? PrepareReplacement(SkySeasonMainCameraSource source,
+        SkyAppliedCloudTextureSet candidateImages)
     {
         var tables = source.RenderingAtmosphere;
-        if (source.Controller.DeclaredTransmittanceTable != declaredAtmosphere ||
-            source.CloudTextures.DeclaredFallbackPlane != declaredFallbackPlane ||
-            (tables is null) != (acceptedTables is null))
-            throw new NotSupportedException("Changed atmosphere selection requires scene resource replacement.");
-        if (ReferenceEquals(tables, acceptedTables)) return;
-        if (!acceptedTables!.SameResources(tables!))
-            throw new NotSupportedException("Changed atmosphere tables or settings require scene resource replacement.");
-        acceptedTables = tables;
+        // Activating or retiring optional draw media needs its own program and
+        // device lifecycle. A retained resource replacement cannot supply it.
+        if ((tables is null) != (acceptedTables is null) ||
+            (source.Controller.DeclaredTransmittanceTable == 0) != (declaredAtmosphere == 0) ||
+            (source.CloudTextures.DeclaredFallbackPlane == 0) != (declaredFallbackPlane == 0))
+            throw new NotSupportedException("Changed atmosphere provider presence requires optional media preparation.");
+        bool sameTables = ReferenceEquals(tables, acceptedTables) ||
+            tables is not null && acceptedTables!.SameResources(tables);
+        bool sameImages = ReferenceEquals(images, candidateImages) ||
+            (images is null ? candidateImages.StaInputs.Count == 0 : images.SameSta(candidateImages));
+        if (source.Controller.DeclaredTransmittanceTable == declaredAtmosphere &&
+            source.CloudTextures.DeclaredFallbackPlane == declaredFallbackPlane && sameTables && sameImages)
+        {
+            acceptedTables = tables;
+            return null;
+        }
+        return Load(source, candidateImages);
     }
 
     public void WriteNativeInputs(string inputRoot)

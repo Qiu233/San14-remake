@@ -5,7 +5,7 @@ using San14.Core;
 public partial class MapSceneView
 {
     private D3D11MapSurface? _d3d11Map;
-    private SkyMainResourceOwner? _d3d11SkyResources;
+    private SkyAtmosphereResourceOwner? _d3d11SkyResources;
     private D3D11MapMarkers? _d3d11Markers;
     private D3D11TerritoryPublisher? _d3d11Ownership;
     private D3D11ArmyPublisher? _d3d11Army;
@@ -59,6 +59,9 @@ public partial class MapSceneView
             var fogPrograms=HeightFogProgramResources.Load(_repository);
             var skyPrograms=SkyMainProgramResources.Load(_repository,sceneMedia.Renderer);
             SkyMainResourceOwner? skyResources=null;
+            SkyAtmosphereResourceOwner? atmosphereOwner=null;
+            SkyAtmosphereResourceOwner.Replacement? pendingAtmosphere=null;
+            string? pendingAtmosphereDirectory=null;
             D3D11SkyAtmosphereResources? atmosphereResources=null;
             SkyStarResources? starResources=null;
             D3D11AmbientRenderResources? ambientResources=null;
@@ -105,6 +108,13 @@ public partial class MapSceneView
             surface.FramePrepared += (input, receipt) =>
             {
                 if (_d3d11Map != surface || generation != _sceneLoadGeneration) return;
+                if (input.AtmosphereResourceDirectory is not null &&
+                    input.AtmosphereResourceDirectory == pendingAtmosphereDirectory)
+                {
+                    pendingAtmosphere!.Commit();
+                    pendingAtmosphere = null; pendingAtmosphereDirectory = null;
+                    skyResources = atmosphereOwner!.MainSky;
+                }
                 if (input.CurrentSeason is { } current) season.AcceptCurrent(current);
                 if (input.CityGateWorld is { RequiredFlagMaterials.Count: > 0 } cityGate)
                     cityGatePublisher.PublishCompletedFlagMaterials(cityGate.RequiredFlagMaterials);
@@ -136,6 +146,8 @@ public partial class MapSceneView
             };
             surface.Failed += error =>
             {
+                pendingAtmosphere?.Dispose();
+                pendingAtmosphere = null; pendingAtmosphereDirectory = null;
                 if (_d3d11Map == surface && generation == _sceneLoadGeneration)
                     RecordD3D11MapFailure(error);
             };
@@ -146,6 +158,7 @@ public partial class MapSceneView
                     var currentMain = geometry with { Camera = geometry.Camera.CopyAcceptedSnapshotForOwnedFrame(
                         ++preparationNumber, geometry.Camera.FrameProvenance) };
                     var current = season.PrepareCurrent(input.WorldState!, currentMain, (float)input.ElapsedSeconds);
+                    string? atmosphereDirectory = null;
                     if (!nativeRuleInputsPrepared)
                     {
                         cloudMedia=D3D11CloudProgramMedia.Prepare(cloudPrograms,current.Present,
@@ -161,7 +174,8 @@ public partial class MapSceneView
                         D3D11PatternRenderResources.Load(_repository,ambientResources.Declaration,season.LoadedResources.Source.Locale)
                             .WriteNativeInputs(inputs);
                         skyResources = SkyMainResourceOwner.CreateFresh(_repository, current.Present, skyPrograms, images);
-                        _d3d11SkyResources = skyResources;
+                        atmosphereOwner = new(atmosphereResources, images, skyResources, null);
+                        _d3d11SkyResources = atmosphereOwner;
                         cloudResources = D3D11CloudRenderResources.Prepare(_repository, current.Present,
                             D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight, images,
                             skyResources.Sampling, cloudMedia);
@@ -220,8 +234,11 @@ public partial class MapSceneView
                             skyResources.Prepare(sky.Program).WriteNativeInputs(Path.Combine(inputs, "main-sky-input"));
                         if (current.Present.AcceptedSeasonCamera.Inputs.Source.RenderingAtmosphere is not null)
                         {
+                            var workSky = atmosphereOwner.PrepareWorkSky(_repository, current.Present, skyPrograms);
                             var work = D3D11AmbientWorkInitialConstants.Prepare(_repository,
-                                current, season.LoadedResources, cloudMedia, ambientResources.Declaration, skyPrograms);
+                                current, season.LoadedResources, cloudMedia, ambientResources.Declaration,
+                                skyPrograms, workSky.Sampling);
+                            workSky.Prepare(work.SkyMedia.Program);
                             D3D11AmbientWorkInputPreparation.WriteNativeInputs(work, inputs);
                         }
                         D3D11NormalPostInitialConstantPreparation.WriteNativeInputs(_repository,
@@ -234,40 +251,72 @@ public partial class MapSceneView
                     else
                     {
                         ambientResources!.RequireCurrent(current.Present);
-                        atmosphereResources!.RequireCurrent(current.Present.AcceptedSeasonCamera.Inputs.Source);
                         cloudMedia!.RequireCurrent(current.Present,
                             current.Lights.First(light=>(light.GroupMask&0x80)!=0).CompleteData.Span);
-                        skyResources!.RequireCompatibleGeneration(_repository, skyPrograms, current.Present);
-                        cloudResources!.RequireCurrent(current.Present,
-                            D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight,
-                            skyResources.Sampling.GetTexture(SkySamplingRole.Earth)?.Texture);
+                        cloudResources!.RequireCurrentSurfaces(current.Present,
+                            D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
                         fogPrograms.RequireCurrentMask(current.Present);
-                        if (current.Present.AcceptedSeasonCamera.Inputs.Source.RenderingAtmosphere is not null)
+                        var replacement = atmosphereOwner!.PrepareReplacement(_repository, skyPrograms, current.Present);
+                        try
                         {
-                            var selectedSky = D3D11AtmosphereInitialConstantPreparation.SelectSkyProgram(current.Present,
-                                current.Lights.First(light=>(light.GroupMask&0x80)!=0).CompleteData.Span,
-                                skyPrograms, skyResources.Sampling.Presence);
-                            skyResources.RequireCurrent(selectedSky);
+                            var candidateSky = replacement?.MainSky ?? atmosphereOwner.MainSky;
+                            if (current.Present.AcceptedSeasonCamera.Inputs.Source.RenderingAtmosphere is not null)
+                            {
+                                var selectedSky = D3D11AtmosphereInitialConstantPreparation.SelectSkyProgram(current.Present,
+                                    current.Lights.First(light=>(light.GroupMask&0x80)!=0).CompleteData.Span,
+                                    skyPrograms, candidateSky.Sampling.Presence);
+                                candidateSky.RequireCurrent(selectedSky);
+                                if (replacement is not null)
+                                {
+                                    var work = D3D11AmbientWorkInitialConstants.Prepare(_repository,
+                                        current, season.LoadedResources, cloudMedia, ambientResources.Declaration,
+                                        skyPrograms, replacement.WorkSky!.Sampling);
+                                    replacement.WorkSky.RequireCurrent(work.SkyMedia.Program);
+                                }
+                            }
+                            starResources?.RequireCompatiblePackage(_repository,
+                                current.Present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage);
+                            if (replacement is not null)
+                            {
+                                atmosphereDirectory = Path.Combine(inputs, "atmosphere-replacements", Guid.NewGuid().ToString("N"));
+                                ambientResources.WriteNativeInputs(atmosphereDirectory);
+                                cloudMedia.WriteNativeInputs(atmosphereDirectory);
+                                cloudResources.WriteSurfaceInputs(atmosphereDirectory);
+                                replacement.WriteNativeInputs(atmosphereDirectory, cloudResources);
+                                var global = current.Lights.First(light => (light.GroupMask & 0x80) != 0).Lighting.Directional[0].Color;
+                                D3D11OwnedRuleInputPreparation.WriteWeather(
+                                    Path.Combine(atmosphereDirectory, "weather-fog-camera-input", "initial", "weather"),
+                                    current.Rgb, current.Present.AcceptedWeather, new(global.X, global.Y, global.Z));
+                                pendingAtmosphere = replacement; pendingAtmosphereDirectory = atmosphereDirectory;
+                            }
                         }
-                        starResources?.RequireCompatiblePackage(_repository,
-                            current.Present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage);
+                        catch { replacement?.Dispose(); throw; }
                     }
-                    if (!ReferenceEquals(writtenSeasonResources, season.LoadedResources))
+                    try
                     {
-                        receiverPatterns!.RequireCompatible(_repository,
-                            current.Present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage,
-                            season.LoadedResources.PatternTextures);
-                        int loadedCount = seasonLibrary.LoadedInstallations.Count;
-                        if (loadedCount != writtenSeasonCount)
+                        if (!ReferenceEquals(writtenSeasonResources, season.LoadedResources))
                         {
-                            seasonLibrary.WriteNativeLutInputs(seasonalInputs);
-                            D3D11OwnedNumericInputPreparation.WritePostCallers(_repository,
-                                seasonLibrary, inputs);
-                            writtenSeasonCount = loadedCount;
+                            receiverPatterns!.RequireCompatible(_repository,
+                                current.Present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage,
+                                season.LoadedResources.PatternTextures);
+                            int loadedCount = seasonLibrary.LoadedInstallations.Count;
+                            if (loadedCount != writtenSeasonCount)
+                            {
+                                seasonLibrary.WriteNativeLutInputs(seasonalInputs);
+                                D3D11OwnedNumericInputPreparation.WritePostCallers(_repository,
+                                    seasonLibrary, inputs);
+                                writtenSeasonCount = loadedCount;
+                            }
+                            writtenSeasonResources = season.LoadedResources;
                         }
-                        writtenSeasonResources = season.LoadedResources;
+                        return input.WithCurrentSeason(current, hdr, atmosphereDirectory);
                     }
-                    return input.WithCurrentSeason(current, hdr);
+                    catch
+                    {
+                        pendingAtmosphere?.Dispose();
+                        pendingAtmosphere = null; pendingAtmosphereDirectory = null;
+                        throw;
+                    }
                 });
             if (_d3d11Map != surface || generation != _sceneLoadGeneration) return;
             _d3d11AnimationPacer=new(Path.Combine(inputs,"animation-cadence-input","fps-source.bin"));
@@ -386,7 +435,7 @@ public partial class MapSceneView
         _locationNotice.Text = string.Format(System.Globalization.CultureInfo.InvariantCulture,
             _text.Get("scene_preview_projection_notice"), locations.Count, 0);
     }
-    private static async Task RetireD3D11MapAsync(D3D11MapSurface surface, SkyMainResourceOwner? skyResources)
+    private static async Task RetireD3D11MapAsync(D3D11MapSurface surface, SkyAtmosphereResourceOwner? skyResources)
     {
         try { await surface.CloseAsync(); }
         finally { skyResources?.Dispose(); }

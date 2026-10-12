@@ -106,6 +106,94 @@ class CloudEnvironmentPass {
         }
         atmosphereOwner_.emplace(std::move(prepared));
     }
+    struct AtmosphereResourceReplacement {
+        NativeSkyAtmosphereOwner atmosphere;
+        std::vector<AmbientNativeTextureBinding> textures;
+        std::optional<std::vector<AmbientNativeTextureBinding>> workSkyTextures;
+        NativeMainCloudImages mainCloud;
+        NativeSkyPatternNoise noise;
+        Interop::SkySamplingPresence sampling,workSampling;
+    };
+    AtmosphereResourceReplacement prepareAtmosphereResourceReplacement(ID3D11Device* device,
+        const fs::path& root,const std::vector<AmbientNativeTextureBinding>& mainSkyImages) const {
+        const auto source=root/"ambient-input";
+        const auto description=Interop::readAmbientResourceDescription(source/"targets.bin");
+        if(description.filterSamples!=environment_.description.filterSamples||description.targets!=environment_.description.targets)
+            throw std::runtime_error("Atmosphere replacement cannot change Ambient targets or sample count");
+        const auto selection=Interop::readSkyAtmosphereSelection(root/"atmosphere-input");
+        const auto& installed=atmosphereOwner_.value().selection();
+        if(bool(selection.staticObjectKey)!=bool(installed.staticObjectKey)||
+            bool(selection.fallbackPlaneObjectKey)!=bool(installed.fallbackPlaneObjectKey))
+            throw std::runtime_error("Atmosphere replacement requires unchanged primary and fallback presence");
+        auto reusable=environment_.textures;
+        reusable.insert(reusable.end(),mainSkyImages.begin(),mainSkyImages.end());
+        auto textures=ambientTextures(device,source,"cloud-textures.tsv",std::nullopt,false,&reusable);
+        reusable.insert(reusable.end(),textures.begin(),textures.end());
+        auto sky=ambientTextures(device,source,"sky-textures.tsv",std::nullopt,false,&reusable);
+        textures.insert(textures.end(),sky.begin(),sky.end());reusable.insert(reusable.end(),sky.begin(),sky.end());
+        auto atmosphere=NativeSkyAtmosphereOwner::prepare(device,root/"atmosphere-input",reusable);
+        if(const auto* selected=atmosphere.renderingAtmosphere()) {
+            const auto& old=renderingAtmosphere()->settings();const auto& next=selected->settings();
+            if(old.width!=next.width||old.height!=next.height)
+                throw std::runtime_error("Atmosphere replacement cannot change table dimensions");
+            for(std::size_t index=0;index<selected->planeCount();++index) {
+                const auto& image=selected->plane(index).texture;
+                if(std::none_of(textures.begin(),textures.end(),[&](const auto& t){return t.identity==image.identity;}))
+                    textures.push_back(image);
+            }
+        }
+        reusable.insert(reusable.end(),textures.begin(),textures.end());
+        std::optional<std::vector<AmbientNativeTextureBinding>> work;
+        Interop::SkySamplingPresence workSampling{};
+        if(atmosphere.renderingAtmosphere()) {
+            if(environment_.faces) {
+                requireAmbientProgram(environment_.faces->sky,source/"sky","main-sky");
+                if(load(source/"sky"/"material-layout.bin")!=environment_.faces->skyLayoutBytes)
+                    throw std::runtime_error("Atmosphere replacement cannot change WORK Sky layout");
+            }
+            // Uncreated face programs keep their original immutable numerical
+            // media. Their image readset is owned independently for first use.
+            work=ambientTextures(device,source/"sky","main-sky-textures.tsv",std::nullopt,false,&reusable);
+            workSampling=Interop::readSkySamplingPresence(source/"sky"/"sampling-presence.bin");
+            textures.insert(textures.end(),work->begin(),work->end());
+        }
+        reusable.insert(reusable.end(),textures.begin(),textures.end());
+        auto cloud=prepareNativeMainCloudImages(device,root/"main-cloud-input",cloud_,reusable);
+        NativeSkyPatternNoise noise;
+        for(UINT role=0;role<4;++role) {
+            const auto found=std::find_if(textures.begin(),textures.end(),
+                [&](const auto& image){return image.program=="clouds"&&image.slot==role;});
+            if(found==textures.end()||!found->view||!found->sampler)
+                throw std::runtime_error("Atmosphere replacement requires complete Cloud noise and cirrus groups");
+            auto& image=role<3?noise.layers[role]:noise.cirrus;image={found->view,found->sampler};
+        }
+        const auto sampling=Interop::readSkySamplingPresence(source/"sampling-presence.bin");
+        return {std::move(atmosphere),std::move(textures),std::move(work),std::move(cloud),
+            std::move(noise),sampling,workSampling};
+    }
+    void installAtmosphereResourceReplacement(AtmosphereResourceReplacement prepared) noexcept {
+        atmosphereOwner_=std::move(prepared.atmosphere);
+        environment_.textures=std::move(prepared.textures);
+        environment_.workSkyTextures=std::move(prepared.workSkyTextures);
+        environment_.skySampling=prepared.sampling;environment_.workSkySampling=prepared.workSampling;
+        if(cloud_.draw) {
+            cloud_.draw->staticTextures=std::move(prepared.mainCloud.textures);
+            for(auto& pass:cloud_.draw->passes)if(pass.name=="pass1")pass.samplers=std::move(prepared.mainCloud.samplers);
+        }
+        patternNoise_=std::move(prepared.noise);
+        if(currentAmbient_) {
+            currentAmbient_->profile.milkyTexturePresent=prepared.workSampling.milky;
+            for(auto& seed:currentAmbient_->profile.skySeed) {
+                seed.skyInfo1.X=prepared.workSampling.earth?1.f:0.f;
+                seed.skyInfo1.Y=prepared.workSampling.moon?1.f:0.f;
+            }
+        }
+        if(environment_.faces)for(auto& face:environment_.faces->skyFaces) {
+            face.state.skyInfo1.X=prepared.workSampling.earth?1.f:0.f;
+            face.state.skyInfo1.Y=prepared.workSampling.moon?1.f:0.f;
+        }
+        workPublicationPending_=true;
+    }
     const NativeSkyAtmosphereResources* atmosphereResources() const {return atmosphereOwner_.value().atmosphere();}
     const NativeSkyAtmosphereResources* renderingAtmosphere() const {return atmosphereOwner_.value().renderingAtmosphere();}
 

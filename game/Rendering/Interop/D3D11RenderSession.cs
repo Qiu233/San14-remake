@@ -26,6 +26,7 @@ public sealed class D3D11MapInput
     public GameState? WorldState { get; init; }
     public D3D11CurrentSeasonFrame? CurrentSeason { get; private init; }
     internal byte[]? CurrentSeasonBytes { get; private init; }
+    internal string? AtmosphereResourceDirectory { get; private init; }
 
     public D3D11MapInput(ReadOnlySpan<byte> camera, ReadOnlySpan<double> controller,
         int band, int fraction, double elapsedSeconds, bool paused = false,
@@ -53,6 +54,7 @@ public sealed class D3D11MapInput
         AreaCapitalWorld = input.AreaCapitalWorld;
         WorldState = input.WorldState;
         CurrentSeason = input.CurrentSeason; CurrentSeasonBytes = input.CurrentSeasonBytes;
+        AtmosphereResourceDirectory = input.AtmosphereResourceDirectory;
         TerritoryDisplayEnabled = input.TerritoryDisplayEnabled;
     }
 
@@ -69,8 +71,10 @@ public sealed class D3D11MapInput
 
     internal D3D11MapInput WithElapsed(double elapsedSeconds) => new(this, elapsedSeconds);
     internal D3D11MapInput WithCurrentSeason(D3D11CurrentSeasonFrame frame,
-        D3D11CurrentHdrCatalog hdr) => new(this, ElapsedSeconds)
-        { SourceFrame = frame.Mode.AcceptedMainFrame, CurrentSeason = frame, CurrentSeasonBytes = D3D11CurrentSeasonEncoding.WriteNative(frame, hdr) };
+        D3D11CurrentHdrCatalog hdr, string? atmosphereResourceDirectory = null) => new(this, ElapsedSeconds)
+        { SourceFrame = frame.Mode.AcceptedMainFrame, CurrentSeason = frame,
+            CurrentSeasonBytes = D3D11CurrentSeasonEncoding.WriteNative(frame, hdr),
+            AtmosphereResourceDirectory = atmosphereResourceDirectory };
     internal D3D11RenderSession.NativeInput ToNative()
     {
         var sun = CurrentSeason?.Atmosphere.Controller.SunPosition ?? default;
@@ -81,7 +85,8 @@ public sealed class D3D11MapInput
             Flags = 1u | (Paused ? 2u : 0u) | (EligibleAnimationUpdate ? 4u : 0u) |
                 (TerritoryDisplayEnabled ? 0u : 8u),
             CurrentRawSunPosition = [sun.X, sun.Y, sun.Z, sun.W],
-            CurrentCloudGeometry40 = CurrentSeason?.Atmosphere.ControllerGeometry40 ?? 0
+            CurrentCloudGeometry40 = CurrentSeason?.Atmosphere.ControllerGeometry40 ?? 0,
+            AtmosphereResourceDirectory = AtmosphereResourceDirectory
         };
     }
     private static void ValidateElapsed(double value)
@@ -133,6 +138,7 @@ public sealed class D3D11RenderSession : IDisposable
         public uint CityGateWorldBytes;
         public IntPtr AreaCapitalWorld;
         public uint AreaCapitalWorldBytes;
+        [MarshalAs(UnmanagedType.LPWStr)] public string? AtmosphereResourceDirectory;
     }
     [StructLayout(LayoutKind.Sequential)]
     private struct NativeReceipt

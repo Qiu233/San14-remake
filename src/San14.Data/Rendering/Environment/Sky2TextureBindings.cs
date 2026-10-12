@@ -31,9 +31,10 @@ public sealed class Sky2TextureBindings : IDisposable
 
     /// <summary>Prepare an independent binding owner for replacement device
     /// resources. The installed owner stays current until its caller commits
-    /// the replacement and retires it. Null means no physical binding changed.</summary>
+    /// the replacement and retires it. The caller can request a separate lifetime
+    /// when another physical Sky input changes. Otherwise unchanged returns null.</summary>
     public Sky2TextureBindings? PrepareReplacement(SkySeasonPackageSampling sampling,
-        Func<SkySamplingReference, LoadedSkySamplingResource> resolve)
+        Func<SkySamplingReference, LoadedSkySamplingResource> resolve, bool forceReplacement = false)
     {
         LoadedSkySamplingResource?[] retained;
         long precedingRevision;
@@ -49,7 +50,7 @@ public sealed class Sky2TextureBindings : IDisposable
             ObjectDisposedException.ThrowIf(retired, this);
             if (revision != precedingRevision)
                 throw new InvalidOperationException("Sky2 bindings changed while replacement resources were resolving.");
-            bool changed = false;
+            bool changed = forceReplacement;
             for (int index = 0; index < retained.Length; index++)
                 if (assignments[index] is { } resource && !SameTexture(retained[index], resource))
                 {

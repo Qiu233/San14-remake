@@ -47,6 +47,7 @@ struct RenderInput {
     std::uint32_t cityGateWorldBytes{};
     const std::uint8_t* areaCapitalWorld{};
     std::uint32_t areaCapitalWorldBytes{};
+    const wchar_t* atmosphereResourceDirectory{};
     bool contains(FrameInputFlag flag) const noexcept {
         return (flags & static_cast<unsigned>(flag))!=0;
     }
@@ -74,6 +75,7 @@ struct RenderHost {
     std::optional<AreaCapitalWorldPublication> areaCapitalWorld;
     // Actual paced manager callbacks are separate from Main/Canvas requests.
     std::function<void(unsigned)> animationUpdate;
+    std::function<void(const std::filesystem::path&)> replaceAtmosphereResources;
     AnimationState animationState;
     std::function<std::vector<ArmyLabelUnitPosition>()> armyUnitPositions;
 };
@@ -85,6 +87,7 @@ public:
     ~RenderCallbackScope() {
         host.animationUpdate={};
         host.armyUnitPositions={};
+        host.replaceAtmosphereResources={};
     }
     RenderCallbackScope(const RenderCallbackScope&)=delete;
     RenderCallbackScope& operator=(const RenderCallbackScope&)=delete;

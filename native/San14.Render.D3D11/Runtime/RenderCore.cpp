@@ -807,6 +807,21 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         {
             // All initialized owners remain in this coroutine frame. Godot
             // drives subsequent requests; no native window or polling thread.
+            host.replaceAtmosphereResources=[&](const fs::path& root) {
+                auto cloudImages=clouds.prepareAtmosphereResourceReplacement(device.Get(),root,atmosphere.skyImages());
+                auto shared=cloudImages.textures;
+                const auto& installedSky=atmosphere.skyImages();
+                shared.insert(shared.end(),installedSky.begin(),installedSky.end());
+                auto skyImages=atmosphere.prepareImageReplacement(device.Get(),root/"main-sky-input",shared,
+                    cloudImages.atmosphere.renderingAtmosphere()!=nullptr);
+                auto weather=frameState.prepareWeatherResourceReplacement(root/"weather-fog-camera-input"/"initial"/"weather",
+                    cloudImages.atmosphere.selection().staticObjectKey);
+                // All preparation can fail without changing installed owners.
+                // These moves retain program, history, animation and clock state.
+                clouds.installAtmosphereResourceReplacement(std::move(cloudImages));
+                atmosphere.installImageReplacement(std::move(skyImages));
+                frameState.installWeatherResourceReplacement(std::move(weather));
+            };
             co_yield RenderOutput{finalColor.Get(),staticCamera.prefix,completedMainRequests};
             const UINT baseFlags=commonBaseSettingsFlags;
             for(;;) {

@@ -5,6 +5,7 @@
 #include "CloudWeatherInputs.h"
 #include "CloudProgramInputs.h"
 struct NativeMainCloudSurface {
+    std::string objectKey;
     ComPtr<ID3D11Texture2D> texture;
     ComPtr<ID3D11ShaderResourceView> view;
     ComPtr<ID3D11RenderTargetView> target;
@@ -20,7 +21,7 @@ struct NativeMainCloudPass {
     ComPtr<ID3D11VertexShader> vs;
     ComPtr<ID3D11PixelShader> ps;
     ComPtr<ID3D11Buffer> vcb,pcb;
-    std::vector<char> vbytes,pbytes;
+    std::vector<char> vbytes,pbytes,vertexCode,pixelCode;
     std::vector<std::pair<UINT,std::string>> inputs,outputs;
     std::vector<NativeMainCloudSampler> samplers;
     ComPtr<ID3D11DepthStencilState> depth;
@@ -58,6 +59,65 @@ struct NativeMainCloud {
     const NativeMainCloudSurface& lastRgb() const {return surfaces.at(lastWrittenSide?"previous-rgb":"current-rgb");}
     const NativeMainCloudSurface& lastAlpha() const {return surfaces.at(lastWrittenSide?"previous-alpha":"current-alpha");}
 };
+struct NativeMainCloudImages {
+    std::vector<AmbientNativeTextureBinding> textures;
+    std::vector<NativeMainCloudSampler> samplers;
+};
+static NativeMainCloudImages prepareNativeMainCloudImages(ID3D11Device* device,const fs::path& source,
+    const NativeMainCloud& installed,const std::vector<AmbientNativeTextureBinding>& shared) {
+    std::ifstream targets(source/"targets.txt");std::string name,key;
+    UINT width,height,resource,sampled,rendered;std::size_t targetCount=0;
+    std::vector<std::string> seen;
+    if(!targets)throw std::runtime_error("Cloud replacement target declarations absent");
+    while(targets>>name>>key>>width>>height>>resource>>sampled>>rendered) {
+        if(std::find(seen.begin(),seen.end(),name)!=seen.end())throw std::runtime_error("Duplicate Cloud replacement target");
+        seen.push_back(name);const auto& surface=installed.surfaces.at(name);
+        D3D11_TEXTURE2D_DESC texture{};surface.texture->GetDesc(&texture);
+        D3D11_RENDER_TARGET_VIEW_DESC target{};surface.target->GetDesc(&target);
+        if(key!=surface.objectKey||width!=texture.Width||height!=texture.Height||resource!=UINT(texture.Format)||
+            sampled!=UINT(surface.sampled)||rendered!=UINT(target.Format))
+            throw std::runtime_error("Atmosphere replacement cannot change Cloud targets");
+        ++targetCount;
+    }
+    if(!targets.eof()||targetCount!=installed.surfaces.size())throw std::runtime_error("Cloud replacement target list");
+    NativeMainCloudImages result;
+    if(!installed.draw)return result;
+    const auto& draw=installed.draw.value();const auto programs=source_cloud_programs::read(source/"programs.txt");
+    std::ifstream passes(source/"passes.txt");UINT rts,dsv;std::size_t passCount=0;seen.clear();
+    if(!passes)throw std::runtime_error("Cloud replacement passes absent");
+    while(passes>>name>>width>>height>>rts>>dsv) {
+        if(std::find(seen.begin(),seen.end(),name)!=seen.end())throw std::runtime_error("Duplicate Cloud replacement pass");
+        seen.push_back(name);
+        const auto found=std::find_if(draw.passes.begin(),draw.passes.end(),[&](const auto& p){return p.name==name;});
+        if(found==draw.passes.end())throw std::runtime_error("Cloud replacement pass differs");
+        const auto& pass=*found;const auto& program=programs.at(name);
+        if(width!=pass.width||height!=pass.height||rts!=pass.rtCount||dsv!=pass.withDsv||
+            program.combination!=pass.combination||program.vertex!=pass.vsIndex||program.pixel!=pass.psIndex||
+            program.vertexConstantBytes!=pass.vbytes.size()||program.pixelConstantBytes!=pass.pbytes.size()||
+            load(source/(name+"-vs.dxbc"))!=pass.vertexCode||load(source/(name+"-ps.dxbc"))!=pass.pixelCode)
+            throw std::runtime_error("Atmosphere replacement cannot change Cloud programs or pass extents");
+        ++passCount;
+    }
+    if(!passes.eof()||passCount!=draw.passes.size())throw std::runtime_error("Cloud replacement pass list");
+    result.textures=ambientTextures(device,source,"pass1-textures.tsv",std::nullopt,false,&shared);
+    std::ifstream samplers(source/"samplers.txt");std::string file,opposite;
+    if(!samplers)throw std::runtime_error("Cloud replacement sampler manifest absent");
+    UINT slot;
+    while(samplers>>name>>slot>>file>>opposite)if(name=="pass1") {
+        const auto image=std::find_if(result.textures.begin(),result.textures.end(),[&](const auto& t){return t.slot==slot;});
+        if(slot>=16||image==result.textures.end()||file!=opposite||
+            std::any_of(result.samplers.begin(),result.samplers.end(),[&](const auto& s){return s.slot==slot;}))
+            throw std::runtime_error("Cloud replacement requires actual paired pass1 image samplers");
+        // The texture importer owns this same declaration's sampler already.
+        D3D11_SAMPLER_DESC desc{};image->sampler->GetDesc(&desc);const auto bytes=load(source/file);
+        if(bytes.size()!=sizeof(desc)||std::memcmp(bytes.data(),&desc,sizeof(desc)))
+            throw std::runtime_error("Cloud image and pass1 sampler declarations differ");
+        result.samplers.push_back({slot,{image->sampler,image->sampler}});
+    }
+    if(!samplers.eof()||result.samplers.size()!=result.textures.size())
+        throw std::runtime_error("Cloud replacement sampler list");
+    return result;
+}
 static float nativeMainCloudRemainder(float value,float period) {
     // Same finite float-input/double reduction as1191B40's native fmod and
     // the existing source CPU producer; retain the sign of exact zero.
@@ -85,7 +145,7 @@ static NativeMainCloud prepareNativeMainCloud(ID3D11Device* device,const fs::pat
     std::ifstream targets(source/"targets.txt");std::string name,key;UINT width,height,resource,sampled,rendered;
     if(!targets)throw std::runtime_error("Main Cloud source targets absent");
     while(targets>>name>>key>>width>>height>>resource>>sampled>>rendered) {
-        NativeMainCloudSurface surface;surface.sampled=DXGI_FORMAT(sampled);
+        NativeMainCloudSurface surface;surface.objectKey=key;surface.sampled=DXGI_FORMAT(sampled);
         D3D11_TEXTURE2D_DESC td{};td.Width=width;td.Height=height;td.MipLevels=td.ArraySize=1;
         td.Format=DXGI_FORMAT(resource);td.SampleDesc.Count=1;td.BindFlags=D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_RENDER_TARGET;
         check(device->CreateTexture2D(&td,nullptr,&surface.texture),"Main Cloud source target");
@@ -112,15 +172,17 @@ static NativeMainCloud prepareNativeMainCloud(ID3D11Device* device,const fs::pat
     while(passRows>>p.name>>p.width>>p.height>>p.rtCount>>p.withDsv) {
         const auto& program=programs.at(p.name);
         p.combination=program.combination;p.vsIndex=program.vertex;p.psIndex=program.pixel;
+        p.vertexCode=load(source/(p.name+"-vs.dxbc"));
+        p.pixelCode=load(source/(p.name+"-ps.dxbc"));
         auto foundVs=vertexPrograms.find(p.vsIndex);
         if(foundVs==vertexPrograms.end()) {
-            auto vb=load(source/(p.name+"-vs.dxbc"));
+            const auto& vb=p.vertexCode;
             check(device->CreateVertexShader(vb.data(),vb.size(),nullptr,&p.vs),"Main Cloud original VS");
             vertexPrograms.emplace(p.vsIndex,p.vs);
         } else p.vs=foundVs->second;
         auto foundPs=pixelPrograms.find(p.psIndex);
         if(foundPs==pixelPrograms.end()) {
-            auto pb=load(source/(p.name+"-ps.dxbc"));
+            const auto& pb=p.pixelCode;
             check(device->CreatePixelShader(pb.data(),pb.size(),nullptr,&p.ps),"Main Cloud original PS");
             pixelPrograms.emplace(p.psIndex,p.ps);
         } else p.ps=foundPs->second;
