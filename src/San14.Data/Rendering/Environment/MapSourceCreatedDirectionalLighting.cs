@@ -58,7 +58,7 @@ public static partial class MapSourceCreatedLighting
             binding.LightOwnerIdentity, binding.DeferredShaderIdentity }.Any(string.IsNullOrWhiteSpace) ||
             binding.DirectionalShaderCapacity is < 1 or > 4 || binding.DeferredCombination < 0 ||
             binding.BasePath != MapLightingBasePath.UnmodifiedOrdinary ||
-            input.RuntimeTable != MapLightingRuntimeTable.Present || input.PresentSeasonCamera is not { } present ||
+            input.PresentSeasonCamera is not { } present ||
             input.CameraScope != MapLightingCameraScope.LightingPrefix || source.ContextFlags3E4 != input.ContextFlags3E4)
             throw new InvalidDataException("Directional lighting requires its actual complete constructor and same-frame seasonal Main Camera inputs.");
         present.ValidateInputs(input);

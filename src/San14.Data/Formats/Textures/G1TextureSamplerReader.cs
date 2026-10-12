@@ -33,14 +33,17 @@ public static class G1TextureSamplerReader
         ReadOnlySpan<byte> header=image.RawHeader;
         bool legacy=image.RawContainerVersion=="0500" && image.TextureSystem==0 &&
             image.LayerCount==1 && image.MipCount==1 && header.Length==8 && (header[7]>>4)==0;
-        if(!legacy && (image.TextureSystem is not (0 or 2 or 3) || header.Length<20 || (header[7]>>4)!=1 || image.MipCount<1))
-            throw Error("requires a supported system0/2/3 image with one explicit extra header");
-        // Original0500 skips extended fields and supplies bias/minLOD zero;
-        // base-header filter/address flags still use the ordinary decoder.
-        uint flags=U32(header,4),bias=legacy?0:U32(header,12);
+        bool cube=image.TextureSystem==1 && image.LayerCount==6 && image.MipCount>0 &&
+            header.Length==8 && (header[7]>>4)==0;
+        bool baseOnly=legacy||cube;
+        if(!baseOnly && (image.TextureSystem is not (0 or 2 or 3) || header.Length<20 || (header[7]>>4)!=1 || image.MipCount<1))
+            throw Error("requires a supported base-header cube/legacy image or system0/2/3 extra header");
+        // Legacy planar and base-header cube callers supply zero bias/minimum LOD.
+        // Actual filter/address flags still use the ordinary decoder.
+        uint flags=U32(header,4),bias=baseOnly?0:U32(header,12);
         if(!float.IsFinite(BitConverter.UInt32BitsToSingle(bias)))
             throw Error("nonfinite LOD bias is unresolved");
-        uint min=legacy?0:(uint)(BinaryPrimitives.ReadUInt16LittleEndian(header.Slice(16,2))&15);
+        uint min=baseOnly?0:(uint)(BinaryPrimitives.ReadUInt16LittleEndian(header.Slice(16,2))&15);
         uint addressU=flags&3, addressV=(flags>>4)&3;
         uint addressW=image.TextureSystem is 2 or 3 ? (flags>>8)&3 : 1;
         uint magnification=(flags>>12)&3, minification=(flags>>16)&3;

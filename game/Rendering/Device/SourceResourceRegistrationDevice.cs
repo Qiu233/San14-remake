@@ -50,7 +50,7 @@ public sealed class SourceResourceRegistrationDevice : IAsyncDisposable
         if (explicitBgraNativeViewFormat is not (87 or 91))
             throw new InvalidDataException("Static registration requires an explicit original BGRA view87 or91.");
         borrowedCube.RequireAvailable();
-        var sources = SourceResourceRegistration.LoadGameDefault(repository);
+        var sources = SourceResourceRegistration.LoadGameDefault(repository, borrowedCube.Source);
         var fixedSources = sources.FixedSources;
         var lutSource = sources.HdrLut;
         var owned = new List<OwnedTexture>();
@@ -75,8 +75,7 @@ public sealed class SourceResourceRegistrationDevice : IAsyncDisposable
             var cubeEntry = new SourceResourceRegistrationDeviceEntry(borrowedCube.Source.Definition.ObjectId,
                 borrowedCube.Source, borrowedCube.TextureRid, borrowedCube.SamplerRid, borrowedCube.NativeViewFormat,
                 RenderingDevice.TextureType.Cube, RenderingDevice.DataFormat.Bc6HUfloatBlock,
-                Array.AsReadOnly(Enumerable.Range(0, 6).Select(face => Convert.ToHexString(SHA256.HashData(
-                    GatherCubeFace(borrowedCube.Source, face)))).ToArray()), borrowedCube.SourceProvenance);
+                borrowedCube.EncodedChainSha256, borrowedCube.SourceProvenance);
             var result = new SourceResourceRegistrationDevice(sources, borrowedCube, owned.ToArray(), cubeEntry, allowReadback);
             result.RequireAvailable();
             return result;
@@ -86,14 +85,6 @@ public sealed class SourceResourceRegistrationDevice : IAsyncDisposable
             await ReleaseOwnedAsync(owned);
             throw;
         }
-    }
-
-    private static byte[] GatherCubeFace(StaticTextureBinding source, int face)
-    {
-        using var stream = new MemoryStream();
-        for (int mip = 0; mip < source.Image.MipCount; mip++)
-            stream.Write(SourceResourceRegistrationAmbientCube.GetNativeFaceMip(source, mip, face));
-        return stream.ToArray();
     }
 
     private static async Task<SourceResourceRegistrationDeviceEntry> UploadAsync(StaticTextureBinding source,

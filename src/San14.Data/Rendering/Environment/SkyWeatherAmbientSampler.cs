@@ -23,7 +23,7 @@ public static class SkyWeatherAmbientSampler
             throw new InvalidDataException("Ambient2D table, native trigonometry and power belong to different source executables.");
         foreach(float value in new[]{currentDirection.X,currentDirection.Y,currentDirection.Z,currentEffectiveHeight})
             if(!float.IsFinite(value))throw new InvalidDataException("Ambient2D requires finite current source geometry.");
-        float top=tableSource.Tables.AtmoTopHeight;
+        float top=tableSource.RequireTables().AtmoTopHeight;
         if(top<=0)throw new InvalidDataException("Ambient2D requires positive source atmosphere top.");
         string provenance=tableSource.SourceProvenance+";"+powerSource.SourceProvenance+
             ";C999C0/second-raw-Ambient2D;currentHeight="+BitConverter.SingleToUInt32Bits(currentEffectiveHeight).ToString("X8");
@@ -31,7 +31,7 @@ public static class SkyWeatherAmbientSampler
         float height=SkyWeatherNativePower.PowSse(Clamp(D(currentEffectiveHeight,top)),.5f,powerSource);
         float angle=AngleCoordinate(tableSource,currentDirection,dispatch);
         height=Clamp(height);
-        Vector4 source=tableSource.Tables.SampleGrid(height,angle,SkyAtmoRawTable.Ambient2D);
+        Vector4 source=tableSource.RequireTables().SampleGrid(height,angle,SkyAtmoRawTable.Ambient2D);
         float scale=F(0x3727C5AC);
         Vector4 output=new(Max(0,M(source.X,scale)),Max(0,M(source.Y,scale)),
             Max(0,M(source.Z,scale)),Max(0,M(source.W,scale)));

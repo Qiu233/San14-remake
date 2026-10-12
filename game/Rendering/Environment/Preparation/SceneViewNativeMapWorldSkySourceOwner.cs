@@ -175,7 +175,7 @@ public sealed class SceneViewNativeMapWorldSkySourceOwner : IAsyncDisposable
     {
         RequireRetainedSeasonResources(resources);
         var pendingTextures=optional.PrepareSeasonTextures(resources.CloudTextures);
-        if(pendingTextures is null&&PatternResources.UsesTables(resources.CameraSource.Transmittance.Tables))return null;
+        if(pendingTextures is null&&PatternResources.UsesTables(resources.CameraSource.Transmittance.RequireTables()))return null;
         var textures=pendingTextures??optional.TextureOwner;
         SkyCloudColorProducer.PreparedTextureReplacement? draws=null;
         SceneViewNativeMapWorldPatternResourceOwner? pattern=null;

@@ -3,22 +3,24 @@ using System.Runtime.CompilerServices;
 
 namespace San14.Data;
 
-/// <summary>Source-loaded successful StaticSky2AtmoTable dependencies plus the
-/// exact scalar math revisions. This is an owned source producer, independent
-/// of an original process's current asynchronous wrapper state.</summary>
+/// <summary>The declared optional atmosphere table and shared scalar math.
+/// A zero resource reference is absent; nonzero resources must import normally.
+/// Current frames borrow this explicit resource generation.</summary>
 public sealed class SkySeasonTransmittanceSource
 {
-    private SkySeasonTransmittanceSource(LoadedSkyAtmoTableSources tables,
+    private SkySeasonTransmittanceSource(LoadedSkyAtmoTableSources? tables,
         LoadedNativeSkyAtanSource atan,LoadedNativeCameraTangentSource tangent,
         SkyWeatherNativePowerSource power)
     {Tables=tables;Atan=atan;Tangent=tangent;Power=power;}
-    public LoadedSkyAtmoTableSources Tables{get;}
+    public LoadedSkyAtmoTableSources? Tables{get;}
+    public LoadedSkyAtmoTableSources RequireTables() => Tables ??
+        throw new NotSupportedException("This atmosphere operation requires an actual loaded table owner.");
     public LoadedNativeSkyAtanSource Atan{get;}
     public LoadedNativeCameraTangentSource Tangent{get;}
     public SkyWeatherNativePowerSource Power{get;}
-    public string SourceProvenance=>Tables.SourceEvidence+";"+Atan.SourceProvenance+
+    public string SourceProvenance=>(Tables?.SourceEvidence??"declared-atmosphere-reference-zero")+";"+Atan.SourceProvenance+
         ";"+Tangent.ResourceUri+"@"+Tangent.RuleVersion+";"+Power.SourceProvenance+
-        ";owned-source-successful-raw-dependency-publication";
+        ";owned-declared-atmosphere-resource-generation";
     public static SkySeasonTransmittanceSource Load(GameResourceRepository repository,
         MapSeasonCameraPackage package,string locale)
     {
@@ -45,17 +47,18 @@ public static class SkySeasonTransmittance
         Vector4 sourceDirection,float sourceHeightMetres,NativeCameraTangentDispatch dispatch)
     {
         ArgumentNullException.ThrowIfNull(source);
+        var tables=source.RequireTables();
         if(source.Atan.Locale!=source.Power.Locale||source.Tangent.Language!=source.Power.Locale)
             throw new InvalidDataException("Transmittance native trigonometry and power belong to different source executables.");
-        foreach(float value in new[]{sourceDirection.X,sourceDirection.Y,sourceDirection.Z,sourceHeightMetres,source.Tables.AtmoTopHeight})
+        foreach(float value in new[]{sourceDirection.X,sourceDirection.Y,sourceDirection.Z,sourceHeightMetres,tables.AtmoTopHeight})
             if(!float.IsFinite(value))throw new InvalidDataException("Original Sky transmittance requires finite source geometry.");
         if(dispatch is not (NativeCameraTangentDispatch.Sse or NativeCameraTangentDispatch.AvxFma)||
-            source.Tables.AtmoTopHeight<=0)
+            tables.AtmoTopHeight<=0)
             throw new InvalidDataException("Original Sky transmittance requires an explicit source math dispatch and positive source atmosphere height.");
         string evidence=source.SourceProvenance+";C5C1A0-height-X/angle-Y;dispatch="+dispatch;
-        if(source.Tables.AtmoTopHeight<sourceHeightMetres)
+        if(tables.AtmoTopHeight<sourceHeightMetres)
             return new(Vector4.One,null,null,true,evidence+";source-height-above-top-white-branch");
-        float baseHeight=Clamp(D(sourceHeightMetres,source.Tables.AtmoTopHeight));
+        float baseHeight=Clamp(D(sourceHeightMetres,tables.AtmoTopHeight));
         // C5C204 loads binary32 .5 and C5C20C calls float pow101EC10.
         // Its SSE entry converts the two inputs to binary64 and rounds the
         // return back to binary32. Reuse that exact positive finite port.
@@ -72,7 +75,7 @@ public static class SkySeasonTransmittance
         float mu=Max(S(F(0x3B23D70A),sourceDirection.Y),F(0xBE4A3D71));
         float angle=NativeSkyAtan.Atan1032034(M(tangent,mu),source.Atan);
         angle=M(A(D(angle,F(0x3F8CCCCD)),F(0x3F3D70A4)),.5f);
-        Vector4 sample=source.Tables.SampleGrid(Clamp(height),Clamp(angle));
+        Vector4 sample=tables.SampleGrid(Clamp(height),Clamp(angle));
         Vector4 result=new(Max(0,sample.X),Max(0,sample.Y),Max(0,sample.Z),Max(0,sample.W));
         return new(result,Clamp(height),Clamp(angle),false,evidence+";native-half4-lower-clamp");
     }
@@ -84,7 +87,8 @@ public static class SkySeasonTransmittance
     {
         ArgumentNullException.ThrowIfNull(selectedController);ArgumentNullException.ThrowIfNull(parameters);
         ArgumentNullException.ThrowIfNull(directions);ArgumentNullException.ThrowIfNull(source);
-        if(selectedController.DeclaredTransmittanceTable!=source.Tables.ObjectId)
+        var tables=source.RequireTables();
+        if(selectedController.DeclaredTransmittanceTable!=tables.ObjectId)
             throw new InvalidDataException("Applied seasonal Camera and its actual source transmittance table differ.");
         var colors=SkylightColorMath.Prepare(selectedController.SunHueSaturation,selectedController.MoonHueSaturation);
         float height=M(parameters.Altitude,1000f);

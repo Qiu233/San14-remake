@@ -85,7 +85,7 @@ public sealed class SkyDirectionalOptionalSourceOwner : IAsyncDisposable
         initialExecution.RequireSelectedView(present.FrameNumber,initialSource.AcceptedLighting.Binding);
         if(actualWriteMask>15||actualStarNativeCullMode!=1)
             throw new NotSupportedException("Optional Directional source requires the actual retained write mask and original Star cull1.");
-        var groups=SkyAppliedSeasonCloudTextures.Load(repository,present.AcceptedSeasonCamera.Inputs.Source);
+        var groups=present.AcceptedSeasonCamera.Inputs.Source.CloudTextures;
         var selection=SkyAppliedSourceCloudSelectionOwner.CreateFresh(repository,locale,cloudPrograms).PrepareCurrent(present,initialStages,groups);
         return new(compiler,SkyAppliedSourceStarOwner.CreateFresh(repository,locale,ownedProducerIdentity+"/Star",
                 NamedViewRendererResources.Load(repository),present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage),

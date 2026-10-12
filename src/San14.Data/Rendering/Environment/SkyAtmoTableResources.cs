@@ -1,7 +1,6 @@
 using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.CompilerServices;
-using System.Collections.Concurrent;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -16,26 +15,24 @@ public static class SkyAtmoTableResources
     public const uint RawResourceType = 0xD7F47FB1;
     public const string NativeEvidence = "docs/.local/ce-sky-season-sta-20261002/contract.json";
 
-    private static readonly ConditionalWeakTable<GameResourceRepository,ConcurrentDictionary<uint,LoadedSkyAtmoTableSources>> Imported=new();
-
+    /// <summary>Import at an explicit resource load boundary. Existing season
+    /// owners retain their tables; a new load observes current resource overrides.</summary>
     public static LoadedSkyAtmoTableSources Load(GameResourceRepository repository,uint objectId=ObjectId)
     {
         ArgumentNullException.ThrowIfNull(repository);
-        return Imported.GetValue(repository,static _=>new()).GetOrAdd(objectId,key=>
-        {
-            var definitions=repository.LoadObjects("system",DefinitionFileId);
-            var declaration=ReadDeclaration(definitions,key);
-            uint transmittance=Key(declaration,0x4E513F7C),ambient=Key(declaration,0x54489708);
-            return Read(definitions,repository.LoadRdbAsset("system",transmittance),
-                repository.LoadRdbAsset("system",ambient),key);
-        });
+        var definitions=repository.LoadObjects("system",DefinitionFileId);
+        var declaration=ReadDeclaration(definitions,objectId);
+        uint transmittance=Key(declaration,0x4E513F7C),ambient=Key(declaration,0x54489708);
+        return Read(definitions,repository.LoadRdbAsset("system",transmittance),
+            repository.LoadRdbAsset("system",ambient),objectId);
     }
 
-    public static LoadedSkyAtmoTableSources LoadForSeason(GameResourceRepository repository,
+    public static LoadedSkyAtmoTableSources? LoadForSeason(GameResourceRepository repository,
         MapSeasonCameraPackage package)
     {
         ArgumentNullException.ThrowIfNull(package);
-        return Load(repository,Key(package.Camera,0x063D4BE7));
+        uint key=Key(package.Camera,0x063D4BE7);
+        return key==0 ? null : Load(repository,key);
     }
 
     public static LoadedSkyAtmoTableSources Read(LoadedObjects definitions,

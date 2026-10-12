@@ -23,8 +23,7 @@ public sealed class SceneViewNativeMapSkyCloudSourceOwner : IAsyncDisposable
         bootstrap.RequireCurrent();
         string locale = loaded.InitialFrame.MainCamera.Camera.ExecutableLocale;
         var programs = SkyCloudProgramResources.Load(loaded.Repository);
-        var groups = SkyAppliedSeasonCloudTextures.Load(loaded.Repository,
-            bootstrap.Present.AcceptedSeasonCamera.Inputs.Source);
+        var groups = bootstrap.Present.AcceptedSeasonCamera.Inputs.Source.CloudTextures;
         var prototype = SkyAppliedSourceCloudSelectionOwner.CreateFresh(loaded.Repository, locale, programs)
             .PrepareCurrent(bootstrap.Present, bootstrap.Stages, groups);
         return new(SkyAppliedSourceCloudOwner.CreateFresh(loaded.Repository, locale,

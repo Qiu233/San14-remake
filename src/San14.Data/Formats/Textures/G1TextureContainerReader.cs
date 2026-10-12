@@ -138,9 +138,9 @@ public static class G1TextureContainerReader
         if(version == "0500" && (system != 0 || rawMips != 1 || image[1] is not (1 or 6) || (image[7] >> 4) != 0))
             throw new InvalidDataException("Legacy0500 requires a supported planar BGRA8 or BC1 single-mip base header.");
         int mips = Math.Max(1, (int)rawMips);
-        if(system == 2 && rawMips == 0)
-            throw new InvalidDataException("Original system2 volume requires an explicit nonzero mip count.");
-        if (system is not (0 or 2 or 3) || (system != 2 && (image[3] & 15) != 0))
+        if(system is 1 or 2 && rawMips == 0)
+            throw new InvalidDataException("G1T cube or volume requires an explicit nonzero mip count.");
+        if (system is not (0 or 1 or 2 or 3) || (system is 0 or 3 && (image[3] & 15) != 0))
             throw new InvalidDataException("Unsupported G1T texture system, depth or external attribute headers.");
         byte format = image[1];
         int blockBytes = format switch
@@ -154,6 +154,9 @@ public static class G1TextureContainerReader
             _ => throw new InvalidDataException($"Unsupported G1T encoded pixel format {format:X2}.")
         };
         int width = 1 << (image[2] & 15), height = 1 << (image[2] >> 4);
+        // Cube metadata consumes only the width exponent for both dimensions.
+        // The high nibble is unused; complete square-body coverage is checked below.
+        if (system == 1) height = width;
         int depth = system == 2 ? 1 << (image[3] & 15) : 1;
         // Native95203D/951C90 also uploads original BGRA8 format01 volumes:
         // rowPitch=width*4, slicePitch=rowPitch*height, mip body includes depth.
@@ -162,9 +165,11 @@ public static class G1TextureContainerReader
         // already preserves the native contiguous depth-slice ordering.
         if(system == 2 && format is not (0x01 or 0x03 or 0x5F))
             throw new InvalidDataException("Unsupported original G1T volume encoding.");
-        int headerLength = 8, layers = 1;
+        int headerLength = 8, layers = system == 1 ? 6 : 1;
         ushort facesAndArrays = 0;
         int extraCount = image[7] >> 4;
+        if (system == 1 && extraCount != 0)
+            throw new InvalidDataException("Extended G1T cube headers and cube arrays are unsupported.");
         if (extraCount > 1)
             throw new InvalidDataException("Multiple G1T texture extra headers are unsupported.");
         if (extraCount != 0)
@@ -205,6 +210,9 @@ public static class G1TextureContainerReader
             // Support its demonstrated complete 4x4 blocks, refuse smaller mips.
             if(system == 2 && format == 0x5F && (w < 4 || h < 4))
                 throw new InvalidDataException("Original BC7 volume mip below 4x4 has no supported device layout.");
+            // Cube block pitches also shift without clamping to a minimum block.
+            if(system == 1 && format is 0x59 or 0x5B or 0x5C or 0x5E or 0x5F && (w < 4 || h < 4))
+                throw new InvalidDataException("Compressed G1T cube mip below 4x4 has no supported device layout.");
             if (units > available / ((long)blockBytes * d))
                 throw new InvalidDataException("G1T texture dimensions exceed its encoded body.");
             int bytes = checked((int)(units * blockBytes));
@@ -221,7 +229,8 @@ public static class G1TextureContainerReader
             : G1TextureSubresourceLayout.ArrayOrderUnresolved;
         // With a single mip, mip-major and layer-major storage have the same
         // physical order. No multi-mip ordering assumption is needed to slice it.
-        if (layers > 1 && mips == 1)
+        // Cube storage traverses mip first, then its six implicit faces.
+        if (system == 1 || (layers > 1 && mips == 1))
             layout = G1TextureSubresourceLayout.MipMajorArray;
         // Current CE's native system-3 BC3 reader traverses mip then layer, writing
         // subresource=mip+layer*mipCount. The verified Windows header family retains

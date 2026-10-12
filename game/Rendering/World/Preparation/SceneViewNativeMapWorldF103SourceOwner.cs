@@ -221,7 +221,7 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
         var packets=sources.Select((s,i)=>
         {
             var input=new MapSourceCreatedLightingFrameInputs(number,Binding with {LightOwnerIdentity=Light(i)},present.Parameters,
-            present.PriorPreparedCameraPrefix,contextOwner.Host.ContextFlags3E4,delta,MapLightingRuntimeTable.Present,
+            present.PriorPreparedCameraPrefix,contextOwner.Host.ContextFlags3E4,delta,present.RuntimeTable,
             MapLightingCameraScope.LightingPrefix,scalars.PrepareBuiltinAmbientCameraRate(capture.MainCamera.Camera),true,new(),
             PresentSeasonCamera:present);
             return provider is null?s.PrepareFrame(input):s.PrepareFrame(input,

@@ -69,7 +69,7 @@ public sealed class D3D11CurrentSeasonFrame
     public int MainMode => Mode.Mode288;
     public int SeasonIndex => Rgb.Inputs.Source.Season.Resources.Selection.SeasonIndex;
     public SkyWeatherResult Weather => Present.Weather;
-    public ReadOnlyMemory<byte> MainFog72 => Weather.Fog.Known72;
+    public ReadOnlyMemory<byte> MainFog72 => PreparedMain.Slice(0x340,72);
     public uint HdrLutKey => Optics.ColorGrading.HdrLutKey;
     public uint LdrLutKey => Optics.ColorGrading.LdrLutKey;
 

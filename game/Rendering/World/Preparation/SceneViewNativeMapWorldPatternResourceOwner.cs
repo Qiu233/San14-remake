@@ -35,7 +35,7 @@ public sealed class SceneViewNativeMapWorldPatternResourceOwner : IAsyncDisposab
         MapSourceCreatedDirectionalLightingDeviceOwner lighting)
     {
         var source = SkyAtmoTableReadySource.Load(repository, locale,
-            bootstrap.Rgb.Inputs.Source.Transmittance.Tables,
+            bootstrap.Rgb.Inputs.Source.Transmittance.RequireTables(),
             actualPreparationContext.StaPlaneSource);
         var entries = await actualPreparationContext.BorrowReadyStaPlaneEntriesAsync();
         var plane = PatternCameraStaDataOwner.CreatePlaneFromReadyEntries(source, entries);
@@ -63,8 +63,8 @@ public sealed class SceneViewNativeMapWorldPatternResourceOwner : IAsyncDisposab
         SceneViewNativeMapSkyCloudTextureOwner textures,SkyDirectionalOptionalSourceOwner context)
     {
         ObjectDisposedException.ThrowIf(retired,this);
-        var planeSource=resources.CloudTextures.SkylightSta;
-        var source=SkyAtmoTableReadySource.Load(repository,locale,resources.CameraSource.Transmittance.Tables,planeSource);
+        var planeSource=resources.CloudTextures.RequireAtmospherePlane();
+        var source=SkyAtmoTableReadySource.Load(repository,locale,resources.CameraSource.Transmittance.RequireTables(),planeSource);
         var readyEntries=await textures.BorrowReadyStaPlaneEntriesAsync();
         // A new declaration can name the same physical images. Adopt its keys
         // while borrowing the already prepared descriptors and lifetime owner.

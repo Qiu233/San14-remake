@@ -215,13 +215,9 @@ public sealed class MapSourceCreatedLightingRetainedNormalization
             lighting.ContextFlags3E4!=construction.ContextFlags3E4 ||
             lighting.Binding.BasePath!=MapLightingBasePath.UnmodifiedOrdinary)
             throw new InvalidDataException("Lighting differs from this source construction/current owned normalization generation.");
-        if(lighting.RuntimeTable==MapLightingRuntimeTable.Present)
-        {
-            if(lighting.AcceptedInputs.PresentSeasonCamera is not { } season)
-                throw new InvalidDataException("Present retained consumers require the actual source season table/weather capability.");
+        if(lighting.AcceptedInputs.PresentSeasonCamera is { } season)
             season.ValidatePreparedLighting(lighting);
-        }
-        else if(lighting.RuntimeTable!=MapLightingRuntimeTable.Absent || lighting.AcceptedInputs.PresentSeasonCamera is not null)
+        else if(lighting.RuntimeTable!=MapLightingRuntimeTable.Absent)
             throw new InvalidDataException("Retained consumers cannot infer a table branch from a declaration key or unresolved state.");
         RequireLightControls(lighting.LocalLightData.Span);
         if(lighting.CameraContextApplied && lighting.LocalLightData.Span[0xF1E]!=2)

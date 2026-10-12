@@ -29,10 +29,13 @@ public sealed class SourceResourceRegistrationGameDefault
 /// loaded or turn source bytes into ready GPU resources.</summary>
 public static class SourceResourceRegistration
 {
-    public static SourceResourceRegistrationGameDefault LoadGameDefault(GameResourceRepository repository)
+    /// <summary>Reuse an already imported ambient cube when assembling the
+    /// remaining resources for that device generation.</summary>
+    public static SourceResourceRegistrationGameDefault LoadGameDefault(GameResourceRepository repository,
+        StaticTextureBinding? ambientCube = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
-        return new(SourceResourceRegistrationAmbientCube.LoadGameDefault(repository),
+        return new(ambientCube ?? SourceResourceRegistrationAmbientCube.LoadGameDefault(repository),
             SourceResourceRegistrationFixed.LoadGameDefault(repository),
             SourceResourceRegistrationLut.LoadGameDefault(repository));
     }

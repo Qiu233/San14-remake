@@ -24,6 +24,7 @@ public sealed class D3D11CloudRenderResources
     private readonly SkyAppliedCloudTextureSet cloudTextures;
     private readonly SkyTextureSource? earthTexture;
     private MapSeasonCameraPackage acceptedPackage;
+    private SkyAppliedSeasonCloudTextureSources acceptedCloudTextures;
     private float retainedScale;
 
     private D3D11CloudRenderResources(GameResourceRepository repository,
@@ -61,6 +62,7 @@ public sealed class D3D11CloudRenderResources
             .Concat(historyAlpha).Distinct().ToDictionary(key => key, key => RenderTextureResources.Read(objects, key));
 
         acceptedPackage = present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage;
+        acceptedCloudTextures = present.AcceptedSeasonCamera.Inputs.Source.CloudTextures;
         var selected = ReadCamera(acceptedPackage);
         retainedScale = ApplySelectedScale(ReadScale(present.AcceptedSeasonCamera.Inputs.MainFrame.Camera.Source.Camera), selected.Scale);
         acceptedSplit = selected.Split;
@@ -113,10 +115,10 @@ public sealed class D3D11CloudRenderResources
                 pair.First.Formats == pair.Second.Formats))
                 throw new NotSupportedException("Changed Native Cloud targets require a physical resource replacement.");
         }
-        if (!ReferenceEquals(package, acceptedPackage))
+        var groups = present.AcceptedSeasonCamera.Inputs.Source.CloudTextures;
+        if (!ReferenceEquals(package, acceptedPackage) || !ReferenceEquals(groups, acceptedCloudTextures))
         {
-            var textures = SkyAppliedCloudTextureSet.Import(SkyAppliedSeasonCloudTextures.Load(repository,
-                present.AcceptedSeasonCamera.Inputs.Source));
+            var textures = SkyAppliedCloudTextureSet.Import(groups);
             var sampling = SkySeasonPackageTextures.Read(package);
             var earth = sampling.Earth.IsSourceReferenceZero ? null :
                 SkySeasonPackageTextures.LoadSampling(repository, sampling.Earth).Texture;
@@ -128,6 +130,7 @@ public sealed class D3D11CloudRenderResources
         acceptedSplit = selected.Split;
         acceptedResolution = resolution;
         acceptedPackage = package;
+        acceptedCloudTextures = groups;
     }
 
     public void WriteNativeInputs(string inputRoot)

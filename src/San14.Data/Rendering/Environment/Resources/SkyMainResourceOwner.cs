@@ -8,15 +8,17 @@ public sealed class SkyMainResourceOwner : IDisposable
     private readonly SkyAppliedCloudTextureSet atmosphere;
     private readonly SkyMainProgramResources resources;
     private MapSeasonCameraPackage acceptedPackage;
+    private SkyAppliedSeasonCloudTextureSources acceptedCloudTextures;
     private D3D11MainSkyInputPreparation? media;
 
     private SkyMainResourceOwner(SkyMainProgramResources resources,
         SkyAppliedCloudTextureSet atmosphere, MapSeasonCameraPackage package,
-        Sky2TextureBindings bindings)
+        Sky2TextureBindings bindings, SkyAppliedSeasonCloudTextureSources groups)
     {
         this.resources = resources;
         this.atmosphere = atmosphere;
         acceptedPackage = package;
+        acceptedCloudTextures = groups;
         this.bindings = bindings;
         Sampling = bindings.Capture();
     }
@@ -36,7 +38,7 @@ public sealed class SkyMainResourceOwner : IDisposable
         {
             bindings.ApplyPackage(SkySeasonPackageTextures.Read(package),
                 reference => SkySeasonPackageTextures.LoadSampling(repository, reference));
-            return new(programs, atmosphere, package, bindings);
+            return new(programs, atmosphere, package, bindings, present.AcceptedSeasonCamera.Inputs.Source.CloudTextures);
         }
         catch
         {
@@ -56,7 +58,7 @@ public sealed class SkyMainResourceOwner : IDisposable
         return media;
     }
 
-    /// <summary>Resolve images only when a new selected package is installed.
+    /// <summary>Compare images when a new package or resource generation arrives.
     /// Zero references retain this instance's existing bindings. Requested shader
     /// resources come from the caller's actual renderer-resource generation.</summary>
     public void RequireCompatibleGeneration(GameResourceRepository repository,
@@ -65,12 +67,12 @@ public sealed class SkyMainResourceOwner : IDisposable
         Sampling.RequireCurrent();
         RequireResources(requestedPrograms);
         var package = Package(present);
-        if (ReferenceEquals(package, acceptedPackage)) return;
+        var groups = present.AcceptedSeasonCamera.Inputs.Source.CloudTextures;
+        if (ReferenceEquals(package, acceptedPackage) && ReferenceEquals(groups, acceptedCloudTextures)) return;
 
         bindings.RequireCompatiblePackage(SkySeasonPackageTextures.Read(package),
             reference => SkySeasonPackageTextures.LoadSampling(repository, reference));
-        var candidate = SkyAppliedCloudTextureSet.Import(SkyAppliedSeasonCloudTextures.Load(repository,
-            present.AcceptedSeasonCamera.Inputs.Source));
+        var candidate = SkyAppliedCloudTextureSet.Import(groups);
         foreach (var input in Media.Textures.Where(input => input.Slot < 3))
         {
             var replacement = candidate.StaInputs[checked((int)input.Slot)];
@@ -79,6 +81,7 @@ public sealed class SkyMainResourceOwner : IDisposable
                 throw new NotSupportedException("Changed Main Sky atmosphere images require scene resource replacement.");
         }
         acceptedPackage = package;
+        acceptedCloudTextures = groups;
     }
 
     /// <summary>Current material must target the installed vertex and pixel

@@ -103,7 +103,7 @@ public sealed class SceneViewNativeMapF103SourceOwner
         var present=MapSourceCreatedSeasonLightingFrame.CapturePreparedSeason(rgb,weather);
         var lighting=MapSourceCreatedLighting.Prepare(lightingOwner.Source,
             new(number,Binding,present.Parameters,present.PriorPreparedCameraPrefix,
-                contextOwner.Host.ContextFlags3E4,delta,MapLightingRuntimeTable.Present,
+                contextOwner.Host.ContextFlags3E4,delta,present.RuntimeTable,
                 MapLightingCameraScope.LightingPrefix,scalars.PrepareBuiltinAmbientCameraRate(capture.MainCamera.Camera),
                 null,new(),PresentSeasonCamera:present));
         var common=MapCommonRenderState.FromSettings(commonSource,

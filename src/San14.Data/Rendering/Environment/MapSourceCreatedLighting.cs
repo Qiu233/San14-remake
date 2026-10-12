@@ -191,13 +191,9 @@ public static partial class MapSourceCreatedLighting
             throw new InvalidDataException("Source-created map lighting requires the complete retained3C0 Camera prefix.");
         if (input.SelectedBuiltinAmbientCameraRate is float ambientRate && !float.IsFinite(ambientRate))
             throw new InvalidDataException("Source-created built-in ambient requires finite explicit CameraScratch+3CC.");
-        if (input.RuntimeTable == MapLightingRuntimeTable.Present)
-        {
-            if(input.PresentSeasonCamera is not { } present)
-                throw new NotSupportedException("Present lighting requires its successfully loaded owned source-season table and same-frame Main RGB/weather writer.");
-            present.ValidateInputs(input);
-        }
-        else if(input.RuntimeTable!=MapLightingRuntimeTable.Absent || input.PresentSeasonCamera is not null)
+        if(input.PresentSeasonCamera is { } seasonFrame)
+            seasonFrame.ValidateInputs(input);
+        else if(input.RuntimeTable!=MapLightingRuntimeTable.Absent)
             throw new NotSupportedException("Runtime table state is unresolved or conflicts with its actual owned season producer.");
         if (input.CameraScope != MapLightingCameraScope.LightingPrefix)
             throw new NotSupportedException("Source-created map lighting produces the3C0 lighting prefix; independent weather outputs require their original producer.");

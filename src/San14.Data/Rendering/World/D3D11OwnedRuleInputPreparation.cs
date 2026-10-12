@@ -61,7 +61,7 @@ public static class D3D11OwnedRuleInputPreparation
         SkySeasonMainWeatherFogFrame weather, Vector3 actualGlobalLightRgb)
     {
         weather.RequireCurrent(camera);
-        var tables = camera.Inputs.Source.Transmittance.Tables;
+        var tables = camera.Inputs.Source.Transmittance.RequireTables();
         if(tables.Width!=64||tables.Height!=256)
             throw new NotSupportedException("The current Native weather input format requires a 64 by 256 atmosphere table.");
         var package = camera.Inputs.Source.Selection.FirstPackage.Camera;

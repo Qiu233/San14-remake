@@ -35,7 +35,7 @@ public static class D3D11AmbientWorkInputPreparation
             hdr.Source.ResourceUri+"@"+hdr.Source.DecodedSha256,0,4,MapLightingBasePath.UnmodifiedOrdinary);
         var inputs=new MapSourceCreatedLightingFrameInputs(present.FrameNumber,binding,present.Parameters,
             present.PriorPreparedCameraPrefix,defaultCaller.Root.ContextFlags3E4,
-            present.FrameDelta,MapLightingRuntimeTable.Present,
+            present.FrameDelta,present.RuntimeTable,
             MapLightingCameraScope.LightingPrefix,0,true,new(),PresentSeasonCamera:present);
         var lighting=MapSourceCreatedLighting.PrepareFreshDefaultCaller(defaultCaller,inputs);
         var selected=SkySceneSelectedViewLightSource.Capture(lighting.LocalLightData.Span,
@@ -75,7 +75,7 @@ public static class D3D11AmbientWorkInputPreparation
             if(face is 0 or 1 or 4 or 5)
             {
                 var plane=SkyWorkCloudClipPreparation.Prepare(present.PreparedCameraPrefix.Span,
-                    frame.SourceFrame.SixCameras[face],face,present.AcceptedSeasonCamera.Inputs.Source.Transmittance.Tables.PlanetRadius);
+                    frame.SourceFrame.SixCameras[face],face,present.AcceptedSeasonCamera.Inputs.Source.Transmittance.RequireTables().PlanetRadius);
                 Vector(cloudPackets[face].VertexBytes,0,plane);
             }
         }

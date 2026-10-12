@@ -4,10 +4,11 @@ namespace San14.Data;
 
 /// <summary>An owned source season selection. World third-date selection,
 /// pending SceneDatabase clock/weather seed and selected Camera Skylight
-/// fields retain independent identities. No global renderer clock is advanced.</summary>
+/// fields retain independent identities. Its tables and Cloud images are imported
+/// once per explicit resource load and shared by calendar updates.</summary>
 public sealed class SkySeasonMainCameraSource
 {
-    internal SkySeasonMainCameraSource(MapSeasonResolvedSourceFrame season,
+    internal SkySeasonMainCameraSource(GameResourceRepository repository,MapSeasonResolvedSourceFrame season,
         MapSeasonCameraSelection selection,MapSeasonSceneClockSeed seed,
         CameraLightingController controller,float kelvin,
         SkySeasonTransmittanceSource transmittance,bool sourceEmptyAxes,
@@ -15,7 +16,8 @@ public sealed class SkySeasonMainCameraSource
     {Season=season;Selection=selection;SceneClockSeed=seed;Controller=controller;
         SourceColorTemperature21C=kelvin;Transmittance=transmittance;UsesSourceCreatedEmptyAxes=sourceEmptyAxes;
         CameraPrefixScalars=MapSeasonCameraPrefixScalars.ReadDirectSelection(selection);
-        PostEffectScalarSource=postEffectScalarSource;}
+        PostEffectScalarSource=postEffectScalarSource;
+        CloudTextures=SkyAppliedSeasonCloudTextures.Read(repository,this);}
     private SkySeasonMainCameraSource(MapSeasonRuntimeFrame calendar,
         SkySeasonMainCameraSource loaded)
     {
@@ -24,6 +26,7 @@ public sealed class SkySeasonMainCameraSource
         SourceColorTemperature21C=loaded.SourceColorTemperature21C;Transmittance=loaded.Transmittance;
         UsesSourceCreatedEmptyAxes=loaded.UsesSourceCreatedEmptyAxes;
         CameraPrefixScalars=loaded.CameraPrefixScalars;PostEffectScalarSource=loaded.PostEffectScalarSource;
+        CloudTextures=loaded.CloudTextures;
     }
     /// <summary>Bind this request's calendar while retaining the parsed source
     /// package. A different season requires its actual resource generation.</summary>
@@ -40,6 +43,7 @@ public sealed class SkySeasonMainCameraSource
     public CameraLightingController Controller{get;}
     public float SourceColorTemperature21C{get;}
     public SkySeasonTransmittanceSource Transmittance{get;}
+    public SkyAppliedSeasonCloudTextureSources CloudTextures{get;}
     public bool UsesSourceCreatedEmptyAxes{get;}
     public MapSeasonCameraPrefixScalars CameraPrefixScalars{get;}
     public WeatherFogProfile WeatherProfile => WeatherFogProfileImport.FromPackage(Selection.FirstPackage);
@@ -77,7 +81,7 @@ public sealed record SkySeasonMainCameraRgbFrame(SkySeasonMainCameraInputs Input
     public NativeCameraTangentDispatch? PreparationDispatch { get; internal init; }
     public bool CompleteWeatherFogPrepared=>false;
     public string SourceProvenance=>Inputs.Source.SourceProvenance+
-        ";Main-V468-source-package ->17BD0-post-phase ->present-table-SunMoon-RGB ->selected-View-D7-Sky-setters";
+        ";Main-V468-source-package ->17BD0-post-phase ->resource-selected-SunMoon-RGB ->selected-View-D7-Sky-setters";
 }
 
 /// <summary>Callable owned World calendar→season resources→actual external
@@ -109,7 +113,7 @@ public static class SkySeasonMainCameraProducer
             throw new NotSupportedException("The seven Skylight pair interpolation is available separately; this full source-controller producer requires its exact direct selected package until other controller blend instructions are closed.");
         var controller=PreparedCameraLightingSource.ReadController(selection.FirstPackage.Camera);
         float kelvin=SkySeasonMoonTemperature.ReadKelvin(selection);
-        return new(ownedSeason,selection,seed,controller,kelvin,
+        return new(repository,ownedSeason,selection,seed,controller,kelvin,
             SkySeasonTransmittanceSource.Load(repository,selection.FirstPackage,locale),explicitlySelectedPackage is null,
             MapSeasonCameraPostEffectScalarSource.Load(repository,locale));
     }
@@ -190,10 +194,11 @@ public static class SkySeasonMainCameraProducer
         var lighting=SkySeasonPreparedCameraRgb.PrepareLighting(input.Phase.LightingController,
             input.Phase.Parameters,input.Lighting,frameDelta,
             input.Source.Transmittance,dispatch,input.CurrentColorTemperature21C);
-        var rgb=new PreparedCameraLightingPacket(input.BeforeFinalPreparationPrefix.Span,lighting);
+        var rgb=new PreparedCameraLightingPacket(input.BeforeFinalPreparationPrefix.Span,lighting,
+            clearAbsentTableFog:input.Source.Transmittance.Tables is null);
         var current=SkySceneCurrentCameraProducer.PrepareSelectedView(input.FrameNumber,rgb.Prefix.Span,
             input.MainFrame.Camera.FrameProvenance+";"+input.Phase.SourceProvenance+
-                ";present-source-table-SunMoon-RGB-only;Fog/weather-separate-producer",
+                ";resource-selected-SunMoon-RGB;Fog/weather-separate-producer",
             completeRetainedSkyController,completeRetainedSky2);
         return new(input,rgb,current) { PreparationFrameDelta=frameDelta, PreparationDispatch=dispatch };
     }

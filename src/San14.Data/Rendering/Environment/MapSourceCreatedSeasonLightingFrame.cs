@@ -2,10 +2,9 @@ using System.Buffers.Binary;
 
 namespace San14.Data;
 
-/// <summary>Owned successful season table/RGB + actual Main weather72 →
-/// current prepared3C0 Camera and clock tail. This source capability cannot be
-/// obtained from a nonzero declaration key, an observed prefix or an absent
-/// dependency. It remains distinct from the class66 complete LightData owner.</summary>
+/// <summary>One accepted season RGB and weather preparation, with actual table
+/// presence or declared absence. It owns the prepared Camera prefix and advances
+/// its clock once. Complete LightData remains a separate owner.</summary>
 public sealed class MapSourceCreatedSeasonLightingFrame
 {
     private readonly byte[] prior, current;
@@ -17,7 +16,7 @@ public sealed class MapSourceCreatedSeasonLightingFrame
         Clock=SkylightClock.Advance(Parameters,Controller.AutoDateTimeStepType,Controller.TimeSpanPerDay,delta);
         current=SkylightClock.ApplyToPreparedPrefix(weather.ApplyKnownWritesToCurrentPreparedPrefix(camera),Clock);
         SourceProvenance=weather.SourceProvenance+
-            ";owned-successful-season-table-runtime=Present;Main-prepared3C0;actual-clock-tail;"+
+            $";owned-season-table-runtime={RuntimeTable};Main-prepared3C0;actual-clock-tail;"+
             "selected-LightData-owner-independent;Main72-owned-by-Camera";
         CurrentSkyCamera=SkySceneCurrentCameraProducer.PrepareSelectedView(FrameNumber,current,
             SourceProvenance,SkySceneSourceDefaults.ApplyPreparedMainControllerInputs(
@@ -35,7 +34,8 @@ public sealed class MapSourceCreatedSeasonLightingFrame
     public ReadOnlyMemory<byte> PriorPreparedCameraPrefix=>prior.ToArray();
     public ReadOnlyMemory<byte> PreparedCameraPrefix=>current.ToArray();
     public string SourceProvenance { get; }
-    public MapLightingRuntimeTable RuntimeTable=>MapLightingRuntimeTable.Present;
+    public MapLightingRuntimeTable RuntimeTable=>AcceptedSeasonCamera.Inputs.Source.Transmittance.Tables is null
+        ? MapLightingRuntimeTable.Absent : MapLightingRuntimeTable.Present;
 
     /// <summary>The Camera after this same frame's completed owned seasonal
     /// prefix and post-scalar writers. Geometry still owns its earlier stage.</summary>
@@ -52,8 +52,8 @@ public sealed class MapSourceCreatedSeasonLightingFrame
     }
 
     /// <summary>The two actual source producers must share the same accepted
-    /// Main frame. Their private successful raw table owner supplies Present;
-    /// no lookup-key or retained-native-wrapper inference is used.</summary>
+    /// Main frame. Table presence comes from that imported resource generation;
+    /// declared absence keeps the real no-table preparation and retained fields.</summary>
     public static MapSourceCreatedSeasonLightingFrame CapturePreparedSeason(
         SkySeasonMainCameraRgbFrame camera, SkySeasonMainWeatherFogFrame weather)
     {
@@ -64,22 +64,22 @@ public sealed class MapSourceCreatedSeasonLightingFrame
             camera.Inputs.MainFrame.Camera.FrameNumber!=camera.Inputs.FrameNumber ||
             camera.Inputs.MainFrame.Camera.Source.Camera.ObjectId!=MainMapCameraAdapter.MainCameraObjectId ||
             camera.Inputs.BeforeFinalPreparationPrefix.Length!=0x3C0 || camera.SunMoonRgb.Prefix.Length!=0x3C0)
-            throw new InvalidDataException("Present lighting requires the actual same-frame source Main RGB/weather producers and their explicit SSE delta.");
-        if(camera.Inputs.Phase.LightingController.DeclaredTransmittanceTable!=camera.Inputs.Source.Transmittance.Tables.ObjectId ||
+            throw new InvalidDataException("Season lighting requires the actual same-frame source Main RGB/weather producers and their explicit SSE delta.");
+        if(camera.Inputs.Phase.LightingController.DeclaredTransmittanceTable!=(camera.Inputs.Source.Transmittance.Tables?.ObjectId??0) ||
             camera.Inputs.Source.Transmittance.Atan.Locale!=camera.Inputs.MainFrame.Camera.ExecutableLocale ||
             BitConverter.SingleToUInt32Bits(camera.SunMoonRgb.Lighting.Transition.Continuation)!=0x3F800000)
-            throw new InvalidDataException("Present lighting differs from its successfully loaded source table or the actual Camera3B8=1 continuation.");
+            throw new InvalidDataException("Season lighting differs from its successfully loaded source table or the actual Camera3B8=1 continuation.");
         return new(camera,weather,delta);
     }
 
     internal void ValidateInputs(MapSourceCreatedLightingFrameInputs input)
     {
-        if(input.RuntimeTable!=MapLightingRuntimeTable.Present || !ReferenceEquals(input.PresentSeasonCamera,this) ||
+        if(input.RuntimeTable!=RuntimeTable || !ReferenceEquals(input.PresentSeasonCamera,this) ||
             input.FrameNumber!=FrameNumber || input.LightingSkylightParameters!=Parameters ||
             BitConverter.SingleToUInt32Bits(input.FrameDelta)!=BitConverter.SingleToUInt32Bits(FrameDelta) ||
             !input.PriorPreparedCameraPrefix.Span.SequenceEqual(prior) ||
             (input.CurrentController is not null && input.CurrentController!=Controller))
-            throw new InvalidDataException("Present lighting inputs differ from their actual owned season/table/Camera frame.");
+            throw new InvalidDataException("Season lighting inputs differ from their actual owned season/table/Camera frame.");
     }
 
     internal void ValidatePreparedLighting(MapSourceCreatedLightingPacket lighting)
@@ -87,6 +87,6 @@ public sealed class MapSourceCreatedSeasonLightingFrame
         ValidateInputs(lighting.AcceptedInputs);
         if(lighting.SelectedController!=Controller || lighting.Clock!=Clock ||
             !lighting.PreparedCameraPrefix.Span.SequenceEqual(current))
-            throw new InvalidDataException("Accepted Present lighting differs from its prepared same-frame season Camera/clock writer.");
+            throw new InvalidDataException("Accepted season lighting differs from its prepared same-frame season Camera/clock writer.");
     }
 }

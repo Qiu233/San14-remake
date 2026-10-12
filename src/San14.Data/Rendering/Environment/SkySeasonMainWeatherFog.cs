@@ -1,26 +1,35 @@
 using System.Numerics;
+using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 
 namespace San14.Data;
 
-/// <summary>An accepted Main/season source weather/Fog writer. Publishes the
-/// computed Main22C saturation and semantic72-byte Fog coverage, retaining
-/// the original allocation's unknown24-byte tail.</summary>
+/// <summary>Independent weather coverage and optional table-dependent Fog writes.
+/// Without a table the RGB prefix retains saturation and Fog bytes other than
+/// the cleared mode; no sampled ambient or Fog result is manufactured.</summary>
 public sealed class SkySeasonMainWeatherFogFrame
 {
+    private readonly SkyWeatherAmbientSample? sunAmbient,moonAmbient;
     internal SkySeasonMainWeatherFogFrame(SkySeasonMainCameraRgbFrame camera,
         SkyWeatherKnownFogRows fog,SkyWeatherAmbientSample sun,
-        SkyWeatherAmbientSample moon,float sourceWeather640,float sourceWeatherSaturation22C,string provenance)
-    {AcceptedSeasonCamera=camera;Weather=new(fog,sourceWeather640,sourceWeatherSaturation22C);SunAmbient=sun;MoonAmbient=moon;
-        SourceProvenance=provenance;}
+        SkyWeatherAmbientSample moon,float coverage,float saturation,string provenance)
+    {AcceptedSeasonCamera=camera;FogWrites=new(fog,coverage,saturation);sunAmbient=sun;moonAmbient=moon;
+        SourceWeather640=coverage;SourceProvenance=provenance;}
+    internal SkySeasonMainWeatherFogFrame(SkySeasonMainCameraRgbFrame camera,float coverage,string provenance)
+    {AcceptedSeasonCamera=camera;SourceWeather640=coverage;SourceProvenance=provenance;}
     public SkySeasonMainCameraRgbFrame AcceptedSeasonCamera{get;}
     public long FrameNumber=>AcceptedSeasonCamera.Inputs.FrameNumber;
-    public SkyWeatherResult Weather { get; }
+    public SkyWeatherResult? FogWrites { get; }
+    public SkyWeatherResult Weather => FogWrites ??
+        throw new NotSupportedException("Table-dependent weather has no output for an absent atmosphere.");
     public SkyWeatherKnownFogRows Fog=>Weather.Fog;
-    public SkyWeatherAmbientSample SunAmbient{get;}
-    public SkyWeatherAmbientSample MoonAmbient{get;}
-    public float SourceWeather640=>Weather.Strength;
-    public float SourceWeatherSaturation22C=>Weather.Saturation;
+    public SkyWeatherAmbientSample SunAmbient=>sunAmbient ??
+        throw new NotSupportedException("Absent atmosphere has no sampled Sun ambient output.");
+    public SkyWeatherAmbientSample MoonAmbient=>moonAmbient ??
+        throw new NotSupportedException("Absent atmosphere has no sampled Moon ambient output.");
+    public float SourceWeather640{get;}
+    public float SourceWeatherSaturation22C=>FogWrites?.Saturation ??
+        BinaryPrimitives.ReadSingleLittleEndian(AcceptedSeasonCamera.SunMoonRgb.Prefix.Span.Slice(0x22C,4));
     public string SourceProvenance{get;}
     public bool NativeWholeFog96IdentityPreserved=>false;
     public void RequireCurrent(SkySeasonMainCameraRgbFrame actual)
@@ -31,7 +40,8 @@ public sealed class SkySeasonMainWeatherFogFrame
     public byte[] ApplyKnownWritesToCurrentPreparedPrefix(SkySeasonMainCameraRgbFrame actual)
     {
         RequireCurrent(actual);
-        return SkyWeatherFogEncoding.ApplyToCamera(actual.SunMoonRgb.Prefix.Span,Weather);
+        return FogWrites is { } writes ? SkyWeatherFogEncoding.ApplyToCamera(actual.SunMoonRgb.Prefix.Span,writes)
+            : actual.SunMoonRgb.Prefix.ToArray();
     }
 }
 
@@ -49,7 +59,7 @@ public static class SkySeasonMainWeatherFog
         var source=camera.Inputs.Source;source.Selection.Validate();
         if(!source.UsesSourceCreatedEmptyAxes||source.Selection.SecondPackage is not null||
             source.Selection.FirstPackage.Camera.ObjectId!=MapSeasonCameraApplication.RootCameraObjectId||
-            camera.Inputs.CurrentColorTemperature21C!=6500||
+
             power.Locale!=camera.Inputs.MainFrame.Camera.ExecutableLocale)
             throw new NotSupportedException("Source-created Main weather/Fog requires the actual fresh database reset, Root package, native6500 and matched executable; later edited/interpolated weather is explicit.");
         if(dispatch!=NativeCameraTangentDispatch.Sse)
@@ -61,6 +71,10 @@ public static class SkySeasonMainWeatherFog
         float humidity=inputs.Climate.Humidity,low=profile.CloudHumidityLow,high=profile.CloudHumidityHigh;
         float humidityWeight=high>low?Clamp(D(S(humidity,low),S(high,low))):humidity>=low?1:0;
         float current640=M(cloud,humidityWeight);
+        if(source.Transmittance.Tables is null)
+            return new(camera,current640,camera.SourceProvenance+";independent-weather-coverage;absent-atmosphere-retains-saturation-and-Fog-except-mode");
+        if(camera.Inputs.CurrentColorTemperature21C!=6500)
+            throw new NotSupportedException("Present-table weather requires the supported 6500K ambient branch.");
         float strength=profile.FogStrength,heightBlend=M(strength,profile.FogHeightBlend);heightBlend=A(heightBlend,S(1,strength));
         float opacity=SkyWeatherNativePower.PowSse(profile.FogOpacity,strength,power);
         float hStart=profile.AtmosphereHumidityLow,hEnd=profile.AtmosphereHumidityHigh,weather=humidity;
@@ -72,7 +86,7 @@ public static class SkySeasonMainWeatherFog
         float raised=SkyWeatherNativePower.PowSse(D(eyeY,heightDenominator),4,power);
         float density=A(M(Max(raised,1),strength),S(1,strength));density=M(density,opacity);
         float mieScale=A(M(weatherWeight,profile.WetMieScale),M(complement,profile.DryMieScale));density=M(density,mieScale);
-        var table=source.Transmittance.Tables;
+        var table=source.Transmittance.RequireTables();
         float maximum=Max(table.MieExtinction.X,Max(table.MieExtinction.Z,table.MieExtinction.Y));
         Vector4 mie=new(M(M(density,profile.MieTint.X),D(table.MieExtinction.X,maximum)),
             M(M(density,profile.MieTint.Y),D(table.MieExtinction.Y,maximum)),

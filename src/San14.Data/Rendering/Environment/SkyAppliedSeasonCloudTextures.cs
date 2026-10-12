@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Runtime.CompilerServices;
 using System.Text;
 using San14.Data.Formats;
 
@@ -10,8 +9,11 @@ namespace San14.Data;
 /// shader slots, a current Cloud CB or an assertion about native SRV format.</summary>
 public sealed record SkyAppliedSeasonCloudTextureSources(MapSeasonCameraPackage Package,
     SkyCloudSourceTextureGroup Noise,SkyCloudSourceTextureGroup Cirrus,
-    SkyCloudSourceTextureGroup SkylightSta,string SourceProvenance)
+    SkyCloudSourceTextureGroup? SkylightSta,string SourceProvenance)
 {
+    public uint DeclaredFallbackPlane { get; init; }
+    public SkyCloudSourceTextureGroup RequireAtmospherePlane() => SkylightSta ??
+        throw new NotSupportedException("This operation requires the actual Static atmosphere Plane; a declared fallback needs its own producer.");
     public void RequireSelectedPackage(MapSeasonCameraPackage actual)
     {
         if(Package.Camera.ObjectId!=actual.Camera.ObjectId||
@@ -73,17 +75,13 @@ public sealed class SkyCloudSourceTextureGroup
 /// resource repository to Static images, including valid resource overrides.</summary>
 public static class SkyAppliedSeasonCloudTextures
 {
-    private static readonly ConditionalWeakTable<GameResourceRepository,
-        ConditionalWeakTable<MapSeasonCameraPackage,SkyAppliedSeasonCloudTextureSources>> Loaded=new();
-    public static SkyAppliedSeasonCloudTextureSources Load(GameResourceRepository repository,
+    internal static SkyAppliedSeasonCloudTextureSources Read(GameResourceRepository repository,
         SkySeasonMainCameraSource actualSelectedSource)
     {
         ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(actualSelectedSource);
         var selection=actualSelectedSource.Selection;selection.Validate();
         if(selection.SecondPackage is not null)throw new NotSupportedException("Cloud source resources close the actual direct selected package branch.");
-        var package=selection.FirstPackage;
-        return Loaded.GetValue(repository,static _=>new()).GetValue(package,
-            selected=>LoadPackage(repository,actualSelectedSource,selected));
+        return LoadPackage(repository,actualSelectedSource,selection.FirstPackage);
     }
     private static SkyAppliedSeasonCloudTextureSources LoadPackage(GameResourceRepository repository,
         SkySeasonMainCameraSource actualSelectedSource,MapSeasonCameraPackage package)
@@ -92,12 +90,17 @@ public static class SkyAppliedSeasonCloudTextures
         var definitions=repository.LoadObjects("system",0xDAB638B2);
         var noise=Group(repository,definitions,camera.References.CloudNoise);
         var cirrus=Group(repository,definitions,camera.References.CloudCirrus);
-        var staProvider=definitions.Document.Objects.SingleOrDefault(o=>o.ObjectId==camera.References.SkylightSta);
-        if(staProvider is null||staProvider.ClassId!=0x1AA5B65E)
-            throw new InvalidDataException("Cloud Skylight reference does not select a supported provider declaration.");
-        var sta=Group(repository,definitions,Scalar(staProvider,0xE67B59E3));
+        SkyCloudSourceTextureGroup? sta=null;
+        if(camera.References.SkylightSta!=0)
+        {
+            var staProvider=definitions.Document.Objects.SingleOrDefault(o=>o.ObjectId==camera.References.SkylightSta);
+            if(staProvider is null||staProvider.ClassId!=0x1AA5B65E)
+                throw new InvalidDataException("Cloud Skylight reference does not select a supported provider declaration.");
+            sta=Group(repository,definitions,Scalar(staProvider,0xE67B59E3));
+        }
         return new(package,noise,cirrus,sta,actualSelectedSource.SourceProvenance+";actual-declared-season-Cloud-Noise/Cirrus->DAB638B2->UTF8names->Static/G1T;"+
-            "noise-count3/cirrus-count1;full-volume-mips-and-source-samplers;GPUformat/CB/current-variant-separate");
+            "noise-count3/cirrus-count1;full-volume-mips-and-source-samplers;GPUformat/CB/current-variant-separate")
+            { DeclaredFallbackPlane=camera.References.PlaneSta };
     }
     private static SkyCloudSourceTextureGroup Group(GameResourceRepository repository,LoadedObjects definitions,uint groupId)
     {

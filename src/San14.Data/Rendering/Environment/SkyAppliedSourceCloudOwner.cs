@@ -19,8 +19,6 @@ public sealed class SkyAppliedSourceCloudOwner
     private SkyAppliedSourceCloudFrame? candidate;
     private long acceptedFrame;
     private MapOwnedGraphicsMaskPrefix? currentClipScope;
-    private MapSeasonCameraPackage? loadedTexturePackage;
-    private SkyAppliedSeasonCloudTextureSources? loadedTextures;
     public void BindCurrentClipScope(MapOwnedGraphicsMaskPrefix scope)
     { ArgumentNullException.ThrowIfNull(scope);scope.RequireCanonicalSkyDeclaredHookScope();currentClipScope=scope; }
     private SkyAppliedSourceCloudOwner(GameResourceRepository repo,string locale,string owner,
@@ -83,12 +81,7 @@ public sealed class SkyAppliedSourceCloudOwner
             !float.IsFinite(explicitOwnedClockDelta)||explicitOwnedClockDelta<0)
             throw new InvalidDataException("Cloud current writer requires the exact accepted frame, View and finite explicit owned clock.");
         var actualSource=present.AcceptedSeasonCamera.Inputs.Source;
-        if(!ReferenceEquals(loadedTexturePackage,selected.FirstPackage))
-        {
-            var loaded=SkyAppliedSeasonCloudTextures.Load(repository,actualSource);
-            loadedTexturePackage=selected.FirstPackage;loadedTextures=loaded;
-        }
-        var textures=loadedTextures!;
+        var textures=actualSource.CloudTextures;
         var selection=selectionOwner.PrepareCurrent(present,stages,textures);
         var bindings=SkyAppliedCloudTextureSet.Import(textures);
         SkyAppliedCloudTextureBindings.ValidateProgram(selection,bindings);
@@ -163,7 +156,7 @@ public sealed class SkyAppliedSourceCloudOwner
         Copy(0x9C,0x624);Copy(0xB4,0x628);v[0x90]=w.ReadBits(0x638);v[0x94]=w.ReadBits(0x63C);
         Copy(0x98,0x640);Copy(0xA0,0x648);Copy(0xA4,0x64C);Copy(0xAC,0x658);Copy(0xB8,0x67C);
         Copy(0x260,0x664);Copy(0x264,0x668);v[0x268]=w.ReadBits(0x66C);Copy(0x26C,0x670);
-        v[0xD8]=present.Weather.Saturation;
+        v[0xD8]=present.AcceptedWeather.SourceWeatherSaturation22C;
         v[0xC8]=ClampSigned(C(0x680));v[0xCC]=ClampSigned(C(0x684));Copy(0xD0,0x688);Copy(0xD4,0x68C);
         Copy(0xF0,0x690,3);for(int lane=0;lane<3;lane++)v[0xF0+lane*4]=Size(v[0xF0+lane*4]);
         Copy(0x100,0x69C,3);Copy(0x110,0x6A8,3);
@@ -173,7 +166,7 @@ public sealed class SkyAppliedSourceCloudOwner
         // Current D7D4C2 exact Cirrus wrapper is nonnull in the loaded owner.
         Copy(0x218,0x744,4);v[0x198]=Size(C(0x764));v[0x19C]=Size(C(0x768));
         Copy(0x1A8,0x76C,2);v[0x1B8]=Size(C(0x774));v[0x1BC]=Size(C(0x778));Copy(0x1C8,0x77C,4);
-        v[0x228]=present.AcceptedSeasonCamera.Inputs.Source.Transmittance.Tables.PlanetRadius;
+        v[0x228]=present.AcceptedSeasonCamera.Inputs.Source.Transmittance.RequireTables().PlanetRadius;
         //11919E0 follows the actual2A0 input constructor and explicitly sets60.
         v[0x60]=32;v[0x64]=128;v[0x68]=32;v[0x6C]=8;
         foreach(float f in v.Values)if(!float.IsFinite(f))throw new InvalidDataException("Cloud finite source input overflowed.");
@@ -340,7 +333,7 @@ public sealed class SkyAppliedSourceCloudFrame
         ArgumentNullException.ThrowIfNull(atmosphere);
         ValidateCandidate(SourceFrame,AcceptedPresent);
         atmosphere.RequireCurrent();
-        if(!atmosphere.Source.Tables.SameResources(AcceptedPresent.AcceptedSeasonCamera.Inputs.Source.Transmittance.Tables))
+        if(!atmosphere.Source.Tables.SameResources(AcceptedPresent.AcceptedSeasonCamera.Inputs.Source.Transmittance.RequireTables()))
             throw new InvalidDataException("Pattern atmosphere belongs to another selected resource generation.");
         return new(cameras.PrepareVertexMaterial(actualClipPlane),
             Volume.PreparePixel(cameras.Temporary.Eye,cameras.Temporary.Lens.VerticalFovRadians,atmosphere.PlanetRadius58));

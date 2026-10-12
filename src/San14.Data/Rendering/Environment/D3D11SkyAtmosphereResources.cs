@@ -15,7 +15,7 @@ public sealed class D3D11SkyAtmosphereResources
     private D3D11SkyAtmosphereResources(LoadedSkyAtmoTableSources tables,
         SkyAppliedSeasonCloudTextureSources sources, D3D11AmbientWorkConstants work)
     {
-        if (tables.PlaneStaObjectId != sources.SkylightSta.ObjectId ||
+        if (tables.PlaneStaObjectId != sources.RequireAtmospherePlane().ObjectId ||
             !work.CloudTextures.SameSta(SkyAppliedCloudTextureSet.Import(sources)))
             throw new InvalidDataException("Atmosphere tables and device images must belong to the same selected Plane.");
         acceptedTables = tables;
@@ -54,7 +54,7 @@ public sealed class D3D11SkyAtmosphereResources
         for (int index = 0; index < work.CloudTextures.StaInputs.Count; index++)
         {
             var texture = work.CloudTextures.StaInputs[index];
-            uint objectId = sources.SkylightSta.Entries[index].Definition.ObjectId;
+            uint objectId = sources.RequireAtmospherePlane().Entries[index].Definition.ObjectId;
             planeRows.Add(FormattableString.Invariant($"{index} {objectId} {texture.ResourceUri} {texture.ImageIndex} {texture.NativeViewFormat} {texture.SourceSha256} {texture.SamplerDescriptorSha256}"));
             if (existing.Any(candidate => candidate.Identity == texture.Identity &&
                 candidate.SamplerDescriptorSha256 == texture.SamplerDescriptorSha256)) continue;

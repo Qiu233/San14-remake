@@ -31,7 +31,7 @@ public sealed class SceneViewNativeMapSeasonResourceBundle
             MapSeasonRuntime.ResolveSourceFrame(repository, ownedSeason, sourceFrameNumber), locale);
         var directional = MapSeasonDirectionalLightSources.Read(camera.Selection.Provider.Database);
         var metadata = MapSourceCreatedWorldKind1Publication.ReadSeasonSourceRecords(directional);
-        return new(locale, camera, directional, metadata,SkyAppliedSeasonCloudTextures.Load(repository,camera));
+        return new(locale, camera, directional, metadata,camera.CloudTextures);
     }
 
     internal void RequireCurrentLightSources(IReadOnlyList<MapSourceCreatedDirectionalLightingSource> sources)

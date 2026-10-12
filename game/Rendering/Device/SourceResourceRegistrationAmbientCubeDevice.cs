@@ -3,7 +3,7 @@ using San14.Data;
 using San14.Data.Formats;
 using System.Security.Cryptography;
 
-/// <summary>The exact Game HDRI static5A53AD58 BC6H cube. Source mip-major
+/// <summary>The default light's declared BC6H cube. Source mip-major
 /// face blocks are gathered into six device face mip chains without decoding.
 /// This owns its texture and source sampler; it is independent of SkyCubeRTs.</summary>
 public sealed class SourceResourceRegistrationAmbientCubeDevice : IAsyncDisposable
@@ -13,7 +13,7 @@ public sealed class SourceResourceRegistrationAmbientCubeDevice : IAsyncDisposab
     public uint NativeViewFormat => 95;
     public Rid TextureRid { get; }
     public Rid SamplerRid { get; }
-    public IReadOnlyList<string> SubresourceSha256 { get; }
+    public IReadOnlyList<string> EncodedChainSha256 { get; }
     public string SourceProvenance { get; }
     private readonly bool allowReadback;
     private readonly object lifetimeGate=new();
@@ -25,33 +25,24 @@ public sealed class SourceResourceRegistrationAmbientCubeDevice : IAsyncDisposab
 
     private SourceResourceRegistrationAmbientCubeDevice(StaticTextureBinding source,
         G1TextureImage image,Rid texture,Rid sampler,string[] hashes,string provenance,bool readback)
-        =>(Source,Image,TextureRid,SamplerRid,SubresourceSha256,SourceProvenance,allowReadback)=
+        =>(Source,Image,TextureRid,SamplerRid,EncodedChainSha256,SourceProvenance,allowReadback)=
             (source,image,texture,sampler,Array.AsReadOnly(hashes),provenance,readback);
 
     public static async Task<SourceResourceRegistrationAmbientCubeDevice> BuildAsync(
         StaticTextureBinding source,bool allowReadback=false)
     {
         ArgumentNullException.ThrowIfNull(source);
-        SourceResourceRegistrationAmbientCube.Validate(source);
-        var image=SourceResourceRegistrationAmbientCube.ReadGameDefault(
-            source.Definitions,source.Resource.Source).Image;
-        if(image.TextureSystem!=1||image.LayerCount!=6||image.PixelFormat!=0x5E||image.Width!=512||
-            image.Height!=512||image.Depth!=1||image.MipCount!=7||
+        var image=source.Image;
+        if(image.TextureSystem!=1||image.LayerCount!=6||image.PixelFormat!=0x5E||image.Width!=image.Height||
+            image.Depth!=1||
             image.SubresourceLayout!=G1TextureSubresourceLayout.MipMajorArray)
-            throw new InvalidDataException("Static ambient cube differs from its exact512 BC6H seven-mip source recipe.");
-        var hashes=new string[42];var faces=new Godot.Collections.Array<byte[]>();
+            throw new NotSupportedException("Static ambient device requires a six-face BC6H unsigned cube mip chain.");
+        var hashes=new string[6];var faces=new Godot.Collections.Array<byte[]>();
         for(int face=0;face<6;face++)
         {
-            using var chain=new MemoryStream();
-            for(int mip=0;mip<7;mip++)
-            {
-                var encoded=image.GetEncodedMip(source.Resource.Source.Bytes,mip,face);
-                int width=512>>mip;
-                if(encoded.Length!=((width+3)/4)*((width+3)/4)*16)
-                    throw new InvalidDataException("Static ambient cube block byte count differs from its native subresource.");
-                hashes[mip+face*7]=Convert.ToHexString(SHA256.HashData(encoded));chain.Write(encoded);
-            }
-            faces.Add(chain.ToArray());
+            byte[] chain=image.GetEncodedLayerChain(source.Resource.Source.Bytes,face);
+            hashes[face]=Convert.ToHexString(SHA256.HashData(chain));
+            faces.Add(chain);
         }
         byte[] samplerBytes=SourceResourceRegistrationAmbientCube.GetSamplerDescriptor(source);
         string provenance=$"{source.Definitions.Source.ResourceUri}@{source.Definitions.Source.DecodedSha256}#object={source.Definition.ObjectId:X8};"+
@@ -67,13 +58,14 @@ public sealed class SourceResourceRegistrationAmbientCubeDevice : IAsyncDisposab
             Rid texture=default,sampler=default;
             try
             {
-                using var shape=new RDTextureFormat{Format=format,Width=512,Height=512,Depth=1,ArrayLayers=6,
-                    Mipmaps=7,TextureType=RenderingDevice.TextureType.Cube,UsageBits=usage};
+                using var shape=new RDTextureFormat{Format=format,Width=(uint)image.Width,Height=(uint)image.Height,
+                    Depth=1,ArrayLayers=6,Mipmaps=(uint)image.MipCount,
+                    TextureType=RenderingDevice.TextureType.Cube,UsageBits=usage};
                 using var view=new RDTextureView();texture=rd.TextureCreate(shape,view,faces);
                 if(!texture.IsValid)throw new InvalidDataException("Device rejected the original compressed ambient cube.");
                 using var actual=rd.TextureGetFormat(texture);
-                if(actual.Format!=format||actual.Width!=512||actual.Height!=512||actual.Depth!=1||
-                    actual.ArrayLayers!=6||actual.Mipmaps!=7||actual.TextureType!=RenderingDevice.TextureType.Cube)
+                if(actual.Format!=format||actual.Width!=image.Width||actual.Height!=image.Height||actual.Depth!=1||
+                    actual.ArrayLayers!=6||actual.Mipmaps!=image.MipCount||actual.TextureType!=RenderingDevice.TextureType.Cube)
                     throw new InvalidDataException("Device changed the original static ambient cube encoding or layout.");
                 sampler=DeviceSampler.Create(rd,samplerBytes);
                 if(!sampler.IsValid)throw new InvalidDataException("Device rejected the original static cube source sampler.");

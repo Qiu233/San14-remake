@@ -98,7 +98,7 @@ public sealed class SkyAppliedSourceCloudWeatherFields
         float humidityCirrus=Weight(humidity,R(0x794),R(0x798));
         W(0x748,M(S(1,humidityCirrus),cirrusStrength));W(0x754,M(S(1,humidityCirrus),cloudDistortion));
         W(0x640,cloudyWeight);W(0x628,detail);W(0x64C,erodeWeight);W(0x658,coefficient);
-        if(values[0x640]!=BitConverter.SingleToUInt32Bits(present.Weather.Strength))
+        if(values[0x640]!=BitConverter.SingleToUInt32Bits(present.AcceptedWeather.SourceWeather640))
             throw new InvalidDataException("Cloud finite current640 differs from the accepted Main weather writer.");
         return new(present,values,present.SourceProvenance+";"+finalWriter+";C452A8/C45322-final-Main1D0/1D8-inputs;exact C4F6F0 loader->C409C0 extendedCamera->C452A8..C45693 finite weather stores;no Camera padding/default fallback");
     }

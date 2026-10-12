@@ -10,7 +10,7 @@ public sealed class SceneViewNativeMapSkyCloudTextureOwner : IAsyncDisposable
     private Sky2DeviceInput? staEntry2;
     private bool retiring;
     public SkyAppliedCloudTextureSet TextureSet { get; }
-    public SkyCloudSourceTextureGroup StaPlaneSource => sourceGroups.SkylightSta;
+    public SkyCloudSourceTextureGroup StaPlaneSource => sourceGroups.RequireAtmospherePlane();
 
     private SceneViewNativeMapSkyCloudTextureOwner(SkyAppliedSeasonCloudTextureSources groups,
         SkyAppliedCloudTextureSet imported, SkySceneTextures textures)
@@ -63,7 +63,7 @@ public sealed class SceneViewNativeMapSkyCloudTextureOwner : IAsyncDisposable
         Sky2DeviceInput[] descriptors=[inputs[6],inputs[5],staEntry2,inputs[4]];
         var entries=new PatternCameraStaReadyPlaneEntry[4];
         for(int index=0;index<entries.Length;index++)
-            entries[index]=new(sourceGroups.SkylightSta.Entries[index],descriptors[index],
+            entries[index]=new(sourceGroups.RequireAtmospherePlane().Entries[index],descriptors[index],
                 TextureSet.StaInputs[index].NativeViewFormat,RequireCurrentOwner);
         return Array.AsReadOnly(entries);
     }

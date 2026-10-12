@@ -14,11 +14,12 @@ public sealed class SkyAppliedCloudTextureSet
 
     private SkyAppliedCloudTextureSet(SkyAppliedSeasonCloudTextureSources sources)
     {
-        if(sources.Noise.Entries.Count!=3||sources.Cirrus.Entries.Count!=1||sources.SkylightSta.Entries.Count!=4)
+        var plane=sources.RequireAtmospherePlane();
+        if(sources.Noise.Entries.Count!=3||sources.Cirrus.Entries.Count!=1||plane.Entries.Count!=4)
             throw new InvalidDataException("Cloud requires three noise images, one cirrus image and four atmosphere Plane entries.");
         var noise=Read(sources.Noise);
         var cirrus=Read(sources.Cirrus);
-        var sta=Read(sources.SkylightSta);
+        var sta=Read(plane);
         SkyAppliedCloudTextureInput[] inputs=[new(0,"sBase",noise[0]),new(1,"sDetail",noise[1]),
             new(2,"sDistort",noise[2]),new(3,"sCirrus",cirrus[0]),
             new(4,"sSkyAmbientAltitude2dTable",sta[3]),new(5,"sTransmit2dTable",sta[1]),new(6,"sSctr3dTable",sta[0])];

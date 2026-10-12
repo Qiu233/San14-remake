@@ -79,7 +79,7 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
         pixel.Set("g_vSky2SunDir",M(rawSun.X,-1),M(rawSun.Y,-1),M(rawSun.Z,-1),R(0x230));
         pixel.Set("g_vSky2MoonRGB",M(current.MoonRgb.X,moon),M(current.MoonRgb.Y,moon),M(current.MoonRgb.Z,moon),moon);
         pixel.Set("g_vSky2MoonDir",M(rawMoon.X,-1),M(rawMoon.Y,-1),M(rawMoon.Z,-1),0);
-        var tables=present.AcceptedSeasonCamera.Inputs.Source.Transmittance.Tables;
+        var tables=present.AcceptedSeasonCamera.Inputs.Source.Transmittance.RequireTables();
         Vector4 rayleigh=new(M(tables.RayleighExtinction.X,.01f),M(tables.RayleighExtinction.Y,.01f),M(tables.RayleighExtinction.Z,.01f),0);
         if(R(0xD8)<1){var hsv=SkylightColorMath.RgbToHsv(rayleigh);hsv.Y=M(hsv.Y,R(0xD8));rayleigh=SkylightColorMath.HsvToRgb(hsv);}
         pixel.Set("g_vSky2RayleighExtinction",rayleigh.X,rayleigh.Y,rayleigh.Z,A(R(0x22C),R(0x228)));
@@ -129,7 +129,7 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
         Copy(0x168,0x720,2);Copy(0x170,0x728,2);Copy(0x178,0x730,2);Copy(0x180,0x738,3);
         Copy(0x218,0x744,4);Copy(0x198,0x764,2);Copy(0x1A8,0x76C,2);Copy(0x1B8,0x774,2);Copy(0x1C8,0x77C,4);
         foreach(int period in new[]{0xF0,0xF4,0xF8,0x130,0x134,0x138,0x168,0x16C,0x198,0x19C,0x1B8,0x1BC})v[period]=CloudSize(v[period]);
-        v[0x228]=present.AcceptedSeasonCamera.Inputs.Source.Transmittance.Tables.PlanetRadius;
+        v[0x228]=present.AcceptedSeasonCamera.Inputs.Source.Transmittance.RequireTables().PlanetRadius;
         return v;
     }
     private static float CloudSize(float value)=>value>=float.MaxValue?float.MaxValue:value>.0011920929f?value:.0011920929f;
