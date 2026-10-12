@@ -16,7 +16,7 @@ internal static class D3D11CurrentSeasonEncoding
     internal static byte[] WriteNative(D3D11CurrentSeasonFrame frame, D3D11CurrentHdrCatalog? hdr = null)
     {
         // Header32, Main3C0, sorted (int32 offset,uint32 bits) writes,
-        // then ordered light headers (object,mask,terrain scalar,shadow modes,reserved) and numeric light data,
+        // then ordered light headers (object,mask,terrain scalar,shadow modes,first-caster flags,reserved) and numeric light data,
         // Atmosphere316, current selected Exposure32, OUM1 texture material,
         // OBM1 bubble author settings, CRP3 Common policy, HFO1 layers, MSS1 stars,
         // SRC1 ordered per-light receiver bias, OPC1 camera and Pattern modifiers
@@ -44,6 +44,7 @@ internal static class D3D11CurrentSeasonEncoding
             BinaryPrimitives.WriteUInt32LittleEndian(bytes[(at + 8)..], BinaryPrimitives.ReadUInt32LittleEndian(light.CompleteData.Span[0xF24..]));
             bytes[at + 12] = light.Lighting.ShadowModes.Receive;
             bytes[at + 13] = light.Lighting.ShadowModes.Local;
+            bytes[at + 14] = light.CompleteData.Span[0xF1C];
             light.CompleteData.Span[..LightNumericBytes].CopyTo(bytes[(at + LightHeaderBytes)..]);
             at += LightHeaderBytes + LightNumericBytes;
         }

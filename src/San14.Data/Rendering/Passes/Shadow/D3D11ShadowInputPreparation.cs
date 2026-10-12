@@ -26,7 +26,6 @@ public sealed class D3D11ShadowInputPreparation
     private readonly LoadedDeferredEarlyShadowPreparationArgumentsSource arguments;
     private readonly LoadedDeferredEarlyShadowDirectionAuxSource directionAux;
     private readonly LoadedDeferredEarlyShadowForceFitSource forceFit;
-    private readonly DeferredEarlyShadowTaskModelCollection task;
     private readonly ModelQueueDepthState depth;
     private readonly uint clip;
     private readonly int[] sortFields;
@@ -44,7 +43,6 @@ public sealed class D3D11ShadowInputPreparation
         directionAux=DeferredEarlyShadowDirectionSource.ReadSourceCreatedTemplate(
             repository.LoadObjects("KIDSSystemResource",CommonRenderResources.SourceFileId));
         forceFit=LoadedDeferredEarlyShadowForceFitSource.Load(repository,locale);
-        task=LoadedDeferredEarlyShadowTaskModelCollectionSource.Load(repository).ReadTask(22);
         clip=MainMapCameraStartupSource.Load(repository,locale).StaticProjectionProfile;
         var queue=ReadShadowQueue(repository.LoadRenderGraph("system",0x024496EE));
         var entry=ModelRendererStateSourceReader.PrepareQueueDepth(queue,
@@ -159,15 +157,12 @@ public sealed class D3D11ShadowInputPreparation
                 writer.Write(forceFlag);writer.Write(predecessor.ShadowDepthDeclaration.Width);writer.Write(predecessor.ShadowDepthDeclaration.Height);
                 writer.Write(1u);writer.Write(compact.Mask22C);writer.Write((uint)selected.MaximumCasters);writer.Write(worlds.Length);writer.Write(input.Lights.Count);
                 for(int i=0;i<input.Lights.Count;i++){writer.Write(input.Lights[i].GroupMask);writer.Write(i);}
-                var view=task.CreateCurrentCaller(input.Common.FrameNumber,input.Common.SelectedViewOwnerIdentity,1,1,0,0,0);
                 foreach(var world in worlds)
                 {
-                    var caller=new DeferredEarlyShadowCurrentWorldCallerFields(uint.MaxValue,uint.MaxValue,uint.MaxValue,true,world.Exclusion,world.Flags,"fresh resource Model WorldPQ");
-                    var masks=DeferredEarlyShadowCasterAdmissionSource.ReadCurrentMasks(view,caller,
-                        input.Common.AuxiliaryPresent,input.Common.CommonFlags,world.Opacity);
-                    var light=masks.ShadowSlotEligible?input.Lights.FirstOrDefault(light=>(light.GroupMask&(world.Exclusion|input.Common.ModelExclusionMask!.Value))==0):null;
-                    uint allowed=light is not null&&DeferredEarlyShadowCasterSource.ReadFirstCasterGate(light.CurrentData.Span[0xF1C],(world.Flags&1)!=0)?15u:0u;
-                    writer.Write(world.Index);writer.Write(allowed);writer.Write(world.Exclusion);writer.Write(world.Flags);writer.Write(world.Opacity);writer.Write(world.PrimitiveCount);
+                    // Resource preparation has no successful View. Native
+                    // calculates current admission from this metadata and its
+                    // actual View, World masks and same-request ordered lights.
+                    writer.Write(world.Index);writer.Write(0u);writer.Write(world.Exclusion);writer.Write(world.Flags);writer.Write(world.Opacity);writer.Write(world.PrimitiveCount);
                 }
             }
             using(var writer=new BinaryWriter(File.Create(Path.Combine(output,"gpu-profile.bin"))))

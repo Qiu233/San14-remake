@@ -38,8 +38,22 @@ public:
         season_=source_current_season_shadow::prepareUnclampedCompact(season);
         source_current_season_shadow::publish(season_,cameras_[family_],parameters_[family_]);
     }
-    void prepareCamera(const source_camera::Frame& camera,const FieldDisplay& display) {
-        display.publishShadow(cameras_[family_],family_);
+    void publishCollectionAdmission(const source_current_season::Frame* current,
+        const MapViewCommonSettings& common,const NativeCityAreaPrimary& primary,
+        const NativeModelContinuous& field) {
+        auto& admission=cityGate_.value().admission[family_];
+        admission.commonExclusion404=common.excludedCategories;
+        if(current) {
+            admission.selectedRecord1BD0=season_.selectedLightGroup>0;
+            admission.lights.clear();admission.lights.reserve(current->lights.size());
+            for(const auto& light:current->lights)
+                admission.lights.push_back({light.mask,light.firstCasterFlags,0,0,0});
+        }
+        publishNativeCityAreaJointShadow(population_,*cityGate_,field,primary,cameras_,parameters_);
+    }
+    void prepareCamera(const source_camera::Frame& camera,const FieldDisplay& display,
+        const NativeModelCollectionCaller& caller) {
+        display.publishShadow(cameras_[family_],caller,cityGate_->admission[family_]);
         frame_=source_shadow_camera::prepareCurrent(cameras_[family_],camera,population_.catalog,history_);
     }
     void connectGeometry(const NativeModelInputs& field,const NativeModelInputs& primaries) {

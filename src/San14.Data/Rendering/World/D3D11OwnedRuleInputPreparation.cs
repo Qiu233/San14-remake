@@ -55,6 +55,16 @@ public static class D3D11OwnedRuleInputPreparation
         }
         CommonRenderPolicyEncoding.WriteNativeInputs(directory,
             CommonRenderPolicy.FromAuxiliary(common.InitialAuxiliary));
+        // These are only the actual TGK21 collection arguments. The Native
+        // View owner supplies registration, preparation success and inherited
+        // masks when the corresponding normal operations actually complete.
+        var collections=LoadedDeferredEarlyShadowTaskModelCollectionSource.Load(repository);
+        var collection=collections.ReadTask(21);
+        File.WriteAllText(Path.Combine(directory,"collection-masks.txt"),
+            FormattableString.Invariant($"{collection.FirstMask} {collection.SecondMask} {collection.ShadowMask}\n"));
+        var fieldCollection=collections.ReadTask(22);
+        File.WriteAllText(Path.Combine(directory,"field-collection-masks.txt"),
+            FormattableString.Invariant($"{fieldCollection.FirstMask} {fieldCollection.SecondMask} {fieldCollection.ShadowMask}\n"));
     }
 
     public static void WriteWeather(string directory, SkySeasonMainCameraRgbFrame camera,

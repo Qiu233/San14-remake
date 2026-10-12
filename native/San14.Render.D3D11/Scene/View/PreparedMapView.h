@@ -1,5 +1,6 @@
 #pragma once
 #include "MapViewPopulation.h"
+#include "ViewCollectionState.h"
 #include "HdrViewInputs.h"
 #include "PreparedViewBaseLight.h"
 #include "../../Passes/Environment/SeasonFrame.h"
@@ -20,12 +21,17 @@ struct MapViewShadowSelection {
 // attempts. Successful preparation returns a new frame for a View generation.
 class MapViewPreparation {
 public:
-    explicit MapViewPreparation(ImportedMapView imported)
+    MapViewPreparation(ImportedMapView imported,ModelCollectionMasks cities,ModelCollectionMasks field)
         :definition_(std::move(imported.definition)),camera_(imported.camera),
-         initialReceiveShadowMode_(imported.initialReceiveShadowMode){}
+         initialReceiveShadowMode_(imported.initialReceiveShadowMode),collection_(cities,field){}
     MapViewPreparation(const MapViewPreparation&)=delete;
     MapViewPreparation& operator=(const MapViewPreparation&)=delete;
 
+    void registerView(std::uint32_t slot) {collection_.registerView(slot);}
+    PreparedModelCollectionCallers prepareCollectionCallers() const {
+        return collection_.prepare(definition_.common.present,definition_.common.featureFlags);
+    }
+    void commitCollectionCallers(const PreparedModelCollectionCallers& prepared) noexcept {collection_.commit(prepared);}
     void beginPopulation(const std::vector<unsigned>& shadowCounts) { ordinaryCounts_=shadowCounts; }
     template<class Append> void withArmyPopulation(Append&& append) {
         append(definition_,ordinaryCounts_,accessoryCount_);
@@ -67,6 +73,7 @@ private:
     const MapViewDefinition definition_;
     MapViewCameraSettings camera_;
     const std::uint32_t initialReceiveShadowMode_;
+    ViewCollectionState collection_;
     std::vector<unsigned> ordinaryCounts_;
     unsigned accessoryCount_{};
     // The normal constructor owns fresh empty group pools. Generations capture

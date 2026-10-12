@@ -15,6 +15,15 @@ public static class CeGateModels
     public static SceneModelReference ResolveByCategory(
         GameResourceRepository repository, LoadedSceneResources scene, int category)
     {
+        var links = LoadTextureResourcesByCategory(repository, scene, category);
+        return new(links.Dictionary, links.ModelObject, links.Model.Source.FileId);
+    }
+
+    /// <summary>Resolve the category's actual WorldPQ definition directly.
+    /// Different definitions may legally reference the same immutable model.</summary>
+    public static LoadedModelTextureResources LoadTextureResourcesByCategory(
+        GameResourceRepository repository, LoadedSceneResources scene, int category)
+    {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(scene);
         if (scene.Scene.Source.FileId != FieldSceneId ||
@@ -32,6 +41,6 @@ public static class CeGateModels
         DokObject model = links.ModelObject;
         if (model.Kind != DokObjectKind.Inline || model.ClassId != ModelClass)
             throw new InvalidDataException($"CE gate category {category} has no inline G1M model object.");
-        return new(dictionary, model, links.Model.Source.FileId);
+        return links;
     }
 }

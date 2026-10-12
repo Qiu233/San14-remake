@@ -74,7 +74,10 @@ public:
         initialHeightFog_ = Interop::readHeightFogSettings(
             resources.directory(ResourceGroup::Atmosphere) / "initial-height.bin");
         viewPreparation_.emplace(Interop::readMapViewProfile(
-            resources.directory(ResourceGroup::View) / "profile.bin"));
+            resources.directory(ResourceGroup::View) / "profile.bin"),
+            readModelCollectionMasks(resources.directory(ResourceGroup::View)/"collection-masks.txt"),
+            readModelCollectionMasks(resources.directory(ResourceGroup::View)/"field-collection-masks.txt"));
+        viewPreparation_->registerView(0);
         initialCommonPolicy_=Interop::readCommonRenderPolicy(
             resources.directory(ResourceGroup::View) / "common-render-policy.bin");
     }
@@ -110,10 +113,16 @@ public:
     void preparePopulation(ID3D11DeviceContext* context,StaticModelResources& models,
         BaseRenderWorld& bases,ArmyRenderWorld& armies,ShadowPass& shadows,
         ground_details::GroundDetails& groundDetails,const NativeFrameClockPublication& clock,UINT settingsFlags) {
+        // Prepare this actual camera before deriving the collection admission.
+        // Counters are produced by the single following World collection.
+        auto camera=prepareNativeDeferredCameraFields(cameraRig_.frame());
+        auto& view=*viewPreparation_;
+        const auto callers=view.prepareCollectionCallers();
+        bases.publishCollectionCaller(callers.cities);
+        shadows.publishCollectionAdmission(season_,view.definition().common,bases.primary(),models.catalog());
         models.selectCamera(cameraRig_.frame(),fieldDisplay_);
         bases.selectCamera(cameraRig_.frame());
-        shadows.prepareCamera(cameraRig_.frame(),fieldDisplay_);
-        auto& view=*viewPreparation_;
+        shadows.prepareCamera(cameraRig_.frame(),fieldDisplay_,callers.field);
         view.beginPopulation(shadows.frame().ordinaryRecordCounts);
         bases.withAccessories([&](auto& cityAccessories,auto& areaAccessories) {
             view.withArmyPopulation([&](const auto& profile,auto& counts,auto& accessoryCount) {
@@ -130,7 +139,7 @@ public:
         const auto& groundPopulation=groundDetails.prepare({cameraRig_.frame(),
             environment_.vegetation(),clock,
             {view.definition().common.present,view.definition().common.featureFlags,view.definition().common.excludedCategories},settingsFlags,
-            {groundCaller.callerFirst,groundCaller.callerSecond,groundCaller.callerShadow,groundCaller.registered3330,groundCaller.successful3340,0},
+            {groundCaller.firstMask,groundCaller.secondMask,groundCaller.shadowMask,groundCaller.registeredViews,groundCaller.successfulViews,0},
             {mode.sceneMode,mode.zoomLevel,true,false,0},season_?season_->season:0});
         view.addGroundDetails(groundPopulation.seasonPopulationChanged,
             [&](unsigned mask) { return groundDetails.preparedCountForRecord(mask); });
@@ -149,7 +158,6 @@ public:
                 current.planeScale,current.selectedMask,season_->shadow.compactMode});
         }
         auto frame = view.preparePopulation(std::move(population), shadow);
-        auto camera = prepareNativeDeferredCameraFields(cameraRig_.frame());
         const auto& heightFog = season_ ? season_->heightFog : initialHeightFog_;
         std::array<std::uint32_t, 3> modes;
         for (std::size_t i = 0; i < modes.size(); ++i) modes[i] = heightFog.layers[i].mode;
@@ -170,6 +178,7 @@ public:
         fieldDisplay_.finishPreparation();
         deferredFields_ = std::move(camera);
         mapView_ = std::move(prepared);
+        view.commitCollectionCallers(callers);
     }
     // Scene publication follows the actual View construction operation and
     // precedes Main traversal. Repeated queries never trigger publication.

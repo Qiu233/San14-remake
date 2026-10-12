@@ -127,13 +127,7 @@ public sealed class D3D11AreaCapitalSource
     }
     MapStaticModelAsset Template(int category){
         if(templates.TryGetValue(category,out var held))return held;
-        uint definition=category==59?0x17464C92u:0x13D7C146u;
-        var dictionary=scene.Dependencies.Single(d=>d.Resource.Source.FileId==0xE755DAEE).Resource;
-        var resources=ModelTextureResources.LoadForDefinition(repo,dictionary,scene.ModelCatalog,definition);
-        // Preserve the original WorldPQ catalog fields even though the generic
-        // reference API loads the common immutable model/mesh/texture chain.
-        var asset=assets.LoadReference(new(dictionary,resources.ModelObject,resources.Model.Source.FileId),"capital-category:"+category)
-            with{TextureResources=resources};templates.Add(category,asset);return asset;
+        var asset=assets.LoadCapitalCategory(category);templates.Add(category,asset);return asset;
     }
     static float F(byte[] b,int at)=>BinaryPrimitives.ReadSingleLittleEndian(b.AsSpan(at,4));
 }

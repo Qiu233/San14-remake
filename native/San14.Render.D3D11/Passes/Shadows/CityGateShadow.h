@@ -3,13 +3,7 @@
 // Import/device preparation stays once; this helper owns no GPU objects.
 #pragma once
 
-struct NativeCityGateShadowLight {
-    unsigned mask{},f1C{},f1F{},f20{},wrapper0{};
-};
-struct NativeCityGateShadowAdmission {
-    unsigned commonExclusion404{},selectedRecord1BD0{};
-    std::vector<NativeCityGateShadowLight> lights;
-};
+#include "ModelShadowAdmission.h"
 struct NativeCityGateShadowSource {
     unsigned fieldOwners{},fieldPrimitives{},fieldTemplates{},primaryBase{},primaryTemplates{};
     std::array<NativeCityGateShadowAdmission,2> admission;
@@ -33,18 +27,6 @@ inline NativeCityGateShadowSource loadNativeCityGateShadowSource(const fs::path&
             light.f1F=primaryRead<unsigned>(rows);light.f20=primaryRead<unsigned>(rows);light.wrapper0=primaryRead<unsigned>(rows);}
     }
     return source;
-}
-
-inline unsigned nativeCityGateFirstCasterMask(const NativeCityGateShadowAdmission& source,
-        const NativeCityModelAdmission& world) {
-    const auto masks=nativeCityModelCurrentMasks(world);
-    if(!masks.shadowSlot||!source.selectedRecord1BD0)return 0;
-    for(const auto& light:source.lights)if((light.mask&(world.exclusion78|source.commonExclusion404))==0) {
-        // Original C39F88..FC1, including the actual signed10C gate above.
-        const bool bit0=(unsigned(world.caster10C)&1)!=0;
-        return (light.f1C&1)&&((light.f1C&2)?!bit0:bit0)?15u:0u;
-    }
-    return 0;
 }
 
 inline void updateNativeCityGateJointShadowCatalog(NativeJointPopulationShadow& joint,
@@ -77,13 +59,13 @@ inline void publishNativeCityGateJointShadowProfile(const NativeCityGateShadowSo
     profile.worlds.resize(source.fieldOwners+61);
     for(unsigned i=0;i<61;++i) {
         const auto& instance=cities.catalog.instances[i];const auto& world=cities.worlds[i];
-        const auto masks=nativeCityModelCurrentMasks(world);
+        const auto masks=nativeCityModelCurrentMasks(world,cities.caller);
         source_shadow_camera::World current;
         current.index=source.primaryBase+i;
-        current.allowedMask=cities.present[i]?nativeCityGateFirstCasterMask(source.admission[family],world):0;
+        current.allowedMask=cities.present[i]?nativeCityGateFirstCasterMask(source.admission[family],world,cities.caller):0;
         current.exclusion=world.exclusion78;current.flags=world.caster10C;current.opacity=world.opacityB0;
         current.primitiveCount=instance.primitiveCount;
-        current.ordinaryFirstMask=cities.present[i]&&masks.firstSlot?masks.first&world.successful3340:0;
+        current.ordinaryFirstMask=cities.present[i]&&masks.firstSlot?masks.first&cities.caller.successfulViews:0;
         profile.worlds[source.fieldOwners+i]=current;
     }
 }

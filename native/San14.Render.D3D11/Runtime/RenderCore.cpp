@@ -275,7 +275,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         // Prepare the held World once; accepted camera requests reuse this owner.
         territory.prepareZones(resources.directory(ResourceGroup::TerritoryZones));
         staticModels.emplace(modelSource);
-        bases.preparePrimary(device.Get(),resources,host.areaCapitalWorld);
+        bases.preparePrimary(device.Get(),resources,host.cityGateWorld,host.areaCapitalWorld);
         groundDetails.prepareResources(device.Get(),resources.directory(ResourceGroup::GroundDetails),
             frameState.season()?resources.directory(ResourceGroup::SeasonalGroundDetails):fs::path{});
         frameState.prepareWeatherProfile(resources);

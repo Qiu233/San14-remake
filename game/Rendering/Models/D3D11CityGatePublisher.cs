@@ -26,8 +26,8 @@ public sealed record D3D11CityGatePublication(ulong Revision,D3D11CityGateWorldF
     }
 }
 
-/// <summary>Thin actual game adapter for the same source61 population used by
-/// the independent D3D11 experiment. No AreaCapital owner is created here.</summary>
+/// <summary>Publishes current City/Gate instances against their prepared
+/// resources. AreaCapital has its own population publisher.</summary>
 public sealed class D3D11CityGatePublisher
 {
     readonly D3D11CityGateWorldSource source;
@@ -36,10 +36,10 @@ public sealed class D3D11CityGatePublisher
     public D3D11CityGateTemplateBank PreparedBank{get;}
     public D3D11CityGatePublisher(GameResourceRepository repository,LoadedSceneResources scene,LoadedScenario scenario,
         LoadedMap map,NewGameOptions options,Func<GameState,SourceWorldContext?> actualCurrentContextProducer,
-        string primaryTemplateBank,string accessorySource)
+        D3D11CityGateTemplateBank primaryTemplateBank,CityGateAccessoryResources accessories)
     {
-        PreparedBank=D3D11CityGateTemplateBank.LoadImported(primaryTemplateBank);
-        source=new(repository,scene,scenario,map,options,PreparedBank,accessorySource,actualCurrentContextProducer);
+        PreparedBank=primaryTemplateBank;
+        source=new(repository,scene,scenario,map,options,PreparedBank,accessories,actualCurrentContextProducer);
     }
     /// <summary>Call at actual glyph/material creation or replacement completion,
     /// using its real Force/color49/oneUTF16 key. A force ID alone is insufficient.</summary>

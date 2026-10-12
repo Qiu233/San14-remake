@@ -33,7 +33,7 @@ public sealed class D3D11CityGatePrimarySource
     public D3D11CityGatePrimarySource(GameResourceRepository repository,LoadedSceneResources scene,LoadedScenario scenario,
         LoadedMap map,NewGameOptions options)
     {
-        Variants=CeCityVariantTable.LoadCurrent("TC");
+        Variants=CeCityVariantTable.LoadCurrent(scenario.Snapshot.Locale);
         Descriptors=CityOpeningPostLoadSource.LoadSourceCreatedOrdinary(repository,scenario,map,options,Variants)
             .CreateCurrentDescriptorOwner(Variants);
         Assets=new(repository,scene);cities=new(repository,scene,Variants);

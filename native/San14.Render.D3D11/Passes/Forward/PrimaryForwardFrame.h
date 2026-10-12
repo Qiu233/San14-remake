@@ -93,12 +93,11 @@ inline NativePrimaryForwardFrame prepareNativePrimaryForwardCurrent(const Native
         if (!retained.eligible) continue;
         const auto& binding = currentWorld.templates.at(primitive.templateIndex);
         const auto& world = currentWorld.worlds.at(primitive.instanceIndex);
-        const auto masks = nativeCityModelCurrentMasks(world);
+        const auto masks = nativeCityModelCurrentMasks(world,currentWorld.caller);
         bool supplied = false;
         for (std::size_t record = 0; record < view.records.size(); ++record) {
             const auto mask = view.records[record].groupMask;
-            if ((binding.allowedRecords & (1u << record)) == 0 ||
-                (masks.first & world.successful3340 & mask) == 0) continue;
+            if (!nativePrimaryRecordAdmitted(masks,binding.allowedRecords,unsigned(record))) continue;
             for (const auto& outer : current.lights) {
                 if (outer.mask & exclusion) continue;
                 for (const auto& inner : current.lights) {

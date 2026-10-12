@@ -41,6 +41,33 @@ public sealed class MapStaticModelAssetCatalog
         return Add(key, city.Reference, city.Model, city.TextureResources);
     }
 
+    /// <summary>Prepare a declared city category without inventing a current
+    /// City selection or a campaign owner. Identity is shared with LoadCity.</summary>
+    public MapStaticModelAsset LoadCityCategory(int category)
+    {
+        string key = "city-category:" + category;
+        if (_assets.TryGetValue(key, out var cached)) return cached;
+        var resources = CeCityModels.LoadTextureResourcesByCategory(_repository, Scene, category);
+        return Add(key, new(resources.Dictionary, resources.ModelObject, resources.Model.Source.FileId),
+            LoadRaw(resources), resources);
+    }
+
+    /// <summary>Import the actual port/prefecture definition and preserve its
+    /// WorldPQ material and transform fields in the shared category asset.</summary>
+    public MapStaticModelAsset LoadCapitalCategory(int category)
+    {
+        uint definition = category switch
+        {
+            59 => 0x17464C92u,
+            60 => 0x13D7C146u,
+            _ => throw new ArgumentOutOfRangeException(nameof(category))
+        };
+        var dictionary = Scene.Dependencies.Single(d => d.Resource.Source.FileId == 0xE755DAEE).Resource;
+        var resources = ModelTextureResources.LoadForDefinition(_repository, dictionary, Scene.ModelCatalog, definition);
+        return LoadReference(new(dictionary, resources.ModelObject, resources.Model.Source.FileId),
+            "capital-category:" + category) with { TextureResources = resources };
+    }
+
     public MapStaticModelAsset LoadSceneInstance(int instanceIndex)
     {
         if ((uint)instanceIndex >= Scene.Instances.Count) throw new ArgumentOutOfRangeException(nameof(instanceIndex));
@@ -70,7 +97,13 @@ public sealed class MapStaticModelAssetCatalog
     }
 
     public MapStaticModelAsset LoadGate(int category)
-        => LoadCatalogReference(CeGateModels.ResolveByCategory(_repository, Scene, category), "gate-category:" + category);
+    {
+        var resources = CeGateModels.LoadTextureResourcesByCategory(_repository, Scene, category);
+        var reference = new SceneModelReference(resources.Dictionary, resources.ModelObject, resources.Model.Source.FileId);
+        string key = $"catalog-reference:gate-category:{category}:{reference.Dictionary.Source.ResourceUri}/{reference.Dictionary.Source.DecodedSha256}/{reference.ModelObject.ObjectId:X8}/{reference.ModelFileId:X8}";
+        if (_assets.TryGetValue(key, out var cached)) return cached;
+        return Add(key, reference, LoadRaw(resources), resources);
+    }
 
     public MapStaticModelAsset LoadFacility(int objectDefinitionSlot, bool completed)
     {

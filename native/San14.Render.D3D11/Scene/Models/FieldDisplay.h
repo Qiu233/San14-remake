@@ -1,5 +1,6 @@
 #pragma once
 #include "FieldDisplayFrame.h"
+#include "../../Passes/Shadows/ModelShadowAdmission.h"
 #include <algorithm>
 
 namespace San14::Render {
@@ -9,7 +10,6 @@ class FieldDisplay {
     std::vector<source_far_main::RegistryEntry> entries;
     std::vector<source_far_main::CurrentModelMasks> owned,current;
     std::vector<int> sourceIndexToOrdinal;
-    std::array<std::vector<uint32_t>,2> sourceShadowMasks;
 public:
     template<class Catalog,class Profiles>
     void bind(const source_far_main::Profile& source,const Catalog& field,const Profiles& shadows) {
@@ -27,15 +27,12 @@ public:
         if(std::find(found.begin(),found.end(),false)!=found.end())
             throw std::runtime_error("Field registry omits a loaded Model identity");
         for(auto& masks:owned)source_far_main::restoreNormalWorldMasks(masks);
-        for(size_t family=0;family<sourceShadowMasks.size();++family){
-            const auto& worlds=shadows[family].worlds;auto& masks=sourceShadowMasks[family];
+        for(size_t family=0;family<shadows.size();++family) {
+            const auto& worlds=shadows[family].worlds;
             if(worlds.size()<entries.size())throw std::runtime_error("Field shadow registry is incomplete");
-            masks.resize(entries.size());
-            for(size_t i=0;i<entries.size();++i){
+            for(size_t i=0;i<entries.size();++i)
                 if(worlds[i].index!=entries[i].sourceIndex||worlds[i].primitiveCount!=entries[i].primitiveCount)
                     throw std::runtime_error("Field shadow and Model registry identities differ");
-                masks[i]=worlds[i].allowedMask;
-            }
         }
     }
     void capture(const source_far_main::Current& frame) {
@@ -55,10 +52,16 @@ public:
         }),plan.draws.end());
     }
     template<class Profile>
-    void publishShadow(Profile& profile,unsigned family)const {
-        for(size_t i=0;i<entries.size();++i){
-            profile.worlds[i].allowedMask=sourceShadowMasks[family][i]&current[i].shadow;
-            profile.worlds[i].ordinaryFirstMask=current[i].first;
+    void publishShadow(Profile& profile,const NativeModelCollectionCaller& caller,
+        const NativeCityGateShadowAdmission& admission) const {
+        for(size_t i=0;i<entries.size();++i) {
+            auto& row=profile.worlds[i];const auto& masks=current[i];
+            NativeModelWorldAdmission world{masks.first,masks.second,masks.shadow,1,
+                row.exclusion,row.flags,row.opacity};
+            const auto admitted=nativeCityModelCurrentMasks(world,caller);
+            // Cold profile allowed bits are not a current View admission.
+            row.allowedMask=nativeCityGateFirstCasterMask(admission,world,caller);
+            row.ordinaryFirstMask=admitted.firstSlot?admitted.first&caller.successfulViews:0;
         }
     }
     void finishPreparation(){for(auto& masks:owned)source_far_main::restoreNormalWorldMasks(masks);}

@@ -36,25 +36,22 @@ public sealed class D3D11CityGateWorldSource
     readonly UnitWorldTransformState accessoryRoot;
     readonly MapModelNativePreparedBounds accessoryBounds;
     readonly UnitGeometry geometry=new();
-    readonly Vector4[][] offsets;
+    readonly CityGateAccessoryResources accessoryResources;
     GameState? lastWorld;object? lastNodes,lastGates;uint lastMode;
     object? lastCities,lastGateStates,lastForces,lastDistricts,lastOfficers,lastTerritory,lastAreas,lastParameters,lastNativeForces,lastStructures;
     D3D11CityGateWorldFrame? current;
     public D3D11CityGatePrimarySource Primaries{get;}
 
     public D3D11CityGateWorldSource(GameResourceRepository repository,LoadedSceneResources scene,LoadedScenario scenario,
-        LoadedMap map,NewGameOptions options,D3D11CityGateTemplateBank preparedBank,string accessoryInput,
+        LoadedMap map,NewGameOptions options,D3D11CityGateTemplateBank preparedBank,CityGateAccessoryResources accessories,
         Func<GameState,SourceWorldContext?> actualCurrentContextProducer)
     {
         bank=preparedBank;capture=actualCurrentContextProducer;Primaries=new(repository,scene,scenario,map,options);names=ArmyFlagPaneNames.Load(scenario);
-        var accessory=LoadedCityGateAccessoryAnimation.Load(repository);accessoryRoot=accessory.DefinitionRoot;
+        accessoryResources=accessories;
+        var accessory=accessories.Animation;accessoryRoot=accessory.DefinitionRoot;
         var h=accessory.Model.Geometry.RawGeometryHeader;
         accessoryBounds=MapModelNativeBoundsSources.PrepareHeader(new(F(h,20),F(h,24),F(h,28)),new(F(h,32),F(h,36),F(h,40)),
             accessory.Model.Source.ResourceUri,accessory.Model.Source.DecodedSha256);
-        offsets=Enumerable.Range(0,6).Select(style=>{
-            byte[] bytes=File.ReadAllBytes(Path.Combine(accessoryInput,"manager-offsets",$"style-{style}.bin"));
-            if(bytes.Length!=new[]{16,12,20,4,4,2}[style]*16)throw new InvalidDataException("Actual manager offset source table extent differs.");
-            return Enumerable.Range(0,bytes.Length/16).Select(i=>new Vector4(F(bytes,i*16),F(bytes,i*16+4),F(bytes,i*16+8),F(bytes,i*16+12))).ToArray();}).ToArray();
     }
     public D3D11CityGateWorldFrame Capture(GameState world,uint commonFrustumMode,
         IReadOnlyDictionary<string,MapStaticModelPublication>? actualNodes=null,
@@ -97,11 +94,12 @@ public sealed class D3D11CityGateWorldSource
                 material=new(force,color,pane.Glyph.TwoUtf16Units[0]);
             }catch(InvalidDataException error){missing.Add(new(owner.Identity,"flag-material",error.Message));}}
             int style=city?Primaries.Variants.VariantForCitySlot(owner.PhysicalSlot):5,start=city?FirstOffset(owner.Category):0;
+            var offsets=accessoryResources.GetOffsets(style);
             var root=owner.Instance.SourceWorldState!;float heading=owner.Gate?.Definition.Heading70??0;int requested=city?4:2;
             units.Add(new(owner.Index,owner.Identity+"/accessory",force,requested,style,start,root.Position18,root.Quaternion24,heading,pane,material));
             for(int ordinal=0;ordinal<requested;ordinal++){
-                if(start+ordinal>=offsets[style].Length){missing.Add(new(owner.Identity,"manager-offset","Actual current source offset unavailable."));break;}
-                var offset=offsets[style][start+ordinal];var pose=city?CityPose(accessoryRoot,root.Position18,offset,geometry):GatePose(accessoryRoot,root.Position18,root.Quaternion24,heading,offset,geometry);
+                if(start+ordinal>=offsets.Count){missing.Add(new(owner.Identity,"manager-offset","Actual current source offset unavailable."));break;}
+                var offset=offsets[start+ordinal];var pose=city?CityPose(accessoryRoot,root.Position18,offset,geometry):GatePose(accessoryRoot,root.Position18,root.Quaternion24,heading,offset,geometry);
                 placements.Add((owner.Index,ordinal,pose,MapModelNativeBoundsSources.BuildSingleNode(accessoryBounds,pose,false,false)));
             }
         }

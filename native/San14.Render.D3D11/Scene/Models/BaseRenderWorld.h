@@ -17,8 +17,11 @@ public:
     BaseRenderWorld& operator=(const BaseRenderWorld&)=delete;
 
     void preparePrimary(ID3D11Device* device,const PreparedResourceDirectories& resources,
+        const std::optional<CityGateWorldPublication>& cityWorld,
         const std::optional<AreaCapitalWorldPublication>& areaWorld) {
-        cityModels=prepareNativeCityPopulation(device,resources.directory(ResourceGroup::BaseVisuals)/"primary-templates");
+        if(!cityWorld)throw std::runtime_error("Native Main requires its actual initial City/Gate publication");
+        cityModels=prepareNativeCityPopulation(device,resources.directory(ResourceGroup::BaseVisuals)/"primary-templates",
+            readNativeBaseVisualPrimary(cityWorld->primary.data(),cityWorld->primary.size()));
         if(!areaWorld)throw std::runtime_error("Native Main requires its actual Area Capital publication");
         const auto& initialAreas=*areaWorld;
         areaModels=prepareNativeAreaPrimaryPopulation(device,cityModels,
@@ -85,6 +88,9 @@ public:
         operation(cityAccessories,areaAccessories);
     }
 
+    void publishCollectionCaller(const NativeModelCollectionCaller& caller) {
+        cityModels.source.caller=caller;areaModels.source.caller=caller;primaryModels.source.caller=caller;
+    }
     void selectCamera(const source_camera::Frame& staticCamera) {
         cityPlan=selectNativeCityPopulation(primaryModels.source,staticCamera);
     }

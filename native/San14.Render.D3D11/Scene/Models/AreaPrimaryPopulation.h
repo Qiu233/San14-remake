@@ -4,11 +4,14 @@
 
 inline NativeCityPopulationSource prepareNativeAreaPrimarySource(
         const NativeCityPopulationSource& bank,const std::vector<NativePrimaryUpdate>& current,
-        const std::vector<std::string>& identities,const NativeCityModelAdmission& caller) {
+        const std::vector<std::string>& identities,const NativeModelCollectionCaller& caller) {
     if(current.size()!=identities.size())throw std::runtime_error("Area current roster/identity count differs");
     NativeCityPopulationSource out;
     out.assets=bank.assets;out.templates=bank.templates;out.caller=caller;
-    out.recordCount=bank.recordCount;out.maxDraws=7;
+    out.recordCount=bank.recordCount;
+    for(const auto& asset:bank.assets)if(asset.category==59||asset.category==60)
+        out.maxDraws=std::max(out.maxDraws,unsigned(asset.draws.size()));
+    out.commonMode=bank.commonMode;out.sortFields=bank.sortFields;
     out.catalog.templateCount=bank.catalog.templateCount;out.catalog.commonMode=bank.catalog.commonMode;
     out.catalog.sortFields=bank.catalog.sortFields;out.catalog.instances.resize(current.size());
     out.worlds.resize(current.size());out.currentAssets.resize(current.size());out.present.resize(current.size());

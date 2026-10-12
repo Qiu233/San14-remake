@@ -89,10 +89,21 @@ public partial class MapSceneView
             // are shared by all current graphics actions.
             ArmyGraphicsAnimationNativeInputs.Write(_repository,new ArmyGraphicsActions(_repository),
                 Path.Combine(inputs,"army-graphics-action-input"));
+            var initialModelCommon = MapCommonRenderState.FromSettings(
+                CommonRenderResources.ImportSettings(_repository.LoadObjects("KIDSSystemResource",CommonRenderResources.SourceFileId)),
+                frame.Camera.FrameNumber,"map-model/settings","map-model/common","map-model/view","initial-resource-preparation");
+            var initialContext = MainMapContextOwnerSource.LoadFreshHostDefaults(_text.SourceLocale);
+            var primaryTemplates = D3D11CityGateTemplateBank.Prepare(_repository,scene,frame.Camera,
+                initialModelCommon,initialContext.ContextFlags3E4,
+                MapSourceCreatedWorldKind1Publication.ReadSeasonSourceRecords(seasonResources.Source.DirectionalDeclarations),
+                sceneMedia.FieldModels.ShaderTableOwners,Path.Combine(inputs,"base-visual-world-input","primary-templates"));
+            primaryTemplates.WriteNativeInputs();
+            var cityAccessories = CityGateAccessoryResources.Load(_repository,scene);
+            cityAccessories.WriteNativeInputs(Path.Combine(inputs,"city-accessory-input"));
             var cityGatePublisher = new D3D11CityGatePublisher(_repository, scene, _repository.LoadScenario(scenarioMetadata), _repository.LoadCeMap(),
                 _logicalWorld!.NewGameOptions!, _d3d11CurrentWorldQueries ??
                     throw new InvalidDataException("Native City/Gate visuals require the current campaign query owner."),
-                Path.Combine(inputs, "base-visual-world-input", "primary-templates"), Path.Combine(inputs, "city-accessory-input"));
+                primaryTemplates,cityAccessories);
             _d3d11CityGate = cityGatePublisher;
             _d3d11AreaCapital = new(_repository, scene, _repository.LoadScenario(scenarioMetadata),
                 cityGatePublisher.PreparedBank, _d3d11CurrentWorldQueries);

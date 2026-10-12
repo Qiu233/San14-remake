@@ -3,17 +3,7 @@
 // current accepted Camera supplies original prefix/planes and complete CBs.
 #pragma once
 
-struct NativeCityModelAdmission {
-    std::uint32_t registered3330{},successful3340{},callerFirst{},callerSecond{},callerShadow{};
-    std::uint32_t world328{},world32C{},world330{},eligibility{},exclusion78{};
-    std::int32_t caster10C{};
-    float opacityB0{};
-    std::uint32_t common240Present{},commonFlags8{};
-};
-struct NativeCityModelMasks {
-    std::uint32_t first{},second{},shadow{};
-    bool firstSlot{},secondSlot{},shadowSlot{};
-};
+#include "CityModelAdmission.h"
 struct NativeCityModelSource {
     NativeModelContinuous catalog;
     std::vector<unsigned> queues;
@@ -33,21 +23,6 @@ struct NativeCityModelQueues {
     NativeModelInputs ordinary54,alpha55;
 };
 
-inline NativeCityModelMasks nativeCityModelCurrentMasks(const NativeCityModelAdmission& a) {
-    // Actual DB5A60 -> DB866B -> C3937F..39B. Ordinary and shadow masks
-    // are distinct; shadow eligibility does not use the Main frustum.
-    NativeCityModelMasks r;
-    r.first=a.eligibility?a.callerFirst&a.world328:0;
-    r.second=a.eligibility?a.callerSecond&a.world32C:0;
-    r.shadow=a.eligibility&&a.caster10C>=0?a.callerShadow&a.world330:0;
-    if(a.common240Present&&(a.commonFlags8&0x800)==0)r.shadow=0;
-    // COMISS source accepts unordered opacity, as does the typed source.
-    const bool opacity=!(a.opacityB0<=0.f);
-    r.firstSlot=opacity&&(r.first&a.successful3340)!=0;
-    r.secondSlot=opacity&&(r.second&a.successful3340)!=0;
-    r.shadowSlot=opacity&&(r.shadow&a.successful3340)!=0;
-    return r;
-}
 inline NativeCityModelSource prepareNativeCityModelSource(const fs::path& directory) {
     NativeCityModelSource r;r.catalog=prepareNativeModelContinuous(directory);
     std::ifstream queues(directory/"queues.txt");unsigned queue;

@@ -22,12 +22,12 @@ inline void publishNativeCityAreaJointShadow(NativeJointPopulationShadow& joint,
     for(unsigned family=0;family<camera.size();++family) {
         auto& profile=camera[family];profile.worlds.resize(fieldOwners+primary.source.worlds.size());
         for(unsigned i=0;i<primary.source.worlds.size();++i) {
-            const auto& world=primary.source.worlds[i];const auto masks=nativeCityModelCurrentMasks(world);
+            const auto& world=primary.source.worlds[i];const auto masks=nativeCityModelCurrentMasks(world,primary.source.caller);
             source_shadow_camera::World row;
             row.index=primaryBase+i;row.exclusion=world.exclusion78;row.flags=world.caster10C;
             row.opacity=world.opacityB0;row.primitiveCount=primary.source.catalog.instances[i].primitiveCount;
-            row.allowedMask=primary.source.present[i]?nativeCityGateFirstCasterMask(source.admission[family],world):0;
-            row.ordinaryFirstMask=primary.source.present[i]&&masks.firstSlot?masks.first&world.successful3340:0;
+            row.allowedMask=primary.source.present[i]?nativeCityGateFirstCasterMask(source.admission[family],world,primary.source.caller):0;
+            row.ordinaryFirstMask=primary.source.present[i]&&masks.firstSlot?masks.first&primary.source.caller.successfulViews:0;
             profile.worlds[fieldOwners+i]=row;
         }
         source_shadow_gpu::bindCatalog(gpu[family],joint.catalog);

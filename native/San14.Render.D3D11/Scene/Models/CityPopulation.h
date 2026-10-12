@@ -3,43 +3,14 @@
 // requests perform no original-file reads or device-object creation.
 #pragma once
 #include <map>
-struct NativePrimaryAssetDraw {
-    unsigned draw{},templateIndex{},queue{},finalTable{},allowedRecords{},shaderFile{},vs{},ps{};
-    std::uint64_t table{};
-    std::array<char,160> vertex{};std::array<char,80> pixel{};
-};
-struct NativePrimaryAsset {
-    unsigned category{},unsupported{},exclusion{};float forceDistance{},bias{};
-    std::vector<NativePrimaryAssetDraw> draws;
-};
-struct NativePrimaryPoseRows {unsigned draw{};std::array<float,12> normal{},position{};};
-struct NativePrimaryUpdate {
-    unsigned index{},asset{},present{},mode{};
-    NativeCityModelAdmission world;
-    std::array<float,20> obb{};
-    std::vector<NativePrimaryPoseRows> draws;
-};
-struct NativeCityPopulationSource {
+#include "CityPopulationInputs.h"
+struct NativeCityPopulationSource : NativeCityTemplateBank {
     NativeModelContinuous catalog;
-    std::vector<NativePrimaryAsset> assets;
-    std::vector<NativePrimaryAssetDraw> templates;
-    std::vector<NativeCityModelAdmission> worlds;
+    std::vector<NativeModelWorldAdmission> worlds;
     std::vector<unsigned> currentAssets,present;
     std::vector<std::string> identities;
-    NativeCityModelAdmission caller;
-    unsigned maxDraws{},recordCount{};
+    NativeModelCollectionCaller caller;
 };
-template<class T> inline T primaryRead(std::istream& s){T v{};s.read(reinterpret_cast<char*>(&v),sizeof(v));if(!s)throw std::runtime_error("Current primary source payload truncated");return v;}
-inline std::vector<NativePrimaryUpdate> readNativeCityPopulationUpdate(std::istream& s) {
-    if(primaryRead<unsigned>(s)!=0x31555043u)throw std::runtime_error("Current primary CPU1 source schema");
-    const auto count=primaryRead<unsigned>(s);std::vector<NativePrimaryUpdate> rows(count);
-    for(auto& r:rows){r.index=primaryRead<unsigned>(s);r.asset=primaryRead<unsigned>(s);r.present=primaryRead<unsigned>(s);
-        auto& w=r.world;w.world328=primaryRead<unsigned>(s);w.world32C=primaryRead<unsigned>(s);w.world330=primaryRead<unsigned>(s);
-        w.eligibility=primaryRead<unsigned>(s);w.exclusion78=primaryRead<unsigned>(s);w.caster10C=primaryRead<std::int32_t>(s);w.opacityB0=primaryRead<float>(s);
-        r.mode=primaryRead<unsigned>(s);r.obb=primaryRead<std::array<float,20>>(s);auto n=primaryRead<unsigned>(s);r.draws.resize(n);
-        for(auto& d:r.draws){d.draw=primaryRead<unsigned>(s);d.normal=primaryRead<std::array<float,12>>(s);d.position=primaryRead<std::array<float,12>>(s);}
-    }return rows;
-}
 inline void updateNativeCityPopulationSource(NativeCityPopulationSource& source,const std::vector<NativePrimaryUpdate>& current) {
     if(current.size()!=source.worlds.size())throw std::runtime_error("Current primary population must retain every source owner identity");
     // Validate before replacing the current catalog; missing/new source assets
@@ -52,51 +23,36 @@ inline void updateNativeCityPopulationSource(NativeCityPopulationSource& source,
     }
     source.catalog.primitives.clear();source.catalog.primitives.reserve(current.size()*source.maxDraws);
     for(std::size_t i=0;i<current.size();++i){const auto& r=current[i];const auto& a=source.assets[r.asset];
-        auto world=r.world;world.registered3330=source.caller.registered3330;world.successful3340=source.caller.successful3340;
-        world.callerFirst=source.caller.callerFirst;world.callerSecond=source.caller.callerSecond;world.callerShadow=source.caller.callerShadow;
-        world.common240Present=source.caller.common240Present;world.commonFlags8=source.caller.commonFlags8;
-        source.worlds[i]=world;source.currentAssets[i]=r.asset;source.present[i]=r.present;
+        source.worlds[i]=r.world;source.currentAssets[i]=r.asset;source.present[i]=r.present;
         auto& instance=source.catalog.instances[i];instance.index=unsigned(i);instance.mode=r.mode;
         instance.firstPrimitive=unsigned(source.catalog.primitives.size());instance.primitiveCount=unsigned(r.draws.size());
         instance.hasUnsupported=a.unsupported;instance.forceDistance=a.forceDistance;instance.distanceBias=a.bias;instance.obb=r.obb;
         for(std::size_t d=0;d<r.draws.size();++d){const auto& asset=a.draws[d];NativeModelContinuousPrimitive p;
-            p.instanceIndex=unsigned(i);p.drawIndex=asset.draw;p.templateIndex=asset.templateIndex;p.tableOwner=asset.table;p.vertex=asset.vertex;p.pixel=asset.pixel;
-            std::memcpy(p.vertex.data()+64,r.draws[d].normal.data(),48);std::memcpy(p.vertex.data()+112,r.draws[d].position.data(),48);
+            p.instanceIndex=unsigned(i);p.drawIndex=asset.draw;p.templateIndex=asset.templateIndex;p.tableOwner=asset.table;p.vertex=prepareNativePrimaryVertex(asset,r.draws[d]);p.pixel=asset.pixel;
             source.catalog.primitives.push_back(p);}
     }
 }
-inline NativeCityPopulationSource prepareNativeCityPopulationSource(const fs::path& directory) {
-    NativeCityPopulationSource r;r.catalog=prepareNativeModelContinuous(directory);
-    const auto n=r.catalog.instances.size();r.worlds.resize(n);r.currentAssets.resize(n);r.present.resize(n);
-    std::ifstream names(directory/"identities.txt");std::string identity;while(names>>identity)r.identities.push_back(identity);
-    if(r.identities.size()!=n)throw std::runtime_error("Current primary owner identities absent");
-    auto& c=r.caller;std::ifstream caller(directory/"caller.txt");caller>>c.registered3330>>c.successful3340>>c.callerFirst>>c.callerSecond>>c.callerShadow>>c.common240Present>>c.commonFlags8;
-    if(!caller)throw std::runtime_error("Actual primary TGK21 caller absent");
-    std::ifstream assets(directory/"asset-profiles.bin",std::ios::binary);
-    if(primaryRead<unsigned>(assets)!=0x31505343u)throw std::runtime_error("Current primary CSP1 asset schema");
-    auto count=primaryRead<unsigned>(assets);r.maxDraws=primaryRead<unsigned>(assets);r.assets.resize(count);r.templates.resize(r.catalog.templateCount);
-    for(unsigned i=0;i<count;++i){if(primaryRead<unsigned>(assets)!=i)throw std::runtime_error("Current primary source asset order differs");
-        auto& a=r.assets[i];a.category=primaryRead<unsigned>(assets);auto dcount=primaryRead<unsigned>(assets);a.unsupported=primaryRead<unsigned>(assets);a.exclusion=primaryRead<unsigned>(assets);
-        a.forceDistance=primaryRead<float>(assets);a.bias=primaryRead<float>(assets);a.draws.resize(dcount);
-        for(auto& d:a.draws){d.draw=primaryRead<unsigned>(assets);d.templateIndex=primaryRead<unsigned>(assets);d.queue=primaryRead<unsigned>(assets);
-            d.table=primaryRead<std::uint64_t>(assets);d.finalTable=primaryRead<unsigned>(assets);d.allowedRecords=primaryRead<unsigned>(assets);
-            d.shaderFile=primaryRead<unsigned>(assets);d.vs=primaryRead<unsigned>(assets);d.ps=primaryRead<unsigned>(assets);
-            d.vertex=primaryRead<std::array<char,160>>(assets);d.pixel=primaryRead<std::array<char,80>>(assets);
-            if(d.templateIndex>=r.templates.size()||(d.queue!=54&&d.queue!=55)||!d.allowedRecords)throw std::runtime_error("Current primary renderer/record/template source is unclosed");
-            r.templates[d.templateIndex]=d;}}
-    std::ifstream records(directory/"record-count.txt");records>>r.recordCount;
-    if(!records||r.recordCount>32)throw std::runtime_error("Current primary ordered kind1 counter profile absent");
-    std::ifstream current(directory/"current-source.bin",std::ios::binary);updateNativeCityPopulationSource(r,readNativeCityPopulationUpdate(current));
-    return r;
+inline NativeCityPopulationSource prepareNativeCityPopulationSource(NativeCityTemplateBank bank,
+    const std::vector<NativePrimaryUpdate>& current) {
+    NativeCityPopulationSource result;
+    static_cast<NativeCityTemplateBank&>(result)=std::move(bank);
+    result.catalog.templateCount=unsigned(result.templates.size());result.catalog.commonMode=result.commonMode;
+    result.catalog.sortFields=result.sortFields;
+    result.catalog.instances.resize(current.size());result.worlds.resize(current.size());
+    result.currentAssets.resize(current.size());result.present.resize(current.size());
+    result.identities.reserve(current.size());
+    for(const auto& row:current)result.identities.push_back("citygate-primary/"+std::to_string(row.index));
+    updateNativeCityPopulationSource(result,current);
+    return result;
 }
 struct NativeCityPopulationPlan {NativeModelContinuousPlan models;std::vector<unsigned> ordinaryCounts;};
 template<class AcceptedCamera>
 inline NativeCityPopulationPlan selectNativeCityPopulation(const NativeCityPopulationSource& source,const AcceptedCamera& camera) {
     NativeCityPopulationPlan r;r.models=selectNativeModelContinuousFromCameraFrame(source.catalog,camera);r.ordinaryCounts.resize(source.recordCount);
-    auto eligible=[&](unsigned index){return source.present[index]&&nativeCityModelCurrentMasks(source.worlds[index]).firstSlot;};
+    auto eligible=[&](unsigned index){return source.present[index]&&nativeCityModelCurrentMasks(source.worlds[index],source.caller).firstSlot;};
     auto remove=[&](auto& ids){ids.erase(std::remove_if(ids.begin(),ids.end(),[&](unsigned i){return !eligible(i);}),ids.end());};
     remove(r.models.visibleInstances);remove(r.models.visibleUnsupportedInstances);
-    r.models.draws.erase(std::remove_if(r.models.draws.begin(),r.models.draws.end(),[&](const auto& d){return !eligible(source.catalog.primitives[d.primitiveIndex].instanceIndex);}),r.models.draws.end());
+    r.models.draws.erase(std::remove_if(r.models.draws.begin(),r.models.draws.end(),[&](const auto& d){const auto& p=source.catalog.primitives[d.primitiveIndex];return !eligible(p.instanceIndex)||source.templates[p.templateIndex].allowedRecords==0;}),r.models.draws.end());
     for(const auto& d:r.models.draws){const auto& p=source.catalog.primitives[d.primitiveIndex];auto bits=source.templates[p.templateIndex].allowedRecords;
         for(unsigned record=0;record<source.recordCount;++record)if(bits&(1u<<record))++r.ordinaryCounts[record];}
     return r;
@@ -110,7 +66,7 @@ struct NativeCityPopulation {
 
 // Declaration/geometry/texture device pools are import-once, keyed by actual
 // source resource paths or D3D descriptors. No per-owner mesh/image copies.
-inline NativeModelInputs prepareNativeCityPopulationTemplates(ID3D11Device* device,const NativeCityPopulationSource& source,const fs::path& directory) {
+inline NativeModelInputs prepareNativeCityPopulationTemplates(ID3D11Device* device,const NativeCityTemplateBank& source,const fs::path& directory) {
     NativeModelInputs out;
     std::map<std::string,ComPtr<ID3D11Buffer>> vertices,indices;
     std::map<std::uint64_t,ComPtr<ID3D11VertexShader>> vertexShaders;
@@ -154,8 +110,10 @@ inline void connectNativeCityPopulationCurrentModels(NativeCityPopulation& owner
         const auto cb=instance.index*owner.source.maxDraws+d;model.vsConstants=owner.vertexConstants[cb];model.psConstants=owner.pixelConstants[cb];
         model.identity=owner.source.identities[instance.index]+"/draw-"+std::to_string(p.drawIndex);owner.currentModels.draws.push_back(model);}
 }
-inline NativeCityPopulation prepareNativeCityPopulation(ID3D11Device* device,const fs::path& directory) {
-    NativeCityPopulation r;r.source=prepareNativeCityPopulationSource(directory);r.templates=prepareNativeCityPopulationTemplates(device,r.source,directory);
+inline NativeCityPopulation prepareNativeCityPopulation(ID3D11Device* device,const fs::path& directory,
+    const std::vector<NativePrimaryUpdate>& current) {
+    NativeCityPopulation r;r.source=prepareNativeCityPopulationSource(readNativeCityTemplateBank(directory),current);
+    r.templates=prepareNativeCityPopulationTemplates(device,r.source,directory);
     std::array<char,160> zeroVertex{};std::array<char,80> zeroPixel{};const auto n=r.source.worlds.size()*r.source.maxDraws;
     r.vertexConstants.reserve(n);r.pixelConstants.reserve(n);for(std::size_t i=0;i<n;++i){r.vertexConstants.push_back(modelContinuousConstantBuffer(device,zeroVertex.data(),160));r.pixelConstants.push_back(modelContinuousConstantBuffer(device,zeroPixel.data(),80));}
     connectNativeCityPopulationCurrentModels(r);return r;

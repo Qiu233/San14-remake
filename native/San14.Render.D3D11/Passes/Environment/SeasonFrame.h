@@ -37,6 +37,7 @@ struct Light {
     uint32_t object,mask;
     uint32_t terrainMaskScalarBits{};
     ShadowModes shadowModes;
+    std::uint8_t firstCasterFlags{};
     source_current_season_shadow::ReceiverBias receiverBias;
     San14::Render::PatternLightModifier patternModifier;
     std::array<uint8_t,0x328> data;
@@ -204,6 +205,7 @@ inline Frame decode(std::span<const uint8_t> bytes){
     for(auto& l:r.lights){l.object=read<uint32_t>(bytes,at);l.mask=read<uint32_t>(bytes,at+4);
         l.terrainMaskScalarBits=read<uint32_t>(bytes,at+8);
         l.shadowModes={read<uint8_t>(bytes,at+12),read<uint8_t>(bytes,at+13)};
+        l.firstCasterFlags=read<uint8_t>(bytes,at+14);
         std::memcpy(l.data.data(),bytes.data()+at+16,l.data.size());at+=16+l.data.size();}
     std::memcpy(r.atmosphere.data(),bytes.data()+at,316);at+=316;
     r.exposure=read<ExposureLight>(bytes,at);at+=sizeof(ExposureLight);
