@@ -130,7 +130,7 @@ public static class D3D11PrimaryForwardInputs
                 if (ModelShaderResources.ResolveType16Interface(named, 10).Provider is not null)
                     throw new NotSupportedException("Forward state10 redirect requires its actual owner.");
                 var selected = state0.Provider is { } provider ? ModelShaderResources.LoadDeclaredG1S(repository, provider) : null;
-                var configuration = selected is null ? null : G1ShaderConfigurationReader.Read(selected.Source.Bytes, selected.Container);
+                var configuration = selected is null ? null : selected.ReadConfigurations();
                 bool eligible = selected is not null && !selected.Container.NamePrefix.StartsWith("CNS-", StringComparison.Ordinal) &&
                     configuration!.Records.Any(value => value.Name is "AlphaTest" or "Dissolve");
                 if (!eligible) { rows.Add(index, $"{index} 0 -"); continue; }

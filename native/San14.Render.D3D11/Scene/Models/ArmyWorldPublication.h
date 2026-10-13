@@ -24,27 +24,27 @@ struct ArmyWorldActor {
     ArmyWorldActorKey key{};int32_t action{};float returnedPhase{};
     NativeAccessoryPoseRoot world{};std::array<float,20> bounds{};ArmyWorldMaterialKey material{};
 };
-struct ArmyWorldPublication {uint64_t revision{};std::map<int32_t,std::array<float,3>> unitCenters;std::map<int32_t,int32_t> graphicsActions;
+struct ArmyWorldPublication {uint64_t revision{},contextGeneration{};std::map<int32_t,std::array<float,3>> unitCenters;std::map<int32_t,int32_t> graphicsActions;
     std::map<int32_t,float> unitGroundHeights;std::map<int32_t,uint32_t> unitMotionRevisions;
     std::map<int32_t,uint32_t> unitModelModes,unitSelectedFormations,unitNavalFormations;std::vector<ArmyWorldActor> actors;};
 inline int armyWorldNavalCategory(uint32_t formation){
     switch(formation){case 11:case 20:return 8;case 12:case 17:return 7;case 13:case 18:return 9;default:return -1;}
 }
 inline ArmyWorldPublication copyArmyWorldPublication(const void* data,size_t byteCount){
-    constexpr size_t header=24,actorBytes=164;
+    constexpr size_t header=32,actorBytes=164;
     if(!data||byteCount<header)throw std::runtime_error("Army actual World publication header is absent");
     const auto* bytes=static_cast<const char*>(data);size_t at=0;
     auto read=[&](void* destination,size_t count){if(count>byteCount-at)throw std::runtime_error("Army World publication ends inside actor");
         std::memcpy(destination,bytes+at,count);at+=count;};
     std::array<char,8> magic{};read(magic.data(),8);
-    if(magic!=std::array<char,8>{'A','R','M','Y','W','L','D','6'})throw std::runtime_error("Army actual World publication schema");
-    ArmyWorldPublication r;read(&r.revision,8);int32_t count,units;read(&count,4);read(&units,4);
+    if(magic!=std::array<char,8>{'A','R','M','Y','W','L','D','7'})throw std::runtime_error("Army actual World publication schema");
+    ArmyWorldPublication r;read(&r.revision,8);read(&r.contextGeneration,8);int32_t count,units;read(&count,4);read(&units,4);
     if(!r.revision||count<0||units<0||header+size_t(units)*40+size_t(count)*actorBytes!=byteCount)
         throw std::runtime_error("Army actual World publication length/revision");
     for(int i=0;i<units;++i){int32_t id;std::array<float,3> center;read(&id,4);read(center.data(),12);
         if(id<=0||!std::isfinite(center[0])||!std::isfinite(center[1])||!std::isfinite(center[2])||!r.unitCenters.emplace(id,center).second)
             throw std::runtime_error("Army actual Unit center range/duplicate");
-        int32_t action;read(&action,4);if(action<0||action>2)throw std::runtime_error("Army actual graphics action needs its imported player");
+        int32_t action;read(&action,4);if(action<0)throw std::runtime_error("Army actual graphics action is negative");
         r.graphicsActions.emplace(id,action);
         float ground;uint32_t motionRevision;read(&ground,4);read(&motionRevision,4);
         if(!std::isfinite(ground))throw std::runtime_error("Army current terrain query is nonfinite");
@@ -76,7 +76,7 @@ inline ArmyWorldPublication copyArmyWorldPublication(const void* data,size_t byt
             throw std::runtime_error("Army naval descriptor differs from current unit byte1C");
         if(a.key.category<2||a.key.category>=4){if(a.material.force!=-1||a.material.color49!=-1||a.material.glyph)
                 throw std::runtime_error("Army body actor received a cloth material key");}
-        else if(a.material.force<0||a.material.force>=52||a.material.color49<0||a.material.color49>60||a.material.glyph>65535)
+        else if(a.material.force<0||a.material.force>=52||a.material.color49< -1||a.material.color49>255||a.material.glyph>65535)
             throw std::runtime_error("Army actual flag Force/color49/single-unit glyph range");
     }
     return r;

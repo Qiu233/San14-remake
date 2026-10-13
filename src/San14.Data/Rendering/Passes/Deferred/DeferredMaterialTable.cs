@@ -22,7 +22,7 @@ public static class DeferredMaterialTable
         IReadOnlyList<DeferredMaterialEntry> externalSourceEntries)
     {
         ArgumentNullException.ThrowIfNull(shader); ArgumentNullException.ThrowIfNull(externalSourceEntries);
-        G1ShaderConfigurations configurations = G1ShaderConfigurationReader.Read(shader.Source.Bytes, shader.Container);
+        G1ShaderConfigurations configurations = shader.ReadConfigurations();
         // Native lookup compares both hash and complete name, and takes the first matching record.
         G1ShaderConfigurationRecord? layout = configurations.Records.FirstOrDefault(r =>
             r.NameHash == 0x2D8DB7D5 && r.Name == "GBufferLayout");

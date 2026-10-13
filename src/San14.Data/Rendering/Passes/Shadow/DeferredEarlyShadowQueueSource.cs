@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -73,12 +72,12 @@ public sealed class LoadedDeferredEarlyShadowRenderer
                 actualCache.CommittedIndex, actualCache.CommittedBytes, actualRequested12, false);
         foreach (var row in Bindings.Variants.Records)
         {
-            if (!GenericMatches(row.RawBytes, actualRequested12)) continue;
+            if (!GenericMatches(row.RawBytes.Span, actualRequested12)) continue;
             uint selectedIndex = checked((uint)row.Index);
             bool changed = selectedIndex != actualCache.CommittedIndex;
             return Transition(ModelShaderVariantTransitionKind.SourceRowMatch, true, selectedIndex,
-                changed ? row.RawBytes : actualCache.CommittedBytes,
-                changed ? row.RawBytes : actualRequested12, changed);
+                changed ? row.RawBytes.Span : actualCache.CommittedBytes,
+                changed ? row.RawBytes.Span : actualRequested12, changed);
         }
         return Transition(ModelShaderVariantTransitionKind.MissRevert, false,
             actualCache.CommittedIndex, actualCache.CommittedBytes, actualCache.CommittedBytes, false);
@@ -165,8 +164,6 @@ public sealed class LoadedDeferredEarlyShadowQueueSource
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(actualSelectedInterface);
         var provider = actualSelectedInterface.Interface?.Provider ?? throw new InvalidDataException("A short/null state3 slot has no renderer.");
         var shader = ModelShaderResources.LoadDeclaredG1S(repository, provider);
-        if (Convert.ToHexString(SHA256.HashData(shader.Source.Bytes)) != shader.Source.DecodedSha256)
-            throw new InvalidDataException("Early shadow shader bytes differ at import.");
         var bindings = shader.ReadG1Bindings();
         var outputs = bindings.Combinations.Rows.SelectMany(row => row.Stages.Where(s => s.StageCode == 0 && s.Entry is not null))
             .Select(s => s.Entry!.ProgramIndex).Distinct().ToDictionary(index => index, index =>

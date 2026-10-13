@@ -34,8 +34,10 @@ public sealed class D3D11ArmyPublication
     internal byte[] NativeBytes {get;}
     public ReadOnlyMemory<byte> Packet=>NativeBytes;
     public ulong Revision {get;}
+    public ulong ResourceContextGeneration {get;}
     public IReadOnlyList<D3D11ArmyActor> Actors {get;}
     public IReadOnlyList<D3D11ArmyUnavailable> Unavailable {get;}
+    public IReadOnlyList<ArmyFlagMaterialRequest> FlagMaterialRequests {get;}
     public string AnimationScope {get;}
     public IReadOnlyDictionary<int,Vector3> UnitCenters {get;}
     public IReadOnlyDictionary<int,int> UnitGraphicsActions {get;}
@@ -61,9 +63,12 @@ public sealed class D3D11ArmyPublication
         D3D11ArmyUnavailable[] unavailable,string animationScope,IReadOnlyDictionary<int,Vector3> unitCenters,
         IReadOnlyDictionary<int,int>? unitGraphicsActions,IReadOnlyDictionary<int,float>? unitGroundHeights,
         IReadOnlyDictionary<int,uint>? unitMotionRevisions,IReadOnlyDictionary<int,uint>? unitModelModes,
-        IReadOnlyDictionary<int,uint>? unitSelectedFormations,IReadOnlyDictionary<int,uint>? unitNavalFormations)
+        IReadOnlyDictionary<int,uint>? unitSelectedFormations,IReadOnlyDictionary<int,uint>? unitNavalFormations,
+        IReadOnlyList<ArmyFlagMaterialRequest>? flagMaterialRequests=null,ulong resourceContextGeneration=0)
     {
-        Revision=revision;Actors=Array.AsReadOnly(actors);Unavailable=Array.AsReadOnly(unavailable);AnimationScope=animationScope;
+        Revision=revision;ResourceContextGeneration=resourceContextGeneration;
+        Actors=Array.AsReadOnly(actors);Unavailable=Array.AsReadOnly(unavailable);AnimationScope=animationScope;
+        FlagMaterialRequests=Array.AsReadOnly(flagMaterialRequests?.ToArray()??[]);
         UnitCenters=unitCenters;
         UnitGraphicsActions=unitGraphicsActions??new ReadOnlyDictionary<int,int>(unitCenters.Keys.ToDictionary(id=>id,_=>0));
         UnitGroundHeights=unitGroundHeights??new ReadOnlyDictionary<int,float>(unitCenters.ToDictionary(p=>p.Key,p=>p.Value.Y));
@@ -71,8 +76,9 @@ public sealed class D3D11ArmyPublication
         UnitModelModes=unitModelModes??new ReadOnlyDictionary<int,uint>(unitCenters.Keys.ToDictionary(id=>id,_=>0u));
         UnitSelectedFormations=unitSelectedFormations??new ReadOnlyDictionary<int,uint>(unitCenters.Keys.ToDictionary(id=>id,_=>0u));
         UnitNavalFormations=unitNavalFormations??new ReadOnlyDictionary<int,uint>(unitCenters.Keys.ToDictionary(id=>id,_=>0u));
-        using var output=new MemoryStream(24+unitCenters.Count*40+actors.Length*164);using var writer=new BinaryWriter(output,Encoding.ASCII,true);
-        writer.Write(Encoding.ASCII.GetBytes("ARMYWLD6"));writer.Write(revision);writer.Write(actors.Length);writer.Write(unitCenters.Count);
+        using var output=new MemoryStream(32+unitCenters.Count*40+actors.Length*164);using var writer=new BinaryWriter(output,Encoding.ASCII,true);
+        writer.Write(Encoding.ASCII.GetBytes("ARMYWLD7"));writer.Write(revision);writer.Write(resourceContextGeneration);
+        writer.Write(actors.Length);writer.Write(unitCenters.Count);
         foreach(var (id,center) in unitCenters){writer.Write(id);writer.Write(center.X);writer.Write(center.Y);writer.Write(center.Z);writer.Write(UnitGraphicsActions[id]);writer.Write(UnitGroundHeights[id]);writer.Write(UnitMotionRevisions[id]);writer.Write(UnitModelModes[id]);writer.Write(UnitSelectedFormations[id]);writer.Write(UnitNavalFormations[id]);}
         foreach(var actor in actors){
             var key=actor.Key;writer.Write(key.UnitId);writer.Write(key.Category);writer.Write(key.DescriptorOffset);writer.Write(key.InstanceIndex);
@@ -85,6 +91,11 @@ public sealed class D3D11ArmyPublication
         NativeBytes=output.ToArray();
         void V(Vector4 value){writer.Write(value.X);writer.Write(value.Y);writer.Write(value.Z);writer.Write(value.W);}
     }
+
+    internal D3D11ArmyPublication WithResourceContextGeneration(ulong generation)
+        => ResourceContextGeneration == generation ? this : new(Revision, Actors.ToArray(), Unavailable.ToArray(),
+            AnimationScope, UnitCenters, UnitGraphicsActions, UnitGroundHeights, UnitMotionRevisions,
+            UnitModelModes, UnitSelectedFormations, UnitNavalFormations, FlagMaterialRequests, generation);
 }
 
 /// <summary>Loaded source definitions plus existing owned ordinary/flag visual
@@ -114,13 +125,15 @@ public sealed class D3D11ArmyPublisher:IDisposable
 
     public D3D11ArmyPublisher(GameResourceRepository repository,LoadedScenario scenario,LoadedMap map,
         MapWorldProjection projection,LoadedHeightField height,string locale,
-        Func<GameState,UnitState,ArmyGraphicsCurrentInputs?>? motionInputs=null)
+        Func<GameState,UnitState,ArmyGraphicsCurrentInputs?>? motionInputs=null,
+        ArmyGraphicsActions? graphicsActions=null)
     {
         ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(scenario);
         ArgumentNullException.ThrowIfNull(map);ArgumentNullException.ThrowIfNull(projection);ArgumentNullException.ThrowIfNull(height);
         _sourceRepository=repository;_selection=PlayableArmyVisualAdapter.Load(repository,map,locale);
         _ordinary=new(repository,locale,projection,height);_flags=new(repository);_flagCurrent=new(repository,scenario,map);
         _motionInputs=motionInputs;
+        if(graphicsActions is not null)_defaultActions=new(graphicsActions);
         if(motionInputs is not null)_motionClock=ArmyGraphicsMotionClockSource.Load(repository,locale);
     }
 
@@ -133,6 +146,7 @@ public sealed class D3D11ArmyPublisher:IDisposable
         bool sameWorld=_current is not null&&ReferenceEquals(world,_lastWorld);
         if(sameWorld&&!_motionChanged&&ReferenceEquals(returnedPhases,_lastAnimation))return _current!;
         D3D11ArmyActor[] actors;D3D11ArmyUnavailable[] unavailable;
+        IReadOnlyList<ArmyFlagMaterialRequest> flagRequests=_current?.FlagMaterialRequests??[];
         if(sameWorld&&!_motionChanged){actors=_current!.Actors.Select(a=>a with{ReturnedPhase=Phase(a.Key,returnedPhases)}).ToArray();unavailable=_current.Unavailable.ToArray();}
         else{
             if(!sameWorld){
@@ -150,6 +164,7 @@ public sealed class D3D11ArmyPublisher:IDisposable
             if(!sameWorld)_flagMaterials=_flags.Frames.Count==0?null:_flagCurrent.Prepare(world,_flags.Frames.Keys);
             var material=_flagMaterials;
             var current=new List<D3D11ArmyActor>();
+            var requests=new Dictionary<(int Category,int Force,int Color,ushort Glyph),ArmyFlagMaterialRequest>();
             foreach(var frame in _ordinary.Frames.Values.OrderBy(f=>f.UnitId)){
                 if(world.Units[frame.UnitId].PositionKnowledge==ArmyPositionKnowledge.Conflicting)
                     throw new InvalidDataException("Army visual position has unresolved compatibility knowledge.");
@@ -161,20 +176,26 @@ public sealed class D3D11ArmyPublisher:IDisposable
                 foreach(var actor in _flags.Frames[frame.UnitId].Actors){
                     RemakeArmyFlagMaterialInputs selected;
                     try{selected=material.Select(actor);}catch(InvalidDataException error){missing.Add(new(frame.UnitId,error.Message));continue;}
-                    if(selected.SourcePane.SourceForceColorIndex49 is not byte color||color>60){
-                        missing.Add(new(frame.UnitId,"Flag pane source color49 is unresolved; no cloth material fallback is selected."));continue;}
+                    byte? color=selected.SourcePane.SourceForceColorIndex49;
                     var glyph=ArmyFlagPaneColors.CopySourceNameGlyph(selected.SourcePane.SelectedSourceText,selected.SourcePane.CallerForceSource);
-                    var flagKey=new D3D11ArmyFlagMaterialKey(selected.ExplicitOwnedForceVariant,color,glyph.TwoUtf16Units[0]);
+                    var flagKey=new D3D11ArmyFlagMaterialKey(selected.ExplicitOwnedForceVariant,color is byte value?value:-1,glyph.TwoUtf16Units[0]);
                     var key=new D3D11ArmyActorKey(frame.UnitId,actor.Category,actor.DescriptorOffset,actor.DescriptorInstanceIndex);
                     Add(key,actor.World,flagKey);
+                    var binding=material.Bindings[frame.UnitId];
+                    var sourceName=actor.Category==2?binding.BannerName:binding.CarriedKind2Name!;
+                    requests.TryAdd((actor.Category,flagKey.ForceVariant,flagKey.SourceColor49,flagKey.SourceGlyph),
+                        new(actor.Category,flagKey.ForceVariant,color,sourceName,actor.Category==3));
                 }
             }
             actors=current.ToArray();unavailable=missing.ToArray();
+            flagRequests=requests.Values.ToArray();
             void Add(D3D11ArmyActorKey key,UnitWorldTransformState transform,D3D11ArmyFlagMaterialKey? materialKey){
                 if(!_bounds.TryGetValue(key.Category,out var bounds)){
                     bool body=key.Category<2||key.Category is >=4 and <=9;
                     var catalog=body?_ordinary.Models[key.Category].Catalog:_flags.Sources[key.Category].Catalog;
-                    var model=body?_ordinary.Models[key.Category].Transforms.Source:_flags.Sources[key.Category].Model.Source;
+                    LoadedModelGeometry model=body?new(_ordinary.Models[key.Category].Transforms.Geometry,
+                        _ordinary.Models[key.Category].Transforms.Source):new(_flags.Sources[key.Category].Model.Geometry,
+                        _flags.Sources[key.Category].Model.Source);
                     var source=ArmyPrimitivePublicationSource.ReadKnownCategory(catalog,key.Category,model);
                     _bounds.Add(key.Category,bounds=ArmyModelWorldVisibilitySource.Read(source).PreparedModelBounds);
                 }
@@ -193,7 +214,7 @@ public sealed class D3D11ArmyPublisher:IDisposable
             new ReadOnlyDictionary<int,uint>(_ordinary.Frames.ToDictionary(pair=>pair.Key,
                 pair=>(uint)ArmyConfigurationSourceAdapter.ReadCurrentLand(world, world.Units[pair.Key])!.Value)),
             new ReadOnlyDictionary<int,uint>(_ordinary.Frames.ToDictionary(pair=>pair.Key,
-                pair=>(uint)(ArmyConfigurationSourceAdapter.ReadNaval(world, world.Units[pair.Key])??0))));
+                pair=>(uint)(ArmyConfigurationSourceAdapter.ReadNaval(world, world.Units[pair.Key])??0))),flagRequests);
         _lastWorld=world;_motionChanged=false;_lastAnimation=returnedPhases;return _current=next;
     }
     public D3D11ArmyPublication AdvanceMotion(GameState world,uint fpsMode)

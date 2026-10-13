@@ -43,7 +43,7 @@ public static partial class DeferredSourceShadowBindings
         if (deferred.Node.Index != 166 || deferred.ResourceBindings.Combination.Index != 0 ||
             deferred.Shader.Source.FileId != 0x9D8E811F)
             throw Error("requires exact original9D8E811F combination0/node166");
-        var configurations = G1ShaderConfigurationReader.Read(deferred.Shader.Source.Bytes, deferred.Shader.Container);
+        var configurations = deferred.Shader.ReadConfigurations();
         var definitions = deferred.Shader.ReadResourceDefinitions(1);
         var originalTextures = new LoadedObjects(DokReader.Read(deferred.TextureObjects.Source.Bytes), deferred.TextureObjects.Source);
         var graph = RenderGraphReader.Read(deferred.Graph.Source.Bytes);

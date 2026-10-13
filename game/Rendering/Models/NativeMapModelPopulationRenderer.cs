@@ -3,11 +3,6 @@ using System.Runtime.CompilerServices;
 using San14.Data;
 using San14.Data.Formats;
 
-/// <summary>Explicit device-cache limits. Texture bytes retain the encoded source
-/// mip chains; geometry is a conservative source-buffer/window bound. A budget
-/// failure rejects the whole frame before uploads, rather than dropping models.</summary>
-public sealed record NativeMapModelPopulationUploadLimits(long MaximumTextureBytes,
-    long MaximumGeometryBytes, int MaximumPrograms, int MaximumVisibleDrawPackets);
 public sealed record NativeMapModelPopulationStatistics(long AcceptedFrames, long FailedFrames,
     int PopulationInstances, int VisibleInstances, int VisibleDrawPackets, int ProgramCount,
     int GeometryCount, int TextureCount, int SamplerCount, int DrawCount, long DrawCreationCount,
@@ -45,12 +40,7 @@ public sealed class NativeMapModelPopulationRenderer : IAsyncDisposable
     private readonly Action<MapStaticModelPreparedFrame>? _commitAcceptedState;
     private readonly Func<NativeMapFrameContext, MapStaticModelInstanceSet,
         MapStaticModelCamera, MapStaticModelVisibleSet>? _visibilityPlanner;
-    private readonly NativeMapModelPopulationUploadLimits _limits;
-    private readonly Dictionary<(string Source, int Image, uint View), long> _textures = [];
-    private readonly Dictionary<(string Model, string Shader, int Combination), long> _geometry = [];
-    private readonly HashSet<(string Source, int Combination)> _programs = [];
-    private readonly ConditionalWeakTable<LoadedRdbAsset, SourceIdentity> _sourceIdentities = new();
-    private sealed record SourceIdentity(string Value);
+    private readonly ModelUploadBudget _uploads;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _lifetime = new();
     private int _operations;
@@ -67,7 +57,7 @@ public sealed class NativeMapModelPopulationRenderer : IAsyncDisposable
     public NativeMapModelPopulationStatistics Statistics => new(_acceptedFrames, _failedFrames,
         _populationCount, _visibleCount, _packetCount, _layer.ProgramCount, _layer.GeometryCount,
         _layer.TextureCount, _layer.SamplerCount, _layer.DrawCount, _layer.DrawCreationCount,
-        _textures.Values.Sum(), _geometry.Values.Sum())
+        _uploads.TextureBytes, _uploads.GeometryBytes)
     {
         LastConstantBufferUpdates = _layer.LastConstantUpdates.BufferUpdates,
         LastConstantBufferUpdatedBytes = _layer.LastConstantUpdates.UpdatedBytes,
@@ -90,7 +80,7 @@ public sealed class NativeMapModelPopulationRenderer : IAsyncDisposable
         _assembler = new(sourceRevision, loadDrawSource);
         _materialValidator = new(sourceRevision);
         _materialCache = initializedMaterialCache; _population = currentPopulation; _runtime = runtime;
-        _limits = limits; _commitAcceptedState = commitAcceptedState;
+        _uploads = new(limits); _commitAcceptedState = commitAcceptedState;
         _visibilityPlanner = visibilityPlanner;
     }
 
@@ -224,14 +214,7 @@ public sealed class NativeMapModelPopulationRenderer : IAsyncDisposable
     }
 
     private void ReserveUploads(IReadOnlyList<ModelGbufferInstancePacket> submittedPackets)
-    {
-            var reservation = Reserve(submittedPackets);
-            // The layer retains successful prefix uploads even if a later draw
-            // fails. Reserve every attempted cache key before entering the GPU.
-            foreach (var item in reservation.Textures) _textures.TryAdd(item.Key, item.Value);
-            foreach (var item in reservation.Geometry) _geometry.TryAdd(item.Key, item.Value);
-            _programs.UnionWith(reservation.Programs);
-    }
+        => _uploads.ReserveAttempt(submittedPackets);
 
     /// <summary>Prepare both current static queues once. The returned lease
     /// keeps the renderer and target retirement serialized through54,55 and
@@ -401,49 +384,6 @@ public sealed class NativeMapModelPopulationRenderer : IAsyncDisposable
         finally { _gate.Release(); Complete(); }
     }
 
-    private sealed record Reservation(
-        Dictionary<(string Source, int Image, uint View), long> Textures,
-        Dictionary<(string Model, string Shader, int Combination), long> Geometry,
-        HashSet<(string Source, int Combination)> Programs);
-
-    private Reservation Reserve(IReadOnlyList<ModelGbufferInstancePacket> packets)
-    {
-        if (packets.Count > _limits.MaximumVisibleDrawPackets)
-            throw new InvalidDataException("Complete visible model population exceeds the explicit draw-packet limit.");
-        var textures = new Dictionary<(string Source, int Image, uint View), long>();
-        var geometry = new Dictionary<(string Model, string Shader, int Combination), long>();
-        var programs = new HashSet<(string Source, int Combination)>();
-        foreach (var packet in packets)
-        {
-            programs.Add((Identity(packet.Shader.Source), packet.ExplicitCombinationIndex));
-            var geometryKey = (Identity(packet.Model.Source), Identity(packet.Shader.Source), packet.ExplicitCombinationIndex);
-            if (!_geometry.ContainsKey(geometryKey) && !geometry.ContainsKey(geometryKey))
-            {
-                var draws = G1ModelDrawReader.Read(packet.Model.Geometry).Draws;
-                geometry.Add(geometryKey, checked(packet.Model.Source.Bytes.LongLength + draws.Sum(d => checked((long)d.IndexCount * 2))));
-            }
-            foreach (var texture in packet.Vertex.OwnedTextures.Concat(packet.Pixel.OwnedTextures).Where(t => t.DescriptorKind == "Texture"))
-            {
-                var key = (Identity(texture.Source.Source), texture.ImageIndex, texture.NativeViewFormat);
-                if (_textures.ContainsKey(key) || textures.ContainsKey(key)) continue;
-                var image = G1TextureContainerReader.Read(texture.Source.Source.Bytes).Textures[texture.ImageIndex];
-                if (image.LayerCount != 1 || image.SubresourceLayout != G1TextureSubresourceLayout.SingleLayerMipChain)
-                    throw new InvalidDataException("Native population source texture requires its complete original single-layer mip chain.");
-                textures.Add(key, image.Mips.Sum(m => (long)m.BytesPerLayer));
-            }
-        }
-        if (checked(_textures.Values.Sum() + textures.Values.Sum()) > _limits.MaximumTextureBytes ||
-            checked(_geometry.Values.Sum() + geometry.Values.Sum()) > _limits.MaximumGeometryBytes ||
-            _programs.Union(programs).Count() > _limits.MaximumPrograms)
-            throw new InvalidDataException("Complete model source uploads exceed the explicit cache limits; no population subset was substituted.");
-        return new(textures, geometry, programs);
-    }
-
-    private string Identity(LoadedRdbAsset source) => _sourceIdentities.GetValue(source, s => new(string.Join("|",
-        _assembler.SourceRevision, s.ResourceUri, s.DecodedSha256, s.FileId.ToString("X8"), s.Bytes.LongLength,
-        s.IndexSource.ResourceUri, s.IndexSource.PhysicalPath, s.IndexSource.Sha256,
-        s.OverrideSource?.ResourceUri, s.OverrideSource?.PhysicalPath, s.OverrideSource?.Sha256))).Value;
-
     private static float[] Rows(Matrix4x4 m) => [m.M11, m.M12, m.M13, m.M14, m.M21, m.M22, m.M23, m.M24,
         m.M31, m.M32, m.M33, m.M34, m.M41, m.M42, m.M43, m.M44];
     private void Accept()
@@ -468,7 +408,7 @@ public sealed class NativeMapModelPopulationRenderer : IAsyncDisposable
             await pending; await _gate.WaitAsync();
             try
             {
-                await _layer.DisposeAsync(); _assembler.Invalidate(); _materialValidator.Invalidate(); _textures.Clear(); _geometry.Clear(); _programs.Clear();
+                await _layer.DisposeAsync(); _materialValidator.Invalidate(); _uploads.Clear();
                 LastAcceptedFrame = null; _populationCount = 0; _visibleCount = 0; _packetCount = 0;
             }
             finally { _gate.Release(); }

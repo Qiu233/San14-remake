@@ -20,36 +20,6 @@ struct NativeArmySource {
     std::vector<std::array<uint32_t,3>> skinControls;
     std::vector<std::array<char,80>> pixels;std::vector<std::string> identities;
 };
-inline NativeArmySource prepareNativeArmySource(const fs::path& directory){
-    using native_accessory_pose_detail::Reader;
-    Reader in(directory/"population.bin");std::array<char,8> magic{};in.read(magic.data(),8);
-    if(magic!=std::array<char,8>{'A','R','M','Y','P','O','P','1'})throw std::runtime_error("Army population source schema");
-    NativeArmySource r;r.defaultActions=prepareNativeArmyDefaultActions(directory);
-    auto actors=in.get<uint32_t>(),primitives=in.get<uint32_t>();r.templateCount=in.get<uint32_t>();auto records=in.get<uint32_t>();r.commonExclude=in.get<uint32_t>();
-    if(records>32)throw std::runtime_error("Army independent record count");r.recordMasks.resize(records);r.capacities.resize(records);
-    for(unsigned i=0;i<records;++i){r.recordMasks[i]=in.get<uint32_t>();r.capacities[i]=in.get<uint32_t>();}
-    r.actors.resize(actors);r.poses.resize(r.defaultActions.rows.size());std::vector<bool> loaded(r.poses.size());
-    for(auto& a:r.actors){a.index=in.get<uint32_t>();a.category=in.get<uint32_t>();a.slotScalar=in.get<float>();a.exclusion=in.get<uint32_t>();a.mode=in.get<uint32_t>();
-        a.forceDistance=in.get<float>();a.distanceBias=in.get<float>();in.read(a.obb.data(),80);in.read(&a.world,48);
-        if(a.index>=actors||a.category>=r.poses.size()||(a.mode!=0&&a.mode!=3)||!std::isfinite(a.slotScalar))throw std::runtime_error("Army source current actor range");
-        if(!loaded[a.category]){r.poses[a.category]=prepareNativeArmyPoseSource(directory/"poses"/("category-"+std::to_string(a.category)));
-            if(r.poses[a.category].duration8!=r.defaultActions.rows[a.category].clipDuration)throw std::runtime_error("Army imported default clip/pose duration differs");loaded[a.category]=true;}}
-    r.primitives.resize(primitives);for(auto& p:r.primitives){p.actor=in.get<uint32_t>();p.draw=in.get<uint32_t>();p.sourceTemplate=in.get<uint32_t>();p.palette=in.get<uint32_t>();
-        p.queue=in.get<uint32_t>();p.allowedRecords=in.get<uint32_t>();p.tableOwner=in.get<uint64_t>();
-        if(p.actor>=actors||p.sourceTemplate>=r.templateCount||(p.queue!=49&&p.queue!=50&&p.queue!=54&&p.queue!=55)||p.palette>=r.poses[r.actors[p.actor].category].palettes.size())throw std::runtime_error("Army source primitive range/queue/palette");}
-    if(in.at!=in.bytes.size())throw std::runtime_error("Army population source trailing bytes");
-    std::ifstream names(directory/"identities.txt");std::string name;while(names>>name)r.identities.push_back(name);
-    if(r.identities.size()!=r.actors.size())throw std::runtime_error("Army actual owner identities absent");
-    std::ifstream models(directory/"models.txt");std::string relative;while(models>>relative){auto bytes=load(directory/relative/"ps-b0.bin");if(bytes.size()!=80)throw std::runtime_error("Army original PS80 profile");
-        std::array<char,80> b{};std::memcpy(b.data(),bytes.data(),80);r.pixels.push_back(b);
-        auto vertex=load(directory/relative/"vs-b0.bin");
-        if(vertex.size()!=160&&vertex.size()!=6256)throw std::runtime_error("Army original VS constant profile");
-        r.vertices.push_back(std::move(vertex));
-        auto controls=load(directory/relative/"skin-controls.bin");
-        if(controls.size()!=12)throw std::runtime_error("Army source matrix control size");
-        std::array<uint32_t,3> words;std::memcpy(words.data(),controls.data(),12);r.skinControls.push_back(words);}
-    if(r.pixels.size()!=r.templateCount)throw std::runtime_error("Army current template count differs");return r;
-}
 struct NativeArmyDraw {
     unsigned primitive{},record{};uint64_t distanceKey{},tableOwner{};
     std::vector<char> vertex;std::array<char,80> pixel{};
@@ -59,40 +29,7 @@ struct NativeArmyPopulation {
     NativeArmySource source;NativeModelInputs templates,currentModels;
     std::vector<NativeAccessoryPoseOwner> poses;
     std::vector<NativeArmyPoseCache> poseCaches;
-    std::vector<accessory_glyph::Primary> generatedPrimaries;
 };
-inline NativeArmyPopulation prepareNativeArmyPopulation(ID3D11Device* device,ID3D11DeviceContext* context,const fs::path& directory,bool populateImportedActors=true){
-    NativeArmyPopulation r;r.source=prepareNativeArmySource(directory);r.templates=loadNativeModels(device,directory);
-    if(r.templates.draws.size()!=r.source.templateCount)throw std::runtime_error("Army native complete template count");
-    // Complete the exact source TextPane jobs once. Only completed resources
-    // enter this owned group registry, whose real IDs drive CPU8/20/30 lookup.
-    std::map<uint32_t,unsigned> primaries;std::map<uint32_t,bool> completedGroups;
-    std::vector<std::array<uint32_t,4>> materialRows;std::ifstream list(directory/"models.txt");std::string relative;
-    accessory_glyph::StockProducer producer(device,directory/"glyph");
-    unsigned index=0;while(list>>relative){auto path=directory/relative;
-        uint32_t regular,target,alternate,preserve;std::ifstream material(path/"material-ready-source.txt");if(material>>regular>>target>>alternate>>preserve){materialRows.push_back({regular,target,alternate,preserve});completedGroups[regular]=false;}
-        unsigned texture,sampler,proxy;std::string job;std::ifstream runtime(path/"runtime-textures.txt");
-        while(runtime>>texture>>sampler>>proxy>>job){if(texture>=16||sampler>=16)throw std::runtime_error("Army source runtime register");
-            if(!primaries.count(proxy)){auto jobDir=fs::weakly_canonical(path/job);auto raw=accessory_glyph::read(jobDir/"glyph-job.bin");uint32_t code;std::memcpy(&code,raw.data()+12,4);
-                accessory_glyph::Atlas atlas;if(code)atlas=accessory_glyph::Atlas::create(device,directory/"glyph",code);
-                auto primary=producer.execute(device,context,directory/"glyph",fs::relative(jobDir,directory/"glyph"),code?&atlas:nullptr);
-                if(primary.proxy!=proxy||!primary.producerCompleted)throw std::runtime_error("Army original glyph producer incomplete");
-                primaries[proxy]=unsigned(r.generatedPrimaries.size());r.generatedPrimaries.push_back(std::move(primary));}
-            const auto& primary=r.generatedPrimaries[primaries[proxy]];r.templates.draws[index].textures[texture]=primary.srv;r.templates.draws[index].samplers[sampler]=primary.sourceSampler;
-        }if(material)completedGroups[regular]=true;++index;
-    }
-    for(const auto& row:materialRows){if(!completedGroups[row[0]])throw std::runtime_error("Army complete regular group not ready");
-        if(completedGroups.count(row[1])||completedGroups.count(row[2]))throw std::runtime_error("Army actual CPU20/30 registered group branch differs; select its actual fields");}
-    if(!populateImportedActors)return r;
-    r.poses.reserve(r.source.actors.size());for(const auto& a:r.source.actors)r.poses.push_back(createNativeAccessoryPoseOwner(r.source.poses[a.category]));
-    r.poseCaches.resize(r.poses.size());
-    std::array<char,80> pixel{};r.currentModels.blend=r.templates.blend;
-    for(const auto& p:r.source.primitives){auto d=r.templates.draws[p.sourceTemplate];d.identity=r.source.identities[p.actor]+"/draw"+std::to_string(p.draw);
-        d.retainedVs=std::make_shared<std::vector<char>>(r.source.vertices[p.sourceTemplate]);
-        d.vsConstants=modelContinuousConstantBuffer(device,d.retainedVs->data(),unsigned(d.retainedVs->size()));
-        d.psConstants=modelContinuousConstantBuffer(device,pixel.data(),80);r.currentModels.draws.push_back(std::move(d));}
-    return r;
-}
 // Source owner supplies current actor World/root on normal logical changes.
 // Same model/category inventory reuses every imported/device source object.
 inline void publishNativeArmyWorld(NativeArmyPopulation& owner,unsigned actor,const NativeAccessoryPoseRoot& world,const std::array<float,20>& actualBounds){
@@ -118,7 +55,9 @@ inline NativeArmyPlan selectNativeArmyPopulation(NativeArmyPopulation& owner,con
         visible[a.index]=a.slotScalar>0&&modelContinuousVisible(bounds,planes);if(visible[a.index]){r.visibleActors.push_back(a.index);keys[a.index]=modelContinuousDistanceKey(bounds,planes[4].data(),span,scale);}}
     for(unsigned record=0;record<s.recordMasks.size();++record)for(unsigned i=0;i<s.primitives.size();++i){const auto& p=s.primitives[i];const auto& a=s.actors[p.actor];
         if(!visible[p.actor]||(s.recordMasks[record]&(a.exclusion|s.commonExclude))!=0)continue;
-        ++r.ordinaryCounts[record];NativeArmyDraw d;d.primitive=i;d.record=record;d.distanceKey=keys[p.actor];d.tableOwner=p.tableOwner;d.pixel=s.pixels[p.sourceTemplate];
+        ++r.ordinaryCounts[record];
+        if((p.allowedRecords&(uint32_t(1)<<record))==0)continue;
+        NativeArmyDraw d;d.primitive=i;d.record=record;d.distanceKey=keys[p.actor];d.tableOwner=p.tableOwner;d.pixel=s.pixels[p.sourceTemplate];
         auto& held=*owner.currentModels.draws[i].retainedVs;d.vertex=held;
         const auto& palette=owner.poses[p.actor].frame.palettes[p.palette];
         if(d.vertex.size()==160){

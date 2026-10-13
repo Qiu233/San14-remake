@@ -1,13 +1,11 @@
 using System.Buffers.Binary;
 using System.Numerics;
-using San14.Data.Formats;
 
 namespace San14.Data;
 
-/// <summary>One actual source-created mode2 View packet, whose nonnull Moon
-/// setter receives +0 RGB. The two default original Sky2 programs never read
-/// MoonRGB/MoonDir. The native NaN cache and +Inf amplitude are retained; this
-/// capability permits only that unused amplitude in those exact programs.</summary>
+/// <summary>One accepted light packet whose nonnull Moon setter receives zero
+/// color. Its nonfinite normalization result is retained; shader consumers
+/// decide whether the Moon field is unused before accepting that amplitude.</summary>
 public sealed class Sky2SourceZeroMoon
 {
     public const string AtmosphereProgramSha256 = Sky2NullTextureAdapter.DefaultPixelSourceSha;
@@ -30,16 +28,15 @@ public sealed class Sky2SourceZeroMoon
     public SkySceneSelectedViewLightIdentity Identity { get; }
     public string SourceProvenance { get; }
 
-    public static Sky2SourceZeroMoon Create(LoadedShaderContainer shader,
+    public static Sky2SourceZeroMoon Create(
         Sky2NullTextureBinding sourceMoonTexture, MapSourceCreatedLightingPacket acceptedLighting,
         SkySceneSelectedViewLightPacket selectedViewPacket)
     {
-        ArgumentNullException.ThrowIfNull(shader); ArgumentNullException.ThrowIfNull(sourceMoonTexture);
+        ArgumentNullException.ThrowIfNull(sourceMoonTexture);
         ArgumentNullException.ThrowIfNull(acceptedLighting); ArgumentNullException.ThrowIfNull(selectedViewPacket);
         sourceMoonTexture.Validate();
-        if (sourceMoonTexture.Role != SkySamplingRole.Moon ||
-            shader.Source.OverrideSource is not null || shader.Source.FileId != 0x340AC335)
-            throw new InvalidDataException("Source zero Moon requires the exact applied-source fresh shader and both unchanged default original programs.");
+        if (sourceMoonTexture.Role != SkySamplingRole.Moon)
+            throw new InvalidDataException("Zero Moon lighting requires its captured Moon texture binding.");
         var id = selectedViewPacket.Identity; var binding = acceptedLighting.Binding;
         if (id.FrameNumber != acceptedLighting.FrameNumber || id.SelectedViewOwner != binding.ViewIdentity ||
             id.ProviderPacketOwner != binding.LightOwnerIdentity)
@@ -60,14 +57,13 @@ public sealed class Sky2SourceZeroMoon
     /// fields. Nonnull zero Moon remains native +Inf/NaN; only exact PS10/4
     /// (or the swapped PS3/4) may ignore its unused RGB amplitude. PS11 reads
     /// MoonRGB and never receives this capability.</summary>
-    public static Sky2SourceZeroMoon CreateDirectionalSelected(LoadedShaderContainer shader,
+    public static Sky2SourceZeroMoon CreateDirectionalSelected(
         Sky2NullTextureBinding sourceMoonTexture, SkyDirectionalSelectedLightSource source)
     {
-        ArgumentNullException.ThrowIfNull(shader); ArgumentNullException.ThrowIfNull(sourceMoonTexture);
+        ArgumentNullException.ThrowIfNull(sourceMoonTexture);
         ArgumentNullException.ThrowIfNull(source); source.ValidateCurrent(); sourceMoonTexture.Validate();
-        if (!source.HasExactZeroMoonRgb || sourceMoonTexture.Role != SkySamplingRole.Moon ||
-            shader.Source.OverrideSource is not null || shader.Source.FileId != 0x340AC335)
-            throw new InvalidDataException("Directional zero Moon requires its exact same-frame source and original MoonRGB-unused program scope.");
+        if (!source.HasExactZeroMoonRgb || sourceMoonTexture.Role != SkySamplingRole.Moon)
+            throw new InvalidDataException("Directional zero Moon requires the same-frame zero color and captured Moon binding.");
         return new(sourceMoonTexture, source.SelectedPacket, source.AcceptedLighting, source);
     }
 
@@ -98,13 +94,6 @@ public sealed class Sky2SourceZeroMoon
         ValidateZeroRgb(new(rgb.X, rgb.Y, rgb.Z), 0);
         if (Bits(rgb.W) != 0x7F800000)
             throw new InvalidDataException("Source zero Moon amplitude must preserve the native positive infinity result.");
-    }
-
-    internal void ValidateDefinitions(DxbcResourceDefinitions definitions)
-    {
-        ArgumentNullException.ThrowIfNull(definitions);
-        if (definitions.Buffers.Count != 1 || definitions.Buffers[0].ByteSize != 256)
-            throw new InvalidDataException("Nonfinite source Moon amplitude is unused only in the two exact default original Sky2 programs.");
     }
 
     private static uint Bits(float value) => BitConverter.SingleToUInt32Bits(value);

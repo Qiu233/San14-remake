@@ -66,23 +66,6 @@ public static class HdrShaderCodec
         _=>throw new ArgumentOutOfRangeException(nameof(field))
     };
 
-    internal static G2ShaderCombination CopyCombination(G2ShaderCombination combination)
-        => combination with
-        {
-            RawRow=combination.RawRow.ToArray(),
-            Stages=Array.AsReadOnly(combination.Stages.Select(stage=>stage with
-            {Entry=stage.Entry is {} entry ? entry with {RawTableRow=entry.RawTableRow.ToArray()} : null}).ToArray())
-        };
-
-    internal static DxbcResourceDefinitions FreezeDefinitions(DxbcResourceDefinitions definitions)
-        =>definitions with
-        {
-            Buffers=Array.AsReadOnly(definitions.Buffers.Select(buffer=>buffer with
-                {Variables=Array.AsReadOnly(buffer.Variables.ToArray())}).ToArray()),
-            Bindings=Array.AsReadOnly(definitions.Bindings.ToArray()),
-            Types=Array.AsReadOnly(definitions.Types.Select(type=>type with
-                {Members=Array.AsReadOnly(type.Members.ToArray())}).ToArray())
-        };
     private static byte[] Encode(ReadOnlySpan<uint> words)
     {
         byte[] bytes = new byte[words.Length * 4];

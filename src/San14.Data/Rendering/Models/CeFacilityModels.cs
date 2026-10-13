@@ -22,6 +22,13 @@ public static class CeFacilityModels
     public static (SceneModelReference Unfinished, SceneModelReference Completed) Resolve(
         GameResourceRepository repository, LoadedSceneResources scene,
         int objectDefinitionSlot = 3)
+        => (Reference(LoadTextureResources(repository, scene, objectDefinitionSlot, false)),
+            Reference(LoadTextureResources(repository, scene, objectDefinitionSlot, true)));
+
+    /// <summary>Imports only the selected facility state, retaining the definition,
+    /// model, material records and slot table for its actual asset owner.</summary>
+    public static LoadedModelTextureResources LoadTextureResources(GameResourceRepository repository,
+        LoadedSceneResources scene, int objectDefinitionSlot, bool completed)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(scene);
@@ -40,16 +47,14 @@ public static class CeFacilityModels
             5 => (ArcherTowerUnfinishedDefinitionId, ArcherTowerBuildingDefinitionId),
             _ => throw new InvalidDataException($"CE facility object slot {objectDefinitionSlot} has no source model binding.")
         };
-        return (Read(unfinishedId), Read(completedId));
-
-        SceneModelReference Read(uint definitionId)
-        {
-            LoadedModelTextureResources links = ModelTextureResources.LoadForDefinition(
-                repository, dictionary, scene.ModelCatalog, definitionId);
-            DokObject model = links.ModelObject;
-            if (model.Kind != DokObjectKind.Inline || model.ClassId != ModelClass)
-                throw new InvalidDataException($"CE facility definition {definitionId:X8} has no inline G1M model object.");
-            return new(dictionary, model, links.Model.Source.FileId);
-        }
+        uint definitionId = completed ? completedId : unfinishedId;
+        LoadedModelTextureResources links = ModelTextureResources.LoadForDefinition(
+            repository, dictionary, scene.ModelCatalog, definitionId);
+        if (links.ModelObject.Kind != DokObjectKind.Inline || links.ModelObject.ClassId != ModelClass)
+            throw new InvalidDataException($"CE facility definition {definitionId:X8} has no inline G1M model object.");
+        return links;
     }
+
+    private static SceneModelReference Reference(LoadedModelTextureResources resources)
+        => new(resources.Dictionary, resources.ModelObject, resources.Model.Source.FileId);
 }

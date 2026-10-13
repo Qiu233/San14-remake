@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -20,7 +19,6 @@ public sealed record ModelPrimitiveCategoryInventory(int Category,
 public sealed class ModelPrimitiveInventorySource
 {
     private static readonly ConditionalWeakTable<MapStaticModelAsset, ModelPrimitiveInventorySource> StaticSources = new();
-    private static readonly ConditionalWeakTable<ArmyPrimitivePublicationSource, ModelPrimitiveInventorySource> ArmySources = new();
     private readonly ModelPrimitiveCategoryInventory[] categories;
 
     private ModelPrimitiveInventorySource(string identity, int[] first,
@@ -57,49 +55,35 @@ public sealed class ModelPrimitiveInventorySource
     {
         ArgumentNullException.ThrowIfNull(asset);
         return StaticSources.GetValue(asset, static actual =>
-        {
-            var source = ReadLoaded(actual.RawTransforms.Source, actual.Reference.Dictionary, actual.Reference.ModelObject.ObjectId);
-            var geometry = G1ModelGeometryReader.Read(actual.RawTransforms.Source.Bytes, actual.RawTransforms.Source.Bytes.LongLength);
-            var draws = G1ModelDrawReader.Read(geometry).Draws;
-            if (actual.Reference.ModelFileId != actual.RawTransforms.Source.FileId || actual.Draws.Count != draws.Count ||
-                actual.Draws.Where((draw, index) => draw.Index != draws[index].Index ||
-                    !draw.RawBytes.AsSpan().SequenceEqual(draws[index].RawBytes)).Any())
-                throw new InvalidDataException("Static inventory asset does not retain its actual source draw directory.");
-            return source;
-        });
+            ReadLoaded(new(actual.RawTransforms.Geometry, actual.RawTransforms.Source),
+                actual.Reference.Dictionary, actual.Reference.ModelObject.ObjectId));
     }
 
     public static ModelPrimitiveInventorySource LoadArmy(ArmyPrimitivePublicationSource source)
     {
         ArgumentNullException.ThrowIfNull(source);
-        return ArmySources.GetValue(source, static actual =>
-        {
-            actual.ValidateSourceUnchanged();
-            var loaded = ReadLoaded(actual.Model, actual.Catalog.Dictionary, actual.Category.ModelObjectId);
-            if (!loaded.Category0.SourceDrawIndices.SequenceEqual(actual.OrdinarySourceDrawIndices))
-                throw new InvalidDataException("Army inventory differs from its actual ordinary ModelCPU group order.");
-            return loaded;
-        });
+        return source.Primitives;
     }
 
     /// <summary>Read once from the actual selected dictionary/model sources.
     /// This finite implementation accepts the proven one-part category0 profile;
     /// an unsupported profile never becomes a synthetic empty category1.</summary>
-    public static ModelPrimitiveInventorySource ReadLoaded(LoadedRdbAsset modelSource,
+    public static ModelPrimitiveInventorySource ReadLoaded(LoadedModelGeometry model,
         LoadedObjects dictionary, uint selectedModelObjectId)
     {
-        ArgumentNullException.ThrowIfNull(modelSource); ArgumentNullException.ThrowIfNull(dictionary);
-        Verify(modelSource); Verify(dictionary.Source);
-        var model = DokReader.Read(dictionary.Source.Bytes).Objects.Single(value =>
+        ArgumentNullException.ThrowIfNull(model);
+        LoadedRdbAsset modelSource = model.Source;
+        G1ModelGeometry geometry = model.Geometry;
+        ArgumentNullException.ThrowIfNull(dictionary);
+        var declaration = dictionary.Document.Objects.Single(value =>
             value.Kind == DokObjectKind.Inline && value.ClassId == 0xD40B3C8F && value.ObjectId == selectedModelObjectId);
-        var file = model.Properties.Single(property => property.NameHash == 0x8AB68B3F);
+        var file = declaration.Properties.Single(property => property.NameHash == 0x8AB68B3F);
         if (file.TypeCode != 5 || file.ElementCount != 1 || file.RawValue.Length != 4 ||
             BinaryPrimitives.ReadUInt32LittleEndian(file.RawValue) != modelSource.FileId)
             throw new InvalidDataException("Model inventory dictionary does not select this actual geometry resource.");
-        RequireZero(24, 0x07AAF542, 0);
-        RequireZero(25, 0x0B534ABC, 1);
-        RequireZero(41, 0x95424354, 1);
-        var geometry = G1ModelGeometryReader.Read(modelSource.Bytes, modelSource.Bytes.LongLength);
+        RequireZero(0x07AAF542, 0);
+        RequireZero(0x0B534ABC, 1);
+        RequireZero(0x95424354, 1);
         var bindings = G1ModelDrawReader.Read(geometry);
         var part = geometry.Sections.Single(section => section.Id == 0x10009);
         int[] first = bindings.Groups.SelectMany(group => group.DrawIndices).ToArray();
@@ -107,28 +91,20 @@ public sealed class ModelPrimitiveInventorySource
             (BinaryPrimitives.ReadUInt32LittleEndian(part.RawBytes.AsSpan(16)) & 0x7FFFFFFF) != 0 ||
             BinaryPrimitives.ReadUInt32LittleEndian(part.RawBytes.AsSpan(24)) != bindings.Groups.Count ||
             BinaryPrimitives.ReadUInt32LittleEndian(part.RawBytes.AsSpan(28)) != 0 ||
-            bindings.Draws.Any(draw => draw.UnknownValue32 != 1) || first.Length != bindings.Draws.Count ||
-            first.Distinct().Count() != first.Length)
+            bindings.Draws.Any(draw => draw.UnknownValue32 != 1))
             throw new NotSupportedException("Model inventory requires the actual complete unique one-part LOD0/classification0 first-group profile.");
         string identity = dictionary.Source.ResourceUri + "@" + dictionary.Source.DecodedSha256 +
             "/" + selectedModelObjectId.ToString("X8") + "|" + modelSource.ResourceUri + "@" + modelSource.DecodedSha256;
-        return new(identity, first, WorldPrimitiveDistanceKey.ReadModelDeclaration(model));
+        return new(identity, first, WorldPrimitiveDistanceKey.ReadModelDeclaration(declaration));
 
-        void RequireZero(int ordinal, uint hash, int count)
+        void RequireZero(uint hash, int count)
         {
-            var property = model.Properties[ordinal];
-            if (property.Index != ordinal || property.NameHash != hash || property.TypeCode != 5 ||
+            var property = declaration.Properties.Single(property => property.NameHash == hash);
+            if (property.TypeCode != 5 ||
                 property.ElementCount != count || property.RawValue.Length != count * 4 ||
                 count == 1 && BinaryPrimitives.ReadUInt32LittleEndian(property.RawValue) != 0)
                 throw new NotSupportedException("Model inventory requires the actual source null G1ii dependency and absent shader swaps.");
         }
-    }
-
-    private static void Verify(LoadedRdbAsset source)
-    {
-        if (string.IsNullOrWhiteSpace(source.ResourceUri) ||
-            Convert.ToHexString(SHA256.HashData(source.Bytes)) != source.DecodedSha256)
-            throw new InvalidDataException("Model inventory load source bytes differ from their declared identity.");
     }
 }
 

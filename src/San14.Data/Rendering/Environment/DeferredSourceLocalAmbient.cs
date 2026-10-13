@@ -74,7 +74,7 @@ public sealed class DeferredSourceLocalAmbient
         if (pixels.Length != 1 || Convert.ToHexString(SHA256.HashData(shader.Container.GetProgramBytes(
             shader.Source.Bytes, pixels[0].Entry!.ProgramIndex))) != DeferredBufferSources.PixelSourceSha256)
             throw Error("requires the exact original PS1 combination");
-        var configuration = G1ShaderConfigurationReader.Read(shader.Source.Bytes, shader.Container).Records
+        var configuration = shader.ReadConfigurations().Records
             .Single(r => r.Name == "LocalAmbSpecMaps" && r.NameHash == 0xC1BD0501);
         var expected = new (uint Hash, uint Value)[]
         {

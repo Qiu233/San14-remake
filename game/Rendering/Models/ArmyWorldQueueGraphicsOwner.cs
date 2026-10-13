@@ -143,8 +143,8 @@ public sealed class ArmyWorldQueueGraphicsOwner : IAsyncDisposable
         {
             var packet = packets[primitive.PacketKey];
             var actor = actualPublication.Actors.Single(a => a.ActorIdentity == primitive.ActorIdentity);
-            if (packet.DrawIndex != primitive.SourceDrawIndex || packet.Model.Source.ResourceUri != actor.Source.Model.ResourceUri ||
-                packet.Model.Source.DecodedSha256 != actor.Source.Model.DecodedSha256)
+            if (packet.DrawIndex != primitive.SourceDrawIndex || packet.Model.Source.ResourceUri != actor.Source.Model.Source.ResourceUri ||
+                packet.Model.Source.DecodedSha256 != actor.Source.Model.Source.DecodedSha256)
                 throw new InvalidDataException("Army GPU packet geometry differs from this actual owning-record CPU inventory.");
         }
         var plan = ArmyWorldQueuePrimitivePlan.PrepareFreshSourceCandidates(actualPublication,

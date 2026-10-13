@@ -67,23 +67,21 @@ public sealed class LoadedArmyMaterialParameterSource
         LoadedArmyMaterialReadySource actualMaterial,ArmyFlagMaterialUserParameters actualUser)
     {
         native=actualNative;Material=actualMaterial;user=actualUser;
-        var context=actualMaterial.Material.Properties.Single(p=>p.NameHash==0xC17A66DF);
-        if(context.TypeCode!=5||context.ElementCount!=1||context.RawValue.Length!=4)
-            throw new InvalidDataException("Material CPU18 context dependency is not its actual DWORD lookup field.");
-        RegisteredContextResourceObjectId=BinaryPrimitives.ReadUInt32LittleEndian(context.RawValue);
-        var filename=actualMaterial.Material.Properties.Single(p=>p.NameHash==0x8FD1DA96);
-        if(filename.TypeCode!=1||filename.RawValue.Length!=filename.ElementCount)
-            throw new InvalidDataException("Material filename context source is not its actual byte-string field.");
-        FilenameContextSourceBytes=filename.RawValue;
     }
     public LoadedArmyMaterialReadySource Material { get; }
     public int? DeclaredMaterialId => user.DeclaredMaterialId;
     public uint? DeclaredAutomatonContextIdentifier => user.AutomatonContextObjectId;
-    /// <summary>D9B7B0's separate CPU18 registered-Data lookup input. Its
-    /// declaration is not current directory presence or dependency readiness.</summary>
-    public uint RegisteredContextResourceObjectId { get; }
-    public ReadOnlyMemory<byte> FilenameContextSourceBytes { get; }
+    /// <summary>The GSTK file-resource input to the texture-stage parameter
+    /// producer. It is separate from named render-state Data lookup.</summary>
+    public uint StageTableResourceId => Material.TextureInputs.StageTableResource;
+    public uint BlendTextureRenderStateObjectId => Material.TextureInputs.BlendState;
+    public ReadOnlyMemory<byte> FilenameContextSourceBytes => Material.TextureInputs.Filename;
     public bool HasFilenameContextSource => !FilenameContextSourceBytes.IsEmpty&&FilenameContextSourceBytes.Span[0]!=0;
+    public ArmyMaterialTextureStageParameters? LoadTextureStageParameters(GameResourceRepository repository)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        return StageTableResourceId==0?null:ArmyMaterialTextureStageParameters.Load(repository,StageTableResourceId);
+    }
     public ArmyMaterialParameterRecord12 ConstructInitialRecord12(ArmyMaterialParameterPhase actualPhase)
     {
         float specular=actualPhase switch {

@@ -157,8 +157,8 @@ public static class D3D11RefractionFilterInputPreparation
                 if (tables.Variants.RecordWidth != 8 || tables.RawDimensionCounts.Take(6).Any(value => value > 1))
                     throw new NotSupportedException("Refraction Gaussian shader requires an unsupported selector dimension.");
                 var variant = tables.Variants.Records.FirstOrDefault(value =>
-                    BinaryPrimitives.ReadUInt32LittleEndian(value.RawBytes) == 1 &&
-                    BinaryPrimitives.ReadUInt32LittleEndian(value.RawBytes.AsSpan(4)) == kernelSize)
+                    BinaryPrimitives.ReadUInt32LittleEndian(value.RawBytes.Span) == 1 &&
+                    BinaryPrimitives.ReadUInt32LittleEndian(value.RawBytes.Span[4..]) == kernelSize)
                     ?? throw new NotSupportedException("Refraction Gaussian kernel has no declared shader variant.");
                 var combination = tables.ResolveCombination(new uint[] { 0, 0, 0, 0, 0, 0, (uint)variant.Index }, pass);
                 var stages = combination.Stages.Where(value => value.Entry is not null).ToArray();

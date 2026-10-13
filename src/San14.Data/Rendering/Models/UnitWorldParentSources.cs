@@ -26,17 +26,13 @@ public static class UnitWorldParentSources
 
     public static UnitWorldParentSourceInputs ReadDefinition(LoadedObjects catalog, DokObject definition)
     {
-        // This validates the actual inline Model::WorldPQ identity and complete
-        // source hash. Reparse the four additional properties from those bytes.
-        _ = UnitWorldTransform.ConstructDefinition(catalog, definition);
-        DokObject actual = DokReader.Read(catalog.Source.Bytes).Objects.Single(row =>
-            row.Index == definition.Index && row.Offset == definition.Offset);
-        uint[] dopes = Words(actual, StaticDopeSheetObjectNameHash);
-        uint[] pose = Words(actual, PoseScripCodeObjectNameHash);
+        WorldTransformDeclarationReader.RequireDefinition(catalog, definition);
+        uint[] dopes = Words(definition, StaticDopeSheetObjectNameHash);
+        uint[] pose = Words(definition, PoseScripCodeObjectNameHash);
         if (pose.Length != 1) throw new InvalidDataException("Native PoseScripCodeObjectNameHash requires its explicit scalar.");
-        return new(actual.ObjectId, Array.AsReadOnly(dopes), pose[0],
-            Array.AsReadOnly(Words(actual, ChildObjectNameHashArray)),
-            Array.AsReadOnly(Words(actual, ChildObjectOidNameHashArray)),
+        return new(definition.ObjectId, Array.AsReadOnly(dopes), pose[0],
+            Array.AsReadOnly(Words(definition, ChildObjectNameHashArray)),
+            Array.AsReadOnly(Words(definition, ChildObjectOidNameHashArray)),
             catalog.Source.ResourceUri, catalog.Source.DecodedSha256);
     }
 

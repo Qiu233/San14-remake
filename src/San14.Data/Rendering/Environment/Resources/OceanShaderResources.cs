@@ -37,12 +37,12 @@ public sealed class OceanShaderResources
         if (renderer.OceanWaveShaderFileId == 0)
             throw new NotSupportedException("The named Renderer declares no PB2 wave-water shader.");
         var shader = repository.LoadShaderContainer("system", renderer.OceanWaveShaderFileId);
-        byte[] bytes = shader.Source.Bytes.ToArray();
-        var container = G2ShaderContainerReader.Read(bytes);
+        byte[] bytes = shader.Source.Bytes;
+        var container = shader.Container;
         // This physical pair has no binding variants (and a zero variant width).
         // Import its stage combinations directly; no feature/variant selector
         // is needed for the supported single combination.
-        var combinations = G2ShaderCombinationReader.Read(bytes);
+        var combinations = shader.ReadCombinations();
         uint passes = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(0x3C, 4));
         bool hasSelection = Enumerable.Range(0, 7).Any(dimension =>
             BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(0x48 + dimension * 4, 4)) > 1);
@@ -58,13 +58,13 @@ public sealed class OceanShaderResources
         byte[] vertex = container.GetProgramBytes(bytes, vertexIndex).ToArray();
         byte[] pixel = container.GetProgramBytes(bytes, pixelIndex).ToArray();
         var layout = OceanShaderAbi.ImportLayout(vertex, pixel);
-        int? generator = ReadGeneratorAnnotation(bytes, container);
+        int? generator = ReadGeneratorAnnotation(shader);
         return new(shader.Source, vertexIndex, pixelIndex, vertex, pixel, layout, generator);
     }
 
-    private static int? ReadGeneratorAnnotation(byte[] bytes, G2ShaderContainer container)
+    private static int? ReadGeneratorAnnotation(LoadedShaderContainer shader)
     {
-        var resources = G1ShaderConfigurationReader.Read(bytes, container).Records;
+        var resources = shader.ReadConfigurations().Records;
         // These declared factories have actual owners in the supported wave
         // material. Unknown factories need their own participation semantics.
         if(resources.Any(resource => resource.Name is not

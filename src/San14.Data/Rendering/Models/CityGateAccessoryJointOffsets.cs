@@ -52,9 +52,7 @@ public sealed class LoadedCityGateAccessoryJointOffsets
         var root=UnitWorldTransform.ConstructDefinition(catalog,definition);
         root=root with {Quaternion24=CityGateAccessoryJointOffsets.NormalizeFactoryQuaternion(root.Quaternion24),
             Basis="DA6C70 actual declaration P/Q/S ->normalizedQ ->D9E890 no-parent; DB1350/DB1570/DB1640 root getters"};
-        var rawGeometry=G1ModelGeometryReader.Read(actualModel.Source.Bytes,actualModel.Source.Bytes.Length);
-        var skeleton=G1ModelTransformReader.Read(actualModel.Source.Bytes,rawGeometry);
-        byte[] defaults=skeleton.Joints.SelectMany(j=>j.RawBytes).ToArray();
+        byte[] defaults=actualModel.Transforms.Joints.SelectMany(j=>j.RawBytes).ToArray();
         return new(actualModel,definition.ObjectId,root,defaults);
     }
 

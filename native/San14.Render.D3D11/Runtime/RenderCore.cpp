@@ -172,7 +172,7 @@ static std::array<float,4> decode(const char* p, DXGI_FORMAT format) {
 #include "../Scene/Models/AnimationCadence.h"
 #include "../Scene/Models/ArmyWorldMaterialImport.h"
 #include "../Scene/Models/ArmyWorldMaterialBank.h"
-#include "../Scene/Models/ArmyWorldModeImport.h"
+#include "../Scene/Models/ArmyCategoryResources.h"
 #include "../Scene/Models/ArmyWorldModeBounds.h"
 #include "../Scene/Models/ArmyWorldModelPool.h"
 #include "../Scene/Models/SharedCategory2Accessories.h"
@@ -282,7 +282,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         if(sourceAccessoryVisuals||sourceArmyVisuals)
             defaultPlayerPhases=source_default_player_phase::readProfile(
                 resources.directory(ResourceGroup::AnimationDefaults)/"default-player-loop-source.bin");
-        frameState.prepareBaseAccessories(device.Get(),context.Get(),resources,host.areaCapitalWorld,
+        frameState.prepareBaseAccessories(device.Get(),context.Get(),resources,host.cityGateWorld,host.areaCapitalWorld,
             defaultPlayerPhases,bases);
         bases.withAccessories([&](auto& cityAccessories,auto& areaAccessories) {
             armies.prepare(device.Get(),context.Get(),resources,cityAccessories,areaAccessories);
@@ -297,8 +297,8 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         shadows.prepareReceiverResources(device.Get(),resources.directory(ResourceGroup::ShadowReceivers));
     }
     auto publishCurrentModels=[&]() {
-        armies.publishArmy(host.armyWorld);
-        bases.publish(host.cityGateWorld,host.areaCapitalWorld,armies);
+        armies.publishArmy(device.Get(),context.Get(),host.armyWorld);
+        bases.publish(device.Get(),context.Get(),host.cityGateWorld,host.areaCapitalWorld,armies);
         if(bases.populationChanged()) {
             shadows.publishPrimaryPopulation(staticModels->catalog(),bases.primary(),
                 *staticModels);

@@ -51,10 +51,10 @@ public sealed partial class MapCopy97CurrentStockSource
                 !frame.Camera.Prefix.Span.SequenceEqual(camera)||!frame.Lighting.PreparedCameraPrefix.Span.SequenceEqual(lightingCamera)||
                 !frame.Lighting.LocalLightData.Span.SequenceEqual(light)||!frame.Feature.CurrentFeature48.Span.SequenceEqual(feature)||
                 !frame.Selection.CurrentFeature48.Span.SequenceEqual(lateFeature)||!frame.Selection.RequestedVariant96.Span.SequenceEqual(lateVariant)||
-                !frame.Selection.Combination.RawRow.AsSpan().SequenceEqual(lateRow)||!frame.Selection.BindingVariant.RawBytes.AsSpan().SequenceEqual(lateBinding)||
+                !frame.Selection.Combination.RawRow.Span.SequenceEqual(lateRow)||!frame.Selection.BindingVariant.RawBytes.Span.SequenceEqual(lateBinding)||
                 !packet.Early.Camera.Prefix.Span.SequenceEqual(earlyCamera)||
                 !packet.Early.CurrentFeature48.Span.SequenceEqual(earlyFeature)||!packet.Early.RequestedVariant96.Span.SequenceEqual(earlyVariant)||
-                !packet.Early.Combination.RawRow.AsSpan().SequenceEqual(earlyRow)||!packet.Early.BindingVariant.RawBytes.AsSpan().SequenceEqual(earlyBinding))
+                !packet.Early.Combination.RawRow.Span.SequenceEqual(earlyRow)||!packet.Early.BindingVariant.RawBytes.Span.SequenceEqual(earlyBinding))
                 throw new InvalidDataException("Accepted stock semantic snapshot changed its current native Camera/light/feature/variant packet or frontend epoch.");
             packet.Terrain.Source.RequireRetainedAcceptedScope();
         }

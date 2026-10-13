@@ -17,6 +17,7 @@ enum class ResourceGroup {
     SkyAtmosphere,
     AnimationTiming,
     ArmyActions,
+    MaterialResourceContext,
     Armies,
     AtmosphereCamera,
     BaseVisuals,
@@ -78,12 +79,13 @@ public:
         case ResourceGroup::SkyAtmosphere: return packageRoot/"atmosphere-input";
         case ResourceGroup::AnimationTiming: return packageRoot/"animation-cadence-input";
         case ResourceGroup::ArmyActions: return packageRoot/"army-graphics-action-input";
+        case ResourceGroup::MaterialResourceContext: return packageRoot/"resource-context-input";
         case ResourceGroup::Armies: return packageRoot/"army-visual-input";
         case ResourceGroup::AtmosphereCamera: return packageRoot/"atmosphere-camera-continuous-input";
         case ResourceGroup::BaseVisuals: return packageRoot/"base-visual-world-input";
         case ResourceGroup::Camera: return packageRoot/"camera-continuous-input";
         case ResourceGroup::CameraMotion: return packageRoot/"camera-motion-input";
-        case ResourceGroup::BaseAccessories: return packageRoot/"city-accessory-next-input";
+        case ResourceGroup::BaseAccessories: return packageRoot/"city-accessory-input";
         case ResourceGroup::BaseShadows: return packageRoot/"city-gate-shadow-input";
         case ResourceGroup::AmbientFrame: return packageRoot/"current-ambient-frame-input";
         case ResourceGroup::CloudWeather: return packageRoot/"current-cloud-weather-input";

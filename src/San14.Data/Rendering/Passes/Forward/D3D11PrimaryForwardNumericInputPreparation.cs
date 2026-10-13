@@ -50,7 +50,7 @@ public sealed class D3D11PrimaryForwardNumericInputPreparation
     {
         vertexDefinitions = shader.ReadResourceDefinitions(0);
         pixelDefinitions = shader.ReadResourceDefinitions(11);
-        var modules = G1ShaderConfigurationReader.Read(shader.Source.Bytes, shader.Container).Records;
+        var modules = shader.ReadConfigurations().Records;
         var cluster = modules.Single(record => record.Name == "ClusterLightList");
         clusterSize = checked((int)Parameter(cluster, "ClusterSize"));
         clusterZCount = checked((int)Parameter(cluster, "ClusterZNum"));

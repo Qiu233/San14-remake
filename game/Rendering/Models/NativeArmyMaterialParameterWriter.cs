@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using San14.Data;
+using San14.Data.Formats;
 
 /// <summary>The actual managed render context's retained MaterialData list.
 /// D60030 appends every reached reference, including repeated references.
@@ -25,10 +26,9 @@ public sealed class NativeArmyMaterialRenderResourceContext:IDisposable
 }
 
 /// <summary>Actual parameter ready stores for the imported Army materials.
-/// Source and native name directories load before normal requests. Current
-/// CPU18 resolves through the complete owned source directory; original
-/// B3B6F0 MISS plus empty F8 retains the constructor's explicitly null C8.
-/// Nonempty context sources require their real producer and cannot be stubbed.</summary>
+/// Source parameter declarations and shader names load before normal requests.
+/// Texture-stage parameters come from their actual retained GSTK resource.
+/// Named blend-state Data has a separate dependency and readiness owner.</summary>
 public sealed class NativeArmyMaterialParameterWriter:IArmyWorldFlagMaterialParameterWriter,IDisposable
 {
     private sealed record Parameters(LoadedArmyMaterialParameterSource Source,
@@ -36,22 +36,20 @@ public sealed class NativeArmyMaterialParameterWriter:IArmyWorldFlagMaterialPara
     private readonly GameResourceRepository repository;
     private readonly LoadedArmyMaterialParameterNativeSource native;
     private readonly LoadedModelNativeParameterDirectorySource names;
-    private readonly LoadedArmyContextDataSourceDirectory contexts;
-    private readonly Dictionary<uint,IReadOnlyList<ArmyMaterialShaderParameterLookup>> shaderRows=[];
+    private readonly Dictionary<DokObject,IReadOnlyList<ArmyMaterialShaderParameterLookup>> shaderRows=new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<NativeArmyWorldFlagMaterialData,Parameters> parameters=new(ReferenceEqualityComparer.Instance);
     private NativeArmyMaterialRenderResourceContext? currentContext;
     private bool alive=true;
 
     public NativeArmyMaterialParameterWriter(GameResourceRepository repository,
         LoadedArmyMaterialParameterNativeSource actualParameterSource,
-        LoadedModelNativeParameterDirectorySource actualNativeNames,
-        LoadedArmyContextDataSourceDirectory actualContextDirectory)
+        LoadedModelNativeParameterDirectorySource actualNativeNames)
     {
         ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(actualParameterSource);
-        ArgumentNullException.ThrowIfNull(actualNativeNames);ArgumentNullException.ThrowIfNull(actualContextDirectory);
-        this.repository=repository;native=actualParameterSource;names=actualNativeNames;contexts=actualContextDirectory;
-        SourceEvidence=native.SourceEvidence+";"+names.SourceEvidence+";"+contexts.SourceEvidence+
-            ";actual-ready-88/90/98/A0/B8/E8/F0;C8-source-constructor-preserved;"+
+        ArgumentNullException.ThrowIfNull(actualNativeNames);
+        this.repository=repository;native=actualParameterSource;names=actualNativeNames;
+        SourceEvidence=native.SourceEvidence+";"+names.SourceEvidence+
+            ";actual-ready-88/90/98/A0/B8/C8/E8/F0;GSTK-texture-stage-parameters;"+
             "D60030-actual-MaterialData-retain;managed-context-strong-reference-lifetime";
     }
     public string SourceEvidence {get;}
@@ -66,12 +64,8 @@ public sealed class NativeArmyMaterialParameterWriter:IArmyWorldFlagMaterialPara
         RequireCurrent();actualMaterialData.RequireRetained();
         if(parameters.ContainsKey(actualMaterialData))return;
         var source=native.ReadMaterial(actualMaterialData.Source);
-        var context=contexts.ReadActualContextDataLookup(source);
-        // ReadCurrent rejects a real registered HIT whose producer is not yet
-        // supported. The source filename fallback is independently selected.
-        if(context.HasActualRegisteredDefinition)
-            throw new NotSupportedException("Actual context Data requires its registered type13 producer.");
-        if(source.HasFilenameContextSource)
+        var textureStage=source.LoadTextureStageParameters(repository);
+        if(textureStage is null&&source.HasFilenameContextSource)
             throw new NotSupportedException("Actual nonempty material F8 requires its filename context producer.");
 
         var fields=new ArmyMaterialParameterCurrentFields<object>();
@@ -79,8 +73,8 @@ public sealed class NativeArmyMaterialParameterWriter:IArmyWorldFlagMaterialPara
         void Shader(NamedModelShader? shader,ArmyMaterialStage1ParameterSlot slot)
         {
             if(shader is null)return; // The native stage1 dependency block is absent.
-            if(!shaderRows.TryGetValue(shader.Object.ObjectId,out var rows))
-                shaderRows.Add(shader.Object.ObjectId,rows=names.ReadFreshImportedFullTable(repository,shader));
+            if(!shaderRows.TryGetValue(shader.Object,out var rows))
+                shaderRows.Add(shader.Object,rows=names.ReadFreshImportedFullTable(repository,shader));
             fields.PublishStage1ShaderParameterRecord(slot,source.BuildActualScalarAggregate15(scalars,rows));
         }
         var actualFields=actualMaterialData.Fields;
@@ -90,12 +84,12 @@ public sealed class NativeArmyMaterialParameterWriter:IArmyWorldFlagMaterialPara
         Shader(source.Material.StaticClothShader,ArmyMaterialStage1ParameterSlot.StaticClothA0);
         if(actualFields.HasActualRegularData)
             fields.PublishStage1RegularParameterRecord12(source.ConstructInitialRecord12(ArmyMaterialParameterPhase.RegularStage1));
-        // CPU18 MISS and F8 null execute D9D7DB/D9D83C with no C8 store;
-        // the loaded constructor explicitly wrote C8=0. No fake type13 record.
+        if(textureStage is not null)fields.PublishActualContextParameterRecord13(textureStage);
         if(actualFields.HasActualRenderTargetData)
             fields.PublishStage2RenderTargetParameterRecord12(source.ConstructInitialRecord12(ArmyMaterialParameterPhase.RenderTargetStage2));
         parameters.Add(actualMaterialData,new(source,fields,
-            context.SourceEvidence+";F8-source-null;D9B69B-C8-zero;D9D7DB/D9D83C-no-C8-store;"+
+            (textureStage is null?"absent-stage-resource;empty-filename;constructor-C8-retained;":
+                "actual-GSTK-resource;type13-C8-produced;filename-fallback-not-selected;")+
             "actual-parameter-ready-stores;type15-full-native-row-map"));
     }
 
@@ -106,8 +100,8 @@ public sealed class NativeArmyMaterialParameterWriter:IArmyWorldFlagMaterialPara
         RequireCurrent();actualMaterialData.RequireRetained();
         var owned=ReadActualParameters(actualMaterialData);
         var context=currentContext??throw new InvalidOperationException("Army material publication requires its actual render resource context.");
-        // CPU+C8 is independently published before the retain-base gate and is
-        // genuinely null for this reached source. D60030 retains MaterialData.
+        // C8 is owned by the texture-stage parameter producer above. This
+        // adapter returns material/scalar inputs; D60030 retains MaterialData.
         context.RetainActualWorldMaterialData(actualArmy,actualMaterialData);
         if(actualPrior28And40Retained)
             return new(actualMaterialData.Source.Material.ObjectId,null,null,owned.Evidence+";actual-prior28/40-retained;actual-MaterialData-enqueued");

@@ -36,8 +36,7 @@ public sealed class ModelOrdinaryQueueSelectionSource
         // exact class18 creator and one of the four original G1S profiles.
         var selected = ModelOrdinaryNativeStencilSource.ReadFreshSelected(
             actualQueue, actualSelectedInterface, actualShader);
-        var configurations = G1ShaderConfigurationReader.Read(actualShader.Source.Bytes,
-            G2ShaderContainerReader.Read(actualShader.Source.Bytes)).Records;
+        var configurations = actualShader.ReadConfigurations().Records;
         bool alpha = configurations.Any(c => c.Name is "AlphaTest" or "Dissolve");
         return new(actualQueue, selected, alpha);
     }

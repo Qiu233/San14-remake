@@ -59,7 +59,7 @@ public static partial class DeferredBufferSources
             shader.Source.Bytes,pixels[0].Entry!.ProgramIndex)))!=PixelSourceSha256)
             throw Error("selected source combination does not contain exact original PS1");
         var definitions=shader.ReadResourceDefinitions(pixels[0].Entry!.ProgramIndex);
-        var configurations=G1ShaderConfigurationReader.Read(shader.Source.Bytes,shader.Container);
+        var configurations=shader.ReadConfigurations();
         var rows=new List<DeferredBufferDeclaration>();
         foreach(var expected in Slots)
         {

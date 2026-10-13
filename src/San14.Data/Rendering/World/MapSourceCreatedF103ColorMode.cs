@@ -77,7 +77,7 @@ public static class MapSourceCreatedF103ColorMode
         var ocean = node.Call.Arguments.Single(a => a.NameHash == 0xE8F3DC36);
         if (ocean.DescriptorWord != 0x01000001 || ocean.RawValue.Length != 1 || ocean.RawValue[0] != 0)
             throw new InvalidDataException("Source color recipe requires the exact original non-ocean F103 constructor branch.");
-        var configurations = G1ShaderConfigurationReader.Read(source.Shader.Source.Bytes);
+        var configurations = source.Shader.ReadConfigurations();
         if (configurations.Records.Count(r => r.Name == "Refraction") != 1)
             throw new InvalidDataException("Source color recipe requires the exact registered Refraction module.");
         var thin = configurations.Records.Single(r => r.Name == "ThinSurfaceBSDF");

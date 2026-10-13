@@ -1,3 +1,5 @@
+using San14.Data.Formats;
+
 namespace San14.Data;
 
 /// <summary>Original geometry, raw local transforms and texture references for one category.</summary>
@@ -41,10 +43,8 @@ public sealed class CityVisualAssetCatalog
         if (_assets.TryGetValue(selection.Category, out CityVisualAsset? cached)) return cached;
         LoadedModelTextureResources textures = CeCityModels.LoadTextureResourcesByCategory(
             _repository, _scene, selection.Category);
-        LoadedModelTransforms model = _repository.LoadModelTransforms("FieldEditor4", textures.Model.Source.FileId);
-        if (model.Source.ResourceUri != textures.Model.Source.ResourceUri ||
-            model.Source.DecodedSha256 != textures.Model.Source.DecodedSha256)
-            throw new InvalidDataException("City model source changed while its raw transforms were loading.");
+        LoadedModelTransforms model = new(textures.Model.Geometry,
+            G1ModelTransformReader.Read(textures.Model.Source.Bytes, textures.Model.Geometry), textures.Model.Source);
         var asset = new CityVisualAsset(selection.Category,
             new(textures.Dictionary, textures.ModelObject, model.Source.FileId), model, textures,
             _scene.Scene.Source.ResourceUri, _scene.Scene.Source.DecodedSha256,

@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 
 namespace San14.Data.Formats;
 
-public sealed record G1ShaderFeatureRow(IReadOnlyList<uint> Words, byte[] RawBytes);
+public sealed record G1ShaderFeatureRow(IReadOnlyList<uint> Words, ReadOnlyMemory<byte> RawBytes);
 
 /// <summary>Read an identified original 48-byte G1S feature row, independently of its module or physical program.</summary>
 public static class G1ShaderFeatureRowReader

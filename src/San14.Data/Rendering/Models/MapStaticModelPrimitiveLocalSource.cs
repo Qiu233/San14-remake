@@ -1,6 +1,5 @@
 using System.Numerics;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -35,24 +34,12 @@ public static class MapStaticModelPrimitiveLocalSource
     private static PreparedSource PrepareSource(MapStaticModelAsset asset)
     {
         LoadedRdbAsset source = asset.RawTransforms.Source;
-        // Source bytes and the declared draw directory are accepted at import.
-        // Normal instances reuse this loaded asset; a reload creates a new
-        // asset and performs the complete source check again.
-        if (string.IsNullOrWhiteSpace(source.ResourceUri) || source.DecodedSha256 !=
-            Convert.ToHexString(SHA256.HashData(source.Bytes)))
-            throw Error("source URI or decoded hash differs from the actual model bytes");
-        // Re-read source bytes so mutable parsed/rest-pose preview matrices cannot
-        // become native shader input. JointModelMatrices are deliberately unused.
-        G1ModelGeometry geometry = G1ModelGeometryReader.Read(source.Bytes, source.Bytes.Length);
-        G1ModelTransforms skeleton = G1ModelTransformReader.Read(source.Bytes, geometry);
-        G1ModelDrawBindings bindings = G1ModelDrawReader.Read(geometry);
-        if (asset.Draws.Count != bindings.Draws.Count || asset.Draws.Where((draw, index) =>
-                draw.Index != index || !draw.RawBytes.AsSpan().SequenceEqual(bindings.Draws[index].RawBytes)).Any())
-            throw Error("draw list differs from the actual source draw records");
+        G1ModelGeometry geometry = asset.RawTransforms.Geometry;
+        G1ModelTransforms skeleton = asset.RawTransforms.Transforms;
 
         var result = new Dictionary<int, MapStaticModelPrimitiveLocalRows>();
         IReadOnlyList<Matrix4x4>? matrices = null;
-        foreach (G1DrawRecord draw in bindings.Draws)
+        foreach (G1DrawRecord draw in asset.Draws)
         {
             if (unchecked((int)draw.UnknownValue8) < 0)
             {

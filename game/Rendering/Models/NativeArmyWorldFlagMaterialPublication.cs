@@ -37,18 +37,17 @@ public sealed class NativeArmyWorldFlagMaterialData
 public sealed class NativeArmyWorldFlagMaterialPublication:
     IArmyWorldFlagMaterialTablePublication,IArmyWorldFlagMaterialResourceReceiver
 {
-    private sealed record Actor(RemakeArmyInitialization Initialization,RemakeArmyFlagSource Source,
+    private sealed record Actor(RemakeArmyInitialization Initialization,LoadedArmyFlagResources Source,
         uint World2EC,NativeArmyWorldFlagMaterialBank<NativeArmyWorldFlagMaterialData> Bank);
     private readonly GameResourceRepository repository;
     private readonly NativeWorldShaderTableRegistry tables;
     private readonly NativeArmyMaterialTextureRegistry textures;
     private readonly IArmyWorldFlagMaterialParameterWriter parameters;
-    private readonly LoadedObjects shaderObjects;
+    private readonly Dictionary<LoadedArmyFlagResources,LoadedObjects> baseShaderObjects=new(ReferenceEqualityComparer.Instance);
     private readonly ArmyWorldPreparedTableSource priorTables=new();
     private readonly Dictionary<string,Actor> actors=[];
-    private readonly Dictionary<uint,NativeArmyWorldFlagMaterialData> materials=[];
-    private readonly Dictionary<uint,NativeArmyFlagMaterialTextureGroupRecord> registeredGroups=[];
-    private readonly Dictionary<(RemakeArmyFlagSource Source,int Draw),NativeWorldShaderTableState> baseTables=[];
+    private readonly Dictionary<NativeArmyFlagMaterialTextureGroupRecord,NativeArmyWorldFlagMaterialData> materials=new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<(LoadedArmyFlagResources Source,int Draw),NativeWorldShaderTableState> baseTables=[];
     private NativeMapArmyPreparedFrame? current;
     private IReadOnlyDictionary<string,RemakeArmyFlagActor> currentActors=new Dictionary<string,RemakeArmyFlagActor>();
     private Action? requireCurrentArmy;
@@ -62,19 +61,17 @@ public sealed class NativeArmyWorldFlagMaterialPublication:
         ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(actualSharedTables);
         ArgumentNullException.ThrowIfNull(actualTextureDirectory);ArgumentNullException.ThrowIfNull(actualParameterWriter);
         this.repository=repository;tables=actualSharedTables;textures=actualTextureDirectory;parameters=actualParameterWriter;
-        shaderObjects=repository.LoadObjects("system",0x718CCB8B);
     }
-    /// <summary>One source import for the owned renderer lifetime. The context
-    /// directory is the real complete installed namespace; subsequent frames
-    /// reuse it and the native parameter/name recipes without source reads.</summary>
+    /// <summary>Imports parameter declarations and shader names for the owned
+    /// renderer lifetime. Registered texture and context dependencies remain
+    /// separate from source-file availability.</summary>
     public static NativeArmyWorldFlagMaterialPublication CreateLoadedOwned(GameResourceRepository repository,
         NativeWorldShaderTableRegistry actualSharedTables,string actualSourceLocale)
     {
         var native=LoadedArmyMaterialParameterNativeSource.Load(repository,actualSourceLocale);
         var names=LoadedModelNativeParameterDirectorySource.Load(repository,actualSourceLocale);
-        var contexts=LoadedArmyContextDataSourceDirectory.Load(repository,actualSourceLocale);
         var textures=new NativeArmyMaterialTextureRegistry();
-        var parameters=new NativeArmyMaterialParameterWriter(repository,native,names,contexts);
+        var parameters=new NativeArmyMaterialParameterWriter(repository,native,names);
         return new(repository,actualSharedTables,textures,parameters){ownedParameters=parameters,ownedTextures=textures};
     }
 
@@ -103,7 +100,7 @@ public sealed class NativeArmyWorldFlagMaterialPublication:
             if(actors.TryGetValue(actual.InstanceKey,out var prior)&&ReferenceEquals(prior.Initialization,actual.Initialization)&&
                 ReferenceEquals(prior.Source,actual.Source))continue;
             prior?.Bank.Retire();
-            var groups=actual.Source.ReadDeclaredMaterialGroups(repository);
+            var groups=actual.Source.MaterialGroups;
             actors[actual.InstanceKey]=new(actual.Initialization,actual.Source,
                 ArmyMaterialReadySource.ReadWorldPreserve2EC(actual.Source.Catalog,actual.Category),
                 NativeArmyWorldFlagMaterialBank<NativeArmyWorldFlagMaterialData>.CreateFreshClearedOwned(groups));
@@ -126,25 +123,28 @@ public sealed class NativeArmyWorldFlagMaterialPublication:
             actualArmy.SourceMaterials?.Select(actualActor).ExplicitOwnedForceVariant!=actualVariation.OwnedForceVariant)
             throw new InvalidDataException("Army controller material does not match the actual frame force/group.");
         actualCompleteGroup.RequireCurrent();
-        uint id=actualVariation.TextureGroup.ObjectId;
-        if(!registeredGroups.TryGetValue(id,out var retained)||!ReferenceEquals(retained,actualCompleteGroup))
-        {actualCompleteGroup.RegisterActualReadyData(textures);registeredGroups[id]=actualCompleteGroup;}
-        uint materialId=actualVariation.SelectedMaterialObjectId;
-        if(!materials.TryGetValue(materialId,out var material))
-        {
-            var source=ArmyMaterialReadySource.Load(repository,actualVariation.Materials,materialId,shaderObjects);
-            var fields=NativeArmyMaterialReadyOwner.CreateLoaded(source,tables,textures);
-            // These calls stand at real owned dependency completion. The
-            // parameter owner must finish its actual CPU18/F8 route before a
-            // controller publishes this Data to the current World bank.
-            fields.ApplyReadyStage1Fields();fields.ApplyReadyStage2Fields();
-            material=new(source,fields);
-            parameters.CompleteActualReadyParameters(material);
-            materials.Add(materialId,material);
-        }
+        var material=GetReadyMaterial(actualCompleteGroup);
         material.Fields.RequireCurrent();parameters.RequireCurrent();
         actor.Bank.ApplyActualControllerAssignment(actualVariation.ManagerRow.ManagerKind,actualVariation.OwnedForceVariant,
             group,actualVariation,material);
+    }
+
+    // A completed group is the stable resource owner retained by these fields.
+    // A replacement group imports fresh material and parameter state; earlier
+    // frame contexts keep their captured Data until renderer retirement.
+    private NativeArmyWorldFlagMaterialData GetReadyMaterial(NativeArmyFlagMaterialTextureGroupRecord group)
+    {
+        if(materials.TryGetValue(group,out var material))return material;
+        var variation=group.Source;
+        group.RegisterActualReadyData(textures);
+        var source=ArmyMaterialReadySource.Load(repository,variation.Materials,
+            variation.SelectedMaterialObjectId,variation.ShaderOwner.Objects);
+        var fields=NativeArmyMaterialReadyOwner.CreateLoaded(source,tables,textures);
+        fields.ApplyReadyStage1Fields();fields.ApplyReadyStage2Fields();
+        material=new(source,fields);
+        parameters.CompleteActualReadyParameters(material);
+        materials.Add(group,material);
+        return material;
     }
 
     /// <summary>The actual current World220 material's stage2 D0. An empty
@@ -168,8 +168,12 @@ public sealed class NativeArmyWorldFlagMaterialPublication:
         var group=actor.Bank.Source.ReadDeclaredDraw(sourceDrawIndex);
         var key=(actualActor.Source,sourceDrawIndex);
         if(!baseTables.TryGetValue(key,out var declaredBase))
+        {
+            if(!baseShaderObjects.TryGetValue(actualActor.Source,out var shaderObjects))
+                baseShaderObjects.Add(actualActor.Source,shaderObjects=repository.LoadObjects("system",0x718CCB8B));
             baseTables.Add(key,declaredBase=tables.RetainImportedTable(
                 ModelShaderResources.ResolveDrawBaseSource(actualActor.Source.ShaderBindings,sourceDrawIndex,shaderObjects).Binding.Shader));
+        }
         var prior=priorTables.ReadActualFreshPriorTable(actualActor.Source.Catalog,actualActor.Category,
             actualActor.Source.Model.Geometry,sourceDrawIndex,declaredBase);
         var material=actor.Bank.ReadActualRawDraw(sourceDrawIndex);
@@ -222,7 +226,7 @@ public sealed class NativeArmyWorldFlagMaterialPublication:
         alive=false;current=null;currentActors=new Dictionary<string,RemakeArmyFlagActor>();
         foreach(var actor in actors.Values)actor.Bank.Retire();actors.Clear();
         foreach(var material in materials.Values)material.Fields.Invalidate("World flag material owner retired");materials.Clear();
-        baseTables.Clear();registeredGroups.Clear();requireCurrentArmy=null;
+        baseTables.Clear();baseShaderObjects.Clear();requireCurrentArmy=null;
         ownedParameters?.Dispose();ownedParameters=null;
         ownedTextures?.Invalidate("Owned Army material publication retired");ownedTextures=null;
     }

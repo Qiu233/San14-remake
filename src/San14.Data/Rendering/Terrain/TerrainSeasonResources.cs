@@ -83,8 +83,8 @@ public static class TerrainSeasonResources
             new("season-effect-source", "Native effect-source context key 97485E9B and event rows 130..133 do not identify a physical resource URI.")
         };
         return new(calendar, selection, terrain, objects.AsReadOnly(), textures.AsReadOnly(),
-            Identity(terrain.Shader.Shader.Source), Copy(terrain.Feature), Copy(terrain.Combination),
-            Copy(terrain.CoarseFeature), Copy(terrain.CoarseCombination),
+            Identity(terrain.Shader.Shader.Source), Copy(terrain.Feature), terrain.Combination,
+            Copy(terrain.CoarseFeature), terrain.CoarseCombination,
             Convert.ToHexString(SHA256.HashData(terrain.InitialControl.RgbaPixels)), Array.AsReadOnly(unresolved));
 
         void AddGroup(TerrainTextureGroupKind kind, LoadedTerrainTextureGroup group)
@@ -176,9 +176,4 @@ public static class TerrainSeasonResources
     private static G2ShaderFeatureRecord Copy(G2ShaderFeatureRecord item) =>
         item with { RawBytes = (byte[])item.RawBytes.Clone() };
 
-    private static G2ShaderCombination Copy(G2ShaderCombination item) => item with
-    {
-        RawRow = (byte[])item.RawRow.Clone(),
-        Stages = Array.AsReadOnly(item.Stages.ToArray())
-    };
 }

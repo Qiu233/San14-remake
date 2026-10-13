@@ -66,19 +66,16 @@ public sealed record SkySceneSourceFrame(
 /// Null controller or absent light preserves the corresponding prior cache.</summary>
 public static class SkySceneFramePreparation
 {
-    /// <summary>First default PS3/4 frame whose source nonnull Sun/Moon
-    /// setters and present controller overwrite every named cache consumed by
-    /// those programs. No prior semantic cache is manufactured. Source zero
-    /// Moon capability pins the exact default programs and absent Moon texture.
-    /// Constant-buffer backing/padding remains an explicit device-owner input.</summary>
+    /// <summary>First frame with current camera, controller and light writers.
+    /// The selected pixel declarations determine whether Moon geometry is needed.
+    /// Constant-buffer backing and padding remain device-owner inputs.</summary>
     public static SkyScenePreparedFrame PrepareFreshFullyWritten(SkySceneSourceFrame currentSourceFrame,
         params DxbcResourceDefinitions[] pixelPrograms)
     {
         ArgumentNullException.ThrowIfNull(currentSourceFrame);
         if(currentSourceFrame.Controller is null||!currentSourceFrame.Lights.SunPresent||
-            !currentSourceFrame.Lights.MoonPresent||currentSourceFrame.Lights.SourceZeroMoon is null||
-            currentSourceFrame.Textures.Moon||currentSourceFrame.Textures.Milky)
-            throw new NotSupportedException("Fresh fully written Sky requires present controller/non-null source Sun+zero-Moon and the default PS3/4 texture scope.");
+            !currentSourceFrame.Lights.MoonPresent)
+            throw new NotSupportedException("Fresh Sky requires a current controller and present Sun and Moon writers.");
         return PrepareCore(null,currentSourceFrame.SixCameras,currentSourceFrame.Parameters,currentSourceFrame.Controller,
             currentSourceFrame.Lights,currentSourceFrame.Textures,currentSourceFrame.Atmosphere,pixelPrograms);
     }

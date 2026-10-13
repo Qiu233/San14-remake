@@ -142,9 +142,12 @@ public static class ModelTextureResources
         if (drawIndex < 0) throw new ArgumentOutOfRangeException(nameof(drawIndex));
         try
         {
-            G1ModelDrawTextures parsed = G1ModelDrawTextureReader.Read(model.Model.Geometry);
-            if (drawIndex >= parsed.Bindings.Count) throw new ArgumentOutOfRangeException(nameof(drawIndex));
-            G1DrawTextureBinding binding = parsed.Bindings[drawIndex];
+            G1ModelDrawBindings draws = G1ModelDrawReader.Read(model.Model.Geometry);
+            if (drawIndex >= draws.Draws.Count) throw new ArgumentOutOfRangeException(nameof(drawIndex));
+            G1DrawRecord draw = draws.Draws[drawIndex];
+            if (draw.RawIndex24 >= model.Model.Materials.TextureRecords.Count)
+                throw new InvalidDataException($"Draw {drawIndex} texture record {draw.RawIndex24} exceeds the imported material table.");
+            G1DrawTextureBinding binding = new(draw, draw.RawIndex24, model.Model.Materials.TextureRecords[(int)draw.RawIndex24]);
             var entries = new List<ModelTextureEntryBinding>(binding.TextureRecord.TextureEntries.Count);
             foreach (G1TextureEntry entry in binding.TextureRecord.TextureEntries)
             {

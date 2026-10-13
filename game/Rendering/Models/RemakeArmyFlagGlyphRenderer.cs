@@ -15,19 +15,18 @@ public sealed class RemakeArmyFlagGlyphRenderer:IAsyncDisposable
     private readonly RemakeArmyFlagPaneImage _pane;
     private readonly Rid _shader,_pipeline,_vertices,_vertexArray,_indices,_indexArray,_vertexCb,_pixelCb,_vertexSet,_pixelSet;
     private readonly IReadOnlyList<Rid> _owned;
-    private string? _sourceAtlasHash;
+    private LoadedArmyFlagGlyphAtlasPrefix? _sourceAtlas;
     private readonly SemaphoreSlim _gate=new(1,1);
     private readonly object _lifetime=new();
     private int _accepted;private bool _retiring;private TaskCompletionSource? _drained;private Task? _disposal;
-    public LoadedMapExposureSource StockSource { get; }
     public long DrawCount { get; private set; }
 
-    private RemakeArmyFlagGlyphRenderer(LoadedMapExposureSource source,RemakeArmyFlagPaneImage pane,
+    private RemakeArmyFlagGlyphRenderer(RemakeArmyFlagPaneImage pane,
         Rid shader,Rid pipeline,Rid vertices,Rid vertexArray,Rid indices,Rid indexArray,Rid vertexCb,Rid pixelCb,Rid vertexSet,Rid pixelSet,IReadOnlyList<Rid> owned)
-        =>(StockSource,_pane,_shader,_pipeline,_vertices,_vertexArray,_indices,_indexArray,_vertexCb,_pixelCb,_vertexSet,_pixelSet,_owned)=
-            (source,pane,shader,pipeline,vertices,vertexArray,indices,indexArray,vertexCb,pixelCb,vertexSet,pixelSet,owned);
+        =>(_pane,_shader,_pipeline,_vertices,_vertexArray,_indices,_indexArray,_vertexCb,_pixelCb,_vertexSet,_pixelSet,_owned)=
+            (pane,shader,pipeline,vertices,vertexArray,indices,indexArray,vertexCb,pixelCb,vertexSet,pixelSet,owned);
 
-    public static async Task<RemakeArmyFlagGlyphRenderer> BuildAsync(LoadedMapExposureSource source,
+    public static async Task<RemakeArmyFlagGlyphRenderer> BuildAsync(LoadedDeferredAuxiliaryStockCopySource source,
         Vkd3dShaderCompiler compiler,RemakeArmyFlagPaneImage pane,ModelDeviceBinding atlas,
         ReadOnlyMemory<byte> explicitSourceAtlasSampler52)
     {
@@ -35,7 +34,7 @@ public sealed class RemakeArmyFlagGlyphRenderer:IAsyncDisposable
         if(atlas.DescriptorKind!="Texture"||!atlas.Resource.IsValid||atlas.OwnerTexture is not{IsValid:true}||
             string.IsNullOrWhiteSpace(atlas.SourceResourceUri)||explicitSourceAtlasSampler52.Length!=52)
             throw Error("requires the actual owned font atlas and complete source sampler");
-        var vertex=compiler.Compile(source.VertexProgram.Span);var pixel=compiler.Compile(source.PixelProgram.Span);
+        var vertex=compiler.Compile(source.VertexProgram.Dxbc);var pixel=compiler.Compile(source.PixelProgram.Dxbc);
         var adapter=VertexShaderAdapter.AdaptPositionInput(MoveVertexSet(vertex.Bytes));
         var vi=SpirvShaderInterfaceReader.Read(adapter.Bytes);var pi=SpirvShaderInterfaceReader.Read(pixel.Bytes);
         if(vi.Descriptors.Count!=1||vi.Descriptors[0] is not{StorageClass:2,DescriptorSet:1,RequiredBufferBytes:32}||
@@ -102,24 +101,24 @@ public sealed class RemakeArmyFlagGlyphRenderer:IAsyncDisposable
                 Rid pipeline=Own(rd.RenderPipelineCreate(shader,rd.FramebufferGetFormat(pane.Framebuffer),format,
                     RenderingDevice.RenderPrimitive.Triangles,raster,multisample,depth,blend));
                 if(!rd.RenderPipelineIsValid(pipeline))throw Error("native glyph source pipeline rejected");
-                return new RemakeArmyFlagGlyphRenderer(source,pane,shader,pipeline,vertices,vertexArray,indices,indexArray,vsCb,psCb,vsSet,psSet,owned.AsReadOnly());
+                return new RemakeArmyFlagGlyphRenderer(pane,shader,pipeline,vertices,vertexArray,indices,indexArray,vsCb,psCb,vsSet,psSet,owned.AsReadOnly());
             }
             catch{for(int i=owned.Count-1;i>=0;i--)rd.FreeRid(owned[i]);throw;}
         });
     }
 
-    public static async Task<RemakeArmyFlagGlyphRenderer> BuildAsync(LoadedMapExposureSource source,
+    public static async Task<RemakeArmyFlagGlyphRenderer> BuildAsync(LoadedDeferredAuxiliaryStockCopySource source,
         Vkd3dShaderCompiler compiler,RemakeArmyFlagPaneImage pane,RemakeArmyFlagGlyphAtlas atlas)
     {
         ArgumentNullException.ThrowIfNull(atlas);
         var renderer=await BuildAsync(source,compiler,pane,atlas.Borrow(),atlas.NativeSamplerDescriptor52);
-        renderer._sourceAtlasHash=atlas.Source.WrittenAtlasSha256;return renderer;
+        renderer._sourceAtlas=atlas.Source;return renderer;
     }
 
     public async Task DrawFreshSourceLayoutAsync(LoadedArmyFlagFreshPaneLayout layout,RemakeArmyFlagGlyphContext context)
     {
         ArgumentNullException.ThrowIfNull(layout);
-        if(_sourceAtlasHash is null||_sourceAtlasHash!=layout.Atlas.WrittenAtlasSha256)
+        if(!ReferenceEquals(_sourceAtlas,layout.Atlas))
             throw Error("fresh layout requires its actual source font atlas owner");
         await DrawAsync(layout.Quad,context);
         _pane.PublishCompletedSourceGlyph(layout);

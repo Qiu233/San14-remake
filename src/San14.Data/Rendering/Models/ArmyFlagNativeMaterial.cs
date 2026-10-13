@@ -1,8 +1,6 @@
 using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
-using San14.Data.Formats;
 
 namespace San14.Data;
 
@@ -34,17 +32,12 @@ public static class ArmyFlagNativeMaterials
         string explicitSpecularSource)
         =>Construct(ReadSource(source),explicitSpecularW,explicitSpecularSource);
 
-    /// <summary>Canonicalize the actual Material declaration once per source
+    /// <summary>Read the imported actual Material parameters once per source
     /// load. Render frames reuse the resulting numeric constructor inputs.</summary>
     public static ArmyFlagNativeMaterialSource ReadSource(LoadedArmyFlagMaterialVariation source)
     {
         ArgumentNullException.ThrowIfNull(source);
-        if(source.Materials.Source.DecodedSha256!=ArmyFlagMaterialVariations.MaterialDictionarySha256||
-            Convert.ToHexString(SHA256.HashData(source.Materials.Source.Bytes))!=ArmyFlagMaterialVariations.MaterialDictionarySha256)
-            throw Error("requires the exact selected source Material declaration");
-        var declaration=DokReader.Read(source.Materials.Source.Bytes).Objects.SingleOrDefault(o=>o.ObjectId==source.SelectedMaterialObjectId)
-            ??throw Error("selected source Material declaration is absent");
-        var parameters=ArmyFlagMaterialVariations.ReadUserParameters(declaration);
+        var parameters=source.UserParameters;
         if(parameters.DeclaredMaterialId is not int materialId)
             throw Error("requires a declared typed source UC_AM_nMtrID parameter");
         byte alpha=0;

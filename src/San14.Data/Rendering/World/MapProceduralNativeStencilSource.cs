@@ -39,8 +39,8 @@ public sealed class MapProceduralNativeStencilSource
         if (tree && (actualInterface.Owner.Object.ClassId != 0xAB9C4087 ||
             actualInterface.DependencyIndex != 17 || actualInterface.Owner.DependencyObjectHashes[17] != provider.Object.ObjectId))
             throw new InvalidDataException("Tree2 normal18 must retain the actual factory dependency17.");
-        var container = G2ShaderContainerReader.Read(actualShader.Source.Bytes);
-        var modules = G1ShaderConfigurationReader.Read(actualShader.Source.Bytes, container).Records;
+        var container = actualShader.Container;
+        var modules = actualShader.ReadConfigurations().Records;
         string[] names = file == 0x7FA757FD ? ["GBuffer", "Instancing2"] : ["GBuffer", "AlphaTest", "Instancing2"];
         if (container.NamePrefix != name || !modules.Select(m => m.Name).SequenceEqual(names) ||
             modules[0].RawSecondWord != 2 || modules.Skip(1).Any(m => m.RawSecondWord != 0))

@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using Godot;
 using San14.Data;
 using San14.Data.Formats;
@@ -22,13 +21,8 @@ public sealed class RemakeArmyFlagGlyphAtlas:IAsyncDisposable
         ArgumentNullException.ThrowIfNull(source);ArgumentNullException.ThrowIfNull(samplerNative);
         byte[] bytes=source.Bytes.ToArray();
         if(bytes.Length!=ArmyFlagGlyphAtlasPrefix.AtlasByteLength||source.NativeShaderViewFormat!=87||source.NativeResourceFormat!=90||
-            source.MipCount!=1||source.SourceGlyphCount!=1||Convert.ToHexString(SHA256.HashData(bytes))!=source.WrittenAtlasSha256)
-            throw Error("requires the exact source first-insertion1024x1024/mip1/BGRA8 prefix");
-        var canonical=ArmyFlagGlyphAtlasPrefix.WriteFirst(source.Font,source.Glyph,bytes,
-            source.CallerInitialTemplateSource,true);
-        if(canonical.LogicalRectangle!=source.LogicalRectangle||canonical.NativeRowWriteRectangle!=source.NativeRowWriteRectangle||
-            canonical.UvRectangle!=source.UvRectangle||!canonical.Bytes.AsSpan().SequenceEqual(bytes))
-            throw Error("source glyph/UV/border writes differ from the canonical first insertion");
+            source.MipCount!=1||source.SourceGlyphCount!=1)
+            throw Error("requires the owned first-insertion1024x1024/mip1/BGRA8 image");
         byte[] sampler=RenderSamplerSourceAdapters.DecodeKey(samplerNative,source.SourceSamplerKey).EncodeD3D11Descriptor();
         Rid texture=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {

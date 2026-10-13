@@ -92,7 +92,7 @@ public static class MainMapCameraDeferredSource
         {
             if(source.ResourceUri!="san14://rdb/system/9D8E811F"||source.OverrideSource is not null)
                 throw new InvalidDataException("Fresh projection factory requires the exact source9D8E811F shader.");
-            var thin=G1ShaderConfigurationReader.Read(source.Bytes,shader.Container).Records.Single(r=>r.Name=="ThinSurfaceBSDF");
+            var thin=shader.ReadConfigurations().Records.Single(r=>r.Name=="ThinSurfaceBSDF");
             (uint Hash,uint Value)[] expected=[(0x42B7E6DD,0),(0xFEB72A6D,0),(0x2BC1B848,0),(0xB4762740,0),(0x93A3D611,1)];
             if(thin.SourceOffset!=0xC780||thin.Parameters.Count!=7||expected.Any(p=>thin.Find(p.Hash)?.RawValue!=p.Value))
                 throw new InvalidDataException("Fresh ThinSurfaceBSDF parameters differ from the source A8=5 factory.");

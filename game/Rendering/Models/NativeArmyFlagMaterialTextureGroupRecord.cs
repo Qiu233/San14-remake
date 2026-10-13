@@ -8,14 +8,15 @@ public sealed class NativeArmyFlagMaterialTextureGroupRecord : INativeArmyMateri
 {
     private readonly Dictionary<int, LoadedArmyFlagMaterialImage> staticImages = [];
     private readonly Dictionary<uint, RemakeArmyFlagRuntimeTexture> runtimeImages;
-    private readonly Dictionary<LoadedShaderContainer, IReadOnlyList<ArmyFlagMaterialTextureUse>> uses = [];
+    private readonly Dictionary<(LoadedShaderContainer Shader, int Combination), IReadOnlyList<ArmyFlagMaterialTextureUse>> uses = [];
     private bool retained = true;
     private NativeArmyFlagMaterialTextureGroupRecord(GameResourceRepository repository,
-        LoadedArmyFlagMaterialVariation source,
+        LoadedArmyFlagMaterialVariation source, LoadedShaderContainer actualShader, int actualCombination,
+        IReadOnlyList<ArmyFlagMaterialTextureUse> actualUses,
         IReadOnlyDictionary<uint, RemakeArmyFlagRuntimeTexture> actualRuntimeImages)
     {
         Source = source; runtimeImages = new(actualRuntimeImages);
-        var initialUses = source.TextureUses.GroupBy(u => u.Slot.Index).ToDictionary(g => g.Key, g => g.First());
+        var initialUses = actualUses.GroupBy(u => u.Slot.Index).ToDictionary(g => g.Key, g => g.First());
         if (!initialUses.Keys.ToHashSet().SetEquals(source.Slots.Select(s => s.Index)))
             throw new NotSupportedException("Complete Army material group requires each actual source slot, including unconsumed slots.");
         foreach (var slot in source.Slots)
@@ -28,16 +29,19 @@ public sealed class NativeArmyFlagMaterialTextureGroupRecord : INativeArmyMateri
             }
             else staticImages.Add(slot.Index, ArmyFlagMaterialVariations.LoadStaticImage(repository, initialUses[slot.Index]));
         }
-        uses.Add(source.Shader, source.TextureUses);
+        uses.Add((actualShader, actualCombination), actualUses);
     }
     public LoadedArmyFlagMaterialVariation Source { get; }
     public int ActualSlotCount => Source.Slots.Count;
     public static NativeArmyFlagMaterialTextureGroupRecord LoadComplete(
         GameResourceRepository repository, LoadedArmyFlagMaterialVariation source,
+        LoadedShaderContainer actualShader, int actualCombination, IReadOnlyList<ArmyFlagMaterialTextureUse> actualUses,
         IReadOnlyDictionary<uint, RemakeArmyFlagRuntimeTexture> actualRuntimeImages)
     {
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(source);
-        ArgumentNullException.ThrowIfNull(actualRuntimeImages); return new(repository, source, actualRuntimeImages);
+        ArgumentNullException.ThrowIfNull(actualShader); ArgumentNullException.ThrowIfNull(actualUses);
+        ArgumentNullException.ThrowIfNull(actualRuntimeImages);
+        return new(repository, source, actualShader, actualCombination, actualUses, actualRuntimeImages);
     }
     public NativeArmyMaterialTextureResource RegisterActualReadyData(NativeArmyMaterialTextureRegistry actualDirectory)
         => actualDirectory.RegisterReadyTextureGroup(Source.Materials, Source.TextureGroup, () => this, RequireCurrent);
@@ -46,11 +50,22 @@ public sealed class NativeArmyFlagMaterialTextureGroupRecord : INativeArmyMateri
         if (!retained) throw new InvalidDataException("Army material texture-group record was retired or replaced by another resource writer.");
         foreach (var slot in Source.Slots.Where(s => s.RequiresProducerImage)) RequireRuntime(runtimeImages[slot.ProxyObjectId], slot.ProxyObjectId);
     }
-    public NativeArmyMaterialPixelTextureInputs PrepareActualPixelBindings(LoadedShaderContainer actualShader)
+    /// <summary>Publish a completed producer binding without replacing the
+    /// regular group retained by a material. Prepared packets already own
+    /// their detached binding lists; their image owners remain retained.</summary>
+    public void PublishRuntimeImage(RemakeArmyFlagRuntimeTexture actual)
+    {
+        if (!retained) throw new InvalidDataException("Army material texture group was retired.");
+        if (!Source.Slots.Any(slot => slot.RequiresProducerImage && slot.ProxyObjectId == actual.ProxyObjectId))
+            throw new InvalidDataException("Runtime image does not belong to this material texture group.");
+        RequireRuntime(actual, actual.ProxyObjectId);
+        runtimeImages[actual.ProxyObjectId] = actual;
+    }
+    public NativeArmyMaterialPixelTextureInputs PrepareActualPixelBindings(LoadedShaderContainer actualShader, int actualCombination)
     {
         RequireCurrent(); ArgumentNullException.ThrowIfNull(actualShader);
-        if (!uses.TryGetValue(actualShader, out var selected))
-            uses.Add(actualShader, selected = ArmyFlagMaterialVariations.ResolveTextureUsesForActualShader(Source, actualShader));
+        if (!uses.TryGetValue((actualShader, actualCombination), out var selected))
+            uses.Add((actualShader, actualCombination), selected = ArmyFlagMaterialVariations.ResolveTextureUsesForActualShader(Source, actualShader, actualCombination));
         var owned = new List<ModelGbufferTextureUse>();
         var borrowed = new List<ModelDeviceBinding>();
         foreach (var use in selected)

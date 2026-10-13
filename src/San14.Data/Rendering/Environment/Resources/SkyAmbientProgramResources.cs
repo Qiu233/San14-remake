@@ -51,7 +51,7 @@ public sealed class SkyAmbientProgramResources
             uint pass = operation switch { SkyAmbientOperation.Copy => 9u, SkyAmbientOperation.Filter => 10u,
                 SkyAmbientOperation.Blend => 7u, _ => throw new ArgumentOutOfRangeException(nameof(operation)) };
             if (tables.ResolveCombination(indices, pass).Index == combinationIndex)
-                return Select(BinaryPrimitives.ReadUInt32LittleEndian(variant.RawBytes));
+                return Select(BinaryPrimitives.ReadUInt32LittleEndian(variant.RawBytes.Span));
         }
         throw new NotSupportedException("Explicit SkyAmbient combination does not belong to the requested operation.");
     }

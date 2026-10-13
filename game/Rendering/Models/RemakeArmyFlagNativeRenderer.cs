@@ -17,14 +17,10 @@ public delegate RemakeArmyFlagMaterialInputs? RemakeArmyFlagMaterialProvider(Rem
 /// to this renderer and is retained by its caller.</summary>
 public sealed partial class RemakeArmyFlagNativeRenderer : IAsyncDisposable
 {
-    private readonly GameResourceRepository _repository;
     private readonly ModelGbufferLayer _layer;
-    private readonly Vkd3dShaderCompiler? _borrowedPaneCompiler;
-    private readonly Dictionary<(int Category, int Draw), RemakeArmyFlagGbufferSource> _draws = [];
-    private readonly Dictionary<string, (uint Flags, byte[] Pixel)> _materials = [];
+    private readonly ArmyFlagSourceCache _sources;
+    private readonly ArmyDrawMaterialHistory _materials = new();
     private readonly Dictionary<int, (RemakeArmyInitialization Initialization, float Start)> _epochs = [];
-    private readonly Dictionary<(int Category,int Draw,int ForceVariant),RemakeArmyFlagVariantGbufferSource> _variants=[];
-    private readonly Dictionary<string,RemakeArmyFlagCaoPaneProducer> _paneProducers=[];
     private readonly SemaphoreSlim _gate=new(1,1);
     private readonly object _lifetime=new();
     private bool _retiring;
@@ -32,8 +28,6 @@ public sealed partial class RemakeArmyFlagNativeRenderer : IAsyncDisposable
     private TaskCompletionSource? _drained;
     private Task? _disposal;
     public RemakeArmyFlagMaterialProvider? SourceMaterialProvider { get; set; }
-    private LoadedObjects? _objects;
-    private LoadedRenderGraph? _graph;
     public IReadOnlyList<RemakeArmyFlagRenderStatus> Statuses { get; private set; } = [];
     public int DrawCount => _layer.DrawCount;
     public int ProgramCount => _layer.ProgramCount;
@@ -44,10 +38,10 @@ public sealed partial class RemakeArmyFlagNativeRenderer : IAsyncDisposable
     public ModelGeometrySubmittedFrame? LastGeometrySubmission { get; private set; }
 
     public RemakeArmyFlagNativeRenderer(GameResourceRepository repository)
-    { ArgumentNullException.ThrowIfNull(repository); _repository = repository; _layer = ModelGbufferLayer.CreateWithOwnedCompiler(); }
+    { ArgumentNullException.ThrowIfNull(repository); _sources = new(repository); _layer = ModelGbufferLayer.CreateWithOwnedCompiler(); }
 
     public RemakeArmyFlagNativeRenderer(GameResourceRepository repository,Vkd3dShaderCompiler borrowedCompiler)
-    {ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(borrowedCompiler);_repository=repository;_layer=ModelGbufferLayer.Create(borrowedCompiler);_borrowedPaneCompiler=borrowedCompiler;}
+    {ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(borrowedCompiler);_sources=new(repository,borrowedCompiler);_layer=ModelGbufferLayer.Create(borrowedCompiler);}
 
     public Task RenderAsync(NativeMapFrameContext context,
         RemakeArmyFlagVisuals visuals, float callerSeconds)
@@ -83,7 +77,7 @@ public sealed partial class RemakeArmyFlagNativeRenderer : IAsyncDisposable
         {
         var packets = new List<ModelGbufferInstancePacket>();
         var selectedInterfaces = new Dictionary<string,ModelShaderInterfaceSource>(StringComparer.Ordinal);
-        var pending = new Dictionary<string, (uint Flags, byte[] Pixel)>();
+        var pending = new Dictionary<string, ArmyDrawMaterialState>(StringComparer.Ordinal);
         var statuses = new List<RemakeArmyFlagRenderStatus>();
         var candidates = new List<DeferredSourceMode16Candidate>();
         CurrentViewFamilyCandidates=null;LastGeometrySubmission=null;
@@ -91,15 +85,10 @@ public sealed partial class RemakeArmyFlagNativeRenderer : IAsyncDisposable
         {
             if (!_epochs.TryGetValue(unit, out var epoch) || !ReferenceEquals(epoch.Initialization, actor.Initialization))
                 _epochs[unit] = epoch = (actor.Initialization, callerSeconds);
-            foreach (var draw in G1ModelDrawReader.Read(actor.Source.Model.Geometry).Draws)
+            var sources=_sources.Get(actor.Source);
+            foreach (var draw in actor.Source.Draws)
             {
-                var key = (actor.Category, draw.Index);
-                if (!_draws.TryGetValue(key, out var source))
-                {
-                    _objects ??= _repository.LoadObjects("system", 0x718CCB8B);
-                    _graph ??= _repository.LoadRenderGraph("system", 0x024496EE);
-                    _draws.Add(key, source = RemakeArmyFlagGbufferSource.Load(_repository, actor.Source, _objects, _graph, draw.Index));
-                }
+                var source=sources.GetDraw(draw.Index);
                 if (source.RequiredRuntimeProxyIds.Count != 0)
                 {
                     try
@@ -110,25 +99,20 @@ public sealed partial class RemakeArmyFlagNativeRenderer : IAsyncDisposable
                             statuses.Add(new(unit,actor.DescriptorOffset,actor.OwnedNodeIdentity,draw.Index,false,
                                 "source ColorVariation force fields/text/complete UI glyph producer required"));continue;
                         }
-                        var variantKey=(actor.Category,draw.Index,materialInput.ExplicitOwnedForceVariant);
-                        if(!_variants.TryGetValue(variantKey,out var variant))
-                            _variants.Add(variantKey,variant=RemakeArmyFlagVariantGbufferSource.Load(_repository,actor.Source,
-                                draw.Index,materialInput.ExplicitOwnedForceVariant));
-                        string locale=actor.Initialization.CodeSource.Language;
-                        if(!_paneProducers.TryGetValue(locale,out var producer))
-                            _paneProducers.Add(locale,producer=new(_repository,locale,_borrowedPaneCompiler));
-                        var primary=await producer.PrepareAsync(variant.Variation,materialInput.SourcePane);
+                        var variant=sources.GetVariant(draw.Index,materialInput.ExplicitOwnedForceVariant);
+                        var producer=sources.GetProducer(actor.Initialization.CodeSource.Language);
+                        var primary=await producer.PrepareAsync(variant.Variation,variant.TextureUses.Single(t=>t.TextureRegister==0),materialInput.SourcePane);
                         candidates.Add(new("ArmyFlagCloth",actor.InstanceKey,draw.Index,
                             actor.Source.Model.Source.ResourceUri,actor.Source.Model.Source.DecodedSha256,
                             variant.Variation.ShaderOwner,"actual-Army-cloth-preparation/frame="+context.FrameNumber));
                         string clothInstance=actor.InstanceKey+$"/draw{draw.Index}";
-                        _materials.TryGetValue(clothInstance,out var previousCloth);
+                        var previousCloth=_materials.Read(clothInstance,variant,actor.Initialization);
                         var cloth=variant.Prepare(clothInstance,new(callerSeconds-epoch.Start,actor.World,camera,new byte[6256],
-                            previousCloth.Pixel??new byte[80],previousCloth.Flags,OpaqueRemakeRaster(),
+                            previousCloth?.Pixel??new byte[80],previousCloth?.Flags??0,OpaqueRemakeRaster(),
                             new Dictionary<uint,RemakeArmyFlagRuntimeTexture>{[primary.ProxyObjectId]=primary},
                             materialInput.ExplicitSpecularW,materialInput.ExplicitSpecularSource,materialInput.ExplicitBackendAlphaEnabled,
                             materialInput.ExplicitForcedAlphaReference));
-                        packets.Add(cloth.Packet);pending[clothInstance]=(cloth.NextCachedMaterialFlags,cloth.Packet.Pixel.Constants[0].ToArray());
+                        packets.Add(cloth.Packet);pending[clothInstance]=new(variant,actor.Initialization,cloth.NextCachedMaterialFlags,cloth.Packet.Pixel.Constants[0].ToArray());
                         selectedInterfaces.Add(clothInstance,ModelShaderResources.ResolveType16Interface(variant.Variation.ShaderOwner,
                             ModelRendererStateSourceReader.ReadQueue(context.TerrainFrame.Source.Graph,49).ShaderStateOffset));
                         statuses.Add(new(unit,actor.DescriptorOffset,actor.OwnedNodeIdentity,draw.Index,true,
@@ -144,21 +128,20 @@ public sealed partial class RemakeArmyFlagNativeRenderer : IAsyncDisposable
                 candidates.Add(new("ArmyFlagBase",actor.InstanceKey,draw.Index,
                     source.Source.Model.Source.ResourceUri,source.Source.Model.Source.DecodedSha256,
                     source.GraphSource.Draw.Binding.Shader,"actual-Army-flag-preparation/frame="+context.FrameNumber));
-                _materials.TryGetValue(instance, out var previous);
+                var previous=_materials.Read(instance,source,actor.Initialization);
                 var prepared = source.Prepare(instance, new(callerSeconds - epoch.Start, actor.World, camera,
-                    new byte[6256], previous.Pixel ?? new byte[80], previous.Flags, OpaqueRemakeRaster(),
+                    new byte[6256], previous?.Pixel ?? new byte[80], previous?.Flags ?? 0, OpaqueRemakeRaster(),
                     new Dictionary<uint, RemakeArmyFlagRuntimeTexture>()));
                 packets.Add(prepared.Packet);
                 selectedInterfaces.Add(instance,source.GraphSource.Interface);
-                pending[instance] = (prepared.NextCachedMaterialFlags, prepared.Packet.Pixel.Constants[0].ToArray());
+                pending[instance] = new(source,actor.Initialization,prepared.NextCachedMaterialFlags, prepared.Packet.Pixel.Constants[0].ToArray());
                 statuses.Add(new(unit, actor.DescriptorOffset, actor.OwnedNodeIdentity, draw.Index, true,
                     "complete original pole geometry/material/action0; four-influence source palette"));
             }
         }
         var submitted=currentNativeAdmission?.PrepareFamily(context,"ArmyFlag",packets,selectedInterfaces)??packets;
         var geometrySubmission=await _layer.RenderAsync(context.TerrainFrame, submitted);
-        foreach (var pair in pending) _materials[pair.Key] = pair.Value;
-        foreach (string key in _materials.Keys.Where(key => !pending.ContainsKey(key)).ToArray()) _materials.Remove(key);
+        _materials.Commit(pending);
         foreach (int key in _epochs.Keys.Where(key => !keepUnits.Contains(key)).ToArray()) _epochs.Remove(key);
         Statuses = statuses.AsReadOnly();
         CurrentViewFamilyCandidates=statuses.All(s=>s.Submitted)?candidates.AsReadOnly():null;
@@ -212,10 +195,7 @@ public sealed partial class RemakeArmyFlagNativeRenderer : IAsyncDisposable
         Task pending;
         lock(_lifetime)pending=_accepted==0?Task.CompletedTask:(_drained??=new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
         await pending;
-        await _layer.DisposeAsync(); _draws.Clear(); _materials.Clear(); _epochs.Clear();
-        foreach(var group in _worldTextureGroups.Values)group.Invalidate("Army flag renderer disposed");
-        _worldTextureGroups.Clear();_worldFinalVariants.Clear();
-        foreach(var producer in _paneProducers.Values)await producer.DisposeAsync();_paneProducers.Clear();_variants.Clear();
-        _objects = null; _graph = null; Statuses = [];
+        await _layer.DisposeAsync(); _materials.Clear(); _epochs.Clear();
+        await _sources.DisposeAsync(); Statuses = [];
     }
 }

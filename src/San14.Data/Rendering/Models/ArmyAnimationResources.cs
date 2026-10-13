@@ -20,7 +20,7 @@ public sealed record LoadedArmyAnimationClip(DokObject AnimationDataObject,
 
 public sealed record LoadedArmyAnimationAction(CeArmyModelCategory Category,
     LoadedObjects Catalog, LoadedObjects Singleton, DokObject Setting,
-    int ActionIndex, DokObject ActionObject, uint RawActionId,
+    int ActionIndex, DokObject ActionObject, uint RawActionId, uint PlayerFlags,
     IReadOnlyList<LoadedArmyAnimationClip> AnimationData);
 
 /// <summary>
@@ -38,6 +38,32 @@ public static class ArmyAnimationResources
 
     public static LoadedArmyAnimationAction LoadAction(GameResourceRepository repository,
         LoadedArmyCatalog catalog, int category, int actionIndex)
+    {
+        var source = ResolveSetting(repository, catalog, category);
+        if ((uint)actionIndex >= source.ActionIds.Length)
+            throw Error(catalog.Catalog.Source.ResourceUri,
+                $"action index {actionIndex} is outside category {category}'s declared action array");
+        var singleton = repository.LoadObjects("KIDSSystemResource", SingletonId);
+        return LoadDeclaredAction(repository, catalog, source.Category, source.Setting,
+            singleton, source.ActionIds[actionIndex], actionIndex);
+    }
+
+    /// <summary>Import the complete declared array in source order. Raw action
+    /// identities remain distinct from their declaration ordinals and flags.</summary>
+    public static IReadOnlyList<LoadedArmyAnimationAction> LoadActions(GameResourceRepository repository,
+        LoadedArmyCatalog catalog, int category)
+    {
+        var source = ResolveSetting(repository, catalog, category);
+        var singleton = repository.LoadObjects("KIDSSystemResource", SingletonId);
+        var actions = new LoadedArmyAnimationAction[source.ActionIds.Length];
+        for (int ordinal = 0; ordinal < actions.Length; ordinal++)
+            actions[ordinal] = LoadDeclaredAction(repository, catalog, source.Category, source.Setting,
+                singleton, source.ActionIds[ordinal], ordinal);
+        return Array.AsReadOnly(actions);
+    }
+
+    private static (CeArmyModelCategory Category, DokObject Setting, uint[] ActionIds) ResolveSetting(
+        GameResourceRepository repository, LoadedArmyCatalog catalog, int category)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(catalog);
@@ -57,12 +83,15 @@ public static class ArmyAnimationResources
         if (settings.Length != 1)
             throw Error(context, $"category {category} requires one MotorCharacterSetting for definition {known.DefinitionId:X8}");
         var setting = settings[0];
-        uint[] actionIds = Values(setting, 0x7245DD82, context);
-        if ((uint)actionIndex >= actionIds.Length)
-            throw Error(context, $"action index {actionIndex} is outside category {category}'s declared action array");
-        LoadedObjects singleton = repository.LoadObjects("KIDSSystemResource", SingletonId);
+        return (known, setting, Values(setting, 0x7245DD82, context));
+    }
+
+    private static LoadedArmyAnimationAction LoadDeclaredAction(GameResourceRepository repository,
+        LoadedArmyCatalog catalog, CeArmyModelCategory category, DokObject setting,
+        LoadedObjects singleton, uint actionId, int actionIndex)
+    {
         string actionContext = singleton.Source.ResourceUri;
-        DokObject action = Unique(singleton, actionIds[actionIndex], actionContext);
+        DokObject action = Unique(singleton, actionId, actionContext);
         if (action.Kind != DokObjectKind.Inline || action.ClassId != 0x11A85121)
             throw Error(actionContext, $"action {action.ObjectId:X8} is not a supported inline SequentialPlayer");
         uint[] animationIds = Values(action, 0x9E1E3953, actionContext);
@@ -82,8 +111,9 @@ public static class ArmyAnimationResources
             { throw new InvalidDataException($"Army action {action.ObjectId:X8} data {animationId:X8} failed to read {source.ResourceUri}: {error.Message}", error); }
             animationData.Add(new(data, clip, source));
         }
-        return new(known, catalog.Catalog, singleton, setting, actionIndex, action,
-            Scalar(action, 0x05D92ACC, actionContext), animationData.AsReadOnly());
+        return new(category, catalog.Catalog, singleton, setting, actionIndex, action,
+            Scalar(action, 0x7FB88531, actionContext), Scalar(action, 0x05D92ACC, actionContext),
+            animationData.AsReadOnly());
     }
 
     public static ArmyAnimationClip Read(ReadOnlySpan<byte> bytes)

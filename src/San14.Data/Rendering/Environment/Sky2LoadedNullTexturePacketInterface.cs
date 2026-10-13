@@ -11,15 +11,15 @@ public sealed class Sky2LoadedNullTexturePacketInterface
     private readonly DxbcResourceDefinitions definitions;
     private readonly int packetLength, presenceOffset;
     private readonly int[] presenceLanes;
-    private readonly bool finiteMoon;
+    private readonly int? moonOffset;
 
     internal Sky2LoadedNullTexturePacketInterface(
         IReadOnlyList<Sky2NullTextureBinding> proofs, DxbcResourceDefinitions definitions,
-        int packetLength, int presenceOffset, int[] presenceLanes, bool finiteMoon)
+        int packetLength, int presenceOffset, int[] presenceLanes, int? moonOffset)
     {
         this.proofs = proofs.ToArray(); this.definitions = definitions;
         this.packetLength = packetLength; this.presenceOffset = presenceOffset;
-        this.presenceLanes = presenceLanes; this.finiteMoon = finiteMoon;
+        this.presenceLanes = presenceLanes; this.moonOffset = moonOffset;
     }
 
     public void Validate(IReadOnlyList<Sky2NullTextureBinding> actualProgramProofs,
@@ -37,10 +37,10 @@ public sealed class Sky2LoadedNullTexturePacketInterface
                     checked(presenceOffset + presenceLanes[index] * 4), 4)) != 0)
                 throw new InvalidDataException("Current Sky2 packet has a nonzero source-null texture presence flag.");
         }
-        if (finiteMoon)
+        if (moonOffset is int offset)
             for (int lane = 0; lane < 4; lane++)
                 if (!float.IsFinite(BinaryPrimitives.ReadSingleLittleEndian(
-                        completePixelPacket.Slice(160 + lane * 4, 4))))
-                    throw new InvalidDataException("Finite Moon PS5/11/6/14/15 requires finite current MoonRGB lanes.");
+                        completePixelPacket.Slice(offset + lane * 4, 4))))
+                    throw new InvalidDataException("Sky shaders reading Moon color require finite current MoonRGB lanes.");
     }
 }

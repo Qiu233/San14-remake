@@ -1,11 +1,8 @@
 using System.Buffers.Binary;
-using System.Numerics;
 using San14.Data.Formats;
 
 namespace San14.Data;
 
-public sealed record SceneTransformValues(Vector3 Position, Vector4? Quaternion, Vector3 Scale,
-    DokProperty PositionProperty, DokProperty? QuaternionProperty, DokProperty ScaleProperty);
 public sealed record SceneModelReference(LoadedObjects Dictionary, DokObject ModelObject, uint ModelFileId);
 public sealed record ScenePlacement(SceneInstance Source, SceneTransformValues InstanceTransform,
     SceneTransformValues DefinitionTransform, SceneModelReference? Model);
@@ -55,7 +52,7 @@ public static class ScenePlacementReader
                     instance.Definition.ObjectId);
                 if (!definitions.TryGetValue(key, out var definition))
                 {
-                    SceneTransformValues transform = ReadTransform(instance.Definition, instance.DefinitionDocument);
+                    SceneTransformValues transform = WorldTransformDeclarationReader.Read(instance.DefinitionDocument, instance.Definition);
                     SceneModelReference? model = null;
                     if (instance.Definition.ClassId == ModelWorldPqClass)
                     {
@@ -69,28 +66,13 @@ public static class ScenePlacementReader
                     }
                     definitions.Add(key, definition = (transform, model));
                 }
-                placements.Add(new(instance, ReadTransform(instance.Object, instance.InstanceDocument),
+                placements.Add(new(instance, WorldTransformDeclarationReader.Read(instance.InstanceDocument, instance.Object),
                     definition.Transform, definition.Model));
             }
             catch (InvalidDataException error)
             { throw new InvalidDataException($"Scene placements {context}: {error.Message}", error); }
         }
         return new(scene, placements.AsReadOnly());
-    }
-
-    private static SceneTransformValues ReadTransform(DokObject item, LoadedObjects source)
-    {
-        DokProperty position = Property(item, 0x27D889E5, source, optional: false)!;
-        DokProperty? rotation = Property(item, 0xF52EA910, source, optional: true);
-        DokProperty scale = Property(item, 0xFEA9E4F8, source, optional: false)!;
-        float[] p = Floats(position, 3, item, source), s = Floats(scale, 3, item, source);
-        Vector4? q = null;
-        if (rotation is not null)
-        {
-            float[] values = Floats(rotation, 4, item, source);
-            q = new Vector4(values[0], values[1], values[2], values[3]);
-        }
-        return new(new Vector3(p[0], p[1], p[2]), q, new Vector3(s[0], s[1], s[2]), position, rotation, scale);
     }
 
     private static DokProperty? Property(DokObject item, uint hash, LoadedObjects source, bool optional)
@@ -100,21 +82,6 @@ public static class ScenePlacementReader
         if (matches.Length != 1)
             throw Error(source, item, hash, "requires a unique property");
         return matches[0];
-    }
-
-    private static float[] Floats(DokProperty property, int count, DokObject item, LoadedObjects source)
-    {
-        if (property.TypeCode != 8 || property.ElementCount != count || property.ElementSize != 4 ||
-            property.RawValue.Length != count * 4)
-            throw Error(source, item, property.NameHash, $"requires type 8 with {count} float32 components");
-        var values = new float[count];
-        for (int i = 0; i < count; i++)
-        {
-            values[i] = BinaryPrimitives.ReadSingleLittleEndian(property.RawValue.AsSpan(i * 4, 4));
-            if (!float.IsFinite(values[i]))
-                throw Error(source, item, property.NameHash, $"component {i} is not finite");
-        }
-        return values;
     }
 
     private static uint Scalar(DokObject item, uint hash, LoadedObjects source)

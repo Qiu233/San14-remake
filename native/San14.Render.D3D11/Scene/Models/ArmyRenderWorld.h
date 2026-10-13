@@ -5,7 +5,8 @@
 #include "ArmyGraphicsActions.h"
 #include "ArmyWorldMaterialImport.h"
 #include "ArmyWorldMaterialBank.h"
-#include "ArmyWorldModeImport.h"
+#include "ArmyMaterialResourceContext.h"
+#include "ArmyCategoryResources.h"
 #include "ArmyWorldModeBounds.h"
 #include "SharedCategory2Accessories.h"
 #include "AnimationCadence.h"
@@ -23,42 +24,44 @@ public:
 
     void prepare(ID3D11Device* device,ID3D11DeviceContext* context,const PreparedResourceDirectories& resources,
         NativeCityAccessoryGpu& cityAccessories,NativeCityAccessoryGpu& areaAccessories) {
-        if(sourceArmyVisuals
-            ||sourceAccessoryVisuals
-            ) {
+        if(sourceArmyVisuals) {
             const auto armyDirectory=resources.directory(ResourceGroup::Armies);
-            armyModels=prepareNativeArmyPopulation(device,context,armyDirectory,false);
-            const auto materials=loadArmyWorldMaterialImport(armyDirectory,armyModels.source.templateCount);
-            armyWorldTemplates.emplace(armyModels.source,materials.materialTemplates,
-                captureCompletedArmyWorldMaterials(armyModels,materials));
-            prepareArmyWorldMaterialBank(device,context,armyDirectory,armyModels,*armyWorldTemplates,materials);
-            armyWorldTemplates->constructors=readArmyWorldConstructors(resources.directory(ResourceGroup::ArmyActions)/"constructor-worlds.bin");
-            auto modelCapacities=readArmyWorldPoolCapacities(resources.directory(ResourceGroup::ArmyActions)/"pool-banks.bin");
-            armyGraphicsActions=loadNativeArmyGraphicsActions(resources.directory(ResourceGroup::ArmyActions),armyModels.source);
-            for(unsigned category=4;category<=9;++category){
-                const auto directory=category<7?"army-mode-category"+std::to_string(category):
-                    "army-naval-category-"+std::to_string(category);
-                auto resource=importArmyWorldModeResources(device,resources.root()/directory,
-                    armyModels.source,armyWorldTemplates->tableOwners);
-                appendArmyWorldModeResources(std::move(resource),armyModels,*armyWorldTemplates,*armyGraphicsActions,modelCapacities);
-            }
+            accessoryResources=cityAccessories.resources?cityAccessories.resources:
+                prepareNativeCategory2Resources(device,resources.directory(ResourceGroup::BaseAccessories));
+            auto bank=prepareNativeArmyResourceBank(device,armyDirectory,*accessoryResources);
+            armyModels=std::move(bank.population);armyWorldTemplates.emplace(std::move(bank.library));
+            auto modelCapacities=std::move(bank.capacities);
+            armyGraphicsActions=loadNativeArmyGraphicsActions(resources.directory(ResourceGroup::ArmyActions),
+                armyModels.source.poses,armyModels.source.defaultActions.rows);
+            armyResourceSnapshots.emplace(resources.directory(ResourceGroup::MaterialResourceContext));
+            armyResourceContext.emplace();
+            const auto materialInitialization=readNativeArmyManagerInitialization(armyDirectory/"material-source");
+            const auto initialSnapshot=armyResourceSnapshots->read(materialInitialization.generation);
+            armyMaterials.emplace(device,armyDirectory/"material-source",armyModels,*armyWorldTemplates,*armyResourceContext,
+                materialInitialization,initialSnapshot);
             armyModelPool.emplace(modelCapacities,
                 armyWorldTemplates->constructors,armyModels.source.poses,armyModels.source.defaultActions);
-            if(sourceAccessoryVisuals){
-                cityAccessories.templates.blend=armyModels.templates.blend;
-                for(const auto& primitive:armyWorldTemplates->primitives[2])
-                    cityAccessories.templates.draws.push_back(armyModels.templates.draws.at(primitive.sourceTemplate));
-                areaAccessories.templates=cityAccessories.templates;
-                sharedCityAccessories=prepareNativeSharedAccessories(cityAccessories.population,false);
-                sharedAreaAccessories=prepareNativeSharedAccessories(areaAccessories.population,true);
-            }
             armyReturnedPhases.assign(armyModels.source.actors.size(),0.f);
+        }
+        else if(sourceAccessoryVisuals) {
+            const auto& category=*cityAccessories.resources;
+            armyModelPool.emplace(2,category.capacity,category.constructor,category.pose,category.defaultAction);
+            armyGraphicsActions.emplace();NativeArmyGraphicsAction action;action.player=category.defaultAction;
+            armyGraphicsActions->rows.emplace(std::pair{2u,0u},std::move(action));
+        }
+        if(sourceAccessoryVisuals) {
+            sharedCityAccessories=prepareNativeSharedAccessories(cityAccessories.population,false);
+            sharedAreaAccessories=prepareNativeSharedAccessories(areaAccessories.population,true);
+            accessoryResources=cityAccessories.resources;
         }
     }
 
-    void publishArmy(const std::optional<ArmyWorldPublication>& world) {
+    void publishArmy(ID3D11Device* device,ID3D11DeviceContext* context,const std::optional<ArmyWorldPublication>& world) {
         if(sourceArmyVisuals)armyModelPool->snapshot(armyModels,armyWorldState);
         if(sourceArmyVisuals){
+            if(!armyResourceContext->isCurrentGeneration(world->contextGeneration))
+                armyResourceContext->selectSnapshot(armyResourceSnapshots->read(world->contextGeneration));
+            armyMaterials->prepareFreshWorldMaterials(device,context,armyModels,*armyWorldTemplates,*world);
             observeArmyUnitHeightRoster(armyUnitHeights,world->unitCenters);
             for(const auto& [id,current]:world->unitModelModes){
                 const auto selection=std::pair{current,world->unitNavalFormations.at(id)};
@@ -116,9 +119,6 @@ public:
             [&](const ArmyWorldActorKey& key,unsigned primitive,unsigned index,const std::string& identity){
                 auto& model=resolveNativePhysicalModel(device,*pool.find(key),primitive,armyModels.templates.draws.at(index),
                     armyModels.source.vertices.at(index));
-                // Material changes preserve the physical draw and its private CBs.
-                const auto& material=armyModels.templates.draws.at(index);
-                model.textures=material.textures;model.samplers=material.samplers;
                 auto draw=model;draw.identity=identity;return draw;
             });
         armyReturnedPhases.resize(armyModels.poses.size());armySuccessfulSamples.assign(armyModels.poses.size(),false);
@@ -161,7 +161,8 @@ public:
     }
 
     void requireAnimationTiming(const source_animation_cadence::Profile& animationFps)const {
-    if((sourceArmyVisuals||sourceAccessoryVisuals)&&armyModels.source.defaultActions.fps!=animationFps.fps)
+    if((sourceArmyVisuals&&armyModels.source.defaultActions.fps!=animationFps.fps)||
+        (sourceAccessoryVisuals&&accessoryResources->fps!=animationFps.fps))
         throw std::runtime_error("Army and App imported FPS tables differ");
     }
 
@@ -177,7 +178,7 @@ public:
             std::array<std::vector<NativeAccessoryPoseJoint>,7> sampledGroupLocals;
             auto materialReady=[&](const ArmyWorldActor& actor){
                 for(const auto& primitive:armyWorldTemplates->primitives[unsigned(actor.key.category)])
-                    if(primitive.clothMaterial&&!armyWorldTemplates->materials.count({primitive.sourceTemplate,actor.material}))return false;
+                    if(primitive.materialDependent&&!armyWorldTemplates->materials.count({primitive.sourceTemplate,actor.material}))return false;
                 return true;
             };
             for(const auto& [id,center]:world->unitCenters) {
@@ -276,13 +277,13 @@ public:
             const auto& action=armyGraphicsActions->rows.at({2,0});
             updateNativeSharedAccessoryFamily(device,*armyModelPool,sharedAreaAccessories,areaAccessories,
                 GraphicsModelFamily::AreaCapital,eventCamera,mode.sceneMode,mode.zoomLevel,
-                input.controller.distance,action,armyModels.source.poses[2],animationFps.fps,fpsMode,armyAnimationGroups);
+                input.controller.distance,action,accessoryResources->pose,animationFps.fps,fpsMode,armyAnimationGroups);
             updateNativeSharedAccessoryFamily(device,*armyModelPool,sharedCityAccessories,cityAccessories,
                 GraphicsModelFamily::City,eventCamera,mode.sceneMode,mode.zoomLevel,
-                input.controller.distance,action,armyModels.source.poses[2],animationFps.fps,fpsMode,armyAnimationGroups);
+                input.controller.distance,action,accessoryResources->pose,animationFps.fps,fpsMode,armyAnimationGroups);
             updateNativeSharedAccessoryFamily(device,*armyModelPool,sharedCityAccessories,cityAccessories,
                 GraphicsModelFamily::Gate,eventCamera,mode.sceneMode,mode.zoomLevel,
-                input.controller.distance,action,armyModels.source.poses[2],animationFps.fps,fpsMode,armyAnimationGroups);
+                input.controller.distance,action,accessoryResources->pose,animationFps.fps,fpsMode,armyAnimationGroups);
         }
         ++state.updates;state.fpsMode=fpsMode;
         state.armyPlayers=sourceArmyVisuals?unsigned(armyWorldState.actorIndices.size()):0;
@@ -328,8 +329,12 @@ private:
     NativeArmyPopulation armyModels;NativeArmyPlan armyPlan;NativeArmyQueues armyQueues;
     std::vector<float> armyReturnedPhases;
     std::optional<ArmyWorldTemplateLibrary> armyWorldTemplates;
+    std::optional<NativeRenderResourceSnapshots> armyResourceSnapshots;
+    std::optional<NativeArmyMaterialResourceContext> armyResourceContext;
+    std::optional<NativeArmyMaterials> armyMaterials;
     ArmyWorldPopulationState armyWorldState;
     NativeArmyAnimationGroups armyAnimationGroups;
+    std::shared_ptr<const NativeCategory2Resources> accessoryResources;
     std::optional<ArmyWorldModelPool<NativeArmyPopulation>> armyModelPool;
     NativeSharedAccessories sharedCityAccessories,sharedAreaAccessories;
     uint64_t armyCandidateRevision{},armyBindingRevision{},armyRenderRevision{};

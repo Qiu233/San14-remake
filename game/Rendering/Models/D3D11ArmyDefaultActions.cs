@@ -10,9 +10,12 @@ public sealed class D3D11ArmyDefaultActions
     public ArmyGraphicsActions Graphics {get;}
     public D3D11ArmyDefaultActions(GameResourceRepository repository):this(repository,Enumerable.Range(0,4)){}
     public D3D11ArmyDefaultActions(GameResourceRepository repository,IEnumerable<int> categories)
+        :this(new ArmyGraphicsActions(repository,categories)){}
+    public D3D11ArmyDefaultActions(ArmyGraphicsActions graphics)
     {
-        var selected=categories.ToArray();
-        Graphics=new(repository,selected);
+        ArgumentNullException.ThrowIfNull(graphics);
+        Graphics=graphics;
+        var selected=graphics.Actions.Keys.Select(key=>key.Category).Distinct();
         var actions=new Dictionary<int,LoadedArmyAnimationAction>();
         foreach(int category in selected){
             var action=Graphics.Actions[(category,0)].Animation;

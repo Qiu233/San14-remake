@@ -60,18 +60,23 @@ public sealed class SceneViewNativeMapSkySourceOwner : IAsyncDisposable
             core.SharedAtmosphere, controller, 2,textureSnapshot);
         work.PrepareBootstrapProducers(frame);
         var first = core.CreateInputs(work.BootstrapProducers, work.BootstrapStages);
-        var complete = SceneViewNativeMapSkyNamedWriteCoverage.PrepareCompleteCurrent(
-            frame.SourceFrame, repo.LoadShaderContainer("system", 0x340AC335), checked((int)work.BootstrapStages.Sky2PixelProgram));
+        var shader = SkyMainProgramResources.Load(repo, NamedViewRendererResources.Load(repo)).Shader;
+        var selection = work.RequireSourceProgramSelection(ambient) with { TextureBindings = textureSnapshot };
+        var combination = shader.ReadCombination(selection.Sky2Combination);
+        var vertexDefinitions = shader.ReadResourceDefinitions(combination.Stages.Single(stage => stage.StageCode == 1).Entry!.ProgramIndex);
+        var pixelDefinitions = shader.ReadResourceDefinitions(combination.Stages.Single(stage => stage.StageCode == 0).Entry!.ProgramIndex);
+        var vertexLayout = Sky2ConstantLayout.ImportVertex(vertexDefinitions);
+        var pixelLayout = Sky2ConstantLayout.ImportPixel(pixelDefinitions);
+        var complete = SkySceneFramePreparation.PrepareFreshFullyWritten(frame.SourceFrame, pixelDefinitions);
         // These two fields are metadata of the non-applied route. The actual
         // applied-source assembler returns before it reads either; the cache
         // object still comes from this exact current source, never smoke data.
         var construction = new SkyAmbientSourceConstruction(frame.SourceProvenance +
             ";all-named-current-writes;new-owned-padding-not-native-retained-cache",
-            complete.Frame.Faces, applied.CurrentCameraLights,
+            complete.Faces, applied.CurrentCameraLights,
             new("applied-route-does-not-read-ordinary-row-associations;package10-actual-row0", null, null, 0, false, false),
-            complete.OwnedVertexPaddingTemplate, complete.OwnedPixelPaddingTemplate, 2,
-            work.RequireSourceProgramSelection(ambient) with{TextureBindings=textureSnapshot});
-        var assembler = await SkyAmbientSourceFrameAssembler.CreateAppliedSeasonAsync(repo, compiler,
+            new byte[vertexLayout.ByteLength], new byte[pixelLayout.ByteLength], 2, selection);
+        var assembler = await SkyAmbientSourceFrameAssembler.CreateAppliedSeasonAsync(repo, shader, compiler,
             lighting.Registration, lighting.Source, construction, first,textureBindings, work.BuildOptionalProducersAsync,
             allowReadback: false);
         return new(assembler, atmosphere, work, bootstrap.Lighting.Binding.ViewIdentity,textureBindings,textureSnapshot,sampling);
@@ -174,8 +179,7 @@ public sealed class SceneViewNativeMapSkySourceOwner : IAsyncDisposable
         currentAtmosphere.ValidateCurrent(owner, selected, lighting);
         var season = present.AcceptedSeasonCamera.Inputs.Source;
         var sourceMoon = textureSnapshot.RequireNull(SkySamplingRole.Moon);
-        var moon = Sky2SourceZeroMoon.Create(repo.LoadShaderContainer("system", 0x340AC335),
-            sourceMoon, lighting, selected);
+        var moon = Sky2SourceZeroMoon.Create(sourceMoon, lighting, selected);
         var raw = selected.CompleteLightData.Span;
         Vector4 packagePosition = new(BinaryPrimitives.ReadSingleLittleEndian(raw[..4]),
             BinaryPrimitives.ReadSingleLittleEndian(raw.Slice(4,4)), BinaryPrimitives.ReadSingleLittleEndian(raw.Slice(8,4)),

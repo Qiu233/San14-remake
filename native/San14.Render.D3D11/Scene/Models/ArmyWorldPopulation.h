@@ -4,61 +4,24 @@
 #include <set>
 #include <type_traits>
 
-// Include after army-population-native.h. NativeArmySource's existing static
-// culler/record masks/skin or rigid/material templates are retained. The imported
-// experiment's actors, positions and identities are not a World population.
-struct ArmyWorldTemplateMaterial {
-    unsigned sourceTemplate{};ArmyWorldMaterialKey key{};
-};
+// Static category visibility, primitives and completed materials are imported
+// independently. Only current World publications create actor instances.
 struct ArmyWorldTemplateLibrary {
-    struct Actor {uint32_t exclusion{},mode{};float scalar{},forceDistance{},distanceBias{};};
-    struct Primitive {uint32_t draw{},sourceTemplate{},palette{},queue{},allowedRecords{};uint64_t tableOwner{};bool clothMaterial{};};
-    std::vector<std::optional<Actor>> actors;
+    struct CategoryVisibility {uint32_t exclusion{},mode{};float scalar{},forceDistance{},distanceBias{};};
+    struct Primitive {uint32_t draw{},sourceTemplate{},palette{},queue{},allowedRecords{};uint64_t tableOwner{};
+        bool materialDependent{};int materialManager=-1;};
+    std::vector<std::optional<CategoryVisibility>> visibility;
     std::vector<std::vector<Primitive>> primitives;
     std::map<std::pair<unsigned,ArmyWorldMaterialKey>,unsigned> materials;
     std::vector<uint32_t> defaultActionOrdinals;
     std::vector<ArmyWorldPresentation> constructors;
-    std::map<uint32_t,uint64_t> tableOwners;
+    std::map<std::pair<std::string,uint32_t>,uint64_t> tableOwners;
+    struct TemplateRoute {unsigned queue{},allowedRecords{};uint64_t tableOwner{};};
+    std::vector<TemplateRoute> templateRoutes;
     std::map<unsigned,std::array<float,6>> localBounds;
     uint64_t materialRevision{1};
 
-    // Material rows describe completed source groups, not requested glyph jobs.
-    // Every material-dependent base template needs its actual completed key.
-    template<class Source>
-    ArmyWorldTemplateLibrary(const Source& source,const std::set<unsigned>& materialTemplates,
-            const std::vector<ArmyWorldTemplateMaterial>& completed){
-        std::map<unsigned,ArmyWorldMaterialKey> baseMaterial;
-        const unsigned categories=unsigned(source.poses.size());
-        actors.resize(categories);primitives.resize(categories);constructors.resize(categories);defaultActionOrdinals.resize(categories);
-        for(unsigned category=0;category<categories;++category)defaultActionOrdinals[category]=source.defaultActions.rows[category].ordinal;
-        for(unsigned index:materialTemplates)if(index>=source.templateCount)throw std::runtime_error("Army source material template range");
-        for(const auto& row:completed){if(!materialTemplates.count(row.sourceTemplate)||
-                !baseMaterial.emplace(row.sourceTemplate,row.key).second)
-                throw std::runtime_error("Army completed source template material duplicate/range");}
-        for(const auto& a:source.actors){
-            if(a.category>=categories||(a.mode!=0&&a.mode!=3))throw std::runtime_error("Army once-imported category/culler mode");
-            Actor next{a.exclusion,a.mode,a.slotScalar,a.forceDistance,a.distanceBias};
-            auto& prior=actors[a.category];if(prior){
-                if(prior->exclusion!=next.exclusion||prior->mode!=next.mode||prior->scalar!=next.scalar||
-                    prior->forceDistance!=next.forceDistance||prior->distanceBias!=next.distanceBias)
-                    throw std::runtime_error("Army same-category static actor source differs");
-            }else prior=next;
-        }
-        for(const auto& p:source.primitives){
-            unsigned category=source.actors.at(p.actor).category;auto& rows=primitives[category];
-            Primitive next{p.draw,p.sourceTemplate,p.palette,p.queue,p.allowedRecords,p.tableOwner,materialTemplates.count(p.sourceTemplate)!=0};
-            auto found=std::find_if(rows.begin(),rows.end(),[&](const auto& r){return r.draw==p.draw;});
-            if(found==rows.end())rows.push_back(next);
-            else if(found->sourceTemplate!=next.sourceTemplate||found->palette!=next.palette||found->queue!=next.queue||
-                found->allowedRecords!=next.allowedRecords||found->tableOwner!=next.tableOwner)
-                throw std::runtime_error("Army same-category ordinary draw source differs");
-        }
-        for(unsigned category=0;category<categories;++category){
-            if(!actors[category]||primitives[category].empty())throw std::runtime_error("Army required once-imported source category absent");
-            std::sort(primitives[category].begin(),primitives[category].end(),[](const auto& a,const auto& b){return a.draw<b.draw;});
-        }
-        for(const auto& row:completed)materials.emplace(std::make_pair(row.sourceTemplate,row.key),row.sourceTemplate);
-    }
+    ArmyWorldTemplateLibrary() = default;
     // Extend only after the real source material producer publishes a completed
     // template. Caller keeps template/pixel arrays and palette layout coherent.
     void registerCompleted(unsigned baseTemplate,const ArmyWorldMaterialKey& actualKey,unsigned completedTemplate){
@@ -92,11 +55,11 @@ inline bool publishArmyWorldPopulation(Population& owner,ArmyWorldPopulationStat
     next.appliedRevision=publication.revision;next.appliedMaterialRevision=library.materialRevision;
     for(const auto& current:publication.actors){
         unsigned category=unsigned(current.key.category);const auto& sourcePose=owner.source.poses.at(category);
-        const auto& sourceActor=*library.actors.at(category);const auto& sourcePrimitives=library.primitives.at(category);
+        const auto& sourceActor=*library.visibility.at(category);const auto& sourcePrimitives=library.primitives.at(category);
         std::vector<unsigned> selected;bool missing=false;
         for(const auto& p:sourcePrimitives){
             unsigned index=p.sourceTemplate;
-            if(p.clothMaterial){auto found=library.materials.find(std::make_pair(index,current.material));
+            if(p.materialDependent){auto found=library.materials.find(std::make_pair(index,current.material));
                 if(found==library.materials.end()){missing=true;break;}index=found->second;}
             selected.push_back(index);
         }
@@ -113,7 +76,8 @@ inline bool publishArmyWorldPopulation(Population& owner,ArmyWorldPopulationStat
         for(size_t draw=0;draw<sourcePrimitives.size();++draw){const auto& p=sourcePrimitives[draw];unsigned index=selected[draw];
             auto key=std::make_tuple(current.key,p.draw,index);auto prior=state.primitiveIndices.find(key);
             next.primitiveIndices.emplace(key,unsigned(primitives.size()));
-            primitives.push_back(Primitive{actor,p.draw,index,p.palette,p.queue,p.allowedRecords,p.tableOwner});
+            const auto& route=library.templateRoutes.at(index);
+            primitives.push_back(Primitive{actor,p.draw,index,p.palette,route.queue,route.allowedRecords,route.tableOwner});
             models.push_back(prior==state.primitiveIndices.end()?createCurrentModel(current.key,p.draw,index,identity+"/draw"+std::to_string(p.draw)):
                 owner.currentModels.draws.at(prior->second));
         }

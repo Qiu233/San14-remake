@@ -68,7 +68,7 @@ public sealed class TerrainGbufferSourceParameters
             throw new InvalidDataException("Current NearFar differs from the ordinary source record's ADDSS producer.");
         var container = G2ShaderContainerReader.Read(shader.Source.Bytes);
         var features = G2ShaderFeatureReader.Read(shader.Source.Bytes);
-        var combinations = G2ShaderCombinationReader.Read(shader.Source.Bytes);
+        var combinations = shader.ReadCombinations();
         ValidateSelection(loadedMaterial.Feature, loadedMaterial.Combination, 48, 0, 52);
         ValidateSelection(loadedMaterial.CoarseFeature, loadedMaterial.CoarseCombination, 50, 2, 54);
         foreach (int pixel in new[] { 52, 54 })
@@ -89,7 +89,7 @@ public sealed class TerrainGbufferSourceParameters
             var actualFeature = features.Records[index]; var actualCombination = combinations.Rows[index];
             if (suppliedFeature.Index != index || suppliedCombination.Index != index ||
                 !suppliedFeature.RawBytes.AsSpan().SequenceEqual(actualFeature.RawBytes) ||
-                !suppliedCombination.RawRow.AsSpan().SequenceEqual(actualCombination.RawRow) ||
+                !suppliedCombination.RawRow.Span.SequenceEqual(actualCombination.RawRow.Span) ||
                 actualCombination.Stages.Single(stage => stage.StageCode == 1).Entry?.ProgramIndex != vertex ||
                 actualCombination.Stages.Single(stage => stage.StageCode == 0).Entry?.ProgramIndex != pixel)
                 throw new InvalidDataException("Ordinary source parameter selection differs from the actual48/50 program contract.");

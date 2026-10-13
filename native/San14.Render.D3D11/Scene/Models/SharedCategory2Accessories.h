@@ -16,14 +16,31 @@ inline NativeModelDraw& resolveNativePhysicalModel(ID3D11Device* device,
         if(!vertexTemplate.empty())model.retainedVs=std::make_shared<std::vector<char>>(vertexTemplate.begin(),vertexTemplate.end());
         found=slot.models.emplace(draw,std::move(model)).first;
     }
-    else if(!vertexTemplate.empty()&&!found->second.retainedVs)
-        found->second.retainedVs=std::make_shared<std::vector<char>>(vertexTemplate.begin(),vertexTemplate.end());
+    else {
+        auto& prior=found->second;
+        D3D11_BUFFER_DESC oldVertex{},newVertex{},oldPixel{},newPixel{};
+        prior.vsConstants->GetDesc(&oldVertex);source.vsConstants->GetDesc(&newVertex);
+        prior.psConstants->GetDesc(&oldPixel);source.psConstants->GetDesc(&newPixel);
+        auto vertex=prior.vsConstants,pixel=prior.psConstants;auto retained=prior.retainedVs;
+        if(oldVertex.ByteWidth!=newVertex.ByteWidth){
+            vertex=createNativeAccessoryCurrentCb(device,newVertex.ByteWidth);retained.reset();
+        }
+        if(oldPixel.ByteWidth!=newPixel.ByteWidth)pixel=createNativeAccessoryCurrentCb(device,newPixel.ByteWidth);
+        if(!vertexTemplate.empty()&&!retained)
+            retained=std::make_shared<std::vector<char>>(vertexTemplate.begin(),vertexTemplate.end());
+        // The selected material owns programs, layout, resources and render state.
+        // The physical slot retains its private buffers and animation separately.
+        auto rebound=source;rebound.vsConstants=std::move(vertex);rebound.psConstants=std::move(pixel);
+        rebound.retainedVs=std::move(retained);rebound.identity=std::move(prior.identity);
+        prior=std::move(rebound);
+    }
     return found->second;
 }
 
 struct NativeSharedAccessoryUnit {
     GraphicsModelFamily family{};
     bool priorVisible{},dirty=true,materialPending=true;
+    std::optional<San14::Render::CityGateFlagKey> installedMaterial;
     std::vector<unsigned> placements;
 };
 struct NativeSharedAccessories {
@@ -94,12 +111,12 @@ inline void updateNativeSharedAccessoryFamily(ID3D11Device* device,NativeGraphic
         for(unsigned index:state.placements){
             const auto& placement=source.population.placements[index];
             const auto key=nativeSharedAccessoryKey(state,placement);auto* slot=pool.find(key);if(!slot)continue;
-            for(unsigned draw=0;draw<source.templates.draws.size();++draw){
-                auto& model=resolveNativePhysicalModel(device,*slot,draw,source.templates.draws[draw]);
-                if(state.materialPending){
-                    const auto& material=source.materials.at({draw==0?1:draw==1?0:-1,draw<2?unit.force:-1});
-                    model.textures=material.textures;model.samplers=material.samplers;
-                }
+            const auto& flag=source.currentFlags.at(unit.force);
+            if(!state.installedMaterial||*state.installedMaterial!=flag)state.materialPending=true;
+            for(unsigned draw=0;draw<source.resources->models.draws.size();++draw){
+                auto& model=resolveNativePhysicalModel(device,*slot,draw,source.resources->models.draws[draw]);
+                const auto& material=nativeAccessoryMaterialForDraw(source,draw,unit.force);
+                model.textures=material.textures;model.samplers=material.samplers;
             }
             if(setter){
                 std::memcpy(&slot->presented.world,placement.root.data(),48);
@@ -112,6 +129,7 @@ inline void updateNativeSharedAccessoryFamily(ID3D11Device* device,NativeGraphic
                 });
             prepareNativeArmyCurrentPose(bankPose,slot->pose,slot->cache,slot->clock.returnedPhase,
                 slot->presented.world,slot->clock.hasSuccessfulSample,true);
+            state.installedMaterial=flag;
         }
         // Capital/City/Gate v30 clears dirty at normal completion, including a
         // partial descriptor. Its next pending reconcile can dirty it again.
@@ -132,12 +150,12 @@ inline unsigned selectNativeSharedAccessories(ID3D11DeviceContext* context,Nativ
             auto* slot=pool.find(key);if(!slot)continue;
             NativeModelContinuousInstance bounds;bounds.mode=0;bounds.obb=slot->presented.bounds;
             if(!modelContinuousVisible(bounds,planes))continue;
-            for(unsigned draw=0;draw<source.templates.draws.size();++draw){
-                auto& model=slot->models.at(draw);const auto& rows=slot->pose.frame.palettes[draw].rows;
+            for(unsigned draw=0;draw<source.resources->models.draws.size();++draw){
+                auto& model=slot->models.at(draw);const auto& rows=slot->pose.frame.palettes[source.resources->bindings[draw].palette].rows;
                 auto vertex=source_accessory_population::vertex(reinterpret_cast<const char*>(camera.prefix.data()),
                     reinterpret_cast<const float*>(rows.data()),unsigned(rows.size()));
-                float spec[4];int material;std::memcpy(spec,source.materialConstants[draw].data(),16);
-                std::memcpy(&material,source.materialConstants[draw].data()+64,4);
+                float spec[4];int material;std::memcpy(spec,source.resources->pixels[draw].data(),16);
+                std::memcpy(&material,source.resources->pixels[draw].data()+64,4);
                 auto pixel=source_accessory_population::regularPixel(reinterpret_cast<const char*>(camera.prefix.data()),spec,material);
                 context->UpdateSubresource(model.vsConstants.Get(),0,nullptr,vertex.data(),0,0);
                 context->UpdateSubresource(model.psConstants.Get(),0,nullptr,pixel.data(),0,0);
@@ -145,7 +163,7 @@ inline unsigned selectNativeSharedAccessories(ID3D11DeviceContext* context,Nativ
             current.visible.push_back(key);
         }
     }
-    return unsigned(current.visible.size()*source.templates.draws.size());
+    return unsigned(current.visible.size()*source.resources->models.draws.size());
 }
 
 inline void drawNativeSharedAccessories(ID3D11DeviceContext* context,NativeGraphicsModelPool& pool,
@@ -153,8 +171,8 @@ inline void drawNativeSharedAccessories(ID3D11DeviceContext* context,NativeGraph
         ID3D11RenderTargetView* const* targets,ID3D11DepthStencilView* depth,const D3D11_VIEWPORT& viewport){
     current.draws=0;
     for(const auto& key:current.visible){auto& slot=*pool.find(key);
-        NativeModelInputs models;models.blend=source.templates.blend;
-        for(unsigned draw=0;draw<source.templates.draws.size();++draw)models.draws.push_back(slot.models.at(draw));
+        NativeModelInputs models;models.blend=source.resources->models.blend;
+        for(unsigned draw=0;draw<source.resources->models.draws.size();++draw)models.draws.push_back(slot.models.at(draw));
         drawNativeModels(context,models,targets,depth,viewport);current.draws+=unsigned(models.draws.size());
     }
 }

@@ -23,10 +23,17 @@ public sealed class NativeArmyMaterialReadyOwner
         staticCloth = source.StaticClothShader is { } sc ? tables.RetainImportedTable(sc) : null;
         // These are the current loader's retained Data references. A later
         // directory addition/replacement does not silently change CPU8/20/30.
-        regularData = actualTextures.LookupCurrentRegistered(source.RegularTextureGroupObjectId);
-        renderTargetData = actualTextures.LookupCurrentRegistered(source.RenderTargetTextureGroupObjectId);
-        alternateData = actualTextures.LookupCurrentRegistered(source.AlternateTextureGroupObjectId);
+        regularData = RetainTextureDependency(source.RegularTextureGroupObjectId);
+        renderTargetData = RetainTextureDependency(source.RenderTargetTextureGroupObjectId);
+        alternateData = RetainTextureDependency(source.AlternateTextureGroupObjectId);
         RequireCurrent();
+
+        NativeArmyMaterialTextureResource? RetainTextureDependency(uint name)
+        {
+            if (name == 0) return null;
+            return actualTextures.LookupCurrentRegistered(name) ??
+                throw new NotSupportedException($"Army material texture dependency {name:X8} requires its registered Data owner; the regular-only directory cannot establish absence.");
+        }
     }
     public LoadedArmyMaterialReadySource Source { get; }
     public bool HasActualRegularData=>regularData is not null;

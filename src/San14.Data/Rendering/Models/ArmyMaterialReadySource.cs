@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -12,12 +11,11 @@ public sealed class LoadedArmyMaterialReadySource
     internal LoadedArmyMaterialReadySource(LoadedObjects materials, DokObject material,
         LoadedRdbAsset bindings, NamedModelShader? normal, NamedModelShader? cloth,
         NamedModelShader? staticNormal, NamedModelShader? staticCloth,
-        uint regularTextures, uint renderTargetTextures, uint alternateTextures)
+        ModelMaterialTextureDeclaration textureInputs)
     {
         Materials = materials; Material = material; ShaderBindingSource = bindings;
         NormalShader = normal; ClothShader = cloth; StaticNormalShader = staticNormal; StaticClothShader = staticCloth;
-        RegularTextureGroupObjectId = regularTextures; RenderTargetTextureGroupObjectId = renderTargetTextures;
-        AlternateTextureGroupObjectId = alternateTextures;
+        TextureInputs = textureInputs;
     }
     public LoadedObjects Materials { get; }
     public DokObject Material { get; }
@@ -26,9 +24,10 @@ public sealed class LoadedArmyMaterialReadySource
     public NamedModelShader? ClothShader { get; }
     public NamedModelShader? StaticNormalShader { get; }
     public NamedModelShader? StaticClothShader { get; }
-    public uint RegularTextureGroupObjectId { get; }
-    public uint RenderTargetTextureGroupObjectId { get; }
-    public uint AlternateTextureGroupObjectId { get; }
+    public ModelMaterialTextureDeclaration TextureInputs { get; }
+    public uint RegularTextureGroupObjectId => TextureInputs.RegularGroup;
+    public uint RenderTargetTextureGroupObjectId => TextureInputs.RenderTargetGroup;
+    public uint AlternateTextureGroupObjectId => TextureInputs.AlternateGroup;
     public string SourceEvidence => Materials.Source.ResourceUri + "@" + Materials.Source.DecodedSha256 +
         ";A8=" + Material.ObjectId.ToString("X8") + ";D9B7B0-CPU8/20/30;D9D3C0-four-shader-Data;" +
         "D9D687-stage1-full-typed-records;current-registration-and-ready-fields-separate";
@@ -43,15 +42,10 @@ public static class ArmyMaterialReadySource
     {
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(actualMaterials);
         ArgumentNullException.ThrowIfNull(actualShaderObjects);
-        if (actualMaterials.Source.ResourceUri != GameResourceId.Rdb("KIDSSystemResource", ArmyFlagMaterialVariations.MaterialDictionaryId).ToString() ||
-            actualMaterials.Source.OverrideSource is not null ||
-            actualMaterials.Source.DecodedSha256 != ArmyFlagMaterialVariations.MaterialDictionarySha256 ||
-            Convert.ToHexString(SHA256.HashData(actualMaterials.Source.Bytes)) != ArmyFlagMaterialVariations.MaterialDictionarySha256)
-            throw new InvalidDataException("Army material ready import requires its original A8 material dictionary.");
-        actualMaterials = new(DokReader.Read(actualMaterials.Source.Bytes), actualMaterials.Source);
+        if (actualMaterials.Source.ResourceUri != GameResourceId.Rdb("KIDSSystemResource", ArmyFlagMaterialVariations.MaterialDictionaryId).ToString())
+            throw new InvalidDataException("Army material ready import requires its declared A8 material library.");
         var material = actualMaterials.Document.Objects.Single(o => o.ObjectId == actualMaterialObjectId);
-        if (material.Kind != DokObjectKind.Inline || material.ClassId != 0xA8F14404)
-            throw new NotSupportedException("Army material ready declaration requires its actual A8 inline resource creator.");
+        var textureInputs = ModelMaterialTextureDeclaration.Read(material);
         uint Scalar(uint hash)
         {
             var p = material.Properties.Single(p => p.NameHash == hash);
@@ -72,7 +66,7 @@ public static class ArmyMaterialReadySource
             return table;
         }
         return new(actualMaterials, material, bindings, Shader(0x3DDC205C), Shader(0x6CFA424D),
-            Shader(0x6341056D), Shader(0xA03F1C67), Scalar(0xF92C5190), Scalar(0x87814C77), Scalar(0x80C25565));
+            Shader(0x6341056D), Shader(0xA03F1C67), textureInputs);
     }
 
     public static uint ReadWorldPreserve2EC(LoadedArmyCatalog actualCatalog, int category)

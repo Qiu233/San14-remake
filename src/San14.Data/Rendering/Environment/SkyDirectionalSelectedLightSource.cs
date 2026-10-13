@@ -62,14 +62,14 @@ public sealed class SkyDirectionalSelectedLightSource
     /// <summary>Nonnull setters consume the actual current global fields.
     /// Exact zero Moon enters its separately pinned PS10/4 or PS3/4 capability;
     /// other packets use the ordinary finite setter preparation.</summary>
-    public SkySceneLights PrepareLights(LoadedShaderContainer skyShader, Sky2TextureBindingSnapshot textureBindings)
+    public SkySceneLights PrepareLights(Sky2TextureBindingSnapshot textureBindings)
     {
         textureBindings.RequireCurrent();
         ValidateCurrent();
         preparedColorReceipt=null;colorSetterRevision=checked(colorSetterRevision+1);
         if (HasExactZeroMoonRgb)
         {
-            var zero = Sky2SourceZeroMoon.CreateDirectionalSelected(skyShader, textureBindings.RequireNull(SkySamplingRole.Moon), this);
+            var zero = Sky2SourceZeroMoon.CreateDirectionalSelected(textureBindings.RequireNull(SkySamplingRole.Moon), this);
             preparedLights = SkySceneSelectedViewLightSource.PrepareSourceZeroMoonLights(SelectedPacket,
                 Fields.PackagePosition, SelectedPacket.Identity.ProviderRecordOwner + "/D3A850-package-row0", zero);
         }
@@ -83,7 +83,7 @@ public sealed class SkyDirectionalSelectedLightSource
     /// <summary>D3A850's actual global baseline→same Main HS/temperature
     /// continuation before nonnull Sun/Moon setters. Legacy two-argument D7
     /// preparation remains a distinct direct-baseline scope.</summary>
-    public SkySceneLights PrepareD3PackageLights(LoadedShaderContainer skyShader,Sky2TextureBindingSnapshot textureBindings,
+    public SkySceneLights PrepareD3PackageLights(Sky2TextureBindingSnapshot textureBindings,
         LoadedSkyDirectionalSetterColorNativeSource native)
     {
         textureBindings.RequireCurrent();
@@ -92,7 +92,7 @@ public sealed class SkyDirectionalSelectedLightSource
         SkySceneLights lights;
         if(HasExactZeroMoonRgb)
         {
-            var zero=Sky2SourceZeroMoon.CreateDirectionalSelected(skyShader,textureBindings.RequireNull(SkySamplingRole.Moon),this);
+            var zero=Sky2SourceZeroMoon.CreateDirectionalSelected(textureBindings.RequireNull(SkySamplingRole.Moon),this);
             lights=SkySceneSelectedViewLightSource.PrepareSourceZeroMoonLights(SelectedPacket,Fields.PackagePosition,
                 SelectedPacket.Identity.ProviderRecordOwner+"/D3A850-package-row0",zero);
             if(receipt.MoonRgb!=Vector3.Zero)throw new InvalidDataException("Source-zero Moon capability cannot cover a changed D3 color.");
@@ -198,7 +198,7 @@ public sealed class SkyDirectionalSelectedLightSource
         ArgumentNullException.ThrowIfNull(target);ArgumentNullException.ThrowIfNull(native);ValidateCurrent();
         if(preparedLights is null||AcceptedLighting.AcceptedInputs.PresentSeasonCamera is not { } present)
             throw new InvalidDataException("Source-selected season frame needs its actual nonnull Sun/Moon setter receipts and Main.");
-        PrepareD3PackageLights(skyShader,textureBindings,native.ColorSetterContinuationSource);
+        PrepareD3PackageLights(textureBindings,native.ColorSetterContinuationSource);
         var feature=CaptureSourceRendererFeature(skyShader,native,actualStages);
         var atmosphere=PrepareSourceSelectedAtmosphere(feature,native);
         var camera=present.CurrentSkyCamera;

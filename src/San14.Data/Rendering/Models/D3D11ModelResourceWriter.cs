@@ -15,6 +15,23 @@ internal sealed class D3D11ModelResourceWriter(GameResourceRepository repository
         bool reverseDepth,bool stencilEnabled=false,byte? stencilReference=null)
     {
         var geometry=asset.RawTransforms.Geometry;var draw=asset.Draws[drawIndex];
+        var layout=geometry.Layouts[draw.LayoutIndex];
+        var signature=shader.ReadSignatures(vs).Parts.Single(s=>s.Kind==DxbcSignatureKind.Input);
+        foreach(var input in signature.Parameters.Where(p=>p.RawSystemValue==0))
+            if(layout.Attributes.Count(a=>ModelVertexInputs.ReadSemantic(a.SemanticCode).Name==input.SemanticName.Text
+                &&ModelVertexInputs.ReadSemantic(a.SemanticCode).Index==input.SemanticIndex)!=1)
+                throw new NotSupportedException("Static model VS input semantic is unsupported.");
+        WriteGeometryAndPrograms(directory,meshDirectory,geometry,draw,shader,vs,ps,
+            vertex,pixel,bindings,queue,reverseDepth,null,stencilEnabled,stencilReference);
+        WriteStaticTextures(directory,asset,drawIndex,provider,shader,combination);
+    }
+
+    public void WriteGeometryAndPrograms(string directory,string meshDirectory,
+        G1ModelGeometry geometry,G1DrawRecord draw,LoadedShaderContainer shader,int vs,int ps,
+        byte[] vertex,byte[] pixel,LoadedModelShaderBindings bindings,ModelQueueStateSource queue,
+        bool reverseDepth,IReadOnlySet<int>? singleInstanceStreams=null,
+        bool stencilEnabled=false,byte? stencilReference=null)
+    {
         foreach(var buffer in geometry.VertexBuffers)
         {
             string path=Path.Combine(meshDirectory,$"vb-{buffer.Index}.bin");
@@ -32,16 +49,14 @@ internal sealed class D3D11ModelResourceWriter(GameResourceRepository repository
         AddLines(Path.Combine(directory,"layout.txt"),layout.Attributes.Select(a=>
         {
             var semantic=ModelVertexInputs.ReadSemantic(a.SemanticCode);
-            return FormattableString.Invariant($"{semantic.Name} {semantic.Index} {Dxgi(a.TypeCode)} {a.BufferReferenceSlot} {a.ByteOffset}");
+            string row=FormattableString.Invariant($"{semantic.Name} {semantic.Index} {Dxgi(a.TypeCode)} {a.BufferReferenceSlot} {a.ByteOffset}");
+            if(singleInstanceStreams is not null)
+                row+=singleInstanceStreams.Contains(layout.BufferReferences[a.BufferReferenceSlot])?" 1 1":" 0 0";
+            return row;
         }));
-        var signature=shader.ReadSignatures(vs).Parts.Single(s=>s.Kind==DxbcSignatureKind.Input);
-        foreach(var input in signature.Parameters.Where(p=>p.RawSystemValue==0))
-            if(layout.Attributes.Count(a=>ModelVertexInputs.ReadSemantic(a.SemanticCode).Name==input.SemanticName.Text
-                &&ModelVertexInputs.ReadSemantic(a.SemanticCode).Index==input.SemanticIndex)!=1)
-                throw new NotSupportedException("Source VS input semantic is unsupported.");
         AddLines(Path.Combine(directory,"streams.txt"),layout.BufferReferences.Select((i,slot)=>
             $"{slot} {geometry.VertexBuffers[i].Stride} {Relative(directory,Path.Combine(meshDirectory,$"vb-{i}.bin"))}"));
-        var raster=ModelRendererStateSourceReader.ReadGroupRaster(bindings,drawIndex)
+        var raster=ModelRendererStateSourceReader.ReadGroupRaster(bindings,draw.Index)
             ??throw new NotSupportedException("Source raster override is absent.");
         var depth=ModelRendererStateSourceReader.PrepareQueueDepth(queue,reverseDepth);
         string reference=stencilReference is byte value?$" {value}":string.Empty;
@@ -50,11 +65,20 @@ internal sealed class D3D11ModelResourceWriter(GameResourceRepository repository
             $"{Relative(directory,Path.Combine(meshDirectory,$"ib-{draw.IndexBufferIndex}.bin"))}\n"+
             $"{raster.NativeFillMode} {raster.NativeCullMode} {(raster.FrontCounterClockwise?1:0)}\n"+
             $"{(depth.DepthTest?1:0)} {(depth.DepthWrite?1:0)} {depth.CompareCode+1} {(stencilEnabled?1:0)}{reference}\n");
-        var plan=ModelStageTextures.Resolve(asset.TextureResources,drawIndex,provider,shader,combination,new(false,false,0));
+    }
+
+    void WriteStaticTextures(string directory,MapStaticModelAsset asset,int drawIndex,
+        NamedModelShader provider,LoadedShaderContainer shader,int combination)
+        =>WriteStaticTextures(directory,asset.TextureResources,drawIndex,provider,shader,combination);
+
+    public void WriteStaticTextures(string directory,LoadedModelTextureResources resources,int drawIndex,
+        NamedModelShader provider,LoadedShaderContainer shader,int combination)
+    {
+        var plan=ModelStageTextures.Resolve(resources,drawIndex,provider,shader,combination,new(false,false,0));
         var textureRows=new List<string>();var samplerRows=new List<string>();
         foreach(var binding in plan.Bindings)
         {
-            var image=ModelStageTextures.LoadImage(repository,asset.TextureResources,plan,binding.TextureRegister);
+            var image=ModelStageTextures.LoadImage(repository,plan,binding.TextureRegister);
             var formats=ModelTextureFormatMath.Resolve(image.Image.PixelFormat,(byte)(image.Image.RawHeader[19]&1));
             string texture=Path.Combine("textures",$"{image.Container.Source.FileId:X8}-{image.Image.Index}-{formats.ShaderViewFormat}.tex");
             if(writtenStatic.Add(texture))AddBytes(texture,EncodeTexture(image,formats.ShaderViewFormat));
@@ -78,14 +102,16 @@ internal sealed class D3D11ModelResourceWriter(GameResourceRepository repository
     static uint Dxgi(ushort type)=>type switch
     {0=>41,1=>16,2=>6,3=>2,5=>30,7=>14,10=>34,11=>10,13=>28,_=>throw new NotSupportedException($"Unsupported source vertex type {type}.")};
     static byte[] EncodeTexture(ModelStageTextureImage source,uint format)
+        =>EncodeTexture(source.Container,source.Image,format);
+
+    internal static byte[] EncodeTexture(LoadedTextureContainer container,G1TextureImage image,uint format)
     {
-        var image=source.Image;
         if(image.LayerCount!=1)throw new NotSupportedException("Source view is not a single layer.");
         using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);
         foreach(uint word in new[]{(uint)image.Width,(uint)image.Height,(uint)image.LayerCount,(uint)image.MipCount,format})writer.Write(word);
         for(int mip=0;mip<image.MipCount;mip++)
         {
-            var m=image.Mips[mip];byte[] bytes=image.GetEncodedMip(source.Container.Source.Bytes,mip,0).ToArray();
+            var m=image.Mips[mip];byte[] bytes=image.GetEncodedMip(container.Source.Bytes,mip,0).ToArray();
             int pitch=image.PixelFormat switch
             {
                 0x59 or 0x5C=>Math.Max(1,(m.Width+3)/4)*8,

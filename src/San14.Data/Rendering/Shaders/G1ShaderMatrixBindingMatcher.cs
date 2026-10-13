@@ -14,9 +14,19 @@ public static class G1ShaderMatrixBindingMatcher
     public static int CalculatePenalty(ReadOnlySpan<uint> currentWords, G1ShaderMatrixBindingRow row)
     {
         ValidateCurrent(currentWords);
+        ValidateRow(row);
+        return CalculatePenaltyCore(currentWords, row);
+    }
+
+    private static void ValidateRow(G1ShaderMatrixBindingRow row)
+    {
         ArgumentNullException.ThrowIfNull(row);
         if (row.Words.Count != WordCount || row.RawBytes.Length != WordCount * 4)
             throw new InvalidDataException("Original G1S matrix binding row has invalid word or source-byte bounds.");
+    }
+
+    private static int CalculatePenaltyCore(ReadOnlySpan<uint> currentWords, G1ShaderMatrixBindingRow row)
+    {
         IReadOnlyList<uint> r = row.Words;
         ReadOnlySpan<uint> c = currentWords;
         unchecked
@@ -43,6 +53,17 @@ public static class G1ShaderMatrixBindingMatcher
 
     public static G1ShaderMatrixBindingSelection Select(ReadOnlySpan<uint> currentWords,
         IReadOnlyList<G1ShaderMatrixBindingRow> rows)
+        => SelectCore(currentWords, rows, true);
+
+    public static G1ShaderMatrixBindingSelection Select(ReadOnlySpan<uint> currentWords,
+        G1ShaderMatrixBindings bindings)
+    {
+        ArgumentNullException.ThrowIfNull(bindings);
+        return SelectCore(currentWords, bindings.Rows, false);
+    }
+
+    private static G1ShaderMatrixBindingSelection SelectCore(ReadOnlySpan<uint> currentWords,
+        IReadOnlyList<G1ShaderMatrixBindingRow> rows, bool validateRows)
     {
         ValidateCurrent(currentWords);
         ArgumentNullException.ThrowIfNull(rows);
@@ -50,7 +71,8 @@ public static class G1ShaderMatrixBindingMatcher
         int? selectedPenalty = null;
         for (int i = 0; i < rows.Count; i++)
         {
-            int score = CalculatePenalty(currentWords, rows[i]);
+            if (validateRows) ValidateRow(rows[i]);
+            int score = CalculatePenaltyCore(currentWords, rows[i]);
             visited++;
             if (score == 0) return new(i, true, 0, visited);
             if (score < bestPenalty)

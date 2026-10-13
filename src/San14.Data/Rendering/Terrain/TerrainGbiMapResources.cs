@@ -36,7 +36,7 @@ public static class TerrainGbiMapResources
         byte[] raw = CreateGroup0Condition(flags, extraAlbedo != 0, false, false);
         G2ShaderFeatureRecord feature = G2ShaderFeatureReader.Read(shader.Shader.Source.Bytes).Match(raw)
             ?? throw new InvalidDataException("Original shader feature matcher did not match the replica's explicit ordinary draw conditions.");
-        G2ShaderCombination combination = G2ShaderCombinationReader.Read(shader.Shader.Source.Bytes).Rows[feature.Index];
+        G2ShaderCombination combination = shader.Shader.ReadCombination(feature.Index);
         G2ShaderCombinationStage vs = combination.Stages.Single(stage => stage.StageCode == 1);
         G2ShaderCombinationStage ps = combination.Stages.Single(stage => stage.StageCode == 0);
         if (vs.Entry?.ProgramIndex != 0 || ps.Entry?.ProgramIndex is not (18 or 52) ||
@@ -48,7 +48,7 @@ public static class TerrainGbiMapResources
         G2ShaderFeatureRecord coarseFeature = G2ShaderFeatureReader.Read(shader.Shader.Source.Bytes)
             .Match(CreateGroup2Condition(extraAlbedo != 0, false, false))
             ?? throw new InvalidDataException("Original shader feature matcher did not match explicit coarse draw conditions.");
-        G2ShaderCombination coarseCombination = G2ShaderCombinationReader.Read(shader.Shader.Source.Bytes).Rows[coarseFeature.Index];
+        G2ShaderCombination coarseCombination = shader.Shader.ReadCombination(coarseFeature.Index);
         G2ShaderCombinationStage coarseVs = coarseCombination.Stages.Single(stage => stage.StageCode == 1);
         G2ShaderCombinationStage coarsePs = coarseCombination.Stages.Single(stage => stage.StageCode == 0);
         if (coarseVs.Entry?.ProgramIndex != 2 || coarsePs.Entry?.ProgramIndex != 54 ||

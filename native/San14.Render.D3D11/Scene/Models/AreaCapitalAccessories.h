@@ -17,8 +17,7 @@ inline source_accessory_population::Profile readNativeAreaCapitalAccessories(con
 }
 inline NativeCityAccessoryGpu prepareNativeAreaCapitalAccessories(const NativeCityAccessoryGpu& cities,
         source_accessory_population::Profile population) {
-    NativeCityAccessoryGpu out;out.population=std::move(population);out.poseSource=cities.poseSource;
-    out.templates=cities.templates;out.materialConstants=cities.materialConstants;out.materials=cities.materials;
-    // groups/visible/controller frames belong exclusively to this Area owner.
+    NativeCityAccessoryGpu out;out.population=std::move(population);
+    out.resources=cities.resources;out.materials=cities.materials;
     return out;
 }

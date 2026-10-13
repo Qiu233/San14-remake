@@ -113,7 +113,6 @@ public sealed class SkyAppliedSourceStageFrame
     public bool WorkContributionEnabled=>false;
     public bool Sky2Enabled{get;}
     public int Sky2Combination=>1;
-    public uint Sky2PixelProgram=>4;
     public string SourceProvenance{get;}
     public void ValidateCurrent(MapSourceCreatedLightingPacket lighting,
         MapSeasonCameraSelection selection,SkySceneCurrentCameraParameters camera)

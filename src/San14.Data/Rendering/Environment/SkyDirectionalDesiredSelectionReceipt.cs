@@ -84,12 +84,12 @@ public sealed class SkyDirectionalDesiredSelectionReceipt
     public void ValidateSelectedMoonProgramScope()
     {
         ValidateCurrent(source);
-        if (lights.SourceZeroMoon is not { } zero) return;
+        if (lights.SourceZeroMoon is null) return;
         foreach (bool atmosphere in new[] { true, false })
         {
             var projected = GetSelection(atmosphere);
             var pixel = projected.Combination.Stages.Single(s => s.StageCode == 0 && s.Entry is not null);
-            zero.ValidateDefinitions(selection.Source.ReadResourceDefinitions(pixel.Entry!.ProgramIndex));
+            Sky2ProgramPreparation.RequireUnusedMoonColor(selection.Source.ReadResourceDefinitions(pixel.Entry!.ProgramIndex));
         }
     }
 }

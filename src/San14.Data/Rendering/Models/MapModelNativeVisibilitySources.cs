@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Numerics;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -157,7 +156,7 @@ public static class MapModelNativeVisibilitySources
 
     /// <summary>Reads the selected source definition already retained by the
     /// asset. It verifies the actual typed Model reference and its scene instance
-    /// override bytes. Only declared Flag01/Dynamic00 and inherited-frustum
+    /// overrides. Only declared Flag01/Dynamic00 and inherited-frustum
     /// FFFFFFFF are covered. Other source variants remain explicit unsupported
     /// profiles; Flag00 is not silently converted to a disabled instance.</summary>
     public static MapModelNativeFreshVisibilityPrefix PrepareFreshSingleNode(
@@ -186,9 +185,7 @@ public static class MapModelNativeVisibilitySources
         if (instance.SourcePlacement is { } placement)
         {
             LoadedObjects placementSource = placement.Source.InstanceDocument;
-            if (placementSource.Source.DecodedSha256 != Convert.ToHexString(SHA256.HashData(placementSource.Source.Bytes)))
-                throw Error("scene instance override bytes differ from their source identity");
-            DokObject[] rows = DokReader.Read(placementSource.Source.Bytes).Objects.Where(o => o.ObjectId == placement.Source.Object.ObjectId).ToArray();
+            DokObject[] rows = placementSource.Document.Objects.Where(o => o.ObjectId == placement.Source.Object.ObjectId).ToArray();
             if (rows.Length != 1 || rows[0].Kind != DokObjectKind.Reference || rows[0].Reference is not { } reference ||
                 reference.ResourceId != source.Source.FileId || reference.ObjectId != canonical.ObjectId)
                 throw Error("scene instance does not refer to the selected WorldPQ definition");
@@ -218,10 +215,7 @@ public static class MapModelNativeVisibilitySources
     private static DokObject ReadObject(LoadedObjects source, uint objectId, uint classId)
     {
         ArgumentNullException.ThrowIfNull(source);
-        LoadedRdbAsset bytes = source.Source;
-        if (string.IsNullOrWhiteSpace(bytes.ResourceUri) || bytes.DecodedSha256 != Convert.ToHexString(SHA256.HashData(bytes.Bytes)))
-            throw Error("declaration bytes differ from their source identity");
-        DokObject[] objects = DokReader.Read(bytes.Bytes).Objects.Where(o => o.ObjectId == objectId).ToArray();
+        DokObject[] objects = source.Document.Objects.Where(o => o.ObjectId == objectId).ToArray();
         if (objects.Length != 1 || objects[0].Kind != DokObjectKind.Inline || objects[0].ClassId != classId)
             throw Error("declaration requires the exact original typed object");
         return objects[0];

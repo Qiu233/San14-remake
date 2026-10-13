@@ -3,7 +3,7 @@ using System.Buffers.Binary;
 namespace San14.Data.Formats;
 
 public sealed record G1ShaderFeatureRecord(int Index, int SourceOffset, G1ShaderFeatureRow Feature);
-public sealed record G1ShaderVariantRecord(int Index, int SourceOffset, byte[] RawBytes);
+public sealed record G1ShaderVariantRecord(int Index, int SourceOffset, ReadOnlyMemory<byte> RawBytes);
 public sealed record G1ShaderVariantTable(int RecordWidth, DxbcRange SourceRange,
     IReadOnlyList<G1ShaderVariantRecord> Records)
 {
@@ -13,7 +13,7 @@ public sealed record G1ShaderVariantTable(int RecordWidth, DxbcRange SourceRange
         if (condition.Length != RecordWidth)
             throw new InvalidDataException("G1S binding variant condition width differs from the original source.");
         foreach (G1ShaderVariantRecord record in Records)
-            if (condition.SequenceEqual(record.RawBytes)) return record;
+            if (condition.SequenceEqual(record.RawBytes.Span)) return record;
         return null;
     }
 }
@@ -52,10 +52,12 @@ public sealed record G1ShaderBindingTables(uint PassCount, IReadOnlyList<uint> R
 public static class G1ShaderBindingReader
 {
     public static G1ShaderBindingTables Read(ReadOnlySpan<byte> source)
+        => Read(source, G2ShaderCombinationReader.Read(source));
+
+    internal static G1ShaderBindingTables Read(ReadOnlySpan<byte> source, G2ShaderCombinations combinations)
     {
         // Six stage tables, DXBC ranges and combinations share the existing
         // S2G container layout. Its name reflects the earlier G2 consumer.
-        G2ShaderCombinations combinations = G2ShaderCombinationReader.Read(source);
         var dimensions = new uint[7];
         for (int i = 0; i < dimensions.Length; i++) dimensions[i] = U32(source, 0x48 + i * 4);
         uint passes = U32(source, 0x3C);

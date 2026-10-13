@@ -33,10 +33,11 @@ public sealed class RemakeArmyFlagVariantGbufferSource
     private readonly byte[] _locals;
     private readonly ArmyFlagNativeMaterialSource _materialSource;
     private readonly Dictionary<int,LoadedArmyFlagMaterialImage> _images=[];
-    public RemakeArmyFlagSource Source { get; }
+    public LoadedArmyFlagResources Source { get; }
     public LoadedArmyFlagMaterialVariation Variation { get; }
     public ModelShaderInterfaceSource SelectedShaderInterface { get; }
     public LoadedShaderContainer Shader { get; }
+    public int Combination => 1; // This Godot skin backend supports the explicit VS1/PS2 combination.
     public IReadOnlyList<ArmyFlagMaterialTextureUse> TextureUses { get; }
     public int DrawIndex { get; }
     public int PaletteIndex { get; }
@@ -44,11 +45,11 @@ public sealed class RemakeArmyFlagVariantGbufferSource
         .Select(t=>t.Slot.ProxyObjectId).Distinct().ToArray();
 
     public static RemakeArmyFlagVariantGbufferSource Load(GameResourceRepository repository,
-        RemakeArmyFlagSource source,int drawIndex,int explicitOwnedForceVariant)
+        LoadedArmyFlagResources source,int drawIndex,int explicitOwnedForceVariant)
         =>new(repository,source,drawIndex,explicitOwnedForceVariant,null);
 
     public static RemakeArmyFlagVariantGbufferSource LoadForActualFinalTable(GameResourceRepository repository,
-        RemakeArmyFlagSource source,int drawIndex,int explicitOwnedForceVariant,
+        LoadedArmyFlagResources source,int drawIndex,int explicitOwnedForceVariant,
         NativeWorldShaderTableState actualFinalTable)
     {
         ArgumentNullException.ThrowIfNull(actualFinalTable);
@@ -58,7 +59,7 @@ public sealed class RemakeArmyFlagVariantGbufferSource
     }
 
     public static RemakeArmyFlagVariantGbufferSource LoadForActualFinalTable(GameResourceRepository repository,
-        RemakeArmyFlagSource source,int drawIndex,LoadedArmyFlagMaterialVariation actualVariation,
+        LoadedArmyFlagResources source,int drawIndex,LoadedArmyFlagMaterialVariation actualVariation,
         NativeWorldShaderTableState actualFinalTable)
     {
         ArgumentNullException.ThrowIfNull(actualFinalTable); ArgumentNullException.ThrowIfNull(actualVariation);
@@ -68,12 +69,12 @@ public sealed class RemakeArmyFlagVariantGbufferSource
     }
 
     private RemakeArmyFlagVariantGbufferSource(GameResourceRepository repository,
-        RemakeArmyFlagSource source,int drawIndex,int forceVariant,
+        LoadedArmyFlagResources source,int drawIndex,int forceVariant,
         ModelShaderInterfaceSource? actualSelectedShader,
         LoadedArmyFlagMaterialVariation? actualVariation=null)
     {
         ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(source);
-        var group=source.ReadDeclaredMaterialGroups(repository).ReadDeclaredDraw(drawIndex);
+        var group=source.MaterialGroups.ReadDeclaredDraw(drawIndex);
         uint groupOrdinal=group.DeclaredContainerGroupOrdinal??throw Error("actual source draw has no declared World material group");
         int manager=ArmyFlagMaterialVariations.ReadManagerForDeclaredGroup(source.Category.Category,groupOrdinal);
         _repository=repository;Source=source;DrawIndex=drawIndex;_runtime=new(repository);
@@ -84,16 +85,16 @@ public sealed class RemakeArmyFlagVariantGbufferSource
         var provider=SelectedShaderInterface.Provider??throw Error("actual final table has no state18 shader consumer");
         if(SelectedShaderInterface.StateIndex!=18)throw Error("actual final table needs its state18 interface");
         Shader=ModelShaderResources.LoadDeclaredG1S(repository,provider);
-        TextureUses=ArmyFlagMaterialVariations.ResolveTextureUsesForActualShader(Variation,Shader);
+        TextureUses=ArmyFlagMaterialVariations.ResolveTextureUsesForActualShader(Variation,Shader,Combination);
         _materialSource=ArmyFlagNativeMaterials.ReadSource(Variation);
         if(!Variation.ControllerGateNonzero||ArmySkinVertexAdapter.Select(source.Model.Geometry,drawIndex)!=ArmySkinVertexProfile.FourInfluenceUnsigned8)
             throw Error("source controller gate or four-influence geometry is unavailable");
-        var stages=Shader.ReadG1Bindings().Combinations.Rows[1].Stages;
+        var stages=Shader.ReadG1Bindings().Combinations.Rows[Combination].Stages;
         if(stages.Single(row=>row.StageCode==1).Entry?.ProgramIndex!=1||
             stages.Single(row=>row.StageCode==0).Entry?.ProgramIndex!=2)
             throw Error("actual final shader does not have the supported VS1/PS2 skin profile");
         ArmySkinConstants.Validate(Shader.ReadResourceDefinitions(1));
-        var draw=G1ModelDrawReader.Read(source.Model.Geometry).Draws.Single(d=>d.Index==drawIndex);
+        var draw=source.Draws.Single(d=>d.Index==drawIndex);
         PaletteIndex=checked((int)draw.UnknownValue8);
         _locals=source.Transforms.Transforms.Joints.SelectMany(j=>j.RawBytes).ToArray();
     }
@@ -121,7 +122,7 @@ public sealed class RemakeArmyFlagVariantGbufferSource
         var action=Source.FreshAction() with{CurrentTimeSeconds=input.CurrentTimeSeconds%duration};
         _=input.World.ShaderTransform();
         var root=new ArmyAnimationRootTransform(new(input.World.Scale34,1),input.World.Quaternion24,new(input.World.Position18,1));
-        var animation=_runtime.SampleResolvedPose(action,Source.Transforms,_locals,root);
+        var animation=_runtime.SampleResolvedPose(action,Source.Transforms,_locals,root,loadedAction:Source.Action0);
         var palette=ArmyNativePaletteWriter.Build(Source.Transforms.Transforms,PaletteIndex,
             animation.Current.BuildMatrices(),Source.Transforms.Transforms.Joints.Count,
             ArmySkinConstants.ReadPalette(input.CompleteVertexTemplate.Span),ArmyNativePoseBufferKind.Current);
@@ -154,7 +155,7 @@ public sealed class RemakeArmyFlagVariantGbufferSource
         var owned=new List<ModelGbufferTextureUse>();var borrowed=new List<ModelDeviceBinding>();
         if(input.ActualCurrentTextureGroup is { } actualTextureGroup)
         {
-            var actual=actualTextureGroup.PrepareActualPixelBindings(Shader);
+            var actual=actualTextureGroup.PrepareActualPixelBindings(Shader,Combination);
             owned.AddRange(actual.Owned); borrowed.AddRange(actual.Borrowed);
         }
         else foreach(var use in TextureUses)
@@ -178,7 +179,7 @@ public sealed class RemakeArmyFlagVariantGbufferSource
                 owned.Add(new("Sampler",use.SamplerRegister,image.Container,image.Image.Index,image.NativeViewFormat,sampler));
             }
         }
-        var packet=new ModelGbufferInstancePacket(key,new(Source.Model.Geometry,Source.Model.Source),Shader,1,DrawIndex,
+        var packet=new ModelGbufferInstancePacket(key,new(Source.Model.Geometry,Source.Model.Source),Shader,Combination,DrawIndex,
             new(new Dictionary<uint,ReadOnlyMemory<byte>>{[0]=vertex},[],[]),
             new(new Dictionary<uint,ReadOnlyMemory<byte>>{[0]=pixel.Bytes},owned,borrowed),input.Raster)
             {ArmySkinProfile=ArmySkinVertexProfile.FourInfluenceUnsigned8};

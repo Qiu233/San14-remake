@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -21,12 +20,18 @@ public sealed record ModelStageTextureBinding(uint TextureRegister, uint Sampler
     int ImageIndex, ushort UvSet, ushort RawPrimaryEncoded, ushort RawSecondaryEncoded,
     ushort RawValue8, ushort RawValue10);
 
-public sealed record ModelStageTexturePlan(string ModelUri, string ModelSha256,
-    string TextureTableUri, string TextureTableSha256, string ShaderUri, string ShaderSha256,
+public sealed record ModelStageTexturePlan(LoadedModelTextureResources Resources,
+    string ShaderUri, string ShaderSha256,
     uint ProviderObjectId, int DrawIndex, int ExplicitCombinationIndex, int PixelProgramIndex,
     int SourceRecordIndex, ushort PrimaryCount, short SpecialEntryIndex,
     IReadOnlyList<ModelStageTextureEffect> Effects,
-    IReadOnlyList<ModelStageTextureBinding> Bindings);
+    IReadOnlyList<ModelStageTextureBinding> Bindings)
+{
+    public string ModelUri => Resources.Model.Source.ResourceUri;
+    public string ModelSha256 => Resources.Model.Source.DecodedSha256;
+    public string TextureTableUri => Resources.TextureTable.ResourceUri;
+    public string TextureTableSha256 => Resources.TextureTable.DecodedSha256;
+}
 
 public sealed record ModelStageTextureImage(ModelStageTextureBinding Binding,
     LoadedTextureContainer Container, G1TextureImage Image, G1TextureSamplerRecipe Sampler);
@@ -66,29 +71,21 @@ public static class ModelStageTextures
         ArgumentNullException.ThrowIfNull(shader); ArgumentNullException.ThrowIfNull(runtime);
         if (runtime.AlternatePrimaryMode || runtime.SkipEncodedEntries || runtime.TextureSlotOffset != 0)
             throw Error("alternate primary mode, skipped encoded entries and texture slot offsets are unimplemented");
-        bool army = provider.Object.ObjectId == 0x0AC3D18D;
         if (provider.Object.ClassId != 0x18EB1E56)
             throw Error("requires the verified PB2 provider creator class");
-        if (army && (provider.ShaderFileHash != 0xB90AEDD3 ||
-            shader.Source.DecodedSha256 != ArmySkinVertexAdapter.ShaderSha256))
-            throw Error("Army state18 requires its exact original B90AEDD3 source profile");
         if (Scalar(provider.Object, ModelShaderResources.G1SPropertyHash) != provider.ShaderFileHash ||
             provider.ShaderFileHash != shader.Source.FileId ||
             shader.Source.ResourceUri != GameResourceId.Rdb("system", provider.ShaderFileHash).ToString())
             throw Error("provider G1S reference does not identify the supplied shader source");
-        ValidateHash(shader.Source); ValidateHash(model.Model.Source); ValidateHash(model.TextureTable);
-        ValidateLinks(model);
         if (explicitCombinationIndex is not (0 or 1))
             throw Error("only explicit PB2 combinations 0 and 1 are supported");
-        G1ShaderResourceBindings metadata = G1ShaderResourceBindingReader.Read(shader.Source.Bytes, explicitCombinationIndex);
+        G1ShaderResourceBindings metadata = shader.ReadG1ResourceBindings(explicitCombinationIndex);
         G2ShaderTextureBases descriptor = G2ShaderTextureBaseReader.Read(shader.Source.Bytes);
         if (descriptor.ModeValue != 0 || descriptor.DescriptorFlags != 0x28 || descriptor.DescriptorTextureCount != 1)
             throw Error("unsupported PB2 source texture constructor descriptor or metadata header");
         G2ShaderCombinationStage pixel = metadata.Combination.Stages.Single(s => s.StageCode == 0);
         if (pixel.Entry is null) throw Error("selected combination has no original pixel program");
-        G2ShaderContainer canonicalShader = G2ShaderContainerReader.Read(shader.Source.Bytes);
-        DxbcResourceDefinitions rdef = DxbcResourceDefinitionReader.Read(
-            canonicalShader.GetProgramBytes(shader.Source.Bytes, pixel.Entry.ProgramIndex));
+        DxbcResourceDefinitions rdef = shader.ReadResourceDefinitions(pixel.Entry.ProgramIndex);
         DxbcRdefBinding[] textures = rdef.Bindings.Where(b => b.InputType == 2).OrderBy(b => b.BindPoint).ToArray();
         DxbcRdefBinding[] samplers = rdef.Bindings.Where(b => b.InputType == 3).OrderBy(b => b.BindPoint).ToArray();
         int textureCount=textures.Length;
@@ -110,12 +107,7 @@ public static class ModelStageTextures
             if (entry.Name != textures[entry.SlotIndex].Name.Text)
                 throw Error($"metadata entry {entry.Index} does not identify selected PS texture register {entry.SlotIndex}");
 
-        // Parse the hash-checked model bytes again; unrelated caller-supplied geometry
-        // or material records cannot substitute for this draw's original references.
-        G1ModelGeometry geometry = G1ModelGeometryReader.Read(model.Model.Source.Bytes, model.Model.Source.Bytes.LongLength);
-        G1ModelDrawTextures draws = G1ModelDrawTextureReader.Read(geometry);
-        if ((uint)drawIndex >= draws.Bindings.Count) throw new ArgumentOutOfRangeException(nameof(drawIndex));
-        G1TextureRecord record = draws.Bindings[drawIndex].TextureRecord;
+        G1TextureRecord record = ModelTextureResources.ResolveDrawTextures(model, drawIndex).Binding.TextureRecord;
         if (record.TextureEntries.Count > 16 || record.UnknownValue8 > ushort.MaxValue || record.UnknownValue12 > ushort.MaxValue)
             throw Error("texture record exceeds verified native counts or header width");
         ushort primaryCount = (ushort)record.UnknownValue8;
@@ -169,29 +161,21 @@ public static class ModelStageTextures
                 checked((int)(slot.RawValue00200571 & 0x7FFFFFFF)), entry.RawValue2, entry.RawValue4, entry.RawValue6,
                 entry.RawValue8, entry.RawValue10));
         }
-        return new(model.Model.Source.ResourceUri, model.Model.Source.DecodedSha256,
-            model.TextureTable.ResourceUri, model.TextureTable.DecodedSha256, shader.Source.ResourceUri, shader.Source.DecodedSha256,
+        return new(model, shader.Source.ResourceUri, shader.Source.DecodedSha256,
             provider.Object.ObjectId, drawIndex, explicitCombinationIndex, pixel.Entry.ProgramIndex,
             record.Index, primaryCount, specialIndex, effects.AsReadOnly(), bindings.AsReadOnly());
     }
 
     /// <summary>Uses the native proxy TID selection and retains the complete source mip chain.</summary>
     public static ModelStageTextureImage LoadImage(GameResourceRepository repository,
-        LoadedModelTextureResources model, ModelStageTexturePlan plan, uint textureRegister)
+        ModelStageTexturePlan plan, uint textureRegister)
     {
-        ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(model); ArgumentNullException.ThrowIfNull(plan);
-        if (model.Model.Source.ResourceUri != plan.ModelUri || model.Model.Source.DecodedSha256 != plan.ModelSha256 ||
-            model.TextureTable.ResourceUri != plan.TextureTableUri || model.TextureTable.DecodedSha256 != plan.TextureTableSha256)
-            throw Error("texture plan and model/table source identities differ");
-        ValidateHash(model.Model.Source); ValidateHash(model.TextureTable); ValidateLinks(model);
+        ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(plan);
+        LoadedModelTextureResources model = plan.Resources;
         ModelStageTextureBinding binding = plan.Bindings.Single(b => b.TextureRegister == textureRegister);
         if ((uint)binding.SourceTextureSlot >= model.Slots.Count) throw Error("resolved slot no longer belongs to model source");
         ModelTextureSlot slot = model.Slots[binding.SourceTextureSlot];
-        if (slot.ProxyObjectId != binding.ProxyObjectId || slot.TextureFileId != binding.TextureFileId || slot.RawValue00200571 != binding.RawTextureId)
-            throw Error("resolved slot proxy identity changed");
         LoadedTextureContainer container = ModelTextureResources.LoadTextureContainer(repository, model, slot.Index);
-        ValidateHash(container.Source);
-        container = container with { Container = G1TextureContainerReader.Read(container.Source.Bytes) };
         if ((uint)binding.ImageIndex >= container.Container.Textures.Count)
             throw Error($"proxy TID {binding.RawTextureId:X8} exceeds exact container {container.Source.ResourceUri}");
         G1TextureImage image = container.Container.Textures[binding.ImageIndex];
@@ -208,25 +192,6 @@ public static class ModelStageTextures
         return result;
     }
 
-    private static void ValidateLinks(LoadedModelTextureResources model)
-    {
-        if (Scalar(model.ModelObject, 0x8AB68B3F) != model.Model.Source.FileId ||
-            Scalar(model.ModelObject, 0xF92C5190) != model.TextureGroupObject.ObjectId ||
-            Scalar(model.TextureGroupObject, 0x7A1E1EF8) != model.TextureTable.FileId ||
-            model.TextureTable.Bytes.Length != model.Slots.Count * 8)
-            throw Error("model, texture group and external slot table references differ");
-        foreach (ModelTextureSlot slot in model.Slots)
-        {
-            if ((uint)slot.Index >= model.Slots.Count) throw Error("invalid source slot index");
-            ReadOnlySpan<byte> row = model.TextureTable.Bytes.AsSpan(slot.Index * 8, 8);
-            if (BinaryPrimitives.ReadUInt32LittleEndian(row) != slot.Index ||
-                BinaryPrimitives.ReadUInt32LittleEndian(row[4..]) != slot.ProxyObjectId ||
-                !row.SequenceEqual(slot.RawTableRow) || slot.Proxy.ClassId != 0xFF7DBFD4 || slot.Proxy.ObjectId != slot.ProxyObjectId ||
-                Scalar(slot.Proxy, 0x6C7321D2) != slot.TextureFileId || Scalar(slot.Proxy, 0x00200571, 4) != slot.RawValue00200571)
-                throw Error($"texture slot {slot.Index} table/proxy identity differs");
-        }
-    }
-
     private static uint Scalar(DokObject item, uint hash, uint type = 5)
     {
         DokProperty[] fields = item.Properties.Where(p => p.NameHash == hash).ToArray();
@@ -235,11 +200,5 @@ public static class ModelStageTextures
         return BinaryPrimitives.ReadUInt32LittleEndian(fields[0].RawValue);
     }
 
-    private static void ValidateHash(LoadedRdbAsset source)
-    {
-        if (source.DecodedSha256.Length != 64 ||
-            !Convert.ToHexString(SHA256.HashData(source.Bytes)).Equals(source.DecodedSha256, StringComparison.OrdinalIgnoreCase))
-            throw Error($"source hash mismatch for {source.ResourceUri}");
-    }
     private static InvalidDataException Error(string detail) => new($"Original model stage textures: {detail}.");
 }

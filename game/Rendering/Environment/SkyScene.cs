@@ -286,8 +286,8 @@ public sealed partial class SkyScene : IAsyncDisposable
             for (uint face = 0; face < 6; face++)
             {
                 var draw = await Sky2Draw.BuildAsync(sky, work,
-                    SkySceneSchedule.SurfaceId(first.LevelNum, face, 0), facePackets[(int)face],
-                    vertexTemplate, pixelTemplate, explicitTextures,
+                    SkySceneSchedule.SurfaceId(first.LevelNum, face, 0),
+                    facePackets[(int)face].Vertex.Bytes,facePackets[(int)face].Pixel.Bytes,explicitTextures,
                     new Sky2NativeComposition(selection.Sky2ColorWriteMask.Value));
                 faces.Add(draw); owned.Add(draw);
             }
@@ -393,7 +393,8 @@ public sealed partial class SkyScene : IAsyncDisposable
                             explicitLight.SixFaces[(int)face], explicitLight.VertexTemplate, explicitLight.PixelTemplate,
                             [explicitLight.GgxLut, new(3, 9, LightWork.TextureRid, LightWork.TextureRid,
                                 explicitLight.CubeSampler, explicitLight.CubeSourceUri)]));
-                foreach (var pair in packets.Select((p, i) => (p, i))) await _skyFaces[pair.i].UpdateConstantsAsync(pair.p);
+                foreach (var pair in packets.Select((p, i) => (p, i)))
+                    await _skyFaces[pair.i].UpdatePreparedConstantsAsync(pair.p.Vertex.Bytes,pair.p.Pixel.Bytes);
             }
             catch
             { for (int i = lightFaces.Count - 1; i >= 0; i--) await lightFaces[i].DisposeAsync(); _phase = SkyScenePhase.Faulted; throw; }
@@ -626,7 +627,7 @@ public sealed partial class SkyScene : IAsyncDisposable
             rd.DrawListEnd(); return true;
         });
 
-    private static Sky2DrawInputs[] SnapshotFaces(Sky2Program program,
+    private static (Sky2ConstantPacket Vertex,Sky2ConstantPacket Pixel)[] SnapshotFaces(Sky2Program program,
         IReadOnlyList<Sky2DrawInputs> faces, ReadOnlyMemory<byte> vertexTemplate,
         ReadOnlyMemory<byte> pixelTemplate)
     {
@@ -634,14 +635,13 @@ public sealed partial class SkyScene : IAsyncDisposable
         program.RequireCurrent();
         if (faces.Count != 6 || faces.Any(p => p is null))
             throw new InvalidDataException("Sky scene requires six complete explicit face packets.");
-        var packets = faces.Select(p => new Sky2DrawInputs(p.Vertex,
-            p.Pixel with { Scattering = p.Pixel.Scattering?.ToArray()! })).ToArray();
-        foreach (var packet in packets)
+        return faces.Select(face =>
         {
-            _ = Sky2Constants.Vertex(program.VertexBindings.SourceDefinitions, vertexTemplate.Span, packet.Vertex);
-            _ = Sky2Constants.Pixel(program.PixelBindings.SourceDefinitions, pixelTemplate.Span, packet.Pixel);
-        }
-        return packets;
+            var vertex=program.VertexConstants.WriteVertex(vertexTemplate.Span,face.Vertex);
+            var pixel=program.PixelConstants.WritePixel(pixelTemplate.Span,face.Pixel);
+            program.ValidateNullTexturePacket(pixel.Bytes);
+            return (vertex,pixel);
+        }).ToArray();
     }
 
     public ValueTask DisposeAsync()

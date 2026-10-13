@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Numerics;
-using System.Security.Cryptography;
 
 namespace San14.Data;
 
@@ -41,14 +40,7 @@ public sealed record LoadedArmyFlagFreshPaneLayout(ArmyFlagPaneGlyph SourceText,
 /// </summary>
 public static class ArmyFlagFreshPaneLayout
 {
-    public const string SourceFontSha256 =
-        "1527A29A84080CECBB5B2A636D9E8D412F61421C23763C7B3376E310A9153C84";
-    public const string SourceCaoMetricHex = "2020002020F0002000211200";
     public const string SourceMetricCohortHex = "2020002020F00020";
-    public const string SourceCaoEncodedSha256 =
-        "1E5EC9F5858A5D73F0CCFFB2810BCC8BBDF583AFAECF111EF7C488D430B38DA8";
-    public const string SourceCaoPixelsSha256 =
-        "E59D173B1383B9FD1C73646B62FB34F5B9CA4DB6882279361DFEE82E03214C9E";
 
     public static LoadedArmyFlagFreshPaneLayout BuildCao(
         LoadedArmyFlagFontSource font, LoadedArmyFlagGlyphAtlasPrefix atlas,
@@ -67,7 +59,7 @@ public static class ArmyFlagFreshPaneLayout
     /// Publishes one glyph only when its actual source metric has the complete
     /// same first8 bytes as U+66F9. Width/height, bearings and advances therefore
     /// retain the proved fresh horizontal layout. Its pixel reference and image
-    /// are independently read from the pinned font; no other metric is inferred.
+    /// belong to the selected font owner; no other metric is inferred.
     /// </summary>
     public static LoadedArmyFlagFreshPaneLayout BuildSameMetricGlyph(
         LoadedArmyFlagFontSource font, LoadedArmyFlagGlyphAtlasPrefix atlas,
@@ -87,38 +79,29 @@ public static class ArmyFlagFreshPaneLayout
             string.IsNullOrWhiteSpace(sourceColors.CallerSource))
             throw Error("requires one source glyph then zero, without a native line break, and explicit pane kinds0..2");
         if (!font.FreshHostDefaultFontFidelityVerified || font.ExplicitCommonArrayIndex != 0 ||
-            font.Parameter.ObjectId != 0x97D72A63 || font.Source.FileId != 0xE876B7F0 ||
-            font.Source.DecodedSha256 != SourceFontSha256 || Hash(font.Source.Bytes) != SourceFontSha256 ||
-            atlas.Font.Source.DecodedSha256 != SourceFontSha256)
-            throw Error("requires the source-owned fresh Host default font collection");
+            !ReferenceEquals(font,atlas.Font))
+            throw Error("requires the same owned fresh Host default font collection as the atlas");
         ushort codeUnit = sourceText.TwoUtf16Units[0];
-        var glyph = ArmyFlagFontSources.ReadGlyph(font, codeUnit, 0, 0);
+        var glyph = atlas.Glyph;
         // AC2940 reads signed+4; AD6AE0 reads+1 and signed+3;1064060
         // reads+0..4. Requiring all first8 bytes also retains the source
         // vertical metric fields while this contract uses the horizontal path.
         if (glyph.Record.RawBytes.Length != 12 ||
             Convert.ToHexString(glyph.Record.RawBytes.AsSpan(0, 8)) != SourceMetricCohortHex)
             throw Error("source glyph is outside the proved first8-byte metric cohort");
-        if (codeUnit == 0x66F9 && (glyph.Record.Index != 2402 ||
-            Convert.ToHexString(glyph.Record.RawBytes) != SourceCaoMetricHex ||
-            Hash(glyph.EncodedBytes) != SourceCaoEncodedSha256 || Hash(glyph.Pixels.Pixels) != SourceCaoPixelsSha256))
-            throw Error("source U+66F9 glyph differs from the bounded layout proof");
         // AC31B0 and ADDEB0 use the source face's U+3042 metric as baseline.
         // B07CC0 repeats the same call before producing records.
-        var japaneseMetric = ArmyFlagFontSources.ReadGlyph(font, 0x3042, 0, 0).Record;
+        var face = font.Collection.Faces[0];
+        var japaneseMetric = face.Glyphs[face.UnicodeGlyphMap[0x3042]];
         if (japaneseMetric.Height != 32)
             throw Error("source fresh face baseline differs from the proved32");
         if (atlas.Glyph.Utf16CodeUnit != codeUnit || atlas.Glyph.FaceIndex != 0 ||
-            atlas.Glyph.PaletteIndex != 0 || !atlas.Glyph.Record.RawBytes.AsSpan().SequenceEqual(glyph.Record.RawBytes) ||
-            atlas.Glyph.Record.Index != glyph.Record.Index ||
-            !atlas.Glyph.EncodedBytes.AsSpan().SequenceEqual(glyph.EncodedBytes) ||
-            !atlas.Glyph.Pixels.Pixels.AsSpan().SequenceEqual(glyph.Pixels.Pixels) ||
+            atlas.Glyph.PaletteIndex != 0 ||
             atlas.LogicalRectangle != new ArmyFlagGlyphAtlasRectangle(1, 1, 32, 32) ||
             atlas.SourceGlyphCount != 1 || atlas.NextCursorX != 34 || atlas.NextCursorY != 1 ||
             atlas.NextRowBottom != 34 || atlas.UvRectangle != new Vector4(1f / 1024, 1f / 1024, 33f / 1024, 33f / 1024) ||
-            atlas.Bytes.Length != ArmyFlagGlyphAtlasPrefix.AtlasByteLength ||
-            Hash(atlas.Bytes) != atlas.WrittenAtlasSha256)
-            throw Error("requires the verified owned first insertion into the source fresh font atlas");
+            atlas.Bytes.Length != ArmyFlagGlyphAtlasPrefix.AtlasByteLength)
+            throw Error("requires the owned first insertion into the selected fresh font atlas");
 
         // Source helpers use float32 +/-half and truncate. The finite source
         // metric and bounds are exact integers, yielding offsets48 and16.
@@ -161,6 +144,5 @@ public static class ArmyFlagFreshPaneLayout
         return new(sourceText, sourceColors, explicitSourcePaneKind, atlas, record, quad, callerRecordSource);
     }
 
-    private static string Hash(ReadOnlySpan<byte> bytes) => Convert.ToHexString(SHA256.HashData(bytes));
     private static InvalidDataException Error(string message) => new($"Army flag fresh pane layout {message}.");
 }

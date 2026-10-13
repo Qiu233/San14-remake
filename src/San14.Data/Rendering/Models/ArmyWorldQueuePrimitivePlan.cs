@@ -62,8 +62,8 @@ public sealed class ArmyWorldQueuePrimitivePlan
             {
                 var actor = actualPublication.Actors.Single(a => a.ActorIdentity == primitive.ActorIdentity);
                 if (raster.Draw.Draw.Index != primitive.SourceDrawIndex ||
-                    raster.Model.Model.Source.ResourceUri != actor.Source.Model.ResourceUri ||
-                    raster.Model.Model.Source.DecodedSha256 != actor.Source.Model.DecodedSha256)
+                    raster.Model.Model.Source.ResourceUri != actor.Source.Model.Source.ResourceUri ||
+                    raster.Model.Model.Source.DecodedSha256 != actor.Source.Model.Source.DecodedSha256)
                     throw new InvalidDataException("Army source group raster belongs to another canonical geometry draw.");
             }
         }

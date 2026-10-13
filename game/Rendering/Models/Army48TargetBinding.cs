@@ -83,12 +83,7 @@ public static class Army48GraphicsContract
     }
     internal static void RequireProgram(ModelShaderProgram program)
     {
-        if (program.Combination.Index != 1 || program.VertexProgramIndex != 1 || program.PixelProgramIndex != 2 ||
-            program.ColorOutputLocations.Count==0 || program.ColorOutputLocations.Any(location=>location>=6) ||
-            !((program.Source.Source.ResourceUri == GameResourceId.Rdb("system", 0xB90AEDD3).ToString() &&
-                program.Source.Source.DecodedSha256 == ArmySkinVertexAdapter.ShaderSha256) ||
-              (program.Source.Source.ResourceUri == GameResourceId.Rdb("system", 0xA72FC040).ToString() &&
-                program.Source.Source.DecodedSha256 == ArmyFlagSkinVertexAdapter.ShaderSha256)))
-            throw new InvalidDataException("Army six MRT source scope requires original B90/A72 combination1 VS1/PS2 and its actual outputs within0..5.");
+        if (program.ColorOutputLocations.Count==0 || program.ColorOutputLocations.Any(location=>location>=6))
+            throw new InvalidDataException("Army six MRT submission requires the selected program's color outputs within slots 0..5.");
     }
 }

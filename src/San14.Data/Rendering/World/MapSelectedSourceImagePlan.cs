@@ -55,7 +55,7 @@ public sealed class MapSelectedSourceImagePlan
         var shader = textures.Shader;
         var definitions = shader.ReadResourceDefinitions(selection.PixelProgramIndex);
         var mappings = shader.ReadG1ResourceBindings(selection.Combination.Index);
-        var configurations = G1ShaderConfigurationReader.Read(shader.Source.Bytes, shader.Container);
+        var configurations = shader.ReadConfigurations();
         var images = new List<MapSelectedImageConsumer>();
         foreach (var declaration in definitions.Bindings.Where(b => b.InputType == 2))
         {

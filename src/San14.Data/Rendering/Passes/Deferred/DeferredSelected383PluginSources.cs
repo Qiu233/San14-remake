@@ -95,7 +95,7 @@ public sealed class DeferredSelected383PluginOwner
             throw new InvalidDataException("PS383 plugin owner requires the exact original common shader source.");
         _ = ImportedShaders.GetValue(shader, static loaded =>
         {
-            var configuration = G1ShaderConfigurationReader.Read(loaded.Source.Bytes).Records;
+            var configuration = loaded.ReadConfigurations().Records;
             if (configuration.Count != 16 || new[] { "OccFader", "ShadowMask", "HatchingShadow", "GBufferLayout", "SecondaryHighlight" }
                 .Any(name => configuration.Count(record => record.Name == name) != 1))
                 throw new InvalidDataException("PS383 common plugin factories differ from the original shader configuration.");

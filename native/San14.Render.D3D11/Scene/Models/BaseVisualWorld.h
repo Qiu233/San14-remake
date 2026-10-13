@@ -33,13 +33,9 @@ inline void publishNativeBaseVisualAccessories(NativeCityAccessoryGpu& owner,sou
         throw std::runtime_error("Current accessory publication changed the fixed source identities");
     for(unsigned i=0;i<current.units.size();++i){const auto& u=current.units[i];const auto& old=owner.population.units[i];
         if(u.index!=i||u.index!=old.index||u.requested!=old.requested)throw std::runtime_error("Current accessory source unit/descriptor identity differs");
-        if(u.force>=1&&u.force<=51&&(!owner.materials.count({0,u.force})||!owner.materials.count({1,u.force})))
+        if(u.force>=1&&u.force<=51&&!owner.currentFlags.contains(u.force))
             throw std::runtime_error("Current accessory force glyph/color materials require source import/republication");}
     for(unsigned i=0;i<current.placements.size();++i){const auto& p=current.placements[i];const auto& old=owner.population.placements[i];
         if(p.unitIndex!=old.unitIndex||p.ordinal!=old.ordinal)throw std::runtime_error("Current accessory packed player identity differs");}
     owner.population=std::move(current);
-    for(auto& [index,group]:owner.groups){const auto& placement=owner.population.placements.at(index);const auto& unit=owner.population.units.at(placement.unitIndex);
-        if(unit.force<1||unit.force>51)continue; // The normal next prepare releases this non-requested group.
-        for(unsigned draw=0;draw<group.models.draws.size()&&draw<2;++draw){const auto& material=owner.materials.at({draw==0?1:0,unit.force});
-            group.models.draws[draw].textures=material.textures;group.models.draws[draw].samplers=material.samplers;}}
 }

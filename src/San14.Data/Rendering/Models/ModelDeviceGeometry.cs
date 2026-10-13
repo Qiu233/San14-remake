@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+using System.Collections.Frozen;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -6,6 +6,35 @@ namespace San14.Data;
 /// <summary>The caller supplies the source semantic code and the translated
 /// vertex location. Numeric source semantic codes are not assigned names here.</summary>
 public sealed record ModelVertexSemanticBinding(int LayoutIndex, ushort SourceSemanticCode, uint Location);
+
+/// <summary>Device input layout value shared by geometry caches. Stream frequency
+/// is part of the layout; equivalent bindings share an upload across programs.</summary>
+public sealed class ModelGeometryInputLayout : IEquatable<ModelGeometryInputLayout>
+{
+    private readonly ModelVertexSemanticBinding[] bindings;
+    private readonly int[] streams;
+    public IReadOnlyList<ModelVertexSemanticBinding> Bindings { get; }
+    public IReadOnlySet<int> InstanceStreams { get; }
+
+    public ModelGeometryInputLayout(IEnumerable<ModelVertexSemanticBinding> bindings, IReadOnlySet<int>? instanceStreams)
+    {
+        this.bindings = bindings.OrderBy(binding => binding.LayoutIndex).ThenBy(binding => binding.Location).ToArray();
+        streams = instanceStreams?.Order().ToArray() ?? [];
+        Bindings = Array.AsReadOnly(this.bindings);
+        InstanceStreams = streams.ToFrozenSet();
+    }
+
+    public bool Equals(ModelGeometryInputLayout? other) => other is not null &&
+        bindings.SequenceEqual(other.bindings) && streams.SequenceEqual(other.streams);
+    public override bool Equals(object? other) => other is ModelGeometryInputLayout layout && Equals(layout);
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        foreach (var binding in bindings) hash.Add(binding);
+        foreach (int stream in streams) hash.Add(stream);
+        return hash.ToHashCode();
+    }
+}
 
 public enum ModelDeviceVertexFormat
 {
@@ -57,6 +86,10 @@ public sealed class ModelDeviceLayout
     /// <summary>Dense stream binding to original vertex-buffer index. Every
     /// declared stream is retained, including streams not selected by a shader.</summary>
     public IReadOnlyList<int> BufferReferences { get; }
+    /// <summary>Positional stream bindings through the highest selected
+    /// attribute. Gaps keep their source slots; inactive trailing streams
+    /// remain in the upload packet but are not vertex-array inputs.</summary>
+    public IReadOnlyList<int> VertexArrayBufferReferences { get; }
     public IReadOnlyList<ModelDeviceAttribute> Attributes { get; }
     internal ModelDeviceLayout(int index, int vertexCount, IEnumerable<int> buffers,
         IEnumerable<ModelDeviceAttribute> attributes)
@@ -64,6 +97,10 @@ public sealed class ModelDeviceLayout
         (Index, VertexCount) = (index, vertexCount);
         BufferReferences = Array.AsReadOnly(buffers.ToArray());
         Attributes = Array.AsReadOnly(attributes.ToArray());
+        int count = Attributes.Count == 0 ? 0 : checked((int)Attributes.Max(a => a.StreamBinding) + 1);
+        if (count > BufferReferences.Count)
+            throw new InvalidDataException("Selected vertex attribute exceeds its source stream bindings.");
+        VertexArrayBufferReferences = Array.AsReadOnly(BufferReferences.Take(count).ToArray());
     }
 }
 
@@ -125,25 +162,16 @@ public sealed class ModelDeviceGeometryPacket
 
 public static class ModelDeviceGeometry
 {
-    public static ModelDeviceGeometryPacket Prepare(ReadOnlySpan<byte> sourceBytes, string expectedSha256,
+    public static ModelDeviceGeometryPacket Prepare(LoadedModelGeometry source,
         IReadOnlyList<ModelVertexSemanticBinding> explicitBindings,
         IReadOnlySet<int>? explicitSingleInstanceSourceStreams=null)
     {
+        ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(explicitBindings);
-        if (expectedSha256 is null || expectedSha256.Length != 64 || !expectedSha256.All(Uri.IsHexDigit))
-            throw new InvalidDataException("Model device geometry requires an explicit SHA-256 source hash.");
-        // Snapshot before parsing: later caller changes cannot alter either the
-        // bytes whose hash was checked or the immutable upload packet.
-        byte[] snapshot = sourceBytes.ToArray();
-        string sha = Convert.ToHexString(SHA256.HashData(snapshot));
-        if (!sha.Equals(expectedSha256, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Model device geometry source SHA-256 does not match the selected source.");
-        G1ModelGeometry geometry = G1ModelGeometryReader.Read(snapshot, snapshot.Length);
-        // Independently checks numeric widths, stream bounds and finite float
-        // values, including unselected attributes. Raw bytes remain unchanged.
-        _ = G1ModelVertexReader.Read(geometry);
+        G1ModelGeometry geometry = source.Geometry;
         G1ModelDrawBindings draws = G1ModelDrawReader.Read(geometry);
-        foreach (G1DrawRecord draw in draws.Draws) _ = G1ModelTriangleReader.Read(geometry, draw);
+        if (draws.Draws.Any(draw => draw.PrimitiveCode != 3 || draw.IndexCount % 3 != 0))
+            throw new InvalidDataException("Model device geometry requires triangle-list draws.");
         var plan = explicitBindings.ToArray();
         if (plan.Any(x => x is null || (uint)x.LayoutIndex >= geometry.Layouts.Count))
             throw new InvalidDataException("Model semantic binding references a missing layout.");
@@ -168,19 +196,21 @@ public static class ModelDeviceGeometry
                 (G1VertexAttribute attribute, int attributeIndex) = matches[0];
                 int sourceBuffer = layout.BufferReferences[attribute.BufferReferenceSlot];
                 G1VertexBuffer buffer = geometry.VertexBuffers[sourceBuffer];
+                (ModelDeviceVertexFormat format, int components, int width, uint shaderType) = Format(attribute.TypeCode);
+                if (attribute.ByteOffset < 0 || attribute.ByteOffset > buffer.Stride - width)
+                    throw new InvalidDataException($"Model layout {layout.Index} attribute width exceeds its stream stride.");
                 bool singleInstance=explicitSingleInstanceSourceStreams?.Contains(sourceBuffer)==true;
                 if(singleInstance&&buffer.VertexCount!=1)
                     throw new InvalidDataException("Explicit single-instance source stream requires one complete source record.");
                 if (!singleInstance&&buffer.VertexCount < vertexCount)
                     throw new InvalidDataException($"Model layout {layout.Index} bound stream {attribute.BufferReferenceSlot} is shorter than its vertex array.");
-                (ModelDeviceVertexFormat format, int components, int width, uint shaderType) = Format(attribute.TypeCode);
                 attributes.Add(new(attributeIndex, attribute.SemanticCode, binding.Location, sourceBuffer,
                     checked((uint)attribute.BufferReferenceSlot), attribute.ByteOffset, buffer.Stride,
                     format, components, width, shaderType){ExplicitSingleInstanceFrequency=singleInstance});
             }
             layouts.Add(new(layout.Index, vertexCount, layout.BufferReferences, attributes));
         }
-        return new(snapshot, sha, geometry, layouts, draws);
+        return new(source.Source.Bytes.ToArray(), source.Source.DecodedSha256, geometry, layouts, draws);
     }
 
     internal static (ModelDeviceVertexFormat Format, int Components, int ByteWidth, uint ShaderType) Format(ushort code) => code switch

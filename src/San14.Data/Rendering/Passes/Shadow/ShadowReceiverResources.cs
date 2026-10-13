@@ -97,8 +97,8 @@ public sealed class ShadowReceiverResources
             bindings.Features.Count == 0 || bindings.Variants.Records.Count == 0)
             throw new NotSupportedException("Receiver shader requires its single-pass feature and full variant bank.");
         Directory.CreateDirectory(directory);
-        File.WriteAllBytes(Path.Combine(directory, "features.bin"), bindings.Features.SelectMany(row => row.Feature.RawBytes).ToArray());
-        File.WriteAllBytes(Path.Combine(directory, "variants.bin"), bindings.Variants.Records.SelectMany(row => row.RawBytes).ToArray());
+        File.WriteAllBytes(Path.Combine(directory, "features.bin"), bindings.Features.SelectMany(row => row.Feature.RawBytes.ToArray()).ToArray());
+        File.WriteAllBytes(Path.Combine(directory, "variants.bin"), bindings.Variants.Records.SelectMany(row => row.RawBytes.ToArray()).ToArray());
         var definitions = new Dictionary<int, DxbcResourceDefinitions>();
         var recipes = new Dictionary<(int Vertex, int Pixel, bool OtherStages), int>();
         var programs = new HashSet<int>();

@@ -7,7 +7,10 @@
 namespace San14::Render {
 // Copied at the managed/native boundary; no borrowed managed pointer survives
 // the synchronous call. Source parser and device consumers run in Main.
-struct CityGateFlagKey { std::int32_t force,color;std::uint32_t glyph; };
+struct CityGateFlagKey {
+    std::int32_t force,color;std::uint32_t glyph;
+    bool operator==(const CityGateFlagKey&) const = default;
+};
 struct CityGateWorldPublication {
     std::uint64_t revision{};
     std::vector<char> primary,accessories;

@@ -23,7 +23,7 @@ public static class ModelShaderVariantSourceReader
         if (provider.Object.ClassId != 0x18EB1E56 || provider.ShaderFileHash != shader.Source.FileId ||
             shader.Source.ResourceUri != GameResourceId.Rdb("system", provider.ShaderFileHash).ToString())
             throw new InvalidDataException("Original variant source requires its verified native creator and exact declared G1S.");
-        G1ShaderBindingTables binding = G1ShaderBindingReader.Read(shader.Source.Bytes);
+        G1ShaderBindingTables binding = shader.ReadG1Bindings();
         if (binding.Variants.Records.Count == 0)
             throw new InvalidDataException("Original shader has no variant capability; a constructor byte cache is not synthesized.");
         return new(provider, shader, binding.Variants);
@@ -33,7 +33,7 @@ public static class ModelShaderVariantSourceReader
     {
         ArgumentNullException.ThrowIfNull(source);
         ValidateTable(source.Table);
-        byte[] originalFirstRow = source.Table.Records[0].RawBytes;
+        var originalFirstRow = source.Table.Records[0].RawBytes;
         return new(0, originalFirstRow.ToArray(), originalFirstRow.ToArray());
     }
 
@@ -52,13 +52,13 @@ public static class ModelShaderVariantSourceReader
                 explicitCommittedBytes, explicitRequestedBytes, false);
         foreach (G1ShaderVariantRecord row in source.Table.Records)
         {
-            if (!explicitRequestedBytes.SequenceEqual(row.RawBytes)) continue;
+            if (!explicitRequestedBytes.SequenceEqual(row.RawBytes.Span)) continue;
             uint chosen = checked((uint)row.Index);
             bool changed = chosen != explicitCommittedIndex;
             // 9817FF skips the commit callback for the same index. Stale
             // committed bytes must therefore remain stale in this branch.
             return changed ? Result(ModelShaderVariantTransitionKind.SourceRowMatch, true, chosen,
-                row.RawBytes, row.RawBytes, true) :
+                row.RawBytes.Span, row.RawBytes.Span, true) :
                 Result(ModelShaderVariantTransitionKind.SourceRowMatch, true, chosen,
                     explicitCommittedBytes, explicitRequestedBytes, false);
         }

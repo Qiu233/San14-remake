@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Numerics;
-using System.Security.Cryptography;
 using San14.Data;
 using San14.Data.Formats;
 
@@ -80,10 +79,6 @@ public sealed class ModelGbufferSourceDraw
         uint[]? explicitOtherSixDimensions = null, uint? explicitPassIndex = null)
     {
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(model);
-        if (!Convert.ToHexString(SHA256.HashData(model.Model.Source.Bytes)).Equals(model.Model.Source.DecodedSha256,StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Original model source draw model hash changed.");
-        var canonicalGeometry = G1ModelGeometryReader.Read(model.Model.Source.Bytes,model.Model.Source.Bytes.LongLength);
-        model = model with {Model = new(canonicalGeometry,G1ModelMaterialReader.Read(canonicalGeometry),model.Model.Source)};
         var bindings = ModelShaderResources.LoadBindings(repository, model);
         var selected = ModelShaderResources.ResolveRenderGraphNodeBaseSource(
             bindings, drawIndex, shaderObjects, graph, explicitGraphNode);
@@ -118,7 +113,7 @@ public sealed class ModelGbufferSourceDraw
         var textures = new List<ModelGbufferTextureUse>();
         foreach (var binding in plan.Bindings)
         {
-            var image = ModelStageTextures.LoadImage(repository, model, plan, binding.TextureRegister);
+            var image = ModelStageTextures.LoadImage(repository, plan, binding.TextureRegister);
             uint view = explicitNativeTextureViews is null ? ModelStageTextures.ReadNativeViewFormat(image.Image) :
                 explicitNativeTextureViews[binding.TextureRegister];
             ValidateView(image.Image.PixelFormat, view);

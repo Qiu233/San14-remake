@@ -1,5 +1,6 @@
 using Godot;
 using San14.Data;
+using San14.Data.Formats;
 
 /// <summary>Imported final primitive18 full table and its own state3 slot.
 /// A short/null interface is an explicit source boundary, never a draw.</summary>
@@ -86,10 +87,11 @@ public sealed partial class DeferredEarlyShadowModelDeviceOwner : IAsyncDisposab
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly LoadedDeferredEarlyShadowSelectionSource selectionSource;
     private readonly Dictionary<LoadedModelMaterials, Dictionary<(NativeWorldShaderTableState, int), DeferredEarlyShadowModelSource>> sources = new(ReferenceEqualityComparer.Instance);
-    private readonly Dictionary<NamedModelShader, LoadedDeferredEarlyShadowRenderer> renderers = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<DokObject, LoadedDeferredEarlyShadowRenderer> renderers = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<LoadedDeferredEarlyShadowRenderer, DeferredEarlyShadowSelectionState> selections = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<(LoadedDeferredEarlyShadowRenderer, int, ArmySkinVertexProfile?), ModelShaderProgram> programs = new();
-    private readonly Dictionary<(LoadedModelMaterials, LoadedShaderContainer, int, ArmySkinVertexProfile?), ModelGeometryDevice> geometry = new();
+    private readonly Dictionary<(LoadedModelMaterials, ModelGeometryInputLayout), ModelGeometryDevice> geometry = new();
+    private readonly Dictionary<(LoadedModelMaterials, ModelShaderProgram, int), ModelGeometryInputLayout> geometryInputs = new();
     private readonly Dictionary<DeferredEarlyShadowTargetOwner, DeferredEarlyShadowTargetFrameLoan> targets = new(ReferenceEqualityComparer.Instance);
     private readonly List<DrawValue> draws = [];
     private bool retiring, disposed;
@@ -195,16 +197,19 @@ public sealed partial class DeferredEarlyShadowModelDeviceOwner : IAsyncDisposab
                 throw new InvalidDataException("Early19 draws require their own current EA target generation and zero color attachment raster.");
             var program = await ProgramAsync(actualSelection); var model = actualSelection.Source.Model;
             RequireCurrentVertexTransport(actualSelection, program, actualCompleteVertex);
-            var key = (model, actualSelection.Source.Renderer!.Shader, program.VertexProgramIndex, actualSelection.Source.ArmySkinProfile);
-            if (!geometry.TryGetValue(key, out var uploaded))
+            var inputKey = (model, program, actualSelection.Source.DrawIndex);
+            if (!geometryInputs.TryGetValue(inputKey, out var inputLayout))
             {
                 var resolution = ModelVertexInputs.Resolve(model.Geometry, program.VertexDeviceTransportSignatures, program.VertexBindings.Interface);
                 var singleInstanceStreams = actualSelection.Source.ArmySkinProfile is not null
                     ? ArmySkinVertexAdapter.SingleInstanceSourceStreams(model.Geometry, actualSelection.Source.DrawIndex) : null;
-                var packet = ModelDeviceGeometry.Prepare(model.Source.Bytes, model.Source.DecodedSha256, resolution.Bindings, singleInstanceStreams);
-                uploaded = actualSelection.Source.StaticAsset is null
-                    ? await ModelGeometryDevice.BuildSelectedInputStreamsAsync(model.Source.ResourceUri, packet)
-                    : await ModelGeometryDevice.BuildAsync(model.Source.ResourceUri, packet);
+                geometryInputs.Add(inputKey, inputLayout = new ModelGeometryInputLayout(resolution.Bindings, singleInstanceStreams));
+            }
+            var key = (model, inputLayout);
+            if (!geometry.TryGetValue(key, out var uploaded))
+            {
+                var packet = ModelDeviceGeometry.Prepare(new LoadedModelGeometry(model.Geometry, model.Source), inputLayout.Bindings, inputLayout.InstanceStreams);
+                uploaded = await ModelGeometryDevice.BuildAsync(model.Source.ResourceUri, packet);
                 geometry.Add(key, uploaded);
             }
             var vertex = Snapshot(actualCompleteVertex); var pixel = Snapshot(actualCompletePixel);
@@ -326,6 +331,7 @@ public sealed partial class DeferredEarlyShadowModelDeviceOwner : IAsyncDisposab
             while (draws.Count != 0) { await draws[^1].Draw.DisposeAsync(); draws.RemoveAt(draws.Count - 1); }
             foreach (var key in programs.Keys.ToArray()) { await programs[key].DisposeAsync(); programs.Remove(key); }
             foreach (var key in geometry.Keys.ToArray()) { await geometry[key].DisposeAsync(); geometry.Remove(key); }
+            geometryInputs.Clear();
             foreach (var key in targets.Keys.ToArray()) { targets[key].Dispose(); targets.Remove(key); }
             sources.Clear(); selections.Clear(); renderers.Clear(); disposed = true;
         }

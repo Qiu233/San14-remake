@@ -43,8 +43,8 @@ public sealed class DeferredAuxiliaryShaderSource
         if(tables.Variants.RecordWidth!=8 || tables.RawDimensionCounts.Take(6).Any(v=>v>1))
             throw new InvalidDataException("Auxiliary source filter dimensions differ from their native condition contract.");
         var variant=tables.Variants.Records.FirstOrDefault(v=>
-            BinaryPrimitives.ReadUInt32LittleEndian(v.RawBytes)==filterType &&
-            (filterType!=1 || BinaryPrimitives.ReadUInt32LittleEndian(v.RawBytes.AsSpan(4))==gaussianFeatureSize));
+            BinaryPrimitives.ReadUInt32LittleEndian(v.RawBytes.Span)==filterType &&
+            (filterType!=1 || BinaryPrimitives.ReadUInt32LittleEndian(v.RawBytes.Span[4..])==gaussianFeatureSize));
         if(variant is null)throw new InvalidDataException("Auxiliary filter condition has no verified original shader variant.");
         return ReadPass(passIndex,new uint[]{0,0,0,0,0,0,(uint)variant.Index});
     }

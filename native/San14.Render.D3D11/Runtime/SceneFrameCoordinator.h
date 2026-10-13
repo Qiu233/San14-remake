@@ -55,9 +55,10 @@ public:
     // Accessories retain their device and animation owners independently from
     // HDR program selection and its current numeric layouts.
     void prepareBaseAccessories(ID3D11Device* device,ID3D11DeviceContext* context,
-        const PreparedResourceDirectories& resources,const std::optional<AreaCapitalWorldPublication>& areaWorld,
+        const PreparedResourceDirectories& resources,const std::optional<CityGateWorldPublication>& cityWorld,
+        const std::optional<AreaCapitalWorldPublication>& areaWorld,
         const source_default_player_phase::Profile& defaults,BaseRenderWorld& bases) {
-        bases.prepareAccessories(device,context,resources,areaWorld,defaults);
+        bases.prepareAccessories(device,context,resources,cityWorld,areaWorld,defaults);
     }
     void prepareWeatherLight(const PreparedResourceDirectories& resources) {
         const auto globalRgb=load(resources.directory(ResourceGroup::Weather)/"initial"/"weather"/"effective-light-rgb.bin");

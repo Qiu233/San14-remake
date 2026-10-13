@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Numerics;
-using System.Security.Cryptography;
 using San14.Data;
 using San14.Data.Formats;
 
@@ -48,7 +47,7 @@ public sealed class ArmyAnimatedGbufferSource
     {
         (Model, SourceDraw, SourcePaletteIndex) = (model, draw, palette);
         VertexProfile=ArmySkinVertexAdapter.Select(model.Transforms.Geometry,draw.DrawIndex);
-        _runtime = new(repository);
+        _runtime = new(repository, model.Catalog);
         _defaultLocals = model.Transforms.Transforms.Joints.SelectMany(j => j.RawBytes).ToArray();
     }
 
@@ -57,19 +56,12 @@ public sealed class ArmyAnimatedGbufferSource
         int graphNode = 49, int drawIndex = 0)
     {
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(model);
-        // Reparse the exact immutable source bytes. A caller cannot substitute
-        // another parsed skeleton, draw/palette or geometry under its URI/hash.
-        string hash = Convert.ToHexString(SHA256.HashData(model.Transforms.Source.Bytes));
-        if (!hash.Equals(model.Transforms.Source.DecodedSha256, StringComparison.OrdinalIgnoreCase) ||
-            model.Resources.Model.Source.DecodedSha256 != hash ||
-            model.Transforms.Source.ResourceUri != GameResourceId.Rdb("CharacterEditor", model.Category.ModelFileId).ToString())
-            throw new InvalidDataException("Animated Army model requires its exact source geometry/skeleton identity.");
-        var geometry = G1ModelGeometryReader.Read(model.Transforms.Source.Bytes, model.Transforms.Source.Bytes.Length);
-        var transforms = G1ModelTransformReader.Read(model.Transforms.Source.Bytes, geometry);
-        model = model with { Transforms = new(geometry, transforms, model.Transforms.Source) };
-        var nativeDraw = G1ModelDrawReader.Read(geometry).Draws.Single(d => d.Index == drawIndex);
+        string modelUri = GameResourceId.Rdb("CharacterEditor", model.Category.ModelFileId).ToString();
+        if (model.Transforms.Source.ResourceUri != modelUri || model.Resources.Model.Source.ResourceUri != modelUri)
+            throw new InvalidDataException("Animated Army category and imported model resources differ.");
+        var nativeDraw = G1ModelDrawReader.Read(model.Transforms.Geometry).Draws.Single(d => d.Index == drawIndex);
         int palette = checked((int)nativeDraw.UnknownValue8);
-        if ((uint)palette >= transforms.JointPalettes.Count)
+        if ((uint)palette >= model.Transforms.Transforms.JointPalettes.Count)
             throw new InvalidDataException("Animated Army draw has no declared original joint palette.");
         var draw = ModelGbufferSourceDraw.LoadSourceTextureViews(repository, model.Resources,
             shaderObjects, graph, graphNode, drawIndex, 1, new(false, false, 0));
@@ -81,18 +73,6 @@ public sealed class ArmyAnimatedGbufferSource
             throw new InvalidDataException("Animated Army G-buffer combination differs from source VS1/PS2.");
         ArmySkinConstants.Validate(draw.VertexDefinitions);
         return new(repository, model, draw, palette);
-    }
-
-    /// <summary>The uniquely declared original action file can be selected
-    /// without guessing an RRPreview ID. Ambiguous sequences remain explicit.</summary>
-    public static ArmyAnimationSourceInput UniqueDeclaredAction(GameResourceRepository repository,
-        LoadedArmyModel model, int actionIndex, float seconds, float? previousSeconds = null)
-    {
-        var action = ArmyAnimationResources.LoadAction(repository, model.Catalog, model.Category.Category, actionIndex);
-        if (action.AnimationData.Count != 1)
-            throw new InvalidDataException("Animated Army action requires an explicit file selection for its multi-file source sequence.");
-        return new(model.Category.Category, actionIndex, action.AnimationData[0].Source.FileId, seconds)
-            { PreviousTimeSeconds = previousSeconds };
     }
 
     public ArmyAnimatedGbufferPreparedDraw Prepare(string instanceKey, ArmyAnimatedGbufferInputs inputs)
@@ -107,32 +87,21 @@ public sealed class ArmyAnimatedGbufferSource
         if (inputs.CompleteVertexTemplate.Length != 6256 ||
             inputs.CompletePreviousVertexTemplate is { Length: not 6256 })
             throw new InvalidDataException("Animated Army requires complete source 6256-byte vertex templates.");
-        var source = _runtime.Sample(inputs.Animation);
+        var selected = _runtime.Select(inputs.Animation);
         var clock = inputs.Animation;
         if (inputs.Gates.ClockPolicy == ArmyAnimationClockPolicy.RepeatDeclaredDuration)
         {
-            float duration = source.Animation.Clip.FrameRate > 0 ? source.Animation.Clip.FrameCount / source.Animation.Clip.FrameRate : 0;
+            float duration = selected.Animation.Clip.FrameRate > 0 ? selected.Animation.Clip.FrameCount / selected.Animation.Clip.FrameRate : 0;
             if (!(duration > 0) || !float.IsFinite(duration))
                 throw new InvalidDataException("Animated Army explicit repeat policy requires a positive finite declared clip duration.");
             float Repeat(float time) { float value = time % duration; return value < 0 ? value + duration : value; }
             clock = clock with { CurrentTimeSeconds = Repeat(clock.CurrentTimeSeconds),
                 PreviousTimeSeconds = clock.PreviousTimeSeconds is { } previous ? Repeat(previous) : null };
         }
-        var resolved = _runtime.SampleResolvedPose(clock, Model.Transforms, _defaultLocals,
-            Root(inputs.CurrentWorld), hasPrevious ? _defaultLocals.ToArray() : null,
-            inputs.PreviousWorld is { } priorWorld ? Root(priorWorld) : null);
-        if (!inputs.Gates.ActionSamplingEnabled)
-        {
-            // An explicit disabled action uses the full actual source default
-            // local buffer; it never creates a placeholder identity palette.
-            ArmyAnimationLocalPose Defaults(ArmyAnimationSample sample) =>
-                new(sample.TimeSeconds, sample.FixedFrameTime, _defaultLocals.ToArray(), []);
-            var local = new ArmyAnimationLocalFrame(resolved.Local.Source, Defaults(resolved.Local.Source.Current),
-                resolved.Local.Source.Previous is { } previous ? Defaults(previous) : null);
-            resolved = new(local, ArmyAnimationHierarchy.Build(Model.Transforms.Transforms, local.Current, Root(inputs.CurrentWorld)),
-                local.Previous is { } previousLocal ? ArmyAnimationHierarchy.Build(Model.Transforms.Transforms,
-                    previousLocal, Root(inputs.PreviousWorld!)) : null);
-        }
+        var resolved = _runtime.SampleResolvedPose(selected with { Input = clock }, Model.Transforms, _defaultLocals,
+            Root(inputs.CurrentWorld), hasPrevious ? _defaultLocals : null,
+            inputs.PreviousWorld is { } priorWorld ? Root(priorWorld) : null,
+            actionSamplingEnabled: inputs.Gates.ActionSamplingEnabled);
         var current = ArmyNativePaletteWriter.Build(Model.Transforms.Transforms, SourcePaletteIndex,
             resolved.Current.BuildMatrices(), Model.Transforms.Transforms.Joints.Count,
             ArmySkinConstants.ReadPalette(inputs.CompleteVertexTemplate.Span), ArmyNativePoseBufferKind.Current);
@@ -151,7 +120,6 @@ public sealed class ArmyAnimatedGbufferSource
 
     private static ArmyAnimationRootTransform Root(UnitWorldTransformState world)
     {
-        _ = world.ShaderTransform();
         return new(new(world.Scale34, 1), world.Quaternion24, new(world.Position18, 1));
     }
     private static float[] MatrixRows(Matrix4x4 m) => [m.M11,m.M12,m.M13,m.M14,m.M21,m.M22,m.M23,m.M24,

@@ -76,7 +76,7 @@ public sealed partial class MapOwnedGraphicsColorMaskHistorySource
             (0x7180A527u,0), (0x340AC335u,1), (0x42ED52EDu,0), (0x19DBE085u,0)})
         {
             var shader=repository.LoadShaderContainer("system",id);Exact(shader.Source,$"san14://rdb/system/{id:X8}");
-            var records=G1ShaderConfigurationReader.Read(shader.Source.Bytes).Records;
+            var records=shader.ReadConfigurations().Records;
             if(records.Count!=count || (count==1 && (records[0].Name!="HeightFog" || records[0].RawSecondWord!=2)))
                 throw new InvalidDataException("Owned Sky mask history requires the exact empty/HeightFog source configuration chains.");
             actual.Add(shader.Source);

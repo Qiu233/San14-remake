@@ -25,16 +25,6 @@ public sealed class ModelGeometryDevice : IAsyncDisposable
 
     public static Task<ModelGeometryDevice> BuildAsync(string sourceResourceUri,
         ModelDeviceGeometryPacket packet)
-        => BuildAsync(sourceResourceUri, packet, false);
-
-    // Early19 can select fewer attributes than the original layout declares.
-    // Retain every source buffer in the upload/packet; only the vertex-array
-    // bindings omit trailing streams with no selected device attribute.
-    internal static Task<ModelGeometryDevice> BuildSelectedInputStreamsAsync(string sourceResourceUri,
-        ModelDeviceGeometryPacket packet) => BuildAsync(sourceResourceUri, packet, true);
-
-    private static Task<ModelGeometryDevice> BuildAsync(string sourceResourceUri,
-        ModelDeviceGeometryPacket packet, bool selectedInputStreams)
     {
         ArgumentNullException.ThrowIfNull(packet);
         _ = GameResourceId.Parse(sourceResourceUri);
@@ -71,10 +61,7 @@ public sealed class ModelGeometryDevice : IAsyncDisposable
                             });
                         long format = rd.VertexFormatCreate(attributes);
                         if (format < 0) throw new InvalidDataException("Device rejected the original model vertex format.");
-                        var references = selectedInputStreams
-                            ? layout.BufferReferences.Take(checked((int)layout.Attributes.Max(a=>a.StreamBinding)+1)).ToArray()
-                            : FlagActiveBufferPrefix(sourceResourceUri,packet,layout);
-                        var buffers = new Godot.Collections.Array<Rid>(references.Select(i => vertices[i]));
+                        var buffers = new Godot.Collections.Array<Rid>(layout.VertexArrayBufferReferences.Select(i => vertices[i]));
                         Rid array = Own(rd.VertexArrayCreate((uint)layout.VertexCount, format, buffers));
                         layouts.Add(layout.Index, (format, array));
                     }
@@ -91,39 +78,6 @@ public sealed class ModelGeometryDevice : IAsyncDisposable
             }
             catch { for (int i = owned.Count - 1; i >= 0; i--) rd.FreeRid(owned[i]); throw; }
         });
-    }
-
-    /// <summary>The exact A72 flag input inventory has six primary-stream
-    /// attributes. Its original one-record affine stream is still uploaded and
-    /// retained in packet metadata, but has no device attribute. Passing that
-    /// inactive trailing RID to RD VertexArrayCreate is unsafe on this backend.</summary>
-    private static IReadOnlyList<int> FlagActiveBufferPrefix(string uri,ModelDeviceGeometryPacket packet,
-        ModelDeviceLayout layout)
-    {
-        bool banner=uri==GameResourceId.Rdb("CharacterEditor",0x9EEA5B67).ToString();
-        bool flag=uri==GameResourceId.Rdb("CharacterEditor",0x80C82506).ToString();
-        if(!banner&&!flag||layout.Attributes.Count!=6)return layout.BufferReferences;
-        string expected=banner?"8A7DB206664F168366DEFA91B184F32383AA6FE1D9DE8BD7BF3BFC94B9E354DF":
-            "7714F0AACB8C5433AAB1333E285F9C43233418E8E4169A9DED0C55CC99E42874";
-        int layouts=banner?3:2,affine=banner?3:2;
-        ushort[] semantics=[0,1,2,3,5,6];uint[] locations=[0,1,3,5,6,7];int[] offsets=[0,12,24,28,40,48];
-        ModelDeviceVertexFormat[] formats=[ModelDeviceVertexFormat.Float32x3,ModelDeviceVertexFormat.Float32x3,
-            ModelDeviceVertexFormat.UInt8x4,ModelDeviceVertexFormat.Float32x3,
-            ModelDeviceVertexFormat.Float32x2,ModelDeviceVertexFormat.Float32x4];
-        var attributes=layout.Attributes.OrderBy(a=>a.Location).ToArray();
-        if(packet.SourceSha256!=expected||packet.Layouts.Count!=layouts||packet.VertexBuffers.Count!=layouts+1||
-            layout.Index<0||layout.Index>=layouts||!layout.BufferReferences.SequenceEqual(new[]{layout.Index,affine})||
-            attributes.Where((a,i)=>a.SourceSemanticCode!=semantics[i]||a.Location!=locations[i]||a.ByteOffset!=offsets[i]||
-                a.Format!=formats[i]||a.StreamBinding!=0||a.SourceBufferIndex!=layout.Index||a.Stride!=64||a.ExplicitSingleInstanceFrequency).Any())
-            throw new InvalidDataException("Source A72 flag inactive-stream transport differs from its exact URI/hash/layout/attribute profile.");
-        var primary=packet.VertexBuffers.Single(b=>b.Index==layout.Index);
-        var trailing=packet.VertexBuffers.Single(b=>b.Index==affine);
-        if(primary.Stride!=64||primary.VertexCount!=layout.VertexCount||primary.ByteLength!=primary.VertexCount*64||
-            trailing.Stride!=48||trailing.VertexCount!=1||trailing.ByteLength!=48||
-            Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(trailing.CopyBytes()))!=
-                "31CFE40CBF2CFF090F2776A574A157FF4DC1119954F6BE87CF98C285B067EE98")
-            throw new InvalidDataException("Source A72 flag trailing unused reference is not its complete original one-record affine buffer.");
-        return new[]{layout.BufferReferences[0]};
     }
 
     public static RenderingDevice.DataFormat DeviceFormat(ModelDeviceVertexFormat format) => format switch

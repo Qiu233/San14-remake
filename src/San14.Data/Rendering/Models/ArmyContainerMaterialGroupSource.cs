@@ -27,7 +27,7 @@ public sealed class ArmyContainerMaterialGroupSource
     public IReadOnlyList<ArmyContainerDrawMaterialGroup> Draws { get; }
     public string SourceEvidence => Catalog.Catalog.Source.ResourceUri + "@" + Catalog.Catalog.Source.DecodedSha256 +
         ";" + GroupMappingSource.ResourceUri + "@" + GroupMappingSource.DecodedSha256 +
-        ";F50A00/F54700/C19860-original10008.RawIndex12→Model110;DA6C70-ord51/52-or34;DA4AA0-groupHash-match";
+        ";F50A00/F54700/C19860-original10008.RawIndex12→Model110;DA6C70-declared-groups-or-fallback;DA4AA0-groupHash-match";
 
     public static ArmyContainerMaterialGroupSource Load(GameResourceRepository repository,
         LoadedArmyCatalog actualCatalog, int category, G1ModelGeometry actualGeometry)
@@ -46,14 +46,15 @@ public sealed class ArmyContainerMaterialGroupSource
                 throw new InvalidDataException("Army source group mapping reference is not its native DWORD.");
             return BinaryPrimitives.ReadUInt32LittleEndian(p.RawValue);
         }
-        uint[] Words(int index, uint hash)
+        uint[] Words(uint hash)
         {
-            var p = definition.Definition.Properties[index];
-            if (p.Index != index || p.NameHash != hash || p.TypeCode != 5 || p.ElementSize != 4 || p.RawValue.Length != checked(p.ElementCount * 4))
+            var fields = definition.Definition.Properties.Where(p => p.NameHash == hash).ToArray();
+            if (fields.Length != 1 || fields[0].TypeCode != 5 || fields[0].ElementSize != 4 ||
+                fields[0].RawValue.Length != fields[0].ElementCount * 4L)
                 throw new InvalidDataException("Army WorldPQ material group field is not its actual complete DWORD array.");
-            return p.RawValue.Chunk(4).Select(v => BinaryPrimitives.ReadUInt32LittleEndian(v)).ToArray();
+            return fields[0].RawValue.Chunk(4).Select(v => BinaryPrimitives.ReadUInt32LittleEndian(v)).ToArray();
         }
-        uint[] hashes = Words(51, 0xCEE5DDAE), materials = Words(52, 0x5EDA237E), fallback = Words(34, 0x34CF9E5C);
+        uint[] hashes = Words(0xCEE5DDAE), materials = Words(0x5EDA237E), fallback = Words(0x34CF9E5C);
         var declared = new List<ArmyContainerDeclaredMaterialGroup>();
         if (hashes.Length != materials.Length)
             throw new NotSupportedException("Army material group parallel arrays need their actual failed-loader/fallback receipt.");

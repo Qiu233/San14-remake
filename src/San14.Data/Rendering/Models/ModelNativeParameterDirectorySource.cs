@@ -57,7 +57,7 @@ public sealed class LoadedModelNativeParameterDirectorySource
             0x18EB1E56=>"Class18Base",0x48F274C8=>"PointBase",0xE43743B2=>"OccluderBase",
             0x39E93192 or 0xCF1FF0C9 or 0x6794EA8A or 0xFB79EF73 or 0x4245A167=>null,
             _=>throw new NotSupportedException("Native parameter directory has no audited actual creator recipe.") };
-        var configurations=G1ShaderConfigurationReader.Read(actualShader.Source.Bytes,actualShader.Container).Records;
+        var configurations=actualShader.ReadConfigurations().Records;
         int ordinal=0;bool prefixLengthKnown=true;int? found=null;
         void Append(IReadOnlyList<string> names,bool lengthKnown) {
             int local=-1;

@@ -13,7 +13,7 @@ public static partial class DeferredBufferSources
         var shader = new LoadedShaderContainer(G2ShaderContainerReader.Read(selected.SourcePlan.Shader.Source.Bytes),
             selected.SourcePlan.Shader.Source);
         var definitions = shader.ReadResourceDefinitions(selected.PixelProgramIndex);
-        var configurations = G1ShaderConfigurationReader.Read(shader.Source.Bytes, shader.Container);
+        var configurations = shader.ReadConfigurations();
         var rows = new List<DeferredBufferDeclaration>();
         foreach (var expected in Slots)
         {

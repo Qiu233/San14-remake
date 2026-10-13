@@ -1,7 +1,5 @@
-using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -86,14 +84,10 @@ public static class UnitWorldTransform
 
     private static UnitWorldTransformState ReadDefinitionTemplate(LoadedObjects catalog, DokObject definition)
     {
-        if (definition.Kind != DokObjectKind.Inline || definition.ClassId != ScenePlacementReader.ModelWorldPqClass ||
-            !catalog.Document.Objects.Any(row => ReferenceEquals(row, definition)))
-            throw new InvalidDataException("WorldPQ constructor requires its actual inline Model::WorldPQ definition source.");
-        VerifySource(catalog.Source);
-        ValidateObjectSource(catalog.Source, definition);
-        float[] p = Floats(definition, 0x27D889E5, 3, catalog.Source), q = Floats(definition, 0xF52EA910, 4, catalog.Source),
-            s = Floats(definition, 0xFEA9E4F8, 3, catalog.Source);
-        return new(new(p[0], p[1], p[2]), new(q[0], q[1], q[2], q[3]), new(s[0], s[1], s[2]),
+        SceneTransformValues declaration = WorldTransformDeclarationReader.ReadDefinition(catalog, definition);
+        Vector4 q = declaration.Quaternion ??
+            throw new InvalidDataException("WorldPQ definition requires an explicit quaternion.");
+        return new(declaration.Position, new(q.X, q.Y, q.Z, q.W), declaration.Scale,
             catalog.Source.ResourceUri, catalog.Source.DecodedSha256,
             NativeContractId + $"; D9F540 definition {definition.ObjectId:X8}; explicit constructor no-parent state");
     }
@@ -121,21 +115,18 @@ public static class UnitWorldTransform
         UnitWorldTransformState definition = ConstructDefinition(placement.Source.DefinitionDocument, placement.Source.Definition);
         if (definition.Position18 != Vector3.Zero || definition.Quaternion24 != UnitModelConstructorQuaternion || definition.Scale34 != Vector3.One)
             throw new InvalidDataException("Scene placement profile requires an explicit identity definition.");
-        VerifySource(placement.Source.InstanceDocument.Source);
-        LoadedRdbAsset source = placement.Source.InstanceDocument.Source;
-        ValidateObjectSource(source, placement.Source.Object);
+        WorldTransformDeclarationReader.RequireOwnedObject(placement.Source.InstanceDocument, placement.Source.Object);
         DokObject obj = placement.Source.Object;
         if (obj.Kind != DokObjectKind.Reference || obj.Reference is not { } reference ||
             reference.ResourceId != placement.Source.DefinitionDocument.Source.FileId || reference.ObjectId != placement.Source.Definition.ObjectId)
             throw new InvalidDataException("Scene instance reference differs from its explicit definition.");
-        float[] p = Floats(obj, 0x27D889E5, 3, source), s = Floats(obj, 0xFEA9E4F8, 3, source);
-        float[] q = obj.Properties.Any(row => row.NameHash == 0xF52EA910) ? Floats(obj, 0xF52EA910, 4, source) :
-            [definition.Quaternion24.X, definition.Quaternion24.Y, definition.Quaternion24.Z, definition.Quaternion24.W];
+        SceneTransformValues declaration = placement.InstanceTransform;
+        Quaternion rotation = declaration.Quaternion is { } q ? new(q.X, q.Y, q.Z, q.W) : definition.Quaternion24;
         return definition with
         {
-            Position18 = new(p[0], p[1], p[2]),
-            Quaternion24 = new(q[0], q[1], q[2], q[3]),
-            Scale34 = new(s[0], s[1], s[2]),
+            Position18 = declaration.Position,
+            Quaternion24 = rotation,
+            Scale34 = declaration.Scale,
             EvidenceUri = placement.Source.InstanceDocument.Source.ResourceUri,
             EvidenceSha256 = placement.Source.InstanceDocument.Source.DecodedSha256,
             Basis = NativeContractId + $"; source scene instance {placement.Source.Object.ObjectId:X8}; raw XYZW; explicit identity definition {placement.Source.Definition.ObjectId:X8}"
@@ -197,40 +188,4 @@ public static class UnitWorldTransform
         return state with { Basis = state.Basis + "; " + basis + "; refreshed native terrain query" };
     }
 
-    private static float[] Floats(DokObject definition, uint hash, int count, LoadedRdbAsset source)
-    {
-        DokProperty[] rows = definition.Properties.Where(p => p.NameHash == hash).ToArray();
-        if (rows.Length != 1 || rows[0].TypeCode != 8 || rows[0].ElementCount != count ||
-            rows[0].ElementSize != 4 || rows[0].RawValue.Length != count * 4)
-            throw new InvalidDataException($"WorldPQ {definition.ObjectId:X8} requires explicit float32 type8/count{count} {hash:X8}.");
-        DokProperty property = rows[0];
-        if (property.ValueOffset < 0 || property.ValueOffset > source.Bytes.Length - property.RawValue.Length ||
-            !source.Bytes.AsSpan(property.ValueOffset, property.RawValue.Length).SequenceEqual(property.RawValue) ||
-            property.DescriptorOffset < 0 || property.DescriptorOffset > source.Bytes.Length - property.RawDescriptor.Length ||
-            !source.Bytes.AsSpan(property.DescriptorOffset, property.RawDescriptor.Length).SequenceEqual(property.RawDescriptor))
-            throw new InvalidDataException("WorldPQ parsed property differs from its source payload.");
-        var result = new float[count];
-        for (int i = 0; i < count; i++)
-        {
-            result[i] = BinaryPrimitives.ReadSingleLittleEndian(rows[0].RawValue.AsSpan(i * 4, 4));
-            if (!float.IsFinite(result[i])) throw new InvalidDataException("WorldPQ source contains a nonfinite component.");
-        }
-        return result;
-    }
-    private static void ValidateObjectSource(LoadedRdbAsset source, DokObject obj)
-    {
-        if (obj.Offset < 0 || obj.Offset > source.Bytes.Length - obj.RawHeader.Length ||
-            !source.Bytes.AsSpan(obj.Offset, obj.RawHeader.Length).SequenceEqual(obj.RawHeader))
-            throw new InvalidDataException("WorldPQ object header differs from its source payload.");
-        DokObject[] actual = DokReader.Read(source.Bytes).Objects.Where(row => row.Index == obj.Index && row.Offset == obj.Offset).ToArray();
-        if (actual.Length != 1 || actual[0].ObjectId != obj.ObjectId || actual[0].ClassId != obj.ClassId ||
-            actual[0].Kind != obj.Kind || actual[0].Reference != obj.Reference || actual[0].Properties.Count != obj.Properties.Count ||
-            actual[0].Properties.Select(row => row.NameHash).Except(obj.Properties.Select(row => row.NameHash)).Any())
-            throw new InvalidDataException("WorldPQ object identity/fields differ from its source payload.");
-    }
-    private static void VerifySource(LoadedRdbAsset source)
-    {
-        if (source.DecodedSha256 != Convert.ToHexString(SHA256.HashData(source.Bytes)))
-            throw new InvalidDataException("WorldPQ source hash differs from its current payload.");
-    }
 }

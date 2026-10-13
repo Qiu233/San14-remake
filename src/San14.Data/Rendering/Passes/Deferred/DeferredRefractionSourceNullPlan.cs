@@ -76,7 +76,7 @@ public sealed class DeferredRefractionSourceNullPlan
             !ReferenceEquals(SecondQueue.Graph,selection.SourcePlan.Graph) ||
             !selectionFeature.AsSpan().SequenceEqual(selection.CurrentFeature48.Span) ||
             !selectionVariant.AsSpan().SequenceEqual(selection.RequestedVariant96.Span) ||
-            !selectionCombination.AsSpan().SequenceEqual(selection.Combination.RawRow) ||
+            !selectionCombination.AsSpan().SequenceEqual(selection.Combination.RawRow.Span) ||
             !selectionCamera.AsSpan().SequenceEqual(selection.Camera.Prefix.Span) ||
             Convert.ToHexString(SHA256.HashData(selection.SourcePlan.Graph.Source.Bytes))!=
                 DeferredAuxiliaryPixelSourceRecipes.GraphSha256 ||

@@ -11,6 +11,10 @@ public sealed record RemakeArmyFlagRuntimeTexture(uint ProxyObjectId,
     string ProducerSource)
 {
     public Action? RequireActualCurrentOwner { get; init; }
+
+    public bool HasSameOwner(RemakeArmyFlagRuntimeTexture other) => ProxyObjectId == other.ProxyObjectId &&
+        Texture.Resource == other.Texture.Resource && Texture.OwnerTexture == other.Texture.OwnerTexture &&
+        Sampler.Resource == other.Sampler.Resource && RequireActualCurrentOwner == other.RequireActualCurrentOwner;
 }
 
 public sealed record RemakeArmyFlagGbufferInputs(float CurrentTimeSeconds,
@@ -39,29 +43,30 @@ public sealed class RemakeArmyFlagGbufferSource
     private readonly ArmyAnimationRuntime _runtime;
     private readonly byte[] _locals;
     private readonly Dictionary<int, (LoadedTextureContainer Container, int Image, uint View, byte[] Sampler)> _images = [];
-    public RemakeArmyFlagSource Source { get; }
+    public LoadedArmyFlagResources Source { get; }
     public LoadedShaderContainer Shader { get; }
+    public int Combination => 1; // This Godot skin backend supports the explicit VS1/PS2 combination.
     public ModelRenderGraphShaderSource GraphSource { get; }
     public ModelGbufferMaterialSource Material { get; }
-    public IReadOnlyList<RemakeArmyFlagDrawTexture> Textures { get; }
+    public IReadOnlyList<ArmyFlagDrawTexture> Textures { get; }
     public int DrawIndex { get; }
     public int PaletteIndex { get; }
     public IReadOnlyList<uint> RequiredRuntimeProxyIds => Textures.Where(row => row.Slot.RequiresRuntimeTexture)
         .Select(row => row.Slot.ProxyObjectId).Distinct().ToArray();
 
     public static RemakeArmyFlagGbufferSource Load(GameResourceRepository repository,
-        RemakeArmyFlagSource source, LoadedObjects shaderObjects, LoadedRenderGraph graph, int drawIndex)
+        LoadedArmyFlagResources source, LoadedObjects shaderObjects, LoadedRenderGraph graph, int drawIndex)
         => new(repository, source, shaderObjects, graph, drawIndex);
 
     private RemakeArmyFlagGbufferSource(GameResourceRepository repository,
-        RemakeArmyFlagSource source, LoadedObjects objects, LoadedRenderGraph graph, int drawIndex)
+        LoadedArmyFlagResources source, LoadedObjects objects, LoadedRenderGraph graph, int drawIndex)
     {
         _repository = repository; Source = source; DrawIndex = drawIndex; _runtime = new(repository);
         GraphSource = ModelShaderResources.ResolveRenderGraphNodeBaseSource(source.ShaderBindings, drawIndex, objects, graph, 49);
         var provider = GraphSource.Interface.Provider ?? throw Error("source flag G-buffer dependency is absent");
         Shader = ModelShaderResources.LoadDeclaredG1S(repository, provider);
         Textures = source.DrawTextures(drawIndex, provider, Shader);
-        var stages = Shader.ReadG1Bindings().Combinations.Rows[1].Stages;
+        var stages = Shader.ReadG1Bindings().Combinations.Rows[Combination].Stages;
         if (stages.Single(row => row.StageCode == 1).Entry?.ProgramIndex != 1 ||
             stages.Single(row => row.StageCode == 0).Entry?.ProgramIndex != 2 ||
             ArmySkinVertexAdapter.Select(source.Model.Geometry, drawIndex) != ArmySkinVertexProfile.FourInfluenceUnsigned8)
@@ -69,7 +74,7 @@ public sealed class RemakeArmyFlagGbufferSource
         ArmySkinConstants.Validate(Shader.ReadResourceDefinitions(1));
         Material = ModelGbufferMaterialSourceReader.Read(Shader,
             ModelShaderResources.ResolveDrawMaterials(source.ShaderBindings, drawIndex));
-        var draw = G1ModelDrawReader.Read(source.Model.Geometry).Draws.Single(row => row.Index == drawIndex);
+        var draw = source.Draws.Single(row => row.Index == drawIndex);
         PaletteIndex = checked((int)draw.UnknownValue8);
         _locals = source.Transforms.Transforms.Joints.SelectMany(row => row.RawBytes).ToArray();
     }
@@ -93,7 +98,7 @@ public sealed class RemakeArmyFlagGbufferSource
         _ = input.World.ShaderTransform();
         var root = new ArmyAnimationRootTransform(new(input.World.Scale34, 1),
             input.World.Quaternion24, new(input.World.Position18, 1));
-        var resolved = _runtime.SampleResolvedPose(animation, Source.Transforms, _locals, root);
+        var resolved = _runtime.SampleResolvedPose(animation, Source.Transforms, _locals, root, loadedAction: Source.Action0);
         var palette = ArmyNativePaletteWriter.Build(Source.Transforms.Transforms, PaletteIndex,
             resolved.Current.BuildMatrices(), Source.Transforms.Transforms.Joints.Count,
             ArmySkinConstants.ReadPalette(input.CompleteVertexTemplate.Span), ArmyNativePoseBufferKind.Current);
@@ -127,7 +132,7 @@ public sealed class RemakeArmyFlagGbufferSource
         var borrowed = new List<ModelDeviceBinding>();
         if(input.ActualCurrentTextureGroup is {} actualTextureGroup)
         {
-            var bindings=actualTextureGroup.PrepareActualPixelBindings(Shader);
+            var bindings=actualTextureGroup.PrepareActualPixelBindings(Shader,Combination);
             owned.AddRange(bindings.Owned);borrowed.AddRange(bindings.Borrowed);
         }
         else foreach (var use in Textures)
@@ -150,14 +155,14 @@ public sealed class RemakeArmyFlagGbufferSource
                 owned.Add(new("Sampler", use.SamplerRegister, image.Container, image.Image, image.View, image.Sampler));
             }
         }
-        var packet = new ModelGbufferInstancePacket(key, new(Source.Model.Geometry, Source.Model.Source), Shader, 1, DrawIndex,
+        var packet = new ModelGbufferInstancePacket(key, new(Source.Model.Geometry, Source.Model.Source), Shader, Combination, DrawIndex,
             new(new Dictionary<uint, ReadOnlyMemory<byte>> { [0] = vertex }, [], []),
             new(new Dictionary<uint, ReadOnlyMemory<byte>> { [0] = pixel.Bytes }, owned, borrowed), input.Raster)
             { ArmySkinProfile = ArmySkinVertexProfile.FourInfluenceUnsigned8 };
         return new(packet, resolved, palette, spec.NextCachedFlags);
     }
 
-    private (LoadedTextureContainer Container, int Image, uint View, byte[] Sampler) StaticImage(RemakeArmyFlagTextureSlot slot)
+    private (LoadedTextureContainer Container, int Image, uint View, byte[] Sampler) StaticImage(ArmyFlagTextureSlot slot)
     {
         if (_images.TryGetValue(slot.Index, out var cached)) return cached;
         if (slot.RequiresRuntimeTexture || slot.StaticTextureFileId is not uint file || slot.RawTextureId is not uint tid)

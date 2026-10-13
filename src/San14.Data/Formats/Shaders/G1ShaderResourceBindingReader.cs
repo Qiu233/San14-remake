@@ -5,7 +5,7 @@ namespace San14.Data.Formats;
 
 public sealed record G1ShaderResourceBinding(int Index, int SourceOffset,
     short PrimaryEncoded, short SecondarySamplerEncoded, short SlotIndex,
-    short RawAuxiliary, uint NameOffset, string Name, DxbcRange NameRange, byte[] RawBytes);
+    short RawAuxiliary, uint NameOffset, string Name, DxbcRange NameRange, ReadOnlyMemory<byte> RawBytes);
 
 public sealed record G1ShaderResourceBindings(G2ShaderCombination Combination,
     DxbcRange SourceRange, ushort RawHeaderWord2, IReadOnlyList<G1ShaderResourceBinding> Entries);
@@ -18,12 +18,20 @@ public static class G1ShaderResourceBindingReader
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
     public static G1ShaderResourceBindings Read(ReadOnlySpan<byte> source, int combinationIndex)
+        => Read(source, G2ShaderContainerReader.Read(source), combinationIndex);
+
+    internal static G1ShaderResourceBindings Read(ReadOnlySpan<byte> source,
+        G2ShaderContainer container, int combinationIndex)
     {
-        G2ShaderContainer container = G2ShaderContainerReader.Read(source);
-        G2ShaderCombinations combinations = G2ShaderCombinationReader.Read(source);
+        G2ShaderCombinations combinations = G2ShaderCombinationReader.Read(source, container);
         if ((uint)combinationIndex >= combinations.Rows.Count)
             throw new InvalidDataException("Original resource binding requires a valid explicit combination index.");
-        G2ShaderCombination combination = combinations.Rows[combinationIndex];
+        return Read(source, container, combinations.Rows[combinationIndex]);
+    }
+
+    internal static G1ShaderResourceBindings Read(ReadOnlySpan<byte> source,
+        G2ShaderContainer container, G2ShaderCombination combination)
+    {
         if (combination.RawValue4 > int.MaxValue)
             throw new InvalidDataException("Original resource-name table exceeds supported source addressing.");
         int start = (int)combination.RawValue4;

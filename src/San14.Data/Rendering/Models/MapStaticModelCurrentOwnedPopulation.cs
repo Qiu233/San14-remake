@@ -284,7 +284,7 @@ public sealed class MapStaticModelCurrentOwnedPopulation
         lock (_gate)
         {
             _sourceCreatedCurrentFrame = null; _sourceCreatedCurrentInputs = null; _sourceCreatedCurrentInstances = null;
-            _visibility.Invalidate(); Assets.Invalidate(); _cities.Invalidate(); _invalidateSourceCreated?.Invoke();
+            Assets.Invalidate(); _cities.Invalidate(); _invalidateSourceCreated?.Invoke();
         }
     }
 }

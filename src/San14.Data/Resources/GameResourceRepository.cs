@@ -68,52 +68,6 @@ public sealed record LoadedModelTransforms(G1ModelGeometry Geometry, G1ModelTran
     LoadedRdbAsset Source);
 
 public sealed record LoadedTextureContainer(G1TextureContainer Container, LoadedRdbAsset Source);
-public sealed record LoadedShaderContainer(G2ShaderContainer Container, LoadedRdbAsset Source)
-{
-    public DxbcProgramSignatures ReadSignatures(int programIndex)
-    {
-        if ((uint)programIndex >= Container.Programs.Count)
-            throw new ArgumentOutOfRangeException(nameof(programIndex), $"Program index is outside {Source.ResourceUri}.");
-        try { return DxbcSignatureReader.Read(Container.GetProgramBytes(Source.Bytes, programIndex)); }
-        catch (InvalidDataException error)
-        { throw new InvalidDataException($"Shader signatures failed: {Source.ResourceUri}, program {programIndex}. {error.Message}", error); }
-    }
-
-    public G2ShaderMetadata ReadMetadata()
-    {
-        try { return G2ShaderMetadataReader.Read(Source.Bytes); }
-        catch (InvalidDataException error)
-        { throw new InvalidDataException($"Shader metadata failed: {Source.ResourceUri}. {error.Message}", error); }
-    }
-
-    public G1ShaderBindingTables ReadG1Bindings()
-    {
-        try { return G1ShaderBindingReader.Read(Source.Bytes); }
-        catch (InvalidDataException error)
-        { throw new InvalidDataException($"G1S shader binding tables failed: {Source.ResourceUri}. {error.Message}", error); }
-    }
-
-    public G1ShaderResourceBindings ReadG1ResourceBindings(int explicitCombinationIndex)
-    {
-        try { return G1ShaderResourceBindingReader.Read(Source.Bytes, explicitCombinationIndex); }
-        catch (InvalidDataException error)
-        { throw new InvalidDataException($"G1S resource binding table failed: {Source.ResourceUri}, combination {explicitCombinationIndex}. {error.Message}", error); }
-    }
-
-    public DxbcResourceDefinitions ReadResourceDefinitions(int programIndex)
-    {
-        if ((uint)programIndex >= Container.Programs.Count)
-            throw new ArgumentOutOfRangeException(nameof(programIndex), $"Program index is outside {Source.ResourceUri}.");
-        try
-        {
-            return DxbcResourceDefinitionReader.Read(Container.GetProgramBytes(Source.Bytes, programIndex));
-        }
-        catch (InvalidDataException error)
-        {
-            throw new InvalidDataException($"Shader resource definitions failed: {Source.ResourceUri}, program {programIndex}. {error.Message}", error);
-        }
-    }
-}
 
 public sealed record LoadedObjects(DokDocument Document, LoadedRdbAsset Source);
 public sealed record LoadedTaskGraph(CompiledGraphDocument Document, LoadedRdbAsset Source);
@@ -768,6 +722,28 @@ public sealed class GameResourceRepository
         {
             throw new InvalidDataException($"Original objects failed to load: {asset.ResourceUri}. {error.Message}", error);
         }
+    }
+
+    /// <summary>Resolves a declared database key within its open resource
+    /// libraries. An ambiguous key requires an explicit supported precedence;
+    /// archive names are never inferred from a resource filename.</summary>
+    public LoadedObjects LoadObjects(uint fileId, IReadOnlyList<string> archives)
+    {
+        ArgumentNullException.ThrowIfNull(archives);
+        string? selected = null;
+        foreach (string archive in archives)
+        {
+            _ = GameResourceId.Rdb(archive, fileId);
+            string relative = $"0002/{archive}.rdb";
+            if (!File.Exists(SourcePath(relative)) && _overrides.Find(GameResourceId.File(relative)) is null) continue;
+            _ = LoadRdbIndex(archive);
+            if (!_assetRecords[relative].ContainsKey(fileId)) continue;
+            if (selected is not null)
+                throw new NotSupportedException($"Database {fileId:X8} occurs in both {selected} and {archive}; their archive precedence is not implemented.");
+            selected = archive;
+        }
+        return selected is not null ? LoadObjects(selected, fileId) :
+            throw new KeyNotFoundException($"Database {fileId:X8} is missing from the selected resource libraries.");
     }
 
     public LoadedSprite LoadSprite(string archiveName, string name)

@@ -33,7 +33,7 @@ public sealed class TerritoryShaderProgram : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(source);ArgumentNullException.ThrowIfNull(compiler);
         var snapshot=source.Source.Bytes.ToArray();
-        var canonical=source with{Source=source.Source with{Bytes=snapshot},Container=G2ShaderContainerReader.Read(snapshot)};
+        var canonical=new LoadedShaderContainer(G2ShaderContainerReader.Read(snapshot),source.Source with{Bytes=snapshot});
         TerritoryResources.ValidateShader(canonical);
         var combination=canonical.ReadG1ResourceBindings(0).Combination;
         if(combination.Stages.Count(s=>s.Entry is not null)!=2||

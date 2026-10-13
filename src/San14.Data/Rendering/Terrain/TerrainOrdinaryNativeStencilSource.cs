@@ -136,8 +136,7 @@ public sealed class TerrainOrdinaryNativeStencilSource
             source.DecodedSha256 != CanonicalShaderSha256 ||
             Convert.ToHexString(SHA256.HashData(source.Bytes)) != CanonicalShaderSha256)
             throw new InvalidDataException("Ordinary Landscape stencil requires canonical unchanged Field/DC52 source bytes.");
-        var module = G2ShaderContainerReader.Read(source.Bytes);
-        var configs = G1ShaderConfigurationReader.Read(source.Bytes, module).Records;
+        var configs = resources.Shader.ReadConfigurations().Records;
         if (configs.Count != 1 || configs[0].Name != "GBuffer" || configs[0].NameHash != 0xA3D05FFB ||
             configs[0].RawSecondWord != 2 || configs[0].Parameters.Count != 77)
             throw new InvalidDataException("DC52 does not identify the proved single required created GBuffer chain.");

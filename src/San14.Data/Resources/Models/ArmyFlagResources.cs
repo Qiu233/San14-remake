@@ -1,26 +1,26 @@
 using System.Buffers.Binary;
-using System.Numerics;
-using System.Security.Cryptography;
-using San14.Data;
 using San14.Data.Formats;
 
-public sealed record RemakeArmyFlagTextureSlot(int Index, uint ProxyObjectId,
+namespace San14.Data;
+
+public sealed record ArmyFlagTextureSlot(int Index, uint ProxyObjectId,
     DokObject? StaticProxy, uint? StaticTextureFileId, uint? RawTextureId, byte[] RawTableRow)
 {
     public bool RequiresRuntimeTexture => StaticProxy is null;
 }
 
-public sealed record RemakeArmyFlagDrawTexture(uint Register, uint SamplerRegister,
+public sealed record ArmyFlagDrawTexture(uint Register, uint SamplerRegister,
     string SourceTextureName, string SourceSamplerName, G1TextureEntry Entry,
-    RemakeArmyFlagTextureSlot Slot);
+    ArmyFlagTextureSlot Slot);
 
 /// <summary>Source flag geometry, declarations and texture references. Missing
 /// runtime proxies retain their actual identity; they never become static images
 /// or synthetic DOK objects. The original dynamic texture producer must resolve
 /// them before a complete flag actor is admitted.</summary>
-public sealed class RemakeArmyFlagSource
+public sealed class LoadedArmyFlagResources
 {
-    private ArmyContainerMaterialGroupSource? materialGroups;
+    public ArmyContainerMaterialGroupSource MaterialGroups { get; }
+    public IReadOnlyList<G1DrawRecord> Draws { get; }
     public CeArmyModelCategory Category { get; }
     public LoadedArmyCatalog Catalog { get; }
     public ArmyModelDefinition Definition { get; }
@@ -28,27 +28,27 @@ public sealed class RemakeArmyFlagSource
     public LoadedModelTransforms Transforms { get; }
     public DokObject TextureGroup { get; }
     public LoadedRdbAsset TextureTable { get; }
-    public IReadOnlyList<RemakeArmyFlagTextureSlot> Slots { get; }
+    public IReadOnlyList<ArmyFlagTextureSlot> Slots { get; }
     public LoadedModelShaderBindings ShaderBindings { get; }
     public LoadedArmyAnimationAction Action0 { get; }
     public UnitWorldTransformState Constructor { get; }
 
-    public ArmyContainerMaterialGroupSource ReadDeclaredMaterialGroups(GameResourceRepository repository)
-        => materialGroups ??= ArmyContainerMaterialGroupSource.Load(repository, Catalog, Category.Category, Model.Geometry);
-
-    private RemakeArmyFlagSource(CeArmyModelCategory category,
+    private LoadedArmyFlagResources(CeArmyModelCategory category,
         LoadedArmyCatalog catalog, ArmyModelDefinition definition,
         LoadedModelMaterials model, LoadedModelTransforms transforms, DokObject group,
-        LoadedRdbAsset table, IReadOnlyList<RemakeArmyFlagTextureSlot> slots,
-        LoadedModelShaderBindings shaders, LoadedArmyAnimationAction action)
+        LoadedRdbAsset table, IReadOnlyList<ArmyFlagTextureSlot> slots,
+        LoadedModelShaderBindings shaders, LoadedArmyAnimationAction action,
+        ArmyContainerMaterialGroupSource materialGroups, G1ModelDrawBindings draws)
     {
         (Category, Catalog, Definition, Model, Transforms, TextureGroup, TextureTable, Slots,
             ShaderBindings, Action0) = (category, catalog, definition, model, transforms, group, table,
             slots, shaders, action);
+        MaterialGroups = materialGroups;
+        Draws = Array.AsReadOnly(draws.Draws.ToArray());
         Constructor = UnitWorldTransform.ConstructDefinition(catalog.Catalog, definition.Definition);
     }
 
-    public static RemakeArmyFlagSource Load(GameResourceRepository repository, int category)
+    public static LoadedArmyFlagResources Load(GameResourceRepository repository, int category)
     {
         ArgumentNullException.ThrowIfNull(repository);
         if (category is not (2 or 3)) throw Error("requires source banner category2 or flag category3");
@@ -58,20 +58,20 @@ public sealed class RemakeArmyFlagSource
         if (definition.ModelObject.ObjectId != known.ModelObjectId || definition.ModelFileId != known.ModelFileId)
             throw Error("catalog category/model identity changed");
         var model = repository.LoadModelMaterials("CharacterEditor", known.ModelFileId);
-        Verify(model.Source);
-        var canonical = G1ModelGeometryReader.Read(model.Source.Bytes, model.Source.Bytes.Length);
-        model = new(canonical, G1ModelMaterialReader.Read(canonical), model.Source);
-        var transforms = new LoadedModelTransforms(canonical,
-            G1ModelTransformReader.Read(model.Source.Bytes, canonical), model.Source);
+        var transforms = new LoadedModelTransforms(model.Geometry,
+            G1ModelTransformReader.Read(model.Source.Bytes, model.Geometry), model.Source);
+        var draws = G1ModelDrawReader.Read(model.Geometry);
+        foreach (var draw in draws.Draws)
+            if (draw.RawIndex24 >= model.Materials.TextureRecords.Count)
+                throw Error($"draw {draw.Index} selects an absent texture record {draw.RawIndex24}");
         DokObject group = catalog.Dictionary.Document.Objects.Single(row =>
             row.ObjectId == Scalar(definition.ModelObject, 0xF92C5190));
         if (group.Kind != DokObjectKind.Inline || group.ClassId != 0x3059B9C3)
             throw Error("requires the source inline texture group");
         var table = repository.LoadRdbAsset("CharacterEditor", Scalar(group, 0x7A1E1EF8));
-        Verify(table);
         if (table.Bytes.Length == 0 || table.Bytes.Length % 8 != 0)
             throw Error("requires a complete source texture slot table");
-        var slots = new List<RemakeArmyFlagTextureSlot>();
+        var slots = new List<ArmyFlagTextureSlot>();
         for (int at = 0; at < table.Bytes.Length; at += 8)
         {
             int index = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(table.Bytes.AsSpan(at)));
@@ -89,16 +89,17 @@ public sealed class RemakeArmyFlagSource
         var action = ArmyAnimationResources.LoadAction(repository, catalog, category, 0);
         if (action.AnimationData.Count != 1 || action.AnimationData[0].Source.FileId != 0xDC1FED0A)
             throw Error("flag action0 differs from its uniquely declared source clip");
-        return new(known, catalog, definition, model, transforms, group, table, slots.AsReadOnly(), shaders, action);
+        var materialGroups = ArmyContainerMaterialGroupSource.Load(repository, catalog, category, model.Geometry);
+        return new(known, catalog, definition, model, transforms, group, table, slots.AsReadOnly(), shaders, action,
+            materialGroups, draws);
     }
 
-    public IReadOnlyList<RemakeArmyFlagDrawTexture> DrawTextures(int drawIndex,
+    public IReadOnlyList<ArmyFlagDrawTexture> DrawTextures(int drawIndex,
         NamedModelShader provider, LoadedShaderContainer shader)
     {
-        if (provider.Object.ObjectId != 0x0AC3D18D || provider.ShaderFileHash != 0xB90AEDD3 ||
-            shader.Source.DecodedSha256 != ArmySkinVertexAdapter.ShaderSha256)
-            throw Error("requires the exact source Army G-buffer provider");
-        var metadata = G1ShaderResourceBindingReader.Read(shader.Source.Bytes, 1);
+        if (provider.Object.ClassId != 0x18EB1E56 || provider.ShaderFileHash != shader.Source.FileId)
+            throw Error("requires the selected PB2 provider's declared shader");
+        var metadata = shader.ReadG1ResourceBindings(1);
         var pair = metadata.Combination.Stages.Single(stage => stage.StageCode == 0).Entry ??
             throw Error("selected source flag shader has no pixel program");
         var rdef = shader.ReadResourceDefinitions(pair.ProgramIndex);
@@ -108,7 +109,8 @@ public sealed class RemakeArmyFlagSource
             !textures.Select(row => row.BindPoint).SequenceEqual(new uint[] { 0, 1, 2, 3 }) ||
             !samplers.Select(row => row.BindPoint).SequenceEqual(new uint[] { 0, 1, 2, 3 }) || metadata.Entries.Count != 3)
             throw Error("selected source flag PS texture inventory changed");
-        var record = G1ModelDrawTextureReader.Read(Model.Geometry).Bindings[drawIndex].TextureRecord;
+        if ((uint)drawIndex >= Draws.Count) throw new ArgumentOutOfRangeException(nameof(drawIndex));
+        var record = Model.Materials.TextureRecords[(int)Draws[drawIndex].RawIndex24];
         if (record.UnknownValue8 != 1 || record.UnknownValue12 != 1 || record.TextureEntries.Count != 4)
             throw Error("source flag texture registration header changed");
         var final = new Dictionary<int, G1TextureEntry> { [0] = record.TextureEntries[0], [1] = record.TextureEntries[1] };
@@ -128,12 +130,12 @@ public sealed class RemakeArmyFlagSource
         return final.OrderBy(row => row.Key).Select(row =>
         {
             if (row.Value.RawValue0 >= Slots.Count) throw Error("flag texture entry exceeds its source table");
-            return new RemakeArmyFlagDrawTexture((uint)row.Key, samplers[row.Key].BindPoint,
+            return new ArmyFlagDrawTexture((uint)row.Key, samplers[row.Key].BindPoint,
                 textures[row.Key].Name.Text, samplers[row.Key].Name.Text, row.Value, Slots[row.Value.RawValue0]);
         }).ToArray();
     }
 
-    public ArmyAnimationSourceInput FreshAction() => new(Category.Category, 0, 0xDC1FED0A, 0);
+    public ArmyAnimationSourceInput FreshAction() => new(Category.Category, Action0.ActionIndex, Action0.AnimationData[0].Source.FileId, 0);
     private static int Encoded(int value)
     {
         if (value < 0 || value > short.MaxValue) throw Error("unsupported signed texture registration");
@@ -147,11 +149,6 @@ public sealed class RemakeArmyFlagSource
         if (fields.Length != 1 || fields[0].TypeCode != type || fields[0].ElementCount != 1 || fields[0].RawValue.Length != 4)
             throw Error($"object {item.ObjectId:X8} has an unsupported source field {key:X8}");
         return BinaryPrimitives.ReadUInt32LittleEndian(fields[0].RawValue);
-    }
-    private static void Verify(LoadedRdbAsset source)
-    {
-        if (Convert.ToHexString(SHA256.HashData(source.Bytes)) != source.DecodedSha256)
-            throw Error("source bytes/hash disagree");
     }
     private static InvalidDataException Error(string message) => new($"Source-created Army flag {message}.");
 }

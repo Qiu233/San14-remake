@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-
 namespace San14.Data;
 
 /// <summary>The source fresh NUL parser produces no glyph records. The
@@ -37,10 +35,7 @@ public static class ArmyFlagEmptyPaneLayout
             sourceText.NativeCopyUnitCount!=2||sourceText.TwoUtf16Units!="\0\0"||
             string.IsNullOrWhiteSpace(sourceText.CallerSource)||string.IsNullOrWhiteSpace(sourceColors.CallerSource))
             throw new InvalidDataException("Source empty flag pane requires the explicit fresh NUL route, copied two zero units, original colors and pane kind0..2.");
-        if(!font.FreshHostDefaultFontFidelityVerified||font.ExplicitCommonArrayIndex!=0||
-            font.Parameter.ObjectId!=0x97D72A63||font.Source.FileId!=0xE876B7F0||
-            font.Source.DecodedSha256!=ArmyFlagFreshPaneLayout.SourceFontSha256||
-            Convert.ToHexString(SHA256.HashData(font.Source.Bytes))!=ArmyFlagFreshPaneLayout.SourceFontSha256)
+        if(!font.FreshHostDefaultFontFidelityVerified||font.ExplicitCommonArrayIndex!=0)
             throw new InvalidDataException("Source empty flag pane requires the owned fresh Host default font context.");
         return new(sourceText,sourceColors,explicitSourcePaneKind);
     }

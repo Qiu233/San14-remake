@@ -12,18 +12,19 @@ public sealed class SceneViewNativeMapModelSourceOwner
     private readonly LoadedRenderGraph graph;
     private readonly LoadedObjects shaderObjects;
     private readonly bool rendererBit29;
-    private readonly Dictionary<(string Asset, int Draw), MapStaticModelDrawSource> draws = [];
-    private readonly Dictionary<(string Asset, int Draw), ModelOrdinaryQueueSelectionSource> selections = [];
+    private sealed record PreparedDraw(MapStaticModelDrawSource Source, ModelOrdinaryQueueSelectionSource Queue);
+    private sealed class AssetPreparation
+    {
+        public bool MaterialInputsImported { get; set; }
+        public Dictionary<int, PreparedDraw> Draws { get; } = [];
+        public Dictionary<int, NativeWorldShaderTableState> Tables { get; } = [];
+    }
+    private readonly Dictionary<MapStaticModelAsset, AssetPreparation> assets = new(ReferenceEqualityComparer.Instance);
     private readonly NativeWorldShaderTableRegistry shaderTables;
     private readonly bool ownsShaderTables;
-    private readonly Dictionary<ModelGbufferSourceDraw, NativeWorldShaderTableState> selectedStates
-        = new(ReferenceEqualityComparer.Instance);
-    private readonly HashSet<MapStaticModelAsset> noMaterialOverrideAssets = new(ReferenceEqualityComparer.Instance);
-    private readonly HashSet<ModelGbufferSourceDraw> finalBaseTableDraws = new(ReferenceEqualityComparer.Instance);
-    private readonly Dictionary<(string Asset, int Draw), NativeWorldShaderTableState> finalBaseTables = [];
-    private sealed record RetainedSourceState(string AssetSourceKey,
+    private sealed record RetainedSourceState(MapStaticModelAsset Asset,
         ModelGbufferSourceDraw Source, MapStaticModelExplicitState State);
-    private readonly Dictionary<string, RetainedSourceState> retained = new(StringComparer.Ordinal);
+    private Dictionary<string, RetainedSourceState> retained = new(StringComparer.Ordinal);
     private readonly MapStaticModelStateProvider runtime;
     private bool valid = true;
 
@@ -44,8 +45,9 @@ public sealed class SceneViewNativeMapModelSourceOwner
     public MapStaticModelDrawSource LoadDraw(MapStaticModelAsset asset, int drawIndex)
     {
         RequireValid(); ArgumentNullException.ThrowIfNull(asset);
-        if (draws.TryGetValue((asset.SourceKey, drawIndex), out var cached)) return cached;
-        ImportFreshNoMaterialOverride(asset);
+        var prepared = PrepareAsset(asset);
+        if (prepared.Draws.TryGetValue(drawIndex, out var cached)) return cached.Source;
+        ImportFreshNoMaterialOverride(asset, prepared);
         // Both queues select state18. The renderer's actual raw configuration
         // scan classifies this selected shader before either queue consumes it.
         var bindings = ModelShaderResources.LoadBindings(repository, asset.TextureResources);
@@ -76,16 +78,13 @@ public sealed class SceneViewNativeMapModelSourceOwner
             ModelShaderSelectionSourceReader.ReadInitialCache(dimensions), matrix, 0);
         var source = ModelGbufferSourceDraw.LoadSourceTextureViews(repository, asset.TextureResources,
             shaderObjects, graph, node, drawIndex, initial.Combination.Index, new(false, false, 0));
-        cached = new(source, "owned-source-node" + node + "-state2", true, null);
+        var result = new MapStaticModelDrawSource(source, "owned-source-node" + node + "-state2", true, null);
         // C34B76 stores the base ShaderCPU+8 full typed16 table in primitive18.
         // D365CD selects state18's GBuffer provider only later. Two base tables
         // sharing that provider remain different sorting identities.
-        var state = LoadFinalOwnedTable(asset, drawIndex);
-        selectedStates.Add(source, state);
-        finalBaseTableDraws.Add(source);
-        draws.Add((asset.SourceKey, drawIndex), cached);
-        selections.Add((asset.SourceKey, drawIndex), selection);
-        return cached;
+        _ = LoadFinalOwnedTable(asset, drawIndex);
+        prepared.Draws.Add(drawIndex, new(result, selection));
+        return result;
     }
 
     /// <summary>Full primitive18 table of this source-created static Model.
@@ -95,30 +94,29 @@ public sealed class SceneViewNativeMapModelSourceOwner
     public NativeWorldShaderTableState LoadFinalOwnedTable(MapStaticModelAsset asset, int drawIndex)
     {
         RequireValid(); ArgumentNullException.ThrowIfNull(asset);
-        var key = (asset.SourceKey, drawIndex);
-        if (finalBaseTables.TryGetValue(key, out var current)) return current;
-        ImportFreshNoMaterialOverride(asset);
+        var prepared = PrepareAsset(asset);
+        if (prepared.Tables.TryGetValue(drawIndex, out var current)) return current;
+        ImportFreshNoMaterialOverride(asset, prepared);
         var bindings = ModelShaderResources.LoadBindings(repository, asset.TextureResources);
         var actualBase = ModelShaderResources.ResolveDrawBaseSource(bindings, drawIndex, shaderObjects);
         current = RetainSourceShaderTable(actualBase.Binding.Shader);
-        finalBaseTables.Add(key, current);
+        prepared.Tables.Add(drawIndex, current);
         return current;
     }
 
     public ModelOrdinaryQueueSelectionSource LoadQueueSelection(MapStaticModelAsset asset, int drawIndex)
     {
         _ = LoadDraw(asset, drawIndex);
-        return selections[(asset.SourceKey, drawIndex)];
+        return assets[asset].Draws[drawIndex].Queue;
     }
 
     public NativeWorldShaderTableState ReadCurrentShaderState(MapStaticModelDrawContext current)
     {
         RequireValid(); ArgumentNullException.ThrowIfNull(current);
         var selected = current.Selection.Source ?? throw new InvalidDataException("Current static shader state is absent.");
-        if (!ReferenceEquals(selected, LoadDraw(current.Instance.Asset, current.DrawIndex).Source) ||
-            !selectedStates.TryGetValue(selected, out var state))
+        if (!ReferenceEquals(selected, LoadDraw(current.Instance.Asset, current.DrawIndex).Source))
             throw new InvalidDataException("Static shader state belongs to another actual source/provider generation.");
-        return state;
+        return assets[current.Instance.Asset].Tables[current.DrawIndex];
     }
 
     /// <summary>Actual final primitive18 in this owned fresh construction.
@@ -129,15 +127,18 @@ public sealed class SceneViewNativeMapModelSourceOwner
     public NativeWorldShaderTableState ReadFinalOwnedTable(MapStaticModelPreparedState current)
     {
         ArgumentNullException.ThrowIfNull(current);
-        var state = ReadCurrentShaderState(current.Context);
-        if (!finalBaseTableDraws.Contains(current.Context.Selection.Source!))
-            throw new NotSupportedException("Current static final table requires its actual material override producer.");
-        return state;
+        return ReadCurrentShaderState(current.Context);
     }
 
-    private void ImportFreshNoMaterialOverride(MapStaticModelAsset asset)
+    private AssetPreparation PrepareAsset(MapStaticModelAsset asset)
     {
-        if (noMaterialOverrideAssets.Contains(asset)) return;
+        if (!assets.TryGetValue(asset, out var prepared)) assets.Add(asset, prepared = new());
+        return prepared;
+    }
+
+    private static void ImportFreshNoMaterialOverride(MapStaticModelAsset asset, AssetPreparation prepared)
+    {
+        if (prepared.MaterialInputsImported) return;
         var model = asset.TextureResources.ModelObject;
         if (model.ClassId != ModelShaderResources.ModelClass || model.Properties.Count <= 43)
             throw new InvalidDataException("Static source material binding needs the complete actual Model declaration.");
@@ -147,7 +148,7 @@ public sealed class SceneViewNativeMapModelSourceOwner
             throw new InvalidDataException("Static ResourceSetMaterialsReference needs its exact original typed DWORD array.");
         if (references.ElementCount != 0)
             throw new NotSupportedException("This static Model has actual material-set references; their current final table producer is required.");
-        noMaterialOverrideAssets.Add(asset);
+        prepared.MaterialInputsImported = true;
     }
 
     /// <summary>Actual resource creation/reuse for a base or explicitly
@@ -185,7 +186,7 @@ public sealed class SceneViewNativeMapModelSourceOwner
         // its material cache, pixel template and group raster. A new source
         // starts from its own constructor/material/raster preparation.
         if (retained.TryGetValue(context.PacketKey, out var previous) &&
-            previous.AssetSourceKey == context.Instance.Asset.SourceKey &&
+            ReferenceEquals(previous.Asset, context.Instance.Asset) &&
             ReferenceEquals(previous.Source, draw)) return previous.State;
         if (draw.Material.MaterialId is null)
             throw new InvalidDataException("This fresh static source needs its own named nMtrID; a missing declaration cannot select zero.");
@@ -227,20 +228,21 @@ public sealed class SceneViewNativeMapModelSourceOwner
     {
         RequireValid(); ArgumentNullException.ThrowIfNull(frame);
         if (!frame.Complete) throw new InvalidDataException("Incomplete static source state cannot become retained.");
+        var next = new Dictionary<string, RetainedSourceState>(StringComparer.Ordinal);
         foreach (var state in frame.MaterialStates)
         {
             var previous = PreparePrevious(state.Context);
             var transition = state.Runtime.SourceMaterialTransition ??
                 throw new InvalidDataException("Actual source material transition is absent.");
-            retained[state.Context.PacketKey] = new(state.Context.Instance.Asset.SourceKey,
+            next[state.Context.PacketKey] = new(state.Context.Instance.Asset,
                 state.Context.Selection.Source!, previous with {
                 PreviousPixelTemplate = state.Prepared.Packet.Pixel.Constants[0].ToArray(),
                 PreviousMaterial = transition.Next, PreviousAlpha = transition.Alpha.Next });
         }
+        retained = next;
     }
     public void Invalidate(string actualWriter)
-    { ArgumentException.ThrowIfNullOrWhiteSpace(actualWriter); valid = false; retained.Clear(); draws.Clear(); selections.Clear();
-        selectedStates.Clear(); finalBaseTableDraws.Clear(); finalBaseTables.Clear(); noMaterialOverrideAssets.Clear();
+    { ArgumentException.ThrowIfNullOrWhiteSpace(actualWriter); valid = false; retained.Clear(); assets.Clear();
         if (ownsShaderTables) shaderTables.Invalidate(actualWriter); }
     private void RequireValid()
     { if (!valid) throw new InvalidDataException("Native static source factory was imported or edited."); }

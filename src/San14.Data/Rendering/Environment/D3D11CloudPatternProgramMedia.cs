@@ -27,8 +27,8 @@ public sealed class D3D11CloudPatternProgramMedia
         var signatures = new Dictionary<int, DxbcProgramSignatures>();
         var recipes = new Dictionary<(int Vertex, int Pixel, bool OtherStages), int>();
         var rows = new List<string>();
-        files.Add("features.bin", bindings.Features.SelectMany(row => row.Feature.RawBytes).ToArray());
-        files.Add("variants.bin", bindings.Variants.Records.SelectMany(row => row.RawBytes).ToArray());
+        files.Add("features.bin", bindings.Features.SelectMany(row => row.Feature.RawBytes.ToArray()).ToArray());
+        files.Add("variants.bin", bindings.Variants.Records.SelectMany(row => row.RawBytes.ToArray()).ToArray());
         for (int feature = 0; feature < bindings.Features.Count; feature++)
             for (int variant = 0; variant < bindings.Variants.Records.Count; variant++)
             {

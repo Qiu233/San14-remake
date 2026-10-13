@@ -18,7 +18,7 @@ public sealed partial class DeferredEarlyShadowModelDeviceOwner
     /// only. Its final table comes from the current material publisher, not
     /// the flag GBuffer variation's selected renderer.</summary>
     public DeferredEarlyShadowModelSource LoadFlagSource(
-        NativeWorldShaderTableState actualFinalTable, RemakeArmyFlagSource actualModel,
+        NativeWorldShaderTableState actualFinalTable, LoadedArmyFlagResources actualModel,
         int actualDrawIndex)
     {
         ArgumentNullException.ThrowIfNull(actualModel);
@@ -50,8 +50,10 @@ public sealed partial class DeferredEarlyShadowModelDeviceOwner
         if (selected.Boundary == DeferredEarlyShadowInterfaceBoundary.RequiresRenderer)
         {
             var provider = selected.Interface!.Provider!;
-            if (!renderers.TryGetValue(provider, out renderer))
-                renderers.Add(provider, renderer = Source.LoadRenderer(repository, selected));
+            // Full tables may wrap the same provider declaration separately.
+            // Its imported object owns the renderer and current selection.
+            if (!renderers.TryGetValue(provider.Object, out renderer))
+                renderers.Add(provider.Object, renderer = Source.LoadRenderer(repository, selected));
         }
         var profile = actualStaticAsset is null ? ArmySkinVertexAdapter.Select(actualModel.Geometry, actualDrawIndex) : null;
         current = new(this, actualFinalTable, actualModel, actualStaticAsset, actualDrawIndex, selected, renderer, profile);
@@ -72,7 +74,7 @@ public sealed partial class DeferredEarlyShadowModelDeviceOwner
 
     private ModelShaderProgramPreparation PrepareProgramSourceCore(DeferredEarlyShadowModelProgramSelection selection)
     {
-        var prepared = ModelShaderProgram.PrepareSource(selection.Source.Renderer!.Shader, selection.Program.CombinationIndex, compiler);
+        var prepared = ModelShaderPreparation.Prepare(selection.Source.Renderer!.Shader, selection.Program.CombinationIndex, compiler);
         return selection.Source.ArmySkinProfile is { } profile && prepared.VertexProgramIndex is >= 4 and <= 7
             ? DeferredEarlyShadowArmyVertexTransport.Adapt(prepared, profile) : prepared;
     }
@@ -102,6 +104,8 @@ public sealed partial class DeferredEarlyShadowModelDeviceOwner
                 { await draws[i].Draw.DisposeAsync(); draws.RemoveAt(i); }
             foreach (var upload in uploads)
             { await upload.Value.DisposeAsync(); geometry.Remove(upload.Key); }
+            foreach (var key in geometryInputs.Keys.Where(key => ReferenceEquals(key.Item1, actualModel)).ToArray())
+                geometryInputs.Remove(key);
             sources.Remove(actualModel);
         }
         finally { gate.Release(); }

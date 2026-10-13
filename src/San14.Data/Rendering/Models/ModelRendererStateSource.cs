@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -43,11 +42,9 @@ public static class ModelRendererStateSourceReader
     public static ModelGroupRasterSource? ReadGroupRaster(LoadedModelShaderBindings model, int drawIndex)
     {
         ArgumentNullException.ThrowIfNull(model);
-        if (model.ModelObject.Kind != DokObjectKind.Inline || model.ModelObject.ClassId != ModelShaderResources.ModelClass ||
-            !Convert.ToHexString(SHA256.HashData(model.Model.Source.Bytes)).Equals(model.Model.Source.DecodedSha256,
-                StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Original group raster requires its verified inline ModelData and source bytes.");
-        G1ModelGeometry geometry = G1ModelGeometryReader.Read(model.Model.Source.Bytes, model.Model.Source.Bytes.LongLength);
+        if (model.ModelObject.Kind != DokObjectKind.Inline || model.ModelObject.ClassId != ModelShaderResources.ModelClass)
+            throw new InvalidDataException("Group raster requires an inline model declaration.");
+        G1ModelGeometry geometry = model.Model.Geometry;
         G1DrawShaderIdentifier draw = G1ModelShaderIdentifierReader.Read(geometry).Draws.SingleOrDefault(row => row.Draw.Index == drawIndex) ??
             throw new InvalidDataException("Original group raster draw is absent from its source group.");
         byte code = draw.Group.RawBytes[18];
@@ -61,11 +58,9 @@ public static class ModelRendererStateSourceReader
     public static ModelQueueStateSource ReadQueue(LoadedRenderGraph graph, int nodeIndex)
     {
         ArgumentNullException.ThrowIfNull(graph);
-        if (!Convert.ToHexString(SHA256.HashData(graph.Source.Bytes)).Equals(graph.Source.DecodedSha256,
-            StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Original model queue source bytes differ from their declared hash.");
-        CompiledGraphDocument canonical = RenderGraphReader.Read(graph.Source.Bytes);
-        CompiledGraphNode node = canonical.Nodes.SingleOrDefault(n => n.Index == nodeIndex) ??
+        if (graph.Document.GraphKind != CompiledGraphKind.RenderGraph)
+            throw new InvalidDataException("Model queue requires a render graph.");
+        CompiledGraphNode node = graph.Document.Nodes.SingleOrDefault(n => n.Index == nodeIndex) ??
             throw new InvalidDataException($"Original model queue node {nodeIndex} is absent.");
         if (node.Call.FactoryClassId != ModelShaderResources.QueueFactoryClass)
             throw new InvalidDataException("Original model queue requires its exact FC64DCB6 factory.");

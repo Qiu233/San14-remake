@@ -5,7 +5,7 @@ namespace San14.Data.Formats;
 /// <summary>Stage code is the DXBC code, distinct from native D3D command stages.</summary>
 public sealed record G2ShaderCombinationStage(uint StageCode, int RowFieldOffset,
     short StageTableEntryIndex, G2ShaderStageEntry? Entry);
-public sealed record G2ShaderCombination(int Index, int SourceOffset, byte[] RawRow,
+public sealed record G2ShaderCombination(int Index, int SourceOffset, ReadOnlyMemory<byte> RawRow,
     uint RawValue4, IReadOnlyList<G2ShaderCombinationStage> Stages);
 public sealed record G2ShaderCombinations(DxbcRange SourceRange, int OffsetField,
     IReadOnlyList<G2ShaderCombination> Rows);
@@ -21,8 +21,12 @@ public static class G2ShaderCombinationReader
         [(0, 1), (2, 0), (8, 3), (10, 4), (12, 2), (14, 5)];
 
     public static G2ShaderCombinations Read(ReadOnlySpan<byte> source)
+        => Read(source, G2ShaderContainerReader.Read(source));
+
+    internal static G2ShaderCombinations Read(ReadOnlySpan<byte> source, G2ShaderContainer container)
     {
-        G2ShaderContainer container = G2ShaderContainerReader.Read(source);
+        if (source.Length != container.SourceByteLength)
+            throw Error("source length differs from the imported container");
         uint rawOffset = BinaryPrimitives.ReadUInt32LittleEndian(source.Slice(0x94, 4));
         int end = container.StageTables.Min(table => table.TableOffset);
         if (rawOffset > int.MaxValue || rawOffset < container.MetadataRange.Offset || rawOffset > end ||

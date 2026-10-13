@@ -117,8 +117,8 @@ public sealed class ModelOrdinaryNativeStencilSource
         };
         if (actualShader.Source.DecodedSha256 != sha)
             throw new InvalidDataException("Selected shader differs from its independently audited original stencil profile.");
-        var container = G2ShaderContainerReader.Read(actualShader.Source.Bytes);
-        var configurations = G1ShaderConfigurationReader.Read(actualShader.Source.Bytes, container).Records;
+        var container = actualShader.Container;
+        var configurations = actualShader.ReadConfigurations().Records;
         string[] expected = optional is null ? ["GBuffer"] : ["GBuffer", optional];
         if (container.NamePrefix != name || !configurations.Select(config => config.Name).SequenceEqual(expected) ||
             configurations[0].RawSecondWord != 2 || configurations.Skip(1).Any(config => config.RawSecondWord != 0))

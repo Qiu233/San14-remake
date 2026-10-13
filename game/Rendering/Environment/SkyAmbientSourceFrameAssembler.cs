@@ -145,8 +145,7 @@ public sealed class SkyAmbientSourceFrameAssembler : IAsyncDisposable
         var source = sourceCamera.Inputs.Source;
         textureSnapshot.RequireCurrent();
         var moon=textureSnapshot.RequireNull(SkySamplingRole.Moon);
-        var proof = Sky2SourceZeroMoon.Create(repository.LoadShaderContainer("system", 0x340AC335),
-            moon, acceptedLighting, packet);
+        var proof = Sky2SourceZeroMoon.Create(moon, acceptedLighting, packet);
         var lights = SkySceneSelectedViewLightSource.PrepareSourceZeroMoonLights(packet,
             actualPackageLightPosition, actualPackageLightOwner, proof);
         return new(acceptedLighting, source.Season.Calendar.State.ThirdDate.Month, source.SourceProvenance,
@@ -158,13 +157,13 @@ public sealed class SkyAmbientSourceFrameAssembler : IAsyncDisposable
     /// produced the accepted source frame. Source-zero assignments preserve
     /// this owner's current descriptor state.</summary>
     public static async Task<SkyAmbientSourceFrameAssembler> CreateAppliedSeasonAsync(
-        GameResourceRepository repository,Vkd3dShaderCompiler compiler,SourceResourceRegistrationDevice registration,
+        GameResourceRepository repository,LoadedShaderContainer shader,Vkd3dShaderCompiler compiler,SourceResourceRegistrationDevice registration,
         MapSourceCreatedLightingSource lighting,SkyAmbientSourceConstruction explicitRetained,
         SkyAmbientSourceFrameInputs firstAcceptedFrame,Sky2TextureBindings textureBindings,
         Func<SkyScene,Task<(SkyStarProducer? Stars,SkyCloudColorProducer? Cloud)>>? producerFactory=null,
         bool allowReadback=false)
     {
-        ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(compiler);
+        ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(shader);ArgumentNullException.ThrowIfNull(compiler);
         ArgumentNullException.ThrowIfNull(registration);ArgumentNullException.ThrowIfNull(lighting);
         ArgumentNullException.ThrowIfNull(explicitRetained);ArgumentNullException.ThrowIfNull(firstAcceptedFrame);
         var applied=firstAcceptedFrame.AppliedSeason??throw new InvalidDataException("Applied season construction requires its actual selected source/current Camera producer.");
@@ -185,23 +184,17 @@ public sealed class SkyAmbientSourceFrameAssembler : IAsyncDisposable
         var camera=SkySceneSourceDefaults.ReadPerspectiveCamera(repository.LoadObjects("system",0x908AB6E2),lighting.Identity.CameraObjectId);
         var ambient=SkyAmbientResources.Load(repository,repository.LoadObjects("system",0xDAB638B2),0x910603AC,
             repository.LoadObjects("system",0x718CCB8B),repository.LoadObjects("system",0x93FB3280));
-        var shader=repository.LoadShaderContainer("system",0x340AC335);
         var sta=StaticTextureResources.Load(repository,ambient.Resource,"system",[0xF81F0562,0xF8ED83E3,0xF9BC0264]);
         var assignedTextures=new[]{SkySamplingRole.Earth,SkySamplingRole.Moon,SkySamplingRole.MilkyWay}
             .Select(textureSnapshot.GetTexture).OfType<LoadedSkySamplingResource>().ToArray();
-        if(new[]{ambient.Resource.Source,ambient.ShaderObjects.Source,shader.Source}.Any(s=>s.OverrideSource is not null)||
-            sta.Any(s=>s.Resource.Source.OverrideSource is not null))
-            throw new InvalidDataException("Applied source season cannot mix edited constructor resources.");
         var selectedCombination=shader.ReadG1ResourceBindings(explicitRetained.ProgramSelection.Sky2Combination).Combination;
         var selectedPixel=selectedCombination.Stages.Single(s=>s.StageCode==0&&s.Entry is not null).Entry!;
-        var selectedVertex=selectedCombination.Stages.Single(s=>s.StageCode==1&&s.Entry is not null).Entry!;
         var selectedDefinitions=shader.ReadResourceDefinitions(selectedPixel.ProgramIndex);
         uint[] actualTextureRegisters=selectedDefinitions.Bindings.Where(b=>b.InputType==2).Select(b=>b.BindPoint).Order().ToArray();
-        if(selectedVertex.ProgramIndex!=0 || selectedPixel.ProgramIndex is not(3 or 4) ||
-            selectedDefinitions.Buffers.Count!=1 || selectedDefinitions.Buffers[0].ByteSize!=256 ||
-            !actualTextureRegisters.SequenceEqual(selectedPixel.ProgramIndex==4 ? new uint[]{1,4} : new uint[]{0,1,2,3,4}) ||
-            !selectedDefinitions.Bindings.Where(b=>b.InputType==3).Select(b=>b.BindPoint).Order().SequenceEqual(actualTextureRegisters))
-            throw new InvalidDataException("Applied source Sky2 requires its exact selected VS0/PS3-or-PS4 complete texture interface.");
+        var samplingRegisters = new[]{SkySamplingRole.Earth,SkySamplingRole.Moon,SkySamplingRole.MilkyWay}
+            .Select(SkySamplingResources.PixelRegister).ToHashSet();
+        if(actualTextureRegisters.Any(register=>register>=sta.Count&&!samplingRegisters.Contains(register)))
+            throw new NotSupportedException("Applied Sky2 declares a texture register without a static or package sampling provider.");
         var copied=explicitRetained with{SixRetainedFaces=SnapshotCaches(explicitRetained.SixRetainedFaces),
             VertexTemplate=explicitRetained.VertexTemplate.ToArray(),PixelTemplate=explicitRetained.PixelTemplate.ToArray(),
             ProgramSelection=explicitRetained.ProgramSelection with{TextureBindings=textureSnapshot}};

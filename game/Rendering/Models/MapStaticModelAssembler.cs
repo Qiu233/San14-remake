@@ -3,8 +3,8 @@ using System.Numerics;
 using San14.Data;
 
 /// <summary>Source-selected queue state for one immutable model draw. A denied
-/// queue entry retains its explicit source reason. The cache revision includes
-/// the graph, shader objects and source frontend/backend selection inputs.</summary>
+/// queue entry retains its explicit source reason. The source provider owns
+/// import and reuse of graph, shader and queue preparation.</summary>
 public sealed record MapStaticModelDrawSource(ModelGbufferSourceDraw? Source,
     string QueueKey, bool QueueEligible, string? UnavailableReason);
 public sealed record MapStaticModelDrawContext(MapStaticModelInstance Instance,
@@ -47,11 +47,6 @@ public sealed class MapStaticModelAssembler
     private readonly string _sourceRevision;
     public string SourceRevision => _sourceRevision;
     private readonly Func<MapStaticModelAsset, int, MapStaticModelDrawSource> _loadSource;
-    private readonly Dictionary<(string Revision, string Asset, int Draw), MapStaticModelDrawSource> _sources = [];
-    private readonly Dictionary<(string Revision, string Asset, int Draw), string> _sourceFailures = [];
-    public int CachedSourceDrawCount => _sources.Count;
-    public long SourceDrawLoadCount { get; private set; }
-    public int CachedSourceFailureCount => _sourceFailures.Count;
 
     public MapStaticModelAssembler(string sourceRevision,
         Func<MapStaticModelAsset, int, MapStaticModelDrawSource> loadSource)
@@ -87,27 +82,12 @@ public sealed class MapStaticModelAssembler
         {
             try
             {
-                var key = (_sourceRevision, instance.Asset.SourceKey, draw.Index);
-                if (_sourceFailures.TryGetValue(key, out string? failedSource))
-                    throw new InvalidDataException(failedSource);
-                if (!_sources.TryGetValue(key, out var selected))
-                {
-                    try
-                    {
-                        selected = _loadSource(instance.Asset, draw.Index) ??
-                            throw new InvalidDataException("Native map draw source provider returned no selection.");
-                        if (string.IsNullOrWhiteSpace(selected.QueueKey))
-                            throw new InvalidDataException("Native map draw source has no explicit queue identity.");
-                        if (selected.QueueEligible && selected.Source is null)
-                            throw new InvalidDataException(selected.UnavailableReason ?? "Native map eligible draw source is unresolved.");
-                        if (selected.Source is { } loaded && (loaded.DrawIndex != draw.Index ||
-                            loaded.Model.Source.ResourceUri != instance.Asset.RawTransforms.Source.ResourceUri ||
-                            loaded.Model.Source.DecodedSha256 != instance.Asset.RawTransforms.Source.DecodedSha256))
-                            throw new InvalidDataException("Native map cached draw source differs from its source asset/draw revision.");
-                        _sources.Add(key, selected); SourceDrawLoadCount++;
-                    }
-                    catch (InvalidDataException error) {_sourceFailures.Add(key, error.Message); throw;}
-                }
+                var selected = _loadSource(instance.Asset, draw.Index) ??
+                    throw new InvalidDataException("Native map draw source provider returned no selection.");
+                if (string.IsNullOrWhiteSpace(selected.QueueKey))
+                    throw new InvalidDataException("Native map draw source has no explicit queue identity.");
+                if (selected.QueueEligible && selected.Source is null)
+                    throw new InvalidDataException(selected.UnavailableReason ?? "Native map eligible draw source is unresolved.");
                 if (selected.Source is { } selectedSource)
                     candidates.Add(new("StaticModel",instance.InstanceKey,draw.Index,
                         selectedSource.Model.Source.ResourceUri,selectedSource.Model.Source.DecodedSha256,
@@ -136,8 +116,6 @@ public sealed class MapStaticModelAssembler
         return new(visibility, packets.AsReadOnly(), states.AsReadOnly(), unresolved.AsReadOnly(), excluded.AsReadOnly())
         {CurrentViewFamilyCandidates=completeCandidates&&unresolved.Count==0?candidates.AsReadOnly():null};
     }
-
-    public void Invalidate() {_sources.Clear(); _sourceFailures.Clear();}
 
     private static ModelGbufferPreparedDraw ApplyMaterialTransition(ModelGbufferSourceDraw source,
         MapStaticModelDrawRuntime input, MapStaticModelCamera camera,

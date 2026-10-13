@@ -5,7 +5,7 @@ namespace San14.Data.Formats;
 
 public sealed record G2ShaderProgram(int Index, int Offset, int Length, DxbcContainer Container);
 public sealed record G2ShaderStageEntry(int Index, uint RelativeBytecodeOffset, int BytecodeLength,
-    int ProgramIndex, int TableRowOffset, byte[] RawTableRow);
+    int ProgramIndex, int TableRowOffset, ReadOnlyMemory<byte> RawTableRow);
 public sealed record G2ShaderStageTable(uint StageCode, int CountFieldOffset, int TableFieldOffset,
     int TableOffset, IReadOnlyList<G2ShaderStageEntry> Entries);
 public sealed record G2ShaderContainer(int SourceByteLength, uint RawValue12, string NamePrefix,
@@ -93,7 +93,7 @@ public static class G2ShaderContainerReader
                     throw Error($"stage {stage} entry {i} disagrees with its tokenized shader stage");
                 entries.Add(new(i, offset, length, programIndex, row, source.Slice(row, 8).ToArray()));
             }
-            tables.Add(new(stage, countField, tableField, tableOffset, entries));
+            tables.Add(new(stage, countField, tableField, tableOffset, entries.AsReadOnly()));
         }
         var orderedTables = occupiedTables.OrderBy(range => range.Start).ToArray();
         for (int i = 1; i < orderedTables.Length; i++)
@@ -101,7 +101,7 @@ public static class G2ShaderContainerReader
                 throw Error("stage tables overlap");
         return new(source.Length, UInt(source, 12), Encoding.ASCII.GetString(nameBytes), terminator >= 0,
             nameField.ToArray(), source[..256].ToArray(), new(256, bytecodeStart - 256),
-            new(bytecodeStart, bytecodeLength), programs, tables);
+            new(bytecodeStart, bytecodeLength), programs.AsReadOnly(), tables.AsReadOnly());
     }
 
     private static uint UInt(ReadOnlySpan<byte> source, int offset) => BinaryPrimitives.ReadUInt32LittleEndian(source.Slice(offset, 4));

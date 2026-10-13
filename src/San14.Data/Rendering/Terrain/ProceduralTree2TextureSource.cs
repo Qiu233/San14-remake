@@ -13,7 +13,7 @@ public static class ProceduralTree2TextureSource
         if(provider.Object.ClassId!=0xAB9C4087 || provider.ShaderFileHash!=shader.Source.FileId ||
             shader.Source.FileId is not (0x20A8720A or 0x7FA757FD) || combinationIndex!=0)
             throw new NotSupportedException("Only actual CE normal Tree220A8720A/7FA757FD is imported here.");
-        var metadata=G1ShaderResourceBindingReader.Read(shader.Source.Bytes,combinationIndex);
+        var metadata=shader.ReadG1ResourceBindings(combinationIndex);
         var descriptor=G2ShaderTextureBaseReader.Read(shader.Source.Bytes);
         int pixel=metadata.Combination.Stages.Single(s=>s.StageCode==0).Entry!.ProgramIndex;
         var rdef=shader.ReadResourceDefinitions(pixel);
@@ -29,8 +29,7 @@ public static class ProceduralTree2TextureSource
         foreach(var entry in metadata.Entries)
             if(entry.SlotIndex is <1 or >3 || entry.RawAuxiliary!=0 || entry.Name!=textures[entry.SlotIndex].Name.Text)
                 throw new InvalidDataException("Tree2 numeric registration has no exact selected PS role.");
-        var geometry=G1ModelGeometryReader.Read(model.Model.Source.Bytes,model.Model.Source.Bytes.Length);
-        var record=G1ModelDrawTextureReader.Read(geometry).Bindings[drawIndex].TextureRecord;
+        var record=ModelTextureResources.ResolveDrawTextures(model,drawIndex).Binding.TextureRecord;
         if(record.UnknownValue8!=1 || unchecked((short)record.UnknownValue12)!=1 || record.TextureEntries.Count!=4)
             throw new InvalidDataException("Tree2 type19 source texture count/special index differs.");
         var primary=new Dictionary<int,G1ShaderResourceBinding>();var secondary=new Dictionary<int,G1ShaderResourceBinding>();
@@ -65,8 +64,7 @@ public static class ProceduralTree2TextureSource
                 record.Index,e.Index,s.Index,s.ProxyObjectId,s.TextureFileId,s.RawValue00200571,
                 checked((int)(s.RawValue00200571&0x7FFFFFFF)),e.RawValue2,e.RawValue4,e.RawValue6,e.RawValue8,e.RawValue10));
         }
-        return new(model.Model.Source.ResourceUri,model.Model.Source.DecodedSha256,model.TextureTable.ResourceUri,model.TextureTable.DecodedSha256,
-            shader.Source.ResourceUri,shader.Source.DecodedSha256,provider.Object.ObjectId,drawIndex,combinationIndex,pixel,record.Index,1,1,effects,bindings);
+        return new(model,shader.Source.ResourceUri,shader.Source.DecodedSha256,provider.Object.ObjectId,drawIndex,combinationIndex,pixel,record.Index,1,1,effects,bindings);
     }
     private static int Encoded(int value)
     {

@@ -32,28 +32,30 @@ public:
     }
 
     void prepareAccessories(ID3D11Device* device,ID3D11DeviceContext* context,
-        const PreparedResourceDirectories& resources,const std::optional<AreaCapitalWorldPublication>& areaWorld,
+        const PreparedResourceDirectories& resources,const std::optional<CityGateWorldPublication>& cityWorld,
+        const std::optional<AreaCapitalWorldPublication>& areaWorld,
         const source_default_player_phase::Profile& defaultPlayerPhases) {
         if(sourceAccessoryVisuals) {
             const auto accessorySource=resources.directory(ResourceGroup::BaseAccessories);
-            cityAccessories=prepareNativeCityAccessoryGpu(device,context,accessorySource,
-                false
-                );
-            if(cityAccessories.poseSource.duration8!=defaultPlayerPhases.categories[2].duration8)
+            if(!cityWorld||!areaWorld)throw std::runtime_error("Accessories require their actual initial World publications");
+            cityAccessories=prepareNativeCityAccessoryGpu(device,accessorySource,
+                readNativeBaseVisualAccessories(cityWorld->accessories.data(),cityWorld->accessories.size()));
+            if(cityAccessories.resources->pose.duration8!=defaultPlayerPhases.categories[2].duration8)
                 throw std::runtime_error("Accessory source clip and default player duration differ");
-            cityFlagImports=San14::Render::loadCityGateFlagImports(accessorySource/"material-source",cityAccessories);
+            prepareCurrentCityGateFlagMaterials(device,context,cityAccessories,cityWorld->flags);
             areaAccessories=prepareNativeAreaCapitalAccessories(cityAccessories,
                 readNativeAreaCapitalAccessories(areaWorld->models.accessories));
+            prepareCurrentCityGateFlagMaterials(device,context,areaAccessories,areaWorld->models.flags);
         }
     }
 
-    void publish(const std::optional<CityGateWorldPublication>& cityWorld,
+    void publish(ID3D11Device* device,ID3D11DeviceContext* context,const std::optional<CityGateWorldPublication>& cityWorld,
         const std::optional<AreaCapitalWorldPublication>& areaWorld,ArmyRenderWorld& armies) {
         primaryPopulationChanged=false;
         if(!cityWorld)throw std::runtime_error("Native Main requires its actual City/Gate World publication");
         const auto& bases=*cityWorld;
         if(appliedCityGateRevision!=bases.revision) {
-            if(sourceAccessoryVisuals)San14::Render::requireCurrentCityGateFlagImports(bases,cityFlagImports);
+            if(sourceAccessoryVisuals)prepareCurrentCityGateFlagMaterials(device,context,cityAccessories,bases.flags);
             auto primaries=readNativeBaseVisualPrimary(bases.primary.data(),bases.primary.size());
             updateNativeCityPopulation(cityModels,primaries);
             if(sourceAccessoryVisuals){
@@ -68,7 +70,7 @@ public:
         const auto& capitals=*areaWorld;
         if(appliedAreaCapitalRevision!=capitals.models.revision) {
             if(capitals.identities!=areaModels.source.identities)throw std::runtime_error("Current Area roster needs an actual rebind/import");
-            if(sourceAccessoryVisuals)San14::Render::requireCurrentCityGateFlagImports(capitals.models,cityFlagImports);
+            if(sourceAccessoryVisuals)prepareCurrentCityGateFlagMaterials(device,context,areaAccessories,capitals.models.flags);
             updateNativeCityPopulation(areaModels,readNativeBaseVisualPrimary(capitals.models.primary.data(),capitals.models.primary.size()));
             if(sourceAccessoryVisuals){
                 auto current=readNativeAreaCapitalAccessories(capitals.models.accessories);
@@ -121,7 +123,6 @@ private:
     bool primaryPopulationChanged=false;
     NativeCityAccessoryGpu cityAccessories;
     NativeCityAccessoryGpu areaAccessories;
-    CityGateFlagImports cityFlagImports;
     UINT64 appliedCityGateRevision=0;
     UINT64 appliedAreaCapitalRevision=0;
     NativeCityModelQueues ordinaryModelQueues;

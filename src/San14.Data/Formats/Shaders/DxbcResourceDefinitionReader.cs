@@ -17,10 +17,10 @@ public sealed record DxbcRdefMember(int Index, DxbcRange RowRange, DxbcRdefStrin
     int TypeOffset, uint ByteOffset);
 public sealed record DxbcRdefType(int Offset, DxbcRange RowRange, ushort Class, ushort BaseType,
     ushort Rows, ushort Columns, ushort Elements, DxbcRange MemberTableRange,
-    IReadOnlyList<DxbcRdefMember> Members, byte[] RawTypeExtension, DxbcRdefString? Name);
+    IReadOnlyList<DxbcRdefMember> Members, ReadOnlyMemory<byte> RawTypeExtension, DxbcRdefString? Name);
 public sealed record DxbcResourceDefinitions(int ProgramByteLength, DxbcRange PayloadRangeInProgram,
     byte MajorVersion, byte MinorVersion, ushort RawShaderType, uint CompileFlags,
-    uint InterfaceSlotCount, byte[] RawHeader, DxbcRdefString Creator,
+    uint InterfaceSlotCount, ReadOnlyMemory<byte> RawHeader, DxbcRdefString Creator,
     DxbcRange BufferTableRange, DxbcRange BindingTableRange,
     IReadOnlyList<DxbcRdefBuffer> Buffers, IReadOnlyList<DxbcRdefBinding> Bindings,
     IReadOnlyList<DxbcRdefType> Types);
@@ -90,7 +90,7 @@ public static class DxbcResourceDefinitionReader
                     UInt(data, variable + 24), UInt(data, variable + 28), UInt(data, variable + 32), UInt(data, variable + 36)));
             }
             buffers.Add(new(i, new(row, 24), name, size, UInt(data, row + 16), UInt(data, row + 20),
-                variableRange, variables));
+                variableRange, variables.AsReadOnly()));
         }
 
         // Queue each original type offset once; shared/nested types never expand exponentially.
@@ -111,11 +111,12 @@ public static class DxbcResourceDefinitionReader
             uint nameOffset = UInt(data, offset + 32);
             types.Add(new(offset, new(offset, 36), UShort(data, offset), UShort(data, offset + 2),
                 UShort(data, offset + 4), UShort(data, offset + 6), UShort(data, offset + 8), memberRange,
-                members, data.Slice(offset + 16, 16).ToArray(), nameOffset == 0 ? null : ReadString(data, nameOffset, strings, budget)));
+                members.AsReadOnly(), data.Slice(offset + 16, 16).ToArray(), nameOffset == 0 ? null : ReadString(data, nameOffset, strings, budget)));
         }
         RejectTypeCycles(types);
         return new(program.Length, payloadRange, data[17], data[16], UShort(data, 18), UInt(data, 20),
-            UInt(data, 56), data[..60].ToArray(), creator, bufferRange, bindingRange, buffers, bindings, types);
+            UInt(data, 56), data[..60].ToArray(), creator, bufferRange, bindingRange,
+            buffers.AsReadOnly(), bindings.AsReadOnly(), types.AsReadOnly());
     }
 
     private static void RejectTypeCycles(IReadOnlyList<DxbcRdefType> types)

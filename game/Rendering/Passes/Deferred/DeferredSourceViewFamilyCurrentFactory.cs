@@ -185,7 +185,7 @@ public sealed class DeferredSourceViewFamilyCurrentPublication
             {
                 if (actor.UnitId != unitId)
                     throw new InvalidDataException("Flag actor differs from its accepted unit owner.");
-                foreach (var draw in G1ModelDrawReader.Read(actor.Source.Model.Geometry).Draws)
+                foreach (var draw in actor.Source.Draws)
                 {
                     completeArmyInventory.Add(new("ArmyFlag", actor.InstanceKey, draw.Index,
                         actor.Source.Model.Source.ResourceUri, actor.Source.Model.Source.DecodedSha256));
@@ -200,12 +200,12 @@ public sealed class DeferredSourceViewFamilyCurrentPublication
             // Successful per-record draws may repeat one canonical primitive.
             var actors = world.CompleteCpuInventory.Actors.ToDictionary(a => a.ActorIdentity, StringComparer.Ordinal);
             var inventory = world.CompleteCpuInventory.Primitives.Select(p => new Member(p.Family, p.ActorIdentity,
-                p.SourceDrawIndex, actors[p.ActorIdentity].Source.Model.ResourceUri,
-                actors[p.ActorIdentity].Source.Model.DecodedSha256)).ToArray();
+                p.SourceDrawIndex, actors[p.ActorIdentity].Source.Model.Source.ResourceUri,
+                actors[p.ActorIdentity].Source.Model.Source.DecodedSha256)).ToArray();
             RequireSameMembers(completeArmyInventory, inventory, "Army aggregate omits or replaces a canonical source actor/draw.");
             expected.AddRange(world.CompleteCpuInventory.Primitives.Where(p => p.AdmittedRecordOwners.Count != 0)
                 .Select(p => new Member(p.Family, p.ActorIdentity, p.SourceDrawIndex,
-                    actors[p.ActorIdentity].Source.Model.ResourceUri, actors[p.ActorIdentity].Source.Model.DecodedSha256)));
+                    actors[p.ActorIdentity].Source.Model.Source.ResourceUri, actors[p.ActorIdentity].Source.Model.Source.DecodedSha256)));
             var admitted = world.SubmittedPrimitives.Select(p => p.CanonicalPacketKey).ToHashSet(StringComparer.Ordinal);
             foreach (var status in army.FlagStatuses)
             {

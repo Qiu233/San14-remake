@@ -10,8 +10,7 @@ public sealed record NativeArmyWorldLogicalActor(string Family, string ActorIden
 /// acknowledge graphics work. Sources and constructor words are reused.</summary>
 public sealed class NativeArmyWorldCpuPublicationOwner
 {
-    private readonly Dictionary<LoadedRdbAsset, ArmyPrimitivePublicationSource> primitiveSources =
-        new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<int, ArmyPrimitivePublicationSource> primitiveSources = [];
     private readonly Dictionary<ArmyPrimitivePublicationSource, ArmyModelWorldVisibilitySource> visibilitySources =
         new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<string, (ArmyPrimitivePublicationSource Source,
@@ -64,7 +63,7 @@ public sealed class NativeArmyWorldCpuPublicationOwner
                     model.Category.Category != actor.Category)
                     throw new InvalidDataException("World Army ordinary actor has no exact source-created category model.");
                 actors.Add(new("ArmyOrdinary", $"remake-army/{id}/{actor.ComponentId}",
-                    Source(model.Catalog, actor.Category, model.Transforms.Source), actor.WorldTransform, frame.Initialization));
+                    Source(model.Catalog, actor.Category, new(model.Transforms.Geometry, model.Transforms.Source)), actor.WorldTransform, frame.Initialization));
             }
             var flags = actualFlags[id];
             if (flags.UnitId != id || flags.Actors.Count == 0)
@@ -74,7 +73,7 @@ public sealed class NativeArmyWorldCpuPublicationOwner
                 if (actor.UnitId != id || !ReferenceEquals(actor.Initialization, frame.Initialization) || actor.Category is not (2 or 3))
                     throw new InvalidDataException("World Army flag belongs to another ordinary source initialization.");
                 actors.Add(new("ArmyFlag", actor.InstanceKey, Source(actor.Source.Catalog, actor.Category,
-                    actor.Source.Model.Source), actor.World, actor.Initialization));
+                    new(actor.Source.Model.Geometry, actor.Source.Model.Source)), actor.World, actor.Initialization));
             }
         }
         if (actors.Select(a => a.ActorIdentity).Distinct(StringComparer.Ordinal).Count() != actors.Count)
@@ -126,15 +125,17 @@ public sealed class NativeArmyWorldCpuPublicationOwner
         var result = ArmyWorldPrimitivePublication.Prepare(actualQueue, actualCommon, current, currentPublicationIdentity, actualCamera);
         var retainedActors = completeActualActors.Select(a => a.ActorIdentity).ToHashSet(StringComparer.Ordinal);
         foreach (string key in nodes.Keys.Where(k => !retainedActors.Contains(k)).ToArray()) nodes.Remove(key);
+        var currentSources = completeActualActors.Select(actor => actor.Source).ToHashSet(ReferenceEqualityComparer.Instance);
+        foreach (var source in visibilitySources.Keys.Where(source => !currentSources.Contains(source)).ToArray())
+            visibilitySources.Remove(source);
         return result;
     }
 
-    private ArmyPrimitivePublicationSource Source(LoadedArmyCatalog catalog, int category, LoadedRdbAsset model)
+    private ArmyPrimitivePublicationSource Source(LoadedArmyCatalog catalog, int category, LoadedModelGeometry model)
     {
-        if (!primitiveSources.TryGetValue(model, out var source))
-            primitiveSources.Add(model, source = ArmyPrimitivePublicationSource.ReadKnownCategory(catalog, category, model));
-        if (source.Category.Category != category)
-            throw new InvalidDataException("Army model source was assigned to a different category.");
+        if (!primitiveSources.TryGetValue(category, out var source) || !ReferenceEquals(source.Catalog, catalog) ||
+            !ReferenceEquals(source.Model.Geometry, model.Geometry) || !ReferenceEquals(source.Model.Source, model.Source))
+            primitiveSources[category] = source = ArmyPrimitivePublicationSource.ReadKnownCategory(catalog, category, model);
         return source;
     }
     private void RequireRetained()

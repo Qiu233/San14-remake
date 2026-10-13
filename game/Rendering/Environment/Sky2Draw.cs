@@ -61,10 +61,8 @@ public sealed class Sky2Draw : IAsyncDisposable
         Sky2NativeComposition? explicitNativeComposition=null)
     {
         ArgumentNullException.ThrowIfNull(program);ArgumentNullException.ThrowIfNull(explicitConstants);program.RequireCurrent();
-        var vertex=Sky2Constants.Vertex(program.VertexBindings.SourceDefinitions,
-            explicitVertexTemplate.Span,explicitConstants.Vertex);
-        var pixel=Sky2Constants.Pixel(program.PixelBindings.SourceDefinitions,
-            explicitPixelTemplate.Span,explicitConstants.Pixel);
+        var vertex=program.VertexConstants.WriteVertex(explicitVertexTemplate.Span,explicitConstants.Vertex);
+        var pixel=program.PixelConstants.WritePixel(explicitPixelTemplate.Span,explicitConstants.Pixel);
         return BuildAsync(program,target,surfaceId,vertex.Bytes,pixel.Bytes,explicitInputs,explicitNativeComposition);
     }
 
@@ -180,10 +178,19 @@ public sealed class Sky2Draw : IAsyncDisposable
     {
         ObjectDisposedException.ThrowIf(_disposal is not null,this);_program.RequireCurrent();
         ArgumentNullException.ThrowIfNull(explicitConstants);
-        byte[] vc=Sky2Constants.Vertex(_program.VertexBindings.SourceDefinitions,
-            _vertexTemplate,explicitConstants.Vertex).Bytes;
-        byte[] pc=Sky2Constants.Pixel(_program.PixelBindings.SourceDefinitions,
-            _pixelTemplate,explicitConstants.Pixel).Bytes;
+        byte[] vc=_program.VertexConstants.WriteVertex(_vertexTemplate,explicitConstants.Vertex).Bytes;
+        byte[] pc=_program.PixelConstants.WritePixel(_pixelTemplate,explicitConstants.Pixel).Bytes;
+        _program.ValidateNullTexturePacket(pc);
+        return UpdatePreparedConstantsAsync(vc,pc);
+    }
+
+    // The scene prepares and validates every face before beginning uploads.
+    // These owned arrays are transferred without packing the same inputs again.
+    internal Task UpdatePreparedConstantsAsync(byte[] vc,byte[] pc)
+    {
+        ObjectDisposedException.ThrowIf(_disposal is not null,this);_program.RequireCurrent();
+        if(vc.Length!=_vertexTemplate.Length||pc.Length!=_pixelTemplate.Length)
+            throw new InvalidDataException("Prepared Sky2 constants differ from the allocated buffers.");
         return TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
             ObjectDisposedException.ThrowIf(_disposal is not null,this);_program.RequireCurrent();

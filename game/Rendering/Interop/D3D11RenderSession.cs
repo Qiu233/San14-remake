@@ -71,10 +71,13 @@ public sealed class D3D11MapInput
 
     internal D3D11MapInput WithElapsed(double elapsedSeconds) => new(this, elapsedSeconds);
     internal D3D11MapInput WithCurrentSeason(D3D11CurrentSeasonFrame frame,
-        D3D11CurrentHdrCatalog hdr, string? atmosphereResourceDirectory = null) => new(this, ElapsedSeconds)
+        D3D11CurrentHdrCatalog hdr, string? atmosphereResourceDirectory = null,
+        ulong? resourceContextGeneration = null) => new(this, ElapsedSeconds)
         { SourceFrame = frame.Mode.AcceptedMainFrame, CurrentSeason = frame,
             CurrentSeasonBytes = D3D11CurrentSeasonEncoding.WriteNative(frame, hdr),
-            AtmosphereResourceDirectory = atmosphereResourceDirectory };
+            AtmosphereResourceDirectory = atmosphereResourceDirectory,
+            ArmyWorld = resourceContextGeneration is { } generation
+                ? this.ArmyWorld?.WithResourceContextGeneration(generation) : this.ArmyWorld };
     internal D3D11RenderSession.NativeInput ToNative()
     {
         var sun = CurrentSeason?.Atmosphere.Controller.SunPosition ?? default;

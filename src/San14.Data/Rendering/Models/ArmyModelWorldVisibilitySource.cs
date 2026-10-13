@@ -87,19 +87,18 @@ public sealed class ArmyModelWorldVisibilitySource
     public string SourceIdentity { get; }
     public string SourceEvidence { get; }
 
-    /// <summary>Load boundary only: parse and authenticate canonical source
+    /// <summary>Load boundary only: consume imported source
     /// flags, default geometry and ModelCPU bounds once per actual source.</summary>
     public static ArmyModelWorldVisibilitySource Read(ArmyPrimitivePublicationSource actualSource)
     {
         ArgumentNullException.ThrowIfNull(actualSource);
-        actualSource.ValidateSourceUnchanged();
         var catalog = actualSource.Catalog.Catalog;
         uint definition = actualSource.Category.DefinitionId;
         var flags = MapModelNativeVisibilitySources.ReadWorldPqSourceFlags(catalog, definition);
         var type = MapModelNativeVisibilitySources.ReadWorldPqDeclaration(catalog, definition);
         if (flags.Flag != 0 || flags.DynamicFlag != 0 || type.Value != uint.MaxValue)
             throw new NotSupportedException("This Army source requires another current flags/bounds/frustum recipe.");
-        var geometry = G1ModelGeometryReader.Read(actualSource.Model.Bytes, actualSource.Model.Bytes.LongLength);
+        var geometry = actualSource.Model.Geometry;
         var header = geometry.RawGeometryHeader.AsSpan();
         if (header.Length < 44) throw new InvalidDataException("Army source ModelCPU bounds header is incomplete.");
         var minimum = new System.Numerics.Vector3(BinaryPrimitives.ReadSingleLittleEndian(header[20..]),
@@ -107,7 +106,7 @@ public sealed class ArmyModelWorldVisibilitySource
         var maximum = new System.Numerics.Vector3(BinaryPrimitives.ReadSingleLittleEndian(header[32..]),
             BinaryPrimitives.ReadSingleLittleEndian(header[36..]), BinaryPrimitives.ReadSingleLittleEndian(header[40..]));
         var bounds = MapModelNativeBoundsSources.PrepareHeader(minimum, maximum,
-            actualSource.Model.ResourceUri, actualSource.Model.DecodedSha256);
+            actualSource.Model.Source.ResourceUri, actualSource.Model.Source.DecodedSha256);
         return new(actualSource, flags, type, bounds);
     }
 

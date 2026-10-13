@@ -13,8 +13,6 @@ public sealed record ArmySkinVertexAdaptation(byte[] Bytes, string SourceSha256,
 
 public static class ArmySkinVertexAdapter
 {
-    public const string ShaderSha256="B70B4FABBB37AEA3D8E2208776C429EC58CE360945B02E80E583B75FD09A1F1F";
-    public const string VertexProgramSha256="2A1E42EBE4124864C6E4C612EACD27C4CA63A1F6D61D98D8FC53E2A62C713397";
     private sealed record Instruction(ushort Code,uint[] Words);
 
     public static ArmySkinVertexProfile? Select(G1ModelGeometry geometry,int drawIndex)
@@ -72,19 +70,31 @@ public static class ArmySkinVertexAdapter
                 ?v with{ComponentType=1u}:v).ToArray()}).ToArray()};
     }
 
-    /// <summary>Adapts only exact VS1 translated from the pinned original
-    /// program. Inactive v5/v7 loads become typed null. For UInt8, the input
-    /// transport changes to unsigned and bitcasts back before original uses.</summary>
-    public static ArmySkinVertexAdaptation Adapt(ShaderSpirv translation,ArmySkinVertexProfile profile)
+    /// <summary>Supplies zero for absent second skin channels and preserves the
+    /// shader's signed selector arithmetic when the vertex layout uses unsigned bytes.
+    /// Register roles come from the selected program's input semantics.</summary>
+    public static ArmySkinVertexAdaptation Adapt(ShaderSpirv translation,
+        DxbcProgramSignatures signatures, ArmySkinVertexProfile profile)
     {
-        if(!Enum.IsDefined(profile)||translation.SourceProgramSha256!=VertexProgramSha256||translation.ExplicitDescriptorSet!=1)
-            throw new InvalidDataException("Army skin backend adaptation requires exact source VS1 and explicit descriptor set1.");
-        var module=SpirvShaderInterfaceReader.Read(translation.Bytes);
-        var removed=module.StageVariables.Where(v=>v.StorageClass==1&&v.Name is "v5" or "v7").ToArray();
-        var selector=module.StageVariables.Single(v=>v.StorageClass==1&&v.Name=="v6");
-        if(removed.Length!=2||removed.Any(v=>v.Location is null)||module.EntryPoints.Count!=1||
-            module.EntryPoints[0].ExecutionModel!=0||selector.Type is not {Kind:"vector",ComponentCount:4,ComponentType:{Kind:"int",Bits:32,Signed:true}})
+        if (!Enum.IsDefined(profile) || translation.ExplicitDescriptorSet != 1)
+            throw new InvalidDataException("Army skin transport requires a supported layout and an isolated vertex descriptor set.");
+        var module = SpirvShaderInterfaceReader.Read(translation.Bytes);
+        var inputs = signatures.Parts.Single(part => part.Kind == DxbcSignatureKind.Input).Parameters;
+        uint Input(string semantic, uint index)
+        {
+            var matches = inputs.Where(input => input.SemanticName.Text == semantic && input.SemanticIndex == index).ToArray();
+            if (matches.Length != 1)
+                throw new InvalidDataException($"Army skin transport requires one {semantic}{index} input.");
+            return matches[0].Register;
+        }
+        uint weight1 = Input("BLENDWEIGHT", 1), index1 = Input("BLENDINDICES", 1), index0 = Input("BLENDINDICES", 0);
+        // The compiler maps source registers to input locations; debug names are optional.
+        var removed=module.StageVariables.Where(v=>v.StorageClass==1&&(v.Location == weight1 || v.Location == index1)).ToArray();
+        var selectors=module.StageVariables.Where(v=>v.StorageClass==1&&v.Location==index0).ToArray();
+        if(removed.Length!=2||selectors.Length!=1||module.EntryPoints.Count!=1||
+            module.EntryPoints[0].ExecutionModel!=0||selectors[0].Type is not {Kind:"vector",ComponentCount:4,ComponentType:{Kind:"int",Bits:32,Signed:true}})
             throw new InvalidDataException("Army skin source optional input/register inventory differs.");
+        var selector=selectors[0];
         uint[] words=new uint[translation.Bytes.Length/4];
         for(int i=0;i<words.Length;i++)words[i]=BinaryPrimitives.ReadUInt32LittleEndian(translation.Bytes.AsSpan(i*4,4));
         var instructions=new List<Instruction>();
@@ -93,7 +103,7 @@ public static class ArmySkinVertexAdapter
         uint Allocate()=>next++;
         uint[] Op(ushort code,params uint[] operands)=>new[]{((uint)(operands.Length+1)<<16)|code}.Concat(operands).ToArray();
         var removedIds=removed.Select(v=>v.VariableId).ToHashSet();
-        // Optional scalar selector loads use AccessChain in this exact module.
+        // Derived pointers retain their value types when optional inputs become private.
         // Retain their complete pointer graph as initialized private constants.
         var pointerIds=removedIds.ToHashSet();
         var changedPointerTypes=new Dictionary<uint,uint>();
@@ -127,7 +137,13 @@ public static class ArmySkinVertexAdapter
             unsignedScalarPointer=scalarPointer?.Words[1]??Allocate();if(scalarPointer is null)addedDeclarations.Add(Op(32,unsignedScalarPointer,1,unsignedScalar));}
         var unsignedPointerIds=new HashSet<uint>();
         if(unsigned){unsignedPointerIds.Add(selector.VariableId);foreach(var i in instructions.Where(i=>i.Code is 65 or 66))
-            if(unsignedPointerIds.Contains(i.Words[3]))unsignedPointerIds.Add(i.Words[2]);}
+            if(unsignedPointerIds.Contains(i.Words[3])) {
+                var pointer = instructions.Single(type => type.Code == 32 && type.Words[1] == i.Words[1]);
+                var scalar = instructions.FirstOrDefault(type => type.Code == 21 && type.Words[1] == pointer.Words[3]);
+                if (scalar is null || scalar.Words[2] != 32 || scalar.Words[3] != 1)
+                    throw new InvalidDataException("Army selector access requires a signed 32-bit component.");
+                unsignedPointerIds.Add(i.Words[2]);
+            }}
         var output=new List<uint>(words.Take(5));bool emitted=false;int replaced=0,casts=0;
         var declared=new HashSet<uint>();var pending=addedDeclarations.ToList();
         void EmitReady()
@@ -153,6 +169,8 @@ public static class ArmySkinVertexAdapter
                 changed[1]=Pointer(w[1],6);output.AddRange(changed);continue;}
             if(instruction.Code is 65 or 66&&unsignedPointerIds.Contains(w[3])){var changed=w.ToArray();
                 changed[1]=unsignedScalarPointer;output.AddRange(changed);continue;}
+            if (instruction.Code == 61 && (pointerIds.Contains(w[3]) || unsignedPointerIds.Contains(w[3])) && w.Length != 4)
+                throw new InvalidDataException("Army skin input load uses unsupported memory operands.");
             if(instruction.Code==61&&w.Length==4&&removedIds.Contains(w[3]))replaced++;
             if(instruction.Code==61&&unsigned&&w.Length==4&&unsignedPointerIds.Contains(w[3])){uint loaded=Allocate();
                 uint loadType=w[3]==selector.VariableId?unsignedVector:unsignedScalar;
@@ -161,12 +179,9 @@ public static class ArmySkinVertexAdapter
             if(instruction.Code is >=19 and <=39)declared.Add(w[1]);
             if(instruction.Code is >=41 and <=46)declared.Add(w[2]);
         }
-        if(!emitted||replaced!=27||unsigned&&casts!=20)throw new InvalidDataException($"Army optional shader inputs have uses outside the exact backend profile: loads={replaced}, casts={casts}.");
+        if (!emitted) throw new InvalidDataException("Army skin transport requires a vertex function.");
         output[3]=next;byte[] adapted=new byte[output.Count*4];
         for(int i=0;i<output.Count;i++)BinaryPrimitives.WriteUInt32LittleEndian(adapted.AsSpan(i*4,4),output[i]);
-        var check=SpirvShaderInterfaceReader.Read(adapted);
-        if(check.Descriptors.Count!=module.Descriptors.Count||check.StageVariables.Count!=module.StageVariables.Count-2||
-            check.StageVariables.Any(v=>v.Name is "v5" or "v7"))throw new InvalidDataException("Army backend adapter changed more than the explicit optional input transport.");
         return new(adapted,module.Sha256,Convert.ToHexString(SHA256.HashData(adapted)),2,replaced,casts);
     }
 }

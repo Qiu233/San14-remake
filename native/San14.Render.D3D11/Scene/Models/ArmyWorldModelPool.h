@@ -45,13 +45,25 @@ public:
             std::span<const ArmyWorldPresentation> constructors,
             std::span<const NativeAccessoryPoseSource> poseDefaults,
             const NativeArmyDefaultActions& defaults)
-        :constructors_(constructors),poseDefaults_(poseDefaults),defaults_(defaults){
+        {
         slots_.resize(capacities.size());free_.resize(capacities.size());
+        resources_.resize(capacities.size());
         for(unsigned category=0;category<capacities.size();++category){
+            resources_[category]=CategoryResources{&constructors[category],&poseDefaults[category],&defaults.rows[category]};
             slots_[category].resize(capacities[category]);
             free_[category].reserve(capacities[category]);
             for(unsigned index=0;index<capacities[category];++index)free_[category].push_back(index);
         }
+    }
+
+    // An attachment-only renderer installs the one actual resource category;
+    // it does not manufacture unused Army actors or poses for other banks.
+    ArmyWorldModelPool(unsigned category,unsigned capacity,const ArmyWorldPresentation& constructor,
+        const NativeAccessoryPoseSource& pose,const NativeArmyDefaultAction& action) {
+        slots_.resize(category+1);free_.resize(category+1);resources_.resize(category+1);
+        resources_[category]=CategoryResources{&constructor,&pose,&action};
+        slots_[category].resize(capacity);free_[category].reserve(capacity);
+        for(unsigned index=0;index<capacity;++index)free_[category].push_back(index);
     }
 
     bool acquire(const ArmyWorldActorKey& key){return acquire({GraphicsModelFamily::Army,key});}
@@ -59,12 +71,15 @@ public:
     bool acquire(const GraphicsModelBindingKey& key){
         if(bindings.contains(key))return false;
         const unsigned category=unsigned(key.actor.category);
+        if(category>=resources_.size()||!resources_[category])
+            throw std::runtime_error("Shared model category has no installed resources");
         auto& slots=slots_.at(category);auto& free=free_[category];
         if(free.empty())return false;
         const unsigned index=free.back();
-        if(!slots[index])slots[index].emplace(Slot{category,index,constructors_[category],
-            createNativeAccessoryPoseOwner(poseDefaults_[category]),{},
-            createNativeArmyDefaultAnimationClock(defaults_.rows[category]),{}});
+        const auto& resource=*resources_[category];
+        if(!slots[index])slots[index].emplace(Slot{category,index,*resource.constructor,
+            createNativeAccessoryPoseOwner(*resource.pose),{},
+            createNativeArmyDefaultAnimationClock(*resource.action),{}});
         free.pop_back();bindings.emplace(key,Ref{category,index});changed(key.family);
 #ifdef SAN14_SHARED_POOL_PROOF
         logPhysical("bind",key,*slots[index]);
@@ -168,7 +183,10 @@ private:
     std::array<uint64_t,4> familyRevisions_{};
     std::vector<std::vector<std::optional<Slot>>> slots_;
     std::vector<std::vector<unsigned>> free_;
-    std::span<const ArmyWorldPresentation> constructors_;
-    std::span<const NativeAccessoryPoseSource> poseDefaults_;
-    const NativeArmyDefaultActions& defaults_;
+    struct CategoryResources {
+        const ArmyWorldPresentation* constructor;
+        const NativeAccessoryPoseSource* pose;
+        const NativeArmyDefaultAction* action;
+    };
+    std::vector<std::optional<CategoryResources>> resources_;
 };

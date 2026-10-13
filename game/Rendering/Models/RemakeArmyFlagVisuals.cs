@@ -4,7 +4,7 @@ using N = System.Numerics;
 public sealed record RemakeArmyFlagActor(int UnitId, ulong OwnedNodeIdentity,
     int DescriptorOffset, int DescriptorInstanceIndex, int Category,
     ArmyInstancePoseWrite SourceWrite, UnitWorldTransformState World,
-    RemakeArmyFlagSource Source, RemakeArmyInitialization Initialization)
+    LoadedArmyFlagResources Source, RemakeArmyInitialization Initialization)
 {
     public string InstanceKey => $"remake-army/{UnitId}/flag/{DescriptorOffset:X}/{OwnedNodeIdentity}";
     public bool InstanceStateFidelityVerified => false;
@@ -29,12 +29,12 @@ public sealed class RemakeArmyFlagVisuals : IDisposable
 {
     private sealed record OwnedPools(ArmyFlagLinkedPool Banner, ArmyFlagLinkedPool Flags);
     private readonly GameResourceRepository _repository;
-    private readonly Dictionary<int, RemakeArmyFlagSource> _sources = [];
+    private readonly Dictionary<int, LoadedArmyFlagResources> _sources = [];
     private readonly Dictionary<int, OwnedPools> _pools = [];
     private bool _disposed;
     public IReadOnlyDictionary<int, RemakeArmyFlagFrame> Frames { get; private set; } =
         new Dictionary<int, RemakeArmyFlagFrame>();
-    public IReadOnlyDictionary<int, RemakeArmyFlagSource> Sources => _sources;
+    public IReadOnlyDictionary<int, LoadedArmyFlagResources> Sources => _sources;
 
     internal RemakeArmyFlagVisuals ForkLogicalState()
     {
@@ -99,7 +99,7 @@ public sealed class RemakeArmyFlagVisuals : IDisposable
         // Successful raw model/definition/action loading constructs an owned
         // model pointer result. Runtime cloth materials are resolved by the
         // draw producer, and are not replaced with an arbitrary primary image.
-        if (!_sources.ContainsKey(category)) _sources.Add(category, RemakeArmyFlagSource.Load(_repository, category));
+        if (!_sources.ContainsKey(category)) _sources.Add(category, LoadedArmyFlagResources.Load(_repository, category));
         var nodes = new List<ArmyFlagPoolNode>();
         for (int i = 0; i < requested; i++)
             nodes.Add(new((ulong)i + 1, i + 1 == requested ? 0 : (ulong)i + 2,

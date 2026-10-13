@@ -48,7 +48,7 @@ public static class D3D11AmbientWorkInputPreparation
                 reference => SkySeasonPackageTextures.LoadSampling(repository, reference));
         var textureBindings = sampling ?? bindings!.Capture();
         textureBindings.RequireCurrent();
-        directional.PrepareLights(skyShader, textureBindings);
+        directional.PrepareLights(textureBindings);
         var frame=directional.PrepareSourceSelectedSeasonFrame(ambient.SpecularTargets[0],
             SkyDirectionalAtmosphereNativeSource.Load(repository,locale,NativeLogDispatch.Sse),2,skyShader,stages,textureBindings);
         var selections=directional.CaptureDesiredSelection(skyShader,frame);

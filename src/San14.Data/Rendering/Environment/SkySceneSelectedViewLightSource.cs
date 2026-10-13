@@ -84,8 +84,8 @@ public static class SkySceneSelectedViewLightSource
     }
 
     /// <summary>Actual source mode2 Moon setter remains nonnull and computes
-    /// its native zero cache. Only the locked default programs can consume the
-    /// resulting unused Moon amplitude; arbitrary current packets stay strict.</summary>
+    /// its zero cache. Shader consumers must confirm that the resulting Moon
+    /// amplitude is unused; current light ownership remains explicit.</summary>
     public static SkySceneLights PrepareSourceZeroMoonLights(
         SkySceneSelectedViewLightPacket selectedPacket, Vector4 packagePosition,
         string packageOwner, Sky2SourceZeroMoon proof)

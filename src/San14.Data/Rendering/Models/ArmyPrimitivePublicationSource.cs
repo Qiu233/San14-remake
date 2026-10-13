@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -9,91 +8,58 @@ namespace San14.Data;
 /// source bytes; a category number is never a light-record number.</summary>
 public sealed class ArmyPrimitivePublicationSource
 {
-    private readonly byte[] catalogBytes, dictionaryBytes, modelBytes;
-    private readonly int[] drawIndices;
     private ArmyPrimitivePublicationSource(LoadedArmyCatalog catalog,
-        CeArmyModelCategory category, LoadedRdbAsset model, uint exclusion,
-        int[] draws)
-    {
-        Catalog = catalog; Category = category; Model = model; Exclusion78 = exclusion;
-        catalogBytes = catalog.Catalog.Source.Bytes.ToArray();
-        dictionaryBytes = catalog.Dictionary.Source.Bytes.ToArray(); modelBytes = model.Bytes.ToArray();
-        drawIndices = draws;
-    }
+        CeArmyModelCategory category, LoadedModelGeometry model, uint exclusion,
+        ModelPrimitiveInventorySource primitives)
+        => (Catalog, Category, Model, Exclusion78, Primitives) = (catalog, category, model, exclusion, primitives);
+
     public LoadedArmyCatalog Catalog { get; }
     public CeArmyModelCategory Category { get; }
-    public LoadedRdbAsset Model { get; }
+    public LoadedModelGeometry Model { get; }
+    public ModelPrimitiveInventorySource Primitives { get; }
     public uint Exclusion78 { get; }
     public uint FreshOrdinaryViewMask328 => uint.MaxValue;
     public int FreshEligibilitySelector334 => -1;
-    public int OrdinaryModelCpuCount => drawIndices.Length;
-    public IReadOnlyList<int> OrdinarySourceDrawIndices => Array.AsReadOnly(drawIndices.ToArray());
+    public int OrdinaryModelCpuCount => Primitives.Category0.Count;
+    public IReadOnlyList<int> OrdinarySourceDrawIndices => Primitives.Category0.SourceDrawIndices;
     public string Identity => $"{Catalog.Catalog.Source.ResourceUri}@{Catalog.Catalog.Source.DecodedSha256}/" +
         $"{Category.DefinitionId:X8}|{Catalog.Dictionary.Source.ResourceUri}@{Catalog.Dictionary.Source.DecodedSha256}/" +
-        $"{Category.ModelObjectId:X8}|{Model.ResourceUri}@{Model.DecodedSha256}";
+        $"{Category.ModelObjectId:X8}|{Model.Source.ResourceUri}@{Model.Source.DecodedSha256}";
     public string SourceProvenance => Identity + ";C4B9B28D/default370-creator;" +
         "TC:DA7DF1/DA7E72/D9E890/D9EC00;property9-C0C5A5B5-to-WorldPQ78;" +
         "TC:C222A0/C240C0/ABB360/F587F0/F57390;selector0/key0;" +
         "TC:C392F9-ModelData20-fallback;source-G1ii/swap/destruction-null";
 
     public static ArmyPrimitivePublicationSource ReadKnownCategory(
-        LoadedArmyCatalog catalog, int category, LoadedRdbAsset actualModel)
+        LoadedArmyCatalog catalog, int category, LoadedModelGeometry actualModel)
     {
         ArgumentNullException.ThrowIfNull(catalog); ArgumentNullException.ThrowIfNull(actualModel);
         if ((uint)category >= CeArmyModels.KnownSourceCategories.Count)
             throw new NotSupportedException("Army primitive publication has no source-backed category.");
         var known = CeArmyModels.KnownSourceCategories[category];
-        Verify(catalog.Catalog.Source); Verify(catalog.Dictionary.Source); Verify(actualModel);
         if (catalog.Catalog.Source.ResourceUri != GameResourceId.Rdb("KIDSSystemResource", CeArmyModels.CatalogId).ToString() ||
             catalog.Dictionary.Source.ResourceUri != GameResourceId.Rdb("KIDSSystemResource", CeArmyModels.DictionaryId).ToString() ||
-            actualModel.ResourceUri != GameResourceId.Rdb("CharacterEditor", known.ModelFileId).ToString())
+            actualModel.Source.ResourceUri != GameResourceId.Rdb("CharacterEditor", known.ModelFileId).ToString())
             throw new InvalidDataException("Army publication source URI does not identify this actual category.");
-        var definitions = DokReader.Read(catalog.Catalog.Source.Bytes).Objects;
-        var models = DokReader.Read(catalog.Dictionary.Source.Bytes).Objects;
+        var definitions = catalog.Catalog.Document.Objects;
         var definition = definitions.Single(o => o.ObjectId == known.DefinitionId && o.Kind == DokObjectKind.Inline && o.ClassId == 0xC4B9B28D);
-        var model = models.Single(o => o.ObjectId == known.ModelObjectId && o.Kind == DokObjectKind.Inline && o.ClassId == 0xD40B3C8F);
-        if (Scalar(definition, 0, 0x0B6E1578) != known.ModelObjectId ||
-            Scalar(model, 0, 0x8AB68B3F, false) != known.ModelFileId || actualModel.FileId != known.ModelFileId)
+        if (Scalar(definition, 0x0B6E1578) != known.ModelObjectId ||
+            actualModel.Source.FileId != known.ModelFileId)
             throw new InvalidDataException("Army definition does not select this exact model source.");
         // Zero override selector chooses the proven default 370-byte creator.
-        if (Scalar(definition, 3, 0xECEC336A) != 0 || Scalar(definition, 26, 0xB2B6E876) != 0 ||
-            Scalar(model, 25, 0x0B534ABC) != 0 || Scalar(model, 41, 0x95424354) != 0)
+        if (Scalar(definition, 0xECEC336A) != 0 || Scalar(definition, 0xB2B6E876) != 0)
             throw new NotSupportedException("Army source geometry override/fallback requires a different producer.");
-        var swap = model.Properties[24];
-        if (swap.Index != 24 || swap.NameHash != 0x07AAF542 || swap.TypeCode != 5 || swap.ElementCount != 0 || swap.RawValue.Length != 0)
-            throw new NotSupportedException("Army source swaps change the ordinary geometry fallback.");
-        uint exclusion = Scalar(definition, 9, MapSourceCreatedViewFields.ModelExclusion78PropertyHash);
-        var geometry = G1ModelGeometryReader.Read(actualModel.Bytes, actualModel.Bytes.LongLength);
-        var drawBindings = G1ModelDrawReader.Read(geometry);
-        var part = geometry.Sections.Single(section => section.Id == 0x10009);
-        int[] ordered = drawBindings.Groups.SelectMany(g => g.DrawIndices).ToArray();
-        if (part.ItemCount != 1 || part.RawBytes.Length < 48 ||
-            (BinaryPrimitives.ReadUInt32LittleEndian(part.RawBytes.AsSpan(16)) & 0x7FFFFFFF) != 0 ||
-            BinaryPrimitives.ReadUInt32LittleEndian(part.RawBytes.AsSpan(24)) != drawBindings.Groups.Count ||
-            BinaryPrimitives.ReadUInt32LittleEndian(part.RawBytes.AsSpan(28)) != 0 ||
-            drawBindings.Draws.Any(d => d.UnknownValue32 != 1) || ordered.Length != drawBindings.Draws.Count ||
-            ordered.Distinct().Count() != ordered.Length || !ordered.Order().SequenceEqual(drawBindings.Draws.Select(d => d.Index).Order()))
-            throw new NotSupportedException("Army publication needs the actual one-part ordinary unique primitive classification.");
-        return new(catalog, known, actualModel, exclusion, ordered);
+        uint exclusion = Scalar(definition, MapSourceCreatedViewFields.ModelExclusion78PropertyHash);
+        var primitives = ModelPrimitiveInventorySource.ReadLoaded(actualModel, catalog.Dictionary, known.ModelObjectId);
+        return new(catalog, known, actualModel, exclusion, primitives);
     }
 
-    public void ValidateSourceUnchanged()
+    private static uint Scalar(DokObject obj, uint hash)
     {
-        if (!catalogBytes.AsSpan().SequenceEqual(Catalog.Catalog.Source.Bytes) ||
-            !dictionaryBytes.AsSpan().SequenceEqual(Catalog.Dictionary.Source.Bytes) || !modelBytes.AsSpan().SequenceEqual(Model.Bytes))
-            throw new InvalidDataException("Army publication source bytes changed after construction.");
-    }
-    private static uint Scalar(DokObject obj, int ordinal, uint hash, bool requireOrdinal = true)
-    {
-        var p = requireOrdinal ? obj.Properties[ordinal] : obj.Properties.Single(p => p.NameHash == hash);
-        if (requireOrdinal && p.Index != ordinal || p.NameHash != hash || p.TypeCode != 5 || p.ElementCount != 1 || p.RawValue.Length != 4)
-            throw new InvalidDataException("Army publication requires the exact typed source scalar binding.");
-        return BinaryPrimitives.ReadUInt32LittleEndian(p.RawValue);
-    }
-    private static void Verify(LoadedRdbAsset source)
-    {
-        if (Convert.ToHexString(SHA256.HashData(source.Bytes)) != source.DecodedSha256)
-            throw new InvalidDataException("Army publication source bytes differ from their verified hash.");
+        var property = obj.Properties.Single(property => property.NameHash == hash);
+        if (property.TypeCode != 5 || property.ElementCount != 1 || property.RawValue.Length != 4)
+            throw new InvalidDataException("Army publication requires a typed source scalar binding.");
+        return BinaryPrimitives.ReadUInt32LittleEndian(property.RawValue);
     }
 }
 
@@ -168,7 +134,6 @@ public sealed class ArmyCurrentPrimitivePublication
                 actor.CurrentOrdinaryView0Eligible is not bool eligible || actor.FreshWorldPqMaskAndGeometryFallbackRetained != true ||
                 actor.CurrentExclusion78 is not uint exclusion)
                 throw new InvalidDataException("Army current visibility, mask/fallback or exclusion publication is unresolved.");
-            actor.Source.ValidateSourceUnchanged();
             uint[] admitted = eligible ? masks.Where(mask => ((exclusion | common) & mask) == 0).ToArray() : [];
             foreach (int draw in actor.Source.OrdinarySourceDrawIndices)
             {

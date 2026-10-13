@@ -28,10 +28,7 @@ inline NativeArmyGraphicsActions loadNativeArmyGraphicsActions(const std::filesy
         const float start=in.get<float>(),length=in.get<float>(),end=in.get<float>(),interpolation=in.get<float>();
         const auto continuation=in.get<uint32_t>(),object=in.get<uint32_t>(),flags=in.get<uint32_t>(),extra=in.get<uint32_t>();
         row.playerFlags=flags;
-        const bool knownRaw=p.category<2?p.rawActionId<3:
-            p.category>=4&&p.category<=6?(p.rawActionId==0||p.rawActionId==2):
-            p.category>=7&&p.category<=9?(p.rawActionId==0||p.rawActionId==2||p.rawActionId==3):p.rawActionId==0;
-        if(p.category<firstCategory||p.category-firstCategory>=poses.size()||!knownRaw||p.grouped!=(p.category<2?1u:0u)||
+        if(p.category<firstCategory||p.category-firstCategory>=poses.size()||p.grouped!=(p.category<2?1u:0u)||
             !std::isfinite(p.controllerRate)||p.controllerRate<=0||!std::isfinite(p.clipDuration)||p.clipDuration<=0||
             start!=0||!std::isfinite(length)||length>0||end!=0||interpolation!=0||p.loopDeclaration>=0||
             continuation!=UINT32_MAX||object!=UINT32_MAX||extra!=0)
@@ -59,7 +56,4 @@ inline NativeArmyGraphicsActions loadNativeArmyGraphicsActions(const std::filesy
     }
     if(in.at!=in.bytes.size())throw std::runtime_error("Army graphics action source trailing bytes");
     return result;
-}
-inline NativeArmyGraphicsActions loadNativeArmyGraphicsActions(const std::filesystem::path& directory,const NativeArmySource& base){
-    return loadNativeArmyGraphicsActions(directory,base.poses,base.defaultActions.rows);
 }

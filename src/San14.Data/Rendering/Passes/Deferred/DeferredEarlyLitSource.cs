@@ -38,7 +38,7 @@ public sealed class LoadedDeferredEarlyLitSource
         foreach(var provider in programs.Programs.GroupBy(p=>p.ProviderKind))
         {
             var shader=provider.First().Shader;
-            var names=G1ShaderConfigurationReader.Read(shader.Source.Bytes,shader.Container).Records.Select(r=>r.Name).ToArray();
+            var names=shader.ReadConfigurations().Records.Select(r=>r.Name).ToArray();
             string[] actualExpected=provider.Key==DeferredEarlyIndirectProvider.Primary
                 ? ["GBufferLayout","SubShadowMaps","PatternMap","ShadowReceiverBias"]
                 : ["GBufferLayout","PatternMap","ShadowReceiverBias"];

@@ -88,7 +88,7 @@ public sealed class TerrainGbiMapMaterial : ITerrainSurface, IDisposable, IAsync
             material.SetMeta("original_material_sampling_implemented", true);
             material.SetMeta("original_lighting_implemented", false);
             material.SetMeta("original_frame_selection_observed", false);
-            material.SetMeta("source_feature_record", source.Feature.RawBytes);
+            material.SetMeta("source_feature_record", source.Feature.RawBytes.ToArray());
             material.SetMeta("source_feature_row", source.Feature.Index);
             material.SetMeta("source_pixel_program", source.Combination.Stages.Single(stage => stage.StageCode == 0).Entry!.ProgramIndex);
             material.SetMeta("source_coarse_feature_row", source.CoarseFeature.Index);

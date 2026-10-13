@@ -69,7 +69,7 @@ public sealed class MapPostEffect3WorldSubmittedImmutableSourceReceipt
                 !frame.MainCamera.Prefix.Span.SequenceEqual(camera)||!frame.Lighting.PreparedCameraPrefix.Span.SequenceEqual(lightingCamera)||
                 !frame.Lighting.LocalLightData.Span.SequenceEqual(light)||!frame.Feature.CurrentFeature48.Span.SequenceEqual(feature)||
                 !frame.Selection.CurrentFeature48.Span.SequenceEqual(selectionFeature)||!frame.Selection.RequestedVariant96.Span.SequenceEqual(variant)||
-                !frame.Selection.Combination.RawRow.AsSpan().SequenceEqual(row)||!frame.Selection.BindingVariant.RawBytes.AsSpan().SequenceEqual(binding))
+                !frame.Selection.Combination.RawRow.Span.SequenceEqual(row)||!frame.Selection.BindingVariant.RawBytes.Span.SequenceEqual(binding))
                 throw new InvalidDataException("Accepted submitted World changed its current native Camera/lighting/feature/variant packet.");
         }
     }

@@ -38,11 +38,8 @@ public sealed class LoadedCityGateAccessoryAnimation
         var catalog=CeArmyModels.LoadCatalog(repo);
         var category=CeArmyModels.KnownSourceCategories[2];
         var definition=catalog.Definitions.Single(d=>d.Definition.ObjectId==category.DefinitionId);
-        var action=ArmyAnimationResources.LoadAction(repo,catalog,2,0);
-        // Declaration05D92ACC is Flag; actual action-map key is the distinct
-        // 7FB88531 ActionID (CPU+24). Existing resource carrier's RawActionId
-        // names its legacy05D92ACC field, so do not use it as this map identity.
-        uint actualActionId=unchecked((uint)I(action.ActionObject,0x7FB88531));
+        var action=ArmyAnimationResources.LoadActions(repo,catalog,2).Single(action=>action.RawActionId==0);
+        uint actualActionId=action.RawActionId;
         if(actualActionId!=0 || action.AnimationData.Count!=1)
             throw new NotSupportedException("Current finite controller requires its actual default RawActionId0 and single AnimationData.");
         var obj=action.ActionObject;

@@ -1,7 +1,6 @@
 using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -46,16 +45,7 @@ public static class MapModelNativeBoundsSources
         return Cache.GetValue(asset, static sourceAsset =>
         {
             LoadedRdbAsset source = sourceAsset.RawTransforms.Source;
-            if (string.IsNullOrWhiteSpace(source.ResourceUri) || source.DecodedSha256 !=
-                Convert.ToHexString(SHA256.HashData(source.Bytes)))
-                throw Error("model source URI/hash differs from the canonical bytes");
-            G1ModelGeometry geometry = G1ModelGeometryReader.Read(source.Bytes, source.Bytes.LongLength);
-            ReadOnlySpan<byte> header = geometry.RawGeometryHeader;
-            Vector3 minimum = new(BinaryPrimitives.ReadSingleLittleEndian(header[20..]),
-                BinaryPrimitives.ReadSingleLittleEndian(header[24..]), BinaryPrimitives.ReadSingleLittleEndian(header[28..]));
-            Vector3 maximum = new(BinaryPrimitives.ReadSingleLittleEndian(header[32..]),
-                BinaryPrimitives.ReadSingleLittleEndian(header[36..]), BinaryPrimitives.ReadSingleLittleEndian(header[40..]));
-            return PrepareHeader(minimum, maximum, source.ResourceUri, source.DecodedSha256);
+            return PrepareHeader(sourceAsset.LocalMinimum, sourceAsset.LocalMaximum, source.ResourceUri, source.DecodedSha256);
         });
     }
 

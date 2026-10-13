@@ -1,18 +1,22 @@
 using San14.Data;
 
 /// <summary>Shared owned allocation lifetime for full type16 resources.
-/// Imports may have separately parsed declaration wrappers for the same
-/// actual catalogue record; those wrappers alias this retained table. Army
-/// and static callers share this owner rather than inventing separate ranks.</summary>
+/// Separate parses of the same resource version alias its tables. A new
+/// catalogue version owns distinct tables and interfaces while accepted work
+/// retains the earlier version. Army and static callers share allocation order.</summary>
 public sealed class NativeWorldShaderTableRegistry
 {
-    private readonly LoadedObjects catalogue;
-    private readonly Dictionary<uint, NativeWorldShaderTableState> tables = [];
+    private sealed class Catalogue(LoadedObjects objects)
+    {
+        public LoadedObjects Objects { get; } = objects;
+        public Dictionary<uint, NativeWorldShaderTableState> Tables { get; } = [];
+    }
+    private readonly Dictionary<(string Resource, string Version), Catalogue> catalogues = [];
     private readonly Dictionary<(NativeWorldShaderTableState Table, int Index), ModelShaderInterfaceSource> interfaces = [];
     private ulong allocationOrdinal;
     private bool alive = true;
     private NativeWorldShaderTableRegistry(LoadedObjects actualLoadedCatalogue)
-        => catalogue = actualLoadedCatalogue;
+        => _ = RetainCatalogue(actualLoadedCatalogue);
     public static NativeWorldShaderTableRegistry CreateLoaded(LoadedObjects actualLoadedCatalogue)
     {
         ArgumentNullException.ThrowIfNull(actualLoadedCatalogue);
@@ -20,29 +24,37 @@ public sealed class NativeWorldShaderTableRegistry
     }
 
     /// <summary>Actual resource creation or import/reuse boundary. ObjectId
-    /// identifies the loaded record; only ordered allocation identity becomes
-    /// field3. No file/draw hash or lexical rank becomes a sort key.</summary>
+    /// identifies a record within its imported resource version. The source
+    /// loader already supplies that version; no payload is hashed here. Only
+    /// ordered allocation identity becomes field3, never a resource key.</summary>
     public NativeWorldShaderTableState RetainImportedTable(NamedModelShader actualTable)
     {
         ArgumentNullException.ThrowIfNull(actualTable);
         if (!alive) throw new ObjectDisposedException(nameof(NativeWorldShaderTableRegistry));
-        if (actualTable.Objects.Source.ResourceUri != catalogue.Source.ResourceUri ||
-            actualTable.Objects.Source.DecodedSha256 != catalogue.Source.DecodedSha256)
-            throw new InvalidDataException("Typed16 table import belongs to another loaded shader catalogue generation.");
-        if (tables.TryGetValue(actualTable.Object.ObjectId, out var state)) return state;
-        var canonical = ModelShaderResources.ReadDeclaredShader(catalogue, actualTable.Object.ObjectId);
+        var catalogue = RetainCatalogue(actualTable.Objects);
+        if (catalogue.Tables.TryGetValue(actualTable.Object.ObjectId, out var state)) return state;
+        var canonical = ModelShaderResources.ReadDeclaredShader(catalogue.Objects, actualTable.Object.ObjectId);
         if (!canonical.HasVerifiedType16Creator)
             throw new NotSupportedException("Owned type16 allocation needs its actual verified resource creator.");
         state = new(checked(++allocationOrdinal), canonical, this);
-        tables.Add(canonical.Object.ObjectId, state);
+        catalogue.Tables.Add(canonical.Object.ObjectId, state);
         return state;
+    }
+
+    private Catalogue RetainCatalogue(LoadedObjects objects)
+    {
+        var key = (objects.Source.ResourceUri, objects.Source.DecodedSha256);
+        if (!catalogues.TryGetValue(key, out var catalogue))
+            catalogues.Add(key, catalogue = new(objects));
+        return catalogue;
     }
 
     public void RequireCurrent(NativeWorldShaderTableState state)
     {
         ArgumentNullException.ThrowIfNull(state);
-        if (!alive || !ReferenceEquals(state.Registry, this) ||
-            !tables.TryGetValue(state.TableOwner.Object.ObjectId, out var retained) || !ReferenceEquals(retained, state))
+        // This registry creates every state and retains all versions until
+        // retirement. A table ID lookup would conflate different versions.
+        if (!alive || !ReferenceEquals(state.Registry, this))
             throw new InvalidDataException("Typed16 table allocation has been retired or belongs to another resource owner.");
     }
 
@@ -61,6 +73,6 @@ public sealed class NativeWorldShaderTableRegistry
     public void Invalidate(string actualResourceWriter)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(actualResourceWriter);
-        alive = false; tables.Clear(); interfaces.Clear();
+        alive = false; catalogues.Clear(); interfaces.Clear();
     }
 }

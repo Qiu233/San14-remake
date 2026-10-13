@@ -148,7 +148,7 @@ public sealed class NativeMapScene : IAsyncDisposable
                 sourceHash!=source.DecodedSha256 || sourceHash!=borrowed.DecodedSha256 ||
                 !source.Bytes.AsSpan().SequenceEqual(borrowed.Bytes) ||
                 selected.Index!=borrowedDeferredProgram.Combination.Index ||
-                !selected.RawRow.AsSpan().SequenceEqual(borrowedDeferredProgram.Combination.RawRow) ||
+                !selected.RawRow.Span.SequenceEqual(borrowedDeferredProgram.Combination.RawRow.Span) ||
                 Convert.ToHexString(SHA256.HashData(deferredSource.Container.GetProgramBytes(source.Bytes,pixel.ProgramIndex)))!=
                     borrowedDeferredProgram.UnspecializedTranslation.SourceProgramSha256)
                 throw new InvalidDataException("Borrowed deferred program must retain the same source bytes and selected original combination.");

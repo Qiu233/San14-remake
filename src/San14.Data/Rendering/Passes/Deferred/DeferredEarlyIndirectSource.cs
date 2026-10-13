@@ -142,7 +142,7 @@ public sealed class LoadedDeferredEarlyIndirectSource
     {
         uint result = 0;
         foreach (var row in tables[provider].Variants.Records)
-            result |= 1u << (int)(BinaryPrimitives.ReadUInt32LittleEndian(row.RawBytes.AsSpan(word * 4, 4)) & 31);
+            result |= 1u << (int)(BinaryPrimitives.ReadUInt32LittleEndian(row.RawBytes.Span.Slice(word * 4, 4)) & 31);
         return result;
     }
     public void RequireProgram(DeferredEarlyIndirectProgram program)
@@ -192,7 +192,7 @@ public static class DeferredEarlyIndirectSource
         LoadedShaderContainer Shader(NamedModelShader provider, string hash)
         {
             var shader = repository.LoadShaderContainer("system", provider.ShaderFileHash); Verify(shader.Source, hash);
-            return shader with { Container = G2ShaderContainerReader.Read(shader.Source.Bytes) };
+            return shader;
         }
         return new(graph, primary, noSub,
             Shader(primary, "BB33C50FACECA62E45B020A78FA37B521D2A0AAD58E0D85829283DCEAB6961EE"),

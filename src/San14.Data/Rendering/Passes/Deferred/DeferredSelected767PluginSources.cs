@@ -121,7 +121,7 @@ public sealed class DeferredSelected767PluginOwner
     {
         if(shader.Source.FileId!=0x9D8E811F||shader.Source.OverrideSource is not null)
             throw new InvalidDataException("Plugin owner requires the unmodified exact system9D8E811F source shader.");
-        var records=G1ShaderConfigurationReader.Read(shader.Source.Bytes).Records;
+        var records=shader.ReadConfigurations().Records;
         // The directory has16 records:14 registered plugins plus the separate
         // GBufferLayout and SecondaryHighlight configuration records.
         if(records.Count!=16||new[]{"OccFader","ShadowMask","HatchingShadow","GBufferLayout","SecondaryHighlight"}.Any(name=>records.Count(r=>r.Name==name)!=1))

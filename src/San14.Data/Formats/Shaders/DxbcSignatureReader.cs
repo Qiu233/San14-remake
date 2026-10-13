@@ -34,7 +34,7 @@ public static class DxbcSignatureReader
             if (part.FourCc is not ("ISGN" or "OSGN" or "PCSG" or "OSG5")) continue;
             parts.Add(ReadPart(part, part.PayloadRange.Slice(program)));
         }
-        return new(program.Length, parts);
+        return new(program.Length, parts.AsReadOnly());
     }
 
     private static DxbcSignaturePart ReadPart(DxbcPart part, ReadOnlySpan<byte> data)
@@ -75,7 +75,8 @@ public static class DxbcSignatureReader
             "PCSG" => DxbcSignatureKind.PatchConstants,
             _ => DxbcSignatureKind.Output
         };
-        return new(part.DirectoryIndex, part.FourCc, kind, part.PayloadRange, header, table, parameters, gaps);
+        return new(part.DirectoryIndex, part.FourCc, kind, part.PayloadRange, header, table,
+            parameters.AsReadOnly(), gaps.AsReadOnly());
     }
 
     private static DxbcSignatureString ReadString(ReadOnlySpan<byte> data, uint rawOffset, int minimum,

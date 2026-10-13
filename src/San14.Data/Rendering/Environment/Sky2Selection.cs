@@ -29,7 +29,7 @@ public sealed class Sky2Selection
         ArgumentNullException.ThrowIfNull(source);
         if (Convert.ToHexString(SHA256.HashData(source.Source.Bytes)) != SourceSha256)
             throw new InvalidDataException("Sky2 selection requires the verified 340AC335 source bytes.");
-        var configurations = G1ShaderConfigurationReader.Read(source.Source.Bytes, source.Container);
+        var configurations = source.ReadConfigurations();
         var tables = source.ReadG1Bindings();
         uint[] dimensions = [2, 0, 0, 0, 0, 0, 8];
         if (tables.PassCount != 2 || !tables.RawDimensionCounts.SequenceEqual(dimensions) ||

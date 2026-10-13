@@ -24,7 +24,7 @@ public static class ArmyGraphicsAnimationNativeInputs
                 var known=CeArmyModels.KnownSourceCategories[category];
                 var definition=catalog.Definitions.Single(row=>row.Definition.ObjectId==known.DefinitionId).Definition;
                 var world=UnitWorldTransform.ConstructDefinition(catalog.Catalog,definition);
-                var primitive=ArmyPrimitivePublicationSource.ReadKnownCategory(catalog,category,models[category].Source);
+                var primitive=ArmyPrimitivePublicationSource.ReadKnownCategory(catalog,category,new(models[category].Geometry,models[category].Source));
                 var bounds=MapModelNativeBoundsSources.BuildSingleNode(
                     ArmyModelWorldVisibilitySource.Read(primitive).PreparedModelBounds,world,false,false);
                 constructors.Write((uint)category);

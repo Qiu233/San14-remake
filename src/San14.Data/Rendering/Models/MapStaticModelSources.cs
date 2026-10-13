@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Numerics;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -62,10 +61,11 @@ public sealed class MapStaticModelAssetCatalog
             60 => 0x13D7C146u,
             _ => throw new ArgumentOutOfRangeException(nameof(category))
         };
+        string key = "capital-category:" + category;
+        if (_assets.TryGetValue(key, out var cached)) return cached;
         var dictionary = Scene.Dependencies.Single(d => d.Resource.Source.FileId == 0xE755DAEE).Resource;
         var resources = ModelTextureResources.LoadForDefinition(_repository, dictionary, Scene.ModelCatalog, definition);
-        return LoadReference(new(dictionary, resources.ModelObject, resources.Model.Source.FileId),
-            "capital-category:" + category) with { TextureResources = resources };
+        return Add(key, new(dictionary, resources.ModelObject, resources.Model.Source.FileId), LoadRaw(resources), resources);
     }
 
     public MapStaticModelAsset LoadSceneInstance(int instanceIndex)
@@ -98,58 +98,32 @@ public sealed class MapStaticModelAssetCatalog
 
     public MapStaticModelAsset LoadGate(int category)
     {
+        string key = "gate-category:" + category;
+        if (_assets.TryGetValue(key, out var cached)) return cached;
         var resources = CeGateModels.LoadTextureResourcesByCategory(_repository, Scene, category);
         var reference = new SceneModelReference(resources.Dictionary, resources.ModelObject, resources.Model.Source.FileId);
-        string key = $"catalog-reference:gate-category:{category}:{reference.Dictionary.Source.ResourceUri}/{reference.Dictionary.Source.DecodedSha256}/{reference.ModelObject.ObjectId:X8}/{reference.ModelFileId:X8}";
-        if (_assets.TryGetValue(key, out var cached)) return cached;
         return Add(key, reference, LoadRaw(resources), resources);
     }
 
     public MapStaticModelAsset LoadFacility(int objectDefinitionSlot, bool completed)
     {
-        var pair = CeFacilityModels.Resolve(_repository, Scene, objectDefinitionSlot);
-        return LoadCatalogReference(completed ? pair.Completed : pair.Unfinished,
-            $"facility-slot:{objectDefinitionSlot}/state:{(completed ? "completed" : "unfinished")}");
-    }
-
-    private MapStaticModelAsset LoadCatalogReference(SceneModelReference reference, string categoryIdentity)
-    {
-        string key = $"catalog-reference:{categoryIdentity}:{reference.Dictionary.Source.ResourceUri}/{reference.Dictionary.Source.DecodedSha256}/{reference.ModelObject.ObjectId:X8}/{reference.ModelFileId:X8}";
+        string key = $"facility-slot:{objectDefinitionSlot}/state:{(completed ? "completed" : "unfinished")}";
         if (_assets.TryGetValue(key, out var cached)) return cached;
-        var definitions = Scene.ModelCatalog.Document.Objects.Where(obj => obj.Kind == DokObjectKind.Inline &&
-            obj.ClassId == ScenePlacementReader.ModelWorldPqClass && obj.Properties.Any(p => p.NameHash == 0x0B6E1578 &&
-                p.TypeCode == 5 && p.ElementCount == 1 && p.RawValue.Length == 4 &&
-                BinaryPrimitives.ReadUInt32LittleEndian(p.RawValue) == reference.ModelObject.ObjectId)).ToArray();
-        if (definitions.Length != 1)
-            throw new InvalidDataException("Native gate/facility category has no unique original WorldPQ catalog definition.");
-        var textures = ModelTextureResources.LoadForDefinition(_repository, reference.Dictionary,
-            Scene.ModelCatalog, definitions[0].ObjectId);
-        if (textures.Model.Source.FileId != reference.ModelFileId)
-            throw new InvalidDataException("Native catalog category differs from its scene model reference.");
-        return Add(key, reference, LoadRaw(textures), textures);
+        var resources = CeFacilityModels.LoadTextureResources(_repository, Scene, objectDefinitionSlot, completed);
+        return Add(key, new(resources.Dictionary, resources.ModelObject, resources.Model.Source.FileId),
+            LoadRaw(resources), resources);
     }
 
     public void Invalidate() => _assets.Clear();
 
-    private LoadedModelTransforms LoadRaw(LoadedModelTextureResources textures)
-    {
-        LoadedModelTransforms raw = _repository.LoadModelTransforms("FieldEditor4", textures.Model.Source.FileId);
-        if (raw.Source.ResourceUri != textures.Model.Source.ResourceUri ||
-            raw.Source.DecodedSha256 != textures.Model.Source.DecodedSha256)
-            throw new InvalidDataException("Native map model changed while loading its raw transforms.");
-        return raw;
-    }
+    private static LoadedModelTransforms LoadRaw(LoadedModelTextureResources textures)
+        => new(textures.Model.Geometry,
+            G1ModelTransformReader.Read(textures.Model.Source.Bytes, textures.Model.Geometry), textures.Model.Source);
 
     private MapStaticModelAsset Add(string key, SceneModelReference reference,
         LoadedModelTransforms raw, LoadedModelTextureResources textures)
     {
-        if (!Convert.ToHexString(SHA256.HashData(raw.Source.Bytes)).Equals(raw.Source.DecodedSha256, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Native map model source hash changed.");
-        var geometry = G1ModelGeometryReader.Read(raw.Source.Bytes, raw.Source.Bytes.LongLength);
-        var transforms = G1ModelTransformReader.Read(raw.Source.Bytes, geometry);
-        // Parsed input records may have mutable arrays; use the canonical source
-        // payload for cache publication instead of trusting a stale parse.
-        raw = new(geometry, transforms, raw.Source);
+        G1ModelGeometry geometry = raw.Geometry;
         G1DrawRecord[] draws = G1ModelDrawReader.Read(geometry).Draws.ToArray();
         if (draws.Length == 0) throw new InvalidDataException("Native map model contains no source draws.");
         ReadOnlySpan<byte> header = geometry.RawGeometryHeader;

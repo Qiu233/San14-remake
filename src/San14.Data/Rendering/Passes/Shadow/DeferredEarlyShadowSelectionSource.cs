@@ -35,9 +35,7 @@ public sealed class DeferredEarlyShadowSelectionState
             renderer.Bindings.Variants.RecordWidth != 12 || renderer.Bindings.Variants.Records.Count == 0 ||
             Enumerable.Range(0, 7).Where(i => i is not 2 and not 6).Any(i => counts[i] > 1))
             throw new NotSupportedException("The finite state3 source owner requires generic class39 and single/empty nonmatrix, nonvariant dimensions.");
-        matrixRows = G1ShaderMatrixBindingReader.Read(renderer.Shader.Source.Bytes);
-        if (matrixRows.Rows.Count != counts[2])
-            throw new InvalidDataException("Generic state3 matrix table differs from its actual third dimension.");
+        matrixRows = renderer.Shader.ReadMatrixBindings();
         // ABFA80 invokes981F00 after its generic constructor: seven explicit
         // zero stores, pass=-1, and the entire first12B row in both caches.
         var first = renderer.Bindings.Variants.Records[0].RawBytes;
@@ -61,12 +59,7 @@ public sealed class DeferredEarlyShadowSelectionState
         byte actualFrontend1BE, byte actualFrontend1C0)
     {
         ArgumentNullException.ThrowIfNull(actualType17);
-        var canonical = ModelMatrixBindingSourceReader.Prepare(actualType17.Draw,
-            actualType17.PreparedWrapperCount, actualType17.PaletteCount);
-        if (canonical is null || canonical.PackedType17 != actualType17.PackedType17 ||
-            !canonical.CurrentWords.SequenceEqual(actualType17.CurrentWords))
-            throw new InvalidDataException("State3 requires the actual source type17 packing, not a guessed matrix dimension.");
-        var match = G1ShaderMatrixBindingMatcher.Select(actualType17.CurrentWords.ToArray(), matrixRows.Rows);
+        var match = G1ShaderMatrixBindingMatcher.Select(actualType17.Words, matrixRows);
         uint previous = indices[2];
         bool commit = match.RowIndex >= 0 && (uint)match.RowIndex < matrixRows.Rows.Count && (uint)match.RowIndex != previous;
         if (commit) indices[2] = checked((uint)match.RowIndex);

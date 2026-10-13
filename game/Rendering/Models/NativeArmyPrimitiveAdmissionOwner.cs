@@ -20,7 +20,7 @@ public sealed class NativeArmyCpuPrimitivePopulation
 /// changes to native plugin/stencil state invalidate its finite source recipe.</summary>
 public sealed class NativeArmyPrimitiveAdmissionOwner
 {
-    private readonly Dictionary<string, ArmyPrimitivePublicationSource> models = new(StringComparer.Ordinal);
+    private readonly Dictionary<int, ArmyPrimitivePublicationSource> models = [];
     private readonly Dictionary<string, ModelOrdinaryNativeStencilSource> stencilSources = new(StringComparer.Ordinal);
     private bool retained = true;
     public string OwnerIdentity { get; } = "owned-army-native-primitive:" + Guid.NewGuid().ToString("N");
@@ -39,11 +39,12 @@ public sealed class NativeArmyPrimitiveAdmissionOwner
         {
             var model = actualBeforeFrame.Models[actor.Category];
             output.Add(("ArmyOrdinary", $"remake-army/{frame.UnitId}/{actor.ComponentId}",
-                Source(model.Catalog, actor.Category, model.Transforms.Source)));
+                Source(model.Catalog, actor.Category, new(model.Transforms.Geometry, model.Transforms.Source))));
         }
         foreach (var frame in actualBeforeFrame.Flags.Values)
         foreach (var actor in frame.Actors)
-            output.Add(("ArmyFlag", actor.InstanceKey, Source(actor.Source.Catalog, actor.Category, actor.Source.Model.Source)));
+            output.Add(("ArmyFlag", actor.InstanceKey, Source(actor.Source.Catalog, actor.Category,
+                new(actor.Source.Model.Geometry, actor.Source.Model.Source))));
         if (output.Select(a => a.Item2).Distinct(StringComparer.Ordinal).Count() != output.Count)
             throw new InvalidDataException("Current Army CPU actors have duplicate source identities.");
         return new(actualBeforeFrame, output.AsReadOnly());
@@ -135,11 +136,12 @@ public sealed class NativeArmyPrimitiveAdmissionOwner
             record.Mask78, true, record.CurrentCpuPrimitiveCount, true, record.CurrentCountPublicationIdentity),
             admission.Frame.Common, admission.Frame.Lighting.ContextFlags3E4, current);
     }
-    private ArmyPrimitivePublicationSource Source(LoadedArmyCatalog catalog, int category, LoadedRdbAsset model)
+    private ArmyPrimitivePublicationSource Source(LoadedArmyCatalog catalog, int category, LoadedModelGeometry model)
     {
-        string key = catalog.Catalog.Source.DecodedSha256 + "/" + category + "/" + model.DecodedSha256;
-        if (!models.TryGetValue(key, out var source)) models.Add(key, source = ArmyPrimitivePublicationSource.ReadKnownCategory(catalog, category, model));
-        source.ValidateSourceUnchanged(); return source;
+        if (!models.TryGetValue(category, out var source) || !ReferenceEquals(source.Catalog, catalog) ||
+            !ReferenceEquals(source.Model.Geometry, model.Geometry) || !ReferenceEquals(source.Model.Source, model.Source))
+            models[category] = source = ArmyPrimitivePublicationSource.ReadKnownCategory(catalog, category, model);
+        return source;
     }
     private void RequireRetained()
     { if (!retained) throw new InvalidDataException("Army native primitive generation was edited, imported or unresolved."); }
@@ -199,12 +201,11 @@ public sealed class NativeArmyCurrentAdmission
             throw new InvalidDataException("Army raster must prepare the complete actual source draw list and selected shader interfaces.");
         foreach(var actor in Population.Actors.Where(a=>a.Family==family))
         {
-            actor.Source.ValidateSourceUnchanged();
             foreach(int draw in actor.Source.OrdinarySourceDrawIndices)
             {
                 var packet=packets[actor.Actor+"/draw"+draw];
-                if(packet.DrawIndex!=draw||packet.Model.Source.ResourceUri!=actor.Source.Model.ResourceUri||
-                    packet.Model.Source.DecodedSha256!=actor.Source.Model.DecodedSha256)
+                if(packet.DrawIndex!=draw||packet.Model.Source.ResourceUri!=actor.Source.Model.Source.ResourceUri||
+                    packet.Model.Source.DecodedSha256!=actor.Source.Model.Source.DecodedSha256)
                     throw new InvalidDataException("Army raster geometry differs from the exact current CPU primitive source.");
             }
         }
@@ -263,8 +264,8 @@ public sealed class NativeArmyCurrentAdmission
         {
             var (primitive,record)=expected[i];var submitted=actual.Primitives[i];var source=actors[primitive.ActorIdentity].Source;
             if(submitted.PacketKey!=primitive.PacketKey+"|native-record:"+record.Mask78.ToString("X8")||
-                submitted.SourceDrawIndex!=primitive.SourceDrawIndex||submitted.ModelUri!=source.Model.ResourceUri||
-                submitted.ModelSha256!=source.Model.DecodedSha256||submitted.NativeStencil is not{}stencil||
+                submitted.SourceDrawIndex!=primitive.SourceDrawIndex||submitted.ModelUri!=source.Model.Source.ResourceUri||
+                submitted.ModelSha256!=source.Model.Source.DecodedSha256||submitted.NativeStencil is not{}stencil||
                 stencil.Source.CurrentPublication.FrameNumber!=Frame.FrameNumber||
                 stencil.Source.CurrentPublication.ViewIdentity!=Publication.Counts.ViewIdentity||
                 stencil.Source.DrawTimeState.RecordMask78!=record.Mask78)

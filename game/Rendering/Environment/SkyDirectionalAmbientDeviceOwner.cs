@@ -105,7 +105,7 @@ public sealed partial class SkyDirectionalAmbientDeviceOwner : IAsyncDisposable
         var filterSelection=SkyAmbientCurrentFilterSelection.CaptureCurrent(ambient.Shader,present);
         var shader=repository.LoadShaderContainer("system",0x340AC335);
         var nativeAtmosphere=SkyDirectionalAtmosphereNativeSource.Load(repository,locale,NativeLogDispatch.Sse);
-        initialSource.PrepareLights(shader,textureSnapshot);
+        initialSource.PrepareLights(textureSnapshot);
         var sourceFrame=initialSource.PrepareSourceSelectedSeasonFrame(ambient.SpecularTargets[0],nativeAtmosphere,2,shader,initialStages,textureSnapshot);
         var desiredSelection=CaptureDesiredSelection(shader,initialSource,sourceFrame);
         var desired=desiredSelection.GetSelection(false);var atmosphereSelection=desiredSelection.GetSelection(true);
@@ -311,7 +311,7 @@ public sealed partial class SkyDirectionalAmbientDeviceOwner : IAsyncDisposable
         var filterSelection=SkyAmbientCurrentFilterSelection.CaptureCurrent(Scene.FilterProgram.Source,present);
         filterSelection.RequireSameProgramSampleCount(Scene.FilterProgram.SourceSampleSelection);
         textureSnapshot.RequireCurrent();
-        source.PrepareLights(shader,textureSnapshot);
+        source.PrepareLights(textureSnapshot);
         var currentFrame=source.PrepareSourceSelectedSeasonFrame(Scene.SpecularTargets[0].Source,atmosphere,2,shader,stages,textureSnapshot);
         var desiredSelection=CaptureDesiredSelection(shader,source,currentFrame);
         var desired=desiredSelection.GetSelection(false);var desiredAtmosphere=desiredSelection.GetSelection(true);
@@ -381,7 +381,7 @@ public sealed partial class SkyDirectionalAmbientDeviceOwner : IAsyncDisposable
         var feature=contribution.RendererFeature.Feature.Words;
         bool mode4=feature[6]==4&&feature[7]==1;
         bool mode7=feature[6]==7&&feature[7]==2;
-        if(!contribution.RendererFeature.Feature.RawBytes.AsSpan().SequenceEqual(atmosphere.RendererFeature.Feature.RawBytes)||
+        if(!contribution.RendererFeature.Feature.RawBytes.Span.SequenceEqual(atmosphere.RendererFeature.Feature.RawBytes.Span)||
             !(mode4&&Vertex(contribution)==0&&Vertex(atmosphere)==0&&Pixel(contribution)==6&&(Pixel(atmosphere) is 5 or 11)||
               mode7&&Vertex(contribution)==2&&Vertex(atmosphere)==2&&Pixel(contribution)==15&&Pixel(atmosphere)==14))
             throw new NotSupportedException("Directional WORK requires its source-selected mode4/profile1 or mode7/profile2 nonnull Sun/Moon shader pair.");

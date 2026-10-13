@@ -1,5 +1,4 @@
 using System.Security.Cryptography;
-using System.Runtime.CompilerServices;
 using Godot;
 using San14.Data;
 using San14.Data.Formats;
@@ -25,9 +24,7 @@ public sealed record ModelGbufferInstancePacket(string InstanceKey, LoadedModelG
 /// matrix, material, stage role, variant and raster value remains explicit.</summary>
 public sealed class ModelGbufferLayer : IAsyncDisposable
 {
-    private sealed record ProgramKey(string Identity,int Combination,ArmySkinVertexProfile? ArmyProfile);
-    private sealed record GeometryKey(string Identity,string Inputs);
-    private sealed record TextureKey(string Identity,int Image,uint View);
+    private sealed record GeometryKey(ModelResourceVersion Source,ModelGeometryInputLayout Inputs);
     private sealed record DrawValue(ModelShaderProgram Program,ModelGeometryDevice Geometry,
         int DrawIndex,RenderTargetFrame Frame,ModelRasterInputs Raster,
         ModelDeviceBinding[] VertexResources,ModelDeviceBinding[] PixelResources,ModelDraw Draw);
@@ -35,17 +32,10 @@ public sealed class ModelGbufferLayer : IAsyncDisposable
         ModelStageInputs Pixel,bool Reused);
     private readonly Vkd3dShaderCompiler _compiler;
     private readonly bool _ownsCompiler;
-    private readonly Dictionary<ProgramKey,ModelShaderProgram> _programs=[];
+    private readonly Dictionary<ModelProgramCacheKey,ModelShaderProgram> _programs=[];
     private readonly Dictionary<GeometryKey,ModelGeometryDevice> _geometry=[];
-    private readonly Dictionary<(string Model,string Vertex),ModelGeometryDevice> _geometryViews=[];
-    private readonly Dictionary<string,LoadedRdbAsset> _sourceSnapshots=new(StringComparer.Ordinal);
-    private readonly Dictionary<string,LoadedModelGeometry> _modelSnapshots=new(StringComparer.Ordinal);
-    private readonly Dictionary<string,LoadedShaderContainer> _shaderSnapshots=new(StringComparer.Ordinal);
-    private readonly Dictionary<string,LoadedTextureContainer> _textureSnapshots=new(StringComparer.Ordinal);
-    private readonly object _sourceGate=new();
-    private static readonly ConditionalWeakTable<LoadedRdbAsset,SourceKey> SourceKeys=new();
-    private sealed record SourceKey(string Identity);
-    private readonly Dictionary<TextureKey,ModelTextureDevice> _textures=[];
+    private readonly Dictionary<(ModelResourceVersion Model,string Vertex,int Draw,ArmySkinVertexProfile? Profile),ModelGeometryDevice> _geometryViews=[];
+    private readonly Dictionary<ModelTextureCacheKey,ModelTextureDevice> _textures=[];
     private readonly Dictionary<string,Rid> _samplers=[];
     private Dictionary<string,DrawValue> _draws=[];
     private readonly Dictionary<int,HashSet<string>> _queueDrawKeys=[];
@@ -124,12 +114,7 @@ public sealed class ModelGbufferLayer : IAsyncDisposable
         // Take mutable CB/sampler/list inputs before the caller can reuse them.
         try
         {
-            ModelGbufferInstancePacket[] snapshot;
-            lock(_sourceGate)
-            {
-                var verified=new HashSet<(string Identity,byte[] Bytes)>();
-                snapshot=explicitInstances.Select(p=>Snapshot(p,verified)).ToArray();
-            }
+            var snapshot=explicitInstances.Select(Snapshot).ToArray();
             if(snapshot.Select(p=>p.InstanceKey).Distinct(StringComparer.Ordinal).Count()!=snapshot.Length)
                 throw new InvalidDataException("Original model layer requires unique instance/draw keys within a frame.");
             return RenderAcceptedAsync(terrainFrame,snapshot,army48,requireActualCurrentQueue,sourceQueueNode);
@@ -251,7 +236,7 @@ public sealed class ModelGbufferLayer : IAsyncDisposable
 
     private async Task<ModelShaderProgram> ProgramAsync(ModelGbufferInstancePacket instance)
     {
-        var key=new ProgramKey(SourceIdentity(instance.Shader.Source),instance.ExplicitCombinationIndex,instance.ArmySkinProfile);
+        var key=new ModelProgramCacheKey(ModelResourceVersion.From(instance.Shader.Source),instance.ExplicitCombinationIndex,instance.ArmySkinProfile);
         if(_programs.TryGetValue(key,out var found))return found;
         var value=await ModelShaderProgram.BuildAsync(instance.Shader,instance.ExplicitCombinationIndex,_compiler,instance.ArmySkinProfile);
         try
@@ -268,19 +253,13 @@ public sealed class ModelGbufferLayer : IAsyncDisposable
     private async Task<ModelGeometryDevice> GeometryAsync(LoadedModelGeometry source,ModelShaderProgram program,
         int drawIndex,ArmySkinVertexProfile? armyProfile)
     {
-        var viewKey=(SourceIdentity(source.Source),program.VertexAdapter.AdaptedSha256);
+        var viewKey=(ModelResourceVersion.From(source.Source),program.VertexAdapter.AdaptedSha256,drawIndex,armyProfile);
         if(_geometryViews.TryGetValue(viewKey,out var cached))return cached;
-        // Only canonical geometry from the exact source bytes participates in
-        // input resolution; mutable caller metadata cannot alter cached uploads.
-        var canonical=G1ModelGeometryReader.Read(source.Source.Bytes,source.Source.Bytes.Length);
-        var resolution=ModelVertexInputs.Resolve(canonical,program.VertexDeviceTransportSignatures,program.VertexBindings.Interface);
-        var singleInstanceStreams=armyProfile is null?null:ArmySkinVertexAdapter.SingleInstanceSourceStreams(canonical,drawIndex);
-        byte[] encoded=System.Text.Encoding.UTF8.GetBytes(string.Join(';',resolution.Bindings.OrderBy(b=>b.LayoutIndex).ThenBy(b=>b.Location)
-            .Select(b=>$"{b.LayoutIndex}/{b.SourceSemanticCode}/{b.Location}"))+";instance:"+
-            string.Join(',',singleInstanceStreams is null?Enumerable.Empty<int>():singleInstanceStreams.Order()));
-        var key=new GeometryKey(SourceIdentity(source.Source),Convert.ToHexString(SHA256.HashData(encoded)));
+        var resolution=ModelVertexInputs.Resolve(source.Geometry,program.VertexDeviceTransportSignatures,program.VertexBindings.Interface);
+        var singleInstanceStreams=armyProfile is null?null:ArmySkinVertexAdapter.SingleInstanceSourceStreams(source.Geometry,drawIndex);
+        var key=new GeometryKey(ModelResourceVersion.From(source.Source),new ModelGeometryInputLayout(resolution.Bindings,singleInstanceStreams));
         if(_geometry.TryGetValue(key,out var found)){_geometryViews.Add(viewKey,found);return found;}
-        var packet=ModelDeviceGeometry.Prepare(source.Source.Bytes,source.Source.DecodedSha256,resolution.Bindings,singleInstanceStreams);
+        var packet=ModelDeviceGeometry.Prepare(source,key.Inputs.Bindings,key.Inputs.InstanceStreams);
         var value=await ModelGeometryDevice.BuildAsync(source.Source.ResourceUri,packet);
         _geometry.Add(key,value);_geometryViews.Add(viewKey,value);return value;
     }
@@ -292,7 +271,7 @@ public sealed class ModelGbufferLayer : IAsyncDisposable
         {
             if(use.DescriptorKind=="Texture")
             {
-                var key=new TextureKey(SourceIdentity(use.Source.Source),use.ImageIndex,use.NativeViewFormat);
+                var key=new ModelTextureCacheKey(ModelResourceVersion.From(use.Source.Source),use.ImageIndex,use.NativeViewFormat);
                 if(!_textures.TryGetValue(key,out var texture))
                 {texture=await ModelTextureDevice.BuildAsync(use.Source,use.ImageIndex,use.NativeViewFormat);_textures.Add(key,texture);}
                 inputs.Add(new("Texture",use.SourceBindPoint,texture.TextureRid,texture.TextureRid,texture.SourceResourceUri));
@@ -311,62 +290,31 @@ public sealed class ModelGbufferLayer : IAsyncDisposable
         return new(packet.Constants,Array.AsReadOnly(inputs.ToArray()));
     }
 
-    private ModelGbufferInstancePacket Snapshot(ModelGbufferInstancePacket packet,
-        HashSet<(string Identity,byte[] Bytes)> verified)
+    private static ModelGbufferInstancePacket Snapshot(ModelGbufferInstancePacket packet)
     {
         ArgumentNullException.ThrowIfNull(packet);
         if(string.IsNullOrWhiteSpace(packet.InstanceKey)||packet.Model is null||packet.Shader is null||packet.Raster is null||packet.Raster.Attachments is null)
             throw new InvalidDataException("Original model frame instance has missing source identities or raster fields.");
-        var modelSource=SourceSnapshot(packet.Model.Source,verified);string modelKey=SourceIdentity(modelSource);
-        if(!_modelSnapshots.TryGetValue(modelKey,out var model))
-            _modelSnapshots.Add(modelKey,model=new(G1ModelGeometryReader.Read(modelSource.Bytes,modelSource.Bytes.LongLength),modelSource));
-        var shaderSource=SourceSnapshot(packet.Shader.Source,verified);string shaderKey=SourceIdentity(shaderSource);
-        if(!_shaderSnapshots.TryGetValue(shaderKey,out var shader))
-            _shaderSnapshots.Add(shaderKey,shader=new(G2ShaderContainerReader.Read(shaderSource.Bytes),shaderSource));
         ModelGbufferStagePacket Stage(ModelGbufferStagePacket input)
         {
             ArgumentNullException.ThrowIfNull(input);ArgumentNullException.ThrowIfNull(input.Constants);
             ArgumentNullException.ThrowIfNull(input.OwnedTextures);ArgumentNullException.ThrowIfNull(input.BorrowedResources);
             return new(input.Constants.ToDictionary(p=>p.Key,p=>(ReadOnlyMemory<byte>)p.Value.ToArray()),
-                Array.AsReadOnly(input.OwnedTextures.Select(t=>
-                {
-                    var source=SourceSnapshot(t.Source.Source,verified);string key=SourceIdentity(source);
-                    if(!_textureSnapshots.TryGetValue(key,out var texture))
-                        _textureSnapshots.Add(key,texture=new(G1TextureContainerReader.Read(source.Bytes),source));
-                    return t with{Source=texture,SamplerDescriptor52=t.SamplerDescriptor52.ToArray()};
-                }).ToArray()),
+                Array.AsReadOnly(input.OwnedTextures.Select(t=>t with{SamplerDescriptor52=t.SamplerDescriptor52.ToArray()}).ToArray()),
                 Array.AsReadOnly(input.BorrowedResources.ToArray()));
         }
         var vertex=Stage(packet.Vertex);var pixel=Stage(packet.Pixel);
         if(packet.ArmySkinProfile is { } armyProfile)
         {
-            var canonical=model.Geometry;
+            var canonical=packet.Model.Geometry;
             if(ArmySkinVertexAdapter.Select(canonical,packet.DrawIndex)!=armyProfile||
                 !vertex.Constants.TryGetValue(0,out var armyVertex))
                 throw new InvalidDataException("Army backend input transport differs from its exact source layout or complete vertex buffer.");
             ArmySkinVertexAdapter.ValidateGates(armyVertex.Span,armyProfile);
         }
-        return packet with{Model=model,Shader=shader,Vertex=vertex,Pixel=pixel,
+        return packet with{Vertex=vertex,Pixel=pixel,
             Raster=packet.Raster with{Attachments=Array.AsReadOnly(packet.Raster.Attachments.ToArray())}};
     }
-
-    private LoadedRdbAsset SourceSnapshot(LoadedRdbAsset source,HashSet<(string Identity,byte[] Bytes)> verified)
-    {
-        string key=SourceIdentity(source);
-        if(!_sourceSnapshots.TryGetValue(key,out var owned))
-        {
-            byte[] bytes=source.Bytes.ToArray();
-            if(!Convert.ToHexString(SHA256.HashData(bytes)).Equals(source.DecodedSha256,StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException("Original model cached source bytes differ from their declared full revision.");
-            _sourceSnapshots.Add(key,owned=source with{Bytes=bytes});
-        }
-        if(verified.Add((key,source.Bytes))&&!source.Bytes.AsSpan().SequenceEqual(owned.Bytes))
-            throw new InvalidDataException("Caller changed an immutable model/program/texture source after cache creation.");
-        return owned;
-    }
-    private static string SourceIdentity(LoadedRdbAsset source)=>SourceKeys.GetValue(source,static s=>new(string.Join("|",
-        s.ResourceUri,s.DecodedSha256,s.FileId.ToString("X8"),s.Bytes.LongLength,s.IndexSource.ResourceUri,
-        s.IndexSource.PhysicalPath,s.IndexSource.Sha256,s.OverrideSource?.ResourceUri,s.OverrideSource?.PhysicalPath,s.OverrideSource?.Sha256))).Identity;
 
     private static void ValidateConstants(TranslatedShaderBindings bindings,IReadOnlyDictionary<uint,ReadOnlyMemory<byte>> input)
     {
@@ -418,7 +366,6 @@ public sealed class ModelGbufferLayer : IAsyncDisposable
                 foreach(var value in _programs.Values.Reverse())await value.DisposeAsync();_programs.Clear();
                 foreach(var value in _textures.Values.Reverse())await value.DisposeAsync();_textures.Clear();
                 await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{foreach(var rid in _samplers.Values.Reverse())rd.FreeRid(rid);return true;});_samplers.Clear();
-                lock(_sourceGate){_textureSnapshots.Clear();_shaderSnapshots.Clear();_modelSnapshots.Clear();_sourceSnapshots.Clear();}
                 if(_ownsCompiler)_compiler.Dispose();
             }
             finally{_gate.Release();}

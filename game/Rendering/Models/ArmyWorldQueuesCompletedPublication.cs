@@ -33,7 +33,7 @@ public sealed class ArmyWorldQueuesCompletedPublication
             string family = primitive.Family == "ArmyOrdinary" ? "ArmyOrdinary" : tuple.ShaderPublication.FinalTable.TableOwner.Object.ObjectId switch
             { 0x739D10B8 => "ArmyFlagBase", 0x2F9960EF => "ArmyFlagCloth", _ => throw new NotSupportedException("Army mode16 family needs the reached final material table source.") };
             return new DeferredSourceMode16Candidate(family, primitive.ActorIdentity, primitive.SourceDrawIndex,
-                actor.Source.Model.ResourceUri, actor.Source.Model.DecodedSha256, tuple.ShaderPublication.FinalTable.TableOwner,
+                actor.Source.Model.Source.ResourceUri, actor.Source.Model.Source.DecodedSha256, tuple.ShaderPublication.FinalTable.TableOwner,
                 population.Counts.PublicationIdentity + ";actual-first-bank-member;" + tuple.ShaderPublication.SourceWriterEvidence);
         }).ToArray());
     }

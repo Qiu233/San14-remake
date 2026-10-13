@@ -185,7 +185,7 @@ public static class MapMaterialIdSources
     private static G1ShaderConfigurationRecord ReadGbuffer(LoadedShaderContainer shader, int combination)
     {
         MapMaterialCacheSources.CanonicalShader(shader);
-        var config = G1ShaderConfigurationReader.Read(shader.Source.Bytes, shader.Container).Records
+        var config = shader.ReadConfigurations().Records
             .FirstOrDefault(r => r.NameHash == 0xA3D05FFB && r.Name == "GBuffer") ??
             throw new InvalidDataException("Material-ID source requires the exact original GBuffer configuration.");
         var selected = shader.ReadG1ResourceBindings(combination).Combination;
