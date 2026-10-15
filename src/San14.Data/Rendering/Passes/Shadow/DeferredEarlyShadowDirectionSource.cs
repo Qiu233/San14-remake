@@ -84,7 +84,7 @@ public static class DeferredEarlyShadowDirectionSource
     public static LoadedDeferredEarlyShadowDirectionAuxSource ReadSourceCreatedTemplate(LoadedObjects actualCommonSource)
     {
         var actual = CommonRenderResources.ImportSettings(actualCommonSource);
-        int angleMode = unchecked((int)CommonRenderResources.ReadScalar(actualCommonSource, 0x00D3B791, 4));
+        int angleMode = actual.DirectionalForceSetIndex!.Value;
         return new(actual.Flags8, angleMode, actual.SourceIdentity +
             ";TC:D223C0-pointertable2A0/360-index24->scratchRBP-58;D23099/D2309C->Aux3F4;D1E719/D1E720-preserved-copy");
     }
@@ -123,8 +123,25 @@ public static class DeferredEarlyShadowDirectionSource
         if (actualRecordLightData.Length < 0x80)
             throw new ArgumentException("Shadow direction requires its actual record8 through the original four pairs.", nameof(actualRecordLightData));
         int at = actualA04 switch { 1 => 0x20, 2 => 0x40, 3 => 0x60, _ => 0 };
-        var direction = Read(actualRecordLightData, at) with { W = 0 };
-        var second = Read(actualRecordLightData, 0x10);
+        return PrepareUnclampedNumericFields(Read(actualRecordLightData, at),
+            Read(actualRecordLightData, 0x10), actualA28);
+    }
+
+    public static DeferredEarlyShadowDirectionNumericFields PrepareUnclampedNumericFields(
+        HdrLightState actualLighting, uint actualA04, float actualA28)
+    {
+        ArgumentNullException.ThrowIfNull(actualLighting);
+        if (actualLighting.Directional.Count < 4)
+            throw new ArgumentException("Shadow direction requires all four actual directional light pairs.", nameof(actualLighting));
+        int index = actualA04 switch { 1 => 1, 2 => 2, 3 => 3, _ => 0 };
+        return PrepareUnclampedNumericFields(actualLighting.Directional[index].Direction,
+            actualLighting.Directional[0].Color, actualA28);
+    }
+
+    private static DeferredEarlyShadowDirectionNumericFields PrepareUnclampedNumericFields(
+        Vector4 direction, Vector4 second, float actualA28)
+    {
+        direction = direction with { W = 0 };
         (Vector4 firstBasis, Vector4 secondBasis) = PlaneBasis(new(direction.X, direction.Y, direction.Z));
         return new(direction, second, actualA28, firstBasis * actualA28, secondBasis * actualA28, direction);
     }

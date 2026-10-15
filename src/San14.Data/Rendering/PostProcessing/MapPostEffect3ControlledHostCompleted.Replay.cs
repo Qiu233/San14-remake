@@ -47,7 +47,7 @@ public sealed partial class MapCopy97CurrentStockSource
         // stock B0 was source-null on entry and ScreenEnd restores its scope.
         completedScreenScale=packet.CurrentScreenScale29E0;completedColorScale=packet.CurrentColorScale29F0;
         completedCustomVsAbsent=packet.CurrentCustomVertexShaderIsAbsent;
-        CompletedSourceFrameNumber=packet.FrameNumber;prepared=null;acceptedStockSources=null;
+        CompletedSourceFrameNumber=packet.FrameNumber;prepared=null;acceptedMaskSources=null;
     }
 }
 

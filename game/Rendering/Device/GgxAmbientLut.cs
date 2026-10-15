@@ -16,13 +16,13 @@ public sealed class GgxAmbientLut : IAsyncDisposable
     public uint DeviceConstantBytes { get; }
     public byte[] ConstantBytes { get; }
     public CompiledGgxShader? NativeSource { get; private set; }
-    private readonly IReadOnlyList<Rid> _owned;
-    private Task? _disposal;
+    private readonly RenderDeviceResources resources;
+    private volatile bool retiring;
 
     private GgxAmbientLut(Rid texture, Rid sampler, ShaderSpirv translation,
-        DxbcResourceDefinitions definitions, uint deviceBytes, byte[] constants, byte[] samplerDescriptor, List<Rid> owned)
-        => (TextureRid, SamplerRid, Translation, PixelDefinitions, DeviceConstantBytes, ConstantBytes, SourceSamplerDescriptor, _owned) =
-            (texture, sampler, translation, definitions, deviceBytes, constants, samplerDescriptor, owned);
+        DxbcResourceDefinitions definitions, uint deviceBytes, byte[] constants, byte[] samplerDescriptor, RenderDeviceResources resources)
+        => (TextureRid, SamplerRid, Translation, PixelDefinitions, DeviceConstantBytes, ConstantBytes, SourceSamplerDescriptor, this.resources) =
+            (texture, sampler, translation, definitions, deviceBytes, constants, samplerDescriptor, resources);
 
     public static async Task<GgxAmbientLut> BuildAsync(CompiledGgxShader source,
         Vkd3dShaderCompiler compiler)
@@ -63,10 +63,8 @@ public sealed class GgxAmbientLut : IAsyncDisposable
         for(int i=0;i<samplerWords.Length;i++)BinaryPrimitives.WriteUInt32LittleEndian(samplerDescriptor.AsSpan(i*4,4),samplerWords[i]);
         return await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            var owned = new List<Rid>();
-            Rid Own(Rid rid) {
-                if (!rid.IsValid) throw new InvalidDataException("Ggx lookup device allocation failed.");
-                owned.Add(rid); return rid; }
+            var resources=new RenderDeviceResources("Ggx lookup device allocation failed.");
+            Rid Own(Rid rid)=>resources.Own(rid);
             try
             {
                 using var vertex = new RDShaderSource { SourceVertex = DeferredFullscreenShader.VertexSource };
@@ -107,17 +105,27 @@ public sealed class GgxAmbientLut : IAsyncDisposable
                 }
                 finally { rd.DrawListEnd(); }
                 return new GgxAmbientLut(texture, sampler, translated, definitions, descriptor.RequiredBufferBytes.Value,
-                    constants, samplerDescriptor, owned);
+                    constants, samplerDescriptor, resources);
             }
-            catch { for (int i = owned.Count - 1; i >= 0; i--) rd.FreeRid(owned[i]); throw; }
+            catch(Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd,failure,"Ggx-lut-partial");
+                throw;
+            }
         });
     }
 
     public Task<byte[]> ReadEncodedAsync()
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null, this);
-        return TerrainDeviceTexture.OnRenderThreadAsync(rd => rd.TextureGetData(TextureRid, 0));
+        ObjectDisposedException.ThrowIf(retiring, this);
+        return TerrainDeviceTexture.OnRenderThreadAsync(rd => {
+            ObjectDisposedException.ThrowIf(retiring,this);
+            return rd.TextureGetData(TextureRid, 0);
+        });
     }
-    public ValueTask DisposeAsync() => new(_disposal ??= TerrainDeviceTexture.OnRenderThreadAsync(rd => {
-        for (int i = _owned.Count - 1; i >= 0; i--) rd.FreeRid(_owned[i]); return true; }));
+    public ValueTask DisposeAsync()
+    {
+        retiring=true;
+        return resources.DisposeAsync();
+    }
 }

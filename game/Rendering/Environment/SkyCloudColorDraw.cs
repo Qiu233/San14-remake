@@ -15,18 +15,16 @@ public sealed class SkyCloudColorDraw : IAsyncDisposable
     public long SubmittedDrawCount => Interlocked.Read(ref submittedDrawCount);
     private readonly SkyCloudProgram _program;
     private readonly Rid _pipeline, _vertexSet, _pixelSet, _vertexBuffer, _pixelBuffer;
-    private readonly IReadOnlyList<Rid> _owned;
-    private Task? _disposal;
-    private readonly object disposalGate=new();
-    private int releasedResources;
+    private readonly RenderDeviceResources resources;
+    private volatile bool retiring;
 
     private SkyCloudColorDraw(SkyCloudProgram program,
         SkyCloudConstantPacket constants, CubeRenderDeviceSurface target,
         IReadOnlyList<Sky2DeviceInput> inputs, uint mask, Rid pipeline, Rid vs, Rid ps,
-        Rid vcb, Rid pcb, List<Rid> owned)
+        Rid vcb, Rid pcb, RenderDeviceResources resources)
         => (_program, Constants, Target, Inputs, ExplicitColorWriteMask,
-            _pipeline, _vertexSet, _pixelSet, _vertexBuffer, _pixelBuffer, _owned)
-            = (program, constants, target, inputs, mask, pipeline, vs, ps, vcb, pcb, owned.AsReadOnly());
+            _pipeline, _vertexSet, _pixelSet, _vertexBuffer, _pixelBuffer, this.resources)
+            = (program, constants, target, inputs, mask, pipeline, vs, ps, vcb, pcb, resources);
 
     public static Task<SkyCloudColorDraw> BuildAsync(SkyCloudProgram program,
         CubeRenderTextureDevice target, uint surfaceId,
@@ -58,8 +56,8 @@ public sealed class SkyCloudColorDraw : IAsyncDisposable
         var surface = target.Surfaces[(int)surfaceId];
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            var owned = new List<Rid>();
-            Rid Own(Rid r) { if (!r.IsValid) throw new InvalidDataException("Cloud color device allocation failed."); owned.Add(r); return r; }
+            var resources = new RenderDeviceResources("Cloud color device allocation failed.");
+            Rid Own(Rid r) => resources.Own(r);
             try
             {
                 if (!rd.FramebufferIsValid(surface.Framebuffer)) throw new InvalidDataException("Cloud color target is no longer live.");
@@ -118,20 +116,24 @@ public sealed class SkyCloudColorDraw : IAsyncDisposable
                     RenderingDevice.RenderPrimitive.TriangleStrips, raster, multi, depth, blend));
                 if (!rd.RenderPipelineIsValid(pipeline)) throw new InvalidDataException("Cloud color pipeline is invalid.");
                 return new SkyCloudColorDraw(program, packet, surface, Array.AsReadOnly(inputs),
-                    explicitColorWriteMask, pipeline, vs, ps, vcb, pcb, owned);
+                    explicitColorWriteMask, pipeline, vs, ps, vcb, pcb, resources);
             }
-            catch { for (int i = owned.Count - 1; i >= 0; i--) rd.FreeRid(owned[i]); throw; }
+            catch (Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd, failure, "Cloud-color-draw-partial");
+                throw;
+            }
         });
     }
 
     public Task UpdateConstantsAsync(ReadOnlyMemory<byte> vertex, ReadOnlyMemory<byte> pixel, uint maximumRaySamples)
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null, this);
+        ObjectDisposedException.ThrowIf(retiring, this);
         var packet = SkyCloudConstants.ReadColor(_program.VertexBindings.SourceDefinitions,
             _program.PixelBindings.SourceDefinitions, vertex.Span, pixel.Span, maximumRaySamples);
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            ObjectDisposedException.ThrowIf(_disposal is not null, this);
+            ObjectDisposedException.ThrowIf(retiring, this);
             if (rd.BufferUpdate(_vertexBuffer, 0, 160, packet.VertexBytes) != Error.Ok ||
                 rd.BufferUpdate(_pixelBuffer, 0, checked((uint)packet.PixelBytes.Length), packet.PixelBytes) != Error.Ok)
                 throw new InvalidDataException("Device rejected cloud color update.");
@@ -141,10 +143,10 @@ public sealed class SkyCloudColorDraw : IAsyncDisposable
 
     public Task DrawAsync()
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null, this);
+        ObjectDisposedException.ThrowIf(retiring, this);
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            ObjectDisposedException.ThrowIf(_disposal is not null, this);
+            ObjectDisposedException.ThrowIf(retiring, this);
             // DefaultAll retains the already drawn Sky2/Scene color.
             long list = rd.DrawListBegin(Target.Framebuffer, RenderingDevice.DrawFlags.DefaultAll);
             try { rd.DrawListBindRenderPipeline(list, _pipeline); rd.DrawListBindUniformSet(list, _pixelSet, 0);
@@ -156,16 +158,7 @@ public sealed class SkyCloudColorDraw : IAsyncDisposable
     }
     public ValueTask DisposeAsync()
     {
-        lock(disposalGate)
-        {
-            if(_disposal is null||_disposal.IsFaulted||_disposal.IsCanceled)
-                _disposal=TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-                {
-                    while(releasedResources<_owned.Count)
-                    {rd.FreeRid(_owned[_owned.Count-1-releasedResources]);releasedResources++;}
-                    return true;
-                });
-            return new(_disposal);
-        }
+        retiring = true;
+        return resources.DisposeAsync();
     }
 }

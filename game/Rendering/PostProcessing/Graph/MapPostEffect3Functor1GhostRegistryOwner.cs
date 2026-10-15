@@ -11,9 +11,11 @@ internal sealed class MapPostEffect3Functor1GhostRegistryOwner:IAsyncDisposable
     private int references=1; //the controller828 reference
     private bool dirty,disposed,retiring;
     private readonly SemaphoreSlim retirement=new(1,1);
+    private readonly RenderDeviceResources resources;
     internal object ControllerIdentity{get;}=new();
     internal Rid StorageRid{get;}
-    private MapPostEffect3Functor1GhostRegistryOwner(Rid rid)=>StorageRid=rid;
+    private MapPostEffect3Functor1GhostRegistryOwner(Rid rid,RenderDeviceResources resources)
+    {StorageRid=rid;this.resources=resources;}
     internal static async Task<MapPostEffect3Functor1GhostRegistryOwner> CreateAsync(
         MapPostEffect3OwnedControlledCameraFrame camera,LoadedMapPostEffect3Functor1FrontendLifetimeSource source)
     {
@@ -23,14 +25,18 @@ internal sealed class MapPostEffect3Functor1GhostRegistryOwner:IAsyncDisposable
             throw new InvalidDataException("Actual controller828 creation lacks its complete source448B initialization.");
         return await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
-            Rid storage=rd.StorageBufferCreate(448);
-            if(!storage.IsValid)throw new InvalidDataException("Controller828 device allocation failed.");
+            var resources=new RenderDeviceResources("Controller828 device allocation failed.");
             try
             {
+                Rid storage=resources.Own(rd.StorageBufferCreate(448));
                 rd.BufferUpdate(storage,0,448,initial);
-                return new MapPostEffect3Functor1GhostRegistryOwner(storage);
+                return new MapPostEffect3Functor1GhostRegistryOwner(storage,resources);
             }
-            catch{rd.FreeRid(storage);throw;}
+            catch(Exception constructionFailure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd,constructionFailure,"PostEffect3-ghost-registry-partial");
+                throw;
+            }
         });
     }
     internal async Task AssignCurrentAsync(MapPostEffect3OwnedControlledCameraFrame camera)
@@ -75,7 +81,7 @@ internal sealed class MapPostEffect3Functor1GhostRegistryOwner:IAsyncDisposable
         try
         {
             if(disposed)return;retiring=true;
-            await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{rd.FreeRid(StorageRid);return true;});
+            await resources.DisposeAsync();
             // Exceptional retirement is separate from source Return/A1clear.
             // Keep every unretired loan through a failed device release.
             assigned=null;borrowed8=retained16=borrowed24=retained32=null;references=0;dirty=false;disposed=true;

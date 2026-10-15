@@ -13,7 +13,8 @@ public sealed partial class MapSourceCreatedDirectionalLightingDeviceOwner : IAs
     public IReadOnlyList<MapSourceCreatedDirectionalLightingSource> Sources { get; private set; }
     public DirectionalLightRetainedNormalization? RetainedNormalization { get; private set; }
     public MapDirectionalLightProviderOwner? Providers { get; private set; }
-    private RegisteredTextureDevice? fixedWhite;
+    private readonly RegisteredTextureDevice? fixedWhite;
+    private readonly NativeMapBorrowerRetirementPackage retirement;
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly object lifetimeGate = new();
     private volatile bool retiring;
@@ -21,8 +22,11 @@ public sealed partial class MapSourceCreatedDirectionalLightingDeviceOwner : IAs
 
     private MapSourceCreatedDirectionalLightingDeviceOwner(
         RegisteredTextureDevice diffuse,
-        MapSourceCreatedDirectionalLightingSource[] sources)
-        => (Diffuse, Sources) = (diffuse, Array.AsReadOnly(sources));
+        MapSourceCreatedDirectionalLightingSource[] sources, RegisteredTextureDevice? white = null)
+    {
+        (Diffuse, Sources, fixedWhite) = (diffuse, Array.AsReadOnly(sources), white);
+        retirement = new("Directional-light-resources/" + Guid.NewGuid().ToString("N"), diffuse, white);
+    }
 
     /// <summary>Create the actual ready seasonal CPU providers and original
     /// white/diffuse GPU resources. Each constructor receives only the lookup
@@ -36,7 +40,7 @@ public sealed partial class MapSourceCreatedDirectionalLightingDeviceOwner : IAs
     {
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(season);
         ArgumentNullException.ThrowIfNull(mainCamera); ArgumentException.ThrowIfNullOrWhiteSpace(backendOwnerIdentity);
-        var actual = MapSeasonDirectionalLightSources.Read(season.Database);
+        var actual = season;
         if (mainCamera.Camera.ObjectId != MainMapCameraAdapter.MainCameraObjectId)
             throw new InvalidDataException("Ready seasonal resources require the actual Main38D Camera constructor.");
         var providers = MapDirectionalLightProviderOwner.Load(repository, actual);
@@ -63,12 +67,11 @@ public sealed partial class MapSourceCreatedDirectionalLightingDeviceOwner : IAs
                 normalization.AdoptConstruction(construction);
                 return MapSourceCreatedDirectionalLightingSource.FromMainCamera(mainCamera, construction);
             }).ToArray();
-            return new(diffuse, sources) { fixedWhite = white, Providers = providers, RetainedNormalization = normalization };
+            return new(diffuse, sources, white) { Providers = providers, RetainedNormalization = normalization };
         }
-        catch
+        catch (Exception failure)
         {
-            try { if (diffuse is not null) await diffuse.DisposeAsync(); }
-            finally { if (white is not null) await white.DisposeAsync(); }
+            await RetireFailedConstructionAsync(failure, diffuse, white);
             throw;
         }
     }
@@ -96,7 +99,8 @@ public sealed partial class MapSourceCreatedDirectionalLightingDeviceOwner : IAs
         string backendOwnerIdentity, uint? explicitNativeViewFormat = null, bool allowReadback = false)
     {
         ArgumentNullException.ThrowIfNull(actualOtherLookupResults);
-        var actual = MapSeasonDirectionalLightSources.Read(season.Database);
+        ArgumentNullException.ThrowIfNull(season);
+        var actual = season;
         if (!actual.Roots.Select(r => r.Root.ObjectId).Order().SequenceEqual(actualOtherLookupResults.Keys.Order()))
             throw new InvalidDataException("Normalized seasonal lighting requires all five explicit lookup result sets.");
         var normalization = DirectionalLightRetainedNormalization.LoadKnownConsumers(repository, backendOwnerIdentity);
@@ -114,7 +118,7 @@ public sealed partial class MapSourceCreatedDirectionalLightingDeviceOwner : IAs
             owner.RetainedNormalization = normalization;
             return owner;
         }
-        catch { await owner.DisposeAsync(); throw; }
+        catch (Exception failure) { await RetireFailedConstructionAsync(failure, owner); throw; }
     }
 
     public static async Task<MapSourceCreatedDirectionalLightingDeviceOwner> CreateAsync(
@@ -125,7 +129,7 @@ public sealed partial class MapSourceCreatedDirectionalLightingDeviceOwner : IAs
     {
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(season);
         ArgumentNullException.ThrowIfNull(mainCamera); ArgumentNullException.ThrowIfNull(allocations);
-        var actual = MapSeasonDirectionalLightSources.Read(season.Database);
+        var actual = season;
         uint[] roots = actual.Roots.Select(r => r.Root.ObjectId).ToArray();
         if (!roots.Order().SequenceEqual(allocations.Keys.Order()) ||
             mainCamera.Camera.ObjectId != MainMapCameraAdapter.MainCameraObjectId)
@@ -163,7 +167,7 @@ public sealed partial class MapSourceCreatedDirectionalLightingDeviceOwner : IAs
             }).ToArray();
             return new(diffuse, sources);
         }
-        catch { await diffuse.DisposeAsync(); throw; }
+        catch (Exception failure) { await RetireFailedConstructionAsync(failure, diffuse); throw; }
     }
 
     /// <summary>Prepare all roots against a single accepted Main seasonal frame.
@@ -206,11 +210,19 @@ public sealed partial class MapSourceCreatedDirectionalLightingDeviceOwner : IAs
     private async Task RetireAsync()
     {
         await gate.WaitAsync();
-        try
-        {
-            try { await Diffuse.DisposeAsync(); }
-            finally { if (fixedWhite is not null) await fixedWhite.DisposeAsync(); }
-        }
+        try { await retirement.DisposeAsync(); }
         finally { gate.Release(); }
+    }
+
+    private static async Task RetireFailedConstructionAsync(Exception failure, params IAsyncDisposable?[] owners)
+    {
+        var partial = new NativeMapBorrowerRetirementPackage("Directional-light-partial/" + Guid.NewGuid().ToString("N"),
+            [failure is NativeMapBorrowerConstructionException nested ? nested.RetainedPackage : null, .. owners]);
+        try { await partial.DisposeAsync(); }
+        catch (Exception cleanup)
+        {
+            partial.RetainFailure();
+            throw new NativeMapBorrowerConstructionException(failure, cleanup, partial);
+        }
     }
 }

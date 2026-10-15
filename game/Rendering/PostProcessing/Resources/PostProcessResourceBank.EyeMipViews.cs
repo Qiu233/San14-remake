@@ -16,15 +16,24 @@ public sealed partial class PostProcessResourceBank
             throw new InvalidDataException("Eye single-mip wrapper differs from the source85/86 view array.");
         var key=(texture.Source.Parameter.Index,texture.InstanceIndex,mip,nativeFormat);
         lock(lifetime)if(eyeMipViews.TryGetValue(key,out var found))return found;
-        var created=await CreateComputeViewAsync(texture.StorageRid,fullView,nativeFormat,
-            new((int)texture.Shape.Width,(int)texture.Shape.Height,1),(uint)texture.Shape.MipLevels,(int)mip,false);
-        lock(lifetime)
+        var group=BeginResources(texture.StorageRid);
+        try
         {
-            // Callers hold the bank execution scope throughout creation.
-            eyeMipViews.Add(key,created with{RetireAfterSubmission=false});
-            if(created.RetireAfterSubmission){owned.Add(created.ViewRid);OwnedRidCount=owned.Count;}
+            var created=await CreateComputeViewAsync(texture.StorageRid,fullView,nativeFormat,
+                new((int)texture.Shape.Width,(int)texture.Shape.Height,1),(uint)texture.Shape.MipLevels,(int)mip,false,group.Resources);
+            lock(lifetime)
+            {
+                // Callers hold the bank execution scope throughout creation.
+                eyeMipViews.Add(key,created with{RetireAfterSubmission=false});
+                if(group.Resources.Count==0)DiscardEmptyResources(group);
+            }
+            return created with{RetireAfterSubmission=false};
         }
-        return created with{RetireAfterSubmission=false};
+        catch(Exception failure)
+        {
+            await ReleaseResourcesAfterFailureAsync(group,failure);
+            throw;
+        }
     }
 
     public async Task<IMapPostEffect3ComputeSelectedMipTextureLease> CaptureEyeMipAliasReadLeaseAsync(

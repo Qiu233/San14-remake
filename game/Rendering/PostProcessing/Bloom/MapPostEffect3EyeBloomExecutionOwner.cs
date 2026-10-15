@@ -23,11 +23,14 @@ public sealed partial class MapPostEffect3EyeBloomExecutionOwner : IAsyncDisposa
     private readonly LoadedDeferredSamplerNativeSource native;
     private readonly MapPostEffect3SourceSamplerOwner managers;
     private readonly Dictionary<string, (Rid Rid, G1TextureSamplerRecipe Recipe)> wrappers = new();
+    private readonly RenderDeviceResources wrapperSamplerResources=new("Eye bloom wrapper sampler allocation failed.");
+    private readonly NativeMapBorrowerRetirementPackage finalRetirement;
     private readonly SemaphoreSlim serial = new(1, 1);
     private readonly object lifetime = new();
     private int accepted;
     private bool retiring;
     private Task? disposal;
+    private TaskCompletionSource? drained;
 
     private MapPostEffect3EyeBloomExecutionOwner(PostProcessResourceBank bank,
         MapPostEffect3FullscreenGraphicsExecutor graphics, LoadedMapPostEffect3EyeAdaptation2Source source,
@@ -36,6 +39,8 @@ public sealed partial class MapPostEffect3EyeBloomExecutionOwner : IAsyncDisposa
     {
         Bank = bank; Graphics = graphics; Source = source; this.native = native; this.managers = managers;
         Controller = actualController??source.ConstructFreshController(bank.Source.Source, bank.Source.ContextOwnerIdentity);
+        finalRetirement=new("PostEffect3-EyeBloom/"+Guid.NewGuid().ToString("N"),
+            Graphics,managers,wrapperSamplerResources);
     }
 
     public static async Task<MapPostEffect3EyeBloomExecutionOwner> BuildBorrowedAsync(
@@ -64,13 +69,26 @@ public sealed partial class MapPostEffect3EyeBloomExecutionOwner : IAsyncDisposa
         var native = sources?.Native??RenderSamplerSourceAdapters.Load(repository.SourceDirectory,locale);
         var source = sources?.Eye??MapPostEffect3ParameterEyeAdaptation2.Load(repository,locale);
         if(native.Locale!=locale||source.Locale!=locale)throw new InvalidDataException("Eye bloom needs the current module original executable locale.");
-        var graphics = MapPostEffect3FullscreenGraphicsExecutor.Create(programs, bank);
+        MapPostEffect3FullscreenGraphicsExecutor? graphics=null;
+        MapPostEffect3SourceSamplerOwner? managers=null;
         try
         {
-            var managers = await MapPostEffect3SourceSamplerOwner.BuildAsync(native, bank.Source.ContextOwnerIdentity);
+            graphics = MapPostEffect3FullscreenGraphicsExecutor.Create(programs, bank);
+            managers = await MapPostEffect3SourceSamplerOwner.BuildAsync(native, bank.Source.ContextOwnerIdentity);
             return new(bank, graphics, source, native, managers,actualController);
         }
-        catch { await graphics.DisposeAsync(); throw; }
+        catch(Exception failure)
+        {
+            var completed=new List<IAsyncDisposable>();
+            if(graphics is not null)completed.Add(graphics);
+            if(managers is not null)completed.Add(managers);
+            var pending=NativeMapBorrowerRetirementPackage.CreatePending("PostEffect3-EyeBloom-partial",completed,
+                (failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+            try{await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pending);}
+            catch(Exception retirementFailure)
+            {throw new NativeMapBorrowerConstructionException(failure,retirementFailure,pending!);}
+            throw;
+        }
     }
 
     /// <summary>Each draw needs the caller's actual post-Bind raster, viewport,
@@ -167,7 +185,7 @@ public sealed partial class MapPostEffect3EyeBloomExecutionOwner : IAsyncDisposa
             cpu?.Mark("11-publish-coverage");
             return LastCompleted = completed;
         }
-        finally { serial.Release(); lock (lifetime) accepted--; cpu?.Mark("12-release"); }
+        finally { serial.Release(); lock (lifetime) { accepted--; if(retiring&&accepted==0)drained?.TrySetResult(); } cpu?.Mark("12-release"); }
     }
 
     private async Task<IMapPostEffect3ComputeSamplerLease> LeaseWrapperSamplerAsync(
@@ -186,7 +204,7 @@ public sealed partial class MapPostEffect3EyeBloomExecutionOwner : IAsyncDisposa
         if (!wrappers.TryGetValue(keyHex, out var cached))
         {
             var recipe = RenderSamplerSourceAdapters.DecodeKey(native, key);
-            Rid rid = await TerrainDeviceTexture.OnRenderThreadAsync(rd => DeviceSampler.Create(rd, recipe));
+            Rid rid = await TerrainDeviceTexture.OnRenderThreadAsync(rd => wrapperSamplerResources.Own(DeviceSampler.Create(rd, recipe)));
             wrappers.Add(keyHex, cached = (rid, recipe));
         }
         return new WrapperSampler(this, frame, before, input, cached.Rid, cached.Recipe, keyHex);
@@ -239,21 +257,19 @@ public sealed partial class MapPostEffect3EyeBloomExecutionOwner : IAsyncDisposa
     {
         lock (lifetime)
         {
-            if (disposal is not null) return new(disposal);
-            retiring = true; return new(disposal = RetireAsync());
+            if (disposal is not null&&!disposal.IsFaulted&&!disposal.IsCanceled) return new(disposal);
+            retiring = true;
+            Task pending=accepted==0?Task.CompletedTask:(drained=new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
+            return new(disposal = RetireAsync(pending));
         }
     }
-    private async Task RetireAsync()
+    private async Task RetireAsync(Task pending)
     {
+        await pending;
         await serial.WaitAsync();
         try
         {
-            await Graphics.DisposeAsync(); await managers.DisposeAsync();
-            await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-            {
-                foreach (var sampler in wrappers.Values) if (sampler.Rid.IsValid) rd.FreeRid(sampler.Rid);
-                wrappers.Clear(); return true;
-            });
+            await finalRetirement.DisposeAsync();wrappers.Clear();
             LastCompleted = null; LastPublishedMip = null; lock (lifetime) completedDraws.Clear();
         }
         finally { serial.Release(); }

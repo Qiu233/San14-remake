@@ -59,11 +59,11 @@ public sealed partial class MapFinalOutputPassOwner:IAsyncDisposable
         TranslatedShaderBindings PixelBindings,Rid Shader);
     private sealed record TargetResources(int Width,int Height,
         IReadOnlyDictionary<int,MapFinalOutputPassDeviceTexture> Textures,
-        IReadOnlyDictionary<int,Rid> Framebuffers,IReadOnlyList<Rid> Owned);
+        IReadOnlyDictionary<int,Rid> Framebuffers,RenderDeviceResources Resources);
     private sealed record DrawResources(Rid Pipeline,Rid Vertices,Rid VertexBuffer,
         Rid VertexSet,Rid PixelSet,IReadOnlyDictionary<(uint Stage,uint Register),Rid> Constants,
         IReadOnlyList<ModelDeviceBinding> Inputs,string SamplerKey,
-        ModelRasterInputs Raster,IReadOnlyList<Rid> Owned);
+        ModelRasterInputs Raster,RenderDeviceResources Resources);
 
     public MapFinalOutputProducerPlan Plan { get; }
     public MapFinalOutputPassGraph Graph=>Plan.Graph;
@@ -73,6 +73,9 @@ public sealed partial class MapFinalOutputPassOwner:IAsyncDisposable
     public long TargetCreationCount { get; private set; }
     public IReadOnlyList<int> CompiledPassIndices=>Array.AsReadOnly(_programs.Keys.Order().ToArray());
     private readonly IReadOnlyDictionary<int,ProgramResources> _programs;
+    private readonly RenderDeviceResources _programResources;
+    private readonly List<RenderDeviceResources> _pendingRetirements=new();
+    private NativeMapBorrowerRetirementPackage? _pendingConstruction;
     private readonly bool _allowReadback;
     private readonly IReadOnlyDictionary<int,MapFinalOutputPassViewSelection> _views;
     private readonly SemaphoreSlim _gate=new(1,1);
@@ -82,8 +85,8 @@ public sealed partial class MapFinalOutputPassOwner:IAsyncDisposable
     private bool _retiring;private int _accepted;private Task? _disposal;private TaskCompletionSource? _drained;
     private MapFinalOutputPassOwner(MapFinalOutputProducerPlan plan,
         IReadOnlyDictionary<int,ProgramResources> programs,bool allowReadback,
-        IReadOnlyDictionary<int,MapFinalOutputPassViewSelection> views)
-        =>(Plan,_programs,_allowReadback,_views)=(plan,programs,allowReadback,views);
+        IReadOnlyDictionary<int,MapFinalOutputPassViewSelection> views,RenderDeviceResources programResources)
+        =>(Plan,_programs,_allowReadback,_views,_programResources)=(plan,programs,allowReadback,views,programResources);
 
     public static async Task<MapFinalOutputPassOwner> BuildAsync(
         MapFinalOutputProducerPlan plan,Vkd3dShaderCompiler compiler,
@@ -98,19 +101,25 @@ public sealed partial class MapFinalOutputPassOwner:IAsyncDisposable
             v.TextureIndex!=i||string.IsNullOrWhiteSpace(v.NativeViewSource)))
             throw new InvalidDataException("SPK producer needs an explicit target and sampled view interpretation for each output.");
         var programs=new Dictionary<int,ProgramResources>();
+        var resources=new RenderDeviceResources("Device rejected the original SPK producer VS/PS pair.");
         try
         {
-            foreach(var pass in plan.Steps)programs.Add(pass.Index,await BuildProgramAsync(pass,compiler));
-            return new(plan,programs,allowReadback,sourceViews.ToDictionary(p=>p.Key,p=>p.Value));
+            foreach(var pass in plan.Steps)programs.Add(pass.Index,await BuildProgramAsync(pass,compiler,resources));
+            return new(plan,programs,allowReadback,sourceViews.ToDictionary(p=>p.Key,p=>p.Value),resources);
         }
-        catch
+        catch(Exception failure)
         {
-            await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{foreach(var program in programs.Values)rd.FreeRid(program.Shader);return true;});
+            var pending=NativeMapBorrowerRetirementPackage.CreatePending("SPK-producer-programs-partial",
+                resources.Count>0?[resources]:[],(failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+            try{await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pending);}
+            catch(Exception retirementFailure)
+            {throw new NativeMapBorrowerConstructionException(failure,retirementFailure,pending!);}
             throw;
         }
     }
 
-    private static async Task<ProgramResources> BuildProgramAsync(MapFinalOutputPass pass,Vkd3dShaderCompiler compiler)
+    private static async Task<ProgramResources> BuildProgramAsync(MapFinalOutputPass pass,Vkd3dShaderCompiler compiler,
+        RenderDeviceResources resources)
     {
         var source=pass.Program;byte[] vs=source.VertexBytes.ToArray(),ps=source.PixelBytes.ToArray();
         if(Convert.ToHexString(SHA256.HashData(vs))!=source.VertexSha256||
@@ -157,9 +166,7 @@ public sealed partial class MapFinalOutputPassOwner:IAsyncDisposable
         {
             using var stages=new RDShaderSpirV();stages.SetStageBytecode(RenderingDevice.ShaderStage.Vertex,adapter.Bytes);
             stages.SetStageBytecode(RenderingDevice.ShaderStage.Fragment,pixel.Bytes);
-            Rid value=rd.ShaderCreateFromSpirV(stages,"OriginalSPKProducer/"+pass.Name);
-            if(!value.IsValid)throw new InvalidDataException("Device rejected the original SPK producer VS/PS pair.");
-            return value;
+            return resources.Own(rd.ShaderCreateFromSpirV(stages,"OriginalSPKProducer/"+pass.Name));
         });
         return new(pass,vertex,adapter,pixel,vb,pb,shader);
     }
@@ -176,12 +183,15 @@ public sealed partial class MapFinalOutputPassOwner:IAsyncDisposable
         await _gate.WaitAsync();
         try
         {
+            _pendingConstruction=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_pendingConstruction);
             return await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
             {
+                DrainResources(rd,_pendingRetirements);
                 if(_target is null||_target.Width!=packet.BaseWidth||_target.Height!=packet.BaseHeight)
                 {
                     var next=BuildTargets(rd,packet.BaseWidth,packet.BaseHeight);
-                    RetireTargets(rd);_target=next;TargetCreationCount++;
+                    QueueTargetsForRetirement();_target=next;TargetCreationCount++;
+                    DrainResources(rd,_pendingRetirements);
                 }
                 var target=_target;
                 var available=Plan.Execute(packet.BaseWidth,packet.BaseHeight,packet.ExternalTextures,draw=>
@@ -194,7 +204,9 @@ public sealed partial class MapFinalOutputPassOwner:IAsyncDisposable
                         resources.SamplerKey!=samplerKey||!SameRaster(resources.Raster,current.Raster))
                     {
                         var next=BuildDraw(rd,program,current,inputs,samplerKey,target.Framebuffers[draw.Pass.Index]);
-                        if(resources is not null)Free(rd,resources.Owned);_draws[draw.Pass.Index]=resources=next;
+                        if(resources is not null)_pendingRetirements.Add(resources.Resources);
+                        _draws[draw.Pass.Index]=resources=next;
+                        DrainResources(rd,_pendingRetirements);
                     }
                     foreach(var stage in new[]{(1u,current.VertexConstants),(0u,current.PixelConstants)})
                         foreach(var cb in stage.Item2)
@@ -219,12 +231,13 @@ public sealed partial class MapFinalOutputPassOwner:IAsyncDisposable
                 return LatestFrame=new(packet.AcceptedFrameNumber,target.Textures,available);
             });
         }
+        catch(NativeMapBorrowerConstructionException failure){_pendingConstruction=failure.RetainedPackage;throw;}
         finally{_gate.Release();Complete();}
     }
 
     private TargetResources BuildTargets(RenderingDevice rd,int width,int height)
     {
-        var owned=new List<Rid>();Rid Own(Rid value){if(!value.IsValid)throw new InvalidDataException("SPK producer target allocation failed.");owned.Add(value);return value;}
+        var owned=new RenderDeviceResources("SPK producer target allocation failed.");
         try
         {
             var textures=new Dictionary<int,MapFinalOutputPassDeviceTexture>();
@@ -245,9 +258,9 @@ public sealed partial class MapFinalOutputPassOwner:IAsyncDisposable
                     Depth=1,ArrayLayers=1,Mipmaps=1,Samples=RenderingDevice.TextureSamples.Samples1,
                     TextureType=RenderingDevice.TextureType.Type2D,UsageBits=usage};
                 foreach(var shareable in new[]{formatCode,sampledFormat}.Distinct())format.AddShareableFormat(shareable);
-                using var viewDescription=new RDTextureView();Rid texture=Own(rd.TextureCreate(format,viewDescription));
+                using var viewDescription=new RDTextureView();Rid texture=owned.Own(rd.TextureCreate(format,viewDescription));
                 Rid sampled=texture;
-                if(sampledFormat!=formatCode){using var sampleView=new RDTextureView{FormatOverride=sampledFormat};sampled=Own(rd.TextureCreateShared(sampleView,texture));}
+                if(sampledFormat!=formatCode){using var sampleView=new RDTextureView{FormatOverride=sampledFormat};sampled=owned.Own(rd.TextureCreateShared(sampleView,texture));}
                 textures.Add(index,new(index,Graph.Textures[index].Name,allocation,texture,sampled,formatCode,
                     Graph.Source.PostEffect.Source.ResourceUri+$"#SPK/texture/{index}/{Graph.Textures[index].Name};view="+views.NativeViewSource));
             }
@@ -257,13 +270,13 @@ public sealed partial class MapFinalOutputPassOwner:IAsyncDisposable
                 var outputs=pass.Outputs.OrderBy(o=>o.Register).Select(o=>textures[o.TextureIndex]).ToArray();
                 if(outputs.Select(o=>(o.Allocation.Width,o.Allocation.Height)).Distinct().Count()!=1)
                     throw new InvalidDataException("SPK MRT outputs have different source allocation extents.");
-                Rid framebuffer=Own(rd.FramebufferCreate(new Godot.Collections.Array<Rid>(outputs.Select(t=>t.StorageRid))));
+                Rid framebuffer=owned.Own(rd.FramebufferCreate(new Godot.Collections.Array<Rid>(outputs.Select(t=>t.StorageRid))));
                 if(!rd.FramebufferIsValid(framebuffer))throw new InvalidDataException("SPK source MRT framebuffer creation failed.");
                 framebuffers.Add(pass.Index,framebuffer);
             }
-            return new(width,height,textures,framebuffers,owned.AsReadOnly());
+            return new(width,height,textures,framebuffers,owned);
         }
-        catch{Free(rd,owned);throw;}
+        catch(Exception failure){owned.ReleaseAfterConstructionFailure(rd,failure,"SPK-producer-targets-partial");throw;}
     }
 
     private static RenderingDevice.DataFormat DeviceFormat(uint value)=>value switch{
@@ -293,13 +306,13 @@ public sealed partial class MapFinalOutputPassOwner:IAsyncDisposable
     private static DrawResources BuildDraw(RenderingDevice rd,ProgramResources program,
         MapFinalOutputPassDrawPacket packet,ModelDeviceBinding[] inputs,string samplerKey,Rid framebuffer)
     {
-        var owned=new List<Rid>();Rid Own(Rid value){if(!value.IsValid)throw new InvalidDataException("SPK draw resource allocation failed.");owned.Add(value);return value;}
+        var owned=new RenderDeviceResources("SPK draw resource allocation failed.");
         try
         {
             var constants=new Dictionary<(uint,uint),Rid>();
             foreach(var stage in new[]{(1u,packet.VertexConstants),(0u,packet.PixelConstants)})
-                foreach(var cb in stage.Item2)constants.Add((stage.Item1,cb.Key),Own(rd.UniformBufferCreate((uint)cb.Value.Length,cb.Value.ToArray())));
-            var samplers=packet.SamplerDescriptors.ToDictionary(p=>p.Key,p=>Own(DeviceSampler.Create(rd,p.Value.Span)));
+                foreach(var cb in stage.Item2)constants.Add((stage.Item1,cb.Key),owned.Own(rd.UniformBufferCreate((uint)cb.Value.Length,cb.Value.ToArray())));
+            var samplers=packet.SamplerDescriptors.ToDictionary(p=>p.Key,p=>owned.Own(DeviceSampler.Create(rd,p.Value.Span)));
             Rid Set(TranslatedShaderBindings layout,uint stage)
             {
                 if(layout.Bindings.Count==0)return default;
@@ -315,7 +328,7 @@ public sealed partial class MapFinalOutputPassOwner:IAsyncDisposable
                             "UniformBuffer"=>constants[(stage,binding.Source.BindPoint)],"Sampler"=>samplers[binding.Source.BindPoint],
                             _=>inputs.Single(i=>i.SourceBindPoint==binding.Source.BindPoint).Resource});
                     }
-                    Rid value=Own(rd.UniformSetCreate(uniforms,program.Shader,stage));
+                    Rid value=owned.Own(rd.UniformSetCreate(uniforms,program.Shader,stage));
                     if(!rd.UniformSetIsValid(value))throw new InvalidDataException("SPK producer uniform set failed.");return value;
                 }
                 finally{foreach(var uniform in uniforms)uniform.Dispose();}
@@ -329,8 +342,8 @@ public sealed partial class MapFinalOutputPassOwner:IAsyncDisposable
                 vertexFormat=rd.VertexFormatCreate(attributes);
             }
             finally{foreach(var attribute in attributes)attribute.Dispose();}
-            Rid vb=Own(rd.VertexBufferCreate(96,packet.Quad.ToArray()));
-            Rid vertices=Own(rd.VertexArrayCreate(4,vertexFormat,[vb,vb]));
+            Rid vb=owned.Own(rd.VertexBufferCreate(96,packet.Quad.ToArray()));
+            Rid vertices=owned.Own(rd.VertexArrayCreate(4,vertexFormat,[vb,vb]));
             using var raster=new RDPipelineRasterizationState{CullMode=packet.Raster.Cull,FrontFace=packet.Raster.FrontFace};
             using var multi=new RDPipelineMultisampleState();using var depth=new RDPipelineDepthStencilState{EnableDepthTest=false,EnableDepthWrite=false};
             var attachments=new Godot.Collections.Array<RDPipelineColorBlendStateAttachment>();
@@ -341,14 +354,14 @@ public sealed partial class MapFinalOutputPassOwner:IAsyncDisposable
                     SrcAlphaBlendFactor=a.SourceAlpha,DstAlphaBlendFactor=a.DestinationAlpha,AlphaBlendOp=a.AlphaOperation,
                     WriteR=a.WriteR,WriteG=a.WriteG,WriteB=a.WriteB,WriteA=a.WriteA});
                 using var blend=new RDPipelineColorBlendState{Attachments=attachments};
-                Rid pipeline=Own(rd.RenderPipelineCreate(program.Shader,rd.FramebufferGetFormat(framebuffer),vertexFormat,
+                Rid pipeline=owned.Own(rd.RenderPipelineCreate(program.Shader,rd.FramebufferGetFormat(framebuffer),vertexFormat,
                     RenderingDevice.RenderPrimitive.TriangleStrips,raster,multi,depth,blend));
                 if(!rd.RenderPipelineIsValid(pipeline))throw new InvalidDataException("SPK actual original VS/PS MRT pipeline failed.");
-                return new(pipeline,vertices,vb,vs,ps,constants,Array.AsReadOnly(inputs),samplerKey,packet.Raster,owned.AsReadOnly());
+                return new(pipeline,vertices,vb,vs,ps,constants,Array.AsReadOnly(inputs),samplerKey,packet.Raster,owned);
             }
             finally{foreach(var attachment in attachments)attachment.Dispose();}
         }
-        catch{Free(rd,owned);throw;}
+        catch(Exception failure){owned.ReleaseAfterConstructionFailure(rd,failure,"SPK-producer-draw-partial");throw;}
     }
 
     private MapFinalOutputPassFramePacket Snapshot(MapFinalOutputPassFramePacket packet)
@@ -386,23 +399,29 @@ public sealed partial class MapFinalOutputPassOwner:IAsyncDisposable
         return packet with{ExternalTextures=packet.ExternalTextures.ToDictionary(p=>p.Key,p=>p.Value),Draws=draws};
     }
     private static bool SameRaster(ModelRasterInputs a,ModelRasterInputs b)=>a.Cull==b.Cull&&a.FrontFace==b.FrontFace&&a.Attachments.SequenceEqual(b.Attachments);
-    private static void Free(RenderingDevice rd,IReadOnlyList<Rid> owned){for(int i=owned.Count-1;i>=0;i--)rd.FreeRid(owned[i]);}
-    private void RetireTargets(RenderingDevice rd)
+    private static void DrainResources(RenderingDevice rd,List<RenderDeviceResources> pending)
     {
-        foreach(var draw in _draws.Values)Free(rd,draw.Owned);_draws.Clear();
-        if(_target is not null)Free(rd,_target.Owned);_target=null;LatestFrame=null;
+        while(pending.Count>0){pending[0].Release(rd);pending.RemoveAt(0);}
     }
+    private void QueueTargetsForRetirement()
+    {
+        foreach(var draw in _draws.Values)_pendingRetirements.Add(draw.Resources);_draws.Clear();
+        if(_target is not null)_pendingRetirements.Add(_target.Resources);_target=null;LatestFrame=null;
+    }
+    private void RetireTargets(RenderingDevice rd){QueueTargetsForRetirement();DrainResources(rd,_pendingRetirements);}
     public Task RetireTargetsAsync(){Accept();return RetireAcceptedAsync();}
     public Task RetireTargetAsync()=>RetireTargetsAsync();
-    private async Task RetireAcceptedAsync(){await _gate.WaitAsync();try{await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{RetireTargets(rd);return true;});}finally{_gate.Release();Complete();}}
+    private async Task RetireAcceptedAsync(){await _gate.WaitAsync();try{_pendingConstruction=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_pendingConstruction);
+        await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{RetireTargets(rd);return true;});}finally{_gate.Release();Complete();}}
     private void Accept(){lock(_lifetime){ObjectDisposedException.ThrowIf(_retiring,this);_accepted++;}}
     private void Complete(){lock(_lifetime){if(--_accepted==0&&_retiring)_drained?.TrySetResult();}}
-    public ValueTask DisposeAsync(){lock(_lifetime){_retiring=true;return new(_disposal??=DisposeCoreAsync());}}
+    public ValueTask DisposeAsync(){lock(_lifetime){_retiring=true;if(_disposal is null||_disposal.IsFaulted||_disposal.IsCanceled)_disposal=DisposeCoreAsync();return new(_disposal);}}
     private async Task DisposeCoreAsync()
     {
         Task wait;lock(_lifetime){wait=_accepted==0?Task.CompletedTask:(_drained??=new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;}
         await wait;await _gate.WaitAsync();
-        try{await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{RetireTargets(rd);foreach(var program in _programs.Values)rd.FreeRid(program.Shader);return true;});}
+        try{_pendingConstruction=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_pendingConstruction);
+            await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{RetireTargets(rd);_programResources.Release(rd);return true;});}
         finally{_gate.Release();}
     }
 }

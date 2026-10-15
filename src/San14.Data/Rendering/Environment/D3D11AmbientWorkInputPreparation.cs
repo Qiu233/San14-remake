@@ -12,31 +12,29 @@ public sealed record D3D11AmbientWorkConstants(
     CubeRenderTextureDefinition Target, SkyCloudColorProgramSelection CloudProgram);
 
 /// <summary>Fresh WORK constants from the actual current Main and its selected
-/// default-caller light. Animation/history remain owned by the native session.
+/// typed light and atmosphere. Animation/history remain owned by the native session.
 /// No numeric cache is read by this preparation.</summary>
 public static class D3D11AmbientWorkInputPreparation
 {
     public static D3D11AmbientWorkConstants Prepare(GameResourceRepository repository,
         MapSourceCreatedSeasonLightingFrame present,
-        DirectionalLightProviderTemporary defaultCaller,SkyCloudProgramResources cloudPrograms,
+        CurrentDirectionalLightState light, SkyScenePreparedController controller,
+        Vector3 sunRgb, Vector3 moonRgb, float controllerGeometry40, SkyCloudProgramResources cloudPrograms,
         LoadedSkyAmbientResources ambient,
         SkyMainProgramResources? skyPrograms = null, Sky2TextureBindingSnapshot? sampling = null)
     {
-        string locale=present.AcceptedSeasonCamera.Inputs.MainFrame.Camera.ExecutableLocale;
-        var hdr=repository.LoadShaderContainer("system",0x9D8E811F);
-        var binding=new MapLightingBinding("ambient-work/view","ambient-work/main","ambient-work/light80",
-            hdr.Source.ResourceUri+"@"+hdr.Source.DecodedSha256,0,4,MapLightingBasePath.UnmodifiedOrdinary);
-        var inputs=new MapSourceCreatedLightingFrameInputs(present.FrameNumber,binding,present.Parameters,
-            present.PriorPreparedCameraPrefix,defaultCaller.Root.ContextFlags3E4,
-            present.FrameDelta,present.RuntimeTable,
-            MapLightingCameraScope.LightingPrefix,0,true,new(),PresentSeasonCamera:present);
-        var lighting=MapSourceCreatedLighting.PrepareFreshDefaultCaller(defaultCaller,inputs);
-        var selected=SkySceneSelectedViewLightSource.Capture(lighting.LocalLightData.Span,
-            new(present.FrameNumber,binding.ViewIdentity,"ambient-work/selected80",binding.LightOwnerIdentity));
-        var directional=SkyDirectionalSelectedLightSource.ReadCurrent(selected,lighting);
-        var stages=SkyAppliedSourceStageOwner.CreateFresh(repository,locale,"ambient-work/work",binding.CameraOwnerIdentity,
-            present.AcceptedSeasonCamera.Inputs.MainFrame.Camera.Source)
-            .PrepareCurrent(present,lighting);
+        var inputs = present.AcceptedSeasonCamera.Inputs;
+        var source = inputs.Source;
+        var selection = source.Selection;
+        if (!light.ContextApplied || !light.Mode6Applied || light.Exposure.Type != 6 || !light.ThirdColorMixEnabled)
+            throw new InvalidDataException("WORK requires the current mode-six directional light with third-color mixing.");
+        if (selection.SecondPackage is not null || inputs.MainFrame.Camera.Source.Declaration.SkyDomeSceneKey != 0 ||
+            selection.FirstPackage.SkyDomeSceneKey != 0)
+            throw new NotSupportedException("WORK requires the direct selected package and an implemented null scene branch.");
+        var target = ambient.SpecularTargets[0];
+        var camera = present.CurrentSkyCamera;
+        if (camera.Parameters.NativeTargetFormat != target.PixelFormat)
+            throw new InvalidDataException("WORK target format differs from the current Sky parameters.");
         skyPrograms ??= SkyMainProgramResources.Load(repository,NamedViewRendererResources.Load(repository));
         var skyShader=skyPrograms.Shader;
         // A retained WORK owner supplies its own sampling generation. Standalone
@@ -48,35 +46,83 @@ public static class D3D11AmbientWorkInputPreparation
                 reference => SkySeasonPackageTextures.LoadSampling(repository, reference));
         var textureBindings = sampling ?? bindings!.Capture();
         textureBindings.RequireCurrent();
-        directional.PrepareLights(textureBindings);
-        var frame=directional.PrepareSourceSelectedSeasonFrame(ambient.SpecularTargets[0],
-            SkyDirectionalAtmosphereNativeSource.Load(repository,locale,NativeLogDispatch.Sse),2,skyShader,stages,textureBindings);
-        var selections=directional.CaptureDesiredSelection(skyShader,frame);
-        var desired=selections.GetSelection(false).Combination;
-        var atmosphereProgram=selections.GetSelection(true).Combination.Stages.Single(stage=>stage.StageCode==0).Entry!.ProgramIndex;
-        var prepared=SkySceneFramePreparation.PrepareFreshDirectionalFullyWritten(frame.SourceFrame,directional,
-            skyShader.ReadResourceDefinitions(atmosphereProgram),
-            skyShader.ReadResourceDefinitions(desired.Stages.Single(stage=>stage.StageCode==0).Entry!.ProgramIndex));
+        if (textureBindings.Presence.Moon || textureBindings.Presence.Milky)
+            throw new NotSupportedException("Fresh WORK requires the source-null Moon and Milky texture family.");
+        byte[] request = SkyDirectionalRendererFeatureWriter.WriteRequest(light.Fog.Mode);
+        var selector = Sky2Selection.Read(skyShader);
+        var atmosphereSelection = selector.SelectDesired(request, true, false, light.Exposure.Type, light.Exposure.Flags, true);
+        var desired = selector.SelectDesired(request, true, false, light.Exposure.Type, light.Exposure.Flags, false).Combination;
+        var atmosphereDefinitions = skyShader.ReadResourceDefinitions(Program(atmosphereSelection.Combination, 0));
+        var contributionDefinitions = skyShader.ReadResourceDefinitions(Program(desired, 0));
+        var baselineMoon = new Vector3(light.MoonBaseline.X, light.MoonBaseline.Y, light.MoonBaseline.Z);
+        Sky2SourceZeroMoon? zeroMoon = null;
+        if (BitConverter.SingleToUInt32Bits(baselineMoon.X) == 0 &&
+            BitConverter.SingleToUInt32Bits(baselineMoon.Y) == 0 && BitConverter.SingleToUInt32Bits(baselineMoon.Z) == 0)
+        {
+            zeroMoon = Sky2SourceZeroMoon.Create(textureBindings.RequireNull(SkySamplingRole.Moon), baselineMoon);
+            if (moonRgb != Vector3.Zero)
+                throw new InvalidDataException("Zero Moon baseline cannot cover a nonzero current color.");
+            // The zero setter retains its baseline positive zeros after checking the current color.
+            moonRgb = baselineMoon;
+        }
+        var moonCache = zeroMoon is null ? Sky2CameraLightPreparation.PrepareRgbCache(moonRgb) :
+            Sky2CameraLightPreparation.PrepareSourceZeroMoonCache(moonRgb, zeroMoon);
+        var lights = new SkySceneLights("current-WORK-directional-light", true,
+            controller.SunPosition ?? throw new InvalidDataException("WORK has no current Sun position."),
+            Sky2CameraLightPreparation.PrepareRgbCache(sunRgb), true,
+            controller.MoonPosition ?? throw new InvalidDataException("WORK has no current Moon position."),
+            moonRgb, moonCache.Maximum, light.Lighting.Directional[0].Direction)
+            { SourceZeroMoon = zeroMoon, SourceMoonRgbCache1470 = zeroMoon is null ? null : moonCache };
+        var packageFog = SkyDirectionalRendererFeatureWriter.PreparePackageFog(light.Fog,
+            inputs.MainFrame.Camera.Source.Declaration.FogLightingBlend);
+        var feature = atmosphereSelection.RendererFeature.Feature.Words;
+        var color = light.Lighting.Directional[0].Color;
+        Vector3 directionalRgb = new(color.X, color.Y, color.Z);
+        SkyFogPacket fog;
+        IReadOnlyList<Vector4> scattering;
+        if (feature[6] == 7 && feature[7] == 2)
+        {
+            fog = SkyFogMath.GenerateWeather(packageFog.Mode, packageFog.Values, 2, true);
+            scattering = fog.RequiresMode7NeutralScattering ? fog.ScatteringOverride!.Values :
+                SkyScatteringMath.GenerateWeather(packageFog.Values, directionalRgb).Values;
+        }
+        else if (feature[6] == 4 && feature[7] == 1)
+        {
+            // The mode-four writer uses float-max for nonincreasing intervals.
+            fog = SkyDirectionalMode4FogReceipt.Generate(light.Fog.Mode, light.Fog.Values.Start, light.Fog.Values.End, float.MaxValue);
+            scattering = SkyScatteringMode4.Generate(light.Fog.Values,
+                new(directionalRgb, 1, Vector4.Zero, null), source.AtmosphereScattering).Values;
+        }
+        else throw new NotSupportedException("WORK requires an implemented renderer fog mode and profile.");
+        var cameras = SkySceneSourceDefaults.PrepareCubeCameras(present.PreparedCameraPrefix.Span,
+            camera.CameraOwnerProvenance, 2, target.Width, target.Width);
+        var frame = new SkySceneSourceFrame(cameras,
+            camera.Parameters with { MilkyStrength1484 = controller.MilkyStrength1484 }, controller.Controller,
+            lights, textureBindings.Presence, new("current-WORK-atmosphere", fog, scattering));
+        var prepared = SkySceneFramePreparation.PrepareFreshFullyWritten(frame, atmosphereDefinitions, contributionDefinitions);
         var skyProgram=skyPrograms.ImportSelection(new(desired.Index,Program(desired,1),Program(desired,0)));
-        var general=MainSceneNode51Source.Load(repository,locale);
-        var view=general.PrepareCurrent(new(present.FrameNumber,"ambient-work/node51","ambient-work/view-collection",
-            general.ViewCollectionSourceNameHash,true,true,null,0,binding,true,"owned-first-Main-selected-view0"));
-        var clouds=SkyAppliedSourceCloudOwner.CreateFresh(repository,locale,"ambient-work/clouds",cloudPrograms)
-            .PrepareDirectionalBootstrap(frame,present,stages,view,0,"fresh-owned-Cloud-phase0;native-shares-node3-phase",directional);
-        var cloudPackets=clouds.SixPackets.ToArray();
+        var weather = present.CloudWeather;
+        if (weather.Settings.RayExponent != 4 || weather.Settings.MinimumRaySamples is < 1 or > 4096 ||
+            !float.IsFinite(controllerGeometry40) || controllerGeometry40 == 0)
+            throw new NotSupportedException("WORK Cloud requires ray exponent four, supported sample count and finite nonzero geometry scale.");
+        var cloudProgram = cloudPrograms.SelectColor(weather.State.LowCostLevel);
+        source.CloudTextures.RequireSelectedPackage(selection.FirstPackage);
+        var cloudBindings = SkyAppliedCloudTextureSet.Import(source.CloudTextures);
+        SkyAppliedCloudTextureBindings.ValidateProgram(cloudProgram);
+        var material = present.CloudMaterial;
+        var volume = material.PrepareVolume(SkyCloudAnimationState.Fresh.Advance(material, 0));
+        float planetRadius = source.RequireRenderingAtmosphere().PlanetRadius;
+        var cloudPackets = new SkyCloudConstantPacket[6];
         for(int face=0;face<6;face++)
         {
-            if(face is 0 or 1 or 4 or 5)
-            {
-                var plane=SkyWorkCloudClipPreparation.Prepare(present.PreparedCameraPrefix.Span,
-                    frame.SourceFrame.SixCameras[face],face,present.AcceptedSeasonCamera.Inputs.Source.RequireRenderingAtmosphere().PlanetRadius);
-                Vector(cloudPackets[face].VertexBytes,0,plane);
-            }
+            var plane = face is 0 or 1 or 4 or 5 ? SkyWorkCloudClipPreparation.Prepare(
+                present.PreparedCameraPrefix.Span, cameras[face], face, planetRadius) : Vector4.Zero;
+            cloudPackets[face] = SkyCloudConstants.PrepareCurrentFace(cloudProgram, frame, face, material, volume,
+                planetRadius, weather.Settings.MinimumRaySamples, plane, sunRgb, controllerGeometry40);
         }
-        var skyMedia=D3D11MainSkyInputPreparation.Load(skyProgram,clouds.Bindings,textureBindings);
-        return new(frame.SourceFrame.SixCameras,prepared.DrawPackets,skyMedia,cloudPackets,
-            SkyCloudAnimationEncoding.CreateAxes(clouds.Material,clouds.Selection.ProgramSelection.PixelDefinitions),
-            ambient.SpecularTargets[0],clouds.Selection.ProgramSelection);
+        var skyMedia=D3D11MainSkyInputPreparation.Load(skyProgram,cloudBindings,textureBindings);
+        return new(cameras,prepared.DrawPackets,skyMedia,cloudPackets,
+            SkyCloudAnimationEncoding.CreateAxes(material,cloudProgram.PixelDefinitions),target,cloudProgram);
     }
 
     public static void WriteNativeInputs(D3D11AmbientWorkConstants constants,string inputRoot)
@@ -124,23 +170,4 @@ public static class D3D11AmbientWorkInputPreparation
 
     private static int Program(G2ShaderCombination combination,int stage)=>combination.Stages.Single(s=>s.StageCode==stage&&s.Entry is not null).Entry!.ProgramIndex;
     private static byte[] Floats(float[] values){byte[] bytes=new byte[values.Length*4];for(int i=0;i<values.Length;i++)BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(i*4),values[i]);return bytes;}
-    private static void Vector(byte[] bytes,int offset,Vector4 v)=>Floats([v.X,v.Y,v.Z,v.W]).CopyTo(bytes,offset);
-}
-
-public static partial class MapSourceCreatedLighting
-{
-    /// <summary>Borrow the registered root's actual force=-1/pair0/weight0
-    /// provider temporary and publish this request's camera writes.</summary>
-    public static MapSourceCreatedLightingPacket PrepareFreshDefaultCaller(
-        DirectionalLightProviderTemporary temporary,MapSourceCreatedLightingFrameInputs input)
-    {
-        var present=input.PresentSeasonCamera!;var camera=present.PreparedCameraPrefix.ToArray();
-        var local=temporary.ApplyCurrentCamera(camera);
-        var scene=input.AdditionalSceneInputs with{
-            Lighting=DeferredSceneConstants.ReadPreparedBaseLighting(local.Bytes.AsSpan(0,0x1B0),4),
-            Camera=PreparedCameraSceneSource.ReadCompletePrefix(camera),
-            Ambient=DeferredSceneConstants.ReadAmbientModifier(local.Bytes.AsSpan(0x1B0,0x178),0),
-            Fog=DeferredSceneConstants.ReadSharedFog(local.Bytes.AsSpan(0,0x1B0),true)};
-        return new(temporary.Root,input,camera,local,scene);
-    }
 }

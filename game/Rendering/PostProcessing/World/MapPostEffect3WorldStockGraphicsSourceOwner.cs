@@ -14,7 +14,6 @@ public sealed partial class MapPostEffect3WorldStockGraphicsSourceOwner
     private readonly MapSourceCreatedNativeSessionPreparedFrame prepared;
     private readonly MapPostEffect3ParameterState names;
     private MapSourceCreatedWorldPlayableHost? actualHost;
-    private readonly MapOwnedGraphicsMaskAcceptedSourceSnapshot? acceptedMaskSources;
     private readonly MapPostEffect3WorldSubmittedImmutableSourceReceipt? acceptedWorldSubmission;
     public NativeMapFrameContext Context{get;}
     public PostProcessResourceBank Bank{get;}
@@ -34,7 +33,6 @@ public sealed partial class MapPostEffect3WorldStockGraphicsSourceOwner
         CurrentStock=requireActualStock(context);
         names=MapPostEffect3ParameterState.CreateUninitialized(bank.Source.Source,context.FrameNumber,bank.Source.ContextOwnerIdentity);
         RequireCurrent();
-        acceptedMaskSources=CurrentStock.CaptureAcceptedImmutableMaskSources();acceptedMaskSources.RequireCurrent();
         acceptedWorldSubmission=session.CaptureAcceptedSubmittedWorld(submitted);acceptedWorldSubmission.RequireCurrent();
     }
     public static MapPostEffect3WorldStockGraphicsSourceOwner CaptureCurrent(
@@ -61,7 +59,6 @@ public sealed partial class MapPostEffect3WorldStockGraphicsSourceOwner
     }
     public void RequireCurrent()
     {
-        acceptedMaskSources?.RequireCurrent();
         submitted.RequireCurrent(Context);
         if(acceptedWorldSubmission is{} accepted)accepted.RequireCurrent();else session.RequireSubmittedWorld(submitted);
         if(!ReferenceEquals(session.CurrentFrame,prepared)||!ReferenceEquals(prepared.Context,Context)||
@@ -72,16 +69,6 @@ public sealed partial class MapPostEffect3WorldStockGraphicsSourceOwner
             TextureParameters.FrameNumber!=Context.FrameNumber||TextureParameters.SourceSha256!=Bank.Source.Source.Sha256||
             TextureParameters.ContextOwnerIdentity!=Bank.Source.ContextOwnerIdentity||Bank.OwnedRidCount<=0)
             throw new InvalidDataException("Stock graphics scope is not the live same-frame World/Camera/frontend/module/texture state.");
-        CurrentStock.ValidateCurrent();
-    }
-    /// <summary>Complete source acceptance boundary for this actual World,
-    /// including the separate Functor1 wrapper. Draw-time dynamic checks use
-    /// the private accepted mask snapshot; original mutable edits still reject
-    /// here before a completed invocation is accepted.</summary>
-    public void RevalidateStaticMaskSourceAcceptanceBoundary()
-    {
-        RequireCurrent();
-        CurrentStock.RevalidateAcceptedStaticSourceBoundary();acceptedWorldSubmission!.RevalidateMutableSourceBoundary();
     }
 
     /// <summary>Only external pointer aliases that already resolve to the

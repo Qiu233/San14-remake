@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using Godot;
 using San14.Data;
 
@@ -11,36 +10,36 @@ public sealed record SkyStarRasterState(RenderingDevice.PolygonCullMode Cull,
 public sealed class SkyStarDraw : IAsyncDisposable
 {
     public SkyStarConstantPacket Constants { get; private set; }
-    public SkyStarGeometry Geometry { get; }
+    public SkyStarGeometry Geometry => geometry.Source;
     public CubeRenderDeviceSurface Target { get; }
     public bool UsesAnalyticPixel { get; }
     private readonly SkyStarProgram _program;
+    private readonly SkyStarGeometryDevice geometry;
     private readonly Rid _pipeline, _vertices, _vs, _gs, _ps, _vcb, _gcb, _pcb;
-    private readonly IReadOnlyList<Rid> _owned;
-    private Task? _disposal;
+    private readonly RenderDeviceResources resources;
+    private volatile bool retiring;
     private SkyStarDraw(SkyStarProgram program, SkyStarConstantPacket packet,
-        SkyStarGeometry geometry, CubeRenderDeviceSurface target,
-        Rid pipeline, Rid vertices, Rid vs, Rid gs, Rid ps, Rid vcb, Rid gcb, Rid pcb, List<Rid> owned, bool analytic)
-        => (_program, Constants, Geometry, Target, _pipeline, _vertices, _vs, _gs, _ps, _vcb, _gcb, _pcb, _owned, UsesAnalyticPixel)
-            = (program, packet, geometry, target, pipeline, vertices, vs, gs, ps, vcb, gcb, pcb, owned.AsReadOnly(), analytic);
+        SkyStarGeometryDevice geometry, CubeRenderDeviceSurface target,
+        Rid pipeline, Rid vertices, Rid vs, Rid gs, Rid ps, Rid vcb, Rid gcb, Rid pcb, RenderDeviceResources resources, bool analytic)
+    {
+        (_program, Constants, this.geometry, Target, _pipeline, _vertices, _vs, _gs, _ps, _vcb, _gcb, _pcb, this.resources, UsesAnalyticPixel)
+            = (program, packet, geometry, target, pipeline, vertices, vs, gs, ps, vcb, gcb, pcb, resources, analytic);
+    }
 
     public static Task<SkyStarDraw> BuildAsync(SkyStarProgram program,
-        CubeRenderTextureDevice work, uint surfaceId, SkyStarGeometry geometry,
+        CubeRenderTextureDevice work, uint surfaceId, SkyStarGeometryDevice geometry,
         ReadOnlyMemory<byte> vertexConstants, ReadOnlyMemory<byte> geometryConstants, ReadOnlyMemory<byte> pixelConstants,
         Sky2DeviceInput? starTexture, uint explicitColorWriteMask, SkyStarRasterState explicitRaster)
     {
         ArgumentNullException.ThrowIfNull(program); ArgumentNullException.ThrowIfNull(work);
         ArgumentNullException.ThrowIfNull(geometry); ArgumentNullException.ThrowIfNull(explicitRaster);
+        geometry.RequireAvailable();
         if (surfaceId >= work.Surfaces.Count || work.Surfaces[(int)surfaceId].Source.MipLevel != 0 ||
-            geometry.PointCount == 0 || explicitColorWriteMask > 15 || explicitRaster.DepthTest || explicitRaster.DepthWrite ||
+            geometry.Source.PointCount == 0 || explicitColorWriteMask > 15 || explicitRaster.DepthTest || explicitRaster.DepthWrite ||
             starTexture is not null && (starTexture.SourceBindPoint != 0 || starTexture.SourceDimension != 4 ||
             starTexture.SourceSamplerDescriptor.Length != 52 || string.IsNullOrWhiteSpace(starTexture.SourceResourceUri) ||
             starTexture.OwnerTexture == work.TextureRid || work.Surfaces.Any(s => s.TargetView == starTexture.ShaderView)))
             throw new InvalidDataException("Star draw needs a nonempty source stream, base WORK face, distinct2D texture and explicit mask/raster contract; this color-only backend has no depth attachment.");
-        var retained = SkyStarGeometry.ReadExplicit(geometry.VertexBytes, geometry.PointCount,
-            geometry.SourceResourceUri, geometry.SourceSha256);
-        if (retained.VertexPayloadSha256 != geometry.VertexPayloadSha256)
-            throw new InvalidDataException("Star geometry changed after its source read.");
         var packet = SkyStarConstants.Read(program.VertexDefinitions, program.GeometryDefinitions,
             program.PixelBindings.SourceDefinitions, vertexConstants.Span, geometryConstants.Span, pixelConstants.Span);
         bool analytic = starTexture is null;
@@ -50,10 +49,11 @@ public sealed class SkyStarDraw : IAsyncDisposable
         var target = work.Surfaces[(int)surfaceId];
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            var owned = new List<Rid>();
-            Rid Own(Rid r) { if (!r.IsValid) throw new InvalidDataException("Star device allocation failed."); owned.Add(r); return r; }
+            var resources = new RenderDeviceResources("Star device allocation failed.");
+            Rid Own(Rid r) => resources.Own(r);
             try
             {
+                geometry.RequireAvailable();
                 if (!rd.FramebufferIsValid(target.Framebuffer) || input is not null && (!rd.TextureIsValid(input.ShaderView) || !rd.TextureIsValid(input.OwnerTexture)))
                     throw new InvalidDataException("Star borrowed target or input is no longer live.");
                 if (input is not null)
@@ -63,15 +63,8 @@ public sealed class SkyStarDraw : IAsyncDisposable
                         tf.Format.ToString().Contains("Uint") || tf.Format.ToString().Contains("Sint"))
                         throw new InvalidDataException("Star input is not the original floating2D shape.");
                 }
-                Rid vb = Own(rd.VertexBufferCreate((uint)retained.VertexBytes.Length, retained.VertexBytes.ToArray()));
-                using var position = new RDVertexAttribute { Location = 0, Binding = 0, Offset = 0, Stride = 20,
-                    Format = RenderingDevice.DataFormat.R32G32B32Sfloat, Frequency = RenderingDevice.VertexFrequency.Instance };
-                using var size = new RDVertexAttribute { Location = 1, Binding = 0, Offset = 12, Stride = 20,
-                    Format = RenderingDevice.DataFormat.R32Sfloat, Frequency = RenderingDevice.VertexFrequency.Instance };
-                using var colorAttribute = new RDVertexAttribute { Location = 2, Binding = 0, Offset = 16, Stride = 20,
-                    Format = RenderingDevice.DataFormat.R8G8B8A8Unorm, Frequency = RenderingDevice.VertexFrequency.Instance };
-                long format = rd.VertexFormatCreate([position, size, colorAttribute]);
-                Rid vertices = Own(rd.VertexArrayCreate(4, format, [vb]));
+                long format = geometry.VertexFormat;
+                Rid vertices = geometry.VertexArray;
                 Rid vcb = Own(rd.UniformBufferCreate(352, packet.VertexBytes)), gcb = Own(rd.UniformBufferCreate(16, packet.GeometryBytes)),
                     pcb = Own(rd.UniformBufferCreate(16, packet.PixelBytes));
                 Rid sampler = input is null ? default : Own(DeviceSampler.Create(rd, input.SourceSamplerDescriptor.Span));
@@ -107,20 +100,24 @@ public sealed class SkyStarDraw : IAsyncDisposable
                 Rid pipeline = Own(rd.RenderPipelineCreate(shader, rd.FramebufferGetFormat(target.Framebuffer), format,
                     RenderingDevice.RenderPrimitive.TriangleStrips, raster, multi, depth, blend));
                 if (!rd.RenderPipelineIsValid(pipeline)) throw new InvalidDataException("Expanded star pipeline is invalid.");
-                return new SkyStarDraw(program, packet, retained, target, pipeline, vertices, vs, gs, ps, vcb, gcb, pcb, owned, analytic);
+                return new SkyStarDraw(program, packet, geometry, target, pipeline, vertices, vs, gs, ps, vcb, gcb, pcb, resources, analytic);
             }
-            catch { for (int i = owned.Count - 1; i >= 0; i--) rd.FreeRid(owned[i]); throw; }
+            catch (Exception constructionFailure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd, constructionFailure, "Star-draw-partial");
+                throw;
+            }
         });
     }
     public Task UpdateConstantsAsync(ReadOnlyMemory<byte> vertex, ReadOnlyMemory<byte> geometry, ReadOnlyMemory<byte> pixel)
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null, this);
+        ObjectDisposedException.ThrowIf(retiring, this);
         var packet = SkyStarConstants.Read(_program.VertexDefinitions, _program.GeometryDefinitions,
             _program.PixelBindings.SourceDefinitions, vertex.Span, geometry.Span, pixel.Span);
         if (UsesAnalyticPixel) SkyStarPixelAdapter.ValidateAnalyticPacket(packet.PixelBytes);
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            ObjectDisposedException.ThrowIf(_disposal is not null, this);
+            ObjectDisposedException.ThrowIf(retiring, this);
             if (rd.BufferUpdate(_vcb, 0, 352, packet.VertexBytes) != Error.Ok || rd.BufferUpdate(_gcb, 0, 16, packet.GeometryBytes) != Error.Ok ||
                 rd.BufferUpdate(_pcb, 0, 16, packet.PixelBytes) != Error.Ok) throw new InvalidDataException("Device rejected star packet update.");
             Constants = packet; return true;
@@ -128,10 +125,12 @@ public sealed class SkyStarDraw : IAsyncDisposable
     }
     public Task DrawAsync()
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null, this);
+        ObjectDisposedException.ThrowIf(retiring, this);
+        geometry.RequireAvailable();
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            ObjectDisposedException.ThrowIf(_disposal is not null, this);
+            ObjectDisposedException.ThrowIf(retiring, this);
+            geometry.RequireAvailable();
             long list = rd.DrawListBegin(Target.Framebuffer, RenderingDevice.DrawFlags.DefaultAll);
             try { rd.DrawListBindRenderPipeline(list, _pipeline); rd.DrawListBindVertexArray(list, _vertices);
                 rd.DrawListBindUniformSet(list, _ps, 0); rd.DrawListBindUniformSet(list, _vs, 1); rd.DrawListBindUniformSet(list, _gs, 2);
@@ -139,6 +138,9 @@ public sealed class SkyStarDraw : IAsyncDisposable
             finally { rd.DrawListEnd(); } return true;
         });
     }
-    public ValueTask DisposeAsync() => new(_disposal ??= TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-    { for (int i = _owned.Count - 1; i >= 0; i--) rd.FreeRid(_owned[i]); return true; }));
+    public ValueTask DisposeAsync()
+    {
+        retiring = true;
+        return resources.DisposeAsync();
+    }
 }

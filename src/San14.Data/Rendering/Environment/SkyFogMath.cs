@@ -12,11 +12,33 @@ public sealed record SkyFogPacket(int RendererFogMode, int Profile,
     public SkyDirectionalMode4FogReceipt? SourceMode4Proof { get; init; }
 }
 
-/// <summary>Final fog float4 from the original97C1F0 writer for explicit mode7.
-/// Profiles are compared exactly as native code: profile1 versus every other
-/// explicit integer. No current renderer state or source fog mode is inferred.</summary>
+/// <summary>Final fog parameters for explicit renderer modes. Numeric preparation
+/// is independent of selected-light, camera and rendering owner lifetimes.</summary>
 public static class SkyFogMath
 {
+    /// <summary>Directional renderer mode four, profile one. Disabled source
+    /// fog ignores its interval. Active nonincreasing intervals use the supplied
+    /// renderer fallback, including its original overflow behavior.</summary>
+    public static SkyFogPacket GenerateDirectionalMode4(uint sourceMode,
+        float start, float end, float intervalFallback)
+    {
+        Vector4 value = Vector4.Zero;
+        if (sourceMode != 0)
+        {
+            if (!float.IsFinite(start) || !float.IsFinite(end))
+                throw new InvalidDataException("Mode4 finalFog input is nonfinite.");
+            float ratio = end > start ? Divide(1, Subtract(end, start)) : intervalFallback;
+            float product = Multiply(1, start);
+            float x = Multiply(1, ratio), y = Multiply(product, ratio);
+            y = BitConverter.UInt32BitsToSingle(BitConverter.SingleToUInt32Bits(y) ^ 0x80000000);
+            value = new(x, y, 0, 0);
+        }
+        byte[] bytes = new byte[16];
+        BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(0), value.X);
+        BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(4), value.Y);
+        return new(4, 1, true, sourceMode, value, bytes, false, null);
+    }
+
     public static SkyFogPacket Generate(int explicitRendererFogMode,
         int explicitProfile, bool explicitFogEnabled, ReadOnlySpan<byte> fogRecord96)
     {
@@ -27,11 +49,16 @@ public static class SkyFogMath
     }
 
     public static SkyFogPacket GenerateWeather(SkyWeatherFogValues fog,int profile,bool enabled)
+        => GenerateWeather(7, fog, profile, enabled);
+
+    public static SkyFogPacket GenerateWeather(uint sourceMode, SkyWeatherFogValues fog, int profile, bool enabled)
     {
-        if (profile != 1 || enabled)
+        ArgumentNullException.ThrowIfNull(fog);
+        bool active = enabled && sourceMode != 0;
+        if (profile != 1 || active)
         { Finite(fog.Pivot); Finite(fog.Blend); Finite(fog.PlanetRadius); }
-        if (profile != 1 && !enabled) { Finite(fog.Start); Finite(fog.End); }
-        return GenerateResolved(profile,enabled,new(7,fog.Pivot,fog.Blend,fog.PlanetRadius,fog.Start,fog.End));
+        if (profile != 1 && !active) { Finite(fog.Start); Finite(fog.End); }
+        return GenerateResolved(profile,enabled,new(sourceMode,fog.Pivot,fog.Blend,fog.PlanetRadius,fog.Start,fog.End));
     }
 
     private static void Finite(float value)
@@ -86,4 +113,8 @@ public static class SkyFogMath
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static float Divide(float left, float right) => left / right;
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static float Multiply(float left, float right) => left * right;
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static float Subtract(float left, float right) => left - right;
 }

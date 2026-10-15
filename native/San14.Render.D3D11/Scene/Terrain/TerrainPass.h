@@ -4,6 +4,7 @@
 #include "SeasonTerrainPalette.h"
 #include "TerrainCameraConstants.h"
 #include "TerrainRasterState.h"
+#include <optional>
 
 namespace San14::Render {
 class TerrainPass {
@@ -24,18 +25,22 @@ class TerrainPass {
         camera_ = prepareNativeTerrainCameraGpu(
             device, input, layout_.Get(), positions_.Get(), indices_.Get(), vertexShader_.Get(),
             pixelShader_.Get(), coarseVertexShader_.Get(), coarsePixelShader_.Get(), indexCount);
+        seasonPalette_.reset();
         if (!seasonalResources.empty()) {
             seasonPalette_ = source_current_season_terrain::readPaletteBank(seasonalResources);
-            seasonBinding_ = source_current_season_terrain::prepareBinding(pixelProgramBytes_);
+            source_current_season_terrain::prepareNativeCurrent(*seasonPalette_, camera_);
         }
     }
 
     UINT draw(ID3D11DeviceContext *context, const source_camera::Frame &current,
               std::optional<uint32_t> season, NativeTerrainCameraDrawBindings bindings,
               NativeSourceDepthState& logical,UINT stencilReference,uint32_t colorMasks) {
-        if (season)
-            source_current_season_terrain::patchNativeCurrent(seasonPalette_, seasonBinding_, *season,
+        if (season) {
+            if (!seasonPalette_)
+                throw std::runtime_error("Current terrain season requires its prepared palette bank");
+            source_current_season_terrain::patchNativeCurrent(*seasonPalette_, *season,
                                                               camera_);
+        }
         updateNativeTerrainCameraGpu(context, camera_, current);
         bindings.vertexViews = vertexViews_;
         bindings.pixelViews = pixelViews_;
@@ -50,10 +55,10 @@ class TerrainPass {
   private:
     void prepareProgramsAndGeometry(ID3D11Device *device, const fs::path &input, bool groupedTerrain) {
         auto vsBytes = load(input / (groupedTerrain ? "near-vs.dxbc" : "terrain-vs.dxbc"));
-        pixelProgramBytes_ = load(input / (groupedTerrain ? "near-ps.dxbc" : "terrain-ps.dxbc"));
+        auto pixelProgramBytes = load(input / (groupedTerrain ? "near-ps.dxbc" : "terrain-ps.dxbc"));
         check(device->CreateVertexShader(vsBytes.data(), vsBytes.size(), nullptr, &vertexShader_),
               "original terrain VS");
-        check(device->CreatePixelShader(pixelProgramBytes_.data(), pixelProgramBytes_.size(), nullptr,
+        check(device->CreatePixelShader(pixelProgramBytes.data(), pixelProgramBytes.size(), nullptr,
                                         &pixelShader_),
               "original terrain PS");
         ComPtr<ID3D11ShaderReflection> reflection;
@@ -168,7 +173,6 @@ class TerrainPass {
     }
 
     TerrainRasterState raster_;
-    std::vector<char> pixelProgramBytes_;
     ComPtr<ID3D11VertexShader> vertexShader_, coarseVertexShader_;
     ComPtr<ID3D11PixelShader> pixelShader_, coarsePixelShader_;
     ComPtr<ID3D11InputLayout> layout_;
@@ -181,7 +185,6 @@ class TerrainPass {
     std::vector<ComPtr<ID3D11SamplerState>> samplers_;
     std::array<ID3D11SamplerState *, 16> vertexSamplers_{}, pixelSamplers_{};
     NativeTerrainCameraGpu camera_;
-    source_current_season_terrain::PaletteBank seasonPalette_;
-    source_current_season_terrain::Binding seasonBinding_;
+    std::optional<source_current_season_terrain::PaletteBank> seasonPalette_;
 };
 } // namespace San14::Render

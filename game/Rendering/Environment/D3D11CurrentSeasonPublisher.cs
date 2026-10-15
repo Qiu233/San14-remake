@@ -3,20 +3,28 @@ using San14.Data;
 
 public sealed class D3D11CurrentSeasonLight
 {
-    internal D3D11CurrentSeasonLight(uint objectId, uint groupMask, byte[] data)
+    private readonly D3D11CurrentSeasonResources.Light source;
+    private readonly ReadOnlyMemory<byte> cameraPrefix;
+
+    internal D3D11CurrentSeasonLight(D3D11CurrentSeasonResources.Light source,
+        DirectionalLightCurrentCamera camera, ReadOnlyMemory<byte> prefix)
     {
-        ObjectId = objectId; GroupMask = groupMask; CompleteData = data;
-        Lighting = HdrLightEncoding.Read(data); Exposure = D3D11CurrentExposureEncoding.ReadLight(data);
-        ReceiverBias = ShadowReceiverBiasEncoding.ReadLight(data);
-        PatternModifier = PatternCurrentEncoding.ReadLight(data, Lighting.Modifier.Present);
+        this.source = source; cameraPrefix = prefix;
+        ObjectId = source.ObjectId; GroupMask = source.GroupMask;
+        State = source.CurrentSource.PrepareCamera(camera);
     }
     public uint ObjectId { get; }
     public uint GroupMask { get; }
-    public HdrLightState Lighting { get; }
-    public LightExposureSettings Exposure { get; }
-    public ShadowReceiverBias ReceiverBias { get; }
-    public PatternLightModifier PatternModifier { get; }
-    internal ReadOnlyMemory<byte> CompleteData { get; }
+    public CurrentDirectionalLightState State { get; }
+    public HdrLightState Lighting => State.Lighting;
+    public LightExposureSettings Exposure => State.Exposure;
+    public ShadowReceiverBias ReceiverBias => State.ReceiverBias;
+    public PatternLightModifier PatternModifier => State.PatternModifier;
+    // The implemented root/root provider preserves these resource slots;
+    // camera preparation changes numeric lighting, not their captured owners.
+    internal IReadOnlyList<DirectionalLightResourceSlot> ResourceSlots => source.DefaultCaller.Root.ResourceSlots;
+    internal void WriteNumericPrefix(Span<byte> destination) =>
+        source.NumericEncoding.Write(State, cameraPrefix.Span, destination);
 }
 
 /// <summary>Same-request normal Main season/RGB/weather/local-light writes.
@@ -151,12 +159,13 @@ public sealed class D3D11CurrentSeasonPublisher
         var words = D3D11CurrentSeasonEncoding.MainWrites(actual, _resources.ViewDefaults, _resources.OceanWaves, surface, oceanOptics,
             _resources.CloudShaderSettings);
         var prefix = present.PreparedCameraPrefix;
+        var lightCamera = DirectionalLightCurrentCamera.Capture(prefix.Span);
         var lights = _resources.Lights.Select(light => new D3D11CurrentSeasonLight(
-            light.ObjectId, light.GroupMask,
-            light.DefaultCaller.ApplyCurrentCamera(prefix.Span).Bytes)).ToArray();
+            light, lightCamera, prefix)).ToArray();
+        var atmosphereLight = lights.First(light => (light.GroupMask & 0x80) != 0).State;
         var atmosphere = D3D11CurrentAtmosphereFrame.Prepare(present,
             selected.Transmittance.Tangent, _color,
-            lights.First(light => (light.GroupMask & 0x80) != 0).CompleteData.Span,
+            atmosphereLight.SunBaseline, atmosphereLight.MoonBaseline,
             _resources.ControllerGeometry40);
         return new(mode, season, rgb, present,
             words, lights, atmosphere, D3D11CurrentExposureLight.Capture(_resources.FreshExposureSelector, lights),

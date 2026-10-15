@@ -50,13 +50,19 @@ public sealed class MapPostEffect3DeviceConstantBuffer
 /// allocation is never treated as a native complete CB or scalar initializer.</summary>
 public sealed partial class PostProcessResourceBank:IAsyncDisposable
 {
-    public MapPostEffect3AllocationPlan Source{get;}
-    public IReadOnlyDictionary<int,IReadOnlyList<MapPostEffect3DeviceTexture>> Textures{get;}
-    public IReadOnlyDictionary<int,IReadOnlyList<MapPostEffect3DeviceBuffer>> Buffers{get;}
+    public MapPostEffect3AllocationPlan Source{get{lock(lifetime){RequireCompleteResize();return source;}}}
+    public IReadOnlyDictionary<int,IReadOnlyList<MapPostEffect3DeviceTexture>> Textures
+    {get{lock(lifetime){RequireCompleteResize();return textures;}}}
+    public IReadOnlyDictionary<int,IReadOnlyList<MapPostEffect3DeviceBuffer>> Buffers
+    {get{lock(lifetime){RequireCompleteResize();return buffers;}}}
     public IReadOnlyDictionary<int,IReadOnlyList<MapPostEffect3DeviceConstantBuffer>> ConstantBuffers{get;}
-    public int OwnedRidCount{get;private set;}
+    public int OwnedRidCount{get{lock(lifetime)return owned.Sum(group=>group.Resources.Count);}}
     public bool IsCompleteForExecution=>false;
-    private readonly List<Rid> owned;
+    private readonly List<OwnedResources> owned;
+    private readonly MapPostEffect3AllocationPlan source;
+    private readonly IReadOnlyDictionary<int,IReadOnlyList<MapPostEffect3DeviceTexture>> textures;
+    private readonly IReadOnlyDictionary<int,IReadOnlyList<MapPostEffect3DeviceBuffer>> buffers;
+    private NativeMapBorrowerRetirementPackage? pendingResources;
     private readonly bool allowReadback;
     private readonly Dictionary<int,IReadOnlyList<MapPostEffect3DeviceTexture>> textureRows;
     private readonly Dictionary<int,IReadOnlyList<MapPostEffect3DeviceBuffer>> bufferRows;
@@ -67,11 +73,53 @@ public sealed partial class PostProcessResourceBank:IAsyncDisposable
     private PostProcessResourceBank(MapPostEffect3AllocationPlan source,
         Dictionary<int,IReadOnlyList<MapPostEffect3DeviceTexture>> textures,
         Dictionary<int,IReadOnlyList<MapPostEffect3DeviceBuffer>> buffers,
-        Dictionary<int,IReadOnlyList<MapPostEffect3DeviceConstantBuffer>> constants,List<Rid> owned,bool readback)
-    {Source=source;textureRows=textures;Textures=new ReadOnlyDictionary<int,IReadOnlyList<MapPostEffect3DeviceTexture>>(textureRows);
-     bufferRows=buffers;Buffers=new ReadOnlyDictionary<int,IReadOnlyList<MapPostEffect3DeviceBuffer>>(bufferRows);
+        Dictionary<int,IReadOnlyList<MapPostEffect3DeviceConstantBuffer>> constants,List<OwnedResources> owned,bool readback)
+    {this.source=source;textureRows=textures;this.textures=new ReadOnlyDictionary<int,IReadOnlyList<MapPostEffect3DeviceTexture>>(textureRows);
+     bufferRows=buffers;this.buffers=new ReadOnlyDictionary<int,IReadOnlyList<MapPostEffect3DeviceBuffer>>(bufferRows);
      ConstantBuffers=new ReadOnlyDictionary<int,IReadOnlyList<MapPostEffect3DeviceConstantBuffer>>(constants);
-     this.owned=owned;allowReadback=readback;OwnedRidCount=owned.Count;}
+     this.owned=owned;allowReadback=readback;}
+
+    private sealed class OwnedResources(Rid parentStorage):IAsyncDisposable
+    {
+        public Rid ParentStorage{get;set;}=parentStorage;
+        public RenderDeviceResources Resources{get;}=new("RenderingDevice rejected an actual 3SPK allocation/view.");
+        public ValueTask DisposeAsync()=>Resources.DisposeAsync();
+    }
+    private sealed class PendingGroupRetirement(PostProcessResourceBank bank,OwnedResources group):IAsyncDisposable
+    {
+        public async ValueTask DisposeAsync()
+        {await group.DisposeAsync();lock(bank.lifetime)bank.owned.Remove(group);}
+    }
+    private OwnedResources BeginResources(Rid parentStorage)
+    {var group=new OwnedResources(parentStorage);lock(lifetime)owned.Add(group);return group;}
+    private void DiscardEmptyResources(OwnedResources group)
+    {if(group.Resources.Count!=0)throw new InvalidOperationException("Cannot discard a live bank resource group.");lock(lifetime)owned.Remove(group);}
+    private void ReleaseResources(RenderingDevice rd,OwnedResources group)
+    {group.Resources.Release(rd);lock(lifetime)owned.Remove(group);}
+    private void RetainFailedResources(OwnedResources group,Exception original,Exception cleanup)
+    {
+        if(pendingResources is null)
+        {
+            pendingResources=NativeMapBorrowerRetirementPackage.CreatePending("PostProcess-bank-resource",
+                [new PendingGroupRetirement(this,group)],(original as NativeMapBorrowerConstructionException)?.RetainedPackage);
+            pendingResources!.RetainFailure();
+        }
+        throw new NativeMapBorrowerConstructionException(original,cleanup,pendingResources);
+    }
+    private void ReleaseResourcesAfterFailure(RenderingDevice rd,OwnedResources group,Exception original)
+    {try{ReleaseResources(rd,group);}catch(Exception cleanup){RetainFailedResources(group,original,cleanup);}}
+    private async Task ReleaseResourcesAfterFailureAsync(OwnedResources group,Exception original)
+    {
+        try{await group.DisposeAsync();lock(lifetime)owned.Remove(group);}
+        catch(Exception cleanup){RetainFailedResources(group,original,cleanup);}
+    }
+    private void RetireOwnedRid(RenderingDevice rd,Rid rid)
+    {
+        var group=owned.Single(group=>group.Resources.Contains(rid));
+        try{ReleaseResources(rd,group);}catch(Exception failure){RetainFailedResources(group,failure,failure);}
+    }
+    private async Task DrainPendingResourcesCoreAsync()
+    {pendingResources=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pendingResources);}
 
     public static Task<PostProcessResourceBank> BuildAsync(MapPostEffect3AllocationPlan source,
         bool allowReadback=false)
@@ -94,9 +142,9 @@ public sealed partial class PostProcessResourceBank:IAsyncDisposable
         var bufferShapes=plan.BufferAllocations.ToDictionary(a=>a.Parameter.Index,MapPostEffect3AllocationBufferShapeReader.Read);
         return TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
-            var owned=new List<Rid>();
-            Rid Own(Rid rid)
-            {if(!rid.IsValid)throw new InvalidDataException("RenderingDevice rejected an actual 3SPK allocation/view.");owned.Add(rid);return rid;}
+            var owned=new List<OwnedResources>();
+            OwnedResources Begin()
+            {var group=new OwnedResources(default);owned.Add(group);return group;}
             var textures=new Dictionary<int,IReadOnlyList<MapPostEffect3DeviceTexture>>();
             var buffers=new Dictionary<int,IReadOnlyList<MapPostEffect3DeviceBuffer>>();
             var constants=new Dictionary<int,IReadOnlyList<MapPostEffect3DeviceConstantBuffer>>();
@@ -120,13 +168,14 @@ public sealed partial class PostProcessResourceBank:IAsyncDisposable
                     var instances=new List<MapPostEffect3DeviceTexture>();
                     for(int instance=0;instance<allocation.InstanceCount;instance++)
                     {
+                        var group=Begin();Rid Own(Rid rid)=>group.Resources.Own(rid);
                         using var format=new RDTextureFormat{Format=storage,Width=shape.Width,Height=shape.Height,
                             Depth=shape.Depth,ArrayLayers=1,Mipmaps=checked((uint)shape.MipLevels),
                             TextureType=shape.Dimension==MapPostEffect3TextureDimension.Texture3D?
                                 RenderingDevice.TextureType.Type3D:RenderingDevice.TextureType.Type2D,
                             Samples=RenderingDevice.TextureSamples.Samples1,UsageBits=usage};
                         foreach(var code in viewCodes)format.AddShareableFormat(ViewFormat(code));
-                        using var baseView=new RDTextureView();Rid image=Own(rd.TextureCreate(format,baseView));
+                        using var baseView=new RDTextureView();Rid image=Own(rd.TextureCreate(format,baseView));group.ParentStorage=image;
                         var views=new Dictionary<uint,Rid>();
                         foreach(uint code in viewCodes)
                         {
@@ -158,6 +207,7 @@ public sealed partial class PostProcessResourceBank:IAsyncDisposable
                     var instances=new List<MapPostEffect3DeviceBuffer>();
                     for(int instance=0;instance<allocation.InstanceCount;instance++)
                     {
+                        var group=Begin();Rid Own(Rid rid)=>group.Resources.Own(rid);
                         uint count=allocation.ByteCount/stride;
                         bool eyeHistogram=p.Index==8&&shape.Dimension==MapPostEffect3BufferDimension.Typed&&
                             shape.ViewFormat==42&&shape.ViewElementCount==64&&shape.ByteCount==256&&
@@ -171,6 +221,7 @@ public sealed partial class PostProcessResourceBank:IAsyncDisposable
                             ((shape.Dimension is MapPostEffect3BufferDimension.Raw or MapPostEffect3BufferDimension.Structured)||eyeHistogram||dofSprites);
                         Rid rid=Own(storage?rd.StorageBufferCreate(allocation.ByteCount,Array.Empty<byte>(),
                             dofIndirect?RenderingDevice.StorageBufferUsage.Indirect:0):rd.TextureBufferCreate(count,format));
+                        group.ParentStorage=rid;
                         instances.Add(new(allocation,shape,instance,rid,format,count)
                             {UsesStorageBuffer=storage,SupportsIndirectArgumentBinding=dofIndirect});
                     }
@@ -182,12 +233,27 @@ public sealed partial class PostProcessResourceBank:IAsyncDisposable
                     if(bytes%16!=0)throw new NotSupportedException("3SPK native CB is not a positive16-byte-aligned allocation.");
                     var instances=new List<MapPostEffect3DeviceConstantBuffer>();
                     for(int instance=0;instance<allocation.InstanceCount;instance++)
-                        instances.Add(new(allocation,instance,Own(rd.UniformBufferCreate(bytes))));
+                    {
+                        var group=Begin();Rid rid=group.Resources.Own(rd.UniformBufferCreate(bytes));group.ParentStorage=rid;
+                        instances.Add(new(allocation,instance,rid));
+                    }
                     constants.Add(allocation.Parameter.Index,instances.AsReadOnly());
                 }
                 return new PostProcessResourceBank(plan,textures,buffers,constants,owned,allowReadback);
             }
-            catch{for(int i=owned.Count-1;i>=0;i--)rd.FreeRid(owned[i]);throw;}
+            catch(Exception construction)
+            {
+                try
+                {
+                    while(owned.Count>0){owned[^1].Resources.Release(rd);owned.RemoveAt(owned.Count-1);}
+                }
+                catch(Exception cleanup)
+                {
+                    var partial=NativeMapBorrowerRetirementPackage.CreatePending("PostProcess-bank-construction",owned.AsEnumerable().Reverse())!;
+                    partial.RetainFailure();throw new NativeMapBorrowerConstructionException(construction,cleanup,partial);
+                }
+                throw;
+            }
         });
     }
 
@@ -268,6 +334,7 @@ public sealed partial class PostProcessResourceBank:IAsyncDisposable
         await serial.WaitAsync();
         try
         {
+            RequireCompleteResize();await DrainPendingResourcesCoreAsync();
             if((target.CompleteFrameNumber is long previous&&packet.FrameNumber<previous)||
                 (target.PassScopedFrameNumber is long scoped&&packet.FrameNumber<scoped))
                 throw new InvalidDataException("3SPK CB upload cannot replace a newer complete frame.");
@@ -314,6 +381,7 @@ public sealed partial class PostProcessResourceBank:IAsyncDisposable
         await serial.WaitAsync();
         try
         {
+            RequireCompleteResize();await DrainPendingResourcesCoreAsync();
             if((target.CompleteFrameNumber is long complete&&upload.FrameNumber<complete)||
                 (target.PassScopedFrameNumber is long previous&&upload.FrameNumber<previous))
                 throw new InvalidDataException("3SPK pass CB upload cannot replace a newer writer frame.");
@@ -336,16 +404,21 @@ public sealed partial class PostProcessResourceBank:IAsyncDisposable
     {
         lock(lifetime)
         {
-            if(disposal is not null)return new(disposal);retiring=true;
-            Task pending=accepted==0?Task.CompletedTask:(drained=new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
+            if(disposal is not null&&!disposal.IsFaulted&&!disposal.IsCanceled)return new(disposal);retiring=true;
+            Task pending=accepted==0?Task.CompletedTask:(drained??=new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
             return new(disposal=RetireAsync(pending));
         }
     }
     private async Task RetireAsync(Task pending)
     {
         await pending;await serial.WaitAsync();
-        try{await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-            {for(int i=owned.Count-1;i>=0;i--)rd.FreeRid(owned[i]);return true;});OwnedRidCount=0;}
+        try
+        {
+            await DrainPendingResourcesCoreAsync();
+            if(pendingResize is not null){await pendingResize.Replacement.DisposeAsync();lock(lifetime)pendingResize=null;}
+            if(owned.Count>0)await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
+            {while(owned.Count>0)ReleaseResources(rd,owned[^1]);return true;});
+        }
         finally{serial.Release();}
     }
 }

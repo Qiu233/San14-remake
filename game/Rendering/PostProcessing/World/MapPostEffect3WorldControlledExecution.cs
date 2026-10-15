@@ -37,25 +37,29 @@ public static partial class MapPostEffect3WorldControlledExecution
         if(!ReferenceEquals(frame.World.Bank,bank))
             throw new InvalidDataException("Actual controlled execution belongs to another current World resource bank.");
         var sources=frame.ModuleLifetime!.StaticSources;
+        var module=frame.ModuleLifetime;
         sources.RequireRepository(repository);
         var submitted=new List<int>();
-        await using var lens=await MapPostEffect3LensFlare2ExecutionOwner.BuildForCurrentControlledFrameAsync(repository,frame,programs,compiler);
+        Exception? executionFailure=null;
+        try
+        {
+        var lens=module.OwnInvocation(frame,await MapPostEffect3LensFlare2ExecutionOwner.BuildForCurrentControlledFrameAsync(repository,frame,programs,compiler));
         var lensResult=await lens.ExecuteInitializationAsync(frame.Lens,frame.Textures,
             frame.AllocationSides.ConstantBufferInstances[17],new MapPostEffect3WorldLensFlare2Invocation(frame,lens));
         submitted.AddRange(lensResult.OrderedSelectedPasses);checkpoint?.Invoke("controlled-Lens45..49-and-source-After-mips-completed");
         var dofResources=frame.AcquireDepthOfFieldModuleResources(programs,bank);
         long previousStagingRevision=dofResources.CapturePhysicalRetention().StagingCopies
             .SingleOrDefault(c=>c.SourceSide28==frame.DepthOfField.NextController.SpriteSide28)?.ActualStagingWriteRevision??0;
-        await using var dof=MapPostEffect3DepthOfField2ExecutionOwner.CreateBorrowingModuleResources(
+        var dof=module.OwnInvocation(frame,MapPostEffect3DepthOfField2ExecutionOwner.CreateBorrowingModuleResources(
             dofResources,frame.CpuInvocation,frame.Camera.State,
             frame.DepthOfField,frame.Textures,new MapPostEffect3WorldDepthOfField2GraphicsInvocation(frame,checkpoint,
                 sources.ExposureInitialization),
-            frame.AllocationSides.ConstantBufferInstances);
+            frame.AllocationSides.ConstantBufferInstances));
         var dofResult=await dof.ExecuteAsync();
         if(!dofResult.ProvesAllSelectedPassesWereSubmitted)
             throw new InvalidDataException("Actual DOF2 completion omitted a selected source pass.");
         submitted.AddRange(dofResult.OrderedSubmittedSourcePassIndices);checkpoint?.Invoke("controlled-DOF2-selected-sprite-graph-completed");
-        await dof.DisposeAsync();
+        await module.RetireInvocationOwnerAsync(dof);
         var dofRetention=dofResources.CapturePhysicalRetention();
         dofRetention.RequirePhysicalCurrent();
         var retainedCopy=dofRetention.StagingCopies.SingleOrDefault(c=>c.FrameNumber==frame.Camera.FrameNumber&&
@@ -71,8 +75,8 @@ public static partial class MapPostEffect3WorldControlledExecution
                 dofResult.OrderedDraws.Count(d=>d.SourcePassIndex is 62 or 63))||retainedCopy.ByteCount!=32)
             throw new InvalidDataException("Actual DOF module storage did not survive disposal of its completed invocation.");
         checkpoint?.Invoke("controlled-DOF2-physical-module-resources-retained-after-invocation-disposal");
-        await using var eyeGraphics=await MapPostEffect3EyeBloomExecutionOwner.BuildForCurrentControlledFrameAsync(repository,frame,programs);
-        await using var compute=MapPostEffect3ComputeExecutor.Create(programs,bank);
+        var eyeGraphics=module.OwnInvocation(frame,await MapPostEffect3EyeBloomExecutionOwner.BuildForCurrentControlledFrameAsync(repository,frame,programs));
+        var compute=module.OwnInvocation(frame,MapPostEffect3ComputeExecutor.Create(programs,bank));
         await bank.UploadCompleteConstantBufferAsync(frame.Exposure,frame.AllocationSides.ConstantBufferInstances[24]);
         var execution=sources.EyeCompute;
         var exposureInitialization=sources.ExposureInitialization;
@@ -81,8 +85,6 @@ public static partial class MapPostEffect3WorldControlledExecution
         MapPostEffect3WorldComposite2GraphicsInvocation? invocation=null;
         MapPostEffect3Composite2GraphicsOwner? composite=null;
         int eyeIterationIndex=0;
-        try
-        {
         foreach(int selectedPass in frame.OrderedSelectedPasses.Skip(submitted.Count))
         {
             frame.RequireCurrent();
@@ -92,9 +94,9 @@ public static partial class MapPostEffect3WorldControlledExecution
                 {
                     invocation=MapPostEffect3WorldComposite2GraphicsInvocation.CaptureActualDirectoryPrefix(
                         frame,hdr,eyeGraphics,compute,computeReceipts,exposureInitialization);
-                    composite=MapPostEffect3Composite2GraphicsOwner.Create(programs,bank,
+                    composite=module.OwnInvocation(frame,MapPostEffect3Composite2GraphicsOwner.Create(programs,bank,
                         sources.CompositeExecution,frame.Composite,frame.Textures,invocation,
-                        frame.AllocationSides.ConstantBufferInstances[22]);
+                        frame.AllocationSides.ConstantBufferInstances[22]));
                 }
                 var drawn=await invocation.ExecuteControlledPassAsync(composite!,selectedPass);
                 submitted.Add(drawn.SourcePassIndex);
@@ -154,9 +156,23 @@ public static partial class MapPostEffect3WorldControlledExecution
             Enumerable.Repeat(recipe.SourcePassIndex,recipe.ExpectedSuccessfulDeviceIterationCount)).ToArray();
         if(!submitted.SequenceEqual(expectedCommands)||!expectedCommands.SequenceEqual(frame.OrderedSelectedPasses))
             throw new InvalidDataException("Actual current World submissions differ from its original selected directory order.");
-        frame.World.RevalidateStaticMaskSourceAcceptanceBoundary();frame.RequireCurrent();
+        frame.RequireCurrent();
         checkpoint?.Invoke("controlled-actual-selected-Functor1-graphics-and-compute-completed");
         }
-        finally{if(composite is not null)await composite.DisposeAsync();}
+        catch(Exception failure)
+        {
+            executionFailure=failure;
+            if(failure is NativeMapBorrowerConstructionException construction)module.RetainConstructionFailure(frame,construction);
+            throw;
+        }
+        finally
+        {
+            try{await module.RetireInvocationOwnersAsync();}
+            catch(Exception retirementFailure) when(executionFailure is not null)
+            {
+                var pending=module.PendingInvocationRetirement!;
+                throw new NativeMapBorrowerConstructionException(executionFailure,retirementFailure,pending);
+            }
+        }
     }
 }

@@ -15,6 +15,9 @@ public sealed class MapPostEffect3WorldControlledModuleOwner:IAsyncDisposable
     private MapPostEffect3Functor1GhostRegistryOwner? ghost;
     private bool disposed,failed,retiring;
     private readonly SemaphoreSlim retirement=new(1,1);
+    private readonly List<IAsyncDisposable> invocationOwners=[];
+    private NativeMapBorrowerRetirementPackage? invocationRetirement;
+    internal NativeMapBorrowerRetirementPackage? PendingInvocationRetirement=>invocationRetirement;
     internal MapPostEffect3WorldControlledStaticSources StaticSources{get;}
     internal MapPostEffect3Functor1FrontendCacheOwner Cache{get;}
     public PostProcessResourceBank Bank{get;}
@@ -133,6 +136,54 @@ public sealed class MapPostEffect3WorldControlledModuleOwner:IAsyncDisposable
         previous=frame;current=null;
     }
     internal void MarkFailure()=>failed=true;
+    internal T OwnInvocation<T>(MapPostEffect3WorldControlledFactoryFrame frame,T owner) where T:IAsyncDisposable
+    {
+        retirement.Wait();
+        try
+        {
+            RequireFrame(frame);
+            if(invocationRetirement is not null)throw new InvalidOperationException("Previous invocation retirement must finish before accepting another owner.");
+            invocationOwners.Add(owner);return owner;
+        }
+        finally{retirement.Release();}
+    }
+    internal void RetainConstructionFailure(MapPostEffect3WorldControlledFactoryFrame frame,
+        NativeMapBorrowerConstructionException failure)
+    {
+        retirement.Wait();
+        try
+        {
+            if(!ReferenceEquals(current,frame)||invocationRetirement is not null)
+                throw new InvalidOperationException("Construction cleanup belongs to the active invocation before retirement.");
+            invocationOwners.Add(failure.RetainedPackage);
+        }
+        finally{retirement.Release();}
+    }
+    internal async Task RetireInvocationOwnerAsync(IAsyncDisposable owner)
+    {
+        await retirement.WaitAsync();
+        try
+        {
+            if(invocationRetirement is not null||invocationOwners.Count==0||!ReferenceEquals(invocationOwners[^1],owner))
+                throw new InvalidOperationException("Invocation consumers must retire before their dependencies.");
+            await owner.DisposeAsync();invocationOwners.RemoveAt(invocationOwners.Count-1);
+        }
+        finally{retirement.Release();}
+    }
+    internal async Task RetireInvocationOwnersAsync()
+    {
+        await retirement.WaitAsync();
+        try{await RetireInvocationOwnersCoreAsync();}
+        finally{retirement.Release();}
+    }
+    private async Task RetireInvocationOwnersCoreAsync()
+    {
+        if(invocationOwners.Count==0&&invocationRetirement is null)return;
+        invocationRetirement??=new("Post-module-invocation-retire/"+Guid.NewGuid().ToString("N"),
+            [..invocationOwners.AsEnumerable().Reverse()]);
+        invocationRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(invocationRetirement);
+        invocationOwners.Clear();
+    }
     internal void AbortUndeliveredConstruction(long frameNumber)
     {
         //Construction has submitted no device command. Cancel only this
@@ -200,6 +251,7 @@ public sealed class MapPostEffect3WorldControlledModuleOwner:IAsyncDisposable
         try
         {
             if(disposed)return;
+            await RetireInvocationOwnersCoreAsync();
             if(current is not null)throw new InvalidOperationException("Dispose the active controlled frame before its module.");
             retiring=true;
             // Retire consumers before their dependencies. On failure keep

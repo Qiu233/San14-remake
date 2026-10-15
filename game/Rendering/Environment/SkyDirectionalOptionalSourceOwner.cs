@@ -114,7 +114,8 @@ public sealed class SkyDirectionalOptionalSourceOwner : IAsyncDisposable
         }
         catch(Exception failure)
         {
-            var partial=new NativeMapBorrowerRetirementPackage("Directional-optional-Star-partial/"+Guid.NewGuid().ToString("N"),star);
+            var partial=new NativeMapBorrowerRetirementPackage("Directional-optional-Star-partial/"+Guid.NewGuid().ToString("N"),
+                failure is NativeMapBorrowerConstructionException nested?nested.RetainedPackage:null,star);
             try{await partial.DisposeAsync();}catch(Exception retirement){partial.RetainFailure();throw new NativeMapBorrowerConstructionException(failure,retirement,partial);}
             throw;
         }

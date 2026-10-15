@@ -41,7 +41,7 @@ public sealed partial class MapPostEffect3DepthOfField2ScatterExecutor
         await serial.WaitAsync();IDisposable? bankScope=null;
         try
         {
-            ObjectDisposedException.ThrowIf(retiring,this);requireCurrentSource();
+            ObjectDisposedException.ThrowIf(retiring,this);await DrainPendingDrawCoreAsync();requireCurrentSource();
             uint side=prepared.NextController.SpriteSide28;
             if(!prepared.RequiresSpriteCountReadback||side>1||prepared.ConstantBuffer.OwnerIdentity!=Bank.Source.ContextOwnerIdentity)
                 throw new InvalidDataException("DOF2 retained staging map requires actual source Before57/count0/current side28.");

@@ -48,19 +48,19 @@ public sealed class ModelDraw : IAsyncDisposable
     private readonly Rid _pipeline;
     private readonly Rid? _vertexSet, _pixelSet;
     private readonly ModelDeviceDrawArrays _arrays;
-    private readonly IReadOnlyList<Rid> _owned;
-    private Task? _disposal;
+    private readonly RenderDeviceResources _resources;
+    private volatile bool _retiring;
 
     private ModelDraw(ModelShaderProgram program, ModelGeometryDevice geometry,
         int drawIndex, ModelDrawTarget target, ModelDeviceBinding[] vertexResources,
         ModelDeviceBinding[] pixelResources, Dictionary<uint, byte[]> vertexConstants,
         Dictionary<uint, byte[]> pixelConstants, Dictionary<uint, Rid> vertexBuffers,
         Dictionary<uint, Rid> pixelBuffers, Rid pipeline, Rid? vertexSet, Rid? pixelSet,
-        ModelDeviceDrawArrays arrays, List<Rid> owned)
+        ModelDeviceDrawArrays arrays, RenderDeviceResources resources)
         => (Program, Geometry, DrawIndex, Target, VertexResources, PixelResources, _vertexConstants,
-            _pixelConstants, _vertexBuffers, _pixelBuffers, _pipeline, _vertexSet, _pixelSet, _arrays, _owned) =
+            _pixelConstants, _vertexBuffers, _pixelBuffers, _pipeline, _vertexSet, _pixelSet, _arrays, _resources) =
             (program, geometry, drawIndex, target, Array.AsReadOnly(vertexResources), Array.AsReadOnly(pixelResources),
-                vertexConstants, pixelConstants, vertexBuffers, pixelBuffers, pipeline, vertexSet, pixelSet, arrays, owned.AsReadOnly());
+                vertexConstants, pixelConstants, vertexBuffers, pixelBuffers, pipeline, vertexSet, pixelSet, arrays, resources);
 
     public static Task<ModelDraw> BuildAsync(ModelShaderProgram program,
         ModelGeometryDevice geometry, int drawIndex, ModelDrawTarget explicitTarget,
@@ -125,9 +125,9 @@ public sealed class ModelDraw : IAsyncDisposable
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
             program.RequireLive(); geometry.RequireLive();
-            var owned = new List<Rid>(); var vertexBuffers = new Dictionary<uint, Rid>(); var pixelBuffers = new Dictionary<uint, Rid>();
-            Rid Own(Rid value)
-            { if (!value.IsValid) throw new InvalidDataException("Original model draw allocation failed."); owned.Add(value); return value; }
+            var resources = new RenderDeviceResources("Original model draw allocation failed.");
+            var vertexBuffers = new Dictionary<uint, Rid>(); var pixelBuffers = new Dictionary<uint, Rid>();
+            Rid Own(Rid value) => resources.Own(value);
             try
             {
                 if (!rd.FramebufferIsValid(target.Framebuffer) || target.ColorTextures.Any(t => !rd.TextureIsValid(t)) ||
@@ -225,11 +225,15 @@ public sealed class ModelDraw : IAsyncDisposable
                         RenderingDevice.RenderPrimitive.Triangles, raster, multi, depth, blend));
                     if (!rd.RenderPipelineIsValid(pipeline)) throw new InvalidDataException("Original model pipeline was rejected.");
                     return new ModelDraw(program, geometry, drawIndex, target, vertexResources, pixelResources,
-                        vertexConstants, pixelConstants, vertexBuffers, pixelBuffers, pipeline, vertexSet, pixelSet, arrays, owned);
+                        vertexConstants, pixelConstants, vertexBuffers, pixelBuffers, pipeline, vertexSet, pixelSet, arrays, resources);
                 }
                 finally { foreach (var a in blendAttachments) a.Dispose(); }
             }
-            catch { for (int i = owned.Count - 1; i >= 0; i--) rd.FreeRid(owned[i]); throw; }
+            catch (Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd, failure, "Model-draw-partial");
+                throw;
+            }
         });
     }
 
@@ -330,7 +334,7 @@ public sealed class ModelDraw : IAsyncDisposable
     public Task UpdateConstantsAsync(IReadOnlyDictionary<uint, ReadOnlyMemory<byte>> vertex,
         IReadOnlyDictionary<uint, ReadOnlyMemory<byte>> pixel)
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null, this);
+        ObjectDisposedException.ThrowIf(_retiring, this);
         var vs = SnapshotConstants(Program.VertexBindings, vertex);
         var ps = SnapshotConstants(Program.PixelStage?.Bindings, pixel);
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
@@ -342,7 +346,7 @@ public sealed class ModelDraw : IAsyncDisposable
     internal (Dictionary<uint, byte[]> Vertex, Dictionary<uint, byte[]> Pixel) SnapshotUpdate(
         IReadOnlyDictionary<uint, ReadOnlyMemory<byte>> vertex, IReadOnlyDictionary<uint, ReadOnlyMemory<byte>> pixel)
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null, this);
+        ObjectDisposedException.ThrowIf(_retiring, this);
         return (SnapshotConstants(Program.VertexBindings, vertex), SnapshotConstants(Program.PixelStage?.Bindings, pixel));
     }
 
@@ -378,7 +382,7 @@ public sealed class ModelDraw : IAsyncDisposable
     }
 
     internal void RequireDrawLive()
-    { ObjectDisposedException.ThrowIf(_disposal is not null, this); Program.RequireLive(); Geometry.RequireLive(); }
+    { ObjectDisposedException.ThrowIf(_retiring, this); Program.RequireLive(); Geometry.RequireLive(); }
     internal void DrawInList(RenderingDevice rd, long list)
     {
         RequireDrawLive();
@@ -392,7 +396,7 @@ public sealed class ModelDraw : IAsyncDisposable
     public Task DrawAsync(RenderingDevice.DrawFlags explicitActions, Color[] explicitClearColors,
         float explicitClearDepth, uint explicitClearStencil)
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null, this);
+        ObjectDisposedException.ThrowIf(_retiring, this);
         ArgumentNullException.ThrowIfNull(explicitClearColors);
         Color[] colors = explicitClearColors.ToArray();
         bool clearsColor=(explicitActions & RenderingDevice.DrawFlags.ClearColorAll)!=0;
@@ -401,7 +405,7 @@ public sealed class ModelDraw : IAsyncDisposable
             throw new InvalidDataException("Original model draw clear inputs differ from its target contract.");
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            ObjectDisposedException.ThrowIf(_disposal is not null, this);
+            ObjectDisposedException.ThrowIf(_retiring, this);
             Program.RequireLive(); Geometry.RequireLive();
             long list = rd.DrawListBegin(Target.Framebuffer, explicitActions, colors, explicitClearDepth, explicitClearStencil);
             try
@@ -413,6 +417,9 @@ public sealed class ModelDraw : IAsyncDisposable
         });
     }
 
-    public ValueTask DisposeAsync() => new(_disposal ??= TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-    { for (int i = _owned.Count - 1; i >= 0; i--) rd.FreeRid(_owned[i]); return true; }));
+    public ValueTask DisposeAsync()
+    {
+        _retiring = true;
+        return _resources.DisposeAsync();
+    }
 }

@@ -42,11 +42,6 @@ public sealed class MapCopy97CurrentStockPacket
         ";entry-from="+(UsesConstructedFrontendState?"owned-constructor":$"completed-source-Host-frame{PreviousCompletedSourceFrameNumber}")+
         ";retained-through-actual-owned-SkyWORK/class18/Terrain/ordinary78;not-GPU-receipt";
     public void ValidateCurrent() => Source.ValidateCurrent(this);
-    /// <summary>Accept only this actual current stock prefix's private mask
-    /// configuration snapshot; frame/native stock checks continue per draw.</summary>
-    public MapOwnedGraphicsMaskAcceptedSourceSnapshot CaptureAcceptedImmutableMaskSources()
-    {ValidateCurrent();return Source.CaptureAcceptedImmutableStockSources(this);}
-    public void RevalidateAcceptedStaticSourceBoundary()=>Source.RevalidateAcceptedStockSourceBoundary(this);
 }
 
 /// <summary>Finite owned node97 producer. The constructor initializes B0=0,
@@ -115,20 +110,26 @@ public sealed partial class MapCopy97CurrentStockSource
         ArgumentNullException.ThrowIfNull(actualSkyPrefix);ArgumentNullException.ThrowIfNull(actualFrame);
         ArgumentNullException.ThrowIfNull(actualSubmittedModelSources);ArgumentNullException.ThrowIfNull(actualTerrain);
         ArgumentNullException.ThrowIfNull(actualExecutedEarly78);ArgumentNullException.ThrowIfNull(actualEarlyCaustics);
-        RequireScope(actualSkyPrefix,actualFrame,actualSubmittedModelSources,actualTerrain,actualExecutedEarly78,actualEarlyCaustics,actualGeometryFrame);
         if(prepared is not null)
         {
             if(!ReferenceEquals(prepared.Prefix,actualSkyPrefix) || !ReferenceEquals(prepared.Frame,actualFrame) ||
                 !ReferenceEquals(prepared.Terrain,actualTerrain) || !ReferenceEquals(prepared.Early,actualExecutedEarly78) ||
                 !ReferenceEquals(prepared.Caustics,actualEarlyCaustics) ||
                 !ReferenceEquals(prepared.GeometryFrame,actualGeometryFrame) ||
-                !prepared.Models.SequenceEqual(actualSubmittedModelSources))
+                prepared.Models.Length!=actualSubmittedModelSources.Count)
                 throw new InvalidDataException("Stock fields are already prepared for another source generation/attempt.");
+            for(int i=0;i<prepared.Models.Length;i++)
+                if(!ReferenceEquals(prepared.Models[i],actualSubmittedModelSources[i]))
+                    throw new InvalidDataException("Stock fields require the same ordered model source receipts.");
+            ValidateCurrent(prepared);
             return prepared;
         }
-        return prepared=new(this,actualSkyPrefix,actualFrame,actualTerrain,actualSubmittedModelSources.ToArray(),
+        RequireScope(actualSkyPrefix,actualFrame,actualSubmittedModelSources,actualTerrain,actualExecutedEarly78,actualEarlyCaustics,actualGeometryFrame);
+        var packet=new MapCopy97CurrentStockPacket(this,actualSkyPrefix,actualFrame,actualTerrain,actualSubmittedModelSources.ToArray(),
             actualExecutedEarly78,actualEarlyCaustics,actualGeometryFrame,CompletedSourceFrameNumber,
             completedScreenScale,completedColorScale,completedCustomVsAbsent);
+        acceptedMaskSources=frontend.CaptureAcceptedImmutableSourceSnapshot(actualSkyPrefix);
+        return prepared=packet;
     }
     /// <summary>Source semantics only; the Game wrapper must supply actual
     /// complete final submission acknowledgement. Validation never commits.</summary>
@@ -156,7 +157,7 @@ public sealed partial class MapCopy97CurrentStockSource
         ValidateCompletedSourceHostOutput(packet,actualCompletedFinal);
         completedScreenScale=packet.CurrentScreenScale29E0;completedColorScale=packet.CurrentColorScale29F0;
         completedCustomVsAbsent=packet.CurrentCustomVertexShaderIsAbsent;
-        CompletedSourceFrameNumber=packet.FrameNumber;prepared=null;acceptedStockSources=null;
+        CompletedSourceFrameNumber=packet.FrameNumber;prepared=null;acceptedMaskSources=null;
     }
     /// <summary>Actual mode1 Camera join, independent of the old A1 bank.
     /// The complete caller writer scope must be closed before acknowledging it.</summary>
@@ -181,17 +182,10 @@ public sealed partial class MapCopy97CurrentStockSource
         ValidateCompletedSourceHostOutput(packet,actualCompletedFinal);
         completedScreenScale=packet.CurrentScreenScale29E0;completedColorScale=packet.CurrentColorScale29F0;
         completedCustomVsAbsent=actualCompletedFinal.FallbackCustomVertexShaderIsAbsent;
-        CompletedSourceFrameNumber=packet.FrameNumber;prepared=null;acceptedStockSources=null;
+        CompletedSourceFrameNumber=packet.FrameNumber;prepared=null;acceptedMaskSources=null;
     }
     public void MarkFailedImportedOrUnknownWriter(string actualWriter)
     { ArgumentException.ThrowIfNullOrWhiteSpace(actualWriter);valid=false; }
-    internal void ValidateCurrent(MapCopy97CurrentStockPacket packet)
-    {
-        if(!ReferenceEquals(prepared,packet) || !ReferenceEquals(packet.Source,this))
-            throw new InvalidDataException("Current stock packet is foreign or no longer owned.");
-        if(acceptedStockSources is{} accepted){accepted.RequireCurrent(packet);return;}
-        RequireScope(packet.Prefix,packet.Frame,packet.Models,packet.Terrain,packet.Early,packet.Caustics,packet.GeometryFrame);
-    }
     private void RequireScope(MapOwnedGraphicsMaskPrefix prefix,MapSourceCreatedF103CurrentFrame frame,
         IReadOnlyList<ModelOrdinaryNativeStencilReceipt> models,TerrainGbufferColorMaskRecipe terrain,
         DeferredEarlyF103SelectedSource early,DeferredEarlyCausticsSourceNull caustics,
@@ -230,8 +224,9 @@ public sealed partial class MapCopy97CurrentStockSource
                 p.NoPrimitiveOrContextStencilOverrides!=true)
                 throw new InvalidDataException("Current model prefix contains a foreign, retained/edited or unsupported source hook generation.");
         }
-        // Revalidate the actual canonical DC52 ordinary renderer generation.
-        _=terrain.Source.PrepareCurrent(terrain.Current);
+        // The recipe was computed by this source. Its current input is
+        // immutable; only an imported or unknown writer can revoke the scope.
+        terrain.Source.RequireRetainedAcceptedScope();
         early.ValidateParameterFrame(frame.Camera,frame.Lighting);caustics.Validate(early);
         if(early.SourcePlan.Node.Index!=78 || early.Combination.Index!=126 || early.PixelProgramIndex!=95 ||
             !ReferenceEquals(early.OwnedFeatureSource,frame.Feature) || early.Current.ContextFlags3F0!=frame.Context.ContextFlags3F0 ||

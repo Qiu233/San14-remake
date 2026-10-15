@@ -58,7 +58,12 @@ public sealed partial class PostProcessResourceBank
     internal async Task<IDisposable> AcquireBufferExecutionScopeAsync()
     {
         lock(lifetime){ObjectDisposedException.ThrowIf(retiring,this);accepted++;}
-        try{await serial.WaitAsync();return new BufferExecutionScope(this);}
+        try
+        {
+            await serial.WaitAsync();
+            try{RequireCompleteResize();await DrainPendingResourcesCoreAsync();return new BufferExecutionScope(this);}
+            catch{serial.Release();throw;}
+        }
         catch{lock(lifetime)if(--accepted==0&&retiring)drained?.TrySetResult();throw;}
     }
     private sealed class BufferExecutionScope(PostProcessResourceBank bank):IDisposable
@@ -170,6 +175,7 @@ public sealed partial class PostProcessResourceBank
         await serial.WaitAsync();
         try
         {
+            await DrainPendingResourcesCoreAsync();
             // Another accepted upload may have replaced this side while this
             // packet waited. Always resolve the current physical side here.
             lock(lifetime)target=Require(Buffers,packet.Declaration.Parameter.Index,target.InstanceIndex,"Lens buffer");
@@ -183,11 +189,13 @@ public sealed partial class PostProcessResourceBank
                 // Godot4.7's _get_buffer_from_owner explicitly cannot resolve
                 // TextureBuffer RIDs for BufferUpdate. Supplying complete bytes
                 // to a new TextureBufferCreate is the supported CPU upload.
-                Rid replacement=rd.TextureBufferCreate(target.TexelCount,target.DeviceTexelFormat,bytes);
-                if(!replacement.IsValid)throw new InvalidDataException("Device rejected complete original Lens TextureBufferCreate bytes.");
+                var group=BeginResources(default);
                 bool installed=false;
                 try
                 {
+                    Rid replacement=rd.TextureBufferCreate(target.TexelCount,target.DeviceTexelFormat,bytes);
+                    if(!replacement.IsValid)throw new InvalidDataException("Device rejected complete original Lens TextureBufferCreate bytes.");
+                    group.Resources.Own(replacement);group.ParentStorage=replacement;
                     var next=target with{StorageRid=replacement,CompleteFrameNumber=packet.FrameNumber,Writer=packet.Writer,
                         CompleteBytesSha256=hash,UploadRevision=nextRevision,HasCompleteWriterContents=true,
                         CompleteSourceEvidence=packet.SourceEvidence+";Godot4.7-TextureBufferCreate-full-initialdata;serialized-physical-side-replacement",
@@ -196,21 +204,24 @@ public sealed partial class PostProcessResourceBank
                     {
                         if(!ReferenceEquals(Require(Buffers,packet.Declaration.Parameter.Index,target.InstanceIndex,"Lens buffer"),target))
                             throw new InvalidDataException("Accepted Lens buffer physical side changed outside its serialized execution scope.");
-                        int ownerSlot=owned.IndexOf(target.StorageRid);
-                        if(ownerSlot<0)throw new InvalidDataException("Lens buffer physical RID is not this bank's live owned allocation.");
+                        if(!owned.Any(group=>group.Resources.Contains(target.StorageRid)))
+                            throw new InvalidDataException("Lens buffer physical RID is not this bank's live owned allocation.");
                         var sides=bufferRows[packet.Declaration.Parameter.Index].ToArray();sides[target.InstanceIndex]=next;
                         bufferRows[packet.Declaration.Parameter.Index]=Array.AsReadOnly(sides);
-                        owned[ownerSlot]=replacement;OwnedRidCount=owned.Count;installed=true;
+                        installed=true;
                         target.HasCompleteWriterContents=false;target.CompleteFrameNumber=null;target.CompleteBytesSha256=null;
                         target.CompleteSourceEvidence=null;target.UploadRevision=nextRevision;
                     }
                     // Descriptor sets that borrowed this RID are automatically
                     // invalidated by Godot; prior leases reject the new RID/rev.
-                    // The old RID was removed from owned before this free, so
-                    // bank retirement cannot free it a second time.
-                    rd.FreeRid(target.StorageRid);return true;
+                    // Its resource group stays owned until release succeeds.
+                    RetireOwnedRid(rd,target.StorageRid);return true;
                 }
-                finally{if(!installed)rd.FreeRid(replacement);}
+                catch(Exception failure)
+                {
+                    if(!installed)ReleaseResourcesAfterFailure(rd,group,failure);
+                    throw;
+                }
             });
         }
         finally{serial.Release();lock(lifetime)if(--accepted==0&&retiring)drained?.TrySetResult();}

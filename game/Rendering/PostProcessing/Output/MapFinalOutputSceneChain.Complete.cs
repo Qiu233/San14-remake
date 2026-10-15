@@ -16,7 +16,15 @@ public sealed partial class MapFinalOutputSceneChain
         var chain=await BuildSourceHostAsync(source,compiler,false,sharedExposureProducer,allowReadback,profile);
         try{chain.CompleteEffects=await MapFinalOutputFullEffectsOwner.BuildAsync(chain.Graph,compiler,allowReadback);
             chain.RequiredExtraFinalTextureIndices=Array.Empty<int>();return chain;}
-        catch{await chain.DisposeAsync();throw;}
+        catch(Exception failure)
+        {
+            var pending=NativeMapBorrowerRetirementPackage.CreatePending("Final-complete-chain-partial",[chain],
+                (failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+            try{await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pending);}
+            catch(Exception retirementFailure)
+            {throw new NativeMapBorrowerConstructionException(failure,retirementFailure,pending!);}
+            throw;
+        }
     }
     public Task<RenderOutputPresentation> RenderCompleteSourceAsync(
         NativeMapFrameContext frame,MapFinalOutputCompleteFrameInputs input)

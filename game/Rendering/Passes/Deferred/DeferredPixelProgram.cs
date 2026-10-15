@@ -22,9 +22,9 @@ public sealed partial class DeferredPixelProgram : IAsyncDisposable
     public DeferredOptionalLocalAmbientNullSpirv? OptionalLocalAmbientNullSpecialization { get; }
     public DeferredSelectedSourceNullSpirv? SelectedSourceNullSpecialization { get; }
     public string VertexAdapterSha256 { get; }
-    private Task? _disposal;
+    private readonly RenderDeviceResources resources;
 
-    private DeferredPixelProgram(Rid shader, LoadedShaderContainer source,
+    private DeferredPixelProgram(Rid shader, RenderDeviceResources resources, LoadedShaderContainer source,
         G2ShaderCombination combination, ShaderSpirv translation, TranslatedShaderBindings descriptorBindings,
         ShaderSpirv originalTranslation, TranslatedShaderBindings sourceBindings,
         DeferredNullImageSpirv? nullImages,
@@ -34,7 +34,7 @@ public sealed partial class DeferredPixelProgram : IAsyncDisposable
         DeferredF103SelectedSource? selected = null,
         DeferredSelectedSourceNullSpirv? selectedNull = null)
     {
-        ShaderRid = shader; Source = source; Combination = combination; Translation = translation;
+        ShaderRid = shader; this.resources = resources; Source = source; Combination = combination; Translation = translation;
         DescriptorBindings = descriptorBindings;
         UnspecializedTranslation = originalTranslation; SourceDescriptorBindings = sourceBindings;
         NullImageSpecialization = nullImages;
@@ -107,23 +107,37 @@ public sealed partial class DeferredPixelProgram : IAsyncDisposable
             ? DeferredOptionalNullImageAdapter.ReadDeviceBindings(sourceBindings, iesNull) : localAmbientNull is not null
             ? DeferredSourceLocalAmbientNullAdapter.ReadDeviceBindings(sourceBindings, localAmbientNull) : nullImages is null ? sourceBindings
             : DeferredNullImageAdapter.ReadDeviceBindings(sourceBindings, nullImages);
-        Rid shader = await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-        {
-            using var vertexSource = new RDShaderSource { SourceVertex = DeferredFullscreenShader.VertexSource };
-            using RDShaderSpirV adapter = rd.ShaderCompileSpirVFromSource(vertexSource);
-            string error = adapter.GetStageCompileError(RenderingDevice.ShaderStage.Vertex);
-            if (error.Length != 0) throw new InvalidDataException("Original fullscreen adapter compilation failed: " + error);
-            using var combined = new RDShaderSpirV();
-            combined.SetStageBytecode(RenderingDevice.ShaderStage.Vertex, adapter.GetStageBytecode(RenderingDevice.ShaderStage.Vertex));
-            combined.SetStageBytecode(RenderingDevice.ShaderStage.Fragment, translated.Bytes);
-            Rid created = rd.ShaderCreateFromSpirV(combined, "OriginalDeferredPixelProgram");
-            if (!created.IsValid) throw new InvalidDataException("RenderingDevice rejected the translated original pixel shader.");
-            return created;
-        });
-        return new(shader, source, combination, translated, descriptorBindings, original, sourceBindings, nullImages,
-            localAmbientNull, selected is null ? sourceIes : null, iesNull, optionalLocal, selected, selectedNull);
+        return await InstallAsync(translated.Bytes,"OriginalDeferredPixelProgram",
+            "Original fullscreen adapter compilation failed: ",
+            "RenderingDevice rejected the translated original pixel shader.",
+            (shader,resources)=>new(shader,resources,source,combination,translated,descriptorBindings,original,sourceBindings,nullImages,
+                localAmbientNull,selected is null?sourceIes:null,iesNull,optionalLocal,selected,selectedNull));
     }
 
-    public ValueTask DisposeAsync() => new(_disposal ??= TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-    { rd.FreeRid(ShaderRid); return true; }));
+    private static Task<DeferredPixelProgram> InstallAsync(byte[] pixelBytes,string debugName,
+        string compilationFailureMessage,string allocationFailureMessage,
+        Func<Rid,RenderDeviceResources,DeferredPixelProgram> createOwner)
+        =>TerrainDeviceTexture.OnRenderThreadAsync(rd =>
+        {
+            var resources=new RenderDeviceResources(allocationFailureMessage);
+            try
+            {
+                using var vertexSource = new RDShaderSource { SourceVertex = DeferredFullscreenShader.VertexSource };
+                using RDShaderSpirV adapter = rd.ShaderCompileSpirVFromSource(vertexSource);
+                string error = adapter.GetStageCompileError(RenderingDevice.ShaderStage.Vertex);
+                if (error.Length != 0) throw new InvalidDataException(compilationFailureMessage + error);
+                using var combined = new RDShaderSpirV();
+                combined.SetStageBytecode(RenderingDevice.ShaderStage.Vertex, adapter.GetStageBytecode(RenderingDevice.ShaderStage.Vertex));
+                combined.SetStageBytecode(RenderingDevice.ShaderStage.Fragment, pixelBytes);
+                Rid shader=resources.Own(rd.ShaderCreateFromSpirV(combined,debugName));
+                return createOwner(shader,resources);
+            }
+            catch(Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd,failure,debugName+"-partial");
+                throw;
+            }
+        });
+
+    public ValueTask DisposeAsync()=>resources.DisposeAsync();
 }

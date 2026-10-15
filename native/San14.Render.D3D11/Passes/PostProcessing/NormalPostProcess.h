@@ -1,4 +1,5 @@
 #pragma once
+#include "../Environment/SeasonResources.h"
 // Include after normal-post GPU/continuous/camera, seasonal and map-exposure writers.
 namespace San14::Render {
 

@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Numerics;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -13,12 +12,16 @@ public static class SkyDirectionalRendererFeatureWriter
     {
         if(completeSelectedLightData.Length!=CameraDirectionalLightData.LightDataBytes)
             throw new InvalidDataException("Sky renderer request needs the complete actual selected LightData copy.");
-        uint mode=BinaryPrimitives.ReadUInt32LittleEndian(completeSelectedLightData.Slice(0x160,4));
+        return WriteRequest(BinaryPrimitives.ReadUInt32LittleEndian(completeSelectedLightData.Slice(0x160,4)));
+    }
+
+    public static byte[] WriteRequest(uint fogMode)
+    {
         var result=new byte[48];
         BinaryPrimitives.WriteUInt32LittleEndian(result.AsSpan(4),1);
         BinaryPrimitives.WriteUInt32LittleEndian(result.AsSpan(20),1);
-        BinaryPrimitives.WriteUInt32LittleEndian(result.AsSpan(24),mode);
-        BinaryPrimitives.WriteUInt32LittleEndian(result.AsSpan(28),mode==7?2u:1u);
+        BinaryPrimitives.WriteUInt32LittleEndian(result.AsSpan(24),fogMode);
+        BinaryPrimitives.WriteUInt32LittleEndian(result.AsSpan(28),fogMode==7?2u:1u);
         return result;
     }
 
@@ -30,23 +33,38 @@ public static class SkyDirectionalRendererFeatureWriter
         if(BinaryPrimitives.ReadUInt32LittleEndian(selectedFog96.Slice(0x10,4))==7&&actualMainCamera1EC>0)
         {
             float k=BinaryPrimitives.ReadSingleLittleEndian(selectedFog96.Slice(0x44,4));
-            if(!float.IsFinite(k))throw new InvalidDataException("Actual package Fog44 is outside the finite continuation domain.");
-            float changed=NativeFloat.Add(NativeFloat.Multiply(
-                NativeFloat.Subtract(1,actualMainCamera1EC),k),actualMainCamera1EC);
-            if(!float.IsFinite(changed))throw new InvalidDataException("Original Main1EC package Fog44 continuation overflowed.");
-            BinaryPrimitives.WriteSingleLittleEndian(result.AsSpan(0x44,4),changed);
+            BinaryPrimitives.WriteSingleLittleEndian(result.AsSpan(0x44,4),ApplyPackageBlend(k,actualMainCamera1EC));
         }
         return result;
     }
+
+    public static DirectionalLightFogState PreparePackageFog(DirectionalLightFogState selectedFog,float actualMainCamera1EC)
+    {
+        ArgumentNullException.ThrowIfNull(selectedFog);ArgumentNullException.ThrowIfNull(selectedFog.Values);
+        if(!float.IsFinite(actualMainCamera1EC))
+            throw new InvalidDataException("Sky package copy needs finite actual Main1EC.");
+        if(selectedFog.Mode!=7||!(actualMainCamera1EC>0))return selectedFog;
+        return new(selectedFog.Mode,selectedFog.Values with
+        {Blend=ApplyPackageBlend(selectedFog.Values.Blend,actualMainCamera1EC)});
+    }
+
+    private static float ApplyPackageBlend(float blend,float actualMainCamera1EC)
+    {
+        if(!float.IsFinite(blend))throw new InvalidDataException("Actual package Fog44 is outside the finite continuation domain.");
+        float changed=NativeFloat.Add(NativeFloat.Multiply(
+            NativeFloat.Subtract(1,actualMainCamera1EC),blend),actualMainCamera1EC);
+        if(!float.IsFinite(changed))throw new InvalidDataException("Original Main1EC package Fog44 continuation overflowed.");
+        return changed;
+    }
 }
 
-/// <summary>One current owned WORK/preparation generation freezes the actual
-/// selected L and same Main1EC, writes the full request48, and retains the
-/// separately matched source row. It never replaces the request with a row.</summary>
+/// <summary>Prepare a renderer request and package fog for the current WORK
+/// generation. Retain the request separately from its matched renderer row.</summary>
 public sealed class SkyDirectionalRendererFeatureReceipt
 {
     private readonly SkyDirectionalSelectedLightSource source;
-    private readonly byte[] selectedLightData,mainPrefix,request48,matched48,lightFog96,packageFog96;
+    private readonly byte[] request48,matched48,lightFog96,packageFog96;
+    private readonly byte lightType,lightFlags;
     private readonly Sky2Selection selection;
 
     internal SkyDirectionalRendererFeatureReceipt(SkyDirectionalSelectedLightSource source,
@@ -66,24 +84,25 @@ public sealed class SkyDirectionalRendererFeatureReceipt
         // Source binding is ordinal928/hash273D81CE/type8/1 ->CPU98;
         // native TC C40B86/SC C42236 copy ->embedded1330+1EC.
         uint sourceWord=BitConverter.SingleToUInt32Bits(main.Source.Declaration.FogLightingBlend);
-        mainPrefix=present.PreparedCameraPrefix.ToArray();
+        var mainPrefix=present.PreparedCameraPrefix.Span;
         if(BinaryPrimitives.ReadUInt32LittleEndian(main.Prefix.Span.Slice(0x1EC,4))!=sourceWord||
-            BinaryPrimitives.ReadUInt32LittleEndian(mainPrefix.AsSpan(0x1EC,4))!=sourceWord||
+            BinaryPrimitives.ReadUInt32LittleEndian(mainPrefix.Slice(0x1EC,4))!=sourceWord||
             !source.AcceptedLighting.PreparedCameraPrefix.Span.SequenceEqual(mainPrefix)||
             !present.CurrentSkyCamera.PreparedCameraPrefix.Span.SequenceEqual(mainPrefix))
             throw new InvalidDataException("Current Main1EC lacks the actual audited source CPU98 copy; another current edit needs its own writer.");
         MainCamera1ECBits=sourceWord;MainCamera1EC=BitConverter.UInt32BitsToSingle(sourceWord);
         if(!float.IsFinite(MainCamera1EC))throw new InvalidDataException("Current Main1EC must be the finite audited source word.");
-        selectedLightData=source.SelectedPacket.CompleteLightData.ToArray();
-        lightFog96=selectedLightData.AsSpan(0x150,96).ToArray();
-        if(!lightFog96.AsSpan().SequenceEqual(mainPrefix.AsSpan(0x340,96)))
+        var selectedLightData=source.SelectedPacket.CompleteLightData.Span;
+        lightFog96=selectedLightData.Slice(0x150,96).ToArray();
+        lightType=selectedLightData[0x10B0];lightFlags=selectedLightData[0xFDC];
+        if(!lightFog96.AsSpan().SequenceEqual(mainPrefix.Slice(0x340,96)))
             throw new InvalidDataException("Selected L96 and this actual Main prepared Fog96 have different writers.");
         packageFog96=SkyDirectionalRendererFeatureWriter.CopyPackageFog96(lightFog96,MainCamera1EC);
         request48=SkyDirectionalRendererFeatureWriter.WriteRequest(selectedLightData);
         selection=Sky2Selection.Read(shader);
         // Renderer matching is independent of desired/committed binding
         // variant words. Only the renderer match of this projection is kept.
-        var projected=selection.SelectDesired(request48,true,false,selectedLightData[0x10B0],selectedLightData[0xFDC],true);
+        var projected=selection.SelectDesired(request48,true,false,lightType,lightFlags,true);
         matched48=projected.RendererFeature.Feature.RawBytes.ToArray();
         RendererFeatureIndex=projected.RendererFeatureMatch.RowIndex;
         RendererFogMode=checked((int)BinaryPrimitives.ReadUInt32LittleEndian(matched48.AsSpan(24,4)));
@@ -92,7 +111,7 @@ public sealed class SkyDirectionalRendererFeatureReceipt
             throw new NotSupportedException("Current Sky source-selected atmosphere supports the exact original4/1 or7/2 renderer rows.");
         SourceEvidence=native.SourceSelectedEvidence+";"+source.SourceProvenance+
             ";Main928/273D81CE/type8->CPU98->embedded1330+1EC;"+
-            $"WORK={WorkIdentity};frame={FrameNumber};L={Hash(selectedLightData)};L96={Hash(lightFog96)};M96={Hash(packageFog96)};"+
+            $"WORK={WorkIdentity};frame={FrameNumber};"+
             "D3AE2D-full-source-request48;980850-renderer-match/not-binding-commit;D3AF58-Main1EC-package-Fog44";
     }
     public SkyAppliedSourceStageFrame ActualStages{get;}
@@ -119,15 +138,11 @@ public sealed class SkyDirectionalRendererFeatureReceipt
         source.ValidateCurrent();
         var present=ActualStages.AcceptedPresent;
         ActualStages.ValidateCurrent(source.AcceptedLighting,present.AcceptedSeasonCamera.Inputs.Source.Selection,present.CurrentSkyCamera);
-        if(!source.SelectedPacket.CompleteLightData.Span.SequenceEqual(selectedLightData)||
-            !present.PreparedCameraPrefix.Span.SequenceEqual(mainPrefix))
-            throw new InvalidDataException("Sky source renderer feature's actual selected L/Main generation changed.");
     }
     public void ValidateStage(SkyAppliedSourceStageFrame actualStages)
     {ValidateCurrent(source);if(!ReferenceEquals(actualStages,ActualStages))throw new InvalidDataException("Sky renderer feature belongs to this exact owned WORK/preparation generation.");}
     internal Sky2SelectionResult ProjectDesired(bool moonPresent,bool sunArgumentNull,bool atmosphere)
-    {ValidateCurrent(source);return selection.SelectDesired(request48,moonPresent,sunArgumentNull,selectedLightData[0x10B0],selectedLightData[0xFDC],atmosphere);}
-    private static string Hash(ReadOnlySpan<byte> value)=>Convert.ToHexString(SHA256.HashData(value));
+    {ValidateCurrent(source);return selection.SelectDesired(request48,moonPresent,sunArgumentNull,lightType,lightFlags,atmosphere);}
 }
 
 /// <summary>Actual source-selected shared Generic Fog/Scat CPU output for

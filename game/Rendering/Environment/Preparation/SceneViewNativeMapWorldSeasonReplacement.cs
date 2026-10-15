@@ -59,7 +59,11 @@ public sealed class SceneViewNativeMapWorldSeasonReplacement : IAsyncDisposable
             var partial=new NativeMapBorrowerRetirementPackage("World-season-partial/"+Guid.NewGuid().ToString("N"),
                 failure is NativeMapBorrowerConstructionException nested?nested.RetainedPackage:null,sky,clouds);
             try{await partial.DisposeAsync();}
-            catch(Exception cleanup){partial.RetainFailure();throw new NativeMapBorrowerConstructionException(failure,cleanup,partial);}
+            catch(Exception cleanup)
+            {
+                actualDependencies.Sky.RetainFailedSeasonResources(partial);
+                throw new NativeMapBorrowerConstructionException(failure,cleanup,partial);
+            }
             throw;
         }
     }
@@ -90,7 +94,11 @@ public sealed class SceneViewNativeMapWorldSeasonReplacement : IAsyncDisposable
             try{await pendingCleanup.DisposeAsync();}
             catch
             {
-                if(!pendingFailureRegistered){pendingCleanup.RetainFailure();pendingFailureRegistered=true;}
+                if(!pendingFailureRegistered)
+                {
+                    dependencies.Sky.RetainFailedSeasonResources(pendingCleanup);
+                    pendingFailureRegistered=true;
+                }
                 throw;
             }
         }

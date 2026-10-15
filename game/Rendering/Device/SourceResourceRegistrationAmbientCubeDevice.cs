@@ -16,17 +16,16 @@ public sealed class SourceResourceRegistrationAmbientCubeDevice : IAsyncDisposab
     public IReadOnlyList<string> EncodedChainSha256 { get; }
     public string SourceProvenance { get; }
     private readonly bool allowReadback;
+    private readonly RenderDeviceResources resources;
     private readonly object lifetimeGate=new();
     private readonly SemaphoreSlim gate=new(1,1);
     private volatile bool retiring;
-    private bool samplerReleased;
-    private bool textureReleased;
     private Task? disposal;
 
     private SourceResourceRegistrationAmbientCubeDevice(StaticTextureBinding source,
-        G1TextureImage image,Rid texture,Rid sampler,string[] hashes,string provenance,bool readback)
-        =>(Source,Image,TextureRid,SamplerRid,EncodedChainSha256,SourceProvenance,allowReadback)=
-            (source,image,texture,sampler,Array.AsReadOnly(hashes),provenance,readback);
+        G1TextureImage image,Rid texture,Rid sampler,string[] hashes,string provenance,bool readback,RenderDeviceResources resources)
+        =>(Source,Image,TextureRid,SamplerRid,EncodedChainSha256,SourceProvenance,allowReadback,this.resources)=
+            (source,image,texture,sampler,Array.AsReadOnly(hashes),provenance,readback,resources);
 
     public static async Task<SourceResourceRegistrationAmbientCubeDevice> BuildAsync(
         StaticTextureBinding source,bool allowReadback=false)
@@ -48,37 +47,35 @@ public sealed class SourceResourceRegistrationAmbientCubeDevice : IAsyncDisposab
         string provenance=$"{source.Definitions.Source.ResourceUri}@{source.Definitions.Source.DecodedSha256}#object={source.Definition.ObjectId:X8};"+
             $"{source.Resource.Source.ResourceUri}@{source.Resource.Source.DecodedSha256}/TID={source.ImageIndex};native-SRV95;mip-major-to-face-chains;"+
             $"sampler-sha256={Convert.ToHexString(SHA256.HashData(samplerBytes))}";
-        var made=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
+        return await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
-            const RenderingDevice.DataFormat format=RenderingDevice.DataFormat.Bc6HUfloatBlock;
-            var usage=RenderingDevice.TextureUsageBits.SamplingBit;
-            if(allowReadback)usage|=RenderingDevice.TextureUsageBits.CanCopyFromBit;
-            if(!rd.TextureIsFormatSupportedForUsage(format,usage))
-                throw new NotSupportedException("Device cannot retain the exact native BC6H unsigned static cube.");
-            Rid texture=default,sampler=default;
+            var resources=new RenderDeviceResources("Device rejected the original compressed ambient cube.");
             try
             {
+                const RenderingDevice.DataFormat format=RenderingDevice.DataFormat.Bc6HUfloatBlock;
+                var usage=RenderingDevice.TextureUsageBits.SamplingBit;
+                if(allowReadback)usage|=RenderingDevice.TextureUsageBits.CanCopyFromBit;
+                if(!rd.TextureIsFormatSupportedForUsage(format,usage))
+                    throw new NotSupportedException("Device cannot retain the exact native BC6H unsigned static cube.");
                 using var shape=new RDTextureFormat{Format=format,Width=(uint)image.Width,Height=(uint)image.Height,
                     Depth=1,ArrayLayers=6,Mipmaps=(uint)image.MipCount,
                     TextureType=RenderingDevice.TextureType.Cube,UsageBits=usage};
-                using var view=new RDTextureView();texture=rd.TextureCreate(shape,view,faces);
-                if(!texture.IsValid)throw new InvalidDataException("Device rejected the original compressed ambient cube.");
+                using var view=new RDTextureView();Rid texture=resources.Own(rd.TextureCreate(shape,view,faces));
                 using var actual=rd.TextureGetFormat(texture);
                 if(actual.Format!=format||actual.Width!=image.Width||actual.Height!=image.Height||actual.Depth!=1||
                     actual.ArrayLayers!=6||actual.Mipmaps!=image.MipCount||actual.TextureType!=RenderingDevice.TextureType.Cube)
                     throw new InvalidDataException("Device changed the original static ambient cube encoding or layout.");
-                sampler=DeviceSampler.Create(rd,samplerBytes);
+                Rid sampler=DeviceSampler.Create(rd,samplerBytes);
                 if(!sampler.IsValid)throw new InvalidDataException("Device rejected the original static cube source sampler.");
-                return(texture,sampler);
+                resources.Own(sampler);
+                return new SourceResourceRegistrationAmbientCubeDevice(source,image,texture,sampler,hashes,provenance,allowReadback,resources);
             }
-            catch
+            catch(Exception failure)
             {
-                try { if(sampler.IsValid)rd.FreeRid(sampler); }
-                finally { if(texture.IsValid)rd.FreeRid(texture); }
+                resources.ReleaseAfterConstructionFailure(rd,failure,"Registered-ambient-cube-partial");
                 throw;
             }
         });
-        return new(source,image,made.texture,made.sampler,hashes,provenance,allowReadback);
     }
 
     public void RequireAvailable() => ObjectDisposedException.ThrowIf(retiring, this);
@@ -110,25 +107,7 @@ public sealed class SourceResourceRegistrationAmbientCubeDevice : IAsyncDisposab
     private async Task DisposeCoreAsync()
     {
         await gate.WaitAsync();
-        try
-        {
-            await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-            {
-                List<Exception> failures=[];
-                try
-                {
-                    if(!samplerReleased){rd.FreeRid(SamplerRid);samplerReleased=true;}
-                }
-                catch(Exception error){failures.Add(error);}
-                try
-                {
-                    if(!textureReleased){rd.FreeRid(TextureRid);textureReleased=true;}
-                }
-                catch(Exception error){failures.Add(error);}
-                if(failures.Count!=0)throw new AggregateException("Ambient cube cleanup failed.",failures);
-                return true;
-            });
-        }
+        try { await resources.DisposeAsync(); }
         finally { gate.Release(); }
     }
 }

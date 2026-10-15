@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using San14.Data;
 
 public sealed record MapMaterialTerrainConsumer(string DrawKey, MapMaterialIdSource Material,
@@ -43,18 +42,14 @@ public static class MapMaterialCacheProvider
     {
         ArgumentNullException.ThrowIfNull(initializedCache); ArgumentNullException.ThrowIfNull(modelPackets);
         ArgumentNullException.ThrowIfNull(terrainPackets);
-        var sources = new Dictionary<(string Model, string ModelSha, int Draw, string Shader, string ShaderSha, int Combination), MapMaterialIdSource>();
         var keys = new HashSet<string>(StringComparer.Ordinal);
         var consumers = new List<MapMaterialCacheConsumer>(modelPackets.Count + terrainPackets.Count);
         foreach (var packet in modelPackets)
         {
             if (packet is null || string.IsNullOrWhiteSpace(packet.InstanceKey) || !keys.Add(packet.InstanceKey))
                 throw new InvalidDataException("Original material cache requires unique actual model draw packet keys.");
-            var key = (packet.Model.Source.ResourceUri, packet.Model.Source.DecodedSha256, packet.DrawIndex,
-                packet.Shader.Source.ResourceUri, packet.Shader.Source.DecodedSha256, packet.ExplicitCombinationIndex);
-            if (!sources.TryGetValue(key, out var source))
-                sources[key] = source = MapMaterialIdSources.ReadModel(packet.Shader,
-                    packet.ExplicitCombinationIndex, packet.Model, packet.DrawIndex);
+            var plan = packet.Shader.ReadModelMaterialPlan(packet.Model, packet.ExplicitCombinationIndex, packet.DrawIndex);
+            var source = plan.Source;
             var current = explicitCurrentModelMaterial?.Invoke(packet);
             if (current is not null)
             {
@@ -65,10 +60,7 @@ public static class MapMaterialCacheProvider
             }
             if (source.MaterialId is null)
                 throw new InvalidDataException($"{packet.InstanceKey}: absent named nMtrID requires its explicit retained/current source.");
-            var stage = packet.Shader.ReadG1ResourceBindings(packet.ExplicitCombinationIndex).Combination.Stages
-                .Single(s => s.StageCode == 0 && s.Entry is not null);
-            var definitions = packet.Shader.ReadResourceDefinitions(stage.Entry!.ProgramIndex);
-            int actual = ReadId(definitions, packet.Pixel.Constants);
+            int actual = plan.Layout.ReadCurrent(packet.Pixel.Constants);
             consumers.Add(Consume(initializedCache, packet.InstanceKey, source, actual));
         }
         foreach (var packet in terrainPackets)
@@ -78,10 +70,8 @@ public static class MapMaterialCacheProvider
             var source = packet.Material;
             if (source.MaterialId is null || source.Branch == MapMaterialIdBranch.SourceNamedParameter)
                 throw new InvalidDataException("Terrain material ID requires a fresh original GBuffer default or explicit current value.");
-            var stage = source.Shader.ReadG1ResourceBindings(source.CombinationIndex).Combination.Stages
-                .Single(s => s.StageCode == 0 && s.Entry is not null);
-            var definitions = source.Shader.ReadResourceDefinitions(stage.Entry!.ProgramIndex);
-            int actual = ReadId(definitions, new Dictionary<uint, ReadOnlyMemory<byte>> { [0] = packet.PixelConstants.Bytes });
+            int actual = source.Shader.ReadMaterialIdLayout(source.CombinationIndex)
+                .ReadCurrent(new Dictionary<uint, ReadOnlyMemory<byte>> { [0] = packet.PixelConstants.Bytes });
             consumers.Add(Consume(initializedCache, packet.DrawKey, source, actual));
         }
         return new(initializedCache, consumers.AsReadOnly());
@@ -98,19 +88,6 @@ public static class MapMaterialCacheProvider
             throw new InvalidDataException($"{drawKey}: material ID {actual} exceeds the supported source G-buffer index range.");
         uint word = cache.ReadWord(actual);
         return new(drawKey, source.Shader.Source.ResourceUri, source.CombinationIndex, actual, actual, word, source.Branch);
-    }
-
-    private static int ReadId(San14.Data.Formats.DxbcResourceDefinitions definitions,
-        IReadOnlyDictionary<uint, ReadOnlyMemory<byte>> constants)
-    {
-        var buffers = definitions.Buffers.Where(b => b.Variables.Any(v => v.Name.Text == "nMtrID")).ToArray();
-        if (buffers.Length != 1) throw new InvalidDataException("Material packet nMtrID buffer is ambiguous.");
-        var buffer = buffers[0];
-        var binding = definitions.Bindings.Single(b => b.InputType == 0 && b.Name.Text == buffer.Name.Text);
-        if (!constants.TryGetValue(binding.BindPoint, out var bytes) || bytes.Length != buffer.ByteSize)
-            throw new InvalidDataException("Material cache requires the actual complete selected PS constant buffer.");
-        var id = buffer.Variables.Single(v => v.Name.Text == "nMtrID");
-        return BinaryPrimitives.ReadInt32LittleEndian(bytes.Span.Slice(checked((int)id.StartOffset), 4));
     }
 
     private static void MatchShader(MapMaterialIdSource material, LoadedShaderContainer shader, int combination)

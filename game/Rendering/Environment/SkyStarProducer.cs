@@ -26,14 +26,19 @@ public sealed class SkyStarProducer : IAsyncDisposable
     public bool UsesAnalyticPixel { get; }
     public SkyStarNativeGate Gate { get; private set; }
     private readonly IReadOnlyList<SkyStarDraw> _faces;
-    private readonly IReadOnlyList<IAsyncDisposable> _owned;
+    private readonly NativeMapBorrowerRetirementPackage retirement;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _lifetimeGate = new();
     private bool _retiring;
+    private bool needsCurrentFrame;
     private Task? _disposal;
     private SkyStarProducer(SkyStarProgram program, CubeRenderTextureDevice work,
         bool hasGeometry, SkyStarNativeGate gate, List<SkyStarDraw> faces, List<IAsyncDisposable> owned, bool analytic)
-        => (Program, Work, HasGeometry, Gate, _faces, _owned, UsesAnalyticPixel) = (program, work, hasGeometry, gate, faces.AsReadOnly(), owned.AsReadOnly(), analytic);
+    {
+        (Program, Work, HasGeometry, Gate, _faces, UsesAnalyticPixel) =
+            (program, work, hasGeometry, gate, faces.AsReadOnly(), analytic);
+        retirement = Retirement(owned);
+    }
 
     public static async Task<SkyStarProducer> BuildAsync(LoadedShaderContainer source, int explicitCombination,
         Vkd3dShaderCompiler compiler, CubeRenderTextureDevice work, SkyStarGeometry? geometry,
@@ -50,17 +55,30 @@ public sealed class SkyStarProducer : IAsyncDisposable
             {
                 var packets = Snapshot(program, explicitSixFaces);
                 if (explicitStarTexture is null) foreach (var packet in packets) SkyStarPixelAdapter.ValidateAnalyticPacket(packet.PixelConstants.Span);
+                var deviceGeometry = await SkyStarGeometryDevice.BuildAsync(geometry!);
+                owned.Add(deviceGeometry);
                 for (uint face = 0; face < 6; face++)
                 {
                     var p = packets[(int)face]; var draw = await SkyStarDraw.BuildAsync(program, work,
-                        SkySceneSchedule.SurfaceId(work.Source.LevelNum, face, 0), geometry!,
+                        SkySceneSchedule.SurfaceId(work.Source.LevelNum, face, 0), deviceGeometry,
                         p.VertexConstants, p.GeometryConstants, p.PixelConstants, explicitStarTexture, explicitColorWriteMask, explicitRaster);
                     faces.Add(draw); owned.Add(draw);
                 }
             }
             return new(program, work, hasGeometry, explicitGate, faces, owned, explicitStarTexture is null);
         }
-        catch { for (int i = owned.Count - 1; i >= 0; i--) await owned[i].DisposeAsync(); throw; }
+        catch (Exception constructionFailure)
+        {
+            var partial = Retirement(owned,
+                constructionFailure is NativeMapBorrowerConstructionException nested ? nested.RetainedPackage : null);
+            try { await partial.DisposeAsync(); }
+            catch (Exception retirementFailure)
+            {
+                partial.RetainFailure();
+                throw new NativeMapBorrowerConstructionException(constructionFailure, retirementFailure, partial);
+            }
+            throw;
+        }
     }
     public async Task UpdateFrameAsync(IReadOnlyList<SkyStarFacePacket> explicitSixFaces, SkyStarNativeGate explicitGate)
     {
@@ -68,15 +86,27 @@ public sealed class SkyStarProducer : IAsyncDisposable
         var packets = HasGeometry ? Snapshot(Program, explicitSixFaces) : Array.Empty<SkyStarFacePacket>();
         if (UsesAnalyticPixel) foreach (var packet in packets) SkyStarPixelAdapter.ValidateAnalyticPacket(packet.PixelConstants.Span);
         await _gate.WaitAsync();
-        try { ObjectDisposedException.ThrowIf(_retiring, this); for (int i = 0; i < packets.Length; i++)
+        try
+        {
+            ObjectDisposedException.ThrowIf(_retiring, this);
+            needsCurrentFrame = true;
+            for (int i = 0; i < packets.Length; i++)
                 await _faces[i].UpdateConstantsAsync(packets[i].VertexConstants, packets[i].GeometryConstants, packets[i].PixelConstants);
-            Gate = explicitGate; }
+            Gate = explicitGate;
+            needsCurrentFrame = false;
+        }
         finally { _gate.Release(); }
     }
     public SkySceneFaceProducer? CreateSceneStage()
     {
-        ObjectDisposedException.ThrowIf(_retiring, this);
+        RequireCurrentFrame();
         return HasGeometry ? new(Program.Source.Source.ResourceUri + "#native-pass=0", SubmitAsync) : null;
+    }
+    private void RequireCurrentFrame()
+    {
+        ObjectDisposedException.ThrowIf(_retiring, this);
+        if (needsCurrentFrame)
+            throw new InvalidOperationException("Star draws require all six actual current face packets.");
     }
     private async Task SubmitAsync(SkySceneFaceContext context)
     {
@@ -84,7 +114,7 @@ public sealed class SkyStarProducer : IAsyncDisposable
             context.Target != Work.Surfaces[(int)SkySceneSchedule.SurfaceId(Work.Source.LevelNum, context.Face, 0)])
             throw new InvalidDataException("Star scene stage belongs to another WORK resource or surface.");
         await _gate.WaitAsync();
-        try { ObjectDisposedException.ThrowIf(_retiring, this); if (Gate.AllowsDraw) await _faces[(int)context.Face].DrawAsync(); }
+        try { RequireCurrentFrame(); if (Gate.AllowsDraw) await _faces[(int)context.Face].DrawAsync(); }
         finally { _gate.Release(); }
     }
     private static SkyStarFacePacket[] Snapshot(SkyStarProgram program, IReadOnlyList<SkyStarFacePacket> packets)
@@ -95,7 +125,19 @@ public sealed class SkyStarProducer : IAsyncDisposable
                 program.PixelBindings.SourceDefinitions, p.VertexConstants.Span, p.GeometryConstants.Span, p.PixelConstants.Span);
             return new SkyStarFacePacket(v.VertexBytes, v.GeometryBytes, v.PixelBytes); }).ToArray();
     }
-    public ValueTask DisposeAsync() { lock (_lifetimeGate) { _retiring = true; return new(_disposal ??= DisposeCoreAsync()); } }
+    private static NativeMapBorrowerRetirementPackage Retirement(List<IAsyncDisposable> owned,
+        NativeMapBorrowerRetirementPackage? partialChild = null)
+        => new("Star-producer/" + Guid.NewGuid().ToString("N"), [partialChild, .. owned.AsEnumerable().Reverse()]);
+
+    public ValueTask DisposeAsync()
+    {
+        lock (_lifetimeGate)
+        {
+            _retiring = true;
+            if (_disposal is null || _disposal.IsFaulted) _disposal = DisposeCoreAsync();
+            return new(_disposal);
+        }
+    }
     private async Task DisposeCoreAsync()
-    { await _gate.WaitAsync(); try { for (int i = _owned.Count - 1; i >= 0; i--) await _owned[i].DisposeAsync(); } finally { _gate.Release(); } }
+    { await _gate.WaitAsync(); try { await retirement.DisposeAsync(); } finally { _gate.Release(); } }
 }

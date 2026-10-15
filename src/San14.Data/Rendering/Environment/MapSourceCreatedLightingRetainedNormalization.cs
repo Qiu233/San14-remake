@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
-using System.Text;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -47,24 +46,17 @@ public sealed class MapSourceCreatedLightingRetainedConsumerReceipt
         ";raw-SharedFog-reader-skipped;Exposure-mode2/FDC-bit0-clear/Camera17C;Final-Camera-only";
 }
 
-/// <summary>Chosen backend representation of the twelve native retained
-/// extents, limited to the exact source consumer projections below. Source
-/// code does not establish their native values. Construction may bootstrap
-/// before shader selection; every actual frame must subsequently validate its
-/// consumers before it can use this representation. Other consumers require
-/// explicit current retained bytes through RetainedAllocation instead.</summary>
+/// <summary>Admission of the exact source consumer projections below for one
+/// already constructed backend light. CPU initialization is independent of
+/// shader selection; each actual frame must validate its consumer set here.
+/// This owner does not establish original allocation values or authorize
+/// other consumers of the compatibility storage.</summary>
 public sealed class MapSourceCreatedLightingRetainedNormalization
 {
     private readonly LoadedShaderContainer lateShader, skyShader;
     private readonly LoadedShaderContainer? earlyShader;
     private MainLightConstructionPacket? construction;
-    private string? createdHash, constructedOwnerHash;
     private long lastAcceptedFrame;
-    private static readonly (int Offset, int Length)[] NativeLayout =
-    [
-        (0x164,76),(0x2BC,4),(0xAD5,3),(0xB6F,1),(0xB95,3),(0xDC9,3),
-        (0xDD5,3),(0xDE1,3),(0xE01,3),(0xF21,71),(0x1090,32),(0x10B8,8)
-    ];
     private MapSourceCreatedLightingRetainedNormalization(LoadedShaderContainer late,
         LoadedShaderContainer sky, LoadedShaderContainer? early, string identity)
     {
@@ -111,27 +103,16 @@ public sealed class MapSourceCreatedLightingRetainedNormalization
         return new(late,sky,early,backendOwnerIdentity);
     }
 
-    /// <summary>Apply all4078 source writes and choose only the210 backend
-    /// retained bytes. Actual resource handles/provenance are passed unchanged;
-    /// this method never creates readiness receipts or source-null bindings.</summary>
-    public MainLightConstructionPacket ApplyConstructor(LoadedMainLightBindingSource source,
-        uint contextFlags3E4, IReadOnlyList<MainLightConstructionResourceBinding> actualResourceBindings,
-        byte backendFill=0)
+    /// <summary>Adopt the actual completed CPU construction once. This owner
+    /// checks supported light controls and later admits actual frame consumers;
+    /// it does not create or rewrite the construction's numeric storage.</summary>
+    public void AdoptConstruction(MainLightConstructionPacket constructed)
     {
+        ArgumentNullException.ThrowIfNull(constructed);
         if(construction is not null)
             throw new InvalidOperationException("This retained normalization owner already has its construction generation.");
-        var layout=MapSourceCreatedLightingRetainedSource.ReadGameDefaultLayout(source,contextFlags3E4);
-        if(layout.Count!=NativeLayout.Length || layout.Where((e,i)=>e.Offset!=NativeLayout[i].Offset||e.Length!=NativeLayout[i].Length).Any())
-            throw new InvalidDataException("Retained normalization requires the exact twelve source extents/210 bytes.");
-        var ranges=NativeLayout.Select(e=>new MapSourceCreatedLightingRetainedRange(e.Offset,
-            Enumerable.Repeat(backendFill,e.Length).ToArray())).ToArray();
-        var template=MapSourceCreatedLightingRetainedSource.BuildGameDefaultTemplate(source,ranges,contextFlags3E4);
-        var result=MainLightConstruction.Apply(source,template,
-            new(contextFlags3E4,SourceProvenance + ";backend-fill=" + backendFill.ToString("X2"),actualResourceBindings));
-        RequireLightControls(result.Bytes.Span);
-        construction=result; createdHash=Hash(result.Bytes.Span);
-        constructedOwnerHash=Hash(Encoding.UTF8.GetBytes(result.SourceProvenance));
-        return result;
+        RequireLightControls(constructed.Bytes.Span);
+        construction=constructed;
     }
 
     /// <summary>Validate actual producers after current-frame preparation.
@@ -209,9 +190,7 @@ public sealed class MapSourceCreatedLightingRetainedNormalization
     private void ValidateLighting(MapSourceCreatedLightingPacket lighting)
     {
         ArgumentNullException.ThrowIfNull(lighting);
-        if(construction is null || lighting.SourceIdentity.CreatedLightDataSha256!=createdHash ||
-            lighting.SourceIdentity.ConstructedOwnerSha256!=constructedOwnerHash ||
-            lighting.SourceIdentity.MainLightSha256!=construction.Source.Resource.Source.DecodedSha256 ||
+        if(construction is null || !ReferenceEquals(lighting.MainConstruction,construction) ||
             lighting.ContextFlags3E4!=construction.ContextFlags3E4 ||
             lighting.Binding.BasePath!=MapLightingBasePath.UnmodifiedOrdinary)
             throw new InvalidDataException("Lighting differs from this source construction/current owned normalization generation.");

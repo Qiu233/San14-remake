@@ -1,6 +1,3 @@
-using System.Security.Cryptography;
-using San14.Data.Formats;
-
 namespace San14.Data;
 
 /// <summary>Current owned renderer state that a source declaration cannot
@@ -68,17 +65,14 @@ public sealed class ModelOrdinaryNativeStencilSource
         $"{ProviderDictionaryUri}@{ProviderDictionarySha256}/{OwnerObjectId:X8}/{ProviderObjectId:X8}|{ShaderUri}@{ShaderSha256}";
     public int QueueNodeIndex => queue.Node.Index;
     public int StateIndex => queue.ShaderStateOffset;
-    public uint NativeFreshModifierMask => 0x6EA;
-    public uint NativeFreshModifierMaskedValue => 0;
     public string SourceProvenance => $"actual-class18-stencil/{ShaderUri}@{ShaderSha256};" +
         $"owner={OwnerObjectId:X8}/provider={ProviderObjectId:X8}/queue={QueueNodeIndex}/state={StateIndex};" +
         "class18-renderer;aux6EA=0/GBuffer-only/SSSTransmit-absent;plugin-head1460;" +
         "stencil-reference-writers-skipped;PB2-cleanup";
 
     /// <summary>Read once for the full graph/provider/shader source identity.
-    /// Source objects and configuration records are reparsed from verified
-    /// bytes. Only the four independently audited original profiles are
-    /// admitted; caller metadata or a neighbouring type16 slot cannot substitute.</summary>
+    /// Resolve the selected provider from its imported declaration and require
+    /// the supported default plugin chain. A neighbouring type16 slot cannot substitute.</summary>
     public static ModelOrdinaryNativeStencilSource ReadFreshSelected(
         ModelQueueStateSource actualQueue, ModelShaderInterfaceSource actualSelectedInterface,
         LoadedShaderContainer actualShader)
@@ -94,37 +88,21 @@ public sealed class ModelOrdinaryNativeStencilSource
             (canonicalQueue.Flag & 2) == 0 || canonicalQueue.ShaderStateOffset == 15)
             throw new InvalidDataException("Final native stencil needs the actual supported late ordinary queue and selected state entry.");
         var objects = actualSelectedInterface.Owner.Objects;
-        RequireSourceHash(objects.Source);
-        var canonicalObjects = objects with { Document = DokReader.Read(objects.Source.Bytes) };
-        var canonicalOwner = ModelShaderResources.ReadDeclaredShader(canonicalObjects,
+        var canonicalOwner = ModelShaderResources.ReadDeclaredShader(objects,
             actualSelectedInterface.Owner.Object.ObjectId);
         var selected = ModelShaderResources.ResolveType16Interface(canonicalOwner, canonicalQueue.ShaderStateOffset);
         var provider = selected.Provider ??
             throw new InvalidDataException("A source-null selected interface has no primitive stencil receipt.");
         if (provider.Object.ClassId != 0x18EB1E56 || actualSelectedInterface.Provider is not { } supplied ||
+            !ReferenceEquals(supplied.Objects, objects) ||
             supplied.Object.ObjectId != provider.Object.ObjectId || supplied.Object.ClassId != provider.Object.ClassId ||
             supplied.ShaderFileHash != provider.ShaderFileHash || provider.ShaderFileHash != actualShader.Source.FileId ||
             actualShader.Source.ResourceUri != GameResourceId.Rdb("system", provider.ShaderFileHash).ToString())
             throw new InvalidDataException("Selected source provider does not identify the actual class18 shader.");
-        RequireSourceHash(actualShader.Source);
-        (string sha, string name, string? optional) = actualShader.Source.FileId switch
-        {
-            0xEC7B0597 => ("D7D61B1BA2AB4DDE88CFDE95D2D61BEBCEA6B8F92BA33BC99463C6659DC65367", "PB2-Gbi", null),
-            0x08C2F248 => ("95189910C535FD4E2646F1127B5EC9F6149FB861BBD4B3EB8355AC1AF598B5A4", "PB2-GbiPk", "PB2TexPack"),
-            0xA72FC040 => ("756E1E18DCA1870B1DBD28BF13A97695DB107D0989BD12062C2A7381753FC6DA", "PB2-AtGbi", "AlphaTest"),
-            0xB90AEDD3 => ("B70B4FABBB37AEA3D8E2208776C429EC58CE360945B02E80E583B75FD09A1F1F", "PB2-GbiI2m", "Instancing2"),
-            _ => throw new NotSupportedException("Selected provider has no closed actual class18 stencil-hook profile.")
-        };
-        if (actualShader.Source.DecodedSha256 != sha)
-            throw new InvalidDataException("Selected shader differs from its independently audited original stencil profile.");
-        var container = actualShader.Container;
-        var configurations = actualShader.ReadConfigurations().Records;
-        string[] expected = optional is null ? ["GBuffer"] : ["GBuffer", optional];
-        if (container.NamePrefix != name || !configurations.Select(config => config.Name).SequenceEqual(expected) ||
-            configurations[0].RawSecondWord != 2 || configurations.Skip(1).Any(config => config.RawSecondWord != 0))
-            throw new InvalidDataException("Source module list differs from the successful required-GBuffer/optional-skipped construction.");
+        GBufferStencilConfiguration.RequireDefaultCallbacks(actualShader, allowSkippedModelModules: true);
         return new(canonicalQueue, canonicalOwner.Object.ObjectId, provider.Object.ObjectId,
-            actualShader.Source.ResourceUri, sha, name, objects.Source.ResourceUri, objects.Source.DecodedSha256);
+            actualShader.Source.ResourceUri, actualShader.Source.DecodedSha256, actualShader.Container.NamePrefix,
+            objects.Source.ResourceUri, objects.Source.DecodedSha256);
     }
 
     /// <summary>Current owned lifecycle publication extends the dispatcher
@@ -147,11 +125,5 @@ public sealed class ModelOrdinaryNativeStencilSource
         if (state.NativeFailOperation != 0 || state.NativeDepthFailOperation != 0 || state.NativePassOperation != 2)
             throw new InvalidDataException("Final ordinary stencil requires the proven Keep/Keep/Replace operation setter.");
         return new(this, state, current);
-    }
-
-    private static void RequireSourceHash(LoadedRdbAsset source)
-    {
-        if (source.OverrideSource is not null || Convert.ToHexString(SHA256.HashData(source.Bytes)) != source.DecodedSha256)
-            throw new InvalidDataException("Fresh native stencil requires unchanged canonical source bytes.");
     }
 }

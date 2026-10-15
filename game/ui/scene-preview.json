@@ -2,7 +2,6 @@
   "archive": "KIDSSystemResource",
   "texturePreview": { "kind": 1, "uvLayer": 0 },
   "terrainPreviewDepth": 2,
-  "terrainTexturePreview": { "group": "field", "slot": 2, "layer": 0, "uvScale": [1, 1], "uvOffset": [0, 0] },
   "scenes": [
     { "fileId": "B041E18A", "labelKey": "scene_preview_source_1" },
     { "fileId": "0449AC47", "labelKey": "scene_preview_source_2" }

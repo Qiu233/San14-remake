@@ -37,22 +37,37 @@ public sealed class MapPostEffect3LensPresetIntermediateMathSources
 /// The8 native float inputs do not come from the current pose's target distance.</summary>
 public sealed class MapPostEffect3LensPresetCallerInputs
 {
-    private readonly byte[] bytes;
-    private MapPostEffect3LensPresetCallerInputs(MapCameraConstructionPacket camera,float[] words,string evidence)
+    private MapPostEffect3LensPresetCallerInputs(MapCameraConstructionPacket camera,
+        float objectDistance,float infiniteFocalLength,float sensorDiagonalRatio,float sensorAspect,
+        float fStop,float exposureDial,float lightAdaptationScale,float darkAdaptationScale,string evidence)
     {
-        Camera=camera.CopyAcceptedSnapshot();SourceEvidence=evidence;bytes=new byte[32];
-        for(int i=0;i<words.Length;i++)BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(i*4,4),words[i]);
+        Camera=camera.CopyAcceptedSnapshot();SourceEvidence=evidence;
+        (ObjectDistance,InfiniteFocalLength,SensorDiagonalRatio,SensorAspect,FStop,ExposureDial,LightAdaptationScale,DarkAdaptationScale)=
+            (objectDistance,infiniteFocalLength,sensorDiagonalRatio,sensorAspect,fStop,exposureDial,lightAdaptationScale,darkAdaptationScale);
     }
     public MapCameraConstructionPacket Camera{get;}
     public long FrameNumber=>Camera.FrameNumber;
     public string SourceEvidence{get;}
-    public ReadOnlyMemory<byte> Bytes=>bytes.ToArray();
+    public float ObjectDistance{get;}
+    public float InfiniteFocalLength{get;}
+    public float SensorDiagonalRatio{get;}
+    public float SensorAspect{get;}
+    public float FStop{get;}
+    public float ExposureDial{get;}
+    public float LightAdaptationScale{get;}
+    public float DarkAdaptationScale{get;}
     internal static MapPostEffect3LensPresetCallerInputs CapturePreparedNativeInputs(
-        MapCameraConstructionPacket camera,float[] nativeWords,string sourceEvidence)
+        MapCameraConstructionPacket camera,float objectDistance,float infiniteFocalLength,
+        float sensorDiagonalRatio,float sensorAspect,float fStop,float exposureDial,
+        float lightAdaptationScale,float darkAdaptationScale,string sourceEvidence)
     {
-        if(nativeWords.Length!=8||nativeWords.Any(v=>!float.IsFinite(v)))
+        if(!float.IsFinite(objectDistance)||!float.IsFinite(infiniteFocalLength)||
+            !float.IsFinite(sensorDiagonalRatio)||!float.IsFinite(sensorAspect)||
+            !float.IsFinite(fStop)||!float.IsFinite(exposureDial)||
+            !float.IsFinite(lightAdaptationScale)||!float.IsFinite(darkAdaptationScale))
             throw new NotSupportedException("Native Lens scalar caller left the finite eight-word domain.");
-        return new(camera,nativeWords.ToArray(),sourceEvidence);
+        return new(camera,objectDistance,infiniteFocalLength,sensorDiagonalRatio,sensorAspect,
+            fStop,exposureDial,lightAdaptationScale,darkAdaptationScale,sourceEvidence);
     }
     public static MapPostEffect3LensPresetCallerInputs CaptureCurrentFields(
         MapCameraConstructionPacket actualCamera,float cpu1048ObjectDistance,float cpu104CInfiniteFocalLength,
@@ -60,14 +75,14 @@ public sealed class MapPostEffect3LensPresetCallerInputs
         float cpu78DarkAdaptedScale,string actualCallerEvidence)
     {
         ArgumentNullException.ThrowIfNull(actualCamera);ArgumentException.ThrowIfNullOrWhiteSpace(actualCallerEvidence);
-        float[] fields=[cpu1048ObjectDistance,cpu104CInfiniteFocalLength,cpu1050FStop,cpu1054ExposureDial,
-            cpu12ECAspect,cpu74LightAdaptedScale,cpu78DarkAdaptedScale];
-        if(actualCamera.FrameNumber<=0||fields.Any(v=>!float.IsFinite(v))||!Sse.IsSupported)
+        if(actualCamera.FrameNumber<=0||!float.IsFinite(cpu1048ObjectDistance)||!float.IsFinite(cpu104CInfiniteFocalLength)||
+            !float.IsFinite(cpu1050FStop)||!float.IsFinite(cpu1054ExposureDial)||!float.IsFinite(cpu12ECAspect)||
+            !float.IsFinite(cpu74LightAdaptedScale)||!float.IsFinite(cpu78DarkAdaptedScale)||!Sse.IsSupported)
             throw new InvalidDataException("Lens caller requires same-frame finite CPU fields and the native SSE sqrt instruction.");
         float diagonal=Sse.SqrtScalar(Vector128.CreateScalar(NativeFloat.Add(
             NativeFloat.Multiply(cpu12ECAspect,cpu12ECAspect),1))).GetElement(0);
-        return new(actualCamera,[cpu1048ObjectDistance,cpu104CInfiniteFocalLength,diagonal,cpu12ECAspect,
-            cpu1050FStop,cpu1054ExposureDial,cpu74LightAdaptedScale,cpu78DarkAdaptedScale],
+        return new(actualCamera,cpu1048ObjectDistance,cpu104CInfiniteFocalLength,diagonal,cpu12ECAspect,
+            cpu1050FStop,cpu1054ExposureDial,cpu74LightAdaptedScale,cpu78DarkAdaptedScale,
             actualCallerEvidence+"32B;aspect-sqrt=finiteSQRTSS;no-pose-distance-substitution");
     }
     public static MapPostEffect3LensPresetCallerInputs CaptureFreshSource(MapCameraConstructionPacket camera)
@@ -105,36 +120,35 @@ public static class MapPostEffect3LensPresetIntermediateProducer
             throw new InvalidDataException("Lens intermediate requires one same-frame Camera/preset/native math locale.");
         if(explicitDispatch!=NativeCameraTangentDispatch.Sse)
             throw new NotSupportedException("Lens intermediate uses the recovered native SSE power branch; AVX/FMA power needs its own producer.");
-        byte[] input=caller.Bytes.ToArray(),payload=preset.PrimitiveBytes.ToArray(),output=new byte[92];
-        float I(int at)=>BinaryPrimitives.ReadSingleLittleEndian(input.AsSpan(at,4));
-        float P(int at)=>BinaryPrimitives.ReadSingleLittleEndian(payload.AsSpan(at,4));
+        byte[] output=new byte[92];
+        var optics=preset.Settings.Optics;
         void W(int at,float value)=>BinaryPrimitives.WriteSingleLittleEndian(output.AsSpan(at,4),value);
         float Pow(float x,float y)=>SkyWeatherNativePower.PowSse(x,y,sources.Power);
         float Atan(float x)=>NativeSkyAtan.Atan1032034(x,sources.Atan);
-        float magnification=D(I(0),S(I(0),I(4)));W(0,magnification);
-        float power=Pow(magnification,P(0x40));W(4,power);
-        float focal=M(power,I(4));W(8,focal);
+        float magnification=D(caller.ObjectDistance,S(caller.ObjectDistance,caller.InfiniteFocalLength));W(0,magnification);
+        float power=Pow(magnification,optics.FocusingPower);W(4,power);
+        float focal=M(power,caller.InfiniteFocalLength);W(8,focal);
         float twiceFocal=A(focal,focal);
-        W(0x18,M(Atan(D(D(P(4),I(8)),twiceFocal)),2));
+        W(0x18,M(Atan(D(D(optics.ImageDiagonal,caller.SensorDiagonalRatio),twiceFocal)),2));
         float ratio=D(focal,magnification);W(0xC,ratio);
-        float fieldOfView=M(Atan(D(P(4),twiceFocal)),2);W(0x10,fieldOfView);
-        W(0x14,M(Atan(D(M(D(P(4),I(8)),I(0xC)),twiceFocal)),2));
-        float range=D(S(ratio,P(0xC)),S(P(0x10),P(0xC)));W(0x1C,range);
-        float multiplier=S(1,M(S(1,P(0x48)),S(1,range)));W(0x20,multiplier);
+        float fieldOfView=M(Atan(D(optics.ImageDiagonal,twiceFocal)),2);W(0x10,fieldOfView);
+        W(0x14,M(Atan(D(M(D(optics.ImageDiagonal,caller.SensorDiagonalRatio),caller.SensorAspect),twiceFocal)),2));
+        float range=D(S(ratio,optics.InfiniteFocalLengthRange.X),S(optics.InfiniteFocalLengthRange.Y,optics.InfiniteFocalLengthRange.X));W(0x1C,range);
+        float multiplier=S(1,M(S(1,optics.MaximumImageFieldOfViewScale),S(1,range)));W(0x20,multiplier);
         W(0x24,M(multiplier,fieldOfView));
         float tangentInput=M(fieldOfView,.5f);
-        float aperture=D(M(I(0),I(0x10)),S(I(0),ratio));W(0x28,aperture);
-        float apertureRatio=D(P(0x18),aperture);W(0x2C,apertureRatio);
+        float aperture=D(M(caller.ObjectDistance,caller.FStop),S(caller.ObjectDistance,ratio));W(0x28,aperture);
+        float apertureRatio=D(optics.FStopRange.X,aperture);W(0x2C,apertureRatio);
         float tangent=NativeCameraTangent.Tangent1020A90(tangentInput,sources.Tangent,explicitDispatch);
-        W(0x30,D(P(4),M(tangent,A(aperture,aperture))));
+        W(0x30,D(optics.ImageDiagonal,M(tangent,A(aperture,aperture))));
         float correction=A(D(S(focal,ratio),ratio),1);
-        float correctedStop=M(correction,P(0x4C));W(0x34,correctedStop);
-        W(0x38,M(S(P(0x4C),P(0x50)),apertureRatio));W(0x3C,M(correctedStop,.5f));
-        W(0x40,A(M(D(S(I(0x10),P(0x18)),S(P(0x1C),P(0x18))),S(P(0x24),P(0x20))),P(0x20)));
-        W(0x44,M(P(0x84),I(0x18)));W(0x48,M(P(0x88),I(0x1C)));
-        W(0x54,M(Pow(2,I(0x14)),sources.ExposureMultiplier));
+        float correctedStop=M(correction,optics.InfiniteImageCircleRate);W(0x34,correctedStop);
+        W(0x38,M(S(optics.InfiniteImageCircleRate,optics.InfiniteVignettingStartRate),apertureRatio));W(0x3C,M(correctedStop,.5f));
+        W(0x40,A(M(D(S(caller.FStop,optics.FStopRange.X),S(optics.FStopRange.Y,optics.FStopRange.X)),S(optics.FStopShapeRange.Y,optics.FStopShapeRange.X)),optics.FStopShapeRange.X));
+        W(0x44,M(optics.AdaptedTime.X,caller.LightAdaptationScale));W(0x48,M(optics.AdaptedTime.Y,caller.DarkAdaptationScale));
+        W(0x54,M(Pow(2,caller.ExposureDial),sources.ExposureMultiplier));
         BinaryPrimitives.WriteUInt32LittleEndian(output.AsSpan(0x58,4),0);
-        W(0x4C,M(correction,correctedStop));W(0x50,M(M(S(correctedStop,P(0x50)),apertureRatio),.5f));
+        W(0x4C,M(correction,correctedStop));W(0x50,M(M(S(correctedStop,optics.InfiniteVignettingStartRate),apertureRatio),.5f));
         return MapPostEffect3LensPresetIntermediatePacket.FromProducedMath(caller.Camera,output,
             preset.SourceEvidence+";"+caller.SourceEvidence+";"+sources.SourceEvidence+
             "explicit-native-SSE/nearest-even;all23-original-writes;accepted-camera-prefix-retained");

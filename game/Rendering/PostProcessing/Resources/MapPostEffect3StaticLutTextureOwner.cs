@@ -1,8 +1,5 @@
-using System.Buffers.Binary;
-using System.Security.Cryptography;
 using Godot;
 using San14.Data;
-using San14.Data.Formats;
 
 /// <summary>Owns one explicitly selected native Static LUT child. This is a
 /// source volume upload, not a Camera1828/selector or HDR route capability.
@@ -16,14 +13,12 @@ public sealed partial class MapPostEffect3StaticLutTextureOwner : IAsyncDisposab
     public int VolumeDepth => texture.Source.Depth;
     public int MipCount => texture.Source.MipCount;
     public IReadOnlyList<string> MipSha256 => texture.MipSha256;
-    public string EncodedVolumeSha256 { get; }
     public string DefinitionSourceSha256 { get; }
     public string TextureSourceSha256 { get; }
     public string SourceEvidence { get; }
     public string OwnerIdentity { get; }="PostEffect3-Static-Lut:"+Guid.NewGuid().ToString("N");
     public bool ProvesCurrentCameraSelection => false;
     private readonly SkyTextureDevice texture;
-    private readonly byte[] contextBytes,imageBytes;
     private readonly SemaphoreSlim serial=new(1,1);
     private readonly object lifetime=new();
     private bool retiring;
@@ -33,42 +28,38 @@ public sealed partial class MapPostEffect3StaticLutTextureOwner : IAsyncDisposab
         SkyTextureDevice texture,string explicitViewEvidence)
     {
         Binding=binding;this.texture=texture;
-        contextBytes=binding.ContextReference.RawValue!.ToArray();imageBytes=binding.ImageReference.RawValue!.ToArray();
         DefinitionSourceSha256=binding.Definitions.Source.DecodedSha256;
         TextureSourceSha256=binding.Resource.Source.DecodedSha256;
-        EncodedVolumeSha256=Hash(texture.Source.GetEncodedChain());
         SourceEvidence=$"{binding.Definitions.Source.ResourceUri}@{DefinitionSourceSha256}#Static/{binding.Definition.ObjectId:X8};"+
             $"{binding.Resource.Source.ResourceUri}@{TextureSourceSha256}#image/{binding.ImageIndex};"+
             $"explicit-native-SRV-format={texture.NativeViewFormat};"+explicitViewEvidence;
     }
 
-    public static async Task<MapPostEffect3StaticLutTextureOwner> BuildAsync(
+    public static Task<MapPostEffect3StaticLutTextureOwner> BuildAsync(
         StaticTextureBinding exactStaticBinding,uint explicitNativeViewFormat,string actualViewSelectionEvidence)
     {
         ArgumentNullException.ThrowIfNull(exactStaticBinding);
         ArgumentException.ThrowIfNullOrWhiteSpace(actualViewSelectionEvidence);
-        var b=exactStaticBinding;
-        if(Hash(b.Definitions.Source.Bytes)!=b.Definitions.Source.DecodedSha256)
-            throw new InvalidDataException("Static LUT definition source hash changed.");
-        if(Hash(b.Resource.Source.Bytes)!=b.Resource.Source.DecodedSha256)
-            throw new InvalidDataException("Static LUT texture source hash changed.");
-        var canonical=DokReader.Read(b.Definitions.Source.Bytes).Objects.SingleOrDefault(o=>o.ObjectId==b.Definition.ObjectId);
-        if(canonical is null||canonical.Kind!=DokObjectKind.Inline||canonical.ClassId!=0xFF7DBFD4||
-            b.Definition.Kind!=canonical.Kind||b.Definition.ClassId!=canonical.ClassId)
-            throw new InvalidDataException("LUT upload requires its exact original inline Static declaration.");
-        var context=canonical.Properties.Single(p=>p.NameHash==0x6C7321D2);
-        var image=canonical.Properties.Single(p=>p.NameHash==0x00200571);
-        ValidateField(context,b.ContextReference,5);ValidateField(image,b.ImageReference,4);
-        if(BinaryPrimitives.ReadUInt32LittleEndian(context.RawValue!)!=b.Resource.Source.FileId||
-            BinaryPrimitives.ReadUInt32LittleEndian(image.RawValue!)!=b.ImageIndex)
-            throw new InvalidDataException("Static LUT context/TID no longer identifies its supplied texture child.");
-        var imageSource=G1TextureContainerReader.Read(b.Resource.Source.Bytes).Textures[b.ImageIndex];
-        if(imageSource.TextureSystem!=2||imageSource.LayerCount!=1||imageSource.Depth<=1||
-            imageSource.SubresourceLayout!=G1TextureSubresourceLayout.VolumeMipChain)
-            throw new InvalidDataException("PostEffect3 Static LUT requires an encoded 3D volume, not a flattened 2D array.");
-        var texture=await SkyTextureDevice.BuildAsync(b.Resource,b.ImageIndex,explicitNativeViewFormat);
-        try{return new(b,texture,actualViewSelectionEvidence);}
-        catch{await texture.DisposeAsync();throw;}
+        return BuildImportedAsync(exactStaticBinding,
+            StaticTextureResources.ImportVolume(exactStaticBinding,explicitNativeViewFormat),actualViewSelectionEvidence);
+    }
+
+    private static async Task<MapPostEffect3StaticLutTextureOwner> BuildImportedAsync(
+        StaticTextureBinding binding,SkyTextureSource source,string viewEvidence)
+    {
+        var texture=await SkyTextureDevice.BuildAsync(source);
+        try{return new(binding,texture,viewEvidence);}
+        catch(Exception failure)
+        {
+            var partial=new NativeMapBorrowerRetirementPackage("Static-LUT-partial/"+Guid.NewGuid().ToString("N"),texture);
+            try{await partial.DisposeAsync();}
+            catch(Exception cleanup)
+            {
+                partial.RetainFailure();
+                throw new NativeMapBorrowerConstructionException(failure,cleanup,partial);
+            }
+            throw;
+        }
     }
 
     public void RequireCurrent()
@@ -76,11 +67,6 @@ public sealed partial class MapPostEffect3StaticLutTextureOwner : IAsyncDisposab
         lock(lifetime)
         {
             ObjectDisposedException.ThrowIf(retiring,this);
-            if(!texture.TextureRid.IsValid||Binding.Definitions.Source.DecodedSha256!=DefinitionSourceSha256||
-                Binding.Resource.Source.DecodedSha256!=TextureSourceSha256||
-                !Binding.ContextReference.RawValue!.AsSpan().SequenceEqual(contextBytes)||
-                !Binding.ImageReference.RawValue!.AsSpan().SequenceEqual(imageBytes))
-                throw new InvalidDataException("Static LUT source binding changed or its owned texture retired.");
         }
     }
 
@@ -143,15 +129,6 @@ public sealed partial class MapPostEffect3StaticLutTextureOwner : IAsyncDisposab
         RequireCurrent();await serial.WaitAsync();
         try{RequireCurrent();return await texture.ReadEncodedChainAsync();}
         finally{serial.Release();}
-    }
-    private static string Hash(ReadOnlySpan<byte> bytes)=>Convert.ToHexString(SHA256.HashData(bytes));
-    private static void ValidateField(DokProperty canonical,DokProperty supplied,ushort expectedType)
-    {
-        if(canonical.TypeCode!=expectedType||canonical.ElementCount!=1||canonical.ElementSize!=4||
-            canonical.RawValue is not {Length:4}||supplied.NameHash!=canonical.NameHash||
-            supplied.TypeCode!=canonical.TypeCode||supplied.ElementCount!=1||supplied.ElementSize!=4||
-            supplied.RawValue is not {Length:4}||!supplied.RawValue.AsSpan().SequenceEqual(canonical.RawValue))
-            throw new InvalidDataException("Static LUT context/TID field differs from its original source bytes.");
     }
     public ValueTask DisposeAsync()
     {

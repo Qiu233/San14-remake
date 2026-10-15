@@ -68,15 +68,11 @@ public sealed class SceneViewNativeMapSkySourceOwner : IAsyncDisposable
         var vertexLayout = Sky2ConstantLayout.ImportVertex(vertexDefinitions);
         var pixelLayout = Sky2ConstantLayout.ImportPixel(pixelDefinitions);
         var complete = SkySceneFramePreparation.PrepareFreshFullyWritten(frame.SourceFrame, pixelDefinitions);
-        // These two fields are metadata of the non-applied route. The actual
-        // applied-source assembler returns before it reads either; the cache
-        // object still comes from this exact current source, never smoke data.
         var construction = new SkyAmbientSourceConstruction(frame.SourceProvenance +
             ";all-named-current-writes;new-owned-padding-not-native-retained-cache",
-            complete.Faces, applied.CurrentCameraLights,
-            new("applied-route-does-not-read-ordinary-row-associations;package10-actual-row0", null, null, 0, false, false),
+            complete.Faces,
             new byte[vertexLayout.ByteLength], new byte[pixelLayout.ByteLength], 2, selection);
-        var assembler = await SkyAmbientSourceFrameAssembler.CreateAppliedSeasonAsync(repo, shader, compiler,
+        var assembler = await SkyAmbientSourceFrameAssembler.CreateAppliedSeasonAsync(repo, ambient, shader, compiler,
             lighting.Registration, lighting.Source, construction, first,textureBindings, work.BuildOptionalProducersAsync,
             allowReadback: false);
         return new(assembler, atmosphere, work, bootstrap.Lighting.Binding.ViewIdentity,textureBindings,textureSnapshot,sampling);
@@ -158,7 +154,7 @@ public sealed class SceneViewNativeMapSkySourceOwner : IAsyncDisposable
         public SkyAmbientSourceFrameInputs CreateInputs(SkySceneProducerFrame actualProducers,
             SkyAppliedSourceStageFrame actualStages)
             => new(Lighting, SourceSeasonMonth, SeasonSourceProvenance, SharedAtmosphere,
-                SkyAmbientSourceState.ResolvedCurrent, actualProducers, AppliedSeason: AppliedSeason)
+                actualProducers, AppliedSeason)
                 { SourceStages = actualStages };
     }
 

@@ -17,15 +17,15 @@ public sealed class DeferredAuxiliaryPixelProgram : IAsyncDisposable
     public TranslatedShaderBindings VertexBindings { get; }
     public TranslatedShaderBindings PixelBindings { get; }
     public Rid ShaderRid { get; }
-    private Task? disposal;
-    private readonly object retirementGate=new();
+    private readonly RenderDeviceResources resources;
+    private volatile bool retiring;
 
     private DeferredAuxiliaryPixelProgram(LoadedShaderContainer? source,G2ShaderCombination? combination,
         ShaderSpirv vertex,AdaptedVertexShader adapter,ShaderSpirv pixel,
-        TranslatedShaderBindings vb,TranslatedShaderBindings pb,Rid shader,
+        TranslatedShaderBindings vb,TranslatedShaderBindings pb,Rid shader,RenderDeviceResources resources,
         LoadedDeferredAuxiliaryDepthCopySource? embedded=null,LoadedDeferredAuxiliaryStockCopySource? stockCopy=null)
-        =>(Source,Combination,VertexTranslation,VertexAdapter,PixelTranslation,VertexBindings,PixelBindings,ShaderRid,DepthCopySource,StockCopySource)=
-            (source,combination,vertex,adapter,pixel,vb,pb,shader,embedded,stockCopy);
+        =>(Source,Combination,VertexTranslation,VertexAdapter,PixelTranslation,VertexBindings,PixelBindings,ShaderRid,DepthCopySource,StockCopySource,this.resources)=
+            (source,combination,vertex,adapter,pixel,vb,pb,shader,embedded,stockCopy,resources);
 
     public static async Task<DeferredAuxiliaryPixelProgram> BuildAsync(LoadedShaderContainer source,
         int explicitCombinationIndex,Vkd3dShaderCompiler compiler)
@@ -58,21 +58,13 @@ public sealed class DeferredAuxiliaryPixelProgram : IAsyncDisposable
         if(outputsPixel.Length==0||outputsPixel.Any(v=>v.Location is not(0 or null)||
             v.Location is null&&v.BuiltIn!=22||!FloatValue(v.Type)))
             throw new InvalidDataException("Auxiliary source output is outside the color0/depth float contract.");
-        Rid shader=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-        {
-            using var stages=new RDShaderSpirV();
-            stages.SetStageBytecode(RenderingDevice.ShaderStage.Vertex,adapter.Bytes);
-            stages.SetStageBytecode(RenderingDevice.ShaderStage.Fragment,pixel.Bytes);
-            Rid created=rd.ShaderCreateFromSpirV(stages,"OriginalDeferredAuxiliaryPixelProgram");
-            if(!created.IsValid)throw new InvalidDataException("Device rejected actual auxiliary source shader bytecode.");
-            return created;
-        });
-        return new(source,combination,vertex,adapter,pixel,vb,pb,shader);
+        return await InstallAsync(source,combination,vertex,adapter,pixel,vb,pb,
+            "OriginalDeferredAuxiliaryPixelProgram","Device rejected actual auxiliary source shader bytecode.");
     }
 
     public void RequireAvailable()
     {
-        ObjectDisposedException.ThrowIf(disposal is not null,this);
+        ObjectDisposedException.ThrowIf(retiring,this);
     }
 
     public static async Task<DeferredAuxiliaryPixelProgram> BuildDepthCopyAsync(
@@ -92,16 +84,8 @@ public sealed class DeferredAuxiliaryPixelProgram : IAsyncDisposable
             pb.Bindings[0].Source.BindPoint!=0||pb.Bindings[0].Source.Dimension!=4||
             pb.Interface.StageVariables.Where(v=>v.StorageClass==3).ToArray() is not [var output]||output.BuiltIn!=22)
             throw new InvalidDataException("Embedded depth copy differs from its actual stock VS/PS interface.");
-        Rid shader=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-        {
-            using var stages=new RDShaderSpirV();
-            stages.SetStageBytecode(RenderingDevice.ShaderStage.Vertex,adapter.Bytes);
-            stages.SetStageBytecode(RenderingDevice.ShaderStage.Fragment,pixel.Bytes);
-            Rid created=rd.ShaderCreateFromSpirV(stages,"OriginalDeferredAuxiliaryEmbeddedDepthCopy");
-            if(!created.IsValid)throw new InvalidDataException("Device rejected the exact source embedded depth copy shader.");
-            return created;
-        });
-        return new(null,null,vertex,adapter,pixel,vb,pb,shader,source);
+        return await InstallAsync(null,null,vertex,adapter,pixel,vb,pb,
+            "OriginalDeferredAuxiliaryEmbeddedDepthCopy","Device rejected the exact source embedded depth copy shader.",source);
     }
 
     public static async Task<DeferredAuxiliaryPixelProgram> BuildStockCopyAsync(
@@ -125,17 +109,32 @@ public sealed class DeferredAuxiliaryPixelProgram : IAsyncDisposable
             if(outputs.Length!=1||!Compatible(outputs[0].Type,input.Type))
                 throw new InvalidDataException("Actual stock copy VS/PS varyings differ.");
         }
-        Rid shader=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-        {
-            using var stages=new RDShaderSpirV();
-            stages.SetStageBytecode(RenderingDevice.ShaderStage.Vertex,adapter.Bytes);
-            stages.SetStageBytecode(RenderingDevice.ShaderStage.Fragment,pixel.Bytes);
-            Rid created=rd.ShaderCreateFromSpirV(stages,"OriginalDeferredAuxiliaryStockCopy");
-            if(!created.IsValid)throw new InvalidDataException("Device rejected the actual stock copy VS/PS.");
-            return created;
-        });
-        return new(null,null,vertex,adapter,pixel,vb,pb,shader,stockCopy:source);
+        return await InstallAsync(null,null,vertex,adapter,pixel,vb,pb,
+            "OriginalDeferredAuxiliaryStockCopy","Device rejected the actual stock copy VS/PS.",stockCopy:source);
     }
+
+    private static Task<DeferredAuxiliaryPixelProgram> InstallAsync(
+        LoadedShaderContainer? source,G2ShaderCombination? combination,
+        ShaderSpirv vertex,AdaptedVertexShader adapter,ShaderSpirv pixel,
+        TranslatedShaderBindings vb,TranslatedShaderBindings pb,string debugName,string allocationFailureMessage,
+        LoadedDeferredAuxiliaryDepthCopySource? embedded=null,LoadedDeferredAuxiliaryStockCopySource? stockCopy=null)
+        =>TerrainDeviceTexture.OnRenderThreadAsync(rd=>
+        {
+            var resources=new RenderDeviceResources(allocationFailureMessage);
+            try
+            {
+                using var stages=new RDShaderSpirV();
+                stages.SetStageBytecode(RenderingDevice.ShaderStage.Vertex,adapter.Bytes);
+                stages.SetStageBytecode(RenderingDevice.ShaderStage.Fragment,pixel.Bytes);
+                Rid shader=resources.Own(rd.ShaderCreateFromSpirV(stages,debugName));
+                return new DeferredAuxiliaryPixelProgram(source,combination,vertex,adapter,pixel,vb,pb,shader,resources,embedded,stockCopy);
+            }
+            catch(Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd,failure,debugName+"-partial");
+                throw;
+            }
+        });
     private static bool FloatValue(SpirvInterfaceType type)=>type is {Kind:"float",Bits:32}||
         type is {Kind:"vector",ComponentCount:>=1 and <=4,ComponentType:{Kind:"float",Bits:32}};
     private static bool Compatible(SpirvInterfaceType a,SpirvInterfaceType b)=>a.Kind==b.Kind&&a.Bits==b.Bits&&
@@ -163,6 +162,9 @@ public sealed class DeferredAuxiliaryPixelProgram : IAsyncDisposable
         if(changed!=1)throw new InvalidDataException("Stock VS descriptor relocation must change exactly its single source CB set.");
         return bytes;
     }
-    public ValueTask DisposeAsync(){lock(retirementGate)return new(disposal??=TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-    {rd.FreeRid(ShaderRid);return true;}));}
+    public ValueTask DisposeAsync()
+    {
+        retiring=true;
+        return resources.DisposeAsync();
+    }
 }

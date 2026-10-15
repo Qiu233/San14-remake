@@ -147,6 +147,8 @@ public sealed partial class MapPostEffect3DepthOfField2ExecutionOwner:IAsyncDisp
     private bool resourcesBorrowed;
     private bool accepted,failed,retiring;
     private Task? disposal;
+    private readonly object retirementLifetime=new();
+    private int retirementStage;
     private MapPostEffect3DepthOfField2ExecutionOwner(MapPostEffect3FullscreenGraphicsExecutor graphics,
         MapPostEffect3ParameterState state,MapPostEffect3ParameterDepthOfField2Update prepared,
         MapPostEffect3TextureParameterState table,IMapPostEffect3DepthOfField2InvocationLease invocation,
@@ -330,6 +332,7 @@ public sealed partial class MapPostEffect3DepthOfField2ExecutionOwner:IAsyncDisp
             LastFailureEvidence=$"sourcePass={CurrentSourcePassIndex?.ToString()??"none"};operation={CurrentSourceOperation};"+
                 $"submitted=[{string.Join(",",submittedIndices)}];actualReadInterfaces=[{currentGraphicsReadInterfaces}]";
             if(resourcesBorrowed)ModuleResources.RecordFailure(this,LastFailureEvidence);
+            if(ex is NativeMapBorrowerConstructionException)throw;
             throw new InvalidDataException("DOF2 actual source execution failed: "+LastFailureEvidence,ex);
         }
         finally{serial.Release();}
@@ -349,21 +352,30 @@ public sealed partial class MapPostEffect3DepthOfField2ExecutionOwner:IAsyncDisp
                 throw new InvalidDataException("DOF2 actual buffer side changed after accepting this source invocation.");
         }
     }
-    public ValueTask DisposeAsync()=>new(disposal??=RetireAsync());
+    public ValueTask DisposeAsync()
+    {
+        lock(retirementLifetime)
+        {
+            retiring=true;
+            if(disposal is null||disposal.IsFaulted||disposal.IsCanceled)disposal=RetireAsync();
+            return new(disposal);
+        }
+    }
     private async Task RetireAsync()
     {
         retiring=true;await serial.WaitAsync();
         try
         {
             CurrentCoverage=null;
-            try{await Compute.DisposeAsync();}
-            finally{try{await Graphics.DisposeAsync();}finally{ReleaseFrameShape();scatter=null;}}
+            if(retirementStage==0){await Compute.DisposeAsync();retirementStage=1;}
+            if(retirementStage==1){await Graphics.DisposeAsync();retirementStage=2;}
+            if(retirementStage==2){if(scatter is not null)await scatter.DrainPendingAsync();ReleaseFrameShape();scatter=null;retirementStage=3;}
+            if(retirementStage==3){if(resourcesBorrowed){ModuleResources.Release(this);resourcesBorrowed=false;}retirementStage=4;}
+            if(retirementStage==4){if(ownsModuleResources)await ModuleResources.DisposeAsync();retirementStage=5;}
         }
         finally
         {
-            try{if(resourcesBorrowed){ModuleResources.Release(this);resourcesBorrowed=false;}
-                if(ownsModuleResources)await ModuleResources.DisposeAsync();}
-            finally{serial.Release();}
+            serial.Release();
         }
     }
 }

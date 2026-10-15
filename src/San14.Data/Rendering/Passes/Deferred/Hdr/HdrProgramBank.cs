@@ -8,11 +8,13 @@ namespace San14.Data;
 public sealed class HdrPreparedProgram
 {
     private readonly byte[] vertex, pixel;
+    private readonly Lazy<DeferredSceneConstantLayout> sceneConstants;
     internal HdrPreparedProgram(int vertexIndex,int pixelIndex,byte[] vertex,byte[] pixel,
-        DxbcResourceDefinitions definitions)
+        DxbcResourceDefinitions definitions,DxbcResourceDefinitions canonical)
     {
         VertexProgramIndex=vertexIndex; PixelProgramIndex=pixelIndex;
         this.vertex=vertex;this.pixel=pixel;PixelDefinitions=definitions;
+        sceneConstants=new(()=>DeferredSceneConstantLayout.Create(canonical,definitions));
         VertexSha256=Convert.ToHexString(SHA256.HashData(vertex));
         PixelSha256=Convert.ToHexString(SHA256.HashData(pixel));
     }
@@ -21,6 +23,7 @@ public sealed class HdrPreparedProgram
     public ReadOnlyMemory<byte> VertexBytes=>vertex;
     public ReadOnlyMemory<byte> PixelBytes=>pixel;
     public DxbcResourceDefinitions PixelDefinitions {get;}
+    internal DeferredSceneConstantLayout SceneConstantLayout=>sceneConstants.Value;
     public string VertexSha256 {get;}
     public string PixelSha256 {get;}
     internal bool Matches(ReadOnlySpan<byte> vs,ReadOnlySpan<byte> ps)
@@ -104,6 +107,7 @@ public sealed class HdrProgramBank
         if(configs.Records.Any(config=>config.Name=="SecondaryHighlight"))colorFlags|=0x80;
         var prepared=new Dictionary<(int Vertex,int Pixel),HdrPreparedProgram>();
         var programs=new List<HdrShaderProgram>();
+        var canonical=owned.ReadResourceDefinitions(1);
         foreach(var combination in tables.Combinations.Rows)
         {
             int vertex=combination.Stages.Single(stage=>stage.StageCode==1&&stage.Entry is not null).Entry!.ProgramIndex;
@@ -111,7 +115,7 @@ public sealed class HdrProgramBank
             if(!prepared.TryGetValue((vertex,pixel),out var pair))
             {
                 pair=new(vertex,pixel,owned.Container.GetProgramBytes(bytes,vertex).ToArray(),
-                    owned.Container.GetProgramBytes(bytes,pixel).ToArray(),owned.ReadResourceDefinitions(pixel));
+                    owned.Container.GetProgramBytes(bytes,pixel).ToArray(),owned.ReadResourceDefinitions(pixel),canonical);
                 prepared.Add((vertex,pixel),pair);
             }
             programs.Add(new(combination,pair,owned.ReadG1ResourceBindings(combination.Index)));
@@ -119,7 +123,7 @@ public sealed class HdrProgramBank
         return new(tables.Features.Select(row=>HdrShaderCodec.ReadFeature(row.Feature.RawBytes.Span)).ToArray(),
             tables.Variants.Records.Select(row=>HdrShaderCodec.ReadVariant(row.RawBytes.Span)).ToArray(),
             tables.Variants.Records.Select(row=>row.SourceOffset).ToArray(),plugins,programs.ToArray(),prepared.Values.ToArray(),
-            owned.ReadResourceDefinitions(1),colorFlags);
+            canonical,colorFlags);
     }
 
     public HdrProgramSelection Select(HdrFeatureKey feature,HdrSelectionSettings settings)

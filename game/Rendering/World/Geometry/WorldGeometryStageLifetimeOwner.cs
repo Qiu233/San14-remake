@@ -15,6 +15,7 @@ public sealed class WorldGeometryStageLifetimeOwner : IAsyncDisposable
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly object disposalGate = new();
     private Generation? generation;
+    private NativeMapBorrowerRetirementPackage? pendingConstruction;
     private Invocation? current;
     private bool faulted, retiring, disposed;
     private Task? disposal;
@@ -52,6 +53,7 @@ public sealed class WorldGeometryStageLifetimeOwner : IAsyncDisposable
         try
         {
             RequireAccepting();
+            pendingConstruction=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pendingConstruction);
             if (current is not null) throw new InvalidOperationException("Previous World geometry consumers have not ended their invocation.");
             requireCurrent(); actualEntryDomain.Validate();
             var context = actualFrame.Context;
@@ -65,17 +67,23 @@ public sealed class WorldGeometryStageLifetimeOwner : IAsyncDisposable
                 await RetireGenerationCoreAsync();
             if (generation is null)
             {
-                var frames = await WorldGeometryTargetFrames.BuildAsync(context.TerrainFrame, rs4Source);
+                WorldGeometryTargetFrames? frames = null;
                 WorldGeometryTargetScopeOwner? scope = null;
                 try
                 {
+                    frames = await WorldGeometryTargetFrames.BuildAsync(context.TerrainFrame, rs4Source);
                     scope = await WorldGeometryTargetScopeOwner.BuildAsync(source, frames);
                     generation = new(frames, scope, new(context.TerrainFrame, context.OutputFrame), retireBorrowedDrawOwners);
                 }
-                catch
+                catch(Exception failure)
                 {
-                    if (scope is not null) await scope.DisposeAsync();
-                    await frames.DisposeAsync(); throw;
+                    pendingConstruction=NativeMapBorrowerRetirementPackage.CreatePending("World-geometry-generation-partial",
+                        new IAsyncDisposable?[]{scope,frames}.OfType<IAsyncDisposable>(),
+                        (failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+                    try{pendingConstruction=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pendingConstruction);}
+                    catch(Exception cleanup)
+                    {throw new NativeMapBorrowerConstructionException(failure,cleanup,pendingConstruction!);}
+                    throw;
                 }
             }
             // RenderingDevice draws select a framebuffer on their PSO/draw
@@ -228,6 +236,7 @@ public sealed class WorldGeometryStageLifetimeOwner : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(disposed, this);
+            pendingConstruction=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pendingConstruction);
             if (generation is not { } value) { faulted = false; return; }
             if (!ReferenceEquals(value.Targets.TerrainFrame, actualTargets.TerrainFrame) ||
                 !ReferenceEquals(value.Targets.OutputFrame, actualTargets.OutputFrame))
@@ -294,6 +303,7 @@ public sealed class WorldGeometryStageLifetimeOwner : IAsyncDisposable
         try
         {
             if (disposed) return;
+            pendingConstruction=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pendingConstruction);
             await RetireGenerationCoreAsync(); disposed = true;
         }
         finally { gate.Release(); }

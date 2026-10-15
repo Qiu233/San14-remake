@@ -11,11 +11,15 @@ public sealed class MapSourceCreatedLightingDeviceOwner : IAsyncDisposable
     public MapSourceCreatedLightingSource Source { get; }
     public MapSourceCreatedLightingRetainedNormalization? RetainedNormalization { get; }
     private readonly object lifetimeGate = new();
+    private readonly NativeMapBorrowerRetirementPackage retirement;
     private Task? disposal;
     private MapSourceCreatedLightingDeviceOwner(SourceResourceRegistrationAmbientCubeDevice cube,
         SourceResourceRegistrationDevice registration, MapSourceCreatedLightingSource source,
         MapSourceCreatedLightingRetainedNormalization? normalization=null)
-        => (Cube, Registration, Source, RetainedNormalization) = (cube, registration, source, normalization);
+    {
+        (Cube, Registration, Source, RetainedNormalization) = (cube, registration, source, normalization);
+        retirement = new("Default-light-resources/" + Guid.NewGuid().ToString("N"), registration, cube);
+    }
 
     /// <summary>Choose the bounded backend representation only for the actual
     /// default late767/early95/Sky3/4 consumers. The playable host must validate
@@ -27,6 +31,7 @@ public sealed class MapSourceCreatedLightingDeviceOwner : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(repository);
         if(setterCameraSlot is not(3 or 4))throw new ArgumentOutOfRangeException(nameof(setterCameraSlot));
+        var declaration=MainLightBindingSource.LoadGameDefault(repository);
         var context=MainMapContextOwnerSource.LoadFreshHostDefaults(executableLocale);
         var normalization=MapSourceCreatedLightingRetainedNormalization.LoadKnownConsumers(
             repository,ownedBackendIdentity,includeOrdinaryEarly126:true);
@@ -38,16 +43,16 @@ public sealed class MapSourceCreatedLightingDeviceOwner : IAsyncDisposable
             registration=await SourceResourceRegistrationDevice.BuildAsync(repository,cube,87,allowReadback);
             var actual=registration.GetConstructionInputs(context.ContextFlags3E4,
                 normalization.SourceProvenance+";"+context.SourceProvenance);
-            var constructed=normalization.ApplyConstructor(MainLightBindingSource.LoadGameDefault(repository),
-                context.ContextFlags3E4,actual.ResourceBindings);
+            var constructed=MainLightCpuConstruction.Create(declaration,
+                context.ContextFlags3E4,actual.ResourceBindings,MainLightCpuInitialization.Default);
+            normalization.AdoptConstruction(constructed);
             var source=MapSourceCreatedLightingSource.FromGameDefault(repository,setterCameraSlot,constructed);
             registration.ValidateConstructionSource(source);
             return new(cube,registration,source,normalization);
         }
-        catch
+        catch (Exception failure)
         {
-            try { if(registration is not null)await registration.DisposeAsync(); }
-            finally { await cube.DisposeAsync(); }
+            await RetireFailedConstructionAsync(failure, registration, cube);
             throw;
         }
     }
@@ -71,8 +76,8 @@ public sealed class MapSourceCreatedLightingDeviceOwner : IAsyncDisposable
         MapSourceCreatedLightingRetainedAllocation retained,bool allowReadback=false)
     {
         ArgumentNullException.ThrowIfNull(retained);
-        return CreateGameDefaultAsync(repository,setterCameraSlot,retained.RetainedRanges,
-            retained.SourceProvenance,retained.ContextFlags3E4,allowReadback);
+        return CreateCapturedGameDefaultAsync(repository,setterCameraSlot,retained,
+            retained.SourceProvenance,allowReadback);
     }
 
     public static Task<MapSourceCreatedLightingDeviceOwner> CreateFreshHostGameDefaultAsync(
@@ -83,8 +88,8 @@ public sealed class MapSourceCreatedLightingDeviceOwner : IAsyncDisposable
         var context=MainMapContextOwnerSource.LoadFreshHostDefaults(executableLocale);
         if(retained.ContextFlags3E4!=context.ContextFlags3E4)
             throw new InvalidDataException("Current retained allocation belongs to a different context than the fresh source Host.");
-        return CreateGameDefaultAsync(repository,setterCameraSlot,retained.RetainedRanges,
-            retained.SourceProvenance+";"+context.SourceProvenance,context.ContextFlags3E4,allowReadback);
+        return CreateCapturedGameDefaultAsync(repository,setterCameraSlot,retained,
+            retained.SourceProvenance+";"+context.SourceProvenance,allowReadback);
     }
 
     /// <summary>Loads and creates the exact5 Static sources, forms actual ready
@@ -102,6 +107,29 @@ public sealed class MapSourceCreatedLightingDeviceOwner : IAsyncDisposable
         var declaration = MainLightBindingSource.LoadGameDefault(repository);
         byte[] template = MapSourceCreatedLightingRetainedSource.BuildGameDefaultTemplate(
             declaration, explicitRetained210, contextFlags3E4);
+        return await CreateGameDefaultCoreAsync(repository, setterCameraSlot, retainedProvenance, contextFlags3E4,
+            inputs => MainLightConstruction.Apply(declaration, template, inputs),
+            allowReadback);
+    }
+
+    private static Task<MapSourceCreatedLightingDeviceOwner> CreateCapturedGameDefaultAsync(
+        GameResourceRepository repository, int setterCameraSlot,
+        MapSourceCreatedLightingRetainedAllocation retained, string retainedProvenance, bool allowReadback)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        if (setterCameraSlot is not (3 or 4)) throw new ArgumentOutOfRangeException(nameof(setterCameraSlot));
+        var declaration = MainLightBindingSource.LoadGameDefault(repository);
+        retained.RequireDeclaration(declaration);
+        return CreateGameDefaultCoreAsync(repository, setterCameraSlot, retainedProvenance, retained.ContextFlags3E4,
+            inputs => retained.ApplyConstructor(declaration, inputs),
+            allowReadback);
+    }
+
+    private static async Task<MapSourceCreatedLightingDeviceOwner> CreateGameDefaultCoreAsync(
+        GameResourceRepository repository, int setterCameraSlot, string retainedProvenance, uint contextFlags3E4,
+        Func<MainLightConstructionInputs, MainLightConstructionPacket> construct,
+        bool allowReadback)
+    {
         var cube = await SourceResourceRegistrationAmbientCubeDevice.BuildAsync(
             SourceResourceRegistrationAmbientCube.LoadGameDefault(repository), allowReadback);
         SourceResourceRegistrationDevice? registration = null;
@@ -110,15 +138,14 @@ public sealed class MapSourceCreatedLightingDeviceOwner : IAsyncDisposable
             registration = await SourceResourceRegistrationDevice.BuildAsync(repository, cube, 87, allowReadback);
             var inputs = registration.GetConstructionInputs(contextFlags3E4,
                 retainedProvenance + ";explicit-native-retained210;source-writes4078");
-            var packet = SourceResourceRegistration.ConstructGameDefault(repository, registration.Source, template, inputs);
+            var packet = construct(inputs);
             var source = MapSourceCreatedLightingSource.FromGameDefault(repository, setterCameraSlot, packet);
             registration.ValidateConstructionSource(source);
             return new(cube, registration, source);
         }
-        catch
+        catch (Exception failure)
         {
-            try { if (registration is not null) await registration.DisposeAsync(); }
-            finally { await cube.DisposeAsync(); }
+            await RetireFailedConstructionAsync(failure, registration, cube);
             throw;
         }
     }
@@ -128,10 +155,21 @@ public sealed class MapSourceCreatedLightingDeviceOwner : IAsyncDisposable
         lock (lifetimeGate)
         {
             if (disposal is null || disposal.IsFaulted || disposal.IsCanceled)
-                disposal = RetireAsync();
+                disposal = retirement.DisposeAsync().AsTask();
             return new(disposal);
         }
     }
-    private async Task RetireAsync()
-    { try { await Registration.DisposeAsync(); } finally { await Cube.DisposeAsync(); } }
+    private static async Task RetireFailedConstructionAsync(Exception failure,
+        SourceResourceRegistrationDevice? registration, SourceResourceRegistrationAmbientCubeDevice cube)
+    {
+        var partial = new NativeMapBorrowerRetirementPackage("Default-light-partial/" + Guid.NewGuid().ToString("N"),
+            failure is NativeMapBorrowerConstructionException nested ? nested.RetainedPackage : null,
+            registration, cube);
+        try { await partial.DisposeAsync(); }
+        catch (Exception cleanup)
+        {
+            partial.RetainFailure();
+            throw new NativeMapBorrowerConstructionException(failure, cleanup, partial);
+        }
+    }
 }

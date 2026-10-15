@@ -93,7 +93,7 @@ public sealed partial class MapPostEffect3WorldCompositeSourceOwner
     {
         ArgumentNullException.ThrowIfNull(binding); ArgumentNullException.ThrowIfNull(actualOwner);
         binding.RequireCurrent();
-        lock (lifetime) { ObjectDisposedException.ThrowIf(retiring, this); accepted++; }
+        AcceptBinding(binding);
         try
         {
             var completed = await actualOwner.ExecuteAsync(); binding.RequireCurrent();
@@ -116,7 +116,7 @@ public sealed partial class MapPostEffect3WorldCompositeSourceOwner
         ParentBinding binding,MapPostEffect3Composite2GraphicsOwner actualOwner,int sourcePass)
     {
         ArgumentNullException.ThrowIfNull(binding);ArgumentNullException.ThrowIfNull(actualOwner);binding.RequireCurrent();
-        lock(lifetime){ObjectDisposedException.ThrowIf(retiring,this);accepted++;}
+        AcceptBinding(binding);
         try
         {
             var completed=await actualOwner.ExecuteNextSelectedPassAsync(sourcePass);binding.RequireCurrent();

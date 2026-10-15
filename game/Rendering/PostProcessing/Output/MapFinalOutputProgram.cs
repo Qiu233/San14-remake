@@ -20,15 +20,16 @@ public sealed class MapFinalOutputProgram : IAsyncDisposable
     public MapFinalOutputDeadToneLut? DeadToneLut { get; }
     public MapFinalOutputDeadToneLutSpirv? PixelToneSpecialization { get; }
     public Rid ShaderRid { get; }
-    private Task? _disposal;
+    private readonly RenderDeviceResources _resources;
+    private volatile bool _retiring;
     private MapFinalOutputProgram(MapFinalOutputProgramSource source,ShaderSpirv vertex,
         AdaptedVertexShader adapter,ShaderSpirv pixel,TranslatedShaderBindings vb,
         TranslatedShaderBindings pb,Rid shader,MapFinalOutputDeadColorCorrection? dead,
         MapFinalOutputDeadColorCorrectionSpirv? specialization,
-        MapFinalOutputDeadToneLut? deadTone,MapFinalOutputDeadToneLutSpirv? toneSpecialization)
+        MapFinalOutputDeadToneLut? deadTone,MapFinalOutputDeadToneLutSpirv? toneSpecialization,RenderDeviceResources resources)
         =>(Source,VertexTranslation,VertexAdapter,PixelTranslation,VertexBindings,PixelBindings,ShaderRid,DeadColorCorrection,PixelSpecialization,
-            DeadToneLut,PixelToneSpecialization)=
-            (source,vertex,adapter,pixel,vb,pb,shader,dead,specialization,deadTone,toneSpecialization);
+            DeadToneLut,PixelToneSpecialization,_resources)=
+            (source,vertex,adapter,pixel,vb,pb,shader,dead,specialization,deadTone,toneSpecialization,resources);
 
     public static async Task<MapFinalOutputProgram> BuildAsync(MapFinalOutputProgramSource source,Vkd3dShaderCompiler compiler,
         MapFinalOutputDeadColorCorrection? sourceDeadColorCorrection=null,
@@ -73,15 +74,18 @@ public sealed class MapFinalOutputProgram : IAsyncDisposable
             if(matches.Length!=1||!Compatible(matches[0].Type,input.Type))
                 throw new InvalidDataException("Final map original VS does not provide the selected PS varying.");
         }
-        Rid shader=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
+        var resources=new RenderDeviceResources("Device rejected the original final output shader pair.");
+        return await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
-            using var stages=new RDShaderSpirV();stages.SetStageBytecode(RenderingDevice.ShaderStage.Vertex,adapter.Bytes);
-            stages.SetStageBytecode(RenderingDevice.ShaderStage.Fragment,toneSpecialization?.Bytes??specialization?.Bytes??pixel.Bytes);
-            Rid value=rd.ShaderCreateFromSpirV(stages,"OriginalMapFinalOutput");
-            if(!value.IsValid)throw new InvalidDataException("Device rejected the original final output shader pair.");
-            return value;
+            try
+            {
+                using var stages=new RDShaderSpirV();stages.SetStageBytecode(RenderingDevice.ShaderStage.Vertex,adapter.Bytes);
+                stages.SetStageBytecode(RenderingDevice.ShaderStage.Fragment,toneSpecialization?.Bytes??specialization?.Bytes??pixel.Bytes);
+                Rid shader=resources.Own(rd.ShaderCreateFromSpirV(stages,"OriginalMapFinalOutput"));
+                return new MapFinalOutputProgram(canonical,vertex,adapter,pixel,vb,pb,shader,sourceDeadColorCorrection,specialization,sourceDeadToneLut,toneSpecialization,resources);
+            }
+            catch(Exception failure){resources.ReleaseAfterConstructionFailure(rd,failure,"final-output-program-partial");throw;}
         });
-        return new(canonical,vertex,adapter,pixel,vb,pb,shader,sourceDeadColorCorrection,specialization,sourceDeadToneLut,toneSpecialization);
     }
     private static byte[] MoveStockVertexSet(ReadOnlySpan<byte> source)
     {
@@ -107,6 +111,6 @@ public sealed class MapFinalOutputProgram : IAsyncDisposable
     private static bool Compatible(SpirvInterfaceType a,SpirvInterfaceType b)=>a.Kind==b.Kind&&
         (a.Kind=="vector"?a.ComponentCount>=b.ComponentCount&&Compatible(a.ComponentType!,b.ComponentType!):
          a.Kind is "float" or "int"&&a.Bits==b.Bits&&a.Signed==b.Signed);
-    internal void RequireLive()=>ObjectDisposedException.ThrowIf(_disposal is not null,this);
-    public ValueTask DisposeAsync()=>new(_disposal??=TerrainDeviceTexture.OnRenderThreadAsync(rd=>{rd.FreeRid(ShaderRid);return true;}));
+    internal void RequireLive()=>ObjectDisposedException.ThrowIf(_retiring,this);
+    public ValueTask DisposeAsync(){_retiring=true;return _resources.DisposeAsync();}
 }

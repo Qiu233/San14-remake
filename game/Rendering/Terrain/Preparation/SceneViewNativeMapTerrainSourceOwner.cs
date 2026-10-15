@@ -35,8 +35,8 @@ public sealed class SceneViewNativeMapTerrainSourceOwner
         string currentContextOwnerIdentity)
     {
         string locale = loaded.InitialFrame.MainCamera.Camera.ExecutableLocale;
-        var source = TerrainGbufferSourceParameters.ReadSourceDefaults(loaded.Repository, locale, loaded.TerrainMaterial);
-        var materialDraw=TerrainGbufferMaterialDrawSource.Load(loaded.Repository,locale,loaded.TerrainMaterial);
+        var source = TerrainGbufferSourceParameters.CreateFresh(locale, loaded.TerrainMaterial);
+        var materialDraw=TerrainGbufferMaterialDrawSource.CreateFresh(locale,loaded.TerrainMaterial);
         // Ordinary F8 is the unchanged node56 source's unsuppressed invocation.
         // View selection changes the selected slot, not these call flags.
         var callFlags=MainSceneNode51Source.Load(loaded.Repository,locale,56).InitialCallFlags;
@@ -113,15 +113,14 @@ public sealed class SceneViewNativeMapTerrainSourceOwner
     public IReadOnlyList<MapMaterialTerrainConsumer> PrepareMaterialConsumers(SceneViewNativeMapFrameCapture capture)
     {
         var input = PrepareParameters(capture);
-        var shader = loaded.TerrainMaterial.Shader.Shader;
         return capture.TerrainBatches.Select(batch =>
         {
-            var combination = batch.Coarse ? loaded.TerrainMaterial.CoarseCombination : loaded.TerrainMaterial.Combination;
-            var pixel = combination.Stages.Single(stage => stage.StageCode == 0 && stage.Entry is not null).Entry!.ProgramIndex;
+            var program = batch.Coarse ? loaded.TerrainMaterial.CoarseProgram : loaded.TerrainMaterial.DetailProgram;
+            var combination = program.Combination;
             var material = MapMaterialIdSources.CreateFreshTerrainDefault(loaded.TerrainMaterial.Shader,
                 combination.Index, "owned-current-original-terrain-GBuffer/" + capture.RequestNumber + "/" + combination.Index);
             return new MapMaterialTerrainConsumer("owned-current-terrain/" + combination.Index, material,
-                TerrainGbufferConstants.Pixel(shader.ReadResourceDefinitions(pixel), input, loaded.TerrainMaterial.Palette));
+                program.PixelConstants.Pack(input, loaded.TerrainMaterial.Palette));
         }).ToArray();
     }
 

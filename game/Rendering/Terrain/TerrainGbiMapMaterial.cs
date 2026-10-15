@@ -1,6 +1,7 @@
 using Godot;
 using San14.Data;
 using San14.Data.Formats;
+using System.Security.Cryptography;
 
 /// <summary>Original ordinary material inputs and sampling; final lighting remains a separate pass.</summary>
 public sealed class TerrainGbiMapMaterial : ITerrainSurface, IDisposable, IAsyncDisposable
@@ -25,12 +26,21 @@ public sealed class TerrainGbiMapMaterial : ITerrainSurface, IDisposable, IAsync
         => (Source, Material, _shader, _control, _textures, SamplingCode) =
             (source, material, shader, control, textures, sampling);
 
-    public static async Task<TerrainGbiMapMaterial> BuildAsync(GameResourceRepository repository,
+    public static Task<TerrainGbiMapMaterial> BuildAsync(GameResourceRepository repository,
         TerrainMeshResult mesh, LoadedTerrainParameterResources parameters, string locale)
+        => BuildAsync(mesh, TerrainGbiMapResources.LoadStockDefault(repository, mesh.Source, parameters));
+
+    /// <summary>Upload the material already prepared by this terrain's scene owner.</summary>
+    public static async Task<TerrainGbiMapMaterial> BuildAsync(TerrainMeshResult mesh,
+        LoadedTerrainGbiMapResources source)
     {
+        var bundle = source.Parameters.Scene.TerrainBundle.Source;
+        if (mesh.Source.Objects.Source.ResourceUri != bundle.ResourceUri ||
+            mesh.Source.Objects.Source.DecodedSha256 != bundle.DecodedSha256)
+            throw new InvalidDataException("GBI material and mesh terrain sources differ.");
         if (ProjectSettings.GetSetting("rendering/textures/default_filters/use_nearest_mipmap_filter", false).AsBool())
             throw new NotSupportedException("Original GBI source samplers require linear interpolation between mips.");
-        LoadedTerrainGbiMapResources source = TerrainGbiMapResources.LoadStockDefault(repository, mesh.Source, parameters, locale);
+        RequirePreviewPrograms(source);
         if (mesh.Patches.Count == 0 || mesh.Patches.Any(patch => !patch.Mesh.GetMeta("original_initial_height_adapter").AsBool()))
             throw new InvalidDataException("GBI material requires the original ordinary initial-height mesh.");
         foreach (TerrainPatch patch in mesh.Patches)
@@ -150,15 +160,13 @@ public sealed class TerrainGbiMapMaterial : ITerrainSurface, IDisposable, IAsync
             TerrainArrayTexture array = TerrainArrayTexture.Build(group, slot);
             return new(name, array.Texture, recipe, srgb, array, null, binding.Image.MipCount == 1);
         }
-        byte[] encoded = binding.Image.GetEncodedMip(binding.Resource.Source.Bytes, 0).ToArray();
+        var prepared = TerrainTexturePreparation.PrepareCompatibility(binding);
         Image.Format format = binding.Image.PixelFormat switch
         {
             0x00 or 0x01 => Image.Format.Rgba8, 0x59 => Image.Format.Dxt1, 0x5B => Image.Format.Dxt5,
             _ => throw new InvalidDataException("Unsupported ordinary GBI compatibility texture format.")
         };
-        if (binding.Image.PixelFormat == 1)
-            for (int i = 0; i < encoded.Length; i += 4) (encoded[i], encoded[i + 2]) = (encoded[i + 2], encoded[i]);
-        using Image image = Image.CreateFromData(binding.Image.Width, binding.Image.Height, false, format, encoded);
+        using Image image = Image.CreateFromData(binding.Image.Width, binding.Image.Height, false, format, prepared.Layers[0].ToArray());
         ImageTexture texture = ImageTexture.CreateFromImage(image);
         return new(name, texture, recipe, srgb, texture, null, binding.Image.MipCount == 1);
     }
@@ -167,6 +175,26 @@ public sealed class TerrainGbiMapMaterial : ITerrainSurface, IDisposable, IAsync
         G1TextureSamplerRecipe recipe = texture.Sampler;
         if (!texture.CompleteMips && recipe.Filter == 0x15) recipe = recipe with { Filter = 0x14, MaximumLodBits = 0 };
         return TerrainSamplerHints.Create(recipe, texture.Srgb, texture.Sampler.MaxAnisotropy);
+    }
+    // This hand-written spatial preview implements specific shader operations.
+    // The real DXBC pipeline uses TerrainShaderPreparation and its interfaces;
+    // it is not constrained by this preview's known-operation inventory.
+    private static void RequirePreviewPrograms(LoadedTerrainGbiMapResources source)
+    {
+        string CodeHash(int index)
+        {
+            var shader = source.Shader.Shader;
+            var bytes = shader.Container.GetProgramBytes(shader.Source.Bytes, index);
+            var code = shader.Container.Programs[index].Container.Parts.Single(p => p.FourCc is "SHDR" or "SHEX");
+            return Convert.ToHexString(SHA256.HashData(code.PayloadRange.Slice(bytes)));
+        }
+        if (CodeHash(source.DetailProgram.VertexProgramIndex) != "732FF928CB97B6ED047438F5E3813D02F9BB8EEF73EE79A709DCCAE4C8D377B2" ||
+            CodeHash(source.DetailProgram.PixelProgramIndex) is not
+                ("408AFB42F55554B319E710B54376CB01302C1298D7171994F4813D82E8E6C4A5" or
+                 "ABEA44DC61EA7457223E3F16CEFDD290B4FB646BF2F3D8F691095680F2281CCF") ||
+            CodeHash(source.CoarseProgram.VertexProgramIndex) != "14E0C495B81E34CE6D78967B817F50F04ED287C36B07DB1F0B91EB003DD1F547" ||
+            CodeHash(source.CoarseProgram.PixelProgramIndex) != "60C51B7D86DD318D44464E4DF6AB89C9FA2E525E95DFA0F720E1A5DFA04292DC")
+            throw new NotSupportedException("The spatial terrain preview does not implement these shader operations; use the actual shader pipeline.");
     }
     private static string ProjectionUri(LoadedTerrainGbiMapResources source) => source.InitialControl.Binding.Resource.Source.ResourceUri;
     private static float F32(uint bits) => BitConverter.UInt32BitsToSingle(bits);

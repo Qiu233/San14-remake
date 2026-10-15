@@ -13,14 +13,14 @@ public sealed class SkyLightDraw : IAsyncDisposable
     public byte[] VertexConstantBytes { get; }
     public byte[] PixelConstantBytes { get; }
     public CubeRenderDeviceSurface Target { get; }
-    private readonly IReadOnlyList<Rid> _owned;
+    private readonly RenderDeviceResources resources;
     private readonly Rid _pipeline, _vertexSet, _pixelSet;
-    private Task? _disposal;
+    private volatile bool retiring;
 
     private SkyLightDraw(byte[] vertex, byte[] pixel, CubeRenderDeviceSurface target,
-        Rid pipeline, Rid vs, Rid ps, List<Rid> owned)
-        => (VertexConstantBytes, PixelConstantBytes, Target, _pipeline, _vertexSet, _pixelSet, _owned)
-            = (vertex, pixel, target, pipeline, vs, ps, owned.AsReadOnly());
+        Rid pipeline, Rid vs, Rid ps, RenderDeviceResources resources)
+        => (VertexConstantBytes, PixelConstantBytes, Target, _pipeline, _vertexSet, _pixelSet, this.resources)
+            = (vertex, pixel, target, pipeline, vs, ps, resources);
 
     public static Task<SkyLightDraw> BuildAsync(SkyLightProgram program,
         CubeRenderTextureDevice target, uint surfaceId, SkyLightDrawInputs inputs,
@@ -48,8 +48,8 @@ public sealed class SkyLightDraw : IAsyncDisposable
         var surface = target.Surfaces[(int)surfaceId];
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            var owned = new List<Rid>();
-            Rid Own(Rid r) { if (!r.IsValid) throw new InvalidDataException("Sky light device allocation failed."); owned.Add(r); return r; }
+            var resources = new RenderDeviceResources("Sky light device allocation failed.");
+            Rid Own(Rid r) => resources.Own(r);
             try
             {
                 if (!rd.FramebufferIsValid(surface.Framebuffer)) throw new InvalidDataException("Sky light target is no longer live.");
@@ -98,24 +98,31 @@ public sealed class SkyLightDraw : IAsyncDisposable
                 Rid pipeline = Own(rd.RenderPipelineCreate(program.ShaderRid, rd.FramebufferGetFormat(surface.Framebuffer), -1,
                     RenderingDevice.RenderPrimitive.TriangleStrips, raster, multi, depth, blend));
                 if (!rd.RenderPipelineIsValid(pipeline)) throw new InvalidDataException("Sky light pipeline is invalid.");
-                return new SkyLightDraw(vc, pc, surface, pipeline, vs, ps, owned);
+                return new SkyLightDraw(vc, pc, surface, pipeline, vs, ps, resources);
             }
-            catch { for (int i = owned.Count - 1; i >= 0; i--) rd.FreeRid(owned[i]); throw; }
+            catch (Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd, failure, "Sky-light-draw-partial");
+                throw;
+            }
         });
     }
 
     public Task DrawAsync()
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null, this);
+        ObjectDisposedException.ThrowIf(retiring, this);
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            ObjectDisposedException.ThrowIf(_disposal is not null, this);
+            ObjectDisposedException.ThrowIf(retiring, this);
             long list = rd.DrawListBegin(Target.Framebuffer);
             try { rd.DrawListBindRenderPipeline(list, _pipeline); rd.DrawListBindUniformSet(list, _pixelSet, 0);
                 rd.DrawListBindUniformSet(list, _vertexSet, 1); rd.DrawListDraw(list, false, 1, 4); }
             finally { rd.DrawListEnd(); } return true;
         });
     }
-    public ValueTask DisposeAsync() => new(_disposal ??= TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-    { for (int i = _owned.Count - 1; i >= 0; i--) rd.FreeRid(_owned[i]); return true; }));
+    public ValueTask DisposeAsync()
+    {
+        retiring = true;
+        return resources.DisposeAsync();
+    }
 }

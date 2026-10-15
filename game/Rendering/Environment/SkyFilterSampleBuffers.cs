@@ -8,10 +8,11 @@ public sealed class SkyFilterSampleBuffers : IAsyncDisposable
     public SkyFilterSamplePacket Source { get; }
     public Rid Directions { get; }
     public Rid Weights { get; }
-    private Task? _disposal;
+    private readonly RenderDeviceResources resources;
 
-    private SkyFilterSampleBuffers(SkyFilterSamplePacket source, Rid directions, Rid weights)
-        => (Source,Directions,Weights)=(source,directions,weights);
+    private SkyFilterSampleBuffers(SkyFilterSamplePacket source, Rid directions, Rid weights,
+        RenderDeviceResources resources)
+        => (Source,Directions,Weights,this.resources)=(source,directions,weights,resources);
 
     public static Task<SkyFilterSampleBuffers> BuildAsync(SkyFilterSamplePacket source)
     {
@@ -21,24 +22,25 @@ public sealed class SkyFilterSampleBuffers : IAsyncDisposable
         var packet=new SkyFilterSamplePacket(source.DestinationMip,source.DirectionBytes.Span,source.WeightBytes.Span,source.WeightSum);
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
+            var resources=new RenderDeviceResources("Device rejected original sky filter sample buffer.");
             Rid directions=default,weights=default;
             try
             {
                 directions=rd.TextureBufferCreate((uint)packet.SampleCount,RenderingDevice.DataFormat.R16G16B16A16Sfloat,packet.DirectionBytes.ToArray());
                 if (!directions.IsValid)throw new InvalidDataException("Device rejected original half4 sky direction buffer.");
+                resources.Own(directions);
                 weights=rd.TextureBufferCreate((uint)packet.SampleCount,RenderingDevice.DataFormat.R32Sfloat,packet.WeightBytes.ToArray());
                 if (!weights.IsValid)throw new InvalidDataException("Device rejected original float sky weight buffer.");
-                return new SkyFilterSampleBuffers(packet,directions,weights);
+                resources.Own(weights);
+                return new SkyFilterSampleBuffers(packet,directions,weights,resources);
             }
-            catch
+            catch(Exception failure)
             {
-                if(weights.IsValid)rd.FreeRid(weights);
-                if(directions.IsValid)rd.FreeRid(directions);
+                resources.ReleaseAfterConstructionFailure(rd,failure,"Sky-filter-buffers-partial");
                 throw;
             }
         });
     }
 
-    public ValueTask DisposeAsync() => new(_disposal ??= TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-    { rd.FreeRid(Weights);rd.FreeRid(Directions);return true; }));
+    public ValueTask DisposeAsync() => resources.DisposeAsync();
 }

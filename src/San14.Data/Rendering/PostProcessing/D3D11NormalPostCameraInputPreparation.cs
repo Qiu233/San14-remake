@@ -50,6 +50,25 @@ public static class D3D11NormalPostCameraInputPreparation
                 BinaryPrimitives.ReadSingleLittleEndian(light.Span[0xF84..]),
                 BinaryPrimitives.ReadSingleLittleEndian(light.Span[0xF88..]));
         }
+        return EncodeFields(rules,selectedSun,actualSelectedLightData is not null,actualProjectionConvention);
+    }
+
+    /// <summary>Encode the actual selected projection vector without a complete
+    /// compatibility light image. Presence is independent of the vector value.</summary>
+    public static byte[] EncodeProjection(LoadedMapPostEffect3ControlledCameraSource rules,
+        long actualCameraFrameNumber,Vector3? actualSelectedProjectionVector,
+        long? actualSelectedLightFrameNumber,int actualProjectionConvention)
+    {
+        ArgumentNullException.ThrowIfNull(rules);
+        if(actualSelectedProjectionVector is not null && actualSelectedLightFrameNumber!=actualCameraFrameNumber)
+            throw new InvalidDataException("Normal post projection needs the selected light from the same Camera frame.");
+        return EncodeFields(rules,actualSelectedProjectionVector??Vector3.Zero,
+            actualSelectedProjectionVector is not null,actualProjectionConvention);
+    }
+
+    private static byte[] EncodeFields(LoadedMapPostEffect3ControlledCameraSource rules,
+        Vector3 selectedSun,bool present,int actualProjectionConvention)
+    {
         byte[] bytes=new byte[NativeByteLength];
         void F(int offset,float value)=>BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(offset),value);
         F(0,rules.ProjectionThreshold);F(4,rules.ProjectionLimit);
@@ -58,7 +77,7 @@ public static class D3D11NormalPostCameraInputPreparation
         F(16,absent.X);F(20,absent.Y);F(24,absent.Z);F(28,absent.W);
         F(32,selectedSun.X);F(36,selectedSun.Y);F(40,selectedSun.Z);
         BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(44),actualProjectionConvention);
-        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(48),actualSelectedLightData is null?0u:1u);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(48),present?1u:0u);
         return bytes;
     }
 
@@ -71,6 +90,12 @@ public static class D3D11NormalPostCameraInputPreparation
         long actualCameraFrameNumber,ReadOnlyMemory<byte>? actualSelectedLightData,
         long? actualSelectedLightFrameNumber,int actualProjectionConvention)
         =>Write(directory,Encode(rules,actualCameraFrameNumber,actualSelectedLightData,
+            actualSelectedLightFrameNumber,actualProjectionConvention));
+
+    public static void WriteProjectionInputs(string directory,LoadedMapPostEffect3ControlledCameraSource rules,
+        long actualCameraFrameNumber,Vector3? actualSelectedProjectionVector,
+        long? actualSelectedLightFrameNumber,int actualProjectionConvention)
+        =>Write(directory,EncodeProjection(rules,actualCameraFrameNumber,actualSelectedProjectionVector,
             actualSelectedLightFrameNumber,actualProjectionConvention));
 
     private static void Write(string directory,byte[] bytes)

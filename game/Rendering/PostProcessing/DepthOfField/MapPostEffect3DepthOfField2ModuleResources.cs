@@ -22,8 +22,9 @@ public sealed partial class MapPostEffect3DepthOfField2ModuleResources:IAsyncDis
     internal MapPostEffect3DepthOfField2ScatterExecutor? Scatter{get;private set;}
 
     internal sealed class ShapeStorage(Rid rid,uint side,MapPostEffect3TextureParameterReference reference,
-        MapPostEffect3TextureParameterState table)
+        MapPostEffect3TextureParameterState table,RenderDeviceResources resources)
     {
+        internal readonly RenderDeviceResources Resources=resources;
         internal readonly Rid Rid=rid;
         internal readonly uint Side=side;
         internal readonly MapPostEffect3TextureParameterReference Reference=reference;
@@ -217,8 +218,7 @@ public sealed partial class MapPostEffect3DepthOfField2ModuleResources:IAsyncDis
                 if(shape.LastTable.ReadKnownNullablePointer(58) is not null&&
                     ReferenceEquals(shape.LastTable.Require(58).Reference,shape.Reference))
                     shape.LastTable.ClearExternal(58,"retiring actual module-lifetime DOF2 shape owner");
-                if(shape.Rid.IsValid)
-                    await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{rd.FreeRid(shape.Rid);return true;});
+                await shape.Resources.DisposeAsync();
                 Shape=null;
             }
             argumentContents.Clear();physicalBuffers.Clear();accumulation.Clear();disposed=true;

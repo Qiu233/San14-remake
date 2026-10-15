@@ -12,11 +12,12 @@ public sealed class ModelTextureDevice : IAsyncDisposable
     public G1TextureImage Image { get; }
     public uint NativeViewFormat { get; }
     public Rid TextureRid { get; }
-    private Task? _disposal;
+    private readonly RenderDeviceResources _resources;
+    private volatile bool _retiring;
 
-    private ModelTextureDevice(ModelTextureUpload source, Rid rid) =>
-        (SourceResourceUri, SourceSha256, Image, NativeViewFormat, TextureRid) =
-            (source.SourceResourceUri, source.SourceSha256, source.Image, source.NativeViewFormat, rid);
+    private ModelTextureDevice(ModelTextureUpload source, Rid rid, RenderDeviceResources resources) =>
+        (SourceResourceUri, SourceSha256, Image, NativeViewFormat, TextureRid, _resources) =
+            (source.SourceResourceUri, source.SourceSha256, source.Image, source.NativeViewFormat, rid, resources);
 
     public static Task<ModelTextureDevice> BuildAsync(LoadedTextureContainer source,
         int explicitImageIndex, uint explicitNativeViewFormat)
@@ -28,32 +29,35 @@ public sealed class ModelTextureDevice : IAsyncDisposable
         var image = source.Image;
         var format = DeviceFormat(source.NativeViewFormat);
         byte[] chain = source.CopyEncodedChain();
-        Rid rid = await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
+        return await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            var usage = RenderingDevice.TextureUsageBits.SamplingBit | RenderingDevice.TextureUsageBits.CanCopyFromBit;
-            if (!rd.TextureIsFormatSupportedForUsage(format, usage))
-                throw new NotSupportedException("Device cannot retain the original model texture encoding.");
-            using var shape = new RDTextureFormat
-            {
-                Format = format, Width = (uint)image.Width, Height = (uint)image.Height, Depth = 1,
-                ArrayLayers = 1, Mipmaps = (uint)image.MipCount, UsageBits = usage,
-                TextureType = RenderingDevice.TextureType.Type2D
-            };
-            using var view = new RDTextureView();
-            Rid value = rd.TextureCreate(shape, view, [chain]);
-            if (!value.IsValid) throw new InvalidDataException("Device rejected the original model mip chain.");
+            var resources = new RenderDeviceResources("Device rejected the original model mip chain.");
             try
             {
+                var usage = RenderingDevice.TextureUsageBits.SamplingBit | RenderingDevice.TextureUsageBits.CanCopyFromBit;
+                if (!rd.TextureIsFormatSupportedForUsage(format, usage))
+                    throw new NotSupportedException("Device cannot retain the original model texture encoding.");
+                using var shape = new RDTextureFormat
+                {
+                    Format = format, Width = (uint)image.Width, Height = (uint)image.Height, Depth = 1,
+                    ArrayLayers = 1, Mipmaps = (uint)image.MipCount, UsageBits = usage,
+                    TextureType = RenderingDevice.TextureType.Type2D
+                };
+                using var view = new RDTextureView();
+                Rid value = resources.Own(rd.TextureCreate(shape, view, [chain]));
                 using var actual = rd.TextureGetFormat(value);
                 if (actual.Width != image.Width || actual.Height != image.Height || actual.Depth != 1 ||
                     actual.ArrayLayers != 1 || actual.Mipmaps != image.MipCount || actual.Format != format ||
                     actual.TextureType != RenderingDevice.TextureType.Type2D)
                     throw new InvalidDataException("Device changed the original model image shape or encoding.");
-                return value;
+                return new ModelTextureDevice(source, value, resources);
             }
-            catch { rd.FreeRid(value); throw; }
+            catch (Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd, failure, "Model-texture-partial");
+                throw;
+            }
         });
-        return new(source, rid);
     }
 
     private static RenderingDevice.DataFormat DeviceFormat(uint nativeViewFormat) => nativeViewFormat switch
@@ -78,11 +82,14 @@ public sealed class ModelTextureDevice : IAsyncDisposable
 
     public Task<byte[]> ReadEncodedChainAsync()
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null, this);
+        ObjectDisposedException.ThrowIf(_retiring, this);
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-        { ObjectDisposedException.ThrowIf(_disposal is not null, this); return rd.TextureGetData(TextureRid, 0); });
+        { ObjectDisposedException.ThrowIf(_retiring, this); return rd.TextureGetData(TextureRid, 0); });
     }
 
-    public ValueTask DisposeAsync() => new(_disposal ??= TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-    { rd.FreeRid(TextureRid); return true; }));
+    public ValueTask DisposeAsync()
+    {
+        _retiring = true;
+        return _resources.DisposeAsync();
+    }
 }

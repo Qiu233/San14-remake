@@ -13,10 +13,14 @@ public sealed class MapFinalOutputFullEffectsOwner:IAsyncDisposable
     public long SubmittedDrawCount=>Native.SubmittedDrawCount;
     public IReadOnlyDictionary<int,ModelDeviceBinding>? LatestTextures=>Native.LatestTextures;
     private readonly HashSet<int> _clearedOnce=new();private Vector2I _extent;
+    private readonly NativeMapBorrowerRetirementPackage retirement;
     private static readonly int[] SpkPasses=[0,1,2,3,10,11,12,13,14,15,16,17,19,20,21,22,23,24,27];
     private MapFinalOutputFullEffectsOwner(MapFinalOutputPassGraph graph,
         MapFinalOutputPassOwner.NativeRecipeOwner native,MapFinalOutputNoiseOwner noise)
-        =>(Graph,Native,Noise)=(graph,native,noise);
+    {
+        (Graph,Native,Noise)=(graph,native,noise);
+        retirement=new("Final-full-effects:"+Guid.NewGuid().ToString("N"),native,noise);
+    }
     public static async Task<MapFinalOutputFullEffectsOwner> BuildAsync(
         MapFinalOutputPassGraph graph,Vkd3dShaderCompiler compiler,bool allowReadback=false)
     {
@@ -26,7 +30,16 @@ public sealed class MapFinalOutputFullEffectsOwner:IAsyncDisposable
         MapFinalOutputPassOwner.NativeRecipeOwner? native=null;MapFinalOutputNoiseOwner? noise=null;
         try{native=await MapFinalOutputPassOwner.NativeRecipeOwner.BuildAsync(graph,programs,compiler,allowReadback);
             noise=await MapFinalOutputNoiseOwner.BuildSuccessfulFirstInitializationAsync(graph.Source);return new(graph,native,noise);}
-        catch{if(native is not null)await native.DisposeAsync();if(noise is not null)await noise.DisposeAsync();throw;}
+        catch(Exception failure)
+        {
+            var pending=NativeMapBorrowerRetirementPackage.CreatePending("Final-full-effects-partial",
+                new IAsyncDisposable?[]{native,noise}.OfType<IAsyncDisposable>(),
+                (failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+            try{await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pending);}
+            catch(Exception retirementFailure)
+            {throw new NativeMapBorrowerConstructionException(failure,retirementFailure,pending!);}
+            throw;
+        }
     }
     internal Task<IReadOnlyDictionary<int,ModelDeviceBinding>> RenderAsync(
         MapCameraConstructionPacket camera,MapFinalOutputDofWeightPacket weight,int width,int height,
@@ -160,5 +173,5 @@ public sealed class MapFinalOutputFullEffectsOwner:IAsyncDisposable
     private static byte[] Floats(params float[] values){byte[] b=new byte[values.Length*4];for(int i=0;i<values.Length;i++)Write(b,i*4,values[i]);return b;}
     private static void Write(byte[] b,int at,float value)=>BinaryPrimitives.WriteSingleLittleEndian(b.AsSpan(at,4),value);
     public async Task RetireTargetAsync(){await Native.RetireTargetAsync();_clearedOnce.Clear();_extent=default;}
-    public async ValueTask DisposeAsync(){await Native.DisposeAsync();await Noise.DisposeAsync();}
+    public ValueTask DisposeAsync()=>retirement.DisposeAsync();
 }

@@ -14,13 +14,13 @@ public sealed class SkyCubeBlendProgram : IAsyncDisposable
     public TranslatedShaderBindings VertexBindings { get; }
     public TranslatedShaderBindings PixelBindings { get; }
     public Rid ShaderRid { get; }
-    private Task? _disposal;
+    private readonly RenderDeviceResources resources;
 
     private SkyCubeBlendProgram(LoadedShaderContainer source,G2ShaderCombination combination,
         ShaderSpirv vertex,AdaptedVertexShader adapter,ShaderSpirv pixel,
-        TranslatedShaderBindings vb,TranslatedShaderBindings pb,Rid shader)
-        => (Source,Combination,VertexTranslation,VertexAdapter,PixelTranslation,VertexBindings,PixelBindings,ShaderRid)
-            = (source,combination,vertex,adapter,pixel,vb,pb,shader);
+        TranslatedShaderBindings vb,TranslatedShaderBindings pb,Rid shader,RenderDeviceResources resources)
+        => (Source,Combination,VertexTranslation,VertexAdapter,PixelTranslation,VertexBindings,PixelBindings,ShaderRid,this.resources)
+            = (source,combination,vertex,adapter,pixel,vb,pb,shader,resources);
 
     public static async Task<SkyCubeBlendProgram> BuildAsync(LoadedShaderContainer source,
         int explicitCombinationIndex,Vkd3dShaderCompiler compiler)
@@ -50,18 +50,24 @@ public sealed class SkyCubeBlendProgram : IAsyncDisposable
                 throw new NotSupportedException("Godot cube blend draws require their fixed constant-buffer slots and field layouts.");
         }
         CheckConstant(vb,64,"g_mC2W");CheckConstant(pb,16,"g_vIntInfo");
-        Rid shader=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
+        return await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
-            using var stages=new RDShaderSpirV();
-            stages.SetStageBytecode(RenderingDevice.ShaderStage.Vertex,adapter.Bytes);
-            stages.SetStageBytecode(RenderingDevice.ShaderStage.Fragment,pixel.Bytes);
-            Rid rid=rd.ShaderCreateFromSpirV(stages,"OriginalSkyCubeBlend");
-            if(!rid.IsValid)throw new InvalidDataException("Device rejected the original cube blend pair.");
-            return rid;
+            var resources = new RenderDeviceResources("Device rejected the original cube blend pair.");
+            try
+            {
+                using var stages=new RDShaderSpirV();
+                stages.SetStageBytecode(RenderingDevice.ShaderStage.Vertex,adapter.Bytes);
+                stages.SetStageBytecode(RenderingDevice.ShaderStage.Fragment,pixel.Bytes);
+                Rid shader=resources.Own(rd.ShaderCreateFromSpirV(stages,"OriginalSkyCubeBlend"));
+                return new SkyCubeBlendProgram(source,combination,vertex,adapter,pixel,vb,pb,shader,resources);
+            }
+            catch (Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd, failure, "Sky-cube-blend-program-partial");
+                throw;
+            }
         });
-        return new(source,combination,vertex,adapter,pixel,vb,pb,shader);
     }
 
-    public ValueTask DisposeAsync()=>new(_disposal??=TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-    {rd.FreeRid(ShaderRid);return true;}));
+    public ValueTask DisposeAsync()=>resources.DisposeAsync();
 }

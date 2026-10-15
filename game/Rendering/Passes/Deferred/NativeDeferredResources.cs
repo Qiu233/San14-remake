@@ -209,7 +209,8 @@ public sealed partial class NativeDeferredResources : IAsyncDisposable
         lock(_lifetimeGate)
         {
             _retiring=true;
-            return new(_disposal??=DisposeCoreAsync());
+            if(_disposal is null||_disposal.IsFaulted||_disposal.IsCanceled)_disposal=DisposeCoreAsync();
+            return new(_disposal);
         }
     }
     private async Task DisposeCoreAsync()

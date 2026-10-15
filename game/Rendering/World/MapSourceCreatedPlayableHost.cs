@@ -177,6 +177,7 @@ public sealed class MapSourceCreatedPlayableAuxiliaryOwners : IAsyncDisposable
     public DeferredAuxiliaryTargetDevice RefractionDepth => Devices.Single(d => d.Source.Object.ObjectId == 0xB6169FDB);
     private readonly object lifetime = new();
     private Task? disposal;
+    private NativeMapBorrowerRetirementPackage? finalRetirement;
 
     private MapSourceCreatedPlayableAuxiliaryOwners(
         LoadedDeferredAuxiliaryPixelSourceRecipes source,
@@ -209,26 +210,40 @@ public sealed class MapSourceCreatedPlayableAuxiliaryOwners : IAsyncDisposable
                 DeferredAuxiliaryDepthCopySource.ReadCurrent(executableLocale), compiler);
             return new(source, filters, stock, depth, devices);
         }
-        catch
+        catch (Exception failure)
         {
-            if (depth is not null) await depth.DisposeAsync();
-            if (stock is not null) await stock.DisposeAsync();
-            if (filters is not null) await filters.DisposeAsync();
-            foreach (var device in devices.AsEnumerable().Reverse()) await device.DisposeAsync();
+            var completed = new List<IAsyncDisposable>();
+            if (depth is not null) completed.Add(depth);
+            if (stock is not null) completed.Add(stock);
+            if (filters is not null) completed.Add(filters);
+            completed.AddRange(devices.AsEnumerable().Reverse());
+            var pending = NativeMapBorrowerRetirementPackage.CreatePending("Auxiliary-partial", completed,
+                (failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+            try { await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pending); }
+            catch (Exception retirementFailure)
+            { throw new NativeMapBorrowerConstructionException(failure, retirementFailure, pending!); }
             throw;
         }
+    }
+
+    internal async Task DrainPendingDrawAsync()
+    {
+        await DepthCopy.DrainPendingDrawAsync();
+        await StockCopy.DrainPendingDrawAsync();
+        await Filters.DrainPendingDrawAsync();
     }
 
     /// <summary>Consumers and graph callbacks must retire before this owner.</summary>
     public ValueTask DisposeAsync()
     {
         lock (lifetime)
-            return new(disposal is null || disposal.IsFaulted ? disposal = DisposeCoreAsync() : disposal);
+            return new(disposal is null || disposal.IsFaulted || disposal.IsCanceled ? disposal = DisposeCoreAsync() : disposal);
     }
     private async Task DisposeCoreAsync()
     {
-        await DepthCopy.DisposeAsync(); await StockCopy.DisposeAsync(); await Filters.DisposeAsync();
-        foreach (var device in Devices.Reverse()) await device.DisposeAsync();
+        finalRetirement ??= NativeMapBorrowerRetirementPackage.CreatePending("Auxiliary-final",
+            [DepthCopy, StockCopy, Filters, .. Devices.Reverse()]);
+        finalRetirement = await NativeMapBorrowerRetirementPackage.DrainPendingAsync(finalRetirement);
     }
 }
 
@@ -264,6 +279,7 @@ public sealed class MapSourceCreatedPlayableHost : IAsyncDisposable
     private readonly Dictionary<long, MainMapCameraDeferredReadyFrame> cameraLeases = [];
     private bool retiring;
     private Task? disposal;
+    private NativeMapBorrowerRetirementPackage? auxiliaryRetirement;
     private IReadOnlyList<DeferredEarlyF103SelectedSource>? currentEarlySelections;
     private PreparedViewLocalLightQueries? currentEarlyQueries;
     private NativeTerrainStencilPreparedFrame? currentTerrainStencil;
@@ -364,6 +380,7 @@ public sealed class MapSourceCreatedPlayableHost : IAsyncDisposable
                 },
                 BeforeTargetRetirement = async targets =>
                 {
+                    if (host is not null) await host.Auxiliary.DrainPendingDrawAsync();
                     if (host is not null) host.currentTerrainStencil = null;
                     host?.RetireCameraLeases();
                     await early.RetireTargetsAsync();
@@ -599,7 +616,13 @@ public sealed class MapSourceCreatedPlayableHost : IAsyncDisposable
             input.TerrainRaster, input.ClearColors, input.ClearDepth, input.ClearStencil, Session.PrepareDeferredAsync)
             { GeometryClearActions = input.GeometryClearActions };
         await gate.WaitAsync();
-        try { ObjectDisposedException.ThrowIf(retiring, this); await Surface.RenderFrameAsync(request); }
+        try
+        {
+            ObjectDisposedException.ThrowIf(retiring, this);
+            auxiliaryRetirement = await NativeMapBorrowerRetirementPackage.DrainPendingAsync(auxiliaryRetirement);
+            await Auxiliary.DrainPendingDrawAsync();
+            await Surface.RenderFrameAsync(request);
+        }
         catch
         {
             GraphicsColorMaskOwner?.MarkFailedOrUnknownMaskWriter("failed-source-Host-frame");
@@ -635,12 +658,27 @@ public sealed class MapSourceCreatedPlayableHost : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(retiring, this);
+            auxiliaryRetirement = await NativeMapBorrowerRetirementPackage.DrainPendingAsync(auxiliaryRetirement);
+            await Auxiliary.DrainPendingDrawAsync();
             next = await MapSourceCreatedPlayableAuxiliaryOwners.BuildAsync(repository, compiler, executableLocale, extent, allowReadback);
             await Surface.ResizeTargetsAsync(terrain, output, allowReadback);
             var previous = Auxiliary; Auxiliary = next; next = null;
-            await previous.DisposeAsync();
+            auxiliaryRetirement = NativeMapBorrowerRetirementPackage.CreatePending("Host-replaced-auxiliary", [previous]);
+            auxiliaryRetirement = await NativeMapBorrowerRetirementPackage.DrainPendingAsync(auxiliaryRetirement);
         }
-        finally { if (next is not null) await next.DisposeAsync(); gate.Release(); }
+        catch (Exception failure)
+        {
+            if (next is not null)
+            {
+                auxiliaryRetirement = NativeMapBorrowerRetirementPackage.CreatePending("Host-rejected-auxiliary", [next]);
+                next = null;
+                try { auxiliaryRetirement = await NativeMapBorrowerRetirementPackage.DrainPendingAsync(auxiliaryRetirement); }
+                catch (Exception retirementFailure)
+                { throw new NativeMapBorrowerConstructionException(failure, retirementFailure, auxiliaryRetirement!); }
+            }
+            throw;
+        }
+        finally { gate.Release(); }
     }
 
     public ValueTask DisposeAsync()
@@ -648,7 +686,7 @@ public sealed class MapSourceCreatedPlayableHost : IAsyncDisposable
         lock (lifetime)
         {
             retiring = true;
-            return new(disposal is null || disposal.IsFaulted ? disposal = DisposeCoreAsync() : disposal);
+            return new(disposal is null || disposal.IsFaulted || disposal.IsCanceled ? disposal = DisposeCoreAsync() : disposal);
         }
     }
     private async Task DisposeCoreAsync()
@@ -656,6 +694,8 @@ public sealed class MapSourceCreatedPlayableHost : IAsyncDisposable
         await gate.WaitAsync();
         try
         {
+            auxiliaryRetirement = await NativeMapBorrowerRetirementPackage.DrainPendingAsync(auxiliaryRetirement);
+            await Auxiliary.DrainPendingDrawAsync();
             await Surface.RetireAsync();
             RetireCameraLeases();
             if (GraphicsColorMaskOwner is { } history) await history.DisposeAsync();

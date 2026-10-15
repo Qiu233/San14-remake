@@ -96,16 +96,9 @@ public sealed class DeferredSourceNull2D
     }
     private static void ValidateLight(MainLightConstructionPacket light)
     {
-        var source = MainLightBindingSource.ReadGameDefault(new(
-            San14.Data.Formats.DokReader.Read(light.Source.Resource.Source.Bytes), light.Source.Resource.Source));
-        if (source.Declaration.ObjectId != light.Source.Declaration.ObjectId || light.CurrentModifiersApplied ||
-            light.Bytes.Length != MainLightConstruction.LightDataBytes ||
-            !Convert.ToHexString(SHA256.HashData(source.Resource.Source.Bytes)).Equals(
-                MainLightBindingSource.DecodedSha256, StringComparison.OrdinalIgnoreCase))
+        if (light.CurrentModifiersApplied || light.Bytes.Length != MainLightConstruction.LightDataBytes)
             throw new InvalidDataException("Deferred null images require the complete original Game HDRI construction packet.");
-        var ramp = source.Declaration.Properties.Where(p => p.NameHash == 0x556972D8).ToArray();
-        if (ramp.Length != 1 || ramp[0].TypeCode != 5 || ramp[0].ElementCount != 1 || ramp[0].RawValue.Length != 4 ||
-            BinaryPrimitives.ReadUInt32LittleEndian(ramp[0].RawValue) != 0 ||
+        if (light.Source.Settings.Resources.IndexedRamp != 0 ||
             BinaryPrimitives.ReadUInt64LittleEndian(light.Bytes.Span.Slice(0xFF8, 8)) != 0 ||
             BinaryPrimitives.ReadUInt64LittleEndian(light.Bytes.Span.Slice(0x1008, 8)) != 0)
             throw new InvalidDataException("Deferred Ramp/Hatching pointers differ from the proven source-created null state.");

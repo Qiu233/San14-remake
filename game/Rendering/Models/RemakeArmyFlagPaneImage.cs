@@ -16,12 +16,12 @@ public sealed class RemakeArmyFlagPaneImage : IAsyncDisposable
     public uint? LastSourceClearPacked { get; private set; }
     public bool CompleteGlyphStageVerified { get; private set; }
     public bool CompleteProducerReady=>LastSourceClearPacked.HasValue&&CompleteGlyphStageVerified;
-    private readonly IReadOnlyList<Rid> _owned;
-    private Task? _disposal;
+    private readonly RenderDeviceResources _resources;
+    private volatile bool _retiring;
 
     private RemakeArmyFlagPaneImage(ArmyFlagMaterialTextureUse source,Rid storage,Rid shader,
-        Rid framebuffer,Rid sampler,IReadOnlyList<Rid> owned)
-        =>(Source,StorageRid,ShaderViewRid,Framebuffer,SamplerRid,_owned)=(source,storage,shader,framebuffer,sampler,owned);
+        Rid framebuffer,Rid sampler,RenderDeviceResources resources)
+        =>(Source,StorageRid,ShaderViewRid,Framebuffer,SamplerRid,_resources)=(source,storage,shader,framebuffer,sampler,resources);
 
     public static Task<RemakeArmyFlagPaneImage> BuildAsync(ArmyFlagMaterialTextureUse source,
         LoadedDeferredSamplerNativeSource samplerNative,bool allowNumericReadback=false)
@@ -39,8 +39,8 @@ public sealed class RemakeArmyFlagPaneImage : IAsyncDisposable
         byte[] sampler=ArmyFlagMaterialVariations.ReadProducerSampler(samplerNative,source).EncodeD3D11Descriptor();
         return TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
-            var owned=new List<Rid>();
-            Rid Own(Rid value){if(!value.IsValid)throw Error("device rejected the source image/view/sampler");owned.Add(value);return value;}
+            var resources=new RenderDeviceResources("Original Army flag TextPane image device rejected the source image/view/sampler.");
+            Rid Own(Rid value)=>resources.Own(value);
             try
             {
                 var usage=RenderingDevice.TextureUsageBits.SamplingBit|RenderingDevice.TextureUsageBits.ColorAttachmentBit;
@@ -53,9 +53,13 @@ public sealed class RemakeArmyFlagPaneImage : IAsyncDisposable
                 if(shaderFormat!=targetFormat){using var shared=new RDTextureView{FormatOverride=shaderFormat};shader=Own(rd.TextureCreateShared(shared,storage));}
                 Rid framebuffer=Own(rd.FramebufferCreate(new Godot.Collections.Array<Rid>{storage}));
                 Rid samplerRid=Own(DeviceSampler.Create(rd,sampler));
-                return new RemakeArmyFlagPaneImage(source,storage,shader,framebuffer,samplerRid,owned.AsReadOnly());
+                return new RemakeArmyFlagPaneImage(source,storage,shader,framebuffer,samplerRid,resources);
             }
-            catch{for(int i=owned.Count-1;i>=0;i--)rd.FreeRid(owned[i]);throw;}
+            catch(Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd,failure,"Army-flag-pane-partial");
+                throw;
+            }
         });
     }
 
@@ -64,7 +68,7 @@ public sealed class RemakeArmyFlagPaneImage : IAsyncDisposable
     /// native clear packet, independently of territorial map alpha.</summary>
     public async Task ClearSourceTintAsync(uint explicitSourcePackedTint,string explicitColorSource)
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null,this);
+        ObjectDisposedException.ThrowIf(_retiring,this);
         if(string.IsNullOrWhiteSpace(explicitColorSource))throw Error("clear requires an explicit original force color source");
         float reciprocal=BitConverter.UInt32BitsToSingle(0x3B808081);
         var color=new Color(Multiply(explicitSourcePackedTint&255,reciprocal),Multiply((explicitSourcePackedTint>>8)&255,reciprocal),
@@ -79,7 +83,7 @@ public sealed class RemakeArmyFlagPaneImage : IAsyncDisposable
 
     public RemakeArmyFlagRuntimeTexture BorrowCompletedProducer(string glyphProducerSource)
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null,this);
+        ObjectDisposedException.ThrowIf(_retiring,this);
         if(!CompleteProducerReady||string.IsNullOrWhiteSpace(glyphProducerSource))
             throw Error("full source glyph producer has not completed this image");
         string uri=Definition.Source.Source.ResourceUri+$"#TextPane-primary/{Source.Slot.ProxyObjectId:X8}";
@@ -90,13 +94,13 @@ public sealed class RemakeArmyFlagPaneImage : IAsyncDisposable
 
     private void RequireCompletedProducer()
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null,this);
+        ObjectDisposedException.ThrowIf(_retiring,this);
         if(!CompleteProducerReady)throw Error("borrowed primary image is no longer a completed producer resource");
     }
 
     internal void PublishCompletedSourceGlyph(LoadedArmyFlagFreshPaneLayout layout)
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null,this);
+        ObjectDisposedException.ThrowIf(_retiring,this);
         if(LastSourceClearPacked!=layout.SourceColors.BackgroundTint.PanePacked||Definition.Width!=layout.NativeLayoutWidth||
             Definition.Height!=layout.NativeLayoutHeight||layout.SourceText.TwoUtf16Units.Length!=2||layout.SourceText.TwoUtf16Units[1]!='\0')
             throw Error("source glyph completion differs from this primary image clear/layout");
@@ -105,7 +109,7 @@ public sealed class RemakeArmyFlagPaneImage : IAsyncDisposable
 
     internal void PublishCompletedSourceEmpty(LoadedArmyFlagEmptyPaneLayout layout)
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null,this);
+        ObjectDisposedException.ThrowIf(_retiring,this);
         if(LastSourceClearPacked!=layout.SourceColors.BackgroundTint.PanePacked||
             Definition.Width!=layout.NativeLayoutWidth||Definition.Height!=layout.NativeLayoutHeight||
             layout.NativeGlyphRecordCount!=0||layout.SourceText.TwoUtf16Units!="\0\0")
@@ -113,8 +117,11 @@ public sealed class RemakeArmyFlagPaneImage : IAsyncDisposable
         CompleteGlyphStageVerified=true;
     }
 
-    public ValueTask DisposeAsync()=>new(_disposal??=TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-    {for(int i=_owned.Count-1;i>=0;i--)rd.FreeRid(_owned[i]);return true;}));
+    public ValueTask DisposeAsync()
+    {
+        _retiring=true;
+        return _resources.DisposeAsync();
+    }
     [MethodImpl(MethodImplOptions.NoInlining)] private static float Multiply(float left,float right)=>left*right;
     private static InvalidDataException Error(string message)=>new("Original Army flag TextPane image "+message+".");
 }

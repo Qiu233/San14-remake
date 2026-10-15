@@ -111,7 +111,7 @@ public static class D3D11HdrProgramMediaPreparation
                             FormattableString.Invariant($"{write.Kind} {write.Destination} 0 {write.Bytes}")));
                 }
                 reasons.AddRange(D3D11HdrResourceBindings.Write(repository,declaration,program,
-                    recipe.Directory,resources.Source.Locale,current,resources,outputWidth,outputHeight));
+                    recipe.Directory,resources.Source.Locale,current,outputWidth,outputHeight));
                 if(program.PixelDefinitions.Bindings.Any(binding=>binding.Name.Text=="tMaterialTable"))
                 {
                     var material=catalog.Resources.MaterialTable(declaration.NodeIndex);
@@ -190,7 +190,7 @@ public static class D3D11HdrProgramMediaPreparation
         var lighting=light.Lighting.PrepareLighting(light.Lighting,catalog.SuppressAmbient).Lighting;
         var color=lighting.Lights[0].Color;
         return new(Lighting:lighting,Camera:camera,
-            Fog:DeferredSceneConstants.ReadSharedFog(light.CompleteData.Span[..0x1B0],catalog.FogOwnerEnabled,new(color.X,color.Y,color.Z)),
+            Fog:DeferredSceneConstants.PrepareSharedFog(light.State.Fog,catalog.FogOwnerEnabled,new(color.X,color.Y,color.Z)),
             Ambient:light.Lighting.PrepareAmbient(catalog.AmbientMapsRate),
             Hatching:DeferredSelected383PluginOwner.CreateFreshHatchingResetParameters(),
             HeightFog:DeferredHeightFogInputs.SuccessfulThreeLayerDefaults(),

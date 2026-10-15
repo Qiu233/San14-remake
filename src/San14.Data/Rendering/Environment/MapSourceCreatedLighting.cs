@@ -14,50 +14,42 @@ public sealed record MapSourceCreatedLightingIdentity(int ViewSlot, uint ViewPar
     string ConstructedOwnerSha256);
 
 /// <summary>Immutable source-created main-light seed with the exact Camera3/4
-/// source selected by Game. Complete constructor-retained bytes are supplied by
-/// OriginalMainLightConstruction, so this owner never fills its unwritten holes.</summary>
+/// source selected by Game. It borrows the immutable construction result;
+/// each current frame copies that seed before applying camera state.</summary>
 public sealed class MapSourceCreatedLightingSource
 {
-    private readonly byte[] lightData;
     private MapSourceCreatedLightingSource(LoadedMainLightBindingCameraSource setter,
         MainLightConstructionPacket construction)
     {
-        LoadedMainLightBindingSource light = MainLightBindingSource.ReadGameDefault(construction.Source.Resource);
+        LoadedMainLightBindingSource light = construction.Source;
         if (construction.Bytes.Length != CameraDirectionalLightData.LightDataBytes ||
-            construction.Source.Declaration.ObjectId != light.Declaration.ObjectId ||
-            construction.Source.Declaration.ClassId != light.Declaration.ClassId ||
-            construction.Source.GroupMask != light.GroupMask || construction.Source.GroupMaskMain != light.GroupMaskMain ||
             string.IsNullOrWhiteSpace(construction.SourceProvenance))
             throw new InvalidDataException("Source-created map lighting requires the complete constructed Game default HDRI and its provenance.");
-        lightData = construction.Bytes.ToArray();
+        Construction = construction;
         LoadedCameraSkylight camera = setter.Camera.Source;
         Identity = new(setter.ViewSlot, setter.ViewParamObjectId, camera.Resource.Source.ResourceUri,
             camera.Resource.Source.DecodedSha256, camera.Camera.ObjectId, light.Resource.Source.ResourceUri,
             light.Resource.Source.DecodedSha256, light.Declaration.ObjectId, light.GroupMask, light.GroupMaskMain,
-            Convert.ToHexString(SHA256.HashData(lightData)),
+            Convert.ToHexString(SHA256.HashData(construction.Bytes.Span)),
             Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(construction.SourceProvenance))));
         Controller = setter.Camera.Controller;
         InitialSkylightParameters = camera.Parameters;
         CameraConstructionSource = MapCameraConstructionSource.ReadPerspective(camera.Resource, camera.Camera.ObjectId);
-        ConstructionProvenance = construction.SourceProvenance;
-        ResourceBindings = Array.AsReadOnly(construction.ResourceBindings.ToArray());
-        AllResourceBindingsReady = construction.AllResourceBindingsReady;
-        Construction = construction;
     }
 
     public MapSourceCreatedLightingIdentity Identity { get; }
     public CameraLightingController Controller { get; }
     public SkylightParameters InitialSkylightParameters { get; }
     public LoadedMapCameraConstructionSource CameraConstructionSource { get; }
-    public string ConstructionProvenance { get; }
-    public IReadOnlyList<MainLightConstructionResourceBinding> ResourceBindings { get; }
-    public bool AllResourceBindingsReady { get; }
+    public string ConstructionProvenance => Construction.SourceProvenance;
+    public IReadOnlyList<MainLightConstructionResourceBinding> ResourceBindings => Construction.ResourceBindings;
+    public bool AllResourceBindingsReady => Construction.AllResourceBindingsReady;
     public MainLightConstructionPacket Construction { get; }
     public string SourceProvenance => $"remake-source-created;{ConstructionProvenance};" +
         $"Camera={Identity.CameraResourceUri}#{Identity.CameraObjectId:X8}@{Identity.CameraSha256};" +
         $"ViewSlot={Identity.ViewSlot};ViewParam={Identity.ViewParamObjectId:X8};" +
         $"CreatedLightDataSha256={Identity.CreatedLightDataSha256};ConstructedOwnerSha256={Identity.ConstructedOwnerSha256}";
-    public ReadOnlyMemory<byte> CreatedLightData => lightData;
+    public ReadOnlyMemory<byte> CreatedLightData => Construction.Bytes;
 
     public static MapSourceCreatedLightingSource FromGameDefault(GameResourceRepository repository,
         int viewSlot, MainLightConstructionPacket constructedLight)
@@ -106,6 +98,7 @@ public sealed partial class MapSourceCreatedLightingPacket
     private MapSourceCreatedLightingPacket(MapSourceCreatedLightingPacket accepted)
     {
         FrameNumber=accepted.FrameNumber;Binding=accepted.Binding;SourceIdentity=accepted.SourceIdentity;
+        MainConstruction=accepted.MainConstruction;
         SourceProvenance=accepted.SourceProvenance;camera=accepted.camera.ToArray();lightData=accepted.lightData.ToArray();
         SceneInputs=MapSourceCreatedLighting.Snapshot(accepted.SceneInputs);Clock=accepted.Clock;
         SelectedController=accepted.SelectedController;LightingSkylightParameters=accepted.LightingSkylightParameters;
@@ -125,6 +118,7 @@ public sealed partial class MapSourceCreatedLightingPacket
         SkylightClockResult clock)
     {
         FrameNumber = input.FrameNumber; Binding = input.Binding; SourceIdentity = source.Identity;
+        MainConstruction = source.Construction;
         SourceProvenance = source.SourceProvenance + $";View={Binding.ViewIdentity};CameraOwner={Binding.CameraOwnerIdentity};" +
             $"LightOwner={Binding.LightOwnerIdentity};frame={FrameNumber}"+
             (input.PresentSeasonCamera is { } present ? ";"+present.SourceProvenance : "");
@@ -138,6 +132,7 @@ public sealed partial class MapSourceCreatedLightingPacket
     public long FrameNumber { get; }
     public MapLightingBinding Binding { get; }
     public MapSourceCreatedLightingIdentity SourceIdentity { get; }
+    internal MainLightConstructionPacket? MainConstruction { get; }
     public string SourceProvenance { get; }
     public ReadOnlyMemory<byte> PreparedCameraPrefix => camera;
     public CameraOpticsSettings Optics { get; }

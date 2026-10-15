@@ -31,20 +31,22 @@ public sealed class TerrainGbufferColorMaskRecipe
 /// completed native COMISS/JB flags, including unordered and signed zero.</summary>
 public sealed class TerrainGbufferColorMaskSource
 {
-    private readonly TerrainGbufferSourceParameters parameters;
+    private readonly string sourceProvenance;
     private bool retained=true;
-    private TerrainGbufferColorMaskSource(TerrainGbufferSourceParameters source)
-    { parameters=source; }
-    public string SourceProvenance => parameters.SourceProvenance+";ordinary-F8-five-MRT-mask-source";
-    public static TerrainGbufferColorMaskSource ReadSource(GameResourceRepository repository,
-        string locale,LoadedTerrainGbiMapResources actualMaterial)
-        =>new(TerrainGbufferSourceParameters.ReadSourceDefaults(repository,locale,actualMaterial));
+    private TerrainGbufferColorMaskSource(string provenance) => sourceProvenance = provenance;
+    public string SourceProvenance => sourceProvenance;
+    public static TerrainGbufferColorMaskSource CreateFresh(string locale, LoadedTerrainGbiMapResources material)
+    {
+        ArgumentNullException.ThrowIfNull(material);
+        return new(RenderRuleIdentity.For("terrain-gbuffer-color-mask", locale) + ";" +
+            material.Shader.Shader.Source.ResourceUri + "@" + material.Shader.Shader.Source.DecodedSha256 +
+            ";ordinary-F8-five-MRT-mask-source");
+    }
 
     public TerrainGbufferColorMaskRecipe PrepareCurrent(TerrainGbufferColorMaskCurrent current)
     {
         ArgumentNullException.ThrowIfNull(current);
         if(!retained)throw new InvalidDataException("Terrain mask writer scope was replaced or extended.");
-        _=parameters.PrepareCliffInfo(); // Check the retained actual writer scope; source import was already verified.
         if(current.FrameNumber<1 || current.ActualBoundColorCount!=5 ||
             string.IsNullOrWhiteSpace(current.ViewIdentity) || string.IsNullOrWhiteSpace(current.ContextOwnerIdentity) ||
             string.IsNullOrWhiteSpace(current.SelectedLightOwnerIdentity) || string.IsNullOrWhiteSpace(current.CurrentProducerProvenance))
@@ -79,5 +81,5 @@ public sealed class TerrainGbufferColorMaskSource
     public void MarkImportedEditedOrUnknownWriter(string actualWriter)
     { ArgumentException.ThrowIfNullOrWhiteSpace(actualWriter);retained=false; }
     internal void RequireRetainedAcceptedScope()
-    {if(!retained||!parameters.RetainsOwnedConstructorCliffInfo)throw new InvalidDataException("Accepted Terrain source scope has an imported or unknown current writer.");}
+    {if(!retained)throw new InvalidDataException("Accepted Terrain source scope has an imported or unknown current writer.");}
 }

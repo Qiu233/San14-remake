@@ -15,12 +15,12 @@ public sealed class SkyLightProgram : IAsyncDisposable
     public TranslatedShaderBindings VertexBindings { get; }
     public TranslatedShaderBindings PixelBindings { get; }
     public Rid ShaderRid { get; }
-    private Task? _disposal;
+    private readonly RenderDeviceResources resources;
     private SkyLightProgram(LoadedShaderContainer source, G2ShaderCombination combination,
         ShaderSpirv vertex, AdaptedVertexShader adapter, ShaderSpirv pixel,
-        TranslatedShaderBindings vb, TranslatedShaderBindings pb, Rid shader)
-        => (Source, Combination, VertexTranslation, VertexAdapter, PixelTranslation, VertexBindings, PixelBindings, ShaderRid)
-            = (source, combination, vertex, adapter, pixel, vb, pb, shader);
+        TranslatedShaderBindings vb, TranslatedShaderBindings pb, Rid shader, RenderDeviceResources resources)
+        => (Source, Combination, VertexTranslation, VertexAdapter, PixelTranslation, VertexBindings, PixelBindings, ShaderRid, this.resources)
+            = (source, combination, vertex, adapter, pixel, vb, pb, shader, resources);
 
     public static async Task<SkyLightProgram> BuildAsync(LoadedShaderContainer source,
         int explicitCombinationIndex, Vkd3dShaderCompiler compiler)
@@ -53,18 +53,24 @@ public sealed class SkyLightProgram : IAsyncDisposable
             if (cb.Source.BindPoint != 0 || cb.Device.RequiredBufferBytes != pair.Size || cb.ConstantBuffer?.ByteSize != pair.Size)
                 throw new InvalidDataException("Sky light original constant length differs.");
         }
-        Rid shader = await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
+        return await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            using var stages = new RDShaderSpirV();
-            stages.SetStageBytecode(RenderingDevice.ShaderStage.Vertex, adapter.Bytes);
-            stages.SetStageBytecode(RenderingDevice.ShaderStage.Fragment, pixel.Bytes);
-            Rid rid = rd.ShaderCreateFromSpirV(stages, "OriginalSkyLightPass12");
-            if (!rid.IsValid) throw new InvalidDataException("Device rejected original sky light program.");
-            return rid;
+            var resources = new RenderDeviceResources("Device rejected original sky light program.");
+            try
+            {
+                using var stages = new RDShaderSpirV();
+                stages.SetStageBytecode(RenderingDevice.ShaderStage.Vertex, adapter.Bytes);
+                stages.SetStageBytecode(RenderingDevice.ShaderStage.Fragment, pixel.Bytes);
+                Rid shader = resources.Own(rd.ShaderCreateFromSpirV(stages, "OriginalSkyLightPass12"));
+                return new SkyLightProgram(source, combination, vertex, adapter, pixel, vb, pb, shader, resources);
+            }
+            catch (Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd, failure, "Sky-light-program-partial");
+                throw;
+            }
         });
-        return new(source, combination, vertex, adapter, pixel, vb, pb, shader);
     }
 
-    public ValueTask DisposeAsync() => new(_disposal ??= TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-    { rd.FreeRid(ShaderRid); return true; }));
+    public ValueTask DisposeAsync() => resources.DisposeAsync();
 }

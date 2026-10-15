@@ -1,4 +1,3 @@
-using Godot;
 using San14.Data;
 using System.Security.Cryptography;
 
@@ -21,20 +20,10 @@ public sealed partial class DeferredPixelProgram
         var adapted = DeferredEarlyCausticsNullAdapter.Adapt(original, sourceBindings, selected, sourceNull);
         var translated = original with { Bytes = adapted.Bytes, SpirvSha256 = adapted.Sha256 };
         var bindings = DeferredEarlyCausticsNullAdapter.ReadDeviceBindings(sourceBindings, adapted);
-        Rid shader = await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-        {
-            using var vertexSource = new RDShaderSource { SourceVertex = DeferredFullscreenShader.VertexSource };
-            using var adapter = rd.ShaderCompileSpirVFromSource(vertexSource);
-            string error = adapter.GetStageCompileError(RenderingDevice.ShaderStage.Vertex);
-            if (error.Length != 0) throw new InvalidDataException("Early fullscreen adapter compilation failed: " + error);
-            using var combined = new RDShaderSpirV();
-            combined.SetStageBytecode(RenderingDevice.ShaderStage.Vertex, adapter.GetStageBytecode(RenderingDevice.ShaderStage.Vertex));
-            combined.SetStageBytecode(RenderingDevice.ShaderStage.Fragment, translated.Bytes);
-            Rid created = rd.ShaderCreateFromSpirV(combined, "OriginalEarly95SourceCausticsNull");
-            if (!created.IsValid) throw new InvalidDataException("Device rejected the source early Caustics NULL program.");
-            return created;
-        });
-        return new DeferredPixelProgram(shader, source, selected.Combination, translated, bindings, original, sourceBindings, null)
-            { EarlyCausticsNullSpecialization = adapted };
+        return await InstallAsync(translated.Bytes,"OriginalEarly95SourceCausticsNull",
+            "Early fullscreen adapter compilation failed: ",
+            "Device rejected the source early Caustics NULL program.",
+            (shader,resources)=>new DeferredPixelProgram(shader,resources,source,selected.Combination,translated,bindings,original,sourceBindings,null)
+                { EarlyCausticsNullSpecialization = adapted });
     }
 }

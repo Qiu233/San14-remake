@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 
 namespace San14.Data.Formats;
 
-public sealed record G2ShaderFeatureRecord(int Index, int SourceOffset, byte[] RawBytes);
+public sealed record G2ShaderFeatureRecord(int Index, int SourceOffset, ReadOnlyMemory<byte> RawBytes);
 public sealed record G2ShaderFeatureTable(int RecordWidth, DxbcRange SourceRange,
     IReadOnlyList<G2ShaderFeatureRecord> Records)
 {
@@ -10,7 +10,7 @@ public sealed record G2ShaderFeatureTable(int RecordWidth, DxbcRange SourceRange
     {
         if (condition.Length != RecordWidth) throw new InvalidDataException("Shader feature condition width differs from the original matcher.");
         foreach (G2ShaderFeatureRecord row in Records)
-            if (condition.SequenceEqual(row.RawBytes)) return row;
+            if (condition.SequenceEqual(row.RawBytes.Span)) return row;
         return null;
     }
 }
@@ -22,6 +22,11 @@ public static class G2ShaderFeatureReader
     {
         G2ShaderContainer container = G2ShaderContainerReader.Read(source);
         G2ShaderCombinations combinations = G2ShaderCombinationReader.Read(source);
+        return Read(source, container, combinations);
+    }
+    internal static G2ShaderFeatureTable Read(ReadOnlySpan<byte> source,
+        G2ShaderContainer container, G2ShaderCombinations combinations)
+    {
         uint count = U32(source, 0x60), width = U32(source, 0x64), start = U32(source, 0x90);
         long length = (long)count * width;
         if (width != 36 || count == 0 || count > combinations.Rows.Count || start < container.MetadataRange.Offset ||

@@ -15,12 +15,7 @@ public sealed partial class DeferredPixelProgram
     {
         ArgumentNullException.ThrowIfNull(selected);
         var program = await BuildCoreAsync(selected.SourcePlan.Shader, selected.Combination.Index, compiler, [], selected: selected);
-        try
-        {
-            _ = program.ReadValidatedSelectedSourceDeviceBindings();
-            return program;
-        }
-        catch { await program.DisposeAsync(); throw; }
+        return await AcceptSelectedProgramAsync(program);
     }
 
     /// <summary>Only the audited selected-program adapter can remove named
@@ -36,8 +31,29 @@ public sealed partial class DeferredPixelProgram
 
         var program = await BuildCoreAsync(selected.SourcePlan.Shader, selected.Combination.Index, compiler,
             explicitFreshPairs.ToArray(), explicitFreshLocalAmbient, explicitFreshIes, selected);
-        try { _ = program.ReadValidatedSelectedSourceDeviceBindings(); return program; }
-        catch { await program.DisposeAsync(); throw; }
+        return await AcceptSelectedProgramAsync(program);
+    }
+
+    private static async Task<DeferredPixelProgram> AcceptSelectedProgramAsync(DeferredPixelProgram program)
+    {
+        try
+        {
+            _=program.ReadValidatedSelectedSourceDeviceBindings();
+            return program;
+        }
+        catch(Exception failure)
+        {
+            await RetireRejectedProgramAsync(program,failure);
+            throw;
+        }
+    }
+
+    private static async Task RetireRejectedProgramAsync(IAsyncDisposable program,Exception failure)
+    {
+        var pending=NativeMapBorrowerRetirementPackage.CreatePending("Deferred-selected-program-rejected",[program]);
+        try { pending=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pending); }
+        catch(Exception retirementFailure)
+        {throw new NativeMapBorrowerConstructionException(failure,retirementFailure,pending!);}
     }
 
     public TranslatedShaderBindings ReadValidatedSelectedSourceDeviceBindings()

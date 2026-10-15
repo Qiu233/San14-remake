@@ -11,23 +11,22 @@ public sealed class DeferredAuxiliaryPixelDraw : IAsyncDisposable
     public DeferredAuxiliaryTargetDevice Target { get; }
     public DeferredAuxiliaryDeviceSurface Surface { get; }
     public IReadOnlyList<DeferredDeviceBinding> Inputs { get; }
-    private readonly IReadOnlyList<Rid> owned;
+    private readonly RenderDeviceResources resources;
     private readonly IReadOnlyDictionary<uint,Rid> sets;
     private readonly Rid pipeline;
     private readonly int vertexCount;
     private readonly RenderingDevice.RenderPrimitive primitive;
     private readonly Rid vertices,indices;
     private readonly DeferredAuxiliaryExtent viewport;
-    private Task? disposal;
-    private readonly object retirementGate=new();
+    private volatile bool retiring;
 
     private DeferredAuxiliaryPixelDraw(DeferredAuxiliaryPixelProgram program,
         DeferredAuxiliaryTargetDevice target,DeferredAuxiliaryDeviceSurface surface,
-        IReadOnlyList<DeferredDeviceBinding> inputs,List<Rid> allocated,Dictionary<uint,Rid> uniformSets,
+        IReadOnlyList<DeferredDeviceBinding> inputs,RenderDeviceResources resources,Dictionary<uint,Rid> uniformSets,
         Rid renderPipeline,int count,RenderingDevice.RenderPrimitive sourcePrimitive,Rid vertexArray=default,Rid indexArray=default,
         DeferredAuxiliaryExtent currentViewport=default)
-        =>(Program,Target,Surface,Inputs,owned,sets,pipeline,vertexCount,primitive,vertices,indices,viewport)=
-            (program,target,surface,inputs,allocated.AsReadOnly(),uniformSets,renderPipeline,count,sourcePrimitive,vertexArray,indexArray,currentViewport);
+        =>(Program,Target,Surface,Inputs,this.resources,sets,pipeline,vertexCount,primitive,vertices,indices,viewport)=
+            (program,target,surface,inputs,resources,uniformSets,renderPipeline,count,sourcePrimitive,vertexArray,indexArray,currentViewport);
 
     public static Task<DeferredAuxiliaryPixelDraw> BuildAsync(DeferredAuxiliaryPixelProgram program,
         DeferredAuxiliaryTargetDevice target,uint surfaceId,
@@ -83,10 +82,11 @@ public sealed class DeferredAuxiliaryPixelDraw : IAsyncDisposable
             throw new InvalidDataException("Original auxiliary pixel output differs from its real color/depth target.");
         return TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
-            var allocated=new List<Rid>();var uniformSets=new Dictionary<uint,Rid>();
-            Rid Own(Rid value){if(!value.IsValid)throw new InvalidDataException("Auxiliary source draw device allocation failed.");allocated.Add(value);return value;}
+            var resources=new RenderDeviceResources("Auxiliary source draw device allocation failed.");
+            Rid Own(Rid value)=>resources.Own(value);
             try
             {
+                var uniformSets=new Dictionary<uint,Rid>();
                 if(!rd.FramebufferIsValid(surface.Framebuffer)||!rd.TextureIsValid(target.StorageRid))
                     throw new InvalidDataException("Auxiliary source target has retired.");
                 foreach(var declaration in expected.Where(b=>b.DescriptorKind=="Texture"))
@@ -154,16 +154,20 @@ public sealed class DeferredAuxiliaryPixelDraw : IAsyncDisposable
                 Rid pipeline=Own(rd.RenderPipelineCreate(program.ShaderRid,rd.FramebufferGetFormat(surface.Framebuffer),vertexFormat,
                     sourcePrimitive,raster,multi,depthState,blend));
                 if(!rd.RenderPipelineIsValid(pipeline))throw new InvalidDataException("Device rejected actual auxiliary source pipeline.");
-                return new DeferredAuxiliaryPixelDraw(program,target,surface,Array.AsReadOnly(inputs),allocated,
+                return new DeferredAuxiliaryPixelDraw(program,target,surface,Array.AsReadOnly(inputs),resources,
                     uniformSets,pipeline,sourceVertexCount,sourcePrimitive,vertexArray,indexArray,viewport);
             }
-            catch{for(int i=allocated.Count-1;i>=0;i--)rd.FreeRid(allocated[i]);throw;}
+            catch(Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd,failure,"Deferred-auxiliary-pixel-draw-partial");
+                throw;
+            }
         });
     }
 
     public void Submit(RenderingDevice rd)
     {
-        ObjectDisposedException.ThrowIf(disposal is not null,this);
+        ObjectDisposedException.ThrowIf(retiring,this);
         if(!rd.FramebufferIsValid(Surface.Framebuffer)||!rd.RenderPipelineIsValid(pipeline)||
             sets.Values.Any(set=>!rd.UniformSetIsValid(set)))throw new InvalidDataException("Actual auxiliary draw dependencies have retired.");
         long list=rd.DrawListBegin(Surface.Framebuffer,region:new Rect2(0,0,viewport.Width,viewport.Height));
@@ -177,6 +181,9 @@ public sealed class DeferredAuxiliaryPixelDraw : IAsyncDisposable
         }
         finally{rd.DrawListEnd();}
     }
-    public ValueTask DisposeAsync(){lock(retirementGate)return new(disposal??=TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-    {for(int i=owned.Count-1;i>=0;i--)rd.FreeRid(owned[i]);return true;}));}
+    public ValueTask DisposeAsync()
+    {
+        retiring=true;
+        return resources.DisposeAsync();
+    }
 }

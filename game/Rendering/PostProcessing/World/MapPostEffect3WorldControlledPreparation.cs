@@ -19,7 +19,8 @@ public sealed partial class MapPostEffect3WorldControlledPreparation
 {
     private readonly SceneViewNativeMapWorldDependencies dependencies;
     private readonly MapSourceCreatedWorldPlayableHost host;
-    private readonly LoadedObjects commonTemplate,lutDefinitions;
+    private readonly LoadedObjects commonTemplate;
+    private readonly MapPostEffect3Resources postEffectResources;
     private readonly LoadedMapSeasonPreparedLutSource transferSource;
     private readonly LoadedMapPostEffect3LutSelectorSource selectorSource;
     private readonly LoadedMapPostEffect3ControlledAuxSource auxSource;
@@ -33,12 +34,12 @@ public sealed partial class MapPostEffect3WorldControlledPreparation
     private MapPostEffect3WorldControlledPreparation(SceneViewNativeMapWorldDependencies dependencies,
         MapSourceCreatedWorldPlayableHost host,MapPostEffect3AllocationPlan allocation,
         MapFinalOutputPostEffect3Source source,MapPostEffect3OwnedControlledCameraSources native,
-        LoadedObjects commonTemplate,LoadedObjects lutDefinitions,LoadedMapSeasonPreparedLutSource transfer,
+        LoadedObjects commonTemplate,MapPostEffect3Resources postEffectResources,LoadedMapSeasonPreparedLutSource transfer,
         LoadedMapPostEffect3LutSelectorSource selector,LoadedMapPostEffect3ControlledAuxSource aux,
         MapPostEffect3FallbackCameraConstructorWords rectangles,LoadedMapPostEffect3ControlledFreshCallerSource callerSource)
     {
         this.dependencies=dependencies;this.host=host;Allocation=allocation;Source=source;this.native=native;
-        this.commonTemplate=commonTemplate;this.lutDefinitions=lutDefinitions;transferSource=transfer;
+        this.commonTemplate=commonTemplate;this.postEffectResources=postEffectResources;transferSource=transfer;
         selectorSource=selector;auxSource=aux;rectangleSource=rectangles;this.callerSource=callerSource;
         GraphicsConfiguration=callerSource.CreateFreshOwnedConfiguration(allocation.ContextOwnerIdentity+"/actual-owned-native-configuration");
         // Fresh FrameSync/Common and Apply clock owners initialize these
@@ -48,6 +49,9 @@ public sealed partial class MapPostEffect3WorldControlledPreparation
     public MapFinalOutputPostEffect3Source Source{get;}
     public string ExecutableLocale=>native.Camera.Native.Locale;
     public MapPostEffect3AllocationPlan Allocation{get;}
+    /// <summary>Forget imported post-effect resources after an explicit reload.
+    /// Already captured frames retain their own loaded sources.</summary>
+    internal void InvalidatePostEffectResources()=>postEffectResources.Invalidate();
     public MapPostEffect3ActualExtentTransition ReadActualExtentTransition(NativeMapFrameContext context)
     {
         var extent=context.OutputFrame.Textures[0x064B746B].ExplicitExtent;
@@ -73,7 +77,7 @@ public sealed partial class MapPostEffect3WorldControlledPreparation
         return new(actualDependencies,actualHost,actualBankSource,source,
             MapPostEffect3OwnedControlledCameraSources.Load(repo,locale),
             repo.LoadObjects("KIDSSystemResource",CommonRenderResources.SourceFileId),
-            repo.LoadObjects("KIDSSystemResource",0xD2ECCCDF),MapSeasonPreparedLutSource.Load(repo,locale),
+            new MapPostEffect3Resources(repo,"KIDSSystemResource",0xD2ECCCDF,"RRPreview"),MapSeasonPreparedLutSource.Load(repo,locale),
             MapPostEffect3LutSelectorSource.Load(repo,locale),MapPostEffect3ControlledAuxSource.Load(repo,locale),
             RenderSamplerSourceAdapters.ReadFallbackCameraRectangleNativeSource(
                 RenderSamplerSourceAdapters.Load(repo.SourceDirectory,locale)),MapPostEffect3ControlledFreshCallerSource.Load(repo,locale));
@@ -114,12 +118,11 @@ public sealed partial class MapPostEffect3WorldControlledPreparation
         var transfer=transferSource.CaptureActualMainPreparation(world.Rgb.Inputs,camera);
         var selector=selectorSource.ResolveOwnedMain(world.First.Context);
         selector.ValidateFor(world.First.Context);
-        var repo=dependencies.Repository;
-        var hdr=MapPostEffect3CurrentLutLookup.ResolveOwnedSource(repo,camera,true,lutDefinitions,
-            "KIDSSystemResource","RRPreview",selector).JoinActualMainPreparation(transfer);
-        var ldr=camera.LdrLutKey933==0?null:MapPostEffect3CurrentLutLookup.ResolveOwnedSource(repo,camera,false,
-            lutDefinitions,"KIDSSystemResource","RRPreview",selector).JoinActualMainPreparation(transfer);
-        var lens=MapPostEffect3LensPresetSource.LoadForCamera(repo,camera.Source,camera.ExecutableLocale);
+        var hdr=MapPostEffect3CurrentLutLookup.ResolveOwnedSource(postEffectResources,camera,true,
+            selector).JoinActualMainPreparation(transfer);
+        var ldr=camera.LdrLutKey933==0?null:MapPostEffect3CurrentLutLookup.ResolveOwnedSource(postEffectResources,camera,false,
+            selector).JoinActualMainPreparation(transfer);
+        var lens=postEffectResources.ResolveLensPreset(camera.Source,camera.ExecutableLocale);
         var lookups=MapPostEffect3ApplyFreshLutLookups.ConstructFreshSource(camera,
             Allocation.ContextOwnerIdentity+"/actual-World-controlled-lookups",lens,hdr,ldr);
         if(!lookups.HdrPrimary1828Present)

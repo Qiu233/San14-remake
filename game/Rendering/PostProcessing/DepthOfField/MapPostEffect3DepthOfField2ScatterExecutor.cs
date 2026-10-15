@@ -37,26 +37,46 @@ public sealed partial class MapPostEffect3DepthOfField2ScatterExecutor:IAsyncDis
     private readonly Rid[] staging;
     private readonly SemaphoreSlim serial=new(1,1);
     private bool retiring,disposed;
+    private NativeMapBorrowerRetirementPackage? pendingDraw;
+    private sealed class DrawResources(IDisposable bankScope,MapPostEffect3DepthOfField2ScatterInputs input):IAsyncDisposable
+    {
+        public RenderDeviceResources Resources{get;}=new("DOF2 scatter RD resource creation failed.");
+        private IDisposable? scope=bankScope;
+        public async ValueTask DisposeAsync()
+        {
+            if(Resources.Count!=0)await Resources.DisposeAsync();
+            GC.KeepAlive(input);
+            scope?.Dispose();scope=null;
+        }
+    }
     private MapPostEffect3DepthOfField2ScatterExecutor(MapPostEffect3ProgramLibrary library,
         PostProcessResourceBank bank,Rid[] staging)=>(Library,Bank,this.staging)=(library,bank,staging);
     public static async Task<MapPostEffect3DepthOfField2ScatterExecutor> BuildBorrowedAsync(
         MapPostEffect3ProgramLibrary library,PostProcessResourceBank bank)
     {
         if(library.SourceSha256!=bank.Source.Source.Sha256)throw new InvalidDataException("DOF2 scatter library and bank differ.");
-        Rid[] staging=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
+        return await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
-            var pair=new Rid[2];
-            try{for(int i=0;i<2;i++){pair[i]=rd.StorageBufferCreate(32);if(!pair[i].IsValid)throw new InvalidDataException("DOF2 source staging32B allocation failed.");}return pair;}
-            catch{foreach(var rid in pair)if(rid.IsValid)rd.FreeRid(rid);throw;}
+            var pair=new Rid[2];var partial=new RenderDeviceResources("DOF2 source staging32B allocation failed.");
+            try
+            {
+                for(int i=0;i<2;i++)pair[i]=partial.Own(rd.StorageBufferCreate(32));
+                // Successful construction transfers both handles to the
+                // executor's staging array and its existing per-side retirement.
+                return new MapPostEffect3DepthOfField2ScatterExecutor(library,bank,pair);
+            }
+            catch(Exception failure)
+            {partial.ReleaseAfterConstructionFailure(rd,failure,"DOF2-scatter-staging");throw;}
         });
-        return new(library,bank,staging);
     }
     public async Task<MapPostEffect3FullscreenCompletedPass> DrawAsync(MapPostEffect3DepthOfField2ScatterInputs input)
     {
-        await serial.WaitAsync();var owned=new List<Rid>();IDisposable? bankScope=null;
+        await serial.WaitAsync();DrawResources? resources=null;Exception? drawFailure=null;
+        MapPostEffect3FullscreenCompletedPass? completed=null;
         try
         {
-            ObjectDisposedException.ThrowIf(retiring,this);LastCompletedPass=null;LastStagingCopy=null;LastInputs=null;
+            ObjectDisposedException.ThrowIf(retiring,this);await DrainPendingDrawCoreAsync();
+            LastCompletedPass=null;LastStagingCopy=null;LastInputs=null;
             var prepared=input.Prepared;var before=input.Before;var table=input.TextureParameters;
             int pass=before.SourcePassIndex;var view=input.ActualTargetView;var prefix=input.ActualSpritePrefix;
             var acceptedContext=input.ActualPostBindingContext;
@@ -99,7 +119,7 @@ public sealed partial class MapPostEffect3DepthOfField2ScatterExecutor:IAsyncDis
                 if(prefix.ReadableByteCount!=0)input.ActualSpriteRead.RequireReadRange(0,prefix.ReadableByteCount);
                 input.ActualArguments.RequireReadRange(0,32);
             }
-            Require();bankScope=await Bank.AcquireBufferExecutionScopeAsync();
+            Require();resources=new(await Bank.AcquireBufferExecutionScopeAsync(),input);
             var compiled=await Library.GetCompiledPassAsync(pass);
             var vertex=compiled.Stages.Single(s=>s.Source.StageCode==1);var pixel=compiled.Stages.Single(s=>s.Source.StageCode==0);
             if(compiled.Kind!=MapPostEffect3CompiledPassKind.Graphics||compiled.StockScreenVertex is not null||
@@ -126,7 +146,7 @@ public sealed partial class MapPostEffect3DepthOfField2ScatterExecutor:IAsyncDis
             await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
             {
                 Require();
-                Rid Own(Rid rid){if(!rid.IsValid)throw new InvalidDataException("DOF2 scatter RD resource creation failed.");owned.Add(rid);return rid;}
+                Rid Own(Rid rid)=>resources.Resources.Own(rid);
                 if(cb.UploadRevision!=cbRevision||cb.CompleteBytesSha256!=expected||!rd.TextureIsValid(view.TargetViewRid)||
                     !input.ActualArguments.StorageRid.IsValid)throw new InvalidDataException("DOF2 actual scatter owners changed before submission.");
                 var actualTexture=Bank.RequireTexture(view.ActualPointer.ParameterIndex,view.ActualPointer.Reference.InstanceIndex);
@@ -204,8 +224,7 @@ public sealed partial class MapPostEffect3DepthOfField2ScatterExecutor:IAsyncDis
                     view.StorageRid,view.TargetViewRid,10,view.Extent,0,revision){PriorDestinationPixelsWereValidated=true};return true;
             });
             Require();if(cb.UploadRevision!=cbRevision)throw new InvalidDataException("DOF2 scatter CB18 changed during the source draw.");
-            LastInputs=input;
-            return LastCompletedPass=new(prepared.FrameNumber,Bank.Source.ContextOwnerIdentity,pass,vertex.Source.Sha256,pixel.Source.Sha256,
+            return completed=new(prepared.FrameNumber,Bank.Source.ContextOwnerIdentity,pass,vertex.Source.Sha256,pixel.Source.Sha256,
                 Array.AsReadOnly(Bank.Source.Passes[pass].ActiveBindings.ToArray()),Array.AsReadOnly(new[]{write??throw new InvalidDataException("DOF2 scatter was not submitted.")}),
                 Array.AsReadOnly(new[]{new MapPostEffect3ComputeConstantBufferReadReceipt(18,input.ActualCb18Instance,cb.StorageRid,cbRevision,true,expected)}),
                 context.ActualViewport,new Rect2I(Vector2I.Zero,view.Extent),raster,before.SourceEvidence+
@@ -213,18 +232,50 @@ public sealed partial class MapPostEffect3DepthOfField2ScatterExecutor:IAsyncDis
                     ";actual-native-Bind-no-clear;"+input.PriorDestination!.SourceEvidence+";")+
                 "source0x50-staging32B-copy;source0x40032-indirect-B5-offset0/16/TriangleStrip;"+prefix.SourceEvidence){WasPixelDrawSubmitted=true};
         }
+        catch(Exception failure){drawFailure=failure;throw;}
         finally
         {
-            try{if(owned.Count!=0)await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{for(int i=owned.Count-1;i>=0;i--)rd.FreeRid(owned[i]);return true;});}
-            finally{bankScope?.Dispose();serial.Release();}
+            try
+            {
+                if(resources is not null)
+                {
+                    var nested=(drawFailure as NativeMapBorrowerConstructionException)?.RetainedPackage;
+                    try
+                    {
+                        if(nested is not null)pendingDraw=NativeMapBorrowerRetirementPackage.CreatePending("DOF2-scatter-draw",[resources],nested);
+                        if(pendingDraw is not null)await DrainPendingDrawCoreAsync();
+                        else await resources.DisposeAsync();
+                    }
+                    catch(Exception cleanup)
+                    {
+                        if(pendingDraw is null)
+                        {
+                            pendingDraw=NativeMapBorrowerRetirementPackage.CreatePending("DOF2-scatter-draw",[resources]);
+                            pendingDraw!.RetainFailure();
+                        }
+                        throw new NativeMapBorrowerConstructionException(drawFailure??cleanup,cleanup,pendingDraw!);
+                    }
+                }
+                if(completed is not null){LastInputs=input;LastCompletedPass=completed;}
+            }
+            finally{serial.Release();}
         }
     }
+    internal async Task DrainPendingAsync()
+    {
+        await serial.WaitAsync();
+        try{await DrainPendingDrawCoreAsync();}
+        finally{serial.Release();}
+    }
+    private async Task DrainPendingDrawCoreAsync()
+    {pendingDraw=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pendingDraw);}
     public async ValueTask DisposeAsync()
     {
         retiring=true;await serial.WaitAsync();
         try
         {
             if(disposed)return;
+            await DrainPendingDrawCoreAsync();
             await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
             {
                 for(int i=0;i<staging.Length;i++)

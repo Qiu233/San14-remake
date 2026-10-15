@@ -6,7 +6,7 @@ public static partial class DirectionalLightConstruction
 {
     // Temporary root/root selection at weight 0. Field ranges are LightData,
     // not Actor-relative, and are derived from the typed fields of that path.
-    internal static byte[] ProviderZeroPairOwned(byte[] source)
+    internal static byte[] ProviderZeroPairOwned(DirectionalLightConstructionPacket source)
     {
         byte[] d=new byte[LightDataBytes];
         // CB6510's only nonzero LightData defaults. The interpolation writes
@@ -31,10 +31,10 @@ public static partial class DirectionalLightConstruction
         // temp/root both have no external actor +20 data receiver in this path.
         // param5=0 thus supplies a zero fog block, independent of source fog.
         // d[150..190] is already zero, including the integer word160.
-        Word(0xFDC,BinaryPrimitives.ReadUInt32LittleEndian(source.AsSpan(0xFDC,4))|0x80000000u);
+        Word(0xFDC,BinaryPrimitives.ReadUInt32LittleEndian(source.PreparedBytes.Slice(0xFDC,4))|0x80000000u);
         Put(0xFD0,PAdd(PMul(Read(0xFD8),1),PMul(Read(0xFD8),0)));
         // FD8 is not written by interpolation. Its constructor value is zero.
-        if(BinaryPrimitives.ReadUInt64LittleEndian(source.AsSpan(0xF68,8))==0)
+        if(BinaryPrimitives.ReadUInt64LittleEndian(source.PreparedBytes.Slice(0xF68,8))==0)
         {
             // CB6510 default0 retained in F3C/F4C..F64 as well as these handles.
             // A null first reference resets all three references, even if the
@@ -48,10 +48,10 @@ public static partial class DirectionalLightConstruction
         foreach(int at in new[]{0xA0,0xB0,0xC0,0xD0,0xF0})OrdinaryQuaternion(at);
         NormalizedQuaternion(0xF80);NormalizedQuaternion(0xF90);
         return d;
-        float Read(int at)=>BinaryPrimitives.ReadSingleLittleEndian(source.AsSpan(at,4));
+        float Read(int at)=>BinaryPrimitives.ReadSingleLittleEndian(source.PreparedBytes.Slice(at,4));
         void Put(int at,float x)=>BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(at,4),x);
         void Word(int at,uint x)=>BinaryPrimitives.WriteUInt32LittleEndian(d.AsSpan(at,4),x);
-        void Copy(int at,int n)=>source.AsSpan(at,n).CopyTo(d.AsSpan(at,n));
+        void Copy(int at,int n)=>source.PreparedBytes.Slice(at,n).CopyTo(d.AsSpan(at,n));
         void OrdinaryQuaternion(int at)
         {
             float x=Read(at),y=Read(at+4),z=Read(at+8),w=Read(at+12);

@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-
 namespace San14.Data;
 
 /// <summary>Explicit CB7A70 inputs after the caller has resolved its current
@@ -36,16 +34,16 @@ public sealed class DirectionalProviderCurrentFrame
 /// are neither original pointers nor GPU RIDs. No original runtime readiness is claimed.</summary>
 public sealed partial class MapDirectionalLightProviderOwner
 {
-    public const string SelectorMapSha256="0FBBA07A833D4DCFC7024EAF313661A0BA8F80A05C6D29B8801C612E10E60DEE";
     private static long nextHandle;
     private readonly MapSeasonDirectionalLightSourceSet source;
-    private readonly byte[] map;
+    private readonly Dictionary<uint, DirectionalLightSelectorMap> selectorMaps;
     private readonly Dictionary<uint,DirectionalLightResourceBinding> bindings;
     private readonly Dictionary<uint,DirectionalLightConstructionPacket> children=[];
-    private MapDirectionalLightProviderOwner(MapSeasonDirectionalLightSourceSet value,byte[] bytes)
+    private MapDirectionalLightProviderOwner(MapSeasonDirectionalLightSourceSet value,
+        Dictionary<uint, DirectionalLightSelectorMap> maps, string mapSources)
     {
-        source=value;map=bytes.ToArray();
-        SourceProvenance=$"owned-Directional-provider-CPU:{Guid.NewGuid():N};{source.Source.ResourceUri}@{source.Source.DecodedSha256};raw-map={SelectorMapSha256};B47F34..B47F4B";
+        source=value;selectorMaps=maps;
+        SourceProvenance=$"owned-Directional-provider-CPU:{Guid.NewGuid():N};{source.Source.ResourceUri}@{source.Source.DecodedSha256};raw-maps={mapSources}";
         bindings=source.Roots.ToDictionary(r=>r.Root.ObjectId,r=>new DirectionalLightResourceBinding(
             r.ProviderListObjectId,checked((ulong)Interlocked.Increment(ref nextHandle)),SourceProvenance,true,
             MapSeasonDirectionalLightSources.ListContainerClassId));
@@ -53,29 +51,28 @@ public sealed partial class MapDirectionalLightProviderOwner
     public string SourceProvenance {get;}
     public string SourceUri=>source.Source.ResourceUri;
     public string SourceSha256=>source.Source.DecodedSha256;
-    public uint SelectorMapKey=>source.Roots[0].Selector.ObjectKey;
     public static MapDirectionalLightProviderOwner Load(GameResourceRepository repository,
         MapSeasonDirectionalLightSourceSet season)
     {
         ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(season);
-        var canonical=MapSeasonDirectionalLightSources.Read(season.Database);
-        uint mapKey=canonical.Roots[0].Selector.ObjectKey;
-        if(mapKey is not (0x7BDB0B4D or 0xD998C20E or 0x2349B8D4 or 0xF7F94922))
-            throw new NotSupportedException("Directional provider raw selector map requires another exact source binding.");
-        var asset=repository.LoadRdbAsset("RRPreview",mapKey);
-        if(asset.ResourceUri!=GameResourceId.Rdb("RRPreview",mapKey).ToString()||asset.FileId!=mapKey||
-            asset.Bytes.Length!=128*128||asset.DecodedSha256!=SelectorMapSha256||
-            Convert.ToHexString(SHA256.HashData(asset.Bytes))!=SelectorMapSha256)
-            throw new InvalidDataException("Directional selector raw grid differs from its exact source asset.");
-        foreach(var r in canonical.Roots)
+        var resources = new Dictionary<uint, (byte[] Bytes, string Identity)>();
+        var maps = new Dictionary<uint, DirectionalLightSelectorMap>();
+        foreach(var r in season.Roots)
         {
             var s=r.Selector;
-            if(s.ObjectKey!=mapKey||!s.FirstWords.SequenceEqual(new uint[]{128,128})||
-                !s.SecondWords.SequenceEqual(new uint[]{640,640})||!s.Scalars.SequenceEqual(new float[]{0,0})||
-                s.FirstAxis.Count!=0||s.SecondAxis.Count!=0||r.Children.Count!=4)
+            if (s.MapObjectKey == 0)
+                throw new NotSupportedException("Directional selector without a raw map requires an actual grid content writer.");
+            if(s.XPoints.Count!=0||s.ZPoints.Count!=0||r.Children.Count!=4)
                 throw new NotSupportedException("Directional provider needs another explicit selector source consumer.");
+            if (!resources.TryGetValue(s.MapObjectKey, out var resource))
+            {
+                var asset = repository.LoadRdbAsset("RRPreview", s.MapObjectKey);
+                resource = (asset.Bytes.ToArray(), $"{asset.ResourceUri}@{asset.DecodedSha256}");
+                resources.Add(s.MapObjectKey, resource);
+            }
+            maps.Add(r.Root.ObjectId, new DirectionalLightSelectorMap(s, resource.Bytes));
         }
-        return new(canonical,asset.Bytes);
+        return new(season, maps, string.Join(",", resources.Values.Select(r => r.Identity)));
     }
     public DirectionalLightResourceBinding GetBinding(uint registeredRootObjectId)
         =>bindings.TryGetValue(registeredRootObjectId,out var b)?b:
@@ -117,18 +114,9 @@ public sealed partial class MapDirectionalLightProviderOwner
         if(input.ScalarFirst>=0&&input.ScalarFirst<=24&&input.ScalarSecond>=0&&input.ScalarSecond<=1&&input.TemporaryDirectionalAvailable)
             return Root("CB7E1F B479B0 empty first axis -> CB8382");
         byte spatial=input.PairFirstIndex>0?unchecked((byte)(input.PairFirstIndex-1)):
-            map[Cell(input.LocationZ)*128+Cell(input.LocationX)];
+            selectorMaps[root.SourceObjectId].Sample(input.LocationX, input.LocationZ);
         return spatial>=4?Root("CB8344..CB8370 spatial byte outside child count",spatial):
             Child(spatial+1,"CB8372..CB8391 spatial ready child",spatial);
-    }
-    private static int Cell(float location)
-    {
-        // B47870 uses cvttss2si then unsigned integer DIV, followed by signed
-        // clamping. Reject unsupported indefinite cvtt results explicitly.
-        if(location< int.MinValue||(double)location>=2147483648d)
-            throw new NotSupportedException("Directional selector location exceeds the supported signed32 cvtt range.");
-        uint quotient=unchecked((uint)(int)location)/640u;
-        return Math.Clamp(unchecked((int)quotient),0,127);
     }
     public DirectionalProviderCurrentFrame PrepareCurrentFrame(DirectionalLightConstructionPacket root,
         DirectionalProviderControls input,ReadOnlySpan<byte> preparedCameraPrefix)
@@ -140,7 +128,7 @@ public sealed partial class MapDirectionalLightProviderOwner
         DirectionalProviderSelection selected)=>selected.SelectedObjectId==root.SourceObjectId?root:children[selected.SelectedObjectId];
     private void ValidateSource(DirectionalLightConstructionPacket value)
     {
-        if(value.SourceUri!=SourceUri||value.SourceSha256!=SourceSha256)
+        if(!ReferenceEquals(value.Source, source))
             throw new InvalidDataException("Directional provider and selected constructor have different actual season sources.");
     }
     private void ValidateRootBinding(DirectionalLightConstructionPacket root)

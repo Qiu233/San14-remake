@@ -19,7 +19,7 @@ public sealed class DirectionalLightCurrentCameraPacket
     private readonly byte[] bytes;
     internal DirectionalLightCurrentCameraPacket(DirectionalLightConstructionPacket source,
         CameraDirectionalLightDataPacket result)
-    {Construction=source;bytes=result.Bytes.ToArray();Applied=result.Applied;}
+    {Construction=source;bytes=result.Bytes;Applied=result.Applied;}
     public DirectionalLightConstructionPacket Construction { get; }
     public ReadOnlyMemory<byte> Bytes=>bytes.ToArray();
     public bool Applied { get; }
@@ -31,12 +31,13 @@ public sealed class DirectionalLightConstructionPacket
 {
     private readonly byte[] seed, prepared;
     private readonly DirectionalLightConstructionInputs inputs;
-    internal DirectionalLightConstructionPacket(uint objectId, string sourceUri, string sourceHash,
+    internal DirectionalLightConstructionPacket(MapSeasonDirectionalLightSourceSet source, uint objectId,
         DirectionalLightConstructionInputs input,
         byte[] constructor, byte[] loaderPrepared, DirectionalLightConstructorMetadata metadata,
         byte[] sourceWriteMask,uint[] declaredSlotKeys,uint?[] resolvedSlotKeys)
     {
-        SourceObjectId=objectId; SourceUri=sourceUri; SourceSha256=sourceHash;
+        Source=source; Settings=source.GetSettings(objectId);
+        SourceObjectId=objectId; SourceUri=source.Source.ResourceUri; SourceSha256=source.Source.DecodedSha256;
         inputs=input;
         seed=constructor.ToArray();prepared=loaderPrepared.ToArray();Metadata=metadata;
         ConstructorSha256=Convert.ToHexString(SHA256.HashData(seed));
@@ -47,6 +48,8 @@ public sealed class DirectionalLightConstructionPacket
             0xFE0+slot*8,key,BinaryPrimitives.ReadUInt64LittleEndian(prepared.AsSpan(0xFE0+slot*8,8)),
             slot==21?0x970DB365u:0xB672FAA2u,resolvedSlotKeys[slot])).ToArray());
     }
+    public MapSeasonDirectionalLightSourceSet Source { get; }
+    public DirectionalLightSettings Settings { get; }
     public uint SourceObjectId { get; }
     public string SourceUri { get; }
     public string SourceSha256 { get; }
@@ -55,6 +58,7 @@ public sealed class DirectionalLightConstructionPacket
     public DirectionalLightConstructorMetadata Metadata { get; }
     public ReadOnlyMemory<byte> ConstructorBytes => seed.ToArray();
     public ReadOnlyMemory<byte> Bytes => prepared.ToArray();
+    internal ReadOnlySpan<byte> PreparedBytes => prepared;
     public uint ContextFlags3E4 => inputs.ContextFlags3E4;
     public string RetainedTemplateProvenance => inputs.RetainedTemplateProvenance;
     public bool CurrentCameraApplied => false;
@@ -83,11 +87,7 @@ public static partial class DirectionalLightConstruction
         ArgumentNullException.ThrowIfNull(source);ArgumentNullException.ThrowIfNull(input);
         if(explicitComplete10C0.Length!=LightDataBytes||string.IsNullOrWhiteSpace(input.RetainedTemplateProvenance))
             throw new InvalidDataException("Directional construction needs a complete10C0 template with explicit provenance.");
-        var checkedSource=MapSeasonDirectionalLightSources.Read(source.Database);
-        if(!checkedSource.Roots.SelectMany(r=>r.Children.Prepend(r.Root)).Any(r=>r.ObjectId==sourceObjectId))
-            throw new InvalidDataException("Directional construction needs an actual selected season root or ordered provider child.");
-        var declaration=checkedSource.Database.Objects.Document.Objects.Single(o=>o.ObjectId==sourceObjectId);
-        var properties=declaration.Properties.Select(p=>p with {RawValue=p.RawValue.ToArray()}).ToArray();
+        DirectionalLightSettings settings = source.GetSettings(sourceObjectId);
         var bindings=input.ResourceBindings?.ToArray()??throw new InvalidDataException("Explicit Directional resource lookup results required.");
         if(bindings.Any(b=>b is null||string.IsNullOrWhiteSpace(b.OwnerProvenance)||b.SourceObjectKey==0)||
             bindings.Select(b=>b.SourceObjectKey).Distinct().Count()!=bindings.Length)
@@ -96,12 +96,12 @@ public static partial class DirectionalLightConstruction
             if((b.DataHandle==0&&b.CpuDataReady)||(b.DataHandle!=0&&!b.CpuDataReady))
                 throw new InvalidDataException("Directional binding must explicitly identify unavailable/null or ready Data.");
         var ownedInput=input with {ResourceBindings=Array.AsReadOnly(bindings)};
-        var result=ConstructOwned(properties,ownedInput,explicitComplete10C0);
+        var result=ConstructOwned(settings,ownedInput,explicitComplete10C0);
         uint Word(int offset)=>BinaryPrimitives.ReadUInt32LittleEndian(result.Cpu.AsSpan(offset,4));
-        uint provider=BinaryPrimitives.ReadUInt32LittleEndian(properties[57].RawValue);
+        uint provider=settings.ProviderObjectKey;
         var metadata=new DirectionalLightConstructorMetadata(sourceObjectId,Word(0x30),Word(0x34),Word(0x38),
             Word(0x3C),Word(0x40),Word(0x44),provider,result.Prepared[0xF20]);
-        return new(sourceObjectId,checkedSource.Source.ResourceUri,checkedSource.Source.DecodedSha256,
+        return new(source,sourceObjectId,
             ownedInput,result.Constructor,result.Prepared,metadata,result.SeedWriteMask,result.DeclaredSlotKeys,result.ResolvedSlotKeys);
     }
 
@@ -115,7 +115,7 @@ public static partial class DirectionalLightConstruction
     internal static CameraDirectionalLightDataPacket PrepareCamera(DirectionalLightConstructionPacket construction,
         ReadOnlySpan<byte> camera)
     {
-        byte[] light=construction.Bytes.ToArray();
+        var light=construction.PreparedBytes;
         if(light[0x10B0]==2)
         {
             // CBC770 is a LightData consumer, independent of the originating
@@ -137,11 +137,8 @@ public static partial class DirectionalLightConstruction
         IReadOnlyList<DirectionalLightResourceBinding> knownLookupResults)
     {
         ArgumentNullException.ThrowIfNull(source);
-        var checkedSource=MapSeasonDirectionalLightSources.Read(source.Database);
-        var obj=checkedSource.Database.Objects.Document.Objects.Single(o=>o.ObjectId==sourceObjectId&&o.ClassId==DirectionalLightSource.SourceClass);
-        var properties=obj.Properties.Select(p=>p with {RawValue=p.RawValue.ToArray()}).ToArray();
-        byte[][] fields=ReadFields(properties);
-        return ResolveResources(fields,DeclaredKeys(fields),knownLookupResults,true,null);
+        DirectionalLightSettings settings = source.GetSettings(sourceObjectId);
+        return ResolveResources(settings,DeclaredKeys(settings),knownLookupResults,true,null);
     }
 
     internal static IReadOnlyList<DirectionalLightByteRange> Ranges(byte[] mask,byte value)

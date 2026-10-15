@@ -29,13 +29,23 @@ public sealed class WorldGeometryTargetFrames : IAsyncDisposable
             .SequenceEqual(source.Source.ColorTargets.Take(5).Select(t => (t.Slot, t.ObjectNameHash, t.SurfaceId))))
             throw new InvalidDataException("Original node48 and node53 must share their first five surfaces.");
         var army = await RenderTargetFrame.BuildAttachmentFrameAsync(source.Source, actualNode53Frame);
+        OrdinaryRs4TargetFrameOwner? rs4 = null;
         try
         {
-            var rs4 = actualRs4Source is null ? null :
+            rs4 = actualRs4Source is null ? null :
                 await OrdinaryRs4TargetFrameOwner.BuildAsync(actualRs4Source, actualNode53Frame);
             return new(source, army, actualNode53Frame, rs4);
         }
-        catch { await army.DisposeAsync(); throw; }
+        catch(Exception failure)
+        {
+            var pending=NativeMapBorrowerRetirementPackage.CreatePending("World-geometry-frames-partial",
+                new IAsyncDisposable?[]{rs4,army}.OfType<IAsyncDisposable>(),
+                (failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+            try{await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pending);}
+            catch(Exception cleanup)
+            {throw new NativeMapBorrowerConstructionException(failure,cleanup,pending!);}
+            throw;
+        }
     }
 
     /// <summary>Retire all draws which borrow ArmyFrame first. OrdinaryFrame

@@ -1,8 +1,5 @@
-using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 using Godot;
 using San14.Data;
-using San14.Data.Formats;
 
 /// <summary>RenderingDevice transport copy of the current logical E13 depth.
 /// The source E13 remains the stencil attachment. This is not a graph output
@@ -17,13 +14,10 @@ public sealed record DeferredEarlyShaderDepthPublication(
 /// the same depth bits while keeping actual source E13 stencil attached.</summary>
 public sealed class DeferredEarlyShaderDepthMirror : IAsyncDisposable
 {
-    // The DOK is an imported source object. Retain its declaration for that
-    // loaded lifetime; a reload creates another key and imports again.
-    private static readonly ConditionalWeakTable<LoadedObjects, RenderTextureDefinition> loadedDepthSources = new();
     private readonly SemaphoreSlim gate = new(1, 1);
     private Rid texture;
     private Vector2I extent;
-    private bool retiring;
+    private volatile bool retiring;
     private readonly object lifetime = new();
     private Task? disposal;
     public DeferredEarlyShaderDepthPublication? Current { get; private set; }
@@ -102,6 +96,8 @@ public sealed class DeferredEarlyShaderDepthMirror : IAsyncDisposable
 
     private static void ValidateSource(RenderTargetDeviceTexture source)
     {
+        // The parent frame owns resource import. Check only the depth shape
+        // and formats consumed by this transport.
         if (source.Source.Object.ObjectId != 0xE13DDB4F ||
             source.Source.Kind != RenderTextureKind.Texture2D || source.Source.LevelNum != 1 ||
             source.Source.MinMipLevel != 0 || source.Source.MultiSample != 0 ||
@@ -110,22 +106,6 @@ public sealed class DeferredEarlyShaderDepthMirror : IAsyncDisposable
             source.ShaderFormat != RenderingDevice.DataFormat.D32SfloatS8Uint ||
             source.TargetFormat != RenderingDevice.DataFormat.D32SfloatS8Uint)
             throw new InvalidDataException("Depth transport requires the actual current original E13 single-mip depth declaration.");
-        var canonical = loadedDepthSources.GetValue(source.Source.Source, ImportDepthSource);
-        if (canonical with { Source = source.Source.Source, Object = source.Source.Object } != source.Source)
-            throw new InvalidDataException("Logical E13 declaration differs from its imported source.");
-    }
-
-    private static RenderTextureDefinition ImportDepthSource(LoadedObjects source)
-    {
-        var bytes = source.Source;
-        if (bytes.OverrideSource is not null || bytes.ResourceUri != DeferredAuxiliaryTargetSources.ActualObjectsResourceUri ||
-            bytes.DecodedSha256 != DeferredAuxiliaryTargetSources.ActualObjectsSha256 ||
-            Convert.ToHexString(SHA256.HashData(bytes.Bytes)) != bytes.DecodedSha256)
-            throw new InvalidDataException("Depth transport requires the original E13 objects at source import.");
-        var canonical = RenderTextureResources.Read(new LoadedObjects(DokReader.Read(bytes.Bytes), bytes), 0xE13DDB4F);
-        // Do not retain a second complete parsed DOK alongside the actual
-        // loaded objects. Only the verified E13 declaration is needed here.
-        return canonical with { Source = source };
     }
 
     /// <summary>Every cached early draw that references this transport must
@@ -143,8 +123,12 @@ public sealed class DeferredEarlyShaderDepthMirror : IAsyncDisposable
     }
     public ValueTask DisposeAsync()
     {
-        lock (lifetime) return new(disposal ??= DisposeCoreAsync());
+        lock (lifetime)
+        {
+            retiring = true;
+            if (disposal is null || disposal.IsFaulted || disposal.IsCanceled)
+                disposal = RetireAsync();
+            return new(disposal);
+        }
     }
-    private async Task DisposeCoreAsync()
-    { retiring = true; await RetireAsync(); }
 }

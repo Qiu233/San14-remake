@@ -14,7 +14,7 @@ public sealed class RemakeArmyFlagGlyphRenderer:IAsyncDisposable
 {
     private readonly RemakeArmyFlagPaneImage _pane;
     private readonly Rid _shader,_pipeline,_vertices,_vertexArray,_indices,_indexArray,_vertexCb,_pixelCb,_vertexSet,_pixelSet;
-    private readonly IReadOnlyList<Rid> _owned;
+    private readonly RenderDeviceResources _resources;
     private LoadedArmyFlagGlyphAtlasPrefix? _sourceAtlas;
     private readonly SemaphoreSlim _gate=new(1,1);
     private readonly object _lifetime=new();
@@ -22,9 +22,9 @@ public sealed class RemakeArmyFlagGlyphRenderer:IAsyncDisposable
     public long DrawCount { get; private set; }
 
     private RemakeArmyFlagGlyphRenderer(RemakeArmyFlagPaneImage pane,
-        Rid shader,Rid pipeline,Rid vertices,Rid vertexArray,Rid indices,Rid indexArray,Rid vertexCb,Rid pixelCb,Rid vertexSet,Rid pixelSet,IReadOnlyList<Rid> owned)
-        =>(_pane,_shader,_pipeline,_vertices,_vertexArray,_indices,_indexArray,_vertexCb,_pixelCb,_vertexSet,_pixelSet,_owned)=
-            (pane,shader,pipeline,vertices,vertexArray,indices,indexArray,vertexCb,pixelCb,vertexSet,pixelSet,owned);
+        Rid shader,Rid pipeline,Rid vertices,Rid vertexArray,Rid indices,Rid indexArray,Rid vertexCb,Rid pixelCb,Rid vertexSet,Rid pixelSet,RenderDeviceResources resources)
+        =>(_pane,_shader,_pipeline,_vertices,_vertexArray,_indices,_indexArray,_vertexCb,_pixelCb,_vertexSet,_pixelSet,_resources)=
+            (pane,shader,pipeline,vertices,vertexArray,indices,indexArray,vertexCb,pixelCb,vertexSet,pixelSet,resources);
 
     public static async Task<RemakeArmyFlagGlyphRenderer> BuildAsync(LoadedDeferredAuxiliaryStockCopySource source,
         Vkd3dShaderCompiler compiler,RemakeArmyFlagPaneImage pane,ModelDeviceBinding atlas,
@@ -45,7 +45,8 @@ public sealed class RemakeArmyFlagGlyphRenderer:IAsyncDisposable
         byte[] samplerBytes=explicitSourceAtlasSampler52.ToArray();
         return await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
-            var owned=new List<Rid>();Rid Own(Rid rid){if(!rid.IsValid)throw Error("device allocation failed");owned.Add(rid);return rid;}
+            var resources=new RenderDeviceResources("Original Army flag stock glyph device allocation failed.");
+            Rid Own(Rid rid)=>resources.Own(rid);
             try
             {
                 using var stages=new RDShaderSpirV();stages.SetStageBytecode(RenderingDevice.ShaderStage.Vertex,adapter.Bytes);
@@ -101,9 +102,13 @@ public sealed class RemakeArmyFlagGlyphRenderer:IAsyncDisposable
                 Rid pipeline=Own(rd.RenderPipelineCreate(shader,rd.FramebufferGetFormat(pane.Framebuffer),format,
                     RenderingDevice.RenderPrimitive.Triangles,raster,multisample,depth,blend));
                 if(!rd.RenderPipelineIsValid(pipeline))throw Error("native glyph source pipeline rejected");
-                return new RemakeArmyFlagGlyphRenderer(pane,shader,pipeline,vertices,vertexArray,indices,indexArray,vsCb,psCb,vsSet,psSet,owned.AsReadOnly());
+                return new RemakeArmyFlagGlyphRenderer(pane,shader,pipeline,vertices,vertexArray,indices,indexArray,vsCb,psCb,vsSet,psSet,resources);
             }
-            catch{for(int i=owned.Count-1;i>=0;i--)rd.FreeRid(owned[i]);throw;}
+            catch(Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd,failure,"Army-flag-glyph-partial");
+                throw;
+            }
         });
     }
 
@@ -170,12 +175,20 @@ public sealed class RemakeArmyFlagGlyphRenderer:IAsyncDisposable
         }
         if(count!=1)throw Error("stock VS requires its single descriptor set adaptation");return result;
     }
-    public ValueTask DisposeAsync(){lock(_lifetime){_retiring=true;return new(_disposal??=DisposeCoreAsync());}}
+    public ValueTask DisposeAsync()
+    {
+        lock(_lifetime)
+        {
+            _retiring=true;
+            if(_disposal is null||_disposal.IsFaulted||_disposal.IsCanceled)_disposal=DisposeCoreAsync();
+            return new(_disposal);
+        }
+    }
     private async Task DisposeCoreAsync()
     {
         Task pending;lock(_lifetime)pending=_accepted==0?Task.CompletedTask:(_drained??=new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
         await pending;await _gate.WaitAsync();
-        try{await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{for(int i=_owned.Count-1;i>=0;i--)rd.FreeRid(_owned[i]);return true;});}
+        try{await _resources.DisposeAsync();}
         finally{_gate.Release();}
     }
     private static InvalidDataException Error(string message)=>new("Original Army flag stock glyph "+message+".");

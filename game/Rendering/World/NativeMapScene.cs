@@ -8,6 +8,38 @@ public sealed record NativeDeferredPacket(IReadOnlyDictionary<uint,ReadOnlyMemor
     IReadOnlyList<DeferredDeviceBinding> Inputs,DeferredRasterState Raster,
     DeferredTranslucencyViewportInputs? TemporaryTranslucencyViewport=null)
 {
+    private DeferredPixelProgram? worldProgram;
+    private MapSourceCreatedNativeSessionPreparedFrame? worldPass;
+
+    // A record replacement is a new, unprepared packet. It must not inherit
+    // authority to bypass Camera preparation after any legal field rewrite.
+    private NativeDeferredPacket(NativeDeferredPacket original)
+    {
+        Constants=original.Constants;Inputs=original.Inputs;Raster=original.Raster;
+        TemporaryTranslucencyViewport=original.TemporaryTranslucencyViewport;
+    }
+
+    internal static NativeDeferredPacket PrepareWorld(DeferredPixelProgram program,
+        MapSourceCreatedNativeSessionPreparedFrame accepted,NativeDeferredPacket template,
+        DeferredTranslucencyViewportInputs viewport)
+    {
+        ArgumentNullException.ThrowIfNull(program);ArgumentNullException.ThrowIfNull(accepted);
+        return new(template.Constants,template.Inputs,template.Raster,viewport)
+            {worldProgram=program,worldPass=accepted};
+    }
+
+    internal NativeDeferredPacket PrepareCameraForScene(DeferredPixelProgram program,
+        NativeMapFrameContext context,DeferredCameraInputs camera)
+    {
+        if(worldPass is not { } pass)return ApplySceneFields(program,new(Camera:camera),out _);
+        if(!ReferenceEquals(worldProgram,program)||!ReferenceEquals(pass.Context,context)||
+            context.PreparedCamera!=camera||pass.Lighting.SceneInputs.Camera!=camera||
+            pass.Selection.Camera.SceneInputs!=camera)
+            throw new InvalidDataException("Prepared World packet belongs to another program, context or Camera.");
+        program.ValidateCompatibleCurrentSelection(pass.Selection);
+        return this;
+    }
+
     /// <summary>Apply restored named scene writers to an explicit complete
     /// provider packet. Unknown fields and the two shadow CBs remain retained.
     /// Callers still supply coherent source inputs and all resource producers.</summary>
@@ -109,6 +141,9 @@ public sealed class NativeMapScene : IAsyncDisposable
     private DeferredDraw? _deferred;
     private DeferredRasterState? _deferredRaster;
     private TerrainGbufferRasterState? _terrainRaster;
+    private NativeMapBorrowerRetirementPackage? _drawRetirement;
+    private NativeMapBorrowerRetirementPackage? _targetRetirement;
+    private NativeMapBorrowerRetirementPackage? _finalRetirement;
     private readonly object _lifetimeGate=new();
     private Task? _disposal;
     private bool _retiring;
@@ -178,7 +213,15 @@ public sealed class NativeMapScene : IAsyncDisposable
             }
             return new(textures,detail,coarse,deferred,terrain,output,present,outputPass,stages,borrowedDeferredProgram is null,requireExternalPresentation);
         }
-        catch{for(int i=owned.Count-1;i>=0;i--)await owned[i].DisposeAsync();throw;}
+        catch(Exception failure)
+        {
+            var pending=NativeMapBorrowerRetirementPackage.CreatePending("Scene-construction",
+                owned.AsEnumerable().Reverse(),(failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+            try{await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pending);}
+            catch(Exception cleanup)
+            {throw new NativeMapBorrowerConstructionException(failure,cleanup,pending!);}
+            throw;
+        }
     }
 
     /// <summary>One camera packet is shared by all terrain groups. The callback
@@ -233,7 +276,7 @@ public sealed class NativeMapScene : IAsyncDisposable
             var packets=await prepareDeferred(context)??throw new InvalidDataException("Native map requires explicit ordered deferred packets.");
             if(packets.Count==0||packets.Any(p=>p is null))
                 throw new InvalidDataException("Ordered deferred submission requires a nonempty complete source pass list.");
-            return packets.Select(p=>p.ApplySceneFields(DeferredProgram,new(Camera:preparedCamera),out _)).ToArray();
+            return packets.Select(p=>p.PrepareCameraForScene(DeferredProgram,context,preparedCamera)).ToArray();
         },preparedCamera,geometryClearActions);
     }
 
@@ -258,11 +301,13 @@ public sealed class NativeMapScene : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(_retiring,this);
+            _targetRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_targetRetirement);
             // Only an accepted serial attempt supersedes the current receipt.
             // A queued request or rejected preflight must not invalidate the
             // frame whose AfterTerrain consumers still hold this scene gate.
             Volatile.Write(ref _lastTerrainSubmittedFrame, null);
             Volatile.Write(ref _lastWorldDeferredSubmittedFrame,null);
+            _drawRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_drawRetirement);
             long attempt=checked(++RenderAttemptNumber);
             var stageWatch=Stopwatch.StartNew();
             var stageTimings=new List<NativeMapStageTiming>(9);
@@ -308,8 +353,16 @@ public sealed class NativeMapScene : IAsyncDisposable
                     foreach(var batch in snapshot)next.Add((batch,await TerrainGbufferDraw.BuildAsync(
                         batch.Coarse?CoarseProgram:DetailProgram,TerrainTextures,TerrainFrame,batch.Patches,camera,terrainRaster)));
                 }
-                catch{for(int i=next.Count-1;i>=0;i--)await next[i].Draw.DisposeAsync();throw;}
-                await RetireTerrainBatchesAsync();_batches.AddRange(next);_terrainRaster=terrainRaster;
+                catch (Exception failure)
+                {
+                    await RetireFailedDrawsAsync(failure,next.AsEnumerable().Reverse().Select(p=>p.Draw));
+                    throw;
+                }
+                var prior=_batches.AsEnumerable().Reverse().Select(p=>p.Draw).ToArray();
+                _batches.Clear();_batches.AddRange(next);_terrainRaster=terrainRaster;
+                Volatile.Write(ref _lastTerrainSubmittedFrame,null);
+                _drawRetirement=NativeMapBorrowerRetirementPackage.CreatePending("Scene-replaced-terrain-draws",prior);
+                _drawRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_drawRetirement);
             }
             else foreach(var entry in _batches)await entry.Draw.UpdateConstantsAsync(camera);
             MarkStage("terrain-draw-preparation");
@@ -330,12 +383,22 @@ public sealed class NativeMapScene : IAsyncDisposable
             {
                 if(_deferred is null || packet.Raster!=_deferredRaster || !packet.Inputs.SequenceEqual(_deferred.Inputs))
                 {
-                    var next=await DeferredDraw.BuildAsync(DeferredProgram,OutputTarget(),packet.Constants,packet.Inputs,packet.Raster);
-                    if(_deferred is not null)await _deferred.DisposeAsync();_deferred=next;_deferredRaster=packet.Raster;
+                    DeferredDraw next;
+                    try { next=await DeferredDraw.BuildAsync(DeferredProgram,OutputTarget(),packet.Constants,packet.Inputs,packet.Raster); }
+                    catch (Exception failure)
+                    {
+                        await RetireFailedDrawsAsync(failure,[]);
+                        throw;
+                    }
+                    var prior=_deferred;
+                    _deferred=next;_deferredRaster=packet.Raster;
+                    Volatile.Write(ref _lastWorldDeferredSubmittedFrame,null);
+                    if(prior is not null)_drawRetirement=NativeMapBorrowerRetirementPackage.CreatePending("Scene-replaced-deferred-draw",[prior]);
+                    _drawRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_drawRetirement);
                 }
                 else await _deferred.UpdateConstantsAsync(packet.Constants);
                 await _deferred.DrawAsync(packet.TemporaryTranslucencyViewport);
-                lateSubmitted.Add(new(_deferred,packet));
+                lateSubmitted.Add(new(packet));
             }
             Volatile.Write(ref _lastWorldDeferredSubmittedFrame,
                 new NativeMapWorldDeferredSubmittedFrame(this,context,DeferredProgram,lateSubmitted));
@@ -369,18 +432,26 @@ public sealed class NativeMapScene : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(_retiring,this);
+            _targetRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_targetRetirement);
+            _drawRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_drawRetirement);
             RenderTargetFrame? terrain=null,output=null;RenderOutputPresentation? present=null;RenderColorPass? outputPass=null;
+            NativeMapBorrowerRetirementPackage? candidatePartial=null;
             RenderOutputPresentation? previousExternal = _externalPresentation;
             try
             {
-                var terrainResolution=resolvedTargets??TerrainFrame.Resolutions;
-                var outputResolution=resolvedTargets??OutputFrame.Resolutions;
-                RequireSeparateTargetOwners(TerrainFrame.Source,OutputFrame.Source,terrainResolution,outputResolution);
-                terrain=await RenderTargetFrame.BuildAsync(TerrainFrame.Source,terrainExtents,allowReadback,allowGpuCopy:true,resolutions:terrainResolution);
-                output=await RenderTargetFrame.BuildAsync(OutputFrame.Source,outputExtents,allowReadback,allowGpuCopy:true,resolutions:outputResolution);
-                outputPass=await RenderColorPass.BuildAsync(output);
-                if(!RequiresExternalPresentation)
-                    present=await RenderOutputPresentation.BuildAsync(output.Textures[output.Source.ColorTargets[0].Texture.Object.ObjectId]);
+                try
+                {
+                    var terrainResolution=resolvedTargets??TerrainFrame.Resolutions;
+                    var outputResolution=resolvedTargets??OutputFrame.Resolutions;
+                    RequireSeparateTargetOwners(TerrainFrame.Source,OutputFrame.Source,terrainResolution,outputResolution);
+                    terrain=await RenderTargetFrame.BuildAsync(TerrainFrame.Source,terrainExtents,allowReadback,allowGpuCopy:true,resolutions:terrainResolution);
+                    output=await RenderTargetFrame.BuildAsync(OutputFrame.Source,outputExtents,allowReadback,allowGpuCopy:true,resolutions:outputResolution);
+                    outputPass=await RenderColorPass.BuildAsync(output);
+                    if(!RequiresExternalPresentation)
+                        present=await RenderOutputPresentation.BuildAsync(output.Textures[output.Source.ColorTargets[0].Texture.Object.ObjectId]);
+                }
+                catch(NativeMapBorrowerConstructionException failure)
+                {candidatePartial=failure.RetainedPackage;throw;}
                 // Retire our deferred draw first: it can borrow the extra
                 // owner's views. A failed stage keeps the old parent targets;
                 // the next frame may recreate its retired cached draws.
@@ -389,18 +460,24 @@ public sealed class NativeMapScene : IAsyncDisposable
                 if(_stages?.BeforeTargetRetirement is { } retireTargets)
                     await retireTargets(new(TerrainFrame,OutputFrame));
             }
-            catch
+            catch(Exception failure)
             {
                 if (previousExternal is not null && GodotObject.IsInstanceValid(previousExternal.Texture) &&
                     previousExternal.Texture.TextureRdRid.IsValid)
                     _externalPresentation = previousExternal;
-                if(present is not null)await present.DisposeAsync();if(outputPass is not null)await outputPass.DisposeAsync();if(output is not null)await output.DisposeAsync();
-                if(terrain is not null)await terrain.DisposeAsync();throw;
+                _targetRetirement=NativeMapBorrowerRetirementPackage.CreatePending("Scene-rejected-targets",
+                    new IAsyncDisposable?[]{present,outputPass,output,terrain}.OfType<IAsyncDisposable>(),candidatePartial);
+                try{_targetRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_targetRetirement);}
+                catch(Exception cleanup)
+                {throw new NativeMapBorrowerConstructionException(failure,cleanup,_targetRetirement!);}
+                throw;
             }
             var oldPresent=Presentation;var oldOutput=OutputFrame;var oldTerrain=TerrainFrame;var oldPass=_outputPass;
             (TerrainFrame,OutputFrame,Presentation,_outputPass)=(terrain,output,present,outputPass);
             LastCompletedContext = null;
-            if(oldPresent is not null)await oldPresent.DisposeAsync();await oldPass.DisposeAsync();await oldOutput.DisposeAsync();await oldTerrain.DisposeAsync();
+            _targetRetirement=NativeMapBorrowerRetirementPackage.CreatePending("Scene-replaced-targets",
+                new IAsyncDisposable?[]{oldPresent,oldPass,oldOutput,oldTerrain}.OfType<IAsyncDisposable>());
+            _targetRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_targetRetirement);
         }
         finally{_gate.Release();}
     }
@@ -428,40 +505,59 @@ public sealed class NativeMapScene : IAsyncDisposable
     private static bool SameBatch(NativeTerrainBatch left,NativeTerrainBatch right)
         =>left.Coarse==right.Coarse && left.Patches.Count==right.Patches.Count &&
             left.Patches.Where((p,i)=>p.GridSize!=right.Patches[i].GridSize || !p.EncodeInstance().SequenceEqual(right.Patches[i].EncodeInstance())).Any()==false;
-    private async Task RetireTerrainBatchesAsync()
-    {Volatile.Write(ref _lastTerrainSubmittedFrame, null);for(int i=_batches.Count-1;i>=0;i--)await _batches[i].Draw.DisposeAsync();_batches.Clear();_terrainRaster=null;}
+    private async Task RetireFailedDrawsAsync(Exception failure,IEnumerable<IAsyncDisposable> completed)
+    {
+        _drawRetirement=NativeMapBorrowerRetirementPackage.CreatePending("Scene-failed-draws",completed,
+            (failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+        try { _drawRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_drawRetirement); }
+        catch (Exception retirementFailure)
+        {throw new NativeMapBorrowerConstructionException(failure,retirementFailure,_drawRetirement!);}
+    }
+
+    private void TransferCachedDrawsForRetirement()
+    {
+        var draws=new List<IAsyncDisposable>();
+        if(_deferred is not null)draws.Add(_deferred);
+        draws.AddRange(_batches.AsEnumerable().Reverse().Select(p=>p.Draw));
+        _drawRetirement=NativeMapBorrowerRetirementPackage.CreatePending("Scene-cached-draws",draws);
+        _deferred=null;_deferredRaster=null;_batches.Clear();_terrainRaster=null;
+    }
+
     private async Task RetireDrawsAsync()
-    {Volatile.Write(ref _lastWorldDeferredSubmittedFrame,null);if(_deferred is not null)await _deferred.DisposeAsync();_deferred=null;_deferredRaster=null;await RetireTerrainBatchesAsync();}
+    {
+        Volatile.Write(ref _lastWorldDeferredSubmittedFrame,null);
+        Volatile.Write(ref _lastTerrainSubmittedFrame,null);
+        _drawRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_drawRetirement);
+        TransferCachedDrawsForRetirement();
+        _drawRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_drawRetirement);
+    }
     public ValueTask DisposeAsync()
     {
         lock(_lifetimeGate)
         {
             _retiring=true;
             Volatile.Write(ref _lastWorldDeferredSubmittedFrame,null);
-            return new(_disposal??=DisposeCoreAsync());
+            return new(_disposal is null||_disposal.IsFaulted||_disposal.IsCanceled?_disposal=DisposeCoreAsync():_disposal);
         }
     }
     private async Task DisposeCoreAsync()
     {
-        // Publish the task in DisposeAsync before a synchronous stage failure
-        // can reset it. Failed retirement retains targets and can be retried.
-        await Task.Yield();
         await _gate.WaitAsync();
         try
         {
-            await RetireDrawsAsync();
-            _externalPresentation = null;
-            if(_stages?.BeforeTargetRetirement is { } retireTargets)
-                await retireTargets(new(TerrainFrame,OutputFrame));
-            if(Presentation is not null)await Presentation.DisposeAsync();await _outputPass.DisposeAsync();await OutputFrame.DisposeAsync();await TerrainFrame.DisposeAsync();
-            if(_ownsDeferredProgram)await DeferredProgram.DisposeAsync();
-            await CoarseProgram.DisposeAsync();await DetailProgram.DisposeAsync();await TerrainTextures.DisposeAsync();
+            _targetRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_targetRetirement);
+            if(_finalRetirement is null)
+            {
+                await RetireDrawsAsync();
+                _externalPresentation = null;
+                if(_stages?.BeforeTargetRetirement is { } retireTargets)
+                    await retireTargets(new(TerrainFrame,OutputFrame));
+                _finalRetirement=NativeMapBorrowerRetirementPackage.CreatePending("Scene-final",
+                    new IAsyncDisposable?[]{Presentation,_outputPass,OutputFrame,TerrainFrame,
+                        _ownsDeferredProgram?DeferredProgram:null,CoarseProgram,DetailProgram,TerrainTextures}.OfType<IAsyncDisposable>());
+            }
+            await _finalRetirement!.DisposeAsync();
             LastCompletedContext = null;
-        }
-        catch
-        {
-            lock(_lifetimeGate)_disposal=null;
-            throw;
         }
         finally{_gate.Release();}
     }

@@ -405,7 +405,6 @@ public partial class MapSceneView : Control
         _terrain.RemoveMeta("gbi_material");
         _sceneTerrain?.Dispose();
         _sceneTerrain = null;
-        _terrain.RemoveMeta("texture_preview_material");
         _sceneModels?.Dispose();
         _sceneModels = null;
         _loadedSceneResources = null;
@@ -461,7 +460,7 @@ public partial class MapSceneView : Control
         Aabb bounds = default;
         bool haveBounds = false;
         MapTerrainResources preparedTerrain = await MapTerrainResources.PrepareAsync(_repository,
-            _sceneConfig.Archive, scene, _embedded ? 0 : _sceneConfig.TerrainDepth, UseD3D11Map, _sceneConfig.TerrainTextures, _text.SourceLocale);
+            scene, _embedded ? 0 : _sceneConfig.TerrainDepth, UseD3D11Map);
         if (generation != _sceneLoadGeneration || !GodotObject.IsInstanceValid(this) || !IsInsideTree())
         {
             preparedTerrain.DiscardPrepared();
@@ -509,7 +508,6 @@ public partial class MapSceneView : Control
         _terrain.SetMeta("height_decoded_sha256", terrain.HeightField.Source.DecodedSha256);
         if(!UseD3D11Map)
         {
-            _terrain.SetMeta("texture_preview_material", _sceneTerrain!.Preview!.Material);
             _terrain.SetMeta("gbi_material", _sceneTerrain!.Gbi!.Material);
         }
         _terrain.SetMeta("gbuffer_shader_resource_uri", terrainShader.Shader.Source.ResourceUri);
@@ -611,7 +609,7 @@ public partial class MapSceneView : Control
 
     private void UpdateTerrainMaterial()
     {
-        if (TerrainMeshes is null || _sceneTerrain?.Preview is null) return;
+        if (TerrainMeshes is null || TerrainSurface is null) return;
         foreach (MeshInstance3D patch in _terrain.GetChildren().OfType<MeshInstance3D>())
             patch.MaterialOverride = _territoryOverlay?.Material ??
                 (_terrainTextureToggle.ButtonPressed ? TerrainSurface!.Material : TerrainMeshes.PreviewMaterial);
@@ -807,7 +805,7 @@ public partial class MapSceneView : Control
     internal void RefreshPlayableWorld(GameState world)
     {
         if (!_embedded || !_loaded || _projection is null || TerrainMeshes is null ||
-            (!UseD3D11Map&&_sceneTerrain?.Preview is null) || _playerForceId is not int player)
+            (!UseD3D11Map&&TerrainSurface is null) || _playerForceId is not int player)
             throw new InvalidOperationException("Resident playable map is not ready for a world update.");
         MapWorldProjectionPolicy policy = _projection.Policy;
         if (world.MapWidth != policy.Width || world.MapHeight != policy.Height ||

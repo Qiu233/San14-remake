@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
-using System.Runtime.CompilerServices;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -9,7 +8,6 @@ namespace San14.Data;
 /// point stream. Its optional Star descriptor retains zero package assignments.</summary>
 public sealed class SkyStarResources
 {
-    private static readonly ConditionalWeakTable<LoadedRdbAsset, SkyStarGeometry> geometries = new();
     private readonly ConcurrentDictionary<int, SkyStarProgramSelection> selections = new();
     private readonly LoadedObjects definitions;
     private readonly G1ShaderBindingTables tables;
@@ -103,7 +101,7 @@ public sealed class SkyStarResources
         if (controller.Kind != DokObjectKind.Inline || controller.ClassId != 0x12BD9185)
             throw new NotSupportedException("Star geometry requires an inline Sky controller declaration.");
         uint key = Key(controller, 0x78051B9F);
-        return key == 0 ? null : geometries.GetValue(repository.LoadRdbAsset("system", key), SkyStarGeometry.Read);
+        return key == 0 ? null : SkyStarGeometry.Read(repository.LoadRdbAsset("system", key));
     }
 
     private static uint Key(DokObject owner, uint hash)

@@ -21,7 +21,8 @@ public sealed class NativeArmyCpuPrimitivePopulation
 public sealed class NativeArmyPrimitiveAdmissionOwner
 {
     private readonly Dictionary<int, ArmyPrimitivePublicationSource> models = [];
-    private readonly Dictionary<string, ModelOrdinaryNativeStencilSource> stencilSources = new(StringComparer.Ordinal);
+    private readonly Dictionary<(LoadedShaderContainer Shader, LoadedRenderGraph Graph,
+        LoadedObjects Objects, uint Owner, uint Provider, int State), ModelOrdinaryNativeStencilSource> stencilSources = [];
     private bool retained = true;
     public string OwnerIdentity { get; } = "owned-army-native-primitive:" + Guid.NewGuid().ToString("N");
     public static NativeArmyPrimitiveAdmissionOwner CreateFreshNoExternalPrimitiveAssignments() => new();
@@ -126,15 +127,32 @@ public sealed class NativeArmyPrimitiveAdmissionOwner
         if (packet.Raster.NativeStencil is not null)
             throw new InvalidDataException("Army native stencil cannot replace an externally assigned stencil recipe.");
         var graph = admission.Population.Context.TerrainFrame.Source.Graph;
-        var queue = ModelRendererStateSourceReader.ReadQueue(graph, 49);
-        var source = ModelOrdinaryNativeStencilSource.ReadFreshSelected(queue, selectedInterface, packet.Shader);
-        if (!stencilSources.TryGetValue(source.SourceKey, out var cached)) stencilSources.Add(source.SourceKey, cached = source);
+        var cached = StencilSource(graph, packet.Shader, selectedInterface);
         var current = new ModelFreshOwnedStencilPublication(admission.Frame.FrameNumber, admission.Publication.Counts.ViewIdentity,
             packet.InstanceKey, OwnerIdentity, cached.ProviderObjectId, cached.ShaderSha256, true, true, true, true, true,
             OwnerIdentity + "/actual-Army-selected-provider/frame=" + admission.Frame.FrameNumber);
         return cached.PrepareCurrent(new(admission.Frame.FrameNumber, admission.Publication.Counts.ViewIdentity,
             record.Mask78, true, record.CurrentCpuPrimitiveCount, true, record.CurrentCountPublicationIdentity),
             admission.Frame.Common, admission.Frame.Lighting.ContextFlags3E4, current);
+    }
+    private ModelOrdinaryNativeStencilSource StencilSource(LoadedRenderGraph graph,
+        LoadedShaderContainer shader, ModelShaderInterfaceSource selectedInterface)
+    {
+        RequireRetained();
+        var provider = selectedInterface.Provider;
+        if (provider is null || provider.Object.ClassId != 0x18EB1E56 ||
+            !ReferenceEquals(provider.Objects, selectedInterface.Owner.Objects) ||
+            provider.ShaderFileHash != shader.Source.FileId)
+            throw new InvalidDataException("Army stencil requires the actual selected class18 shader provider.");
+        var key = (shader, graph, selectedInterface.Owner.Objects, selectedInterface.Owner.Object.ObjectId,
+            provider.Object.ObjectId, selectedInterface.StateIndex);
+        if (!stencilSources.TryGetValue(key, out var source))
+        {
+            var queue = ModelRendererStateSourceReader.ReadQueue(graph, 49);
+            source = ModelOrdinaryNativeStencilSource.ReadFreshSelected(queue, selectedInterface, shader);
+            stencilSources.Add(key, source);
+        }
+        return source;
     }
     private ArmyPrimitivePublicationSource Source(LoadedArmyCatalog catalog, int category, LoadedModelGeometry model)
     {

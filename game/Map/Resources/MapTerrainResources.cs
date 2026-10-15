@@ -7,14 +7,13 @@ using San14.Data.Formats;
 internal sealed class MapTerrainResources : IDisposable
 {
     private TerrainMeshCache? _cache;
-    private readonly LoadedTerrainParameterResources _parameters;
+    public LoadedTerrainSceneResources Source { get; }
     public TerrainMeshResult? Meshes { get; private set; }
-    public LoadedTerrainInitialHeightResources InitialHeight { get; }
-    public LoadedTerrainShaderResources Shader { get; }
+    public LoadedTerrainInitialHeightResources InitialHeight => Source.Height;
+    public LoadedTerrainShaderResources Shader => Source.Material.Shader;
     public G2ShaderTextureBases TextureBases { get; }
-    public TerrainPreviewMaterial? Preview { get; }
     public TerrainGbiMapMaterial? Gbi { get; }
-    public ITerrainSurface? Surface => (ITerrainSurface?)Gbi ?? Preview;
+    public ITerrainSurface? Surface => Gbi;
     public LoadedRdbAsset ProjectionSource { get; }
     public IReadOnlyList<TerrainPatch> ActivePatches { get; private set; }
     public TerrainPicker? Picker { get; private set; }
@@ -22,55 +21,34 @@ internal sealed class MapTerrainResources : IDisposable
     public bool HasAdaptiveGeometry => _cache is not null;
     public int CachedPatchCount => _cache?.Count ?? 0;
 
-    private MapTerrainResources(TerrainMeshResult meshes, LoadedTerrainInitialHeightResources height,
-        LoadedTerrainParameterResources parameters, LoadedTerrainShaderResources shader,
-        G2ShaderTextureBases textureBases, TerrainPreviewMaterial? preview,
-        TerrainGbiMapMaterial? gbi, LoadedRdbAsset? nativeProjection)
+    private MapTerrainResources(TerrainMeshResult meshes, LoadedTerrainSceneResources source,
+        G2ShaderTextureBases textureBases, TerrainGbiMapMaterial? gbi)
     {
-        (Meshes, InitialHeight, _parameters, Shader, TextureBases, Preview, Gbi) =
-            (meshes, height, parameters, shader, textureBases, preview, gbi);
-        ProjectionSource = nativeProjection ?? Surface!.ProjectionSource;
+        (Meshes, Source, TextureBases, Gbi) = (meshes, source, textureBases, gbi);
+        ProjectionSource = source.Height.ControlBinding.Resource.Source;
         ActivePatches = meshes.Patches;
     }
 
     public static async Task<MapTerrainResources> PrepareAsync(GameResourceRepository repository,
-        string archive, LoadedSceneResources scene, int depth, bool nativeMap,
-        TerrainTexturePreviewPolicy texturePolicy, string locale)
+        LoadedSceneResources scene, int depth, bool nativeMap)
     {
-        LoadedTerrainResources terrain = TerrainResources.Load(repository, archive, scene.TerrainBundle.Source.FileId);
-        if (terrain.Objects.Source.ResourceUri != scene.TerrainBundle.Source.ResourceUri ||
-            terrain.Objects.Source.DecodedSha256 != scene.TerrainBundle.Source.DecodedSha256)
-            throw new InvalidDataException($"Terrain bundle {scene.TerrainBundle.Source.ResourceUri} changed while loading the scene.");
-        LoadedTerrainParameterResources parameters = TerrainParameterResources.Read(scene);
-        LoadedTerrainShaderResources shader = TerrainShaderResources.Load(repository, parameters);
-        G2ShaderTextureBases textureBases = G2ShaderTextureBaseReader.Read(shader.Shader.Source.Bytes);
-        LoadedTerrainInitialHeightResources height = TerrainInitialHeightResources.Load(repository, terrain, parameters);
+        LoadedTerrainSceneResources source = TerrainSceneResources.Load(repository, scene);
+        G2ShaderTextureBases textureBases = G2ShaderTextureBaseReader.Read(source.Material.Shader.Shader.Source.Bytes);
         // Playable scenes start with a root prototype, then use the camera's mixed-node plan.
-        TerrainMeshResult meshes = TerrainMesh.Build(terrain, height, depth);
-        TerrainPreviewMaterial? preview = null;
+        TerrainMeshResult meshes = TerrainMesh.Build(source.Terrain, source.Height, depth);
         TerrainGbiMapMaterial? gbi = null;
-        LoadedRdbAsset? nativeProjection = null;
         try
         {
-            if (nativeMap)
-            {
-                var field = TerrainTextureResources.LoadGroup(repository, terrain, TerrainTextureGroupKind.Field);
-                nativeProjection = TerrainInitialControlResources.LoadStockDefault(field).Binding.Resource.Source;
-            }
-            else
-            {
-                preview = await TerrainPreviewMaterial.BuildAsync(repository, meshes, texturePolicy, parameters);
-                try { gbi = await TerrainGbiMapMaterial.BuildAsync(repository, meshes, parameters, locale); }
-                catch { preview.Dispose(); throw; }
-            }
+            if (!nativeMap)
+                gbi = await TerrainGbiMapMaterial.BuildAsync(meshes, source.Material);
         }
         catch { meshes.Dispose(); throw; }
-        return new(meshes, height, parameters, shader, textureBases, preview, gbi, nativeProjection);
+        return new(meshes, source, textureBases, gbi);
     }
 
     public void InitializeAdaptiveGeometry()
     {
-        LodDistanceScale = TerrainParameterResources.ReadLodDistanceScale(_parameters);
+        LodDistanceScale = TerrainParameterResources.ReadLodDistanceScale(Source.Parameters);
         _cache = new(Meshes!, InitialHeight);
     }
 
@@ -114,7 +92,6 @@ internal sealed class MapTerrainResources : IDisposable
     /// <summary>An asynchronous load finished after its scene was superseded; no nodes borrowed it.</summary>
     public void DiscardPrepared()
     {
-        Preview?.Dispose();
         Gbi?.Dispose();
         ReleaseGeometry();
     }
@@ -123,7 +100,6 @@ internal sealed class MapTerrainResources : IDisposable
     {
         ReleaseGeometry();
         Gbi?.Dispose();
-        Preview?.Dispose();
     }
 }
 

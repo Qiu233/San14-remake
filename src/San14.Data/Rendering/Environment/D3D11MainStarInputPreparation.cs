@@ -19,7 +19,7 @@ public sealed class D3D11MainStarInputPreparation
     {
         var files = new Dictionary<string, byte[]>(StringComparer.Ordinal)
         {
-            ["controller-points.bin"] = resources.Geometry?.VertexBytes.ToArray() ?? [],
+            ["controller-points.bin"] = resources.Geometry?.CopyVertexBytes() ?? [],
         };
         float[] table = SkyStarTwinkle.CreateTable();
         byte[] tableBytes = new byte[table.Length * 4];

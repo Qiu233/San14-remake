@@ -2,7 +2,6 @@ using System.Collections.ObjectModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.Json;
-using Godot;
 using San14.Data;
 
 internal sealed record MapSceneDefinition(uint FileId, string LabelKey);
@@ -13,15 +12,14 @@ internal sealed class MapSceneConfiguration
     private readonly IReadOnlyDictionary<uint, MapWorldProjectionPolicy> _projections;
     public string Archive { get; }
     public TexturePreviewPolicy ModelTextures { get; }
-    public TerrainTexturePreviewPolicy TerrainTextures { get; }
     public int TerrainDepth { get; }
     public IReadOnlyList<MapSceneDefinition> Scenes { get; }
 
     private MapSceneConfiguration(string archive, TexturePreviewPolicy modelTextures,
-        TerrainTexturePreviewPolicy terrainTextures, int terrainDepth,
+        int terrainDepth,
         List<MapSceneDefinition> scenes, Dictionary<uint, MapWorldProjectionPolicy> projections)
     {
-        (Archive, ModelTextures, TerrainTextures, TerrainDepth) = (archive, modelTextures, terrainTextures, terrainDepth);
+        (Archive, ModelTextures, TerrainDepth) = (archive, modelTextures, terrainDepth);
         Scenes = scenes.AsReadOnly();
         _projections = new ReadOnlyDictionary<uint, MapWorldProjectionPolicy>(projections);
     }
@@ -46,17 +44,6 @@ internal sealed class MapSceneConfiguration
         TexturePreviewPolicy modelTextures = new(texture.GetProperty("kind").GetUInt16(), texture.GetProperty("uvLayer").GetUInt16());
         int depth = config.RootElement.GetProperty("terrainPreviewDepth").GetInt32();
         if (embedded) depth = Math.Max(depth, 4);
-        JsonElement terrain = config.RootElement.GetProperty("terrainTexturePreview");
-        TerrainTextureGroupKind group = terrain.GetProperty("group").GetString() switch
-        {
-            "field" => TerrainTextureGroupKind.Field,
-            "root" => TerrainTextureGroupKind.Root,
-            "auxiliary" => TerrainTextureGroupKind.Auxiliary,
-            _ => throw new InvalidDataException("Scene preview terrain texture group is unknown.")
-        };
-        TerrainTexturePreviewPolicy terrainTextures = new(group, terrain.GetProperty("slot").GetUInt32(),
-            terrain.GetProperty("layer").GetInt32(), ReadVector2(terrain.GetProperty("uvScale")),
-            ReadVector2(terrain.GetProperty("uvOffset")));
         var scenes = new List<MapSceneDefinition>();
         foreach (JsonElement entry in config.RootElement.GetProperty("scenes").EnumerateArray())
         {
@@ -84,15 +71,7 @@ internal sealed class MapSceneConfiguration
             if (!scenes.Any(row => row.FileId == scene) || !projections.TryAdd(scene, policy))
                 throw new InvalidDataException("Map projection policy has a missing or duplicate scene source.");
         }
-        return new(archive, modelTextures, terrainTextures, depth, scenes, projections);
+        return new(archive, modelTextures, depth, scenes, projections);
     }
 
-    private static Vector2 ReadVector2(JsonElement value)
-    {
-        if (value.ValueKind != JsonValueKind.Array || value.GetArrayLength() != 2)
-            throw new InvalidDataException("Scene preview UV vector requires exactly two values.");
-        Vector2 vector = new(value[0].GetSingle(), value[1].GetSingle());
-        if (!vector.IsFinite()) throw new InvalidDataException("Scene preview UV vector must be finite.");
-        return vector;
-    }
 }

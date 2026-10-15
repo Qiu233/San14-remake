@@ -51,6 +51,12 @@ public static class MapPostEffect3PassStateReader
     public static IReadOnlyList<MapPostEffect3PassState> Read(MapPostEffect3Container source,string locale="TC")
     {
         ArgumentNullException.ThrowIfNull(source);
+        return source.ReadPassStates(locale);
+    }
+
+    internal static IReadOnlyList<MapPostEffect3PassState> Import(MapPostEffect3Container source,string locale)
+    {
+        ArgumentNullException.ThrowIfNull(source);
         var factories=FactoriesForLocale(locale);
         var rows=source.Tables.Single(t=>t.ChunkKind==7).Rows;
         if(rows.Count!=factories.Count)throw new NotSupportedException("3SPK factory population differs from the positively joined installed native implementations.");

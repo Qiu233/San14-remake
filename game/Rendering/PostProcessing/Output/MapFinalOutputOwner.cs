@@ -43,11 +43,11 @@ public sealed class MapFinalOutputOwner : IAsyncDisposable
 {
     private sealed record TargetResources(RenderTargetFrame BorrowedScene,
         RenderTargetDeviceTexture Primary,Rid Framebuffer,
-        MapFinalOutputTransfer? Transfer,RenderOutputPresentation Presentation,IReadOnlyList<Rid> Owned);
+        MapFinalOutputTransfer? Transfer,RenderOutputPresentation Presentation,NativeMapBorrowerRetirementPackage Retirement);
     private sealed record DrawResources(Rid Pipeline,Rid Vertices,Rid VertexBuffer,
         Rid VertexSet,Rid PixelSet,IReadOnlyDictionary<(uint Stage,uint Register),Rid> Constants,
         IReadOnlyList<ModelDeviceBinding> Inputs,string SamplerKey,
-        ModelRasterInputs Raster,IReadOnlyList<Rid> Owned);
+        ModelRasterInputs Raster,RenderDeviceResources Resources);
     public LoadedMapFinalOutputResources Source { get; }
     public MapFinalOutputProgram Program { get; }
     public uint SceneRegister { get; }
@@ -62,6 +62,8 @@ public sealed class MapFinalOutputOwner : IAsyncDisposable
     private readonly SemaphoreSlim _gate=new(1,1);
     private readonly object _lifetime=new();
     private TargetResources? _target;private DrawResources? _draw;
+    private NativeMapBorrowerRetirementPackage? _pendingRetirement;
+    private IAsyncDisposable? _candidateResources;
     private readonly ShaderSpirv _transferVertex,_transferPixel;
     private int _accepted;private bool _retiring;private Task? _disposal;private TaskCompletionSource? _drained;
     private MapFinalOutputOwner(LoadedMapFinalOutputResources source,
@@ -107,9 +109,10 @@ public sealed class MapFinalOutputOwner : IAsyncDisposable
             throw new InvalidDataException("Final output Scene and Exposure source registers must differ.");
         if(sourceDeadToneLut is not null&&sourceToneShader is null)
             throw new InvalidDataException("Tone source specialization requires its exact installed embedded program receipt.");
-        var program=await MapFinalOutputProgram.BuildAsync(explicitProgram,compiler,sourceDeadColorCorrection,sourceDeadToneLut);
+        MapFinalOutputProgram? program=null;
         try
         {
+            program=await MapFinalOutputProgram.BuildAsync(explicitProgram,compiler,sourceDeadColorCorrection,sourceDeadToneLut);
             foreach(uint register in new[]{explicitSceneRegister,explicitExposureRegister})
             {
                 var declaration=program.PixelBindings.Bindings.SingleOrDefault(b=>b.DescriptorKind=="Texture"&&b.Source.BindPoint==register);
@@ -120,7 +123,15 @@ public sealed class MapFinalOutputOwner : IAsyncDisposable
             var transferPixel=compiler.Compile(source.StockScreen.PixelProgram.Span);
             return new(source,program,explicitSceneRegister,explicitExposureRegister,transferVertex,transferPixel,explicitTargetRoute);
         }
-        catch{await program.DisposeAsync();throw;}
+        catch(Exception failure)
+        {
+            var pending=NativeMapBorrowerRetirementPackage.CreatePending("final-output-build",
+                program is not null?[program]:[],(failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+            try{await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pending);}
+            catch(Exception retirementFailure)
+            {throw new NativeMapBorrowerConstructionException(failure,retirementFailure,pending!);}
+            throw;
+        }
     }
 
     public Task<RenderOutputPresentation> RenderAsync(NativeMapFrameContext frame,
@@ -135,11 +146,12 @@ public sealed class MapFinalOutputOwner : IAsyncDisposable
         await _gate.WaitAsync();
         try
         {
+            await DrainPendingAsync();
             if(_target is null||!ReferenceEquals(_target.BorrowedScene,frame.OutputFrame))
             {
                 var next=await BuildTargetAsync(frame.OutputFrame);
-                try{await RetireTargetCoreAsync();_target=next;TargetCreationCount++;}
-                catch{if(next.Transfer is not null)await next.Transfer.DisposeAsync();else await next.Presentation.DisposeAsync();await FreeAsync(next.Owned);throw;}
+                _candidateResources=next.Retirement;
+                await RetireTargetCoreAsync();_target=next;_candidateResources=null;TargetCreationCount++;
             }
             var target=_target!;
             var inputs=packet.ExtraImages.Concat(new[]{packet.Exposure with{SourceBindPoint=ExposureRegister},packet.SceneInput}).OrderBy(i=>i.SourceBindPoint).ToArray();
@@ -147,7 +159,14 @@ public sealed class MapFinalOutputOwner : IAsyncDisposable
             if(_draw is null||!_draw.Inputs.SequenceEqual(inputs)||_draw.SamplerKey!=samplerKey||!SameRaster(_draw.Raster,packet.Raster))
             {
                 var next=await BuildDrawAsync(packet,inputs,samplerKey);
-                if(_draw is not null)await FreeAsync(_draw.Owned);_draw=next;
+                _candidateResources=next.Resources;
+                if(_draw is not null)
+                {
+                    _pendingRetirement=NativeMapBorrowerRetirementPackage.CreatePending("Final-output-draw-replaced",[_draw.Resources]);
+                    _draw=null;
+                    _pendingRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_pendingRetirement);
+                }
+                _draw=next;_candidateResources=null;
             }
             var draw=_draw!;
             await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
@@ -176,6 +195,7 @@ public sealed class MapFinalOutputOwner : IAsyncDisposable
             if(target.Transfer is not null)await target.Transfer.DrawAsync(packet.OutputCopy!);else await target.Presentation.RefreshAsync();AcceptedFrameCount++;
             return target.Presentation;
         }
+        catch(NativeMapBorrowerConstructionException failure){_pendingRetirement??=failure.RetainedPackage;throw;}
         finally{_gate.Release();Complete();}
     }
 
@@ -186,10 +206,11 @@ public sealed class MapFinalOutputOwner : IAsyncDisposable
             !scene.Textures.TryGetValue(Source.SceneTexture.Object.ObjectId,out var input)||
             scene.Source.ColorTargets.Count!=1||scene.Source.ColorTargets[0].ObjectNameHash!=Source.SceneTexture.Object.ObjectId)
             throw new InvalidDataException("Final output requires this source graph's actual node73 SceneTexture frame.");
-        var allocated=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
+        var resources=new RenderDeviceResources("Final HDR allocation failed.");
+        MapFinalOutputTransfer? transfer=null;RenderOutputPresentation? presentation=null;
+        try
         {
-            var owned=new List<Rid>();Rid Own(Rid rid){if(!rid.IsValid)throw new InvalidDataException("Final HDR allocation failed.");owned.Add(rid);return rid;}
-            try
+            var allocated=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
             {
                 bool hdr=TargetRoute==MapFinalOutputTargetRoute.LinearHdrThenOutput;
                 var declaration=hdr?Source.HdrTexture:Source.OutputTexture;var formats=RenderTextureFormatMath.Resolve(declaration);
@@ -200,21 +221,28 @@ public sealed class MapFinalOutputOwner : IAsyncDisposable
                     Width=(uint)input.ExplicitExtent.X,Height=(uint)input.ExplicitExtent.Y,Depth=1,ArrayLayers=1,Mipmaps=1,
                     TextureType=RenderingDevice.TextureType.Type2D,UsageBits=RenderingDevice.TextureUsageBits.SamplingBit|
                         RenderingDevice.TextureUsageBits.ColorAttachmentBit|RenderingDevice.TextureUsageBits.CanCopyFromBit};
-                using var view=new RDTextureView();Rid storage=Own(rd.TextureCreate(format,view));
-                Rid framebuffer=Own(rd.FramebufferCreate([storage]));if(!rd.FramebufferIsValid(framebuffer))throw new InvalidDataException("Final HDR framebuffer failed.");
+                using var view=new RDTextureView();Rid storage=resources.Own(rd.TextureCreate(format,view));
+                Rid framebuffer=resources.Own(rd.FramebufferCreate([storage]));if(!rd.FramebufferIsValid(framebuffer))throw new InvalidDataException("Final HDR framebuffer failed.");
                 var texture=new RenderTargetDeviceTexture(declaration,input.ExplicitExtent,storage,storage,format.Format,format.Format,format.Format);
-                return(texture,framebuffer,owned.AsReadOnly());
-            }
-            catch{for(int i=owned.Count-1;i>=0;i--)rd.FreeRid(owned[i]);throw;}
-        });
-        try
-        {
-            var transfer=TargetRoute==MapFinalOutputTargetRoute.LinearHdrThenOutput?
+                return(texture,framebuffer);
+            });
+            transfer=TargetRoute==MapFinalOutputTargetRoute.LinearHdrThenOutput?
                 await MapFinalOutputTransfer.BuildAsync(Source,allocated.texture,_transferVertex,_transferPixel):null;
-            var presentation=transfer?.Presentation??await RenderOutputPresentation.BuildAsync(allocated.texture);
-            return new(scene,allocated.texture,allocated.framebuffer,transfer,presentation,allocated.Item3);
+            presentation=transfer?.Presentation??await RenderOutputPresentation.BuildAsync(allocated.texture);
+            var retirement=new NativeMapBorrowerRetirementPackage("Final-output-target:"+Guid.NewGuid().ToString("N"),
+                (IAsyncDisposable?)transfer??presentation,resources);
+            return new(scene,allocated.texture,allocated.framebuffer,transfer,presentation,retirement);
         }
-        catch{await FreeAsync(allocated.Item3);throw;}
+        catch(Exception failure)
+        {
+            var pending=NativeMapBorrowerRetirementPackage.CreatePending("Final-output-target-partial",
+                new IAsyncDisposable?[]{(IAsyncDisposable?)transfer??presentation,resources.Count>0?resources:null}.OfType<IAsyncDisposable>(),
+                (failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+            try{await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pending);}
+            catch(Exception retirementFailure)
+            {throw new NativeMapBorrowerConstructionException(failure,retirementFailure,pending!);}
+            throw;
+        }
     }
 
     private Task<DrawResources> BuildDrawAsync(MapFinalOutputFramePacket packet,
@@ -229,7 +257,7 @@ public sealed class MapFinalOutputOwner : IAsyncDisposable
             throw new InvalidDataException("Final output needs every exact source image and explicit parent; HDR output aliasing is forbidden.");
         return TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
-            var owned=new List<Rid>();Rid Own(Rid rid){if(!rid.IsValid)throw new InvalidDataException("Final output draw allocation failed.");owned.Add(rid);return rid;}
+            var owned=new RenderDeviceResources("Final output draw allocation failed.");Rid Own(Rid rid)=>owned.Own(rid);
             try
             {
                 Program.RequireLive();var cbs=new Dictionary<(uint,uint),Rid>();
@@ -297,9 +325,9 @@ public sealed class MapFinalOutputOwner : IAsyncDisposable
                 Rid pipeline=Own(rd.RenderPipelineCreate(Program.ShaderRid,rd.FramebufferGetFormat(target.Framebuffer),vertexFormat,
                     RenderingDevice.RenderPrimitive.TriangleStrips,raster,multi,depth,blend));
                 if(!rd.RenderPipelineIsValid(pipeline))throw new InvalidDataException("Final output original VS/PS pipeline failed.");
-                return new DrawResources(pipeline,vertices,vertexBuffer,vs,ps,cbs,Array.AsReadOnly(inputs),samplerKey,packet.Raster,owned.AsReadOnly());
+                return new DrawResources(pipeline,vertices,vertexBuffer,vs,ps,cbs,Array.AsReadOnly(inputs),samplerKey,packet.Raster,owned);
             }
-            catch{for(int i=owned.Count-1;i>=0;i--)rd.FreeRid(owned[i]);throw;}
+            catch(Exception failure){owned.ReleaseAfterConstructionFailure(rd,failure,"Final-output-draw-partial");throw;}
         });
     }
 
@@ -353,11 +381,22 @@ public sealed class MapFinalOutputOwner : IAsyncDisposable
     }
     private static bool SameRaster(ModelRasterInputs a,ModelRasterInputs b)=>a.Cull==b.Cull&&a.FrontFace==b.FrontFace&&a.Attachments.SequenceEqual(b.Attachments);
     public Task RetireTargetAsync(){Accept();return RetireAcceptedAsync();}
-    private async Task RetireAcceptedAsync(){await _gate.WaitAsync();try{await RetireTargetCoreAsync();}finally{_gate.Release();Complete();}}
-    private async Task RetireTargetCoreAsync(){if(_draw is not null)await FreeAsync(_draw.Owned);_draw=null;if(_target is not null){if(_target.Transfer is not null)await _target.Transfer.DisposeAsync();else await _target.Presentation.DisposeAsync();await FreeAsync(_target.Owned);}_target=null;}
-    private static Task<bool> FreeAsync(IReadOnlyList<Rid> owned)=>TerrainDeviceTexture.OnRenderThreadAsync(rd=>{for(int i=owned.Count-1;i>=0;i--)rd.FreeRid(owned[i]);return true;});
+    private async Task RetireAcceptedAsync(){await _gate.WaitAsync();try{await DrainPendingAsync();await RetireTargetCoreAsync();}finally{_gate.Release();Complete();}}
+    private async Task DrainPendingAsync()
+    {
+        _pendingRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_pendingRetirement);
+        if(_candidateResources is not null){await _candidateResources.DisposeAsync();_candidateResources=null;}
+    }
+    private async Task RetireTargetCoreAsync()
+    {
+        if(_draw is null&&_target is null)return;
+        _pendingRetirement=NativeMapBorrowerRetirementPackage.CreatePending("Final-output-target-retirement",
+            new IAsyncDisposable?[]{_draw?.Resources,_target?.Retirement}.OfType<IAsyncDisposable>());
+        _draw=null;_target=null;
+        _pendingRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_pendingRetirement);
+    }
     private void Accept(){lock(_lifetime){ObjectDisposedException.ThrowIf(_retiring,this);_accepted++;}}
     private void Complete(){lock(_lifetime){if(--_accepted==0&&_retiring)_drained?.TrySetResult();}}
-    public ValueTask DisposeAsync(){lock(_lifetime){_retiring=true;return new(_disposal??=DisposeCoreAsync());}}
-    private async Task DisposeCoreAsync(){Task wait;lock(_lifetime){wait=_accepted==0?Task.CompletedTask:(_drained??=new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;}await wait;await _gate.WaitAsync();try{await RetireTargetCoreAsync();await Program.DisposeAsync();}finally{_gate.Release();}}
+    public ValueTask DisposeAsync(){lock(_lifetime){_retiring=true;if(_disposal is null||_disposal.IsFaulted||_disposal.IsCanceled)_disposal=DisposeCoreAsync();return new(_disposal);}}
+    private async Task DisposeCoreAsync(){Task wait;lock(_lifetime){wait=_accepted==0?Task.CompletedTask:(_drained??=new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;}await wait;await _gate.WaitAsync();try{await DrainPendingAsync();await RetireTargetCoreAsync();await Program.DisposeAsync();}finally{_gate.Release();}}
 }

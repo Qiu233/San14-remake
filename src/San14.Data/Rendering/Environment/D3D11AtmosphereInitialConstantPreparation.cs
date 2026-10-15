@@ -18,7 +18,7 @@ public static class D3D11AtmosphereInitialCallerRules
     public static Vector4 FreshMainCloudClip => Vector4.Zero;
 }
 
-public sealed record D3D11AtmosphereInitialLight(uint GroupMask,ReadOnlyMemory<byte> CompleteData);
+public sealed record D3D11AtmosphereInitialLight(uint GroupMask,CurrentDirectionalLightState State);
 
 public sealed record D3D11AtmosphereInitialInputs(MapSourceCreatedSeasonLightingFrame Present,
     IReadOnlyDictionary<int,uint> CurrentMainWords,IReadOnlyList<D3D11AtmosphereInitialLight> Lights,
@@ -54,7 +54,7 @@ public sealed record D3D11MainCloudConstants(SkyCloudMainProgramSelection Progra
 /// rules; retained history and subsequent clock updates remain native owners.</summary>
 public static partial class D3D11AtmosphereInitialConstantPreparation
 {
-    private sealed record CurrentAtmosphereContext(byte[] Main, ReadOnlyMemory<byte> Light,
+    private sealed record CurrentAtmosphereContext(byte[] Main, CurrentDirectionalLightState Light,
         SkySceneSharedAtmosphere Atmosphere,
         Vector4 Eye, Vector4 Target, Vector4 Up, CameraLens Lens,
         MapCameraConstructionMatrices Matrices);
@@ -83,26 +83,28 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
     {
         var present = input.Present;
         byte[] main = camera.Main;
-        var selected = input.Lights.First(light => (light.GroupMask & 0x80) != 0).CompleteData;
-        byte[] request = SkyDirectionalRendererFeatureWriter.WriteRequest(selected.Span);
+        var selected = input.Lights.First(light => (light.GroupMask & 0x80) != 0).State;
+        byte[] request = SkyDirectionalRendererFeatureWriter.WriteRequest(selected.Fog.Mode);
         int featureIndex = Feature(tables, request);
         var feature = tables.Features[featureIndex].Feature.Words;
-        byte[] fog96 = SkyDirectionalRendererFeatureWriter.CopyPackageFog96(selected.Span.Slice(0x150, 96), F(main, 0x1EC));
+        var packageFog = SkyDirectionalRendererFeatureWriter.PreparePackageFog(selected.Fog, F(main, 0x1EC));
+        var color = selected.Lighting.Directional[0].Color;
+        Vector3 directionalRgb = new(color.X, color.Y, color.Z);
         SkyFogPacket fog;
         IReadOnlyList<Vector4> scattering;
         if(feature[6]==7)
         {
-            fog=SkyFogMath.Generate(7,checked((int)feature[7]),true,fog96);
+            fog=SkyFogMath.GenerateWeather(packageFog.Mode,packageFog.Values,checked((int)feature[7]),true);
             scattering=fog.RequiresMode7NeutralScattering ? fog.ScatteringOverride!.Values :
-                SkyScatteringMath.Generate(7,fog96,Rgb(selected.Span,0x10)).Values;
+                SkyScatteringMath.GenerateWeather(packageFog.Values,directionalRgb).Values;
         }
-        else if(feature[6] is 0 or 4&&feature[7]==1&&BinaryPrimitives.ReadUInt32LittleEndian(fog96.AsSpan(0x10))==0)
+        else if(feature[6] is 0 or 4&&feature[7]==1&&packageFog.Mode==0)
         {
             // Cloud's feature0 and Sky's feature4 use different program-bank
             // codes. The same inactive package still prepares its inherited
             // mode4 scattering; Cloud's no-fog program does not consume it.
             fog=new(4,1,true,0,Vector4.Zero,new byte[16],false,null);
-            scattering=SkyScatteringMode4.Generate(fog96,new(Rgb(selected.Span,0x10),1,Vector4.Zero,null),
+            scattering=SkyScatteringMode4.Generate(packageFog.Values,new(directionalRgb,1,Vector4.Zero,null),
                 present.AcceptedSeasonCamera.Inputs.Source.AtmosphereScattering).Values;
         }
         else throw new NotSupportedException("Initial atmosphere requires its actual selected Fog/scattering producer.");
@@ -157,7 +159,7 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
         byte[] main = context.Main;
         var selected = context.Light;
         var presence = sampling.Presence;
-        var skyProgram = SelectSkyProgram(present, selected.Span, skyResources, presence);
+        var skyProgram = SelectSkyProgram(present, selected, skyResources, presence);
         var atmosphere = context.Atmosphere;
         var fog = atmosphere.Fog;
         var scattering = atmosphere.Scattering;
@@ -178,7 +180,7 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
             Sky2ParameterPreparation.PrepareSkyInfo0(lens.VerticalFovRadians,options.Height,
                 true,parameters.SunSize1490,true,parameters.MoonSize1498,ctl.SkyInfoZW7C78),
             Sky2ParameterPreparation.PrepareSkyInfo1(presence.Earth, presence.Moon, presence.Milky, parameters.MilkyScale14A0,
-                parameters.MilkyStrength1484,V(selected.Span,0),input.Controller.MoonPosition.Value),
+                parameters.MilkyStrength1484,selected.Lighting.Directional[0].Direction,input.Controller.MoonPosition.Value),
             input.Sun.Rgb,input.Sun.Direction,input.Moon.Rgb,input.Moon.Direction,
             sunScreen.Position,parameters.AltitudeInfo,parameters.StableDimensions,
             Sky2ParameterPreparation.PrepareClampValue(options.NativeTargetFormat,parameters.ClampDelta1610,ctl.Scalar1F0),
@@ -191,13 +193,23 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
     /// Texture presence comes from the installed logical binding, not package keys.</summary>
     public static SkyMainProgramSelection SelectSkyProgram(MapSourceCreatedSeasonLightingFrame present,
         ReadOnlySpan<byte> selectedLight, SkyMainProgramResources resources, SkySceneTexturePresence textures)
+        => SelectSkyProgram(present, SkyDirectionalRendererFeatureWriter.WriteRequest(selectedLight),
+            selectedLight[0x10B0], selectedLight[0xFDC], resources, textures);
+
+    public static SkyMainProgramSelection SelectSkyProgram(MapSourceCreatedSeasonLightingFrame present,
+        CurrentDirectionalLightState selectedLight, SkyMainProgramResources resources, SkySceneTexturePresence textures)
+        => SelectSkyProgram(present, SkyDirectionalRendererFeatureWriter.WriteRequest(selectedLight.Fog.Mode),
+            selectedLight.Exposure.Type, selectedLight.Exposure.Flags, resources, textures);
+
+    private static SkyMainProgramSelection SelectSkyProgram(MapSourceCreatedSeasonLightingFrame present,
+        byte[] request, byte lightType, byte lightFlags, SkyMainProgramResources resources, SkySceneTexturePresence textures)
     {
         var tables = resources.Shader.ReadG1Bindings();
-        int feature = Feature(tables, SkyDirectionalRendererFeatureWriter.WriteRequest(selectedLight));
+        int feature = Feature(tables, request);
         byte[] variant = new byte[12];
         BinaryPrimitives.WriteUInt32LittleEndian(variant, 1); // Moon light is present; Sun light is nonnull.
         BinaryPrimitives.WriteUInt32LittleEndian(variant.AsSpan(8),
-            selectedLight[0x10B0] == 4 || (selectedLight[0xFDC] & 2) != 0 ? 1u : 0u);
+            lightType == 4 || (lightFlags & 2) != 0 ? 1u : 0u);
         var binding = tables.Variants.Match(variant)
             ?? throw new NotSupportedException("Current Main Sky light variant has no selected resource combination.");
         uint pass = F(present.PreparedCameraPrefix.Span, 0x1D0) == 0 || textures.Earth ? 0u : 1u;
@@ -286,7 +298,6 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
         combination.Stages.Single(stage=>stage.StageCode==0).Entry!.ProgramIndex);
     private static float F(ReadOnlySpan<byte> bytes,int at)=>BinaryPrimitives.ReadSingleLittleEndian(bytes[at..]);
     private static Vector4 V(ReadOnlySpan<byte> bytes,int at)=>new(F(bytes,at),F(bytes,at+4),F(bytes,at+8),F(bytes,at+12));
-    private static Vector3 Rgb(ReadOnlySpan<byte> bytes,int at)=>new(F(bytes,at),F(bytes,at+4),F(bytes,at+8));
     private static float[] Words(Vector4 value)=>[value.X,value.Y,value.Z,value.W];
     private static float[] Words(Matrix4x4 v)=>[v.M11,v.M12,v.M13,v.M14,v.M21,v.M22,v.M23,v.M24,v.M31,v.M32,v.M33,v.M34,v.M41,v.M42,v.M43,v.M44];
     [MethodImpl(MethodImplOptions.NoInlining)]private static float A(float a,float b)=>a+b;

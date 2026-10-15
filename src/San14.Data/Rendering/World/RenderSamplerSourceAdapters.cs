@@ -35,14 +35,12 @@ public static partial class RenderSamplerSourceAdapters
     public static DeferredSamplerSourceInput FromRetainedImage(LoadedDeferredSamplerNativeSource native,
         uint register,LoadedTextureContainer source,int imageIndex)
     {
+        ArgumentNullException.ThrowIfNull(native);
         ArgumentNullException.ThrowIfNull(source);RequireResourceIdentity(source.Source);
-        var container=G1TextureContainerReader.Read(source.Source.Bytes);
+        var container=source.Container;
         if((uint)imageIndex>=container.Textures.Count)throw new InvalidDataException("Deferred source sampler image is absent.");
         G1TextureImage image=container.Textures[imageIndex];
         G1TextureSamplerRecipe recipe=G1TextureSamplerReader.ReadRetainedSource(image);
-        G1TextureSamplerRecipe converted=DecodeKey(native,recipe.RawKey);
-        if(!converted.EncodeD3D11Descriptor().AsSpan().SequenceEqual(recipe.EncodeD3D11Descriptor()))
-            throw new InvalidDataException("Deferred G1T sampler differs from the verified native key conversion.");
         var row=Row(register);
         uint dimension=image.TextureSystem switch{0=>4u,2=>8u,3=>5u,
             _=>throw new InvalidDataException("Deferred retained image uses an unresolved original texture system.")};
@@ -54,11 +52,6 @@ public static partial class RenderSamplerSourceAdapters
         uint register,RenderTextureDefinition source)
     {
         ArgumentNullException.ThrowIfNull(source);RequireResourceIdentity(source.Source.Source);
-        var original=new LoadedObjects(DokReader.Read(source.Source.Source.Bytes),source.Source.Source);
-        RenderTextureDefinition parsed=RenderTextureResources.Read(original,source.Object.ObjectId);
-        if(parsed.Object.ClassId!=source.Object.ClassId||parsed.Object.Kind!=source.Object.Kind||
-            (parsed with{Source=source.Source,Object=source.Object})!=source)
-            throw new InvalidDataException("Deferred render sampler definition differs from its original typed fields.");
         var row=Row(register);uint dimension=source.Kind==RenderTextureKind.Texture2D?4u:5u;
         if(dimension!=row.Dimension)throw new InvalidDataException("Deferred render sampler source dimension differs from its consumer.");
         return Input(register,source.Source.Source.ResourceUri+"#object/"+source.Object.ObjectId.ToString("X8"),
@@ -69,11 +62,6 @@ public static partial class RenderSamplerSourceAdapters
         CubeRenderTextureDefinition source)
     {
         ArgumentNullException.ThrowIfNull(source);RequireResourceIdentity(source.Source.Source);
-        var original=new LoadedObjects(DokReader.Read(source.Source.Source.Bytes),source.Source.Source);
-        var parsed=CubeRenderTextureResources.Read(original,source.Object.ObjectId);
-        if(parsed.Object.ClassId!=source.Object.ClassId||parsed.Object.Kind!=source.Object.Kind||
-            (parsed with{Source=source.Source,Object=source.Object})!=source)
-            throw new InvalidDataException("Deferred ambient cube sampler definition differs from its original typed fields.");
         return Input(7,source.Source.Source.ResourceUri+"#object/"+source.Object.ObjectId.ToString("X8")+"/ambient-address-write",
             source.Source.Source.DecodedSha256,AmbientSpecularKey(CubeTextureKey(native,source.LevelNum)));
     }
@@ -195,13 +183,13 @@ public static partial class RenderSamplerSourceAdapters
     }
     private static void RequireResourceIdentity(LoadedRdbAsset source)
     {
-        if(source.OverrideSource is not null||string.IsNullOrWhiteSpace(source.ResourceUri))
-            throw new InvalidDataException("Deferred sampler resource requires its original source URI.");
+        if(string.IsNullOrWhiteSpace(source.ResourceUri))
+            throw new InvalidDataException("Deferred sampler resource requires its source URI.");
     }
     private static void ValidateShader(LoadedShaderContainer source)
     {
         RequireResourceIdentity(source.Source);
-        if(source.Source.FileId!=0x9D8E811F||source.Source.ResourceUri!="san14://rdb/system/9D8E811F"||
+        if(source.Source.OverrideSource is not null||source.Source.FileId!=0x9D8E811F||source.Source.ResourceUri!="san14://rdb/system/9D8E811F"||
             !source.Container.StageTables.Single(t=>t.StageCode==0).Entries.Any(e=>e.ProgramIndex==1)||
             source.ReadResourceDefinitions(1).Bindings.Count!=42)
             throw new InvalidDataException("Deferred sampler source differs from the exact original PS1 identity.");

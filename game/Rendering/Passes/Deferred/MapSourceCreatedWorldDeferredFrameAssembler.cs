@@ -1,4 +1,4 @@
-using System.Buffers.Binary;
+using System.Runtime.CompilerServices;
 using San14.Data;
 
 /// <summary>Same-frame model/material/graph resource assembly for actual
@@ -6,12 +6,16 @@ using San14.Data;
 /// independent current device owner; no static HDRI cube is substituted.</summary>
 public sealed class MapSourceCreatedWorldDeferredFrameAssembler : IAsyncDisposable
 {
-    public MapSourceCreatedDirectionalDeferredProvider Lighting { get; }
+    public DeferredPixelProgram Program { get; }
     public NativeDeferredResources Resources { get; }
     public MapSelectedSourceSamplerOwner Samplers { get; }
     public MapSelectedSourceImageOwner Images { get; }
     public MapMaterialCachePrepared Materials { get; }
     public NativeMapModelPopulationRenderer Population { get; }
+    private readonly MapSourceCreatedDirectionalLightingDeviceOwner lightOwner;
+    private MapSourceCreatedDirectionalLightingSource Source => lightOwner.Sources.Single(source=>source.Identity.DeclaredGroupMask==0x80);
+    private readonly ConditionalWeakTable<MapSourceCreatedDirectionalLightingSource,
+        IReadOnlyList<DeferredSourceNull2D>> currentNullSources=new();
     private readonly SemaphoreSlim gate=new(1,1);
     private readonly Dictionary<long,List<MapSelectedSourceImageBindings>> leases=new();
     private readonly object lifetimeGate=new();
@@ -19,18 +23,31 @@ public sealed class MapSourceCreatedWorldDeferredFrameAssembler : IAsyncDisposab
     private Task? disposal;
     private long begunAttempt;
 
-    public MapSourceCreatedWorldDeferredFrameAssembler(MapSourceCreatedDirectionalDeferredProvider lighting,
+    public MapSourceCreatedWorldDeferredFrameAssembler(DeferredPixelProgram program,
+        MapSourceCreatedDirectionalLightingDeviceOwner lightOwner,MapSourceCreatedDirectionalLightingSource actualSource,
         NativeDeferredResources resources,MapSelectedSourceSamplerOwner samplers,
         MapSelectedSourceImageOwner images,MapMaterialCachePrepared materials,
         NativeMapModelPopulationRenderer population)
     {
-        ArgumentNullException.ThrowIfNull(lighting);ArgumentNullException.ThrowIfNull(resources);
+        ArgumentNullException.ThrowIfNull(program);ArgumentNullException.ThrowIfNull(lightOwner);
+        ArgumentNullException.ThrowIfNull(actualSource);ArgumentNullException.ThrowIfNull(resources);
         ArgumentNullException.ThrowIfNull(samplers);ArgumentNullException.ThrowIfNull(images);
         ArgumentNullException.ThrowIfNull(materials);ArgumentNullException.ThrowIfNull(population);
-        if(!ReferenceEquals(resources.Program,lighting.Program)||materials.SelectedSource is null||
+        if (!lightOwner.Sources.Contains(actualSource) || actualSource.Identity.DeclaredGroupMask != 0x80 ||
+            program.SourceSelection is not { } selected || selected.Combination.Index != 510 ||
+            selected.PixelProgramIndex != 383 || selected.PixelProgramSha256 != DeferredSelected383Constants.PixelProgramSha256 ||
+            selected.OwnedFeatureSource?.LightingSourceIdentity != actualSource.Identity)
+            throw new InvalidDataException("World deferred assembly requires its actual owned outer80 source and the complete source510/PS383 program.");
+        var device = program.ReadValidatedSelectedSourceDeviceBindings();
+        if (device.Interface.Sha256 != program.Translation.SpirvSha256 ||
+            !device.Bindings.Select(d => (d.DescriptorKind, d.Source.BindPoint, d.Device.VariableId, d.Device.DescriptorSet, d.Device.Binding))
+                .SequenceEqual(program.DescriptorBindings.Bindings.Select(d =>
+                    (d.DescriptorKind, d.Source.BindPoint, d.Device.VariableId, d.Device.DescriptorSet, d.Device.Binding))))
+            throw new InvalidDataException("World deferred program differs from its verified selected device interface.");
+        if(!ReferenceEquals(resources.Program,program)||materials.SelectedSource is null||
             materials.Cache.Branch!=MapMaterialCacheBranch.FreshExternalSource||materials.Table.EntryCount!=2)
             throw new InvalidDataException("World Deferred requires its actual selected program, native material source and owned population.");
-        (Lighting,Resources,Samplers,Images,Materials,Population)=(lighting,resources,samplers,images,materials,population);
+        (Program,this.lightOwner,Resources,Samplers,Images,Materials,Population)=(program,lightOwner,resources,samplers,images,materials,population);
     }
 
     public async Task<MapSourceCreatedDeferredFramePacket> PrepareAsync(NativeMapFrameContext context,
@@ -40,12 +57,13 @@ public sealed class MapSourceCreatedWorldDeferredFrameAssembler : IAsyncDisposab
         DeferredAuxiliaryCameraFilterSource cameraFilters,MapCommonViewFilterCurrent commonFilters)
     {
         ArgumentNullException.ThrowIfNull(input);ArgumentNullException.ThrowIfNull(ambient);
+        ArgumentNullException.ThrowIfNull(additional);
         MapSelectedSourceImageBindings? pending=null;
         await gate.WaitAsync();
         try
         {
             lock(lifetimeGate)ObjectDisposedException.ThrowIf(retiring,this);
-            input.CurrentSamplers.Validate();Lighting.Program.ValidateCompatibleCurrentSelection(input.CurrentSelection);
+            input.CurrentSamplers.Validate();Program.ValidateCompatibleCurrentSelection(input.CurrentSelection);
             input.CurrentSelection.OwnedFeatureSource!.ValidateFrame(input.CurrentSelection.Camera,lighting);
             var geometry=input.Geometry;var population=Population.LastAcceptedFrame;
             if(population is null||!ReferenceEquals(population.Context,context)||!ReferenceEquals(population.Frame,geometry.Models)||
@@ -63,7 +81,7 @@ public sealed class MapSourceCreatedWorldDeferredFrameAssembler : IAsyncDisposab
             commonFilters.ValidateFrame(context.FrameNumber,sourceFrame.Common.CommonTableOwnerIdentity,lighting.Binding.ViewIdentity);
             var expectedTransparency=cameraFilters.ReadTransparencySelection(
                 sourceFrame.Common.AuxiliaryPresent?commonFilters.TransparencyResolution8C:null);
-            if(input.CurrentSamplers.EffectiveBindings.Interface.Sha256!=Lighting.Program.Translation.SpirvSha256||
+            if(input.CurrentSamplers.EffectiveBindings.Interface.Sha256!=Program.Translation.SpirvSha256||
                 geometry.TransparencySelection!=expectedTransparency)
                 throw new InvalidDataException("Current World sampler interface or transparency differs from its exact selected source.");
             var plan=input.CurrentSamplers.ImagePlan;
@@ -91,15 +109,63 @@ public sealed class MapSourceCreatedWorldDeferredFrameAssembler : IAsyncDisposab
             var material=MapMaterialCacheProvider.Prepare(Materials.Cache,geometry.Models.Packets,geometry.TerrainMaterials,
                 geometry.ExplicitCurrentModelMaterial) with {SelectedSource=Materials.SelectedSource};
             var template=await Resources.AssemblePacketAsync(context.TerrainFrame,geometry.CompleteConstantBuffers,combined,geometry.Raster);
-            var packet=await Lighting.PrepareDeferredAsync(context,template,lighting,input.CurrentSelection,additional);
+            await lightOwner.ValidateResourcesAsync();
+            NativeDeferredPacket packet;
             lock(lifetimeGate)
             {
+                ObjectDisposedException.ThrowIf(retiring,this);
+                if(lighting.SourceIdentity!=Source.Identity||context.FrameNumber!=lighting.FrameNumber||
+                    context.PreparedCamera is null||context.PreparedCamera!=lighting.SceneInputs.Camera)
+                    throw new InvalidDataException("World deferred pass needs this source's same accepted Main Camera and frame.");
+                _=CaptureCurrentSourceNullProofs(input.CurrentSelection);
+                ValidateTemplate(template);
+                packet=NativeDeferredPacket.PrepareWorld(Program,accepted,template,additional.TranslucencyViewport);
                 if(!leases.TryGetValue(context.FrameNumber,out var current))leases.Add(context.FrameNumber,current=new());
                 current.Add(pending);pending=null;
             }
             return new(context,lighting,material,packet);
         }
         finally{if(pending is not null)await pending.DisposeAsync();gate.Release();}
+    }
+
+    /// <summary>Borrow the installed season's actual outer80 constructor state.
+    /// A compiled import does not establish the current season's null1008 field.</summary>
+    public IReadOnlyList<DeferredSourceNull2D> CaptureCurrentSourceNullProofs(
+        DeferredF103SelectedSource currentSelection)
+    {
+        ArgumentNullException.ThrowIfNull(currentSelection);
+        lock(lifetimeGate)
+        {
+            ObjectDisposedException.ThrowIf(retiring,this);
+            var actualSource=Source;
+            var nulls=currentNullSources.GetValue(actualSource,static source=>
+                DeferredSourceNull2D.FromFreshDirectionalConstruction(source.Construction,
+                    DeferredImageStateScope.FreshSourceConstructionNoAssignments));
+            if(Program.SelectedSourceNullSpecialization is not{} adapter||
+                !adapter.ProofPairs.Select(pair=>pair.PixelRegister).SequenceEqual(nulls.Select(pair=>pair.PixelRegister)))
+                throw new InvalidDataException("Seasonal deferred source differs from its compiled actual null-role interface.");
+            foreach(var pair in nulls)pair.ValidateForSelection(currentSelection);
+            return nulls;
+        }
+    }
+
+    private void ValidateTemplate(NativeDeferredPacket packet)
+    {
+        ArgumentNullException.ThrowIfNull(packet.Constants);ArgumentNullException.ThrowIfNull(packet.Inputs);
+        ArgumentNullException.ThrowIfNull(packet.Raster);
+        var declarations=Program.DescriptorBindings.Bindings;
+        var buffers=declarations.Where(d=>d.DescriptorKind=="UniformBuffer").ToArray();
+        if(buffers.Length!=1||buffers[0].Source.BindPoint!=0||buffers[0].ConstantBuffer!.ByteSize!=736||
+            packet.Constants.Count!=1||!packet.Constants.TryGetValue(0,out var bytes)||bytes.Length!=736)
+            throw new InvalidDataException("PS383 requires its one complete736-byte original constant buffer.");
+        var keys=declarations.Where(d=>d.DescriptorKind!="UniformBuffer")
+            .Select(d=>(d.DescriptorKind,d.Source.BindPoint)).ToHashSet();
+        if(packet.Inputs.Count!=keys.Count||packet.Inputs.Any(i=>i is null)||
+            packet.Inputs.Select(i=>(i.DescriptorKind,i.SourceBindPoint)).Distinct().Count()!=keys.Count||
+            packet.Inputs.Any(i=>!keys.Contains((i.DescriptorKind,i.SourceBindPoint))||!i.Resource.IsValid||
+                string.IsNullOrWhiteSpace(i.SourceResourceUri)||(i.DescriptorKind=="Texture")!=i.OwnerTexture.HasValue||
+                i.OwnerTexture is{} parent&&!parent.IsValid))
+            throw new InvalidDataException("PS383 requires every effective source image, buffer and sampler with its live owner.");
     }
 
     public void CompletePreviousReads(NativeMapFrameContext context)
@@ -139,5 +205,5 @@ public sealed class MapSourceCreatedWorldDeferredFrameAssembler : IAsyncDisposab
         finally{gate.Release();}
     }
     public ValueTask DisposeAsync(){lock(lifetimeGate){retiring=true;return new(disposal??=RetireAsync());}}
-    private async Task RetireAsync(){await RetireTargetDependenciesAsync();Lighting.Dispose();}
+    private Task RetireAsync()=>RetireTargetDependenciesAsync();
 }

@@ -33,7 +33,6 @@ public sealed class NativeMapModelPopulationRenderer : IAsyncDisposable
 {
     private readonly ModelGbufferLayer _layer;
     private readonly MapStaticModelAssembler _assembler;
-    private readonly MapMaterialCacheFrameValidator _materialValidator;
     private readonly MapMaterialCacheSource _materialCache;
     private readonly Func<NativeMapFrameContext, MapStaticModelInstanceSet> _population;
     private readonly Func<MapStaticModelDrawContext, MapStaticModelDrawRuntime> _runtime;
@@ -78,7 +77,6 @@ public sealed class NativeMapModelPopulationRenderer : IAsyncDisposable
     {
         _layer = ModelGbufferLayer.Create(compiler);
         _assembler = new(sourceRevision, loadDrawSource);
-        _materialValidator = new(sourceRevision);
         _materialCache = initializedMaterialCache; _population = currentPopulation; _runtime = runtime;
         _uploads = new(limits); _commitAcceptedState = commitAcceptedState;
         _visibilityPlanner = visibilityPlanner;
@@ -101,7 +99,6 @@ public sealed class NativeMapModelPopulationRenderer : IAsyncDisposable
         if (explicitUploadLimits.MaximumTextureBytes <= 0 || explicitUploadLimits.MaximumGeometryBytes <= 0 ||
             explicitUploadLimits.MaximumPrograms <= 0 || explicitUploadLimits.MaximumVisibleDrawPackets <= 0)
             throw new InvalidDataException("Native population requires explicit positive source upload limits.");
-        _ = initializedMaterialCache.Table; // Revalidate canonical shader and initialized table bytes.
         return new(borrowedCompiler, sourceRevision, initializedMaterialCache, loadDrawSource,
             currentPopulation, runtime, explicitUploadLimits, commitAcceptedState, visibilityPlanner);
     }
@@ -209,7 +206,7 @@ public sealed class NativeMapModelPopulationRenderer : IAsyncDisposable
                     graph.DecodedSha256 != context.TerrainFrame.Source.Graph.Source.DecodedSha256)
                     throw new InvalidDataException("Native model queue and current terrain target belong to different source graphs.");
             }
-            var materials = _materialValidator.Prepare(_materialCache, prepared.Packets);
+            var materials = MapMaterialCacheProvider.Prepare(_materialCache, prepared.Packets, []);
             return new(population, prepared, materials);
     }
 
@@ -371,7 +368,7 @@ public sealed class NativeMapModelPopulationRenderer : IAsyncDisposable
         {
             // Either lifetime order is safe: a parent can retire its targets
             // before this owner, or await this owner's already requested drain.
-            if (_retiring) return _disposal!;
+            if (_retiring) return DisposeAsync().AsTask();
             _operations++;
         }
         return RetireAcceptedAsync();
@@ -394,7 +391,7 @@ public sealed class NativeMapModelPopulationRenderer : IAsyncDisposable
     {
         lock (_lifetime)
         {
-            if (_disposal is not null) return new(_disposal);
+            if (_disposal is not null && !_disposal.IsFaulted && !_disposal.IsCanceled) return new(_disposal);
             _retiring = true;
             Task pending = _operations == 0 ? Task.CompletedTask : (_drained = new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
             var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -408,7 +405,7 @@ public sealed class NativeMapModelPopulationRenderer : IAsyncDisposable
             await pending; await _gate.WaitAsync();
             try
             {
-                await _layer.DisposeAsync(); _materialValidator.Invalidate(); _uploads.Clear();
+                await _layer.DisposeAsync(); _uploads.Clear();
                 LastAcceptedFrame = null; _populationCount = 0; _visibleCount = 0; _packetCount = 0;
             }
             finally { _gate.Release(); }

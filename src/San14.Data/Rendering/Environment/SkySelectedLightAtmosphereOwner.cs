@@ -38,8 +38,7 @@ public sealed class SkySelectedLightAtmosphereOwner
         MapSourceCreatedLightingPacket acceptedLighting)
     {
         ArgumentNullException.ThrowIfNull(selectedPacket);ArgumentNullException.ThrowIfNull(acceptedLighting);
-        if(acceptedLighting.SourceProvenance.Contains("backend-owned-retained210-normalization",StringComparison.Ordinal)||
-            !acceptedLighting.SourceProvenance.Contains("owned-current-allocation=",StringComparison.Ordinal))
+        if(acceptedLighting.MainConstruction?.RetainedAllocation is null)
             throw new InvalidDataException("Selected atmosphere requires a complete explicit owned retained allocation; normalized backend holes cannot supply package Fog96.");
         var id=selectedPacket.Identity;
         if((acceptedLighting.AcceptedInputs.PresentSeasonCamera is { } present&&present.AcceptedSeasonCamera.Inputs.MainFrame.Camera.ExecutableLocale!=native.Locale)||id.FrameNumber!=acceptedLighting.FrameNumber||

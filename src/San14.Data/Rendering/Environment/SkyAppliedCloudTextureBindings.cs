@@ -43,8 +43,13 @@ public static class SkyAppliedCloudTextureBindings
     {
         ArgumentNullException.ThrowIfNull(selection);ArgumentNullException.ThrowIfNull(textures);
         selection.ValidateCurrent(selection.AcceptedPresent,selection.SourceStages);
+        ValidateProgram(selection.ProgramSelection);
+    }
+    public static void ValidateProgram(SkyCloudColorProgramSelection selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
         var directory=Directories.GetValue(selection.Shader,static _=>new());
-        _=directory.GetOrAdd((selection.ColorCombination,selection.ColorPixelProgram),
+        _=directory.GetOrAdd((selection.Combination.Index,selection.PixelProgram),
             key=>ReadDirectory(selection.Shader,key.Combination,key.Pixel));
     }
 }

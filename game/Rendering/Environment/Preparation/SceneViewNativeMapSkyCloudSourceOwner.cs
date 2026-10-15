@@ -92,7 +92,13 @@ public sealed class SceneViewNativeMapSkyCloudSourceOwner : IAsyncDisposable
             allocatedProgram=(prepared.Native.Selection.ColorVertexProgram,prepared.Native.Selection.ColorPixelProgram);
             return producer;
         }
-        catch{await producer.DisposeAsync();throw;}
+        catch(Exception failure)
+        {
+            var partial=new NativeMapBorrowerRetirementPackage("Cloud-source-partial/"+Guid.NewGuid().ToString("N"),producer);
+            try{await partial.DisposeAsync();}
+            catch(Exception cleanup){partial.RetainFailure();throw new NativeMapBorrowerConstructionException(failure,cleanup,partial);}
+            throw;
+        }
     }
 
     public void ValidateCandidate(SceneViewNativeMapSkyCloudPreparedFrame candidate)

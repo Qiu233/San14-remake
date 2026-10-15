@@ -40,6 +40,9 @@ public sealed partial class RemakeArmySceneVisuals : IDisposable
         foreach(var pair in _states)fork._states.Add(pair.Key,pair.Value.ForkLogicalState());
         foreach(var pair in _anchors)fork._anchors.Add(pair.Key,pair.Value);
         foreach(var pair in _randomCounters)fork._randomCounters.Add(pair.Key,pair.Value);
+        foreach(var pair in _motions)fork._motions.Add(pair.Key,pair.Value with{Motion=pair.Value.Motion.ForkLogicalState()});
+        foreach(var pair in _hexPositions)fork._hexPositions.Add(pair.Key,pair.Value);
+        foreach(var pair in _independentAnimations)fork._independentAnimations.Add(pair.Key,pair.Value);
         return fork;
     }
 
@@ -158,7 +161,7 @@ public sealed partial class RemakeArmySceneVisuals : IDisposable
         if (_disposed) return;
         _disposed = true;
         _states.Clear(); _anchors.Clear(); _randomCounters.Clear(); _motions.Clear(); _hexPositions.Clear();
-        _models.Clear(); _constructors.Clear(); _routes.Clear();
+        _models.Clear(); _constructors.Clear(); _routes.Clear(); _independentAnimations.Clear();
         Frames = new Dictionary<int, RemakeArmyVisualFrame>();
         _catalog = null; _ground = null;
     }

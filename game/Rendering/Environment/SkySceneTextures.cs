@@ -34,6 +34,7 @@ public sealed class SkySceneTextures : IAsyncDisposable
 {
     public IReadOnlyDictionary<string,SkySceneTextureSelection> Selections { get; }
     private readonly Dictionary<SkyTextureIdentity,SkyTextureDevice> _loaded=new();
+    private readonly List<NativeMapBorrowerRetirementPackage> pendingTextureRetirements=new();
     private readonly SemaphoreSlim _gate=new(1,1);
     private readonly object _lifetimeGate=new();
     private volatile bool _retiring;
@@ -73,9 +74,17 @@ public sealed class SkySceneTextures : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(_retiring,this);
+            await RetirePendingTexturesAsync();
             if(!_loaded.TryGetValue(source.Identity,out var texture))
             {
-                texture=await SkyTextureDevice.BuildAsync(source);
+                try{texture=await SkyTextureDevice.BuildAsync(source);}
+                catch(NativeMapBorrowerConstructionException failure)
+                {
+                    // Keep the failed allocation in this owner's retirement
+                    // chain, even if an outer caller handles the exception.
+                    pendingTextureRetirements.Add(failure.RetainedPackage);
+                    throw;
+                }
                 _loaded.Add(source.Identity,texture);
             }
             return texture;
@@ -114,9 +123,19 @@ public sealed class SkySceneTextures : IAsyncDisposable
         await _gate.WaitAsync();
         try
         {
+            await RetirePendingTexturesAsync();
             foreach(var texture in _loaded.Values.Reverse())await texture.DisposeAsync();
             _loaded.Clear();
         }
         finally{_gate.Release();}
+    }
+
+    private async Task RetirePendingTexturesAsync()
+    {
+        while(pendingTextureRetirements.Count>0)
+        {
+            await pendingTextureRetirements[0].DisposeAsync();
+            pendingTextureRetirements.RemoveAt(0);
+        }
     }
 }

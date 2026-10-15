@@ -21,9 +21,10 @@ public sealed class LoadedMapPostEffect3LensPresetSource
     public int BuiltinIndex=>0;
     public int PayloadByteCount=>656;
     public int NativeAllocationByteCount=>672;
-    public int GhostCount=>4;
-    public int FlareCount=>16;
+    public int GhostCount=>Settings.LensGroups.Count;
+    public int FlareCount=>Settings.SimpleGhosts.Count;
     public bool NativeRetainedPaddingPreserved=>false;
+    internal MapPostEffect3LensPresetSettings Settings=>MapPostEffect3LensPresetBuiltin0.Settings;
     public IReadOnlyList<int> BackendPaddingOffsets=>Array.AsReadOnly(MapPostEffect3LensPresetBuiltin0.RetainedPaddingOffsets.ToArray());
     public ReadOnlyMemory<byte> PrimitiveBytes=>MapPostEffect3LensPresetBuiltin0.CopyPrimitive();
     public string PrimitiveSha256=>MapPostEffect3LensPresetBuiltin0.PrimitiveSha256;
@@ -57,6 +58,8 @@ public sealed class LoadedMapPostEffect3LensPresetSource
 
 public static class MapPostEffect3LensPresetSource
 {
+    public const uint SourceFileId=0xDAB638B2;
+
     internal static void RequireCameraKey(LoadedMapCameraConstructionSource source)
     {
         var p=source.Camera.Properties[285];
@@ -67,11 +70,18 @@ public static class MapPostEffect3LensPresetSource
     public static LoadedMapPostEffect3LensPresetSource LoadForCamera(GameResourceRepository repository,
         LoadedMapCameraConstructionSource cameraSource,string locale)
     {
-        ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(cameraSource);
+        ArgumentNullException.ThrowIfNull(repository);
+        return LoadForCamera(()=>repository.LoadObjects("system",SourceFileId),cameraSource,locale);
+    }
+
+    internal static LoadedMapPostEffect3LensPresetSource LoadForCamera(Func<LoadedObjects> loadSource,
+        LoadedMapCameraConstructionSource cameraSource,string locale)
+    {
+        ArgumentNullException.ThrowIfNull(cameraSource);
         if(locale is not ("TC" or "SC"))throw new ArgumentOutOfRangeException(nameof(locale));
         var camera=MapCameraConstructionSource.ReadPerspective(cameraSource.Resource,cameraSource.Camera.ObjectId);
         RequireCameraKey(camera);
-        var source=repository.LoadObjects("system",0xDAB638B2);
+        var source=loadSource();
         ReadBuiltinDeclaration(source,0x3D60C3C7);
         string evidence=$"{source.Source.ResourceUri}#object/3D60C3C7@{source.Source.DecodedSha256};"+
             $"Camera285/A4541BE1={camera.Camera.ObjectId:X8};source-created-successful-builtin0-resolution;"+

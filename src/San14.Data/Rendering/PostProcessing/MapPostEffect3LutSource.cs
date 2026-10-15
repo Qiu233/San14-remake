@@ -11,7 +11,7 @@ public sealed class LoadedMapPostEffect3LutSource
 {
     private readonly uint[] children;
     internal LoadedMapPostEffect3LutSource(LoadedObjects definitions,DokObject declaration,uint[] children)
-    {Definitions=definitions;Declaration=declaration;this.children=children;}
+    {Definitions=definitions;Declaration=declaration;this.children=children.ToArray();}
     public LoadedObjects Definitions{get;}
     public DokObject Declaration{get;}
     public uint SourceObjectId=>Declaration.ObjectId;
@@ -30,7 +30,6 @@ public sealed class LoadedMapPostEffect3LutSource
     /// infer that selector, resolve registry precedence or create a GPU texture.</summary>
     public uint? GetDeclaredChildKey(uint actualContextSelector)
     {
-        MapPostEffect3LutSource.ValidateCurrentSource(Definitions);
         if(actualContextSelector>=(uint)children.Length)return null;
         uint key=children[actualContextSelector];return key==0?null:key;
     }
@@ -44,12 +43,20 @@ public sealed class LoadedMapPostEffect3LutSource
         string explicitDefinitionsArchive,string explicitTextureArchive)
     {
         ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(actualSelectedChildDefinitions);
+        return LoadStaticForSelector(actualContextSelector,actualSelectedChildDefinitions,explicitDefinitionsArchive,
+            id=>repository.LoadObjects(explicitDefinitionsArchive,id),id=>repository.LoadTextureContainer(explicitTextureArchive,id));
+    }
+
+    internal StaticTextureBinding? LoadStaticForSelector(uint actualContextSelector,
+        LoadedObjects actualSelectedChildDefinitions,string explicitDefinitionsArchive,
+        Func<uint,LoadedObjects> loadDefinitions,Func<uint,LoadedTextureContainer> loadTexture)
+    {
         uint? selected=GetDeclaredChildKey(actualContextSelector);if(selected is not uint key)return null;
-        var resolved=MapPostEffect3LutSource.ResolveDeclaration(repository,actualSelectedChildDefinitions,
-            explicitDefinitionsArchive,key);
+        var resolved=MapPostEffect3LutSource.ResolveDeclaration(actualSelectedChildDefinitions,
+            explicitDefinitionsArchive,key,loadDefinitions);
         if(resolved.Object.ClassId!=0xFF7DBFD4)
             throw new NotSupportedException("PostEffect3Lut selected child is not a source-supported Static texture; its actual CPU.v28 producer is required.");
-        return StaticTextureResources.Load(repository,resolved.Source,explicitTextureArchive,[resolved.Object.ObjectId]).Single();
+        return StaticTextureResources.Load(resolved.Source,[resolved.Object.ObjectId],loadTexture).Single();
     }
 }
 
@@ -66,8 +73,8 @@ public static class MapPostEffect3LutSource
 
     public static IReadOnlyList<LoadedMapPostEffect3LutSource> ReadAllDeclarations(LoadedObjects definitions)
     {
-        ValidateCurrentSource(definitions);var doc=DokReader.Read(definitions.Source.Bytes);
-        return Array.AsReadOnly(doc.Objects.Where(o=>o.Kind==DokObjectKind.Inline&&o.ClassId==NativeClassId)
+        ArgumentNullException.ThrowIfNull(definitions);
+        return Array.AsReadOnly(definitions.Document.Objects.Where(o=>o.Kind==DokObjectKind.Inline&&o.ClassId==NativeClassId)
             .Select(o=>ReadInline(definitions,o)).ToArray());
     }
 
@@ -75,7 +82,14 @@ public static class MapPostEffect3LutSource
         LoadedObjects explicitDefinitions,string explicitDefinitionsArchive,uint explicitObjectKey)
     {
         ArgumentNullException.ThrowIfNull(repository);
-        var resolved=ResolveDeclaration(repository,explicitDefinitions,explicitDefinitionsArchive,explicitObjectKey);
+        return Load(explicitDefinitions,explicitDefinitionsArchive,explicitObjectKey,
+            id=>repository.LoadObjects(explicitDefinitionsArchive,id));
+    }
+
+    internal static LoadedMapPostEffect3LutSource Load(LoadedObjects explicitDefinitions,
+        string explicitDefinitionsArchive,uint explicitObjectKey,Func<uint,LoadedObjects> loadDefinitions)
+    {
+        var resolved=ResolveDeclaration(explicitDefinitions,explicitDefinitionsArchive,explicitObjectKey,loadDefinitions);
         if(resolved.Object.ClassId!=NativeClassId)throw new InvalidDataException("Selected source object is not native class593A65D1/PostEffect3Lut.");
         return ReadInline(resolved.Source,resolved.Object);
     }
@@ -114,29 +128,23 @@ public static class MapPostEffect3LutSource
         return new(definitions,obj,values);
     }
 
-    internal static (LoadedObjects Source,DokObject Object) ResolveDeclaration(GameResourceRepository repository,
-        LoadedObjects definitions,string archive,uint key)
+    internal static (LoadedObjects Source,DokObject Object) ResolveDeclaration(
+        LoadedObjects definitions,string archive,uint key,Func<uint,LoadedObjects> loadDefinitions)
     {
+        ArgumentNullException.ThrowIfNull(definitions);
         if(key==0)throw new InvalidDataException("Zero lookup key has the native null behavior and is not a resource declaration.");
         _=GameResourceId.Rdb(archive,0);var visited=new HashSet<(string,uint)>();
         for(int depth=0;depth<32;depth++)
         {
-            ValidateCurrentSource(definitions);
             if(!visited.Add((definitions.Source.ResourceUri,key)))throw new InvalidDataException("PostEffect3Lut source RDOK reference cycle.");
-            var matches=DokReader.Read(definitions.Source.Bytes).Objects.Where(o=>o.ObjectId==key).ToArray();
+            var matches=definitions.Document.Objects.Where(o=>o.ObjectId==key).ToArray();
             if(matches.Length!=1)throw new InvalidDataException("PostEffect3Lut source lookup requires one explicit registered object declaration.");
             var obj=matches[0];if(obj.Kind==DokObjectKind.Inline)return(definitions,obj);
             if(obj.Reference is not DokReference reference||obj.Properties.Count!=0)
                 throw new NotSupportedException("PostEffect3Lut RDOK property inheritance requires its source merge implementation; it is not flattened here.");
-            definitions=repository.LoadObjects(archive,reference.ResourceId);key=reference.ObjectId;
+            definitions=loadDefinitions(reference.ResourceId);key=reference.ObjectId;
         }
         throw new NotSupportedException("PostEffect3Lut reference depth exceeds the bounded source reader.");
     }
 
-    internal static void ValidateCurrentSource(LoadedObjects definitions)
-    {
-        ArgumentNullException.ThrowIfNull(definitions);
-        if(Convert.ToHexString(SHA256.HashData(definitions.Source.Bytes))!=definitions.Source.DecodedSha256)
-            throw new InvalidDataException("PostEffect3Lut source bytes differ from their retained resource identity.");
-    }
 }

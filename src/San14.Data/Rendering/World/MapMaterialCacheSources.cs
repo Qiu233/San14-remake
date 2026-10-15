@@ -28,14 +28,7 @@ public sealed class MapMaterialCacheSource
     public int EntryCount => _bytes.Length / 4;
     public string UploadSha256 { get; }
     public bool Initialized => true;
-    public LoadedDeferredMaterialTable Table
-    {
-        get
-        {
-            MapMaterialCacheSources.CanonicalShader(_declaration.Shader);
-            return _declaration with { Bytes = _bytes.ToArray() };
-        }
-    }
+    public LoadedDeferredMaterialTable Table => _declaration with { Bytes = _bytes.ToArray() };
 
     internal MapMaterialCacheSource(string identity, MapMaterialCacheBranch branch,
         string? sourceIdentity, LoadedDeferredMaterialTable table)
@@ -71,7 +64,7 @@ public static class MapMaterialCacheSources
         int explicitCombination, string freshCacheIdentity)
     {
         Identity(freshCacheIdentity);
-        CanonicalShader(deferredShader);
+        ArgumentNullException.ThrowIfNull(deferredShader);
         // Models' material records do not allocate this cache. The original
         // optional-null provider requests one row and initializes row0 to0.
         return new(freshCacheIdentity, MapMaterialCacheBranch.FreshOptionalNullProvider, null,
@@ -83,7 +76,7 @@ public static class MapMaterialCacheSources
     {
         Identity(freshCacheIdentity); ArgumentNullException.ThrowIfNull(source);
         Identity(source.SourceIdentity); Evidence(source.EvidenceUri, source.EvidenceSha256);
-        CanonicalShader(deferredShader);
+        ArgumentNullException.ThrowIfNull(deferredShader);
         byte[] records = source.FourByteRecords.ToArray();
         if ((records.Length & 3) != 0)
             throw new InvalidDataException("Original external material source requires complete four byte records.");
@@ -101,7 +94,7 @@ public static class MapMaterialCacheSources
         int explicitCombination, string currentCacheIdentity, bool? explicitlyInitialized,
         ReadOnlyMemory<byte> completePreparedUintRows)
     {
-        Identity(currentCacheIdentity); CanonicalShader(deferredShader);
+        Identity(currentCacheIdentity); ArgumentNullException.ThrowIfNull(deferredShader);
         if (explicitlyInitialized != true || completePreparedUintRows.Length < 4 ||
             (completePreparedUintRows.Length & 3) != 0)
             throw new InvalidDataException("Existing original material cache requires explicitly initialized complete uint rows.");
@@ -109,17 +102,6 @@ public static class MapMaterialCacheSources
         byte[] rows = completePreparedUintRows.ToArray();
         return new(currentCacheIdentity, MapMaterialCacheBranch.ExplicitPreparedExistingCache, null,
             declaration with { Bytes = rows, EntryCount = rows.Length / 4 });
-    }
-
-    internal static void CanonicalShader(LoadedShaderContainer shader)
-    {
-        ArgumentNullException.ThrowIfNull(shader);
-        if (!Convert.ToHexString(SHA256.HashData(shader.Source.Bytes)).Equals(
-            shader.Source.DecodedSha256, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Material shader source bytes differ from their declared hash.");
-        G2ShaderContainer parsed = G2ShaderContainerReader.Read(shader.Source.Bytes);
-        if (!parsed.RawHeader.AsSpan().SequenceEqual(shader.Container.RawHeader))
-            throw new InvalidDataException("Material shader source header differs from its container.");
     }
 
     internal static void Identity(string identity)
@@ -146,27 +128,23 @@ public sealed record MapMaterialIdSource(LoadedShaderContainer Shader,
 /// Shader config flags remain raw; none are reinterpreted as lighting values.</summary>
 public static class MapMaterialIdSources
 {
-    public static MapMaterialIdSource ReadModel(LoadedShaderContainer shader, int explicitCombination,
+    internal static MapModelMaterialIdPlan ReadModelPlan(LoadedShaderContainer shader, int explicitCombination,
         LoadedModelGeometry model, int drawIndex)
     {
-        ArgumentNullException.ThrowIfNull(model);
-        if (!Convert.ToHexString(SHA256.HashData(model.Source.Bytes)).Equals(
-            model.Source.DecodedSha256, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Material-ID model bytes differ from their declared hash.");
-        var geometry = G1ModelGeometryReader.Read(model.Source.Bytes, model.Source.Bytes.LongLength);
-        var materials = G1ModelDrawMaterialReader.Read(geometry);
+        var materials = G1ModelDrawMaterialReader.Read(model.Geometry);
         if ((uint)drawIndex >= materials.Draws.Count) throw new ArgumentOutOfRangeException(nameof(drawIndex));
         var material = ModelGbufferMaterialSourceReader.Read(shader, materials.Draws[drawIndex]);
-        var config = ReadGbuffer(shader, explicitCombination);
-        return new(shader, config, explicitCombination, material.MaterialId, MapMaterialIdBranch.SourceNamedParameter,
+        var layout = shader.ReadMaterialIdLayout(explicitCombination);
+        var source = new MapMaterialIdSource(shader, layout.Gbuffer, explicitCombination, material.MaterialId, MapMaterialIdBranch.SourceNamedParameter,
             model.Source.ResourceUri + "|draw:" + drawIndex, model.Source.ResourceUri, model.Source.DecodedSha256);
+        return new(source, layout);
     }
 
     public static MapMaterialIdSource CreateFreshTerrainDefault(LoadedTerrainShaderResources terrain,
         int explicitCombination, string freshInterfaceIdentity)
     {
         ArgumentNullException.ThrowIfNull(terrain); MapMaterialCacheSources.Identity(freshInterfaceIdentity);
-        var config = ReadGbuffer(terrain.Shader, explicitCombination);
+        var config = terrain.Shader.ReadMaterialIdLayout(explicitCombination).Gbuffer;
         // 9A7D70/9A6E40 successful default callback writes the first plugin
         // field nMtrID=0. The drawID callback only writes the second field.
         return new(terrain.Shader, config, explicitCombination, 0, MapMaterialIdBranch.FreshGbufferDefault,
@@ -178,13 +156,13 @@ public static class MapMaterialIdSources
     {
         MapMaterialCacheSources.Identity(currentInterfaceIdentity);
         MapMaterialCacheSources.Evidence(evidenceUri, evidenceSha256);
-        return new(shader, ReadGbuffer(shader, explicitCombination), explicitCombination, materialId,
+        ArgumentNullException.ThrowIfNull(shader);
+        return new(shader, shader.ReadMaterialIdLayout(explicitCombination).Gbuffer, explicitCombination, materialId,
             MapMaterialIdBranch.ExplicitCurrentValue, currentInterfaceIdentity, evidenceUri, evidenceSha256);
     }
 
-    private static G1ShaderConfigurationRecord ReadGbuffer(LoadedShaderContainer shader, int combination)
+    internal static MapMaterialIdLayout ReadLayout(LoadedShaderContainer shader, int combination)
     {
-        MapMaterialCacheSources.CanonicalShader(shader);
         var config = shader.ReadConfigurations().Records
             .FirstOrDefault(r => r.NameHash == 0xA3D05FFB && r.Name == "GBuffer") ??
             throw new InvalidDataException("Material-ID source requires the exact original GBuffer configuration.");
@@ -198,6 +176,10 @@ public static class MapMaterialIdSources
         var type = definitions.Types.Single(t => t.Offset == ids[0].TypeOffset);
         if (type.Class != 0 || type.BaseType != 2 || type.Rows != 1 || type.Columns != 1 || type.Elements != 0)
             throw new InvalidDataException("Material-ID source nMtrID is not the original int32 scalar.");
-        return config;
+        var buffer = definitions.Buffers.Single(b => b.Variables.Contains(ids[0]));
+        var binding = definitions.Bindings.Single(b => b.InputType == 0 && b.Name.Text == buffer.Name.Text);
+        if (buffer.ByteSize < 0 || ids[0].StartOffset < 0 || (long)ids[0].StartOffset + 4 > buffer.ByteSize)
+            throw new InvalidDataException("Material-ID source nMtrID exceeds its complete selected PS constant buffer.");
+        return new(config, binding.BindPoint, buffer.ByteSize, ids[0].StartOffset);
     }
 }

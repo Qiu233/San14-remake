@@ -52,21 +52,23 @@ public sealed class MapPostEffect3WorldExposurePublicationOwner:IAsyncDisposable
     private readonly MapExposureOwner target;
     private readonly Rid shader,framebuffer,pipeline,vertexSet,vertexConstants,pixelConstants,vertexBuffer,vertexArray,sampler;
     private readonly IReadOnlyList<SpirvInterfaceVariable> pixelInterface;
-    private readonly List<Rid> owned;
+    private readonly RenderDeviceResources resources;
+    private RenderDeviceResources? pixelResources;
+    // Publication failure is terminal, so only one unadopted group can remain.
+    private IAsyncDisposable? pendingPixelResources;
     private readonly SemaphoreSlim serial=new(1,1);
     private readonly object lifetime=new();
     private bool retiring,failed;
-    private int retiredRids;
     private Task? disposal;
     private Rid pixelSet,pixelView;
     private MapPostEffect3WorldExposurePublicationCompleted? completed;
     private MapPostEffect3WorldExposurePublicationOwner(LoadedMapPostEffect3ExposurePublicationSource source,
         MapExposureOwner target,Rid shader,Rid framebuffer,Rid pipeline,Rid vertexSet,Rid vertexConstants,
-        Rid pixelConstants,Rid vertexBuffer,Rid vertexArray,Rid sampler,List<Rid> owned,
+        Rid pixelConstants,Rid vertexBuffer,Rid vertexArray,Rid sampler,RenderDeviceResources resources,
         IReadOnlyList<SpirvInterfaceVariable> pixelInterface)
         =>(Source,this.target,this.shader,this.framebuffer,this.pipeline,this.vertexSet,this.vertexConstants,
-            this.pixelConstants,this.vertexBuffer,this.vertexArray,this.sampler,this.owned,this.pixelInterface)=
-          (source,target,shader,framebuffer,pipeline,vertexSet,vertexConstants,pixelConstants,vertexBuffer,vertexArray,sampler,owned,pixelInterface);
+            this.pixelConstants,this.vertexBuffer,this.vertexArray,this.sampler,this.resources,this.pixelInterface)=
+          (source,target,shader,framebuffer,pipeline,vertexSet,vertexConstants,pixelConstants,vertexBuffer,vertexArray,sampler,resources,pixelInterface);
 
     public static async Task<MapPostEffect3WorldExposurePublicationOwner> BuildAsync(
         GameResourceRepository repository,MapExposureOwner actualGlobalExposure,string locale="TC")
@@ -88,12 +90,12 @@ public sealed class MapPostEffect3WorldExposurePublicationOwner:IAsyncDisposable
             pi.Descriptors.Count(d=>d.Type.Kind=="sampler")!=1||
             pi.Descriptors.Count(d=>d.Type is{Kind:"image",Dimension:1,Arrayed:false,Multisampled:false})!=1)
             throw new InvalidDataException("Exposure publication stock shader interface differs from the exact32B/16B/t0/s0 source.");
-        return await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
+        var resources=new RenderDeviceResources("Exposure publication GPU allocation failed.");
+        try
         {
-            var owned=new List<Rid>();
-            Rid Own(Rid rid){if(!rid.IsValid)throw new InvalidDataException("Exposure publication GPU allocation failed.");owned.Add(rid);return rid;}
-            try
+            return await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
             {
+                Rid Own(Rid rid)=>resources.Own(rid);
                 RequireTarget(rd,actualGlobalExposure);
                 using var stages=new RDShaderSpirV();stages.SetStageBytecode(RenderingDevice.ShaderStage.Vertex,vs.Bytes);
                 stages.SetStageBytecode(RenderingDevice.ShaderStage.Fragment,ps.Bytes);
@@ -107,7 +109,7 @@ public sealed class MapPostEffect3WorldExposurePublicationOwner:IAsyncDisposable
                 try
                 {
                     var u=new RDUniform{UniformType=RenderingDevice.UniformType.UniformBuffer,Binding=(int)vi.Descriptors[0].Binding!.Value};
-                    u.AddId(vc);uniforms.Add(u);vertexSet=Own(rd.UniformSetCreate(uniforms,shader,1));
+                    uniforms.Add(u);u.AddId(vc);vertexSet=Own(rd.UniformSetCreate(uniforms,shader,1));
                 }
                 finally{foreach(var u in uniforms)u.Dispose();}
                 Rid vb=Own(rd.VertexBufferCreate(96,source.BuildQuad()));
@@ -133,10 +135,18 @@ public sealed class MapPostEffect3WorldExposurePublicationOwner:IAsyncDisposable
                 if(!rd.RenderPipelineIsValid(pipeline)||!rd.UniformSetIsValid(vertexSet))
                     throw new InvalidDataException("Exposure publication source pipeline/set was rejected.");
                 return new MapPostEffect3WorldExposurePublicationOwner(source,actualGlobalExposure,shader,framebuffer,
-                    pipeline,vertexSet,vc,pc,vb,array,sampler,owned,pi.Descriptors);
-            }
-            catch{for(int i=owned.Count-1;i>=0;i--)rd.FreeRid(owned[i]);throw;}
-        });
+                    pipeline,vertexSet,vc,pc,vb,array,sampler,resources,pi.Descriptors);
+            });
+        }
+        catch(Exception failure)
+        {
+            var pending=NativeMapBorrowerRetirementPackage.CreatePending("Exposure-publication-partial",
+                resources.Count>0?[resources]:[],(failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+            try{await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pending);}
+            catch(Exception retirementFailure)
+            {throw new NativeMapBorrowerConstructionException(failure,retirementFailure,pending!);}
+            throw;
+        }
     }
 
     public async Task<MapPostEffect3WorldExposurePublicationCompleted?> PublishAsync(
@@ -205,22 +215,34 @@ public sealed class MapPostEffect3WorldExposurePublicationOwner:IAsyncDisposable
     private void BindInput(RenderingDevice rd,Rid view)
     {
         if(pixelView==view&&pixelSet.IsValid&&rd.UniformSetIsValid(pixelSet))return;
-        var uniforms=new Godot.Collections.Array<RDUniform>();Rid next=default;
+        var candidate=new RenderDeviceResources("Exposure publication source binding failed.");
+        pendingPixelResources=candidate;
+        Rid next=default;
         try
         {
-            foreach(var d in pixelInterface)
+            var uniforms=new Godot.Collections.Array<RDUniform>();
+            try
             {
-                var u=new RDUniform{Binding=(int)d.Binding!.Value,UniformType=d.StorageClass==2?RenderingDevice.UniformType.UniformBuffer:
-                    d.Type.Kind=="sampler"?RenderingDevice.UniformType.Sampler:RenderingDevice.UniformType.Texture};
-                u.AddId(d.StorageClass==2?pixelConstants:d.Type.Kind=="sampler"?sampler:view);uniforms.Add(u);
+                foreach(var d in pixelInterface)
+                {
+                    var u=new RDUniform{Binding=(int)d.Binding!.Value,UniformType=d.StorageClass==2?RenderingDevice.UniformType.UniformBuffer:
+                        d.Type.Kind=="sampler"?RenderingDevice.UniformType.Sampler:RenderingDevice.UniformType.Texture};
+                    uniforms.Add(u);u.AddId(d.StorageClass==2?pixelConstants:d.Type.Kind=="sampler"?sampler:view);
+                }
+                next=candidate.Own(rd.UniformSetCreate(uniforms,shader,0));
+                if(!rd.UniformSetIsValid(next))throw new InvalidDataException("Exposure publication source binding failed.");
             }
-            next=rd.UniformSetCreate(uniforms,shader,0);
-            if(!next.IsValid||!rd.UniformSetIsValid(next))throw new InvalidDataException("Exposure publication source binding failed.");
-            if(pixelSet.IsValid){rd.FreeRid(pixelSet);owned.Remove(pixelSet);}
-            pixelSet=next;pixelView=view;owned.Add(next);
+            finally{foreach(var u in uniforms)u.Dispose();}
         }
-        catch{if(next.IsValid)rd.FreeRid(next);throw;}
-        finally{foreach(var u in uniforms)u.Dispose();}
+        catch(Exception failure)
+        {
+            try{candidate.ReleaseAfterConstructionFailure(rd,failure,"Exposure-publication-pixel-partial");}
+            catch(NativeMapBorrowerConstructionException retained)
+            {pendingPixelResources=retained.RetainedPackage;throw;}
+            pendingPixelResources=null;throw;
+        }
+        pixelResources?.Release(rd);
+        pixelResources=candidate;pendingPixelResources=null;pixelSet=next;pixelView=view;
     }
     private static void RequireInput(IMapPostEffect3ComputeMipTextureLease input)
     {
@@ -251,8 +273,9 @@ public sealed class MapPostEffect3WorldExposurePublicationOwner:IAsyncDisposable
         await serial.WaitAsync();
         try
         {
-            await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-            {while(retiredRids<owned.Count){rd.FreeRid(owned[owned.Count-1-retiredRids]);retiredRids++;}return true;});
+            if(pendingPixelResources is not null){await pendingPixelResources.DisposeAsync();pendingPixelResources=null;}
+            if(pixelResources is not null){await pixelResources.DisposeAsync();pixelResources=null;}
+            await resources.DisposeAsync();
             completed=null;
         }
         finally{serial.Release();}

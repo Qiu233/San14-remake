@@ -14,9 +14,6 @@ public sealed class LoadedDeferredSamplerNativeSource
     public string RuleVersion => San14.Data.RenderRuleIdentity.Version;
     internal uint ConstructorLowBits { get; }
     internal uint ConstructorMipCode { get; }
-    internal uint[] Addresses { get; }
-    internal uint[] Anisotropy { get; }
-    internal uint[] Comparison { get; }
     internal byte[] DefaultDescriptor { get; }
 
     internal LoadedDeferredSamplerNativeSource(string sourceDirectory, string locale)
@@ -25,8 +22,6 @@ public sealed class LoadedDeferredSamplerNativeSource
         RenderRuleIdentity=San14.Data.RenderRuleIdentity.For("deferred-sampler",locale);
         ResourceUri="san14://render-rules/deferred-sampler";
         ConstructorLowBits=0x1415;ConstructorMipCode=2;
-        // Source packed address codes map to D3D wrap, clamp, mirror, border.
-        Addresses=[1,3,2,4];Anisotropy=[1,2,4,6,8,10,12,16];Comparison=[1,2,3,4,5,6,7,8];
         uint[] descriptorWords=[0x15,3,3,3,0,1,1,
             BitConverter.SingleToUInt32Bits(1),BitConverter.SingleToUInt32Bits(1),
             BitConverter.SingleToUInt32Bits(1),BitConverter.SingleToUInt32Bits(1),
@@ -67,8 +62,7 @@ public static partial class RenderSamplerSourceAdapters
         LoadedObjects source,uint objectId)
     {
         ArgumentNullException.ThrowIfNull(source);
-        var original=San14.Data.Formats.DokReader.Read(source.Source.Bytes);
-        var objects=original.Objects.Where(o=>o.ObjectId==objectId).ToArray();
+        var objects=source.Document.Objects.Where(o=>o.ObjectId==objectId).ToArray();
         if(objects.Length!=1||objects[0].ClassId!=0x04F7DD1F||objects[0].Kind!=DokObjectKind.Inline)
             throw new InvalidDataException("Original cube-array sampler requires one explicit04F7DD1F source declaration.");
         var levels=objects[0].Properties.Where(p=>p.NameHash==0x7744A442).ToArray();
@@ -109,18 +103,7 @@ public static partial class RenderSamplerSourceAdapters
     public static G1TextureSamplerRecipe DecodeKey(LoadedDeferredSamplerNativeSource native,ReadOnlySpan<byte> originalKey)
     {
         ArgumentNullException.ThrowIfNull(native);
-        if(originalKey.Length!=8)throw new InvalidDataException("Native sampler key must contain all eight bytes.");
-        uint lo=BinaryPrimitives.ReadUInt16LittleEndian(originalKey),hi=BinaryPrimitives.ReadUInt16LittleEndian(originalKey[2..]);
-        uint mag=lo>>10&3,min=lo>>12&3,mip=lo>>14&3;
-        if(mag==3||min==3||mip==3)throw new InvalidDataException("Native sampler uses an unresolved filter code3.");
-        uint filter=mag==2||min==2?0x55u:(min==1?0x10u:0u)|(mag==1?4u:0u)|(mip==2?1u:0u);
-        if((hi&8)!=0)filter|=0x80;
-        uint maximum=mip==0?0u:0x7F7FFFFFu;
-        uint bias=BinaryPrimitives.ReadUInt32LittleEndian(originalKey[4..]);
-        if(!float.IsFinite(BitConverter.UInt32BitsToSingle(bias)))throw new InvalidDataException("Native sampler bias is nonfinite.");
-        uint minimum=maximum==0?0u:BitConverter.SingleToUInt32Bits((float)(lo>>6&15));
-        return new(0,originalKey.ToArray(),filter,native.Addresses[lo&3],native.Addresses[lo>>2&3],native.Addresses[lo>>4&3],
-            bias,native.Anisotropy[hi&7],native.Comparison[hi>>4&7],minimum,maximum);
+        return G1TextureSamplerReader.DecodeKey(originalKey);
     }
 
     private static uint U32(ReadOnlySpan<byte> bytes,int at)=>BinaryPrimitives.ReadUInt32LittleEndian(bytes.Slice(at,4));

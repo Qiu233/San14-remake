@@ -8,10 +8,10 @@ public sealed class SkyPatternMapDevice : IAsyncDisposable
     public RenderTextureDefinition Source { get; }
     public Rid TextureRid { get; }
     public Rid Framebuffer { get; }
-    private Task? _disposal;
+    private readonly RenderDeviceResources resources;
 
-    private SkyPatternMapDevice(RenderTextureDefinition source, Rid texture, Rid framebuffer)
-        => (Source, TextureRid, Framebuffer) = (source, texture, framebuffer);
+    private SkyPatternMapDevice(RenderTextureDefinition source, Rid texture, Rid framebuffer, RenderDeviceResources resources)
+        => (Source, TextureRid, Framebuffer, this.resources) = (source, texture, framebuffer, resources);
 
     public static Task<SkyPatternMapDevice> BuildAsync(RenderTextureDefinition source, bool allowReadback = false)
     {
@@ -22,7 +22,7 @@ public sealed class SkyPatternMapDevice : IAsyncDisposable
             throw new InvalidDataException("SkyPatternMap adapter requires the exact finite single-mip/sample R8 source recipe.");
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            Rid texture = default, framebuffer = default;
+            var resources = new RenderDeviceResources("Device rejected original SkyPatternMap allocation.");
             try
             {
                 var usage = RenderingDevice.TextureUsageBits.SamplingBit | RenderingDevice.TextureUsageBits.ColorAttachmentBit;
@@ -34,24 +34,24 @@ public sealed class SkyPatternMapDevice : IAsyncDisposable
                     TextureType = RenderingDevice.TextureType.Type2D, Samples = RenderingDevice.TextureSamples.Samples1,
                     UsageBits = usage };
                 using var view = new RDTextureView();
-                texture = rd.TextureCreate(format,view);
+                Rid texture = rd.TextureCreate(format,view);
                 if (!texture.IsValid) throw new InvalidDataException("Device rejected original SkyPatternMap texture.");
-                framebuffer = rd.FramebufferCreate([texture]);
-                if (!framebuffer.IsValid || !rd.FramebufferIsValid(framebuffer))
+                resources.Own(texture);
+                Rid framebuffer = rd.FramebufferCreate([texture]);
+                if (!framebuffer.IsValid)
                     throw new InvalidDataException("Device rejected original SkyPatternMap framebuffer.");
-                return new SkyPatternMapDevice(source,texture,framebuffer);
+                resources.Own(framebuffer);
+                if (!rd.FramebufferIsValid(framebuffer))
+                    throw new InvalidDataException("Device rejected original SkyPatternMap framebuffer.");
+                return new SkyPatternMapDevice(source,texture,framebuffer,resources);
             }
-            catch
+            catch (Exception failure)
             {
-                if (framebuffer.IsValid) rd.FreeRid(framebuffer);
-                if (texture.IsValid) rd.FreeRid(texture);
+                resources.ReleaseAfterConstructionFailure(rd, failure, "Sky-pattern-map-partial");
                 throw;
             }
         });
     }
 
-    public ValueTask DisposeAsync() => new(_disposal ??= TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-    {
-        rd.FreeRid(Framebuffer); rd.FreeRid(TextureRid); return true;
-    }));
+    public ValueTask DisposeAsync() => resources.DisposeAsync();
 }

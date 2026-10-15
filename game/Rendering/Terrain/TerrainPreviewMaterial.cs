@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using Godot;
 using San14.Data;
 using San14.Data.Formats;
@@ -88,8 +87,8 @@ public sealed class TerrainPreviewMaterial : IDisposable, ITerrainSurface
         ArgumentNullException.ThrowIfNull(sourceParameters);
         if (RenderingServer.GetRenderingDevice() is null) return Build(repository, terrain, policy, sourceParameters);
         LoadedTerrainTextureGroup group = TerrainTextureResources.LoadGroup(repository, terrain.Source, policy.Group);
-        TerrainTextureBinding binding = group.Bindings.SingleOrDefault(item => item.Slot == policy.Slot)
-            ?? throw new InvalidDataException($"Terrain texture table has no slot {policy.Slot}.");
+        TerrainTextureBinding binding = TerrainTexturePreparation.Select(group, policy.Slot);
+        TerrainTexturePreparation.RequireLayer(binding, policy.Layer);
         if (binding.Image.PixelFormat != 0x5B) return BuildCore(repository, terrain, policy, sourceParameters, group);
         TerrainDeviceTexture device = await TerrainDeviceTexture.BuildAsync(group, policy.Slot);
         try { return BuildCore(repository, terrain, policy, sourceParameters, group, device); }
@@ -124,18 +123,11 @@ public sealed class TerrainPreviewMaterial : IDisposable, ITerrainSurface
             if (!extent.IsFinite() || extent.X <= 0 || extent.Y <= 0)
                 throw new InvalidDataException("Source height extent cannot be normalized for the preview.");
             LoadedTerrainTextureGroup group = loadedGroup ?? TerrainTextureResources.LoadGroup(repository, terrain.Source, policy.Group);
-            TerrainTextureBinding[] matches = group.Bindings.Where(value => value.Slot == policy.Slot).ToArray();
-            if (matches.Length != 1) throw new InvalidDataException($"Expected one source slot; found {matches.Length} in {group.TableSource.ResourceUri}.");
-            TerrainTextureBinding binding = matches[0];
+            TerrainTextureBinding binding = TerrainTexturePreparation.Select(group, policy.Slot);
+            TerrainTexturePreparation.RequireLayer(binding, policy.Layer);
             LoadedRdbAsset source = binding.Resource.Source;
             context += $", texture {source.ResourceUri}, image {binding.TextureIndex}";
-            if (!Convert.ToHexString(SHA256.HashData(source.Bytes)).Equals(source.DecodedSha256, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException("Texture bytes differ from their recorded source hash.");
-            // Use canonical metadata from these exact bytes for slicing, never a second repository read.
-            G1TextureContainer container = G1TextureContainerReader.Read(source.Bytes);
-            G1TextureImage sourceImage = container.Textures[binding.TextureIndex];
-            byte[] encoded = sourceImage.GetEncodedMip(source.Bytes, 0, policy.Layer).ToArray();
-            string encodedHash = Convert.ToHexString(SHA256.HashData(encoded));
+            G1TextureImage sourceImage = binding.Image;
             Image.Format format = sourceImage.PixelFormat switch
             {
                 0x00 or 0x01 => Image.Format.Rgba8,
@@ -143,29 +135,22 @@ public sealed class TerrainPreviewMaterial : IDisposable, ITerrainSurface
                 0x5B => Image.Format.Dxt5,
                 _ => throw new InvalidDataException($"Unsupported preview color format {sourceImage.PixelFormat:X2}.")
             };
-            if (sourceImage.PixelFormat == 0x01)
-                for (int at = 0; at < encoded.Length; at += 4)
-                    (encoded[at], encoded[at + 2]) = (encoded[at + 2], encoded[at]);
-            string uploadHash = Convert.ToHexString(SHA256.HashData(encoded));
             // The high-level compatibility image API cannot represent the original
             // partial mip chains. The RD path owns their exact declared levels.
-            var layerHashes = new Godot.Collections.Array<string>();
             if (deviceTexture is not null)
             {
                 texture = deviceTexture.Texture;
-                for (int layer = 0; layer < sourceImage.LayerCount; layer++)
-                    layerHashes.Add(Convert.ToHexString(SHA256.HashData(sourceImage.GetEncodedMip(source.Bytes, 0, layer))));
-            }
-            else if (sourceImage.LayerCount > 1)
-            {
-                texture = UploadArray(sourceImage, source.Bytes, format, layerHashes);
             }
             else
             {
-                using Image image = Image.CreateFromData(sourceImage.Width, sourceImage.Height, false, format, encoded);
-                if (image is null || image.IsEmpty()) throw new InvalidDataException("Native source image creation failed.");
-                texture = ImageTexture.CreateFromImage(image);
-                layerHashes.Add(uploadHash);
+                var prepared = TerrainTexturePreparation.PrepareCompatibility(binding, policy.Layer);
+                if (sourceImage.LayerCount > 1) texture = UploadArray(prepared, format);
+                else
+                {
+                    using Image image = Image.CreateFromData(sourceImage.Width, sourceImage.Height, false, format, prepared.Layers[0].ToArray());
+                    if (image is null || image.IsEmpty()) throw new InvalidDataException("Native source image creation failed.");
+                    texture = ImageTexture.CreateFromImage(image);
+                }
             }
             int width = texture is TextureLayered array ? array.GetWidth() : ((Texture2D?)texture)?.GetWidth() ?? 0;
             int textureHeight = texture is TextureLayered arrayHeight ? arrayHeight.GetHeight() : ((Texture2D?)texture)?.GetHeight() ?? 0;
@@ -209,13 +194,12 @@ public sealed class TerrainPreviewMaterial : IDisposable, ITerrainSurface
                     terrain.Source.Objects.Source.OverrideSource is not null,
                 ["image_index"] = binding.TextureIndex, ["layer"] = policy.Layer, ["mip_level"] = 0,
                 ["source_layer_count"] = sourceImage.LayerCount, ["source_mip_count"] = sourceImage.MipCount,
-                ["uploaded_layer_count"] = layerHashes.Count, ["uploaded_layer_sha256"] = layerHashes,
+                ["uploaded_layer_count"] = sourceImage.LayerCount,
                 ["uploaded_as_array"] = texture is Texture2DArray or Texture2DArrayRD,
                 ["uploaded_mip_count"] = deviceTexture?.SourceImage.MipCount ?? 1,
                 ["uploaded_via_rendering_device"] = deviceTexture is not null,
                 ["sampling_mip_mode"] = deviceTexture?.SourceImage.MipCount > 1 ? "implicit source mip chain" : "base only",
                 ["source_pixel_format"] = sourceImage.PixelFormat, ["source_image_header"] = sourceImage.RawHeader,
-                ["source_encoded_sha256"] = encodedHash, ["uploaded_sha256"] = uploadHash,
                 ["uploaded_format"] = (int)format, ["width"] = sourceImage.Width, ["height"] = sourceImage.Height,
                 ["source_extent"] = extent, ["preview_uv_scale"] = policy.UvScale, ["preview_uv_offset"] = policy.UvOffset,
                 ["source_parameter_uri"] = sourceParameters.Wrapper.Source.ResourceUri,
@@ -242,20 +226,16 @@ public sealed class TerrainPreviewMaterial : IDisposable, ITerrainSurface
         }
     }
 
-    private static Texture2DArray UploadArray(G1TextureImage sourceImage, byte[] bytes,
-        Image.Format format, Godot.Collections.Array<string> layerHashes)
+    private static Texture2DArray UploadArray(TerrainTextureUpload prepared, Image.Format format)
     {
-        if (sourceImage.SubresourceLayout != G1TextureSubresourceLayout.MipMajorArray ||
-            sourceImage.PixelFormat != 0x5B)
-            throw new InvalidDataException("Native terrain arrays require the verified BC3 mip-major profile.");
+        G1TextureImage sourceImage = prepared.Image;
         var images = new Godot.Collections.Array<Image>();
         var texture = new Texture2DArray();
         try
         {
             for (int layer = 0; layer < sourceImage.LayerCount; layer++)
             {
-                byte[] encoded = sourceImage.GetEncodedMip(bytes, 0, layer).ToArray();
-                layerHashes.Add(Convert.ToHexString(SHA256.HashData(encoded)));
+                byte[] encoded = prepared.Layers[layer].ToArray();
                 Image image = Image.CreateFromData(sourceImage.Width, sourceImage.Height, false, format, encoded);
                 if (image is null || image.IsEmpty())
                     throw new InvalidDataException($"Native array image creation failed for layer {layer}.");

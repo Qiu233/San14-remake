@@ -17,10 +17,39 @@ public sealed class LoadedShaderContainer
     private G1ShaderMatrixBindings? matrixBindings;
     private G1ShaderConfigurations? configurations;
     private G1ShaderSelectionDimensions? selectionDimensions;
+    private G2ShaderFeatureTable? surfaceFeatures;
+    private readonly Dictionary<int, MapMaterialIdLayout> materialIdLayouts = new();
+    private readonly Dictionary<LoadedModelGeometry, Dictionary<(int Combination, int Draw), MapModelMaterialIdPlan>> modelMaterialPlans
+        = new(ReferenceEqualityComparer.Instance);
     public LoadedShaderContainer(G2ShaderContainer container, LoadedRdbAsset source)
         => (Container, Source) = (container, source);
     public G2ShaderContainer Container { get; }
     public LoadedRdbAsset Source { get; }
+    public MapMaterialIdLayout ReadMaterialIdLayout(int explicitCombinationIndex)
+    {
+        lock (programMetadataGate)
+        {
+            if (materialIdLayouts.TryGetValue(explicitCombinationIndex, out var cached)) return cached;
+            var parsed = MapMaterialIdSources.ReadLayout(this, explicitCombinationIndex);
+            materialIdLayouts.Add(explicitCombinationIndex, parsed);
+            return parsed;
+        }
+    }
+
+    public MapModelMaterialIdPlan ReadModelMaterialPlan(LoadedModelGeometry model, int explicitCombinationIndex, int drawIndex)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        lock (programMetadataGate)
+        {
+            if (!modelMaterialPlans.TryGetValue(model, out var plans))
+                modelMaterialPlans.Add(model, plans = new());
+            var key = (explicitCombinationIndex, drawIndex);
+            if (plans.TryGetValue(key, out var cached)) return cached;
+            var parsed = MapMaterialIdSources.ReadModelPlan(this, explicitCombinationIndex, model, drawIndex);
+            plans.Add(key, parsed);
+            return parsed;
+        }
+    }
     public DxbcProgramSignatures ReadSignatures(int programIndex)
     {
         if ((uint)programIndex >= Container.Programs.Count)
@@ -55,6 +84,12 @@ public sealed class LoadedShaderContainer
         }
         catch (InvalidDataException error)
         { throw new InvalidDataException($"G1S shader binding tables failed: {Source.ResourceUri}. {error.Message}", error); }
+    }
+
+    public G2ShaderFeatureTable ReadG2Features()
+    {
+        lock (programMetadataGate)
+            return surfaceFeatures ??= G2ShaderFeatureReader.Read(Source.Bytes, Container, ReadCombinations());
     }
 
     public G1ShaderResourceBindings ReadG1ResourceBindings(int explicitCombinationIndex)

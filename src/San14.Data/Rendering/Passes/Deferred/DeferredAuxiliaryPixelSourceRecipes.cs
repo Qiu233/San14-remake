@@ -9,8 +9,12 @@ public sealed record DeferredAuxiliaryPixelStage(uint StageCode, int ProgramInde
 public sealed record DeferredAuxiliaryPixelPass(uint PassIndex, G2ShaderCombination Combination,
     G1ShaderResourceBindings Resources, IReadOnlyList<DeferredAuxiliaryPixelStage> Stages);
 
+/// <summary>Static pass descriptions belong to this imported shader source.
+/// A resource reload creates a new source and its own pass plans.</summary>
 public sealed class DeferredAuxiliaryShaderSource
 {
+    private readonly object passGate = new();
+    private readonly Dictionary<int,DeferredAuxiliaryPixelPass> passes = new();
     public LoadedObjects SourceObjects { get; }
     public DokObject Object { get; }
     public DokProperty ShaderReference { get; }
@@ -24,21 +28,26 @@ public sealed class DeferredAuxiliaryShaderSource
     public DeferredAuxiliaryPixelPass ReadPass(uint passIndex, IReadOnlyList<uint> dimensions)
     {
         ArgumentNullException.ThrowIfNull(dimensions);
-        RequireSourceShaderBytes();
         var row=Shader.ReadG1Bindings().ResolveCombination(dimensions.ToArray(),passIndex);
-        var resources=Shader.ReadG1ResourceBindings(row.Index);
-        var stages=row.Stages.Where(s=>s.Entry is not null).Select(s=>new DeferredAuxiliaryPixelStage(
-            s.StageCode,s.Entry!.ProgramIndex,
-            Convert.ToHexString(SHA256.HashData(Shader.Container.GetProgramBytes(Shader.Source.Bytes,s.Entry.ProgramIndex))),
-            Shader.ReadResourceDefinitions(s.Entry.ProgramIndex),Shader.ReadSignatures(s.Entry.ProgramIndex))).ToArray();
-        return new(passIndex,row,resources,Array.AsReadOnly(stages));
+        // The resolved combination index includes the validated pass index.
+        lock(passGate)
+        {
+            if(passes.TryGetValue(row.Index,out var cached))return cached;
+            var resources=Shader.ReadG1ResourceBindings(row.Index);
+            var stages=row.Stages.Where(s=>s.Entry is not null).Select(s=>new DeferredAuxiliaryPixelStage(
+                s.StageCode,s.Entry!.ProgramIndex,
+                Convert.ToHexString(SHA256.HashData(Shader.Container.GetProgramBytes(Shader.Source.Bytes,s.Entry.ProgramIndex))),
+                Shader.ReadResourceDefinitions(s.Entry.ProgramIndex),Shader.ReadSignatures(s.Entry.ProgramIndex))).ToArray();
+            var parsed=new DeferredAuxiliaryPixelPass(passIndex,row,resources,Array.AsReadOnly(stages));
+            passes.Add(row.Index,parsed);
+            return parsed;
+        }
     }
 
     /// <summary>1056A70 compares the filter type, and compares size only for
     /// Gaussian type1. GGX retains a former size without changing its variant.</summary>
     public DeferredAuxiliaryPixelPass ResolveFilterPass(uint filterType,uint gaussianFeatureSize,uint passIndex)
     {
-        RequireSourceShaderBytes();
         var tables=Shader.ReadG1Bindings();
         if(tables.Variants.RecordWidth!=8 || tables.RawDimensionCounts.Take(6).Any(v=>v>1))
             throw new InvalidDataException("Auxiliary source filter dimensions differ from their native condition contract.");
@@ -47,18 +56,6 @@ public sealed class DeferredAuxiliaryShaderSource
             (filterType!=1 || BinaryPrimitives.ReadUInt32LittleEndian(v.RawBytes.Span[4..])==gaussianFeatureSize));
         if(variant is null)throw new InvalidDataException("Auxiliary filter condition has no verified original shader variant.");
         return ReadPass(passIndex,new uint[]{0,0,0,0,0,0,(uint)variant.Index});
-    }
-    private void RequireSourceShaderBytes()
-    {
-        string expected=Shader.Source.FileId switch
-        {
-            DeferredAuxiliaryPixelSourceRecipes.FilterShaderFileId=>DeferredAuxiliaryPixelSourceRecipes.FilterShaderSha256,
-            DeferredAuxiliaryPixelSourceRecipes.DepthFilterShaderFileId=>DeferredAuxiliaryPixelSourceRecipes.DepthFilterShaderSha256,
-            _=>throw new InvalidDataException("Auxiliary shader left its finite original provider set.")
-        };
-        if(Shader.Source.OverrideSource is not null || Shader.Source.DecodedSha256!=expected ||
-            Convert.ToHexString(SHA256.HashData(Shader.Source.Bytes))!=expected)
-            throw new InvalidDataException("Auxiliary shader source changed after its original recipe was parsed.");
     }
 }
 
@@ -158,9 +155,8 @@ public static class DeferredAuxiliaryPixelSourceRecipes
             shader.Source.OverrideSource is not null || shader.Source.ResourceUri!=$"san14://rdb/system/{fileId:X8}" ||
             shader.Source.DecodedSha256!=hash || Convert.ToHexString(SHA256.HashData(shader.Source.Bytes))!=hash)
             throw new InvalidDataException("Auxiliary shader bytes or G1S reference differ from the actual source provider.");
-        var canonicalShader=new LoadedShaderContainer(G2ShaderContainerReader.Read(shader.Source.Bytes),shader.Source);
-        _=canonicalShader.ReadG1Bindings();
-        return new(objects,providers[0],refs[0],canonicalShader);
+        _=shader.ReadG1Bindings();
+        return new(objects,providers[0],refs[0],shader);
     }
     private static void Exact(LoadedRdbAsset source,string uri,string hash)
     {

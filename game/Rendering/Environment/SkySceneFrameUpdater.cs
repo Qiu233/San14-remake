@@ -28,6 +28,15 @@ public sealed class SkySceneFrameUpdater
     private uint _generationIndex;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
+    internal SkyScenePreparedFrame StagedFrame => _prepared ??
+        throw new InvalidOperationException("No source sky frame has been staged.");
+
+    internal void RequireStagedFrame(SkyScenePreparedFrame prepared)
+    {
+        if (!ReferenceEquals(_prepared, prepared))
+            throw new InvalidOperationException("The source sky frame was replaced or its staging failed.");
+    }
+
     public SkySceneFrameUpdater(SkyScene scene,
         IReadOnlyList<SkySceneSky2FaceCache> explicitSixRetainedFaces,
         SkyStarProducer? stars = null, SkyCloudColorProducer? cloud = null)
@@ -63,14 +72,18 @@ public sealed class SkySceneFrameUpdater
             foreach (var branch in new[] { explicitProducers.Scene, explicitProducers.Contribution })
                 if (branch is not null && (string.IsNullOrWhiteSpace(branch.SourceResourceUri) || branch.SubmitAsync is null))
                     throw new InvalidDataException("Sky updater branches require explicit source provenance and submission.");
+            var generation = Scene.PrepareGeneration(explicitGenerationIndex, prepared.DrawPackets, explicitLight);
+            // Validation alone leaves the previous frame intact. Once device
+            // staging starts, no failure may resume that previous submission.
+            _prepared = null;
             if (Stars is not null) await Stars.UpdateFrameAsync(starPackets, explicitProducers.StarGate!);
             if (Cloud is not null) await Cloud.UpdateFrameAsync(cloudPackets);
             var stages = new SkySceneBaseStages(Stars?.CreateSceneStage(), explicitProducers.Sky2Enabled,
                 explicitProducers.Scene, Cloud?.CreateSceneStage(), explicitProducers.Contribution);
-            await Scene.BeginGenerationAsync(explicitGenerationIndex, prepared, stages, explicitLight);
+            await Scene.BeginGenerationAsync(generation, stages);
             _retainedFaces = SnapshotFaces(prepared.Faces);
             _prepared = SnapshotPrepared(prepared); _generationIndex = explicitGenerationIndex;
-            return Result(await Scene.AdvanceAsync(maximumWorkUnits));
+            return await AdvanceCoreAsync(maximumWorkUnits);
         }
         finally { _gate.Release(); }
     }
@@ -83,9 +96,15 @@ public sealed class SkySceneFrameUpdater
         try
         {
             if (_prepared is null) throw new InvalidOperationException("No source sky frame has been staged.");
-            return Result(await Scene.AdvanceAsync(maximumWorkUnits));
+            return await AdvanceCoreAsync(maximumWorkUnits);
         }
         finally { _gate.Release(); }
+    }
+
+    private async Task<SkySceneFrameUpdateResult> AdvanceCoreAsync(uint maximumWorkUnits)
+    {
+        try { return Result(await Scene.AdvanceAsync(maximumWorkUnits)); }
+        catch { _prepared = null; throw; }
     }
 
     private SkySceneFrameUpdateResult Result(SkySceneProgress progress)

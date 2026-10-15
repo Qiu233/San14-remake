@@ -8,6 +8,7 @@ internal sealed class ArmyFlagSourceCache : IAsyncDisposable
     private readonly Vkd3dShaderCompiler? compiler;
     private readonly Dictionary<LoadedArmyFlagResources, Sources> owners = new(ReferenceEqualityComparer.Instance);
     private Task? disposal;
+    private NativeMapBorrowerRetirementPackage? finalRetirement;
 
     public ArmyFlagSourceCache(GameResourceRepository repository, Vkd3dShaderCompiler? compiler = null)
     {
@@ -24,11 +25,16 @@ internal sealed class ArmyFlagSourceCache : IAsyncDisposable
         return prepared;
     }
 
-    public ValueTask DisposeAsync() => new(disposal ??= DisposeCoreAsync());
+    public ValueTask DisposeAsync()
+    {
+        if(disposal is null||disposal.IsFaulted||disposal.IsCanceled)disposal=DisposeCoreAsync();
+        return new(disposal);
+    }
 
     private async Task DisposeCoreAsync()
     {
-        foreach (var source in owners.Values) await source.DisposeAsync();
+        finalRetirement??=new("Army-flag-sources-retire/"+Guid.NewGuid().ToString("N"),[..owners.Values]);
+        await finalRetirement.DisposeAsync();
         owners.Clear();
     }
 
@@ -43,6 +49,7 @@ internal sealed class ArmyFlagSourceCache : IAsyncDisposable
         private readonly Dictionary<LoadedArmyFlagMaterialVariation, TextureGroup> groups = new(ReferenceEqualityComparer.Instance);
         private readonly List<NativeArmyFlagMaterialTextureGroupRecord> retainedGroups = [];
         private readonly Dictionary<string, RemakeArmyFlagCaoPaneProducer> producers = [];
+        private NativeMapBorrowerRetirementPackage? finalRetirement;
         private LoadedObjects? objects;
         private LoadedRenderGraph? graph;
         public LoadedArmyFlagResources Source { get; }
@@ -111,7 +118,8 @@ internal sealed class ArmyFlagSourceCache : IAsyncDisposable
         public async ValueTask DisposeAsync()
         {
             foreach (var group in retainedGroups) group.Invalidate("Army flag renderer disposed");
-            foreach (var producer in producers.Values) await producer.DisposeAsync();
+            finalRetirement??=new("Army-flag-source-retire/"+Guid.NewGuid().ToString("N"),[..producers.Values]);
+            await finalRetirement.DisposeAsync();
             retainedGroups.Clear(); groups.Clear(); producers.Clear(); draws.Clear(); variants.Clear(); finalVariants.Clear();
         }
     }

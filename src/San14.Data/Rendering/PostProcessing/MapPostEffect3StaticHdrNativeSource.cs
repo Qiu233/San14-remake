@@ -9,16 +9,28 @@ namespace San14.Data;
 public sealed class MapPostEffect3StaticHdrNativeRecipe
 {
     private readonly G1TextureSamplerRecipe sampler;
+    private readonly LoadedObjects definitions;
+    private readonly LoadedTextureContainer resource;
+    private readonly Lazy<SkyTextureSource> texture;
     internal MapPostEffect3StaticHdrNativeRecipe(StaticTextureBinding binding,
         G1TextureSamplerRecipe sampler,uint resource,uint ordinary,uint alternate,ushort packed,LoadedDeferredSamplerNativeSource native,string evidence)
-        =>(Binding,this.sampler,NativeResourceFormat,NativeShaderViewFormat,NativeAlternateShaderViewFormat,
+    {
+        definitions=binding.Definitions;this.resource=binding.Resource;
+        SourceStaticObjectId=binding.Definition.ObjectId;SourceTextureFileId=binding.Resource.Source.FileId;SourceTid=(uint)binding.ImageIndex;
+        var textureContainer=binding.Resource;int imageIndex=binding.ImageIndex;
+        TextureIdentity=new(textureContainer.Source.ResourceUri,textureContainer.Source.DecodedSha256,imageIndex,ordinary);
+        texture=new(()=>SkyTextureSource.Import(textureContainer,imageIndex,ordinary));
+        (Binding,this.sampler,NativeResourceFormat,NativeShaderViewFormat,NativeAlternateShaderViewFormat,
             NativePackedDescriptor36,Native,SourceEvidence)=(binding,sampler,resource,ordinary,alternate,packed,native,evidence);
+    }
     public StaticTextureBinding Binding{get;}
+    public SkyTextureIdentity TextureIdentity{get;}
+    public SkyTextureSource Texture=>texture.Value;
     public LoadedDeferredSamplerNativeSource Native{get;}
     public string Locale=>Native.Locale;
-    public uint SourceStaticObjectId=>Binding.Definition.ObjectId;
-    public uint SourceTextureFileId=>Binding.Resource.Source.FileId;
-    public uint SourceTid=>(uint)Binding.ImageIndex;
+    public uint SourceStaticObjectId{get;}
+    public uint SourceTextureFileId{get;}
+    public uint SourceTid{get;}
     public uint NativeResourceFormat{get;}
     public uint NativeShaderViewFormat{get;}
     public uint NativeAlternateShaderViewFormat{get;}
@@ -43,20 +55,12 @@ public sealed class MapPostEffect3StaticHdrNativeRecipe
     public bool ActiveContextIdentityVerified=>false;
     public bool ProvesGpuTextureReady=>false;
     public string SourceEvidence{get;}
-    // The physical source was verified during construction. A current request
-    // checks its declaration/child identity; it does not reload or rehash it.
-    public void RequireCurrentSource()=>LoadedMapPostEffect3StaticHdrNativeSource.ValidateLoadedBindingIdentity(Binding);
     public bool MatchesLoadedBinding(StaticTextureBinding binding)
-        =>Binding.Definition.ObjectId==binding.Definition.ObjectId&&Binding.ImageIndex==binding.ImageIndex&&
-            ReferenceEquals(Binding.Definitions.Source.Bytes,binding.Definitions.Source.Bytes)&&
-            ReferenceEquals(Binding.Resource.Source.Bytes,binding.Resource.Source.Bytes)&&
-            Binding.Definitions.Source.ResourceUri==binding.Definitions.Source.ResourceUri&&
-            Binding.Definitions.Source.DecodedSha256==binding.Definitions.Source.DecodedSha256&&
-            Binding.Resource.Source.ResourceUri==binding.Resource.Source.ResourceUri&&
-            Binding.Resource.Source.DecodedSha256==binding.Resource.Source.DecodedSha256;
+        =>ReferenceEquals(definitions,binding.Definitions)&&ReferenceEquals(resource,binding.Resource)&&
+            SourceStaticObjectId==binding.Definition.ObjectId&&SourceTid==binding.ImageIndex;
 }
 
-/// <summary>Hash-pinned native loader reconstruction for the original single-
+/// <summary>Native loader reconstruction for the supported single-
 /// mip system2 format01/03 family. Unknown layouts do not acquire a default
 /// view format, key or null metadata proof.</summary>
 internal readonly record struct StaticHdrFormatRule(uint Resource,uint LinearView,uint SrgbView);
@@ -97,56 +101,29 @@ public sealed class LoadedMapPostEffect3StaticHdrNativeSource
             actualLookup.SelectedStaticTexture is not{} binding)
             throw new InvalidDataException("Native Static HDR construction requires the actual successful HDR lookup and selected child.");
         if(actualLookup.SourceSelector>=declaration.ChildCount||
-            declaration.ChildObjectKeys[(int)actualLookup.SourceSelector]!=binding.Definition.ObjectId)
+            declaration.GetDeclaredChildKey(actualLookup.SourceSelector)!=binding.Definition.ObjectId)
             throw new InvalidDataException("Native Static HDR child differs from the actual LUT selector and ordered source array.");
-        ValidateLoadedBindingIdentity(binding);
         if(loadedRecipe is{} recipe&&recipe.MatchesLoadedBinding(binding))return recipe;
         return ReadConstruction(binding);
     }
-    internal static void ValidateLoadedBindingIdentity(StaticTextureBinding binding)
-    {
-        ArgumentNullException.ThrowIfNull(binding);
-        if(binding.Definition.Kind!=DokObjectKind.Inline||binding.Definition.ClassId!=0xFF7DBFD4||
-            Field(binding.Definition,0x6C7321D2,5)!=binding.Resource.Source.FileId||
-            Field(binding.Definition,0x00200571,4)!=binding.ImageIndex||
-            (uint)binding.ImageIndex>=binding.Resource.Container.Textures.Count)
-            throw new InvalidDataException("Static HDR binding differs from its explicit context/TID declaration.");
-    }
     private static G1TextureImage ValidateBindingAtLoad(StaticTextureBinding binding)
     {
-        ValidateLoadedBindingIdentity(binding);
-        MapPostEffect3LutSource.ValidateCurrentSource(binding.Definitions);
-        var objects=DokReader.Read(binding.Definitions.Source.Bytes).Objects.Where(o=>o.ObjectId==binding.Definition.ObjectId).ToArray();
-        if(objects.Length!=1||objects[0].Kind!=DokObjectKind.Inline||objects[0].ClassId!=0xFF7DBFD4||
-            Field(objects[0],0x6C7321D2,5)!=binding.Resource.Source.FileId||
-            Field(objects[0],0x00200571,4)!=binding.ImageIndex)
-            throw new InvalidDataException("Static HDR binding differs from its loaded original declaration bytes.");
+        var image=StaticTextureResources.ReadVolumeImage(binding);
         var source=binding.Resource.Source;
         if(source.ResourceUri!=GameResourceId.Rdb("RRPreview",source.FileId).ToString())
             throw new InvalidDataException("Static HDR bytes differ from their loaded original RRPreview source.");
-        var container=G1TextureContainerReader.Read(source.Bytes);
+        var container=binding.Resource.Container;
         if(container.RawVersion!="0600"||container.Platform!=10||container.Textures.Count!=1||binding.ImageIndex!=0)
             throw new NotSupportedException("Native HDR construction requires the supported Windows0600 single-image volume family.");
-        var image=container.Textures[binding.ImageIndex];
         if(image.TextureSystem!=2||image.PixelFormat is not(1 or 3)||image.MipCount!=1||image.LayerCount!=1||
             image.Depth<=1||image.SubresourceLayout!=G1TextureSubresourceLayout.VolumeMipChain||
-            image.RawHeader.Length!=20||(image.RawHeader[7]>>4)!=1||
-            !binding.Image.RawHeader.AsSpan().SequenceEqual(image.RawHeader)||
-            binding.Image.Width!=image.Width||binding.Image.Height!=image.Height||binding.Image.Depth!=image.Depth||
-            binding.Image.PixelFormat!=image.PixelFormat||binding.Image.MipCount!=image.MipCount)
+            image.RawHeader.Length!=20||(image.RawHeader[7]>>4)!=1)
             throw new NotSupportedException("Selected Static HDR image is outside the source-supported single-mip volume layout.");
-        uint globalMetadata=BinaryPrimitives.ReadUInt32LittleEndian(source.Bytes.AsSpan(24));
+        uint globalMetadata=BinaryPrimitives.ReadUInt32LittleEndian(container.RawHeader.AsSpan(24));
         uint imageMetadata=BinaryPrimitives.ReadUInt32LittleEndian(image.RawHeader)>>28;
         if(globalMetadata!=0||imageMetadata!=0)
             throw new NotSupportedException("Selected Static HDR source contains metadata; its actual record chain must be reconstructed before use.");
         return image;
-    }
-    private static uint Field(DokObject obj,uint hash,ushort type)
-    {
-        var rows=obj.Properties.Where(p=>p.NameHash==hash).ToArray();
-        if(rows.Length!=1||rows[0].TypeCode!=type||rows[0].ElementCount!=1||rows[0].ElementSize!=4||rows[0].RawValue.Length!=4)
-            throw new InvalidDataException("Static HDR needs its exact scalar context/TID fields.");
-        return BinaryPrimitives.ReadUInt32LittleEndian(rows[0].RawValue);
     }
 }
 

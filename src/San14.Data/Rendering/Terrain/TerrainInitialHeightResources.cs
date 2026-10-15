@@ -1,22 +1,38 @@
 using System.Buffers.Binary;
 using System.Numerics;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
 
 /// <summary>Explicit initial zero-brush height adapter. Later height edits are not represented.</summary>
-public sealed record LoadedTerrainInitialHeightResources(LoadedTerrainResources Terrain,
-    LoadedTerrainTextureGroup Field, TerrainTextureBinding HeightBinding, TerrainTextureBinding ControlBinding,
-    FloatTexture Height, Vector2 HeightNormalInfo, DokProperty GeneratorReference, LoadedShaderContainer Generator);
+public sealed class LoadedTerrainInitialHeightResources
+{
+    internal LoadedTerrainInitialHeightResources(LoadedTerrainResources terrain, LoadedTerrainTextureGroup field,
+        TerrainTextureBinding heightBinding, TerrainTextureBinding controlBinding, FloatTexture height,
+        Vector2 heightNormalInfo, DokProperty generatorReference, TerrainInitialHeightGenerator generatorProgram)
+        => (Terrain, Field, HeightBinding, ControlBinding, Height, HeightNormalInfo, GeneratorReference, GeneratorProgram) =
+            (terrain, field, heightBinding, controlBinding, height, heightNormalInfo, generatorReference, generatorProgram);
+    public LoadedTerrainResources Terrain { get; }
+    public LoadedTerrainTextureGroup Field { get; }
+    public TerrainTextureBinding HeightBinding { get; }
+    public TerrainTextureBinding ControlBinding { get; }
+    public FloatTexture Height { get; }
+    public Vector2 HeightNormalInfo { get; }
+    public DokProperty GeneratorReference { get; }
+    public TerrainInitialHeightGenerator GeneratorProgram { get; }
+    public LoadedShaderContainer Generator => GeneratorProgram.Source;
+}
 
 public static class TerrainInitialHeightResources
 {
     private const uint GeneratorProperty = 0xA8C0C79F;
-    private const string VerifiedGeneratorSha = "43B7155831D5EFAE144CA4CE704BE832EE37B4BA2346401ED6E619B7E6E489D8";
 
     public static LoadedTerrainInitialHeightResources Load(GameResourceRepository repository,
         LoadedTerrainResources terrain, LoadedTerrainParameterResources parameters)
+        => Load(repository, terrain, parameters, null);
+
+    internal static LoadedTerrainInitialHeightResources Load(GameResourceRepository repository,
+        LoadedTerrainResources terrain, LoadedTerrainParameterResources parameters, LoadedTerrainTextureGroup? field)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(terrain);
@@ -30,13 +46,9 @@ public static class TerrainInitialHeightResources
             throw new InvalidDataException("Initial height adapter requires the original ordinary height mode.");
         DokProperty reference = Scalar(parameters.WrapperRoot, GeneratorProperty, 5);
         LoadedShaderContainer generator = repository.LoadShaderContainer("system", BinaryPrimitives.ReadUInt32LittleEndian(reference.RawValue));
-        VerifyHash(generator.Source);
-        if (generator.Source.DecodedSha256 != VerifiedGeneratorSha)
-            throw new InvalidDataException($"Initial height generator {generator.Source.ResourceUri} is not the verified zero-brush CS0 implementation.");
-        LoadedTerrainTextureGroup field = TerrainTextureResources.LoadGroup(repository, terrain, TerrainTextureGroupKind.Field);
+        var generatorProgram = TerrainInitialHeightGenerator.Import(generator);
+        field ??= TerrainTextureResources.LoadGroup(repository, terrain, TerrainTextureGroupKind.Field);
         TerrainTextureBinding height = Slot(field, 0), control = Slot(field, 1);
-        VerifyHash(height.Resource.Source);
-        VerifyHash(control.Resource.Source);
         G1TextureSamplerRecipe sampler = G1TextureSamplerReader.ReadRetainedSource(height.Image);
         if (height.Image.PixelFormat != 2 || height.Image.LayerCount != 1 || height.Image.MipCount != 1 ||
             sampler.Filter != 0 || sampler.AddressU != 3 || sampler.AddressV != 3 ||
@@ -49,7 +61,7 @@ public static class TerrainInitialHeightResources
             values.Width != terrain.HeightField.HeightField.SampleWidth || values.Height != terrain.HeightField.HeightField.SampleHeight)
             throw new InvalidDataException("Initial height source does not satisfy the verified square 32k+1 dispatch/identity dimensions.");
         var info = new Vector2(values.Width - 1, terrain.SpatialTree.RootSize / (values.Width - 1));
-        return new(terrain, field, height, control, values, info, reference, generator);
+        return new(terrain, field, height, control, values, info, reference, generatorProgram);
     }
 
     public static float SamplePointClamp(FloatTexture height, Vector2 uv)
@@ -81,10 +93,5 @@ public static class TerrainInitialHeightResources
         if (values.Length != 1 || values[0].TypeCode != type || values[0].ElementCount != 1 || values[0].RawValue.Length != 4)
             throw new InvalidDataException($"Terrain object {obj.ObjectId:X8} requires scalar {hash:X8} type{type}.");
         return values[0];
-    }
-    private static void VerifyHash(LoadedRdbAsset source)
-    {
-        if (Convert.ToHexString(SHA256.HashData(source.Bytes)) != source.DecodedSha256)
-            throw new InvalidDataException($"Recorded source hash differs: {source.ResourceUri}.");
     }
 }

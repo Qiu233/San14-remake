@@ -71,16 +71,37 @@ public sealed class MapPostEffect3LensFlare2ExecutionOwner:IAsyncDisposable
     private readonly DeferredAuxiliaryPixelProgram stock;
     private readonly LoadedMapPostEffect3PassRegisterResetSource reset;
     private readonly Dictionary<string,Rid> stockSamplers=[];
+    private readonly RenderDeviceResources stockSamplerResources=new("LensFlare2 stock sampler allocation failed.");
+    private readonly NativeMapBorrowerRetirementPackage finalRetirement;
+    private NativeMapBorrowerRetirementPackage? pendingStock;
+    private sealed class StockDrawResources(IDisposable bankScope,MapPostEffect3ComputeMipView read,
+        MapPostEffect3ComputeMipView write,IMapPostEffect3LensFlare2AfterStockLease state):IAsyncDisposable
+    {
+        public RenderDeviceResources Resources{get;}=new("LensFlare2 stock mip allocation failed.");
+        private IDisposable? scope=bankScope;
+        private bool deviceReleased;
+        public void Release(RenderingDevice rd)
+        {Resources.Release(rd);deviceReleased=true;}
+        public async ValueTask DisposeAsync()
+        {
+            if(!deviceReleased){await Resources.DisposeAsync();deviceReleased=true;}
+            GC.KeepAlive(read);GC.KeepAlive(write);GC.KeepAlive(state);
+            scope?.Dispose();scope=null;
+        }
+    }
     private readonly SemaphoreSlim serial=new(1,1);
     private readonly object lifetime=new();private bool retiring;private int accepted;
     private TaskCompletionSource? drained;private Task? disposal;
     private MapPostEffect3LensFlare2ExecutionOwner(PostProcessResourceBank bank,MapPostEffect3ProgramLibrary programs,
         LoadedMapPostEffect3LensFlare2Source source,LoadedDeferredSamplerNativeSource native,
         MapPostEffect3SourceSamplerOwner managers,DeferredAuxiliaryPixelProgram stock,
-        LoadedMapPostEffect3PassRegisterResetSource reset)
+        LoadedMapPostEffect3PassRegisterResetSource reset,MapPostEffect3ComputeExecutor compute,
+        MapPostEffect3FullscreenGraphicsExecutor graphics)
     {
         Bank=bank;Programs=programs;Source=source;this.native=native;this.managers=managers;this.stock=stock;this.reset=reset;
-        Compute=MapPostEffect3ComputeExecutor.Create(programs,bank);Graphics=MapPostEffect3FullscreenGraphicsExecutor.Create(programs,bank);
+        Compute=compute;Graphics=graphics;
+        finalRetirement=new("PostEffect3-LensFlare2/"+Guid.NewGuid().ToString("N"),
+            Graphics,Compute,managers,stock,stockSamplerResources);
     }
     public static async Task<MapPostEffect3LensFlare2ExecutionOwner> BuildBorrowedAsync(GameResourceRepository repository,
         PostProcessResourceBank bank,MapPostEffect3ProgramLibrary programs,Vkd3dShaderCompiler borrowedCompiler,string locale="TC")
@@ -103,14 +124,33 @@ public sealed class MapPostEffect3LensFlare2ExecutionOwner:IAsyncDisposable
         var source=sources?.Lens??MapPostEffect3ParameterLensFlare2.Load(repository,locale);
         var reset=sources?.RegisterReset??MapPostEffect3PassRegisterResetSource.Load(repository,locale);
         if(native.Locale!=locale||source.Locale!=locale)throw new InvalidDataException("LensFlare2 needs the current module original executable locale.");
-        var managers=await MapPostEffect3SourceSamplerOwner.BuildAsync(native,bank.Source.ContextOwnerIdentity);
+        MapPostEffect3SourceSamplerOwner? managers=null;
+        DeferredAuxiliaryPixelProgram? stock=null;
+        MapPostEffect3ComputeExecutor? compute=null;
+        MapPostEffect3FullscreenGraphicsExecutor? graphics=null;
         try
         {
+            managers=await MapPostEffect3SourceSamplerOwner.BuildAsync(native,bank.Source.ContextOwnerIdentity);
             var stockSource=sources?.LensAfterStock??DeferredAuxiliaryStockCopySource.ReadCurrent(repository.SourceDirectory,locale);
-            var stock=await DeferredAuxiliaryPixelProgram.BuildStockCopyAsync(stockSource,borrowedCompiler);
-            return new(bank,programs,source,native,managers,stock,reset);
+            stock=await DeferredAuxiliaryPixelProgram.BuildStockCopyAsync(stockSource,borrowedCompiler);
+            compute=MapPostEffect3ComputeExecutor.Create(programs,bank);
+            graphics=MapPostEffect3FullscreenGraphicsExecutor.Create(programs,bank);
+            return new(bank,programs,source,native,managers,stock,reset,compute,graphics);
         }
-        catch{await managers.DisposeAsync();throw;}
+        catch(Exception failure)
+        {
+            var completed=new List<IAsyncDisposable>();
+            if(graphics is not null)completed.Add(graphics);
+            if(compute is not null)completed.Add(compute);
+            if(managers is not null)completed.Add(managers);
+            if(stock is not null)completed.Add(stock);
+            var pending=NativeMapBorrowerRetirementPackage.CreatePending("PostEffect3-LensFlare2-partial",completed,
+                (failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+            try{await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pending);}
+            catch(Exception retirementFailure)
+            {throw new NativeMapBorrowerConstructionException(failure,retirementFailure,pending!);}
+            throw;
+        }
     }
     public Task<MapPostEffect3LensFlare2CompletedInitialization> ExecuteInitializationAsync(
         MapPostEffect3ParameterLensFlare2Update update,MapPostEffect3TextureParameterState table,
@@ -137,7 +177,9 @@ public sealed class MapPostEffect3LensFlare2ExecutionOwner:IAsyncDisposable
         var compute=new List<MapPostEffect3ComputeCompletedPass>();var mips=new List<MapPostEffect3LensFlare2MipCompletedDraw>();
         try
         {
-            LastCompleted=null;LastCompletedMip=null;await Bank.UploadCompleteConstantBufferAsync(update.ConstantBuffer,side);
+            LastCompleted=null;LastCompletedMip=null;
+            await DrainPendingStockCoreAsync();
+            await Bank.UploadCompleteConstantBufferAsync(update.ConstantBuffer,side);
             foreach(int pass in update.PassSelection.OrderedFactory6Passes)
             {
                 RequireLive();invocation.RequireCurrent();var source=MapPostEffect3LensFlare2GpuPassSource.Prepare(Bank.Source,update,table,pass);
@@ -209,56 +251,89 @@ public sealed class MapPostEffect3LensFlare2ExecutionOwner:IAsyncDisposable
     private async Task<MapPostEffect3LensFlare2MipCompletedDraw> DrawAfterMipAsync(
         MapPostEffect3LensFlare2MipPlan plan,MapPostEffect3LensFlare2MipStep step,IMapPostEffect3LensFlare2AfterStockLease state)
     {
-        using var scope=await Bank.AcquireBufferExecutionScopeAsync();plan.ValidateCurrent();state.RequireCurrentAfterMip(plan,step);stock.RequireAvailable();
-        var context=state.ActualDrawContext;context.RequireCurrentForPass(plan.SourcePassIndex);
-        var raster=context.ActualRaster;var targetExtent=new Vector2I((int)step.DestinationWidth,(int)step.DestinationHeight);
-        if(context.FrameNumber!=plan.FrameNumber||context.ContextOwnerIdentity!=plan.ContextOwnerIdentity||
-            context.ActualViewport!=new Rect2I(Vector2I.Zero,targetExtent)||context.ActualViewportMinimumDepth!=0||context.ActualViewportMaximumDepth!=1||
-            context.ActualScissor is{} sc&&(sc.Position.X>0||sc.Position.Y>0||sc.End.X<targetExtent.X||sc.End.Y<targetExtent.Y)||
-            raster.DepthTest||raster.DepthWrite||raster.NativeStencil is not null||raster.Cull!=RenderingDevice.PolygonCullMode.Disabled||
-            raster.Attachments is not [var color]||color.EnableBlend||!color.WriteR||!color.WriteG||!color.WriteB||!color.WriteA||
-            !state.CurrentCustomStockVertexShaderIsAbsent||state.CurrentScreenScale29E0!=Vector2.One||state.CurrentColorScale29F0!=Colors.White||
-            state.CurrentStockAlphaTestWord!=0xFF7FFFFFu)
-            throw new NotSupportedException("LensFlare2 After requires actual complete stock-copy raster/scale/color/alpha-test state.");
-        var acceptedRaster=MapFinalOutputRasterSnapshot.Capture(raster);
-        var acceptedStock=(state.CurrentScreenScale29E0,state.CurrentColorScale29F0,state.CurrentStockAlphaTestWord,
-            state.CurrentCustomStockVertexShaderIsAbsent,state.SourceEvidence,context.OwnedFrontendIdentity,context.ViewIdentity,
-            context.ActualViewport,context.ActualViewportMinimumDepth,context.ActualViewportMaximumDepth,context.ActualScissor,context.SourceEvidence);
-        void RequireAcceptedState()
+        await DrainPendingStockCoreAsync();
+        var scope=await Bank.AcquireBufferExecutionScopeAsync();
+        StockDrawResources? resources=null;Exception? drawFailure=null;
+        try
         {
-            RequireLive();plan.ValidateCurrent();state.RequireCurrentAfterMip(plan,step);context.RequireCurrentForPass(plan.SourcePassIndex);
-            var current=context.ActualRaster;
-            if(acceptedStock!=(state.CurrentScreenScale29E0,state.CurrentColorScale29F0,state.CurrentStockAlphaTestWord,
+            plan.ValidateCurrent();state.RequireCurrentAfterMip(plan,step);stock.RequireAvailable();
+            var context=state.ActualDrawContext;context.RequireCurrentForPass(plan.SourcePassIndex);
+            var raster=context.ActualRaster;var targetExtent=new Vector2I((int)step.DestinationWidth,(int)step.DestinationHeight);
+            if(context.FrameNumber!=plan.FrameNumber||context.ContextOwnerIdentity!=plan.ContextOwnerIdentity||
+                context.ActualViewport!=new Rect2I(Vector2I.Zero,targetExtent)||context.ActualViewportMinimumDepth!=0||context.ActualViewportMaximumDepth!=1||
+                context.ActualScissor is{} sc&&(sc.Position.X>0||sc.Position.Y>0||sc.End.X<targetExtent.X||sc.End.Y<targetExtent.Y)||
+                raster.DepthTest||raster.DepthWrite||raster.NativeStencil is not null||raster.Cull!=RenderingDevice.PolygonCullMode.Disabled||
+                raster.Attachments is not [var color]||color.EnableBlend||!color.WriteR||!color.WriteG||!color.WriteB||!color.WriteA||
+                !state.CurrentCustomStockVertexShaderIsAbsent||state.CurrentScreenScale29E0!=Vector2.One||state.CurrentColorScale29F0!=Colors.White||
+                state.CurrentStockAlphaTestWord!=0xFF7FFFFFu)
+                throw new NotSupportedException("LensFlare2 After requires actual complete stock-copy raster/scale/color/alpha-test state.");
+            var acceptedRaster=MapFinalOutputRasterSnapshot.Capture(raster);
+            var acceptedStock=(state.CurrentScreenScale29E0,state.CurrentColorScale29F0,state.CurrentStockAlphaTestWord,
                 state.CurrentCustomStockVertexShaderIsAbsent,state.SourceEvidence,context.OwnedFrontendIdentity,context.ViewIdentity,
-                context.ActualViewport,context.ActualViewportMinimumDepth,context.ActualViewportMaximumDepth,context.ActualScissor,context.SourceEvidence)||
-                current.Cull!=acceptedRaster.Cull||current.FrontFace!=acceptedRaster.FrontFace||current.DepthTest!=acceptedRaster.DepthTest||
-                current.DepthWrite!=acceptedRaster.DepthWrite||current.DepthCompare!=acceptedRaster.DepthCompare||
-                current.NativeStencil!=acceptedRaster.NativeStencil||!current.Attachments.SequenceEqual(acceptedRaster.Attachments))
-                throw new InvalidDataException("LensFlare2 After native frontend/stock state changed while the original draw was queued.");
+                context.ActualViewport,context.ActualViewportMinimumDepth,context.ActualViewportMaximumDepth,context.ActualScissor,context.SourceEvidence);
+            void RequireAcceptedState()
+            {
+                RequireLive();plan.ValidateCurrent();state.RequireCurrentAfterMip(plan,step);context.RequireCurrentForPass(plan.SourcePassIndex);
+                var current=context.ActualRaster;
+                if(acceptedStock!=(state.CurrentScreenScale29E0,state.CurrentColorScale29F0,state.CurrentStockAlphaTestWord,
+                    state.CurrentCustomStockVertexShaderIsAbsent,state.SourceEvidence,context.OwnedFrontendIdentity,context.ViewIdentity,
+                    context.ActualViewport,context.ActualViewportMinimumDepth,context.ActualViewportMaximumDepth,context.ActualScissor,context.SourceEvidence)||
+                    current.Cull!=acceptedRaster.Cull||current.FrontFace!=acceptedRaster.FrontFace||current.DepthTest!=acceptedRaster.DepthTest||
+                    current.DepthWrite!=acceptedRaster.DepthWrite||current.DepthCompare!=acceptedRaster.DepthCompare||
+                    current.NativeStencil!=acceptedRaster.NativeStencil||!current.Attachments.SequenceEqual(acceptedRaster.Attachments))
+                    throw new InvalidDataException("LensFlare2 After native frontend/stock state changed while the original draw was queued.");
+            }
+            int physical=plan.ActualTexture.ParameterIndex,side=plan.ActualTexture.Reference.InstanceIndex;
+            var texture=Bank.RequireTexture(physical,side);
+            var prior=Bank.CaptureSourceWrittenTextureLease(physical,side,plan.FrameNumber,(uint)step.SourceMipLevel,1);
+            var read=await Bank.RequireLensFlare2ViewAsync(texture,(uint)step.SourceMipLevel,texture.Shape.Formats.ShaderResourceFormat0);
+            var write=await Bank.RequireLensFlare2ViewAsync(texture,(uint)step.DestinationMipLevel,texture.Shape.Formats.RenderTargetFormat0);
+            resources=new(scope,read,write,state);
+            byte[] key=RenderSamplerSourceAdapters.RenderTextureKey(native,texture.Shape.MipLevels);
+            BinaryPrimitives.WriteUInt16LittleEndian(key,(ushort)((BinaryPrimitives.ReadUInt16LittleEndian(key)&0x3FF)|0x9400));
+            string keyHex=Convert.ToHexString(key);
+            if(!stockSamplers.TryGetValue(keyHex,out var sampler))
+            {sampler=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>stockSamplerResources.Own(DeviceSampler.Create(rd,RenderSamplerSourceAdapters.DecodeKey(native,key))));stockSamplers.Add(keyHex,sampler);}
+            var quad=DeferredAuxiliaryStockQuad.FromCurrentViewport(targetExtent,state.CurrentScreenScale29E0,state.CurrentColorScale29F0,state.SourceEvidence);
+            long revision=Bank.InvalidateTextureAfterShaderWrite(physical,side,(uint)step.DestinationMipLevel,plan.FrameNumber,plan.SourcePassIndex);
+            await DrawStockAsync(read,write,sampler,quad,state,()=>{RequireAcceptedState();prior.RequireReadableMipRange((uint)step.SourceMipLevel,1);},resources);
+            return new(plan,step,side,texture.StorageRid,revision,plan.SourceEvidence+";"+state.SourceEvidence+
+                ";actual-original-stock-VS/default3PS-draw6indices;sampler="+keyHex+";native-register-reset;not-hardware-generateMips",
+                RequireAcceptedState);
         }
-        int physical=plan.ActualTexture.ParameterIndex,side=plan.ActualTexture.Reference.InstanceIndex;
-        var texture=Bank.RequireTexture(physical,side);
-        var prior=Bank.CaptureSourceWrittenTextureLease(physical,side,plan.FrameNumber,(uint)step.SourceMipLevel,1);
-        var read=await Bank.RequireLensFlare2ViewAsync(texture,(uint)step.SourceMipLevel,texture.Shape.Formats.ShaderResourceFormat0);
-        var write=await Bank.RequireLensFlare2ViewAsync(texture,(uint)step.DestinationMipLevel,texture.Shape.Formats.RenderTargetFormat0);
-        byte[] key=RenderSamplerSourceAdapters.RenderTextureKey(native,texture.Shape.MipLevels);
-        BinaryPrimitives.WriteUInt16LittleEndian(key,(ushort)((BinaryPrimitives.ReadUInt16LittleEndian(key)&0x3FF)|0x9400));
-        string keyHex=Convert.ToHexString(key);
-        if(!stockSamplers.TryGetValue(keyHex,out var sampler))
-        {sampler=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>DeviceSampler.Create(rd,RenderSamplerSourceAdapters.DecodeKey(native,key)));stockSamplers.Add(keyHex,sampler);}
-        var quad=DeferredAuxiliaryStockQuad.FromCurrentViewport(targetExtent,state.CurrentScreenScale29E0,state.CurrentColorScale29F0,state.SourceEvidence);
-        long revision=Bank.InvalidateTextureAfterShaderWrite(physical,side,(uint)step.DestinationMipLevel,plan.FrameNumber,plan.SourcePassIndex);
-        await DrawStockAsync(read,write,sampler,quad,state,()=>{RequireAcceptedState();prior.RequireReadableMipRange((uint)step.SourceMipLevel,1);});
-        return new(plan,step,side,texture.StorageRid,revision,plan.SourceEvidence+";"+state.SourceEvidence+
-            ";actual-original-stock-VS/default3PS-draw6indices;sampler="+keyHex+";native-register-reset;not-hardware-generateMips",
-            RequireAcceptedState);
+        catch(Exception failure){drawFailure=failure;throw;}
+        finally
+        {
+            if(resources is null)scope.Dispose();
+            else
+            {
+                var nested=(drawFailure as NativeMapBorrowerConstructionException)?.RetainedPackage;
+                try
+                {
+                    if(nested is not null)
+                    {
+                        pendingStock=NativeMapBorrowerRetirementPackage.CreatePending("LensFlare2-stock-draw",[resources],nested);
+                        await DrainPendingStockCoreAsync();
+                    }
+                    else await resources.DisposeAsync();
+                }
+                catch(Exception cleanup)
+                {
+                    if(pendingStock is null)
+                    {
+                        pendingStock=NativeMapBorrowerRetirementPackage.CreatePending("LensFlare2-stock-draw",[resources]);
+                        pendingStock!.RetainFailure();
+                    }
+                    throw new NativeMapBorrowerConstructionException(drawFailure??cleanup,cleanup,pendingStock!);
+                }
+            }
+        }
     }
     private Task DrawStockAsync(MapPostEffect3ComputeMipView read,MapPostEffect3ComputeMipView write,Rid sampler,
-        DeferredAuxiliaryStockQuad quad,IMapPostEffect3LensFlare2AfterStockLease state,Action validate)
+        DeferredAuxiliaryStockQuad quad,IMapPostEffect3LensFlare2AfterStockLease state,Action validate,StockDrawResources resources)
         =>TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
-            validate();var owned=new List<Rid>();Rid Own(Rid rid){if(!rid.IsValid)throw new InvalidDataException("LensFlare2 stock mip allocation failed.");owned.Add(rid);return rid;}
-            try
+            validate();Rid Own(Rid rid)=>resources.Resources.Own(rid);
             {
                 using var vertex=new RDVertexAttribute{Location=0,Offset=0,Stride=24,Format=RenderingDevice.DataFormat.R32G32B32Sfloat,Frequency=RenderingDevice.VertexFrequency.Vertex};
                 using var color=new RDVertexAttribute{Location=1,Offset=12,Stride=24,Format=RenderingDevice.DataFormat.R8G8B8A8Unorm,Frequency=RenderingDevice.VertexFrequency.Vertex};
@@ -302,15 +377,17 @@ public sealed class MapPostEffect3LensFlare2ExecutionOwner:IAsyncDisposable
                     rd.DrawListBindVertexArray(draw,va);rd.DrawListBindIndexArray(draw,ia);rd.DrawListDraw(draw,true,1,0);
                 }
                 finally{rd.DrawListEnd();}
-                validate();return true;
+                validate();
             }
-            finally{for(int i=owned.Count-1;i>=0;i--)rd.FreeRid(owned[i]);}
+            resources.Release(rd);return true;
         });
+    private async Task DrainPendingStockCoreAsync()
+    {pendingStock=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pendingStock);}
     public ValueTask DisposeAsync()
     {
         lock(lifetime)
         {
-            if(disposal is not null)return new(disposal);retiring=true;
+            if(disposal is not null&&!disposal.IsFaulted&&!disposal.IsCanceled)return new(disposal);retiring=true;
             Task pending=accepted==0?Task.CompletedTask:(drained=new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
             return new(disposal=RetireAsync(pending));
         }
@@ -320,8 +397,8 @@ public sealed class MapPostEffect3LensFlare2ExecutionOwner:IAsyncDisposable
         await pending;await serial.WaitAsync();
         try
         {
-            await Graphics.DisposeAsync();await Compute.DisposeAsync();await managers.DisposeAsync();await stock.DisposeAsync();
-            await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{foreach(var sampler in stockSamplers.Values)rd.FreeRid(sampler);stockSamplers.Clear();return true;});
+            await DrainPendingStockCoreAsync();
+            await finalRetirement.DisposeAsync();stockSamplers.Clear();
             LastCompleted=null;LastCompletedMip=null;
         }
         finally{serial.Release();}

@@ -1,27 +1,19 @@
 using San14.Data;
-using Godot;
 
-public enum SkyAmbientSourceState { FreshConstructor, RetainedSource, ResolvedCurrent }
-
-/// <summary>Unwritten native cache/template bytes, exact ordinary-light owner
-/// selection and pass/branch policy remain explicit construction inputs.</summary>
+/// <summary>Owned six-face caches, constant templates and the selected
+/// program used to create the seasonal sky scene.</summary>
 public sealed record SkyAmbientSourceConstruction(string RetainedProvenance,
     IReadOnlyList<SkySceneSky2FaceCache> SixRetainedFaces,
-    SkySceneLights RetainedLightCaches, SkySceneLightRows SelectedLightRows,
     ReadOnlyMemory<byte> VertexTemplate, ReadOnlyMemory<byte> PixelTemplate,
     int NativeClipProfile, SkySceneProgramSelection ProgramSelection);
 
 /// <summary>An already accepted source-created lighting frame. Season is the
 /// explicit map-calendar input; it is not inferred from the Camera auto-clock.
-/// ResolvedCurrent requires complete Sky2/controller state. RetainedSource
-/// explicitly keeps the last accepted state, including its source phase fields.</summary>
+/// The applied season supplies the current Camera, controller and lights.</summary>
 public sealed record SkyAmbientSourceFrameInputs(MapSourceCreatedLightingPacket Lighting,
     int SourceSeasonMonth, string SeasonSourceProvenance,
-    SkySceneSharedAtmosphere SharedAtmosphere, SkyAmbientSourceState SkyState,
-    SkySceneProducerFrame Producers,
-    SkySceneControllerSourceProfile? CompleteCurrentController = null,
-    SkySceneSky2Parameters? CompleteCurrentParameters = null,
-    SkySeasonAppliedFrameInputs? AppliedSeason = null)
+    SkySceneSharedAtmosphere SharedAtmosphere, SkySceneProducerFrame Producers,
+    SkySeasonAppliedFrameInputs AppliedSeason)
 {
     /// <summary>Actual fresh owned Camera/WORK stage gate. Required for the
     /// source-null Scene nativepass1 route; a caller-selected combination alone
@@ -40,15 +32,7 @@ public sealed record SkyAmbientCombinedFrame(long FrameNumber,
     SkySceneControllerSourceProfile ControllerSource,
     SkyScenePreparedController PreparedController,
     SkySceneSourceFramePacket SkySource,
-    SkySceneAmbientFrame SkyUpdate,
-    DeferredDeviceBinding DefaultStaticAmbientTexture,
-    DeferredDeviceBinding DefaultStaticAmbientSampler);
-
-public sealed record SkyAmbientFrameResourceBorrow(long FrameNumber,
-    MapSourceCreatedLightingIdentity LightingIdentity,
-    DeferredDeviceBinding Texture,DeferredDeviceBinding Sampler,
-    ReadOnlyMemory<byte> FinalSamplerKey,ReadOnlyMemory<byte> SamplerDescriptor,
-    string SourceProvenance,bool GeneratedSky);
+    SkySceneAmbientFrame SkyUpdate);
 
 /// <summary>Production source-created lighting/registry→Sky2 construction,
 /// controller, six native cameras→source WORK/copy/filter lifecycle. It owns
@@ -61,7 +45,6 @@ public sealed class SkyAmbientSourceFrameAssembler : IAsyncDisposable
     public SourceResourceRegistrationDevice Registration { get; }
     public MapSourceCreatedLightingSource LightingSource { get; }
     public MapLightingBinding Binding { get; }
-    public SkySceneCameraSourceProfile CameraSource { get; }
     public SkySceneAmbientProvider AmbientProvider { get; }
     public SkyStarProducer? Stars { get; }
     public SkyCloudColorProducer? Cloud { get; }
@@ -69,101 +52,39 @@ public sealed class SkyAmbientSourceFrameAssembler : IAsyncDisposable
     private readonly Sky2TextureBindings textureBindings;
     private readonly SkyAmbientSourceConstruction construction;
     private readonly byte[] generatedSampler;
-    private readonly byte[] ambientSamplerKey;
-    private readonly Rid staticAmbientSampler;
     private readonly SemaphoreSlim gate=new(1,1);
     private readonly object lifetimeGate=new();
-    private readonly SkySceneControllerSourceProfile constructorController;
-    private readonly SkySceneSky2Parameters constructorParameters;
-    private SkySceneControllerSourceProfile? acceptedController;
-    private SkySceneSky2Parameters? acceptedParameters;
     private SkyAmbientCombinedFrame? current;
     private volatile bool retiring;
     private Task? disposal;
-    private readonly bool appliedSeasonScope;
+    private NativeMapBorrowerRetirementPackage? finalRetirement;
 
     private SkyAmbientSourceFrameAssembler(SkyScene scene,SkySceneTextures textures,
         SourceResourceRegistrationDevice registration,MapSourceCreatedLightingSource lighting,
-        SkySceneCameraSourceProfile camera,SkyAmbientSourceConstruction construction,
-        byte[] generatedSampler,byte[] ambientSamplerKey,Rid staticAmbientSampler,MapLightingBinding binding,
-        SkyStarProducer? stars,SkyCloudColorProducer? cloud,Sky2TextureBindings textureBindings,bool appliedSeasonScope=false)
+        SkyAmbientSourceConstruction construction,
+        byte[] generatedSampler,MapLightingBinding binding,
+        SkyStarProducer? stars,SkyCloudColorProducer? cloud,Sky2TextureBindings textureBindings)
     {
         this.textureBindings=textureBindings;Scene=scene;this.textures=textures;Registration=registration;LightingSource=lighting;
-        CameraSource=camera;this.construction=construction;this.generatedSampler=generatedSampler;
-        this.appliedSeasonScope=appliedSeasonScope;
-        this.ambientSamplerKey=ambientSamplerKey;this.staticAmbientSampler=staticAmbientSampler;
+        this.construction=construction;this.generatedSampler=generatedSampler;
         Binding=binding;
         Stars=stars;Cloud=cloud;
-        constructorParameters=SkySceneSourceDefaults.CreateSky2Parameters(scene.SpecularTargets[0].Source.PixelFormat);
-        constructorController=SkySceneSourceDefaults.ApplySourceCameraControllerInputs(
-            SkySceneSourceDefaults.CreateControllerConstructor(),camera);
         AmbientProvider=new(new SkySceneFrameUpdater(scene,construction.SixRetainedFaces,stars,cloud));
-    }
-
-    /// <summary>Same accepted render-attempt frame combines owned World season,
-    /// Main package/current phase and actual selected View record inputs. Fog
-    /// and package+10 light owner are explicit independent source producers.</summary>
-    public static SkyAmbientSourceFrameInputs CreateAppliedOwnedSeasonInputs(
-        MapSourceCreatedLightingPacket acceptedLighting,SkySeasonMainCameraRgbFrame sourceCamera,
-        SkySceneSelectedViewLightPacket selectedViewLight,
-        System.Numerics.Vector4 actualPackageLightPosition,string actualPackageLightOwner,
-        SkySceneSharedAtmosphere currentAtmosphere,SkySceneProducerFrame producers)
-    {
-        ArgumentNullException.ThrowIfNull(acceptedLighting);ArgumentNullException.ThrowIfNull(sourceCamera);
-        ArgumentNullException.ThrowIfNull(selectedViewLight);ArgumentNullException.ThrowIfNull(currentAtmosphere);
-        ArgumentNullException.ThrowIfNull(producers);
-        if(acceptedLighting.FrameNumber!=sourceCamera.Inputs.FrameNumber||
-            selectedViewLight.Identity.FrameNumber!=acceptedLighting.FrameNumber)
-            throw new InvalidDataException("Applied owned season, selected View record and accepted lighting require the same render attempt.");
-        var source=sourceCamera.Inputs.Source;
-        var lights=SkySceneSelectedViewLightSource.PrepareSkyLights(selectedViewLight,
-            actualPackageLightPosition,actualPackageLightOwner);
-        return new(acceptedLighting,source.Season.Calendar.State.ThirdDate.Month,source.SourceProvenance,
-            currentAtmosphere,SkyAmbientSourceState.ResolvedCurrent,producers,
-            AppliedSeason:new(source.Selection,sourceCamera.CurrentSkyCamera,lights));
-    }
-
-    /// <summary>Source-created selected kind1 light and actual applied seasonal
-    /// Camera, including the native nonnull Moon zero-cache branch. Source
-    /// textures and both default programs are resolved automatically; current
-    /// unknown edits cannot acquire this source-only capability.</summary>
-    public static SkyAmbientSourceFrameInputs CreateAppliedOwnedSeasonSourceInputs(
-        GameResourceRepository repository, MapSourceCreatedLightingPacket acceptedLighting,
-        SkySeasonMainCameraRgbFrame sourceCamera,
-        MapSourceCreatedF103FeaturePacket acceptedOwnedView, string ownedSelectedRecordIdentity,
-        System.Numerics.Vector4 actualPackageLightPosition, string actualPackageLightOwner,
-        SkySceneSharedAtmosphere currentAtmosphere, SkySceneProducerFrame producers,Sky2TextureBindingSnapshot textureSnapshot)
-    {
-        ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(sourceCamera);
-        var packet = SkySceneSelectedViewLightSource.CaptureOwnedKind1(acceptedOwnedView,
-            acceptedLighting, ownedSelectedRecordIdentity);
-        if (acceptedLighting.FrameNumber != sourceCamera.Inputs.FrameNumber)
-            throw new InvalidDataException("Source season Camera and owned View publication require the same accepted attempt.");
-        if (!acceptedOwnedView.AcceptedCamera.Prefix.Span[..0x1D0]
-            .SequenceEqual(sourceCamera.Inputs.MainFrame.Camera.Prefix.Span[..0x1D0]))
-            throw new InvalidDataException("Owned View and seasonal Sky Camera require the exact same accepted Main pose, optics and post fields.");
-        var source = sourceCamera.Inputs.Source;
-        textureSnapshot.RequireCurrent();
-        var moon=textureSnapshot.RequireNull(SkySamplingRole.Moon);
-        var proof = Sky2SourceZeroMoon.Create(moon, acceptedLighting, packet);
-        var lights = SkySceneSelectedViewLightSource.PrepareSourceZeroMoonLights(packet,
-            actualPackageLightPosition, actualPackageLightOwner, proof);
-        return new(acceptedLighting, source.Season.Calendar.State.ThirdDate.Month, source.SourceProvenance,
-            currentAtmosphere, SkyAmbientSourceState.ResolvedCurrent, producers,
-            AppliedSeason: new(source.Selection, sourceCamera.CurrentSkyCamera, lights));
     }
 
     /// <summary>Build the shader against the texture bindings that already
     /// produced the accepted source frame. Source-zero assignments preserve
     /// this owner's current descriptor state.</summary>
     public static async Task<SkyAmbientSourceFrameAssembler> CreateAppliedSeasonAsync(
-        GameResourceRepository repository,LoadedShaderContainer shader,Vkd3dShaderCompiler compiler,SourceResourceRegistrationDevice registration,
+        GameResourceRepository repository,LoadedSkyAmbientResources ambient,LoadedShaderContainer shader,
+        Vkd3dShaderCompiler compiler,SourceResourceRegistrationDevice registration,
         MapSourceCreatedLightingSource lighting,SkyAmbientSourceConstruction explicitRetained,
         SkyAmbientSourceFrameInputs firstAcceptedFrame,Sky2TextureBindings textureBindings,
         Func<SkyScene,Task<(SkyStarProducer? Stars,SkyCloudColorProducer? Cloud)>>? producerFactory=null,
         bool allowReadback=false)
     {
-        ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(shader);ArgumentNullException.ThrowIfNull(compiler);
+        ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(ambient);
+        ArgumentNullException.ThrowIfNull(shader);ArgumentNullException.ThrowIfNull(compiler);
         ArgumentNullException.ThrowIfNull(registration);ArgumentNullException.ThrowIfNull(lighting);
         ArgumentNullException.ThrowIfNull(explicitRetained);ArgumentNullException.ThrowIfNull(firstAcceptedFrame);
         var applied=firstAcceptedFrame.AppliedSeason??throw new InvalidDataException("Applied season construction requires its actual selected source/current Camera producer.");
@@ -181,9 +102,6 @@ public sealed class SkyAmbientSourceFrameAssembler : IAsyncDisposable
             throw new InvalidDataException("Applied Sky construction belongs to another texture binding owner.");
         ValidateAppliedStageSelection(explicitRetained.ProgramSelection,firstAcceptedFrame,applied);
         registration.ValidateConstructionSource(lighting);
-        var camera=SkySceneSourceDefaults.ReadPerspectiveCamera(repository.LoadObjects("system",0x908AB6E2),lighting.Identity.CameraObjectId);
-        var ambient=SkyAmbientResources.Load(repository,repository.LoadObjects("system",0xDAB638B2),0x910603AC,
-            repository.LoadObjects("system",0x718CCB8B),repository.LoadObjects("system",0x93FB3280));
         var sta=StaticTextureResources.Load(repository,ambient.Resource,"system",[0xF81F0562,0xF8ED83E3,0xF9BC0264]);
         var assignedTextures=new[]{SkySamplingRole.Earth,SkySamplingRole.Moon,SkySamplingRole.MilkyWay}
             .Select(textureSnapshot.GetTexture).OfType<LoadedSkySamplingResource>().ToArray();
@@ -200,23 +118,18 @@ public sealed class SkyAmbientSourceFrameAssembler : IAsyncDisposable
             ProgramSelection=explicitRetained.ProgramSelection with{TextureBindings=textureSnapshot}};
         var native=RenderSamplerSourceAdapters.Load(repository.SourceDirectory,"TC");
         byte[] sourceSamplerKey=SourceResourceRegistrationAmbientCube.GetSamplerKey(registration.Source.AmbientCube);
-        if(!RenderSamplerSourceAdapters.DecodeKey(native,sourceSamplerKey).EncodeD3D11Descriptor().AsSpan()
-            .SequenceEqual(SourceResourceRegistrationAmbientCube.GetSamplerDescriptor(registration.Source.AmbientCube)))
-            throw new InvalidDataException("Applied source Static Cube sampler key differs from its exact native conversion.");
         byte[] ambientKey=RenderSamplerSourceAdapters.AmbientSpecularKey(sourceSamplerKey);
         if(!ambientKey.AsSpan().SequenceEqual(RenderSamplerSourceAdapters.AmbientSpecularKey(
             RenderSamplerSourceAdapters.CubeTextureKey(native,(int)ambient.SpecularTargets[0].LevelNum))))
             throw new InvalidDataException("Applied source Static and generated Cube final consumer recipe differs.");
         byte[] sampler=RenderSamplerSourceAdapters.DecodeKey(native,ambientKey).EncodeD3D11Descriptor();
-        var initial=Prepare(camera,lighting,copied,ambient.SpecularTargets[0],firstAcceptedFrame,
-            SkySceneSourceDefaults.CreateSky2Parameters(ambient.SpecularTargets[0].PixelFormat),
-            SkySceneSourceDefaults.CreateControllerConstructor(),null,null,true);
+        var initial=Prepare(lighting,copied,ambient.SpecularTargets[0],firstAcceptedFrame);
         var faces=SkySceneFramePreparation.Prepare(copied.SixRetainedFaces,initial.Source.SourceFrame,
             shader.ReadResourceDefinitions(selectedCombination.Stages.Single(stage=>stage.StageCode==0).Entry!.ProgramIndex));
         var selections=sta.Select((s,i)=>SkySceneTextureSelection.FromStatic("source-sta"+i,s,10))
             .Concat(assignedTextures.Select(SkySceneTextureSelection.FromSampling)).ToArray();
         var textures=new SkySceneTextures(selections);
-        SkyScene? scene=null;SkyStarProducer? stars=null;SkyCloudColorProducer? cloud=null;Rid consumerSampler=default;
+        SkyScene? scene=null;SkyStarProducer? stars=null;SkyCloudColorProducer? cloud=null;
         try
         {
             var inputs=new List<Sky2DeviceInput>();
@@ -231,9 +144,8 @@ public sealed class SkyAmbientSourceFrameAssembler : IAsyncDisposable
                 copied.VertexTemplate,copied.PixelTemplate,inputs,sampler,sampler,
                 NativeLogTables.Load(repository.SourceDirectory,"TC"),NativeLogDispatch.AvxFma,allowReadback);
             if(producerFactory is not null)(stars,cloud)=await producerFactory(scene);
-            consumerSampler=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>DeviceSampler.Create(rd,sampler));
-            return new(scene,textures,registration,lighting,camera,copied,sampler,ambientKey,consumerSampler,
-                firstAcceptedFrame.Lighting.Binding,stars,cloud,textureBindings,true);
+            return new(scene,textures,registration,lighting,copied,sampler,
+                firstAcceptedFrame.Lighting.Binding,stars,cloud,textureBindings);
         }
         catch(Exception buildFailure)
         {
@@ -241,7 +153,7 @@ public sealed class SkyAmbientSourceFrameAssembler : IAsyncDisposable
             var partial=new NativeMapBorrowerRetirementPackage(
                 firstAcceptedFrame.Lighting.Binding.ViewIdentity+"/applied-Sky-partial/"+Guid.NewGuid().ToString("N"),
                 buildFailure is NativeMapBorrowerConstructionException nested?nested.RetainedPackage:null,
-                cloud,stars,new NativeMapOwnedSamplerRetirement(consumerSampler),scene,textures);
+                cloud,stars,scene,textures);
             try{await partial.DisposeAsync();}
             catch(Exception retirementFailure)
             {
@@ -249,89 +161,6 @@ public sealed class SkyAmbientSourceFrameAssembler : IAsyncDisposable
                 throw new NativeMapBorrowerConstructionException(buildFailure,retirementFailure,partial);
             }
             throw;
-        }
-    }
-
-    /// <summary>Fresh resource creation derives all proved defaults and exact
-    /// source images. The first packet is prepared for shader construction but
-    /// submits no draws or clock work; call SubmitFrameAsync with that accepted
-    /// lighting frame. Optional real producer factory receives this WORK owner.
-    /// Created producers become owned and retire before the scene.</summary>
-    public static async Task<SkyAmbientSourceFrameAssembler> CreateFreshAsync(
-        GameResourceRepository repository,Vkd3dShaderCompiler compiler,
-        SourceResourceRegistrationDevice registration,MapSourceCreatedLightingSource lighting,
-        SkyAmbientSourceConstruction explicitRetained,
-        SkyAmbientSourceFrameInputs firstAcceptedFrame,
-        Func<SkyScene,Task<(SkyStarProducer? Stars,SkyCloudColorProducer? Cloud)>>? producerFactory=null,
-        bool allowReadback=false)
-    {
-        ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(compiler);
-        ArgumentNullException.ThrowIfNull(registration);ArgumentNullException.ThrowIfNull(lighting);
-        ArgumentNullException.ThrowIfNull(explicitRetained);ArgumentNullException.ThrowIfNull(firstAcceptedFrame);
-        if(string.IsNullOrWhiteSpace(explicitRetained.RetainedProvenance)||explicitRetained.ProgramSelection is null||
-            explicitRetained.ProgramSelection.Sky2Combination!=0||
-            explicitRetained.ProgramSelection.Sky2Operation!=Sky2Operation.Atmosphere)
-            throw new InvalidDataException("Fresh source assembler requires the explicit original default PS3 pass.");
-        registration.ValidateConstructionSource(lighting);
-        var cameraDefinitions=repository.LoadObjects("system",0x908AB6E2);
-        var camera=SkySceneSourceDefaults.ReadPerspectiveCamera(cameraDefinitions,lighting.Identity.CameraObjectId);
-        var ambient=SkyAmbientResources.Load(repository,repository.LoadObjects("system",0xDAB638B2),0x910603AC,
-            repository.LoadObjects("system",0x718CCB8B),repository.LoadObjects("system",0x93FB3280));
-        var skySource=repository.LoadShaderContainer("system",0x340AC335);
-        var sta=StaticTextureResources.Load(repository,ambient.Resource,"system",[0xF81F0562,0xF8ED83E3,0xF9BC0264]);
-        if(new[]{ambient.Resource.Source,ambient.ShaderObjects.Source,
-            ambient.SpecularTargets[0].Source.Source,skySource.Source}.Any(s=>s.OverrideSource is not null)||
-            sta.Any(s=>s.Resource.Source.OverrideSource is not null))
-            throw new InvalidDataException("Fresh source assembler cannot infer constructor resources from edited source overrides.");
-        var textureBindings=new Sky2TextureBindings();
-        textureBindings.ApplyPackage(SkySamplingResources.ReadCameraSampling(cameraDefinitions,camera.ObjectId),
-            reference=>SkySeasonPackageTextures.LoadSampling(repository,reference));
-        var textureSnapshot=textureBindings.Capture();
-        var assignedTextures=new[]{SkySamplingRole.Earth,SkySamplingRole.Moon,SkySamplingRole.MilkyWay}
-            .Select(textureSnapshot.GetTexture).OfType<LoadedSkySamplingResource>().ToArray();
-        var copied=explicitRetained with{SixRetainedFaces=SnapshotCaches(explicitRetained.SixRetainedFaces),
-            VertexTemplate=explicitRetained.VertexTemplate.ToArray(),PixelTemplate=explicitRetained.PixelTemplate.ToArray(),
-            ProgramSelection=explicitRetained.ProgramSelection with{TextureBindings=textureSnapshot}};
-        var native=RenderSamplerSourceAdapters.Load(repository.SourceDirectory,"TC");
-        byte[] staticSourceKey=SourceResourceRegistrationAmbientCube.GetSamplerKey(registration.Source.AmbientCube);
-        if(!RenderSamplerSourceAdapters.DecodeKey(native,staticSourceKey).EncodeD3D11Descriptor().AsSpan()
-            .SequenceEqual(SourceResourceRegistrationAmbientCube.GetSamplerDescriptor(registration.Source.AmbientCube)))
-            throw new InvalidDataException("Static Cube source sampler key and original native conversion disagree.");
-        byte[] ambientKey=RenderSamplerSourceAdapters.AmbientSpecularKey(staticSourceKey);
-        if(!ambientKey.AsSpan().SequenceEqual(RenderSamplerSourceAdapters.AmbientSpecularKey(
-            RenderSamplerSourceAdapters.CubeTextureKey(native,(int)ambient.SpecularTargets[0].LevelNum))))
-            throw new InvalidDataException("This exact Static and generated Cube final consumer recipe changed.");
-        byte[] sampler=RenderSamplerSourceAdapters.DecodeKey(native,ambientKey).EncodeD3D11Descriptor();
-        var parameters=SkySceneSourceDefaults.CreateSky2Parameters(ambient.SpecularTargets[0].PixelFormat);
-        var controller=SkySceneSourceDefaults.ApplySourceCameraControllerInputs(
-            SkySceneSourceDefaults.CreateControllerConstructor(),camera);
-        var initial=Prepare(camera,lighting,copied,ambient.SpecularTargets[0],firstAcceptedFrame,parameters,controller,null,null);
-        var skyCombination=skySource.ReadG1ResourceBindings(copied.ProgramSelection.Sky2Combination).Combination;
-        var faces=SkySceneFramePreparation.Prepare(copied.SixRetainedFaces,initial.Source.SourceFrame,
-            skySource.ReadResourceDefinitions(skyCombination.Stages.Single(stage=>stage.StageCode==0).Entry!.ProgramIndex));
-        var textures=new SkySceneTextures(sta.Select((s,i)=>SkySceneTextureSelection.FromStatic("source-sta"+i,s,10))
-            .Concat(assignedTextures.Select(SkySceneTextureSelection.FromSampling)).ToArray());
-        SkyScene? scene=null;SkyStarProducer? stars=null;SkyCloudColorProducer? cloud=null;Rid consumerSampler=default;
-        try
-        {
-            var inputs=new List<Sky2DeviceInput>();
-            for(uint i=0;i<3;i++)inputs.Add(await textures.GetRetainedInputAsync(i,"source-sta"+i));
-            foreach(var assigned in assignedTextures.Where(t=>t.Role is SkySamplingRole.Earth or SkySamplingRole.MilkyWay))
-                inputs.Add(await textures.GetInputAsync(assigned.PixelRegister,assigned.SourceName));
-            scene=await SkyScene.BuildAsync(ambient,skySource,copied.ProgramSelection,compiler,
-                faces.DrawPackets,copied.VertexTemplate,copied.PixelTemplate,inputs,sampler,sampler,
-                NativeLogTables.Load(repository.SourceDirectory,"TC"),NativeLogDispatch.AvxFma,allowReadback);
-            if(producerFactory is not null)(stars,cloud)=await producerFactory(scene);
-            consumerSampler=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>DeviceSampler.Create(rd,sampler));
-            return new(scene,textures,registration,lighting,camera,copied,sampler,ambientKey,consumerSampler,
-                firstAcceptedFrame.Lighting.Binding,stars,cloud,textureBindings);
-        }
-        catch
-        {
-            textureBindings.Dispose();
-            if(cloud is not null)await cloud.DisposeAsync();if(stars is not null)await stars.DisposeAsync();
-            if(consumerSampler.IsValid)await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{rd.FreeRid(consumerSampler);return true;});
-            if(scene is not null)await scene.DisposeAsync();await textures.DisposeAsync();throw;
         }
     }
 
@@ -351,166 +180,43 @@ public sealed class SkyAmbientSourceFrameAssembler : IAsyncDisposable
             var progress=await Scene.GetProgressAsync();
             if(progress.Phase is not (SkyScenePhase.Idle or SkyScenePhase.Faulted))
                 throw new InvalidOperationException("Finish the combined source sky generation before staging another frame.");
-            var prepared=Prepare(CameraSource,LightingSource,construction,Scene.SpecularTargets[(int)explicitGenerationIndex].Source,
-                input,constructorParameters,constructorController,acceptedParameters,acceptedController,appliedSeasonScope);
+            var prepared=Prepare(LightingSource,construction,Scene.SpecularTargets[(int)explicitGenerationIndex].Source,input);
             var selection=SkyAmbientCubeSourceSelection.FromDeclaredCube(Scene.SpecularTargets[(int)explicitGenerationIndex].Source,
                 $"same-source-created-frame={input.Lighting.FrameNumber};{construction.RetainedProvenance}");
             var sky=await AmbientProvider.SubmitSourceFrameAsync(explicitGenerationIndex,prepared.Source,
                 input.Producers,maximumWorkUnits,selection,generatedSampler,optionalLight);
-            var bindings=DefaultAmbientBindings();
             current=new(input.Lighting.FrameNumber,input.Lighting,input.Lighting.Clock,
                 MapSeasonMath.SelectMonth(input.SourceSeasonMonth),input.SeasonSourceProvenance,
-                prepared.ControllerSource,prepared.Controller,prepared.Source,sky,bindings.Texture,bindings.Sampler);
-            acceptedParameters=prepared.Parameters;acceptedController=prepared.ControllerSource;
+                prepared.ControllerSource,prepared.Controller,prepared.Source,sky);
             return current;
         }
         finally{gate.Release();}
     }
 
-    /// <summary>Owned native World third-date adapter. Season state supplies
-    /// the exact independently advanced source month; renderer clock and Sky
-    /// controller phase remain separate accepted producers for this frame.</summary>
-    public Task<SkyAmbientCombinedFrame> SubmitOwnedSeasonFrameAsync(uint explicitGenerationIndex,
-        MapSourceCreatedLightingPacket acceptedLighting,MapSeasonRuntimeFrame ownedSeason,
-        SkySceneSharedAtmosphere atmosphere,SkyAmbientSourceState skyState,
-        SkySceneProducerFrame producers,uint maximumWorkUnits,
-        SkySceneControllerSourceProfile? completeCurrentController=null,
-        SkySceneSky2Parameters? completeCurrentParameters=null,SkySceneOptionalLightInputs? optionalLight=null)
-        =>SubmitFrameAsync(explicitGenerationIndex,CreateOwnedSeasonInputs(acceptedLighting,ownedSeason,
-            atmosphere,skyState,producers,completeCurrentController,completeCurrentParameters),maximumWorkUnits,optionalLight);
-
-    /// <summary>Use the same owned calendar adapter for initial construction
-    /// and later submissions; callers do not repeat the source month or its
-    /// provenance. It does not derive current Sky phase from either clock.</summary>
-    public static SkyAmbientSourceFrameInputs CreateOwnedSeasonInputs(
-        MapSourceCreatedLightingPacket acceptedLighting,MapSeasonRuntimeFrame ownedSeason,
-        SkySceneSharedAtmosphere atmosphere,SkyAmbientSourceState skyState,
-        SkySceneProducerFrame producers,SkySceneControllerSourceProfile? completeCurrentController=null,
-        SkySceneSky2Parameters? completeCurrentParameters=null)
-    {
-        ArgumentNullException.ThrowIfNull(acceptedLighting);ArgumentNullException.ThrowIfNull(ownedSeason);
-        MapSeasonRuntime.ValidateOwned(ownedSeason.State);
-        if(ownedSeason.FrameNumber!=acceptedLighting.FrameNumber||ownedSeason.Selection!=
-            MapSeasonMath.SelectMonth(ownedSeason.State.ThirdDate.Month)||string.IsNullOrWhiteSpace(ownedSeason.SourceProvenance))
-            throw new InvalidDataException("Owned native season and accepted lighting must name the same frame.");
-        return new(acceptedLighting,ownedSeason.State.ThirdDate.Month,
-            ownedSeason.SourceProvenance,atmosphere,skyState,producers,completeCurrentController,completeCurrentParameters);
-    }
-
-    public async Task<SkyAmbientCombinedFrame> AdvanceAsync(uint maximumWorkUnits)
-    {
-        await gate.WaitAsync();
-        try
-        {
-            ObjectDisposedException.ThrowIf(retiring,this);
-            if(current is null)throw new InvalidOperationException("No combined source frame has been submitted.");
-            Registration.RequireAvailable();
-            current=current with{SkyUpdate=await AmbientProvider.AdvanceAsync(maximumWorkUnits)};
-            return current;
-        }
-        finally{gate.Release();}
-    }
-
-    private (DeferredDeviceBinding Texture,DeferredDeviceBinding Sampler) DefaultAmbientBindings()
-    {
-        var resource=Registration.Entries[SourceResourceRegistrationAmbientCube.ObjectKey];
-        return(new("Texture",7,resource.TextureRid,resource.TextureRid,resource.OwnerProvenance),
-            new("Sampler",7,staticAmbientSampler,null,resource.OwnerProvenance+";D189D0-final-consumer-key="+Convert.ToHexString(ambientSamplerKey)));
-    }
-
-    public Task<SkyAmbientFrameResourceBorrow> BorrowDefaultAmbientAsync(long frameNumber,
-        MapSourceCreatedLightingIdentity expectedLightingIdentity)
-        =>BorrowAsync(frameNumber,expectedLightingIdentity,false);
-
-    public Task<SkyAmbientFrameResourceBorrow> BorrowCompletedGeneratedAmbientAsync(long frameNumber,
-        MapSourceCreatedLightingIdentity expectedLightingIdentity)
-        =>BorrowAsync(frameNumber,expectedLightingIdentity,true);
-
-    private async Task<SkyAmbientFrameResourceBorrow> BorrowAsync(long frameNumber,
-        MapSourceCreatedLightingIdentity identity,bool generated)
-    {
-        await gate.WaitAsync();
-        try
-        {
-            ObjectDisposedException.ThrowIf(retiring,this);
-            if(current is null||current.FrameNumber!=frameNumber||identity!=LightingSource.Identity||
-                current.Lighting.SourceIdentity!=identity)
-                throw new InvalidDataException("Ambient borrowing requires this same accepted source lighting frame.");
-            Registration.RequireAvailable();
-            if(generated)
-            {
-                var ready=current.SkyUpdate.Ambient??throw new InvalidOperationException("This source frame's generated cube has not finished filtering.");
-                return new(frameNumber,identity,ready.Texture,ready.Sampler,ambientSamplerKey.ToArray(),generatedSampler.ToArray(),
-                    current.SkySource.SourceProvenance+";"+ready.Texture.SourceResourceUri,true);
-            }
-            return new(frameNumber,identity,current.DefaultStaticAmbientTexture,current.DefaultStaticAmbientSampler,
-                ambientSamplerKey.ToArray(),generatedSampler.ToArray(),current.DefaultStaticAmbientSampler.SourceResourceUri,false);
-        }
-        finally{gate.Release();}
-    }
-
-    private static (SkySceneSourceFramePacket Source,SkySceneSky2Parameters Parameters,
+    private static (SkySceneSourceFramePacket Source,
         SkySceneControllerSourceProfile ControllerSource,SkyScenePreparedController Controller) Prepare(
-        SkySceneCameraSourceProfile camera,MapSourceCreatedLightingSource source,
-        SkyAmbientSourceConstruction construction,CubeRenderTextureDefinition target,
-        SkyAmbientSourceFrameInputs input,SkySceneSky2Parameters initialParameters,
-        SkySceneControllerSourceProfile initialController,SkySceneSky2Parameters? previousParameters,
-        SkySceneControllerSourceProfile? previousController,bool appliedSeasonScope=false)
+        MapSourceCreatedLightingSource source,SkyAmbientSourceConstruction construction,
+        CubeRenderTextureDefinition target,SkyAmbientSourceFrameInputs input)
     {
         ArgumentNullException.ThrowIfNull(input.Lighting);ArgumentNullException.ThrowIfNull(input.SharedAtmosphere);
         ArgumentNullException.ThrowIfNull(input.Producers);
         if(input.Lighting.SourceIdentity!=source.Identity||string.IsNullOrWhiteSpace(input.SeasonSourceProvenance))
             throw new InvalidDataException("Combined sky needs this constructed lighting generation and explicit source season provenance.");
         construction.ProgramSelection.TextureBindings.RequireCurrent();
-        _=MapSeasonMath.SelectMonth(input.SourceSeasonMonth);
-        if(appliedSeasonScope)
-        {
-            var applied=input.AppliedSeason??throw new InvalidDataException("This owned shader requires its actual current applied seasonal source.");
-            applied.Selection.Validate();
-            ValidateAppliedStageSelection(construction.ProgramSelection,input,applied);
-            if(input.SkyState!=SkyAmbientSourceState.ResolvedCurrent||input.CompleteCurrentController is not null||
-                input.CompleteCurrentParameters is not null||applied.CurrentCamera.FrameNumber!=input.Lighting.FrameNumber||
-                applied.Selection.Provider.Database.Action.Selection!=MapSeasonMath.SelectMonth(input.SourceSeasonMonth))
-                throw new InvalidDataException("Applied source season/current View Camera and lighting require one accepted frame and season scope.");
-            var current=applied.CurrentCamera;
-            applied.CurrentCameraLights.SourceZeroMoon?.ValidateLighting(input.Lighting);
-            var appliedController=SkySceneSourceDefaults.PrepareController(current.Controller,current.Parameters,
-                applied.CurrentCameraLights.SunPresent,applied.CurrentCameraLights.MoonPresent);
-            var appliedPacket=SkySceneSourceFrameProvider.PrepareAppliedSeason(applied.Selection,current,input.Lighting,target,
-                applied.CurrentCameraLights,input.SharedAtmosphere,appliedController,construction.NativeClipProfile,construction.ProgramSelection.TextureBindings);
-            return(appliedPacket,current.Parameters,current.Controller,appliedController);
-        }
-        if(input.AppliedSeason is not null)throw new InvalidDataException("Fresh source-only shader cannot accept an external seasonal package scope.");
-        SkySceneSky2Parameters parameters;SkySceneControllerSourceProfile controller;
-        switch(input.SkyState)
-        {
-            case SkyAmbientSourceState.FreshConstructor when previousParameters is null && previousController is null:
-                if(input.CompleteCurrentController is not null||input.CompleteCurrentParameters is not null)
-                    throw new InvalidDataException("Fresh constructor state cannot silently combine edited Sky inputs.");
-                parameters=initialParameters;controller=initialController;break;
-            case SkyAmbientSourceState.RetainedSource when previousParameters is not null && previousController is not null:
-                if(input.CompleteCurrentController is not null||input.CompleteCurrentParameters is not null)
-                    throw new InvalidDataException("Retained source state does not accept competing current field writers.");
-                parameters=previousParameters;controller=previousController;break;
-            case SkyAmbientSourceState.ResolvedCurrent:
-                parameters=input.CompleteCurrentParameters??throw new InvalidDataException("Current Sky2 parameters must be complete.");
-                controller=input.CompleteCurrentController??throw new InvalidDataException("Current Sky controller phase/state must be complete.");
-                controller=SkySceneSourceDefaults.ApplyPreparedMainControllerInputs(controller,input.Lighting.PreparedCameraPrefix.Span);
-                break;
-            default:throw new InvalidDataException("Sky state must explicitly select fresh, retained or fully resolved current inputs.");
-        }
-        if(parameters.NativeTargetFormat!=target.PixelFormat)throw new InvalidDataException("Current Sky parameters have another source target format.");
-        var lights=SkySceneLightData.ApplyOrdinaryRows(construction.RetainedLightCaches,
-            input.Lighting.LocalLightData.Span,construction.SelectedLightRows);
-        var prepared=SkySceneSourceDefaults.PrepareController(controller,parameters,lights.SunPresent,lights.MoonPresent);
-        parameters=parameters with{MilkyStrength1484=prepared.MilkyStrength1484};
-        var packet=SkySceneSourceFrameProvider.PrepareResolved(camera,input.Lighting,target,
-            construction.RetainedLightCaches,construction.SelectedLightRows,input.SharedAtmosphere,construction.ProgramSelection.TextureBindings.Presence,
-            prepared.Controller,construction.NativeClipProfile,parameters);
-        packet=packet with{TextureBindings=construction.ProgramSelection.TextureBindings,UsesSourceConstructorDefaults=input.SkyState==SkyAmbientSourceState.FreshConstructor,
-            SourceProvenance=packet.SourceProvenance+$";source-season-month={input.SourceSeasonMonth};{input.SeasonSourceProvenance};"+
-                $"sky-state={input.SkyState};sky-controller={controller.SourceProvenance};source-camera-clock-tail={input.Lighting.Clock.AutoStepExecuted}"};
-        return(packet,parameters,controller,prepared);
+        var season=MapSeasonMath.SelectMonth(input.SourceSeasonMonth);
+        var applied=input.AppliedSeason??throw new InvalidDataException("This owned shader requires its actual current applied seasonal source.");
+        applied.Selection.Validate();
+        ValidateAppliedStageSelection(construction.ProgramSelection,input,applied);
+        if(applied.CurrentCamera.FrameNumber!=input.Lighting.FrameNumber||
+            applied.Selection.Provider.Database.Action.Selection!=season)
+            throw new InvalidDataException("Applied source season/current View Camera and lighting require one accepted frame and season scope.");
+        var current=applied.CurrentCamera;
+        applied.CurrentCameraLights.SourceZeroMoon?.ValidateLighting(input.Lighting);
+        var appliedController=SkySceneSourceDefaults.PrepareController(current.Controller,current.Parameters,
+            applied.CurrentCameraLights.SunPresent,applied.CurrentCameraLights.MoonPresent);
+        var appliedPacket=SkySceneSourceFrameProvider.PrepareAppliedSeason(applied.Selection,current,input.Lighting,target,
+            applied.CurrentCameraLights,input.SharedAtmosphere,appliedController,construction.NativeClipProfile,construction.ProgramSelection.TextureBindings);
+        return(appliedPacket,current.Controller,appliedController);
     }
 
     /// <summary>Historical explicit combo0 scope remains available without a
@@ -545,16 +251,22 @@ public sealed class SkyAmbientSourceFrameAssembler : IAsyncDisposable
     }
 
     public ValueTask DisposeAsync()
-    {lock(lifetimeGate){retiring=true;textureBindings.Dispose();return new(disposal??=DisposeCoreAsync());}}
+    {
+        lock(lifetimeGate)
+        {
+            retiring=true;textureBindings.Dispose();
+            if(disposal is null||disposal.IsFaulted||disposal.IsCanceled)disposal=DisposeCoreAsync();
+            return new(disposal);
+        }
+    }
     private async Task DisposeCoreAsync()
     {
         await gate.WaitAsync();
         try
         {
-            await AmbientProvider.DisposeAsync();if(Cloud is not null)await Cloud.DisposeAsync();
-            if(Stars is not null)await Stars.DisposeAsync();
-            await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{rd.FreeRid(staticAmbientSampler);return true;});
-            await Scene.DisposeAsync();await textures.DisposeAsync();
+            finalRetirement??=new(Binding.ViewIdentity+"/source-Sky-retire",
+                AmbientProvider,Cloud,Stars,Scene,textures);
+            await finalRetirement.DisposeAsync();
         }
         finally{gate.Release();}
     }

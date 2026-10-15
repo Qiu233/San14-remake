@@ -62,27 +62,35 @@ public sealed partial class MapPostEffect3DepthOfField2ExecutionOwner
         }
         if(!requirement.SourceShapeChanged)
             throw new InvalidDataException("DOF2 source did not run the shape writer and has no retained actual shape pointer.");
-        Rid image=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-        {
-            var usage=RenderingDevice.TextureUsageBits.SamplingBit|RenderingDevice.TextureUsageBits.ColorAttachmentBit;
-            if(!rd.TextureIsFormatSupportedForUsage(RenderingDevice.DataFormat.R16G16B16A16Sfloat,usage))
-                throw new NotSupportedException("DOF2 original native-format3/DXGI10 shape target is unsupported by this device.");
-            using var format=new RDTextureFormat{Format=RenderingDevice.DataFormat.R16G16B16A16Sfloat,
-                TextureType=RenderingDevice.TextureType.Type2D,Width=requirement.RequestedSide,Height=requirement.RequestedSide,
-                Depth=1,ArrayLayers=1,Mipmaps=1,Samples=RenderingDevice.TextureSamples.Samples1,UsageBits=usage};
-            using var view=new RDTextureView();Rid created=rd.TextureCreate(format,view);
-            if(!created.IsValid)throw new InvalidDataException("Device rejected the actual DOF2 source-created shape allocation.");
-            return created;
-        });
+        var resources=new RenderDeviceResources("Device rejected the actual DOF2 source-created shape allocation.");
         try
         {
+            Rid image=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
+            {
+                var usage=RenderingDevice.TextureUsageBits.SamplingBit|RenderingDevice.TextureUsageBits.ColorAttachmentBit;
+                if(!rd.TextureIsFormatSupportedForUsage(RenderingDevice.DataFormat.R16G16B16A16Sfloat,usage))
+                    throw new NotSupportedException("DOF2 original native-format3/DXGI10 shape target is unsupported by this device.");
+                using var format=new RDTextureFormat{Format=RenderingDevice.DataFormat.R16G16B16A16Sfloat,
+                    TextureType=RenderingDevice.TextureType.Type2D,Width=requirement.RequestedSide,Height=requirement.RequestedSide,
+                    Depth=1,ArrayLayers=1,Mipmaps=1,Samples=RenderingDevice.TextureSamples.Samples1,UsageBits=usage};
+                using var view=new RDTextureView();return resources.Own(rd.TextureCreate(format,view));
+            });
             TextureParameters.BindExternal(58,new(Prepared.FrameNumber,State.OwnerIdentity+":DOF2-source-shape/"+image),
                 Prepared.SourceEvidence+";create-required-square-M1-format3/copy-shape");
             shapePointer=TextureParameters.Require(58);
-            ownedShape=new(image,requirement.RequestedSide,shapePointer.Reference,TextureParameters);
+            ownedShape=new(image,requirement.RequestedSide,shapePointer.Reference,TextureParameters,resources);
             ModuleResources.AdoptShape(this,ownedShape);
         }
-        catch{await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{rd.FreeRid(image);return true;});throw;}
+        catch(Exception failure)
+        {
+            try{if(resources.Count!=0)await resources.DisposeAsync();}
+            catch(Exception cleanup)
+            {
+                var partial=NativeMapBorrowerRetirementPackage.CreatePending("DOF2-shape-construction",[resources])!;
+                partial.RetainFailure();throw new NativeMapBorrowerConstructionException(failure,cleanup,partial);
+            }
+            throw;
+        }
     }
 
     private MapPostEffect3DepthOfField2TargetView ShapeView(int register,MapPostEffect3ResolvedTextureParameter pointer)

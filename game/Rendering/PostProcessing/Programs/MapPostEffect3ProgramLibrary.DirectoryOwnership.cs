@@ -13,7 +13,7 @@ public sealed partial class MapPostEffect3ProgramLibrary
             ObjectDisposedException.ThrowIf(retiring,this);
             bool owned=passes.Values.Any(p=>ReferenceEquals(p,actual))||nullPasses.Values.Any(p=>ReferenceEquals(p,actual));
             if(!owned||!actual.ShaderRid.IsValid||actual.ContainerSha256!=SourceSha256||
-                !shaders.Values.Contains(actual.ShaderRid)||!ReferenceEquals(Source.Passes[actual.Source.Index],actual.Source))
+                !shaders.Values.Any(shader=>shader.Rid==actual.ShaderRid)||!ReferenceEquals(Source.Passes[actual.Source.Index],actual.Source))
                 throw new InvalidDataException("Directory selection requires this library's actual created shader wrapper; public records are not authority.");
             foreach(var stage in actual.Stages)
                 if(!ReferenceEquals(stage.Source,Source.GetProgram(stage.Source.StageCode,stage.Source.StageIndex)))

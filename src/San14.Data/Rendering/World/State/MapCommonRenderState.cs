@@ -25,11 +25,12 @@ public sealed class MapCommonRenderState
     internal MapCommonRenderState(long frameNumber, string settingsOwner,
         string commonTableOwner, string selectedViewOwner, string provenance,
         CommonRenderPublicationKind scope, CommonAuxiliaryState? auxiliary,
-        AmbientMapSelection? ambient)
+        AmbientMapSelection? ambient, CommonRenderSettings? initialSettings = null)
     {
         FrameNumber = frameNumber; SettingsOwnerIdentity = settingsOwner;
         CommonTableOwnerIdentity = commonTableOwner; SelectedViewOwnerIdentity = selectedViewOwner;
         ProducerProvenance = provenance; Scope = scope; Auxiliary = auxiliary; Ambient = ambient;
+        InitialSettings = initialSettings;
     }
     public long FrameNumber { get; }
     public string SettingsOwnerIdentity { get; }
@@ -37,6 +38,7 @@ public sealed class MapCommonRenderState
     public string SelectedViewOwnerIdentity { get; }
     public string ProducerProvenance { get; }
     public CommonRenderPublicationKind Scope { get; }
+    public CommonRenderSettings? InitialSettings { get; }
     public CommonAuxiliaryState? Auxiliary { get; }
     public AmbientMapSelection? Ambient { get; }
     public uint CommonFlags => Auxiliary?.Flags ?? 0;
@@ -60,7 +62,7 @@ public sealed class MapCommonRenderState
         return new(frameNumber, settingsOwnerIdentity, commonTableOwnerIdentity, selectedViewOwnerIdentity,
             producerProvenance + ";" + source.SourceIdentity + ";settings-applied;before-ambient-publication",
             CommonRenderPublicationKind.InitialSettings,
-            source.InitialAuxiliary, null);
+            source.InitialAuxiliary, null, source);
     }
 
     internal static void ValidateIdentity(long frameNumber, params string[] identities)

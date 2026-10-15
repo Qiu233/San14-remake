@@ -353,9 +353,8 @@ public static class MapSourceCreatedViewFields
     }
 
     /// <summary>The exact fresh HDRI ordinary first-counter capacities.
-    /// D13F6A passes -1, CE34FA selects CPU+18 MaxPrimitiveNum, and the source
-    /// constructor packet retains that scalar. Primary/context capacities are
-    /// literal0; the split ordinary records retain the declared scalar.</summary>
+    /// Primary/context capacities are zero; the split ordinary records use
+    /// the imported maximum primitive count.</summary>
     public static IReadOnlyDictionary<uint, int> ReadFreshFirstCounterCapacities(
         MapSourceCreatedLightingSource source, MapSourceCreatedLightingPacket lighting,
         byte currentViewAux3F2)
@@ -363,10 +362,7 @@ public static class MapSourceCreatedViewFields
         ArgumentNullException.ThrowIfNull(source); ArgumentNullException.ThrowIfNull(lighting);
         if (source.Identity != lighting.SourceIdentity)
             throw new InvalidDataException("Fresh first-counter capacities require the same constructed current HDRI owner.");
-        var fields = source.Construction.CpuSourceFields.Where(field => field.Offset == 0x18 && field.SourcePropertyHash == 0xDB26951D).ToArray();
-        if (fields.Length != 1 || fields[0].Bytes.Length != 4)
-            throw new InvalidDataException("Fresh HDRI first-counter capacity requires the exact CPU18 source MaxPrimitiveNum field.");
-        uint raw = BinaryPrimitives.ReadUInt32LittleEndian(fields[0].Bytes.Span);
+        uint raw = source.Construction.Source.Settings.Shadow.MaximumPrimitives;
         if (raw > int.MaxValue) throw new NotSupportedException("Fresh HDRI primitive capacity exceeds the finite signed counter range.");
         var masks = SourceKind1RecordMasks(lighting, currentViewAux3F2);
         return new System.Collections.ObjectModel.ReadOnlyDictionary<uint, int>(masks.Select((mask, index) =>

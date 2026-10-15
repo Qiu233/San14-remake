@@ -7,9 +7,9 @@ public sealed class DeferredMaterialTableDevice : IAsyncDisposable
 {
     public LoadedDeferredMaterialTable Source { get; }
     public Rid BufferRid { get; }
-    private Task? _disposal;
-    private DeferredMaterialTableDevice(LoadedDeferredMaterialTable source, Rid buffer)
-        => (Source, BufferRid) = (source, buffer);
+    private readonly RenderDeviceResources resources;
+    private DeferredMaterialTableDevice(LoadedDeferredMaterialTable source, Rid buffer,RenderDeviceResources resources)
+        => (Source, BufferRid, this.resources) = (source, buffer, resources);
 
     public static async Task<DeferredMaterialTableDevice> BuildAsync(LoadedDeferredMaterialTable source)
     {
@@ -17,14 +17,20 @@ public sealed class DeferredMaterialTableDevice : IAsyncDisposable
         if (source.EntryCount < 1 || source.Bytes.Length != checked(source.EntryCount * 4))
             throw new InvalidDataException("Original material table uint buffer has an invalid source extent.");
         byte[] snapshot = source.Bytes.ToArray();
-        Rid buffer = await TerrainDeviceTexture.OnRenderThreadAsync(rd => {
-            // TextureBufferCreate takes texel count; its data byte extent is count*format size.
-            Rid rid = rd.TextureBufferCreate((uint)source.EntryCount, RenderingDevice.DataFormat.R32Uint, snapshot);
-            if (!rid.IsValid) throw new InvalidDataException("Original material table typed uint-buffer creation failed.");
-            return rid;
+        return await TerrainDeviceTexture.OnRenderThreadAsync(rd => {
+            var resources=new RenderDeviceResources("Original material table typed uint-buffer creation failed.");
+            try
+            {
+                // TextureBufferCreate takes texel count; its data byte extent is count*format size.
+                Rid buffer=resources.Own(rd.TextureBufferCreate((uint)source.EntryCount, RenderingDevice.DataFormat.R32Uint, snapshot));
+                return new DeferredMaterialTableDevice(source,buffer,resources);
+            }
+            catch(Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd,failure,"Deferred-material-table-partial");
+                throw;
+            }
         });
-        return new(source, buffer);
     }
-    public ValueTask DisposeAsync() => new(_disposal ??= TerrainDeviceTexture.OnRenderThreadAsync(rd => {
-        rd.FreeRid(BufferRid); return true; }));
+    public ValueTask DisposeAsync()=>resources.DisposeAsync();
 }

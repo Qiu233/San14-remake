@@ -9,7 +9,7 @@ public sealed record SkyCloudConstantPacket(byte[] VertexBytes, byte[] PixelByte
 /// <summary>Compatibility encoding for explicit cloud materials. Pattern inputs
 /// become named values through the imported layout; Color retains its existing
 /// numerical contract. Work limits do not change shader counts.</summary>
-public static class SkyCloudConstants
+public static partial class SkyCloudConstants
 {
     public static SkyCloudConstantPacket Read(DxbcResourceDefinitions vertex,
         DxbcResourceDefinitions pixel, ReadOnlySpan<byte> vertexBytes,

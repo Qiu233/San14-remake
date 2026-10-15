@@ -21,19 +21,18 @@ public sealed class MapExposureOwner:IAsyncDisposable
     public MapExposurePacket? LastPacket { get; private set; }
     private readonly Rid _shader,_framebuffer,_pipeline,_vertexSet,_vertices,_vertexArray,_pixelConstants;
     private readonly Rid[] _inputs,_pixelSets;
-    private readonly IReadOnlyList<Rid> _owned;
+    private readonly RenderDeviceResources _resources;
     private readonly SemaphoreSlim _gate=new(1,1);
     private readonly object _lifetime=new();
     private bool _retiring;private int _accepted;private Task? _disposal;private TaskCompletionSource? _drained;
     private long _contentsRevision;private object? _externalPublication;
     private bool _node1ContentsValid;
-    private int _retiredRidCount;
     private MapExposureOwner(LoadedMapExposureSource source,ShaderSpirv vertex,
         ShaderSpirv pixel,AdaptedVertexShader adapter,Rid output,Rid shader,Rid framebuffer,
-        Rid pipeline,Rid vertexSet,Rid vertices,Rid vertexArray,Rid pixelConstants,Rid[] inputs,Rid[] sets,List<Rid> owned)
+        Rid pipeline,Rid vertexSet,Rid vertices,Rid vertexArray,Rid pixelConstants,Rid[] inputs,Rid[] sets,RenderDeviceResources resources)
     {Source=source;VertexTranslation=vertex;PixelTranslation=pixel;VertexAdapter=adapter;TextureRid=output;
         _shader=shader;_framebuffer=framebuffer;_pipeline=pipeline;_vertexSet=vertexSet;_vertices=vertices;
-        _vertexArray=vertexArray;_pixelConstants=pixelConstants;_inputs=inputs;_pixelSets=sets;_owned=owned.AsReadOnly();}
+        _vertexArray=vertexArray;_pixelConstants=pixelConstants;_inputs=inputs;_pixelSets=sets;_resources=resources;}
 
     public static async Task<MapExposureOwner> BuildAsync(LoadedMapExposureSource source,Vkd3dShaderCompiler compiler)
     {
@@ -52,9 +51,10 @@ public sealed class MapExposureOwner:IAsyncDisposable
         foreach(var input in pi.StageVariables.Where(v=>v.StorageClass==1&&v.Location is not null))
             if(!vi.StageVariables.Any(v=>v.StorageClass==3&&v.Location==input.Location))
                 throw new InvalidDataException("Exposure stock VS COLOR/TEXCOORD does not satisfy default3 PS.");
+        var resources=new RenderDeviceResources("Exposure device allocation failed.");
         return await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
-            var owned=new List<Rid>();Rid Own(Rid r){if(!r.IsValid)throw new InvalidDataException("Exposure device allocation failed.");owned.Add(r);return r;}
+            Rid Own(Rid r)=>resources.Own(r);
             try
             {
                 using var stages=new RDShaderSpirV();stages.SetStageBytecode(RenderingDevice.ShaderStage.Vertex,adapter.Bytes);
@@ -109,11 +109,11 @@ public sealed class MapExposureOwner:IAsyncDisposable
                     Rid pipeline=Own(rd.RenderPipelineCreate(shader,rd.FramebufferGetFormat(framebuffer),format,
                         RenderingDevice.RenderPrimitive.TriangleStrips,raster,multi,depth,blend));
                     if(!rd.RenderPipelineIsValid(pipeline))throw new InvalidDataException("Exposure source rectangle pipeline failed.");
-                    return new MapExposureOwner(source,vertex,pixel,adapter,output,shader,framebuffer,pipeline,vertexSet,vertices,array,psCb,inputs,sets,owned);
+                    return new MapExposureOwner(source,vertex,pixel,adapter,output,shader,framebuffer,pipeline,vertexSet,vertices,array,psCb,inputs,sets,resources);
                 }
                 finally{foreach(var a in attributes)a.Dispose();}
             }
-            catch{for(int i=owned.Count-1;i>=0;i--)rd.FreeRid(owned[i]);throw;}
+            catch(Exception failure){resources.ReleaseAfterConstructionFailure(rd,failure,"exposure-partial");throw;}
         });
     }
 
@@ -255,9 +255,7 @@ public sealed class MapExposureOwner:IAsyncDisposable
     {
         Task pending;lock(_lifetime)pending=_accepted==0?Task.CompletedTask:(_drained??=new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
         await pending;await _gate.WaitAsync();
-        try{await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{
-            while(_retiredRidCount<_owned.Count){Rid rid=_owned[_owned.Count-1-_retiredRidCount];
-                rd.FreeRid(rid);_retiredRidCount++;}return true;});}
+        try{await _resources.DisposeAsync();}
         finally{_gate.Release();}
     }
 }

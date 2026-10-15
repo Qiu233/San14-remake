@@ -16,7 +16,10 @@ public sealed record MapSeasonActionDatabase(MapSeasonActionSource Action,
 /// <summary>A declared Camera package in the selected environment database.
 /// Reading it does not apply the native external-package interpolation callback.</summary>
 public sealed record MapSeasonCameraPackage(MapSeasonActionSource Action,
-    LoadedObjects Objects, DokObject Camera, string SourceEvidence);
+    LoadedObjects Objects, DokObject Camera, string SourceEvidence)
+{
+    public uint SkyDomeSceneKey { get; } = CameraDeclarationImport.ReadSkyDomeSceneKey(Camera);
+}
 
 public sealed record MapSeasonEffectInfo(byte[] Bytes, SourceProvenance Source);
 

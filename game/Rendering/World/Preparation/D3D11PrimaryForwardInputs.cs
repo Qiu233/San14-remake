@@ -53,7 +53,7 @@ public static class D3D11PrimaryForwardInputs
         var lighting = new DeferredSceneInputs(
             Lighting:preparedLighting,
             Camera:DeferredSceneConstants.ReadPreparedCamera(current.PreparedMain.Span.Slice(0x10,0x130)),
-            Fog:DeferredSceneConstants.ReadSharedFog(outer.CompleteData.Span[..0x1B0],
+            Fog:DeferredSceneConstants.PrepareSharedFog(outer.State.Fog,
                 SkySceneSourceDefaults.SharedContextInitializer().FogEnabled120,new(firstColor.X,firstColor.Y,firstColor.Z)),
             Ambient:modifierLight.Lighting.PrepareAmbient(ambientRate),
             Occlusion:new(modifierLight.Lighting.Modifier.OcclusionRates));

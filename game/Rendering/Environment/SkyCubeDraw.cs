@@ -22,23 +22,23 @@ public sealed class SkyCubeDraw : IAsyncDisposable
     private readonly byte[] _samplerCreationDescriptor;
     public ReadOnlyMemory<byte> SamplerCreationDescriptor => _samplerCreationDescriptor.ToArray();
     private readonly Rid _pipeline, _pixelSet, _vertexSet;
-    private readonly IReadOnlyList<Rid> _owned;
-    private Task? _disposal;
+    private readonly RenderDeviceResources resources;
+    private volatile bool retiring;
 
     private SkyCubeDraw(byte[] constants, byte[] descriptor, CubeRenderDeviceSurface target,
-        Rid pipeline, Rid pixelSet, Rid vertexSet, List<Rid> owned,
+        Rid pipeline, Rid pixelSet, Rid vertexSet, RenderDeviceResources resources,
         CubeRenderTextureDevice inputOwner,SkyCubeProgram program,Rid inputView,Rid sampler,Rid cb,
         uint firstMip,uint mipCount,SkyFilterSampleBuffers? samples)
     {
-        (ConstantBytes, SourceSamplerDescriptor, Target, _pipeline, _pixelSet, _vertexSet, _owned)
-            = (constants, descriptor, target, pipeline, pixelSet, vertexSet, owned.AsReadOnly());
+        (ConstantBytes, SourceSamplerDescriptor, Target, _pipeline, _pixelSet, _vertexSet, this.resources)
+            = (constants, descriptor, target, pipeline, pixelSet, vertexSet, resources);
         (InputOwner,Program,InputShaderViewRid,InputSamplerRid,ConstantBufferRid,InputFirstMipLevel,InputMipLevelCount,FilterSamples)
             =(inputOwner,program,inputView,sampler,cb,firstMip,mipCount,samples);
         _samplerCreationDescriptor=descriptor.ToArray();
     }
     public void RequireCurrentDiagnosticBindings()
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null,this);
+        ObjectDisposedException.ThrowIf(retiring,this);
         if(!InputShaderViewRid.IsValid||!InputSamplerRid.IsValid||!ConstantBufferRid.IsValid||!_pixelSet.IsValid||
             !SourceSamplerDescriptor.AsSpan().SequenceEqual(_samplerCreationDescriptor))
             throw new InvalidDataException("Cube draw diagnostic lost its actual current created sampler/uniform bindings.");
@@ -75,12 +75,8 @@ public sealed class SkyCubeDraw : IAsyncDisposable
         BinaryPrimitives.WriteSingleLittleEndian(constants.AsSpan(12), surface.Source.Face);
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            var owned = new List<Rid>();
-            Rid Own(Rid rid)
-            {
-                if (!rid.IsValid) throw new InvalidDataException("Cube-copy device allocation failed.");
-                owned.Add(rid); return rid;
-            }
+            var resources = new RenderDeviceResources("Cube-copy device allocation failed.");
+            Rid Own(Rid rid) => resources.Own(rid);
             try
             {
                 Rid inputCube = sourceView?.TextureRid ?? source.TextureRid;
@@ -125,16 +121,20 @@ public sealed class SkyCubeDraw : IAsyncDisposable
                 Rid pipeline=Own(rd.RenderPipelineCreate(program.ShaderRid,rd.FramebufferGetFormat(surface.Framebuffer),-1,
                     RenderingDevice.RenderPrimitive.TriangleStrips,raster,multisample,depth,blend));
                 if (!rd.RenderPipelineIsValid(pipeline)) throw new InvalidDataException("Cube-copy pipeline is invalid.");
-                return new SkyCubeDraw(constants,descriptor,surface,pipeline,pixelSet,vertexSet,owned,
+                return new SkyCubeDraw(constants,descriptor,surface,pipeline,pixelSet,vertexSet,resources,
                     source,program,inputCube,sampler,cb,firstMip,viewLevels,filterSamples);
             }
-            catch { for(int i=owned.Count-1;i>=0;i--)rd.FreeRid(owned[i]); throw; }
+            catch (Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd, failure, "Sky-cube-draw-partial");
+                throw;
+            }
         });
     }
 
     public Task DrawAsync()
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null,this);
+        ObjectDisposedException.ThrowIf(retiring,this);
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
             SubmitDraw(rd);
@@ -147,7 +147,7 @@ public sealed class SkyCubeDraw : IAsyncDisposable
     internal static Task DrawOrderedBatchAsync(IReadOnlyList<SkyCubeDraw> orderedDraws)
     {
         var draws=orderedDraws.ToArray();
-        foreach(var draw in draws)ObjectDisposedException.ThrowIf(draw._disposal is not null,draw);
+        foreach(var draw in draws)ObjectDisposedException.ThrowIf(draw.retiring,draw);
         return TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
             foreach(var draw in draws)draw.SubmitDraw(rd);
@@ -157,7 +157,7 @@ public sealed class SkyCubeDraw : IAsyncDisposable
 
     private void SubmitDraw(RenderingDevice rd)
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null,this);
+        ObjectDisposedException.ThrowIf(retiring,this);
         long list=rd.DrawListBegin(Target.Framebuffer);
         try
         {
@@ -167,6 +167,9 @@ public sealed class SkyCubeDraw : IAsyncDisposable
         finally { rd.DrawListEnd(); }
     }
 
-    public ValueTask DisposeAsync() => new(_disposal ??= TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-    { for(int i=_owned.Count-1;i>=0;i--)rd.FreeRid(_owned[i]); return true; }));
+    public ValueTask DisposeAsync()
+    {
+        retiring = true;
+        return resources.DisposeAsync();
+    }
 }

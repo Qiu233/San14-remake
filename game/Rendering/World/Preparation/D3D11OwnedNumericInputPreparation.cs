@@ -50,9 +50,9 @@ public static class D3D11OwnedNumericInputPreparation
         var projectionRules = D3D11NormalPostCameraInputPreparation.LoadRules(repository, locale);
         D3D11CurrentSeasonLight? projectionLight = current.ExposureLight.Present
             ? current.Lights.Single(light => light.ObjectId == current.ExposureLight.ObjectId) : null;
-        D3D11NormalPostCameraInputPreparation.WriteNativeInputs(
+        D3D11NormalPostCameraInputPreparation.WriteProjectionInputs(
             Path.Combine(inputRoot, D3D11NormalPostCameraInputPreparation.NativeDirectory),
-            projectionRules, actualMain.Camera.FrameNumber, projectionLight?.CompleteData,
+            projectionRules, actualMain.Camera.FrameNumber, projectionLight?.State.LensFlareSourceVector,
             projectionLight is null ? null : actualMain.Camera.FrameNumber, configuration.ProjectionConvention);
         WritePostCallers(repository, library, inputRoot, common, projectionRules.LockedAdaptationBits);
         WriteCloudWeatherProfiles(library, inputRoot);

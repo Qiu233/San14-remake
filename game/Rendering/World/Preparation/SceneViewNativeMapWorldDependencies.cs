@@ -167,6 +167,20 @@ public sealed class SceneViewNativeMapWorldPackage : IAsyncDisposable
         finally { gate.Release(); }
     }
 
+    /// <summary>Force the next ordinary frame to reload LUT and lens declarations and
+    /// images, including edits that preserve file length and timestamp.
+    /// Current borrowed resources remain alive until their normal retirement.</summary>
+    public async Task ReloadPostEffectResourcesAsync()
+    {
+        await gate.WaitAsync();
+        try
+        {
+            ObjectDisposedException.ThrowIf(retiring,this);
+            await Host.ReloadPostEffectResourcesAsync();
+        }
+        finally { gate.Release(); }
+    }
+
     /// <summary>Between fully accepted requests, replace only the loaded
     /// seasonal asset set. Keeps this Host/Scene/Surface, current Main/View,
     /// clocks, Sky work/phases and post module/Bank/history alive. Actual

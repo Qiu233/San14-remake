@@ -6,22 +6,23 @@ public sealed partial class MapSourceCreatedLightingPacket
     private readonly DirectionalProviderCallerCurrentFrame? directionalProviderFrame;
     private readonly bool directionalCameraApplied, directionalRowsSwapped;
 
-    internal MapSourceCreatedLightingPacket(DirectionalLightConstructionPacket source,
+    internal MapSourceCreatedLightingPacket(MapSourceCreatedDirectionalLightingSource source,
         MapSourceCreatedLightingFrameInputs input, byte[] camera,
         CameraDirectionalLightDataPacket local, DeferredSceneInputs scene,
         DirectionalProviderCallerCurrentFrame? providerFrame=null)
     {
         var present = input.PresentSeasonCamera!;
         var actualCamera = present.AcceptedSeasonCamera.Inputs.MainFrame.Camera;
-        directionalConstruction = source;
+        directionalConstruction = source.Construction;
         directionalProviderFrame=providerFrame;
         SourceLightClassId = DirectionalLightSource.SourceClass;
         FrameNumber = input.FrameNumber; Binding = input.Binding;
-        string provenance = MapSourceCreatedDirectionalLightingSource.DescribeConstruction(source);
-        SourceIdentity = MapSourceCreatedDirectionalLightingSource.CreateIdentity(actualCamera.Source, source);
-        SourceProvenance = provenance + (providerFrame is null?"":";"+providerFrame.SourceProvenance) + $";View={Binding.ViewIdentity};CameraOwner={Binding.CameraOwnerIdentity};" +
+        SourceIdentity = source.Identity;
+        SourceProvenance = source.ConstructionProvenance + (providerFrame is null?"":";"+providerFrame.SourceProvenance) + $";View={Binding.ViewIdentity};CameraOwner={Binding.CameraOwnerIdentity};" +
             $"LightOwner={Binding.LightOwnerIdentity};frame={FrameNumber};" + present.SourceProvenance;
-        this.camera = camera.ToArray(); lightData = local.Bytes.ToArray(); SceneInputs = scene;
+        // The core transfers its fresh camera and local result; provider data
+        // has already been detached from the retained provider frame.
+        this.camera = camera; lightData = local.Bytes; SceneInputs = scene;
         Optics = CameraOpticsEncoding.DecodePrefix(actualCamera.Source, camera);
         Clock = present.Clock; SelectedController = present.Controller;
         LightingSkylightParameters = input.LightingSkylightParameters; RuntimeTable = input.RuntimeTable;
@@ -38,20 +39,21 @@ public static partial class MapSourceCreatedLighting
     /// actual same-frame Main seasonal Camera. The packet identifies the exact
     /// source object; provider scheduling and current world publication remain
     /// with the owner that selected that object.</summary>
-    public static MapSourceCreatedLightingPacket PrepareDirectional(
-        DirectionalLightConstructionPacket source, MapSourceCreatedLightingFrameInputs input)
+    internal static MapSourceCreatedLightingPacket PrepareDirectional(
+        MapSourceCreatedDirectionalLightingSource source, MapSourceCreatedLightingFrameInputs input)
         =>PrepareDirectionalCore(source,input,null);
 
-    public static MapSourceCreatedLightingPacket PrepareDirectional(
-        DirectionalLightConstructionPacket registeredRoot,MapSourceCreatedLightingFrameInputs input,
+    internal static MapSourceCreatedLightingPacket PrepareDirectional(
+        MapSourceCreatedDirectionalLightingSource source,MapSourceCreatedLightingFrameInputs input,
         DirectionalProviderCallerCurrentFrame providerFrame)
-        =>PrepareDirectionalCore(registeredRoot,input,providerFrame??throw new ArgumentNullException(nameof(providerFrame)));
+        =>PrepareDirectionalCore(source,input,providerFrame??throw new ArgumentNullException(nameof(providerFrame)));
 
     private static MapSourceCreatedLightingPacket PrepareDirectionalCore(
-        DirectionalLightConstructionPacket source,MapSourceCreatedLightingFrameInputs input,
+        MapSourceCreatedDirectionalLightingSource sourceOwner,MapSourceCreatedLightingFrameInputs input,
         DirectionalProviderCallerCurrentFrame? providerFrame)
     {
-        ArgumentNullException.ThrowIfNull(source); ArgumentNullException.ThrowIfNull(input);
+        ArgumentNullException.ThrowIfNull(sourceOwner); ArgumentNullException.ThrowIfNull(input);
+        var source = sourceOwner.Construction;
         ArgumentNullException.ThrowIfNull(input.Binding); ArgumentNullException.ThrowIfNull(input.AdditionalSceneInputs);
         var binding = input.Binding;
         if (input.FrameNumber <= 0 || new[] { binding.ViewIdentity, binding.CameraOwnerIdentity,
@@ -74,7 +76,7 @@ public static partial class MapSourceCreatedLighting
                 throw new InvalidDataException("Directional provider frame does not belong to this physical root and accepted frame.");
             providerFrame.Caller.RequireSameMain(present.AcceptedSeasonCamera.Inputs.MainFrame);
             providerFrame.RequireCamera(camera);
-            local=new(providerFrame.Bytes.ToArray(),providerFrame.Applied,providerFrame.SourceHighBitSwappedRows);
+            local=new(providerFrame.PreparedBytes.ToArray(),providerFrame.Applied,providerFrame.SourceHighBitSwappedRows);
         }
         else local=ApplyDirectionalCamera(source, camera, input.ContextFlags3E4);
         var prefix = local.Bytes.AsSpan(0, 0x1B0);
@@ -88,17 +90,18 @@ public static partial class MapSourceCreatedLighting
             Fog = input.SelectedSharedFogOwnerEnabled is bool enabled
                 ? DeferredSceneConstants.ReadSharedFog(prefix, enabled) : input.AdditionalSceneInputs.Fog
         };
-        return new(source, input, camera, local, scene,providerFrame);
+        return new(sourceOwner, input, camera, local, scene,providerFrame);
     }
 
     internal static CameraDirectionalLightDataPacket ApplyDirectionalCamera(
         DirectionalLightConstructionPacket source, ReadOnlySpan<byte> camera, uint flags)
     {
-        if (source.Bytes.Span[0x10B0] == 2)
+        var light = source.PreparedBytes;
+        if (light[0x10B0] == 2)
         {
-            var local = MapSourceCreatedCameraLightData.ApplySourceMode2PreparedCamera(source.Bytes.Span, camera, flags);
+            var local = MapSourceCreatedCameraLightData.ApplySourceMode2PreparedCamera(light, camera, flags);
             return new(local.Bytes, false, false);
         }
-        return CameraDirectionalLightData.Apply(source.Bytes.Span, camera, flags);
+        return CameraDirectionalLightData.Apply(light, camera, flags);
     }
 }

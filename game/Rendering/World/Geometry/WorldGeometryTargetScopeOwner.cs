@@ -125,6 +125,7 @@ public sealed class WorldGeometryTargetScopeOwner : IAsyncDisposable
     private readonly RenderTargetDeviceTexture primary;
     private readonly WorldGeometryTargetScopeState state;
     private readonly WorldGeometryBindNode? rs4Bind;
+    private readonly RenderDeviceResources resources;
     private Rid sampling;
     private bool retiring, disposed, faulted;
     private MapSourceCreatedNativeSessionPreparedFrame? accepted;
@@ -133,12 +134,11 @@ public sealed class WorldGeometryTargetScopeOwner : IAsyncDisposable
     private WorldGeometryTargetBinding? binding;
     private WorldGeometryDepthSamplingView? publication;
     private WorldGeometryTargetScopeOwner(LoadedWorldGeometryStageSource source,
-        WorldGeometryTargetFrames frames, RenderTargetDeviceTexture depth, Rid sample)
+        WorldGeometryTargetFrames frames, RenderTargetDeviceTexture depth, Rid sample,
+        WorldGeometryBindNode? rs4, RenderDeviceResources owned)
     {
-        (Source, Frames, primary, sampling) = (source, frames, depth, sample);
+        (Source, Frames, primary, sampling, rs4Bind, resources) = (source, frames, depth, sample, rs4, owned);
         state = new(frames.Rs4 is not null);
-        rs4Bind = frames.Rs4 is null ? null :
-            WorldGeometryStageSource.ReadLoadedBindDeclaration(frames.Rs4.Source.Targets43);
     }
     public LoadedWorldGeometryStageSource Source { get; }
     public WorldGeometryTargetFrames Frames { get; }
@@ -150,12 +150,14 @@ public sealed class WorldGeometryTargetScopeOwner : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(source); ArgumentNullException.ThrowIfNull(actualSharedFrames);
         ValidateFrame(source.ArmyTargets48, actualSharedFrames.ArmyFrame);
         ValidateFrame(source.GeometryTargets53, actualSharedFrames.OrdinaryFrame);
+        WorldGeometryBindNode? rs4Bind = null;
         if (actualSharedFrames.Rs4 is { } rs4)
         {
             if (rs4.Source.Native.Locale != source.Native.Locale ||
                 rs4.Source.Native.RuleVersion != source.Native.RuleVersion)
                 throw new InvalidDataException("RS4 target prefix and geometry scope need the same loaded executable profile.");
-            ValidateFrame(WorldGeometryStageSource.ReadLoadedBindDeclaration(rs4.Source.Targets43), rs4.Frame);
+            rs4Bind = WorldGeometryStageSource.ReadLoadedBindDeclaration(rs4.Source.Targets43);
+            ValidateFrame(rs4Bind, rs4.Frame);
             rs4.RequireCurrent(actualSharedFrames.OrdinaryFrame);
         }
         var depth = actualSharedFrames.OrdinaryFrame.Textures[DepthName];
@@ -163,24 +165,31 @@ public sealed class WorldGeometryTargetScopeOwner : IAsyncDisposable
             !actualSharedFrames.ArmyFrame.Textures.All(t => actualSharedFrames.OrdinaryFrame.Textures.TryGetValue(t.Key, out var same) &&
                 same.StorageRid == t.Value.StorageRid && same.ExplicitExtent == t.Value.ExplicitExtent))
             throw new InvalidDataException("Geometry target scopes must borrow the same actual color/depth storage generation.");
-        Rid copy = await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
+        return await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            ValidateDeviceFrame(rd, actualSharedFrames.ArmyFrame); ValidateDeviceFrame(rd, actualSharedFrames.OrdinaryFrame);
-            ValidateDeviceDepth(rd, depth);
-            using var format = new RDTextureFormat {
-                Format = RenderingDevice.DataFormat.D32SfloatS8Uint, Width = checked((uint)depth.ExplicitExtent.X),
-                Height = checked((uint)depth.ExplicitExtent.Y), Depth = 1, ArrayLayers = 1, Mipmaps = 1,
-                TextureType = RenderingDevice.TextureType.Type2D, Samples = RenderingDevice.TextureSamples.Samples1,
-                // Same real depth TextureCopy transport as the Early Mirror.
-                // Godot needs this bit to classify depth copies; no draw here attaches it.
-                UsageBits = RenderingDevice.TextureUsageBits.SamplingBit | RenderingDevice.TextureUsageBits.DepthStencilAttachmentBit |
-                    RenderingDevice.TextureUsageBits.CanCopyToBit | RenderingDevice.TextureUsageBits.CanCopyFromBit };
-            using var view = new RDTextureView();
-            Rid result = rd.TextureCreate(format, view);
-            if (!result.IsValid) throw new InvalidDataException("Device rejected the independent geometry depth sample image.");
-            return result;
+            var resources = new RenderDeviceResources("Device rejected the independent geometry depth sample image.");
+            try
+            {
+                ValidateDeviceFrame(rd, actualSharedFrames.ArmyFrame); ValidateDeviceFrame(rd, actualSharedFrames.OrdinaryFrame);
+                ValidateDeviceDepth(rd, depth);
+                using var format = new RDTextureFormat {
+                    Format = RenderingDevice.DataFormat.D32SfloatS8Uint, Width = checked((uint)depth.ExplicitExtent.X),
+                    Height = checked((uint)depth.ExplicitExtent.Y), Depth = 1, ArrayLayers = 1, Mipmaps = 1,
+                    TextureType = RenderingDevice.TextureType.Type2D, Samples = RenderingDevice.TextureSamples.Samples1,
+                    // Same real depth TextureCopy transport as the Early Mirror.
+                    // Godot needs this bit to classify depth copies; no draw here attaches it.
+                    UsageBits = RenderingDevice.TextureUsageBits.SamplingBit | RenderingDevice.TextureUsageBits.DepthStencilAttachmentBit |
+                        RenderingDevice.TextureUsageBits.CanCopyToBit | RenderingDevice.TextureUsageBits.CanCopyFromBit };
+                using var view = new RDTextureView();
+                Rid result = resources.Own(rd.TextureCreate(format, view));
+                return new WorldGeometryTargetScopeOwner(source, actualSharedFrames, depth, result, rs4Bind, resources);
+            }
+            catch(Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd,failure,"World-geometry-depth-scope-partial");
+                throw;
+            }
         });
-        return new(source, actualSharedFrames, depth, copy);
     }
 
     /// <summary>The caller provides the same accepted Camera/context, actual
@@ -378,8 +387,8 @@ public sealed class WorldGeometryTargetScopeOwner : IAsyncDisposable
         {
             if (disposed) return;
             retiring = true; publication = null; binding = null;
-            await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-            { if (sampling.IsValid) { rd.FreeRid(sampling); sampling = default; } return true; });
+            await resources.DisposeAsync();
+            sampling = default;
             accepted = null; readCurrent = null; requireCurrent = null; state.Retire(); disposed = true;
         }
         finally { gate.Release(); }

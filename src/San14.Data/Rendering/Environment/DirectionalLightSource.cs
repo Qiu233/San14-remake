@@ -105,15 +105,18 @@ public static class DirectionalLightSource
         return new(Array.AsReadOnly(lights), explicitAmbient);
     }
 
-    public static Vector4 PrepareDirection(Vector4 sourceQuaternion)
+    public static Vector4 PrepareDirection(Vector4 sourceQuaternion) =>
+        RotatePreparedQuaternion(NormalizeQuaternion(sourceQuaternion));
+
+    /// <summary>Normalize a source quaternion with the light loader's scalar binary32 order.</summary>
+    public static Vector4 NormalizeQuaternion(Vector4 sourceQuaternion)
     {
         Finite(sourceQuaternion.X); Finite(sourceQuaternion.Y); Finite(sourceQuaternion.Z); Finite(sourceQuaternion.W);
         float norm = Add(Add(Add(Mul(sourceQuaternion.Y, sourceQuaternion.Y), Mul(sourceQuaternion.X, sourceQuaternion.X)),
             Mul(sourceQuaternion.Z, sourceQuaternion.Z)), Mul(sourceQuaternion.W, sourceQuaternion.W));
         float inv = Div(1, SqrtPositive(norm));
-        Vector4 q = new(Mul(inv, sourceQuaternion.X), Mul(inv, sourceQuaternion.Y),
+        return new(Mul(inv, sourceQuaternion.X), Mul(inv, sourceQuaternion.Y),
             Mul(inv, sourceQuaternion.Z), Mul(inv, sourceQuaternion.W));
-        return RotatePreparedQuaternion(q);
     }
 
     /// <summary>C0FE40 / C0FEE0 consumes an already prepared quaternion without

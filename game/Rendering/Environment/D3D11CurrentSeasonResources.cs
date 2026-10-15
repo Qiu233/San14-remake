@@ -6,8 +6,20 @@ using San14.Data;
 /// native resource owner. Installing a generation belongs between requests.</summary>
 public sealed class D3D11CurrentSeasonResources
 {
-    internal sealed record Light(uint ObjectId, uint GroupMask,
-        DirectionalLightProviderTemporary DefaultCaller);
+    internal sealed class Light
+    {
+        internal Light(uint objectId, uint groupMask, DirectionalLightProviderTemporary defaultCaller)
+        {
+            ObjectId = objectId; GroupMask = groupMask; DefaultCaller = defaultCaller;
+            CurrentSource = DirectionalLightCurrentSource.FromTemporary(defaultCaller);
+            NumericEncoding = new(defaultCaller.Bytes.Span);
+        }
+        internal uint ObjectId { get; }
+        internal uint GroupMask { get; }
+        internal DirectionalLightProviderTemporary DefaultCaller { get; }
+        internal DirectionalLightCurrentSource CurrentSource { get; }
+        internal D3D11CurrentLightEncoding NumericEncoding { get; }
+    }
     internal IReadOnlyList<Light> Lights { get; }
     internal CameraViewSettings ViewDefaults { get; }
     internal OceanWaveSettings OceanWaves { get; }
@@ -80,8 +92,7 @@ public sealed class D3D11CurrentSeasonResources
         var common = MapCommonRenderState.FromSettings(
             commonSource, initialMain.Camera.FrameNumber, "d3d11-season/settings",
             "d3d11-season/common", "d3d11-season/view", "fresh-source-before-ambient");
-        _ = DirectionalLightProviderCaller.CaptureFreshOwnedCaller(repository,
-            initialMain, common, DirectionalProviderCallerScope.FreshOwnedCameraClearedLateControlsNoLaterSelectorWriter);
+        DirectionalLightProviderCaller.RequireFreshDefaultCaller(initialMain, common);
         var lights = actualOrderedRoots.Select(root => new Light(root.SourceObjectId,
             root.Metadata.SourceGroupMask,
             DirectionalLightConstruction.ConstructProviderRootZeroPairTemporary(root))).ToArray();
@@ -107,9 +118,9 @@ public sealed class D3D11CurrentSeasonResources
     /// <summary>Convenience for the native resource route. The actual source
     /// white/diffuse and provider Data are loaded CPU owners, not GPU handles.
     /// These identifiers stay in the constructor and never enter the numeric
-    /// 328-byte upload. Native creates its own actual GPU resource owners.
-    /// Retained constructor holes use the existing named-consumer backend
-    /// representation; they are not original allocation byte observations.</summary>
+    /// 808-byte upload. Native creates its own actual GPU resource owners.
+    /// CPU compatibility storage and hemisphere fourth components have explicit
+    /// project initialization, independent of selected shader programs.</summary>
     public static D3D11CurrentSeasonResources LoadSourceReadyCpu(
         GameResourceRepository repository, NativeMapSeasonState ownedSeason,
         MainMapCameraFrame initialMain)
@@ -120,8 +131,6 @@ public sealed class D3D11CurrentSeasonResources
         var providers = MapDirectionalLightProviderOwner.Load(repository, declarations);
         var white = SourceResourceRegistrationFixed.LoadWhite(repository);
         var diffuse = SourceResourceRegistrationDirectionalDiffuse.Load(repository);
-        var representation = DirectionalLightRetainedNormalization.LoadKnownConsumers(
-            repository, "native-current-season/CPU-numeric-consumers");
         // The IDs address these retained CPU owners only. Their distinct keys
         // resolve each actual lookup; they are never interpreted as pointers.
         var whiteBinding = new DirectionalLightResourceBinding(SourceResourceRegistrationFixed.WhiteObjectKey, 1,
@@ -137,15 +146,15 @@ public sealed class D3D11CurrentSeasonResources
             var used = available.Where(binding => requests.Contains(binding.SourceObjectKey)).ToArray();
             if (requests.Count != used.Length)
                 throw new NotSupportedException("Current season needs another actual source CPU resource owner.");
-            return representation.ApplyConstructor(declarations, root.Root.ObjectId, 1, used);
+            return DirectionalLightCpuConstruction.Create(declarations, root.Root.ObjectId, 1, used,
+                DirectionalLightCpuInitialization.Default);
         }).ToArray();
         var result = BindFreshDefaultCaller(repository, initialMain, source, roots);
-        result.CpuResources = new(providers, white, diffuse, representation);
+        result.CpuResources = new(providers, white, diffuse);
         return result;
     }
 }
 
 public sealed record D3D11CurrentSeasonCpuResources(
     MapDirectionalLightProviderOwner Providers,
-    StaticTextureBinding White, StaticTextureBinding Diffuse,
-    DirectionalLightRetainedNormalization RetainedRepresentation);
+    StaticTextureBinding White, StaticTextureBinding Diffuse);

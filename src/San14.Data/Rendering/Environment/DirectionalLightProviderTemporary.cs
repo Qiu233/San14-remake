@@ -9,7 +9,7 @@ public sealed class DirectionalLightProviderTemporary
 {
     private readonly byte[] bytes;
     internal DirectionalLightProviderTemporary(DirectionalLightConstructionPacket root,byte[] value)
-    {Root=root;bytes=value.ToArray();}
+    {Root=root;bytes=value;}
     public DirectionalLightConstructionPacket Root {get;}
     public ReadOnlyMemory<byte> Bytes=>bytes.ToArray();
     public bool NativeRetainedValueIdentity=>false;
@@ -40,7 +40,7 @@ public static partial class DirectionalLightConstruction
     }
     internal static byte[] ProviderZeroPairBytes(DirectionalLightConstructionPacket root)
     {
-        byte[] light=ProviderZeroPairOwned(root.Bytes.ToArray());
+        byte[] light=ProviderZeroPairOwned(root);
         PrepareNullCamera(light,root.ContextFlags3E4);
         return light;
     }

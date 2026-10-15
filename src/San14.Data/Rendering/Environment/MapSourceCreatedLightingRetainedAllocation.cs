@@ -14,23 +14,14 @@ public sealed record MapSourceCreatedLightingRetainedAllocationInputs(
     string AllocationOwnerIdentity, long AllocationRevision,
     IReadOnlyList<MapSourceCreatedLightingRetainedByteSource> CompleteRetained210);
 
-/// <summary>An immutable capture of the210 constructor/loader-retained bytes
-/// on the proved already-committed stack branch. The native LightData is a loader-stack local; neither
-/// its stack reservation nor the later CPU allocation establishes these bytes.
-/// This capture requires explicit current owned values for every retained byte.
-/// It never claims that the original source constructed their values.</summary>
+/// <summary>An immutable capture of constructor-retained bytes from a current owned
+/// allocation or writer. The main-light declaration does not establish these values;
+/// callers must supply every retained range and its provenance.</summary>
 public sealed class MapSourceCreatedLightingRetainedAllocation
 {
     private readonly MapSourceCreatedLightingRetainedByteSource[] retained;
     private readonly string resourceUri;
     private readonly string resourceSha256;
-    private static readonly (int Offset, int Length)[] NativeLayout =
-    [
-        (0x164, 76), (0x2BC, 4), (0xAD5, 3), (0xB6F, 1), (0xB95, 3),
-        (0xDC9, 3), (0xDD5, 3), (0xDE1, 3), (0xE01, 3),
-        (0xF21, 71), (0x1090, 32), (0x10B8, 8)
-    ];
-
     private MapSourceCreatedLightingRetainedAllocation(
         LoadedMainLightBindingSource source,
         MapSourceCreatedLightingRetainedAllocationInputs input,
@@ -76,15 +67,15 @@ public sealed class MapSourceCreatedLightingRetainedAllocation
         ArgumentNullException.ThrowIfNull(input.CompleteRetained210);
         if (string.IsNullOrWhiteSpace(input.AllocationOwnerIdentity) || input.AllocationRevision < 1)
             throw new InvalidDataException("Retained lighting requires a current allocation owner and positive revision.");
-        ValidateLayout(source, contextFlags3E4);
+        var layout = MapSourceCreatedLightingRetainedSource.Layout;
         var values = input.CompleteRetained210;
-        if (values.Count != NativeLayout.Length || values.Any(value => value is null) ||
-            values.Select(value => value.Offset).Distinct().Count() != NativeLayout.Length)
+        if (values.Count != layout.Count || values.Any(value => value is null) ||
+            values.Select(value => value.Offset).Distinct().Count() != layout.Count)
             throw new InvalidDataException("Current lighting allocation requires all twelve exact retained extents once.");
-        var ordered = new MapSourceCreatedLightingRetainedByteSource[NativeLayout.Length];
-        for (int index = 0; index < NativeLayout.Length; index++)
+        var ordered = new MapSourceCreatedLightingRetainedByteSource[layout.Count];
+        for (int index = 0; index < layout.Count; index++)
         {
-            var extent = NativeLayout[index];
+            var extent = layout[index];
             var value = values.SingleOrDefault(value => value.Offset == extent.Offset);
             if (value is null || value.Bytes.Length != extent.Length ||
                 string.IsNullOrWhiteSpace(value.CurrentAllocationOrWriterProvenance))
@@ -105,21 +96,22 @@ public sealed class MapSourceCreatedLightingRetainedAllocation
         if (currentOwnedAllocation10C0.Length != MainLightConstruction.LightDataBytes ||
             string.IsNullOrWhiteSpace(currentAllocationProvenance))
             throw new InvalidDataException("Current lighting allocation capture requires its complete10C0 byte image and provenance.");
-        var values = new MapSourceCreatedLightingRetainedByteSource[NativeLayout.Length];
-        for (int index = 0; index < NativeLayout.Length; index++)
+        var layout = MapSourceCreatedLightingRetainedSource.Layout;
+        var values = new MapSourceCreatedLightingRetainedByteSource[layout.Count];
+        for (int index = 0; index < layout.Count; index++)
         {
-            var extent = NativeLayout[index];
+            var extent = layout[index];
             values[index] = new(extent.Offset,
                 currentOwnedAllocation10C0.Slice(extent.Offset, extent.Length).ToArray(), currentAllocationProvenance);
         }
         return CaptureGameDefault(source, new(allocationOwnerIdentity, allocationRevision, values), contextFlags3E4);
     }
 
-    /// <summary>Creates an intermediate constructor input. Its4078 known bytes
-    /// are subsequently replaced by the exact source constructor/loader writes.</summary>
+    /// <summary>Creates a constructor input containing the captured retained ranges.
+    /// The main-light constructor supplies the remaining fields.</summary>
     public byte[] CreateConstructorTemplate(LoadedMainLightBindingSource source)
     {
-        ValidateSource(source);
+        RequireDeclaration(source);
         return MapSourceCreatedLightingRetainedSource.BuildGameDefaultTemplate(
             source, RetainedRanges, ContextFlags3E4);
     }
@@ -127,25 +119,28 @@ public sealed class MapSourceCreatedLightingRetainedAllocation
     public MainLightConstructionPacket ApplyConstructor(
         LoadedMainLightBindingSource source,
         IReadOnlyList<MainLightConstructionResourceBinding> currentResourceBindings)
+        => ApplyConstructor(source, new MainLightConstructionInputs(
+            ContextFlags3E4, SourceProvenance, currentResourceBindings));
+
+    /// <summary>Construct with current resource bindings while retaining the actual
+    /// captured byte source. Diagnostic text does not grant allocation ownership.</summary>
+    public MainLightConstructionPacket ApplyConstructor(
+        LoadedMainLightBindingSource source, MainLightConstructionInputs input)
     {
+        ArgumentNullException.ThrowIfNull(input);
+        if (input.ContextFlags3E4 != ContextFlags3E4)
+            throw new InvalidDataException("Retained lighting allocation belongs to another construction context.");
         return MainLightConstruction.Apply(source, CreateConstructorTemplate(source),
-            new(ContextFlags3E4, SourceProvenance, currentResourceBindings));
+            input, this);
     }
 
-    private void ValidateSource(LoadedMainLightBindingSource source)
+    /// <summary>Require the declaration captured by this allocation before
+    /// starting resource preparation for that construction.</summary>
+    public void RequireDeclaration(LoadedMainLightBindingSource source)
     {
         ArgumentNullException.ThrowIfNull(source);
         if (source.Resource.Source.ResourceUri != resourceUri ||
             !source.Resource.Source.DecodedSha256.Equals(resourceSha256, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Current retained lighting allocation belongs to a different source declaration.");
-        ValidateLayout(source, ContextFlags3E4);
-    }
-
-    private static void ValidateLayout(LoadedMainLightBindingSource source, uint flags)
-    {
-        var actual = MapSourceCreatedLightingRetainedSource.ReadGameDefaultLayout(source, flags);
-        if (actual.Count != NativeLayout.Length || actual.Where((value, index) =>
-            value.Offset != NativeLayout[index].Offset || value.Length != NativeLayout[index].Length).Any())
-            throw new InvalidDataException("Source lighting constructor coverage differs from the paired twelve-extent210-byte contract.");
     }
 }

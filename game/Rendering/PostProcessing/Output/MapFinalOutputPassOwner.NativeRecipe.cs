@@ -29,20 +29,26 @@ public sealed partial class MapFinalOutputPassOwner
         private sealed record Bind(uint Stage,uint Register,uint DeviceBinding,string Kind,int Bytes);
         private sealed record Shader(MapFinalOutputNativeProgram Source,Rid Rid,IReadOnlyList<Bind> Bindings,bool Stock,int ColorOutputs);
         private sealed record Target(MapFinalOutputNativeTarget Source,Rid Storage,RenderingDevice.DataFormat Format);
+        private sealed record Framebuffer(Rid Rid,RenderDeviceResources Resources);
         private sealed record Draw(string ProgramKey,Rid Pipeline,Rid VertexBuffer,Rid Vertices,Rid Indices,Rid VertexSet,Rid PixelSet,
             IReadOnlyDictionary<(uint,uint),Rid> Constants,IReadOnlyList<ModelDeviceBinding> Images,string Samplers,
-            ModelRasterInputs Raster,IReadOnlyList<int> Outputs,IReadOnlyList<Rid> Owned);
+            ModelRasterInputs Raster,IReadOnlyList<int> Outputs,RenderDeviceResources Resources);
         public MapFinalOutputPassGraph Graph { get; }
         public IReadOnlyDictionary<int,ModelDeviceBinding>? LatestTextures { get; private set; }
         public long SubmittedDrawCount { get; private set; }
         public long AcceptedFrameCount { get; private set; }
         private readonly IReadOnlyDictionary<string,Shader> _programs;private readonly bool _readback;
-        private readonly Dictionary<int,Target> _targets=new();private readonly Dictionary<string,Rid> _framebuffers=new();
-        private readonly Dictionary<int,Draw> _draws=new();private readonly List<Rid> _targetRids=new();
+        private readonly Dictionary<int,Target> _targets=new();private readonly Dictionary<string,Framebuffer> _framebuffers=new();
+        private readonly Dictionary<int,Draw> _draws=new();
+        private readonly RenderDeviceResources _programResources;
+        private RenderDeviceResources? _targetResources;
+        private readonly List<RenderDeviceResources> _pendingRetirements=new();
+        private NativeMapBorrowerRetirementPackage? _pendingConstruction;
         private readonly SemaphoreSlim _gate=new(1,1);private readonly object _lifetime=new();
         private int _accepted;private bool _retiring;private Task? _disposal;private TaskCompletionSource? _drained;
-        private NativeRecipeOwner(MapFinalOutputPassGraph graph,IReadOnlyDictionary<string,Shader> programs,bool readback)
-            =>(Graph,_programs,_readback)=(graph,programs,readback);
+        private NativeRecipeOwner(MapFinalOutputPassGraph graph,IReadOnlyDictionary<string,Shader> programs,bool readback,
+            RenderDeviceResources programResources)
+            =>(Graph,_programs,_readback,_programResources)=(graph,programs,readback,programResources);
         public static async Task<NativeRecipeOwner> BuildAsync(MapFinalOutputPassGraph graph,
             IReadOnlyList<MapFinalOutputNativeProgram> programs,Vkd3dShaderCompiler compiler,bool allowReadback=false)
         {
@@ -50,6 +56,7 @@ public sealed partial class MapFinalOutputPassOwner
             if(programs.Count==0||programs.Any(p=>string.IsNullOrWhiteSpace(p.Key))||programs.Select(p=>p.Key).Distinct().Count()!=programs.Count)
                 throw new InvalidDataException("Native recipe requires unique exact source program keys.");
             var shaders=new Dictionary<string,Shader>();
+            var resources=new RenderDeviceResources("Native recipe shader allocation failed.");
             try
             {
                 foreach(var source in programs)
@@ -57,7 +64,7 @@ public sealed partial class MapFinalOutputPassOwner
                     if(source.Kind==MapFinalOutputNativeProgramKind.Spk)
                     {
                         if(source.SourcePassIndex<0||source.SourcePassIndex>=graph.Passes.Count)throw new InvalidDataException("Native recipe SPK pass is absent.");
-                        var built=await BuildProgramAsync(graph.Passes[source.SourcePassIndex],compiler);
+                        var built=await BuildProgramAsync(graph.Passes[source.SourcePassIndex],compiler,resources);
                         var bindings=built.VertexBindings.Bindings.Select(b=>BindFrom(b,1)).Concat(built.PixelBindings.Bindings.Select(b=>BindFrom(b,0))).ToArray();
                         shaders.Add(source.Key,new(source,built.Shader,Array.AsReadOnly(bindings),false,built.Pass.Outputs.Count));
                     }
@@ -76,14 +83,22 @@ public sealed partial class MapFinalOutputPassOwner
                             new Bind(0,0,d.Binding!.Value,d.StorageClass==2?"UniformBuffer":d.Type.Kind=="sampler"?"Sampler":"Texture",d.StorageClass==2?16:0))).ToArray();
                         Rid rid=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{using var spirv=new RDShaderSpirV();
                             spirv.SetStageBytecode(RenderingDevice.ShaderStage.Vertex,vertex.Bytes);spirv.SetStageBytecode(RenderingDevice.ShaderStage.Fragment,ps.Bytes);
-                            var shader=rd.ShaderCreateFromSpirV(spirv,"OriginalNativeStockRecipe");if(!shader.IsValid)throw new InvalidDataException("Native stock recipe shader failed.");return shader;});
+                            return resources.Own(rd.ShaderCreateFromSpirV(spirv,"OriginalNativeStockRecipe"));});
                         shaders.Add(source.Key,new(source,rid,Array.AsReadOnly(bindings),true,1));
                     }
                     else throw new InvalidDataException("Native recipe program kind is unsupported.");
                 }
-                return new(graph,shaders,allowReadback);
+                return new(graph,shaders,allowReadback,resources);
             }
-            catch{await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{foreach(var shader in shaders.Values)rd.FreeRid(shader.Rid);return true;});throw;}
+            catch(Exception failure)
+            {
+                var pending=NativeMapBorrowerRetirementPackage.CreatePending("Native-recipe-programs-partial",
+                    resources.Count>0?[resources]:[],(failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+                try{await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pending);}
+                catch(Exception retirementFailure)
+                {throw new NativeMapBorrowerConstructionException(failure,retirementFailure,pending!);}
+                throw;
+            }
         }
         private static Bind BindFrom(TranslatedShaderBinding source,uint stage)
             =>new(stage,source.Source.BindPoint,source.Device.Binding!.Value,source.DescriptorKind,source.ConstantBuffer?.ByteSize??0);
@@ -94,8 +109,12 @@ public sealed partial class MapFinalOutputPassOwner
         private async Task<IReadOnlyDictionary<int,ModelDeviceBinding>> RenderAcceptedAsync(MapFinalOutputNativeRecipeFrame frame)
         {
             await _gate.WaitAsync();
-            try{return await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
+            try
             {
+                _pendingConstruction=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_pendingConstruction);
+                return await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
+            {
+                DrainResources(rd,_pendingRetirements);
                 if(_targets.Count!=frame.Targets.Count||frame.Targets.Any(t=>!_targets.TryGetValue(t.Id,out var prior)||prior.Source!=t))
                     BuildTargets(rd,frame.Targets);
                 var available=frame.ExternalTextures.ToDictionary(p=>p.Key,p=>p.Value);
@@ -116,15 +135,24 @@ public sealed partial class MapFinalOutputPassOwner
                             throw new InvalidDataException("Native recipe image violates its source2D shape.");
                     }
                     string fbKey=string.Join(',',source.Outputs),samplerKey=string.Join(';',packet.SamplerDescriptors.OrderBy(p=>p.Key).Select(p=>$"{p.Key}:{Convert.ToHexString(p.Value.Span)}"));
-                    if(!_framebuffers.TryGetValue(fbKey,out var framebuffer))
+                    if(!_framebuffers.TryGetValue(fbKey,out var framebufferOwner))
                     {
                         var outputs=source.Outputs.Select(i=>_targets[i]).ToArray();if(outputs.Select(t=>(t.Source.Width,t.Source.Height)).Distinct().Count()!=1)throw new InvalidDataException("Native MRT extent mismatch.");
-                        framebuffer=rd.FramebufferCreate(new Godot.Collections.Array<Rid>(outputs.Select(t=>t.Storage)));if(!framebuffer.IsValid||!rd.FramebufferIsValid(framebuffer))throw new InvalidDataException("Native recipe framebuffer failed.");
-                        _framebuffers.Add(fbKey,framebuffer);_targetRids.Add(framebuffer);
+                        var owned=new RenderDeviceResources("Native recipe framebuffer failed.");
+                        try
+                        {
+                            Rid allocated=owned.Own(rd.FramebufferCreate(new Godot.Collections.Array<Rid>(outputs.Select(t=>t.Storage))));
+                            if(!rd.FramebufferIsValid(allocated))throw new InvalidDataException("Native recipe framebuffer failed.");
+                            _framebuffers.Add(fbKey,framebufferOwner=new(allocated,owned));
+                        }
+                        catch(Exception failure){owned.ReleaseAfterConstructionFailure(rd,failure,"Native-recipe-framebuffer-partial");throw;}
                     }
+                    Rid framebuffer=framebufferOwner.Rid;
                     if(!_draws.TryGetValue(ordinal,out var draw)||draw.ProgramKey!=source.ProgramKey||!draw.Images.SequenceEqual(images)||draw.Samplers!=samplerKey||!SameRaster(draw.Raster,packet.Raster)||!draw.Outputs.SequenceEqual(source.Outputs))
                     {
-                        var next=BuildNativeDraw(rd,shader,packet,images,samplerKey,source.Outputs,framebuffer);if(draw is not null)Free(rd,draw.Owned);_draws[ordinal]=draw=next;
+                        var next=BuildNativeDraw(rd,shader,packet,images,samplerKey,source.Outputs,framebuffer);
+                        if(draw is not null)_pendingRetirements.Add(draw.Resources);
+                        _draws[ordinal]=draw=next;DrainResources(rd,_pendingRetirements);
                     }
                     foreach(var stage in new[]{(1u,packet.VertexConstants),(0u,packet.PixelConstants)})foreach(var cb in stage.Item2)
                         if(rd.BufferUpdate(draw.Constants[(stage.Item1,cb.Key)],0,(uint)cb.Value.Length,cb.Value.ToArray())!=Error.Ok)throw new InvalidDataException("Native recipe CB upload failed.");
@@ -148,11 +176,12 @@ public sealed partial class MapFinalOutputPassOwner
                 }
                 AcceptedFrameCount++;return LatestTextures=available.Where(p=>published.Contains(p.Key)).ToDictionary(p=>p.Key,p=>p.Value);
             });}
+            catch(NativeMapBorrowerConstructionException failure){_pendingConstruction=failure.RetainedPackage;throw;}
             finally{_gate.Release();Complete();}
         }
         private void BuildTargets(RenderingDevice rd,IReadOnlyList<MapFinalOutputNativeTarget> targets)
         {
-            var next=new Dictionary<int,Target>();var owned=new List<Rid>();
+            var next=new Dictionary<int,Target>();var owned=new RenderDeviceResources("Native recipe target failed.");
             try
             {
                 foreach(var source in targets)
@@ -163,20 +192,22 @@ public sealed partial class MapFinalOutputPassOwner
                         41=>RenderingDevice.DataFormat.R32Sfloat,26=>RenderingDevice.DataFormat.B10G11R11UfloatPack32,_=>throw new NotSupportedException("Native recipe target has no source view adapter.")};
                     var usage=RenderingDevice.TextureUsageBits.SamplingBit|RenderingDevice.TextureUsageBits.ColorAttachmentBit;if(_readback)usage|=RenderingDevice.TextureUsageBits.CanCopyFromBit;
                     using var format=new RDTextureFormat{Format=formatCode,Width=(uint)source.Width,Height=(uint)source.Height,Depth=1,ArrayLayers=1,Mipmaps=1,TextureType=RenderingDevice.TextureType.Type2D,UsageBits=usage};
-                    using var view=new RDTextureView();var storage=rd.TextureCreate(format,view);if(!storage.IsValid)throw new InvalidDataException("Native recipe target failed.");owned.Add(storage);next.Add(source.Id,new(source,storage,formatCode));
+                    using var view=new RDTextureView();var storage=owned.Own(rd.TextureCreate(format,view));next.Add(source.Id,new(source,storage,formatCode));
                 }
-                RetireCore(rd);foreach(var pair in next)_targets.Add(pair.Key,pair.Value);_targetRids.AddRange(owned);
             }
-            catch{Free(rd,owned);throw;}
+            catch(Exception failure){owned.ReleaseAfterConstructionFailure(rd,failure,"Native-recipe-targets-partial");throw;}
+            QueueTargetsForRetirement();_targetResources=owned;
+            foreach(var pair in next)_targets.Add(pair.Key,pair.Value);
+            DrainResources(rd,_pendingRetirements);
         }
         private static Draw BuildNativeDraw(RenderingDevice rd,Shader shader,MapFinalOutputPassDrawPacket packet,
             ModelDeviceBinding[] images,string samplerKey,IReadOnlyList<int> outputs,Rid framebuffer)
         {
-            var owned=new List<Rid>();Rid Own(Rid rid){if(!rid.IsValid)throw new InvalidDataException("Native recipe draw allocation failed.");owned.Add(rid);return rid;}
+            var owned=new RenderDeviceResources("Native recipe draw allocation failed.");
             try
             {
-                var cbs=new Dictionary<(uint,uint),Rid>();foreach(var stage in new[]{(1u,packet.VertexConstants),(0u,packet.PixelConstants)})foreach(var cb in stage.Item2)cbs.Add((stage.Item1,cb.Key),Own(rd.UniformBufferCreate((uint)cb.Value.Length,cb.Value.ToArray())));
-                var samplers=packet.SamplerDescriptors.ToDictionary(p=>p.Key,p=>Own(DeviceSampler.Create(rd,p.Value.Span)));
+                var cbs=new Dictionary<(uint,uint),Rid>();foreach(var stage in new[]{(1u,packet.VertexConstants),(0u,packet.PixelConstants)})foreach(var cb in stage.Item2)cbs.Add((stage.Item1,cb.Key),owned.Own(rd.UniformBufferCreate((uint)cb.Value.Length,cb.Value.ToArray())));
+                var samplers=packet.SamplerDescriptors.ToDictionary(p=>p.Key,p=>owned.Own(DeviceSampler.Create(rd,p.Value.Span)));
                 Rid Set(uint stage)
                 {
                     var bindings=shader.Bindings.Where(b=>b.Stage==stage).ToArray();if(bindings.Length==0)return default;
@@ -184,31 +215,31 @@ public sealed partial class MapFinalOutputPassOwner
                     {
                         foreach(var b in bindings){var u=new RDUniform{Binding=(int)b.DeviceBinding,UniformType=b.Kind switch{"UniformBuffer"=>RenderingDevice.UniformType.UniformBuffer,"Sampler"=>RenderingDevice.UniformType.Sampler,_=>RenderingDevice.UniformType.Texture}};uniforms.Add(u);
                             u.AddId(b.Kind=="UniformBuffer"?cbs[(stage,b.Register)]:b.Kind=="Sampler"?samplers[b.Register]:images.Single(i=>i.SourceBindPoint==b.Register).Resource);}
-                        var set=Own(rd.UniformSetCreate(uniforms,shader.Rid,stage));if(!rd.UniformSetIsValid(set))throw new InvalidDataException("Native recipe uniform set failed.");return set;
+                        var set=owned.Own(rd.UniformSetCreate(uniforms,shader.Rid,stage));if(!rd.UniformSetIsValid(set))throw new InvalidDataException("Native recipe uniform set failed.");return set;
                     }finally{foreach(var u in uniforms)u.Dispose();}
                 }
-                Rid vs=Set(1),ps=Set(0),vb=Own(rd.VertexBufferCreate(96,packet.Quad.ToArray()));var attributes=new Godot.Collections.Array<RDVertexAttribute>();long vertexFormat;
+                Rid vs=Set(1),ps=Set(0),vb=owned.Own(rd.VertexBufferCreate(96,packet.Quad.ToArray()));var attributes=new Godot.Collections.Array<RDVertexAttribute>();long vertexFormat;
                 try
                 {
                     attributes.Add(new(){Location=0,Offset=0,Stride=24,Format=shader.Stock?RenderingDevice.DataFormat.R32G32B32Sfloat:RenderingDevice.DataFormat.R32G32B32A32Sfloat,Frequency=RenderingDevice.VertexFrequency.Vertex});
                     if(shader.Stock)attributes.Add(new(){Location=1,Offset=12,Stride=24,Format=RenderingDevice.DataFormat.R8G8B8A8Unorm,Frequency=RenderingDevice.VertexFrequency.Vertex});
                     attributes.Add(new(){Location=shader.Stock?2u:1u,Offset=16,Stride=24,Format=RenderingDevice.DataFormat.R32G32Sfloat,Frequency=RenderingDevice.VertexFrequency.Vertex});vertexFormat=rd.VertexFormatCreate(attributes);
                 }finally{foreach(var a in attributes)a.Dispose();}
-                Rid vertices=Own(rd.VertexArrayCreate(4,vertexFormat,new Godot.Collections.Array<Rid>(Enumerable.Repeat(vb,shader.Stock?3:2))));
+                Rid vertices=owned.Own(rd.VertexArrayCreate(4,vertexFormat,new Godot.Collections.Array<Rid>(Enumerable.Repeat(vb,shader.Stock?3:2))));
                 // Original stock vertices are TL,BL,BR,TR and its six source
                 // indices preserve signed endpoint reversal in Flare draws.
                 Rid indices=default;if(shader.Stock){byte[] indexBytes=[0,0,1,0,2,0,0,0,2,0,3,0];
-                    Rid buffer=Own(rd.IndexBufferCreate(6,RenderingDevice.IndexBufferFormat.Uint16,indexBytes));indices=Own(rd.IndexArrayCreate(buffer,0,6));}
+                    Rid buffer=owned.Own(rd.IndexBufferCreate(6,RenderingDevice.IndexBufferFormat.Uint16,indexBytes));indices=owned.Own(rd.IndexArrayCreate(buffer,0,6));}
                 using var raster=new RDPipelineRasterizationState{CullMode=packet.Raster.Cull,FrontFace=packet.Raster.FrontFace};using var multi=new RDPipelineMultisampleState();
                 using var depth=new RDPipelineDepthStencilState{EnableDepthTest=false,EnableDepthWrite=false};var attachments=new Godot.Collections.Array<RDPipelineColorBlendStateAttachment>();
                 try
                 {
                     foreach(var a in packet.Raster.Attachments)attachments.Add(new(){EnableBlend=a.EnableBlend,SrcColorBlendFactor=a.SourceColor,DstColorBlendFactor=a.DestinationColor,
                         ColorBlendOp=a.ColorOperation,SrcAlphaBlendFactor=a.SourceAlpha,DstAlphaBlendFactor=a.DestinationAlpha,AlphaBlendOp=a.AlphaOperation,WriteR=a.WriteR,WriteG=a.WriteG,WriteB=a.WriteB,WriteA=a.WriteA});
-                    using var blend=new RDPipelineColorBlendState{Attachments=attachments};Rid pipeline=Own(rd.RenderPipelineCreate(shader.Rid,rd.FramebufferGetFormat(framebuffer),vertexFormat,shader.Stock?RenderingDevice.RenderPrimitive.Triangles:RenderingDevice.RenderPrimitive.TriangleStrips,raster,multi,depth,blend));
-                    if(!rd.RenderPipelineIsValid(pipeline))throw new InvalidDataException("Native recipe pipeline failed.");return new(shader.Source.Key,pipeline,vb,vertices,indices,vs,ps,cbs,Array.AsReadOnly(images),samplerKey,packet.Raster,Array.AsReadOnly(outputs.ToArray()),owned.AsReadOnly());
+                    using var blend=new RDPipelineColorBlendState{Attachments=attachments};Rid pipeline=owned.Own(rd.RenderPipelineCreate(shader.Rid,rd.FramebufferGetFormat(framebuffer),vertexFormat,shader.Stock?RenderingDevice.RenderPrimitive.Triangles:RenderingDevice.RenderPrimitive.TriangleStrips,raster,multi,depth,blend));
+                    if(!rd.RenderPipelineIsValid(pipeline))throw new InvalidDataException("Native recipe pipeline failed.");return new(shader.Source.Key,pipeline,vb,vertices,indices,vs,ps,cbs,Array.AsReadOnly(images),samplerKey,packet.Raster,Array.AsReadOnly(outputs.ToArray()),owned);
                 }finally{foreach(var a in attachments)a.Dispose();}
-            }catch{Free(rd,owned);throw;}
+            }catch(Exception failure){owned.ReleaseAfterConstructionFailure(rd,failure,"Native-recipe-draw-partial");throw;}
         }
         private MapFinalOutputNativeRecipeFrame Snapshot(MapFinalOutputNativeRecipeFrame frame)
         {
@@ -248,12 +279,21 @@ public sealed partial class MapFinalOutputPassOwner
             if(count!=1)throw new InvalidDataException("Stock source recipe requires exactly one vertex CB set.");return result;
         }
         public Task RetireTargetAsync(){Accept();return RetireAcceptedAsync();}
-        private async Task RetireAcceptedAsync(){await _gate.WaitAsync();try{await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{RetireCore(rd);return true;});}finally{_gate.Release();Complete();}}
-        private void RetireCore(RenderingDevice rd){foreach(var draw in _draws.Values)Free(rd,draw.Owned);_draws.Clear();Free(rd,_targetRids);_targetRids.Clear();_framebuffers.Clear();_targets.Clear();LatestTextures=null;}
+        private async Task RetireAcceptedAsync(){await _gate.WaitAsync();try{_pendingConstruction=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_pendingConstruction);
+            await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{RetireCore(rd);return true;});}finally{_gate.Release();Complete();}}
+        private void QueueTargetsForRetirement()
+        {
+            foreach(var draw in _draws.Values)_pendingRetirements.Add(draw.Resources);_draws.Clear();
+            foreach(var framebuffer in _framebuffers.Values)_pendingRetirements.Add(framebuffer.Resources);_framebuffers.Clear();
+            if(_targetResources is not null)_pendingRetirements.Add(_targetResources);_targetResources=null;
+            _targets.Clear();LatestTextures=null;
+        }
+        private void RetireCore(RenderingDevice rd){QueueTargetsForRetirement();DrainResources(rd,_pendingRetirements);}
         private void Accept(){lock(_lifetime){ObjectDisposedException.ThrowIf(_retiring,this);_accepted++;}}
         private void Complete(){lock(_lifetime){if(--_accepted==0&&_retiring)_drained?.TrySetResult();}}
-        public ValueTask DisposeAsync(){lock(_lifetime){_retiring=true;return new(_disposal??=DisposeCoreAsync());}}
+        public ValueTask DisposeAsync(){lock(_lifetime){_retiring=true;if(_disposal is null||_disposal.IsFaulted||_disposal.IsCanceled)_disposal=DisposeCoreAsync();return new(_disposal);}}
         private async Task DisposeCoreAsync(){Task wait;lock(_lifetime){wait=_accepted==0?Task.CompletedTask:(_drained??=new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;}await wait;await _gate.WaitAsync();
-            try{await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{RetireCore(rd);foreach(var shader in _programs.Values)rd.FreeRid(shader.Rid);return true;});}finally{_gate.Release();}}
+            try{_pendingConstruction=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_pendingConstruction);
+                await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{RetireCore(rd);_programResources.Release(rd);return true;});}finally{_gate.Release();}}
     }
 }

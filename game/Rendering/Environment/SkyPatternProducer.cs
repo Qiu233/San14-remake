@@ -13,7 +13,7 @@ public sealed class SkyPatternProducer : IAsyncDisposable
     public IReadOnlyList<SkyPatternMapDevice> Targets { get; }
     public bool NoiseGroupPresent { get; }
     private readonly IReadOnlyList<SkyCloudPatternDraw> _draws;
-    private readonly IReadOnlyList<IAsyncDisposable> _owned;
+    private readonly NativeMapBorrowerRetirementPackage retirement;
     private readonly bool[] _ready = new bool[4];
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _lifetimeGate = new();
@@ -24,7 +24,10 @@ public sealed class SkyPatternProducer : IAsyncDisposable
     private SkyPatternProducer(SkyCloudProgram program,
         IReadOnlyList<SkyPatternMapDevice> targets,
         IReadOnlyList<SkyCloudPatternDraw> draws, bool present, List<IAsyncDisposable> owned)
-        => (Program, Targets, _draws, NoiseGroupPresent, _owned) = (program, targets, draws, present, owned.AsReadOnly());
+    {
+        (Program, Targets, _draws, NoiseGroupPresent) = (program, targets, draws, present);
+        retirement = Retirement(owned);
+    }
 
     public static async Task<SkyPatternProducer> BuildAsync(LoadedSkyAmbientResources ambient,
         LoadedShaderContainer cloudSource, int explicitCombination, Vkd3dShaderCompiler compiler,
@@ -72,7 +75,18 @@ public sealed class SkyPatternProducer : IAsyncDisposable
             }
             return new(program, targets.AsReadOnly(), draws.AsReadOnly(), explicitNoiseGroup is not null, owned);
         }
-        catch { for (int i = owned.Count - 1; i >= 0; i--) await owned[i].DisposeAsync(); throw; }
+        catch (Exception constructionFailure)
+        {
+            var partial = Retirement(owned,
+                constructionFailure is NativeMapBorrowerConstructionException nested ? nested.RetainedPackage : null);
+            try { await partial.DisposeAsync(); }
+            catch (Exception retirementFailure)
+            {
+                partial.RetainFailure();
+                throw new NativeMapBorrowerConstructionException(constructionFailure, retirementFailure, partial);
+            }
+            throw;
+        }
     }
 
     public Task<SkyPatternUpdate> RenderAsync(uint explicitPatternIndex,
@@ -111,11 +125,22 @@ public sealed class SkyPatternProducer : IAsyncDisposable
         return Targets[(int)index];
     }
     public ValueTask DisposeAsync()
-    { lock (_lifetimeGate) { _retiring = true; return new(_disposal ??= DisposeCoreAsync()); } }
+    {
+        lock (_lifetimeGate)
+        {
+            _retiring = true;
+            if (_disposal is null || _disposal.IsFaulted || _disposal.IsCanceled) _disposal = DisposeCoreAsync();
+            return new(_disposal);
+        }
+    }
+    private static NativeMapBorrowerRetirementPackage Retirement(List<IAsyncDisposable> owned,
+        NativeMapBorrowerRetirementPackage? partialChild = null)
+        => new("Pattern-producer/" + Guid.NewGuid().ToString("N"), [partialChild, .. owned.AsEnumerable().Reverse()]);
+
     private async Task DisposeCoreAsync()
     {
         await _gate.WaitAsync();
-        try { for (int i = _owned.Count - 1; i >= 0; i--) await _owned[i].DisposeAsync(); }
+        try { await retirement.DisposeAsync(); }
         finally { _gate.Release(); }
     }
 }

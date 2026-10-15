@@ -98,7 +98,16 @@ public sealed class MapFinalOutputProductionFactory:IAsyncDisposable
             throw new InvalidDataException("Production final factory requires its source Main38D Camera owner.");
         var view=MapExposureViewAux.ReadTemplate(repository.LoadObjects("KIDSSystemResource",0x6D011726),0x899F101B);
         var chain=await MapFinalOutputSceneChain.BuildCompleteSourceHostAsync(source,compiler,sourceMainCamera,sharedExposure,allowReadback);
-        return new(chain,view);
+        try{return new(chain,view);}
+        catch(Exception failure)
+        {
+            var pending=NativeMapBorrowerRetirementPackage.CreatePending("Final-production-factory-partial",[chain],
+                (failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+            try{await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pending);}
+            catch(Exception retirementFailure)
+            {throw new NativeMapBorrowerConstructionException(failure,retirementFailure,pending!);}
+            throw;
+        }
     }
     public Task<RenderOutputPresentation> RenderAsync(NativeMapFrameContext context,
         MapFinalOutputProductionFrameInputs input)
@@ -198,7 +207,15 @@ public sealed class MapFinalOutputProductionFactory:IAsyncDisposable
     }
     private void Accept(){lock(lifetime){ObjectDisposedException.ThrowIf(retiring,this);accepted++;}}
     private void Complete(){lock(lifetime){if(--accepted==0&&retiring)drained?.TrySetResult();}}
-    public ValueTask DisposeAsync(){lock(lifetime){retiring=true;return new(disposal??=DisposeCoreAsync());}}
+    public ValueTask DisposeAsync()
+    {
+        lock(lifetime)
+        {
+            retiring=true;
+            if(disposal is null||disposal.IsFaulted||disposal.IsCanceled)disposal=DisposeCoreAsync();
+            return new(disposal);
+        }
+    }
     private async Task DisposeCoreAsync()
     {Task wait;lock(lifetime){wait=accepted==0?Task.CompletedTask:(drained??=new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;}await wait;await gate.WaitAsync();
         try{await Chain.DisposeAsync();LastAcceptedConstants=null;}finally{gate.Release();}}

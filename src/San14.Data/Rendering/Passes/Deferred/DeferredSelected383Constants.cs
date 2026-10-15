@@ -74,6 +74,14 @@ public static class DeferredSelected383Constants
 
     public static DeferredSelected383ConstantPacket Create(DeferredF103SelectedSource selected,
         MapSourceCreatedLightingPacket lighting, DeferredSelected383AdditionalInputs additional)
+        =>Create(selected,lighting,additional,null);
+
+    /// <summary>Produce the final World packet with the Scene's accepted Camera.
+    /// Its complete Camera fields retain the original last-writer semantics,
+    /// including lanes the current shader does not read.</summary>
+    public static DeferredSelected383ConstantPacket Create(DeferredF103SelectedSource selected,
+        MapSourceCreatedLightingPacket lighting,DeferredSelected383AdditionalInputs additional,
+        DeferredCameraInputs? submittedCamera)
     {
         ArgumentNullException.ThrowIfNull(selected); ArgumentNullException.ThrowIfNull(lighting); ArgumentNullException.ThrowIfNull(additional);
         ArgumentException.ThrowIfNullOrWhiteSpace(additional.CurrentProducerProvenance);
@@ -86,17 +94,22 @@ public static class DeferredSelected383Constants
             throw new InvalidDataException("PS383 requires its same-frame mode7 effective light, actual accepted Camera and known fog/Camera map-occlusion owners.");
         var scene = new DeferredSceneInputs(
             Lighting: DeferredSceneConstants.ReadPreparedBaseLighting(feature.EffectiveLocalLightData.Span[..0x1B0], checked((int)feature.Scratch.DirectionalCount)),
-            Camera: lighting.SceneInputs.Camera,
+            Camera: submittedCamera??lighting.SceneInputs.Camera,
             Fog: DeferredSceneConstants.ReadSharedFog(feature.EffectiveLocalLightData.Span[..0x1B0], fogEnabled),
             Ambient: DeferredSceneConstants.ReadAmbientModifier(feature.SelectedModifierLightData.Span.Slice(0x1B0, 0x178), mapOcclusionRate),
             Occlusion: additional.Occlusion, Refraction: additional.Refraction, ShadowFade: additional.ShadowFade,
             Hatching: additional.Hatching, TranslucencyViewport: additional.TranslucencyViewport, Projection: additional.Projection);
-        return CreateFromExplicitCurrentScene(selected, scene, lighting.SourceProvenance + ";" + additional.CurrentProducerProvenance,
-            additional.HatchingIeeeProof);
+        return CreateFromExplicitCurrentSceneCore(selected, scene, lighting.SourceProvenance + ";" + additional.CurrentProducerProvenance,
+            additional.HatchingIeeeProof,submittedCamera is not null);
     }
 
     public static DeferredSelected383ConstantPacket CreateFromExplicitCurrentScene(DeferredF103SelectedSource selected,
         DeferredSceneInputs scene, string currentProducerProvenance, DeferredSelected383HatchingIeeeProof? hatchingIeeeProof = null)
+        =>CreateFromExplicitCurrentSceneCore(selected,scene,currentProducerProvenance,hatchingIeeeProof,false);
+
+    private static DeferredSelected383ConstantPacket CreateFromExplicitCurrentSceneCore(DeferredF103SelectedSource selected,
+        DeferredSceneInputs scene,string currentProducerProvenance,DeferredSelected383HatchingIeeeProof? hatchingIeeeProof,
+        bool preserveCameraFields)
     {
         ArgumentNullException.ThrowIfNull(selected); ArgumentNullException.ThrowIfNull(scene);
         ArgumentException.ThrowIfNullOrWhiteSpace(currentProducerProvenance);
@@ -135,8 +148,22 @@ public static class DeferredSelected383Constants
                 throw new InvalidDataException("PS383 current source writer produced an unauthorized nonfinite active scalar at byte" + offset + ".");
             written.Bytes.AsSpan(offset, 4).CopyTo(result.AsSpan(offset, 4));
         }
+        int normalizedUnusedBytes=ByteSize-ActiveByteCount;
+        if(preserveCameraFields)
+        {
+            // Previously Scene rewrote Camera after normalization. Retain
+            // those exact field bytes from this one numerical evaluation.
+            foreach(var write in written.Writes.Where(w=>w.Name is "vEye" or "mV2W" or "mP2W"))
+                for(int element=0;element<write.ElementCount;element++)
+                {
+                    int offset=write.Offset+element*write.Stride;
+                    written.Bytes.AsSpan(offset,write.ElementBytes).CopyTo(result.AsSpan(offset,write.ElementBytes));
+                    for(int at=offset;at<offset+write.ElementBytes;at+=4)
+                        if((masks[at/16]&(1<<((at%16)/4)))==0)normalizedUnusedBytes-=4;
+                }
+        }
         var packet = new DeferredSceneConstantPacket(result, written.Writes, Array.AsReadOnly(Array.Empty<string>()));
         var constants = new ReadOnlyDictionary<uint, ReadOnlyMemory<byte>>(new Dictionary<uint, ReadOnlyMemory<byte>> { [0] = result.ToArray() });
-        return new(constants, packet, ActiveScalarByteOffsets, ByteSize - ActiveByteCount, currentProducerProvenance);
+        return new(constants, packet, ActiveScalarByteOffsets, normalizedUnusedBytes, currentProducerProvenance);
     }
 }

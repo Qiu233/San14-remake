@@ -27,9 +27,16 @@ public sealed class D3D11SceneMediaPreparation
     public static D3D11SceneMediaPreparation Prepare(GameResourceRepository repository,
         LoadedSceneResources scene, MapCameraConstructionPacket camera,
         string terrainDirectory, int width, int height)
+        => Prepare(repository, TerrainSceneResources.Load(repository, scene), camera,
+            terrainDirectory, width, height);
+
+    public static D3D11SceneMediaPreparation Prepare(GameResourceRepository repository,
+        LoadedTerrainSceneResources sources, MapCameraConstructionPacket camera,
+        string terrainDirectory, int width, int height)
     {
+        var scene = sources.Scene;
         var renderer = NamedViewRendererResources.Load(repository);
-        var terrain = D3D11TerrainInputPreparation.Load(repository, scene, camera.ExecutableLocale);
+        var terrain = D3D11TerrainInputPreparation.Load(repository, sources, camera.ExecutableLocale);
         var initialTerrain = terrain.PrepareInitialFrame(camera, width, height);
         var models = D3D11ModelInputPreparation.Load(repository, scene,
             ScenePlacementReader.Read(scene), camera,

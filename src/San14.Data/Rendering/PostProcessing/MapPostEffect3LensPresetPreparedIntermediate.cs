@@ -94,8 +94,8 @@ public static class MapPostEffect3LensPresetPrepareBase
             SkyWeatherNativePower.PowSse(height,2,sources.Power));
         float diagonal=Divide(Sse.SqrtScalar(Vector128.CreateScalar(square)).GetElement(0),height);
         var caller=MapPostEffect3LensPresetCallerInputs.CapturePreparedNativeInputs(pins.Camera,
-            [distance,focal,diagonal,Divide(width,height),Scalar("FStop"),Scalar("ExposureDial"),
-                Scalar("AdaptedScaleLight"),Scalar("AdaptedScaleDark")],evidence+";/-six-native-scalars-and-descriptor40-extent");
+            distance,focal,diagonal,Divide(width,height),Scalar("FStop"),Scalar("ExposureDial"),
+                Scalar("AdaptedScaleLight"),Scalar("AdaptedScaleDark"),evidence+";/-six-native-scalars-and-descriptor40-extent");
         var math=MapPostEffect3LensPresetIntermediateProducer.PrepareCurrent(caller,pins.Source,sources,explicitDispatch);
         pins.CommitPrepareBase(math,inputs.ActualContextCounter1BF0,evidence+"-exact-current-native-counter-write");
         return new(pins.FrameNumber,previous,inputs.ActualContextCounter1BF0,true,true,evidence+";all92B-math-before5C-counter-write");

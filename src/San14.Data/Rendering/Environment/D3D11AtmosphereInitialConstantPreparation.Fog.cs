@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using System.Numerics;
 
 namespace San14.Data;
@@ -71,14 +70,16 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
             int feature=0;
             if(!background)
             {
-                var light=current.Lights.First(value=>value.GroupMask==group).CompleteData;
-                uint mode=BinaryPrimitives.ReadUInt32LittleEndian(light.Span[0x160..]);
+                var light=current.Lights.First(value=>value.GroupMask==group).State;
+                uint mode=light.Fog.Mode;
                 feature=mode switch {0=>0,7=>1,_=>throw new NotSupportedException("Height fog needs its actual raw-light mode producer.")};
                 if(feature==1)
                 {
-                    var shared=DeferredSceneConstants.ReadSharedFog(light.Span[..0x1B0],true);
-                    fields.Add(HeightFogFieldSemantic.LightDirection,Words(V(light.Span,0)));
-                    fields.Add(HeightFogFieldSemantic.LightColor,Words(V(light.Span,0x10)));
+                    var directional=light.Lighting.Directional[0];
+                    var shared=DeferredSceneConstants.PrepareSharedFog(light.Fog,true,
+                        new(directional.Color.X,directional.Color.Y,directional.Color.Z));
+                    fields.Add(HeightFogFieldSemantic.LightDirection,Words(directional.Direction));
+                    fields.Add(HeightFogFieldSemantic.LightColor,Words(directional.Color));
                     fields.Add(HeightFogFieldSemantic.Eye,Words(V(main,0x10)));
                     fields.Add(HeightFogFieldSemantic.Fog,Words(shared.Coefficients));
                     fields.Add(HeightFogFieldSemantic.FogColor,Words(shared.Color));

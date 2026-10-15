@@ -39,7 +39,9 @@ public partial class MapSceneView
 
     private async Task InitializeD3D11MapAsync(uint generation)
     {
-        if (_d3d11Map is not null || _sourceMainCameraFrame is not { } frame || _loadedSceneResources is not { } scene) return;
+        if (_d3d11Map is not null || _sourceMainCameraFrame is not { } frame ||
+            _sceneTerrain?.Source is not { } terrainSources) return;
+        var scene = terrainSources.Scene;
         D3D11MapSurface? surface = null;
         try
         {
@@ -58,7 +60,7 @@ public partial class MapSceneView
             string library = Path.GetFullPath(ProjectSettings.GlobalizePath(librarySetting));
             // These banks are produced from this scene and accepted camera.
             // Their metadata describes this output, not a required offline package.
-            var sceneMedia = D3D11SceneMediaPreparation.Prepare(_repository, scene, frame.Camera,
+            var sceneMedia = D3D11SceneMediaPreparation.Prepare(_repository, terrainSources, frame.Camera,
                 source, D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
             var cloudPrograms=SkyCloudProgramResources.Load(_repository,sceneMedia.Renderer);
             var fogPrograms=HeightFogProgramResources.Load(_repository);
@@ -82,7 +84,7 @@ public partial class MapSceneView
             string seasonalInputs = Path.Combine(Path.GetDirectoryName(source)!, "current-season-resource-input");
             var seasonLibrary = new D3D11CurrentSeasonLibrary(_repository, seasonResources, frame);
             seasonLibrary.WriteNativeLutInputs(seasonalInputs);
-            new D3D11TerrainSeasonPalette(TerrainParameterResources.Read(scene)).WriteNativeInputs(seasonalInputs);
+            new D3D11TerrainSeasonPalette(sceneMedia.Terrain.Parameters).WriteNativeInputs(seasonalInputs);
             var season = new D3D11CurrentSeasonPublisher(_repository, seasonResources, resourceLibrary: seasonLibrary);
             var writtenSeasonResources = seasonResources;
             var contextSeason = seasonResources.Source.CameraSource.Season.Resources.Action.Objects;
@@ -211,7 +213,7 @@ public partial class MapSceneView
                     if (!nativeRuleInputsPrepared)
                     {
                         cloudMedia=D3D11CloudProgramMedia.Prepare(cloudPrograms,current.Present,
-                            current.Lights.First(light=>(light.GroupMask&0x80)!=0).CompleteData.Span);
+                            current.Lights.First(light=>(light.GroupMask&0x80)!=0).State);
                         cloudMedia.WriteNativeInputs(inputs);
                         D3D11CloudPatternProgramMedia.Prepare(cloudMedia.Resources).WriteNativeInputs(inputs);
                         ambientResources = D3D11AmbientRenderResources.Load(_repository,current.Present,season.LoadedResources.Source.Locale);
@@ -285,7 +287,7 @@ public partial class MapSceneView
                         {
                             var workSky = atmosphereOwner.PrepareWorkSky(_repository, current.Present, skyPrograms);
                             var work = D3D11AmbientWorkInitialConstants.Prepare(_repository,
-                                current, season.LoadedResources, cloudMedia, ambientResources.Declaration,
+                                current, cloudMedia, ambientResources.Declaration,
                                 skyPrograms, workSky.Sampling);
                             workSky.Prepare(work.SkyMedia.Program);
                             D3D11AmbientWorkInputPreparation.WriteNativeInputs(work, inputs);
@@ -301,7 +303,7 @@ public partial class MapSceneView
                     {
                         ambientResources!.RequireCurrent(current.Present);
                         cloudMedia!.RequireCurrent(current.Present,
-                            current.Lights.First(light=>(light.GroupMask&0x80)!=0).CompleteData.Span);
+                            current.Lights.First(light=>(light.GroupMask&0x80)!=0).State);
                         cloudResources!.RequireCurrentSurfaces(current.Present,
                             D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
                         fogPrograms.RequireCurrentMask(current.Present);
@@ -312,13 +314,13 @@ public partial class MapSceneView
                             if (current.Present.AcceptedSeasonCamera.Inputs.Source.RenderingAtmosphere is not null)
                             {
                                 var selectedSky = D3D11AtmosphereInitialConstantPreparation.SelectSkyProgram(current.Present,
-                                    current.Lights.First(light=>(light.GroupMask&0x80)!=0).CompleteData.Span,
+                                    current.Lights.First(light=>(light.GroupMask&0x80)!=0).State,
                                     skyPrograms, candidateSky.Sampling.Presence);
                                 candidateSky.RequireCurrent(selectedSky);
                                 if (replacement is not null)
                                 {
                                     var work = D3D11AmbientWorkInitialConstants.Prepare(_repository,
-                                        current, season.LoadedResources, cloudMedia, ambientResources.Declaration,
+                                        current, cloudMedia, ambientResources.Declaration,
                                         skyPrograms, replacement.WorkSky!.Sampling);
                                     replacement.WorkSky.RequireCurrent(work.SkyMedia.Program);
                                 }

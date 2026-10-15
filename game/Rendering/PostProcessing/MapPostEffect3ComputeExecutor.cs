@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using System.Security.Cryptography;
 using Godot;
 using San14.Data;
@@ -150,7 +149,19 @@ public sealed class MapPostEffect3ComputeExecutor:IAsyncDisposable
     private readonly SemaphoreSlim serial=new(1,1);
     private readonly object lifetime=new();private int accepted;private bool retiring;
     private TaskCompletionSource? drained;private Task? disposal;
-    private readonly Dictionary<(int Pass,Rid Shader),Rid> pipelines=[];
+    private readonly Dictionary<(int Pass,Rid Shader),(Rid Rid,RenderDeviceResources Resources)> pipelines=[];
+    private NativeMapBorrowerRetirementPackage? pendingCleanup,finalRetirement;
+    private sealed class DispatchResources(IDisposable bankScope,MapPostEffect3ComputeFrameInputs inputs):IAsyncDisposable
+    {
+        public RenderDeviceResources Resources{get;}=new("Actual3SPK compute uniform set creation failed.");
+        private IDisposable? scope=bankScope;
+        public async ValueTask DisposeAsync()
+        {
+            await Resources.DisposeAsync();
+            GC.KeepAlive(inputs);
+            scope?.Dispose();scope=null;
+        }
+    }
     private sealed record FrozenTexture(IMapPostEffect3ComputeTextureLease Producer,
         long FrameNumber,string ContextOwnerIdentity,int ParameterIndex,int InstanceIndex,
         Rid ShaderViewRid,Rid StorageRid,uint NativeViewFormat,RenderingDevice.DataFormat DeviceFormat,
@@ -303,11 +314,12 @@ public sealed class MapPostEffect3ComputeExecutor:IAsyncDisposable
     private async Task<MapPostEffect3ComputeCompletedPass> DispatchAcceptedAsync(int index,
         MapPostEffect3ComputeFrameInputs input)
     {
-        await serial.WaitAsync();Rid set=default;IDisposable? bufferScope=null;
-        var temporaryMipViews=new List<Rid>();
+        await serial.WaitAsync();Rid set=default;DispatchResources? resources=null;
+        Exception? dispatchFailure=null;
         try
         {
             LastCompletedPass=null;
+            await DrainPendingCoreAsync();
             RequireDepthOfField2ComputeSource(index,input);
             input.FreshUndefinedEyeExposureRead?.RequireCurrent();
             input.RetainedControlledExposureRead?.RequireReadableMipRange(0,1);
@@ -321,11 +333,8 @@ public sealed class MapPostEffect3ComputeExecutor:IAsyncDisposable
             if(compiled.Kind!=MapPostEffect3CompiledPassKind.Compute||compiled.ComputeLocalSize is not { } local)
                 throw new InvalidDataException("Actual3SPK selected CS did not compile to its compute interface.");
             var stage=compiled.Stages.Single();var declarations=stage.Bindings.Bindings;
-            if(stage.DofSpriteStorageAdaptation is{} acceptedStorage&&
-                (acceptedStorage.SourceProgramSha256!=stage.Source.Sha256||
-                 acceptedStorage.AdaptedSpirvSha256!=stage.DeviceTranslation.SpirvSha256||
-                 Convert.ToHexString(SHA256.HashData(stage.DeviceTranslation.Bytes))!=acceptedStorage.AdaptedSpirvSha256))
-                throw new InvalidDataException("Exact DOF2 storage adapter changed after selected shader compilation.");
+            var access=stage.ComputeAccessRequirements?.Value??
+                throw new InvalidDataException("Actual compute stage has no library-owned storage access requirements.");
             if(declarations.Any(d=>d.DescriptorKind is not ("UniformBuffer" or "Sampler" or "Texture" or "StorageImage" or "TextureBuffer" or "StorageBuffer")||
                     d.Device.DescriptorSet!=0))
                 throw new NotSupportedException("Selected3SPK compute requires an unimplemented live buffer or descriptor interface.");
@@ -345,7 +354,7 @@ public sealed class MapPostEffect3ComputeExecutor:IAsyncDisposable
             var bufferRows=native.Where(b=>b.Table==MapPostEffect3BindingTable.BufferParameters).ToArray();
             // Hold all bank owners, including shared texture mip views, through
             // queued descriptor execution and reverse-order retirement.
-            bufferScope=await Bank.AcquireBufferExecutionScopeAsync();
+            resources=new(await Bank.AcquireBufferExecutionScopeAsync(),input);
             int[] requiredBufferReads=bufferRows.Where(b=>b.Role==MapPostEffect3BindingRole.ShaderResourceRead)
                 .Select(b=>b.ParameterIndex).Distinct().Order().ToArray();
             int[] requiredBufferWrites=bufferRows.Where(b=>b.Role==MapPostEffect3BindingRole.UnorderedAccessReadWrite)
@@ -483,14 +492,12 @@ public sealed class MapPostEffect3ComputeExecutor:IAsyncDisposable
                     }
                 }
                 var view=await Bank.CreateComputeReadMipViewAsync(current,
-                    -1,row.SliceSelector,lensMipFootprint);
-                if(view.RetireAfterSubmission)temporaryMipViews.Add(view.ViewRid);
+                    -1,row.SliceSelector,resources.Resources,lensMipFootprint);
                 readViews.Add(checked((uint)row.RegisterIndex),view);
             }
             foreach(var row in writes.GroupBy(r=>r.RegisterIndex).Select(g=>g.Last()))
             {
-                var view=await Bank.CreateComputeWriteMipViewAsync(outputs[row.ParameterIndex],row.MipSelector,row.SliceSelector);
-                if(view.RetireAfterSubmission)temporaryMipViews.Add(view.ViewRid);
+                var view=await Bank.CreateComputeWriteMipViewAsync(outputs[row.ParameterIndex],row.MipSelector,row.SliceSelector,resources.Resources);
                 if(readViews.Values.Any(r=>r.StorageRid==view.StorageRid&&
                     r.FirstMipLevel<view.FirstMipLevel+view.MipLevelCount&&view.FirstMipLevel<r.FirstMipLevel+r.MipLevelCount))
                     throw new InvalidDataException("Original compute sampled/storage views overlap the same physical mip subresource.");
@@ -638,8 +645,8 @@ public sealed class MapPostEffect3ComputeExecutor:IAsyncDisposable
                 stage.Source.Sha256==MapPostEffect3DofSpriteStorageAdapter.BuildSourceSha256&&
                 stage.DofSpriteStorageAdaptation is{} dofStorage&&dofStorage.SourceProgramSha256==stage.Source.Sha256&&
                 stage.DeviceTranslation.SpirvSha256==dofStorage.AdaptedSpirvSha256;
-            IReadOnlySet<uint>? additionalLocalRoots=dofSpriteWorkgroup?
-                RequireSourceWorkgroupRoots(stage.DeviceTranslation.Bytes,46):null;
+            var workgroupProfile=dofSpriteWorkgroup?MapPostEffect3ComputeWorkgroupProfile.DofSprite:
+                eyeHistogramWorkgroup?MapPostEffect3ComputeWorkgroupProfile.EyeHistogram:MapPostEffect3ComputeWorkgroupProfile.None;
             if(input.LensFlare2Execution is{} lf2)
             {
                 lf2.RequireCurrentTextureTable(input.TextureParameters??throw new InvalidDataException("LF2 compute requires its actual same-frame texture table."));
@@ -650,9 +657,9 @@ public sealed class MapPostEffect3ComputeExecutor:IAsyncDisposable
                     input.LensExecution is not null||input.EyeExposureSourceValueInfluence is not null||
                     !cbReadReceipts.Any(c=>c.ParameterIndex==17&&c.HasCompleteWriterContents&&c.CompleteBytesSha256==lf2.ConstantBufferBytesSha256))
                     throw new InvalidDataException("LF2 compute source/program/dispatch/CB17 differs from this actual accepted command.");
-                if(index is 46 or 47)additionalLocalRoots=lf2.RequireFftWorkgroupRoots(stage.DeviceTranslation.Bytes);
+                if(index is 46 or 47)workgroupProfile=MapPostEffect3ComputeWorkgroupProfile.LensFlareFft;
             }
-            RequireProvedStorageReads(stage.DeviceTranslation.Bytes,stage.Bindings,mapped,bufferInputs.Values,sourceAdmittedPriorStorage,eyeHistogramWorkgroup,additionalLocalRoots);
+            RequireProvedStorageReads(access,workgroupProfile,mapped,bufferInputs.Values,sourceAdmittedPriorStorage);
             RequireDepthOfField2ComputeSource(index,input);
             input.FreshUndefinedEyeExposureRead?.RequireCurrent();
             input.RetainedControlledExposureRead?.RequireReadableMipRange(0,1);
@@ -714,20 +721,29 @@ public sealed class MapPostEffect3ComputeExecutor:IAsyncDisposable
                             _=>throw new NotSupportedException()};
                         var u=new RDUniform{Binding=checked((int)d.Device.Binding!.Value),UniformType=type};u.AddId(resource);uniforms.Add(u);
                     }
-                    set=rd.UniformSetCreate(uniforms,compiled.ShaderRid,0);
-                    if(!set.IsValid||!rd.UniformSetIsValid(set))throw new InvalidDataException("Actual3SPK compute uniform set creation failed.");
+                    set=resources.Resources.Own(rd.UniformSetCreate(uniforms,compiled.ShaderRid,0));
+                    if(!rd.UniformSetIsValid(set))throw new InvalidDataException("Actual3SPK compute uniform set creation failed.");
                 }
                 finally{foreach(var u in uniforms)u.Dispose();}
                 var pipelineKey=(index,compiled.ShaderRid);
                 if(!pipelines.TryGetValue(pipelineKey,out var pipeline))
                 {
-                    pipeline=rd.ComputePipelineCreate(compiled.ShaderRid);
-                    if(!pipeline.IsValid||!rd.ComputePipelineIsValid(pipeline))
-                    {if(pipeline.IsValid)rd.FreeRid(pipeline);throw new InvalidDataException("Actual3SPK compute pipeline creation failed.");}
-                    pipelines.Add(pipelineKey,pipeline);
+                    var pipelineResources=new RenderDeviceResources("Actual3SPK compute pipeline creation failed.");
+                    try
+                    {
+                        var rid=pipelineResources.Own(rd.ComputePipelineCreate(compiled.ShaderRid));
+                        if(!rd.ComputePipelineIsValid(rid))throw new InvalidDataException("Actual3SPK compute pipeline creation failed.");
+                        pipeline=(rid,pipelineResources);
+                        pipelines.Add(pipelineKey,pipeline);
+                    }
+                    catch(Exception failure)
+                    {
+                        pipelineResources.ReleaseAfterConstructionFailure(rd,failure,"3SPK-compute-pipeline-partial");
+                        throw;
+                    }
                 }
                 long list=rd.ComputeListBegin();
-                try{rd.ComputeListBindComputePipeline(list,pipeline);rd.ComputeListBindUniformSet(list,set,0);
+                try{rd.ComputeListBindComputePipeline(list,pipeline.Rid);rd.ComputeListBindUniformSet(list,set,0);
                     rd.ComputeListDispatch(list,dispatch.X,dispatch.Y,dispatch.Z);}
                 finally{rd.ComputeListEnd();}
                 return true;
@@ -748,11 +764,9 @@ public sealed class MapPostEffect3ComputeExecutor:IAsyncDisposable
                     {PhysicalAllocationParameterIndex=t.Source.Parameter.Index,MipLevel=view.FirstMipLevel,
                         MipLevelCount=view.MipLevelCount,ViewRetiredAfterSubmission=view.RetireAfterSubmission,
                         WriterRevision=textureWriteRevisions[(view.StorageRid,view.FirstMipLevel,view.NativeViewFormat)]};}).ToArray();
-            // A set must retire successfully before publishing completion.
+            // Sets and their temporary views must retire before completion.
             // Failure cleanup never leaves a successful last-pass receipt.
-            if(set.IsValid)
-            {await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{rd.FreeRid(set);return true;});set=default;}
-            await RetireMipViewsAsync();
+            await resources.Resources.DisposeAsync();
             var bufferWritten=bufferOutputs.Select(pair=>
             {
                 var b=pair.Value;return new MapPostEffect3ComputeBufferWriteReceipt(pair.Key,b.InstanceIndex,b.StorageRid,
@@ -775,36 +789,64 @@ public sealed class MapPostEffect3ComputeExecutor:IAsyncDisposable
                     foreach(var receipt in input.AcceptedTextureParameters!.Values)table.ValidateCurrent(receipt);
             }
         }
+        catch(Exception failure){dispatchFailure=failure;throw;}
         finally
         {
-            try{if(set.IsValid)await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{rd.FreeRid(set);return true;});}
-            finally
+            try
             {
-                try{await RetireMipViewsAsync();}
-                finally{bufferScope?.Dispose();serial.Release();lock(lifetime)if(--accepted==0&&retiring)drained?.TrySetResult();}
+                if(resources is not null)
+                {
+                    var nested=(dispatchFailure as NativeMapBorrowerConstructionException)?.RetainedPackage;
+                    try
+                    {
+                        if(nested is not null)
+                        {
+                            pendingCleanup=NativeMapBorrowerRetirementPackage.CreatePending("3SPK-compute-dispatch",[resources],nested);
+                            await DrainPendingCoreAsync();
+                        }
+                        else await resources.DisposeAsync();
+                    }
+                    catch(Exception cleanup)
+                    {
+                        if(pendingCleanup is null)
+                        {
+                            pendingCleanup=NativeMapBorrowerRetirementPackage.CreatePending("3SPK-compute-dispatch",[resources]);
+                            pendingCleanup!.RetainFailure();
+                        }
+                        throw new NativeMapBorrowerConstructionException(dispatchFailure??cleanup,cleanup,pendingCleanup!);
+                    }
+                }
             }
-        }
-
-        async Task RetireMipViewsAsync()
-        {
-            if(temporaryMipViews.Count==0)return;
-            await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-            {for(int i=temporaryMipViews.Count-1;i>=0;i--)rd.FreeRid(temporaryMipViews[i]);return true;});
-            temporaryMipViews.Clear();
+            finally{serial.Release();lock(lifetime)if(--accepted==0&&retiring)drained?.TrySetResult();}
         }
     }
 
+    internal async Task DrainPendingAsync()
+    {
+        await serial.WaitAsync();
+        try{await DrainPendingCoreAsync();}
+        finally{serial.Release();}
+    }
+    private async Task DrainPendingCoreAsync()
+    {pendingCleanup=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pendingCleanup);}
+
     public ValueTask DisposeAsync()
     {
-        lock(lifetime){if(disposal is not null)return new(disposal);retiring=true;
+        lock(lifetime){if(disposal is not null&&!disposal.IsFaulted&&!disposal.IsCanceled)return new(disposal);retiring=true;
             Task pending=accepted==0?Task.CompletedTask:(drained=new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
             return new(disposal=RetireAsync(pending));}
     }
     private async Task RetireAsync(Task pending)
     {
         await pending;await serial.WaitAsync();
-        try{await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-            {foreach(var p in pipelines.Values.Reverse())rd.FreeRid(p);pipelines.Clear();return true;});LastCompletedPass=null;}
+        try
+        {
+            LastCompletedPass=null;
+            await DrainPendingCoreAsync();
+            finalRetirement??=NativeMapBorrowerRetirementPackage.CreatePending("3SPK-compute-pipelines",pipelines.Values.Reverse().Select(p=>(IAsyncDisposable)p.Resources));
+            finalRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(finalRetirement);
+            pipelines.Clear();
+        }
         finally{serial.Release();}
     }
 
@@ -851,44 +893,14 @@ public sealed class MapPostEffect3ComputeExecutor:IAsyncDisposable
             throw new InvalidDataException("DOF2 sprite compute does not match the exact current selected source/Prepared/Before/CB18.");
     }
 
-    private static void RequireProvedStorageReads(ReadOnlySpan<byte> bytes,TranslatedShaderBindings bindings,
+    private static void RequireProvedStorageReads(MapPostEffect3ComputeAccessRequirements access,
+        MapPostEffect3ComputeWorkgroupProfile workgroupProfile,
         IReadOnlyDictionary<(string Kind,uint Register),Rid> mapped,IEnumerable<IMapPostEffect3ComputeBufferLease> inputs,
-        Rid exactSourceAdmittedPriorStorage=default,bool exactEyeHistogramWorkgroup=false,IReadOnlySet<uint>? exactAdditionalWorkgroupRoots=null)
+        Rid exactSourceAdmittedPriorStorage=default)
     {
-        // Follow original translated opaque image loads to their descriptor.
-        // Only completed same-frame buffer leases admit storage reads/atomics;
-        // the pinned CS51's source-initialized workgroup counter array is local
-        // shader storage, not an external resource or a prior-buffer lease.
-        // Storage images and ambiguous pointer origins keep the previous guard.
-        var localRoots=exactAdditionalWorkgroupRoots?.ToHashSet()??RequireSourceWorkgroupRoots(bytes,exactEyeHistogramWorkgroup?51:0);
-        var declarations=bindings.Bindings.ToDictionary(d=>d.Device.VariableId);
-        var origins=declarations.Keys.ToDictionary(i=>i,i=>i);
-        foreach(uint root in localRoots)origins.Add(root,root);
-        var reads=new HashSet<uint>();
-        for(int at=20;at<bytes.Length;)
+        access.RequireWorkgroupPermission(workgroupProfile);
+        foreach(var declaration in access.StorageReads)
         {
-            uint header=BinaryPrimitives.ReadUInt32LittleEndian(bytes[at..]);
-            int words=checked((int)(header>>16));ushort op=(ushort)header;
-            if(words==0||at+words*4>bytes.Length)throw new InvalidDataException("Malformed selected CS instruction extent.");
-            if(op is 61 or 65 or 66 or 67 or 83 or 143)
-            {
-                if(words<4)throw new InvalidDataException("Malformed translated buffer pointer/load.");
-                uint result=BinaryPrimitives.ReadUInt32LittleEndian(bytes[(at+8)..]),source=BinaryPrimitives.ReadUInt32LittleEndian(bytes[(at+12)..]);
-                if(origins.TryGetValue(source,out uint origin))
-                {origins[result]=origin;if(op==61&&!localRoots.Contains(origin)&&declarations[origin].DescriptorKind=="StorageBuffer")reads.Add(origin);}
-            }
-            if(op is 98 or 143 or >=227 and <=242)
-            {
-                int sourceWord=op==228?1:3;
-                if(words<=sourceWord||!origins.TryGetValue(BinaryPrimitives.ReadUInt32LittleEndian(bytes[(at+sourceWord*4)..]),out uint origin))
-                    throw new NotSupportedException($"Selected storage read/atomic opcode{op} at byte{at} has no source-closed descriptor origin.");
-                if(!localRoots.Contains(origin))reads.Add(origin);
-            }
-            at+=words*4;
-        }
-        foreach(uint id in reads)
-        {
-            var declaration=declarations[id];
             if(exactSourceAdmittedPriorStorage.IsValid&&declaration.DescriptorKind=="StorageImage"&&declaration.Source.BindPoint==0&&
                 mapped.TryGetValue(("StorageImage",0),out var admittedPrior)&&admittedPrior==exactSourceAdmittedPriorStorage)
                 continue; // Exact source gate admits this load; no prior texel is marked ready.
@@ -898,59 +910,5 @@ public sealed class MapPostEffect3ComputeExecutor:IAsyncDisposable
             if(candidates.Length!=1)throw new NotSupportedException("Selected buffer storage read/atomic requires its exact completed same-frame input lease.");
             candidates[0].RequireReadRange(0,candidates[0].ByteCount);
         }
-    }
-
-    private static HashSet<uint> RequireSourceWorkgroupRoots(ReadOnlySpan<byte> bytes,int exactProgram)
-    {
-        // Official SPIR-V OpVariable/OpTypePointer storage class4 is Workgroup.
-        // The source CS51 hash pins dcl_tgsm_structured g0,4,64, the unconditional
-        // per-lane zero store followed by sync_g_t, and the second sync_g_t before
-        // reading g0. CS46 pins512 structured16B rows: every lane initializes
-        // two rows in iteration0, and each loop iteration syncs before reuse.
-        // This permits no arbitrary shader's local atomics or external UAV reads.
-        if(bytes.Length<20||bytes.Length%4!=0||BinaryPrimitives.ReadUInt32LittleEndian(bytes)!=0x07230203)
-            throw new InvalidDataException("Selected compute SPIR-V header is invalid.");
-        var pointerTypes=new Dictionary<uint,(uint Storage,uint Element)>();
-        var arrays=new Dictionary<uint,(uint Element,uint Length)>();
-        var uintTypes=new HashSet<uint>();var constants=new Dictionary<uint,(uint Type,uint Value)>();
-        var variables=new List<(uint Type,uint Id,int Words)>();
-        var barriers=new List<(uint ExecutionScope,uint MemoryScope,uint Semantics)>();
-        for(int at=20;at<bytes.Length;)
-        {
-            uint header=BinaryPrimitives.ReadUInt32LittleEndian(bytes[at..]);
-            int count=checked((int)(header>>16));ushort op=(ushort)header;
-            if(count==0||at+count*4>bytes.Length)throw new InvalidDataException("Malformed selected CS declaration extent.");
-            if(op==21&&count==4&&BinaryPrimitives.ReadUInt32LittleEndian(bytes[(at+8)..])==32&&
-                BinaryPrimitives.ReadUInt32LittleEndian(bytes[(at+12)..])==0)
-                uintTypes.Add(BinaryPrimitives.ReadUInt32LittleEndian(bytes[(at+4)..]));
-            else if(op==28&&count==4)
-                arrays.Add(BinaryPrimitives.ReadUInt32LittleEndian(bytes[(at+4)..]),
-                    (BinaryPrimitives.ReadUInt32LittleEndian(bytes[(at+8)..]),BinaryPrimitives.ReadUInt32LittleEndian(bytes[(at+12)..])));
-            else if(op==32&&count==4)
-                pointerTypes.Add(BinaryPrimitives.ReadUInt32LittleEndian(bytes[(at+4)..]),
-                    (BinaryPrimitives.ReadUInt32LittleEndian(bytes[(at+8)..]),BinaryPrimitives.ReadUInt32LittleEndian(bytes[(at+12)..])));
-            else if(op==43&&count==4)
-                constants.Add(BinaryPrimitives.ReadUInt32LittleEndian(bytes[(at+8)..]),
-                    (BinaryPrimitives.ReadUInt32LittleEndian(bytes[(at+4)..]),BinaryPrimitives.ReadUInt32LittleEndian(bytes[(at+12)..])));
-            else if(op==59&&count>=4&&BinaryPrimitives.ReadUInt32LittleEndian(bytes[(at+12)..])==4)
-                variables.Add((BinaryPrimitives.ReadUInt32LittleEndian(bytes[(at+4)..]),BinaryPrimitives.ReadUInt32LittleEndian(bytes[(at+8)..]),count));
-            else if(op==224&&count==4)
-                barriers.Add((BinaryPrimitives.ReadUInt32LittleEndian(bytes[(at+4)..]),BinaryPrimitives.ReadUInt32LittleEndian(bytes[(at+8)..]),
-                    BinaryPrimitives.ReadUInt32LittleEndian(bytes[(at+12)..])));
-            at+=count*4;
-        }
-        if(variables.Count==0)return [];
-        if(exactProgram is not(51 or 46)||variables.Count!=1||variables[0].Words!=4||
-            barriers.Count!=(exactProgram==51?2:1)||barriers.Any(b=>
-            !constants.TryGetValue(b.ExecutionScope,out var execution)||!uintTypes.Contains(execution.Type)||execution.Value!=2||
-            !constants.TryGetValue(b.MemoryScope,out var memory)||!uintTypes.Contains(memory.Type)||memory.Value!=2||
-            !constants.TryGetValue(b.Semantics,out var semantics)||!uintTypes.Contains(semantics.Type)||semantics.Value!=264))
-            throw new NotSupportedException("Selected workgroup storage has no exact original Eye/DOF initialization source.");
-        var variable=variables[0];
-        if(!pointerTypes.TryGetValue(variable.Type,out var pointer)||pointer.Storage!=4||
-            !arrays.TryGetValue(pointer.Element,out var array)||!uintTypes.Contains(array.Element)||
-            !constants.TryGetValue(array.Length,out var length)||!uintTypes.Contains(length.Type)||length.Value!=(exactProgram==51?64u:2048u))
-            throw new NotSupportedException("Original Eye/DOF workgroup storage differs from its source uint32 counter/shared-row declaration.");
-        return [variable.Id];
     }
 }

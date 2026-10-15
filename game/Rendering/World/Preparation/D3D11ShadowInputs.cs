@@ -18,7 +18,7 @@ public static class D3D11ShadowInputs
         foreach(var word in current.PreparedWords)if(words.ContainsKey(word.Offset))words[word.Offset]=word.Bits;
         var metadata=MapSourceCreatedWorldKind1Publication.ReadSeasonSourceRecords(resources.Source.DirectionalDeclarations);
         var lights=current.Lights.Select(light=>new D3D11ShadowInitialLight(light.ObjectId,light.GroupMask,
-            metadata.Single(record=>record.SourceObjectId==light.ObjectId).MaxPrimitiveNum,light.CompleteData)).ToArray();
+            metadata.Single(record=>record.SourceObjectId==light.ObjectId).MaxPrimitiveNum,light.State)).ToArray();
         var commonObjects=repository.LoadObjects("KIDSSystemResource",CommonRenderResources.SourceFileId);
         var common=MapCommonRenderState.FromSettings(
             CommonRenderResources.ImportSettings(commonObjects),current.Mode.AcceptedMainFrame.Camera.FrameNumber,

@@ -1,5 +1,5 @@
 #pragma once
-// Include in terrain.cpp's native helper scope (ComPtr/fs/load/buffer/check).
+// Include in RenderCore.cpp's native helper scope (ComPtr/fs/load/check).
 // Reuse original geometry/shaders/views/states. Only instances and complete
 // original camera CBs become mutable; no device work or source reads per request.
 #include "../../Camera/CameraState.h"
@@ -9,11 +9,13 @@ struct NativeTerrainCameraConstant {
     bool vertex=false;
     UINT slot=0;
     int worldToProjection=-1,worldToView=-1,eye=-1;
+    int detailTextureIndex=-1;
+    UINT detailTextureCapacity=0;
 };
 using NativeTerrainCameraConstants=std::array<NativeTerrainCameraConstant,4>;
 
 inline NativeTerrainCameraConstant prepareNativeTerrainCameraConstant(
-    const fs::path& source,const char* shaderFile,const char* constantFile,bool vertex,bool fine) {
+    const fs::path& source,const char* shaderFile,const char* constantFile,bool vertex) {
     NativeTerrainCameraConstant result;result.vertex=vertex;result.bytes=load(source/constantFile);
     const auto dxbc=load(source/shaderFile);ComPtr<ID3D11ShaderReflection> reflection;
     check(D3DReflect(dxbc.data(),dxbc.size(),__uuidof(ID3D11ShaderReflection),
@@ -25,26 +27,56 @@ inline NativeTerrainCameraConstant prepareNativeTerrainCameraConstant(
     result.slot=binding.BindPoint;
     auto globals=reflection->GetConstantBufferByName("$Globals");D3D11_SHADER_BUFFER_DESC bufferDesc{};
     check(globals->GetDesc(&bufferDesc),"Terrain source Globals layout");
-    const UINT expectedSize=vertex?80u:fine?16432u:4176u;
-    if(bufferDesc.Size!=expectedSize||result.bytes.size()!=expectedSize)
+    if(bufferDesc.Type!=D3D_CT_CBUFFER||!bufferDesc.Size||bufferDesc.Size%16||bufferDesc.Size>D3D11_REQ_CONSTANT_BUFFER_ELEMENT_COUNT*16u||
+        result.bytes.size()!=bufferDesc.Size)
         throw std::runtime_error("Terrain source complete CB size differs");
-    auto lane=[&](const char* name,UINT size,D3D_SHADER_VARIABLE_CLASS kind,UINT rows,UINT columns,UINT elements) {
-        auto variable=globals->GetVariableByName(name);D3D11_SHADER_VARIABLE_DESC v{};D3D11_SHADER_TYPE_DESC t{};
+    auto lane=[&](ID3D11ShaderReflectionVariable* variable,UINT size,D3D_SHADER_VARIABLE_CLASS kind,
+        D3D_SHADER_VARIABLE_TYPE type,UINT rows,UINT columns,UINT elements) {
+        D3D11_SHADER_VARIABLE_DESC v{};D3D11_SHADER_TYPE_DESC t{};
         check(variable->GetDesc(&v),"Terrain source camera lane");check(variable->GetType()->GetDesc(&t),"Terrain source camera lane type");
         if(v.Size!=size||v.StartOffset>bufferDesc.Size||size>bufferDesc.Size-v.StartOffset||
-            t.Class!=kind||t.Type!=D3D_SVT_FLOAT||t.Rows!=rows||t.Columns!=columns||t.Elements!=elements)
+            t.Class!=kind||t.Type!=type||t.Rows!=rows||t.Columns!=columns||t.Elements!=elements||t.Members)
             throw std::runtime_error("Terrain source camera lane layout differs");
         return int(v.StartOffset);
     };
-    if(vertex)result.worldToProjection=lane("mW2P",64,D3D_SVC_MATRIX_ROWS,4,4,0);
-    else {result.worldToView=lane("mWV",48,D3D_SVC_VECTOR,1,4,3);if(fine)result.eye=lane("vEye",16,D3D_SVC_VECTOR,1,4,0);}
+    std::vector<std::pair<UINT,UINT>> ranges;
+    for(UINT i=0;i<bufferDesc.Variables;++i) {
+        auto variable=globals->GetVariableByIndex(i);D3D11_SHADER_VARIABLE_DESC description{};
+        check(variable->GetDesc(&description),"Terrain source constant field");
+        if(!description.Name||!description.Size||description.StartOffset%4||description.StartOffset>bufferDesc.Size||
+            description.Size>bufferDesc.Size-description.StartOffset)
+            throw std::runtime_error("Terrain source constant field range differs");
+        ranges.emplace_back(description.StartOffset,description.StartOffset+description.Size);
+        auto capture=[&](int& offset,UINT size,D3D_SHADER_VARIABLE_CLASS kind,D3D_SHADER_VARIABLE_TYPE type,
+            UINT rows,UINT columns,UINT elements) {
+            if(offset>=0)throw std::runtime_error("Terrain source constant field duplicated");
+            offset=lane(variable,size,kind,type,rows,columns,elements);
+        };
+        if(vertex&&std::strcmp(description.Name,"mW2P")==0)
+            capture(result.worldToProjection,64,D3D_SVC_MATRIX_ROWS,D3D_SVT_FLOAT,4,4,0);
+        else if(!vertex&&std::strcmp(description.Name,"mWV")==0)
+            capture(result.worldToView,48,D3D_SVC_VECTOR,D3D_SVT_FLOAT,1,4,3);
+        else if(!vertex&&std::strcmp(description.Name,"vEye")==0)
+            capture(result.eye,16,D3D_SVC_VECTOR,D3D_SVT_FLOAT,1,4,0);
+        else if(!vertex&&std::strcmp(description.Name,"vDtlTexIdx")==0) {
+            D3D11_SHADER_TYPE_DESC type{};check(variable->GetType()->GetDesc(&type),"Terrain source palette type");
+            if(!type.Elements||type.Elements>255)throw std::runtime_error("Terrain source palette capacity differs");
+            capture(result.detailTextureIndex,(type.Elements-1)*16+4,D3D_SVC_SCALAR,D3D_SVT_INT,1,1,type.Elements);
+            result.detailTextureCapacity=type.Elements;
+        }
+    }
+    std::sort(ranges.begin(),ranges.end());
+    for(size_t i=1;i<ranges.size();++i)if(ranges[i-1].second>ranges[i].first)
+        throw std::runtime_error("Terrain source constant fields overlap");
+    if(vertex?result.worldToProjection<0:result.worldToView<0)
+        throw std::runtime_error("Terrain source camera matrix absent");
     return result;
 }
 inline NativeTerrainCameraConstants prepareNativeTerrainCameraConstants(const fs::path& source) {
-    return {prepareNativeTerrainCameraConstant(source,"near-vs.dxbc","near-vs-b0.bin",true,true),
-        prepareNativeTerrainCameraConstant(source,"near-ps.dxbc","near-ps-b0.bin",false,true),
-        prepareNativeTerrainCameraConstant(source,"coarse-vs.dxbc","coarse-vs-b0.bin",true,false),
-        prepareNativeTerrainCameraConstant(source,"coarse-ps.dxbc","coarse-ps-b0.bin",false,false)};
+    return {prepareNativeTerrainCameraConstant(source,"near-vs.dxbc","near-vs-b0.bin",true),
+        prepareNativeTerrainCameraConstant(source,"near-ps.dxbc","near-ps-b0.bin",false),
+        prepareNativeTerrainCameraConstant(source,"coarse-vs.dxbc","coarse-vs-b0.bin",true),
+        prepareNativeTerrainCameraConstant(source,"coarse-ps.dxbc","coarse-ps-b0.bin",false)};
 }
 inline void applyNativeTerrainCameraConstants(NativeTerrainCameraConstants& constants,
     const source_camera::Prefix& prefix) {

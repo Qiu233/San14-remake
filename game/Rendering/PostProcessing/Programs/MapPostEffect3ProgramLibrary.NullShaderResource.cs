@@ -36,6 +36,7 @@ public sealed partial class MapPostEffect3ProgramLibrary
         try
         {
             var original=await ordinary;await gate.WaitAsync();entered=true;
+            pendingConstruction=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pendingConstruction);
             foreach(var n in nulls)n.ValidateCurrent();
             string signature=index+":"+string.Join(',',nulls.OrderBy(n=>n.SourceStageCode).ThenBy(n=>n.SourceRegister)
                 .Select(n=>$"{n.SourceStageCode}/t{n.SourceRegister}"));
@@ -50,24 +51,15 @@ public sealed partial class MapPostEffect3ProgramLibrary
                 // SRV descriptors disappear from the actual device interface.
                 var binding=ReadBindings(stage.Bindings.SourceDefinitions,device.Bytes,stage.Source.StageCode,
                     stage.Translation.BufferUavsAsStorageBuffers);
-                return stage with{DeviceTranslation=device,Bindings=binding};
+                return stage with{DeviceTranslation=device,Bindings=binding,
+                    ComputeAccessRequirements=CreateComputeAccessRequirements(stage.Source,device,binding,stage.DofSpriteStorageAdaptation)};
             }).ToArray();
             string key="source-null:"+string.Join(';',adapted.Select(s=>$"{s.Source.StageCode}:{s.DeviceTranslation.SpirvSha256}"));
             if(original.StockScreenVertex is{} stock)key+=";embedded-stock-VS:"+stock.DeviceTranslation.SpirvSha256;
-            if(!shaders.TryGetValue(key,out var shader))
-            {
-                shader=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-                {
-                    using var spirv=new RDShaderSpirV();
-                    foreach(var stage in adapted)spirv.SetStageBytecode(DeviceStage(stage.Source.StageCode),stage.DeviceTranslation.Bytes);
-                    if(original.StockScreenVertex is{} vertex)spirv.SetStageBytecode(RenderingDevice.ShaderStage.Vertex,vertex.DeviceTranslation.Bytes);
-                    var rid=rd.ShaderCreateFromSpirV(spirv,"Original3SPK/pass"+index+"/native-null-SRV");
-                    if(!rid.IsValid)throw new InvalidDataException("RenderingDevice rejected original source-null specialization.");
-                    return rid;
-                });shaders.Add(key,shader);
-            }
+            var shader=await GetShaderAsync(key,adapted,original.StockScreenVertex,
+                "Original3SPK/pass"+index+"/native-null-SRV","RenderingDevice rejected original source-null specialization.");
             foreach(var n in nulls)n.ValidateCurrent();
-            var result=original with{Stages=Array.AsReadOnly(adapted),ShaderRid=shader};nullPasses.Add(signature,result);return result;
+            var result=original with{Stages=Array.AsReadOnly(adapted),ShaderRid=shader.Rid};nullPasses.Add(signature,result);return result;
         }
         finally
         {

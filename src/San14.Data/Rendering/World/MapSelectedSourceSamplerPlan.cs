@@ -32,13 +32,7 @@ public sealed class MapSelectedSourceSamplerPlan
         internal ImportedProgram? Plain;
         internal readonly ConditionalWeakTable<DeferredSelectedSourceNullSpirv, ImportedProgram> Specialized = new();
     }
-    private sealed class ImportedAsset(LoadedRdbAsset source)
-    {
-        internal readonly Lazy<LoadedObjects> Objects = new(() => new(DokReader.Read(source.Bytes), source));
-    }
     private static readonly ConditionalWeakTable<ShaderSpirv, ConditionalWeakTable<LoadedShaderContainer, ProgramImports>> Programs = new();
-    private static readonly ConditionalWeakTable<LoadedRdbAsset, ImportedAsset> Assets = new();
-    private static readonly ConditionalWeakTable<RenderTextureDefinition, ImportedAsset> RenderTextures = new();
 
     private MapSelectedSourceSamplerPlan(MapSelectedSourceImagePlan imagePlan,
         LoadedDeferredSamplerNativeSource native, ShaderSpirv originalPixel,
@@ -54,7 +48,7 @@ public sealed class MapSelectedSourceSamplerPlan
         LoadedDeferredSamplerNativeSource native, short encodedRole, LoadedRdbAsset source,
         string actualProducerFragment, ReadOnlySpan<byte> finalKey)
     {
-        ArgumentNullException.ThrowIfNull(plan);  _ = ReadImportedAsset(source);
+        ArgumentNullException.ThrowIfNull(plan); RequireResourceIdentity(source);
         ArgumentException.ThrowIfNullOrWhiteSpace(actualProducerFragment);
         var consumer = plan.Images.SingleOrDefault(i => i.EncodedParameter == encodedRole)
             ?? throw Error("producer role is absent from this selected program");
@@ -69,14 +63,6 @@ public sealed class MapSelectedSourceSamplerPlan
         LoadedDeferredSamplerNativeSource native, short encodedRole, RenderTextureDefinition source)
     {
         ArgumentNullException.ThrowIfNull(source);
-        _ = RenderTextures.GetValue(source, static texture =>
-        {
-            var imported = ReadImportedAsset(texture.Source.Source);
-            var canonical = RenderTextureResources.Read(imported.Objects.Value, texture.Object.ObjectId);
-            if ((canonical with {Source=texture.Source,Object=texture.Object}) != texture)
-                throw Error("producer render texture differs from its original typed declaration");
-            return imported;
-        });
         var consumer = plan.Images.SingleOrDefault(i => i.EncodedParameter == encodedRole)
             ?? throw Error("render texture role is absent from the selected program");
         uint dimension = source.Kind == RenderTextureKind.Texture2D ? 4u : 5u;
@@ -216,16 +202,11 @@ public sealed class MapSelectedSourceSamplerPlan
         }
     }
 
-    private static ImportedAsset ReadImportedAsset(LoadedRdbAsset source)
+    private static void RequireResourceIdentity(LoadedRdbAsset source)
     {
         ArgumentNullException.ThrowIfNull(source);
-        return Assets.GetValue(source, static asset =>
-        {
-            if (asset.OverrideSource is not null || string.IsNullOrWhiteSpace(asset.ResourceUri) ||
-                Convert.ToHexString(SHA256.HashData(asset.Bytes)) != asset.DecodedSha256)
-                throw Error("sampler producer source bytes differ from their original identity");
-            return new(asset);
-        });
+        if (string.IsNullOrWhiteSpace(source.ResourceUri) || string.IsNullOrWhiteSpace(source.DecodedSha256))
+            throw Error("sampler producer requires its imported resource identity");
     }
     private static InvalidDataException Error(string reason) => new("Selected F103 sampler plan: " + reason + ".");
 }

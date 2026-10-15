@@ -17,6 +17,7 @@ public sealed class D3D11CurrentAtmosphereFrame
     public SkySceneSky2Parameters Parameters { get; }
     public Sky2PreparedLight Sun { get; }
     public Sky2PreparedLight Moon { get; }
+    public Vector3 SunRgb { get; }
     public Vector3 MoonRgb { get; }
     public float MoonMaximum { get; }
     /// <summary>Loaded selected Camera614 for the actual Main view0. This
@@ -24,17 +25,17 @@ public sealed class D3D11CurrentAtmosphereFrame
     public float ControllerGeometry40 { get; }
     private D3D11CurrentAtmosphereFrame(byte[] bytes,
         SkyScenePreparedController controller, SkySceneSky2Parameters parameters,
-        Sky2PreparedLight sun, Sky2PreparedLight moon, Vector3 moonRgb, float moonMaximum,
+        Sky2PreparedLight sun, Sky2PreparedLight moon, Vector3 sunRgb, Vector3 moonRgb, float moonMaximum,
         float controllerGeometry40)
     { NumericBytes = bytes; Controller = controller; Parameters = parameters;
-        Sun = sun; Moon = moon; MoonRgb = moonRgb; MoonMaximum = moonMaximum;
+        Sun = sun; Moon = moon; SunRgb = sunRgb; MoonRgb = moonRgb; MoonMaximum = moonMaximum;
         ControllerGeometry40 = controllerGeometry40; }
 
     internal static D3D11CurrentAtmosphereFrame Prepare(
         MapSourceCreatedSeasonLightingFrame present,
         LoadedNativeCameraTangentSource tangent,
         LoadedSkyDirectionalSetterColorNativeSource color,
-        ReadOnlySpan<byte> selectedGroup80, float controllerGeometry40)
+        Vector4 sunBaseline, Vector4 moonBaseline, float controllerGeometry40)
     {
         var main = present.PreparedCameraPrefix.Span;
         var parameters = present.CurrentSkyCamera.Parameters;
@@ -43,8 +44,8 @@ public sealed class D3D11CurrentAtmosphereFrame
         var transform = Sky2GeometryPreparation.PrepareSkyTransform(
             parameters.Angle1430, parameters.Angle1434, parameters.Angle143C);
         byte[] baseline = new byte[32];
-        selectedGroup80.Slice(0xFA0, 16).CopyTo(baseline);
-        selectedGroup80.Slice(0xFB0, 16).CopyTo(baseline.AsSpan(16));
+        WriteVector(baseline, sunBaseline);
+        WriteVector(baseline.AsSpan(16), moonBaseline);
         byte[] rgb = SkyDirectionalSetterColorMath.Apply(baseline,
             main.Slice(0x29C, 16), BinaryPrimitives.ReadUInt32LittleEndian(main[0x21C..]), color);
         Vector3 sunRgb = ReadRgb(rgb), moonRgb = ReadRgb(rgb.AsSpan(16));
@@ -78,7 +79,14 @@ public sealed class D3D11CurrentAtmosphereFrame
         float[] stable = Words(parameters.StableDimensions);
         for (int i = 0; i < stable.Length; i++)
             BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(300 + i * 4), stable[i]);
-        return new(bytes, controller, parameters, sun, moon, moonRgb, moonMaximum, controllerGeometry40);
+        return new(bytes, controller, parameters, sun, moon, sunRgb, moonRgb, moonMaximum, controllerGeometry40);
+    }
+    private static void WriteVector(Span<byte> bytes, Vector4 value)
+    {
+        BinaryPrimitives.WriteSingleLittleEndian(bytes, value.X);
+        BinaryPrimitives.WriteSingleLittleEndian(bytes[4..], value.Y);
+        BinaryPrimitives.WriteSingleLittleEndian(bytes[8..], value.Z);
+        BinaryPrimitives.WriteSingleLittleEndian(bytes[12..], value.W);
     }
     private static Vector3 ReadRgb(ReadOnlySpan<byte> bytes) => new(
         BinaryPrimitives.ReadSingleLittleEndian(bytes),

@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -8,41 +7,33 @@ namespace San14.Data;
 /// record, not a WorldPQ Model primitive or a kind1 primitive counter.</summary>
 public sealed class TerrainViewPublicationSource
 {
-    private readonly byte[] wrapperBytes;
-    private TerrainViewPublicationSource(LoadedObjects wrapper, uint objectId, uint exclusion)
-    { Wrapper = wrapper; LandscapeObjectId = objectId; Exclusion2B8 = exclusion; wrapperBytes = wrapper.Source.Bytes.ToArray(); }
-    public LoadedObjects Wrapper { get; }
+    private TerrainViewPublicationSource(LoadedTerrainParameterResources parameters, uint shaderFileId, uint exclusion)
+    { Parameters = parameters; LandscapeObjectId = parameters.WrapperRoot.ObjectId; ShaderFileId = shaderFileId;
+      Exclusion2B8 = exclusion; SourceIdentity = Wrapper.Source.ResourceUri + "@" + Wrapper.Source.DecodedSha256 + "/" + LandscapeObjectId.ToString("X8"); }
+    public LoadedTerrainParameterResources Parameters { get; }
+    public LoadedObjects Wrapper => Parameters.Wrapper;
     public uint LandscapeObjectId { get; }
+    public uint ShaderFileId { get; }
     public uint Exclusion2B8 { get; }
-    public string SourceIdentity => Wrapper.Source.ResourceUri + "@" + Wrapper.Source.DecodedSha256 + "/" + LandscapeObjectId.ToString("X8");
+    public string SourceIdentity { get; }
     public static TerrainViewPublicationSource ReadFieldScene(LoadedTerrainParameterResources parameters)
     {
         ArgumentNullException.ThrowIfNull(parameters);
-        var wrapper = parameters.Wrapper;
-        if (wrapper.Source.ResourceUri != GameResourceId.Rdb("KIDSSystemResource", 0xB6DCC68E).ToString() ||
-            wrapper.Source.DecodedSha256 != "AF2F9FB1E78C59DB43BE2DBF9515E61CAEBD6E3892A6AF508391875136557491" ||
-            Convert.ToHexString(SHA256.HashData(wrapper.Source.Bytes)) != wrapper.Source.DecodedSha256 ||
-            parameters.WrapperRoot.ObjectId != 0xFF30C1FE)
-            throw new InvalidDataException("Terrain View publication requires the verified original Field Landscape source.");
-        var landscape = DokReader.Read(wrapper.Source.Bytes).Objects.Single(o =>
-            o.ObjectId == parameters.WrapperRoot.ObjectId && o.ClassId == 0x8E1ECB72 && o.Kind == DokObjectKind.Inline);
-        uint target = Scalar(landscape, 1, 0x445D803E);
-        if (target != parameters.TerrainRoot.ObjectId || Scalar(landscape, 7, 0x3AF82377) != 0xDC52FD1C ||
-            Scalar(landscape, 18, 0xC87D92E0) != 0)
-            throw new NotSupportedException("Terrain View source needs its original ordinary shader and source-null separate shadow-map role.");
-        return new(wrapper, landscape.ObjectId, Scalar(landscape, 0, 0xC0C5A5B5));
+        var landscape = parameters.WrapperRoot;
+        if (landscape.ClassId != 0x8E1ECB72 || landscape.Kind != DokObjectKind.Inline ||
+            Scalar(landscape, 0x445D803E) != parameters.TerrainRoot.ObjectId)
+            throw new InvalidDataException("Terrain View publication requires the imported Landscape targeting its terrain.");
+        uint shader = Scalar(landscape, TerrainShaderResources.GBufferShaderPropertyHash);
+        if (shader == 0 || Scalar(landscape, 0xC87D92E0) != 0)
+            throw new NotSupportedException("Terrain View source requires an ordinary shader and source-null separate shadow-map role.");
+        return new(parameters, shader, Scalar(landscape, 0xC0C5A5B5));
     }
-    public void ValidateSourceUnchanged()
+    private static uint Scalar(DokObject source, uint hash)
     {
-        if (!wrapperBytes.AsSpan().SequenceEqual(Wrapper.Source.Bytes))
-            throw new InvalidDataException("Terrain View source changed after its accepted construction.");
-    }
-    private static uint Scalar(DokObject source, int ordinal, uint hash)
-    {
-        var p = source.Properties[ordinal];
-        if (p.Index != ordinal || p.NameHash != hash || p.TypeCode != 5 || p.ElementCount != 1 || p.RawValue.Length != 4)
+        var matches = source.Properties.Where(p => p.NameHash == hash).ToArray();
+        if (matches.Length != 1 || matches[0].TypeCode != 5 || matches[0].ElementCount != 1 || matches[0].RawValue.Length != 4)
             throw new InvalidDataException("Terrain View source scalar layout changed.");
-        return BinaryPrimitives.ReadUInt32LittleEndian(p.RawValue);
+        return BinaryPrimitives.ReadUInt32LittleEndian(matches[0].RawValue);
     }
 }
 
@@ -78,7 +69,7 @@ public sealed class TerrainCurrentViewPublication
         ArgumentNullException.ThrowIfNull(source); ArgumentNullException.ThrowIfNull(lighting);
         ArgumentNullException.ThrowIfNull(completeAcceptedPatches); ArgumentNullException.ThrowIfNull(selected);
         ArgumentNullException.ThrowIfNull(currentCommon); ArgumentException.ThrowIfNullOrWhiteSpace(currentCpuProvenance);
-        source.ValidateSourceUnchanged(); selected.ValidateFor(lighting);
+        selected.ValidateFor(lighting);
         currentCommon.ValidateFrame(lighting.FrameNumber, currentCommon.CommonTableOwnerIdentity, lighting.Binding.ViewIdentity);
         if (lighting.FrameNumber <= 0 || completeAcceptedPatches.Count == 0 || completeAcceptedPatches.Any(p => p is null))
             throw new InvalidDataException("Present selected-shadow Terrain publication needs the complete nonempty actual patch inventory.");
@@ -98,7 +89,6 @@ public sealed class TerrainCurrentViewPublication
     {
         ArgumentNullException.ThrowIfNull(source); ArgumentNullException.ThrowIfNull(lighting);
         ArgumentNullException.ThrowIfNull(completeAcceptedPatches); ArgumentException.ThrowIfNullOrWhiteSpace(currentCpuProvenance);
-        source.ValidateSourceUnchanged();
         if (lighting.FrameNumber <= 0 || completeAcceptedPatches.Count == 0 || completeAcceptedPatches.Any(p => p is null))
             throw new InvalidDataException("Terrain current View publication requires a complete nonempty accepted patch inventory.");
         return new(source, lighting, completeAcceptedPatches.ToArray(), currentCpuProvenance + ";" + source.SourceIdentity +
@@ -109,7 +99,6 @@ public sealed class TerrainCurrentViewPublication
     internal uint ValidateAndGetFlags(MapSourceCreatedLightingPacket lighting,
         MapSourceCreatedViewPublicationState current, IReadOnlyList<uint> sourceKind1Masks)
     {
-        Source.ValidateSourceUnchanged();
         if (FrameNumber != lighting.FrameNumber || FrameNumber != current.FrameNumber ||
             ViewIdentity != lighting.Binding.ViewIdentity || CameraOwnerIdentity != lighting.Binding.CameraOwnerIdentity ||
             current.AdditionalOwners1B80_1BB0_1BB8_1B98Absent != false ||

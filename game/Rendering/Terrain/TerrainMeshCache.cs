@@ -27,17 +27,17 @@ public sealed class TerrainMeshCache : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (selection.Count == 0) return Array.Empty<TerrainPatch>();
-        TerrainLodPatchSelection[] verified = TerrainMesh.VerifySelection(_prototype.Source.SpatialTree, selection);
-        TerrainLodPatchSelection[] missing = verified.Where(row => !_patches.ContainsKey((row.Node.Index,row.EdgeFlags))).ToArray();
-        if (missing.Length != 0)
+        TerrainMeshSelection selected = TerrainMeshSelection.Explicit(_prototype.Source.SpatialTree, selection);
+        TerrainMeshSelection missing = selected.Filter(row => !_patches.ContainsKey((row.Node.Index,row.EdgeFlags)));
+        if (missing.Rows.Count != 0)
         {
-            // One validation/upload batch avoids rehashing full height sources
-            // for every individual node during a pan.
-            TerrainMeshResult batch = TerrainMesh.Build(_prototype.Source, _height, missing);
+            // Validate the full selection once, then prepare only uncached patches.
+            TerrainMeshResult batch = TerrainMesh.Upload(
+                TerrainMeshPreparation.Prepare(_prototype.Source, _height, missing));
             _batches.Add(batch);
             foreach (TerrainPatch patch in batch.Patches) _patches.Add(Key(patch), patch);
         }
-        return Array.AsReadOnly(verified.Select(row => _patches[(row.Node.Index,row.EdgeFlags)]).ToArray());
+        return Array.AsReadOnly(selected.Rows.Select(row => _patches[(row.Node.Index,row.EdgeFlags)]).ToArray());
     }
 
     /// <summary>Call after old instances have detached; active batches are never evicted.</summary>

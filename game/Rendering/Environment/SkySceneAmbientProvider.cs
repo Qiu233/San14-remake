@@ -30,9 +30,10 @@ public sealed class SkySceneAmbientProvider : IAsyncDisposable
     public SkySceneFrameUpdater Updater { get; }
     private readonly SemaphoreSlim gate=new(1,1);
     private readonly Dictionary<string,Rid> samplers=new(StringComparer.Ordinal);
-    private SkySceneSourceFramePacket? sourceFrame;
-    private SkyAmbientCubeSourceSelection? selection;
-    private byte[]? samplerBytes;
+    private readonly RenderDeviceResources samplerResources=new("Device rejected the exact source ambient sampler.");
+    private sealed record Submission(SkyScenePreparedFrame Prepared,
+        SkySceneSourceFramePacket Source, SkyAmbientCubeSourceSelection Selection, byte[] SamplerBytes);
+    private Submission? submission;
     private bool retiring;
     private Task? disposal;
     private readonly object lifetimeGate=new();
@@ -56,10 +57,10 @@ public sealed class SkySceneAmbientProvider : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(retiring,this);
-            if(sourceFrame is not null && source.FrameNumber<=sourceFrame.FrameNumber)
+            if(submission is not null && source.FrameNumber<=submission.Source.FrameNumber)
                 throw new InvalidDataException("Source ambient frames require increasing coherent lighting frame identities.");
             var update=await Updater.SubmitFrameAsync(generationIndex,source.SourceFrame,producers,maximumWorkUnits,optionalLight);
-            sourceFrame=source;selection=selectedOutput;samplerBytes=copiedSampler;
+            submission=new(Updater.StagedFrame,source,selectedOutput,copiedSampler);
             return await ResultAsync(update);
         }
         finally{gate.Release();}
@@ -71,35 +72,42 @@ public sealed class SkySceneAmbientProvider : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(retiring,this);
-            if(sourceFrame is null)throw new InvalidOperationException("No coherent source ambient frame has been submitted.");
+            RequireSubmission();
             return await ResultAsync(await Updater.AdvanceAsync(maximumWorkUnits));
         }
         finally{gate.Release();}
     }
 
+    private Submission RequireSubmission()
+    {
+        var current=submission??throw new InvalidOperationException("No coherent source ambient frame has been submitted.");
+        Updater.RequireStagedFrame(current.Prepared);
+        return current;
+    }
+
     private async Task<SkySceneAmbientFrame> ResultAsync(SkySceneFrameUpdateResult update)
     {
+        var current=RequireSubmission();
         SkyAmbientCubeBinding? ambient=null;
         if(update.CompletedSpecular is { } cube)
         {
-            ValidateSelection(cube.Source,selection!);
-            string hash=Convert.ToHexString(SHA256.HashData(samplerBytes!));
+            ValidateSelection(cube.Source,current.Selection);
+            string hash=Convert.ToHexString(SHA256.HashData(current.SamplerBytes));
             if(!samplers.TryGetValue(hash,out Rid sampler))
             {
                 sampler=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
                 {
-                    Rid made=DeviceSampler.Create(rd,samplerBytes!);
-                    if(!made.IsValid)throw new InvalidDataException("Device rejected the exact source ambient sampler.");
-                    return made;
+                    return samplerResources.Own(DeviceSampler.Create(rd,current.SamplerBytes));
                 });
                 samplers.Add(hash,sampler);
             }
-            string uri=$"{selection!.ResourceUri}@{selection.SourceSha256}#object={selection.ObjectId:X8};"+
-                $"completed-sky-generation={update.Progress.GenerationIndex};frame={sourceFrame!.FrameNumber};{selection.SelectionProvenance}";
+            string uri=$"{current.Selection.ResourceUri}@{current.Selection.SourceSha256}#object={current.Selection.ObjectId:X8};"+
+                $"completed-sky-generation={update.Progress.GenerationIndex};frame={current.Source.FrameNumber};{current.Selection.SelectionProvenance}";
             ambient=new(cube,new("Texture",7,cube.TextureRid,cube.TextureRid,uri),
-                new("Sampler",7,sampler,null,uri+$";sampler={hash}"),selection,hash);
+                new("Sampler",7,sampler,null,uri+$";sampler={hash}"),current.Selection,hash);
         }
-        return new(sourceFrame!.FrameNumber,sourceFrame.SourceProvenance,update,ambient);
+        Updater.RequireStagedFrame(current.Prepared);
+        return new(current.Source.FrameNumber,current.Source.SourceProvenance,update,ambient);
     }
 
     private static void ValidateSelection(CubeRenderTextureDefinition cube,
@@ -111,14 +119,20 @@ public sealed class SkySceneAmbientProvider : IAsyncDisposable
     }
 
     public ValueTask DisposeAsync()
-    { lock(lifetimeGate){retiring=true;return new(disposal??=DisposeCoreAsync());} }
+    {
+        lock(lifetimeGate)
+        {
+            retiring=true;
+            if(disposal is null||disposal.IsFaulted||disposal.IsCanceled)disposal=DisposeCoreAsync();
+            return new(disposal);
+        }
+    }
     private async Task DisposeCoreAsync()
     {
         await gate.WaitAsync();
         try
         {
-            await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-            {foreach(Rid sampler in samplers.Values)rd.FreeRid(sampler);return true;});
+            await samplerResources.DisposeAsync();
             samplers.Clear();
         }
         finally{gate.Release();}

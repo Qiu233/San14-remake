@@ -7,11 +7,13 @@ namespace San14.Data;
 public sealed class DirectionalLightBackendTemplate
 {
     private readonly byte[] bytes;
-    internal DirectionalLightBackendTemplate(byte[] value,string provenance,uint objectId)
-        =>(bytes,SourceProvenance,SourceObjectId)=(value.ToArray(),provenance,objectId);
+    internal DirectionalLightBackendTemplate(byte[] value,string provenance,uint objectId,
+        DirectionalLightSettings settings)
+        =>(bytes,SourceProvenance,SourceObjectId,Settings)=(value.ToArray(),provenance,objectId,settings);
     public ReadOnlyMemory<byte> CompleteTemplate=>bytes.ToArray();
     public string SourceProvenance {get;}
     public uint SourceObjectId {get;}
+    public DirectionalLightSettings Settings {get;}
     public bool NativeByteIdentityPreserved=>false;
 }
 
@@ -84,15 +86,15 @@ public sealed partial class DirectionalLightRetainedNormalization
     /// a consumer receipt merely by obtaining this template.</summary>
     public DirectionalLightBackendTemplate CreateTemplate(MapSeasonDirectionalLightSourceSet source,uint id,byte backendFill=0)
     {
-        ArgumentNullException.ThrowIfNull(source);var canonical=MapSeasonDirectionalLightSources.Read(source.Database);
+        ArgumentNullException.ThrowIfNull(source);
         uint word=backendFill*0x01010101u;
         if(!float.IsFinite(BitConverter.UInt32BitsToSingle(word)))
             throw new NotSupportedException("Directional backend fill must preserve the finite CE4A00 hemisphere-W arithmetic scope.");
-        if(!canonical.Roots.SelectMany(r=>r.Children.Prepend(r.Root)).Any(r=>r.ObjectId==id))
+        if(!source.Roots.SelectMany(r=>r.Children.Prepend(r.Root)).Any(r=>r.ObjectId==id))
             throw new InvalidDataException("Directional representation requires an actual selected-season declaration.");
         if(templates.ContainsKey(id))throw new InvalidOperationException("Directional representation already has this construction generation.");
         byte[] bytes=new byte[0x10C0];foreach(var h in Holes)bytes.AsSpan(h.Offset,h.Length).Fill(backendFill);
-        var result=new DirectionalLightBackendTemplate(bytes,SourceProvenance+$";source={canonical.Source.ResourceUri}#{id:X8}@{canonical.Source.DecodedSha256};fill={backendFill:X2}",id);
+        var result=new DirectionalLightBackendTemplate(bytes,SourceProvenance+$";source={source.Source.ResourceUri}#{id:X8}@{source.Source.DecodedSha256};fill={backendFill:X2}",id,source.GetSettings(id));
         templates.Add(id,result);return result;
     }
     public DirectionalLightConstructionPacket ApplyConstructor(MapSeasonDirectionalLightSourceSet source,uint id,uint flags,
@@ -106,8 +108,9 @@ public sealed partial class DirectionalLightRetainedNormalization
     public void AdoptConstruction(DirectionalLightConstructionPacket construction)
     {
         ArgumentNullException.ThrowIfNull(construction);
-        if(!templates.TryGetValue(construction.SourceObjectId,out var t)||construction.RetainedTemplateProvenance!=t.SourceProvenance||constructed.ContainsKey(construction.SourceObjectId)||
-            construction.SourceObjectId!=t.SourceObjectId)
+        if(!templates.TryGetValue(construction.SourceObjectId,out var t)||
+            !ReferenceEquals(construction.Settings,t.Settings)||
+            construction.RetainedTemplateProvenance!=t.SourceProvenance||constructed.ContainsKey(construction.SourceObjectId))
             throw new InvalidDataException("Directional constructor does not belong to this exact127B representation generation.");
         constructed.Add(construction.SourceObjectId,construction);
     }

@@ -11,12 +11,11 @@ public sealed class CubeRenderTextureDevice : IAsyncDisposable
     public CubeRenderTextureDefinition Source { get; }
     public Rid TextureRid { get; }
     public IReadOnlyList<CubeRenderDeviceSurface> Surfaces { get; }
-    private readonly IReadOnlyList<Rid> _owned;
-    private Task? _disposal;
+    private readonly RenderDeviceResources resources;
 
     private CubeRenderTextureDevice(CubeRenderTextureDefinition source, Rid texture,
-        List<CubeRenderDeviceSurface> surfaces, List<Rid> owned)
-        => (Source, TextureRid, Surfaces, _owned) = (source, texture, surfaces.AsReadOnly(), owned.AsReadOnly());
+        List<CubeRenderDeviceSurface> surfaces, RenderDeviceResources resources)
+        => (Source, TextureRid, Surfaces, this.resources) = (source, texture, surfaces.AsReadOnly(), resources);
 
     public static Task<CubeRenderTextureDevice> BuildAsync(CubeRenderTextureDefinition source, bool allowReadback = false)
     {
@@ -29,13 +28,9 @@ public sealed class CubeRenderTextureDevice : IAsyncDisposable
             throw new InvalidDataException("Cube device adapter requires the verified linear R11G11B10 single-cube recipe.");
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            var owned = new List<Rid>();
+            var resources = new RenderDeviceResources("Device rejected an original cube target or view.");
             var surfaces = new List<CubeRenderDeviceSurface>();
-            Rid Own(Rid rid)
-            {
-                if (!rid.IsValid) throw new InvalidDataException("Device rejected an original cube target or view.");
-                owned.Add(rid); return rid;
-            }
+            Rid Own(Rid rid) => resources.Own(rid);
             try
             {
                 var usage = RenderingDevice.TextureUsageBits.SamplingBit | RenderingDevice.TextureUsageBits.ColorAttachmentBit;
@@ -57,19 +52,15 @@ public sealed class CubeRenderTextureDevice : IAsyncDisposable
                     Rid framebuffer = Own(rd.FramebufferCreate([target]));
                     surfaces.Add(new(id, surface, target, framebuffer));
                 }
-                return new CubeRenderTextureDevice(source, texture, surfaces, owned);
+                return new CubeRenderTextureDevice(source, texture, surfaces, resources);
             }
-            catch
+            catch (Exception failure)
             {
-                for (int i = owned.Count - 1; i >= 0; i--) rd.FreeRid(owned[i]);
+                resources.ReleaseAfterConstructionFailure(rd, failure, "Cube-render-texture-partial");
                 throw;
             }
         });
     }
 
-    public ValueTask DisposeAsync() => new(_disposal ??= TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-    {
-        for (int i = _owned.Count - 1; i >= 0; i--) rd.FreeRid(_owned[i]);
-        return true;
-    }));
+    public ValueTask DisposeAsync() => resources.DisposeAsync();
 }

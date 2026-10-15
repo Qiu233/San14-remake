@@ -36,13 +36,12 @@ public sealed class D3D11TerrainInputPreparation
     private readonly LoadedRenderGraphTargets targets;
     private readonly TextureInput[] textures;
 
-    private D3D11TerrainInputPreparation(LoadedSceneResources scene, LoadedTerrainResources terrain,
-        LoadedTerrainParameterResources parameters, LoadedTerrainGbiMapResources material,
-        LoadedTerrainInitialHeightResources height, TerrainGbufferSourceParameters scalar,
+    private D3D11TerrainInputPreparation(LoadedTerrainSceneResources source, TerrainGbufferSourceParameters scalar,
         TerrainGbufferMaterialDrawSource materialDraw, byte callFlags, LoadedRenderGraphTargets graphTargets)
     {
-        Scene = scene; Terrain = terrain; Parameters = parameters; Material = material;
-        Height = height; Scalar = scalar; MaterialDraw = materialDraw; OrdinaryCallFlags = callFlags;
+        Source = source; Scalar = scalar; MaterialDraw = materialDraw; OrdinaryCallFlags = callFlags;
+        var height = source.Height;
+        var material = source.Material;
         targets = graphTargets;
         var rows = new List<TextureInput>();
         TerrainTextureBinding fieldHeight = height.Field.Bindings.Single(b => b.Slot == 0);
@@ -78,11 +77,12 @@ public sealed class D3D11TerrainInputPreparation
         }
     }
 
-    public LoadedSceneResources Scene { get; }
-    public LoadedTerrainResources Terrain { get; }
-    public LoadedTerrainParameterResources Parameters { get; }
-    public LoadedTerrainGbiMapResources Material { get; }
-    public LoadedTerrainInitialHeightResources Height { get; }
+    public LoadedTerrainSceneResources Source { get; }
+    public LoadedSceneResources Scene => Source.Scene;
+    public LoadedTerrainResources Terrain => Source.Terrain;
+    public LoadedTerrainParameterResources Parameters => Source.Parameters;
+    public LoadedTerrainGbiMapResources Material => Source.Material;
+    public LoadedTerrainInitialHeightResources Height => Source.Height;
     public TerrainGbufferSourceParameters Scalar { get; }
     public TerrainGbufferMaterialDrawSource MaterialDraw { get; }
     public byte OrdinaryCallFlags { get; }
@@ -91,18 +91,20 @@ public sealed class D3D11TerrainInputPreparation
 
     public static D3D11TerrainInputPreparation Load(GameResourceRepository repository,
         LoadedSceneResources scene, string locale)
+        => Load(repository, TerrainSceneResources.Load(repository, scene), locale);
+
+    /// <summary>Prepare native consumers of the scene's existing CPU sources.</summary>
+    public static D3D11TerrainInputPreparation Load(GameResourceRepository repository,
+        LoadedTerrainSceneResources source, string locale)
     {
-        ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(scene);
-        var terrain = TerrainResources.Load(repository, "KIDSSystemResource", scene.TerrainBundle.Source.FileId);
-        var parameters = TerrainParameterResources.Read(scene);
-        var material = TerrainGbiMapResources.LoadStockDefault(repository, terrain, parameters, locale);
-        var height = TerrainInitialHeightResources.Load(repository, terrain, parameters);
-        var scalar = TerrainGbufferSourceParameters.ReadSourceDefaults(repository, locale, material);
-        var materialDraw = TerrainGbufferMaterialDrawSource.Load(repository, locale, material);
+        ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(source);
+        var material = source.Material;
+        var scalar = TerrainGbufferSourceParameters.CreateFresh(locale, material);
+        var materialDraw = TerrainGbufferMaterialDrawSource.CreateFresh(locale, material);
         byte callFlags = MainSceneNode51Source.Load(repository, locale, 56).InitialCallFlags;
         var graph = repository.LoadRenderGraph("system", 0x024496EE);
         var targets = RenderGraphTargetResources.Read(graph, 53, repository.LoadObjects("system", 0x93FB3280));
-        return new(scene, terrain, parameters, material, height, scalar, materialDraw, callFlags, targets);
+        return new(source, scalar, materialDraw, callFlags, targets);
     }
 
     /// <summary>Select the initial grouped stream from the accepted camera.
@@ -163,11 +165,11 @@ public sealed class D3D11TerrainInputPreparation
                 0, Height.HeightNormalInfo, Scalar.PrepareCliffInfo(), Scalar.PrepareNearFar(), 0));
         var shader = Material.Shader.Shader;
         int vertex = Program(Material.Combination, 1), pixel = Program(Material.Combination, 0);
-        var nearVertex = TerrainGbufferConstants.Vertex(shader.ReadResourceDefinitions(vertex), input).Bytes;
-        var nearPixel = TerrainGbufferConstants.Pixel(shader.ReadResourceDefinitions(pixel), input, Material.Palette).Bytes;
+        var nearVertex = Material.DetailProgram.VertexConstants.Pack(input).Bytes;
+        var nearPixel = Material.DetailProgram.PixelConstants.Pack(input, Material.Palette).Bytes;
         int coarseVertex = Program(Material.CoarseCombination, 1), coarsePixel = Program(Material.CoarseCombination, 0);
-        var coarseVertexBytes = TerrainGbufferConstants.Vertex(shader.ReadResourceDefinitions(coarseVertex), input).Bytes;
-        var coarsePixelBytes = TerrainGbufferConstants.Pixel(shader.ReadResourceDefinitions(coarsePixel), input, Material.Palette).Bytes;
+        var coarseVertexBytes = Material.CoarseProgram.VertexConstants.Pack(input).Bytes;
+        var coarsePixelBytes = Material.CoarseProgram.PixelConstants.Pack(input, Material.Palette).Bytes;
         ushort[] indices = TerrainPatchInputMath.TriangleIndices(grid);
         byte[] indexBytes = new byte[checked(indices.Length * 2)];
         for (int i = 0; i < indices.Length; i++)

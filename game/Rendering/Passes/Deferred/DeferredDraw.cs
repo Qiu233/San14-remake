@@ -47,16 +47,16 @@ public sealed class DeferredDraw : IAsyncDisposable
         _constants.ToDictionary(p => p.Key, p => p.Value.ToArray());
     private readonly Dictionary<uint, byte[]> _constants;
     private readonly Dictionary<uint, Rid> _buffers;
-    private readonly IReadOnlyList<Rid> _owned;
+    private readonly RenderDeviceResources _resources;
     private readonly Rid _pipeline, _uniformSet;
-    private Task? _disposal;
+    private volatile bool _retiring;
 
     private DeferredDraw(DeferredPixelProgram program, DeferredDrawTarget target,
         IReadOnlyList<DeferredDeviceBinding> inputs, Dictionary<uint, byte[]> constants,
-        Dictionary<uint, Rid> buffers, Rid pipeline, Rid set, List<Rid> owned,
+        Dictionary<uint, Rid> buffers, Rid pipeline, Rid set, RenderDeviceResources resources,
         DeferredColorWriteMask colorWrites)
-        => (Program, Target, Inputs, _constants, _buffers, _pipeline, _uniformSet, _owned, ColorWrites) =
-            (program, target, inputs, constants, buffers, pipeline, set, owned.AsReadOnly(), colorWrites);
+        => (Program, Target, Inputs, _constants, _buffers, _pipeline, _uniformSet, _resources, ColorWrites) =
+            (program, target, inputs, constants, buffers, pipeline, set, resources, colorWrites);
 
     public static Task<DeferredDraw> BuildAsync(DeferredPixelProgram program,
         DeferredDrawTarget explicitTarget, IReadOnlyDictionary<uint, ReadOnlyMemory<byte>> explicitConstants,
@@ -109,8 +109,9 @@ public sealed class DeferredDraw : IAsyncDisposable
         // driver ERROR output occur after a superficially successful draw.
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            var owned = new List<Rid>(); var buffers = new Dictionary<uint, Rid>();
-            Rid Own(Rid rid) { if (!rid.IsValid) throw new InvalidDataException("Deferred device allocation failed."); owned.Add(rid); return rid; }
+            var resources = new RenderDeviceResources("Deferred device allocation failed.");
+            var buffers = new Dictionary<uint, Rid>();
+            Rid Own(Rid rid) => resources.Own(rid);
             try
             {
                 if (!rd.FramebufferIsValid(target.Framebuffer) || target.OwnerTextures.Any(t => !rd.TextureIsValid(t)))
@@ -190,9 +191,13 @@ public sealed class DeferredDraw : IAsyncDisposable
                 Rid pipeline = Own(rd.RenderPipelineCreate(program.ShaderRid, rd.FramebufferGetFormat(target.Framebuffer), -1,
                     RenderingDevice.RenderPrimitive.Triangles, raster, multi, depth, blend));
                 if (!rd.RenderPipelineIsValid(pipeline)) throw new InvalidDataException("Deferred draw pipeline was rejected.");
-                return new DeferredDraw(program, target, Array.AsReadOnly(inputs), constants, buffers, pipeline, set, owned, colorWrites);
+                return new DeferredDraw(program, target, Array.AsReadOnly(inputs), constants, buffers, pipeline, set, resources, colorWrites);
             }
-            catch { for (int i = owned.Count - 1; i >= 0; i--) rd.FreeRid(owned[i]); throw; }
+            catch (Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd, failure, "Deferred-draw-partial");
+                throw;
+            }
         });
     }
 
@@ -212,10 +217,10 @@ public sealed class DeferredDraw : IAsyncDisposable
 
     public Task UpdateConstantsAsync(IReadOnlyDictionary<uint, ReadOnlyMemory<byte>> explicitConstants)
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null, this); ArgumentNullException.ThrowIfNull(explicitConstants);
+        ObjectDisposedException.ThrowIf(_retiring, this); ArgumentNullException.ThrowIfNull(explicitConstants);
         var snapshot = SnapshotConstants(Program.DescriptorBindings.Bindings.Where(d => d.DescriptorKind == "UniformBuffer").ToArray(), explicitConstants);
         return TerrainDeviceTexture.OnRenderThreadAsync(rd => {
-            ObjectDisposedException.ThrowIf(_disposal is not null, this);
+            ObjectDisposedException.ThrowIf(_retiring, this);
             foreach (var cb in snapshot)
             {
                 if (rd.BufferUpdate(_buffers[cb.Key], 0, (uint)cb.Value.Length, cb.Value) != Error.Ok)
@@ -232,9 +237,9 @@ public sealed class DeferredDraw : IAsyncDisposable
     public Task DrawAsync(DeferredTranslucencyViewportInputs? temporaryViewport=null,
         Action? requireCurrentSource=null)
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null, this);
+        ObjectDisposedException.ThrowIf(_retiring, this);
         return TerrainDeviceTexture.OnRenderThreadAsync(rd => {
-            ObjectDisposedException.ThrowIf(_disposal is not null, this);
+            ObjectDisposedException.ThrowIf(_retiring, this);
             requireCurrentSource?.Invoke();
             DeferredSceneConstantPacket? restore=null;
             if(temporaryViewport is not null)
@@ -271,13 +276,15 @@ public sealed class DeferredDraw : IAsyncDisposable
     /// frame submission never reads back GPU constants.</summary>
     public Task<byte[]> ReadConstantBufferAsync(uint sourceBindPoint)
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null,this);
+        ObjectDisposedException.ThrowIf(_retiring,this);
         if(!_buffers.TryGetValue(sourceBindPoint,out var buffer))throw new InvalidDataException("Deferred source CB register is absent.");
         return TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-        {ObjectDisposedException.ThrowIf(_disposal is not null,this);return rd.BufferGetData(buffer);});
+        {ObjectDisposedException.ThrowIf(_retiring,this);return rd.BufferGetData(buffer);});
     }
 
-    public ValueTask DisposeAsync() => new(_disposal ??= TerrainDeviceTexture.OnRenderThreadAsync(rd => {
-        for (int i = _owned.Count - 1; i >= 0; i--) rd.FreeRid(_owned[i]); return true;
-    }));
+    public ValueTask DisposeAsync()
+    {
+        _retiring = true;
+        return _resources.DisposeAsync();
+    }
 }

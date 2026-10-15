@@ -4,9 +4,9 @@ namespace San14.Data;
 
 // Project-owned typed default classifiers for the packed light modifiers.
 // No runtime original code, descriptor mirror, PE reader or interpreter is used.
-public static partial class DirectionalLightConstruction
+internal static class LightModifierClassification
 {
-    private static void ClassifyModifiers(byte[] light, uint contextFlags3E4)
+    internal static void Apply(byte[] light, uint contextFlags3E4)
     {
         const int origin = 0x1B0;
         float F(int index) => BinaryPrimitives.ReadSingleLittleEndian(light.AsSpan(origin + index * 4, 4));

@@ -27,6 +27,7 @@ public sealed partial class RemakeArmyFlagNativeRenderer : IAsyncDisposable
     private int _accepted;
     private TaskCompletionSource? _drained;
     private Task? _disposal;
+    private NativeMapBorrowerRetirementPackage? _finalRetirement;
     public RemakeArmyFlagMaterialProvider? SourceMaterialProvider { get; set; }
     public IReadOnlyList<RemakeArmyFlagRenderStatus> Statuses { get; private set; } = [];
     public int DrawCount => _layer.DrawCount;
@@ -187,7 +188,8 @@ public sealed partial class RemakeArmyFlagNativeRenderer : IAsyncDisposable
         {
             _retiring=true;
             _worldPackets=null;
-            return new(_disposal??=DisposeCoreAsync());
+            if(_disposal is null||_disposal.IsFaulted||_disposal.IsCanceled)_disposal=DisposeCoreAsync();
+            return new(_disposal);
         }
     }
     private async Task DisposeCoreAsync()
@@ -195,7 +197,8 @@ public sealed partial class RemakeArmyFlagNativeRenderer : IAsyncDisposable
         Task pending;
         lock(_lifetime)pending=_accepted==0?Task.CompletedTask:(_drained??=new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
         await pending;
-        await _layer.DisposeAsync(); _materials.Clear(); _epochs.Clear();
-        await _sources.DisposeAsync(); Statuses = [];
+        _finalRetirement??=new("Army-flag-renderer-retire/"+Guid.NewGuid().ToString("N"),_layer,_sources);
+        await _finalRetirement.DisposeAsync();
+        _materials.Clear(); _epochs.Clear(); Statuses = [];
     }
 }

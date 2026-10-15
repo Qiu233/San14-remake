@@ -18,7 +18,7 @@ public sealed class SourceResourceRegistrationDevice : IAsyncDisposable
     public IReadOnlyDictionary<uint, SourceResourceRegistrationDeviceEntry> Entries { get; }
     public SourceResourceRegistrationGameDefault Source { get; }
     private readonly SourceResourceRegistrationAmbientCubeDevice cube;
-    private readonly OwnedTexture[] owned;
+    private readonly NativeMapBorrowerRetirementPackage finalRetirement;
     private readonly IReadOnlyList<MainLightConstructionResourceBinding> constructionBindings;
     private readonly bool allowReadback;
     private readonly SemaphoreSlim gate = new(1, 1);
@@ -31,13 +31,15 @@ public sealed class SourceResourceRegistrationDevice : IAsyncDisposable
         SourceResourceRegistrationAmbientCubeDevice cube,
         OwnedTexture[] owned, SourceResourceRegistrationDeviceEntry cubeEntry, bool allowReadback)
     {
-        this.cube = cube; this.owned = owned; this.allowReadback = allowReadback;
+        this.cube = cube; this.allowReadback = allowReadback;
         Source = source;
         Entries = new ReadOnlyDictionary<uint, SourceResourceRegistrationDeviceEntry>(
             owned.Select(value => value.Entry).Append(cubeEntry).ToDictionary(entry => entry.SourceObjectKey));
         constructionBindings = Array.AsReadOnly(Entries.Values.OrderBy(entry => entry.SourceObjectKey)
             .Select(entry => new MainLightConstructionResourceBinding(entry.SourceObjectKey,
                 entry.TextureRid.Id, entry.OwnerProvenance, true, MainLightConstruction.EnvmapInterfaceClassId)).ToArray());
+        finalRetirement = new("Source-resource-registration-retire/" + Guid.NewGuid().ToString("N"),
+            [.. owned.Reverse()]);
     }
 
     /// <summary>Upload exact source layers/volume. The caller selects one
@@ -63,15 +65,15 @@ public sealed class SourceResourceRegistrationDevice : IAsyncDisposable
                     throw new NotSupportedException("Default registered textures require planar or array images.");
                 byte[][] chains = Enumerable.Range(0, image.LayerCount)
                     .Select(layer => image.GetEncodedLayerChain(binding.Resource.Source.Bytes, layer)).ToArray();
-                owned.Add(new(await UploadAsync(binding, chains, G1TextureSamplerReader.ReadRetainedSource(image),
+                owned.Add(await UploadAsync(binding, chains, G1TextureSamplerReader.ReadRetainedSource(image),
                     image.TextureSystem == 3 ? RenderingDevice.TextureType.Type2DArray : RenderingDevice.TextureType.Type2D,
-                    explicitBgraNativeViewFormat, allowReadback)));
+                    explicitBgraNativeViewFormat, allowReadback));
             }
             var lutImage = lutSource.Image;
-            owned.Add(new(await UploadAsync(lutSource,
+            owned.Add(await UploadAsync(lutSource,
                 [lutImage.EncodedDataRange.Slice(lutSource.Resource.Source.Bytes).ToArray()],
                 G1TextureSamplerReader.ReadRetainedSource(lutImage), RenderingDevice.TextureType.Type3D,
-                explicitBgraNativeViewFormat, allowReadback)));
+                explicitBgraNativeViewFormat, allowReadback));
             var cubeEntry = new SourceResourceRegistrationDeviceEntry(borrowedCube.Source.Definition.ObjectId,
                 borrowedCube.Source, borrowedCube.TextureRid, borrowedCube.SamplerRid, borrowedCube.NativeViewFormat,
                 RenderingDevice.TextureType.Cube, RenderingDevice.DataFormat.Bc6HUfloatBlock,
@@ -80,14 +82,23 @@ public sealed class SourceResourceRegistrationDevice : IAsyncDisposable
             result.RequireAvailable();
             return result;
         }
-        catch
+        catch(Exception failure)
         {
-            await ReleaseOwnedAsync(owned);
+            var partial = new NativeMapBorrowerRetirementPackage(
+                "Source-resource-registration-partial/" + Guid.NewGuid().ToString("N"),
+                [failure is NativeMapBorrowerConstructionException nested ? nested.RetainedPackage : null,
+                    .. owned.AsEnumerable().Reverse()]);
+            try { await partial.DisposeAsync(); }
+            catch(Exception retirementFailure)
+            {
+                partial.RetainFailure();
+                throw new NativeMapBorrowerConstructionException(failure, retirementFailure, partial);
+            }
             throw;
         }
     }
 
-    private static async Task<SourceResourceRegistrationDeviceEntry> UploadAsync(StaticTextureBinding source,
+    private static async Task<OwnedTexture> UploadAsync(StaticTextureBinding source,
         byte[][] chains, G1TextureSamplerRecipe sampler, RenderingDevice.TextureType kind,
         uint nativeFormat, bool allowReadback)
     {
@@ -102,13 +113,13 @@ public sealed class SourceResourceRegistrationDevice : IAsyncDisposable
             $"sampler={Convert.ToHexString(SHA256.HashData(samplerDescriptor))};retained-source-bytes";
         return await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            var usage = RenderingDevice.TextureUsageBits.SamplingBit;
-            if (allowReadback) usage |= RenderingDevice.TextureUsageBits.CanCopyFromBit;
-            if (!rd.TextureIsFormatSupportedForUsage(format, usage))
-                throw new NotSupportedException("Device cannot retain this original Static BGRA view and usage.");
-            Rid texture = default, deviceSampler = default;
+            var resources = new RenderDeviceResources("Device rejected the exact original Static texture payload.");
             try
             {
+                var usage = RenderingDevice.TextureUsageBits.SamplingBit;
+                if (allowReadback) usage |= RenderingDevice.TextureUsageBits.CanCopyFromBit;
+                if (!rd.TextureIsFormatSupportedForUsage(format, usage))
+                    throw new NotSupportedException("Device cannot retain this original Static BGRA view and usage.");
                 using var shape = new RDTextureFormat
                 {
                     Format = format, TextureType = kind, Width = (uint)image.Width, Height = (uint)image.Height,
@@ -117,7 +128,9 @@ public sealed class SourceResourceRegistrationDevice : IAsyncDisposable
                 };
                 using var view = new RDTextureView();
                 var data = new Godot.Collections.Array<byte[]>(chains);
-                texture = rd.TextureCreate(shape, view, data); data.Clear();
+                Rid texture = rd.TextureCreate(shape, view, data);
+                if (texture.IsValid) resources.Own(texture);
+                data.Clear();
                 if (!texture.IsValid || !rd.TextureIsValid(texture))
                     throw new InvalidDataException("Device rejected the exact original Static texture payload.");
                 using var actual = rd.TextureGetFormat(texture);
@@ -128,14 +141,14 @@ public sealed class SourceResourceRegistrationDevice : IAsyncDisposable
                     for (uint layer = 0; layer < chains.Length; layer++)
                         if (!rd.TextureGetData(texture, layer).AsSpan().SequenceEqual(chains[layer]))
                             throw new InvalidDataException("Static texture GPU readback differs from the exact encoded source chain.");
-                deviceSampler = DeviceSampler.Create(rd, samplerDescriptor);
-                return new SourceResourceRegistrationDeviceEntry(source.Definition.ObjectId, source, texture,
+                Rid deviceSampler = resources.Own(DeviceSampler.Create(rd, samplerDescriptor));
+                var entry = new SourceResourceRegistrationDeviceEntry(source.Definition.ObjectId, source, texture,
                     deviceSampler, nativeFormat, kind, format, Array.AsReadOnly(hashes), provenance);
+                return new OwnedTexture(entry, resources);
             }
-            catch
+            catch(Exception failure)
             {
-                try { if (deviceSampler.IsValid) rd.FreeRid(deviceSampler); }
-                finally { if (texture.IsValid) rd.FreeRid(texture); }
+                resources.ReleaseAfterConstructionFailure(rd, failure, "Registered-texture-partial");
                 throw;
             }
         });
@@ -162,11 +175,11 @@ public sealed class SourceResourceRegistrationDevice : IAsyncDisposable
     public void ValidateConstructionSource(MapSourceCreatedLightingSource lighting)
     {
         ArgumentNullException.ThrowIfNull(lighting); RequireAvailable();
-        if (!lighting.AllResourceBindingsReady || lighting.ResourceBindings.Count != Entries.Count ||
-            lighting.ResourceBindings.Any(binding => !Entries.TryGetValue(binding.SourceObjectKey, out var entry) ||
-                binding.DataHandle != entry.TextureRid.Id || binding.OwnerProvenance != entry.OwnerProvenance ||
-                !binding.CpuDataReady || binding.InterfaceClassId != MainLightConstruction.EnvmapInterfaceClassId))
-            throw new InvalidDataException("Constructed lighting handles differ from this actual five-resource device generation.");
+        // Construction validates required keys and preserves the immutable binding
+        // objects. Borrow only bindings created by this actual device generation.
+        if (lighting.ResourceBindings.Any(binding =>
+            !constructionBindings.Any(ownedBinding => ReferenceEquals(binding, ownedBinding))))
+            throw new InvalidDataException("Constructed lighting dependencies differ from this actual device generation.");
     }
 
     public async Task<byte[]> ReadEncodedChainAsync(uint sourceObjectKey, uint layer = 0)
@@ -184,39 +197,11 @@ public sealed class SourceResourceRegistrationDevice : IAsyncDisposable
         finally { gate.Release(); }
     }
 
-    // Keep partial cleanup progress with the resource that was created.
-    // A failed sampler release must not prevent its image or later owners from retiring.
-    private sealed class OwnedTexture(SourceResourceRegistrationDeviceEntry entry)
+    private sealed class OwnedTexture(SourceResourceRegistrationDeviceEntry entry,
+        RenderDeviceResources resources) : IAsyncDisposable
     {
         public SourceResourceRegistrationDeviceEntry Entry { get; } = entry;
-        private bool samplerReleased;
-        private bool textureReleased;
-
-        public Task ReleaseAsync() => TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-        {
-            List<Exception> failures = [];
-            try
-            {
-                if (!samplerReleased) { rd.FreeRid(Entry.SamplerRid); samplerReleased = true; }
-            }
-            catch (Exception error) { failures.Add(error); }
-            try
-            {
-                if (!textureReleased) { rd.FreeRid(Entry.TextureRid); textureReleased = true; }
-            }
-            catch (Exception error) { failures.Add(error); }
-            if (failures.Count != 0) throw new AggregateException("Registered texture cleanup failed.", failures);
-            return true;
-        });
-    }
-
-    private static async Task ReleaseOwnedAsync(IEnumerable<OwnedTexture> resources)
-    {
-        List<Exception> failures = [];
-        foreach (var resource in resources.Reverse())
-            try { await resource.ReleaseAsync(); }
-            catch (Exception error) { failures.Add(error); }
-        if (failures.Count != 0) throw new AggregateException("Resource registration cleanup failed.", failures);
+        public ValueTask DisposeAsync() => resources.DisposeAsync();
     }
 
     public ValueTask DisposeAsync()
@@ -233,7 +218,7 @@ public sealed class SourceResourceRegistrationDevice : IAsyncDisposable
     private async Task DisposeCoreAsync()
     {
         await gate.WaitAsync();
-        try { await ReleaseOwnedAsync(owned); }
+        try { await finalRetirement.DisposeAsync(); }
         finally { gate.Release(); }
     }
 }

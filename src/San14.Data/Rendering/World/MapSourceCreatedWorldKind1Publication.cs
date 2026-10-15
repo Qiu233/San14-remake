@@ -1,12 +1,9 @@
-using System.Buffers.Binary;
 using System.Collections.ObjectModel;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
-using San14.Data.Formats;
 
 namespace San14.Data;
 
-/// <summary>The independently parsed Directional declaration used by one world
+/// <summary>The imported Directional declaration used by one world
 /// record. This does not select a View, run a provider or construct LightData.</summary>
 public sealed class MapWorldKind1SourceMetadata
 {
@@ -103,33 +100,23 @@ public static class MapSourceCreatedWorldKind1Publication
     private static IReadOnlyList<MapWorldKind1SourceMetadata> ReadSourceMetadata(
         MapSeasonDirectionalLightSourceSet declaredSource)
     {
-        // Never trust caller-replaced Root.SourceGroupMask/decoded properties.
-        var source = MapSeasonDirectionalLightSources.Read(declaredSource.Database);
-        // Validate imported bytes once, before publishing the immutable rows.
-        // A resource reload supplies a new source object and imports again.
-        if (Convert.ToHexString(SHA256.HashData(source.Database.Objects.Source.Bytes)) != source.Source.DecodedSha256)
-            throw new InvalidDataException("World kind1 imported source bytes differ from their declared decoded hash.");
-        if (source.Source != declaredSource.Source || source.OuterListObjectId != declaredSource.OuterListObjectId ||
-            !source.Roots.Select(item => item.Root.ObjectId).SequenceEqual(declaredSource.Roots.Select(item => item.Root.ObjectId)) ||
-            source.Roots.Where((item, index) => item.Root.SourceGroupMask != declaredSource.Roots[index].Root.SourceGroupMask).Any())
-            throw new InvalidDataException("World kind1 source metadata requires the canonical ordered seasonal Directional declarations.");
+        var source = declaredSource;
         return Array.AsReadOnly(source.Roots.Select(provider =>
         {
-            var root = source.Database.Objects.Document.Objects.Single(item => item.ObjectId == provider.Root.ObjectId);
-            uint capacity = Word(root, 7, 0xDB26951D);
-            uint group = Word(root, 8, 0xC0C5A5B5);
-            byte classification = Byte(root, 71, 0x8A44928D);
+            var settings = source.GetSettings(provider.Root.ObjectId);
+            uint capacity = settings.MaximumPrimitiveCount;
+            uint group = settings.SourceGroupMask;
+            byte classification = settings.Classification;
             if (capacity > int.MaxValue)
                 throw new NotSupportedException("Directional first-counter capacity exceeds the finite nonnegative signed range.");
             // Retaining the root's classification through the bounded provider
             // requires every possible declared child to retain the same byte.
             foreach (var child in provider.Children)
             {
-                var childObject = source.Database.Objects.Document.Objects.Single(item => item.ObjectId == child.ObjectId);
-                if (Byte(childObject, 71, 0x8A44928D) != classification)
+                if (source.GetSettings(child.ObjectId).Classification != classification)
                     throw new NotSupportedException("Directional provider classification differs between children; its exact current selection producer is required.");
             }
-            return new MapWorldKind1SourceMetadata(source, root.ObjectId, group, (int)capacity, classification);
+            return new MapWorldKind1SourceMetadata(source, provider.Root.ObjectId, group, (int)capacity, classification);
         }).ToArray());
     }
 
@@ -300,15 +287,4 @@ public static class MapSourceCreatedWorldKind1Publication
     }
 
     private static uint SelectedGroup(uint group) => group is >= 1 and <= 7 ? 1u << ((int)group - 1) : 0;
-    private static uint Word(DokObject source, int ordinal, uint hash) => BinaryPrimitives.ReadUInt32LittleEndian(Field(source, ordinal, hash, 5, 4).RawValue);
-    private static byte Byte(DokObject source, int ordinal, uint hash) => Field(source, ordinal, hash, 1, 1).RawValue[0];
-    private static DokProperty Field(DokObject source, int ordinal, uint hash, uint type, int size)
-    {
-        var property = source.Properties[ordinal];
-        if (source.Kind != DokObjectKind.Inline || source.ClassId != DirectionalLightSource.SourceClass ||
-            property.Index != ordinal || property.NameHash != hash || property.TypeCode != type || property.ElementCount != 1 ||
-            property.ElementSize != size || property.RawValue.Length != size || source.Properties.Count(item => item.NameHash == hash) != 1)
-            throw new InvalidDataException("World kind1 Directional source field differs from its exact native loader descriptor.");
-        return property;
-    }
 }

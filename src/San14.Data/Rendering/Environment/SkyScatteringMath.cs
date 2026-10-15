@@ -19,15 +19,30 @@ public static class SkyScatteringMath
             throw new NotSupportedException("Original sky scattering supports only explicit renderer fog mode7.");
         if (fogRecord96.Length != 96)
             throw new InvalidDataException("Original sky scattering requires the complete96-byte fog record.");
-        if (!float.IsFinite(explicitDirectionalRgb.X) || !float.IsFinite(explicitDirectionalRgb.Y) ||
-            !float.IsFinite(explicitDirectionalRgb.Z))
-            throw new InvalidDataException("Original sky scattering requires explicit finite directional RGB.");
-
+        RequireFiniteDirectionalColor(explicitDirectionalRgb);
         float start = Read(fogRecord96, 0x14), end = Read(fogRecord96, 0x18);
         float ax = Read(fogRecord96, 0x20), ay = Read(fogRecord96, 0x24), az = Read(fogRecord96, 0x28),
             scale = Read(fogRecord96, 0x2C);
         float bx = Read(fogRecord96, 0x30), by = Read(fogRecord96, 0x34), bz = Read(fogRecord96, 0x38),
             g = Read(fogRecord96, 0x3C);
+
+        return GenerateResolved(start, end, ax, ay, az, scale, bx, by, bz, g, explicitDirectionalRgb);
+    }
+
+    public static SkyScatteringPacket GenerateWeather(SkyWeatherFogValues fog, Vector3 explicitDirectionalRgb)
+    {
+        ArgumentNullException.ThrowIfNull(fog);
+        RequireFiniteDirectionalColor(explicitDirectionalRgb);
+        return GenerateResolved(Finite(fog.Start), Finite(fog.End),
+            Finite(fog.RayleighCoefficients.X), Finite(fog.RayleighCoefficients.Y), Finite(fog.RayleighCoefficients.Z),
+            Finite(fog.Density), Finite(fog.MieCoefficients.X), Finite(fog.MieCoefficients.Y),
+            Finite(fog.MieCoefficients.Z), Finite(fog.Anisotropy), explicitDirectionalRgb);
+    }
+
+    private static SkyScatteringPacket GenerateResolved(float start, float end,
+        float ax, float ay, float az, float scale, float bx, float by, float bz, float g, Vector3 explicitDirectionalRgb)
+    {
+        const int explicitRendererFogMode = 7;
 
         // Native branch tests each first coefficient against zero, then divides
         // by that component's combined coefficient. Keep these as separate
@@ -69,6 +84,16 @@ public static class SkyScatteringMath
     }
 
     private static float F(uint bits) => BitConverter.UInt32BitsToSingle(bits);
+    private static void RequireFiniteDirectionalColor(Vector3 value)
+    {
+        if (!float.IsFinite(value.X) || !float.IsFinite(value.Y) || !float.IsFinite(value.Z))
+            throw new InvalidDataException("Original sky scattering requires explicit finite directional RGB.");
+    }
+    private static float Finite(float value)
+    {
+        if (!float.IsFinite(value)) throw new InvalidDataException("Nonfinite named sky scattering input.");
+        return value;
+    }
     private static float Read(ReadOnlySpan<byte> record, int offset)
     {
         float value = BinaryPrimitives.ReadSingleLittleEndian(record.Slice(offset, 4));

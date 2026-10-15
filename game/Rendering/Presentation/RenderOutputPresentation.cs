@@ -11,9 +11,16 @@ public sealed class RenderOutputPresentation : IAsyncDisposable
     public Texture2Drd Texture { get; }
     public Rid PresentedRid { get; }
     public bool UsesGpuCopy { get; }
+    private readonly RenderDeviceResources resources;
+    private readonly object lifetimeGate=new();
+    private volatile bool retiring;
+    private int retirementStage;
     private Task? _disposal;
-    private RenderOutputPresentation(RenderTargetDeviceTexture source,Texture2Drd texture,Rid rid,bool copy)
-        =>(Source,Texture,PresentedRid,UsesGpuCopy)=(source,texture,rid,copy);
+    private RenderOutputPresentation(RenderTargetDeviceTexture source,Rid rid,bool copy,RenderDeviceResources owned)
+    {
+        (Source,PresentedRid,UsesGpuCopy,resources)=(source,rid,copy,owned);
+        Texture=new Texture2Drd();
+    }
 
     public static async Task<RenderOutputPresentation> BuildAsync(RenderTargetDeviceTexture source,
         bool forceGpuCopy = false)
@@ -22,62 +29,61 @@ public sealed class RenderOutputPresentation : IAsyncDisposable
         if(source.EffectiveSource.Kind!=RenderTextureKind.Texture2D || source.ExplicitExtent.X<=0 || source.ExplicitExtent.Y<=0)
             throw new InvalidDataException("Presentation requires an explicit ordinary 2D color output.");
         bool copy=forceGpuCopy || source.ShaderViewRid!=source.StorageRid;
-        Rid presented=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-        {
-            if(!rd.TextureIsValid(source.StorageRid)||!rd.TextureIsValid(source.ShaderViewRid))
-                throw new InvalidDataException("Presentation output or parent is no longer live.");
-            using var format=rd.TextureGetFormat(source.ShaderViewRid);
-            // Texture2Drd's image-format bridge cannot wrap packed R11G11B10.
-            // A raw scene target remains valid for RD shaders; present the
-            // completed source final output instead of attaching that target.
-            if(format.Format==RenderingDevice.DataFormat.B10G11R11UfloatPack32)
-                throw new NotSupportedException("Packed native107 scene storage requires a separate supported final presentation.");
-            if(format.TextureType!=RenderingDevice.TextureType.Type2D || format.Width!=source.ExplicitExtent.X ||
-                format.Height!=source.ExplicitExtent.Y || format.ArrayLayers!=1 ||
-                !format.UsageBits.HasFlag(RenderingDevice.TextureUsageBits.SamplingBit) ||
-                format.Format.ToString().StartsWith("D",StringComparison.Ordinal))
-                throw new InvalidDataException("Presentation output does not satisfy the source color shape.");
-            if(!copy)return source.StorageRid;
-            if(!format.UsageBits.HasFlag(RenderingDevice.TextureUsageBits.CanCopyFromBit))
-                throw new InvalidDataException("Presentation snapshot requires explicit GPU-copy permission on the source.");
-            using var copyFormat=new RDTextureFormat{Format=source.ShaderFormat,Width=(uint)source.ExplicitExtent.X,
-                Height=(uint)source.ExplicitExtent.Y,Depth=1,ArrayLayers=1,Mipmaps=1,TextureType=RenderingDevice.TextureType.Type2D,
-                UsageBits=RenderingDevice.TextureUsageBits.SamplingBit|RenderingDevice.TextureUsageBits.CanCopyToBit|RenderingDevice.TextureUsageBits.CanCopyFromBit};
-            using var view=new RDTextureView();Rid rid=rd.TextureCreate(copyFormat,view);
-            if(!rid.IsValid)throw new InvalidDataException("Presentation image allocation failed.");
-            return rid;
-        });
-        var texture=new Texture2Drd();
+        var resources=new RenderDeviceResources("Presentation image allocation failed.");
+        Rid allocatedCopy=default;
+        RenderOutputPresentation? owner=null;
         try
         {
-            texture.TextureRdRid=presented;
-            bool attached=await TerrainDeviceTexture.OnRenderThreadAsync(_=>texture.TextureRdRid==presented);
-            if(!attached||texture.GetWidth()!=source.ExplicitExtent.X||texture.GetHeight()!=source.ExplicitExtent.Y)
+            Rid presented=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
+            {
+                if(!rd.TextureIsValid(source.StorageRid)||!rd.TextureIsValid(source.ShaderViewRid))
+                    throw new InvalidDataException("Presentation output or parent is no longer live.");
+                using var format=rd.TextureGetFormat(source.ShaderViewRid);
+                // Texture2Drd's image-format bridge cannot wrap packed R11G11B10.
+                // A raw scene target remains valid for RD shaders; present the
+                // completed source final output instead of attaching that target.
+                if(format.Format==RenderingDevice.DataFormat.B10G11R11UfloatPack32)
+                    throw new NotSupportedException("Packed native107 scene storage requires a separate supported final presentation.");
+                if(format.TextureType!=RenderingDevice.TextureType.Type2D || format.Width!=source.ExplicitExtent.X ||
+                    format.Height!=source.ExplicitExtent.Y || format.ArrayLayers!=1 ||
+                    !format.UsageBits.HasFlag(RenderingDevice.TextureUsageBits.SamplingBit) ||
+                    format.Format.ToString().StartsWith("D",StringComparison.Ordinal))
+                    throw new InvalidDataException("Presentation output does not satisfy the source color shape.");
+                if(!copy)return source.StorageRid;
+                if(!format.UsageBits.HasFlag(RenderingDevice.TextureUsageBits.CanCopyFromBit))
+                    throw new InvalidDataException("Presentation snapshot requires explicit GPU-copy permission on the source.");
+                using var copyFormat=new RDTextureFormat{Format=source.ShaderFormat,Width=(uint)source.ExplicitExtent.X,
+                    Height=(uint)source.ExplicitExtent.Y,Depth=1,ArrayLayers=1,Mipmaps=1,TextureType=RenderingDevice.TextureType.Type2D,
+                    UsageBits=RenderingDevice.TextureUsageBits.SamplingBit|RenderingDevice.TextureUsageBits.CanCopyToBit|RenderingDevice.TextureUsageBits.CanCopyFromBit};
+                using var view=new RDTextureView();
+                allocatedCopy=resources.Own(rd.TextureCreate(copyFormat,view));
+                return allocatedCopy;
+            });
+            owner=new(source,presented,copy,resources);
+            owner.Texture.TextureRdRid=presented;
+            bool attached=await TerrainDeviceTexture.OnRenderThreadAsync(_=>owner.Texture.TextureRdRid==presented);
+            if(!attached||owner.Texture.GetWidth()!=source.ExplicitExtent.X||owner.Texture.GetHeight()!=source.ExplicitExtent.Y)
                 throw new InvalidDataException("RenderingServer did not attach the native output shape.");
-            return new(source,texture,presented,copy);
+            return owner;
         }
-        catch
+        catch(Exception failure)
         {
-            try
-            {
-                texture.TextureRdRid=default;
-                await TerrainDeviceTexture.OnRenderThreadAsync(_=>true);
-            }
-            finally
-            {
-                try { if(copy)await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{rd.FreeRid(presented);return true;}); }
-                finally { texture.Dispose(); }
-            }
+            IAsyncDisposable[] completed=owner is not null?[owner]:allocatedCopy.IsValid?[resources]:[];
+            var pending=NativeMapBorrowerRetirementPackage.CreatePending("Render-output-presentation-partial",completed,
+                (failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+            try{await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pending);}
+            catch(Exception retirementFailure)
+            {throw new NativeMapBorrowerConstructionException(failure,retirementFailure,pending!);}
             throw;
         }
     }
 
     public Task RefreshAsync()
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null,this);
+        ObjectDisposedException.ThrowIf(retiring,this);
         return TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
-            ObjectDisposedException.ThrowIf(_disposal is not null,this);
+            ObjectDisposedException.ThrowIf(retiring,this);
             if(!rd.TextureIsValid(Source.ShaderViewRid)||!rd.TextureIsValid(PresentedRid))
                 throw new InvalidDataException("Presentation output or image is no longer live.");
             if(UsesGpuCopy && rd.TextureCopy(Source.ShaderViewRid,PresentedRid,Vector3.Zero,Vector3.Zero,
@@ -87,18 +93,31 @@ public sealed class RenderOutputPresentation : IAsyncDisposable
         });
     }
 
-    public ValueTask DisposeAsync()=>new(_disposal??=DetachAsync());
+    public ValueTask DisposeAsync()
+    {
+        lock(lifetimeGate)
+        {
+            retiring=true;
+            return new(_disposal is null||_disposal.IsFaulted||_disposal.IsCanceled?_disposal=DetachAsync():_disposal);
+        }
+    }
     private async Task DetachAsync()
     {
-        try
+        if(retirementStage==0)
         {
             Texture.TextureRdRid=default;
             await TerrainDeviceTexture.OnRenderThreadAsync(_=>true);
+            retirementStage=1;
         }
-        finally
+        if(retirementStage==1)
         {
-            try { if(UsesGpuCopy)await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{rd.FreeRid(PresentedRid);return true;}); }
-            finally { Texture.Dispose(); }
+            if(UsesGpuCopy)await resources.DisposeAsync();
+            retirementStage=2;
+        }
+        if(retirementStage==2)
+        {
+            Texture.Dispose();
+            retirementStage=3;
         }
     }
 }

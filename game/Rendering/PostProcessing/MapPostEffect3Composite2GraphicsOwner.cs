@@ -102,6 +102,7 @@ public sealed partial class MapPostEffect3Composite2GraphicsOwner:IAsyncDisposab
     private bool accepted,failed,retiring;
     private readonly List<MapPostEffect3FullscreenCompletedPass> selectedDraws=[];
     private Task? disposal;
+    private readonly object lifetime=new();
     private MapPostEffect3Composite2GraphicsOwner(MapPostEffect3FullscreenGraphicsExecutor executor,
         LoadedMapPostEffect3Composite2ExecutionSource source,MapPostEffect3Composite2ExecutionFrame frame,
         MapPostEffect3TextureParameterState table,IMapPostEffect3Composite2GraphicsInvocationLease invocation,int side)
@@ -253,7 +254,15 @@ public sealed partial class MapPostEffect3Composite2GraphicsOwner:IAsyncDisposab
             actual.ActualHdrWrapper30!=expected.ActualHdrWrapper30||actual.ActualLdrWrapper38!=expected.ActualLdrWrapper38||
             string.IsNullOrWhiteSpace(actual.SourceEvidence))throw new InvalidDataException("Composite2 actual module+30/+38 LUT identities changed.");
     }
-    public ValueTask DisposeAsync()=>new(disposal??=RetireAsync());
+    public ValueTask DisposeAsync()
+    {
+        lock(lifetime)
+        {
+            retiring=true;
+            if(disposal is null||disposal.IsFaulted||disposal.IsCanceled)disposal=RetireAsync();
+            return new(disposal);
+        }
+    }
     private async Task RetireAsync()
     {retiring=true;await serial.WaitAsync();try{CurrentCoverage=null;await Executor.DisposeAsync();}finally{serial.Release();}}
 }

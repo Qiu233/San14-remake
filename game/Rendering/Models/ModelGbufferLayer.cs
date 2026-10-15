@@ -40,6 +40,8 @@ public sealed class ModelGbufferLayer : IAsyncDisposable
     private Dictionary<string,DrawValue> _draws=[];
     private readonly Dictionary<int,HashSet<string>> _queueDrawKeys=[];
     private RenderTargetFrame? _queueCacheTarget;
+    private NativeMapBorrowerRetirementPackage? _drawRetirement;
+    private NativeMapBorrowerRetirementPackage? _sharedRetirement;
     private readonly SemaphoreSlim _gate=new(1,1);
     private readonly object _lifetimeGate=new();
     private int _acceptedOperations;
@@ -129,6 +131,7 @@ public sealed class ModelGbufferLayer : IAsyncDisposable
         await _gate.WaitAsync();
         try
         {
+            _drawRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_drawRetirement);
             army48?.RequireCurrent();
             requireActualCurrentQueue?.Invoke();
             if(frame.ColorViews.Count!=(army48 is null?5:6))throw new InvalidDataException("Original model G-buffer attachment count differs from its selected five-MRT or Army node48 contract.");
@@ -211,7 +214,15 @@ public sealed class ModelGbufferLayer : IAsyncDisposable
                 LastConstantUpdates=written;ConstantBufferUpdateCount+=written.BufferUpdates;
                 ConstantBufferUpdatedBytes+=written.UpdatedBytes;FrameBatchDispatchCount++;
             }
-            catch { foreach(var item in next.Where(p=>!p.Reused).Reverse())await item.Value.Draw.DisposeAsync();throw; }
+            catch (Exception failure)
+            {
+                _drawRetirement=NativeMapBorrowerRetirementPackage.CreatePending("Model-layer-failed-draws", next.Where(p=>!p.Reused).Reverse().Select(p=>p.Value.Draw),
+                    (failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+                try { _drawRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_drawRetirement); }
+                catch (Exception retirementFailure)
+                { throw new NativeMapBorrowerConstructionException(failure,retirementFailure,_drawRetirement!); }
+                throw;
+            }
             var prior=_draws;
             if(sourceQueueNode is int queue)
             {
@@ -227,7 +238,8 @@ public sealed class ModelGbufferLayer : IAsyncDisposable
             else
             { _queueDrawKeys.Clear();_queueCacheTarget=null;_draws=next.ToDictionary(p=>p.Key,p=>p.Value,StringComparer.Ordinal); }
             var retained=_draws.Values.ToHashSet(ReferenceEqualityComparer.Instance);
-            foreach(var item in prior.Values.Where(p=>!retained.Contains(p)).Reverse())await item.Draw.DisposeAsync();
+            _drawRetirement=NativeMapBorrowerRetirementPackage.CreatePending("Model-layer-replaced-draws",prior.Values.Where(p=>!retained.Contains(p)).Reverse().Select(p=>p.Draw));
+            _drawRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_drawRetirement);
             AcceptedFrameCount++;
             return LastSubmittedFrame=new(this,frame,AcceptedFrameCount,instances);
         }
@@ -247,7 +259,22 @@ public sealed class ModelGbufferLayer : IAsyncDisposable
                 throw new InvalidDataException("Original model layer source program differs from the five float4 G-buffer contract.");
             _programs.Add(key,value);return value;
         }
-        catch{await value.DisposeAsync();throw;}
+        catch (Exception failure)
+        {
+            await RetireRejectedProgramAsync(value,failure);
+            throw;
+        }
+    }
+
+    private static async Task RetireRejectedProgramAsync(IAsyncDisposable program,Exception failure)
+    {
+        var retirement=new NativeMapBorrowerRetirementPackage("Model-layer-rejected-program/"+Guid.NewGuid().ToString("N"),program);
+        try { await retirement.DisposeAsync(); }
+        catch (Exception retirementFailure)
+        {
+            retirement.RetainFailure();
+            throw new NativeMapBorrowerConstructionException(failure,retirementFailure,retirement);
+        }
     }
 
     private async Task<ModelGeometryDevice> GeometryAsync(LoadedModelGeometry source,ModelShaderProgram program,
@@ -326,6 +353,24 @@ public sealed class ModelGbufferLayer : IAsyncDisposable
         a.DepthTest==b.DepthTest&&a.DepthWrite==b.DepthWrite&&a.DepthCompare==b.DepthCompare&&a.Attachments.SequenceEqual(b.Attachments)&&
         (a.NativeStencil is null ? b.NativeStencil is null : a.NativeStencil.SamePipeline(b.NativeStencil));
 
+    private async Task RetireCachedDrawsAsync()
+    {
+        _drawRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_drawRetirement);
+        _drawRetirement=NativeMapBorrowerRetirementPackage.CreatePending("Model-layer-cached-draws",_draws.Values.Reverse().Select(p=>p.Draw));
+        _draws.Clear();_queueDrawKeys.Clear();_queueCacheTarget=null;
+        _drawRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_drawRetirement);
+    }
+
+    private NativeMapBorrowerRetirementPackage CreateSharedRetirement()
+    {
+        var borrowers=new List<IAsyncDisposable>();
+        borrowers.AddRange(_geometry.Values.Reverse());
+        borrowers.AddRange(_programs.Values.Reverse());
+        borrowers.AddRange(_textures.Values.Reverse());
+        borrowers.AddRange(_samplers.Values.Reverse().Select(rid=>new NativeMapOwnedSamplerRetirement(rid)));
+        return new("Model-layer-shared/"+Guid.NewGuid().ToString("N"),borrowers.ToArray());
+    }
+
     /// <summary>Retires framebuffer-dependent draws while retaining shared
     /// source programs/geometry/textures. Await before the caller frees targets
     /// or borrowed resources; the next accepted frame constructs fresh draws.</summary>
@@ -334,7 +379,7 @@ public sealed class ModelGbufferLayer : IAsyncDisposable
     private async Task RetireTargetAcceptedAsync()
     {
         await _gate.WaitAsync();
-        try{LastSubmittedFrame=null;foreach(var value in _draws.Values.Reverse())await value.Draw.DisposeAsync();_draws.Clear();_queueDrawKeys.Clear();_queueCacheTarget=null;}
+        try{LastSubmittedFrame=null;await RetireCachedDrawsAsync();}
         finally{_gate.Release();CompleteOperation();}
     }
 
@@ -346,7 +391,7 @@ public sealed class ModelGbufferLayer : IAsyncDisposable
     {
         lock(_lifetimeGate)
         {
-            if(_disposal is not null)return new(_disposal);
+            if(_disposal is not null&&!_disposal.IsFaulted&&!_disposal.IsCanceled)return new(_disposal);
             _retiring=true;
             LastSubmittedFrame=null;
             Task pending=_acceptedOperations==0?Task.CompletedTask:(_drained=new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
@@ -361,11 +406,10 @@ public sealed class ModelGbufferLayer : IAsyncDisposable
             await pending;await _gate.WaitAsync();
             try
             {
-                foreach(var value in _draws.Values.Reverse())await value.Draw.DisposeAsync();_draws.Clear();_queueDrawKeys.Clear();_queueCacheTarget=null;
-                foreach(var value in _geometry.Values.Reverse())await value.DisposeAsync();_geometry.Clear();_geometryViews.Clear();
-                foreach(var value in _programs.Values.Reverse())await value.DisposeAsync();_programs.Clear();
-                foreach(var value in _textures.Values.Reverse())await value.DisposeAsync();_textures.Clear();
-                await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{foreach(var rid in _samplers.Values.Reverse())rd.FreeRid(rid);return true;});_samplers.Clear();
+                await RetireCachedDrawsAsync();
+                _sharedRetirement??=CreateSharedRetirement();
+                await _sharedRetirement.DisposeAsync();
+                _geometry.Clear();_geometryViews.Clear();_programs.Clear();_textures.Clear();_samplers.Clear();
                 if(_ownsCompiler)_compiler.Dispose();
             }
             finally{_gate.Release();}

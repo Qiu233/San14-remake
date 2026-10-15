@@ -3,8 +3,9 @@ using System.Numerics;
 
 namespace San14.Data;
 
-/// <summary>One accepted light packet whose nonnull Moon setter receives zero
-/// color. Its nonfinite normalization result is retained; shader consumers
+/// <summary>A nonnull Moon setter with exact zero baseline color and an actual
+/// null texture binding. Legacy selected packet identity is optional.
+/// Its nonfinite normalization result is retained; shader consumers
 /// decide whether the Moon field is unused before accepting that amplitude.</summary>
 public sealed class Sky2SourceZeroMoon
 {
@@ -14,29 +15,34 @@ public sealed class Sky2SourceZeroMoon
     private readonly Sky2NullTextureBinding sourceMoonTexture;
     private readonly SkyDirectionalSelectedLightSource? directionalSource;
     private Sky2SourceZeroMoon(Sky2NullTextureBinding moon,
-        SkySceneSelectedViewLightPacket packet, MapSourceCreatedLightingPacket lighting,
+        SkySceneSelectedViewLightIdentity? identity, string provenance,
         SkyDirectionalSelectedLightSource? directional = null)
     {
-        sourceMoonTexture = moon; Identity = packet.Identity;
+        sourceMoonTexture = moon; Identity = identity;
         directionalSource = directional;
-        SourceProvenance = packet.SourceProvenance + ";" + lighting.SourceProvenance + ";" + moon.Role.ToString() +
+        SourceProvenance = provenance + ";" + moon.Role.ToString() +
             ";nonnull-Moon-setter118D7E0:+0-max,+Inf-reciprocal,three-native-invalid-products;" +
             "118DC30:raw-MoonRGB,+Inf-amplitude;original-selected-MoonRGB-unused;no-program-transform" +
-            (directional is null ? ";mode2-PS3/4-MoonDir-unused" : ";" + directional.SourceProvenance +
+            (identity is null ? ";typed-zero-Moon;selected-program-MoonRGB-unused-required" :
+                directional is null ? ";mode2-PS3/4-MoonDir-unused" : ";" + directional.SourceProvenance +
                 ";mode6-source-PS10-MoonDir-used/MoonRGB-unused-or-swapped-PS3;ContributionPS4");
     }
-    public SkySceneSelectedViewLightIdentity Identity { get; }
+    public SkySceneSelectedViewLightIdentity? Identity { get; }
     public string SourceProvenance { get; }
+
+    public static Sky2SourceZeroMoon Create(Sky2NullTextureBinding sourceMoonTexture, Vector3 baselineMoonRgb)
+    {
+        RequireMoonTexture(sourceMoonTexture);
+        RequireZeroRgb(baselineMoonRgb, 0);
+        return new(sourceMoonTexture, null, "actual-null-Moon-binding;exact-positive-zero-baseline");
+    }
 
     public static Sky2SourceZeroMoon Create(
         Sky2NullTextureBinding sourceMoonTexture, MapSourceCreatedLightingPacket acceptedLighting,
         SkySceneSelectedViewLightPacket selectedViewPacket)
     {
-        ArgumentNullException.ThrowIfNull(sourceMoonTexture);
         ArgumentNullException.ThrowIfNull(acceptedLighting); ArgumentNullException.ThrowIfNull(selectedViewPacket);
-        sourceMoonTexture.Validate();
-        if (sourceMoonTexture.Role != SkySamplingRole.Moon)
-            throw new InvalidDataException("Zero Moon lighting requires its captured Moon texture binding.");
+        RequireMoonTexture(sourceMoonTexture);
         var id = selectedViewPacket.Identity; var binding = acceptedLighting.Binding;
         if (id.FrameNumber != acceptedLighting.FrameNumber || id.SelectedViewOwner != binding.ViewIdentity ||
             id.ProviderPacketOwner != binding.LightOwnerIdentity)
@@ -47,10 +53,13 @@ public sealed class Sky2SourceZeroMoon
             if (constructed[0xF1E] != 2) throw new InvalidDataException("Source mode2 Camera context writer changed.");
         }
         if (constructed[0x10B0] != 2 || Word(constructed, 0xFA0) != 0x3F800000 ||
-            Word(constructed, 0xFA4) != 0x3F800000 || Word(constructed, 0xFA8) != 0x3F800000 ||
-            Word(constructed, 0xFB0) != 0 || Word(constructed, 0xFB4) != 0 || Word(constructed, 0xFB8) != 0)
+            Word(constructed, 0xFA4) != 0x3F800000 || Word(constructed, 0xFA8) != 0x3F800000)
             throw new InvalidDataException("Zero Moon capability is limited to the unchanged actual source-created mode2 light; current edits require another producer.");
-        return new(sourceMoonTexture, selectedViewPacket, acceptedLighting);
+        RequireZeroRgb(new(BinaryPrimitives.ReadSingleLittleEndian(constructed[0xFB0..]),
+            BinaryPrimitives.ReadSingleLittleEndian(constructed[0xFB4..]),
+            BinaryPrimitives.ReadSingleLittleEndian(constructed[0xFB8..])), 0);
+        return new(sourceMoonTexture, selectedViewPacket.Identity,
+            selectedViewPacket.SourceProvenance + ";" + acceptedLighting.SourceProvenance);
     }
 
     /// <summary>A separate mode6 publication, using actual prepared Sun/Moon
@@ -60,31 +69,45 @@ public sealed class Sky2SourceZeroMoon
     public static Sky2SourceZeroMoon CreateDirectionalSelected(
         Sky2NullTextureBinding sourceMoonTexture, SkyDirectionalSelectedLightSource source)
     {
-        ArgumentNullException.ThrowIfNull(sourceMoonTexture);
-        ArgumentNullException.ThrowIfNull(source); source.ValidateCurrent(); sourceMoonTexture.Validate();
-        if (!source.HasExactZeroMoonRgb || sourceMoonTexture.Role != SkySamplingRole.Moon)
-            throw new InvalidDataException("Directional zero Moon requires the same-frame zero color and captured Moon binding.");
-        return new(sourceMoonTexture, source.SelectedPacket, source.AcceptedLighting, source);
+        ArgumentNullException.ThrowIfNull(source); source.ValidateCurrent();
+        RequireMoonTexture(sourceMoonTexture);
+        RequireZeroRgb(source.Fields.MoonRgb, 0);
+        return new(sourceMoonTexture, source.SelectedPacket.Identity,
+            source.SelectedPacket.SourceProvenance + ";" + source.AcceptedLighting.SourceProvenance, source);
     }
 
     public void ValidatePacket(SkySceneSelectedViewLightPacket packet)
     {
         ArgumentNullException.ThrowIfNull(packet); sourceMoonTexture.Validate(); directionalSource?.ValidateCurrent();
-        if (packet.Identity != Identity)
+        if (Identity is null || packet.Identity != Identity)
             throw new InvalidDataException("Source zero Moon capability belongs to one immutable accepted View packet.");
     }
 
     public void ValidateLighting(MapSourceCreatedLightingPacket lighting)
     {
         ArgumentNullException.ThrowIfNull(lighting); sourceMoonTexture.Validate(); directionalSource?.ValidateCurrent();
-        if (lighting.FrameNumber != Identity.FrameNumber || lighting.Binding.ViewIdentity != Identity.SelectedViewOwner ||
-            lighting.Binding.LightOwnerIdentity != Identity.ProviderPacketOwner)
+        if (Identity is not { } identity || lighting.FrameNumber != identity.FrameNumber ||
+            lighting.Binding.ViewIdentity != identity.SelectedViewOwner ||
+            lighting.Binding.LightOwnerIdentity != identity.ProviderPacketOwner)
             throw new InvalidDataException("Source Moon zero cache belongs to the same accepted current lighting frame and complete source record packet.");
     }
 
     internal void ValidateZeroRgb(Vector3 rgb, float maximum)
     {
         sourceMoonTexture.Validate();
+        RequireZeroRgb(rgb, maximum);
+    }
+
+    private static void RequireMoonTexture(Sky2NullTextureBinding sourceMoonTexture)
+    {
+        ArgumentNullException.ThrowIfNull(sourceMoonTexture);
+        sourceMoonTexture.Validate();
+        if (sourceMoonTexture.Role != SkySamplingRole.Moon)
+            throw new InvalidDataException("Zero Moon lighting requires its captured Moon texture binding.");
+    }
+
+    private static void RequireZeroRgb(Vector3 rgb, float maximum)
+    {
         if (Bits(rgb.X) != 0 || Bits(rgb.Y) != 0 || Bits(rgb.Z) != 0 || Bits(maximum) != 0)
             throw new InvalidDataException("Source zero Moon capability requires the exact native +0 RGB/max operands.");
     }

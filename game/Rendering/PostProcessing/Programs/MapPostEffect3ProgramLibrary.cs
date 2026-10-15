@@ -20,6 +20,7 @@ public sealed record MapPostEffect3CompiledStage(MapPostEffect3Program Source,
     public MapPostEffect3DofImageStorageAdaptation? DofImageStorageAdaptation{get;init;}
     public MapPostEffect3FxaaFetchBoundsAdaptation? FxaaFetchBoundsAdaptation { get; init; }
     public bool RequiresUnsupportedDofImageExecutionOwner=>DofImageStorageAdaptation is not null;
+    internal Lazy<MapPostEffect3ComputeAccessRequirements>? ComputeAccessRequirements { get; init; }
 }
 
 /// <summary>Borrowed shader owned by the library. Pipelines, uniform sets and
@@ -40,6 +41,12 @@ public sealed record MapPostEffect3CompiledPass(MapPostEffect3Pass Source,
 /// tuples own one RID, even when multiple source pass records reference it.</summary>
 public sealed partial class MapPostEffect3ProgramLibrary : IAsyncDisposable
 {
+    private sealed class OwnedShader(Rid rid, RenderDeviceResources resources) : IAsyncDisposable
+    {
+        public Rid Rid { get; } = rid;
+        public ValueTask DisposeAsync() => resources.DisposeAsync();
+    }
+
     public MapPostEffect3Container Source { get; }
     public string SourceSha256 => Source.Sha256;
     private readonly Vkd3dShaderCompiler compiler;
@@ -47,11 +54,13 @@ public sealed partial class MapPostEffect3ProgramLibrary : IAsyncDisposable
     private readonly object lifetime = new();
     private readonly Dictionary<(uint Stage, int Index), MapPostEffect3CompiledStage> stages = [];
     private readonly Dictionary<int, MapPostEffect3CompiledPass> passes = [];
-    private readonly Dictionary<string, Rid> shaders = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, OwnedShader> shaders = new(StringComparer.Ordinal);
     private bool retiring;
     private int accepted;
     private TaskCompletionSource? drained;
     private Task? disposal;
+    private NativeMapBorrowerRetirementPackage? pendingConstruction;
+    private NativeMapBorrowerRetirementPackage? retirement;
 
     private MapPostEffect3ProgramLibrary(MapPostEffect3Container source,
         Vkd3dShaderCompiler compiler, LoadedMapFinalOutputToneShaderSource? stockSource = null)
@@ -89,6 +98,7 @@ public sealed partial class MapPostEffect3ProgramLibrary : IAsyncDisposable
         await gate.WaitAsync();
         try
         {
+            pendingConstruction = await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pendingConstruction);
             if (passes.TryGetValue(index, out var existing)) return existing;
             var source = Source.Passes[index];
             var selected = source.ProgramReferences.Where(r => r.StageIndex is not null).ToArray();
@@ -110,29 +120,60 @@ public sealed partial class MapPostEffect3ProgramLibrary : IAsyncDisposable
                 compiled.Single(s => s.Source.StageCode == 0).Bindings);
             string key = string.Join(';', compiled.Select(s => $"{s.Source.StageCode}:{s.DeviceTranslation.SpirvSha256}"));
             if (stock is not null) key += ";embedded-stock-VS:" + stock.DeviceTranslation.SpirvSha256;
-            if (!shaders.TryGetValue(key, out var shader))
-            {
-                shader = await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-                {
-                    using var spv = new RDShaderSpirV();
-                    foreach (var stage in compiled)
-                        spv.SetStageBytecode(DeviceStage(stage.Source.StageCode), stage.DeviceTranslation.Bytes);
-                    if (stock is not null) spv.SetStageBytecode(RenderingDevice.ShaderStage.Vertex, stock.DeviceTranslation.Bytes);
-                    var rid = rd.ShaderCreateFromSpirV(spv, "Original3SPK/pass" + index);
-                    if (!rid.IsValid) throw new InvalidDataException($"RenderingDevice rejected original 3SPK pass{index}.");
-                    return rid;
-                });
-                shaders.Add(key, shader);
-            }
+            var shader = await GetShaderAsync(key, compiled, stock, "Original3SPK/pass" + index,
+                $"RenderingDevice rejected original 3SPK pass{index}.");
             var pass = new MapPostEffect3CompiledPass(source, SourceSha256,
                 compute ? MapPostEffect3CompiledPassKind.Compute : MapPostEffect3CompiledPassKind.Graphics,
-                Array.AsReadOnly(compiled), shader, localSize) { StockScreenVertex = stock };
+                Array.AsReadOnly(compiled), shader.Rid, localSize) { StockScreenVertex = stock };
             passes.Add(index, pass); return pass;
         }
         finally
         {
             gate.Release();
             lock (lifetime) if (--accepted == 0 && retiring) drained?.TrySetResult();
+        }
+    }
+
+    private async Task<OwnedShader> GetShaderAsync(string key,
+        IReadOnlyList<MapPostEffect3CompiledStage> compiled, MapPostEffect3CompiledStockScreenVertex? stock,
+        string name, string allocationFailureMessage)
+    {
+        if (shaders.TryGetValue(key, out var cached)) return cached;
+        OwnedShader? created = null;
+        try
+        {
+            created = await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
+            {
+                var resources = new RenderDeviceResources(allocationFailureMessage);
+                try
+                {
+                    using var spv = new RDShaderSpirV();
+                    foreach (var stage in compiled)
+                        spv.SetStageBytecode(DeviceStage(stage.Source.StageCode), stage.DeviceTranslation.Bytes);
+                    if (stock is not null) spv.SetStageBytecode(RenderingDevice.ShaderStage.Vertex, stock.DeviceTranslation.Bytes);
+                    var rid = resources.Own(rd.ShaderCreateFromSpirV(spv, name));
+                    return new OwnedShader(rid, resources);
+                }
+                catch (Exception failure)
+                {
+                    resources.ReleaseAfterConstructionFailure(rd, failure, "Post-program-shader-partial");
+                    throw;
+                }
+            });
+            shaders.Add(key, created);
+            return created;
+        }
+        catch (Exception failure)
+        {
+            pendingConstruction = NativeMapBorrowerRetirementPackage.CreatePending("Post-program-install-partial",
+                created is null ? [] : [created],
+                (failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+            try { pendingConstruction = await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pendingConstruction); }
+            catch (Exception retirementFailure)
+            {
+                throw new NativeMapBorrowerConstructionException(failure, retirementFailure, pendingConstruction!);
+            }
+            throw;
         }
     }
 
@@ -178,9 +219,26 @@ public sealed partial class MapPostEffect3ProgramLibrary : IAsyncDisposable
         var bindings = ReadBindings(reflected, device.Bytes, stageCode,translation.BufferUavsAsStorageBuffers||dofStorage is not null||dofImageStorage is not null,originalEyeHistogram,
             originalDofSprites||originalDofImages);
         var result = new MapPostEffect3CompiledStage(source, translation, device, bindings, adapter)
-            {DofSpriteStorageAdaptation=dofStorage,DofImageStorageAdaptation=dofImageStorage,FxaaFetchBoundsAdaptation=fxaaBounds};
+            {DofSpriteStorageAdaptation=dofStorage,DofImageStorageAdaptation=dofImageStorage,FxaaFetchBoundsAdaptation=fxaaBounds,
+                ComputeAccessRequirements=CreateComputeAccessRequirements(source,device,bindings,dofStorage)};
         stages.Add((stageCode, index), result); return result;
     }
+
+    // This captures the actual final program and bindings, including a separately
+    // adapted native-null variant. Unsupported dispatch analysis is deferred so
+    // shader-creation-only profiles retain their existing creation interface.
+    private static Lazy<MapPostEffect3ComputeAccessRequirements>? CreateComputeAccessRequirements(
+        MapPostEffect3Program source, ShaderSpirv device, TranslatedShaderBindings bindings,
+        MapPostEffect3DofSpriteStorageAdaptation? dofStorage)
+        => source.StageCode != 5 ? null : new(() =>
+        {
+            if (dofStorage is not null &&
+                (dofStorage.SourceProgramSha256 != source.Sha256 ||
+                 dofStorage.AdaptedSpirvSha256 != device.SpirvSha256 ||
+                 Convert.ToHexString(SHA256.HashData(device.Bytes)) != dofStorage.AdaptedSpirvSha256))
+                throw new InvalidDataException("Exact DOF2 storage adapter changed after selected shader compilation.");
+            return MapPostEffect3ComputeAccessRequirements.Read(device.Bytes, bindings);
+        }, LazyThreadSafetyMode.ExecutionAndPublication);
 
     private static TranslatedShaderBindings ReadBindings(DxbcResourceDefinitions original,
         ReadOnlySpan<byte> bytes, uint stageCode,bool bufferUavsAsStorageBuffers=false,bool originalEyeHistogram=false,bool originalDofSprites=false)
@@ -387,11 +445,14 @@ public sealed partial class MapPostEffect3ProgramLibrary : IAsyncDisposable
     {
         lock (lifetime)
         {
-            if (disposal is not null) return new(disposal);
             retiring = true;
-            Task pending = accepted == 0 ? Task.CompletedTask :
-                (drained = new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
-            return new(disposal = RetireAsync(pending));
+            if (disposal is null || disposal.IsFaulted || disposal.IsCanceled)
+            {
+                Task pending = accepted == 0 ? Task.CompletedTask :
+                    (drained ??= new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
+                disposal = RetireAsync(pending);
+            }
+            return new(disposal);
         }
     }
 
@@ -400,9 +461,10 @@ public sealed partial class MapPostEffect3ProgramLibrary : IAsyncDisposable
         await pending; await gate.WaitAsync();
         try
         {
-            await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-                { foreach (var shader in shaders.Values) rd.FreeRid(shader); return true; });
-            shaders.Clear(); passes.Clear(); stages.Clear();
+            pendingConstruction = await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pendingConstruction);
+            retirement ??= new("Post-program-library-retire/" + Guid.NewGuid().ToString("N"), [..shaders.Values]);
+            await retirement.DisposeAsync();
+            shaders.Clear(); passes.Clear(); nullPasses.Clear(); stages.Clear();
             stockScreenVertex = null;
         }
         finally { gate.Release(); }

@@ -18,14 +18,29 @@ public sealed record G1TextureSamplerRecipe(uint SourceFlags, byte[] RawKey,
 }
 
 /// <summary>
-/// Recovers verified point/linear CE G1T recipes with source mips retained.
-/// Runtime mip trimming and unknown native filter branches stay explicit errors.
-/// Reads actual flags, bias and minimum LOD rather than naming all textures alike.
+/// Decodes packed sampler keys and extracts supported CE G1T recipes with source mips retained.
+/// Runtime mip trimming and unknown source filter branches stay explicit errors.
 /// </summary>
 public static class G1TextureSamplerReader
 {
     private static readonly uint[] Addresses = [1,3,2,4];
     private static readonly uint[] Anisotropy = [1,2,4,6,8,10,12,16];
+
+    public static G1TextureSamplerRecipe DecodeKey(ReadOnlySpan<byte> originalKey,uint sourceFlags=0)
+    {
+        if(originalKey.Length!=8)throw new InvalidDataException("Native sampler key must contain all eight bytes.");
+        uint lo=BinaryPrimitives.ReadUInt16LittleEndian(originalKey),hi=BinaryPrimitives.ReadUInt16LittleEndian(originalKey[2..]);
+        uint mag=lo>>10&3,min=lo>>12&3,mip=lo>>14&3;
+        if(mag==3||min==3||mip==3)throw new InvalidDataException("Native sampler uses an unresolved filter code3.");
+        uint filter=mag==2||min==2?0x55u:(min==1?0x10u:0u)|(mag==1?4u:0u)|(mip==2?1u:0u);
+        if((hi&8)!=0)filter|=0x80;
+        uint maximum=mip==0?0u:0x7F7FFFFFu;
+        uint bias=BinaryPrimitives.ReadUInt32LittleEndian(originalKey[4..]);
+        if(!float.IsFinite(BitConverter.UInt32BitsToSingle(bias)))throw new InvalidDataException("Native sampler bias is nonfinite.");
+        uint minimum=maximum==0?0u:BitConverter.SingleToUInt32Bits((float)(lo>>6&15));
+        return new(sourceFlags,originalKey.ToArray(),filter,Addresses[lo&3],Addresses[lo>>2&3],Addresses[lo>>4&3],
+            bias,Anisotropy[hi&7],(hi>>4&7)+1,minimum,maximum);
+    }
 
     public static G1TextureSamplerRecipe ReadRetainedSource(G1TextureImage image)
     {
@@ -58,16 +73,11 @@ public static class G1TextureSamplerReader
         ushort key0=(ushort)(addressU|(addressV<<2)|(addressW<<4)|(min<<6)|
             (magnification<<10)|(minification<<12)|(mip<<14));
         ushort key2=(ushort)(((flags>>24)&7)|0x30);
-        byte[] key=new byte[8];
+        Span<byte> key=stackalloc byte[8];
         BinaryPrimitives.WriteUInt16LittleEndian(key,key0);
-        BinaryPrimitives.WriteUInt16LittleEndian(key.AsSpan(2,2),key2);
-        BinaryPrimitives.WriteUInt32LittleEndian(key.AsSpan(4,4),bias);
-        uint maxLod=mip==0 ? 0u : 0x7F7FFFFF;
-        uint minLod=mip==0 ? 0u : BitConverter.SingleToUInt32Bits(min);
-        // Native111 returns MIN_MAG_LINEAR_MIP_POINT and retains FLT_MAX;
-        // native110 uses the same filter but restricts both LOD bounds to zero.
-        return new(flags,key,anisotropic ? 0x55u : point ? 0u : mip==2 ? 0x15u : 0x14u,Addresses[addressU],Addresses[addressV],Addresses[addressW],
-            bias,Anisotropy[flags>>24&7],4,minLod,maxLod);
+        BinaryPrimitives.WriteUInt16LittleEndian(key.Slice(2,2),key2);
+        BinaryPrimitives.WriteUInt32LittleEndian(key.Slice(4,4),bias);
+        return DecodeKey(key,flags);
     }
     private static uint U32(ReadOnlySpan<byte> source,int at)=>BinaryPrimitives.ReadUInt32LittleEndian(source.Slice(at,4));
     private static InvalidDataException Error(string detail)=>new($"Original G1T sampler: {detail}.");

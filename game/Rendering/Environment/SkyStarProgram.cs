@@ -16,8 +16,9 @@ public sealed class SkyStarProgram : IAsyncDisposable
     public DxbcResourceDefinitions VertexDefinitions { get; }
     public DxbcResourceDefinitions GeometryDefinitions { get; }
     public TranslatedShaderBindings PixelBindings { get; }
-    public Rid ShaderRid { get; }
-    public Rid AnalyticShaderRid { get; }
+    public Rid ShaderRid { get; private set; }
+    public Rid AnalyticShaderRid { get; private set; }
+    private readonly object lifetimeGate = new();
     private Task? _disposal;
     private SkyStarProgram(LoadedShaderContainer source, G2ShaderCombination combination,
         ShaderSpirv vertex, ShaderSpirv geometry, ShaderSpirv pixel,
@@ -51,8 +52,10 @@ public sealed class SkyStarProgram : IAsyncDisposable
             pb.Bindings.Single(b => b.DescriptorKind == "UniformBuffer").Device.RequiredBufferBytes != 16 ||
             pb.Bindings.Single(b => b.DescriptorKind == "Texture").Source is not { BindPoint: 0, Dimension: 4 })
             throw new InvalidDataException("Star pixel CB/texture interface differs.");
-        var shaders = await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
+        return await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
+            var program = new SkyStarProgram(source, combination, vertex, geometry, pixel,
+                adapter, analytic, vd, gd, pb, default, default);
             Rid Create(byte[] fragment, string name)
             {
                 using var stages = new RDShaderSpirV(); stages.SetStageBytecode(RenderingDevice.ShaderStage.Vertex, adapter.Bytes);
@@ -61,12 +64,39 @@ public sealed class SkyStarProgram : IAsyncDisposable
                 if (!result.IsValid) throw new InvalidDataException("Device rejected expanded original Sky2Star program.");
                 return result;
             }
-            Rid full = Create(pixel.Bytes, "OriginalSky2StarExpandedGS");
-            try { return (Full: full, Analytic: Create(analytic.Bytes, "OriginalSky2StarAnalyticBranch")); }
-            catch { rd.FreeRid(full); throw; }
+            try
+            {
+                program.ShaderRid = Create(pixel.Bytes, "OriginalSky2StarExpandedGS");
+                program.AnalyticShaderRid = Create(analytic.Bytes, "OriginalSky2StarAnalyticBranch");
+                return program;
+            }
+            catch (Exception constructionFailure)
+            {
+                try { program.Release(rd); }
+                catch (Exception retirementFailure)
+                {
+                    var partial = new NativeMapBorrowerRetirementPackage("Star-program-partial/" + Guid.NewGuid().ToString("N"), program);
+                    partial.RetainFailure();
+                    throw new NativeMapBorrowerConstructionException(constructionFailure, retirementFailure, partial);
+                }
+                throw;
+            }
         });
-        return new(source, combination, vertex, geometry, pixel, adapter, analytic, vd, gd, pb, shaders.Full, shaders.Analytic);
     }
-    public ValueTask DisposeAsync() => new(_disposal ??= TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-    { rd.FreeRid(AnalyticShaderRid); rd.FreeRid(ShaderRid); return true; }));
+
+    private void Release(RenderingDevice rd)
+    {
+        if (AnalyticShaderRid.IsValid) { rd.FreeRid(AnalyticShaderRid); AnalyticShaderRid = default; }
+        if (ShaderRid.IsValid) { rd.FreeRid(ShaderRid); ShaderRid = default; }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        lock (lifetimeGate)
+        {
+            if (_disposal is null || _disposal.IsFaulted)
+                _disposal = TerrainDeviceTexture.OnRenderThreadAsync(rd => { Release(rd); return true; });
+            return new(_disposal);
+        }
+    }
 }

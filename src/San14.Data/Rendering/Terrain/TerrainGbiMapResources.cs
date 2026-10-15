@@ -1,63 +1,66 @@
 using System.Buffers.Binary;
 using System.Numerics;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
 
-public sealed record LoadedTerrainGbiMapResources(LoadedTerrainParameterResources Parameters,
-    LoadedTerrainShaderResources Shader, LoadedTerrainTextureGroup Field, LoadedTerrainTextureGroup Root,
-    LoadedTerrainTextureGroup? Auxiliary, LoadedTerrainInitialControlResources InitialControl,
-    TerrainRendererPaletteProjection Palette, G2ShaderFeatureRecord Feature, G2ShaderCombination Combination,
-    float CliffThreshold, Vector2 NearFar, bool ExtraAlbedoEnabled,
-    G2ShaderFeatureRecord CoarseFeature, G2ShaderCombination CoarseCombination);
+public sealed class LoadedTerrainGbiMapResources
+{
+    internal LoadedTerrainGbiMapResources(LoadedTerrainParameterResources parameters,
+        LoadedTerrainShaderResources shader, LoadedTerrainTextureGroup field, LoadedTerrainTextureGroup root,
+        LoadedTerrainTextureGroup? auxiliary, LoadedTerrainInitialControlResources control,
+        TerrainRendererPaletteProjection palette, G2ShaderFeatureRecord feature, G2ShaderFeatureRecord coarseFeature,
+        TerrainShaderStages detail, TerrainShaderStages coarse, Vector2 nearFar, bool extraAlbedo)
+        => (Parameters, Shader, Field, Root, Auxiliary, InitialControl, Palette, Feature, CoarseFeature,
+            DetailProgram, CoarseProgram, NearFar, ExtraAlbedoEnabled) =
+            (parameters, shader, field, root, auxiliary, control, palette, feature, coarseFeature,
+                detail, coarse, nearFar, extraAlbedo);
+    public LoadedTerrainParameterResources Parameters { get; }
+    public LoadedTerrainShaderResources Shader { get; }
+    public LoadedTerrainTextureGroup Field { get; }
+    public LoadedTerrainTextureGroup Root { get; }
+    public LoadedTerrainTextureGroup? Auxiliary { get; }
+    public LoadedTerrainInitialControlResources InitialControl { get; }
+    public TerrainRendererPaletteProjection Palette { get; }
+    public G2ShaderFeatureRecord Feature { get; }
+    public G2ShaderFeatureRecord CoarseFeature { get; }
+    public TerrainShaderStages DetailProgram { get; }
+    public TerrainShaderStages CoarseProgram { get; }
+    public G2ShaderCombination Combination => DetailProgram.Combination;
+    public G2ShaderCombination CoarseCombination => CoarseProgram.Combination;
+    public float CliffThreshold => BitConverter.UInt32BitsToSingle(TerrainGbufferSourceParameters.CliffXBits);
+    public Vector2 NearFar { get; }
+    public bool ExtraAlbedoEnabled { get; }
+}
 
 /// <summary>Ordinary detail and coarse sources, stock initial state, with the replica's additional render-context texture gate disabled.</summary>
 public static class TerrainGbiMapResources
 {
-    private const string ShaderSha = "837B0FB842CEE4F358F34D36BB676C94F252AED67E2822A6228D39B06C93EF33";
-    private const string Pixel52Sha = "08F898D88D527A70B8A4F0A8BF283E5C4ABFFCF7CC53D7992400005878A7D381";
-    private const string Pixel54Sha = "7A99093D74CEA74D44FCCDE0D69C8A9D7AF4B1300A3A7F24B7195C784D9D93F9";
-
     public static LoadedTerrainGbiMapResources LoadStockDefault(GameResourceRepository repository,
-        LoadedTerrainResources terrain, LoadedTerrainParameterResources parameters, string locale)
+        LoadedTerrainResources terrain, LoadedTerrainParameterResources parameters)
     {
         if (terrain.Objects.Source.ResourceUri != parameters.Scene.TerrainBundle.Source.ResourceUri ||
             terrain.Objects.Source.DecodedSha256 != parameters.Scene.TerrainBundle.Source.DecodedSha256)
             throw new InvalidDataException("GBI material and terrain sources differ.");
         LoadedTerrainShaderResources shader = TerrainShaderResources.Load(repository, parameters);
-        if (shader.Shader.Source.DecodedSha256 != ShaderSha)
-            throw new InvalidDataException("GBI map requires the verified ordinary Landscape shader implementation.");
+        if (shader.Shader.Container.MaterialModeCount != 1)
+            throw new NotSupportedException("Ordinary terrain requires the single-material parameter writer.");
         uint flags = U32(Scalar(parameters.TerrainRoot, 0x05D92ACC, 5).RawValue);
         if ((flags & 3) != 0) throw new InvalidDataException("GBI map requires ordinary mode with tessellation disabled.");
         uint extraAlbedo = U32(Scalar(terrain.FieldObject, 0x848CF8FC, 5).RawValue);
         uint extraNormal = U32(Scalar(terrain.FieldObject, 0x52CBB8AA, 5).RawValue);
         if (extraNormal != 0) throw new InvalidDataException("Additional normal texture path is not yet implemented.");
         byte[] raw = CreateGroup0Condition(flags, extraAlbedo != 0, false, false);
-        G2ShaderFeatureRecord feature = G2ShaderFeatureReader.Read(shader.Shader.Source.Bytes).Match(raw)
+        var features = shader.Shader.ReadG2Features();
+        G2ShaderFeatureRecord feature = features.Match(raw)
             ?? throw new InvalidDataException("Original shader feature matcher did not match the replica's explicit ordinary draw conditions.");
         G2ShaderCombination combination = shader.Shader.ReadCombination(feature.Index);
-        G2ShaderCombinationStage vs = combination.Stages.Single(stage => stage.StageCode == 1);
-        G2ShaderCombinationStage ps = combination.Stages.Single(stage => stage.StageCode == 0);
-        if (vs.Entry?.ProgramIndex != 0 || ps.Entry?.ProgramIndex is not (18 or 52) ||
-            combination.Stages.Where(stage => stage.StageCode is 3 or 4 or 2 or 5).Any(stage => stage.Entry is not null))
-            throw new InvalidDataException("Matched ordinary shader variant is not implemented by the map material adapter.");
-        string pixelHash = Convert.ToHexString(SHA256.HashData(shader.Shader.Container.GetProgramBytes(shader.Shader.Source.Bytes, ps.Entry.ProgramIndex)));
-        if (pixelHash != (ps.Entry.ProgramIndex == 18 ? TerrainGbiMapMaterialMath.PixelProgramSha256 : Pixel52Sha))
-            throw new InvalidDataException("Matched pixel program changed.");
-        G2ShaderFeatureRecord coarseFeature = G2ShaderFeatureReader.Read(shader.Shader.Source.Bytes)
+        G2ShaderFeatureRecord coarseFeature = features
             .Match(CreateGroup2Condition(extraAlbedo != 0, false, false))
             ?? throw new InvalidDataException("Original shader feature matcher did not match explicit coarse draw conditions.");
         G2ShaderCombination coarseCombination = shader.Shader.ReadCombination(coarseFeature.Index);
-        G2ShaderCombinationStage coarseVs = coarseCombination.Stages.Single(stage => stage.StageCode == 1);
-        G2ShaderCombinationStage coarsePs = coarseCombination.Stages.Single(stage => stage.StageCode == 0);
-        if (coarseVs.Entry?.ProgramIndex != 2 || coarsePs.Entry?.ProgramIndex != 54 ||
-            coarseCombination.Stages.Where(stage => stage.StageCode is 3 or 4 or 2 or 5).Any(stage => stage.Entry is not null))
-            throw new InvalidDataException("Matched coarse shader variant is not implemented by the map material adapter.");
-        if (Convert.ToHexString(SHA256.HashData(shader.Shader.Container.GetProgramBytes(shader.Shader.Source.Bytes, 2))) !=
-                "1503D465E79F35C88CFDA8D2F6AC7AFC8E5397C47F94E08D7879D5DC70B39029" ||
-            Convert.ToHexString(SHA256.HashData(shader.Shader.Container.GetProgramBytes(shader.Shader.Source.Bytes, 54))) != Pixel54Sha)
-            throw new InvalidDataException("Matched coarse programs changed.");
+        var detailProgram = TerrainShaderStages.Import(shader.Shader, combination, false, extraAlbedo != 0);
+        var coarseProgram = TerrainShaderStages.Import(shader.Shader, coarseCombination, true, extraAlbedo != 0);
         LoadedTerrainTextureGroup field = TerrainTextureResources.LoadGroup(repository, terrain, TerrainTextureGroupKind.Field);
         LoadedTerrainTextureGroup root = TerrainTextureResources.LoadGroup(repository, terrain, TerrainTextureGroupKind.Root);
         LoadedTerrainTextureGroup? auxiliary = extraAlbedo == 0 ? null :
@@ -84,9 +87,8 @@ public static class TerrainGbiMapResources
         float range = F32(Scalar(parameters.TerrainRoot, 0x2913BB1D, 8).RawValue);
         if (!float.IsFinite(near) || !float.IsFinite(range) || range <= 0 || !float.IsFinite(near + range))
             throw new InvalidDataException("Invalid original NearFarBlendingOffset/Range.");
-        return new(parameters, shader, field, root, auxiliary, control, palette, feature, combination,
-            BitConverter.Int32BitsToSingle(0x3F13B646), new(near, near + range), extraAlbedo != 0,
-            coarseFeature, coarseCombination);
+        return new(parameters, shader, field, root, auxiliary, control, palette, feature, coarseFeature,
+            detailProgram, coarseProgram, new(near, near + range), extraAlbedo != 0);
     }
     public static byte[] CreateGroup0Condition(uint compositionFlags, bool extraAlbedo, bool extraNormal,
         bool renderContextExtraTexture)

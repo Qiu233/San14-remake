@@ -25,8 +25,6 @@ public sealed partial class MapSourceCreatedWorldNativeSession : IAsyncDisposabl
     public NativeMapArmyPreparedFrame? CurrentArmyCpuFrame { get; private set; }
     public IReadOnlyList<NativeMapStageTiming> LastBeforeFrameTimings { get; private set; }=[];
     private IReadOnlyList<NativeDeferredPacket>? preparedLatePackets;
-    private NativeMapWorldDeferredSubmittedFrame? acceptedLateSubmission;
-    private NativeDeferredPacket[]? appliedLatePackets;
     private readonly LoadedDeferredSamplerNativeSource native;
     private readonly LoadedSkyAmbientResources skySource;
     private readonly MapCommonViewFilterSource filterSource;
@@ -38,6 +36,7 @@ public sealed partial class MapSourceCreatedWorldNativeSession : IAsyncDisposabl
     private readonly object lifetime=new();
     private bool retiring;
     private Task? disposal;
+    private NativeMapBorrowerRetirementPackage? finalRetirement;
 
     private MapSourceCreatedWorldNativeSession(DeferredPixelProgram program,GgxAmbientLut ggx,
         NativeDeferredResources resources,MapSelectedSourceSamplerOwner samplers,
@@ -87,18 +86,26 @@ public sealed partial class MapSourceCreatedWorldNativeSession : IAsyncDisposabl
             var transparency=PrepareTransparency(bootstrap,filters);
             var samplerPlan=PrepareSamplers(program,native,sky,imagePlan,transparency.Selection,pairs);
             samplers=await MapSelectedSourceSamplerOwner.BuildAsync(samplerPlan);images=MapSelectedSourceImageOwner.FromSource(imagePlan);
-            var provider=new MapSourceCreatedDirectionalDeferredProvider(program,lightOwner,source);
-            assembler=new(provider,resources,samplers,images,materials,population);
+            assembler=new(program,lightOwner,source,resources,samplers,images,materials,population);
             var plugins=DeferredSelected383PluginOwner.CreateAfterSuccessfulGraphicsInitialization(
                 RenderSamplerSourceAdapters.LoadSelected767PluginSource(repo.SourceDirectory,selected.Camera.ExecutableLocale),selected.SourcePlan);
             return new(program,ggx,resources,samplers,images,assembler,army,plugins,native,sky,filters,bootstrap.Lighting.Binding,current,gpu,ambient);
         }
-        catch
+        catch(Exception failure)
         {
-            if(assembler is not null)await assembler.DisposeAsync();
-            if(images is not null)await images.DisposeAsync();if(samplers is not null)await samplers.DisposeAsync();
-            if(resources is not null)await resources.DisposeAsync();if(ggx is not null)await ggx.DisposeAsync();await program.DisposeAsync();throw;
+            await RetireFailedConstructionAsync(failure,assembler,images,samplers,resources,ggx,program);
+            throw;
         }
+    }
+
+    private static async Task RetireFailedConstructionAsync(Exception failure,params IAsyncDisposable?[] completedOwners)
+    {
+        var pending=NativeMapBorrowerRetirementPackage.CreatePending("World-session-partial",
+            completedOwners.OfType<IAsyncDisposable>(),
+            (failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+        try { pending=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pending); }
+        catch(Exception retirementFailure)
+        {throw new NativeMapBorrowerConstructionException(failure,retirementFailure,pending!);}
     }
 
     public NativeMapSceneStages Stages(NativeMapSceneStages? preceding=null,
@@ -177,7 +184,7 @@ public sealed partial class MapSourceCreatedWorldNativeSession : IAsyncDisposabl
             if(f.Lighting.SceneInputs.Camera!=context.PreparedCamera||f.Lighting.Binding!=Binding)
                 throw new InvalidDataException("World pass differs from the accepted geometry Camera or primary owner.");
             var transparency=PrepareTransparency(f,filterSource);
-            var proofs=Assembler.Lighting.CaptureCurrentSourceNullProofs(f.Selection);
+            var proofs=Assembler.CaptureCurrentSourceNullProofs(f.Selection);
             var plan=PrepareSamplers(Program,native,skySource,MapSelectedSourceImagePlan.Read(f.Selection),transparency.Selection,proofs);
             _=Samplers.GetBindings(plan);
             return new MapSourceCreatedNativeSessionPreparedFrame(context,f.Camera.CopyAcceptedSnapshot(),f.Lighting,f.Feature,f.Selection,plan)
@@ -217,7 +224,8 @@ public sealed partial class MapSourceCreatedWorldNativeSession : IAsyncDisposabl
         {
             var plugin=Plugins.Prepare(frame.Selection,frame.Lighting);
             var additional=plugin.Complete(produced.Refraction,produced.TranslucencyViewport,produced.Projection,produced.CameraProducerProvenance);
-            var constants=DeferredSelected383Constants.Create(frame.Selection,frame.Lighting,additional);
+            var constants=DeferredSelected383Constants.Create(frame.Selection,frame.Lighting,additional,
+                context.PreparedCamera??throw new InvalidDataException("World constants require the accepted Scene Camera."));
             var transparency=PrepareTransparency(frame.PreparedSourceFrame!,filterSource);
             var geometry=MapSourceCreatedDeferredFrameInputs.FromAcceptedPopulation(population,produced.TerrainMaterials,
                 constants.Constants,[],transparency.Selection,[],produced.Raster);
@@ -230,29 +238,20 @@ public sealed partial class MapSourceCreatedWorldNativeSession : IAsyncDisposabl
         return preparedLatePackets=Array.AsReadOnly(packets.ToArray());
     }
 
-    /// <summary>Join the scene's real completed late draws to this session's
-    /// privately prepared complete World roster. RenderOrderedAsync applies the
-    /// same source Camera writer after preparation; compare that resulting packet.</summary>
+    /// <summary>Join the scene's completed late draws to the exact packets
+    /// prepared for this current World roster. No numerical writer is replayed.</summary>
     public void RequireSubmittedWorld(NativeMapWorldDeferredSubmittedFrame submission)
-        =>_=RequireSubmittedWorldAndReadAppliedPackets(submission);
-    private NativeDeferredPacket[] RequireSubmittedWorldAndReadAppliedPackets(NativeMapWorldDeferredSubmittedFrame submission)
     {
         ArgumentNullException.ThrowIfNull(submission);
         lock(lifetime)ObjectDisposedException.ThrowIf(retiring,this);
         var context=submission.Context;
         var first=RequireCurrent(context);
-        submission.RequireCurrent(context);
-        if(ReferenceEquals(acceptedLateSubmission,submission)&&appliedLatePackets is { } accepted)
-            return accepted;
         if(preparedLatePackets is not { } packets||CurrentWorld is null||
             packets.Count!=CurrentPasses.Count||packets.Count!=CurrentWorld.World.Passes.Count||
             CurrentPasses.Any(p=>!ReferenceEquals(p.Context,context))||context.PreparedCamera is null||
             first.Lighting.SceneInputs.Camera!=context.PreparedCamera)
             throw new InvalidDataException("Late World submission has no exact privately prepared current source roster.");
-        var actual=packets.Select(p=>p.ApplySceneFields(Program,new(Camera:context.PreparedCamera),out _)).ToArray();
-        submission.RequireExactOrderedPackets(Program,actual);
-        acceptedLateSubmission=submission;appliedLatePackets=actual;
-        return actual;
+        submission.RequireOrderedPackets(Program,packets);
     }
 
     private MapSourceCreatedNativeSessionPreparedFrame RequireCurrent(NativeMapFrameContext context)
@@ -289,8 +288,21 @@ public sealed partial class MapSourceCreatedWorldNativeSession : IAsyncDisposabl
         return (camera,common,camera.ReadTransparencySelection(
             frame.Common.AuxiliaryPresent?common.TransparencyResolution8C:null));
     }
-    public ValueTask DisposeAsync(){lock(lifetime){retiring=true;return new(disposal??=RetireAsync());}}
+    public ValueTask DisposeAsync()
+    {
+        lock(lifetime)
+        {
+            retiring=true;
+            if(disposal is null||disposal.IsFaulted||disposal.IsCanceled)disposal=RetireAsync();
+            return new(disposal);
+        }
+    }
     private async Task RetireAsync()
-    {AdvanceAcceptedSubmittedWorldRevision();CurrentFrame=null;CurrentWorld=null;CurrentPasses=[];GeometryFrame=null;GeometryWorld=null;GeometryPasses=[];preparedLatePackets=null;await Assembler.DisposeAsync();await Images.DisposeAsync();await Samplers.DisposeAsync();
-        await Resources.DisposeAsync();await Ggx.DisposeAsync();await Program.DisposeAsync();}
+    {
+        AdvanceAcceptedSubmittedWorldRevision();
+        CurrentFrame=null;CurrentWorld=null;CurrentPasses=[];GeometryFrame=null;GeometryWorld=null;GeometryPasses=[];preparedLatePackets=null;
+        finalRetirement??=NativeMapBorrowerRetirementPackage.CreatePending("World-session-final",
+            [Assembler,Images,Samplers,Resources,Ggx,Program]);
+        finalRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(finalRetirement);
+    }
 }

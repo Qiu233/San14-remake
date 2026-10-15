@@ -58,6 +58,20 @@ public sealed class ArmyGraphicsMotion
         Skip8DC = (byte)(actualCommanderWord12 % actualUpdateInterval32C510);
     }
 
+    /// <summary>Independent retained motion for a candidate presentation.
+    /// Advancing it cannot change the published owner's records or cadence.</summary>
+    public ArmyGraphicsMotion ForkLogicalState()=>new(this);
+
+    private ArmyGraphicsMotion(ArmyGraphicsMotion source)
+    {
+        records=(byte[])source.records.Clone();
+        callerSource=source.callerSource;language=source.language;
+        centerCurrent=source.centerCurrent;centerTarget=source.centerTarget;
+        centerHeading=source.centerHeading;targetHeading=source.targetHeading;centerSpeed=source.centerSpeed;
+        TargetHex64=source.TargetHex64;AuxiliaryTargetHex68=source.AuxiliaryTargetHex68;
+        GraphicsAction60=source.GraphicsAction60;Skip8DC=source.Skip8DC;
+    }
+
     public ArmyInstancePoseSnapshot CaptureRecords() =>
         ArmyInstancePose.ReadRecords(records, callerSource + "; retained ordinary1CA280 motion", language);
 

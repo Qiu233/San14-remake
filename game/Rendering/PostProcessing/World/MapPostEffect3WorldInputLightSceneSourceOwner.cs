@@ -28,12 +28,11 @@ public sealed class MapPostEffect3WorldInputLightSceneSourceOwner:IAsyncDisposab
         ";dedicated-light-scene-target-2A691F4A;"+
         "black-clear/stock-mode1-Scene-copy/target-pop;separate-actual-image";
     private MapPostEffect3WorldInputLightSceneSourceOwner(MapSourceCreatedWorldPlayableHost host,
-        MapFinalOutputPassOwner.NativeRecipeOwner native,RenderTextureDefinition declaration)
+        MapFinalOutputPassOwner.NativeRecipeOwner native,RenderTextureDefinition declaration,
+        RenderTextureRuntimeDescriptor descriptor,byte[] samplerKey)
     {
         this.host=host;this.native=native;this.declaration=declaration;
-        descriptor=RenderTextureRuntimeDescriptor.ConstructDeclared(declaration,
-            "owned-first-World-dedicated-LightScene:"+Guid.NewGuid().ToString("N"));
-        nativeSamplerKey=RenderSamplerSourceAdapters.FinalRenderTextureKey(native.Graph.Source.StockScreen.Native,declaration);
+        this.descriptor=descriptor;nativeSamplerKey=samplerKey;
     }
     public static async Task<MapPostEffect3WorldInputLightSceneSourceOwner> BuildAsync(
         MapSourceCreatedWorldPlayableHost host,Vkd3dShaderCompiler compiler,bool allowReadback=false)
@@ -45,9 +44,25 @@ public sealed class MapPostEffect3WorldInputLightSceneSourceOwner:IAsyncDisposab
             declaration.LevelNum!=1||declaration.ColorSpace!=0||declaration.OutputColorSpace!=0||
             formats.ShaderViewFormat!=26||formats.TargetViewFormat!=26)
             throw new InvalidDataException("Dedicated LightScene differs from its original dynamic native107 single2D target.");
-        var native=await MapFinalOutputPassOwner.NativeRecipeOwner.BuildAsync(graph,
-            [new("light",MapFinalOutputNativeProgramKind.StockScreenDefault1,-1)],compiler,allowReadback);
-        return new(host,native,declaration);
+        var descriptor=RenderTextureRuntimeDescriptor.ConstructDeclared(declaration,
+            "owned-first-World-dedicated-LightScene:"+Guid.NewGuid().ToString("N"));
+        var samplerKey=RenderSamplerSourceAdapters.FinalRenderTextureKey(graph.Source.StockScreen.Native,declaration);
+        MapFinalOutputPassOwner.NativeRecipeOwner? native=null;
+        try
+        {
+            native=await MapFinalOutputPassOwner.NativeRecipeOwner.BuildAsync(graph,
+                [new("light",MapFinalOutputNativeProgramKind.StockScreenDefault1,-1)],compiler,allowReadback);
+            return new(host,native,declaration,descriptor,samplerKey);
+        }
+        catch(Exception failure)
+        {
+            var pending=NativeMapBorrowerRetirementPackage.CreatePending("World-LightScene-partial",
+                native is not null?[native]:[],(failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+            try{await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pending);}
+            catch(Exception retirementFailure)
+            {throw new NativeMapBorrowerConstructionException(failure,retirementFailure,pending!);}
+            throw;
+        }
     }
 
     public async Task BindAndProduceCurrentAsync(MapPostEffect3WorldStockGraphicsSourceOwner currentWorld,

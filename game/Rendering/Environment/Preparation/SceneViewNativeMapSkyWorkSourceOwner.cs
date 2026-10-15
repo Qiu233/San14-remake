@@ -154,7 +154,8 @@ public sealed class SceneViewNativeMapSkyWorkSourceOwner : IAsyncDisposable
         catch (Exception buildFailure)
         {
             var partial = new NativeMapBorrowerRetirementPackage(
-                BootstrapSelection.Source.Lighting.Binding.ViewIdentity + "/WORK-Star-partial/" + Guid.NewGuid().ToString("N"), star);
+                BootstrapSelection.Source.Lighting.Binding.ViewIdentity + "/WORK-Star-partial/" + Guid.NewGuid().ToString("N"),
+                buildFailure is NativeMapBorrowerConstructionException nested ? nested.RetainedPackage : null, star);
             try { await partial.DisposeAsync(); }
             catch (Exception retirementFailure)
             {

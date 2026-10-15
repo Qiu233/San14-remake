@@ -69,7 +69,7 @@ public static class D3D11NormalPostInitialInputPreparation
 {
     public static D3D11NormalPostInitialConstants Prepare(GameResourceRepository repository,
         MapSourceCreatedSeasonLightingFrame currentSeason,
-        ReadOnlyMemory<byte>? actualSelectedLightData,long? actualSelectedLightFrameNumber,
+        Vector3? actualSelectedProjectionVector,long? actualSelectedLightFrameNumber,
         int outputWidth,int outputHeight)
     {
         var camera=currentSeason.CapturePreparedCamera();
@@ -114,9 +114,9 @@ public static class D3D11NormalPostInitialInputPreparation
             fresh.FreshApplyArgument5,configuration.QualityLevel,1,"fresh owned controlled Main Post3");
         var selectedHdr=MapPostEffect3ControlledSelectedHdrTexture.CaptureActualStaticSelection(hdr,
             new(frame,owner+"/selected-HDR"),hdrRecipe.NativeDescriptorMetadata28Chain,hdrRecipe.SourceEvidence);
-        var light=MapPostEffect3ControlledLightLookup.CaptureActualNumericLookup(camera,
-            actualSelectedLightData,actualSelectedLightFrameNumber,owner+"/selected-light",
-            "same current native season first-subset lookup; actual complete provider LightData or absent");
+        var light=MapPostEffect3ControlledLightLookup.CaptureProjectionLookup(camera,
+            actualSelectedProjectionVector,actualSelectedLightFrameNumber,owner+"/selected-light",
+            "same current native season first-subset lookup; actual selected projection vector or absent");
         var inputs=new MapPostEffect3OwnedControlledCameraInputs(transfer,selector,lookups,selectedHdr,light,
             caller,ReadOnlyMemory<byte>.Empty,aux.SourceEvidence,null,execute,NativeLogDispatch.Sse)
             {ActualAuxFields=aux,ActualFreshCaller=fresh};

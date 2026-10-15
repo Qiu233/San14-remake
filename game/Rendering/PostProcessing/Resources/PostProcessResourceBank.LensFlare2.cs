@@ -12,14 +12,23 @@ public sealed partial class PostProcessResourceBank
             throw new InvalidDataException("LensFlare2 mip view is not its original50/55 wrapper.");
         var key=(texture.Source.Parameter.Index,texture.InstanceIndex,mip,nativeFormat);
         lock(lifetime)if(lensFlare2Views.TryGetValue(key,out var existing))return existing;
-        var created=await CreateComputeViewAsync(texture.StorageRid,full,nativeFormat,
-            new((int)texture.Shape.Width,(int)texture.Shape.Height,1),(uint)texture.Shape.MipLevels,(int)mip,false);
-        lock(lifetime)
+        var group=BeginResources(texture.StorageRid);
+        try
         {
-            lensFlare2Views.Add(key,created with{RetireAfterSubmission=false});
-            if(created.RetireAfterSubmission){owned.Add(created.ViewRid);OwnedRidCount=owned.Count;}
+            var created=await CreateComputeViewAsync(texture.StorageRid,full,nativeFormat,
+                new((int)texture.Shape.Width,(int)texture.Shape.Height,1),(uint)texture.Shape.MipLevels,(int)mip,false,group.Resources);
+            lock(lifetime)
+            {
+                lensFlare2Views.Add(key,created with{RetireAfterSubmission=false});
+                if(group.Resources.Count==0)DiscardEmptyResources(group);
+            }
+            return created with{RetireAfterSubmission=false};
         }
-        return created with{RetireAfterSubmission=false};
+        catch(Exception failure)
+        {
+            await ReleaseResourcesAfterFailureAsync(group,failure);
+            throw;
+        }
     }
     public async Task<IMapPostEffect3FullscreenSelectedMipTargetLease> CaptureLensFlare2DiaphragmTargetAsync(
         MapPostEffect3TextureParameterState table,MapPostEffect3LensFlare2GpuPassSource source,

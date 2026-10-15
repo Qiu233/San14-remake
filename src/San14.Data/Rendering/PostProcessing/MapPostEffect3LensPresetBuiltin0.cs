@@ -1,9 +1,67 @@
+using System.Numerics;
+
 namespace San14.Data;
 
-// Original builtin0 stores; pointer words are relocation slots, not native nulls.
+/// <summary>Built-in optical settings and their portable Lens Split encoding.
+/// Pointer relocation remains with the pinned parameter owner.</summary>
 internal static class MapPostEffect3LensPresetBuiltin0
 {
     internal const string PrimitiveSha256 = "608239E0B4BDD3E6028245DBA78A2348DAFCBAD4B056EEA2226136ABCA8DCE99";
-    internal static byte[] CopyPrimitive() => Convert.FromHexString("00000000E23B313DA69BC43CBC74933C9A99993E050000003333B33F00000042000000000000803F0000000000000000000040C0000040406F12033A0000003F000080BF0000A0410000803F0000803F3333333F0000000004000000000000000000000000000000010000001000000000000000000000000F00000048E17A3F5C8F823F00000000000000000000000027A0093B95D4893D7FD9BD3CB34C73424C37093D6F12033B6D6F37BC696F32406C09F93BA69BC43A01150EBBDC9DD53F77BE1F3DF5DBD73DCA54C13C77FE904300000000000080BF499D803C0AD7A33B9A99193E0000803E0000803F000000000000403F45D8703C0AD7A33B9A99193E0000803E0000803F01000000000020C0F775603C0AD7A33B9A99193E0000803E0000803F010000009A9999BECA54413C0AD7A33B9A99193E0000803E0000803F010000000000803EBC74133C0AD7A33B9A99193E0000803E0000803F01000000000000BFDDB5043C0AD7A33B9A99193E0000803E0000803F020000006666E6BFD734EF3B0AD7A33B9A99193E0000803E0000803F02000000295CCF3F89D2DE3B0AD7A33B9A99193E0000803E0000803F020000003333B33F17B7D13B0AD7A33B9A99193E0000803E0000803F020000009A99993F96430B3C0AD7A33B9A99193E0000803E0000803F020000000000A0BFDDB5043C0AD7A33B9A99193E0000803E0000803F020000006666A63F2497FF3B0AD7A33B9A99193E0000803E0000803F020000009A9919BE2497FF3B0AD7A33B9A99193E0000803E0000803F03000000CDCC4C3FE02D903B0AD7A33B9A99193E0000803E0000803F030000003333D3BF17B7D13B0AD7A33B9A99193E0000803E0000803F03000000666626BF4B59063C0AD7A33B9A99193E0000803E0000803F");
+
+    internal static MapPostEffect3LensPresetSettings Settings { get; } = new(
+        new MapPostEffect3LensOpticsSettings(
+            ImageDiagonal: 0.04327f,
+            ImageHeight: 0.024f,
+            InfiniteFocalLengthRange: new(0.018f, 0.3f),
+            BladeCount: 5,
+            FStopRange: new(1.4f, 32f),
+            FStopShapeRange: new(0f, 1f),
+            ExposureDialRange: new(-3f, 3f),
+            ShutterSpeedRange: new(0.0005f, 0.5f),
+            FocusingPower: -1f,
+            ExposureValueRange: 20f,
+            MaximumImageFieldOfViewScale: 1f,
+            InfiniteImageCircleRate: 1f,
+            InfiniteVignettingStartRate: 0.7f,
+            AdaptedTime: Vector2.Zero),
+        new MapPostEffect3LensFlareSettings(
+            Suppressed: false,
+            FocusMovingGroup: 1,
+            HaloReferenceGhostIndex: 15,
+            LensAberration: new(0.98f, 1.02f),
+            ForceExposureValueRangeToFloat16Precision: false),
+        [
+            new(0.0021f, 0.0673f, 0.023175f, 60.8249f),
+            new(0.0335f, 0.002f, -0.011196f, 2.78805f),
+            new(0.0076f, 0.0015f, -0.002168f, 1.66888f),
+            new(0.039f, 0.1054f, 0.0236f, 289.988f)
+        ],
+        [
+            Ghost(0, -1f, 0.0157f),
+            Ghost(0, 0.75f, 0.0147f),
+            Ghost(1, -2.5f, 0.0137f),
+            Ghost(1, -0.3f, 0.0118f),
+            Ghost(1, 0.25f, 0.009f),
+            Ghost(1, -0.5f, 0.0081f),
+            Ghost(2, -1.8f, 0.0073f),
+            Ghost(2, 1.62f, 0.0068f),
+            Ghost(2, 1.4f, 0.0064f),
+            Ghost(2, 1.2f, 0.0085f),
+            Ghost(2, -1.25f, 0.0081f),
+            Ghost(2, 1.3f, 0.0078f),
+            Ghost(2, -0.15f, 0.0078f),
+            Ghost(3, 0.8f, 0.0044f),
+            Ghost(3, -1.65f, 0.0064f),
+            Ghost(3, -0.65f, 0.0082f)
+        ]);
+
+    private static readonly byte[] primitive = MapPostEffect3LensPresetEncoding.Encode(Settings);
+
+    internal static byte[] CopyPrimitive() => primitive.ToArray();
+
+    // These bytes were unwritten by the native constructor; this backend uses zero.
     internal static readonly int[] RetainedPaddingOffsets = [85,86,87,92,93,94,95,141,142,143];
+
+    private static MapPostEffect3SimpleGhostSettings Ghost(int group, float positionScale, float extendOffset)
+        => new(group, positionScale, extendOffset, 0.005f, new(0.15f, 0.25f, 1f));
 }

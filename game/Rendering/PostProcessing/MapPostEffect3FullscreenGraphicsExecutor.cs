@@ -13,6 +13,21 @@ public sealed partial class MapPostEffect3FullscreenGraphicsExecutor:IAsyncDispo
     private readonly SemaphoreSlim serial=new(1,1);
     private readonly object lifetime=new();
     private int accepted;private bool retiring;private TaskCompletionSource? drained;private Task? disposal;
+    private NativeMapBorrowerRetirementPackage? pendingDraw;
+    private sealed class DrawResources(IDisposable bankScope,Accepted actual):IAsyncDisposable
+    {
+        public RenderDeviceResources Resources{get;}=new("Fullscreen RD allocation failed.");
+        private IDisposable? scope=bankScope;
+        private bool deviceReleased;
+        public void ReleaseDevice(RenderingDevice rd)
+        {Resources.Release(rd);deviceReleased=true;}
+        public async ValueTask DisposeAsync()
+        {
+            if(!deviceReleased){await Resources.DisposeAsync();deviceReleased=true;}
+            GC.KeepAlive(actual);
+            scope?.Dispose();scope=null;
+        }
+    }
     private MapPostEffect3FullscreenGraphicsExecutor(MapPostEffect3ProgramLibrary library,
         PostProcessResourceBank bank)=>(Library,Bank)=(library,bank);
     public static MapPostEffect3FullscreenGraphicsExecutor Create(
@@ -110,13 +125,14 @@ public sealed partial class MapPostEffect3FullscreenGraphicsExecutor:IAsyncDispo
     private async Task<MapPostEffect3FullscreenCompletedPass> DrawAcceptedAsync(int index,Accepted actual)
     {
         var cpu=RenderThreadSchedulingDiagnostics.BeginCpuTrace("FullscreenAccepted",index);
-        await serial.WaitAsync();var owned=new List<Rid>();IDisposable? bankScope=null;
+        await serial.WaitAsync();DrawResources? resources=null;Exception? drawFailure=null;
         cpu?.Mark("01-serial-wait");
         try
         {
+            await DrainPendingDrawCoreAsync();
             LastCompletedPass=null;actual.Validate();var input=actual.Input;var source=input.SourceDraw;
             cpu?.Mark("02-accepted-validation");
-            bankScope=await Bank.AcquireBufferExecutionScopeAsync();
+            resources=new(await Bank.AcquireBufferExecutionScopeAsync(),actual);
             cpu?.Mark("03-bank-scope");
             var compiled=await Library.GetCompiledPassAsync(index,actual.Nulls);
             cpu?.Mark("04-compiled-program");
@@ -226,9 +242,10 @@ public sealed partial class MapPostEffect3FullscreenGraphicsExecutor:IAsyncDispo
             bool emptyPixelDomain=clippedScissor is{} clipped&&(clipped.Size.X<=0||clipped.Size.Y<=0);
             var renderingTask=TerrainDeviceTexture.OnRenderThreadAsync(rd=>
             {
+                Exception? callbackFailure=null;
                 try
                 {
-                    Rid Own(Rid rid){if(!rid.IsValid)throw new InvalidDataException("Fullscreen RD allocation failed.");owned.Add(rid);return rid;}
+                    Rid Own(Rid rid)=>resources.Resources.Own(rid);
                     actual.Validate();ValidateCbsAndReads();
                     // Godot4.7.2 DrawListEnableScissor returns without changing
                     // state for an empty rectangle. Skip this read-only VS/PS
@@ -322,10 +339,16 @@ public sealed partial class MapPostEffect3FullscreenGraphicsExecutor:IAsyncDispo
                     finally{foreach(var a in blendAttachments)a.Dispose();}
                     return true;
                 }
+                catch(Exception failure){callbackFailure=failure;throw;}
                 finally
                 {
-                    for(int i=owned.Count-1;i>=0;i--)rd.FreeRid(owned[i]);
-                    owned.Clear();
+                    try{resources.ReleaseDevice(rd);}
+                    catch(Exception cleanup)
+                    {
+                        pendingDraw=NativeMapBorrowerRetirementPackage.CreatePending("Fullscreen-draw",[resources]);
+                        pendingDraw!.RetainFailure();
+                        throw new NativeMapBorrowerConstructionException(callbackFailure??cleanup,cleanup,pendingDraw);
+                    }
                 }
             });
             await renderingTask;
@@ -343,21 +366,44 @@ public sealed partial class MapPostEffect3FullscreenGraphicsExecutor:IAsyncDispo
                 {TextureReads=Array.AsReadOnly(textureReads.ToArray()),WasPixelDrawSubmitted=writeStarted,
                     SourceNullShaderResources=actual.Nulls};
         }
+        catch(Exception failure){drawFailure=failure;throw;}
         finally
         {
-            try{if(owned.Count!=0)await FreeAsync(owned);}
-            finally{bankScope?.Dispose();serial.Release();lock(lifetime)if(--accepted==0&&retiring)drained?.TrySetResult();
+            try
+            {
+                if(resources is not null)
+                {
+                    var nested=(drawFailure as NativeMapBorrowerConstructionException)?.RetainedPackage;
+                    if(pendingDraw is null&&nested is not null)
+                        pendingDraw=NativeMapBorrowerRetirementPackage.CreatePending("Fullscreen-draw",[resources],nested);
+                    try
+                    {
+                        if(pendingDraw is not null)await DrainPendingDrawCoreAsync();
+                        else await resources.DisposeAsync();
+                    }
+                    catch(Exception cleanup)
+                    {
+                        if(pendingDraw is null)
+                        {
+                            pendingDraw=NativeMapBorrowerRetirementPackage.CreatePending("Fullscreen-draw",[resources]);
+                            pendingDraw!.RetainFailure();
+                        }
+                        throw new NativeMapBorrowerConstructionException(drawFailure??cleanup,cleanup,pendingDraw);
+                    }
+                }
+            }
+            finally{serial.Release();lock(lifetime)if(--accepted==0&&retiring)drained?.TrySetResult();
                 cpu?.Mark("10-receipt-and-release");}
         }
     }
-    private static Task<bool> FreeAsync(IReadOnlyList<Rid> owned)=>TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-        {for(int i=owned.Count-1;i>=0;i--)rd.FreeRid(owned[i]);return true;});
+    private async Task DrainPendingDrawCoreAsync()
+    {pendingDraw=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pendingDraw);}
     public ValueTask DisposeAsync()
     {
-        lock(lifetime){if(disposal is not null)return new(disposal);retiring=true;
-            Task pending=accepted==0?Task.CompletedTask:(drained=new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
+        lock(lifetime){if(disposal is not null&&!disposal.IsFaulted&&!disposal.IsCanceled)return new(disposal);retiring=true;
+            Task pending=accepted==0?Task.CompletedTask:(drained??=new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
             return new(disposal=RetireAsync(pending));}
     }
     private async Task RetireAsync(Task pending)
-    {await pending;await serial.WaitAsync();try{LastCompletedPass=null;}finally{serial.Release();}}
+    {await pending;await serial.WaitAsync();try{await DrainPendingDrawCoreAsync();LastCompletedPass=null;}finally{serial.Release();}}
 }

@@ -17,7 +17,7 @@ public sealed partial class PostProcessResourceBank
     // The caller holds AcquireBufferExecutionScopeAsync until every descriptor
     // set and temporary view has retired. This also protects texture owners.
     internal Task<MapPostEffect3ComputeMipView> CreateComputeWriteMipViewAsync(
-        MapPostEffect3DeviceTexture texture,int mipSelector,int sliceSelector)
+        MapPostEffect3DeviceTexture texture,int mipSelector,int sliceSelector,RenderDeviceResources resources)
     {
         RequireSlice(sliceSelector);
         if(texture.Shape.Dimension!=MapPostEffect3TextureDimension.Texture2D||
@@ -32,11 +32,11 @@ public sealed partial class PostProcessResourceBank
             texture.NativeFormatViews[texture.Shape.Formats.UnorderedAccessFormat],
             texture.Shape.Formats.UnorderedAccessFormat,
             new(checked((int)texture.Shape.Width),checked((int)texture.Shape.Height),1),
-            checked((uint)texture.Shape.MipLevels),mip,true);
+            checked((uint)texture.Shape.MipLevels),mip,true,resources);
     }
 
     internal async Task<MapPostEffect3ComputeMipView> CreateComputeReadMipViewAsync(
-        IMapPostEffect3ComputeTextureLease lease,int mipSelector,int sliceSelector,
+        IMapPostEffect3ComputeTextureLease lease,int mipSelector,int sliceSelector,RenderDeviceResources resources,
         MapPostEffect3LensTextureReadFootprint? actualLensReadFootprint=null)
     {
         RequireSlice(sliceSelector);lease.RequireCurrent();
@@ -96,14 +96,14 @@ public sealed partial class PostProcessResourceBank
             else throw new NotSupportedException("Full storage readiness does not prove this sampled mip range; a source content capability is required.");
         }
         return await CreateComputeViewAsync(lease.StorageRid,lease.ShaderViewRid,lease.NativeViewFormat,
-            lease.Extent,mips,mipSelector,false,lease);
+            lease.Extent,mips,mipSelector,false,resources,lease);
     }
 
     private static void RequireSlice(int slice)
     {if(slice is not (-1 or 0))throw new NotSupportedException("Original Lens mip adapter only admits ordinary2D slice0 or its absent selector.");}
 
     private static Task<MapPostEffect3ComputeMipView> CreateComputeViewAsync(Rid storage,Rid fullView,
-        uint nativeFormat,Vector3I baseExtent,uint expectedMips,int mipSelector,bool write,
+        uint nativeFormat,Vector3I baseExtent,uint expectedMips,int mipSelector,bool write,RenderDeviceResources resources,
         IMapPostEffect3ComputeTextureLease? actualSampledProducer=null)
         =>TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
@@ -129,26 +129,24 @@ public sealed partial class PostProcessResourceBank
             Vector3I extent=new(Math.Max(1,baseExtent.X>>checked((int)first)),Math.Max(1,baseExtent.Y>>checked((int)first)),1);
             bool temporary=mipSelector>=0&&expectedMips>1;
             Rid actual=fullView;
-            try
+            if(temporary)
             {
-                if(temporary)
-                {
-                    using var view=new RDTextureView{FormatOverride=format};
-                    actual=rd.TextureCreateSharedFromSlice(view,storage,0,first,1,RenderingDevice.TextureSliceType.Slice2D);
-                    if(!actual.IsValid||!rd.TextureIsValid(actual))throw new InvalidDataException("RenderingDevice rejected the exact source2D mip view.");
-                }
-                using var f=rd.TextureGetFormat(actual);
-                bool actualFormatMatches=f.Format==format;
-                if(!actualFormatMatches&&!write&&!temporary&&actual==fullView&&
-                    actualSampledProducer is IMapPostEffect3SharedSampledViewLease actualShared)
-                {actualShared.RequireSharedSampledViewProof().RequireCurrentNativeView(actualSampledProducer,rd,f);actualFormatMatches=true;}
-                if(f.TextureType!=RenderingDevice.TextureType.Type2D||f.ArrayLayers!=1||f.Depth!=1||!actualFormatMatches||
-                    f.Width!=extent.X||f.Height!=extent.Y||f.Mipmaps!=count||
-                    !f.UsageBits.HasFlag(write?RenderingDevice.TextureUsageBits.StorageBit:RenderingDevice.TextureUsageBits.SamplingBit))
-                    throw new InvalidDataException("Actual shared source mip view has a different format/subresource extent.");
-                return new MapPostEffect3ComputeMipView(actual,storage,nativeFormat,format,extent,first,count,temporary)
-                    {ActualSampledProducer=write?null:actualSampledProducer};
+                using var view=new RDTextureView{FormatOverride=format};
+                actual=rd.TextureCreateSharedFromSlice(view,storage,0,first,1,RenderingDevice.TextureSliceType.Slice2D);
+                if(!actual.IsValid)throw new InvalidDataException("RenderingDevice rejected the exact source2D mip view.");
+                resources.Own(actual);
+                if(!rd.TextureIsValid(actual))throw new InvalidDataException("RenderingDevice rejected the exact source2D mip view.");
             }
-            catch{if(temporary&&actual.IsValid&&actual!=fullView)rd.FreeRid(actual);throw;}
+            using var f=rd.TextureGetFormat(actual);
+            bool actualFormatMatches=f.Format==format;
+            if(!actualFormatMatches&&!write&&!temporary&&actual==fullView&&
+                actualSampledProducer is IMapPostEffect3SharedSampledViewLease actualShared)
+            {actualShared.RequireSharedSampledViewProof().RequireCurrentNativeView(actualSampledProducer,rd,f);actualFormatMatches=true;}
+            if(f.TextureType!=RenderingDevice.TextureType.Type2D||f.ArrayLayers!=1||f.Depth!=1||!actualFormatMatches||
+                f.Width!=extent.X||f.Height!=extent.Y||f.Mipmaps!=count||
+                !f.UsageBits.HasFlag(write?RenderingDevice.TextureUsageBits.StorageBit:RenderingDevice.TextureUsageBits.SamplingBit))
+                throw new InvalidDataException("Actual shared source mip view has a different format/subresource extent.");
+            return new MapPostEffect3ComputeMipView(actual,storage,nativeFormat,format,extent,first,count,temporary)
+                {ActualSampledProducer=write?null:actualSampledProducer};
         });
 }

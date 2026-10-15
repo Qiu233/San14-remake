@@ -25,23 +25,29 @@ public sealed partial class PostProcessResourceBank
         {
             byte[] bytes=rd.BufferGetData(buffer.StorageRid,0,buffer.Source.ByteCount);
             if(bytes.Length!=buffer.Source.ByteCount)throw new InvalidDataException("Completed source StorageBuffer bridge readback is incomplete.");
-            Rid view=rd.TextureBufferCreate(buffer.TexelCount,buffer.DeviceTexelFormat,bytes);
-            if(!view.IsValid)throw new InvalidDataException("Device rejected completed source readonly buffer SRV bridge.");
+            var group=BeginResources(buffer.StorageRid);
             bool installed=false;Rid old=default;
             try
             {
+                Rid view=rd.TextureBufferCreate(buffer.TexelCount,buffer.DeviceTexelFormat,bytes);
+                if(!view.IsValid)throw new InvalidDataException("Device rejected completed source readonly buffer SRV bridge.");
+                group.Resources.Own(view);
                 lock(lifetime)
                 {
                     if(!ReferenceEquals(RequireCurrentBuffer(index,side,frame),buffer)||buffer.UploadRevision!=revision)
                         throw new InvalidDataException("Source buffer changed while its serialized readonly bridge was prepared.");
                     if(bufferShaderReadViews.TryGetValue(key,out var previous))old=previous.View;
-                    if(old.IsValid){if(!owned.Remove(old))throw new InvalidDataException("Readonly buffer view lost bank ownership.");}
-                    owned.Add(view);OwnedRidCount=owned.Count;
+                    if(old.IsValid&&!owned.Any(group=>group.Resources.Contains(old)))
+                        throw new InvalidDataException("Readonly buffer view lost bank ownership.");
                     bufferShaderReadViews[key]=(view,revision);buffer.PreparedShaderReadRid=view;installed=true;
                 }
-                if(old.IsValid)rd.FreeRid(old);return true;
+                if(old.IsValid)RetireOwnedRid(rd,old);return true;
             }
-            finally{if(!installed)rd.FreeRid(view);}
+            catch(Exception failure)
+            {
+                if(!installed)ReleaseResourcesAfterFailure(rd,group,failure);
+                throw;
+            }
         });
         return CaptureCurrentBufferLease(index,side,frame);
     }

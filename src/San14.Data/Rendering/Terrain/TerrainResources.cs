@@ -23,7 +23,14 @@ public static class TerrainResources
         string archive, uint bundleId)
     {
         ArgumentNullException.ThrowIfNull(repository);
-        LoadedObjects objects = repository.LoadObjects(archive, bundleId);
+        return Load(repository, repository.LoadObjects(archive, bundleId));
+    }
+
+    /// <summary>Follow the bundle already selected and imported by the scene.</summary>
+    public static LoadedTerrainResources Load(GameResourceRepository repository, LoadedObjects objects)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        ArgumentNullException.ThrowIfNull(objects);
         string context = objects.Source.ResourceUri;
         DokObject[] roots = objects.Document.Objects.Where(item =>
             item.Kind == DokObjectKind.Inline && item.ClassId == RootClass).ToArray();

@@ -28,8 +28,9 @@ public sealed class DeferredAuxiliaryDepthCopyProducer : IAsyncDisposable
     public DeferredAuxiliaryPixelProgram Program { get; }
     private readonly SemaphoreSlim gate=new(1,1);
     private readonly object retirementGate=new();
-    private bool retiring;
+    private volatile bool retiring;
     private Task? disposal;
+    private IAsyncDisposable? pendingDraw;
 
     private DeferredAuxiliaryDepthCopyProducer(LoadedDeferredAuxiliaryPixelSourceRecipes source,
         LoadedDeferredAuxiliaryDepthCopySource embedded,DeferredAuxiliaryPixelProgram program)
@@ -58,6 +59,7 @@ public sealed class DeferredAuxiliaryDepthCopyProducer : IAsyncDisposable
         await gate.WaitAsync();
         try
         {
+            await DrainPendingDrawCoreAsync();
             ObjectDisposedException.ThrowIf(retiring,this);Program.RequireAvailable();
             if(selection.Camera.ExecutableLocale!=EmbeddedSource.Locale||
                 selection.SourcePlan.Graph.Source.ResourceUri!=Source.Graph.Source.ResourceUri||
@@ -97,32 +99,69 @@ public sealed class DeferredAuxiliaryDepthCopyProducer : IAsyncDisposable
             var constants=new Dictionary<(uint,uint),ReadOnlyMemory<byte>>{{(1,0),quad.VertexConstantBytes}};
             var inputs=new DeferredDeviceBinding[]{new("Texture",0,currentMainDepth.ShaderViewRid,
                 currentMainDepth.StorageRid,currentMainDepth.Source.Source.Source.ResourceUri+"#E13DDB4F/source-mip0")};
-            await using var draw=await DeferredAuxiliaryPixelDraw.BuildAsync(Program,destination,0,constants,inputs,
-                4,RenderingDevice.RenderPrimitive.Triangles,quad);
-            var receipt=DeferredAuxiliaryProductionReceipt.FromSourceWriter(Source.Graph,97,
-                selection.Current.FrameNumber,selection.Current.CurrentProducerProvenance,
-                "OriginalNode97CopyDepthOnly;ps="+Program.PixelTranslation.SourceProgramSha256+
-                ";mainDepthProducer="+currentMainDepthProducerProvenance+
-                ";backendProducer="+backend.CurrentBackendProducerProvenance+
-                ";destination-stencil-aspect="+(stencilAdmission.TargetHasNoStencilAspect?"absent":"present")+
-                ";global-stencil-disabled="+(backend.CurrentGlobalStencilIsDisabled?.ToString()??"unknown")+
-                ";followingMode16GeometryNotCertified",EmbeddedSource.DestinationDepthObjectId,[0]);
-            await destination.ProduceAsync(receipt,(rd,surfaces)=>
+            DeferredAuxiliaryPixelDraw draw;
+            try
             {
-                if(surfaces.Count!=1||surfaces[0].Source.MipLevel!=0)
-                    throw new InvalidDataException("CopyDepth selected another source target surface.");
-                draw.Submit(rd);
-            });
-            return new(selection,receipt,destination);
+                draw=await DeferredAuxiliaryPixelDraw.BuildAsync(Program,destination,0,constants,inputs,
+                    4,RenderingDevice.RenderPrimitive.Triangles,quad);
+            }
+            catch(NativeMapBorrowerConstructionException failure)
+            {pendingDraw=failure.RetainedPackage;throw;}
+            pendingDraw=draw;
+            Exception? productionFailure=null;
+            try
+            {
+                var receipt=DeferredAuxiliaryProductionReceipt.FromSourceWriter(Source.Graph,97,
+                    selection.Current.FrameNumber,selection.Current.CurrentProducerProvenance,
+                    "OriginalNode97CopyDepthOnly;ps="+Program.PixelTranslation.SourceProgramSha256+
+                    ";mainDepthProducer="+currentMainDepthProducerProvenance+
+                    ";backendProducer="+backend.CurrentBackendProducerProvenance+
+                    ";destination-stencil-aspect="+(stencilAdmission.TargetHasNoStencilAspect?"absent":"present")+
+                    ";global-stencil-disabled="+(backend.CurrentGlobalStencilIsDisabled?.ToString()??"unknown")+
+                    ";followingMode16GeometryNotCertified",EmbeddedSource.DestinationDepthObjectId,[0]);
+                await destination.ProduceAsync(receipt,(rd,surfaces)=>
+                {
+                    if(surfaces.Count!=1||surfaces[0].Source.MipLevel!=0)
+                        throw new InvalidDataException("CopyDepth selected another source target surface.");
+                    draw.Submit(rd);
+                });
+                return new(selection,receipt,destination);
+            }
+            catch(Exception failure){productionFailure=failure;throw;}
+            finally
+            {
+                try{await DrainPendingDrawCoreAsync();}
+                catch(Exception cleanup) when(productionFailure is not null)
+                {throw new AggregateException("Auxiliary depth production and draw retirement failed.",productionFailure,cleanup);}
+            }
         }
         finally{gate.Release();}
     }
 
-    public ValueTask DisposeAsync(){lock(retirementGate)return new(disposal??=RetireAsync());}
+    internal async Task DrainPendingDrawAsync()
+    {
+        await gate.WaitAsync();
+        try{await DrainPendingDrawCoreAsync();}
+        finally{gate.Release();}
+    }
+    private async Task DrainPendingDrawCoreAsync()
+    {
+        if(pendingDraw is not null)await pendingDraw.DisposeAsync();
+        pendingDraw=null;
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        lock(retirementGate)
+        {
+            retiring=true;
+            return new(disposal is null||disposal.IsFaulted||disposal.IsCanceled?disposal=RetireAsync():disposal);
+        }
+    }
     private async Task RetireAsync()
     {
         await gate.WaitAsync();
-        try{retiring=true;await Program.DisposeAsync();}
+        try{await DrainPendingDrawCoreAsync();await Program.DisposeAsync();}
         finally{gate.Release();}
     }
 }

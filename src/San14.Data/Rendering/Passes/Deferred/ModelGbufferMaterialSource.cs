@@ -22,7 +22,7 @@ public static class ModelGbufferMaterialSourceReader
     {
         ArgumentNullException.ThrowIfNull(shader);
         ArgumentNullException.ThrowIfNull(draw);
-        G2ShaderContainer container = G2ShaderContainerReader.Read(shader.Source.Bytes);
+        G2ShaderContainer container = shader.Container;
         // 96CB07 copies the complete source header to Module+30; 3000 performs
         // no header normalization. Module+84 therefore reads source+54.
         uint count = BinaryPrimitives.ReadUInt32LittleEndian(container.RawHeader.AsSpan(0x54, 4));

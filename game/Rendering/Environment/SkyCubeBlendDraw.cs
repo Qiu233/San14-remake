@@ -12,15 +12,14 @@ public sealed class SkyCubeBlendDraw : IAsyncDisposable
     public byte[] SourceSamplerDescriptorB { get; }
     public CubeRenderDeviceSurface Target { get; }
     private readonly Rid _pipeline,_vertexSet,_pixelSet,_vertexBuffer,_pixelBuffer;
-    private readonly List<Rid> _owned;
-    private readonly object _lifetimeGate=new();
-    private Task? _disposal;
+    private readonly RenderDeviceResources resources;
+    private volatile bool retiring;
 
     private SkyCubeBlendDraw(byte[] vc,byte[] pc,byte[] sa,byte[] sb,CubeRenderDeviceSurface target,
-        Rid pipeline,Rid vs,Rid ps,Rid vcb,Rid pcb,List<Rid> owned)
+        Rid pipeline,Rid vs,Rid ps,Rid vcb,Rid pcb,RenderDeviceResources resources)
         =>(VertexConstantBytes,PixelConstantBytes,SourceSamplerDescriptorA,SourceSamplerDescriptorB,Target,
-            _pipeline,_vertexSet,_pixelSet,_vertexBuffer,_pixelBuffer,_owned)
-            =(vc,pc,sa,sb,target,pipeline,vs,ps,vcb,pcb,owned);
+            _pipeline,_vertexSet,_pixelSet,_vertexBuffer,_pixelBuffer,this.resources)
+            =(vc,pc,sa,sb,target,pipeline,vs,ps,vcb,pcb,resources);
 
     internal static (byte[] Vertex,byte[] Pixel) PrepareConstants(float explicitInterpolation,
         ReadOnlyMemory<byte> explicitRowMajorFaceMatrix)
@@ -56,9 +55,8 @@ public sealed class SkyCubeBlendDraw : IAsyncDisposable
         var surface=target.Surfaces[(int)surfaceId];
         return TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
-            var owned=new List<Rid>();
-            Rid Own(Rid rid)
-            {if(!rid.IsValid)throw new InvalidDataException("Cube blend device allocation failed.");owned.Add(rid);return rid;}
+            var resources=new RenderDeviceResources("Cube blend device allocation failed.");
+            Rid Own(Rid rid)=>resources.Own(rid);
             try
             {
                 if(!rd.TextureIsValid(inputA.TextureRid)||!rd.TextureIsValid(inputB.TextureRid)||!rd.FramebufferIsValid(surface.Framebuffer))
@@ -98,17 +96,22 @@ public sealed class SkyCubeBlendDraw : IAsyncDisposable
                 Rid pipeline=Own(rd.RenderPipelineCreate(program.ShaderRid,rd.FramebufferGetFormat(surface.Framebuffer),-1,
                     RenderingDevice.RenderPrimitive.TriangleStrips,raster,multi,depth,blend));
                 if(!rd.RenderPipelineIsValid(pipeline))throw new InvalidDataException("Cube blend pipeline is invalid.");
-                return new SkyCubeBlendDraw(vc,pc,sa,sb,surface,pipeline,vs,ps,vcb,pcb,owned);
+                return new SkyCubeBlendDraw(vc,pc,sa,sb,surface,pipeline,vs,ps,vcb,pcb,resources);
             }
-            catch{for(int i=owned.Count-1;i>=0;i--)rd.FreeRid(owned[i]);throw;}
+            catch(Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd,failure,"Sky-cube-blend-draw-partial");
+                throw;
+            }
         });
     }
 
     public Task DrawAsync()
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null,this);
+        ObjectDisposedException.ThrowIf(retiring,this);
         return TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
+            ObjectDisposedException.ThrowIf(retiring,this);
             long list=rd.DrawListBegin(Target.Framebuffer);
             try{rd.DrawListBindRenderPipeline(list,_pipeline);rd.DrawListBindUniformSet(list,_pixelSet,0);
                 rd.DrawListBindUniformSet(list,_vertexSet,1);rd.DrawListDraw(list,false,1,4);}
@@ -122,10 +125,11 @@ public sealed class SkyCubeBlendDraw : IAsyncDisposable
     /// samplers, uniform sets and pipeline remain this draw's loaded bindings.</summary>
     public Task DrawCurrentAsync(float explicitInterpolation,ReadOnlyMemory<byte> explicitRowMajorFaceMatrix)
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null,this);
+        ObjectDisposedException.ThrowIf(retiring,this);
         var(vc,pc)=PrepareConstants(explicitInterpolation,explicitRowMajorFaceMatrix);
         return TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
+            ObjectDisposedException.ThrowIf(retiring,this);
             if(rd.BufferUpdate(_vertexBuffer,0,64,vc)!=Error.Ok||
                 rd.BufferUpdate(_pixelBuffer,0,16,pc)!=Error.Ok)
                 throw new InvalidDataException("Device rejected the current cube blend constants.");
@@ -140,17 +144,7 @@ public sealed class SkyCubeBlendDraw : IAsyncDisposable
 
     public ValueTask DisposeAsync()
     {
-        lock(_lifetimeGate)
-        {
-            if(_disposal is null||_disposal.IsFaulted||_disposal.IsCanceled)
-                _disposal=TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-                {
-                    // Remove only successfully released resources. A failed
-                    // retirement keeps remaining borrowers for scene cleanup.
-                    while(_owned.Count>0){rd.FreeRid(_owned[^1]);_owned.RemoveAt(_owned.Count-1);}
-                    return true;
-                });
-            return new(_disposal);
-        }
+        retiring=true;
+        return resources.DisposeAsync();
     }
 }

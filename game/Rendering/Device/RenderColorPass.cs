@@ -9,21 +9,31 @@ public sealed class RenderColorPass : IAsyncDisposable
     public RenderTargetFrame Source { get; }
     public Rid Framebuffer { get; }
     public IReadOnlyList<Rid> OwnerTextures { get; }
-    private Task? _disposal;
-    private RenderColorPass(RenderTargetFrame source,Rid framebuffer,IReadOnlyList<Rid> owners)
-        =>(Source,Framebuffer,OwnerTextures)=(source,framebuffer,owners);
+    private readonly RenderDeviceResources resources;
+    private RenderColorPass(RenderTargetFrame source,Rid framebuffer,IReadOnlyList<Rid> owners,RenderDeviceResources owned)
+        =>(Source,Framebuffer,OwnerTextures,resources)=(source,framebuffer,owners,owned);
     public static async Task<RenderColorPass> BuildAsync(RenderTargetFrame source)
     {
         ArgumentNullException.ThrowIfNull(source);
         if(source.ColorViews.Count!=1)throw new InvalidDataException("Deferred color pass requires one source color attachment.");
-        Rid framebuffer=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
+        return await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
-            if(source.ColorViews.Any(r=>!rd.TextureIsValid(r)))throw new InvalidDataException("Color output is no longer live.");
-            Rid rid=rd.FramebufferCreate(new Godot.Collections.Array<Rid>(source.ColorViews));
-            if(!rid.IsValid||!rd.FramebufferIsValid(rid))throw new InvalidDataException("Color-only output framebuffer was rejected.");
-            return rid;
+            var resources=new RenderDeviceResources("Color-only output framebuffer was rejected.");
+            try
+            {
+                if(source.ColorViews.Any(r=>!rd.TextureIsValid(r)))throw new InvalidDataException("Color output is no longer live.");
+                var attachments=new Godot.Collections.Array<Rid>(source.ColorViews);
+                Rid rid=resources.Own(rd.FramebufferCreate(attachments));
+                if(!rd.FramebufferIsValid(rid))throw new InvalidDataException("Color-only output framebuffer was rejected.");
+                return new RenderColorPass(source,rid,
+                    source.Source.ColorTargets.Select(t=>source.Textures[t.ObjectNameHash].StorageRid).Distinct().ToArray(),resources);
+            }
+            catch(Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd,failure,"Render-color-pass-partial");
+                throw;
+            }
         });
-        return new(source,framebuffer,source.Source.ColorTargets.Select(t=>source.Textures[t.ObjectNameHash].StorageRid).Distinct().ToArray());
     }
-    public ValueTask DisposeAsync()=>new(_disposal??=TerrainDeviceTexture.OnRenderThreadAsync(rd=>{rd.FreeRid(Framebuffer);return true;}));
+    public ValueTask DisposeAsync()=>resources.DisposeAsync();
 }

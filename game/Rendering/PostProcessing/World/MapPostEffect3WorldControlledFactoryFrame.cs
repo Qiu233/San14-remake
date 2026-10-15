@@ -92,7 +92,20 @@ public sealed partial class MapPostEffect3WorldControlledFactoryFrame : IAsyncDi
     {
         var module=new MapPostEffect3WorldControlledModuleOwner(repository,bank,retainModuleLifetime,current.Camera.ExecutableLocale);
         try{return await BuildCoreAsync(repository,host,current,camera,bank,sides,actualHdr,module,null);}
-        catch{await module.AbortConstructionAsync();throw;}
+        catch(Exception failure)
+        {
+            var pending=NativeMapBorrowerRetirementPackage.CreatePending("Controlled-factory-module-partial",
+                [new ConstructionAbort(module)],(failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+            try{await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pending);}
+            catch(Exception retirementFailure)
+            {throw new NativeMapBorrowerConstructionException(failure,retirementFailure,pending!);}
+            throw;
+        }
+    }
+
+    private sealed class ConstructionAbort(MapPostEffect3WorldControlledModuleOwner module):IAsyncDisposable
+    {
+        public ValueTask DisposeAsync()=>new(module.AbortConstructionAsync());
     }
 
     internal static Task<MapPostEffect3WorldControlledFactoryFrame> BuildRetainedAsync(
@@ -310,16 +323,19 @@ public sealed partial class MapPostEffect3WorldControlledFactoryFrame : IAsyncDi
 
     public async ValueTask DisposeAsync()
     {
-        if(disposed)return;DirectoryCursor?.RetireMetadataLoansForFrameDisposal();disposed=true;
+        if(disposed)return;
         if(ModuleLifetime is{} module)
         {
-            module.Detach(this);
+            await module.RetireInvocationOwnersAsync();
+            if(!detached){module.Detach(this);detached=true;}
             if(!module.RetainsAcrossFrames)await module.DisposeAsync();
         }
         else
         {
-            try{if(depthOfFieldResources is not null)await depthOfFieldResources.DisposeAsync();}
-            finally{try{await Manager.DisposeAsync();}finally{CpuModule.Dispose();}}
+            if(depthOfFieldResources is not null){await depthOfFieldResources.DisposeAsync();depthOfFieldResources=null;}
+            await Manager.DisposeAsync();CpuModule.Dispose();
         }
+        DirectoryCursor?.RetireMetadataLoansForFrameDisposal();disposed=true;
     }
+    private bool detached;
 }

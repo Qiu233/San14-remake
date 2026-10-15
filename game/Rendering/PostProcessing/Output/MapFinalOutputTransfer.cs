@@ -20,15 +20,19 @@ public sealed class MapFinalOutputTransfer:IAsyncDisposable
     public ShaderSpirv VertexTranslation { get; }
     public ShaderSpirv PixelTranslation { get; }
     private readonly Rid _shader,_framebuffer,_pipeline,_vertices,_vertexSet,_vertexCb,_vertexBuffer,_sampledTexture;
-    private Rid _pixelSet,_sampler;
+    private Rid _pixelSet;
     private readonly IReadOnlyDictionary<int,Rid> _pixelResources;
     private readonly SemaphoreSlim _gate=new(1,1);
     private readonly object _lifetime=new();private int _accepted;private bool _retiring;private TaskCompletionSource? _drained;
-    private readonly IReadOnlyList<Rid> _owned;private Task? _disposal;
+    private readonly RenderDeviceResources _resources;
+    private RenderDeviceResources? _pairResources,_candidatePairResources;
+    private NativeMapBorrowerRetirementPackage? _pendingRetirement,_retirement;
+    private Task? _disposal;
     private MapFinalOutputTransfer(RenderTargetDeviceTexture output,RenderOutputPresentation presentation,
-        ShaderSpirv vs,ShaderSpirv ps,Rid shader,Rid framebuffer,Rid pipeline,Rid vertices,Rid vsSet,Rid psSet,Rid sampler,Rid vertexCb,Rid vertexBuffer,IReadOnlyList<Rid> owned,IReadOnlyDictionary<int,Rid> pixelResources)
-        =>(Output,Presentation,VertexTranslation,PixelTranslation,_shader,_framebuffer,_pipeline,_vertices,_vertexSet,_pixelSet,_sampler,_vertexCb,_vertexBuffer,_owned,_pixelResources,_sampledTexture)=
-            (output,presentation,vs,ps,shader,framebuffer,pipeline,vertices,vsSet,psSet,sampler,vertexCb,vertexBuffer,owned,pixelResources,
+        ShaderSpirv vs,ShaderSpirv ps,Rid shader,Rid framebuffer,Rid pipeline,Rid vertices,Rid vsSet,Rid psSet,Rid vertexCb,Rid vertexBuffer,
+        RenderDeviceResources resources,RenderDeviceResources pairResources,IReadOnlyDictionary<int,Rid> pixelResources)
+        =>(Output,Presentation,VertexTranslation,PixelTranslation,_shader,_framebuffer,_pipeline,_vertices,_vertexSet,_pixelSet,_vertexCb,_vertexBuffer,_resources,_pairResources,_pixelResources,_sampledTexture)=
+            (output,presentation,vs,ps,shader,framebuffer,pipeline,vertices,vsSet,psSet,vertexCb,vertexBuffer,resources,pairResources,pixelResources,
                 pixelResources[(int)SpirvShaderInterfaceReader.Read(ps.Bytes).Descriptors.Single(d=>d.Type.Kind=="image").Binding!.Value]);
     public static Task<MapFinalOutputTransfer> BuildAsync(LoadedMapFinalOutputResources source,
         RenderTargetDeviceTexture hdr,Vkd3dShaderCompiler compiler)
@@ -47,11 +51,14 @@ public sealed class MapFinalOutputTransfer:IAsyncDisposable
             pi.Descriptors.Count!=3||pi.Descriptors.Any(d=>d.DescriptorSet!=0)||pi.Descriptors.Count(d=>d.StorageClass==2&&d.RequiredBufferBytes==16)!=1||
             pi.Descriptors.Count(d=>d.Type.Kind=="sampler")!=1||pi.Descriptors.Count(d=>d.Type is{Kind:"image",Dimension:1,Arrayed:false})!=1)
             throw new InvalidDataException("Final output stock screen interface differs from its source32B/16B/t0/s0 layout.");
-        var built=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
+        var resources=new RenderDeviceResources("Final output transfer allocation failed.");
+        var pairResources=new RenderDeviceResources("Final output transfer allocation failed.");
+        RenderOutputPresentation? presentation=null;
+        try
         {
-            var owned=new List<Rid>();Rid Own(Rid r){if(!r.IsValid)throw new InvalidDataException("Final output transfer allocation failed.");owned.Add(r);return r;}
-            try
+            var built=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
             {
+                Rid Own(Rid resource)=>resources.Own(resource);
                 var native=RenderTextureFormatMath.Resolve(source.OutputTexture);
                 if(native.TargetViewFormat!=91||native.ShaderViewFormat!=91||source.OutputTexture.Width!=0||source.OutputTexture.Height!=0)
                     throw new InvalidDataException("Final output transfer requires exact source Output BGRA8 sRGB dynamic extent.");
@@ -65,7 +72,7 @@ public sealed class MapFinalOutputTransfer:IAsyncDisposable
                 byte[] cb=new byte[32];float[] viewport=[2f/hdr.ExplicitExtent.X,-2f/hdr.ExplicitExtent.Y,-1,1,1,1,1,1];
                 for(int i=0;i<8;i++)BinaryPrimitives.WriteSingleLittleEndian(cb.AsSpan(i*4,4),viewport[i]);
                 Rid vsCb=Own(rd.UniformBufferCreate(32,cb));byte[] alpha=new byte[16];BinaryPrimitives.WriteSingleLittleEndian(alpha,-float.MaxValue);
-                Rid psCb=Own(rd.UniformBufferCreate(16,alpha));Rid sampler=Own(DeviceSampler.Create(rd,source.StockScreen.InputSampler.EncodeD3D11Descriptor()));
+                Rid psCb=Own(rd.UniformBufferCreate(16,alpha));Rid sampler=pairResources.Own(DeviceSampler.Create(rd,source.StockScreen.InputSampler.EncodeD3D11Descriptor()));
                 Rid Set(uint set,IReadOnlyList<SpirvInterfaceVariable> declarations)
                 {
                     var uniforms=new Godot.Collections.Array<RDUniform>();
@@ -77,7 +84,7 @@ public sealed class MapFinalOutputTransfer:IAsyncDisposable
                                 d.Type.Kind=="sampler"?RenderingDevice.UniformType.Sampler:RenderingDevice.UniformType.Texture};uniforms.Add(u);
                             u.AddId(d.StorageClass==2?(set==1?vsCb:psCb):d.Type.Kind=="sampler"?sampler:hdr.ShaderViewRid);
                         }
-                        Rid created=Own(rd.UniformSetCreate(uniforms,shader,set));if(!rd.UniformSetIsValid(created))throw new InvalidDataException("Final transfer uniform set failed.");return created;
+                        Rid created=(set==0?pairResources:resources).Own(rd.UniformSetCreate(uniforms,shader,set));if(!rd.UniformSetIsValid(created))throw new InvalidDataException("Final transfer uniform set failed.");return created;
                     }
                     finally{foreach(var u in uniforms)u.Dispose();}
                 }
@@ -101,14 +108,23 @@ public sealed class MapFinalOutputTransfer:IAsyncDisposable
                 using var attachment=new RDPipelineColorBlendStateAttachment{EnableBlend=false};using var blend=new RDPipelineColorBlendState{Attachments=[attachment]};
                 Rid pipeline=Own(rd.RenderPipelineCreate(shader,rd.FramebufferGetFormat(framebuffer),vertexFormat,RenderingDevice.RenderPrimitive.TriangleStrips,raster,multi,depth,blend));
                 if(!rd.RenderPipelineIsValid(pipeline))throw new InvalidDataException("Original final stock copy pipeline was rejected.");
-                owned.Remove(pixelSet);owned.Remove(sampler);
                 var pixelResources=pi.Descriptors.Where(d=>d.Type.Kind!="sampler").ToDictionary(d=>(int)d.Binding!.Value,d=>d.StorageClass==2?psCb:hdr.ShaderViewRid);
-                return(output,shader,framebuffer,pipeline,vertices,vertexSet,pixelSet,sampler,vsCb,vb,owned.AsReadOnly(),pixelResources);
-            }
-            catch{for(int i=owned.Count-1;i>=0;i--)rd.FreeRid(owned[i]);throw;}
-        });
-        try{return new(built.output,await RenderOutputPresentation.BuildAsync(built.output),vs,ps,built.shader,built.framebuffer,built.pipeline,built.vertices,built.vertexSet,built.pixelSet,built.sampler,built.vsCb,built.vb,built.Item11,built.pixelResources);}
-        catch{await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{rd.FreeRid(built.pixelSet);rd.FreeRid(built.sampler);for(int i=built.Item11.Count-1;i>=0;i--)rd.FreeRid(built.Item11[i]);return true;});throw;}
+                return(output,shader,framebuffer,pipeline,vertices,vertexSet,pixelSet,vsCb,vb,pixelResources);
+            });
+            presentation=await RenderOutputPresentation.BuildAsync(built.output);
+            return new(built.output,presentation,vs,ps,built.shader,built.framebuffer,built.pipeline,built.vertices,built.vertexSet,built.pixelSet,
+                built.vsCb,built.vb,resources,pairResources,built.pixelResources);
+        }
+        catch(Exception failure)
+        {
+            var pending=NativeMapBorrowerRetirementPackage.CreatePending("Final-output-transfer-partial",
+                new IAsyncDisposable?[]{presentation,pairResources.Count>0?pairResources:null,resources.Count>0?resources:null}.OfType<IAsyncDisposable>(),
+                (failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+            try{await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pending);}
+            catch(Exception retirementFailure)
+            {throw new NativeMapBorrowerConstructionException(failure,retirementFailure,pending!);}
+            throw;
+        }
     }
     public static MapFinalOutputStockCopyPacket Snapshot(MapFinalOutputStockCopyPacket packet)
     {
@@ -130,6 +146,8 @@ public sealed class MapFinalOutputTransfer:IAsyncDisposable
         await _gate.WaitAsync();
         try
         {
+        _pendingRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_pendingRetirement);
+        if(_candidatePairResources is not null){await _candidatePairResources.DisposeAsync();_candidatePairResources=null;}
         await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{
             if(!rd.TextureIsValid(_sampledTexture)||!rd.TextureIsValid(Output.StorageRid))
                 throw new InvalidDataException("Final stock copy sampled producer or output retired before accepted draw.");
@@ -143,11 +161,14 @@ public sealed class MapFinalOutputTransfer:IAsyncDisposable
             if(rd.BufferUpdate(_vertexCb,0,32,cb)!=Error.Ok||rd.BufferUpdate(_vertexBuffer,0,96,quad)!=Error.Ok)
                 throw new InvalidDataException("Final stock copy current context upload failed.");
             // The complete producer descriptor is installed on every accepted copy.
-            Rid nextSampler=DeviceSampler.Create(rd,current.SampledImageSamplerDescriptor.Span);
-            if(!nextSampler.IsValid)throw new InvalidDataException("Final stock copy producer sampler failed.");
-            Rid nextSet=default;
+            var nextResources=new RenderDeviceResources("Final stock copy producer allocation failed.");
+            _candidatePairResources=nextResources;
+            Rid nextSampler=default,nextSet=default;
             try
             {
+                nextSampler=DeviceSampler.Create(rd,current.SampledImageSamplerDescriptor.Span);
+                if(!nextSampler.IsValid)throw new InvalidDataException("Final stock copy producer sampler failed.");
+                nextResources.Own(nextSampler);
                 var uniforms=new Godot.Collections.Array<RDUniform>();
                 try
                 {
@@ -156,15 +177,31 @@ public sealed class MapFinalOutputTransfer:IAsyncDisposable
                         var u=new RDUniform{Binding=(int)d.Binding!.Value,UniformType=d.StorageClass==2?RenderingDevice.UniformType.UniformBuffer:
                             d.Type.Kind=="sampler"?RenderingDevice.UniformType.Sampler:RenderingDevice.UniformType.Texture};
                         // Preserve the immutable original CB/image bindings; only the producer sampler changes.
-                        u.AddId(d.Type.Kind=="sampler"?nextSampler:_pixelResources[(int)d.Binding.Value]);uniforms.Add(u);
+                        uniforms.Add(u);u.AddId(d.Type.Kind=="sampler"?nextSampler:_pixelResources[(int)d.Binding.Value]);
                     }
                     nextSet=rd.UniformSetCreate(uniforms,_shader,0);
+                    if(nextSet.IsValid)nextResources.Own(nextSet);
                 }
                 finally{foreach(var u in uniforms)u.Dispose();}
                 if(!nextSet.IsValid||!rd.UniformSetIsValid(nextSet))throw new InvalidDataException("Final stock copy producer sampler binding failed.");
             }
-            catch{if(nextSet.IsValid)rd.FreeRid(nextSet);rd.FreeRid(nextSampler);throw;}
-            rd.FreeRid(_pixelSet);rd.FreeRid(_sampler);_pixelSet=nextSet;_sampler=nextSampler;
+            catch(Exception failure)
+            {
+                try{nextResources.ReleaseAfterConstructionFailure(rd,failure,"Final-transfer-pair-partial");}
+                catch(NativeMapBorrowerConstructionException retained)
+                {_pendingRetirement=retained.RetainedPackage;_candidatePairResources=null;throw;}
+                _candidatePairResources=null;throw;
+            }
+            try{_pairResources?.Release(rd);}
+            catch
+            {
+                _pendingRetirement=NativeMapBorrowerRetirementPackage.CreatePending("Final-transfer-pair-replaced",
+                    new IAsyncDisposable?[]{_pairResources,nextResources}.OfType<IAsyncDisposable>());
+                _pairResources=null;_candidatePairResources=null;_pixelSet=default;
+                _pendingRetirement!.RetainFailure();
+                throw;
+            }
+            _pairResources=nextResources;_candidatePairResources=null;_pixelSet=nextSet;
             long list=rd.DrawListBegin(_framebuffer);
             try{rd.DrawListBindRenderPipeline(list,_pipeline);rd.DrawListBindUniformSet(list,_vertexSet,1);rd.DrawListBindUniformSet(list,_pixelSet,0);rd.DrawListBindVertexArray(list,_vertices);rd.DrawListDraw(list,false,1,4);}finally{rd.DrawListEnd();}return true;});
         await Presentation.RefreshAsync();
@@ -180,12 +217,17 @@ public sealed class MapFinalOutputTransfer:IAsyncDisposable
             {if(BinaryPrimitives.ReadUInt32LittleEndian(result.AsSpan(at+12,4))!=0)throw new InvalidDataException("Final stock VS original descriptor set differs.");BinaryPrimitives.WriteUInt32LittleEndian(result.AsSpan(at+12,4),1);count++;}at+=words*4;}
         if(count!=1)throw new InvalidDataException("Final stock VS must have exactly one source descriptor set.");return result;
     }
-    public ValueTask DisposeAsync(){lock(_lifetime){_retiring=true;return new(_disposal??=DisposeCoreAsync());}}
+    public ValueTask DisposeAsync(){lock(_lifetime){_retiring=true;if(_disposal is null||_disposal.IsFaulted||_disposal.IsCanceled)_disposal=DisposeCoreAsync();return new(_disposal);}}
     private async Task DisposeCoreAsync()
     {
         Task wait;lock(_lifetime){wait=_accepted==0?Task.CompletedTask:(_drained??=new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;}
         await wait;await _gate.WaitAsync();
-        try{await Presentation.DisposeAsync();await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{rd.FreeRid(_pixelSet);rd.FreeRid(_sampler);for(int i=_owned.Count-1;i>=0;i--)rd.FreeRid(_owned[i]);return true;});}
+        try
+        {
+            _retirement??=new("Final-output-transfer:"+Guid.NewGuid().ToString("N"),
+                Presentation,_pendingRetirement,_candidatePairResources,_pairResources,_resources);
+            await _retirement.DisposeAsync();_pendingRetirement=null;_candidatePairResources=null;
+        }
         finally{_gate.Release();}
     }
 }

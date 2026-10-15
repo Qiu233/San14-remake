@@ -60,7 +60,6 @@ public static class MapMaterialCacheSelectedSources
         ArgumentNullException.ThrowIfNull(declaredMaterialObjects);
         MapMaterialCacheSources.Identity(explicitResourceArchive);
         Verify(deferred.Graph.Source); Verify(declaredMaterialObjects.Source);
-        MapMaterialCacheSources.CanonicalShader(deferred.Shader);
         var graph = RenderGraphReader.Read(deferred.Graph.Source.Bytes);
         var nodes = graph.Nodes.Where(n => n.Index == deferred.Node.Index).ToArray();
         if (nodes.Length != 1 || nodes[0].Call.FactoryClassId != RenderGraphShaderReferences.ClusteredDeferredFactoryClassId)

@@ -32,6 +32,8 @@ public sealed class RemakeArmyFlagCaoPaneProducer:IAsyncDisposable
     private readonly bool _ownsCompiler;
     private readonly SemaphoreSlim _gate=new(1,1);
     private readonly object _lifetime=new();private bool _retiring;private int _accepted;private TaskCompletionSource? _drained;private Task? _disposal;
+    private NativeMapBorrowerRetirementPackage? _pendingConstruction;
+    private NativeMapBorrowerRetirementPackage? _finalRetirement;
 
     /// <summary>A supplied compiler is borrowed and must outlive the glyph
     /// renderer. Standalone producers lazily own one from the normal runtime
@@ -69,6 +71,7 @@ public sealed class RemakeArmyFlagCaoPaneProducer:IAsyncDisposable
         await _gate.WaitAsync();
         try
         {
+            _pendingConstruction=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_pendingConstruction);
             _stock??=DeferredAuxiliaryStockCopySource.ReadCurrent(_repository.SourceDirectory,_locale);
             _font??=ArmyFlagFontSources.LoadFreshHostDefault(_repository,true,"owned fresh native Host/UIprefix selector+460=0; source-created flag pane");
             _colors??=ArmyFlagPaneColors.LoadCurrent(_locale);
@@ -85,7 +88,9 @@ public sealed class RemakeArmyFlagCaoPaneProducer:IAsyncDisposable
                 var checkedText=ArmyFlagPaneColors.CopySourceNameGlyph(input.SelectedSourceText,input.CallerForceSource);
                 _=ArmyFlagFreshPaneLayout.BuildSameMetricGlyph(_font,prefix,checkedText,checkedColors,
                     material.ManagerRow.ManagerKind,new byte[48],"owned complete glyph record template",true);
-                var device=await RemakeArmyFlagGlyphAtlas.BuildAsync(prefix,_stock.Native);
+                RemakeArmyFlagGlyphAtlas device;
+                try { device=await RemakeArmyFlagGlyphAtlas.BuildAsync(prefix,_stock.Native); }
+                catch(Exception failure) { await RetireFailedConstructionAsync(failure);throw; }
                 _atlases.Add(code,atlas=new(prefix,device));
             }
             var colors=_colors.Resolve(input.SourceForceColorIndex49,input.CallerForceSource);
@@ -102,20 +107,22 @@ public sealed class RemakeArmyFlagCaoPaneProducer:IAsyncDisposable
                 ReferenceEquals(cached.Atlas,atlas.Prefix)&&cached.Image.CompleteProducerReady)
                 return cached.Image.BorrowCompletedProducer(layout.NativeSourceProvenance+"; "+text.CallerSource);
             _compiler??=ShaderCompilerRuntime.Open();
-            var image=await RemakeArmyFlagPaneImage.BuildAsync(use,_stock.Native);
+            RemakeArmyFlagPaneImage? image=null;
             RemakeArmyFlagGlyphRenderer? renderer=null;
             try
             {
+                image=await RemakeArmyFlagPaneImage.BuildAsync(use,_stock.Native);
                 renderer??=await RemakeArmyFlagGlyphRenderer.BuildAsync(_stock,_compiler,image,atlas.Device);
                 await image.ClearSourceTintAsync(colors.BackgroundTint.PanePacked,input.CallerForceSource+"; nativefirstpalette LUT/sourceclear");
                 byte[] vs=new byte[32],ps=new byte[16];float[] values=[2f/128,-2f/64,-1,1,1,1,1,1];
                 for(int i=0;i<values.Length;i++)BinaryPrimitives.WriteSingleLittleEndian(vs.AsSpan(i*4,4),values[i]);
                 BinaryPrimitives.WriteInt32LittleEndian(ps,unchecked((int)0xFF7FFFFF));
                 await renderer.DrawFreshSourceLayoutAsync(layout,new(vs,ps,"owned sourcefresh stockscreen scale1/colour1/nullcustomVS/mode3/ctoralphathreshold; primarytarget128x64"));
+                var completed=image.BorrowCompletedProducer(layout.NativeSourceProvenance+"; "+text.CallerSource);
                 panes[cacheKey]=new(image,renderer,atlas.Prefix);
-                return image.BorrowCompletedProducer(layout.NativeSourceProvenance+"; "+text.CallerSource);
+                return completed;
             }
-            catch{if(renderer is not null)await renderer.DisposeAsync();await image.DisposeAsync();throw;}
+            catch(Exception failure){await RetireFailedConstructionAsync(failure,renderer,image);throw;}
         }
         finally{_gate.Release();lock(_lifetime){_accepted--;if(_retiring&&_accepted==0)_drained?.TrySetResult();}}
     }
@@ -132,25 +139,51 @@ public sealed class RemakeArmyFlagCaoPaneProducer:IAsyncDisposable
         var panes=Panes(material);var cacheKey=(use.Slot.ProxyObjectId,key);
         if(panes.TryGetValue(cacheKey,out var cached)&&cached.Image.CompleteProducerReady)
             return cached.Image.BorrowCompletedProducer(layout.NativeSourceProvenance+"; "+text.CallerSource);
-        var image=await RemakeArmyFlagPaneImage.BuildAsync(use,_stock!.Native);
+        RemakeArmyFlagPaneImage? image=null;
         try
         {
+            image=await RemakeArmyFlagPaneImage.BuildAsync(use,_stock!.Native);
             await image.ClearSourceTintAsync(colors.BackgroundTint.PanePacked,input.CallerForceSource+"; native firstpalette/zero-glyph job");
             image.PublishCompletedSourceEmpty(layout);
+            var completed=image.BorrowCompletedProducer(layout.NativeSourceProvenance+"; "+text.CallerSource);
             panes[cacheKey]=new(image,null,null);
-            return image.BorrowCompletedProducer(layout.NativeSourceProvenance+"; "+text.CallerSource);
+            return completed;
         }
-        catch{await image.DisposeAsync();throw;}
+        catch(Exception failure){await RetireFailedConstructionAsync(failure,image);throw;}
     }
-    public ValueTask DisposeAsync(){lock(_lifetime){_retiring=true;return new(_disposal??=DisposeCoreAsync());}}
+
+    private async Task RetireFailedConstructionAsync(Exception failure,params IAsyncDisposable?[] completed)
+    {
+        _pendingConstruction=NativeMapBorrowerRetirementPackage.CreatePending("Army-flag-pane-partial",
+            completed.OfType<IAsyncDisposable>(),(failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+        try { _pendingConstruction=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_pendingConstruction); }
+        catch(Exception retirementFailure)
+        {
+            throw new NativeMapBorrowerConstructionException(failure,retirementFailure,_pendingConstruction!);
+        }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        lock(_lifetime)
+        {
+            _retiring=true;
+            if(_disposal is null||_disposal.IsFaulted||_disposal.IsCanceled)_disposal=DisposeCoreAsync();
+            return new(_disposal);
+        }
+    }
     private async Task DisposeCoreAsync()
     {
         Task pending;lock(_lifetime)pending=_accepted==0?Task.CompletedTask:(_drained??=new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
         await pending;await _gate.WaitAsync();
         try
         {
-            foreach(var pane in _panes.Values.SelectMany(panes=>panes.Values)){if(pane.Renderer is not null)await pane.Renderer.DisposeAsync();await pane.Image.DisposeAsync();}_panes.Clear();
-            foreach(var atlas in _atlases.Values)await atlas.Device.DisposeAsync();_atlases.Clear();
+            _pendingConstruction=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_pendingConstruction);
+            _finalRetirement??=new("Army-flag-pane-retire/"+Guid.NewGuid().ToString("N"),
+                [.._panes.Values.SelectMany(panes=>panes.Values).SelectMany(pane=>new IAsyncDisposable?[]{pane.Renderer,pane.Image}),
+                    .._atlases.Values.Select(atlas=>atlas.Device)]);
+            await _finalRetirement.DisposeAsync();
+            _panes.Clear();_atlases.Clear();
             if(_ownsCompiler)_compiler?.Dispose();_compiler=null;
         }
         finally{_gate.Release();}

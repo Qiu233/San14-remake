@@ -11,9 +11,10 @@ public sealed class RemakeArmyFlagGlyphAtlas:IAsyncDisposable
     public LoadedArmyFlagGlyphAtlasPrefix Source { get; }
     public Rid TextureRid { get; }
     public byte[] NativeSamplerDescriptor52 { get; }
-    private Task? _disposal;
-    private RemakeArmyFlagGlyphAtlas(LoadedArmyFlagGlyphAtlasPrefix source,Rid texture,byte[] sampler)
-        =>(Source,TextureRid,NativeSamplerDescriptor52)=(source,texture,sampler);
+    private readonly RenderDeviceResources _resources;
+    private volatile bool _retiring;
+    private RemakeArmyFlagGlyphAtlas(LoadedArmyFlagGlyphAtlasPrefix source,Rid texture,byte[] sampler,RenderDeviceResources resources)
+        =>(Source,TextureRid,NativeSamplerDescriptor52,_resources)=(source,texture,sampler,resources);
 
     public static async Task<RemakeArmyFlagGlyphAtlas> BuildAsync(LoadedArmyFlagGlyphAtlasPrefix source,
         LoadedDeferredSamplerNativeSource samplerNative,bool allowNumericReadback=false)
@@ -24,25 +25,37 @@ public sealed class RemakeArmyFlagGlyphAtlas:IAsyncDisposable
             source.MipCount!=1||source.SourceGlyphCount!=1)
             throw Error("requires the owned first-insertion1024x1024/mip1/BGRA8 image");
         byte[] sampler=RenderSamplerSourceAdapters.DecodeKey(samplerNative,source.SourceSamplerKey).EncodeD3D11Descriptor();
-        Rid texture=await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
+        return await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
-            var usage=RenderingDevice.TextureUsageBits.SamplingBit|RenderingDevice.TextureUsageBits.CanUpdateBit;
-            if(allowNumericReadback)usage|=RenderingDevice.TextureUsageBits.CanCopyFromBit;
-            using var format=new RDTextureFormat{Format=RenderingDevice.DataFormat.B8G8R8A8Unorm,Width=1024,Height=1024,
-                Depth=1,ArrayLayers=1,Mipmaps=1,TextureType=RenderingDevice.TextureType.Type2D,Samples=RenderingDevice.TextureSamples.Samples1,UsageBits=usage};
-            using var view=new RDTextureView();
-            Rid value=rd.TextureCreate(format,view,new Godot.Collections.Array<byte[]>{bytes});
-            if(!value.IsValid)throw Error("device rejected the actual source font cache image");return value;
+            var resources=new RenderDeviceResources("Original Army flag glyph atlas device rejected the actual source font cache image.");
+            try
+            {
+                var usage=RenderingDevice.TextureUsageBits.SamplingBit|RenderingDevice.TextureUsageBits.CanUpdateBit;
+                if(allowNumericReadback)usage|=RenderingDevice.TextureUsageBits.CanCopyFromBit;
+                using var format=new RDTextureFormat{Format=RenderingDevice.DataFormat.B8G8R8A8Unorm,Width=1024,Height=1024,
+                    Depth=1,ArrayLayers=1,Mipmaps=1,TextureType=RenderingDevice.TextureType.Type2D,Samples=RenderingDevice.TextureSamples.Samples1,UsageBits=usage};
+                using var view=new RDTextureView();
+                Rid value=resources.Own(rd.TextureCreate(format,view,new Godot.Collections.Array<byte[]>{bytes}));
+                return new RemakeArmyFlagGlyphAtlas(source,value,sampler,resources);
+            }
+            catch(Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd,failure,"Army-flag-atlas-partial");
+                throw;
+            }
         });
-        return new(source,texture,sampler);
     }
 
     public ModelDeviceBinding Borrow()
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null,this);
+        ObjectDisposedException.ThrowIf(_retiring,this);
         return new("Texture",0,TextureRid,TextureRid,Source.Font.Source.ResourceUri+
             $"#fresh-native-atlas/face{Source.Glyph.FaceIndex}/palette{Source.Glyph.PaletteIndex}/glyph{Source.Glyph.Record.Index}@{Source.WrittenAtlasSha256}");
     }
-    public ValueTask DisposeAsync()=>new(_disposal??=TerrainDeviceTexture.OnRenderThreadAsync(rd=>{rd.FreeRid(TextureRid);return true;}));
+    public ValueTask DisposeAsync()
+    {
+        _retiring=true;
+        return _resources.DisposeAsync();
+    }
     private static InvalidDataException Error(string message)=>new("Original Army flag glyph atlas "+message+".");
 }

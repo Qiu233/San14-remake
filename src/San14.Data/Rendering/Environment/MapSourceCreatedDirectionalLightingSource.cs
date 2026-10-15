@@ -19,7 +19,7 @@ public sealed class MapSourceCreatedDirectionalLightingSource
         InitialSkylightParameters = lighting.Source.Parameters;
         Construction = construction;
         ConstructionProvenance = DescribeConstruction(construction);
-        Identity = CreateIdentity(CameraConstructionSource, construction);
+        Identity = CreateIdentity();
     }
 
     public MapSourceCreatedLightingIdentity Identity { get; }
@@ -53,11 +53,8 @@ public sealed class MapSourceCreatedDirectionalLightingSource
             main.Resource.Source.ResourceUri != Identity.CameraResourceUri ||
             main.Resource.Source.DecodedSha256 != Identity.CameraSha256)
             throw new InvalidDataException("Directional source needs its own same-frame Main Camera declaration.");
-        var frame = providerFrame is null?MapSourceCreatedLighting.PrepareDirectional(Construction,input):
-            MapSourceCreatedLighting.PrepareDirectional(Construction,input,providerFrame);
-        if (frame.SourceIdentity != Identity)
-            throw new InvalidDataException("Directional frame changed its source-created owner identity.");
-        return frame;
+        return providerFrame is null?MapSourceCreatedLighting.PrepareDirectional(this,input):
+            MapSourceCreatedLighting.PrepareDirectional(this,input,providerFrame);
     }
 
     internal static string DescribeConstruction(DirectionalLightConstructionPacket source) =>
@@ -67,13 +64,12 @@ public sealed class MapSourceCreatedDirectionalLightingSource
         string.Join(';', source.ResourceBindings.Select(b =>
             $"resource={b.SourceObjectKey:X8}:{b.DataHandle:X16}:{b.OwnerProvenance}"));
 
-    internal static MapSourceCreatedLightingIdentity CreateIdentity(
-        LoadedMapCameraConstructionSource camera, DirectionalLightConstructionPacket source)
+    private MapSourceCreatedLightingIdentity CreateIdentity()
     {
-        string provenance = DescribeConstruction(source);
+        var camera = CameraConstructionSource; var source = Construction;
         return new(0, DefaultView0Source.ViewParameterObjectId,
             camera.Resource.Source.ResourceUri, camera.Resource.Source.DecodedSha256, camera.Camera.ObjectId,
             source.SourceUri, source.SourceSha256, source.SourceObjectId, source.Metadata.SourceGroupMask,
-            0, source.PreparedSha256, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(provenance))));
+            0, source.PreparedSha256, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(ConstructionProvenance))));
     }
 }

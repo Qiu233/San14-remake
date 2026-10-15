@@ -12,18 +12,19 @@ public readonly record struct FieldIndexTexel(byte Byte0, byte Byte1, byte Byte2
 public sealed class G1FieldIndexMap
 {
     private readonly byte[] _rawMip;
+    private readonly Lazy<string> rawMipSha256;
 
     internal G1FieldIndexMap(int width, int height, byte[] rawMip)
     {
         Width = width;
         Height = height;
         _rawMip = rawMip;
-        RawMipSha256 = Convert.ToHexString(SHA256.HashData(rawMip));
+        rawMipSha256 = new(() => Convert.ToHexString(SHA256.HashData(_rawMip)));
     }
 
     public int Width { get; }
     public int Height { get; }
-    public string RawMipSha256 { get; }
+    public string RawMipSha256 => rawMipSha256.Value;
 
     public FieldIndexTexel GetTexel(int column, int row)
     {

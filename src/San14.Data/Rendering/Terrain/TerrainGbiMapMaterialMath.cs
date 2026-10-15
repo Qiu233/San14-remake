@@ -5,9 +5,6 @@ namespace San14.Data;
 /// <summary>Original PS18 plane weights and distance blend. Normal is the raw interpolated VS normal.</summary>
 public static class TerrainGbiMapMaterialMath
 {
-    public const string PixelProgramSha256 = "4D04EFDEA9006FB4C15ABA2F95C2E83067D0ED68369A9C27A8616BF0C27500AB";
-    public const string VertexProgramSha256 = "00C98553B5D70E71E3554F08D5F0DDF1CC8620EB443428CE28F49EF5DCC79D80";
-
     // X means YZ projection, Y means XZ, Z means XY.
     public static Vector3 PlaneWeights(Vector3 sourceNormal, float threshold)
     {

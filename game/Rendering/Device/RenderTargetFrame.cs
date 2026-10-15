@@ -24,9 +24,11 @@ public sealed class RenderTargetFrame : IAsyncDisposable
     public IReadOnlyList<Rid> ColorViews { get; }
     public Rid DepthView { get; }
     public Rid Framebuffer { get; }
-    private readonly IReadOnlyList<Rid> _owned;
-    private readonly Dictionary<uint,(Rid Framebuffer,Army48DeviceFramebufferPass Pass)> _armyDevicePasses=[];
+    private readonly RenderDeviceResources _resources;
+    private readonly Dictionary<uint,(Rid Framebuffer,Army48DeviceFramebufferPass Pass,RenderDeviceResources Resources)> _armyDevicePasses=[];
     private readonly object _armyDevicePassGate=new();
+    private NativeMapBorrowerRetirementPackage? _pendingArmyVariant;
+    private volatile bool _retiring;
     private Task? _disposal;
 
     /// <summary>Build another source attachment set over the same current
@@ -60,15 +62,11 @@ public sealed class RenderTargetFrame : IAsyncDisposable
             throw new InvalidDataException("Shared attachment extents differ.");
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            var owned = new List<Rid>();
-            var colors = new List<Rid>();
-            Rid Own(Rid rid)
-            {
-                if (!rid.IsValid) throw new InvalidDataException("Device rejected a shared attachment view or framebuffer.");
-                owned.Add(rid); return rid;
-            }
+            var resources = new RenderDeviceResources("Device rejected a shared attachment view or framebuffer.");
+            Rid Own(Rid rid) => resources.Own(rid);
             try
             {
+                var colors = new List<Rid>();
                 Rid Surface(RenderTextureDefinition definition, uint surfaceId)
                 {
                     var actual = textures[definition.Object.ObjectId];
@@ -88,11 +86,11 @@ public sealed class RenderTargetFrame : IAsyncDisposable
                 var attachments = new Godot.Collections.Array<Rid>(colors);
                 if (depth.IsValid) attachments.Add(depth);
                 Rid framebuffer = Own(rd.FramebufferCreate(attachments));
-                return new RenderTargetFrame(source, textures, colors, depth, framebuffer, owned, storageOwner.Resolutions);
+                return new RenderTargetFrame(source, textures, colors, depth, framebuffer, resources, storageOwner.Resolutions);
             }
-            catch
+            catch (Exception failure)
             {
-                for (int i = owned.Count - 1; i >= 0; i--) rd.FreeRid(owned[i]);
+                resources.ReleaseAfterConstructionFailure(rd,failure,"Render-target-attachment-frame-partial");
                 throw;
             }
         });
@@ -100,48 +98,71 @@ public sealed class RenderTargetFrame : IAsyncDisposable
 
     private RenderTargetFrame(LoadedRenderGraphTargets source,
         Dictionary<uint, RenderTargetDeviceTexture> textures, List<Rid> colors,
-        Rid depth, Rid framebuffer, List<Rid> owned, RenderTextureResolutionFrame? resolutions)
-        => (Source, Textures, ColorViews, DepthView, Framebuffer, _owned, Resolutions) =
-            (source, textures, colors.AsReadOnly(), depth, framebuffer, owned.AsReadOnly(), resolutions);
+        Rid depth, Rid framebuffer, RenderDeviceResources resources, RenderTextureResolutionFrame? resolutions)
+        => (Source, Textures, ColorViews, DepthView, Framebuffer, _resources, Resolutions) =
+            (source, textures, colors.AsReadOnly(), depth, framebuffer, resources, resolutions);
 
     /// <summary>Retained device framebuffer over the same six actual color
     /// views and depth. Active output positions come from this actual program,
     /// and every unwritten color view is unreferenced. Variants are
     /// owned by this frame, so borrowing draws retire before their frame.</summary>
-    internal Task<ModelDrawTarget> PrepareArmyDeviceDrawTargetAsync(Army48TargetBinding actualArmy,
+    internal async Task<ModelDrawTarget> PrepareArmyDeviceDrawTargetAsync(Army48TargetBinding actualArmy,
         IReadOnlyList<uint> actualShaderOutputLocations)
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null,this);actualArmy.RequireCurrent();
+        ObjectDisposedException.ThrowIf(_retiring,this);actualArmy.RequireCurrent();
         if(!ReferenceEquals(actualArmy.Frame,this))throw new InvalidDataException("Army device subpass belongs to another attachment frame.");
         var recipe=Army48DeviceFramebufferPass.Prepare(actualArmy.Source,actualShaderOutputLocations);
         recipe.RequireSource(Source);
+        await DrainPendingArmyVariantAsync();
         ModelDrawTarget Target(Rid framebuffer)=>new(framebuffer,ColorViews,DepthView,
             Textures.Values.Select(t=>t.StorageRid).Distinct().ToArray(),Source.Graph.Source.ResourceUri){Army48DevicePass=recipe};
         lock(_armyDevicePassGate)
-            if(_armyDevicePasses.TryGetValue(recipe.ShaderOutputMask,out var prior))return Task.FromResult(Target(prior.Framebuffer));
-        return TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
-            ObjectDisposedException.ThrowIf(_disposal is not null,this);actualArmy.RequireCurrent();
+            ObjectDisposedException.ThrowIf(_retiring,this);
+            if(_pendingArmyVariant is not null)throw new InvalidOperationException("An unfinished Army framebuffer variant must retire before another request.");
+            if(_armyDevicePasses.TryGetValue(recipe.ShaderOutputMask,out var prior))return Target(prior.Framebuffer);
+        }
+        return await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
+        {
+            ObjectDisposedException.ThrowIf(_retiring,this);actualArmy.RequireCurrent();
             lock(_armyDevicePassGate)
             {
+                ObjectDisposedException.ThrowIf(_retiring,this);
+                if(_pendingArmyVariant is not null)throw new InvalidOperationException("An unfinished Army framebuffer variant must retire before another request.");
                 if(_armyDevicePasses.TryGetValue(recipe.ShaderOutputMask,out var prior))return Target(prior.Framebuffer);
                 if(!rd.FramebufferIsValid(Framebuffer))throw new ObjectDisposedException(nameof(RenderTargetFrame));
-                var attachments=new Godot.Collections.Array<Rid>(ColorViews){DepthView};
-                using var pass=recipe.CreateDevicePass();
-                Rid selected=rd.FramebufferCreateMultipass(attachments,new Godot.Collections.Array<RDFramebufferPass>{pass});
-                if(!selected.IsValid||!rd.FramebufferIsValid(selected))
+                var resources=new RenderDeviceResources("Device rejected the Army actual-output subpass over six attachments.");
+                try
                 {
-                    if(selected.IsValid)rd.FreeRid(selected);
-                    throw new InvalidDataException("Device rejected the Army actual-output subpass over six attachments.");
+                    Rid selected;ModelDrawTarget result;
+                    var attachments=new Godot.Collections.Array<Rid>(ColorViews){DepthView};
+                    using(var pass=recipe.CreateDevicePass())
+                    {
+                        selected=resources.Own(rd.FramebufferCreateMultipass(attachments,new Godot.Collections.Array<RDFramebufferPass>{pass}));
+                        if(!rd.FramebufferIsValid(selected))
+                            throw new InvalidDataException("Device rejected the Army actual-output subpass over six attachments.");
+                        result=Target(selected);
+                    }
+                    _armyDevicePasses.Add(recipe.ShaderOutputMask,(selected,recipe,resources));
+                    return result;
                 }
-                _armyDevicePasses.Add(recipe.ShaderOutputMask,(selected,recipe));return Target(selected);
+                catch(Exception failure)
+                {
+                    try { resources.ReleaseAfterConstructionFailure(rd,failure,"Render-target-Army-variant-partial"); }
+                    catch(NativeMapBorrowerConstructionException partial)
+                    {
+                        _pendingArmyVariant=partial.RetainedPackage;
+                        throw;
+                    }
+                    throw;
+                }
             }
         });
     }
 
     internal void RequireArmyDeviceDrawTarget(ModelDrawTarget actualTarget,IReadOnlyList<uint> actualProgramOutputs)
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null,this);
+        ObjectDisposedException.ThrowIf(_retiring,this);
         var pass=actualTarget.Army48DevicePass??throw new InvalidDataException("Army draw has no actual shader-output device subpass.");
         pass.RequireSource(Source);
         uint mask=actualProgramOutputs.Aggregate(0u,(current,slot)=>current|(1u<<checked((int)slot)));
@@ -187,16 +208,13 @@ public sealed class RenderTargetFrame : IAsyncDisposable
             throw new InvalidDataException("Framebuffer attachment extents differ.");
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            var owned = new List<Rid>(); var textures = new Dictionary<uint, RenderTargetDeviceTexture>();
-            var colors = new List<Rid>(); Rid depth = default;
-            var physical = new Dictionary<string, RenderTargetDeviceTexture>(StringComparer.Ordinal);
-            Rid Own(Rid rid)
-            {
-                if (!rid.IsValid) throw new InvalidDataException("RenderingDevice rejected an original attachment allocation/view.");
-                owned.Add(rid); return rid;
-            }
+            var resources = new RenderDeviceResources("RenderingDevice rejected an original attachment allocation/view.");
+            Rid Own(Rid rid) => resources.Own(rid);
             try
             {
+                var textures = new Dictionary<uint, RenderTargetDeviceTexture>();
+                var colors = new List<Rid>(); Rid depth = default;
+                var physical = new Dictionary<string, RenderTargetDeviceTexture>(StringComparer.Ordinal);
                 foreach (var texture in definitions)
                 {
                     var terminal = effective[texture.Object.ObjectId];
@@ -267,11 +285,11 @@ public sealed class RenderTargetFrame : IAsyncDisposable
                 var attachments = new Godot.Collections.Array<Rid>(colors);
                 if (depth.IsValid) attachments.Add(depth);
                 Rid framebuffer = Own(rd.FramebufferCreate(attachments));
-                return new RenderTargetFrame(source, textures, colors, depth, framebuffer, owned, resolutions);
+                return new RenderTargetFrame(source, textures, colors, depth, framebuffer, resources, resolutions);
             }
-            catch
+            catch (Exception failure)
             {
-                for (int i = owned.Count - 1; i >= 0; i--) rd.FreeRid(owned[i]);
+                resources.ReleaseAfterConstructionFailure(rd,failure,"Render-target-frame-partial");
                 throw;
             }
         });
@@ -291,14 +309,43 @@ public sealed class RenderTargetFrame : IAsyncDisposable
         _ => throw new InvalidDataException("Native attachment view format has no explicit device adapter.")
     };
 
-    public ValueTask DisposeAsync() => new(_disposal ??= TerrainDeviceTexture.OnRenderThreadAsync(rd =>
+    private async Task DrainPendingArmyVariantAsync()
+    {
+        NativeMapBorrowerRetirementPackage? pending;
+        lock(_armyDevicePassGate)pending=_pendingArmyVariant;
+        if(pending is null)return;
+        await pending.DisposeAsync();
+        lock(_armyDevicePassGate)
+        {
+            if(ReferenceEquals(_pendingArmyVariant,pending))_pendingArmyVariant=null;
+        }
+    }
+
+    public ValueTask DisposeAsync()
     {
         lock(_armyDevicePassGate)
         {
-            foreach(var variant in _armyDevicePasses.Values.Reverse())rd.FreeRid(variant.Framebuffer);
-            _armyDevicePasses.Clear();
+            _retiring=true;
+            if(_disposal is null||_disposal.IsFaulted||_disposal.IsCanceled)_disposal=DisposeCoreAsync();
+            return new(_disposal);
         }
-        for (int i = _owned.Count - 1; i >= 0; i--) rd.FreeRid(_owned[i]);
-        return true;
-    }));
+    }
+
+    private async Task DisposeCoreAsync()
+    {
+        await DrainPendingArmyVariantAsync();
+        while(true)
+        {
+            uint mask;RenderDeviceResources resources;
+            lock(_armyDevicePassGate)
+            {
+                if(_armyDevicePasses.Count==0)break;
+                var variant=_armyDevicePasses.Last();
+                mask=variant.Key;resources=variant.Value.Resources;
+            }
+            await resources.DisposeAsync();
+            lock(_armyDevicePassGate)_armyDevicePasses.Remove(mask);
+        }
+        await _resources.DisposeAsync();
+    }
 }

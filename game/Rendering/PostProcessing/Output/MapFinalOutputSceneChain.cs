@@ -46,6 +46,7 @@ public sealed partial class MapFinalOutputSceneChain:IAsyncDisposable
     private readonly SemaphoreSlim _gate=new(1,1);
     private readonly object _lifetime=new();private int _accepted;private bool _retiring;
     private Task? _disposal;private TaskCompletionSource? _drained;
+    private NativeMapBorrowerRetirementPackage? retirement;
     private MapFinalOutputSceneChain(LoadedMapFinalOutputResources source,
         MapFinalOutputPassGraph graph,MapFinalOutputPassOwner producers,
         MapFinalOutputOwner final,MapFinalOutputDofWeightOwner weight,
@@ -79,10 +80,15 @@ public sealed partial class MapFinalOutputSceneChain:IAsyncDisposable
                 throw new InvalidDataException("Final chain Exposure owner differs from its original node1 producer.");
             return new(source,graph,producers,final,weight,exposure,sharedExposureProducer is null);
         }
-        catch
+        catch(Exception failure)
         {
-            if(final is not null)await final.DisposeAsync();if(producers is not null)await producers.DisposeAsync();
-            if(weight is not null)await weight.DisposeAsync();if(sharedExposureProducer is null&&exposure is not null)await exposure.DisposeAsync();throw;
+            var pending=NativeMapBorrowerRetirementPackage.CreatePending("Final-scene-chain-partial",
+                new IAsyncDisposable?[]{final,producers,weight,sharedExposureProducer is null?exposure:null}.OfType<IAsyncDisposable>(),
+                (failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+            try{await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pending);}
+            catch(Exception retirementFailure)
+            {throw new NativeMapBorrowerConstructionException(failure,retirementFailure,pending!);}
+            throw;
         }
     }
 
@@ -189,12 +195,25 @@ public sealed partial class MapFinalOutputSceneChain:IAsyncDisposable
     private async Task RetireCoreAsync(){await Final.RetireTargetAsync();await Producers.RetireTargetAsync();if(CompleteEffects is not null)await CompleteEffects.RetireTargetAsync();LatestProducerFrame=null;}
     private void Accept(){lock(_lifetime){ObjectDisposedException.ThrowIf(_retiring,this);_accepted++;}}
     private void Complete(){lock(_lifetime){if(--_accepted==0&&_retiring)_drained?.TrySetResult();}}
-    public ValueTask DisposeAsync(){lock(_lifetime){_retiring=true;return new(_disposal??=DisposeCoreAsync());}}
+    public ValueTask DisposeAsync()
+    {
+        lock(_lifetime)
+        {
+            _retiring=true;
+            if(_disposal is null||_disposal.IsFaulted||_disposal.IsCanceled)_disposal=DisposeCoreAsync();
+            return new(_disposal);
+        }
+    }
     private async Task DisposeCoreAsync()
     {
         Task wait;lock(_lifetime){wait=_accepted==0?Task.CompletedTask:(_drained??=new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;}
         await wait;await _gate.WaitAsync();
-        try{await Final.DisposeAsync();await Producers.DisposeAsync();if(CompleteEffects is not null)await CompleteEffects.DisposeAsync();await DofWeight.DisposeAsync();if(_ownsExposure)await Exposure.DisposeAsync();LatestProducerFrame=null;}
+        try
+        {
+            retirement??=new("Final-scene-chain:"+Guid.NewGuid().ToString("N"),
+                Final,Producers,CompleteEffects,DofWeight,_ownsExposure?Exposure:null);
+            await retirement.DisposeAsync();LatestProducerFrame=null;
+        }
         finally{_gate.Release();}
     }
 }

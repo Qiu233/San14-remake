@@ -7,7 +7,7 @@ using San14.Data.Formats;
 namespace San14.Data;
 
 public sealed record D3D11ShadowInitialLight(uint ObjectId,uint GroupMask,
-    int MaximumCasters,ReadOnlyMemory<byte> CurrentData);
+    int MaximumCasters,CurrentDirectionalLightState State);
 public sealed record D3D11ShadowInitialFamily(ReadOnlyMemory<byte> MainPrefix,
     IReadOnlyDictionary<int,uint> MainWords,IReadOnlyList<D3D11ShadowInitialLight> Lights,
     MapCommonRenderState Common,uint CommonRaster3F3);
@@ -141,7 +141,7 @@ public sealed class D3D11ShadowInputPreparation
             var currentArguments=arguments.SelectCurrentQuality(Word(0xA88));
             if(directionAux.CaptureCurrent(input.Common).RequiresAngleClamp(currentArguments))
                 throw new NotSupportedException("Startup shadow requires its actual clamped direction producer.");
-            var direction=DeferredEarlyShadowDirectionSource.PrepareUnclampedNumericFields(selected.CurrentData.Span,Word(0xA04),F(0xA28));
+            var direction=DeferredEarlyShadowDirectionSource.PrepareUnclampedNumericFields(selected.State.Lighting,Word(0xA04),F(0xA28));
             var cascades=new DeferredEarlyShadowCascadeMainFields(F(0x9EC),F(0x9F4),F(0x9F8),F(0x9FC),F(0xA2C),Word(0xA84));
             var compact=DeferredEarlyShadowCompactSource.PrepareNumericFields(Word(0xA3C),cascades,
                 BinaryPrimitives.ReadSingleLittleEndian(input.MainPrefix.Span[0x144..]));
@@ -173,7 +173,7 @@ public sealed class D3D11ShadowInputPreparation
                 writer.Write(F(0x9F0));writer.Write(cascades.Far9EC);Vector(writer,direction.BasisB0);Vector(writer,direction.BasisC0);Vector(writer,direction.DirectionD0);writer.Write(Word(0xA38));
             }
             admission.Write(input.Common.ModelExclusionMask!.Value);admission.Write(1u);admission.Write(input.Lights.Count);
-            foreach(var light in input.Lights){admission.Write(light.GroupMask);admission.Write((uint)light.CurrentData.Span[0xF1C]);admission.Write((uint)light.CurrentData.Span[0xF1F]);admission.Write((uint)light.CurrentData.Span[0xF20]);admission.Write(0u);}
+            foreach(var light in input.Lights){admission.Write(light.GroupMask);admission.Write((uint)light.State.HeaderCasterPlane);admission.Write((uint)light.State.CasterPlaneForLocalLight);admission.Write((uint)light.State.CasterPlaneForReflectiveShadowMap);admission.Write(0u);}
             WriteRaster(Path.Combine(inputsDirectory,"shadow-raster-source-input",name),input,compact.PassCount);
         }
     }

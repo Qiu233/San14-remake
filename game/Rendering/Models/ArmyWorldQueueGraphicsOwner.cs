@@ -264,7 +264,7 @@ public sealed class ArmyWorldQueueGraphicsOwner : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await gate.WaitAsync();
-        try { if (retired) return; retired = true; current = null; submitted.Clear(); LastCompletedFrame=null; orderedTuples=null; boundTarget=null; await layer.DisposeAsync(); }
+        try { retired = true; current = null; submitted.Clear(); LastCompletedFrame=null; orderedTuples=null; boundTarget=null; await layer.DisposeAsync(); }
         finally { gate.Release(); }
     }
 }

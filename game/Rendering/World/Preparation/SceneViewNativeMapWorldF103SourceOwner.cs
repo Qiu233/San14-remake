@@ -216,7 +216,7 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
         var common=MapCommonRenderState.FromSettings(commonSource,number,
             generation+"/source-Common-settings",generation+"/Common",Binding.ViewIdentity,generation+"/properties-before-ambient");
         var provider=providers?.Invoke(declarations);
-        var caller=provider is null?null:DirectionalLightProviderCaller.CaptureFreshOwnedCaller(loaded.Repository,
+        var caller=provider is null?null:DirectionalLightProviderCaller.CaptureFreshOwnedCaller(
             before.MainFrame,common,DirectionalProviderCallerScope.FreshOwnedCameraClearedLateControlsNoLaterSelectorWriter);
         var packets=sources.Select((s,i)=>
         {

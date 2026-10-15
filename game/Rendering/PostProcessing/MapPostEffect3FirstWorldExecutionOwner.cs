@@ -136,14 +136,14 @@ public sealed class MapPostEffect3FirstWorldExecutionOwner:IAsyncDisposable
         {
             // Retire borrowers before every source owner; no GPU work occurs
             // here beyond actual resource construction.
-            var partial=new NativeMapBorrowerRetirementPackage("World-PostEffect3-build:"+Guid.NewGuid().ToString("N"),
-                compute,lightScene,samplers,programs,bank,compositeParent,
-                module is null?null:new RetainedModuleRetirement(module));
-            try{await partial.DisposeAsync();}
+            var partial=NativeMapBorrowerRetirementPackage.CreatePending("World-PostEffect3-build",
+                new IAsyncDisposable?[]{compute,lightScene,samplers,programs,bank,compositeParent,
+                    module is null?null:new RetainedModuleRetirement(module)}.OfType<IAsyncDisposable>(),
+                (buildFailure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+            try{await NativeMapBorrowerRetirementPackage.DrainPendingAsync(partial);}
             catch(Exception retirementFailure)
             {
-                partial.RetainFailure();
-                throw new NativeMapBorrowerConstructionException(buildFailure,retirementFailure,partial);
+                throw new NativeMapBorrowerConstructionException(buildFailure,retirementFailure,partial!);
             }
             throw;
         }
@@ -159,6 +159,7 @@ public sealed class MapPostEffect3FirstWorldExecutionOwner:IAsyncDisposable
     /// and released its borrowed frame before installing a new target size.</summary>
     public async Task RefreshOwnedExtentAsync(NativeMapFrameContext context)
     {
+        await Compute.DrainPendingAsync();
         var extent=context.OutputFrame.Textures[0x064B746B].ExplicitExtent;
         if(Bank.Source.ContextWidth!=(uint)extent.X||Bank.Source.ContextHeight!=(uint)extent.Y)
             await Bank.ResizeOwnedResourcesAsync(extent);

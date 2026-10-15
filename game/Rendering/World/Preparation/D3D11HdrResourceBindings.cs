@@ -97,11 +97,11 @@ public static class D3D11HdrResourceBindings
 
     public static IReadOnlyList<string> Write(GameResourceRepository repository,
         HdrShaderDeclaration declaration, HdrShaderProgram program, string directory, string locale,
-        D3D11CurrentSeasonFrame current, D3D11CurrentSeasonResources resources, int outputWidth, int outputHeight)
+        D3D11CurrentSeasonFrame current, int outputWidth, int outputHeight)
     {
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(declaration);
         ArgumentNullException.ThrowIfNull(program); ArgumentNullException.ThrowIfNull(current);
-        ArgumentNullException.ThrowIfNull(resources); ArgumentException.ThrowIfNullOrWhiteSpace(directory);
+        ArgumentException.ThrowIfNullOrWhiteSpace(directory);
         Directory.CreateDirectory(directory);
         var imported = ImportedTargets.GetValue(declaration, _ => new(repository));
         var native = RenderSamplerSourceAdapters.Load(repository.SourceDirectory, locale);
@@ -216,12 +216,11 @@ public static class D3D11HdrResourceBindings
         }
         bool NullDirectionalSlot(int slot)
         {
-            for (int i = 0; i < resources.Lights.Count; i++)
+            foreach (var light in current.Lights)
             {
-                var source = resources.Lights[i].DefaultCaller.Root.ResourceSlots.Single(s => s.Slot == slot);
+                var source = light.ResourceSlots.Single(s => s.Slot == slot);
                 if (source.RequiredInterfaceClassId != 0xB672FAA2 || source.DeclaredObjectKey != 0 ||
-                    source.EffectiveDataHandle != 0 ||
-                    BinaryPrimitives.ReadUInt64LittleEndian(current.Lights[i].CompleteData.Span[source.LightDataOffset..]) != 0)
+                    source.EffectiveDataHandle != 0)
                     return false;
             }
             return true;

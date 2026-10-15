@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using San14.Data.Formats;
 
 namespace San14.Data;
 
@@ -39,7 +38,7 @@ public sealed class SkyAppliedSourceStageOwner
         ArgumentNullException.ThrowIfNull(actualMain);
         if (actualMain.Camera.ObjectId != MainMapCameraAdapter.MainCameraObjectId)
             throw new InvalidDataException("Applied Sky stages require the imported Main camera declaration.");
-        RequireNullScene(actualMain.Camera);
+        RequireNullScene(actualMain.Declaration.SkyDomeSceneKey);
         return new(locale, ownedWorkIdentity, ownedMainIdentity,
             RenderSamplerSourceAdapters.ReadAppliedSkyStageNativeRecipe(repository.SourceDirectory, locale), actualMain);
     }
@@ -64,7 +63,7 @@ public sealed class SkyAppliedSourceStageOwner
         var package = selection.FirstPackage;
         if (!ReferenceEquals(package, selectedPackage))
         {
-            RequireNullScene(package.Camera);
+            RequireNullScene(package.SkyDomeSceneKey);
             selectedPackage = package;
         }
 
@@ -83,15 +82,9 @@ public sealed class SkyAppliedSourceStageOwner
             throw new InvalidDataException("Applied Sky stage receipt is stale or superseded.");
     }
 
-    private static void RequireNullScene(DokObject camera)
+    private static void RequireNullScene(uint sceneKey)
     {
-        var fields = camera.Properties.Where(property => property.NameHash == 0xB25B4066).ToArray();
-        if (camera.Kind != DokObjectKind.Inline || camera.Reference is not null ||
-            camera.ClassId != MapCameraConstructionSource.PerspectiveCameraClassId ||
-            fields.Length != 1 || fields[0].TypeCode != 5 || fields[0].ElementCount != 1 ||
-            fields[0].ElementSize != 4 || fields[0].RawValue.Length != 4)
-            throw new InvalidDataException("Applied Sky stages require a typed SkyDomeDisplaysetFactory declaration.");
-        if (BinaryPrimitives.ReadUInt32LittleEndian(fields[0].RawValue) != 0)
+        if (sceneKey != 0)
             throw new NotSupportedException("Nonzero SkyDomeDisplaysetFactory requires its actual scene producer.");
     }
 }

@@ -13,16 +13,20 @@ public sealed partial class MapPostEffect3WorldCompositeSourceOwner:IAsyncDispos
     private RenderOutputPresentation presentation;
     private readonly bool allowReadback;
     private readonly object lifetime=new();
+    private readonly SemaphoreSlim serial=new(1,1);
+    private NativeMapBorrowerRetirementPackage allocationRetirement;
+    private NativeMapBorrowerRetirementPackage? pendingRetirement;
     private readonly Stack<RenderTargetDeviceTexture> targetStack=new();
     private ParentBinding? current;
     private long revision;
-    private bool retiring;
+    private bool retiring,refreshing;
     private int accepted;
     private TaskCompletionSource? drained;
     private Task? disposal;
     private MapPostEffect3WorldCompositeSourceOwner(MapSourceCreatedWorldPlayableHost owner,
-        RenderTargetDeviceTexture allocation,RenderOutputPresentation wrapper,bool readback)
-        =>(host,target,presentation,allowReadback)=(owner,allocation,wrapper,readback);
+        RenderTargetDeviceTexture allocation,RenderOutputPresentation wrapper,bool readback,
+        NativeMapBorrowerRetirementPackage allocationLifetime)
+        =>(host,target,presentation,allowReadback,allocationRetirement)=(owner,allocation,wrapper,readback,allocationLifetime);
     public Vector2I Extent=>target.ExplicitExtent;
     public RenderTextureRuntimeDescriptor EffectiveSource=>target.EffectiveSource;
     public ParentBinding? CurrentBinding{get{lock(lifetime)return current;}}
@@ -48,13 +52,27 @@ public sealed partial class MapPostEffect3WorldCompositeSourceOwner:IAsyncDispos
             throw new NotSupportedException("World frontend parent needs the exact dynamic source Output BGRA8 sRGB declaration and same graph.");
         string owner=actualHost.Session.Binding.ViewIdentity+"/frontend-source-Output13BF/"+Guid.NewGuid().ToString("N");
         var effective=RenderTextureRuntimeDescriptor.ConstructDeclared(declaration,owner);
-        var allocation=await AllocateAsync(declaration,scene.ExplicitExtent,effective,allowReadback);
-        try{return new(actualHost,allocation,await RenderOutputPresentation.BuildAsync(allocation),allowReadback);}
-        catch{await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{rd.FreeRid(allocation.StorageRid);return true;});throw;}
+        var resources=new RenderDeviceResources("Owned frontend source Output allocation failed.");
+        RenderOutputPresentation? wrapper=null;
+        try
+        {
+            var allocation=await AllocateAsync(declaration,scene.ExplicitExtent,effective,allowReadback,resources);
+            wrapper=await RenderOutputPresentation.BuildAsync(allocation);
+            var allocationLifetime=new NativeMapBorrowerRetirementPackage("World-frontend-allocation:"+Guid.NewGuid().ToString("N"),wrapper,resources);
+            return new(actualHost,allocation,wrapper,allowReadback,allocationLifetime);
+        }
+        catch(Exception failure)
+        {
+            var pending=CreatePartialRetirement(resources,wrapper,failure);
+            try{await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pending);}
+            catch(Exception retirementFailure)
+            {throw new NativeMapBorrowerConstructionException(failure,retirementFailure,pending!);}
+            throw;
+        }
     }
 
     private static Task<RenderTargetDeviceTexture> AllocateAsync(RenderTextureDefinition declaration,
-        Vector2I extent,RenderTextureRuntimeDescriptor effective,bool allowReadback)
+        Vector2I extent,RenderTextureRuntimeDescriptor effective,bool allowReadback,RenderDeviceResources resources)
         =>TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
             using var format=new RDTextureFormat{Format=RenderingDevice.DataFormat.B8G8R8A8Srgb,
@@ -62,52 +80,100 @@ public sealed partial class MapPostEffect3WorldCompositeSourceOwner:IAsyncDispos
                 TextureType=RenderingDevice.TextureType.Type2D,UsageBits=RenderingDevice.TextureUsageBits.SamplingBit|
                     RenderingDevice.TextureUsageBits.ColorAttachmentBit|RenderingDevice.TextureUsageBits.CanCopyFromBit|
                     RenderingDevice.TextureUsageBits.CanCopyToBit|(allowReadback?RenderingDevice.TextureUsageBits.CanUpdateBit:0)};
-            using var view=new RDTextureView();Rid image=rd.TextureCreate(format,view);
-            if(!image.IsValid)throw new InvalidDataException("Owned frontend source Output allocation failed.");
+            using var view=new RDTextureView();Rid image=resources.Own(rd.TextureCreate(format,view));
             return new RenderTargetDeviceTexture(declaration,extent,image,image,
                 format.Format,format.Format,format.Format){EffectiveSource=effective};
         });
+
+    private static NativeMapBorrowerRetirementPackage? CreatePartialRetirement(
+        RenderDeviceResources resources,RenderOutputPresentation? wrapper,Exception failure)
+        =>NativeMapBorrowerRetirementPackage.CreatePending("World-frontend-partial",
+            wrapper is not null?[wrapper,resources]:resources.Count>0?[resources]:[],
+            (failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+
+    private async Task RetireFailedCandidateAsync(Exception failure)
+    {
+        try{pendingRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pendingRetirement);}
+        catch(Exception retirementFailure)
+        {throw new NativeMapBorrowerConstructionException(failure,retirementFailure,pendingRetirement!);}
+    }
 
     /// <summary>Replace only the actual frontend target generation after prior
     /// commands returned. The independent Surface keeps its accepted canvas.</summary>
     public async Task RefreshOwnedExtentAsync(NativeMapFrameContext context,Func<Task>? retireDisplayBorrower=null)
     {
         var extent=context.OutputFrame.Textures[0x064B746B].ExplicitExtent;
-        lock(lifetime)
+        await serial.WaitAsync();
+        bool entered=false;
+        try
         {
-            ObjectDisposedException.ThrowIf(retiring,this);
+            lock(lifetime)
+            {
+                ObjectDisposedException.ThrowIf(retiring,this);
+                if(pendingRetirement is null&&extent==Extent)return;
+                if(accepted!=0)throw new InvalidOperationException("Cannot resize the frontend while Composite consumes it.");
+                refreshing=true;entered=true;
+            }
+            pendingRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pendingRetirement);
             if(extent==Extent)return;
-            if(accepted!=0)throw new InvalidOperationException("Cannot resize the frontend while Composite consumes it.");
+            var declaration=target.Source;
+            var effective=RenderTextureRuntimeDescriptor.ConstructDeclared(declaration,
+                target.EffectiveSource.OwnerIdentity+"/resized");
+            var resources=new RenderDeviceResources("Owned frontend source Output allocation failed.");
+            RenderTargetDeviceTexture next;
+            RenderOutputPresentation? nextPresentation=null;
+            NativeMapBorrowerRetirementPackage nextRetirement;
+            try
+            {
+                next=await AllocateAsync(declaration,extent,effective,allowReadback,resources);
+                nextPresentation=await RenderOutputPresentation.BuildAsync(next);
+                nextRetirement=new("World-frontend-allocation:"+Guid.NewGuid().ToString("N"),nextPresentation,resources);
+            }
+            catch(Exception failure)
+            {
+                pendingRetirement=CreatePartialRetirement(resources,nextPresentation,failure);
+                await RetireFailedCandidateAsync(failure);
+                throw;
+            }
+            try
+            {
+                if(retireDisplayBorrower is not null)await retireDisplayBorrower();
+                lock(lifetime)
+                {
+                    ObjectDisposedException.ThrowIf(retiring,this);
+                    // Save the old generation before publishing its replacement.
+                    pendingRetirement=allocationRetirement;
+                    target=next;presentation=nextPresentation;allocationRetirement=nextRetirement;
+                    current=null;targetStack.Clear();CompletedPresentation=null;
+                }
+            }
+            catch(Exception failure)
+            {
+                pendingRetirement=nextRetirement;
+                await RetireFailedCandidateAsync(failure);
+                throw;
+            }
+            pendingRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pendingRetirement);
         }
-        var declaration=target.Source;
-        var effective=RenderTextureRuntimeDescriptor.ConstructDeclared(declaration,
-            target.EffectiveSource.OwnerIdentity+"/resized");
-        var next=await AllocateAsync(declaration,extent,effective,allowReadback);
-        RenderOutputPresentation nextPresentation;
-        try{nextPresentation=await RenderOutputPresentation.BuildAsync(next);}
-        catch{await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{rd.FreeRid(next.StorageRid);return true;});throw;}
-        var previousTarget=target;var previousPresentation=presentation;
-        try{if(retireDisplayBorrower is not null)await retireDisplayBorrower();}
-        catch
+        finally
         {
-            await nextPresentation.DisposeAsync();
-            await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{rd.FreeRid(next.StorageRid);return true;});
-            throw;
+            if(entered)lock(lifetime)refreshing=false;
+            serial.Release();
         }
-        target=next;presentation=nextPresentation;current=null;targetStack.Clear();CompletedPresentation=null;
-        await previousPresentation.DisposeAsync();
-        await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{rd.FreeRid(previousTarget.StorageRid);return true;});
     }
 
     public WorldMainDisplaySurfaceSet CaptureActualDisplaySurfaces()
     {
-        ObjectDisposedException.ThrowIf(retiring,this);
-        var actualTarget=target;var actualWrapper=presentation;
+        RenderTargetDeviceTexture actualTarget;RenderOutputPresentation actualWrapper;
+        lock(lifetime){RequireAvailable();actualTarget=target;actualWrapper=presentation;}
         void RequireCurrent()
         {
-            ObjectDisposedException.ThrowIf(retiring,this);
-            if(!ReferenceEquals(target,actualTarget)||!ReferenceEquals(presentation,actualWrapper))
-                throw new InvalidOperationException("The actual display surface generation has been replaced.");
+            lock(lifetime)
+            {
+                RequireAvailable();
+                if(!ReferenceEquals(target,actualTarget)||!ReferenceEquals(presentation,actualWrapper))
+                    throw new InvalidOperationException("The actual display surface generation has been replaced.");
+            }
         }
         return new(new(actualTarget,actualWrapper,actualTarget.StorageRid,actualTarget.ShaderViewRid,
             actualTarget.ExplicitExtent,91,RequireCurrent,
@@ -143,7 +209,7 @@ public sealed partial class MapPostEffect3WorldCompositeSourceOwner:IAsyncDispos
             throw new NotSupportedException("This source node192 owner admits the original fresh RenderResolutionRatio0->effective1 branch only.");
         lock(lifetime)
         {
-            ObjectDisposedException.ThrowIf(retiring,this);
+            RequireAvailable();
             if(accepted!=0)throw new InvalidOperationException("Cannot rebind frontend target during an accepted Composite draw.");
             targetStack.Clear();targetStack.Push(target);
             // The matched ratio1/context-size branch returns without
@@ -179,11 +245,23 @@ public sealed partial class MapPostEffect3WorldCompositeSourceOwner:IAsyncDispos
             return new CompositeTargetLease(this,actualWorldGraphics);
         }
     }
+    private void RequireAvailable()
+    {
+        ObjectDisposedException.ThrowIf(retiring,this);
+        if(refreshing||pendingRetirement is not null)
+            throw new InvalidOperationException("Frontend allocation replacement or retirement is incomplete.");
+    }
+    private void AcceptBinding(ParentBinding binding)
+    {
+        lock(lifetime){RequireAvailable();RequireCurrent(binding);accepted++;}
+    }
     private void RequireCurrent(ParentBinding binding)
     {
         lock(lifetime)
         {
             ObjectDisposedException.ThrowIf(retiring&&accepted==0,this);
+            if(refreshing||pendingRetirement is not null)
+                throw new InvalidOperationException("Frontend allocation replacement or retirement is incomplete.");
             if(!ReferenceEquals(current,binding)||binding.Revision!=revision||targetStack.Count!=1||
                 !ReferenceEquals(targetStack.Peek(),target)||!ReferenceEquals(host.Session.CurrentFrame?.Context,binding.Context)||
                 binding.Context.OutputFrame.Textures[0x064B746B].ExplicitExtent!=Extent)
@@ -259,7 +337,7 @@ public sealed partial class MapPostEffect3WorldCompositeSourceOwner:IAsyncDispos
         if(input.CurrentTarget is not CompositeTargetLease targetLease||!ReferenceEquals(targetLease.Binding,binding)||
             !ReferenceEquals(actualExecutor.Bank,targetLease.World.Bank))
             throw new InvalidDataException("Composite draw must use this exact inherited frontend target and actual bank executor.");
-        lock(lifetime){ObjectDisposedException.ThrowIf(retiring,this);accepted++;}
+        AcceptBinding(binding);
         try
         {
             var completed=await actualExecutor.DrawAsync(44,input);binding.RequireCurrent();
@@ -274,14 +352,21 @@ public sealed partial class MapPostEffect3WorldCompositeSourceOwner:IAsyncDispos
     {
         lock(lifetime)
         {
-            if(disposal is not null)return new(disposal);retiring=true;CompletedPresentation=null;
+            retiring=true;CompletedPresentation=null;
             Task wait=accepted==0?Task.CompletedTask:(drained??=new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
-            disposal=RetireAsync(wait);return new(disposal);
+            if(disposal is null||disposal.IsFaulted||disposal.IsCanceled)disposal=RetireAsync(wait);
+            return new(disposal);
         }
     }
     private async Task RetireAsync(Task wait)
     {
-        await wait;await presentation.DisposeAsync();
-        await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{rd.FreeRid(target.StorageRid);return true;});
+        await wait;await serial.WaitAsync();
+        try
+        {
+            lock(lifetime){CompletedPresentation=null;current=null;targetStack.Clear();}
+            pendingRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pendingRetirement);
+            await allocationRetirement.DisposeAsync();
+        }
+        finally{serial.Release();}
     }
 }

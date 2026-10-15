@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using San14.Data;
 
 /// <summary>Published only by the scene after every actual ordered late draw
@@ -28,35 +27,24 @@ public sealed partial class NativeMapWorldDeferredSubmittedFrame
     public void RequireCurrent(NativeMapFrameContext actualContext)
         =>scene.RequireCurrentWorldDeferredSubmission(this,actualContext);
 
-    internal void RequireExactOrderedPackets(DeferredPixelProgram actualProgram,
+    internal void RequireOrderedPackets(DeferredPixelProgram actualProgram,
         IReadOnlyList<NativeDeferredPacket> packets)
     {
         RequireCurrent(Context);
         if(!ReferenceEquals(actualProgram,Program)||packets.Count!=passes.Count)
             throw new InvalidDataException("Submitted late roster has another source program or pass count.");
-        for(int i=0;i<packets.Count;i++)passes[i].RequireExact(packets[i]);
+        for(int i=0;i<packets.Count;i++)passes[i].RequirePacket(packets[i]);
     }
 
     internal sealed partial class SubmittedPass
     {
-        private readonly IReadOnlyDictionary<uint,string> hashes;
-        private readonly IReadOnlyList<DeferredDeviceBinding> inputs;
-        private readonly DeferredRasterState raster;
-        private readonly DeferredTranslucencyViewportInputs? viewport;
-        internal SubmittedPass(DeferredDraw actualDraw,NativeDeferredPacket packet)
+        private readonly NativeDeferredPacket packet;
+        private DeferredRasterState raster=>packet.Raster;
+        internal SubmittedPass(NativeDeferredPacket packet)=>this.packet=packet;
+        internal void RequirePacket(NativeDeferredPacket actual)
         {
-            hashes=actualDraw.ConstantBytes.ToDictionary(p=>p.Key,p=>Hash(p.Value));
-            inputs=Array.AsReadOnly(actualDraw.Inputs.ToArray());
-            raster=packet.Raster;viewport=packet.TemporaryTranslucencyViewport;
-            RequireExact(packet);
+            if(!ReferenceEquals(actual,packet))
+                throw new InvalidDataException("Submitted late pass belongs to another prepared packet or order.");
         }
-        internal void RequireExact(NativeDeferredPacket packet)
-        {
-            if(packet.Raster!=raster||packet.TemporaryTranslucencyViewport!=viewport||
-                !packet.Inputs.SequenceEqual(inputs)||packet.Constants.Count!=hashes.Count||
-                hashes.Any(p=>!packet.Constants.TryGetValue(p.Key,out var bytes)||Hash(bytes.Span)!=p.Value))
-                throw new InvalidDataException("Actual submitted late pass differs from its source constants/resources/raster/viewport/order.");
-        }
-        private static string Hash(ReadOnlySpan<byte> bytes)=>Convert.ToHexString(SHA256.HashData(bytes));
     }
 }

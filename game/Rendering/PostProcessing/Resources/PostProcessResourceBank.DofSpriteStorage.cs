@@ -99,24 +99,31 @@ public sealed partial class PostProcessResourceBank
             {
                 prefix.RequireCurrent();byte[] bytes=rd.BufferGetData(buffer.StorageRid,0,buffer.Source.ByteCount);
                 if(bytes.Length!=buffer.Source.ByteCount)throw new InvalidDataException("DOF2 actual completed storage readback extent differs from its source allocation.");
-                Rid read=rd.TextureBufferCreate(buffer.TexelCount,buffer.DeviceTexelFormat,bytes);
-                if(!read.IsValid)throw new InvalidDataException("Device rejected original DOF2 readonly RGBA16F texel view.");
+                var group=BeginResources(buffer.StorageRid);
                 Rid old=default;bool installed=false;
                 try
                 {
+                    Rid read=rd.TextureBufferCreate(buffer.TexelCount,buffer.DeviceTexelFormat,bytes);
+                    if(!read.IsValid)throw new InvalidDataException("Device rejected original DOF2 readonly RGBA16F texel view.");
+                    group.Resources.Own(read);
                     prefix.RequireCurrent();
                     lock(lifetime)
                     {
                         if(!ReferenceEquals(RequireBuffer(prefix.ParameterIndex,prefix.InstanceIndex),buffer)||buffer.UploadRevision!=prefix.WriterRevision)
                             throw new InvalidDataException("DOF2 sprite storage changed during its readonly texel-view bridge.");
                         if(bufferShaderReadViews.TryGetValue(key,out var previous))old=previous.View;
-                        if(old.IsValid&&!owned.Remove(old))throw new InvalidDataException("DOF2 readonly sprite view lost bank ownership.");
-                        owned.Add(read);OwnedRidCount=owned.Count;bufferShaderReadViews[key]=(read,prefix.WriterRevision);
+                        if(old.IsValid&&!owned.Any(group=>group.Resources.Contains(old)))
+                            throw new InvalidDataException("DOF2 readonly sprite view lost bank ownership.");
+                        bufferShaderReadViews[key]=(read,prefix.WriterRevision);
                         buffer.PreparedShaderReadRid=read;installed=true;
                     }
-                    if(old.IsValid)rd.FreeRid(old);return true;
+                    if(old.IsValid)RetireOwnedRid(rd,old);return true;
                 }
-                finally{if(!installed)rd.FreeRid(read);}
+                catch(Exception failure)
+                {
+                    if(!installed)ReleaseResourcesAfterFailure(rd,group,failure);
+                    throw;
+                }
             });
         }
         prefix.RequireCurrent();return new DofSpritePrefixBufferRead(this,prefix,buffer.PreparedShaderReadRid);

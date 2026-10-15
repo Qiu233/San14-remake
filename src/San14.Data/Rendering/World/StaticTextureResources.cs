@@ -27,12 +27,50 @@ public static class StaticTextureResources
         return image;
     }
 
+    /// <summary>Import the selected Static volume from its already parsed declaration and texture container.</summary>
+    public static SkyTextureSource ImportVolume(StaticTextureBinding source, uint nativeViewFormat)
+    {
+        ReadVolumeImage(source);
+        return SkyTextureSource.Import(source.Resource, source.ImageIndex, nativeViewFormat);
+    }
+
+    internal static G1TextureImage ReadVolumeImage(StaticTextureBinding source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        var declarations = source.Definitions.Document.Objects.Where(o => o.ObjectId == source.Definition.ObjectId).ToArray();
+        if (declarations.Length != 1 || declarations[0].Kind != DokObjectKind.Inline || declarations[0].ClassId != 0xFF7DBFD4)
+            throw new InvalidDataException("LUT upload requires one inline Static declaration in its loaded definitions.");
+        var declaration = declarations[0];
+        uint context = BinaryPrimitives.ReadUInt32LittleEndian(Field(declaration, 0x6C7321D2, 5).RawValue);
+        uint tid = BinaryPrimitives.ReadUInt32LittleEndian(Field(declaration, 0x00200571, 4).RawValue);
+        if (context != source.Resource.Source.FileId || tid != source.ImageIndex ||
+            (uint)source.ImageIndex >= source.Resource.Container.Textures.Count)
+            throw new InvalidDataException("Static volume context/TID does not identify its supplied texture child.");
+        var image = source.Resource.Container.Textures[source.ImageIndex];
+        if (image.TextureSystem != 2 || image.LayerCount != 1 || image.Depth <= 1 ||
+            image.SubresourceLayout != G1TextureSubresourceLayout.VolumeMipChain)
+            throw new InvalidDataException("PostEffect3 Static LUT requires an encoded 3D volume, not a flattened 2D array.");
+        return image;
+    }
+
     public static IReadOnlyList<StaticTextureBinding> Load(GameResourceRepository repository,
         LoadedObjects definitions,string explicitArchive,IReadOnlyList<uint> explicitObjectIds)
     {
         ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(definitions);
         ArgumentNullException.ThrowIfNull(explicitObjectIds);
-        var cache=new Dictionary<uint,LoadedTextureContainer>();var bindings=new List<StaticTextureBinding>();
+        var cache=new Dictionary<uint,LoadedTextureContainer>();
+        return Load(definitions,explicitObjectIds,id=>
+        {
+            if(!cache.TryGetValue(id,out var resource))
+                cache.Add(id,resource=repository.LoadTextureContainer(explicitArchive,id));
+            return resource;
+        });
+    }
+
+    internal static IReadOnlyList<StaticTextureBinding> Load(LoadedObjects definitions,
+        IReadOnlyList<uint> explicitObjectIds,Func<uint,LoadedTextureContainer> loadTexture)
+    {
+        var bindings=new List<StaticTextureBinding>();
         foreach(uint id in explicitObjectIds)
         {
             var matches=definitions.Document.Objects.Where(o=>o.ObjectId==id).ToArray();
@@ -42,8 +80,7 @@ public static class StaticTextureResources
             var context=Field(obj,0x6C7321D2,5);var image=Field(obj,0x00200571,4);
             uint contextId=BinaryPrimitives.ReadUInt32LittleEndian(context.RawValue!);
             uint tid=BinaryPrimitives.ReadUInt32LittleEndian(image.RawValue!);
-            if(!cache.TryGetValue(contextId,out var resource))
-                cache.Add(contextId,resource=repository.LoadTextureContainer(explicitArchive,contextId));
+            var resource=loadTexture(contextId);
             if(tid>=resource.Container.Textures.Count)
                 throw new InvalidDataException($"Static {id:X8} TID{tid} lies outside {resource.Source.ResourceUri}.");
             bindings.Add(new(definitions,obj,context,image,resource,(int)tid));

@@ -150,6 +150,7 @@ public sealed class MapSourceCreatedWorldPlayableHost : IAsyncDisposable
     private readonly Dictionary<long, MainMapCameraDeferredReadyFrame> cameraLeases = [];
     private bool retiring;
     private Task? disposal;
+    private NativeMapBorrowerRetirementPackage? auxiliaryRetirement;
     private IReadOnlyList<DeferredEarlyF103SelectedSource>? currentEarlySelections;
     private IReadOnlyList<DeferredEarlyWorldPreparedPass>? currentWorldEarlyPasses;
     private PreparedViewLocalLightQueries? currentEarlyQueries;
@@ -279,6 +280,7 @@ public sealed class MapSourceCreatedWorldPlayableHost : IAsyncDisposable
                 },
                 BeforeTargetRetirement = async targets =>
                 {
+                    if (host is not null) await host.Auxiliary.DrainPendingDrawAsync();
                     if (host is not null) host.currentTerrainStencil = null;
                     host?.RetireCameraLeases();
                     await early.RetireTargetsAsync();
@@ -336,6 +338,7 @@ public sealed class MapSourceCreatedWorldPlayableHost : IAsyncDisposable
             {
                 BeforeTargetRetirement = async targets =>
                 {
+                    if(host?.postEffect3Loop is{} currentLoop)await currentLoop.DrainPendingBorrowersAsync();
                     await final.Chain.RetireTargetAsync();
                     if (sourceStages.BeforeTargetRetirement is { } retire) await retire(targets);
                 }
@@ -813,6 +816,18 @@ public sealed class MapSourceCreatedWorldPlayableHost : IAsyncDisposable
         terrain.ValidateCurrent(context);return terrain;
     }
 
+    internal async Task ReloadPostEffectResourcesAsync()
+    {
+        await gate.WaitAsync();
+        try
+        {
+            ObjectDisposedException.ThrowIf(retiring,this);
+            await (postEffect3Loop??throw new InvalidOperationException("Post-effect reload requires the ordinary World renderer."))
+                .ReloadPostEffectResourcesAsync();
+        }
+        finally { gate.Release(); }
+    }
+
     public async Task RenderFrameAsync(MapSourceCreatedPlayableTerrainFrame input)
     {
         ArgumentNullException.ThrowIfNull(input);
@@ -821,7 +836,13 @@ public sealed class MapSourceCreatedWorldPlayableHost : IAsyncDisposable
             input.TerrainRaster, input.ClearColors, input.ClearDepth, input.ClearStencil, null)
             { GeometryClearActions = input.GeometryClearActions, PrepareOrderedDeferred = Session.PrepareOrderedDeferredAsync };
         await gate.WaitAsync();
-        try { ObjectDisposedException.ThrowIf(retiring, this); await Surface.RenderFrameAsync(request); }
+        try
+        {
+            ObjectDisposedException.ThrowIf(retiring, this);
+            auxiliaryRetirement = await NativeMapBorrowerRetirementPackage.DrainPendingAsync(auxiliaryRetirement);
+            await Auxiliary.DrainPendingDrawAsync();
+            await Surface.RenderFrameAsync(request);
+        }
         catch
         {
             GraphicsColorMaskOwner?.MarkFailedOrUnknownMaskWriter("failed-source-Host-frame");
@@ -859,12 +880,27 @@ public sealed class MapSourceCreatedWorldPlayableHost : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(retiring, this);
+            auxiliaryRetirement = await NativeMapBorrowerRetirementPackage.DrainPendingAsync(auxiliaryRetirement);
+            await Auxiliary.DrainPendingDrawAsync();
             next = await MapSourceCreatedPlayableAuxiliaryOwners.BuildAsync(repository, compiler, executableLocale, extent, allowReadback);
             await Surface.ResizeTargetsAsync(terrain, output, allowReadback);
             var previous = Auxiliary; Auxiliary = next; next = null;
-            await previous.DisposeAsync();
+            auxiliaryRetirement = NativeMapBorrowerRetirementPackage.CreatePending("World-Host-replaced-auxiliary", [previous]);
+            auxiliaryRetirement = await NativeMapBorrowerRetirementPackage.DrainPendingAsync(auxiliaryRetirement);
         }
-        finally { if (next is not null) await next.DisposeAsync(); gate.Release(); }
+        catch (Exception failure)
+        {
+            if (next is not null)
+            {
+                auxiliaryRetirement = NativeMapBorrowerRetirementPackage.CreatePending("World-Host-rejected-auxiliary", [next]);
+                next = null;
+                try { auxiliaryRetirement = await NativeMapBorrowerRetirementPackage.DrainPendingAsync(auxiliaryRetirement); }
+                catch (Exception retirementFailure)
+                { throw new NativeMapBorrowerConstructionException(failure, retirementFailure, auxiliaryRetirement!); }
+            }
+            throw;
+        }
+        finally { gate.Release(); }
     }
 
     public Task<WorldMainDisplayParentEntry> PrepareMainDisplayEntryAsync(NativeMapFrameContext context)
@@ -876,7 +912,7 @@ public sealed class MapSourceCreatedWorldPlayableHost : IAsyncDisposable
         lock (lifetime)
         {
             retiring = true;
-            return new(disposal is null || disposal.IsFaulted ? disposal = DisposeCoreAsync() : disposal);
+            return new(disposal is null || disposal.IsFaulted || disposal.IsCanceled ? disposal = DisposeCoreAsync() : disposal);
         }
     }
     private async Task DisposeCoreAsync()
@@ -884,6 +920,8 @@ public sealed class MapSourceCreatedWorldPlayableHost : IAsyncDisposable
         await gate.WaitAsync();
         try
         {
+            auxiliaryRetirement = await NativeMapBorrowerRetirementPackage.DrainPendingAsync(auxiliaryRetirement);
+            await Auxiliary.DrainPendingDrawAsync();
             await Surface.RetireAsync();
             if(postEffect3Loop is not null)await postEffect3Loop.DisposeAsync();
             RetireCameraLeases();

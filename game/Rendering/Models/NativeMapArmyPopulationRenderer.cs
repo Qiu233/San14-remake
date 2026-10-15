@@ -77,6 +77,7 @@ public sealed partial class NativeMapArmyPopulationRenderer:IAsyncDisposable
     private readonly SemaphoreSlim _gate=new(1,1);
     private readonly object _lifetime=new();private bool _retiring;private int _operations;
     private TaskCompletionSource? _drained;private Task? _disposal;
+    private NativeMapBorrowerRetirementPackage? _finalRetirement;
     private long _acceptedFrames,_failedFrames;
     public NativeMapArmyPopulationAcceptedFrame? LastAcceptedFrame{get;private set;}
     public string? LastFailure{get;private set;}
@@ -302,7 +303,7 @@ public sealed partial class NativeMapArmyPopulationRenderer:IAsyncDisposable
     public Task BeforeTargetRetirementAsync(NativeMapTargetContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
-        lock(_lifetime){if(_retiring)return _disposal!;_operations++;}
+        lock(_lifetime){if(_retiring)return DisposeAsync().AsTask();_operations++;}
         return RetireAcceptedAsync();
     }
     private async Task RetireAcceptedAsync()
@@ -313,13 +314,23 @@ public sealed partial class NativeMapArmyPopulationRenderer:IAsyncDisposable
     }
     private void Accept(){lock(_lifetime){ObjectDisposedException.ThrowIf(_retiring,this);_operations++;}}
     private void Complete(){lock(_lifetime){_operations--;if(_retiring&&_operations==0)_drained?.TrySetResult();}}
-    public ValueTask DisposeAsync(){lock(_lifetime){_retiring=true;return new(_disposal??=DisposeCoreAsync());}}
+    public ValueTask DisposeAsync()
+    {
+        lock(_lifetime)
+        {
+            _retiring=true;
+            if(_disposal is null||_disposal.IsFaulted||_disposal.IsCanceled)_disposal=DisposeCoreAsync();
+            return new(_disposal);
+        }
+    }
     private async Task DisposeCoreAsync()
     {
         Task pending;lock(_lifetime)pending=_operations==0?Task.CompletedTask:(_drained??=new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
         await pending;
-        await _worldQueueGraphics.DisposeAsync();_worldQueuePreparation=null;_worldAcceptedPreparation=null;
-        await _ordinaryRenderer.DisposeAsync();await _flagRenderer.DisposeAsync();
+        _finalRetirement??=new("Army-population-retire/"+Guid.NewGuid().ToString("N"),
+            _worldQueueGraphics,_ordinaryRenderer,_flagRenderer);
+        await _finalRetirement.DisposeAsync();
+        _worldQueuePreparation=null;_worldAcceptedPreparation=null;
         _ordinary.Dispose();_flags.Dispose();_prepared.Clear();_nativeAdmissions.Clear();_lastWorld=null;_materialSnapshot=null;LastAcceptedFrame=null;
         _ordinarySnapshot=new ReadOnlyDictionary<int,RemakeArmyVisualFrame>(new Dictionary<int,RemakeArmyVisualFrame>());
         _modelsSnapshot=new ReadOnlyDictionary<int,LoadedArmyModel>(new Dictionary<int,LoadedArmyModel>());

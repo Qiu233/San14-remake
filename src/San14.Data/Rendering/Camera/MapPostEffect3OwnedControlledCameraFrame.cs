@@ -94,14 +94,14 @@ public sealed class MapPostEffect3ControlledSelectedHdrTexture
 public sealed class MapPostEffect3ControlledLightLookup
 {
     private readonly MapCameraConstructionPacket camera;
-    private readonly ReadOnlyMemory<byte>? lightData;
+    private readonly Vector3? projectionVector;
     private MapPostEffect3ControlledLightLookup(MapCameraConstructionPacket camera,
-        ReadOnlyMemory<byte>? light,string owner,string evidence)
-    {this.camera=camera.CopyAcceptedSnapshot();lightData=light is{}data?new ReadOnlyMemory<byte>(data.ToArray()):(ReadOnlyMemory<byte>?)null;OwnerIdentity=owner;SourceEvidence=evidence;}
+        Vector3? light,string owner,string evidence)
+    {this.camera=camera.CopyAcceptedSnapshot();projectionVector=light;OwnerIdentity=owner;SourceEvidence=evidence;}
     public long FrameNumber=>camera.FrameNumber;
     public string OwnerIdentity{get;}
     public string SourceEvidence{get;}
-    public bool FoundLight=>lightData is not null;
+    public bool FoundLight=>projectionVector is not null;
     public static MapPostEffect3ControlledLightLookup CaptureActualLookup(MapCameraConstructionPacket camera,
         MapSourceCreatedLightingPacket? actualSelectedLight,string actualLookupOwner,string actualLookupEvidence)
     {
@@ -112,7 +112,8 @@ public sealed class MapPostEffect3ControlledLightLookup
             light.SourceIdentity.CameraObjectId!=camera.Source.Camera.ObjectId||
             !light.PreparedCameraPrefix.Span.SequenceEqual(camera.Prefix.Span)||light.LocalLightData.Length!=0x10C0))
             throw new InvalidDataException("Controlled light lookup does not belong to this exact prepared Camera.");
-        return new(camera,actualSelectedLight?.LocalLightData,actualLookupOwner,actualLookupEvidence);
+        return new(camera,actualSelectedLight is {} selected
+            ? DecodeProjectionVector(selected.LocalLightData.Span) : null,actualLookupOwner,actualLookupEvidence);
     }
     /// <summary>The current native numeric route already owns the provider's
     /// complete LightData. Capture the actual lookup result without recreating
@@ -124,9 +125,23 @@ public sealed class MapPostEffect3ControlledLightLookup
         if(actualSelectedLightData is{}data &&
             (data.Length!=0x10C0||actualSelectedLightFrameNumber!=camera.FrameNumber))
             throw new InvalidDataException("Controlled numeric light lookup needs this frame's complete LightData.");
-        return new(camera,actualSelectedLightData,actualLookupOwner,actualLookupEvidence);
+        return new(camera,actualSelectedLightData is {} selected
+            ? DecodeProjectionVector(selected.Span) : null,actualLookupOwner,actualLookupEvidence);
     }
-    internal ReadOnlyMemory<byte>? ReadSelectedLight(MapCameraConstructionPacket currentCamera)
+
+    /// <summary>Capture the selected light's actual projection vector directly.
+    /// Null is an absent selection; a zero vector still represents a present light.</summary>
+    public static MapPostEffect3ControlledLightLookup CaptureProjectionLookup(
+        MapCameraConstructionPacket camera,Vector3? actualSelectedProjectionVector,
+        long? actualSelectedLightFrameNumber,string actualLookupOwner,string actualLookupEvidence)
+    {
+        ArgumentNullException.ThrowIfNull(camera);
+        if(actualSelectedProjectionVector is not null && actualSelectedLightFrameNumber!=camera.FrameNumber)
+            throw new InvalidDataException("Controlled projection lookup needs the selected vector from this Camera frame.");
+        return new(camera,actualSelectedProjectionVector,actualLookupOwner,actualLookupEvidence);
+    }
+
+    internal Vector3? ReadProjectionVector(MapCameraConstructionPacket currentCamera)
     {
         camera.RequireEquivalentCurrentPostEffectScalars(currentCamera);
         if(currentCamera.FrameNumber!=FrameNumber||currentCamera.Source.Camera.ObjectId!=camera.Source.Camera.ObjectId||
@@ -134,8 +149,13 @@ public sealed class MapPostEffect3ControlledLightLookup
             currentCamera.Source.Resource.Source.DecodedSha256!=camera.Source.Resource.Source.DecodedSha256||
             !camera.Prefix.Span.SequenceEqual(currentCamera.Prefix.Span))
             throw new InvalidDataException("Controlled light selection belongs to another actual Camera frame.");
-        return lightData;
+        return projectionVector;
     }
+
+    private static Vector3 DecodeProjectionVector(ReadOnlySpan<byte> light) => new(
+        BinaryPrimitives.ReadSingleLittleEndian(light[0xF80..]),
+        BinaryPrimitives.ReadSingleLittleEndian(light[0xF84..]),
+        BinaryPrimitives.ReadSingleLittleEndian(light[0xF88..]));
 }
 
 public sealed record MapPostEffect3OwnedControlledCameraInputs(
@@ -389,7 +409,7 @@ public sealed class LoadedMapPostEffect3ControlledCameraSource
         if(radialEnabled)throw new NotSupportedException("Enabled controlled radial blur requires the actual prepared12E4/12E8 center producer.");
         W("EnableRadialBlur",MapPostEffect3WriteStage.ControlledEnableRadialBlur,0);
         W("HdrTvScale",MapPostEffect3WriteStage.ControlledHdrTvScale,selector.Selector==1?hdrTvScaleBits:0x3F800000);
-        Vector4 projection=CalculateLensProjection(camera.Prefix,light.ReadSelectedLight(camera),caller.ActualProjectionClipMode);
+        Vector4 projection=CalculateLensProjectionFromVector(camera.Prefix,light.ReadProjectionVector(camera),caller.ActualProjectionClipMode);
         F("LensFlareProjPosFovScale",MapPostEffect3WriteStage.ControlledLensFlareProjPosFovScale,projection.X,projection.Y,projection.Z,projection.W);
         W("EnableFXAA",MapPostEffect3WriteStage.ControlledEnableFXAA,caller.ActualFxaaMode==1?1u:0u);
         W("FXAAType",MapPostEffect3WriteStage.ControlledFXAAType,raw.Settings.Fxaa.Type);
@@ -413,9 +433,25 @@ public sealed class LoadedMapPostEffect3ControlledCameraSource
         if(actualSelectedLight is null)return defaultLightProjection;
         if(actualSelectedLight.Value.Length!=0x10C0||actualProjectionClipMode is null)
             throw new NotSupportedException("Positive controlled light projection needs actual  output and complete LightData");
-        float C(int at)=>BinaryPrimitives.ReadSingleLittleEndian(currentCameraPrefix.Span[at..]);
         float L(int at)=>BinaryPrimitives.ReadSingleLittleEndian(actualSelectedLight.Value.Span[at..]);
-        float x=L(0xF80),y=L(0xF84),z=L(0xF88);
+        return CalculateLensProjectionCore(currentCameraPrefix,new(L(0xF80),L(0xF84),L(0xF88)),actualProjectionClipMode.Value);
+    }
+
+    public Vector4 CalculateLensProjectionFromVector(ReadOnlyMemory<byte> currentCameraPrefix,
+        Vector3? actualSelectedProjectionVector,int? actualProjectionClipMode=null)
+    {
+        if(currentCameraPrefix.Length!=0x3C0)throw new InvalidDataException("Controlled lens projection needs the actual complete Camera prefix.");
+        if(actualSelectedProjectionVector is not {} vector)return defaultLightProjection;
+        if(actualProjectionClipMode is null)
+            throw new NotSupportedException("Positive controlled light projection needs the actual projection convention.");
+        return CalculateLensProjectionCore(currentCameraPrefix,vector,actualProjectionClipMode.Value);
+    }
+
+    private Vector4 CalculateLensProjectionCore(ReadOnlyMemory<byte> currentCameraPrefix,
+        Vector3 selectedVector,int actualProjectionClipMode)
+    {
+        float C(int at)=>BinaryPrimitives.ReadSingleLittleEndian(currentCameraPrefix.Span[at..]);
+        float x=selectedVector.X,y=selectedVector.Y,z=selectedVector.Z;
         float inverse=D(1,MathF.Sqrt(A(A(M(x,x),M(y,y)),M(z,z))));
         x=A(M(-C(0x144),M(x,inverse)),C(0x10));y=A(M(-C(0x144),M(y,inverse)),C(0x14));z=A(M(-C(0x144),M(z,inverse)),C(0x18));
         float clipX=A(A(A(M(y,C(0x110)),M(x,C(0x100))),M(z,C(0x120))),C(0x130));

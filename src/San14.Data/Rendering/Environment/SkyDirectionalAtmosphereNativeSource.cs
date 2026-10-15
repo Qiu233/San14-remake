@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Numerics;
-using System.Runtime.CompilerServices;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -42,16 +41,35 @@ public static class SkyDirectionalAtmosphereNativeSource
     }
 }
 
-/// <summary>An exact current mode4/profile1 finalFog writer receipt.
-/// Its source is the same accepted selected Directional packet's whole Fog96.</summary>
+/// <summary>An exact mode4/profile1 finalFog writer receipt. Typed numeric
+/// inputs require no selected packet; legacy inputs retain their source lifetime.</summary>
 public sealed class SkyDirectionalMode4FogReceipt
 {
-    private readonly SkyDirectionalSelectedLightSource source;
+    private readonly SkyDirectionalSelectedLightSource? source;
     private readonly byte[] bytes;
     private readonly Vector4 value;
     private readonly uint sourceMode;
-    private SkyDirectionalMode4FogReceipt(SkyDirectionalSelectedLightSource source,
-        byte[] bytes, Vector4 value, uint sourceMode) { this.source = source; this.bytes = bytes; this.value = value; this.sourceMode = sourceMode; }
+    private readonly float start;
+    private readonly float end;
+    private SkyDirectionalMode4FogReceipt(SkyDirectionalSelectedLightSource? source,
+        byte[] bytes, Vector4 value, uint sourceMode, float start, float end)
+    {
+        this.source = source; this.bytes = bytes; this.value = value;
+        this.sourceMode = sourceMode; this.start = start; this.end = end;
+    }
+
+    public static SkyFogPacket Generate(uint sourceMode, float start, float end, float intervalFallback)
+        => Generate(sourceMode, start, end, intervalFallback, null);
+
+    private static SkyFogPacket Generate(uint sourceMode, float start, float end, float intervalFallback,
+        SkyDirectionalSelectedLightSource? source)
+    {
+        if (sourceMode != 0 && end <= start && BitConverter.SingleToUInt32Bits(intervalFallback) != 0x7F7FFFFF)
+            throw new InvalidDataException("Mode4 Fog requires the actual native float-max fallback for a nonincreasing interval.");
+        var packet = SkyFogMath.GenerateDirectionalMode4(sourceMode, start, end, intervalFallback);
+        var proof = new SkyDirectionalMode4FogReceipt(source, packet.Bytes.ToArray(), packet.Value, sourceMode, start, end);
+        return packet with { SourceMode4Proof = proof };
+    }
 
     internal static SkyFogPacket Generate(SkyDirectionalSelectedLightSource source,
         LoadedSkyDirectionalAtmosphereNativeSource native)
@@ -59,25 +77,17 @@ public sealed class SkyDirectionalMode4FogReceipt
         source.ValidateCurrent();
         ReadOnlySpan<byte> fog = source.PackageFog96.Span;
         uint mode = BinaryPrimitives.ReadUInt32LittleEndian(fog.Slice(0x10, 4));
-        Vector4 v = Vector4.Zero;
+        float start = 0, end = 0;
         if (mode != 0)
         {
-            float start = Read(fog, 0x14), end = Read(fog, 0x18);
-            float ratio = end > start ? Divide(1, Subtract(end, start)) : native.IntervalFallback;
-            // 97C3C8..97C3E2: multiply table4*start before multiplying ratio.
-            float product = Multiply(1, start);
-            float x = Multiply(1, ratio), y = Multiply(product, ratio);
-            y = BitConverter.UInt32BitsToSingle(BitConverter.SingleToUInt32Bits(y) ^ 0x80000000);
-            v = new(x, y, 0, 0);
+            start = BinaryPrimitives.ReadSingleLittleEndian(fog.Slice(0x14, 4));
+            end = BinaryPrimitives.ReadSingleLittleEndian(fog.Slice(0x18, 4));
         }
-        byte[] bytes = new byte[16];
-        BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(0), v.X); BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(4), v.Y);
-        var proof = new SkyDirectionalMode4FogReceipt(source, bytes.ToArray(), v, mode);
-        return new(4, 1, true, mode, v, bytes, false, null) { SourceMode4Proof = proof };
+        return Generate(mode, start, end, native.IntervalFallback, source);
     }
     public void ValidateValue(Vector4 actual)
     {
-        source.ValidateCurrent();
+        source?.ValidateCurrent();
         if(!SameBits(actual,value))throw new InvalidDataException("Sky finalFog transport differs from the exact native mode4 result.");
     }
 
@@ -87,7 +97,7 @@ public sealed class SkyDirectionalMode4FogReceipt
     /// atmospheric draw has original D3D interpolation/NaN/min behavior.</summary>
     public void ValidateSourcePixelCpuPacking(LoadedShaderContainer actualShader, int pixelProgramIndex)
     {
-        ArgumentNullException.ThrowIfNull(actualShader); source.ValidateCurrent();
+        ArgumentNullException.ThrowIfNull(actualShader); source?.ValidateCurrent();
         if(pixelProgramIndex is not (5 or 11 or 6))
             throw new InvalidDataException("Moon mode4 CPU scope requires PS5/11/6.");
         // Preserve the selected-program bounds and actual current Fog operands;
@@ -103,9 +113,6 @@ public sealed class SkyDirectionalMode4FogReceipt
         // The admitted exceptional writer is specifically native97C377's
         // nonincreasing interval, coefficient1 and fallbackfloat-max. Reject
         // arbitrary NaNs/Infs rather than extending a general finite bypass.
-        ReadOnlySpan<byte> fog=source.PackageFog96.Span;
-        float start=BinaryPrimitives.ReadSingleLittleEndian(fog.Slice(0x14,4));
-        float end=BinaryPrimitives.ReadSingleLittleEndian(fog.Slice(0x18,4));
         if(!float.IsFinite(start)||!float.IsFinite(end)||end>start||
             BitConverter.SingleToUInt32Bits(value.X)!=0x7F7FFFFF ||
             BitConverter.SingleToUInt32Bits(value.Y)!=0xFF800000 ||
@@ -115,7 +122,7 @@ public sealed class SkyDirectionalMode4FogReceipt
 
     public void Validate(SkyFogPacket packet)
     {
-        source.ValidateCurrent();
+        source?.ValidateCurrent();
         if (!ReferenceEquals(packet.SourceMode4Proof, this) || packet.RendererFogMode != 4 || packet.Profile != 1 ||
             !packet.FogEnabled || packet.SourceFogMode != sourceMode || !SameBits(packet.Value,value) ||
             packet.RequiresMode7NeutralScattering || packet.ScatteringOverride is not null || !packet.Bytes.AsSpan().SequenceEqual(bytes))
@@ -123,11 +130,6 @@ public sealed class SkyDirectionalMode4FogReceipt
     }
     private static bool SameBits(Vector4 a,Vector4 b) => new[]{a.X,a.Y,a.Z,a.W}.Select(BitConverter.SingleToUInt32Bits)
         .SequenceEqual(new[]{b.X,b.Y,b.Z,b.W}.Select(BitConverter.SingleToUInt32Bits));
-    private static float Read(ReadOnlySpan<byte> bytes, int at)
-    { float value = BinaryPrimitives.ReadSingleLittleEndian(bytes.Slice(at, 4)); return float.IsFinite(value) ? value : throw new InvalidDataException("Mode4 finalFog input is nonfinite."); }
-    [MethodImpl(MethodImplOptions.NoInlining)] private static float Multiply(float a, float b) => a * b;
-    [MethodImpl(MethodImplOptions.NoInlining)] private static float Divide(float a, float b) => a / b;
-    [MethodImpl(MethodImplOptions.NoInlining)] private static float Subtract(float a, float b) => a - b;
 }
 
 public static partial class RenderSamplerSourceAdapters

@@ -41,11 +41,11 @@ internal static class D3D11CurrentSeasonEncoding
         {
             BinaryPrimitives.WriteUInt32LittleEndian(bytes[at..], light.ObjectId);
             BinaryPrimitives.WriteUInt32LittleEndian(bytes[(at + 4)..], light.GroupMask);
-            BinaryPrimitives.WriteUInt32LittleEndian(bytes[(at + 8)..], BinaryPrimitives.ReadUInt32LittleEndian(light.CompleteData.Span[0xF24..]));
+            BinaryPrimitives.WriteSingleLittleEndian(bytes[(at + 8)..], light.ReceiverBias.Scale);
             bytes[at + 12] = light.Lighting.ShadowModes.Receive;
             bytes[at + 13] = light.Lighting.ShadowModes.Local;
-            bytes[at + 14] = light.CompleteData.Span[0xF1C];
-            light.CompleteData.Span[..LightNumericBytes].CopyTo(bytes[(at + LightHeaderBytes)..]);
+            bytes[at + 14] = light.State.HeaderCasterPlane;
+            light.WriteNumericPrefix(bytes.Slice(at + LightHeaderBytes, LightNumericBytes));
             at += LightHeaderBytes + LightNumericBytes;
         }
         frame.Atmosphere.NumericBytes.Span.CopyTo(bytes[at..]);

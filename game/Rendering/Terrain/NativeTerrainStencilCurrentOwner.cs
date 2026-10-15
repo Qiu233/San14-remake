@@ -62,7 +62,7 @@ public sealed class NativeTerrainStencilCurrentOwner
             typedTerrain.CameraOwnerIdentity, OwnerIdentity + "/record0/" + context.FrameNumber,
             OwnerIdentity + "/F8", source.ShaderSha256, source.RendererKind, actualCurrentCallFlags,
             source.TerrainSource.Exclusion2B8, false, false, true, true, true, true,
-            OwnerIdentity + "/retained-source-DC52-GBuffer;" + currentExecutionProducer);
+            OwnerIdentity + "/retained-GBuffer/" + source.ShaderUri + ";" + currentExecutionProducer);
         var receipt = source.PrepareCurrent(typedTerrain, actualWorldPQ, publication);
         var face = new TerrainGbufferStencilFace(RenderingDevice.CompareOperator.Always,
             RenderingDevice.StencilOperation.Keep, RenderingDevice.StencilOperation.Keep,
@@ -70,7 +70,7 @@ public sealed class NativeTerrainStencilCurrentOwner
         return current = new(this, context, frame, terrain, receipt, baseRaster with { Stencil = new(face, face) });
     }
     private void RequireRetained()
-    { if (!retained) throw new InvalidDataException("Terrain F8 stencil owner was imported, edited or unresolved."); source.ValidateSourceUnchanged(); }
+    { if (!retained) throw new InvalidDataException("Terrain F8 stencil owner was imported, edited or unresolved."); }
     internal void RequireCurrent(NativeTerrainStencilPreparedFrame expected)
     { RequireRetained(); if (!ReferenceEquals(expected, current)) throw new InvalidDataException("Terrain F8 stencil preparation was superseded or failed."); }
 }

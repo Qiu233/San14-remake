@@ -13,6 +13,7 @@ public sealed class MapPostEffect3WorldRenderLoop : IAsyncDisposable
     private MapPostEffect3FirstWorldExecutionOwner? resources;
     private MapPostEffect3WorldControlledPreparation? preparation;
     private MapPostEffect3WorldControlledModuleOwner? module;
+    private MapPostEffect3WorldControlledFactoryFrame? activeFrame;
     private MapPostEffect3StaticLutTextureOwner? hdr;
     private readonly List<MapPostEffect3StaticLutTextureOwner> replacedHdr=[];
     private MapPostEffect3WorldExposurePublicationOwner? exposurePublication;
@@ -55,6 +56,18 @@ public sealed class MapPostEffect3WorldRenderLoop : IAsyncDisposable
 
     public bool HasCompleted(NativeMapFrameContext context)=>
         !failed&&!retiring&&!disposed&&ReferenceEquals(completed,context);
+    internal async Task ReloadPostEffectResourcesAsync()
+    {
+        await gate.WaitAsync();
+        try
+        {
+            ObjectDisposedException.ThrowIf(disposed,this);
+            if(failed||retiring||preparation is null)
+                throw new InvalidOperationException("Post-effect reload requires an initialized live World renderer.");
+            preparation.InvalidatePostEffectResources();
+        }
+        finally { gate.Release(); }
+    }
     public sealed record RuntimeStageTiming(string Stage,double ElapsedMilliseconds,double SincePreviousMilliseconds);
     /// <summary>CPU wall time at actual source boundaries. Does not measure
     /// GPU execution time or alter source state and submission selection.</summary>
@@ -115,6 +128,7 @@ public sealed class MapPostEffect3WorldRenderLoop : IAsyncDisposable
             if(!ReferenceEquals(accepted.Context,context))throw new InvalidDataException("World request belongs to another accepted context.");
             var camera=accepted.Lighting.CapturePreparedCameraFromSameAcceptedMain(accepted.MainCamera);
             var extentTransition=preparation.ReadActualExtentTransition(context);
+            await DrainPendingBorrowersCoreAsync();
             await resources.RefreshOwnedExtentAsync(context);
             var parent=resources.CompositeParent.BindNode192And193Current(context,camera);
             var current=preparation.CaptureCurrent(context,parent,new(actualCapture.PresentationDeltaSeconds,
@@ -142,7 +156,9 @@ public sealed class MapPostEffect3WorldRenderLoop : IAsyncDisposable
             else frame=await module.BuildNextFrameAsync(actualHost,current,hdr);
             Mark("current-module-factory-preparation");
             RenderOutputPresentation presentation;
-            await using(var currentBorrow=frame)
+            activeFrame=frame;
+            Exception? frameFailure=null;
+            try
             {
                 await frame.PrepareActualDirectoryAsync(dependencies.Repository,resources.Programs);
                 Mark("current-directory-preparation");
@@ -170,6 +186,17 @@ public sealed class MapPostEffect3WorldRenderLoop : IAsyncDisposable
                 completed=context;
                 presentation=output.Presentation;
             }
+            catch(Exception failure){frameFailure=failure;throw;}
+            finally
+            {
+                try{await frame.DisposeAsync();activeFrame=null;}
+                catch(Exception retirementFailure) when(frameFailure is not null)
+                {
+                    if(module?.PendingInvocationRetirement is{} pending)
+                        throw new NativeMapBorrowerConstructionException(frameFailure,retirementFailure,pending);
+                    throw new AggregateException(frameFailure,retirementFailure);
+                }
+            }
             await RetireReplacedHdrAsync();
             LastCompletedScheduling=scheduling?.CaptureSnapshot();
             return presentation;
@@ -185,6 +212,7 @@ public sealed class MapPostEffect3WorldRenderLoop : IAsyncDisposable
         {
             if(disposed)return;
             retiring=true;
+            await DrainPendingBorrowersCoreAsync();
             // A failed teardown remains retryable and keeps the actual owner.
             if(exposurePublication is not null){await exposurePublication.DisposeAsync();exposurePublication=null;}
             if(module is not null){await module.DisposeAsync();module=null;}
@@ -199,6 +227,19 @@ public sealed class MapPostEffect3WorldRenderLoop : IAsyncDisposable
             completed=null;completedTimings=Array.Empty<RuntimeStageTiming>();preparation=null;host=null;disposed=true;
         }
         finally { gate.Release(); }
+    }
+
+    internal async Task DrainPendingBorrowersAsync()
+    {
+        await gate.WaitAsync();
+        try{await DrainPendingBorrowersCoreAsync();}
+        finally{gate.Release();}
+    }
+    private async Task DrainPendingBorrowersCoreAsync()
+    {
+        if(activeFrame is not null){await activeFrame.DisposeAsync();activeFrame=null;}
+        if(module is not null)await module.RetireInvocationOwnersAsync();
+        if(resources is not null)await resources.Compute.DrainPendingAsync();
     }
 
     private async Task RetireReplacedHdrAsync()

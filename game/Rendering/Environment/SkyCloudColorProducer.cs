@@ -74,7 +74,8 @@ public sealed class SkyCloudColorProducer : IAsyncDisposable
         }
         catch(Exception failure)
         {
-            var partial=new NativeMapBorrowerRetirementPackage("Cloud-producer-partial/"+Guid.NewGuid().ToString("N"),owned.AsEnumerable().Reverse().ToArray());
+            var partial=Retirement("Cloud-producer-partial",owned,
+                failure is NativeMapBorrowerConstructionException nested ? nested.RetainedPackage : null);
             try{await partial.DisposeAsync();}
             catch(Exception cleanup){partial.RetainFailure();throw new NativeMapBorrowerConstructionException(failure,cleanup,partial);}
             throw;
@@ -104,8 +105,8 @@ public sealed class SkyCloudColorProducer : IAsyncDisposable
             }
             catch(Exception failure)
             {
-                var partial=new NativeMapBorrowerRetirementPackage("Cloud-draws-partial/"+Guid.NewGuid().ToString("N"),
-                    faces.AsEnumerable().Reverse().Cast<IAsyncDisposable>().ToArray());
+                var partial=Retirement("Cloud-draws-partial",faces.Cast<IAsyncDisposable>(),
+                    failure is NativeMapBorrowerConstructionException nested ? nested.RetainedPackage : null);
                 try{await partial.DisposeAsync();}
                 catch(Exception cleanup){partial.RetainFailure();throw new NativeMapBorrowerConstructionException(failure,cleanup,partial);}
                 throw;
@@ -139,6 +140,7 @@ public sealed class SkyCloudColorProducer : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(retiring,this);
+            needsCurrentFrame=true;
             for(int face=0;face<packets.Length;face++)
                 await draws.Faces[face].UpdateConstantsAsync(packets[face].VertexConstants,packets[face].PixelConstants,packets[face].MaximumRaySamples);
             needsCurrentFrame=false;
@@ -153,7 +155,7 @@ public sealed class SkyCloudColorProducer : IAsyncDisposable
     private void RequireCurrentFrame()
     {
         ObjectDisposedException.ThrowIf(retiring,this);
-        if(needsCurrentFrame)throw new InvalidOperationException("Replacement Cloud draws require all six actual current face packets.");
+        if(needsCurrentFrame)throw new InvalidOperationException("Cloud draws require all six actual current face packets.");
     }
     private async Task SubmitFaceAsync(SkySceneFaceContext context)
     {
@@ -175,6 +177,10 @@ public sealed class SkyCloudColorProducer : IAsyncDisposable
             return new SkyCloudColorFacePacket(validated.VertexBytes,validated.PixelBytes,validated.MaximumRaySamples);
         }).ToArray();
     }
+    private static NativeMapBorrowerRetirementPackage Retirement(string identity, IEnumerable<IAsyncDisposable> owned,
+        NativeMapBorrowerRetirementPackage? partialChild = null)
+        => new(identity+"/"+Guid.NewGuid().ToString("N"),[partialChild,..owned.Reverse()]);
+
     public ValueTask DisposeAsync()
     {
         lock(lifetimeGate)

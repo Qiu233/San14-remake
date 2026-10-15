@@ -15,8 +15,7 @@ public sealed partial class MapPostEffect3StaticLutTextureOwner
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(actualPreparedHdrLookup);
         var source = MapPostEffect3StaticHdrNativeSource.Load(repository, actualPreparedHdrLookup.ExecutableLocale);
         var recipe = source.ReadSelectedCurrent(actualPreparedHdrLookup);
-        recipe.RequireCurrentSource();
-        var owner = await BuildAsync(recipe.Binding, recipe.NativeShaderViewFormat,
+        var owner = await BuildImportedAsync(recipe.Binding, recipe.Texture,
             recipe.SourceEvidence + ";actual-owned-prepared-HDR-selection;not-an-original-process-observation");
         owner.sourceSelectedHdrRecipe = recipe; owner.sourceSelectedHdrLookup = actualPreparedHdrLookup;
         owner.sourceSelectedHdrSource = source;
@@ -37,7 +36,7 @@ public sealed partial class MapPostEffect3StaticLutTextureOwner
     {
         RequireCurrent();
         var source=sourceSelectedHdrSource??throw new InvalidDataException("HDR owner has no native selection source.");
-        var recipe=source.ReadSelectedCurrent(actualLookup);recipe.RequireCurrentSource();
+        var recipe=source.ReadSelectedCurrent(actualLookup);
         if(!IsSameUploadedHdr(recipe))return false;
         sourceSelectedHdrRecipe=recipe;sourceSelectedHdrLookup=actualLookup;
         return true;
@@ -49,12 +48,9 @@ public sealed partial class MapPostEffect3StaticLutTextureOwner
     private bool IsSameUploadedHdr(MapPostEffect3StaticHdrNativeRecipe recipe)
     {
         var selected=recipe.Binding;
-        return NativeViewFormat==recipe.NativeShaderViewFormat&&selected.Definition.ObjectId==Binding.Definition.ObjectId&&
-            selected.ImageIndex==Binding.ImageIndex&&selected.Definitions.Source.ResourceUri==Binding.Definitions.Source.ResourceUri&&
-            selected.Resource.Source.ResourceUri==Binding.Resource.Source.ResourceUri&&
-            selected.Definitions.Source.DecodedSha256==DefinitionSourceSha256&&selected.Resource.Source.DecodedSha256==TextureSourceSha256&&
-            selected.ContextReference.RawValue!.AsSpan().SequenceEqual(contextBytes)&&
-            selected.ImageReference.RawValue!.AsSpan().SequenceEqual(imageBytes);
+        return texture.Source.Identity==recipe.TextureIdentity&&recipe.SourceStaticObjectId==Binding.Definition.ObjectId&&
+            selected.Definitions.Source.ResourceUri==Binding.Definitions.Source.ResourceUri&&
+            selected.Definitions.Source.DecodedSha256==DefinitionSourceSha256;
     }
 
     /// <summary>The descriptor+28 is proven null by the actual source asset
@@ -65,7 +61,6 @@ public sealed partial class MapPostEffect3StaticLutTextureOwner
         RequireCurrent();
         var recipe = sourceSelectedHdrRecipe ?? throw new InvalidDataException("LUT owner has no source-joined native HDR construction.");
         var lookup = sourceSelectedHdrLookup ?? throw new InvalidDataException("LUT owner has no actual prepared HDR selection.");
-        recipe.RequireCurrentSource();
         RequireSameUploadedHdr(recipe);
         if (!recipe.NativeDescriptorMetadata28IsProvenNull || lookup.SelectedStaticTexture is not{} selected ||
             !recipe.MatchesLoadedBinding(selected))

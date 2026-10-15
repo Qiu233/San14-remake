@@ -48,8 +48,8 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
             vertex.Set("g_vProcSize", reconstructionWidth, reconstructionHeight,
                 D(1, reconstructionWidth), D(1, reconstructionHeight));
             var pixel=new Fields();
-            var outer=current.Lights.First(light=>(light.GroupMask&0x80)!=0).CompleteData;
-            pixel.Set("litDir",Words(V(outer.Span,0)));pixel.Set("vEye",Words(eye));pixel.Set("fog",Words(atmosphere.Fog.Value));
+            var outer=current.Lights.First(light=>(light.GroupMask&0x80)!=0).State;
+            pixel.Set("litDir",Words(outer.Lighting.Directional[0].Direction));pixel.Set("vEye",Words(eye));pixel.Set("fog",Words(atmosphere.Fog.Value));
             pixel.Set("Scat",atmosphere.Scattering.SelectMany(Words).ToArray());pixel.Set("g_mtPrevW2P",Words(Matrix4x4.Identity));
             var common=volume.PreparePixel(eye,lens.VerticalFovRadians,radius);
             pixel.Set("g_vBaseTexOffset",common.BaseTextureOffset.X,common.BaseTextureOffset.Y,common.BaseTextureOffset.Z);

@@ -2,61 +2,21 @@ namespace San14.Data;
 
 public sealed partial class MapCopy97CurrentStockSource
 {
-    private AcceptedStockSources? acceptedStockSources;
+    private MapOwnedGraphicsMaskAcceptedSourceSnapshot? acceptedMaskSources;
     private long fullNativeSemanticSourceValidationCount;
     public long FullNativeSemanticSourceValidationCount=>Interlocked.Read(ref fullNativeSemanticSourceValidationCount);
-    internal MapOwnedGraphicsMaskAcceptedSourceSnapshot CaptureAcceptedImmutableStockSources(MapCopy97CurrentStockPacket packet)
+
+    /// <summary>Admission checks the immutable inputs once. Later queries
+    /// follow the actual frontend attempt and retained Terrain writer scope.</summary>
+    internal void ValidateCurrent(MapCopy97CurrentStockPacket packet)
     {
-        ValidateCurrent(packet);
-        if(acceptedStockSources is{} existing){existing.RequireCurrent(packet);return existing.Mask;}
-        var mask=packet.Prefix.Source.CaptureAcceptedImmutableSourceSnapshot(packet.Prefix);
-        acceptedStockSources=new(this,packet,mask);return mask;
-    }
-    internal void RevalidateAcceptedStockSourceBoundary(MapCopy97CurrentStockPacket packet)
-    {
-        ValidateCurrent(packet);
-        RequireScope(packet.Prefix,packet.Frame,packet.Models,packet.Terrain,packet.Early,packet.Caustics,packet.GeometryFrame);
-        acceptedStockSources?.Mask.RevalidateMutableSourceBoundary();
-    }
-    /// <summary>Full RequireScope already ran at acceptance. Keep the exact
-    /// native packet identities and private byte snapshots; never replay G1
-    /// selection or Directional construction in a draw-time current check.
-    /// Mutable source canonical validation remains at the explicit boundary.</summary>
-    private sealed class AcceptedStockSources
-    {
-        private readonly MapCopy97CurrentStockSource owner;
-        private readonly MapCopy97CurrentStockPacket packet;
-        private readonly byte[] camera,lightingCamera,light,feature,lateFeature,lateVariant,lateRow,lateBinding,
-            earlyCamera,earlyFeature,earlyVariant,earlyRow,earlyBinding;
-        internal MapOwnedGraphicsMaskAcceptedSourceSnapshot Mask{get;}
-        internal AcceptedStockSources(MapCopy97CurrentStockSource owner,MapCopy97CurrentStockPacket packet,
-            MapOwnedGraphicsMaskAcceptedSourceSnapshot mask)
-        {
-            this.owner=owner;this.packet=packet;Mask=mask;var frame=packet.Frame;
-            camera=frame.Camera.Prefix.ToArray();lightingCamera=frame.Lighting.PreparedCameraPrefix.ToArray();light=frame.Lighting.LocalLightData.ToArray();
-            feature=frame.Feature.CurrentFeature48.ToArray();lateFeature=frame.Selection.CurrentFeature48.ToArray();
-            lateVariant=frame.Selection.RequestedVariant96.ToArray();lateRow=frame.Selection.Combination.RawRow.ToArray();
-            lateBinding=frame.Selection.BindingVariant.RawBytes.ToArray();
-            earlyCamera=packet.Early.Camera.Prefix.ToArray();earlyFeature=packet.Early.CurrentFeature48.ToArray();
-            earlyVariant=packet.Early.RequestedVariant96.ToArray();earlyRow=packet.Early.Combination.RawRow.ToArray();
-            earlyBinding=packet.Early.BindingVariant.RawBytes.ToArray();
-        }
-        internal void RequireCurrent(MapCopy97CurrentStockPacket actual)
-        {
-            Mask.RequireCurrent();var frame=packet.Frame;
-            if(!owner.valid||!ReferenceEquals(actual,packet)||!ReferenceEquals(owner.prepared,packet)||
-                !ReferenceEquals(packet.Source,owner)||packet.Prefix.PreviousCompletedFrameNumber!=owner.CompletedSourceFrameNumber||
-                owner.frontend.CompletedSourceFrameNumber!=owner.CompletedSourceFrameNumber||!owner.frontend.WorkSubmissionStarted||
-                packet.FrameNumber!=Mask.FrameNumber||packet.ViewIdentity!=Mask.ViewIdentity||
-                !frame.Camera.Prefix.Span.SequenceEqual(camera)||!frame.Lighting.PreparedCameraPrefix.Span.SequenceEqual(lightingCamera)||
-                !frame.Lighting.LocalLightData.Span.SequenceEqual(light)||!frame.Feature.CurrentFeature48.Span.SequenceEqual(feature)||
-                !frame.Selection.CurrentFeature48.Span.SequenceEqual(lateFeature)||!frame.Selection.RequestedVariant96.Span.SequenceEqual(lateVariant)||
-                !frame.Selection.Combination.RawRow.Span.SequenceEqual(lateRow)||!frame.Selection.BindingVariant.RawBytes.Span.SequenceEqual(lateBinding)||
-                !packet.Early.Camera.Prefix.Span.SequenceEqual(earlyCamera)||
-                !packet.Early.CurrentFeature48.Span.SequenceEqual(earlyFeature)||!packet.Early.RequestedVariant96.Span.SequenceEqual(earlyVariant)||
-                !packet.Early.Combination.RawRow.Span.SequenceEqual(earlyRow)||!packet.Early.BindingVariant.RawBytes.Span.SequenceEqual(earlyBinding))
-                throw new InvalidDataException("Accepted stock semantic snapshot changed its current native Camera/light/feature/variant packet or frontend epoch.");
-            packet.Terrain.Source.RequireRetainedAcceptedScope();
-        }
+        ArgumentNullException.ThrowIfNull(packet);
+        if(!valid || !ReferenceEquals(prepared,packet) || !ReferenceEquals(packet.Source,this) ||
+            packet.Prefix.PreviousCompletedFrameNumber!=CompletedSourceFrameNumber ||
+            frontend.CompletedSourceFrameNumber!=CompletedSourceFrameNumber || !frontend.WorkSubmissionStarted ||
+            acceptedMaskSources is not {} mask || !ReferenceEquals(mask.Prefix,packet.Prefix))
+            throw new InvalidDataException("Current stock packet was failed, replaced or belongs to another frontend attempt.");
+        mask.RequireCurrent();
+        packet.Terrain.Source.RequireRetainedAcceptedScope();
     }
 }

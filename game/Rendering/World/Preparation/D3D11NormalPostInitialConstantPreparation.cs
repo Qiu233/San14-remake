@@ -11,7 +11,7 @@ public static class D3D11NormalPostInitialConstantPreparation
         D3D11CurrentSeasonLight? selected=current.ExposureLight.Present
             ?current.Lights.Single(light=>light.ObjectId==current.ExposureLight.ObjectId):null;
         var prepared=D3D11NormalPostInitialInputPreparation.Prepare(repository,current.Present,
-            selected?.CompleteData,selected is null?null:current.Present.FrameNumber,outputWidth,outputHeight);
+            selected?.State.LensFlareSourceVector,selected is null?null:current.Present.FrameNumber,outputWidth,outputHeight);
         prepared.WriteNativeInputs(inputRoot);
         return prepared;
     }

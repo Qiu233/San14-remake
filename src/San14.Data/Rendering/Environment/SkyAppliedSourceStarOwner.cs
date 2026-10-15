@@ -25,7 +25,7 @@ public sealed class SkyAppliedSourceStarOwner
     public float CommittedPhase=>committedPhase;
     public LoadedShaderContainer Shader=>resources.Shader;
     public SkyStarProgramSelection Program{get;}
-    public SkyStarGeometry? Geometry=>resources.Geometry is { } geometry ? geometry with{VertexBytes=geometry.VertexBytes.ToArray()} : null;
+    public SkyStarGeometry? Geometry=>resources.Geometry;
     public static SkyAppliedSourceStarOwner CreateFresh(GameResourceRepository repository,string locale,string ownedStarIdentity,
         NamedViewRendererResources renderer,MapSeasonCameraPackage package)
     {

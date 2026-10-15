@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using Godot;
 using San14.Data;
 
@@ -81,18 +80,23 @@ public static class DeferredAuxiliarySourcePixelFactory
         // write. Unsupported current modes do not reuse previous-frame content.
         if (depthMode != 1)
             throw new NotSupportedException("Current native depth filter requires an unimplemented source branch.");
+        DeferredAuxiliaryFilterPreparation specular;
         if (current.FilterType90 == 1)
         {
             if (current.SampleCount94 is < 1 or > 7)
                 throw new NotSupportedException("Current source Gaussian size has no compiled original variant.");
-            _ = DeferredAuxiliaryGaussianSchedule.ReadSpecular(owners.Source, transparency,
-                current.ContextFlags3F0, (uint)current.SampleCount94, current.Common.GaussianDispersion9C);
+            specular = DeferredAuxiliaryFilterPreparation.Gaussian(owners.Filters.Source,
+                new(accepted.Selection, transparency, current.ContextFlags3F0, (uint)current.SampleCount94,
+                    current.Common.GaussianDispersion9C, current.SourceProvenance));
         }
         else if (current.FilterType90 is 2 or 3)
-            _ = DeferredAuxiliaryGgxSchedule.Read(owners.Source, transparency, current.ContextFlags3F0,
-                current.FilterType90, current.SampleCount94, current.CameraFov148, current.CameraAspect14C, inputs.CameraTangentDispatch);
+            specular = DeferredAuxiliaryFilterPreparation.Ggx(owners.Filters.Source,
+                new(accepted.Selection, transparency, current.ContextFlags3F0, current.FilterType90,
+                    current.SampleCount94, inputs.CameraTangentDispatch, current.SourceProvenance));
         else throw new NotSupportedException("Current source specular filter requires an unimplemented source branch.");
-        _ = DeferredAuxiliaryGaussianSchedule.ReadDepth(owners.Source, current.ContextFlags3F0, (uint)depthMode);
+        string geometryProducer = "accepted ordered source geometry/Army; frame=" + frame + ";" + producer;
+        var depth = DeferredAuxiliaryFilterPreparation.Depth(owners.Filters.Source, accepted.Selection,
+            current.ContextFlags3F0, (uint)depthMode, geometryProducer);
         if (!inputs.ColorCopyBackend.CurrentBlendIsDisabled || !inputs.DepthCopyBackend.CurrentCustomVertexShaderIsAbsent ||
             inputs.ColorCopyBackend.CurrentScreenScale29E0.X < 1 || inputs.ColorCopyBackend.CurrentScreenScale29E0.Y < 1 ||
             inputs.DepthCopyBackend.CurrentScreenScale29E0.X < 1 || inputs.DepthCopyBackend.CurrentScreenScale29E0.Y < 1)
@@ -108,16 +112,8 @@ public static class DeferredAuxiliarySourcePixelFactory
 
         await owners.StockCopy.CopyCurrentColorToSpecularMipZeroAsync(accepted.Selection, transparency,
             early.CurrentColorAttachment, selectedSpecular, inputs.ColorCopyBackend);
-        if (current.FilterType90 == 1)
-            await owners.Filters.ProduceGaussianSpecularMipsAsync(new(accepted.Selection, transparency,
-                current.ContextFlags3F0, (uint)current.SampleCount94, current.Common.GaussianDispersion9C,
-                current.SourceProvenance), owners.Devices);
-        else await owners.Filters.ProduceSpecularMipsAsync(new(accepted.Selection, transparency,
-            current.ContextFlags3F0, current.FilterType90, current.SampleCount94, inputs.CameraTangentDispatch,
-            current.SourceProvenance), owners.Devices);
-        string geometryProducer = "accepted ordered source geometry/Army; frame=" + frame + ";" + producer;
-        await owners.Filters.ProduceBlurredDepthAsync(accepted.Selection, current.ContextFlags3F0, (uint)depthMode,
-            mainDepth, owners.Devices, geometryProducer);
+        await owners.Filters.ProducePreparedAsync(specular, owners.Devices);
+        await owners.Filters.ProducePreparedAsync(depth, owners.Devices, mainDepth);
         var copy = await owners.DepthCopy.CopyDepthAsync(accepted.Selection, mainDepth, owners.RefractionDepth,
             inputs.DepthCopyBackend, geometryProducer);
         return new(accepted, early, inputs.Prefix, copy, selectedSpecular, blurred){AcceptedSourceInputs=inputs};

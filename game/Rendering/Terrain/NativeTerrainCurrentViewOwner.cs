@@ -51,7 +51,7 @@ public sealed class NativeTerrainCurrentViewOwner
             Terrain1BB8 = publication, SelectedShadowRecord1BD0 = selectedRecord }, currentCommon);
     }
     internal void RequireCurrent()
-    { if (!retained) throw new InvalidDataException("Terrain View owner was edited, imported or unresolved."); source.ValidateSourceUnchanged(); }
+    { if (!retained) throw new InvalidDataException("Terrain View owner was edited, imported or unresolved."); }
     internal void RequireCurrent(NativeTerrainCurrentViewFrame frame)
     { RequireCurrent(); if (!ReferenceEquals(currentFrame, frame)) throw new InvalidDataException("Terrain View publication was superseded or its next preparation failed."); }
 }

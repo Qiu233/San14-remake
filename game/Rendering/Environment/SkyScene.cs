@@ -92,7 +92,22 @@ public sealed partial class SkyScene : IAsyncDisposable
     // Creation immediately transfers ownership here, including a replacement
     // whose preceding draw or its own cleanup may fail to retire.
     private readonly HashSet<SkyCubeBlendDraw> _blendDrawOwners=new();
-    private IReadOnlyList<SkyLightDraw> _lightFaces = Array.Empty<SkyLightDraw>();
+    private readonly List<NativeMapBorrowerRetirementPackage> pendingBlendRetirements=new();
+    internal sealed class LightResources : IAsyncDisposable
+    {
+        public IReadOnlyList<SkyLightDraw> Faces { get; }
+        internal readonly NativeMapBorrowerRetirementPackage Retirement;
+        public LightResources(IReadOnlyList<SkyLightDraw> faces)
+        {
+            Faces = faces;
+            Retirement = new("Sky-light-group/" + Guid.NewGuid().ToString("N"), faces.Reverse().Cast<IAsyncDisposable>().ToArray());
+        }
+        public ValueTask DisposeAsync() => Retirement.DisposeAsync();
+    }
+    private LightResources lightResources = new(Array.Empty<SkyLightDraw>());
+    private IReadOnlyList<SkyLightDraw> _lightFaces => lightResources.Faces;
+    private readonly List<NativeMapBorrowerRetirementPackage> pendingLightRetirements = new();
+    private NativeMapBorrowerRetirementPackage? finalRetirement;
     private readonly bool[] _ready = new bool[4];
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _lifetimeGate = new();
@@ -323,8 +338,19 @@ public sealed partial class SkyScene : IAsyncDisposable
                 targets.AsReadOnly(), generated.AsReadOnly(), faces.AsReadOnly(), bases, mipCopies, filters,
                 lightProgram, lightCopies.AsReadOnly(), owned);
         }
-        catch
-        { for (int i = owned.Count - 1; i >= 0; i--) await owned[i].DisposeAsync(); throw; }
+        catch (Exception constructionFailure)
+        {
+            var partial = new NativeMapBorrowerRetirementPackage("Sky-scene-partial/" + Guid.NewGuid().ToString("N"),
+                [constructionFailure is NativeMapBorrowerConstructionException nested ? nested.RetainedPackage : null,
+                    .. owned.AsEnumerable().Reverse()]);
+            try { await partial.DisposeAsync(); }
+            catch (Exception retirementFailure)
+            {
+                partial.RetainFailure();
+                throw new NativeMapBorrowerConstructionException(constructionFailure, retirementFailure, partial);
+            }
+            throw;
+        }
     }
 
     /// <summary>Starts an explicit generation without drawing. All face
@@ -360,6 +386,17 @@ public sealed partial class SkyScene : IAsyncDisposable
             explicitStages.Cloud, explicitStages.Contribution })
             if (producer is not null && (string.IsNullOrWhiteSpace(producer.SourceResourceUri) || producer.SubmitAsync is null))
                 throw new InvalidDataException("Every enabled sky face producer requires explicit provenance and submission.");
+        await BeginGenerationAsync(PrepareGeneration(explicitGenerationIndex, explicitSixFaceInputs, explicitLight), explicitStages);
+    }
+
+    internal sealed record PreparedGeneration(Sky2Resources Resources, uint Index,
+        (Sky2ConstantPacket Vertex, Sky2ConstantPacket Pixel)[] Packets, SkySceneOptionalLightInputs? Light);
+
+    // Prepare against the actual installed branch before any optional producer
+    // or scene buffer is modified. The consuming path uses these packets once.
+    internal PreparedGeneration PrepareGeneration(uint explicitGenerationIndex,
+        IReadOnlyList<Sky2DrawInputs> explicitSixFaceInputs, SkySceneOptionalLightInputs? explicitLight)
+    {
         if (explicitGenerationIndex >= 3)
             throw new ArgumentOutOfRangeException(nameof(explicitGenerationIndex));
         if (explicitLight is not null && (LightProgram is null || explicitLight.SixFaces.Count != 6 ||
@@ -375,14 +412,28 @@ public sealed partial class SkyScene : IAsyncDisposable
                 GgxLut = explicitLight.GgxLut with { SamplerDescriptor = explicitLight.GgxLut.SamplerDescriptor.ToArray() } };
         // Use existing draw templates for their verified padding. Only named
         // fields are updated, retaining exactly the initial template padding.
-        var packets = SnapshotFaces(Sky2Program, explicitSixFaceInputs,
-            _skyFaces[0].VertexConstantBytes, _skyFaces[0].PixelConstantBytes);
+        var resources = sky2Resources;
+        var packets = SnapshotFaces(resources.Program, explicitSixFaceInputs,
+            resources.Faces[0].VertexConstantBytes, resources.Faces[0].PixelConstantBytes);
+        return new(resources, explicitGenerationIndex, packets, explicitLight);
+    }
+
+    internal async Task BeginGenerationAsync(PreparedGeneration prepared, SkySceneBaseStages explicitStages)
+    {
         await _gate.WaitAsync();
         try
         {
             ObjectDisposedException.ThrowIf(_retiring, this);
+            if (!ReferenceEquals(prepared.Resources, sky2Resources))
+                throw new InvalidOperationException("Sky resources changed after this generation was prepared.");
             if (_phase is not (SkyScenePhase.Idle or SkyScenePhase.Faulted))
                 throw new InvalidOperationException("Finish the current sky generation before beginning another.");
+            uint explicitGenerationIndex = prepared.Index;
+            var explicitLight = prepared.Light;
+            var packets = prepared.Packets;
+            _ready[explicitGenerationIndex] = false;
+            _phase = SkyScenePhase.Faulted;
+            await RetirePendingLightResourcesAsync();
             var lightFaces = new List<SkyLightDraw>();
             try
             {
@@ -396,12 +447,30 @@ public sealed partial class SkyScene : IAsyncDisposable
                 foreach (var pair in packets.Select((p, i) => (p, i)))
                     await _skyFaces[pair.i].UpdatePreparedConstantsAsync(pair.p.Vertex.Bytes,pair.p.Pixel.Bytes);
             }
-            catch
-            { for (int i = lightFaces.Count - 1; i >= 0; i--) await lightFaces[i].DisposeAsync(); _phase = SkyScenePhase.Faulted; throw; }
-            for (int i = _lightFaces.Count - 1; i >= 0; i--) await _lightFaces[i].DisposeAsync();
-            _lightFaces = lightFaces.AsReadOnly();
+            catch (Exception constructionFailure)
+            {
+                var partial = new NativeMapBorrowerRetirementPackage("Sky-light-partial/" + Guid.NewGuid().ToString("N"),
+                    [constructionFailure is NativeMapBorrowerConstructionException nested ? nested.RetainedPackage : null,
+                        .. lightFaces.AsEnumerable().Reverse().Cast<IAsyncDisposable>()]);
+                pendingLightRetirements.Add(partial);
+                try { await partial.DisposeAsync(); pendingLightRetirements.Remove(partial); }
+                catch (Exception retirementFailure)
+                {
+                    partial.RetainFailure();
+                    throw new NativeMapBorrowerConstructionException(constructionFailure, retirementFailure, partial);
+                }
+                throw;
+            }
+            // Install an owner for the new group before retiring the old one.
+            // A failed old release must leave both groups reachable.
+            if (lightFaces.Count > 0 || lightResources.Faces.Count > 0)
+            {
+                var previousLights = lightResources;
+                lightResources = new(lightFaces.AsReadOnly());
+                pendingLightRetirements.Add(previousLights.Retirement);
+                await RetirePendingLightResourcesAsync();
+            }
             sky2NeedsCurrentFrame = false;
-            _ready[explicitGenerationIndex] = false;
             _generationIndex = explicitGenerationIndex; _nextSkyFace = 0; _filterFlat = 6;
             _stages = explicitStages;
             _phase = SkyScenePhase.SkyBase;
@@ -562,6 +631,7 @@ public sealed partial class SkyScene : IAsyncDisposable
             if (BlendProgram is null) throw new NotSupportedException("No original blend source combination was supplied.");
             if (!_ready[indices.InputA] || !_ready[indices.InputB])
                 throw new InvalidOperationException("Both original blend inputs must have complete generations.");
+            await RetirePendingBlendResourcesAsync();
             var draws = new List<(SkyCubeBlendDraw Draw,SkySceneBlendSurfaceInputs Packet)>();
             int createdDraws=0;
             // Allocate every missing/current binding before changing the target.
@@ -574,21 +644,24 @@ public sealed partial class SkyScene : IAsyncDisposable
                     !draw.SourceSamplerDescriptorA.AsSpan().SequenceEqual(packet.SamplerA.Span)||
                     !draw.SourceSamplerDescriptorB.AsSpan().SequenceEqual(packet.SamplerB.Span))
                 {
-                    var replacement=await SkyCubeBlendDraw.BuildAsync(BlendProgram,
-                        SpecularTargets[(int)indices.InputA], SpecularTargets[(int)indices.InputB],
-                        SpecularTargets[3], packet.SurfaceId, explicitInterpolation,
-                        packet.FaceMatrix, packet.SamplerA, packet.SamplerB);
-                    _blendDrawOwners.Add(replacement);
+                    SkyCubeBlendDraw replacement;
                     try
                     {
-                        if(draw is not null){await draw.DisposeAsync();_blendDrawOwners.Remove(draw);}
+                        replacement=await SkyCubeBlendDraw.BuildAsync(BlendProgram,
+                            SpecularTargets[(int)indices.InputA], SpecularTargets[(int)indices.InputB],
+                            SpecularTargets[3], packet.SurfaceId, explicitInterpolation,
+                            packet.FaceMatrix, packet.SamplerA, packet.SamplerB);
                     }
-                    catch
+                    catch(NativeMapBorrowerConstructionException failure)
                     {
-                        await replacement.DisposeAsync();_blendDrawOwners.Remove(replacement);
+                        pendingBlendRetirements.Add(failure.RetainedPackage);
                         throw;
                     }
+                    _blendDrawOwners.Add(replacement);
+                    // Publish the live replacement before retiring the old
+                    // draw. A cleanup failure must not leave a retired cache hit.
                     _blendDraws[key]=replacement;
+                    if(draw is not null){await draw.DisposeAsync();_blendDrawOwners.Remove(draw);}
                     draw=replacement;
                     createdDraws++;
                 }
@@ -654,20 +727,40 @@ public sealed partial class SkyScene : IAsyncDisposable
         }
     }
 
+    private async Task RetirePendingLightResourcesAsync()
+    {
+        while (pendingLightRetirements.Count > 0)
+        {
+            await pendingLightRetirements[0].DisposeAsync();
+            pendingLightRetirements.RemoveAt(0);
+        }
+    }
+
     private async Task DisposeCoreAsync()
     {
         await _gate.WaitAsync();
         try
         {
+            await RetirePendingBlendResourcesAsync();
             // Cached blend bindings borrow the scene's cubes and program.
             // Retire them before any of those dependencies can be released.
             foreach(var draw in _blendDrawOwners.Reverse().ToArray())
             {await draw.DisposeAsync();_blendDrawOwners.Remove(draw);}
             _blendDraws.Clear();
-            for (int i = _lightFaces.Count - 1; i >= 0; i--) await _lightFaces[i].DisposeAsync();
-            await sky2Resources.DisposeAsync();
-            for (int i = _owned.Count - 1; i >= 0; i--) await _owned[i].DisposeAsync();
+            await RetirePendingLightResourcesAsync();
+            finalRetirement ??= new("Sky-scene-retire/" + Guid.NewGuid().ToString("N"),
+                [lightResources, sky2Resources, .. _owned.Reverse()]);
+            await finalRetirement.DisposeAsync();
         }
         finally { _gate.Release(); }
+    }
+
+    private async Task RetirePendingBlendResourcesAsync()
+    {
+        while(pendingBlendRetirements.Count>0)
+        {
+            await pendingBlendRetirements[0].DisposeAsync();
+            pendingBlendRetirements.RemoveAt(0);
+        }
     }
 }

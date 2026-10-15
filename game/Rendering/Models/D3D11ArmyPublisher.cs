@@ -105,14 +105,14 @@ public sealed class D3D11ArmyPublication
 public sealed class D3D11ArmyPublisher:IDisposable
 {
     private readonly PlayableArmyVisualAdapter _selection;
-    private readonly RemakeArmySceneVisuals _ordinary;
-    private readonly RemakeArmyFlagVisuals _flags;
+    private RemakeArmySceneVisuals _ordinary;
+    private RemakeArmyFlagVisuals _flags;
     private readonly RemakeArmyFlagCurrentSource _flagCurrent;
     private readonly GameResourceRepository _sourceRepository;
     private readonly Func<GameState,UnitState,ArmyGraphicsCurrentInputs?>? _motionInputs;
     private readonly ArmyGraphicsMotionClockSource? _motionClock;
     private D3D11ArmyDefaultActions? _defaultActions;
-    private readonly Dictionary<int,MapModelNativePreparedBounds> _bounds=[];
+    private Dictionary<int,MapModelNativePreparedBounds> _bounds=[];
     private RemakeArmyFlagCurrentFrame? _flagMaterials;
     private D3D11ArmyReturnedPhases? _lastAnimation;
     private D3D11ArmyPublication? _current;
@@ -137,12 +137,49 @@ public sealed class D3D11ArmyPublisher:IDisposable
         if(motionInputs is not null)_motionClock=ArmyGraphicsMotionClockSource.Load(repository,locale);
     }
 
+    // Imported resources are shared; every mutable presentation field belongs
+    // to the candidate until its complete publication has been constructed.
+    private D3D11ArmyPublisher(D3D11ArmyPublisher source)
+    {
+        _selection=source._selection;_flagCurrent=source._flagCurrent;_sourceRepository=source._sourceRepository;
+        _motionInputs=source._motionInputs;_motionClock=source._motionClock;
+        _ordinary=source._ordinary.ForkLogicalState();_flags=source._flags.ForkLogicalState();
+        _bounds=new(source._bounds);_defaultActions=source._defaultActions;
+        _flagMaterials=source._flagMaterials;_lastAnimation=source._lastAnimation;
+        _current=source._current;_lastWorld=source._lastWorld;_planUnavailable=source._planUnavailable;
+        _motionChanged=source._motionChanged;_fpsMode=source._fpsMode;_revision=source._revision;
+    }
+
+    private void Adopt(D3D11ArmyPublisher candidate)
+    {
+        var oldOrdinary=_ordinary;var oldFlags=_flags;
+        _ordinary=candidate._ordinary;_flags=candidate._flags;
+        _bounds=candidate._bounds;_defaultActions=candidate._defaultActions;
+        _flagMaterials=candidate._flagMaterials;_lastAnimation=candidate._lastAnimation;
+        _current=candidate._current;_lastWorld=candidate._lastWorld;_planUnavailable=candidate._planUnavailable;
+        _motionChanged=candidate._motionChanged;_fpsMode=candidate._fpsMode;_revision=candidate._revision;
+        // Ownership moved above. Disposing the candidate must not clear the
+        // transferred owners. The retired owners contain managed state only.
+        candidate._disposed=true;
+        oldOrdinary.Dispose();oldFlags.Dispose();
+    }
+
     /// <summary>A null phase publication writes the preview's phase0 placeholder.
     /// Normal native playback consumes the physical slot's retained clock and pose.
     /// Explicit preview phases require every current actor key.</summary>
     public D3D11ArmyPublication Capture(GameState world,D3D11ArmyReturnedPhases? returnedPhases=null)
     {
         ObjectDisposedException.ThrowIf(_disposed,this);ArgumentNullException.ThrowIfNull(world);
+        if(_current is not null&&ReferenceEquals(world,_lastWorld)&&!_motionChanged&&ReferenceEquals(returnedPhases,_lastAnimation))
+            return _current;
+        using var candidate=new D3D11ArmyPublisher(this);
+        var publication=candidate.CapturePrepared(world,returnedPhases);
+        Adopt(candidate);
+        return publication;
+    }
+
+    private D3D11ArmyPublication CapturePrepared(GameState world,D3D11ArmyReturnedPhases? returnedPhases=null)
+    {
         bool sameWorld=_current is not null&&ReferenceEquals(world,_lastWorld);
         if(sameWorld&&!_motionChanged&&ReferenceEquals(returnedPhases,_lastAnimation))return _current!;
         D3D11ArmyActor[] actors;D3D11ArmyUnavailable[] unavailable;
@@ -219,10 +256,15 @@ public sealed class D3D11ArmyPublisher:IDisposable
     }
     public D3D11ArmyPublication AdvanceMotion(GameState world,uint fpsMode)
     {
-        _fpsMode=fpsMode;
-        Capture(world);
-        if(_motionClock is not null)_motionChanged=_ordinary.AdvanceMotion(world,_motionClock.Resolve(fpsMode));
-        return Capture(world,_lastAnimation);
+        ObjectDisposedException.ThrowIf(_disposed,this);ArgumentNullException.ThrowIfNull(world);
+        using var candidate=new D3D11ArmyPublisher(this);
+        candidate._fpsMode=fpsMode;
+        candidate.CapturePrepared(world);
+        if(candidate._motionClock is not null)
+            candidate._motionChanged=candidate._ordinary.AdvanceMotion(world,candidate._motionClock.Resolve(fpsMode));
+        var publication=candidate.CapturePrepared(world,candidate._lastAnimation);
+        Adopt(candidate);
+        return publication;
     }
     private static float Phase(D3D11ArmyActorKey key,D3D11ArmyReturnedPhases? returned){
         if(returned is null)return 0;

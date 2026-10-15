@@ -20,11 +20,16 @@ public sealed record MapPostEffect3Functor(int Index,uint NameHash,int FirstPass
 /// GPU execution, parameter semantics and allocator recipes remain unsupported.</summary>
 public sealed class MapPostEffect3Container
 {
+    private readonly Lazy<IReadOnlyList<MapPostEffect3PassState>> traditionalChinesePassStates;
+    private readonly Lazy<IReadOnlyList<MapPostEffect3PassState>> simplifiedChinesePassStates;
+
     internal MapPostEffect3Container(byte[] bytes,uint version,IReadOnlyList<MapPostEffect3Chunk> chunks,
         IReadOnlyList<MapPostEffect3Table> tables,IReadOnlyList<MapPostEffect3Program> programs,
         IReadOnlyList<MapPostEffect3Pass> passes,IReadOnlyList<MapPostEffect3Functor> functors)
     {Bytes=bytes;Version=version;Chunks=chunks;Tables=tables;Programs=programs;Passes=passes;Functors=functors;
-     Sha256=Convert.ToHexString(SHA256.HashData(bytes));}
+     Sha256=Convert.ToHexString(SHA256.HashData(bytes));
+     traditionalChinesePassStates=new(()=>MapPostEffect3PassStateReader.Import(this,"TC"),LazyThreadSafetyMode.ExecutionAndPublication);
+     simplifiedChinesePassStates=new(()=>MapPostEffect3PassStateReader.Import(this,"SC"),LazyThreadSafetyMode.ExecutionAndPublication);}
     public ReadOnlyMemory<byte> Bytes{get;}
     public string Sha256{get;}
     public uint Version{get;}
@@ -33,6 +38,11 @@ public sealed class MapPostEffect3Container
     public IReadOnlyList<MapPostEffect3Program> Programs{get;}
     public IReadOnlyList<MapPostEffect3Pass> Passes{get;}
     public IReadOnlyList<MapPostEffect3Functor> Functors{get;}
+    // Factory joins are static container semantics, not current frame state.
+    // Defer them so structural import does not require execution support.
+    internal IReadOnlyList<MapPostEffect3PassState> ReadPassStates(string locale)=>locale switch{
+        "TC"=>traditionalChinesePassStates.Value,"SC"=>simplifiedChinesePassStates.Value,
+        _=>throw new ArgumentOutOfRangeException(nameof(locale))};
     public IReadOnlyList<string> UnsupportedSections{get;}=Array.AsReadOnly(new[]{
         "Header fields outside native chunk count/version and allocation capacities.",
         "Texture/buffer/sampler allocation row semantics and runtime extent evaluation.",

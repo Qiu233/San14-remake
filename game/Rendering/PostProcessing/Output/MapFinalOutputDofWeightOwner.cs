@@ -17,15 +17,18 @@ public sealed class MapFinalOutputDofWeightOwner:IAsyncDisposable
     public ReadOnlyMemory<byte> NativeSamplerKey=>Convert.FromHexString(MapFinalOutputDofWeight.ProducerSamplerKeyHex);
     public byte[] SamplerDescriptor=>RenderSamplerSourceAdapters.DecodeKey(Source.StockScreen.Native,NativeSamplerKey.Span).EncodeD3D11Descriptor();
     private readonly Rid[] _textures,_views;
+    private readonly RenderDeviceResources resources;
     private readonly SemaphoreSlim _gate=new(1,1);
     private readonly object _lifetime=new();
     private int _accepted;private bool _retiring;private Task? _disposal;private TaskCompletionSource? _drained;
-    private MapFinalOutputDofWeightOwner(LoadedMapFinalOutputResources source,Rid[] textures,Rid[] views)
-        =>(Source,_textures,_views)=(source,textures,views);
+    private MapFinalOutputDofWeightOwner(LoadedMapFinalOutputResources source,Rid[] textures,Rid[] views,
+        RenderDeviceResources owned)
+        =>(Source,_textures,_views,resources)=(source,textures,views,owned);
 
     public static async Task<MapFinalOutputDofWeightOwner> BuildAsync(LoadedMapFinalOutputResources source)
     {
         MapFinalOutputDofWeight.ValidateSource(source);
+        var resources=new RenderDeviceResources("Native DOF weight texture allocation failed.");
         return await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
             var storage=new Rid[2];var views=new Rid[2];
@@ -37,19 +40,17 @@ public sealed class MapFinalOutputDofWeightOwner:IAsyncDisposable
                         TextureType=RenderingDevice.TextureType.Type2D,Width=MapFinalOutputDofWeight.Width,
                         Height=1,Depth=1,ArrayLayers=1,Mipmaps=1,
                         UsageBits=RenderingDevice.TextureUsageBits.SamplingBit|RenderingDevice.TextureUsageBits.CanUpdateBit};
-                    using var plain=new RDTextureView();storage[i]=rd.TextureCreate(format,plain);
-                    if(!storage[i].IsValid)throw new InvalidDataException("Native DOF weight storage allocation failed.");
+                    using var plain=new RDTextureView();storage[i]=resources.Own(rd.TextureCreate(format,plain));
                     // Native format15 tables resolve DXGI65/A8_UNORM; sourcePS0
                     // reads t2.w. A default R8 view would return an alpha of1.
                     using var alpha=new RDTextureView{SwizzleR=RenderingDevice.TextureSwizzle.Zero,
                         SwizzleG=RenderingDevice.TextureSwizzle.Zero,SwizzleB=RenderingDevice.TextureSwizzle.Zero,
                         SwizzleA=RenderingDevice.TextureSwizzle.R};
-                    views[i]=rd.TextureCreateShared(alpha,storage[i]);
-                    if(!views[i].IsValid)throw new InvalidDataException("Native DOF weight alpha sampled view allocation failed.");
+                    views[i]=resources.Own(rd.TextureCreateShared(alpha,storage[i]));
                 }
-                return new MapFinalOutputDofWeightOwner(source,storage,views);
+                return new MapFinalOutputDofWeightOwner(source,storage,views,resources);
             }
-            catch{for(int i=1;i>=0;i--){if(views[i].IsValid)rd.FreeRid(views[i]);if(storage[i].IsValid)rd.FreeRid(storage[i]);}throw;}
+            catch(Exception failure){resources.ReleaseAfterConstructionFailure(rd,failure,"Final-DOF-weight-partial");throw;}
         });
     }
 
@@ -135,14 +136,13 @@ public sealed class MapFinalOutputDofWeightOwner:IAsyncDisposable
     }
 
     public ValueTask DisposeAsync()
-    {lock(_lifetime){_retiring=true;return new(_disposal??=DisposeCoreAsync());}}
+    {lock(_lifetime){_retiring=true;if(_disposal is null||_disposal.IsFaulted||_disposal.IsCanceled)_disposal=DisposeCoreAsync();return new(_disposal);}}
     private async Task DisposeCoreAsync()
     {
         Task pending;lock(_lifetime)pending=_accepted==0?Task.CompletedTask:
             (_drained??=new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
         await pending;await _gate.WaitAsync();
-        try{await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-            {for(int i=1;i>=0;i--){rd.FreeRid(_views[i]);rd.FreeRid(_textures[i]);}return true;});}
+        try{await resources.DisposeAsync();}
         finally{_gate.Release();}
     }
 }

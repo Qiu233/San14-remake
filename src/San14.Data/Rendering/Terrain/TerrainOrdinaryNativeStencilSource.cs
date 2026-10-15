@@ -1,6 +1,3 @@
-using System.Security.Cryptography;
-using San14.Data.Formats;
-
 namespace San14.Data;
 
 public enum TerrainRendererKind
@@ -60,7 +57,7 @@ public static class TerrainSourceCreatedKind1WorldPQOwners
 }
 
 /// <summary>The current owned ordinary F8 renderer, its source call arguments
-/// and its complete fresh canonical GBuffer lifecycle. These gates establish
+/// and its complete default GBuffer lifecycle. These gates establish
 /// a conditional source recipe, not current Main node execution.</summary>
 public sealed record TerrainFreshOwnedStencilPublication(long FrameNumber,
     string ViewIdentity, string CameraOwnerIdentity, string CurrentLandscapeRecordIdentity,
@@ -104,22 +101,19 @@ public sealed class TerrainOrdinaryNativeStencilReceipt
         ";" + CurrentPublication.CurrentProducerProvenance + ";D2E443-stencil-disable;no-GPU-or-Main-activation-claim";
 }
 
-/// <summary>Actual Field Landscape128/DC52 source and ordinary material renderer.
+/// <summary>Imported Landscape source and ordinary material renderer.
 /// It never substitutes the class18 PB2 stencil continuation or equates a
 /// lighting mask descriptor with an unproven current WorldPQ pointer.</summary>
 public sealed class TerrainOrdinaryNativeStencilSource
 {
-    public const string CanonicalShaderSha256 = "837B0FB842CEE4F358F34D36BB676C94F252AED67E2822A6228D39B06C93EF33";
     private readonly LoadedShaderContainer shader;
-    private readonly byte[] acceptedShaderBytes;
     private TerrainOrdinaryNativeStencilSource(TerrainViewPublicationSource terrain,
         LoadedShaderContainer actualShader)
-    { TerrainSource = terrain; shader = actualShader; acceptedShaderBytes = actualShader.Source.Bytes.ToArray(); }
+    { TerrainSource = terrain; shader = actualShader; }
     public TerrainViewPublicationSource TerrainSource { get; }
     public string ShaderUri => shader.Source.ResourceUri;
-    public string ShaderSha256 => CanonicalShaderSha256;
+    public string ShaderSha256 => shader.Source.DecodedSha256;
     public TerrainRendererKind RendererKind => TerrainRendererKind.OrdinaryMaterial;
-    public uint NativePluginHeadOffset => 0x2D10;
     public string SourceKey => TerrainSource.SourceIdentity + "|" + ShaderUri + "@" + ShaderSha256;
     public string SourceProvenance => SourceKey + ";extraCount0/ptr0;ordinary-material-renderer;" +
         "Landscape128/F8;View19C8-kind1-item8-WorldPQ78/View1BB8;" +
@@ -131,15 +125,10 @@ public sealed class TerrainOrdinaryNativeStencilSource
         ArgumentNullException.ThrowIfNull(resources);
         var terrain = TerrainViewPublicationSource.ReadFieldScene(resources.Parameters);
         var source = resources.Shader.Source;
-        if (resources.Parameters.Wrapper.Source.OverrideSource is not null || source.OverrideSource is not null ||
-            source.ResourceUri != GameResourceId.Rdb("system", 0xDC52FD1C).ToString() || source.FileId != 0xDC52FD1C ||
-            source.DecodedSha256 != CanonicalShaderSha256 ||
-            Convert.ToHexString(SHA256.HashData(source.Bytes)) != CanonicalShaderSha256)
-            throw new InvalidDataException("Ordinary Landscape stencil requires canonical unchanged Field/DC52 source bytes.");
-        var configs = resources.Shader.ReadConfigurations().Records;
-        if (configs.Count != 1 || configs[0].Name != "GBuffer" || configs[0].NameHash != 0xA3D05FFB ||
-            configs[0].RawSecondWord != 2 || configs[0].Parameters.Count != 77)
-            throw new InvalidDataException("DC52 does not identify the proved single required created GBuffer chain.");
+        if (source.FileId != terrain.ShaderFileId ||
+            source.ResourceUri != GameResourceId.Rdb("system", terrain.ShaderFileId).ToString())
+            throw new InvalidDataException("Ordinary Landscape stencil requires its declared shader resource.");
+        GBufferStencilConfiguration.RequireDefaultCallbacks(resources.Shader, allowSkippedModelModules: false);
         return new(terrain, resources.Shader);
     }
 
@@ -147,8 +136,9 @@ public sealed class TerrainOrdinaryNativeStencilSource
         TerrainCurrentKind1WorldPQPublication world, TerrainFreshOwnedStencilPublication current)
     {
         ArgumentNullException.ThrowIfNull(terrain); ArgumentNullException.ThrowIfNull(world);
-        ArgumentNullException.ThrowIfNull(current); ValidateSourceUnchanged(); terrain.Source.ValidateSourceUnchanged();
-        if (terrain.Source.SourceIdentity != TerrainSource.SourceIdentity || terrain.Source.Exclusion2B8 != TerrainSource.Exclusion2B8 ||
+        ArgumentNullException.ThrowIfNull(current);
+        if (!ReferenceEquals(terrain.Source.Parameters, TerrainSource.Parameters) ||
+            terrain.Source.Exclusion2B8 != TerrainSource.Exclusion2B8 ||
             terrain.FrameNumber <= 0 || world.FrameNumber != terrain.FrameNumber || current.FrameNumber != terrain.FrameNumber ||
             world.ViewIdentity != terrain.ViewIdentity || current.ViewIdentity != terrain.ViewIdentity ||
             current.CameraOwnerIdentity != terrain.CameraOwnerIdentity || world.CurrentItemIndex < 0 ||
@@ -169,12 +159,5 @@ public sealed class TerrainOrdinaryNativeStencilSource
             current.CurrentSelectedF8AndBindingsUnchanged != true || current.NoExternalHandlerOrStencilAssignment != true)
             throw new InvalidDataException("Current F8 source stencil requires its actual fresh renderer/plugin/callback/binding lifecycle.");
         return new(this, terrain, world, current);
-    }
-
-    public void ValidateSourceUnchanged()
-    {
-        TerrainSource.ValidateSourceUnchanged();
-        if (!acceptedShaderBytes.AsSpan().SequenceEqual(shader.Source.Bytes))
-            throw new InvalidDataException("DC52 changed after ordinary stencil source construction.");
     }
 }

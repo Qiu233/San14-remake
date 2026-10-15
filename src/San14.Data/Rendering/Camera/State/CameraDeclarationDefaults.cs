@@ -12,6 +12,8 @@ public sealed record CameraDeclarationDefaults(PerspectiveCameraDeclaration Pers
     CameraRefractionFilterSettings RefractionFilters)
 {
     public const uint InitialExposureRectangleFlags = 0;
+    public uint? ExternalDirectionalSelectorKey { get; init; }
+    public uint SkyDomeSceneKey { get; init; }
 }
 
 /// <summary>Negative overrides use the loaded Common filter settings.</summary>

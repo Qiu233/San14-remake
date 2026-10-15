@@ -34,16 +34,35 @@ public static class DeviceSampler
             5=>RenderingDevice.CompareOperator.Greater,6=>RenderingDevice.CompareOperator.NotEqual,
             7=>RenderingDevice.CompareOperator.GreaterOrEqual,8=>RenderingDevice.CompareOperator.Always,
             _=>throw new InvalidDataException("Unknown D3D11 sampler comparison function.") };
-        using var state=new RDSamplerState {
-            MagFilter=point?RenderingDevice.SamplerFilter.Nearest:RenderingDevice.SamplerFilter.Linear,
-            MinFilter=point?RenderingDevice.SamplerFilter.Nearest:RenderingDevice.SamplerFilter.Linear,
-            MipFilter=baseFilter is 0x15 or 0x55?RenderingDevice.SamplerFilter.Linear:RenderingDevice.SamplerFilter.Nearest,
-            RepeatU=Repeat(words[1]),RepeatV=Repeat(words[2]),RepeatW=Repeat(words[3]),
-            LodBias=bias,MinLod=minimum,MaxLod=maximum,UseAnisotropy=anisotropic,AnisotropyMax=words[5],
-            EnableCompare=comparison,CompareOp=Compare(words[6]),
-            BorderColor=RenderingDevice.SamplerBorderColor.FloatTransparentBlack,UnnormalizedUvw=false };
-        Rid sampler=rd.SamplerCreate(state);
-        if(!sampler.IsValid)throw new InvalidDataException("Original sampler device creation failed.");
-        return sampler;
+        Rid sampler=default;
+        try
+        {
+            using var state=new RDSamplerState {
+                MagFilter=point?RenderingDevice.SamplerFilter.Nearest:RenderingDevice.SamplerFilter.Linear,
+                MinFilter=point?RenderingDevice.SamplerFilter.Nearest:RenderingDevice.SamplerFilter.Linear,
+                MipFilter=baseFilter is 0x15 or 0x55?RenderingDevice.SamplerFilter.Linear:RenderingDevice.SamplerFilter.Nearest,
+                RepeatU=Repeat(words[1]),RepeatV=Repeat(words[2]),RepeatW=Repeat(words[3]),
+                LodBias=bias,MinLod=minimum,MaxLod=maximum,UseAnisotropy=anisotropic,AnisotropyMax=words[5],
+                EnableCompare=comparison,CompareOp=Compare(words[6]),
+                BorderColor=RenderingDevice.SamplerBorderColor.FloatTransparentBlack,UnnormalizedUvw=false };
+            sampler=rd.SamplerCreate(state);
+            if(!sampler.IsValid)throw new InvalidDataException("Original sampler device creation failed.");
+            return sampler;
+        }
+        catch(Exception failure)
+        {
+            if(sampler.IsValid)
+            {
+                try{rd.FreeRid(sampler);}
+                catch(Exception retirementFailure)
+                {
+                    var partial=new NativeMapBorrowerRetirementPackage("device-sampler-partial/"+Guid.NewGuid().ToString("N"),
+                        new NativeMapOwnedSamplerRetirement(sampler));
+                    partial.RetainFailure();
+                    throw new NativeMapBorrowerConstructionException(failure,retirementFailure,partial);
+                }
+            }
+            throw;
+        }
     }
 }

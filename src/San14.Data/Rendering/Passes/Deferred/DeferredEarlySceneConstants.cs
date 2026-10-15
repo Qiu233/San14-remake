@@ -21,7 +21,14 @@ public sealed record DeferredEarlyConstantPacket(ReadOnlyMemory<byte> Bytes,
 /// source declaration establishes a later current producer.</summary>
 public static class DeferredEarlySceneConstants
 {
-    private sealed record LoadedLayout(DxbcResourceDefinitions Definitions, DxbcRdefBuffer Globals, DxbcRdefBinding Declaration);
+    private sealed record LoadedLayout(DxbcResourceDefinitions Definitions, DxbcRdefBuffer Globals, DxbcRdefBinding Declaration)
+    {
+        private DeferredSceneConstantLayout? scene;
+        internal DeferredSceneConstantLayout ReadSceneLayout(DxbcResourceDefinitions canonical)
+        {
+            lock(this)return scene??=DeferredSceneConstantLayout.Create(canonical,Definitions,allowAdditional:true);
+        }
+    }
     private sealed class LoadedDefinitions(LoadedShaderContainer shader)
     {
         internal readonly LoadedShaderContainer Shader = shader;
@@ -130,31 +137,13 @@ public static class DeferredEarlySceneConstants
         // Source/layout validation belongs to the actual loaded asset. Each
         // request still consumes its complete current template and writers.
         var loaded = ReadLoadedDefinitions(current.Shader).ReadCombination(current.ResourceBindings.Combination.Index);
-        var definitions = loaded.Definitions; var globals = loaded.Globals;
+        var globals = loaded.Globals;
         if (completeCurrentTemplate.Length != globals.ByteSize)
             throw new InvalidDataException("Early F103 requires its complete exact current cb0.");
         var canonical = ReadLoadedDefinitions(canonicalF103Shader).ReadProgram(1);
-        var originalGlobals = canonical.Buffers.Single(b => b.Name.Text == "$Globals");
-        byte[] evaluation = new byte[DeferredSceneConstants.ByteSize];
-        foreach (var target in globals.Variables)
-        {
-            var original = originalGlobals.Variables.SingleOrDefault(v => v.Name.Text == target.Name.Text);
-            if (original is null) continue;
-            RequireShape(canonical, original, definitions, target);
-            completeCurrentTemplate.Slice(target.StartOffset, target.ByteSize).CopyTo(evaluation.AsSpan(original.StartOffset, original.ByteSize));
-        }
-        var computed = DeferredSceneConstants.Apply(canonical, evaluation, actualCurrentScene);
-        byte[] result = completeCurrentTemplate.ToArray();
-        var common = new List<DeferredSceneWrite>();
-        foreach (var write in computed.Writes)
-        {
-            var target = globals.Variables.SingleOrDefault(v => v.Name.Text == write.Name);
-            if (target is null) continue;
-            var original = originalGlobals.Variables.Single(v => v.Name.Text == write.Name);
-            RequireShape(canonical, original, definitions, target);
-            computed.Bytes.AsSpan(original.StartOffset, original.ByteSize).CopyTo(result.AsSpan(target.StartOffset, target.ByteSize));
-            common.Add(write with { Offset = target.StartOffset });
-        }
+        var computed=DeferredSceneConstants.Apply(loaded.ReadSceneLayout(canonical),completeCurrentTemplate,actualCurrentScene);
+        byte[] result=computed.Bytes;
+        var common=computed.Writes;
         var additional = additionalNativeWrites.Select(w => w ?? throw new InvalidDataException("Null early named producer.")).ToArray();
         if (additional.Select(w => w.Name).Distinct(StringComparer.Ordinal).Count() != additional.Length ||
             additional.Any(w => common.Any(c => c.Name == w.Name)))
@@ -170,7 +159,7 @@ public static class DeferredEarlySceneConstants
             snapshots.Add(write with { Bytes = snapshot });
         }
         var written = common.Select(w => w.Name).Concat(snapshots.Select(w => w.Name)).ToHashSet(StringComparer.Ordinal);
-        return new(result, common.AsReadOnly(), snapshots.AsReadOnly(), Array.AsReadOnly(globals.Variables
+        return new(result, common, snapshots.AsReadOnly(), Array.AsReadOnly(globals.Variables
             .Where(v => !written.Contains(v.Name.Text)).Select(v => v.Name.Text).ToArray()), currentProducerProvenance);
     }
 
@@ -201,13 +190,4 @@ public static class DeferredEarlySceneConstants
         _ = ReadLoadedDefinitions(current.Shader);
     }
 
-    private static void RequireShape(DxbcResourceDefinitions source, DxbcRdefVariable original,
-        DxbcResourceDefinitions targetDefinitions, DxbcRdefVariable target)
-    {
-        var a = source.Types.Single(t => t.Offset == original.TypeOffset);
-        var b = targetDefinitions.Types.Single(t => t.Offset == target.TypeOffset);
-        if (original.ByteSize != target.ByteSize || a.Class != b.Class || a.BaseType != b.BaseType || a.Rows != b.Rows ||
-            a.Columns != b.Columns || a.Elements != b.Elements || a.Members.Count != 0 || b.Members.Count != 0)
-            throw new InvalidDataException("Early F103 named setter changed its native element shape: " + target.Name.Text);
-    }
 }

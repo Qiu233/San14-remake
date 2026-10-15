@@ -61,18 +61,18 @@ public sealed class TerrainGbufferDraw : IAsyncDisposable
     public TerrainGbufferProgram Program => _program;
     private readonly IReadOnlyList<DeferredDeviceBinding> _pixelSamplerBindings;
     internal IReadOnlyList<DeferredDeviceBinding> RequireActualPixelSamplerBindings()
-    {ObjectDisposedException.ThrowIf(_disposal is not null,this);return _pixelSamplerBindings;}
-    private readonly IReadOnlyList<Rid> _owned;
-    private Task? _disposal;
+    {ObjectDisposedException.ThrowIf(_retiring,this);return _pixelSamplerBindings;}
+    private readonly RenderDeviceResources _resources;
+    private volatile bool _retiring;
 
     private TerrainGbufferDraw(TerrainGbufferConstantPacket vertex, TerrainGbufferConstantPacket pixel,
         int vertexCount, int indexCount, int instanceCount, Rid pipeline, Rid vertices, Rid indices, Rid pixelSet, Rid vertexSet,
-        Rid framebuffer, List<Rid> owned, TerrainGbufferProgram program, Rid vertexConstantsBuffer, Rid pixelConstantsBuffer,
+        Rid framebuffer, RenderDeviceResources resources, TerrainGbufferProgram program, Rid vertexConstantsBuffer, Rid pixelConstantsBuffer,
         IReadOnlyList<DeferredDeviceBinding> pixelSamplerBindings)
         => (VertexConstants, PixelConstants, VertexCount, IndexCount, InstanceCount, _pipeline, _vertices, _indices,
-            _pixelSet, _vertexSet, _framebuffer, _owned, _program, _vertexConstantsBuffer, _pixelConstantsBuffer,_pixelSamplerBindings) =
+            _pixelSet, _vertexSet, _framebuffer, _resources, _program, _vertexConstantsBuffer, _pixelConstantsBuffer,_pixelSamplerBindings) =
             (vertex, pixel, vertexCount, indexCount, instanceCount, pipeline, vertices, indices, pixelSet,
-                vertexSet, framebuffer, owned, program, vertexConstantsBuffer, pixelConstantsBuffer,pixelSamplerBindings);
+                vertexSet, framebuffer, resources, program, vertexConstantsBuffer, pixelConstantsBuffer,pixelSamplerBindings);
 
     public static Task<TerrainGbufferDraw> BuildAsync(TerrainGbufferProgram program,
         TerrainGbufferTextures textures, RenderTargetFrame frame, TerrainPatchInput patch,
@@ -93,8 +93,8 @@ public sealed class TerrainGbufferDraw : IAsyncDisposable
         state.Stencil?.Validate();
         if (state.PackedColorWriteMasks is uint packedMasks && (packedMasks & ~0xFFFFFu) != 0)
             throw new InvalidDataException("Terrain color writes require exactly five RGBA nibbles.");
-        var vertex = TerrainGbufferConstants.Vertex(program.VertexBindings.SourceDefinitions, inputs);
-        var pixel = TerrainGbufferConstants.Pixel(program.PixelBindings.SourceDefinitions, inputs, program.Source.Palette);
+        var vertex = program.Preparation.Stages.VertexConstants.Pack(inputs);
+        var pixel = program.Preparation.Stages.PixelConstants.Pack(inputs, program.Source.Palette);
         if (patches.Count == 0 || patches.Any(p => p is null || p.GridSize != patches[0].GridSize ||
             (p.EdgeFlags & 0xFFFF0000) != 0 || !float.IsFinite(p.ControlFrequency) || p.ControlFrequency <= 0 ||
             !float.IsFinite(p.ControlCount) || p.ControlCount <= 1 ||
@@ -110,10 +110,8 @@ public sealed class TerrainGbufferDraw : IAsyncDisposable
             BinaryPrimitives.WriteUInt16LittleEndian(indexBytes.AsSpan(i * 2, 2), sourceIndices[i]);
         return await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            var owned = new List<Rid>();
-            Rid Own(Rid rid) {
-                if (!rid.IsValid) throw new InvalidDataException("Original terrain draw allocation failed.");
-                owned.Add(rid); return rid; }
+            var resources = new RenderDeviceResources("Original terrain draw allocation failed.");
+            Rid Own(Rid rid) => resources.Own(rid);
             try
             {
                 if (state.Stencil is not null)
@@ -201,10 +199,14 @@ public sealed class TerrainGbufferDraw : IAsyncDisposable
                 finally { foreach (var a in attachments) a.Dispose(); }
                 if (!rd.RenderPipelineIsValid(pipeline)) throw new InvalidDataException("Terrain draw pipeline is invalid.");
                 return new TerrainGbufferDraw(vertex, pixel, vertexCount, sourceIndices.Length, instanceCount,
-                    pipeline, vertices, indices, pixelSet, vertexSet, frame.Framebuffer, owned, program, vb, pb,
+                    pipeline, vertices, indices, pixelSet, vertexSet, frame.Framebuffer, resources, program, vb, pb,
                     Array.AsReadOnly(pixelSamplerBindings.ToArray()));
             }
-            catch { for (int i = owned.Count - 1; i >= 0; i--) rd.FreeRid(owned[i]); throw; }
+            catch (Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd, failure, "Terrain-draw-partial");
+                throw;
+            }
         });
     }
 
@@ -213,11 +215,11 @@ public sealed class TerrainGbufferDraw : IAsyncDisposable
     /// A changed LOD/instance batch is built separately with shared resources.</summary>
     public Task UpdateConstantsAsync(TerrainGbufferDrawInputs inputs)
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null, this);
-        var vertex = TerrainGbufferConstants.Vertex(_program.VertexBindings.SourceDefinitions, inputs);
-        var pixel = TerrainGbufferConstants.Pixel(_program.PixelBindings.SourceDefinitions, inputs, _program.Source.Palette);
+        ObjectDisposedException.ThrowIf(_retiring, this);
+        var vertex = _program.Preparation.Stages.VertexConstants.Pack(inputs);
+        var pixel = _program.Preparation.Stages.PixelConstants.Pack(inputs, _program.Source.Palette);
         return TerrainDeviceTexture.OnRenderThreadAsync(rd => {
-            ObjectDisposedException.ThrowIf(_disposal is not null, this);
+            ObjectDisposedException.ThrowIf(_retiring, this);
             if(rd.BufferUpdate(_vertexConstantsBuffer,0,(uint)vertex.Bytes.Length,vertex.Bytes)!=Error.Ok ||
                 rd.BufferUpdate(_pixelConstantsBuffer,0,(uint)pixel.Bytes.Length,pixel.Bytes)!=Error.Ok)
                 throw new InvalidDataException("Device rejected original terrain constant updates.");
@@ -227,10 +229,10 @@ public sealed class TerrainGbufferDraw : IAsyncDisposable
 
     public Task DrawAsync(RenderingDevice.DrawFlags actions, Color[] clearColors, float clearDepth, uint clearStencil)
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null, this);
+        ObjectDisposedException.ThrowIf(_retiring, this);
         Color[] colors = clearColors.ToArray();
         return TerrainDeviceTexture.OnRenderThreadAsync(rd => {
-            ObjectDisposedException.ThrowIf(_disposal is not null, this);
+            ObjectDisposedException.ThrowIf(_retiring, this);
             long list = rd.DrawListBegin(_framebuffer, actions, colors, clearDepth, clearStencil);
             try {
                 rd.DrawListBindRenderPipeline(list, _pipeline);
@@ -242,7 +244,10 @@ public sealed class TerrainGbufferDraw : IAsyncDisposable
             return true;
         });
     }
-    public ValueTask DisposeAsync() => new(_disposal ??= TerrainDeviceTexture.OnRenderThreadAsync(rd => {
-        for (int i = _owned.Count - 1; i >= 0; i--) rd.FreeRid(_owned[i]); return true; }));
+    public ValueTask DisposeAsync()
+    {
+        _retiring = true;
+        return _resources.DisposeAsync();
+    }
     private static bool Finite(System.Numerics.Vector3 v) => float.IsFinite(v.X) && float.IsFinite(v.Y) && float.IsFinite(v.Z);
 }

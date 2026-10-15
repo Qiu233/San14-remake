@@ -1,13 +1,31 @@
-using System.Buffers.Binary;
 using San14.Data.Formats;
 
 namespace San14.Data;
 
-/// <summary>The exact HDRI declaration created by the native Game initializer
-/// from KIDSSystemResource/43AE6F41, object9E08F950. The complete declaration
-/// and its source remain available; this does not certify a current View row.</summary>
-public sealed record LoadedMainLightBindingSource(LoadedObjects Resource,
-    DokObject Declaration, uint GroupMask, uint GroupMaskMain);
+/// <summary>A captured main-light declaration and its imported controls.
+/// Keeping the original document does not make it a current View row.</summary>
+public sealed class LoadedMainLightBindingSource
+{
+    internal LoadedMainLightBindingSource(LoadedObjects resource, DokObject declaration)
+    {
+        Resource = resource; Declaration = declaration;
+        Settings = MainLightSettings.Import(declaration);
+        MainLightResourceReferences references = Settings.Resources;
+        RequiredResourceKeys = Array.AsReadOnly(new uint[]
+        {
+            references.SpecularMap, 0x80F9DB7B, references.DiffuseMap, references.IndexedRamp,
+            references.HairHighlight, references.OutlineColor, 0x7F97260C, 0x54F8C0DE,
+            references.EyeTwinkle, references.HdrLut
+        }.Where(key => key != 0).Distinct().ToArray());
+    }
+
+    public LoadedObjects Resource { get; }
+    public DokObject Declaration { get; }
+    public MainLightSettings Settings { get; }
+    public uint GroupMask => Settings.GroupMask;
+    public uint GroupMaskMain => Settings.GroupMaskMain;
+    public IReadOnlyList<uint> RequiredResourceKeys { get; }
+}
 
 public sealed record LoadedMainLightBindingCameraSource(int ViewSlot,
     uint ViewParamObjectId, LoadedPreparedCameraLightingSource Camera);
@@ -21,7 +39,6 @@ public static class MainLightBindingSource
     public const uint ResourceId = 0x43AE6F41;
     public const uint ObjectId = 0x9E08F950;
     public const uint ClassId = 0x66ECB240;
-    public const string DecodedSha256 = "75025658F0551D2EFC51FFFEE4B3C6BBE8B4F69CC02BD0D7705C6023213C7E61";
     public const uint ViewObjectId = 0xE1B6A687;
     public const uint CameraResourceId = 0x908AB6E2;
 
@@ -35,15 +52,13 @@ public static class MainLightBindingSource
     {
         ArgumentNullException.ThrowIfNull(resource);
         string uri = GameResourceId.Rdb(Archive, ResourceId).ToString();
-        if (resource.Source.ResourceUri != uri || resource.Source.FileId != ResourceId ||
-            !resource.Source.DecodedSha256.Equals(DecodedSha256, StringComparison.OrdinalIgnoreCase) ||
-            resource.Source.OverrideSource is not null)
-            throw new InvalidDataException("Native Game default HDRI requires the exact original43AE6F41 resource and decoded SHA256.");
+        if (resource.Source.ResourceUri != uri || resource.Source.FileId != ResourceId)
+            throw new InvalidDataException("Game default main light requires the selected KIDSSystemResource/43AE6F41 library.");
         DokObject[] matches = resource.Document.Objects.Where(value => value.ObjectId == ObjectId).ToArray();
         if (matches.Length != 1 || matches[0].Kind != DokObjectKind.Inline || matches[0].ClassId != ClassId)
             throw new InvalidDataException("Native Game default HDRI requires the unique inline9E08F950 class66ECB240 declaration.");
         DokObject declaration = matches[0];
-        return new(resource, declaration, Mask(declaration, 0xC0C5A5B5), Mask(declaration, 0x54E95FFC));
+        return new(resource, declaration);
     }
 
     /// <summary>Loads one of the two actual source Cameras targeted by the
@@ -79,11 +94,4 @@ public static class MainLightBindingSource
     public static uint Node166ExclusionMask(byte viewAuxOverride) =>
         ~(1u << (((viewAuxOverride == 0 ? 8 : viewAuxOverride) - 1) & 31));
 
-    private static uint Mask(DokObject declaration, uint hash)
-    {
-        DokProperty[] matches = declaration.Properties.Where(value => value.NameHash == hash).ToArray();
-        if (matches.Length != 1 || matches[0].TypeCode != 5 || matches[0].ElementCount != 1 || matches[0].RawValue.Length != 4)
-            throw new InvalidDataException($"Native Game default HDRI requires one type5/count1 group field{hash:X8}.");
-        return BinaryPrimitives.ReadUInt32LittleEndian(matches[0].RawValue);
-    }
 }

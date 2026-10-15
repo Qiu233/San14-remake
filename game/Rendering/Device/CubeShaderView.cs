@@ -8,10 +8,10 @@ public sealed class CubeShaderView : IAsyncDisposable
     public uint MostDetailedMip { get; }
     public uint MipLevels { get; }
     public Rid TextureRid { get; }
-    private Task? _disposal;
+    private readonly RenderDeviceResources resources;
 
-    private CubeShaderView(CubeRenderTextureDevice owner, uint first, uint count, Rid rid)
-        => (Owner, MostDetailedMip, MipLevels, TextureRid) = (owner, first, count, rid);
+    private CubeShaderView(CubeRenderTextureDevice owner, uint first, uint count, Rid rid, RenderDeviceResources resources)
+        => (Owner, MostDetailedMip, MipLevels, TextureRid, this.resources) = (owner, first, count, rid, resources);
 
     public static Task<CubeShaderView> BuildAsync(CubeRenderTextureDevice owner,
         uint mostDetailedMip, uint mipLevels)
@@ -22,17 +22,25 @@ public sealed class CubeShaderView : IAsyncDisposable
             throw new InvalidDataException("Cube shader view mip range exceeds the original source declaration.");
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            if (!rd.TextureIsValid(owner.TextureRid))
-                throw new InvalidDataException("Cube shader view parent is no longer live.");
-            using var view = new RDTextureView();
-            Rid rid = rd.TextureCreateSharedFromSlice(view, owner.TextureRid, 0,
-                mostDetailedMip, mipLevels, RenderingDevice.TextureSliceType.Cubemap);
-            if (!rid.IsValid || !rd.TextureIsValid(rid))
-                throw new InvalidDataException("Device rejected the original cube SRV mip range.");
-            return new CubeShaderView(owner, mostDetailedMip, mipLevels, rid);
+            var resources = new RenderDeviceResources("Device rejected the original cube SRV mip range.");
+            try
+            {
+                if (!rd.TextureIsValid(owner.TextureRid))
+                    throw new InvalidDataException("Cube shader view parent is no longer live.");
+                using var view = new RDTextureView();
+                Rid rid = resources.Own(rd.TextureCreateSharedFromSlice(view, owner.TextureRid, 0,
+                    mostDetailedMip, mipLevels, RenderingDevice.TextureSliceType.Cubemap));
+                if (!rd.TextureIsValid(rid))
+                    throw new InvalidDataException("Device rejected the original cube SRV mip range.");
+                return new CubeShaderView(owner, mostDetailedMip, mipLevels, rid, resources);
+            }
+            catch (Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd, failure, "Cube-shader-view-partial");
+                throw;
+            }
         });
     }
 
-    public ValueTask DisposeAsync() => new(_disposal ??= TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-    { rd.FreeRid(TextureRid); return true; }));
+    public ValueTask DisposeAsync() => resources.DisposeAsync();
 }

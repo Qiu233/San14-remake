@@ -88,38 +88,4 @@ public sealed class MapPostEffect3LensFlare2GpuPassSource
             throw new InvalidDataException("LensFlare2 pinned shader bindings no longer match their source producer chain.");
         return new(update,table,pass,output,hash,vertex,dispatch,local,input is{}i?Array.AsReadOnly(new[]{i}):[]);
     }
-
-    /// <summary>Exact original FFT local storage, never an external resource
-    /// waiver. The caller must additionally join this source's program/hash.
-    /// </summary>
-    public IReadOnlySet<uint> RequireFftWorkgroupRoots(ReadOnlySpan<byte> spirv)
-    {
-        RequireCurrent();if(SourcePassIndex is not(46 or 47))throw new InvalidDataException("Selected LensFlare2 source is not an FFT kernel.");
-        if(spirv.Length<20||spirv.Length%4!=0||BinaryPrimitives.ReadUInt32LittleEndian(spirv)!=0x07230203)
-            throw new InvalidDataException("LensFlare2 FFT SPIR-V header is invalid.");
-        byte[] code=spirv.ToArray();
-        var pointers=new Dictionary<uint,(uint Storage,uint Element)>();var arrays=new Dictionary<uint,(uint Element,uint Length)>();
-        var uints=new HashSet<uint>();var constants=new Dictionary<uint,(uint Type,uint Value)>();var roots=new List<(uint Type,uint Id)>();
-        var barriers=new List<(uint Execution,uint Memory,uint Semantics)>();bool local=false;
-        for(int at=20;at<spirv.Length;)
-        {
-            uint header=BinaryPrimitives.ReadUInt32LittleEndian(spirv[at..]);int n=checked((int)(header>>16));uint op=header&0xFFFF;
-            if(n==0||at+n*4>spirv.Length)throw new InvalidDataException("LensFlare2 FFT SPIR-V extent is invalid.");
-            uint W(int word)=>BinaryPrimitives.ReadUInt32LittleEndian(code.AsSpan(at+word*4,4));
-            if(op==21&&n==4&&W(2)==32&&W(3)==0)uints.Add(W(1));
-            else if(op==28&&n==4)arrays.Add(W(1),(W(2),W(3)));
-            else if(op==32&&n==4)pointers.Add(W(1),(W(2),W(3)));
-            else if(op==43&&n==4)constants.Add(W(2),(W(1),W(3)));
-            else if(op==59&&n==4&&W(3)==4)roots.Add((W(1),W(2)));
-            else if(op==224&&n==4)barriers.Add((W(1),W(2),W(3)));
-            else if(op==16&&n==6&&W(2)==17)local=W(3)==1024&&W(4)==1&&W(5)==1;
-            at+=n*4;
-        }
-        bool Is(uint id,uint value)=>constants.TryGetValue(id,out var c)&&uints.Contains(c.Type)&&c.Value==value;
-        if(!local||roots.Count!=1||barriers.Count!=2||barriers.Any(b=>!Is(b.Execution,2)||!Is(b.Memory,2)||!Is(b.Semantics,264))||
-            !pointers.TryGetValue(roots[0].Type,out var p)||p.Storage!=4||!arrays.TryGetValue(p.Element,out var a)||
-            !uints.Contains(a.Element)||!Is(a.Length,2048))
-            throw new NotSupportedException("LensFlare2 FFT requires its original1024-lane uint32[2048] initialization and two static barrier sites.");
-        return new HashSet<uint>{roots[0].Id};
-    }
 }

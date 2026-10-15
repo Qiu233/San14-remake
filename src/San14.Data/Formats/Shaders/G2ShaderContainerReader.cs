@@ -13,6 +13,7 @@ public sealed record G2ShaderContainer(int SourceByteLength, uint RawValue12, st
     DxbcRange BytecodeRange, IReadOnlyList<G2ShaderProgram> Programs,
     IReadOnlyList<G2ShaderStageTable> StageTables)
 {
+    public uint MaterialModeCount => BinaryPrimitives.ReadUInt32LittleEndian(RawHeader.AsSpan(0x54, 4));
     public ReadOnlySpan<byte> GetProgramBytes(ReadOnlySpan<byte> source, int programIndex)
     {
         if (source.Length != SourceByteLength) throw new InvalidDataException("S2G source length changed.");

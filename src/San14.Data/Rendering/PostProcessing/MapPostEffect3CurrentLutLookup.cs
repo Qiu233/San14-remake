@@ -45,19 +45,35 @@ public sealed class MapPostEffect3CurrentLutLookup
         LoadedObjects explicitDefinitions,string explicitDefinitionsArchive,string explicitTextureArchive,
         MapPostEffect3OwnedMainLutSelector actualOwnedMainSelector)
     {
-        ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(currentCamera);
-        ArgumentNullException.ThrowIfNull(explicitDefinitions);ArgumentNullException.ThrowIfNull(actualOwnedMainSelector);
-        if(currentCamera.FrameNumber<=0||actualOwnedMainSelector.FrameNumber!=currentCamera.FrameNumber||
-            actualOwnedMainSelector.Native.Native.Locale!=currentCamera.ExecutableLocale)
-            throw new InvalidDataException("Current LUT source lookup requires this actual owned Main Camera/context frame.");
-        uint key=hdr?currentCamera.HdrLutKey932:currentCamera.LdrLutKey933;
-        if(key==0)throw new InvalidDataException("A zero native LUT source key has no resolved resource handle.");
+        ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(explicitDefinitions);
+        uint key=RequireOwnedSourceKey(currentCamera,hdr,actualOwnedMainSelector);
         // Resolution uses the actual source declaration scope. No candidate
         // index, object/file ID interchange, or registry namespace is inferred.
         var declaration=MapPostEffect3LutSource.Load(repository,explicitDefinitions,explicitDefinitionsArchive,key);
         var selected=declaration.LoadStaticForSelector(repository,actualOwnedMainSelector.Selector,
             explicitDefinitions,explicitDefinitionsArchive,explicitTextureArchive);
         return new(currentCamera,hdr,declaration,actualOwnedMainSelector,selected);
+    }
+
+    public static MapPostEffect3CurrentLutLookup ResolveOwnedSource(MapPostEffect3Resources resources,
+        MapCameraConstructionPacket currentCamera,bool hdr,MapPostEffect3OwnedMainLutSelector actualOwnedMainSelector)
+    {
+        ArgumentNullException.ThrowIfNull(resources);
+        uint key=RequireOwnedSourceKey(currentCamera,hdr,actualOwnedMainSelector);
+        var resolved=resources.ResolveLut(key,actualOwnedMainSelector.Selector);
+        return new(currentCamera,hdr,resolved.Declaration,actualOwnedMainSelector,resolved.SelectedStaticTexture);
+    }
+
+    private static uint RequireOwnedSourceKey(MapCameraConstructionPacket currentCamera,bool hdr,
+        MapPostEffect3OwnedMainLutSelector actualOwnedMainSelector)
+    {
+        ArgumentNullException.ThrowIfNull(currentCamera);ArgumentNullException.ThrowIfNull(actualOwnedMainSelector);
+        if(currentCamera.FrameNumber<=0||actualOwnedMainSelector.FrameNumber!=currentCamera.FrameNumber||
+            actualOwnedMainSelector.Native.Native.Locale!=currentCamera.ExecutableLocale)
+            throw new InvalidDataException("Current LUT source lookup requires this actual owned Main Camera/context frame.");
+        uint key=hdr?currentCamera.HdrLutKey932:currentCamera.LdrLutKey933;
+        if(key==0)throw new InvalidDataException("A zero native LUT source key has no resolved resource handle.");
+        return key;
     }
 
     /// <summary>Record a genuinely failed owned source lookup. Unknown source

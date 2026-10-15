@@ -27,11 +27,12 @@ public sealed class MapPostEffect3SourceSamplerOwner:IAsyncDisposable
     private readonly string context;
     private readonly Rid linear,point;
     private readonly G1TextureSamplerRecipe linearRecipe,pointRecipe;
-    private readonly object lifetime=new();private bool retiring,disposed,pointRetired,linearRetired;
-    private readonly SemaphoreSlim retirement=new(1,1);
+    private readonly RenderDeviceResources resources;
+    private readonly object lifetime=new();private bool retiring;
     private MapPostEffect3SourceSamplerOwner(MapPostEffect3ManagerSamplerSources source,
-        string contextOwner,Rid linearRid,Rid pointRid,G1TextureSamplerRecipe actualLinear,G1TextureSamplerRecipe actualPoint)
-        =>(Source,context,linear,point,linearRecipe,pointRecipe)=(source,contextOwner,linearRid,pointRid,actualLinear,actualPoint);
+        string contextOwner,Rid linearRid,Rid pointRid,G1TextureSamplerRecipe actualLinear,G1TextureSamplerRecipe actualPoint,
+        RenderDeviceResources resources)
+        =>(Source,context,linear,point,linearRecipe,pointRecipe,this.resources)=(source,contextOwner,linearRid,pointRid,actualLinear,actualPoint,resources);
 
     public static async Task<MapPostEffect3SourceSamplerOwner> BuildAsync(
         LoadedDeferredSamplerNativeSource native,string contextOwnerIdentity)
@@ -40,19 +41,27 @@ public sealed class MapPostEffect3SourceSamplerOwner:IAsyncDisposable
         // Borrow the recipe imported by this loaded native generation.
         // These device allocations and their current leases stay owner-local.
         var source=RenderSamplerSourceAdapters.ReadPostEffect3ManagerSamplers(native);
-        return await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
+        var resources=new RenderDeviceResources("PostEffect3 manager sampler allocation failed.");
+        try
         {
-            Rid a=default,b=default;
-            try
+            return await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
             {
                 var actualLinear=RenderSamplerSourceAdapters.DecodeKey(native,source.LinearKey);
                 var actualPoint=RenderSamplerSourceAdapters.DecodeKey(native,source.PointKey);
-                a=DeviceSampler.Create(rd,actualLinear);
-                b=DeviceSampler.Create(rd,actualPoint);
-                return new MapPostEffect3SourceSamplerOwner(source,contextOwnerIdentity,a,b,actualLinear,actualPoint);
-            }
-            catch{if(b.IsValid)rd.FreeRid(b);if(a.IsValid)rd.FreeRid(a);throw;}
-        });
+                Rid a=resources.Own(DeviceSampler.Create(rd,actualLinear));
+                Rid b=resources.Own(DeviceSampler.Create(rd,actualPoint));
+                return new MapPostEffect3SourceSamplerOwner(source,contextOwnerIdentity,a,b,actualLinear,actualPoint,resources);
+            });
+        }
+        catch(Exception failure)
+        {
+            var pending=NativeMapBorrowerRetirementPackage.CreatePending("PostEffect3-manager-samplers-partial",
+                resources.Count>0?[resources]:[],(failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+            try{await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pending);}
+            catch(Exception retirementFailure)
+            {throw new NativeMapBorrowerConstructionException(failure,retirementFailure,pending!);}
+            throw;
+        }
     }
 
     public IMapPostEffect3ComputeSamplerLease LeaseSelected(IMapPostEffect3ManagerSamplerSelection selection,
@@ -100,23 +109,6 @@ public sealed class MapPostEffect3SourceSamplerOwner:IAsyncDisposable
 
     /// <summary>Borrowers must finish first. Retiring rejects every lease
     /// immediately; no resource is silently retained through a stale frame.</summary>
-    public async ValueTask DisposeAsync()
-    {
-        lock(lifetime)retiring=true;
-        await retirement.WaitAsync();
-        try
-        {
-            if(disposed)return;
-            if(point.IsValid&&!pointRetired||linear.IsValid&&!linearRetired)
-                await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-            {
-                if(!pointRetired){if(point.IsValid)rd.FreeRid(point);pointRetired=true;}
-                if(!linearRetired){if(linear.IsValid)rd.FreeRid(linear);linearRetired=true;}
-                return true;
-            });
-            pointRetired=true;linearRetired=true;
-            disposed=true;
-        }
-        finally{retirement.Release();}
-    }
+    public ValueTask DisposeAsync()
+    {lock(lifetime){retiring=true;return resources.DisposeAsync();}}
 }

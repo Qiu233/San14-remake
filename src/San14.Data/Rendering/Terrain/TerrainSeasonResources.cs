@@ -174,6 +174,6 @@ public static class TerrainSeasonResources
     }
 
     private static G2ShaderFeatureRecord Copy(G2ShaderFeatureRecord item) =>
-        item with { RawBytes = (byte[])item.RawBytes.Clone() };
+        item with { RawBytes = item.RawBytes.ToArray() };
 
 }

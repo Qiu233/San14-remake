@@ -10,7 +10,7 @@ public sealed class SceneViewNativeMapWorldSkySourceOwner : IAsyncDisposable
     public SkyDirectionalAmbientDeviceOwner Device { get; }
     public SceneViewNativeMapWorldPatternResourceOwner PatternResources { get; private set; }
     private readonly GameResourceRepository repository;
-    private readonly List<NativeMapBorrowerRetirementPackage> replacedCloudResources=new();
+    private readonly List<NativeMapBorrowerRetirementPackage> seasonResourceRetirements=new();
     private readonly SemaphoreSlim retirementGate=new(1,1);
     private NativeMapBorrowerRetirementPackage? finalRetirement;
     public Exception? LastCloudRetirementFailure { get; private set; }
@@ -224,10 +224,17 @@ public sealed class SceneViewNativeMapWorldSkySourceOwner : IAsyncDisposable
             var previousTextures=optional.InstallPreparedSeasonTextures(resources.CloudTextures,clouds.OwnsTextures?clouds.textures:null);
             var oldTextures=clouds.OwnsTextures?previousTextures:null;
             clouds.installed=true;
-            lock(lifetime)replacedCloudResources.Add(new("World-Cloud-replaced/"+Guid.NewGuid().ToString("N"),oldDraws,oldPattern,oldTextures));
+            lock(lifetime)seasonResourceRetirements.Add(new("World-Cloud-replaced/"+Guid.NewGuid().ToString("N"),oldDraws,oldPattern,oldTextures));
         }
         else optional.InstallPreparedSeasonTextures(resources.CloudTextures,null);
         completed=null;candidate=null;prefix=null;
+    }
+    internal void RetainFailedSeasonResources(NativeMapBorrowerRetirementPackage package)
+    {
+        // Failed candidates borrow the same live programs and WORK targets as
+        // installed resources. Drain them before retiring those dependencies.
+        package.RetainFailure();
+        lock(lifetime)seasonResourceRetirements.Add(package);
     }
     public async Task RetireReplacedSeasonResourcesAsync()
     {
@@ -243,9 +250,9 @@ public sealed class SceneViewNativeMapWorldSkySourceOwner : IAsyncDisposable
             while(true)
             {
                 NativeMapBorrowerRetirementPackage package;
-                lock(lifetime){if(replacedCloudResources.Count==0)return;package=replacedCloudResources[0];}
+                lock(lifetime){if(seasonResourceRetirements.Count==0)return;package=seasonResourceRetirements[0];}
                 await package.DisposeAsync();
-                lock(lifetime)replacedCloudResources.RemoveAt(0);
+                lock(lifetime)seasonResourceRetirements.RemoveAt(0);
             }
         }
         finally{retirementGate.Release();}
@@ -322,8 +329,8 @@ public sealed class SceneViewNativeMapWorldSkySourceOwner : IAsyncDisposable
     }
     private async Task RetireAsync()
     {
-        // Old draws still borrow the stable Cloud program. Drain them before
-        // the Device releases that program, then retire current Pattern/Plane
+        // Replaced draws and failed candidates borrow live programs and WORK.
+        // Drain them before Device, then retire current Pattern/Plane
         // borrowers before their textures.
         await RetireCloudResourcesCoreAsync();
         finalRetirement??=new("World-Sky-retire/"+Guid.NewGuid().ToString("N"),Device,PatternResources,optional);

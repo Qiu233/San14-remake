@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using Godot;
 using San14.Data;
 
@@ -24,10 +23,14 @@ public sealed class DeferredAuxiliaryPixelProducer : IAsyncDisposable
     private readonly IReadOnlyDictionary<uint,DeferredAuxiliaryPixelProgram> ggxPrograms;
     private readonly IReadOnlyDictionary<(uint FileId,int Combination),DeferredAuxiliaryPixelProgram> gaussianPrograms;
     private readonly Dictionary<string,Rid> samplers=new(StringComparer.Ordinal);
+    private readonly RenderDeviceResources samplerResources=new("Device rejected an auxiliary filter sampler.");
     private readonly SemaphoreSlim gate=new(1,1);
     private readonly object retirementGate=new();
-    private bool retiring;
+    private volatile bool retiring;
     private Task? disposal;
+    private NativeMapBorrowerRetirementPackage? finalRetirement;
+    private IAsyncDisposable? pendingDraw;
+    private DeferredAuxiliaryTargetBorrow? pendingSourceView;
 
     private DeferredAuxiliaryPixelProducer(LoadedDeferredAuxiliaryPixelSourceRecipes source,
         LoadedDeferredSamplerNativeSource native,Dictionary<uint,DeferredAuxiliaryPixelProgram> programs,
@@ -63,28 +66,28 @@ public sealed class DeferredAuxiliaryPixelProducer : IAsyncDisposable
             }
             return new(source,native,programs,gaussian);
         }
-        catch{foreach(var program in programs.Values.Concat(gaussian.Values))await program.DisposeAsync();throw;}
+        catch(Exception failure)
+        {
+            var pending=NativeMapBorrowerRetirementPackage.CreatePending("Auxiliary-filters-partial",
+                programs.Values.Concat(gaussian.Values),
+                (failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+            try{await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pending);}
+            catch(Exception retirementFailure)
+            {throw new NativeMapBorrowerConstructionException(failure,retirementFailure,pending!);}
+            throw;
+        }
     }
 
     public async Task ProduceGaussianSpecularMipsAsync(DeferredAuxiliaryGaussianFrame current,
         IReadOnlyList<DeferredAuxiliaryTargetDevice> targets)
     {
         ArgumentNullException.ThrowIfNull(current);ArgumentNullException.ThrowIfNull(targets);
-        await gate.WaitAsync();
-        try
-        {
-            ObjectDisposedException.ThrowIf(retiring,this);
-            ValidateFrame(current.AcceptedSelection,current.CurrentCommonViewProvenance);
-            var writes=DeferredAuxiliaryGaussianSchedule.ReadSpecular(Source,current.Transparency,current.CurrentContextFlags3F0,
-                current.CurrentGaussianSize94,current.CurrentDispersion9C,current.Exponential);
-            await RunGaussianAsync(current.AcceptedSelection,writes,targets,null,current.CurrentCommonViewProvenance);
-        }
-        finally{gate.Release();}
+        await ProduceAsync(current.AcceptedSelection,current.CurrentCommonViewProvenance,targets,null,
+            ()=>DeferredAuxiliaryFilterPreparation.Gaussian(Source,current));
     }
 
-    /// <summary>Main depth is the successful current original main-depth view.
-    /// This method executes the source mode1 Gaussian branch; other native modes
-    /// require their actual source copy branch and are not replaced here.</summary>
+    /// <summary>Main depth must be the successful current main-depth view.
+    /// Other native modes still require their actual source branch.</summary>
     public async Task ProduceBlurredDepthAsync(DeferredF103SelectedSource selection,uint currentContextFlags3F0,
         uint currentDepthFilterType,RenderTargetDeviceTexture currentMainDepth,
         IReadOnlyList<DeferredAuxiliaryTargetDevice> targets,string currentDepthProducerProvenance,
@@ -92,26 +95,54 @@ public sealed class DeferredAuxiliaryPixelProducer : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(selection);ArgumentNullException.ThrowIfNull(currentMainDepth);
         ArgumentNullException.ThrowIfNull(targets);
+        await ProduceAsync(selection,currentDepthProducerProvenance,targets,currentMainDepth,
+            ()=>DeferredAuxiliaryFilterPreparation.Depth(Source,selection,currentContextFlags3F0,
+                currentDepthFilterType,currentDepthProducerProvenance,exponential));
+    }
+
+    internal Task ProducePreparedAsync(DeferredAuxiliaryFilterPreparation preparation,
+        IReadOnlyList<DeferredAuxiliaryTargetDevice> targets,RenderTargetDeviceTexture? mainDepth=null)
+    {
+        if(!ReferenceEquals(preparation.Source,Source))
+            throw new InvalidDataException("Prepared filter belongs to another imported source.");
+        if((preparation.Operation==DeferredAuxiliaryFilterOperation.GaussianDepth)!=(mainDepth is not null))
+            throw new InvalidDataException("Only a prepared depth operation requires the current main-depth view.");
+        return ProduceAsync(preparation.Selection,preparation.ProducerProvenance,targets,mainDepth,()=>preparation);
+    }
+
+    private async Task ProduceAsync(DeferredF103SelectedSource selection,string producer,
+        IReadOnlyList<DeferredAuxiliaryTargetDevice> targets,RenderTargetDeviceTexture? mainDepth,
+        Func<DeferredAuxiliaryFilterPreparation> prepare)
+    {
         await gate.WaitAsync();
         try
         {
-            ObjectDisposedException.ThrowIf(retiring,this);ValidateFrame(selection,currentDepthProducerProvenance);
-            var nativeMainDepth=RenderTextureFormatMath.Resolve(Source.MainDepth);
-            var mainDepthFormat=nativeMainDepth.TargetViewFormat switch
-            {20=>RenderingDevice.DataFormat.D32SfloatS8Uint,40=>RenderingDevice.DataFormat.D32Sfloat,
-                _=>throw new InvalidDataException("Source main depth has no exact supported depth-aspect adapter.")};
-            if(currentMainDepth.Source.Object.ObjectId!=Source.MainDepth.Object.ObjectId||
-                currentMainDepth.Source.Source.Source.ResourceUri!=Source.MainDepth.Source.Source.ResourceUri||
-                currentMainDepth.Source.Source.Source.DecodedSha256!=Source.MainDepth.Source.Source.DecodedSha256||
-                currentMainDepth.Source with{Source=Source.MainDepth.Source,Object=Source.MainDepth.Object}!=Source.MainDepth||
-                currentMainDepth.ExplicitExtent!=new Vector2I(Source.BlurredDepth.NativeFrameExtent.Width,Source.BlurredDepth.NativeFrameExtent.Height)||
-                currentMainDepth.StorageFormat!=mainDepthFormat||currentMainDepth.ShaderFormat!=mainDepthFormat||
-                currentMainDepth.TargetFormat!=mainDepthFormat)
-                throw new InvalidDataException("Original depth Gaussian requires its actual source main-depth owner.");
-            var writes=DeferredAuxiliaryGaussianSchedule.ReadDepth(Source,currentContextFlags3F0,currentDepthFilterType,exponential);
-            await RunGaussianAsync(selection,writes,targets,currentMainDepth,currentDepthProducerProvenance);
+            await DrainPendingDrawCoreAsync();
+            ObjectDisposedException.ThrowIf(retiring,this);
+            ValidateFrame(selection,producer);
+            if(mainDepth is not null)ValidateMainDepth(mainDepth);
+            var preparation=prepare();
+            if(preparation.Operation is DeferredAuxiliaryFilterOperation.GgxSpecular2 or DeferredAuxiliaryFilterOperation.GgxSpecular3)
+                await RunGgxAsync(preparation,targets);
+            else await RunGaussianAsync(selection,preparation.Writes,targets,mainDepth,producer);
         }
         finally{gate.Release();}
+    }
+
+    private void ValidateMainDepth(RenderTargetDeviceTexture currentMainDepth)
+    {
+        var nativeMainDepth=RenderTextureFormatMath.Resolve(Source.MainDepth);
+        var mainDepthFormat=nativeMainDepth.TargetViewFormat switch
+        {20=>RenderingDevice.DataFormat.D32SfloatS8Uint,40=>RenderingDevice.DataFormat.D32Sfloat,
+            _=>throw new InvalidDataException("Source main depth has no exact supported depth-aspect adapter.")};
+        if(currentMainDepth.Source.Object.ObjectId!=Source.MainDepth.Object.ObjectId||
+            currentMainDepth.Source.Source.Source.ResourceUri!=Source.MainDepth.Source.Source.ResourceUri||
+            currentMainDepth.Source.Source.Source.DecodedSha256!=Source.MainDepth.Source.Source.DecodedSha256||
+            currentMainDepth.Source with{Source=Source.MainDepth.Source,Object=Source.MainDepth.Object}!=Source.MainDepth||
+            currentMainDepth.ExplicitExtent!=new Vector2I(Source.BlurredDepth.NativeFrameExtent.Width,Source.BlurredDepth.NativeFrameExtent.Height)||
+            currentMainDepth.StorageFormat!=mainDepthFormat||currentMainDepth.ShaderFormat!=mainDepthFormat||
+            currentMainDepth.TargetFormat!=mainDepthFormat)
+            throw new InvalidDataException("Original depth Gaussian requires its actual source main-depth owner.");
     }
 
     private void ValidateFrame(DeferredF103SelectedSource selection,string currentProducer)
@@ -165,21 +196,38 @@ public sealed class DeferredAuxiliaryPixelProducer : IAsyncDisposable
                     new("Sampler",0,sampler,null,NativeSamplers.ResourceUri+"#actual-parent-key/"+Convert.ToHexString(descriptor))};
                 var constants=new Dictionary<(uint,uint),ReadOnlyMemory<byte>>{{(0,0),write.PixelConstantBuffer0}};
                 if(!write.VertexConstantBuffer0.IsEmpty)constants.Add((1,0),write.VertexConstantBuffer0);
-                await using var draw=await DeferredAuxiliaryPixelDraw.BuildAsync(program,target,write.TargetMip,
-                    constants,inputs,(int)write.VertexCount,RenderingDevice.RenderPrimitive.Triangles,
-                    sourceMipViews:sourceView is null?null:new Dictionary<uint,DeferredAuxiliaryTargetBorrow>{{0,sourceView}},
-                    sourceViewport:write.Viewport);
-                var receipt=DeferredAuxiliaryProductionReceipt.FromSourceWriter(Source.Graph,Source.Node.Index,frame,provenance,
-                    "OriginalNode137GaussianSourceShader;pass="+write.PassOrdinal+";sourceMip="+write.SourceMip+
-                    ";program="+program.PixelTranslation.SourceProgramSha256+";numeric="+write.NumericProfile+
-                    ";nativeRoundingVerified="+write.NativeRoundingVerified+";currentSource="+currentProducer,target.Source.Object.ObjectId,[write.TargetMip]);
-                await target.ProduceAsync(receipt,(rd,surfaces)=>
+                DeferredAuxiliaryPixelDraw draw;
+                try
                 {
-                    if(surfaces.Count!=1||surfaces[0].Source.MipLevel!=write.TargetMip)
-                        throw new InvalidDataException("Original Gaussian callback selected another target mip.");
-                    draw.Submit(rd);
-                });
-                sourceView?.CompleteRead();
+                    draw=await DeferredAuxiliaryPixelDraw.BuildAsync(program,target,write.TargetMip,
+                        constants,inputs,(int)write.VertexCount,RenderingDevice.RenderPrimitive.Triangles,
+                        sourceMipViews:sourceView is null?null:new Dictionary<uint,DeferredAuxiliaryTargetBorrow>{{0,sourceView}},
+                        sourceViewport:write.Viewport);
+                }
+                catch(NativeMapBorrowerConstructionException failure)
+                {
+                    pendingDraw=failure.RetainedPackage;
+                    pendingSourceView=sourceView;sourceView=null;
+                    pendingSourceView?.CompleteRead();
+                    throw;
+                }
+                pendingDraw=draw;pendingSourceView=sourceView;sourceView=null;
+                Exception? productionFailure=null;
+                try
+                {
+                    var receipt=DeferredAuxiliaryProductionReceipt.FromSourceWriter(Source.Graph,Source.Node.Index,frame,provenance,
+                        "OriginalNode137GaussianSourceShader;pass="+write.PassOrdinal+";sourceMip="+write.SourceMip+
+                        ";program="+program.PixelTranslation.SourceProgramSha256+";numeric="+write.NumericProfile+
+                        ";nativeRoundingVerified="+write.NativeRoundingVerified+";currentSource="+currentProducer,target.Source.Object.ObjectId,[write.TargetMip]);
+                    await target.ProduceAsync(receipt,(rd,surfaces)=>
+                    {
+                        if(surfaces.Count!=1||surfaces[0].Source.MipLevel!=write.TargetMip)
+                            throw new InvalidDataException("Original Gaussian callback selected another target mip.");
+                        draw.Submit(rd);
+                    });
+                }
+                catch(Exception failure){productionFailure=failure;throw;}
+                finally{await FinishDrawAsync(productionFailure);}
             }
             finally{sourceView?.Dispose();}
         }
@@ -189,61 +237,74 @@ public sealed class DeferredAuxiliaryPixelProducer : IAsyncDisposable
         IReadOnlyList<DeferredAuxiliaryTargetDevice> targets)
     {
         ArgumentNullException.ThrowIfNull(current);ArgumentNullException.ThrowIfNull(targets);
-        await gate.WaitAsync();
-        try
+        await ProduceAsync(current.AcceptedSelection,current.CurrentCommonViewProvenance,targets,null,
+            ()=>DeferredAuxiliaryFilterPreparation.Ggx(Source,current));
+    }
+
+    private async Task RunGgxAsync(DeferredAuxiliaryFilterPreparation preparation,
+        IReadOnlyList<DeferredAuxiliaryTargetDevice> targets)
+    {
+        var selection=preparation.Selection;
+        var writes=preparation.Writes;
+        long frame=selection.Current.FrameNumber;string provenance=selection.Current.CurrentProducerProvenance;
+        var sourceTarget=Source.SelectSpecular(preparation.Transparency);
+        var devices=targets.Where(t=>t.Source.Object.ObjectId==sourceTarget.Texture.Object.ObjectId&&
+            t.Source.Source.Source.ResourceUri==sourceTarget.Texture.Source.Source.ResourceUri&&
+            t.Source.Source.Source.DecodedSha256==sourceTarget.Texture.Source.Source.DecodedSha256).Distinct().ToArray();
+        if(devices.Length!=1)throw new InvalidDataException("Selected original specular output needs one actual target owner.");
+        var target=devices[0];ValidateTargetOwner(target);
+        if(target.Source with{Source=sourceTarget.Texture.Source,Object=sourceTarget.Texture.Object}!=sourceTarget.Texture)
+            throw new InvalidDataException("Specular target differs from its selected original source declaration.");
+        var program=ggxPrograms[preparation.GgxFilterType];program.RequireAvailable();
+        byte[] nativeDescriptor=RenderSamplerSourceAdapters.DecodeKey(NativeSamplers,
+            RenderSamplerSourceAdapters.FinalRenderTextureKey(NativeSamplers,target.Source)).EncodeD3D11Descriptor();
+        Rid sampler=await GetSamplerAsync(nativeDescriptor);
+        foreach(var write in writes)
         {
-            ObjectDisposedException.ThrowIf(retiring,this);
-            var selection=current.AcceptedSelection;
-            if(selection.Camera.ExecutableLocale!=NativeSamplers.Locale||
-                selection.SourcePlan.Graph.Source.ResourceUri!=Source.Graph.Source.ResourceUri||
-                selection.SourcePlan.Graph.Source.DecodedSha256!=Source.Graph.Source.DecodedSha256||
-                string.IsNullOrWhiteSpace(current.CurrentCommonViewProvenance))
-                throw new InvalidDataException("Auxiliary producer requires its accepted original Camera/graph and explicit current CommonView inputs.");
-            long frame=selection.Current.FrameNumber;string provenance=selection.Current.CurrentProducerProvenance;
-            ReadOnlySpan<byte> camera=selection.Camera.Prefix.Span;
-            float fov=BinaryPrimitives.ReadSingleLittleEndian(camera.Slice(0x148,4));
-            float aspect=BinaryPrimitives.ReadSingleLittleEndian(camera.Slice(0x14C,4));
-            var writes=DeferredAuxiliaryGgxSchedule.Read(Source,current.Transparency,current.CurrentContextFlags3F0,
-                current.CurrentFilterType90,current.CurrentSampleCount94,fov,aspect,current.TangentDispatch);
-            var sourceTarget=Source.SelectSpecular(current.Transparency);
-            var devices=targets.Where(t=>t.Source.Object.ObjectId==sourceTarget.Texture.Object.ObjectId&&
-                t.Source.Source.Source.ResourceUri==sourceTarget.Texture.Source.Source.ResourceUri&&
-                t.Source.Source.Source.DecodedSha256==sourceTarget.Texture.Source.Source.DecodedSha256).Distinct().ToArray();
-            if(devices.Length!=1)throw new InvalidDataException("Selected original specular output needs one actual target owner.");
-            var target=devices[0];ValidateTargetOwner(target);
-            if(target.Source with{Source=sourceTarget.Texture.Source,Object=sourceTarget.Texture.Object}!=sourceTarget.Texture)
-                throw new InvalidDataException("Specular target differs from its selected original source declaration.");
-            var program=ggxPrograms[current.CurrentFilterType90];program.RequireAvailable();
-            byte[] nativeDescriptor=RenderSamplerSourceAdapters.DecodeKey(NativeSamplers,
-                RenderSamplerSourceAdapters.FinalRenderTextureKey(NativeSamplers,target.Source)).EncodeD3D11Descriptor();
-            Rid sampler=await GetSamplerAsync(nativeDescriptor);
-            foreach(var write in writes)
+            if(write.Program.Combination.Index!=program.Combination!.Index||write.SourceTextureId!=target.Source.Object.ObjectId||
+                write.TargetTextureId!=target.Source.Object.ObjectId||write.SourceMip==write.TargetMip)
+                throw new InvalidDataException("Original GGX source schedule differs from its compiled program or disjoint native mip dependency.");
+            DeferredAuxiliaryTargetBorrow? previous=await target.BorrowMipAsync(frame,provenance,write.SourceMip);
+            try
             {
-                if(write.Program.Combination.Index!=program.Combination!.Index||write.SourceTextureId!=target.Source.Object.ObjectId||
-                    write.TargetTextureId!=target.Source.Object.ObjectId||write.SourceMip==write.TargetMip)
-                    throw new InvalidDataException("Original GGX source schedule differs from its compiled program or disjoint native mip dependency.");
-                using var previous=await target.BorrowMipAsync(frame,provenance,write.SourceMip);
                 var inputs=new DeferredDeviceBinding[]{
                     new("Texture",0,previous.ShaderViewRid,previous.StorageRid,target.Source.Source.Source.ResourceUri+"#"+target.Source.Object.ObjectId.ToString("X8")+"/mip"+write.SourceMip),
                     new("Sampler",0,sampler,null,NativeSamplers.ResourceUri+"#actual-parent-7mip-key/"+Convert.ToHexString(nativeDescriptor))};
                 var constants=new Dictionary<(uint,uint),ReadOnlyMemory<byte>>{{(0,0),write.PixelConstantBuffer0}};
-                await using var draw=await DeferredAuxiliaryPixelDraw.BuildAsync(program,target,write.TargetMip,
-                    constants,inputs,(int)write.VertexCount,RenderingDevice.RenderPrimitive.Triangles,
-                    sourceMipViews:new Dictionary<uint,DeferredAuxiliaryTargetBorrow>{{0,previous}});
-                var receipt=DeferredAuxiliaryProductionReceipt.FromSourceWriter(Source.Graph,Source.Node.Index,frame,provenance,
-                    "OriginalNode137GgxSourceShader;filter="+current.CurrentFilterType90+";sourceMip="+write.SourceMip+
-                    ";program="+program.PixelTranslation.SourceProgramSha256+";currentCommon="+current.CurrentCommonViewProvenance,
-                    target.Source.Object.ObjectId,[write.TargetMip]);
-                await target.ProduceAsync(receipt,(rd,surfaces)=>
+                DeferredAuxiliaryPixelDraw draw;
+                try
                 {
-                    if(surfaces.Count!=1||surfaces[0].Source.MipLevel!=write.TargetMip)
-                        throw new InvalidDataException("Source GGX target callback selected another actual mip.");
-                    draw.Submit(rd);
-                });
-                previous.CompleteRead();
+                    draw=await DeferredAuxiliaryPixelDraw.BuildAsync(program,target,write.TargetMip,
+                        constants,inputs,(int)write.VertexCount,RenderingDevice.RenderPrimitive.Triangles,
+                        sourceMipViews:new Dictionary<uint,DeferredAuxiliaryTargetBorrow>{{0,previous}});
+                }
+                catch(NativeMapBorrowerConstructionException failure)
+                {
+                    pendingDraw=failure.RetainedPackage;
+                    pendingSourceView=previous;previous=null;
+                    pendingSourceView.CompleteRead();
+                    throw;
+                }
+                pendingDraw=draw;pendingSourceView=previous;previous=null;
+                Exception? productionFailure=null;
+                try
+                {
+                    var receipt=DeferredAuxiliaryProductionReceipt.FromSourceWriter(Source.Graph,Source.Node.Index,frame,provenance,
+                        "OriginalNode137GgxSourceShader;filter="+preparation.GgxFilterType+";sourceMip="+write.SourceMip+
+                        ";program="+program.PixelTranslation.SourceProgramSha256+";currentCommon="+preparation.ProducerProvenance,
+                        target.Source.Object.ObjectId,[write.TargetMip]);
+                    await target.ProduceAsync(receipt,(rd,surfaces)=>
+                    {
+                        if(surfaces.Count!=1||surfaces[0].Source.MipLevel!=write.TargetMip)
+                            throw new InvalidDataException("Source GGX target callback selected another actual mip.");
+                        draw.Submit(rd);
+                    });
+                }
+                catch(Exception failure){productionFailure=failure;throw;}
+                finally{await FinishDrawAsync(productionFailure);}
             }
+            finally{previous?.Dispose();}
         }
-        finally{gate.Release();}
     }
 
     private Task<Rid> GetSamplerAsync(byte[] descriptor)
@@ -252,7 +313,7 @@ public sealed class DeferredAuxiliaryPixelProducer : IAsyncDisposable
         if(samplers.TryGetValue(key,out var existing))return Task.FromResult(existing);
         return TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
-            Rid created=DeviceSampler.Create(rd,descriptor);samplers.Add(key,created);return created;
+            Rid created=samplerResources.Own(DeviceSampler.Create(rd,descriptor));samplers.Add(key,created);return created;
         });
     }
 
@@ -270,15 +331,44 @@ public sealed class DeferredAuxiliaryPixelProducer : IAsyncDisposable
             !target.Construction.Surfaces.SequenceEqual(expected.Surfaces))
             throw new InvalidDataException("Auxiliary pixel target differs from its exact source declaration, frame extent or mip surfaces.");
     }
-    public ValueTask DisposeAsync(){lock(retirementGate)return new(disposal??=RetireAsync());}
+    internal async Task DrainPendingDrawAsync()
+    {
+        await gate.WaitAsync();
+        try{await DrainPendingDrawCoreAsync();}
+        finally{gate.Release();}
+    }
+    private async Task DrainPendingDrawCoreAsync()
+    {
+        if(pendingDraw is not null)await pendingDraw.DisposeAsync();
+        pendingDraw=null;
+        pendingSourceView?.Dispose();
+        pendingSourceView=null;
+    }
+    private async Task FinishDrawAsync(Exception? productionFailure)
+    {
+        pendingSourceView?.CompleteRead();
+        try{await DrainPendingDrawCoreAsync();}
+        catch(Exception cleanup) when(productionFailure is not null)
+        {throw new AggregateException("Auxiliary filter production and draw retirement failed.",productionFailure,cleanup);}
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        lock(retirementGate)
+        {
+            retiring=true;
+            return new(disposal is null||disposal.IsFaulted||disposal.IsCanceled?disposal=RetireAsync():disposal);
+        }
+    }
     private async Task RetireAsync()
     {
         await gate.WaitAsync();
         try
         {
-            retiring=true;
-            await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{foreach(var sampler in samplers.Values)rd.FreeRid(sampler);return true;});
-            foreach(var program in ggxPrograms.Values.Concat(gaussianPrograms.Values))await program.DisposeAsync();
+            await DrainPendingDrawCoreAsync();
+            finalRetirement ??= NativeMapBorrowerRetirementPackage.CreatePending("Auxiliary-filters-final",
+                ggxPrograms.Values.Concat(gaussianPrograms.Values).Cast<IAsyncDisposable>().Prepend(samplerResources));
+            finalRetirement = await NativeMapBorrowerRetirementPackage.DrainPendingAsync(finalRetirement);
         }
         finally{gate.Release();}
     }

@@ -1,7 +1,6 @@
 using Godot;
 using San14.Data;
 using San14.Data.Formats;
-using System.Security.Cryptography;
 
 public sealed record DeferredAuxiliaryDeviceSurface(DeferredAuxiliarySurface Source,
     Rid TargetView, Rid Framebuffer);
@@ -73,7 +72,7 @@ public sealed class DeferredAuxiliaryTargetDevice : IAsyncDisposable
     public uint MostDetailedMip => Construction.MostDetailedMip;
     public uint ViewMipCount => Construction.ViewMipCount;
     public IReadOnlyList<DeferredAuxiliaryDeviceSurface> Surfaces { get; }
-    private readonly IReadOnlyList<Rid> owned;
+    private readonly RenderDeviceResources resources;
     private readonly object gate=new();
     private bool retiring,producing;
     private int borrows,reading,operations;
@@ -87,9 +86,9 @@ public sealed class DeferredAuxiliaryTargetDevice : IAsyncDisposable
 
     private DeferredAuxiliaryTargetDevice(DeferredAuxiliaryTargetSource source, Rid storage, Rid shader,
         RenderingDevice.DataFormat storageFormat, RenderingDevice.DataFormat shaderFormat,
-        RenderingDevice.DataFormat targetFormat, List<DeferredAuxiliaryDeviceSurface> surfaces, List<Rid> allocated)
-        => (Construction,StorageRid,ShaderViewRid,StorageFormat,ShaderFormat,TargetFormat,Surfaces,owned)=
-            (source,storage,shader,storageFormat,shaderFormat,targetFormat,surfaces.AsReadOnly(),allocated.AsReadOnly());
+        RenderingDevice.DataFormat targetFormat, List<DeferredAuxiliaryDeviceSurface> surfaces, RenderDeviceResources resources)
+        => (Construction,StorageRid,ShaderViewRid,StorageFormat,ShaderFormat,TargetFormat,Surfaces,this.resources)=
+            (source,storage,shader,storageFormat,shaderFormat,targetFormat,surfaces.AsReadOnly(),resources);
 
     public static Task<DeferredAuxiliaryTargetDevice> BuildAsync(DeferredAuxiliaryTargetSource source,
         bool allowReadback=false, bool allowGpuCopy=false)
@@ -97,10 +96,11 @@ public sealed class DeferredAuxiliaryTargetDevice : IAsyncDisposable
         DeferredAuxiliaryTargetSources.Validate(source);
         return TerrainDeviceTexture.OnRenderThreadAsync(rd=>
         {
-            var allocated=new List<Rid>(); var surfaces=new List<DeferredAuxiliaryDeviceSurface>();
-            Rid Own(Rid rid){if(!rid.IsValid)throw new InvalidDataException("Device rejected an actual auxiliary allocation/view.");allocated.Add(rid);return rid;}
+            var resources=new RenderDeviceResources("Device rejected an actual auxiliary allocation/view.");
+            Rid Own(Rid rid)=>resources.Own(rid);
             try
             {
+                var surfaces=new List<DeferredAuxiliaryDeviceSurface>();
                 RenderTextureFormats native=RenderTextureFormatMath.Resolve(source.Texture);
                 bool depth=native.TargetViewFormat==40;
                 RenderingDevice.DataFormat target=Format(native.TargetViewFormat);
@@ -124,9 +124,13 @@ public sealed class DeferredAuxiliaryTargetDevice : IAsyncDisposable
                     Rid framebuffer=Own(rd.FramebufferCreate([targetView]));
                     surfaces.Add(new(surface,targetView,framebuffer));
                 }
-                return new DeferredAuxiliaryTargetDevice(source,storage,sampled,target,shader,target,surfaces,allocated);
+                return new DeferredAuxiliaryTargetDevice(source,storage,sampled,target,shader,target,surfaces,resources);
             }
-            catch{for(int i=allocated.Count-1;i>=0;i--)rd.FreeRid(allocated[i]);throw;}
+            catch(Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd,failure,"Deferred-auxiliary-target-partial");
+                throw;
+            }
         });
     }
 
@@ -217,12 +221,11 @@ public sealed class DeferredAuxiliaryTargetDevice : IAsyncDisposable
     private static void ValidateProductionGraph(DeferredAuxiliaryProductionReceipt receipt)
     {
         if(receipt.SourceGraph is not { } graph || graph.Source.OverrideSource is not null ||
-            graph.Source.ResourceUri!=receipt.GraphResourceUri || graph.Source.DecodedSha256!=receipt.GraphSha256 ||
-            Convert.ToHexString(SHA256.HashData(graph.Source.Bytes))!=receipt.GraphSha256)
+            graph.Source.ResourceUri!=receipt.GraphResourceUri || graph.Source.DecodedSha256!=receipt.GraphSha256)
             throw new InvalidDataException("Auxiliary production has no exact original graph source.");
-        var canonical=RenderGraphReader.Read(graph.Source.Bytes);
-        if((uint)receipt.WriterNodeIndex>=canonical.Nodes.Count||
-            canonical.Nodes[receipt.WriterNodeIndex].Call.FactoryClassId!=receipt.WriterFactoryClassId)
+        if(graph.Document.GraphKind!=CompiledGraphKind.RenderGraph||
+            (uint)receipt.WriterNodeIndex>=graph.Document.Nodes.Count||
+            graph.Document.Nodes[receipt.WriterNodeIndex].Call.FactoryClassId!=receipt.WriterFactoryClassId)
             throw new InvalidDataException("Auxiliary writer identity differs from the original graph body.");
     }
 
@@ -285,12 +288,20 @@ public sealed class DeferredAuxiliaryTargetDevice : IAsyncDisposable
         }
     }
     private void SignalDrained(){if(retiring&&borrows==0&&operations==0)drained?.TrySetResult();}
-    public ValueTask DisposeAsync(){lock(gate){retiring=true;return new(disposal??=RetireAsync());}}
+    public ValueTask DisposeAsync()
+    {
+        lock(gate)
+        {
+            retiring=true;
+            if(disposal is null||disposal.IsFaulted||disposal.IsCanceled)disposal=RetireAsync();
+            return new(disposal);
+        }
+    }
     private async Task RetireAsync()
     {
         Task wait;lock(gate){wait=borrows==0&&operations==0?Task.CompletedTask:(drained??=new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;}
         await wait;
-        await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{for(int i=owned.Count-1;i>=0;i--)rd.FreeRid(owned[i]);return true;});
+        await resources.DisposeAsync();
     }
     private static RenderingDevice.DataFormat Format(uint dxgi)=>dxgi switch
     {26=>RenderingDevice.DataFormat.B10G11R11UfloatPack32,41=>RenderingDevice.DataFormat.R32Sfloat,

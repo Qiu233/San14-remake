@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Runtime.CompilerServices;
 using Godot;
 using San14.Data;
@@ -27,52 +26,16 @@ public sealed class TerrainDeviceTexture : IDisposable, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(group);
         if (RenderingServer.GetRenderingDevice() is null)
             throw new NotSupportedException("Exact source mip upload requires a RenderingDevice renderer.");
-        TerrainTextureBinding[] matches = group.Bindings.Where(item => item.Slot == slot).ToArray();
-        if (matches.Length != 1)
-            throw new InvalidDataException($"Terrain table {group.TableSource.ResourceUri} requires one slot {slot}.");
-        TerrainTextureBinding binding = matches[0];
+        TerrainTextureBinding binding = TerrainTexturePreparation.Select(group, slot);
+        var prepared = TerrainTexturePreparation.PrepareDevice(binding, srgb, allowBc1RgbView);
         LoadedRdbAsset source = binding.Resource.Source;
-        if (!Convert.ToHexString(SHA256.HashData(source.Bytes)).Equals(source.DecodedSha256,
-            StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException($"Terrain texture {source.ResourceUri} differs from its source hash.");
-        // Canonical metadata from the exact bytes being uploaded, including overrides.
-        G1TextureContainer canonical = G1TextureContainerReader.Read(source.Bytes);
-        if ((uint)binding.TextureIndex >= canonical.Textures.Count)
-            throw new InvalidDataException($"Terrain texture {source.ResourceUri} has no image {binding.TextureIndex}.");
-        G1TextureImage image = canonical.Textures[binding.TextureIndex];
-        if (image.PixelFormat is not (0x00 or 0x01 or 0x02 or 0x59 or 0x5B) || image.SubresourceLayout is not
-            (G1TextureSubresourceLayout.MipMajorArray or G1TextureSubresourceLayout.SingleLayerMipChain))
-            throw new InvalidDataException($"Terrain texture {source.ResourceUri} has no supported exact mip/layer layout.");
-        if (image.PixelFormat == 0x02 && srgb)
-            throw new InvalidDataException($"Terrain float texture {source.ResourceUri} cannot use an sRGB view.");
-        if (image.PixelFormat == 0x59 && !allowBc1RgbView)
-            throw new NotSupportedException("Godot's BC1 device wrapper requires an explicit RGB-only consumer; BC1 alpha semantics are not exposed by this adapter.");
-
-        int layerBytes = image.Mips.Sum(mip => mip.BytesPerLayer);
+        G1TextureImage image = prepared.Image;
         var data = new Godot.Collections.Array<byte[]>();
-        var hashes = new Godot.Collections.Array<Godot.Collections.Array<string>>();
         Rid rid = default;
         Texture? texture = null;
         try
         {
-            // RD wants one complete mip chain per layer. Copy the original encoded
-            // slices; the source itself is mip-major. No decode, resize or new mip.
-            for (int layer = 0; layer < image.LayerCount; layer++)
-            {
-                byte[] chain = new byte[layerBytes];
-                int at = 0;
-                var layerHashes = new Godot.Collections.Array<string>();
-                for (int mip = 0; mip < image.MipCount; mip++)
-                {
-                    ReadOnlySpan<byte> encoded = image.GetEncodedMip(source.Bytes, mip, layer);
-                    encoded.CopyTo(chain.AsSpan(at));
-                    at += encoded.Length;
-                    layerHashes.Add(Convert.ToHexString(SHA256.HashData(encoded)));
-                }
-                if (at != chain.Length) throw new InvalidDataException("Source mip chain length changed during upload.");
-                data.Add(chain);
-                hashes.Add(layerHashes);
-            }
+            foreach (var layer in prepared.Layers) data.Add(layer.ToArray());
             rid = await OnRenderThreadAsync(rd =>
             {
                 RenderingDevice.TextureUsageBits usage = RenderingDevice.TextureUsageBits.SamplingBit |
@@ -141,7 +104,6 @@ public sealed class TerrainDeviceTexture : IDisposable, IAsyncDisposable
             texture.SetMeta("bc1_rgb_only_view", image.PixelFormat == 0x59);
             texture.SetMeta("uploaded_mip_count", image.MipCount);
             texture.SetMeta("uploaded_layer_count", image.LayerCount);
-            texture.SetMeta("uploaded_mip_layer_sha256", hashes);
             texture.SetMeta("uploaded_as_array", image.LayerCount > 1);
             texture.SetMeta("uploaded_rd_srgb", srgb);
             texture.SetMeta("original_color_space_verified", false);

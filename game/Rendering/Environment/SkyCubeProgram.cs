@@ -19,16 +19,17 @@ public sealed class SkyCubeProgram : IAsyncDisposable
     public SkyCubeOperation Operation { get; }
     public SkyAmbientFilterSelection SourceSampleSelection { get; }
     public int FilterSampleCount => Operation == SkyCubeOperation.Filter ? checked((int)SourceSampleSelection.SampleCount) : 0;
-    private Task? _disposal;
+    private readonly RenderDeviceResources resources;
 
     private SkyCubeProgram(LoadedShaderContainer source, G2ShaderCombination combination,
         ShaderSpirv vertex, AdaptedVertexShader adapter, ShaderSpirv pixel,
         TranslatedShaderBindings vertexBindings, TranslatedShaderBindings pixelBindings, Rid shader,
-        SkyCubeOperation operation, SkyAmbientFilterSelection sampleSelection)
+        SkyCubeOperation operation, SkyAmbientFilterSelection sampleSelection, RenderDeviceResources resources)
     {
         (Source, Combination, VertexTranslation, VertexAdapter, PixelTranslation, VertexBindings, PixelBindings, ShaderRid,Operation)
             = (source, combination, vertex, adapter, pixel, vertexBindings, pixelBindings, shader,operation);
         SourceSampleSelection=sampleSelection;
+        this.resources=resources;
     }
 
     public static async Task<SkyCubeProgram> BuildAsync(LoadedShaderContainer source,
@@ -62,18 +63,24 @@ public sealed class SkyCubeProgram : IAsyncDisposable
                 buffer.Variables.Count != 1 || buffer.Variables[0].Name.Text != "g_vMipInfo" ||
                 buffer.Variables[0].StartOffset != 0 || buffer.Variables[0].ByteSize != 16))
                 throw new NotSupportedException("Godot cube draws require a 16-byte g_vMipInfo buffer at slot zero and field offset zero.");
-        Rid shader = await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
+        return await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            using var stages = new RDShaderSpirV();
-            stages.SetStageBytecode(RenderingDevice.ShaderStage.Vertex, adapter.Bytes);
-            stages.SetStageBytecode(RenderingDevice.ShaderStage.Fragment, pixel.Bytes);
-            Rid rid = rd.ShaderCreateFromSpirV(stages, "OriginalSkyCube" + operation);
-            if (!rid.IsValid) throw new InvalidDataException("Device rejected the original sky cube shader pair.");
-            return rid;
+            var resources = new RenderDeviceResources("Device rejected the original sky cube shader pair.");
+            try
+            {
+                using var stages = new RDShaderSpirV();
+                stages.SetStageBytecode(RenderingDevice.ShaderStage.Vertex, adapter.Bytes);
+                stages.SetStageBytecode(RenderingDevice.ShaderStage.Fragment, pixel.Bytes);
+                Rid shader = resources.Own(rd.ShaderCreateFromSpirV(stages, "OriginalSkyCube" + operation));
+                return new SkyCubeProgram(source, combination, vertex, adapter, pixel, vertexBindings, pixelBindings, shader,operation,sampleSelection,resources);
+            }
+            catch (Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd, failure, "Sky-cube-program-partial");
+                throw;
+            }
         });
-        return new SkyCubeProgram(source, combination, vertex, adapter, pixel, vertexBindings, pixelBindings, shader,operation,sampleSelection);
     }
 
-    public ValueTask DisposeAsync() => new(_disposal ??= TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-    { rd.FreeRid(ShaderRid); return true; }));
+    public ValueTask DisposeAsync() => resources.DisposeAsync();
 }

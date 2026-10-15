@@ -160,6 +160,19 @@ public static class DeferredSceneConstants
         return new(ReadVector(record, 0), fog.Value, Array.AsReadOnly(scatter.Values.ToArray()));
     }
 
+    /// <summary>Prepare shared fog directly from the current light's named
+    /// values and mode, using its current modified directional color.</summary>
+    public static DeferredFogInputs PrepareSharedFog(DirectionalLightFogState currentFog,
+        bool explicitOwnerFogEnabled, Vector3 directionalRgb)
+    {
+        ArgumentNullException.ThrowIfNull(currentFog);
+        ArgumentNullException.ThrowIfNull(currentFog.Values);
+        SkyWeatherFogValues values = currentFog.Values;
+        SkyFogPacket fog = SkyFogMath.GenerateWeather(currentFog.Mode, values, 2, explicitOwnerFogEnabled);
+        SkyScatteringPacket scatter = fog.ScatteringOverride ?? SkyScatteringMath.GenerateWeather(values, directionalRgb);
+        return new(values.Background, fog.Value, Array.AsReadOnly(scatter.Values.ToArray()));
+    }
+
     /// <summary>Modifier H is distinct from effective LightData L. The separate
     /// map-occlusion rate comes from CameraScratch+3CC, not the preceding zero argument.</summary>
     public static DeferredAmbientInputs ReadAmbientModifier(ReadOnlySpan<byte> modifierPrefix,
@@ -179,34 +192,19 @@ public static class DeferredSceneConstants
         ReadOnlySpan<byte> explicitTemplate, DeferredSceneInputs input)
     {
         ArgumentNullException.ThrowIfNull(definitions); ArgumentNullException.ThrowIfNull(input);
-        var globals = definitions.Buffers.Where(b => b.Name.Text == "$Globals").ToArray();
-        var bindings = definitions.Bindings.Where(b => b.Name.Text == "$Globals" && b.InputType == 0).ToArray();
-        if (explicitTemplate.Length != ByteSize || globals.Length != 1 || globals[0].ByteSize != ByteSize ||
-            globals[0].Variables.Count != 49 || bindings.Length != 1 || bindings[0].BindPoint != 0 || bindings[0].BindCount != 1)
-            throw new InvalidDataException("Scene writer requires the original PS1 cb0 layout and complete 2704-byte template.");
-        byte[] bytes = explicitTemplate.ToArray(); var writes = new List<DeferredSceneWrite>();
-        void Write(string name, int offset, ushort @class, ushort rows, ushort columns, ushort elements,
-            uint[] words, ushort baseType = 3)
-        {
-            var matches = globals[0].Variables.Where(v => v.Name.Text == name).ToArray();
-            if (matches.Length != 1) throw new InvalidDataException("Missing or duplicate scene variable: " + name);
-            var v = matches[0]; var types = definitions.Types.Where(t => t.Offset == v.TypeOffset).ToArray();
-            int count = Math.Max(1, (int)elements), elementBytes = rows * columns * 4;
-            int stride = elements == 0 ? elementBytes : 16;
-            if (types.Length != 1) throw new InvalidDataException("Missing or duplicate scene type: " + name);
-            var t = types[0];
-            if (v.StartOffset != offset || v.ByteSize != (count - 1) * stride + elementBytes ||
-                t.Class != @class || t.BaseType != baseType || t.Rows != rows || t.Columns != columns ||
-                t.Elements != elements || t.Members.Count != 0 || words.Length * 4 != count * elementBytes ||
-                offset < 0 || (long)offset + v.ByteSize > bytes.Length ||
-                (baseType == 3 && words.Any(w => !float.IsFinite(BitConverter.UInt32BitsToSingle(w)))))
-                throw new InvalidDataException("Unsupported scene layout or nonfinite value: " + name);
-            for (int i = 0; i < count; i++)
-                for (int word = 0; word < elementBytes / 4; word++)
-                    BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(offset + i * stride + word * 4, 4), words[i * elementBytes / 4 + word]);
-            writes.Add(new(name, offset, count, stride, elementBytes));
-        }
-        void Vector(string name, int offset, Vector4 v) => Write(name, offset, 1, 1, 4, 0, Words(v));
+        var layout=DeferredSceneConstantLayout.Canonical(definitions);
+        layout.RequireTemplate(explicitTemplate.Length);
+        return Apply(layout,explicitTemplate,input);
+    }
+
+    // The numerical writer is shared by canonical, early and selected layouts.
+    // Only a validated PS767 source proof may authorize its three IEEE fields.
+    internal static DeferredSceneConstantPacket Apply(DeferredSceneConstantLayout layout,
+        ReadOnlySpan<byte> explicitTemplate,DeferredSceneInputs input,bool allowHatchingIeee=false)
+    {
+        byte[] bytes=explicitTemplate.ToArray();var writes=new List<DeferredSceneWrite>();
+        void Write(string name,uint[] words)=>layout.Write(name,words,bytes,writes,allowHatchingIeee);
+        void Vector(string name,Vector4 value)=>Write(name,Words(value));
         if (input.Lighting is { } lighting)
         {
             if (lighting.Lights is null || lighting.Lights.Count is < 1 or > 4 || lighting.Lights.Any(l => l is null))
@@ -218,109 +216,108 @@ public static class DeferredSceneConstants
                 dirs[i] = light?.Direction ?? new Vector4(0, 1, 0, 0);
                 colors[i] = light?.Color ?? Vector4.Zero; occurrence[i] = light?.Occurrence ?? 1;
             }
-            Write("litDir", 0, 1, 1, 4, 4, dirs.SelectMany(Words).ToArray());
-            Write("litCol", 64, 1, 1, 4, 4, colors.SelectMany(Words).ToArray());
+            Write("litDir", dirs.SelectMany(Words).ToArray());
+            Write("litCol", colors.SelectMany(Words).ToArray());
             // RDEF retains an array of ONE float4 (Elements=1), although the
             // Microsoft textual disassembly prints it as plain float4.
-            Write("litOcc", 128, 1, 1, 4, 1, occurrence.Select(BitConverter.SingleToUInt32Bits).ToArray());
-            Vector("ambLit", 144, lighting.Ambient);
-            Write("nDirLit", 160, 0, 1, 1, 0, [(uint)(lighting.Lights.Count - 1)], 2);
+            Write("litOcc", occurrence.Select(BitConverter.SingleToUInt32Bits).ToArray());
+            Vector("ambLit", lighting.Ambient);
+            Write("nDirLit", [(uint)(lighting.Lights.Count - 1)]);
         }
         if (input.Camera is { } camera)
         {
-            Vector("vEye", 176, camera.SourceEye);
-            Write("mW2P", 592, 2, 4, 4, 0, Words(camera.SourceWorldToProjection));
+            Vector("vEye", camera.SourceEye);
+            Write("mW2P", Words(camera.SourceWorldToProjection));
             uint[] transposed = Words(Matrix4x4.Transpose(camera.SourceWorldToView));
-            Write("mWV", 1824, 1, 1, 4, 3, transposed[..12]);
-            Write("mV2W", 2336, 2, 4, 4, 0, Words(NativeMatrixMath.Invert(camera.SourceWorldToView, out _)));
-            Write("mP2W", 2400, 2, 4, 4, 0, Words(NativeMatrixMath.Invert(camera.SourceWorldToProjection, out _)));
+            Write("mWV", transposed[..12]);
+            Write("mV2W", Words(NativeMatrixMath.Invert(camera.SourceWorldToView, out _)));
+            Write("mP2W", Words(NativeMatrixMath.Invert(camera.SourceWorldToProjection, out _)));
         }
         if (input.Fog is { } fog)
         {
             if (fog.Scattering is null || fog.Scattering.Count != 4)
                 throw new InvalidDataException("Scene fog requires four explicit Scat rows.");
-            Vector("fog", 2240, fog.Coefficients); Vector("cFog", 2256, fog.Color);
-            Write("Scat", 2272, 1, 1, 4, 4, fog.Scattering.SelectMany(Words).ToArray());
+            Vector("fog", fog.Coefficients); Vector("cFog", fog.Color);
+            Write("Scat", fog.Scattering.SelectMany(Words).ToArray());
         }
         if (input.Ambient is { } ambient)
         {
-            Write("fAmbMapsDORate", 2556, 0, 1, 1, 0, [BitConverter.SingleToUInt32Bits(ambient.MapsDirectionalOcclusionRate)]);
-            Vector("vAmbDifScl", 2560, ambient.DiffuseScale); Vector("vAmbSpcScl", 2576, ambient.SpecularScale);
+            Write("fAmbMapsDORate", [BitConverter.SingleToUInt32Bits(ambient.MapsDirectionalOcclusionRate)]);
+            Vector("vAmbDifScl", ambient.DiffuseScale); Vector("vAmbSpcScl", ambient.SpecularScale);
         }
         if (input.Hatching is { } hatching)
         {
-            Vector("hsRampPrm", 2496, hatching.Ramp); Vector("hsAOPrm", 2512, hatching.AmbientOcclusion);
-            Write("hsUVMat", 2528, 1, 1, 3, 2, [BitConverter.SingleToUInt32Bits(hatching.UvRow0.X),
+            Vector("hsRampPrm", hatching.Ramp); Vector("hsAOPrm", hatching.AmbientOcclusion);
+            Write("hsUVMat", [BitConverter.SingleToUInt32Bits(hatching.UvRow0.X),
                 BitConverter.SingleToUInt32Bits(hatching.UvRow0.Y), BitConverter.SingleToUInt32Bits(hatching.UvRow0.Z),
                 BitConverter.SingleToUInt32Bits(hatching.UvRow1.X), BitConverter.SingleToUInt32Bits(hatching.UvRow1.Y),
                 BitConverter.SingleToUInt32Bits(hatching.UvRow1.Z)]);
         }
-        if (input.PixelToTexture is { } pixelToTexture) Vector("vP2T", 2688, pixelToTexture.Transform);
-        if (input.VolumeFog is { } volumeFog) Vector("gVfogInfo", 1808, volumeFog.Info);
+        if (input.PixelToTexture is { } pixelToTexture) Vector("vP2T", pixelToTexture.Transform);
+        if (input.VolumeFog is { } volumeFog) Vector("gVfogInfo", volumeFog.Info);
         if (input.Refraction is { } refraction)
         {
-            Write("vCameraPos", 2128, 1, 1, 3, 0, Words(refraction.CameraPosition));
-            Write("vCameraDir", 2144, 1, 1, 3, 0, Words(refraction.CameraDirection));
-            Write("vCameraViewY", 2160, 1, 1, 3, 0, Words(refraction.CameraViewY));
-            Write("vD2Z", 2176, 1, 1, 2, 0, Words(refraction.DepthToZ));
+            Write("vCameraPos", Words(refraction.CameraPosition));
+            Write("vCameraDir", Words(refraction.CameraDirection));
+            Write("vCameraViewY", Words(refraction.CameraViewY));
+            Write("vD2Z", Words(refraction.DepthToZ));
             if (refraction.WorldToTexture is { } rows)
             {
                 if (rows.Count != 3) throw new InvalidDataException("Refraction projection requires three explicit float4 rows.");
-                Write("mRrW2T", 2192, 1, 1, 4, 3, rows.SelectMany(Words).ToArray());
+                Write("mRrW2T", rows.SelectMany(Words).ToArray());
             }
         }
-        if (input.Projection is { } projection) Write("mP2V", 2608, 2, 4, 4, 0, Words(projection.ProjectionToView));
-        if (input.LocalAmbientOcclusion is { } localAmbient) Write("vAmbSpcLclOcc", 2676, 1, 1, 2, 0, Words(localAmbient.Value));
-        if (input.TranslucencyViewport is { } translucency) Vector("vTsbViewPort", 2592, translucency.Value);
+        if (input.Projection is { } projection) Write("mP2V", Words(projection.ProjectionToView));
+        if (input.LocalAmbientOcclusion is { } localAmbient) Write("vAmbSpcLclOcc", Words(localAmbient.Value));
+        if (input.TranslucencyViewport is { } translucency) Vector("vTsbViewPort", translucency.Value);
         if (input.HeightFog is { } heightFog)
         {
             if(heightFog.Types is null||heightFog.Types.Count!=3||heightFog.Colors is null||heightFog.Colors.Count!=3||
                 heightFog.Parameters is null||heightFog.Parameters.Count!=3||heightFog.FluctuationParameters is null||heightFog.FluctuationParameters.Count!=60)
                 throw new InvalidDataException("PS1 height fog requires explicit arrays3/3/3/60 from the selected module.");
-            Write("hFogType",704,0,1,1,3,heightFog.Types.Select(v=>unchecked((uint)v)).ToArray(),2);
-            Write("cHFog",752,1,1,4,3,heightFog.Colors.SelectMany(Words).ToArray());
-            Write("hFogParam",800,1,1,4,3,heightFog.Parameters.SelectMany(Words).ToArray());
-            Write("hFogFlucPrms",848,0,1,1,60,heightFog.FluctuationParameters.Select(BitConverter.SingleToUInt32Bits).ToArray());
+            Write("hFogType",heightFog.Types.Select(v=>unchecked((uint)v)).ToArray());
+            Write("cHFog",heightFog.Colors.SelectMany(Words).ToArray());
+            Write("hFogParam",heightFog.Parameters.SelectMany(Words).ToArray());
+            Write("hFogFlucPrms",heightFog.FluctuationParameters.Select(BitConverter.SingleToUInt32Bits).ToArray());
         }
-        if(input.Occlusion is { } occlusion)Write("vOccRate",192,1,1,2,0,Words(occlusion.Rates));
+        if(input.Occlusion is { } occlusion)Write("vOccRate",Words(occlusion.Rates));
         if(input.Cluster is { } cluster)
         {
-            Vector("vClstZPrm",656,cluster.DepthParameters);
-            Write("nClstPtch",672,0,1,1,2,
-                [unchecked((uint)cluster.HorizontalPatchCount),unchecked((uint)cluster.PatchCount)],2);
+            Vector("vClstZPrm",cluster.DepthParameters);
+            Write("nClstPtch",
+                [unchecked((uint)cluster.HorizontalPatchCount),unchecked((uint)cluster.PatchCount)]);
             if(cluster.Scaling is { } scale)
-                Write("fClstScl",692,0,1,1,0,[BitConverter.SingleToUInt32Bits(scale)]);
-            if(cluster.FadeDistance is { } distance)Write("vFadeDist",696,1,1,2,0,Words(distance));
+                Write("fClstScl",[BitConverter.SingleToUInt32Bits(scale)]);
+            if(cluster.FadeDistance is { } distance)Write("vFadeDist",Words(distance));
         }
         if(input.LocalAmbient is { } localMaps)
         {
-            Write("vLclAmbFogDecayRange",2480,1,1,2,0,Words(localMaps.FogDecayRange));
-            Write("vLclAmbDecay",2468,1,1,2,0,Words(localMaps.Decay));
+            Write("vLclAmbFogDecayRange",Words(localMaps.FogDecayRange));
+            Write("vLclAmbDecay",Words(localMaps.Decay));
         }
         if(input.ShadowFade is { } shadowFade)
-            Write("fSdmFade",2464,0,1,1,0,[BitConverter.SingleToUInt32Bits(shadowFade.Value)]);
+            Write("fSdmFade",[BitConverter.SingleToUInt32Bits(shadowFade.Value)]);
         if(input.RimTable is { } rim)
         {
             if(rim.Colors is null||rim.Colors.Count!=16||rim.Extents is null||rim.Extents.Count!=16)
                 throw new InvalidDataException("PS1 rim tables require sixteen explicit color and int4 extent rows.");
-            Write("cRimTbl",1872,1,1,4,16,rim.Colors.SelectMany(Words).ToArray());
-            Write("nRimExt",256,1,1,4,16,rim.Extents.SelectMany(v=>new[]
-                {unchecked((uint)v.X),unchecked((uint)v.Y),unchecked((uint)v.Z),unchecked((uint)v.W)}).ToArray(),2);
+            Write("cRimTbl",rim.Colors.SelectMany(Words).ToArray());
+            Write("nRimExt",rim.Extents.SelectMany(v=>new[]
+                {unchecked((uint)v.X),unchecked((uint)v.Y),unchecked((uint)v.Z),unchecked((uint)v.W)}).ToArray());
         }
         if(input.Ramp is { } ramp)
         {
             if(ramp.Parameters is null||ramp.Parameters.Count!=3||ramp.RimParameters is null||ramp.RimParameters.Count!=2||
                 ramp.SecondaryRimParameters is null||ramp.SecondaryRimParameters.Count!=2)
                 throw new InvalidDataException("PS1 ramp parameters require explicit prepared arrays3/2/2.");
-            Write("rampType",200,0,1,1,0,[unchecked((uint)ramp.Type)],2);
-            Write("rampTexHeight",512,0,1,1,0,[unchecked((uint)ramp.TextureHeight)],2);
-            Write("rampPkPrms",208,1,1,4,3,ramp.Parameters.SelectMany(Words).ToArray());
-            Write("rampRimPkPrms",560,1,1,4,2,ramp.RimParameters.SelectMany(Words).ToArray());
-            Write("rampSecondaryRimPkPrms",528,1,1,4,2,ramp.SecondaryRimParameters.SelectMany(Words).ToArray());
-            Write("rampRimThres",2672,0,1,1,0,[BitConverter.SingleToUInt32Bits(ramp.RimThreshold)]);
+            Write("rampType",[unchecked((uint)ramp.Type)]);
+            Write("rampTexHeight",[unchecked((uint)ramp.TextureHeight)]);
+            Write("rampPkPrms",ramp.Parameters.SelectMany(Words).ToArray());
+            Write("rampRimPkPrms",ramp.RimParameters.SelectMany(Words).ToArray());
+            Write("rampSecondaryRimPkPrms",ramp.SecondaryRimParameters.SelectMany(Words).ToArray());
+            Write("rampRimThres",[BitConverter.SingleToUInt32Bits(ramp.RimThreshold)]);
         }
-        var names = writes.Select(w => w.Name).ToHashSet(StringComparer.Ordinal);
-        return new(bytes, writes.AsReadOnly(), Array.AsReadOnly(globals[0].Variables.Where(v => !names.Contains(v.Name.Text)).Select(v => v.Name.Text).ToArray()));
+        return new(bytes,writes.AsReadOnly(),layout.RetainedVariables(writes));
     }
 
     private static Vector4 ReadVector(ReadOnlySpan<byte> bytes, int offset) =>

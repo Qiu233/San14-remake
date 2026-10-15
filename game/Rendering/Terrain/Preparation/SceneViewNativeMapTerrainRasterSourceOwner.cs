@@ -36,11 +36,10 @@ public sealed class SceneViewNativeMapTerrainRasterSourceOwner
         string locale, LoadedTerrainGbiMapResources actualMaterial, MainMapContextOwnerSource actualHost)
     {
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(actualHost);
-        _ = TerrainGbufferSourceParameters.ReadSourceDefaults(repository, locale, actualMaterial);
         if (actualHost.Locale != locale || actualHost.RuleVersion != RenderRuleIdentity.Version)
             throw new InvalidDataException("Terrain inherited raster requires its exact current source Host.");
         return new(repository, locale, actualHost,
-            TerrainGbufferColorMaskSource.ReadSource(repository, locale, actualMaterial));
+            TerrainGbufferColorMaskSource.CreateFresh(locale, actualMaterial));
     }
 
     public void MarkImportedEditedOrInterveningRasterAssignment(string writer)

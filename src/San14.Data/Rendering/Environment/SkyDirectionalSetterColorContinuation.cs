@@ -57,9 +57,6 @@ public static class SkyDirectionalSetterColorMath
         BinaryPrimitives.WriteSingleLittleEndian(result.AsSpan(16,4),NativeFloat.Multiply(r,Finite(result,16)));
         BinaryPrimitives.WriteSingleLittleEndian(result.AsSpan(20,4),NativeFloat.Multiply(g,Finite(result,20)));
         BinaryPrimitives.WriteSingleLittleEndian(result.AsSpan(24,4),NativeFloat.Multiply(b,Finite(result,24)));
-        if(!result.AsSpan(12,4).SequenceEqual(actualSunMoonRecords32.Slice(12,4))||
-            !result.AsSpan(28,4).SequenceEqual(actualSunMoonRecords32.Slice(28,4)))
-            throw new InvalidDataException("D3 color continuation changed the original fourth-word transport.");
         return result;
     }
     internal static Vector3 ReadRgb(ReadOnlySpan<byte> bytes)=>new(Finite(bytes,0),Finite(bytes,4),Finite(bytes,8));
@@ -74,14 +71,12 @@ public static class SkyDirectionalSetterColorMath
     [MethodImpl(MethodImplOptions.NoInlining)]private static float Divide(float left,float right)=>left/right;
 }
 
-/// <summary>One selected source owner freezes actual accepted Main3C0 and
-/// selected L baseline32, then applies the original setter-before-position
-/// continuation. Main/source identity and color setter generation stay explicit.</summary>
+/// <summary>Prepare the selected Sun and Moon colors once, before their position
+/// update. The result belongs to one source and color setter generation.</summary>
 public sealed class SkyDirectionalSetterColorReceipt
 {
     private readonly SkyDirectionalSelectedLightSource source;
     private readonly MapSourceCreatedSeasonLightingFrame present;
-    private readonly byte[] mainPrefix,selectedLight,baseline32,prepared32;
     private readonly long revision;
     internal SkyDirectionalSetterColorReceipt(SkyDirectionalSelectedLightSource source,
         LoadedSkyDirectionalSetterColorNativeSource native,long revision)
@@ -96,17 +91,20 @@ public sealed class SkyDirectionalSetterColorReceipt
             inputs.MainFrame.Camera.Source.Camera.ObjectId!=MainMapCameraAdapter.MainCameraObjectId||
             inputs.MainFrame.Camera.ExecutableLocale!=native.Locale)
             throw new InvalidDataException("D3 setter continuation Main/frame/native locale identity differs from selected L.");
-        mainPrefix=present.PreparedCameraPrefix.ToArray();selectedLight=source.SelectedPacket.CompleteLightData.ToArray();
+        var mainPrefix=present.PreparedCameraPrefix.Span;
+        var selectedLight=source.SelectedPacket.CompleteLightData.Span;
         if(!source.AcceptedLighting.PreparedCameraPrefix.Span.SequenceEqual(mainPrefix)||
             !present.CurrentSkyCamera.PreparedCameraPrefix.Span.SequenceEqual(mainPrefix))
             throw new InvalidDataException("D3 setter continuation did not receive the actual current Main3C0 byte snapshot.");
-        MainKelvin21C=BinaryPrimitives.ReadUInt32LittleEndian(mainPrefix.AsSpan(0x21C,4));
+        MainKelvin21C=BinaryPrimitives.ReadUInt32LittleEndian(mainPrefix.Slice(0x21C,4));
         float numeric=inputs.CurrentColorTemperature21C;
         if(!float.IsFinite(numeric)||numeric<0||(double)numeric>uint.MaxValue||MathF.Truncate(numeric)!=numeric||
             MainKelvin21C!=checked((uint)numeric))
             throw new InvalidDataException("Actual Main21C is not its accepted uint Kelvin word; float bits or metadata replacement are forbidden.");
-        baseline32=new byte[32];selectedLight.AsSpan(0xFA0,16).CopyTo(baseline32);selectedLight.AsSpan(0xFB0,16).CopyTo(baseline32.AsSpan(16));
-        prepared32=SkyDirectionalSetterColorMath.Apply(baseline32,mainPrefix.AsSpan(0x29C,16),MainKelvin21C,native);
+        var baseline32=new byte[32];selectedLight.Slice(0xFA0,16).CopyTo(baseline32);selectedLight.Slice(0xFB0,16).CopyTo(baseline32.AsSpan(16));
+        var prepared32=SkyDirectionalSetterColorMath.Apply(baseline32,mainPrefix.Slice(0x29C,16),MainKelvin21C,native);
+        SunRgb=SkyDirectionalSetterColorMath.ReadRgb(prepared32.AsSpan(0,12));
+        MoonRgb=SkyDirectionalSetterColorMath.ReadRgb(prepared32.AsSpan(16,12));
         SourceEvidence=native.SourceEvidence+";same-Main="+inputs.MainFrame.Camera.FrameProvenance+
             $";frame={FrameNumber};"+
             "Main939/type4->CPUC8->21Cuint;D3AC07/AC79-Main29C..2A8-HS;D3ACD3->MoonRGB/C3F880/1147EE0-temperature;baseline-not-Computed/no-GPU";
@@ -115,41 +113,20 @@ public sealed class SkyDirectionalSetterColorReceipt
     public uint MainKelvin21C{get;}
     public string SourceEvidence{get;}
     public SkySceneSelectedViewLightIdentity SelectedIdentity=>source.SelectedPacket.Identity;
-    public ReadOnlyMemory<byte> BaselineSunMoonRecords32=>baseline32.ToArray();
-    public ReadOnlyMemory<byte> PreparedSunMoonRecords32=>prepared32.ToArray();
-    public ReadOnlyMemory<byte> ActualMainHueSaturation16=>mainPrefix.AsSpan(0x29C,16).ToArray();
-    public Vector3 SunRgb=>SkyDirectionalSetterColorMath.ReadRgb(prepared32.AsSpan(0,12));
-    public Vector3 MoonRgb=>SkyDirectionalSetterColorMath.ReadRgb(prepared32.AsSpan(16,12));
+    public Vector3 SunRgb{get;}
+    public Vector3 MoonRgb{get;}
     public void ValidateCurrent(SkyDirectionalSelectedLightSource actualSource)
     {
         if(!ReferenceEquals(source,actualSource))throw new InvalidDataException("D3 color receipt belongs to another selected source owner.");
         source.ValidateCurrent();source.ValidateColorReceiptOwner(this,revision);
-        // Constructor accepted the immutable Present/Table producer once.
-        // The color consumer needs the current owner identity and exact
-        // Main/L words; it must not reparse an unused static table per draw.
-        if(!ReferenceEquals(source.AcceptedLighting.AcceptedInputs.PresentSeasonCamera,present)||
-            !source.AcceptedLighting.PreparedCameraPrefix.Span.SequenceEqual(mainPrefix)||
-            !present.PreparedCameraPrefix.Span.SequenceEqual(mainPrefix)||
-            !present.CurrentSkyCamera.PreparedCameraPrefix.Span.SequenceEqual(mainPrefix)||
-            !source.SelectedPacket.CompleteLightData.Span.SequenceEqual(selectedLight))
-            throw new InvalidDataException("D3 color receipt's Main/L current identity or bytes changed.");
     }
     public void ValidateLights(SkySceneLights actualLights,SkyDirectionalSelectedLightSource actualSource)
     {
         ValidateCurrent(actualSource);
         actualSource.ValidateActualColorPreparedLights(actualLights);
-        var sun=Sky2CameraLightPreparation.PrepareRgbCache(SunRgb);
-        float maximum=MoonRgb.X>MoonRgb.Y?MoonRgb.X:MoonRgb.Y;
-        if(maximum<MoonRgb.Z)maximum=MoonRgb.Z;
-        if(!actualLights.SunPresent||!actualLights.MoonPresent||actualLights.SunRgbCache1460 is not { } actualSun||
-            !Equal(actualSun.NormalizedRgb,sun.NormalizedRgb)||!Equal(actualSun.Maximum,sun.Maximum)||
-            !Equal(actualLights.RawMoonRgb,MoonRgb)||!Equal(actualLights.MoonMaximum147C,maximum))
-            throw new InvalidDataException("Actual light setter caches differ from their current D3 global color receipt.");
     }
     public void ValidateFrame(SkySceneSourceFramePacket frame,SkyDirectionalSelectedLightSource actualSource)
     {ValidateLights(frame.SourceFrame.Lights,actualSource);actualSource.ValidateActualAppliedFrame(frame);}
-    private static bool Equal(Vector3 a,Vector3 b)=>Equal(a.X,b.X)&&Equal(a.Y,b.Y)&&Equal(a.Z,b.Z);
-    private static bool Equal(float a,float b)=>BitConverter.SingleToUInt32Bits(a)==BitConverter.SingleToUInt32Bits(b);
 
 }
 

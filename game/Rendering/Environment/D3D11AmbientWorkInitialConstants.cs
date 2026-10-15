@@ -5,12 +5,17 @@ using San14.Data;
 public static class D3D11AmbientWorkInitialConstants
 {
     public static D3D11AmbientWorkConstants Prepare(GameResourceRepository repository,
-        D3D11CurrentSeasonFrame current,D3D11CurrentSeasonResources resources,D3D11CloudProgramMedia programs,
+        D3D11CurrentSeasonFrame current,D3D11CloudProgramMedia programs,
         LoadedSkyAmbientResources ambient, SkyMainProgramResources? skyPrograms = null,
         Sky2TextureBindingSnapshot? sampling = null)
     {
-        var selected=resources.Lights.First(light=>(light.GroupMask&0x80)!=0);
-        return D3D11AmbientWorkInputPreparation.Prepare(repository,current.Present,selected.DefaultCaller,programs.Resources,ambient,skyPrograms,sampling);
+        var selected=current.Lights.First(light=>(light.GroupMask&0x80)!=0);
+        if (selected.GroupMask != 0x80)
+            throw new System.NotSupportedException("WORK requires the selected directional group 0x80.");
+        var atmosphere=current.Atmosphere;
+        return D3D11AmbientWorkInputPreparation.Prepare(repository,current.Present,selected.State,
+            atmosphere.Controller,atmosphere.SunRgb,atmosphere.MoonRgb,atmosphere.ControllerGeometry40,
+            programs.Resources,ambient,skyPrograms,sampling);
     }
 
     public static D3D11AmbientWorkConstants WriteFreshNativeInputs(GameResourceRepository repository,
@@ -19,7 +24,7 @@ public static class D3D11AmbientWorkInitialConstants
     {
         var ambient=D3D11AmbientRenderResources.Load(repository,current.Present,resources.Source.Locale);
         ambient.WriteNativeInputs(inputRoot);
-        var constants=Prepare(repository,current,resources,programs,ambient.Declaration,sampling: sampling);
+        var constants=Prepare(repository,current,programs,ambient.Declaration,sampling: sampling);
         D3D11AmbientWorkInputPreparation.WriteNativeInputs(constants,inputRoot);
         return constants;
     }

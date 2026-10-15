@@ -15,6 +15,7 @@ public sealed partial class MapFirstWorldNativeSamplerState : IAsyncDisposable
     private readonly MapSourceCreatedWorldPlayableHost host;
     private readonly SceneViewNativeMapWorldSkySourceOwner sky;
     private readonly Rid defaultSampler;
+    private readonly RenderDeviceResources resources;
     private readonly object lifetime=new();
     private Prefix? current;
     private MapPostEffect3FirstWorldExecutionOwner? moduleOwner;
@@ -25,8 +26,8 @@ public sealed partial class MapFirstWorldNativeSamplerState : IAsyncDisposable
 
     private MapFirstWorldNativeSamplerState(WorldNativeSamplerResetSource source,
         MapSourceCreatedWorldPlayableHost host,SceneViewNativeMapWorldSkySourceOwner sky,
-        PostProcessResourceBank bank,Rid sampler)
-        =>(Source,this.host,this.sky,Bank,defaultSampler)=(source,host,sky,bank,sampler);
+        PostProcessResourceBank bank,Rid sampler,RenderDeviceResources resources)
+        =>(Source,this.host,this.sky,Bank,defaultSampler,this.resources)=(source,host,sky,bank,sampler,resources);
 
     /// <summary>Call before the first render attempt, for example in the
     /// before-first-frame host configuration seam. This synchronous acceptance
@@ -46,9 +47,13 @@ public sealed partial class MapFirstWorldNativeSamplerState : IAsyncDisposable
         _=bank.RequireTexture(11,0); // Lifetime/owned allocation, never pixel readiness.
         var source=RenderSamplerSourceAdapters.ReadWorldNativeSamplerReset(native);
         byte[] descriptor=source.DefaultDescriptor;
+        var resources=new RenderDeviceResources("Device rejected the verified native reset default sampler.");
         return TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-            new MapFirstWorldNativeSamplerState(source,freshHost,actualSky,bank,
-                CreateDefault(rd,descriptor)));
+        {
+            try{return new MapFirstWorldNativeSamplerState(source,freshHost,actualSky,bank,
+                CreateDefault(rd,descriptor,resources),resources);}
+            catch(Exception failure){resources.ReleaseAfterConstructionFailure(rd,failure,"first-World-default-sampler-partial");throw;}
+        });
     }
 
     /// <summary>Capture only after actual late World draws and source node1
@@ -192,7 +197,7 @@ public sealed partial class MapFirstWorldNativeSamplerState : IAsyncDisposable
         }
     }
 
-    private static Rid CreateDefault(RenderingDevice rd,ReadOnlySpan<byte> descriptor)
+    private static Rid CreateDefault(RenderingDevice rd,ReadOnlySpan<byte> descriptor,RenderDeviceResources resources)
     {
         // This finite profile differs from keyed manager samplers: native
         // comparison is Never but disabled, border is opaque white, MinLOD is
@@ -214,16 +219,14 @@ public sealed partial class MapFirstWorldNativeSamplerState : IAsyncDisposable
             EnableCompare=false,CompareOp=RenderingDevice.CompareOperator.Never,
             BorderColor=RenderingDevice.SamplerBorderColor.FloatOpaqueWhite,UnnormalizedUvw=false
         };
-        Rid result=rd.SamplerCreate(state);
-        if(!result.IsValid)throw new InvalidDataException("Device rejected the verified native reset default sampler.");
-        return result;
+        return resources.Own(rd.SamplerCreate(state));
     }
 
     public ValueTask DisposeAsync()
     {
         lock(lifetime)
         {
-            if(disposal is not null)return new(disposal);
+            if(disposal is not null&&!disposal.IsFaulted&&!disposal.IsCanceled)return new(disposal);
             retiring=true;
             Task pending=dispatchAccepted&&!dispatchFinished?
                 (drained??=new(TaskCreationOptions.RunContinuationsAsynchronously)).Task:Task.CompletedTask;
@@ -233,6 +236,6 @@ public sealed partial class MapFirstWorldNativeSamplerState : IAsyncDisposable
     private async Task RetireAsync(Task pending)
     {
         await pending;
-        await TerrainDeviceTexture.OnRenderThreadAsync(rd=>{if(defaultSampler.IsValid)rd.FreeRid(defaultSampler);return true;});
+        await resources.DisposeAsync();
     }
 }

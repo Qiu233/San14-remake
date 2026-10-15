@@ -13,15 +13,15 @@ public sealed class ModelGeometryDevice : IAsyncDisposable
     public ModelDeviceGeometryPacket Packet { get; }
     public IReadOnlyDictionary<int, ModelDeviceDrawArrays> Draws { get; }
     private readonly IReadOnlyDictionary<int, Rid> _vertexBuffers, _indexBuffers;
-    private readonly IReadOnlyList<Rid> _owned;
-    private Task? _disposal;
+    private readonly RenderDeviceResources _resources;
+    private volatile bool _retiring;
 
     private ModelGeometryDevice(string uri, ModelDeviceGeometryPacket packet,
         Dictionary<int, ModelDeviceDrawArrays> draws, Dictionary<int, Rid> vertices,
-        Dictionary<int, Rid> indices, List<Rid> owned)
-        => (SourceResourceUri, Packet, Draws, _vertexBuffers, _indexBuffers, _owned) =
+        Dictionary<int, Rid> indices, RenderDeviceResources resources)
+        => (SourceResourceUri, Packet, Draws, _vertexBuffers, _indexBuffers, _resources) =
             (uri, packet, new System.Collections.ObjectModel.ReadOnlyDictionary<int, ModelDeviceDrawArrays>(draws),
-                vertices, indices, owned.AsReadOnly());
+                vertices, indices, resources);
 
     public static Task<ModelGeometryDevice> BuildAsync(string sourceResourceUri,
         ModelDeviceGeometryPacket packet)
@@ -32,12 +32,9 @@ public sealed class ModelGeometryDevice : IAsyncDisposable
             throw new InvalidDataException("Original model device requires nonempty indexed draws.");
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            var owned = new List<Rid>(); var vertices = new Dictionary<int, Rid>(); var indices = new Dictionary<int, Rid>();
-            Rid Own(Rid value)
-            {
-                if (!value.IsValid) throw new InvalidDataException("Original model geometry device allocation failed.");
-                owned.Add(value); return value;
-            }
+            var resources = new RenderDeviceResources("Original model geometry device allocation failed.");
+            var vertices = new Dictionary<int, Rid>(); var indices = new Dictionary<int, Rid>();
+            Rid Own(Rid value) => resources.Own(value);
             try
             {
                 foreach (var buffer in packet.VertexBuffers)
@@ -74,9 +71,13 @@ public sealed class ModelGeometryDevice : IAsyncDisposable
                     var layout = layouts[draw.LayoutIndex];
                     draws.Add(draw.Index, new(draw.Index, draw.LayoutIndex, layout.Format, layout.Vertices, array, draw.IndexCount));
                 }
-                return new ModelGeometryDevice(sourceResourceUri, packet, draws, vertices, indices, owned);
+                return new ModelGeometryDevice(sourceResourceUri, packet, draws, vertices, indices, resources);
             }
-            catch { for (int i = owned.Count - 1; i >= 0; i--) rd.FreeRid(owned[i]); throw; }
+            catch (Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd, failure, "Model-geometry-partial");
+                throw;
+            }
         });
     }
 
@@ -99,14 +100,17 @@ public sealed class ModelGeometryDevice : IAsyncDisposable
     public Task<byte[]> ReadIndexBufferAsync(int sourceBufferIndex) => ReadAsync(_indexBuffers, sourceBufferIndex);
     private Task<byte[]> ReadAsync(IReadOnlyDictionary<int, Rid> buffers, int index)
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null, this);
+        ObjectDisposedException.ThrowIf(_retiring, this);
         if (!buffers.TryGetValue(index, out Rid buffer)) throw new InvalidDataException("Original model buffer index is absent.");
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-        { ObjectDisposedException.ThrowIf(_disposal is not null, this); return rd.BufferGetData(buffer); });
+        { ObjectDisposedException.ThrowIf(_retiring, this); return rd.BufferGetData(buffer); });
     }
 
-    public ValueTask DisposeAsync() => new(_disposal ??= TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-    { for (int i = _owned.Count - 1; i >= 0; i--) rd.FreeRid(_owned[i]); return true; }));
+    public ValueTask DisposeAsync()
+    {
+        _retiring = true;
+        return _resources.DisposeAsync();
+    }
 
-    internal void RequireLive() => ObjectDisposedException.ThrowIf(_disposal is not null, this);
+    internal void RequireLive() => ObjectDisposedException.ThrowIf(_retiring, this);
 }

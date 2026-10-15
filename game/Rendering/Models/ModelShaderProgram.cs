@@ -26,9 +26,10 @@ public sealed class ModelShaderProgram : IAsyncDisposable
     public IReadOnlyList<uint> ColorOutputLocations { get; }
     public int ColorAttachmentCount { get; }
     public Rid ShaderRid { get; }
-    private Task? _disposal;
+    private readonly RenderDeviceResources _resources;
+    private volatile bool _retiring;
 
-    private ModelShaderProgram(ModelShaderProgramPreparation prepared, Rid shader)
+    private ModelShaderProgram(ModelShaderProgramPreparation prepared, Rid shader, RenderDeviceResources resources)
     {
         Source = prepared.Source; Combination = prepared.Combination;
         VertexProgramIndex = prepared.VertexProgramIndex; VertexSourceSha256 = prepared.VertexSourceSha256;
@@ -37,6 +38,7 @@ public sealed class ModelShaderProgram : IAsyncDisposable
         VertexDeviceTransportSignatures = prepared.VertexDeviceTransportSignatures;
         PixelStage = prepared.PixelStage; ColorOutputLocations = prepared.ColorOutputLocations;
         ColorAttachmentCount = prepared.ColorAttachmentCount; ShaderRid = shader;
+        _resources = resources;
     }
 
     public static async Task<ModelShaderProgram> BuildAsync(LoadedShaderContainer source,
@@ -49,24 +51,34 @@ public sealed class ModelShaderProgram : IAsyncDisposable
     // Device components may adapt the prepared backend interface before upload.
     internal static async Task<ModelShaderProgram> BuildPreparedAsync(ModelShaderProgramPreparation prepared)
     {
-        Rid shader = await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
+        return await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            using var stages = new RDShaderSpirV();
-            stages.SetStageBytecode(RenderingDevice.ShaderStage.Vertex, prepared.VertexAdapter.Bytes);
-            if (prepared.PixelStage is { } pixel)
-                stages.SetStageBytecode(RenderingDevice.ShaderStage.Fragment, pixel.Translation.Bytes);
-            Rid value = rd.ShaderCreateFromSpirV(stages, "OriginalModelSourceProgram");
-            if (!value.IsValid) throw new InvalidDataException("RenderingDevice rejected the selected original model stages.");
-            return value;
+            var resources = new RenderDeviceResources("RenderingDevice rejected the selected original model stages.");
+            try
+            {
+                using var stages = new RDShaderSpirV();
+                stages.SetStageBytecode(RenderingDevice.ShaderStage.Vertex, prepared.VertexAdapter.Bytes);
+                if (prepared.PixelStage is { } pixel)
+                    stages.SetStageBytecode(RenderingDevice.ShaderStage.Fragment, pixel.Translation.Bytes);
+                Rid shader = resources.Own(rd.ShaderCreateFromSpirV(stages, "OriginalModelSourceProgram"));
+                return new ModelShaderProgram(prepared, shader, resources);
+            }
+            catch (Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd, failure, "Model-program-partial");
+                throw;
+            }
         });
-        return new(prepared, shader);
     }
 
     private ModelPixelShaderStage RequirePixelStage() => PixelStage
         ?? throw new InvalidOperationException("The selected original model combination has no pixel stage.");
 
-    public ValueTask DisposeAsync() => new(_disposal ??= TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-    { rd.FreeRid(ShaderRid); return true; }));
+    public ValueTask DisposeAsync()
+    {
+        _retiring = true;
+        return _resources.DisposeAsync();
+    }
 
-    internal void RequireLive() => ObjectDisposedException.ThrowIf(_disposal is not null, this);
+    internal void RequireLive() => ObjectDisposedException.ThrowIf(_retiring, this);
 }

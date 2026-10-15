@@ -19,11 +19,11 @@ public static class TerrainInitialControlResources
         LoadedTerrainFieldIndexMap source = TerrainTextureResources.ReadFieldIndexMap(field);
         TerrainTextureBinding binding = source.Binding;
         G1TextureSamplerRecipe sampler = G1TextureSamplerReader.ReadRetainedSource(binding.Image);
-        if (source.Map.Width != 2049 || source.Map.Height != 2049 || sampler.Filter != 0x14 ||
+        if (sampler.Filter != 0x14 ||
             sampler.AddressU is not (1 or 3) || sampler.AddressV is not (1 or 3) ||
             sampler.MipLodBiasBits != 0 || sampler.MinimumLodBits != 0 || sampler.MaximumLodBits != 0 ||
             sampler.MaxAnisotropy != 1 || (binding.Image.RawHeader[19] & 1) != 0)
-            throw new InvalidDataException("Initial control requires the verified 2049-square linear UNORM source with one mip and stock addressing.");
+            throw new InvalidDataException("Initial control requires a linear UNORM source with one mip and stock addressing.");
         return new(binding, source.Map, ConvertStockCenterBgraToRgba(source.Map.CopyRawMip()));
     }
 

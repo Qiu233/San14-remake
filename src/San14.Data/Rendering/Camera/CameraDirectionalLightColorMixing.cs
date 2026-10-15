@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 
 namespace San14.Data;
@@ -14,34 +15,35 @@ public static class CameraDirectionalLightColorMixing
             throw new InvalidDataException("Third-light color requires complete prepared LightData and Camera snapshots.");
         if (completePreparedLightData[0x10B0] != 6 || completePreparedLightData[0x10B2] != 8)
             throw new NotSupportedException("This original color continuation requires mode6 and third-light selector8.");
+        Vector4 color = ApplyPreparedMode6ThirdColor(
+            ReadVector(completePreparedLightData, 0x10), ReadVector(completePreparedLightData, 0x50),
+            Read(completePreparedCamera, 0x1F0), Read(completePreparedCamera, 0x1F4));
         byte[] result = completePreparedLightData.ToArray();
-        float intensity = Read(completePreparedCamera, 0x1F0);
-        // COMISS/JBE also takes this native branch for an unordered intensity.
-        if (!(intensity > 0))
-        {
-            Write(result, 0x50, 0); Write(result, 0x54, 0); Write(result, 0x58, 0);
-            return result; // The original writes no word5C here.
-        }
-        float mix = Read(completePreparedCamera, 0x1F4);
+        Write(result, 0x50, color.X); Write(result, 0x54, color.Y);
+        Write(result, 0x58, color.Z); Write(result, 0x5C, color.W);
+        return result;
+    }
+
+    /// <summary>Current third-light color, preserving the fourth copied word
+    /// according to the actual zero, direct-replacement and HSV branches.</summary>
+    public static Vector4 ApplyPreparedMode6ThirdColor(
+        Vector4 firstColor, Vector4 thirdColor, float intensity, float mix)
+    {
+        // COMISS/JBE also takes this branch for an unordered intensity.
+        if (!(intensity > 0)) return new(0, 0, 0, thirdColor.W);
         // MAXSS(mix,+0) selects the second operand on equal or unordered.
         float weight = mix > 0 ? mix : 0;
-        Rgb first = ReadRgb(completePreparedLightData, 0x10);
-        Rgb third = ReadRgb(completePreparedLightData, 0x50);
+        Rgb first = ReadRgb(firstColor);
+        Rgb third = ReadRgb(thirdColor);
         if (weight >= 1 || (third.R == 0 && third.G == 0 && third.B == 0))
-        {
-            Write(result, 0x50, Mul(intensity, first.R));
-            Write(result, 0x54, Mul(intensity, first.G));
-            Write(result, 0x58, Mul(intensity, first.B));
-            completePreparedLightData.Slice(0x1C, 4).CopyTo(result.AsSpan(0x5C, 4));
-            return result;
-        }
+            return new(Mul(intensity, first.R), Mul(intensity, first.G),
+                Mul(intensity, first.B), firstColor.W);
         Hsv a = ToHsv(first), b = ToHsv(third);
         float retained = Sub(1, weight);
         Hsv mixed = new(Add(Mul(a.H, weight), Mul(retained, b.H)),
             Add(Mul(a.S, weight), Mul(retained, b.S)), Mul(a.V, intensity));
         Rgb color = ToRgb(mixed);
-        Write(result, 0x50, color.R); Write(result, 0x54, color.G); Write(result, 0x58, color.B);
-        return result; // HSV helpers carry the existing third-light word5C.
+        return new(color.R, color.G, color.B, thirdColor.W);
     }
 
     private readonly record struct Rgb(float R, float G, float B);
@@ -99,11 +101,13 @@ public static class CameraDirectionalLightColorMixing
         };
     }
 
-    private static Rgb ReadRgb(ReadOnlySpan<byte> bytes, int at)
+    private static Rgb ReadRgb(Vector4 value)
     {
-        var c = new Rgb(Read(bytes, at), Read(bytes, at + 4), Read(bytes, at + 8));
+        var c = new Rgb(value.X, value.Y, value.Z);
         Finite(c.R); Finite(c.G); Finite(c.B); return c;
     }
+    private static Vector4 ReadVector(ReadOnlySpan<byte> bytes, int at) =>
+        new(Read(bytes, at), Read(bytes, at + 4), Read(bytes, at + 8), Read(bytes, at + 12));
     private static float Read(ReadOnlySpan<byte> bytes, int at) => BinaryPrimitives.ReadSingleLittleEndian(bytes.Slice(at, 4));
     private static void Write(byte[] bytes, int at, float value) => BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(at, 4), value);
     private static void Finite(float value)

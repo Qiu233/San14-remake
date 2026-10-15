@@ -82,6 +82,9 @@ public sealed class DeferredEarlySourcePixelFactory : IAsyncDisposable
     private readonly DeferredEarlyShaderDepthMirror shaderDepth = new();
     private RenderTargetDeviceTexture? color;
     private Rid depthParent, framebuffer;
+    private RenderDeviceResources? framebufferResources;
+    private NativeMapBorrowerRetirementPackage? drawRetirement;
+    private bool targetRetiring;
     private bool retiring;
     private Task? disposal;
     public DeferredEarlySourceCompletedFrame? LastCompletedFrame { get; private set; }
@@ -163,7 +166,16 @@ public sealed class DeferredEarlySourcePixelFactory : IAsyncDisposable
             }
             return new(programs, originals, borrowedRegistration, borrowedGgx, borrowedSamplers, actualAmbient);
         }
-        catch { foreach (var program in programs.Values.Reverse()) await program.DisposeAsync(); throw; }
+        catch(Exception failure)
+        {
+            var pending=NativeMapBorrowerRetirementPackage.CreatePending("Early-programs-partial",
+                programs.Values.Reverse(),
+                (failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+            try { pending=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(pending); }
+            catch(Exception retirementFailure)
+            {throw new NativeMapBorrowerConstructionException(failure,retirementFailure,pending!);}
+            throw;
+        }
     }
 
     /// <summary>Read each actual early source and select with this frame's owned
@@ -216,6 +228,7 @@ public sealed class DeferredEarlySourcePixelFactory : IAsyncDisposable
         {
             lock (lifetime) ObjectDisposedException.ThrowIf(retiring, this);
             LastCompletedFrame = null;
+            await ResumeRetirementAsync();
             string provenance = accepted.Selection.Current.CurrentProducerProvenance;
             if (accepted.Context.FrameNumber <= 0 || currentQ.FrameNumber != accepted.Context.FrameNumber ||
                 currentView.Camera.FrameNumber != accepted.Context.FrameNumber ||
@@ -265,15 +278,7 @@ public sealed class DeferredEarlySourcePixelFactory : IAsyncDisposable
                     if (bin.CurrentLightOwnerIdentity != accepted.Lighting.Binding.LightOwnerIdentity)
                         throw new NotSupportedException("Another early light record requires its own current parameter frame.");
                     var key = (bin.GraphNodeIndex, bin.StencilReference,bin.CurrentLightOwnerIdentity);
-                    if (draws.TryGetValue(key, out var old) && !SamePhysicalInputs(old.Inputs, inputs))
-                    { draws.Remove(key); await old.DisposeAsync(); old = null; }
-                    if (old is null)
-                    {
-                        old = await DeferredDraw.BuildAsync(program, target, snapshot, inputs,
-                            new(RenderingDevice.PolygonCullMode.Disabled, false), new(bin.StencilReference));
-                        draws.Add(key, old);
-                    }
-                    else await old.UpdateConstantsAsync(snapshot);
+                    var old = await GetOrPrepareDrawAsync(key,program,target,snapshot,inputs,bin.StencilReference);
                     ordered.Add((bin, old));
                     executedDraws.Add(new(bin,selected,parameters.EarlyCausticsSourceNull));
                 }
@@ -339,6 +344,7 @@ public sealed class DeferredEarlySourcePixelFactory : IAsyncDisposable
         {
             lock(lifetime)ObjectDisposedException.ThrowIf(retiring,this);
             LastCompletedFrame=null;
+            await ResumeRetirementAsync();
             string provenance=first.Selection.Current.CurrentProducerProvenance;
             var common=world.Passes[0].Frame.Common.ViewGroupSelector;
             var q=world.Passes[0].Frame.Context;
@@ -382,12 +388,7 @@ public sealed class DeferredEarlySourcePixelFactory : IAsyncDisposable
                     var target=new DeferredDrawTarget(framebuffer,[color!.StorageRid,depthParent],
                         selected.SourcePlan.Graph.Source.ResourceUri+"#Begin73/actual-World-early"){DepthStencilTexture=depthParent};
                     var bin=actual.Bin;var key=(node,bin.StencilReference,bin.CurrentLightOwnerIdentity);
-                    if(draws.TryGetValue(key,out var draw)&&!SamePhysicalInputs(draw.Inputs,inputs))
-                    {draws.Remove(key);await draw.DisposeAsync();draw=null;}
-                    if(draw is null)
-                    {draw=await DeferredDraw.BuildAsync(program,target,constants,inputs,
-                        new(RenderingDevice.PolygonCullMode.Disabled,false),new(bin.StencilReference));draws.Add(key,draw);}
-                    else await draw.UpdateConstantsAsync(constants);
+                    var draw=await GetOrPrepareDrawAsync(key,program,target,constants,inputs,bin.StencilReference);
                     ordered.Add((bin,draw));sources.Add(selected);receipts.Add(new(bin,selected,parameters.EarlyCausticsSourceNull));
                     if(parameters.EarlyCausticsSourceNull is { } authority)caustics.TryAdd(node,authority);
                 }
@@ -536,31 +537,116 @@ public sealed class DeferredEarlySourcePixelFactory : IAsyncDisposable
             throw new InvalidDataException("Early framebuffer declaration changed from original Begin73.");
         if (color?.StorageRid == nextColor.StorageRid && depthParent == nextDepth.StorageRid && framebuffer.IsValid) return;
         await RetireTargetsCoreAsync();
-        color = nextColor; depthParent = nextDepth.StorageRid;
-        framebuffer = await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
+        try
         {
-            Rid fb = rd.FramebufferCreate([nextColor.StorageRid, nextDepth.StorageRid]);
-            if (!rd.FramebufferIsValid(fb)) throw new InvalidDataException("Device rejected original early color/depth-stencil attachment pairing.");
-            return fb;
-        });
+            var created = await TerrainDeviceTexture.OnRenderThreadAsync(rd =>
+            {
+                var resources = new RenderDeviceResources("Device rejected original early color/depth-stencil attachment pairing.");
+                try
+                {
+                    Rid fb = resources.Own(rd.FramebufferCreate([nextColor.StorageRid, nextDepth.StorageRid]));
+                    if (!rd.FramebufferIsValid(fb)) throw new InvalidDataException("Device rejected original early color/depth-stencil attachment pairing.");
+                    return (Framebuffer: fb, Resources: resources);
+                }
+                catch (Exception failure)
+                {
+                    resources.ReleaseAfterConstructionFailure(rd,failure,"Early-framebuffer-partial");
+                    throw;
+                }
+            });
+            framebuffer=created.Framebuffer;framebufferResources=created.Resources;
+            color=nextColor;depthParent=nextDepth.StorageRid;
+        }
+        catch (Exception failure)
+        {
+            await RetireFailedConstructionAsync(failure);
+            throw;
+        }
     }
 
     private static bool SamePhysicalInputs(IReadOnlyList<DeferredDeviceBinding> a, IReadOnlyList<DeferredDeviceBinding> b) =>
         a.Count == b.Count && a.Zip(b).All(pair => pair.First.DescriptorKind == pair.Second.DescriptorKind &&
             pair.First.SourceBindPoint == pair.Second.SourceBindPoint && pair.First.Resource == pair.Second.Resource && pair.First.OwnerTexture == pair.Second.OwnerTexture);
 
+    private async Task<DeferredDraw> GetOrPrepareDrawAsync((int Node,uint Reference,string Owner) key,
+        DeferredPixelProgram program,DeferredDrawTarget target,
+        IReadOnlyDictionary<uint,ReadOnlyMemory<byte>> constants,IReadOnlyList<DeferredDeviceBinding> inputs,
+        uint stencilReference)
+    {
+        if(draws.TryGetValue(key,out var draw)&&!SamePhysicalInputs(draw.Inputs,inputs))
+        {
+            drawRetirement=NativeMapBorrowerRetirementPackage.CreatePending("Early-replaced-draw",[draw]);
+            draws.Remove(key);
+            drawRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(drawRetirement);
+            draw=null;
+        }
+        if(draw is not null)
+        {
+            await draw.UpdateConstantsAsync(constants);
+            return draw;
+        }
+        try
+        {
+            draw=await DeferredDraw.BuildAsync(program,target,constants,inputs,
+                new(RenderingDevice.PolygonCullMode.Disabled,false),new(stencilReference));
+        }
+        catch (Exception failure)
+        {
+            await RetireFailedConstructionAsync(failure);
+            throw;
+        }
+        draws.Add(key,draw);
+        return draw;
+    }
+
+    private async Task RetireFailedConstructionAsync(Exception failure)
+    {
+        drawRetirement=NativeMapBorrowerRetirementPackage.CreatePending("Early-failed-construction",[],
+            (failure as NativeMapBorrowerConstructionException)?.RetainedPackage);
+        try { drawRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(drawRetirement); }
+        catch(Exception retirementFailure)
+        {throw new NativeMapBorrowerConstructionException(failure,retirementFailure,drawRetirement!);}
+    }
+
+    private async Task ResumeRetirementAsync()
+    {
+        if(targetRetiring)await RetireTargetsCoreAsync();
+        else drawRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(drawRetirement);
+    }
+
     public async Task RetireTargetsAsync()
     { await gate.WaitAsync(); try { await RetireTargetsCoreAsync(); } finally { gate.Release(); } }
     private async Task RetireTargetsCoreAsync()
     {
+        targetRetiring=true;
         LastCompletedFrame = null;
-        foreach (var draw in draws.Values.Reverse()) await draw.DisposeAsync(); draws.Clear();
+        drawRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(drawRetirement);
+        drawRetirement=NativeMapBorrowerRetirementPackage.CreatePending("Early-target-draws",draws.Values.Reverse());
+        draws.Clear();
+        drawRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(drawRetirement);
         await shaderDepth.RetireAsync();
-        Rid old = framebuffer; framebuffer = default; color = null; depthParent = default;
-        if (old.IsValid) await TerrainDeviceTexture.OnRenderThreadAsync(rd => { rd.FreeRid(old); return true; });
+        if(framebufferResources is not null)await framebufferResources.DisposeAsync();
+        framebufferResources=null;framebuffer=default;color=null;depthParent=default;
+        targetRetiring=false;
     }
     public ValueTask DisposeAsync()
-    { lock (lifetime) { retiring = true; return new(disposal ??= RetireAsync()); } }
+    {
+        lock(lifetime)
+        {
+            retiring=true;
+            if(disposal is null||disposal.IsFaulted||disposal.IsCanceled)disposal=RetireAsync();
+            return new(disposal);
+        }
+    }
     private async Task RetireAsync()
-    { await RetireTargetsAsync(); await shaderDepth.DisposeAsync(); foreach (var program in programs.Values.Reverse()) await program.DisposeAsync(); }
+    {
+        await gate.WaitAsync();
+        try
+        {
+            await RetireTargetsCoreAsync();
+            await shaderDepth.DisposeAsync();
+            foreach(var program in programs.Values.Reverse())await program.DisposeAsync();
+        }
+        finally{gate.Release();}
+    }
 }

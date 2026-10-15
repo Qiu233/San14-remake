@@ -13,15 +13,15 @@ public sealed class SkyCloudPatternDraw : IAsyncDisposable
     public IReadOnlyList<Sky2DeviceInput> Inputs { get; }
     private readonly SkyCloudProgram _program;
     private readonly Rid _pipeline, _vertexSet, _pixelSet, _vertexBuffer, _pixelBuffer;
-    private readonly IReadOnlyList<Rid> _owned;
-    private Task? _disposal;
+    private readonly RenderDeviceResources resources;
+    private volatile bool retiring;
 
     private SkyCloudPatternDraw(SkyCloudProgram program,
         SkyCloudPatternMaterial material, uint maximumRaySamples, SkyPatternMapDevice target,
         IReadOnlyList<Sky2DeviceInput> inputs, Rid pipeline, Rid vs, Rid ps,
-        Rid vcb, Rid pcb, List<Rid> owned)
-        => (_program, Material, MaximumRaySamples, Target, Inputs, _pipeline, _vertexSet, _pixelSet, _vertexBuffer, _pixelBuffer, _owned)
-            = (program, material, maximumRaySamples, target, inputs, pipeline, vs, ps, vcb, pcb, owned.AsReadOnly());
+        Rid vcb, Rid pcb, RenderDeviceResources resources)
+        => (_program, Material, MaximumRaySamples, Target, Inputs, _pipeline, _vertexSet, _pixelSet, _vertexBuffer, _pixelBuffer, this.resources)
+            = (program, material, maximumRaySamples, target, inputs, pipeline, vs, ps, vcb, pcb, resources);
 
     public static Task<SkyCloudPatternDraw> BuildAsync(SkyCloudProgram program,
         SkyPatternMapDevice target, ReadOnlyMemory<byte> explicitVertexConstants,
@@ -53,8 +53,8 @@ public sealed class SkyCloudPatternDraw : IAsyncDisposable
         }
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            var owned = new List<Rid>();
-            Rid Own(Rid r) { if (!r.IsValid) throw new InvalidDataException("Cloud device allocation failed."); owned.Add(r); return r; }
+            var resources = new RenderDeviceResources("Cloud device allocation failed.");
+            Rid Own(Rid r) => resources.Own(r);
             try
             {
                 if (!rd.FramebufferIsValid(target.Framebuffer)) throw new InvalidDataException("Cloud target is no longer live.");
@@ -105,22 +105,29 @@ public sealed class SkyCloudPatternDraw : IAsyncDisposable
                 Rid pipeline = Own(rd.RenderPipelineCreate(program.ShaderRid, rd.FramebufferGetFormat(target.Framebuffer), -1,
                     RenderingDevice.RenderPrimitive.TriangleStrips, raster, multi, depth, blend));
                 if (!rd.RenderPipelineIsValid(pipeline)) throw new InvalidDataException("Cloud pipeline is invalid.");
-                return new SkyCloudPatternDraw(program, material, explicitMaximumRaySamples, target, Array.AsReadOnly(inputs), pipeline, vs, ps, vcb, pcb, owned);
+                return new SkyCloudPatternDraw(program, material, explicitMaximumRaySamples, target, Array.AsReadOnly(inputs), pipeline, vs, ps, vcb, pcb, resources);
             }
-            catch { for (int i = owned.Count - 1; i >= 0; i--) rd.FreeRid(owned[i]); throw; }
+            catch (Exception failure)
+            {
+                resources.ReleaseAfterConstructionFailure(rd, failure, "Cloud-pattern-draw-partial");
+                throw;
+            }
         });
     }
 
     public Task UpdateConstantsAsync(ReadOnlyMemory<byte> vertex, ReadOnlyMemory<byte> pixel, uint maximumRaySamples)
-        => UpdateMaterialAsync(_program.PatternLayout.ReadMaterial(vertex.Span, pixel.Span), maximumRaySamples);
+    {
+        ObjectDisposedException.ThrowIf(retiring, this);
+        return UpdateMaterialAsync(_program.PatternLayout.ReadMaterial(vertex.Span, pixel.Span), maximumRaySamples);
+    }
 
     public Task UpdateMaterialAsync(SkyCloudPatternMaterial material, uint maximumRaySamples)
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null, this);
+        ObjectDisposedException.ThrowIf(retiring, this);
         var packet = _program.PatternLayout.Pack(material, maximumRaySamples);
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            ObjectDisposedException.ThrowIf(_disposal is not null, this);
+            ObjectDisposedException.ThrowIf(retiring, this);
             if (rd.BufferUpdate(_vertexBuffer, 0, (uint)packet.VertexBytes.Length, packet.VertexBytes) != Error.Ok ||
                 rd.BufferUpdate(_pixelBuffer, 0, (uint)packet.PixelBytes.Length, packet.PixelBytes) != Error.Ok)
                 throw new InvalidDataException("Device rejected cloud constant update.");
@@ -130,16 +137,19 @@ public sealed class SkyCloudPatternDraw : IAsyncDisposable
 
     public Task DrawAsync()
     {
-        ObjectDisposedException.ThrowIf(_disposal is not null, this);
+        ObjectDisposedException.ThrowIf(retiring, this);
         return TerrainDeviceTexture.OnRenderThreadAsync(rd =>
         {
-            ObjectDisposedException.ThrowIf(_disposal is not null, this);
+            ObjectDisposedException.ThrowIf(retiring, this);
             long list = rd.DrawListBegin(Target.Framebuffer);
             try { rd.DrawListBindRenderPipeline(list, _pipeline); rd.DrawListBindUniformSet(list, _pixelSet, 0);
                 rd.DrawListBindUniformSet(list, _vertexSet, 1); rd.DrawListDraw(list, false, 1, 4); }
             finally { rd.DrawListEnd(); } return true;
         });
     }
-    public ValueTask DisposeAsync() => new(_disposal ??= TerrainDeviceTexture.OnRenderThreadAsync(rd =>
-    { for (int i = _owned.Count - 1; i >= 0; i--) rd.FreeRid(_owned[i]); return true; }));
+    public ValueTask DisposeAsync()
+    {
+        retiring = true;
+        return resources.DisposeAsync();
+    }
 }

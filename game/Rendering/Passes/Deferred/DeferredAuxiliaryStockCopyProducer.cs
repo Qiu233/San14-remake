@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using Godot;
 using San14.Data;
 using San14.Data.Formats;
@@ -24,10 +23,13 @@ public sealed class DeferredAuxiliaryStockCopyProducer : IAsyncDisposable
     public LoadedDeferredAuxiliaryStockCopySource StockSource { get; }
     public DeferredAuxiliaryPixelProgram Program { get; }
     private readonly Dictionary<bool,Rid> samplers=[];
+    private readonly RenderDeviceResources samplerResources=new("Device rejected an auxiliary stock-copy sampler.");
     private readonly SemaphoreSlim gate=new(1,1);
     private readonly object retirementGate=new();
-    private bool retiring;
+    private volatile bool retiring;
     private Task? disposal;
+    private NativeMapBorrowerRetirementPackage? finalRetirement;
+    private IAsyncDisposable? pendingDraw;
     private DeferredAuxiliaryStockCopyProducer(LoadedDeferredAuxiliaryPixelSourceRecipes source,
         LoadedDeferredAuxiliaryStockCopySource stock,DeferredAuxiliaryPixelProgram program)
         =>(Source,StockSource,Program)=(source,stock,program);
@@ -51,6 +53,7 @@ public sealed class DeferredAuxiliaryStockCopyProducer : IAsyncDisposable
         await gate.WaitAsync();
         try
         {
+            await DrainPendingDrawCoreAsync();
             ObjectDisposedException.ThrowIf(retiring,this);Program.RequireAvailable();
             if(selection.Camera.ExecutableLocale!=StockSource.Native.Locale||attachment.FrameNumber!=selection.Current.FrameNumber||
                 attachment.FrameProducerProvenance!=selection.Current.CurrentProducerProvenance||attachment.BoundAttachmentIndex!=0||
@@ -69,26 +72,24 @@ public sealed class DeferredAuxiliaryStockCopyProducer : IAsyncDisposable
                 throw new InvalidDataException("Mip0 copy destination differs from its actual selected seven-mip specular source owner.");
             var input=attachment.Texture??throw new InvalidDataException("Current color attachment is absent.");
             var writer=attachment.CurrentWriterReceipt??throw new InvalidDataException("Current color attachment has no actual source writer receipt.");
-            if(writer.SourceGraph is null||writer.GraphResourceUri!=Source.Graph.Source.ResourceUri||
+            if(writer.SourceGraph is not { } writerGraph||
+                writerGraph.Source.ResourceUri!=writer.GraphResourceUri||writerGraph.Source.DecodedSha256!=writer.GraphSha256||
+                writerGraph.Document.GraphKind!=CompiledGraphKind.RenderGraph||
+                writer.GraphResourceUri!=Source.Graph.Source.ResourceUri||
                 writer.GraphSha256!=Source.Graph.Source.DecodedSha256||
                 writer.FrameNumber!=selection.Current.FrameNumber||writer.ProducerProvenance!=selection.Current.CurrentProducerProvenance||
                 writer.TextureObjectId!=input.Source.Object.ObjectId||writer.SurfaceIds is not [0]||
-                writer.WriterNodeIndex<0||writer.WriterNodeIndex>=Source.Node.Index||
+                writer.WriterNodeIndex<0||writer.WriterNodeIndex>=Source.Node.Index||writer.WriterNodeIndex>=writerGraph.Document.Nodes.Count||
                 writer.WriterFactoryClassId!=0xF103DB00||
-                Source.Graph.Document.Nodes[writer.WriterNodeIndex].Call.FactoryClassId!=writer.WriterFactoryClassId||
-                string.IsNullOrWhiteSpace(writer.SourceScope)||
-                Convert.ToHexString(SHA256.HashData(writer.SourceGraph.Source.Bytes))!=writer.GraphSha256)
+                writerGraph.Document.Nodes[writer.WriterNodeIndex].Call.FactoryClassId!=writer.WriterFactoryClassId||
+                string.IsNullOrWhiteSpace(writer.SourceScope))
                 throw new InvalidDataException("Mip0 source needs a successful original earlier deferred writer; late node166 creates a dependency cycle.");
-            var actual=RenderTextureResources.Read(new LoadedObjects(DokReader.Read(input.Source.Source.Source.Bytes),input.Source.Source.Source),
-                input.Source.Object.ObjectId);
             var physicalInput=input.EffectiveSource;
             var nativeInput=RenderTextureFormatMath.Resolve(physicalInput.PixelFormat,
                 physicalInput.ColorSpace,physicalInput.OutputColorSpace);
             if(input.Source.Source.Source.OverrideSource is not null||
                 input.Source.Source.Source.ResourceUri!=Source.MainDepth.Source.Source.ResourceUri||
                 input.Source.Source.Source.DecodedSha256!=Source.MainDepth.Source.Source.DecodedSha256||
-                Convert.ToHexString(SHA256.HashData(input.Source.Source.Source.Bytes))!=Source.MainDepth.Source.Source.DecodedSha256||
-                actual with{Source=input.Source.Source,Object=input.Source.Object}!=input.Source||
                 physicalInput.Kind!=RenderTextureKind.Texture2D||physicalInput.LevelNum!=1||
                 nativeInput.TargetViewFormat is 20 or 40||
                 physicalInput.MultiSample!=0||input.ExplicitExtent.X<=0||input.ExplicitExtent.Y<=0||
@@ -134,9 +135,24 @@ public sealed class DeferredAuxiliaryStockCopyProducer : IAsyncDisposable
             var inputs=new DeferredDeviceBinding[]{
                 new("Texture",0,input.ShaderViewRid,input.StorageRid,input.Source.Source.Source.ResourceUri+"#"+input.Source.Object.ObjectId.ToString("X8")+"/attachment0"),
                 new("Sampler",0,sampler,null,StockSource.Native.ResourceUri+"#source-copy-key/"+Convert.ToHexString(key))};
-            await using var draw=await DeferredAuxiliaryPixelDraw.BuildAsync(Program,destination,0,constants,inputs,
-                4,RenderingDevice.RenderPrimitive.Triangles,quad);
-            await destination.ProduceAsync(receipt,(rd,surfaces)=>draw.Submit(rd));
+            DeferredAuxiliaryPixelDraw draw;
+            try
+            {
+                draw=await DeferredAuxiliaryPixelDraw.BuildAsync(Program,destination,0,constants,inputs,
+                    4,RenderingDevice.RenderPrimitive.Triangles,quad);
+            }
+            catch(NativeMapBorrowerConstructionException failure)
+            {pendingDraw=failure.RetainedPackage;throw;}
+            pendingDraw=draw;
+            Exception? productionFailure=null;
+            try{await destination.ProduceAsync(receipt,(rd,surfaces)=>draw.Submit(rd));}
+            catch(Exception failure){productionFailure=failure;throw;}
+            finally
+            {
+                try{await DrainPendingDrawCoreAsync();}
+                catch(Exception cleanup) when(productionFailure is not null)
+                {throw new AggregateException("Auxiliary color copy and draw retirement failed.",productionFailure,cleanup);}
+            }
             return receipt;
         }
         finally{gate.Release();}
@@ -146,17 +162,37 @@ public sealed class DeferredAuxiliaryStockCopyProducer : IAsyncDisposable
     {
         if(samplers.TryGetValue(resized,out var existing))return Task.FromResult(existing);
         return TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-        {Rid created=DeviceSampler.Create(rd,descriptor);samplers.Add(resized,created);return created;});
+        {Rid created=samplerResources.Own(DeviceSampler.Create(rd,descriptor));samplers.Add(resized,created);return created;});
     }
-    public ValueTask DisposeAsync(){lock(retirementGate)return new(disposal??=RetireAsync());}
+    internal async Task DrainPendingDrawAsync()
+    {
+        await gate.WaitAsync();
+        try{await DrainPendingDrawCoreAsync();}
+        finally{gate.Release();}
+    }
+    private async Task DrainPendingDrawCoreAsync()
+    {
+        if(pendingDraw is not null)await pendingDraw.DisposeAsync();
+        pendingDraw=null;
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        lock(retirementGate)
+        {
+            retiring=true;
+            return new(disposal is null||disposal.IsFaulted||disposal.IsCanceled?disposal=RetireAsync():disposal);
+        }
+    }
     private async Task RetireAsync()
     {
         await gate.WaitAsync();
         try
         {
-            retiring=true;await TerrainDeviceTexture.OnRenderThreadAsync(rd=>
-            {foreach(var sampler in samplers.Values)rd.FreeRid(sampler);return true;});
-            await Program.DisposeAsync();
+            await DrainPendingDrawCoreAsync();
+            finalRetirement ??= NativeMapBorrowerRetirementPackage.CreatePending("Auxiliary-stock-copy-final",
+                [samplerResources,Program]);
+            finalRetirement = await NativeMapBorrowerRetirementPackage.DrainPendingAsync(finalRetirement);
         }
         finally{gate.Release();}
     }
