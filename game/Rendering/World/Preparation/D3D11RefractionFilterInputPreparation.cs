@@ -30,7 +30,8 @@ public static class D3D11RefractionFilterInputPreparation
         GaussianConstantLayout? VertexConstants, GaussianConstantLayout PixelConstants);
 
     public static void WriteNativeInputs(GameResourceRepository repository,
-        D3D11CurrentSeasonFrame current, string directory, int outputWidth, int outputHeight)
+        D3D11CurrentSeasonFrame current, SceneColorTargetResources sceneColor,
+        string directory, int outputWidth, int outputHeight)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(current);
@@ -41,9 +42,7 @@ public static class D3D11RefractionFilterInputPreparation
             throw new InvalidDataException("Refraction filter graph node has an unsupported factory.");
         var textureObjects = repository.LoadObjects("system", 0x93FB3280);
         var shaderObjects = repository.LoadObjects("system", 0x718CCB8B);
-        var hdr = RenderGraphTargetResources.Read(graph, 73, textureObjects).ColorTargets.Single().Texture;
-        int hdrWidth = DeferredAuxiliaryTargetSources.ResolveNativeDimension(hdr.Width, outputWidth);
-        int hdrHeight = DeferredAuxiliaryTargetSources.ResolveNativeDimension(hdr.Height, outputHeight);
+        int hdrWidth = sceneColor.Width,hdrHeight = sceneColor.Height;
         uint Reference(uint hash)
         {
             var argument = node.Call.Arguments.Single(value => value.NameHash == hash);

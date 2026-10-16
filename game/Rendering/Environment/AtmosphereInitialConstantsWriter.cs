@@ -5,14 +5,13 @@ using San14.Data;
 public static class AtmosphereInitialConstantsWriter
 {
     public static San14.Data.AtmosphereInitialConstants WriteFreshNativeInputs(GameResourceRepository repository,
-        D3D11CurrentSeasonFrame current,int width,int height,float cloudElapsedSeconds,float commonClock,
+        D3D11CurrentSeasonFrame current,SceneColorTargetResources target,float cloudElapsedSeconds,float commonClock,
         string atmosphereDirectory,string mainSkyDirectory,string mainCloudDirectory,string fogDirectory,
         D3D11CloudProgramMedia programs,D3D11CloudRenderResources resources,
         SkyMainProgramResources skyPrograms, Sky2TextureBindingSnapshot sampling,
         HeightFogProgramResources? fogPrograms = null)
     {
-        var target=D3D11AtmosphereInitialConstantPreparation.LoadFreshMainTarget(repository,current.Present);
-        var options=new D3D11AtmosphereInitialOptions(width,height,target.PixelFormat,
+        var options=new D3D11AtmosphereInitialOptions(target,
             D3D11AtmosphereInitialCallerRules.FreshMainCloudClip,cloudElapsedSeconds,commonClock);
         return WriteNativeInputs(repository,current,options,atmosphereDirectory,mainSkyDirectory,mainCloudDirectory,fogDirectory,programs,resources,skyPrograms,sampling,fogPrograms);
     }

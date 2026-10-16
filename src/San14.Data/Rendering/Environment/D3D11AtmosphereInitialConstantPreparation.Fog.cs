@@ -99,7 +99,7 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
         var sampler=RenderSamplerSourceAdapters.DecodeKey(samplerSource,
             RenderSamplerSourceAdapters.RenderTextureKey(samplerSource,1)).EncodeD3D11Descriptor();
         return new(resources,settings,result.AsReadOnly(),current.Options.Width,current.Options.Height,
-            RenderTextureFormatMath.Resolve(LoadFreshMainTarget(repository,current.Present)),sampler);
+            current.Options.SceneColorTarget.Formats,sampler);
     }
     private static float Flip(float value)=>BitConverter.UInt32BitsToSingle(BitConverter.SingleToUInt32Bits(value)^0x80000000);
     private static float FogPhase(float velocity,float commonClock)

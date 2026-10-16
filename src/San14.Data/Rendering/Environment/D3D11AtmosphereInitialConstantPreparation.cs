@@ -6,8 +6,13 @@ using San14.Data.Formats;
 
 namespace San14.Data;
 
-public sealed record D3D11AtmosphereInitialOptions(int Width,int Height,int NativeTargetFormat,
-    Vector4 CloudClipPlane,float CloudElapsedSeconds,float CommonClock);
+public sealed record D3D11AtmosphereInitialOptions(SceneColorTargetResources SceneColorTarget,
+    Vector4 CloudClipPlane,float CloudElapsedSeconds,float CommonClock)
+{
+    public int Width=>SceneColorTarget.Width;
+    public int Height=>SceneColorTarget.Height;
+    public int NativeTargetFormat=>SceneColorTarget.Texture.PixelFormat;
+}
 
 public static class D3D11AtmosphereInitialCallerRules
 {
@@ -123,20 +128,6 @@ public static partial class D3D11AtmosphereInitialConstantPreparation
             ? null : PrepareContext(input, cloudPrograms.Resources.Bindings, camera);
         return PrepareCloud(cloudPrograms.Main, cloudResources, input, camera.Eye, camera.Target, camera.Up,
             camera.Lens, camera.Matrices.WorldToProjection100, context?.Atmosphere);
-    }
-
-    public static RenderTextureDefinition LoadFreshMainTarget(GameResourceRepository repository,
-        MapSourceCreatedSeasonLightingFrame present)
-    {
-        var graph=repository.LoadRenderGraph("system",0x024496EE);
-        var textures=repository.LoadObjects("system",0x93FB3280);
-        var common=CommonRenderResources.ImportSettings(repository.LoadObjects("KIDSSystemResource",0x6D011726));
-        uint Name(uint hash)=>BinaryPrimitives.ReadUInt32LittleEndian(graph.Document.Nodes[1].Call.Arguments.Single(argument=>argument.NameHash==hash).RawValue);
-        int selector=BinaryPrimitives.ReadInt32LittleEndian(present.PreparedCameraPrefix.Span[0x1CC..]);
-        uint? terminal=MapSceneProxySourcePolicy.ReadSourceCreatedFreshTerminal(selector,common.Flags8,common.Flags0C,
-            Name(0x514B2AC3),Name(0x0EBBA230),Name(0xD776D144));
-        return terminal is uint name?RenderTextureResources.Read(textures,name):
-            RenderGraphTargetResources.Read(graph,73,textures).ColorTargets.Single().Texture;
     }
 
     public static AtmosphereInitialConstants Prepare(GameResourceRepository repository,

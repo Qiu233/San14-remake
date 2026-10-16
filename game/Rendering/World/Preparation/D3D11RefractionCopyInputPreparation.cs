@@ -9,7 +9,8 @@ using San14.Data.Formats;
 public static class D3D11RefractionCopyInputPreparation
 {
     public static void WriteNativeInputs(GameResourceRepository repository,
-        D3D11CurrentSeasonFrame current, string directory, int outputWidth, int outputHeight)
+        D3D11CurrentSeasonFrame current, SceneColorTargetResources sourceColor,
+        string directory, int outputWidth, int outputHeight)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(current);
@@ -31,10 +32,6 @@ public static class D3D11RefractionCopyInputPreparation
         if (geometry.DepthTarget is null || sourceDepthKey != geometry.DepthObjectNameHash || geometry.DepthSurfaceId != 0)
             throw new NotSupportedException("Refraction copy source depth is not the actual geometry depth producer.");
         var sourceDepth = geometry.DepthTarget;
-        var output = RenderGraphTargetResources.Read(graph, 73, textureObjects);
-        var sourceColor = output.ColorTargets.Single();
-        if (sourceColor.Slot != 0 || sourceColor.SurfaceId != 0)
-            throw new NotSupportedException("Refraction scene copy requires HDR attachment zero at mip zero.");
         var depthTarget = RenderTextureResources.Read(textureObjects, Reference("DstDepthTextureObjectNameHash"));
         var sceneTarget = RenderTextureResources.Read(textureObjects, Reference("DstSceneTextureObjectNameHash"));
         ValidateSource(sourceDepth);
@@ -47,9 +44,9 @@ public static class D3D11RefractionCopyInputPreparation
         var sceneFormats = RenderTextureFormatMath.Resolve(sceneTarget);
         if (depthFormats.TargetViewFormat is not (20 or 40) || sceneFormats.TargetViewFormat is 20 or 40)
             throw new NotSupportedException("Refraction copy target formats differ from their depth and color roles.");
-        if (sourceDepthKey == depthTarget.Object.ObjectId || sourceColor.ObjectNameHash == sceneTarget.Object.ObjectId)
+        if (sourceDepthKey == depthTarget.Object.ObjectId || sourceColor.LogicalName == sceneTarget.Object.ObjectId)
             throw new InvalidDataException("Refraction copy cannot read and write the same texture.");
-        var colorExtent = Extent(sourceColor.Texture);
+        var colorExtent = (Width:sourceColor.Width,Height:sourceColor.Height);
         string locale = current.Mode.AcceptedMainFrame.Camera.ExecutableLocale;
         var depthProgram = DeferredAuxiliaryDepthCopySource.ReadCurrent(locale);
         var colorProgram = DeferredAuxiliaryStockCopySource.ReadCurrent(repository.SourceDirectory, locale);
@@ -59,7 +56,7 @@ public static class D3D11RefractionCopyInputPreparation
         D3D11RefractionScreenCopyMedia.WriteColor(sceneDirectory, sceneExtent.Width, sceneExtent.Height, colorProgram,
             sceneExtent == colorExtent);
         WriteSource(depthDirectory, sourceDepthKey, sourceDepth);
-        WriteSource(sceneDirectory, sourceColor.ObjectNameHash, sourceColor.Texture);
+        WriteSource(sceneDirectory, sourceColor.LogicalName, sourceColor.Texture);
         WriteTarget(depthDirectory, depthTarget, depthExtent.Width, depthExtent.Height);
         WriteTarget(sceneDirectory, sceneTarget, sceneExtent.Width, sceneExtent.Height);
         // The copy PS loads integer pixel coordinates and writes depth. The

@@ -9,7 +9,6 @@
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
-#include <vector>
 
 namespace source_territory {
 // Actual Map initializer CE1895D0 calls CE8820(...,8), replacing the
@@ -20,7 +19,7 @@ constexpr bool initializedWaterTerritoryEnabled=true;
 constexpr std::uint32_t drawStencilReference(std::uint32_t providerDrawFlags,std::uint32_t screenMap1078) {
     return (providerDrawFlags&2)?screenMap1078|0x50u:screenMap1078;
 }
-constexpr unsigned byteCount=6576, paletteCount=128, layerCells=48400, layerCount=7;
+constexpr unsigned byteCount=6576, paletteCount=128, layerCount=7;
 using Vector=std::array<float,4>;
 using Constants=std::array<std::uint8_t,byteCount>;
 enum Table {FillAlpha,Width0,BorderAlpha,FrameWidth,FrameAlpha,Width6,LineAlpha19,
@@ -33,7 +32,6 @@ struct Profile {
     Constants constructor{};
     std::array<Vector,paletteCount> baseCell{},baseLine{};
     std::array<std::int32_t,paletteCount> allocatedColor{};
-    std::vector<std::uint8_t> zones;
 };
 struct Controls {std::int32_t styleSelector=0,width4Selector=0,width5Selector=-1;
     bool hideAllocatedFill=false;std::uint32_t screenMapMask=6,providerFlags=0;};
@@ -45,7 +43,7 @@ inline Profile loadProfile(const std::filesystem::path& directory) {
     auto read=[&](void* value,std::size_t bytes){input.read(static_cast<char*>(value),bytes);
         if(!input)throw std::runtime_error("Original ScreenMap source profile is incomplete");};
     std::uint32_t magic;read(&magic,4);
-    if(magic!=0x32565450u)throw std::runtime_error("Original ScreenMap profile layout differs");
+    if(magic!=0x33565450u)throw std::runtime_error("ScreenMap PTV3 style profile layout differs");
     Profile result;read(&result.typedBufferFormat,4);read(&result.typedBufferElementBytes,4);
     if(result.typedBufferFormat!=62||result.typedBufferElementBytes!=1)
         throw std::runtime_error("Original ScreenMap format36 is outside R8_UINT/1B");
@@ -53,7 +51,6 @@ inline Profile loadProfile(const std::filesystem::path& directory) {
     read(&result.frameCutoff,4);read(result.constructor.data(),result.constructor.size());
     read(result.baseCell.data(),sizeof(result.baseCell));read(result.baseLine.data(),sizeof(result.baseLine));
     read(result.allocatedColor.data(),sizeof(result.allocatedColor));
-    result.zones.resize(layerCells*layerCount);read(result.zones.data(),result.zones.size());
     return result;
 }
 inline Owner construct(const Profile& source) {return {source.constructor};}

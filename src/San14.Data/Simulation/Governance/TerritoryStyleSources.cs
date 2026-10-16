@@ -19,6 +19,10 @@ public sealed record TerritoryStyleSelection(int ZoomBand, int InterpolationPerc
 public sealed record TerritoryStylePacket(Vector4[] CellColors, Vector4[] LineColors,
     Vector4 FrameColor, float[] LineWidths, float Curvature, uint LayerViewMask, uint[] Flags);
 
+internal sealed record TerritoryStyleResourceSettings(
+    IReadOnlyDictionary<string,IReadOnlyList<int>> Tables,Vector3 FrameRgb,
+    Vector3 Cell11Rgb,Vector3 Line11Rgb,Vector3 Line19Rgb,float FrameWidthCutoff);
+
 /// <summary>Finite source defaults and the original SC18CA50 / TC18CA70 writer.
 /// The project's startup tables and current writer are owned typed rules.
 /// Later parameter overrides belong to the caller's current state.</summary>
@@ -80,6 +84,13 @@ public sealed class TerritoryStyleSources
     /// <summary>Source00E940's exact native band anchor; no preview zoom factor conversion.</summary>
     public float ZoomAnchor(int nativeBand)=>nativeBand is >=0 and <=6?_tables["ZoomValues"][nativeBand]:
         throw new InvalidDataException("Original View has seven zoom anchors.");
+
+    /// <summary>Immutable load-bound rules for a native ScreenMap resource
+    /// generation. Current display selection and ownership are separate.</summary>
+    internal TerritoryStyleResourceSettings CaptureResourceSettings()=>new(
+        new System.Collections.ObjectModel.ReadOnlyDictionary<string,IReadOnlyList<int>>(
+            _tables.ToDictionary(item=>item.Key,item=>(IReadOnlyList<int>)Array.AsReadOnly(item.Value))),
+        _frameRgb,_cell11Rgb,_line11Rgb,_line19Rgb,_frameCutoff);
 
     /// <summary>Read the complete prefix containing native View+90/+1E0/+1E4.
     /// Type identity and readiness are established by the upstream View owner.</summary>

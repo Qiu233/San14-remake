@@ -33,12 +33,18 @@ public static class D3D11OwnedRuleInputPreparation
     public static void WriteFreshView(string directory, GameResourceRepository repository,
         LoadedSceneResources scene, CameraViewSettings currentCamera,
         MapSeasonDirectionalLightSourceSet directional,
-        HdrShadowModes selectedShadowModes)
+        HdrShadowModes selectedShadowModes,D3D11ModelInputPreparation fieldModels,
+        uint actualContextFlags)
     {
+        if(!ReferenceEquals(fieldModels.Scene,scene))
+            throw new InvalidDataException("View stencil inputs require the same prepared Field model scene.");
         var common = D3D11TimingInputPreparation.LoadSourceCommon(repository);
         var terrain = TerrainViewPublicationSource.ReadFieldScene(TerrainParameterResources.Read(scene));
         var queue = ModelRendererStateSourceReader.ReadQueue(repository.LoadRenderGraph("system", 0x024496EE), 54);
         var records = MapSourceCreatedWorldKind1Publication.ReadSeasonSourceRecords(directional);
+        if(records.Count>32)
+            throw new NotSupportedException("Native model stencil membership supports at most 32 ordered View records.");
+        uint commonExclusion=common.InitialAuxiliary.ModelExclusionMask;
         Directory.CreateDirectory(directory);
         using var writer = new BinaryWriter(File.Create(Path.Combine(directory, "profile.bin")));
         writer.Write(0x31505756u); writer.Write(records.Count);
@@ -46,13 +52,25 @@ public static class D3D11OwnedRuleInputPreparation
         writer.Write(currentCamera.Shadow.CascadeMode); writer.Write(currentCamera.OceanGroup); writer.Write(currentCamera.RainGroup);
         writer.Write(terrain.Exclusion2B8); writer.Write((uint)selectedShadowModes.Receive);
         writer.Write(1u); writer.Write(common.Flags8); writer.Write((uint)common.ViewAux3F2);
-        writer.Write(0u); writer.Write((uint)common.ModelGroupSelector400);
+        writer.Write(commonExclusion); writer.Write((uint)common.ModelGroupSelector400);
         writer.Write((uint)queue.Flag); writer.Write(queue.Flag2); writer.Write((uint)queue.ShaderStateOffset);
         foreach (var record in records)
         {
             writer.Write(record.DeclaredGroupMask); writer.Write(record.MaxPrimitiveNum);
             writer.Write((uint)record.SourceLightDataF20);
         }
+        var selectedRecords=records.Select((record,index)=>(Record:record,Index:index))
+            .Where(item=>ModelOrdinaryDispatcherStencilSource.PrepareResourceRoute(queue,
+                item.Record.DeclaredGroupMask,common.ModelGroupSelector400,actualContextFlags).RecordSelected).ToArray();
+        using(var stencil=new BinaryWriter(File.Create(Path.Combine(directory,"model-stencil-catalog.bin"))))
+            foreach(var primitive in fieldModels.SourceStencilPrimitives)
+            {
+                uint excluded=primitive.ExcludedGroups|commonExclusion,membership=0;
+                foreach(var item in selectedRecords)
+                    if((item.Record.DeclaredGroupMask&excluded)==0)membership|=1u<<item.Index;
+                stencil.Write(primitive.SceneInstanceIndex);stencil.Write(primitive.DrawIndex);
+                stencil.Write(excluded);stencil.Write(membership);
+            }
         CommonRenderPolicyEncoding.WriteNativeInputs(directory,
             CommonRenderPolicy.FromAuxiliary(common.InitialAuxiliary));
         // These are only the actual TGK21 collection arguments. The Native

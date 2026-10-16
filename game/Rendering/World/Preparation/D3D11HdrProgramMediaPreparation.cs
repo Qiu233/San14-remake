@@ -16,17 +16,14 @@ public static class D3D11HdrProgramMediaPreparation
 
     public static void WriteNativeInputs(GameResourceRepository repository,
         D3D11CurrentSeasonFrame current,D3D11CurrentSeasonResources resources,
-        D3D11CurrentHdrCatalog catalog,string inputRoot,int outputWidth,int outputHeight)
+        D3D11CurrentHdrCatalog catalog,SceneColorTargetResources target,string inputRoot,int outputWidth,int outputHeight)
     {
         string directory=Path.Combine(inputRoot,"hdr-bank");
         Directory.CreateDirectory(directory);
-        var graph=repository.LoadRenderGraph("system",0x024496EE);
-        var target=RenderGraphTargetResources.Read(graph,73,repository.LoadObjects("system",0x93FB3280)).ColorTargets.Single();
-        var formats=RenderTextureFormatMath.Resolve(target.Texture);
-        int width=DeferredAuxiliaryTargetSources.ResolveNativeDimension(target.Texture.Width,outputWidth);
-        int height=DeferredAuxiliaryTargetSources.ResolveNativeDimension(target.Texture.Height,outputHeight);
+        var formats=target.Formats;
+        int width=target.Width,height=target.Height;
         File.WriteAllText(Path.Combine(directory,"target.txt"),FormattableString.Invariant(
-            $"{target.ObjectNameHash:X8} {formats.ResourceFormat} {formats.ShaderViewFormat} {formats.TargetViewFormat} {width} {height}\n"));
+            $"{target.LogicalName:X8} {formats.ResourceFormat} {formats.ShaderViewFormat} {formats.TargetViewFormat} {width} {height}\n"));
         var cameraProperties=current.Rgb.Inputs.MainFrame.Camera.Source.Camera.Properties;
         float CausticsDimension(uint hash)
         {

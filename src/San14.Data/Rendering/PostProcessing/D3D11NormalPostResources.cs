@@ -12,7 +12,8 @@ public sealed partial class D3D11NormalPostResources
     private readonly MapPostEffect3DepthOfField2ShapeRequirement shape;
     private readonly MapPostEffect3StaticHdrNativeRecipe hdr;
     private readonly MapPostEffect3TextureShape exposure,bloom,tone;
-    private readonly RenderTextureFormats sceneFormats,outputFormats;
+    private readonly RenderTextureFormats outputFormats;
+    public SceneColorTargetResources SceneColor { get; }
     private readonly G1TextureSamplerRecipe linear,point,bloomSampler;
     private readonly MapPostEffect3FreshStockDrawSource fresh;
     private readonly LoadedModelFrontendColorSource colors;
@@ -29,7 +30,7 @@ public sealed partial class D3D11NormalPostResources
         MapPostEffect3DepthOfField2ShapeRequirement shape,MapPostEffect3EyeBloomViewPlan bloomView,
         LoadedMapFinalOutputResources final,MapPostEffect3StaticHdrNativeRecipe hdr,
         LoadedDeferredSamplerNativeSource native,MapPostEffect3FreshStockDrawSource fresh,
-        MapPostEffect3FreshOwnedAllocationSides sides)
+        MapPostEffect3FreshOwnedAllocationSides sides,SceneColorTargetResources sceneColor)
     {
         this.allocation=allocation;this.shape=shape;this.hdr=hdr;this.fresh=fresh;
         this.sides=sides;textureSides=sides.TextureInstances.ToDictionary();
@@ -37,7 +38,7 @@ public sealed partial class D3D11NormalPostResources
         colors=ModelFrontendColorSource.Load(repository,native.Locale);
         frontend=RenderSamplerSourceAdapters.ReadNativeFullscreenFrontendSource(native);
         exposure=TextureShape(61);bloom=TextureShape(bloomView.PhysicalTextureParameterIndex);tone=TextureShape(84);
-        sceneFormats=RenderTextureFormatMath.Resolve(final.SceneTexture);
+        SceneColor=sceneColor;
         outputFormats=RenderTextureFormatMath.Resolve(final.OutputTexture);
         MapPostEffect3EyeExposureInitializationSource.Load(repository,native.Locale).ValidateFor(allocation);
         var manager=RenderSamplerSourceAdapters.ReadPostEffect3ManagerSamplers(native);
@@ -114,8 +115,8 @@ public sealed partial class D3D11NormalPostResources
 
     private Target DescribeTarget(int slot,string resource,int mip)
     {
-        if(resource=="SceneColor")return new(slot,resource,mip,allocation.ContextWidth,allocation.ContextHeight,
-            sceneFormats);
+        if(resource=="SceneColor")return new(slot,resource,mip,checked((uint)SceneColor.Width),checked((uint)SceneColor.Height),
+            SceneColor.Formats);
         if(resource=="Final109")return new(slot,resource,mip,allocation.ContextWidth,allocation.ContextHeight,outputFormats);
         if(resource=="DOFShape58")
         {

@@ -25,7 +25,6 @@ public:
         if(San14::Render::publishCurrentTerritoryOwnership(publication,*palette_,
             overlay_.profile,zoneProfile_,zoneOwner_,zoneCurrent_,appliedRevision_)) {
             // Publish only layer0. Other channels keep their existing producers.
-            std::copy_n(zoneOwner_.zones.data(),source_zone::cells,overlay_.profile.zones.data());
             D3D11_BOX layer0{0,0,0,source_zone::cells,1,1};
             context->UpdateSubresource(overlay_.zones.Get(),0,&layer0,zoneOwner_.zones.data(),0,0);
         }
@@ -37,9 +36,7 @@ public:
         const San14::Render::TerritoryOwnershipPublication& publication) {
         if(!publication.revision)throw std::runtime_error("Initial territory ownership publication absent");
         targets_=targets;
-        overlay_=source_territory_gpu::prepare(device,directory,targets_,depth,raster);
-        overlay_.profile.zones=zoneOwner_.zones;
-        context->UpdateSubresource(overlay_.zones.Get(),0,nullptr,zoneOwner_.zones.data(),0,0);
+        overlay_=source_territory_gpu::prepare(device,directory,targets_,zoneOwner_.zones,depth,raster);
         palette_.emplace(overlay_.profile);
         publishOwnership(context,publication);
     }

@@ -71,7 +71,7 @@ public static class D3D11NormalPostInitialInputPreparation
     public static D3D11NormalPostInitialConstants Prepare(GameResourceRepository repository,
         MapSourceCreatedSeasonLightingFrame currentSeason,
         Vector3? actualSelectedProjectionVector,long? actualSelectedLightFrameNumber,
-        int outputWidth,int outputHeight)
+        int outputWidth,int outputHeight,SceneColorTargetResources sceneColor)
     {
         var camera=currentSeason.CapturePreparedCamera();
         string locale=camera.ExecutableLocale,owner="native-normal-post/initial-numeric";
@@ -170,7 +170,7 @@ public static class D3D11NormalPostInitialInputPreparation
         composite=compositeSource.Prepare(owned.State,allocation,compositeInputs);
 
         var resources=new D3D11NormalPostResources(repository,allocation,dof.ShapeRequirement,
-            eyeSource.ReadOwnedBloomViewPlan(allocation,false),final,hdrRecipe,samplers,freshDraw,sides);
+            eyeSource.ReadOwnedBloomViewPlan(allocation,false),final,hdrRecipe,samplers,freshDraw,sides,sceneColor);
         var passes=new List<D3D11NormalPostInitialPass>();
         foreach(int pass in dof.PassSelection.OrderedFactory7Passes)
         {

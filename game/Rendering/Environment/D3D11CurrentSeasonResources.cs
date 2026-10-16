@@ -30,6 +30,7 @@ public sealed class D3D11CurrentSeasonResources
     internal SkyStarSettings Stars { get; }
     internal HeightFogSettings HeightFog { get; }
     internal CommonRenderPolicy CommonPolicy { get; }
+    public CommonRenderSettings InitialCommonSettings { get; }
     internal SkyCloudShaderSettings CloudShaderSettings { get; }
     internal PatternCameraSettings PatternSettings { get; }
     internal IReadOnlyList<PatternLightTextureSource> PatternTextures { get; }
@@ -41,7 +42,7 @@ public sealed class D3D11CurrentSeasonResources
 
     private D3D11CurrentSeasonResources(
         SceneViewNativeMapSeasonResourceBundle source, Light[] lights, byte exposureSelector,
-        CommonRenderPolicy commonPolicy)
+        CommonRenderPolicy commonPolicy,CommonRenderSettings initialCommonSettings)
     {
         Source = source; Lights = lights; FreshExposureSelector = exposureSelector;
         PatternTextures = Array.AsReadOnly(lights.Select(light =>
@@ -51,6 +52,7 @@ public sealed class D3D11CurrentSeasonResources
             return new PatternLightTextureSource(light.ObjectId, slot.ResolvedObjectKey);
         }).ToArray());
         CommonPolicy = commonPolicy;
+        InitialCommonSettings = initialCommonSettings;
         if (source.CameraSource.Selection.SecondPackage is not null)
             throw new NotSupportedException("Current Main needs its actual paired selection writer.");
         var selected = source.CameraSource.Selection.FirstPackage;
@@ -97,7 +99,7 @@ public sealed class D3D11CurrentSeasonResources
             root.Metadata.SourceGroupMask,
             DirectionalLightConstruction.ConstructProviderRootZeroPairTemporary(root))).ToArray();
         return new(source, lights, common.ViewGroupSelector ?? 0,
-            CommonRenderPolicy.FromAuxiliary(common.Auxiliary));
+            CommonRenderPolicy.FromAuxiliary(common.Auxiliary),commonSource);
     }
 
     /// <summary>Load at initial creation or a real World-third-date season

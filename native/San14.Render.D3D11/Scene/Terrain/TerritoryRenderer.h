@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <span>
 #include <vector>
 
 namespace source_territory_gpu {
@@ -56,7 +57,8 @@ inline std::vector<std::uint8_t> read(const std::filesystem::path& path) {
     if(!input)throw std::runtime_error("Original PB2SM input is incomplete");return result;
 }
 inline Owner prepare(ID3D11Device* device,const std::filesystem::path& directory,
-    const Targets& target,const D3D11_DEPTH_STENCIL_DESC& inheritedLogicalDepth,
+    const Targets& target,std::span<const std::uint8_t> initialZones,
+    const D3D11_DEPTH_STENCIL_DESC& inheritedLogicalDepth,
     const D3D11_RASTERIZER_DESC& inheritedRaster) {
     Owner owner;owner.profile=source_territory::loadProfile(directory);owner.cpu=source_territory::construct(owner.profile);
     auto vertex=read(directory/"territory-vs.dxbc"),pixel=read(directory/"territory-ps.dxbc");
@@ -88,8 +90,10 @@ inline Owner prepare(ID3D11Device* device,const std::filesystem::path& directory
     D3D11_BUFFER_DESC buffer{};buffer.ByteWidth=source_territory::byteCount;buffer.Usage=D3D11_USAGE_DEFAULT;buffer.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
     D3D11_SUBRESOURCE_DATA initial{};initial.pSysMem=owner.cpu.constants.data();
     require(device->CreateBuffer(&buffer,&initial,&owner.constants),"Original PB2SM complete6576B CB creation failed");
-    buffer.ByteWidth=static_cast<UINT>(owner.profile.zones.size());buffer.BindFlags=D3D11_BIND_SHADER_RESOURCE;
-    initial.pSysMem=owner.profile.zones.data();
+    // ZoneLayer owns these settled layers. Creation copies them directly;
+    // no second CPU zone snapshot is retained with the style profile.
+    buffer.ByteWidth=static_cast<UINT>(initialZones.size());buffer.BindFlags=D3D11_BIND_SHADER_RESOURCE;
+    initial.pSysMem=initialZones.data();
     require(device->CreateBuffer(&buffer,&initial,&owner.zones),"Original seven-layer byte zone buffer creation failed");
     D3D11_SHADER_RESOURCE_VIEW_DESC zone{};zone.Format=DXGI_FORMAT(owner.profile.typedBufferFormat);
     zone.ViewDimension=D3D11_SRV_DIMENSION_BUFFER;zone.Buffer.FirstElement=0;

@@ -270,22 +270,28 @@ public partial class MapSceneView
                         D3D11ShadowInputs.WriteNativeInputs(_repository, fieldModels, source,
                             cityGatePublisher.PreparedBank, season.LoadedResources, current);
                         D3D11OwnedNumericInputPreparation.WriteFreshNativeInputs(_repository, scene,
-                            currentMain, current, season.LoadedResources, seasonLibrary, inputs,
+                            currentMain, current, season.LoadedResources, seasonLibrary,
+                            fieldModels,initialContext.ContextFlags3E4,inputs,
                             D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
+                        var sceneColor=SceneColorTargetResources.PrepareFresh(_repository,
+                            current.Present.CapturePreparedCamera(),season.LoadedResources.InitialCommonSettings,
+                            D3D11MapSurface.OutputWidth,D3D11MapSurface.OutputHeight);
+                        ScreenMapResources.PrepareNormal(_repository,
+                            current.Present.CapturePreparedCamera(),_text.SourceLocale).WriteNativeInputs(inputs);
                         D3D11HdrResourceBindings.WriteProducerTargets(_repository,
                             Path.Combine(inputs, "hdr-bank"),
                             D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
-                        D3D11RefractionCopyInputPreparation.WriteNativeInputs(_repository, current,
+                        D3D11RefractionCopyInputPreparation.WriteNativeInputs(_repository, current,sceneColor,
                             Path.Combine(inputs, "refraction-source-input"),
                             D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
-                        D3D11RefractionFilterInputPreparation.WriteNativeInputs(_repository, current,
+                        D3D11RefractionFilterInputPreparation.WriteNativeInputs(_repository, current,sceneColor,
                             Path.Combine(inputs, "refraction-source-input", "filter137"),
                             D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
                         D3D11HdrProgramMediaPreparation.WriteNativeInputs(_repository,
-                            current, season.LoadedResources, hdr, inputs,
+                            current, season.LoadedResources, hdr, sceneColor, inputs,
                             D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
                         var atmosphere = AtmosphereInitialConstantsWriter.WriteFreshNativeInputs(_repository, current,
-                            D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight,
+                            sceneColor,
                             cloudElapsedSeconds: 0, commonClock: 0,
                             Path.Combine(inputs, "atmosphere-camera-continuous-input", "initial"),
                             Path.Combine(inputs, "main-sky-input"), Path.Combine(inputs, "main-cloud-input"),
@@ -303,7 +309,7 @@ public partial class MapSceneView
                             D3D11AmbientWorkInputPreparation.WriteNativeInputs(work, inputs);
                         }
                         D3D11NormalPostInitialConstantPreparation.WriteNativeInputs(_repository,
-                            current, inputs, D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
+                            current, inputs, D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight,sceneColor);
                         D3D11PrimaryForwardInputs.WriteFreshNativeInputs(_repository,
                             cityGatePublisher.PreparedBank, season.LoadedResources, current, inputs,
                             D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);

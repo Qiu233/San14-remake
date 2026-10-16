@@ -15,6 +15,8 @@ public sealed record D3D11ModelViewPlan(IReadOnlyList<int> VisibleInstanceIndice
 public readonly record struct D3D11SourceModelMapping(int SceneInstanceIndex,int ModelOrdinal,int PrimitiveCount);
 public readonly record struct D3D11SourceModelShadowMapping(int SceneInstanceIndex,int ModelOrdinal,
     int PrimitiveCount,uint Exclusion78,int Flags10C,float OpacityB0);
+public readonly record struct D3D11SourceModelStencilPrimitive(int SceneInstanceIndex,int DrawIndex,
+    uint ExcludedGroups);
 public sealed record D3D11SourceModelShadowTemplate(int TemplateIndex,NamedModelShader FinalTable,
     ModelMatrixBindingInput Matrix,IReadOnlyList<string> VertexLayout);
 
@@ -46,6 +48,9 @@ public sealed class D3D11ModelInputPreparation
         SourceShadowMappings=Array.AsReadOnly(instances.Select((item,ordinal)=>
             new D3D11SourceModelShadowMapping(item.Index,ordinal,item.PrimitiveCount,
                 shadowFields[item.Index].Exclusion,shadowFields[item.Index].Flags,shadowFields[item.Index].Opacity)).ToArray());
+        SourceStencilPrimitives=Array.AsReadOnly(primitives.Select(item=>
+            new D3D11SourceModelStencilPrimitive(item.InstanceIndex,item.DrawIndex,
+                shadowFields[item.InstanceIndex].Exclusion)).ToArray());
         SourceShadowTemplates=Array.AsReadOnly(shadowTemplates.Select(template=>new D3D11SourceModelShadowTemplate(
             template.Index,template.Final,template.Matrix,Array.AsReadOnly(Encoding.UTF8.GetString(
                 files[Normalize(Path.Combine(template.Directory,"layout.txt"))]).Split(['\r','\n'],StringSplitOptions.RemoveEmptyEntries)))).ToArray());
@@ -60,6 +65,9 @@ public sealed class D3D11ModelInputPreparation
     public int BoundaryCount=>Boundaries.Count;
     public IReadOnlyList<D3D11SourceModelMapping> SourceModelMappings{get;}
     public IReadOnlyList<D3D11SourceModelShadowMapping> SourceShadowMappings{get;}
+    /// <summary>Complete ordinary primitives in the exact encoded model-bank
+    /// order. Membership belongs to the View that consumes this generation.</summary>
+    public IReadOnlyList<D3D11SourceModelStencilPrimitive> SourceStencilPrimitives{get;}
     public IReadOnlyList<D3D11SourceModelShadowTemplate> SourceShadowTemplates{get;}
     public IReadOnlyList<string> PreparedFilenames=>Array.AsReadOnly(files.Keys.ToArray());
 

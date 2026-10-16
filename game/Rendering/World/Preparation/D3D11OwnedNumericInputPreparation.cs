@@ -10,7 +10,8 @@ public static class D3D11OwnedNumericInputPreparation
     public static void WriteFreshNativeInputs(GameResourceRepository repository,
         LoadedSceneResources scene, MainMapCameraFrame actualMain,
         D3D11CurrentSeasonFrame current, D3D11CurrentSeasonResources resources,
-        D3D11CurrentSeasonLibrary library, string inputRoot, int outputWidth, int outputHeight)
+        D3D11CurrentSeasonLibrary library,D3D11ModelInputPreparation fieldModels,uint actualContextFlags,
+        string inputRoot, int outputWidth, int outputHeight)
     {
         D3D11OwnedRuleInputPreparation.WriteFreshClockAndDefaultPlayers(repository, inputRoot);
         var words = current.PreparedWords.ToDictionary(word => word.Offset, word => word.Bits);
@@ -20,7 +21,7 @@ public static class D3D11OwnedNumericInputPreparation
         var selected = current.Lights.First(light => (light.GroupMask & (1u << (selector - 1))) != 0);
         D3D11OwnedRuleInputPreparation.WriteFreshView(Path.Combine(inputRoot, "view-continuous-input"),
             repository, scene, current.ViewSettings,
-            resources.Source.DirectionalDeclarations, selected.Lighting.ShadowModes);
+            resources.Source.DirectionalDeclarations, selected.Lighting.ShadowModes,fieldModels,actualContextFlags);
         var global = current.Lights.First(light => (light.GroupMask & 0x80) != 0).Lighting.Directional[0].Color;
         var rgb = new Vector3(global.X, global.Y, global.Z);
         D3D11OwnedRuleInputPreparation.WriteWeather(
