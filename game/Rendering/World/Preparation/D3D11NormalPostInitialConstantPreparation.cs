@@ -13,6 +13,7 @@ public static class D3D11NormalPostInitialConstantPreparation
         var prepared=D3D11NormalPostInitialInputPreparation.Prepare(repository,current.Present,
             selected?.State.LensFlareSourceVector,selected is null?null:current.Present.FrameNumber,outputWidth,outputHeight);
         prepared.WriteNativeInputs(inputRoot);
+        prepared.Resources.WriteNativeInputs(inputRoot);
         return prepared;
     }
 }

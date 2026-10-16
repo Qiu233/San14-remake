@@ -74,13 +74,9 @@ static NormalPostTimeline prepareNormalPostTimeline(const fs::path& source) {
         }
         templates.passes.push_back(std::move(pass));
     }
-    // GPU pair aliases are imported separately by the renderer, their sole owner.
-    // Keep the resource-layout admission check without a second runtime mirror.
-    std::ifstream pairs(source/"history-pairs.txt");std::string table;UINT index,side;
-    if(!pairs)throw std::runtime_error("Normal post history pair directory absent");
-    std::map<std::string,UINT> pairDirectory;
-    while(pairs>>table>>index>>side)pairDirectory[table+":"+std::to_string(index)]=side;
-    if(templates.passes.size()!=25||pairDirectory.size()!=22)throw std::runtime_error("Normal post resource layout differs");
+    // Physical history storage and its sides belong to the renderer. The
+    // timeline consumes the prepared pass library, not a duplicate pair census.
+    if(templates.passes.empty())throw std::runtime_error("Normal post pass library is empty");
     return owner;
 }
 

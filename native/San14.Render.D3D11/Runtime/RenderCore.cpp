@@ -55,57 +55,13 @@ static UINT pixelBytes(DXGI_FORMAT format) {
         case DXGI_FORMAT_R11G11B10_FLOAT: return 4;
         case DXGI_FORMAT_R16_FLOAT: return 2;
         case DXGI_FORMAT_R8_UNORM: return 1;
-        default: throw std::runtime_error("Unsupported readback format " + std::to_string(format));
+        default: throw std::runtime_error("Unsupported texture format " + std::to_string(format));
     }
-}
-static float halfFloat(uint16_t bits) {
-    uint32_t sign=(bits&0x8000u)<<16, exponent=(bits>>10)&31u, fraction=bits&1023u, raw;
-    if(exponent==0) {
-        if(fraction==0)raw=sign;
-        else { int shift=0; while((fraction&1024u)==0){fraction<<=1; ++shift;}
-            raw=sign|uint32_t(127-14-shift)<<23|(fraction&1023u)<<13; }
-    } else raw=sign|((exponent==31?255:exponent+112)<<23)|fraction<<13;
-    float value; std::memcpy(&value,&raw,4); return value;
-}
-static int storedChannels(DXGI_FORMAT format) {
-    if(format==DXGI_FORMAT_R11G11B10_FLOAT)return 3;
-    if(format==DXGI_FORMAT_R32G32_FLOAT||format==DXGI_FORMAT_R16G16_FLOAT||format==DXGI_FORMAT_R16G16_UNORM)return 2;
-    if(format==DXGI_FORMAT_R32_FLOAT||format==DXGI_FORMAT_D32_FLOAT||format==DXGI_FORMAT_D32_FLOAT_S8X24_UINT||format==DXGI_FORMAT_R16_FLOAT||format==DXGI_FORMAT_R8_UNORM)return 1;
-    return 4;
-}
-static std::array<float,4> decode(const char* p, DXGI_FORMAT format) {
-    std::array<float,4> out{0,0,0,1};
-    if(format==DXGI_FORMAT_R32G32B32A32_FLOAT) std::memcpy(out.data(),p,16);
-    else if(format==DXGI_FORMAT_R32G32_FLOAT) std::memcpy(out.data(),p,8);
-    else if(format==DXGI_FORMAT_R32_FLOAT || format==DXGI_FORMAT_D32_FLOAT || format==DXGI_FORMAT_D32_FLOAT_S8X24_UINT)
-        std::memcpy(out.data(),p,4);
-    else if(format==DXGI_FORMAT_R16G16B16A16_FLOAT || format==DXGI_FORMAT_R16G16_FLOAT || format==DXGI_FORMAT_R16_FLOAT) {
-        int count= format==DXGI_FORMAT_R16G16B16A16_FLOAT?4:format==DXGI_FORMAT_R16G16_FLOAT?2:1;
-        for(int i=0;i<count;++i){uint16_t bits;std::memcpy(&bits,p+i*2,2);out[i]=halfFloat(bits);}
-    } else if(format==DXGI_FORMAT_R16G16B16A16_UNORM||format==DXGI_FORMAT_R16G16_UNORM) {
-        int count=format==DXGI_FORMAT_R16G16B16A16_UNORM?4:2;
-        for(int i=0;i<count;++i){uint16_t bits;std::memcpy(&bits,p+i*2,2);out[i]=float(bits)/65535;}
-    } else if(format==DXGI_FORMAT_R8_UNORM) out[0]=float(uint8_t(*p))/255;
-    else if(format==DXGI_FORMAT_R11G11B10_FLOAT) {
-        uint32_t bits;std::memcpy(&bits,p,4);
-        for(int i=0;i<3;++i){int mantissa=i==2?5:6;uint32_t value=(bits>>(i==0?0:i==1?11:22))&((1u<<(mantissa+5))-1);
-            uint32_t fraction=value&((1u<<mantissa)-1),exponent=value>>mantissa;
-            out[i]=exponent==0?std::ldexp(float(fraction),1-15-mantissa):exponent==31?(fraction?NAN:INFINITY):std::ldexp(1.f+float(fraction)/float(1u<<mantissa),int(exponent)-15);}
-    }
-    else if(format==DXGI_FORMAT_R10G10B10A2_UNORM) {
-        uint32_t bits;std::memcpy(&bits,p,4);
-        for(int i=0;i<3;++i)out[i]=float((bits>>(i*10))&1023u)/1023;out[3]=float(bits>>30)/3;
-    } else {
-        bool bgra=format==DXGI_FORMAT_B8G8R8A8_UNORM||format==DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
-        for(int i=0;i<4;++i)out[i]=float(uint8_t(p[bgra&&i<3?2-i:i]))/255;
-    }
-    return out;
 }
 #include "../Device/DepthState.h"
 #include "../Passes/Shadows/ShadowMask.h"
 #include "../Passes/Environment/AmbientRenderer.h"
-#include "../Passes/Lighting/DeferredLighting.h"
-#include "../Passes/PostProcessing/PostTargets.h"
+#include "../Passes/Lighting/GgxLookupTable.h"
 #include "../Scene/Models/ModelRenderer.h"
 #include "../Camera/CameraState.h"
 #include "../Camera/CameraMotion.h"
@@ -338,10 +294,11 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         prepareAcceptedCamera(); // Current Main is available to node1, not only geometry.
         postProcessing.updateMapExposure(context.Get(),frameState.season(),
             {frameState.environment().camera().exposure,frameState.environment().camera().luminance},frameState.environment().exposureRectangleFlags());
-        fogAcceleration.updateCamera(context.Get(),staticCamera);
+        const auto fogInputs=frameState.fogAccelerationInputs();
+        const bool reduceFog=fogInputs&&fogAcceleration.updateFrame(context.Get(),staticCamera,*fogInputs);
         phase.beginMain();
 
-        fogAcceleration.execute(device.Get(),context.Get());
+        if(reduceFog)fogAcceleration.execute(device.Get(),context.Get());
         const auto node3Delta=clouds.updateAcceptedFrame(device.Get(),context.Get(),
             {resources.directory(ResourceGroup::CloudWeather),resources.directory(ResourceGroup::AmbientFrame)},
             {frameState.season(),frameState.cloudLights(),currentClock});
@@ -356,10 +313,6 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         phase.publishThinSurface(frameState.view().rainGroups!=0);
     };
     {
-        UINT sourceResource,sourceShader,sourceTarget,sourceWidth,sourceHeight;
-        std::ifstream sourceExtent(resources.directory(ResourceGroup::PostTargets)/"lighting-target.txt");
-        sourceExtent>>sourceResource>>sourceShader>>sourceTarget>>sourceWidth>>sourceHeight;
-        if(!sourceExtent||width!=sourceWidth||height!=sourceHeight)throw std::runtime_error("Re-export size-dependent source inputs before resizing the full experiment");
         lightingSource=resources.directory(ResourceGroup::Lighting);
         // Source resource initialization precedes Main traversal. Running it
         // between68 and78 would clear the real receiver's retained state.
@@ -382,7 +335,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         lightingTarget=createSourceHdr(device.Get(),resources.directory(ResourceGroup::HdrProgramBank),width,height);
         litColor=lightingTarget.texture;lightingShaderFormat=lightingTarget.shaderFormat;lightingTargetFormat=lightingTarget.targetFormat;
         clouds.prepareClouds(device.Get(),resources.directory(ResourceGroup::Clouds),
-            resources.directory(ResourceGroup::CloudAnimation),resources.directory(ResourceGroup::AmbientClouds),litColor.Get());
+            resources.directory(ResourceGroup::CloudAnimation),resources.directory(ResourceGroup::AmbientClouds),lightingTarget);
         beginAcceptedMain(initialCommonClock);
     }
     TerrainPass terrainPass{device.Get(),context.Get(),input,groupedTerrain};
@@ -683,11 +636,9 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                     updateNativeDepthMirror(context.Get(),mainDepth,"191 before normal post; particle owner pending");
                     groundDetails.finishRenderNode();
                     callerTargets.restore(context.Get());
-                    D3D11_SHADER_RESOURCE_VIEW_DESC sv{};sv.Format=lightingShaderFormat;sv.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;sv.Texture2D.MipLevels=1;
-                    ComPtr<ID3D11ShaderResourceView> scene;check(device->CreateShaderResourceView(litColor.Get(),&sv,&scene),"normal post retained HDR input");
                     postProcessing.prepare(device.Get(),normalInitialSource,
                         resources.directory(ResourceGroup::PostAnimation),resources.directory(ResourceGroup::PostCamera),
-                        scene.Get(),mainDepth.depth.Get(),width,height);
+                        lightingTarget,mainDepth.depth.Get(),width,height);
 
                     finalColor=executeCurrentPost(initialCommonClock);
                     phase.completeOuterApply();

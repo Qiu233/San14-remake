@@ -1,8 +1,6 @@
-// Fresh normal Main source DOF -> Bloom -> exposure -> tone -> FXAA.
-// Include after terrain.cpp's actual helpers. The input is the finite CPU export,
-// not an arbitrary render graph. Original DXBC/CBs are used unchanged.
+// Main depth of field, bloom, exposure, tone mapping and antialiasing.
+// Import the prepared module media once and retain its physical resources.
 #pragma once
-#include "PostTargets.h"
 #include <map>
 #include <sstream>
 #include <functional>
@@ -72,20 +70,21 @@ static NormalPostSurface createNormalPostFinalOutput(ID3D11Device* device,const 
     return normalPostSurface(device,w,h,1,resource,sampled,rendered,0,true,false);
 }
 
-static NormalPostSurface prepareNormalPostExposure(ID3D11Device* device,const fs::path& source) {
-    // Controlled prior history already used by this experiment. Native fresh
-    // creation itself is data-null; this does not claim its initial value.
+static NormalPostSurface createNormalPostExposureHistory(ID3D11Device* device,const fs::path& source) {
+    // A new remake scene starts at neutral exposure and its reciprocal. The
+    // original allocation leaves these texels unspecified. Subsequent frames
+    // retain this same storage and the actual exposure pass results.
     UINT er,es,eu,ew,eh;std::ifstream exposureRow(source/"exposure.txt");
     if(!(exposureRow>>er>>es>>eu>>ew>>eh)||ew!=2||eh!=1)throw std::runtime_error("Normal post Exposure61 descriptor missing");
-    const std::array<float,2> previousExposure{1.f,1.f};D3D11_SUBRESOURCE_DATA prior{};
-    prior.pSysMem=previousExposure.data();prior.SysMemPitch=prior.SysMemSlicePitch=8;
+    const std::array<float,2> neutralExposure{1.f,1.f};D3D11_SUBRESOURCE_DATA prior{};
+    prior.pSysMem=neutralExposure.data();prior.SysMemPitch=prior.SysMemSlicePitch=8;
     return normalPostSurface(device,ew,eh,1,er,es,es,eu,true,true,&prior);
 }
 static NativeNormalPost prepareNormalPost(ID3D11Device* device,
-    const fs::path& source,ID3D11ShaderResourceView* sceneView,
+    const fs::path& source,const NativeSourceHdrTarget& sceneColor,
     ID3D11ShaderResourceView* mainDepthView,const NormalPostSurface& callerOutput,UINT width,UINT height,
-    const NormalPostSurface* retainedExposure=nullptr) {
-    if(!sceneView||!mainDepthView)throw std::runtime_error("Normal post needs actual same Main Scene and GBuffer depth SRVs");
+    const NormalPostSurface& retainedExposure) {
+    if(!sceneColor.texture||!mainDepthView)throw std::runtime_error("Normal post needs actual Main HDR target and GBuffer depth");
     NativeNormalPost state;state.width=width;state.height=height;
     auto& surfaces=state.surfaces;auto& buffers=state.buffers;
     auto& externalViews=state.externalViews;auto& spriteStaging=state.spriteStaging;
@@ -96,20 +95,19 @@ static NativeNormalPost prepareNormalPost(ID3D11Device* device,
     if(!pairs)throw std::runtime_error("Normal post source history catalogue absent");
     while(pairs>>category>>parameter>>inputSide>>endSide>>sourceName)
         if(category=="BufferParameters")pairedBuffers.emplace(parameter,inputSide);
-    UINT sceneResourceFormat,sceneShaderFormat,sceneRenderFormat,sw,sh;
-    std::ifstream sceneRow(source/"lighting-target.txt");
-    if(!(sceneRow>>sceneResourceFormat>>sceneShaderFormat>>sceneRenderFormat>>sw>>sh)||sw!=width||sh!=height)
-        throw std::runtime_error("Normal post source Scene descriptor missing or extent differs");
-    NormalPostSurface scene;scene.width=width;scene.height=height;scene.sampledFormat=DXGI_FORMAT(sceneShaderFormat);
-    ComPtr<ID3D11Resource> actualSceneResource;sceneView->GetResource(&actualSceneResource);
-    check(actualSceneResource.As(&scene.texture),"normal post actual Scene texture");
+    // Borrow the actual HDR owner and its declared view formats. A second
+    // disk description cannot define the resource already produced by Main.
+    NormalPostSurface scene;scene.width=width;scene.height=height;scene.sampledFormat=sceneColor.shaderFormat;
+    scene.texture=sceneColor.texture;
     D3D11_TEXTURE2D_DESC actualSceneDesc{};scene.texture->GetDesc(&actualSceneDesc);
-    D3D11_SHADER_RESOURCE_VIEW_DESC actualSceneView{};sceneView->GetDesc(&actualSceneView);
-    if(actualSceneDesc.Width!=width||actualSceneDesc.Height!=height||actualSceneDesc.Format!=DXGI_FORMAT(sceneResourceFormat)||
-        actualSceneView.Format!=DXGI_FORMAT(sceneShaderFormat)||actualSceneView.ViewDimension!=D3D11_SRV_DIMENSION_TEXTURE2D)
-        throw std::runtime_error("Normal post current Scene differs from exported native resource/SRV");
+    if(actualSceneDesc.Width!=width||actualSceneDesc.Height!=height)
+        throw std::runtime_error("Normal post Main HDR extent differs");
+    D3D11_SHADER_RESOURCE_VIEW_DESC sceneSrv{};sceneSrv.Format=sceneColor.shaderFormat;
+    sceneSrv.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;sceneSrv.Texture2D.MipLevels=1;
+    ComPtr<ID3D11ShaderResourceView> sceneView;
+    check(device->CreateShaderResourceView(scene.texture.Get(),&sceneSrv,&sceneView),"normal post actual HDR SRV");
     scene.views.emplace_back(sceneView);
-    D3D11_RENDER_TARGET_VIEW_DESC sceneRtv{};sceneRtv.Format=DXGI_FORMAT(sceneRenderFormat);sceneRtv.ViewDimension=D3D11_RTV_DIMENSION_TEXTURE2D;
+    D3D11_RENDER_TARGET_VIEW_DESC sceneRtv{};sceneRtv.Format=sceneColor.targetFormat;sceneRtv.ViewDimension=D3D11_RTV_DIMENSION_TEXTURE2D;
     ComPtr<ID3D11RenderTargetView> sceneTarget;check(device->CreateRenderTargetView(scene.texture.Get(),&sceneRtv,&sceneTarget),"normal post same source Scene RTV");
     scene.targets.push_back(sceneTarget);surfaces.emplace("SceneColor",scene);
     ComPtr<ID3D11Resource> depthResource;mainDepthView->GetResource(&depthResource);
@@ -118,10 +116,9 @@ static NativeNormalPost prepareNormalPost(ID3D11Device* device,
     if(depthDesc.Width!=width||depthDesc.Height!=height)throw std::runtime_error("Normal post Main depth extent differs");
     externalViews.emplace("MainDepth",mainDepthView);
 
-    // Original61 is undefined on native fresh creation. This one explicitly
-    // retains Root's authorized controlled previousExposure[1,1]. No other
-    // source texture or buffer receives a guessed initial-data/zero seed.
-    auto& exposure=state.exposure;exposure=retainedExposure?*retainedExposure:prepareNormalPostExposure(device,source);
+    // Exposure is one persistent allocation owned by NormalPostProcess. The
+    // renderer and its parameter aliases all borrow that same physical image.
+    auto& exposure=state.exposure;exposure=retainedExposure;
     surfaces.emplace("Texture61",exposure);surfaces.emplace("Exposure61",exposure);surfaces.emplace("Exposure104",exposure);
     UINT index,w,h,mips,r,s,t,u,rt,ua,count,side;
     auto readTextures=[&](const fs::path& file,bool shape) {

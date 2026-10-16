@@ -12,11 +12,20 @@ class FogAccelerationPass {
     FogAccelerationPass& operator=(const FogAccelerationPass&)=delete;
 
     void prepare(ID3D11Device* device,const fs::path& source) {
+        unsigned mode,profile,enabled;std::ifstream settings(source/"settings.txt");
+        if(!(settings>>mode>>profile>>enabled)||mode!=7||profile!=2||enabled>1)
+            throw std::runtime_error("Fog reduction requires the supported scattering profile");
+        fogEnabled_=enabled!=0;
         resources_=prepareResources(device,source);
         camera_=prepareCamera(device,source,resources_);
     }
-    void updateCamera(ID3D11DeviceContext* context,const source_camera::CameraTransform& camera) {
+    bool updateFrame(ID3D11DeviceContext* context,const source_camera::CameraTransform& camera,
+        const source_aux_camera::FogAccelerationInputs& current) {
+        // PrepareMain runs this producer only for an admitted scattering light.
+        if(current.fog.mode!=source_weather_fog::FogMode::Scattering)return false;
+        source_aux_camera::writeCurrentFogAccelerationLight(camera_,current,fogEnabled_);
         updateCameraResources(context,camera_,resources_,camera);
+        return true;
     }
     void execute(ID3D11Device* device,ID3D11DeviceContext* context) {
         executeResources(device,context,resources_);
@@ -177,5 +186,6 @@ class FogAccelerationPass {
     }
     Resources resources_;
     source_aux_camera::FogAccelerationConstants camera_;
+    bool fogEnabled_{};
 };
 } // namespace San14::Render

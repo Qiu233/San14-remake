@@ -19,9 +19,9 @@ public sealed class D3D11NormalPostInitialConstants
         MapPostEffect3OwnedControlledCameraFrame frame,
         MapPostEffect3DepthOfField2Controller controller,
         IReadOnlyList<D3D11NormalPostInitialPass> passes,float heatCoefficient,
-        int gatherSize,int enableDof,IReadOnlyList<string> historyPairs)
-        =>(Allocation,Frame,Controller,Passes,HeatCoefficient,GatherSize,EnableDof,HistoryPairs)=
-            (allocation,frame,controller,passes,heatCoefficient,gatherSize,enableDof,historyPairs);
+        int gatherSize,int enableDof,IReadOnlyList<string> historyPairs,D3D11NormalPostResources resources)
+        =>(Allocation,Frame,Controller,Passes,HeatCoefficient,GatherSize,EnableDof,HistoryPairs,Resources)=
+            (allocation,frame,controller,passes,heatCoefficient,gatherSize,enableDof,historyPairs,resources);
 
     public MapPostEffect3AllocationPlan Allocation{get;}
     public MapPostEffect3OwnedControlledCameraFrame Frame{get;}
@@ -31,6 +31,7 @@ public sealed class D3D11NormalPostInitialConstants
     public int GatherSize{get;}
     public int EnableDof{get;}
     public IReadOnlyList<string> HistoryPairs{get;}
+    public D3D11NormalPostResources Resources{get;}
 
     public void WriteNativeInputs(string inputRoot)
     {
@@ -121,9 +122,10 @@ public static class D3D11NormalPostInitialInputPreparation
             caller,ReadOnlyMemory<byte>.Empty,aux.SourceEvidence,null,execute,NativeLogDispatch.Sse)
             {ActualAuxFields=aux,ActualFreshCaller=fresh};
         var owned=MapPostEffect3OwnedControlledCameraFrame.Prepare(module,allocation,camera,native,inputs);
+        var zeroAllocator=MapPostEffect3TextureZeroAllocationSource.Load(repository,locale);
+        var sides=zeroAllocator.SelectFreshOwnedSides(allocation);
         var table=MapPostEffect3TextureParameterState.CreateFreshWithSourceZeroAllocator(allocation,frame,
-            allocation.TextureAllocations.ToDictionary(a=>a.Parameter.Index,_=>0),
-            MapPostEffect3TextureZeroAllocationSource.Load(repository,locale),"fresh Post3 pointer table; no pixel values");
+            sides.TextureInstances,zeroAllocator,"fresh Post3 pointer table; no pixel values");
         table.BindExternal(0,new(frame,owner+"/current-Scene"),"same native current Scene InputColor0");
         var samplers=RenderSamplerSourceAdapters.Load(repository.SourceDirectory,locale);
         var freshDraw=RenderSamplerSourceAdapters.ReadFreshPostEffect3StockDrawSource(samplers);
@@ -167,13 +169,24 @@ public static class D3D11NormalPostInitialInputPreparation
             extents,MapPostEffect3ParameterAliasMode.SourceAsciiZeroLocale,"Composite after its actual Init publication");
         composite=compositeSource.Prepare(owned.State,allocation,compositeInputs);
 
+        var resources=new D3D11NormalPostResources(repository,allocation,dof.ShapeRequirement,
+            eyeSource.ReadOwnedBloomViewPlan(allocation,false),final,hdrRecipe,samplers,freshDraw,sides);
         var passes=new List<D3D11NormalPostInitialPass>();
         foreach(int pass in dof.PassSelection.OrderedFactory7Passes)
-            passes.Add(Pass($"{pass:D3}-dof",pass,dof.ConstantBuffer));
+        {
+            var prepared=Pass($"{pass:D3}-dof",pass,dof.ConstantBuffer);
+            resources.AddDepthOfField(prepared,table,dof.PrepareBefore(pass));
+            passes.Add(prepared);
+        }
         // The next CoC variant has the same complete CB18 writer. Its different
         // texture/history bindings remain actual RDB/pass-owner inputs.
         int cocIndex=passes.FindIndex(p=>p.SourcePassIndex==66);
-        if(cocIndex>=0)passes.Insert(cocIndex+1,Pass("067-dof",67,dof.ConstantBuffer));
+        if(cocIndex>=0)
+        {
+            var alternative=Pass("067-dof",67,dof.ConstantBuffer);
+            resources.AddAccumulateCoc(alternative,table,owned.State);
+            passes.Insert(cocIndex+1,alternative);
+        }
         var eyeInputs=eyeSource.CaptureCurrentInputs(eye,table,contextWord,eyeExtents,
             MapPostEffect3ParameterAliasMode.SourceAsciiZeroLocale,"current Scene width/height");
         foreach(var iteration in eye.OrderedIterations.Where(i=>i.IsBloomGraphics))
@@ -182,17 +195,26 @@ public static class D3D11NormalPostInitialInputPreparation
             table.ApplyEyeBeforeAlias(eye,before);
             string tag=iteration.SourcePassIndex switch{84=>"prefilter",86=>"down0",88=>"down1",90=>"up",
                 _=>throw new NotSupportedException("This normal native slice needs another actual Bloom pass family.")};
-            passes.Add(Pass($"{iteration.SourcePassIndex:D3}-bloom-{tag}-{iteration.NativeLoopIndex}",
-                iteration.SourcePassIndex,before.BloomLoopConstants!,eye.BloomMainConstants));
+            var prepared=Pass($"{iteration.SourcePassIndex:D3}-bloom-{tag}-{iteration.NativeLoopIndex}",
+                iteration.SourcePassIndex,before.BloomLoopConstants!,eye.BloomMainConstants);
+            resources.AddBloom(prepared,table,before);passes.Add(prepared);
         }
         foreach(int pass in composite.PassSelection.OrderedFactory9Passes.Where(p=>p is 100 or 101))
-            passes.Add(Pass($"{pass:D3}-add-bloom",pass,composite.ConstantBuffer));
+        {
+            var prepared=Pass($"{pass:D3}-add-bloom",pass,composite.ConstantBuffer);
+            resources.AddComposite(prepared,table,compositeExecution.PrepareBefore(init,pass,carriers));passes.Add(prepared);
+        }
         foreach(var iteration in eye.OrderedIterations.Where(i=>i.IsCompute))
-            passes.Add(Pass($"{iteration.SourcePassIndex}-exposure",iteration.SourcePassIndex,
-                iteration.SourcePassIndex==102?[]:[exposure]));
+        {
+            var prepared=Pass($"{iteration.SourcePassIndex}-exposure",iteration.SourcePassIndex,
+                iteration.SourcePassIndex==102?[]:[exposure]);
+            resources.AddCompute(prepared,table);passes.Add(prepared);
+        }
         foreach(int pass in composite.PassSelection.OrderedFactory9Passes.Where(p=>p is 108 or 109))
-            passes.Add(Pass(pass==108?"108-tone":"109-fxaa",pass,composite.ConstantBuffer));
-        var sides=MapPostEffect3TextureZeroAllocationSource.Load(repository,locale).SelectFreshOwnedSides(allocation);
+        {
+            var prepared=Pass(pass==108?"108-tone":"109-fxaa",pass,composite.ConstantBuffer);
+            resources.AddComposite(prepared,table,compositeExecution.PrepareBefore(init,pass,carriers));passes.Add(prepared);
+        }
         var history=MapPostEffect3PassStateReader.ReadHistoryFlip(allocation,true).Select(p=>
         {
             int side=(p.Table switch{MapPostEffect3BindingTable.TextureParameters=>sides.TextureInstances,
@@ -201,7 +223,7 @@ public static class D3D11NormalPostInitialInputPreparation
         }).ToArray();
         var tail=MapPostEffect3ApplyFreshCameraScalars.ConstructFreshSource(camera,owner+"/tail");
         return new(allocation,owned,dofController,passes.AsReadOnly(),tail.Settings.HeatShimmer.Speed,fresh.GatherSizeTypeC0,
-            fresh.GatherSizeTypeC0,Array.AsReadOnly(history));
+            fresh.GatherSizeTypeC0,Array.AsReadOnly(history),resources);
 
         D3D11NormalPostInitialPass Pass(string name,int pass,
             params MapPostEffect3ParameterConstantBuffer[] buffers)

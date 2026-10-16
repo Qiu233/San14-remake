@@ -14,12 +14,10 @@ public:
     void prepareExposure(ID3D11Device* device,ID3D11DeviceContext* context,
         const fs::path& source,const fs::path& initialSource) {
         mapExposure_=prepareNativeMapExposure(device,source);
-        // Preserve the existing bootstrap stock; this is not a claim about
-        // the original data-null allocation's initial contents.
-        bootstrapExposure_=prepareNormalPostExposure(device,initialSource);
+        exposureHistory_=createNormalPostExposureHistory(device,initialSource);
         const auto parent=NativeMainTargetScope::retain(context);
         ComPtr<ID3D11RasterizerState> priorRaster;context->RSGetState(&priorRaster);
-        publishNativeMapExposureAfterApply(context,mapExposure_,bootstrapExposure_.views[0].Get());
+        publishNativeMapExposureAfterApply(context,mapExposure_,exposureHistory_.views[0].Get());
         parent.restore(context);context->RSSetState(priorRaster.Get());
     }
     void updateMapExposure(ID3D11DeviceContext* context,
@@ -47,9 +45,9 @@ public:
     }
     void prepare(ID3D11Device* device,const fs::path& initialSource,
         const fs::path& continuousSource,const fs::path& cameraSource,
-        ID3D11ShaderResourceView* scene,ID3D11ShaderResourceView* depth,UINT width,UINT height) {
+        const NativeSourceHdrTarget& scene,ID3D11ShaderResourceView* depth,UINT width,UINT height) {
         renderer_=prepareNormalPost(device,initialSource,scene,depth,output_,width,height,
-            &bootstrapExposure_);
+            exposureHistory_);
         timeline_=prepareNormalPostTimeline(continuousSource);
         camera_=prepareNativeNormalPostCamera(cameraSource);
         passUnion_=loadNativeNormalPostPasses(device,continuousSource,width,height);
@@ -112,7 +110,7 @@ public:
 
 private:
     NativeMapExposure mapExposure_;
-    NormalPostSurface bootstrapExposure_,output_;
+    NormalPostSurface exposureHistory_,output_;
     NativeNormalPost renderer_;
     std::vector<NativeNormalPostPass> passUnion_;
     NormalPostTimeline timeline_;

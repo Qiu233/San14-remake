@@ -66,6 +66,7 @@ public partial class MapSceneView
             var groundDetails = GroundDetailResources.Prepare(_repository, scene,
                 _sourceMainCameraTerrain!.CurrentField, frame.Camera.Lens.ReverseDepth, _text.SourceLocale);
             var fogPrograms=HeightFogProgramResources.Load(_repository);
+            var fogAcceleration=FogAccelerationResources.Load(_repository);
             var skyPrograms=SkyMainProgramResources.Load(_repository,sceneMedia.Renderer);
             SkyMainResourceOwner? skyResources=null;
             SkyAtmosphereResourceOwner? atmosphereOwner=null;
@@ -216,6 +217,11 @@ public partial class MapSceneView
                     if (!nativeRuleInputsPrepared)
                     {
                         groundDetails.WriteNativeInputs(inputs, current.Rgb.Inputs.MainPostSelection!.AppFlags);
+                        var globalFog=current.Lights.First(light=>(light.GroupMask&0x80)!=0).State;
+                        var fogRgb=globalFog.Lighting.Directional[0].Color;
+                        var initialFog=fogAcceleration.PrepareInitialFrame(globalFog.Fog,
+                            new System.Numerics.Vector3(fogRgb.X,fogRgb.Y,fogRgb.Z),current.Present.CapturePreparedCamera());
+                        fogAcceleration.WriteNativeInputs(initialFog,Path.Combine(inputs,"fog-accel-input"));
                         cloudMedia=D3D11CloudProgramMedia.Prepare(cloudPrograms,current.Present,
                             current.Lights.First(light=>(light.GroupMask&0x80)!=0).State);
                         cloudMedia.WriteNativeInputs(inputs);

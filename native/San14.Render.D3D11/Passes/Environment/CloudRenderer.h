@@ -139,7 +139,7 @@ static ComPtr<ID3D11Buffer> nativeMainCloudBuffer(ID3D11Device* device,const std
     check(device->CreateBuffer(&d,&initial,&result),"Main Cloud retained constant buffer");return result;
 }
 static NativeMainCloud prepareNativeMainCloud(ID3D11Device* device,const fs::path& source,
-    const fs::path& continuousSource,ID3D11Texture2D* hdr,
+    const fs::path& continuousSource,const NativeSourceHdrTarget& hdr,
     const San14::Render::NativeSkyAtmosphereResources* renderingAtmosphere) {
     NativeMainCloud result;
     std::ifstream targets(source/"targets.txt");std::string name,key;UINT width,height,resource,sampled,rendered;
@@ -155,9 +155,8 @@ static NativeMainCloud prepareNativeMainCloud(ID3D11Device* device,const fs::pat
         check(device->CreateRenderTargetView(surface.texture.Get(),&rd,&surface.target),"Main Cloud source RTV");
         result.surfaces.emplace(name,std::move(surface));
     }
-    D3D11_TEXTURE2D_DESC hdrDesc{};hdr->GetDesc(&hdrDesc);
-    D3D11_RENDER_TARGET_VIEW_DESC sceneDesc{};sceneDesc.Format=hdrDesc.Format;sceneDesc.ViewDimension=D3D11_RTV_DIMENSION_TEXTURE2D;
-    check(device->CreateRenderTargetView(hdr,&sceneDesc,&result.sceneTarget),"Main Cloud retained Scene RTV");
+    D3D11_RENDER_TARGET_VIEW_DESC sceneDesc{};sceneDesc.Format=hdr.targetFormat;sceneDesc.ViewDimension=D3D11_RTV_DIMENSION_TEXTURE2D;
+    check(device->CreateRenderTargetView(hdr.texture.Get(),&sceneDesc,&result.sceneTarget),"Main Cloud retained Scene RTV");
     if(renderingAtmosphere) {
     NativeMainCloudDrawResources draw;
     draw.staticTextures=ambientTextures(device,source,"pass1-textures.tsv",std::nullopt);

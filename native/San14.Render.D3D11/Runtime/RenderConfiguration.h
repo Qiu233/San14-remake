@@ -47,7 +47,6 @@ enum class ResourceGroup {
     FinalOutput,
     PostEffects,
     OceanTextures,
-    PostTargets,
     ForwardLighting,
     Refraction,
     ShadowRaster,
@@ -108,7 +107,6 @@ public:
         case ResourceGroup::FinalOutput: return packageRoot/"normal-post-input";
         case ResourceGroup::PostEffects: return packageRoot/"normal-post-next-input";
         case ResourceGroup::OceanTextures: return packageRoot/"ocean-texture-input";
-        case ResourceGroup::PostTargets: return packageRoot/"post-input";
         case ResourceGroup::ForwardLighting: return packageRoot/"primary-forward-current-bank-input";
         case ResourceGroup::Refraction: return packageRoot/"refraction-source-input";
         case ResourceGroup::ShadowRaster: return packageRoot/"shadow-raster-source-input";

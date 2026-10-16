@@ -190,6 +190,16 @@ public:
     NamedMapRenderer& namedRenderer() { return namedRenderer_.value(); }
     const PreparedMapView& preparedView() const { return *mapView_; }
     const source_weather_fog::Power& framePower() const {return weatherPower_;}
+    std::optional<source_aux_camera::FogAccelerationInputs> fogAccelerationInputs() const {
+        if(season_) {
+            for(const auto& light:season_->lights)if((light.mask&0x80)!=0) {
+                const auto rgb=light.lighting.directional[0].color;
+                return source_aux_camera::FogAccelerationInputs{light.lighting.fog,{rgb.X,rgb.Y,rgb.Z}};
+            }
+            return std::nullopt;
+        }
+        return source_aux_camera::FogAccelerationInputs{weather_.fog,globalLight_};
+    }
     AtmosphereFrame atmosphereFrame(CloudEnvironmentPass& clouds) {
         return clouds.atmosphereFrame(season_,cloudLights_,environment_.camera().weatherHeight,
             weather_,globalLight_,cameraRig_.frame(),commonRenderPolicy(),weatherPower_,weatherProfile_.has_value());

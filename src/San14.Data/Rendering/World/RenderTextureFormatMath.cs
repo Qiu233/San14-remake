@@ -24,6 +24,7 @@ public static class RenderTextureFormatMath
             0x02 => (Resource: 39u, ShaderBase: 41u, ShaderAlternate: 0u, TargetBase: 41u, TargetAlternate: 0u),
             0x2A => (Resource: 61u, ShaderBase: 61u, ShaderAlternate: 0u, TargetBase: 61u, TargetAlternate: 0u),
             0x41 => (Resource: 9u, ShaderBase: 11u, ShaderAlternate: 0u, TargetBase: 11u, TargetAlternate: 0u),
+            0x4C => (Resource: 15u, ShaderBase: 16u, ShaderAlternate: 0u, TargetBase: 16u, TargetAlternate: 0u), // RG32 float.
             0x4E => (Resource: 39u, ShaderBase: 41u, ShaderAlternate: 0u, TargetBase: 40u, TargetAlternate: 0u),
             0x69 => (Resource: 33u, ShaderBase: 34u, ShaderAlternate: 0u, TargetBase: 34u, TargetAlternate: 0u),
             0x6B => (Resource: 26u, ShaderBase: 26u, ShaderAlternate: 0u, TargetBase: 26u, TargetAlternate: 0u),

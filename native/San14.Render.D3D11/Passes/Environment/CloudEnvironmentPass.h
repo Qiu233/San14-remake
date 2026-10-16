@@ -215,12 +215,12 @@ class CloudEnvironmentPass {
 
     void prepareClouds(ID3D11Device* device,const fs::path& cloudSource,
         const fs::path& animationSource,const fs::path& ambientCloudSource,
-        ID3D11Texture2D* hdr) {
+        const NativeSourceHdrTarget& hdr) {
         cloud_=prepareNativeMainCloud(device,cloudSource,animationSource,hdr,renderingAtmosphere());
         ambientCloudSource_=ambientCloudSource;workPublicationPending_=true;
         // This backend constructs a full-target View and has no partial-View
         // API. This rectangle belongs to that View, not a temporary RS viewport.
-        D3D11_TEXTURE2D_DESC target{};hdr->GetDesc(&target);
+        D3D11_TEXTURE2D_DESC target{};hdr.texture->GetDesc(&target);
         if(!target.Width||!target.Height)throw std::runtime_error("Main Cloud full-target View has no extent");
         viewRectangle_=FullTargetViewRectangle::construct(target.Width,target.Height);
     }
