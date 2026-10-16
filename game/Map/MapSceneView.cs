@@ -88,6 +88,9 @@ public partial class MapSceneView : Control
     private uint _sceneLoadGeneration;
     private bool _sceneLoadInProgress;
     private bool _sceneSelectionWasDisabled;
+    internal Task InitialSceneLoad { get; private set; } = Task.CompletedTask;
+    internal bool IsPlayableMapReady => _loaded && _projection is not null &&
+        (!UseD3D11Map || D3D11MapInteractive);
 
     internal void Configure(GameResourceRepository repository, PreviewText text, PreviewText? safeText, Action close,
         MapDocument? logicalMap = null, GameState? logicalWorld = null,
@@ -341,7 +344,7 @@ public partial class MapSceneView : Control
                 _selection.AddItem(text.Get(scene.LabelKey));
             int initialScene = _sceneConfig.InitialSceneIndex(_acceptHex is not null);
             _selection.Select(initialScene);
-            _ = StartSceneLoadAsync(initialScene);
+            InitialSceneLoad = StartSceneLoadAsync(initialScene);
         });
         if (_acceptHex is not null && !_locationSelection.Disabled)
             _locationSelection.GrabFocus();

@@ -59,11 +59,10 @@ public:
     void connectGeometry(const NativeModelInputs& field,const NativeModelInputs& primaries) {
         connectNativeJointPopulationShadowGeometry(population_,field,primaries);
     }
-    void prepareGpu(ID3D11Device* device,ID3D11DeviceContext* context,
-        const D3D11_DEPTH_STENCIL_DESC& entryDepth,UINT stencilReference,const fs::path& source) {
+    void prepareGpu(ID3D11Device* device,ID3D11DeviceContext* context,const fs::path& source) {
         gpu_=prepareNativeShadowCameraGpu(device,parameters_[family_],cameras_[family_],population_.catalog,population_.allModels,source,raster_);
         plan_=source_shadow_gpu::preparePlan(gpu_.profile,frame_,population_.catalog);
-        NativeSourceDepthState logical{entryDepth,stencilReference};
+        NativeSourceDepthState logical{};
         executeNativeShadowCameraGpu(context,logical,gpu_,frame_,plan_,population_.catalog,population_.allModels,family_);
         map_=gpu_.map;
     }

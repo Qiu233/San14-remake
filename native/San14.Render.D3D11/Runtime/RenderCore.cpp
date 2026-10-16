@@ -211,14 +211,9 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     const bool sourceArmyVisuals=configuration.world.armies;
     const bool sourceAccessoryVisuals=configuration.world.accessories;
     UINT width,height,instanceCount,indexCount;std::array<DXGI_FORMAT,5> formats;DXGI_FORMAT depthFormat;
-    UINT stencilRef;
     std::ifstream scene(input/"scene.txt");if(!scene)throw std::runtime_error("scene.txt absent");
     scene>>width>>height>>instanceCount>>indexCount;
     for(auto& format:formats){int n;scene>>n;format=DXGI_FORMAT(n);}int df;scene>>df;depthFormat=DXGI_FORMAT(df);
-    {
-        std::ifstream reference(resources.directory(ResourceGroup::Stencil)/"terrain-reference.txt");reference>>stencilRef;
-        if(!reference)throw std::runtime_error("Actual source Terrain stencil absent");
-    }
     bool groupedTerrain=fs::exists(input/"batches.txt");
     if(groupedTerrain){std::ifstream geometry(input/"geometry.txt");geometry>>width>>height>>instanceCount>>indexCount;}
     // Source DXGI resource, SRV and RTV/DSV formats are distinct. In particular,
@@ -404,7 +399,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             staticModels->prepareStencil(device.Get(),resources.directory(ResourceGroup::View),frameState.viewDefinition(),frameState.view(),sourceHostFlags3E4);
             terrainPass.prepareCamera(device.Get(),input,indexCount,
                 frameState.season()?resources.directory(ResourceGroup::SeasonalResources):fs::path{});
-            shadows.prepareGpu(device.Get(),context.Get(),geometryTargets.depthDescription(),stencilRef,jointShadowInput/"gpu");
+            shadows.prepareGpu(device.Get(),context.Get(),jointShadowInput/"gpu");
 
         }
 
@@ -414,7 +409,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     {auto raw=postProcessing.outputTarget();context->OMSetRenderTargets(1,&raw,nullptr);}
     context->RSSetViewports(1,&geometryTargets.viewport());context->RSSetScissorRects(1,&geometryTargets.scissor());
     auto callerTargets=NativeMainTargetScope::retain(context.Get());
-    NativeSourceDepthState sourceDepth{geometryTargets.depthDescription(),stencilRef};
+    NativeSourceDepthState sourceDepth{};
     auto drawOpaqueGeometry=[&]() {
         geometryTargets.beginGeometry(context.Get(),staticCamera.optics.reversedDepth,sourceDepth);
         {

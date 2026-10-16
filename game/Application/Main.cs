@@ -758,11 +758,12 @@ public partial class Main : Control
             _forceHud.QueueFree();
             _forceHud = null;
         }
-        if (_residentMap is not null)
+        var view = _residentMap;
+        _residentMap = null;
+        if (view is not null)
         {
-            if (_residentMap.GetParent() is Node parent) parent.RemoveChild(_residentMap);
-            _residentMap.QueueFree();
-            _residentMap = null;
+            if (view.GetParent() is Node parent) parent.RemoveChild(view);
+            view.QueueFree();
         }
         if (_mapTexture is not null) _mapTexture.Show();
         if (_openScenePreview is not null) _openScenePreview.Show();
@@ -797,6 +798,8 @@ public partial class Main : Control
         }
         if (_residentMap is not null)
         {
+            if (!_residentMap.InitialSceneLoad.IsCompleted ||
+                !_residentMap.IsPlayableMapReady) return;
             _residentMap.RefreshPlayableWorld(world);
             if (WorldMapDiagnosticEnabled && !_residentMap.HasNativeWorldMapFactory && world.Units.Count == 0 &&
                 world.Structures?.Count == 0 && world.NativeMapSeason is not null)
@@ -820,45 +823,79 @@ public partial class Main : Control
         var campaignQueries = _campaignComposition!.PrepareArmyQueries(world);
         view.SetD3D11CurrentWorldQueries(campaignQueries.CaptureCurrentDefinitions,
             campaignQueries.CaptureGraphicsMotionInputs, campaignQueries.CaptureMapArmyGroups);
-        view.Configure(_repository, _ui, safeText, () => { }, _map, world,
-            openCityDetails: cityId => RunUiAction(() => OpenMapCityDetails(view, cityId)),
-            acceptHex: hexId => RunUiAction(() => SelectMapTarget(hexId)),
-            playerForceId: player, embedded: true, sourceSnapshot: _selectedSnapshot,
-            selectCommandCity: cityId => RunUiAction(() => SelectMapCommandCity(cityId)),
-            selectCommandUnit: unitId => RunUiAction(() => SelectMapCommandUnit(unitId)),
-            selectCommandArea: areaId => RunUiAction(() => SelectMapCommandArea(areaId)));
-        if (!view.GetMeta("scene_loaded", false).AsBool() ||
-            !view.GetMeta("map_projection_available", false).AsBool())
-        {
-            string reason = view.GetMeta("scene_error", "Source map projection unavailable.").AsString();
-            view.QueueFree();
-            _mapHint.Text = reason;
-            return;
-        }
         _residentMap = view;
-        var hud = new PlayableForceHud();
-        _mapHost.AddChild(hud);
         try
         {
-            hud.Configure(_repository, _ui, ForceHudView.Create(world, player, _selectedSnapshot, _ui),
-                () => RunPlayAction(AdvancePlayable),
-                () => RunUiAction(() => OpenForceDetailsFor(player, null)));
-            hud.FitToMap(_mapHost.Size);
-            _forceHud = hud;
+            view.Configure(_repository, _ui, safeText, () => { }, _map, world,
+                openCityDetails: cityId => RunUiAction(() => OpenMapCityDetails(view, cityId)),
+                acceptHex: hexId => RunUiAction(() => SelectMapTarget(hexId)),
+                playerForceId: player, embedded: true, sourceSnapshot: _selectedSnapshot,
+                selectCommandCity: cityId => RunUiAction(() => SelectMapCommandCity(cityId)),
+                selectCommandUnit: unitId => RunUiAction(() => SelectMapCommandUnit(unitId)),
+                selectCommandArea: areaId => RunUiAction(() => SelectMapCommandArea(areaId)));
+        }
+        catch
+        {
+            CloseResidentMap();
+            throw;
+        }
+        _ = CompleteResidentMapAsync(view, _session!);
+    }
+
+    private async Task CompleteResidentMapAsync(MapSceneView view, GameplaySession session)
+    {
+        try
+        {
+            await view.InitialSceneLoad;
+            if (!GodotObject.IsInstanceValid(this) || !IsInsideTree() || _residentMap != view ||
+                !GodotObject.IsInstanceValid(view) || !view.IsInsideTree() || view.IsQueuedForDeletion()) return;
+            if (_session != session || _repository is null || _map is null || _world is not GameState world ||
+                world.RulesetId != PlayableSkeleton.RulesetId || _playerForceId is not int player)
+            {
+                CloseResidentMap();
+                return;
+            }
+            if (!view.GetMeta("scene_loaded", false).AsBool() ||
+                !view.GetMeta("map_projection_available", false).AsBool() || !view.IsPlayableMapReady)
+            {
+                string reason = view.GetMeta("scene_error",
+                    view.GetMeta("native_map_source_error", "Source map projection unavailable.")).AsString();
+                CloseResidentMap();
+                _mapHint.Text = reason;
+                return;
+            }
+            view.RefreshPlayableWorld(world);
+            var hud = new PlayableForceHud();
+            _mapHost.AddChild(hud);
+            try
+            {
+                hud.Configure(_repository, _ui, ForceHudView.Create(world, player, _selectedSnapshot, _ui),
+                    () => RunPlayAction(AdvancePlayable),
+                    () => RunUiAction(() => OpenForceDetailsFor(player, null)));
+                hud.FitToMap(_mapHost.Size);
+                _forceHud = hud;
+            }
+            catch (Exception error)
+            {
+                _mapHost.RemoveChild(hud);
+                hud.Free();
+                _mapHint.Text = $"Force HUD source: {error.Message}";
+                SetMeta("playable_force_hud_error", error.Message);
+                GD.PushError(error.ToString());
+            }
+            _mapTexture.Hide();
+            _openScenePreview.Hide();
+            _previewRow.Hide();
+            _mapHost.MoveChild(_mapFocusToggle, _mapHost.GetChildCount() - 1);
+            SetMapFocus(true);
         }
         catch (Exception error)
         {
-            _mapHost.RemoveChild(hud);
-            hud.Free();
-            _mapHint.Text = $"Force HUD source: {error.Message}";
-            SetMeta("playable_force_hud_error", error.Message);
+            if (!GodotObject.IsInstanceValid(this) || !IsInsideTree() || _residentMap != view) return;
+            CloseResidentMap();
+            _mapHint.Text = error.Message;
             GD.PushError(error.ToString());
         }
-        _mapTexture.Hide();
-        _openScenePreview.Hide();
-        _previewRow.Hide();
-        _mapHost.MoveChild(_mapFocusToggle, _mapHost.GetChildCount() - 1);
-        SetMapFocus(true);
     }
 
     private void SelectPlayableUnitAtHex(int hexId)

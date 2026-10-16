@@ -51,7 +51,6 @@ enum class ResourceGroup {
     ForwardLighting,
     Refraction,
     ShadowRaster,
-    Stencil,
     ContactShadows,
     Territory,
     TerritoryZones,
@@ -113,7 +112,6 @@ public:
         case ResourceGroup::ForwardLighting: return packageRoot/"primary-forward-current-bank-input";
         case ResourceGroup::Refraction: return packageRoot/"refraction-source-input";
         case ResourceGroup::ShadowRaster: return packageRoot/"shadow-raster-source-input";
-        case ResourceGroup::Stencil: return packageRoot/"stencil-visible-input";
         case ResourceGroup::ContactShadows: return packageRoot/"sub-shadow-input";
         case ResourceGroup::Territory: return packageRoot/"territory-visual-input";
         case ResourceGroup::TerritoryZones: return packageRoot/"territory-zone-source-input";
