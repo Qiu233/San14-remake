@@ -29,14 +29,14 @@ inline CurrentView prepare(const source_camera::Frame& camera,uint32_t cullingTy
 struct Slice { const Bank* source;uint32_t lod,start,count; };
 inline std::vector<Slice> select(const Packet& p,const CurrentView& v) {
     if(v.cullingType!=1||v.scanningType!=0)throw std::runtime_error("Procedural finite current view requires source culling1/scanning0.");
-    std::vector<Slice> result;const auto& d=p.declaration;float width=float(d[0]/d[6]);
+    std::vector<Slice> result;const auto& d=p.declaration;float width=float(d.fieldSizeX/d.blocksX);
     auto index=[&](float x,unsigned n){return std::clamp(int(x),0,int(n));};
-    int ax0=index(D(S(S(v.eye.X,float(d[11])),float(d[2])),width),d[6]),ax1=index(D(S(A(v.eye.X,float(d[11])),float(d[2])),width),d[6]);
-    int az0=index(D(S(S(v.eye.Z,float(d[11])),float(d[3])),width),d[7]),az1=index(D(S(A(v.eye.Z,float(d[11])),float(d[3])),width),d[7]);
-    int x0=std::max(index(D(S(S(v.eye.X,float(d[10])),float(d[2])),width),d[6]),int(D(S(v.minimum.X,float(d[2])),width)));
-    int z0=std::max(index(D(S(S(v.eye.Z,float(d[10])),float(d[3])),width),d[7]),int(D(S(v.minimum.Z,float(d[3])),width)));
-    int x1=std::min(index(D(S(A(v.eye.X,float(d[10])),float(d[2])),width),d[6]),int(std::ceil(D(S(v.maximum.X,float(d[2])),width))));
-    int z1=std::min(index(D(S(A(v.eye.Z,float(d[10])),float(d[3])),width),d[7]),int(std::ceil(D(S(v.maximum.Z,float(d[3])),width))));
+    int ax0=index(D(S(S(v.eye.X,float(d.absoluteDistanceH)),float(d.fieldOffsetX)),width),d.blocksX),ax1=index(D(S(A(v.eye.X,float(d.absoluteDistanceH)),float(d.fieldOffsetX)),width),d.blocksX);
+    int az0=index(D(S(S(v.eye.Z,float(d.absoluteDistanceH)),float(d.fieldOffsetZ)),width),d.blocksZ),az1=index(D(S(A(v.eye.Z,float(d.absoluteDistanceH)),float(d.fieldOffsetZ)),width),d.blocksZ);
+    int x0=std::max(index(D(S(S(v.eye.X,float(d.viewDistance)),float(d.fieldOffsetX)),width),d.blocksX),int(D(S(v.minimum.X,float(d.fieldOffsetX)),width)));
+    int z0=std::max(index(D(S(S(v.eye.Z,float(d.viewDistance)),float(d.fieldOffsetZ)),width),d.blocksZ),int(D(S(v.minimum.Z,float(d.fieldOffsetZ)),width)));
+    int x1=std::min(index(D(S(A(v.eye.X,float(d.viewDistance)),float(d.fieldOffsetX)),width),d.blocksX),int(std::ceil(D(S(v.maximum.X,float(d.fieldOffsetX)),width))));
+    int z1=std::min(index(D(S(A(v.eye.Z,float(d.viewDistance)),float(d.fieldOffsetZ)),width),d.blocksZ),int(std::ceil(D(S(v.maximum.Z,float(d.fieldOffsetZ)),width))));
     for(const auto& block:p.blocks){const auto& bs=block.bankIndices;int x=p.banks[bs[0]].x,z=p.banks[bs[0]].z;
         bool absolute=x>=ax0&&x<ax1&&z>=az0&&z<az1;
         if(!absolute&&(x<x0||x>=x1||z<z0||z>=z1))continue;
@@ -52,11 +52,11 @@ inline std::vector<Slice> select(const Packet& p,const CurrentView& v) {
             }
         }
         if(std::fabs(maxY)<=1.1920928955078125e-5f||minY==FLT_MAX)continue;
-        V3 lo{A(M(float(x),width),float(d[2])),minY,A(M(float(z),width),float(d[3]))},hi{A(lo.X,width),maxY,A(lo.Z,width)};
-        bool absoluteHit=absolute&&hi.X>=S(v.eye.X,float(d[11]))&&lo.X<=A(v.eye.X,float(d[11]))&&hi.Z>=S(v.eye.Z,float(d[11]))&&
-            lo.Z<=A(v.eye.Z,float(d[11]))&&hi.Y>=S(v.eye.Y,float(d[12]))&&lo.Y<=A(v.eye.Y,float(d[12]));
+        V3 lo{A(M(float(x),width),float(d.fieldOffsetX)),minY,A(M(float(z),width),float(d.fieldOffsetZ))},hi{A(lo.X,width),maxY,A(lo.Z,width)};
+        bool absoluteHit=absolute&&hi.X>=S(v.eye.X,float(d.absoluteDistanceH))&&lo.X<=A(v.eye.X,float(d.absoluteDistanceH))&&hi.Z>=S(v.eye.Z,float(d.absoluteDistanceH))&&
+            lo.Z<=A(v.eye.Z,float(d.absoluteDistanceH))&&hi.Y>=S(v.eye.Y,float(d.absoluteDistanceV))&&lo.Y<=A(v.eye.Y,float(d.absoluteDistanceV));
         if(!absoluteHit&&!source_camera::intersects(v.planes,lo,hi))continue;
-        float dx=S(A(M(A(float(x),.5f),width),float(d[2])),v.eye.X),dz=S(A(M(A(float(z),.5f),width),float(d[3])),v.eye.Z);
+        float dx=S(A(M(A(float(x),.5f),width),float(d.fieldOffsetX)),v.eye.X),dz=S(A(M(A(float(z),.5f),width),float(d.fieldOffsetZ)),v.eye.Z);
         float distance=std::sqrt(A(A(M(dx,dx),0),M(dz,dz)));
         for(auto bankIndex:bs){const Bank* b=&p.banks[bankIndex];const auto& e=p.elements[b->element];const auto& t=p.templates[b->templateIndex];uint32_t n=uint32_t(b->instances.size()),h=n,m=0;
             bool mid=!t.lodDraws[1].empty()&&(e.flags&8)!=0;

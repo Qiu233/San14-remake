@@ -99,9 +99,7 @@ public:
     GroundDetails& operator=(const GroundDetails&)=delete;
 
     void prepareResources(ID3D11Device* device,const fs::path& resourceDirectory,const fs::path& seasonRoot={}) {
-        std::ifstream reference(resourceDirectory/"source-directory.txt");std::string relative;
-        if(!std::getline(reference,relative)||relative.empty())throw std::runtime_error("Ground detail source directory import absent");
-        loadOnce(device,resourceDirectory/fs::path(relative),seasonRoot);
+        loadOnce(device,resourceDirectory,seasonRoot);
         std::ifstream settings(resourceDirectory/"common-source.txt");
         settings>>visibilityPolicy.placementFlags>>visibilityPolicy.frustumKind>>visibilityPolicy.cullingMode>>visibilityPolicy.scanningOrder>>std::hex>>visibilityPolicy.baseAppFlags;
         if(!settings)throw std::runtime_error("Ground detail saved Common/App import absent");
@@ -109,11 +107,11 @@ public:
 
 private:
     // The declared resource directory contains the model/population packet.
-    void loadOnce(ID3D11Device* device,const fs::path& sourceReviewRoot,const fs::path& seasonRoot={}) {
+    void loadOnce(ID3D11Device* device,const fs::path& resourceDirectory,const fs::path& seasonRoot={}) {
         if(!models.draws.empty())throw std::runtime_error("Ground details already loaded; resource reload needs a new component");
-        const auto source=sourceReviewRoot/"packet"/"gpu-templates";
-        packet=ground_detail_source::read((sourceReviewRoot/"packet"/"producer"/"ground-detail-source.bin").wstring());
-        if(!seasonRoot.empty())seasons=ground_detail_season_source::loadOnce(seasonRoot);
+        const auto source=resourceDirectory/"templates";
+        packet=ground_detail_source::read((resourceDirectory/"population.bin").wstring());
+        if(!seasonRoot.empty())seasons=ground_detail_season_source::loadOnce(seasonRoot,packet);
         parts=ground_detail_source::readPrimitiveOrder(packet,(source/"template-lods.txt").wstring());
         worlds=ground_detail_source::readTemplateWorld(packet,(source/"template-world.bin").wstring());
         models=loadNativeModels(device,source);
@@ -146,7 +144,7 @@ private:
             auto& target=stencil?depth[reverse]:depthWithoutStencil[reverse];
             check(device->CreateDepthStencilState(&d,&target),"Ground details normal54/55 source depth/stencil");
         }
-        const auto wind=sourceReviewRoot/"terrain-callbacks"/"wind"/"packet";
+        const auto wind=resourceDirectory/"wind";
         auto vector=::load(wind/"interaction-vector-r8uint.bin"),height=::load(wind/"interaction-height-r16float.bin"),phases=::load(wind/"wind-phase-r32float.bin"),volumeBytes=::load(wind/"wind-and-ripple-rgba16float.bin");
         if(vector.size()!=1048576||height.size()!=524288||phases.size()!=2097152||volumeBytes.size()!=2097152)
             throw std::runtime_error("Ground details source wind initializer sizes differ");
@@ -163,9 +161,8 @@ private:
         windObjects[2]=typed(device,128*76,DXGI_FORMAT_R32_FLOAT,4,false,true);
         auto shader=::load(wind/"shader"/"2801580A-program-0.dxbc");
         check(device->CreateComputeShader(shader.data(),shader.size(),nullptr,&windShader),"Ground details original Tree2Wind CS");
-        auto reset=::load(wind/"shader"/"shader-reset-b0-64.bin");
-        if(reset.size()!=64)throw std::runtime_error("Ground details Tree2Wind64B reset absent");
-        windConstants=mutableBuffer(device,64,D3D11_BIND_CONSTANT_BUFFER,false,reset.data());
+        // The real frame writer fills all64 bytes before the first CS bind.
+        windConstants=mutableBuffer(device,64,D3D11_BIND_CONSTANT_BUFFER,false);
         auto sampler=::load(wind/"wind-s8-s9-sampler-d3d11.bin");
         if(sampler.size()!=sizeof(D3D11_SAMPLER_DESC))throw std::runtime_error("Ground details actual wind sampler absent");
         D3D11_SAMPLER_DESC desc;std::memcpy(&desc,sampler.data(),sizeof(desc));

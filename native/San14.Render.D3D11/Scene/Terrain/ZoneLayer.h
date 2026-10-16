@@ -55,8 +55,11 @@ inline void buildRegionColors(Profile& profile) {
 inline Profile load(const std::filesystem::path& directory) {
     Profile p;std::ifstream f(directory/"profile.bin",std::ios::binary);std::uint32_t magic=0;
     auto read=[&](void* data,size_t bytes){f.read(static_cast<char*>(data),bytes);if(!f)throw std::runtime_error("Source seven-layer input absent/incomplete");};
-    read(&magic,4);if(magic!=0x3156535A)throw std::runtime_error("Source zone profile version differs");
-    read(p.ownership.data(),cells);read(p.terrain2A.data(),cells*2);read(p.surface.data(),cells);read(p.area.data(),cells*2);read(p.valid.data(),areaCount);
+    // ZSV2 contains static map inputs only. Current ownership is published by
+    // the live World owner before the first overlay draw.
+    read(&magic,4);if(magic!=0x3256535A)throw std::runtime_error("Source zone profile version differs");
+    read(p.terrain2A.data(),cells*2);read(p.surface.data(),cells);read(p.area.data(),cells*2);read(p.valid.data(),areaCount);
+    if(f.peek()!=std::char_traits<char>::eof())throw std::runtime_error("Source zone profile has trailing data");
     buildRegionColors(p);return p;
 }
 struct Current {

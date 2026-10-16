@@ -35,6 +35,7 @@ public:
         const std::filesystem::path& directory,source_territory_gpu::Targets targets,
         const D3D11_DEPTH_STENCIL_DESC& depth,const D3D11_RASTERIZER_DESC& raster,
         const San14::Render::TerritoryOwnershipPublication& publication) {
+        if(!publication.revision)throw std::runtime_error("Initial territory ownership publication absent");
         targets_=targets;
         overlay_=source_territory_gpu::prepare(device,directory,targets_,depth,raster);
         overlay_.profile.zones=zoneOwner_.zones;

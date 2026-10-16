@@ -63,18 +63,18 @@ inline std::vector<PrimitiveSource> readPrimitiveOrder(const Packet& p,const std
 
 inline std::vector<uint32_t> candidateBlockOrder(const Packet& p,const CurrentView& v,bool anyNonnegativeCaster) {
     if(v.cullingType!=1||v.scanningType!=0)throw std::runtime_error("Procedural order requires Culling1/Scanning0.");
-    const auto& d=p.declaration;float width=float(d[0]/d[6]);
+    const auto& d=p.declaration;float width=float(d.fieldSizeX/d.blocksX);
     auto index=[&](float x,unsigned n){return std::clamp(int(x),0,int(n));};
-    int ax0=index(D(S(S(v.eye.X,float(d[11])),float(d[2])),width),d[6]),ax1=index(D(S(A(v.eye.X,float(d[11])),float(d[2])),width),d[6]);
-    int az0=index(D(S(S(v.eye.Z,float(d[11])),float(d[3])),width),d[7]),az1=index(D(S(A(v.eye.Z,float(d[11])),float(d[3])),width),d[7]);
-    int x0=std::max(index(D(S(S(v.eye.X,float(d[10])),float(d[2])),width),d[6]),int(D(S(v.minimum.X,float(d[2])),width)));
-    int z0=std::max(index(D(S(S(v.eye.Z,float(d[10])),float(d[3])),width),d[7]),int(D(S(v.minimum.Z,float(d[3])),width)));
-    int x1=std::min(index(D(S(A(v.eye.X,float(d[10])),float(d[2])),width),d[6]),int(std::ceil(D(S(v.maximum.X,float(d[2])),width))));
-    int z1=std::min(index(D(S(A(v.eye.Z,float(d[10])),float(d[3])),width),d[7]),int(std::ceil(D(S(v.maximum.Z,float(d[3])),width))));
-    bool absoluteRange=anyNonnegativeCaster&&(d[11]!=0||d[12]!=0);std::vector<uint32_t> result;
-    if(absoluteRange)for(int z=az0;z<az1;z++)for(int x=ax0;x<ax1;x++)result.push_back(uint32_t(z)*d[6]+uint32_t(x));
+    int ax0=index(D(S(S(v.eye.X,float(d.absoluteDistanceH)),float(d.fieldOffsetX)),width),d.blocksX),ax1=index(D(S(A(v.eye.X,float(d.absoluteDistanceH)),float(d.fieldOffsetX)),width),d.blocksX);
+    int az0=index(D(S(S(v.eye.Z,float(d.absoluteDistanceH)),float(d.fieldOffsetZ)),width),d.blocksZ),az1=index(D(S(A(v.eye.Z,float(d.absoluteDistanceH)),float(d.fieldOffsetZ)),width),d.blocksZ);
+    int x0=std::max(index(D(S(S(v.eye.X,float(d.viewDistance)),float(d.fieldOffsetX)),width),d.blocksX),int(D(S(v.minimum.X,float(d.fieldOffsetX)),width)));
+    int z0=std::max(index(D(S(S(v.eye.Z,float(d.viewDistance)),float(d.fieldOffsetZ)),width),d.blocksZ),int(D(S(v.minimum.Z,float(d.fieldOffsetZ)),width)));
+    int x1=std::min(index(D(S(A(v.eye.X,float(d.viewDistance)),float(d.fieldOffsetX)),width),d.blocksX),int(std::ceil(D(S(v.maximum.X,float(d.fieldOffsetX)),width))));
+    int z1=std::min(index(D(S(A(v.eye.Z,float(d.viewDistance)),float(d.fieldOffsetZ)),width),d.blocksZ),int(std::ceil(D(S(v.maximum.Z,float(d.fieldOffsetZ)),width))));
+    bool absoluteRange=anyNonnegativeCaster&&(d.absoluteDistanceH!=0||d.absoluteDistanceV!=0);std::vector<uint32_t> result;
+    if(absoluteRange)for(int z=az0;z<az1;z++)for(int x=ax0;x<ax1;x++)result.push_back(uint32_t(z)*d.blocksX+uint32_t(x));
     for(int z=z0;z<z1;z++)for(int x=x0;x<x1;x++)
-        if(!absoluteRange||x<ax0||x>=ax1||z<az0||z>=az1)result.push_back(uint32_t(z)*d[6]+uint32_t(x));
+        if(!absoluteRange||x<ax0||x>=ax1||z<az0||z>=az1)result.push_back(uint32_t(z)*d.blocksX+uint32_t(x));
     return result;
 }
 
@@ -91,7 +91,7 @@ inline OrderedPopulation aggregate(const Packet& p,const CurrentView& v,const st
     std::unordered_map<uint64_t,std::vector<const Slice*>> byCellElement;
     for(const auto& s:slices){if(!s.source||s.lod>2||s.start>s.source->instances.size()||s.count>s.source->instances.size()-s.start)
             throw std::runtime_error("Procedural slice exceeds its original48B bank.");
-        uint64_t block=uint64_t(s.source->z)*p.declaration[6]+s.source->x;
+        uint64_t block=uint64_t(s.source->z)*p.declaration.blocksX+s.source->x;
         byCellElement[block*p.elements.size()+s.source->element].push_back(&s);
     }
     OrderedPopulation out;

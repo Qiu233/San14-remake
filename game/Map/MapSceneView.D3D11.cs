@@ -63,6 +63,8 @@ public partial class MapSceneView
             var sceneMedia = D3D11SceneMediaPreparation.Prepare(_repository, terrainSources, frame.Camera,
                 source, D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
             var cloudPrograms=SkyCloudProgramResources.Load(_repository,sceneMedia.Renderer);
+            var groundDetails = GroundDetailResources.Prepare(_repository, scene,
+                _sourceMainCameraTerrain!.CurrentField, frame.Camera.Lens.ReverseDepth, _text.SourceLocale);
             var fogPrograms=HeightFogProgramResources.Load(_repository);
             var skyPrograms=SkyMainProgramResources.Load(_repository,sceneMedia.Renderer);
             SkyMainResourceOwner? skyResources=null;
@@ -76,6 +78,7 @@ public partial class MapSceneView
             D3D11CloudRenderResources? cloudResources = null;
             ShadowReceiverPatternResources? receiverPatterns = null;
             string inputs = Path.GetDirectoryName(source)!;
+            _d3d11Ownership!.WriteStaticInputs(Path.Combine(inputs, TerritoryStaticMapEncoding.NativeDirectory));
             D3D11ProjectShaderInputPreparation.WriteNativeInputs(source, _text.SourceLocale);
             D3D11TimingInputPreparation.Load(_repository, _text.SourceLocale)
                 .WriteAnimationCadenceInputs(Path.Combine(inputs, "animation-cadence-input"));
@@ -212,6 +215,7 @@ public partial class MapSceneView
                     string? atmosphereDirectory = null;
                     if (!nativeRuleInputsPrepared)
                     {
+                        groundDetails.WriteNativeInputs(inputs, current.Rgb.Inputs.MainPostSelection!.AppFlags);
                         cloudMedia=D3D11CloudProgramMedia.Prepare(cloudPrograms,current.Present,
                             current.Lights.First(light=>(light.GroupMask&0x80)!=0).State);
                         cloudMedia.WriteNativeInputs(inputs);

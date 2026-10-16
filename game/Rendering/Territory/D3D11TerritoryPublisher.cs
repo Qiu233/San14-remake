@@ -20,7 +20,7 @@ public sealed class D3D11TerritoryPublisher
 {
     public const int CellCount = 48400;
     public const byte NoTint = 60;
-    private readonly bool[] _eligible;
+    public TerritoryStaticMapInputs StaticMap { get; }
     private readonly Dictionary<int, byte?> _colors;
     private readonly float[] _mapColors;
     private GameState? _lastWorld;
@@ -39,7 +39,7 @@ public sealed class D3D11TerritoryPublisher
         if (initialWorld.ScenarioKey != GameResourceId.File(scenario.SourcePath).ToString() ||
             initialWorld.MapSha256 != map.Source.Sha256 || initialWorld.MapWidth != 220 || initialWorld.MapHeight != 220 || palette.Locale != scenario.Locale)
             throw new InvalidDataException("D3D11 ownership source belongs to another scenario/map.");
-        _eligible = TerritoryOwnership.ReadSourceTintEligibility(map, terrain);
+        StaticMap = TerritoryStaticMapInputs.Create(scenario, map, terrain);
         _colors = [];
         foreach (var force in scenario.Forces)
             if (force.Slot < 0 || !_colors.TryAdd(force.Slot, force.RawReportColor49))
@@ -52,6 +52,8 @@ public sealed class D3D11TerritoryPublisher
             _mapColors[at + 2] = color.BlueFloat; _mapColors[at + 3] = color.AlphaFloat;
         }
     }
+
+    public void WriteStaticInputs(string directory) => TerritoryStaticMapEncoding.WriteNativeInputs(directory, StaticMap);
 
     /// <summary>Capture on the world's owner thread. A newly accepted territory
     /// or force dictionary produces one publication; camera-only requests reuse
@@ -71,7 +73,7 @@ public sealed class D3D11TerritoryPublisher
         {
             if (!world.Territory.TryGetValue(id, out var cell) || cell.Id != id)
                 throw new InvalidDataException($"Current ownership cell{id} is missing or has a different physical ID.");
-            if (!_eligible[id] || cell.ForceId is null) continue;
+            if (StaticMap.TerrainFlags[id] == 0 || cell.ForceId is null) continue;
             int force = cell.ForceId.Value;
             if (!world.Forces.ContainsKey(force) || !_colors.TryGetValue(force, out byte? color) || color is null)
                 throw new InvalidDataException($"Current force{force} has no resolved source RawReportColor49.");

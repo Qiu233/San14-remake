@@ -29,7 +29,7 @@ struct Profile {
     int count{};
     std::array<float, 4> ends{};
     V4 direction{};
-    unsigned forceFit{}, width{}, height{}, noHalfTexel{}, mask22C{}, recordCapacity{};
+    unsigned forceFit{}, width{}, height{}, noHalfTexel{}, mask22C{};
     std::vector<Record> records;
     std::vector<World> worlds;
 };
@@ -106,9 +106,11 @@ inline Profile loadProfile(const std::filesystem::path &path) {
     p.height = read<unsigned>(s);
     p.noHalfTexel = read<unsigned>(s);
     p.mask22C = read<unsigned>(s);
-    p.recordCapacity = read<unsigned>(s);
+    // SHC1 retains the declaration's legacy capacity word. Current collection
+    // storage uses the actual record and catalog vectors, not this metadata.
+    (void)read<unsigned>(s);
     int worlds = read<int>(s), records = read<int>(s);
-    if (p.count < 1 || p.count > 4 || p.forceFit != 0 || !p.recordCapacity)
+    if (p.count < 1 || p.count > 4 || p.forceFit != 0)
         throw std::runtime_error("Unsupported compact source profile");
     p.records.resize(records);
     for (auto &r : p.records) {
