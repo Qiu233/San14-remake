@@ -1,0 +1,130 @@
+using Godot;
+
+public partial class Main
+{
+    private Window? _lifetimeWindow;
+    private bool _shuttingDown;
+    private Task? _shutdownTask;
+    private readonly List<(MapSceneView View, Task Completion)> _mapRetirements = [];
+    private readonly List<Node> _retiredInterfaceChildren = [];
+
+    private void ConnectWindowLifetime()
+    {
+        GetTree().AutoAcceptQuit = false;
+        _lifetimeWindow = GetWindow();
+        _lifetimeWindow.CloseRequested += WindowCloseRequested;
+    }
+
+    private void DisconnectWindowLifetime()
+    {
+        if (_lifetimeWindow is { } window && GodotObject.IsInstanceValid(window))
+            window.CloseRequested -= WindowCloseRequested;
+        _lifetimeWindow = null;
+    }
+
+    private void RetireMapView(MapSceneView view)
+    {
+        // Keep the parent tree and its borrowed resources alive while an
+        // initializer or rendering request finishes retiring.
+        view.Hide();
+        view.ProcessMode = ProcessModeEnum.Disabled;
+        view.SetProcessInput(false);
+        view.SetProcessUnhandledInput(false);
+        Task completion = CloseAndFreeMapAsync(view);
+        _mapRetirements.RemoveAll(row => row.Completion.IsCompletedSuccessfully);
+        _mapRetirements.Add((view, completion));
+        _ = ObserveMapRetirementAsync(completion);
+    }
+
+    private static async Task CloseAndFreeMapAsync(MapSceneView view)
+    {
+        await view.CloseNativeMapAsync();
+        if (GodotObject.IsInstanceValid(view))
+        {
+            if (view.GetParent() is Node parent) parent.RemoveChild(view);
+            view.QueueFree();
+        }
+    }
+
+    private void RetireFailedInterface()
+    {
+        foreach (Node child in GetChildren())
+        {
+            if (child is CanvasItem canvas) canvas.Hide();
+            child.ProcessMode = ProcessModeEnum.Disabled;
+            _retiredInterfaceChildren.Add(child);
+        }
+        _ = FreeFailedInterfaceAsync();
+    }
+
+    private async Task FreeFailedInterfaceAsync()
+    {
+        try
+        {
+            await Task.WhenAll(_mapRetirements.Select(row => row.Completion));
+            FreeRetiredInterface();
+        }
+        catch (Exception error)
+        {
+            // Keep hidden parents mounted so a later close can retry their owners.
+            GD.PushError($"Previous interface still owns map resources: {error}");
+        }
+    }
+
+    private void FreeRetiredInterface()
+    {
+        foreach (Node child in _retiredInterfaceChildren)
+            if (GodotObject.IsInstanceValid(child)) child.QueueFree();
+        _retiredInterfaceChildren.Clear();
+    }
+
+    private void RetryMapRetirements()
+    {
+        _mapRetirements.RemoveAll(row => row.Completion.IsCompletedSuccessfully);
+        for (int index = 0; index < _mapRetirements.Count; ++index)
+        {
+            var row = _mapRetirements[index];
+            if (!row.Completion.IsCompleted) continue;
+            Task retry = CloseAndFreeMapAsync(row.View);
+            _mapRetirements[index] = (row.View, retry);
+            _ = ObserveMapRetirementAsync(retry);
+        }
+    }
+
+    private static async Task ObserveMapRetirementAsync(Task retirement)
+    {
+        try { await retirement; }
+        catch (Exception error) { GD.PushError($"Map resource retirement failed: {error}"); }
+    }
+
+    private void WindowCloseRequested()
+    {
+        if (_shutdownTask is { IsCompleted: false }) return;
+        _shutdownTask = ShutdownAsync();
+    }
+
+    private async Task ShutdownAsync()
+    {
+        _shuttingDown = true;
+        var tree = GetTree();
+        try
+        {
+            RetryMapRetirements();
+            CloseResidentMap();
+            if (_sceneView is { } scene)
+            {
+                _sceneView = null;
+                RetireMapView(scene);
+            }
+            await Task.WhenAll(_mapRetirements.Select(row => row.Completion));
+            FreeRetiredInterface();
+            tree.Quit();
+        }
+        catch (Exception error)
+        {
+            // The next window-close request retries these same retained owners.
+            // Keep UI work stopped while their resource lifetime remains open.
+            GD.PushError($"Application shutdown could not retire map resources. Close the window again to retry: {error}");
+        }
+    }
+}

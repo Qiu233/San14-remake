@@ -117,6 +117,9 @@ public partial class MapSceneView
     private GameState? _nativeMapWorldSource, _nativeMapDetachedWorld;
     private GameState? _nativeMapSuspendedWorldSource;
     private Task _nativeMapRetirement = Task.CompletedTask;
+    private Task _mapInitializations = Task.CompletedTask;
+    private Task? _nativeMapClose;
+    private bool _nativeMapClosing;
     private readonly List<SceneViewNativeMapMountPackage> _nativeMapFailedRetirements = [];
     private bool _nativeMapPumpRunning, _nativeMapInitializing;
     private int _nativeMapGeneration;
@@ -137,6 +140,30 @@ public partial class MapSceneView
     public bool HasNativeMapOutput => _d3d11Map is {IsClosed:false,LastReceipt:not null}||_nativeMapOwner?.Package.HasAcceptedOutput == true;
     public bool HasNativeWorldMapFactory => _nativeWorldMapDependencyFactory is not null;
     public Task NativeMapRetirement => Task.WhenAll(_nativeMapRetirement,_d3d11Retirement);
+    public Task CloseNativeMapAsync()
+    {
+        if (_nativeMapClose is { IsCompleted: false }) return _nativeMapClose;
+        _nativeMapClosing = true;
+        ++_sceneLoadGeneration;
+        ReleaseNativeMap();
+        return _nativeMapClose = DrainNativeMapAsync(NativeMapRetirement);
+    }
+
+    private async Task DrainNativeMapAsync(Task mountedRetirement)
+    {
+        // An opening package is local to its initializer until it mounts.
+        // Its finally must retire that package before the view can be freed.
+        await _mapInitializations;
+        await Task.WhenAll(mountedRetirement, NativeMapRetirement);
+        await _nativeMapGate.WaitAsync();
+        try
+        {
+            // Background retirement records failures for later retry. An
+            // explicit close must retry those owners and propagate failure.
+            await RetryNativeMapRetirementsAsync();
+        }
+        finally { _nativeMapGate.Release(); }
+    }
     public bool HasPendingNativeMapRetirement => _nativeMapFailedRetirements.Count != 0 ||
         !_nativeMapRetirement.IsCompleted || !_d3d11Retirement.IsCompleted || SceneViewNativeMapWorldPackage.FailedRetirements.Count != 0 ||
         SceneViewNativeMapWorldPartialRetirementPackage.FailedPackages.Count != 0;
@@ -223,7 +250,21 @@ public partial class MapSceneView
         scene == _sceneLoadGeneration && native == _nativeMapGeneration &&
         GodotObject.IsInstanceValid(this) && IsInsideTree();
 
-    private async Task InitializeNativeMapAsync(uint sceneGeneration, NativeMapOwner? replacing = null,
+    private Task InitializeNativeMapAsync(uint sceneGeneration, NativeMapOwner? replacing = null,
+        SceneViewNativeMapFrameCapture? replacementRequest = null)
+    {
+        if (_nativeMapClosing) return Task.CompletedTask;
+        return TrackMapInitialization(InitializeNativeMapCoreAsync(sceneGeneration, replacing, replacementRequest));
+    }
+
+    private Task TrackMapInitialization(Task opening)
+    {
+        _mapInitializations = _mapInitializations.IsCompletedSuccessfully
+            ? opening : Task.WhenAll(_mapInitializations, opening);
+        return opening;
+    }
+
+    private async Task InitializeNativeMapCoreAsync(uint sceneGeneration, NativeMapOwner? replacing = null,
         SceneViewNativeMapFrameCapture? replacementRequest = null)
     {
         if (!_embedded || !_loaded || _nativeMapInitializing) return;

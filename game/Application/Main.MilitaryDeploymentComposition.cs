@@ -25,16 +25,7 @@ public partial class Main
             order =>
             {
                 bool accepted = false;
-                RunPlayAction(() =>
-                {
-                    if (_world is null) return;
-                    int expectedNextId = checked(_world.NextDeploymentId + order.Units.Count);
-                    ApplyPlayableOrder(order);
-                    //The existing void UI adapter leaves the world unchanged
-                    //on rejection. Accepted preparation advances exactly once
-                    //per row; no source file or resource inference is involved.
-                    accepted = _world?.NextDeploymentId == expectedNextId;
-                });
+                RunPlayAction(() => { accepted = ApplyPlayableOrder(order); });
                 return accepted;
             });
     }

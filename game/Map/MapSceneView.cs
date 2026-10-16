@@ -425,7 +425,10 @@ public partial class MapSceneView : Control
         _sceneTerrain?.ReleaseGeometry();
     }
 
-    private async Task StartSceneLoadAsync(int index)
+    private Task StartSceneLoadAsync(int index) => _nativeMapClosing
+        ? Task.CompletedTask : TrackMapInitialization(StartSceneLoadCoreAsync(index));
+
+    private async Task StartSceneLoadCoreAsync(int index)
     {
         if (_detailsOpen) return;
         uint generation = ++_sceneLoadGeneration;

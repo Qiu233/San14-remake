@@ -165,7 +165,7 @@ public partial class Main : Control
             _consumeBackRelease = false;
             return;
         }
-        if (_failed) return;
+        if (_failed || _shuttingDown) return;
         Action? back = null;
         if (_detailsView is { } details && details.IsVisibleInTree() && !details.IsQueuedForDeletion())
             back = details.RequestClose;
@@ -187,6 +187,7 @@ public partial class Main : Control
 
     public override void _Ready()
     {
+        ConnectWindowLifetime();
         try
         {
             _safeUi = new PreviewText(false, null);
@@ -212,7 +213,7 @@ public partial class Main : Control
 
     private void RunUiAction(Action action)
     {
-        if (_failed) return;
+        if (_failed || _shuttingDown) return;
         try { action(); }
         catch (Exception error) { ShowFailure(error, startup: false); }
     }
@@ -223,7 +224,13 @@ public partial class Main : Control
         _loadError = error.Message;
         _session = null;
         GD.PushError(error.ToString());
-        foreach (Node child in GetChildren()) child.QueueFree();
+        CloseResidentMap();
+        if (_sceneView is { } scene)
+        {
+            _sceneView = null;
+            RetireMapView(scene);
+        }
+        RetireFailedInterface();
         var background = new ColorRect { Color = new Color("#231714") };
         background.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         AddChild(background);
@@ -762,9 +769,9 @@ public partial class Main : Control
         _residentMap = null;
         if (view is not null)
         {
-            if (view.GetParent() is Node parent) parent.RemoveChild(view);
-            view.QueueFree();
+            RetireMapView(view);
         }
+        if (_failed || _shuttingDown) return;
         if (_mapTexture is not null) _mapTexture.Show();
         if (_openScenePreview is not null) _openScenePreview.Show();
         if (_previewRow is not null) _previewRow.Show();
@@ -790,6 +797,7 @@ public partial class Main : Control
 
     private void UpdateResidentMap()
     {
+        if (_shuttingDown) return;
         if (_repository is null || _map is null || _world is not GameState world ||
             world.RulesetId != PlayableSkeleton.RulesetId || _playerForceId is not int player)
         {
@@ -918,8 +926,8 @@ public partial class Main : Control
     private void CloseScenePreview(MapSceneView view, bool focusTarget)
     {
         if (_sceneView != view) return;
-        view.QueueFree();
         _sceneView = null;
+        RetireMapView(view);
         RefreshSceneAudioContext();
         _browserContent.Show();
         if (focusTarget && !_playDeploy.Disabled) _playDeploy.GrabFocus();
@@ -1312,7 +1320,7 @@ public partial class Main : Control
 
     private void RunPlayAction(Action action)
     {
-        if (_failed) return;
+        if (_failed || _shuttingDown) return;
         try { action(); }
         catch (Exception error)
         {
@@ -1842,19 +1850,20 @@ public partial class Main : Control
             _playCity.GetSelectedId()));
     }
 
-    private void ApplyPlayableOrder(GameOrder order)
+    private bool ApplyPlayableOrder(GameOrder order)
     {
-        if (_session?.PlayerForceId is null) return;
+        if (_session?.PlayerForceId is null) return false;
         CommandResult result = _session!.Issue(order);
         if (!result.Accepted)
         {
             _playMessage.Text = _ui.Format("play_order_rejected",
                 result.MissingRuleKey is { } missing ? _ui.CommandError(missing) :
                 result.ErrorCode is { } code ? _ui.CommandError(code) : result.Error ?? "?");
-            return;
+            return false;
         }
         _playMessage.Text = _ui.Get("play_order_accepted");
         RefreshCurrentPlayWorld();
+        return true;
     }
 
     private void AdvancePlayable()
