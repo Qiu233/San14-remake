@@ -95,7 +95,8 @@ static UINT pixelBytes(DXGI_FORMAT format) {
 #include "../Passes/Environment/SkyRenderer.h"
 #include "../Passes/Environment/CloudRenderer.h"
 #include "../Passes/Environment/AmbientCloudFrame.h"
-#include "../Passes/Shadows/SubShadow.h"
+#include "../Passes/Occlusion/ContactOcclusionRenderer.h"
+#include "../Passes/Occlusion/Interop/OcclusionResourceInputs.h"
 #include "../Passes/Effects/EffectResources.h"
 #include "../Passes/Effects/EffectRenderer.h"
 #include "../Passes/Effects/EffectCameraFrame.h"
@@ -175,11 +176,18 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     // Source DXGI resource, SRV and RTV/DSV formats are distinct. In particular,
     // typeless allocation must preserve the original sRGB/linear consumer views.
     std::array<DXGI_FORMAT,6> resourceFormats,shaderFormats;
-    std::array<std::string,6> targetNames;std::array<UINT,6> surfaces{};
+    std::array<std::uint32_t,6> targetObjectIds{};std::array<UINT,6> surfaces{};
     for(int i=0;i<5;++i)resourceFormats[i]=shaderFormats[i]=formats[i];
     resourceFormats[5]=shaderFormats[5]=depthFormat;
     std::ifstream targetRows(input/"targets.txt");
-    if(targetRows){UINT r,s,t;for(int i=0;i<6;++i){targetRows>>targetNames[i]>>surfaces[i]>>r>>s>>t;resourceFormats[i]=DXGI_FORMAT(r);shaderFormats[i]=DXGI_FORMAT(s);if(i<5)formats[i]=DXGI_FORMAT(t);else depthFormat=DXGI_FORMAT(t);}}
+    if(!targetRows)throw std::runtime_error("Main G-buffer target declarations are absent");
+    for(int i=0;i<6;++i) {
+        UINT resource,shader,target;
+        if(!(targetRows>>targetObjectIds[i]>>surfaces[i]>>resource>>shader>>target))
+            throw std::runtime_error("Main G-buffer target declaration is truncated or malformed");
+        resourceFormats[i]=DXGI_FORMAT(resource);shaderFormats[i]=DXGI_FORMAT(shader);
+        if(i<5)formats[i]=DXGI_FORMAT(target);else depthFormat=DXGI_FORMAT(target);
+    }
     width=configuration.width;height=configuration.height;
     ComPtr<ID3D11Device> device;ComPtr<ID3D11DeviceContext> context;D3D_FEATURE_LEVEL level;
     device=host.device;context=host.context;level=device->GetFeatureLevel();
@@ -340,7 +348,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     }
     TerrainPass terrainPass{device.Get(),context.Get(),input,groupedTerrain};
     GBufferTargets geometryTargets{device.Get(),context.Get(),
-        {width,height,resourceFormats,formats,depthFormat,targetNames,surfaces,
+        {width,height,resourceFormats,formats,depthFormat,targetObjectIds,surfaces,
             staticCamera.optics.reversedDepth}};
     postProcessing.prepareOutput(device.Get(),resources.directory(ResourceGroup::FinalOutput),width,height);
     geometryTargets.prepareExpandedTargets(device.Get(),formats[3]);
@@ -458,7 +466,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     ComPtr<ID3D11BlendState> cloudEntryBlend;
     ComPtr<ID3D11RasterizerState> cloudEntryRaster;
     UINT cloudEntryReference=0,cloudEntrySampleMask=~0u;float cloudEntryFactor[4]{};
-    const auto receiverDepthObject=static_cast<std::uint32_t>(std::stoul(geometryTargets.depthKey()));
+    const auto receiverDepthObject=geometryTargets.depthObjectId();
     auto receiverCurrentFrame=[&]() -> const source_current_season::Frame& {
         const auto* current=frameState.season();
         if(!current)throw std::runtime_error("Shadow receiver requires current season inputs");
@@ -494,11 +502,19 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     auto isolateCurrentShadowVisibility=[&]() {
 
     };
+    auto executeCurrentContactOcclusion=[&]() {
+        const auto* current=frameState.season();
+        if(!current||!current->contactOcclusion)
+            throw std::runtime_error("Contact occlusion requires current camera and ordered light inputs");
+        shadows.executeContact(device.Get(),context.Get(),sourceDepth,geometryTargets.viewport(),
+            *current->contactOcclusion,frameState.environment().camera().optics,
+            frameState.view().activeGroups,sourceHostFlags3E4&3u,frameState.viewDefinition().common.present);
+    };
     {
         auto abTarget=geometryTargets.colors()[0];context->OMSetRenderTargets(1,&abTarget,geometryTargets.depthView()); //62
-        shadows.prepareContact(device.Get(),resources.directory(ResourceGroup::ContactShadows),sourceDepth,geometryTargets.rasterDescription(),geometryTargets.blendDescription(),
-            mainDepth,geometryTargets.textures()[1].Get(),shaderFormats[1],geometryTargets.textures()[0].Get(),geometryTargets.depthView());
-        shadows.executeContact(context.Get(),sourceDepth,geometryTargets.viewport());
+        shadows.prepareContact(device.Get(),resources.directory(ResourceGroup::ContactShadows),geometryTargets.rasterDescription(),geometryTargets.blendDescription(),
+            mainDepth,geometryTargets.textures()[1].Get(),shaderFormats[1],geometryTargets.textures()[0].Get(),formats[0],geometryTargets.depthView());
+        executeCurrentContactOcclusion();
         D3D11_RENDER_TARGET_VIEW_DESC rsDesc{};rsDesc.Format=formats[2];rsDesc.ViewDimension=D3D11_RTV_DIMENSION_TEXTURE2DARRAY;
         rsDesc.Texture2DArray.FirstArraySlice=3;rsDesc.Texture2DArray.ArraySize=1;
         check(device->CreateRenderTargetView(geometryTargets.textures()[2].Get(),&rsDesc,&indirectTarget),"Main indirect RS3 target");
@@ -530,10 +546,10 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             mainTargets.restore(context.Get());
             {
                 ocean.prepareSceneCopy(device.Get(),context.Get(),sourceDepth,
-                    resources.directory(ResourceGroup::Refraction)/"copy-scene97",litColor.Get(),lightingShaderFormat,lightingTarget.logicalKey);
+                    resources.directory(ResourceGroup::Refraction)/"copy-scene97",litColor.Get(),lightingShaderFormat,lightingTarget.objectId);
             }
             ocean.prepareDepthCopy(device.Get(),context.Get(),sourceDepth,
-                resources.directory(ResourceGroup::Refraction)/"copy97",mainDepth.depth.Get(),geometryTargets.depthKey(),geometryTargets.depthSurface());
+                resources.directory(ResourceGroup::Refraction)/"copy97",mainDepth.depth.Get(),geometryTargets.depthObjectId(),geometryTargets.depthSurface());
             mainTargets.restore(context.Get());
             {
                 const OceanSources oceanSources{resources.directory(ResourceGroup::OceanTextures),
@@ -683,7 +699,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         publishThinSurface();
         callerTargets.restore(context.Get());
         auto abTarget=geometryTargets.colors()[0];context->OMSetRenderTargets(1,&abTarget,geometryTargets.depthView());
-        shadows.executeContact(context.Get(),sourceDepth,geometryTargets.viewport());callerTargets.restore(context.Get());
+        executeCurrentContactOcclusion();callerTargets.restore(context.Get());
         auto rsTarget=indirectTarget.Get();context->OMSetRenderTargets(1,&rsTarget,geometryTargets.depthView());
         shadows.executeGeometryReceiver(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),receiverDepthObject,
             receiverCurrentFrame(),frameState.preparedView(),clouds.receiverPatternPalette(),currentClock);

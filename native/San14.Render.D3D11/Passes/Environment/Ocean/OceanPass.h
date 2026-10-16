@@ -25,14 +25,14 @@ class OceanPass {
     }
 
     void prepareSceneCopy(ID3D11Device* device,ID3D11DeviceContext* context,
-        NativeSourceDepthState& logical,const fs::path& source,ID3D11Texture2D* hdr,DXGI_FORMAT format,std::string_view sourceKey) {
-        sceneCopy_=prepareNativeRefractionScene97(device,source,hdr,format,sourceKey,refractionTargets_.at("TransmittedSpecular"));
+        NativeSourceDepthState& logical,const fs::path& source,ID3D11Texture2D* hdr,DXGI_FORMAT format,std::uint32_t sourceObjectId) {
+        sceneCopy_=prepareNativeRefractionScene97(device,source,hdr,format,sourceObjectId,refractionTargets_.at("TransmittedSpecular"));
         colors_.scene97=executeNativeRefractionScene97(*sceneCopy_,context,logical);
     }
     void prepareDepthCopy(ID3D11Device* device,ID3D11DeviceContext* context,
-        NativeSourceDepthState& logical,const fs::path& source,ID3D11ShaderResourceView* depth,std::string_view sourceKey,UINT sourceSurface) {
+        NativeSourceDepthState& logical,const fs::path& source,ID3D11ShaderResourceView* depth,std::uint32_t sourceObjectId,UINT sourceSurface) {
         if(sourceSurface!=0)throw std::runtime_error("Refraction depth copy requires geometry depth surface zero");
-        depthCopy_=prepareNativeRefractionDepth(device,source,depth,sourceKey,refractionTargets_.at("RefractionDepth"));
+        depthCopy_=prepareNativeRefractionDepth(device,source,depth,sourceObjectId,refractionTargets_.at("RefractionDepth"));
         depth_=executeNativeRefractionDepth(*depthCopy_,context,logical);
     }
     void copyScene(ID3D11DeviceContext* context,NativeSourceDepthState& logical) {

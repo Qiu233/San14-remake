@@ -16,6 +16,7 @@ public partial class MapSceneView
     private ArmyMaterialResources? _d3d11ArmyMaterials;
     private string? _d3d11ArmyMaterialDirectory;
     private RenderResourceContext? _d3d11ResourceContext;
+    private string? _d3d11ResourceContextDirectory;
     private Func<GameState, SourceWorldContext?>? _d3d11CurrentWorldQueries;
     private Func<GameState, UnitState, ArmyGraphicsCurrentInputs?>? _d3d11ArmyMotionQueries;
     private Func<GameState, ArmyMapGroupingFrame?>? _d3d11ArmyGroupingQueries;
@@ -98,6 +99,7 @@ public partial class MapSceneView
             LoadedObjects? pendingContextSeason = null;
             _d3d11ResourceContext = resourceContext;
             string resourceContextDirectory = Path.Combine(inputs, "resource-context-input");
+            _d3d11ResourceContextDirectory = resourceContextDirectory;
             resourceContext.WriteNativeInputs(resourceContextDirectory);
             int writtenSeasonCount = seasonLibrary.LoadedInstallations.Count;
             var hdrResources = HdrShaderResources.Load(_repository);
@@ -278,6 +280,7 @@ public partial class MapSceneView
                             D3D11MapSurface.OutputWidth,D3D11MapSurface.OutputHeight);
                         ScreenMapResources.PrepareNormal(_repository,
                             current.Present.CapturePreparedCamera(),_text.SourceLocale).WriteNativeInputs(inputs);
+                        ContactOcclusionResources.Load(_repository,_text.SourceLocale).WriteNativeInputs(inputs);
                         D3D11HdrResourceBindings.WriteProducerTargets(_repository,
                             Path.Combine(inputs, "hdr-bank"),
                             D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
@@ -461,7 +464,10 @@ public partial class MapSceneView
         _d3d11FlagMaterials.WriteNativeInputs(_d3d11FlagMaterialDirectory!);
         _d3d11ArmyMaterials!.Prepare(input.ArmyWorld?.FlagMaterialRequests??[]);
         _d3d11ArmyMaterials.WriteNativeInputs(_d3d11ArmyMaterialDirectory!);
-        return input;
+        // Both queues retain the resource snapshot belonging to this capture.
+        // Preparing a later drawing request may publish another generation.
+        _d3d11ResourceContext!.WriteNativeInputs(_d3d11ResourceContextDirectory!);
+        return input.WithResourceContextGeneration(_d3d11ResourceContext.Revision);
     }
     public void SetTerritoryDisplay(bool enabled)
     {
@@ -488,6 +494,7 @@ public partial class MapSceneView
         _d3d11FlagMaterials = null; _d3d11FlagMaterialDirectory = null;
         _d3d11ArmyMaterials = null; _d3d11ArmyMaterialDirectory = null;
         _d3d11ResourceContext?.Dispose(); _d3d11ResourceContext = null;
+        _d3d11ResourceContextDirectory = null;
         _d3d11AnimationPacer=null;_d3d11AnimationDue=false;
         var surface = _d3d11Map; _d3d11Map = null; _d3d11PresentedInput = null; _d3d11Elapsed = 0;
         var skyResources = _d3d11SkyResources; _d3d11SkyResources = null;

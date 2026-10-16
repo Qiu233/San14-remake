@@ -77,13 +77,18 @@ public:
         if(waterReceiver_)updateReceiver(*waterReceiver_,camera);
     }
     void prepareContact(ID3D11Device* device,const fs::path& source,
-        const NativeSourceDepthState& logical,const D3D11_RASTERIZER_DESC& raster,const D3D11_BLEND_DESC& blend,
+        const D3D11_RASTERIZER_DESC& raster,const D3D11_BLEND_DESC& blend,
         const NativeDepthMirror& depth,ID3D11Texture2D* normals,DXGI_FORMAT normalFormat,
-        ID3D11Texture2D* ab,ID3D11DepthStencilView* mainDepth) {
-        contact_=prepareNativeSubShadow63(device,source,logical,raster,blend,depth,normals,normalFormat,ab,mainDepth);
+        ID3D11Texture2D* ab,DXGI_FORMAT abTargetFormat,ID3D11DepthStencilView* mainDepth) {
+        contact_.prepare(device,Interop::readOcclusionResources(source),raster,blend,
+            depth,normals,normalFormat,ab,abTargetFormat,mainDepth);
     }
-    void executeContact(ID3D11DeviceContext* context,NativeSourceDepthState& logical,const D3D11_VIEWPORT& viewport) {
-        executeNativeSubShadow63(context,logical,contact_,viewport);
+    void executeContact(ID3D11Device* device,ID3D11DeviceContext* context,
+        NativeSourceDepthState& logical,const D3D11_VIEWPORT& viewport,
+        const ContactOcclusionInput& input,const source_camera::CameraOptics& lens,
+        unsigned activeGroups,unsigned hostClass,bool commonPresent) {
+        contact_.execute(device,context,logical,viewport,input.settings,lens,activeGroups,
+            hostClass,input.lights,commonPresent);
     }
     void prepareReceiverResources(ID3D11Device* device,const fs::path& source) {
         receiverResources_.prepare(device,source);
@@ -135,7 +140,7 @@ private:
     NativeShadowMap map_;
     NativeShadowCameraGpu gpu_;
     source_shadow_gpu::Plan plan_;
-    NativeSubShadow contact_;
+    ContactOcclusionRenderer contact_;
     NativeShadowReceiverResources receiverResources_;
     std::optional<NativeSourceShadowReceiver> receiver_,waterReceiver_;
 };

@@ -2,6 +2,7 @@
 // Current bank selection owns bindings and buffers; logical depth/raster state
 // remains inherited at each selected fullscreen draw.
 #include <optional>
+#include <cstdint>
 #include "HdrLightingState.h"
 #include "Interop/HdrProgramBindingInputs.h"
 #include "../../Device/ContextEnvironmentResources.h"
@@ -20,15 +21,15 @@ static void applySourceModelStencil(ID3D11Device* device,NativeModelInputs& mode
 }
 struct NativeSourceHdrTarget {
     ComPtr<ID3D11Texture2D> texture;
-    std::string logicalKey;
+    std::uint32_t objectId{};
     DXGI_FORMAT shaderFormat{},targetFormat{};
 };
 static NativeSourceHdrTarget createSourceHdr(ID3D11Device* device,const fs::path& firstPass,
     UINT width,UINT height) {
-    std::string key;UINT resource,shader,target,w,h;
-    std::ifstream input(firstPass/"target.txt");input>>key>>resource>>shader>>target>>w>>h;
+    std::uint32_t objectId;UINT resource,shader,target,w,h;
+    std::ifstream input(firstPass/"target.txt");input>>std::hex>>objectId>>std::dec>>resource>>shader>>target>>w>>h;
     if(!input||w!=width||h!=height)throw std::runtime_error("Source HDR target extent mismatch");
-    NativeSourceHdrTarget result;result.logicalKey=key;
+    NativeSourceHdrTarget result;result.objectId=objectId;
     result.shaderFormat=DXGI_FORMAT(shader);result.targetFormat=DXGI_FORMAT(target);
     D3D11_TEXTURE2D_DESC td{};td.Width=w;td.Height=h;td.ArraySize=td.MipLevels=1;td.SampleDesc.Count=1;
     td.Format=DXGI_FORMAT(resource);td.BindFlags=D3D11_BIND_RENDER_TARGET|D3D11_BIND_SHADER_RESOURCE;

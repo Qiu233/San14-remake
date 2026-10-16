@@ -89,7 +89,7 @@ struct NativePreparedRefractionScene97 {
     NativeRefractionStateOverrides states;
 };
 static NativePreparedRefractionScene97 prepareNativeRefractionScene97(ID3D11Device* device,
-    const fs::path& source,ID3D11Texture2D* hdr,DXGI_FORMAT hdrViewFormat,std::string_view sourceKey,
+    const fs::path& source,ID3D11Texture2D* hdr,DXGI_FORMAT hdrViewFormat,std::uint32_t sourceObjectId,
     const NativeRefractionTargetDeclaration& declared) {
     UINT resource,view,target,width,height;std::ifstream rows(source/"target.txt");rows>>resource>>view>>target>>width>>height;
     if(!rows)throw std::runtime_error("Original Scene97 target absent");
@@ -105,7 +105,7 @@ static NativePreparedRefractionScene97 prepareNativeRefractionScene97(ID3D11Devi
     check(device->CreateRenderTargetView(out.output.texture.Get(),&rd,&out.target),"Scene97 original half-size RTV");
     D3D11_SHADER_RESOURCE_VIEW_DESC sd{};sd.Format=hdrViewFormat;sd.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;sd.Texture2D.MipLevels=1;
     check(device->CreateShaderResourceView(hdr,&sd,&out.input),"Scene97 persistent early HDR SRV");
-    requireRefractionCopySourceOwner(source,out.input.Get(),sourceKey);return out;
+    requireRefractionCopySourceOwner(source,out.input.Get(),sourceObjectId);return out;
 }
 // Call at node97 with the fixed Main HDR object's then-current contents.
 static const NativeRefractionColorTarget& executeNativeRefractionScene97(NativePreparedRefractionScene97& prepared,

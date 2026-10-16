@@ -160,7 +160,7 @@ static NativeRefractionStateOverrides prepareRefractionStateOverrides(ID3D11Devi
 // These checks run once while the graph-selected source is attached to the
 // prepared copy. The draw borrows the retained view without reading media.
 static void requireRefractionCopySourceOwner(const fs::path& source,
-    ID3D11ShaderResourceView* view,std::string_view logicalKey) {
+    ID3D11ShaderResourceView* view,std::uint32_t sourceObjectId) {
     if(!view)throw std::runtime_error("Refraction copy source owner is absent");
     D3D11_SHADER_RESOURCE_VIEW_DESC sampled{};view->GetDesc(&sampled);
     ComPtr<ID3D11Resource> resource;view->GetResource(&resource);
@@ -169,7 +169,7 @@ static void requireRefractionCopySourceOwner(const fs::path& source,
     if(sampled.ViewDimension!=D3D11_SRV_DIMENSION_TEXTURE2D ||
         sampled.Texture2D.MostDetailedMip!=0 || description.ArraySize!=1 || description.SampleDesc.Count!=1)
         throw std::runtime_error("Refraction copy requires a single-surface mip-zero source");
-    requireNativeRefractionCopySource(readNativeRefractionCopySource(source),logicalKey,
+    requireNativeRefractionCopySource(readNativeRefractionCopySource(source),sourceObjectId,
         unsigned(description.Format),unsigned(sampled.Format),description.Width,description.Height);
 }
 static void requireRefractionCopyViewport(const D3D11_VIEWPORT& viewport,
@@ -192,9 +192,9 @@ struct NativePreparedRefractionDepth {
     D3D11_COMPARISON_FUNC depthCompare{};
 };
 static NativePreparedRefractionDepth prepareNativeRefractionDepth(ID3D11Device* device,
-    const fs::path& source,ID3D11ShaderResourceView* input,std::string_view sourceKey,
+    const fs::path& source,ID3D11ShaderResourceView* input,std::uint32_t sourceObjectId,
     const NativeRefractionTargetDeclaration& declared) {
-    requireRefractionCopySourceOwner(source,input,sourceKey);
+    requireRefractionCopySourceOwner(source,input,sourceObjectId);
     UINT resource,shader,target,width,height;std::ifstream file(source/"target.txt");
     file>>resource>>shader>>target>>width>>height;
     if(!file)throw std::runtime_error("Refraction depth copy target declaration is absent");

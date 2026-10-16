@@ -12,7 +12,8 @@ public sealed class CurrentDirectionalLightState
         Vector4 sunBaseline, Vector4 moonBaseline, byte casterPlane, DirectionalLightFogState fog,
         IReadOnlyList<Vector4> quaternions, Vector4 hemisphereDirection,
         Vector3 lensFlareSourceVector, byte casterPlaneForLocalLight, byte casterPlaneForReflectiveShadowMap,
-        bool contextApplied, bool mode6Applied, bool swapped, bool thirdColorMixEnabled)
+        bool contextApplied, bool mode6Applied, bool swapped, bool thirdColorMixEnabled,
+        ContactOcclusionLightModifier contactOcclusion)
     {
         Lighting = lighting; Exposure = exposure; ReceiverBias = receiverBias;
         PatternModifier = patternModifier; SunBaseline = sunBaseline; MoonBaseline = moonBaseline;
@@ -23,6 +24,7 @@ public sealed class CurrentDirectionalLightState
         CasterPlaneForReflectiveShadowMap = casterPlaneForReflectiveShadowMap;
         ContextApplied = contextApplied; Mode6Applied = mode6Applied; SourceHighBitSwappedRows = swapped;
         ThirdColorMixEnabled = thirdColorMixEnabled;
+        ContactOcclusion = contactOcclusion;
     }
 
     public HdrLightState Lighting { get; }
@@ -42,6 +44,7 @@ public sealed class CurrentDirectionalLightState
     public bool Mode6Applied { get; }
     public bool SourceHighBitSwappedRows { get; }
     public bool ThirdColorMixEnabled { get; }
+    public ContactOcclusionLightModifier ContactOcclusion { get; }
 }
 
 /// <summary>The actual root/root provider temporary imported once. Its arithmetic
@@ -66,7 +69,8 @@ public sealed class DirectionalLightCurrentSource
             ShadowReceiverBiasEncoding.ReadLight(bytes), PatternCurrentEncoding.ReadLight(bytes, lighting.Modifier.Present),
             sun, moon, bytes[0xF1C], DirectionalLightFogState.Read(bytes[0x150..]),
             Array.AsReadOnly(new[] { Four(bytes, 0xA0), Four(bytes, 0xB0), Four(bytes, 0xC0), Four(bytes, 0xD0) }),
-            Four(bytes, 0x120), Three(bytes, 0xF80), bytes[0xF1F], bytes[0xF20], false, false, false, mixThirdColor);
+            Four(bytes, 0x120), Three(bytes, 0xF80), bytes[0xF1F], bytes[0xF20], false, false, false, mixThirdColor,
+            ContactOcclusionCurrentEncoding.ImportLight(bytes, lighting.Modifier.Present));
     }
 
     public static DirectionalLightCurrentSource FromTemporary(DirectionalLightProviderTemporary temporary)
@@ -96,7 +100,8 @@ public sealed class DirectionalLightCurrentSource
             return new(result, initial.Exposure, initial.ReceiverBias, initial.PatternModifier,
                 initial.SunBaseline, initial.MoonBaseline, initial.HeaderCasterPlane, initial.Fog,
                 initial.CurrentQuaternions, initial.HemisphereDirection, initial.LensFlareSourceVector,
-                initial.CasterPlaneForLocalLight, initial.CasterPlaneForReflectiveShadowMap, true, false, false, mixThirdColor);
+                initial.CasterPlaneForLocalLight, initial.CasterPlaneForReflectiveShadowMap, true, false, false, mixThirdColor,
+                initial.ContactOcclusion);
         }
         if (mode != 6)
             throw new NotSupportedException("Current directional lighting requires its implemented mode-two or mode-six camera branch.");
@@ -124,7 +129,7 @@ public sealed class DirectionalLightCurrentSource
             camera.SunBaseline, camera.MoonBaseline, initial.HeaderCasterPlane, camera.Fog,
             Array.AsReadOnly(quaternions), hemisphereDirection, camera.LensFlareSourceVector,
             initial.CasterPlaneForLocalLight, initial.CasterPlaneForReflectiveShadowMap,
-            true, true, camera.SourceHighBitSwappedRows, mixThirdColor);
+            true, true, camera.SourceHighBitSwappedRows, mixThirdColor, initial.ContactOcclusion);
     }
 
     private static HdrLightState WithCurrentLighting(HdrLightState source,

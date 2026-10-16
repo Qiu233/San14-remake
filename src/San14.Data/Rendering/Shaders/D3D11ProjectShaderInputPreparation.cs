@@ -31,11 +31,6 @@ public static class D3D11ProjectShaderInputPreparation
         Write("refraction-source-input/copy97/ps.dxbc", ProjectStockShaders.Depth.Dxbc);
         Write("refraction-source-input/copy-scene97/vs.dxbc", vertex);
         Write("refraction-source-input/copy-scene97/ps.dxbc", copy);
-        Write("sub-shadow-input/common-publication/compose-02/vs.dxbc", vertex);
-        Write("sub-shadow-input/common-publication/compose-02/ps.dxbc", ProjectStockShaders.Common140.Dxbc);
-        Write("sub-shadow-input/common-publication/compose-08/vs.dxbc", vertex);
-        Write("sub-shadow-input/common-publication/compose-08/ps.dxbc", ProjectStockShaders.Common140.Dxbc);
-        Write("sub-shadow-input/compose-08/ps.dxbc", copy);
         Write("army-visual-input/glyph/common/glyph-vs.dxbc", vertex);
         Write("army-visual-input/glyph/common/glyph-ps.dxbc", copy);
         Write("army-visual-input/army-material-bank/common/glyph-vs.dxbc", vertex);

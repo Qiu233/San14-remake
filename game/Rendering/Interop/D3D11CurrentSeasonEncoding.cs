@@ -20,9 +20,11 @@ internal static class D3D11CurrentSeasonEncoding
         // Atmosphere316, current selected Exposure32, OUM1 texture material,
         // OBM1 bubble author settings, CRP3 Common policy, HFO1 layers, MSS1 stars,
         // SRC1 ordered per-light receiver bias, OPC1 camera and Pattern modifiers
-        // and optional HLC1 typed lighting inputs, without shader layouts.
+        // optional HLC1 typed lighting inputs and OCC1 contact occlusion inputs,
+        // without shader layouts.
         byte[] hdrBytes = hdr is null ? [] : D3D11HdrFrameEncoding.Write(frame, hdr);
-        byte[] result = new byte[HeaderBytes + MainPrefixBytes + frame.PreparedWords.Count * MainWordBytes + frame.Lights.Count * (LightHeaderBytes + LightNumericBytes) + D3D11CurrentAtmosphereFrame.ByteLength + D3D11CurrentExposureEncoding.ByteLength + OceanTextureMaterialEncoding.ByteLength + OceanBubbleMaterialEncoding.ByteLength + CommonRenderPolicyEncoding.ByteLength + HeightFogSettingsEncoding.ByteLength + SkyStarCurrentEncoding.ByteLength + 4 + frame.Lights.Count * ShadowReceiverBiasEncoding.ByteLength + 4 + PatternCurrentEncoding.CameraByteLength + frame.Lights.Count * PatternCurrentEncoding.ModifierByteLength + hdrBytes.Length];
+        byte[] occlusionBytes = D3D11ContactOcclusionEncoding.Write(frame);
+        byte[] result = new byte[HeaderBytes + MainPrefixBytes + frame.PreparedWords.Count * MainWordBytes + frame.Lights.Count * (LightHeaderBytes + LightNumericBytes) + D3D11CurrentAtmosphereFrame.ByteLength + D3D11CurrentExposureEncoding.ByteLength + OceanTextureMaterialEncoding.ByteLength + OceanBubbleMaterialEncoding.ByteLength + CommonRenderPolicyEncoding.ByteLength + HeightFogSettingsEncoding.ByteLength + SkyStarCurrentEncoding.ByteLength + 4 + frame.Lights.Count * ShadowReceiverBiasEncoding.ByteLength + 4 + PatternCurrentEncoding.CameraByteLength + frame.Lights.Count * PatternCurrentEncoding.ModifierByteLength + hdrBytes.Length + occlusionBytes.Length];
         var bytes = result.AsSpan();
         BinaryPrimitives.WriteUInt32LittleEndian(bytes, (uint)frame.MainMode);
         BinaryPrimitives.WriteUInt32LittleEndian(bytes[4..], (uint)frame.SeasonIndex);
@@ -80,6 +82,8 @@ internal static class D3D11CurrentSeasonEncoding
             at += PatternCurrentEncoding.ModifierByteLength;
         }
         hdrBytes.CopyTo(bytes[at..]);
+        at += hdrBytes.Length;
+        occlusionBytes.CopyTo(bytes[at..]);
         return result;
     }
 

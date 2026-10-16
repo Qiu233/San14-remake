@@ -18,6 +18,7 @@
 #include "../PostProcessing/SeasonPostInputs.h"
 #include "../../Camera/CameraState.h"
 #include "../../Scene/View/Interop/CommonRenderPolicyInput.h"
+#include "../Occlusion/Interop/ContactOcclusionInput.h"
 #include <array>
 #include <cstdint>
 #include <cstring>
@@ -55,6 +56,7 @@ struct Frame {
     ExposureLight exposure;
     std::optional<San14::Render::HdrLightingSettings> hdrLighting;
     std::optional<San14::Render::HdrCurrentSelectionSettings> hdrSelection;
+    std::optional<San14::Render::ContactOcclusionInput> contactOcclusion;
     source_current_season_shadow::Settings shadow;
     source_current_season_shadow::ReceiverStyle shadowReceiver;
     source_current_cloud_weather::Conditions cloudWeather;
@@ -257,7 +259,7 @@ inline Frame decode(std::span<const uint8_t> bytes){
         modifier.offset=read<std::array<float,2>>(bytes,at+36);
         at+=44;
     }
-    if (at < bytes.size()) {
+    if (bytes.size()-at >= sizeof(std::uint32_t) && read<std::uint32_t>(bytes,at)==0x31434C48u) {
         std::array<San14::Render::HdrLightModifier, 5> modifiers;
         if (bytes.size() - at < San14::Render::Interop::HdrLightingInputBytes)
             throw std::runtime_error("Current HDR lighting packet is truncated");
@@ -266,11 +268,11 @@ inline Frame decode(std::span<const uint8_t> bytes){
         for (std::size_t i = 0; i < r.lights.size(); ++i)
             r.lights[i].lighting = San14::Render::Interop::decodeHdrLight(r.lights[i].data, modifiers[i]);
         at += San14::Render::Interop::HdrLightingInputBytes;
-        if (at < bytes.size()) {
+        if (bytes.size()-at >= sizeof(std::uint32_t) && read<std::uint32_t>(bytes,at)==0x31435348u) {
             if (bytes.size() - at < 20) throw std::runtime_error("Current HDR selection settings are truncated");
             r.hdrSelection = San14::Render::Interop::decodeHdrSelectionSettings(bytes.subspan(at,20));
             at += 20;
-            if (bytes.size() - at != 44 || read<std::uint32_t>(bytes,at) != 0x31434F48u)
+            if (bytes.size() - at < 44 || read<std::uint32_t>(bytes,at) != 0x31434F48u)
                 throw std::runtime_error("Current HDR occlusion rates format");
             at += 4;
             for (auto& light : r.lights) {
@@ -279,7 +281,11 @@ inline Frame decode(std::span<const uint8_t> bytes){
             }
         }
     }
-    if (at != bytes.size()) throw std::runtime_error("Current HDR lighting packet tail");
+    if(at<bytes.size()) {
+        r.contactOcclusion=San14::Render::Interop::decodeContactOcclusionInput(bytes.subspan(at));
+        at=bytes.size();
+    }
+    if (at != bytes.size()) throw std::runtime_error("Current season packet tail");
     decodeViewBaseLightInputs(r);
     decodeShadowInputs(r);
     decodeCloudWeatherInputs(r);

@@ -4,6 +4,7 @@
 #include "RenderTargetScope.h"
 #include "DepthState.h"
 #include "../Scene/Terrain/TerrainRasterRules.h"
+#include <cstdint>
 
 namespace San14::Render {
 struct GBufferConfiguration {
@@ -11,7 +12,7 @@ struct GBufferConfiguration {
     std::array<DXGI_FORMAT, 6> resourceFormats;
     std::array<DXGI_FORMAT, 5> formats;
     DXGI_FORMAT depthFormat;
-    std::array<std::string, 6> targetNames;
+    std::array<std::uint32_t, 6> objectIds;
     std::array<UINT, 6> surfaces;
     bool reversedDepth;
 };
@@ -20,7 +21,7 @@ class GBufferTargets {
   public:
     GBufferTargets(ID3D11Device *device, ID3D11DeviceContext *context,
                    const GBufferConfiguration &configuration)
-        : device_(device),depthKey_(configuration.targetNames[5]),depthSurface_(configuration.surfaces[5]),
+        : device_(device),depthObjectId_(configuration.objectIds[5]),depthSurface_(configuration.surfaces[5]),
           depthClear_(geometryDepthClear(configuration.reversedDepth)) {
         D3D11_TEXTURE2D_DESC td{};
         td.Width = configuration.width;
@@ -37,8 +38,8 @@ class GBufferTargets {
         for (int i = 0; i < 5; ++i) {
             td.Format = configuration.resourceFormats[i];
             td.ArraySize = i == 2 ? 5 : i == 3 ? 3 : 1;
-            if (i == 4 && !configuration.targetNames[4].empty() &&
-                configuration.targetNames[4] == configuration.targetNames[2])
+            if (i == 4 && configuration.objectIds[4] != 0 &&
+                configuration.objectIds[4] == configuration.objectIds[2])
                 textures_[i] = textures_[2];
             else
                 check(device->CreateTexture2D(&td, nullptr, &textures_[i]), "G-buffer target");
@@ -127,7 +128,7 @@ class GBufferTargets {
     const std::array<ComPtr<ID3D11Texture2D>, 5> &textures() const { return textures_; }
     const std::array<ID3D11RenderTargetView *, 5> &colors() const { return colors_; }
     ID3D11Texture2D *depthTexture() const { return depth_.Get(); }
-    const std::string& depthKey() const { return depthKey_; }
+    std::uint32_t depthObjectId() const { return depthObjectId_; }
     UINT depthSurface() const { return depthSurface_; }
     ID3D11DepthStencilView *depthView() const { return depthView_.Get(); }
     ID3D11DepthStencilState *depthState() const { return depthState_.Get(); }
@@ -142,7 +143,7 @@ class GBufferTargets {
 
   private:
     ComPtr<ID3D11Device> device_;
-    std::string depthKey_;
+    std::uint32_t depthObjectId_{};
     UINT depthSurface_{};
     std::array<ComPtr<ID3D11Texture2D>, 5> textures_;
     std::array<ComPtr<ID3D11RenderTargetView>, 5> views_;

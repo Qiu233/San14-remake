@@ -15,6 +15,7 @@ inline SceneCameraInputs decodeCamera(const source_camera::Prefix& packet){
     camera.weatherHeight=read<float>(packet,0x210);
     camera.exposure=read<float>(packet,0x170);
     camera.luminance=read<float>(packet,0x17C);
+    camera.optics=source_camera::decodeCameraOptics(packet);
     return camera;
 }
 inline void publishWord(tree2_source::WindEnvironment& vegetation,uint32_t& exposureFlags,int offset,uint32_t bits){

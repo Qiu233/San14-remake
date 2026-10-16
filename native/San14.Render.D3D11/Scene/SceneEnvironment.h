@@ -8,6 +8,7 @@ struct SceneCameraInputs {
     std::array<float,3> position;
     bool ordinary;
     float weatherHeight,exposure,luminance;
+    source_camera::CameraOptics optics;
 };
 struct InitialSceneEnvironment {
     tree2_source::WindEnvironment vegetation;

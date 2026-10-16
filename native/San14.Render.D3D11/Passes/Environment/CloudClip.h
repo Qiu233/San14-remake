@@ -3,6 +3,7 @@
 // Actual prepared face camera + scene228 PlanetRadius; no owner/history/GPU.
 // Finite SSE inverse-trig/tangent kernels reuse the proved Data arithmetic.
 #include "AtmosphereCameraFrame.h"
+#include "../../Camera/CameraTangent.h"
 
 namespace source_work_cloud_clip {
 using namespace source_camera;
@@ -82,33 +83,8 @@ inline float acosSource(float value) {
     }
     return float(DS(halfPi, DS(double(value), DS(low, double(M(ratio, value))))));
 }
-inline float tanSource(float angle) {
-    if (!std::isfinite(angle) || std::abs(angle) > 4)
-        throw std::runtime_error("WORK source tangent finite reduction domain");
-    uint32_t bits;
-    std::memcpy(&bits, &angle, 4);
-    float a = F(bits & 0x7fffffff);
-    if (a == 0 || (bits & 0x7fffffff) < 0x32000000)
-        return angle;
-    double x = a, result;
-    int count = 0;
-    if (x < C(0x3f20000000000000))
-        result = DA(DM(DM(DM(x, x), x), C(0x3fd5555555555555)), x);
-    else {
-        if (x > C(0x3fe921fb54442d18)) {
-            count = int(DA(DM(x, C(0x3fe45f306dc9c883)), .5));
-            x = DS(DS(x, DM(count, C(0x3ff921fb54400000))), DM(count, C(0x3dd0b4611a626331)));
-        }
-        double square = DM(x, x), numerator = DA(DM(C(0xbf919dba6efd6aad), square), C(0x3fd8a8b0da56cb17));
-        double denominator = DA(DM(DA(DM(C(0x3f92e29003c692d9), square), C(0xbfe07266d7b3511b)), square),
-                                C(0x3ff27e84a3e73a2e));
-        result = DA(x, DM(DM(square, x), DD(numerator, denominator)));
-        if (count % 2 != 0)
-            result = DD(-1, result);
-    }
-    float value = float(result);
-    return (bits >> 31) != 0 ? flip(value) : value;
-}
+inline float tanSource(float angle) {return source_camera::tangentSse(angle);}
+
 inline V4 rotateSource(V4 v, V4 axis, float angle) {
     auto sc = sinCos(angle);
     float s = sc[0], c = sc[1];

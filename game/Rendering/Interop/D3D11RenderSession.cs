@@ -70,6 +70,8 @@ public sealed class D3D11MapInput
     }
 
     internal D3D11MapInput WithElapsed(double elapsedSeconds) => new(this, elapsedSeconds);
+    internal D3D11MapInput WithResourceContextGeneration(ulong generation) => new(this, ElapsedSeconds)
+        { ArmyWorld = this.ArmyWorld?.WithResourceContextGeneration(generation) };
     internal D3D11MapInput WithCurrentSeason(D3D11CurrentSeasonFrame frame,
         D3D11CurrentHdrCatalog hdr, string? atmosphereResourceDirectory = null,
         ulong? resourceContextGeneration = null) => new(this, ElapsedSeconds)
