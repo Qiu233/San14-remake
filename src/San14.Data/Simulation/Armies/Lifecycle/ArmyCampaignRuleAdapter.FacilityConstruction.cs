@@ -96,7 +96,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     () => FacilityConstructionCost.Read(working, current, current.ReadArmyUnitForceReference(army), definition, _baseCapacityInputs),
                     city => BasePostLoad.ReadResourceCapacities(city, current).Gold);
                 if (IsPlayerRulerLedDistrict(working, current, image))
-                    AppendConstructionReport(working, current, image, obj, moment,
+                    working = AppendConstructionReport(working, current, image, obj, moment,
                         CampaignReportEvent.PlayerFacilityConstructionStarted, requests);
 
                 CampaignEffectRequest ConstructionPresentation(FacilityConstructionPresentationOperation operation) =>

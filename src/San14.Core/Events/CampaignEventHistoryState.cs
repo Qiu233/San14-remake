@@ -10,7 +10,12 @@ public sealed record CampaignEventHistoryState(bool[] Occurred, bool[] Acknowled
 
 /// <summary>Independent current manager decisions, reset by event resource
 /// loading. These are not world occurrence flags.</summary>
-public sealed record CampaignEventEligibilityState(bool[] Blocked);
+public sealed record CampaignEventEligibilityState(bool[] Blocked)
+{
+    // The independent current script-service recording gate. Fresh resource
+    // loading sets it false; a restored missing field is not the fresh state.
+    public bool? HistoryRecordingSuppressed { get; init; }
+}
 
 /// <summary>Current campaign facts used by events. The elapsed-period offset is
 /// added to the existing calendar owner's period increments; it is not a second clock.</summary>

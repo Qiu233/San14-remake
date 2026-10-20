@@ -22,16 +22,18 @@ internal partial class DeploymentTargetList : Control
     private UiSourceScrollbar? scroll;
     private Action<IReadOnlyList<int>> changed=null!;
     private int groupIndex,scrollSpeed;
+    private Func<int>? currentScrollSpeed;
     internal int GroupIndex=>groupIndex;
     internal IReadOnlyList<int> SelectedOfficers=>groups.SelectMany(group=>group.Rows)
         .Where(row=>selected.Contains(row.OfficerId)).Select(row=>row.OfficerId).ToArray();
 
     internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,MapFont font,
         PreviewText text,IReadOnlyList<DeploymentTargetGroup> groups,IEnumerable<int> selectedOfficers,
-        int scrollSpeedSetting,Action<IReadOnlyList<int>> changed)
+        int scrollSpeedSetting,Action<IReadOnlyList<int>> changed,Func<int>? currentScrollSpeed=null)
     {
         this.repository=repository;this.assets=assets;this.shader=shader;this.font=font;this.text=text;
         this.groups=groups;this.changed=changed;scrollSpeed=scrollSpeedSetting;
+        this.currentScrollSpeed=currentScrollSpeed;
         var officers=groups.SelectMany(group=>group.Rows).Select(row=>row.OfficerId).ToArray();
         if(officers.Distinct().Count()!=officers.Length||groups.Select(group=>group.LocationId).Distinct().Count()!=groups.Count)
             throw new ArgumentException("Target groups must own distinct locations and officers.",nameof(groups));
@@ -85,8 +87,8 @@ internal partial class DeploymentTargetList : Control
             ClipContents=true,MouseFilter=MouseFilterEnum.Pass};AddChild(list);
         scroll=new UiSourceScrollbar {Name="TargetScrollbar",Position=bar.Position,Size=bar.Size};AddChild(scroll);
         var contents=groups.Count==0?Array.Empty<DeploymentTargetRowContent>():groups[groupIndex].Rows;
-        scroll.Configure(repository,assets,shader,Math.Max(0,checked(contents.Count*86)-496),scrollSpeed,value=>
-        {for(int i=0;i<visibleRows.Count;i++)visibleRows[i].Position=new(0,i*86-value);});
+        scroll.Configure(repository,assets,shader,Math.Max(0,checked(contents.Count*86)-496),currentScrollSpeed?.Invoke()??scrollSpeed,value=>
+        {for(int i=0;i<visibleRows.Count;i++)visibleRows[i].Position=new(0,i*86-value);},currentScrollSpeed:currentScrollSpeed);
         list.GuiInput+=scroll.HandleWheel;
         foreach(var content in contents)
         {

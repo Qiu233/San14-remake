@@ -7,7 +7,9 @@ namespace San14.Data;
 /// Numerical callbacks may create real tasks before the first speech getter.</summary>
 internal sealed class TrapFeedback
 {
+    private readonly ArmyCampaignRuleAdapter package;
     private readonly Func<GameState> state;
+    private readonly Action<GameState> replace;
     private readonly SourceWorldContext current;
     private readonly NativeArmyProgressStageMoment moment;
     private readonly GameResourceRepository repository;
@@ -17,10 +19,10 @@ internal sealed class TrapFeedback
     internal List<CampaignEffectRequest> Requests { get; } = [];
     internal ArmyTraitFeedback Traits { get; }
 
-    internal TrapFeedback(Func<GameState> state, SourceWorldContext current,
+    internal TrapFeedback(ArmyCampaignRuleAdapter package, Func<GameState> state, Action<GameState> replace, SourceWorldContext current,
         NativeArmyProgressStageMoment moment, GameResourceRepository repository, LoadedScenario scenario, Func<int> campaignDay)
     {
-        this.state = state; this.current = current; this.moment = moment;
+        this.package = package; this.state = state; this.replace = replace; this.current = current; this.moment = moment;
         this.repository = repository; this.scenario = scenario;
         this.campaignDay = campaignDay;
         Traits = new(state(), current, moment, Requests, state, EnsurePersonnel);
@@ -140,42 +142,33 @@ internal sealed class TrapFeedback
     }
     internal void TriggeredReport(ObjectReference facility, int definition, ForceReference force, HexReference savedHex)
     {
-        string trapName = DefinitionName(definition);
+        string trapName = ReportObjectName(facility);
         ushort areaArgument = Need(current.ReadHexAreaSlot(savedHex), "triggered_saved_Hex12");
-        string areaName = "";
-        if (areaArgument is >= 1 and <= 500)
-        {
-            var area = current.ReadAreaTableReference(areaArgument) ?? throw Missing("triggered_Area_pointer");
-            if (area.PhysicalSlot.HasValue && Need(current.ReadAreaNativeValidity(area), "triggered_Area_validity"))
-                areaName = "^05" + (state().Areas.GetValueOrDefault(Need(current.ReadAreaPhysicalSlot(area), "triggered_Area_identity"))?.Name
-                    ?? throw Missing("triggered_current_Area_name")) + "^00";
-        }
+        var formatted = package.FormatHistoryReport(state(), current, 0x5F80,
+            new HistoryMessageOperands(String0: trapName, Area0: areaArgument));
+        replace(formatted.State);
         int day = Day();
         int place = Need(current.ReadHexPhysicalSlot(savedHex), "triggered_saved_Hex_identity");
         var recipient = PrimaryDistrict(force);
         int district = Need(current.ReadDistrictPhysicalSlot(recipient), "triggered_recipient_identity");
-        Requests.Add(new(null, null) { FacilityTrapReport = new(FacilityTrapReportOperation.Triggered, Receiver(facility),
-            definition, place, day, district, trapName, Need(current.ReadForcePhysicalSlot(force), "triggered_Force_identity"),
-            null, null, null, null, null, null, null, null)
-            { AreaArgument0 = areaArgument, AreaNameAtSource = areaName } });
+        CommitHistory(5, district, place, day, 5012, formatted.Text);
     }
     private int Day() => campaignDay();
     private string TraitName(int trait) => current.ReadPersonalityName(new(trait));
     internal void CounterReport(ObjectReference facility, int definition, ArmyUnitReference army, int trait, HexReference context)
     {
         string traitName = TraitName(trait);
-        string armyName = ArmyName(army);
         byte argument = Need(current.ReadObjectForceSlot13(facility), "counter_report_Object13");
-        var force = TrapCounterReportForceNameSource.Capture(state(), current, argument);
-        string name = DefinitionName(definition);
+        string name = ReportObjectName(facility);
+        var formatted = package.FormatHistoryReport(state(), current, 0xC96A,
+            new HistoryMessageOperands(Army0: army, String0: traitName, String1: name, Force0: argument));
+        replace(formatted.State);
         int person = Person(Need(current.ReadArmyUnitCommanderId(army), "counter_report_Commander12"));
         int officer = Need(current.ReadPersonIdentity(person), "counter_report_Person_identity");
         int day = Day();
-        byte district = District(army);
         int position = Need(current.ReadHexPhysicalSlot(context), "counter_report_Hex_identity");
-        Requests.Add(new(null, null) { FacilityTrapReport = new(FacilityTrapReportOperation.Countered,
-            Receiver(facility), definition, position, day, district, name, null, force,
-            ArmyId(army), officer, armyName, trait, traitName, null, null) });
+        byte district = RawReportDistrict(army);
+        CommitHistory(0, district, position, day, officer, formatted.Text);
     }
     internal void AbnormalReport(ArmyUnitReference army, ObjectReference facility,
         int definition, byte index, int cause, int responseSign)
@@ -190,8 +183,10 @@ internal sealed class TrapFeedback
         int person = Person(Need(current.ReadArmyUnitCommanderId(army), "abnormal_report_Commander12"));
         if (cause is >= 21 and <= 24)
         {
+            string? phrase = cause == 21 ? null : package.ReadHistoryDataText(1, cause switch
+            { 22 => 0x25C, 23 => 0x260, 24 => 0x25E, _ => throw Missing("abnormal_immunity_phrase") });
             int? immunity = FirstTrait(person, cause);
-            if (immunity is int trait) Add(FacilityTrapReportOperation.AbnormalImmunity, trait, null);
+            if (immunity is int trait) Add(FacilityTrapReportOperation.AbnormalImmunity, trait, null, phrase);
             return;
         }
         Add(FacilityTrapReportOperation.AbnormalApplied, null, null);
@@ -218,18 +213,69 @@ internal sealed class TrapFeedback
             if (value == 0 || (value > 0) != positive || NativeAbs(value) <= NativeAbs(best)) return;
             best = value; selected = Need(trait.PhysicalSlot, "abnormal_attribution_trait_identity");
         }
-        void Add(FacilityTrapReportOperation operation, int? trait, bool? positiveContribution)
+        void Add(FacilityTrapReportOperation operation, int? trait, bool? positiveContribution, string? immunityPhrase = null)
         {
-            string name = ArmyName(army);
-            string? traitName = trait is int at ? TraitName(at) : null;
-            int officer = Need(current.ReadPersonIdentity(Person(Need(current.ReadArmyUnitCommanderId(army), "abnormal_report_reporter"))),
-                "abnormal_report_officer");
+            int root;
+            HistoryMessageOperands operands;
+            int category;
+            if (operation == FacilityTrapReportOperation.AbnormalImmunity)
+            {
+                root = cause == 21 ? 0x3228 : 0x3229;
+                operands = new(Army0: army, String0: TraitName(trait ?? throw Missing("abnormal_immunity_trait")), String1: immunityPhrase);
+                category = 0;
+            }
+            else if (operation == FacilityTrapReportOperation.AbnormalApplied)
+            {
+                root = 0x3225;
+                string sourceName = DefinitionName(definition);
+                string phrase = AbnormalPhrase(index);
+                operands = new(Army0: army, String0: sourceName, String1: phrase);
+                category = 5;
+            }
+            else
+            {
+                root = 0x322D;
+                string phrase = AbnormalPhrase(cause switch
+                { 9 => index, 10 => 0, 11 => 1, 12 => 2, _ => throw Missing("abnormal_attribution_phrase") });
+                string sign = package.ReadHistoryDataText(1, positiveContribution == true ? 0x4BA : 0x4B9);
+                operands = new(Army0: army, String0: TraitName(trait ?? throw Missing("abnormal_attribution_trait")), String1: phrase, String2: sign);
+                category = 0;
+            }
+            var formatted = package.FormatHistoryReport(state(), current, root, operands);
+            replace(formatted.State);
             int position = Need(current.ReadArmyUnitRawHex2A(army), "abnormal_report_Army2A");
             int day = Day();
-            Requests.Add(new(null, null) { FacilityTrapReport = new(operation, Receiver(facility), definition,
-                position, day, district, DefinitionName(definition), null, null, ArmyId(army), officer,
-                name, trait, traitName, index, positiveContribution) });
+            CommitHistory(category, district, position, day, 5012, formatted.Text);
         }
+    }
+
+    private string AbnormalPhrase(int index) => package.ReadHistoryDataText(1, index switch
+    { 0 => 0x25C, 1 => 0x260, 2 => 0x25E, _ => throw Missing("abnormal_report_index") });
+
+    private string ReportObjectName(ObjectReference facility)
+    {
+        //Complete22EFD0: actual Object12 lookup, no extra Object-validity gate.
+        var definition = FacilityConstructionLegality.DefinitionOf(current, facility);
+        return Need(current.ReadObjectDefinitionValidity(definition), "report_Object_definition_validity")
+            ? DefinitionName(Need(definition.PhysicalSlot, "report_Object_definition_pointer"))
+            : CampaignHistoryWriter.Supplemental(state()) ?? throw Missing("report_Object_empty_text");
+    }
+
+    private byte RawReportDistrict(ArmyUnitReference army)
+    {
+        ushort raw = Need(current.ReadArmyUnitCommanderId(army), "report_recipient_Commander12");
+        var reference = (raw <= 6000 ? current.ReadPersonLookupReference(raw) : current.ReadTransferPersonTableReference(0))
+            ?? throw Missing("report_recipient_Person_lookup");
+        if (reference.PhysicalSlot is not int person) return 0;
+        return Need(current.ReadPersonNativeValidity(person), "report_recipient_Person_validity")
+            ? Need(current.ReadPersonDistrictSlot(person), "report_recipient_E0") : (byte)0;
+    }
+
+    private void CommitHistory(int category, int district, int hex, int day, int person, string text)
+    {
+        var latest = state();
+        replace(package.WriteHistory(latest, current, new ReportCommand(category, district, hex, day, text,
+            CampaignHistoryWriter.Supplemental(latest), person, MarkBit4: 1), Requests));
     }
     private UnitState ArmyImage(ArmyUnitReference army)
     {

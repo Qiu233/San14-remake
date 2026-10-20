@@ -40,11 +40,9 @@ public sealed partial class ArmyCampaignRuleAdapter
                 continue;
             }
             var development = _landmarkDevelopment.Advance(working, investment.Development ?? throw OccupationMissing("landmark_saved_development"));
-            var reports = working.PendingCommandReports.ToList();
-            AddLandmarkCompletionReport(working, current, landmark, id, development.Level, reports);
             working = working with { LandmarkInvestments = new(working.LandmarkInvestments!) { [id] = investment with
-                { Phase = development.Level < 6 ? (byte)1 : (byte)4, AssignedOfficerId = 0, CompletionDay = 0, Development = development } },
-                PendingCommandReports = reports.ToArray() };
+                { Phase = development.Level < 6 ? (byte)1 : (byte)4, AssignedOfficerId = 0, CompletionDay = 0, Development = development } } };
+            working = AddLandmarkCompletionReport(working, current, landmark, development.Level, moment);
             if (development.Level != 6) continue;
             current = LandmarkCurrent(working);
             int owner = LandmarkOwner(current, landmark);

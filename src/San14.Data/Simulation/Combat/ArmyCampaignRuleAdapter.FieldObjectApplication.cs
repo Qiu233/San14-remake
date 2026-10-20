@@ -89,7 +89,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         var announcements = new List<ArmyFireAnnouncement>(state.PendingArmyFireAnnouncements);
         var reports = new List<PeriodReportEntry>(state.PendingCommandReports);
-        IgniteCurrentHex(state, current, hex, duration, false, moment, [], announcements, reports);
+        state = IgniteCurrentHex(state, current, hex, duration, false, moment, [], announcements, reports);
         return BaseCaptureCurrentInputs.PublishCurrent(state, current) with
         { PendingArmyFireAnnouncements = announcements.ToArray(), PendingCommandReports = reports.ToArray() };
     }

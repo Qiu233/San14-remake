@@ -13,11 +13,13 @@ internal sealed class ClientPreferences
         [JsonRequired] public MapEdgeScrollSpeed EdgeScroll { get; init; }
         [JsonRequired] public MapKeyboardScrollSpeed KeyboardScroll { get; init; }
         public AudioVolumeOptions? Audio { get; init; }
+        public ListScrollSpeed? ListScroll { get; init; }
     }
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
     private readonly string path;
     internal MapCameraNavigationOptions Navigation { get; private set; }
     internal AudioVolumeOptions Audio { get; private set; }
+    internal ListScrollSpeed ListScroll { get; private set; }
 
     internal ClientPreferences(string path)
     {
@@ -30,18 +32,21 @@ internal sealed class ClientPreferences
             //Version1's audio always used unity gain. Preserve that actual
             //previous behavior when adding independent mixer preferences.
             1 => new(),
-            2 => file.Audio ?? throw new InvalidDataException("Application audio preferences are missing."),
+            2 or 3 => file.Audio ?? throw new InvalidDataException("Application audio preferences are missing."),
             _ => throw new InvalidDataException($"Unsupported application preferences version {file.Version}.")
         };
         Navigation = new(file.EdgeScroll, file.KeyboardScroll);
+        ListScroll = file.Version == 3 ? file.ListScroll ?? throw new InvalidDataException("Application list scrolling preference is missing.") : ListScrollSpeed.Slow;
+        if (!Enum.IsDefined(ListScroll)) throw new InvalidDataException("Application list scrolling preference is invalid.");
         Navigation.Validate(); Audio.Validate();
     }
 
-    internal void Save(MapCameraNavigationOptions navigation, AudioVolumeOptions audio)
+    internal void Save(MapCameraNavigationOptions navigation, AudioVolumeOptions audio, ListScrollSpeed listScroll)
     {
         navigation.Validate(); audio.Validate();
-        var file = new FileRecord { Version = 2, EdgeScroll = navigation.Edge, KeyboardScroll = navigation.Keyboard, Audio = audio };
+        if (!Enum.IsDefined(listScroll)) throw new ArgumentOutOfRangeException(nameof(listScroll));
+        var file = new FileRecord { Version = 3, EdgeScroll = navigation.Edge, KeyboardScroll = navigation.Keyboard, Audio = audio, ListScroll = listScroll };
         AtomicSaveFiles.Write(path, JsonSerializer.SerializeToUtf8Bytes(file, Json));
-        Navigation = navigation; Audio = audio;
+        Navigation = navigation; Audio = audio; ListScroll = listScroll;
     }
 }

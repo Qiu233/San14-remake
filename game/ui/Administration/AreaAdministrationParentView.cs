@@ -30,7 +30,7 @@ internal partial class AreaAdministrationParentView : Control
     internal void Configure(GameResourceRepository repository,PreviewText text,IReadOnlyList<AreaAdministrationListEntry> entries,
         int scrollSpeedSetting,Action<int> regionRequested,Action returned,Action accepted,Action<bool> modeChanged,
         Func<IReadOnlyList<int>,int,bool,AreaAdministrationListOrder>? order=null,Action<string>? unavailable=null,
-        Action? autoRequested=null,Action? dismissRequested=null)
+        Action? autoRequested=null,Action? dismissRequested=null,Func<int>? currentScrollSpeed=null)
     {
         this.regionRequested=regionRequested;this.returned=returned;this.accepted=accepted;this.modeChanged=modeChanged;
         this.order=order;this.unavailable=unavailable;this.autoRequested=autoRequested;this.dismissRequested=dismissRequested;
@@ -49,7 +49,7 @@ internal partial class AreaAdministrationParentView : Control
         shell.Art(list,3,shell.Rectangle(3,new(191,147)),chrome.Assets,chrome.SpriteShader);
         var clip=new Control {Name="AreaListViewport",Position=new(213,264),Size=new(1464,596),ClipContents=true,MouseFilter=MouseFilterEnum.Pass};list.AddChild(clip);
         scroll=new UiSourceScrollbar {Name="AreaScrollbar",Position=new(1687,265),Size=new(16,597)};list.AddChild(scroll);
-        scroll.Configure(repository,chrome.Assets,chrome.SpriteShader,Math.Max(0,entries.Count*48-596),scrollSpeedSetting,_=>PositionRows());
+        scroll.Configure(repository,chrome.Assets,chrome.SpriteShader,Math.Max(0,entries.Count*48-596),scrollSpeedSetting,_=>PositionRows(),currentScrollSpeed:currentScrollSpeed);
         clip.GuiInput+=scroll.HandleWheel;
         int x=261;
         var iconHeader=new UiSourceColumnButton {Name="AreaPlaceHeader",Position=new(213,214),Size=new(48,48),Disabled=order is null};list.AddChild(iconHeader);

@@ -75,8 +75,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             season = latest.NativeMapSeason ?? throw Missing("history_current_calendar");
             int day = unchecked((latest.NativeArmySimulation?.World.SamplerEpoch
                 ?? throw Missing("history_day450_epoch")).Day450 + (int)season.AdvancedDays);
-            Add(new(PersonAppearanceOperation.History, null, null, null, null,
-                new(personId, district, ordinal, day, history)));
+            replace(package.WriteHistory(latest, current, new(0, district, ordinal, day, history,
+                CampaignHistoryWriter.Supplemental(latest), personId, MarkBit4: 1), effects));
             return true;
         }
 

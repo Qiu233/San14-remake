@@ -31,6 +31,20 @@ public static class ReportPool
 {
     public static ReportReference? Add(ReportCommand command, IReportPoolState state)
     {
+        var selected = WriteRecord(command, state);
+        if (selected is null) return null;
+        if (FirstNulLength(Text(command.Text, "primary text")) != 0)
+        {
+            if (!Known(state.ReadReportUiPresent(), "report UI presence")) return null;
+            state.PresentReport(selected);
+        }
+        return selected;
+    }
+
+    //Domain writes finish before the independent UI service query. Normal
+    //campaign callers stage notification work, never invent UI absence.
+    internal static ReportReference? WriteRecord(ReportCommand command, IReportPoolState state)
+    {
         ArgumentNullException.ThrowIfNull(command); ArgumentNullException.ThrowIfNull(state);
         ReportBlockerState blocker = state.ReadReportBlocker()
             ?? throw new InvalidDataException("Current report blocker pointer is unknown.");
@@ -79,11 +93,6 @@ public static class ReportPool
         UpdateFlag(selected, 0xEF, 16, command.MarkBit4, state);
         UpdateFlag(selected, 0xDF, 32, command.MarkBit5, state);
         state.WriteReportCursor((ushort)next);
-        if (nonempty)
-        {
-            if (!Known(state.ReadReportUiPresent(), "report UI presence")) return null;
-            state.PresentReport(selected);
-        }
         return selected;
     }
 

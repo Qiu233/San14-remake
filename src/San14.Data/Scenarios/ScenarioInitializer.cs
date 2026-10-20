@@ -137,12 +137,14 @@ public static class ScenarioInitializer
             ItemDefinitions = itemProjection.Definitions,
             Items = itemProjection.Items,
             DefaultForceKingdomNameIndex = source.Forces.Single(force => force.Slot == 0).RawKingdomName48,
+            DefaultForceReportColorIndex = source.Forces.Single(force => force.Slot == 0).RawReportColor49,
             Forces = source.Forces.Where(force => force.Slot != 0).ToDictionary(force => force.Slot,
                 force => new ForceState(force.Slot, force.RulerName ?? "", null, null)
                 {
                     RulerId = OptionalId(force.RulerSlot),
                     RankId = force.RankId,
                     KingdomNameIndex = force.RawKingdomName48,
+                    ReportColorIndex = force.RawReportColor49,
                     SourceIndexedBytes13 = force.RawIndexedBytes13?.ToArray(),
                     SourceIndexedBytesEA = force.RawIndexedBytesEA?.ToArray(),
                     // Initial scenario derivation only; no force-record field or runtime succession rule is asserted.

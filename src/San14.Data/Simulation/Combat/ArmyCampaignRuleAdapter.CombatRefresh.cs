@@ -26,12 +26,12 @@ public sealed partial class ArmyCampaignRuleAdapter
             var queries = new ArmyMapGroupingCurrentQueries(state, current, _scenario, _governorInputs,
                 Seed.Language, SimulationRuleIdentity.ForLocale(Seed.Language));
             var projection = new NormalCombatMixedProducer(state, current, tactics, queries).Generate();
-            var presentation = new NormalCombatPresentationCapture(state, current, queries, tactics);
+            var presentation = new NormalCombatPresentationCapture(this, state, current, queries, tactics);
             foreach (var actor in projection.Actors) presentation.ActorMessages(actor);
-            var working = NormalCombatAssociationTail.Apply(state, current, queries, projection, presentation);
+            var working = NormalCombatAssociationTail.Apply(presentation.State, current, queries, projection, presentation);
             long generation = previous.Generation + 1;
-            var effects = presentation.Effects.Select(effect => ConvertEffect(state, effect)).ToArray();
-            var effectsOwner = state.CampaignEffectRequests ?? throw NormalCombatMixedProducer.Missing("campaign_effect_requests");
+            var effects = presentation.Effects.Select(effect => ConvertEffect(working, effect)).ToArray();
+            var effectsOwner = working.CampaignEffectRequests ?? throw NormalCombatMixedProducer.Missing("campaign_effect_requests");
             var engagements = projection.OrderedPairs.Select(pair => new CombatEngagementPair(
                 new(ParticipantKind(pair.Actor.Kind), pair.Actor.ForceSlot),
                 new(ParticipantKind(pair.Target.Kind), pair.Target.ForceSlot))).ToArray();
@@ -65,6 +65,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     };
     private static CampaignEffectRequest ConvertEffect(GameState state, CapturedCombatEffect effect)
     {
+        if (effect.HistoryNotification is { } history) return new(null, null) { HistoryNotification = history };
         if (effect.PersonLine is { } speech)
         {
             var kind = speech.EntityKind == 1 ? CombatParticipantKind.Army :

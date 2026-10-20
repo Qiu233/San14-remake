@@ -6,7 +6,7 @@ using San14.Data;
 /// Queries use the same publication; closing only releases the input surface.</summary>
 internal sealed class CityDomesticPersonSelectionHost(Node parent, GameResourceRepository repository,
     PreviewText text, GameState world, CityDomesticDraft draft, Func<bool> current,
-    Action<string> unavailable, int scrollSpeed) : IDisposable
+    Action<string> unavailable, int scrollSpeed,Func<int>? currentScrollSpeed=null) : IDisposable
 {
     private readonly Dictionary<CityDomesticDuty, CityDomesticPersonListState> lists = [];
     private CityDomesticPersonSelectionView? active;
@@ -47,7 +47,7 @@ internal sealed class CityDomesticPersonSelectionHost(Node parent, GameResourceR
             parent.AddChild(view);
             bool Current() => !disposed && current() && ReferenceEquals(active, view) && draft.Revision == page.Revision;
             view.Configure(repository, text, selection.Duty, CityDomesticPersonColumns.For(selection.Duty, state.ActivePage), page.Entries,
-                state, page.Preselection.Value, scrollSpeed,
+                state, page.Preselection.Value, currentScrollSpeed?.Invoke()??scrollSpeed,
                 (pageIndex, rows, column, ascending) =>
                 {
                     if (!Current()) return new(null, "city-domestic.person.selector_stale");
@@ -66,7 +66,7 @@ internal sealed class CityDomesticPersonSelectionHost(Node parent, GameResourceR
                     return next.Available && next.Value!.Revision == page.Revision
                         ? new(next.Value.Entries, null)
                         : new(null, next.UnresolvedInput ?? "city-domestic.person.selector_stale");
-                });
+                },currentScrollSpeed);
             return Close;
         }
         catch { Close(); throw; }

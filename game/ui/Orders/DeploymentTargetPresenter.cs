@@ -31,7 +31,8 @@ internal sealed class DeploymentTargetPresenter : IDisposable
         GameState world,ArmyCampaignRuleAdapter rules,int source,int force,IReadOnlyList<DeploymentDraftRow> rows,
         Func<int,Vector2?> project,Action<IReadOnlyList<DeploymentDraftRow>> accepted,Action back,
         Action<string> unavailable,Action<bool> modalChanged,
-        Func<DeploymentBehavior,Action<GameState>,bool>? saveDefaults=null,IEnumerable<int>? editedPolicyOfficers=null)
+        Func<DeploymentBehavior,Action<GameState>,bool>? saveDefaults=null,IEnumerable<int>? editedPolicyOfficers=null,
+        Func<int>? scrollSpeed=null)
     {
         this.view=view;this.repository=repository;this.text=text;this.world=world;this.rules=rules;
         this.source=source;this.force=force;this.project=project;this.accepted=accepted;this.back=back;
@@ -46,9 +47,9 @@ internal sealed class DeploymentTargetPresenter : IDisposable
         var resources=rules.QueryDeploymentDraftResources(world,source,rows);
         view.Configure(repository,text,city,resources.Troops?.CurrentTroops
             ??throw new InvalidDataException("Deployment troop availability is unknown."),
-            resources.DecisionCommandBooks,[new(source,city.Name,contents)],Draft.SelectedOfficers,0,
+            resources.DecisionCommandBooks,[new(source,city.Name,contents)],Draft.SelectedOfficers,scrollSpeed?.Invoke()??0,
             officers=>{if(disposed)return;CloseMenu();Draft.SelectOfficers(officers);Refresh();},
-            ()=>{if(!disposed)unavailable("deployment.target.facility_selection");},RequestBack);
+            ()=>{if(!disposed)unavailable("deployment.target.facility_selection");},RequestBack,currentScrollSpeed:scrollSpeed);
         view.ApplyDraftResources(resources);Refresh();
     }
 

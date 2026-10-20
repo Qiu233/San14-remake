@@ -193,12 +193,12 @@ internal partial class DeploymentSetupView : Control
     public override void _Process(double delta)=>RefreshBatchBalloon();
 
     internal void ApplyDraftSummaries(GameResourceRepository repository,IReadOnlyList<DeploymentSummaryRowContent> contents,
-        int? selectedOfficer,Action<int> selected,Action<int> removed,Action add,int scrollSpeedSetting=0)
+        int? selectedOfficer,Action<int> selected,Action<int> removed,Action add,int scrollSpeedSetting=0,Func<int>? currentScrollSpeed=null)
     {
         int scroll=summaries.ScrollValue,index=summaries.GetIndex();
         summaries.Hide();summaries.Name="PreviousDeploymentSummaries";summaries.QueueFree();
         summaries=new DeploymentSummaryList {Name="DeploymentSummaries"};canvas.AddChild(summaries);canvas.MoveChild(summaries,index);
-        summaries.Configure(repository,assets!,shader!,font!,contents,selectedOfficer,scrollSpeedSetting,selected,removed,add);
+        summaries.Configure(repository,assets!,shader!,font!,contents,selectedOfficer,scrollSpeedSetting,selected,removed,add,currentScrollSpeed);
         summaries.SetScrollValue(scroll);SetMeta("deployment_empty",contents.Count==0);
     }
 

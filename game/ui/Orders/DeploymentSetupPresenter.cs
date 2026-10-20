@@ -15,6 +15,7 @@ internal sealed class DeploymentSetupPresenter : IDisposable
     private readonly int source;
     private readonly Action<IReadOnlyList<DeploymentDraftRow>> accepted;
     private readonly Action<string> unavailable;
+    private readonly Func<int>? scrollSpeed;
     private readonly Dictionary<int,LoadedSprite?> portraits=[];
     private DeploymentPersonSelectionView? modal;
     private DeploymentCalculatorDialog? batchCalculator;
@@ -28,10 +29,11 @@ internal sealed class DeploymentSetupPresenter : IDisposable
     internal DeploymentSetupPresenter(DeploymentSetupView view,GameResourceRepository repository,PreviewText text,
         GameState world,ScenarioCityPreview scenario,ArmyCampaignRuleAdapter rules,int sourceLocationId,
         Action<IReadOnlyList<DeploymentDraftRow>> accepted,Action<string> unavailable,
-        IReadOnlyList<DeploymentDraftRow>? acceptedRows=null)
+        IReadOnlyList<DeploymentDraftRow>? acceptedRows=null,Func<int>? scrollSpeed=null)
     {
         this.view=view;this.repository=repository;this.text=text;this.world=world;this.scenario=scenario;this.rules=rules;
         source=sourceLocationId;this.accepted=accepted;this.unavailable=unavailable;
+        this.scrollSpeed=scrollSpeed;
         Draft=new(world,source,rules);
         if(acceptedRows is not null)Draft.RestoreAcceptedRows(acceptedRows);
         RefreshAll();
@@ -45,7 +47,7 @@ internal sealed class DeploymentSetupPresenter : IDisposable
         var entries=DeploymentPersonListContent.Create(repository,text,world,scenario,query);
         var selection=new DeploymentPersonSelectionView();modal=selection;view.AddChild(selection);
         selection.Configure(repository,text,entries,query.MaximumSelection!.Value,
-            Draft.Rows.Select(row=>row.Request.OfficerId),0,result=>
+            Draft.Rows.Select(row=>row.Request.OfficerId),scrollSpeed?.Invoke()??0,result=>
             {
                 if(disposed||modal!=selection)return;
                 modal=null;selection.Hide();selection.QueueFree();
@@ -61,7 +63,7 @@ internal sealed class DeploymentSetupPresenter : IDisposable
             (rows,slot,ascending)=>rules.QueryDeploymentPersonTacticOrder(world,rows,slot,ascending),
             id=>world.Tactics.GetValueOrDefault(id)?.Name,
             ids=>rules.QueryDeploymentPersonTraits(world,ids),
-            (rows,slot,ascending)=>rules.QueryDeploymentPersonTraitOrder(world,rows,slot,ascending));
+            (rows,slot,ascending)=>rules.QueryDeploymentPersonTraitOrder(world,rows,slot,ascending),currentScrollSpeed:scrollSpeed);
     }
 
     internal bool TryCancelModal()
@@ -104,7 +106,8 @@ internal sealed class DeploymentSetupPresenter : IDisposable
             portraits.GetValueOrDefault(row.Request.OfficerId),figures[row.Request.OfficerId])).ToArray();
         view.ApplyDraftSummaries(repository,contents,Draft.FocusedOfficerId,officer=>
         {if(disposed)return;Draft.FocusOfficer(officer);RefreshAll();},officer=>
-        {if(disposed)return;if(Draft.RemoveOfficer(officer) is { } error)unavailable(error);else RefreshAll();},OpenOfficerSelection);
+        {if(disposed)return;if(Draft.RemoveOfficer(officer) is { } error)unavailable(error);else RefreshAll();},OpenOfficerSelection,
+            scrollSpeed?.Invoke()??0,scrollSpeed);
         RefreshUnit();RefreshHeader();
     }
 

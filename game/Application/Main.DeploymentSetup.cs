@@ -48,7 +48,7 @@ public partial class Main
                     if(!IsDeploymentCurrent(world,map)||_deploymentSetup!=view)return;
                     var targets=_deploymentCityDraft!.AcceptMake(rows);
                     CloseDeploymentMakeView();OpenDeploymentTarget(world,map,cityId,force,targets);
-                }),DeploymentUnavailable,_deploymentCityDraft.AcceptedRows);
+                }),DeploymentUnavailable,_deploymentCityDraft.AcceptedRows,CurrentListScrollSpeed);
         }
         catch{CloseDeploymentSetup();throw;}
     }
@@ -83,7 +83,7 @@ public partial class Main
                         if(saved)HideDeploymentHud();
                     });
                     return saved;
-                },editedPolicyOfficers:_deploymentCityDraft!.EditedPolicyOfficers);
+                },editedPolicyOfficers:_deploymentCityDraft!.EditedPolicyOfficers,scrollSpeed:CurrentListScrollSpeed);
             map.SetDetailsOpen(false,keepMapVisible:true);HideDeploymentHud();
             map.SetCommandTargetPicker(_deploymentTargetPresenter.PickTarget,_deploymentTargetPresenter.AllowPointer);
         }

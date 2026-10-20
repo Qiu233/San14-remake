@@ -147,7 +147,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (action == 1 && goal == at && image.March?.Target == ArmyMarchDestination.None)
                 {
                     if (image.NativeCommandChoice41 != 0 || image.NativeMapUiByte13C != 0) throw MaintenanceMissing("arrival_choice0_MapUi0");
-                    if (IsPlayerRulerLedDistrict(working, current, image)) working = AddMaintenanceReport(working, current, image, moment, "army_move_arrived", "C35A");
+                    if (IsPlayerRulerLedDistrict(working, current, image)) working = AddMaintenanceReport(working, current, image, moment, 0xC35A);
                     if (control != 0)
                     {
                         lifecycle = working.ReadArmyLifecycle()!;
@@ -157,7 +157,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                         working = (working with { Units = new(working.Units) { [image.Id] = image } }).WithArmyLifecycle(lifecycle with
                         { Receivers = lifecycle.Receivers.With(lifecycle.Receivers.Find(receiver.ReceiverId)! with { SavedCommand = ArmySavedCommandState.Cleared }), Source = lifecycle.Source with { Slots = sources } });
                         var player = OwnedCurrentPlayerForce.ReadCurrentReference(working, current) ?? throw MaintenanceMissing("player_force");
-                        if (player.PhysicalSlot == force) working = AddMaintenanceReport(working, current, image, moment, "army_command_restored", "C96F");
+                        if (player.PhysicalSlot == force) working = AddMaintenanceReport(working, current, image, moment, 0xC96F);
                     }
                     // 2A11A0(0): action1 emits no order-finished speech; source
                     // flags150 bit2 is cleared, ordinary choice0 writes no order.
@@ -236,7 +236,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             working = working with { CampaignEffectRequests = (working.CampaignEffectRequests ?? throw MaintenanceMissing("finish_effect_owner"))
                 .Append(CampaignEffectSource.ArmyCommandMaintenance, moment.CalendarCycleOrdinal, [new(speech, null)]) };
             if (IsPlayerRulerLedDistrict(working, current, image))
-                working = AddMaintenanceReport(working, current, image, moment, "army_false_report_order_finished", "C360");
+                working = AddMaintenanceReport(working, current, image, moment, 0xC360);
         }
         if (!OwnedArmyDestructorFlags.SetSourceBit(current, physical, 2, false)) throw MaintenanceMissing("finish_flag_write");
         return working.WithArmyLifecycle(OwnedArmyDestructorFlags.PublishCurrent(working.ReadArmyLifecycle()!, current));
@@ -294,27 +294,71 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     private static bool IsPlayerRulerLedDistrict(GameState state, SourceWorldContext current, UnitState image)
     {
-        var player = OwnedCurrentPlayerForce.ReadCurrentReference(state, current) ?? throw MaintenanceMissing("report_player");
-        if (!MaintenanceKnown(current.ReadForceNativeValidity(player), "report_player_validity")) return false;
-        int person = current.ResolveOfficerSource(image.OfficerId) ?? throw MaintenanceMissing("report_person");
-        int district = MaintenanceKnown(current.ReadPersonDistrictSlot(person), "report_district");
-        if (district > 51) district = 0;
-        if (MaintenanceKnown(current.ReadDistrictForceId(district), "report_district_force") != player.PhysicalSlot) return false;
-        ushort leaderId = MaintenanceKnown(current.ReadDistrictLeader(district), "report_district_leader");
-        var leader = current.ReadPersonLookupReference(leaderId <= 6000 ? leaderId : 0) ?? throw MaintenanceMissing("report_leader_pointer");
-        if (leader.PhysicalSlot is not int leaderPhysical) return false;
-        if (!MaintenanceKnown(current.ReadPersonNativeValidity(leaderPhysical), "report_leader_validity")) return false;
-        return MaintenanceKnown(current.ReadPersonStatus(leaderPhysical), "report_leader_status") == 1;
+        var army = new ArmyUnitReference(image.NativeArmyOrigin?.NativeSlotIndex
+            ?? throw MaintenanceMissing("report_Army_receiver"));
+        //22BC70 reads the current Army12 and that Person's E0. E0 is a
+        //logical District lookup operand, never an assumed physical slot.
+        byte raw = ReadFacilityHistoryDistrict(current, army);
+        var district = current.ReadDistrictTableReference(raw <= 51 ? raw : 0)
+            ?? throw MaintenanceMissing("report_District_lookup");
+        return BaseCaptureRewardSource.ReadPlayerRulerDistrict(current, district, MaintenanceMissing);
     }
-    private static GameState AddMaintenanceReport(GameState state, SourceWorldContext current, UnitState image, NativeArmyProgressStageMoment moment, string kind, string source)
+    private GameState AddMaintenanceReport(GameState state, SourceWorldContext current, UnitState image,
+        NativeArmyProgressStageMoment moment, int root)
     {
-        int person = current.ResolveOfficerSource(image.OfficerId) ?? throw MaintenanceMissing("report_person");
-        int district = MaintenanceKnown(current.ReadPersonDistrictSlot(person), "report_district");
-        int force = current.ReadArmyUnitRawForceSlot(new(image.NativeArmyOrigin!.NativeSlotIndex));
-        var report = new PeriodReportEntry(kind, force, OfficerId: image.OfficerId)
-        { UnitId = image.Id, DistrictId = district == 0 ? null : district, CommandChoiceId = image.NativeCommandChoice41,
-            CampaignDay = StatusCampaignDay(state, moment), RuleId = "army.progress.command-maintenance." + source };
-        return state with { PendingCommandReports = [.. state.PendingCommandReports, report] };
+        var army = new ArmyUnitReference(image.NativeArmyOrigin?.NativeSlotIndex
+            ?? throw MaintenanceMissing("report_Army_receiver"));
+        HistoryMessageOperands operands;
+        if (root == 0xC35A)
+        {
+            byte choice = MaintenanceKnown(image.NativeCommandChoice41, "report_choice41");
+            operands = new(Army0: army, String0: ReadHistoryChoiceName(state, choice));
+        }
+        else if (root == 0xC96F) operands = new(Army0: army);
+        else if (root == 0xC360)
+        {
+            //2A11A0 selects this key using its cached action before binding
+            //the fresh action/choice strings. The current caller is action17.
+            byte cachedAction = MaintenanceKnown(ArmyConfigurationSourceAdapter.ReadAction(state, image), "finish_cached_action37");
+            int key = cachedAction switch
+            {
+                8 => throw MaintenanceMissing("finish_action8_capacity_2AB7D0"),
+                14 or 16 => 0x63A,
+                _ => 0x638
+            };
+            byte action = MaintenanceKnown(ArmyConfigurationSourceAdapter.ReadAction(state, image), "finish_report_action37");
+            string actionName = ReadHistoryDataText(0, 259 + action);
+            byte choice = MaintenanceKnown(image.NativeCommandChoice41, "finish_report_choice41");
+            string choiceName = ReadHistoryChoiceName(state, choice);
+            string resultName = ReadHistoryDataText(1, key);
+            operands = new(Army0: army, String0: actionName, String1: choiceName, String2: resultName);
+        }
+        else throw MaintenanceMissing("report_source_variant");
+
+        var formatted = FormatHistoryReport(state, current, root, operands);
+        state = formatted.State;
+        int commander = MaintenanceKnown(current.ReadArmyUnitCommanderId(army), "report_current_Commander12");
+        int hex, day;
+        //C360 reads Army2A before450; C35A/C96F read450 before Army2A.
+        if (root == 0xC360)
+        {
+            hex = MaintenanceKnown(current.ReadArmyUnitRawHex2A(army), "report_current_Hex2A");
+            day = StatusCampaignDay(state, moment);
+        }
+        else
+        {
+            day = StatusCampaignDay(state, moment);
+            hex = MaintenanceKnown(current.ReadArmyUnitRawHex2A(army), "report_current_Hex2A");
+        }
+        int district = ReadFacilityHistoryDistrict(current, army);
+        var requests = new List<CampaignEffectRequest>();
+        state = WriteHistory(state, current, new ReportCommand(5, district, hex, day, formatted.Text,
+            CampaignHistoryWriter.Supplemental(state), commander, MarkBit4: 1), requests);
+        return requests.Count == 0 ? state : state with
+        {
+            CampaignEffectRequests = (state.CampaignEffectRequests ?? throw MaintenanceMissing("report_effect_owner"))
+                .Append(CampaignEffectSource.ArmyCommandMaintenance, moment.CalendarCycleOrdinal, requests)
+        };
     }
     private static T MaintenanceKnown<T>(T? value, string input) where T : struct => value ?? throw MaintenanceMissing(input);
     private static InvalidDataException MaintenanceMissing(string input) => new("army.command-maintenance." + input);

@@ -9,9 +9,12 @@ internal sealed class DeploymentNarrationCurrentPeople(GameState state, SourceWo
     TacticRemakeCurrentAbilities abilities, int speaker, int ruler, int? area = null, Func<int,int,int?>? panelReader = null,
     ushort? cityArgument = null, Func<string>? readZeroStrengthText = null,
     GameResourceRepository? appearanceRepository = null, LoadedScenario? appearanceScenario = null,
-    string? appearanceLanguage = null, int? forceArgument = null) : INarrationCurrentContext
+    string? appearanceLanguage = null, int? forceArgument = null,
+    int? personArgument2 = null, int? personArgument3 = null) : INarrationCurrentContext
 {
-    private readonly int[] _arguments = [speaker, ruler];
+    private readonly int?[] _arguments = [speaker, ruler, personArgument2, personArgument3];
+    private int Argument(int index) => (uint)index < (uint)_arguments.Length && _arguments[index] is int id
+        ? id : throw Missing("person_argument");
     private static T Need<T>(T? value, string input) where T:struct => value ?? throw Missing(input);
     private static InvalidDataException Missing(string input) => new("deployment.narration." + input);
     private int Physical(int id) => current.ReadPersonLookupReference(id is >= 0 and <= 6000 ? id : 0)?.PhysicalSlot ?? throw Missing("person_pointer");
@@ -47,7 +50,7 @@ internal sealed class DeploymentNarrationCurrentPeople(GameState state, SourceWo
     }
     public int PersonValue(int argument, int field)
     {
-        int id = _arguments[argument];
+        int id = Argument(argument);
         if (field == 0) return id;
         if (id is < 1 or > 6000 || !Valid(id) && id is not (>= 2001 and <= 2088)) return 0;
         return field switch
@@ -60,6 +63,8 @@ internal sealed class DeploymentNarrationCurrentPeople(GameState state, SourceWo
             '_' => (uint)(id - 5012) < 22 ? 1 : 0,
             '\\' => id == Field(id, 0xBC) ? 1 : 0,
             'G' => Status(id) == 1 ? Rank(id) : 0,
+            'H' => StatusField(id).Value,
+            'c' => CurrentPlayerField(id),
             'o' => Need(current.ReadMoraleWavePersonPostE7(Physical(id)), "current_office"),
             '=' => Age(id),
             'A' => EffectiveOperand(id, 0), 'B' => EffectiveOperand(id, 1),
@@ -102,10 +107,11 @@ internal sealed class DeploymentNarrationCurrentPeople(GameState state, SourceWo
     }
     public string PersonText(int argument, int field)
     {
-        int id = _arguments[argument];
+        int id = Argument(argument);
         if (id is < 1 or > 6000) return "";
         int physical = Physical(id);
         if (!Need(current.ReadPersonNativeValidity(physical), "person_validity") && id is not (>= 2001 and <= 2088)) return "";
+        if (field == 'H') return StatusField(id).Text;
         if (field == 'T') return FirstLocationText(physical);
         if (field == 'o') return OfficeText(id);
         if (field == 'R') return PersonForceName(id).Text;
@@ -234,6 +240,42 @@ internal sealed class DeploymentNarrationCurrentPeople(GameState state, SourceWo
         if (!Need(OwnedArmyMoraleWaveInputs.ReadPostNativeValidity(state, post), "office_validity")) return string.Empty;
         return state.OfficerOffices.TryGetValue(post, out var office) ? "^05" + office.Name + "^00" : throw Missing("current_office_name");
     }
+
+    private (int Value, string Text) StatusField(int id)
+    {
+        int physical = Physical(id);
+        string label;
+        if ((Need(current.ReadArmyReturnPersonFlags196(physical), "H_flags15E") & 0x4000) != 0)
+            label = StatusLabel(1, 0x859);
+        else
+        {
+            byte selector = Need(current.ReadPersonStatus(physical), "H_label_status");
+            label = selector <= 9 ? StatusLabel(0, 0xF9 + selector) : string.Empty;
+        }
+        string text = CityDomesticMessageFormatting.FormatAbilityField(label);
+        return (Need(current.ReadPersonStatus(physical), "H_fresh_numeric_status"), text);
+    }
+    private string StatusLabel(int section, int index)
+    {
+        //The reached repository is the existing resource-service profile. A
+        //missing owner/load failure is Unknown, never a fabricated not-ready result.
+        if (appearanceLanguage is not ("TC" or "SC")) throw Missing("H_resource_language");
+        appearanceData ??= (appearanceRepository ?? throw Missing("H_resource_owner"))
+            .LoadMessages(appearanceLanguage, MessageKind.Data).Messages;
+        if ((uint)section >= (uint)appearanceData.Sections.Count ||
+            (uint)index >= (uint)appearanceData.Sections[section].Records.Count) throw Missing("H_label_resource");
+        return Head(appearanceData.Sections[section].Records[index].Text ?? throw Missing("H_label_text"));
+    }
+    private int CurrentPlayerField(int id)
+    {
+        var first = current.ReadPersonForce(Physical(id)) ?? throw Missing("c_first_Force_pointer");
+        int firstOrdinal = Need(current.ReadForcePhysicalSlot(first), "c_first_Force_ordinal");
+        if (firstOrdinal is < 1 or > 51) return 0;
+        var fresh = current.ReadPersonForce(Physical(id)) ?? throw Missing("c_fresh_Force_pointer");
+        var player = OwnedCurrentPlayerForce.ReadCurrentReference(state, current) ?? throw Missing("c_player_Force_pointer");
+        int playerOrdinal = Need(current.ReadForcePhysicalSlot(player), "c_player_Force_ordinal");
+        return playerOrdinal != 0 && playerOrdinal == Need(current.ReadForcePhysicalSlot(fresh), "c_fresh_Force_ordinal") ? 1 : 0;
+    }
     public string AreaText(int argument, int field)
     {
         if (argument != 0 || field != '3') throw Missing("area_text_field");
@@ -330,23 +372,7 @@ internal sealed class DeploymentNarrationCurrentPeople(GameState state, SourceWo
     }
     private int Emperor => Need(CityCaptureTerritoryInputs.ReadEmperor1654(state), "current_emperor");
     private bool Senior(int a, int b)
-    {
-        if (Status(a) == 1 && Rank(a) == 1) return true;
-        if (a == Emperor) return true;
-        if (Field(a, 0xB2) == Field(b, 0xB2))
-        {
-            if (Generation(a) < Generation(b)) return true;
-            if (Generation(a) == Generation(b) && Age(b) <= Age(a)) return true;
-        }
-        if (Sworn(a, b) && Field(b, 0xBC) != b && Age(b) <= Age(a)) return true;
-        if (Spouse(a, b) && Need(Person(b).Sex, "person_sex") == OfficerSex.Female) return true;
-        if (Style(a) == 15) return true;
-        int force = Force(a);
-        if (force is >= 1 and <= 51 && force == Force(b) && Status(a) == 1) return true;
-        if (Mother(b, a)) return true;
-        int mother = Field(b, 0xB6);
-        return Valid(mother) && (Father(mother, a) || Mother(mother, a) || Siblings(mother, a));
-    }
+        => new PersonCurrentSeniority(state, current).IsSenior(Physical(a), Physical(b));
     private bool Junior(int a, int b)
     {
         if (Status(b) == 1 && Rank(b) == 1 || b == Emperor)

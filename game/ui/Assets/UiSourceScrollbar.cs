@@ -1,12 +1,15 @@
 using Godot;
 using San14.Data;
 
+internal enum ListScrollSpeed { Slow, Normal, Fast }
+
 /// <summary>The source pixel scrollbar. Animation is deferred; discrete input
 /// retains the original direction alignment, clamping and thumb geometry.</summary>
 internal partial class UiSourceScrollbar : Control
 {
     private UiSourceButton _thumb = null!;
     private Action<int>? _changed;
+    private Func<int>? _currentScrollSpeed;
     private int _range, _value, _step, _direction, _travel, _interior;
     private bool _dragging;
     private int _pressedMouseY;
@@ -19,11 +22,13 @@ internal partial class UiSourceScrollbar : Control
         Configure(repository, assets, shader, 0, 0, null);
 
     internal void Configure(GameResourceRepository repository, UiAssets assets, Shader shader,
-        int range, int scrollSpeedSetting, Action<int>? changed, int? stepPixels = null)
+        int range, int scrollSpeedSetting, Action<int>? changed, int? stepPixels = null,
+        Func<int>? currentScrollSpeed = null)
     {
         if (range < 0 || Size.Y < 132) throw new ArgumentOutOfRangeException(nameof(range));
         _range = range; _changed = changed;
-        _step = stepPixels ?? (scrollSpeedSetting switch { 1 => 96, 2 => 144, _ => 48 });
+        _step = stepPixels ?? StepPixels(scrollSpeedSetting);
+        _currentScrollSpeed = stepPixels is null ? currentScrollSpeed : null;
         if (_step <= 0) throw new ArgumentOutOfRangeException(nameof(stepPixels));
         int height = (int)Size.Y;
         _travel = height-24-54;
@@ -98,17 +103,23 @@ internal partial class UiSourceScrollbar : Control
         if (_range == 0 || input is not InputEventMouseButton {Pressed:true} mouse) return;
         int direction = mouse.ButtonIndex switch {MouseButton.WheelUp => -1,MouseButton.WheelDown => 1,_ => 0};
         if (direction == 0) return;
-        Step(direction); AcceptEvent();
+        // 84CA80 captures the arrow step at construction. 8728F0 instead
+        // queries the current environment on each admitted wheel input.
+        Step(direction,_currentScrollSpeed is { } current ? StepPixels(current()) : _step); AcceptEvent();
     }
 
-    internal void Step(int direction)
+    private static int StepPixels(int setting) => setting switch { 1 => 96, 2 => 144, _ => 48 };
+
+    internal void Step(int direction) => Step(direction,_step);
+
+    private void Step(int direction,int step)
     {
         if (_range == 0) return;
-        int distance = _step;
+        int distance = step;
         if (_direction != 0 && _direction != direction)
         {
-            int remainder = _value%_step;
-            distance = direction>0 ? _step-remainder : remainder==0 ? _step : remainder;
+            int remainder = _value%step;
+            distance = direction>0 ? step-remainder : remainder==0 ? step : remainder;
         }
         _direction = direction;
         SetValue(_value+direction*distance);

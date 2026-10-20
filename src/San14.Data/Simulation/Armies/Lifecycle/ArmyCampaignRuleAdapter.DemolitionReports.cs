@@ -31,69 +31,67 @@ public sealed partial class ArmyCampaignRuleAdapter
                 position, CombatParticipantKind.FieldObject, removal.Receiver.Value, null, null, null), null));
         }
         // Category4 suppresses only text reporting, after all three prior intents.
-        if (removal.Category != 4) AppendDemolitionReport(state, current, army, image, removal, moment, requests);
+        if (removal.Category != 4) state = AppendDemolitionReport(state, current, army, image, removal, moment, requests);
         return state;
     }
 
-    private void AppendDemolitionReport(GameState state, SourceWorldContext current,
+    private GameState AppendDemolitionReport(GameState state, SourceWorldContext current,
         ArmyUnitReference army, UnitState image, ArmyDemolitionNumberResult removal,
         NativeArmyProgressStageMoment moment, List<CampaignEffectRequest> requests)
     {
+        byte objectFaction = DemolitionKnown(current.ReadObjectForceSlot13(new(removal.Physical)), "report_object_faction");
+        var objectForce = current.ReadForceTableReference(objectFaction <= 51 ? objectFaction : 0)
+            ?? throw DemolitionMissing("report_object_force_pointer");
         bool visible = ReadDemolitionAreaVisibility(state, current, removal.AreaId);
-        if (!DemolitionKnown(current.ReadArmyUnitNativeValidity(army), "report_army_validity")) return;
+        if (!DemolitionKnown(current.ReadArmyUnitNativeValidity(army), "report_army_validity")) return state;
         bool playerDistrict = IsPlayerRulerLedDistrict(state, current, image);
-        if (!playerDistrict && !visible) return;
-        int person = current.ResolveOfficerSource(image.OfficerId) ?? throw DemolitionMissing("report_person");
-        int district; int speaker; CampaignReportEvent reportEvent;
-        byte? choice = null;
+        if (!playerDistrict && !visible) return state;
+        int district, payload, root;
+        string objectName;
+        string? choiceName = null;
         if (playerDistrict)
         {
-            district = DemolitionKnown(current.ReadPersonDistrictSlot(person), "report_player_district");
-            speaker = DemolitionKnown(current.ReadArmyUnitCommanderId(army), "report_player_speaker");
-            choice = image.NativeCommandChoice41 ?? throw DemolitionMissing("report_command_choice");
-            reportEvent = visible && DemolitionKnown(ArmyConfigurationSourceAdapter.ReadAction(state, image), "report_action") == 10
-                ? CampaignReportEvent.PlayerDemolitionVisible : CampaignReportEvent.PlayerDemolitionAcknowledged;
+            district = ReadFacilityHistoryDistrict(current, army);
+            objectName = ReadFacilityArrivalObjectName(state, current, new(removal.Physical));
+            byte choice = image.NativeCommandChoice41 ?? throw DemolitionMissing("report_command_choice");
+            //294FD0 uses119 for choice1 and11A for every other byte.
+            choiceName = ReadHistoryDataText(0, choice == 1 ? 0x119 : 0x11A);
+            root = visible && DemolitionKnown(ArmyConfigurationSourceAdapter.ReadAction(state, image), "report_action") == 10
+                ? 0x5F7B : 0x5F7C;
+            payload = DemolitionKnown(current.ReadArmyUnitCommanderId(army), "report_player_speaker");
         }
         else
         {
-            byte objectFaction = DemolitionKnown(current.ReadObjectForceSlot13(new(removal.Physical)), "report_object_faction");
-            int selectedForce = objectFaction <= 51 ? objectFaction : 0;
-            district = FirstForceDistrict(selectedForce);
-            speaker = 5012;
-            reportEvent = CampaignReportEvent.OtherArmyDemolitionObserved;
+            objectName = ReadFacilityArrivalObjectName(state, current, new(removal.Physical));
+            district = FirstForceDistrict(objectForce);
+            payload = 5012;
+            root = 0x5F7D;
         }
-        // The native report pool's App/ring admission remains an application
-        // consumer. Capture its source-time arguments; never fabricate admission.
-        int selectedDistrict = district <= 51 ? district : 0;
-        bool districtValid = DemolitionKnown(current.ReadDistrictNativeValidity(selectedDistrict), "report_recipient_validity");
-        byte forceSlot = districtValid ? DemolitionKnown(current.ReadDistrictForceId(selectedDistrict), "report_recipient_force") : (byte)0;
-        int forcePhysical = forceSlot <= 51 ? forceSlot : 0;
-        var force = current.ReadForceTableReference(forcePhysical) ?? throw DemolitionMissing("report_force_pointer");
-        byte color = districtValid ? DemolitionKnown(current.ReadForceReportColor(force), "report_force_color") : (byte)60;
-        byte kingdom = DemolitionKnown(current.ReadForceKingdomNameIndex(forcePhysical), "report_force_kingdom");
-        int ruler = current.ReadForceRecord(forcePhysical)?.RawRuler10 ?? throw DemolitionMissing("report_force_ruler");
-        string? rulerName = state.Officers.GetValueOrDefault(ruler)?.Name;
-        string objectName = _repository.LoadObjectDefinitions(_scenario.FixedDataSource.SourcePath).Catalog.Definitions[removal.DefinitionSlot].Name;
-        string armyName = state.Officers.GetValueOrDefault(image.OfficerId)?.Name ?? throw DemolitionMissing("report_army_name");
-        requests.Add(new(null, new(district, removal.HexId, StatusCampaignDay(state, moment), speaker,
-            armyName, objectName, CombatParticipantKind.FieldObject, removal.Receiver.Value,
-            forcePhysical, color, kingdom, ruler)
-        { Event = reportEvent, AreaId = removal.AreaId, CommandChoiceId = choice, RulerNameSnapshot = rulerName }));
+        var formatted = FormatHistoryReport(state, current, root,
+            new HistoryMessageOperands(Army0: army, Area0: removal.AreaId, String0: objectName, String1: choiceName));
+        state = formatted.State;
+        //The selected District and payload precede the formatter. Only450
+        //and the retained original Hex pointer's22DEF0 are read afterwards.
+        int day = StatusCampaignDay(state, moment);
+        int hex = DemolitionKnown(current.ReadHexPhysicalSlot(new(removal.HexId)), "report_retained_Hex_identity");
+        return WriteHistory(state, current, new ReportCommand(5, district, hex, day, formatted.Text,
+            CampaignHistoryWriter.Supplemental(state), payload, MarkBit4: 1), requests);
 
-        int FirstForceDistrict(int force)
+        int FirstForceDistrict(ForceReference force)
         {
-            if (force == 0) return 0;
-            var selected = current.ReadForceRecord(force) ?? throw DemolitionMissing("report_original_force");
-            ushort ruler = selected.RawRuler10;
-            var order = current.ReadRegistryReferences(RegistryKind.District) ?? throw DemolitionMissing("report_complete_districts");
-            foreach (var entry in order)
+            foreach (var entry in current.ReadArmyReturnRegisteredDistricts() ?? throw DemolitionMissing("report_complete_districts"))
             {
-                int physical = entry is { Kind: RegistryKind.District, PhysicalSlot: int at } ? at : throw DemolitionMissing("report_district_entry");
-                if (DemolitionKnown(current.ReadDistrictForceId(physical), "report_district_filter_force") != force) continue;
-                if (DemolitionKnown(current.ReadDistrictLeader(physical), "report_district_filter_leader") == ruler ||
-                    DemolitionKnown(current.ReadDistrictNumber(physical), "report_district_filter_number") == 1) return physical;
+                int physical = entry?.PhysicalSlot ?? throw DemolitionMissing("report_district_entry");
+                int identity = DemolitionKnown(current.ReadForcePhysicalSlot(force), "report_original_force_identity");
+                if (identity is < 1 or > 51 ||
+                    DemolitionKnown(current.ReadDistrictForceId(physical), "report_district_filter_force") != identity) continue;
+                ushort leader = DemolitionKnown(current.ReadDistrictLeader(physical), "report_district_filter_leader");
+                ushort ruler = DemolitionKnown(current.ReadMoraleWaveRuler22EAC0(force), "report_original_force");
+                if (leader == ruler || DemolitionKnown(current.ReadDistrictNumber(physical), "report_district_filter_number") == 1)
+                    return DemolitionKnown(current.ReadDistrictPhysicalSlot(entry!), "report_primary_district_identity");
             }
-            return 0;
+            var fallback = current.ReadDistrictTableReference(0) ?? throw DemolitionMissing("report_primary_district_zero_lookup");
+            return DemolitionKnown(current.ReadDistrictPhysicalSlot(fallback), "report_primary_district_zero_identity");
         }
     }
 

@@ -54,7 +54,8 @@ internal partial class CityDomesticPersonSelectionView : Control
         CityDomesticPersonListState state, int? preselectedOccurrence, int scrollSpeed,
         Func<int, IReadOnlyList<int>, int, bool, AreaAdministrationQuery<IReadOnlyList<int>>> order,
         Action<CityDomesticCandidate?> complete, Action<string> unavailable,
-        Func<int, IReadOnlyList<int>, AreaAdministrationQuery<IReadOnlyList<CityDomesticPersonEntry>>>? queryPage = null)
+        Func<int, IReadOnlyList<int>, AreaAdministrationQuery<IReadOnlyList<CityDomesticPersonEntry>>>? queryPage = null,
+        Func<int>? currentScrollSpeed=null)
     {
         if (!columns.SequenceEqual(CityDomesticPersonColumns.For(duty, state.ActivePage)))
             throw new InvalidDataException("City active-page columns do not match the role preset.");
@@ -101,7 +102,7 @@ internal partial class CityDomesticPersonSelectionView : Control
         }
         scroll = new UiSourceScrollbar { Name = "PersonScrollbar", Position = new(1687, 265), Size = new(16, 597) }; canvas.AddChild(scroll);
         scroll.Configure(repository, assets, shader, Math.Max(0, entries.Count * 48 - 596), scrollSpeed,
-            value => { state.Scroll = value; PositionRows(); });
+            value => { state.Scroll = value; PositionRows(); },currentScrollSpeed:currentScrollSpeed);
         accept = new UiSourceRoundButton { Name = "AcceptCityPersonSelection", Position = new(827, 955) }; canvas.AddChild(accept);
         accept.Configure(repository, assets, shader, text.SourceLocale, "000_cmn_txt_decision_kettei", () =>
         {

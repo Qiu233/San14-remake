@@ -128,6 +128,12 @@ public sealed class OwnedArmyGovernorComparatorInputs
         state.Officers.GetValueOrDefault(_people[physical].PersonId)?.Id is int id &&
         _identities.ResolveOfficer(id) == physical ? ReadWord(state, PersonWord166Key(physical)) : null;
 
+    //253520 reads the current physical receiver's word; it does not join the
+    //static scenario Person ID or consume the other governor-comparator fields.
+    internal ushort? ReadCurrentPhysicalWord166(GameState state, int physical) =>
+        Bound(state) && ReadInt(state, VersionKey) == 1 && (uint)physical < _people.Length
+            ? ReadWord(state, PersonWord166Key(physical)) : null;
+
     public ArmyReturnGovernorComparatorFields? ReadCurrentComparatorFields(GameState state, int physical)
     {
         if (!Bound(state) || ReadInt(state, VersionKey) != 1 || (uint)physical >= _people.Length) return null;

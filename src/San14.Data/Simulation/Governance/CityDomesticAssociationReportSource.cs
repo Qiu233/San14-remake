@@ -16,9 +16,9 @@ internal sealed class CityDomesticAssociationReportSource(GameState state, ArmyO
         try
         {
             var context = new Names(state, definitions, scenario, language, repository, current, person, force);
-            _ = new NarrationResourceMessages(repository.LoadMessages(language, MessageKind.Game).Messages)
+            string text = new NarrationResourceMessages(repository.LoadMessages(language, MessageKind.Game).Messages)
                 .ResolveAssociationRemoval(context);
-            return context.Result();
+            return context.Result() with { Text = text };
         }
         catch (IOException error)
         { throw new InvalidDataException("city-domestic.association.resource", error); }

@@ -2,7 +2,8 @@ namespace San14.Core;
 
 public enum CampaignEffectSource { NormalCombatRefresh, ArmyFalseReport, ArmyProgressNotifications, ArmyCommandMaintenance,
     ArmyDemolition, MapObjectRetirement, ForceAssociationRemoval, FacilityEffects, ArmyFacilityRepair, ArmyFacilityConstruction,
-    ArmyTraitMaintenance, FacilityTraps, ArmyBattleDefeat, FireDamage, TerrainDamage, OfficerGrowthNotifications, PersonAppearance, PersonDeath }
+    ArmyTraitMaintenance, FacilityTraps, ArmyBattleDefeat, FireDamage, TerrainDamage, OfficerGrowthNotifications, PersonAppearance, PersonDeath,
+    LandmarkInvestment }
 public enum CampaignReportEvent { FirstContact, FalseReportSucceeded, FalseReportFailed, FalseReportBackfired,
     ArmyAutomaticTargetSelected, PlayerDemolitionVisible, PlayerDemolitionAcknowledged, OtherArmyDemolitionObserved,
     PlayerFacilityConstructionCompleted, PlayerFacilityRepairCompleted,
@@ -149,6 +150,7 @@ public sealed record PersonDeathReportRequest(PersonDeathReportOperation Operati
 
 public sealed record CampaignEffectRequest(CombatSpeechRequest? Speech, CampaignReportRequest? Report)
 {
+    public CampaignHistoryNotification? HistoryNotification { get; init; }
     public PersonDeathReportRequest? PersonDeathReport { get; init; }
     public PersonAppearanceRequest? PersonAppearance { get; init; }
     public OfficerGrowthFeedbackRequest? OfficerGrowthFeedback { get; init; }
@@ -216,8 +218,25 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                     (request.TerrainDamagePresentation is null ? 0 : 1) +
                     (request.OfficerGrowthFeedback is null ? 0 : 1) +
                     (request.PersonAppearance is null ? 0 : 1) +
-                    (request.PersonDeathReport is null ? 0 : 1) != 1)
+                    (request.PersonDeathReport is null ? 0 : 1) +
+                    (request.HistoryNotification is null ? 0 : 1) != 1)
                     throw new InvalidDataException("A campaign effect requires one semantic payload.");
+                if (request.HistoryNotification is { } notification)
+                {
+                    if (batch.Source is not (CampaignEffectSource.NormalCombatRefresh or
+                        CampaignEffectSource.ArmyFalseReport or CampaignEffectSource.ArmyProgressNotifications or
+                        CampaignEffectSource.ArmyCommandMaintenance or CampaignEffectSource.ArmyDemolition or
+                        CampaignEffectSource.ForceAssociationRemoval or CampaignEffectSource.ArmyFacilityRepair or
+                        CampaignEffectSource.ArmyFacilityConstruction or CampaignEffectSource.FacilityTraps or
+                        CampaignEffectSource.ArmyBattleDefeat or CampaignEffectSource.FireDamage or
+                        CampaignEffectSource.OfficerGrowthNotifications or CampaignEffectSource.PersonAppearance or
+                        CampaignEffectSource.PersonDeath or CampaignEffectSource.LandmarkInvestment))
+                        throw new InvalidDataException("Invalid campaign history notification origin.");
+                    CampaignHistoryValidation.ValidateNotification(notification);
+                    continue;
+                }
+                if (batch.Source == CampaignEffectSource.LandmarkInvestment)
+                    throw new InvalidDataException("A landmark history batch requires a post-write notification.");
                 ValidateTrap(batch.Source, request);
                 ValidateFireDamage(batch.Source, request);
                 ValidateTerrainDamage(batch.Source, request);

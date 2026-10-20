@@ -27,8 +27,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (definition.PhysicalSlot != 7) throw Missing("arrival_Object_name_consumer_outside_kind7");
         if (moment is null) throw Missing("arrival_source_moment");
         var requests = new List<CampaignEffectRequest>();
-        AppendConstructionReport(state, current, image, obj, moment,
-            CampaignReportEvent.PlayerFacilityRepairStarted, requests);
+        state = AppendConstructionReport(state, current, image, obj, moment,
+            CampaignReportEvent.PlayerFacilityRepairStarted, requests, goal);
         return state with { CampaignEffectRequests = (state.CampaignEffectRequests ?? throw Missing("arrival_effect_owner"))
             .Append(CampaignEffectSource.ArmyFacilityConstruction, moment.CalendarCycleOrdinal, requests) };
     }
@@ -107,29 +107,57 @@ public sealed partial class ArmyCampaignRuleAdapter
         return state;
     }
 
-    private void AppendConstructionReport(GameState state, SourceWorldContext current, UnitState image,
+    private GameState AppendConstructionReport(GameState state, SourceWorldContext current, UnitState image,
         ObjectReference obj, NativeArmyProgressStageMoment moment, CampaignReportEvent reportEvent,
-        List<CampaignEffectRequest> requests)
+        List<CampaignEffectRequest> requests, int? retainedGoal = null)
     {
-        int person = current.ResolveOfficerSource(image.OfficerId) ?? throw Missing("report_Person_pointer");
-        int district = K(current.ReadPersonDistrictSlot(person), "report_District");
-        int selected = district <= 51 ? district : 0;
-        bool valid = K(current.ReadDistrictNativeValidity(selected), "report_District_validity");
-        byte rawForce = valid ? K(current.ReadDistrictForceId(selected), "report_District_Force") : (byte)0;
-        int physical = rawForce <= 51 ? rawForce : 0;
-        var force = current.ReadForceTableReference(physical) ?? throw Missing("report_Force_pointer");
-        byte color = valid ? K(current.ReadForceReportColor(force), "report_Force_color") : (byte)60;
-        byte kingdom = K(current.ReadForceKingdomNameIndex(physical), "report_kingdom");
-        int ruler = current.ReadForceRecord(physical)?.RawRuler10 ?? throw Missing("report_ruler");
-        string actorName = state.Officers.GetValueOrDefault(image.OfficerId)?.Name ?? throw Missing("report_actor_name");
+        bool arrival = reportEvent switch
+        {
+            CampaignReportEvent.PlayerFacilityConstructionStarted => false,
+            CampaignReportEvent.PlayerFacilityRepairStarted => true,
+            _ => throw Missing("report_source_variant")
+        };
+        var army = new ArmyUnitReference(image.NativeArmyOrigin?.NativeSlotIndex ?? throw Missing("report_Army_identity"));
+        string targetName;
+        if (arrival) targetName = ReadFacilityArrivalObjectName(state, current, obj);
+        else
+        {
+            var definition = FacilityConstructionLegality.DefinitionOf(current, obj);
+            int kind = K(definition.PhysicalSlot, "report_definition_identity");
+            targetName = _repository.LoadObjectDefinitions(_scenario.FixedDataSource.SourcePath).Catalog.Definitions[kind].Name;
+        }
+        var formatted = FormatHistoryReport(state, current, arrival ? 0xC357 : 0xC356,
+            new HistoryMessageOperands(Army0: army, String0: targetName));
+        state = formatted.State;
+        //Fresh writer metadata follows main formatting. C357 keeps the
+        //source's effective goal instead of substituting Object10/Army2A.
+        int commander = K(current.ReadArmyUnitCommanderId(army), "report_commander");
+        int day = StatusCampaignDay(state, moment);
+        int hex = arrival ? retainedGoal ?? throw Missing("report_retained_goal") :
+            K(current.ReadObjectHexIndex(obj), "report_Object_Hex");
+        int district = ReadFacilityHistoryDistrict(current, army);
+        return WriteHistory(state, current, new ReportCommand(5, district, hex, day, formatted.Text,
+            CampaignHistoryWriter.Supplemental(state), commander, MarkBit4: 1), requests);
+    }
+
+    //Complete22EFD0, message-field-source01/TC-22EFD0.cpp. This is
+    //the actual Object12 lookup, including Definition0 and its validity gate.
+    private string ReadFacilityArrivalObjectName(GameState state, SourceWorldContext current, ObjectReference obj)
+    {
         var definition = FacilityConstructionLegality.DefinitionOf(current, obj);
-        int kind = K(definition.PhysicalSlot, "report_definition_identity");
-        string targetName = _repository.LoadObjectDefinitions(_scenario.FixedDataSource.SourcePath).Catalog.Definitions[kind].Name;
-        var receiver = current.CurrentMapObjectDirectory!.ReceiverAtPhysical(K(obj.PhysicalSlot, "report_Object_identity"));
-        int hex = K(current.ReadObjectHexIndex(obj), "report_Object_Hex");
-        int commander = K(current.ReadArmyUnitCommanderId(new(image.NativeArmyOrigin!.NativeSlotIndex)), "report_commander");
-        requests.Add(new(null, new(district, hex, StatusCampaignDay(state, moment), commander,
-            actorName, targetName, CombatParticipantKind.FieldObject, receiver.Value, physical, color, kingdom, ruler)
-        { Event = reportEvent, RulerNameSnapshot = state.Officers.GetValueOrDefault(ruler)?.Name }));
+        if (!K(current.ReadObjectDefinitionValidity(definition), "report_Object_name_definition_validity"))
+            return CampaignHistoryWriter.Supplemental(state) ?? throw Missing("report_Object_name_fallback");
+        int physical = K(definition.PhysicalSlot, "report_Object_name_definition_pointer");
+        return _repository.LoadObjectDefinitions(_scenario.FixedDataSource.SourcePath).Catalog.Definitions[physical].Name;
+    }
+
+    private static byte ReadFacilityHistoryDistrict(SourceWorldContext current, ArmyUnitReference army)
+    {
+        ushort id = K(current.ReadArmyUnitCommanderId(army), "report_District_Commander12");
+        var reference = (id <= 6000 ? current.ReadPersonLookupReference(id) : current.ReadTransferPersonTableReference(0))
+            ?? throw Missing("report_District_Person_lookup");
+        if (reference.PhysicalSlot is not int person) return 0;
+        return K(current.ReadPersonNativeValidity(person), "report_District_Person_validity")
+            ? K(current.ReadPersonDistrictSlot(person), "report_District_current_E0") : (byte)0;
     }
 }

@@ -52,7 +52,11 @@ internal static class NormalCombatAssociationTail
             if (receiver.ActiveUnitId is int active) units[active] = updated;
             else slots[physical] = receiver with { PendingImage = updated };
         }
-        return (state with { Units = units }).WithArmyLifecycle(
-            OwnedArmyDestructorFlags.PublishCurrent(arena.WithReceiverSlots(slots), current));
+        //First-contact reports have already advanced this candidate's ring.
+        //Keep their latest state while publishing this tail's own flag stores.
+        var latest = presentation.State;
+        var latestArena = latest.ReadArmyLifecycle() ?? throw NormalCombatMixedProducer.Missing("association_latest_lifecycle");
+        return (latest with { Units = units }).WithArmyLifecycle(
+            OwnedArmyDestructorFlags.PublishCurrent(latestArena.WithReceiverSlots(slots), current));
     }
 }

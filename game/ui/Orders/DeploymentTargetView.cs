@@ -23,7 +23,8 @@ internal partial class DeploymentTargetView : Control
 
     internal void Configure(GameResourceRepository repository,PreviewText text,CityState city,long availableTroops,
         long? availableBooks,IReadOnlyList<DeploymentTargetGroup> groups,IEnumerable<int> selectedOfficers,
-        int scrollSpeedSetting,Action<IReadOnlyList<int>> selectionChanged,Action chooseFacility,Action requestedBack)
+        int scrollSpeedSetting,Action<IReadOnlyList<int>> selectionChanged,Action chooseFacility,Action requestedBack,
+        Func<int>? currentScrollSpeed=null)
     {
         Name="DeploymentTarget";ZIndex=3;MouseFilter=MouseFilterEnum.Ignore;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);back=requestedBack;
@@ -45,7 +46,7 @@ internal partial class DeploymentTargetView : Control
         canvas.AddChild(facility);facility.Configure(repository,assets,shader,font,Message(0x0262),chooseFacility);
         selection=new DeploymentTargetList {Name="DeploymentTargets"};canvas.AddChild(selection);
         selection.Configure(repository,assets,shader,font,text,groups,selectedOfficers,scrollSpeedSetting,officers=>
-        {facility.Disabled=officers.Count==0;selectionChanged(officers);});
+        {facility.Disabled=officers.Count==0;selectionChanged(officers);},currentScrollSpeed);
         facility.Disabled=selection.SelectedOfficers.Count==0;
         var hint=new UiSourceLayout(repository,0xAB6ADAA7);Vector2 hintMount=footer.Rectangle(19,footerMount).Position;
         foreach(var node in hint.Nodes.Where(node=>node.Type is 1 or 3))

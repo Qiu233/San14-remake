@@ -26,6 +26,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (owner.HexWords16.Length != 48400) throw OccupationMissing("fire_duration_table");
             var current = CaptureWritableTransportRouteCurrent(state);
             OwnedArmyLifecycleDetachedInputs.BindCurrent(state, current);
+            var working = state;
             var changes = new List<HexFireChange>();
             var trials = new List<HexFireSpreadTrial>();
             var announcements = new List<ArmyFireAnnouncement>(state.PendingArmyFireAnnouncements);
@@ -62,7 +63,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 int divisor = P(SimulationParameterKeys.HexFire.SpreadDivisor);
                 if (divisor == 0) throw OccupationMissing("fire_zero_spread_divisor");
                 int threshold = Math.Max(0, NativeTruncate(MathF.Round(((float)coefficient * maximum) / divisor, MidpointRounding.AwayFromZero)));
-                sampler ??= ReadFireStageSampler(state, moment);
+                sampler ??= ReadFireStageSampler(working, moment);
                 var date = moment.PreWriterThirdDate;
                 int sample = TacticEffectSourceSamplerMath.Sample(100, 1, date.Year + date.Month + date.Day, date.Hour, 0, 0, sampler);
                 int? durationSample = null, duration = null;
@@ -72,11 +73,11 @@ public sealed partial class ArmyCampaignRuleAdapter
                         candidate, date.Hour, 1, 0, sampler);
                     duration = NativeTruncate(MathF.Round((((float)durationSample.Value + P(SimulationParameterKeys.HexFire.DurationPercentBase)) / 100f) * maximum,
                         MidpointRounding.AwayFromZero));
-                    IgniteCurrentHex(state, current, candidate, duration.Value, false, moment, changes, announcements, reports);
+                    working = IgniteCurrentHex(working, current, candidate, duration.Value, false, moment, changes, announcements, reports);
                 }
                 trials.Add(new(candidate, maximum, threshold, sample, durationSample, duration));
             }
-            return new(BaseCaptureCurrentInputs.PublishCurrent(state, current) with
+            return new(BaseCaptureCurrentInputs.PublishCurrent(working, current) with
             { PendingArmyFireAnnouncements = announcements.ToArray(), PendingCommandReports = reports.ToArray() },
                 changes.ToArray(), trials.ToArray(), null);
 
@@ -100,19 +101,20 @@ public sealed partial class ArmyCampaignRuleAdapter
                 current.SetCaptureHexWord16(hexId, after);
                 changes.Add(new(hexId, before, after, spread));
             }
-            int P(string key) => state.NativeArmySimulation?.Parameters is { } parameters &&
+            int P(string key) => working.NativeArmySimulation?.Parameters is { } parameters &&
                 !parameters.Float32Values.ContainsKey(key) && parameters.Int32Values.TryGetValue(key, out int value)
                 ? value : throw OccupationMissing(key);
         }
         catch (InvalidDataException error) { return new(null, [], [], error.Message); }
     }
 
-    private void IgniteCurrentHex(GameState state, SourceWorldContext current, int hexId, int duration,
+    private GameState IgniteCurrentHex(GameState state, SourceWorldContext current, int hexId, int duration,
         bool commandFire, NativeArmyProgressStageMoment moment, List<HexFireChange> changes,
         List<ArmyFireAnnouncement> announcements, List<PeriodReportEntry> reports)
     {
-        TacticSourceSamplerWorld? sampler = null;
+        var latest = state;
         Apply();
+        return latest;
         ushort Fire(int id) => OccupationKnown(current.ReadCaptureHexWord16(id), "fire_current_duration");
         HexReference Hex(int id) => current.ReadHexTableReference(id) ?? throw OccupationMissing("fire_Hex_pointer");
         S14TerrainTypeDefinition Surface(int id)
@@ -129,7 +131,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         void Apply()
         {
-            if (!Hex(hexId).PhysicalSlot.HasValue) return;
+            var originalHex = Hex(hexId);
+            if (!originalHex.PhysicalSlot.HasValue) return;
             var terrain = Surface(hexId);
             //2E3CB0 checks the current Army and Base protection branches
             //before the terrain/old-fire gates. Do not skip those reads.
@@ -154,16 +157,15 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (validArmy)
             {
                 int physical = OccupationKnown(army.PhysicalSlot, "fire_Army_receiver");
-                if (OccupationKnown(OwnedArmyDestructionCurrent.ReadArmyExcluded233560(state, current,
+                if (OccupationKnown(OwnedArmyDestructionCurrent.ReadArmyExcluded233560(latest, current,
                     physical), "fire_Army_excluded")) return;
-                unitId = ArmyDestructionQueue.ResolveUnitId(state, physical) ?? throw OccupationMissing("fire_Army_owner");
+                unitId = ArmyDestructionQueue.ResolveUnitId(latest, physical) ?? throw OccupationMissing("fire_Army_owner");
                 int person = Person(OccupationKnown(current.ReadArmyUnitCommanderId(army), "fire_commander"));
                 officerId = OccupationKnown(current.ReadPersonIdentity(person), "fire_commander_identity");
                 if (OccupationKnown(current.ReadPersonNativeValidity(person), "fire_commander_validity") &&
                     FirstImmunity(person) is int trait)
                 {
-                    ImmunityReport(hexId, trait, unitId, null,
-                        OccupationKnown(current.ReadPersonDistrictSlot(person), "fire_Army_district"));
+                    ImmunityReport(trait, army, null, originalHex);
                     announcements.Add(new(unitId.Value, officerId, trait));
                     return;
                 }
@@ -171,7 +173,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             else if (basePresent)
             {
                 int location = OccupationKnown(current.ReadBaseObjectLink(target), "fire_Base_location");
-                if (OccupationKnown(OwnedArmyDestructionCurrent.ReadBaseExcluded2334B0(state, current, location), "fire_Base_excluded")) return;
+                if (OccupationKnown(OwnedArmyDestructionCurrent.ReadBaseExcluded2334B0(latest, current, location), "fire_Base_excluded")) return;
                 int person = Person(OccupationKnown(current.ReadArmyReturnBaseGovernor2E(target), "fire_governor"));
                 if (OccupationKnown(current.ReadPersonNativeValidity(person), "fire_governor_validity"))
                 {
@@ -185,8 +187,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     int? trait = FirstImmunity(person, present);
                     if (present && trait is int immunity)
                     {
-                        ImmunityReport(hexId, immunity, null, location,
-                            OccupationKnown(current.ReadBaseDistrictSlot(target), "fire_Base_district"));
+                        ImmunityReport(immunity, null, target, originalHex);
                         return;
                     }
                 }
@@ -211,15 +212,35 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
             return null;
         }
-        void ImmunityReport(int hexId, int trait, int? unit, int? location, int district)
+        void ImmunityReport(int trait, ArmyUnitReference? reportArmy, BaseReference? reportBase, HexReference originalHex)
         {
-            if (!state.Districts.TryGetValue(district, out var owner)) throw OccupationMissing("fire_report_district_owner");
-            sampler ??= ReadFireStageSampler(state, moment);
-            // The original message uses generic speaker5012, not the
-            // actual commander/governor. Preserve its semantic arguments.
-            reports.Add(new(unit.HasValue ? "army_fire_immunity" : "base_fire_immunity", owner.ForceId,
-                ToHexId: hexId) { UnitId = unit, LocationId = location, PersonalityId = trait,
-                DistrictId = district, CampaignDay = sampler.Day450, RuleId = "army.progress.fire-immunity" });
+            //Materialize the main text before reading writer metadata. The
+            //Base operand is its actual4E, not a later campaign location ID.
+            string traitName = current.ReadPersonalityName(new(trait));
+            ushort? baseOperand = reportBase is null ? null :
+                OccupationKnown(current.ReadBaseObjectLink(reportBase), "fire_report_Base4E");
+            var formatted = FormatHistoryReport(latest, current, reportArmy is not null ? 0x3239 : 0x323A,
+                new HistoryMessageOperands(Army0: reportArmy, Base0: baseOperand, String0: traitName));
+            latest = formatted.State;
+            int day = ReadFireStageSampler(latest, moment).Day450;
+            int reportHex = OccupationKnown(current.ReadHexPhysicalSlot(originalHex), "fire_report_original_Hex22DEF0");
+            int district;
+            if (reportArmy is not null)
+            {
+                int commander = Person(OccupationKnown(current.ReadArmyUnitCommanderId(reportArmy), "fire_report_Commander12"));
+                district = OccupationKnown(current.ReadPersonNativeValidity(commander), "fire_report_Commander_validity")
+                    ? OccupationKnown(current.ReadPersonDistrictSlot(commander), "fire_report_Army_District22BC70") : 0;
+            }
+            else district = OccupationKnown(current.ReadBaseDistrictSlot(reportBase!), "fire_report_Base_virtual78");
+            var effects = new List<CampaignEffectRequest>();
+            latest = WriteHistory(latest, current, new ReportCommand(0, district, reportHex, day, formatted.Text,
+                CampaignHistoryWriter.Supplemental(latest), 5012, MarkBit4: 1), effects);
+            if (effects.Count != 0)
+                latest = latest with { CampaignEffectRequests =
+                    (latest.CampaignEffectRequests ?? throw OccupationMissing("fire_history_pending_owner"))
+                    .Append(CampaignEffectSource.ArmyProgressNotifications, moment.CalendarCycleOrdinal, effects) };
+            //The old semantic PeriodReportEntry is no longer emitted for
+            //this native log. The ring and source-time notification own it.
         }
     }
 

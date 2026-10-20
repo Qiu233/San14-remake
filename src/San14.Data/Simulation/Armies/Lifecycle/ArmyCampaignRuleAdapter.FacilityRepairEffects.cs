@@ -41,14 +41,14 @@ public sealed partial class ArmyCampaignRuleAdapter
                 // Army44's independent owner is not reconstructed from a
                 // route, override target, current position or command memory.
                 if (numbers.Category == 3) throw RepairMissing("first_report_army44_owner");
-                AppendFacilityRepairReport(state, current, army, image, numbers, commander, moment,
+                state = AppendFacilityRepairReport(state, current, army, image, numbers, commander, moment,
                     CampaignReportEvent.PlayerFacilityConstructionCompleted, requests);
             }
             if (numbers.DefinitionIdentity is 3 or 4)
                 throw RepairMissing("first_completion_ordered_territory_tail");
         }
         else if (IsPlayerRulerLedDistrict(state, current, image))
-            AppendFacilityRepairReport(state, current, army, image, numbers, commander, moment,
+            state = AppendFacilityRepairReport(state, current, army, image, numbers, commander, moment,
                 CampaignReportEvent.PlayerFacilityRepairCompleted, requests);
         return state;
 
@@ -65,33 +65,30 @@ public sealed partial class ArmyCampaignRuleAdapter
             RepairNeed(force.PhysicalSlot, "speech_actor_force_identity") == player.PhysicalSlot;
     }
 
-    private void AppendFacilityRepairReport(GameState state, SourceWorldContext current,
+    private GameState AppendFacilityRepairReport(GameState state, SourceWorldContext current,
         ArmyUnitReference army, UnitState image, FacilityRepairNumberResult numbers, ushort commander,
         NativeArmyProgressStageMoment moment, CampaignReportEvent reportEvent, List<CampaignEffectRequest> requests)
     {
-        int person = current.ResolveOfficerSource(image.OfficerId) ?? throw RepairMissing("report_person");
-        int district = RepairNeed(current.ReadPersonDistrictSlot(person), "report_district");
-        byte choice = image.NativeCommandChoice41 ?? throw RepairMissing("report_command_choice");
-        int selected = district <= 51 ? district : 0;
-        bool valid = RepairNeed(current.ReadDistrictNativeValidity(selected), "report_district_validity");
-        byte rawForce = valid ? RepairNeed(current.ReadDistrictForceId(selected), "report_district_force") : (byte)0;
-        int forcePhysical = rawForce <= 51 ? rawForce : 0;
-        var force = current.ReadForceTableReference(forcePhysical) ?? throw RepairMissing("report_force_pointer");
-        byte color = valid ? RepairNeed(current.ReadForceReportColor(force), "report_force_color") : (byte)60;
-        byte kingdom = RepairNeed(current.ReadForceKingdomNameIndex(forcePhysical), "report_kingdom");
-        int ruler = current.ReadForceRecord(forcePhysical)?.RawRuler10 ?? throw RepairMissing("report_ruler");
-        string actorName = state.Officers.GetValueOrDefault(image.OfficerId)?.Name ?? throw RepairMissing("report_actor_name");
+        int root = reportEvent switch
+        {
+            CampaignReportEvent.PlayerFacilityConstructionCompleted => 0xC358,
+            CampaignReportEvent.PlayerFacilityRepairCompleted => 0xC359,
+            _ => throw RepairMissing("report_source_variant")
+        };
         string definitionName = _repository.LoadObjectDefinitions(_scenario.FixedDataSource.SourcePath)
             .Catalog.Definitions[numbers.DefinitionIdentity].Name;
-        // These are the real formatter arguments, including the current
-        // command choice identity. No fixed "build" text or City name is used.
-        requests.Add(new(null, new(district, numbers.HexId, StatusCampaignDay(state, moment), commander,
-            actorName, definitionName, CombatParticipantKind.FieldObject, numbers.Receiver.Value,
-            forcePhysical, color, kingdom, ruler)
-        {
-            Event = reportEvent, CommandChoiceId = choice,
-            RulerNameSnapshot = state.Officers.GetValueOrDefault(ruler)?.Name
-        }));
+        byte choice = image.NativeCommandChoice41 ?? throw RepairMissing("report_command_choice");
+        string choiceName = ReadHistoryChoiceName(state, choice);
+        var formatted = FormatHistoryReport(state, current, root,
+            new HistoryMessageOperands(Army0: army, String0: definitionName, String1: choiceName));
+        state = formatted.State;
+        //The raw commander was captured by2E8320 before its completion
+        //branch. Do not replace it with a fresh post-format Person query.
+        int day = StatusCampaignDay(state, moment);
+        int hex = RepairNeed(current.ReadObjectHexIndex(new(numbers.Physical)), "report_current_Object10");
+        int district = ReadFacilityHistoryDistrict(current, army);
+        return WriteHistory(state, current, new ReportCommand(5, district, hex, day, formatted.Text,
+            CampaignHistoryWriter.Supplemental(state), commander, MarkBit4: 1), requests);
     }
 
     private static GameState AppendFacilityRepairBatch(GameState state,

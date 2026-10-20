@@ -195,7 +195,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     float baseDuration = (float)P(SimulationParameterKeys.FireCommand.DurationBase) * ((float)Intelligence() / divisor + 1f);
                     int policy = OccupationKnown(BattleRemakeCurrentForcePolicies.ReadForceEffect(working, working.Forces[unit.ForceId], 19, current), "fire_command_policy19");
                     duration = NativeTruncate((float)unchecked(policy * P(SimulationParameterKeys.FireCommand.DurationPolicyScale)) * baseDuration / 100f + baseDuration);
-                    IgniteCurrentHex(working, current, burn, duration.Value, true, moment, changes, announcements, reports);
+                    working = IgniteCurrentHex(working, current, burn, duration.Value, true, moment, changes, announcements, reports);
                     if (!backfire)
                     {
                         if (!OwnedArmyDestructorFlags.SetSourceBit(current, physical, 2, true)) throw OccupationMissing("fire_command_flags150");

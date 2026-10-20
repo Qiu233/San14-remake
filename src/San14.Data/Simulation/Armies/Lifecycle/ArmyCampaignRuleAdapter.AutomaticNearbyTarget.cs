@@ -105,18 +105,22 @@ public sealed partial class ArmyCampaignRuleAdapter
             working = ArmyOverrideTargetSourceAdapter.ReconcileOwner(working, changed);
             if (IsPlayerRulerLedDistrict(working, current, changed))
             {
-                var target = FArmy(working, selected);
-                int forceId = current.ReadArmyUnitRawForceSlot(new(image.NativeArmyOrigin!.NativeSlotIndex));
-                var force = current.ReadForceTableReference(forceId <= 51 ? forceId : 0) ?? throw MaintenanceMissing("nearby_report_Force");
-                int person = current.ResolveOfficerSource(image.OfficerId) ?? throw MaintenanceMissing("nearby_report_Person");
-                int district = MaintenanceKnown(current.ReadPersonDistrictSlot(person), "nearby_report_District");
-                var report = new CampaignReportRequest(district, FHex(working, image), FSampler(working, moment).Day450,
-                    image.OfficerId, working.Officers[image.OfficerId].Name, working.Officers[target.OfficerId].Name,
-                    CombatParticipantKind.Army, target.Id, forceId, current.ReadForceReportColor(force),
-                    current.ReadForceKingdomNameIndex(forceId), current.ReadForceRecord(forceId)?.RawRuler10)
-                    { Event = CampaignReportEvent.ArmyAutomaticTargetSelected };
-                working = working with { CampaignEffectRequests = (working.CampaignEffectRequests ?? throw MaintenanceMissing("nearby_effect_owner"))
-                    .Append(CampaignEffectSource.ArmyCommandMaintenance, moment.CalendarCycleOrdinal, [new(null, report)]) };
+                var actor = new ArmyUnitReference(FPhysical(changed));
+                var formatted = FormatHistoryReport(working, current, 0x5F6D,
+                    new HistoryMessageOperands(Army0: actor, Army1: nodes[0].Army));
+                working = formatted.State;
+                //28E910 retains fresh metadata in this order after formatting,
+                //before the original Next48 reset and route continuation.
+                int payload = MaintenanceKnown(current.ReadArmyUnitCommanderId(actor), "nearby_report_Commander12");
+                int day = StatusCampaignDay(working, moment);
+                int hex = MaintenanceKnown(current.ReadArmyUnitRawHex2A(actor), "nearby_report_Army2A");
+                int district = ReadFacilityHistoryDistrict(current, actor);
+                var requests = new List<CampaignEffectRequest>();
+                working = WriteHistory(working, current, new ReportCommand(5, district, hex, day, formatted.Text,
+                    CampaignHistoryWriter.Supplemental(working), payload, MarkBit4: 1), requests);
+                if (requests.Count != 0)
+                    working = working with { CampaignEffectRequests = (working.CampaignEffectRequests ?? throw MaintenanceMissing("nearby_effect_owner"))
+                        .Append(CampaignEffectSource.ArmyCommandMaintenance, moment.CalendarCycleOrdinal, requests) };
             }
             var routed = working.Units[image.Id] with { March = working.Units[image.Id].March! with { NextStep = ArmyMarchDestination.None } };
             working = working with { Units = new(working.Units) { [image.Id] = routed } };

@@ -58,6 +58,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
 
             var requests = new List<CampaignEffectRequest>();
+            var working = state;
             if (reporting is not null)
             {
                 var formatter = new GrowthNoticeFormatter(this, state, current);
@@ -89,14 +90,14 @@ public sealed partial class ArmyCampaignRuleAdapter
                     var target = BaseLookup.Find(first, current);
                     byte district = GrowthKnown(current.ReadPersonDistrictSlot(reportingPhysical), "growth_report_raw_district");
                     int hex = ReadGrowthReportHex(current, target);
-                    requests.Add(new(null, null) { OfficerGrowthFeedback = new(
-                        OfficerGrowthFeedbackOperation.History, null, new(officer, district, hex, day, history)) });
+                    working = WriteHistory(working, current, new(0, district, hex, day, history,
+                        CampaignHistoryWriter.Supplemental(working), officer, MarkBit4: 1), requests);
                 }
             }
 
             //265E10 is a global tail, including skipped nonprimary owners. No
             //domain object or pending prefix is replaced before every input succeeds.
-            var pending = state.CampaignEffectRequests;
+            var pending = working.CampaignEffectRequests;
             if (requests.Count != 0)
                 pending = (pending ?? throw GrowthMissing("growth_pending_owner"))
                     .Append(CampaignEffectSource.OfficerGrowthNotifications, moment.CalendarCycleOrdinal, requests);
@@ -104,7 +105,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             foreach (var person in clear)
                 officers[person.Id] = person with { Growth = person.Growth is { } growth
                     ? growth.ClearNotifications() : new OfficerGrowthState(null, []) };
-            return new(state with { Officers = officers, CampaignEffectRequests = pending },
+            return new(working with { Officers = officers, CampaignEffectRequests = pending },
                 countKnown && knownCount <= int.MaxValue ? (int)knownCount : null, requests.Count, null);
         }
         catch (InvalidDataException error) { return new(null, null, 0, error.Message); }

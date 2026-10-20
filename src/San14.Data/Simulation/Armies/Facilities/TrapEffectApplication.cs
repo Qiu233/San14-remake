@@ -24,7 +24,7 @@ internal sealed partial class TrapEffectApplication
     {
         this.package = package; State = state; Current = current; this.moment = moment;
         pool = current.ReadOwnedCurrentListPool() ?? throw Missing("shared_pool");
-        Feedback = new(() => State, current, moment, repository, scenario, () => SamplerWorld().Day450);
+        Feedback = new(package, () => State, value => State = value, current, moment, repository, scenario, () => SamplerWorld().Day450);
         actorlessDamage = new(package, current, moment, () => State, value => State = value,
             Feedback.Traits, Feedback.EnsurePersonnel, PublishPeople, person => changedPeople.Add(person),
             Feedback.Requests, SamplerWorld);

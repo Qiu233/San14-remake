@@ -63,12 +63,106 @@ public sealed partial class ArmyCampaignRuleAdapter
 
             ApplySecondReports(person, capturedStatus, capturedOffice);
 
-            //Annual argument8 is1. Its fresh player-force read precedes the
-            //first unowned history reporter-selection/person predicate unit.
-            var player = current.ReadCurrentPlayerForce() ?? throw Missing("death_history_current_player");
+            ApplyDeathHistory(person);
+            //The reached1EF470+8-controlled kin-journal continuation has its
+            //own unclosed business owner. A consumed history is not death completion.
+            throw Missing("death_history_followup_1EF470_kin_journal");
+        }
+
+        private void ApplyDeathHistory(int person)
+        {
+            //Annual argument8 is1. Retain this exact fresh player receiver for
+            //the later attachment Arg1, even when it is native-invalid.
+            var player = OwnedCurrentPlayerForce.ReadCurrentReference(latest, current)
+                ?? throw Missing("death_history_current_player");
+            ushort reporter = 5012;
+            var abilities = new TacticRemakeCurrentAbilities(current, package._scenario,
+                package.Seed.Language, SimulationRuleIdentity.ForLocale(package.Seed.Language));
+            var selection = new PersonDeathHistorySelection(latest, current, pool, abilities,
+                package._governorInputs, (force, effect) => package._baseCapacityInputs.ReadPanelModifier(latest, force, effect));
             if (Known(current.ReadForceNativeValidity(player), "death_history_player_validity"))
-                throw Missing("death_history_reporter_22E930_2B44E0");
-            throw Missing("death_history_person_branch_232460");
+            {
+                var selected = selection.Select(selection.PrimaryDistrict(player));
+                if (Valid(selected) && Identity(person) != Identity(Physical(selected, "death_history_selected_pointer")))
+                    reporter = Identity(Physical(selected, "death_history_reporter_pointer"));
+            }
+
+            //232460 is status1..4; it does not perform another Person-validity test.
+            byte firstStatus = Status(person);
+            if (firstStatus is not (>= 1 and <= 4) && Status(person) != 6)
+            {
+                string text = FormatDeathHistoryText(0x2A32, Identity(person), 0, 0, 0);
+                int day = DeathHistoryDay();
+                string? supplemental = CampaignHistoryWriter.Supplemental(latest);
+                CommitDeathHistory(new(0, 0, 0, day, text, supplemental, 5012));
+                return;
+            }
+
+            var related = Force(person);
+            if (Status(person) == 6)
+            {
+                int prior = current.ReadOfficerAftermath(person)?.SourceKnowledge?.PreviousForceCode
+                    ?? throw Missing("death_history_current_165");
+                if ((uint)prior > byte.MaxValue) throw Missing("death_history_current_165_byte");
+                related = current.ReadForceTableReference(prior <= 51 ? prior : 0)
+                    ?? throw Missing("death_history_165_Force_lookup");
+            }
+            int root = Known(current.ReadForceNativeValidity(related), "death_history_main_Force_validity") ? 0x2A2E : 0x2A32;
+            string main = FormatDeathHistoryText(root, Identity(person), 0, 0, 0);
+
+            //A separate reset/context for528F. The annual second operand is
+            //the real lookup0 binding, not a fabricated known-null Person.
+            ushort argument1 = Known(current.ReadMoraleWaveRuler22EAC0(player), "death_history_attachment_ruler22EAC0");
+            var secondary = current.ReadPersonLookupReference(0) ?? throw Missing("death_history_param2_lookup0");
+            ushort argument2 = Valid(secondary) ? Identity(Physical(secondary, "death_history_param2_pointer")) : (ushort)0;
+            ushort argument3 = Identity(person);
+            string attachment = FormatDeathHistoryText(0x528F, reporter, argument1, argument2, argument3);
+
+            int district = 0;
+            if (Known(current.ReadForceNativeValidity(related), "death_history_metadata_Force_validity"))
+                district = Known(selection.PrimaryDistrict(related).PhysicalSlot, "death_history_District_ordinal");
+            if (district < 0) throw Missing("death_history_negative_District_ordinal");
+            int freshDay = DeathHistoryDay();
+            //16F050's manager-only lazy initialization owns no record/cursor
+            //reset. Position and its actual same-current task effects follow it.
+            int hex = Known(Position(person).PhysicalSlot, "death_history_Hex_ordinal");
+            if (hex < 0) throw Missing("death_history_negative_Hex_ordinal");
+            CommitDeathHistory(new(1, district, hex, freshDay, main, attachment, reporter, MarkBit3: 1, MarkBit4: 1));
+        }
+
+        private int DeathHistoryDay()
+        {
+            var season = latest.NativeMapSeason ?? throw Missing("death_history_current_calendar");
+            var epoch = latest.NativeArmySimulation?.World.SamplerEpoch ?? throw Missing("death_history_Day450_epoch");
+            return unchecked(epoch.Day450 + (int)season.AdvancedDays);
+        }
+
+        private string FormatDeathHistoryText(int root, ushort argument0, ushort argument1,
+            ushort argument2, ushort argument3)
+        {
+            if (package.Seed.Language is not ("TC" or "SC")) throw Missing("death_history_text_locale");
+            try
+            {
+                var abilities = new TacticRemakeCurrentAbilities(current, package._scenario,
+                    package.Seed.Language, SimulationRuleIdentity.ForLocale(package.Seed.Language));
+                var people = new DeploymentNarrationCurrentPeople(latest, current, abilities, argument0, argument1,
+                    panelReader: (force, effect) => package._baseCapacityInputs.ReadPanelModifier(latest, force, effect),
+                    appearanceRepository: package._repository, appearanceScenario: package._scenario,
+                    appearanceLanguage: package.Seed.Language, personArgument2: argument2, personArgument3: argument3);
+                var messages = new NarrationResourceMessages(package._repository.LoadMessages(
+                    package.Seed.Language, MessageKind.Game).Messages);
+                return messages.ResolvePersonDeathHistory(people, DrawDeathReportApp32, root);
+            }
+            catch (IOException error)
+            { throw new InvalidDataException("person-death.history_text_resource", error); }
+        }
+
+        private void CommitDeathHistory(ReportCommand command)
+        {
+            var effects = new List<CampaignEffectRequest>();
+            latest = package.WriteHistory(latest, current, command, effects);
+            AppendInitialDeathEffects(effects);
+            Observe("death.history-consumed");
         }
 
         private void ApplySecondReports(int person, byte capturedStatus, int capturedOffice)

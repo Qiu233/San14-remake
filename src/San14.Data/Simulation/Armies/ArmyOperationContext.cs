@@ -50,6 +50,9 @@ public sealed partial class ArmyOperationContext
         // Overlay every receiver so an old or absent owner cannot retain the
         // scenario's initial kingdom name. The default receiver has its own owner.
         native.SetForceKingdomNameIndex(0, state.DefaultForceKingdomNameIndex);
+        native.SetForceReportColor(0, state.DefaultForceReportColorIndex);
+        for (int slot = 1; slot < 52; slot++)
+            native.SetForceReportColor(slot, state.Forces.GetValueOrDefault(slot)?.ReportColorIndex);
         for (int slot = 1; slot < 52; slot++)
             native.SetForceKingdomNameIndex(slot, state.Forces.GetValueOrDefault(slot)?.KingdomNameIndex);
         foreach (DistrictState district in state.Districts.Values)

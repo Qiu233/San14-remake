@@ -64,7 +64,8 @@ internal partial class DeploymentPersonSelectionView : Control
         Func<IReadOnlyList<DeploymentPersonSortRow>,int,bool,DeploymentPersonOrderQuery>? tacticOrder = null,
         Func<int,string?>? tacticName = null,
         Func<IReadOnlyList<int>,DeploymentPersonTraitQuery>? traits = null,
-        Func<IReadOnlyList<DeploymentPersonSortRow>,int,bool,DeploymentPersonOrderQuery>? traitOrder = null)
+        Func<IReadOnlyList<DeploymentPersonSortRow>,int,bool,DeploymentPersonOrderQuery>? traitOrder = null,
+        Func<int>? currentScrollSpeed = null)
     {
         if (maximum is < 0 or > 9) throw new ArgumentOutOfRangeException(nameof(maximum));
         _repository=repository; _text=text; _basicEntries=entries;
@@ -107,7 +108,7 @@ internal partial class DeploymentPersonSelectionView : Control
         }
         _scroll=new UiSourceScrollbar {Name="PersonScrollbar",Position=new(1687,265),Size=new(16,597)};
         _canvas.AddChild(_scroll);
-        _scroll.Configure(repository,_assets,_shader,Math.Max(0,entries.Count*48-596),scrollSpeedSetting,_=>PositionRows());
+        _scroll.Configure(repository,_assets,_shader,Math.Max(0,entries.Count*48-596),scrollSpeedSetting,_=>PositionRows(),currentScrollSpeed:currentScrollSpeed);
         for(int i=0;i<_pages.Length;i++)
             foreach(var column in _pages[i].Columns)
                 _pages[i].NextAscending[column.Id]=column.InitialAscending;

@@ -4,7 +4,7 @@ namespace San14.Data;
 
 // A complete formatter's actual source-time arguments, never names split from
 // a rendered sentence or guessed from the force's domain display label.
-internal sealed record CityDomesticAssociationNames(string Officer, string TargetForce);
+internal sealed record CityDomesticAssociationNames(string Officer, string TargetForce, string? Text = null);
 
 /// <summary>The same operation-local draft owns UI staging and command replay.
 /// No draft projection is accepted as command input. Only this private operation
@@ -58,10 +58,11 @@ public sealed partial class CityDomesticDraft
             RestoreSource();
             var books = new Dictionary<int, int>();
             var requests = new List<CampaignEffectRequest>();
+            GameState latest = _state;
             if (order.Terminal == CityDomesticTerminal.Confirm)
             {
-                if (changeRecruiter) ApplyFormalDuty(CityDomesticDuty.Recruiter, recruiter, books, requests, readReportDay, readReportNames);
-                if (changeTrainer) ApplyFormalDuty(CityDomesticDuty.Trainer, trainer, books, requests, readReportDay, readReportNames);
+                if (changeRecruiter) ApplyFormalDuty(CityDomesticDuty.Recruiter, recruiter, books, requests, readReportDay, readReportNames, () => latest, value => latest = value);
+                if (changeTrainer) ApplyFormalDuty(CityDomesticDuty.Trainer, trainer, books, requests, readReportDay, readReportNames, () => latest, value => latest = value);
                 if (order.Policy != CityDomesticPolicy.Current) ApplyFormalPolicy(order.Policy, books);
             }
 
@@ -76,7 +77,7 @@ public sealed partial class CityDomesticDraft
                 if (!_state.Areas.ContainsKey(area)) throw Missing("published_area_owner");
                 RequireRawJoin(K(_current.ReadAssignmentArea36(area), "published_area_person"));
             }
-            var result = PersonAssignmentPrecallInputs.PublishAreaAppointments(_state, _current,
+            var result = PersonAssignmentPrecallInputs.PublishAreaAppointments(latest, _current,
                 _touchedCities, _touchedAreas, _touchedAssociations);
             result = _vectors.Publish(result);
             if (books.Count != 0)
@@ -108,7 +109,8 @@ public sealed partial class CityDomesticDraft
     // resolved conflicts -> this District10 Force -> association -> 29C340 -> role.
     private bool ApplyFormalDuty(CityDomesticDuty duty, ushort desired, Dictionary<int, int> books,
         List<CampaignEffectRequest> requests, Func<int?> readReportDay,
-        Func<SourceWorldContext, AssociationRemovalReport, CityDomesticAssociationNames?>? readReportNames)
+        Func<SourceWorldContext, AssociationRemovalReport, CityDomesticAssociationNames?>? readReportNames,
+        Func<GameState> readLatest, Action<GameState> replaceLatest)
     {
         var district = CommandDistrict(); int districtId = K(district.PhysicalSlot, "formal_district_identity");
         int remaining = CurrentBooks(districtId, books);
@@ -123,7 +125,7 @@ public sealed partial class CityDomesticDraft
             SetRole(CityDomesticDuty.Trainer, 0);
         int rawForce = K(_current.ReadDistrictForceSlot(district), "formal_district_force");
         var force = _current.ReadForceTableReference(rawForce <= 51 ? rawForce : 0) ?? throw Missing("formal_force_pointer");
-        ForcePersonAssociation.Clear(force, incoming, new FormalAssociationState(this, requests, readReportDay, readReportNames));
+        ForcePersonAssociation.Clear(force, incoming, new FormalAssociationState(this, requests, readReportDay, readReportNames, readLatest, replaceLatest));
         ClearAppointments(incoming, true);
         SetRole(duty, Clamp(desired));
         return true;
@@ -184,7 +186,8 @@ public sealed partial class CityDomesticDraft
     }
 
     private sealed class FormalAssociationState(CityDomesticDraft draft, List<CampaignEffectRequest> requests,
-        Func<int?> readDay, Func<SourceWorldContext, AssociationRemovalReport, CityDomesticAssociationNames?>? readNames)
+        Func<int?> readDay, Func<SourceWorldContext, AssociationRemovalReport, CityDomesticAssociationNames?>? readNames,
+        Func<GameState> readLatest, Action<GameState> replaceLatest)
         : IForcePersonAssociationState
     {
         private SourceWorldContext Current => draft._current;
@@ -211,12 +214,16 @@ public sealed partial class CityDomesticDraft
             byte rawDistrict = K(Current.ReadPersonDistrictSlot(report.PersonPhysicalSlot), "association_report_district");
             var district = Current.ReadDistrictTableReference(rawDistrict <= 51 ? rawDistrict : 0) ?? throw Missing("association_report_district_pointer");
             int hex = K(Current.ReadReportBaseHex(selected)?.PhysicalSlot, "association_report_hex");
-            int officer = K(Current.ReadPersonIdentity(report.PersonPhysicalSlot), "association_report_person_identity");
-            draft.RequireOfficerJoin(officer, report.PersonPhysicalSlot);
-            requests.Add(new(null, null) { ForceAssociationRemovalReport = new(
-                K(report.OldForce.PhysicalSlot, "association_report_old_force"), officer, report.AssociationSlot,
-                K(report.TargetForce.PhysicalSlot, "association_report_target_force"), K(district.PhysicalSlot, "association_report_district_identity"),
-                location, hex, day, names.Officer, names.TargetForce) });
+            string text = names.Text ?? throw Missing("association_report_complete_text");
+            var writer = new CampaignHistoryWriter(draft._personResources ?? throw Missing("association_report_resources"),
+                draft._scenario, draft._language);
+            var latest = readLatest();
+            var written = writer.Write(latest, Current, new ReportCommand(0,
+                K(district.PhysicalSlot, "association_report_district_identity"), hex, day, text,
+                CampaignHistoryWriter.Supplemental(latest), 5012));
+            replaceLatest(written.State);
+            if (written.NeedsNotification && written.Written is {} receipt)
+                requests.Add(new(null, null) { HistoryNotification = receipt });
         }
     }
 }

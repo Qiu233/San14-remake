@@ -33,17 +33,17 @@ internal sealed class AreaAdministrationPresenter : IDisposable
     internal AreaAdministrationPresenter(AreaAdministrationParentView parent,
         GameResourceRepository repository, PreviewText text, AreaAdministrationDraft draft,
         Func<bool> current, Action<Action> dispatch, Action returned, Action commitRequested,
-        Action<bool> mapInputChanged, Action<string> unavailable, Func<int,int> presentationRandom)
+        Action<bool> mapInputChanged, Action<string> unavailable, Func<int,int> presentationRandom,Func<int>? scrollSpeed=null)
     {
         this.parent=parent;this.repository=repository;this.text=text;this.draft=draft;
         this.current=current;this.dispatch=dispatch;this.returned=returned;
         this.commitRequested=commitRequested;this.mapInputChanged=mapInputChanged;this.unavailable=unavailable;
         this.presentationRandom=presentationRandom;
         messages=new(repository,text.SourceLocale);officers=new(repository);
-        parent.Configure(repository,text,Entries(),0,
+        parent.Configure(repository,text,Entries(),scrollSpeed?.Invoke()??0,
             area=>Run(()=>OpenArea(area)),()=>Run(RequestBack),()=>Run(RequestCommit),
             _=>UpdateMapInput(),Order,unavailable,autoRequested:()=>Run(RequestAutomatic),
-            dismissRequested:()=>Run(RequestDismissAll));
+            dismissRequested:()=>Run(RequestDismissAll),currentScrollSpeed:scrollSpeed);
         RefreshParent();
     }
 

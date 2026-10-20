@@ -32,6 +32,8 @@ public sealed partial record ForceState(int Id, string Name, int? OrdersRemainin
     public int? RankId { get; init; }
     // The full current source index is retained; name lookup alone maps >100 to0.
     public byte? KingdomNameIndex { get; init; }
+    // Current report/banner color, independently owned from the source catalog.
+    public byte? ReportColorIndex { get; init; }
     // Current force type is stored independently of the ruler's personal doctrine.
     // A change of ruler has no implicit inheritance or reset rule.
     public int? DoctrineId { get; init; }
@@ -231,6 +233,7 @@ public sealed partial record GameState
     public Dictionary<int, ForceState> Forces { get; init; } = [];
     // The default receiver is not a playable force. Null preserves legacy unknown state.
     public byte? DefaultForceKingdomNameIndex { get; init; }
+    public byte? DefaultForceReportColorIndex { get; init; }
     public Dictionary<int, ForceRankDefinition> ForceRanks { get; init; } = [];
     public Dictionary<int, OfficerOfficeDefinition> OfficerOffices { get; init; } = [];
     public Dictionary<int, DoctrineDefinition> Doctrines { get; init; } = [];
@@ -653,6 +656,7 @@ public static class StateValidator
         PlayableEventStateValidation.Validate(state);
         PlayablePersonnelStateValidation.Validate(state);
         EconomyReportStateValidation.Validate(state);
+        CampaignHistoryValidation.Validate(state);
         NativeSubdayStateValidation.Validate(state, operationContext);
         NativeNormalArmyCombatCalendarStateValidation.Validate(state);
         NativeArmyReturnCurrentStateValidation.Validate(state);

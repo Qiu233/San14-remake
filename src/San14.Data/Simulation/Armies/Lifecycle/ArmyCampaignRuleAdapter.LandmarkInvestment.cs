@@ -53,7 +53,6 @@ public sealed partial class ArmyCampaignRuleAdapter
             OwnedArmyLifecycleDetachedInputs.BindCurrent(state, current);
             _personAssignmentPrecallInputs.BindCurrent(state, current);
             current.MaterializeFixedScenery(_landmarkDefinitions);
-            var reports = new List<PeriodReportEntry>(state.PendingCommandReports);
             var working = state;
             var registry = state.ReadArmyLifecycle()?.Indexes.Registries.GetValueOrDefault(WorldEntityKind.Landmark)
                 ?? throw OccupationMissing("landmark_registry");
@@ -78,20 +77,21 @@ public sealed partial class ArmyCampaignRuleAdapter
                     investment.Development ?? throw OccupationMissing("landmark_saved_development"));
                 investments[id] = investment with { Phase = development.Level < 6 ? (byte)1 : (byte)4,
                     AssignedOfficerId = 0, CompletionDay = 0, Development = development };
-                AddLandmarkCompletionReport(working, current, landmark, id, development.Level, reports);
+                working = working with { LandmarkInvestments = investments };
+                working = AddLandmarkCompletionReport(working, current, landmark, development.Level, moment);
                 if (development.Level == 6)
                 {
                     working = CompleteMaximumLandmark(working with { LandmarkInvestments = investments }, current, landmark, id, moment);
                     investments = new(working.LandmarkInvestments!);
                 }
             }
-            return new(working with { LandmarkInvestments = investments, PendingCommandReports = reports.ToArray() }, null);
+            return new(working with { LandmarkInvestments = investments }, null);
         }
         catch (InvalidDataException error) { return new(null, error.Message); }
     }
 
-    private static void AddLandmarkCompletionReport(GameState state,
-        SourceWorldContext current, SceneryReference landmark, int id, byte level, List<PeriodReportEntry> reports)
+    private GameState AddLandmarkCompletionReport(GameState state,
+        SourceWorldContext current, SceneryReference landmark, byte level, NativeArmyProgressStageMoment moment)
     {
         var player = OwnedCurrentPlayerForce.ReadCurrentReference(state, current) ?? throw OccupationMissing("landmark_player");
         int playerId = OccupationKnown(current.ReadForcePhysicalSlot(player), "landmark_player_identity");
@@ -106,13 +106,13 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (OccupationKnown(current.ReadDistrictLeader(physical), "landmark_district_leader") == ruler ||
                     OccupationKnown(current.ReadDistrictNumber(physical), "landmark_district_number") == 1) { primary = district; break; }
             }
-        if (!OccupationKnown(current.ReadDistrictNativeValidity(primary), "landmark_primary_validity")) return;
+        if (!OccupationKnown(current.ReadDistrictNativeValidity(primary), "landmark_primary_validity")) return state;
         int primaryId = OccupationKnown(primary.PhysicalSlot, "landmark_primary_identity");
         int hexId = OccupationKnown(current.ReadSceneryHexIndex(landmark), "landmark_report_hex");
         var hex = current.ReadHexTableReference(hexId < 48400 ? hexId : 0) ?? throw OccupationMissing("landmark_report_hex_pointer");
         int owner = hex.PhysicalSlot is null ? 0 : OccupationKnown(current.ReadHexForceSlot(hex), "landmark_owner");
         int force = OccupationKnown(current.ReadDistrictForceId(primaryId), "landmark_primary_force");
-        if (force != owner) return;
+        if (force != owner) return state;
         //22AA10: the area's attached city is available only while the landmark
         //and the area's representative hex have the same actual owner.
         int rawArea = hex.PhysicalSlot is null ? 0 : OccupationKnown(current.ReadHexAreaSlot(hex), "landmark_area");
@@ -123,26 +123,45 @@ public sealed partial class ArmyCampaignRuleAdapter
             ? OccupationKnown(current.ReadAreaCitySlot(area), "landmark_city") : 0;
         var city = current.ReadCityTableReference(cityId < 52 ? cityId : 0) ?? throw OccupationMissing("landmark_city_pointer");
         var cityDistrict = current.ReadCityDistrictReference(city) ?? throw OccupationMissing("landmark_city_district");
-        if (!OccupationKnown(current.ReadDistrictNativeValidity(cityDistrict), "landmark_city_district_validity")) return;
+        if (!OccupationKnown(current.ReadDistrictNativeValidity(cityDistrict), "landmark_city_district_validity")) return state;
         //233940→233A90 requires a valid player force and a valid district
         //leader whose current service status is ruler(1).
         if (!OccupationKnown(current.ReadForceNativeValidity(player), "landmark_player_validity") ||
-            OccupationKnown(current.ReadDistrictForceSlot(cityDistrict), "landmark_city_force") != playerId) return;
+            OccupationKnown(current.ReadDistrictForceSlot(cityDistrict), "landmark_city_force") != playerId) return state;
         int leader = OccupationKnown(current.ReadDistrictLeader(OccupationKnown(cityDistrict.PhysicalSlot, "landmark_city_district_identity")), "landmark_city_leader");
         int leaderPhysical = Person(leader);
         if (!OccupationKnown(current.ReadPersonNativeValidity(leaderPhysical), "landmark_city_leader_validity") ||
-            OccupationKnown(current.ReadPersonStatus(leaderPhysical), "landmark_city_leader_status") != 1) return;
+            OccupationKnown(current.ReadPersonStatus(leaderPhysical), "landmark_city_leader_status") != 1) return state;
         int advisorId = OccupationKnown(current.ReadAssignmentForceAdvisor52(force < 52 ? force : 0), "landmark_advisor");
         int advisor = Person(advisorId);
         if (!OccupationKnown(current.ReadPersonNativeValidity(advisor), "landmark_advisor_validity"))
             throw OccupationMissing("landmark_advisor_reselection");
-        int identity = OccupationKnown(current.ReadPersonIdentity(advisor), "landmark_advisor_identity");
-        int currentRuler = OccupationKnown(current.ReadForceRecord(force)?.RawRuler10, "landmark_report_ruler");
-        //This report kind retains source messages349D/53D4 and fixed report
-        //flags0/4. It is not the independent player-journal writer.
-        reports.Add(new("landmark_investment_completed", force, OfficerId: identity, Amount: level, ToHexId: hexId)
-        { DistrictId = primaryId, LandmarkId = id, RulerOfficerId = currentRuler, CampaignDay = 0,
-            RuleId = "army.progress.landmark-investment-completion" });
+        int physicalLandmark = OccupationKnown(landmark.PhysicalSlot, "landmark_report_scenery_identity");
+        var definitions = current.SceneryDefinitions ?? throw OccupationMissing("landmark_report_scenery_names");
+        if ((uint)physicalLandmark >= (uint)definitions.Sceneries.Count)
+            throw OccupationMissing("landmark_report_scenery_name_lookup");
+        string name = definitions.Sceneries[physicalLandmark].Name ?? throw OccupationMissing("landmark_report_scenery_name");
+        //33DCE0 materializes349D first, then binds the advisor/ruler and
+        //new level for53D4. The second text is the real supplemental operand.
+        var main = FormatHistoryReport(state, current, 0x349D, new HistoryMessageOperands(String0: name));
+        state = main.State;
+        int advisorIdentity = OccupationKnown(current.ReadPersonIdentity(advisor), "landmark_advisor_format_identity");
+        byte rawForce = OccupationKnown(current.ReadDistrictForceSlot(primary), "landmark_report_fresh_force");
+        var reportForce = current.ReadForceTableReference(rawForce <= 51 ? rawForce : 0)
+            ?? throw OccupationMissing("landmark_report_fresh_force_pointer");
+        int currentRuler = OccupationKnown(current.ReadMoraleWaveRuler22EAC0(reportForce), "landmark_report_fresh_ruler");
+        var supplemental = FormatHistoryReport(state, current, 0x53D4,
+            new HistoryMessageOperands(Person0: advisorIdentity, Person1: currentRuler, String0: name, Integers: [level]));
+        state = supplemental.State;
+        int reportHex = OccupationKnown(current.ReadSceneryHexIndex(landmark), "landmark_report_fresh_hex44");
+        int payload = OccupationKnown(current.ReadPersonIdentity(advisor), "landmark_report_payload10");
+        int reportDistrict = OccupationKnown(current.ReadDistrictPhysicalSlot(primary), "landmark_report_District_ordinal");
+        var requests = new List<CampaignEffectRequest>();
+        state = WriteHistory(state, current, new ReportCommand(1, reportDistrict, reportHex, 0, main.Text,
+            supplemental.Text, payload, MarkBit0: 1, MarkBit4: 1), requests);
+        return requests.Count == 0 ? state : state with { CampaignEffectRequests =
+            (state.CampaignEffectRequests ?? throw OccupationMissing("landmark_report_effect_owner"))
+                .Append(CampaignEffectSource.LandmarkInvestment, moment.CalendarCycleOrdinal, requests) };
         int Person(int raw) => OccupationKnown((raw <= 6000 ? current.ReadPersonLookupReference(raw) :
             current.ReadTransferPersonTableReference(0))?.PhysicalSlot, "landmark_person_pointer");
     }

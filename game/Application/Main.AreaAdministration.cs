@@ -35,7 +35,7 @@ public partial class Main
                 ()=>IsAdministrationCurrent(world,map)&&_administrationParent==view,RunUiAction,
                 ()=>ReturnFromAdministration(world,map,cityId),
                 ()=>RunPlayAction(()=>PrepareAdministrationCommit(world,map,cityId,force,view)),
-                enabled=>SetAdministrationMapInput(map,enabled),AdministrationUnavailable,_presentationRandom.Next);
+                enabled=>SetAdministrationMapInput(map,enabled),AdministrationUnavailable,_presentationRandom.Next,CurrentListScrollSpeed);
         }
         catch
         {

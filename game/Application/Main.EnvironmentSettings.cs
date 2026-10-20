@@ -6,6 +6,7 @@ public partial class Main
     private EnvironmentSettingsView? _environmentSettings;
     private DeploymentTargetConfirmation? _environmentConfirmation;
     private bool HasEnvironmentSettings => _environmentSettings is not null;
+    private int CurrentListScrollSpeed() => (int)_preferences.ListScroll;
 
     private void OpenEnvironmentSettings()
     {
@@ -15,12 +16,15 @@ public partial class Main
             !ReferenceEquals(_mapSystemWorld, session.World) || !ReferenceEquals(_world, session.World) || _residentMap != map) return;
         var world = session.World;
         var entry = _preferences.Navigation;
+        var audioEntry = _preferences.Audio;
+        var listEntry = _preferences.ListScroll;
         var view = new EnvironmentSettingsView(); _environmentSettings = view;
         parent.SetBusy(true); parent.Hide(); AddChild(view);
         try
         {
-            view.Configure(_repository, _ui, entry,
-                () => RunUiAction(RequestBack), () => RunUiAction(Apply), () => RunUiAction(RequestDefaults));
+            view.Configure(_repository, _ui, entry, audioEntry, listEntry,
+                () => RunUiAction(RequestBack), () => RunUiAction(Apply), () => RunUiAction(RequestDefaults),
+                audio => { if (Current()) _uiAudioFeedback?.SetVolumes(audio); });
         }
         catch { CloseEnvironmentSettings(); throw; }
 
@@ -31,13 +35,13 @@ public partial class Main
         void RequestBack()
         {
             if (!Current() || _environmentConfirmation is not null) return;
-            if (view.Draft == entry) CloseEnvironmentSettings();
+            if (view.Draft == entry && view.AudioDraft == audioEntry && view.ListScrollDraft == listEntry) CloseEnvironmentSettings();
             else Ask(0x275C, () => CloseEnvironmentSettings());
         }
         void RequestDefaults()
         {
             if (Current() && _environmentConfirmation is null)
-                Ask(0x2760, () => view.ApplyOptions(new()));
+                Ask(0x2760, () => { view.ApplyOptions(new()); view.ApplyAudioOptions(new()); view.ApplyListScroll(ListScrollSpeed.Slow); });
         }
         void Apply()
         {
@@ -45,7 +49,7 @@ public partial class Main
             view.SetBusy(true);
             try
             {
-                _preferences.Save(view.Draft, _preferences.Audio);
+                _preferences.Save(view.Draft, view.AudioDraft, view.ListScrollDraft);
                 map.SetSourceNavigationOptions(_preferences.Navigation);
                 CloseEnvironmentSettings();
             }
@@ -81,6 +85,9 @@ public partial class Main
         if (question is not null) { question.Abandon(); question.QueueFree(); }
         var view = _environmentSettings; _environmentSettings = null;
         if (view is not null) { view.Abandon(); view.QueueFree(); }
+        // Edits preview through the shared mixer. Apply has already replaced
+        // the committed preferences; every other close restores their entry mix.
+        if (view is not null) _uiAudioFeedback?.SetVolumes(_preferences.Audio);
         if (resumeParent && _mapSystemMenu is { } parent && ResumeMapSystemMenu()) parent.SetBusy(false);
     }
 }

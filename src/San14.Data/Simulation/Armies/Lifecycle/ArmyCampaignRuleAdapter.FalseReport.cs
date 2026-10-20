@@ -171,17 +171,22 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyFalseReportCo
         if (!OwnedArmyDestructorFlags.SetSourceBit(current, physical, 2, false)) throw FM("finish_flag_write");
         state = state.WithArmyLifecycle(OwnedArmyDestructorFlags.PublishCurrent(state.ReadArmyLifecycle()!, current));
         var player = OwnedCurrentPlayerForce.ReadCurrentReference(state, current) ?? throw FM("report_player");
-        int playerForce = player.PhysicalSlot ?? throw FM("report_player_identity");
-        if (actor.ForceId == playerForce || target.ForceId == playerForce)
+        var actorArmy = new ArmyUnitReference(physical);
+        var targetArmy = new ArmyUnitReference(FPhysical(target));
+        if (current.ReadArmyUnitForceReference(actorArmy) == player ||
+            current.ReadArmyUnitForceReference(targetArmy) == player)
         {
-            int person = FPerson(current, actor.OfficerId);
-            int district = FK(current.ReadPersonDistrictSlot(person), "report_district");
-            var force = current.ReadForceTableReference(actor.ForceId) ?? throw FM("report_force");
-            requests.Add(new(null, new(district, FHex(state, actor), FSampler(state, moment).Day450,
-                actor.OfficerId, state.Officers[actor.OfficerId].Name, state.Officers[target.OfficerId].Name,
-                CombatParticipantKind.Army, target.Id, actor.ForceId, current.ReadForceReportColor(force),
-                current.ReadForceKingdomNameIndex(actor.ForceId), current.ReadForceRecord(actor.ForceId)?.RawRuler10)
-                { Event = CampaignReportEvent.FalseReportSucceeded }));
+            var formatted = FormatHistoryReport(state, current, 0xC96B,
+                new HistoryMessageOperands(Army0: actorArmy, Army1: targetArmy));
+            state = formatted.State;
+            //The current SC success path reads12,2A,450 after formatting;
+            //the subsequent success speeches remain after the actual writer.
+            int payload = FK(current.ReadArmyUnitCommanderId(actorArmy), "report_Commander12");
+            int hex = FK(current.ReadArmyUnitRawHex2A(actorArmy), "report_Army2A");
+            int day = StatusCampaignDay(state, moment);
+            int district = ReadFacilityHistoryDistrict(current, actorArmy);
+            state = WriteHistory(state, current, new ReportCommand(5, district, hex, day, formatted.Text,
+                CampaignHistoryWriter.Supplemental(state), payload, MarkBit4: 1), requests);
         }
         Speech(actor, CombatSpeechEvent.FalseReportInitiatorSucceeded);
         Speech(target, CombatSpeechEvent.FalseReportTargetDeceived);

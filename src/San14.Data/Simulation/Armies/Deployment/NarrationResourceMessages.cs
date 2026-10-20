@@ -14,6 +14,11 @@ internal interface INarrationCurrentContext
     // the second expression. Synthetic legacy contexts need no pointer owner.
     int Personality(int firstPersonId, Func<int> readTraitKey) => Relationship('L', firstPersonId, readTraitKey());
     string AreaText(int argument, int field);
+    int ArmyValue(int argument, int field) => throw new InvalidDataException("narration.army_argument");
+    string ArmyText(int argument, int field) => throw new InvalidDataException("narration.army_argument");
+    int StringValue(int argument, int field) => throw new InvalidDataException("narration.string_argument");
+    string StringText(int argument, int field) => throw new InvalidDataException("narration.string_argument");
+    int IntegerValue(int argument) => throw new InvalidDataException("narration.integer_argument");
     string CityText(int argument, int field) => throw new InvalidDataException("narration.city_argument");
     string ForceText(int argument, int field) => throw new InvalidDataException("narration.force_argument");
 }
@@ -155,6 +160,84 @@ internal sealed class NarrationResourceMessages
         };
     }
 
+    private static readonly HashSet<int> ReportMessages =
+    [
+        0x0600, 0x0601, 0x0602, 0x0603, 0x0604, 0x0605, 0x0606, 0x0607, 0x0608, 0x0609,
+        0x060A, 0x3225, 0x3228, 0x3229, 0x322D, 0x3239, 0x323A, 0x3452, 0x349D, 0x53D4,
+        0x53D5, 0x53D6, 0x53D7, 0x53D8, 0x53D9, 0x53DA, 0x5F58, 0x5F6A, 0x5F6D, 0x5F7B,
+        0x5F7C, 0x5F7D, 0x5F80, 0xC356, 0xC357, 0xC358, 0xC359, 0xC35A, 0xC360, 0xC96A,
+        0xC96B, 0xC96F,
+    ];
+    private bool _report;
+    private readonly Dictionary<int, Program> _reportPrograms = [];
+    internal string ResolveHistoryReport(INarrationCurrentContext context, Func<int,int> drawApp32, int root)
+    {
+        if (root is not (0x5F6A or 0x5F58 or 0x5F6D or 0x5F80 or 0xC96A or 0xC96B or
+            0xC356 or 0xC357 or 0xC358 or 0xC359 or 0xC35A or 0xC96F or 0xC360 or
+            0x3228 or 0x3229 or 0x3225 or 0x322D or 0x3239 or 0x323A or
+            0x5F7B or 0x5F7C or 0x5F7D or 0x349D or 0x53D4 or 0x3452))
+            throw Failure("history_report_root");
+        _prefix = "campaign-history.text";
+        bool previous = _report; _report = true;
+        try
+        {
+            string text = ExecuteMessage(context, drawApp32, root, Get(root), _ => false, true, null, ReportMessages.Contains,
+                escapeText: (group, code) => (group, code) switch
+                { ('C','J') => "^02", ('C','L') => "^05", ('E','K') or ('E','M') => string.Empty,
+                  _ => throw Failure($"unresolved_escape_{group:X2}_{code:X2}") }, allowOpaqueEscapes: true).Text;
+            if (text.Length > 338 || text.Any(c => c == '\0' || char.IsSurrogate(c)))
+                throw Failure("complete_short_bmp_profile");
+            return text;
+        }
+        finally { _report = previous; }
+    }
+
+    private bool _history;
+    private readonly Dictionary<int, Program> _historyPrograms = [];
+    private static readonly HashSet<int> HistoryMessages =
+    [
+        0x0097, 0x0098, 0x0099, 0x009A, 0x009B, 0x009C, 0x009D, 0x009E, 0x009F, 0x00A0, 0x00A1, 0x00A2,
+        0x00A3, 0x00A4, 0x00A5, 0x00A6, 0x00A7, 0x00B8, 0x00B9, 0x00BA, 0x00BB, 0x00BC, 0x00BD, 0x00BE,
+        0x00BF, 0x00C0, 0x00C1, 0x00C2, 0x00C3, 0x00C4, 0x00C5, 0x00C6, 0x00C7, 0x00C8, 0x00C9, 0x00CA,
+        0x00CB, 0x00CC, 0x00CD, 0x00CE, 0x00CF, 0x00D0, 0x00D1, 0x00D2, 0x00D3, 0x00D4, 0x00D5, 0x00D7,
+        0x00D8, 0x00D9, 0x00DA, 0x00DB, 0x00DC, 0x00DD, 0x00DE, 0x00DF, 0x00E0, 0x00E1, 0x00E2, 0x00E3,
+        0x00E4, 0x00E5, 0x00E6, 0x00E7, 0x00E8, 0x00E9, 0x00EA, 0x00EB, 0x00EC, 0x00ED, 0x00EE, 0x00EF,
+        0x00F0, 0x00F1, 0x00F2, 0x00F3, 0x00F4, 0x00F5, 0x00F6, 0x00F7, 0x00F8, 0x00F9, 0x00FA, 0x00FB,
+        0x00FC, 0x00FD, 0x00FE, 0x00FF, 0x0100, 0x0101, 0x0102, 0x0103, 0x0104, 0x0105, 0x0106, 0x0107,
+        0x0108, 0x0109, 0x010A, 0x010B, 0x010C, 0x010D, 0x010E, 0x010F, 0x0110, 0x0111, 0x0112, 0x0113,
+        0x0114, 0x0115, 0x0116, 0x0117, 0x0118, 0x0119, 0x011A, 0x011B, 0x011C, 0x011D, 0x011E, 0x011F,
+        0x0120, 0x0121, 0x0122, 0x0123, 0x0124, 0x0125, 0x0127, 0x0128, 0x017C, 0x017E, 0x017F, 0x0180,
+        0x0181, 0x0182, 0x0183, 0x0184, 0x0185, 0x0186, 0x0187, 0x0188, 0x0189, 0x018A, 0x018B, 0x018C,
+        0x018D, 0x018E, 0x018F, 0x0190, 0x0191, 0x0192, 0x0193, 0x0194, 0x0195, 0x0196, 0x01F3, 0x01F4,
+        0x01F5, 0x01F6, 0x01F7, 0x01F8, 0x01F9, 0x01FA, 0x01FB, 0x01FC, 0x01FD, 0x01FE, 0x01FF, 0x0200,
+        0x0201, 0x0202, 0x0203, 0x0204, 0x0205, 0x0206, 0x0207, 0x0209, 0x020A, 0x020B, 0x020E, 0x020F,
+        0x0210, 0x0211, 0x0212, 0x0213, 0x0214, 0x0215, 0x0216, 0x0217, 0x0218, 0x0219, 0x021A, 0x021B,
+        0x021C, 0x021D, 0x021E, 0x021F, 0x0220, 0x0221, 0x0222, 0x0223, 0x0224, 0x0225, 0x0226, 0x0227,
+        0x0228, 0x0229, 0x022A, 0x022B, 0x022C, 0x022F, 0x0230, 0x0231, 0x0232, 0x0233, 0x0234, 0x0235,
+        0x0236, 0x0237, 0x2A2E, 0x2A32, 0x528F, 0x5290, 0x5291, 0x5293, 0x5294, 0x5296, 0x5297, 0x5299,
+        0x529A, 0x529C, 0x529D, 0x529E, 0x529F, 0x52A0, 0x52A1, 0x52A2, 0x52A3, 0x52A4, 0x52A5, 0x52A6,
+        0x52A7, 0x52A8, 0x52A9,
+    ];
+
+    internal string ResolvePersonDeathHistory(INarrationCurrentContext people,
+        Func<int, int> drawApp32, int root)
+    {
+        if (root is not (0x2A32 or 0x2A2E or 0x528F))
+            throw new InvalidDataException("person-death.history.root");
+        _prefix = "person-death.history-text";
+        bool previous = _history;
+        _history = true;
+        try
+        {
+            string text = ExecuteMessage(people, drawApp32, root, Get(root),
+                _ => false, true, null, HistoryMessages.Contains).Text;
+            if (text.Length > 338 || text.Any(c => c == '\0' || char.IsSurrogate(c)))
+                throw Failure("complete_short_bmp_profile");
+            return text;
+        }
+        finally { _history = previous; }
+    }
+
     private bool _appearance;
     private static bool AppearanceMessage(int id) => id is 0x5D27 or 0x5D28 or 0x5D4F or 0x017A or
         >= 0x017E and <= 0x0196 or >= 0x5D29 and <= 0x5D4E or 0x0097 or 0x00B8 or 0x0143 or
@@ -245,7 +328,10 @@ internal sealed class NarrationResourceMessages
         {
             Number n => n.Value,
             IntegerArgument argument => argument.Read(argument.Index),
+            ReportInteger argument => people.IntegerValue(argument.Index),
             Person p => people.PersonValue(p.Argument, p.Field),
+            Army a => people.ArmyValue(a.Argument, a.Field),
+            StringArgument a => people.StringValue(a.Argument, a.Field),
             Function f when f.Field == '2' => Percentage(Eval(f.Arguments[0])),
             Function f when f.Field == '3' => random(Eval(f.Arguments[0])),
             Function f when f.Field == 'L' => people.Personality(Eval(f.Arguments[0]), () => Eval(f.Arguments[1])),
@@ -257,7 +343,9 @@ internal sealed class NarrationResourceMessages
         { Person p => people.PersonText(p.Argument, p.Field), Area a => people.AreaText(a.Argument, a.Field),
           City c => people.CityText(c.Argument, c.Field),
           Force f => people.ForceText(f.Argument, f.Field),
-          StringArgument => string0?.Invoke() ?? throw Failure("string_argument"),
+          Army a => people.ArmyText(a.Argument, a.Field),
+          StringArgument a => _report ? people.StringText(a.Argument, a.Field) :
+              string0?.Invoke() ?? throw Failure("string_argument"),
           _ => Eval(expression).ToString(CultureInfo.InvariantCulture) };
         bool Test(Condition condition)
         {
@@ -314,11 +402,13 @@ internal sealed class NarrationResourceMessages
 
     private Program Get(int id, bool allowOpaqueEscapes = false)
     {
-        if (_programs.TryGetValue(id, out var program)) return program;
-        var parser = new Parser(ReadRecord(id), _prefix, _appearance || allowOpaqueEscapes);
+        var cache = _report ? _reportPrograms : _history ? _historyPrograms : _programs;
+        if (cache.TryGetValue(id, out var program)) return program;
+        var parser = new Parser(ReadRecord(id), _prefix, _appearance || _report || allowOpaqueEscapes,
+            fourPersonArguments: _history || _report, reportArguments: _report);
         program = parser.ReadProgram();
         parser.RequireEnd();
-        _programs.Add(id, program);
+        cache.Add(id, program);
         return program;
     }
     private byte[] ReadRecord(int id)
@@ -340,17 +430,19 @@ internal sealed class NarrationResourceMessages
     private abstract record Expression;
     private sealed record Number(int Value) : Expression;
     private sealed record IntegerArgument(int Index, Func<int, int> Read) : Expression;
+    private sealed record ReportInteger(int Index) : Expression;
     private sealed record Person(int Argument, int Field) : Expression;
     private sealed record Area(int Argument, int Field) : Expression;
     private sealed record City(int Argument, int Field) : Expression;
     private sealed record Force(int Argument, int Field) : Expression;
-    private sealed record StringArgument : Expression;
+    private sealed record Army(int Argument, int Field) : Expression;
+    private sealed record StringArgument(int Argument = 0, int Field = 0) : Expression;
     private sealed record Function(int Field, Expression[] Arguments) : Expression;
     private sealed record Comparison(Expression Left, int Operator, Expression? Right);
     private sealed record Condition(Comparison[] Terms, int[] Operators);
 
     private sealed class Parser(byte[] bytes, string prefix, bool allowOpaqueEscapes = false,
-        Func<int, int>? readInteger = null)
+        Func<int, int>? readInteger = null, bool fourPersonArguments = false, bool reportArguments = false)
     {
         private int _at;
         public Program ReadProgram()
@@ -427,9 +519,10 @@ internal sealed class NarrationResourceMessages
             if (Peek() is >= '0' and <= '9') return new Number(ReadDigits());
             if (Read() != 2) throw Bad("expression_tag");
             int selector = Read();
+            if (reportArguments && selector is >= '2' and <= ';') return new ReportInteger(selector - '2');
             if (readInteger is not null && selector is '2' or '3')
                 return new IntegerArgument(selector - '2', readInteger);
-            if (selector is 'F' or 'G')
+            if (selector is 'F' or 'G' || fourPersonArguments && selector is 'H' or 'I')
             {
                 int field = Peek() >= 0x20 ? Read() : 0;
                 return new Person(selector - 'F', field);
@@ -438,7 +531,11 @@ internal sealed class NarrationResourceMessages
             { int field = Peek() >= 0x20 ? Read() : 0; return new City(0, field); }
             if (selector == 'P')
             { int field = Peek() >= 0x20 ? Read() : 0; return new Force(0, field); }
-            if (selector == '<') return new StringArgument();
+            if (reportArguments && selector is 'n' or 'o')
+            { int field = Peek() >= 0x20 ? Read() : 0; return new Army(selector - 'n', field); }
+            if (selector == '<' || reportArguments && selector is '=' or '>')
+            { int field = reportArguments && Peek() >= 0x20 ? Read() : 0;
+              return new StringArgument(selector - '<', field); }
             if (selector == 0x96)
             { int field = Peek() >= 0x20 ? Read() : 0; return new Area(0, field); }
             if (selector != 0xC8) throw Bad("selector");

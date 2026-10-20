@@ -12,14 +12,19 @@ internal sealed record CapturedPersonLine(int EntityKind, int EntityId, int Offi
 internal sealed record CapturedBattleReport(int DistrictId, int HexId, int CampaignDay,
     int OfficerId, string ArmyName, string TargetName, int TargetKind, int TargetId,
     int? ForceSlot, byte? ForceColor, byte? KingdomNameIndex, int? RulerId);
-internal sealed record CapturedCombatEffect(CapturedPersonLine? PersonLine, CapturedBattleReport? Report);
+internal sealed record CapturedCombatEffect(CapturedPersonLine? PersonLine, CapturedBattleReport? Report)
+{
+    internal CampaignHistoryNotification? HistoryNotification { get; init; }
+}
 
 /// <summary>Captures source-time identities and positions without touching the
-/// App CRT, queue, layout allocation, report ring or presentation acknowledgements.</summary>
-internal sealed class NormalCombatPresentationCapture(GameState state, SourceWorldContext current,
+/// App CRT, queue, layout allocation or presentation acknowledgements. Actual
+/// report calls write the candidate's persistent history at source time.</summary>
+internal sealed class NormalCombatPresentationCapture(ArmyCampaignRuleAdapter package, GameState state, SourceWorldContext current,
     ArmyMapGroupingCurrentQueries queries, TacticRemakeCurrentContext tactics)
 {
     private readonly List<CapturedCombatEffect> effects = [];
+    internal GameState State => state;
     internal CapturedCombatEffect[] Effects => effects.ToArray();
     internal void ActorMessages(NormalCombatActorTargets row)
     {
@@ -128,20 +133,38 @@ internal sealed class NormalCombatPresentationCapture(GameState state, SourceWor
             selected = sorted[0];
         }
         if (selected is null) return;
-        int force = K(queries.ReadForce(physical)?.PhysicalSlot, "report_force");
-        var forceReference = current.ReadForceTableReference(force) ?? throw M("report_force_pointer");
-        string name = state.Officers.GetValueOrDefault(army.OfficerId)?.Name ?? throw M("report_Army_name");
         string targetName = selected.Kind switch
         {
-            27 => state.Officers.GetValueOrDefault(Army(selected.PhysicalSlot).OfficerId)?.Name ?? throw M("report_target_name"),
+            27 => package.ReadHistoryArmyName(state, current, new(selected.PhysicalSlot)),
             5 => state.Cities.GetValueOrDefault(selected.PhysicalSlot)?.Name ?? throw M("report_City_name"),
             6 => state.Gates.GetValueOrDefault(selected.PhysicalSlot + 51)?.Name ?? throw M("report_Gate_name"),
             _ => throw M("report_target_kind")
         };
+        var actor = new ArmyUnitReference(physical);
+        //1698F0 binds actor Army0 and the selected entity's actual name as
+        //String0. It does not bind the selected Army/Base as another entity.
+        var formatted = package.FormatHistoryReport(state, current, 0x5F6A,
+            new HistoryMessageOperands(Army0: actor, String0: targetName));
+        state = formatted.State;
+        ushort reporter = K(current.ReadArmyUnitCommanderId(actor), "report_raw_Commander12");
+        ushort hex = K(current.ReadArmyUnitRawHex2A(actor), "report_current_Army2A");
         int day = tactics.ReadCurrentSamplerWorld(state)?.Day450 ?? throw M("report_day");
-        effects.Add(new(null, new(district, army.HexId, day, army.OfficerId, name, targetName,
-            selected.Kind, selected.PhysicalSlot, force, current.ReadForceReportColor(forceReference),
-            current.ReadForceKingdomNameIndex(force), current.ReadForceRecord(force)?.RawRuler10)));
+        byte recipient = ReportDistrict(actor);
+        var notifications = new List<CampaignEffectRequest>();
+        state = package.WriteHistory(state, current, new ReportCommand(5, recipient, hex, day, formatted.Text,
+            CampaignHistoryWriter.Supplemental(state), reporter, MarkBit4: 1), notifications);
+        foreach (var notification in notifications)
+            effects.Add(new(null, null) { HistoryNotification = notification.HistoryNotification });
+    }
+
+    private byte ReportDistrict(ArmyUnitReference army)
+    {
+        ushort raw = K(current.ReadArmyUnitCommanderId(army), "report_recipient_Commander12");
+        var reference = (raw <= 6000 ? current.ReadPersonLookupReference(raw) : current.ReadTransferPersonTableReference(0))
+            ?? throw M("report_recipient_Person_lookup");
+        if (reference.PhysicalSlot is not int person) return 0;
+        return K(current.ReadPersonNativeValidity(person), "report_recipient_Person_validity")
+            ? K(current.ReadPersonDistrictSlot(person), "report_recipient_E0") : (byte)0;
     }
     private bool ReportBefore(NormalCombatParticipant left, NormalCombatParticipant right)
     {

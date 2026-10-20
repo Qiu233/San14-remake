@@ -277,7 +277,7 @@ internal static class CampaignEffectSaveFields
             if (batch["Requests"] is not JsonArray requests) throw new InvalidDataException("Saved campaign requests are missing.");
             foreach (var entry in requests)
             {
-                var request = Require(entry, "Speech", "Report", "MapObjectPresentation", "ForceAssociationRemovalReport",
+                var request = Require(entry, "HistoryNotification", "Speech", "Report", "MapObjectPresentation", "ForceAssociationRemovalReport",
                     "FacilityAuraReset", "MilitaryMusicPulse", "FacilityRepairPresentation", "FacilityConstructionPresentation",
                     "ArmyTraitViewRefresh", "ArmyTraitFeedback", "FacilityTrapPresentation", "ArmyTrapPresentation",
                     "ArmyFacilityDamagePresentation", "FacilityTrapReport", "ArmyMoraleDefeatReport", "FireDamagePresentation", "TerrainDamagePresentation", "OfficerGrowthFeedback", "PersonAppearance", "PersonDeathReport");

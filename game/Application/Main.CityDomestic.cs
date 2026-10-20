@@ -55,7 +55,8 @@ public partial class Main
         {
             SetMapFocus(true); map.CloseCityCommandMenu(); map.SetDetailsOpen(true, keepMapVisible: true); HideDeploymentHud();
             _cityDomesticSelectors = new(this, _repository, _ui, world, draft,
-                () => IsCityDomesticCurrent(session, world, map) && _cityDomesticView == view, CityDomesticUnavailable, 0);
+                () => IsCityDomesticCurrent(session, world, map) && _cityDomesticView == view, CityDomesticUnavailable,
+                CurrentListScrollSpeed(),CurrentListScrollSpeed);
             _cityDomesticPresenter = new(view, _repository, _ui, draft,
                 () => IsCityDomesticCurrent(session, world, map) && _cityDomesticView == view, RunUiAction,
                 terminal => RunPlayAction(() => CompleteCityDomestic(session, world, map, view, city, force, terminal)),

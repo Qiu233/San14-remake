@@ -14,7 +14,7 @@ internal partial class DeploymentSummaryList : Control
 
     internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,MapFont font,
         IReadOnlyList<DeploymentSummaryRowContent> contents,int? selectedOfficerId,int scrollSpeedSetting,
-        Action<int> selected,Action<int> removed,Action add)
+        Action<int> selected,Action<int> removed,Action add,Func<int>? currentScrollSpeed=null)
     {
         if(contents.Select(row=>row.OfficerId).Distinct().Count()!=contents.Count ||
             selectedOfficerId is int current&&!contents.Any(row=>row.OfficerId==current))
@@ -32,7 +32,7 @@ internal partial class DeploymentSummaryList : Control
         scroll.Configure(repository,assets,shader,Math.Max(0,checked((contents.Count+1)*116)-736),scrollSpeedSetting,value=>
         {
             for(int i=0;i<controls.Count;i++)controls[i].Position=new(0,i*116-value);
-        });
+        },currentScrollSpeed:currentScrollSpeed);
         clip.GuiInput+=scroll.HandleWheel;
         foreach(var content in contents)
         {

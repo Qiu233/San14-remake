@@ -30,7 +30,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             CampaignEventWorld = new(scenarioId, source.RawModeValue, source.RawPastGameTime)
                 { CurrentUserIndex = userIndex, SpecialPersonEncounterFlags = 0, EventAchievementFlags = 0 },
             CampaignEvents = new(new bool[1024], new bool[1024], new CampaignEventOccurrenceDate?[1024], false),
-            CampaignEventEligibility = new(new bool[992]),
+            CampaignEventEligibility = new(new bool[992]) { HistoryRecordingSuppressed = false },
+            CampaignHistory = state.CampaignHistory is null ? CampaignHistoryState.Fresh()
+                : throw new InvalidDataException("Fresh campaign history is already owned."),
             ContentHashes = new(state.ContentHashes) { [events.Source.ResourceUri] = events.Source.Sha256 }
         };
     }
@@ -195,7 +197,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         var blocked = Enumerable.Range(0, 992).Select(i => OccupationKnown(current.ReadManagerEventFlag(i), "campaign_event_manager_result")).ToArray();
         var pool = current.ReadOwnedCurrentListPool() ?? throw OccupationMissing("campaign_event_list_pool");
         var next = state.WithArmyLifecycle(state.ReadArmyLifecycle()! with { Indexes = pool.ExportOwnedState() });
-        return new(next with { CampaignEventEligibility = new(blocked) }, result);
+        return new(next with { CampaignEventEligibility = state.CampaignEventEligibility! with { Blocked = blocked } }, result);
     }
 
     public static S14ConditionDispatchInputs ReadOrdinaryEventDispatchInputs(GameState state)

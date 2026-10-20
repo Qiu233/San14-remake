@@ -119,7 +119,7 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
     private (GameState State, OwnedArmyDestructionReceipt Receipt) DestroyCurrent(GameState state,
         SourceWorldContext current, WorldIndexContext pool,
         UnitDefeatRequest request, int physical, TacticSourceSamplerWorld? sampler,
-        NativeMapSeasonDate? sourceDate, List<CampaignEffectRequest>? feedback = null,
+        NativeMapSeasonDate? sourceDate, List<CampaignEffectRequest> feedback,
         Action<ArmyUnitReference>? refresh = null, Action<int>? personChanged = null,
         bool projectOwnedRoles = false)
     {
@@ -198,8 +198,7 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         //have closed. It is not bypassed merely because the Person is ruler.
         state = package.ApplyArmyDestructionLoyalty(state, current, commander, force, projectOwnedRoles);
         effects.Add("25A834.Person_E8_loyalty_writer");
-        if (feedback is not null)
-            CaptureMoraleDefeatReport(state, current, victim, winner, checked((ushort)hex), sampler, feedback);
+        state = CaptureMoraleDefeatReport(state, current, victim, winner, checked((ushort)hex), sampler, feedback);
         var wave = ArmyDestructionMoraleWave.Apply(state, current, victim,
             new(new(commander), force, captured.WinnerForce, false), winner);
         if (wave.EffectCount is null) throw Missing(wave.UnresolvedOwner ?? "current.ruler_morale_wave");
