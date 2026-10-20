@@ -9,7 +9,8 @@ using San14.Data;
 public partial class AudioPlaybackService : Node
 {
     private readonly ConcurrentQueue<Action> _engineActions = new();
-    private sealed record Voice(AudioStreamPlayer Player, float BaseVolumeDb, AudioVolumeGroup? Group, float SourceGain);
+    private sealed record Voice(AudioStreamPlayer Player, float BaseVolumeDb, AudioVolumeGroup? Group,
+        float SourceGain, bool StaticCue);
     private readonly Dictionary<string, Voice> _players = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly object _postGate = new();
@@ -30,7 +31,14 @@ public partial class AudioPlaybackService : Node
 
     private void ApplyVolume(Voice voice)
     {
-        if (voice.Group is { } group)
+        if (voice.StaticCue)
+        {
+            // Native direct amplitude is capped after the current category
+            // gain. Caller-selected base volume is a separate project gain.
+            float category = voice.Group is { } categoryGroup ? Volumes.Percent(categoryGroup) / 100f : 1;
+            voice.Player.VolumeLinear = MathF.Min(voice.SourceGain * category, 4) * Mathf.DbToLinear(voice.BaseVolumeDb);
+        }
+        else if (voice.Group is { } group)
             voice.Player.VolumeLinear = voice.SourceGain * Mathf.DbToLinear(voice.BaseVolumeDb) * (Volumes.Percent(group) / 100f);
         else if (voice.SourceGain != 1)
             voice.Player.VolumeLinear = voice.SourceGain * Mathf.DbToLinear(voice.BaseVolumeDb);
@@ -167,16 +175,21 @@ public partial class AudioPlaybackService : Node
         if (volumeGroup is { } group && !Enum.IsDefined(group)) throw new ArgumentOutOfRangeException(nameof(volumeGroup));
         float sourceGain = clip.StaticPlayback?.LinearGain ?? 1;
         if (!float.IsFinite(sourceGain) || sourceGain < 0) throw new InvalidDataException("Audio source gain must be finite and nonnegative.");
+        float playbackRate = clip.StaticPlayback?.PlaybackRate ?? 1;
+        if (!float.IsFinite(playbackRate) || playbackRate <= 0) throw new InvalidDataException("Audio playback rate must be finite and positive.");
         if (AudioServer.GetBusIndex(bus) < 0) throw new ArgumentException("Selected audio bus does not exist.", nameof(bus));
         if (!_players.TryGetValue(channel, out var previous))
         {
-            previous = new(new AudioStreamPlayer { Name = "OriginalAudioVoice" + _players.Count, Autoplay = false }, volumeDb, volumeGroup, sourceGain);
+            previous = new(new AudioStreamPlayer { Name = "OriginalAudioVoice" + _players.Count, Autoplay = false },
+                volumeDb, volumeGroup, sourceGain, clip.StaticPlayback is not null);
             AddChild(previous.Player);
         }
-        var voice = previous with { BaseVolumeDb = volumeDb, Group = volumeGroup, SourceGain = sourceGain };
+        var voice = previous with { BaseVolumeDb = volumeDb, Group = volumeGroup, SourceGain = sourceGain,
+            StaticCue = clip.StaticPlayback is not null };
         _players[channel] = voice;
         var player = voice.Player;
-        player.Stop(); player.Stream = clip.Stream; player.Bus = bus; ApplyVolume(voice);
+        player.Stop(); player.Stream = clip.Stream; player.Bus = bus;
+        player.PitchScale = playbackRate; ApplyVolume(voice);
         player.StreamPaused = false; player.Play();
     }
 

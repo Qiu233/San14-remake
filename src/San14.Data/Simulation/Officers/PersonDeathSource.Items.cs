@@ -19,7 +19,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 WriteDirectHeldItem(item, (ushort)Math.Clamp(ruler, 0, 6000));
                 Observe("death.item.captured-held");
                 if (IsPlayer(originalForce) || IsPlayer(receiver))
-                    throw Missing("items_report_2A3B");
+                    ApplyCapturedItemReport(person, item, receiver);
             }
         }
 
@@ -78,7 +78,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                         WriteDirectHeldItem(item, (ushort)Math.Min((int)holder, 6000));
                         Observe("death.item.recipient-held");
                         if (Serving(recipient) && (IsPlayer(Force(person)) || IsPlayer(Force(recipient))))
-                            throw Missing("items_report_2A3B");
+                            ApplyRecipientItemReport(person, item, recipient);
                     }
                     else if (Serving(person) && Status(person) != 1)
                     {
@@ -119,6 +119,70 @@ public sealed partial class ArmyCampaignRuleAdapter
                 }
             }
             finally { ClearRelease(pendingRemoval); }
+        }
+
+        private void ApplyCapturedItemReport(int person, RegistryObjectReference item, ForceReference receiver)
+        {
+            //The message arguments are fresh, independent of the earlier
+            //clamped holder store. Complete formatting precedes all metadata.
+            ushort argument0 = Known(current.ReadMoraleWaveRuler22EAC0(receiver), "captured_item_report_argument0");
+            string text = FormatItemReport(person, item, argument0);
+            int day = DeathHistoryDay();
+            ushort reporter = Known(current.ReadMoraleWaveRuler22EAC0(receiver), "captured_item_report_payload");
+            var home = ItemReportRulerBase(receiver); //22EA10, not22EAC0 or a captured Person's Base.
+            int hex = current.ReadBaseCurrentHexIndex(home); //22D880 retains the raw48400 sentinel.
+            var abilities = new TacticRemakeCurrentAbilities(current, package._scenario,
+                package.Seed.Language, SimulationRuleIdentity.ForLocale(package.Seed.Language));
+            var primary = new PersonDeathHistorySelection(latest, current, pool, abilities,
+                package._governorInputs).PrimaryDistrict(receiver);
+            int district = Known(current.ReadDistrictPhysicalSlot(primary), "captured_item_report_District_ordinal");
+            CommitItemReport(text, reporter, district, hex, day);
+        }
+
+        private void ApplyRecipientItemReport(int person, RegistryObjectReference item, int recipient)
+        {
+            ushort argument0 = Identity(Physical(ItemRecipientRuler(recipient), "recipient_item_report_argument0"));
+            string text = FormatItemReport(person, item, argument0);
+            //2BE120 reads the fresh payload before World450; its metadata
+            //comes from the selected recipient, not the captured6 Force chain.
+            ushort reporter = Identity(Physical(ItemRecipientRuler(recipient), "recipient_item_report_payload"));
+            int day = DeathHistoryDay();
+            var home = BaseLookup.Find(Known(current.ReadPersonFirstLocation(recipient), "recipient_item_report_E2"), current);
+            byte district = Known(current.ReadPersonDistrictSlot(recipient), "recipient_item_report_E0");
+            int hex = current.ReadBaseCurrentHexIndex(home);
+            CommitItemReport(text, reporter, district, hex, day);
+        }
+
+        private string FormatItemReport(int person, RegistryObjectReference item, ushort receiverRuler)
+        {
+            ushort deceased = Identity(person);
+            var owner = ItemOwner(item);
+            string name = latest.ItemDefinitions?.GetValueOrDefault(owner.DefinitionId)?.Name
+                ?? throw Missing("item_report_current_definition_name");
+            var result = package.FormatHistoryReport(latest, current, 0x2A3B,
+                new(String0: name, Person0: receiverRuler, Person1: deceased));
+            latest = result.State;
+            return result.Text;
+        }
+
+        private BaseReference ItemReportRulerBase(ForceReference force)
+        {
+            //22EA10 loads raw word10 once, preserves lookup0 aliases, and
+            //uses the independent physical table head only above6000.
+            var ruler = ItemLookup(ItemForceWord10(force));
+            ushort first = Known(current.ReadPersonFirstLocation(Physical(ruler, "item_report_ruler_pointer")),
+                "item_report_ruler_E2");
+            return BaseLookup.Find(first, current);
+        }
+
+        private void CommitItemReport(string text, ushort reporter, int district, int hex, int day)
+        {
+            var effects = new List<CampaignEffectRequest>();
+            latest = package.WriteHistory(latest, current,
+                new(1, district, hex, day, text, CampaignHistoryWriter.Supplemental(latest), reporter,
+                    MarkBit3: 1, MarkBit4: 1), effects);
+            AppendInitialDeathEffects(effects);
+            Observe("death.item.report-history");
         }
 
         private bool ApplyAssociatedItem(int person, RegistryObjectReference item, PersonLinkedEntityReference associated)

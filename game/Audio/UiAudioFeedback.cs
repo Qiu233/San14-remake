@@ -67,12 +67,13 @@ internal sealed class UiAudioFeedback : IDisposable
             var service = new AudioPlaybackService { Name = "OriginalUiAudioPlayback" };
             _host.AddChild(service);
             _service = service;
-            service.Configure(new AudioRepository(_sourceDirectory, _overridesDirectory), decoder!);
+            var audioRepository = new AudioRepository(_sourceDirectory, _overridesDirectory);
+            service.Configure(audioRepository, decoder!);
             service.SetVolumes(_volumes);
             ServiceReady?.Invoke(service);
             // Separate source cache from map and scenario loading.
             var source = new GameResourceRepository(_sourceDirectory, _overridesDirectory);
-            UiAudioClips clips = await UiAudioClips.LoadAsync(service, source, _token);
+            UiAudioClips clips = await UiAudioClips.LoadAsync(service, source, audioRepository, _token);
             if (_token.IsCancellationRequested || !_acceptPreparedClips())
             {
                 clips.Dispose();
@@ -85,7 +86,7 @@ internal sealed class UiAudioFeedback : IDisposable
             Publish(Status with { Availability = UiAudioAvailability.Ready, Source = provenance });
             GD.Print($"ORIGINAL_UI_AUDIO_READY bank={provenance.BankUri} " +
                 $"selectFrames={provenance.SelectFrames} cancelFrames={provenance.CancelFrames} preloadOnly=true");
-            await PrepareEffectsPreviewAsync(service, source);
+            await PrepareEffectsPreviewAsync(service, source, audioRepository);
         }
         catch (OperationCanceledException) when (_token.IsCancellationRequested) { }
         catch (Exception error)
@@ -114,13 +115,14 @@ internal sealed class UiAudioFeedback : IDisposable
         }
     }
 
-    private async Task PrepareEffectsPreviewAsync(AudioPlaybackService service, GameResourceRepository source)
+    private async Task PrepareEffectsPreviewAsync(AudioPlaybackService service, GameResourceRepository source,
+        AudioRepository audioRepository)
     {
         AudioClip? clip = null;
         try
         {
             clip = await CueAudioClips.PrepareStaticNonSpatialEffectAsync(service, source,
-                new AudioRepository(_sourceDirectory, _overridesDirectory),
+                audioRepository,
                 new(AudioSelectionResources.InstalledUiBankId, null, "SE_400_DAMEGE_VERTICAL_MAN", AudioLoopPolicy.Disabled), _token);
             if (_token.IsCancellationRequested || !_acceptPreparedClips()) { clip.Stream.Dispose(); return; }
             _effectsPreview = clip;

@@ -118,7 +118,7 @@ public static class AudioCueGraphResources
     /// <summary>
     /// Reads one static 562FC4B9/A5170472 chain for the non-spatial A0 consumer.
     /// No manager admission, decoder readiness or spatial-request choice is inferred here.
-    /// Nonneutral rate, delay/start envelopes, duration limits and dynamic fields are rejected.
+    /// Static additive rate is retained; delay/start envelopes, duration limits and dynamic fields are rejected.
     /// Category keys remain explicit: resolve them against the caller's current CGRS asset.
     /// </summary>
     public static AudioCueStaticPlaybackReference ReadSingleStaticNonSpatialReference(
@@ -214,19 +214,26 @@ public static class AudioCueGraphResources
         if (group.LinearGain < 0 || sound.LinearGain < 0 || group.StopReleaseSeconds < 0)
             throw new InvalidDataException("Static playback gain or release duration is negative.");
         Neutral(group.MixMultiplier1, 1, "group mix multiplier1");
-        Neutral(group.MixMultiplier2, 1, "group mix multiplier2");
-        Neutral(group.AdditiveRate, 0, "group additive rate");
+        // Zero side-route input is used by the two UI feedback cues; one
+        // preserves the existing direct-output 3F consumer. Other routing
+        // values require an explicit auxiliary-output mixer.
+        if (group.MixMultiplier2 is not (0 or 1))
+            throw new NotSupportedException("Static playback requires zero or unity side-route input.");
         Neutral(group.InitialDelaySeconds, 0, "group delay");
         Neutral(group.StartEnvelopeSeconds, 0, "group start envelope");
         Neutral(sound.MaximumDurationSeconds, 0, "sound maximum duration");
         Neutral(sound.MixMultiplier, 1, "sound mix multiplier");
-        Neutral(sound.AdditiveRate, 0, "sound additive rate");
         Neutral(sound.InitialDelaySeconds, 0, "sound delay");
         Neutral(sound.EnvelopeScalar30, 0, "sound envelope scalar30");
         Neutral(sound.EnvelopeScalar34, 0, "sound envelope scalar34");
         Neutral(sound.EnvelopeScalar38, 0, "sound envelope scalar38");
         float gain = group.LinearGain * sound.LinearGain;
         if (!float.IsFinite(gain)) throw new InvalidDataException("Static playback combined gain is not finite.");
+        // The non-spatial setter adds the group and leaf values, resets
+        // the rate multiplier to one, and the player consumes exp2(sum).
+        float rate = MathF.Pow(2, group.AdditiveRate + sound.AdditiveRate);
+        if (!float.IsFinite(rate) || rate <= 0)
+            throw new NotSupportedException("Static playback rate exceeds the positive finite player range.");
 
         AudioNamedSample[] samples = bank.Samples.Where(s => s.SampleId == sound.SoundId).ToArray();
         if (samples.Length != 1 || samples[0].Headers.Count != 1)
@@ -239,7 +246,7 @@ public static class AudioCueGraphResources
             throw new InvalidDataException("Static playback sample timing is invalid.");
         return new(new(cue.CueId, cueName, sound.SoundId, start, leaf, bank.Source), group, sound,
             new(samples[0].SectionOffset, header.TypeId, header.IsExternal, header.Channels,
-                header.SampleRate, header.DeclaredSamples, header.LoopStartSample), gain, 1);
+                header.SampleRate, header.DeclaredSamples, header.LoopStartSample), gain, rate);
     }
 
     /// <summary>Reads the ordered gain keys of one classification in an explicit current CGRS
