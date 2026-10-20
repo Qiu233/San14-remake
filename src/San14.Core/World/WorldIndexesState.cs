@@ -28,6 +28,7 @@ public sealed record WorldIndexesState
     public Dictionary<int, ArmyIndexState> Armies { get; init; } = [];
     public Dictionary<int, List<int?>?> CautionGroupMembers { get; init; } = [];
     public List<int?>? ReturningPersonnelTaskOrder { get; init; }
+    public List<MapObjectReceiverId?>? PendingObjectRetirements { get; init; }
     public List<int?>? PendingUnitIds { get; init; }
     public List<int?>? ChangedPendingUnitIds { get; init; }
     public List<int?>? ChangedWorkingUnitIds { get; init; }
@@ -68,6 +69,7 @@ public sealed record WorldIndexesState
         }),
         CautionGroupMembers = CautionGroupMembers.ToDictionary(row => row.Key, row => CopyIds(row.Value)),
         ReturningPersonnelTaskOrder = CopyIds(ReturningPersonnelTaskOrder),
+        PendingObjectRetirements = PendingObjectRetirements is null ? null : new(PendingObjectRetirements),
         PendingUnitIds = CopyIds(PendingUnitIds),
         ChangedPendingUnitIds = CopyIds(ChangedPendingUnitIds),
         ChangedWorkingUnitIds = CopyIds(ChangedWorkingUnitIds)

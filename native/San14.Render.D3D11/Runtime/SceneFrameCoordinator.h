@@ -123,7 +123,29 @@ public:
         shadows.publishCollectionAdmission(season_,view.definition().common,bases.primary(),models.catalog());
         models.selectCamera(cameraRig_.frame(),fieldDisplay_);
         bases.selectCamera(cameraRig_.frame());
-        shadows.prepareCamera(cameraRig_.frame(),fieldDisplay_,callers.field);
+        // Vegetation follows the accepted camera and retains current weather
+        // and wind. Its bounds must reach compact fitting before final matrices.
+        environment_.publishVegetationCamera();
+        const auto& mode=cameraRig_.display().mode;
+        const auto& groundCaller=bases.citySource().caller;
+        ground_detail_source::CompactCasterSelection groundShadow;
+        groundShadow.wrapperPresent=season_&&shadows.seasonParameters().selectedLightGroup>0;
+        if(season_) {
+            const auto& common=view.definition().common;
+            const auto exclusion=0xfffffffdu|(common.present?common.excludedCategories:0u);
+            // These ordered current records are produced by the directional
+            // light owner (kind 1). B95C40 takes the first nonexcluded record,
+            // independently of the View's selected compact shadow light.
+            for(const auto& light:season_->lights)if(!(light.mask&exclusion)) {
+                groundShadow.firstLightFlags=light.firstCasterFlags;break;
+            }
+        }
+        const auto& groundPopulation=groundDetails.prepare({cameraRig_.frame(),
+            environment_.vegetation(),clock,
+            {view.definition().common.present,view.definition().common.featureFlags,view.definition().common.excludedCategories},settingsFlags,
+            {groundCaller.firstMask,groundCaller.secondMask,groundCaller.shadowMask,groundCaller.registeredViews,groundCaller.successfulViews,0},
+            {mode.sceneMode,mode.zoomLevel,true,false,0},season_?season_->season:0},groundShadow);
+        shadows.prepareCamera(cameraRig_.frame(),fieldDisplay_,callers.field,groundDetails.preparedCompactCasters());
         view.beginPopulation(shadows.frame().ordinaryRecordCounts);
         bases.withAccessories([&](auto& cityAccessories,auto& areaAccessories) {
             view.withArmyPopulation([&](const auto& profile,auto& counts,auto& accessoryCount) {
@@ -132,16 +154,6 @@ public:
             });
         });
         view.requirePrimaryRecordCount(bases.plan().ordinaryCounts.size());
-        // Vegetation follows the accepted camera and retains current weather
-        // and wind. Geometry uses the ordinary camera transform.
-        environment_.publishVegetationCamera();
-        const auto& mode=cameraRig_.display().mode;
-        const auto& groundCaller=bases.citySource().caller;
-        const auto& groundPopulation=groundDetails.prepare({cameraRig_.frame(),
-            environment_.vegetation(),clock,
-            {view.definition().common.present,view.definition().common.featureFlags,view.definition().common.excludedCategories},settingsFlags,
-            {groundCaller.firstMask,groundCaller.secondMask,groundCaller.shadowMask,groundCaller.registeredViews,groundCaller.successfulViews,0},
-            {mode.sceneMode,mode.zoomLevel,true,false,0},season_?season_->season:0});
         view.addGroundDetails(groundPopulation.seasonPopulationChanged,
             [&](unsigned mask) { return groundDetails.preparedCountForRecord(mask); });
         // The joint source profile already counts every admitted primary World

@@ -1,3 +1,5 @@
+using San14.Data.Formats;
+
 namespace San14.Data;
 
 /// <summary>World facts and independent event histories used by condition evaluation.</summary>
@@ -10,6 +12,12 @@ public sealed class EventConditionState
     public int? ScenarioMode { get; set; }
     public int? PastGameTime { get; set; }
     public ushort? EmperorPersonId { get; set; }
+    public S14ConditionDate? CurrentDate { get; set; }
+    public S14ConditionDate? ScenarioDate { get; set; }
+    public byte? SelectedForce { get; set; }
+    private readonly Dictionary<int, S14ConditionOccurrenceDate?> _occurrenceDates = [];
+    public S14ConditionOccurrenceDate? ReadOccurrenceDate(int eventId) => _occurrenceDates.GetValueOrDefault(eventId);
+    public void SetOccurrenceDate(int eventId, S14ConditionOccurrenceDate? date) => _occurrenceDates[eventId] = date;
 
     public bool? ReadEventFlag(int eventId) => _eventFlags.Read(eventId);
     public bool? ReadResultFlag(int eventId) => _resultFlags.Read(eventId);

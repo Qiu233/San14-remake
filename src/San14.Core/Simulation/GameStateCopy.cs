@@ -6,11 +6,12 @@ namespace San14.Core;
 /// Immutable record leaves remain shared; dictionaries and arrays never do.</summary>
 public static class GameStateCopy
 {
-    private static PersonnelReturnTasks? CopyPersonnelReturns(PersonnelReturnTasks? value) => value is null ? null : value with
+    private static PersonnelCommandTasks? CopyPersonnelCommands(PersonnelCommandTasks? value) => value is null ? null : value with
     {
         AvailableDispatchSlots = value.AvailableDispatchSlots.ToArray(),
         PendingRetirements = value.PendingRetirements.ToArray(),
-        Tasks = value.Tasks.ToDictionary(pair => pair.Key, pair => pair.Value with
+        Disappearances = value.Disappearances?.ToDictionary(pair => pair.Key, pair => pair.Value with { MemberIds = pair.Value.MemberIds.ToArray() }),
+        Returns = value.Returns.ToDictionary(pair => pair.Key, pair => pair.Value with
         {
             MemberIds = pair.Value.MemberIds.ToArray(),
             RouteDestinations = pair.Value.RouteDestinations.ToArray()
@@ -21,6 +22,9 @@ public static class GameStateCopy
     public static GameState? Copy(GameState? value) => value is null ? null : value with
     {
         Diplomacy = Copy(value.Diplomacy),
+        NormalCombatRefresh = value.NormalCombatRefresh?.Copy(),
+        CampaignEffectRequests = value.CampaignEffectRequests?.Copy(),
+        ManualTacticIntervention = value.ManualTacticIntervention?.Copy(),
         MonthlyIncomeReports = CopyArray(value.MonthlyIncomeReports, item => Copy(item)!),
         InitializationIssues = CopyArray(value.InitializationIssues),
         ContentHashes = CopyDictionary(value.ContentHashes),
@@ -32,6 +36,12 @@ public static class GameStateCopy
         PolicyEffects = CopyDictionary(value.PolicyEffects, item => Copy(item)!),
         ItemDefinitions = CopyDictionary(value.ItemDefinitions),
         Items = CopyDictionary(value.Items),
+        LandmarkInvestments = value.LandmarkInvestments is null ? null : new(value.LandmarkInvestments),
+        CampaignEvents = value.CampaignEvents is not { } events ? null : events with
+        { Occurred = (bool[])events.Occurred.Clone(), Acknowledged = (bool[])events.Acknowledged.Clone(),
+            OccurrenceDates = (CampaignEventOccurrenceDate?[])events.OccurrenceDates.Clone() },
+        CampaignEventEligibility = value.CampaignEventEligibility is not { } eligibility ? null :
+            eligibility with { Blocked = (bool[])eligibility.Blocked.Clone() },
         Formations = CopyDictionary(value.Formations),
         Tactics = CopyDictionary(value.Tactics, item => Copy(item)!),
         Districts = CopyDictionary(value.Districts),
@@ -43,17 +53,21 @@ public static class GameStateCopy
         Structures = CopyDictionary(value.Structures),
         PeriodReports = CopyArray(value.PeriodReports, item => Copy(item)!),
         PendingCommandReports = CopyArray(value.PendingCommandReports, item => Copy(item)!),
+        PendingArmyFireAnnouncements = value.PendingArmyFireAnnouncements.ToArray(),
+        PendingArmyFireCasts = value.PendingArmyFireCasts.ToArray(),
+        PendingForceRelationAnnouncements = value.PendingForceRelationAnnouncements.ToArray(),
         PreparedDeployments = CopyDictionary(value.PreparedDeployments, item => Copy(item)!),
         PreparedOfficerMoves = CopyDictionary(value.PreparedOfficerMoves),
         PreparedTalentOrders = CopyDictionary(value.PreparedTalentOrders),
         Territory = CopyDictionary(value.Territory),
         ArmyLifecycle = Copy(value.ArmyLifecycle),
         ArmyMapOccupancy = value.ArmyMapOccupancy?.Copy(),
+        MapObjects = value.MapObjects?.Copy(),
         NativeArmySimulation = Copy(value.NativeArmySimulation),
         NativeBaseCaptureCurrent = Copy(value.NativeBaseCaptureCurrent),
         NativeForceUnregisterCurrent = Copy(value.NativeForceUnregisterCurrent),
         NativeNormalArmyCombatCalendar = Copy(value.NativeNormalArmyCombatCalendar),
-        PersonnelReturns = CopyPersonnelReturns(value.PersonnelReturns),
+        PersonnelCommands = CopyPersonnelCommands(value.PersonnelCommands),
         PendingCombatSettlements = value.PendingCombatSettlements is null ? null : new([.. value.PendingCombatSettlements.Requests]),
         NativeSubdayReports = CopyArray(value.NativeSubdayReports),
         EventRuntime = Copy(value.EventRuntime),
@@ -210,6 +224,8 @@ public static class GameStateCopy
     {
         BaseFormationIds = CopyArray(value.BaseFormationIds),
         BaseTacticIds = CopyArray(value.BaseTacticIds),
+        CurrentTacticSlots = CopyArray(value.CurrentTacticSlots),
+        CurrentTraitIds = CopyArray(value.CurrentTraitIds),
     };
 
     [return: NotNullIfNotNull(nameof(value))]

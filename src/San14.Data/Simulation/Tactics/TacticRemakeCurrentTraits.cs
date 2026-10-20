@@ -5,6 +5,37 @@ namespace San14.Data;
 /// capability list supplies the native effect codes or activation bits.</summary>
 public static class TacticRemakeCurrentTraits
 {
+    /// <summary>42B560/42B600's strict maximum over nine current selected
+    /// keys. Unlike the sum caller, this adds no personality validity gate.</summary>
+    internal static int? CommanderEffectMaximum(SourceWorldContext current, int personPhysical, int effect)
+    {
+        PersonalityReference? selected = null;
+        int maximum = -1;
+        for (int index = 0; index < 9; index++)
+        {
+            ushort? key = ResolveCommanderPersonalityLookup(current, personPhysical, index);
+            if (key is null) return null;
+            if (key == 0) continue;
+            var reference = current.ReadPersonalityTableReference(key <= 355 ? key.Value : 0);
+            if (reference is null || Contribution(reference, -1) is not int value) return null;
+            if (value > maximum) { maximum = value; selected = reference; }
+        }
+        return selected is null ? 0 : Contribution(selected, 0);
+
+        int? Contribution(PersonalityReference reference, int fallback)
+        {
+            for (int pair = 0; pair < 2; pair++)
+            {
+                byte? code = current.ReadPersonalityByte(reference, pair == 0 ? 0xB6 : 0xBA);
+                if (code is null) return null;
+                if (code != effect) continue;
+                ushort? raw = current.ReadPersonalityWord(reference, pair == 0 ? 0xB8 : 0xBC);
+                return raw is ushort word ? Math.Clamp((int)unchecked((short)word), -100, 2000) : null;
+            }
+            return fallback;
+        }
+    }
+
     /// <summary>2B2FB0 uses the first matching effect pair in each of nine
     /// selected personalities, including signed clamp/wrapping. It does not
     /// inspect activation1BC or Army trait caches.</summary>
@@ -53,6 +84,16 @@ public static class TacticRemakeCurrentTraits
         }
         return new(firstGroup, secondGroup);
     }
+    /// <summary>Person fallback with a nonzero selector: current native
+    /// validity, then the same nine entries and first matching pair per entry.
+    /// No Army cache or activation mask participates in this Person mode.</summary>
+    public static int? PersonContribution(SourceWorldContext current, int personPhysical, int effect)
+    {
+        if (effect is < 1 or >= 127) throw new ArgumentOutOfRangeException(nameof(effect));
+        if (current.ReadPersonNativeValidity(personPhysical) is not bool valid) return null;
+        return valid ? CommanderEffectSum(current, personPhysical, effect) : 0;
+    }
+
     public static bool? CommanderHasEffect(SourceWorldContext current,
         int personPhysical, int effectCode)
     {
@@ -158,14 +199,19 @@ public static class TacticRemakeCurrentTraits
         return CurrentPersonality(current, personPhysical, index);
     }
 
-    private static PersonalityReference? CurrentPersonality(SourceWorldContext current,
+    /// <summary>The current selector's raw key, before pointer lookup. A
+    /// first-five out-of-range key remains raw; pointer callers separately
+    /// apply the table-zero fallback. Unknown is distinct from raw zero.</summary>
+    public static ushort? ResolveCommanderPersonalityLookup(SourceWorldContext current,
         int personPhysical, int index)
     {
+        ArgumentNullException.ThrowIfNull(current);
+        if (index is < 0 or >= 9) throw new ArgumentOutOfRangeException(nameof(index));
         if (current.ReadPersonIdentity(personPhysical) is not ushort identity) return null;
         bool custom = unchecked((uint)(identity - 5101)) <= 99;
-        //230990 custom index5..8 returns0 before reading those raw slots.
-        //Ordinary people still perform the flag4 filter for every index.
-        if (custom && index >= 5) return current.ReadPersonalityTableReference(0);
+        // Custom entries5..8 stop before consuming their raw fields. Ordinary
+        // entries still execute their current validity/flag filter first.
+        if (custom && index >= 5) return 0;
         if (current.ReadPersonTraitSlot150(personPhysical, index) is not ushort requested) return null;
         if (!custom)
         {
@@ -175,10 +221,17 @@ public static class TacticRemakeCurrentTraits
             {
                 byte? flags = current.ReadSkillPersonalityFlags(candidate);
                 if (flags is null) return null;
-                if ((flags & 0x10) == 0) return current.ReadPersonalityTableReference(0);
+                if ((flags & 0x10) == 0) return 0;
             }
         }
-        return current.ReadPersonalityTableReference(index < 5 && requested <= 355 ? requested : 0);
+        return index < 5 ? requested : (ushort)0;
+    }
+
+    private static PersonalityReference? CurrentPersonality(SourceWorldContext current,
+        int personPhysical, int index)
+    {
+        ushort? requested = ResolveCommanderPersonalityLookup(current, personPhysical, index);
+        return requested.HasValue ? current.ReadPersonalityTableReference(requested.Value <= 355 ? requested.Value : 0) : null;
     }
 }
 

@@ -151,7 +151,7 @@ public static class CityOpeningPostLoadSource
         return(byte)(n>=0&&n<=low?3:0);
     }
 
-    private static int[] ReadSourceCreatedForceEffects32(LoadedScenario scenario)
+    internal static int[] ReadSourceCreatedForceEffects32(LoadedScenario scenario)
     {
         var source=scenario.Snapshot;
         var catalog=source.PolicyParameters??throw new InvalidDataException("Opening policy definitions are absent.");

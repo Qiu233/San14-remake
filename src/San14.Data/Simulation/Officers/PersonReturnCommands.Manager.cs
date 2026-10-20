@@ -9,7 +9,10 @@ public sealed record PersonReturnAdvanceReceipt(int CommandId, int ReceiverIdent
     public PersonReturnCancellationReceipt? Cancellation { get; init; }
 }
 public sealed record PersonReturnManagerResult(GameState? State,
-    IReadOnlyList<PersonReturnAdvanceReceipt> Receipts, string? UnresolvedOwner);
+    IReadOnlyList<PersonReturnAdvanceReceipt> Receipts, string? UnresolvedOwner)
+{
+    public IReadOnlyList<PersonDisappearanceAdvanceReceipt> Disappearances { get; init; } = [];
+}
 
 public static partial class PersonReturnCommands
 {
@@ -20,28 +23,40 @@ public static partial class PersonReturnCommands
         NativeMapSeasonDate date, IArmyReturnGovernorCurrentQueries queries)
     {
         var receipts = new List<PersonReturnAdvanceReceipt>();
+        var absences = new List<PersonDisappearanceAdvanceReceipt>();
         if (date.Hour is not (8 or 22)) return new(state, receipts, null);
         try
         {
             var owner = CurrentCommandOwner(state, current);
-            owner = owner with { Tasks = new(owner.Tasks) };
+            if (owner.Disappearances is null) throw Missing("absence task owner");
+            owner = owner with { Returns = new(owner.Returns), Disappearances = new(owner.Disappearances) };
             var pending = owner.PendingRetirements.ToList();
-            var working = state with { PersonnelReturns = owner };
+            var working = state with { PersonnelCommands = owner };
             current.SetOwnedPersonCommandManager(owner);
-            foreach (var original in owner.InDispatchOrder().ToArray())
+            int previousSlot = -1;
+            while (owner.DispatchOrder().FirstOrDefault(task => task.Slot > previousSlot) is { } entry)
             {
-                int taskId = original.Id, slot = original.DispatchSlot!.Value;
-                var task = owner.Tasks[taskId];
+                int taskId = entry.Id, slot = entry.Slot;
+                previousSlot = slot;
+                if (entry.Kind == PersonnelCommandKind.Disappear)
+                {
+                    var result = AdvanceDisappearance(working, current, taskId, date);
+                    owner = result.Owner; working = working with { PersonnelCommands = owner };
+                    absences.Add(result.Receipt);
+                    if (result.Retire) RetireDisappearance(taskId);
+                    continue;
+                }
+                var task = owner.Returns[taskId];
                 if (date.Hour == 8)
                 {
-                    owner.Tasks[taskId] = task with { NeedsRefresh = true };
+                    owner.Returns[taskId] = task with { NeedsRefresh = true };
                     receipts.Add(new(slot, taskId, 1, null, null, 0));
                     continue;
                 }
                 var retargeted = RetargetCurrentHome(working, current, taskId, date);
                 owner = retargeted.Owner ?? throw Missing(retargeted.UnresolvedOwner ?? "home retargeting");
-                working = working with { PersonnelReturns = owner };
-                task = owner.Tasks[taskId];
+                working = working with { PersonnelCommands = owner };
+                task = owner.Returns[taskId];
                 var retarget = retargeted.Receipt?.Branch == "source.same_Force_District_City_retarget" ? retargeted.Receipt : null;
                 if (retargeted.NativeReturn == 1)
                 {
@@ -51,20 +66,20 @@ public static partial class PersonReturnCommands
                 }
                 if (retargeted.NativeReturn != 0) throw Missing("home retargeting result");
                 task = task with { Started = true };
-                owner.Tasks[taskId] = task;
+                owner.Returns[taskId] = task;
                 if (!CommandDateNativeValid(task.ArriveOn))
                 {
                     var initialized = EnsureArrivalDate(working, current, taskId, date);
                     owner = initialized.Owner ?? throw Missing(initialized.UnresolvedOwner ?? "journey arrival date");
-                    task = owner.Tasks[taskId];
-                    working = working with { PersonnelReturns = owner };
+                    task = owner.Returns[taskId];
+                    working = working with { PersonnelCommands = owner };
                 }
                 int duration = unchecked(DateOrdinal(task.ArriveOn) - DateOrdinal(task.StartedOn));
                 int elapsed = Math.Max(0, unchecked(DateOrdinal(date) - DateOrdinal(task.StartedOn)));
                 int remaining = Math.Max(0, unchecked(duration - elapsed));
                 if (remaining > 1)
                 {
-                    owner.Tasks[taskId] = task with { NeedsRefresh = true };
+                    owner.Returns[taskId] = task with { NeedsRefresh = true };
                     receipts.Add(new(slot, taskId, 1, remaining, null, 0) { Retarget = retarget });
                     continue;
                 }
@@ -77,26 +92,37 @@ public static partial class PersonReturnCommands
             var freeSlots = owner.AvailableDispatchSlots.ToList();
             foreach (int taskId in pending)
             {
-                var task = owner.Tasks[taskId];
-                if (task.DispatchSlot is int slot) freeSlots.Insert(0, slot);
-                owner.Tasks.Remove(taskId);
+                if (owner.Returns.Remove(taskId, out var task))
+                { if (task.DispatchSlot is int slot) freeSlots.Insert(0, slot); }
+                else if (owner.Disappearances!.Remove(taskId, out var absence)) freeSlots.Insert(0, absence.DispatchSlot);
+                else throw Missing("retiring personnel task");
             }
             owner = owner with { AvailableDispatchSlots = freeSlots.ToArray(), PendingRetirements = [] };
             current.SetOwnedPersonCommandManager(owner);
-            working = PublishCurrent(working with { PersonnelReturns = owner }, current);
+            working = PublishCurrent(working with { PersonnelCommands = owner }, current);
             BindCurrent(working, current);
-            return new(working, receipts.AsReadOnly(), null);
+            return new(working, receipts.AsReadOnly(), null) { Disappearances = absences.AsReadOnly() };
+
+            void RetireDisappearance(int id)
+            {
+                var task = owner.Disappearances![id];
+                if (task.IsRetiring) return;
+                owner.Disappearances[id] = task with { IsRetiring = true, IsAssociated = false };
+                pending.Add(id);
+                var associated = current.OwnedIndexes?.AssociatedTaskHandle ?? throw Missing("personnel association index");
+                current.RemovePersonReturnAssociated(new(associated.Identity), id);
+            }
 
             int Retire(PersonnelReturnTask task)
             {
                 if (task.IsRetiring) return 0;
-                owner.Tasks[task.Id] = task with { IsRetiring = true, IsAssociated = false };
+                owner.Returns[task.Id] = task with { IsRetiring = true, IsAssociated = false };
                 pending.Add(task.Id);
                 var associated = current.OwnedIndexes?.AssociatedTaskHandle
                     ?? throw Missing("personnel association index");
                 return current.RemovePersonReturnAssociated(new(associated.Identity), task.Id);
             }
         }
-        catch (InvalidDataException error) { return new(null, receipts.AsReadOnly(), error.Message); }
+        catch (InvalidDataException error) { return new(null, receipts.AsReadOnly(), error.Message) { Disappearances = absences.AsReadOnly() }; }
     }
 }

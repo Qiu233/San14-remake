@@ -9,6 +9,6 @@ public static class PlayableOfficerAvailability
     public static bool IsSourceBusy(GameState state, OfficerState officer)
     {
         if (IsCaptive(officer)) return true;
-        return state.PersonnelReturns?.IsOfficerReturning(officer.Id) == true;
+        return state.PersonnelCommands?.IsOfficerBusy(officer.Id) == true;
     }
 }

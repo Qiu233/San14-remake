@@ -1,5 +1,3 @@
-using System.Numerics;
-
 namespace San14.Data;
 
 /// <summary>SC3FD130/TC3FCA40's pure source sampler. Its four explicit i32
@@ -14,11 +12,7 @@ public static class TacticEffectSourceSamplerMath
         int seed = unchecked(firstSalt + secondSalt + thirdSalt + fourthSalt);
         if (world is not null)
             seed = unchecked(seed + world.Salt45C + world.Day450 / Math.Max(1, divisor));
-        int iterations = (seed & 15) + 1;
-        uint bits = unchecked((uint)seed);
-        for (int index = 0; index < iterations; index++)
-            bits = BitOperations.RotateLeft(unchecked(bits * 0x0693D4B5u - 0x290550B7u), 16);
-        uint value = BitOperations.RotateLeft(unchecked(bits * 0x41C64E6Du + 0x3039u), 16) & 0x7FFF_FFFFu;
+        uint value = SourceRandom32Mix.Advance(unchecked((uint)seed)) & 0x7FFF_FFFFu;
         return (int)(value % (uint)bound);
     }
 }

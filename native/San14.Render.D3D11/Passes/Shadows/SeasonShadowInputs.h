@@ -17,6 +17,8 @@ struct Settings {
     std::optional<uint32_t> sampleLoopCount, qualityLevel, rectangleOverride;
     std::optional<CompactMode> compactMode;
     std::array<std::optional<float>,3> cascadeSplits;
+    std::optional<std::uint32_t> perCascadeBias;
+    std::array<std::optional<float>,4> depthBias;
     float halfFovTangent{};
 };
 

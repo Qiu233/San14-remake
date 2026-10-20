@@ -1,3 +1,5 @@
+using San14.Core;
+
 namespace San14.Data;
 
 /// <summary>Current physical tables consumed by the twelve native registration loops.</summary>
@@ -5,7 +7,7 @@ public sealed partial class SourceWorldContext
 {
     private readonly Dictionary<int, int?> _registryItemPointers = [],
         _registryCautionTroopsPointers = [], _registryTable81B50Pointers = [];
-    private readonly Dictionary<int, byte?> _registryItemFields50 = [];
+    private readonly Dictionary<int, ItemStatusKnowledge?> _registryItemStatuses = [];
     private Func<int, bool?>? _cautionGroupEligibility, _cautionRelationEligibility;
 
     internal void SetCautionEligibilityProjection(Func<int, bool?> group, Func<int, bool?> relation)
@@ -73,17 +75,20 @@ public sealed partial class SourceWorldContext
     public byte? ReadRegistryPersonStatus(RegistryObjectReference reference) =>
         ReadPersonStatus(RegistryQueryPhysical(reference, RegistryKind.Person, 1851));
     public void SetRegistryItemRawField50(int physicalSlot, byte? value)
-    { Check(physicalSlot, 202, "item physical slot"); _registryItemFields50[physicalSlot] = value; }
+        => SetRegistryItemStatus(physicalSlot, value is byte code ? ItemStatusKnowledge.Exact(code) : null);
+    internal void SetRegistryItemStatus(int physicalSlot, ItemStatusKnowledge? value)
+    { Check(physicalSlot, 202, "item physical slot"); _registryItemStatuses[physicalSlot] = value; }
     public byte? ReadRegistryItemRawField50(RegistryObjectReference reference) =>
-        _registryItemFields50.GetValueOrDefault(RegistryQueryPhysical(reference, RegistryKind.Item, 202));
+        _registryItemStatuses.GetValueOrDefault(RegistryQueryPhysical(reference, RegistryKind.Item, 202))?.Code;
+    public bool? ReadRegistryItemListEligibility(RegistryObjectReference reference) =>
+        _registryItemStatuses.GetValueOrDefault(RegistryQueryPhysical(reference, RegistryKind.Item, 202))?.IsListEligible;
 
     private bool? ReadRegistryItemNativeValidity(RegistryObjectReference reference)
     {
         if (!reference.PhysicalSlot.HasValue) return false;
         int physical = RegistryQueryPhysical(reference, RegistryKind.Item, 202);
         if (physical == 0) return false;
-        byte? value = _registryItemFields50.GetValueOrDefault(physical);
-        return value.HasValue ? value.Value == 1 : null;
+        return ReadRegistryItemListEligibility(reference);
     }
     private bool? ReadRegistryCautionTroopsNativeValidity(RegistryObjectReference reference)
     {

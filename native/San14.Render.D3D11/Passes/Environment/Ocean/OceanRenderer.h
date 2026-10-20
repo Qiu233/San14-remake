@@ -81,10 +81,10 @@ static void applyNativeOceanBubbleMaterialSettings(NativeOcean116& ocean,
 
 // Packing is a pure current-state publication. Clock and spawned points are
 // advanced by the accepted Ocean update rather than by either near/far draw.
-static void packNativeOceanMaterial(NativeOcean116& ocean) {
+static void packNativeOceanMaterial(NativeOcean116& ocean,float cutoffDistance) {
     ocean.materials=San14::Render::composeOceanDrawMaterials(ocean.clock,ocean.surface,ocean.optics,
         ocean.textureMaterial,ocean.bubbleMaterial,ocean.bubbleRuntime,ocean.horizontalDisplacement,
-        ocean.materialCamera,ocean.waveClip,ocean.farClip,ocean.gridSize[0],ocean.gridSize[1],
+        ocean.materialCamera,ocean.waveClip,ocean.farClip,ocean.gridSize[0],ocean.gridSize[1],cutoffDistance,
         ocean.textures.normal3d?ocean.textures.normal3d->depth:0u,ocean.refractionMaterialBound,
         ocean.generatorEnabled);
     for(unsigned flat=0;flat<2;++flat) {
@@ -172,9 +172,9 @@ static NativeOcean116 prepareNativeOcean116(ID3D11Device* device,
 
 static UINT executeNativeOcean116(ID3D11DeviceContext* context,
     NativeSourceDepthState& logical,NativeOcean116& ocean,std::uint32_t group,
-    const San14::Render::CommonRenderPolicy& policy) {
+    const San14::Render::CommonRenderPolicy& policy,float cutoffDistance) {
     if(!oceanDrawEnabled(group,ocean.optics.refractionTransparency,policy))return 0;
-    packNativeOceanMaterial(ocean);
+    packNativeOceanMaterial(ocean,cutoffDistance);
     for(UINT flat=0;flat<2;++flat) {
         context->UpdateSubresource(ocean.vertexConstants[flat].Get(),0,nullptr,ocean.vertexBytes[flat].data(),0,0);
         context->UpdateSubresource(ocean.pixelConstants[flat].Get(),0,nullptr,ocean.pixelBytes[flat].data(),0,0);

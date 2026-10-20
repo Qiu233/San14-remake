@@ -69,15 +69,15 @@ public static class PersonAssignmentPrecallSource
             //220420 uses21FD00 for complete end-begin lengths<=32,
             //which includes the real fresh three-entry vector. Large changed
             //buffers reach its separate introsort branch rather than guessing.
-            if (fields.Values.Length > 32) throw Missing("branch.224D40_Person_area_vector_introsort_over32");
-            SortAreaVector21FD00(fields.Values);
+            SortAreaVector(fields.Values);
             return new(1, person, beforeCount, count, beforeValues, fields.Values.ToArray(), null);
         }
         catch (InvalidDataException unknown) { return new(null, person, beforeCount, null, beforeValues, null, unknown.Message); }
     }
 
-    private static void SortAreaVector21FD00(int[] values)
+    internal static void SortAreaVector(int[] values)
     {
+        if (values.Length > 32) throw Missing("branch.224D40_Person_area_vector_introsort_over32");
         for (int i = 1; i < values.Length; i++)
         {
             int value = values[i];
@@ -224,7 +224,15 @@ public static class PersonAssignmentPrecallSource
     /// matching196 slot is final even when target is invalid; not transfer's
     /// mandatory native-report adapter and not a search for a later valid pair.</summary>
     public static PersonAssignmentPrecallResult Apply2783B0ForCapture(
-        SourceWorldContext current, ForceReference force, int personPhysical)
+        SourceWorldContext current, ForceReference force, int personPhysical) =>
+        Apply2783B0(current, force, personPhysical, true);
+
+    internal static PersonAssignmentPrecallResult Apply2783B0ForDraft(
+        SourceWorldContext current, ForceReference force, int personPhysical) =>
+        Apply2783B0(current, force, personPhysical, false);
+
+    private static PersonAssignmentPrecallResult Apply2783B0(
+        SourceWorldContext current, ForceReference force, int personPhysical, bool publish)
     {
         var writes = new List<PersonAssignmentPrecallWrite>();
         var reports = new List<PersonAssignmentPrecallReport>();
@@ -246,7 +254,7 @@ public static class PersonAssignmentPrecallSource
             writes.Add(new("Force", physical, 0x19C + found, target, 0));
             current.WriteForceAssociationPersonId(force, found, 0);
             writes.Add(new("Force", physical, 0x196 + found * 2, id, 0));
-            if (IsCurrentPlayer(current, force))
+            if (publish && IsCurrentPlayer(current, force))
                 reports.Add(new(0x3452, Need(current.ReadPersonIdentity(personPhysical), "2783B0 report Person ID10"),
                     TargetForcePhysical: Need(current.ReadForcePhysicalSlot(targetForce), "2783B0 report target Force physical")));
             return Result(1);

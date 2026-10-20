@@ -14,26 +14,34 @@ public interface ISaveCodec
 public sealed record SaveEnvelope(int SchemaVersion, string FormatId, GameState State);
 
 /// <summary>Local save format. A future original-save adapter can implement ISaveCodec.</summary>
-public sealed class JsonGzipSaveCodec : ISaveCodec
+public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
 {
-    public const int CurrentSchemaVersion = 92;
+    public const int CurrentSchemaVersion = 136;
     public string FormatId => "san14-remake-json-gzip";
     private readonly ILegacyOfficerAbilitySource? _legacyAbilitySource;
     private readonly ICampaignResourceStateCodec? _resourceStateCodec;
+    private readonly CampaignOperationWorldContext? _operationContext;
 
     public JsonGzipSaveCodec(ILegacyOfficerAbilitySource? legacyAbilitySource = null,
-        ICampaignResourceStateCodec? resourceStateCodec = null)
+        ICampaignResourceStateCodec? resourceStateCodec = null, CampaignOperationWorldContext? operationContext = null)
     {
         _legacyAbilitySource = legacyAbilitySource;
         _resourceStateCodec = resourceStateCodec;
+        _operationContext = operationContext;
     }
+
+    public byte[] EncodeOperationWorld(GameState state, CampaignOperationWorldContext context) =>
+        new JsonGzipSaveCodec(_legacyAbilitySource, _resourceStateCodec, context).Encode(state);
+    public GameState DecodeOperationWorld(ReadOnlySpan<byte> bytes, CampaignOperationWorldContext context) =>
+        new JsonGzipSaveCodec(_legacyAbilitySource, _resourceStateCodec, context).Decode(bytes);
 
     public byte[] Encode(GameState state)
     {
-        StateValidator.Validate(state);
+        StateValidator.Validate(state, _operationContext);
         state = ArmyIdentityAllocation.Initialize(state);
         ArmyIdentityAllocation.ValidateSaved(state);
         ArmyTargetsSaveValidation.Validate(state);
+        MapObjectLifecycleSaveValidation.Validate(state);
         ArmyOverrideSaveValidation.Validate(state);
         ArmyMarchSaveValidation.Validate(state);
         TransportRouteSaveValidation.Validate(state);
@@ -82,8 +90,9 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
         if (version < 62)
         {
             LegacyCombatSettlementSaveMigration.Apply((JsonObject)document["State"]!);
-            LegacyPersonnelReturnTasksMigration.Apply((JsonObject)document["State"]!);
+            LegacyPersonnelCommandTasksMigration.Apply((JsonObject)document["State"]!);
         }
+        if (version < 115) PersonnelCommandTasksSaveMigration.Apply((JsonObject)document["State"]!);
         if (version < 63) LegacyWorldIndexesSaveMigration.Apply((JsonObject)document["State"]!);
         if (version < 64) LegacyArmyGroupsSaveMigration.Apply((JsonObject)document["State"]!);
         if (version < 65) LegacyArmyCautionsSaveMigration.Apply((JsonObject)document["State"]!);
@@ -142,6 +151,367 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
             resourceState = (_resourceStateCodec ?? throw new InvalidDataException(
                 "Historical army source knowledge requires its resource-state codec.")).MigrateArmyLifecycle(resourceState, armySource);
         JsonObject stateDocument = (JsonObject)document["State"]!;
+        if (version < 133) stateDocument["CampaignAppRandom32"] = null;
+        else
+        {
+            if (!stateDocument.ContainsKey("CampaignAppRandom32"))
+                throw new InvalidDataException("Saved campaign App random snapshot is missing.");
+            if (stateDocument["CampaignAppRandom32"] is JsonNode randomNode &&
+                (randomNode is not JsonObject random || random.Count != 1 ||
+                 random["State"] is not JsonValue bits || !bits.TryGetValue<uint>(out _)))
+                throw new InvalidDataException("Saved campaign App random snapshot is invalid.");
+        }
+
+        if (version <= 129) stateDocument["CampaignDuelService"] = null;
+        else
+        {
+            if (!stateDocument.ContainsKey("CampaignDuelService"))
+                throw new InvalidDataException("Saved campaign duel service knowledge is missing.");
+            if (stateDocument["CampaignDuelService"] is JsonNode duelNode)
+            {
+                if (duelNode is not JsonObject duel || new[] { "Active", "Busy", "History" }.Any(k => !duel.ContainsKey(k)))
+                    throw new InvalidDataException("Saved campaign duel service fields are missing.");
+                foreach (string key in new[] { "Active", "Busy" })
+                    if (duel[key] is JsonNode gate && (gate is not JsonValue duelGateValue || !duelGateValue.TryGetValue<bool>(out _)))
+                        throw new InvalidDataException("Saved campaign duel service gate is invalid.");
+                if (duel["History"] is not JsonValue duelHistoryValue || !duelHistoryValue.TryGetValue<int>(out int duelHistoryTag) ||
+                    !Enum.IsDefined((CampaignDuelHistoryKnowledge)duelHistoryTag))
+                    throw new InvalidDataException("Saved campaign duel service history is invalid.");
+            }
+        }
+        if (version <= 130) stateDocument["DuelOpportunityCount"] = null;
+        else
+        {
+            if (!stateDocument.ContainsKey("DuelOpportunityCount"))
+                throw new InvalidDataException("Saved duel opportunity count knowledge is missing.");
+            if (stateDocument["DuelOpportunityCount"] is JsonNode countNode &&
+                (countNode is not JsonValue countValue || !countValue.TryGetValue<int>(out int count) || count is < 0 or > 255))
+                throw new InvalidDataException("Saved duel opportunity count is invalid.");
+        }
+        if (stateDocument["Officers"] is JsonObject duelPeople)
+            foreach (var entry in duelPeople)
+            {
+                if (entry.Value is not JsonObject person)
+                    throw new InvalidDataException("Saved duel condition person is invalid.");
+                if (version <= 130) person["DuelCondition"] = null;
+                else
+                {
+                    if (!person.ContainsKey("DuelCondition"))
+                        throw new InvalidDataException("Saved person duel condition knowledge is missing.");
+                    if (person["DuelCondition"] is not JsonNode conditionNode) continue;
+                    if (conditionNode is not JsonObject condition || !condition.ContainsKey("QualificationAdjustment") ||
+                        !condition.ContainsKey("Readiness"))
+                        throw new InvalidDataException("Saved person duel condition fields are missing.");
+                    foreach (string key in new[] { "QualificationAdjustment", "Readiness" })
+                        if (condition[key] is JsonNode valueNode &&
+                            (valueNode is not JsonValue value || !value.TryGetValue<int>(out int scalar) ||
+                            (key == "Readiness" ? scalar is < 0 or > 255 : scalar is < short.MinValue or > short.MaxValue)))
+                            throw new InvalidDataException("Saved person duel condition field is invalid.");
+                }
+            }
+        if (version < 120)
+        {
+            stateDocument["MapObjects"] = null;
+            if (stateDocument["ArmyLifecycle"]?["Indexes"] is JsonObject oldIndexes)
+                oldIndexes["PendingObjectRetirements"] = null;
+        }
+        if (stateDocument["ArmyLifecycle"]?["Receivers"]?["Entries"] is JsonArray savedReceivers)
+            foreach (var receiverNode in savedReceivers)
+                if (receiverNode is JsonObject receiver)
+                {
+                    if (version < 123) receiver["FacilityConstruction"] = null;
+                    else if (!receiver.ContainsKey("FacilityConstruction"))
+                        throw new InvalidDataException("Saved Army facility construction knowledge is missing.");
+                    if (version < 117) receiver["SupplyInterdiction"] = null;
+                    else if (!receiver.ContainsKey("SupplyInterdiction") || receiver["SupplyInterdiction"] is JsonObject interdiction &&
+                        (!interdiction.ContainsKey("IsActive") || !interdiction.ContainsKey("TargetReceiverId")))
+                        throw new InvalidDataException("Saved Army supply interdiction knowledge is missing or incomplete.");
+                    if (version < 114) receiver["FalseReportDestination"] = null;
+                    else if (!receiver.ContainsKey("FalseReportDestination"))
+                        throw new InvalidDataException("Saved Army false-report destination is missing.");
+                    if (version < 112)
+                    {
+                        JsonNode? image = receiver["PendingImage"];
+                        if (receiver["ActiveUnitId"] is JsonValue active && active.TryGetValue<int>(out int id))
+                            image = stateDocument["Units"]?[id.ToString(System.Globalization.CultureInfo.InvariantCulture)];
+                        //Zero proves the inactive branch; a positive scalar
+                        //cannot reconstruct the missing saved target.
+                        receiver["SavedCommand"] = image?["NativeCommandControl140"] is JsonValue control &&
+                            control.TryGetValue<byte>(out byte known) && known == 0
+                            ? JsonSerializer.SerializeToNode(ArmySavedCommandState.Cleared) : null;
+                    }
+                    else if (!receiver.ContainsKey("SavedCommand"))
+                        throw new InvalidDataException("Saved Army replaced-command knowledge is missing.");
+                }
+        if (version < 107) stateDocument["DefaultForceKingdomNameIndex"] = null;
+        else if (!stateDocument.ContainsKey("DefaultForceKingdomNameIndex"))
+            throw new InvalidDataException("Saved default force kingdom name index is missing.");
+        // Older worlds did not own the current draft preferences. Do not
+        // manufacture the fresh reset values when continuing those saves.
+        if (version < 105) stateDocument["DefaultDeploymentBehavior"] = null;
+        else if (!stateDocument.ContainsKey("DefaultDeploymentBehavior") ||
+            stateDocument["DefaultDeploymentBehavior"] is JsonNode defaultBehavior &&
+            (defaultBehavior is not JsonObject defaultFields ||
+             new[] { "AttackNearbyEnemies", "AllowRetreat", "PursueRetreatingEnemies", "AfterAction" }
+                 .Any(key => !defaultFields.ContainsKey(key))))
+            throw new InvalidDataException("Saved default deployment behavior is missing or incomplete.");
+        if (stateDocument["Forces"] is JsonObject kingdomForces)
+            foreach (JsonNode? node in kingdomForces.Select(pair => pair.Value))
+                if (node is JsonObject force)
+                {
+                    if (version < 103) force["KingdomNameIndex"] = null;
+                    else if (!force.ContainsKey("KingdomNameIndex"))
+                        throw new InvalidDataException("Saved force kingdom name index is missing.");
+                }
+        foreach (string basesKey in new[] { "Cities", "Gates" })
+            if (stateDocument[basesKey] is JsonObject savedBases)
+                foreach (var row in savedBases)
+                    if (row.Value is JsonObject entry)
+                    {
+                        if (version < 113)
+                        {
+                            entry["DamageTier"] = null;
+                            //Move the earlier exact City writer, when present;
+                            //absence is not reconstructed from current capacity.
+                            string legacyKey = "ce-advisor-refresh-current:city:" + row.Key + ":66";
+                            if (basesKey == "Cities" && stateDocument["NativeArmySimulation"]?["Parameters"]?["Int32Values"] is JsonObject values &&
+                                values[legacyKey] is JsonNode savedTier)
+                            {
+                                int tier = savedTier.GetValue<int>();
+                                if (tier is < 0 or > 255) throw new InvalidDataException("Legacy saved City damage tier is invalid.");
+                                entry["DamageTier"] = tier;
+                                values.Remove(legacyKey);
+                            }
+                        }
+                        else if (!entry.ContainsKey("DamageTier"))
+                            throw new InvalidDataException("Saved Base damage tier is missing.");
+                    }
+        if (stateDocument["Officers"] is JsonObject eventOfficers)
+            foreach (JsonNode? node in eventOfficers.Select(pair => pair.Value))
+                if (node is JsonObject person)
+                {
+                    if (version < 133) person["AppearanceNotificationPersonId"] = null;
+                    else if (!person.ContainsKey("AppearanceNotificationPersonId") ||
+                        person["AppearanceNotificationPersonId"] is JsonNode notice &&
+                        (notice is not JsonValue value || !value.TryGetValue<int>(out _)))
+                        throw new InvalidDataException("Saved appearance notification identity is missing or invalid.");
+                    // A historical combined key does not identify its component boundary.
+                    foreach (string key in new[] { "CurrentSurnameSortKey", "CurrentGivenNameSortKey" })
+                    {
+                        if (version < 132) person[key] = null;
+                        else if (!person.ContainsKey(key) || person[key] is JsonNode component &&
+                            (component is not JsonValue text || !text.TryGetValue<string>(out _)))
+                            throw new InvalidDataException("Saved person name-sort component is missing or invalid.");
+                    }
+                    // Historical full/given names do not prove their missing current surname.
+                    if (version < 124) person["CurrentSurname"] = null;
+                    else if (!person.ContainsKey("CurrentSurname"))
+                        throw new InvalidDataException("Saved person current surname is missing.");
+                    foreach (string key in new[] { "DialogueStyle", "BirthYear", "FamilyGeneration", "CurrentGivenName", "CurrentCourtesyName" })
+                    {
+                        if (version < 116) person[key] = null;
+                        else if (!person.ContainsKey(key)) throw new InvalidDataException("Saved person dialogue fields are missing.");
+                    }
+                    if (version < 110) person["Lifespan"] = null;
+                    else if (!person.ContainsKey("Lifespan") || person["Lifespan"] is JsonObject lifespan &&
+                        (!lifespan.ContainsKey("TerminalYear") || !lifespan.ContainsKey("Kind")))
+                        throw new InvalidDataException("Saved person lifespan is incomplete.");
+                    if (version < 118) person["CurrentTraitIds"] = null;
+                    else if (!person.ContainsKey("CurrentTraitIds"))
+                        throw new InvalidDataException("Saved person current trait slots are missing.");
+                    if (version < 106) person["CurrentTacticSlots"] = null;
+                    else if (!person.ContainsKey("CurrentTacticSlots"))
+                        throw new InvalidDataException("Saved person current tactic slots are missing.");
+                    if (version < 104) person["CurrentFormationMask"] = null;
+                    else if (!person.ContainsKey("CurrentFormationMask"))
+                        throw new InvalidDataException("Saved person current formation capabilities are missing.");
+                    if (version < 102) person["AppearanceYear"] = null;
+                    else if (!person.ContainsKey("AppearanceYear"))
+                        throw new InvalidDataException("Saved person appearance year is missing.");
+                    if (version < 108)
+                    {
+                        person["CurrentNameSortKey"] = null;
+                        person["PortraitAppearanceIndex"] = null;
+                    }
+                    else if (!person.ContainsKey("CurrentNameSortKey") || !person.ContainsKey("PortraitAppearanceIndex"))
+                        throw new InvalidDataException("Saved person current presentation fields are missing.");
+                }
+        if (version < 119) stateDocument["ManualTacticIntervention"] = null;
+        else if (!stateDocument.ContainsKey("ManualTacticIntervention"))
+            throw new InvalidDataException("Saved manual tactic manager is missing.");
+        if (stateDocument["ManualTacticIntervention"] is JsonNode interventionNode)
+        {
+            if (interventionNode is not JsonObject manualManager || new[] { "Pending", "EffectBusy", "LastPresentationSequence", "Effects", "Directions" }.Any(k => !manualManager.ContainsKey(k)))
+                throw new InvalidDataException("Saved manual tactic manager fields are missing.");
+            if (manualManager["Pending"] is JsonObject pending && new[] { "Actor", "TacticId", "Target" }.Any(k => !pending.ContainsKey(k)))
+                throw new InvalidDataException("Saved manual tactic request fields are missing.");
+            static void ValidateManualActor(JsonObject fields)
+            {
+                if (fields["Actor"] is not JsonObject actorReference || !actorReference.ContainsKey("Value"))
+                    throw new InvalidDataException("Saved manual tactic receiver is incomplete.");
+                if (fields["Target"] is JsonNode target && (target is not JsonObject destination ||
+                    !destination.ContainsKey("Kind") || !destination.ContainsKey("Id")))
+                    throw new InvalidDataException("Saved manual tactic target is incomplete.");
+            }
+            if (manualManager["Pending"] is JsonNode savedPending)
+            {
+                if (savedPending is not JsonObject pendingFields) throw new InvalidDataException("Saved manual tactic request is invalid.");
+                ValidateManualActor(pendingFields);
+            }
+            foreach (string queueKey in new[] { "Effects", "Directions" })
+            {
+                if (manualManager[queueKey] is not JsonArray queue) throw new InvalidDataException("Saved tactic presentation queue is missing.");
+                foreach (var item in queue)
+                {
+                    if (item is not JsonObject request || new[] { "Sequence", "Kind", "Actors" }.Any(k => !request.ContainsKey(k)) || request["Actors"] is not JsonArray actors)
+                        throw new InvalidDataException("Saved tactic presentation request is incomplete.");
+                    foreach (var actor in actors)
+                    {
+                        if (actor is not JsonObject fields || new[] { "Actor", "TacticId", "Target", "InstructionArmyReceivers", "Effects" }.Any(k => !fields.ContainsKey(k)))
+                            throw new InvalidDataException("Saved tactic presentation actor is incomplete.");
+                        ValidateManualActor(fields);
+                        if (fields["Effects"] is not JsonArray effects)
+                            throw new InvalidDataException("Saved tactic numerical receipts are missing.");
+                        foreach (var effect in effects)
+                        {
+                            if (effect is not JsonObject receipt || new[] { "Instruction", "Target", "Kind", "Amount", "Healing", "Abnormal", "MoraleAfter" }.Any(k => !receipt.ContainsKey(k)) ||
+                                receipt["Target"] is not JsonObject targetReceiver || !targetReceiver.ContainsKey("Value"))
+                                throw new InvalidDataException("Saved tactic numerical receipt is incomplete.");
+                            if (receipt["Healing"] is JsonNode healing && (healing is not JsonObject healed ||
+                                !healed.ContainsKey("TroopsAfter") || !healed.ContainsKey("WoundedAfter")))
+                                throw new InvalidDataException("Saved tactic healing receipt is incomplete.");
+                            if (receipt["Abnormal"] is JsonNode abnormal)
+                            {
+                                if (abnormal is not JsonObject assigned || new[] { "Abnormal23", "Abnormal24", "Abnormal25", "ProvocationOwner", "OverrideTarget" }.Any(k => !assigned.ContainsKey(k)))
+                                    throw new InvalidDataException("Saved tactic abnormal receipt is incomplete.");
+                                if (assigned["ProvocationOwner"] is JsonNode owner && (owner is not JsonObject provocation ||
+                                    new[] { "ForceId", "Kind", "Id" }.Any(k => !provocation.ContainsKey(k))))
+                                    throw new InvalidDataException("Saved tactic provocation receipt is incomplete.");
+                                if (assigned["OverrideTarget"] is JsonNode overridden)
+                                {
+                                    if (overridden is not JsonObject selected || !selected.ContainsKey("Kind") || !selected.ContainsKey("Destination"))
+                                        throw new InvalidDataException("Saved tactic override receipt is incomplete.");
+                                    if (selected["Destination"] is JsonNode destination && (destination is not JsonObject destinationFields ||
+                                        new[] { "Kind", "EntityId", "ReceiverId" }.Any(k => !destinationFields.ContainsKey(k))))
+                                        throw new InvalidDataException("Saved tactic override destination receipt is incomplete.");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (version < 113) stateDocument["NormalCombatRefresh"] = null;
+        else if (!stateDocument.ContainsKey("NormalCombatRefresh"))
+            throw new InvalidDataException("Saved normal combat refresh owner is missing.");
+        if (version >= 115 && !stateDocument.ContainsKey("PersonnelCommands"))
+            throw new InvalidDataException("Saved personnel command owner is missing.");
+        if (stateDocument["PersonnelCommands"] is JsonNode commandNode)
+        {
+            if (commandNode is not JsonObject commands || new[] { "NextTaskId", "AvailableDispatchSlots", "Returns", "PendingRetirements", "Disappearances" }
+                .Any(key => !commands.ContainsKey(key))) throw new InvalidDataException("Saved personnel command fields are missing.");
+            if (commands["Disappearances"] is JsonNode absences)
+            {
+                if (absences is not JsonObject rows) throw new InvalidDataException("Saved personnel disappearance collection is invalid.");
+                foreach (var row in rows)
+                {
+                    if (row.Value is not JsonObject fields || new[] { "Id", "DispatchSlot", "MemberIds", "Home", "DistrictId", "StationHex", "PreviousPosition",
+                        "StartedOn", "DueOn", "Started", "NeedsRefresh", "IsPlayer", "CancellationRequested", "IsRetiring", "IsAssociated" }.Any(key => !fields.ContainsKey(key)))
+                        throw new InvalidDataException("Saved personnel disappearance fields are missing.");
+                    foreach (var (name, required) in new[] { ("Home", new[] { "Kind", "BaseId" }),
+                        ("PreviousPosition", new[] { "Kind", "EntityId" }),
+                        ("StartedOn", new[] { "Year", "Month", "Day", "Hour" }), ("DueOn", new[] { "Year", "Month", "Day", "Hour" }) })
+                        if (fields[name] is not JsonObject leaf || required.Any(key => !leaf.ContainsKey(key)))
+                            throw new InvalidDataException("Saved personnel disappearance " + name + " is incomplete.");
+                }
+            }
+        }
+        CampaignEffectSaveFields.Migrate(stateDocument, version);
+        if (version < 100) stateDocument["CampaignEventWorld"] = null;
+        else if (!stateDocument.ContainsKey("CampaignEventWorld") ||
+            stateDocument["CampaignEventWorld"] is JsonNode eventWorld && (eventWorld is not JsonObject worldFields ||
+                new[] { "ScenarioId", "ScenarioMode", "ElapsedPeriodOffset" }.Any(key => !worldFields.ContainsKey(key))))
+            throw new InvalidDataException("Saved campaign event world is missing or incomplete.");
+        if (stateDocument["CampaignEventWorld"] is JsonObject currentEventWorld)
+        {
+            if (version < 111) currentEventWorld["EventAchievementFlags"] = null;
+            else if (!currentEventWorld.ContainsKey("EventAchievementFlags"))
+                throw new InvalidDataException("Saved campaign event achievement flags are missing.");
+            if (version < 109) currentEventWorld["SpecialPersonEncounterFlags"] = null;
+            else if (!currentEventWorld.ContainsKey("SpecialPersonEncounterFlags"))
+                throw new InvalidDataException("Saved special person encounter flags are missing.");
+            if (version < 101) currentEventWorld["CurrentUserIndex"] = null;
+            else if (!currentEventWorld.ContainsKey("CurrentUserIndex"))
+                throw new InvalidDataException("Saved campaign event user index is missing.");
+        }
+        if (version < 99) { stateDocument["CampaignEvents"] = null; stateDocument["CampaignEventEligibility"] = null; }
+        else if (!stateDocument.ContainsKey("CampaignEvents")) throw new InvalidDataException("Saved campaign event history is missing.");
+        if (stateDocument["CampaignEvents"] is JsonNode eventHistory && (eventHistory is not JsonObject history ||
+            new[] { "Occurred", "Acknowledged", "OccurrenceDates", "InitialStrategyProcessed" }.Any(key => !history.ContainsKey(key))))
+            throw new InvalidDataException("Saved campaign event history fields are missing.");
+        if (stateDocument["CampaignEvents"]?["OccurrenceDates"] is JsonArray occurrenceDates)
+            foreach (var date in occurrenceDates)
+                if (date is not null && (date is not JsonObject fields ||
+                    new[] { "Year", "Month", "Day" }.Any(key => !fields.ContainsKey(key))))
+                    throw new InvalidDataException("Saved campaign event occurrence date is incomplete.");
+        if (!stateDocument.ContainsKey("CampaignEventEligibility") ||
+            stateDocument["CampaignEventEligibility"] is JsonNode manager && (manager is not JsonObject eligibility || !eligibility.ContainsKey("Blocked")))
+            throw new InvalidDataException("Saved event eligibility session is missing or incomplete.");
+        // Earlier schemas could not execute progress stage1. They have no
+        // pending theme selection; current saves must explicitly own this field.
+        if (version < 97) stateDocument["LandmarkInvestments"] = null;
+        else if (!stateDocument.ContainsKey("LandmarkInvestments"))
+            throw new InvalidDataException("Saved landmark investment owner is missing.");
+        if (stateDocument["LandmarkInvestments"] is JsonNode investments)
+        {
+            if (investments is not JsonObject rows) throw new InvalidDataException("Saved landmark investments are invalid.");
+            foreach (var row in rows)
+            {
+                if (row.Value is not JsonObject fields || new[] { "Phase", "AssignedOfficerId", "CompletionDay" }.Any(key => !fields.ContainsKey(key)))
+                    throw new InvalidDataException("Saved landmark investment fields are missing.");
+                if (version < 98) fields["Development"] = null;
+                else if (!fields.ContainsKey("Development")) throw new InvalidDataException("Saved landmark development owner is missing.");
+                if (fields["Development"] is JsonNode development && (development is not JsonObject values ||
+                    new[] { "Level", "EffectKind", "Effect" }.Any(key => !values.ContainsKey(key))))
+                    throw new InvalidDataException("Saved landmark development fields are missing.");
+                if (version < 99) fields["Flags"] = null;
+                else if (!fields.ContainsKey("Flags")) throw new InvalidDataException("Saved landmark flags are missing.");
+            }
+        }
+        if (version < 96) stateDocument["PendingMapMusicIntent"] = null;
+        else if (!stateDocument.ContainsKey("PendingMapMusicIntent"))
+            throw new InvalidDataException("Saved map music intent owner is missing.");
+        if (stateDocument["PendingMapMusicIntent"] is JsonNode music)
+            if (music is not JsonObject intent || !intent.ContainsKey("CalendarCycleOrdinal") ||
+                !intent.ContainsKey("SourceSlot") || !intent.ContainsKey("UseStoredPlaybackPosition") ||
+                !intent.ContainsKey("FadeInMilliseconds") || !intent.ContainsKey("FadeOutMilliseconds"))
+                throw new InvalidDataException("Saved map music intent is incomplete.");
+        if (version < 93) stateDocument["PendingArmyFireAnnouncements"] = new JsonArray();
+        else if (stateDocument["PendingArmyFireAnnouncements"] is not JsonArray)
+            throw new InvalidDataException("Saved army fire announcement owner is missing.");
+        foreach (JsonNode? request in (JsonArray)stateDocument["PendingArmyFireAnnouncements"]!)
+            if (request is not JsonObject item || !item.ContainsKey("UnitId") || !item.ContainsKey("OfficerId") || !item.ContainsKey("PersonalityId"))
+                throw new InvalidDataException("Saved army fire announcement is incomplete.");
+        if (version < 95) stateDocument["PendingForceRelationAnnouncements"] = new JsonArray();
+        if (stateDocument["PendingForceRelationAnnouncements"] is not JsonArray relationAnnouncements)
+            throw new InvalidDataException("Saved force relation announcement owner is missing.");
+        foreach (JsonNode? request in relationAnnouncements)
+            if (request is not JsonObject item || !item.ContainsKey("FirstForceId") || !item.ContainsKey("SecondForceId") || !item.ContainsKey("Level"))
+                throw new InvalidDataException("Saved force relation announcement is incomplete.");
+        if (version < 94)
+        {
+            stateDocument["PendingArmyFireCasts"] = new JsonArray();
+            foreach (JsonNode? request in (JsonArray)stateDocument["PendingArmyFireAnnouncements"]!)
+                request!["FromFireCommand"] = false;
+        }
+        if (stateDocument["PendingArmyFireCasts"] is not JsonArray casts)
+            throw new InvalidDataException("Saved army fire cast owner is missing.");
+        foreach (JsonNode? request in casts)
+            if (request is not JsonObject item || !item.ContainsKey("UnitId") || !item.ContainsKey("OfficerId") || !item.ContainsKey("HexId"))
+                throw new InvalidDataException("Saved army fire cast is incomplete.");
+        foreach (JsonNode? request in (JsonArray)stateDocument["PendingArmyFireAnnouncements"]!)
+            if (request?["FromFireCommand"] is not JsonValue flag || !flag.TryGetValue<bool>(out _))
+                throw new InvalidDataException("Saved army fire cause is missing.");
         if (version < 89)
             resourceState = LegacyTransportRouteSaveMigration.Apply(stateDocument, resourceState, _resourceStateCodec);
         if (version < 90)
@@ -155,6 +525,7 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
             identities.Count != 1 || identities["NextId"] is not JsonValue next ||
             !next.TryGetValue<long>(out long cursor) || cursor is < 1 or > ArmyIdentitySequence.Exhausted))
             throw new InvalidDataException("Saved army identity sequence is missing or invalid.");
+        NormalizeItemLifecycle(stateDocument, version);
         ValidateModuleSnapshotShape(stateDocument, version);
         // A present options record must contain all choices. JSON constructor
         // defaults must not turn a missing boolean into a confirmed false choice.
@@ -201,10 +572,11 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
             throw new InvalidDataException("Saved state contains an invalid typed field or collection.", error);
         }
         GameState state = (version < 23 ? MigrateCombatFood(envelope.State) : envelope.State) with { ResourceState = resourceState };
-        StateValidator.Validate(state);
+        StateValidator.Validate(state, _operationContext);
         if (version < 86) state = ArmyIdentityAllocation.Initialize(state);
         ArmyIdentityAllocation.ValidateSaved(state);
         ArmyTargetsSaveValidation.Validate(state);
+        MapObjectLifecycleSaveValidation.Validate(state);
         ArmyOverrideSaveValidation.Validate(state);
         ArmyMarchSaveValidation.Validate(state);
         TransportRouteSaveValidation.Validate(state);
@@ -235,8 +607,74 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
     // An absent nullable module is legacy/unknown. A present module is a complete
     // snapshot: missing constructor fields must not quietly become zero, false,
     // or an empty task queue through JSON constructor defaults.
+    private static void NormalizeItemLifecycle(JsonObject state, int version)
+    {
+        if (state["Items"] is null) return;
+        if (state["Items"] is not JsonObject items) throw new InvalidDataException("Saved item table is invalid.");
+        foreach (var pair in items)
+        {
+            if (pair.Value is not JsonObject item) throw new InvalidDataException("Saved item is invalid.");
+            if (version < 134)
+            {
+                // A forged future key never upgrades old predicate knowledge.
+                JsonNode? status = null;
+                if (item["IsPresent"] is JsonNode presence)
+                {
+                    if (presence is not JsonValue scalar || !scalar.TryGetValue<bool>(out bool known))
+                        throw new InvalidDataException("Legacy item presence is invalid.");
+                    status = new JsonObject { ["Kind"] = known ? 0 : 1, ["Code"] = known ? JsonValue.Create((byte)1) : null };
+                }
+                item["Lifecycle"] = status is null ? null : new JsonObject
+                { ["Status"] = status, ["RetainedLocationCode"] = null, ["RetainedFlags"] = null };
+                item.Remove("IsPresent");
+                continue;
+            }
+            if (item.ContainsKey("IsPresent") || !item.ContainsKey("Lifecycle"))
+                throw new InvalidDataException("Saved item lifecycle is missing or duplicates presence.");
+            if (item["Lifecycle"] is null) continue;
+            if (item["Lifecycle"] is not JsonObject life || life.Count != 3 ||
+                !life.ContainsKey("Status") || !life.ContainsKey("RetainedLocationCode") || !life.ContainsKey("RetainedFlags") ||
+                life["RetainedLocationCode"] is JsonNode location && (location is not JsonValue l || !l.TryGetValue<ushort>(out _)) ||
+                life["RetainedFlags"] is JsonNode flags && (flags is not JsonValue f || !f.TryGetValue<byte>(out _)))
+                throw new InvalidDataException("Saved item lifecycle fields are invalid.");
+            if (life["Status"] is null) continue;
+            if (life["Status"] is not JsonObject s || s.Count != 2 || !s.ContainsKey("Code") ||
+                s["Kind"] is not JsonValue k || !k.TryGetValue<int>(out int kind) || kind is < 0 or > 1 ||
+                (kind == 0 ? s["Code"] is not JsonValue c || !c.TryGetValue<byte>(out _) : s["Code"] is not null))
+                throw new InvalidDataException("Saved item status knowledge is invalid.");
+        }
+    }
+
     private static void ValidateModuleSnapshotShape(JsonObject state, int version)
     {
+        if (version >= 120)
+        {
+            if (!state.ContainsKey("MapObjects")) throw new InvalidDataException("Saved map object lifecycle owner is missing.");
+            if (state["MapObjects"] is JsonNode mapNode)
+            {
+                var objects = Require(mapNode, "map object lifecycle", "Receivers", "HexBindings");
+                if (objects["Receivers"] is not JsonArray mapReceivers)
+                    throw new InvalidDataException("Saved map object receiver collection is invalid.");
+                foreach (var row in mapReceivers)
+                {
+                    var receiver = Require(row, "map object receiver", "Id", "Subject", "Pose", "BaseMapFaction");
+                    _ = Require(receiver["Id"], "map object receiver identity", "Value");
+                    if (receiver["Subject"] is JsonNode subject)
+                        _ = Require(subject, "map object subject", "Category", "DefinitionKey", "LocationId", "StructureId");
+                    if (receiver["Pose"] is JsonNode pose) _ = Require(pose, "map object pose", "Kind", "HexId");
+                    if (receiver["BaseMapFaction"] is JsonNode faction)
+                        _ = Require(faction, "Base map faction", "Kind", "ForceId");
+                }
+                if (objects["HexBindings"] is JsonNode bindingsNode)
+                {
+                    var bindings = Require(bindingsNode, "map object Hex bindings", "TileCount", "Occupied");
+                    if (bindings["Occupied"] is not JsonObject occupied)
+                        throw new InvalidDataException("Saved map object occupied cells are invalid.");
+                    foreach (var entry in occupied)
+                        _ = Require(entry.Value, "map object cell receiver", "Value");
+                }
+            }
+        }
         if (state["Forces"] is JsonObject domainForces)
             foreach (JsonNode? force in domainForces.Select(pair => pair.Value))
             {
@@ -439,12 +877,39 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
         if (state["NativeForceUnregisterCurrent"] is JsonNode forceUnregister)
             _ = Require(forceUnregister, "current Force unregister", "Revision", "DistrictWindows10",
                 "ForceRankings", "ForceResetImages", "PlaceholderRelations13", "PlaceholderRelationsEA", "OtherForce1657");
+        if (state["NormalCombatRefresh"] is JsonNode combatRefresh)
+        {
+            var refresh = Require(combatRefresh, "normal combat refresh", "Generation", "Engagements");
+            if (refresh["Engagements"] is JsonArray engagements)
+                foreach (var row in engagements)
+                {
+                    var pair = Require(row, "combat engagement", "Actor", "Target");
+                    _ = Require(pair["Actor"], "engagement actor", "Kind", "ForceTableIndex");
+                    _ = Require(pair["Target"], "engagement target", "Kind", "ForceTableIndex");
+                }
+        }
+        CampaignEffectSaveFields.Check(state);
+        if (version >= 120 && state["Structures"] is JsonObject structures)
+            foreach (var item in structures)
+                _ = Require(item.Value, "structure current durability capacity", "MaxDurability");
+
         if (state.ContainsKey("NativeArmyLifecycle"))
             throw new InvalidDataException("Saved state contains an obsolete source army lifecycle envelope.");
         if (!state.ContainsKey("ArmyLifecycle")) throw new InvalidDataException("Saved army lifecycle owner is missing.");
         if (state["ArmyLifecycle"] is JsonNode lifecycleNode)
         {
             JsonObject lifecycle = Require(lifecycleNode, "army lifecycle", "Receivers", "Indexes", "ArmyGroups", "ArmyCautions", "Targets");
+            if (version >= 120)
+            {
+                var indexes = Require(lifecycle["Indexes"], "world indexes", "PendingObjectRetirements");
+                if (indexes["PendingObjectRetirements"] is JsonNode pendingNode)
+                {
+                    if (pendingNode is not JsonArray pendingObjects)
+                        throw new InvalidDataException("Saved pending map object retirements are invalid.");
+                    foreach (var receiver in pendingObjects)
+                        if (receiver is not null) _ = Require(receiver, "pending map object receiver", "Value");
+                }
+            }
             if (lifecycle.ContainsKey("Slots") || lifecycle.ContainsKey("ArmyFlags150") || lifecycle.ContainsKey("Revision") ||
                 lifecycle.ContainsKey("Language") || lifecycle.ContainsKey("RuleVersion") || lifecycle.ContainsKey("SourceScenarioSha256") ||
                 lifecycle.ContainsKey("SourceScenarioUri") || lifecycle.ContainsKey("Pool") || lifecycle.ContainsKey("HexRaw1C"))
@@ -455,7 +920,34 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
             foreach (var entryNode in receiverEntries)
             {
                 var entry = Require(entryNode, "army receiver", "ReceiverId", "CanAssign", "Phase", "ActiveUnitId", "PendingImage",
-                    "StoredResources", "OverrideTarget", "GroupAssignmentReady", "OccupancyBindingId");
+                    "StoredResources", "OverrideTarget", "GroupAssignmentReady", "OccupancyBindingId", "SavedCommand", "FalseReportDestination");
+                if (version >= 123)
+                {
+                    _ = Require(entry, "army construction owner", "FacilityConstruction");
+                    if (entry["FacilityConstruction"] is JsonNode selection)
+                    {
+                        var construction = Require(selection, "current construction selection", "DefinitionKey", "InitialSite", "ContinuationSite");
+                        foreach (string key in new[] { "InitialSite", "ContinuationSite" })
+                            if (construction[key] is JsonNode site) _ = Require(site, "construction site", "Kind", "HexId");
+                    }
+                }
+                if (entry["SavedCommand"] is JsonNode savedCommand)
+                {
+                    var saved = Require(savedCommand, "saved replaced Army command", "Kind", "Command");
+                    if (saved["Command"] is JsonNode snapshot)
+                    {
+                        var command = Require(snapshot, "replaced Army command snapshot", "Action", "Target");
+                        _ = Require(command["Action"], "saved Army action", "Id");
+                        var target = Require(command["Target"], "saved Army command target", "Kind", "Destination");
+                        var savedDestination = Require(target["Destination"], "saved Army command destination", "Kind", "CityId", "ReceiverId", "HexId");
+                        if (version >= 120)
+                        {
+                            _ = Require(savedDestination, "saved Army command map destination", "MapObjectReceiverId");
+                            if (savedDestination["MapObjectReceiverId"] is JsonNode mapId)
+                                _ = Require(mapId, "saved Army command map receiver", "Value");
+                        }
+                    }
+                }
                 _ = Require(entry["ReceiverId"], "army receiver identity", "Value");
                 _ = Require(entry["StoredResources"], "retained army stores", "Gold", "Food");
                 if (entry["OverrideTarget"] is JsonNode receiverOverride) CheckOverrideTarget(receiverOverride);
@@ -482,7 +974,15 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
                     _ = Require(row["ReceiverId"], "army target receiver", "Value");
                     var target = Require(row["Target"], "army target knowledge", "Kind", "Destination");
                     if (target["Destination"] is JsonNode destination)
-                        _ = Require(destination, "army target destination", "Kind", "CityId", "ReceiverId");
+                    {
+                        var targetDestination = Require(destination, "army target destination", "Kind", "CityId", "ReceiverId");
+                        if (version >= 120)
+                        {
+                            _ = Require(targetDestination, "army map object target destination", "HexId", "MapObjectReceiverId");
+                            if (targetDestination["MapObjectReceiverId"] is JsonNode mapId)
+                                _ = Require(mapId, "army target map receiver", "Value");
+                        }
+                    }
                 }
             }
             if (lifecycle["DeferredDestructionQueue"] is not null)
@@ -532,6 +1032,8 @@ public sealed class JsonGzipSaveCodec : ISaveCodec
                     _ = Require(entry, "commander selection candidate", "OfficerId", "UninterpretedValue");
             }
         }
+        if (state.ContainsKey("PersonnelReturns"))
+            throw new InvalidDataException("Saved obsolete personnel owner was not migrated.");
         if (state["NativePersonReturnCommands"] is not null)
             throw new InvalidDataException("Saved state contains an obsolete personnel command owner.");
         static void CheckUnitModules(JsonObject unit)
@@ -772,9 +1274,11 @@ public sealed class SaveStore(ISaveCodec codec)
     public GameState Load(string path) => codec.Decode(File.ReadAllBytes(path));
 }
 
-internal static class AtomicSaveFiles
+/// <summary>Flushes a same-directory temporary file before atomic publication.
+/// First-creation callers can forbid replacement of an existing file.</summary>
+public static class AtomicSaveFiles
 {
-    public static void Write(string path, byte[] bytes)
+    public static void Write(string path, byte[] bytes, bool overwrite = true)
     {
         string fullPath = Path.GetFullPath(path);
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
@@ -786,7 +1290,7 @@ internal static class AtomicSaveFiles
                 stream.Write(bytes);
                 stream.Flush(flushToDisk: true);
             }
-            if (File.Exists(fullPath)) File.Replace(temporary, fullPath, null);
+            if (overwrite && File.Exists(fullPath)) File.Replace(temporary, fullPath, null);
             else File.Move(temporary, fullPath);
         }
         finally

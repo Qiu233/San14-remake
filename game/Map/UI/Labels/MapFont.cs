@@ -15,8 +15,17 @@ internal sealed class MapFont : IDisposable
     internal float CellBaselineY(MapFontProfile profile, float cellHeight) => Source.CellBaselineY(profile, cellHeight);
     internal void Prepare(IEnumerable<string> values, MapFontProfile profile)
     {
-        foreach (char code in values.SelectMany(value => value).Distinct())
-            _ = Source.Glyph(code, profile.Face, profile.Palette);
+        // Validate when the UI accepts text, so unsupported source options
+        // fail configuration and its normal cleanup instead of every redraw.
+        profile.ValidateSingleLine();
+        var characters = new HashSet<char>();
+        foreach (string value in values)
+            foreach (char code in value)
+            {
+                if (char.IsControl(code))
+                    throw new InvalidDataException($"Original UI text requires a single source line: {profile.Source}.");
+                if (characters.Add(code)) _ = Source.Glyph(code, profile.Face, profile.Palette);
+            }
     }
 
     // A redraw reuses text slots. A changed name/profile replaces only that
@@ -34,11 +43,9 @@ internal sealed class MapFont : IDisposable
     }
     internal void Draw(CanvasItem canvas, string value, Vector2 baseline,
         MapFontProfile profile, HorizontalAlignment alignment = HorizontalAlignment.Left,
-        float width = -1, Color? modulate = null)
+        float width = -1, Color? modulate = null,IReadOnlyList<uint?>? glyphColours=null)
     {
         if (value.Length == 0) return;
-        if ((profile.RawFlags & ~1u) != 0)
-            throw new InvalidDataException($"Original text effects require their source consumer: {profile.Source}.");
         float x = baseline.X;
         if (width >= 0)
             x += alignment switch
@@ -47,7 +54,7 @@ internal sealed class MapFont : IDisposable
                 HorizontalAlignment.Right => width - Measure(value, profile).Width,
                 _ => 0
             };
-        _owners[canvas.GetInstanceId()].Draw(Source, value, profile, new(x, baseline.Y), modulate ?? Colors.White);
+        _owners[canvas.GetInstanceId()].Draw(Source, value, profile, new(x, baseline.Y), modulate ?? Colors.White,glyphColours);
     }
 
     internal sealed class DrawOwner : IDisposable
@@ -62,11 +69,12 @@ internal sealed class MapFont : IDisposable
         internal DrawOwner(CanvasItem canvas, Shader shader, Action exiting)
         { _canvas = canvas; _shader = shader; _exiting = exiting; canvas.TreeExiting += exiting; }
         internal void Begin(Vector2 scale) { _used = 0; _scale = scale; }
-        internal void Draw(MapFontSource source, string value, MapFontProfile profile, Vector2 baseline, Color tint)
+        internal void Draw(MapFontSource source, string value, MapFontProfile profile, Vector2 baseline, Color tint,
+            IReadOnlyList<uint?>? glyphColours=null)
         {
             if (_used == _slots.Count) _slots.Add(new(_canvas.GetCanvasItem(), _shader, _used));
             _slots[_used++].Draw(source, value, profile, baseline, tint, _scale,
-                _canvas.GetViewportTransform() * _canvas.GetGlobalTransform());
+                _canvas.GetViewportTransform() * _canvas.GetGlobalTransform(),glyphColours);
         }
         internal void End()
         {
@@ -87,6 +95,7 @@ internal sealed class MapFont : IDisposable
         private ImageTexture[] _textures = [];
         private string? _value;
         private MapFontProfile? _profile;
+        private IReadOnlyList<uint?>? _glyphColours;
         private MapTextCache? _cache;
         internal TextSlot(Rid parent, Shader shader, int index)
         {
@@ -101,11 +110,11 @@ internal sealed class MapFont : IDisposable
             RenderingServer.CanvasItemSetMaterial(_draw, _material.GetRid());
         }
         internal void Draw(MapFontSource source, string value, MapFontProfile profile,
-            Vector2 baseline, Color tint, Vector2 scale, Transform2D parentTransform)
+            Vector2 baseline, Color tint, Vector2 scale, Transform2D parentTransform,IReadOnlyList<uint?>? glyphColours=null)
         {
-            if (_value != value || _profile != profile)
+            if (_value != value || _profile != profile || !ReferenceEquals(_glyphColours,glyphColours))
             {
-                _cache = MapTextCache.Build(source, value, profile);
+                _cache = MapTextCache.Build(source, value, profile,glyphColours);
                 foreach (var texture in _textures) texture.Dispose();
                 _textures = new[] { _cache.Offset, _cache.Stroke, _cache.Body }.Select(pixels =>
                 {
@@ -116,7 +125,7 @@ internal sealed class MapFont : IDisposable
                 _material.SetShaderParameter("offset_cache", _textures[0]);
                 _material.SetShaderParameter("stroke_cache", _textures[1]);
                 _material.SetShaderParameter("body_cache", _textures[2]);
-                _value = value; _profile = profile;
+                _value = value; _profile = profile;_glyphColours=glyphColours;
             }
             _material.SetShaderParameter("node_tint", new Vector4(Cpu(tint.R), Cpu(tint.G), Cpu(tint.B), tint.A));
             var rect = new Rect2(baseline + new Vector2(_cache!.Left, _cache.Top), new(_cache.Width, _cache.Height));

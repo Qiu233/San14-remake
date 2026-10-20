@@ -73,7 +73,8 @@ public sealed partial class SourceWorldContext : IPersonPositionRepairState, IPe
         IReadOnlyList<uint?>? values = _linkedEntityMembers.GetValueOrDefault(LinkedIdentity(reference));
         return values is null ? null : Array.AsReadOnly(values.ToArray());
     }
-    public PersonLinkedEntityReference? ReadPersonLinkedEntity(int physicalSlot) => PersonLinkedEntityLookup.Find(physicalSlot, this);
+    public PersonLinkedEntityReference? ReadPersonLinkedEntity(int physicalSlot) =>
+        ReadOwnedPersonCommandManager() is { Disappearances: null } ? null : PersonLinkedEntityLookup.Find(physicalSlot, this);
     private static int LinkedIdentity(PersonLinkedEntityReference reference)
     {
         ArgumentNullException.ThrowIfNull(reference);

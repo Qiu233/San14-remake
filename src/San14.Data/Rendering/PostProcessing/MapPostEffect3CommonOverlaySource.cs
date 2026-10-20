@@ -37,17 +37,18 @@ public sealed class MapPostEffect3CommonOverlayPacket
         actualSourceAux.ValidateFrame(FrameNumber);
         if(actualSourceAux.SelectedViewOwnerIdentity!=SelectedViewOwnerIdentity)
             throw new InvalidDataException("Common overlay and source Aux belong to different selected Views.");
-        uint flags=actualSourceAux.Flags8;
-        if(Selected)
-        {
-            foreach(var pair in LowBindings)flags=WriteBit(flags,pair.Target,ConsumedLowBits,pair.Source);
-            foreach(var pair in HighBindings)flags=WriteBit(flags,pair.Target,ConsumedHighBits,pair.Source);
-        }
+        uint flags=Selected?ApplyConsumedFlags8(actualSourceAux.Flags8,ConsumedLowBits,ConsumedHighBits):actualSourceAux.Flags8;
         return new(FrameNumber,SelectedViewOwnerIdentity,flags,actualSourceAux.Mode3C0,
             actualSourceAux.Fxaa3A8,actualSourceAux.SeparateHdrMode440,actualSourceAux.BloomColorFix448,
             actualSourceAux.CustomPixelShader108Absent,
             actualSourceAux.SourceEvidence+";"+SourceEvidence+
             (Selected?"-selected-overlay-Flags8-writers":"-null-overlay-no-rewrite"));
+    }
+    internal static uint ApplyConsumedFlags8(uint flags,uint low,uint high)
+    {
+        foreach(var pair in LowBindings)flags=WriteBit(flags,pair.Target,low,pair.Source);
+        foreach(var pair in HighBindings)flags=WriteBit(flags,pair.Target,high,pair.Source);
+        return flags;
     }
     private static uint WriteBit(uint destination,int at,uint source,int from)
         =>(destination&~(1u<<at))|(((source>>from)&1u)<<at);
@@ -142,6 +143,12 @@ public sealed class LoadedMapPostEffect3CommonOverlaySource
 
 public static class MapPostEffect3CommonOverlaySource
 {
+    /// <summary>153EA0's native local defaults and unconditional high-word bit5
+    /// writer. Uses the same D1E410 mapper as the selected owned overlay.</summary>
+    public static uint ApplyDefaultHostFlags8(uint copiedFlags8)
+        =>MapPostEffect3CommonOverlayPacket.ApplyConsumedFlags8(copiedFlags8,
+            MapPostEffect3OwnedCommonOverlay.ControlledLowReadMask,1u<<5);
+
     public static LoadedMapPostEffect3CommonOverlaySource Load(GameResourceRepository repository,string locale="TC")
         =>RenderSamplerSourceAdapters.ReadPostEffect3CommonOverlaySource(
             RenderSamplerSourceAdapters.Load(repository.SourceDirectory,locale));

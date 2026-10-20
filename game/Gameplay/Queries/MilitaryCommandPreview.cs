@@ -61,7 +61,7 @@ public static class MilitaryCommandPreview
             SelectedUnit(world!, player!.Value, selection.UnitId) is
                 { Mission: not (null or { Kind: UnitMissionKind.Transport or UnitMissionKind.Retreat }) } &&
             selected?.ForceId == player;
-        return new(build, targetOwned && selected!.Completed && selected.Durability < selected.MaxDurability,
+        return new(build, targetOwned && selected!.Completed && selected.MaxDurability is int maximum && selected.Durability < maximum,
             targetOwned);
     }
 

@@ -137,7 +137,7 @@ public static class GateCaptureTerritorySource
         return true;
     }
 
-    private static bool Eligible(GameState state, SourceWorldContext current,
+    internal static bool Eligible(GameState state, SourceWorldContext current,
         HexReference candidate, int newForce, bool requireNoArmy)
     {
         int identity = Physical(candidate);

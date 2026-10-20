@@ -180,10 +180,11 @@ public sealed partial class ForceUnregisterSource
             values[PersonAssignmentPrecallInputs.AssociationTargetKey(victim, slot)] = 0;
         }
         current.SetOwnedForceRulerSlot10(victim, 0); current.SetAssignmentForceAdvisor52(victim, 0); current.SetForceRankSlot47(victim, 0);
+        current.SetForceKingdomNameIndex(victim, 0);
         var rankings = new Dictionary<int, NativeForceRankingCurrent>(module.ForceRankings)
             { [victim] = module.ForceRankings[victim] with { Word1BC = 0 } };
         return state with { Forces = new(state.Forces) { [victim] = state.Forces[victim] with
-                { IsActive = false, CombatObjective = ForceCombatObjective.Inactive,
+                { IsActive = false, RankId = 0, KingdomNameIndex = 0, CombatObjective = ForceCombatObjective.Inactive,
                     PolicyEffects = ForcePolicyEffects.Empty } },
             NativeArmySimulation = native with { Forces = forces, Parameters = native.Parameters with { Int32Values = values } },
             NativeForceUnregisterCurrent = module with { ForceResetImages = resetImages, ForceRankings = rankings,

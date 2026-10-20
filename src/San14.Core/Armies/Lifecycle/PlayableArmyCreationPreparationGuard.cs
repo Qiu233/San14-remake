@@ -12,7 +12,8 @@ public sealed class PlayableArmyCreationPreparationGuard(IOrderRules otherComman
         CommandContext context)
     {
         CommandResult result = otherCommands.Apply(state, force, order, context);
-        if (order is not PrepareDeploymentOrder || !result.Accepted) return result;
+        if (order is not PrepareDeploymentOrder || !result.Accepted ||
+            result.State!.PreparedDeployments.Count == state.PreparedDeployments.Count) return result;
         DeploymentEligibility eligibility = preparationRules.CheckPreparedDeployments(
             GameStateSnapshot.Detach(result.State!));
         return eligibility.Status switch

@@ -158,6 +158,24 @@ public partial class Main : Control
 
     public override void _Input(InputEvent input)
     {
+        if (HasCampaignSavePage && input is InputEventKey { Pressed: true, Echo: false, Keycode: Key.Escape })
+        {
+            GetViewport().SetInputAsHandled();
+            if (_campaignSaveConfirmation is { } question) question.RequestCancel(); else CloseCampaignSaves();
+            return;
+        }
+        if (HasMapSystemMenu && input is InputEventKey { Pressed: true, Echo: false, Keycode: Key.Escape })
+        {
+            GetViewport().SetInputAsHandled();
+            if (_mapSystemConfirmation is { } question) question.RequestCancel(); else CloseMapSystemMenu();
+            return;
+        }
+        // The source Make pulldown consumes both halves of cancel, but closes
+        // only on release. Other restored pages keep their own back contract.
+        if(_deploymentSetupPresenter?.TryHandleAutomaticCancelInput(input)==true)
+        {GetViewport().SetInputAsHandled();return;}
+        if(_administrationPresenter?.TryHandleAutomaticCancelInput(input)==true)
+        {GetViewport().SetInputAsHandled();return;}
         if (input is not InputEventMouseButton { ButtonIndex: MouseButton.Right } button) return;
         if (!button.Pressed)
         {
@@ -166,11 +184,29 @@ public partial class Main : Control
             return;
         }
         if (_failed || _shuttingDown) return;
+        if(_deploymentNarration is { } narration&&narration.IsVisibleInTree()&&!narration.IsQueuedForDeletion()||
+            _administrationNarration is { } administrationSpeech&&administrationSpeech.IsVisibleInTree()&&!administrationSpeech.IsQueuedForDeletion()||
+            _cityDomesticNarration is { } citySpeech&&citySpeech.IsVisibleInTree()&&!citySpeech.IsQueuedForDeletion())
+        {GetViewport().SetInputAsHandled();_consumeBackRelease=true;return;}
         Action? back = null;
-        if (_detailsView is { } details && details.IsVisibleInTree() && !details.IsQueuedForDeletion())
+        if (_campaignSaveConfirmation is { } saveQuestion) back = saveQuestion.RequestCancel;
+        else if (_mapSystemConfirmation is { } systemQuestion) back = systemQuestion.RequestCancel;
+        else if (HasCampaignSavePage) back = CloseCampaignSaves;
+        else if (HasMapSystemMenu) back = CloseMapSystemMenu;
+        else if(_cityDomesticPresenter is { } cityDomestic)
+            back=()=>{if(_cityDomesticSelectors?.TryCancel()!=true)cityDomestic.RequestBack();};
+        else if(_administrationPresenter is { } administration)
+            back=administration.RequestBack;
+        else if (_deploymentSetup is { } deployment && deployment.IsVisibleInTree() && !deployment.IsQueuedForDeletion())
+            back = ()=>{if(_deploymentSetupPresenter?.TryCancelModal()!=true)deployment.RequestClose();};
+        else if(_deploymentTarget is { } target&&target.IsVisibleInTree()&&!target.IsQueuedForDeletion())
+            back=()=>{if(_deploymentTargetPresenter?.TryCancelOverlay()!=true)target.RequestBack();};
+        else if (_detailsView is { } details && details.IsVisibleInTree() && !details.IsQueuedForDeletion())
             back = details.RequestClose;
         else if (_periodReportView is { } report && report.IsVisibleInTree() && !report.IsQueuedForDeletion())
             back = report.RequestAcknowledge;
+        else if (_residentMap is { IsCityCommandMenuOpen: true } cityMenuMap)
+            back = ()=>{ClearDeploymentCityDraft();cityMenuMap.CloseCityCommandMenu();};
         else if (_sceneView is null && _residentMap is not null &&
                  _world is { Phase: TurnPhase.Reporting })
             back = () => RunPlayAction(FinishPlayableReport);
@@ -190,7 +226,7 @@ public partial class Main : Control
         ConnectWindowLifetime();
         try
         {
-            _safeUi = new PreviewText(false, null);
+            _safeUi = new PreviewText(true, null);
             string? configured = System.Environment.GetEnvironmentVariable("SAN14_OVERRIDE_DIR");
             _overrides = new ResourceOverrides(string.IsNullOrWhiteSpace(configured)
                 ? ProjectSettings.GlobalizePath("user://overrides") : configured);
@@ -265,7 +301,7 @@ public partial class Main : Control
 
     private void BuildInterface()
     {
-        _ui = new PreviewText(false, _overrides);
+        _ui = new PreviewText(true, _overrides);
         var background = new ColorRect { Color = new Color("#111b1d") };
         background.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         AddChild(background);
@@ -301,6 +337,7 @@ public partial class Main : Control
         _locale = new OptionButton { Name = "LanguageSelection" };
         _locale.AddItem(_ui.LocaleSimplified);
         _locale.AddItem(_ui.LocaleTraditional);
+        _locale.Select(1);
         sidebar.AddChild(_locale);
         _scenarioLabel = new Label();
         sidebar.AddChild(_scenarioLabel);
@@ -428,8 +465,9 @@ public partial class Main : Control
         _mapFocusToggle.AnchorRight = 1;
         _mapFocusToggle.OffsetLeft = -150;
         _mapFocusToggle.OffsetRight = -12;
-        _mapFocusToggle.OffsetTop = 12;
-        _mapFocusToggle.OffsetBottom = 54;
+        // Keep the browser utility below the original top function buttons.
+        _mapFocusToggle.OffsetTop = 80;
+        _mapFocusToggle.OffsetBottom = 122;
         _tileInfo = new Label();
         right.AddChild(_tileInfo);
         _status = new Label();
@@ -573,12 +611,14 @@ public partial class Main : Control
         _capturedOfficers.Disabled = !editable;
     }
 
-    private void ShowScenario(long index, GameState? restored, int? restoredPlayerForceId = null)
+    private void ShowScenario(long index, GameState? restored, int? restoredPlayerForceId = null,
+        CampaignProgressOperation? restoredProgress = null, long lastStorySequence = 0,
+        ManualTacticProgressOperation? restoredManualTactic = null)
     {
         if (index < 0 || index >= _shownScenarios.Count || _repository is null) return;
         EffectiveScenario selection = _shownScenarios[(int)index].Selection;
         CampaignLoadResult campaign = CampaignComposition.Load(_repository, selection,
-            _newGameOptions, restored, restoredPlayerForceId);
+            _newGameOptions, restored, restoredPlayerForceId, restoredProgress, lastStorySequence, restoredManualTactic);
         LoadedScenario loaded = campaign.Composition.Scenario;
         LoadedMap loadedMap = campaign.Composition.Map;
         S14Entry selected = loaded.Metadata;
@@ -698,6 +738,8 @@ public partial class Main : Control
     private void SelectMapTarget(int hexId)
     {
         if (_map is null || (uint)hexId >= (uint)_map.Cells.Length) return;
+        if(!HasDeploymentPage&&_deploymentDraftCityId is int source&&_world?.Cities.GetValueOrDefault(source)?.HexId!=hexId)
+            ClearDeploymentCityDraft();
         _selectedCell = _map.Cells[hexId];
         SetMeta("play_target_hex_id", hexId);
         RefreshTileInfo();
@@ -757,8 +799,16 @@ public partial class Main : Control
         SetMapFocus(false);
     }
 
+    private ForceHudView CurrentForceHudView(GameState world, int player) => ForceHudView.Create(world, player,
+        _campaignComposition!.CurrentMapHeader(world, player, _forceHud?.DisplayState), _ui);
+
     private void CloseResidentMap()
     {
+        CloseCampaignSaves();
+        CloseMapSystemMenu();
+        CloseCityDomestic();
+        CloseAreaAdministration();
+        CloseDeploymentSetup();
         if (_forceHud is not null)
         {
             if (_forceHud.GetParent() is Node parent) parent.RemoveChild(_forceHud);
@@ -780,14 +830,22 @@ public partial class Main : Control
 
     private void SetMapFocus(bool focused)
     {
+        if (!focused) _residentMap?.CloseCityCommandMenu();
         _mapFocused = focused && _residentMap is not null;
         _sidebar.Visible = !_mapFocused;
         _commandScroll.Visible = !_mapFocused;
         _title.Visible = !_mapFocused;
         _hint.Visible = !_mapFocused;
-        _mapFocusToggle.Visible = _residentMap is not null;
+        _tileInfo.Visible = !_mapFocused;
+        _status.Visible = !_mapFocused;
+        _uiAudioStatus.Visible = !_mapFocused;
+        _sceneAudioStatus.Visible = !_mapFocused;
+        _mapFocusToggle.Visible = _residentMap is not null&&!HasDeploymentPage&&!HasAdministrationPage&&!HasCampaignSavePage&&!HasMapSystemMenu;
         _mapFocusToggle.Text = _ui.Get(_mapFocused ? "play_map_show_commands" : "play_map_hide_commands");
-        if (_forceHud is not null) _forceHud.Visible = _mapFocused;
+        if (_forceHud is not null) _forceHud.Visible = _mapFocused&&!HasDeploymentPage&&!HasAdministrationPage&&!HasCampaignSavePage&&!HasMapSystemMenu;
+        if (_browserContent is MarginContainer margin)
+            foreach (string side in new[] { "left", "right", "top", "bottom" })
+                margin.AddThemeConstantOverride($"margin_{side}", _mapFocused ? 0 : side is "left" or "right" ? 20 : 16);
     }
 
     // Explicit developer opt-in until the complete World output has passed
@@ -804,6 +862,10 @@ public partial class Main : Control
             CloseResidentMap();
             return;
         }
+        if(_administrationWorld is { } administrationWorld&&!ReferenceEquals(administrationWorld,world))CloseAreaAdministration();
+        if(_cityDomesticWorld is { } cityWorld&&(!ReferenceEquals(cityWorld,world)||!ReferenceEquals(_cityDomesticSession,_session)))CloseCityDomestic();
+        if(_campaignSaveWorld is { } saveWorld&&(!ReferenceEquals(saveWorld,world)||!ReferenceEquals(_campaignSaveSession,_session)))CloseCampaignSaves();
+        if(_mapSystemWorld is { } systemWorld&&(!ReferenceEquals(systemWorld,world)||!ReferenceEquals(_mapSystemSession,_session)))CloseMapSystemMenu();
         if (_residentMap is not null)
         {
             if (!_residentMap.InitialSceneLoad.IsCompleted ||
@@ -813,7 +875,7 @@ public partial class Main : Control
                 world.Structures?.Count == 0 && world.NativeMapSeason is not null)
                 _residentMap.SetNativeWorldMapDependencyFactory(
                     SceneViewNativeMapWorldSourceFactory.Create());
-            if (_forceHud is not null) _forceHud.Refresh(ForceHudView.Create(world, player, _selectedSnapshot, _ui));
+            if (_forceHud is not null) _forceHud.Refresh(CurrentForceHudView(world, player));
             return;
         }
         var view = new MapSceneView();
@@ -832,6 +894,38 @@ public partial class Main : Control
         view.SetD3D11CurrentWorldQueries(campaignQueries.CaptureCurrentDefinitions,
             campaignQueries.CaptureGraphicsMotionInputs, campaignQueries.CaptureMapArmyGroups);
         _residentMap = view;
+        view.MapOverlayChanged += open =>
+        {
+            if (_forceHud is not null) _forceHud.Visible = _mapFocused && !open&&!HasDeploymentPage&&!HasAdministrationPage&&!HasCampaignSavePage&&!HasMapSystemMenu;
+            _mapFocusToggle.Visible = !open&&!HasDeploymentPage&&!HasAdministrationPage&&!HasCampaignSavePage&&!HasMapSystemMenu;
+        };
+        view.SetCityDomesticMenuQuery((current,city,level)=>QueryCityDomesticMenu(view,current,city,level));
+        view.SetCityCommandMenuQuery((current,city,level)=>QueryCityCommandMenu(view,current,city,level));
+        view.CityCommand += (cityId, command) => RunUiAction(() =>
+        {
+            if(command==MapCityCommand.CityDomestic)
+            {if(_residentMap==view){SelectMapCommandCity(cityId);OpenCityDomestic(cityId);}return;}
+            if (command == MapCityCommand.AreaInformation)
+            {
+                if (_world?.Cities.GetValueOrDefault(cityId)?.HexId is int hex && _world.Territory[hex].AreaId is int area)
+                    OpenMapAreaDetails(view, area);
+                return;
+            }
+            SelectMapCommandCity(cityId);
+            if (command == MapCityCommand.Deploy)
+            {
+                OpenDeploymentSetup(cityId);
+                return;
+            }
+            if(command==MapCityCommand.Administration)
+            {OpenAreaAdministration(cityId);return;}
+            _playCommandDeck.Select(command switch
+            {
+                MapCityCommand.Deploy or MapCityCommand.CancelDeployment => PlayableCommandDeck.Page.Military,
+                MapCityCommand.Move => PlayableCommandDeck.Page.Personnel,
+                _ => PlayableCommandDeck.Page.Administration
+            });
+        });
         try
         {
             view.Configure(_repository, _ui, safeText, () => { }, _map, world,
@@ -877,9 +971,10 @@ public partial class Main : Control
             _mapHost.AddChild(hud);
             try
             {
-                hud.Configure(_repository, _ui, ForceHudView.Create(world, player, _selectedSnapshot, _ui),
+                hud.Configure(_repository, _ui, CurrentForceHudView(world, player),
                     () => RunPlayAction(AdvancePlayable),
-                    () => RunUiAction(() => OpenForceDetailsFor(player, null)));
+                    () => RunUiAction(() => OpenForceDetailsFor(player, null)),
+                    BuildMapMenuEditors(), () => RunUiAction(OpenMapSystemMenu));
                 hud.FitToMap(_mapHost.Size);
                 _forceHud = hud;
             }
@@ -936,7 +1031,7 @@ public partial class Main : Control
 
     private void OpenMapCityDetails(MapSceneView owner, int cityId)
     {
-        if (_failed || _detailsView is not null ||
+        if (_failed || HasAdministrationPage || HasDeploymentPage || HasCampaignSavePage || HasMapSystemMenu || _detailsView is not null ||
             (_sceneView != owner && _residentMap != owner) || _repository is null ||
             _world is null || _selectedSnapshot is null) return;
         var view = new CityDetailsView();
@@ -945,15 +1040,16 @@ public partial class Main : Control
         try
         {
             if (!_world.Cities.ContainsKey(cityId)) throw new InvalidDataException($"Selected city {cityId} is absent from the current world.");
-            owner.SetDetailsOpen(true);
+            owner.SetDetailsOpen(true, keepMapVisible: true);
             view.Configure(_repository, CampaignDetailViews.City(_world, _selectedSnapshot, cityId, _ui,
-                CityCurrentCapacityFields.Capture(cityId, _ownedArmyCampaign?.CaptureCurrentDefinitions(_world))), _ui, () =>
+                CurrentCityCapacity(cityId),
+                CurrentCityGeography(cityId), CurrentCityForce(cityId), CurrentCityMiniMap(cityId)), _ui, () =>
             {
                 if (_detailsView != view) return;
                 view.Hide(); view.QueueFree(); _detailsView = null;
                 if ((_sceneView == owner || _residentMap == owner) && GodotObject.IsInstanceValid(owner))
                     owner.SetDetailsOpen(false);
-            });
+            }, mapBackdrop: true);
         }
         catch (Exception error)
         {
@@ -1005,7 +1101,8 @@ public partial class Main : Control
         _detailsView = view;
         AddChild(view);
         view.Configure(_repository, CampaignDetailViews.City(_world, _selectedSnapshot, cityId, _ui,
-            CityCurrentCapacityFields.Capture(cityId, _ownedArmyCampaign?.CaptureCurrentDefinitions(_world))), _ui, () => RunUiAction(() =>
+            CurrentCityCapacity(cityId),
+            CurrentCityGeography(cityId), CurrentCityForce(cityId), CurrentCityMiniMap(cityId)), _ui, () => RunUiAction(() =>
         {
             view.QueueFree();
             _detailsView = null;
@@ -1035,10 +1132,10 @@ public partial class Main : Control
         _playSaveSlot.ItemSelected += _ => RunUiAction(RefreshSaveSlots);
         actions.AddChild(_playSaveSlot);
         _playSave = new Button { Name = "SavePlayable" };
-        _playSave.Pressed += () => RunPlayAction(SavePlayable);
+        _playSave.Pressed += () => RunUiAction(() => OpenCampaignSaves(true));
         actions.AddChild(_playSave);
         _playContinue = new Button { Name = "ContinuePlayable" };
-        _playContinue.Pressed += () => RunPlayAction(LoadPlayable);
+        _playContinue.Pressed += () => RunUiAction(() => OpenCampaignSaves(false));
         actions.AddChild(_playContinue);
 
         _playCommandDeck = new PlayableCommandDeck();
@@ -1699,14 +1796,7 @@ public partial class Main : Control
 
     private void OrderAdministration()
     {
-        if (_world is not GameState world || _playerForceId is not int player ||
-            _playCity.Selected < 0 || _playArea.Selected < 0 || _playAdminOfficer.Selected < 0) return;
-        int cityId = _playCity.GetSelectedId();
-        int areaId = _playArea.GetSelectedId();
-        int officerId = _playAdminOfficer.GetSelectedId();
-        var focus = (AreaDevelopmentFocus)_playFocus.GetSelectedId();
-        ApplyPlayableOrder(new SetAreaAdministrationOrder(player, cityId,
-            [new AreaAdministrationChange(areaId, officerId, focus)]));
+        if(_playCity.Selected>=0)OpenAreaAdministration(_playCity.GetSelectedId());
     }
 
     private void AssignCityDuty(CityDutyKind kind)
@@ -1744,12 +1834,13 @@ public partial class Main : Control
             ? new DeploymentAction("build", new DeploymentTarget(DeploymentTargetKind.Hex,
                 target.Id), PlayableConstructionRules.DescribeSlot(_playStructureKind.GetSelectedId()).KindId)
             : new DeploymentAction("move", new DeploymentTarget(DeploymentTargetKind.Hex, target.Id));
-        int[] tacticIds = _playTactics.Where(choice => choice.Selected >= 0 &&
-            choice.GetSelectedId() != NoTacticId).Select(choice => choice.GetSelectedId()).ToArray();
+        int[] tacticIds = _playTactics.Select(choice => choice.Selected >= 0 &&
+            choice.GetSelectedId() != NoTacticId?choice.GetSelectedId():0).ToArray();
         var request = new DeploymentUnitRequest(officerId, formationId, (int)_playTroops.Value,
             tacticIds,
             [action])
         {
+            NavalFormationId = ResolveDeploymentNavalFormation(world, officerId),
             Behavior = _militaryOrders.BehaviorSelection,
             WaypointHexIds = _militaryOrders.WaypointSnapshot()
         };
@@ -1850,9 +1941,10 @@ public partial class Main : Control
             _playCity.GetSelectedId()));
     }
 
-    private bool ApplyPlayableOrder(GameOrder order)
+    private bool ApplyPlayableOrder(GameOrder order,Action? acceptedBeforeRefresh=null)
     {
         if (_session?.PlayerForceId is null) return false;
+        if((HasDeploymentPage||HasAdministrationPage||HasCampaignSavePage||HasMapSystemMenu)&&acceptedBeforeRefresh is null)return false;
         CommandResult result = _session!.Issue(order);
         if (!result.Accepted)
         {
@@ -1862,13 +1954,14 @@ public partial class Main : Control
             return false;
         }
         _playMessage.Text = _ui.Get("play_order_accepted");
+        acceptedBeforeRefresh?.Invoke();
         RefreshCurrentPlayWorld();
         return true;
     }
 
     private void AdvancePlayable()
     {
-        if (_session?.PlayerForceId is null) return;
+        if (HasDeploymentPage||HasAdministrationPage||HasCampaignSavePage||HasMapSystemMenu||_session?.PlayerForceId is null) return;
         if (!_session!.AdvancePeriod()) return;
         _playMessage.Text = "";
         RefreshCurrentPlayWorld();
@@ -1877,6 +1970,7 @@ public partial class Main : Control
 
     private void FinishPlayableReport()
     {
+        if(HasAdministrationPage||HasCampaignSavePage||HasMapSystemMenu)return;
         if (_world is not { Phase: TurnPhase.Reporting } || _playerForceId is null) return;
         _session!.FinishReport();
         _playMessage.Text = "";

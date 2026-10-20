@@ -28,6 +28,14 @@ public sealed class ArmyMapUiSources
         ];
         var names = new Dictionary<int, string>
         {
+            [0x1A2]="000_cmn_icon_jin_1", [0x1A8]="000_cmn_icon_jin_2",
+            [0x1A9]="000_cmn_icon_jin_3", [0x1AA]="000_cmn_icon_jin_4",
+            [0x1AC]="000_cmn_icon_jin_6", [0x1AD]="000_cmn_icon_jin_7",
+            [0x1AB]="000_cmn_icon_jin_5", [0x1AE]="000_cmn_icon_jin_8",
+            [0x1AF]="000_cmn_icon_jin_9", [0x1A3]="000_cmn_icon_jin_10",
+            [0x1A4]="000_cmn_icon_jin_11", [0x1A5]="000_cmn_icon_jin_12",
+            [0x1A6]="000_cmn_icon_jin_13", [0x3EF]="000_cmn_icon_jin_15",
+            [0x1A7]="000_cmn_icon_jin_14",
             [0x1B0]="000_cmn_icon_jin_fuchi_1", [0x1B6]="000_cmn_icon_jin_fuchi_2",
             [0x1B7]="000_cmn_icon_jin_fuchi_3", [0x1B8]="000_cmn_icon_jin_fuchi_4",
             [0x1BA]="000_cmn_icon_jin_fuchi_6", [0x1BB]="000_cmn_icon_jin_fuchi_7",

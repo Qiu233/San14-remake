@@ -9,6 +9,11 @@ public sealed partial class SourceWorldContext : ICurrentGateMapState
     private readonly Dictionary<int, int?> _hexPointers = [], _areaPointers = [];
     private readonly Dictionary<int, ushort?> _hexAreas = [], _areaHexes = [];
     private readonly Dictionary<int, byte?> _hexForces = [], _areaValidityCodes = [], _areaCities = [];
+    private readonly Dictionary<int, byte?> _areaFacilityCapacities = [];
+    internal void SetAreaFacilityCapacity(int physical, byte? value)
+    { Check(physical, 501, "area facility capacity"); _areaFacilityCapacities[physical] = value; }
+    internal byte? ReadAreaFacilityCapacity(AreaReference area) =>
+        _areaFacilityCapacities.GetValueOrDefault(MapPhysical(area.PhysicalSlot, 501, "area facility capacity"));
 
     public string? FixedMapSourceSha256 { get; private set; }
 
@@ -33,11 +38,20 @@ public sealed partial class SourceWorldContext : ICurrentGateMapState
         if (!reference.PhysicalSlot.HasValue) return false;
         int physical = MapPhysical(reference.PhysicalSlot, 3001, "object");
         if (physical == 0) return false;
+        if (_currentObjectPositions.TryGetValue(physical, out ushort? position))
+        {
+            byte? kind = _currentObjectKinds.GetValueOrDefault(physical);
+            if (position >= 48400 || kind == 0) return false;
+            return position.HasValue && kind.HasValue ? true : null;
+        }
         S14ConditionNativeObject? obj = ReadPhysicalObject(physical);
         return obj is null ? null : obj.RawField10 < 48400 && obj.RawField12 != 0;
     }
-    public ushort? ReadObjectHexIndex(ObjectReference reference) =>
-        ReadPhysicalObject(MapPhysical(reference.PhysicalSlot, 3001, "object"))?.RawField10;
+    public ushort? ReadObjectHexIndex(ObjectReference reference)
+    {
+        int physical = MapPhysical(reference.PhysicalSlot, 3001, "object");
+        return _currentObjectPositions.TryGetValue(physical, out ushort? position) ? position : ReadPhysicalObject(physical)?.RawField10;
+    }
     public HexReference? ReadHexTableReference(int slot)
     {
         Check(slot, 48400, "hex lookup slot");
@@ -107,6 +121,7 @@ public sealed partial class SourceWorldContext : ICurrentGateMapState
             S14AreaDefinition area = areas[slot];
             if (area.Slot != slot) throw new InvalidDataException($"Current fixed area identity differs at {slot}.");
             SetAreaValidityCode(slot, area.CitySlot);
+            SetAreaFacilityCapacity(slot, area.FacilityCapacity);
             SetAreaHexIndex(slot, area.HexId);
             SetAreaTablePointer(slot, slot);
             if (area.RawNeighborSlots is not { Count:8 })

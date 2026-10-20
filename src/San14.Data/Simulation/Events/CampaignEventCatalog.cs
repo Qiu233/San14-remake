@@ -20,7 +20,7 @@ public sealed record CampaignEventStream(int DirectoryIndex, int Offset, int Len
     public bool ProfileSupported => Rejections.Count == 0;
     public CampaignEventRejection? FirstRejection => Rejections.FirstOrDefault();
     public bool HasMeaningfulAction => Operations.Any(operation =>
-        operation.Code is 90 or 91 or 92 or >= 188 and <= 200);
+        operation.Code is 85 or 87 or 90 or 91 or 92 or 94 or 96 or 97 or 106 or 107 or 424 or >= 188 and <= 200);
 }
 
 /// <summary>
@@ -111,23 +111,65 @@ public sealed class CampaignEventCatalog
             var operation = new CampaignEventOperation(source.Index, source.Offset, source.Code,
                 source.RawField04, source.RawField06, Array.AsReadOnly(arguments), Array.AsReadOnly(bytes));
             operations.Add(operation);
-            bool supported = execution ? S14AreaEventExecutionRuntime.IsSupported(source.Code) :
+            bool supported = execution ? S14AreaEventExecutionRuntime.IsSupported(source.Code) || CampaignEventExecutionProgram.IsSupported(source.Code) :
                 S14EventConditionEvaluator.BuiltInBindings.ContainsKey(source.Code) ||
-                source.Code is 9 or 15 or 17 or 19 || S14PlayerEventConditionRuntime.IsSupported(source.Code);
+                S14BasicEventConditionRuntime.IsSupported(source.Code) || S14PlayerEventConditionRuntime.IsSupported(source.Code);
             if (!supported)
                 rejections.Add(new(source.Index, source.Offset, source.Code, execution ?
                     "No complete execution binding for this original opcode." :
                     "No current basic condition binding for this original opcode."));
-            else if (!execution && source.Code == 9 && arguments[0] is < 0 or >= S14EventSourceProfile.WorldFlagCount)
+            else if (!execution && source.Code is 9 or 10 && arguments[0] is < 0 or >= S14EventSourceProfile.WorldFlagCount)
                 rejections.Add(new(source.Index, source.Offset, source.Code,
                     "Event flag selector is outside the supported native world bitmap."));
             else if (!execution && source.Code is 17 or 19 && arguments[1] < 0)
                 rejections.Add(new(source.Index, source.Offset, source.Code,
                     "Dynamic person or city selectors are unsupported by the basic condition profile."));
-            else if (!execution && ((source.Code == 36 && arguments[1] < 0) ||
-                (source.Code is 59 or 298 && arguments[0] < 0)))
+            else if (!execution && ((source.Code is 18 or 48 && UnknownForce(arguments[1])) ||
+                (source.Code == 36 && UnknownForce(arguments[1])) ||
+                (source.Code is 25 or 27 or 37 && (UnknownForce(arguments[0]) || UnknownForce(arguments[2]))) ||
+                (source.Code == 26 && (UnknownForce(arguments[0]) || UnknownForce(arguments[1]))) ||
+                (source.Code is 34 or 243 && UnknownPerson(arguments[0])) ||
+                (source.Code == 33 && (UnknownPerson(arguments[0]) || UnknownForce(arguments[1]))) ||
+                (source.Code == 35 && (UnknownForce(arguments[0]) || UnknownPerson(arguments[1]))) ||
+                (source.Code == 68 && (arguments[0] < 0 || UnknownPerson(arguments[1]))) ||
+                (source.Code is 49 or 50 && (arguments[0] < 0 || UnknownForce(arguments[2]))) ||
+                (source.Code is 52 or 55 or 246 && arguments[0] < -1) ||
+                (source.Code == 264 && (arguments[0] < 0 || UnknownForce(arguments[2]))) ||
+                (source.Code == 265 && (UnknownForce(arguments[0]) || UnknownForce(arguments[2]))) ||
+                (source.Code == 38 && (UnknownForce(arguments[0]) || arguments[3] < 0)) ||
+                (source.Code is 21 or 23 or 28 or 29 or 30 or 39 or 47 or 255 && UnknownForce(arguments[0])) ||
+                (source.Code == 56 && (UnknownPerson(arguments[0]) || UnknownForce(arguments[2]))) ||
+                (source.Code is 57 or 74 && (UnknownPerson(arguments[0]) || arguments[2] < 0)) ||
+                (source.Code is 58 or 60 or 62 or 67 or 78 && (UnknownPerson(arguments[0]) || UnknownPerson(arguments[2]))) ||
+                (source.Code is 64 or 69 or 244 && arguments.Take(5).Any(UnknownPerson)) ||
+                (source.Code == 216 && arguments.Take(5).Any(value => value < 0)) ||
+                (source.Code == 367 && UnknownForce(arguments[0])) ||
+                (source.Code == 46 && UnknownForce(arguments[0])) ||
+                (source.Code == 444 && arguments[0] < -1) ||
+                (source.Code == 452 && (UnknownForce(arguments[0]) || UnknownForce(arguments[2]))) ||
+                (source.Code == 436 && arguments[0] < 0) ||
+                (source.Code == 437 && arguments.Skip(1).Take(5).Any(value => value < 0)) ||
+                (source.Code == 431 && UnknownForce(arguments[0])) ||
+                (source.Code == 417 && (UnknownForce(arguments[0]) || arguments[2] < -1)) ||
+                (source.Code == 422 && (arguments[0] < 0 || UnknownForce(arguments[2]))) ||
+                (source.Code is 423 or 451 && arguments[0] < 0) ||
+                (source.Code == 372 && arguments.Any(value => value < -1)) ||
+                (source.Code == 374 && UnknownForce(arguments[2])) ||
+                (source.Code is 20 or 22 or 24 or 42 or 225 && UnknownForce(arguments[0])) ||
+                (source.Code is 59 or 61 or 66 or 73 or 75 or 79 or 298 && UnknownPerson(arguments[0]))))
                 rejections.Add(new(source.Index, source.Offset, source.Code,
                     "Dynamic person selectors are unsupported by the current person condition profile."));
+        }
+
+        if (execution && operations.Count != 0 &&
+            !operations.All(operation => S14AreaEventExecutionRuntime.IsSupported(operation.Code)) &&
+            !operations.All(operation => CampaignEventExecutionProgram.IsSupported(operation.Code) &&
+                CampaignEventExecutionProgram.UnsupportedArguments(operation.Code, operation.RawArguments) is null))
+        {
+            var first = operations.First(operation => !S14AreaEventExecutionRuntime.IsSupported(operation.Code));
+            if (!rejections.Any(rejection => rejection.OperationIndex == first.Index))
+                rejections.Add(new(first.Index, first.Offset, first.Code,
+                    "No single complete area or story execution profile supports this stream and its selectors."));
         }
 
         // Always validate the complete structure, including groups whose leaves
@@ -144,23 +186,20 @@ public sealed class CampaignEventCatalog
         byte[] allBytes = operations.SelectMany(operation => operation.RawBytes).ToArray();
         return new(stream.Index, stream.Offset, stream.Length,
             Convert.ToHexString(SHA256.HashData(allBytes)), operations.AsReadOnly(), rejections.AsReadOnly());
+
+        static bool UnknownPerson(int selector) => selector < 0 && selector is not (>= -8 and <= -4);
+        static bool UnknownForce(int selector) => selector < -5;
     }
 
     private static CampaignEventOperation? FindStructuralFailure(
         IReadOnlyList<CampaignEventOperation> operations)
     {
-        var groups = new Stack<CampaignEventOperation>();
-        foreach (CampaignEventOperation operation in operations)
+        int failure = -1;
+        try
         {
-            if (operation.Code is < 0 or >= 453 or 1 or 2 or 3 or 4 or 216 or 257 or 372 or 379)
-                return operation;
-            if (operation.Code is 5 or 7) groups.Push(operation);
-            else if (operation.Code is 6 or 8)
-            {
-                if (groups.Count == 0 || groups.Peek().Code + 1 != operation.Code) return operation;
-                groups.Pop();
-            }
+            _ = S14EventConditionProgram.ReadGroupEnds(operations.Select(operation => operation.Code).ToArray(), out failure);
         }
-        return groups.Count == 0 ? null : groups.Peek();
+        catch (InvalidDataException) { return failure >= 0 ? operations[failure] : null; }
+        return null;
     }
 }

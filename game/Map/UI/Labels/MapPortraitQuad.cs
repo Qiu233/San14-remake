@@ -86,8 +86,8 @@ internal partial class MapPortraitQuad : Node2D
         var portrait = assets.SpritePart(portraitName, parts[0].Uv);
         var mask1 = assets.SpritePart(parts[1].SpriteName, parts[1].Uv);
         var mask2 = assets.SpritePart(parts[2].SpriteName, parts[2].Uv);
-        bool portraitSrgb = SourceSrgb(portraitName);
-        bool mask1Srgb = SourceSrgb(parts[1].SpriteName), mask2Srgb = SourceSrgb(parts[2].SpriteName);
+        bool portraitSrgb = UsesSrgbView(repository,assets,portraitName);
+        bool mask1Srgb = UsesSrgbView(repository,assets,parts[1].SpriteName), mask2Srgb = UsesSrgbView(repository,assets,parts[2].SpriteName);
         var material = new ShaderMaterial { Shader = shader, ResourceName = portraitName + "_LayoutPS19" };
         Bind("portrait", portrait);
         Bind("mask1", mask1);
@@ -98,18 +98,6 @@ internal partial class MapPortraitQuad : Node2D
         material.SetShaderParameter("mask2_srgb", mask2Srgb);
         return material;
 
-        bool SourceSrgb(string name)
-        {
-            var source = assets.Sprite(name).Source.Texture;
-            var image = repository.LoadTextureContainer("ScreenLayout", source.FileId).Container.Textures[source.TextureIndex];
-            var sampler = G1TextureSamplerReader.ReadRetainedSource(image);
-            if (image.PixelFormat != 0x5B || image.MipCount != 1 || image.RawHeader.Length < 20 ||
-                sampler.Filter != 0x14 || sampler.AddressU != 3 || sampler.AddressV != 3 ||
-                sampler.MinimumLodBits != 0 || sampler.MaximumLodBits != 0)
-                throw new NotSupportedException($"Army portrait component sampling needs its source branch: {name}.");
-            return image.RawHeader[19] != 0;
-        }
-
         void Bind(string name, AtlasTexture atlas)
         {
             Vector2 extent = atlas.Atlas.GetSize();
@@ -117,5 +105,18 @@ internal partial class MapPortraitQuad : Node2D
             material.SetShaderParameter(name + "_region", new Vector4(atlas.Region.Position.X / extent.X,
                 atlas.Region.Position.Y / extent.Y, atlas.Region.Size.X / extent.X, atlas.Region.Size.Y / extent.Y));
         }
+    }
+
+    internal static bool UsesSrgbView(GameResourceRepository repository,UiAssets assets,string name,
+        LoadedSprite? declaredSource = null)
+    {
+        var source = assets.Sprite(name,declaredSource).Source.Texture;
+        var image = repository.LoadTextureContainer("ScreenLayout", source.FileId).Container.Textures[source.TextureIndex];
+        var sampler = G1TextureSamplerReader.ReadRetainedSource(image);
+        if (image.PixelFormat != 0x5B || image.MipCount != 1 || image.RawHeader.Length < 20 ||
+            sampler.Filter != 0x14 || sampler.AddressU != 3 || sampler.AddressV != 3 ||
+            sampler.MinimumLodBits != 0 || sampler.MaximumLodBits != 0)
+            throw new NotSupportedException($"Portrait component sampling needs its source branch: {name}.");
+        return image.RawHeader[19] != 0;
     }
 }

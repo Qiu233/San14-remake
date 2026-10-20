@@ -14,6 +14,8 @@ public sealed record S14ScenarioItem(int Slot, ushort OwnerId,
 {
     // Missing typed metadata in an older snapshot remains unknown.
     public byte? RawStatusCode { get; init; }
+    public ushort? RetainedLocationCode { get; init; }
+    public byte? RetainedFlags { get; init; }
 }
 
 public sealed record S14ItemDefinitionCatalog(uint FormatMarker, int RecordOffset,
@@ -93,7 +95,8 @@ public static class S14ItemReader
                     row[59], row[60], offset + 6, definition.Length, definition.ToArray(), Sha(definition));
             }
             records[slot] = new S14ScenarioItem(slot, BinaryPrimitives.ReadUInt16LittleEndian(row),
-                embedded, offset, stride, row.ToArray(), Sha(row)) { RawStatusCode = row[4] };
+                embedded, offset, stride, row.ToArray(), Sha(row)) { RawStatusCode = row[4],
+                RetainedLocationCode = BinaryPrimitives.ReadUInt16LittleEndian(row.Slice(2, 2)), RetainedFlags = row[5] };
         }
         return new(scenario.FormatMarker, start, stride, Sha(bytes),
             Sha(bytes.Slice(start, count * stride)), Array.AsReadOnly(records));

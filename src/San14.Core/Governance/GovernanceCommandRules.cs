@@ -100,7 +100,9 @@ public sealed class GovernanceCommandRules(IGovernanceCommandRules rules) : IOrd
                 (bill.DistrictId == id && bill.Timing == GovernanceDebitTiming.Activation ? bill.CommandBooks : 0L);
             if (next < reserved)
                 return CommandResult.Reject("Not enough unreserved command books.", "governance.insufficient_orders");
-            if (next > int.MaxValue || (district.OrderLimit is int limit && next > limit))
+            // OrderLimit belongs to the distinct Army cancellation refund
+            // path; it is not a ceiling on this provider's explicit bill.
+            if (next > int.MaxValue)
                 return Missing("rules.governance_resources", "Accounting result exceeds the known budget range.");
             districts[id] = district with { OrdersRemaining = (int)next };
         }

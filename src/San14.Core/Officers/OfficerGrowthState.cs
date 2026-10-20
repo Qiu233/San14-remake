@@ -29,6 +29,10 @@ public sealed class OfficerGrowthState
     public ulong? ExperienceFor(int abilityIndex) => _experience is not null &&
         abilityIndex >= 0 && abilityIndex < _experience.Length ? _experience[abilityIndex] : null;
 
+    /// <summary>The reached notification-manager clear writes known empty.
+    /// Existing experience values and missing-channel knowledge are preserved.</summary>
+    public OfficerGrowthState ClearNotifications() => new(_experience, []);
+
     /// <summary>Publishes one resolved experience update. Existing notices keep
     /// their first base value, opaque channels and position in the ordered list.</summary>
     public OfficerGrowthState Advance(int abilityIndex, ulong experience,

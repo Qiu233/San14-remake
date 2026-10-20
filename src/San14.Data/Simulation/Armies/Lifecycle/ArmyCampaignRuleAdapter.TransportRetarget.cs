@@ -21,7 +21,7 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportRetarget
         if (geometry.Goal != city.HexId) return null;
         var prepared = TransportArmyRetargetSource.PrepareCity(new(physical,
             commander != 0 && status is not null ? status != 0 : null, status, ArmyConfigurationSourceAdapter.ReadAction(state, unit),
-            unit.NativeCommandControl140, runtime.Abnormal25, runtime.Flags26, choice),
+            ArmySavedCommandKnowledge.ReadControl(state, unit), runtime.Abnormal25, runtime.Flags26, choice),
             new(city.Id, geometry.Valid, waypoints.Select(x => (int)x).ToArray()));
         if (prepared.Receipt is not { } receipt) return null;
         var staged = unit with

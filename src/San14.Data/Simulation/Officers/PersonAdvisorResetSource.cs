@@ -19,14 +19,16 @@ public static class PersonAdvisorResetSource
     public static string City66Key(int city) => "ce-advisor-refresh-current:city:" + city + ":66";
     public static void BindCurrent(GameState state, SourceWorldContext current)
     {
-        foreach (var city in state.Cities.Keys)
-            if (state.NativeArmySimulation?.Parameters.Int32Values.TryGetValue(City66Key(city), out int value) == true && value is >= 0 and <= 255)
-                current.SetBasePostLoadFlag66(new(BaseKind.City, city), (byte)value);
+        foreach (var city in state.Cities.Values)
+            current.SetBasePostLoadFlag66(new(BaseKind.City, city.Id), city.DamageTier);
     }
 
     public static PersonAdvisorResetResult ApplyCurrent(GameState state,
         SourceWorldContext current, WorldIndexContext pool, ForceReference force)
         => ApplyRefreshCurrent(state, current, pool, force, advisorRemoved: true);
+    internal static PersonAdvisorResetResult ApplyWithinPersonDeath(GameState state,
+        SourceWorldContext current, WorldIndexContext pool, ForceReference force)
+        => ApplyRefreshCurrent(state, current, pool, force, advisorRemoved: true, projectOwnedRoles: true);
 
     /// <summary>26DA10's changed-Force27BE40 only. Retains the current
     /// advisor52/cache15E and does not reach27AA40 or2FF040.</summary>
@@ -35,7 +37,8 @@ public static class PersonAdvisorResetSource
         => ApplyRefreshCurrent(state, current, null, force, advisorRemoved: false);
 
     private static PersonAdvisorResetResult ApplyRefreshCurrent(GameState state,
-        SourceWorldContext current, WorldIndexContext? pool, ForceReference force, bool advisorRemoved)
+        SourceWorldContext current, WorldIndexContext? pool, ForceReference force, bool advisorRemoved,
+        bool projectOwnedRoles = false)
     {
         try
         {
@@ -109,7 +112,7 @@ public static class PersonAdvisorResetSource
                     int after = BasePostLoad.ReadLinkedField14(target, current);
                     byte flag = BasePostLoad.ReadFlag66(target, current);
                     current.SetBasePostLoadFlag66(target, flag);
-                    cities.Add(new(slot, before, after, writes, flag)); values[City66Key(slot)] = flag;
+                    cities.Add(new(slot, before, after, writes, flag)); values.Remove(City66Key(slot));
                 }
             }
 
@@ -130,8 +133,9 @@ public static class PersonAdvisorResetSource
                 cityStates[id] = row with { Morale = write.After44, NativeReturnRuntime =
                     (row.NativeReturnRuntime ?? throw Missing("City44_saved_owner")) with { Morale44 = write.After44 } };
             }
-            foreach (var write in cities.Where(x => x.DurabilitySetterReached))
-                cityStates[write.CityPhysical] = cityStates[write.CityPhysical] with { Durability = write.DurabilityAfter };
+            foreach (var write in cities)
+                cityStates[write.CityPhysical] = cityStates[write.CityPhysical] with
+                { Durability = write.DurabilityAfter, DamageTier = write.Flag66After };
             var units = new Dictionary<int, UnitState>(working.Units);
             var slots = (working.ReadArmyLifecycle() ?? throw Missing("Army_saved_arena")).ReceiverSlots().ToArray();
             foreach (var write in armies)
@@ -145,7 +149,8 @@ public static class PersonAdvisorResetSource
                 Gates = gateStates,
                 Units = units,
                 NativeArmySimulation = working.NativeArmySimulation! with
-                { Parameters = working.NativeArmySimulation.Parameters with { Int32Values = values } } }).WithArmyLifecycle(working.ReadArmyLifecycle()!.WithReceiverSlots(slots) with { Indexes = pool.ExportOwnedState() });
+                { Parameters = working.NativeArmySimulation.Parameters with { Int32Values = values } } }).WithArmyLifecycle(working.ReadArmyLifecycle()!.WithReceiverSlots(slots) with
+                { Indexes = projectOwnedRoles ? pool.ProjectOwnedRoles() : pool.ExportOwnedState() });
             foreach (var write in armies) current.AcknowledgeArmyReturnNumerics(write.PhysicalSlot, morale: true);
             return new(working, new(physical, level, cache, bases.ToArray(), armies.ToArray(), cities.ToArray(), policies.ToArray()), null);
 

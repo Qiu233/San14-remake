@@ -41,24 +41,9 @@ static ComPtr<ID3D11ShaderResourceView> loadNativeModelTexture(ID3D11Device* dev
     D3D11_SHADER_RESOURCE_VIEW_DESC sd{};sd.Format=viewFormat;sd.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;sd.Texture2D.MipLevels=td.MipLevels;
     ComPtr<ID3D11ShaderResourceView> view;check(device->CreateShaderResourceView(texture.Get(),&sd,&view),"Model source texture SRV");return view;
 }
-static NativeModelDraw loadNativeModelDraw(ID3D11Device* device,const fs::path& directory,
-    std::string identity,const NativeModelDraw* sharedGeometry=nullptr) {
-    NativeModelDraw draw;draw.identity=std::move(identity);
-    auto v=load(directory/"vs.dxbc"),p=load(directory/"ps.dxbc");
-    check(device->CreateVertexShader(v.data(),v.size(),nullptr,&draw.vs),"Model original VS");
-    check(device->CreatePixelShader(p.data(),p.size(),nullptr,&draw.ps),"Model original PS");
-    draw.vsConstants=buffer(device,load(directory/"vs-b0.bin"),D3D11_BIND_CONSTANT_BUFFER);
-    draw.psConstants=buffer(device,load(directory/"ps-b0.bin"),D3D11_BIND_CONSTANT_BUFFER);
-    UINT slot,stride;std::string file;std::ifstream streams(directory/"streams.txt");
-    while(streams>>slot>>stride>>file) {
-        if(slot!=draw.vertexBuffers.size())throw std::runtime_error("Model streams are not in source slot order");
-        if(sharedGeometry){
-            if(slot>=sharedGeometry->vertexBuffers.size()||sharedGeometry->strides.at(slot)!=stride)
-                throw std::runtime_error("Selected material source geometry streams differ");
-            draw.vertexBuffers.push_back(sharedGeometry->vertexBuffers[slot]);
-        }else draw.vertexBuffers.push_back(buffer(device,load(directory/file),D3D11_BIND_VERTEX_BUFFER));
-        draw.strides.push_back(stride);
-    }
+static ComPtr<ID3D11InputLayout> loadNativeModelLayout(ID3D11Device* device, const fs::path& directory,
+    const std::vector<char>& v, bool& instanceStreams) {
+    ComPtr<ID3D11InputLayout> layout;
     struct SourceElement {std::string name;UINT index{},format{},slot{},offset{},inputClass{},stepRate{};};
     std::vector<SourceElement> sourceElements;std::ifstream elements(directory/"layout.txt");std::string line;
     while(std::getline(elements,line)) {
@@ -71,7 +56,7 @@ static NativeModelDraw loadNativeModelDraw(ID3D11Device* device,const fs::path& 
         if(fields>>row.inputClass) {
             if(!(fields>>row.stepRate))throw std::runtime_error("Model input frequency absent");
         }
-        draw.instanceStreams|=row.inputClass==D3D11_INPUT_PER_INSTANCE_DATA;
+        instanceStreams|=row.inputClass==D3D11_INPUT_PER_INSTANCE_DATA;
         sourceElements.push_back(std::move(row));
     }
     // Original 96A3E0 matches the stored attributes first, then supplies
@@ -101,7 +86,28 @@ static NativeModelDraw loadNativeModelDraw(ID3D11Device* device,const fs::path& 
     }
     std::vector<D3D11_INPUT_ELEMENT_DESC> descriptors;
     for(const auto& e:sourceElements)descriptors.push_back({e.name.c_str(),e.index,DXGI_FORMAT(e.format),e.slot,e.offset,D3D11_INPUT_CLASSIFICATION(e.inputClass),e.stepRate});
-    check(device->CreateInputLayout(descriptors.data(),UINT(descriptors.size()),v.data(),v.size(),&draw.layout),"Model source layout");
+    check(device->CreateInputLayout(descriptors.data(),UINT(descriptors.size()),v.data(),v.size(),&layout),"Model source layout");
+    return layout;
+}
+static NativeModelDraw loadNativeModelDraw(ID3D11Device* device,const fs::path& directory,
+    std::string identity,const NativeModelDraw* sharedGeometry=nullptr) {
+    NativeModelDraw draw;draw.identity=std::move(identity);
+    auto v=load(directory/"vs.dxbc"),p=load(directory/"ps.dxbc");
+    check(device->CreateVertexShader(v.data(),v.size(),nullptr,&draw.vs),"Model original VS");
+    check(device->CreatePixelShader(p.data(),p.size(),nullptr,&draw.ps),"Model original PS");
+    draw.vsConstants=buffer(device,load(directory/"vs-b0.bin"),D3D11_BIND_CONSTANT_BUFFER);
+    draw.psConstants=buffer(device,load(directory/"ps-b0.bin"),D3D11_BIND_CONSTANT_BUFFER);
+    UINT slot,stride;std::string file;std::ifstream streams(directory/"streams.txt");
+    while(streams>>slot>>stride>>file) {
+        if(slot!=draw.vertexBuffers.size())throw std::runtime_error("Model streams are not in source slot order");
+        if(sharedGeometry){
+            if(slot>=sharedGeometry->vertexBuffers.size()||sharedGeometry->strides.at(slot)!=stride)
+                throw std::runtime_error("Selected material source geometry streams differ");
+            draw.vertexBuffers.push_back(sharedGeometry->vertexBuffers[slot]);
+        }else draw.vertexBuffers.push_back(buffer(device,load(directory/file),D3D11_BIND_VERTEX_BUFFER));
+        draw.strides.push_back(stride);
+    }
+    draw.layout=loadNativeModelLayout(device,directory,v,draw.instanceStreams);
     UINT fill,cull,front,depthTest,depthWrite,depthCompare,stencilEnable;
     std::ifstream metadata(directory/"draw.txt");
     metadata>>draw.indexCount>>draw.indexStart>>draw.baseVertex>>draw.topology>>draw.indexBits>>file>>fill>>cull>>front;

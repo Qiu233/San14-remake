@@ -6,6 +6,9 @@ namespace San14.Data.Formats;
 public sealed record S14CharacterName(int Slot, string FamilyName, string GivenName)
 {
     public string DisplayName => FamilyName + GivenName;
+    public string? NameSortKey { get; init; }
+    public string? SurnameSortKey { get; init; }
+    public string? GivenNameSortKey { get; init; }
 }
 
 public sealed record S14CharacterTable(int RecordOffset, int RecordStride,
@@ -34,6 +37,7 @@ public sealed record S14GateDefinition(int Slot, int LocationSlot, string Name,
 public sealed record S14AreaDefinition(int Slot, string Name, string SecondaryText,
     byte CitySlot, ushort HexId, string RemainingBytesHex)
 {
+    public byte FacilityCapacity { get; init; }
     // Fixed-row words +41/+43 are copied to the native area object at +44/+46.
     // Their gameplay meaning remains unverified; keep the original bytes too.
     public ushort RawField44 { get; init; }
@@ -61,6 +65,7 @@ public sealed record S14ScenarioGate(int Slot, ushort OfficerSlot, byte District
 
 public sealed record S14ScenarioForce(int Slot, ushort RulerSlot, string RemainingBytesHex)
 {
+    public byte? RawKingdomName48 { get; init; }
     public byte? RawReportColor49 { get; init; }
     // CE force-row byte ranges copied into the native force object at +0x13 and +0xEA.
     // Their gameplay meaning is not established; older editions remain unresolved.
@@ -123,9 +128,18 @@ public static class S14ScenarioTables
         for (int slot = 0; slot < count; slot++)
         {
             ReadOnlySpan<byte> row = data.Slice(offset + slot * stride, stride);
+            string? firstSort = scenario.FormatMarker == 0x66
+                ? ReadNameSortSlot(row.Slice(simplified ? 54 : 34, simplified ? 50 : 38)) : null;
+            string? secondSort = scenario.FormatMarker == 0x66
+                ? ReadNameSortSlot(row.Slice(simplified ? 104 : 72, simplified ? 50 : 38)) : null;
             names.Add(new S14CharacterName(slot,
                 ReadUtf16Slot(row[..nameBytes]),
-                ReadUtf16Slot(row.Slice(nameBytes, nameBytes))));
+                ReadUtf16Slot(row.Slice(nameBytes, nameBytes)))
+            {
+                NameSortKey = firstSort is not null && secondSort is not null ? firstSort + secondSort : null,
+                SurnameSortKey = firstSort,
+                GivenNameSortKey = secondSort
+            });
         }
         if (names[0].DisplayName.Length == 0)
             throw new InvalidDataException("S14 character slot zero is unexpectedly empty.");
@@ -214,7 +228,8 @@ public static class S14ScenarioTables
                 // Reserved inactive records can contain original uninitialized bytes.
                 AdjacentAreaSlots = citySlot == 0 ? [] : ReadAreaLinks(row.Slice(47, 16), slot),
                 RawNeighborSlots = neighbors,
-                RegionalNeighborMask = row[64]
+                RegionalNeighborMask = row[64],
+                FacilityCapacity = row[63]
             });
         }
         foreach (S14AreaDefinition area in areas)
@@ -394,6 +409,29 @@ public static class S14ScenarioTables
         return values;
     }
 
+    public static IReadOnlyList<ushort> ReadCharacterAppearanceYears(S14Document scenario, string locale)
+    {
+        if (scenario.FormatMarker != 0x66)
+            throw new InvalidDataException("Character appearance-year loading requires the verified CE serializer.");
+        var table = ReadCharacterNames(scenario, locale);
+        int offset = 217 + (locale == "SC" ? 56 : 0);
+        return Enumerable.Range(0, table.Names.Count).Select(slot => BinaryPrimitives.ReadUInt16LittleEndian(
+            scenario.DecodedPayload.AsSpan(table.RecordOffset + slot * table.RecordStride + offset, 2))).ToArray();
+    }
+
+    public static IReadOnlyList<(ushort TerminalYear, byte Kind)> ReadCharacterLifespans(S14Document scenario, string locale)
+    {
+        if (scenario.FormatMarker != 0x66)
+            throw new InvalidDataException("Character lifespan loading requires the verified CE serializer.");
+        var table = ReadCharacterNames(scenario, locale);
+        int offset = 221 + (locale == "SC" ? 56 : 0);
+        return Enumerable.Range(0, table.Names.Count).Select(slot =>
+        {
+            var row = scenario.DecodedPayload.AsSpan(table.RecordOffset + slot * table.RecordStride + offset, 3);
+            return (BinaryPrimitives.ReadUInt16LittleEndian(row), row[2]);
+        }).ToArray();
+    }
+
     public static IReadOnlyList<S14ScenarioForce> ReadScenarioForces(S14Document scenario)
     {
         (int offset, int stride) = scenario.FormatMarker switch
@@ -416,6 +454,7 @@ public static class S14ScenarioTables
                 BinaryPrimitives.ReadUInt16LittleEndian(row), Convert.ToHexString(row[2..]))
             {
                 RawReportColor49 = scenario.FormatMarker == 0x66 ? row[56] : null,
+                RawKingdomName48 = scenario.FormatMarker == 0x66 ? row[55] : null,
                 RawIndexedBytes13 = scenario.FormatMarker == 0x66 ? row.Slice(2, ForceSlotCount).ToArray() : null,
                 RawIndexedBytesEA = scenario.FormatMarker == 0x66 ? row.Slice(206, ForceSlotCount).ToArray() : null
             });
@@ -517,6 +556,19 @@ public static class S14ScenarioTables
         0x66 => 0x5712,
         _ => throw new InvalidDataException("Unsupported scenario edition for district records.")
     };
+
+    private static string ReadNameSortSlot(ReadOnlySpan<byte> bytes)
+    {
+        var units = new char[bytes.Length / 2];
+        int count = 0;
+        for (; count < units.Length; count++)
+        {
+            ushort value = BinaryPrimitives.ReadUInt16LittleEndian(bytes.Slice(count * 2, 2));
+            if (value == 0) break;
+            units[count] = (char)value;
+        }
+        return new string(units, 0, count);
+    }
 
     private static string ReadUtf16Slot(ReadOnlySpan<byte> bytes)
     {

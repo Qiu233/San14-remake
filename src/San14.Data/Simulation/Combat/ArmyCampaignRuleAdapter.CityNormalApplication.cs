@@ -98,7 +98,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             int beforeTroops = Known(current.ReadBaseResource(target, BaseResourceKind.Troops), label + "3C");
             int applied = Math.Min(beforeTroops, requestedLoss);
             if (beforeTroops <= 0 || applied < 0) return Unknown($"branch.{label}_zero_or_negative_troops");
-            NormalCityCapacityWriteReceipt debit = Adjust("3C", beforeTroops, unchecked(-applied));
+            NormalCityCapacityWriteReceipt debit = AdjustCurrentBaseCombatQuantity(BaseCombatQuantity.ReadyTroops,
+                beforeTroops, unchecked(-applied), () => BasePostLoad.ReadResourceCapacities(target, current).Troops);
             if (debit.After <= 0 && !allowFatal) return Unknown($"branch.{label}_fatal_1745B0");
             current.SetBaseResource(target, BaseResourceKind.Troops, debit.After);
             var parameters = NormalArmyCombatApplicationSourceMath.ReadCurrent(working, _normalApplicationSeed)
@@ -158,11 +159,13 @@ public sealed partial class ArmyCampaignRuleAdapter
                     return Unknown($"current.{label}_wounded_ratio_17D260");
                 added = NativeTruncate(ratio.Value * (float)applied);
                 adjusted = selector == 0 ? Math.Min(applied, unchecked(advanced!.Value * added) / 100) : added;
-                addition = Adjust("40", beforeWounded, adjusted);
+                addition = AdjustCurrentBaseCombatQuantity(BaseCombatQuantity.WoundedTroops,
+                    beforeWounded, adjusted, () => BasePostLoad.ReadResourceCapacities(target, current).Troops);
                 current.SetArmyReturnBaseWounded40(target, addition.After);
                 float removed = (float)parameters.CurrentValues.WoundedSubtractionPercent / 100f;
                 subtracted = NativeTruncate(removed * (float)applied);
-                subtraction = Adjust("40", addition.After, unchecked(-subtracted));
+                subtraction = AdjustCurrentBaseCombatQuantity(BaseCombatQuantity.WoundedTroops,
+                    addition.After, unchecked(-subtracted), () => BasePostLoad.ReadResourceCapacities(target, current).Troops);
                 current.SetArmyReturnBaseWounded40(target, subtraction.After);
             }
             var wounds = new NormalCityWoundedReceipt(channel, ratioInput, ratio, added, adjusted, addition, subtracted, subtraction);
@@ -209,25 +212,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             //Person/Base field from the reward state; the general return
             //publisher also projects district/governor/person fields and is
             //not this source operation's writer.
-            if (isCity)
-            {
-            CityState savedCity = working.Cities[locationId];
-            working = working with { Cities = new(working.Cities) { [locationId] = savedCity with
-                { Troops = Known(current.ReadBaseResource(target, BaseResourceKind.Troops), label + "_publish3C"),
-                    Morale = moraleWrite is null ? savedCity.Morale : Known(current.ReadBaseMorale44(target), "City_publish44"),
-                    NativeReturnRuntime = savedCity.NativeReturnRuntime! with
-                    { Wounded40 = channel ? Known(current.ReadArmyReturnBaseWounded40(target), "City_publish40") : savedCity.NativeReturnRuntime.Wounded40,
-                        Morale44 = moraleWrite is null ? savedCity.NativeReturnRuntime.Morale44 : Known(current.ReadBaseMorale44(target), "City_publish_raw44") } } } };
-            }
-            else
-            {
-                GateState savedGate = working.Gates[locationId];
-                working = working with { Gates = new(working.Gates) { [locationId] = savedGate with
-                { Troops = Known(current.ReadBaseResource(target, BaseResourceKind.Troops), "Gate_publish3C"),
-                    NativeCombatRuntime = savedGate.NativeCombatRuntime! with
-                    { Wounded40 = channel ? Known(current.ReadArmyReturnBaseWounded40(target), "Gate_publish40") : savedGate.NativeCombatRuntime.Wounded40,
-                        Morale44 = moraleWrite is null ? savedGate.NativeCombatRuntime.Morale44 : Known(current.ReadBaseMorale44(target), "Gate_publish_raw44") } } } };
-            }
+            working = PublishCurrentBaseCombatQuantities(working, current, target,
+                troopsWritten: true, woundedWritten: channel, moraleWritten: moraleWrite is not null);
             if (admission is not null)
                 working = working with { PendingCombatSettlements = current.OwnedDestructionQueue };
             StateValidator.Validate(working);
@@ -236,13 +222,6 @@ public sealed partial class ArmyCampaignRuleAdapter
                     fatal, $"native-{label}-178EC0-{(fatal ? "fatal-admission" : "nonfatal")}:{Revision}")
                 { FatalAdmission = admission }, null);
 
-            NormalCityCapacityWriteReceipt Adjust(string field, int before, int adjustment)
-            {
-                int firstCapacity = BasePostLoad.ReadResourceCapacities(target, current).Troops;
-                int first = Bound(unchecked(before + adjustment), firstCapacity);
-                int secondCapacity = BasePostLoad.ReadResourceCapacities(target, current).Troops;
-                return new(field, before, adjustment, firstCapacity, first, secondCapacity, Bound(first, secondCapacity));
-            }
             int Governor()
             {
                 if (governorPhysical is null)

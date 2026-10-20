@@ -268,7 +268,8 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
 
         territory.setVisible(!host.input.contains(FrameInputFlag::HideTerritory));
         frameState.acceptRequest(host.input,host.currentSeason?&*host.currentSeason:nullptr);
-        territory.publishOwnership(context.Get(),host.territoryOwnership);
+        territory.publishOwnership(host.territoryOwnership);
+        territory.publishCommandMap(host.commandMap);
         publishCurrentModels();
         frameState.acceptCamera(host.input,shadows);
         atmosphere.publishAcceptedCamera(frameState.atmosphereFrame(clouds));
@@ -360,7 +361,9 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             staticModels->prepareStencil(device.Get(),resources.directory(ResourceGroup::View),frameState.viewDefinition(),frameState.view(),sourceHostFlags3E4);
             terrainPass.prepareCamera(device.Get(),input,indexCount,
                 frameState.season()?resources.directory(ResourceGroup::SeasonalResources):fs::path{});
-            shadows.prepareGpu(device.Get(),context.Get(),jointShadowInput/"gpu");
+            groundDetails.update(context.Get());
+            terrainPass.prepareFrame(context.Get(),staticCamera);
+            shadows.prepareGpu(device.Get(),context.Get(),jointShadowInput/"gpu",groundDetails,terrainPass);
 
         }
 
@@ -378,7 +381,6 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             bases.updateSubmission(context.Get(),staticSubmission);
         }
         {
-            groundDetails.update(context.Get());
             auto drawGroundNode=[&](uint32_t node){
                 for(size_t record=0;record<frameState.viewDefinition().records.size();++record){
                     const auto& sourceRecord=frameState.viewDefinition().records[record];
@@ -691,7 +693,9 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         }
         beginAcceptedMain(currentClock);
         {
-            shadows.updateAcceptedFrame(context.Get(),sourceDepth,bases.populationChanged(),frameState.season(),staticCamera);
+            groundDetails.update(context.Get());
+            terrainPass.prepareFrame(context.Get(),staticCamera);
+            shadows.updateAcceptedFrame(context.Get(),sourceDepth,bases.populationChanged(),frameState.season(),staticCamera,groundDetails,terrainPass);
         }
         drawOpaqueGeometry();updateNativeDepthMirror(context.Get(),mainDepth,"59 new Main geometry");
 

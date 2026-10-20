@@ -110,21 +110,19 @@ internal static class PreparedArmyDeploymentStage
                 PreparedDeployment detachedPlan = detachedCreation.PreparedDeployments[plan.Id];
                 PlayableArmyCreationResolution created = armyCreationRules.Create(detachedCreation, detachedPlan, candidate)
                     ?? throw new InvalidDataException("Current ordinary Army construction inputs are unresolved.");
-                deployed = PlayableArmyCreation.Apply(creationState, deployed, created);
-                basis = PlayableArmyCreation.PublishOwners(basis, created);
-                if (created.CommanderPosition is { } position)
-                {
-                    OfficerState commander = officers[plan.OfficerId];
-                    officers[plan.OfficerId] = commander with { LocationState =
-                        commander.LocationState is { } location
-                            ? location with { Position = position }
-                            : new(position, null) };
-                }
-                randomState = created.RandomState;
+                var published = PlayableArmyCreation.PublishCreated(creationState, deployed, created);
+                basis = published;
+                cities = published.Cities; gates = published.Gates; districts = published.Districts;
+                officers = published.Officers; units = published.Units;
+                randomState = published.RandomState; identities = published.ArmyIdentities!;
+                deployed = units[nextUnitId];
             }
-            units.Add(nextUnitId, deployed);
-            identities = identities.Advance();
-            officers[plan.OfficerId] = officers[plan.OfficerId] with { Deployed = true };
+            else
+            {
+                units.Add(nextUnitId, deployed);
+                identities = identities.Advance();
+                officers[plan.OfficerId] = officers[plan.OfficerId] with { Deployed = true };
+            }
             reports.Add(new PeriodReportEntry("deploy", plan.ForceId,
                 cities.ContainsKey(plan.SourceLocationId) ? plan.SourceLocationId : null,
                 plan.OfficerId, plan.Troops, sourceHex, destination)

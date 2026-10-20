@@ -35,9 +35,10 @@ public partial class Main
         if (_world is null || _playerForceId is null || _playCity.Selected < 0 ||
             _playOfficer.Selected < 0 || _playFormation.Selected < 0) return null;
         return new(_playOfficer.GetSelectedId(), _playFormation.GetSelectedId(), (int)_playTroops.Value,
-            _playTactics.Where(choice => choice.Selected >= 0 && choice.GetSelectedId() != NoTacticId)
-                .Select(choice => choice.GetSelectedId()).ToArray(), [action])
+            _playTactics.Select(choice => choice.Selected >= 0 && choice.GetSelectedId() != NoTacticId?
+                choice.GetSelectedId():0).ToArray(), [action])
         {
+            NavalFormationId = ResolveDeploymentNavalFormation(_world, _playOfficer.GetSelectedId()),
             Behavior = _militaryOrders.BehaviorSelection,
             WaypointHexIds = _militaryOrders.WaypointSnapshot()
         };
@@ -47,4 +48,10 @@ public partial class Main
         _playCity.Selected >= 0 ? _playCity.GetSelectedId() : null, _selectedCell?.Id);
 
     private void ResetMilitaryDeploymentComposition() => _deploymentComposition?.ResetDraft();
+
+    private int? ResolveDeploymentNavalFormation(GameState world,int officerId)
+    {
+        var result=_campaignComposition?.PrepareArmyQueries(world).ResolveDefaultNavalFormation(world,officerId);
+        return result?.Available==true?result.FormationId:null;
+    }
 }

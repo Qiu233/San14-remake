@@ -42,6 +42,12 @@ public static class PlayableEventStateValidation
 {
     public static void Validate(GameState state)
     {
+        if (state.CampaignEvents is { } history && (history.Occurred?.Length != 1024 || history.Acknowledged?.Length != 1024 ||
+            history.OccurrenceDates?.Length != 1024 ||
+            history.OccurrenceDates.Any(date => date is not null && (date.Year > 350 || date.Month is < 1 or > 12 || date.Day is < 1 or > 30))))
+            throw new InvalidDataException("Campaign event history is incomplete or invalid.");
+        if (state.CampaignEventEligibility is { } manager && manager.Blocked?.Length != 992)
+            throw new InvalidDataException("Campaign event eligibility session is incomplete.");
         ArgumentNullException.ThrowIfNull(state);
         foreach (AreaState area in state.Areas.Values)
         {

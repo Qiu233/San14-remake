@@ -83,10 +83,9 @@ public sealed class SkyDirectionalRendererFeatureReceipt
         var main=present.AcceptedSeasonCamera.Inputs.MainFrame.Camera;
         // Source binding is ordinal928/hash273D81CE/type8/1 ->CPU98;
         // native TC C40B86/SC C42236 copy ->embedded1330+1EC.
-        uint sourceWord=BitConverter.SingleToUInt32Bits(main.Source.Declaration.FogLightingBlend);
+        uint sourceWord=present.AcceptedSeasonCamera.Inputs.Source.CameraPrefixScalars.FogLightingBlendBits;
         var mainPrefix=present.PreparedCameraPrefix.Span;
-        if(BinaryPrimitives.ReadUInt32LittleEndian(main.Prefix.Span.Slice(0x1EC,4))!=sourceWord||
-            BinaryPrimitives.ReadUInt32LittleEndian(mainPrefix.Slice(0x1EC,4))!=sourceWord||
+        if(BinaryPrimitives.ReadUInt32LittleEndian(mainPrefix.Slice(0x1EC,4))!=sourceWord||
             !source.AcceptedLighting.PreparedCameraPrefix.Span.SequenceEqual(mainPrefix)||
             !present.CurrentSkyCamera.PreparedCameraPrefix.Span.SequenceEqual(mainPrefix))
             throw new InvalidDataException("Current Main1EC lacks the actual audited source CPU98 copy; another current edit needs its own writer.");

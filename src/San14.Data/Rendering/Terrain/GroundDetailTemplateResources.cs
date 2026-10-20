@@ -51,6 +51,7 @@ public sealed partial class GroundDetailTemplateResources
             if (template.Index < 0 || template.Index >= metadata.Length || metadata[template.Index] is not null)
                 throw new InvalidDataException("Ground template directory requires unique physical slots.");
             var asset = assets.LoadSceneInstance(template.Index);
+            int shadowAlphaOverride = ModelShadowAlphaSource.ReadLoaderOverride(asset.TextureResources.Model.Source);
             var lods = ReadLods(repository, asset, parts);
             var bounds = ProceduralTemplateBounds.FreshScaleOne(template.Index,
                 MapModelNativeBoundsSources.PrepareSourceAsset(asset));
@@ -134,6 +135,9 @@ public sealed partial class GroundDetailTemplateResources
                     vertex, pixel, bindings, queue, reversedDepth,
                     template.IsInstancing ? new HashSet<int> { layout.BufferReferences[1] } : null);
                 WriteTextures(repository, writer, media, directory, asset, draw.Index, provider, shader, combination.Index, tree);
+                WriteShadow(repository, media, directory, asset, draw.Index, owner, shader,
+                    combination.Index, matrixInput, template, vertex, transform.PositionRows, alpha,
+                    ModelShadowAlphaSource.PrepareReference(material.SourceAlphaReference, shadowAlphaOverride));
                 directories.Add(directory);
                 producers.Add(FormattableString.Invariant($"{directory} {template.Index} {draw.Index} {queue.Node.Index} {group:X8}"));
             }

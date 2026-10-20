@@ -30,6 +30,16 @@ public sealed class GameplaySession
     }
 
     public GameState World => _simulation.State;
+    public CampaignProgressOperation? PendingProgress => _simulation.PendingProgress;
+    public ManualTacticProgressOperation? PendingManualTactic => _simulation.PendingManualTactic;
+    public CampaignProgressTransition ResumeManualTactic(ICampaignManualTacticProgressRules rules, TacticPresentationReceipt receipt) => _simulation.ResumeManualTactic(rules, receipt);
+    public long LastStorySequence => _simulation.LastStorySequence;
+    public CampaignProgressTransition BeginProgress(ICampaignProgressRules rules, CampaignProgressRequest request) =>
+        _simulation.BeginProgress(rules, request, _planner);
+    public CampaignProgressTransition ResumeStory(ICampaignProgressRules rules, CampaignStoryStepReceipt receipt) =>
+        _simulation.ResumeStory(rules, receipt);
+    public CampaignProgressTransition RetryProgress(ICampaignProgressRules rules) => _simulation.RetryProgress(rules);
+    public void AbortProgress() => _simulation.AbortProgress();
     public PlayableRuleSet Rules { get; }
     public int? PlayerForceId { get; }
 
@@ -37,8 +47,12 @@ public sealed class GameplaySession
         new(world, rules, null, null, saveCodec ?? new JsonGzipSaveCodec());
 
     public static GameplaySession Restore(GameState world, int playerForceId,
-        PlayableRuleSet rules, Func<GameState, GameState> advanceCalendar, ISaveCodec? saveCodec = null) =>
-        new(world, rules, playerForceId, advanceCalendar, saveCodec ?? new JsonGzipSaveCodec());
+        PlayableRuleSet rules, Func<GameState, GameState> advanceCalendar, ISaveCodec? saveCodec = null,
+        CampaignProgressOperation? pending = null, long lastStorySequence = 0, ManualTacticProgressOperation? manualTactic = null)
+    {
+        var session = new GameplaySession(world, rules, playerForceId, advanceCalendar, saveCodec ?? new JsonGzipSaveCodec());
+        session._simulation.RestoreProgress(pending, lastStorySequence, manualTactic); return session;
+    }
 
     public CommandResult Issue(GameOrder order)
     {
@@ -62,7 +76,8 @@ public sealed class GameplaySession
         _simulation.FinishReport(Rules.ReportingRules);
     }
 
-    public void Save(string path) => _saves.Save(path, World, RequirePlayer());
+    public void Save(string path, DateTimeOffset? savedAt = null) =>
+        _saves.Save(path, World, RequirePlayer(), PendingProgress, LastStorySequence, PendingManualTactic, savedAt);
 
     public void SavePreview(string path) => _previewSaves.Save(path, World);
 

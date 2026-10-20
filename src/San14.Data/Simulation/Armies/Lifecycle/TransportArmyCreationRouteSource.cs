@@ -47,6 +47,7 @@ public static class TransportArmyCreationRouteSource
             finally { current.ClearTemporaryHexList(temporary); current.ReleaseTemporaryHexList(temporary); }
         }
         catch (InvalidDataException missing) { return new(null, missing.Message); }
+        catch (ArmyRouteSearch.MissingOwner missing) { return new(null, missing.Message); }
         catch (TransportArmyRouteSource.MissingOwner missing) { return new(null, missing.Message); }
     }
 }

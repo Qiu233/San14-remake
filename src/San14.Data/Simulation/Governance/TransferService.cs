@@ -37,6 +37,7 @@ public interface ITransferServiceState
     bool? ReadPlatformPresent();
     void NotifyPlatform(int index);
     TransferServiceClockSnapshot? CaptureClockSnapshot();
+    TransferServiceClockSnapshot? CaptureClockSnapshotForFlag(int index) => CaptureClockSnapshot();
     void WriteDateYear(int index, ushort value);
     void WriteDateMonth(int index, byte value);
     void WriteDateDay(int index, byte value);
@@ -51,6 +52,7 @@ public interface ITransferServiceState
 public sealed class TransferServiceState : ITransferServiceState
 {
     private readonly bool?[] _primary = new bool?[64], _secondary = new bool?[64];
+    private readonly bool?[] _events = new bool?[1024];
     private readonly TransferServiceDate[] _dates = Enumerable.Range(0, 57)
         .Select(_ => new TransferServiceDate(null, null, null, null, null)).ToArray();
 
@@ -58,6 +60,22 @@ public sealed class TransferServiceState : ITransferServiceState
     public TransferServicePlatformPolicy PlatformPolicy { get; set; }
     public Action<int>? PlatformNotifier { get; set; }
     public Func<TransferServiceClockSnapshot?>? ClockSnapshotProvider { get; set; }
+    public Func<int, TransferServiceClockSnapshot?>? AchievementClockSnapshotProvider { get; set; }
+
+    /// <summary>Operation-local copy. External bindings are retained, but no
+    /// bitmap, date or dirty write can affect the supplied service owner.</summary>
+    public TransferServiceState Copy()
+    {
+        var copy = new TransferServiceState { PlatformPolicy = PlatformPolicy,
+            PlatformNotifier = PlatformNotifier, ClockSnapshotProvider = ClockSnapshotProvider,
+            AchievementClockSnapshotProvider = AchievementClockSnapshotProvider };
+        Array.Copy(_primary, copy._primary, _primary.Length);
+        Array.Copy(_secondary, copy._secondary, _secondary.Length);
+        Array.Copy(_events, copy._events, _events.Length);
+        Array.Copy(_dates, copy._dates, _dates.Length);
+        copy.DirtyFlag = DirtyFlag;
+        return copy;
+    }
 
     /// <summary>Only the 31A780 date construction effects; does not reset either bitmap or byte274.</summary>
     public void InitializeConstructedDates()
@@ -70,6 +88,7 @@ public sealed class TransferServiceState : ITransferServiceState
     {
         Array.Fill(_primary, false);
         Array.Fill(_secondary, false);
+        Array.Fill(_events, false);
         for (int index = 0; index < _dates.Length; index++)
             _dates[index] = new(0, 1, 1, 0, _dates[index].RawByte5);
         WriteDirtyFlag(1);
@@ -77,6 +96,8 @@ public sealed class TransferServiceState : ITransferServiceState
 
     public bool? ReadPrimaryFlag(int index) { Check(index, 64, "primary bitmap bit"); return _primary[index]; }
     public bool? ReadSecondaryFlag(int index) { Check(index, 64, "secondary bitmap bit"); return _secondary[index]; }
+    public bool? ReadEventFlag(int index) { Check(index, 1024, "event history bit"); return _events[index]; }
+    public void SetEventFlag(int index, bool? value) { Check(index, 1024, "event history bit"); _events[index] = value; }
     public void SetPrimaryFlag(int index, bool? value) { Check(index, 64, "primary bitmap bit"); _primary[index] = value; }
     public void SetSecondaryFlag(int index, bool? value) { Check(index, 64, "secondary bitmap bit"); _secondary[index] = value; }
     public void WritePrimaryFlag(int index, bool value) => SetPrimaryFlag(index, value);
@@ -101,6 +122,8 @@ public sealed class TransferServiceState : ITransferServiceState
         PlatformNotifier(index);
     }
     public TransferServiceClockSnapshot? CaptureClockSnapshot() => ClockSnapshotProvider?.Invoke();
+    public TransferServiceClockSnapshot? CaptureClockSnapshotForFlag(int index) => AchievementClockSnapshotProvider is { } provider
+        ? provider(index) : CaptureClockSnapshot();
     private static void Check(int value, int count, string field)
     {
         if (value < 0 || value >= count) throw new InvalidDataException($"Transfer service {field} is outside supported native profile.");
@@ -158,7 +181,7 @@ public static class TransferService
         state.WritePrimaryFlag(index, true);
         if (Known(state.ReadPlatformPresent(), "platform presence")) state.NotifyPlatform(index);
         if (oldBit) return;
-        TransferServiceClockSnapshot clock = state.CaptureClockSnapshot()
+        TransferServiceClockSnapshot clock = state.CaptureClockSnapshotForFlag(index)
             ?? throw new InvalidDataException("Current transfer service system-time snapshot is unknown.");
         state.WriteDateYear(index, unchecked((ushort)(Known(clock.YearsSince1900, "snapshot tm_year") + 1900)));
         state.WriteDateMonth(index, unchecked((byte)(Known(clock.ZeroBasedMonth, "snapshot tm_mon") + 1)));

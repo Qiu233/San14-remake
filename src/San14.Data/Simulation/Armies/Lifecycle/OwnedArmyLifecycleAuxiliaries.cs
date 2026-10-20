@@ -91,6 +91,7 @@ public static class OwnedArmyLifecycleAuxiliaries
                     GroupAssignmentReady = true,
                     PendingImage = null, StoredResources = ArmyStoreKnowledge.Empty, AuxiliaryAC = new ushort[36], AuxiliaryF4 = new ushort[36],
                     OverrideTarget = ArmyOverrideTargetState.Cleared, Direction36 = ArmyDirectionSource.ResetDirection36,
+                    FalseReportDestination = ArmyMarchDestination.None, FacilityConstruction = FacilityConstructionIntent.None,
                     MapUiByte13C = 0, CommandControl140 = 0, RouteHold56 = 0, RouteGoal1F8 = 0xBD10 };
                 current.ReleaseArmyOccupancyReceiver(army);
                 current.SetArmyUnitCommanderId(army, 0); current.SetArmyUnitStatusFlag10(army, 0);
@@ -106,6 +107,13 @@ public static class OwnedArmyLifecycleAuxiliaries
             current.ClearTemporaryHexList(new(current.ReadArmyReturnPending70Descriptor()!.Identity));
             var result = (state with { ArmyMapOccupancy = current.ExportArmyMapOccupancy() }).WithArmyLifecycle(arena.WithReceiverSlots(slots) with { Indexes = pool.ExportOwnedState(), ArmyFlags150 = armyFlags150,
                 ArmyGroups = groups, ArmyCautions = cautions });
+            var resetRoster = result.ReadArmyLifecycle()!.Receivers;
+            foreach (var receiver in pendingOrder)
+            {
+                var id = arena.ReceiverSlots()[receiver.PhysicalSlot!.Value].ReceiverId;
+                resetRoster = resetRoster.With(resetRoster.Find(id)! with { SupplyInterdiction = ArmySupplyInterdictionIntent.Inactive });
+            }
+            result = result.WithArmyLifecycle(result.ReadArmyLifecycle()! with { Receivers = resetRoster });
             result = OwnedArmyLifecycleTargets.PublishCurrent(result, current);
             if (result.ResourceState is CampaignSourceKnowledge knowledge)
             {
@@ -133,16 +141,21 @@ public static class OwnedArmyLifecycleAuxiliaries
     {
         var player = OwnedCurrentPlayerForce.ReadCurrentReference(state, current);
         if (player?.PhysicalSlot is not int force) return null;
-        //22E930 tests the Force physical getter60, not Force header validity.
-        ushort ruler;
-        if (force == 0) ruler = 5014;
-        else if (current.ReadForceRecord(force) is { } record) ruler = record.RawRuler10;
-        else return null;
+        //22E930's candidate match requires Force physical1..51, not its
+        //header validity. No district field can change the physical0 result.
+        if (force is < 1 or > 51) return 0;
+        if (current.ReadForceRecord(force) is not { } record) return null;
+        ushort ruler = record.RawRuler10;
         foreach (var receiver in Chain(current, new(current.ReadRegistryDescriptor(RegistryKind.District)!.Identity)))
         {
             int district = receiver.PhysicalSlot!.Value;
-            if (force is < 1 or > 51 || current.ReadDistrictForceId(district) != force) continue;
-            if (current.ReadDistrictLeader(district) == ruler || current.ReadDistrictNumber(district) == 1) return district;
+            if (current.ReadDistrictForceId(district) is not byte candidateForce) return null;
+            if (candidateForce != force) continue;
+            ushort? leader = current.ReadDistrictLeader(district);
+            if (leader == ruler) return district;
+            byte? number = current.ReadDistrictNumber(district);
+            if (number == 1) return district;
+            if (leader is null || number is null) return null;
         }
         return 0;
     }

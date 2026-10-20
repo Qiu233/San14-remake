@@ -6,6 +6,6 @@ public sealed partial class MapSeasonCameraPostEffectScalars
     {
         ValidateForCamera(camera); selected.Validate();
         if (selected.SecondPackage is not null) throw new NotSupportedException("Season optical readers require a direct package.");
-        return new(camera, OpticsPatch.Then(CameraOpticsImport.Current(selected.FirstPackage)), selectionEvidence, QualityPatch);
+        return new(camera, OpticsPatch.Then(CameraOpticsImport.Current(selected.FirstPackage)), selectionEvidence, QualityPatch, VegetationWind);
     }
 }

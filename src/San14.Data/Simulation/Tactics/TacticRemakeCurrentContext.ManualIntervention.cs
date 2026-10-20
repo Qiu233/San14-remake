@@ -1,0 +1,236 @@
+using San14.Core;
+using San14.Data.Formats;
+
+namespace San14.Data;
+
+internal sealed record ManualTacticCapturedUse(S14TacticEffectProgram Program,
+    TacticInstructionTargetsSource[] Instructions);
+
+public sealed partial class TacticRemakeCurrentContext
+{
+    private sealed record ManualEmptyChainCapture(int ActorUnitId, int TacticId, ushort WaitingContribution);
+    //Only this detached activation context holds the pre-effect chain result.
+    //It is neither a world flag nor a reusable cache for later commands.
+    private ManualEmptyChainCapture? _manualEmptyChain;
+    internal bool? ResolveManualPrimaryHex(GameState state, int hex, out UnitState? primary)
+    {
+        primary = null;
+        if (!Bound(state) || hex is < 0 or >= 48400 ||
+            _definitions.ReadHexTableReference(hex)?.PhysicalSlot != hex || !TryOccupant(state, hex, out var occupant)) return null;
+        if (occupant?.BaseLocation is not null) return null;
+        if (occupant?.Army is not { } army) return false;
+        bool? valid = ArmyValid(state, army);
+        if (valid == true) primary = army;
+        return valid;
+    }
+
+    internal bool? ReadManualTacticValidity(GameState state, int tacticId)
+    {
+        if (!Bound(state)) return null;
+        var reference = _definitions.ReadSkillTacticReference(tacticId is >= 0 and <= 200 ? tacticId : 0);
+        return reference is null ? null : _definitions.ReadSkillTacticValidity(reference);
+    }
+
+    /// <summary>16F230's manual eligibility, separate from automatic17D450.
+    /// The caller supplies the reached World period count, never a tick ordinal.</summary>
+    internal bool? ReadManualInterventionEligibility(GameState state, UnitState caster,
+        int tacticId, int pastPeriods)
+    {
+        if (!Bound(state) || caster.NativeArmyOrigin?.NativeSlotIndex is not int physical ||
+            state.ReadArmyLifecycle()?.ReceiverSlots() is not { } slots || physical < 0 || physical >= slots.Length ||
+            slots[physical].PhysicalSlot != physical || slots[physical].ActiveUnitId != caster.Id) return null;
+        //The operation's generic definition capture does not eagerly bind all
+        //Army headers. Import this actual saved header only if still unbound;
+        //an explicitly bound unknown is not repaired from another owner.
+        _definitions.BindUnspecifiedOwnedArmyQueryHeader(slots[physical]);
+        if (_definitions.ReadArmyUnitCommanderId(new(physical)) is not ushort commander ||
+            state.CommanderSelection?.ActiveCount is not int count) return null;
+        int previous = 0;
+        for (int ordinal = 0; ordinal < count; ordinal++)
+        {
+            if (state.CommanderSelection.Candidates is not { } candidates || ordinal >= candidates.Length ||
+                candidates[ordinal].OfficerId is not int selected || selected is < 0 or > ushort.MaxValue) return null;
+            if (selected != commander) continue;
+            if (candidates[ordinal].UninterpretedValue is not int value) return null;
+            previous = value;
+            break;
+        }
+        if (Parameter(state, SimulationParameterKeys.Tactics.ManualInterventionMinimumPeriods) is not int minimum)
+            return null;
+        if (unchecked(pastPeriods - previous) < minimum) return false;
+        var person = _definitions.ReadPersonLookupReference(commander < 6001 ? commander : 0);
+        if (person?.PhysicalSlot is not int personPhysical ||
+            _definitions.ReadArmyReturnPersonFlags196(personPhysical) is not ushort flags ||
+            caster.NativeTacticRuntime is not { } native) return null;
+        if ((flags & 0x20) != 0 || native.Abnormal23 != 0) return false;
+        bool? available = ReadManualInterventionTargetAvailability(state, caster, tacticId);
+        return available is not true ? available : native.Waiting20 == 0;
+    }
+
+    /// <summary>The finite Army-only16F360 scanner. Both instruction vectors
+    /// retain native order. A reached Base or unknown footprint stays unknown.</summary>
+    private bool? ReadManualInterventionTargetAvailability(GameState state, UnitState caster, int tacticId)
+    {
+        if (EffectiveFormation(state, caster) is not int formation || formation is < 1 or > 20 ||
+            ReadArmyNativePrimaryRange(state, caster) is not int range ||
+            caster.NativeTacticRuntime is not { } native ||
+            _definitions.ReadHexTableReference(caster.HexId)?.PhysicalSlot != caster.HexId ||
+            ReadCurrentProgram(state, _catalog.Rows[tacticId]) is not { } program || !ManualProgram(program)) return null;
+        //Every earlier16F360 candidate either continues or returns true. Its
+        //no-primary fallback is therefore inevitably reached if none succeeds.
+        //For these complete nondamage selectors (no RNG or world writes), a
+        //known caster membership proves the final OR true even when an earlier
+        //Base candidate is outside this finite Army-only projection. This does
+        //not select that Base or alter174020's real explicit target vectors.
+        var fallback = CaptureManualVectors(state, caster, null, tacticId, program);
+        if (fallback?.Any(instruction => instruction.OrderedArmyIds.Contains(caster.Id)) == true) return true;
+        foreach (int hex in NativeHexOrder(caster.HexId, range).Skip(1))
+        {
+            if (!TryOccupant(state, hex, out Occupant? occupant)) return null;
+            if (occupant is null || occupant.Army is null && occupant.BaseLocation is null) continue;
+            if (native.Abnormal25 != 0)
+            {
+                if (native.ProvocationOwner is not { } owner) return null;
+                if (occupant.Army is { } army)
+                { if (owner.Kind != DeploymentTargetKind.Unit || owner.Id != army.Id) continue; }
+                else if (occupant.BaseLocation is int location)
+                { if (owner.Kind != DeploymentTargetKind.Location || owner.Id != location) continue; }
+            }
+            if (occupant.Army is not { } primary) return null;
+            bool? excluded = ArmyExcluded(state, primary.Id);
+            if (excluded is null) return null;
+            if (excluded.Value) continue;
+            if (CaptureManualInterventionUse(state, caster, primary, tacticId) is not { } captured) return null;
+            if (captured.Instructions.Any(instruction => instruction.OrderedArmyIds.Length != 0)) return true;
+        }
+        // The no-primary fallback still executes caster-centered programs;
+        // selected-primary instructions have no valid center and stay empty.
+        return fallback is null ? null : fallback.Any(instruction => instruction.OrderedArmyIds.Contains(caster.Id));
+    }
+
+    internal ManualTacticCapturedUse? CaptureManualInterventionUse(GameState state,
+        UnitState caster, UnitState primary, int tacticId)
+    {
+        if (!Bound(state) || ArmyValid(state, caster) != true || ArmyValid(state, primary) != true ||
+            ReadCurrentProgram(state, _catalog.Rows[tacticId]) is not { } program || !ManualProgram(program)) return null;
+        var vectors = CaptureManualVectors(state, caster, primary, tacticId, program);
+        return vectors is null ? null : new(program, vectors);
+    }
+
+    private TacticInstructionTargetsSource[]? CaptureManualVectors(GameState state,
+        UnitState caster, UnitState? primary, int tacticId, S14TacticEffectProgram program)
+    {
+        var instructions = new TacticInstructionTargetsSource[2];
+        foreach (var instruction in program.Instructions)
+        {
+            var selected = instruction.Opcode == 0 || instruction.Opcode == 23 && primary is null
+                ? new TacticInstructionTargetsSource([], true, state.RandomState)
+                : ResolveInstructionTargetsAtCapturedHexes(state, caster, primary ?? caster, _catalog.Rows[tacticId],
+                    instruction, caster.HexId, (primary ?? caster).HexId);
+            if (selected is null || !selected.NoSelectedBaseTargets) return null;
+            //16BF20's primary-centered branch clears the whole vector if the
+            //explicit primary was filtered out; nearby targets cannot replace it.
+            if (instruction.Opcode == 23 && primary is not null && !selected.OrderedArmyIds.Contains(primary.Id))
+                selected = selected with { OrderedArmyIds = [] };
+            instructions[instruction.Index] = selected;
+        }
+        return instructions;
+    }
+
+    internal bool HasManualEmptyChain(GameState state, UnitState caster, int tacticId)
+    {
+        if (caster.NativeTacticRuntime is not { } native) return false;
+        //2AFA40's abnormal early return precedes the candidate allocation.
+        if (native.Abnormal23 == 0 && native.Abnormal24 == 0 && native.Abnormal25 == 0)
+        {
+            var slots = state.ReadArmyLifecycle()?.ReceiverSlots();
+            if (slots is not { Length: 501 }) return false;
+            for (int physical = 0; physical < slots.Length; physical++)
+            {
+                var slot = slots[physical];
+                if (slot.PhysicalSlot != physical) return false;
+                if (physical == 0) continue;
+                if (slot.Commander12 is not ushort commander) return false;
+                if (commander == 0) continue;
+                if (slot.Status10 is not byte status) return false;
+                if (status == 0) continue;
+                //A native-valid reserved receiver cannot disappear merely
+                //because it has no gameplay Unit in this finite projection.
+                if (slot.ActiveUnitId is not int id || !state.Units.TryGetValue(id, out var unit) ||
+                    unit.NativeArmyOrigin?.NativeSlotIndex != physical) return false;
+            }
+        }
+        if (native.Abnormal23 == 0 && native.Abnormal24 == 0 && native.Abnormal25 == 0)
+        {
+            if (Parameter(state, SimulationParameterKeys.Tactics.ChainSearchRadius) is not int radius ||
+                radius is < 0 or > 255 || state.ReadArmyLifecycle()?.ReceiverSlots() is not { } slots) return false;
+            _definitions.BindArmyMapOccupancy(state);
+            //TC2A78D0 enumerates the ring's Hex1C markers directly; Base
+            //priority is irrelevant here. TC2AFC20 then requires same force
+            //and all three zero abnormalities. A distant same-force Army is
+            //not a candidate, regardless of its still-unread relation score.
+            foreach (int hex in NativeHexOrder(caster.HexId, radius).Skip(1))
+            {
+                var hexReference = _definitions.ReadHexTableReference(hex);
+                if (hexReference?.PhysicalSlot != hex || _definitions.ReadHexRaw1C(hexReference) is not ushort raw) return false;
+                int lookup = unchecked((short)raw);
+                if (lookup is < 1 or > 500) continue;
+                var reference = _definitions.ReadArmyUnitTableReference(lookup);
+                if (reference is null)
+                {
+                    //The complete saved source directory proves this pointer
+                    //allocation, just as FieldHexOccupantSource's lazy join.
+                    _definitions.SetArmyUnitTablePointer(lookup, lookup);
+                    reference = new(lookup);
+                }
+                if (reference.PhysicalSlot is not int physical) continue;
+                if (physical < 0 || physical >= slots.Length) return false;
+                var slot = slots[physical]; _definitions.BindUnspecifiedOwnedArmyQueryHeader(slot);
+                if (_definitions.ReadArmyUnitNativeValidity(reference) is not bool valid) return false;
+                if (!valid) continue;
+                if (slot.ActiveUnitId is not int id || !state.Units.TryGetValue(id, out var candidate) ||
+                    ArmyValid(state, candidate) != true || candidate.NativeTacticRuntime is not { } abnormal) return false;
+                if (candidate.ForceId != caster.ForceId || abnormal.Abnormal23 != 0 ||
+                    abnormal.Abnormal24 != 0 || abnormal.Abnormal25 != 0) continue;
+                //Remaining same-force candidates require the actual personal
+                //relation/chain producer; this finite path cannot erase them.
+                return false;
+            }
+        }
+        if (_programs.ReadCurrentWaitingContribution(_catalog.Rows[tacticId]) is not ushort contribution) return false;
+        _manualEmptyChain = new(caster.Id, tacticId, contribution);
+        return true;
+    }
+
+    internal NativeTacticWaitingAssignment? ResolveManualActivationWaiting(GameState state, UnitState caster, int tacticId)
+    {
+        if (EffectiveFormation(state, caster) is not int formation ||
+            ResolveChain(state, caster, _catalog.Rows[tacticId]) is not { ChainCount: 0 } chain ||
+            state.NativeArmySimulation!.Forces.GetValueOrDefault(caster.ForceId)?.Flags193 is not byte flags) return null;
+        int? first = Parameter(state, SimulationParameterKeys.Tactics.PrimaryWaitingCap),
+            second = Parameter(state, SimulationParameterKeys.Tactics.SecondaryWaitingCap),
+            third = Parameter(state, SimulationParameterKeys.Tactics.TertiaryWaitingCap);
+        int? adjustment = formation switch
+        {
+            1 => Parameter(state, SimulationParameterKeys.Tactics.Formation1ManualWaitingAdjustment),
+            2 => Parameter(state, SimulationParameterKeys.Tactics.Formation2ManualWaitingAdjustment),
+            14 => Parameter(state, SimulationParameterKeys.Tactics.Formation14ManualWaitingAdjustment), _ => 0
+        };
+        int? reduction = (flags & 0x40) != 0 ? Parameter(state, SimulationParameterKeys.Tactics.ForceFlagWaitingReduction) : 0;
+        if (first is not >= 0 or > 255 || second is not >= 0 or > 255 || third is not >= 0 or > 255 ||
+            adjustment is null || reduction is null) return null;
+        //174020 has no automatic category-policy subtraction. The shared pure
+        //arithmetic is valid with that independent term explicitly zero.
+        var assigned = TacticEffectSourceWaiting.AfterActivation(new(chain.SumOfNativeWaitingContributions,
+            0, adjustment.Value, reduction.Value, 0, first.Value, second.Value, third.Value));
+        return new(assigned.Primary20, assigned.Second21, assigned.Third22, $"manual-current:{Revision}");
+    }
+
+    internal TacticUseSourceResolution? ResolveManualCapturedEffects(GameState state, UnitState caster,
+        int tacticId, ManualTacticCapturedUse use) => new TacticEffectSourceRules(_catalog, this,
+            new(new HexTravelMap(_map))).ResolveCapturedInstructionUse(state, caster, tacticId, use.Program, use.Instructions);
+
+    private static bool ManualProgram(S14TacticEffectProgram program) => program.Instructions.Count == 2 &&
+        program.Instructions.Select(instruction => instruction.Index).SequenceEqual([0, 1]) &&
+        program.Instructions.All(instruction => instruction.Opcode is 0 or 15 or 19 or 20 or 23);
+}

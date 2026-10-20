@@ -4,7 +4,7 @@ namespace San14.Client.MapInteraction;
 
 public sealed record MapSelectionLocation(int Id, string Name);
 public sealed record MapSelectionUnit(int Id, string CommanderName, int Troops);
-public sealed record MapSelectionStructure(string KindId, int Durability, int MaxDurability);
+public sealed record MapSelectionStructure(string KindId, int Durability, int? MaxDurability);
 
 /// <summary>Values for the selected cell, independent of controls and the mutable campaign world.</summary>
 public sealed record MapCellSelection(

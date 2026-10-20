@@ -6,7 +6,7 @@ public sealed record PersonReturnRetargetReceipt(int ReceiverIdentity, ushort Pe
     BaseReference PreviousTarget, BaseReference CurrentHome,
     int? PreviousPositionHex, int? AppendedTargetNode, int? PoppedTargetNode,
     NativeMapSeasonDate? Date60After, NativeMapSeasonDate? Date66After, int? Days, string Branch);
-public sealed record PersonReturnRetargetResult(PersonnelReturnTasks? Owner,
+public sealed record PersonReturnRetargetResult(PersonnelCommandTasks? Owner,
     int? NativeReturn, PersonReturnRetargetReceipt? Receipt, string? UnresolvedOwner)
 {
     public PersonReturnCancellationReceipt? Cancellation { get; init; }
@@ -25,7 +25,7 @@ public static partial class PersonReturnCommands
         try
         {
             var before = CurrentCommandOwner(state, current);
-            var command = before.Tasks.GetValueOrDefault(receiverIdentity) ?? throw Missing("C0_current_receiver");
+            var command = before.Returns.GetValueOrDefault(receiverIdentity) ?? throw Missing("C0_current_receiver");
             if (command.MemberIds.Length == 0)
                 return Cancel();
             int id = command.MemberIds[0];
@@ -44,7 +44,7 @@ public static partial class PersonReturnCommands
             //The source reads the old D8 before Home validity or any retarget
             //writer. Nested2351C0 may replace its numeric receiver image.
             var oldPosition = ResolveJourneyPosition(state, current, receiverIdentity, currentWorldThirdDate);
-            before = CurrentCommandOwner(state, current); command = before.Tasks[receiverIdentity];
+            before = CurrentCommandOwner(state, current); command = before.Returns[receiverIdentity];
             if (!Get(current.ReadBaseNativeValidity(home), "C0_new_Home_validity"))
                 return new(before, 0, new(receiverIdentity, (ushort)id, target, home, oldPosition.PhysicalSlot,
                     null, null, null, null, null, "source.invalid_new_Home_no_retarget"), null);
@@ -69,14 +69,14 @@ public static partial class PersonReturnCommands
             int days = Get(route.Days, route.UnresolvedOwner ?? "C0_retarget231670_days");
             var deadline = DateFromOrdinal(unchecked(DateOrdinal(currentWorldThirdDate) + days));
             updated = updated with { ArriveOn = deadline };
-            var owner = before with { Tasks = new(before.Tasks) { [receiverIdentity] = updated } };
+            var owner = before with { Returns = new(before.Returns) { [receiverIdentity] = updated } };
             current.SetOwnedPersonCommandManager(owner);
             return new(owner, 0, new(receiverIdentity, (ushort)id, target, home, oldPosition.PhysicalSlot,
                 null, null, currentWorldThirdDate, deadline, days, "source.same_Force_District_City_retarget"), null);
 
             PersonReturnRetargetResult Cancel()
             {
-                var canceled = CancelWithoutEligibleMembers(state, current, receiverIdentity);
+                var canceled = CancelCurrentMembers(state, current, receiverIdentity, currentWorldThirdDate);
                 return new(canceled.Owner, canceled.NativeReturn, null, canceled.UnresolvedOwner)
                     { Cancellation = canceled.Receipt };
             }

@@ -105,6 +105,16 @@ int __cdecl san14_render_next(void* value,void* output,const San14RenderInput* i
     try{static_cast<Owner*>(value)->publish(static_cast<ID3D12Resource*>(output),*input,static_cast<OutputUse>(outputUse),*receipt);lastError.clear();return 0;}
     catch(...){recordException();return -1;}
 }
+int __cdecl san14_render_next_command_map_v1(void* value,void* output,const San14RenderInput* input,
+        const San14CommandMapInputV1* command,uint32_t outputUse,San14RenderReceipt* receipt) {
+    try {
+        auto& owner=*static_cast<Owner*>(value);
+        if(!command)throw std::runtime_error("Command map request extension is absent");
+        owner.host.commandMap.accept(*command);
+        owner.publish(static_cast<ID3D12Resource*>(output),*input,static_cast<OutputUse>(outputUse),*receipt);
+        lastError.clear();return 0;
+    } catch(...){recordException();return -1;}
+}
 int __cdecl san14_render_animation_event(void* value,const San14RenderInput* input,uint32_t fpsMode) {
     try {
         auto& owner=*static_cast<Owner*>(value);

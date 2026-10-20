@@ -3,7 +3,8 @@ using System.Buffers.Binary;
 namespace San14.Data;
 
 /// <summary>The direct selected package's scalar source copies at
-/// CPU20/24/28/2C, CPU68/6C, adaptation74/78, climate7C..88 and CPU120. C358A0 copies CPU2C later in its full body;
+/// CPU20/24/28/2C, CPU68/6C, adaptation74/78, climate7C..88,
+/// sky haze and camera-light8C..A8, and CPU120. C358A0 copies CPU2C later in its full body;
 /// V418 publishes that selected word as Main17C. Blended Camera inputs need their own
 /// native interpolation receipt.</summary>
 public sealed class MapSeasonCameraPrefixScalars
@@ -23,17 +24,20 @@ public sealed class MapSeasonCameraPrefixScalars
     public uint FogMaxDistanceToSky278Bits=>BinaryPrimitives.ReadUInt32LittleEndian(words.AsSpan(16));
     public uint ExposureRangeMin1B8Bits=>BinaryPrimitives.ReadUInt32LittleEndian(words.AsSpan(20));
     public uint ExposureRangeMax1BCBits=>BinaryPrimitives.ReadUInt32LittleEndian(words.AsSpan(24));
+    public uint FogLightingBlendBits=>BinaryPrimitives.ReadUInt32LittleEndian(words.AsSpan(64));
     public string SourceEvidence{get;}
     public static MapSeasonCameraPrefixScalars ReadDirectSelection(MapSeasonCameraSelection selection)
     {
         ArgumentNullException.ThrowIfNull(selection);selection.Validate();
         if(selection.SecondPackage is not null)
             throw new NotSupportedException("Source Camera scalar copies require a direct selected package, not an unresolved blended Camera.");
-        var camera=selection.FirstPackage.Camera;byte[] bytes=new byte[52];
+        var camera=selection.FirstPackage.Camera;byte[] bytes=new byte[84];
         (int Ordinal,uint Hash)[] fields=[(9,0xB90D1027),(10,0xABB91759),(11,0x3DF6821A),(88,0x462994C1),
             (934,0xA48ECB2A),(29,0xF9989A1C),(30,0x13AC572E),
             (54,0x907B67C1),(55,0x800DB8FF),(850,0x2F6A6AF9),
-            (851,0xDF989EE1),(852,0xAC082408),(853,0x4669C572)];
+            (851,0xDF989EE1),(852,0xAC082408),(853,0x4669C572),
+            (891,0x90B9A1E5),(914,0xEA5C2C8D),(923,0x53E41154),(928,0x273D81CE),
+            (930,0xBBE67AED),(931,0x0C3B06E3),(1047,0x93B62B81),(1048,0xF8D97B10)];
         for(int index=0;index<fields.Length;index++)
         {
             var field=camera.Properties[fields[index].Ordinal];
@@ -54,7 +58,8 @@ public sealed class MapSeasonCameraPrefixScalars
             "TC:C40D1E..C40D2A/SC:C423CE..C423DA-CPU120-to-embedded1330+278;"+
             "paired-complete-V468-copy-inventory/CPU74/78-to-prepared1C4/1C8;"+
             "TC:C40B25..C40B4C/SC:C421D5..C421FC-CPU7C/80/84/88-to-1D0/1D4/1D8/1DC;"+
-            "temperature1D4-and-humidity1D8-have-independent-typed-source-domains");
+            "temperature1D4-and-humidity1D8-have-independent-typed-source-domains;"+
+            "selected-sky-haze-and-camera-light-CPU8C..A8-to-prepared1E0..1FC-before-CBC770");
     }
     public byte[] ApplyToPrefix(ReadOnlySpan<byte> actualPriorMainPrefix)
     {
@@ -66,6 +71,8 @@ public sealed class MapSeasonCameraPrefixScalars
         words.AsSpan(20,8).CopyTo(result.AsSpan(0x1B8,8));
         words.AsSpan(28,8).CopyTo(result.AsSpan(0x1C4,8));
         words.AsSpan(36,16).CopyTo(result.AsSpan(0x1D0,16));
+        // Sky/fog and CBC770 consume this selected group before the optical tail.
+        words.AsSpan(52,32).CopyTo(result.AsSpan(0x1E0,32));
         return result;
     }
 }

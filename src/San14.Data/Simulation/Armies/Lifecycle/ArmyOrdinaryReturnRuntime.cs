@@ -255,8 +255,16 @@ public static class ArmyOrdinaryReturnRuntime
         public RegistryListNodeReference? AppendPending70Node(RegistryListHandle value) => state.AllocateRegistryNode(value);
         public void WritePending70Payload(RegistryListNodeReference node, RegistryObjectReference army) => state.WriteRegistryNodePayload(node, army);
     }
+    /// <summary>240DB0's current adapter, shared with the ordinary return
+    /// caller. It neither captures another world nor publishes/exports a pool.</summary>
+    internal static IPersonDistrictTransferState CreateCurrentPersonDistrictTransfer(
+        SourceWorldContext current, List<PersonAssignmentPrecallResult> associations,
+        Action<PersonAssignmentPrecallResult>? receivePrecall = null)
+        => new Transfer(current, associations, unresolvedAsData: true, receivePrecall);
+
     private sealed class Transfer(SourceWorldContext state,
-        List<PersonAssignmentPrecallResult> associations) : IPersonDistrictTransferState
+        List<PersonAssignmentPrecallResult> associations, bool unresolvedAsData = false,
+        Action<PersonAssignmentPrecallResult>? receivePrecall = null) : IPersonDistrictTransferState
     {
         public byte? ReadPersonDistrictSlot(int person) => state.ReadPersonDistrictSlot(person);
         public ForceReference? ReadPersonForce(int person) => state.ReadPersonForce(person);
@@ -265,8 +273,9 @@ public static class ArmyOrdinaryReturnRuntime
         {
             //240DB0 uses the same real2783B0 R8=0/R9=1 arguments.
             var result = PersonAssignmentPrecallSource.Apply2783B0ForCapture(state, force, person);
-            if (result.NativeReturn is null) throw Missing(result.UnresolvedOwner ?? "current.ruler_tail_2783B0");
+            if (result.NativeReturn is null) throw Failure(result.UnresolvedOwner ?? "current.ruler_tail_2783B0");
             associations.Add(result);
+            receivePrecall?.Invoke(result);
         }
         public int? ReadForcePhysicalSlot(ForceReference force) => state.ReadForcePhysicalSlot(force);
         public void WritePersonResetWord1FF(int person, ushort value) => state.WritePersonResetWord1FF(person, value);
@@ -276,32 +285,35 @@ public static class ArmyOrdinaryReturnRuntime
         public ForceReference? ReadCurrentPlayerForce() => state.ReadCurrentPlayerForce();
         public void RefreshTransferService(int first, int second, int third)
         {
-            if (first != 1 || second != 1 || third != 0) throw Missing("branch.unsupported_service_dispatch");
-            if (state.TransferService is null) throw Missing("current.ruler_tail_service_owner");
+            if (first != 1 || second != 1 || third != 0) throw Failure("branch.unsupported_service_dispatch");
+            if (state.TransferService is null) throw Failure("current.ruler_tail_service_owner");
             var eligibility = new Eligibility(state);
             bool eligible = TransferServiceEligibility.IsEligible(eligibility);
             //Both branches execute the original eligibility/count logic.
             //No state/bitmap callback is used to pretend a missing effect ran.
             if (!eligible) return;
-            var player = state.ReadCurrentPlayerForce() ?? throw Missing("current.service_PlayerForce");
-            bool valid = Get(state.ReadForceNativeValidity(player), "current.service_PlayerForce_validity");
+            var player = state.ReadCurrentPlayerForce() ?? throw Failure("current.service_PlayerForce");
+            bool valid = Known(state.ReadForceNativeValidity(player), "current.service_PlayerForce_validity");
             if (!valid) return;
             int count = 0;
             for (int i = 0; i < 1851; i++)
             {
-                var person = state.ReadTransferPersonTableReference(i) ?? throw Missing($"current.service_owned_Person_table[{i}]");
+                var person = state.ReadTransferPersonTableReference(i) ?? throw Failure($"current.service_owned_Person_table[{i}]");
                 if (person.PhysicalSlot is not int physical) continue;
-                bool personValid = Get(state.ReadPersonNativeValidity(physical), "current.service_Person_validity");
+                bool personValid = Known(state.ReadPersonNativeValidity(physical), "current.service_Person_validity");
                 if (!personValid) continue;
-                byte status = Get(state.ReadPersonStatus(physical), "current.service_Person_statusE6");
+                byte status = Known(state.ReadPersonStatus(physical), "current.service_Person_statusE6");
                 if (status is < 1 or > 4) continue;
-                int force = Get(state.ReadForcePhysicalSlot(player), "current.service_PlayerForce_virtual60");
-                byte raw = Get(state.ReadPersonCurrentRawForceSlot(physical), "current.service_Person_Force22CF60");
+                int force = Known(state.ReadForcePhysicalSlot(player), "current.service_PlayerForce_virtual60");
+                byte raw = Known(state.ReadPersonCurrentRawForceSlot(physical), "current.service_Person_Force22CF60");
                 if (force == raw) count++;
             }
 
-            if (count >= 200) throw Missing("branch.ruler_tail_service_flag17_or_completion_effects");
+            if (count >= 200) throw Failure("branch.ruler_tail_service_flag17_or_completion_effects");
         }
+        private Exception Failure(string field) => unresolvedAsData
+            ? new InvalidDataException(field) : Missing(field);
+        private T Known<T>(T? value, string field) where T : struct => value ?? throw Failure(field);
     }
     private sealed class Eligibility(SourceWorldContext state) : ITransferServiceEligibilityQueries
     {

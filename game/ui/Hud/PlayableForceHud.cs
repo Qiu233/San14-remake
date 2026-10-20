@@ -1,104 +1,201 @@
 using Godot;
 using San14.Client.Gameplay;
 using San14.Data;
+using San14.Data.Formats;
 
-/// <summary>Compact resident map controls. All figures come from the current simulation state.</summary>
+/// <summary>Resident map header using the original header and portrait artwork.
+/// Current date, orders and force identity come from the simulation projection.</summary>
 public partial class PlayableForceHud : Control
 {
     private UiAssets? _assets;
-    private Label _date = null!;
-    private Label _ruler = null!;
-    private Label _orders = null!;
-    private Label _doctrine = null!;
-    private Label _gold = null!;
-    private Label _supplies = null!;
-    private Label _troops = null!;
-    private Label _cities = null!;
-    private Label _officers = null!;
-    private Label _districts = null!;
-    private TextureButton _advance = null!;
+    private MapFont? _font;
+    private UiSourceText _year = null!;
+    private UiSourceText _month = null!;
+    private UiSourceText _period = null!;
+    private UiSourceText _ruler = null!;
+    private UiSourceText _orders = null!;
+    private UiSourceText _doctrine = null!;
+    private UiSourceText _doctrineLevel = null!;
+    private MapDoctrineGauge _doctrineGauge = null!;
+    private UiSourceText _flagText = null!;
+    private Control _commandBookIcon = null!;
+    private UiSourceText _commandBookCaption = null!;
+    private bool? _commandBooksVisible;
+    internal MapHeaderDisplayState? DisplayState { get; private set; }
+    private Control _flag = null!;
+    private Control _flagFill = null!;
+    private UiSourcePortrait? _portrait;
+    private Rect2 _portraitRectangle;
+    private GameResourceRepository _repository = null!;
+    private LocalizedUiSpriteSource _portraitSources = null!;
+    private readonly Dictionary<(string Pack, string Sprite), LoadedSprite> _portraits = [];
+    private (string Pack, string Sprite)? _shownPortrait;
+    private MapAdvanceButton _advance = null!;
+    private Shader? _spriteShader;
 
     internal void Configure(GameResourceRepository repository, PreviewText text, ForceHudView view,
-        Action advance, Action openForceDetails)
+        Action advance, Action openForceDetails, IReadOnlyDictionary<MapMenuCommand, Action>? mapCommands = null,
+        Action? openSystemMenu = null)
     {
         Name = "PlayableForceHud";
-        Size = new Vector2(600, 340);
-        MouseFilter = MouseFilterEnum.Pass;
+        ZIndex = 2;
+        Size = new Vector2(620, 288);
+        MouseFilter = MouseFilterEnum.Ignore;
         _assets = new UiAssets(repository);
-        Theme = new Theme
-        {
-            DefaultFont = new SystemFont { FontNames = ["KaiTi", "DFKai-SB", "Microsoft YaHei"] }
-        };
+        _font = new MapFont(repository, text.SourceLocale);
+        _repository = repository; _portraitSources = new(repository);
+        _spriteShader = UiSourceSprite.CreateShader();
+        // CMainTopLayoutOffset selects the Chinese layout by its Common name.
+        var header = repository.LoadLayout("ScreenLayout", 0xBB442620);
+        var nodes = LcskNodeReader.Read(header.Layout);
+        var source = new UiSourceLayout(header);
+        MapTextPresets presets = MapTextPresets.Create();
 
-        AddPanel(new Rect2(0, 0, 590, 195), new Color(0.06f, 0.055f, 0.05f, 0.84f));
-        var portraitClip = new Control
+        var commandRail = new MapCommandRail();
+        commandRail.Configure(repository, text.SourceLocale, mapCommands ?? new Dictionary<MapMenuCommand,Action>());
+        AddChild(commandRail);
+        if (openSystemMenu is not null)
         {
-            Name = "RulerPortraitClip", Position = new Vector2(0, 0),
-            Size = new Vector2(176, 195), ClipContents = true, MouseFilter = MouseFilterEnum.Ignore
-        };
-        AddChild(portraitClip);
-        int? portraitCode = view.PortraitAppearanceCode;
-        if (portraitCode is int code)
-        {
-            var portrait = new PortraitView { Name = "RulerPortrait" };
-            portraitClip.AddChild(portrait);
-            portrait.Configure(repository, _assets, code, new Rect2(-12, -75, 206, 292));
+            // log_slide_in's settled node83 X is960. Its authored -200 is
+            // replaced by the source animation, never added to this endpoint.
+            var main = new UiSourceLayout(repository, 0x036BB544,
+                new Dictionary<int, UiSourceNodeGeometry> { [83] = new(Origin: new Vector2(960, 0)) });
+            var top = new UiSourceLayout(repository, 0xF28BE325);
+            var button = new UiSourceFunctionButton { Name = "MapSystemButton",
+                Position = main.Rectangle(84).Position + top.Rectangle(24).Position };
+            AddChild(button);
+            button.Configure(repository, _assets, _spriteShader, "000_cmn_icon_opt", openSystemMenu);
+            button.SetMeta("source_mount_layout", main.Source.Source.ResourceUri);
+            button.SetMeta("source_group_layout", top.Source.Source.ResourceUri);
+            button.SetMeta("source_group_node", 24);
         }
-        SetMeta("portrait_appearance_code", portraitCode ?? -1);
 
-        _date = AddLabel("Date", new Rect2(183, 8, 335, 37), 26, new Color("#eee2b1"));
-        _ruler = AddLabel("Ruler", new Rect2(183, 48, 280, 35), 27, new Color("#fff0bd"));
-        AddPicture("CommandBookIcon", "000_cmn_icon_meirei", new Rect2(183, 91, 28, 28));
-        _orders = AddLabel("Orders", new Rect2(218, 90, 295, 31), 22, new Color("#ead6a3"));
-        _doctrine = AddLabel("Doctrine", new Rect2(455, 50, 130, 70), 20, new Color("#e6d79c"));
-        _doctrine.HorizontalAlignment = HorizontalAlignment.Center;
-        Color figureColor = new("#ead6a3");
-        _gold = AddLabel("ForceGold", new Rect2(183, 127, 135, 28), 18, figureColor);
-        _supplies = AddLabel("ForceSupplies", new Rect2(318, 127, 140, 28), 18, figureColor);
-        _troops = AddLabel("ForceTroops", new Rect2(458, 127, 130, 28), 18, figureColor);
-        _cities = AddLabel("ForceCities", new Rect2(183, 158, 135, 28), 18, figureColor);
-        _officers = AddLabel("ForceOfficers", new Rect2(318, 158, 140, 28), 18, figureColor);
-        _districts = AddLabel("ForceDistricts", new Rect2(458, 158, 130, 28), 18, figureColor);
+        // The original mounts a real Common09 control here. Its three-part
+        // composition replaces this layout's two-part dummy.
+        _portraitRectangle = source.Rectangle(1);
+        AddPicture("ForceHudBacking", "000_cmn_base_main_header", new Rect2(0, 0, 620, 220));
+        _year = AddText("Year", "val_2_fc001_0000", 0);
+        _month = AddText("Month", "val_3_fc001_0000", 0);
+        _period = AddText("Period", "val_4_fc001_0000", 0);
+        _ruler = AddText("Ruler", "name_fc001", 0);
+        _commandBookIcon = AddPicture("CommandBookIcon", "000_cmn_icon_meirei", new Rect2(299, 95, 32, 32));
+        _commandBookIcon.Modulate = CanvasColor(MapSpritePalettes.Create()[10].LT);
+        _commandBookCaption = AddText("CommandBookCaption", "cap_10_fc014_0000", 13);
+        _commandBookCaption.Text = text.Get("map_hud_command_books");
+        _orders = AddText("Orders", "val_10_fc001_0000", 0);
+        _doctrine = AddText("Doctrine", "syugi_fc042", 41);
+        _doctrineLevel = AddText("DoctrineLevel", "val_lv_fc001", 0);
+        _doctrineGauge = new MapDoctrineGauge();
+        _doctrineGauge.Configure(source, _assets, _spriteShader);
+        AddChild(_doctrineGauge);
 
-        _advance = new TextureButton
+        LcskNodeRecord flagNode = nodes.Single(n => n.Name == "flag");
+        _flag = new Control
         {
-            Name = "MapAdvanceTenDays",
-            Position = new Vector2(35, 209), Size = new Vector2(116, 116),
-            MouseFilter = MouseFilterEnum.Stop,
-            TextureNormal = _assets.Sprite("000_cmn_btn_adv_0").Texture,
-            StretchMode = TextureButton.StretchModeEnum.Scale
+            Name = "ForceFlag", Position = new(flagNode.HeaderValues[0], -flagNode.HeaderValues[1]),
+            Size = new(flagNode.Value44, flagNode.Value46), MouseFilter = MouseFilterEnum.Ignore
         };
-        _advance.Pressed += advance;
-        AddChild(_advance);
-        var advanceText = AddLabel("AdvanceText", new Rect2(35, 245, 116, 46), 28,
-            new Color("#302515"));
-        advanceText.Text = text.Get("play_map_advance");
-        advanceText.HorizontalAlignment = HorizontalAlignment.Center;
+        AddChild(_flag);
+        foreach (string suffix in new[] { "a", "b", "c" })
+        {
+            string sprite = "000_cmn_main_haeder_flag_" + suffix;
+            LcskNodeRecord node = nodes.Single(n => n.Name == sprite);
+            var layer = source.Art(_flag, node.Index, source.Rectangle(node.Index, -_flag.Position), _assets, _spriteShader);
+            layer.Name = "ForceFlag_" + suffix;
+            if (suffix == "b") _flagFill = layer;
+        }
+        _flagText = AddText("ForceFlagText", "val_10_fc001_0001", null);
+        _flagText.Reparent(_flag, false);
+
         var forceDetails = new Button
         {
             Name = "MapForceInformation", Flat = true, Text = "",
             TooltipText = text.Get("play_force_information"),
-            Position = Vector2.Zero, Size = new Vector2(176, 195),
+            Position = _portraitRectangle.Position,
+            Size = new Vector2((int)_portraitRectangle.Size.X, (int)_portraitRectangle.Size.Y),
             MouseFilter = MouseFilterEnum.Stop
         };
         forceDetails.Pressed += openForceDetails;
         AddChild(forceDetails);
+
+        AddPicture("AdvanceOuterRing", "000_cmn_gauge_base_adv", new Rect2(0, 86, 256, 256));
+        _advance = new MapAdvanceButton
+        {
+            Name = "MapAdvanceTenDays",
+            Position = new Vector2(64, 150)
+        };
+        _advance.Configure(_assets, repository);
+        _advance.Pressed += advance;
+        AddChild(_advance);
         Refresh(view);
         SetMeta("original_map_hud_layout_verified", false);
+
+        UiSourceText AddText(string name, string sourceName, int? preset)
+        {
+            LcskNodeRecord node = nodes.Single(n => n.Name == sourceName);
+            Rect2 rectangle = Rectangle(node);
+            var label = new UiSourceText
+            {
+                Name = name,
+                Position = rectangle.Position, Size = rectangle.Size
+            };
+            MapFontProfile profile = MapFontProfile.FromNode(node, header.Source.ResourceUri);
+            label.Configure(_font, preset is int style ? profile.WithPreset(presets[style]) : profile);
+            AddChild(label);
+            return label;
+        }
+
+        static Rect2 Rectangle(LcskNodeRecord node)
+        {
+            Vector2 size = new(node.Value44, node.Value46);
+            Vector2 position = new(node.HeaderValues[0], -node.HeaderValues[1]);
+            if (node.Value48 == 0x1111) position -= size / 2;
+            else if (node.Value48 != 0x1100)
+                throw new InvalidDataException($"Unsupported header anchor: {node.Name}.");
+            return new(position, size);
+        }
     }
 
     internal void Refresh(ForceHudView view)
     {
-        _date.Text = view.Date;
-        _ruler.Text = view.ForceName;
-        _orders.Text = view.Orders;
-        _doctrine.Text = view.DoctrineName;
-        _gold.Text = view.Gold;
-        _supplies.Text = view.Supplies;
-        _troops.Text = view.Troops;
-        _cities.Text = view.Cities;
-        _officers.Text = view.Officers;
-        _districts.Text = view.Districts;
+        _year.Text = view.Year;
+        _month.Text = view.Month;
+        _period.Text = view.Period;
+        if (view.Identity.Update == MapHeaderUpdate.Updated)
+            DisplayState = new(view.Identity.DistrictId!.Value, DisplayState?.OrderCount);
+        SetMeta("command_books_update", view.CommandBooks.Update.ToString());
+        SetMeta("command_books_issue", view.CommandBooks.UnresolvedInput ?? "");
+        if (view.CommandBooks.Update != MapHeaderUpdate.Unchanged || view.CommandBooks.Count is not null)
+        {
+            _orders.Text = view.OrderCountText;
+            if (view.CommandBooks.Update == MapHeaderUpdate.Updated)
+                DisplayState = DisplayState! with { OrderCount = view.CommandBooks.Count };
+        }
+        SetMeta("header_identity_update", view.Identity.Update.ToString());
+        SetMeta("header_identity_issue", view.Identity.UnresolvedInput ?? "");
+        if (view.Identity.Update != MapHeaderUpdate.Unchanged)
+        {
+            _commandBooksVisible = view.Identity.CommandBooksVisible;
+            SetMeta("command_books_visibility_issue", view.Identity.CommandBooksVisibilityIssue ?? "");
+            _ruler.Text = view.RulerName;
+            _doctrine.Text = view.DoctrineName;
+            _doctrineLevel.Text = view.DoctrineLevelText;
+            _doctrineGauge.Apply(view.DoctrineProgress?.Percentage);
+            var flag = view.Identity.Flag;
+            _flag.Visible = flag is { ForceValidity: true, CurrentForceColor49: not null };
+            if (_flag.Visible)
+            {
+                _flagText.Text = flag!.NativeShortName;
+                AreaMarkerColor fill = MapSpritePalettes.ForceFill(flag.CurrentForceColor49!.Value);
+                foreach (var part in _flagFill.GetChildren().OfType<UiSourceSprite>()) part.SetColors(new(fill, fill, fill, fill));
+            }
+            else _flagText.Text = "";
+            ApplyPortrait(view.Identity.Portrait);
+        }
+        _commandBookIcon.Visible = _commandBooksVisible == true;
+        _commandBookCaption.Visible = _orders.Visible = _commandBooksVisible != false;
+        if (_commandBooksVisible is null) _orders.Text = view.UnknownText;
+        SetMeta("command_books_visibility", _commandBooksVisible is bool shown ? shown ? "Visible" : "Hidden" : "Unresolved");
         _advance.Disabled = !view.CanAdvance;
         SetMeta("force_id", view.ForceId);
         SetMeta("world_period_number", view.PeriodNumber);
@@ -110,52 +207,62 @@ public partial class PlayableForceHud : Control
         SetMeta("districts", view.Figures.Districts);
     }
 
+    private void ApplyPortrait(OfficerPortraitRoute? route)
+    {
+        SetMeta("portrait_appearance_code", route?.CurrentAppearanceIndex is ushort index ? index : -1);
+        SetMeta("portrait_kind", route?.Kind.ToString() ?? "Unresolved");
+        SetMeta("portrait_issue", route?.UnresolvedInput ?? "");
+        (string Pack, string Sprite)? key = route is { Kind: OfficerPortraitRouteKind.StockNamed }
+            ? (route.ResourceName!, route.SpriteName!) : null;
+        if (_shownPortrait == key) return;
+        UiSourcePortrait? next = null;
+        if (key is { } selected)
+        {
+            if (!_portraits.TryGetValue(selected, out var image))
+            { image = _portraitSources.LoadTexturePackSprite(selected.Pack, selected.Sprite); _portraits.Add(selected, image); }
+            next = new UiSourcePortrait { Name = "RulerPortrait", Position = _portraitRectangle.Position };
+            try { next.ConfigureMapHeader(_repository, _assets!, _spriteShader!, image); }
+            catch { next.Free(); throw; }
+        }
+        // Publish the successful resource/control pair together. A load or
+        // format failure must leave the old portrait and retry key intact.
+        if (_portrait is not null)
+        { RemoveChild(_portrait); _portrait.QueueFree(); _portrait = null; }
+        _shownPortrait = key;
+        _portrait = next;
+        if (next is not null) { AddChild(next); MoveChild(next, 0); }
+    }
+
     internal void FitToMap(Vector2 mapSize)
     {
-        float scale = MathF.Min(mapSize.X / 1880f, mapSize.Y / 994f);
+        float scale = MathF.Min(mapSize.X / 1920f, mapSize.Y / 1080f);
         Scale = new Vector2(scale, scale);
         Position = Vector2.Zero;
     }
 
-    private Label AddLabel(string name, Rect2 rectangle, int fontSize, Color color)
-    {
-        var label = new Label
-        {
-            Name = name, Position = rectangle.Position, Size = rectangle.Size,
-            MouseFilter = MouseFilterEnum.Ignore
-        };
-        label.AddThemeFontSizeOverride("font_size", fontSize);
-        label.AddThemeColorOverride("font_color", color);
-        AddChild(label);
-        return label;
-    }
-
-    private void AddPicture(string name, string spriteName, Rect2 rectangle)
+    private TextureRect AddPicture(string name, string? spriteName, Rect2 rectangle)
     {
         var picture = new TextureRect
         {
             Name = name, Position = rectangle.Position, Size = rectangle.Size,
-            Texture = _assets!.Sprite(spriteName).Texture,
+            Texture = spriteName is null ? null : _assets!.Sprite(spriteName).Texture,
             ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
             StretchMode = TextureRect.StretchModeEnum.Scale,
             MouseFilter = MouseFilterEnum.Ignore
         };
         AddChild(picture);
+        return picture;
     }
 
-    private void AddPanel(Rect2 rectangle, Color color)
-    {
-        var panel = new ColorRect
-        {
-            Name = "ForceHudBacking", Position = rectangle.Position, Size = rectangle.Size,
-            Color = color, MouseFilter = MouseFilterEnum.Ignore
-        };
-        AddChild(panel);
-    }
+    private static Color CanvasColor(AreaMarkerColor color) => new(color.AuthoredRed / 255f,
+        color.AuthoredGreen / 255f, color.AuthoredBlue / 255f, color.AuthoredAlpha / 255f);
 
     public override void _ExitTree()
     {
+        _font?.Dispose();
+        _font = null;
         _assets?.Dispose();
         _assets = null;
+        _spriteShader?.Dispose(); _spriteShader = null;
     }
 }

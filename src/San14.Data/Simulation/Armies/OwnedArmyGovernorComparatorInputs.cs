@@ -118,6 +118,16 @@ public sealed class OwnedArmyGovernorComparatorInputs
             { Parameters = simulation.Parameters with { Int32Values = values } } };
     }
 
+    public byte? ReadCurrentPriority160(GameState state, int physical) =>
+        Bound(state) && ReadInt(state, VersionKey) == 1 && (uint)physical < _people.Length &&
+        state.Officers.GetValueOrDefault(_people[physical].PersonId)?.Id is int id &&
+        _identities.ResolveOfficer(id) == physical ? ReadByte(state, PersonFlags160Key(physical)) : null;
+
+    internal ushort? ReadCurrentWord166(GameState state, int physical) =>
+        Bound(state) && ReadInt(state, VersionKey) == 1 && (uint)physical < _people.Length &&
+        state.Officers.GetValueOrDefault(_people[physical].PersonId)?.Id is int id &&
+        _identities.ResolveOfficer(id) == physical ? ReadWord(state, PersonWord166Key(physical)) : null;
+
     public ArmyReturnGovernorComparatorFields? ReadCurrentComparatorFields(GameState state, int physical)
     {
         if (!Bound(state) || ReadInt(state, VersionKey) != 1 || (uint)physical >= _people.Length) return null;

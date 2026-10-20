@@ -13,11 +13,11 @@ inline constexpr std::size_t OceanTextureMaterialInputBytes=60;
 // frame publication. No original CPU image or address table enters this type.
 inline OceanTextureMaterialSettings decodeOceanTextureMaterialSettings(std::span<const std::uint8_t> bytes) {
     if(bytes.size()!=OceanTextureMaterialInputBytes)
-        throw std::runtime_error("Ocean texture material OUM1 extent differs");
+        throw std::runtime_error("Ocean texture material OUM2 extent differs");
     std::size_t at=0;
     auto read=[&]<class T>() {T value;std::memcpy(&value,bytes.data()+at,sizeof(value));at+=sizeof(value);return value;};
-    if(read.operator()<std::uint32_t>()!=0x314D554Fu)
-        throw std::runtime_error("Ocean texture material OUM1 version differs");
+    if(read.operator()<std::uint32_t>()!=0x324D554Fu)
+        throw std::runtime_error("Ocean texture material OUM2 version differs");
     auto scalar=[&](){return read.operator()<float>();};
     OceanTextureMaterialSettings result;
     result.uv={scalar(),scalar(),scalar(),scalar(),scalar(),scalar(),scalar()};
@@ -29,7 +29,7 @@ inline OceanTextureMaterialSettings readOceanTextureMaterialSettings(const std::
     std::array<std::uint8_t,OceanTextureMaterialInputBytes> bytes;
     input.read(reinterpret_cast<char*>(bytes.data()),bytes.size());
     if(!input||input.peek()!=std::char_traits<char>::eof())
-        throw std::runtime_error("Ocean texture material OUM1 absent or malformed");
+        throw std::runtime_error("Ocean texture material OUM2 absent or malformed");
     return decodeOceanTextureMaterialSettings(bytes);
 }
 } // namespace San14::Render::Interop

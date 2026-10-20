@@ -5,7 +5,7 @@ namespace San14.Data;
 /// <summary>Owned29C430/2783B0 current fields after real constructor/static
 /// loading. Force52 reuses the existing policy bank; runtime-only fields are
 /// installed once and never reconstructed while loading a saved campaign.</summary>
-public sealed class PersonAssignmentPrecallInputs
+public sealed partial class PersonAssignmentPrecallInputs
 {
     private const string Prefix = "ce-person-assignment-precall-current:";
     public const string VersionKey = Prefix + "version";
@@ -43,7 +43,8 @@ public sealed class PersonAssignmentPrecallInputs
             state.ContentHashes.GetValueOrDefault(_source.ScenarioSource.ResourceUri) != _source.ScenarioSource.Sha256 ||
             simulation.Parameters.Int32Values.Keys.Any(x => x.StartsWith(Prefix, StringComparison.Ordinal)))
             throw new InvalidDataException("Assignment precalls need their unused fresh current owner.");
-        var values = new Dictionary<string, int>(simulation.Parameters.Int32Values) { [VersionKey] = 1 };
+        var values = new Dictionary<string, int>(simulation.Parameters.Int32Values)
+            { [VersionKey] = 1, [AreaAppointmentCostKey] = ExtractedAreaAppointmentCost };
         //220B70/226CD0 set City qwordC8=10, so wordsCA/CC are0.
         //236E80's static archive8C!=0 branch omits those runtime words.
         for (int city = 0; city < 52; city++)
@@ -65,6 +66,10 @@ public sealed class PersonAssignmentPrecallInputs
         //loading omits both the runtime vector and its active count.
         for (int person = 0; person < 1851; person++)
         {
+            //TC226480 clears dword1C4 and byte1C8. Static2391C0
+            //does not load rumor counters; later district transfer shares these fields.
+            values.Add(PersonResetWord1FFKey(person), 0);
+            values.Add(PersonResetByte1FEKey(person), 0);
             values.Add(PersonAreaLengthKey(person), 3); values.Add(PersonAreaCount1E8Key(person), 0);
             for (int i = 0; i < 3; i++) values.Add(PersonAreaEntryKey(person, i), 0);
         }
@@ -76,7 +81,89 @@ public sealed class PersonAssignmentPrecallInputs
                 throw new InvalidDataException("The current original Force52 policy owner must precede fresh assignment inputs.");
         return state with { NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = values } } };
     }
-    public void BindCurrent(GameState state, SourceWorldContext current)
+    /// <summary>One reached reset scalar: a local source writer wins over the saved owner.</summary>
+    internal static ushort? ReadCurrentResetWord1FF(GameState state, SourceWorldContext current, int physical) =>
+        current.ReadPersonResetWord1FF(physical) ?? Word(state, PersonResetWord1FFKey(physical));
+
+    /// <summary>The display consumer reads the signed active count independently
+    /// of vector storage. A known empty prefix does not consume any entries.</summary>
+    internal static int? ReadCurrentAreaAssignmentActiveCount(GameState state, int physical) =>
+        Value(state, PersonAreaCount1E8Key(physical), true);
+
+    /// <summary>Only the first stored item is required by the display getter.
+    /// A stale entry key outside a known nonempty buffer does not prove storage.</summary>
+    internal static int? ReadCurrentAreaAssignmentFirstValue(GameState state, int physical) =>
+        Value(state, PersonAreaLengthKey(physical), true) is > 0
+            ? Value(state, PersonAreaEntryKey(physical, 0), true) : null;
+
+    internal static GameState ResetCurrentDeathAssignment(GameState state, SourceWorldContext current, int physical)
+    {
+        if ((uint)physical >= 1851 || state.NativeArmySimulation is not { } native ||
+            native.Parameters.Int32Values.GetValueOrDefault(VersionKey) != 1)
+            throw new InvalidDataException("person-death.current_assignment_owner");
+        current.WritePersonResetWord1FF(physical, 0); current.WritePersonResetByte1FE(physical, 0);
+        current.SetAssignmentPersonAreaVector(physical, new([], 0));
+        return PublishDeathTouched(state, current, physical, [], publishVector: true);
+    }
+
+    /// <summary>Only writes reached by this operation. No unrelated manager
+    /// fields are queried while the caller still owns live temporary lists.</summary>
+    internal static GameState PublishDeathTouched(GameState state, SourceWorldContext current,
+        int physical, IReadOnlyList<PersonAssignmentPrecallResult> results, bool publishVector = false)
+    {
+        if (state.NativeArmySimulation is not { } native || native.Parameters.Int32Values.GetValueOrDefault(VersionKey) != 1)
+            throw new InvalidDataException("person-death.current_assignment_owner");
+        var values = new Dictionary<string, int>(native.Parameters.Int32Values);
+        var cities = new Dictionary<int, CityState>(state.Cities);
+        var areas = new Dictionary<int, AreaState>(state.Areas);
+        foreach (var result in results)
+            foreach (var write in result.Writes)
+            {
+                if (write.ReceiverKind == "Force")
+                {
+                    if (write.NativeOffset == 0x52) values[BattleRemakeCurrentForcePolicies.ForceFieldKey(write.PhysicalSlot, 0x52)] = write.After;
+                    else if (write.NativeOffset is >= 0x196 and <= 0x19A && (write.NativeOffset & 1) == 0)
+                        values[AssociationPersonKey(write.PhysicalSlot, (write.NativeOffset - 0x196) / 2)] = write.After;
+                    else if (write.NativeOffset is >= 0x19C and <= 0x19E)
+                        values[AssociationTargetKey(write.PhysicalSlot, write.NativeOffset - 0x19C)] = write.After;
+                    else throw new InvalidDataException("person-death.assignment_force_write");
+                }
+                else if (write.ReceiverKind == "City")
+                {
+                    values[CityFieldKey(write.PhysicalSlot, write.NativeOffset)] = write.After;
+                    if (cities.TryGetValue(write.PhysicalSlot, out var city) && city.Duties is { } duties)
+                        cities[city.Id] = city with { Duties = write.NativeOffset == 0xCA
+                            ? duties with { RecruiterId = write.After == 0 ? null : write.After }
+                            : duties with { TrainerId = write.After == 0 ? null : write.After } };
+                }
+                else if (write.ReceiverKind == "Area")
+                {
+                    values[AreaFieldKey(write.PhysicalSlot, write.NativeOffset)] = write.After;
+                    if (areas.TryGetValue(write.PhysicalSlot, out var area) && area.Administration is { } administration)
+                        areas[area.Id] = area with { Administration = write.NativeOffset == 0x36
+                            ? administration with { OverseerId = write.After == 0 ? null : write.After }
+                            : write.NativeOffset == 0x72 ? administration with { DevelopmentFocus = AreaAdministration.DecodeFocus((byte)write.After) } : administration };
+                }
+                else throw new InvalidDataException("person-death.assignment_receiver_write");
+            }
+        if (current.ReadPersonResetWord1FF(physical) is ushort word) values[PersonResetWord1FFKey(physical)] = word;
+        if (current.ReadPersonResetByte1FE(physical) is byte flag) values[PersonResetByte1FEKey(physical)] = flag;
+        if (publishVector)
+        {
+            var vector = current.ReadAssignmentPersonAreaVector(physical)
+                ?? throw new InvalidDataException("person-death.assignment_person_vector");
+            string entryPrefix = Prefix + $"person:{physical}:1D0:";
+            foreach (string key in values.Keys.Where(k => k.StartsWith(entryPrefix, StringComparison.Ordinal)).ToArray()) values.Remove(key);
+            values[PersonAreaLengthKey(physical)] = vector.Values.Length;
+            values[PersonAreaCount1E8Key(physical)] = vector.ActiveCount1E8;
+            for (int i = 0; i < vector.Values.Length; i++) values[PersonAreaEntryKey(physical, i)] = vector.Values[i];
+        }
+        if (current.ReadWorldTransferServiceFlags() is uint flags && values.ContainsKey(OwnedArmyReturnServiceInputs.Flags16A8Key))
+            values[OwnedArmyReturnServiceInputs.Flags16A8Key] = unchecked((int)flags);
+        return state with { Cities = cities, Areas = areas, NativeArmySimulation = native with { Parameters = native.Parameters with { Int32Values = values } } };
+    }
+
+    internal void BindAreaAdministrationScalars(GameState state, SourceWorldContext current)
     {
         bool installed = state.NativeArmySimulation?.Parameters.Int32Values.GetValueOrDefault(VersionKey) == 1;
         for (int force = 0; force < 52; force++)
@@ -105,6 +192,11 @@ public sealed class PersonAssignmentPrecallInputs
                   AreaDevelopmentFocus.Agriculture => 2, AreaDevelopmentFocus.Barracks => 3, _ => null });
             current.SetAssignmentArea6D(area, Byte(state, AreaFieldKey(area, 0x6D)));
         }
+    }
+
+    public void BindCurrent(GameState state, SourceWorldContext current)
+    {
+        BindAreaAdministrationScalars(state, current);
         for (int person = 0; person < 1851; person++)
         {
             if (Word(state, PersonResetWord1FFKey(person)) is ushort word) current.WritePersonResetWord1FF(person, word);
@@ -213,4 +305,45 @@ public sealed partial class SourceWorldContext
     { Check(p, 1851, "Person area vector1D0"); _assignmentPersonAreas[p] = fields; }
     public PersonAreaAssignmentVector? ReadAssignmentPersonAreaVector(int p)
     { Check(p, 1851, "Person area vector1D0"); return _assignmentPersonAreas.GetValueOrDefault(p); }
+}
+
+
+public sealed partial class SourceWorldContext
+{
+    internal sealed record AreaAdministrationCheckpoint(
+        Dictionary<int, (ushort? Person, byte? Focus)> Areas, int City, ushort? Recruiter, ushort? Trainer,
+        int Force, (ushort? Person, byte? Target)[] Associations,
+        Dictionary<int, (bool Present, PersonAreaAssignmentVector? Original)> Vectors,
+        CurrentOrderedLists Lists);
+
+    internal AreaAdministrationCheckpoint CaptureAreaAdministrationCheckpoint(
+        IReadOnlyList<int> areas, int city, int force, IEnumerable<int> people)
+    {
+        var checkpoint = new AreaAdministrationCheckpoint(areas.Distinct().ToDictionary(a => a, a => (ReadAssignmentArea36(a), ReadAssignmentArea72(a))),
+            city, ReadAssignmentCityCA(city), ReadAssignmentCityCC(city), force,
+            Enumerable.Range(0, 3).Select(i => (ReadForceAssociationPersonId(new(force), i), ReadForceAssociationTargetSlot(new(force), i))).ToArray(), [], _orderedLists.Copy());
+        CaptureAreaAdministrationVectors(checkpoint, people);
+        return checkpoint;
+    }
+    internal void CaptureAreaAdministrationVectors(AreaAdministrationCheckpoint checkpoint, IEnumerable<int> people)
+    {
+        foreach (int person in people.Distinct())
+            if (!checkpoint.Vectors.ContainsKey(person))
+            {
+                Check(person, 1851, "Person area vector1D0");
+                bool present = _assignmentPersonAreas.TryGetValue(person, out var original);
+                checkpoint.Vectors.Add(person, (present, original));
+            }
+    }
+    internal void RestoreAreaAdministrationTemporaryLists(AreaAdministrationCheckpoint checkpoint) => _orderedLists = checkpoint.Lists;
+    internal void RestoreAreaAdministrationCheckpoint(AreaAdministrationCheckpoint checkpoint)
+    {
+        foreach (var (area, row) in checkpoint.Areas) { SetAssignmentArea36(area, row.Person); SetAssignmentArea72(area, row.Focus); }
+        SetAssignmentCityCA(checkpoint.City, checkpoint.Recruiter); SetAssignmentCityCC(checkpoint.City, checkpoint.Trainer);
+        for (int i = 0; i < 3; i++) SetAssignmentForceAssociation(checkpoint.Force, i, checkpoint.Associations[i].Person, checkpoint.Associations[i].Target);
+        foreach (var (person, vector) in checkpoint.Vectors)
+            if (vector.Present) _assignmentPersonAreas[person] = vector.Original;
+            else _assignmentPersonAreas.Remove(person);
+        RestoreAreaAdministrationTemporaryLists(checkpoint);
+    }
 }

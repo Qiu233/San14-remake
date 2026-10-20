@@ -41,8 +41,10 @@ public sealed record LcskDocument(string Signature, byte[] HeaderBytes,
 }
 
 /// <summary>
-/// Reads verified LCSK 8500/9500 containers, named sprite references, and UV pools.
+/// Reads verified LCSK 4500/5500/6500/7500/8500/9500 containers, named sprite references, and UV pools.
 /// Node records, animation records, and other pools retain their complete source bytes.
+/// The older signatures are verified for the audited static UI nodes only;
+/// retaining animation bytes does not interpret their version-specific format.
 /// This reader does not infer node transforms or draw source layouts.
 /// </summary>
 public static class LcskLayoutReader
@@ -52,12 +54,15 @@ public static class LcskLayoutReader
     private const int BlockHeaderSize = 28;
     private static readonly Encoding TextEncoding = new UTF8Encoding(false, true);
 
+    internal static bool IsSupportedSignature(string signature) =>
+        signature is "LCSK4500" or "LCSK5500" or "LCSK6500" or "LCSK7500" or "LCSK8500" or "LCSK9500";
+
     public static LcskDocument Read(ReadOnlySpan<byte> bytes)
     {
         if (bytes.Length < HeaderSize)
             throw new InvalidDataException("LCSK layout header is truncated.");
         string signature = Encoding.ASCII.GetString(bytes[..8]);
-        if (signature is not ("LCSK8500" or "LCSK9500"))
+        if (!IsSupportedSignature(signature))
             throw new InvalidDataException($"Unsupported LCSK layout signature {signature}.");
         if (BinaryPrimitives.ReadUInt32LittleEndian(bytes.Slice(8, 4)) != bytes.Length)
             throw new InvalidDataException("LCSK layout declared length differs.");

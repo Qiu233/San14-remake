@@ -241,6 +241,7 @@ public partial class MapSceneView : Control
             }
         });
         _surface.GuiInput += input => Run(() => OnInput(input));
+        _surface.MouseExited += () => _d3d11Markers?.ClearPointer();
         // Native Main renders at its canonical extent; resizing its hidden
         // preview only updates input coordinates, not the source camera.
         _surface.Resized += () => { if(!UseD3D11Map)Run(UpdateCamera); };
@@ -746,7 +747,7 @@ public partial class MapSceneView : Control
             _previewWorld.AddChild(_structureLayer);
         _structureLayer.Build(projection, TerrainMeshes, _logicalWorld,
             ForceMarkerColors, StructureNames,
-            _sceneModels?.ResolveFacilities(_logicalWorld));
+            _sceneModels?.ResolveFacilities(_logicalWorld), _text.Get("detail_unknown"));
             _structureLayer.SetViewportHeight(_surface.Size.Y);
         }
         for (int i = 0; i < _locations.Locations.Count; i++)
@@ -883,7 +884,7 @@ public partial class MapSceneView : Control
         _previewWorld.AddChild(_structureLayer);
         _structureLayer.Build(_projection, TerrainMeshes, world,
             ForceMarkerColors, StructureNames,
-            _sceneModels?.ResolveFacilities(world));
+            _sceneModels?.ResolveFacilities(world), _text.Get("detail_unknown"));
         _structureLayer.SetViewportHeight(_surface.Size.Y);
         _locationSelection.Clear();
         foreach (ProjectedMapLocation location in _locations.Locations)
@@ -952,6 +953,7 @@ public partial class MapSceneView : Control
 
     private void ClearPickedCell()
     {
+        CloseCityCommandMenu();
         _mapSelection.Clear();
         _openSelectedCity.Disabled = true;
         if (_mapCityInformation is not null) _mapCityInformation.Visible = false;
@@ -983,7 +985,7 @@ public partial class MapSceneView : Control
             _cellInfo.Text += "\n" + _text.Format("play_map_structure_here",
                 StructureNames is not null && StructureNames.TryGetValue(building.KindId, out string? knownName)
                     ? knownName : building.KindId,
-                building.Durability, building.MaxDurability);
+                building.Durability, building.MaxDurability?.ToString(CultureInfo.InvariantCulture) ?? _text.Get("detail_unknown"));
         if (selection.Units.Count > 0)
             _cellInfo.Text += "\n" + _text.Format("play_map_units_here", string.Join(_text.Get("list_separator"),
                 selection.Units.Select(unit => _text.Format("play_map_unit_here", unit.CommanderName, unit.Troops))));
@@ -1050,15 +1052,17 @@ public partial class MapSceneView : Control
         _unitLayer?.SelectUnit(next.Id);
     }
 
-    internal void SetDetailsOpen(bool open)
+    internal void SetDetailsOpen(bool open, bool keepMapVisible = false)
     {
+        if (open) { CloseCityCommandMenu(); _d3d11Markers?.ClearPointer(); }
         _detailsOpen = open;
         _dragging = false; _dragDistance = 0;
         SetMeta("city_details_open", open);
         SubViewport viewport = (SubViewport)_surface.GetChild(0);
         viewport.RenderTargetUpdateMode = open || UseD3D11Map ?
             SubViewport.UpdateMode.Disabled : SubViewport.UpdateMode.Always;
-        Visible = !open;
+        Visible = !open || keepMapVisible;
+        MapOverlayChanged?.Invoke(open);
         if (open) { _status.Text = _sceneSummary; RemoveMeta("city_details_error"); }
         else
         {
@@ -1087,6 +1091,7 @@ public partial class MapSceneView : Control
         if (inside && D3D11MapInteractive && _d3d11PresentedInput?.SourceFrame is { } armyFrame &&
             _d3d11Markers?.TryPickArmy(surfacePosition, armyFrame, out var armyHit) == true)
         {
+            if(PublishCommandTarget(armyHit.HexId))return;
             ShowPickedCell(armyHit.HexId, new(armyHit.Position.X, armyHit.Position.Y, armyHit.Position.Z));
             //Source hit preserves root identity; the existing playable command
             //UI selects that live player unit. Full original dispatch is separate.
@@ -1108,6 +1113,7 @@ public partial class MapSceneView : Control
         if(inside&&D3D11MapInteractive&&_d3d11PresentedInput?.SourceFrame is { } displayed&&
             _d3d11Markers is not null&&_d3d11Markers.TryPickMarker(surfacePosition,displayed,out int markerHex))
         {
+            if(PublishCommandTarget(markerHex))return;
             var markerPoint=_projection.Project(markerHex);
             ShowPickedCell(markerHex,new((float)markerPoint.X,
                 MapGrounding.SampleHeight(TerrainMeshes!,markerPoint.X,markerPoint.Z),(float)markerPoint.Z));
@@ -1116,6 +1122,7 @@ public partial class MapSceneView : Control
             _locationSelection.Select(markerIndex);_focusLocation.Disabled=markerIndex<0;
             if(markerIndex>=0)_d3d11Markers.Select(markerIndex);else _d3d11Markers.ClearSelection();
             _acceptHex?.Invoke(markerHex);
+            OpenPickedCityMenu(surfacePosition);
             return;
         }
         TerrainPick hit;
@@ -1123,11 +1130,13 @@ public partial class MapSceneView : Control
         if (!inside || !picked ||
             !_projection.TryPick(hit.Position.X, hit.Position.Z, out int hexId))
         {
+            if(_commandTargetPicked is not null)return;
             ClearPickedCell();
             _locations?.ClearSelection(); _locationSelection.Select(-1); _focusLocation.Disabled = true;
             _d3d11Markers?.ClearSelection();
             return;
         }
+        if(PublishCommandTarget(hexId))return;
         ShowPickedCell(hexId, hit.Position);
         SetMeta("picked_patch_index", hit.PatchIndex); SetMeta("picked_triangle_index", hit.TriangleIndex);
         int selected = -1;
@@ -1147,6 +1156,7 @@ public partial class MapSceneView : Control
         else if (selected >= 0) _locations!.Select(selected);
         else _locations?.ClearSelection();
         if (_embedded) _acceptHex?.Invoke(hexId);
+        OpenPickedCityMenu(surfacePosition);
     }
 
     private void UpdateCamera()
@@ -1254,25 +1264,38 @@ public partial class MapSceneView : Control
 
     private void OnInput(InputEvent input)
     {
+        if(_detailsOpen)return;
         if(UseD3D11Map && !D3D11MapInteractive)return;
+        if (IsCityCommandMenuOpen && input is InputEventMouseButton { Pressed: true })
+        {
+            CloseCityCommandMenu();
+            return;
+        }
+        UpdateMarkerPointer(input);
+        UpdateAdministrationMapHover(input);
         if(HandleSourceCameraInput(input))return;
         if (input is InputEventMouseButton button)
         {
             if (button.ButtonIndex == MouseButton.Left)
             {
-                if (_embedded && button.Pressed && button.DoubleClick && _openCityDetails is not null)
+                if (_embedded && button.Pressed && button.DoubleClick && _commandTargetPicked is null&&_openCityDetails is not null)
                 {
                     _dragging = false;
                     PickTerrain(button.Position);
                     if (_mapSelection.Current?.CityDetails?.Id is int cityId) _openCityDetails(cityId);
                     return;
                 }
-                if (button.Pressed) { _dragging = true; _pressPosition = button.Position; _dragDistance = 0; }
+                if (button.Pressed)
+                {
+                    _dragging=true;_pressPosition=button.Position;_dragDistance=0;
+                    _commandTargetPressAllowed=CommandTargetPointerDown(button.Position);
+                }
                 else
                 {
                     bool click = _dragging && _dragDistance <= 4 && _pressPosition.DistanceTo(button.Position) <= 4;
                     _dragging = false;
-                    if (click) PickTerrain(button.Position);
+                    if(click&&(_commandTargetPicked is null||_commandTargetPressAllowed))PickTerrain(button.Position);
+                    _commandTargetPressAllowed=false;
                 }
             }
             if (_embedded && button.ButtonIndex is MouseButton.Right or MouseButton.Middle)

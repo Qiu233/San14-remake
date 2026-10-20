@@ -6,17 +6,20 @@ internal sealed record MapTextCache(int Left, int Top, int Width, int Height,
     float[] Offset, float[] Stroke, float[] Body)
 {
     internal static MapTextCache Build(MapFontSource source, string value,
-        MapFontProfile profile)
+        MapFontProfile profile,IReadOnlyList<uint?>? glyphColours=null)
     {
-        var glyphs = new List<(G1FontGlyphPixels Glyph, int X, int Y, int Width, int Height)>();
+        if(glyphColours is not null&&glyphColours.Count!=value.Length)
+            throw new ArgumentException("Text colour runs must cover the complete UTF16 line.",nameof(glyphColours));
+        var glyphs = new List<(G1FontGlyphPixels Glyph, int X, int Y, int Width, int Height,uint? Colour)>();
         int cursor = 0;
+        int glyphIndex=0;
         foreach (char code in value)
         {
             var glyph = source.Glyph(code, profile.Face, profile.Palette);
             var record = glyph.Record;
             glyphs.Add((glyph, cursor + (int)(record.HorizontalOffsetX * profile.ScaleX),
                 -(int)(record.HorizontalOffsetY * profile.ScaleY),
-                (int)(record.Width * profile.ScaleX), (int)(record.Height * profile.ScaleY)));
+                (int)(record.Width * profile.ScaleX), (int)(record.Height * profile.ScaleY),glyphColours?[glyphIndex++]));
             cursor += (int)(record.HorizontalAdvance * profile.ScaleX) + profile.HorizontalSpace;
         }
         var strokeOffsets = profile.HasStroke ? profile.StrokeOffsets().ToArray() : [];
@@ -39,19 +42,21 @@ internal sealed record MapTextCache(int Left, int Top, int Width, int Height,
             foreach (var offset in strokeOffsets)
                 Run(cache.Stroke, offset.X, offset.Y,
                     [profile.StrokeColour, profile.StrokeColour, profile.StrokeColour, profile.StrokeColour]);
-        Run(cache.Body, 0, 0, [profile.ColourLT, profile.ColourRT, profile.ColourRB, profile.ColourLB]);
+        Run(cache.Body, 0, 0, [profile.ColourLT, profile.ColourRT, profile.ColourRB, profile.ColourLB],body:true);
         return cache;
 
-        void Run(float[] destination, int dx, int dy, uint[] colours)
+        void Run(float[] destination, int dx, int dy, uint[] colours,bool body=false)
         {
             foreach (var g in glyphs)
+            {
+                uint[] current=body&&g.Colour is uint colour?[colour,colour,colour,colour]:colours;
                 for (int y = 0; y < g.Height; y++)
                     for (int x = 0; x < g.Width; x++)
                     {
                         float fx = (x + .5f) / g.Width, fy = (y + .5f) / g.Height;
                         var texel = Sample(g.Glyph, fx * g.Glyph.Record.Width - .5f,
                             fy * g.Glyph.Record.Height - .5f);
-                        var tint = Corner(colours, fx, fy);
+                        var tint = Corner(current, fx, fy);
                         float alpha = texel[3] * tint[3];
                         // Stock PS3 / 95E970 rejects zero coverage before the
                         // ONE blend, so transparent body texels keep clear RGB.
@@ -63,6 +68,7 @@ internal sealed record MapTextCache(int Left, int Top, int Width, int Height,
                             destination[at + c] = Math.Clamp(texel[c] * tint[c] + destination[at + c] * (1 - alpha), 0, 1);
                         destination[at + 3] = alpha + destination[at + 3] * (1 - alpha);
                     }
+            }
         }
     }
 

@@ -309,7 +309,7 @@ public sealed partial class CaptureReturningPersonHomeSource(ArmyCampaignRuleAda
     {
         public ArmyReturnGovernorComparatorFields? ReadCurrentComparatorFields(int physical) => inputs.ReadCurrentComparatorFields(state, physical);
         public int? ReadCurrentAssociatedVirtual98(PersonLinkedEntityReference reference) =>
-            reference.Identity is int receiver && current.ReadOwnedPersonCommandManager()?.Tasks.ContainsKey(receiver) == true
+            reference.Identity is int receiver && current.ReadOwnedPersonCommandManager()?.Returns.ContainsKey(receiver) == true
                 ? 15 : null; //Actual1EDB40, read only after a live associated receiver is reached.
     }
 }

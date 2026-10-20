@@ -58,6 +58,16 @@ public sealed class ArmyMapGroupingFrame
 public sealed class ArmyMapGroupingOwner
 {
     private ushort?[,] _roots = new ushort?[501, 3];
+    /// <summary>Starts a private game operation, preserving unknown and excluded roots.</summary>
+    internal ArmyMapGroupingOwner Copy() => new() { _roots = (ushort?[,])_roots.Clone() };
+    internal ushort?[] Export() => Enumerable.Range(0, 1503).Select(i => _roots[i / 3, i % 3]).ToArray();
+    internal void Import(ushort?[] roots)
+    {
+        if (roots is not { Length: 1503 } || roots.Any(v => v > 500)) throw new InvalidDataException("Grouping continuation is invalid.");
+        var copy = new ushort?[501, 3];
+        for (int i = 0; i < roots.Length; i++) copy[i / 3, i % 3] = roots[i];
+        _roots = copy;
+    }
     public void InitializeKnownReset(IEnumerable<int> physicalSlots)
     { foreach (int physical in physicalSlots) ResetReceiver(physical); }
     public void ResetReceiver(int physical)

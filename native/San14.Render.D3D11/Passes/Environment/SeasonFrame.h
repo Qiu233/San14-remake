@@ -112,6 +112,9 @@ inline void decodeShadowInputs(Frame& frame){
     settings.rectangleOverride=importedMainField<uint32_t>(frame,0xa84);
     settings.cascadeSplits={importedMainField<float>(frame,0x9f4),
         importedMainField<float>(frame,0x9f8),importedMainField<float>(frame,0x9fc)};
+    settings.perCascadeBias=importedMainField<uint32_t>(frame,0xa40);
+    settings.depthBias={importedMainField<float>(frame,0xa08),importedMainField<float>(frame,0xa10),
+        importedMainField<float>(frame,0xa18),importedMainField<float>(frame,0xa20)};
     settings.halfFovTangent=frame.atmosphere[196/4];
     frame.shadowReceiver={read<int32_t>(frame.main,0x3ac),
         read<float>(frame.main,0x27c),read<float>(frame.main,0x3bc)};

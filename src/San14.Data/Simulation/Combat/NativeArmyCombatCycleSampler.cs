@@ -40,6 +40,38 @@ public sealed class NativeArmyCombatCycleSampler
         return new(clock, season, new(unchecked(epoch.Day450 + (int)advancedDays), epoch.Salt45C));
     }
 
+    /// <summary>The actual scheduler stage6 sampler. Stage2 may already have
+    /// advanced waiting in this cycle while the saved calendar still names the
+    /// block's initial boundary. Neither clock is rewritten to hide that offset.</summary>
+    public static NativeArmyCombatCycleSampler? CreateAtManualIntervention(GameState state,
+        NativeArmyProgressStageMoment moment)
+    {
+        ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(moment);
+        if (moment.SchedulerStageIndex != (byte)NativeArmyProgressStage.ManualTacticIntervention ||
+            moment.Boundary != NativeArmyProgressStageBoundary.StageEntry ||
+            moment.CycleWithinAtomicBlock is < 0 or >= NativeArmyProgressAtomicRuntime.CyclesPerSaveBlock ||
+            state.NativeClock is not { } clock || state.NativeMapSeason is not { } season ||
+            state.NativeArmySimulation?.World.SamplerEpoch is not { } epoch ||
+            moment.CalendarCycleOrdinal != checked(season.AdvancedCalendarSteps + moment.CycleWithinAtomicBlock) ||
+            clock.Revision != season.NativeClockRevision || epoch.NativeClockRevision != clock.Revision ||
+            epoch.SourceScenarioUri != season.SourceScenarioUri || epoch.SourceScenarioSha256 != season.SourceScenarioSha256 ||
+            epoch.SourceWorldSha256 != season.SourceWorldSha256 ||
+            state.ContentHashes.GetValueOrDefault(epoch.SourceScenarioUri) != epoch.SourceScenarioSha256) return null;
+        MapSeasonRuntime.ValidateOwned(season);
+        var date = season.ThirdDate;
+        long advancedDays = season.AdvancedDays, waiting = 0;
+        for (int cycle = 0; cycle <= moment.CycleWithinAtomicBlock; cycle++)
+        {
+            //This reached cycle's stage2 precedes stage6 as well.
+            if (NativeArmyProgressAtomicRuntime.IsArmyWaitingDue(date)) waiting++;
+            if (cycle == moment.CycleWithinAtomicBlock) break;
+            var step = MapSeasonRuntime.StepCalendarWriter(date); date = step.Date;
+            if (step.DayAdvanced) advancedDays++;
+        }
+        if (date != moment.PreWriterThirdDate || clock.UpdateOrdinal != checked(season.ProcessedNativeOrdinal + waiting)) return null;
+        return new(clock, season, new(unchecked(epoch.Day450 + (int)advancedDays), epoch.Salt45C));
+    }
+
     public TacticSourceSamplerWorld? Read(GameState current) =>
         current.NativeClock == clock && current.NativeMapSeason == savedBoundary ? world : null;
 }

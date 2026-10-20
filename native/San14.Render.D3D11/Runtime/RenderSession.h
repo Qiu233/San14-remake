@@ -11,6 +11,7 @@
 #include <d3d11.h>
 #include "../Camera/CameraState.h"
 #include "../Scene/Terrain/TerritoryOwnership.h"
+#include "../Scene/Terrain/CommandMap.h"
 #include "../Scene/Models/ArmyWorldPublication.h"
 #include "../Scene/Models/ArmyUnitHeight.h"
 #include "RenderConfiguration.h"
@@ -69,6 +70,7 @@ struct RenderHost {
     ID3D11DeviceContext* context{};
     RenderInput input;
     TerritoryOwnershipPublication territoryOwnership;
+    source_command_map::Publication commandMap;
     std::optional<ArmyWorldPublication> armyWorld;
     std::optional<source_current_season::Frame> currentSeason;
     std::optional<CityGateWorldPublication> cityGateWorld;

@@ -1,11 +1,21 @@
 {
+  "sourceTypography": true,
+  "miniMapNode": "Preset_cmn_map_s",
+  "sourceTextPresets": {
+    "13": [13, 15, 17, 22, 24, 32, 39, 47, 52, 57, 62, 67, 72, 77, 84, 94, 99, 104, 110, 115, 120, 126, 133, 138, 145, 151, 165, 173, 177, 182, 187, 192],
+    "0": [14, 146, 152, 154, 156]
+  },
   "layoutId": "0C53E31A",
-  "origin": [190, 200],
+  "origin": [191, 197],
   "selectionLabel": [215, 270, 74, 40],
+  "selectionHeaderKey": "detail_city_kind",
+  "selectionHeader": { "x": 213, "y": 214, "width": 76 },
+  "selectionRow": { "x": 213, "y": 264, "leadingCell": false },
+  "selectionScrollbar": { "x": 293, "y": 265, "height": 597 },
   "frame": {
-    "layoutId": "03798956",
+    "layoutId": "A3B4A82E",
     "node": "000_cmn_base_dialog_00",
-    "origin": [190, 194]
+    "origin": [191, 194]
   },
   "texts": {
     "txt_basho_fc001": { "value": "city" },
@@ -16,7 +26,9 @@
     "cap_gundan_fc014": { "key": "districts" },
     "txt_gundan_fc001": { "value": "district" },
     "cap_chihou_fc014": { "key": "detail_geographic_region" },
+    "txt_chihou_fc001": { "value": "geographicRegion" },
     "cap_shuu_fc014": { "key": "detail_province" },
+    "txt_shuu_fc001": { "value": "province" },
     "cap_taikyu_fc014": { "key": "durability" },
     "val_taikyu_l_fc001": { "value": "durability" },
     "val_taikyu_r_fc001": { "value": "durabilityCapacity" },

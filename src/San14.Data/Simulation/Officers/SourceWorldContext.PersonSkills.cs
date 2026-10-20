@@ -8,6 +8,7 @@ public sealed partial class SourceWorldContext : IPersonSkillPostLoadState
     private readonly Dictionary<(int Person, int Index), byte?> _personTacticSlots168 = [];
     private readonly Dictionary<int, byte?> _tacticFlags44 = [], _gemTacticCodes52 = [], _gemValidityCodes53 = [];
     private readonly Dictionary<int, IReadOnlyList<int>?> _tacticEncodedValues70 = [];
+    internal Func<int, byte?>? CurrentTacticQualificationFlagsReader { get; set; }
 
     /// <summary>Load the CE static windows without resetting omitted runtime
     /// mask1BC/extra1BE fields or reconstructing raw slots from UI projections.</summary>
@@ -74,10 +75,15 @@ public sealed partial class SourceWorldContext : IPersonSkillPostLoadState
     public byte? ReadSkillTacticFlags(TacticReference reference)
     {
         int physical = MapPhysical(reference.PhysicalSlot, 201, "skill tactic receiver");
+        if (CurrentTacticQualificationFlagsReader is { } reader) return reader(physical);
         if (!_tacticEncodedValues70.TryGetValue(physical, out var values) || values is null) return null;
         if (values.Count != 10) return _tacticFlags44.GetValueOrDefault(physical);
-        byte encoded = unchecked((byte)values[0]);
-        return (byte)(((encoded << 1) | (encoded >> 7)) ^ (byte)physical);
+        return DecodeSkillTacticFlags(physical, values[0]);
+    }
+    internal static byte DecodeSkillTacticFlags(int physical, int encoded)
+    {
+        byte value = unchecked((byte)encoded);
+        return (byte)(((value << 1) | (value >> 7)) ^ (byte)physical);
     }
     public void SetSkillTacticFlags44(int physical, byte? value) { Check(physical, 201, "tactic receiver"); _tacticFlags44[physical] = value; }
     public void SetSkillTacticEncodedValues(int physical, IReadOnlyList<int>? values)

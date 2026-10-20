@@ -26,7 +26,7 @@ public static class PersonReturnArrivalSource
             if (!ReferenceEquals(pool.ArmyReturnOwner, current) || !pool.OwnsArmyReturnProfile())
                 throw Unknown("current.primary_pool_owner");
             var manager = current.ReadOwnedPersonCommandManager() ?? throw Unknown("current.Command_manager");
-            var command = manager.Tasks.GetValueOrDefault(receiverIdentity) ?? throw Unknown("current.Command_receiver");
+            var command = manager.Returns.GetValueOrDefault(receiverIdentity) ?? throw Unknown("current.Command_receiver");
             if (command.DispatchSlot is null)
                 throw Unknown("branch.invalid_Return_command");
             if (!Known(current.ReadBaseNativeValidity(target), "current.target_Base_validity"))
@@ -69,32 +69,19 @@ public static class PersonReturnArrivalSource
             affected = NewTemporary(current); order.Add("271320.affected_Base_temporary");
             bool appended = admit && AppendBase88(current, target, person);
             if (admit) order.Add("258C30.target_Base88");
-            AppendBase(current, affected, old);
-            current.WritePersonFirstLocation(person, destination); order.Add("271767.PersonE2");
-            current.WritePersonSecondLocation(person, destination); order.Add("2717B2.PersonE4");
-            Governor(target); Primary(district); //2717DD,271801.
-            Governor(old); Primary(district); //27185A,27187E: repeat even old==target.
+            ArmyReturnCommanderHomeUpdater.AppendAffectedBase(current, affected, old, Unknown);
+            governors.AddRange(ArmyReturnCommanderHomeUpdater.ApplyPreparedPersonLocationsCurrent(person,
+                target, old, destination, current, queries, district, district, sourceEffect: order.Add,
+                unresolved: Unknown, governorMissing: "current.Governor_update"));
             ClearRelease(current, affected); affected = null; order.Add("271320.affected_release");
             ClearRelease(current, caller); caller = null; order.Add("32B190.caller_release");
             var result = OwnedArmyReturnCurrentFields.PublishCurrent(state, current);
             result = OwnedArmyLifecycleDetachedInputs.PublishCurrent(result, current);
-            result = (result with { PersonnelReturns = current.ReadOwnedPersonCommandManager() }).WithArmyLifecycle(result.ReadArmyLifecycle()! with { Indexes = pool.ExportOwnedState() });
+            result = (result with { PersonnelCommands = current.ReadOwnedPersonCommandManager() }).WithArmyLifecycle(result.ReadArmyLifecycle()! with { Indexes = pool.ExportOwnedState() });
             ArmyLifecycleSaveValidation.Validate(result);
             return new(result, new(receiverIdentity, person, target, destination, appended, OfficerHealthRules.IsInjured(health), 1,
                 governors.AsReadOnly(), order.AsReadOnly()), null);
 
-            void Governor(BaseReference at)
-            {
-                var update = ArmyReturnGovernorUpdater.PrepareCurrent(at, current, queries);
-                var packet = update.Packet ?? throw Unknown(update.UnresolvedOwner ?? "current.Governor_update");
-                ArmyReturnCommanderHomeUpdater.ApplyGovernorOwned(current, packet);
-                governors.Add(packet); order.Add("282C10→26D090.Base" + at.PhysicalSlot);
-            }
-            void Primary(DistrictReference at)
-            {
-                governors.AddRange(ArmyReturnCommanderHomeUpdater.ApplyPrimaryOwned(at, current, queries));
-                order.Add("2E9140.primary_District" + at.PhysicalSlot);
-            }
         }
         catch (InvalidDataException error) { return new(null, null, error.Message); }
         finally
@@ -131,12 +118,6 @@ public static class PersonReturnArrivalSource
         if (!added.Identity.HasValue) throw Unknown("branch.Base88_node_allocation");
         current.WriteRegistryNodePayload(added, new(RegistryKind.Person, person));
         return true;
-    }
-    private static void AppendBase(SourceWorldContext current, HexListHandle list, BaseReference target)
-    {
-        var node = current.AllocateBaseRegistryNode(new(list.Identity)) ?? throw Unknown("current.affected_Base_node");
-        if (!node.Identity.HasValue) throw Unknown("branch.affected_Base_node_allocation");
-        current.WriteBaseRegistryNodePayload(node, target);
     }
     private static HexListHandle NewTemporary(SourceWorldContext current)
     {

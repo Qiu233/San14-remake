@@ -56,14 +56,30 @@ public sealed class TacticRemakeCurrentAbilities : IEffectiveOfficerAbilities
         StateValidator.Validate(result); return result;
     }
 
-    public OfficerAbilities? Resolve(GameState state, int officerId)
+    public OfficerAbilities? Resolve(GameState state, int officerId) =>
+        ResolveCore(state, officerId, null, null);
+
+    /// <summary>The same current ability algorithm for one consumed dimension.
+    /// Other caps and doctrine panels are not queried. An optional current
+    /// panel reader supplies an already owned mutable doctrine value.</summary>
+    public int? ResolveDimension(GameState state, int officerId, int dimension,
+        Func<int, int, int?>? panelReader = null)
+    {
+        if (dimension is < 0 or > 4) throw new ArgumentOutOfRangeException(nameof(dimension));
+        var result = ResolveCore(state, officerId, dimension, panelReader);
+        return result is null ? null : Values(result)[dimension];
+    }
+
+    private OfficerAbilities? ResolveCore(GameState state, int officerId, int? dimension,
+        Func<int, int, int?>? panelReader)
     {
         if (!Bound(state) || !state.Officers.TryGetValue(officerId, out OfficerState? officer) ||
             officer.AbilityState is not { } abilities ||
             _current.ResolveOfficerSource(officerId) is not int physical ||
             officer.BaseAbilities is not { } basic || OfficerServiceStatusSourceAdapter.Encode(officer.ServiceStatus) is not byte status ||
             officer.Health is not { } healthState || OfficerMeritRules.IsStageOne(officer.MeritState) is not bool stageOne ||
-            abilities.OrdinaryLimit is not int ordinaryCap || abilities.CharmLimit is not int charmCap)
+            (dimension != 4 && abilities.OrdinaryLimit is null) ||
+            (dimension is null or 4 && abilities.CharmLimit is null))
             return null;
         //CPersonData V18: physical slot0 is invalid; the flags4000 branch uses
         //the current appendix tail, while ordinary identities use status11E.
@@ -93,14 +109,17 @@ public sealed class TacticRemakeCurrentAbilities : IEffectiveOfficerAbilities
             }
         }
         OfficerAbilities? appointment = Appointment(state, officer, status);
-        OfficerAbilities? doctrine = Doctrine(state, officer);
+        OfficerAbilities? doctrine = Doctrine(state, officer, dimension, panelReader);
         if (health is null || secondary is null || appointment is null || doctrine is null ||
             !ItemAbilityBonuses.TryCalculate(state, officerId, out OfficerAbilities? items, 10)) return null;
-        int? forcedCharm = state.Items!.TryGetValue(123, out ItemState? seal) &&
+        int? forcedCharm = dimension is null or 4 && state.Items!.TryGetValue(123, out ItemState? seal) &&
             seal.IsPresent == true && seal.Holder?.OfficerId == officerId ? 100 : null;
         int Calc(int kind, int cap, int? forced = null) => EffectiveOfficerAbilityResolver.Calculate(Values(basic)[kind],
             health.Value, secondary.Value, Values(doctrine)[kind], Values(appointment)[kind], Values(items!)[kind], cap, forced);
-        return new(Calc(0, ordinaryCap), Calc(1, ordinaryCap), Calc(2, ordinaryCap), Calc(3, ordinaryCap), Calc(4, charmCap, forcedCharm));
+        int One(int kind) => dimension is int selected && selected != kind ? 0
+            : Calc(kind, (kind == 4 ? abilities.CharmLimit : abilities.OrdinaryLimit)!.Value,
+                kind == 4 ? forcedCharm : null);
+        return new(One(0), One(1), One(2), One(3), One(4));
     }
 
     private static OfficerAbilities? Appointment(GameState state, OfficerState officer, byte status)
@@ -122,7 +141,8 @@ public sealed class TacticRemakeCurrentAbilities : IEffectiveOfficerAbilities
         return id == 0 || office.CommandLimit == 0 ? Zero : office.AbilityBonus with { Charm = 0 };
     }
 
-    private static OfficerAbilities? Doctrine(GameState state, OfficerState officer)
+    private static OfficerAbilities? Doctrine(GameState state, OfficerState officer, int? dimension,
+        Func<int, int, int?>? panelReader)
     {
         int? doctrine = OfficerDoctrineRules.ReadDoctrineId(officer.DoctrineId, officer.AbilityState);
         if (doctrine == 0) return Zero;
@@ -132,12 +152,14 @@ public sealed class TacticRemakeCurrentAbilities : IEffectiveOfficerAbilities
         var values = new int[5];
         for (int kind = 0; kind < 5; kind++)
         {
+            if (dimension is int selected && selected != kind) continue;
             int effect = kind + doctrine.Value * 5 - 3;
             if (effects.IsEnabled(effect) is not bool enabled) return null;
             if (!enabled) continue;
-            //An active current definition7C requires its own definition writer;
-            //a fixed catalog entry alone is not a current mutable value.
-            return null;
+            // A fixed catalog alone is not current knowledge. The caller can
+            // supply the existing saved panel owner for its consumed dimension.
+            if (panelReader is null || panelReader(forceId, effect) is not int value) return null;
+            values[kind] = value;
         }
         return new(values[0], values[1], values[2], values[3], values[4]);
     }

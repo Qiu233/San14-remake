@@ -18,6 +18,11 @@ public sealed class ArmyReturnCommanderHomePacket
     }
 }
 
+internal sealed record PersonHomeTransferPacket(int PersonPhysical, BaseReference Target,
+    bool Base88Appended, IReadOnlyList<ArmyReturnGovernorPacket> GovernorUpdates,
+    PersonAssignmentPrecallResult? AssignmentPrecall);
+internal sealed record PersonHomeTransferResolution(PersonHomeTransferPacket? Packet, string? UnresolvedOwner);
+
 /// <summary>29F220's successful one-Commander temporary-list call to271320:
 /// ordinary role1..4, same Force/District with same or changed City. Executes actual
 /// owned Base+88 admission, Person locations, governor/District calls and
@@ -82,27 +87,211 @@ public static class ArmyReturnCommanderHomeUpdater
                 if (assignmentPrecall.NativeReturn is null)
                     throw Missing(assignmentPrecall.UnresolvedOwner ?? "current.29C430_changed_City");
             }
-            draft.WritePersonFirstLocation(commander, location); //271767.
-            draft.WritePersonSecondLocation(commander, location); //2717B2,role1..4.
-            var updates = new List<ArmyReturnGovernorPacket>();
-            ApplyGovernor(target); ApplyPrimary(district); //2717DD/271801.
-            ApplyGovernor(oldBase);
-            ApplyPrimary(draft.ReadBaseDistrictReference(oldBase) ?? throw Missing("current.old_Base_District")); //27185A/27187E.
+            var updates = ApplyPreparedPersonLocationsCurrent(commander, target, oldBase, location,
+                draft, queries, district);
             return new(new(army, target, commander, appended, updates.ToArray(), assignmentPrecall), null);
-
-            void ApplyGovernor(BaseReference at)
-            {
-                var result = ArmyReturnGovernorUpdater.PrepareCurrent(at, draft, queries);
-                var update = result.Packet ?? throw Missing(result.UnresolvedOwner ?? "current.Governor_unknown");
-                ApplyGovernorOwned(draft, update); updates.Add(update);
-            }
-            void ApplyPrimary(DistrictReference at)
-            {
-                updates.AddRange(ApplyPrimaryOwned(at, draft, queries));
-            }
         }
         catch (MissingOwner error) { return new(null, error.Message); }
         catch (InvalidDataException error) { return new(null, "current.CommanderHome_input: " + error.Message); }
+    }
+
+    /// <summary>271320's single ordinary Person body. The enclosing caller
+    /// owns its actual one-Person list; this entry owns only the nested affected
+    /// Base list and writes the same operation-local current, without publication.
+    /// Unsupported special/old-Base/District/status branches remain unknown.</summary>
+    internal static PersonHomeTransferResolution ApplyPersonCurrent(int person, BaseReference target,
+        SourceWorldContext current, WorldIndexContext pool, IArmyReturnGovernorCurrentQueries queries,
+        Action<PersonAssignmentPrecallResult>? receiveAssignment = null)
+    {
+        HexListHandle? affected = null;
+        try
+        {
+            if (!ReferenceEquals(pool.ArmyReturnOwner, current) || !pool.OwnsArmyReturnProfile())
+                throw Missing("current.complete_owned_shared_pool");
+            if (current.RegistryLockEnabledReader is not null || current.RegistryDescriptorKeyReader is not null ||
+                current.RegistryHeadTablePresenceReader is not null || current.RegistryLockEnabled != false ||
+                current.RegistryHeadTablePresent != true)
+                throw Missing("current.owned_sequential_list_profile");
+            //The caller resolved destination through32C7D0. This finite Base
+            //entry retains that actual object's location identity.
+            ushort destination = Get(current.ReadBaseObjectLink(target), "current.PersonHome_target_Base4E");
+            if (destination is < 1 or > 61 || BaseLookup.Find(destination, current) != target)
+                throw Missing("branch.PersonHome_target_location_profile");
+            affected = current.CreateTemporaryHexList() ?? throw Missing("current.PersonHome_affected_descriptor");
+            if (!affected.Identity.HasValue) throw Missing("branch.PersonHome_affected_descriptor_allocation");
+            ushort identity = Get(current.ReadPersonIdentity(person), "current.PersonHome_Person10");
+            if (SpecialId(identity)) throw Missing("branch.PersonHome_special_Person");
+            if (!Get(OfficerBehaviorRules.UsesOrdinaryPersonRules(current.ReadPersonBehavior(person)), "current.PersonHome_flags15E_bit14"))
+                throw Missing("branch.PersonHome_special_rules");
+            ushort first = Get(current.ReadPersonFirstLocation(person), "current.PersonHome_oldE2");
+            var oldBase = BaseLookup.Find(first, current);
+            uint flags = Get(current.ReadWorldTransferServiceFlags(), "current.PersonHome_World16A8");
+            bool appended = false;
+            if ((flags & 0x100) == 0)
+            {
+                byte rawDistrict = Get(current.ReadPersonDistrictSlot(person), "current.PersonHome_oldE0");
+                var oldDistrict = current.ReadDistrictTableReference(rawDistrict <= 51 ? rawDistrict : 0)
+                    ?? throw Missing("current.PersonHome_old_District");
+                if (PlayerRulerDistrict(current, oldDistrict) || PlayerRulerDistrict(current,
+                    current.ReadBaseDistrictReference(target) ?? throw Missing("current.PersonHome_target_District")))
+                    appended = AppendBase88(current, target, person);
+            }
+            if (!Get(current.ReadBaseNativeValidity(oldBase), "current.PersonHome_old_Base_validity"))
+                throw Missing("branch.PersonHome_invalid_old_Base");
+            var oldCity = CurrentGateMapQueries.FindCity(oldBase, current);
+            var newCity = CurrentGateMapQueries.FindCity(target, current);
+            PersonAssignmentPrecallResult? assignment = null;
+            if (oldCity != newCity)
+            {
+                var district = current.ReadBaseDistrictReference(target) ?? throw Missing("current.PersonHome_cleanup_District");
+                assignment = PersonAssignmentPrecallSource.Apply29C430ForHomeTransfer(current, person, district, target);
+                receiveAssignment?.Invoke(assignment);
+                if (assignment.NativeReturn is null) throw Missing(assignment.UnresolvedOwner ?? "current.PersonHome_29C430");
+            }
+            byte personDistrict = Get(current.ReadPersonDistrictSlot(person), "current.PersonHome_PersonE0");
+            if (personDistrict != Get(current.ReadBaseDistrictSlot(target), "current.PersonHome_target_virtual78"))
+                throw Missing("branch.PersonHome_different_District");
+            //The source repeats old-Base validity before its pointer-deduped
+            //affected append, even after a successful first validity test.
+            if (!Get(current.ReadBaseNativeValidity(oldBase), "current.PersonHome_old_Base_validity_repeated"))
+                throw Missing("branch.PersonHome_changed_old_Base_validity");
+            AppendAffectedBase(current, affected, oldBase);
+            var updates = ApplyPreparedPersonLocationsCurrent(person, target, oldBase, destination,
+                current, queries, readCurrentStatus: true, readTargetValidity: true);
+            return new(new(person, target, appended, updates, assignment), null);
+        }
+        catch (MissingOwner error) { return new(null, error.Message); }
+        catch (InvalidDataException error) { return new(null, "current.PersonHome_input: " + error.Message); }
+        finally
+        {
+            if (affected is not null)
+            { current.ClearTemporaryHexList(affected); current.ReleaseTemporaryHexList(affected); }
+        }
+    }
+
+    /// <summary>Mirror only this successful Person relocation and the ordered
+    /// governor packets' actual stores. The live pool is neither exported nor
+    /// imported; assignment cleanup is published by its existing owner.</summary>
+    internal static GameState PublishPersonCurrent(GameState state, SourceWorldContext current,
+        PersonHomeTransferPacket packet)
+    {
+        if (state.NativeArmySimulation is not { } simulation ||
+            simulation.Parameters.Int32Values.GetValueOrDefault(OwnedArmyLifecycleDetachedInputs.VersionKey) != 1)
+            throw new InvalidDataException("current.PersonHome_saved_detached_owner");
+        var people = new Dictionary<int, OfficerState>(state.Officers);
+        var cities = new Dictionary<int, CityState>(state.Cities);
+        var gates = new Dictionary<int, GateState>(state.Gates);
+        var values = new Dictionary<string, int>(simulation.Parameters.Int32Values);
+        ushort id = Identity(packet.PersonPhysical);
+        var person = people[id];
+        ushort first = current.ReadPersonFirstLocation(packet.PersonPhysical)
+            ?? throw new InvalidDataException("current.PersonHome_published_E2");
+        byte district = current.ReadPersonDistrictSlot(packet.PersonPhysical)
+            ?? throw new InvalidDataException("current.PersonHome_published_E0");
+        var location = current.ReadOfficerLocation(id)
+            ?? throw new InvalidDataException("current.PersonHome_published_location");
+        int? forceId = person.ForceId;
+        if (person.DistrictId != (district == 0 ? null : (int?)district))
+        {
+            var force = current.ReadPersonForce(packet.PersonPhysical)
+                ?? throw new InvalidDataException("current.PersonHome_published_Force");
+            int physical = current.ReadForcePhysicalSlot(force)
+                ?? throw new InvalidDataException("current.PersonHome_published_Force_identity");
+            forceId = physical == 0 ? null : physical;
+        }
+        people[id] = person with { LocationId = first == 0 ? null : first,
+            DistrictId = district == 0 ? null : district, ForceId = forceId, LocationState = location };
+        values[OwnedArmyLifecycleDetachedInputs.Key("Person", packet.PersonPhysical, "E2")] = first;
+        values[OwnedArmyLifecycleDetachedInputs.Key("Person", packet.PersonPhysical, "E0")] = district;
+        var residue = current.ReadOfficerLocationResidue(id);
+        var resources = CampaignSourceKnowledge.From(state.ResourceState).With(new(id,
+            location.Position?.Kind == OfficerPositionKind.Unresolved ? residue?.LocationCode : null,
+            location.Membership?.Kind == OfficerDistrictMembershipKind.Unresolved ? residue?.DistrictCode : null));
+        foreach (var update in packet.GovernorUpdates)
+        {
+            foreach (var write in update.PersonWrites)
+            {
+                ushort changedId = Identity(write.PersonPhysical);
+                var changed = people[changedId];
+                var status = OfficerServiceStatusSourceAdapter.Decode(write.StatusAfter);
+                people[changedId] = changed with { ServiceStatus = status,
+                    Role = OfficerServiceRules.PublishedRole(status, changed.Role) };
+            }
+            if (update.Base.PhysicalSlot is not int physicalBase)
+                throw new InvalidDataException("current.PersonHome_Governor_Base_identity");
+            ushort governor = update.GovernorWord2EAfter;
+            if (update.Base.Kind == BaseKind.City && cities.TryGetValue(physicalBase, out var city) &&
+                city.NativeReturnRuntime is { } runtime)
+                cities[physicalBase] = city with { GovernorId = governor == 0 ? null : governor,
+                    NativeReturnRuntime = runtime with { Governor2E = governor } };
+            else if (update.Base.Kind == BaseKind.Gate && gates.TryGetValue(physicalBase + 51, out var gate))
+            {
+                gates[gate.Id] = gate with { GovernorId = governor == 0 ? null : governor };
+                values[OwnedArmyLifecycleDetachedInputs.Key("Gate", physicalBase, "2E")] = governor;
+            }
+            else throw new InvalidDataException("current.PersonHome_Governor_saved_Base");
+        }
+        return state with { Officers = people, Cities = cities, Gates = gates, ResourceState = resources,
+            NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = values } } };
+
+        ushort Identity(int physical)
+        {
+            ushort identity = current.ReadPersonIdentity(physical)
+                ?? throw new InvalidDataException("current.PersonHome_publication_Person_identity");
+            if (current.ResolveOfficerSource(identity) != physical || !people.ContainsKey(identity))
+                throw new InvalidDataException("current.PersonHome_publication_saved_Person");
+            return identity;
+        }
+    }
+
+    /// <summary>The common location/governor mutation tail. The two historical
+    /// wrappers retain their pre-read Districts and complete prefix read order.
+    /// The direct source entry instead performs fresh getters at their source
+    /// points, including status after the E2 write. No pool export or rebinding.</summary>
+    internal static IReadOnlyList<ArmyReturnGovernorPacket> ApplyPreparedPersonLocationsCurrent(int person,
+        BaseReference target, BaseReference oldBase, ushort destination, SourceWorldContext current,
+        IArmyReturnGovernorCurrentQueries queries, DistrictReference? targetDistrict = null,
+        DistrictReference? oldDistrict = null, bool readCurrentStatus = false, bool readTargetValidity = false,
+        Action<string>? sourceEffect = null, Func<string, Exception>? unresolved = null,
+        string governorMissing = "current.Governor_unknown")
+    {
+        current.WritePersonFirstLocation(person, destination); sourceEffect?.Invoke("271767.PersonE2");
+        if (readCurrentStatus)
+        {
+            byte status = Get(current.ReadPersonStatus(person), "current.PersonHome_status_after_E2");
+            if (status is < 1 or > 4) throw Missing("branch.PersonHome_nonordinary_status");
+        }
+        current.WritePersonSecondLocation(person, destination); sourceEffect?.Invoke("2717B2.PersonE4");
+        var updates = new List<ArmyReturnGovernorPacket>();
+        if (!readTargetValidity || Get(current.ReadBaseNativeValidity(target), "current.PersonHome_target_validity")) Governor(target);
+        Primary(targetDistrict ?? current.ReadBaseDistrictReference(target) ?? throw Missing("current.PersonHome_target_virtual80"));
+        if (!readTargetValidity || Get(current.ReadBaseNativeValidity(oldBase), "current.PersonHome_affected_validity")) Governor(oldBase);
+        Primary(oldDistrict ?? current.ReadBaseDistrictReference(oldBase) ?? throw Missing("current.old_Base_District"));
+        return updates.AsReadOnly();
+
+        void Governor(BaseReference at)
+        {
+            var result = ArmyReturnGovernorUpdater.PrepareCurrent(at, current, queries);
+            var packet = result.Packet ?? throw Failure(result.UnresolvedOwner ?? governorMissing);
+            ApplyGovernorOwned(current, packet); updates.Add(packet);
+            sourceEffect?.Invoke("282C10→26D090.Base" + at.PhysicalSlot);
+        }
+        void Primary(DistrictReference at)
+        {
+            updates.AddRange(ApplyPrimaryOwned(at, current, queries));
+            sourceEffect?.Invoke("2E9140.primary_District" + at.PhysicalSlot);
+        }
+        Exception Failure(string field) => unresolved?.Invoke(field) ?? Missing(field);
+    }
+
+    internal static void AppendAffectedBase(SourceWorldContext current, HexListHandle list, BaseReference target,
+        Func<string, Exception>? unresolved = null)
+    {
+        var node = current.AllocateBaseRegistryNode(new(list.Identity))
+            ?? throw (unresolved?.Invoke("current.affected_Base_node") ?? Missing("current.affected_Base_node"));
+        if (!node.Identity.HasValue)
+            throw (unresolved?.Invoke("branch.affected_Base_node_allocation") ?? Missing("branch.affected_Base_node_allocation"));
+        current.WriteBaseRegistryNodePayload(node, target);
     }
 
     private static bool PlayerRulerDistrict(SourceWorldContext state, DistrictReference district)

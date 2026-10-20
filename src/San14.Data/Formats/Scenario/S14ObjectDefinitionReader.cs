@@ -4,12 +4,27 @@ using System.Text;
 
 namespace San14.Data.Formats;
 
-public sealed record S14ObjectDefinition(int Slot, string Name, byte RawField2C, byte[] RawBytes);
+public sealed record S14FacilityEffectChannel(byte Effect, byte Amount, byte Secondary);
+public sealed record S14ObjectDefinition(int Slot, string Name, byte RawField2C, byte[] RawBytes)
+{
+    public ushort BaseDurability => BinaryPrimitives.ReadUInt16LittleEndian(RawBytes.AsSpan(29, 2));
+    public ushort BaseGoldCost => BinaryPrimitives.ReadUInt16LittleEndian(RawBytes.AsSpan(31, 2));
+    public ushort RequiredTrait => BinaryPrimitives.ReadUInt16LittleEndian(RawBytes.AsSpan(33, 2));
+    public byte RequiredPolicyEffect => RawBytes[35];
+    public byte ExclusionRadius => RawBytes[36];
+    public uint ConstructionTerrainMask => BinaryPrimitives.ReadUInt32LittleEndian(RawBytes.AsSpan(46, 4));
+    public byte TriggerRange => RawBytes[50];
+    public byte RequiredPolicyLevel => RawBytes[51];
+    public S14FacilityEffectChannel FirstChannel { get; init; } = new(0, 0, 0);
+    public S14FacilityEffectChannel SecondChannel { get; init; } = new(0, 0, 0);
+    public byte MinimumRange { get; init; }
+    public byte MaximumRange { get; init; }
+}
 public sealed record S14ObjectDefinitionCatalog(uint FormatMarker, int RecordOffset,
     int RecordStride, string DecodedSha256, IReadOnlyList<S14ObjectDefinition> Definitions);
 
 /// <summary>CE fixed section9, current definition table73958. Retains complete
-/// raw rows; only the inspected name window and raw2C are decoded.</summary>
+/// raw rows; decodes the name, category and two facility-effect channels/ranges.</summary>
 public static class S14ObjectDefinitionReader
 {
     public const int Count = 31;
@@ -36,7 +51,12 @@ public static class S14ObjectDefinitionReader
             { throw new InvalidDataException($"Object definition {slot} has invalid UTF16 text.", error); }
             int end = name.IndexOf('\0');
             if (end >= 0) name = name[..end];
-            definitions[slot] = new(slot, name, row[28], row.ToArray());
+            definitions[slot] = new(slot, name, row[28], row.ToArray())
+            {
+                FirstChannel = new(row[37], row[38], row[39]),
+                SecondChannel = new(row[40], row[41], row[42]),
+                MinimumRange = row[43], MaximumRange = row[44]
+            };
         }
         return new(fixedData.FormatMarker, RecordStart, RecordStride,
             Convert.ToHexString(SHA256.HashData(bytes)), Array.AsReadOnly(definitions));

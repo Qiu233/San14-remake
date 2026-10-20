@@ -3,12 +3,16 @@ using System.Text.Json.Serialization;
 
 namespace San14.Core;
 
-public enum ArmyTargetKind { None, City, ArmyReceiver, Unresolved }
-public enum ArmyTargetDestinationKind { City, ArmyReceiver, Unresolved }
+public enum ArmyTargetKind { None, City, ArmyReceiver, Unresolved, Hex, MapObjectReceiver }
+public enum ArmyTargetDestinationKind { City, ArmyReceiver, Unresolved, Hex, MapObjectReceiver }
 
 /// <summary>A destination names a campaign entity, not a source-table row.
 /// Unresolved means a selection is known to exist but has no decoded identity.</summary>
-public sealed record ArmyTargetDestination(ArmyTargetDestinationKind Kind, int? CityId, ArmyReceiverId? ReceiverId);
+public sealed record ArmyTargetDestination(ArmyTargetDestinationKind Kind, int? CityId, ArmyReceiverId? ReceiverId)
+{
+    public int? HexId { get; init; }
+    public MapObjectReceiverId? MapObjectReceiverId { get; init; }
+}
 
 /// <summary>Target category and destination knowledge are independent. A null
 /// channel is unknown; an unresolved channel is known but not yet understood.</summary>

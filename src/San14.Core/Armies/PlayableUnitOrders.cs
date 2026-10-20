@@ -21,7 +21,8 @@ public sealed record DispatchTransportOrder(int ForceId, int SourceCityId, int D
 public sealed class PlayableUnitOrders(IOrderRules originalCommands, PlayableLandRoutes routes,
     IPlayableCityEntryResourceRules? cityEntryResources = null,
     IPlayableCityEntryStateRules? cityEntryState = null,
-    IPlayableTransportCreationRules? transportCreation = null) : IOrderRules
+    IPlayableTransportCreationRules? transportCreation = null,
+    IPlayableArmyConstructionCommandRules? construction = null) : IOrderRules
 {
     public const string ImmediateBaseEntryReportRuleId = "san14:playable-immediate-base-entry-report-v1";
     public const string TransportCityRetargetRuleId = "san14:provisional-transport-city-retarget-v1";
@@ -59,7 +60,16 @@ public sealed class PlayableUnitOrders(IOrderRules originalCommands, PlayableLan
             return RetargetTransport(state, active, destination);
         }
         if (order is BuildStructureOrder build)
-            return BuildStructure(state, force, build);
+        {
+            if (!PlayableUnitControl.TryResolve(state, force, build.UnitId, context,
+                out var builder, out var buildDenied)) return buildDenied!;
+            return construction?.IssueFacilityConstruction(state, builder!, build.HexId, build.KindId, []) ??
+                CommandResult.RuleUnavailable("rules.army_construction", "Current facility construction command rules are unavailable.");
+        }
+        if (controlledUnitId is int constructionArmy && order is not RetargetUnitOrder &&
+            state.ArmyLifecycle?.Receivers.FindUnit(constructionArmy)?.FacilityConstruction?.DefinitionKey is not null)
+            return CommandResult.RuleUnavailable("rules.army_construction_replacement",
+                "Replacement of this current construction command is unresolved.");
         if (order is RepairStructureOrder repair)
             return TargetExistingStructure(state, force, repair.UnitId,
                 repair.StructureId, UnitMissionKind.RepairStructure);
@@ -199,41 +209,6 @@ public sealed class PlayableUnitOrders(IOrderRules originalCommands, PlayableLan
         });
     }
 
-    private CommandResult BuildStructure(GameState state, ForceState force,
-        BuildStructureOrder order)
-    {
-        routes.ValidateWorld(state);
-        if (!PlayableConstructionRules.IsSupportedKind(order.KindId))
-            return CommandResult.RuleUnavailable("rules.construction_catalog",
-                "This construction type has no verified playable rule parameters.");
-        if (!state.Units.TryGetValue(order.UnitId, out UnitState? unit) || unit.ForceId != force.Id)
-            return CommandResult.Reject("Unit does not belong to this force.", "unit.control");
-        if (unit.Mission is null or { Kind: UnitMissionKind.Transport or UnitMissionKind.Retreat })
-            return CommandResult.Reject("Unit cannot build in its current mission.",
-                "structure.unit_mission");
-        if (unit.SourceLocationId is not int sourceId ||
-            !state.Cities.TryGetValue(sourceId, out CityState? source) || source.ForceId != force.Id)
-            return CommandResult.Reject("The source city for construction is unavailable.",
-                "structure.source_city");
-        if (!PlayableConstructionRules.CanBuildAt(state, routes, force.Id, order.HexId,
-                state.Structures ?? []))
-            return CommandResult.Reject("The selected land cannot hold this facility.",
-                "structure.target");
-        if (unit.HexId != order.HexId && routes.Route(unit.HexId, order.HexId).Length == 0)
-            return CommandResult.Reject("Construction land is unreachable.",
-                "structure.destination");
-        var units = new Dictionary<int, UnitState>(state.Units)
-        {
-            [unit.Id] = unit with
-            {
-                DestinationHexId = order.HexId,
-                Mission = new UnitMission(UnitMissionKind.BuildStructure,
-                    StructureKindId: order.KindId)
-            }
-        };
-        return CommandResult.Accept(state with { Units = units });
-    }
-
     private CommandResult TargetExistingStructure(GameState state, ForceState force,
         int unitId, int structureId, UnitMissionKind kind)
     {
@@ -249,6 +224,8 @@ public sealed class PlayableUnitOrders(IOrderRules originalCommands, PlayableLan
             !PlayableConstructionRules.IsSupportedKind(structure.KindId))
             return CommandResult.Reject("The selected facility is unavailable.",
                 "structure.target");
+        if (kind == UnitMissionKind.RepairStructure && structure.MaxDurability is null)
+            return CommandResult.Reject("The facility's current durability capacity is unknown.", "structure.capacity_unknown");
         if (kind == UnitMissionKind.RepairStructure &&
             (!structure.Completed || structure.MaxDurability == 0 ||
              structure.Durability >= structure.MaxDurability))

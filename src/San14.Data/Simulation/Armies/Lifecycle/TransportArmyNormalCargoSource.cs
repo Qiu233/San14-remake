@@ -21,7 +21,16 @@ public static class TransportArmyNormalCargoSource
     /// This uses one operation-local current view; it never imports a pool or
     /// infers raw cargo from playable combat supplies.</summary>
     public static TransportArmyNormalCargoResult Apply(GameState state,
-        SourceWorldContext current, UnitState attacker, UnitState target, int appliedLoss)
+        SourceWorldContext current, UnitState attacker, UnitState target, int appliedLoss) =>
+        ApplyCore(state, current, attacker, target, appliedLoss, false);
+
+    internal static TransportArmyNormalCargoResult ApplyFieldObject(GameState state,
+        SourceWorldContext current, UnitState target, int appliedLoss) =>
+        ApplyCore(state, current, null, target, appliedLoss, true);
+
+    private static TransportArmyNormalCargoResult ApplyCore(GameState state,
+        SourceWorldContext current, UnitState? attacker, UnitState target, int appliedLoss,
+        bool preserveCurrentBindings)
     {
         try
         {
@@ -45,7 +54,7 @@ public static class TransportArmyNormalCargoSource
             int afterGold = loss.Remaining.Gold, afterSupplies = loss.Remaining.Food;
             var writes = new List<TransportArmyNormalLootWrite>();
             var cityChanges = new Dictionary<int, CityState>(state.Cities);
-            int winnerPhysical = Bind(attacker);
+            int? winnerPhysical = attacker is null ? null : Bind(attacker);
             var winner = new ArmyUnitReference(winnerPhysical);
             if (Need(current.ReadArmyUnitNativeValidity(winner), "attacker native validity"))
             {
@@ -85,9 +94,12 @@ public static class TransportArmyNormalCargoSource
                     state.ReadArmyLifecycle()?.ReceiverSlots() is not { Length: 501 } rows || rows[index].ActiveUnitId != army.Id ||
                     rows[index].Commander12 is not ushort commander || rows[index].Status10 is not byte status)
                     throw Missing("current.normal_cargo_Army_receiver");
-                current.SetArmyUnitTablePointer(index, index);
-                current.SetArmyUnitCommanderId(index, commander);
-                current.SetArmyUnitStatusFlag10(index, status);
+                if (!preserveCurrentBindings)
+                {
+                    current.SetArmyUnitTablePointer(index, index);
+                    current.SetArmyUnitCommanderId(index, commander);
+                    current.SetArmyUnitStatusFlag10(index, status);
+                }
                 return index;
             }
             BaseReference Currency(BaseReference home) => home.Kind == BaseKind.City

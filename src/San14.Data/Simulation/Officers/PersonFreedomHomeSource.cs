@@ -109,6 +109,27 @@ public sealed class PersonFreedomHomeSource
         return current.ReadAreaTableReference(raw <= 500 ? raw : 0) ?? throw Missing("current.229FD0_Area_pointer");
     }
 
+    internal bool AreForceCitiesAdjacent(SourceWorldContext current, int first, int second)
+    {
+        if (first == 0 || second == 0) return false;
+        //2243A0 iterates all52 City pointers, including placeholders; its
+        //predicate is only virtualB0 ownership, not native validity.
+        for (int slot = 0; slot < 52; slot++)
+        {
+            var city = current.ReadCityTableReference(slot) ?? throw Missing("current.force_adjacency_City_pointer");
+            if (Need(current.ReadBaseForceSlot(city), "current.force_adjacency_City_owner") != first) continue;
+            var neighbors = Temporary(current);
+            try
+            {
+                FillCities22F430(current, city, neighbors);
+                foreach (var neighbor in Read(current, neighbors))
+                    if (Need(current.ReadBaseForceSlot(Base(neighbor.Payload)), "current.force_adjacency_neighbor_owner") == second) return true;
+            }
+            finally { ClearRelease(current, neighbors); }
+        }
+        return false;
+    }
+
     private void FillCities22F430(SourceWorldContext current, BaseReference initial, HexListHandle output)
     {
         current.ClearTemporaryHexList(output);

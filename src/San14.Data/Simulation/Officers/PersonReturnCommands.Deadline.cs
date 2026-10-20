@@ -3,7 +3,7 @@ using San14.Core;
 namespace San14.Data;
 
 public sealed record PersonReturnDeadlineInitializationResult(
-    PersonnelReturnTasks? Owner, NativeMapSeasonDate? ArrivalDate,
+    PersonnelCommandTasks? Owner, NativeMapSeasonDate? ArrivalDate,
     int? Days, string? UnresolvedOwner);
 
 public static partial class PersonReturnCommands
@@ -17,7 +17,7 @@ public static partial class PersonReturnCommands
         try
         {
             var before = CurrentCommandOwner(state, current);
-            var command = before.Tasks.GetValueOrDefault(receiverIdentity) ?? throw Missing("deadline_current_receiver");
+            var command = before.Returns.GetValueOrDefault(receiverIdentity) ?? throw Missing("deadline_current_receiver");
             var deadline = command.ArriveOn;
             if (CommandDateNativeValid(deadline)) return new(before, deadline, null, null);
 
@@ -34,7 +34,7 @@ public static partial class PersonReturnCommands
             int days = Get(route.Days, route.UnresolvedOwner ?? "deadline2318F0_source_days");
             var afterDate = DateFromOrdinal(unchecked(DateOrdinal(currentWorldThirdDate) + days));
             var updated = command with { ArriveOn = afterDate };
-            var owner = before with { Tasks = new(before.Tasks) { [receiverIdentity] = updated } };
+            var owner = before with { Returns = new(before.Returns) { [receiverIdentity] = updated } };
             current.SetOwnedPersonCommandManager(owner);
             return new(owner, afterDate, days, null);
         }

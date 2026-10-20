@@ -92,6 +92,8 @@ internal sealed class PreviewText
         "play_tactic_none", "play_troops", "play_target", "play_admin",
         "play_deploy", "play_deploy_occupy", "play_deploy_build", "play_advance", "play_finish_report", "play_save",
         "play_continue", "play_save_slot", "play_save_slot_item", "play_save_slot_used", "play_not_started", "play_active", "play_reporting",
+        "save_choose_slot", "load_choose_slot", "save_slot_unreadable", "save_file_failed", "save_time_unknown",
+        "save_overwrite_question", "load_replace_question",
         "play_governance", "play_governance_apply", "play_governance_advisor", "play_governance_group",
         "play_governance_vacant", "play_governance_status", "play_governance_pending",
         "play_governance_no_pending", "play_governance_unavailable", "play_report_governance_active",

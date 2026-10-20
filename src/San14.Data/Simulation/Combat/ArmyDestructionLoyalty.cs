@@ -90,24 +90,38 @@ public static class ArmyDestructionLoyalty
     }
 
     public static GameState PublishCurrent(GameState state, ArmyDestructionLoyaltyPacket packet)
+        => PublishCurrent(state, packet, projectOwnedRoles: false);
+
+    internal static GameState PublishCurrent(GameState state, ArmyDestructionLoyaltyPacket packet,
+        bool projectOwnedRoles)
     {
         if (packet.AfterE8 is not byte after) return state;
-        ushort id = packet.Owner.ReadPersonIdentity(packet.PersonPhysical)
+        GameState published = PublishCurrentRawE8(state, packet.Owner, packet.PersonPhysical, after);
+        return published.WithArmyLifecycle(packet.PoolOwner is { } pool
+                ? (state.ReadArmyLifecycle() ?? throw new InvalidDataException("Current loyalty pool has no saved lifecycle owner."))
+                    with { Indexes = projectOwnedRoles ? pool.ProjectOwnedRoles() : pool.ExportOwnedState() }
+                : state.ReadArmyLifecycle());
+    }
+
+    /// <summary>Publish one actual raw-E8 write to its existing saved owner.
+    /// The caller performs the current-context write at its source point;
+    /// this mirror does not run destruction arithmetic or export a live pool.</summary>
+    internal static GameState PublishCurrentRawE8(GameState state, SourceWorldContext current,
+        int physical, byte after)
+    {
+        ushort id = current.ReadPersonIdentity(physical)
             ?? throw new InvalidDataException("Current loyalty Person identity is unknown.");
-        if (!state.Officers.TryGetValue(id, out var person) || packet.Owner.ResolveOfficerSource(id) != packet.PersonPhysical ||
+        if (!state.Officers.TryGetValue(id, out var person) || current.ResolveOfficerSource(id) != physical ||
             state.NativeArmySimulation is not { } simulation ||
             simulation.Parameters.Int32Values.GetValueOrDefault(OwnedArmyGovernorComparatorInputs.VersionKey) != 1)
             throw new InvalidDataException("Current loyalty publication lacks its saved raw-E8 owner.");
         var values = new Dictionary<string, int>(simulation.Parameters.Int32Values)
-        { [OwnedArmyGovernorComparatorInputs.PersonRawE8Key(packet.PersonPhysical)] = after };
-        return (state with { Officers = new(state.Officers) { [id] = person with { Loyalty = after <= 100 ? after : null } },
-                NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = values } } }).WithArmyLifecycle(packet.PoolOwner is { } pool
-                ? (state.ReadArmyLifecycle() ?? throw new InvalidDataException("Current loyalty pool has no saved lifecycle owner."))
-                    with { Indexes = pool.ExportOwnedState() }
-                : state.ReadArmyLifecycle());
+        { [OwnedArmyGovernorComparatorInputs.PersonRawE8Key(physical)] = after };
+        return state with { Officers = new(state.Officers) { [id] = person with { Loyalty = after <= 100 ? after : null } },
+            NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = values } } };
     }
 
-    private static byte? ReadCurrentRawE8(GameState state, SourceWorldContext current, int physical,
+    internal static byte? ReadCurrentRawE8(GameState state, SourceWorldContext current, int physical,
         OwnedArmyGovernorComparatorInputs governor)
     {
         if (current.TryReadPersonDestructionLoyaltyE8(physical, out var field)) return field;

@@ -68,6 +68,7 @@ public sealed record ForcePreviewRecord(int Slot, ushort RulerSlot,
     string? RulerName, string RemainingBytesHex)
 {
     public int? RankId { get; init; }
+    public byte? RawKingdomName48 { get; init; }
     public byte? RawReportColor49 { get; init; }
     public byte[]? RawIndexedBytes13 { get; init; }
     public byte[]? RawIndexedBytesEA { get; init; }
@@ -102,6 +103,7 @@ public sealed record AreaPreviewRecord(int Slot, string Name, string SecondaryTe
     byte CitySlot, ushort HexId, string RemainingBytesHex, ushort Amount0,
     byte Value2, byte ForceSlot, string StateRemainingBytesHex)
 {
+    public byte? FacilityCapacity { get; init; }
     public ushort? RawField44 { get; init; }
     public ushort? RawField46 { get; init; }
     public IReadOnlyList<int> AdjacentAreaSlots { get; init; } = [];
@@ -117,7 +119,19 @@ public sealed record CharacterPreviewRecord(int Slot, string Name, byte District
 {
     public int CharacterId { get; init; }
     public int AppearanceCode { get; init; }
+    public string? NameSortKey { get; init; }
+    public string? SurnameSortKey { get; init; }
+    public string? GivenNameSortKey { get; init; }
     public byte? RawSexCode { get; init; }
+    public byte? DialogueStyle { get; init; }
+    public ushort? BirthYear { get; init; }
+    public byte? FamilyGeneration { get; init; }
+    public string? FamilyName { get; init; }
+    public string? GivenName { get; init; }
+    public string? CourtesyName { get; init; }
+    public ushort? AppearanceYear { get; init; }
+    public ushort? TerminalYear { get; init; }
+    public byte? LifespanKind { get; init; }
     public byte? RawOfficeId { get; init; }
     public byte? RawPolicySlot { get; init; }
     public byte? RawPolicyBaseCost { get; init; }
@@ -128,6 +142,7 @@ public sealed record CharacterPreviewRecord(int Slot, string Name, byte District
     public Formats.S14CharacterCreditReference? CreditReference { get; init; }
     // Older previews lack these raw CE fields; null remains unknown rather than empty.
     public Formats.S14PersonSkillReference? SkillSource { get; init; }
+    public Formats.S14PersonDuelConditionReference? DuelConditionSource { get; init; }
     public IReadOnlyList<int>? BaseFormationSlots { get; init; }
     public IReadOnlyList<int>? BaseTacticSlots { get; init; }
 }

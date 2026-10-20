@@ -208,7 +208,7 @@ public sealed class PersonFreedomSource(ArmyCampaignRuleAdapter package, LoadedS
                 Cities = new(result.Cities) { [captured.Id] = result.Cities[captured.Id] with
                     { ForceId = captured.ForceId, DistrictId = captured.DistrictId, GovernorId = captured.GovernorId } },
                 NativeArmySimulation = result.NativeArmySimulation with { Parameters = result.NativeArmySimulation.Parameters with { Int32Values = values } },
-                PersonnelReturns = detached.Owner }).WithArmyLifecycle(result.ReadArmyLifecycle()! with { Indexes = world.Pool.ExportOwnedState() });
+                PersonnelCommands = detached.Owner }).WithArmyLifecycle(result.ReadArmyLifecycle()! with { Indexes = world.Pool.ExportOwnedState() });
             result = OfficerLocationSourceAdapter.PublishPosition(result, personId, current);
             result = current.PublishOfficerAftermath(result, personId);
             effects.Add("265C50.Area_E4→Home_E2→Office73_Loyalty0_or255→actual_raw_resets");

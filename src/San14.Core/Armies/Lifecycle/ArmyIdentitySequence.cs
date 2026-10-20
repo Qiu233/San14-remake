@@ -81,6 +81,13 @@ public static class ArmyIdentityAllocation
         foreach (var plan in state.PreparedDeployments.Values)
             foreach (var action in plan.Actions)
                 if (action.Target.Kind == DeploymentTargetKind.Unit) yield return action.Target.Id;
+        foreach (var batch in state.CampaignEffectRequests?.PendingBatches ?? [])
+            foreach (var request in batch.Requests)
+            {
+                if (request.Speech is { SpeakerKind: CombatParticipantKind.Army } speech) yield return speech.SpeakerId;
+                if (request.Speech is { TargetKind: CombatParticipantKind.Army, TargetId: int target }) yield return target;
+                if (request.Report is { TargetKind: CombatParticipantKind.Army } report) yield return report.TargetId;
+            }
         foreach (int id in state.PendingCombatSettlements?.ReferencedUnitIds() ?? []) yield return id;
         foreach (int id in state.ArmyLifecycle?.Indexes.ReferencedUnitIds() ?? []) yield return id;
         foreach (int id in state.ArmyLifecycle?.ArmyCautions?.ReferencedUnitIds() ?? []) yield return id;
@@ -104,6 +111,10 @@ public static class ArmyIdentityAllocation
             if (report.TargetUnitId is int target) yield return target;
         }
         foreach (var report in state.NativeSubdayReports ?? []) yield return report.UnitId;
+        foreach (var request in state.PendingArmyFireAnnouncements) yield return request.UnitId;
+        foreach (var request in state.PendingArmyFireCasts) yield return request.UnitId;
+        foreach (var report in state.PeriodReports.Concat(state.PendingCommandReports))
+            if (report.UnitId is int unitId) yield return unitId;
         if (state.ResourceState is IArmyIdentityReferences imported)
             foreach (int id in imported.ReferencedArmyIds) yield return id;
     }

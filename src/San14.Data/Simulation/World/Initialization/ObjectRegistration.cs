@@ -19,6 +19,8 @@ public interface IObjectRegistrationState
     bool? ReadRegistryObjectNativeValidity(RegistryObjectReference reference);
     byte? ReadRegistryPersonStatus(RegistryObjectReference reference);
     byte? ReadRegistryItemRawField50(RegistryObjectReference reference);
+    bool? ReadRegistryItemListEligibility(RegistryObjectReference reference) =>
+        ReadRegistryItemRawField50(reference) is byte code ? code == 1 : null;
     RegistryListHandle? ReadRegistryDescriptor(RegistryKind kind);
     RegistryListNodeReference? ReadRegistryHead(RegistryListHandle handle);
     RegistryObjectReference? ReadRegistryNodePayload(RegistryListNodeReference node);
@@ -77,7 +79,7 @@ public static class ObjectRegistration
             if (status is not (>=1 and <=6) and not 8) return false;
         }
         if (reference.Kind==RegistryKind.Item &&
-            Known(state.ReadRegistryItemRawField50(reference),"item byte50")!=1) return false;
+            !Known(state.ReadRegistryItemListEligibility(reference),"item list eligibility")) return false;
         if (reference.Kind is RegistryKind.Army or RegistryKind.Person or
             RegistryKind.CautionTroops or RegistryKind.Table81B50)
         {

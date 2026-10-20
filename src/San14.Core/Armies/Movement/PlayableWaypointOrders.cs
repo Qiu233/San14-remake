@@ -25,7 +25,8 @@ public sealed record WithdrawUnitsOrder(int ForceId, IReadOnlyList<int> UnitIds)
 public sealed class PlayableWaypointOrders(IOrderRules next, PlayableLandRoutes routes,
     Func<GameState, int, int?, bool>? isHostile = null,
     IPlayableCityEntryResourceRules? cityEntryResources = null,
-    IPlayableCityEntryStateRules? cityEntryState = null) : IOrderRules
+    IPlayableCityEntryStateRules? cityEntryState = null,
+    IPlayableArmyConstructionCommandRules? construction = null) : IOrderRules
 {
     public CommandResult Apply(GameState state, ForceState force, GameOrder order, CommandContext context)
     {
@@ -125,6 +126,23 @@ public sealed class PlayableWaypointOrders(IOrderRules next, PlayableLandRoutes 
     {
         routes.ValidateWorld(state);
         if (!TryUnit(state, force, id, context, out UnitState? unit, out CommandResult? denied)) return denied!;
+        if (action?.ActionKey == "build")
+        {
+            if (action.Target is not { Kind: DeploymentTargetKind.Hex, Id: >= 0 } ||
+                action.StructureKindId is not string definition || waypoints is null ||
+                waypoints.Count > PlayableWaypointMarch.MaximumWaypoints)
+                return CommandResult.Reject("The facility construction target is invalid.", "structure.target");
+            return construction?.IssueFacilityConstruction(state, unit!, action.Target.Id, definition, waypoints) ??
+                CommandResult.RuleUnavailable("rules.army_construction", "Current facility construction command rules are unavailable.");
+        }
+        if (state.ArmyLifecycle?.Receivers.FindUnit(id)?.FacilityConstruction?.DefinitionKey is not null)
+        {
+            if (action is not { ActionKey: "move" or "stay", Target.Kind: DeploymentTargetKind.Hex })
+                return CommandResult.RuleUnavailable("rules.army_construction_replacement",
+                    "Replacement of this current construction command is unresolved.");
+            return construction?.IssueMovementAfterConstruction(state, unit!, action, waypoints) ??
+                CommandResult.RuleUnavailable("rules.army_construction", "Current facility construction command rules are unavailable.");
+        }
         if (unit!.Mission is null or { Kind: UnitMissionKind.Transport })
             return CommandResult.Reject("This unit cannot receive a combat action.", "unit.action_mission");
         if (action?.ActionKey == "enter" && unit.WoundedTroops is > 0 &&
@@ -148,12 +166,6 @@ public sealed class PlayableWaypointOrders(IOrderRules next, PlayableLandRoutes 
         if (destination is not int targetHex || !routes.CanEnter(targetHex) ||
             cursor != targetHex && routes.Route(cursor, targetHex).Length == 0)
             return CommandResult.Reject("The military objective is unavailable or unreachable.", "unit.destination");
-        if (action.ActionKey == "build")
-        {
-            if (unit.SourceLocationId is not int sourceId || !state.Cities.TryGetValue(sourceId, out CityState? source) ||
-                source.ForceId != force.Id || !PlayableConstructionRules.CanBuildAt(state, routes, force.Id, targetHex, state.Structures ?? []))
-                return CommandResult.Reject("The construction site or source city is unavailable.", "structure.target");
-        }
         UnitMission mission = action.ActionKey switch
         {
             "occupy" => new(UnitMissionKind.OccupyArea, TargetAreaId: action.Target.Id),

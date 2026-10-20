@@ -40,12 +40,13 @@ struct TerritoryOwnershipPalette {
             sourceColorSlot[color]=int(slot);}
     }
 };
-// One complete layer0/palette transaction, preserving prior allocated slots.
+// Stage one complete layer0/palette transaction, preserving prior allocated
+// slots. The normal Map update consumes exactly one lowest dirty layer.
 // New real colors use CE187B30/18D930's first free regular
 // slot, with the complete once-loaded MapColor result; no color+25 relation.
 template<class TerritoryProfile>inline bool publishCurrentTerritoryOwnership(const TerritoryOwnershipPublication& publication,
     TerritoryOwnershipPalette& palette,TerritoryProfile& territoryProfile,source_zone::Profile& profile,
-    source_zone::Owner& owner,const source_zone::Current& current,std::uint64_t& appliedRevision){
+    source_zone::Owner& owner,std::uint64_t& appliedRevision){
     if(!publication.revision||publication.revision==appliedRevision)return false;
     std::vector<std::uint8_t> layer(source_zone::cells);
     auto allocation=territoryProfile.allocatedColor;
@@ -72,7 +73,6 @@ template<class TerritoryProfile>inline bool publishCurrentTerritoryOwnership(con
     territoryProfile.allocatedColor=allocation;territoryProfile.baseCell=cells;territoryProfile.baseLine=lines;
     palette.sourceColorSlot=slots;
     profile.ownership.swap(layer);source_zone::queueDirty(owner,1);
-    //0 is the lowest dirty layer;18D930 updates exactly that layer now.
-    source_zone::updateOne(profile,owner,current);appliedRevision=publication.revision;return true;
+    appliedRevision=publication.revision;return true;
 }
 } // namespace San14::Render

@@ -14,7 +14,26 @@ public sealed record ArmyMarchDestination(ArmyMarchDestinationKind Kind, int? He
 
 /// <summary>Independent knowledge of progress and the currently selected route steps.</summary>
 public sealed record ArmyMarchState(int? MovementCredit, ArmyMarchDestination? Target,
-    ArmyMarchDestination? NextStep);
+    ArmyMarchDestination? NextStep)
+{
+    /// <summary>The explicit destinations after Target. Null is unknown;
+    /// an empty continuation proves that no further intermediate point exists.
+    /// The final command target remains independently owned by the order.</summary>
+    public ArmyWaypointContinuation? FollowingWaypoints { get; init; }
+}
+
+/// <summary>An immutable continuation of the currently selected intermediate
+/// destination. Unknown entries are retained rather than silently skipped.</summary>
+public sealed record ArmyWaypointContinuation
+{
+    public IReadOnlyList<ArmyMarchDestination?> Destinations { get; }
+    public ArmyWaypointContinuation(IReadOnlyList<ArmyMarchDestination?> destinations)
+    {
+        ArgumentNullException.ThrowIfNull(destinations);
+        if (destinations.Count > 4) throw new ArgumentOutOfRangeException(nameof(destinations));
+        Destinations = Array.AsReadOnly(destinations.ToArray());
+    }
+}
 
 public sealed partial record UnitState
 {

@@ -37,6 +37,9 @@ public:
     void publishSeason(const source_current_season::Frame& season) {
         season_=source_current_season_shadow::prepareUnclampedCompact(season);
         source_current_season_shadow::publish(season_,cameras_[family_],parameters_[family_]);
+        if(season_.selectedLightGroup>0)
+            setNativeShadowRasterBias(raster_[family_],season_.perCascadeBias,season_.depthBias,
+                unsigned(season_.cascadeCount));
     }
     void publishCollectionAdmission(const source_current_season::Frame* current,
         const MapViewCommonSettings& common,const NativeCityAreaPrimary& primary,
@@ -52,26 +55,38 @@ public:
         publishNativeCityAreaJointShadow(population_,*cityGate_,field,primary,cameras_,parameters_);
     }
     void prepareCamera(const source_camera::Frame& camera,const FieldDisplay& display,
-        const NativeModelCollectionCaller& caller) {
+        const NativeModelCollectionCaller& caller,std::span<const source_shadow_camera::ProceduralCaster> procedural) {
         display.publishShadow(cameras_[family_],caller,cityGate_->admission[family_]);
-        frame_=source_shadow_camera::prepareCurrent(cameras_[family_],camera,population_.catalog,history_);
+        frame_=source_shadow_camera::prepareCurrent(cameras_[family_],camera,population_.catalog,history_,procedural);
     }
     void connectGeometry(const NativeModelInputs& field,const NativeModelInputs& primaries) {
         connectNativeJointPopulationShadowGeometry(population_,field,primaries);
     }
-    void prepareGpu(ID3D11Device* device,ID3D11DeviceContext* context,const fs::path& source) {
+    void prepareGpu(ID3D11Device* device,ID3D11DeviceContext* context,const fs::path& source,
+        ground_details::GroundDetails& ground,TerrainPass& terrain) {
         gpu_=prepareNativeShadowCameraGpu(device,parameters_[family_],cameras_[family_],population_.catalog,population_.allModels,source,raster_);
         plan_=source_shadow_gpu::preparePlan(gpu_.profile,frame_,population_.catalog);
         NativeSourceDepthState logical{};
-        executeNativeShadowCameraGpu(context,logical,gpu_,frame_,plan_,population_.catalog,population_.allModels,family_);
+        if(gpu_.profile.shadowClass!=5)throw std::runtime_error("Ground caster requires the imported depth shadow family");
+        executeNativeShadowCameraGpu(context,logical,gpu_,frame_,plan_,population_.catalog,population_.allModels,family_,
+            [&](const NativeShadowRasterGpu& raster){
+                auto draws=ground.drawShadows(context,frame_,raster,family_);
+                return draws+terrain.drawShadows(context,frame_,raster,family_);
+            });
         map_=gpu_.map;
     }
     void updateAcceptedFrame(ID3D11DeviceContext* context,NativeSourceDepthState& logical,
-        bool populationChanged,const source_current_season::Frame* season,const source_camera::Frame& camera) {
+        bool populationChanged,const source_current_season::Frame* season,const source_camera::Frame& camera,
+        ground_details::GroundDetails& ground,TerrainPass& terrain) {
         if(populationChanged)source_shadow_gpu::bindCatalog(gpu_.profile,population_.catalog);
         source_shadow_gpu::setCurrentParameters(gpu_.profile,parameters_[family_]);
+        updateNativeShadowRasterGpu(context,gpu_.raster,family_,raster_[family_]);
         plan_=source_shadow_gpu::preparePlan(gpu_.profile,frame_,population_.catalog);
-        executeNativeShadowCameraGpu(context,logical,gpu_,frame_,plan_,population_.catalog,population_.allModels,family_);
+        executeNativeShadowCameraGpu(context,logical,gpu_,frame_,plan_,population_.catalog,population_.allModels,family_,
+            [&](const NativeShadowRasterGpu& raster){
+                auto draws=ground.drawShadows(context,frame_,raster,family_);
+                return draws+terrain.drawShadows(context,frame_,raster,family_);
+            });
         map_=gpu_.map;
         if(receiver_)updateReceiver(*receiver_,camera);
         if(waterReceiver_)updateReceiver(*waterReceiver_,camera);

@@ -26,7 +26,7 @@ public static class OceanTextureMaterialSettingsImport
             new(Scalar(0x42AA9697), Scalar(0xD4AC8519)),
             new(Scalar(0x3FEE7F84), Scalar(0xEE2A6142)));
         var wave = new OceanTextureWaveSettings(Scalar(0xD1D1D5F2), Scalar(0x1FE84309),
-            Scalar(0x4760B235), Scalar(0xA4518EB9), Scalar(0xD1ED31F5),
+            Scalar(0x4760B235), Scalar(0xD1ED31F5), Scalar(0xC98FEBB6),
             Scalar(0x2F8555ED), Scalar(0xE2A4B436));
         return new(uv, wave);
     }

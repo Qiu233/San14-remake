@@ -73,6 +73,15 @@ public static class BattleRemakeCurrentSettings
     /// still passes this CEnvironment, not an Army or Base object.</summary>
     public static int? ReadNeighborModeD8(GameState state) => ReadInt32(state, 0xD8);
 
+    /// <summary>TC3EB280 selects current primary80 or advanced164.</summary>
+    public static int? ReadWoundedRecoveryMode(GameState state) => ReadSelectorE58(state) is int selector
+        ? ReadInt32(state, selector == 0 ? 0x164 : 0x80) : null;
+
+    /// <summary>TC3EB360 selects primary C0 or advanced23C. The center
+    /// occupation writer queues encirclement work only when this value is zero.</summary>
+    public static bool? ReadEncirclementEnabled(GameState state) => ReadSelectorE58(state) is int selector &&
+        ReadInt32(state, selector == 0 ? 0x23C : 0xC0) is int mode ? mode == 0 : null;
+
     /// <summary>SC3EBE00/TC3EB7C0 over the current primary+8. The native
     /// switch order is independent of serialized column order. The owned
     /// static block establishes exactly six rows; unsupported rows stay null.</summary>

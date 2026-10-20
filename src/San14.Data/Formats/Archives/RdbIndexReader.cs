@@ -8,7 +8,12 @@ public sealed record RdbAddress(long Offset, long Length, int? BinId, int? BinSu
     string? ExternalPath);
 
 public sealed record RdbRecord(int Index, uint FileId, uint TypeId, uint Flags,
-    long DecodedSize, RdbAddress? Address);
+    long DecodedSize, RdbAddress? Address)
+{
+    // The variable header includes loader parameter descriptors and values.
+    // Retain it even when the payload consumer does not interpret those options.
+    public byte[] LoaderMetadata { get; init; } = [];
+}
 
 public sealed record RdbIndex(string DataDirectory, uint NameDatabaseId,
     IReadOnlyList<RdbRecord> Records);
@@ -53,7 +58,10 @@ public static class RdbIndexReader
             ReadOnlySpan<byte> content = remaining.Slice((int)(size - contentSize), (int)contentSize);
             RdbAddress? address = contentSize == 0 ? null : ParseAddress(content, index);
             records.Add(new RdbRecord(index, id, ReadUInt(remaining, 40),
-                ReadUInt(remaining, 44), decodedSize, address));
+                ReadUInt(remaining, 44), decodedSize, address)
+            {
+                LoaderMetadata = remaining.Slice(RecordSize, checked((int)(size - contentSize - RecordSize))).ToArray()
+            });
             position = checked(position + (int)((size + 3) & ~3));
             if (position > data.Length)
                 throw new InvalidDataException($"RDB record {index} exceeds the index file.");

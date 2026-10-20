@@ -5,9 +5,9 @@ namespace San14.Core;
 
 /// <summary>Decodes the old saved command image once. Simulation code never reads
 /// these byte windows, allocation lists, union tags or descriptor identities.</summary>
-internal static class LegacyPersonnelReturnTasksMigration
+internal static class LegacyPersonnelCommandTasksMigration
 {
-    public static PersonnelReturnTasks Translate(NativePersonCommandManagerState legacy,
+    public static PersonnelCommandTasks Translate(NativePersonCommandManagerState legacy,
         Func<int, PersonnelReturnDestination?> resolveBaseCode, ISet<int>? associatedTaskIds = null,
         int[]? pendingRetirements = null)
     {
@@ -15,7 +15,7 @@ internal static class LegacyPersonnelReturnTasksMigration
             legacy.Commands is null || legacy.IdToReceiver is null)
             throw new InvalidDataException("Legacy personnel dispatch storage is incomplete.");
         var slots = new List<int>();
-        for (int? slot = legacy.FreeHeadEA8; slot is >= 0 and < PersonnelReturnTasks.CompatibleDispatchCapacity;
+        for (int? slot = legacy.FreeHeadEA8; slot is >= 0 and < PersonnelCommandTasks.CompatibleDispatchCapacity;
              slot = legacy.FreeNext30[slot.Value])
         {
             if (slots.Contains(slot.Value)) throw new InvalidDataException("Legacy return dispatch slots contain a cycle.");
@@ -72,7 +72,7 @@ internal static class LegacyPersonnelReturnTasksMigration
             >= 52 and <= 61 => new(PersonnelReturnBaseKind.Gate, code),
             _ => throw new InvalidDataException("Legacy return destination cannot be resolved.")
         }, associations.ToHashSet(), pending);
-        PersonnelReturnSaveValidation.Validate(owner);
+        PersonnelCommandSaveValidation.Validate(owner);
         state["PersonnelReturns"] = JsonSerializer.SerializeToNode(owner);
         state.Remove("NativePersonReturnCommands");
     }

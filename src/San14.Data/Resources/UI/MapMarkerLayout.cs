@@ -28,12 +28,7 @@ public sealed record MapMarkerLayout(string Name, int CommonRow,
         var source = repository.LoadRdbAsset("ScreenLayout", file);
         string signature = Encoding.ASCII.GetString(source.Bytes, 0, 8);
         if (signature != expectedSignature) throw new InvalidDataException($"Original map layout {name} source signature differs.");
-        byte[] readable = source.Bytes.ToArray();
-        // These audited map children have the same block/node/part structure.
-        // Keep the general LCSK reader's supported versions unchanged.
-        if (signature is "LCSK6500" or "LCSK7500" || signature == "LCSK4500" && file == 0xAFC125D8)
-            "LCSK8500"u8.CopyTo(readable);
-        var layout = LcskLayoutReader.Read(readable);
+        var layout = LcskLayoutReader.Read(source.Bytes);
         return new(name, row, named, source, signature, layout, LcskNodeReader.Read(layout));
     }
 }

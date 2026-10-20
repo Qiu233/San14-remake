@@ -34,7 +34,7 @@ public static class LcskSpriteNodeReader
             3 => 736,
             _ => throw new InvalidDataException($"Unsupported LCSK sprite node type {node.Type} at node {node.Index}.")
         };
-        if (layout.Signature is not ("LCSK8500" or "LCSK9500") ||
+        if (!LcskLayoutReader.IsSupportedSignature(layout.Signature) ||
             node.RawBytes.Length != expectedLength)
             throw new InvalidDataException($"LCSK sprite node {node.Index} signature or record length differs.");
         LcskBlock[] blocks = layout.Blocks.Where(block => block.Tag == 1).ToArray();

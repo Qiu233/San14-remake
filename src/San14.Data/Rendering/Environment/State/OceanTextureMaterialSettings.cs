@@ -11,4 +11,4 @@ public sealed record OceanTextureUvSettings(float NormalScale, Vector2 NoiseScal
     Vector2 HeightScale, Vector2 HeightOffset);
 
 public sealed record OceanTextureWaveSettings(float Amplitude, float Length, float Width,
-    float Scale, float Kurtosis, float Scatter, float ShoalingScale);
+    float Kurtosis, float Speed, float Scatter, float ShoalingScale);

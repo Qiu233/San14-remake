@@ -27,6 +27,7 @@ public sealed record LoadedPersonalities(S14PersonalityCatalog Catalog, SourcePr
 public sealed record LoadedSkillDefinitions(S14FormationCatalog Formations, S14GemCatalog Gems,
     SourceProvenance Source);
 public sealed record LoadedObjectDefinitions(S14ObjectDefinitionCatalog Catalog, SourceProvenance Source);
+public sealed record LoadedForceNameDefinitions(S14ForceNameDefinitionCatalog Catalog, SourceProvenance Source);
 public sealed record LoadedItemDefinitions(S14ItemDefinitionCatalog Catalog, SourceProvenance Source);
 public sealed record LoadedScenarioItems(S14ScenarioItemCatalog Catalog, SourceProvenance Source);
 public sealed record LoadedExperienceData(ExperienceDataDocument Document,
@@ -44,7 +45,10 @@ public sealed record LoadedTexture(RgbaTexture Texture, string SourceContainerPa
 
 public sealed record LoadedRdbAsset(byte[] Bytes, string ResourceUri, string SourceContainerPath,
     uint FileId, string DecodedSha256, SourceProvenance IndexSource,
-    SourceProvenance? OverrideSource);
+    SourceProvenance? OverrideSource)
+{
+    public byte[] LoaderMetadata { get; init; } = [];
+}
 
 public sealed record LoadedSprite(SpriteDefinition Definition, LoadedTexture Texture,
     LoadedRdbAsset AtlasSource);
@@ -292,6 +296,20 @@ public sealed class GameResourceRepository
     }
 
     /// <summary>Owned CE defaults. No file or imported executable data is read.</summary>
+    public LoadedCityDomesticParameters LoadCityDomesticParameters(string locale)
+    {
+        string relative = CityDomesticParameterCatalog.PathFor(locale);
+        var id = GameResourceId.File(relative);
+        string? path = _overrides.Find(id);
+        byte[] bytes = path is null ? CityDomesticParameterCatalog.BuiltInBytes(locale) : File.ReadAllBytes(path);
+        var catalog = CityDomesticParameterCatalog.Parse(bytes, locale);
+        var source = new SourceProvenance(relative, bytes.LongLength, Convert.ToHexString(SHA256.HashData(bytes)))
+        { ResourceUri = id.ToString(), PhysicalPath = path ?? "", IsOverride = path is not null,
+          RuleVersion = San14.Core.SimulationRuleIdentity.ForLocale(locale) };
+        _readFiles[id.ToString()] = source;
+        return new(catalog, source);
+    }
+
     public LoadedBaseParameters LoadBaseParameters(string locale = "SC")
     {
         var catalog = BaseParameterReader.ReadDefaults(locale);
@@ -383,6 +401,17 @@ public sealed class GameResourceRepository
         catch (InvalidDataException error)
         {
             throw new InvalidDataException($"Original object definitions failed to load: {source.ResourceUri} " +
+                $"({source.PhysicalPath}). {error.Message}", error);
+        }
+    }
+
+    public LoadedForceNameDefinitions LoadForceNameDefinitions(string relativePath)
+    {
+        (byte[] bytes, SourceProvenance source) = ReadSource(relativePath);
+        try { return new(S14ForceNameDefinitionReader.Read(S14Reader.Read(bytes, false)), source); }
+        catch (InvalidDataException error)
+        {
+            throw new InvalidDataException($"Original force name definitions failed to load: {source.ResourceUri} " +
                 $"({source.PhysicalPath}). {error.Message}", error);
         }
     }
@@ -811,7 +840,10 @@ public sealed class GameResourceRepository
         else
             _readFiles.Remove(resourceId.ToString());
         return new LoadedRdbAsset(decoded, resourceId.ToString(), containerRelative,
-            fileId, hash, _readFiles[GameResourceId.File(relative).ToString()], overrideSource);
+            fileId, hash, _readFiles[GameResourceId.File(relative).ToString()], overrideSource)
+        {
+            LoaderMetadata = record.LoaderMetadata
+        };
     }
 
     private void DiscoverScenarios()
@@ -871,3 +903,4 @@ public sealed class GameResourceRepository
         return path;
     }
 }
+

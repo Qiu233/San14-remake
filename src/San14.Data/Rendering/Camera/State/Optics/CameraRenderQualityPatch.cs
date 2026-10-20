@@ -17,6 +17,11 @@ public sealed record CameraRenderQualityPatch
     public uint? PrimaryFogMode { get; init; }
     public uint? SecondaryFogFade { get; init; }
     public uint? SecondaryFogMode { get; init; }
+    public float? FirstShadowDepthBias { get; init; }
+    public float? SecondShadowDepthBias { get; init; }
+    public float? ThirdShadowDepthBias { get; init; }
+    public float? FourthShadowDepthBias { get; init; }
+    public uint? ShadowPerCascadeBias { get; init; }
     internal ImmutableArray<CameraCompatibilityFieldWrite> Compatibility { get; init; } = [];
     public CameraRenderQualityPatch Then(CameraRenderQualityPatch later) => later with
     {
@@ -32,6 +37,11 @@ public sealed record CameraRenderQualityPatch
         PrimaryFogMode = later.PrimaryFogMode ?? PrimaryFogMode,
         SecondaryFogFade = later.SecondaryFogFade ?? SecondaryFogFade,
         SecondaryFogMode = later.SecondaryFogMode ?? SecondaryFogMode,
+        FirstShadowDepthBias = later.FirstShadowDepthBias ?? FirstShadowDepthBias,
+        SecondShadowDepthBias = later.SecondShadowDepthBias ?? SecondShadowDepthBias,
+        ThirdShadowDepthBias = later.ThirdShadowDepthBias ?? ThirdShadowDepthBias,
+        FourthShadowDepthBias = later.FourthShadowDepthBias ?? FourthShadowDepthBias,
+        ShadowPerCascadeBias = later.ShadowPerCascadeBias ?? ShadowPerCascadeBias,
         Compatibility = later.Compatibility.IsEmpty ? Compatibility : later.Compatibility
     };
 }

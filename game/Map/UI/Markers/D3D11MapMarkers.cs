@@ -54,6 +54,7 @@ internal partial class D3D11MapMarkers : Control
     private readonly Dictionary<(Kind, int), Marker> _markers = [];
     private MapFont? _font;
     private MapFontProfile? _locationFont, _numberFont, _simpleNumberFont, _cityGlyphFont, _areaFont;
+    private MapFontProfile[] _locationStates = [], _simpleNumberStates = [], _cityGlyphStates = [];
     private CityGateMapMarkerSources? _citySources;
     private MapSpritePalettes? _spritePalettes;
     private MapTextPresets? _textPresets;
@@ -71,6 +72,31 @@ internal partial class D3D11MapMarkers : Control
     private Texture2D? _soldier, _barFill;
     private MapMarkerSlices? _namePanel, _numberPanel, _barPanel;
     private int? _selectedHex;
+    private int? _hoveredHex, _pressedHex;
+
+    internal void UpdatePointer(Vector2 point, MainMapCameraFrame frame, bool? pressed = null)
+    {
+        int? hit = TryPickMarker(point, frame, out int hex) ? hex : null;
+        if (pressed == true) _pressedHex = hit;
+        else if (pressed == false) _pressedHex = null;
+        if (_hoveredHex == hit && pressed is null) return;
+        _hoveredHex = hit;
+        QueueRedraw();
+    }
+
+    internal void ClearPointer()
+    {
+        _hoveredHex = _pressedHex = null;
+        QueueRedraw();
+    }
+
+    internal bool TryGetCityMenuAnchor(int cityId, out Vector2 anchor)
+    {
+        anchor = default;
+        if (!_markers.TryGetValue((Kind.City, cityId), out var marker) || !marker.OnScreen) return false;
+        anchor = (marker.Screen + new Vector2(19, -44)) * Size / CanonicalSize;
+        return true;
+    }
 
     internal IReadOnlyList<D3D11MapLocation> Locations => _locations;
 
@@ -99,6 +125,9 @@ internal partial class D3D11MapMarkers : Control
         // 1A7220 -> 931F20(3) sets the current Simple numeric line arrangement.
         _simpleNumberFont = (MapFontProfile.FromNode(_citySources.Simple.Nodes[13], _citySources.Simple.Source.ResourceUri) with { RawLineArrange = 1 }).WithPreset(textPresets[0]);
         _cityGlyphFont = MapFontProfile.FromNode(_citySources.CityFlag.Nodes[18], _citySources.CityFlag.Source.ResourceUri);
+        _locationStates = [_locationFont, _locationFont.WithPreset(textPresets[4]), _locationFont.WithPreset(textPresets[5])];
+        _simpleNumberStates = [_simpleNumberFont, _simpleNumberFont.WithPreset(textPresets[4]), _simpleNumberFont.WithPreset(textPresets[5])];
+        _cityGlyphStates = [_cityGlyphFont, _cityGlyphFont.WithPreset(textPresets[4]), _cityGlyphFont.WithPreset(textPresets[5])];
         _areaFont = MapFontProfile.FromNode(_areaSources.Text.Nodes.Single(node => node.Name == "val_fc020"), _areaSources.Text.Source.ResourceUri).WithPreset(textPresets[19]);
         _font.Prepare(["0123456789/ "], _numberFont);
         _font.Prepare(["0123456789/ "], _simpleNumberFont);
@@ -401,6 +430,7 @@ internal partial class D3D11MapMarkers : Control
                 continue;
             }
             var city = marker.CityPresentation;
+            int interaction = _hoveredHex == marker.Hex ? (_pressedHex == marker.Hex ? 2 : 1) : 0;
             bool numbers = city.Display == 1;
             string simpleText = numbers ? marker.Troops : marker.Name;
             var geometry = CityGateMapMarkerSources.SimpleGeometry(simpleText, numbers, marker.Kind == Kind.Gate);
@@ -409,16 +439,20 @@ internal partial class D3D11MapMarkers : Control
             // The name plate extends beneath the force flag. Paint its
             // background first so it cannot cover the flag or its glyph.
             if (city.Display != 2)
-                _namePanel.Draw(this, AreaRectangle(geometry.Plate, p), Alpha(CanvasColor(spritePalettes[4].LT), city.PanelAlpha));
+                _namePanel.Draw(this, AreaRectangle(geometry.Plate, p), spritePalettes[4 + interaction], city.PanelAlpha);
             if (marker.Kind == Kind.City)
             {
                 // 1A64B0 replaces the same outline slot with24D base or24E
                 // player outline. They are not two simultaneous white layers.
-                DrawTextureRect(_cityFlag[marker.OutlineTint is null ? 0 : 1], cityFlag, false,
+                Texture2D outlineTexture = _cityFlag[marker.OutlineTint is null ? 0 : 1];
+                if (interaction == 0) DrawTextureRect(outlineTexture, cityFlag, false,
                     Alpha(marker.OutlineTint ?? Colors.White, city.FlagAlpha));
-                DrawTextureRect(_cityFlag[2], cityFlag, false, Alpha(marker.Tint, city.FlagAlpha));
+                else PaletteSprite(outlineTexture, cityFlag, spritePalettes[4 + interaction], city.FlagAlpha);
+                if (interaction == 0) DrawTextureRect(_cityFlag[2], cityFlag, false, Alpha(marker.Tint, city.FlagAlpha));
+                else PaletteSprite(_cityFlag[2], cityFlag, spritePalettes[4 + interaction], city.FlagAlpha);
                 if (marker.FlagGlyph.Length != 0)
-                    Text(marker.FlagGlyph, new(-12, -30, 24, 24), _cityGlyphFont!, HorizontalAlignment.Center, city.FlagAlpha, marker.FlagLetterColor);
+                    Text(marker.FlagGlyph, new(-12, -30, 24, 24), _cityGlyphStates[interaction], HorizontalAlignment.Center, city.FlagAlpha,
+                        interaction == 0 ? marker.FlagLetterColor : Colors.White);
             }
             else
             {
@@ -428,7 +462,7 @@ internal partial class D3D11MapMarkers : Control
                 DrawTextureRect(_gateFlag[2], cityFlag, false, Alpha(marker.Tint, city.FlagAlpha));
             }
             if (city.Display == 2) continue;
-            Text(simpleText, geometry.TextCell, numbers ? _simpleNumberFont! : _locationFont!,
+            Text(simpleText, geometry.TextCell, numbers ? _simpleNumberStates[interaction] : _locationStates[interaction],
                 numbers ? HorizontalAlignment.Left : HorizontalAlignment.Center, city.PanelAlpha);
             if (city.Display == 0)
             {

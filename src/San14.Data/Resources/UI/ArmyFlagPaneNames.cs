@@ -5,14 +5,14 @@ namespace San14.Data;
 
 public sealed record ArmyFlagPaneNameSelection(string SourceTextBeforeSingleUnitCopy,
     ArmyFlagPaneGlyph Glyph, bool ForceValidity, int? PhysicalForce,
-    byte? SourceForceNameIndex48, ushort? CurrentRulerId10, int? SelectedDefinitionIndex,
+    byte? CurrentForceNameIndex48, ushort? CurrentRulerId10, int? SelectedDefinitionIndex,
     int? SelectedPersonLookupId, int? SelectedPersonPhysicalSlot, byte? CurrentForceColor49,
     string SelectionPath, string NativeSourceProvenance)
 {
     public bool HasGlyph => Glyph.TwoUtf16Units[0] != '\0';
     public int GlyphCount => HasGlyph ? 1 : 0;
     public string NativeShortName => HasGlyph ? Glyph.TwoUtf16Units[..1] : string.Empty;
-    public bool ForceName48IsRetainedSourceField => true;
+    public bool ForceName48IsCurrentStateField => true;
     public bool PersonNameFieldsAreRetainedSourceFields => true;
     public bool PaneNameStateFidelityVerified => false;
     // Ordinary309540 may append a message suffix. A nonempty source prefix
@@ -21,9 +21,9 @@ public sealed record ArmyFlagPaneNameSelection(string SourceTextBeforeSingleUnit
 }
 
 /// <summary>Owns the actual CE source name48 byte, fixed custom names and
-/// person name fields. Current force validity/ruler and PersonID lookup are read
-/// from the supplied owned native context. Source name48/person text remain
-/// explicit immutable fields; CoreForceState.Name is never a source operand.</summary>
+/// person name fields. Current force name index, validity/ruler and PersonID
+/// lookup are read from the supplied owned context. Only the initial name index
+/// and person text remain source fields; CoreForceState.Name is not an operand.</summary>
 public sealed class LoadedArmyFlagPaneNames
 {
     private readonly byte[] forceNameIndices;
@@ -64,11 +64,12 @@ public sealed class LoadedArmyFlagPaneNames
         if (physical is not int slot || (uint)slot >= 52) throw Error("valid force has no supported owned identity");
         ushort ruler = current.ReadForceRecord(slot)?.RawRuler10
             ?? throw Error("current ruler10 is unknown");
-        byte index = forceNameIndices[slot]; int definition = index <= 100 ? index : 0;
+        byte index = current.ReadForceKingdomNameIndex(slot) ?? throw Error("current kingdom name index is unknown");
+        int definition = index <= 100 ? index : 0;
         byte? color = current.ReadForceReportColor(force);
         if (definition != 0)
             return Select(shortNames[definition], true, slot, index, ruler, definition, null, null, color,
-                "custom name definition", $"SC2ACFF2..2AD028 source Force+48={index}, World+78168[{definition}], CKingdomData+10;30E110 copiesoneUTF16unit");
+                "custom name definition", $"SC2ACFF2..2AD028 current Force+48={index}, World+78168[{definition}], CKingdomData+10;30E110 copiesoneUTF16unit");
 
         // Concrete CForceData+60 is (this-WorldDF30)/268. The native
         // special slots46..50 use2313C0 and a separate formatted branch.
@@ -160,9 +161,7 @@ public static class ArmyFlagPaneNames
             if (snapshot.Slot != slot || row.Slot != slot || snapshot.RulerSlot != row.RulerSlot ||
                 !snapshot.RemainingBytesHex.Equals(row.RemainingBytesHex, StringComparison.OrdinalIgnoreCase))
                 throw Error("retained Force row differs from the loaded scenario source");
-            byte[] remaining = Convert.FromHexString(row.RemainingBytesHex);
-            if (remaining.Length != 327) throw Error("requires the complete329-byte CE Force row");
-            indices[slot] = remaining[53]; // CE row55 -> native Force+48.
+            indices[slot] = row.RawKingdomName48 ?? throw Error("source kingdom name index is unknown");
         }
         var personTable = S14ScenarioTables.ReadCharacterNames(scenario, source.Snapshot.Locale);
         int nameBytes = source.Snapshot.Locale == "SC" ? 18 : 14;

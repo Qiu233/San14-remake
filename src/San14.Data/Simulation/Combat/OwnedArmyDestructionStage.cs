@@ -40,13 +40,20 @@ public sealed record OwnedArmyDestructionPhaseResult(GameState? State,
 public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter package)
 {
     public const string Revision = "san14:ce-owned-ordinary-Army-destruction-20261007";
+    //Historical callers used the hexadecimal source case label as a name.
+    //The actual scheduler index is decimal25; keep this API for existing callers.
     public OwnedArmyDestructionPhaseResult TryConsumePhase19(GameState state,
+        TacticSourceSamplerWorld? sampler = null, NativeMapSeasonDate? captureWorld38Date = null)
+        => TryConsumeDeferredDefeats(state, sampler, captureWorld38Date);
+
+    public OwnedArmyDestructionPhaseResult TryConsumeDeferredDefeats(GameState state,
         TacticSourceSamplerWorld? sampler = null, NativeMapSeasonDate? captureWorld38Date = null)
     {
         var receipts = new List<OwnedArmyDestructionReceipt>();
         var captures = new List<OwnedGateCaptureReceipt>();
         var cityCaptures = new List<OwnedCityCaptureReceipt>();
         var reports = new List<PeriodReportEntry>();
+        var reportIntents = new List<CampaignEffectRequest>();
         //The legacy parameter name describes one consumer of World34's final
         //byte38. The same actual pre-writer ThirdDate also owns Return dates.
         var sourceDate = captureWorld38Date ?? state.NativeMapSeason?.ThirdDate;
@@ -91,7 +98,7 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                 if (current.ReadArmyUnitNativeValidity(new(physical)) is not bool valid) throw Missing("current.victim_validity");
                 if (!valid || ArmyPending70Admission.ContainsCurrentPointer(new(RegistryKind.Army, physical), new Pending(current))) continue;
                 var receipt = DestroyCurrent(working, current, world.Pool, defeat, physical,
-                    sampler ?? package.ReadArmyDestructionSampler(working, current), sourceDate);
+                    sampler ?? package.ReadArmyDestructionSampler(working, current), sourceDate, reportIntents);
                 working = receipt.State;
                 destroyed.Add(physical); receipts.Add(receipt.Receipt); reports.Add(receipt.Receipt.Report);
                 queue = current.OwnedDestructionQueue ?? throw Missing("current.operation_settlements");
@@ -99,6 +106,10 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
             queue = CombatSettlementQueue.Create();
             current.BindOwnedDestructionQueue(queue, working);
             var result = PublishCurrent(working, current, world.Pool, destroyed, queue);
+            if (reportIntents.Count != 0) result = result with { CampaignEffectRequests =
+                (result.CampaignEffectRequests ?? throw Missing("report_pending_owner"))
+                    .Append(CampaignEffectSource.ArmyBattleDefeat,
+                        result.NativeClock?.UpdateOrdinal ?? throw Missing("report_source_revision"), reportIntents) };
             ArmyLifecycleSaveValidation.Validate(result);
             return new(result, receipts, null) { BaseReceipts = captures.ToArray(), CityReceipts = cityCaptures.ToArray(), SourceReports = reports.ToArray() };
         }
@@ -108,15 +119,17 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
     private (GameState State, OwnedArmyDestructionReceipt Receipt) DestroyCurrent(GameState state,
         SourceWorldContext current, WorldIndexContext pool,
         UnitDefeatRequest request, int physical, TacticSourceSamplerWorld? sampler,
-        NativeMapSeasonDate? sourceDate)
+        NativeMapSeasonDate? sourceDate, List<CampaignEffectRequest>? feedback = null,
+        Action<ArmyUnitReference>? refresh = null, Action<int>? personChanged = null,
+        bool projectOwnedRoles = false)
     {
         if (request.WinnerUnitId == request.VictimUnitId)
             throw Missing("branch.ordinary_null_winner_mode1_cause0");
         var arena = state.ReadArmyLifecycle()!;
         var slot = arena.ReceiverSlots()[physical];
-        if (slot.ActiveUnitId is not int id || !state.Units.TryGetValue(id, out var army) || army.Troops != 0 ||
+        if (slot.ActiveUnitId is not int id || !state.Units.TryGetValue(id, out var army) ||
             !ArmyConfigurationSourceAdapter.HasConfiguration(army) || army.NativeTacticRuntime is null)
-            throw Missing("current.actual_zero_ready_Army_image");
+            throw Missing("current.actual_battle_defeat_Army_image");
         var victim = new ArmyUnitReference(physical);
         var winner = new ArmyUnitReference(request.WinnerUnitId is int winnerIdForMapping
             ? ArmyDestructionQueue.ResolveUnitSlot(state, winnerIdForMapping) : null);
@@ -152,8 +165,17 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         //2C8DA0 is called before any cached trait cleanup, even when the later
         //known-null winner branch does not need capture immunity.
         int captureImmunity = CachedEffect(current, victim, 0x36);
-        var cleanup = ArmyReturnTraitCleanup.ApplyCurrent(victim, current, pool, new(false, false));
-        if (cleanup.Packet is null) throw Missing(cleanup.UnresolvedOwner ?? "current.trait_cleanup");
+        if (refresh is null)
+        {
+            var cleanup = ArmyReturnTraitCleanup.ApplyCurrent(victim, current, pool, new(false, false));
+            if (cleanup.Packet is null) throw Missing(cleanup.UnresolvedOwner ?? "current.trait_cleanup");
+        }
+        else
+        {
+            var cleanup = new ArmyReturnTraitCleanup.Current(current, pool, refresh, personChanged);
+            for (int i = 0; i < 9; i++) cleanup.ClearCommanderSlot(victim, i);
+            for (int i = 0; i < 36; i++) cleanup.ClearReceivedSlot(victim, i);
+        }
         effects.Add("259526.nine2A2340_then36_2A2540");
         bool immune = PersonalityImmunity(state, current, commander);
         effects.Add("2595A0.2307D0_Personality_temporary");
@@ -174,8 +196,10 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         effects.Add("259Fxx.259360_resource_writes");
         //Loyalty implementation is supplied below once its real source inputs
         //have closed. It is not bypassed merely because the Person is ruler.
-        state = package.ApplyArmyDestructionLoyalty(state, current, commander, force);
+        state = package.ApplyArmyDestructionLoyalty(state, current, commander, force, projectOwnedRoles);
         effects.Add("25A834.Person_E8_loyalty_writer");
+        if (feedback is not null)
+            CaptureMoraleDefeatReport(state, current, victim, winner, checked((ushort)hex), sampler, feedback);
         var wave = ArmyDestructionMoraleWave.Apply(state, current, victim,
             new(new(commander), force, captured.WinnerForce, false), winner);
         if (wave.EffectCount is null) throw Missing(wave.UnresolvedOwner ?? "current.ruler_morale_wave");
@@ -263,7 +287,7 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
             //The original victim has entered pending70 before2B9290. Publish
             //that current image only to this enclosing operation's draft;
             //phase26 still owns header reset/unregistration.
-            state = PublishCurrent(state, current, pool, [physical], current.OwnedDestructionQueue!);
+            state = PublishCurrent(state, current, pool, [physical], current.OwnedDestructionQueue!, projectOwnedRoles);
             var reward = package.TryApplyNativeNormalPersonRewardDuringArmyOperation(state, winnerCommander!.Value, 2, 0);
             if (reward.Outcome == PersonNormalArmyRewardOutcome.CurrentInputsUnresolved)
                 throw Missing("current.winner_2B9290:" + reward.MissingPhase);
@@ -309,17 +333,18 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
     }
 
     private static GameState PublishCurrent(GameState state, SourceWorldContext current,
-        WorldIndexContext pool, HashSet<int> destroyed, CombatSettlementQueue queue)
+        WorldIndexContext pool, HashSet<int> destroyed, CombatSettlementQueue queue,
+        bool projectOwnedRoles = false)
     {
         var result = OwnedArmyReturnCurrentFields.PublishCurrent(state, current);
         result = OwnedArmyLifecycleDetachedInputs.PublishCurrent(result, current);
         result = ArmyReturnImagePublication.Publish(result, current, destroyed);
         var arena = OwnedArmyDestructorFlags.PublishCurrent(result.ReadArmyLifecycle()!, current)
-            with { Indexes = pool.ExportOwnedState() };
+            with { Indexes = projectOwnedRoles ? pool.ProjectOwnedRoles() : pool.ExportOwnedState() };
         return OwnedArmyLifecycleTargets.PublishCurrent((result with {
                 ArmyMapOccupancy = current.ExportArmyMapOccupancy(),
                 PendingCombatSettlements = queue,
-                PersonnelReturns = current.ReadOwnedPersonCommandManager() }).WithArmyLifecycle(arena), current);
+                PersonnelCommands = current.ReadOwnedPersonCommandManager() }).WithArmyLifecycle(arena), current);
     }
 
     private static bool PersonalityImmunity(GameState state, SourceWorldContext current, int commander)
@@ -423,11 +448,11 @@ public sealed partial class ArmyCampaignRuleAdapter
     internal TacticSourceSamplerWorld? ReadArmyDestructionSampler(GameState state, SourceWorldContext current) =>
         Context(current).ReadCurrentSamplerWorld(state);
     internal GameState ApplyArmyDestructionLoyalty(GameState state, SourceWorldContext current,
-        int personPhysical, ForceReference capturedVictimForce)
+        int personPhysical, ForceReference capturedVictimForce, bool projectOwnedRoles = false)
     {
         var result = ArmyDestructionLoyalty.Prepare(state, current, personPhysical, _governorInputs, capturedVictimForce);
         if (result.Packet is not { } packet) throw new InvalidDataException(result.UnresolvedOwner ?? "current.destruction_loyalty");
         ArmyDestructionLoyalty.ApplyContext(packet);
-        return ArmyDestructionLoyalty.PublishCurrent(state, packet);
+        return ArmyDestructionLoyalty.PublishCurrent(state, packet, projectOwnedRoles);
     }
 }

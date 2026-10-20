@@ -22,7 +22,8 @@ public sealed partial class SourceWorldContext : IHexOwnershipState, IAreaOwners
     public void SetHexScenerySlot(int physicalSlot, byte? value)
     { Check(physicalSlot, 48400, "hex physical slot"); _hexScenerySlots[physicalSlot] = value; }
     public byte? ReadHexScenerySlot(HexReference hex) =>
-        _hexScenerySlots.GetValueOrDefault(MapPhysical(hex.PhysicalSlot, 48400, "hex"));
+        _hexScenerySlots.TryGetValue(MapPhysical(hex.PhysicalSlot, 48400, "hex"), out byte? value)
+            ? value : _constructionSceneryLinksKnown ? (byte)0 : null;
     public void SetSceneryTablePointer(int slot, int? physicalSlot) =>
         SetPointer(_sceneryPointers, slot, 101, physicalSlot, 101);
     public SceneryReference? ReadSceneryTableReference(int slot)

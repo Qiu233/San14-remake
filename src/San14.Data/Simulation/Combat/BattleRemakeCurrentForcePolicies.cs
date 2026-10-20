@@ -22,6 +22,19 @@ public static class BattleRemakeCurrentForcePolicies
 
     public static string ForceFieldKey(int forceId, int nativeOffset) => $"{Prefix}force:{forceId}:field:{nativeOffset:X3}";
     public static string PersonFieldKey(int personId, int nativeOffset) => $"{Prefix}person:{personId}:field:{nativeOffset:X3}";
+    internal static GameState ResetCurrentDeathPersonPolicy(GameState state, int personId, int physical)
+    {
+        if (state.NativeArmySimulation is not { } native ||
+            native.Parameters.Int32Values.GetValueOrDefault(OwnerKey) != Version ||
+            native.Parameters.Int32Values.GetValueOrDefault(PersonProfileKey(personId)) != Version ||
+            !native.Parameters.Int32Values.TryGetValue(PersonIdentityKey(personId), out int ownedPhysical) || ownedPhysical != physical ||
+            !state.Officers.TryGetValue(personId, out var person))
+            throw new InvalidDataException("person-death.current_policy_owner");
+        var values = new Dictionary<string, int>(native.Parameters.Int32Values)
+        { [PersonFieldKey(personId, 0x185)] = 0, [PersonFieldKey(personId, 0x1BA)] = 0 };
+        return state with { Officers = new(state.Officers) { [personId] = person with { PolicyId = null, PolicyBaseCost = 0 } },
+            NativeArmySimulation = native with { Parameters = native.Parameters with { Int32Values = values } } };
+    }
     public static string PolicyEffectSlotKey(int policyId, int ordinal) => $"{Prefix}policy:{policyId}:effect-slot:{ordinal}";
     public static string DepartmentPersonKey(int forceId, int group, int ordinal) => ForceFieldKey(forceId, 0x54 + group * 30 + ordinal * 2);
     public static string DepartmentFilterKey(int forceId, int group, int ordinal) => ForceFieldKey(forceId, 0x62 + group * 30 + ordinal * 2);

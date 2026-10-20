@@ -186,15 +186,19 @@ public static class PersonArmyCaptureSource
                 defeatedForce, winnerForce, cities, atBase, threats, baseProbability, trait, probability, draw, hour, branch), null);
     }
 
-    private static int CountOwnedCities(SourceWorldContext current, ForceReference force)
+    internal static int CountOwnedCities(SourceWorldContext current, ForceReference force)
+        => Need(ReadOwnedCityCount(current, force), "current.Force_City_count");
+
+    internal static int? ReadOwnedCityCount(SourceWorldContext current, ForceReference force)
     {
         //22AB60→2243A0 uses the complete pointer table, NOT registry90.
         //3347B0 compares City virtualB0 without a native validity predicate.
         if (force.PhysicalSlot is not (>= 1 and <= 51)) return 0;
         int count = 0;
         for (int slot = 0; slot < 52; slot++) {
-            var city = current.ReadCityTableReference(slot) ?? throw Missing("current.Force_City_pointer_table");
-            if (Need(current.ReadBaseForceSlot(city), "current.City_ForceB0") == force.PhysicalSlot) count++;
+            var city = current.ReadCityTableReference(slot);
+            if (city is null || current.ReadBaseForceSlot(city) is not int owner) return null;
+            if (owner == force.PhysicalSlot) count++;
         }
         return count;
     }
@@ -276,7 +280,7 @@ public static class PersonArmyCaptureSource
             x = unchecked(x + delta.X); y = unchecked(y + delta.Y);
         }
     }
-    private static bool Threatens(GameState state, SourceWorldContext current, int candidateHex, int center)
+    internal static bool Threatens(GameState state, SourceWorldContext current, int candidateHex, int center)
     {
         var hex = current.ReadHexTableReference(candidateHex) ?? throw Missing("current.threat_Hex_pointer");
         ushort link = Need(current.ReadHexObjectLink(hex), "current.threat_Hex1A");
@@ -337,5 +341,5 @@ public static class PersonArmyCaptureSource
     private static int Cvtt(float value) => !float.IsFinite(value) || value < int.MinValue || value >= 2147483648f ? int.MinValue : (int)value;
     private static T Need<T>(T? value, string field) where T : struct => value ?? throw Missing(field);
     private static MissingOwner Missing(string field) => new(field);
-    private sealed class MissingOwner(string field) : Exception(field);
+    internal sealed class MissingOwner(string field) : Exception(field);
 }

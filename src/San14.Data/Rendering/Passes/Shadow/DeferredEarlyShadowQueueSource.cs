@@ -64,20 +64,28 @@ public sealed class LoadedDeferredEarlyShadowRenderer
         ArgumentNullException.ThrowIfNull(actualCache);
         if (Selected.Interface?.Provider?.Object.ClassId != 0x39E93192 || Bindings.Variants.RecordWidth != 12)
             throw new NotSupportedException("This comparator belongs to the actual class39E93192 generic shadow renderer.");
-        if (actualCache.CommittedBytes.Length != 12 || actualRequested12.Length != 12)
-            throw new ArgumentException("The generic cache requires both complete original three-DWORD ranges.");
-        if (actualCache.CommittedIndex < Bindings.Variants.Records.Count &&
-            GenericMatches(actualCache.CommittedBytes, actualRequested12))
+        return SelectShadowRequestedVariant(Bindings.Variants, actualCache, actualRequested12);
+    }
+
+    // Generic and Tree2 shadow vtables both select 1054240. Their imported
+    // variant widths differ; preserve the complete cache, including module tails.
+    internal static ModelShaderVariantTransition SelectShadowRequestedVariant(
+        G1ShaderVariantTable table, ModelShaderVariantCache actualCache, ReadOnlySpan<byte> requested)
+    {
+        if (table.RecordWidth < 12 || actualCache.CommittedBytes.Length != table.RecordWidth || requested.Length != table.RecordWidth)
+            throw new ArgumentException("Shadow selection requires the complete imported variant cache.");
+        if (actualCache.CommittedIndex < table.Records.Count &&
+            GenericMatches(actualCache.CommittedBytes, requested))
             return Transition(ModelShaderVariantTransitionKind.CachedAcceptance, true,
-                actualCache.CommittedIndex, actualCache.CommittedBytes, actualRequested12, false);
-        foreach (var row in Bindings.Variants.Records)
+                actualCache.CommittedIndex, actualCache.CommittedBytes, requested, false);
+        foreach (var row in table.Records)
         {
-            if (!GenericMatches(row.RawBytes.Span, actualRequested12)) continue;
+            if (!GenericMatches(row.RawBytes.Span, requested)) continue;
             uint selectedIndex = checked((uint)row.Index);
             bool changed = selectedIndex != actualCache.CommittedIndex;
             return Transition(ModelShaderVariantTransitionKind.SourceRowMatch, true, selectedIndex,
                 changed ? row.RawBytes.Span : actualCache.CommittedBytes,
-                changed ? row.RawBytes.Span : actualRequested12, changed);
+                changed ? row.RawBytes.Span : requested, changed);
         }
         return Transition(ModelShaderVariantTransitionKind.MissRevert, false,
             actualCache.CommittedIndex, actualCache.CommittedBytes, actualCache.CommittedBytes, false);

@@ -7,9 +7,10 @@ public sealed partial class ArmyCampaignRuleAdapter
     public PersonReturnManagerResult TryAdvancePersonReturnCommands(GameState state, NativeMapSeasonDate currentWorldThirdDate)
     {
         if (currentWorldThirdDate.Hour is not (8 or 22)) return new(state, [], null);
-        if (state.PersonnelReturns is not { } commands || state.ReadArmyLifecycle()?.Indexes.ReturningPersonnelTaskOrder is null)
+        if (state.PersonnelCommands is not { } commands || state.ReadArmyLifecycle()?.Indexes.ReturningPersonnelTaskOrder is null)
             return new(null, [], "current.owned_Person_Return_manager");
-        if (!commands.Tasks.Values.Any(task => task.DispatchSlot.HasValue) && commands.PendingRetirements.Length == 0)
+        if (commands.Disappearances is null) return new(null, [], "current.personnel_disappearance_tasks");
+        if (!commands.DispatchOrder().Any() && commands.PendingRetirements.Length == 0)
             return new(state, [], null);
         try
         {
@@ -25,7 +26,8 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         public ArmyReturnGovernorComparatorFields? ReadCurrentComparatorFields(int person) => inputs.ReadCurrentComparatorFields(state, person);
         public int? ReadCurrentAssociatedVirtual98(PersonLinkedEntityReference reference) =>
-            reference.Identity is int receiver && current.ReadOwnedPersonCommandManager()?.Tasks.ContainsKey(receiver) == true
-                ? 0xF : null; //Actual1EDB40 Return v98, read only when reached.
+            reference.Identity is not int receiver ? null :
+                current.ReadOwnedPersonCommandManager()?.Returns.ContainsKey(receiver) == true ? 0xF :
+                current.ReadOwnedPersonCommandManager()?.Disappearances?.ContainsKey(receiver) == true ? 0x10 : null;
     }
 }

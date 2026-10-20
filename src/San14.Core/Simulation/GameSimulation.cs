@@ -5,7 +5,7 @@ namespace San14.Core;
 /// operation publishes it. Views borrow State and must not mutate its collections.
 /// Loading and campaign construction validate once, before gameplay begins.
 /// </summary>
-public sealed class GameSimulation
+public sealed partial class GameSimulation
 {
     public GameSimulation(GameState initialState)
     {
@@ -18,6 +18,7 @@ public sealed class GameSimulation
     public CommandResult Apply(GameOrder order, IOrderRules rules,
         CommandContext context, IOrderAuthority authority)
     {
+        RequireNoProgress();
         CommandResult result = GameEngine.ApplyCandidate(State, order, rules, context, authority);
         if (result.Accepted) State = result.State!;
         return result;
@@ -27,6 +28,7 @@ public sealed class GameSimulation
     public GameState AdvancePeriod(IAdvancementRules rules,
         ICommandPlanner? planner = null, Func<GameState, GameState>? complete = null)
     {
+        RequireNoProgress();
         GameState working = GameStateCopy.Copy(State);
         var planning = new CommandPlanningContext(working);
         planner?.Plan(planning);
@@ -43,6 +45,7 @@ public sealed class GameSimulation
 
     public GameState FinishReport(IReportingRules rules)
     {
+        RequireNoProgress();
         GameState result = GameEngine.FinishReportOwned(State, GameStateCopy.Copy(State), rules);
         State = result;
         return State;

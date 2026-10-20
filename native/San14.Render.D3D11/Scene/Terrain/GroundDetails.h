@@ -3,6 +3,8 @@
 // original model importer; source packets and device objects load only once.
 #include "../Models/ModelRenderer.h"
 #include "GroundDetailSubmission.hpp"
+#include "GroundDetailShadow.hpp"
+#include "GroundDetailShadowGpu.h"
 #include "GroundDetailAdmission.hpp"
 #include "GroundDetailSeason.h"
 #include "TreeWindFrame.h"
@@ -40,7 +42,9 @@ class GroundDetails {
     std::vector<ground_detail_source::PrimitiveSource> parts;
     std::vector<ground_detail_source::TemplateWorld> worlds;
     ground_detail_source::OrderedPopulation population;
+    std::vector<source_shadow_camera::ProceduralCaster> compactCasters;
     NativeModelInputs models;std::vector<DrawData> drawData;
+    GroundDetailShadowGpu shadowGpu;
     std::unordered_map<std::string,size_t> drawByPath;
     std::vector<ComPtr<ID3D11Buffer>> instanceStreams;
     std::array<ComPtr<ID3D11DepthStencilState>,2> depth,depthWithoutStencil;
@@ -130,6 +134,7 @@ private:
             drawByPath.emplace(model.identity,i);drawData.push_back(std::move(d));
         }
         if(metadata.size()!=models.draws.size())throw std::runtime_error("Ground details template metadata identity differs");
+        shadowGpu.loadResources(device,source,models);
         std::vector<uint32_t> capacities(packet.templates.size());
         for(const auto& b:packet.banks){capacities[b.templateIndex]+=uint32_t(b.instances.size());wholeInstances+=uint32_t(b.instances.size());}
         if(seasons)capacities.assign(seasons->streamCapacity.begin(),seasons->streamCapacity.end());
@@ -178,10 +183,10 @@ public:
         for(size_t i=0;i<3;++i){if(rows[i].size()%sizes[i]||rows[i].size()/sizes[i]>128)throw std::runtime_error("Current wind object publication exceeds source record/capacity");
             upload(context,windObjects[i].buffer.Get(),rows[i].data(),rows[i].size());windCounts[i]=uint32_t(rows[i].size()/sizes[i]);}
     }
-    const Statistics& prepare(const FrameInputs& f) {
+    const Statistics& prepare(const FrameInputs& f,const ground_detail_source::CompactCasterSelection& shadow) {
         if(models.draws.empty()||f.population.selectedView>=32)
             throw std::runtime_error("Ground details current Main/View input absent");
-        statistics={};population={};uploaded=false;prepared=true;
+        statistics={};population={};compactCasters.clear();uploaded=false;prepared=true;
         if(seasons){
             statistics.seasonPopulationChanged=ground_detail_season_source::installSettled(*seasons,packet,f.season);
             if(statistics.seasonPopulationChanged){
@@ -205,12 +210,16 @@ public:
         if(windOccurrence)currentWind=tree2_source::advance(windOwner,random,currentEnvironment,f.clock);
         if((f.commonSettingsFlags&0x200000u)!=0)
             throw std::runtime_error("Ground details current interaction writer requires its actual shader/owner publication interface");
+        ground_detail_source::WorldDispatch selectedDispatch{};
         for(auto d:ground_detail_source::dispatch(f.population.firstViews,f.population.secondViews,f.population.shadowViews,f.population.registeredViews,currentCommon))if(d.view==f.population.selectedView){
+            selectedDispatch=d;
             statistics.normalFirst=(d.first&f.population.successfulViews)!=0;statistics.normalSecond=(d.second&f.population.successfulViews)!=0;
         }
-        if(!statistics.normalFirst&&!statistics.normalSecond)return statistics;
+        if(!statistics.normalFirst&&!statistics.normalSecond&&!(selectedDispatch.shadow&f.population.successfulViews))return statistics;
         auto view=ground_detail_source::prepare(f.camera,visibilityPolicy.cullingMode,visibilityPolicy.scanningOrder);
         population=ground_detail_source::aggregate(packet,view,ground_detail_source::select(packet,view),parts,worlds);
+        compactCasters=ground_detail_source::prepareCompactCasters(view,population,worlds,selectedDispatch,
+            f.population.successfulViews,currentCommon,shadow);
         for(const auto& stream:population.streams)statistics.selectedInstances+=uint32_t(stream.rows.size());
         statistics.preparedPrimitives=uint32_t(population.submissions.size());
         for(const auto& s:population.submissions)if(!population.streams[s.streamIndex].rows.empty()){
@@ -219,6 +228,7 @@ public:
         }return statistics;
     }
     uint32_t preparedExclusion() const noexcept {return effectiveExclusion;}
+    std::span<const source_shadow_camera::ProceduralCaster> preparedCompactCasters() const noexcept {return compactCasters;}
     uint32_t preparedCountForRecord(uint32_t excludedCategories) const {
         if(!prepared||!statistics.normalFirst||(excludedCategories&effectiveExclusion)!=0)return 0;
         return statistics.preparedPrimitives;
@@ -254,6 +264,45 @@ public:
     }
     // BF8610 belongs after the original render-node work, not prepare/update.
     void finishRenderNode() {if(windOccurrence)tree2_source::finishRenderNode(graphics,currentWind);}
+    unsigned drawShadows(ID3D11DeviceContext* context,const source_shadow_camera::Frame& frame,
+        const NativeShadowRasterGpu& raster,unsigned family) {
+        if(!uploaded)throw std::runtime_error("Ground caster needs this frame's shared instances and wind");
+        unsigned draws=0;
+        for(unsigned pass=0;pass<unsigned(frame.passCount);++pass) {
+            const auto& a=frame.atlas[pass];
+            D3D11_VIEWPORT viewport{float(a.x-1),float(a.y-1),float(a.width+2),float(a.height+2),0,1};
+            D3D11_RECT scissor{a.x,a.y,a.x+a.width,a.y+a.height};
+            context->RSSetViewports(1,&viewport);context->RSSetScissorRects(1,&scissor);
+            context->RSSetState(raster.passes.at(family).at(pass).Get());
+            for(unsigned queue:{54u,55u})for(const auto& admission:frame.proceduralAdmissions) {
+                if(!(admission.mask&(1u<<pass)))continue;
+                for(const auto& submission:population.submissions) {
+                    if(submission.primitive.templateIndex!=admission.index)continue;
+                    const auto& stream=population.streams[submission.streamIndex];
+                    if(stream.rows.empty())continue;
+                    const auto index=drawByPath.at(submission.primitive.relativePath);
+                    const auto& d=drawData[index];
+                    if(d.queue!=queue)continue;
+                    std::array<ID3D11ShaderResourceView*,10> views{};
+                    std::array<ID3D11SamplerState*,10> samplers{};
+                    if(d.tree) {
+                        views[0]=interactionVector[graphics.interactionSide].srv.Get();
+                        views[1]=interactionHeight[graphics.interactionSide].srv.Get();
+                        views[3]=phase[graphics.phaseSide[0]].srv.Get();
+                        views[8]=volumes[0].srv.Get();views[9]=volumes[1].srv.Get();
+                        samplers[8]=samplers[9]=windSampler.Get();
+                    }
+                    context->VSSetShaderResources(0,10,views.data());context->VSSetSamplers(0,10,samplers.data());
+                    draws+=shadowGpu.draw(context,index,models.draws[index],d.vertex,
+                        instanceStreams[submission.streamIndex].Get(),UINT(stream.rows.size()),
+                        frame.passes[pass].shadow,raster.source.at(family),pass);
+                }
+            }
+        }
+        std::array<ID3D11ShaderResourceView*,10> none{};
+        context->VSSetShaderResources(0,10,none.data());context->PSSetShaderResources(0,1,none.data());
+        return draws;
+    }
     void draw(ID3D11DeviceContext* context,uint32_t node54or55,const RecordInputs& record,
         ID3D11RenderTargetView* const* targets,ID3D11DepthStencilView* dsv,const D3D11_VIEWPORT& viewport) {
         if(!uploaded)throw std::runtime_error("Ground details draw needs current uploaded streams/CB");

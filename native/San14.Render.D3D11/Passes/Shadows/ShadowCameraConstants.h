@@ -296,12 +296,13 @@ prepareNativeShadowCameraGpu(ID3D11Device *device, source_shadow_gpu::Profile pr
     }
     return out;
 }
-template <class LogicalDepth>
+template <class LogicalDepth, class AdditionalCasters>
 inline void executeNativeShadowCameraGpu(ID3D11DeviceContext *context, LogicalDepth &logical,
                                          NativeShadowCameraGpu &gpu, const source_shadow_camera::Frame &frame,
                                          const source_shadow_gpu::Plan &plan,
                                          const NativeModelContinuous &catalog,
-                                         const NativeModelInputs &completeModels, unsigned renderMode) {
+                                         const NativeModelInputs &completeModels, unsigned renderMode,
+                                         AdditionalCasters&& additionalCasters) {
     retainNativeShadowRasterExit(context, gpu.raster);
     std::array<ID3D11ShaderResourceView *, 3> nulls{};
     context->PSSetShaderResources(0, 3, nulls.data());
@@ -349,6 +350,7 @@ inline void executeNativeShadowCameraGpu(ID3D11DeviceContext *context, LogicalDe
         context->DrawIndexed(geometry.indexCount, geometry.indexStart, geometry.baseVertex);
         ++gpu.map.draws;
     }
+    gpu.map.draws += additionalCasters(gpu.raster);
     context->OMSetRenderTargets(0, nullptr, nullptr);
     context->RSSetState(gpu.raster.exit.Get());
 }

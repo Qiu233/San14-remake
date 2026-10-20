@@ -51,7 +51,7 @@ public static class GovernanceActivation
             long next = (long)remaining - charge + refund;
             if (next < CommandBookAvailability.Reserved(state, district.Id, force.Id))
                 return CommandResult.Reject("Activation would spend another command's reservation.", "governance.insufficient_orders");
-            if (next > int.MaxValue || (district.OrderLimit is int limit && next > limit))
+            if (next > int.MaxValue)
                 return CommandResult.RuleUnavailable("rules.governance_resources", "Activation accounting exceeds the known budget range.");
             districts[district.Id] = district with { OrdersRemaining = (int)next };
             forces[force.Id] = force with

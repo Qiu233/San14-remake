@@ -47,6 +47,11 @@ public sealed partial class ArmyOperationContext
         if (state.MapWidth != 220 || state.MapHeight != 220 || state.MapSha256 != _map.Source.Sha256 ||
             !Matches(state, _source.ScenarioSource) || !Matches(state, _source.FixedDataSource)) return null;
         SourceWorldContext native = CaptureSourcePrefix();
+        // Overlay every receiver so an old or absent owner cannot retain the
+        // scenario's initial kingdom name. The default receiver has its own owner.
+        native.SetForceKingdomNameIndex(0, state.DefaultForceKingdomNameIndex);
+        for (int slot = 1; slot < 52; slot++)
+            native.SetForceKingdomNameIndex(slot, state.Forces.GetValueOrDefault(slot)?.KingdomNameIndex);
         foreach (DistrictState district in state.Districts.Values)
         {
             if (district.Id is < 1 or > 51 || district.ForceId is < 1 or > 51 || district.Number is < 0 or > 255) return null;
@@ -63,8 +68,9 @@ public sealed partial class ArmyOperationContext
         {
             if (native.ResolveOfficerSource(officer.Id) is not int physical) return null;
             if (officer.LocationId is < 0 or > ushort.MaxValue || officer.DistrictId is < 0 or > 51) return null;
-            native.SetPersonFirstLocation(physical, officer.LocationId is int first ? (ushort)first : null);
+            native.SetPersonFirstLocation(physical, OwnedArmyLifecycleDetachedInputs.ReadPersonFirstLocation(state, officer, physical));
             native.SetPersonDistrictSlot(physical, officer.DistrictId is int district ? (byte)district : null);
+            native.SetPersonPortraitAppearance(physical, officer.PortraitAppearanceIndex);
             //Second location, status and native flags stay independent source
             //fields. A Core role/presence enum does not encode those bytes.
         }
@@ -94,7 +100,6 @@ public sealed partial class ArmyOperationContext
             if (city.Id is < 1 or > 51 || city.ForceId is < 0 or > 51 || city.DistrictId is < 0 or > 51 ||
                 native.ReadPhysicalObject(city.Id)?.RawField10 != city.HexId) return null;
             native.SetCityDistrictSlot(city.Id, city.DistrictId is int district ? (byte)district : null);
-            native.SetObjectForceSlot13(city.Id, (byte)(city.ForceId ?? 0));
             native.SetObjectRawField14(city.Id, city.Durability is >= 0 and <= ushort.MaxValue
                 ? (ushort)city.Durability.Value : null);
         }
@@ -102,10 +107,12 @@ public sealed partial class ArmyOperationContext
         {
             if (gate.Id is < 52 or > 61 || gate.ForceId is < 0 or > 51 ||
                 native.ReadPhysicalObject(gate.Id)?.RawField10 != gate.HexId) return null;
-            native.SetObjectForceSlot13(gate.Id, (byte)(gate.ForceId ?? 0));
             native.SetObjectRawField14(gate.Id, gate.Durability is >= 0 and <= ushort.MaxValue
                 ? (ushort)gate.Durability.Value : null);
         }
+        if (state.LandmarkInvestments is { } landmarks)
+            foreach (var (id, landmark) in landmarks) native.SetSceneryFlags47(id, landmark.Flags);
+        OwnedMapObjectLifecycle.BindCurrent(state, native);
         return native;
     }
 
@@ -133,6 +140,7 @@ public sealed partial class ArmyOperationContext
                 throw new InvalidDataException("Owned Army fixed area receivers contradict the loaded map definition.");
             native.SetAreaTablePointer(slot, slot);
             native.SetAreaValidityCode(slot, area.CitySlot);
+            native.SetAreaFacilityCapacity(slot, area.FacilityCapacity);
             native.SetAreaHexIndex(slot, area.HexId);
         }
         //Shared fresh Base reset SC22726D/TC226FFD clears qword+4C,

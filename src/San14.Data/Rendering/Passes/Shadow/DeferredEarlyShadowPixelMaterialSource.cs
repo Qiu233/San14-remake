@@ -50,24 +50,7 @@ public sealed class LoadedDeferredEarlyShadowPixelMaterialSource
     public DeferredEarlyShadowPrimaryTexture<TTexture> ReadCurrentPrimary<TTexture>(
         G1TextureRecord actualPrimitive30, IReadOnlyList<TTexture?>? actualPrimitive38TextureSlots)
         where TTexture : class
-    {
-        ArgumentNullException.ThrowIfNull(actualPrimitive30);
-        if (actualPrimitive30.UnknownValue8 != 1 || actualPrimitive30.TextureEntries.Count == 0)
-            throw new NotSupportedException("This normal shadow texture recipe requires its actual one-primary type19 record.");
-        G1TextureEntry first = actualPrimitive30.TextureEntries[0];
-        TTexture? texture = actualPrimitive38TextureSlots is not null && first.RawValue0 < actualPrimitive38TextureSlots.Count
-            ? actualPrimitive38TextureSlots[first.RawValue0] : null;
-        // 9813AC..9814D7: source+38=10041 excludes the legacy half-scale.
-        // Vectors are the complete native literals, not fitted alpha values.
-        Vector4 map = first.RawValue6 switch {
-            4 => new(BitConverter.UInt32BitsToSingle(0xBF810204), 1.9921875f, 0,
-                BitConverter.UInt32BitsToSingle(0x40008102)),
-            2 => new(0, 0, 1, 1),
-            0 => new(1, 0, 1, 0),
-            _ => new(1, 1, 0, 0) };
-        return new(actualPrimitive30, first, actualPrimitive38TextureSlots is not null, texture,
-            actualPrimitive38TextureSlots is null ? 0 : 1, map);
-    }
+        => DeferredEarlyShadowPixelMaterialSource.ReadCurrentPrimary(actualPrimitive30, actualPrimitive38TextureSlots);
 
     /// <summary>All read named fields come from the actual current owners.
     /// sbias is ShadowCPU138 cache+D0..DC, including its current W; ordinary
@@ -127,6 +110,30 @@ public sealed class LoadedDeferredEarlyShadowPixelMaterialSource
 
 public static class DeferredEarlyShadowPixelMaterialSource
 {
+    /// <summary>Shared modern texture109 primary recipe for generic and Tree2
+    /// casters. The caller imports its actual shader descriptor and texture CPU.</summary>
+    public static DeferredEarlyShadowPrimaryTexture<TTexture> ReadCurrentPrimary<TTexture>(
+        G1TextureRecord actualPrimitive30, IReadOnlyList<TTexture?>? actualPrimitive38TextureSlots)
+        where TTexture : class
+    {
+        ArgumentNullException.ThrowIfNull(actualPrimitive30);
+        if (actualPrimitive30.UnknownValue8 != 1 || actualPrimitive30.TextureEntries.Count == 0)
+            throw new NotSupportedException("This normal shadow texture recipe requires its actual one-primary type19 record.");
+        G1TextureEntry first = actualPrimitive30.TextureEntries[0];
+        TTexture? texture = actualPrimitive38TextureSlots is not null && first.RawValue0 < actualPrimitive38TextureSlots.Count
+            ? actualPrimitive38TextureSlots[first.RawValue0] : null;
+        // 9813AC..9814D7: source+38=10041 excludes the legacy half-scale.
+        // Vectors are the complete native literals, not fitted alpha values.
+        Vector4 map = first.RawValue6 switch {
+            4 => new(BitConverter.UInt32BitsToSingle(0xBF810204), 1.9921875f, 0,
+                BitConverter.UInt32BitsToSingle(0x40008102)),
+            2 => new(0, 0, 1, 1),
+            0 => new(1, 0, 1, 0),
+            _ => new(1, 1, 0, 0) };
+        return new(actualPrimitive30, first, actualPrimitive38TextureSlots is not null, texture,
+            actualPrimitive38TextureSlots is null ? 0 : 1, map);
+    }
+
     /// <summary>Numeric fragment of actual9FFCA0's nonnull R8 parameter cache.
     /// Fresh compact D0C8D0 -> B92870 allocates its cache at CPU+D30;
     /// cascade D0C7F0 -> ABDC10 uses CPU+1410. Both publish it as CPU138;

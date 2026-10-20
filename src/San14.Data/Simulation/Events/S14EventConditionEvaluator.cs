@@ -39,8 +39,6 @@ public sealed class S14EventConditionProgram
             throw new InvalidDataException("Condition program has an invalid source window.");
 
         var operations = new S14ConditionInstruction[stream.Operations.Count];
-        int[] ends = Enumerable.Repeat(-1, operations.Length).ToArray();
-        var stack = new Stack<int>();
         for (int index = 0; index < operations.Length; index++)
         {
             S14EventOperation? source = stream.Operations[index];
@@ -53,26 +51,83 @@ public sealed class S14EventConditionProgram
                 BinaryPrimitives.ReadInt16LittleEndian(bytes.AsSpan(4)) != source.RawField04 ||
                 BinaryPrimitives.ReadInt16LittleEndian(bytes.AsSpan(6)) != source.RawField06)
                 throw new InvalidDataException($"Condition program operation {index} disagrees with its source bytes.");
-            if (source.Code is < 0 or >= 453 || source.Code is 1 or 2 or 3 or 4 or 216 or 257 or 372 or 379)
-                throw new InvalidDataException($"Condition program operation {index} has unsupported code {source.Code}.");
-
             int[] arguments = new int[8];
             for (int argument = 0; argument < arguments.Length; argument++)
                 arguments[argument] = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(12 + argument * 4));
             operations[index] = new(index, source.Offset, source.Code,
                 source.RawField04, source.RawField06, Array.AsReadOnly(arguments), Array.AsReadOnly(bytes));
-            if (source.Code is 5 or 7)
+        }
+        int[] ends = ReadGroupEnds(operations.Select(operation => operation.Code).ToArray(), out _);
+        return new(stream.Index, stream.Offset, operations, ends);
+    }
+
+    // The catalog uses the same structural profile to locate a rejected source
+    // operation. List blocks use the native independent end scan, not a mixed
+    // opener stack: only ordinary OR/AND groups contribute to that scan's depth.
+    internal static int[] ReadGroupEnds(IReadOnlyList<int> codes, out int failureIndex)
+    {
+        int[] ends = Enumerable.Repeat(-1, codes.Count).ToArray();
+        var stack = new Stack<int>();
+        for (int index = 0; index < codes.Count; index++)
+        {
+            failureIndex = index;
+            int code = codes[index];
+            if (code is < 0 or >= 453 or 1 or 2 or 3 or 4)
+                throw new InvalidDataException($"Condition program operation {index} has unsupported code {code}.");
+            if (code is 5 or 7)
                 stack.Push(index);
-            else if (source.Code is 6 or 8)
+            else if (code is 6 or 8)
             {
-                if (stack.Count == 0 || operations[stack.Peek()].Code + 1 != source.Code)
+                if (stack.Count == 0 || codes[stack.Peek()] + 1 != code)
                     throw new InvalidDataException($"Condition program operation {index} has an unmatched group end.");
                 ends[stack.Pop()] = index;
             }
         }
+        failureIndex = stack.Count == 0 ? -1 : stack.Peek();
         if (stack.Count != 0)
             throw new InvalidDataException($"Condition program operation {stack.Peek()} has an unmatched group begin.");
-        return new(stream.Index, stream.Offset, operations, ends);
+        var listGroups = new List<int>();
+        var cityEnds = new HashSet<int>();
+        for (int index = 0; index < codes.Count; index++)
+        {
+            int opener = codes[index];
+            if (opener is not (216 or 372)) continue;
+            failureIndex = index;
+            int closing = opener == 216 ? 257 : 379;
+            int depth = 0;
+            for (int next = index + 1; next < codes.Count; next++)
+            {
+                int code = codes[next];
+                if (code == opener)
+                {
+                    failureIndex = next;
+                    throw new InvalidDataException($"Condition program operation {next} has an unsupported nested list block.");
+                }
+                if (code == closing && depth == 0) { ends[index] = next; break; }
+                if (code is 5 or 7) depth++;
+                else if (code is 6 or 8) depth--;
+                if (depth < 0) break;
+            }
+            if (ends[index] < 0)
+                throw new InvalidDataException($"Condition program operation {index} has an unmatched list block.");
+            listGroups.Add(index);
+            if (opener == 372) cityEnds.Add(ends[index]);
+        }
+        foreach (int first in listGroups)
+            foreach (int second in listGroups)
+                if (first < second && second < ends[first] && ends[first] < ends[second])
+                {
+                    failureIndex = second;
+                    throw new InvalidDataException($"Condition program operation {second} has an unsupported crossing list block.");
+                }
+        for (int index = 0; index < codes.Count; index++)
+            if (codes[index] == 379 && !cityEnds.Contains(index))
+            {
+                failureIndex = index;
+                throw new InvalidDataException($"Condition program operation {index} has an unmatched city-list end.");
+            }
+        failureIndex = -1;
+        return ends;
     }
 }
 
@@ -98,6 +153,12 @@ public interface IS14EventConditionRuntime
     bool TryGetBinding(int code, out S14ConditionBinding binding);
     S14ConditionDispatchInputs ReadInputs(S14ConditionContext context);
     int InvokeLeaf(S14ConditionContext context);
+    // Only condition-mode execution owns this AND sub-block. Presentation
+    // runtimes must not inherit the condition branch for execution+40 != null.
+    void PreparePersonListGroup(S14ConditionContext context) =>
+        throw new InvalidDataException("Person-list condition group has no current runtime owner.");
+    void PrepareCityListGroup(S14ConditionContext context) =>
+        throw new InvalidDataException("City-list condition group has no current runtime owner.");
     bool ConditionBlocked { get; }
 }
 
@@ -131,7 +192,8 @@ public static class S14EventConditionEvaluator
         {
             [0] = new(0, 0, true),
             [5] = new(0, 1, true), [6] = new(0, 1, true),
-            [7] = new(0, 1, true), [8] = new(0, 1, true)
+            [7] = new(0, 1, true), [8] = new(0, 1, true),
+            [257] = new(0, 1, true), [379] = new(0, 1, true)
         });
 
     private sealed class Frame(int begin, int end, bool all, int depth, int orDepth)
@@ -217,18 +279,21 @@ public static class S14EventConditionEvaluator
 
             if (permission && metadata.HasHandler)
             {
-                if (operation.Code is 5 or 7)
+                if (operation.Code is 5 or 7 or 216 or 372)
                 {
+                    if (operation.Code == 216) runtime.PreparePersonListGroup(context);
+                    if (operation.Code == 372) runtime.PrepareCityListGroup(context);
                     int groupEnd = program.GroupEnds[frame.Cursor];
                     frame.PendingGroup = frame.Cursor;
-                    frames.Push(new(frame.Cursor + 1, groupEnd, operation.Code == 7,
-                        frame.Depth + 1, frame.OrDepth + (operation.Code == 5 ? 1 : 0)));
+                    bool isOr = operation.Code is 5 or 372;
+                    frames.Push(new(frame.Cursor + 1, groupEnd, !isOr,
+                        frame.Depth + 1, frame.OrDepth + (isOr ? 1 : 0)));
                     continue;
                 }
                 result = operation.Code switch
                 {
                     0 => 0,
-                    6 or 8 => 1,
+                    6 or 8 or 257 or 379 => 1,
                     _ => runtime.InvokeLeaf(context)
                 };
             }

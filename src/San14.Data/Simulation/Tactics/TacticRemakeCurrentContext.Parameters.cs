@@ -67,6 +67,11 @@ public sealed class TacticRemakeParameterSeed
     private const int Formation2AutomaticWaitingAdjustment = -8;
     private const int Formation14AutomaticWaitingAdjustment = -8;
     private const int ForceFlagWaitingReduction = 4;
+    private const int ManualInterventionMinimumPeriods = 3;
+    private const int ChainSearchRadius = 2;
+    private const int Formation1ManualWaitingAdjustment = 8;
+    private const int Formation2ManualWaitingAdjustment = -8;
+    private const int Formation14ManualWaitingAdjustment = -8;
     private const int NonplayerAutomaticTrialRate = 4;
     private const int PlayerDifficulty0TrialRate = 16;
     private const int PlayerDifficulty1TrialRate = 8;
@@ -118,6 +123,11 @@ public sealed class TacticRemakeParameterSeed
         (SimulationParameterKeys.Tactics.Formation2AutomaticWaitingAdjustment, Formation2AutomaticWaitingAdjustment),
         (SimulationParameterKeys.Tactics.Formation14AutomaticWaitingAdjustment, Formation14AutomaticWaitingAdjustment),
         (SimulationParameterKeys.Tactics.ForceFlagWaitingReduction, ForceFlagWaitingReduction),
+        (SimulationParameterKeys.Tactics.ManualInterventionMinimumPeriods, ManualInterventionMinimumPeriods),
+        (SimulationParameterKeys.Tactics.ChainSearchRadius, ChainSearchRadius),
+        (SimulationParameterKeys.Tactics.Formation1ManualWaitingAdjustment, Formation1ManualWaitingAdjustment),
+        (SimulationParameterKeys.Tactics.Formation2ManualWaitingAdjustment, Formation2ManualWaitingAdjustment),
+        (SimulationParameterKeys.Tactics.Formation14ManualWaitingAdjustment, Formation14ManualWaitingAdjustment),
         (SimulationParameterKeys.Tactics.NonplayerAutomaticTrialRate, NonplayerAutomaticTrialRate),
         (SimulationParameterKeys.Tactics.PlayerDifficulty0TrialRate, PlayerDifficulty0TrialRate),
         (SimulationParameterKeys.Tactics.PlayerDifficulty1TrialRate, PlayerDifficulty1TrialRate),

@@ -56,7 +56,7 @@ public:
                 direction[0] *= inverseDirection;
                 direction[1] *= inverseDirection;
                 const auto waveDirection = oceanTextureWaveDirection(surface);
-                const float angularVelocity = wave.kurtosis * (6.2831855f / wave.length);
+                const float angularVelocity = wave.speed * (6.2831855f / wave.length);
                 const float speed = (wave.length * angularVelocity / 6.2831855f) * settings.speedMultiplier;
                 const float velocityX = (direction[0]*waveDirection[0] - direction[1]*waveDirection[1]) * speed;
                 const float velocityZ = (direction[0]*waveDirection[1] + direction[1]*waveDirection[0]) * speed;

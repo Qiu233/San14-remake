@@ -8,8 +8,8 @@ public sealed record ArmyChangedListsResult(GameState? State, ArmyChangedListsRe
     string? UnresolvedOwner);
 
 /// <summary>0BD880/167900's two actual descriptors in the already owned
-/// primary pool. Finite17AFB0/17A620 branches and the explicit source type2
-/// route writer share one private operation; unsupported routes and an
+/// primary pool. Finite17AFB0/17A620 branches and explicit ordinary/type2
+/// route writers share one private operation; unsupported routes and an
 /// externally running worker remain explicit unknowns.</summary>
 public static class ArmyChangedListsSource
 {
@@ -59,7 +59,8 @@ public static class ArmyChangedListsSource
     /// existing primary owner, preserving atomic failure and current headers.</summary>
     public static ArmyChangedListsResult TryAdvanceFinite(GameState state,
         SourceWorldContext currentQueries,
-        Func<GameState, SourceWorldContext, UnitState, TransportArmyRouteResult>? rewriteTransportRoute = null)
+        Func<GameState, SourceWorldContext, UnitState, TransportArmyRouteResult>? rewriteTransportRoute = null,
+        Func<GameState, SourceWorldContext, UnitState, OrdinaryArmyRouteResult>? rewriteOrdinaryRoute = null)
     {
         if (state.ReadArmyLifecycle() is not { } arena || arena.Indexes.ChangedProcessing is null)
             return Unknown("current.changed_lists_saved_owner");
@@ -69,8 +70,9 @@ public static class ArmyChangedListsSource
         {
             var pending = arena.Indexes.ChangedPendingUnitIds ?? throw new Missing("current.changed_pending_units");
             if (pending.Count == 0) return Success(state, new("17AFB0.no_pending", false, false));
-            var current = rewriteTransportRoute is null ? new SourceWorldContext() : currentQueries;
-            var pool = rewriteTransportRoute is null ? WorldIndexContext.ImportOwnedState(current, arena.Indexes, state) :
+            bool hasRouteWriter = rewriteTransportRoute is not null || rewriteOrdinaryRoute is not null;
+            var current = !hasRouteWriter ? new SourceWorldContext() : currentQueries;
+            var pool = !hasRouteWriter ? WorldIndexContext.ImportOwnedState(current, arena.Indexes, state) :
                 current.ReadOwnedCurrentListPool() ?? throw new Missing("current.changed_routes_index_owner");
             var batch = pool.BeginChangedWork();
             var copied = batch.ChangedWorkingUnitIds!;
@@ -90,6 +92,19 @@ public static class ArmyChangedListsSource
                 bool? excluded = OwnedArmyDestructionCurrent.ReadArmyExcluded233560(working, currentQueries, physical.Value);
                 if (excluded is null) throw new Missing("current.changed_lists_Army233560");
                 if (excluded.Value) continue;
+                if (status == 1 && rewriteOrdinaryRoute is not null && slot.ActiveUnitId is int ordinaryId &&
+                    working.Units.GetValueOrDefault(ordinaryId) is { } ordinary)
+                {
+                    var rewritten = rewriteOrdinaryRoute(working, current, ordinary);
+                    if (rewritten.Receipt is not { } route) throw new Missing(rewritten.UnresolvedOwner!);
+                    if (route.ArmyPhysical != physical.Value) throw new Missing("current.changed_lists_route_Army_pointer");
+                    var changed = ordinary with { NativeRouteGoal1F8 = route.CachedGoalWrite ?? ordinary.NativeRouteGoal1F8,
+                        March = route.NextHexWrite is ushort next
+                            ? (ordinary.March ?? new(null, null, null)) with { NextStep = ArmyMarchSourceAdapter.DecodeDestination(next) }
+                            : ordinary.March };
+                    working = working with { Units = new(working.Units) { [ordinaryId] = changed } };
+                    continue;
+                }
                 if (status == 2)
                 {
                     if (arena.ArmyFlags150 is not { Count: 501 } flags || flags[physical.Value] is not byte raw150)

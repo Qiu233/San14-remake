@@ -64,13 +64,14 @@ public static class ArmyFormationWriter
     /// for a current receiver; CreateOrdinary applies the inspected reset.</summary>
     public static ArmyFormationWriteResult WriteOrdinary(ArmyFormationWriterSource source,
         ArmySortieFormationInputs inputs, ArmyFormationBytes previous,
-        ArmyOrdinaryNavalFallback? fallback = null)
+        ArmyOrdinaryNavalFallback? fallback = null, Func<int, byte?>? currentKind = null)
     {
         ArgumentNullException.ThrowIfNull(source); ArgumentNullException.ThrowIfNull(inputs);
         ArgumentNullException.ThrowIfNull(previous);
-        bool landWritten = (uint)inputs.LandFormationSlot <= 20 && source.NativeFields7E[inputs.LandFormationSlot] != 2;
+        byte Kind(int slot) => currentKind is null ? source.NativeFields7E[slot] : Known(currentKind(slot), "current formation kind7E");
+        bool landWritten = (uint)inputs.LandFormationSlot <= 20 && Kind(inputs.LandFormationSlot) != 2;
         byte? land = landWritten ? (byte)inputs.LandFormationSlot : previous.Byte1B;
-        bool navalWritten = (uint)inputs.NavalFormationSlot <= 20 && source.NativeFields7E[inputs.NavalFormationSlot] == 2;
+        bool navalWritten = (uint)inputs.NavalFormationSlot <= 20 && Kind(inputs.NavalFormationSlot) == 2;
         byte? naval = navalWritten ? (byte)inputs.NavalFormationSlot : previous.Byte1C;
         if (!navalWritten)
         {
@@ -90,8 +91,9 @@ public static class ArmyFormationWriter
     /// <summary>226C50 resets byte1B and byte1C together to zero. This is
     /// a creation projection, not a claim about a unit after subsequent updates.</summary>
     public static ArmyFormationWriteResult CreateOrdinary(ArmyFormationWriterSource source,
-        ArmySortieFormationInputs inputs, ArmyOrdinaryNavalFallback? fallback = null) =>
-        WriteOrdinary(source, inputs, new(0, 0), fallback);
+        ArmySortieFormationInputs inputs, ArmyOrdinaryNavalFallback? fallback = null,
+        Func<int, byte?>? currentKind = null) =>
+        WriteOrdinary(source, inputs, new(0, 0), fallback, currentKind);
 
     /// <summary>Projects only the inspected ordinary creation's reset and land
     /// setter. Naval byte is left unknown because its subsequent setter is not

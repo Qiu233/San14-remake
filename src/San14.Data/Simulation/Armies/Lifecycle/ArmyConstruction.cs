@@ -9,7 +9,10 @@ public sealed record ArmyCreationConfiguration(int NavalFormation10,
 {
     /// <summary>Independently written fields in SC564E60/TC5652E0.
     /// The equipped tactics and commander/troops are supplied by this game.</summary>
-    public static ArmyCreationConfiguration ObservedShortPacketFields => new(11, 13, 1, 0, 0) { TargetKind38 = 9 };
+    public static ArmyCreationConfiguration ObservedShortPacketFields => new(11, 13, 1, 0, 0) { TargetKind38 = 9, Choice50Input = 2 };
+    /// <summary>Explicit packet+50, clamped by the creator. The short caller
+    /// writes2; normal UI instead supplies current World1688/effect3.</summary>
+    public int? Choice50Input { get; init; }
     public ArmyOrdinaryNavalFallback? NavalFallback { get; init; }
     public byte? TargetKind38 { get; init; }
     /// <summary>Actual generic packet index16 (+40); creator clamps0..9.
@@ -61,7 +64,11 @@ public sealed class ArmyConstruction : IPlayableArmyCreationRules
         return new(formations, configuration with { });
     }
 
-    public PlayableArmyCreationResolution? Create(GameState state, PreparedDeployment deployment, UnitState army)
+    public PlayableArmyCreationResolution? Create(GameState state, PreparedDeployment deployment, UnitState army) =>
+        Create(state, deployment, army, _configuration);
+
+    internal PlayableArmyCreationResolution? Create(GameState state, PreparedDeployment deployment, UnitState army,
+        ArmyCreationConfiguration configuration, Func<int, byte?>? currentFormationKind = null)
     {
         if (state.NativeClock is not { } clock || state.NativeArmySimulation is not { } simulation ||
             simulation.Parameters.Language != Language || simulation.Parameters.RuleVersion != RuleVersion ||
@@ -71,7 +78,8 @@ public sealed class ArmyConstruction : IPlayableArmyCreationRules
             army.Troops is <= 0 or > ushort.MaxValue || army.FormationId != deployment.FormationId ||
             army.OfficerId != deployment.OfficerId || army.ForceId != deployment.ForceId ||
             army.SourceLocationId != deployment.SourceLocationId || army.TacticIds is not { } tactics ||
-            !tactics.SequenceEqual(deployment.TacticIds) || tactics.Length > 3 || tactics.Any(id => id is < 1 or > 200) ||
+            !tactics.SequenceEqual(deployment.TacticIds) || tactics.Length > 3 ||
+            tactics.Any(id => id < (currentFormationKind is null ? 1 : 0) || id > 200) ||
             army.HexId < 0 || army.HexId >= checked(state.MapWidth * state.MapHeight) ||
             !state.Officers.TryGetValue(army.OfficerId, out OfficerState? commander) ||
             commander.ForceId != army.ForceId || commander.Deployed || commander.Presence != OfficerPresence.Present ||
@@ -83,7 +91,7 @@ public sealed class ArmyConstruction : IPlayableArmyCreationRules
         try
         {
             formation = ArmyFormationWriter.CreateOrdinary(_formations,
-                new(deployment.FormationId, _configuration.NavalFormation10), _configuration.NavalFallback);
+                new(deployment.FormationId, configuration.NavalFormation10), configuration.NavalFallback, currentFormationKind);
         }
         catch (InvalidDataException error) when (error.Message.StartsWith("Original Army naval ", StringComparison.Ordinal) &&
             error.Message.EndsWith(" is unknown.", StringComparison.Ordinal)) { return null; }
@@ -126,7 +134,9 @@ public sealed class ArmyConstruction : IPlayableArmyCreationRules
         if (slot == 0) return null;
         int requested = unchecked(unchecked(initial.Value + adjustment.Value) - reduction.Value);
         byte primary = CreationCounter(requested, cap0.Value);
-        byte flags = (byte)((_configuration.Flag48Input == 1 ? 4 : 0) | (_configuration.Flag4CInput == 1 ? 8 : 0));
+        byte flags = (byte)((configuration.Flag48Input == 1 ? 4 : 0) | (configuration.Flag4CInput == 1 ? 8 : 0));
+        byte action = ArmyDeploymentMarchSource.Read(deployment, null)?.Action ??
+            (byte)Math.Clamp(configuration.Action34, 0, 17);
         // Fresh reset defines the three abnormal fields, six modifier/timers,
         // wounded quantity, and FF/0 no-owner pair. Registration does not set02.
         var runtime = new NativeArmyTacticRuntime(1, flags, primary,
@@ -137,10 +147,11 @@ public sealed class ArmyConstruction : IPlayableArmyCreationRules
           ResourceState = ArmyConfigurationSourceAdapter.Write(ArmyTraitSourceAdapter.Write(
               state.ResourceState is CampaignSourceKnowledge knowledge ? knowledge.WithoutArmyPosition(army.Id) : state.ResourceState,
               army.Id, traitSlots), army.Id, formation.Bytes.Byte1B, formation.Bytes.Byte1C,
-              (byte)Math.Clamp(_configuration.Action34, 0, 17), (byte)Math.Clamp(_configuration.Category44, 0, 2)),
-          NativeRouteHold56 = _configuration.RouteHold40Input is int hold ? (byte)Math.Clamp(hold, 0, 9) : null,
+              action, (byte)Math.Clamp(configuration.Category44, 0, 2)),
+          NativeRouteHold56 = configuration.RouteHold40Input is int hold ? (byte)Math.Clamp(hold, 0, 9) : null,
+          NativeCommandChoice41 = configuration.Choice50Input is int choice ? (byte)Math.Clamp(choice, 0, 2) : null,
           Formations = ArmyConfigurationSourceAdapter.DecodeFormations(army.FormationId, formation.Bytes.Byte1B, formation.Bytes.Byte1C),
-          FieldAttackPolicy = ArmyConfigurationSourceAdapter.DecodePolicy((byte)Math.Clamp(_configuration.Action34, 0, 17)),
+          FieldAttackPolicy = ArmyConfigurationSourceAdapter.DecodePolicy(action),
           TraitRoster = traitSlots is null ? null : ArmyTraitSourceAdapter.Decode(traitSlots) };
     }
 

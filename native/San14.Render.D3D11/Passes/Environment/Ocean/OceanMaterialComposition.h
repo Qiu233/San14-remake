@@ -29,10 +29,14 @@ inline std::array<OceanDrawMaterialState,2> composeOceanDrawMaterials(
     const OceanBubbleRuntime& runtime,const OceanHorizontalDisplacementBinding& horizontal,
     const source_water_camera::CurrentCamera& camera,
     const std::array<float,4>& waveClip,const std::array<float,4>& farClip,
-    float gridX,float gridZ,std::uint32_t normalDepth,bool refractionMaterialBound, bool generatorEnabled) {
+    float gridX,float gridZ,float cutoffDistance,std::uint32_t normalDepth,bool refractionMaterialBound, bool generatorEnabled) {
     OceanDrawMaterialState nearMaterial;
     nearMaterial.eye=camera.eye; nearMaterial.worldToProjection=camera.worldToProjection;
     nearMaterial.worldView=camera.worldView; nearMaterial.cameraDirectionXZ=camera.cameraDirectionXZ;
+    // Wave attenuation and its base height share the direction constant.
+    // Use the grid's accepted cutoff, as geometry visibility does.
+    nearMaterial.cameraDirectionXZ[2]=1.0f/cutoffDistance;
+    nearMaterial.cameraDirectionXZ[3]=surface.waterHeight;
     nearMaterial.refractionWorldToTexture=camera.refraction.worldToTexture;
     nearMaterial.depthToZ=camera.refraction.depthToZ;
     nearMaterial.refractionCameraPosition=camera.eye;
@@ -48,8 +52,8 @@ inline std::array<OceanDrawMaterialState,2> composeOceanDrawMaterials(
     const auto spread=oceanTextureWaveSpread(texture.wave.scatter);
     nearMaterial.waveDirection={direction[0],direction[1],spread[0],spread[1]};
     const float waveNumber=6.2831855f/texture.wave.length;
-    nearMaterial.waveParameter={waveNumber,texture.wave.kurtosis*waveNumber,phases.waveTime,0};
-    nearMaterial.waveParameter2={texture.wave.scale,1,0,0};
+    nearMaterial.waveParameter={waveNumber,texture.wave.speed*waveNumber,phases.waveTime,0};
+    nearMaterial.waveParameter2={texture.wave.kurtosis,1,0,0};
     nearMaterial.waveFigure={texture.wave.amplitude,texture.wave.length,1,texture.wave.width};
     nearMaterial.waveNoise={horizontal.lengths[0],horizontal.lengths[1],surface.displacement,0};
     nearMaterial.shoalingScale=texture.wave.shoalingScale;

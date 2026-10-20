@@ -35,11 +35,14 @@ public sealed class D3D11TerrainInputPreparation
 
     private readonly LoadedRenderGraphTargets targets;
     private readonly TextureInput[] textures;
+    private readonly TerrainShadowResources shadow;
 
     private D3D11TerrainInputPreparation(LoadedTerrainSceneResources source, TerrainGbufferSourceParameters scalar,
-        TerrainGbufferMaterialDrawSource materialDraw, byte callFlags, LoadedRenderGraphTargets graphTargets)
+        TerrainGbufferMaterialDrawSource materialDraw, byte callFlags, LoadedRenderGraphTargets graphTargets,
+        TerrainShadowResources shadowResources)
     {
         Source = source; Scalar = scalar; MaterialDraw = materialDraw; OrdinaryCallFlags = callFlags;
+        shadow=shadowResources;
         var height = source.Height;
         var material = source.Material;
         targets = graphTargets;
@@ -104,7 +107,7 @@ public sealed class D3D11TerrainInputPreparation
         byte callFlags = MainSceneNode51Source.Load(repository, locale, 56).InitialCallFlags;
         var graph = repository.LoadRenderGraph("system", 0x024496EE);
         var targets = RenderGraphTargetResources.Read(graph, 53, repository.LoadObjects("system", 0x93FB3280));
-        return new(source, scalar, materialDraw, callFlags, targets);
+        return new(source, scalar, materialDraw, callFlags, targets,TerrainShadowResources.Load(repository,source.Parameters));
     }
 
     /// <summary>Select the initial grouped stream from the accepted camera.
@@ -179,6 +182,7 @@ public sealed class D3D11TerrainInputPreparation
         Write("terrain-vs.dxbc", shader.Container.GetProgramBytes(shader.Source.Bytes, vertex).ToArray());
         Write("terrain-ps.dxbc", shader.Container.GetProgramBytes(shader.Source.Bytes, pixel).ToArray());
         Write("near-vs.dxbc", shader.Container.GetProgramBytes(shader.Source.Bytes, vertex).ToArray());
+        shadow.WriteNativeInputs(Path.Combine(directory,"shadow"));
         Write("near-ps.dxbc", shader.Container.GetProgramBytes(shader.Source.Bytes, pixel).ToArray());
         Write("coarse-vs.dxbc", shader.Container.GetProgramBytes(shader.Source.Bytes, coarseVertex).ToArray());
         Write("coarse-ps.dxbc", shader.Container.GetProgramBytes(shader.Source.Bytes, coarsePixel).ToArray());

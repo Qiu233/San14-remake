@@ -2,7 +2,11 @@ using San14.Core;
 
 namespace San14.Data;
 
-public sealed record CaptureBaseThreatFields(byte? Byte49, byte? Byte4B, byte? Byte62, ushort? Word64);
+public sealed record CaptureBaseThreatFields(byte? Byte49, byte? Byte4B, byte? Byte62, ushort? Word64)
+{
+    public byte? Byte4A { get; init; }
+    public ushort? Word4C { get; init; }
+}
 
 /// <summary>Once-created CFoothold49/4B/62/64 runtime fields. These fields
 /// are omitted by static237920 and survive from the actual shared ctor.
@@ -22,6 +26,7 @@ public static class CaptureBaseThreatInputs
         foreach (var target in All())
         {
             values.Add(Key(target, 0x49), 0); values.Add(Key(target, 0x4B), 0);
+            values.Add(Key(target, 0x4A), 0); values.Add(Key(target, 0x4C), 0);
             values.Add(Key(target, 0x62), 255); values.Add(Key(target, 0x64), 0);
         }
         return state with { NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = values } } };
@@ -29,7 +34,7 @@ public static class CaptureBaseThreatInputs
     public static CaptureBaseThreatFields? ReadCurrent(GameState state, BaseReference target)
     {
         if (state.NativeArmySimulation?.Parameters.Int32Values.GetValueOrDefault(VersionKey) != 1) return null;
-        return new(Byte(0x49), Byte(0x4B), Byte(0x62), Word(0x64));
+        return new(Byte(0x49), Byte(0x4B), Byte(0x62), Word(0x64)) { Byte4A = Byte(0x4A), Word4C = Word(0x4C) };
         byte? Byte(int offset) { int? value = Value(offset); return value is >= 0 and <= 255 ? (byte?)value : null; }
         ushort? Word(int offset) { int? value = Value(offset); return value is >= 0 and <= 65535 ? (ushort?)value : null; }
         int? Value(int offset)
@@ -56,6 +61,7 @@ public static class CaptureBaseThreatInputs
         {
             var fields = current.ReadCaptureBaseThreatFields(target);
             Put(0x49, fields?.Byte49); Put(0x4B, fields?.Byte4B); Put(0x62, fields?.Byte62); Put(0x64, fields?.Word64);
+            Put(0x4A, fields?.Byte4A); Put(0x4C, fields?.Word4C);
             void Put(int offset, int? value) { string key = Key(target, offset); if (value.HasValue) values[key] = value.Value; else values.Remove(key); }
         }
         return state with { NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = values } } };

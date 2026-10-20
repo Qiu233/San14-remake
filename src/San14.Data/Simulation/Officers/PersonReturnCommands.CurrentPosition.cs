@@ -9,7 +9,9 @@ public static partial class PersonReturnCommands
         int identity)
     {
         var owner = CurrentCommandOwner(state, current);
-        var command = owner.Tasks.GetValueOrDefault(identity) ?? throw Missing("current_Command_receiver");
+        if (owner.Disappearances?.GetValueOrDefault(identity) is { } task)
+            return current.ReadHexTableReference(task.StationHex) ?? throw Missing("absence target hex");
+        var command = owner.Returns.GetValueOrDefault(identity) ?? throw Missing("current_Command_receiver");
         if (command.RouteDestinations.Length == 0) return new(null);
         var selected = ToBase(command.RouteDestinations[0]);
         int hex = current.ReadBaseCurrentHexIndex(selected);
@@ -21,7 +23,7 @@ public static partial class PersonReturnCommands
         int identity, NativeMapSeasonDate currentWorldThirdDate)
     {
         var owner = CurrentCommandOwner(state, current);
-        var command = owner.Tasks.GetValueOrDefault(identity) ?? throw Missing("current_Command_receiver");
+        var command = owner.Returns.GetValueOrDefault(identity) ?? throw Missing("current_Command_receiver");
         var temporary = current.CreateTemporaryHexList() ?? throw Missing("Command_D8_temporary_descriptor");
         try
         {
@@ -40,7 +42,7 @@ public static partial class PersonReturnCommands
             {
                 var initialized = EnsureArrivalDate(state, current, identity, currentWorldThirdDate);
                 if (initialized.Owner is null) throw Missing(initialized.UnresolvedOwner ?? "Command_invalid_deadline2351C0");
-                command = initialized.Owner.Tasks[identity];
+                command = initialized.Owner.Returns[identity];
                 lastDate = command.ArriveOn;
             }
             int duration = unchecked(DateOrdinal(lastDate) - DateOrdinal(firstDate));
@@ -61,10 +63,19 @@ public static partial class PersonReturnCommands
         finally { current.ClearTemporaryHexList(temporary); current.ReleaseTemporaryHexList(temporary); }
     }
 
-    private static PersonnelReturnTasks CurrentCommandOwner(GameState state, SourceWorldContext current) =>
-        current.ReadOwnedPersonCommandManager() ?? state.PersonnelReturns ?? throw Missing("personnel journey state");
+    private static PersonnelCommandTasks CurrentCommandOwner(GameState state, SourceWorldContext current) =>
+        current.ReadOwnedPersonCommandManager() ?? state.PersonnelCommands ?? throw Missing("personnel journey state");
 
-    private static ForceReference ReadCurrentCommandForce(PersonnelReturnTasks owner,
+    private static HexReference ReadDisappearancePosition(SourceWorldContext current, PersonnelDisappearanceTask task)
+    {
+        // Stay start and target are the same representative hex. The common
+        // position getter still allocates/releases its temporary descriptor.
+        var temporary = current.CreateTemporaryHexList() ?? throw Missing("absence position temporary");
+        try { return current.ReadHexTableReference(task.StationHex) ?? throw Missing("absence station hex"); }
+        finally { current.ClearTemporaryHexList(temporary); current.ReleaseTemporaryHexList(temporary); }
+    }
+
+    private static ForceReference ReadCurrentCommandForce(PersonnelCommandTasks owner,
         PersonnelReturnTask command, SourceWorldContext current)
     {
         if (command.MemberIds.Length == 0) throw Missing("return journey member");

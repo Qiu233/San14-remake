@@ -4,7 +4,7 @@ namespace San14.Data;
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
-    private readonly ArmyMapGroupingOwner _mapArmyGrouping = new();
+    private ArmyMapGroupingOwner _mapArmyGrouping = new();
     private ArmyMapGroupingProfile? _mapArmyGroupingProfile;
     private GameState? _mapArmyGroupingCapturedWorld;
     private ArmyMapGroupingFrame? _mapArmyGroupingFrame;
@@ -22,8 +22,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         _mapArmyGrouping.ResetReceiver(physicalSlot);
         _mapArmyGroupingCapturedWorld = null; _mapArmyGroupingFrame = null;
     }
-    /// <summary>The explicit2FCDA0 game-stage writer. Camera Capture does not
-    ///call it; the currently unimplemented full state-machine cadence stays separate.</summary>
+    /// <summary>The explicit2FCDA0 writer for an already committed world.
+    /// Scheduled operations use their private owner; camera Capture never calls it.</summary>
     public ArmyMapGroupingRecomputeResult RecomputeMapArmyGroups(GameState state)
     {
         if (MapArmyGroupingProfile() is not { } profile) return new(false, [], "source.Army_grouping_locale_tables");
@@ -36,6 +36,19 @@ public sealed partial class ArmyCampaignRuleAdapter
             _mapArmyGroupingCapturedWorld = state;
         }
         return result;
+    }
+    private ArmyMapGroupingRecomputeResult RecomputeMapArmyGroups(GameState state, ArmyMapGroupingOwner owner)
+    {
+        if (MapArmyGroupingProfile() is not { } profile) return new(false, [], "source.Army_grouping_locale_tables");
+        if (CaptureMapArmyGroupingCurrent(state) is not { } current) return new(false, [], "current.Army_grouping_context");
+        return owner.Recompute(profile, MapArmyGroupingQueries(state, current));
+    }
+    private void PublishMapArmyGroups(ArmyMapGroupingOwner owner)
+    {
+        // Transfer values, not an operation's mutable owner. A later use of that
+        // operation cannot change the campaign's already published roots.
+        _mapArmyGrouping = owner.Copy();
+        _mapArmyGroupingCapturedWorld = null; _mapArmyGroupingFrame = null;
     }
     /// <summary>Pre-submit immutable publication. Repeated camera requests on
     ///the identical World reuse this frame; no live owner/context escapes it.</summary>

@@ -14,6 +14,9 @@ inline D3D11_DEPTH_STENCIL_DESC geometryEntryDepth(bool reversedDepth) {
 inline float geometryDepthClear(bool reversedDepth) {return reversedDepth?0.f:1.f;}
 inline D3D11_RASTERIZER_DESC geometryEntryRaster() {
     D3D11_RASTERIZER_DESC state{};state.FillMode=D3D11_FILL_SOLID;
+    // The source backend creates raster states with counter-clockwise fronts.
+    // Terrain and Ocean change CullMode while retaining this convention.
+    state.FrontCounterClockwise=TRUE;
     state.CullMode=D3D11_CULL_BACK;state.DepthClipEnable=TRUE;return state;
 }
 inline D3D11_BLEND_DESC geometryEntryBlend() {

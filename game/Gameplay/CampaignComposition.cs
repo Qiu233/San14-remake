@@ -12,6 +12,11 @@ public sealed class CampaignComposition
     private readonly GameResourceRepository _repository;
     private readonly ISaveCodec _saveCodec;
     private ArmyCampaignRuleAdapter? _army;
+    private LoadedArmyFlagPaneNames? _flagNames;
+    private GameState? _headerWorld;
+    private int _headerForce;
+    private MapHeaderDisplayState? _headerDisplayed;
+    private MapHeaderProjection? _currentHeader;
 
     private CampaignComposition(GameResourceRepository repository, LoadedScenario scenario, LoadedMap map)
     {
@@ -31,20 +36,28 @@ public sealed class CampaignComposition
     internal MapOverviewContent Overview { get; }
 
     public static CampaignLoadResult Load(GameResourceRepository repository, EffectiveScenario selection,
-        NewGameOptions options, GameState? restored = null, int? restoredPlayerForceId = null)
+        NewGameOptions options, GameState? restored = null, int? restoredPlayerForceId = null,
+        CampaignProgressOperation? restoredProgress = null, long lastStorySequence = 0, ManualTacticProgressOperation? restoredManualTactic = null)
     {
         LoadedScenario scenario = repository.LoadScenario(selection);
         LoadedMap map = repository.LoadMapForScenario(selection);
         var composition = new CampaignComposition(repository, scenario, map);
         ScenarioTerritory territory = ScenarioTerritory.Build(map.Map, scenario.Snapshot);
         GameState initial = ScenarioInitializer.Create(scenario, map, 1, options).State;
+        if (restoredPlayerForceId.HasValue && restored is null)
+            throw new InvalidDataException("Restoring a local player requires the saved campaign world.");
         if (restored is not null) composition.ValidateRestoredContent(restored, initial);
+        if ((restoredProgress is not null || restoredManualTactic is not null) && (!restoredPlayerForceId.HasValue || restored is null))
+            throw new InvalidDataException("A pending operation requires its actual restored player session.");
         GameState world = restored ?? initial;
         if (restoredPlayerForceId is int player)
         {
             PreparedRules prepared = composition.PrepareRules(world, player);
+            if (prepared.Army is { } army)
+                world = RequireFirstStrategy(army.TryInitializeFirstStrategy(world,
+                    new(CampaignEntryKind.RestoreCampaign, null, null, null)));
             GameplaySession session = GameplaySession.Restore(world, player,
-                prepared.Rules, Calendar(prepared.Army), composition._saveCodec);
+                prepared.Rules, Calendar(prepared.Army), composition._saveCodec, restoredProgress, lastStorySequence, restoredManualTactic);
             composition._army = prepared.Army;
             return new(composition, territory, session, prepared.Presentation);
         }
@@ -53,7 +66,8 @@ public sealed class CampaignComposition
             CampaignPresentation.Preview);
     }
 
-    public CampaignStartResult Start(GameplaySession preview, int playerForceId)
+    public CampaignStartResult Start(GameplaySession preview, int playerForceId,
+        CampaignAppRandomState? appRandomSnapshot = null)
     {
         ValidateSelection(preview.World);
         int rulerId = preview.World.Forces[playerForceId].RulerId ??
@@ -61,9 +75,17 @@ public sealed class CampaignComposition
         GameState started = PlayableSkeleton.Start(preview.World);
         ArmyCampaignRuleAdapter army = _army ?? CreateArmy(started);
         GameState world = army.CreateFreshOwnedSimulation(started);
+        // Only an explicitly captured host value is installed. No bootstrap or Load repair.
+        world = world with { CampaignAppRandom32 = appRandomSnapshot };
+        world = army.CreateFreshDuelService(world);
         world = army.ConfirmNewGamePlayerPerson(world, rulerId);
         world = MapSeasonRuntime.CreateForFreshCampaign(_repository, world,
             MapSeasonNativeSource.Load(_repository.SourceDirectory, Snapshot.Locale));
+        // This standalone host has neither the optional selected-user App
+        // service nor an external mode. The saved world's user index remains
+        // independent; it is not filled from either of these absent services.
+        world = RequireFirstStrategy(army.TryInitializeFirstStrategy(world,
+            new(CampaignEntryKind.NewCampaign, new(false, null), false, null)));
         PreparedRules prepared = PrepareRules(world, playerForceId, army);
         GameplaySession session = GameplaySession.Restore(world, playerForceId,
             prepared.Rules, Calendar(prepared.Army), _saveCodec);
@@ -74,6 +96,34 @@ public sealed class CampaignComposition
     }
 
     public ArmyCampaignRuleAdapter PrepareArmyQueries(GameState world) => _army ??= CreateArmy(world);
+
+    private static GameState RequireFirstStrategy(FirstStrategyInitialization result) => result.State ??
+        throw new InvalidDataException("The campaign's initial strategy setup is unavailable: " + result.UnresolvedOwner);
+
+    internal IReadOnlyDictionary<int, DetailForceAppearance?> DetailForces(GameState world, IEnumerable<int> forces)
+    {
+        _flagNames ??= ArmyFlagPaneNames.Load(Scenario);
+        return PrepareArmyQueries(world).ReadDetailForces(world, _flagNames, forces);
+    }
+
+    internal DetailForceAppearance? CityDetailForce(GameState world, int cityId)
+    {
+        _flagNames ??= ArmyFlagPaneNames.Load(Scenario);
+        return PrepareArmyQueries(world).ReadCityDetailForce(world, _flagNames, cityId);
+    }
+
+    internal MapHeaderProjection CurrentMapHeader(GameState world, int forceId, MapHeaderDisplayState? displayed)
+    {
+        if (ReferenceEquals(_headerWorld, world) && _headerForce == forceId && _headerDisplayed == displayed && _currentHeader is not null) return _currentHeader;
+        _flagNames ??= ArmyFlagPaneNames.Load(Scenario);
+        // This host currently controls the player's first district. An eventual
+        // district selector can supply another receiver to the same query.
+        var districts = world.Districts.Values.Where(d => d.ForceId == forceId && d.Number == 1).Take(2).ToArray();
+        var header = PrepareArmyQueries(world).QueryMapHeader(world,
+            districts.Length == 1 ? districts[0].Id : null, displayed, _flagNames);
+        _headerWorld = world; _headerForce = forceId; _headerDisplayed = displayed;
+        return _currentHeader = header;
+    }
 
     private void ValidateRestoredContent(GameState restored, GameState initial)
     {
@@ -94,6 +144,16 @@ public sealed class CampaignComposition
                 throw new InvalidDataException("Current experience content or overrides differ from the saved growth revision.");
             expected[source.ResourceUri] = source.Sha256;
         }
+        SourceProvenance events = _repository.LoadEvents(CampaignEventCatalog.SourcePath).Source;
+        if (restored.CampaignEvents is not null || restored.CampaignEventWorld is not null ||
+            restored.CampaignEventEligibility is not null || restored.ContentHashes.ContainsKey(events.ResourceUri))
+        {
+            if (restored.ContentHashes.GetValueOrDefault(events.ResourceUri) != events.Sha256)
+                throw new InvalidDataException("Current event content or overrides differ from the saved campaign revision.");
+            expected[events.ResourceUri] = events.Sha256;
+        }
+        if (CityDomesticParameters.ValidateRestore(restored, Scenario, _repository) is { } cityDomestic)
+            expected[cityDomestic.ResourceUri] = cityDomestic.Sha256;
         if (restored.ContentHashes.Count != expected.Count ||
             restored.ContentHashes.Any(item => !expected.TryGetValue(item.Key, out string? hash) || hash != item.Value))
             throw new InvalidDataException("Original content or overrides differ from the saved scenario revision.");
@@ -150,7 +210,13 @@ public sealed class CampaignComposition
             gateEntryState: army.CreateGateEntryStateRules(),
             baseContactPriorityRules: new BaseContactPrioritySourceAdapter(army),
             armyContactRules: new ArmyContactSourceAdapter(army),
-            transportCreationRules: army);
+            transportCreationRules: army,
+            districtCommandBudgetRules: army,
+            falseReportCommandRules: army,
+            ordinaryDeploymentCommitRules: army,
+            areaAdministrationRules: army,
+            armyConstructionRules: army,
+            cityDomesticRules: army);
         return new(rules, army, new(SimulationRuleIdentity.Version, army.Revision, incomePresentation));
     }
 

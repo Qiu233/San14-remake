@@ -14,6 +14,8 @@ struct Parameters {
     int cascadeCount{};std::array<float,4> cascadeEnds{};
     V4 direction{},basisB{},basisC{};
     uint32_t sampleLoopCount{},cascadeMask{};
+    uint32_t perCascadeBias{};
+    std::array<float,4> depthBias{};
 };
 template<class T> inline T required(const std::optional<T>& value) {
     if(!value)throw std::runtime_error("Selected seasonal shadow requires a missing imported setting");
@@ -62,6 +64,8 @@ inline Parameters prepareUnclampedCompact(const source_current_season::Frame& cu
     p.basisC={M(basis[1].X,p.planeScale),M(basis[1].Y,p.planeScale),M(basis[1].Z,p.planeScale),M(basis[1].W,p.planeScale)};
     p.maximumDistance=required(settings.maximumDistance);p.nearDistance=required(settings.nearDistance);
     p.farDistanceOverride=required(settings.farDistanceOverride);p.sampleLoopCount=required(settings.sampleLoopCount);
+    p.perCascadeBias=required(settings.perCascadeBias);
+    for(size_t index=0;index<p.depthBias.size();++index)p.depthBias[index]=required(settings.depthBias[index]);
     // Quality admission remains part of the imported recipe. Atlas dimensions
     // are owned by the loaded render target, not recomputed from this setting.
     (void)required(settings.qualityLevel);

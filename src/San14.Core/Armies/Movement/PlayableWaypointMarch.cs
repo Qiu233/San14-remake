@@ -17,7 +17,8 @@ public static class PlayableWaypointMarch
         "attack" => action.Target.Kind is DeploymentTargetKind.Unit or DeploymentTargetKind.Location && action.StructureKindId is null,
         "enter" => action.Target.Kind == DeploymentTargetKind.Location && action.StructureKindId is null,
         "occupy" => action.Target.Kind == DeploymentTargetKind.Area && action.StructureKindId is null,
-        "build" => action.Target.Kind == DeploymentTargetKind.Hex && PlayableConstructionRules.IsSupportedKind(action.StructureKindId),
+        "build" => action.Target.Kind == DeploymentTargetKind.Hex &&
+            (PlayableConstructionRules.IsSupportedKind(action.StructureKindId) || FacilityConstructionIntent.IsDefinitionKey(action.StructureKindId)),
         "repair" or "demolish" => action.Target.Kind == DeploymentTargetKind.Structure && action.StructureKindId is null,
         _ => false
     };
@@ -331,6 +332,10 @@ public static class PlayableWaypointMarch
                     next.AreaId == id && Hostile(forceId, next.ForceId, isHostile));
                 return route.Length > 0 ? route[^1] : null;
             case "repair": case "demolish":
+                if (action.ActionKey == "repair" && validate && structures.TryGetValue(id, out var repairTarget) &&
+                    repairTarget.ForceId == forceId && PlayableConstructionRules.IsSupportedKind(repairTarget.KindId) &&
+                    repairTarget.Completed && repairTarget.MaxDurability is null)
+                    throw new InvalidDataException("Structure repair destination requires its current durability capacity.");
                 return structures.TryGetValue(id, out StructureState? structure) && structure.ForceId == forceId &&
                     PlayableConstructionRules.IsSupportedKind(structure.KindId) &&
                     (action.ActionKey != "repair" || !validate || structure.Completed &&

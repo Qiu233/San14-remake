@@ -25,24 +25,20 @@ public sealed record AreaMarkerRestGeometry(AreaMarkerRectangle FlagRectangle,
 public sealed class AreaMapMarkerSources
 {
     private readonly uint[] districtColors;
-    private readonly uint[] forceColors;
     public MapMarkerLayout Flag { get; }
     public MapMarkerLayout Text { get; }
     public const float WorldHeightOffset = 300;
     public const float FinalScreenOffsetY = -40;
 
-    private AreaMapMarkerSources(uint[] districtColors,
-        uint[] forceColors, MapMarkerLayout flag,
+    private AreaMapMarkerSources(uint[] districtColors, MapMarkerLayout flag,
         MapMarkerLayout text)
-        => (this.districtColors, this.forceColors, Flag, Text) =
-            (districtColors, forceColors, flag, text);
+        => (this.districtColors, Flag, Text) = (districtColors, flag, text);
 
     public static AreaMapMarkerSources LoadCurrentTc(GameResourceRepository repository)
     {
         ArgumentNullException.ThrowIfNull(repository);
         var colors = MapUiRules.DistrictColors.Select(color => color.Packed).ToArray();
-        var forces = MapUiRules.ForceFillColors.Select(color => color.Packed).ToArray();
-        return new(colors, forces,
+        return new(colors,
             MapMarkerLayout.Load(repository, "00_81_07_btn_county_offset_00", 0x1933464B, "LCSK6500"),
             MapMarkerLayout.Load(repository, "00_81_07_btn_county_offset_01", 0xE2343D8C, "LCSK8500"));
     }
@@ -59,8 +55,7 @@ public sealed class AreaMapMarkerSources
     {
         // 2AD340 accepts indices0..59. Its fallback32C8C0(61) deliberately
         // selects DAT1A27660, the white table entry60, rather than disk slot61.
-        uint source = forceColors[(uint)actualForceColorIndex < 60 ? actualForceColorIndex : 60];
-        return new(source, ApplyGamma(source));
+        return MapSpritePalettes.ForceFill(actualForceColorIndex);
     }
 
     /// <summary>Ordinary normal-map player branch of 1B7110.

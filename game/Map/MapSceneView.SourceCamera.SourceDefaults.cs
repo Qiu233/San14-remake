@@ -23,6 +23,7 @@ public partial class MapSceneView
     {
         if(_loadedSceneResources is not { } scene)return;
         _sourceMainCameraTerrain=CreateFreshSourceCameraTerrain(_repository,scene);
+        _deploymentTargetAnchors=null;
         SetMeta("source_main_camera_terrain",_sourceMainCameraTerrain.SourceProvenance);
     }
 

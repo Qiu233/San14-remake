@@ -19,6 +19,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
     private readonly TacticSourceCatalog _catalog;
     private readonly LoadedMap _map;
     private readonly LoadedTerrainTypes _terrain;
+    private readonly HashSet<int> _occupationSceneryHexes;
     private readonly TacticOrdinaryArmyUsageSourceProfile _usage;
     private readonly ArmyConstruction _creation;
     private readonly ArmyMoraleParameterSeed _moraleSeed;
@@ -78,11 +79,24 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         BaseCaptureResourceInputs baseCaptureResourceInputs,
         BaseCaptureRewardInputs baseCaptureRewardInputs,
         CityCaptureTerritoryInputs cityCaptureTerritoryInputs,
+        LoadedExperienceData experience,
         string revision)
     {
         if (string.IsNullOrWhiteSpace(revision)) throw new InvalidDataException("Owned Army package revision is missing.");
         _repository = repository;
+        _campaignEvents = new(() => repository.LoadEvents(CampaignEventCatalog.SourcePath));
         _definitions = definitions; _scenario = scenario; _skills = skills; _catalog = catalog; _map = map; _terrain = terrain;
+        var sceneries = repository.LoadSceneries(scenario.FixedDataSource.SourcePath);
+        _landmarkDefinitions = sceneries;
+        _landmarkDevelopment = new(experience);
+        if (sceneries.Source.Sha256 != scenario.FixedDataSource.Sha256 || sceneries.Catalog.Sceneries.Count != 101)
+            throw new InvalidDataException("Army occupation requires the complete matching fixed scenery map.");
+        //Fixed scenery44 is a map definition, as are terrain and Area3A.
+        //The ordinary no-scenery leaf does not read mutable scenario flags47.
+        //Valid registered sites write their fixed Hex through TC241AD0; retain
+        //every such site even if its current special-site flag is unknown.
+        _occupationSceneryHexes = sceneries.Catalog.Sceneries.Where(row => row.Slot != 0 &&
+            row.RawHex44 < 48400 && map.Map.Cells[row.RawHex44].AreaSlot != 0).Select(row => (int)row.RawHex44).ToHashSet();
         Seed = seed; _creation = creation; _moraleSeed = moraleSeed; _battleSeed = battleSeed; _regionSeed = regionSeed;
         _mobilitySeed = mobilitySeed; _marchPenaltySeed = marchPenaltySeed; Revision = revision;
         _transportRouteInputs = TransportArmyRouteInputs.Load(repository, seed.Language);
@@ -149,7 +163,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             PersonAssignmentPrecallInputs.Load(repository, source, language),
             BaseCaptureResourceInputs.Load(repository, language),
             BaseCaptureRewardInputs.Load(repository, source),
-            CityCaptureTerritoryInputs.Load(repository, language), revision);
+            CityCaptureTerritoryInputs.Load(repository, language), experience, revision);
     }
 
     public GameState CreateFreshOwnedSimulation(GameState state)
@@ -160,6 +174,9 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             throw new InvalidDataException("Fresh owned sampler epoch requires its complete actual scenario World.");
         GameState fresh = _marchPenaltySeed.InstallFresh(_mobilitySeed.InstallFresh(
             _battleSeed.InstallFresh(Seed.CreateFreshOwnedSimulation(state, Revision), Revision)));
+        fresh = OwnedMapObjectLifecycle.InstallFresh(fresh, _scenario,
+            _repository.LoadObjectDefinitions(_scenario.FixedDataSource.SourcePath), _definitions.CaptureSourcePrefix());
+        fresh = ArmyMarchParameterSeed.InstallFresh(fresh);
         fresh = NormalArmyCombatApplicationSourceMath.InstallFresh(fresh, _normalApplicationSeed, Revision);
         fresh = NormalArmyForceResultSource.InstallFresh(fresh, _forceResultSeed, Revision);
         fresh = NormalArmyForceFreshAllocation.InstallFresh(fresh, _scenario, _forceResultSeed);
@@ -170,11 +187,17 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         fresh = _transportRouteInputs.InstallFresh(fresh);
         fresh = _force164Inputs.InstallFresh(fresh);
         fresh = _moraleWaveInputs.InstallFresh(fresh);
+        fresh = PersonDeathReportInputs.InstallFresh(fresh, Seed.Language);
         fresh = _rulerCaptureReleaseInputs.InstallFresh(fresh);
         fresh = CaptureBaseThreatInputs.InstallFresh(fresh);
         fresh = CommanderSelectionSource.InstallFresh(fresh);
         fresh = _baseCaptureResourceInputs.InstallFresh(fresh);
         fresh = _baseCaptureRewardInputs.InstallFresh(fresh);
+        fresh = DeploymentDraftDefaults.InstallFresh(fresh);
+        // This newly constructed remake campaign owns its own manager. Restore
+        // never enters this method and cannot synthesize an empty saved queue.
+        if (fresh.ManualTacticIntervention is not null) throw new InvalidDataException("Fresh manual tactic manager would replace a saved owner.");
+        fresh = fresh with { ManualTacticIntervention = ManualTacticInterventionState.Empty };
         var epoch = new NativeArmySamplerEpoch(_scenario.ScenarioSource.ResourceUri, _scenario.ScenarioSource.Sha256,
             world.WorldSha256, BinaryPrimitives.ReadInt32LittleEndian(world.RawBytes.AsSpan(80, 4)),
             BinaryPrimitives.ReadInt32LittleEndian(world.RawBytes.AsSpan(96, 4)), fresh.NativeClock!.Revision,
@@ -190,8 +213,10 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         GameState growth = _growthSource.InstallFresh(currentFields, _scenario,
             CaptureCurrentDefinitions(currentFields) ?? throw new InvalidDataException("Fresh growth current Person capture is unresolved."));
         GameState formations = TacticRemakeCurrentFormations.CreateFreshOwnedDefinitions(growth, _skills);
+        formations = DeploymentTacticCurrentInputs.InstallFresh(formations, definitions);
         GameState policies = BattleRemakeCurrentForcePolicies.InstallFresh(formations, _scenario);
         policies = _personAssignmentPrecallInputs.InstallFresh(policies);
+        policies = AreaAdministrationUpkeep.InstallFresh(policies);
         GameState morale = _moraleSeed.InstallFresh(policies, definitions, policies.NativeArmySimulation!.Parameters.Revision);
         GameState control = TacticRemakeCurrentBattleControl.CreateFreshOwnedControl(morale);
         GameState settings = BattleRemakeCurrentSettings.InstallFresh(control, _scenario);
@@ -210,7 +235,11 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         var completed = CityCaptureFoodWarningSource.InstallFreshInputs(cityCapture, _repository);
         var initialized = ArmyChangedListsSource.InstallFresh(completed, CaptureOwnedArmyReturnWorld(completed).Context);
         InitializeMapArmyGroupsKnownReset(Enumerable.Range(0, 501));
-        return initialized;
+        var ready = InstallFreshCampaignEventState(InstallFreshLandmarkInvestments(SubdayStatusParameters.InstallFresh(FireCommandParameters.InstallFresh(
+            HexFireParameters.InstallFresh(BaseWoundedRecoveryParameters.InstallFresh(initialized)))))) with { RegionOccupationFollowups = new([], []) };
+        ready = CityDomesticParameters.InstallFresh(ready, _repository.LoadCityDomesticParameters(Seed.Language), _scenario);
+        return TerrainDamageParameters.InstallFresh(FireDamageParameters.InstallFresh(TrapParameters.InstallFresh(ArmyTraitMaintenanceParameters.InstallFresh(FacilityRepairParameters.InstallFresh(InstallFreshBaseDamageTiers(RefreshDistrictCommandBudgets(DistrictCommandBudgetParameters.InstallFresh(FalseReportParameters.InstallFresh(ready))))))))) with
+            { NormalCombatRefresh = new(0, []), CampaignEffectRequests = CampaignEffectRequests.Empty };
     }
     public IPlayableCityEntryStateRules CreateCityEntryStateRules() =>
         new OwnedArmyOrdinaryCityReturnStage(this, _governorInputs);
@@ -308,6 +337,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                 NativeArmyOrigin = receipt.Origin, Formations = receipt.Formations, FieldAttackPolicy = receipt.FieldAttackPolicy, TraitRoster = receipt.TraitRoster,
                 NativeTacticRuntime = receipt.Runtime, MoraleState = army.MoraleState with { CurrentValue = receipt.CurrentMorale },
                 NativeSavedRegionHex152 = receipt.NativeSavedRegionHex152,
+                March = receipt.March,
                 PositionKnowledge = receipt.CurrentHexId.HasValue ? ArmyPositionKnowledge.Confirmed : ArmyPositionKnowledge.Unknown,
                 NativeDirection36 = receipt.NativeDirection36,
                 NativeMapUiByte13C = receipt.NativeMapUiByte13C,
@@ -476,10 +506,19 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             Seed.Language, SimulationRuleIdentity.ForLocale(Seed.Language), Revision, sampler is null ? null : this,
             sampler is null ? null : this);
 
-    public PlayableArmyCreationResolution? Create(GameState state, PreparedDeployment deployment, UnitState army)
+    public PlayableArmyCreationResolution? Create(GameState state, PreparedDeployment deployment, UnitState army) =>
+        CreateOrdinaryCore(state, deployment, army, null);
+
+    private PlayableArmyCreationResolution? CreateOrdinaryCore(GameState state, PreparedDeployment deployment,
+        UnitState army, ArmyCreationConfiguration? normalConfiguration,
+        Func<GameState, PlayableArmyCreationResolution, GameState>? beforeRegistration = null)
     {
         SourceWorldContext? definitions = CaptureCurrentDefinitions(state);
-        if (definitions is null || _creation.Create(state, deployment, army) is not { } receipt) return null;
+        if (definitions is null) return null;
+        var receipt = normalConfiguration is null ? _creation.Create(state, deployment, army) :
+            _creation.Create(state, deployment, army, normalConfiguration,
+                id => TacticRemakeCurrentFormations.ReadRawByte(state, id, 0x7E));
+        if (receipt is null) return null;
         if (definitions.ReadPersonLookupReference(army.OfficerId)?.PhysicalSlot is not int commanderSlot ||
             definitions.ReadPersonNativeValidity(commanderSlot) != true || receipt.Origin.NativeSlotIndex is not int nativeArmySlot)
             return null;
@@ -497,6 +536,11 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                 ArmyHomeSequenceSource.ReadNextOrdinary(state, CaptureOwnedArmyReturnWorld(state).Context, army.OfficerId),
             NativeSavedRegionHex152 = selectedBase?.PhysicalSlot is not null
                 ? ArmyCurrentRegionSource.ResolveCreationRegion(selectedBase, definitions) : null };
+        var march = ArmyDeploymentMarchSource.Read(deployment, result.NativeCommandControl140);
+        // Preserve the draft's independent credit/hold. The wrapper's final
+        // next is unknown until its actual route branch has completed.
+        result = result with { March = march is null ? null : march.March with { NextStep = null },
+            NativeRouteHold56 = result.NativeRouteHold56 ?? march?.RouteHold };
         if (result.CurrentHexId is int confirmedHex && confirmedHex != army.HexId) return null;
         var residues = CampaignSourceKnowledge.From(receipt.ResourceState ?? state.ResourceState);
         var previousLocationResidue = residues.Find(army.OfficerId);
@@ -509,6 +553,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             NativeTacticRuntime = result.Runtime, MoraleState = army.MoraleState with { CurrentValue = result.CurrentMorale },
             NativeSavedRegionHex152 = result.NativeSavedRegionHex152, CarriedStores = result.CarriedStores,
             OverrideTarget = result.OverrideTarget,
+            March = result.March,
             PositionKnowledge = result.CurrentHexId.HasValue ? ArmyPositionKnowledge.Confirmed : ArmyPositionKnowledge.Unknown,
             NativeDirection36 = result.NativeDirection36,
             NativeMapUiByte13C = result.NativeMapUiByte13C,
@@ -516,11 +561,36 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             NativeRouteHold56 = result.NativeRouteHold56, NativeRouteGoal1F8 = result.NativeRouteGoal1F8,
             NativeHomeSequence28 = result.NativeHomeSequence28,
             WoundedTroops = result.WoundedTroops };
-        ArmyLifecycleCreationAdmission? lifecycle = PrepareArmyLifecycleCreation(state, created);
-        return lifecycle is null ? null : result with { Lifecycle = lifecycle.Lifecycle.Domain, ArmyMapOccupancy = lifecycle.Occupancy,
+        if (beforeRegistration is not null) state = beforeRegistration(state, result);
+        ArmyLifecycleCreationAdmission? lifecycle = OwnedArmyLifecycleCurrent.PrepareCreationAdmission(
+            state, created, _definitions, march?.Goal.Kind38 ?? _creation.Configuration.TargetKind38,
+            march?.Goal.Identity3A, prepareGroups: normalConfiguration is null);
+        if (lifecycle is null) return null;
+        result = result with { Lifecycle = lifecycle.Lifecycle.Domain, ArmyMapOccupancy = lifecycle.Occupancy,
             ResourceState = CampaignSourceKnowledge.From(result.ResourceState)
                 .ReplaceArmyTargets(CampaignSourceKnowledge.From(lifecycle.ResourceState).ArmyTargets)
                 .WithArmyLifecycleSource(lifecycle.Lifecycle.Source) };
+        // Normal1EC980's final route follows its successful creation, governor
+        // tail and book/currency debits; the immediate committer owns that order.
+        if (march is null || normalConfiguration is not null) return result;
+        // Run the initial route against the privately admitted receiver. Source
+        // path preparation owns no credit writer; unsupported inputs keep next
+        // unknown and do not publish partial scratch mutations.
+        var routeState = (state with { Units = new(state.Units) { [created.Id] = created },
+            ResourceState = result.ResourceState, ArmyLifecycle = result.Lifecycle,
+            ArmyMapOccupancy = result.ArmyMapOccupancy });
+        try
+        {
+            var routeCurrent = CaptureWritableTransportRouteCurrent(routeState);
+            var route = OrdinaryArmyRouteSource.PrepareCreation(routeState, routeCurrent, created);
+            if (route.Receipt is not { } initialRoute) return normalConfiguration is null ? result : null;
+            var routeArena = routeState.ReadArmyLifecycle()! with { Indexes = routeCurrent.ReadOwnedCurrentListPool()!.ExportOwnedState() };
+            var routed = routeState.WithArmyLifecycle(routeArena);
+            return result with { March = result.March! with { NextStep = initialRoute.NextHexWrite is ushort next
+                    ? ArmyMarchSourceAdapter.DecodeDestination(next) : march.March.NextStep },
+                Lifecycle = routed.ArmyLifecycle, ResourceState = routed.ResourceState };
+        }
+        catch (InvalidDataException) { return normalConfiguration is null ? result : null; }
     }
     public PlayableTacticDefinition? Resolve(GameState state, int tacticId) => null; //Native usage requires a caster.
     public PlayableTacticDefinition? ResolveForCaster(GameState state, UnitState caster, int tacticId) =>

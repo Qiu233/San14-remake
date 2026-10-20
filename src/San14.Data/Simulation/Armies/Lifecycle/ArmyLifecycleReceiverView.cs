@@ -20,7 +20,22 @@ public sealed record ArmyLifecycleReceiverView(ArmyReceiverSourceSlot Source, Ar
     public ArmyOverrideTargetState? OverrideTarget { get => Receiver.OverrideTarget; init => Receiver = Receiver with { OverrideTarget = value }; }
     public byte? Direction36 { get => Source.Direction36; init => Source = Source with { Direction36 = value }; }
     public byte? MapUiByte13C { get => Source.MapUiByte13C; init => Source = Source with { MapUiByte13C = value }; }
-    public byte? CommandControl140 { get => Source.CommandControl140; init => Source = Source with { CommandControl140 = value }; }
+    public ArmyMarchDestination? FalseReportDestination { get => Receiver.FalseReportDestination; init => Receiver = Receiver with { FalseReportDestination = value }; }
+    public FacilityConstructionIntent? FacilityConstruction { get => Receiver.FacilityConstruction; init => Receiver = Receiver with { FacilityConstruction = value }; }
+    public ArmySavedCommandState? SavedCommand { get => Receiver.SavedCommand; init => Receiver = Receiver with { SavedCommand = value }; }
+    public byte? CommandControl140
+    {
+        get => Receiver.SavedCommand?.Control ?? Source.CommandControl140;
+        init
+        {
+            //The only normal scalar writer is an explicit reset. Positive
+            //values require the complete receiver-owned command first.
+            if (value == 0) Receiver = Receiver with { SavedCommand = ArmySavedCommandState.Cleared };
+            else if (Receiver.SavedCommand is { } saved && value != saved.Control)
+                throw new InvalidDataException("Army control projection cannot replace its complete saved command.");
+            Source = Source with { CommandControl140 = value };
+        }
+    }
     public byte? RouteHold56 { get => Source.RouteHold56; init => Source = Source with { RouteHold56 = value }; }
     public ushort? RouteGoal1F8 { get => Source.RouteGoal1F8; init => Source = Source with { RouteGoal1F8 = value }; }
     public bool? GroupAssignmentReady { get => Receiver.GroupAssignmentReady; init => Receiver = Receiver with { GroupAssignmentReady = value }; }

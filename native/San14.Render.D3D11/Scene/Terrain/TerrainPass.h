@@ -4,6 +4,7 @@
 #include "SeasonTerrainPalette.h"
 #include "TerrainCameraConstants.h"
 #include "TerrainRasterState.h"
+#include "TerrainShadowGpu.h"
 #include <optional>
 
 namespace San14::Render {
@@ -14,6 +15,7 @@ class TerrainPass {
         prepareProgramsAndGeometry(device, input, groupedTerrain);
         bindInitialGeometry(context);
         prepareMaterials(device, context, input);
+        shadow_.prepare(device,input/"shadow");
     }
     TerrainPass(const TerrainPass &) = delete;
     TerrainPass &operator=(const TerrainPass &) = delete;
@@ -32,6 +34,14 @@ class TerrainPass {
         }
     }
 
+    void prepareFrame(ID3D11DeviceContext* context,const source_camera::Frame& current) {
+        updateNativeTerrainCameraGpu(context,camera_,current);
+    }
+    unsigned drawShadows(ID3D11DeviceContext* context,const source_shadow_camera::Frame& frame,
+        const NativeShadowRasterGpu& raster,unsigned family) {
+        return shadow_.draw(context,camera_,vertexViews_[8],vertexSamplers_[8],frame,raster,family);
+    }
+
     UINT draw(ID3D11DeviceContext *context, const source_camera::Frame &current,
               std::optional<uint32_t> season, NativeTerrainCameraDrawBindings bindings,
               NativeSourceDepthState& logical,UINT stencilReference,uint32_t colorMasks) {
@@ -41,7 +51,6 @@ class TerrainPass {
             source_current_season_terrain::patchNativeCurrent(*seasonPalette_, *season,
                                                               camera_);
         }
-        updateNativeTerrainCameraGpu(context, camera_, current);
         bindings.vertexViews = vertexViews_;
         bindings.pixelViews = pixelViews_;
         bindings.vertexSamplers = vertexSamplers_;
@@ -53,6 +62,7 @@ class TerrainPass {
     }
 
   private:
+    TerrainShadowGpu shadow_;
     void prepareProgramsAndGeometry(ID3D11Device *device, const fs::path &input, bool groupedTerrain) {
         auto vsBytes = load(input / (groupedTerrain ? "near-vs.dxbc" : "terrain-vs.dxbc"));
         auto pixelProgramBytes = load(input / (groupedTerrain ? "near-ps.dxbc" : "terrain-ps.dxbc"));

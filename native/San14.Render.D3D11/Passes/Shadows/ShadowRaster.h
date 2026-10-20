@@ -41,6 +41,32 @@ struct NativeShadowRasterGpu {
     ComPtr<ID3D11RasterizerState> exit;
     D3D11_RASTERIZER_DESC exitDescription{};
 };
+// D43190 applies the selected seasonal Camera first, then the Main caller's
+// overrides. The current cascade count can differ from the startup family.
+inline void setNativeShadowRasterBias(NativeShadowRasterSource& source,unsigned selector,
+    const std::array<float,4>& bias,unsigned count) {
+    if(selector>1||!count||count>source.passes.size()||source.common3F3!=0)
+        throw std::runtime_error("Current shadow raster requires its supported bias source branch");
+    for(unsigned pass=source.passCount;pass<count;++pass)source.passes[pass]=source.passes[0];
+    source.selector=selector;source.bias=bias;source.passCount=count;
+    for(unsigned pass=0;pass<count;++pass)
+        source.passes[pass].DepthBias=int(bias[selector==0?0:pass]*16777216.f);
+}
+inline void updateNativeShadowRasterGpu(ID3D11DeviceContext* context,NativeShadowRasterGpu& gpu,
+    unsigned family,const NativeShadowRasterSource& source) {
+    auto& prior=gpu.source.at(family);
+    ComPtr<ID3D11Device> device;
+    for(unsigned pass=0;pass<source.passCount;++pass) {
+        auto& state=gpu.passes.at(family).at(pass);
+        if(!state||prior.passes[pass].DepthBias!=source.passes[pass].DepthBias) {
+            if(!device)context->GetDevice(&device);
+            ComPtr<ID3D11RasterizerState> next;
+            check(device->CreateRasterizerState(&source.passes[pass],&next),"current seasonal caster bias");
+            state=std::move(next);
+        }
+    }
+    prior=source;
+}
 inline NativeShadowRasterGpu prepareNativeShadowRasterGpu(ID3D11Device* device,
         std::array<NativeShadowRasterSource,2> source) {
     NativeShadowRasterGpu out;out.source=std::move(source);

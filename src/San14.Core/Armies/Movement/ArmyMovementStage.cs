@@ -13,7 +13,7 @@ public sealed record ArmyMovementQueue
         SelectedActors = Array.AsReadOnly(selectedActors.ToArray());
     }
 }
-public sealed record ArmyMovementResolution(int MovementCredit);
+public sealed record ArmyMovementResolution(int MovementCredit, GameState? UpdatedState = null);
 public interface IArmyMovementRules
 {
     /// <summary>Borrows the operation world for this call. Null leaves the stage unresolved.</summary>
@@ -24,7 +24,8 @@ public sealed record ArmyMovementStageResult(bool Complete, GameState State,
     int? UnresolvedArmyId, int[] AppliedActorOrder, int CompletedBatchCount);
 
 /// <summary>Consumes the prepared actor order inside one transaction. The current
-/// implementation advances progress only; crossing a cell remains unresolved.</summary>
+/// rules may return a complete private cross-cell transaction. A late unresolved
+/// actor still discards every earlier movement in this stage.</summary>
 public static class ArmyMovementStage
 {
     public const int ActorsPerBatch = 50;
@@ -65,8 +66,10 @@ public static class ArmyMovementStage
             var resolution = rules.AdvanceArmy(working, unit, moment);
             if (resolution is null) return new(false, state, actor.UnitId, [], 0);
             if (resolution.MovementCredit < 0) throw new InvalidDataException("Army movement credit cannot be negative.");
+            working = resolution.UpdatedState ?? working;
+            var updated = working.Units[unit.Id];
             working = working with { Units = new(working.Units)
-                { [unit.Id] = unit with { March = unit.March! with { MovementCredit = resolution.MovementCredit } } } };
+                { [unit.Id] = updated with { March = updated.March! with { MovementCredit = resolution.MovementCredit } } } };
             order.Add(unit.Id);
         }
         return new(true, working, null, order.ToArray(), (actors.Count + ActorsPerBatch - 1) / ActorsPerBatch);

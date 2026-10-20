@@ -160,7 +160,7 @@ public static class PlayableForceDefeat
                     unit.Troops < 1 || unit.Supplies < 0 || unit.Morale < 0 || unit.WoundedTroops < 0 ||
                     unit.SourceLocationId is int source && !state.Cities.ContainsKey(source) && !state.Gates.ContainsKey(source) ||
                     unit.FormationId is int formation && !state.Formations.ContainsKey(formation) ||
-                    unit.TacticIds is { } tactics && tactics.Any(tactic => !state.Tactics.ContainsKey(tactic)) ||
+                    !ArmyEquippedTactics.Valid(state, unit) ||
                     unit.Mission is { } mission && (!Enum.IsDefined(mission.Kind) || !Enum.IsDefined(mission.Arrival) || mission.CargoGold < 0))
                     throw new InvalidDataException("Withdrawn Army has invalid quantities, identities or cargo.");
                 //Validate a historical receiver's complete saved modules without

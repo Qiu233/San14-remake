@@ -6,7 +6,12 @@ public sealed partial class WorldIndexContext
 {
     internal sealed record UnitIndexValue(int? UnitId);
     private readonly EntitySourceBindings _officers = new();
+    private MapObjectSourceDirectory? _mapObjects;
+    internal List<MapObjectReceiverId?>? PendingObjectRetirements { get; set; }
     public WorldIndexesState ExportOwnedState() => _state.ExportWorldIndexes(this);
+    //A nested operation may need a domain image while its caller still owns
+    //temporary lists. This does not publish or restore the live pool.
+    internal WorldIndexesState ProjectOwnedRoles() => _state.ExportWorldIndexes(this, false);
     internal WorldIndexesState BeginChangedWork()
     {
         var next = WorldIndexRules.BeginChangedWork(ExportOwnedState());
@@ -26,6 +31,7 @@ public sealed partial class WorldIndexContext
     }
     public void BindWorld(GameState state)
     {
+        _mapObjects = CampaignSourceKnowledge.From(state.ResourceState).MapObjectSource is { } source ? new(source) : null;
         _armies.Replace(state.ReadArmyLifecycle()?.ReceiverSlots()
             .Where(slot => (slot.ActiveUnitId ?? slot.PendingImage?.Id) is not null)
             .Select(slot => new EntitySourceBinding(slot.PhysicalSlot, slot.ActiveUnitId ?? slot.PendingImage!.Id)) ?? []);
@@ -50,6 +56,8 @@ public sealed partial class WorldIndexContext
             officerId ??= _state.ReadPersonIdentity(physical.Value);
             return new(domainKind, officerId ?? throw new InvalidDataException("Registered officer identity is unavailable."));
         }
+        if (kind == RegistryKind.Object && _mapObjects is not null)
+            return new(domainKind, _mapObjects.ReceiverAtPhysical(physical.Value).Value);
         if (kind == RegistryKind.City || kind == RegistryKind.Gate)
             return ToWorld(new BaseReference(kind == RegistryKind.City ? BaseKind.City : BaseKind.Gate, physical));
         return new(domainKind, physical);
@@ -83,6 +91,8 @@ public sealed partial class WorldIndexContext
         { var fallback = ToSourceBase(value); return new(fallback.Kind == BaseKind.City ? RegistryKind.City : RegistryKind.Gate, 0); }
         var kind = SourceKind(value.Kind); int? physical = value.Id;
         if (kind == RegistryKind.Army) physical = ArmyPhysical(value.Id);
+        else if (kind == RegistryKind.Object && physical is int receiver && _mapObjects is not null)
+            physical = _mapObjects.PhysicalOf(new(receiver));
         else if (kind == RegistryKind.Gate && physical is int gate) physical = gate - 51;
         else if (kind == RegistryKind.Person && physical is int person)
             physical = _officers.RecordOf(person) is int source ? source :
@@ -116,6 +126,7 @@ public sealed partial class SourceWorldContext
     public WorldIndexContext? ReadOwnedCurrentListPool() => OwnedIndexes;
     internal void ImportWorldIndexes(WorldIndexContext owner, WorldIndexesState indexes)
     {
+        owner.PendingObjectRetirements = indexes.PendingObjectRetirements is { } retirements ? new(retirements) : null;
         _orderedLists = new(); _registryDescriptors.Clear(); _baseHexListHandles.Clear(); _armyReturnBasePerson88.Clear();
         foreach (var row in indexes.Registries)
         {
@@ -191,14 +202,14 @@ public sealed partial class SourceWorldContext
         foreach (int? id in indexes.ChangedWorkingUnitIds ?? []) AppendStoredIndexValue(owner.ChangedWorkingHandle!, new WorldIndexContext.UnitIndexValue(id));
         foreach (int? id in indexes.ChangedPendingUnitIds ?? []) AppendStoredIndexValue(owner.ChangedPendingHandle!, new WorldIndexContext.UnitIndexValue(id));
     }
-    internal WorldIndexesState ExportWorldIndexes(WorldIndexContext owner)
+    internal WorldIndexesState ExportWorldIndexes(WorldIndexContext owner, bool requireQuiescent = true)
     {
         var publishedKeys = _registryDescriptors.Values.Select(handle => handle?.Identity)
             .Concat(_baseHexListHandles.Values.Select(handle => handle?.Identity))
             .Concat(_armyReturnBasePerson88.Values.Select(handle => handle?.Identity))
             .Concat([_baseRegistryHandle?.Identity, _armyReturnPending70?.Identity])
             .OfType<int>().Concat(owner.BoundListKeys).ToHashSet();
-        if (_orderedLists.NonemptyLists.Any(key => !publishedKeys.Contains(key)))
+        if (requireQuiescent && _orderedLists.NonemptyLists.Any(key => !publishedKeys.Contains(key)))
             throw new InvalidDataException("A nonempty current collection has no domain index role at publication.");
         List<WorldEntityReference>? RegistryValues(RegistryListHandle? handle) => handle is { } pointer ?
             ReadIndexValues(new(pointer.Identity))?.Select(value => value switch
@@ -237,6 +248,7 @@ public sealed partial class SourceWorldContext
                 throw new InvalidDataException("The personnel task index contains another value kind.")).ToList(),
             ChangedPendingUnitIds = UnitIds(owner.ChangedPendingHandle), ChangedWorkingUnitIds = UnitIds(owner.ChangedWorkingHandle),
             ChangedProcessing = owner.ChangedProcessing
+            , PendingObjectRetirements = owner.PendingObjectRetirements is { } retirements ? new(retirements) : null
         };
     }
 }

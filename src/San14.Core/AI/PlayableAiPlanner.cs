@@ -129,20 +129,27 @@ public sealed class PlayableAiPlanner : ICommandPlanner
             city.HexId is int sourceHex && SelectEnemyCity(current, force.Id, sourceHex, rules.Routes) is
                 { HexId: int destinationHex })
         {
-            int formation = commander.BaseFormationIds!.First();
-            var unit = new DeploymentUnitRequest(commander.Id, formation,
-                Math.Min(5000, city.Troops / 4), [],
-                [new DeploymentAction("move", new DeploymentTarget(DeploymentTargetKind.Hex,
-                    destinationHex))])
-            { Behavior = new DeploymentBehavior(true, true, false, DeploymentAfterAction.Stay) };
-            current = ApplyIfAccepted(planning,
-                new PrepareDeploymentOrder(force.Id, city.Id, [unit]), rules, context, authority);
+            // The planner makes the same explicit current choice as a human
+            // composition. Unknown native defaults do not become magic11.
+            var naval = rules.OrdinaryDeploymentRules?.ResolveDefaultNavalFormation(current, commander.Id);
+            if (current.NativeArmySimulation is null || naval is { Available: true })
+            {
+                int formation = commander.BaseFormationIds!.First();
+                var unit = new DeploymentUnitRequest(commander.Id, formation,
+                    Math.Min(5000, city.Troops / 4), [],
+                    [new DeploymentAction("move", new DeploymentTarget(DeploymentTargetKind.Hex,
+                        destinationHex))])
+                { Behavior = new DeploymentBehavior(true, true, false, DeploymentAfterAction.Stay), NavalFormationId = naval?.FormationId };
+                current = ApplyIfAccepted(planning,
+                    new PrepareDeploymentOrder(force.Id, city.Id, [unit]), rules, context, authority);
+            }
         }
 
         AreaState? vacant = city.AreaIds.Select(areaId => current.Areas[areaId])
             .FirstOrDefault(area => area.ForceId == force.Id &&
                 area.Administration?.OverseerId is null);
         OfficerState? administrator = available.FirstOrDefault(officer =>
+            !current.Officers[officer.Id].Deployed &&
             !current.PreparedDeployments.Values.Any(plan => plan.OfficerId == officer.Id));
         if (vacant is not null && administrator is not null)
         {
@@ -152,17 +159,22 @@ public sealed class PlayableAiPlanner : ICommandPlanner
                     [new AreaAdministrationChange(vacant.Id, administrator.Id, focus)]),
                 rules, context, authority);
         }
-        if (administrator is not null)
-            foreach (CityDutyKind kind in new[] { CityDutyKind.Recruitment, CityDutyKind.Training })
-            {
-                CityDutyState? duties = current.Cities[city.Id].Duties;
-                if (duties is null ||
-                    (kind == CityDutyKind.Recruitment ? duties.RecruiterId : duties.TrainerId) is not null)
-                    continue;
-                current = ApplyIfAccepted(planning,
-                    new SetCityDutyOrder(force.Id, city.Id, kind, administrator.Id),
-                    rules, context, authority);
-            }
+        // A city role clears the receiver's area appointments and other city
+        // role. Choose one current vacancy and do not undo this pass's area work.
+        CityDutyState? duties = current.Cities[city.Id].Duties;
+        CityDutyKind? duty = duties is null ? null
+            : duties.RecruiterId is null ? CityDutyKind.Recruitment
+            : duties.TrainerId is null ? CityDutyKind.Training : null;
+        OfficerState? dutyOfficer = available.FirstOrDefault(officer =>
+            !current.Officers[officer.Id].Deployed &&
+            !current.PreparedDeployments.Values.Any(plan => plan.OfficerId == officer.Id) &&
+            !current.Areas.Values.Any(area => area.Administration?.OverseerId == officer.Id) &&
+            !current.Cities.Values.Any(active => active.Duties?.RecruiterId == officer.Id ||
+                active.Duties?.TrainerId == officer.Id));
+        if (duty is CityDutyKind kind && dutyOfficer is not null)
+            current = ApplyIfAccepted(planning,
+                new SetCityDutyOrder(force.Id, city.Id, kind, dutyOfficer.Id),
+                rules, context, authority);
     }
 
     private static GameState ApplyIfAccepted(CommandPlanningContext planning, GameOrder order, PlayableRuleSet rules,

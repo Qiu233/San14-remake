@@ -11,6 +11,8 @@ public sealed record DeploymentBehavior(bool AttackNearbyEnemies, bool AllowRetr
 public sealed record DeploymentUnitRequest(int OfficerId, int FormationId, int Troops,
     IReadOnlyList<int> TacticIds, IReadOnlyList<DeploymentAction> Actions)
 {
+    // An explicit normal command input. Absence is unknown, never the short-script default11.
+    public int? NavalFormationId { get; init; }
     public IReadOnlyList<int> WaypointHexIds { get; init; } = [];
     // No guessed initial behavior. The request must explicitly choose all four settings.
     public DeploymentBehavior? Behavior { get; init; }
@@ -29,6 +31,16 @@ public sealed record PreparedDeployment(int Id, int BatchId, int ForceId, int Di
     int[] WaypointHexIds, DeploymentBehavior Behavior, bool TroopsDebited, bool CommandBookDebited);
 
 public sealed record DeploymentSource(int LocationId, int ForceId, int DistrictId, int HexId, int Troops);
+public sealed record OrdinaryDeploymentNavalFormation(int? FormationId, string? UnresolvedInput)
+{
+    public bool Available => FormationId.HasValue && UnresolvedInput is null;
+}
+public interface IPlayableOrdinaryDeploymentCommitRules
+{
+    OrdinaryDeploymentNavalFormation ResolveDefaultNavalFormation(GameState state, int officerId);
+    CommandResult CommitOrdinaryDeployment(GameState state, DeploymentSource source,
+        IReadOnlyList<DeploymentUnitRequest> units, CommandContext context);
+}
 public enum DeploymentDecisionStatus { Unavailable, Allowed, Denied }
 public readonly record struct DeploymentEligibility(DeploymentDecisionStatus Status,
     string? Explanation = null, string? MissingRuleKey = null);

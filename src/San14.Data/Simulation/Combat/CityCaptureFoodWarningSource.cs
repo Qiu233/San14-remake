@@ -1,4 +1,4 @@
-using San14.Core;
+﻿using San14.Core;
 
 namespace San14.Data;
 
@@ -208,16 +208,8 @@ public static class CityCaptureFoodWarningSource
         if (K(current.ReadAssignmentCityCC(K(city.PhysicalSlot, "quote_tail_City_identity")), "quote_tail_CityCC") != 0)
             throw Missing("quote_tail301170_nonzero_CityCC_training_gate_and_Gate_temporary_producer");
     }
-    private static bool Busy(SourceWorldContext current, int physical)
-    {
-        byte status = K(current.ReadPersonStatus(physical), "Governor_E6");
-        if (status is >= 1 and <= 4 && PersonPositionRepair.DecodeFirstLocation(K(current.ReadPersonFirstLocation(physical), "Governor_E2")) !=
-            PersonPositionRepair.DecodeSecondLocation(K(current.ReadPersonSecondLocation(physical), "Governor_E4"))) return true;
-        var linked = current.ReadPersonLinkedEntity(physical) ?? throw Missing("Governor_associated22AC00");
-        if (!K(current.ReadLinkedEntityNativeValidity(linked), "Governor_associated_validity")) return false;
-        if (linked.Identity is int id && current.ReadOwnedPersonCommandManager()?.Tasks.ContainsKey(id) == true) return false; //v98=15.
-        throw Missing("Governor_associated_virtual98");
-    }
+    private static bool Busy(SourceWorldContext current, int physical) =>
+        PersonCurrentBusySource.Read(current, physical, field => Missing("Governor_" + field));
     private static IEnumerable<BaseReference> MappedGates(SourceWorldContext current, BaseReference city)
     {
         foreach (var entry in current.ReadArmyReturnRegisteredGates() ?? throw Missing("expense_Gate_managerA0"))

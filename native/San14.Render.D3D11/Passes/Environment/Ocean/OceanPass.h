@@ -108,7 +108,7 @@ class OceanPass {
     }
     void executeWater(ID3D11DeviceContext* context,NativeSourceDepthState& logical,std::uint32_t group,
         const CommonRenderPolicy& policy) {
-        if(updateAdmitted_)executeNativeOcean116(context,logical,water_,group,policy);
+        if(updateAdmitted_)executeNativeOcean116(context,logical,water_,group,policy,grid_->visibility.cutoff);
     }
 
     // Filtering remains after sky/cloud/fog, separate from the initial copies.

@@ -272,7 +272,7 @@ public sealed class RemakeArmyVisualState
             slot is 19 or 20 || slot is >= 8 and <= 10 ||
             selection.UnitId != unit.Id || selection.HexId != unit.HexId || selection.ExplicitLandFormationSlot != slot ||
             selection.Creation is null || !selection.Creation.LandWritten || selection.Creation.NavalWritten ||
-            selection.Creation.Bytes != new ArmyFormationBytes((byte)slot, null) ||
+            selection.Creation.Bytes.Byte1B != (byte)slot ||
             selection.Creation.CodeSource != ArmyFormationWriterCodeSources.ForLanguage(_language) ||
             selection.Creation.FormationSource.ResourceUri != GameResourceId.File($"0010_{_language}/fixdataexce.s14").ToString() ||
             selection.Terrain.UsesArmyByte1C || selection.Formation.DefinitionSlot != slot ||
@@ -280,7 +280,10 @@ public sealed class RemakeArmyVisualState
             selection.Formation.Definition.RawParameterBytes[0] == 2 ||
             ArmyNativeFormationQueries.ModelMode(selection.Terrain, false, selection.Creation.Bytes.Byte1B) != 0)
             throw Error("requires a matching source-created ordinary land choice under the explicit remake false-context route; siege/naval/transport are unsupported");
-        var expected = ArmyModelSelection.DescribeContextIndependent(selection.Terrain, selection.Creation.Bytes.Byte1B, null);
+        // Land terrain consumes byte1B. Retain the independently owned naval
+        // byte; its presence does not change this ordinary land model route.
+        var expected = ArmyModelSelection.DescribeContextIndependent(selection.Terrain,
+            selection.Creation.Bytes.Byte1B, selection.Creation.Bytes.Byte1C);
         if (!selection.Descriptors.PossibleModes.SequenceEqual(expected.PossibleModes) ||
             !selection.Descriptors.Descriptors.SequenceEqual(expected.Descriptors))
             throw Error("source descriptor requests differ from the proven ordinary context-independent selection");

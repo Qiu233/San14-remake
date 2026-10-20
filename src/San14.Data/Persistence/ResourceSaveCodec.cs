@@ -5,14 +5,16 @@ namespace San14.Data;
 /// <summary>Reads historical saves using their resource-backed record directory.
 /// Current saves use the ordinary independent game-state codec without loading
 /// resource rows. Writing never depends on original files.</summary>
-public sealed class ResourceSaveCodec : ISaveCodec
+public sealed class ResourceSaveCodec : ICampaignOperationSaveCodec
 {
     private readonly GameResourceRepository? _repository;
 
     public ResourceSaveCodec() { }
     public ResourceSaveCodec(GameResourceRepository repository) => _repository = repository;
     public string FormatId => "san14-remake-json-gzip";
-    public byte[] Encode(GameState state)
+    public byte[] Encode(GameState state) => EncodeOwned(state, null);
+    public byte[] EncodeOperationWorld(GameState state, CampaignOperationWorldContext context) => EncodeOwned(state, context);
+    private byte[] EncodeOwned(GameState state, CampaignOperationWorldContext? context)
     {
         state = ArmyConfigurationSourceAdapter.PruneReplacedChannels(state);
         state = ArmyTraitSourceAdapter.PruneReplacedChannels(state);
@@ -26,12 +28,15 @@ public sealed class ResourceSaveCodec : ISaveCodec
         TransportRouteSourceAdapter.Validate(state);
         ArmyTraitSourceAdapter.Validate(state);
         ArmyConfigurationSourceAdapter.Validate(state);
-        return new JsonGzipSaveCodec(resourceStateCodec: new CampaignResourceStateCodec()).Encode(state);
+        OwnedMapObjectLifecycle.Validate(state);
+        return new JsonGzipSaveCodec(resourceStateCodec: new CampaignResourceStateCodec(), operationContext: context).Encode(state);
     }
-    public GameState Decode(ReadOnlySpan<byte> bytes)
+    public GameState Decode(ReadOnlySpan<byte> bytes) => DecodeOwned(bytes, null);
+    public GameState DecodeOperationWorld(ReadOnlySpan<byte> bytes, CampaignOperationWorldContext context) => DecodeOwned(bytes, context);
+    private GameState DecodeOwned(ReadOnlySpan<byte> bytes, CampaignOperationWorldContext? context)
     {
         var state = new JsonGzipSaveCodec(_repository is null ? null : new LegacyOfficerAbilitySource(_repository),
-            new CampaignResourceStateCodec()).Decode(bytes);
+            new CampaignResourceStateCodec(), context).Decode(bytes);
         ArmyTargetSourceKnowledgeValidation.Validate(state);
         ArmyOverrideSourceKnowledgeValidation.Validate(state);
         ArmyPositionSourceKnowledge.Validate(state);
@@ -39,6 +44,7 @@ public sealed class ResourceSaveCodec : ISaveCodec
         TransportRouteSourceAdapter.Validate(state);
         ArmyTraitSourceAdapter.Validate(state);
         ArmyConfigurationSourceAdapter.Validate(state);
+        OwnedMapObjectLifecycle.Validate(state);
         return state;
     }
 

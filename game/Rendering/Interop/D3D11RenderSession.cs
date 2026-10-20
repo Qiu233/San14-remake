@@ -19,6 +19,8 @@ public sealed class D3D11MapInput
     public MainMapCameraFrame? SourceFrame { get; private init; }
     public TerrainPicker? TerrainPicker { get; init; }
     public D3D11TerritoryPublication? TerritoryOwnership { get; init; }
+    public D3D11CommandMapPublication? CommandMap { get; init; }
+    public uint CommandMapFpsMode { get; init; }
     public D3D11ArmyPublication? ArmyWorld { get; init; }
     public ArmyMapGroupingFrame? ArmyGroupingWorld { get; init; }
     public D3D11CityGatePublication? CityGateWorld { get; init; }
@@ -48,6 +50,7 @@ public sealed class D3D11MapInput
         SourceFrame = input.SourceFrame;
         TerrainPicker = input.TerrainPicker;
         TerritoryOwnership = input.TerritoryOwnership;
+        CommandMap = input.CommandMap; CommandMapFpsMode = input.CommandMapFpsMode;
         ArmyWorld = input.ArmyWorld;
         ArmyGroupingWorld = input.ArmyGroupingWorld;
         CityGateWorld = input.CityGateWorld;
@@ -146,6 +149,14 @@ public sealed class D3D11RenderSession : IDisposable
         [MarshalAs(UnmanagedType.LPWStr)] public string? AtmosphereResourceDirectory;
     }
     [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeCommandMapInputV1
+    {
+        public uint Size, Version;
+        public ulong Revision, DataRevision, ProviderGeneration;
+        public uint Present, HoverHex, FpsMode, Count;
+        public IntPtr Membership, RawAreas;
+    }
+    [StructLayout(LayoutKind.Sequential)]
     private struct NativeReceipt
     {
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = 960)] public byte[] Camera;
@@ -159,6 +170,9 @@ public sealed class D3D11RenderSession : IDisposable
     private delegate int NextCall(IntPtr owner, ulong output, in NativeInput input,
         uint outputUse, out NativeReceipt receipt);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int CommandMapNextCall(IntPtr owner, ulong output, in NativeInput input,
+        in NativeCommandMapInputV1 command, uint outputUse, out NativeReceipt receipt);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate int AnimationCall(IntPtr owner,in NativeInput input,uint fpsMode);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void AnimationStateCall(IntPtr owner,out D3D11AnimationState state);
@@ -171,6 +185,7 @@ public sealed class D3D11RenderSession : IDisposable
     private IntPtr _module, _owner;
     private readonly CreateCall _create;
     private readonly NextCall _next;
+    private CommandMapNextCall? _commandMapNext;
     private readonly AnimationCall _animation;
     private readonly AnimationStateCall _animationState;
     private readonly ArmyUnitPositionsCall _armyUnitPositions;
@@ -183,6 +198,7 @@ public sealed class D3D11RenderSession : IDisposable
     private D3D11ArmyPublication? _sentArmy;
     private D3D11CityGatePublication? _sentCityGate;
     private D3D11AreaCapitalPublication? _sentAreaCapital;
+    private D3D11CommandMapData? _sentCommandMapData;
 
     public D3D11RenderSession(string sourceDirectory, string nativeDLLPath, uint populationMask)
     {
@@ -209,6 +225,9 @@ public sealed class D3D11RenderSession : IDisposable
     {
         RequireRenderThread(); ObjectDisposedException.ThrowIf(_module == IntPtr.Zero, this);
         if (_owner != IntPtr.Zero) throw new InvalidOperationException("Native Main is already open.");
+        // The command page is admitted only after the real map is ready.
+        // Keep the established initial-create ABI and its first publication.
+        if (input.CommandMap is not null) throw new InvalidOperationException("Command map display requires an initialized map.");
         var native = input.ToNative();
         var pin = PinWorld(input, ref native);
         NativeReceipt receipt;
@@ -237,9 +256,35 @@ public sealed class D3D11RenderSession : IDisposable
         var native = input.ToNative();
         var pin = PinWorld(input, ref native);
         NativeReceipt receipt; int result;
-        try { result = _next(_owner, output, in native, 1u, out receipt); }
+        try
+        {
+            if (input.CommandMap is { } command)
+            {
+                // A named versioned request extension preserves the1160-byte
+                // base ABI. Missing native capability must never look applied.
+                _commandMapNext ??= Export<CommandMapNextCall>("san14_render_next_command_map_v1");
+                var extension = new NativeCommandMapInputV1 {
+                    Size = (uint)Marshal.SizeOf<NativeCommandMapInputV1>(), Version = 1,
+                    Revision = command.Revision, DataRevision = command.DataRevision,
+                    ProviderGeneration = command.ProviderGeneration,
+                    Present = command.Present ? 1u : 0u, HoverHex = command.HoverHex,
+                    FpsMode = input.CommandMapFpsMode
+                };
+                if (command.Data is { } data && !ReferenceEquals(data, _sentCommandMapData))
+                {
+                    pin.CommandMembership = GCHandle.Alloc(data.Membership, GCHandleType.Pinned);
+                    pin.CommandAreas = GCHandle.Alloc(data.RawAreas, GCHandleType.Pinned);
+                    extension.Count = D3D11CommandMapData.CellCount;
+                    extension.Membership = pin.CommandMembership.AddrOfPinnedObject();
+                    extension.RawAreas = pin.CommandAreas.AddrOfPinnedObject();
+                }
+                result = _commandMapNext(_owner, output, in native, in extension, 1u, out receipt);
+            }
+            else result = _next(_owner, output, in native, 1u, out receipt);
+        }
         finally { pin.Dispose(); }
         if (result != 0) throw NativeFailure();
+        if (input.CommandMap is { } acceptedCommand) _sentCommandMapData = acceptedCommand.Data;
         _sentTerritory = input.TerritoryOwnership ?? _sentTerritory;
         _sentMapColors = input.TerritoryOwnership?.SourceMapColors ?? _sentMapColors;
         _sentArmy = input.ArmyWorld ?? _sentArmy;
@@ -282,7 +327,7 @@ public sealed class D3D11RenderSession : IDisposable
         Marshal.GetDelegateForFunctionPointer<T>(NativeLibrary.GetExport(_module, name));
     private struct WorldPins : IDisposable
     {
-        internal GCHandle Colors, Palette, Army, Season, CityGate, AreaCapital;
+        internal GCHandle Colors, Palette, Army, Season, CityGate, AreaCapital, CommandMembership, CommandAreas;
         public void Dispose()
         {
             if (Colors.IsAllocated) Colors.Free();
@@ -291,6 +336,8 @@ public sealed class D3D11RenderSession : IDisposable
             if (Season.IsAllocated) Season.Free();
             if (CityGate.IsAllocated) CityGate.Free();
             if (AreaCapital.IsAllocated) AreaCapital.Free();
+            if (CommandMembership.IsAllocated) CommandMembership.Free();
+            if (CommandAreas.IsAllocated) CommandAreas.Free();
         }
     }
     private WorldPins PinWorld(D3D11MapInput input, ref NativeInput native)

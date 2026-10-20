@@ -19,6 +19,9 @@ public static class OwnedArmyLifecycleCurrent
         var pool = current.ReadOwnedCurrentListPool()
             ?? throw new InvalidDataException("Fresh world indexes are missing.");
         pool.BindWorld(state);
+        // The fresh CWorld F0 container is allocated once. Restore/import
+        // preserves an unavailable queue rather than making one here.
+        pool.PendingObjectRetirements = [];
         //31ADB0: each manager container obtains one known empty descriptor.
         foreach (var kind in new[] { RegistryKind.Army, RegistryKind.Gate, RegistryKind.Force,
             RegistryKind.Area, RegistryKind.District, RegistryKind.Person })
@@ -65,7 +68,9 @@ public static class OwnedArmyLifecycleCurrent
         var parameters = state.NativeArmySimulation.Parameters;
         var receivers = new ArmyReceiverRoster(slots.Select(slot => new ArmyReceiverState(slot.ReceiverId,
             slot.PhysicalSlot != 0, ArmyReceiverPhase.Ready, null, null)
-            { OverrideTarget = ArmyOverrideTargetState.Cleared, GroupAssignmentReady = true }).ToArray());
+            { OverrideTarget = ArmyOverrideTargetState.Cleared, SavedCommand = ArmySavedCommandState.Cleared, FalseReportDestination = ArmyMarchDestination.None,
+                FacilityConstruction = FacilityConstructionIntent.None,
+                GroupAssignmentReady = true, SupplyInterdiction = ArmySupplyInterdictionIntent.Inactive }).ToArray());
         var domain = new ArmyLifecycleState(receivers, pool.ExportOwnedState());
         var sourceState = new ArmyLifecycleSourceState(Revision, parameters.Language, parameters.RuleVersion,
             source.ResourceUri, source.Sha256) { Slots = slots };
@@ -91,8 +96,9 @@ public static class OwnedArmyLifecycleCurrent
     /// <summary>Actual31F430 registration after the caller has constructed a
     /// complete Unit image. Does not execute creator governor/model tail.</summary>
     public static ArmyLifecycleCreationAdmission? PrepareCreationAdmission(GameState state, UnitState created,
-        ArmyOperationContext definitions, byte? packetTargetKind38 = null) =>
-        PrepareCreationAdmissionCore(state, created, definitions, 1, packetTargetKind38, null);
+        ArmyOperationContext definitions, byte? packetTargetKind38 = null, ushort? packetTargetIdentity3A = null,
+        bool prepareGroups = true) =>
+        PrepareCreationAdmissionCore(state, created, definitions, 1, packetTargetKind38, packetTargetIdentity3A, prepareGroups);
 
     /// <summary>2D8FE0 writes cargo and status2 before the same31F430 owner.
     /// Ordinary allocation continues to preserve the prior receiver cargo.</summary>
@@ -101,7 +107,7 @@ public static class OwnedArmyLifecycleCurrent
         PrepareCreationAdmissionCore(state, created, definitions, 2, packetTargetKind38, packetTargetIdentity3A);
 
     private static ArmyLifecycleCreationAdmission? PrepareCreationAdmissionCore(GameState state, UnitState created,
-        ArmyOperationContext definitions, byte status, byte? packetTargetKind38, ushort? packetTargetIdentity3A)
+        ArmyOperationContext definitions, byte status, byte? packetTargetKind38, ushort? packetTargetIdentity3A, bool prepareGroups = true)
     {
         if (state.ReadArmyLifecycle() is not { } arena || created.NativeArmyOrigin is not { NativeSlotIndex: int physical } origin ||
             origin.Language != arena.Language || origin.RuleVersion != arena.RuleVersion ||
@@ -145,7 +151,7 @@ public static class OwnedArmyLifecycleCurrent
         targetState = targetState with { ResourceState = CampaignSourceKnowledge.From(targetState.ResourceState).WithoutArmyPosition(created.Id) };
         targetState = ArmyOverrideTargetSourceAdapter.InheritReceiverKnowledge(targetState, created);
         registered = targetState.ReadArmyLifecycle()!;
-        var admitted = OwnedArmyLifecycleAuxiliaries.PrepareCreation(registered, state, created, current, pool);
+        var admitted = prepareGroups ? OwnedArmyLifecycleAuxiliaries.PrepareCreation(registered, state, created, current, pool) : registered;
         return admitted is null ? null : new(admitted, assignedOccupancy) { ResourceState = targetState.ResourceState };
     }
 

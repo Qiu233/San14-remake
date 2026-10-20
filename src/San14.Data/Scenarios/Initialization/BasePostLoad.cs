@@ -37,6 +37,62 @@ public interface IBasePostLoadState
 /// Runtime settings and force effects remain explicit current queries.</summary>
 public static class BasePostLoad
 {
+    /// <summary>The Gold output only; unrelated food/troop inputs are not consumed.</summary>
+    public static int ReadGoldCapacity(BaseReference reference, IBasePostLoadState state)
+    {
+        if (!Known(state.ReadBaseNativeValidity(reference), "capacity base validity")) return 0;
+        if (Known(state.ReadBaseObjectLink(reference), "capacity object4E") > 51) return 0;
+        bool special = state.ReadSpecialBaseCapacity(reference);
+        return GoldCapacity(state, special, special ? (byte)0 : Known(state.ReadCitySizeB8(reference), "city sizeB8"));
+    }
+    private static int GoldCapacity(IBasePostLoadState state, bool special, byte size) => special
+        ? P(state, SimulationParameterKeys.BaseCapacity.SpecialGoldCapacity)
+        : unchecked(P(state, SimulationParameterKeys.BaseCapacity.GoldCapacityPerCitySize) * size);
+
+    /// <summary>The Supplies output only; unrelated gold/troop inputs are not consumed.</summary>
+    public static int ReadSuppliesCapacity(BaseReference reference, IBasePostLoadState state)
+    {
+        if (!Known(state.ReadBaseNativeValidity(reference), "capacity base validity")) return 0;
+        if (Known(state.ReadBaseObjectLink(reference), "capacity object4E") > 51) return 0;
+        bool special = state.ReadSpecialBaseCapacity(reference);
+        return SuppliesCapacity(state, special, special ? (byte)0 : Known(state.ReadCitySizeB8(reference), "city sizeB8"));
+    }
+    private static int SuppliesCapacity(IBasePostLoadState state, bool special, byte size) => special
+        ? P(state, SimulationParameterKeys.BaseCapacity.SpecialFoodCapacity)
+        : unchecked(P(state, SimulationParameterKeys.BaseCapacity.FoodCapacityPerCitySize) * size);
+
+    /// <summary>The vC8 troop output only. Gold, food and the independent
+    /// durability output are not dependencies of a combat quantity bound.</summary>
+    internal static int ReadTroopCapacity(BaseReference reference, IBasePostLoadState state)
+    {
+        if (!Known(state.ReadBaseNativeValidity(reference), "capacity base validity")) return 0;
+        ushort link = Known(state.ReadBaseObjectLink(reference), "capacity object4E");
+        if (link > 51) return GateTroopCapacity(reference, state);
+        if (state.ReadSpecialBaseCapacity(reference)) return SpecialCityTroopCapacity(state);
+        byte size = Known(state.ReadCitySizeB8(reference), "city sizeB8");
+        int basis = P(state, SimulationParameterKeys.BaseCapacity.BaseTroopCapacity);
+        return CityTroopCapacity(basis, CityTroopExtra(size, state));
+    }
+    private static int SpecialCityTroopCapacity(IBasePostLoadState state) =>
+        P(state, SimulationParameterKeys.BaseCapacity.SpecialTroopCapacity);
+    private static int CityTroopExtra(byte size, IBasePostLoadState state) => size switch
+    {
+        2 => P(state, SimulationParameterKeys.BaseCapacity.MediumCityExtraTroops),
+        3 => P(state, SimulationParameterKeys.BaseCapacity.LargeCityExtraTroops),
+        4 => P(state, SimulationParameterKeys.BaseCapacity.MetropolisExtraTroops),
+        _ => Known(state.ReadBaseRuntimeTroopsExtra(), "runtime troops extra27D4890")
+    };
+    private static int CityTroopCapacity(int basis, int extra) => unchecked(basis + extra);
+    private static int GateTroopCapacity(BaseReference reference, IBasePostLoadState state)
+    {
+        int troops = unchecked(P(state, SimulationParameterKeys.BaseCapacity.BaseTroopCapacity) +
+            Known(state.ReadBaseRuntimeTroopsExtra(), "runtime troops extra27D4890"));
+        ForceReference force = Force(reference, state);
+        if (Known(state.ReadForceNativeValidity(force), "capacity fresh force validity"))
+            troops = unchecked(troops + Known(state.ReadBaseForceModifier(force, 56), "force modifier56"));
+        return troops;
+    }
+
     /// <summary>The three resource outputs of268230. The independent fourth
     /// output's policy32/settings queries cannot change these outputs and are
     /// not inputs to this dependency projection.</summary>
@@ -48,18 +104,13 @@ public static class BasePostLoad
         if (link <= 51)
         {
             if (state.ReadSpecialBaseCapacity(reference))
-                return new(P(state, SimulationParameterKeys.BaseCapacity.SpecialGoldCapacity), P(state, SimulationParameterKeys.BaseCapacity.SpecialFoodCapacity), P(state, SimulationParameterKeys.BaseCapacity.SpecialTroopCapacity));
+                return new(GoldCapacity(state, true, 0), SuppliesCapacity(state, true, 0), SpecialCityTroopCapacity(state));
             byte size = Known(state.ReadCitySizeB8(reference), "city sizeB8");
-            int extra = size switch { 2 => P(state, SimulationParameterKeys.BaseCapacity.MediumCityExtraTroops), 3 => P(state, SimulationParameterKeys.BaseCapacity.LargeCityExtraTroops),
-                4 => P(state, SimulationParameterKeys.BaseCapacity.MetropolisExtraTroops), _ => Known(state.ReadBaseRuntimeTroopsExtra(), "runtime troops extra27D4890") };
-            return new(unchecked(P(state, SimulationParameterKeys.BaseCapacity.GoldCapacityPerCitySize) * size), unchecked(P(state, SimulationParameterKeys.BaseCapacity.FoodCapacityPerCitySize) * size),
-                unchecked(P(state, SimulationParameterKeys.BaseCapacity.BaseTroopCapacity) + extra));
+            int extra = CityTroopExtra(size, state);
+            return new(GoldCapacity(state, false, size), SuppliesCapacity(state, false, size),
+                CityTroopCapacity(P(state, SimulationParameterKeys.BaseCapacity.BaseTroopCapacity), extra));
         }
-        int troops = unchecked(P(state, SimulationParameterKeys.BaseCapacity.BaseTroopCapacity) + Known(state.ReadBaseRuntimeTroopsExtra(), "runtime troops extra27D4890"));
-        ForceReference force = Force(reference, state);
-        if (Known(state.ReadForceNativeValidity(force), "capacity fresh force validity"))
-            troops = unchecked(troops + Known(state.ReadBaseForceModifier(force, 56), "force modifier56"));
-        return new(0, 0, troops);
+        return new(0, 0, GateTroopCapacity(reference, state));
     }
     public static void Apply(BaseReference reference, IBasePostLoadState state)
     {
@@ -95,32 +146,23 @@ public static class BasePostLoad
         ushort link = Known(state.ReadBaseObjectLink(reference), "capacity object4E");
         if (link <= 51)
         {
-            if (state.ReadSpecialBaseCapacity(reference)) return new(P(state, SimulationParameterKeys.BaseCapacity.SpecialGoldCapacity), P(state, SimulationParameterKeys.BaseCapacity.SpecialFoodCapacity), P(state, SimulationParameterKeys.BaseCapacity.SpecialTroopCapacity), P(state, SimulationParameterKeys.BaseCapacity.MaximumDurability));
+            if (state.ReadSpecialBaseCapacity(reference)) return new(GoldCapacity(state, true, 0), SuppliesCapacity(state, true, 0), SpecialCityTroopCapacity(state), P(state, SimulationParameterKeys.BaseCapacity.MaximumDurability));
             byte size = Known(state.ReadCitySizeB8(reference), "city sizeB8");
-            gold = unchecked(P(state, SimulationParameterKeys.BaseCapacity.GoldCapacityPerCitySize) * size);
-            supplies = unchecked(P(state, SimulationParameterKeys.BaseCapacity.FoodCapacityPerCitySize) * size);
+            gold = GoldCapacity(state, false, size);
+            supplies = SuppliesCapacity(state, false, size);
             int troopBase = P(state, SimulationParameterKeys.BaseCapacity.BaseTroopCapacity);
             //TC268230 replaces the runtime candidate with a source global
             //for sizes2..4 before use; its value contributes only for size1
             //or an unrecognized size. It is a scalar, not a query callback.
-            int extra = size switch
-            {
-                2 => P(state, SimulationParameterKeys.BaseCapacity.MediumCityExtraTroops),
-                3 => P(state, SimulationParameterKeys.BaseCapacity.LargeCityExtraTroops),
-                4 => P(state, SimulationParameterKeys.BaseCapacity.MetropolisExtraTroops),
-                _ => Known(state.ReadBaseRuntimeTroopsExtra(), "runtime troops extra27D4890")
-            };
-            troops = unchecked(troopBase + extra);
+            int extra = CityTroopExtra(size, state);
+            troops = CityTroopCapacity(troopBase, extra);
             int basis = P(state, SimulationParameterKeys.BaseCapacity.BaseDurability), perSize = P(state, SimulationParameterKeys.BaseCapacity.DurabilityPerAdditionalSize);
             int effect = Known(state.ReadBaseForcePolicyEffect(savedForce, 32), "force policy effect32");
             fourth = unchecked(basis + (size - 1) * perSize + effect * P(state, SimulationParameterKeys.BaseCapacity.DurabilityPolicyScale));
         }
         else
         {
-            troops = unchecked(P(state, SimulationParameterKeys.BaseCapacity.BaseTroopCapacity) + Known(state.ReadBaseRuntimeTroopsExtra(), "runtime troops extra27D4890"));
-            ForceReference freshForce = Force(reference, state);
-            if (Known(state.ReadForceNativeValidity(freshForce), "capacity fresh force validity"))
-                troops = unchecked(troops + Known(state.ReadBaseForceModifier(freshForce, 56), "force modifier56"));
+            troops = GateTroopCapacity(reference, state);
             fourth = Known(state.ReadBaseField46(reference), "base field46");
         }
         if (Known(state.ReadBaseCapacityPercentageEnabled(), "current capacity settings gate"))
@@ -129,13 +171,17 @@ public static class BasePostLoad
     }
 
     public static void WriteMorale(BaseReference reference, int input, IBasePostLoadState state)
+        => _ = WriteMoraleCurrent(reference, input, state);
+
+    internal static bool WriteMoraleCurrent(BaseReference reference, int input, IBasePostLoadState state)
     {
         ForceReference first = Force(reference, state);
         ForceReference second = Force(reference, state);
         int physical = Known(state.ReadForcePhysicalSlot(second), "morale second force physical slot");
-        if (unchecked((uint)(physical - 46)) <= 4) return;
+        if (unchecked((uint)(physical - 46)) <= 4) return false;
         int upper = ReadMoraleUpper(first, state);
         state.SetBaseMorale44(reference, unchecked((byte)SignedBound(input, upper)));
+        return true;
     }
     public static int ReadMoraleUpper(ForceReference force, IBasePostLoadState state)
     {

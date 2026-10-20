@@ -27,7 +27,8 @@ public partial class MapSceneView
     private bool _d3d11TerritoryDisplay = true;
     private D3D11AnimationPacer? _d3d11AnimationPacer;
     private bool _d3d11AnimationDue;
-    private bool UseD3D11Map => _embedded && RenderingServer.GetCurrentRenderingDriverName() == "d3d12";
+    private bool UseD3D11Map => _embedded && RenderingServer.GetCurrentRenderingDriverName() == "d3d12"&&
+        RenderingServer.GetRenderingDevice() is not null;
     private bool D3D11MapInteractive => _d3d11Map is { IsClosed: false, LastError: null, LastReceipt: not null };
     public void SetD3D11CurrentWorldQueries(Func<GameState, SourceWorldContext?> capture,
         Func<GameState, UnitState, ArmyGraphicsCurrentInputs?>? armyMotion=null,
@@ -65,7 +66,7 @@ public partial class MapSceneView
                 source, D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
             var cloudPrograms=SkyCloudProgramResources.Load(_repository,sceneMedia.Renderer);
             var groundDetails = GroundDetailResources.Prepare(_repository, scene,
-                _sourceMainCameraTerrain!.CurrentField, frame.Camera.Lens.ReverseDepth, _text.SourceLocale);
+                frame.Camera.Lens.ReverseDepth, _text.SourceLocale);
             var fogPrograms=HeightFogProgramResources.Load(_repository);
             var fogAcceleration=FogAccelerationResources.Load(_repository);
             var skyPrograms=SkyMainProgramResources.Load(_repository,sceneMedia.Renderer);
@@ -445,6 +446,8 @@ public partial class MapSceneView
         {
             TerrainPicker = CurrentTerrainPicker,
             TerritoryOwnership = _d3d11Ownership?.Capture(_logicalWorld!),
+            CommandMap = _commandMapDisplay,
+            CommandMapFpsMode = _d3d11AnimationPacer?.FpsMode ?? 0,
             ArmyWorld = _d3d11Army?.Capture(_logicalWorld!),
             ArmyGroupingWorld = _d3d11ArmyGroupingQueries?.Invoke(_logicalWorld!),
             CityGateWorld = _d3d11CityGate?.Capture(_logicalWorld!, _d3d11CommonFrustumMode),

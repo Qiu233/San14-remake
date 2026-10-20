@@ -25,6 +25,7 @@ public partial class MilitaryDeploymentBatchPanel : VBoxContainer
     private Func<string?>? _constructionKind;
     private Func<PrepareDeploymentOrder, bool>? _issue;
     private DeploymentBatchView _view = DeploymentBatchView.Empty;
+    internal bool HasDraft => _draft.Count != 0;
 
     public MilitaryDeploymentBatchPanel()
     {

@@ -30,7 +30,12 @@ public static class OwnedArmyReturnCurrentFields
             people[person.Id] = person with
             {
                 LocationState = location,
-                TraitActivation = OfficerTraitActivationSourceAdapter.Read(prefix, physical)
+                TraitActivation = OfficerTraitActivationSourceAdapter.Read(prefix, physical),
+                CurrentFormationMask = prefix.ReadPersonFormationMask164(physical),
+                CurrentTraitIds = ReadTraitIds(prefix, physical)
+                    ?? throw new InvalidDataException("Fresh person trait slots are unknown."),
+                CurrentTacticSlots = ReadTacticSlots(prefix, physical)
+                    ?? throw new InvalidDataException("Fresh person tactic slots are unknown.")
             };
         }
         var cities = state.Cities.ToDictionary(x => x.Key, x => x.Value);
@@ -62,6 +67,14 @@ public static class OwnedArmyReturnCurrentFields
         var current = definitions.Capture(state) ?? throw new InvalidDataException("Return definitions/content identity mismatch.");
         current.OverlayOwnedArmyReturnCurrentFields(state, freshReceivers);
         OwnedArmyLifecycleTargets.BindCurrent(state, current);
+        return current;
+    }
+
+    /// <summary>Operation-local current fields actually consumed by the city menu.</summary>
+    internal static SourceWorldContext CaptureCityMenuCurrent(GameState state, ArmyOperationContext definitions)
+    {
+        var current = definitions.Capture(state) ?? throw new InvalidDataException("city-domestic.menu.definitions_identity");
+        current.OverlayCityMenuCurrent(state);
         return current;
     }
 
@@ -98,7 +111,9 @@ public static class OwnedArmyReturnCurrentFields
                 Behavior = current.ReadPersonBehavior(physical),
                 Health = current.ReadOfficerHealth(person.Id),
                 LocationState = location,
-                TraitActivation = OfficerTraitActivationSourceAdapter.Read(current, physical)
+                TraitActivation = OfficerTraitActivationSourceAdapter.Read(current, physical),
+                CurrentTraitIds = ReadTraitIds(current, physical),
+                CurrentTacticSlots = ReadTacticSlots(current, physical)
             };
         }
         var cities = state.Cities.ToDictionary(x => x.Key,x => x.Value);
@@ -132,6 +147,28 @@ public static class OwnedArmyReturnCurrentFields
         return result;
         static int Known(int? value) => value ?? throw new InvalidDataException("Current Base numeric quantity is unknown.");
     }
+
+    private static int[]? ReadTraitIds(SourceWorldContext current, int physical)
+    {
+        var slots = new int[9];
+        for (int index = 0; index < slots.Length; index++)
+        {
+            if (current.ReadPersonTraitSlot150(physical, index) is not ushort value) return null;
+            slots[index] = value;
+        }
+        return slots;
+    }
+
+    private static byte[]? ReadTacticSlots(SourceWorldContext current, int physical)
+    {
+        var slots = new byte[10];
+        for (int index = 0; index < slots.Length; index++)
+        {
+            if (current.ReadPersonTacticSlot168(physical, index) is not byte value) return null;
+            slots[index] = value;
+        }
+        return slots;
+    }
 }
 
 public sealed partial class ArmyOperationContext
@@ -146,8 +183,51 @@ public sealed partial class ArmyOperationContext
 public sealed partial class SourceWorldContext
 {
     internal ushort? ReadOwnedReturnPersonFlags(int physical) => OfficerBehaviorSourceAdapter.EncodeFlags(_persons.GetValueOrDefault(physical)?.Behavior);
+    internal void OverlayCityMenuCurrent(GameState state)
+    {
+        // Missing mutable owners cannot retain the scenario's opening values.
+        // Receiver0 retains its explicit native-invalid/fallback semantics.
+        for (int slot = 1; slot < 52; slot++)
+        {
+            // Reproject each legitimate key owner after the shared prefix's
+            // Values traversal; a malformed row cannot contaminate another slot.
+            if (state.Districts.TryGetValue(slot, out var district) && district.Id == slot)
+            {
+                WriteDistrictAffiliation(slot, (byte)district.ForceId, (byte)district.Number);
+                SetDistrictRawByte(slot, 0x12, district.LeaderId is int leader ? (byte)leader : null);
+                SetDistrictRawByte(slot, 0x13, district.LeaderId is int high ? (byte)(high >> 8) : null);
+            }
+            else
+            {
+                WriteDistrictAffiliation(slot, null, null);
+                SetDistrictRawByte(slot, 0x12, null); SetDistrictRawByte(slot, 0x13, null);
+            }
+            SetOwnedForceRulerSlot10(slot, state.Forces.TryGetValue(slot, out var force) && force.Id == slot
+                ? force.RulerId is int ruler ? (ushort)ruler : null : null);
+        }
+        var ownedPeople = new HashSet<int>();
+        var residues = state.ResourceState as CampaignSourceKnowledge;
+        foreach (var person in state.Officers.Values)
+        {
+            int physical = ResolveOfficerSource(person.Id)
+                ?? throw new InvalidDataException("city-domestic.menu.person_identity");
+            ownedPeople.Add(physical);
+            SetPersonDistrictSlot(physical, OfficerLocationSourceAdapter.EncodeMembership(
+                person.LocationState?.Membership, residues?.Find(person.Id)));
+            _persons[physical] = _persons[physical] with
+            { Status = OfficerServiceStatusSourceAdapter.Encode(person.ServiceStatus), Behavior = person.Behavior };
+        }
+        foreach (int physical in _persons.Keys.Where(x => x != 0 && !ownedPeople.Contains(x)).ToArray())
+        {
+            SetPersonFirstLocation(physical, null); SetPersonDistrictSlot(physical, null);
+            _persons[physical] = _persons[physical] with { Status = null, Behavior = null };
+        }
+    }
+
     internal void OverlayOwnedArmyReturnCurrentFields(GameState state, ArmyReceiverSourceDirectory? freshReceivers = null)
     {
+        foreach (var city in state.Cities.Values) SetBasePostLoadFlag66(new(BaseKind.City, city.Id), city.DamageTier);
+        foreach (var gate in state.Gates.Values) SetBasePostLoadFlag66(new(BaseKind.Gate, gate.Id - 51), gate.DamageTier);
         BindArmyMapOccupancy(state);
         var ownedPeople = new HashSet<int>();
         var receivers = OfficerLocationSourceAdapter.Receivers(state) ?? freshReceivers;
@@ -157,9 +237,22 @@ public sealed partial class SourceWorldContext
             int physical = ResolveOfficerSource(person.Id)
                 ?? throw new InvalidDataException("Current officer has no matching source record.");
             ownedPeople.Add(physical);
+            SetPersonFormationMask164(physical, person.CurrentFormationMask);
+            if (person.CurrentTraitIds is { Length: not 9 })
+                throw new InvalidDataException("Current person trait selection must contain nine entries.");
+            for (int index = 0; index < 9; index++)
+            {
+                int? id = person.CurrentTraitIds?[index];
+                if (id is < 0 or > ushort.MaxValue)
+                    throw new InvalidDataException("Current person trait reference is not representable by this source profile.");
+                SetPersonTraitSlot150(physical, index, id is int value ? (ushort)value : null);
+            }
+            if (person.CurrentTacticSlots is { Length: not 10 })
+                throw new InvalidDataException("Current person tactic slots must contain ten entries.");
+            for (int index = 0; index < 10; index++)
+                SetPersonTacticSlot168(physical, index, person.CurrentTacticSlots?[index]);
             var location = person.LocationState;
-            if (location?.Membership is not null)
-                SetPersonDistrictSlot(physical, OfficerLocationSourceAdapter.EncodeMembership(location.Membership, residues?.Find(person.Id)));
+            SetPersonDistrictSlot(physical, OfficerLocationSourceAdapter.EncodeMembership(location?.Membership, residues?.Find(person.Id)));
             var old = _persons[physical];
             _persons[physical] = old with { Status = OfficerServiceStatusSourceAdapter.Encode(person.ServiceStatus), Behavior = person.Behavior, Location = OfficerLocationSourceAdapter.EncodePosition(location?.Position, receivers, residues?.Find(person.Id)) };
             BindOfficerHealthSource(physical, person.Id, person.Health);
@@ -169,7 +262,12 @@ public sealed partial class SourceWorldContext
         //Their mutable fields are unknown until an independent current owner is
         //saved. Static scenario status/second/flags must not masquerade as current.
         foreach (int physical in _persons.Keys.Where(x => x != 0 && !ownedPeople.Contains(x)).ToArray())
+        {
+            SetPersonFormationMask164(physical, null);
+            for (int index = 0; index < 9; index++) SetPersonTraitSlot150(physical, index, null);
+            for (int index = 0; index < 10; index++) SetPersonTacticSlot168(physical, index, null);
             _persons[physical] = _persons[physical] with { Status=null, Behavior=OfficerBehaviorSourceAdapter.WithSourceFlags(_persons[physical].Behavior, null), Location=null };
+        }
         BindOfficerLocations(state, receivers);
         foreach (var city in state.Cities.Values)
         {

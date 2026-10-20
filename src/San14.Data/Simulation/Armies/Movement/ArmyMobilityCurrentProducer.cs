@@ -46,6 +46,11 @@ public sealed class ArmyMobilityCurrentProducer
     {
         var definitions = package.CaptureCurrentDefinitions(state);
         if (definitions is null) return Missing("current.Base_Hex_Person_definition_capture");
+        return ResolveCurrent(state, army, definitions);
+    }
+
+    internal ArmyMobilityCurrentResolution ResolveCurrent(GameState state, UnitState army, SourceWorldContext definitions)
+    {
         var context = new TacticRemakeCurrentContext(definitions, catalog, map, terrain,
             new(package.Seed.Language, SimulationRuleIdentity.ForLocale(package.Seed.Language)), package.Revision);
         if (context.ArmyValid(state, army) != true) return Missing("current.Army_validity");

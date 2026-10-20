@@ -30,6 +30,8 @@ public sealed partial record ForceState(int Id, string Name, int? OrdersRemainin
 {
     public int? RulerId { get; init; }
     public int? RankId { get; init; }
+    // The full current source index is retained; name lookup alone maps >100 to0.
+    public byte? KingdomNameIndex { get; init; }
     // Current force type is stored independently of the ruler's personal doctrine.
     // A change of ruler has no implicit inheritance or reset rule.
     public int? DoctrineId { get; init; }
@@ -65,14 +67,22 @@ public sealed record ItemState(int Id, int DefinitionId)
 {
     // Null holder is unknown; ItemHolder(null) explicitly records no character holder.
     public ItemHolder? Holder { get; init; }
-    // World inventory membership, independent of ownership or command eligibility.
-    public bool? IsPresent { get; init; }
+    public ItemLifecycleKnowledge? Lifecycle { get; init; }
+    // Compatibility view, never a second saved fact. Old callers which know
+    // only the predicate cannot invent another exact source status.
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool? IsPresent
+    {
+        get => Lifecycle?.Status?.IsListEligible;
+        init => Lifecycle = (Lifecycle ?? new(null, null, null)) with
+        { Status = value is bool known ? known ? ItemStatusKnowledge.Exact(1) : ItemStatusKnowledge.NotListEligible : null };
+    }
 }
 public sealed record DistrictState(int Id, int ForceId, int Number, int? LeaderId)
 {
     public int? OrdersRemaining { get; init; }
-    // Optional cap, separate from stock/recovery. Original arithmetic is verified,
-    // but final leader abilities must be resolved before assigning this value.
+    // Current cancellation/refund ceiling, separate from stock replenishment.
+    // A fresh period's remaining books can legitimately exceed this ceiling.
     public int? OrderLimit { get; init; }
 }
 public sealed partial record CityState(int Id, string Name, int? ForceId, int? HexId,
@@ -118,6 +128,7 @@ public sealed partial record OfficerState(int Id, string Name, int? ForceId, int
     // Independent of office/role. Null retains unresolved source or legacy state.
     // Present does not establish health, task availability or command eligibility.
     public OfficerPresence? Presence { get; init; }
+    public ushort? AppearanceYear { get; init; }
     public int? DoctrineId { get; init; }
     // Nullable values preserve unresolved original fields and older snapshots independently.
     public int? PolicyId { get; init; }
@@ -142,7 +153,7 @@ public sealed partial record AreaState(int Id, int CityId)
 public sealed record TerritoryState(int Id, int? AreaId, int? ForceId);
 /// <summary>Map construction identity; KindId belongs to the active ruleset's catalog.</summary>
 public sealed record StructureState(int Id, string KindId, int HexId, int? ForceId,
-    int Durability, int MaxDurability = 0, int? SourceCityId = null,
+    int Durability, int? MaxDurability = 0, int? SourceCityId = null,
     bool Completed = false);
 public enum UnitMissionKind { Combat, Transport, OccupyArea, Retreat, BuildStructure,
     RepairStructure, DemolishStructure }
@@ -174,6 +185,18 @@ public sealed partial record UnitState(int Id, int ForceId, int OfficerId, int H
 public sealed record PeriodReportEntry(string Kind, int ForceId, int? CityId = null,
     int? OfficerId = null, int Amount = 0, int? FromHexId = null, int? ToHexId = null)
 {
+    public int? UnitId { get; init; }
+    public int? PersonalityId { get; init; }
+    public byte? CommandChoiceId { get; init; }
+    public int? AreaId { get; init; }
+    public int? LandmarkId { get; init; }
+    public int? RulerOfficerId { get; init; }
+    public int? DistrictId { get; init; }
+    /// <summary>Source report time. Most writers supply the owned campaign
+    /// day; some, including landmark completion, explicitly supply zero.</summary>
+    public int? CampaignDay { get; init; }
+    /// <summary>The event also belongs to the player's personal campaign journal.</summary>
+    public bool IsPlayerJournalEntry { get; init; }
     // A base can be a gate. CityId remains a strict city reference for existing
     // report consumers; this field preserves the independent city/gate identity.
     public int? LocationId { get; init; }
@@ -206,6 +229,8 @@ public sealed partial record GameState
     public int PeriodNumber { get; init; }
     public ulong RandomState { get; init; } = 1;
     public Dictionary<int, ForceState> Forces { get; init; } = [];
+    // The default receiver is not a playable force. Null preserves legacy unknown state.
+    public byte? DefaultForceKingdomNameIndex { get; init; }
     public Dictionary<int, ForceRankDefinition> ForceRanks { get; init; } = [];
     public Dictionary<int, OfficerOfficeDefinition> OfficerOffices { get; init; } = [];
     public Dictionary<int, DoctrineDefinition> Doctrines { get; init; } = [];
@@ -223,7 +248,7 @@ public sealed partial record GameState
     public Dictionary<int, AreaState> Areas { get; init; } = [];
     public AreaMapStatisticsState? RegionStatistics { get; init; }
     public CombatSettlementQueue? PendingCombatSettlements { get; init; }
-    public PersonnelReturnTasks? PersonnelReturns { get; init; }
+    public PersonnelCommandTasks? PersonnelCommands { get; init; }
     public Dictionary<int, UnitState> Units { get; init; } = [];
     // Null preserves unknown original/legacy map constructions. Empty is known empty.
     public Dictionary<int, StructureState>? Structures { get; init; }
@@ -232,6 +257,8 @@ public sealed partial record GameState
     //not infer whether an old PeriodReports entry has already been presented.
     public PeriodReportEntry[] PendingCommandReports { get; init; } = [];
     public Dictionary<int, PreparedDeployment> PreparedDeployments { get; init; } = [];
+    // New drafts copy the current preferences. Null preserves unknown legacy settings.
+    public DeploymentBehavior? DefaultDeploymentBehavior { get; init; }
     // Null is unresolved original/legacy planning state; playable worlds start with known emptiness.
     public Dictionary<int, PreparedOfficerMove>? PreparedOfficerMoves { get; init; }
     // Talent task timing is independent from officer relocation and deployment plans.
@@ -242,8 +269,9 @@ public sealed partial record GameState
 
 public static class StateValidator
 {
-    public static void Validate(GameState state)
+    public static void Validate(GameState state, CampaignOperationWorldContext? operationContext = null)
     {
+        operationContext?.Validate(state);
         if (state is null) throw new InvalidDataException("Game state is missing.");
         if (state.ContentHashes is null || state.InitializationIssues is null ||
             state.Forces is null || state.ForceRanks is null || state.OfficerOffices is null ||
@@ -278,6 +306,8 @@ public static class StateValidator
              !string.Equals(options.DifficultyId, state.DifficultyId, StringComparison.Ordinal)))
             throw new InvalidDataException("New-game options conflict with the state's difficulty.");
         if (!Enum.IsDefined(state.Phase)) throw new InvalidDataException("Turn phase is invalid.");
+        if (state.DefaultDeploymentBehavior is { } deploymentDefaults && !Enum.IsDefined(deploymentDefaults.AfterAction))
+            throw new InvalidDataException("Default deployment behavior is invalid.");
         if (state.PeriodNumber < 0) throw new InvalidDataException("Period number is invalid.");
         if (state.Phase != TurnPhase.Initializing && state.InitializationIssues.Length != 0 &&
             !PlayableSkeleton.IsPlayableRuleset(state.RulesetId))
@@ -306,8 +336,8 @@ public static class StateValidator
                     string.IsNullOrWhiteSpace(structure.KindId) ||
                     structure.HexId < 0 || structure.HexId >= mapSize ||
                     !KnownForce(structure.ForceId) || structure.Durability < 0 ||
-                    structure.MaxDurability < structure.Durability ||
-                    (structure.Completed && structure.MaxDurability == 0) ||
+                    structure.MaxDurability is int maximum && maximum < structure.Durability ||
+                    (structure.Completed && structure.MaxDurability is 0) ||
                     (structure.SourceCityId is int structureCity && !state.Cities.ContainsKey(structureCity)))
                     throw new InvalidDataException($"Map structure {id} is invalid.");
         if (state.PeriodReports is null || state.PendingCommandReports is null)
@@ -317,10 +347,18 @@ public static class StateValidator
             throw new InvalidDataException("Pending command reports cannot retain a published period or its summary marker.");
         foreach (PeriodReportEntry entry in state.PeriodReports.Concat(state.PendingCommandReports))
             if (entry is null || string.IsNullOrWhiteSpace(entry.Kind) || entry.Amount < 0 ||
+                entry.UnitId < 1 || entry.PersonalityId is < 0 or > 355 || entry.CommandChoiceId is > 2 ||
                 (entry.RuleId is not null && string.IsNullOrWhiteSpace(entry.RuleId)) ||
                 (entry.MissingRuleKeys is not null && entry.MissingRuleKeys.Any(string.IsNullOrWhiteSpace)) ||
                 (entry.Kind == "period" ? entry.ForceId != 0 : !state.Forces.ContainsKey(entry.ForceId)) ||
                 (entry.CityId is int reportCity && !state.Cities.ContainsKey(reportCity)) ||
+                (entry.AreaId is int reportArea && !state.Areas.ContainsKey(reportArea)) ||
+                entry.LandmarkId is < 0 or > 100 ||
+                (entry.RulerOfficerId is int reportRuler && !state.Officers.ContainsKey(reportRuler)) ||
+                (entry.Kind == "landmark_investment_completed" && (entry.LandmarkId is null ||
+                    entry.RulerOfficerId is null || entry.OfficerId is null || entry.DistrictId is null ||
+                    entry.ToHexId is null || entry.CampaignDay != 0 || entry.Amount is < 1 or > 6)) ||
+                (entry.DistrictId is int reportDistrict && !state.Districts.ContainsKey(reportDistrict)) ||
                 (entry.LocationId is int reportLocation && !state.Cities.ContainsKey(reportLocation) &&
                     !state.Gates.ContainsKey(reportLocation)) ||
                 (entry.OfficerId is int reportOfficer && !state.Officers.ContainsKey(reportOfficer)) ||
@@ -393,7 +431,7 @@ public static class StateValidator
         foreach ((int id, DistrictState district) in state.Districts)
             if (id != district.Id || !state.Forces.ContainsKey(district.ForceId) ||
                 district.Number < 1 || !KnownOfficer(district.LeaderId) || district.OrdersRemaining < 0 ||
-                district.OrderLimit < 0 || district.OrderLimit < district.OrdersRemaining)
+                district.OrderLimit < 0)
                 throw new InvalidDataException($"District {id} is invalid.");
         foreach ((int id, CityState city) in state.Cities)
         {
@@ -414,8 +452,18 @@ public static class StateValidator
                 !KnownDistrict(gate.DistrictId, gate.ForceId) || !KnownOfficer(gate.GovernorId) ||
                 gate.Troops < 0 || gate.Durability < 0)
                 throw new InvalidDataException($"Gate {id} is invalid.");
+        static string NameText(string value)
+        {
+            int end = value.IndexOf('\0');
+            return end < 0 ? value : value[..end];
+        }
         foreach ((int id, OfficerState officer) in state.Officers)
-            if (id != officer.Id || officer.Appointment is null || !KnownForce(officer.ForceId) ||
+            if (id != officer.Id || officer.Name is null || officer.Appointment is null || !KnownForce(officer.ForceId) ||
+                (officer.CurrentSurnameSortKey is string firstSort && officer.CurrentGivenNameSortKey is string secondSort &&
+                    officer.CurrentNameSortKey is string combinedSort &&
+                    !string.Equals(NameText(firstSort) + NameText(secondSort), NameText(combinedSort), StringComparison.Ordinal)) ||
+                (officer.CurrentSurname is string surname && officer.CurrentGivenName is string given &&
+                    !string.Equals(officer.Name, surname + given, StringComparison.Ordinal)) ||
                 !KnownDistrict(officer.DistrictId, officer.ForceId) ||
                 (officer.LocationId is int location && !state.Cities.ContainsKey(location) && !state.Gates.ContainsKey(location)) ||
                 ((officer.Presence is null or OfficerPresence.Present) &&
@@ -427,6 +475,8 @@ public static class StateValidator
                 (officer.DoctrineId is int doctrineId && !state.Doctrines.ContainsKey(doctrineId)) ||
                 (officer.PolicyId is int policyId && !state.Policies.ContainsKey(policyId)) ||
                 officer.PolicyBaseCost < 0 ||
+                (officer.CurrentTacticSlots is { Length: not 10 }) ||
+                (officer.CurrentTraitIds is { } traitIds && (traitIds.Length != 9 || traitIds.Any(id => id < 0))) ||
                 (officer.BaseFormationIds is { } formations &&
                     (formations.Distinct().Count() != formations.Length || formations.Any(f => !state.Formations.ContainsKey(f)))) ||
                 (officer.BaseTacticIds is { } tactics &&
@@ -453,9 +503,7 @@ public static class StateValidator
                 (unit.SourceLocationId is int sourceId && !state.Cities.ContainsKey(sourceId) &&
                     !state.Gates.ContainsKey(sourceId)) ||
                 (unit.FormationId is int formationId && !state.Formations.ContainsKey(formationId)) ||
-                (unit.TacticIds is { } tacticIds &&
-                    (tacticIds.Distinct().Count() != tacticIds.Length ||
-                        tacticIds.Any(tacticId => !state.Tactics.ContainsKey(tacticId)))) ||
+                !ArmyEquippedTactics.Valid(state, unit) ||
                 (unit.Behavior is { } behavior && !Enum.IsDefined(behavior.AfterAction)) ||
                 (unit.Mission is { } mission &&
                     (!Enum.IsDefined(mission.Kind) || !Enum.IsDefined(mission.Arrival) ||
@@ -488,8 +536,10 @@ public static class StateValidator
                      (mission.Kind == UnitMissionKind.BuildStructure &&
                          (string.IsNullOrWhiteSpace(mission.StructureKindId) ||
                           (PlayableSkeleton.IsPlayableRuleset(state.RulesetId) &&
-                           !PlayableConstructionRules.IsSupportedKind(mission.StructureKindId)) ||
-                          unit.SourceLocationId is not int buildCity || !state.Cities.ContainsKey(buildCity) ||
+                           !PlayableConstructionRules.IsSupportedKind(mission.StructureKindId) &&
+                           !FacilityConstructionIntent.IsDefinitionKey(mission.StructureKindId)) ||
+                          !FacilityConstructionIntent.IsDefinitionKey(mission.StructureKindId) &&
+                           (unit.SourceLocationId is not int buildCity || !state.Cities.ContainsKey(buildCity)) ||
                           mission.DestinationCityId is not null || mission.TargetAreaId is not null ||
                           mission.CargoGold != 0 || mission.Returning ||
                           mission.Arrival != TransportArrivalDisposition.EnterCity ||
@@ -592,6 +642,10 @@ public static class StateValidator
                 .GroupBy(plan => plan.TargetOfficerId).Any(group => group.Count() != 1))
             throw new InvalidDataException("One free officer has duplicate recruitment tasks.");
         GovernanceValidation.Validate(state);
+        NormalCombatRefreshValidation.Validate(state.NormalCombatRefresh);
+        CampaignEffectRequests.Validate(state.CampaignEffectRequests);
+        ManualTacticInterventionState.Validate(state);
+        CampaignDuelServiceState.Validate(state);
         PlayableDiplomacy.Validate(state);
         PlayableMilitaryStateValidation.Validate(state);
         PlayableTacticStateValidation.Validate(state);
@@ -599,14 +653,14 @@ public static class StateValidator
         PlayableEventStateValidation.Validate(state);
         PlayablePersonnelStateValidation.Validate(state);
         EconomyReportStateValidation.Validate(state);
-        NativeSubdayStateValidation.Validate(state);
+        NativeSubdayStateValidation.Validate(state, operationContext);
         NativeNormalArmyCombatCalendarStateValidation.Validate(state);
         NativeArmyReturnCurrentStateValidation.Validate(state);
         ArmyLifecycleSaveValidation.Validate(state);
         ArmyMapOccupancySaveValidation.Validate(state);
         NativeNormalArmyAftermathStateValidation.Validate(state);
         CombatSettlementSaveValidation.Validate(state.PendingCombatSettlements);
-        PersonnelReturnSaveValidation.Validate(state.PersonnelReturns);
+        PersonnelCommandSaveValidation.Validate(state.PersonnelCommands);
         NativeForceUnregisterCurrentStateValidation.Validate(state);
         NativePlayableTerminalStateValidation.Validate(state);
         NativeBaseCaptureCurrentStateValidation.Validate(state);

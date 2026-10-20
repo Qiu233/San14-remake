@@ -201,15 +201,29 @@ public static partial class BaseCaptureRewardSource
     { Release(current, receipt.Regions); Release(current, receipt.States); }
 
     private static bool PlayerRulerDistrict(SourceWorldContext current, DistrictReference district)
+        => ReadPlayerRulerDistrict(current, district, Missing);
+
+    internal static bool ReadPlayerRulerDistrict(SourceWorldContext current, DistrictReference district,
+        Func<string, Exception> missing)
     {
-        var player = current.ReadCurrentPlayerForce() ?? throw Missing("233A90 Player Force");
-        if (!K(current.ReadForceNativeValidity(player), "233A90 Player validity")) return false;
-        int physical = K(district.PhysicalSlot, "233A90 District pointer");
-        if (K(current.ReadDistrictForceId(physical), "233A90 District10") != K(current.ReadForcePhysicalSlot(player), "233A90 Player physical")) return false;
-        ushort leader = K(current.ReadDistrictLeader(physical), "233A90 District12");
-        var person = current.ReadPersonLookupReference(leader <= 6000 ? leader : 0) ?? throw Missing("233A90 leader pointer");
-        return person.PhysicalSlot is int slot && K(current.ReadPersonNativeValidity(slot), "233A90 leader validity") &&
-            K(current.ReadPersonStatus(slot), "233A90 leader E6") == 1;
+        if (!ReadPlayerDistrict(current, district, missing)) return false;
+        int physical = district.PhysicalSlot!.Value;
+        ushort leader = current.ReadDistrictLeader(physical) ?? throw missing("233A90 District12");
+        var person = (leader <= 6000 ? current.ReadPersonLookupReference(leader) : current.ReadTransferPersonTableReference(0))
+            ?? throw missing("233A90 leader pointer");
+        return person.PhysicalSlot is int slot && Need(current.ReadPersonNativeValidity(slot), "233A90 leader validity") &&
+            Need(current.ReadPersonStatus(slot), "233A90 leader E6") == 1;
+        T Need<T>(T? value, string name) where T : struct => value ?? throw missing(name);
+    }
+
+    internal static bool ReadPlayerDistrict(SourceWorldContext current, DistrictReference district,
+        Func<string, Exception> missing)
+    {
+        var player = current.ReadCurrentPlayerForce() ?? throw missing("233A90 Player Force");
+        if (!Need(current.ReadForceNativeValidity(player), "233A90 Player validity")) return false;
+        int physical = Need(district.PhysicalSlot, "233A90 District pointer");
+        return Need(current.ReadDistrictForceId(physical), "233A90 District10") == Need(current.ReadForcePhysicalSlot(player), "233A90 Player physical");
+        T Need<T>(T? value, string name) where T : struct => value ?? throw missing(name);
     }
     private static int ReadBaseKind(SourceWorldContext current, BaseReference target)
     {

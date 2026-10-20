@@ -14,9 +14,14 @@ public sealed record ArmyReceiverState(ArmyReceiverId ReceiverId, bool CanAssign
     public ArmyOverrideTargetState? OverrideTarget { get; init; }
     public bool? GroupAssignmentReady { get; init; }
     public int? OccupancyBindingId { get; init; }
+    public ArmySavedCommandState? SavedCommand { get; init; }
+    public ArmyMarchDestination? FalseReportDestination { get; init; }
+    public ArmySupplyInterdictionIntent? SupplyInterdiction { get; init; }
+    public FacilityConstructionIntent? FacilityConstruction { get; init; }
 
     public ArmyReceiverState Assign(int unitId) => CanAssign && Phase == ArmyReceiverPhase.Ready && unitId >= 0
-        ? this with { Phase = ArmyReceiverPhase.Active, ActiveUnitId = unitId, PendingImage = null }
+        ? this with { Phase = ArmyReceiverPhase.Active, ActiveUnitId = unitId, PendingImage = null,
+            FacilityConstruction = FacilityConstructionIntent.None }
         : throw new InvalidDataException("Army receiver is not ready for assignment.");
 
     public ArmyReceiverState Retire(UnitState image) => Phase == ArmyReceiverPhase.Active &&

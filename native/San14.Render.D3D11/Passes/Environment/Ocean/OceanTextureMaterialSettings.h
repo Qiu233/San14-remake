@@ -8,7 +8,7 @@ struct OceanMaterialUvSettings {
     float heightScaleX{},heightScaleZ{},heightOffsetX{},heightOffsetZ{};
 };
 struct OceanTextureWaveSettings {
-    float amplitude{},length{},width{},scale{},kurtosis{},scatter{},shoalingScale{};
+    float amplitude{},length{},width{},kurtosis{},speed{},scatter{},shoalingScale{};
 };
 struct OceanTextureMaterialSettings {
     OceanMaterialUvSettings uv;

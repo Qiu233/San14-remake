@@ -68,7 +68,7 @@ public sealed class ArmyMapGroupingCurrentQueries : IArmyMapGroupingQueries
     {
         if (IsExcluded233560(physical) is not bool excluded) return null;
         if (excluded) return false;
-        var force = ArmyForce(physical);
+        var force = ReadForce(physical);
         if (force is null) return null;
         if (force.PhysicalSlot is not int forcePhysical) return false;
         if (forcePhysical == 51) return false;
@@ -165,7 +165,7 @@ public sealed class ArmyMapGroupingCurrentQueries : IArmyMapGroupingQueries
         byte? raw = ReadDistrict22BC70(physical);
         return raw is byte district ? _current.ReadDistrictTableReference(district <= 51 ? district : 0) : null;
     }
-    private ForceReference? ArmyForce(int physical)
+    internal ForceReference? ReadForce(int physical)
     {
         var district = ArmyDistrict(physical);
         if (district is null || _current.ReadDistrictNativeValidity(district) is not bool valid) return null;

@@ -56,7 +56,7 @@ public sealed class ArmyMarchPenaltyCurrentProducer
         if (exempt.Value) return Result(0, null, true, 0, 0, 0, 0, "active-commander-effect51");
         if (army.HexId is < 0 or >= 48400) return Missing("current.Army_Hex2A");
         var field = owners is not null ? owners.ReadArmyFields(state, army) :
-            army.NativeCommandControl140 is byte commandControl && army.NativeArmyOrigin?.NativeSlotIndex is int savedReceiver
+            ArmySavedCommandKnowledge.ReadControl(state, army) is byte commandControl && army.NativeArmyOrigin?.NativeSlotIndex is int savedReceiver
                 ? new ArmyMarchPenaltyCurrentArmyFields(army.Id, savedReceiver, state.NativeClock!.UpdateOrdinal,
                     commandControl, "saved-current-army-command-control") : null;
         if (field is not null && (field.UnitId != army.Id || field.NativePoolSlot != army.NativeArmyOrigin!.NativeSlotIndex ||
@@ -64,7 +64,12 @@ public sealed class ArmyMarchPenaltyCurrentProducer
             throw new InvalidDataException("Penalty Army140 field belongs to another actor or current update.");
         //A nonzero140 reaches additional Hex3A/policy65/tactic/category owners.
         //Do not turn this field into an invented completed boolean callback.
-        if (field is { Flag140: not 0 }) return Missing("current.special2C4420_Hex3A_policy65_object_tactic2C");
+        if (field is { Flag140: not 0 })
+        {
+            bool? special = ResolveSavedCommandPenaltyExemption(state, definitions, army);
+            if (special is null) return Missing("current.special2C4420_Hex3A_policy65_object_tactic2C");
+            if (special.Value) return Result(0, army.HexId, false, 0, 0, 0, 0, "saved-command-policy65-facility");
+        }
         var ring = TacticRemakeCurrentContext.NativeHexOrder(army.HexId, 3).Skip(1).ToArray();
         var radiusOne = TacticRemakeCurrentContext.NativeHexOrder(army.HexId, 1).Skip(1).ToHashSet();
         var radiusTwo = TacticRemakeCurrentContext.NativeHexOrder(army.HexId, 2).Skip(1).ToHashSet();
@@ -208,6 +213,28 @@ public sealed class ArmyMarchPenaltyCurrentProducer
             if (first == 51 || second == 51) return true;
         }
         return false;
+    }
+    //2C4420 reads raw3A as a Hex index independently of target kind38.
+    //Its policy<=0 short circuit does not consume the later Object receiver.
+    private static bool? ResolveSavedCommandPenaltyExemption(GameState state, SourceWorldContext current, UnitState army)
+    {
+        if (army.NativeArmyOrigin?.NativeSlotIndex is not int physical || state.ReadArmyLifecycle() is not { } lifecycle ||
+            OwnedArmyLifecycleTargets.Read(state, lifecycle.Slots[physical].ReceiverId)?.Identity3A is not ushort raw) return null;
+        var hex = current.ReadHexTableReference(raw < 48400 ? raw : 0);
+        if (hex is null) return null;
+        if (!hex.PhysicalSlot.HasValue) return false;
+        if (current.ReadHexAreaSlot(hex) is not ushort areaId) return null;
+        var area = current.ReadAreaTableReference(areaId <= 500 ? areaId : 0);
+        if (area is null || current.ReadAreaCurrentForceSlot(area) is not byte rawForce) return null;
+        var force = current.ReadForceTableReference(rawForce <= 51 ? rawForce : 0);
+        if (force is null || current.ReadForceNativeValidity(force) is not bool valid) return null;
+        if (!valid) return false;
+        if (force.PhysicalSlot is not int forceId || !state.Forces.TryGetValue(forceId, out var owner)) return null;
+        if (BattleRemakeCurrentForcePolicies.ReadForceEffect(state, owner, 65, current) is not int policy) return null;
+        if (policy <= 0) return false;
+        //Positive65 requires the exact Object Force pointer and definition2C;
+        //the ordinary policy-zero leaf does not guess a generic facility.
+        return null;
     }
     private static ArmyMarchPenaltyCurrentResolution Missing(string owner) => new(null, owner);
 }

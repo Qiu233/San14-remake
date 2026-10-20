@@ -31,8 +31,9 @@ public static class PlayableSkeleton
         // Schema26 had no completion flag. A full-durability facility built by that
         // playable ruleset had necessarily completed; preserve that fact on upgrade.
         var structures = saved.Structures?.ToDictionary(pair => pair.Key, pair =>
-            !pair.Value.Completed && pair.Value.MaxDurability > 0 &&
-            pair.Value.Durability == pair.Value.MaxDurability
+            // Unknown native caps do not establish historical completion.
+            !pair.Value.Completed && pair.Value.MaxDurability is > 0 and int maximum &&
+            pair.Value.Durability == maximum
                 ? pair.Value with { Completed = true } : pair.Value);
         GameState upgraded = saved with
         {
@@ -49,9 +50,6 @@ public static class PlayableSkeleton
         StateValidator.Validate(upgraded);
         return upgraded;
     }
-    private const int PeriodCommandBooks = 8;
-    private const int CommandBookLimit = 30;
-
     private static GovernanceState EmptyPlayableGovernance() => new(
         [new GovernanceSlot(0, GovernanceSlotKind.Advisor, null),
          new GovernanceSlot(1, GovernanceSlotKind.Department, "group-0"),
@@ -85,21 +83,28 @@ public static class PlayableSkeleton
         IPlayableGateEntryStateRules? gateEntryState = null,
         IPlayableBaseContactPriorityRules? baseContactPriorityRules = null,
         IPlayableArmyContactRules? armyContactRules = null,
-        IPlayableTransportCreationRules? transportCreationRules = null)
+        IPlayableTransportCreationRules? transportCreationRules = null,
+        IPlayableDistrictCommandBudgetRules? districtCommandBudgetRules = null,
+        IPlayableArmyFalseReportCommandRules? falseReportCommandRules = null,
+        IPlayableOrdinaryDeploymentCommitRules? ordinaryDeploymentCommitRules = null,
+        IAreaAdministrationExecution? areaAdministrationRules = null,
+        IPlayableArmyConstructionCommandRules? armyConstructionRules = null,
+        ICityDomesticExecution? cityDomesticRules = null)
     {
         var routes = new PlayableLandRoutes(map);
         IDiplomacyPolicy diplomacyPolicy = diplomacy ?? new ProvisionalDiplomacyPolicy();
         IPlayableTacticRules tactics = tacticRules ?? UnresolvedTacticRules.Instance;
         IPlayableEventRules events = eventRules ?? UnresolvedEventRules.Instance;
         IOrderRules commands = new OrderRuleDispatcher(
-            new AreaAdministrationRules(new AdministrationEligibilityRules()),
-            new DeploymentCommandRules(new DeploymentEligibilityRules(routes), new DeploymentResourceRules()),
+            new AreaAdministrationRules(areaAdministrationRules),
+            new DeploymentCommandRules(new DeploymentEligibilityRules(routes), new DeploymentResourceRules(), districtCommandBudgetRules, ordinaryDeploymentCommitRules),
             new GovernanceCommandRules(new PlayableGovernanceCommandRules()));
-        commands = new PlayableUnitOrders(commands, routes, cityEntryResources, cityEntryState, transportCreationRules);
-        commands = new PlayableCityDutyOrders(commands);
+        commands = new PlayableUnitOrders(commands, routes, cityEntryResources, cityEntryState, transportCreationRules, armyConstructionRules);
+        commands = new PlayableCityDutyOrders(commands, cityDomesticRules);
         commands = new PlayableOfficerMoveOrders(commands);
         commands = new PlayableTalentOrders(commands);
-        commands = new PlayableWaypointOrders(commands, routes, PlayableDiplomacy.IsHostile, cityEntryResources, cityEntryState);
+        commands = new PlayableFalseReportOrders(commands, falseReportCommandRules);
+        commands = new PlayableWaypointOrders(commands, routes, PlayableDiplomacy.IsHostile, cityEntryResources, cityEntryState, armyConstructionRules);
         commands = new PlayableDiplomacyOrders(commands, diplomacyPolicy);
         commands = new PlayableTacticOrders(commands, routes, tactics);
         commands = new PlayablePersonnelOrders(commands, personnelRules ?? UnresolvedPersonnelRules.Instance);
@@ -114,8 +119,9 @@ public static class PlayableSkeleton
                 nativeSubdayRules ?? tactics as IPlayableNativeSubdayRules, armyCreationRules, nativeArmyPreparationRules,
                 baseCaptureAftermathRules, cityEntryResources, cityEntryState, siegeSettlementRules, fieldSettlementRules,
                 nativePeriodContinuationRules, captureReturningPersonRules, captureArmyHomeRules, lastCityPersonnelRules, gateEntryState,
-                baseContactPriorityRules, armyContactRules),
-            new Reporting(), routes) { TacticRules = tactics };
+                baseContactPriorityRules, armyContactRules, districtCommandBudgetRules),
+            new Reporting(districtCommandBudgetRules), routes)
+        { TacticRules = tactics, OrdinaryDeploymentRules = ordinaryDeploymentCommitRules };
     }
 
     public static GameState Start(GameState initial)
@@ -124,8 +130,6 @@ public static class PlayableSkeleton
         StateValidator.Validate(initial);
         if (initial.Phase != TurnPhase.Initializing || initial.RulesetId != "san14:original-pending")
             throw new InvalidOperationException("The playable skeleton requires an original pending scenario snapshot.");
-        var districts = initial.Districts.ToDictionary(pair => pair.Key, pair =>
-            pair.Value with { OrdersRemaining = PeriodCommandBooks, OrderLimit = CommandBookLimit });
         // A known empty appointment is needed to use the existing typed command path.
         // Area ownership comes exclusively from the source and is not inferred from its city.
         var areas = initial.Areas.ToDictionary(pair => pair.Key, pair =>
@@ -139,7 +143,7 @@ public static class PlayableSkeleton
                 ? pair.Value with { Governance = EmptyPlayableGovernance() } : pair.Value);
         GameState next = initial with
         {
-            RulesetId = RulesetId, Phase = TurnPhase.Strategy, Districts = districts, Forces = forces,
+            RulesetId = RulesetId, Phase = TurnPhase.Strategy, Forces = forces,
             Cities = cities, Areas = areas, PeriodReports = [], PendingCommandReports = [], PreparedOfficerMoves = [],
             PreparedTalentOrders = [], Structures = initial.Structures ?? [],
             Diplomacy = initial.Diplomacy ?? PlayableDiplomacy.CreateProvisional(initial),
@@ -150,28 +154,6 @@ public static class PlayableSkeleton
         next = PlayableEventRuntime.InitializePlayableState(next);
         StateValidator.Validate(next);
         return next;
-    }
-
-    private sealed class AdministrationEligibilityRules : IAreaAdministrationEligibility
-    {
-        public AdministrationEligibility Evaluate(GameState state, CityState city,
-            IReadOnlyList<AreaAdministrationChange> changes, CommandContext context)
-        {
-            var requested = new HashSet<int>();
-            foreach (AreaAdministrationChange change in changes)
-            {
-                if (change.OverseerId is not int id) continue;
-                OfficerState officer = state.Officers[id];
-                if (!requested.Add(id) || officer.Deployed || officer.LocationId != city.Id ||
-                    PlayableOfficerAvailability.IsSourceBusy(state, officer) ||
-                    officer.Presence != OfficerPresence.Present ||
-                    state.PreparedOfficerMoves?.ContainsKey(id) == true ||
-                    state.PreparedTalentOrders?.ContainsKey(id) == true ||
-                    state.PreparedDeployments.Values.Any(plan => plan.OfficerId == id))
-                    return new(AdministrationEligibilityStatus.Denied, "Officer is unavailable in this city.");
-            }
-            return new(AdministrationEligibilityStatus.Allowed);
-        }
     }
 
     private sealed class DeploymentEligibilityRules(PlayableLandRoutes routes) : IDeploymentEligibility
@@ -246,7 +228,8 @@ public static class PlayableSkeleton
         IPlayableLastCityPersonnelRules? lastCityPersonnelRules,
         IPlayableGateEntryStateRules? gateEntryState,
         IPlayableBaseContactPriorityRules? baseContactPriorityRules,
-        IPlayableArmyContactRules? armyContactRules) : IAdvancementRules
+        IPlayableArmyContactRules? armyContactRules,
+        IPlayableDistrictCommandBudgetRules? districtCommandBudgetRules) : IAdvancementRules
     {
         public GameState AdvanceTenDays(GameState state)
         {
@@ -424,7 +407,7 @@ public static class PlayableSkeleton
                     reports, onArmyRetired, EntryResources(actor, locationId));
             }
             var deploymentCancellation = new DeploymentCommandRules(new DeploymentEligibilityRules(routes),
-                new DeploymentResourceRules());
+                new DeploymentResourceRules(), districtCommandBudgetRules);
             PreparedOrderStageResult preparedOrders = PeriodOrderPreparation.ExecuteOwned(state,
                 CurrentWorld(), routes, talent, deploymentCancellation, armyCreationRules);
             periodBasis = preparedOrders.State;
@@ -1349,14 +1332,15 @@ public static class PlayableSkeleton
                 }
                 if (current.ForceId != builder.ForceId ||
                     current.KindId != mission.StructureKindId ||
-                    current.Durability >= current.MaxDurability)
+                    current.Durability >= (current.MaxDurability ?? throw new InvalidDataException("Structure construction requires its current durability capacity.")))
                 {
                     units[builder.Id] = FinishMilitaryAction(builder, interrupted: true);
                     reports.Add(new PeriodReportEntry("structure_blocked", builder.ForceId,
                         null, builder.OfficerId, 0, builder.HexId, builder.HexId));
                     continue;
                 }
-                int nextDurability = Math.Min(current.MaxDurability,
+                int maximumDurability = current.MaxDurability!.Value;
+                int nextDurability = Math.Min(maximumDurability,
                     current.Durability + buildParameters.ProgressPerPeriod);
                 structures[current.Id] = current with
                 {
@@ -1395,7 +1379,8 @@ public static class PlayableSkeleton
                         null, worker.OfficerId, 0, worker.HexId, worker.HexId));
                     continue;
                 }
-                int nextDurability = Math.Min(target.MaxDurability,
+                int maximumDurability = target.MaxDurability ?? throw new InvalidDataException("Structure repair requires its current durability capacity.");
+                int nextDurability = Math.Min(maximumDurability,
                     target.Durability +
                     PlayableConstructionRules.ForKind(target.KindId).ProgressPerPeriod);
                 structures[target.Id] = target with { Durability = nextDurability };
@@ -1478,16 +1463,20 @@ public static class PlayableSkeleton
         }
     }
 
-    private sealed class Reporting : IReportingRules
+    private sealed class Reporting(IPlayableDistrictCommandBudgetRules? districtCommandBudgetRules) : IReportingRules
     {
         public GameState CompleteReport(GameState state)
         {
             RequireSkeleton(state);
             if (state.NativePlayableTerminal is not null)
                 return state with { Phase = TurnPhase.Strategy };
-            var districts = state.Districts.ToDictionary(pair => pair.Key, pair =>
-                pair.Value with { OrdersRemaining = PeriodCommandBooks, OrderLimit = CommandBookLimit });
-            return state with { Districts = districts, Phase = TurnPhase.Strategy };
+            if (districtCommandBudgetRules is not null)
+                return districtCommandBudgetRules.RefreshDistrictCommandBudgets(state) with { Phase = TurnPhase.Strategy };
+            if (state.NativeArmySimulation is not null)
+                throw new InvalidDataException("The owned campaign needs current district command budget rules.");
+            // Legacy skeletons retain their known quantities. No inferred
+            // replenishment is installed when the current rule owner is absent.
+            return state with { Phase = TurnPhase.Strategy };
         }
     }
 
@@ -1503,6 +1492,7 @@ public sealed record PlayableRuleSet(IOrderRules OrderRules, IAdvancementRules A
 {
     /// <summary>The same tactic provider used by command validation and period settlement.</summary>
     public IPlayableTacticRules TacticRules { get; init; } = UnresolvedTacticRules.Instance;
+    public IPlayableOrdinaryDeploymentCommitRules? OrdinaryDeploymentRules { get; init; }
 }
 
 /// <summary>A local player can command only the chosen force, even while browsing others.</summary>

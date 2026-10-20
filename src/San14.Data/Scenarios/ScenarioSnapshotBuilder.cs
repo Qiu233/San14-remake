@@ -20,6 +20,9 @@ public static class ScenarioSnapshotBuilder
         IReadOnlyList<S14CharacterIdentity> identities =
             S14ScenarioTables.ReadCharacterIdentities(scenario, locale);
         IReadOnlyList<S14CharacterSex> sexes = S14ScenarioTables.ReadCharacterSexes(scenario, locale);
+        var appearanceYears = scenario.FormatMarker == 0x66 ? S14ScenarioTables.ReadCharacterAppearanceYears(scenario, locale) : null;
+        var dialogue = scenario.FormatMarker == 0x66 ? S14CharacterDialogueReader.Read(scenario, locale) : null;
+        var lifespans = scenario.FormatMarker == 0x66 ? S14ScenarioTables.ReadCharacterLifespans(scenario, locale) : null;
         IReadOnlyList<S14CharacterOfficeReference> offices = S14RankReader.ReadCharacterOffices(scenario, locale);
         S14CharacterPolicyTable characterPolicies = S14PolicyReader.ReadCharacterReferences(scenario, locale);
         S14CharacterDoctrineTable characterDoctrines = S14DoctrineReader.ReadCharacterReferences(scenario, locale);
@@ -44,6 +47,7 @@ public static class ScenarioSnapshotBuilder
             throw new InvalidDataException($"Doctrine parameters failed for {GameResourceId.File(fixedDataPath)}. {error.Message}", error);
         }
         S14PersonSkillTable? personSkills = S14PersonSkillReader.ReadCharacterReferences(scenario, locale);
+        var duelConditions = S14PersonDuelConditionReader.Read(scenario, locale);
         // CE references are current slot7 inputs. Preserve abnormal keys and all
         // mask bits instead of applying the older display-reference constraints.
         S14CharacterCombatTable? characterCombat = personSkills is null
@@ -121,6 +125,7 @@ public static class ScenarioSnapshotBuilder
             {
                 RankId = forceRanks[force.Slot].RankId,
                 RawReportColor49 = force.RawReportColor49,
+                RawKingdomName48 = force.RawKingdomName48,
                 RawIndexedBytes13 = force.RawIndexedBytes13,
                 RawIndexedBytesEA = force.RawIndexedBytesEA
             }).ToArray();
@@ -167,7 +172,19 @@ public static class ScenarioSnapshotBuilder
             {
                 CharacterId = identities[placement.Slot].CharacterId,
                 AppearanceCode = identities[placement.Slot].AppearanceCode,
+                NameSortKey = people.Names[placement.Slot].NameSortKey,
+                SurnameSortKey = people.Names[placement.Slot].SurnameSortKey,
+                GivenNameSortKey = people.Names[placement.Slot].GivenNameSortKey,
                 RawSexCode = sexes[placement.Slot].RawCode,
+                DialogueStyle = dialogue?[placement.Slot].Style,
+                BirthYear = dialogue?[placement.Slot].BirthYear,
+                FamilyGeneration = dialogue?[placement.Slot].FamilyGeneration,
+                FamilyName = people.Names[placement.Slot].FamilyName,
+                GivenName = people.Names[placement.Slot].GivenName,
+                CourtesyName = dialogue?[placement.Slot].CourtesyName,
+                AppearanceYear = appearanceYears?[placement.Slot],
+                TerminalYear = lifespans?[placement.Slot].TerminalYear,
+                LifespanKind = lifespans?[placement.Slot].Kind,
                 RawOfficeId = offices[placement.Slot].OfficeId,
                 RawPolicySlot = characterPolicies.Characters[placement.Slot].RawPolicySlot,
                 RawPolicyBaseCost = characterPolicies.Characters[placement.Slot].RawPolicyBaseCost,
@@ -177,6 +194,7 @@ public static class ScenarioSnapshotBuilder
                 RawDoctrineFieldBytes = characterDoctrines.Characters[placement.Slot].RawFieldBytes.ToArray(),
                 CreditReference = characterCredits?.Characters[placement.Slot],
                 SkillSource = skillSource,
+                DuelConditionSource = duelConditions?[placement.Slot],
                 BaseFormationSlots = formations,
                 BaseTacticSlots = tactics.Where(id => id != 0).Select(id => (int)id).ToArray()
             });
@@ -209,6 +227,7 @@ public static class ScenarioSnapshotBuilder
                 item.CitySlot, item.HexId, item.RemainingBytesHex, state.Amount0,
                 state.Value2, state.ForceSlot, state.RemainingBytesHex)
             {
+                FacilityCapacity = item.FacilityCapacity,
                 RawField44 = item.RawField44,
                 RawField46 = item.RawField46,
                 AdjacentAreaSlots = item.AdjacentAreaSlots,

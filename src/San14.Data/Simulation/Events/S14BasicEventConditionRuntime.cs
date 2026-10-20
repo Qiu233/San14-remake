@@ -15,6 +15,8 @@ public sealed record S14ConditionNativeObject(int PhysicalSlot, ushort RawField1
 public sealed record S14ConditionPersonLookup(S14ConditionNativePerson? Value);
 public sealed record S14ConditionCityLookup(S14ConditionNativeCity? Value);
 public sealed record S14ConditionObjectLookup(S14ConditionNativeObject? Value);
+public readonly record struct S14ConditionDate(short Year, sbyte Month, sbyte Day, sbyte Hour);
+public readonly record struct S14ConditionOccurrenceDate(int Year, int Month, int Day);
 
 /// <summary>
 /// Explicit current native inputs, not static scenario defaults. Nullable results
@@ -28,6 +30,10 @@ public interface IS14BasicEventConditionQueries
     bool? ReadEventManagerPresent();
     bool? ReadManagerEventFlag(int index);
     int? ReadPastGameTime();
+    int? ReadScenarioId() => null;
+    S14ConditionDate? ReadConditionDate() => null;
+    S14ConditionDate? ReadConditionScenarioDate() => null;
+    S14ConditionOccurrenceDate? ReadEventOccurrenceDate(int index) => null;
     ushort? ReadEmperorId();
     S14ConditionPersonLookup? ReadPersonTableSlot(int slot);
     S14ConditionPersonLookup? ReadBasePerson();
@@ -36,7 +42,7 @@ public interface IS14BasicEventConditionQueries
 }
 
 /// <summary>
-/// The CE basic condition profile supports codes 9/15/17/19 and the existing group/false
+/// The CE basic condition profile supports event history, dates, scenario and emperor leaves with the existing group/false
 /// built-ins, with step one and the sticky execution+38 blocking signal.
 /// Negative dynamic ID selectors and unsafe bitmap indices are unsupported.
 /// This is not a Core state adapter or a complete first-player event context.
@@ -68,10 +74,12 @@ public sealed class S14BasicEventConditionRuntime : IS14EventConditionRuntime
     public bool TryGetBinding(int code, out S14ConditionBinding binding)
     {
         if (S14EventConditionEvaluator.BuiltInBindings.TryGetValue(code, out binding)) return true;
-        if (code is 9 or 15 or 17 or 19) { binding = new(0, 1, true); return true; }
+        if (IsSupported(code)) { binding = new(0, 1, true); return true; }
         binding = default;
         return false;
     }
+
+    public static bool IsSupported(int code) => code is 9 or 10 or 13 or 14 or 15 or 16 or 17 or 19 or 353;
 
     public S14ConditionDispatchInputs ReadInputs(S14ConditionContext context)
     {
@@ -94,9 +102,14 @@ public sealed class S14BasicEventConditionRuntime : IS14EventConditionRuntime
             bool result = context.Operation.Code switch
             {
                 9 => EventFlag(context, first, second),
+                10 => EventInterval(context, first, second, context.Operation.RawArguments[2]),
+                13 => ScenarioDate(context, first, second, context.Operation.RawArguments[2], context.Operation.RawArguments[3]),
+                14 => GameDate(context, first, second, context.Operation.RawArguments[2], context.Operation.RawArguments[3]),
                 15 => PastTime(context, first, second),
+                16 => EmperorExists(context, first),
                 17 => EmperorPerson(first, second),
                 19 => EmperorCity(context, first, second),
+                353 => Scenario(context, first, second),
                 _ => throw new InvalidDataException("This provider has no executable leaf binding.")
             };
             return result ? 1 : 0;
@@ -106,6 +119,63 @@ public sealed class S14BasicEventConditionRuntime : IS14EventConditionRuntime
             throw Failure(context, error.Message, error);
         }
     }
+
+    private bool Scenario(S14ConditionContext context, int id, int expected)
+    {
+        bool result = (Known(_queries.ReadScenarioId(), "current scenario ID") == id ? 1 : 0) == expected;
+        if (!result && context.OrDepth == 0) ConditionBlocked = true;
+        return result;
+    }
+
+    private bool EmperorExists(S14ConditionContext context, int expected)
+    {
+        bool exists = Known(_queries.ReadEmperorId(), "current emperor ID") is >= 1 and <= 6000;
+        if (context.OrDepth == 0 && expected == 1 && !exists) ConditionBlocked = true;
+        return (exists ? 1 : 0) == expected;
+    }
+
+    private bool EventInterval(S14ConditionContext context, int index, int mode, int threshold)
+    {
+        if (index is < 0 or >= S14EventSourceProfile.WorldFlagCount)
+            throw new InvalidDataException("Event interval index is outside the world history.");
+        if (context.OrDepth == 0 && Known(_queries.ReadEventManagerPresent(), "event manager presence"))
+        {
+            if (index >= S14EventSourceProfile.ManagerFlagCount)
+                throw new InvalidDataException("Event interval index is outside the manager history.");
+            if (Known(_queries.ReadManagerEventFlag(index), "manager event bit")) ConditionBlocked = true;
+        }
+        if (!Known(_queries.ReadWorldEventFlag(index), "world event bit")) return false;
+        var history = Known(_queries.ReadEventOccurrenceDate(index), "event occurrence date");
+        var now = Known(_queries.ReadConditionDate(), "current third date");
+        int interval = unchecked((((now.Year - history.Year) * 12 + now.Month - history.Month) * 30 + now.Day - history.Day) / 10);
+        bool result = Compare(interval, mode, threshold);
+        if (context.OrDepth == 0 && mode == 6 && !result) ConditionBlocked = true;
+        return result;
+    }
+
+    private bool ScenarioDate(S14ConditionContext context, int mode, int year, int month, int day)
+    {
+        int actual = DateHours(Known(_queries.ReadConditionScenarioDate(), "current second date"));
+        bool result = Compare(actual, mode, DateHours(TargetDate(year, month, day)));
+        if (context.OrDepth == 0 && mode == 4 && !result) ConditionBlocked = true;
+        return result;
+    }
+
+    private static S14ConditionDate TargetDate(int year, int month, int day) =>
+        new(unchecked((short)year), unchecked((sbyte)(month == 0 ? 1 : month)),
+            unchecked((sbyte)(day == 0 ? 1 : day)), 0);
+
+    private bool GameDate(S14ConditionContext context, int mode, int year, int month, int day)
+    {
+        var target = TargetDate(year, month, day);
+        int actual = DateHours(Known(_queries.ReadConditionDate(), "current third date"));
+        int expected = DateHours(target);
+        if (context.OrDepth == 0 && ((mode is 2 or 6 && actual > expected) || (mode == 5 && actual >= expected)))
+            ConditionBlocked = true;
+        return Compare(actual, mode, expected);
+    }
+
+    private static int DateHours(S14ConditionDate date) => date.Hour + ((date.Month + date.Year * 12) * 30 + date.Day) * 24;
 
     private bool EventFlag(S14ConditionContext context, int index, int expected)
     {

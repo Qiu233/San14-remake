@@ -43,7 +43,8 @@ public sealed class CampaignEventExecutionProgram
     }
 
     public static bool IsSupported(int code) => code is 0 or 5 or 6 or 7 or 8 or
-        85 or 90 or 91 or 92 or 96 or 101 or 107;
+        85 or 87 or 90 or 91 or 92 or 94 or 96 or 97 or 101 or 106 or 107 or
+        110 or 111 or 215 or 217 or 226 or 239 or 424 or 425;
 
     private static void Preflight(S14EventConditionProgram dispatch)
     {
@@ -51,15 +52,26 @@ public sealed class CampaignEventExecutionProgram
         {
             if (!IsSupported(operation.Code))
                 throw Failure(operation, "No complete original presentation binding exists.");
-            // The literal branch is closed in the native person resolvers. Dynamic
-            // execution-object selectors require their own current context profile.
-            int[] consumed = operation.Code switch
-            {
-                96 => [0, 3, 4, 5], 101 => [0, 1, 2, 3, 4], 107 => [0, 1, 2], _ => []
-            };
-            if (consumed.Any(index => operation.RawArguments[index] < 0))
-                throw Failure(operation, "Dynamic person selectors are outside this execution profile.");
+            if (UnsupportedArguments(operation.Code, operation.RawArguments) is string reason)
+                throw Failure(operation, reason);
         }
+    }
+
+    internal static string? UnsupportedArguments(int code, IReadOnlyList<int> arguments)
+    {
+        int[] persons = code switch
+        {
+            96 => [0, 3, 4, 5], 97 => [0, 4, 5, 6],
+            101 => [0, 1, 2, 3, 4], 106 => [0, 1], 107 => [0, 1, 2], _ => []
+        };
+        if (persons.Any(index => arguments[index] < 0 && arguments[index] != -4 &&
+            arguments[index] is not (>= -14 and <= -10))) return "Person selector has no closed execution-context producer.";
+        if (code == 217 && arguments.Any(value => value < -1)) return "Force selector has no closed execution-context producer.";
+        if ((code == 424 && arguments[0] < 0) || (code == 425 && arguments.Take(5).Any(value => value < 0)))
+            return "Negative scenery index has no safe resource-table profile.";
+        if (code == 94 && arguments[1] == 0x87F3)
+            return "Special doctrine-adjusted narration requires its independent numeric message context.";
+        return null;
     }
 
     private static InvalidDataException Failure(S14ConditionInstruction operation, string reason) =>
@@ -83,8 +95,31 @@ public sealed record CampaignEventPersonParameters(int OperationIndex, int Sourc
 public sealed record CampaignEventPersonMessage(int OperationIndex, int SourceOffset,
     CampaignEventPerson Speaker, int MessageId, int NativeStyle,
     IReadOnlyList<int> PersonParameters, IReadOnlyList<CampaignEventPersonParameterWrite> ParameterWrites)
-    : CampaignEventCommand(OperationIndex, SourceOffset, 96);
+    : CampaignEventCommand(OperationIndex, SourceOffset, 96)
+{
+    public IReadOnlyList<string>? NameParameters { get; init; }
+}
 public sealed record CampaignEventPersonParameterWrite(int ParameterIndex, int CharacterId);
+public sealed record CampaignEventStandingPosition2(int OperationIndex, int SourceOffset,
+    IReadOnlyList<CampaignEventPerson> Persons) : CampaignEventCommand(OperationIndex, SourceOffset, 106);
+public sealed record CampaignEventCameraToScenery(int OperationIndex, int SourceOffset,
+    int? HexId, int CameraParameter, int BlackOutParameter, int WaitMilliseconds)
+    : CampaignEventCommand(OperationIndex, SourceOffset, 424);
+public sealed record CampaignEventNameParameters(int OperationIndex, int SourceOffset,
+    IReadOnlyList<string> Names) : CampaignEventCommand(OperationIndex, SourceOffset, 425);
+public sealed record CampaignEventBlackTransition(int OperationIndex, int SourceOffset,
+    bool FadeIn, int Parameter) : CampaignEventCommand(OperationIndex, SourceOffset, FadeIn ? 111 : 110);
+public sealed record CampaignEventStill(int OperationIndex, int SourceOffset,
+    int StillId, int Option) : CampaignEventCommand(OperationIndex, SourceOffset, 87);
+public sealed record CampaignEventNamedPersonMessage(int OperationIndex, int SourceOffset,
+    int SpeakerCharacterId, int MessageId, int Style, int NameMessageId,
+    IReadOnlyList<int> PersonParameters, IReadOnlyList<string> NameParameters,
+    IReadOnlyList<CampaignEventPersonParameterWrite> ParameterWrites)
+    : CampaignEventCommand(OperationIndex, SourceOffset, 97);
+public sealed record CampaignEventNarration(int OperationIndex, int SourceOffset,
+    int Mode, int MessageId, IReadOnlyList<int> PersonParameters, IReadOnlyList<string> NameParameters)
+    : CampaignEventCommand(OperationIndex, SourceOffset, 94);
+
 public enum CampaignEventAudioKind { Bgm, Se, StopSlot, StopAllSe }
 public sealed record CampaignEventAudio(int OperationIndex, int SourceOffset, int Code,
     CampaignEventAudioKind Kind, int Id, int Flags, float ScalarA, float ScalarB)
@@ -102,20 +137,28 @@ public sealed class CampaignEventExecutionPlan
     public IReadOnlyList<CampaignEventCommand> Commands { get; }
     public S14EventConditionResult DispatchResult { get; }
     public IReadOnlyList<int?>? FinalPersonParameters { get; }
+    public IReadOnlyList<string>? FinalNameParameters { get; }
+    public IReadOnlyDictionary<int, int> SelectedSpeakerIds { get; }
 
     internal CampaignEventExecutionPlan(CampaignEventExecutionProgram program,
         IReadOnlyList<CampaignEventCommand> commands, S14EventConditionResult result,
-        IReadOnlyList<int?>? parameters)
-        => (Program, Commands, DispatchResult, FinalPersonParameters) = (program, commands, result, parameters);
+        IReadOnlyList<int?>? parameters, IReadOnlyList<string>? names,
+        IReadOnlyDictionary<int, int> selected)
+        => (Program, Commands, DispatchResult, FinalPersonParameters, FinalNameParameters, SelectedSpeakerIds) =
+            (program, commands, result, parameters, names, selected);
 
     /// <summary>Existing Core reports carry provenance, while the typed plan carries presentation.</summary>
-    public PlayableEventEffectBatch CreateCoreBatch(ulong randomState) => new(
-        Commands.OfType<CampaignEventPersonMessage>().Select(message => new PlayableEventEffect(
+    public PlayableEventEffectBatch CreateCoreBatch(ulong randomState)
+    {
+        RequireLegacyMessageBatch();
+        return new(Commands.OfType<CampaignEventPersonMessage>().Select(message => new PlayableEventEffect(
             PlayableEventEffectKind.Message, MessageKey: "original.event.person_message",
             SourceOperationIndex: message.OperationIndex)).ToArray(), randomState);
+    }
 
     public void RequireCommitted(GameState state, string eventKey)
     {
+        RequireLegacyMessageBatch();
         ArgumentNullException.ThrowIfNull(state);
         PlayableEventStateValidation.Validate(state);
         if (state.EventRuntime is not { } runtime ||
@@ -135,6 +178,13 @@ public sealed class CampaignEventExecutionPlan
         if (!expected.Select(index => (int?)index).SequenceEqual(actual))
             throw new InvalidDataException("Original event presentation messages differ from the committed source sequence.");
     }
+
+    private void RequireLegacyMessageBatch()
+    {
+        if (Program.DispatchProgram.Operations.Any(operation => operation.Code is
+            87 or 94 or 97 or 106 or 110 or 111 or 215 or 217 or 226 or 239 or 424 or 425))
+            throw new InvalidDataException("A complete story requires its saved semantic consumer; the legacy message batch cannot commit or acknowledge it.");
+    }
 }
 
 public static class CampaignEventExecution
@@ -142,35 +192,50 @@ public static class CampaignEventExecution
     public static CampaignEventExecutionPlan Stage(CampaignEventExecutionProgram program,
         IS14PlayerEventConditionQueries persons,
         Func<S14ConditionContext, S14ConditionDispatchInputs> dispatchInputs,
-        IS14AudioEventExecutionState? audioInputs = null, IReadOnlyList<int>? initialPersonParameters = null)
+        IS14AudioEventExecutionState? audioInputs = null, IReadOnlyList<int>? initialPersonParameters = null,
+        CampaignEventExecutionInputs? storyInputs = null)
     {
         ArgumentNullException.ThrowIfNull(program);
         ArgumentNullException.ThrowIfNull(persons);
         ArgumentNullException.ThrowIfNull(dispatchInputs);
+        if (storyInputs is not null && !ReferenceEquals(storyInputs.Persons, persons))
+            throw new InvalidDataException("Story queries must be the same detached current person snapshot.");
+        initialPersonParameters ??= storyInputs?.InitialPersonParameters;
+        if (storyInputs?.InitialNameParameters is { Count: not 5 })
+            throw new InvalidDataException("Story name parameters require five current strings.");
         if (initialPersonParameters is not null &&
             (initialPersonParameters.Count != 5 || initialPersonParameters.Any(id => id is < 0 or > ushort.MaxValue)))
             throw new InvalidDataException("Original message person parameters require five known word IDs.");
         // All source instructions and dependencies are checked before visiting the first action.
         if (program.DispatchProgram.Operations.Any(operation => operation.Code is 91 or 92) && audioInputs is null)
             throw new InvalidDataException("Complete original event execution requires current audio inputs.");
-        var runtime = new StagingRuntime(persons, dispatchInputs, audioInputs, initialPersonParameters);
+        var runtime = new StagingRuntime(persons, dispatchInputs, audioInputs, initialPersonParameters, storyInputs);
         S14EventConditionResult result = S14EventConditionEvaluator.Evaluate(program.DispatchProgram, runtime);
         return new(program, Array.AsReadOnly(runtime.Commands.ToArray()), result,
-            runtime.Parameters is null ? null : Array.AsReadOnly(runtime.Parameters.ToArray()));
+            runtime.Parameters is null ? null : Array.AsReadOnly(runtime.Parameters.ToArray()),
+            runtime.Names, runtime.SelectedSpeakers);
     }
 
     private sealed class StagingRuntime(IS14PlayerEventConditionQueries persons,
         Func<S14ConditionContext, S14ConditionDispatchInputs> inputs,
-        IS14AudioEventExecutionState? audioInputs, IReadOnlyList<int>? initialParameters)
+        IS14AudioEventExecutionState? audioInputs, IReadOnlyList<int>? initialParameters,
+        CampaignEventExecutionInputs? storyInputs)
         : IS14EventConditionRuntime
     {
         public List<CampaignEventCommand> Commands { get; } = [];
         public int?[]? Parameters { get; private set; } = initialParameters?.Select(id => (int?)id).ToArray();
+        private readonly CampaignEventExecutionContext? _story = storyInputs is null ? null : new(storyInputs);
+        public IReadOnlyList<string>? Names { get; private set; } = storyInputs?.InitialNameParameters is { } names
+            ? Array.AsReadOnly(names.ToArray()) : null;
+        public IReadOnlyDictionary<int, int> SelectedSpeakers => new System.Collections.ObjectModel.ReadOnlyDictionary<int, int>(
+            _story?.Actors.ToDictionary(pair => pair.Key, pair => (int)(persons.ReadConditionPersonCharacterId(pair.Value)
+                ?? throw new InvalidDataException("Selected actor identity is unknown."))) ?? []);
+        private CampaignEventExecutionContext Story => _story ?? throw new InvalidDataException("Current story execution context is unknown.");
         public bool ConditionBlocked => false;
         public bool TryGetBinding(int code, out S14ConditionBinding binding)
         {
             if (S14EventConditionEvaluator.BuiltInBindings.TryGetValue(code, out binding)) return true;
-            if (CampaignEventExecutionProgram.IsSupported(code)) { binding = new(1, 1, true); return true; }
+            if (CampaignEventExecutionProgram.IsSupported(code)) { binding = new(code is 215 or 217 or 226 or 239 ? 0 : 1, 1, true); return true; }
             binding = default; return false;
         }
         public S14ConditionDispatchInputs ReadInputs(S14ConditionContext context) => inputs(context);
@@ -182,6 +247,47 @@ public static class CampaignEventExecution
             {
                 switch (operation.Code)
                 {
+                    case 217: Story.AddForcePersons(arguments); break;
+                    case 226: return Story.NarrowPersons(arguments) ? 1 : 0;
+                    case 239: Story.SelectSpeakers(arguments); break;
+                    case 215: Story.ClearCandidates(); break;
+                    case 424:
+                        bool skipCamera = Story.SkipCamera;
+                        int? hex = skipCamera ? null : Story.SceneryHex(Story.ResolveScenery(arguments[0]));
+                        Commands.Add(new CampaignEventCameraToScenery(operation.Index, operation.Offset, hex,
+                            arguments[1], -1, skipCamera ? 0 : 1000));
+                        break;
+                    case 425:
+                        Names = Array.AsReadOnly(arguments.Take(5).Select(raw => Story.SceneryName(Story.ResolveScenery(raw))).ToArray());
+                        Commands.Add(new CampaignEventNameParameters(operation.Index, operation.Offset, Names));
+                        break;
+                    case 106:
+                        var twoPointers = arguments.Take(2).Select(ResolvePerson).ToArray();
+                        Commands.Add(new CampaignEventStandingPosition2(operation.Index, operation.Offset,
+                            Array.AsReadOnly(twoPointers.Select(ReadPerson).ToArray())));
+                        break;
+                    case 110:
+                    case 111:
+                        Commands.Add(new CampaignEventBlackTransition(operation.Index, operation.Offset, operation.Code == 111, arguments[0]));
+                        break;
+                    case 87:
+                        Commands.Add(new CampaignEventStill(operation.Index, operation.Offset, arguments[0], arguments[1]));
+                        break;
+                    case 94:
+                        Commands.Add(new CampaignEventNarration(operation.Index, operation.Offset, arguments[0], arguments[1],
+                            MessagePersons(), MessageNames()));
+                        break;
+                    case 97:
+                        //No outer validity gate; the message manager always reads this speaker ID.
+                        var namedPointer = ResolvePerson(arguments[0]);
+                        int namedId = persons.ReadConditionPersonCharacterId(namedPointer)
+                            ?? throw new InvalidDataException("Named-message speaker identity is unknown.");
+                        Parameters ??= new int?[5];
+                        var namedWrites = WriteMessagePersons(arguments, 4);
+                        Parameters[0] = namedId; namedWrites.Add(new(0, namedId));
+                        Commands.Add(new CampaignEventNamedPersonMessage(operation.Index, operation.Offset,
+                            namedId, arguments[1], arguments[2], arguments[3], MessagePersons(), MessageNames(), namedWrites.AsReadOnly()));
+                        break;
                     case 85:
                         // +10 is retained but not consumed by this source slot0.
                         Commands.Add(new CampaignEventBackgroundStill(operation.Index, operation.Offset, arguments[0]));
@@ -216,15 +322,7 @@ public static class CampaignEventExecution
                         // Invalid speaker skips the helper and manager, yet the leaf returns1.
                         if (!speaker.NativeValid) break;
                         Parameters ??= new int?[5];
-                        var writes = new List<CampaignEventPersonParameterWrite>();
-                        // 3D85B0 receives indexes(-1,3,4,5,-1); skipped slots keep their old value.
-                        for (int parameter = 1; parameter <= 3; parameter++)
-                        {
-                            CampaignEventPerson person = ReadPerson(arguments[parameter + 2]);
-                            if (!person.NativeValid) continue;
-                            Parameters[parameter] = person.CharacterId!.Value;
-                            writes.Add(new(parameter, person.CharacterId.Value));
-                        }
+                        var writes = WriteMessagePersons(arguments, 3);
                         // 844110 always writes speaker ID into person parameter0 after the helper.
                         Parameters[0] = speaker.CharacterId!.Value;
                         writes.Add(new(0, speaker.CharacterId.Value));
@@ -232,7 +330,7 @@ public static class CampaignEventExecution
                             throw new InvalidDataException("Consumed message person parameters are unknown.");
                         Commands.Add(new CampaignEventPersonMessage(operation.Index, operation.Offset,
                             speaker, arguments[1], arguments[2], Array.AsReadOnly(Parameters.Select(id => id!.Value).ToArray()),
-                            writes.AsReadOnly()));
+                            writes.AsReadOnly()) { NameParameters = Names });
                         break;
                     default: throw new InvalidDataException("No staged original presentation leaf is bound.");
                 }
@@ -245,11 +343,30 @@ public static class CampaignEventExecution
             }
         }
 
+        private List<CampaignEventPersonParameterWrite> WriteMessagePersons(IReadOnlyList<int> arguments, int argumentStart)
+        {
+            var writes = new List<CampaignEventPersonParameterWrite>();
+            for (int parameter = 1; parameter <= 3; parameter++)
+            {
+                var person = ReadPerson(arguments[argumentStart + parameter - 1]);
+                if (!person.NativeValid) continue;
+                Parameters![parameter] = person.CharacterId!.Value;
+                writes.Add(new(parameter, person.CharacterId.Value));
+            }
+            return writes;
+        }
+        private IReadOnlyList<int> MessagePersons() => Parameters is not null && Parameters.All(id => id.HasValue)
+            ? Array.AsReadOnly(Parameters.Select(id => id!.Value).ToArray())
+            : throw new InvalidDataException("Consumed message person parameters are unknown.");
+        private IReadOnlyList<string> MessageNames() => Names ?? throw new InvalidDataException("Consumed message name parameters are unknown.");
+
         private CampaignEventPerson ReadPerson(int selector)
             => ReadPerson(ResolvePerson(selector));
 
         private S14EventConditionPersonReference ResolvePerson(int selector)
         {
+            if (_story is not null) return _story.ResolvePerson(selector);
+            if (selector < 0) throw new InvalidDataException("Dynamic person selector requires current story context.");
             S14EventConditionPersonPointer pointer = selector <= 6000
                 ? persons.ReadConditionPersonTableSlot(selector)
                     ?? throw new InvalidDataException("Current person table pointer is unknown.")

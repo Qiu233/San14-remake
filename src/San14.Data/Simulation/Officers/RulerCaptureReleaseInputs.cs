@@ -55,4 +55,16 @@ public sealed class RulerCaptureReleaseInputs
     public static short? ReadCurrentWord(GameState state, int physical, int tcOffset) =>
         physical is >= 0 and < 1851 && state.NativeArmySimulation?.Parameters.Int32Values is { } bank && bank.GetValueOrDefault(VersionKey) == 1 &&
         bank.TryGetValue(PersonWordKey(physical, tcOffset), out int word) && word is >= short.MinValue and <= short.MaxValue ? (short)word : null;
+
+    /// <summary>The reached Person reset writes these existing channels;
+    /// absence of the owner is not an invitation to seed another bank.</summary>
+    internal static GameState ResetCurrentDeathWords(GameState state, int physical)
+    {
+        if ((uint)physical >= 1851 || state.NativeArmySimulation is not { } native ||
+            native.Parameters.Int32Values.GetValueOrDefault(VersionKey) != 1)
+            throw new InvalidDataException("person-death.ruler-release-word-owner");
+        var values = new Dictionary<string, int>(native.Parameters.Int32Values);
+        foreach (int offset in WordOffsets) values[PersonWordKey(physical, offset)] = 0;
+        return state with { NativeArmySimulation = native with { Parameters = native.Parameters with { Int32Values = values } } };
+    }
 }

@@ -13,7 +13,10 @@ public sealed class OwnedArmyMoraleWaveInputs
     public static string Post34Key(int p) => Prefix + $"post:{p}:34";
     public static string Post38Key(int p) => Prefix + $"post:{p}:38";
     public static string PostVectorCountKey(int p) => Prefix + $"post:{p}:vector-count";
+    public static string PostVectorEntry0Key(int p) => Prefix + $"post:{p}:vector-entry0";
     public static string PostVectorEntry1Key(int p) => Prefix + $"post:{p}:vector-entry1";
+    public static string CreditEffectKindKey(int p) => Prefix + $"credit-effect:{p}:kind";
+    public static string CreditEffectAdditionKey(int p) => Prefix + $"credit-effect:{p}:addition";
     private readonly LoadedScenario _source;
     private readonly string _language, _ruleVersion;
 
@@ -67,8 +70,21 @@ public sealed class OwnedArmyMoraleWaveInputs
             //Only entry1 is read by this source window; preserve its Int32
             //store and extract BYTE at the caller, including after current edits.
             values.Add(PostVectorCountKey(row.Id), 5);
+            //23F480 zero-extends virtual50's low word into vector entry0.
+            //0920F0 later takes its LOW word through virtual58, not the
+            //raw34 field when the vector has five entries.
+            uint command = (uint)(row.CommandLimit ^ (ushort)row.Id);
+            values.Add(PostVectorEntry0Key(row.Id), unchecked((ushort)((command << 3) | (command >> 13))));
             byte x = (byte)(row.AbilityBonus.Leadership ^ (byte)row.Id);
             values.Add(PostVectorEntry1Key(row.Id), (byte)((x << 3) | (x >> 5)));
+        }
+        if (_source.Snapshot.CreditEffectParameters is not { FormatMarker: 0x66, Effects.Count: 7 } creditEffects ||
+            creditEffects.Effects.Where((row, index) => row.Slot != index).Any())
+            throw new InvalidDataException("Current command capacity needs the complete selected CE credit effect table.");
+        foreach (var effect in creditEffects.Effects)
+        {
+            values.Add(CreditEffectKindKey(effect.Slot), effect.RawTypeCode);
+            values.Add(CreditEffectAdditionKey(effect.Slot), effect.RawAddition);
         }
         return state with { NativeArmySimulation = simulation with { Parameters = simulation.Parameters with
         { Int32Values = values, OfficeBonusEncoding = OfficeBonusEncoding.RotateByteXorOffice } } };
@@ -90,6 +106,20 @@ public sealed class OwnedArmyMoraleWaveInputs
     }
     public static bool? ReadPostNativeValidity(GameState state, int post)
         => post == 0 ? false : ReadInt(state, Post34Key(post)) is int limit && limit is >= 0 and <= 65535 ? limit != 0 : null;
+    public static ushort? ReadPostCommandCapacity(GameState state, int post)
+    {
+        if (post is < 0 or > 255 || ReadInt(state, PostVectorCountKey(post)) is not int count) return null;
+        if (count != 5)
+            return ReadInt(state, Post34Key(post)) is int raw && raw is >= 0 and <= 65535 ? (ushort)raw : null;
+        if (ReadInt(state, PostVectorEntry0Key(post)) is not int encoded) return null;
+        uint low = unchecked((ushort)encoded);
+        return unchecked((ushort)(((low >> 3) | (low << 13)) ^ (ushort)post));
+    }
+    public static byte? ReadCreditEffectKind(GameState state, int slot) =>
+        slot is >= 0 and <= 6 ? ReadByte(state, CreditEffectKindKey(slot)) : null;
+    public static ushort? ReadCreditEffectAddition(GameState state, int slot) =>
+        slot is >= 0 and <= 6 && ReadInt(state, CreditEffectAdditionKey(slot)) is int value && value is >= 0 and <= 65535
+            ? (ushort)value : null;
     public static byte? ReadPost37(GameState state, int post) =>
         state.NativeArmySimulation?.Parameters.Int32Values.GetValueOrDefault(OwnedArmyGovernorComparatorInputs.VersionKey) == 1 &&
         state.NativeArmySimulation.Parameters.Int32Values.TryGetValue(OwnedArmyGovernorComparatorInputs.OfficeOrder37Key(post), out int v) &&

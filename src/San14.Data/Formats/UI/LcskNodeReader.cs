@@ -9,7 +9,8 @@ public sealed record LcskNodeRecord(int Index, ushort NameIndex, string Name,
 
 /// <summary>
 /// Reads the verified node record boundaries and parent/name references in LCSK
-/// 8500/9500 kind-8 blocks. Offset is relative to the block's RecordBytes.
+/// 4500/5500/6500/7500/8500/9500 kind-8 blocks. The older signatures are verified
+/// for the audited static UI subset. Offset is relative to the block's RecordBytes.
 /// Header values and complete records retain source data without assigning
 /// unverified transform, drawing, or node-type semantics.
 /// </summary>
@@ -18,7 +19,7 @@ public static class LcskNodeReader
     public static IReadOnlyList<LcskNodeRecord> Read(LcskDocument layout)
     {
         ArgumentNullException.ThrowIfNull(layout);
-        if (layout.Signature is not ("LCSK8500" or "LCSK9500"))
+        if (!LcskLayoutReader.IsSupportedSignature(layout.Signature))
             throw new InvalidDataException($"Unsupported LCSK node signature {layout.Signature}.");
         LcskBlock[] blocks = layout.Blocks.Where(block => block.Tag == 1).ToArray();
         if (blocks.Length != 1 || blocks[0].Kind != 8)

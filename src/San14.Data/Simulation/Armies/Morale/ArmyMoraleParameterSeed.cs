@@ -7,6 +7,7 @@ public sealed class ArmyMoraleParameterSeed
 {
     private const int LogisticsMoraleGain = 15;
     private const int NegativeMoraleAdjustmentScale = 1;
+    private const int FieldFatigueBase = 9;
     public string Language { get; }
     public SourceProvenance Source { get; }
     public int LogisticsGain { get; }
@@ -36,6 +37,7 @@ public sealed class ArmyMoraleParameterSeed
         var values=new Dictionary<string,int>(parameters.Int32Values);string gainKey=SimulationParameterKeys.Morale.LogisticsGain;
         values.TryAdd(gainKey,LogisticsGain);
         values.Add(adjustmentKey,NegativeAdjustmentScale);
+        values.Add(SimulationParameterKeys.Morale.FieldFatigueBase,FieldFatigueBase);
         for(int slot=0;slot<52;slot++)Copy(freshDefinitions.ReadCityTableReference(slot));
         for(int slot=0;slot<11;slot++)Copy(freshDefinitions.ReadGateTableReference(slot));
         void Copy(BaseReference? reference)

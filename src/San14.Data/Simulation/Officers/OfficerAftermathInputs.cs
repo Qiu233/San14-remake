@@ -163,6 +163,14 @@ public sealed partial class SourceWorldContext
         SetOfficerAftermath(physical, old with { SourceKnowledge =
             (old.SourceKnowledge ?? new(id, null, null, null)) with { PreviousForceCode = code } });
     }
+    /// <summary>Reached unconditional death stores. Unlike a partial capture
+    /// update, these writes do not consume the previous channel values.</summary>
+    internal GameState ResetPersonDeathAftermath(GameState state, int physical)
+    {
+        int id = ReadPersonIdentity(physical) ?? throw new InvalidDataException("person-death.aftermath_identity");
+        SetOfficerAftermath(physical, new(new(0, 0), new(0), new(id, null, 0, 0)));
+        return PublishOfficerAftermath(state, id);
+    }
     public GameState PublishOfficerAftermath(GameState state, int officerId)
     {
         int physical = ResolveOfficerSource(officerId) ?? throw new InvalidDataException("Officer aftermath publication identity is unknown.");

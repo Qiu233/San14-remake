@@ -10,6 +10,7 @@ public sealed class OrderRuleDispatcher(AreaAdministrationRules administration, 
 
     public CommandResult Apply(GameState state, ForceState force, GameOrder order, CommandContext context) => order switch
     {
+        SaveDeploymentDefaultsOrder defaults => DeploymentDefaultsCommand.Apply(state, defaults, context),
         SetAreaAdministrationOrder => _administration.Apply(state, force, order, context),
         PrepareDeploymentOrder or CancelPreparedDeploymentOrder => _deployment.Apply(state, force, order, context),
         SetGovernanceOrder => _governance?.Apply(state, force, order, context) ??

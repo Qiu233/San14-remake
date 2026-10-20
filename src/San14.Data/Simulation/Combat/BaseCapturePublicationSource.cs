@@ -26,8 +26,9 @@ internal static class BaseCapturePublicationSource
         var cities = new Dictionary<int, CityState>(working.Cities);
         foreach (var city in working.Cities.Values)
         {
-            int force = K(current.ReadObjectForceSlot13(new(city.Id)), "City_Object13");
+            int force = K(current.ReadBaseForceSlot(new(BaseKind.City, city.Id)), "City_B0");
             cities[city.Id] = city with { ForceId = force == 0 ? null : force,
+                DamageTier = current.ReadBasePostLoadFlag66(new(BaseKind.City, city.Id)),
                 Durability = K(current.ReadObjectRawField14(new(city.Id)), "City_Object14"),
                 AreaIds = areas.Values.Where(row => row.CityId == city.Id).Select(row => row.Id).OrderBy(id => id).ToArray() };
         }
@@ -39,6 +40,7 @@ internal static class BaseCapturePublicationSource
             int district = K(current.ReadBaseDistrictSlot(target), "Gate78");
             int governor = K(current.ReadArmyReturnBaseGovernor2E(target), "Gate2E");
             gates[gate.Id] = gate with { ForceId = force == 0 ? null : force, DistrictId = district == 0 ? null : district,
+                DamageTier = current.ReadBasePostLoadFlag66(target),
                 GovernorId = governor == 0 ? null : governor,
                 Durability = K(current.ReadObjectRawField14(new(gate.Id)), "Gate_Object14") };
         }
@@ -56,14 +58,14 @@ internal static class BaseCapturePublicationSource
                 windows[slot] = Enumerable.Range(0x10, 28).Select(at => current.ReadDistrictRawByte(slot, at)).ToArray();
             forceFields = forceFields with { DistrictWindows10 = windows };
         }
-        return (working with { Cities = cities,
+        return OwnedMapObjectLifecycle.PublishCurrent((working with { Cities = cities,
                 Gates = gates,
                 Areas = areas,
                 Territory = territory,
                 ArmyMapOccupancy = current.ExportArmyMapOccupancy(),
                 NativeForceUnregisterCurrent = forceFields,
                 PendingCombatSettlements = current.OwnedDestructionQueue }).WithArmyLifecycle(working.ReadArmyLifecycle()! with
-            { Indexes = pool.ExportOwnedState() });
+            { Indexes = pool.ExportOwnedState() }), current);
     }
     private static T K<T>(T? value, string field) where T : struct => value ?? throw Missing(field);
     private static InvalidDataException Missing(string field) => new("current.Base_capture_publication." + field);

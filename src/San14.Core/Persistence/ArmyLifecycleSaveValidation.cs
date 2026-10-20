@@ -10,8 +10,25 @@ public static class ArmyLifecycleSaveValidation
         ArmyCautionsSaveValidation.Validate(lifecycle.ArmyCautions);
         var units = new HashSet<int>();
         var receivers = new HashSet<ArmyReceiverId>();
+        var knownReceivers = lifecycle.Receivers.Entries.Select(row => row.ReceiverId).ToHashSet();
         foreach (var entry in lifecycle.Receivers.Entries)
         {
+            if (entry.FacilityConstruction is { } construction &&
+                (construction.DefinitionKey is not null && !FacilityConstructionIntent.IsDefinitionKey(construction.DefinitionKey) ||
+                 !ValidConstructionSite(construction.InitialSite) || !ValidConstructionSite(construction.ContinuationSite)))
+                throw new InvalidDataException("Invalid current Army facility construction selection.");
+            if (entry.SupplyInterdiction is { } intent &&
+                (intent.IsActive ? intent.TargetReceiverId is not { } target || !knownReceivers.Contains(target)
+                    : intent.TargetReceiverId is not null))
+                throw new InvalidDataException("Invalid Army supply interdiction receiver objective.");
+            ArmySavedCommandKnowledge.Validate(entry.SavedCommand, (long)state.MapWidth * state.MapHeight, knownReceivers);
+            if (entry.FalseReportDestination is { } destination &&
+                !(destination is { Kind: ArmyMarchDestinationKind.None, HexId: null } ||
+                  destination is { Kind: ArmyMarchDestinationKind.Hex, HexId: int hex } && hex >= 0 && hex < (long)state.MapWidth * state.MapHeight))
+                throw new InvalidDataException("Invalid Army false-report destination.");
+            var projectedImage = entry.ActiveUnitId is int activeId ? state.Units.GetValueOrDefault(activeId) : entry.PendingImage;
+            if (entry.SavedCommand is { } saved && projectedImage is { } image && image.NativeCommandControl140 != saved.Control)
+                throw new InvalidDataException("Army command-control projection contradicts its receiver owner.");
             if (entry.ReceiverId.Value <= 0 || !receivers.Add(entry.ReceiverId) || !Enum.IsDefined(entry.Phase) || entry.StoredResources is null ||
                 entry.ActiveUnitId is < 0 || entry.ActiveUnitId is not null && entry.PendingImage is not null ||
                 (entry.Phase == ArmyReceiverPhase.Active) != entry.ActiveUnitId.HasValue ||
@@ -30,6 +47,9 @@ public static class ArmyLifecycleSaveValidation
             if (army.NativeArmyOrigin is not null && !units.Contains(army.Id))
                 throw new InvalidDataException("Source-created unit has no campaign receiver owner.");
     }
+    private static bool ValidConstructionSite(ArmyMarchDestination? site) => site is null ||
+        site is { Kind: ArmyMarchDestinationKind.None, HexId: null } ||
+        site is { Kind: ArmyMarchDestinationKind.Hex, HexId: >= 0 and < 48400 };
     private static void ValidatePendingImage(GameState state,UnitState image)
     {
         //A pending receiver may have zero ready soldiers and its commander is
@@ -41,7 +61,7 @@ public static class ArmyLifecycleSaveValidation
             image.Troops<0 || image.Supplies<0 ||
             image.SourceLocationId is int source && !state.Cities.ContainsKey(source) && !state.Gates.ContainsKey(source) ||
             image.FormationId is int formation && !state.Formations.ContainsKey(formation) ||
-            image.TacticIds is { } tactics && (tactics.Distinct().Count()!=tactics.Length || tactics.Any(t=>!state.Tactics.ContainsKey(t))) ||
+            !ArmyEquippedTactics.Valid(state, image) ||
             image.Behavior is { } behavior && !Enum.IsDefined(behavior.AfterAction) ||
             image.Mission is { } mission && (!Enum.IsDefined(mission.Kind) || !Enum.IsDefined(mission.Arrival) || mission.CargoGold<0))
             throw new InvalidDataException("Native pending Army image has invalid quantities, locations or typed references.");

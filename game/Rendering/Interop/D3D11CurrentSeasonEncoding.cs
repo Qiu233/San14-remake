@@ -17,7 +17,7 @@ internal static class D3D11CurrentSeasonEncoding
     {
         // Header32, Main3C0, sorted (int32 offset,uint32 bits) writes,
         // then ordered light headers (object,mask,terrain scalar,shadow modes,first-caster flags,reserved) and numeric light data,
-        // Atmosphere316, current selected Exposure32, OUM1 texture material,
+        // Atmosphere316, current selected Exposure32, OUM2 texture material,
         // OBM1 bubble author settings, CRP3 Common policy, HFO1 layers, MSS1 stars,
         // SRC1 ordered per-light receiver bias, OPC1 camera and Pattern modifiers
         // optional HLC1 typed lighting inputs and OCC1 contact occlusion inputs,

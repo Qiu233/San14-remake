@@ -42,6 +42,12 @@ public static class TacticRemakeCurrentBattleControl
             bits is >= 0 and <= byte.MaxValue ? (bits & (1 << (nativeControlIndex & 7))) != 0 : null;
     }
 
+    /// <summary>The same current header consumed by the duel manager's
+    /// tutorial receiver gate. Known zero permits; unknown is not absent.</summary>
+    internal static int? ReadHeader(GameState state) => Bound(state) &&
+        state.NativeArmySimulation!.Parameters.Int32Values.GetValueOrDefault(VersionKey) == 1 &&
+        state.NativeArmySimulation.Parameters.Int32Values.TryGetValue(HeaderKey, out int header) ? header : null;
+
     private static bool Bound(GameState state) => state.NativeClock is not null &&
         state.NativeArmySimulation?.Parameters is { } parameters && !string.IsNullOrWhiteSpace(parameters.Revision) &&
         (parameters.Language is ("SC" or "TC"));

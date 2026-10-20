@@ -50,6 +50,7 @@ public static class PlayableTacticAvailability
         var result = new List<TacticCommandAvailability>(unit.TacticIds.Length);
         foreach (int tacticId in unit.TacticIds)
         {
+            if (unit.NativeArmyOrigin is not null && tacticId == 0) continue;
             if (!state.Tactics.TryGetValue(tacticId, out TacticDefinition? tactic))
                 throw new InvalidDataException("Equipped tactic is missing from the catalog.");
             PlayableTacticDefinition? definition = profiles is IPlayableTacticCasterSource casterSource

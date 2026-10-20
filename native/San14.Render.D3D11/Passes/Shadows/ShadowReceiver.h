@@ -101,7 +101,15 @@ inline bool drawSourceShadowReceiver(ID3D11Device* device,ID3D11DeviceContext* c
     auto stage=[&](const ShadowReceiverStageLayout& stageLayout,
         NativeSourceShadowReceiver::ConstantStage& state,std::vector<char>& bytes,bool isVertex) {
         if(stageLayout.slot<0)return;
-        if(!state.buffer)state.buffer=buffer(device,bytes,D3D11_BIND_CONSTANT_BUFFER);
+        if(!state.buffer) {
+            // Camera, cascades and per-light values change after the first draw.
+            // The shared buffer helper creates immutable geometry resources.
+            D3D11_BUFFER_DESC description{};
+            description.ByteWidth=UINT(bytes.size());description.Usage=D3D11_USAGE_DEFAULT;
+            description.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
+            D3D11_SUBRESOURCE_DATA initial{};initial.pSysMem=bytes.data();
+            check(device->CreateBuffer(&description,&initial,&state.buffer),"Mutable receiver constants");
+        }
         else if(state.bytes!=bytes)context->UpdateSubresource(state.buffer.Get(),0,nullptr,bytes.data(),0,0);
         state.bytes=std::move(bytes);auto cb=state.buffer.Get();
         if(isVertex)context->VSSetConstantBuffers(UINT(stageLayout.slot),1,&cb);

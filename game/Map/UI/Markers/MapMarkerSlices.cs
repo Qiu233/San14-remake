@@ -42,4 +42,25 @@ internal sealed class MapMarkerSlices
                 new Vector2(xs[column + 1] - xs[column], ys[row + 1] - ys[row])), false, tint);
         }
     }
+
+    internal void Draw(CanvasItem canvas, Rect2 rectangle, MapCornerColors palette, byte alpha)
+    {
+        float[] xs = [0, _caps.X, rectangle.Size.X - _caps.Z, rectangle.Size.X];
+        float[] ys = [0, _caps.Y, rectangle.Size.Y - _caps.W, rectangle.Size.Y];
+        foreach (Part part in _parts)
+        {
+            int column = part.Group / 3, row = part.Group % 3;
+            Vector2 a = new(xs[column], ys[row]), b = new(xs[column + 1], ys[row + 1]);
+            var atlas = (AtlasTexture)part.Texture;
+            Rect2 uv = new(atlas.Region.Position / atlas.Atlas.GetSize(), atlas.Region.Size / atlas.Atlas.GetSize());
+            canvas.DrawPolygon([rectangle.Position + a, rectangle.Position + new Vector2(b.X, a.Y),
+                    rectangle.Position + b, rectangle.Position + new Vector2(a.X, b.Y)],
+                [At(a.X, a.Y), At(b.X, a.Y), At(b.X, b.Y), At(a.X, b.Y)],
+                [uv.Position, new(uv.End.X, uv.Position.Y), uv.End, new(uv.Position.X, uv.End.Y)], atlas.Atlas);
+        }
+        Color At(float x, float y) => ColorOf(palette.LT).Lerp(ColorOf(palette.RT), x / rectangle.Size.X)
+            .Lerp(ColorOf(palette.LB).Lerp(ColorOf(palette.RB), x / rectangle.Size.X), y / rectangle.Size.Y);
+        Color ColorOf(AreaMarkerColor c) => new(c.AuthoredRed / 255f, c.AuthoredGreen / 255f,
+            c.AuthoredBlue / 255f, c.AuthoredAlpha / 255f * alpha / 255f);
+    }
 }

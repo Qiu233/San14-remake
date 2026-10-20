@@ -119,6 +119,8 @@ public sealed partial class TacticRemakeCurrentContext : ITacticEffectSourceCont
 
     private TacticRemakeChainResolution? ResolveChain(GameState state, UnitState caster, TacticSourceRow source)
     {
+        if (_manualEmptyChain is { } captured && captured.ActorUnitId == caster.Id && captured.TacticId == source.Slot)
+            return new(0, captured.WaitingContribution, state.RandomState);
         //An abnormal24 caster passes17D5D0 but2AFA40 returns an empty chain.
         //A complete owned allocation can also prove that every other Army
         //fails the native force/abnormal filters, independent of chain radius.

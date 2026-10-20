@@ -1,0 +1,312 @@
+{
+  "sourceTypography": true,
+  "miniMapNode": "cmn_map_s",
+  "sourceTextPresets": {
+    "13": [13, 15, 17, 22, 30, 38, 46, 55, 59, 64, 77, 82, 87, 91, 102, 108, 119, 126, 130, 133, 139, 145, 151, 157, 163, 169, 175],
+    "0": [14, 16, 19, 23, 31, 32, 33, 34, 39, 40, 41, 42, 47, 48, 49, 50, 56, 60, 78, 83, 88, 103, 109, 111, 113, 120, 121, 122, 127, 134, 140, 146, 152, 158, 164, 170, 176, 135, 141, 147, 153, 159, 165, 171, 177, 136, 142, 148, 154, 160, 166, 172, 178]
+  },
+  "layoutId": "944ED194",
+  "selectionHeaderKey": "detail_area_kind",
+  "selectionHeader": { "x": 261, "y": 214, "width": 132 },
+  "selectionRow": { "x": 213, "y": 264, "leadingCell": true },
+  "selectionScrollbar": { "x": 397, "y": 265, "height": 597 },
+  "origin": [
+    191,
+    197
+  ],
+  "selectionLabel": [
+    263,
+    270,
+    128,
+    40
+  ],
+  "frame": {
+    "layoutId": "A3B4A82E",
+    "node": "000_cmn_base_dialog_00",
+    "origin": [
+      191,
+      194
+    ]
+  },
+  "texts": {
+    "txt_basho_fc001": {
+      "value": "area"
+    },
+    "txt_seiryoku_fc001": {
+      "value": "force"
+    },
+    "txt_bushoname_fc001": {
+      "value": "overseer"
+    },
+    "txt_gundan_fc001": {
+      "value": "district"
+    },
+    "txt_shozoku_fc001": {
+      "value": "city"
+    },
+    "val_jinkou_fc001": {
+      "value": "population"
+    },
+    "val_chian_r_fc001": {
+      "value": "security"
+    },
+    "val_kane_shunyu_fc001": {
+      "value": "goldIncome"
+    },
+    "val_hyorou_shunyu_fc001": {
+      "value": "suppliesIncome"
+    },
+    "val_heishi_zouka_fc001": {
+      "value": "troopIncome"
+    },
+    "val_meisyo_fc001": {
+      "value": "landmarks"
+    },
+    "val_meisyo_kouka_fc001": {
+      "value": "goldEffect"
+    },
+    "val_meisyo_kouka_fc001_0000": {
+      "value": "suppliesEffect"
+    },
+    "val_meisyo_kouka_fc001_0001": {
+      "value": "troopEffect"
+    },
+    "val_ryouyuu_l_fc001": {
+      "value": "owned"
+    },
+    "val_ryouyuu_r_fc001": {
+      "value": "total"
+    },
+    "val_limit_fc001": {
+      "value": "constructionLimit"
+    },
+    "val_nougyou_lv_fc001": {
+      "value": "commerceLevel"
+    },
+    "val_nougyou_l_fc001": {
+      "value": "commerceProgress"
+    },
+    "val_nougyou_r_fc001": {
+      "value": "commerceCapacity"
+    },
+    "val_shougyou_lv_fc001": {
+      "value": "agricultureLevel"
+    },
+    "val_shougyou_l_fc001": {
+      "value": "agricultureProgress"
+    },
+    "val_shougyou_r_fc001": {
+      "value": "agricultureCapacity"
+    },
+    "val_heishi_lv_fc001": {
+      "value": "barracksLevel"
+    },
+    "val_heishi_l_fc001": {
+      "value": "barracksProgress"
+    },
+    "val_heishi_r_fc001": {
+      "value": "barracksCapacity"
+    },
+    "cap_chiki_fc014_0000": {
+      "value": "neighbor0Name"
+    },
+    "val_chiiki_l_fc001_0000": {
+      "value": "neighbor0Owned"
+    },
+    "val_chiiki_r_fc001_0000": {
+      "value": "neighbor0Total"
+    },
+    "val_chiiki_slash_fc001_0000": {
+      "value": "neighbor0Slash"
+    },
+    "cap_chiki_fc014_0001": {
+      "value": "neighbor1Name"
+    },
+    "val_chiiki_l_fc001_0001": {
+      "value": "neighbor1Owned"
+    },
+    "val_chiiki_r_fc001_0001": {
+      "value": "neighbor1Total"
+    },
+    "val_chiiki_slash_fc001_0001": {
+      "value": "neighbor1Slash"
+    },
+    "cap_chiki_fc014_0002": {
+      "value": "neighbor2Name"
+    },
+    "val_chiiki_l_fc001_0002": {
+      "value": "neighbor2Owned"
+    },
+    "val_chiiki_r_fc001_0002": {
+      "value": "neighbor2Total"
+    },
+    "val_chiiki_slash_fc001_0002": {
+      "value": "neighbor2Slash"
+    },
+    "cap_chiki_fc014_0003": {
+      "value": "neighbor3Name"
+    },
+    "val_chiiki_l_fc001_0003": {
+      "value": "neighbor3Owned"
+    },
+    "val_chiiki_r_fc001_0003": {
+      "value": "neighbor3Total"
+    },
+    "val_chiiki_slash_fc001_0003": {
+      "value": "neighbor3Slash"
+    },
+    "cap_chiki_fc014_0004": {
+      "value": "neighbor4Name"
+    },
+    "val_chiiki_l_fc001_0004": {
+      "value": "neighbor4Owned"
+    },
+    "val_chiiki_r_fc001_0004": {
+      "value": "neighbor4Total"
+    },
+    "val_chiiki_slash_fc001_0004": {
+      "value": "neighbor4Slash"
+    },
+    "cap_chiki_fc014_0005": {
+      "value": "neighbor5Name"
+    },
+    "val_chiiki_l_fc001_0005": {
+      "value": "neighbor5Owned"
+    },
+    "val_chiiki_r_fc001_0005": {
+      "value": "neighbor5Total"
+    },
+    "val_chiiki_slash_fc001_0005": {
+      "value": "neighbor5Slash"
+    },
+    "cap_chiki_fc014_0006": {
+      "value": "neighbor6Name"
+    },
+    "val_chiiki_l_fc001_0006": {
+      "value": "neighbor6Owned"
+    },
+    "val_chiiki_r_fc001_0006": {
+      "value": "neighbor6Total"
+    },
+    "val_chiiki_slash_fc001_0006": {
+      "value": "neighbor6Slash"
+    },
+    "cap_chiki_fc014_0007": {
+      "value": "neighbor7Name"
+    },
+    "val_chiiki_l_fc001_0007": {
+      "value": "neighbor7Owned"
+    },
+    "val_chiiki_r_fc001_0007": {
+      "value": "neighbor7Total"
+    },
+    "val_chiiki_slash_fc001_0007": {
+      "value": "neighbor7Slash"
+    },
+    "cap_seiryoku_fc014": {
+      "key": "force"
+    },
+    "cap_katagaki_fc014": {
+      "key": "detail_overseer"
+    },
+    "cap_gundan_fc014": {
+      "key": "districts"
+    },
+    "cap_shozoku_fc014": {
+      "key": "detail_city_area"
+    },
+    "cap_jinkou_fc014": {
+      "key": "detail_population"
+    },
+    "cap_chian_fc014": {
+      "key": "detail_security"
+    },
+    "cap_saigai_fc014": {
+      "key": "detail_disaster"
+    },
+    "cap_kane_shunyu_fc014": {
+      "key": "detail_gold_income"
+    },
+    "cap_hyorou_shunyu_fc014": {
+      "key": "detail_supplies_income"
+    },
+    "cap_heishi_zouka_fc014": {
+      "key": "detail_troop_income"
+    },
+    "cap_kosei_fc014": {
+      "key": "detail_traits"
+    },
+    "cap_meisyo_fc014": {
+      "key": "detail_landmarks"
+    },
+    "cap_meisyo_kouka_fc014": {
+      "key": "detail_landmark_effects"
+    },
+    "cap_ryouyuu_fc014": {
+      "key": "detail_owned"
+    },
+    "val_ryouyuu_slash_fc001": {
+      "value": "ownedSlash"
+    },
+    "cap_limit_fc014": {
+      "key": "detail_construction_limit"
+    },
+    "cap_rinsetsu_fc014": {
+      "key": "detail_neighbors"
+    },
+    "cap_nougyou_fc014": {
+      "key": "detail_commerce"
+    },
+    "txt_nougyou_slash_fc001": {
+      "value": "commerceSlash"
+    },
+    "cap_shougyou_fc014": {
+      "key": "detail_agriculture"
+    },
+    "txt_shougyou_slash_fc001": {
+      "value": "agricultureSlash"
+    },
+    "cap_heishi_fc014": {
+      "key": "detail_barracks"
+    },
+    "txt_heishi_slash_fc001": {
+      "value": "barracksSlash"
+    }
+  },
+  "progressBars": {
+    "cmn_bar_chian": {
+      "value": "security",
+      "capacity": "securityCapacity",
+      "track": "#2b302b",
+      "fill": "#c9d4ac"
+    }
+  },
+  "hiddenNodes": [
+    "txt_basho_ruby_fc001"
+  ],
+  "unsupportedNodes": [
+    "cmn_flg_force",
+    "000_cmn_mrk_gundan_1",
+    "cmn_mrker_status",
+    "Null_ekibyou",
+    "Null_inago",
+    "Null_housaku",
+    "cmn_map_s",
+    "000_cmn_icon_kane_fuchi_0001",
+    "000_cmn_icon_kane_fuchi_0002",
+    "cmn_flg_force_0000",
+    "cmn_flg_force_0001",
+    "cmn_flg_force_0002",
+    "cmn_flg_force_0003",
+    "cmn_flg_force_0004",
+    "cmn_flg_force_0005",
+    "cmn_flg_force_0006",
+    "cmn_flg_force_0007",
+    "cmn_mrker_kosei_0000",
+    "cmn_mrker_kosei_0001",
+    "cmn_mrker_kosei_0002",
+    "cmn_mrker_kosei_0003",
+    "cmn_mrker_kosei_0004"
+  ],
+  "portraitNode": "cmn_ani_chara_3parts"
+}

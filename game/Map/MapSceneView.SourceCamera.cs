@@ -67,6 +67,7 @@ public partial class MapSceneView
             field.Scene.Scene.Source.DecodedSha256!=scene.Scene.Source.DecodedSha256)
             throw new InvalidDataException("Current camera Field must belong to the loaded source Scene revision.");
         _sourceMainCameraTerrain=MainMapCameraTerrainSource.FromCurrentField(field);
+        _deploymentTargetAnchors=null;
     }
 
     private void AttachSourceCameraSurface(VBoxContainer column)
@@ -126,6 +127,7 @@ public partial class MapSceneView
     private void ReleaseSourceCamera()
     {
         _sourceMainCamera=null;_sourceMainCameraFrame=null;_sourceMainCameraTerrain=null;
+        _deploymentTargetAnchors=null;_commandTargetPicked=null;_commandTargetPointerAllowed=null;
         _sourceMainCameraNorth=null;
         _sourceMainCameraOptics=null;_sourceMainCameraOpticsSeason=null;
         _sourceMainCameraFrameNumber=0;
@@ -255,19 +257,24 @@ public partial class MapSceneView
             _sourceCameraCurrentCursor=cursor;_sourceCameraCurrentCursorKnown=true;
             if(button.ButtonIndex==MouseButton.Left)
             {
-                if(button.Pressed&&button.DoubleClick&&_openCityDetails is not null)
+                if(button.Pressed&&button.DoubleClick&&_commandTargetPicked is null&&_openCityDetails is not null)
                 {
                     ResetSourceCameraInput();PickTerrain(button.Position);
                     if(_mapSelection.Current?.CityDetails?.Id is int cityId)_openCityDetails(cityId);
                     return true;
                 }
                 _sourceCameraRawNow70[0]=button.Pressed;
-                if(button.Pressed){_sourceCameraLeftUiPressed=true;_pressPosition=button.Position;_dragDistance=0;}
+                if(button.Pressed)
+                {
+                    _sourceCameraLeftUiPressed=true;_pressPosition=button.Position;_dragDistance=0;
+                    _commandTargetPressAllowed=CommandTargetPointerDown(button.Position);
+                }
                 else
                 {
                     bool click=_sourceCameraLeftUiPressed&&_dragDistance<=4&&_pressPosition.DistanceTo(button.Position)<=4;
                     _sourceCameraLeftUiPressed=false;
-                    if(click)PickTerrain(button.Position);
+                    if(click&&(_commandTargetPicked is null||_commandTargetPressAllowed))PickTerrain(button.Position);
+                    _commandTargetPressAllowed=false;
                 }
             }
             else if(button.ButtonIndex is MouseButton.Right or MouseButton.Middle)
@@ -346,6 +353,7 @@ public partial class MapSceneView
         _sourceCameraActiveButton=-1;_sourceCameraHeldFrames=0;
         _sourceCameraPreviousCursorKnown=false;_sourceCameraCurrentCursorKnown=false;_sourceCameraPendingWheel=0;
         _sourceCameraRightHeld=false;_sourceCameraMiddleHeld=false;_sourceCameraLeftUiPressed=false;
+        _commandTargetPressAllowed=false;
         Array.Clear(_sourceCameraRawNow70);Array.Clear(_sourceCameraRawPrior58);Array.Clear(_sourceCameraRawCounters);
     }
 

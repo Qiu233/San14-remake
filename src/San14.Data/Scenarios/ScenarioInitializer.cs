@@ -56,6 +56,10 @@ public static class ScenarioInitializer
         if (loaded.Metadata.StartYear is not int year || loaded.Metadata.StartMonth is not int month ||
             loaded.Metadata.StartDay is not int day)
             throw new InvalidDataException("Scenario initialization requires a complete start date.");
+        foreach (var person in source.Characters)
+            if (person.FamilyName is string surname && person.GivenName is string given &&
+                !string.Equals(person.Name, surname + given, StringComparison.Ordinal))
+                throw new InvalidDataException("Scenario character name parts conflict with its display name.");
         ItemProjection itemProjection = ItemProjection.Create(source, loaded.Metadata.FormatMarker);
         ScenarioTerritory territory = ScenarioTerritory.Build(map.Map, source);
         static int? OptionalId(int id) => id == 0 ? null : id;
@@ -132,11 +136,13 @@ public static class ScenarioInitializer
             RandomState = randomSeed,
             ItemDefinitions = itemProjection.Definitions,
             Items = itemProjection.Items,
+            DefaultForceKingdomNameIndex = source.Forces.Single(force => force.Slot == 0).RawKingdomName48,
             Forces = source.Forces.Where(force => force.Slot != 0).ToDictionary(force => force.Slot,
                 force => new ForceState(force.Slot, force.RulerName ?? "", null, null)
                 {
                     RulerId = OptionalId(force.RulerSlot),
                     RankId = force.RankId,
+                    KingdomNameIndex = force.RawKingdomName48,
                     SourceIndexedBytes13 = force.RawIndexedBytes13?.ToArray(),
                     SourceIndexedBytesEA = force.RawIndexedBytesEA?.ToArray(),
                     // Initial scenario derivation only; no force-record field or runtime succession rule is asserted.
@@ -202,6 +208,19 @@ public static class ScenarioInitializer
                     DistrictId = OptionalId(person.DistrictSlot),
                     Sex = person.RawSexCode switch { 0 => OfficerSex.Male, 1 => OfficerSex.Female, _ => null },
                     Presence = Presence(person.StatusCode),
+                    AppearanceYear = person.AppearanceYear,
+                    Lifespan = person.TerminalYear is ushort terminal && person.LifespanKind is byte lifespanKind
+                        ? new(terminal, lifespanKind) : null,
+                    CurrentNameSortKey = person.NameSortKey,
+                    CurrentSurnameSortKey = person.SurnameSortKey,
+                    CurrentGivenNameSortKey = person.GivenNameSortKey,
+                    DialogueStyle = person.DialogueStyle,
+                    BirthYear = person.BirthYear,
+                    FamilyGeneration = person.FamilyGeneration,
+                    CurrentSurname = person.FamilyName,
+                    CurrentGivenName = person.GivenName,
+                    CurrentCourtesyName = person.CourtesyName,
+                    PortraitAppearanceIndex = checked((ushort)person.AppearanceCode),
                     OfficeId = OfficeId(person.RawOfficeId),
                     Loyalty = Formats.S14PersonnelSourceReader.ReadCharacterLoyaltyPreview(person,
                         loaded.Metadata.FormatMarker) is byte storedLoyalty && storedLoyalty <= 100

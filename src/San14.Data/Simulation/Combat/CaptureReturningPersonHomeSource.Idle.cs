@@ -11,7 +11,7 @@ public sealed partial class CaptureReturningPersonHomeSource
         var associated = current.ReadPersonLinkedEntity(person) ?? throw Missing("current.idle232370_associated22AC00");
         if (associated.Identity is not int receiver) return;
         if (!Need(current.ReadLinkedEntityNativeValidity(associated), "current.idle232370_associated_validity")) return;
-        if (current.ReadOwnedPersonCommandManager()?.Tasks.ContainsKey(receiver) != true)
+        if (current.ReadOwnedPersonCommandManager()?.Returns.ContainsKey(receiver) != true)
             throw Missing("current.idle232370_associated_virtual98");
         //Known Return v98=15 continues busy0. Other receiver kinds need
         //their actual virtual, rather than an assumed busy0 result.

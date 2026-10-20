@@ -3,6 +3,67 @@ namespace San14.Core;
 /// <summary>Named keys for current simulation parameters. Independent of source binary layouts.</summary>
 public static class SimulationParameterKeys
 {
+    public static class Landmark
+    {
+        public const string InitialRandomRange = "simulation.landmark.initial-random-range";
+        public const string TypeQuota = "simulation.landmark.type-quota";
+        public const string SecurityInitialEffect = "simulation.landmark.security-initial-effect";
+        public const string DurabilityInitialEffect = "simulation.landmark.durability-initial-effect";
+        public const string MoraleInitialEffect = "simulation.landmark.morale-initial-effect";
+        public const string CompletionSecurity = "simulation.landmark.completion-security";
+        public const string CompletionDurability = "simulation.landmark.completion-durability";
+        public const string CompletionMorale = "simulation.landmark.completion-morale";
+        public const string CompletionPopularity = "simulation.landmark.completion-popularity";
+    }
+    public static class SubdayStatus
+    {
+        public const string BaseAbnormalUpper = "simulation.subday-status.base-abnormal-upper";
+        public const string BaseCooldownUpper = "simulation.subday-status.base-cooldown-upper";
+        public const string OfficerRumorDecay = "simulation.subday-status.officer-rumor-decay";
+    }
+    public static class FireCommand
+    {
+        public const string DurationBase = "simulation.fire-command.duration-base";
+        public const string IntelligenceDivisor = "simulation.fire-command.intelligence-divisor";
+        public const string DurationPolicyScale = "simulation.fire-command.duration-policy-scale";
+        public const string SuccessMerit = "simulation.fire-command.success-merit";
+        public const string FailureMorale = "simulation.fire-command.failure-morale";
+        public const string TerrainZeroRate = "simulation.fire-command.terrain-zero-rate";
+        public const string TerrainOneRate = "simulation.fire-command.terrain-one-rate";
+        public const string TerrainTwoRate = "simulation.fire-command.terrain-two-rate";
+        public const string TerrainThreeRate = "simulation.fire-command.terrain-three-rate";
+        public const string MinimumRate = "simulation.fire-command.minimum-rate";
+        public const string TraitRateScale = "simulation.fire-command.trait-rate-scale";
+        public const string BackfireBase = "simulation.fire-command.backfire-base";
+        public const string BackfireMinimum = "simulation.fire-command.backfire-minimum";
+        public const string AbnormalTargetBonus = "simulation.fire-command.abnormal-target-bonus";
+        public const string BackfireDefenseScale = "simulation.fire-command.backfire-defense-scale";
+        public const string RelationAdjustment = "simulation.fire-command.relation-adjustment";
+    }
+    public static class ForceRelations
+    {
+        public static string LevelThreshold(int level) => level is >= 1 and <= 5
+            ? $"simulation.force-relations.level-{level}-threshold" : throw new ArgumentOutOfRangeException(nameof(level));
+    }
+    public static class HexFire
+    {
+        public const string Decay = "simulation.hex-fire.decay";
+        public const string CategoryOneSpread = "simulation.hex-fire.category-one-spread";
+        public const string CategoryThreeSpread = "simulation.hex-fire.category-three-spread";
+        public const string OtherCategorySpread = "simulation.hex-fire.other-category-spread";
+        public const string SpreadDivisor = "simulation.hex-fire.spread-divisor";
+        public const string DurationPercentBase = "simulation.hex-fire.duration-percent-base";
+        public const string DurationRandomBound = "simulation.hex-fire.duration-random-bound";
+    }
+    public static class BaseWoundedRecovery
+    {
+        public const string SlowAmount = "simulation.base-wounded-recovery.slow-amount";
+        public const string NormalAmount = "simulation.base-wounded-recovery.normal-amount";
+        public const string FastAmount = "simulation.base-wounded-recovery.fast-amount";
+        public const string WoundedDivisor = "simulation.base-wounded-recovery.wounded-divisor";
+        public const string RecoveredMorale = "simulation.base-wounded-recovery.recovered-morale";
+        public const string TraitMultiplier = "simulation.base-wounded-recovery.trait-multiplier";
+    }
     public static class ArmyDestruction
     {
         public const string AdvisorHighThreshold = "simulation.army-destruction.advisor-high-threshold";
@@ -84,6 +145,16 @@ public static class SimulationParameterKeys
         public const string TransportCommandCost = "simulation.army-destruction.transport-command-cost";
         public const string TransportReturnCommanderMerit = "simulation.army-destruction.transport-return-commander-merit";
         public const string UnassignedBaseCommanderMerit = "simulation.army-destruction.unassigned-base-commander-merit";
+    }
+
+    public static class ArmyMarch
+    {
+        public const string SpeedScale = "simulation.army-march.speed-scale";
+        public const string MinimumTerrainCost = "simulation.army-march.minimum-terrain-cost";
+        public const string DevelopmentLossMultiplier = "simulation.army-march.development-loss-multiplier";
+        public const string OccupationTraitScale = "simulation.army-march.occupation-trait-scale";
+        public const string OccupationGrowthScale = "simulation.army-march.occupation-growth-scale";
+        public const string OccupationMeritScale = "simulation.army-march.occupation-merit-scale";
     }
 
     public static class ArmyMarchPenalty
@@ -249,6 +320,7 @@ public static class SimulationParameterKeys
         public const string LogisticsGain = "simulation.morale.logistics-gain";
         public const string Maximum = "simulation.morale.maximum";
         public const string NegativeAdjustmentScale = "simulation.morale.negative-adjustment-scale";
+        public const string FieldFatigueBase = "simulation.morale.field-fatigue-base";
         public const string PolicyScale = "simulation.morale.policy-scale";
     }
 
@@ -354,6 +426,11 @@ public static class SimulationParameterKeys
         public const string EffectFactorFloorPercent = "simulation.tactics.effect-factor-floor-percent";
         public const string EffectStageScale = "simulation.tactics.effect-stage-scale";
         public const string ForceFlagWaitingReduction = "simulation.tactics.force-flag-waiting-reduction";
+        public const string ManualInterventionMinimumPeriods = "simulation.tactics.manual-intervention-minimum-periods";
+        public const string ChainSearchRadius = "simulation.tactics.chain-search-radius";
+        public const string Formation1ManualWaitingAdjustment = "simulation.tactics.formation1-manual-waiting-adjustment";
+        public const string Formation2ManualWaitingAdjustment = "simulation.tactics.formation2-manual-waiting-adjustment";
+        public const string Formation14ManualWaitingAdjustment = "simulation.tactics.formation14-manual-waiting-adjustment";
         public const string Formation14AutomaticWaitingAdjustment = "simulation.tactics.formation14-automatic-waiting-adjustment";
         public const string Formation14CreationWaitingAdjustment = "simulation.tactics.formation14-creation-waiting-adjustment";
         public const string Formation1AutomaticWaitingAdjustment = "simulation.tactics.formation1-automatic-waiting-adjustment";

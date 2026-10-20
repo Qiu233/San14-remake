@@ -27,6 +27,7 @@ public static class ArmyConfigurationSourceAdapter
         unit.Formations?.NavalFormationId, Find(state, unit)?.UnmappedNavalCode);
     public static byte? ReadAction(GameState state, UnitState? unit) => unit is not null &&
         Find(state, unit)?.ActionCode is byte action && unit.FieldAttackPolicy?.UsesConfusionGate == (action != 16) ? action : null;
+    internal static byte? ReadCategory(GameState state, UnitState unit) => Find(state, unit)?.CategoryCode;
     private static byte? EncodeFormation(int? id, byte? unmapped) => id is int value
         ? value is >= 0 and <= MaximumFormationCode ? (byte)value : null : unmapped;
     private static ArmyConfigurationSourceKnowledge? Find(GameState state, UnitState unit) =>

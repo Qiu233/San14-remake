@@ -4,6 +4,17 @@ namespace San14.Data;
 
 public static partial class BaseCaptureRewardSource
 {
+    internal static int CountCompleteStates(GameState state, SourceWorldContext current, ForceReference force)
+    {
+        try
+        {
+            var output = Temporary(current);
+            try { return FillStates(state, current, force, output); }
+            finally { Release(current, output); }
+        }
+        catch (MissingOwner error) { throw new InvalidDataException(error.Message, error); }
+    }
+
     private static int FillStates(GameState state, SourceWorldContext current,
         ForceReference force, HexListHandle output)
     {
@@ -27,8 +38,11 @@ public static partial class BaseCaptureRewardSource
             for (int index = 0; index < 23; index++)
             {
                 var province = current.ReadStaticTableReference(0xDC80, index) ?? throw Missing("2AB190 State pointer");
-                if (province.PhysicalSlot is not int physical || physical == 0) continue;
+                if (province.PhysicalSlot is not int physical) continue;
+                int anchor = K((current.ReadStaticTableReference(0xDC80, 0) ?? throw Missing("2AB190 State0 pointer")).PhysicalSlot, "2AB190 State0 physical");
+                if (physical == anchor) continue;
                 if (physical is < 0 or >= 23) throw Missing("2AB190 State physical");
+                int stateId = physical - anchor;
                 int count = 0; bool allOwned = true;
                 var registry = current.ReadRegistryReferences(RegistryKind.City) ?? throw Missing("2AB190 City90 manager");
                 foreach (var entry in registry)
@@ -36,7 +50,7 @@ public static partial class BaseCaptureRewardSource
                     if (entry?.Kind != RegistryKind.City || entry.PhysicalSlot is not int cityId) throw Missing("2AB190 City90 payload");
                     var city = new BaseReference(BaseKind.City, cityId);
                     if (!K(current.ReadBaseNativeValidity(city), "2AB190 City validity")) continue;
-                    if (ReadCityState(state, cityId) != physical) continue;
+                    if (ReadCityState(state, cityId) != stateId) continue;
                     count++;
                     if (ReadBaseForce(state, current, city) == owner) continue;
                     allOwned = false; break;
@@ -85,20 +99,7 @@ public static partial class BaseCaptureRewardSource
 
     private static int ReadBaseForce(GameState state, SourceWorldContext current, BaseReference city)
     {
-        if (current.ReadBaseForceSlot(city) is int force) return force;
-        //Reuse the same saved raw District0 query as the current growth /
-        //land-advantage owner. Core null alone does not establish native0.
-        if (city.Kind == BaseKind.City && city.PhysicalSlot is int physical &&
-            state.Cities.TryGetValue(physical, out var saved) && saved.DistrictId is null &&
-            state.NativeArmySimulation?.Parameters.Int32Values is { } values &&
-            values.GetValueOrDefault(PersonGrowthCurrentQueries.VersionKey) == 1 &&
-            values.TryGetValue(PersonGrowthCurrentQueries.CityDistrict26Key(physical), out int raw) &&
-            raw is >= 0 and <= 255 && (raw == 0 || raw > 51))
-        {
-            current.SetCityDistrictSlot(physical, (byte)raw);
-            return K(current.ReadBaseForceSlot(city), "2AB190 saved raw District0 City B0");
-        }
-        throw Missing("2AB190 current City B0");
+        return K(CurrentBaseAffiliationSource.ReadForce(state, current, city), "2AB190 current City B0");
     }
 }
 

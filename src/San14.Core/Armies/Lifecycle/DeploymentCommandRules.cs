@@ -1,8 +1,12 @@
 namespace San14.Core;
 
 /// <summary>Original preparation/cancellation contracts. Unknown rules have no permissive defaults.</summary>
-public sealed class DeploymentCommandRules(IDeploymentEligibility eligibility, IDeploymentResourceRules resources) : IOrderRules
+public sealed class DeploymentCommandRules(IDeploymentEligibility eligibility, IDeploymentResourceRules resources,
+    IPlayableDistrictCommandBudgetRules? districtCommandBudgets = null,
+    IPlayableOrdinaryDeploymentCommitRules? ordinaryCommit = null) : IOrderRules
 {
+    // Ordinary selection-page limit, retained for the legacy composer UI.
+    // This is not a generic Army creator or formal batch restriction.
     public const int MaximumUnitsPerBatch = 9;
     private readonly IDeploymentEligibility _eligibility = eligibility ?? throw new ArgumentNullException(nameof(eligibility));
     private readonly IDeploymentResourceRules _resources = resources ?? throw new ArgumentNullException(nameof(resources));
@@ -37,8 +41,8 @@ public sealed class DeploymentCommandRules(IDeploymentEligibility eligibility, I
     {
         (DeploymentSource? source, CommandResult? error) = ResolveSource(state, force.Id, order.SourceLocationId, context);
         if (error is not null) return error;
-        if (order.Units is null || order.Units.Count < 1 || order.Units.Count > MaximumUnitsPerBatch)
-            return CommandResult.Reject("Prepare between one and nine units at once.", "deployment.batch_size");
+        if (order.Units is null || order.Units.Count < 1)
+            return CommandResult.Reject("A deployment batch requires at least one unit.", "deployment.batch_size");
         var officers = new HashSet<int>();
         var units = new List<DeploymentUnitRequest>();
         long requestedTroops = 0;
@@ -52,7 +56,9 @@ public sealed class DeploymentCommandRules(IDeploymentEligibility eligibility, I
             if (officer.Presence is not (null or OfficerPresence.Present))
                 return CommandResult.Reject("Officer has not appeared, is undiscovered or is dead.", "deployment.ineligible");
             if (officer.Deployed || state.Units.Values.Any(u => u.OfficerId == officer.Id) ||
-                state.PreparedDeployments.Values.Any(p => p.OfficerId == officer.Id))
+                state.PreparedDeployments.Values.Any(p => p.OfficerId == officer.Id) ||
+                state.PreparedOfficerMoves?.ContainsKey(officer.Id) == true ||
+                state.PreparedTalentOrders?.ContainsKey(officer.Id) == true)
                 return CommandResult.Reject("Officer already leads an active or prepared unit.", "deployment.officer_busy");
             if (unit.Troops < 1 || unit.FormationId < 0 || unit.TacticIds is null ||
                 unit.TacticIds.Count > 3 || unit.TacticIds.Any(t => t < 0))
@@ -78,6 +84,9 @@ public sealed class DeploymentCommandRules(IDeploymentEligibility eligibility, I
             return CommandResult.RuleUnavailable("rules.command_budget", "District command books are unresolved.");
         if (units.Count > remaining - CommandBookAvailability.Reserved(state, district.Id))
             return CommandResult.Reject("District lacks uncommitted command books.", "deployment.insufficient_orders");
+        if (state.NativeArmySimulation is not null)
+            return ordinaryCommit?.CommitOrdinaryDeployment(state, source, units.AsReadOnly(), context) ??
+                CommandResult.RuleUnavailable("rules.ordinary_deployment_commit", "Current ordinary deployment commit rules are unavailable.");
         DeploymentEligibility eligibility = _eligibility.Evaluate(state, source, units.AsReadOnly(), context);
         if (eligibility.Status == DeploymentDecisionStatus.Denied)
             return CommandResult.Reject(eligibility.Explanation ?? "Deployment eligibility rejected this batch.", "deployment.ineligible");
@@ -130,11 +139,24 @@ public sealed class DeploymentCommandRules(IDeploymentEligibility eligibility, I
         DistrictState district = state.Districts[deployment.DistrictId];
         if (returnedBooks > 0 && district.OrdersRemaining is null)
             return CommandResult.RuleUnavailable("rules.command_budget", "District command books are unresolved.");
+        int? returnedBalance = null;
+        if (returnedBooks > 0)
+        {
+            if (districtCommandBudgets is not null)
+            {
+                if (districtCommandBudgets.ReadDistrictCommandReturnLimit(state, district.Id) is not int limit)
+                    return CommandResult.RuleUnavailable("rules.command_book_return_limit", "Current command-book return ceiling is unresolved.");
+                returnedBalance = (int)Math.Clamp(Math.Min((long)district.OrdersRemaining!.Value + returnedBooks, limit), 0L, 200L);
+            }
+            else if (state.NativeArmySimulation is not null)
+                return CommandResult.RuleUnavailable("rules.command_book_return_limit", "Owned cancellation needs current command-book return rules.");
+            else returnedBalance = checked(district.OrdersRemaining!.Value + returnedBooks);
+        }
         var pending = new Dictionary<int, PreparedDeployment>(state.PreparedDeployments);
         pending.Remove(deployment.Id);
         GameState next = state with { PreparedDeployments = pending };
         if (returnedTroops > 0) next = WithSourceTroops(next, source.LocationId, checked(source.Troops + returnedTroops));
-        if (returnedBooks > 0) next = WithOrders(next, district, checked(district.OrdersRemaining!.Value + returnedBooks));
+        if (returnedBalance is int balance) next = WithOrders(next, district, balance);
         return CommandResult.Accept(next);
     }
 

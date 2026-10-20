@@ -18,6 +18,7 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
     private readonly Dictionary<int, byte?> _personDistrictSlots = [];
     private readonly Dictionary<int, ushort?> _personFirstLocations = [];
     private readonly Dictionary<int, ushort?> _forceRulers = [];
+    private readonly Dictionary<int, byte?> _forceKingdomNames = [];
     private readonly Dictionary<int, int?> _districtPointers = [], _forcePointers = [];
     private readonly DistrictIdentityState _districtIdentities = new();
     // Unresolved source extension fields are kept at the adapter boundary.
@@ -47,6 +48,11 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
     public short? ReadCurrentYear() => EventConditions.CurrentYear;
     public int? ReadScenarioMode() => EventConditions.ScenarioMode;
     public int? ReadPastGameTime() => EventConditions.PastGameTime;
+    public int? ReadScenarioId() => RawWorldField48;
+    public S14ConditionDate? ReadConditionDate() => EventConditions.CurrentDate;
+    public S14ConditionDate? ReadConditionScenarioDate() => EventConditions.ScenarioDate;
+    public S14ConditionOccurrenceDate? ReadEventOccurrenceDate(int index)
+    { Check(index, S14EventSourceProfile.WorldFlagCount, "event date"); return EventConditions.ReadOccurrenceDate(index); }
     public ushort? ReadEmperorId() => EventConditions.EmperorPersonId;
     public bool? ReadEventManagerPresent() => EventEligibility.IsPresent;
     public bool? ReadWorldEventFlag(int index)
@@ -195,6 +201,16 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
     {
         Check(physicalSlot, 52, "force physical slot");
         return _forceRulers.GetValueOrDefault(physicalSlot) is ushort ruler ? new(physicalSlot, ruler) : null;
+    }
+    public byte? ReadForceKingdomNameIndex(int physicalSlot)
+    {
+        Check(physicalSlot, 52, "force kingdom name identity");
+        return _forceKingdomNames.GetValueOrDefault(physicalSlot);
+    }
+    public void SetForceKingdomNameIndex(int physicalSlot, byte? index)
+    {
+        Check(physicalSlot, 52, "force kingdom name identity");
+        _forceKingdomNames[physicalSlot] = index;
     }
     public ForceReference? ReadPersonForce(int physicalSlot)
     {
@@ -377,6 +393,11 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
         if (record is null) throw new InvalidDataException("Current object record is unknown.");
         Check(record.PhysicalSlot, 3001, "object physical slot");
         _objects[record.PhysicalSlot] = record;
+        if (_currentObjectPositions.ContainsKey(record.PhysicalSlot))
+        {
+            _currentObjectPositions[record.PhysicalSlot] = record.RawField10;
+            _currentObjectKinds[record.PhysicalSlot] = record.RawField12;
+        }
     }
     public S14ConditionNativeObject? ReadPhysicalObject(int physicalSlot)
     {
@@ -620,6 +641,7 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
             if (force.Slot != slot) throw new InvalidDataException($"Event source force physical slot {slot} is invalid.");
             SetForceRecord(new(slot, force.RulerSlot));
             SetForceReportColor(slot, force.RawReportColor49);
+            SetForceKingdomNameIndex(slot, force.RawKingdomName48);
             SetForceRankSlot47(slot,force.RankId is >=0 and <=255 ? (byte)force.RankId.Value : null);
             SetForceTablePointer(slot, slot);
         }
@@ -663,6 +685,8 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
         EventConditions.ScenarioMode = source.WorldParameters.RawModeValue;
         RawWorldField48 = source.WorldParameters.RawField48;
         EventConditions.PastGameTime = source.WorldParameters.RawPastGameTime;
+        var conditionDate = source.WorldParameters.RawThirdDate;
+        EventConditions.CurrentDate = new(conditionDate.RawYear, conditionDate.RawMonth, conditionDate.RawDay, conditionDate.RawSubdayPart);
         EventConditions.EmperorPersonId = source.WorldParameters.RawEmperorPersonId;
         RawWorldField450 = reportTime;
         MaterializeStaticSceneryState(loaded);

@@ -24,7 +24,8 @@ public partial class PlayableMapStructureLayer : Node3D
         GameState world,
         IReadOnlyDictionary<int, Color>? forceColorCandidates = null,
         IReadOnlyDictionary<string, string>? sourceNames = null,
-        IReadOnlyDictionary<string, FacilityModelDisplays>? facilityModels = null)
+        IReadOnlyDictionary<string, FacilityModelDisplays>? facilityModels = null,
+        string unknownValue = "?")
     {
         Name = "PlayableMapStructures";
         if (world.MapWidth != projection.Policy.Width ||
@@ -45,7 +46,7 @@ public partial class PlayableMapStructureLayer : Node3D
             {
                 Name = $"Structure_{structure.Id}",
                 Position = new Vector3((float)point.X, ground + 240, (float)point.Z),
-                Text = completed ? $"[{name}]" : $"[{name} {structure.Durability}/{structure.MaxDurability}]",
+                Text = completed ? $"[{name}]" : $"[{name} {structure.Durability}/{((int?)structure.MaxDurability)?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? unknownValue}]",
                 Billboard = BaseMaterial3D.BillboardModeEnum.Enabled,
                 Font = _font, FontSize = 24, PixelSize = ReferencePixelSize,
                 FixedSize = true, DoubleSided = true, NoDepthTest = true,

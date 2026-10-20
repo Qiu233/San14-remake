@@ -21,23 +21,30 @@ public partial class Main
                 label += " " + _ui.Get("play_save_slot_used");
             _playSaveSlot.SetItemText(index, label);
         }
-        _playContinue.Disabled = !CampaignSaves.HasCampaign(SelectedPlayableSaveSlot);
+        _playContinue.Disabled = !Enumerable.Range(1, LocalCampaignSaves.SlotCount).Any(CampaignSaves.HasCampaign);
     }
 
     private void SavePlayable()
+        => SavePlayable(SelectedPlayableSaveSlot);
+
+    private void SavePlayable(int slot)
     {
         if (_session?.PlayerForceId is null) return;
-        CampaignSaves.SaveCampaign(_session!, SelectedPlayableSaveSlot);
+        CampaignSaves.SaveCampaign(_session!, slot);
         RefreshSaveSlots();
         _playMessage.Text = _ui.Get("play_saved");
     }
 
     private void LoadPlayable()
+        => LoadPlayable(SelectedPlayableSaveSlot);
+
+    private void LoadPlayable(int slot)
     {
-        GameSessionSave restored = CampaignSaves.LoadCampaign(SelectedPlayableSaveSlot);
+        GameSessionSave restored = CampaignSaves.LoadCampaign(slot);
         int index = ScenarioBrowserViews.FindScenario(_shownScenarios, restored.State.ScenarioKey);
         if (index < 0) throw new InvalidDataException("The saved scenario is unavailable in the selected language.");
-        ShowScenario(index, restored.State, restored.PlayerForceId);
+        ShowScenario(index, restored.State, restored.PlayerForceId,
+            restored.PendingProgress, restored.LastStorySequence, restored.PendingManualTactic);
         _scenarioList.Select(index);
         RefreshSceneAudioContext();
         int forceIndex = ScenarioBrowserViews.FindForce(_shownForces, restored.PlayerForceId);

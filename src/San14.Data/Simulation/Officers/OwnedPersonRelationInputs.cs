@@ -92,7 +92,142 @@ public sealed class OwnedPersonRelationInputs
     }
 
     public void BindCurrent(GameState state, SourceWorldContext current)
-        => current.DestructionRelationTier2A6EE0Reader = (target, a, b, mode) => ComputeCurrent(state, target, a, b, mode).Tier;
+    {
+        current.DestructionRelationTier2A6EE0Reader = (target, a, b, mode) => ComputeCurrent(state, target, a, b, mode).Tier;
+        current.ConditionPartnerReader = physical => ReadCurrentPartnerId(state, physical);
+        current.ConditionBloodlineReader = physical => EventWord(state, physical, 0xB2);
+        current.ConditionDislikeReader = (first, second) => ReadEventDislike(state, current, first, second);
+        current.ConditionFamilyReader = (first, second) => ReadEventFamily(state, current, first, second);
+    }
+
+    /// <summary>Only the relation callbacks follow an operation's latest candidate.
+    /// Existing callers retain the public snapshot binding above.</summary>
+    internal void BindCurrent(Func<GameState> readLatest, SourceWorldContext current)
+    {
+        current.DestructionRelationTier2A6EE0Reader = (target, a, b, mode) => ComputeCurrent(readLatest(), target, a, b, mode).Tier;
+        current.ConditionPartnerReader = physical => ReadCurrentPartnerId(readLatest(), physical);
+        current.ConditionBloodlineReader = physical => EventWord(readLatest(), physical, 0xB2);
+        current.ConditionDislikeReader = (first, second) => ReadEventDislike(readLatest(), current, first, second);
+        current.ConditionFamilyReader = (first, second) => ReadEventFamily(readLatest(), current, first, second);
+    }
+
+    internal static GameState WriteCurrentRelationIdentity(GameState state, int physical, int field, ushort value)
+    {
+        if (field is not (0xBA or 0xBC)) throw Unknown("death relation identity selector");
+        return WriteCurrentWords(state, physical, values => values[PersonFieldKey(physical, field)] = value);
+    }
+
+    internal static GameState WriteCurrentLikeIdentity(GameState state, int physical, int index, ushort value)
+        => WriteCurrentListIdentity(state, physical, index, value, true);
+
+    internal static GameState WriteCurrentDislikeIdentity(GameState state, int physical, int index, ushort value)
+        => WriteCurrentListIdentity(state, physical, index, value, false);
+
+    internal static GameState ClearCurrentLikeIdentities(GameState state, int physical)
+        => ClearCurrentListIdentities(state, physical, true);
+
+    internal static GameState ClearCurrentDislikeIdentities(GameState state, int physical)
+        => ClearCurrentListIdentities(state, physical, false);
+
+    internal static GameState ResetCurrentDeathRelations(GameState state, int physical)
+        => WriteCurrentWords(state, physical, values =>
+        {
+            values[PersonFieldKey(physical, 0xBA)] = 0;
+            values[PersonFieldKey(physical, 0xBC)] = 0;
+            for (int i = 0; i < 8; i++)
+            { values[PersonFieldKey(physical, 0xC0 + i * 2)] = 0; values[PersonFieldKey(physical, 0xD0 + i * 2)] = 0; }
+        });
+
+    private static GameState WriteCurrentListIdentity(GameState state, int physical, int index, ushort value, bool like)
+    {
+        if ((uint)index >= 8) throw Unknown("death relation list index");
+        return WriteCurrentWords(state, physical,
+            values => values[PersonFieldKey(physical, (like ? 0xC0 : 0xD0) + index * 2)] = value);
+    }
+
+    private static GameState ClearCurrentListIdentities(GameState state, int physical, bool like)
+        => WriteCurrentWords(state, physical, values =>
+        { for (int i = 0; i < 8; i++) values[PersonFieldKey(physical, (like ? 0xC0 : 0xD0) + i * 2)] = 0; });
+
+    private static GameState WriteCurrentWords(GameState state, int physical, Action<Dictionary<string, int>> write)
+    {
+        if ((uint)physical >= 1851 || state.NativeArmySimulation is not { } simulation ||
+            simulation.Parameters.Int32Values.GetValueOrDefault(VersionKey) != 1)
+            throw Unknown("death relation saved owner");
+        var values = new Dictionary<string, int>(simulation.Parameters.Int32Values);
+        write(values);
+        return state with { NativeArmySimulation = simulation with
+            { Parameters = simulation.Parameters with { Int32Values = values } } };
+    }
+
+    private static bool ReadEventDislike(GameState state, SourceWorldContext current, int first, int second)
+    {
+        ushort target = Known(current.ReadPersonIdentity(second), "event dislike target ID");
+        for (int i = 0; i < 8; i++)
+            if (EventWord(state, first, 0xD0 + i * 2) == target) return true;
+        return false;
+    }
+
+    private static bool ReadEventFamily(GameState state, SourceWorldContext current, int first, int second)
+    {
+        if (EventWord(state, first, 0xB2) == EventWord(state, second, 0xB2)) return true;
+        if (Matches(EventWord(state, first, 0xBA))) return true;
+        ushort sworn = EventWord(state, first, 0xBC);
+        if (sworn is >= 1 and <= 6000 && sworn == EventWord(state, second, 0xBC)) return true;
+        return Matches(EventWord(state, first, 0xB4)) || Matches(EventWord(state, first, 0xB6));
+
+        bool Matches(ushort id)
+        {
+            var pointer = id <= 6000 ? current.ReadConditionPersonTableSlot(id) : current.ReadConditionBasePerson();
+            if (pointer is null) throw Unknown("event family person pointer");
+            return pointer.Value?.PhysicalSlot == second;
+        }
+    }
+
+    private static ushort EventWord(GameState state, int person, int field) =>
+        (uint)person < 1851 && state.NativeArmySimulation?.Parameters.Int32Values is { } values &&
+        values.GetValueOrDefault(VersionKey) == 1 && values.TryGetValue(PersonFieldKey(person, field), out int value) && value is >= 0 and <= 65535
+            ? (ushort)value : throw Unknown("event current relationship word");
+
+    public static ushort? ReadCurrentPartnerId(GameState state, int physical) =>
+        ReadCurrentRelationIdentity(state, physical, 0xBA);
+
+    internal static ushort? ReadCurrentRelationIdentity(GameState state, int physical, int field) =>
+        field is 0xB2 or 0xB4 or 0xB6 or 0xBA or 0xBC && (uint)physical < 1851 &&
+        state.NativeArmySimulation?.Parameters.Int32Values is { } values &&
+        values.GetValueOrDefault(VersionKey) == 1 &&
+        values.TryGetValue(PersonFieldKey(physical, field), out int id) && id is >= 0 and <= 65535
+            ? (ushort)id : null;
+
+    /// <summary>The current BE affinity byte, independent of all relation lists.</summary>
+    internal static byte? ReadCurrentAffinity(GameState state, int physical) =>
+        (uint)physical < 1851 && state.NativeArmySimulation?.Parameters.Int32Values is { } values &&
+        values.GetValueOrDefault(VersionKey) == 1 &&
+        values.TryGetValue(PersonFieldKey(physical, 0xBE), out int raw) && raw is >= 0 and <= 255
+            ? (byte)raw : null;
+
+    /// <summary>A single current C0 slot. No later like/dislike or relation
+    /// channel is required until its source read is reached.</summary>
+    internal static ushort? ReadCurrentLikeIdentity(GameState state, int physical, int index)
+    {
+        if ((uint)index >= 8 || (uint)physical >= 1851 ||
+            state.NativeArmySimulation?.Parameters.Int32Values is not { } values ||
+            values.GetValueOrDefault(VersionKey) != 1 ||
+            !values.TryGetValue(PersonFieldKey(physical, 0xC0 + index * 2), out int raw) ||
+            raw is < 0 or > 65535) return null;
+        return (ushort)raw;
+    }
+
+    /// <summary>A single current D0 slot; callers preserve the source's first-hit short circuit.</summary>
+    internal static ushort? ReadCurrentDislikeIdentity(GameState state, int physical, int index)
+    {
+        if ((uint)index >= 8 || (uint)physical >= 1851 ||
+            state.NativeArmySimulation?.Parameters.Int32Values is not { } values ||
+            values.GetValueOrDefault(VersionKey) != 1 ||
+            !values.TryGetValue(PersonFieldKey(physical, 0xD0 + index * 2), out int raw) ||
+            raw is < 0 or > 65535) return null;
+        return (ushort)raw;
+    }
 
     public static PersonRelationFields? ReadCurrentPersonFields(GameState state, int physical)
     {
@@ -114,6 +249,16 @@ public sealed class OwnedPersonRelationInputs
     /// Unknown inputs throw with the first missing owner, for caller discard.</summary>
     public static PersonRelationCalculation ComputeCurrent(GameState state,
         SourceWorldContext current, int firstPhysical, int secondPhysical, int mode)
+        => ComputeCurrentCore(state, current, firstPhysical, secondPhysical, mode, null);
+
+    internal static PersonRelationCalculation ComputeCurrentWithPrimaryPool(GameState state,
+        SourceWorldContext current, int firstPhysical, int secondPhysical, int mode,
+        Action preparePrimaryPool)
+        => ComputeCurrentCore(state, current, firstPhysical, secondPhysical, mode, preparePrimaryPool);
+
+    private static PersonRelationCalculation ComputeCurrentCore(GameState state,
+        SourceWorldContext current, int firstPhysical, int secondPhysical, int mode,
+        Action? preparePrimaryPool)
     {
         bool validA = Known(current.ReadPersonNativeValidity(firstPhysical), "Person A validity");
         if (!validA) return new(0, 1);
@@ -123,6 +268,7 @@ public sealed class OwnedPersonRelationInputs
         var b = ReadCurrentPersonFields(state, secondPhysical) ?? throw Unknown("Person B saved relation fields");
         ushort aid = Known(current.ReadPersonIdentity(firstPhysical), "Person A ID10");
         ushort bid = Known(current.ReadPersonIdentity(secondPhysical), "Person B ID10");
+        preparePrimaryPool?.Invoke();
         if (current.ReadOwnedCurrentListPool() is not { } pool || !pool.OwnsArmyReturnProfile())
             throw Unknown("owned primary shared-list allocator");
         bool sameId = aid == bid;

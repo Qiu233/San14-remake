@@ -77,11 +77,35 @@ internal sealed class MapFontSource
         return new(width, above, below);
     }
 
+    // AC2D60 -> ADBFD0 -> ADB880: fit the source line only when it exceeds
+    // the cell minus its reserved right-hand space. Modes2/3 preserve height.
+    internal MapFontProfile FitToWidth(string text, MapFontProfile profile, float cellWidth)
+    {
+        if (profile.WidthFitMode == 0 || text.Length == 0) return profile;
+        if (profile.WidthFitMode is not (1 or 2 or 3))
+            throw new InvalidDataException($"Unsupported single-line width fitting: {profile.Source}.");
+        int available = (int)cellWidth - (int)profile.WidthReserve;
+        int measured = Measure(text, profile).Width;
+        if (available >= measured) return profile;
+        float factor = available / (float)measured * 0.98f;
+        return profile with
+        {
+            ScaleX = profile.ScaleX * factor,
+            // AC2D60 mode3 uses ADBE40's literal UTF-16 path, which calls the
+            // same ADB880 fitting calculation as mode2 with height preserved.
+            ScaleY = profile.WidthFitMode == 1 ? profile.ScaleY * factor : profile.ScaleY,
+            HorizontalSpace = unchecked((short)(int)(profile.HorizontalSpace * factor))
+        };
+    }
+
     internal float CellBaselineY(MapFontProfile profile, float cellHeight)
     {
         // AC1FC0/AC20D0 use U+3042 for the nominal line height, independently
         // of the current string. B07260 and 141063170 add that height before
         // subtracting each glyph's original signed Y bearing.
+        // AD6140 selects nominalHeight + VerticalSpace for flag0x4, then
+        // B07260 subtracts VerticalSpace from the first glyph baseline.
+        // The top-aligned single-line path therefore keeps this baseline.
         int lineHeight = (int)(Record('\u3042', profile.Face).Height * profile.ScaleY);
         return (profile.RawAlign & 15) switch
         {
@@ -134,6 +158,11 @@ internal sealed record MapFontProfile(string Source, int Face, int Palette,
     internal float StrokeWidth { get; init; }
     internal float? OffsetXOverride { get; init; }
     internal float? OffsetYOverride { get; init; }
+    internal sbyte WidthFitMode { get; init; }
+    // Raw155 controls character processing independently of raw153 layout.
+    // The supported plain, single-line labels contain no control bytecode.
+    internal byte RawCharacterMode { get; init; }
+    internal float WidthReserve { get; init; }
 
     internal MapFontProfile WithPreset(MapTextPreset preset) => this with
     {
@@ -148,6 +177,17 @@ internal sealed record MapFontProfile(string Source, int Face, int Palette,
     // AEE3D0 publishes the first effect enable and AC1F50 rounds the
     // scaled source offset. Original text uses Y-up; Canvas uses Y-down.
     internal bool HasShadow => (RawFlags & 1) != 0;
+    // B12950: raw bit2 -> font+5F -> ACC3E0 compact+2C -> AD6140.
+    // It selects the nominal line height, not a glyph rendering effect.
+    internal bool UsesFixedLineHeight => (RawFlags & 4) != 0;
+    internal void ValidateSingleLine()
+    {
+        if ((RawFlags & ~5u) != 0)
+            throw new InvalidDataException($"Original text options require their source consumer: {Source}.");
+        if (UsesFixedLineHeight && VerticalSpace != 0 &&
+            ((RawAlign & 15) != 0 || RawLineArrange != 1))
+            throw new InvalidDataException($"Fixed-height text with vertical spacing requires its source line layout: {Source}.");
+    }
     internal (int X, int Y) ShadowOffset => (Round((OffsetXOverride ?? ShadowX) * ScaleX), Round((OffsetYOverride ?? ShadowY) * ScaleY));
     internal IEnumerable<(int X, int Y)> StrokeOffsets()
     {
@@ -170,7 +210,12 @@ internal sealed record MapFontProfile(string Source, int Face, int Palette,
             throw new InvalidDataException("Original map font scale is invalid.");
         return new(source + "/" + node.Name, bytes[151], bytes[152], scaleX, scaleY,
             I16(144), I16(146), U(120), U(124), U(128), U(132), U(116), bytes[150], bytes[153],
-            I16(156), I16(158), U(160), U(164), U(168), U(172));
+            I16(156), I16(158), U(160), U(164), U(168), U(172))
+        {
+            WidthFitMode = unchecked((sbyte)bytes[154]),
+            RawCharacterMode = bytes[155],
+            WidthReserve = F(204)
+        };
         uint U(int at) => BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(at, 4));
         short I16(int at) => BinaryPrimitives.ReadInt16LittleEndian(bytes.AsSpan(at, 2));
         float F(int at) => BinaryPrimitives.ReadSingleLittleEndian(bytes.AsSpan(at, 4));

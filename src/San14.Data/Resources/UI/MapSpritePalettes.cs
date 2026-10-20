@@ -36,6 +36,10 @@ public sealed class MapSpritePalettes
     public AreaMarkerColor ForceLetter(int actualForceColor49)
         => _contrast[(uint)actualForceColor49 < 62 ? _contrastMap[actualForceColor49] : _contrastFallback];
 
+    /// <summary>2AD450(force,0): source Force.Color49, with the white entry60 fallback.</summary>
+    public static AreaMarkerColor ForceFill(int actualForceColor49)
+        => Read(MapUiRules.ForceFillColors[(uint)actualForceColor49 < 60 ? actualForceColor49 : 60]);
+
     private static AreaMarkerColor Read(MapUiRuleColor color)
     {
         uint authored = color.Packed;

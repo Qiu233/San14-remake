@@ -70,6 +70,8 @@ struct Current {
     std::uint32_t focusCell=cells,focusPalette=1;
     std::int8_t focusMode=0;
     std::int32_t selector0=0,selector1=-1;
+    const std::vector<std::uint16_t>* areaFocusSlots=nullptr;
+    std::uint32_t areaFocus=0,areaFocusPalette=6;
 };
 // CE18C7D0. referencesReady is the source pool-record length predicate, not
 // merely a non-null descriptor/handle. Optional owners are gated by enabled.
@@ -110,8 +112,14 @@ inline int updateOne(const Profile& p,Owner& owner,const Current& current) {
         if(current.focusCell<cells)output[current.focusCell]=std::uint8_t(current.focusPalette+2*current.focusMode);
         break;
     case 5:
-        if(current.selector1!=-1)throw std::runtime_error("Actual layer5 provider required");
-        std::fill(output,output+cells,0);break;
+        if(current.selector1==-1)std::fill(output,output+cells,0);
+        else if(current.selector1==4) {
+            if(!current.areaFocusSlots||current.areaFocusSlots->size()!=cells)
+                throw std::runtime_error("Actual area-focus raw Hex12 inputs required");
+            for(unsigned cell=0;cell<cells;++cell)output[cell]=current.areaFocus!=0&&
+                (*current.areaFocusSlots)[cell]==current.areaFocus?std::uint8_t(current.areaFocusPalette):0;
+        } else throw std::runtime_error("Actual layer5 provider required");
+        break;
     case 6:for(unsigned cell=0;cell<cells;cell++)output[cell]=p.area[cell]>=1&&p.area[cell]<=500?std::uint8_t(p.regionColors[p.area[cell]]+19):18;break;
     }
     owner.dirty&=~(1u<<layer);return int(layer);

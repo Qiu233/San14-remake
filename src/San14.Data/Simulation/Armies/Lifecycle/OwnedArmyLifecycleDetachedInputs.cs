@@ -36,7 +36,7 @@ public static class OwnedArmyLifecycleDetachedInputs
         {
             int physical = current.ResolveOfficerSource(person.Id)
                 ?? throw new InvalidDataException("Detached Person source identity is unknown.");
-            if (person.LocationId is null) current.SetPersonFirstLocation(physical,Word("Person",physical,"E2"));
+            if (person.LocationId is null) current.SetPersonFirstLocation(physical, ReadPersonFirstLocation(state, person, physical));
             if (person.DistrictId is null && person.LocationState?.Membership is null)
                 current.SetPersonDistrictSlot(physical,Byte("Person",physical,"E0"));
         }
@@ -49,6 +49,33 @@ public static class OwnedArmyLifecycleDetachedInputs
         }
         byte? Byte(string table,int physical,string field) => values.TryGetValue(Key(table,physical,field),out int raw) && raw is >=0 and <=255 ? (byte)raw : null;
         ushort? Word(string table,int physical,string field) => values.TryGetValue(Key(table,physical,field),out int raw) && raw is >=0 and <=65535 ? (ushort)raw : null;
+    }
+
+    /// <summary>The existing detached owner preserves known native no-home0,
+    /// independently of the nullable gameplay Base reference. Queries never
+    /// reread initial rows or derive vacancy from death/presence.</summary>
+    internal static ushort? ReadPersonFirstLocation(GameState state, OfficerState person, int physical)
+    {
+        if (person.LocationId is int first) return checked((ushort)first);
+        var values = state.NativeArmySimulation?.Parameters.Int32Values;
+        return values?.GetValueOrDefault(VersionKey) == 1 &&
+            values.TryGetValue(Key("Person", physical, "E2"), out int raw) && raw is >= 0 and <= ushort.MaxValue
+            ? (ushort)raw : null;
+    }
+
+    /// <summary>Publishes one reached first-location write to that same saved
+    /// owner; no unrelated receiver is rebound or refreshed.</summary>
+    internal static GameState PublishCurrentPersonFirstLocation(GameState state, SourceWorldContext current, int physical)
+    {
+        if (state.NativeArmySimulation is not { } simulation ||
+            simulation.Parameters.Int32Values.GetValueOrDefault(VersionKey) != 1)
+            throw new InvalidDataException("Person first-location current owner is unknown.");
+        ushort first = current.ReadPersonFirstLocation(physical)
+            ?? throw new InvalidDataException("Published Person first-location knowledge is unknown.");
+        var values = new Dictionary<string, int>(simulation.Parameters.Int32Values)
+        { [Key("Person", physical, "E2")] = first };
+        return state with { NativeArmySimulation = simulation with
+            { Parameters = simulation.Parameters with { Int32Values = values } } };
     }
 
     internal static GameState PublishCurrent(GameState state, SourceWorldContext current)
@@ -104,6 +131,9 @@ public sealed partial class ArmyOperationContext
             values.Add(OwnedArmyLifecycleDetachedInputs.Key("Person",person.Slot,"1C5"),credit.RawTailCode);
             values.Add(OwnedArmyLifecycleDetachedInputs.Key("Person",person.Slot,"E6"),person.StatusCode);
             values.Add(OwnedArmyLifecycleDetachedInputs.Key("Person",person.Slot,"E4"),person.SecondaryCitySlot);
+            //Only placeholders have no domain OfficerState owner.
+            if (person.CharacterId == 0 && person.AppearanceYear is ushort year)
+                values.Add(OwnedArmyLifecycleDetachedInputs.Key("Person",person.Slot,"appearance-year"), year);
         }
         return values;
     }

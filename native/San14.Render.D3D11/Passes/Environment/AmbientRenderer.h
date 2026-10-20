@@ -424,7 +424,7 @@ static NativeAmbientWorkResult executeNativeAmbientWork(ID3D11DeviceContext* con
         // A disabled face producer prevents the entire face operation,
         // including its clear and independent Star stage.
         if(!faceProducerEnabled)return 0;
-        prepareFaces();
+        prepareFaces(first);
         const UINT count=std::min(remaining,ambient_schedule::cubeFaces-first);
         for(UINT face=first;face<first+count;++face){
             // E40540 first push: RGBA black plus independent WORK20 depth.

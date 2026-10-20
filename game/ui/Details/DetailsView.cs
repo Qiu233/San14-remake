@@ -16,17 +16,23 @@ public abstract partial class DetailsView : Control
     private UiAssets? _assets;
     private TextureButton? _returnButton;
     private Action? _close;
+    private MapFont? _sourceFont;
+    private Shader? _sourceShader;
     private readonly List<string> _unbound = [];
     private UiAssets Assets => _assets ??
         throw new InvalidOperationException("Detail assets have not been initialized.");
 
     private protected void ConfigureLayout(GameResourceRepository repository, string profilePath,
         string viewName, string titleKey, PreviewText text, IReadOnlyDictionary<string, string> values,
-        int? portraitAppearanceCode, string selectionCaption, Action close)
+        int? portraitAppearanceCode, string selectionCaption, Action close, bool mapBackdrop = false,
+        IReadOnlyDictionary<string, int>? valueTextPresets = null, string? selectionIcon = null,
+        DetailForceAppearance? forceAppearance = null, IReadOnlyList<DetailForceAppearance?>? neighborFlags = null,
+        DetailMiniMapValues? miniMap = null)
     {
         Name = viewName;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Stop;
+        ZIndex = 3;
         using var profileFile = Godot.FileAccess.Open(profilePath, Godot.FileAccess.ModeFlags.Read)
             ?? throw new InvalidDataException($"Detail binding profile is missing: {profilePath}.");
         using JsonDocument profile = JsonDocument.Parse(profileFile.GetAsText());
@@ -34,40 +40,83 @@ public abstract partial class DetailsView : Control
         uint layoutId = uint.Parse(settings.GetProperty("layoutId").GetString()!, NumberStyles.HexNumber,
             CultureInfo.InvariantCulture);
         LoadedLayout source = repository.LoadLayout("ScreenLayout", layoutId);
-        IReadOnlyList<LcskNodeRecord> nodes = LcskNodeReader.Read(source.Layout);
+        bool sourceTypography = settings.TryGetProperty("sourceTypography", out var typography) && typography.GetBoolean();
+        var textPresets = MapTextPresets.Create();
+        UiSourceLayout? sourceLayout = sourceTypography ? new(source) : null;
+        IReadOnlyList<LcskNodeRecord> nodes = sourceLayout?.Nodes ?? LcskNodeReader.Read(source.Layout);
         _assets = new UiAssets(repository);
+        if (sourceTypography)
+        {
+            _sourceFont = new(repository, text.SourceLocale);
+            _sourceShader = UiSourceSprite.CreateShader();
+        }
         _canvas = new Control { Size = new Vector2(1920, 1080), MouseFilter = MouseFilterEnum.Stop };
         _canvas.Theme = new Theme
         {
             DefaultFont = new SystemFont { FontNames = ["KaiTi", "DFKai-SB", "Microsoft YaHei"] }
         };
         AddChild(_canvas);
-        AddColor(new Rect2(0, 0, 1920, 1080), new Color("#50432f"));
-        // Candidate common frame: source artwork/size/margins, screenshot placement.
-        // The original runtime link between this shell and the content is still pending.
+        if (mapBackdrop)
+        {
+            _canvas.AddChild(new BackBufferCopy { CopyMode = BackBufferCopy.CopyModeEnum.Viewport });
+            _canvas.AddChild(new MapDialogBackdrop { Size = new(1920, 1080) });
+        }
+        else AddColor(new Rect2(0, 0, 1920, 1080), new Color("#50432f"));
+        // City/area use their proven common list frame. Other profiles retain
+        // their existing composition until their own callers are established.
         JsonElement frameSettings = settings.GetProperty("frame");
         uint frameId = uint.Parse(frameSettings.GetProperty("layoutId").GetString()!,
             NumberStyles.HexNumber, CultureInfo.InvariantCulture);
         LoadedLayout frame = repository.LoadLayout("ScreenLayout", frameId);
         LcskNodeRecord frameNode = LcskNodeReader.Read(frame.Layout)
             .Single(node => node.Name == frameSettings.GetProperty("node").GetString());
-        DrawSprite(frame.Layout, frameNode, new Rect2(
+        var frameRectangle = new Rect2(
             frameSettings.GetProperty("origin")[0].GetSingle(),
-            frameSettings.GetProperty("origin")[1].GetSingle(), frameNode.Value44, frameNode.Value46), Vector2.One);
-        AddPicture(Assets.Sprite("000_cmn_base_title").Texture, new Rect2(0, 0, 540, 88));
-        AddLabel(text.Get(titleKey), new Rect2(120, 25, 330, 50), 32,
-            HorizontalAlignment.Left, new Color("#eee3a6"));
+            frameSettings.GetProperty("origin")[1].GetSingle(), frameNode.Value44, frameNode.Value46);
+        if (sourceTypography)
+        {
+            new UiSourceLayout(frame).Art(_canvas, frameNode.Index, frameRectangle, Assets, _sourceShader!);
+            var title = new UiSourceLayout(repository, 0xDC8AC8AA);
+            title.Art(_canvas, 1, title.Rectangle(1), Assets, _sourceShader!);
+            title.Text(_canvas, 2, default, text.Get(titleKey), _sourceFont!, textPresets[56]);
+        }
+        else
+        {
+            DrawSprite(frame.Layout, frameNode, frameRectangle, Vector2.One);
+            AddPicture(Assets.Sprite("000_cmn_base_title").Texture, new Rect2(0, 0, 540, 88));
+            AddLabel(text.Get(titleKey), new Rect2(120, 25, 330, 50), 32,
+                HorizontalAlignment.Left, new Color("#eee3a6"));
+        }
 
         HashSet<string> hiddenNames = settings.GetProperty("hiddenNodes").EnumerateArray()
             .Select(item => item.GetString()!).ToHashSet(StringComparer.Ordinal);
+        if (sourceTypography) hiddenNames.Add(nodes[4].Name); // replaced by the caller's actual nameplate sublayout
         foreach (JsonElement missing in settings.GetProperty("unsupportedNodes").EnumerateArray())
         {
             string name = missing.GetString()!;
             hiddenNames.Add(name);
-            _unbound.Add(name);
+            bool handledFlag = sourceTypography && (name == "cmn_flg_force" ||
+                Enumerable.Range(0, 8).Any(i => name == $"cmn_flg_force_{i:0000}"));
+            bool handledMiniMap = sourceTypography && name == settings.GetProperty("miniMapNode").GetString();
+            if (!handledFlag && !handledMiniMap) _unbound.Add(name);
         }
         string portraitNode = settings.GetProperty("portraitNode").GetString()!;
         JsonElement bindings = settings.GetProperty("texts");
+        var sourceTextPresets = new Dictionary<int, MapTextPreset>();
+        if (settings.TryGetProperty("sourceTextPresets", out JsonElement presetBindings))
+        {
+            foreach (JsonProperty presetBinding in presetBindings.EnumerateObject())
+            {
+                int presetIndex = int.Parse(presetBinding.Name, CultureInfo.InvariantCulture);
+                foreach (JsonElement entry in presetBinding.Value.EnumerateArray())
+                {
+                    int index = entry.GetInt32();
+                    if (index < 0 || index >= nodes.Count || nodes[index].Type != 2)
+                        throw new InvalidDataException($"Detail text preset has no source text node {index}.");
+                    sourceTextPresets.Add(index, textPresets[presetIndex]);
+                }
+            }
+        }
         JsonElement progressBars = settings.TryGetProperty("progressBars", out JsonElement configuredBars)
             ? configuredBars : default;
         var knownNames = nodes.Select(node => node.Name).ToHashSet(StringComparer.Ordinal);
@@ -134,20 +183,35 @@ public abstract partial class DetailsView : Control
                 continue;
             }
             if (node.Type is 1 or 3)
-                DrawSprite(source.Layout, node, rectangle, scales[node.Index]);
+            {
+                if (sourceTypography) sourceLayout!.Art(_canvas, node.Index, rectangle, Assets, _sourceShader!);
+                else DrawSprite(source.Layout, node, rectangle, scales[node.Index]);
+            }
             else if (node.Type == 2)
             {
                 string value;
+                string? valueKey = null;
                 bool caption = false;
                 if (bindings.TryGetProperty(node.Name, out JsonElement binding))
                 {
                     caption = binding.TryGetProperty("key", out JsonElement key);
-                    value = caption ? text.Get(key.GetString()!) : values[binding.GetProperty("value").GetString()!];
+                    valueKey = caption ? null : binding.GetProperty("value").GetString()!;
+                    value = caption ? text.Get(key.GetString()!) : values[valueKey!];
                 }
                 else
                 {
                     _unbound.Add(node.Name);
                     value = text.Get("detail_unknown");
+                }
+                if (sourceTypography)
+                {
+                    sourceTextPresets.TryGetValue(node.Index, out MapTextPreset? preset);
+                    if (valueKey is not null && valueTextPresets?.TryGetValue(valueKey, out int currentPreset) == true)
+                        preset = textPresets[currentPreset];
+                    var sourceLabel = sourceLayout!.Text(_canvas, node.Index, default, value, _sourceFont!, preset, rectangle);
+                    if (valueKey == "force" && forceAppearance?.DisplayName is { Length: > 0 })
+                        sourceLabel.FirstGlyphColour = forceAppearance.Fill.CpuPacked;
+                    continue;
                 }
                 // The full source pair is not a proven alignment enum. Existing profiles
                 // accept only their inspected zero-high-byte cases. A separate scoped
@@ -167,7 +231,7 @@ public abstract partial class DetailsView : Control
                 }
                 HorizontalAlignment align = placementCode switch
                 {
-                    0x01 => HorizontalAlignment.Left,
+                    0x00 or 0x01 => HorizontalAlignment.Left,
                     0x11 => HorizontalAlignment.Center,
                     0x21 => HorizontalAlignment.Right,
                     _ => throw new InvalidDataException($"Unsupported detail text placement code {rawPair150:X4}: {node.Name}.")
@@ -198,28 +262,147 @@ public abstract partial class DetailsView : Control
             else if (node.Type != 0)
                 throw new InvalidDataException($"Unsupported detail node type {node.Type}: {node.Name}.");
         }
-        JsonElement selection = settings.GetProperty("selectionLabel");
-        AddLabel(selectionCaption, new Rect2(selection[0].GetSingle(), selection[1].GetSingle(),
-            selection[2].GetSingle(), selection[3].GetSingle()), 28, HorizontalAlignment.Center,
-            new Color("#efdd8e"));
-        var back = new TextureButton
+        if (sourceTypography)
         {
+            string miniMapName = settings.GetProperty("miniMapNode").GetString()!;
+            int miniMapIndex = nodes.Single(n => n.Name == miniMapName).Index;
+            Vector2 miniMapMount = sourceLayout!.Rectangle(miniMapIndex).Position;
+            var map = new UiSourceMiniMap { Name = "DetailMiniMap",
+                Position = origin + new Vector2((int)miniMapMount.X, (int)miniMapMount.Y) };
+            _canvas.AddChild(map);
+            map.Configure(repository, Assets, _sourceShader!, miniMap);
+            var nameplateSource = new UiSourceLayout(repository, 0x3858CC07);
+            Vector2 local = sourceLayout!.Rectangle(4).Position;
+            var nameplate = new Control { Name = "DetailNameplate", Position = origin + new Vector2((int)local.X, (int)local.Y),
+                Size = new(380, 94), MouseFilter = MouseFilterEnum.Ignore };
+            _canvas.AddChild(nameplate);
+            foreach (int index in new[] { 1, 2, 3 })
+                nameplateSource.Art(nameplate, index, nameplateSource.Rectangle(index), Assets, _sourceShader!);
+            nameplateSource.Text(nameplate, 7, default, selectionCaption, _sourceFont!, textPresets[0]);
+            if (forceAppearance is not null)
+            {
+                bool embedded = neighborFlags is not null;
+                Vector2 flagMount = nameplateSource.Rectangle(4).Position;
+                if (!embedded) flagMount = new((int)flagMount.X, (int)flagMount.Y);
+                var flag = new UiSourceForceFlag { Name = "NameplateForceFlag", Position = flagMount };
+                nameplate.AddChild(flag);
+                flag.Configure(repository, Assets, _sourceShader!, _sourceFont!, forceAppearance, embedded);
+            }
+            if (neighborFlags is not null)
+            {
+                for (int i = 0; i < neighborFlags.Count; i++)
+                {
+                    if (neighborFlags[i] is not { } appearance) continue;
+                    var flag = new UiSourceForceFlag { Name = "NeighborForceFlag" + i,
+                        Position = origin + new Vector2(i < 4 ? 677 : 957, 490 + i % 4 * 40) };
+                    _canvas.AddChild(flag);
+                    flag.Configure(repository, Assets, _sourceShader!, _sourceFont!, appearance, neighbor: true);
+                }
+            }
+        }
+        JsonElement selection = settings.GetProperty("selectionLabel");
+        if (settings.TryGetProperty("selectionHeaderKey", out JsonElement selectionHeaderKey))
+        {
+            // Common shell positions observed in the city/area reference. These are
+            // captions for the current context; navigation requires a separate command.
+            if (sourceTypography)
+            {
+                var shell = new UiSourceLayout(frame);
+                Vector2 mount = new((1920 - shell.Nodes[0].Value44) / 2, 514 - shell.Nodes[0].Value46 / 2);
+                string caption = text.Get("detail_basic");
+                // The original counts UTF-16 units, rather than glyph pixels.
+                var tab = new UiSourceTabButton { Name = "BasicTab", Position = shell.Rectangle(4, mount).Position,
+                    Size = new(caption.Length * 28 + 36, 64), Selected = true };
+                _canvas.AddChild(tab);
+                tab.Configure(repository, Assets, _sourceShader!, _sourceFont!, caption);
+            }
+            else
+            {
+                AddShellPanel("BasicTab", "000_cmn_btn_tab__2", new Rect2(233, 154, 84, 52));
+                AddLabel(text.Get("detail_basic"), new Rect2(233, 160, 84, 40), 28,
+                    HorizontalAlignment.Center, new Color("#f4e59d")).Name = "BasicCaption";
+            }
+            Rect2 chosen = new(selection[0].GetSingle(), selection[1].GetSingle(),
+                selection[2].GetSingle(), selection[3].GetSingle());
+            if (sourceTypography)
+            {
+                var configuredHeader = settings.GetProperty("selectionHeader");
+                var header = new UiSourceColumnButton { Name = "SelectionHeader",
+                    Position = new(configuredHeader.GetProperty("x").GetSingle(), configuredHeader.GetProperty("y").GetSingle()),
+                    Size = new(configuredHeader.GetProperty("width").GetSingle(), 48) };
+                _canvas.AddChild(header);
+                header.Configure(repository, Assets, _sourceShader!, _sourceFont!, text.Get(selectionHeaderKey.GetString()!));
+            }
+            else
+            {
+                AddShellPanel("SelectionHeader", "000_cmn_btn_cmd_hanyo_0",
+                    new Rect2(chosen.Position.X - 6, 211, chosen.Size.X + 12, 48));
+                AddLabel(text.Get(selectionHeaderKey.GetString()!),
+                    new Rect2(chosen.Position.X, 217, chosen.Size.X, 40), 24,
+                    HorizontalAlignment.Center, new Color("#514936")).Name = "SelectionCaption";
+            }
+            if (sourceTypography)
+            {
+                var configuredRow = settings.GetProperty("selectionRow");
+                var row = new UiSourceListRow { Name = "CurrentSelection", Selected = true,
+                    Position = new(configuredRow.GetProperty("x").GetSingle(), configuredRow.GetProperty("y").GetSingle()) };
+                _canvas.AddChild(row);
+                row.Configure(repository, Assets, _sourceShader!, _sourceFont!, selectionCaption,
+                    settings.GetProperty("selectionHeader").GetProperty("width").GetSingle(),
+                    configuredRow.GetProperty("leadingCell").GetBoolean(), selectionIcon);
+                if (configuredRow.GetProperty("leadingCell").GetBoolean())
+                {
+                    var kindHeader = new UiSourceColumnButton { Name = "SelectionKindHeader",
+                        Position = new(row.Position.X, settings.GetProperty("selectionHeader").GetProperty("y").GetSingle()),
+                        Size = new(48, 48) };
+                    _canvas.AddChild(kindHeader);
+                    kindHeader.Configure(repository, Assets, _sourceShader!, _sourceFont!, "", "000_cmn_icon_kyoten");
+                }
+                var configuredScroll = settings.GetProperty("selectionScrollbar");
+                var scroll = new UiSourceScrollbar { Name = "SelectionScrollbar",
+                    Position = new(configuredScroll.GetProperty("x").GetSingle(), configuredScroll.GetProperty("y").GetSingle()),
+                    Size = new(16, configuredScroll.GetProperty("height").GetSingle()) };
+                _canvas.AddChild(scroll);
+                scroll.ConfigureNoRange(repository, Assets, _sourceShader!);
+            }
+            else AddShellPanel("CurrentSelection", "000_cmn_btn_cmd_hanyo_2",
+                new Rect2(chosen.Position - new Vector2(6, 6), chosen.Size + new Vector2(12, 8)));
+        }
+        if (!sourceTypography)
+            AddLabel(selectionCaption, new Rect2(selection[0].GetSingle(), selection[1].GetSingle(),
+                selection[2].GetSingle(), selection[3].GetSingle()), 28, HorizontalAlignment.Center,
+                new Color("#efdd8e"));
+        TextureButton back;
+        if (sourceTypography)
+        {
+            var footer = new UiSourceLayout(repository, 0xD8913AB2);
+            Vector2 footerMount = new(0, 1080 - footer.Nodes[0].Value46);
+            var sourceBack = new UiSourceRoundButton { Name = $"Close{viewName}", Position = footer.Rectangle(1, footerMount).Position };
+            _canvas.AddChild(sourceBack);
+            sourceBack.Configure(repository, Assets, _sourceShader!, text.SourceLocale,
+                "000_cmn_txt_decision_modoru", RequestClose);
+            sourceBack.FocusMode = FocusModeEnum.All;
+            back = sourceBack;
+        }
+        else
+        {
+            back = new TextureButton
+            {
             Name = $"Close{viewName}", Position = new Vector2(896, 952), Size = new Vector2(128, 128),
             TextureNormal = Assets.Sprite("000_cmn_btn_decision_0").Texture,
             TextureHover = Assets.Sprite("000_cmn_btn_decision_1").Texture,
             TexturePressed = Assets.Sprite("000_cmn_btn_decision_2").Texture,
             IgnoreTextureSize = true, StretchMode = TextureButton.StretchModeEnum.Scale,
             TooltipText = text.Get("detail_return")
-        };
+            };
+            back.Pressed += RequestClose;
+            _canvas.AddChild(back);
+            Label returnLabel = AddLabel(text.Get("detail_return"), new Rect2(920, 993, 80, 40),
+                32, HorizontalAlignment.Center, new Color("#35261b"));
+            returnLabel.MouseFilter = MouseFilterEnum.Ignore;
+        }
         _close = close;
-        back.Pressed += RequestClose;
         _returnButton = back;
-        _canvas.AddChild(back);
-        Label returnLabel = AddLabel(text.Get("detail_return"), new Rect2(920, 993, 80, 40),
-            32, HorizontalAlignment.Center, new Color("#35261b"));
-        returnLabel.MouseFilter = MouseFilterEnum.Ignore;
-        AddLabel(text.Get("detail_comparison_hint"), new Rect2(25, 1032, 810, 35),
-            18, HorizontalAlignment.Left, new Color("#eadcb5"));
         if (partiallyRenderedText.Count != 0)
         {
             SetMeta("partial_text_style_nodes", partiallyRenderedText.ToArray());
@@ -241,6 +424,16 @@ public abstract partial class DetailsView : Control
             _returnButton.GrabFocus();
     }
 
+    private void AddShellPanel(string name, string spriteName, Rect2 rectangle)
+    {
+        _canvas.AddChild(new NinePatchRect
+        {
+            Name = name, Position = rectangle.Position, Size = rectangle.Size,
+            Texture = Assets.Sprite(spriteName).Texture, MouseFilter = MouseFilterEnum.Ignore,
+            PatchMarginLeft = 6, PatchMarginTop = 6, PatchMarginRight = 6, PatchMarginBottom = 6
+        });
+    }
+
     internal void RequestClose()
     {
         if (_close is not Action close || !IsVisibleInTree() || IsQueuedForDeletion()) return;
@@ -251,6 +444,8 @@ public abstract partial class DetailsView : Control
 
     public override void _ExitTree()
     {
+        _sourceFont?.Dispose(); _sourceFont = null;
+        _sourceShader?.Dispose(); _sourceShader = null;
         _assets?.Dispose();
         _assets = null;
         _returnButton = null;

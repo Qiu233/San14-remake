@@ -5,6 +5,7 @@
 #include "../../Camera/CameraMatrix.h"
 #include "../../Camera/CameraState.h"
 #include <bit>
+#include <span>
 namespace source_shadow_camera {
 using source_camera::A;
 using source_camera::D;
@@ -55,6 +56,13 @@ struct Admission {
     std::array<unsigned, 4> distanceWritten{};
     std::uint64_t firstAcceptedDistanceKey{};
 };
+// Instanced procedural templates submit their View-frustum box once, before
+// the individual LOD commands replace their instance streams. The identity is
+// a template index, independent of the rigid model catalog.
+struct ProceduralCaster {
+    unsigned templateIndex{}, primitiveCount{};
+    Matrix box{};
+};
 struct Frame {
     source_camera::CameraTransform camera{};
     Matrix workVolumeTransform{};
@@ -63,6 +71,7 @@ struct Frame {
     V4 depthPlane{}, relativeEnds{};
     std::array<Atlas, 4> atlas{};
     std::vector<Admission> admissions;
+    std::vector<Admission> proceduralAdmissions;
     std::array<unsigned, 4> instanceCounts{}, primitiveCounts{};
     std::vector<unsigned> ordinaryRecordCounts;
     float compactFar{};
@@ -602,7 +611,7 @@ inline void atlas(Frame &f, const Profile &p) {
 }
 template <class ModelCatalog>
 inline Frame prepareCurrent(const Profile &p, const source_camera::Frame &camera, const ModelCatalog &models,
-                            Owner &owner) {
+                            Owner &owner, std::span<const ProceduralCaster> procedural = {}) {
     if (models.instances.size() != p.worlds.size())
         throw std::runtime_error("Shadow candidates require same complete imported catalog");
     Frame f;
@@ -655,6 +664,24 @@ inline Frame prepareCurrent(const Profile &p, const source_camera::Frame &camera
             for (size_t record = 0; record < p.records.size(); record++)
                 if ((p.records[record].mask & w.exclusion) == 0)
                     f.ordinaryRecordCounts[record] += w.primitiveCount;
+    }
+    for (const auto& caster : procedural) {
+        Admission admission;
+        admission.index = caster.templateIndex;
+        admission.mask = testAndAccumulate(f, caster.box, admission);
+        for (int i = 0; i < f.passCount; ++i)
+            if (admission.mask & (1u << i)) {
+                // BB85A0 allocates the tuples at the first accepted cascade;
+                // later cascade lists reuse those same tuples and sort key.
+                admission.firstAcceptedDistanceKey = firstDistanceKey(admission.distances[i]);
+                break;
+            }
+        for (int i = 0; i < f.passCount; ++i)
+            if (admission.mask & (1u << i)) {
+                ++f.instanceCounts[i];
+                f.primitiveCounts[i] += caster.primitiveCount;
+            }
+        f.proceduralAdmissions.push_back(admission);
     }
     finalPasses(f, p);
     atlas(f, p);

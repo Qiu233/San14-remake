@@ -9,6 +9,7 @@ public sealed record NativeArmyOrigin(string Revision, string Language, string R
 public sealed partial record UnitState
 {
     public NativeArmyOrigin? NativeArmyOrigin { get; init; }
+    public byte? NativeCommandChoice41 { get; init; }
     public ArmyFormationState? Formations { get; init; }
     public ArmyOrdinaryFieldAttackPolicy? FieldAttackPolicy { get; init; }
     /// <summary>Current native Army saved region Hex152. Its source writer is
@@ -19,6 +20,8 @@ public sealed partial record UnitState
 public sealed record PlayableArmyCreationResolution(NativeArmyTacticRuntime Runtime,
     int WoundedTroops, NativeArmyOrigin Origin, ulong RandomState)
 {
+    public ArmyMarchState? March { get; init; }
+    public byte? NativeCommandChoice41 { get; init; }
     public ArmyOverrideTargetState? OverrideTarget { get; init; }
     public ArmyFormationState? Formations { get; init; }
     public ArmyOrdinaryFieldAttackPolicy? FieldAttackPolicy { get; init; }
@@ -60,6 +63,25 @@ public interface IPlayableArmyCreationPreparationRules
 
 public static class PlayableArmyCreation
 {
+    /// <summary>Publishes one real registered Army and its source owners in the
+    /// caller's transaction. Both immediate normal commands and legacy queued
+    /// execution use this single receipt application.</summary>
+    public static GameState PublishCreated(GameState state, UnitState army, PlayableArmyCreationResolution receipt)
+    {
+        if (state.Units.ContainsKey(army.Id)) throw new InvalidDataException("Created Army identity is already active.");
+        var created = Apply(state, army, receipt);
+        var commander = state.Officers[army.OfficerId];
+        if (receipt.CommanderPosition is { } position)
+            commander = commander with { LocationState = commander.LocationState is { } location
+                ? location with { Position = position } : new(position, null) };
+        var result = PublishOwners(state, receipt) with
+        {
+            Units = new(state.Units) { [created.Id] = created },
+            Officers = new(state.Officers) { [commander.Id] = commander with { Deployed = true } },
+            RandomState = receipt.RandomState
+        };
+        return ArmyIdentityAllocation.Commit(result, created.Id);
+    }
     internal static GameState PublishOwners(GameState state, PlayableArmyCreationResolution result) => state with
     {
         ResourceState = result.ResourceState ?? state.ResourceState,
@@ -104,10 +126,12 @@ public static class PlayableArmyCreation
             NativeDirection36 = result.NativeDirection36,
             NativeMapUiByte13C = result.NativeMapUiByte13C,
             NativeCommandControl140 = result.NativeCommandControl140,
+            NativeCommandChoice41 = result.NativeCommandChoice41,
             NativeRouteHold56 = result.NativeRouteHold56,
             NativeRouteGoal1F8 = result.NativeRouteGoal1F8,
             NativeHomeSequence28 = result.NativeHomeSequence28,
             OverrideTarget = result.OverrideTarget,
+            March = result.March,
             CarriedStores = result.CarriedStores,
             Formations = result.Formations, FieldAttackPolicy = result.FieldAttackPolicy,
             TraitRoster = result.TraitRoster,
@@ -123,6 +147,7 @@ public static class PlayableArmyCreation
 
     internal static void Validate(GameState state, UnitState army)
     {
+        if (army.NativeCommandChoice41 is > 2) throw new InvalidDataException("Army command choice exceeds its source clamp.");
         if (army.TransportRoute is not null && army.Mission?.Kind != UnitMissionKind.Transport)
             throw new InvalidDataException("Transport waypoints require a transport mission.");
         if ((army.NativeSavedRegionHex152 is not null || army.CarriedStores is not null) && (state.NativeClock is null ||

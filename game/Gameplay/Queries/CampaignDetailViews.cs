@@ -8,7 +8,11 @@ namespace San14.Client.Gameplay;
 
 internal sealed record DetailContent(IReadOnlyDictionary<string, string> Values,
     int? PortraitAppearanceCode, string Caption);
-internal sealed record CityDetailView(DetailContent Content, IReadOnlyList<string> UnavailableCapacities);
+internal sealed record CityDetailView(DetailContent Content, IReadOnlyList<string> UnavailableCapacities)
+{
+    internal DetailForceAppearance? ForceAppearance { get; init; }
+    internal DetailMiniMapValues? MiniMap { get; init; }
+}
 internal sealed record ForceDetailView(DetailContent Content, int ForceId, bool DoctrineReferenceKnown);
 internal sealed record AbilityFigures(int Leadership, int Strength, int Intelligence, int Politics, int Charm)
 {
@@ -24,7 +28,8 @@ internal sealed record OfficerDetailView(DetailContent Content, int OfficerId,
 internal static class CampaignDetailViews
 {
     public static CityDetailView City(GameState world, ScenarioCityPreview snapshot, int cityId,
-        PreviewText text, CityCurrentCapacityFields capacity)
+        PreviewText text, CityCurrentCapacityFields capacity, CityGeographyValues? geography = null,
+        DetailForceAppearance? forceAppearance = null, DetailMiniMapValues? miniMap = null)
     {
         CityState city = world.Cities[cityId];
         int? portrait = Appearance(snapshot, city.GovernorId);
@@ -32,7 +37,9 @@ internal static class CampaignDetailViews
         var values = new Dictionary<string, string>
         {
             ["city"] = city.Name,
-            ["force"] = city.ForceId is int forceId ? world.Forces[forceId].Name : text.Neutral,
+            ["geographicRegion"] = geography?.Region ?? unknown,
+            ["province"] = geography?.Province ?? unknown,
+            ["force"] = forceAppearance?.DisplayText ?? unknown,
             ["governor"] = city.GovernorId is int governorId ? world.Officers[governorId].Name : unknown,
             ["district"] = city.DistrictId is int districtId ? text.DistrictNumber(world.Districts[districtId].Number) : unknown,
             ["gold"] = Number(city.Gold), ["supplies"] = Number(city.Supplies), ["troops"] = Number(city.Troops),
@@ -57,12 +64,14 @@ internal static class CampaignDetailViews
             ["freeOfficers"] = Number(world.Officers.Values.Count(officer =>
                 (officer.Presence is null or OfficerPresence.Present) && officer.LocationId == city.Id && officer.Role == OfficerRole.Free))
         };
-        return new(Content(values, portrait, city.Name), Array.AsReadOnly(capacity.Unavailable.ToArray()));
+        return new(Content(values, portrait, city.Name), Array.AsReadOnly(capacity.Unavailable.ToArray()))
+            { ForceAppearance = forceAppearance, MiniMap = miniMap };
     }
 
     public static ForceDetailView Force(GameState world, ScenarioCityPreview snapshot, int forceId, PreviewText text)
     {
         ForceState force = world.Forces[forceId];
+        ForceDoctrineView doctrine = ForceDoctrineView.Create(world, forceId);
         ForceSummary figures = ForceSummary.Capture(world, forceId);
         int land = world.Territory.Values.Count(tile => tile.ForceId == forceId);
         int total = world.Territory.Values.Count(tile => tile.AreaId is not null);
@@ -70,16 +79,16 @@ internal static class CampaignDetailViews
         {
             ["ruler"] = force.Name,
             ["rank"] = force.RankId is int rankId ? world.ForceRanks[rankId].Name : text.Get("detail_unknown"),
-            ["doctrine"] = force.DoctrineId is int doctrineId
+            ["doctrine"] = doctrine.Name is string doctrineName
                 ? string.Format(CultureInfo.InvariantCulture, text.Get("detail_doctrine_value"),
-                    world.Doctrines[doctrineId].Name, text.Get("detail_unknown")) : text.Get("detail_unknown"),
+                    doctrineName, doctrine.Level is int level ? level : text.Get("detail_unknown")) : text.Get("detail_unknown"),
             ["districts"] = Number(figures.Districts), ["cities"] = Number(figures.Cities),
             ["officers"] = Number(figures.Officers), ["gold"] = Number(figures.Gold),
             ["supplies"] = Number(figures.Supplies), ["troops"] = Number(figures.Troops),
             ["land"] = Number(land), ["totalLand"] = Number(total),
             ["landRate"] = total == 0 ? "0.0%" : (100.0 * land / total).ToString("F1", CultureInfo.InvariantCulture) + "%"
         };
-        return new(Content(values, Appearance(snapshot, force.RulerId), force.Name), forceId, force.DoctrineId is not null);
+        return new(Content(values, Appearance(snapshot, force.RulerId), force.Name), forceId, doctrine.Name is not null);
     }
 
     public static OfficerDetailView Officer(GameState world, ScenarioCityPreview snapshot, int officerId, PreviewText text)

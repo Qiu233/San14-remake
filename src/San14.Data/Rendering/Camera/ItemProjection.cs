@@ -58,7 +58,8 @@ internal sealed record ItemProjection(Dictionary<int, ItemDefinition> Definition
             items.Add(slot, new ItemState(slot, slot)
             {
                 Holder = holder,
-                IsPresent = item.RawStatusCode is byte status ? status == 1 : null
+                Lifecycle = new(item.RawStatusCode is byte status ? ItemStatusKnowledge.Exact(status) : null,
+                    item.RetainedLocationCode, item.RetainedFlags)
             });
         }
         if (unresolvedHolders) issues.Add("items.unresolved_holders");

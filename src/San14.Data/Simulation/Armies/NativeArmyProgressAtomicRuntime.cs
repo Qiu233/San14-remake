@@ -32,9 +32,66 @@ public static class NativeArmyProgressAtomicRuntime
         IPlayableNativeArmyProgressStageSource stageSource,
         Func<INormalArmyCombatPhaseLocalCaptureSource, INormalArmyCombatStage13Consumer>? createPhaseConsumer = null,
         ArmyMarchSourceRuntime? movementSource = null)
+        => TryAdvanceBlocks(input, expectedStartCalendarCycleOrdinal, 1, waitingRules, stageSource,
+            createPhaseConsumer, movementSource);
+
+    /// <summary>Runs consecutive save blocks in one private operation. Only the
+    /// complete requested range publishes derived state; a later failure discards
+    /// earlier blocks too. This is not the period finalizer: economic, report and
+    /// application-profile completion remain the caller's separate responsibilities.</summary>
+    public static NativeArmyProgressBlockResult TryAdvanceBlocks(GameState input,
+        long expectedStartCalendarCycleOrdinal, int blockCount, IPlayableNativeSubdayRules waitingRules,
+        IPlayableNativeArmyProgressStageSource stageSource,
+        Func<INormalArmyCombatPhaseLocalCaptureSource, INormalArmyCombatStage13Consumer>? createPhaseConsumer = null,
+        ArmyMarchSourceRuntime? movementSource = null)
     {
         ArgumentNullException.ThrowIfNull(input); ArgumentNullException.ThrowIfNull(waitingRules);
         ArgumentNullException.ThrowIfNull(stageSource);
+        if (blockCount is < 1 or > NativeSubdayStateValidation.UpdatesPerPeriod)
+            throw new ArgumentOutOfRangeException(nameof(blockCount));
+        if (input.NativeMapSeason is { } initialSeason && expectedStartCalendarCycleOrdinal >= initialSeason.AdvancedCalendarSteps &&
+            input.NativeClock is { } clock && blockCount > NativeSubdayStateValidation.UpdatesPerPeriod - clock.UpdatesIntoPeriod)
+            throw new InvalidDataException("Requested progress blocks cross the current period's finalizer boundary.");
+        var stageRules = stageSource.BeginOperation();
+        GameState working = input;
+        var captures = new List<NormalArmyCombatPhaseLocalCapture>();
+        for (int block = 0; block < blockCount; block++)
+        {
+            var result = TryAdvanceBlockPrivate(working, checked(expectedStartCalendarCycleOrdinal + block * CyclesPerSaveBlock),
+                waitingRules, stageRules, movementSource);
+            if (result.Outcome != NativeArmyProgressBlockOutcome.Committed)
+                return new(result.Outcome, input, result.BlockedAt, [], []);
+            working = result.State;
+            captures.AddRange(result.PhaseCaptures);
+        }
+        // Resolve only exact captured snapshots after the whole private transaction
+        // is ready. A later busy stage never publishes a prefix capture.
+        var source = new ExactCaptures(captures);
+        var consumer = createPhaseConsumer?.Invoke(source);
+        var resolutions = new List<NormalArmyCombatStage13Resolution>();
+        var diagnostics = new List<NativeNormalArmyCombatPhaseDiagnostic>();
+        foreach (var capture in captures)
+        {
+            var reached = consumer?.Resolve(capture.Moment) ?? new(NativeNormalArmyCombatPhaseOutcome.ArmyPlannerInputsUnresolved,
+                null, "normal.army_planner_inputs_unresolved", Revision);
+            if (!Enum.IsDefined(reached.Outcome) || string.IsNullOrWhiteSpace(reached.Reason) || string.IsNullOrWhiteSpace(reached.Revision) ||
+                (reached.Outcome == NativeNormalArmyCombatPhaseOutcome.ArmyOnlyPlanResolved ? reached.ArmyOnlyPlan is null : reached.ArmyOnlyPlan is not null) ||
+                reached.ArmyOnlyPlan is { } plan && (plan.Moment != capture.Moment || plan.OrderedPairs is null || plan.IncludesBaseOrGateOriginPairs))
+                throw new InvalidDataException("Reached source Army phase fabricated battle completeness or belongs to another moment.");
+            resolutions.Add(reached);
+            diagnostics.Add(new(capture.Moment.CalendarCycleOrdinal, capture.Moment.WorldThirdDate, reached.Outcome,
+                reached.ArmyOnlyPlan?.OrderedPairs.Length, reached.Reason, reached.Revision));
+        }
+        working = working with { NativeNormalArmyCombatCalendar = working.NativeNormalArmyCombatCalendar! with
+            { LastAdvanceDiagnostics = diagnostics.ToArray() } };
+        stageRules.PublishDerivedState(working);
+        return new(NativeArmyProgressBlockOutcome.Committed, working, null, captures.ToArray(), resolutions.ToArray());
+    }
+
+    private static NativeArmyProgressBlockResult TryAdvanceBlockPrivate(GameState input,
+        long expectedStartCalendarCycleOrdinal, IPlayableNativeSubdayRules waitingRules,
+        IPlayableNativeArmyProgressStageRules stageRules, ArmyMarchSourceRuntime? movementSource)
+    {
         var season = input.NativeMapSeason ?? throw new InvalidDataException("Source stage orchestration requires its actual World third-date owner.");
         var clock = input.NativeClock ?? throw new InvalidDataException("Source stage orchestration requires its actual Army waiting owner.");
         MapSeasonRuntime.ValidateOwned(season);
@@ -52,7 +109,6 @@ public static class NativeArmyProgressAtomicRuntime
             season.AdvancedCalendarSteps,
             season.AdvancedCalendarSteps, 0, [], NormalArmyCombatCalendarRuntime.Revision);
         GameState working = GameStateCopy.Copy(input);
-        IPlayableNativeArmyProgressStageRules stageRules = stageSource.BeginOperation();
         var captures = new List<NormalArmyCombatPhaseLocalCapture>();
         NativeMapSeasonDate date = season.ThirdDate;
         int waitingUpdates = 0;
@@ -119,36 +175,18 @@ public static class NativeArmyProgressAtomicRuntime
         if (!advancement.Available || advancement.CalendarStepsApplied != CyclesPerSaveBlock || advancement.State.ThirdDate != date)
             throw new InvalidDataException("Reached source writers differ from the existing owned calendar save boundary.");
 
-        // Resolve only exact captured snapshots after the whole private block
-        // is ready. A later busy stage never publishes a prefix capture.
-        var source = new ExactCaptures(captures);
-        var consumer = createPhaseConsumer?.Invoke(source);
-        var resolutions = new List<NormalArmyCombatStage13Resolution>();
-        var diagnostics = new List<NativeNormalArmyCombatPhaseDiagnostic>();
-        foreach (var capture in captures)
-        {
-            var reached = consumer?.Resolve(capture.Moment) ?? new(NativeNormalArmyCombatPhaseOutcome.ArmyPlannerInputsUnresolved,
-                null, "normal.army_planner_inputs_unresolved", Revision);
-            if (!Enum.IsDefined(reached.Outcome) || string.IsNullOrWhiteSpace(reached.Reason) || string.IsNullOrWhiteSpace(reached.Revision) ||
-                (reached.Outcome == NativeNormalArmyCombatPhaseOutcome.ArmyOnlyPlanResolved ? reached.ArmyOnlyPlan is null : reached.ArmyOnlyPlan is not null) ||
-                reached.ArmyOnlyPlan is { } plan && (plan.Moment != capture.Moment || plan.OrderedPairs is null || plan.IncludesBaseOrGateOriginPairs))
-                throw new InvalidDataException("Reached source Army phase fabricated battle completeness or belongs to another moment.");
-            resolutions.Add(reached);
-            diagnostics.Add(new(capture.Moment.CalendarCycleOrdinal, capture.Moment.WorldThirdDate, reached.Outcome,
-                reached.ArmyOnlyPlan?.OrderedPairs.Length, reached.Reason, reached.Revision));
-        }
         GameState result = working with { NativeMapSeason = advancement.State,
             NativeNormalArmyCombatCalendar = cursor with {
                 NextCalendarCycleOrdinal = advancement.State.AdvancedCalendarSteps,
-                ReachedDuePhaseCount = checked(cursor.ReachedDuePhaseCount + diagnostics.Count),
-                LastAdvanceDiagnostics = diagnostics.ToArray() } };
-        return new(NativeArmyProgressBlockOutcome.Committed, result, null, captures.ToArray(), resolutions.ToArray());
+                ReachedDuePhaseCount = checked(cursor.ReachedDuePhaseCount + captures.Count),
+                LastAdvanceDiagnostics = [] } };
+        return new(NativeArmyProgressBlockOutcome.Committed, result, null, captures.ToArray(), []);
 
         NativeArmyProgressBlockResult Blocked(NativeArmyProgressBlockOutcome outcome, NativeArmyProgressStageMoment at)
             => new(outcome, input, at, [], []);
     }
 
-    private static GameState? AdvanceStage(GameState state, IPlayableNativeArmyProgressStageRules rules, NativeArmyProgressStageMoment moment)
+    internal static GameState? AdvanceStage(GameState state, IPlayableNativeArmyProgressStageRules rules, NativeArmyProgressStageMoment moment)
     {
         var previousDate = state.Date;
         var previousClock = state.NativeClock;
@@ -162,7 +200,7 @@ public static class NativeArmyProgressAtomicRuntime
             throw new InvalidDataException("Army stage changed the driver calendar/cursor.");
         return resolution.State;
     }
-    private static void ValidateCursor(NativeNormalArmyCombatCalendarState? cursor)
+    internal static void ValidateCursor(NativeNormalArmyCombatCalendarState? cursor)
     {
         if (cursor is not null && (cursor.ProfileId != NormalArmyCombatSourcePlanner.ProfileId ||
             cursor.Revision != NormalArmyCombatCalendarRuntime.Revision))

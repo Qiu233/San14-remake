@@ -6,6 +6,7 @@
 #include "SkyPatternPalette.h"
 #include "../../Scene/View/PreparedViewBaseLight.h"
 #include "../../Device/ContextEnvironmentResources.h"
+#include "AmbientLightSnapshot.h"
 // Include after the cloud, ambient, weather and atmosphere publication writers.
 namespace San14::Render {
 
@@ -202,6 +203,7 @@ class CloudEnvironmentPass {
         auto prepared=prepareNativeAmbient(device,source,stars,power);
         prepareNativeAmbientImages(device,prepared);
         environment_=std::move(prepared);
+        generationLight_.resetForNewOwner();
     }
 
     void bootstrapAmbient(ID3D11DeviceContext* context,const CommonRenderPolicy& common) {
@@ -209,7 +211,7 @@ class CloudEnvironmentPass {
         // recipe requiring Ambient still needs its own actual fallback owner.
         if(!ambientGenerationEnabled(common)||!skyCloudDrawingEnabled(common))return;
         // Bootstrap supplies all three history slots once, before Main entry.
-        for(UINT slot=0;slot<3;++slot)executeNativeAmbientBatch(context,environment_,renderingAtmosphere()!=nullptr,[&]{prepareWorkFaces(context);},slot);
+        for(UINT slot=0;slot<3;++slot)executeNativeAmbientBatch(context,environment_,renderingAtmosphere()!=nullptr,[&](UINT firstFace){prepareWorkFaces(context,firstFace);},slot);
         executeNativeAmbientBlend(context,environment_,0,0);
     }
 
@@ -247,6 +249,7 @@ class CloudEnvironmentPass {
             // Retain current typed inputs, not a borrowed frame or an initial
             // six-face publication. First activation consumes this same update.
             acceptedEnvironment_=source_current_ambient::decodeEnvironment(*frame.season);
+            acceptedGenerationLight_=source_current_ambient::decodeSelectedAmbientLight(*frame.season);
             acceptedCloudLight_=frame.lights;
             acceptedClamp_=frame.season->cloudWeather.clampValue;
             ambientFrameSource_=source.ambientFrame;weatherSource_=source.weather;
@@ -269,7 +272,7 @@ class CloudEnvironmentPass {
         if(enabled&&currentSampleCount_&&*currentSampleCount_!=environment_.samples)
             throw std::runtime_error("Ambient sample count changed; prepare a new resource generation");
         executeNativeAmbientNode5(context,environment_,clock,enabled,
-            skyCloudDrawingEnabled(common)&&renderingAtmosphere()!=nullptr,[&]{prepareWorkFaces(context);});
+            skyCloudDrawingEnabled(common)&&renderingAtmosphere()!=nullptr,[&](UINT firstFace){prepareWorkFaces(context,firstFace);});
         parent.restore(context);
     }
 
@@ -307,7 +310,7 @@ class CloudEnvironmentPass {
     const CloudVolumeMaterial& cloudVolume() const { return volume_.value(); }
 
   private:
-    void prepareWorkFaces(ID3D11DeviceContext* context) {
+    void prepareWorkFaces(ID3D11DeviceContext* context,UINT firstFace) {
         ensureNativeAmbientFaces(context,environment_);
         // Bootstrap uses the actual initial face media before Main Cloud exists.
         // Current activation uses node three's accepted weather and phase; this
@@ -323,8 +326,11 @@ class CloudEnvironmentPass {
             if(!workWeatherLayout_)
                 workWeatherLayout_=source_current_cloud_weather::readLayout(weatherSource_/"work-layout.txt",true);
             publishNativeCurrentCloudWeatherToWork(currentWeather_.value(),*workWeatherLayout_,acceptedClamp_,cloud_,*environmentCloud_);
+            auto currentEnvironment=*acceptedEnvironment_;
+            generationLight_.beginBaseCall(firstFace,acceptedGenerationLight_.value());
+            generationLight_.apply(currentEnvironment);
             currentAmbient_->current=source_current_ambient::prepareCurrent(
-                currentAmbient_->profile,*acceptedEnvironment_,acceptedCloudLight_);
+                currentAmbient_->profile,currentEnvironment,acceptedCloudLight_);
             std::array<source_camera::V4,6> cloudClip{};
             for(unsigned face:{0u,1u,4u,5u})cloudClip[face]=source_work_cloud_clip::prepareCurrentWorkCloudClip(
                 renderingAtmosphere()->settings().planetRadius,currentAmbient_->current.faces[face].camera,2);
@@ -366,6 +372,8 @@ class CloudEnvironmentPass {
     std::optional<NativeAmbientCloudContinuous> environmentCloud_;
     fs::path ambientCloudSource_,ambientFrameSource_,weatherSource_;
     std::optional<source_current_ambient::Environment> acceptedEnvironment_;
+    std::optional<source_current_ambient::SelectedAmbientLight> acceptedGenerationLight_;
+    source_current_ambient::GenerationLightSnapshot generationLight_;
     source_current_season_atmosphere::CloudLightInput acceptedCloudLight_{};
     std::optional<source_current_cloud_weather::Layout> workWeatherLayout_;
     std::optional<UINT> currentSampleCount_;

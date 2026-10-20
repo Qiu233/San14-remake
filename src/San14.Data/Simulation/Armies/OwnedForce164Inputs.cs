@@ -2,6 +2,9 @@ using San14.Core;
 
 namespace San14.Data;
 
+/// <summary>Read-only doctrine level and the independently known progress values.</summary>
+public sealed record ForceDoctrineProgress(int? Level, int? WithinLevel, int? LevelSpan, int? Percentage);
+
 /// <summary>TC Force164's current Int32 and the real CSan14ExpData table0.
 /// Address naming avoids conflating this with Force162 or a UI field whose
 /// label has not been proved. ExCe loading reuses the production repository.</summary>
@@ -77,6 +80,39 @@ public sealed class OwnedForce164Inputs
     public static int? ReadMaximumThreshold(GameState state)
         => state.NativeArmySimulation?.Parameters.Int32Values is { } values && values.GetValueOrDefault(VersionKey) == 1 &&
             values.TryGetValue(ThresholdKey(10), out int value) ? value : null;
+
+    /// <summary>The ordered experience-row query used by the map header.
+    /// Invalid row0 keeps zero progress; missing inputs never become zero.
+    /// The caller uses wrapped Int32 multiplication and signed division.</summary>
+    public static ForceDoctrineProgress ReadProgress(GameState state, int physical)
+    {
+        if (ReadCurrent(state, physical) is not int current || ReadLevel(state, current) is not int level)
+            return new(null, null, null, null);
+        if (level == 0) return new(level, 0, 0, null);
+        var values = state.NativeArmySimulation!.Parameters.Int32Values;
+        int? within = null, span = null;
+        if (level == 10)
+        {
+            if (values.TryGetValue(ThresholdKey(9), out int previous) &&
+                values.TryGetValue(ThresholdKey(10), out int maximum))
+                within = span = unchecked(maximum - previous);
+        }
+        else if (ReadCurrent(state, physical) is int reread &&
+            values.TryGetValue(ThresholdKey(level), out int lower))
+        {
+            within = unchecked(reread - lower);
+            if (values.TryGetValue(ThresholdKey(level + 1), out int next) &&
+                values.TryGetValue(ThresholdKey(level), out int repeatedLower))
+                span = unchecked(next - repeatedLower);
+        }
+        int? percentage = null;
+        if (within is int numerator && span is int denominator && denominator != 0)
+        {
+            numerator = unchecked(numerator * 100);
+            if (numerator != int.MinValue || denominator != -1) percentage = numerator / denominator;
+        }
+        return new(level, within, span, percentage);
+    }
 }
 
 public sealed partial class SourceWorldContext

@@ -72,7 +72,7 @@ public static class BattleRemakeCurrentAttackingCityModifiers
                     return Missing($"current.Person[{physical}].associated22AC00");
                 if (linkedValid)
                 {
-                    var command = associated.Identity is int receiver ? current.ReadOwnedPersonCommandManager()?.Tasks.GetValueOrDefault(receiver) : null;
+                    var command = associated.Identity is int receiver ? current.ReadOwnedPersonCommandManager()?.Returns.GetValueOrDefault(receiver) : null;
                     //The implemented Return's actual v98 is15, not16. Other
                     //valid command classes need their own current producer.
                     if (command is null) return Missing($"current.Person[{physical}].associated_virtual98");

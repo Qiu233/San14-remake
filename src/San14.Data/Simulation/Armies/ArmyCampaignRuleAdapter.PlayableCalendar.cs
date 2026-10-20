@@ -13,8 +13,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         bool returnUnresolved = false;
         return NormalArmyCombatCalendarRuntime.AdvanceCampaign(state, beforeCalendarWriter: (current, date) =>
         {
-            if (returnUnresolved || date.Hour is not (8 or 22) ||
-                current.PersonnelReturns is not { Tasks.Count: > 0 }) return current;
+            if (returnUnresolved || date.Hour is not (8 or 22) || current.PersonnelCommands is not { } commands ||
+                commands.Returns.Count == 0 && commands.Disappearances is { Count: 0 }) return current;
             var returned = TryAdvancePersonReturnCommands(current, date);
             if (returned.State is not { } continued)
             {

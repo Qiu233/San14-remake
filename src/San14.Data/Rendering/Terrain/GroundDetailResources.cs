@@ -18,11 +18,15 @@ public sealed class GroundDetailResources
     public ProceduralViewSettings View { get; }
 
     public static GroundDetailResources Prepare(GameResourceRepository repository,
-        LoadedSceneResources scene, MapStaticModelGroundHeightSource field,
-        bool reversedDepth, string locale)
+        LoadedSceneResources scene, bool reversedDepth, string locale)
     {
         var declaration = MapProceduralPlacementSource.ReadCeSceneDeclaration(scene);
         var templates = GroundDetailTemplateResources.Load(repository, scene, declaration, reversedDepth);
+        // Placement callbacks sample the landscape Field in map coordinates.
+        // The camera's centered Field has an additional position edit; sharing
+        // that sampler shifts tree height lookups by half the landscape extent.
+        var field = MapStaticModelGroundHeightSource.PrepareCurrentField(repository, scene,
+            UnitWorldGroundHeightFieldPreparationBranch.RetainedWrapperCreated, true, []);
         var population = GroundDetailPopulation.Prepare(declaration, field,
             templates.Metadata.Select(template => template.Bounds).ToArray());
         var common = repository.LoadObjects("KIDSSystemResource", CommonRenderResources.SourceFileId);

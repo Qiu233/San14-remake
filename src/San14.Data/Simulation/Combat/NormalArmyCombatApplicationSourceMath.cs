@@ -1,4 +1,5 @@
 using San14.Core;
+using ApplicationParameterKeys = San14.Core.SimulationParameterKeys.NormalCombatApplication;
 
 namespace San14.Data;
 
@@ -155,6 +156,23 @@ public static class NormalArmyCombatApplicationSourceMath
             !owner.Float32Values.ContainsKey(key) && owner.Int32Values.TryGetValue(key, out int value) ? value : null;
     }
 
+    /// <summary>Read one reached current integer. Image defaults never repair a
+    /// missing or mistyped saved value, and unrelated current keys are not read.</summary>
+    internal static int ReadCurrentParameter(GameState state,
+        NormalArmyCombatApplicationSourceParameters source, string key)
+    {
+        ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(source);
+        if (!FieldDefinitions.Any(field => field.Key == key) && key != ApplicationParameterKeys.TerrainOneAddend)
+            throw new InvalidDataException("Unknown normal application parameter key.");
+        if (state.NativeArmySimulation?.Parameters is not { } parameters ||
+            parameters.Language != source.Language || parameters.Int32Values is null ||
+            parameters.Float32Values is null || string.IsNullOrWhiteSpace(parameters.Revision) ||
+            !string.Equals(parameters.RuleVersion, source.Source.RuleVersion, StringComparison.OrdinalIgnoreCase) ||
+            parameters.Float32Values.ContainsKey(key) || !parameters.Int32Values.TryGetValue(key, out int value))
+            throw new InvalidDataException($"Current normal application parameter is unresolved: {key}.");
+        return value;
+    }
+
     /// <summary>SC174856..17488C. Both frame inputs have already been narrowed
     /// to native words. Their sum is an i32 and is not narrowed a second time.</summary>
     public static NormalArmyCombatRequestedLossReceipt BuildNormalRequestedLoss(
@@ -172,8 +190,15 @@ public static class NormalArmyCombatApplicationSourceMath
     {
         if (requestedLoss < 0)
             throw new InvalidDataException("Ordinary Army combat does not support a negative caller loss.");
+        return ApplyEnvironmentTroopDebit(currentTroops16, requestedLoss);
+    }
+
+    internal static NormalArmyCombatTroopDebitReceipt ApplyEnvironmentTroopDebit(
+        ushort currentTroops16, int requestedLoss)
+    {
         int applied = Math.Min(currentTroops16, requestedLoss);
-        return new(applied, (ushort)Math.Clamp(unchecked(currentTroops16 - applied), 0, ushort.MaxValue), currentTroops16 != 0);
+        return new(applied, currentTroops16 == 0 ? (ushort)0 :
+            (ushort)Math.Clamp(unchecked(currentTroops16 - applied), 0, ushort.MaxValue), currentTroops16 != 0);
     }
 
     /// <summary>SC17CFD0 / TC17D260, with source scalar f32 sum order.
@@ -185,36 +210,56 @@ public static class NormalArmyCombatApplicationSourceMath
         ArgumentNullException.ThrowIfNull(parameters); ArgumentNullException.ThrowIfNull(input);
         if (parameters.MoraleDenominator == 0 || input.TargetCommanderValid && parameters.CharmDenominator == 0)
             throw new InvalidDataException("Current wounded ratio denominator is zero.");
+        return CalculateWoundedRatioCore(input, key => key == ApplicationParameterKeys.TerrainOneAddend
+            ? input.RuntimeTerrain1Addend : ReadRecordParameter(parameters, key));
+    }
+
+    internal static float? CalculateCurrentWoundedRatio(NormalArmyCombatWoundedRatioInput input,
+        Func<string, int> readCurrentParameter)
+    {
+        ArgumentNullException.ThrowIfNull(input); ArgumentNullException.ThrowIfNull(readCurrentParameter);
+        return CalculateWoundedRatioCore(input, key => readCurrentParameter(key));
+    }
+
+    private static float? CalculateWoundedRatioCore(NormalArmyCombatWoundedRatioInput input,
+        Func<string, int?> readParameter)
+    {
+        int Read(string key) => readParameter(key) ??
+            throw new InvalidDataException($"Current wounded ratio parameter is unresolved: {key}.");
         float charm = 0f;
         if (input.TargetCommanderValid)
         {
-            charm = (float)input.TargetCharm4 * (float)parameters.CharmScale;
-            charm = charm / (float)parameters.CharmDenominator;
+            charm = (float)input.TargetCharm4 * (float)Read(ApplicationParameterKeys.CharmScale);
+            int denominator = Read(ApplicationParameterKeys.CharmDenominator);
+            if (denominator == 0) throw new InvalidDataException("Current wounded ratio denominator is zero.");
+            charm = charm / (float)denominator;
         }
-        float amount = (float)parameters.MoraleScale * (float)input.CappedTargetMorale;
-        amount = amount / (float)parameters.MoraleDenominator;
-        float adjacency = input.Adjacent ? (float)parameters.AdjacentAddend : 0f;
+        float amount = (float)Read(ApplicationParameterKeys.MoraleScale) * (float)input.CappedTargetMorale;
+        int moraleDenominator = Read(ApplicationParameterKeys.MoraleDenominator);
+        if (moraleDenominator == 0) throw new InvalidDataException("Current wounded ratio denominator is zero.");
+        amount = amount / (float)moraleDenominator;
+        float adjacency = input.Adjacent ? (float)Read(ApplicationParameterKeys.AdjacentAddend) : 0f;
         float terrain = 0f;
         if (input.TargetTerrainValid)
         {
             int? addend = input.TerrainCategory42 switch
             {
-                0 => 0, 1 => input.RuntimeTerrain1Addend,
-                2 => parameters.Terrain2Addend, 3 => parameters.Terrain3Addend,
-                4 => parameters.Terrain4Addend, 5 => parameters.Terrain5Addend,
-                6 => parameters.Terrain6Addend, 7 => parameters.Terrain7Addend,
-                8 => parameters.Terrain8Addend, 9 => parameters.Terrain9Addend,
-                10 => parameters.Terrain10Addend, _ => null
+                0 => 0, 1 => readParameter(ApplicationParameterKeys.TerrainOneAddend),
+                2 => Read(ApplicationParameterKeys.Terrain2Addend), 3 => Read(ApplicationParameterKeys.Terrain3Addend),
+                4 => Read(ApplicationParameterKeys.Terrain4Addend), 5 => Read(ApplicationParameterKeys.Terrain5Addend),
+                6 => Read(ApplicationParameterKeys.Terrain6Addend), 7 => Read(ApplicationParameterKeys.Terrain7Addend),
+                8 => Read(ApplicationParameterKeys.Terrain8Addend), 9 => Read(ApplicationParameterKeys.Terrain9Addend),
+                10 => Read(ApplicationParameterKeys.Terrain10Addend), _ => null
             };
             if (addend is null) return null;
             terrain = (float)addend.Value;
         }
         float difficulty = input.SelectorE58 != 0 && input.TargetForceValid && input.TargetForceIsPlayer &&
-            input.Difficulty28 >= 3 ? (float)parameters.DifficultyPlayerAddend : 0f;
+            input.Difficulty28 >= 3 ? (float)Read(ApplicationParameterKeys.DifficultyPlayerAddend) : 0f;
         float effects = 0f;
         if (input.AttackerArmyValid && input.AttackerCommanderValid)
             effects = (float)input.TargetEffect6F + (float)input.AttackerEffect6F;
-        float special = input.TargetSpecialForcePerson ? (float)parameters.SpecialForceAddend : 0f;
+        float special = input.TargetSpecialForcePerson ? (float)Read(ApplicationParameterKeys.SpecialForceAddend) : 0f;
         amount = amount + charm;
         amount = amount + adjacency;
         amount = amount + terrain;
@@ -238,16 +283,44 @@ public static class NormalArmyCombatApplicationSourceMath
             throw new InvalidDataException("Wounded application needs the already capped Army loss.");
         if (selectorE58 == 0 && advancedPercent7 is null) return null;
         bool enabled = selectorE58 != 0 ? settingsCC == 0 : advancedPercent7!.Value > 0;
-        if (!enabled) return new(false, 0, 0, currentWounded18, 0, currentWounded18);
-        if (ratio is null) return null;
-        if (!float.IsFinite(ratio.Value) || ratio.Value < 0f)
-            throw new InvalidDataException("Resolved wounded ratio must be finite and nonnegative.");
-        int addition = TruncateNative(ratio.Value * (float)appliedLoss);
-        int adjusted = selectorE58 == 0
-            ? Math.Min(appliedLoss, unchecked(addition * advancedPercent7!.Value) / 100)
-            : addition;
-        ushort afterAddition = (ushort)Math.Clamp(unchecked(currentWounded18 + adjusted), 0, 20000);
-        float subtraction = (float)parameters.WoundedSubtractionPercent / 100f;
+        return ApplyWoundedChannelCore(key => ReadRecordParameter(parameters, key), currentWounded18,
+            appliedLoss, ratio, enabled, selectorE58 == 0 ? advancedPercent7 : null);
+    }
+
+    /// <summary>The caller resolves advanced-enabled before passing index7;
+    /// null is known disabled, never an unresolved settings owner. A reached
+    /// subtraction gate is read independently after the addition calculation.</summary>
+    internal static NormalArmyCombatWoundedReceipt? ApplyEnvironmentWoundedChannel(
+        Func<string, int> readCurrentParameter, ushort currentWounded18,
+        int appliedSignedLoss, float? ratio, int selectorE58, int settingsCC, int? advancedPercent7,
+        Func<bool>? readSubtractionGate = null)
+    {
+        ArgumentNullException.ThrowIfNull(readCurrentParameter);
+        bool enabled = selectorE58 != 0 && settingsCC == 0 || advancedPercent7 > 0;
+        return ApplyWoundedChannelCore(readCurrentParameter, currentWounded18,
+            appliedSignedLoss, ratio, enabled, advancedPercent7, readSubtractionGate);
+    }
+
+    private static NormalArmyCombatWoundedReceipt? ApplyWoundedChannelCore(
+        Func<string, int> readParameter, ushort currentWounded18, int appliedLoss,
+        float? ratio, bool enabled, int? advancedPercent7, Func<bool>? readSubtractionGate = null)
+    {
+        int addition = 0, adjusted = 0;
+        ushort afterAddition = currentWounded18;
+        if (enabled)
+        {
+            if (ratio is null) return null;
+            if (!float.IsFinite(ratio.Value) || ratio.Value < 0f)
+                throw new InvalidDataException("Resolved wounded ratio must be finite and nonnegative.");
+            addition = TruncateNative(ratio.Value * (float)appliedLoss);
+            adjusted = advancedPercent7 is int advanced
+                ? Math.Min(appliedLoss, unchecked(addition * advanced) / 100)
+                : addition;
+            afterAddition = (ushort)Math.Clamp(unchecked(currentWounded18 + adjusted), 0, 20000);
+        }
+        bool subtract = readSubtractionGate?.Invoke() ?? enabled;
+        if (!subtract) return new(enabled, addition, adjusted, afterAddition, 0, afterAddition);
+        float subtraction = (float)readParameter(ApplicationParameterKeys.WoundedSubtractionPercent) / 100f;
         subtraction = subtraction * (float)appliedLoss;
         int removed = TruncateNative(subtraction);
         ushort afterSubtraction = (ushort)Math.Clamp(unchecked(afterAddition - removed), 0, 20000);
@@ -276,12 +349,37 @@ public static class NormalArmyCombatApplicationSourceMath
         ArgumentNullException.ThrowIfNull(parameters);
         if (appliedLoss < 0)
             throw new InvalidDataException("Base morale sampling needs the already capped nonnegative loss.");
+        return CalculateMoraleLossCore(key => ReadRecordParameter(parameters, key), wounded40,
+            troops3C, leadership, appliedLoss, () => world);
+    }
+
+    internal static NormalArmyCombatMoraleReceipt CalculateEnvironmentMoraleLoss(
+        Func<string, int> readCurrentParameter, ushort wounded18,
+        ushort troops16, int leadership, int appliedSignedLoss,
+        Func<TacticSourceSamplerWorld?> currentSampler)
+        => CalculateMoraleLossCore(readCurrentParameter, wounded18, troops16,
+            leadership, appliedSignedLoss, currentSampler);
+
+    internal static NormalArmyCombatMoraleReceipt CalculateCurrentBaseMoraleLoss(
+        int wounded40, int troops3C, int leadership, int appliedSignedLoss,
+        Func<string, int> readCurrentParameter, Func<TacticSourceSamplerWorld> currentSampler)
+    {
+        ArgumentNullException.ThrowIfNull(currentSampler);
+        return CalculateMoraleLossCore(readCurrentParameter, wounded40, troops3C,
+            leadership, appliedSignedLoss, () => currentSampler());
+    }
+
+    private static NormalArmyCombatMoraleReceipt CalculateMoraleLossCore(
+        Func<string, int> readParameter, int wounded40, int troops3C,
+        int leadership, int appliedLoss, Func<TacticSourceSamplerWorld?> currentSampler)
+    {
+        ArgumentNullException.ThrowIfNull(readParameter); ArgumentNullException.ThrowIfNull(currentSampler);
         var draws = new List<NormalArmyCombatSamplerDraw>();
         float troops = (float)troops3C;
         float denominator = (float)wounded40 + troops;
         float fraction = troops / denominator;
         float probability = 1f - fraction;
-        probability = probability * (float)parameters.MoraleProbabilityScale;
+        probability = probability * (float)readParameter(ApplicationParameterKeys.MoraleProbabilityScale);
         probability = probability / 100f;
         probability = probability * 100f;
         // MINSS(100,NaN) returns NaN. COMISS(0,NaN); JAE is false, so
@@ -294,7 +392,7 @@ public static class NormalArmyCombatApplicationSourceMath
         int threshold = TruncateNative(thresholdFloat);
         int first = Draw("wounded-probability", 10000, troops3C, appliedLoss, threshold);
         if (first >= threshold) return Receipt(0);
-        int second = Draw("loss-magnitude", parameters.MoraleLossSamplerBound, wounded40, troops3C, null);
+        int second = Draw("loss-magnitude", readParameter(ApplicationParameterKeys.MoraleLossSamplerBound), wounded40, troops3C, null);
         int loss = unchecked(second + 1);
         int leadershipDeficit = Math.Max(0, unchecked(100 - leadership));
         float extraProbability = MathF.Min(100f, (float)leadershipDeficit);
@@ -308,12 +406,36 @@ public static class NormalArmyCombatApplicationSourceMath
 
         int Draw(string phase, int bound, int firstSalt, int secondSalt, int? limit)
         {
-            int value = TacticEffectSourceSamplerMath.Sample(bound, 1, firstSalt, secondSalt, 0, 0, world);
+            int value = TacticEffectSourceSamplerMath.Sample(bound, 1, firstSalt, secondSalt, 0, 0, currentSampler());
             draws.Add(new(phase, bound, firstSalt, secondSalt, 0, 0, value, limit));
             return value;
         }
         NormalArmyCombatMoraleReceipt Receipt(int loss) => new(loss, Array.AsReadOnly(draws.ToArray()));
     }
+
+    private static int ReadRecordParameter(NormalArmyCombatApplicationCurrentValues parameters, string key) => key switch
+    {
+        ApplicationParameterKeys.CharmScale => parameters.CharmScale,
+        ApplicationParameterKeys.CharmDenominator => parameters.CharmDenominator,
+        ApplicationParameterKeys.MoraleScale => parameters.MoraleScale,
+        ApplicationParameterKeys.MoraleDenominator => parameters.MoraleDenominator,
+        ApplicationParameterKeys.AdjacentAddend => parameters.AdjacentAddend,
+        ApplicationParameterKeys.Terrain2Addend => parameters.Terrain2Addend,
+        ApplicationParameterKeys.Terrain3Addend => parameters.Terrain3Addend,
+        ApplicationParameterKeys.Terrain4Addend => parameters.Terrain4Addend,
+        ApplicationParameterKeys.Terrain5Addend => parameters.Terrain5Addend,
+        ApplicationParameterKeys.Terrain6Addend => parameters.Terrain6Addend,
+        ApplicationParameterKeys.Terrain7Addend => parameters.Terrain7Addend,
+        ApplicationParameterKeys.Terrain8Addend => parameters.Terrain8Addend,
+        ApplicationParameterKeys.Terrain9Addend => parameters.Terrain9Addend,
+        ApplicationParameterKeys.Terrain10Addend => parameters.Terrain10Addend,
+        ApplicationParameterKeys.DifficultyPlayerAddend => parameters.DifficultyPlayerAddend,
+        ApplicationParameterKeys.SpecialForceAddend => parameters.SpecialForceAddend,
+        ApplicationParameterKeys.WoundedSubtractionPercent => parameters.WoundedSubtractionPercent,
+        ApplicationParameterKeys.MoraleProbabilityScale => parameters.MoraleProbabilityScale,
+        ApplicationParameterKeys.MoraleLossSamplerBound => parameters.MoraleLossSamplerBound,
+        _ => throw new InvalidDataException("Unknown normal application record parameter key.")
+    };
 
     private static int TruncateNative(float value) => !float.IsFinite(value) || value >= 2147483648f || value < -2147483648f
         ? int.MinValue : (int)value;

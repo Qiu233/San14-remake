@@ -28,6 +28,7 @@ public sealed class PersonGrowthCurrentQueries
     private static readonly string[] ParameterKeys = [SimulationParameterKeys.PersonGrowth.TraitGrowthScale, SimulationParameterKeys.PersonGrowth.ProvinceAdvantageGrowthScale, SimulationParameterKeys.PersonGrowth.DoctrineGrowthScale, SimulationParameterKeys.PersonGrowth.PolicyGrowthScale];
     private readonly LoadedScenario _scenario;
     private readonly LoadedGrowthModifierDefinitions _definitions;
+    internal LoadedGrowthModifierDefinitions Definitions => _definitions;
     private readonly string _language, _ruleVersion;
     private readonly int[] _initialParameters;
 
@@ -135,6 +136,13 @@ public sealed class PersonGrowthCurrentQueries
 
     public int? ReadCurrent(GameState state, string key) => SavedBank(state) && ParameterKeys.Contains(key)
         ? ReadInt(state, key) : null;
+
+    internal byte? ReadCityState(GameState state, int physical) => physical is >= 0 and < 52 && SavedBank(state)
+        ? ReadByte(state, CityStateKey(physical)) : null;
+    internal byte? ReadStateAdvantage(GameState state, int physical) => physical is >= 0 and < 23 && SavedBank(state)
+        ? ReadByte(state, StateAdvantageKey(physical)) : null;
+    internal byte? ReadAdvantageRequirement(GameState state, int physical) => physical is >= 0 and < 18 && SavedBank(state)
+        ? ReadByte(state, RequirementKey(physical)) : null;
 
     private bool Bound(GameState state) => state.NativeArmySimulation?.Parameters is { } p &&
         p.Language == _language && p.RuleVersion == _ruleVersion &&
