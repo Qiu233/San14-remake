@@ -2,7 +2,7 @@ using Godot;
 using San14.Data;
 using San14.Data.Formats;
 
-internal enum MapSystemCommand { Save, Load, Exit }
+internal enum MapSystemCommand { Save, Load, Exit, Environment }
 
 /// <summary>The map Config menu. Only supported commands receive a callback;
 /// the owner retains the parent while an ordinary save window is open.</summary>
@@ -33,7 +33,8 @@ internal partial class MapSystemMenuView : Control
         {
             int node = binding.Item1;
             MapSystemCommand? command = node switch
-            { 6 => MapSystemCommand.Save, 10 => MapSystemCommand.Load, 32 => MapSystemCommand.Exit, _ => null };
+            { 6 => MapSystemCommand.Save, 10 => MapSystemCommand.Load, 14 => MapSystemCommand.Environment,
+                32 => MapSystemCommand.Exit, _ => null };
             var box = source.Rectangle(node, mount);
             var button = new UiSourceCommandButton { Name = command is { } namedCommand ? "System" + namedCommand : "SystemCommand" + node,
                 Position = box.Position, Size = box.Size, Disabled = command is null };

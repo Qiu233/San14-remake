@@ -73,6 +73,7 @@ public partial class MapSceneView
     private void AttachSourceCameraSurface(VBoxContainer column)
     {
         if(!_embedded){column.AddChild(_surface);return;}
+        AttachSourceNavigationInput();
         _sourceMainCameraAspect=new AspectRatioContainer {
             Name="SourceMainCameraAspect",SizeFlagsHorizontal=SizeFlags.ExpandFill,
             SizeFlagsVertical=SizeFlags.ExpandFill,StretchMode=AspectRatioContainer.StretchModeEnum.Fit,
@@ -300,6 +301,15 @@ public partial class MapSceneView
 
     private void ApplySourceCameraInputFrame(int clock,SceneViewSourceCameraInputs input)
     {
+        //152B0 submits keyboard, mouse and edge requests in that order. Each
+        // consumer reads the latest controller; the normal tick publishes later.
+        ApplySourceNavigationKeyboard(input);
+        ApplySourceCameraPointerFrame(clock,input);
+        ApplySourceNavigationEdge(input);
+    }
+
+    private void ApplySourceCameraPointerFrame(int clock,SceneViewSourceCameraInputs input)
+    {
         if(_sourceMainCamera is null||_sourceMainCameraFrame is null||!_sourceCameraCurrentCursorKnown)return;
         // The remake owns these raw buffers: its prior sampled levels are +58,
         // current sampled levels are +70. Physical bindings are explicit remake
@@ -350,6 +360,7 @@ public partial class MapSceneView
 
     private void ResetSourceCameraInput()
     {
+        sourceCameraHeldCommands=0;sourceCameraControlHeld=false;sourceCameraShiftHeld=false;
         _sourceCameraActiveButton=-1;_sourceCameraHeldFrames=0;
         _sourceCameraPreviousCursorKnown=false;_sourceCameraCurrentCursorKnown=false;_sourceCameraPendingWheel=0;
         _sourceCameraRightHeld=false;_sourceCameraMiddleHeld=false;_sourceCameraLeftUiPressed=false;

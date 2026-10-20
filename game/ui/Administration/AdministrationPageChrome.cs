@@ -20,7 +20,7 @@ internal partial class AdministrationPageChrome : Control
     private bool abandoned;
 
     internal void Configure(GameResourceRepository repository, PreviewText text, int titleMessage,
-        Action returned, Action accepted, bool returnOnly = false)
+        Action returned, Action accepted, bool returnOnly = false, bool showFooterHint = true)
     {
         this.returned = returned; this.accepted = accepted;
         MouseFilter = MouseFilterEnum.Ignore;
@@ -45,9 +45,10 @@ internal partial class AdministrationPageChrome : Control
         var hint = new UiSourceLayout(repository, 0xAB6ADAA7);
         Vector2 hintMount = footer.Rectangle(19, mount).Position;
         foreach (var node in hint.Nodes.Where(node => node.Type is 1 or 3))
-            hint.Art(Canvas, node.Index, hint.Rectangle(node.Index, hintMount), Assets, SpriteShader);
+            hint.Art(Canvas, node.Index, hint.Rectangle(node.Index, hintMount), Assets, SpriteShader).Visible = showFooterHint;
         narration = hint.Text(Canvas, hint.Nodes.Single(node => node.Type == 2).Index, hintMount, "", Font);
         narration.Name = "AdministrationHint";
+        narration.Visible = showFooterHint;
         Resized += Fit; Fit();
 
         UiSourceRoundButton Round(string name, int slot, string caption, Action action)

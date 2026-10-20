@@ -9,12 +9,31 @@ using San14.Data;
 public partial class AudioPlaybackService : Node
 {
     private readonly ConcurrentQueue<Action> _engineActions = new();
-    private readonly Dictionary<string, AudioStreamPlayer> _players = new(StringComparer.Ordinal);
+    private sealed record Voice(AudioStreamPlayer Player, float BaseVolumeDb, AudioVolumeGroup? Group);
+    private readonly Dictionary<string, Voice> _players = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly object _postGate = new();
     private AudioRepository? _repository;
     private IAudioDecoder? _decoder;
     private int _engineThread;
+    public AudioVolumeOptions Volumes { get; private set; } = new();
+
+    /// <summary>Changes live voices without restarting or resuming them. New
+    /// voices receive the same current gains at their actual playback call.</summary>
+    public void SetVolumes(AudioVolumeOptions volumes)
+    {
+        RequireEngineThread();
+        ArgumentNullException.ThrowIfNull(volumes); volumes.Validate();
+        Volumes = volumes;
+        foreach (var voice in _players.Values) ApplyVolume(voice);
+    }
+
+    private void ApplyVolume(Voice voice)
+    {
+        if (voice.Group is { } group)
+            voice.Player.VolumeLinear = Mathf.DbToLinear(voice.BaseVolumeDb) * (Volumes.Percent(group) / 100f);
+        else voice.Player.VolumeDb = voice.BaseVolumeDb;
+    }
 
     public void Configure(AudioRepository repository, IAudioDecoder decoder)
     {
@@ -135,38 +154,43 @@ public partial class AudioPlaybackService : Node
     }
 
     /// <summary>Explicit caller-selected channel; each channel replaces its preceding voice.</summary>
-    public void Play(AudioClip clip, string channel, float volumeDb = 0, string bus = "Master")
+    public void Play(AudioClip clip, string channel, float volumeDb = 0, string bus = "Master",
+        AudioVolumeGroup? volumeGroup = null)
     {
         RequireEngineThread();
         ArgumentNullException.ThrowIfNull(clip);
         if (string.IsNullOrWhiteSpace(channel) || channel.Length > 64) throw new ArgumentException("Audio channel needs a short nonempty key.", nameof(channel));
         if (!float.IsFinite(volumeDb) || volumeDb is < -80 or > 24) throw new ArgumentOutOfRangeException(nameof(volumeDb));
+        if (volumeGroup is { } group && !Enum.IsDefined(group)) throw new ArgumentOutOfRangeException(nameof(volumeGroup));
         if (AudioServer.GetBusIndex(bus) < 0) throw new ArgumentException("Selected audio bus does not exist.", nameof(bus));
-        if (!_players.TryGetValue(channel, out AudioStreamPlayer? player))
+        if (!_players.TryGetValue(channel, out var previous))
         {
-            player = new AudioStreamPlayer { Name = "OriginalAudioVoice" + _players.Count, Autoplay = false };
-            AddChild(player); _players.Add(channel, player);
+            previous = new(new AudioStreamPlayer { Name = "OriginalAudioVoice" + _players.Count, Autoplay = false }, volumeDb, volumeGroup);
+            AddChild(previous.Player);
         }
-        player.Stop(); player.Stream = clip.Stream; player.Bus = bus; player.VolumeDb = volumeDb;
+        var voice = previous with { BaseVolumeDb = volumeDb, Group = volumeGroup };
+        _players[channel] = voice;
+        var player = voice.Player;
+        player.Stop(); player.Stream = clip.Stream; player.Bus = bus; ApplyVolume(voice);
         player.StreamPaused = false; player.Play();
     }
 
     public void Stop(string channel)
     {
         RequireEngineThread();
-        if (_players.TryGetValue(channel, out AudioStreamPlayer? player)) { player.Stop(); player.Stream = null; }
+        if (_players.TryGetValue(channel, out var voice)) { voice.Player.Stop(); voice.Player.Stream = null; }
     }
 
     public void Pause(string channel, bool paused)
     {
         RequireEngineThread();
-        if (_players.TryGetValue(channel, out AudioStreamPlayer? player)) player.StreamPaused = paused;
+        if (_players.TryGetValue(channel, out var voice)) voice.Player.StreamPaused = paused;
     }
 
     public override void _ExitTree()
     {
         _lifetime.Cancel();
-        foreach (AudioStreamPlayer player in _players.Values) { player.Stop(); player.Stream = null; }
+        foreach (var voice in _players.Values) { voice.Player.Stop(); voice.Player.Stream = null; }
         _players.Clear();
         lock (_postGate) while (_engineActions.TryDequeue(out _)) { }
         _engineThread = 0;

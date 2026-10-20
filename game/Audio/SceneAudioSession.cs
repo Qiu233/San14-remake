@@ -16,12 +16,13 @@ public sealed record SceneAudioChannel(string SceneKey, long SceneRevision, stri
 public partial class SceneAudioSession : Node
 {
     private sealed class ChannelState(SceneAudioChannel snapshot, CancellationTokenSource cancellation,
-        float volumeDb, string bus)
+        float volumeDb, string bus, AudioVolumeGroup? volumeGroup)
     {
         public SceneAudioChannel Snapshot = snapshot;
         public readonly CancellationTokenSource Cancellation = cancellation;
         public readonly float VolumeDb = volumeDb;
         public readonly string Bus = bus;
+        public readonly AudioVolumeGroup? VolumeGroup = volumeGroup;
         public AudioClip? Clip;
     }
 
@@ -81,24 +82,28 @@ public partial class SceneAudioSession : Node
     }
 
     public Task<SceneAudioChannel> PrepareCueAsync(string channel, AudioCueRequest request,
-        float volumeDb = 0, string bus = "Master", CancellationToken cancellationToken = default) =>
-        ChangeSelectionAsync(channel, request, null, false, volumeDb, bus, cancellationToken);
+        float volumeDb = 0, string bus = "Master", CancellationToken cancellationToken = default,
+        AudioVolumeGroup? volumeGroup = null) =>
+        ChangeSelectionAsync(channel, request, null, false, volumeDb, bus, cancellationToken, volumeGroup);
 
     public Task<SceneAudioChannel> PlayCueAsync(string channel, AudioCueRequest request,
-        float volumeDb = 0, string bus = "Master", CancellationToken cancellationToken = default) =>
-        ChangeSelectionAsync(channel, request, null, true, volumeDb, bus, cancellationToken);
+        float volumeDb = 0, string bus = "Master", CancellationToken cancellationToken = default,
+        AudioVolumeGroup? volumeGroup = null) =>
+        ChangeSelectionAsync(channel, request, null, true, volumeDb, bus, cancellationToken, volumeGroup);
 
     public Task<SceneAudioChannel> PrepareSampleAsync(string channel, AudioSampleRequest request,
-        float volumeDb = 0, string bus = "Master", CancellationToken cancellationToken = default) =>
-        ChangeSelectionAsync(channel, null, request, false, volumeDb, bus, cancellationToken);
+        float volumeDb = 0, string bus = "Master", CancellationToken cancellationToken = default,
+        AudioVolumeGroup? volumeGroup = null) =>
+        ChangeSelectionAsync(channel, null, request, false, volumeDb, bus, cancellationToken, volumeGroup);
 
     public Task<SceneAudioChannel> PlaySampleAsync(string channel, AudioSampleRequest request,
-        float volumeDb = 0, string bus = "Master", CancellationToken cancellationToken = default) =>
-        ChangeSelectionAsync(channel, null, request, true, volumeDb, bus, cancellationToken);
+        float volumeDb = 0, string bus = "Master", CancellationToken cancellationToken = default,
+        AudioVolumeGroup? volumeGroup = null) =>
+        ChangeSelectionAsync(channel, null, request, true, volumeDb, bus, cancellationToken, volumeGroup);
 
     private Task<SceneAudioChannel> ChangeSelectionAsync(string channel, AudioCueRequest? request,
         AudioSampleRequest? sampleRequest,
-        bool play, float volumeDb, string bus, CancellationToken cancellationToken)
+        bool play, float volumeDb, string bus, CancellationToken cancellationToken, AudioVolumeGroup? volumeGroup)
     {
         RequireEngineThread();
         if (_service is null || _repository is null || _streams is null || SceneKey is null || _sceneCancellation is null)
@@ -106,11 +111,12 @@ public partial class SceneAudioSession : Node
         if ((request is null) == (sampleRequest is null)) throw new ArgumentException("Select exactly one source cue or named sample.");
         if (string.IsNullOrWhiteSpace(channel) || channel.Length > 64) throw new ArgumentException("Audio channel needs a short nonempty key.", nameof(channel));
         if (!float.IsFinite(volumeDb) || volumeDb is < -80 or > 24) throw new ArgumentOutOfRangeException(nameof(volumeDb));
+        if (volumeGroup is { } group && !Enum.IsDefined(group)) throw new ArgumentOutOfRangeException(nameof(volumeGroup));
         ArgumentException.ThrowIfNullOrWhiteSpace(bus);
         StopChannel(channel);
         var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _sceneCancellation.Token);
         var state = new ChannelState(new SceneAudioChannel(SceneKey, SceneRevision, channel, request, "preparing")
-            { SampleRequest = sampleRequest }, linked, volumeDb, bus);
+            { SampleRequest = sampleRequest }, linked, volumeDb, bus, volumeGroup);
         _channels.Add(channel, state);
         ChannelChanged?.Invoke(state.Snapshot);
         return LoadAndInstallAsync(state, play, linked.Token);
@@ -130,7 +136,7 @@ public partial class SceneAudioSession : Node
             SceneAudioChannel result = await _service!.InvokeOnEngineThreadAsync(() =>
             {
                 if (!IsCurrent(state) || token.IsCancellationRequested) throw new OperationCanceledException(token);
-                if (play) _service.Play(clip, state.Snapshot.Channel, state.VolumeDb, state.Bus);
+                if (play) _service.Play(clip, state.Snapshot.Channel, state.VolumeDb, state.Bus, state.VolumeGroup);
                 state.Clip = clip;
                 state.Snapshot = state.Snapshot with
                 {
@@ -172,7 +178,7 @@ public partial class SceneAudioSession : Node
         RequireEngineThread();
         if (!_channels.TryGetValue(channel, out ChannelState? state) || state.Clip is null)
             throw new InvalidOperationException("Selected channel has no prepared source cue.");
-        _service!.Play(state.Clip, channel, state.VolumeDb, state.Bus);
+        _service!.Play(state.Clip, channel, state.VolumeDb, state.Bus, state.VolumeGroup);
         state.Snapshot = state.Snapshot with { Status = "playing" };
         ChannelChanged?.Invoke(state.Snapshot);
     }
@@ -229,7 +235,7 @@ public partial class SceneAudioSession : Node
         float volumeDb = 0, string bus = "Master", CancellationToken cancellationToken = default)
     {
         AudioMusicCueSelection selected = await ResolveMusicCommitAsync(commit, banks, cancellationToken);
-        return await PrepareCueAsync(channel, selected.Request, volumeDb, bus, cancellationToken);
+        return await PrepareCueAsync(channel, selected.Request, volumeDb, bus, cancellationToken, AudioVolumeGroup.Music);
     }
 
     public async Task<SceneAudioChannel> PlayMusicCommitAsync(string channel,
@@ -237,7 +243,7 @@ public partial class SceneAudioSession : Node
         float volumeDb = 0, string bus = "Master", CancellationToken cancellationToken = default)
     {
         AudioMusicCueSelection selected = await ResolveMusicCommitAsync(commit, banks, cancellationToken);
-        return await PlayCueAsync(channel, selected.Request, volumeDb, bus, cancellationToken);
+        return await PlayCueAsync(channel, selected.Request, volumeDb, bus, cancellationToken, AudioVolumeGroup.Music);
     }
 
     private bool IsCurrent(ChannelState state) => !_retired && SceneRevision == state.Snapshot.SceneRevision &&

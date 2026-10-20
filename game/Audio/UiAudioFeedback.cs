@@ -21,6 +21,14 @@ internal sealed class UiAudioFeedback : IDisposable
     private readonly Dictionary<ulong, (BaseButton Button, Action Handler)> _buttons = [];
     private AudioPlaybackService? _service;
     private UiAudioClips? _clips;
+    private AudioVolumeOptions _volumes = new();
+
+    public void SetVolumes(AudioVolumeOptions volumes)
+    {
+        ArgumentNullException.ThrowIfNull(volumes); volumes.Validate();
+        _volumes = volumes;
+        if (!_token.IsCancellationRequested) _service?.SetVolumes(volumes);
+    }
 
     public UiAudioFeedback(Node host, string sourceDirectory, string? overridesDirectory,
         Func<bool> acceptPreparedClips)
@@ -56,6 +64,7 @@ internal sealed class UiAudioFeedback : IDisposable
             _host.AddChild(service);
             _service = service;
             service.Configure(new AudioRepository(_sourceDirectory, _overridesDirectory), decoder!);
+            service.SetVolumes(_volumes);
             ServiceReady?.Invoke(service);
             // Separate source cache from map and scenario loading.
             var source = new GameResourceRepository(_sourceDirectory, _overridesDirectory);
@@ -87,9 +96,9 @@ internal sealed class UiAudioFeedback : IDisposable
         if (_token.IsCancellationRequested || _clips is null || _service is null) return;
         try
         {
-            // Existing feedback policy: one UI voice, Master at 0 dB.
-            // The original cue graph and mixer are separate unresolved work.
-            _service.Play(cancel ? _clips.Cancel : _clips.ButtonSelect, "ui");
+            // Both selected UI samples belong to the original Effects
+            // category. General cue selection/arbitration remains separate.
+            _service.Play(cancel ? _clips.Cancel : _clips.ButtonSelect, "ui", volumeGroup: AudioVolumeGroup.Effects);
             Publish(cancel ? Status with { CancelCount = (Status.CancelCount ?? 0) + 1 }
                 : Status with { SelectCount = (Status.SelectCount ?? 0) + 1 });
         }

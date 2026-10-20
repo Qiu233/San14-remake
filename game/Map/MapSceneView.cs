@@ -1054,6 +1054,7 @@ public partial class MapSceneView : Control
 
     internal void SetDetailsOpen(bool open, bool keepMapVisible = false)
     {
+        if (open) ResetSourceCameraInput();
         if (open) { CloseCityCommandMenu(); _d3d11Markers?.ClearPointer(); }
         _detailsOpen = open;
         _dragging = false; _dragDistance = 0;
@@ -1348,6 +1349,7 @@ public partial class MapSceneView : Control
 
     public override void _Input(InputEvent input)
     {
+        if (HandleSourceNavigationKey(input)) { GetViewport().SetInputAsHandled(); return; }
         if (_embedded || _acceptHex is null || _detailsOpen || !IsVisibleInTree() || input is not InputEventMouseButton
             { ButtonIndex: MouseButton.Right, Pressed: true }) return;
         GetViewport().SetInputAsHandled();
@@ -1356,6 +1358,7 @@ public partial class MapSceneView : Control
 
     public override void _ExitTree()
     {
+        ReleaseSourceNavigationInput();
         _sceneLoadGeneration++;
         ReleaseNativeMap();
         ReleaseArmyVisuals();

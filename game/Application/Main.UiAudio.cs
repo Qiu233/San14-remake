@@ -12,6 +12,7 @@ public partial class Main
         feedback.Changed += UiAudioFeedbackChanged;
         feedback.ServiceReady += AttachSceneAudioSession;
         _uiAudioFeedback = feedback;
+        feedback.SetVolumes(_preferences.Audio);
         feedback.Start();
     }
 

@@ -158,6 +158,12 @@ public partial class Main : Control
 
     public override void _Input(InputEvent input)
     {
+        if (HasEnvironmentSettings && input is InputEventKey { Pressed: true, Echo: false, Keycode: Key.Escape })
+        {
+            GetViewport().SetInputAsHandled();
+            if (_environmentConfirmation is { } question) question.RequestCancel(); else _environmentSettings!.RequestBack();
+            return;
+        }
         if (HasCampaignSavePage && input is InputEventKey { Pressed: true, Echo: false, Keycode: Key.Escape })
         {
             GetViewport().SetInputAsHandled();
@@ -190,8 +196,10 @@ public partial class Main : Control
         {GetViewport().SetInputAsHandled();_consumeBackRelease=true;return;}
         Action? back = null;
         if (_campaignSaveConfirmation is { } saveQuestion) back = saveQuestion.RequestCancel;
+        else if (_environmentConfirmation is { } environmentQuestion) back = environmentQuestion.RequestCancel;
         else if (_mapSystemConfirmation is { } systemQuestion) back = systemQuestion.RequestCancel;
         else if (HasCampaignSavePage) back = CloseCampaignSaves;
+        else if (HasEnvironmentSettings) back = _environmentSettings!.RequestBack;
         else if (HasMapSystemMenu) back = CloseMapSystemMenu;
         else if(_cityDomesticPresenter is { } cityDomestic)
             back=()=>{if(_cityDomesticSelectors?.TryCancel()!=true)cityDomestic.RequestBack();};
@@ -231,6 +239,7 @@ public partial class Main : Control
             _overrides = new ResourceOverrides(string.IsNullOrWhiteSpace(configured)
                 ? ProjectSettings.GlobalizePath("user://overrides") : configured);
             BuildInterface();
+            _preferences = new ClientPreferences(ProjectSettings.GlobalizePath("user://preferences.json"));
             _repository = new GameResourceRepository(overridesDirectory: _overrides.DirectoryPath);
             _map = _repository.LoadCeMap().Map;
             _mapOverview = new MapOverviewContent(_map);
@@ -880,6 +889,7 @@ public partial class Main : Control
         }
         var view = new MapSceneView();
         _mapHost.AddChild(view);
+        view.SetSourceNavigationOptions(_preferences.Navigation);
         view.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         // The accepted World graph currently owns the original static map
         // and an empty Army publication. Supply it before Configure captures

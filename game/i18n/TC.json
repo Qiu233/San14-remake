@@ -738,5 +738,6 @@
   "detail_agriculture": "農業",
   "detail_commerce": "商業",
   "detail_barracks": "兵營",
-  "play_deployment_unavailable": "目前無法完成這項出征設定。"
+  "play_deployment_unavailable": "目前無法完成這項出征設定。",
+  "settings_save_failed": "無法保存環境設定，請確認資料夾可寫入。"
 }

@@ -27,8 +27,9 @@ public partial class Main
             // transform replaces the authored root translation.
             view.Configure(_repository, _ui, 0x0473, Vector2.Zero, CloseMapSystemMenu, command =>
             {
-                if (!Current() || HasCampaignSavePage || _mapSystemConfirmation is not null) return;
+                if (!Current() || HasCampaignSavePage || HasEnvironmentSettings || _mapSystemConfirmation is not null) return;
                 if (command == MapSystemCommand.Exit) RequestExit();
+                else if (command == MapSystemCommand.Environment) RunUiAction(OpenEnvironmentSettings);
                 else
                 {
                     OpenCampaignSaves(command == MapSystemCommand.Save);
@@ -67,6 +68,7 @@ public partial class Main
     private void CloseMapSystemMenu()
     {
         if (_mapSystemMenu is null && _mapSystemMap is null) return;
+        CloseEnvironmentSettings(resumeParent: false);
         var question = _mapSystemConfirmation; _mapSystemConfirmation = null;
         if (question is not null) { question.Abandon(); question.QueueFree(); }
         CloseCampaignSaves();
@@ -80,7 +82,7 @@ public partial class Main
 
     private bool ResumeMapSystemMenu()
     {
-        if (_mapSystemMenu is not { } view || _session is not { } session ||
+        if (HasEnvironmentSettings || _mapSystemMenu is not { } view || _session is not { } session ||
             !ReferenceEquals(_mapSystemSession, session) || !ReferenceEquals(_mapSystemWorld, session.World) ||
             !ReferenceEquals(_world, session.World) || _residentMap != _mapSystemMap) return false;
         view.Show(); return true;

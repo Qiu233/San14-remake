@@ -10,6 +10,7 @@ public sealed record AudioEventBinding(string Channel, AudioCueRequest? Cue,
     float VolumeDb = 0, string Bus = "Master")
 {
     public AudioSampleRequest? Sample { get; init; }
+    public AudioVolumeGroup? VolumeGroup { get; init; }
 }
 public sealed record AudioEventCommand(AudioEventManagerCall? SourceCall,
     AudioEventBinding Binding);
@@ -102,15 +103,15 @@ public sealed class AudioEventAdapter : IS14AudioEventExecutionState
             if (binding.Sample is not null)
             {
                 if (startPlayback)
-                    await _session.PlaySampleAsync(binding.Channel, binding.Sample, binding.VolumeDb, binding.Bus, cancellationToken);
+                    await _session.PlaySampleAsync(binding.Channel, binding.Sample, binding.VolumeDb, binding.Bus, cancellationToken, binding.VolumeGroup);
                 else
-                    await _session.PrepareSampleAsync(binding.Channel, binding.Sample, binding.VolumeDb, binding.Bus, cancellationToken);
+                    await _session.PrepareSampleAsync(binding.Channel, binding.Sample, binding.VolumeDb, binding.Bus, cancellationToken, binding.VolumeGroup);
             }
             else if (binding.Cue is null) _session.StopChannel(binding.Channel);
             else if (startPlayback)
-                await _session.PlayCueAsync(binding.Channel, binding.Cue, binding.VolumeDb, binding.Bus, cancellationToken);
+                await _session.PlayCueAsync(binding.Channel, binding.Cue, binding.VolumeDb, binding.Bus, cancellationToken, binding.VolumeGroup);
             else
-                await _session.PrepareCueAsync(binding.Channel, binding.Cue, binding.VolumeDb, binding.Bus, cancellationToken);
+                await _session.PrepareCueAsync(binding.Channel, binding.Cue, binding.VolumeDb, binding.Bus, cancellationToken, binding.VolumeGroup);
         }
     }
 
@@ -124,6 +125,8 @@ public sealed class AudioEventAdapter : IS14AudioEventExecutionState
     {
         if (binding.Cue is not null && binding.Sample is not null)
             throw new InvalidDataException("Event manager binding must select one cue or one named sample.");
+        if (binding.VolumeGroup is { } group && !Enum.IsDefined(group))
+            throw new InvalidDataException("Event audio volume group is invalid.");
         if (string.IsNullOrWhiteSpace(binding.Channel) || binding.Channel.Length > 64 ||
             !float.IsFinite(binding.VolumeDb) || binding.VolumeDb is < -80 or > 24 || string.IsNullOrWhiteSpace(binding.Bus))
             throw new InvalidDataException("Event audio client channel, gain or bus policy is invalid.");
