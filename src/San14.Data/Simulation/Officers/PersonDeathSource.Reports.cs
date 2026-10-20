@@ -9,6 +9,29 @@ public sealed partial class ArmyCampaignRuleAdapter
     internal static class PersonDeathReportInputs
     {
         internal const string RankThresholdKey = "simulation.person-death.office-report-rank-threshold";
+        internal const string PopularityScaleKey = "simulation.person-death.general-popularity-loss-scale";
+
+        internal static int? ReadCurrentPopularityScale(GameState state) =>
+            state.NativeArmySimulation?.Parameters is { } p && p.Language is "TC" or "SC" &&
+            p.RuleVersion == SimulationRuleIdentity.ForLocale(p.Language) && !p.Float32Values.ContainsKey(PopularityScaleKey) &&
+            p.Int32Values.TryGetValue(PopularityScaleKey, out int value) ? value : null;
+
+        //Project reference CE catalog; each locale has independent file-initialization evidence.
+        internal static GameState InstallFreshPopularityScale(GameState state, LoadedScenario source, string locale)
+        {
+            if (locale is not ("TC" or "SC") || source.Snapshot.Locale != locale ||
+                state.NativeArmySimulation is not { } simulation || simulation.Parameters.Language != locale ||
+                simulation.Parameters.RuleVersion != SimulationRuleIdentity.ForLocale(locale))
+                throw new InvalidDataException("person-death.fresh_popularity_profile");
+            if (source.Metadata.FormatMarker != 0x66) return state;
+            if (simulation.Parameters.Int32Values.ContainsKey(PopularityScaleKey) ||
+                simulation.Parameters.Float32Values.ContainsKey(PopularityScaleKey))
+                throw new InvalidDataException("person-death.fresh_popularity_already_owned");
+            const int initial = 2;
+            return state with { NativeArmySimulation = simulation with { Parameters = simulation.Parameters with
+                { Int32Values = new(simulation.Parameters.Int32Values) { [PopularityScaleKey] = initial } } } };
+        }
+
 
         //The explicitly owned CE fresh catalog. Restore/Bind never calls this.
         //Both locales have independent file-initialization evidence for2.

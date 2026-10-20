@@ -24,6 +24,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             package._personRelationInputs.BindCurrent(() => latest, current);
             current.MoraleWavePersonPostE7Reader = physical =>
                 OwnedArmyMoraleWaveInputs.ReadPersonPostE7(latest, current, physical);
+            current.RulerReleasePopularity1BEReader = force =>
+                latest.NativeArmySimulation?.Forces.GetValueOrDefault(force)?.NormalAftermath?.Development1BE;
             BindLatestPolicyReader();
         }
 
@@ -130,16 +132,18 @@ public sealed partial class ArmyCampaignRuleAdapter
 
                 if (Known(current.ReadForceNativeValidity(oldForce), "popularity_force_validity"))
                 {
-                    int a = Known(current.ReadForcePhysicalSlot(oldForce), "popularity_force_kind_first");
-                    if (a != 0 && Known(current.ReadForcePhysicalSlot(oldForce), "popularity_force_kind_second") != 51)
+                    int firstOrdinal = Known(current.ReadForcePhysicalSlot(oldForce), "popularity_force_kind_first");
+                    if (firstOrdinal != 0)
                     {
-                        int b = Known(current.ReadForcePhysicalSlot(oldForce), "popularity_force_kind_third");
-                        if (b is < 46 or > 50)
+                        int second = Known(current.ReadForcePhysicalSlot(oldForce), "popularity_force_kind_second");
+                        if (second != 51 && unchecked((uint)(second - 46)) > 4)
                         {
-                            // Do not guess an unavailable current coefficient
-                            // or publish the already-written Person prefix.
-                            _ = unchecked(Math.Max(1, stage) * Parameter("general-popularity-loss-scale"));
-                            throw Missing("general_popularity_223D40");
+                            int scale = PersonDeathReportInputs.ReadCurrentPopularityScale(latest)
+                                ?? throw Missing("current_parameter_general-popularity-loss-scale");
+                            int adjustment = unchecked(-(Math.Max(1, stage) * scale));
+                            latest = RulerCaptureReleaseSource.ApplyCurrentPopularityAdjustment(
+                                latest, current, second, adjustment);
+                            Observe("death.popularity-adjusted");
                         }
                     }
                 }

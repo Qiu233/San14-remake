@@ -183,6 +183,17 @@ public static class RulerCaptureReleaseSource
         int P(string key) => K(ArmyDestructionParameterSeed.ReadCurrent(state, key), $"current.Lord_parameter{key}");
     }
 
+    //The reached223D40/SC223FF0 leaf. Receiver gates and coefficient reads belong to the caller.
+    internal static GameState ApplyCurrentPopularityAdjustment(GameState state, SourceWorldContext current,
+        int force, int adjustment)
+    {
+        short before = K(current.ReadRulerReleasePopularity1BE(force), "current.popularity_Force1BE");
+        short after = (short)Math.Clamp(unchecked((int)before + adjustment), -1000, 1000);
+        GameState published = WriteForce(state, force, fields => fields with { Development1BE = after });
+        current.SetRulerReleasePopularity1BE(force, after);
+        return published;
+    }
+
     public static void BindCurrent(GameState state, SourceWorldContext current)
     {
         for (int force = 0; force < 52; force++) {
@@ -228,5 +239,7 @@ public sealed partial class SourceWorldContext
     public byte? ReadRulerReleaseRelation13(int force, int other) => rulerReleaseRelations13.GetValueOrDefault((force, other));
     public void SetRulerReleasePopularity1BE(int force, short? value)
     { Check(force, 52, "Lord popularity Force"); rulerReleasePopularity1BE[force] = value; }
-    public short? ReadRulerReleasePopularity1BE(int force) => rulerReleasePopularity1BE.GetValueOrDefault(force);
+    public Func<int, short?>? RulerReleasePopularity1BEReader { get; set; }
+    public short? ReadRulerReleasePopularity1BE(int force) =>
+        rulerReleasePopularity1BE.TryGetValue(force, out var value) ? value : RulerReleasePopularity1BEReader?.Invoke(force);
 }
