@@ -8,6 +8,9 @@ public sealed record SceneAudioChannel(string SceneKey, long SceneRevision, stri
     int? LoopBegin = null, int? LoopEnd = null, string? Error = null)
 {
     public AudioSampleRequest? SampleRequest { get; init; }
+    public AudioPreparedMusicSelection? MusicSelection { get; init; }
+    public AudioPreparedMusicCommit? MusicCommit { get; init; }
+    public int OutputChannels { get; init; }
 }
 
 /// <summary>A caller-owned scene session. Beginning/leaving a scene stops its
@@ -24,6 +27,8 @@ public partial class SceneAudioSession : Node
         public readonly string Bus = bus;
         public readonly AudioVolumeGroup? VolumeGroup = volumeGroup;
         public AudioClip? Clip;
+        public MapMusicEntrySelection? MapMusic;
+        public long VoiceSequence;
     }
 
     private readonly Dictionary<string, ChannelState> _channels = new(StringComparer.Ordinal);
@@ -53,6 +58,7 @@ public partial class SceneAudioSession : Node
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         _streams = streamRepository ?? throw new ArgumentNullException(nameof(streamRepository));
+        _service.ChannelStopped += VoiceStopped;
     }
 
     public void BeginScene(string sceneKey)
@@ -103,7 +109,8 @@ public partial class SceneAudioSession : Node
 
     private Task<SceneAudioChannel> ChangeSelectionAsync(string channel, AudioCueRequest? request,
         AudioSampleRequest? sampleRequest,
-        bool play, float volumeDb, string bus, CancellationToken cancellationToken, AudioVolumeGroup? volumeGroup)
+        bool play, float volumeDb, string bus, CancellationToken cancellationToken, AudioVolumeGroup? volumeGroup,
+        MapMusicEntrySelection? mapMusic = null)
     {
         RequireEngineThread();
         if (_service is null || _repository is null || _streams is null || SceneKey is null || _sceneCancellation is null)
@@ -116,7 +123,8 @@ public partial class SceneAudioSession : Node
         StopChannel(channel);
         var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _sceneCancellation.Token);
         var state = new ChannelState(new SceneAudioChannel(SceneKey, SceneRevision, channel, request, "preparing")
-            { SampleRequest = sampleRequest }, linked, volumeDb, bus, volumeGroup);
+            { SampleRequest = sampleRequest, MusicSelection = mapMusic?.Selection, MusicCommit = mapMusic?.Commit },
+            linked, volumeDb, bus, volumeGroup) { MapMusic = mapMusic };
         _channels.Add(channel, state);
         ChannelChanged?.Invoke(state.Snapshot);
         return LoadAndInstallAsync(state, play, linked.Token);
@@ -127,7 +135,9 @@ public partial class SceneAudioSession : Node
         AudioClip? clip = null;
         try
         {
-            clip = state.Snapshot.Request is not null
+            clip = state.MapMusic is not null
+                ? await MapMusicClips.PrepareAsync(_service!, _repository!, _streams!, state.Snapshot.Request!, token).ConfigureAwait(false)
+                : state.Snapshot.Request is not null
                 ? await CueAudioClips.PrepareSingleSampleAsync(_service!, _repository!, _streams!,
                     state.Snapshot.Request, token).ConfigureAwait(false)
                 : await NamedAudioClips.PrepareAsync(_service!, _repository!, _streams!,
@@ -136,15 +146,24 @@ public partial class SceneAudioSession : Node
             SceneAudioChannel result = await _service!.InvokeOnEngineThreadAsync(() =>
             {
                 if (!IsCurrent(state) || token.IsCancellationRequested) throw new OperationCanceledException(token);
-                if (play) _service.Play(clip, state.Snapshot.Channel, state.VolumeDb, state.Bus, state.VolumeGroup);
+                if (play)
+                {
+                    if (state.MapMusic is not null)
+                    {
+                        _service.OriginalOutputs.ValidateHost();
+                        _service.PlayMapMusic(clip, state.Snapshot.Channel, state.VolumeDb, _service.OriginalOutputs.MusicBus);
+                    }
+                    else _service.Play(clip, state.Snapshot.Channel, state.VolumeDb, state.Bus, state.VolumeGroup);
+                    state.VoiceSequence = _service.ReadVoiceSequence(state.Snapshot.Channel);
+                }
                 state.Clip = clip;
                 state.Snapshot = state.Snapshot with
                 {
                     Status = play ? "playing" : "prepared", Selection = clip.Selection, Cue = clip.Cue,
                     Provenance = clip.Provenance, SampleRate = clip.SampleRate, Channels = clip.Channels,
-                    SampleFrames = clip.SampleFrames,
-                    LoopBegin = clip.UsesSourceLoop ? clip.Stream.LoopBegin : null,
-                    LoopEnd = clip.UsesSourceLoop ? clip.Stream.LoopEnd : null
+                    SampleFrames = clip.SampleFrames, OutputChannels = clip.OutputChannels,
+                    LoopBegin = clip.UsesSourceLoop ? clip.LoopBegin : null,
+                    LoopEnd = clip.UsesSourceLoop ? clip.LoopEnd : null
                 };
                 clip = null; // Ownership moves to this channel only after installation.
                 ChannelChanged?.Invoke(state.Snapshot);
@@ -154,7 +173,7 @@ public partial class SceneAudioSession : Node
         }
         catch (Exception error)
         {
-            clip?.Stream.Dispose();
+            clip?.Dispose();
             try
             {
                 await _service!.InvokeOnEngineThreadAsync(() =>
@@ -178,7 +197,13 @@ public partial class SceneAudioSession : Node
         RequireEngineThread();
         if (!_channels.TryGetValue(channel, out ChannelState? state) || state.Clip is null)
             throw new InvalidOperationException("Selected channel has no prepared source cue.");
-        _service!.Play(state.Clip, channel, state.VolumeDb, state.Bus, state.VolumeGroup);
+        if (state.MapMusic is not null)
+        {
+            _service!.OriginalOutputs.ValidateHost();
+            _service.PlayMapMusic(state.Clip, channel, state.VolumeDb, _service.OriginalOutputs.MusicBus);
+        }
+        else _service!.Play(state.Clip, channel, state.VolumeDb, state.Bus, state.VolumeGroup);
+        state.VoiceSequence = _service.ReadVoiceSequence(channel);
         state.Snapshot = state.Snapshot with { Status = "playing" };
         ChannelChanged?.Invoke(state.Snapshot);
     }
@@ -200,7 +225,7 @@ public partial class SceneAudioSession : Node
         // A completed load already disposed its request CTS; cancel only pending work.
         if (state.Snapshot.Status == "preparing") state.Cancellation.Cancel();
         if (_service is not null && GodotObject.IsInstanceValid(_service) && _service.IsInsideTree()) _service.Stop(channel);
-        state.Clip?.Stream.Dispose();
+        state.Clip?.Dispose();
         state.Clip = null;
         ChannelChanged?.Invoke(state.Snapshot with { Status = "stopped" });
     }
@@ -252,8 +277,29 @@ public partial class SceneAudioSession : Node
     public override void _ExitTree()
     {
         LeaveScene();
+        if (_service is not null) _service.ChannelStopped -= VoiceStopped;
         _retired = true;
         _engineThread = 0;
+    }
+
+    internal async Task<SceneAudioChannel> PlayMapMusicCommitAsync(string channel, MapMusicEntrySelection entry,
+        IReadOnlyList<AudioCueBank> banks, CancellationToken token = default)
+    {
+        RequireEngineThread();
+        long revision = SceneRevision;
+        var selected = await ResolveMusicCommitAsync(entry.Commit, banks, token);
+        if (SceneRevision != revision || token.IsCancellationRequested)
+            throw new OperationCanceledException("Map music selection belongs to a retired scene.", token);
+        return await ChangeSelectionAsync(channel, selected.Request with { LoopPolicy = AudioLoopPolicy.RequireSource },
+            null, true, 0, _service!.OriginalOutputs.MusicBus, token, AudioVolumeGroup.Music, entry);
+    }
+
+    private void VoiceStopped(string channel, long sequence, string? reason)
+    {
+        if (!_channels.TryGetValue(channel, out var state) || state.VoiceSequence != sequence || state.Clip is null) return;
+        state.Clip.Dispose(); state.Clip = null;
+        state.Snapshot = state.Snapshot with { Status = reason is null ? "stopped" : "unavailable", Error = reason };
+        ChannelChanged?.Invoke(state.Snapshot);
     }
 
     private void RequireEngineThread()

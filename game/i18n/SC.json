@@ -626,6 +626,7 @@
   "play_command_error_tactic.source_revision": "战法来源版本与当前剧本不符",
   "play_command_error_tactic.use": "当前无法对该目标使用战法",
   "scene_audio_loading": "场景音频准备中",
+  "scene_audio_playing": "场景音乐已启用",
   "scene_audio_ready_unresolved": "场景音频已就绪；音乐选择条件尚未解析",
   "scene_audio_unavailable": "场景音频暂不可用",
   "scene_audio_selection_unknown": "场景音乐需要已核验的选择条件和声库绑定。当前未准备音乐。",

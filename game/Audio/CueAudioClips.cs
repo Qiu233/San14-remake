@@ -80,7 +80,7 @@ public static class CueAudioClips
         if (selected.Playback is { Sample: var timing } &&
             (clip.SampleRate != timing.SampleRate || clip.Channels != timing.Channels || clip.SampleFrames != timing.DeclaredSamples))
         {
-            clip.Stream.Dispose();
+            clip.Dispose();
             throw new InvalidDataException("Decoded static playback timing differs from the selected source sample.");
         }
         return clip with { Selection = selected.Selection, Cue = selected.Cue, StaticPlayback = selected.Playback };

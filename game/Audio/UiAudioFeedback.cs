@@ -70,9 +70,19 @@ internal sealed class UiAudioFeedback : IDisposable
             var audioRepository = new AudioRepository(_sourceDirectory, _overridesDirectory);
             service.Configure(audioRepository, decoder!);
             service.SetVolumes(_volumes);
-            ServiceReady?.Invoke(service);
             // Separate source cache from map and scenario loading.
             var source = new GameResourceRepository(_sourceDirectory, _overridesDirectory);
+            var graphs = await Task.Run(() =>
+            {
+                _token.ThrowIfCancellationRequested();
+                var category = source.LoadRdbAsset("RRPreview", 0x1CC2C167);
+                return (Music: AudioMusicOutputResources.Read(category, 0x2E7FE88E),
+                    Effects: AudioMusicOutputResources.Read(category, 0x2CB51744));
+            }, _token);
+            _token.ThrowIfCancellationRequested();
+            if (!_acceptPreparedClips()) return;
+            service.ConfigureOriginalOutputs(graphs.Music, graphs.Effects, OriginalAudioDeviceProfile.WindowsStereo);
+            ServiceReady?.Invoke(service);
             UiAudioClips clips = await UiAudioClips.LoadAsync(service, source, audioRepository, _token);
             if (_token.IsCancellationRequested || !_acceptPreparedClips())
             {
@@ -81,8 +91,8 @@ internal sealed class UiAudioFeedback : IDisposable
             }
             _clips = clips;
             var provenance = new UiAudioSource(clips.SourceBankUri, clips.SourceBankSha256,
-                clips.ButtonSelect.Stream.Data.Length / (clips.ButtonSelect.Stream.Stereo ? 4 : 2),
-                clips.Cancel.Stream.Data.Length / (clips.Cancel.Stream.Stereo ? 4 : 2));
+                clips.ButtonSelect.SampleFrames,
+                clips.Cancel.SampleFrames);
             Publish(Status with { Availability = UiAudioAvailability.Ready, Source = provenance });
             GD.Print($"ORIGINAL_UI_AUDIO_READY bank={provenance.BankUri} " +
                 $"selectFrames={provenance.SelectFrames} cancelFrames={provenance.CancelFrames} preloadOnly=true");
@@ -105,8 +115,10 @@ internal sealed class UiAudioFeedback : IDisposable
             // Both selected UI samples belong to the original Effects
             // category. General cue selection/arbitration remains separate.
             if (!_service.TryPlayEffect(cancel ? _clips.Cancel : _clips.ButtonSelect)) return;
-            Publish(cancel ? Status with { CancelCount = (Status.CancelCount ?? 0) + 1 }
-                : Status with { SelectCount = (Status.SelectCount ?? 0) + 1 });
+            Publish(cancel ? Status with { Availability = UiAudioAvailability.Ready, Reason = null,
+                    CancelCount = (Status.CancelCount ?? 0) + 1 }
+                : Status with { Availability = UiAudioAvailability.Ready, Reason = null,
+                    SelectCount = (Status.SelectCount ?? 0) + 1 });
         }
         catch (Exception error)
         {
@@ -124,13 +136,13 @@ internal sealed class UiAudioFeedback : IDisposable
             clip = await CueAudioClips.PrepareStaticNonSpatialEffectAsync(service, source,
                 audioRepository,
                 new(AudioSelectionResources.InstalledUiBankId, null, "SE_400_DAMEGE_VERTICAL_MAN", AudioLoopPolicy.Disabled), _token);
-            if (_token.IsCancellationRequested || !_acceptPreparedClips()) { clip.Stream.Dispose(); return; }
+            if (_token.IsCancellationRequested || !_acceptPreparedClips()) { clip.Dispose(); return; }
             _effectsPreview = clip;
         }
-        catch (OperationCanceledException) when (_token.IsCancellationRequested) { clip?.Stream.Dispose(); }
+        catch (OperationCanceledException) when (_token.IsCancellationRequested) { clip?.Dispose(); }
         catch (Exception error)
         {
-            clip?.Stream.Dispose();
+            clip?.Dispose();
             if (!_token.IsCancellationRequested) GD.PushWarning("Original Effects preview unavailable: " + error.Message);
         }
     }
@@ -188,7 +200,7 @@ internal sealed class UiAudioFeedback : IDisposable
             subscription.Button.Pressed -= subscription.Handler;
         _buttons.Clear();
         if (_service is { } service && GodotObject.IsInstanceValid(service) && service.IsInsideTree()) service.StopEffects();
-        _effectsPreview?.Stream.Dispose(); _effectsPreview = null;
+        _effectsPreview?.Dispose(); _effectsPreview = null;
         _clips?.Dispose();
         _clips = null;
         Changed = null;

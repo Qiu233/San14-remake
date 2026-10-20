@@ -1,0 +1,6 @@
+{
+    "format":  "san14-ktac-layout-validator",
+    "version":  1,
+    "executable":  "San14.Audio.LayoutValidator.exe",
+    "sha256":  "544FC1B1FF701B9E68691E811D1B1F5698FB8E2F44CAF043E23A20C5D54B5ED8"
+}

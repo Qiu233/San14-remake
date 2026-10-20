@@ -27,7 +27,9 @@ public partial class AudioPlaybackService
             _effectCursor = (_effectCursor + 1) % _effects.Length;
             if (_effects[slot] is { } occupied && IsEffectActive(occupied)) continue;
             string channel = "effects:" + slot;
-            Play(clip, channel, volumeGroup: AudioVolumeGroup.Effects);
+            string bus = _originalDeviceProfile is null ? "Master" : OriginalOutputs.EffectsBus;
+            _originalOutputs?.ValidateHost();
+            Play(clip, channel, bus: bus, volumeGroup: AudioVolumeGroup.Effects);
             _effects[slot] = new(cueId, channel);
             return true;
         }

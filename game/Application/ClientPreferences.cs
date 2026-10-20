@@ -14,17 +14,19 @@ internal sealed class ClientPreferences
         [JsonRequired] public MapKeyboardScrollSpeed KeyboardScroll { get; init; }
         public AudioVolumeOptions? Audio { get; init; }
         public ListScrollSpeed? ListScroll { get; init; }
+        public MapMusicPreferenceFile? MusicSelection { get; init; }
     }
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
     private readonly string path;
     internal MapCameraNavigationOptions Navigation { get; private set; }
     internal AudioVolumeOptions Audio { get; private set; }
     internal ListScrollSpeed ListScroll { get; private set; }
+    internal MapMusicPreferences MusicSelection { get; private set; }
 
     internal ClientPreferences(string path)
     {
         this.path = Path.GetFullPath(path);
-        if (!File.Exists(this.path)) { Navigation = new(); Audio = new(); return; }
+        if (!File.Exists(this.path)) { Navigation = new(); Audio = new(); MusicSelection = new(); return; }
         var file = JsonSerializer.Deserialize<FileRecord>(File.ReadAllBytes(this.path), Json)
             ?? throw new InvalidDataException("Application preferences are null.");
         Audio = file.Version switch
@@ -32,11 +34,14 @@ internal sealed class ClientPreferences
             //Version1's audio always used unity gain. Preserve that actual
             //previous behavior when adding independent mixer preferences.
             1 => new(),
-            2 or 3 => file.Audio ?? throw new InvalidDataException("Application audio preferences are missing."),
+            2 or 3 or 4 => file.Audio ?? throw new InvalidDataException("Application audio preferences are missing."),
             _ => throw new InvalidDataException($"Unsupported application preferences version {file.Version}.")
         };
         Navigation = new(file.EdgeScroll, file.KeyboardScroll);
-        ListScroll = file.Version == 3 ? file.ListScroll ?? throw new InvalidDataException("Application list scrolling preference is missing.") : ListScrollSpeed.Slow;
+        ListScroll = file.Version >= 3 ? file.ListScroll ?? throw new InvalidDataException("Application list scrolling preference is missing.") : ListScrollSpeed.Slow;
+        MusicSelection = file.Version == 4
+            ? new(file.MusicSelection ?? throw new InvalidDataException("Application music selection preferences are missing."))
+            : new();
         if (!Enum.IsDefined(ListScroll)) throw new InvalidDataException("Application list scrolling preference is invalid.");
         Navigation.Validate(); Audio.Validate();
     }
@@ -45,7 +50,8 @@ internal sealed class ClientPreferences
     {
         navigation.Validate(); audio.Validate();
         if (!Enum.IsDefined(listScroll)) throw new ArgumentOutOfRangeException(nameof(listScroll));
-        var file = new FileRecord { Version = 3, EdgeScroll = navigation.Edge, KeyboardScroll = navigation.Keyboard, Audio = audio, ListScroll = listScroll };
+        var file = new FileRecord { Version = 4, EdgeScroll = navigation.Edge, KeyboardScroll = navigation.Keyboard,
+            Audio = audio, ListScroll = listScroll, MusicSelection = MusicSelection.Capture() };
         AtomicSaveFiles.Write(path, JsonSerializer.SerializeToUtf8Bytes(file, Json));
         Navigation = navigation; Audio = audio; ListScroll = listScroll;
     }

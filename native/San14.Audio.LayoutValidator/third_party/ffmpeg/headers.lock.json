@@ -1,0 +1,209 @@
+{
+  "format": "san14-ffmpeg-public-headers",
+  "version": 1,
+  "upstreamCommit": "71e2361042531fe767fb98300cf8c1ee95e539a0",
+  "sourceRepository": "https://github.com/vgmstream/vgmstream",
+  "sourceRoot": "ext_includes/ffmpeg",
+  "libavcodecVersion": "59.37.100",
+  "libavutilVersion": "57.28.100",
+  "count": 28,
+  "bytes": 440254,
+  "headers": [
+    {
+      "path": "libavcodec/avcodec.h",
+      "bytes": 113770,
+      "sha256": "FFEE1E7A426F507CCE58D36ED3B24D51251DD15ECF3C196C4741B71561D5A21F",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavcodec/avcodec.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavutil/mem.h",
+      "bytes": 23283,
+      "sha256": "50F3671F39DCC689BE9A09CEE87404CEA8C1B0BA84DFD12A7974966FEC4F1E42",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavutil/mem.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavutil/error.h",
+      "bytes": 5489,
+      "sha256": "F90FEEC75A317E491618E06CE14D19218E5B0257C885155613B704002A9D5BDA",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavutil/error.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavutil/samplefmt.h",
+      "bytes": 10242,
+      "sha256": "B63C69238D93F794D7D37E314EC8E8A995B4C78CB053BF4F9472E217A19F21B7",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavutil/samplefmt.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavutil/attributes.h",
+      "bytes": 4850,
+      "sha256": "1F51258BA39861E08CBC8D407EC37A8D0FD28669AA7306C1365CB9C675FA1D76",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavutil/attributes.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavutil/avutil.h",
+      "bytes": 9855,
+      "sha256": "7BBC57C1F813E88761A2AC06AEF839FAC21E326D195E346D7E9997D0E20DE214",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavutil/avutil.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavutil/buffer.h",
+      "bytes": 11998,
+      "sha256": "F16742D574216434580573A2B09F56FC5B66B7DDA1960D4F02BA59E3269BA548",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavutil/buffer.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavutil/dict.h",
+      "bytes": 8253,
+      "sha256": "8A4BB859DF93F536190BE176A39705616189070858D9C479E958CD20B478060C",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavutil/dict.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavutil/frame.h",
+      "bytes": 31765,
+      "sha256": "535E24048951C34BC26D6B63332BAE9F6208EE4F8D988967D81366CF59EB4764",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavutil/frame.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavutil/log.h",
+      "bytes": 12766,
+      "sha256": "8555AD5D41F5F2FA1C7DD0DC65F2145B0517C0A414654575AADE8B3968E4C408",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavutil/log.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavutil/pixfmt.h",
+      "bytes": 37296,
+      "sha256": "6ED348718483B0208E89A209391D01F844890D95FB733BCF656497F2C818624A",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavutil/pixfmt.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavutil/rational.h",
+      "bytes": 6063,
+      "sha256": "6EFAC8849324779E78F9A08F468A2BCB7D3386834539AF4F7B13CE88D1E66F4D",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavutil/rational.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavcodec/codec.h",
+      "bytes": 13669,
+      "sha256": "4A5FF7FE48C2EAC11594536C546C7A54690C17EA0D97D8B8DA004DF31C552B77",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavcodec/codec.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavcodec/codec_desc.h",
+      "bytes": 3847,
+      "sha256": "30027AA432AE4EC3C10805850C9BA6880CF78B0E6C7F4E9198F6844481F3338B",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavcodec/codec_desc.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavcodec/codec_par.h",
+      "bytes": 7621,
+      "sha256": "2C1101CA01CDB5992498E409F17605412BC6F289F19BF69088F3DD946353734B",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavcodec/codec_par.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavcodec/codec_id.h",
+      "bytes": 17112,
+      "sha256": "1F58B7225DFCEBD014BA162D57F78709A5EAC10BF297870095FC4EAF31198D7B",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavcodec/codec_id.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavcodec/defs.h",
+      "bytes": 5349,
+      "sha256": "593509CD7F9BF1B6E0C7E0EE48C5E4F68EA40451CC71F8899A1FBB27F375508D",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavcodec/defs.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavcodec/packet.h",
+      "bytes": 23745,
+      "sha256": "1A0035DEAF5FDDC9995069D43FC284688950ECC38B0412FB90550E4AC2819B0F",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavcodec/packet.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavcodec/version_major.h",
+      "bytes": 2296,
+      "sha256": "019B38DC7A45621F16F7F4780F8E3C56DF0714997F0FB82AD19228FA35F556A2",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavcodec/version_major.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavcodec/version.h",
+      "bytes": 1619,
+      "sha256": "8CD5F971E0B1C3C31FB9499268423795A252559F867F77AD9EC843A2853A1565",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavcodec/version.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavutil/version.h",
+      "bytes": 4477,
+      "sha256": "E474B6C9AA7BFAAD9BBAA74D66AB582F244EEFBEFD2017FC5AFBB8CF2887EBE7",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavutil/version.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavutil/macros.h",
+      "bytes": 2304,
+      "sha256": "B63B3A268B096F0EED1E91B821714CFF334E5DC5BB34365148704393AE15321E",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavutil/macros.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavutil/common.h",
+      "bytes": 17147,
+      "sha256": "0C61C8420A93C6337023398676E31376D65E9FAEEAF15D624720D811260B8654",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavutil/common.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavutil/mathematics.h",
+      "bytes": 8011,
+      "sha256": "ACC8D41BB9429B66C1D261380F3FDBF53959696A03CCE34D516300379EBD46FA",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavutil/mathematics.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavutil/channel_layout.h",
+      "bytes": 31252,
+      "sha256": "B08954D795998BE73FA0B0F505C716D9AF26B85B83B749FD87162913E8081F79",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavutil/channel_layout.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavutil/avconfig.h",
+      "bytes": 180,
+      "sha256": "975611AD5EBA15212D9E1D5FCA9D4FDF0DAEC6D2269B2FCAB8E29AF8667164BC",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavutil/avconfig.h",
+      "license": "Generated configure header distributed with FFmpeg"
+    },
+    {
+      "path": "libavutil/hwcontext.h",
+      "bytes": 24269,
+      "sha256": "139D3E22E3CBD5C3EFEC2596854B2301BF935B8E7ACFB4B39A53D49415B8E073",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavutil/hwcontext.h",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "path": "libavutil/intfloat.h",
+      "bytes": 1726,
+      "sha256": "3A29E4EEBC8C269CFD867B96DE91D8231773D392C12A8820E46EABA96D2B4CA1",
+      "sourceUrl": "https://raw.githubusercontent.com/vgmstream/vgmstream/71e2361042531fe767fb98300cf8c1ee95e539a0/ext_includes/ffmpeg/libavutil/intfloat.h",
+      "license": "LGPL-2.1-or-later"
+    }
+  ]
+}

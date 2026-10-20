@@ -813,6 +813,7 @@ public partial class Main : Control
 
     private void CloseResidentMap()
     {
+        _sceneAudioBinding?.LeavePlayableMap();
         CloseCampaignSaves();
         CloseMapSystemMenu();
         CloseCityDomestic();
@@ -1001,6 +1002,7 @@ public partial class Main : Control
             _previewRow.Hide();
             _mapHost.MoveChild(_mapFocusToggle, _mapHost.GetChildCount() - 1);
             SetMapFocus(true);
+            RefreshSceneAudioContext();
         }
         catch (Exception error)
         {

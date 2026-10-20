@@ -10,13 +10,16 @@ public partial class AudioPlaybackService : Node
 {
     private readonly ConcurrentQueue<Action> _engineActions = new();
     private sealed record Voice(AudioStreamPlayer Player, float BaseVolumeDb, AudioVolumeGroup? Group,
-        float SourceGain, bool StaticCue);
+        float SourceGain, bool StaticCue, long Sequence = 0);
     private readonly Dictionary<string, Voice> _players = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly object _postGate = new();
     private AudioRepository? _repository;
     private IAudioDecoder? _decoder;
     private int _engineThread;
+    private long _voiceSequence;
+    internal event Action<string, long, string?>? ChannelStopped;
+    internal long ReadVoiceSequence(string channel) => _players[channel].Sequence;
     public AudioVolumeOptions Volumes { get; private set; } = new();
 
     /// <summary>Changes live voices without restarting or resuming them. New
@@ -43,6 +46,8 @@ public partial class AudioPlaybackService : Node
         else if (voice.SourceGain != 1)
             voice.Player.VolumeLinear = voice.SourceGain * Mathf.DbToLinear(voice.BaseVolumeDb);
         else voice.Player.VolumeDb = voice.BaseVolumeDb;
+        if (_mapMusic.Values.FirstOrDefault(music => music.Player == voice.Player) is { } music)
+            voice.Player.VolumeLinear *= music.Gain;
     }
 
     public void Configure(AudioRepository repository, IAudioDecoder decoder)
@@ -66,6 +71,7 @@ public partial class AudioPlaybackService : Node
     {
         while (_engineActions.TryDequeue(out Action? action)) action();
         UpdateEffects();
+        UpdateMapMusic();
     }
 
     public Task<AudioClip> PrepareAsync(uint fileId, int streamIndex,
@@ -132,7 +138,7 @@ public partial class AudioPlaybackService : Node
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
         DecodedAudio audio = await decode(linked.Token).ConfigureAwait(false);
         return await InvokeOnEngineThreadAsync(() => AudioStreamFactory.Create(audio, loopPolicy),
-            linked.Token, clip => clip.Stream.Dispose()).ConfigureAwait(false);
+            linked.Token, clip => clip.Dispose()).ConfigureAwait(false);
     }
 
     /// <summary>Completes on this service's engine queue, cancelling on retirement.
@@ -173,11 +179,12 @@ public partial class AudioPlaybackService : Node
         if (string.IsNullOrWhiteSpace(channel) || channel.Length > 64) throw new ArgumentException("Audio channel needs a short nonempty key.", nameof(channel));
         if (!float.IsFinite(volumeDb) || volumeDb is < -80 or > 24) throw new ArgumentOutOfRangeException(nameof(volumeDb));
         if (volumeGroup is { } group && !Enum.IsDefined(group)) throw new ArgumentOutOfRangeException(nameof(volumeGroup));
-        float sourceGain = clip.StaticPlayback?.LinearGain ?? 1;
+        float sourceGain = clip.StaticPlayback?.LinearGain ?? clip.MapMusic?.RootGain ?? 1;
         if (!float.IsFinite(sourceGain) || sourceGain < 0) throw new InvalidDataException("Audio source gain must be finite and nonnegative.");
         float playbackRate = clip.StaticPlayback?.PlaybackRate ?? 1;
         if (!float.IsFinite(playbackRate) || playbackRate <= 0) throw new InvalidDataException("Audio playback rate must be finite and positive.");
         if (AudioServer.GetBusIndex(bus) < 0) throw new ArgumentException("Selected audio bus does not exist.", nameof(bus));
+        _mapMusic.Remove(channel);
         if (!_players.TryGetValue(channel, out var previous))
         {
             previous = new(new AudioStreamPlayer { Name = "OriginalAudioVoice" + _players.Count, Autoplay = false },
@@ -185,23 +192,32 @@ public partial class AudioPlaybackService : Node
             AddChild(previous.Player);
         }
         var voice = previous with { BaseVolumeDb = volumeDb, Group = volumeGroup, SourceGain = sourceGain,
-            StaticCue = clip.StaticPlayback is not null };
+            StaticCue = clip.StaticPlayback is not null, Sequence = checked(++_voiceSequence) };
         _players[channel] = voice;
         var player = voice.Player;
+        player.ProcessMode = ProcessModeEnum.Inherit;
         player.Stop(); player.Stream = clip.Stream; player.Bus = bus;
         player.PitchScale = playbackRate; ApplyVolume(voice);
         player.StreamPaused = false; player.Play();
     }
 
-    public void Stop(string channel)
+    public void Stop(string channel, string? reason = null)
     {
         RequireEngineThread();
-        if (_players.TryGetValue(channel, out var voice)) { voice.Player.Stop(); voice.Player.Stream = null; }
+        _mapMusic.Remove(channel);
+        if (_players.TryGetValue(channel, out var voice) && voice.Player.Stream is not null)
+        {
+            voice.Player.Stop(); voice.Player.Stream = null;
+            // Music may stop under the audio-driver lock. Deliver presentation
+            // callbacks on the existing engine queue, with the actual voice ID.
+            _engineActions.Enqueue(() => ChannelStopped?.Invoke(channel, voice.Sequence, reason));
+        }
     }
 
     public void Pause(string channel, bool paused)
     {
         RequireEngineThread();
+        if (_mapMusic.ContainsKey(channel)) { PauseMapMusic(channel, paused); return; }
         if (_players.TryGetValue(channel, out var voice) && (voice.Player.Playing || voice.Player.StreamPaused))
             voice.Player.StreamPaused = paused;
     }
@@ -212,6 +228,11 @@ public partial class AudioPlaybackService : Node
         Array.Clear(_effects);
         foreach (var voice in _players.Values) { voice.Player.Stop(); voice.Player.Stream = null; }
         _players.Clear();
+        ChannelStopped = null;
+        _mapMusic.Clear();
+        AudioServer.Lock();
+        try { _musicClock?.Dispose(); _musicClock = null; _originalOutputs?.Dispose(); _originalOutputs = null; }
+        finally { AudioServer.Unlock(); }
         lock (_postGate) while (_engineActions.TryDequeue(out _)) { }
         _engineThread = 0;
     }

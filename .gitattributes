@@ -16,3 +16,5 @@ runtime/windows-x64/audio/libspeex-1.dll filter=lfs diff=lfs merge=lfs -text
 runtime/windows-x64/audio/libvorbis.dll filter=lfs diff=lfs merge=lfs -text
 runtime/windows-x64/audio/swresample-vgmstream-4.dll filter=lfs diff=lfs merge=lfs -text
 runtime/windows-x64/audio/vgmstream-cli.exe filter=lfs diff=lfs merge=lfs -text
+
+runtime/windows-x64/audio/San14.Audio.LayoutValidator.exe filter=lfs diff=lfs merge=lfs -text

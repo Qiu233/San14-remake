@@ -21,7 +21,7 @@ public sealed record UiAudioClips(AudioClip ButtonSelect, AudioClip Cancel,
             cancel = await Prepare(AudioSelectionResources.CancelName);
             return new(select, cancel, select.Selection!.BankUri, select.Selection.BankSha256);
         }
-        catch { select?.Stream.Dispose(); cancel?.Stream.Dispose(); throw; }
+        catch { select?.Dispose(); cancel?.Dispose(); throw; }
 
         Task<AudioClip> Prepare(string name) => CueAudioClips.PrepareStaticNonSpatialEffectAsync(
             service, repository, streamRepository,
@@ -30,7 +30,7 @@ public sealed record UiAudioClips(AudioClip ButtonSelect, AudioClip Cancel,
 
     public void Dispose()
     {
-        ButtonSelect.Stream.Dispose(); Cancel.Stream.Dispose();
+        ButtonSelect.Dispose(); Cancel.Dispose();
     }
 
 }

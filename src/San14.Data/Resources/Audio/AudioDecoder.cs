@@ -28,6 +28,7 @@ public sealed record DecodedAudio(PcmWave Wave, LoadedAudioStream? Source,
     AudioDecodeProvenance Provenance, long? LoopStartSample, long? LoopEndSample)
 {
     public AudioDecodeInput? Input { get; init; }
+    public DecodedSpeakerLayout? SpeakerLayout { get; init; }
 }
 
 public interface IAudioDecoder
@@ -48,10 +49,11 @@ public sealed class VgmstreamAudioDecoder : IAudioDecoder
     public TimeSpan Timeout { get; }
     private readonly string _temporaryRoot;
     private readonly IReadOnlyDictionary<string, string> _runtimeHashes;
+    private readonly AudioKtacLayoutValidator? _layoutValidator;
 
     public VgmstreamAudioDecoder(string executablePath, string? expectedExecutableSha256 = null,
         string? temporaryRoot = null, TimeSpan? timeout = null,
-        IReadOnlyDictionary<string, string>? runtimeFileSha256 = null)
+        IReadOnlyDictionary<string, string>? runtimeFileSha256 = null, AudioKtacLayoutValidator? layoutValidator = null)
     {
         if (!OperatingSystem.IsWindows() || System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture !=
             System.Runtime.InteropServices.Architecture.X64)
@@ -66,6 +68,7 @@ public sealed class VgmstreamAudioDecoder : IAudioDecoder
         if (Timeout <= TimeSpan.Zero || Timeout > TimeSpan.FromMinutes(5)) throw new ArgumentOutOfRangeException(nameof(timeout));
         _runtimeHashes = (runtimeFileSha256 ?? new Dictionary<string, string>()).ToDictionary(p => p.Key, p => p.Value, StringComparer.OrdinalIgnoreCase);
         VerifyRuntimeFiles();
+        _layoutValidator = layoutValidator;
     }
 
     /// <summary>Use the retained official release manifest and all executable/DLL hashes.
@@ -82,8 +85,10 @@ public sealed class VgmstreamAudioDecoder : IAudioDecoder
             StringComparer.OrdinalIgnoreCase);
         if (!hashes.TryGetValue("vgmstream-cli.exe", out string? executableHash) || hashes.Count < 2)
             throw new InvalidDataException("Audio decoder manifest does not pin its executable and runtime files.");
+        string layoutManifest = Path.Combine(Path.GetDirectoryName(fullPath)!, "layout-validator.json");
+        AudioKtacLayoutValidator? layout = File.Exists(layoutManifest) ? AudioKtacLayoutValidator.FromManifest(layoutManifest) : null;
         return new(Path.Combine(Path.GetDirectoryName(fullPath)!, "vgmstream-cli.exe"), executableHash,
-            temporaryRoot, timeout, hashes);
+            temporaryRoot, timeout, hashes, layout);
     }
 
     public Task<DecodedAudio> DecodeAsync(LoadedAudioStream source,
@@ -165,11 +170,15 @@ public sealed class VgmstreamAudioDecoder : IAudioDecoder
             if (input.ExpectedFormat is { } format && (wave.SampleRate != format.SampleRate || wave.Channels != format.Channels ||
                 wave.SampleFrames != format.SampleFrames))
                 throw new InvalidDataException("Decoded audio rate, channels or trimmed sample count differs from its original header.");
-            return new(wave, input.StreamSource, new(ExecutablePath, ExecutableSha256, Hash(waveBytes), Hash(wave.Pcm16),
+            var decoded = new DecodedAudio(wave, input.StreamSource, new(ExecutablePath, ExecutableSha256, Hash(waveBytes), Hash(wave.Pcm16),
                 input.EncodedSource.Sha256, input.EncodedSource.ResourceUri)
                 { RuntimeFileSha256 = _runtimeHashes, DecoderInputSha256 = input.DecoderInputSha256,
                     EncodedSource = input.EncodedSource, IndexSource = input.IndexSource },
                 input.LoopStartSample, input.LoopEndSample) { Input = input };
+            if (input.Codec == "KTAC" && wave.Channels == 6 && _layoutValidator is not null)
+                decoded = decoded with { SpeakerLayout = await _layoutValidator.ObserveAsync(inputPath,
+                    Path.GetDirectoryName(ExecutablePath)!, input, wave, decoded.Provenance, cancellationToken).ConfigureAwait(false) };
+            return decoded;
         }
         finally
         {
