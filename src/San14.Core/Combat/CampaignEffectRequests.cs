@@ -3,7 +3,7 @@ namespace San14.Core;
 public enum CampaignEffectSource { NormalCombatRefresh, ArmyFalseReport, ArmyProgressNotifications, ArmyCommandMaintenance,
     ArmyDemolition, MapObjectRetirement, ForceAssociationRemoval, FacilityEffects, ArmyFacilityRepair, ArmyFacilityConstruction,
     ArmyTraitMaintenance, FacilityTraps, ArmyBattleDefeat, FireDamage, TerrainDamage, OfficerGrowthNotifications, PersonAppearance, PersonDeath,
-    LandmarkInvestment }
+    LandmarkInvestment, PersonLifespanNotifications }
 public enum CampaignReportEvent { FirstContact, FalseReportSucceeded, FalseReportFailed, FalseReportBackfired,
     ArmyAutomaticTargetSelected, PlayerDemolitionVisible, PlayerDemolitionAcknowledged, OtherArmyDemolitionObserved,
     PlayerFacilityConstructionCompleted, PlayerFacilityRepairCompleted,
@@ -148,8 +148,15 @@ public enum PersonDeathReportOperation { EventEnter, SpeakerText, EventExit, Con
 public sealed record PersonDeathReportRequest(PersonDeathReportOperation Operation,
     int? EventKind, ushort? SpeakerId, string? TextAtSource);
 
+public enum PersonLifespanNotificationOperation { ControllerQueueEvent, Narration }
+/// <summary>Source-time conditional work. The Person operand belongs to the
+/// narration packet; this is not a serif-speaker, App admission or receipt.</summary>
+public sealed record PersonLifespanNotificationRequest(PersonLifespanNotificationOperation Operation,
+    int? EventKind, ushort? PersonId, string? TextAtSource);
+
 public sealed record CampaignEffectRequest(CombatSpeechRequest? Speech, CampaignReportRequest? Report)
 {
+    public PersonLifespanNotificationRequest? PersonLifespanNotification { get; init; }
     public CampaignHistoryNotification? HistoryNotification { get; init; }
     public PersonDeathReportRequest? PersonDeathReport { get; init; }
     public PersonAppearanceRequest? PersonAppearance { get; init; }
@@ -219,7 +226,8 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                     (request.OfficerGrowthFeedback is null ? 0 : 1) +
                     (request.PersonAppearance is null ? 0 : 1) +
                     (request.PersonDeathReport is null ? 0 : 1) +
-                    (request.HistoryNotification is null ? 0 : 1) != 1)
+                    (request.HistoryNotification is null ? 0 : 1) +
+                    (request.PersonLifespanNotification is null ? 0 : 1) != 1)
                     throw new InvalidDataException("A campaign effect requires one semantic payload.");
                 if (request.HistoryNotification is { } notification)
                 {
@@ -242,6 +250,7 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                 ValidateTerrainDamage(batch.Source, request);
                 ValidateOfficerGrowth(batch.Source, request);
                 ValidatePersonAppearance(batch.Source, request);
+                ValidatePersonLifespanNotification(batch.Source, request);
                 ValidatePersonDeath(batch.Source, request);
                 if (request.ArmyTraitViewRefresh is { } traitRefresh &&
                     (batch.Source is not (CampaignEffectSource.ArmyTraitMaintenance or CampaignEffectSource.FacilityTraps or CampaignEffectSource.FireDamage or CampaignEffectSource.TerrainDamage) || traitRefresh.ArmyId <= 0))
@@ -317,6 +326,23 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                     throw new InvalidDataException("Invalid force association removal report.");
             }
         }
+    }
+
+    private static void ValidatePersonLifespanNotification(CampaignEffectSource source, CampaignEffectRequest request)
+    {
+        if (source == CampaignEffectSource.PersonLifespanNotifications && request.PersonLifespanNotification is null)
+            throw new InvalidDataException("Lifespan notifications require their own payload.");
+        if (request.PersonLifespanNotification is not { } notice) return;
+        bool valid = notice.Operation switch
+        {
+            PersonLifespanNotificationOperation.ControllerQueueEvent => notice.EventKind == 7 &&
+                notice.PersonId is null && notice.TextAtSource is null,
+            PersonLifespanNotificationOperation.Narration => notice.EventKind is null && notice.PersonId is not null &&
+                notice.TextAtSource is { Length: <= 338 } text && !text.Any(c => c == '\0' || char.IsSurrogate(c)),
+            _ => false
+        };
+        if (source != CampaignEffectSource.PersonLifespanNotifications || !valid)
+            throw new InvalidDataException("Invalid lifespan notification union.");
     }
 
     private static void ValidatePersonDeath(CampaignEffectSource source, CampaignEffectRequest request)

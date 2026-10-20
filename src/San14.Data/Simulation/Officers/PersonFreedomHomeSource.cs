@@ -212,7 +212,7 @@ public sealed class PersonFreedomHomeSource
         }
     }
 
-    private static void Shuffle(SourceWorldContext current, List<Entry> nodes, TacticSourceSamplerWorld sampler)
+    internal static void Shuffle(SourceWorldContext current, List<Entry> nodes, TacticSourceSamplerWorld sampler)
     {
         int salt = 0, count = nodes.Count;
         for (int rounds = (count / 2) * count; rounds > 0; rounds--)
@@ -263,5 +263,5 @@ public sealed class PersonFreedomHomeSource
     private static int Physical(RegistryObjectReference value) => Need(value.PhysicalSlot, "current.265250_pointer_ordinal");
     private static T Need<T>(T? value, string owner) where T : struct => value ?? throw Missing(owner);
     private static InvalidDataException Missing(string owner) => new(owner);
-    private sealed record Entry(HexListNodeReference Node, RegistryObjectReference Payload);
+    internal sealed record Entry(HexListNodeReference Node, RegistryObjectReference Payload);
 }

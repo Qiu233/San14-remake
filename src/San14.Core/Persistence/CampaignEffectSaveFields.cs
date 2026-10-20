@@ -5,6 +5,9 @@ internal static class CampaignEffectSaveFields
 {
     internal static void Migrate(JsonObject state, int version)
     {
+        // Reject a future payload before any older migration can discard its
+        // owner. Version113 also checks its reconstructed legacy batches below.
+        MigratePersonLifespanNotificationFields(state, version);
         if (version >= 114)
         {
             if (!state.ContainsKey("CampaignEffectRequests")) throw new InvalidDataException("Saved campaign effects are missing.");
@@ -52,6 +55,27 @@ internal static class CampaignEffectSaveFields
         MigrateOfficerGrowthFields(state, version);
             MigratePersonAppearanceFields(state, version);
         MigratePersonDeathFields(state, version);
+        MigratePersonLifespanNotificationFields(state, version);
+    }
+
+    private static void MigratePersonLifespanNotificationFields(JsonObject state, int version)
+    {
+        if (version >= 139 || state["CampaignEffectRequests"] is not JsonObject owner ||
+            owner["PendingBatches"] is not JsonArray batches) return;
+        foreach (var node in batches)
+            if (node is JsonObject batch && batch["Requests"] is JsonArray requests)
+            {
+                if (batch["Source"] is JsonValue value && value.TryGetValue<int>(out int source) &&
+                    source >= (int)CampaignEffectSource.PersonLifespanNotifications)
+                    throw new InvalidDataException("Legacy campaign batch has a future lifespan notification origin.");
+                foreach (var entry in requests)
+                    if (entry is JsonObject request)
+                    {
+                        if (request["PersonLifespanNotification"] is not null)
+                            throw new InvalidDataException("Legacy campaign request has a future lifespan notification payload.");
+                        request["PersonLifespanNotification"] = null;
+                    }
+            }
     }
 
     private static void MigratePersonDeathFields(JsonObject state, int version)
@@ -280,7 +304,9 @@ internal static class CampaignEffectSaveFields
                 var request = Require(entry, "HistoryNotification", "Speech", "Report", "MapObjectPresentation", "ForceAssociationRemovalReport",
                     "FacilityAuraReset", "MilitaryMusicPulse", "FacilityRepairPresentation", "FacilityConstructionPresentation",
                     "ArmyTraitViewRefresh", "ArmyTraitFeedback", "FacilityTrapPresentation", "ArmyTrapPresentation",
-                    "ArmyFacilityDamagePresentation", "FacilityTrapReport", "ArmyMoraleDefeatReport", "FireDamagePresentation", "TerrainDamagePresentation", "OfficerGrowthFeedback", "PersonAppearance", "PersonDeathReport");
+                    "ArmyFacilityDamagePresentation", "FacilityTrapReport", "ArmyMoraleDefeatReport", "FireDamagePresentation", "TerrainDamagePresentation", "OfficerGrowthFeedback", "PersonAppearance", "PersonDeathReport", "PersonLifespanNotification");
+                if (request["PersonLifespanNotification"] is JsonNode lifespan)
+                    _ = RequireExact(lifespan, "Operation", "EventKind", "PersonId", "TextAtSource");
                 if (request["PersonDeathReport"] is JsonNode death)
                     _ = RequireExact(death, "Operation", "EventKind", "SpeakerId", "TextAtSource");
                 if (request["PersonAppearance"] is JsonNode appearance)

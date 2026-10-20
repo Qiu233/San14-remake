@@ -189,6 +189,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         fresh = _moraleWaveInputs.InstallFresh(fresh);
         fresh = PersonDeathReportInputs.InstallFresh(fresh, Seed.Language);
         fresh = PersonDeathReportInputs.InstallFreshPopularityScale(fresh, _scenario, Seed.Language);
+        fresh = AnnualPersonLifespanNotificationSource.InstallFreshParameters(fresh, _scenario, Seed.Language);
         fresh = _rulerCaptureReleaseInputs.InstallFresh(fresh);
         fresh = CaptureBaseThreatInputs.InstallFresh(fresh);
         fresh = CommanderSelectionSource.InstallFresh(fresh);

@@ -89,9 +89,16 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
             else Observe("turn.index3.skipped");
             next = 4;
+            if (annual)
+            {
+                state = new AnnualPersonLifespanNotificationSource(this, state, current, pool, observe).Run();
+                Observe("turn.index4.completed");
+            }
+            else Observe("turn.index4.skipped");
+            next = 5;
             // This is the actual next unowned action, not normal Turn exit.
             // In particular, do not restore SavedApp32 here, even if nonzero.
-            throw AppearanceTurnMissing("action.4");
+            throw AppearanceTurnMissing("action.5");
 
             void Observe(string point)
             {
