@@ -19,13 +19,8 @@ public sealed class ArmyMapUiSources
     {
         // Appearance aliases and icon names are rules; the named sprites remain
         // in the original resource archive and are loaded by the UI asset owner.
-        (int From, int To)[] appearance =
-        [
-            (2197,7), (2196,36), (2195,45), (2194,2), (2193,1),
-            (2192,9), (2191,84), (2190,60), (2189,44), (2188,49),
-            (2187,14), (2186,25), (2185,37), (2184,64), (2183,63),
-            (2182,91), (2181,30), (2180,117), (2179,17)
-        ];
+        var appearance = PersonPortraitTransitionCatalog.Rules
+            .Select(row => (From: row.PortraitWhenTrue, To: row.PortraitWhenFalse)).ToArray();
         var names = new Dictionary<int, string>
         {
             [0x1A2]="000_cmn_icon_jin_1", [0x1A8]="000_cmn_icon_jin_2",
