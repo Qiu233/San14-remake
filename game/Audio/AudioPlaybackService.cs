@@ -9,7 +9,7 @@ using San14.Data;
 public partial class AudioPlaybackService : Node
 {
     private readonly ConcurrentQueue<Action> _engineActions = new();
-    private sealed record Voice(AudioStreamPlayer Player, float BaseVolumeDb, AudioVolumeGroup? Group);
+    private sealed record Voice(AudioStreamPlayer Player, float BaseVolumeDb, AudioVolumeGroup? Group, float SourceGain);
     private readonly Dictionary<string, Voice> _players = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly object _postGate = new();
@@ -31,7 +31,9 @@ public partial class AudioPlaybackService : Node
     private void ApplyVolume(Voice voice)
     {
         if (voice.Group is { } group)
-            voice.Player.VolumeLinear = Mathf.DbToLinear(voice.BaseVolumeDb) * (Volumes.Percent(group) / 100f);
+            voice.Player.VolumeLinear = voice.SourceGain * Mathf.DbToLinear(voice.BaseVolumeDb) * (Volumes.Percent(group) / 100f);
+        else if (voice.SourceGain != 1)
+            voice.Player.VolumeLinear = voice.SourceGain * Mathf.DbToLinear(voice.BaseVolumeDb);
         else voice.Player.VolumeDb = voice.BaseVolumeDb;
     }
 
@@ -55,6 +57,7 @@ public partial class AudioPlaybackService : Node
     public override void _Process(double delta)
     {
         while (_engineActions.TryDequeue(out Action? action)) action();
+        UpdateEffects();
     }
 
     public Task<AudioClip> PrepareAsync(uint fileId, int streamIndex,
@@ -162,13 +165,15 @@ public partial class AudioPlaybackService : Node
         if (string.IsNullOrWhiteSpace(channel) || channel.Length > 64) throw new ArgumentException("Audio channel needs a short nonempty key.", nameof(channel));
         if (!float.IsFinite(volumeDb) || volumeDb is < -80 or > 24) throw new ArgumentOutOfRangeException(nameof(volumeDb));
         if (volumeGroup is { } group && !Enum.IsDefined(group)) throw new ArgumentOutOfRangeException(nameof(volumeGroup));
+        float sourceGain = clip.StaticPlayback?.LinearGain ?? 1;
+        if (!float.IsFinite(sourceGain) || sourceGain < 0) throw new InvalidDataException("Audio source gain must be finite and nonnegative.");
         if (AudioServer.GetBusIndex(bus) < 0) throw new ArgumentException("Selected audio bus does not exist.", nameof(bus));
         if (!_players.TryGetValue(channel, out var previous))
         {
-            previous = new(new AudioStreamPlayer { Name = "OriginalAudioVoice" + _players.Count, Autoplay = false }, volumeDb, volumeGroup);
+            previous = new(new AudioStreamPlayer { Name = "OriginalAudioVoice" + _players.Count, Autoplay = false }, volumeDb, volumeGroup, sourceGain);
             AddChild(previous.Player);
         }
-        var voice = previous with { BaseVolumeDb = volumeDb, Group = volumeGroup };
+        var voice = previous with { BaseVolumeDb = volumeDb, Group = volumeGroup, SourceGain = sourceGain };
         _players[channel] = voice;
         var player = voice.Player;
         player.Stop(); player.Stream = clip.Stream; player.Bus = bus; ApplyVolume(voice);
@@ -184,12 +189,14 @@ public partial class AudioPlaybackService : Node
     public void Pause(string channel, bool paused)
     {
         RequireEngineThread();
-        if (_players.TryGetValue(channel, out var voice)) voice.Player.StreamPaused = paused;
+        if (_players.TryGetValue(channel, out var voice) && (voice.Player.Playing || voice.Player.StreamPaused))
+            voice.Player.StreamPaused = paused;
     }
 
     public override void _ExitTree()
     {
         _lifetime.Cancel();
+        Array.Clear(_effects);
         foreach (var voice in _players.Values) { voice.Player.Stop(); voice.Player.Stream = null; }
         _players.Clear();
         lock (_postGate) while (_engineActions.TryDequeue(out _)) { }

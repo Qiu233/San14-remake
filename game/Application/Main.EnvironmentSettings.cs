@@ -24,7 +24,8 @@ public partial class Main
         {
             view.Configure(_repository, _ui, entry, audioEntry, listEntry,
                 () => RunUiAction(RequestBack), () => RunUiAction(Apply), () => RunUiAction(RequestDefaults),
-                audio => { if (Current()) _uiAudioFeedback?.SetVolumes(audio); });
+                audio => { if (Current()) _uiAudioFeedback?.SetVolumes(audio); },
+                () => { if (Current()) _uiAudioFeedback?.PlayEffectsPreview(); });
         }
         catch { CloseEnvironmentSettings(); throw; }
 

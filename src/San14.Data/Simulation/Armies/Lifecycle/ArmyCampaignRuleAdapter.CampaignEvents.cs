@@ -33,6 +33,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             CampaignEventEligibility = new(new bool[992]) { HistoryRecordingSuppressed = false },
             CampaignHistory = state.CampaignHistory is null ? CampaignHistoryState.Fresh()
                 : throw new InvalidDataException("Fresh campaign history is already owned."),
+            CampaignChronicle = state.CampaignChronicle is null ? CampaignChronicleState.Fresh()
+                : throw new InvalidDataException("Fresh campaign chronology is already owned."),
             ContentHashes = new(state.ContentHashes) { [events.Source.ResourceUri] = events.Source.Sha256 }
         };
     }

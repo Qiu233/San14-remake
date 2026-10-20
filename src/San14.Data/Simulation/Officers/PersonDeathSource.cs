@@ -59,7 +59,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     var positionForce = current.ReadForceTableReference(slot <= 51 ? slot : 0) ?? throw Missing("captive_position_force_lookup");
                     if (IsPlayer(positionForce)) reports = true;
                 }
-                if (reports) ApplyInitialReports(person, capturedStatus, office);
+                if (reports) ApplyInitialReports(person, capturedStatus, office, oldForce, oldPosition);
                 if (Serving(person) && Known(current.ReadForceNativeValidity(oldForce), "job_force_validity"))
                 {
                     var prior = current.AssignmentAdvisorResetCallbacks;

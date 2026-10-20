@@ -16,7 +16,7 @@ public sealed record SaveEnvelope(int SchemaVersion, string FormatId, GameState 
 /// <summary>Local save format. A future original-save adapter can implement ISaveCodec.</summary>
 public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
 {
-    public const int CurrentSchemaVersion = 137;
+    public const int CurrentSchemaVersion = 138;
     public string FormatId => "san14-remake-json-gzip";
     private readonly ILegacyOfficerAbilitySource? _legacyAbilitySource;
     private readonly ICampaignResourceStateCodec? _resourceStateCodec;
@@ -428,6 +428,7 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
         }
         CampaignEffectSaveFields.Migrate(stateDocument, version);
         CampaignHistorySaveFields.Migrate(stateDocument, version);
+        CampaignChronicleSaveFields.Migrate(stateDocument, version);
         if (version < 100) stateDocument["CampaignEventWorld"] = null;
         else if (!stateDocument.ContainsKey("CampaignEventWorld") ||
             stateDocument["CampaignEventWorld"] is JsonNode eventWorld && (eventWorld is not JsonObject worldFields ||

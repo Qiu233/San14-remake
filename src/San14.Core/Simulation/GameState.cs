@@ -657,6 +657,7 @@ public static class StateValidator
         PlayablePersonnelStateValidation.Validate(state);
         EconomyReportStateValidation.Validate(state);
         CampaignHistoryValidation.Validate(state);
+        CampaignChronicleValidation.Validate(state);
         NativeSubdayStateValidation.Validate(state, operationContext);
         NativeNormalArmyCombatCalendarStateValidation.Validate(state);
         NativeArmyReturnCurrentStateValidation.Validate(state);

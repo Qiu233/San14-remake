@@ -19,8 +19,10 @@ internal sealed class UiAudioFeedback : IDisposable
     private readonly CancellationTokenSource _lifetime = new();
     private readonly CancellationToken _token;
     private readonly Dictionary<ulong, (BaseButton Button, Action Handler)> _buttons = [];
+    private bool _subscribed;
     private AudioPlaybackService? _service;
     private UiAudioClips? _clips;
+    private AudioClip? _effectsPreview;
     private AudioVolumeOptions _volumes = new();
 
     public void SetVolumes(AudioVolumeOptions volumes)
@@ -44,8 +46,10 @@ internal sealed class UiAudioFeedback : IDisposable
 
     public void Start()
     {
+        if (_subscribed) throw new InvalidOperationException("UI audio feedback is already started.");
         _tree.NodeAdded += HookButton;
         _tree.NodeRemoved += ReleaseButton;
+        _subscribed = true;
         HookSubtree(_host);
         _ = PrepareAsync();
     }
@@ -81,6 +85,7 @@ internal sealed class UiAudioFeedback : IDisposable
             Publish(Status with { Availability = UiAudioAvailability.Ready, Source = provenance });
             GD.Print($"ORIGINAL_UI_AUDIO_READY bank={provenance.BankUri} " +
                 $"selectFrames={provenance.SelectFrames} cancelFrames={provenance.CancelFrames} preloadOnly=true");
+            await PrepareEffectsPreviewAsync(service, source);
         }
         catch (OperationCanceledException) when (_token.IsCancellationRequested) { }
         catch (Exception error)
@@ -98,7 +103,7 @@ internal sealed class UiAudioFeedback : IDisposable
         {
             // Both selected UI samples belong to the original Effects
             // category. General cue selection/arbitration remains separate.
-            _service.Play(cancel ? _clips.Cancel : _clips.ButtonSelect, "ui", volumeGroup: AudioVolumeGroup.Effects);
+            if (!_service.TryPlayEffect(cancel ? _clips.Cancel : _clips.ButtonSelect)) return;
             Publish(cancel ? Status with { CancelCount = (Status.CancelCount ?? 0) + 1 }
                 : Status with { SelectCount = (Status.SelectCount ?? 0) + 1 });
         }
@@ -107,6 +112,32 @@ internal sealed class UiAudioFeedback : IDisposable
             Publish(Status with { Availability = UiAudioAvailability.Unavailable, Reason = error.Message });
             GD.PushWarning("Original UI sound playback unavailable: " + error.Message);
         }
+    }
+
+    private async Task PrepareEffectsPreviewAsync(AudioPlaybackService service, GameResourceRepository source)
+    {
+        AudioClip? clip = null;
+        try
+        {
+            clip = await CueAudioClips.PrepareStaticNonSpatialEffectAsync(service, source,
+                new AudioRepository(_sourceDirectory, _overridesDirectory),
+                new(AudioSelectionResources.InstalledUiBankId, null, "SE_400_DAMEGE_VERTICAL_MAN", AudioLoopPolicy.Disabled), _token);
+            if (_token.IsCancellationRequested || !_acceptPreparedClips()) { clip.Stream.Dispose(); return; }
+            _effectsPreview = clip;
+        }
+        catch (OperationCanceledException) when (_token.IsCancellationRequested) { clip?.Stream.Dispose(); }
+        catch (Exception error)
+        {
+            clip?.Stream.Dispose();
+            if (!_token.IsCancellationRequested) GD.PushWarning("Original Effects preview unavailable: " + error.Message);
+        }
+    }
+
+    public void PlayEffectsPreview()
+    {
+        if (_token.IsCancellationRequested || _effectsPreview is null || _service is null) return;
+        try { _service.TryPlayEffect(_effectsPreview); }
+        catch (Exception error) { GD.PushWarning("Original Effects preview unavailable: " + error.Message); }
     }
 
     private void HookSubtree(Node node)
@@ -145,12 +176,17 @@ internal sealed class UiAudioFeedback : IDisposable
     public void Dispose()
     {
         CancelPreparation();
-        _tree.NodeAdded -= HookButton;
-        _tree.NodeRemoved -= ReleaseButton;
+        if (_subscribed)
+        {
+            _tree.NodeAdded -= HookButton;
+            _tree.NodeRemoved -= ReleaseButton;
+            _subscribed = false;
+        }
         foreach (var subscription in _buttons.Values)
             subscription.Button.Pressed -= subscription.Handler;
         _buttons.Clear();
-        if (_service is { } service && GodotObject.IsInstanceValid(service) && service.IsInsideTree()) service.Stop("ui");
+        if (_service is { } service && GodotObject.IsInstanceValid(service) && service.IsInsideTree()) service.StopEffects();
+        _effectsPreview?.Stream.Dispose(); _effectsPreview = null;
         _clips?.Dispose();
         _clips = null;
         Changed = null;

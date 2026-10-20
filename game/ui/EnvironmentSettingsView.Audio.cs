@@ -6,6 +6,7 @@ internal partial class EnvironmentSettingsView
 {
     private readonly List<(UiSourceVolumeButton Button, AudioVolumeGroup Group, int Value)> audioChoices = [];
     private Action<AudioVolumeOptions>? previewAudio;
+    private Action? previewEffects;
     internal AudioVolumeOptions AudioDraft { get; private set; } = new();
 
     private void ShowPage(int index)
@@ -67,6 +68,7 @@ internal partial class EnvironmentSettingsView
                     {
                         if (abandoned || busy) return;
                         ApplyAudioOptions(AudioDraft.WithPercent(group,value));
+                        if (group == AudioVolumeGroup.Effects) previewEffects?.Invoke();
                         ApplyHelp(hint);
                     });
                 button.MouseEntered += () => { if (!abandoned && !busy) ApplyHelp(hint); };

@@ -22,11 +22,12 @@ internal partial class EnvironmentSettingsView : Control
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
         MapCameraNavigationOptions initial, AudioVolumeOptions audio, ListScrollSpeed listScroll, Action returned, Action accepted, Action reset,
-        Action<AudioVolumeOptions> previewAudio)
+        Action<AudioVolumeOptions> previewAudio, Action? previewEffects = null)
     {
         this.returned = returned; this.accepted = accepted; this.reset = reset;
         initial.Validate(); Draft = initial;
         audio.Validate(); AudioDraft = audio; this.previewAudio = previewAudio;
+        this.previewEffects = previewEffects;
         if (!Enum.IsDefined(listScroll)) throw new ArgumentOutOfRangeException(nameof(listScroll));
         ListScrollDraft = listScroll;
         Name = "EnvironmentSettings"; ZIndex = 4; MouseFilter = MouseFilterEnum.Stop;
@@ -174,6 +175,7 @@ internal partial class EnvironmentSettingsView : Control
     {
         abandoned = true; returned = null; accepted = null; reset = null;
         previewAudio = null;
+        previewEffects = null;
         foreach (var row in choices) row.Button.Abandon();
         foreach (var row in audioChoices) row.Button.Abandon();
         foreach (var tab in tabs) tab.Disabled = true;

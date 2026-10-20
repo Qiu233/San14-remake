@@ -114,4 +114,206 @@ public static class AudioCueGraphResources
         }
         return new(graph.Cue.CueId, cueName, node.SoundId.Value, graph.Cue.SectionOffset, node.Offset, graph.Source);
     }
+
+    /// <summary>
+    /// Reads one static 562FC4B9/A5170472 chain for the non-spatial A0 consumer.
+    /// No manager admission, decoder readiness or spatial-request choice is inferred here.
+    /// Nonneutral rate, delay/start envelopes, duration limits and dynamic fields are rejected.
+    /// Category keys remain explicit: resolve them against the caller's current CGRS asset.
+    /// </summary>
+    public static AudioCueStaticPlaybackReference ReadSingleStaticNonSpatialReference(
+        AudioSelectionBank bank, string cueName)
+    {
+        ArgumentNullException.ThrowIfNull(bank);
+        ArgumentException.ThrowIfNullOrEmpty(cueName);
+        AudioNamedCue[] cues = bank.Cues.Where(c => c.Name == cueName).ToArray();
+        if (cues.Length != 1)
+            throw new InvalidDataException("A static playback cue name must identify exactly one section.");
+        AudioNamedCue cue = cues[0];
+        byte[] bytes = bank.Source.Bytes;
+        VerifyStaticSource(bank.Source);
+        int start = cue.SectionOffset;
+        long end64 = (long)start + cue.SectionBytes;
+        if (start < 0 || cue.SectionBytes < 48 || end64 > bytes.Length)
+            throw new InvalidDataException("Static playback cue section is outside its source.");
+        int end = (int)end64;
+        void Range(int at, int count)
+        {
+            if (count < 0 || at < start || at > end || count > end - at)
+                throw new InvalidDataException("Static playback field extends outside its cue section.");
+        }
+        uint U32(int at)
+        {
+            Range(at, 4);
+            return BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(at, 4));
+        }
+        float Scalar(int at)
+        {
+            float value = BitConverter.Int32BitsToSingle(unchecked((int)U32(at)));
+            if (!float.IsFinite(value)) throw new InvalidDataException("Static playback scalar is not finite.");
+            return value;
+        }
+        int Relative(int at, uint offset)
+        {
+            long value = (long)at + offset;
+            if (value > int.MaxValue)
+                throw new InvalidDataException("Static playback pointer exceeds int32.");
+            Range((int)value, 4);
+            return (int)value;
+        }
+        int SingleChild(int at, int countField, int pointerField)
+        {
+            if (U32(at + countField) != 1)
+                throw new NotSupportedException("Static playback requires exactly one root and one child.");
+            int table = Relative(at, U32(at + pointerField));
+            return Relative(at, U32(table));
+        }
+        void Header(int at, uint opcode, int minimum)
+        {
+            Range(at, minimum);
+            if (U32(at) != opcode)
+                throw new NotSupportedException("Static playback requires a parameter group and a parameter sound reference.");
+            uint size = U32(at + 4);
+            if (size < minimum || size > int.MaxValue)
+                throw new InvalidDataException("Static playback node header length is invalid.");
+            Range(at, (int)size);
+            if (U32(at + 12) != 0)
+                throw new NotSupportedException("Static playback does not implement node flags/functions/selectors.");
+        }
+        void Neutral(float value, float expected, string field)
+        {
+            if (value != expected)
+                throw new NotSupportedException($"Static non-spatial playback does not implement nonneutral {field}.");
+        }
+
+        if (U32(start) != 0x368C88BD || U32(start + 8) != cue.CueId || U32(start + 4) != cue.SectionBytes)
+            throw new InvalidDataException("Static playback cue metadata differs from its section.");
+        if ((U32(start + 12) & 0xF0000) != 0)
+            throw new NotSupportedException("Static playback does not implement cue selectors.");
+        int root = SingleChild(start, 32, 36);
+        Header(root, 0x562FC4B9, 0x58);
+        int leaf = SingleChild(root, 16, 20);
+        Header(leaf, 0xA5170472, 0x44);
+        if (leaf < root + (long)U32(root + 4))
+            throw new InvalidDataException("Static sound reference overlaps its group header.");
+        if (U32(root + 0x50) != 0 || U32(root + 0x54) != 0 ||
+            U32(leaf + 0x3C) != 0 || U32(leaf + 0x40) != 0)
+            throw new NotSupportedException("Static playback does not implement parameter curves.");
+        if (U32(leaf + 0x10) != 0)
+            throw new NotSupportedException("Static playback does not implement a leaf classification override.");
+
+        var group = new AudioCueStaticGroupParameters(root, U32(root + 0x18),
+            Scalar(root + 0x1C), Scalar(root + 0x20), Scalar(root + 0x24),
+            Scalar(root + 0x28), Scalar(root + 0x2C), Scalar(root + 0x30), Scalar(root + 0x34),
+            new(Scalar(root + 0x38), Scalar(root + 0x3C), Scalar(root + 0x40),
+                Scalar(root + 0x44), U32(root + 0x48), Scalar(root + 0x4C)));
+        var sound = new AudioCueStaticSoundParameters(leaf, U32(leaf + 0x14), U32(leaf + 0x10),
+            Scalar(leaf + 0x1C), Scalar(leaf + 0x20), Scalar(leaf + 0x24),
+            Scalar(leaf + 0x28), Scalar(leaf + 0x2C), Scalar(leaf + 0x30),
+            Scalar(leaf + 0x34), Scalar(leaf + 0x38));
+        if (group.LinearGain < 0 || sound.LinearGain < 0 || group.StopReleaseSeconds < 0)
+            throw new InvalidDataException("Static playback gain or release duration is negative.");
+        Neutral(group.MixMultiplier1, 1, "group mix multiplier1");
+        Neutral(group.MixMultiplier2, 1, "group mix multiplier2");
+        Neutral(group.AdditiveRate, 0, "group additive rate");
+        Neutral(group.InitialDelaySeconds, 0, "group delay");
+        Neutral(group.StartEnvelopeSeconds, 0, "group start envelope");
+        Neutral(sound.MaximumDurationSeconds, 0, "sound maximum duration");
+        Neutral(sound.MixMultiplier, 1, "sound mix multiplier");
+        Neutral(sound.AdditiveRate, 0, "sound additive rate");
+        Neutral(sound.InitialDelaySeconds, 0, "sound delay");
+        Neutral(sound.EnvelopeScalar30, 0, "sound envelope scalar30");
+        Neutral(sound.EnvelopeScalar34, 0, "sound envelope scalar34");
+        Neutral(sound.EnvelopeScalar38, 0, "sound envelope scalar38");
+        float gain = group.LinearGain * sound.LinearGain;
+        if (!float.IsFinite(gain)) throw new InvalidDataException("Static playback combined gain is not finite.");
+
+        AudioNamedSample[] samples = bank.Samples.Where(s => s.SampleId == sound.SoundId).ToArray();
+        if (samples.Length != 1 || samples[0].Headers.Count != 1)
+            throw new NotSupportedException("Static playback sound must identify exactly one sample and header.");
+        AudioSampleHeader header = samples[0].Headers[0];
+        if (header.TypeId is not (0xE96FD86A or 0x7D43D038))
+            throw new NotSupportedException("Static playback sample metadata format is unsupported.");
+        if (header.Channels <= 0 || header.SampleRate <= 0 || header.DeclaredSamples <= 0 ||
+            header.LoopStartSample < -1 || header.LoopStartSample >= header.DeclaredSamples)
+            throw new InvalidDataException("Static playback sample timing is invalid.");
+        return new(new(cue.CueId, cueName, sound.SoundId, start, leaf, bank.Source), group, sound,
+            new(samples[0].SectionOffset, header.TypeId, header.IsExternal, header.Channels,
+                header.SampleRate, header.DeclaredSamples, header.LoopStartSample), gain, 1);
+    }
+
+    /// <summary>Reads the ordered gain keys of one classification in an explicit current CGRS
+    /// asset. This is not a gain registry or a category-name guess. Overrides use their real bytes.</summary>
+    public static IReadOnlyList<uint> ReadStaticGainCategoryIds(LoadedRdbAsset source, uint classificationId)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        VerifyStaticSource(source);
+        byte[] bytes = source.Bytes;
+        uint U32(int at) => BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(at, 4));
+        if (bytes.Length < 80 || !bytes.AsSpan(0, 8).SequenceEqual("CGRS\0\0\0\0"u8) ||
+            BinaryPrimitives.ReadUInt64LittleEndian(bytes.AsSpan(8, 8)) != (ulong)bytes.Length ||
+            !bytes.AsSpan(16, 4).SequenceEqual("KTSR"u8) || U32(20) != 0x9EE638C6 ||
+            U32(40) != bytes.Length - 16 || U32(44) != bytes.Length - 16)
+            throw new InvalidDataException("Static playback classification container is invalid.");
+        uint[]? found = null;
+        int section = 80, records = 0;
+        while (section < bytes.Length)
+        {
+            if (++records > 65536 || bytes.Length - section < 8)
+                throw new InvalidDataException("Static playback classification section is incomplete.");
+            uint size = U32(section + 4);
+            if (size < 8 || size > bytes.Length - section)
+                throw new InvalidDataException("Static playback classification section length is invalid.");
+            if (U32(section) == 0xF96787ED)
+            {
+                if (size < 0x24)
+                    throw new InvalidDataException("Static playback classification header is incomplete.");
+                if (U32(section + 8) == classificationId)
+                {
+                    if (found is not null)
+                        throw new InvalidDataException("Static playback classification key is ambiguous.");
+                    uint count = U32(section + 0x1C), relative = U32(section + 0x20);
+                    if (count > 1024 || (count != 0 && (relative < 0x24 || relative > size || count > (size - relative) / 4)))
+                        throw new InvalidDataException("Static playback classification gain list is invalid.");
+                    found = new uint[count];
+                    for (int i = 0; i < found.Length; i++)
+                        found[i] = U32(checked(section + (int)relative + i * 4));
+                }
+            }
+            section += (int)size;
+        }
+        if (found is null) throw new InvalidDataException("Static playback classification key is missing.");
+        return Array.AsReadOnly(found);
+    }
+
+    private static void VerifyStaticSource(LoadedRdbAsset source)
+    {
+        if (!Convert.ToHexString(SHA256.HashData(source.Bytes)).Equals(source.DecodedSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Static playback source changed after parsing.");
+    }
+
 }
+
+/// <summary>Original filter/direction values are retained. The non-spatial A0 consumer's
+/// coefficient gate skips this filter; these values must not be ignored by a spatial consumer.</summary>
+public sealed record AudioCueNonSpatialFilterSource(float Direction, float Spread,
+    float Parameter40, float Parameter44, uint Parameter48, float Parameter4C);
+public sealed record AudioCueStaticGroupParameters(int Offset, uint ClassificationId,
+    float LinearGain, float MixMultiplier1, float MixMultiplier2, float AdditiveRate,
+    float InitialDelaySeconds, float StartEnvelopeSeconds, float StopReleaseSeconds,
+    AudioCueNonSpatialFilterSource FilterSource);
+/// <summary>The three neutral envelope scalars retain their actual source positions;
+/// this reader does not assign unproven timing units to them.</summary>
+public sealed record AudioCueStaticSoundParameters(int Offset, uint SoundId, uint ClassificationId,
+    float MaximumDurationSeconds, float LinearGain, float MixMultiplier, float AdditiveRate,
+    float InitialDelaySeconds, float EnvelopeScalar30, float EnvelopeScalar34, float EnvelopeScalar38);
+public sealed record AudioCueStaticSampleTiming(int SampleSectionOffset, uint HeaderTypeId,
+    bool IsExternal, int Channels, int SampleRate, int DeclaredSamples, int LoopStartSample)
+{
+    public bool HasSourceLoop => LoopStartSample >= 0;
+}
+/// <summary>One static source reference, not proof of admission, decoding or playback.
+/// StopReleaseSeconds is used on explicit ordinary stop, never baked onto the natural tail.</summary>
+public sealed record AudioCueStaticPlaybackReference(AudioCueSoundReference Sound,
+    AudioCueStaticGroupParameters Group, AudioCueStaticSoundParameters Leaf,
+    AudioCueStaticSampleTiming Sample, float LinearGain, float PlaybackRate);

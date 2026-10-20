@@ -30,7 +30,8 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     internal sealed partial class PersonDeathSource
     {
-        private void ApplyInitialReports(int person, byte capturedStatus, int capturedOffice)
+        private void ApplyInitialReports(int person, byte capturedStatus, int capturedOffice,
+            ForceReference capturedForce, HexReference capturedPosition)
         {
             var effects = new List<CampaignEffectRequest>();
             bool entered = false;
@@ -63,13 +64,11 @@ public sealed partial class ArmyCampaignRuleAdapter
 
             ApplySecondReports(person, capturedStatus, capturedOffice);
 
-            ApplyDeathHistory(person);
-            //The reached1EF470+8-controlled kin-journal continuation has its
-            //own unclosed business owner. A consumed history is not death completion.
-            throw Missing("death_history_followup_1EF470_kin_journal");
+            int chronicleCode = ApplyDeathHistory(person);
+            ApplyDeathKinJournal(person, capturedForce, capturedPosition, chronicleCode);
         }
 
-        private void ApplyDeathHistory(int person)
+        private int ApplyDeathHistory(int person)
         {
             //Annual argument8 is1. Retain this exact fresh player receiver for
             //the later attachment Arg1, even when it is native-invalid.
@@ -95,7 +94,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 int day = DeathHistoryDay();
                 string? supplemental = CampaignHistoryWriter.Supplemental(latest);
                 CommitDeathHistory(new(0, 0, 0, day, text, supplemental, 5012));
-                return;
+                return 0;
             }
 
             var related = Force(person);
@@ -128,6 +127,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             int hex = Known(Position(person).PhysicalSlot, "death_history_Hex_ordinal");
             if (hex < 0) throw Missing("death_history_negative_Hex_ordinal");
             CommitDeathHistory(new(1, district, hex, freshDay, main, attachment, reporter, MarkBit3: 1, MarkBit4: 1));
+            return root == 0x2A2E ? 12 : 0; //Retain the actual annual branch result, not a later status.
         }
 
         private int DeathHistoryDay()

@@ -7,10 +7,11 @@ public sealed record AudioClip(AudioStreamWav Stream, AudioDecodeProvenance Prov
 {
     public AudioClipSelection? Selection { get; init; }
     public AudioClipCue? Cue { get; init; }
+    public AudioCueStaticPlaybackReference? StaticPlayback { get; init; }
 }
 public sealed record AudioClipSelection(string ExactSampleName, string BankUri, string BankSha256,
     uint SampleId, int SectionOffset, int SectionBytes);
-public sealed record AudioClipCue(string ExactCueName, uint CueId, int SectionOffset, int LeafOffset);
+public sealed record AudioClipCue(string ExactCueName, uint CueId, int SectionOffset, int? LeafOffset);
 
 /// <summary>Creates the Godot resource on the caller's engine thread. PCM samples are
 /// preserved without gain, resampling or downmixing. Multichannel routing requires

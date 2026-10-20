@@ -27,7 +27,7 @@ internal sealed class CampaignHistoryWriter(GameResourceRepository repository, L
     //only after the writer recording gate and slot. Preserve unknown until then.
     internal static string? Supplemental(GameState state) => state.CampaignHistory?.DefaultSupplementalText;
 
-    private string ShortName(GameState state, SourceWorldContext current, ForceReference force)
+    internal string ShortName(GameState state, SourceWorldContext current, ForceReference force)
     {
         if (!K(current.ReadForceNativeValidity(force), "short_name_Force_validity")) return "";
         int physical = K(force.PhysicalSlot, "short_name_Force_pointer");
@@ -37,8 +37,31 @@ internal sealed class CampaignHistoryWriter(GameResourceRepository repository, L
         var definition = names.CustomNames.Definitions[selected];
         string text;
         if (definition.NativeValidity) text = definition.ShortName;
-        else
-        {
+        else text = FallbackName(state, current, force, (owner, full) =>
+            full ? owner.Name ?? throw Missing("fallback_current_Name") :
+                owner.CurrentSurname ?? throw Missing("fallback_current_Surname"));
+        text = Head(text);
+        //2AD190 zeroes two units, then30DED0 copies one. Return only that
+        //nonzero unit; the shared2-unit record copy preserves its real tail.
+        return text.Length == 0 ? "" : text[..1];
+    }
+
+    //The full fallback and the custom-first command operand are distinct
+    //source functions. Share Force selection while letting each actual
+    //caller supply its existing current Person-name knowledge projection.
+    internal string CustomFirstName(GameState state, SourceWorldContext current, ForceReference force,
+        Func<OfficerState, bool, string> personName)
+    {
+        int physical = K(force.PhysicalSlot, "command_Force_pointer");
+        byte raw = K(current.ReadForceKingdomNameIndex(physical), "command_Force48");
+        names ??= ArmyFlagPaneNames.Load(scenario);
+        var definition = names.CustomNames.Definitions[raw <= 100 ? raw : 0];
+        return definition.NativeValidity ? Head(definition.ShortName) : FallbackName(state, current, force, personName);
+    }
+
+    internal string FallbackName(GameState state, SourceWorldContext current, ForceReference force,
+        Func<OfficerState, bool, string> personName)
+    {
             //22EE60 repeats its own validity and physical reads after the
             //custom lookup. Its default Force0 uses actual lookup5014.
             if (!K(current.ReadForceNativeValidity(force), "fallback_Force_validity")) return "";
@@ -55,8 +78,7 @@ internal sealed class CampaignHistoryWriter(GameResourceRepository repository, L
             at = K(current.ReadForcePhysicalSlot(force), "fallback_fresh_Force_physical");
             bool special = at is >= 46 and <= 50;
             bool full = !special || id is >= 5101 and <= 5200 or >= 2062 and <= 2066;
-            text = full ? owner.Name ?? throw Missing("fallback_current_Name") :
-                owner.CurrentSurname ?? throw Missing("fallback_current_Surname");
+            string text = personName(owner, full);
             if (!special)
             {
                 //The actual formatting appends Data1/034F. Normally the first
@@ -67,11 +89,7 @@ internal sealed class CampaignHistoryWriter(GameResourceRepository repository, L
                     throw Missing("fallback_army_suffix");
                 text = Head(text) + Head(data.Sections[1].Records[0x34F].Text ?? throw Missing("fallback_army_suffix"));
             }
-        }
-        text = Head(text);
-        //2AD190 zeroes two units, then30DED0 copies one. Return only that
-        //nonzero unit; the shared2-unit record copy preserves its real tail.
-        return text.Length == 0 ? "" : text[..1];
+            return text;
     }
 
     private static string Head(string text) => text.IndexOf('\0') is int n && n >= 0 ? text[..n] : text;
