@@ -98,11 +98,12 @@ public sealed partial class ArmyOperationContext
             native.SetHexForceSlot(cell.Id, (byte)(cell.ForceId ?? 0));
         }
         if (state.Territory.Count != 48400) return null;
+        native.SetCityDistrictSlot(0, CityDistrictSourceAdapter.ReadDefault(state));
         foreach (CityState city in state.Cities.Values)
         {
             if (city.Id is < 1 or > 51 || city.ForceId is < 0 or > 51 || city.DistrictId is < 0 or > 51 ||
                 native.ReadPhysicalObject(city.Id)?.RawField10 != city.HexId) return null;
-            native.SetCityDistrictSlot(city.Id, city.DistrictId is int district ? (byte)district : null);
+            native.SetCityDistrictSlot(city.Id, CityDistrictSourceAdapter.Read(state, city));
             native.SetObjectRawField14(city.Id, city.Durability is >= 0 and <= ushort.MaxValue
                 ? (ushort)city.Durability.Value : null);
         }

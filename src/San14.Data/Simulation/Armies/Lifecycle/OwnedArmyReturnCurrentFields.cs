@@ -127,7 +127,6 @@ public static class OwnedArmyReturnCurrentFields
                 Supplies = Known(current.ReadBaseResource(target,BaseResourceKind.Supplies)),
                 Troops = Known(current.ReadBaseResource(target,BaseResourceKind.Troops)),
                 Morale = current.ReadBaseMorale44(target),
-                DistrictId = current.ReadBaseDistrictSlot(target) is int nativeDistrict ? nativeDistrict == 0 ? null : nativeDistrict : null,
                 GovernorId = current.ReadArmyReturnBaseGovernor2E(target) is ushort governor ? governor == 0 ? null : governor : null,
                 NativeReturnRuntime = fields with { Morale44 = current.ReadBaseMorale44(target), Wounded40 = current.ReadArmyReturnBaseWounded40(target),
                     Governor2E = current.ReadArmyReturnBaseGovernor2E(target) }
@@ -143,6 +142,7 @@ public static class OwnedArmyReturnCurrentFields
                     Wounded40 = current.ReadArmyReturnBaseWounded40(target) } };
         }
         var result = state with { Officers = people, Cities = cities, Gates = gates, ResourceState = residues };
+        result = CityDistrictSourceAdapter.PublishCurrent(result, current);
         result = BaseReturnCaptivesInputs.PublishCurrent(result, current);
         return result;
         static int Known(int? value) => value ?? throw new InvalidDataException("Current Base numeric quantity is unknown.");

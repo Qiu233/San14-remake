@@ -105,11 +105,7 @@ public static partial class PersonReturnPathSource
                             throw new InvalidDataException("2AAEE0 current City payload has an unsafe kind/pointer.");
                         if (!Known(current.ReadRegistryObjectNativeValidity(city), "2AAEE0 current City validity")) continue;
                         if (ReadByte(PersonGrowthCurrentQueries.CityStateKey(cityId)) != province) continue;
-                        if (state.Cities.TryGetValue(cityId, out var saved) && saved.DistrictId is null) {
-                            int district = ReadByte(PersonGrowthCurrentQueries.CityDistrict26Key(cityId));
-                            if (district is > 0 and <= 51) throw new MissingOwner("2AAEE0 current City District26 after departure");
-                            current.SetCityDistrictSlot(cityId, (byte)district);
-                        }
+                        // Consume this operation's current City knowledge, including unknown.
                         if (Known(current.ReadBaseForceSlot(new(BaseKind.City, cityId)), "2AAEE0 City current ForceB0") == forceId) count++;
                     }
                     if (count < required) continue;

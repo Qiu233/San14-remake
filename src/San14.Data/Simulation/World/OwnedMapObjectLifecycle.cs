@@ -78,8 +78,8 @@ internal static class OwnedMapObjectLifecycle
         // install only for a genuinely new allocation, never on restore.
         var constructorFields = Enumerable.Range(0, 3001).ToDictionary(x => x, _ => (ushort)0);
         var sourceState = new MapObjectSourceState(identities, lookups, coordinates, factions, kinds, unplaced, constructorFields, aliases);
-        return state with { MapObjects = new(receivers, new(48400, links)), Structures = structures,
-            ResourceState = CampaignSourceKnowledge.From(state.ResourceState).WithMapObjectSource(sourceState) };
+        return CityDistrictSourceAdapter.InstallFresh(state with { MapObjects = new(receivers, new(48400, links)), Structures = structures,
+            ResourceState = CampaignSourceKnowledge.From(state.ResourceState).WithMapObjectSource(sourceState) }, scenario);
     }
 
     /// <summary>Apply the actual Hex1A word writer and its resolved receiver

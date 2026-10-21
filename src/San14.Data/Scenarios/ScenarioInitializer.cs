@@ -193,7 +193,7 @@ public static class ScenarioInitializer
                     checked((int)city.Gold), checked((int)city.Supplies), checked((int)city.Troops),
                     source.Areas.Where(area => area.CitySlot == city.Slot).Select(area => area.Slot).ToArray())
                 {
-                    DistrictId = OptionalId(city.DistrictSlot),
+                    DistrictId = city.DistrictSlot is >= 1 and <= 51 ? city.DistrictSlot : null,
                     GovernorId = OptionalId(city.OfficerSlot),
                     Morale = city.Morale,
                     Durability = cityDurability[city.Slot],

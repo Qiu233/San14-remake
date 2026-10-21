@@ -21,7 +21,6 @@ public sealed class PersonGrowthCurrentQueries
     public static string WorldMode40Key => Prefix + "world:40";
     public static string StateAdvantageKey(int slot) => Prefix + $"state:{slot}:30";
     public static string CityStateKey(int slot) => Prefix + $"city:{slot}:CE";
-    public static string CityDistrict26Key(int slot) => Prefix + $"city:{slot}:26";
     public static string RequirementKey(int slot) => Prefix + $"advantage:{slot}:B3";
     public static string EffectKey(int slot, int index) => Prefix + $"advantage:{slot}:effect:{index}";
     public static string MagnitudeKey(int slot, int index) => Prefix + $"advantage:{slot}:magnitude:{index}";
@@ -66,7 +65,7 @@ public sealed class PersonGrowthCurrentQueries
             { values.Add(EffectKey(row.Slot, i), row.EffectSlotsB4[i]); values.Add(MagnitudeKey(row.Slot, i), row.MagnitudesB6[i]); }
         }
         foreach (var row in _scenario.Snapshot.Cities)
-        { values.Add(CityStateKey(row.Slot), row.GroupCode); values.Add(CityDistrict26Key(row.Slot), row.DistrictSlot); }
+            values.Add(CityStateKey(row.Slot), row.GroupCode);
         for (int i = 0; i < ParameterKeys.Length; i++)
         {
             string key = ParameterKeys[i];
@@ -112,17 +111,8 @@ public sealed class PersonGrowthCurrentQueries
                 if (ReadByte(state, CityStateKey(cityId)) is not byte province) return null;
                 if (province != slot) continue;
                 if (!state.Cities.TryGetValue(cityId, out CityState? saved)) return null;
-                if (saved.DistrictId is null)
-                {
-                    //Core null does not itself establish native District0.
-                    //Use only a saved byte whose actual source allocation was
-                    //known0/out-of-range; a missing owner or departed nonzero
-                    //native district remains unresolved. The original getter
-                    //maps >51 to the real District0 pointer before validity.
-                    if (ReadByte(state, CityDistrict26Key(cityId)) is not byte district || district is > 0 and <= 51)
-                        return null;
-                    current.SetCityDistrictSlot(cityId, district);
-                }
+                // City affiliation is already bound by the operation capture.
+                // An explicit unknown current must not revive an initial byte.
                 if (current.ReadBaseForceSlot(new(BaseKind.City, cityId)) is not int owner ||
                     (saved.ForceId ?? 0) != owner) return null;
                 if (owner == forceId) count++;

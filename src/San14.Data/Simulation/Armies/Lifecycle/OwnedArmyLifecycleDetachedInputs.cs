@@ -23,8 +23,6 @@ public static class OwnedArmyLifecycleDetachedInputs
     {
         if (state.NativeArmySimulation?.Parameters is not { } parameters || parameters.Int32Values.GetValueOrDefault(VersionKey) != 1) return;
         var values = parameters.Int32Values;
-        foreach (var city in state.Cities.Values)
-            if (city.DistrictId is null && Byte("City",city.Id,"30") is byte district) current.SetCityDistrictSlot(city.Id,district);
         foreach (var force in state.Forces.Values)
             if (force.RulerId is null && Word("Force",force.Id,"10") is ushort ruler) current.SetForceRecord(new(force.Id,ruler));
         foreach (var gate in state.Gates.Values)
@@ -82,13 +80,6 @@ public static class OwnedArmyLifecycleDetachedInputs
     {
         var simulation = state.NativeArmySimulation!;
         var values = new Dictionary<string,int>(simulation.Parameters.Int32Values);
-        var cities = new Dictionary<int,CityState>(state.Cities);
-        foreach (var city in cities.Values.ToArray())
-        {
-            int? raw = current.ReadBaseDistrictSlot(new(BaseKind.City,city.Id));
-            if (raw is int district) values[Key("City",city.Id,"30")] = district;
-            cities[city.Id] = city with { DistrictId = raw == 0 ? null : raw };
-        }
         var people = new Dictionary<int,OfficerState>(state.Officers);
         foreach (var person in people.Values.ToArray())
         {
@@ -106,8 +97,8 @@ public static class OwnedArmyLifecycleDetachedInputs
         foreach (var gate in gates.Values.ToArray())
             if (current.ReadArmyReturnBaseGovernor2E(new(BaseKind.Gate,gate.Id-51)) is ushort governor)
             { values[Key("Gate",gate.Id-51,"2E")] = governor; gates[gate.Id] = gate with { GovernorId = governor == 0 ? null : governor }; }
-        return state with { Cities = cities, Officers = people, Gates = gates,
-            NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = values } } };
+        return CityDistrictSourceAdapter.PublishCurrent(state with { Officers = people, Gates = gates,
+            NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = values } } }, current);
     }
 }
 
@@ -116,7 +107,6 @@ public sealed partial class ArmyOperationContext
     internal Dictionary<string,int> ReadFreshDetachedReceiverInputs()
     {
         var values = new Dictionary<string,int>();
-        foreach (var city in _source.Snapshot.Cities) values.Add(OwnedArmyLifecycleDetachedInputs.Key("City",city.Slot,"30"),city.DistrictSlot);
         foreach (var force in _source.Snapshot.Forces)
             if (force.RulerSlot==0) values.Add(OwnedArmyLifecycleDetachedInputs.Key("Force",force.Slot,"10"),force.RulerSlot);
         foreach (var gate in _source.Snapshot.Gates) values.Add(OwnedArmyLifecycleDetachedInputs.Key("Gate",gate.Slot,"2E"),gate.OfficerSlot);

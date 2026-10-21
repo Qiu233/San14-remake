@@ -16,6 +16,7 @@ public sealed class ResourceSaveCodec : ICampaignOperationSaveCodec
     public byte[] EncodeOperationWorld(GameState state, CampaignOperationWorldContext context) => EncodeOwned(state, context);
     private byte[] EncodeOwned(GameState state, CampaignOperationWorldContext? context)
     {
+        state = CityDistrictSourceAdapter.PruneReplacedChannels(state);
         state = ArmyConfigurationSourceAdapter.PruneReplacedChannels(state);
         state = ArmyTraitSourceAdapter.PruneReplacedChannels(state);
         state = TransportRouteSourceAdapter.PruneReplacedChannels(state);
@@ -28,6 +29,7 @@ public sealed class ResourceSaveCodec : ICampaignOperationSaveCodec
         TransportRouteSourceAdapter.Validate(state);
         ArmyTraitSourceAdapter.Validate(state);
         ArmyConfigurationSourceAdapter.Validate(state);
+        CityDistrictSourceAdapter.Validate(state);
         OwnedMapObjectLifecycle.Validate(state);
         return new JsonGzipSaveCodec(resourceStateCodec: new CampaignResourceStateCodec(), operationContext: context).Encode(state);
     }
@@ -35,8 +37,10 @@ public sealed class ResourceSaveCodec : ICampaignOperationSaveCodec
     public GameState DecodeOperationWorld(ReadOnlySpan<byte> bytes, CampaignOperationWorldContext context) => DecodeOwned(bytes, context);
     private GameState DecodeOwned(ReadOnlySpan<byte> bytes, CampaignOperationWorldContext? context)
     {
+        var resourceCodec = new CampaignResourceStateCodec();
         var state = new JsonGzipSaveCodec(_repository is null ? null : new LegacyOfficerAbilitySource(_repository),
-            new CampaignResourceStateCodec(), context).Decode(bytes);
+            resourceCodec, context).Decode(bytes);
+        state = CityDistrictSourceAdapter.MigrateLegacy(state, resourceCodec.DecodedVersion);
         ArmyTargetSourceKnowledgeValidation.Validate(state);
         ArmyOverrideSourceKnowledgeValidation.Validate(state);
         ArmyPositionSourceKnowledge.Validate(state);
@@ -44,6 +48,7 @@ public sealed class ResourceSaveCodec : ICampaignOperationSaveCodec
         TransportRouteSourceAdapter.Validate(state);
         ArmyTraitSourceAdapter.Validate(state);
         ArmyConfigurationSourceAdapter.Validate(state);
+        CityDistrictSourceAdapter.Validate(state);
         OwnedMapObjectLifecycle.Validate(state);
         return state;
     }
