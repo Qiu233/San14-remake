@@ -1088,7 +1088,8 @@ public partial class Main : Control
         AddChild(view);
         try
         {
-            view.Configure(_repository, CampaignDetailViews.Force(_world, _selectedSnapshot, forceId, _ui), _ui, () => RunUiAction(() =>
+            var nameplate = _campaignComposition?.ForceDetailNameplate(_world, forceId);
+            view.Configure(_repository, CampaignDetailViews.Force(_world, _selectedSnapshot, forceId, _ui, nameplate), _ui, () => RunUiAction(() =>
             {
                 view.Hide();
                 view.QueueFree();

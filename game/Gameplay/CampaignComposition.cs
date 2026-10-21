@@ -112,6 +112,12 @@ public sealed class CampaignComposition
         return PrepareArmyQueries(world).ReadCityDetailForce(world, _flagNames, cityId);
     }
 
+    internal DetailForceNameplate ForceDetailNameplate(GameState world, int forceId)
+    {
+        _flagNames ??= ArmyFlagPaneNames.Load(Scenario);
+        return PrepareArmyQueries(world).ReadForceDetailNameplate(world, _flagNames, forceId);
+    }
+
     internal MapHeaderProjection CurrentMapHeader(GameState world, int forceId, MapHeaderDisplayState? displayed)
     {
         if (ReferenceEquals(_headerWorld, world) && _headerForce == forceId && _headerDisplayed == displayed && _currentHeader is not null) return _currentHeader;

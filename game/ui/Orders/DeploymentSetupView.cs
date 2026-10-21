@@ -54,8 +54,10 @@ internal partial class DeploymentSetupView : Control
 
         canvas = new Control { Name = "SourceCanvas", Size = new(1920,1080), MouseFilter = MouseFilterEnum.Stop };
         AddChild(canvas);
-        canvas.AddChild(new BackBufferCopy { CopyMode = BackBufferCopy.CopyModeEnum.Viewport });
-        canvas.AddChild(new MapDialogBackdrop { Size = canvas.Size });
+        var backdrop = new UiSourceLayout(repository, 0xAEF1609E);
+        // Static endpoint of this page's original blur_medium_in action.
+        backdrop.Blur(canvas, 1, backdrop.Rectangle(1), weightInput: 100);
+        backdrop.Blur(canvas, 2, backdrop.Rectangle(2), weightInput: 100);
         var messages = repository.LoadMessages(text.SourceLocale, MessageKind.Data).Messages.Sections[1];
         string Message(int id) => messages.Records[id].Text ?? throw new InvalidDataException($"Missing deployment message {id}.");
         var page = new UiSourceLayout(repository, 0xFC796D9B);
@@ -65,6 +67,7 @@ internal partial class DeploymentSetupView : Control
         resourceHeader=new DeploymentResourceHeader {Name="DeploymentResourceHeader",Position=page.Rectangle(1).Position};
         canvas.AddChild(resourceHeader);
         resourceHeader.Configure(repository,assets,shader,font,text,city,availableTroops,books);
+        page.Blur(canvas, 39, page.Rectangle(39));
         Art(page, 40);
         summaries=new DeploymentSummaryList {Name="DeploymentSummaries"};
         canvas.AddChild(summaries);

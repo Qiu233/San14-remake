@@ -8,7 +8,8 @@ public partial class ForceDetailsView : DetailsView
     {
         DetailContent content = view.Content;
         ConfigureLayout(repository, "res://ui/force-details.json", "ForceDetails", "detail_force_title",
-            text, content.Values, content.PortraitAppearanceCode, content.Caption, close);
+            text, content.Values, content.PortraitAppearanceCode, content.Caption, close,
+            rulerNameplate: view.Nameplate);
         SetMeta("force_id", view.ForceId);
         SetMeta("doctrine_reference_known", view.DoctrineReferenceKnown);
         SetMeta("doctrine_level_verified", false);

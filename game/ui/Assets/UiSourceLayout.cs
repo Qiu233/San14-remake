@@ -64,8 +64,15 @@ internal sealed class UiSourceLayout
 
     internal UiSourceType6Parameters Type6(int index) => UiSourceType6Parameters.Read(Nodes[index]);
 
-    internal UiSourceType6 Blur(Control parent, int index, Rect2 rectangle)
+    internal UiSourceType6 Blur(Control parent, int index, Rect2 rectangle, float? weightInput = null)
     {
+        var parameters = Type6(index);
+        if (weightInput is float weight)
+        {
+            if (!float.IsFinite(weight) || weight <= 0)
+                throw new ArgumentOutOfRangeException(nameof(weightInput));
+            parameters = parameters with { WeightInput = weight };
+        }
         var transform = transforms[index];
         if (Math.Abs(transform.X.Y) > .00001f || Math.Abs(transform.Y.X) > .00001f ||
             Nodes[index].HeaderValues[2] != 0)
@@ -76,7 +83,7 @@ internal sealed class UiSourceLayout
         if (orientation.X == 0 || orientation.Y == 0) throw new NotSupportedException("Type6 has degenerate projected geometry.");
         node.Scale = orientation;
         node.Position += new Vector2(orientation.X < 0 ? rectangle.Size.X : 0, orientation.Y < 0 ? rectangle.Size.Y : 0);
-        parent.AddChild(node); node.Configure(Type6(index));
+        parent.AddChild(node); node.Configure(parameters);
         node.SetMeta("source_node_index", index); node.SetMeta("source_layout", Source.Source.ResourceUri);
         return node;
     }

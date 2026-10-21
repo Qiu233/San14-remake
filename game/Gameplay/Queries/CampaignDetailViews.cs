@@ -13,7 +13,10 @@ internal sealed record CityDetailView(DetailContent Content, IReadOnlyList<strin
     internal DetailForceAppearance? ForceAppearance { get; init; }
     internal DetailMiniMapValues? MiniMap { get; init; }
 }
-internal sealed record ForceDetailView(DetailContent Content, int ForceId, bool DoctrineReferenceKnown);
+internal sealed record ForceDetailView(DetailContent Content, int ForceId, bool DoctrineReferenceKnown)
+{
+    internal DetailForceNameplate? Nameplate { get; init; }
+}
 internal sealed record AbilityFigures(int Leadership, int Strength, int Intelligence, int Politics, int Charm)
 {
     public int[] ToArray() => [Leadership, Strength, Intelligence, Politics, Charm];
@@ -68,7 +71,8 @@ internal static class CampaignDetailViews
             { ForceAppearance = forceAppearance, MiniMap = miniMap };
     }
 
-    public static ForceDetailView Force(GameState world, ScenarioCityPreview snapshot, int forceId, PreviewText text)
+    public static ForceDetailView Force(GameState world, ScenarioCityPreview snapshot, int forceId, PreviewText text,
+        DetailForceNameplate? nameplate = null)
     {
         ForceState force = world.Forces[forceId];
         ForceDoctrineView doctrine = ForceDoctrineView.Create(world, forceId);
@@ -77,7 +81,7 @@ internal static class CampaignDetailViews
         int total = world.Territory.Values.Count(tile => tile.AreaId is not null);
         var values = new Dictionary<string, string>
         {
-            ["ruler"] = force.Name,
+            ["ruler"] = nameplate?.RulerName ?? text.Get("detail_unknown"),
             ["rank"] = force.RankId is int rankId ? world.ForceRanks[rankId].Name : text.Get("detail_unknown"),
             ["doctrine"] = doctrine.Name is string doctrineName
                 ? string.Format(CultureInfo.InvariantCulture, text.Get("detail_doctrine_value"),
@@ -88,7 +92,8 @@ internal static class CampaignDetailViews
             ["land"] = Number(land), ["totalLand"] = Number(total),
             ["landRate"] = total == 0 ? "0.0%" : (100.0 * land / total).ToString("F1", CultureInfo.InvariantCulture) + "%"
         };
-        return new(Content(values, Appearance(snapshot, force.RulerId), force.Name), forceId, doctrine.Name is not null);
+        return new(Content(values, Appearance(snapshot, force.RulerId), force.Name), forceId, doctrine.Name is not null)
+            { Nameplate = nameplate };
     }
 
     public static OfficerDetailView Officer(GameState world, ScenarioCityPreview snapshot, int officerId, PreviewText text)

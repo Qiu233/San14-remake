@@ -27,7 +27,7 @@ public abstract partial class DetailsView : Control
         int? portraitAppearanceCode, string selectionCaption, Action close, bool mapBackdrop = false,
         IReadOnlyDictionary<string, int>? valueTextPresets = null, string? selectionIcon = null,
         DetailForceAppearance? forceAppearance = null, IReadOnlyList<DetailForceAppearance?>? neighborFlags = null,
-        DetailMiniMapValues? miniMap = null)
+        DetailMiniMapValues? miniMap = null, DetailForceNameplate? rulerNameplate = null)
     {
         Name = viewName;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
@@ -41,13 +41,16 @@ public abstract partial class DetailsView : Control
             CultureInfo.InvariantCulture);
         LoadedLayout source = repository.LoadLayout("ScreenLayout", layoutId);
         bool sourceTypography = settings.TryGetProperty("sourceTypography", out var typography) && typography.GetBoolean();
+        bool sourceBodyText = sourceTypography ||
+            settings.TryGetProperty("sourceBodyText", out var bodyText) && bodyText.GetBoolean();
+        bool sourceNameplate = settings.TryGetProperty("nameplate", out JsonElement nameplateSettings);
         JsonElement frameSettings = settings.GetProperty("frame");
         bool sourceFrameBlur = frameSettings.TryGetProperty("blurNode", out JsonElement blurNode);
         var textPresets = MapTextPresets.Create();
-        UiSourceLayout? sourceLayout = sourceTypography ? new(source) : null;
+        UiSourceLayout? sourceLayout = sourceBodyText ? new(source) : null;
         IReadOnlyList<LcskNodeRecord> nodes = sourceLayout?.Nodes ?? LcskNodeReader.Read(source.Layout);
         _assets = new UiAssets(repository);
-        if (sourceTypography)
+        if (sourceBodyText)
             _sourceFont = new(repository, text.SourceLocale);
         if (sourceTypography || sourceFrameBlur)
             _sourceShader = UiSourceSprite.CreateShader();
@@ -100,6 +103,7 @@ public abstract partial class DetailsView : Control
         HashSet<string> hiddenNames = settings.GetProperty("hiddenNodes").EnumerateArray()
             .Select(item => item.GetString()!).ToHashSet(StringComparer.Ordinal);
         if (sourceTypography) hiddenNames.Add(nodes[4].Name); // replaced by the caller's actual nameplate sublayout
+        if (sourceNameplate) hiddenNames.Add(nodes[nameplateSettings.GetProperty("mountNode").GetInt32()].Name);
         foreach (JsonElement missing in settings.GetProperty("unsupportedNodes").EnumerateArray())
         {
             string name = missing.GetString()!;
@@ -210,7 +214,7 @@ public abstract partial class DetailsView : Control
                     _unbound.Add(node.Name);
                     value = text.Get("detail_unknown");
                 }
-                if (sourceTypography)
+                if (sourceBodyText)
                 {
                     sourceTextPresets.TryGetValue(node.Index, out MapTextPreset? preset);
                     if (valueKey is not null && valueTextPresets?.TryGetValue(valueKey, out int currentPreset) == true)
@@ -268,6 +272,34 @@ public abstract partial class DetailsView : Control
                 DrawProgressBar(node.Name, rectangle, progressBar, values);
             else if (node.Type != 0)
                 throw new InvalidDataException($"Unsupported detail node type {node.Type}: {node.Name}.");
+        }
+        if (sourceNameplate)
+        {
+            uint nameplateId = uint.Parse(nameplateSettings.GetProperty("layoutId").GetString()!,
+                NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+            var sourcePart = new UiSourceLayout(repository, nameplateId);
+            Vector2 mount = sourceLayout!.Rectangle(nameplateSettings.GetProperty("mountNode").GetInt32()).Position;
+            var part = new Control { Name = "ForceNameplate", Position = origin + new Vector2((int)mount.X, (int)mount.Y),
+                Size = new(sourcePart.Nodes[0].Value44, sourcePart.Nodes[0].Value46), MouseFilter = MouseFilterEnum.Ignore,
+                Visible = rulerNameplate?.ForceValid != false && rulerNameplate?.RulerValid != false };
+            _canvas.AddChild(part);
+            foreach (int index in new[] { 1, 2, 3 })
+                sourcePart.Art(part, index, sourcePart.Rectangle(index), Assets, _sourceShader!);
+            if (rulerNameplate?.FlagValid == true && rulerNameplate.FlagAppearance is { } appearance)
+            {
+                int flagNode = nameplateSettings.GetProperty("flagNode").GetInt32();
+                var flag = new UiSourceForceFlag { Name = "NameplateForceFlag", Position = sourcePart.Rectangle(flagNode).Position };
+                part.AddChild(flag);
+                flag.Configure(repository, Assets, _sourceShader!, _sourceFont!, appearance);
+            }
+            else if (rulerNameplate?.FlagValid != false && part.Visible)
+                _unbound.Add("ForceNameplate force appearance");
+            sourcePart.Text(part, nameplateSettings.GetProperty("nameNode").GetInt32(), default,
+                rulerNameplate?.RulerName ?? text.Get("detail_unknown"), _sourceFont!);
+            sourcePart.Text(part, nameplateSettings.GetProperty("emptyTextNode").GetInt32(), default, "", _sourceFont!);
+            if (part.Visible && (rulerNameplate?.ForceValid is null || rulerNameplate?.RulerValid is null || rulerNameplate?.RulerName is null))
+                _unbound.Add("ForceNameplate ruler identity");
+            part.SetMeta("source_layout", sourcePart.Source.Source.ResourceUri);
         }
         if (sourceTypography)
         {
