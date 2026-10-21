@@ -66,9 +66,24 @@ internal static class CityDistrictSourceAdapter
         {
             int? raw = current.ReadBaseDistrictSlot(new(BaseKind.City, city.Id));
             Add(city.Id, raw);
-            if (raw is >= 1 and <= 51 && !state.Districts.ContainsKey(raw.Value))
-                throw new InvalidDataException("Current City district has no gameplay District identity.");
-            cities[city.Id] = city with { DistrictId = raw is >= 1 and <= 51 ? raw : null };
+            int? districtId = raw is >= 1 and <= 51 ? raw : null;
+            int? forceId = null;
+            if (raw is not null)
+            {
+                int force = current.ReadBaseForceSlot(new(BaseKind.City, city.Id))
+                    ?? throw new InvalidDataException("Current City force affiliation is unknown.");
+                if (force != 0 && !state.Forces.ContainsKey(force))
+                    throw new InvalidDataException("Current City force has no gameplay Force identity.");
+                forceId = force == 0 ? null : force;
+            }
+            if (districtId is int mapped)
+            {
+                if (!state.Districts.TryGetValue(mapped, out var district))
+                    throw new InvalidDataException("Current City district has no gameplay District identity.");
+                if (district.ForceId != forceId)
+                    throw new InvalidDataException("Current City district and force affiliation differ.");
+            }
+            cities[city.Id] = city with { DistrictId = districtId, ForceId = forceId };
         }
         return state with { Cities = cities,
             ResourceState = CampaignSourceKnowledge.From(state.ResourceState).ReplaceCityDistricts(rows) };
@@ -160,7 +175,9 @@ internal static class CityDistrictSourceAdapter
             {
                 if (!state.Districts.ContainsKey(district))
                     throw new InvalidDataException("Legacy City district has no gameplay District identity.");
-                cities[id] = city with { DistrictId = district };
+                // A mapped District is owned by its saved Force. Publish both
+                // projections together, as required by Core KnownDistrict.
+                cities[id] = city with { DistrictId = district, ForceId = state.Districts[district].ForceId };
             }
             else rows.Add(new(id, district));
         }
