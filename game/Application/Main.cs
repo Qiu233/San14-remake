@@ -1089,7 +1089,8 @@ public partial class Main : Control
         try
         {
             var nameplate = _campaignComposition?.ForceDetailNameplate(_world, forceId);
-            view.Configure(_repository, CampaignDetailViews.Force(_world, _selectedSnapshot, forceId, _ui, nameplate), _ui, () => RunUiAction(() =>
+            var miniMap = _campaignComposition?.PrepareArmyQueries(_world).ReadForceDetailMiniMap(_world, forceId);
+            view.Configure(_repository, CampaignDetailViews.Force(_world, _selectedSnapshot, forceId, _ui, nameplate, miniMap), _ui, () => RunUiAction(() =>
             {
                 view.Hide();
                 view.QueueFree();

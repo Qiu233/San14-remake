@@ -44,6 +44,8 @@ public sealed class CampaignComposition
         var composition = new CampaignComposition(repository, scenario, map);
         ScenarioTerritory territory = ScenarioTerritory.Build(map.Map, scenario.Snapshot);
         GameState initial = ScenarioInitializer.Create(scenario, map, 1, options).State;
+        if (restored is null)
+            initial = composition.PrepareArmyQueries(initial).CreateFreshScenarioMapObjects(initial);
         if (restoredPlayerForceId.HasValue && restored is null)
             throw new InvalidDataException("Restoring a local player requires the saved campaign world.");
         if (restored is not null) composition.ValidateRestoredContent(restored, initial);

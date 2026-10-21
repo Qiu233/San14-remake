@@ -166,6 +166,20 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             CityCaptureTerritoryInputs.Load(repository, language), experience, revision);
     }
 
+    /// <summary>Constructs the selected fresh scenario's current map objects
+    /// before preview. Native clocks, gameplay seeds and readiness stay separate.</summary>
+    public GameState CreateFreshScenarioMapObjects(GameState state)
+    {
+        if (state.Phase != TurnPhase.Initializing || state.NativeClock is not null ||
+            state.NativeArmySimulation is not null || state.ScenarioKey != _scenario.ScenarioSource.ResourceUri ||
+            state.MapSha256 != _map.Source.Sha256 ||
+            state.ContentHashes.GetValueOrDefault(_scenario.ScenarioSource.ResourceUri) != _scenario.ScenarioSource.Sha256 ||
+            state.ContentHashes.GetValueOrDefault(_scenario.FixedDataSource.ResourceUri) != _scenario.FixedDataSource.Sha256)
+            throw new InvalidDataException("Fresh preview map objects require the selected initializing scenario.");
+        return OwnedMapObjectLifecycle.InstallFresh(state, _scenario,
+            _repository.LoadObjectDefinitions(_scenario.FixedDataSource.SourcePath), _definitions.CaptureSourcePrefix());
+    }
+
     public GameState CreateFreshOwnedSimulation(GameState state)
     {
         if (_scenario.Snapshot.WorldParameters is not { } world || world.RawBytes.Length < 100 ||
@@ -174,8 +188,15 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             throw new InvalidDataException("Fresh owned sampler epoch requires its complete actual scenario World.");
         GameState fresh = _marchPenaltySeed.InstallFresh(_mobilitySeed.InstallFresh(
             _battleSeed.InstallFresh(Seed.CreateFreshOwnedSimulation(state, Revision), Revision)));
-        fresh = OwnedMapObjectLifecycle.InstallFresh(fresh, _scenario,
-            _repository.LoadObjectDefinitions(_scenario.FixedDataSource.SourcePath), _definitions.CaptureSourcePrefix());
+        bool hasMapObjects = fresh.MapObjects is not null;
+        bool hasMapObjectSource = CampaignSourceKnowledge.From(fresh.ResourceState).MapObjectSource is not null;
+        if (hasMapObjects != hasMapObjectSource)
+            throw new InvalidDataException("Fresh map objects and their source owner must be present together.");
+        if (!hasMapObjects)
+            fresh = OwnedMapObjectLifecycle.InstallFresh(fresh, _scenario,
+                _repository.LoadObjectDefinitions(_scenario.FixedDataSource.SourcePath), _definitions.CaptureSourcePrefix());
+        else
+            OwnedMapObjectLifecycle.Validate(fresh);
         fresh = ArmyMarchParameterSeed.InstallFresh(fresh);
         fresh = NormalArmyCombatApplicationSourceMath.InstallFresh(fresh, _normalApplicationSeed, Revision);
         fresh = NormalArmyForceResultSource.InstallFresh(fresh, _forceResultSeed, Revision);

@@ -43,16 +43,19 @@ public abstract partial class DetailsView : Control
         bool sourceTypography = settings.TryGetProperty("sourceTypography", out var typography) && typography.GetBoolean();
         bool sourceBodyText = sourceTypography ||
             settings.TryGetProperty("sourceBodyText", out var bodyText) && bodyText.GetBoolean();
+        bool sourceShell = sourceTypography ||
+            settings.TryGetProperty("sourceShell", out var shellStyle) && shellStyle.GetBoolean();
         bool sourceNameplate = settings.TryGetProperty("nameplate", out JsonElement nameplateSettings);
+        string? miniMapName = settings.TryGetProperty("miniMapNode", out JsonElement mapNode) ? mapNode.GetString() : null;
         JsonElement frameSettings = settings.GetProperty("frame");
         bool sourceFrameBlur = frameSettings.TryGetProperty("blurNode", out JsonElement blurNode);
         var textPresets = MapTextPresets.Create();
-        UiSourceLayout? sourceLayout = sourceBodyText ? new(source) : null;
+        UiSourceLayout? sourceLayout = sourceBodyText || miniMapName is not null ? new(source) : null;
         IReadOnlyList<LcskNodeRecord> nodes = sourceLayout?.Nodes ?? LcskNodeReader.Read(source.Layout);
         _assets = new UiAssets(repository);
-        if (sourceBodyText)
+        if (sourceBodyText || sourceShell)
             _sourceFont = new(repository, text.SourceLocale);
-        if (sourceTypography || sourceFrameBlur)
+        if (sourceShell || sourceFrameBlur || miniMapName is not null)
             _sourceShader = UiSourceSprite.CreateShader();
         _canvas = new Control { Size = new Vector2(1920, 1080), MouseFilter = MouseFilterEnum.Stop };
         _canvas.Theme = new Theme
@@ -87,7 +90,7 @@ public abstract partial class DetailsView : Control
             sourceFrame.Art(_canvas, frameNode.Index, frameRectangle, Assets, _sourceShader!);
         else
             DrawSprite(frame.Layout, frameNode, frameRectangle, Vector2.One);
-        if (sourceTypography)
+        if (sourceShell)
         {
             var title = new UiSourceLayout(repository, 0xDC8AC8AA);
             title.Art(_canvas, 1, title.Rectangle(1), Assets, _sourceShader!);
@@ -104,13 +107,14 @@ public abstract partial class DetailsView : Control
             .Select(item => item.GetString()!).ToHashSet(StringComparer.Ordinal);
         if (sourceTypography) hiddenNames.Add(nodes[4].Name); // replaced by the caller's actual nameplate sublayout
         if (sourceNameplate) hiddenNames.Add(nodes[nameplateSettings.GetProperty("mountNode").GetInt32()].Name);
+        if (miniMapName is not null) hiddenNames.Add(miniMapName);
         foreach (JsonElement missing in settings.GetProperty("unsupportedNodes").EnumerateArray())
         {
             string name = missing.GetString()!;
             hiddenNames.Add(name);
             bool handledFlag = sourceTypography && (name == "cmn_flg_force" ||
                 Enumerable.Range(0, 8).Any(i => name == $"cmn_flg_force_{i:0000}"));
-            bool handledMiniMap = sourceTypography && name == settings.GetProperty("miniMapNode").GetString();
+            bool handledMiniMap = name == miniMapName;
             if (!handledFlag && !handledMiniMap) _unbound.Add(name);
         }
         string portraitNode = settings.GetProperty("portraitNode").GetString()!;
@@ -301,15 +305,17 @@ public abstract partial class DetailsView : Control
                 _unbound.Add("ForceNameplate ruler identity");
             part.SetMeta("source_layout", sourcePart.Source.Source.ResourceUri);
         }
-        if (sourceTypography)
+        if (miniMapName is not null)
         {
-            string miniMapName = settings.GetProperty("miniMapNode").GetString()!;
             int miniMapIndex = nodes.Single(n => n.Name == miniMapName).Index;
             Vector2 miniMapMount = sourceLayout!.Rectangle(miniMapIndex).Position;
             var map = new UiSourceMiniMap { Name = "DetailMiniMap",
                 Position = origin + new Vector2((int)miniMapMount.X, (int)miniMapMount.Y) };
             _canvas.AddChild(map);
             map.Configure(repository, Assets, _sourceShader!, miniMap);
+        }
+        if (sourceTypography)
+        {
             var nameplateSource = new UiSourceLayout(repository, 0x3858CC07);
             Vector2 local = sourceLayout!.Rectangle(4).Position;
             var nameplate = new Control { Name = "DetailNameplate", Position = origin + new Vector2((int)local.X, (int)local.Y),
@@ -340,11 +346,10 @@ public abstract partial class DetailsView : Control
             }
         }
         JsonElement selection = settings.GetProperty("selectionLabel");
-        if (settings.TryGetProperty("selectionHeaderKey", out JsonElement selectionHeaderKey))
+        if (settings.TryGetProperty("selectionHeaderKey", out _) ||
+            settings.TryGetProperty("sourceBasicTab", out JsonElement basicTab) && basicTab.GetBoolean())
         {
-            // Common shell positions observed in the city/area reference. These are
-            // captions for the current context; navigation requires a separate command.
-            if (sourceTypography)
+            if (sourceShell)
             {
                 var shell = new UiSourceLayout(frame);
                 Vector2 mount = new((1920 - shell.Nodes[0].Value44) / 2, 514 - shell.Nodes[0].Value46 / 2);
@@ -361,9 +366,12 @@ public abstract partial class DetailsView : Control
                 AddLabel(text.Get("detail_basic"), new Rect2(233, 160, 84, 40), 28,
                     HorizontalAlignment.Center, new Color("#f4e59d")).Name = "BasicCaption";
             }
+        }
+        if (settings.TryGetProperty("selectionHeaderKey", out JsonElement selectionHeaderKey))
+        {
             Rect2 chosen = new(selection[0].GetSingle(), selection[1].GetSingle(),
                 selection[2].GetSingle(), selection[3].GetSingle());
-            if (sourceTypography)
+            if (sourceShell)
             {
                 var configuredHeader = settings.GetProperty("selectionHeader");
                 var header = new UiSourceColumnButton { Name = "SelectionHeader",
@@ -380,7 +388,7 @@ public abstract partial class DetailsView : Control
                     new Rect2(chosen.Position.X, 217, chosen.Size.X, 40), 24,
                     HorizontalAlignment.Center, new Color("#514936")).Name = "SelectionCaption";
             }
-            if (sourceTypography)
+            if (sourceShell)
             {
                 var configuredRow = settings.GetProperty("selectionRow");
                 var row = new UiSourceListRow { Name = "CurrentSelection", Selected = true,
@@ -407,12 +415,12 @@ public abstract partial class DetailsView : Control
             else AddShellPanel("CurrentSelection", "000_cmn_btn_cmd_hanyo_2",
                 new Rect2(chosen.Position - new Vector2(6, 6), chosen.Size + new Vector2(12, 8)));
         }
-        if (!sourceTypography)
+        if (!sourceShell || !settings.TryGetProperty("selectionHeaderKey", out _))
             AddLabel(selectionCaption, new Rect2(selection[0].GetSingle(), selection[1].GetSingle(),
                 selection[2].GetSingle(), selection[3].GetSingle()), 28, HorizontalAlignment.Center,
                 new Color("#efdd8e"));
         TextureButton back;
-        if (sourceTypography)
+        if (sourceShell)
         {
             var footer = new UiSourceLayout(repository, 0xD8913AB2);
             Vector2 footerMount = new(0, 1080 - footer.Nodes[0].Value46);

@@ -10,7 +10,9 @@ internal static class OwnedMapObjectLifecycle
         LoadedObjectDefinitions definitions, SourceWorldContext initial)
     {
         if (state.MapObjects is not null || CampaignSourceKnowledge.From(state.ResourceState).MapObjectSource is not null ||
-            state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } || state.Units.Count != 0 ||
+            (state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } &&
+                (state.Phase != TurnPhase.Initializing || state.NativeClock is not null || state.NativeArmySimulation is not null)) ||
+            state.Units.Count != 0 ||
             scenario.Snapshot.ObjectSourceRecords?.Objects is not { Count: 3001 } records ||
             definitions.Catalog.Definitions.Count != 31)
             throw Missing("fresh_allocation");

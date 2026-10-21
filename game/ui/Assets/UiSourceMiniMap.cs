@@ -34,7 +34,7 @@ internal partial class UiSourceMiniMap : Control
             {
                 DetailMiniMapIconKind.City => "cmn_icon_map_city",
                 DetailMiniMapIconKind.Gate => "cmn_icon_map_gate",
-                DetailMiniMapIconKind.Area => "cmn_icon_map_unit",
+                DetailMiniMapIconKind.Area or DetailMiniMapIconKind.Force => "cmn_icon_map_unit",
                 _ => throw new InvalidDataException("Unknown small-map point kind.")
             };
             var fill = MapSpritePalettes.ForceFill(marker.ColorIndex);

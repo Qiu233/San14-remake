@@ -16,6 +16,7 @@ internal sealed record CityDetailView(DetailContent Content, IReadOnlyList<strin
 internal sealed record ForceDetailView(DetailContent Content, int ForceId, bool DoctrineReferenceKnown)
 {
     internal DetailForceNameplate? Nameplate { get; init; }
+    internal DetailMiniMapValues? MiniMap { get; init; }
 }
 internal sealed record AbilityFigures(int Leadership, int Strength, int Intelligence, int Politics, int Charm)
 {
@@ -72,7 +73,7 @@ internal static class CampaignDetailViews
     }
 
     public static ForceDetailView Force(GameState world, ScenarioCityPreview snapshot, int forceId, PreviewText text,
-        DetailForceNameplate? nameplate = null)
+        DetailForceNameplate? nameplate = null, DetailMiniMapValues? miniMap = null)
     {
         ForceState force = world.Forces[forceId];
         ForceDoctrineView doctrine = ForceDoctrineView.Create(world, forceId);
@@ -93,7 +94,7 @@ internal static class CampaignDetailViews
             ["landRate"] = total == 0 ? "0.0%" : (100.0 * land / total).ToString("F1", CultureInfo.InvariantCulture) + "%"
         };
         return new(Content(values, Appearance(snapshot, force.RulerId), force.Name), forceId, doctrine.Name is not null)
-            { Nameplate = nameplate };
+            { Nameplate = nameplate, MiniMap = miniMap };
     }
 
     public static OfficerDetailView Officer(GameState world, ScenarioCityPreview snapshot, int officerId, PreviewText text)

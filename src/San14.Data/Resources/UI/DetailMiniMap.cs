@@ -1,6 +1,6 @@
 namespace San14.Data;
 
-public enum DetailMiniMapIconKind { City, Gate, Area }
+public enum DetailMiniMapIconKind { City, Gate, Area, Force }
 
 public sealed record DetailMiniMapMarker(DetailMiniMapIconKind Kind, int Identity,
     int HexId, int X, int Y, byte ColorIndex);
@@ -12,11 +12,29 @@ public sealed record DetailMiniMapValues(IReadOnlyList<DetailMiniMapMarker> Base
 /// endpoints and operation order are shared with its selected-marker writer.</summary>
 public static class DetailMiniMapProjection
 {
-    public static DetailMiniMapMarker Project(DetailMiniMapIconKind kind, int identity, int hexId, byte colorIndex)
+    public static DetailMiniMapMarker Project(DetailMiniMapIconKind kind, int identity, int hexId, byte colorIndex) =>
+        Project(kind, identity, hexId, colorIndex, CeHexWorldCoordinates.Project(hexId));
+
+    /// <summary>1888D0 projects the raw current ushort, including the known
+    /// 48400 invalid-object sentinel. The ordinary map's Hex guard stays intact.</summary>
+    public static DetailMiniMapMarker ProjectForce(int identity, ushort hexId, byte colorIndex)
+    {
+        int column = hexId % CeHexWorldCoordinates.Width, row = hexId / CeHexWorldCoordinates.Width;
+        float x = column * (float)CeHexWorldCoordinates.ColumnStep;
+        x += (float)CeHexWorldCoordinates.OriginX;
+        float stride = MathF.Sqrt(3f) * 468f;
+        float evenOffset = column % 2 == 0 ? stride * .5f : 0f;
+        float z = stride * row;
+        z += evenOffset;
+        z += (float)CeHexWorldCoordinates.InitializedOriginZ;
+        return Project(DetailMiniMapIconKind.Force, identity, hexId, colorIndex, new(hexId, x, z));
+    }
+
+    private static DetailMiniMapMarker Project(DetailMiniMapIconKind kind, int identity, int hexId,
+        byte colorIndex, ProjectedMapPoint point)
     {
         var start = CeHexWorldCoordinates.Project(0);
         var end = CeHexWorldCoordinates.Project(CeHexWorldCoordinates.Width * CeHexWorldCoordinates.Height - 1);
-        var point = CeHexWorldCoordinates.Project(hexId);
         // The source bounds are (5,3)..(221,252). Multiply, divide and add
         // remain float32, then CVTTSS2SI truncates toward zero.
         float x = 216f * ((float)point.X - (float)start.X);
