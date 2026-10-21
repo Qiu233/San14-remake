@@ -121,8 +121,9 @@ internal partial class UiSourceSprite : Control
         }
         Rect2 rectangle = new(Vector2.Zero, Size);
         _material.SetShaderParameter("draw_size", Size);
-        Transform2D transform = GetViewportTransform() * GetGlobalTransform();
-        RenderingServer.CanvasItemSetCopyToBackbuffer(_copy, true, transform * rectangle.Grow(1));
+        // The copy RID inherits this node's transform. Godot transforms its
+        // local copy rectangle into the target viewport during culling.
+        RenderingServer.CanvasItemSetCopyToBackbuffer(_copy, true, rectangle.Grow(1));
         Texture2D texture = _texture;
         Rect2 uv = new(Vector2.Zero, Vector2.One);
         if (texture is AtlasTexture atlas)

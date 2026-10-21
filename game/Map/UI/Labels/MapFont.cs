@@ -73,8 +73,7 @@ internal sealed class MapFont : IDisposable
             IReadOnlyList<uint?>? glyphColours=null)
         {
             if (_used == _slots.Count) _slots.Add(new(_canvas.GetCanvasItem(), _shader, _used));
-            _slots[_used++].Draw(source, value, profile, baseline, tint, _scale,
-                _canvas.GetViewportTransform() * _canvas.GetGlobalTransform(),glyphColours);
+            _slots[_used++].Draw(source, value, profile, baseline, tint, _scale, glyphColours);
         }
         internal void End()
         {
@@ -110,7 +109,7 @@ internal sealed class MapFont : IDisposable
             RenderingServer.CanvasItemSetMaterial(_draw, _material.GetRid());
         }
         internal void Draw(MapFontSource source, string value, MapFontProfile profile,
-            Vector2 baseline, Color tint, Vector2 scale, Transform2D parentTransform,IReadOnlyList<uint?>? glyphColours=null)
+            Vector2 baseline, Color tint, Vector2 scale, IReadOnlyList<uint?>? glyphColours=null)
         {
             if (_value != value || _profile != profile || !ReferenceEquals(_glyphColours,glyphColours))
             {
@@ -134,7 +133,9 @@ internal sealed class MapFont : IDisposable
             RenderingServer.CanvasItemSetTransform(_draw, transform);
             // Automatic screen copying only once would restore stale pixels
             // behind later labels. Refresh the local background before each.
-            RenderingServer.CanvasItemSetCopyToBackbuffer(_copy, true, parentTransform * (transform * rect.Grow(1)));
+            // The copy RID already carries the slot scale and inherits the
+            // canvas transform. Its rectangle stays in glyph-local space.
+            RenderingServer.CanvasItemSetCopyToBackbuffer(_copy, true, rect.Grow(1));
             RenderingServer.CanvasItemSetVisible(_copy, true); RenderingServer.CanvasItemSetVisible(_draw, true);
             RenderingServer.CanvasItemClear(_draw);
             RenderingServer.CanvasItemAddTextureRect(_draw, rect, _textures[2].GetRid());
