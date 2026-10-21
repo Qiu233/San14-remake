@@ -11,6 +11,7 @@ internal partial class UiSourceSimpleTooltip : Control
     private Shader shader=null!;
     private MapFontProfile profile=null!;
     private Control? artwork;
+    private UiSourceType6 blur = null!;
     private readonly List<UiSourceText> lines=[];
     private float nominalHeight;
     private string? current;
@@ -20,6 +21,7 @@ internal partial class UiSourceSimpleTooltip : Control
         Name="SourceSimpleTooltip";ZIndex=20;MouseFilter=MouseFilterEnum.Ignore;
         this.assets=assets;this.shader=shader;this.font=font;
         source=new(repository,0xBE0DC488);
+        blur=source.Blur(this,1,source.Rectangle(1));
         profile=MapFontProfile.FromNode(source.Nodes[3],source.Source.Source.ResourceUri);
         // 89D8E0 explicitly clears compact+5D and +2C. It does not apply
         // text preset0 to this authored face0/palette0 profile.
@@ -41,11 +43,12 @@ internal partial class UiSourceSimpleTooltip : Control
                 throw new InvalidDataException("Simple tooltip requires expanded plain LF text.");
             var size=MeasureSource(text,nominalHeight,profile.VerticalSpace);
             Size=new(size.X+20,size.Y+4);
+            blur.Size=Size;
             if(artwork is { } old){old.Hide();old.Name="PreviousTooltipArtwork";old.QueueFree();}
             var backgroundColour=new AreaMarkerColor(0xB4FFFFFF,0xB4FFFFFF);
             artwork=source.Art(this,2,new(Vector2.Zero,Size),assets,shader,
                 new MapCornerColors(backgroundColour,backgroundColour,backgroundColour,backgroundColour));
-            artwork.Name="TooltipBackground";MoveChild(artwork,0);
+            artwork.Name="TooltipBackground";MoveChild(artwork,1);
             int widest=paragraphs.Max(line=>font.Measure(line,profile).Width);
             int available=size.X-(int)profile.WidthReserve;
             float factor=widest>available?available/(float)widest*.98f:1;

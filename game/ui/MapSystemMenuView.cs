@@ -24,8 +24,11 @@ internal partial class MapSystemMenuView : Control
         chrome.Configure(repository, text, titleMessage, () => { if (!abandoned && !busy) this.returned?.Invoke(); }, () => { }, returnOnly: true);
         chrome.ApplyDecision(false, false);
         var source = new UiSourceLayout(repository, 0x33EF187B);
-        // Node2 writes destination alpha. Nodes3/4 are Type6 blur, whose
-        // compositor remains separate; neither is ordinary RGB artwork.
+        source.Art(chrome.Canvas, 2, source.Rectangle(2, mount), chrome.Assets, chrome.SpriteShader,
+            blend: UiSourceSprite.Blend.AlphaMask);
+        var firstBlur = source.Blur(chrome.Canvas, 3, source.Rectangle(3, mount));
+        Rect2 secondBlur = source.Rectangle(4, mount);
+        source.Blur(firstBlur, 4, new(secondBlur.Position - firstBlur.Position, secondBlur.Size));
         source.Art(chrome.Canvas, 5, source.Rectangle(5, mount), chrome.Assets, chrome.SpriteShader);
         var messages = repository.LoadMessages(text.SourceLocale, MessageKind.Data).Messages.Sections[1];
         foreach (var binding in new[] { (6, 0x0037), (10, 0x002E), (14, 0x0031), (34, 0x007A),
@@ -45,7 +48,6 @@ internal partial class MapSystemMenuView : Control
             button.SetMeta("source_node_index", node);
         }
         SetMeta("source_layout", source.Source.Source.ResourceUri);
-        SetMeta("blur_pending", true);
     }
 
     internal void SetBusy(bool value)

@@ -249,6 +249,7 @@ public partial class Main : Control
             GD.Print($"SAN14 source {_repository.SourceDirectory}: " +
                 $"{_repository.EffectiveScenarios.Count} scenarios, map {_map.Width}x{_map.Height}.");
             BeginUiAudio();
+            StartUiComposition();
         }
         catch (Exception error)
         {

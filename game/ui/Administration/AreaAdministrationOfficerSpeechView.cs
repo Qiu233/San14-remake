@@ -33,7 +33,7 @@ internal partial class AreaAdministrationOfficerSpeechView : Control
     }
 }
 
-internal partial class AreaAdministrationSpeechBody : Control
+internal partial class AreaAdministrationSpeechBody : Control, IUiSourceDrawing
 {
     private MapFont font=null!;
     private MapFontProfile original=null!,fitted=null!;
@@ -45,6 +45,7 @@ internal partial class AreaAdministrationSpeechBody : Control
     internal IReadOnlyList<NarrationParagraphLine> Lines=>lines;
     internal MapFontProfile CurrentProfile=>fitted;
     internal IReadOnlyList<float> Baselines=>baselines;
+    public void SetDrawingVisibilityLayer(uint layer) => font.SetDrawingVisibilityLayer(this, layer);
 
     internal void Configure(MapFont sourceFont,MapFontProfile profile)
     {

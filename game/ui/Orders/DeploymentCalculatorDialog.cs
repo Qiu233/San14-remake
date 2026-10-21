@@ -30,6 +30,7 @@ internal partial class DeploymentCalculatorDialog : Control
         var panel=new Control {Name="CalculatorPanel",Position=panelPosition??new(1280,600),Size=new(302,372),MouseFilter=MouseFilterEnum.Stop};
         canvas.AddChild(panel);
         var source=new UiSourceLayout(repository,0x0AF34C58);
+        source.Blur(panel,1,source.Rectangle(1));
         source.Art(panel,2,source.Rectangle(2),assets,shader);
         source.Art(panel,112,source.Rectangle(112),assets,shader);
         var messages=repository.LoadMessages(text.SourceLocale,MessageKind.Data).Messages.Sections[1];
@@ -52,8 +53,6 @@ internal partial class DeploymentCalculatorDialog : Control
         }
         SetWorking(unchecked((uint)Math.Clamp(value,minimum,maximum)));hasDigit=false;
         SetMeta("source_layout",source.Source.Source.ResourceUri);
-        // Type6's local blur shader is still pending; no invented fullscreen
-        // shade or title is added to this source calculator.
         Resized+=Fit;Fit();
 
         UiSourceText Text(int node,string label,bool numeric,MapTextPreset? preset=null)

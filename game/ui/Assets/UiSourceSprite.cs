@@ -4,15 +4,25 @@ using San14.Data;
 /// <summary>Original linear UI blending over the preceding Canvas RGB.
 /// Clipped buttons reproduce the mask and both base draws locally, because
 /// Canvas screen copies do not preserve the destination alpha channel.</summary>
-internal partial class UiSourceSprite : Control
+internal partial class UiSourceSprite : Control, IUiSourceDrawing
 {
-    internal enum Blend { Ordinary, ClippedButton, ThreeTexturePortrait, TwoTexturePortrait, SourceAlphaDestinationAlpha, GaugeUvMask, Additive }
+    internal enum Blend { Ordinary, ClippedButton, ThreeTexturePortrait, TwoTexturePortrait, SourceAlphaDestinationAlpha, GaugeUvMask, Additive, AlphaMask }
     private Rid _copy, _draw;
     private ShaderMaterial? _material;
     private Texture2D? _texture;
     private MapCornerColors? _colors;
     private bool _flipU, _flipV;
     private Rect2? _samplingRectangle;
+    private uint? _drawingVisibilityLayer;
+
+    // A prefix capture needs structural ancestors in several layers, while
+    // this copy/draw pair belongs only to its actual ordered drawing segment.
+    public void SetDrawingVisibilityLayer(uint layer)
+    {
+        _drawingVisibilityLayer = layer;
+        if (_copy.IsValid) RenderingServer.CanvasItemSetVisibilityLayer(_copy, layer);
+        if (_draw.IsValid) RenderingServer.CanvasItemSetVisibilityLayer(_draw, layer);
+    }
 
     // The second component rotates its UVs, while the pane keeps its authored
     // geometry. The source builds this matrix from a float32 half-angle.
@@ -116,13 +126,14 @@ internal partial class UiSourceSprite : Control
             RenderingServer.CanvasItemSetParent(_draw, GetCanvasItem());
             RenderingServer.CanvasItemSetDrawIndex(_copy, 0);
             RenderingServer.CanvasItemSetDrawIndex(_draw, 1);
+            SetDrawingVisibilityLayer(_drawingVisibilityLayer ?? VisibilityLayer);
             RenderingServer.CanvasItemSetMaterial(_draw, _material.GetRid());
             RenderingServer.CanvasItemSetDefaultTextureFilter(_draw, RenderingServer.CanvasItemTextureFilter.Linear);
         }
         Rect2 rectangle = new(Vector2.Zero, Size);
         _material.SetShaderParameter("draw_size", Size);
         // The copy RID inherits this node's transform. Godot transforms its
-        // local copy rectangle into the target viewport during culling.
+        // local copy rectangle into each viewport, including prefix targets.
         RenderingServer.CanvasItemSetCopyToBackbuffer(_copy, true, rectangle.Grow(1));
         Texture2D texture = _texture;
         Rect2 uv = new(Vector2.Zero, Vector2.One);
@@ -184,7 +195,10 @@ internal partial class UiSourceSprite : Control
             vec4 dst = texture(screen_texture, SCREEN_UV);
             vec3 rgb = decode_srgb(dst.rgb);
             float alpha;
-            if (blend_kind == 1) {
+            if (blend_kind == 7) {
+                // Source nine-slice 00011000: RGB ZERO/ONE, A ONE/ZERO.
+                alpha = src.a;
+            } else if (blend_kind == 1) {
                 vec2 mask_point = (local_position - mask_rectangle.xy) / mask_rectangle.zw;
                 float coverage = texture(mask_image, mask_uv.xy + mask_point * mask_uv.zw).a;
                 coverage = floor(clamp(coverage, 0.0, 1.0) * 255.0 + 0.5) / 255.0;

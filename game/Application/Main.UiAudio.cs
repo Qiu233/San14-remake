@@ -58,6 +58,7 @@ public partial class Main
     public override void _ExitTree()
     {
         _shuttingDown = true;
+        _type6Host?.Stop(deferRemoval: true);
         DisconnectWindowLifetime();
         _uiAudioFeedback?.CancelPreparation();
         LeaveSceneAudioContext();

@@ -32,13 +32,21 @@ internal sealed class MapFont : IDisposable
     // slot's caches; exiting controls release their textures and Canvas RIDs.
     internal DrawOwner BeginDraw(CanvasItem canvas, Vector2? scale = null)
     {
+        var owner = Owner(canvas);
+        owner.Begin(scale ?? Vector2.One);
+        return owner;
+    }
+
+    internal void SetDrawingVisibilityLayer(CanvasItem canvas, uint layer) => Owner(canvas).SetVisibilityLayer(layer);
+
+    private DrawOwner Owner(CanvasItem canvas)
+    {
         ulong id = canvas.GetInstanceId();
         if (!_owners.TryGetValue(id, out var owner))
         {
             owner = new(canvas, _shader, () => { _owners.Remove(id, out var old); old?.Dispose(); });
             _owners.Add(id, owner);
         }
-        owner.Begin(scale ?? Vector2.One);
         return owner;
     }
     internal void Draw(CanvasItem canvas, string value, Vector2 baseline,
@@ -65,14 +73,20 @@ internal sealed class MapFont : IDisposable
         private readonly List<TextSlot> _slots = [];
         private Vector2 _scale;
         private int _used;
+        private uint _visibilityLayer;
         internal int ActiveCount => _used;
         internal DrawOwner(CanvasItem canvas, Shader shader, Action exiting)
-        { _canvas = canvas; _shader = shader; _exiting = exiting; canvas.TreeExiting += exiting; }
+        { _canvas = canvas; _shader = shader; _exiting = exiting; _visibilityLayer = canvas.VisibilityLayer; canvas.TreeExiting += exiting; }
+        internal void SetVisibilityLayer(uint layer)
+        {
+            _visibilityLayer = layer;
+            foreach (var slot in _slots) slot.SetVisibilityLayer(layer);
+        }
         internal void Begin(Vector2 scale) { _used = 0; _scale = scale; }
         internal void Draw(MapFontSource source, string value, MapFontProfile profile, Vector2 baseline, Color tint,
             IReadOnlyList<uint?>? glyphColours=null)
         {
-            if (_used == _slots.Count) _slots.Add(new(_canvas.GetCanvasItem(), _shader, _used));
+            if (_used == _slots.Count) _slots.Add(new(_canvas.GetCanvasItem(), _shader, _used, _visibilityLayer));
             _slots[_used++].Draw(source, value, profile, baseline, tint, _scale, glyphColours);
         }
         internal void End()
@@ -96,7 +110,7 @@ internal sealed class MapFont : IDisposable
         private MapFontProfile? _profile;
         private IReadOnlyList<uint?>? _glyphColours;
         private MapTextCache? _cache;
-        internal TextSlot(Rid parent, Shader shader, int index)
+        internal TextSlot(Rid parent, Shader shader, int index, uint visibilityLayer)
         {
             _copy = RenderingServer.CanvasItemCreate(); _draw = RenderingServer.CanvasItemCreate();
             RenderingServer.CanvasItemSetParent(_copy, parent); RenderingServer.CanvasItemSetParent(_draw, parent);
@@ -105,8 +119,14 @@ internal sealed class MapFont : IDisposable
             // from the nonnegative scene-tree child indexes.
             RenderingServer.CanvasItemSetDrawIndex(_copy, int.MinValue + index * 2);
             RenderingServer.CanvasItemSetDrawIndex(_draw, int.MinValue + index * 2 + 1);
+            SetVisibilityLayer(visibilityLayer);
             _material = new() { Shader = shader };
             RenderingServer.CanvasItemSetMaterial(_draw, _material.GetRid());
+        }
+        internal void SetVisibilityLayer(uint layer)
+        {
+            RenderingServer.CanvasItemSetVisibilityLayer(_copy, layer);
+            RenderingServer.CanvasItemSetVisibilityLayer(_draw, layer);
         }
         internal void Draw(MapFontSource source, string value, MapFontProfile profile,
             Vector2 baseline, Color tint, Vector2 scale, IReadOnlyList<uint?>? glyphColours=null)

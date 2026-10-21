@@ -3,7 +3,7 @@ using Godot;
 internal readonly record struct UiSourceTextRun(string Text,uint? Colour=null);
 
 /// <summary>A single original UI text line, borrowing its owning view's G1N font.</summary>
-internal partial class UiSourceText : Control
+internal partial class UiSourceText : Control, IUiSourceDrawing
 {
     private MapFont _font = null!;
     private MapFontProfile _profile = null!;
@@ -12,6 +12,7 @@ internal partial class UiSourceText : Control
     private uint? _firstGlyphColour;
     private uint?[]? _glyphColours;
     internal MapFontProfile LayoutProfile => _font.Source.FitToWidth(_text, _profile, Size.X);
+    public void SetDrawingVisibilityLayer(uint layer) => _font.SetDrawingVisibilityLayer(this, layer);
     internal uint? FirstGlyphColour
     {
         get => _firstGlyphColour;
@@ -58,7 +59,7 @@ internal partial class UiSourceText : Control
 
     public override void _Notification(int what)
     {
-        // The compositor's background copy uses the current viewport transform.
+        // Geometry and the locally defined background copy move together.
         if (what == NotificationTransformChanged || what == NotificationResized) QueueRedraw();
     }
 

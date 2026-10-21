@@ -36,8 +36,11 @@ internal partial class AreaAdministrationView : Control
         panel = new Control { Name = "RegionPanel", Position = new(460, 127),
             Size = source.Rectangle(0).Size, MouseFilter = MouseFilterEnum.Stop };
         chrome.Canvas.AddChild(panel);
-        // The authored mask and Type6 blur do not have an ordinary RGB pass.
-        // Keep the real frame, information base and source separators.
+        source.Art(panel, 2, source.Rectangle(2), chrome.Assets, chrome.SpriteShader,
+            blend: UiSourceSprite.Blend.AlphaMask);
+        var firstBlur = source.Blur(panel, 3, source.Rectangle(3));
+        Rect2 secondBlur = source.Rectangle(4);
+        source.Blur(firstBlur, 4, new(secondBlur.Position - firstBlur.Position, secondBlur.Size));
         foreach (int node in new[] { 5, 7, 10, 12, 94, 95, 96 })
             source.Art(panel, node, source.Rectangle(node), chrome.Assets, chrome.SpriteShader);
         var messages = repository.LoadMessages(text.SourceLocale, MessageKind.Data).Messages.Sections[1];

@@ -53,8 +53,8 @@ public partial class Main
                 var question = new DeploymentTargetConfirmation(); _campaignSaveConfirmation = question; AddChild(question);
                 try
                 {
-                    question.ConfigureMessage(_repository!, _ui,
-                        _ui.Format(saving ? "save_overwrite_question" : "load_replace_question", slot), confirmed =>
+                    question.ConfigureGameMessage(_repository!, _ui,
+                        saving ? 0x272D : 0x272B, confirmed =>
                         {
                             if (!Current() || _campaignSaveConfirmation != question) return;
                             _campaignSaveConfirmation = null; question.Abandon(); question.QueueFree();

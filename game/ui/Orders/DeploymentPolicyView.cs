@@ -27,8 +27,8 @@ internal partial class DeploymentPolicyView : Control
         var source=new UiSourceLayout(repository,0x96B33F19);Size=source.Rectangle(0).Size;
         var messages=repository.LoadMessages(text.SourceLocale,MessageKind.Data).Messages.Sections[1];
         string Message(int id)=>messages.Records[id].Text??throw new InvalidDataException("Missing deployment policy caption.");
-        // Source Type6 blur and the authored hidden decision button are not
-        // substituted by a second ordinary frame or another confirmation flow.
+        source.Blur(this,1,source.Rectangle(1));
+        // The authored hidden decision button has no ordinary visible draw.
         source.Art(this,2,source.Rectangle(2),assets,shader);
         var presets=MapTextPresets.Create();
         foreach(var binding in new[]{(3,4,0x0278),(8,9,0x0279),(17,18,0x025A),(26,27,0x027B),(35,36,0x027C)})

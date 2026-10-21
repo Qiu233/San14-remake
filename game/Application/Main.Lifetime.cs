@@ -106,6 +106,7 @@ public partial class Main
     private async Task ShutdownAsync()
     {
         _shuttingDown = true;
+        _type6Host?.Stop();
         var tree = GetTree();
         try
         {

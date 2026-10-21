@@ -3,7 +3,7 @@ using San14.Data;
 
 /// <summary>One source narration paragraph. Page splitting precedes wrapping;
 /// all lines share the page's fitted profile and one borrowed G1N draw owner.</summary>
-internal partial class DeploymentNarrationBody : Control
+internal partial class DeploymentNarrationBody : Control, IUiSourceDrawing
 {
     private sealed record Page(NarrationParagraphPage Source,MapFontProfile Profile,
         IReadOnlyList<float> Baselines,IReadOnlyList<IReadOnlyList<uint?>> Colours);
@@ -16,6 +16,7 @@ internal partial class DeploymentNarrationBody : Control
     internal NarrationParagraphPage CurrentPage=>pages[pageIndex].Source;
     internal MapFontProfile CurrentProfile=>pages[pageIndex].Profile;
     internal IReadOnlyList<float> CurrentBaselines=>pages[pageIndex].Baselines;
+    public void SetDrawingVisibilityLayer(uint layer) => font.SetDrawingVisibilityLayer(this, layer);
 
     internal void Configure(MapFont sourceFont,MapFontProfile profile,string expanded)
     {

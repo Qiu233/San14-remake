@@ -36,9 +36,10 @@ internal partial class DeploymentTargetConfirmation : Control
         assets=new(repository);font=new(repository,text.SourceLocale);shader=UiSourceSprite.CreateShader();
         canvas=new Control{Name="SourceCanvas",Size=new(1920,1080),MouseFilter=MouseFilterEnum.Ignore};AddChild(canvas);
         var source=new UiSourceLayout(repository,0xDB48324F);Vector2 mount=new(610,672);
-        // Node1 writes only destination alpha (00011000) for the following
-        // Type6 blur. That mask/blur pair is not supported by this compositor.
-        // Its RGB must not be drawn as a second ordinary frame.
+        var mask = source.Art(canvas,1,source.Rectangle(1,mount),assets,shader,
+            blend:UiSourceSprite.Blend.AlphaMask);
+        Rect2 blur = source.Rectangle(2,mount);
+        source.Blur(mask,2,new(blur.Position-mask.Position,blur.Size));
         source.Art(canvas,3,source.Rectangle(3,mount),assets,shader);
         Rect2 body=source.Rectangle(4,mount);
         var profile=MapFontProfile.FromNode(source.Nodes[4],source.Source.Source.ResourceUri) with

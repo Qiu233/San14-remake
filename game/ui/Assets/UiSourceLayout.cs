@@ -62,6 +62,38 @@ internal sealed class UiSourceLayout
 
     internal Rect2 Rectangle(int index, Vector2 mount = default) => new(rectangles[index].Position + mount, rectangles[index].Size);
 
+    internal UiSourceType6Parameters Type6(int index) => UiSourceType6Parameters.Read(Nodes[index]);
+
+    internal UiSourceType6 Blur(Control parent, int index, Rect2 rectangle)
+    {
+        var transform = transforms[index];
+        if (Math.Abs(transform.X.Y) > .00001f || Math.Abs(transform.Y.X) > .00001f ||
+            Nodes[index].HeaderValues[2] != 0)
+            throw new NotSupportedException("Source Type6 mounting requires an axis-aligned planar pane.");
+        var node = new UiSourceType6 { Name = Nodes[index].Name + index,
+            Position = rectangle.Position, Size = rectangle.Size };
+        Vector2 orientation = new(Math.Sign(transform.X.X), Math.Sign(transform.Y.Y));
+        if (orientation.X == 0 || orientation.Y == 0) throw new NotSupportedException("Type6 has degenerate projected geometry.");
+        node.Scale = orientation;
+        node.Position += new Vector2(orientation.X < 0 ? rectangle.Size.X : 0, orientation.Y < 0 ? rectangle.Size.Y : 0);
+        parent.AddChild(node); node.Configure(Type6(index));
+        node.SetMeta("source_node_index", index); node.SetMeta("source_layout", Source.Source.ResourceUri);
+        return node;
+    }
+
+    internal UiSourceType6Geometry Type6Geometry(int index, Control canvas, Vector2I contextSize,
+        Vector2 mount, bool flipUvRows)
+    {
+        _ = Type6(index);
+        if (Nodes[index].HeaderValues[2] != 0 || Nodes[index].Value44 > short.MaxValue || Nodes[index].Value46 > short.MaxValue)
+            throw new NotSupportedException("Type6 requires supported planar source dimensions.");
+        var size = nodeSizes[index];
+        Vector2[] corners = [Vector2.Zero, new(size.X, 0), new(0, size.Y), size];
+        Transform2D screen = canvas.GetGlobalTransformWithCanvas();
+        return UiSourceType6Geometry.FromScreenCorners(corners.Select(p => screen * (transforms[index] * p + mount)).ToArray(),
+            contextSize, flipUvRows);
+    }
+
     /// <summary>Apply the source recursive size setter, preserving integer local
     /// top-left positions before the original anchor transforms are evaluated.</summary>
     internal UiSourceLayout ResizedSubtree(int index,Vector2 targetSize,bool preserveMargins,

@@ -4,8 +4,6 @@
   "save_slot_unreadable": "无法读取的存档",
   "save_file_failed": "无法完成存取，请确认存档与文件访问权限。",
   "save_time_unknown": "时间不详",
-  "save_overwrite_question": "要覆盖第 {0} 号存档吗？\n原有进度将被替换。",
-  "load_replace_question": "要载入第 {0} 号存档吗？\n目前未保存的进度将会消失。",
   "play_source_base": "据点",
   "play_commands_administration": "内政",
   "play_commands_military": "军事",
