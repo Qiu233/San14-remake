@@ -2,11 +2,10 @@
   "layoutId": "F1D669AF",
   "origin": [190, 200],
   "selectionLabel": [215, 274, 74, 40],
-  "frame": {"layoutId": "03798956", "node": "000_cmn_base_dialog_00", "origin": [190, 194]},
+  "frame": {"blurNode": 2, "layoutId": "A3B4A82E", "node": "000_cmn_base_dialog_00", "origin": [191, 194]},
   "portraitNode": "cmn_ani_chara_3parts",
   "partialTextStyles": {
     "layoutId": "F1D669AF",
-    "noticeKey": "detail_officer_partial_styles",
     "nodes": {
       "cap_1_fc014_0000": {"rawByte150": 17, "rawByte151": 1, "rawByte153": 2},
       "val_1_fc001_0000": {"rawByte150": 17, "rawByte151": 1, "rawByte153": 2},

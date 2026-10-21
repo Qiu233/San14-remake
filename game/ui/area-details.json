@@ -21,6 +21,7 @@
     40
   ],
   "frame": {
+    "blurNode": 2,
     "layoutId": "A3B4A82E",
     "node": "000_cmn_base_dialog_00",
     "origin": [

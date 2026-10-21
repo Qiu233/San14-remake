@@ -3,9 +3,10 @@
   "origin": [190, 200],
   "selectionLabel": [215, 223, 155, 40],
   "frame": {
-    "layoutId": "03798956",
+    "blurNode": 2,
+    "layoutId": "A3B4A82E",
     "node": "000_cmn_base_dialog_00",
-    "origin": [190, 194]
+    "origin": [191, 194]
   },
   "texts": {
     "txt_bushoname_fc001": { "value": "ruler" },

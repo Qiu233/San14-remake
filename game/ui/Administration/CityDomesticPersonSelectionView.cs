@@ -83,12 +83,11 @@ internal partial class CityDomesticPersonSelectionView : Control
         var messages = repository.LoadMessages(text.SourceLocale, San14.Data.Formats.MessageKind.Data).Messages.Sections[1];
         string Message(int id) => messages.Records[id].Text ?? throw new InvalidDataException("Missing City person caption.");
         canvas = new Control { Name = "SourceCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Stop }; AddChild(canvas);
-        canvas.AddChild(new BackBufferCopy { CopyMode = BackBufferCopy.CopyModeEnum.Viewport });
-        canvas.AddChild(new MapDialogBackdrop { Size = canvas.Size });
         var title = new UiSourceLayout(repository, 0xDC8AC8AA);
         title.Art(canvas, 1, title.Rectangle(1), assets, shader);
         title.Text(canvas, 2, default, Message(0x032E), font, MapTextPresets.Create()[56]);
         var shell = new UiSourceLayout(repository, 0xA3B4A82E);
+        shell.Blur(canvas, 2, shell.Rectangle(2, new(191, 147)));
         shell.Art(canvas, 3, shell.Rectangle(3, new(191, 147)), assets, shader);
         float tabX = 230;
         for (int i = 0; i < CityDomesticPersonColumns.Captions.Count; i++)

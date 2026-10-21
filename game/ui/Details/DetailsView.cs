@@ -41,30 +41,29 @@ public abstract partial class DetailsView : Control
             CultureInfo.InvariantCulture);
         LoadedLayout source = repository.LoadLayout("ScreenLayout", layoutId);
         bool sourceTypography = settings.TryGetProperty("sourceTypography", out var typography) && typography.GetBoolean();
+        JsonElement frameSettings = settings.GetProperty("frame");
+        bool sourceFrameBlur = frameSettings.TryGetProperty("blurNode", out JsonElement blurNode);
         var textPresets = MapTextPresets.Create();
         UiSourceLayout? sourceLayout = sourceTypography ? new(source) : null;
         IReadOnlyList<LcskNodeRecord> nodes = sourceLayout?.Nodes ?? LcskNodeReader.Read(source.Layout);
         _assets = new UiAssets(repository);
         if (sourceTypography)
-        {
             _sourceFont = new(repository, text.SourceLocale);
+        if (sourceTypography || sourceFrameBlur)
             _sourceShader = UiSourceSprite.CreateShader();
-        }
         _canvas = new Control { Size = new Vector2(1920, 1080), MouseFilter = MouseFilterEnum.Stop };
         _canvas.Theme = new Theme
         {
             DefaultFont = new SystemFont { FontNames = ["KaiTi", "DFKai-SB", "Microsoft YaHei"] }
         };
         AddChild(_canvas);
-        if (mapBackdrop && !sourceTypography)
+        if (mapBackdrop && !sourceFrameBlur)
         {
             _canvas.AddChild(new BackBufferCopy { CopyMode = BackBufferCopy.CopyModeEnum.Viewport });
             _canvas.AddChild(new MapDialogBackdrop { Size = new(1920, 1080) });
         }
-        else if (!mapBackdrop) AddColor(new Rect2(0, 0, 1920, 1080), new Color("#50432f"));
-        // City/area use their proven common list frame. Other profiles retain
-        // their existing composition until their own callers are established.
-        JsonElement frameSettings = settings.GetProperty("frame");
+        else if (!mapBackdrop && !sourceFrameBlur) AddColor(new Rect2(0, 0, 1920, 1080), new Color("#50432f"));
+        // The original common shell is independent of the content's text renderer.
         uint frameId = uint.Parse(frameSettings.GetProperty("layoutId").GetString()!,
             NumberStyles.HexNumber, CultureInfo.InvariantCulture);
         LoadedLayout frame = repository.LoadLayout("ScreenLayout", frameId);
@@ -73,20 +72,26 @@ public abstract partial class DetailsView : Control
         var frameRectangle = new Rect2(
             frameSettings.GetProperty("origin")[0].GetSingle(),
             frameSettings.GetProperty("origin")[1].GetSingle(), frameNode.Value44, frameNode.Value46);
+        UiSourceLayout? sourceFrame = sourceTypography || sourceFrameBlur ? new(frame) : null;
+        if (sourceFrameBlur)
+        {
+            int sourceBlurNode = blurNode.GetInt32();
+            Rect2 blur = sourceFrame!.Rectangle(sourceBlurNode);
+            sourceFrame.Blur(_canvas, sourceBlurNode, new(frameRectangle.Position + blur.Position -
+                sourceFrame.Rectangle(frameNode.Index).Position, blur.Size));
+        }
+        if (sourceFrame is not null)
+            sourceFrame.Art(_canvas, frameNode.Index, frameRectangle, Assets, _sourceShader!);
+        else
+            DrawSprite(frame.Layout, frameNode, frameRectangle, Vector2.One);
         if (sourceTypography)
         {
-            var sourceFrame = new UiSourceLayout(frame);
-            Rect2 blur = sourceFrame.Rectangle(2);
-            sourceFrame.Blur(_canvas, 2, new(frameRectangle.Position + blur.Position -
-                sourceFrame.Rectangle(frameNode.Index).Position, blur.Size));
-            sourceFrame.Art(_canvas, frameNode.Index, frameRectangle, Assets, _sourceShader!);
             var title = new UiSourceLayout(repository, 0xDC8AC8AA);
             title.Art(_canvas, 1, title.Rectangle(1), Assets, _sourceShader!);
             title.Text(_canvas, 2, default, text.Get(titleKey), _sourceFont!, textPresets[56]);
         }
         else
         {
-            DrawSprite(frame.Layout, frameNode, frameRectangle, Vector2.One);
             AddPicture(Assets.Sprite("000_cmn_base_title").Texture, new Rect2(0, 0, 540, 88));
             AddLabel(text.Get(titleKey), new Rect2(120, 25, 330, 50), 32,
                 HorizontalAlignment.Left, new Color("#eee3a6"));
@@ -125,14 +130,12 @@ public abstract partial class DetailsView : Control
             ? configuredBars : default;
         var knownNames = nodes.Select(node => node.Name).ToHashSet(StringComparer.Ordinal);
         var partialTextStyles = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
-        string? partialStyleNoticeKey = null;
         if (settings.TryGetProperty("partialTextStyles", out JsonElement partialStyles))
         {
             uint scopedLayout = uint.Parse(partialStyles.GetProperty("layoutId").GetString()!,
                 NumberStyles.HexNumber, CultureInfo.InvariantCulture);
             if (scopedLayout != layoutId)
                 throw new InvalidDataException("Partial text style profile belongs to a different source layout.");
-            partialStyleNoticeKey = partialStyles.GetProperty("noticeKey").GetString()!;
             foreach (JsonProperty entry in partialStyles.GetProperty("nodes").EnumerateObject())
             {
                 if (!nodes.Any(node => node.Name == entry.Name && node.Type == 2))
@@ -410,10 +413,7 @@ public abstract partial class DetailsView : Control
         if (partiallyRenderedText.Count != 0)
         {
             SetMeta("partial_text_style_nodes", partiallyRenderedText.ToArray());
-            Label notice = AddLabel(string.Format(CultureInfo.InvariantCulture,
-                text.Get(partialStyleNoticeKey!), partiallyRenderedText.Count),
-                new Rect2(850, 1032, 1040, 35), 18, HorizontalAlignment.Left, new Color("#eadcb5"));
-            notice.Name = "PartialTextStyleNotice";
+            GD.Print($"{viewName} has {partiallyRenderedText.Count} text nodes with unresolved additional styles.");
         }
         GD.Print($"{viewName} source {source.Source.ResourceUri}: {nodes.Count} nodes; " +
             $"pending bindings {_unbound.Count}: {string.Join(", ", _unbound)}.");

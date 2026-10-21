@@ -13,6 +13,7 @@
   "selectionRow": { "x": 213, "y": 264, "leadingCell": false },
   "selectionScrollbar": { "x": 293, "y": 265, "height": 597 },
   "frame": {
+    "blurNode": 2,
     "layoutId": "A3B4A82E",
     "node": "000_cmn_base_dialog_00",
     "origin": [191, 194]

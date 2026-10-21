@@ -59,6 +59,7 @@ public partial class Main
     {
         _shuttingDown = true;
         _type6Host?.Stop(deferRemoval: true);
+        _cityDomesticPresenter?.Draft.Dispose();
         DisconnectWindowLifetime();
         _uiAudioFeedback?.CancelPreparation();
         LeaveSceneAudioContext();

@@ -85,12 +85,11 @@ internal partial class DeploymentPersonSelectionView : Control
         _selectCaption=Message(0x003A); _clearCaption=Message(0x003B); _checkGlyph=Message(0x0628);
         _canvas=new Control {Name="SourceCanvas",Size=new(1920,1080),MouseFilter=MouseFilterEnum.Stop};
         AddChild(_canvas);
-        _canvas.AddChild(new BackBufferCopy {CopyMode=BackBufferCopy.CopyModeEnum.Viewport});
-        _canvas.AddChild(new MapDialogBackdrop {Size=_canvas.Size});
         var title=new UiSourceLayout(repository,0xDC8AC8AA);
         title.Art(_canvas,1,title.Rectangle(1),_assets,_shader);
         title.Text(_canvas,2,default,Message(0x032E),_font,presets[56]);
         var shell=new UiSourceLayout(repository,0xA3B4A82E);
+        shell.Blur(_canvas,2,shell.Rectangle(2,new(191,147)));
         shell.Art(_canvas,3,shell.Rectangle(3,new(191,147)),_assets,_shader);
         int[] tabs=[0x03CD,0x022B,0x0235,0x03DD,0x03DE,0x023D];
         float tabX=230;
