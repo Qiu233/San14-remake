@@ -56,12 +56,12 @@ public abstract partial class DetailsView : Control
             DefaultFont = new SystemFont { FontNames = ["KaiTi", "DFKai-SB", "Microsoft YaHei"] }
         };
         AddChild(_canvas);
-        if (mapBackdrop)
+        if (mapBackdrop && !sourceTypography)
         {
             _canvas.AddChild(new BackBufferCopy { CopyMode = BackBufferCopy.CopyModeEnum.Viewport });
             _canvas.AddChild(new MapDialogBackdrop { Size = new(1920, 1080) });
         }
-        else AddColor(new Rect2(0, 0, 1920, 1080), new Color("#50432f"));
+        else if (!mapBackdrop) AddColor(new Rect2(0, 0, 1920, 1080), new Color("#50432f"));
         // City/area use their proven common list frame. Other profiles retain
         // their existing composition until their own callers are established.
         JsonElement frameSettings = settings.GetProperty("frame");
@@ -75,7 +75,11 @@ public abstract partial class DetailsView : Control
             frameSettings.GetProperty("origin")[1].GetSingle(), frameNode.Value44, frameNode.Value46);
         if (sourceTypography)
         {
-            new UiSourceLayout(frame).Art(_canvas, frameNode.Index, frameRectangle, Assets, _sourceShader!);
+            var sourceFrame = new UiSourceLayout(frame);
+            Rect2 blur = sourceFrame.Rectangle(2);
+            sourceFrame.Blur(_canvas, 2, new(frameRectangle.Position + blur.Position -
+                sourceFrame.Rectangle(frameNode.Index).Position, blur.Size));
+            sourceFrame.Art(_canvas, frameNode.Index, frameRectangle, Assets, _sourceShader!);
             var title = new UiSourceLayout(repository, 0xDC8AC8AA);
             title.Art(_canvas, 1, title.Rectangle(1), Assets, _sourceShader!);
             title.Text(_canvas, 2, default, text.Get(titleKey), _sourceFont!, textPresets[56]);

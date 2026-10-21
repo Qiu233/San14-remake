@@ -36,6 +36,7 @@ internal partial class CampaignSaveView : Control
             () => { if (!busy && !abandoned && selected is int slot && CanChoose(slots[slot])) this.accepted?.Invoke(slot); });
         var canvas = chrome.Canvas;
         var shell = new UiSourceLayout(repository, 0x761D3014);
+        shell.Blur(canvas, 2, shell.Rectangle(2));
         shell.Art(canvas, 3, shell.Rectangle(3), chrome.Assets, chrome.SpriteShader);
         int[] tabNodes = [4, 6, 8, 10], captions = [0x062E, 0x0577, 0x06E1, 0x06E2];
         for (int i = 0; i < tabNodes.Length; i++)
