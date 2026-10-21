@@ -87,7 +87,7 @@ internal partial class DeploymentSetupView : Control
         Tab(0x172EDC24, page.Rectangle(41), Message(0x035D), true);
         Tab(0xD45873AA, page.Rectangle(43), Message(0x035E), false);
         confirm=Round(new(827,955), "000_cmn_txt_decision_kettei", disabled:true, ()=>decide?.Invoke());
-        Round(new(965,955), "000_cmn_txt_decision_modoru", disabled:false, RequestClose);
+        Round(new(965,955), "000_cmn_txt_decision_modoru", disabled:false, RequestClose, cue:UiAudioCue.Cancel);
         int[] bottomMessages=[0x032F,0x005F,0x0060];
         string[] batchNames=["AutomaticDeployment","SetAllDeploymentTroops","MaximizeDeploymentTroops"];
         for(int i=0;i<3;i++)
@@ -125,11 +125,11 @@ internal partial class DeploymentSetupView : Control
         Resized += Fit; Fit();
 
         void Art(UiSourceLayout layout,int index,Vector2 mount=default) => layout.Art(canvas,index,layout.Rectangle(index,mount),assets,shader);
-        UiSourceRoundButton Round(Vector2 position,string caption,bool disabled,Action? action)
+        UiSourceRoundButton Round(Vector2 position,string caption,bool disabled,Action? action,UiAudioCue cue=UiAudioCue.ButtonSelect)
         {
             var button=new UiSourceRoundButton { Name=disabled?"ConfirmDeployment":"ReturnDeployment",Position=position,Disabled=disabled };
             canvas.AddChild(button);
-            button.Configure(repository,assets,shader,text.SourceLocale,caption,action);
+            button.Configure(repository,assets,shader,text.SourceLocale,caption,action,cue);
             return button;
         }
         void Tab(uint file,Rect2 target,string caption,bool selected)

@@ -59,15 +59,15 @@ internal partial class DeploymentTargetConfirmation : Control
             line.Configure(font,lineProfile);line.Text=lines[index];top+=extents[index];
         }
         Button("ConfirmYes",5,"000_cmn_txt_decision_yes",()=>Finish(true));
-        Button("ConfirmNo",13,"000_cmn_txt_decision_no",RequestCancel);
+        Button("ConfirmNo",13,"000_cmn_txt_decision_no",RequestCancel,cue:UiAudioCue.Cancel);
         SetMeta("source_layout",source.Source.Source.ResourceUri);
         Resized+=Fit;Fit();
 
-        void Button(string name,int slot,string caption,Action released)
+        void Button(string name,int slot,string caption,Action released,UiAudioCue cue=UiAudioCue.ButtonSelect)
         {
             var button=new UiSourceRoundButton{Name=name,Position=source.Rectangle(slot,mount).Position,
                 ActionMode=BaseButton.ActionModeEnum.Release};canvas.AddChild(button);
-            button.Configure(repository,assets,shader,text.SourceLocale,caption,released);
+            button.Configure(repository,assets,shader,text.SourceLocale,caption,released,cue);
         }
     }
 

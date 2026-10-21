@@ -43,7 +43,7 @@ internal partial class CityDomesticPersonSelectionView : Control
     private Action<CityDomesticCandidate?>? complete;
     private Action<string> unavailable = null!;
     private IReadOnlyList<CityDomesticPersonEntry> basicEntries = null!;
-    private UiSourceRoundButton accept = null!;
+    private UiSourceRoundButton back = null!;
     private int? selectedOccurrence;
     private int activePage;
     private string checkGlyph = "";
@@ -103,13 +103,10 @@ internal partial class CityDomesticPersonSelectionView : Control
         scroll = new UiSourceScrollbar { Name = "PersonScrollbar", Position = new(1687, 265), Size = new(16, 597) }; canvas.AddChild(scroll);
         scroll.Configure(repository, assets, shader, Math.Max(0, entries.Count * 48 - 596), scrollSpeed,
             value => { state.Scroll = value; PositionRows(); },currentScrollSpeed:currentScrollSpeed);
-        accept = new UiSourceRoundButton { Name = "AcceptCityPersonSelection", Position = new(827, 955) }; canvas.AddChild(accept);
-        accept.Configure(repository, assets, shader, text.SourceLocale, "000_cmn_txt_decision_kettei", () =>
-        {
-            if (selectedOccurrence is int occurrence) Activate(rows.Single(r => r.Entry.Occurrence == occurrence).Entry);
-        });
-        var cancel = new UiSourceRoundButton { Name = "CancelCityPersonSelection", Position = new(965, 955) }; canvas.AddChild(cancel);
-        cancel.Configure(repository, assets, shader, text.SourceLocale, "000_cmn_txt_decision_modoru", RequestCancel);
+        var footer = new UiSourceLayout(repository, 0xD8913AB2);
+        back = new UiSourceRoundButton { Name = "CancelCityPersonSelection", Position = footer.Rectangle(1, new(0, 904)).Position };
+        canvas.AddChild(back);
+        back.Configure(repository, assets, shader, text.SourceLocale, "000_cmn_txt_decision_modoru", RequestCancel, cue: UiAudioCue.Cancel);
         checkGlyph = Message(0x0628);
         PublishPage(initialPage, entries);
         scroll.SetValue(initialScroll); PositionRows(); Resized += Fit; Fit();
@@ -207,7 +204,6 @@ internal partial class CityDomesticPersonSelectionView : Control
     }
     private void ApplySelection()
     {
-        accept.Disabled = complete is null || selectedOccurrence is null;
         foreach (var pair in rows) { pair.Row.Selected = pair.Entry.Occurrence == selectedOccurrence; pair.Row.QueueRedraw(); }
     }
     private void ApplyArrows()
@@ -217,7 +213,7 @@ internal partial class CityDomesticPersonSelectionView : Control
     }
     private void PositionRows() { for (int i = 0; i < rows.Count; i++) rows[i].Row.Position = new(0, i * 48 - scroll.Value); }
     internal void RequestCancel() { var callback = complete; complete = null; callback?.Invoke(null); }
-    internal void Abandon() { complete = null; order = null; queryPage = null; if (accept is not null) accept.Disabled = true; Hide(); SetProcessInput(false); }
+    internal void Abandon() { complete = null; order = null; queryPage = null; if (back is not null) back.Disabled = true; Hide(); SetProcessInput(false); }
     public override void _Input(InputEvent input)
     {
         if (IsVisibleInTree() && !IsQueuedForDeletion() && input is InputEventMouseButton { ButtonIndex: MouseButton.Right, Pressed: true })
