@@ -57,7 +57,8 @@ internal partial class AdministrationPageChrome : Control
                 ActionMode = BaseButton.ActionModeEnum.Release };
             Canvas.AddChild(button);
             button.Configure(repository, Assets, SpriteShader, text.SourceLocale, caption,
-                () => { if (!abandoned && !button.Disabled) action(); });
+                () => { if (!abandoned && !button.Disabled) action(); },
+                cue: slot is 1 or 4 ? UiAudioCue.Cancel : UiAudioCue.ButtonSelect);
             return button;
         }
     }

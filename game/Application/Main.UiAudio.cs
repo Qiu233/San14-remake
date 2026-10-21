@@ -20,15 +20,19 @@ public partial class Main
     {
         if (status.Availability == UiAudioAvailability.Unavailable)
             SetMeta("ui_audio_unavailable_reason", status.Reason ?? "unknown");
+        else
+            RemoveMeta("ui_audio_unavailable_reason");
         if (status.Source is { } source)
         {
             SetMeta("ui_audio_source_uri", source.BankUri);
             SetMeta("ui_audio_source_sha256", source.BankHash);
             SetMeta("ui_audio_select_frames", source.SelectFrames);
             SetMeta("ui_audio_cancel_frames", source.CancelFrames);
+            SetMeta("ui_audio_tab_frames", source.TabFrames);
         }
         if (status.SelectCount is int selectCount) SetMeta("ui_audio_select_count", selectCount);
         if (status.CancelCount is int cancelCount) SetMeta("ui_audio_cancel_count", cancelCount);
+        if (status.TabCount is int tabCount) SetMeta("ui_audio_tab_count", tabCount);
         UpdateUiAudioStatus();
     }
 

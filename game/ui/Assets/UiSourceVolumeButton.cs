@@ -7,6 +7,10 @@ internal enum UiSourceVolumePart { Mute, Left, Right }
 /// release over the control when the press began elsewhere (8761F0/856AC0).</summary>
 internal partial class UiSourceVolumeButton : UiSourceButton
 {
+    // Its native control release changes the gain and lets the caller request
+    // a category preview; it does not request a common button cue itself.
+    internal override UiAudioCue PressedCue => UiAudioCue.None;
+
     private Rect2 hit;
     private Action? released;
     private bool transientPress;

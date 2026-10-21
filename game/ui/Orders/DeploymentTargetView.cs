@@ -64,7 +64,8 @@ internal partial class DeploymentTargetView : Control
         {
             var button=new UiSourceRoundButton {Name=name,Position=footer.Rectangle(slot,footerMount).Position,
                 ActionMode=BaseButton.ActionModeEnum.Release};canvas.AddChild(button);
-            button.Configure(repository,assets,shader,text.SourceLocale,caption,pressed);return button;
+            button.Configure(repository,assets,shader,text.SourceLocale,caption,pressed,
+                cue:slot is 1 or 4?UiAudioCue.Cancel:UiAudioCue.ButtonSelect);return button;
         }
     }
 

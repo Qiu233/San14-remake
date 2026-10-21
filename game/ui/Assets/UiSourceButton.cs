@@ -9,6 +9,14 @@ internal partial class UiSourceButton : UiSourceHitButton
     private int _lastState = -1;
     private bool _selected;
 
+    internal virtual UiAudioCue PressedCue => UiAudioCue.ButtonSelect;
+    internal event Action? FeedbackRequested;
+
+    // The source requests feedback before publishing the release to its caller.
+    // Keep this publisher ahead of callbacks installed by Configure, including
+    // when the audio observer detaches and later reattaches this control.
+    public UiSourceButton() => Pressed += () => FeedbackRequested?.Invoke();
+
     internal virtual bool Selected
     {
         get => _selected;

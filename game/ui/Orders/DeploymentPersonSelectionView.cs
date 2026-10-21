@@ -117,7 +117,7 @@ internal partial class DeploymentPersonSelectionView : Control
         var cancel=new UiSourceRoundButton {Name="CancelPersonSelection",Position=new(965,955)};
         _canvas.AddChild(accept); _canvas.AddChild(cancel);
         accept.Configure(repository,_assets,_shader,text.SourceLocale,"000_cmn_txt_decision_kettei",()=>Close(_selected.ToArray()));
-        cancel.Configure(repository,_assets,_shader,text.SourceLocale,"000_cmn_txt_decision_modoru",RequestCancel);
+        cancel.Configure(repository,_assets,_shader,text.SourceLocale,"000_cmn_txt_decision_modoru",RequestCancel,cue:UiAudioCue.Cancel);
         _selectAll=new UiSourceBottomButton {Name="SelectAllPersons",Position=new(189,948)};
         _canvas.AddChild(_selectAll);
         _selectAll.Configure(repository,_assets,_shader,_font,_selectCaption,SelectOrClearAll);

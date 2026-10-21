@@ -380,7 +380,7 @@ public abstract partial class DetailsView : Control
             var sourceBack = new UiSourceRoundButton { Name = $"Close{viewName}", Position = footer.Rectangle(1, footerMount).Position };
             _canvas.AddChild(sourceBack);
             sourceBack.Configure(repository, Assets, _sourceShader!, text.SourceLocale,
-                "000_cmn_txt_decision_modoru", RequestClose);
+                "000_cmn_txt_decision_modoru", RequestClose, cue: UiAudioCue.Cancel);
             sourceBack.FocusMode = FocusModeEnum.All;
             back = sourceBack;
         }

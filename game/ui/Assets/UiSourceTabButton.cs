@@ -4,6 +4,7 @@ using San14.Data;
 /// <summary>A common source tab, resized by its caller and sharing the view's font.</summary>
 internal partial class UiSourceTabButton : UiSourceButton
 {
+    internal override UiAudioCue PressedCue => UiAudioCue.Tab;
     internal void Configure(GameResourceRepository repository, UiAssets assets, Shader shader,
         MapFont font, string caption, uint layoutFile = 0x9AFB27B7)
     {

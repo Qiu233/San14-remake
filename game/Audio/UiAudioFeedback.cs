@@ -2,12 +2,13 @@ using Godot;
 using San14.Data;
 
 internal enum UiAudioAvailability { Loading, Ready, Unavailable }
-internal sealed record UiAudioSource(string BankUri, string BankHash, int SelectFrames, int CancelFrames);
+internal enum UiAudioCue { ButtonSelect, Tab, Cancel, None }
+internal sealed record UiAudioSource(string BankUri, string BankHash, int SelectFrames, int CancelFrames, int TabFrames);
 internal sealed record UiAudioFeedbackStatus(UiAudioAvailability Availability = UiAudioAvailability.Loading,
-    string? Reason = null, UiAudioSource? Source = null, int? SelectCount = null, int? CancelCount = null);
+    string? Reason = null, UiAudioSource? Source = null, int? SelectCount = null, int? CancelCount = null, int? TabCount = null);
 
 /// <summary>Owns one UI feedback lifetime: source preparation, a shared playback
-/// service, attached button subscriptions and the two prepared clips. Scene cues
+/// service, attached button subscriptions and the prepared clips. Scene cues
 /// remain a separate caller-owned session using the configured playback service.</summary>
 internal sealed class UiAudioFeedback : IDisposable
 {
@@ -92,7 +93,7 @@ internal sealed class UiAudioFeedback : IDisposable
             _clips = clips;
             var provenance = new UiAudioSource(clips.SourceBankUri, clips.SourceBankSha256,
                 clips.ButtonSelect.SampleFrames,
-                clips.Cancel.SampleFrames);
+                clips.Cancel.SampleFrames, clips.Tab.SampleFrames);
             Publish(Status with { Availability = UiAudioAvailability.Ready, Source = provenance });
             GD.Print($"ORIGINAL_UI_AUDIO_READY bank={provenance.BankUri} " +
                 $"selectFrames={provenance.SelectFrames} cancelFrames={provenance.CancelFrames} preloadOnly=true");
@@ -107,18 +108,32 @@ internal sealed class UiAudioFeedback : IDisposable
         }
     }
 
-    public void Play(bool cancel)
+    public void Play(bool cancel) => Play(cancel ? UiAudioCue.Cancel : UiAudioCue.ButtonSelect);
+
+    public void Play(UiAudioCue cue)
     {
-        if (_token.IsCancellationRequested || _clips is null || _service is null) return;
+        if (cue == UiAudioCue.None || _token.IsCancellationRequested || _clips is null || _service is null) return;
         try
         {
-            // Both selected UI samples belong to the original Effects
+            // These UI samples belong to the original Effects
             // category. General cue selection/arbitration remains separate.
-            if (!_service.TryPlayEffect(cancel ? _clips.Cancel : _clips.ButtonSelect)) return;
-            Publish(cancel ? Status with { Availability = UiAudioAvailability.Ready, Reason = null,
-                    CancelCount = (Status.CancelCount ?? 0) + 1 }
-                : Status with { Availability = UiAudioAvailability.Ready, Reason = null,
-                    SelectCount = (Status.SelectCount ?? 0) + 1 });
+            var clip = cue switch
+            {
+                UiAudioCue.ButtonSelect => _clips.ButtonSelect,
+                UiAudioCue.Tab => _clips.Tab,
+                UiAudioCue.Cancel => _clips.Cancel,
+                _ => throw new ArgumentOutOfRangeException(nameof(cue))
+            };
+            if (!_service.TryPlayEffect(clip)) return;
+            Publish(cue switch
+            {
+                UiAudioCue.Cancel => Status with { Availability = UiAudioAvailability.Ready, Reason = null,
+                    CancelCount = (Status.CancelCount ?? 0) + 1 },
+                UiAudioCue.Tab => Status with { Availability = UiAudioAvailability.Ready, Reason = null,
+                    TabCount = (Status.TabCount ?? 0) + 1 },
+                _ => Status with { Availability = UiAudioAvailability.Ready, Reason = null,
+                    SelectCount = (Status.SelectCount ?? 0) + 1 }
+            });
         }
         catch (Exception error)
         {
@@ -163,16 +178,28 @@ internal sealed class UiAudioFeedback : IDisposable
     private void HookButton(Node node)
     {
         if (node is not BaseButton button || !_host.IsAncestorOf(button) || _buttons.ContainsKey(button.GetInstanceId())) return;
-        Action handler = () => Play(button.Name == "CancelPreparedDeployment" ||
-            button.Name == "DiplomacyCancelAlliance" || button.Name == "TacticCancel");
+        Action handler = () =>
+        {
+            if (button.Disabled) return;
+            Play(button is UiSourceButton source ? source.PressedCue :
+                button.Name == "CancelPreparedDeployment" || button.Name == "DiplomacyCancelAlliance" ||
+                button.Name == "TacticCancel" ? UiAudioCue.Cancel : UiAudioCue.ButtonSelect);
+        };
         _buttons.Add(button.GetInstanceId(), (button, handler));
-        button.Pressed += handler;
+        if (button is UiSourceButton sourceButton) sourceButton.FeedbackRequested += handler;
+        else button.Pressed += handler;
     }
 
     private void ReleaseButton(Node node)
     {
         if (_buttons.Remove(node.GetInstanceId(), out var subscription))
-            subscription.Button.Pressed -= subscription.Handler;
+            DetachButton(subscription);
+    }
+
+    private static void DetachButton((BaseButton Button, Action Handler) subscription)
+    {
+        if (subscription.Button is UiSourceButton source) source.FeedbackRequested -= subscription.Handler;
+        else subscription.Button.Pressed -= subscription.Handler;
     }
 
     private void Publish(UiAudioFeedbackStatus status)
@@ -197,7 +224,7 @@ internal sealed class UiAudioFeedback : IDisposable
             _subscribed = false;
         }
         foreach (var subscription in _buttons.Values)
-            subscription.Button.Pressed -= subscription.Handler;
+            DetachButton(subscription);
         _buttons.Clear();
         if (_service is { } service && GodotObject.IsInstanceValid(service) && service.IsInsideTree()) service.StopEffects();
         _effectsPreview?.Dispose(); _effectsPreview = null;

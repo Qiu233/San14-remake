@@ -4,9 +4,13 @@ using San14.Data;
 /// <summary>The common decide/return control, sharing the view's actual assets.</summary>
 internal partial class UiSourceRoundButton : UiSourceButton
 {
+    private UiAudioCue cue;
+    internal override UiAudioCue PressedCue => cue;
+
     internal void Configure(GameResourceRepository repository, UiAssets assets, Shader shader,
-        string locale, string caption, Action? pressed = null)
+        string locale, string caption, Action? pressed = null, UiAudioCue cue = UiAudioCue.ButtonSelect)
     {
+        this.cue = cue;
         var layout = new UiSourceLayout(repository, 0xAD4A3EFA);
         Size = new(layout.Nodes[0].Value44, layout.Nodes[0].Value46);
         Control[] states = new[] { 3, 5, 8, 12, 14 }
