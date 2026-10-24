@@ -56,7 +56,7 @@ public partial class TransportOrdersPanel : VBoxContainer
         {
             foreach (NamedCommandChoice city in _view.Destinations)
                 _destination.AddItem(city.Name, city.Id);
-            int wanted = previousUnit == unit.Id && previousOfficer == unit.OfficerId ? previous : unit.DestinationCityId;
+            int wanted = previousUnit == unit.Id && previousOfficer == unit.OfficerId ? previous : unit.DestinationCityId ?? -1;
             int index = _destination.GetItemIndex(wanted);
             if (index < 0 && unit.CurrentCityId is int current)
                 index = _destination.GetItemIndex(current);
@@ -74,9 +74,12 @@ public partial class TransportOrdersPanel : VBoxContainer
         if (_text is null || unit is null) { _status.Text = ""; return; }
         _status.Text = string.Format(CultureInfo.InvariantCulture, _text("play_transport_orders_status"),
             unit.OfficerName, unit.Troops, unit.Supplies, unit.CargoGold,
-            unit.SourceCityName ?? _text("detail_unknown"), unit.DestinationCityName ?? _text("detail_unknown"),
+            unit.SourceCityName ?? _text("detail_unknown"), unit.DestinationCityName ??
+                string.Format(CultureInfo.InvariantCulture, _text("play_transport_hex_target"), unit.DestinationColumn, unit.DestinationRow),
             _text(unit.Returning ? "play_transport_stage_returning" : "play_transport_stage_outbound"),
-            _text(unit.Arrival == TransportArrivalDisposition.EnterCity ? "play_transport_enter_city" : "play_transport_return_city"));
+            _text(unit.NativeArrival
+                ? unit.NativeReturnOfficer ? "play_transport_return_officer" : "play_transport_enter_officer"
+                : unit.Arrival == TransportArrivalDisposition.EnterCity ? "play_transport_enter_city" : "play_transport_return_city"));
     }
 
     private void UpdateEnabled()

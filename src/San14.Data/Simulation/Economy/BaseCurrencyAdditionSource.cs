@@ -60,7 +60,7 @@ internal static class BaseCurrencyAdditionSource
             new(home, capacityCity, readCity, setCity, amount, before, cap, requested, setterCap, after));
     }
 
-    private static BaseReference CurrencyCity(BaseReference home, SourceWorldContext current) => home.Kind switch
+    internal static BaseReference CurrencyCity(BaseReference home, SourceWorldContext current) => home.Kind switch
     {
         BaseKind.City => home,
         BaseKind.Gate => CurrentGateMapQueries.FindCity(home, current),

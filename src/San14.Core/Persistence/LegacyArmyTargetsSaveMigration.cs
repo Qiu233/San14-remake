@@ -31,19 +31,22 @@ internal static class LegacyArmyTargetsSaveMigration
                 if (old[i] is not JsonObject row || !row.ContainsKey("Kind38") || !row.ContainsKey("Identity3A") || !receivers.TryGetValue(i, out int receiver))
                     throw new InvalidDataException("Historical army target row is incomplete.");
                 int? rawKind = Read(row["Kind38"], byte.MaxValue), rawIdentity = Read(row["Identity3A"], ushort.MaxValue);
-                ArmyTargetKind? kind = rawKind switch { null => null, 255 => ArmyTargetKind.None, 5 => ArmyTargetKind.City, 27 => ArmyTargetKind.ArmyReceiver, _ => ArmyTargetKind.Unresolved };
+                ArmyTargetKind? kind = rawKind switch { null => null, 255 => ArmyTargetKind.None, 5 => ArmyTargetKind.City, 6 => ArmyTargetKind.Gate, 27 => ArmyTargetKind.ArmyReceiver, _ => ArmyTargetKind.Unresolved };
                 JsonObject? destination = null;
                 bool unresolved = false;
                 if (rawIdentity is int code)
                 {
                     ArmyTargetDestinationKind destinationKind = ArmyTargetDestinationKind.Unresolved;
-                    int? cityId = null, targetReceiver = null;
+                    int? cityId = null, gateId = null, targetReceiver = null;
                     if (kind == ArmyTargetKind.City && code is >= 1 and <= 51) { destinationKind = ArmyTargetDestinationKind.City; cityId = code; }
+                    else if (kind == ArmyTargetKind.Gate && code is >= 1 and <= 10)
+                    { destinationKind = ArmyTargetDestinationKind.Gate; gateId = code + 51; }
                     else if (kind == ArmyTargetKind.ArmyReceiver && receivers.TryGetValue(code, out int resolved))
                     { destinationKind = ArmyTargetDestinationKind.ArmyReceiver; targetReceiver = resolved; }
                     else unresolved = true;
                     destination = new() { ["Kind"] = (int)destinationKind, ["CityId"] = cityId,
-                        ["ReceiverId"] = targetReceiver is int target ? new JsonObject { ["Value"] = target } : null };
+                        ["ReceiverId"] = targetReceiver is int target ? new JsonObject { ["Value"] = target } : null,
+                        ["GateId"] = gateId };
                 }
                 assignments.Add(new JsonObject { ["ReceiverId"] = new JsonObject { ["Value"] = receiver },
                     ["Target"] = new JsonObject { ["Kind"] = kind is null ? null : (int)kind, ["Destination"] = destination } });

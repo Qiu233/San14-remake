@@ -32,6 +32,10 @@ public static class ArmyMarchSourceAdapter
     public static ushort? EncodeCredit(ArmyMarchState? value) => value?.MovementCredit is int credit &&
         credit is >= 0 and <= ushort.MaxValue ? (ushort)credit : null;
 
+    internal static ushort? ReadFirstWaypoint(GameState state, UnitState army) =>
+        army.NativeTacticRuntime?.Status10 == 2 ? TransportRouteSourceAdapter.ReadWaypoint(state, army, 0)
+            : EncodeDestination(army.March?.Target);
+
     /// <summary>Encode ordinary intermediate destinations only at the native
     /// algorithm boundary. This does not reuse transport behavior or infer
     /// missing points from the final destination or a calculated route.</summary>

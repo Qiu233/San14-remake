@@ -14,10 +14,14 @@ public sealed record S14Document(
     public int? StartYear { get; init; }
     public int? StartMonth { get; init; }
     public int? StartDay { get; init; }
+    public S14ScenarioSelectionMetadata? SelectionMetadata { get; init; }
 }
 
 public sealed record S14Header(uint FormatMarker, string Signature, string? Title,
-    string Description, int PayloadOffset, int? StartYear, int? StartMonth, int? StartDay);
+    string Description, int PayloadOffset, int? StartYear, int? StartMonth, int? StartDay)
+{
+    public S14ScenarioSelectionMetadata? SelectionMetadata { get; init; }
+}
 
 public static class S14Reader
 {
@@ -53,7 +57,8 @@ public static class S14Reader
         {
             StartYear = header.StartYear,
             StartMonth = header.StartMonth,
-            StartDay = header.StartDay
+            StartDay = header.StartDay,
+            SelectionMetadata = header.SelectionMetadata
         };
     }
 
@@ -75,14 +80,14 @@ public static class S14Reader
             throw new InvalidDataException($"LWC payload missing at expected S14 offset {expectedOffset}.");
 
         string signature = Encoding.ASCII.GetString(source.Slice(4, 16)).TrimEnd('\0');
-        string description = ReadUtf16Z(source.Slice(20, 384));
-        string? title = isScenario ? ReadUtf16Z(source.Slice(0x1a6, 56)) : null;
+        string description = ReadUtf16Z(source.Slice(20, isScenario ? 402 : 384));
+        string? title = isScenario ? ReadUtf16Z(source.Slice(0x1a6, 18)) : null;
         int? year = null;
         int? month = null;
         int? day = null;
         if (isScenario)
         {
-            year = BinaryPrimitives.ReadUInt16LittleEndian(source.Slice(0x1c8, 2));
+            year = BinaryPrimitives.ReadInt16LittleEndian(source.Slice(0x1c8, 2));
             day = source[0x1cc];
             month = source[0x1cd];
             if (year is < 1 or > 999 || month is < 1 or > 12 ||
@@ -90,7 +95,10 @@ public static class S14Reader
                 throw new InvalidDataException("S14 scenario date or repeated format marker is invalid.");
         }
         return new S14Header(marker, signature, title, description,
-            expectedOffset, year, month, day);
+            expectedOffset, year, month, day)
+        {
+            SelectionMetadata = isScenario ? S14ScenarioSelectionMetadata.Read(source, marker) : null
+        };
     }
 
     private static string ReadUtf16Z(ReadOnlySpan<byte> data)

@@ -11,6 +11,8 @@ public static class GameStateCopy
         AvailableDispatchSlots = value.AvailableDispatchSlots.ToArray(),
         PendingRetirements = value.PendingRetirements.ToArray(),
         Disappearances = value.Disappearances?.ToDictionary(pair => pair.Key, pair => pair.Value with { MemberIds = pair.Value.MemberIds.ToArray() }),
+        Diplomacies = value.Diplomacies?.ToDictionary(pair => pair.Key, pair => pair.Value with { MemberIds = pair.Value.MemberIds.ToArray() }),
+        Talents = value.Talents?.ToDictionary(pair => pair.Key, pair => pair.Value with { MemberIds = pair.Value.MemberIds.ToArray() }),
         Returns = value.Returns.ToDictionary(pair => pair.Key, pair => pair.Value with
         {
             MemberIds = pair.Value.MemberIds.ToArray(),
@@ -22,9 +24,18 @@ public static class GameStateCopy
     public static GameState? Copy(GameState? value) => value is null ? null : value with
     {
         Diplomacy = Copy(value.Diplomacy),
+        NativePeriodContinuation = value.NativePeriodContinuation?.Copy(),
+        CampaignExpeditions = value.CampaignExpeditions?.Copy(),
+        // Both the reserve dictionary and its six-point vectors are immutable.
+        ForceCreditReserves = value.ForceCreditReserves,
+        // The template catalogue is owned read-only. Hiring detaches only the
+        // selected template's mutable lists when it creates a world officer.
+        PersonnelHire = value.PersonnelHire,
+        CampaignCrtRandom = value.CampaignCrtRandom,
         NormalCombatRefresh = value.NormalCombatRefresh?.Copy(),
         CampaignEffectRequests = value.CampaignEffectRequests?.Copy(),
         ManualTacticIntervention = value.ManualTacticIntervention?.Copy(),
+        CampaignDuelService = value.CampaignDuelService?.Copy(),
         MonthlyIncomeReports = CopyArray(value.MonthlyIncomeReports, item => Copy(item)!),
         InitializationIssues = CopyArray(value.InitializationIssues),
         ContentHashes = CopyDictionary(value.ContentHashes),
@@ -68,6 +79,10 @@ public static class GameStateCopy
         NativeForceUnregisterCurrent = Copy(value.NativeForceUnregisterCurrent),
         NativeNormalArmyCombatCalendar = Copy(value.NativeNormalArmyCombatCalendar),
         PersonnelCommands = CopyPersonnelCommands(value.PersonnelCommands),
+        TalentGemDiscoveries = value.TalentGemDiscoveries is null ? null : new(
+            value.TalentGemDiscoveries.Gems.ToDictionary(pair => pair.Key, pair => pair.Value.ToArray())),
+        GemForceInventory = value.GemForceInventory is null ? null : new(
+            value.GemForceInventory.Forces.ToDictionary(pair => pair.Key, pair => pair.Value.ToArray())),
         PendingCombatSettlements = value.PendingCombatSettlements is null ? null : new([.. value.PendingCombatSettlements.Requests]),
         NativeSubdayReports = CopyArray(value.NativeSubdayReports),
         EventRuntime = Copy(value.EventRuntime),

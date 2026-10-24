@@ -47,7 +47,7 @@ public sealed class TacticRemakeParameterSeed
             NativeArmySimulation = new(AllocateOwnedCurrentParameters(revision),
             initialized.Forces.ToDictionary(pair => pair.Key, pair => new NativeArmyForceState(0)
             {
-                Flags12 = 0, Flags194 = 0,
+                Flags12 = 0, Flags194 = 0, DiplomacyFlags178 = 0,
                 RelationsEA = pair.Value.SourceIndexedBytesEA?.ToArray()
             }),
             new NativeArmyWorldState { Flags165C = 0, PendingArmyIds = [], ObjectPairs = [] }),
@@ -115,6 +115,12 @@ public sealed class TacticRemakeParameterSeed
         (SimulationParameterKeys.Tactics.SecondaryWaitingCap, SecondaryWaitingCap),
         (SimulationParameterKeys.Tactics.TertiaryWaitingCap, TertiaryWaitingCap),
         (SimulationParameterKeys.Tactics.OrdinaryWaitingRate, OrdinaryWaitingRate),
+        //TC302430 consumes the selected commander's first nonzero waiting
+        //byte. Original static rates are1/4/6; difficulty above2 uses1/2/3.
+        (SimulationParameterKeys.Tactics.SelectedCommanderSecondaryWaitingRate, 4),
+        (SimulationParameterKeys.Tactics.SelectedCommanderTertiaryWaitingRate, 6),
+        (SimulationParameterKeys.Tactics.HighDifficultySelectedCommanderSecondaryWaitingRate, 2),
+        (SimulationParameterKeys.Tactics.HighDifficultySelectedCommanderTertiaryWaitingRate, 3),
         (SimulationParameterKeys.Tactics.InitialWaiting, InitialWaiting),
         (SimulationParameterKeys.Tactics.Formation1CreationWaitingAdjustment, Formation1CreationWaitingAdjustment),
         (SimulationParameterKeys.Tactics.Formation2CreationWaitingAdjustment, Formation2CreationWaitingAdjustment),

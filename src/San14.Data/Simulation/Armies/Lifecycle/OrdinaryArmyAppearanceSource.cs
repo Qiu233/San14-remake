@@ -23,11 +23,11 @@ internal static class OrdinaryArmyAppearanceSource
     ];
 
     internal static (GameState State, OrdinaryArmyAppearanceReceipt Receipt) Depart(
-        GameState state, SourceWorldContext current, UnitState army)
+        GameState state, SourceWorldContext current, UnitState army, bool borrowedCurrent = false)
     {
         int physical = army.NativeArmyOrigin?.NativeSlotIndex ?? throw Missing("Army_physical");
         var receiver = new ArmyUnitReference(physical);
-        if (army.NativeTacticRuntime is not { Status10: 1 } runtime) throw Missing("ordinary_status");
+        if (army.NativeTacticRuntime is not { Status10: 1 or 2 } runtime) throw Missing("ordinary_or_transport_status");
         byte formerHold = army.NativeRouteHold56 ?? throw Missing("hold");
         byte remainingHold = (byte)Math.Clamp(formerHold - 1, 0, 9);
         int force = current.ReadForcePhysicalSlot(current.ReadArmyUnitForceReference(receiver)) ?? throw Missing("force");
@@ -35,9 +35,12 @@ internal static class OrdinaryArmyAppearanceSource
         var working = state with { Units = new(state.Units) { [army.Id] = held } };
         if (remainingHold != 0) return Done(working, null, [], "held");
         if (force is < 1 or > 45 || force != army.ForceId) throw Missing("ordinary_force_scope");
-        if (ArmyConfigurationSourceAdapter.ReadAction(state, army) is not (1 or 13) ||
-            army.OverrideTarget?.Kind != ArmyOverrideTargetKind.None || army.March is null)
-            throw Missing("direct_move_stay_order");
+        byte action = ArmyConfigurationSourceAdapter.ReadAction(state, army) ?? throw Missing("action37");
+        //2A6500 excludes only the actual effective Fire target from exits.
+        //2B5610 can name the first intermediate rather than the final target.
+        ushort? fireTarget = action == 16 ? OrdinaryArmyRouteSource.ReadCurrentTarget(state, army, current)
+            ?? throw Missing("fire_effective_target") : null;
+        if (army.March is null) throw Missing("March_owner");
         ushort next = ArmyMarchSourceAdapter.EncodeDestination(army.March.NextStep) ?? throw Missing("initial_next");
         var home = current.FindArmyUnitCurrentBase(receiver);
         if (!(current.ReadBaseNativeValidity(home) ?? throw Missing("Base_validity")))
@@ -65,6 +68,7 @@ internal static class OrdinaryArmyAppearanceSource
             ushort link = current.ReadHexObjectLink(hex) ?? throw Missing("candidate_Object_link");
             var obj = current.ReadObjectTableReference(link <= 3000 ? link : 0) ?? throw Missing("candidate_Object");
             if (current.ReadObjectNativeValidity(obj) ?? throw Missing("candidate_Object_validity")) continue;
+            if (fireTarget == hexId) continue;
             selected = hexId; break;
         }
         if (selected is not int destination) return Done(working, null, sorted, "no_available_exit");
@@ -80,11 +84,11 @@ internal static class OrdinaryArmyAppearanceSource
             March = held.March! with { NextStep = ArmyMarchDestination.None },
             NativeTacticRuntime = runtime with { Flags26 = (byte)(runtime.Flags26 | 0x42) }
         };
-        if (ArmyMarchSourceAdapter.EncodeDestination(held.March?.Target) == destination)
-            appeared = appeared with
-            { March = ArmyWaypointArrivalSource.Consume(working, appeared) ?? throw Missing("waypoint_continuation") };
         working = working with { Units = new(working.Units) { [army.Id] = appeared } };
-        var changed = ArmyChangedListsSource.Append(working, physical, current);
+        if (ArmyMarchSourceAdapter.ReadFirstWaypoint(state, held) == destination)
+            working = ArmyWaypointArrivalSource.ConsumeCurrent(working, appeared) ?? throw Missing("waypoint_continuation");
+        current.SetArmyUnitRawHex2A(physical, ArmyMarchSourceAdapter.ReadCurrentHex(working, appeared));
+        var changed = (borrowedCurrent ? ArmyChangedListsSource.AppendCurrent(working, physical, current) : ArmyChangedListsSource.Append(working, physical, current));
         working = changed.State ?? throw Missing(changed.UnresolvedOwner ?? "changed_list");
         //25C4F0's final241D70 only writes destination. It does not perform the
         //old-cell clear from ordinary2D99C0 traversal or change direction/credit.

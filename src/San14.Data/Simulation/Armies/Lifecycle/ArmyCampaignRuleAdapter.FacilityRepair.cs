@@ -17,9 +17,15 @@ public sealed partial class ArmyCampaignRuleAdapter
             moment.PreWriterThirdDate.Hour is < 0 or > 22 || (moment.PreWriterThirdDate.Hour & 1) != 0)
             throw new InvalidDataException("Facility repair requires reached stage16 entry.");
         if (moment.PreWriterThirdDate.Hour / 2 != 5) return new(state, [], null);
+        return ConsumeFacilityRepair(state, moment);
+    }
+
+    private ArmyFacilityRepairResult ConsumeFacilityRepair(GameState state, FacilityOperation operation,
+        SourceWorldContext? operationCurrent = null)
+    {
         try
         {
-            var current = CaptureWritableTransportRouteCurrent(state);
+            var current = operationCurrent ?? CaptureFacilityConstructionCurrent(state);
             OwnedArmyLifecycleDetachedInputs.BindCurrent(state, current);
             var order = current.ReadRegistryReferences(RegistryKind.Army) ?? throw RepairMissing("complete_manager60");
             var requests = new List<CampaignEffectRequest>();
@@ -74,18 +80,18 @@ public sealed partial class ArmyCampaignRuleAdapter
                 int personPhysical = RepairNeed(person.PhysicalSlot, "leaf_person_identity");
                 if (!RepairNeed(current.ReadPersonNativeValidity(personPhysical), "leaf_person_validity") ||
                     !RepairNeed(current.ReadObjectDefinitionValidity(definition), "leaf_definition_validity")) continue;
-                if (RepairNeed(definition.PhysicalSlot, "leaf_definition_identity") != 7)
-                    throw RepairMissing("definition_consumer_outside_kind7_slice");
+                if (!FacilityConstructionDefinitions.IsSupported(RepairNeed(definition.PhysicalSlot, "leaf_definition_identity")))
+                    throw RepairMissing("definition_consumer_outside_supported_facilities");
                 _baseCapacityInputs.BindCurrent(working, current);
                 var abilities = new TacticRemakeCurrentAbilities(current, _scenario, Seed.Language, SimulationRuleIdentity.Version);
                 int raw = FacilityRepairRate.Read(working, current, obj, army, abilities, _baseCapacityInputs);
                 var numbers = ApplyFacilityRepairNumbers(working, current, obj, definition, raw);
                 working = numbers.State;
-                working = AppendFacilityRepairEffects(working, current, army, image, numbers, commander, moment, requests);
+                working = AppendFacilityRepairEffects(working, current, army, image, numbers, commander, operation, requests);
                 working = ApplyFacilityRepairRewards(working, current, army, obj, personPhysical, numbers, raw);
             }
             if (requests.Count != 0)
-                working = AppendFacilityRepairBatch(working, moment, requests);
+                working = AppendFacilityRepairBatch(working, operation, requests);
             return new(working, eligible.AsReadOnly(), null);
         }
         catch (InvalidDataException error) { return new(null, [], error.Message); }

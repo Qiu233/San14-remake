@@ -5,6 +5,9 @@ using San14.Data;
 using San14.Data.Formats;
 using NVector3 = System.Numerics.Vector3;
 
+internal sealed record D3D11ArmyLabelPublication(ArmyMapUiCurrentFrame Fields,
+    IReadOnlyDictionary<int, ArmySimpleOutlineResult> SimpleStyles);
+
 internal readonly record struct ArmyMapLabelHit(int UnitId, int HexId, NVector3 Position,
     ArmyMapHitGeometry Geometry);
 
@@ -41,6 +44,7 @@ internal partial class D3D11ArmyMapLabels : Control
     private Func<GameState, SourceWorldContext?>? _queries;
     private float _nearDistance, _distanceRange;
     private GameState? _capturedWorld;
+    private D3D11ArmyLabelPublication? _capturedLabelPublication;
     private ArmyMapUiCurrentFrame? _fields;
     private readonly Dictionary<int, ArmyMapUiCurrentRow> _rows = [];
     private readonly Dictionary<int, ArmySimpleOutlineResult> _simpleStyles = [];
@@ -115,27 +119,41 @@ internal partial class D3D11ArmyMapLabels : Control
         }
     }
 
+    internal D3D11ArmyLabelPublication CaptureWorld(GameState world)
+    {
+        var current = world.Units.Count > 0 ? _queries?.Invoke(world) : null;
+        var fields = current is not null ? _currentSource.Capture(world, current) :
+            new ArmyMapUiCurrentFrame([], world.Units.Keys.Select(id =>
+                new ArmyMapUiCurrentUnavailable(id, "current.World_query_owner")).ToArray());
+        var styles = new Dictionary<int, ArmySimpleOutlineResult>();
+        foreach (var row in fields.Rows)
+        {
+            byte? districtRaw = row.PersonValid == false ? (byte)0 :
+                row.PersonValid == true ? row.PersonDistrictE0 : null;
+            if (current is not null && districtRaw is byte raw)
+                styles.Add(row.UnitId, ArmySimpleOutlineSource.ReadOrdinaryMap(world,
+                    current, current.ReadDistrictTableReference(raw <= 51 ? raw : 0)));
+        }
+        return new(fields, styles);
+    }
+
     internal void Present(D3D11MapInput input, D3D11MapReceipt receipt)
     {
         var world = input.WorldState!;
         var frame = input.SourceFrame!;
-        if (!ReferenceEquals(_capturedWorld, world))
+        var publication = input.PeriodArmyLabels;
+        if (publication is null && (!ReferenceEquals(_capturedWorld, world) || _capturedLabelPublication is not null))
         {
             _capturedWorld = world;
-            _rows.Clear();
-            _simpleStyles.Clear();
-            var current = world.Units.Count > 0 ? _queries?.Invoke(world) : null;
-            _fields = current is not null ? _currentSource.Capture(world, current) :
-                new([], world.Units.Keys.Select(id => new ArmyMapUiCurrentUnavailable(id, "current.World_query_owner")).ToArray());
-            foreach (var row in _fields.Rows)
-            {
-                _rows.Add(row.UnitId, row);
-                byte? districtRaw = row.PersonValid == false ? (byte)0 :
-                    row.PersonValid == true ? row.PersonDistrictE0 : null;
-                if (current is not null && districtRaw is byte raw)
-                    _simpleStyles.Add(row.UnitId, ArmySimpleOutlineSource.ReadOrdinaryMap(world,
-                        current, current.ReadDistrictTableReference(raw <= 51 ? raw : 0)));
-            }
+            publication = CaptureWorld(world);
+        }
+        if (publication is not null && !ReferenceEquals(publication, _capturedLabelPublication))
+        {
+            _capturedLabelPublication = publication;
+            _fields = publication.Fields;
+            _rows.Clear(); _simpleStyles.Clear();
+            foreach (var row in _fields.Rows) _rows.Add(row.UnitId, row);
+            foreach (var pair in publication.SimpleStyles) _simpleStyles.Add(pair.Key, pair.Value);
             foreach (int id in _cards.Keys.Where(id => !_rows.ContainsKey(id)).ToArray())
             {
                 _cards[id].Visible = false;
@@ -143,6 +161,7 @@ internal partial class D3D11ArmyMapLabels : Control
                 _cards.Remove(id);
             }
         }
+        if (input.PeriodArmyLabels is null) _capturedLabelPublication = null;
         foreach (var card in _cards.Values) card.Visible = false;
         var missing = new List<string>();
         int level = MapLabelPresentation.SettledCameraLevel(frame.ZoomSelection);
@@ -211,7 +230,8 @@ internal partial class D3D11ArmyMapLabels : Control
             missing.AddRange(_fields.Unavailable.Select(row => row.UnitId + ":" + row.Field));
         SetMeta("army_label_unavailable", string.Join(";", missing));
         SetMeta("army_label_card_count", _cards.Values.Count(card => card.Visible));
-        PrepareHits(input);
+        if (input.PeriodArmyLabels is null) PrepareHits(input);
+        else { _preparedHitFrame = input.SourceFrame; _preparedHits = []; }
     }
 
     private void PrepareHits(D3D11MapInput input)

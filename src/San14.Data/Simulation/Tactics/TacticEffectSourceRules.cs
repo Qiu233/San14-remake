@@ -269,8 +269,18 @@ public sealed class TacticEffectSourceRules : ITacticRuleSource, IPlayableTactic
         return new(effects.ToArray(), simulatedState.RandomState) { ResourceStateAfter = simulatedState.ResourceState };
     }
 
+    //The automatic Hex walker already owns selection and the real source
+    //program. Share this dispatcher without constructing a fake primary Army
+    //or invoking manual geometry, whole-world detachment or a second selector.
+    internal TacticTargetResolution? ResolveCapturedInstructionTarget(GameState state,
+        UnitState caster, UnitState target, TacticSourceRow source,
+        S14TacticEffectInstruction instruction,
+        TacticEffectQueryResult<TacticAbnormalStrengthSourceInput>? qualifiedAbnormalStrength = null) =>
+        ResolveInstruction(state, caster, target, source, instruction, qualifiedAbnormalStrength);
+
     private TacticTargetResolution? ResolveInstruction(GameState state, UnitState caster, UnitState target,
-        TacticSourceRow source, S14TacticEffectInstruction instruction)
+        TacticSourceRow source, S14TacticEffectInstruction instruction,
+        TacticEffectQueryResult<TacticAbnormalStrengthSourceInput>? qualifiedAbnormalStrength = null)
     {
         if (instruction.Opcode == 15)
         {
@@ -358,7 +368,7 @@ public sealed class TacticEffectSourceRules : ITacticRuleSource, IPlayableTactic
         {
             if (target.NativeTacticRuntime is not { } native) return null;
             TacticEffectQueryResult<TacticAbnormalStrengthSourceInput>? query =
-                _context.ResolveArmyAbnormalStrength(state, caster, target, source, instruction);
+                qualifiedAbnormalStrength ?? _context.ResolveArmyAbnormalStrength(state, caster, target, source, instruction);
             if (query is null) return null;
             if (query.Value.Scale.EffectValue != instruction.EffectValue)
                 throw new InvalidDataException("Current original abnormal strength differs from its program.");
@@ -486,7 +496,7 @@ public sealed class TacticEffectSourceRules : ITacticRuleSource, IPlayableTactic
         return selections;
     }
 
-    private static UnitState ApplyReceipt(UnitState target, PlayableTacticEffect effect)
+    internal static UnitState ApplyReceipt(UnitState target, PlayableTacticEffect effect)
     {
         if (effect.Kind == PlayableTacticEffectKind.MoraleChange)
             target = target with { MoraleState = target.MoraleState with { ProvisionalValue = checked(target.Morale + effect.Amount) } };

@@ -23,6 +23,17 @@ public static class ArmySavedCommandKnowledge
     public static byte? ReadControl(GameState state, UnitState image) =>
         state.ArmyLifecycle?.Receivers.FindUnit(image.Id)?.SavedCommand?.Control ?? image.NativeCommandControl140;
 
+    /// <summary>A current receiver's complete replaced command remains the
+    /// authority for its temporarily suspended Fire/false-report UI plan.
+    /// The native source clears the five points; the old plan cannot replay them.
+    /// Current action1 is checked separately by the source configuration adapter.</summary>
+    public static bool RetainsReplacedMilitaryPlan(GameState state, UnitState image,
+        PlayableMilitaryPlan plan, int expectedAction) =>
+        plan.Action.ActionKey is "fire" or "capture" &&
+        plan.WaypointHexIds is { Length: 0 } && plan.NextWaypointIndex == 0 && plan.IncidentalEnemyId is null &&
+        state.ArmyLifecycle?.Receivers.FindUnit(image.Id)?.SavedCommand is
+            { Kind: ArmySavedCommandKind.Stored, Command: { } command } && command.Action.Id == expectedAction;
+
     internal static void Validate(ArmySavedCommandState? value, long mapSize,
         IReadOnlySet<ArmyReceiverId> receivers)
     {
@@ -36,15 +47,17 @@ public static class ArmySavedCommandKnowledge
     private static bool CompleteTarget(ArmyTargetState? target, long mapSize, IReadOnlySet<ArmyReceiverId> receivers) =>
         target switch
         {
-            { Kind: ArmyTargetKind.Hex, Destination: { Kind: ArmyTargetDestinationKind.Hex, HexId: int hex, CityId: null, ReceiverId: null, MapObjectReceiverId: null } }
+            { Kind: ArmyTargetKind.Hex, Destination: { Kind: ArmyTargetDestinationKind.Hex, HexId: int hex, CityId: null, GateId: null, ReceiverId: null, MapObjectReceiverId: null } }
                 => hex >= 0 && hex < mapSize,
-            { Kind: ArmyTargetKind.City, Destination: { Kind: ArmyTargetDestinationKind.City, CityId: >= 1 and <= 51, HexId: null, ReceiverId: null, MapObjectReceiverId: null } } => true,
-            { Kind: ArmyTargetKind.ArmyReceiver, Destination: { Kind: ArmyTargetDestinationKind.ArmyReceiver, CityId: null, HexId: null, ReceiverId: ArmyReceiverId id, MapObjectReceiverId: null } }
+            { Kind: ArmyTargetKind.City, Destination: { Kind: ArmyTargetDestinationKind.City, CityId: >= 1 and <= 51, GateId: null, HexId: null, ReceiverId: null, MapObjectReceiverId: null } } => true,
+            { Kind: ArmyTargetKind.ArmyReceiver, Destination: { Kind: ArmyTargetDestinationKind.ArmyReceiver, CityId: null, GateId: null, HexId: null, ReceiverId: ArmyReceiverId id, MapObjectReceiverId: null } }
                 => receivers.Contains(id),
+            { Kind: ArmyTargetKind.Gate, Destination: { Kind: ArmyTargetDestinationKind.Gate,
+                GateId: >= 52 and <= 61, CityId: null, HexId: null, ReceiverId: null, MapObjectReceiverId: null } } => true,
             //The complete saved-world target validator additionally resolves
             //this reusable identity against the current MapObjects owner.
             { Kind: ArmyTargetKind.MapObjectReceiver, Destination: { Kind: ArmyTargetDestinationKind.MapObjectReceiver,
-                CityId: null, HexId: null, ReceiverId: null, MapObjectReceiverId: { Value: > 0 } } } => true,
+                CityId: null, GateId: null, HexId: null, ReceiverId: null, MapObjectReceiverId: { Value: > 0 } } } => true,
             _ => false
         };
 }

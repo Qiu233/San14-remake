@@ -18,7 +18,7 @@ public partial class MapSceneView
 
     internal void EndAdministrationMapDisplay()
     {
-        if (_commandMapDisplay is not { Present: true }) return;
+        if (_commandMapDisplay?.Data is not { Kind: D3D11CommandMapDisplayKind.AreaAdministration }) return;
         _commandMapDisplay = new(null, checked(++_commandMapRevision), 0, checked(++_commandMapProviderGeneration));
         ScheduleD3D11MapFrame();
     }
@@ -26,7 +26,9 @@ public partial class MapSceneView
     private void UpdateAdministrationMapHover(InputEvent input)
     {
         if (input is not InputEventMouseMotion motion || _commandMapDisplay is not { Data: { } data } display ||
-            _dragging || _panning || _sourceCameraLeftUiPressed || _sourceCameraRightHeld || _sourceCameraMiddleHeld ||
+            data.Kind != D3D11CommandMapDisplayKind.AreaAdministration ||
+            _dragging || _panning || _sourceCameraLeftUiPressed ||
+            _sourceCameraRawNow70[0] || _sourceCameraRawNow70[1] || _sourceCameraRawNow70[2] ||
             !TryPickCommandTarget(motion.Position, out int hex)) return;
         // Invalid/no pointer retains the previous focus. Area0 is a real raw
         // value; neither held membership nor Area lookup participates here.

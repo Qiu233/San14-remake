@@ -10,9 +10,17 @@ public sealed record PersonnelReturnDestination(PersonnelReturnBaseKind Kind, in
 public sealed record PersonnelReturnTask(int Id, int? DispatchSlot, int[] MemberIds,
     PersonnelReturnDestination[] RouteDestinations, PersonnelReturnDestination? Destination,
     byte DistrictId, int StartHex, bool Started, bool NeedsRefresh, bool IsPlayer,
-    bool IsRetiring, bool IsAssociated, NativeMapSeasonDate StartedOn, NativeMapSeasonDate ArriveOn);
+    bool IsRetiring, bool IsAssociated, NativeMapSeasonDate StartedOn, NativeMapSeasonDate ArriveOn)
+{
+    /// <summary>True for an explicit personnel reassignment (native kind1);
+    /// false for the existing return-to-home journey (native kind15).</summary>
+    public bool IsReassignment { get; init; }
+    /// <summary>A requested cancellation is consumed by the movement task's
+    /// next morning/evening lifecycle cut, preserving its actual return position.</summary>
+    public bool CancellationRequested { get; init; }
+}
 
-public enum PersonnelCommandKind { Return, Disappear }
+public enum PersonnelCommandKind { Return, Disappear, Talent, Diplomacy }
 public sealed record PersonnelCommandDispatch(int Id, int Slot, PersonnelCommandKind Kind);
 
 /// <summary>A temporary absence at one fixed area. Its prior place is restored
@@ -29,10 +37,12 @@ public sealed record PersonnelCommandTasks(int NextTaskId, int[] AvailableDispat
     Dictionary<int, PersonnelReturnTask> Returns, int[] PendingRetirements)
 {
     public Dictionary<int, PersonnelDisappearanceTask>? Disappearances { get; init; }
+    public Dictionary<int, PersonnelTalentTask>? Talents { get; init; }
+    public Dictionary<int, PersonnelDiplomacyTask>? Diplomacies { get; init; }
     public const int CompatibleDispatchCapacity = 1852;
 
     public static PersonnelCommandTasks Create(int initialCapacity = CompatibleDispatchCapacity) => new(0,
-        Enumerable.Range(0, initialCapacity).Reverse().ToArray(), [], []) { Disappearances = [] };
+        Enumerable.Range(0, initialCapacity).Reverse().ToArray(), [], []) { Disappearances = [], Talents = [], Diplomacies = [] };
 
     public IEnumerable<PersonnelReturnTask> InDispatchOrder() => Returns.Values
         .Where(task => task.DispatchSlot.HasValue).OrderBy(task => task.DispatchSlot);
@@ -40,11 +50,15 @@ public sealed record PersonnelCommandTasks(int NextTaskId, int[] AvailableDispat
     public IEnumerable<PersonnelCommandDispatch> DispatchOrder() => Returns.Values
         .Where(task => task.DispatchSlot.HasValue).Select(task => new PersonnelCommandDispatch(task.Id, task.DispatchSlot!.Value, PersonnelCommandKind.Return))
         .Concat((Disappearances?.Values.AsEnumerable() ?? []).Select(task => new PersonnelCommandDispatch(task.Id, task.DispatchSlot, PersonnelCommandKind.Disappear)))
+        .Concat((Talents?.Values.AsEnumerable() ?? []).Select(task => new PersonnelCommandDispatch(task.Id, task.DispatchSlot, PersonnelCommandKind.Talent)))
+        .Concat((Diplomacies?.Values.AsEnumerable() ?? []).Select(task => new PersonnelCommandDispatch(task.Id, task.DispatchSlot, PersonnelCommandKind.Diplomacy)))
         .OrderBy(task => task.Slot);
 
     public bool IsOfficerBusy(int officerId) => Returns.Values.Any(task =>
         task.IsAssociated && !task.IsRetiring && task.MemberIds.Any(id => id == officerId)) ||
-        Disappearances?.Values.Any(task => task.IsAssociated && !task.IsRetiring && task.MemberIds.Contains(officerId)) == true;
+        Disappearances?.Values.Any(task => task.IsAssociated && !task.IsRetiring && task.MemberIds.Contains(officerId)) == true ||
+        Talents?.Values.Any(task => task.IsAssociated && !task.IsRetiring && task.MemberIds.Contains(officerId)) == true ||
+        Diplomacies?.Values.Any(task => task.IsAssociated && !task.IsRetiring && task.MemberIds.Contains(officerId)) == true;
 }
 
 /// <summary>Checks serialized task shape at save/load boundaries.</summary>
@@ -83,8 +97,38 @@ public static class PersonnelCommandSaveValidation
                 task.DispatchSlot is < 0 or >= PersonnelCommandTasks.CompatibleDispatchCapacity || !liveSlots.Add(task.DispatchSlot))
                 throw new InvalidDataException("Invalid personnel disappearance task.");
         }
+        foreach (var pair in owner.Talents ?? [])
+        {
+            var task = pair.Value;
+            if (task is null || pair.Key != task.Id || task.Id < 0 || task.Id >= owner.NextTaskId ||
+                owner.Returns.ContainsKey(task.Id) || owner.Disappearances?.ContainsKey(task.Id) == true ||
+                task.MemberIds is null || task.MemberIds.Any(id => id < 0) || !Enum.IsDefined(task.Kind) ||
+                task.StartDate is null || task.DueDate is null ||
+                task.StartHexId is < 0 or >= 48400 || task.EndHexId is < 0 or >= 48400 ||
+                task.TargetHexId is < 0 or >= 48400 || task.SavedSample is < -1 or > 99 ||
+                (task.Kind == TalentOrderKind.Search ? task.RecruitMode != 0 : task.RecruitMode is not (0 or 10 or 30)) ||
+                task.IsRecruitWait && (task.Kind != TalentOrderKind.Recruit || task.StartHexId != task.EndHexId ||
+                    task.RecruitMode <= 0 || task.TargetOfficerId is null || task.TargetOriginalHomeLocationId is null) ||
+                task.DispatchSlot is < 0 or >= PersonnelCommandTasks.CompatibleDispatchCapacity || !liveSlots.Add(task.DispatchSlot))
+                throw new InvalidDataException("Invalid personnel talent task.");
+        }
+        foreach (var pair in owner.Diplomacies ?? [])
+        {
+            var task = pair.Value;
+            if (task is null || pair.Key != task.Id || task.Id < 0 || task.Id >= owner.NextTaskId ||
+                owner.Returns.ContainsKey(task.Id) || owner.Disappearances?.ContainsKey(task.Id) == true ||
+                owner.Talents?.ContainsKey(task.Id) == true || task.MemberIds is null ||
+                task.MemberIds.Any(id => id < 0) || !Enum.IsDefined(task.Kind) ||
+                task.StartDate is null || task.DueDate is null || task.InitialOffer is null ||
+                task.InitialOffer.Gold < 0 || task.InitialOffer.Supplies < 0 ||
+                task.StartHexId is < 0 or >= 48400 || task.EndHexId is < 0 or >= 48400 ||
+                task.DispatchSlot is < 0 or >= PersonnelCommandTasks.CompatibleDispatchCapacity || !liveSlots.Add(task.DispatchSlot))
+                throw new InvalidDataException("Invalid personnel diplomacy task.");
+        }
         if (owner.PendingRetirements.Any(id => !(owner.Returns.TryGetValue(id, out var task) && task.IsRetiring ||
-                owner.Disappearances?.TryGetValue(id, out var disappearance) == true && disappearance.IsRetiring)) ||
+                owner.Disappearances?.TryGetValue(id, out var disappearance) == true && disappearance.IsRetiring ||
+                owner.Talents?.TryGetValue(id, out var talent) == true && talent.IsRetiring ||
+                owner.Diplomacies?.TryGetValue(id, out var diplomacy) == true && diplomacy.IsRetiring)) ||
             owner.PendingRetirements.Distinct().Count() != owner.PendingRetirements.Length)
             throw new InvalidDataException("Invalid personnel return retirement order.");
     }

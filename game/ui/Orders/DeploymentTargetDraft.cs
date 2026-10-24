@@ -2,17 +2,31 @@ using San14.Core;
 using San14.Data;
 
 internal sealed record DeploymentTargetRouteCache(DeploymentDraftRouteStatus Status,IReadOnlyList<int>? Path,
-    IReadOnlyList<int>? EtaPath,string? UnresolvedInput);
+    IReadOnlyList<int>? EtaPath,string? UnresolvedInput)
+{
+    internal int? StartSurfaceCode {get;init;}
+    internal int? EndSurfaceCode {get;init;}
+    internal string? PresentationUnresolvedInput {get;init;}
+    internal int? ControlStartHex {get;init;}
+    internal int? ControlGoalHex {get;init;}
+    internal int? ControlStartSurfaceCode {get;init;}
+    internal int? ControlGoalSurfaceCode {get;init;}
+}
 internal sealed record DeploymentTargetRouteGroup(IReadOnlyList<int> OfficerIds,IReadOnlyList<int> Points,
-    DeploymentTargetRouteCache? Route);
+    DeploymentTargetRouteCache? Route)
+{
+    internal int ActiveWaypointIndex {get;init;}
+    internal IReadOnlyList<DeploymentTargetRouteCache?> Segments {get;init;}=[];
+}
 
-/// <summary>Unsubmitted ordinary targets with no explicit waypoints. Route
+/// <summary>Unsubmitted ordinary targets and their fresh active routes. Route
 /// groups are stably ordered by points and only adjacent compatible groups
 /// merge. The saved world and its live Army registry remain untouched.</summary>
 internal sealed class DeploymentTargetDraft
 {
     private GameState world;
     private readonly ArmyCampaignRuleAdapter rules;
+    private DeploymentDraftRouteQuery routeQuery;
     private readonly Dictionary<int,DeploymentDraftRow> rows;
     private readonly Dictionary<int,int> starts;
     private readonly Dictionary<int,DeploymentTargetProgress> progress=[];
@@ -20,29 +34,33 @@ internal sealed class DeploymentTargetDraft
     private readonly HashSet<int> selected=[];
     private readonly HashSet<int> editedPolicies=[];
     private IReadOnlyList<DeploymentTargetRouteGroup> groups;
+    private IReadOnlyList<DeploymentTargetRouteGroup> activeGroups=[];
 
     internal IReadOnlyList<DeploymentDraftRow> Rows=>order.Select(officer=>rows[officer]).ToArray();
     internal IReadOnlyList<int> SelectedOfficers=>order.Where(selected.Contains).ToArray();
+    internal IReadOnlyList<DeploymentDraftRow> SelectedRows=>order.Where(selected.Contains).Select(officer=>rows[officer]).ToArray();
+    internal IReadOnlyList<DeploymentFacilityDraftRow> FacilityRows=>order.Select(officer=>
+        new DeploymentFacilityDraftRow(rows[officer],selected.Contains(officer),RetainedDefinition(rows[officer]))).ToArray();
     internal IReadOnlyList<int> EditedPolicyOfficers=>order.Where(editedPolicies.Contains).ToArray();
     internal IReadOnlyList<int> UneditedPolicyOfficers=>order.Where(officer=>!editedPolicies.Contains(officer)).ToArray();
     internal IReadOnlyList<DeploymentTargetRouteGroup> Groups=>groups;
-    // A selected row previews the active singleton, whose ETA path has fewer
-    // than two points. Deselecting integrates the current committed group's
-    // cache; merging may have replaced the path used for its previous ETA.
-    internal IReadOnlyList<DeploymentTargetProgress> Progress=>order.Select(officer=>selected.Contains(officer)
-        ?progress[officer] with{EstimatedDays=0}:progress[officer]).ToArray();
-    // This finite owner creates only Hex targets. Native target resolution for
-    // other types belongs to their future query, not to path reachability.
+    internal IReadOnlyList<DeploymentTargetRouteGroup> ActiveGroups=>activeGroups;
+    internal bool HasActiveRouteGroup=>activeGroups.Count>0;
+    internal int ActiveWaypointIndex=>activeGroups.Count==0?0:activeGroups[0].ActiveWaypointIndex;
+    internal IReadOnlyList<int> Waypoints=>activeGroups.Count==0?[]:
+        activeGroups[0].Points.Skip(1).Take(ActiveWaypointIndex).ToArray();
+    internal IReadOnlyList<DeploymentTargetProgress> Progress=>order.Select(officer=>progress[officer]).ToArray();
     internal bool CanDecide=>order.Count>0&&order.All(officer=>progress[officer].HasResolvedTarget);
 
     internal DeploymentEmptyHexMove QueryEmptyHexMove(int hex,int targetForceId)=>
-        rules.QueryDeploymentEmptyHexMove(world,hex,targetForceId,new(SelectedOfficers,selected.Count>0,selected.Count>0?0:null));
+        rules.QueryDeploymentEmptyHexMove(world,hex,targetForceId,new(SelectedOfficers,HasActiveRouteGroup,
+            HasActiveRouteGroup?ActiveWaypointIndex:null));
 
     internal DeploymentTargetDraft(GameState world,ArmyCampaignRuleAdapter rules,
         IReadOnlyList<DeploymentDraftRow> initial,IReadOnlyList<DeploymentTargetCard> cards,
         IEnumerable<int>? editedPolicyOfficers=null)
     {
-        this.world=world;this.rules=rules;
+        this.world=world;this.rules=rules;routeQuery=rules.CreateDeploymentDraftRouteQuery(world);
         rows=initial.ToDictionary(row=>row.Request.OfficerId);order=initial.Select(row=>row.Request.OfficerId).ToList();
         editedPolicies.UnionWith(editedPolicyOfficers??[]);
         if(editedPolicies.Any(officer=>!rows.ContainsKey(officer)))
@@ -51,7 +69,7 @@ internal sealed class DeploymentTargetDraft
         if(positions.Count!=rows.Count||rows.Keys.Any(officer=>!positions.ContainsKey(officer)))
             throw new ArgumentException("Target positions must belong to the complete draft.",nameof(cards));
         if(initial.Any(row=>row.Request.Actions.Count!=0||row.Request.WaypointHexIds.Count!=0))
-            throw new ArgumentException("This target owner accepts new single-segment rows only.",nameof(initial));
+            throw new ArgumentException("This target owner accepts new Make rows only.",nameof(initial));
         starts=[];
         foreach(int officer in order)
         {
@@ -61,25 +79,90 @@ internal sealed class DeploymentTargetDraft
             starts.Add(officer,hex);selected.Add(officer);progress.Add(officer,new(officer,0,false));
         }
         groups=Normalize(order.Select(officer=>new DeploymentTargetRouteGroup([officer],[starts[officer]],null)));
+        RebuildActive();
     }
 
     internal void SelectOfficers(IEnumerable<int> officers)
     {
         var next=officers.ToHashSet();
         if(next.Any(officer=>!rows.ContainsKey(officer)))throw new ArgumentException("Selection must belong to this draft.",nameof(officers));
+        if(selected.SetEquals(next))return;
         var deselected=selected.Except(next).ToHashSet();
+        selected.Clear();selected.UnionWith(next);RebuildActive();
         foreach(var group in groups)
         {
             var changed=group.OfficerIds.Where(deselected.Contains).ToArray();
             if(changed.Length==0||group.Route is null)continue;
             if(group.Route.EtaPath is { } path)
             {
-                foreach(var value in rules.QueryDeploymentDraftEta(world,changed.Select(officer=>rows[officer]).ToArray(),path))
+                foreach(var value in routeQuery.QueryEta(changed.Select(officer=>rows[officer]).ToArray(),path))
                     progress[value.OfficerId]=new(value.OfficerId,value.Days,progress[value.OfficerId].HasResolvedTarget);
             }
             else foreach(int officer in changed)progress[officer]=progress[officer] with{EstimatedDays=null};
         }
-        selected.Clear();selected.UnionWith(next);
+    }
+
+    private void RebuildActive()
+    {
+        // E4280 rebuilds from the ordered page rows and their real current
+        // positions. Old committed targets and waypoints never seed this set.
+        foreach(var group in activeGroups)
+            foreach(int officer in group.OfficerIds)progress[officer]=progress[officer] with{EstimatedDays=0};
+        activeGroups=Normalize(order.Where(selected.Contains).Select(officer=>
+            new DeploymentTargetRouteGroup([officer],[starts[officer]],null)));
+        foreach(int officer in selected)progress[officer]=progress[officer] with{EstimatedDays=0};
+    }
+
+    internal bool PreviewTarget(int hex)
+    {
+        RequireHex(hex);
+        //7E3400/7E7A00 query only a changed actual candidate. Retained prefix
+        //segments survive; repeated input and camera frames never search.
+        bool changed=false;
+        var nextGroups=activeGroups.Select(group=>
+        {
+            var next=SetTail(group,hex);
+            if(ReferenceEquals(next,group))return group;
+            changed=true;
+            next=EnsureSegments(next);Integrate(next);
+            return next;
+        }).ToArray();
+        if(changed)activeGroups=nextGroups;
+        return changed;
+    }
+
+    internal bool AppendWaypoint(int hex)
+    {
+        RequireHex(hex);
+        if(activeGroups.Count==0||ActiveWaypointIndex>=5)return false;
+        activeGroups=activeGroups.Select(group=>
+        {
+            var target=EnsureSegments(SetTail(group,hex));
+            Integrate(target);
+            int at=target.ActiveWaypointIndex+1;
+            var points=target.Points.ToList();points.Insert(at,hex);
+            var segments=target.Segments.ToList();segments.Insert(at,null);
+            // C5990 retains the candidate after the newly confirmed point.
+            // Its new tail is a real zero-length query, not a fabricated path.
+            return EnsureSegments(WithRoute(target with{Points=points.ToArray(),Segments=segments.ToArray(),
+                ActiveWaypointIndex=at}));
+        }).ToArray();
+        return true;
+    }
+
+    internal bool UndoWaypoint()
+    {
+        if(activeGroups.Count==0||ActiveWaypointIndex==0)return false;
+        activeGroups=activeGroups.Select(group=>
+        {
+            int at=group.ActiveWaypointIndex;
+            var points=group.Points.ToList();points.RemoveAt(at);
+            var segments=group.Segments.ToList();segments.RemoveAt(at);segments[at-1]=null;
+            var replacement=EnsureSegments(WithRoute(group with{Points=points.ToArray(),
+                Segments=segments.ToArray(),ActiveWaypointIndex=at-1}));
+            Integrate(replacement);return replacement;
+        }).ToArray();
+        return true;
     }
 
     internal bool ChangePolicy(DeploymentPolicySetting setting,bool first)
@@ -118,7 +201,7 @@ internal sealed class DeploymentTargetDraft
         var reset=UneditedPolicyOfficers;
         if(resetBehaviors.Count!=reset.Count||reset.Any(officer=>!resetBehaviors.ContainsKey(officer)))
             throw new ArgumentException("Default policies must cover every unedited target packet.",nameof(resetBehaviors));
-        world=replacement;
+        world=replacement;routeQuery=rules.CreateDeploymentDraftRouteQuery(replacement);
         foreach(int officer in reset)
         {
             var row=rows[officer];
@@ -129,16 +212,35 @@ internal sealed class DeploymentTargetDraft
     /// <summary>The caller must first obtain the actual Move menu permission.
     /// Target assignment survives NoPath or unknown route inputs. This method
     /// does not infer menu eligibility from a successful search.</summary>
-    internal void AssignMove(int goalHex)
+    internal void AssignMove(int goalHex)=>AssignAction(new("move",new(DeploymentTargetKind.Hex,goalHex)),goalHex);
+
+    private static int? RetainedDefinition(DeploymentDraftRow row)
     {
-        if(goalHex<0||goalHex>=checked(world.MapWidth*world.MapHeight))throw new ArgumentOutOfRangeException(nameof(goalHex));
-        if(selected.Count==0)throw new InvalidOperationException("Move needs selected draft rows.");
-        // Selection forms an independent active set. Splitting a committed
-        // group never searches or invalidates its unselected rows' old cache.
-        // Rebuild selected singletons in original row order using only their
-        // current positions; old committed destinations do not sort this set.
-        var active=Normalize(order.Where(selected.Contains).Select(officer=>
-            new DeploymentTargetRouteGroup([officer],[starts[officer]],null)));
+        var key=row.Request.ConstructionSelection?.DefinitionKey;
+        if(key is null)return 0; // A new Make packet has known no selection.
+        return FacilityConstructionIntent.IsDefinitionKey(key)
+            ?int.Parse(key.AsSpan("san14-object-definition:".Length)):null;
+    }
+
+    internal void AssignConstruction(DeploymentFacilityPlacement placement)
+    {
+        if(placement is not {OriginalAllowed:true,CommandUnresolvedInput:null,Action:{ActionKey:"build"} action})
+            throw new ArgumentException("Construction needs an accepted placement.",nameof(placement));
+        var intent=new FacilityConstructionIntent(action.StructureKindId,
+            ArmyMarchDestination.AtHex(placement.ClickedHexId),ArmyMarchDestination.None);
+        foreach(int officer in selected)
+            rows[officer]=rows[officer] with{Request=rows[officer].Request with{ConstructionSelection=intent}};
+        AssignAction(action,placement.ClickedHexId);
+    }
+
+    /// <summary>The mode0 menu supplies the typed command target separately
+    /// from its normalized map position. Keep the complete Make configuration
+    /// and policies while assigning only this selected set's initial action.</summary>
+    internal void AssignAction(DeploymentAction action,int goalHex)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        RequireHex(goalHex);
+        if(selected.Count==0)throw new InvalidOperationException("An initial action needs selected draft rows.");
         var remaining=groups.Select(group=>group with
             {OfficerIds=group.OfficerIds.Where(officer=>!selected.Contains(officer)).ToArray()})
             .Where(group=>group.OfficerIds.Count>0).ToList();
@@ -146,16 +248,108 @@ internal sealed class DeploymentTargetDraft
         // Changing the action does not regroup them before their searches.
         foreach(int officer in selected)
             rows[officer]=rows[officer] with{Request=rows[officer].Request with
-                {Actions=Array.AsReadOnly(new[]{new DeploymentAction("move",new(DeploymentTargetKind.Hex,goalHex))})}};
-        foreach(var group in active)
+                {Actions=Array.AsReadOnly(new[]{action})}};
+        foreach(var group in activeGroups)
         {
-            int start=group.Points[0];
-            var march=rules.QueryDeploymentDraftMarch(world,group.OfficerIds.Select(officer=>rows[officer]).ToArray(),start,goalHex);
-            foreach(var value in march.Rows)progress[value.OfficerId]=new(value.OfficerId,value.Days,true);
-            remaining.Add(group with{Points=Array.AsReadOnly(new[]{start,goalHex}),
-                Route=new(march.Status,march.Path,march.EtaPath,march.UnresolvedInput)});
+            var target=EnsureSegments(SetTail(group,goalHex));
+            foreach(int officer in target.OfficerIds)
+                rows[officer]=rows[officer] with{Request=rows[officer].Request with
+                    {WaypointHexIds=Array.AsReadOnly(target.Points.Skip(1).Take(target.ActiveWaypointIndex).ToArray())}};
+            Integrate(target);
+            foreach(int officer in target.OfficerIds)progress[officer]=progress[officer] with{HasResolvedTarget=true};
+            remaining.Add(target);
         }
-        groups=Normalize(remaining);selected.Clear();
+        groups=Normalize(remaining);selected.Clear();activeGroups=[];
+    }
+
+    private IReadOnlyList<DeploymentTargetRouteGroup>? publishedGroups,publishedActiveGroups;
+    private IReadOnlyList<MapRoutePreviewPath> publishedPaths=[];
+
+    //The geometry consumer reads this stable publication, including from a
+    //camera frame. Rebuild only after the actual page group writers replace it.
+    internal IReadOnlyList<MapRoutePreviewPath> RoutePreviewPaths
+    {
+        get
+        {
+            if(ReferenceEquals(publishedGroups,groups)&&ReferenceEquals(publishedActiveGroups,activeGroups))return publishedPaths;
+            var paths=new List<MapRoutePreviewPath>();
+            Add(groups,1);Add(activeGroups,0);
+            publishedGroups=groups;publishedActiveGroups=activeGroups;
+            return publishedPaths=paths.AsReadOnly();
+
+            void Add(IReadOnlyList<DeploymentTargetRouteGroup> source,int bank)
+            {
+                foreach(var group in source)
+                    foreach(var segment in group.Segments)
+                        if(segment is not null)
+                            paths.Add(new(segment,segment.Status,segment.Path,segment.StartSurfaceCode,segment.EndSurfaceCode,
+                                bank,0,segment.PresentationUnresolvedInput??segment.UnresolvedInput)
+                            {ControlStartHex=segment.ControlStartHex,ControlGoalHex=segment.ControlGoalHex,
+                                ControlStartSurfaceCode=segment.ControlStartSurfaceCode,ControlGoalSurfaceCode=segment.ControlGoalSurfaceCode});
+            }
+        }
+    }
+
+    private void RequireHex(int hex)
+    {
+        if(hex<0||hex>=checked(world.MapWidth*world.MapHeight))throw new ArgumentOutOfRangeException(nameof(hex));
+    }
+
+    private static DeploymentTargetRouteGroup SetTail(DeploymentTargetRouteGroup group,int hex)
+    {
+        int confirmed=group.ActiveWaypointIndex+1;
+        if(group.Points.Count>confirmed&&group.Points[^1]==hex)return group;
+        return WithRoute(group with{Points=group.Points.Take(confirmed).Append(hex).ToArray(),
+            Segments=group.Segments.Take(confirmed-1).Append(null).ToArray()});
+    }
+
+    private DeploymentTargetRouteGroup EnsureSegments(DeploymentTargetRouteGroup group)
+    {
+        var segments=group.Segments.ToArray();
+        for(int index=0;index<segments.Length;index++)
+        {
+            if(segments[index] is not null)continue;
+            var result=routeQuery.QuerySegment(group.OfficerIds.Select(officer=>rows[officer]).ToArray(),
+                group.Points[index],group.Points[index+1]);
+            segments[index]=new(result.Status,result.Path,result.EtaPath,result.UnresolvedInput)
+            {StartSurfaceCode=result.StartSurfaceCode,EndSurfaceCode=result.EndSurfaceCode,
+                PresentationUnresolvedInput=result.PresentationUnresolvedInput,
+                ControlStartHex=result.ControlStartHex,ControlGoalHex=result.ControlGoalHex,
+                ControlStartSurfaceCode=result.ControlStartSurfaceCode,ControlGoalSurfaceCode=result.ControlGoalSurfaceCode};
+        }
+        return WithRoute(group with{Segments=segments});
+    }
+
+    private void Integrate(DeploymentTargetRouteGroup group)
+    {
+        if(group.Route?.EtaPath is not { } path)
+        {
+            foreach(int officer in group.OfficerIds)progress[officer]=progress[officer] with{EstimatedDays=null};
+            return;
+        }
+        foreach(var row in routeQuery.QueryEta(group.OfficerIds.Select(officer=>rows[officer]).ToArray(),path))
+            progress[row.OfficerId]=progress[row.OfficerId] with{EstimatedDays=row.Days};
+    }
+
+    private static DeploymentTargetRouteGroup WithRoute(DeploymentTargetRouteGroup group)
+    {
+        if(group.Segments.Count==0)return group with{Route=null};
+        // A hover-invalidated tail must not copy every retained prefix path
+        // before discovering that no complete ETA list exists yet.
+        foreach(var segment in group.Segments)
+            if(segment?.EtaPath is null)
+                return group with{Route=new(DeploymentDraftRouteStatus.Unresolved,null,null,
+                    segment?.UnresolvedInput??"deployment.target.pending_segment")};
+        // Each actual segment already omitted its own last point. Preserve
+        // joins, duplicates and float accumulation order; never add Days.
+        var eta=new List<int>();bool noPath=false;
+        foreach(var segment in group.Segments)
+        {
+            if(segment?.EtaPath is { } path)
+            {eta.AddRange(path);noPath|=segment.Status==DeploymentDraftRouteStatus.NoPath;}
+        }
+        return group with{Route=new(noPath?DeploymentDraftRouteStatus.NoPath:DeploymentDraftRouteStatus.Found,
+            group.Segments.Count==1?group.Segments[0]?.Path:null,eta.ToArray(),null)};
     }
 
     private IReadOnlyList<DeploymentTargetRouteGroup> Normalize(IEnumerable<DeploymentTargetRouteGroup> input)

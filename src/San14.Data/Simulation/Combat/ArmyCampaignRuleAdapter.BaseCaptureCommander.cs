@@ -10,6 +10,14 @@ public sealed partial class ArmyCampaignRuleAdapter
 {
     internal BaseCaptureCommanderRewardResult ApplyBaseCaptureCommanderReward(GameState state,
         SourceWorldContext current, BaseReference target, ArmyUnitReference winner)
+        => ApplyBaseCaptureCommanderRewardBody(state, current, target, winner, borrowed: false);
+
+    internal BaseCaptureCommanderRewardResult ApplyBaseCaptureCommanderRewardCurrent(GameState state,
+        SourceWorldContext current, BaseReference target, ArmyUnitReference winner)
+        => ApplyBaseCaptureCommanderRewardBody(state, current, target, winner, borrowed: true);
+
+    private BaseCaptureCommanderRewardResult ApplyBaseCaptureCommanderRewardBody(GameState state,
+        SourceWorldContext current, BaseReference target, ArmyUnitReference winner, bool borrowed)
     {
         try
         {
@@ -19,7 +27,12 @@ public sealed partial class ArmyCampaignRuleAdapter
             int id = current.ReadArmyUnitCommanderId(winner) ?? throw new InvalidDataException("current.capture_Commander12");
             //Actual287C95..9C uses kind3 and amount0. It still executes the
             //normal Person's233560 gate; a live140 Base request can skip it.
-            var growth = TryApplyNativeNormalPersonRewardDuringArmyOperation(state, id, 3, 0);
+            var growth = borrowed
+                ? _personReward.TryApplyBorrowedCurrent(state, current, Context(current), this, id, 3, 0,
+                    (draft, person, ability, amount, report) =>
+                        _growthSource.TryApplyWithinArmyOperation(draft, current, _growthQueries, person, ability, amount, report),
+                    (draft, person, amount) => _pendingMerit.TryApplyWithinArmyOperation(draft, current, person, amount))
+                : TryApplyNativeNormalPersonRewardDuringArmyOperation(state, id, 3, 0);
             if (growth.Outcome == PersonNormalArmyRewardOutcome.CurrentInputsUnresolved)
                 return new(null, growth, null, "current.capture_Commander_growth:" + growth.MissingPhase);
             state = growth.State;
@@ -36,7 +49,9 @@ public sealed partial class ArmyCampaignRuleAdapter
                 ?? throw new InvalidDataException($"current.capture_Commander_merit_{key}");
             //Source1695C0 param3=1 remains independent of the Army excluded
             //gate above. Do not deduplicate it with gross loss or kind3 merit.
-            var merit = ApplyPendingMeritDuringArmyOperation(state, id, unchecked(basis * 10));
+            var merit = borrowed
+                ? _pendingMerit.TryApplyWithinArmyOperation(state, current, id, unchecked(basis * 10))
+                : ApplyPendingMeritDuringArmyOperation(state, id, unchecked(basis * 10));
             return merit.Outcome == PersonPendingMeritOutcome.CurrentInputsUnresolved
                 ? new(null, growth, merit, "current.capture_Commander_pending_merit")
                 : new(merit.State, growth, merit, null);

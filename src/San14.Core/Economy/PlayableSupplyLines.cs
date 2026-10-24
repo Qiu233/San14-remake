@@ -34,10 +34,12 @@ public static class PlayableSupplyLines
     public static void Settle(IReadOnlyDictionary<int, CityState> cities,
         IReadOnlyDictionary<int, GateState> gates, Dictionary<int, UnitState> units,
         IReadOnlyDictionary<int, TerritoryState> territory, PlayableLandRoutes routes,
-        List<PeriodReportEntry> reports, Func<int, int, bool>? isSupplyAlly = null)
+        List<PeriodReportEntry> reports, Func<int, int, bool>? isSupplyAlly = null,
+        bool sourceArmyTimelineCompleted = false)
     {
         foreach (UnitState unit in units.Values.OrderBy(unit => unit.Id).ToArray())
         {
+            if (sourceArmyTimelineCompleted && unit.NativeArmyOrigin is not null) continue;
             // The original transport supply rule has not been established yet.
             if (unit.SourceLocationId is null ||
                 unit.Mission is null or { Kind: UnitMissionKind.Transport }) continue;

@@ -42,12 +42,9 @@ public static class GameEngine
 {
     public static CommandResult Apply(GameState state, GameOrder order, IOrderRules rules,
         CommandContext context, IOrderAuthority authority)
-    {
-        CommandResult result = ApplyCandidate(state, order, rules, context, authority);
-        // The stateless API transfers a result to an independent caller. Session
-        // operations below keep their transaction instead of making this second copy.
-        return result.Accepted ? result with { State = GameStateCopy.Copy(result.State!) } : result;
-    }
+        // ApplyCandidate already owns a detached transaction. Rules cannot
+        // retain its collections, so the caller takes that same result.
+        => ApplyCandidate(state, order, rules, context, authority);
 
     internal static CommandResult ApplyCandidate(GameState state, GameOrder order,
         IOrderRules rules, CommandContext context, IOrderAuthority authority)
@@ -58,10 +55,20 @@ public static class GameEngine
 
     internal static CommandResult? CheckOrder(GameState state, GameOrder order,
         CommandContext context, IOrderAuthority authority)
+        => CheckOrderPermissions(state, order, context, authority, true);
+
+    //The caller must own a real pending presentation editor. All normal
+    //force/actor/scope checks are identical; no synthetic Strategy phase is made.
+    internal static CommandResult? CheckPresentationOrder(GameState state, GameOrder order,
+        CommandContext context, IOrderAuthority authority)
+        => CheckOrderPermissions(state, order, context, authority, false);
+
+    private static CommandResult? CheckOrderPermissions(GameState state, GameOrder order,
+        CommandContext context, IOrderAuthority authority, bool requireStrategyPhase)
     {
         if (state.NativePlayableTerminal is not null)
             return CommandResult.Reject("The campaign has ended.", "command.campaign_ended");
-        if (state.Phase != TurnPhase.Strategy)
+        if (requireStrategyPhase && state.Phase != TurnPhase.Strategy)
             return CommandResult.Reject("Orders can only be issued during the strategy phase.", "command.phase");
         if (!state.Forces.TryGetValue(order.ForceId, out ForceState? force))
             return CommandResult.Reject("Force does not exist.", "command.force_missing");
@@ -92,7 +99,7 @@ public static class GameEngine
     }
 
     public static GameState AdvancePeriod(GameState state, IAdvancementRules rules)
-        => GameStateCopy.Copy(AdvancePeriodOwned(state, GameStateCopy.Copy(state), rules));
+        => AdvancePeriodOwned(state, GameStateCopy.Copy(state), rules);
 
     internal static GameState AdvancePeriodOwned(GameState state, GameState working, IAdvancementRules rules)
     {
@@ -102,6 +109,11 @@ public static class GameEngine
             throw new InvalidOperationException("The state is not in the strategy phase.");
         GameState next = rules.AdvanceTenDays(working);
         ValidateWorldIdentity(state, next);
+        if (next.NativePeriodContinuation?.Cursor is not null)
+        {
+            new NormalPeriodOperation(next).Validate(state);
+            return next;
+        }
         if (next.NativePlayableTerminal is not null)
         {
             //The reached capture can end before the remaining movement/economy
@@ -138,7 +150,7 @@ public static class GameEngine
     }
 
     public static GameState FinishReport(GameState state, IReportingRules rules)
-        => GameStateCopy.Copy(FinishReportOwned(state, GameStateCopy.Copy(state), rules));
+        => FinishReportOwned(state, GameStateCopy.Copy(state), rules);
 
     internal static GameState FinishReportOwned(GameState state, GameState working, IReportingRules rules)
     {
@@ -175,10 +187,14 @@ internal static class GameStateSnapshot
 
 public interface IAdvancementRules
 {
+    // The input belongs to this transaction. Return its completed world;
+    // do not retain mutable collections or return another owner's world.
     GameState AdvanceTenDays(GameState state);
 }
 
 public interface IReportingRules
 {
+    // The input belongs to this transaction, with the same ownership transfer
+    // as advancement and command rules.
     GameState CompleteReport(GameState state);
 }

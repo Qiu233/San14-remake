@@ -4,7 +4,17 @@ public enum DeploymentTargetKind { Hex, Unit, Location, Area, Structure }
 public sealed record DeploymentTarget(DeploymentTargetKind Kind, int Id);
 /// <summary>Action keys are supplied by a ruleset. Target order is significant.</summary>
 public sealed record DeploymentAction(string ActionKey, DeploymentTarget Target,
-    string? StructureKindId = null);
+    string? StructureKindId = null)
+{
+    /// <summary>Only a new initial Fire request retains its original physical
+    /// map press independently from the normalized Target. Old actions retain
+    /// null; neither saved command history nor other actions infer this value.</summary>
+    public int? ClickedHexId { get; init; }
+    /// <summary>The accepted false-report page's inducement destination.
+    /// It is independent from the target Army and the actor's five points.
+    /// Only the capture action consumes it; absence remains unknown.</summary>
+    public int? FalseReportDestinationHexId { get; init; }
+}
 public enum DeploymentAfterAction { Stay, Retreat }
 public sealed record DeploymentBehavior(bool AttackNearbyEnemies, bool AllowRetreat,
     bool PursueRetreatingEnemies, DeploymentAfterAction AfterAction);
@@ -16,6 +26,12 @@ public sealed record DeploymentUnitRequest(int OfficerId, int FormationId, int T
     public IReadOnlyList<int> WaypointHexIds { get; init; } = [];
     // No guessed initial behavior. The request must explicitly choose all four settings.
     public DeploymentBehavior? Behavior { get; init; }
+    /// <summary>The target page's retained construction definition and sites.
+    /// A later Move/Attack does not clear this selection. A current Build
+    /// writes its newly accepted selection; null keeps the fresh creator's
+    /// existing known-none initialization. This is an optional command input,
+    /// not another World owner or a raw native packet.</summary>
+    public FacilityConstructionIntent? ConstructionSelection { get; init; }
 }
 public sealed record PrepareDeploymentOrder(int ForceId, int SourceLocationId,
     IReadOnlyList<DeploymentUnitRequest> Units) : GameOrder(ForceId);

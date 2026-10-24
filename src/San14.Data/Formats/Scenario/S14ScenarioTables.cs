@@ -53,12 +53,14 @@ public sealed record S14ScenarioCity(int Slot, ushort OfficerSlot, byte District
     byte SizeCode, string RemainingBytesHex)
 {
     public byte? RawValidityFlag69 { get; init; }
+    public byte? RawAutomaticTactics48 { get; init; }
 }
 
 public sealed record S14ScenarioGate(int Slot, ushort OfficerSlot, byte DistrictSlot,
     uint Amount0, uint Amount1, uint Troops, string RemainingBytesHex)
 {
     public byte? RawValidityFlag69 { get; init; }
+    public byte? RawAutomaticTactics48 { get; init; }
     public byte? RawMorale44 { get; init; }
     public ushort? RawField46 { get; init; }
 }
@@ -350,7 +352,8 @@ public static class S14ScenarioTables
                 row[scenario.FormatMarker == 0x33 ? 19 : 20],
                 Convert.ToHexString(row[15..]))
             {
-                RawValidityFlag69 = scenario.FormatMarker == 0x66 ? row[19] : null
+                RawValidityFlag69 = scenario.FormatMarker == 0x66 ? row[19] : null,
+                RawAutomaticTactics48 = scenario.FormatMarker == 0x66 ? row[18] : null
             });
         }
         return cities;
@@ -490,6 +493,7 @@ public static class S14ScenarioTables
                 Convert.ToHexString(row[15..]))
             {
                 RawValidityFlag69 = scenario.FormatMarker == 0x66 ? row[19] : null,
+                RawAutomaticTactics48 = scenario.FormatMarker == 0x66 ? row[18] : null,
                 RawMorale44 = scenario.FormatMarker == 0x66 ? row[15] : null,
                 RawField46 = scenario.FormatMarker == 0x66 ? BinaryPrimitives.ReadUInt16LittleEndian(row.Slice(16, 2)) : null
             });

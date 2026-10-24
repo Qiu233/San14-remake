@@ -15,13 +15,37 @@ public sealed record PersonArmyInjuryResult(PersonArmyInjuryOutcome Outcome,
 
 /// <summary>Ordinary type1 TC27D900 over the actual writable current context.
 /// It borrows the shared arena; the enclosing259360 publishes that arena once.
-/// Unknown/death paths require the caller to discard its operation-local world.
+/// Types2/3 share this operation and have no battle-death prefix. Unknown/death
+/// paths require the caller to discard its operation-local world.
 /// This is not a captivity or death callback and does not use a process.</summary>
 public static class PersonArmyInjurySource
 {
+    private enum InjuryMode { OrdinaryBattle, ForcedCapture, Duel }
+
     public static PersonArmyInjuryResult Apply(GameState state, SourceWorldContext current,
         int personPhysical, TransferPersonReference winnerPerson, IEffectiveOfficerAbilities abilities,
         TacticSourceSamplerWorld? samplerWorld)
+        => ApplyCore(state, current, personPhysical, winnerPerson, abilities, samplerWorld, InjuryMode.OrdinaryBattle);
+
+    /// <summary>Actual27D900 type3. Its battle-death prefix is inapplicable;
+    /// health2 can worsen to3, and an Army injury notice has kind13.</summary>
+    public static PersonArmyInjuryResult ApplyDuel(GameState state, SourceWorldContext current,
+        int personPhysical, TransferPersonReference winnerPerson, IEffectiveOfficerAbilities abilities,
+        TacticSourceSamplerWorld? samplerWorld)
+        => ApplyCore(state, current, personPhysical, winnerPerson, abilities, samplerWorld, InjuryMode.Duel);
+
+    /// <summary>Actual27D900 type2 during forced capture. Special-person
+    /// bit14 prevents this injury before tutorial checks or temporary allocation.
+    /// Otherwise its nonlethal injury path shares the same health0..3 rules;
+    /// an Army injury notice remains kind12, independently of the duel entry.</summary>
+    public static PersonArmyInjuryResult ApplyForcedCapture(GameState state, SourceWorldContext current,
+        int personPhysical, TransferPersonReference winnerPerson, IEffectiveOfficerAbilities abilities,
+        TacticSourceSamplerWorld? samplerWorld)
+        => ApplyCore(state, current, personPhysical, winnerPerson, abilities, samplerWorld, InjuryMode.ForcedCapture);
+
+    private static PersonArmyInjuryResult ApplyCore(GameState state, SourceWorldContext current,
+        int personPhysical, TransferPersonReference winnerPerson, IEffectiveOfficerAbilities abilities,
+        TacticSourceSamplerWorld? samplerWorld, InjuryMode mode)
     {
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(current);
         ArgumentNullException.ThrowIfNull(winnerPerson); ArgumentNullException.ThrowIfNull(abilities);
@@ -36,6 +60,14 @@ public static class PersonArmyInjurySource
             BattleRemakeCurrentSettings.ReadInt32(state, selector != 0 ? 0xD0 : 0x2B4) is not int prohibited)
             return Unknown("current.Environment_3EBE70");
         if (prohibited != 0) return Skip(id, health);
+        if (mode == InjuryMode.ForcedCapture)
+        {
+            //The existing behavior owner is the independent native15E bit14.
+            //Unrelated flag bits are not consumed by this short-circuit gate.
+            if (OfficerBehaviorRules.UsesOrdinaryPersonRules(current.ReadPersonBehavior(personPhysical)) is not bool ordinary)
+                return Unknown("current.type2_Person15E_bit14");
+            if (!ordinary) return Skip(id, health);
+        }
         if (state.NativeArmySimulation?.Parameters.Int32Values is not { } integers ||
             integers.GetValueOrDefault(TacticRemakeCurrentBattleControl.VersionKey) != 1 ||
             !integers.TryGetValue(TacticRemakeCurrentBattleControl.HeaderKey, out int tutorial))
@@ -90,13 +122,34 @@ public static class PersonArmyInjurySource
             //The original middle section can invoke the full295EE0 death and
             //succession callback for severe injuries. This module owns no such
             //callback; it must not report those receivers as a successful skip.
-            if (!OfficerHealthRules.SupportsOrdinaryBattleInjury(health)) return Unknown("branch.health2_or3_death_and_severe_injury");
+            if (mode != InjuryMode.OrdinaryBattle)
+            {
+                //Only type1 enters the earlier death branch. Types2/3 really
+                //return unchanged at health3 AFTER the same trait temporary.
+                if (health.StateId == 3) return Skip(id, health);
+                if (health.StateId > 3) return Unknown(mode == InjuryMode.Duel
+                    ? "current.type3_health_identity" : "current.type2_health_identity");
+            }
+            else if (!OfficerHealthRules.SupportsOrdinaryBattleInjury(health))
+                return Unknown("branch.health2_or3_death_and_severe_injury");
             if (samplerWorld is null) return Unknown("current.operation_World450_45C");
             if (SpecialForce(current, personPhysical) is not bool special)
                 return Unknown("current.Person_232A50_special_force");
             bool healthy = !OfficerHealthRules.IsInjured(health);
-            string baselineKey = special ? healthy ? SimulationParameterKeys.ArmyDestruction.SpecialForceHealthyInjuryBase : SimulationParameterKeys.ArmyDestruction.SpecialForceInjuredInjuryBase : healthy ? SimulationParameterKeys.ArmyDestruction.OrdinaryForceHealthyInjuryBase : SimulationParameterKeys.ArmyDestruction.OrdinaryForceInjuredInjuryBase;
-            string divisorKey = special ? healthy ? SimulationParameterKeys.ArmyDestruction.SpecialForceHealthyAbilityDivisor : SimulationParameterKeys.ArmyDestruction.SpecialForceInjuredAbilityDivisor : healthy ? SimulationParameterKeys.ArmyDestruction.OrdinaryForceHealthyAbilityDivisor : SimulationParameterKeys.ArmyDestruction.OrdinaryForceInjuredAbilityDivisor;
+            string baselineKey = special
+                ? healthy ? SimulationParameterKeys.ArmyDestruction.SpecialForceHealthyInjuryBase
+                    : health.StateId == 2 ? SimulationParameterKeys.ArmyDestruction.SpecialForceSevereInjuryBase
+                    : SimulationParameterKeys.ArmyDestruction.SpecialForceInjuredInjuryBase
+                : healthy ? SimulationParameterKeys.ArmyDestruction.OrdinaryForceHealthyInjuryBase
+                    : health.StateId == 2 ? SimulationParameterKeys.ArmyDestruction.OrdinaryForceSevereInjuryBase
+                    : SimulationParameterKeys.ArmyDestruction.OrdinaryForceInjuredInjuryBase;
+            string divisorKey = special
+                ? healthy ? SimulationParameterKeys.ArmyDestruction.SpecialForceHealthyAbilityDivisor
+                    : health.StateId == 2 ? SimulationParameterKeys.ArmyDestruction.SpecialForceSevereAbilityDivisor
+                    : SimulationParameterKeys.ArmyDestruction.SpecialForceInjuredAbilityDivisor
+                : healthy ? SimulationParameterKeys.ArmyDestruction.OrdinaryForceHealthyAbilityDivisor
+                    : health.StateId == 2 ? SimulationParameterKeys.ArmyDestruction.OrdinaryForceSevereAbilityDivisor
+                    : SimulationParameterKeys.ArmyDestruction.OrdinaryForceInjuredAbilityDivisor;
             //A preceding source callback in this same uncommitted operation
             //may already have changed health. The effective-ability adapter
             //consumes the saved-field view, so give it the actual current byte.
@@ -107,8 +160,9 @@ public static class PersonArmyInjurySource
                 divisor == 0 || abilities.Resolve(abilityState, id) is not { } effective)
                 return Unknown("current.healthy_injury_parameters_and_22FE40_abilities");
             int probability = unchecked(baseline - Math.Max(effective.Intelligence, effective.Strength) / divisor);
-            if (BattleRemakeCurrentSettings.ReadInt32(state, 0x28) is not int difficulty)
-                return Unknown("current.Environment_difficulty28");
+            if (BattleRemakeCurrentSettings.ReadSelectorE58(state) is not int difficultySelector ||
+                BattleRemakeCurrentSettings.ReadInt32(state, difficultySelector == 0 ? 0x134 : 0x28) is not int difficulty)
+                return Unknown("current.Environment_difficulty_3EB240");
             if (difficulty > 2)
             {
                 var force = current.ReadPersonForce(personPhysical);
@@ -154,7 +208,9 @@ public static class PersonArmyInjurySource
             probability = unchecked(probability - ownEffect + unchecked(winnerEffect * 3));
             int sample = TacticEffectSourceSamplerMath.Sample(100, 1, id, 0, 0, 0, samplerWorld);
             bool hit = sample < probability; //3FCA30: no clamp in the healthy branch.
-            OfficerHealth after = hit ? OfficerHealthRules.WorsenOrdinaryBattleInjury(health) : health;
+            OfficerHealth after = hit ? mode != InjuryMode.OrdinaryBattle
+                ? OfficerHealthRules.WorsenNonlethalBattleInjury(health)
+                : OfficerHealthRules.WorsenOrdinaryBattleInjury(health) : health;
             bool playerNotice = false;
             if (hit)
             {
@@ -165,7 +221,8 @@ public static class PersonArmyInjurySource
             }
             return new(hit ? PersonArmyInjuryOutcome.Injured : PersonArmyInjuryOutcome.NotInjured,
                 new(id, health.StateId, after.StateId, sample, probability, winnerEffect, ownEffect, count, descriptor,
-                    playerNotice, hit && ownValid ? 12 : null, hit && ownValid ? ownArmy.PhysicalSlot : null), null);
+                    playerNotice, hit && ownValid ? mode == InjuryMode.Duel ? 13 : 12 : null,
+                    hit && ownValid ? ownArmy.PhysicalSlot : null), null);
         }
         finally { current.ClearPersonInjuryTemporary(temporary, true); }
 

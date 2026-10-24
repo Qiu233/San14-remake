@@ -449,6 +449,10 @@ public static class SimulationParameterKeys
         public const string IntelligenceEffectDivisor = "simulation.tactics.intelligence-effect-divisor";
         public const string NonplayerAutomaticTrialRate = "simulation.tactics.nonplayer-automatic-trial-rate";
         public const string OrdinaryWaitingRate = "simulation.tactics.ordinary-waiting-rate";
+        public const string SelectedCommanderSecondaryWaitingRate = "simulation.tactics.selected-commander-secondary-waiting-rate";
+        public const string SelectedCommanderTertiaryWaitingRate = "simulation.tactics.selected-commander-tertiary-waiting-rate";
+        public const string HighDifficultySelectedCommanderSecondaryWaitingRate = "simulation.tactics.high-difficulty-selected-commander-secondary-waiting-rate";
+        public const string HighDifficultySelectedCommanderTertiaryWaitingRate = "simulation.tactics.high-difficulty-selected-commander-tertiary-waiting-rate";
         public const string PlayerDifficulty0TrialRate = "simulation.tactics.player-difficulty0-trial-rate";
         public const string PlayerDifficulty1TrialRate = "simulation.tactics.player-difficulty1-trial-rate";
         public const string PlayerDifficulty2TrialRate = "simulation.tactics.player-difficulty2-trial-rate";

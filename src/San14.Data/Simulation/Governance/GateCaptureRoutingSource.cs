@@ -90,7 +90,7 @@ public static class GateCaptureRoutingSource
         }
     }
 
-    private static void Clear2EE1F0(SourceWorldContext current, int district)
+    internal static void Clear2EE1F0(SourceWorldContext current, int district)
     {
         current.SetDistrictRawByte(district, 0x17, 1);
         current.SetDistrictRawByte(district, 0x19, 0xFF); current.SetDistrictRawByte(district, 0x1A, 0);

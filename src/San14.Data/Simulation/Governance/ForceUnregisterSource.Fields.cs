@@ -183,7 +183,10 @@ public sealed partial class ForceUnregisterSource
         current.SetForceKingdomNameIndex(victim, 0);
         var rankings = new Dictionary<int, NativeForceRankingCurrent>(module.ForceRankings)
             { [victim] = module.ForceRankings[victim] with { Word1BC = 0 } };
-        return state with { Forces = new(state.Forces) { [victim] = state.Forces[victim] with
+        return state with { ForceCreditReserves = state.ForceCreditReserves is { } reserves
+                ? reserves with { PointsByForce = reserves.PointsByForce.SetItem(victim,
+                    System.Collections.Immutable.ImmutableArray.Create<byte>(0, 0, 0, 0, 0, 0)) } : null,
+            Forces = new(state.Forces) { [victim] = state.Forces[victim] with
                 { IsActive = false, RankId = 0, KingdomNameIndex = 0, CombatObjective = ForceCombatObjective.Inactive,
                     PolicyEffects = ForcePolicyEffects.Empty } },
             NativeArmySimulation = native with { Forces = forces, Parameters = native.Parameters with { Int32Values = values } },

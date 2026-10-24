@@ -8,7 +8,10 @@ public sealed record CityDomesticHandover(CityDomesticHandoverKind Kind, long Dr
 public sealed record CityDomesticNarration(int SpeakerRawIdentity, int AddresseeRawIdentity,
     ushort CityRawLink, string SpeakerName, ushort PortraitAppearanceCode,
     DeploymentNarrationPortraitRoute PortraitRoute, int RootMessageId, int MessageId,
-    IReadOnlyList<NarrationMessageChoice> Choices, string Text, IReadOnlyList<string> Pages);
+    IReadOnlyList<NarrationMessageChoice> Choices, string Text, IReadOnlyList<string> Pages)
+{
+    public IReadOnlyList<NarrationVoiceRequest> Voices { get; init; } = [];
+}
 
 public sealed partial class CityDomesticDraft
 {

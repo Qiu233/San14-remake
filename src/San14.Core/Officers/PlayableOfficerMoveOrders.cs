@@ -4,14 +4,24 @@ public sealed record PrepareOfficerMoveOrder(int ForceId, int SourceCityId,
     int DestinationCityId, int OfficerId,
     OfficerMoveMode Mode = OfficerMoveMode.Dispatch) : GameOrder(ForceId);
 
-/// <summary>Provisional between-city officer assignment; execution occurs at the next period.</summary>
-public sealed class PlayableOfficerMoveOrders(IOrderRules otherCommands) : IOrderRules
+/// <summary>Uses the formal personnel-journey provider when bound. Custom
+/// legacy rulesets without that provider retain their provisional queue.</summary>
+public sealed class PlayableOfficerMoveOrders(IOrderRules otherCommands,
+    ICityOfficerMovementExecution? execution = null) : IOrderRules
 {
     public CommandResult Apply(GameState state, ForceState force, GameOrder order,
         CommandContext context)
     {
+        if (order is CancelOfficerMovementOrder cancel)
+            return CityOfficerMovementOrders.Cancel(state, force, cancel, context);
+        if (order is PrepareOfficersMoveOrder batch)
+            return CityOfficerMovementOrders.Apply(state, force, batch, context, execution);
         if (order is not PrepareOfficerMoveOrder move)
             return otherCommands.Apply(state, force, order, context);
+        if (execution is not null)
+            return CityOfficerMovementOrders.Apply(state, force, new(move.ForceId,
+                move.Mode == OfficerMoveMode.Summon ? move.DestinationCityId : move.SourceCityId,
+                move.Mode == OfficerMoveMode.Dispatch ? move.DestinationCityId : null, [move.OfficerId], move.Mode), context, execution);
         if (!Enum.IsDefined(move.Mode))
             return CommandResult.Reject("Officer move mode is invalid.", "officer_move.mode");
         if (!state.Cities.TryGetValue(move.SourceCityId, out CityState? source) ||

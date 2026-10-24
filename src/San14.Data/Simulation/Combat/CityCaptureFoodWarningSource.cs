@@ -1,4 +1,4 @@
-﻿using San14.Core;
+using San14.Core;
 
 namespace San14.Data;
 
@@ -14,7 +14,8 @@ public sealed record CityCaptureFoodQuote(int? Value, CityCaptureGarrisonFoodQuo
 /// <summary>The food+4 component consumed by 2FE2B0: quote-only 2DCA60,
 /// followed by 2DCDB0's ordinary empty current HomeArmy leaf and the actual
 /// quote tail pools with no current Area36 worker and CityCC trainer. Stock
-/// posting, unused gold scalars and unresolved route/income writers remain separate.</summary>
+/// posting and unresolved expense-route writers remain separate. The next-month
+/// income query uses the current Area food projection without posting stocks.</summary>
 public static class CityCaptureFoodWarningSource
 {
     public const string VersionKey = "ce-city-capture-food-quote:version";
@@ -106,28 +107,9 @@ public static class CityCaptureFoodWarningSource
 
             int QuoteGarrison(BaseReference target)
             {
-                int ready = K(current.ReadBaseResource(target, BaseResourceKind.Troops), "garrison3C");
-                int wounds = K(current.ReadArmyReturnBaseWounded40(target), "garrison40");
-                int total = unchecked(ready + wounds);
-                int basic = Divide(Divide(unchecked(total * P(SimulationParameterKeys.CityFoodExpense.GarrisonExpenseNumerator)), P(SimulationParameterKeys.CityFoodExpense.GarrisonExpenseDivisor)), 10);
-                basic = Math.Max(basic, 1);
-                ushort governor = K(current.ReadArmyReturnBaseGovernor2E(target), "garrison_Governor2E");
-                var lookup = current.ReadPersonLookupReference(governor <= 6000 ? governor : 0) ?? throw Missing("garrison_Governor_pointer");
-                int physical = K(lookup.PhysicalSlot, "garrison_Governor_identity");
-                int adjustment = 0; bool? busy = null; int? effect = null;
-                if (total != 0 && K(current.ReadPersonNativeValidity(physical), "garrison_Governor_validity"))
-                {
-                    busy = Busy(current, physical);
-                    if (busy == false)
-                    {
-                        effect = TacticRemakeCurrentTraits.CommanderEffectSum(current, physical, 0x46)
-                            ?? throw Missing("garrison_Governor_effect70");
-                        if (effect > 0) adjustment = Math.Max(1, unchecked(Divide(unchecked(P(SimulationParameterKeys.CityFoodExpense.GovernorExpenseEffectScale) * basic * effect.Value), 100) + P(SimulationParameterKeys.CityFoodExpense.PositiveCorrection)));
-                        else if (effect < 0) adjustment = Math.Min(-1, unchecked(Divide(unchecked(P(SimulationParameterKeys.CityFoodExpense.GovernorExpenseEffectScale) * basic * effect.Value), 100) - P(SimulationParameterKeys.CityFoodExpense.NegativeCorrection)));
-                    }
-                }
-                int quote = total == 0 ? 0 : unchecked(basic - adjustment);
-                garrison.Add(new(target, ready, wounds, basic, physical, busy, effect, quote)); return quote;
+                var quote = ReadGarrisonExpense(state, current, target);
+                garrison.Add(quote);
+                return quote.Expense;
             }
             int P(string key) => state.NativeArmySimulation?.Parameters.Int32Values is { } values && values.GetValueOrDefault(VersionKey) == 1 &&
                 values.TryGetValue(key, out int raw) ? raw : throw Missing($"parameter{key}");
@@ -136,19 +118,54 @@ public static class CityCaptureFoodWarningSource
             { QuotePolicyQueries = policies.ToArray() }; }
     }
 
+    /// <summary>One Base's actual garrison cost. Does not quote Army routes,
+    /// administration, allocate temporary lists or write stocks.</summary>
+    internal static CityCaptureGarrisonFoodQuote ReadGarrisonExpense(GameState state,
+        SourceWorldContext current, BaseReference target)
+    {
+        int ready = K(current.ReadBaseResource(target, BaseResourceKind.Troops), "garrison3C");
+        int wounds = K(current.ReadArmyReturnBaseWounded40(target), "garrison40");
+        int total = unchecked(ready + wounds);
+        int basic = Divide(Divide(unchecked(total * P(SimulationParameterKeys.CityFoodExpense.GarrisonExpenseNumerator)), P(SimulationParameterKeys.CityFoodExpense.GarrisonExpenseDivisor)), 10);
+        basic = Math.Max(basic, 1);
+        ushort governor = K(current.ReadArmyReturnBaseGovernor2E(target), "garrison_Governor2E");
+        var lookup = current.ReadPersonLookupReference(governor <= 6000 ? governor : 0) ?? throw Missing("garrison_Governor_pointer");
+        int physical = K(lookup.PhysicalSlot, "garrison_Governor_identity");
+        int adjustment = 0; bool? busy = null; int? effect = null;
+        if (total != 0 && K(current.ReadPersonNativeValidity(physical), "garrison_Governor_validity"))
+        {
+            busy = Busy(current, physical);
+            if (busy == false)
+            {
+                effect = TacticRemakeCurrentTraits.CommanderEffectSum(current, physical, 0x46)
+                    ?? throw Missing("garrison_Governor_effect70");
+                if (effect > 0) adjustment = Math.Max(1, unchecked(Divide(unchecked(P(SimulationParameterKeys.CityFoodExpense.GovernorExpenseEffectScale) * basic * effect.Value), 100) + P(SimulationParameterKeys.CityFoodExpense.PositiveCorrection)));
+                else if (effect < 0) adjustment = Math.Min(-1, unchecked(Divide(unchecked(P(SimulationParameterKeys.CityFoodExpense.GovernorExpenseEffectScale) * basic * effect.Value), 100) - P(SimulationParameterKeys.CityFoodExpense.NegativeCorrection)));
+            }
+        }
+        int quote = total == 0 ? 0 : unchecked(basic - adjustment);
+        return new(target, ready, wounds, basic, physical, busy, effect, quote);
+
+        int P(string key) => state.NativeArmySimulation?.Parameters.Int32Values is { } values &&
+            values.GetValueOrDefault(VersionKey) == 1 && values.TryGetValue(key, out int raw)
+                ? raw : throw Missing($"parameter{key}");
+    }
+
     public static CityCaptureFoodQuote TryReadPredictedFoodIncome(GameState state,
-        SourceWorldContext current, BaseReference city, NativeMapSeasonDate? operationThirdDate = null)
+        SourceWorldContext current, BaseReference city, NativeMapSeasonDate? operationThirdDate = null,
+        IEffectiveOfficerAbilities? abilities = null, LoadedSceneries? sceneries = null)
     {
         try
         {
             if (city.Kind != BaseKind.City || K(current.ReadBaseObjectLink(city), "income_City4E") > 51) return new(0, [], [], null);
-            _ = operationThirdDate ?? state.NativeMapSeason?.ThirdDate ?? throw Missing("income_World34_date");
+            var date = operationThirdDate ?? state.NativeMapSeason?.ThirdDate ?? throw Missing("income_World34_date");
             var force = Force(current, city);
             if (!K(current.ReadForceNativeValidity(force), "income_Force_validity")) return new(0, [], [], null);
-            //22D9E0 takes next month through32D690 and quote mode1. The
-            //existing SC monthly settlement instead posts capped stock at a
-            //month boundary; its ephemeral Area3E context is not a saved owner.
-            throw Missing("income2BC080_current_Area4A_4C_4E_50_writers_and2BCD20_Area3E_income_owner");
+            int income = CityFoodIncomeSource.Read(state, current, city, date, abilities, sceneries);
+            //The food projection does not post stocks or recruitment. Preserve
+            //the actual shared policy scratch reached by the quote's tail.
+            var policy = ForcePolicyScratchCurrent.ReadBeforeFreedom(state, current, force, 0x26, true);
+            return new(income, [], [], null) { QuotePolicyQueries = [policy] };
         }
         catch (InvalidDataException missing) { return new(null, [], [], missing.Message); }
     }

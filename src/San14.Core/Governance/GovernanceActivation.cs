@@ -11,7 +11,6 @@ public static class GovernanceActivation
         ArgumentNullException.ThrowIfNull(rules);
         if (state.Phase != TurnPhase.Reporting)
             return CommandResult.Reject("Governance activation requires the reporting/turn-start boundary.", "governance.activation_phase");
-        StateValidator.Validate(state);
         var forces = new Dictionary<int, ForceState>(state.Forces);
         var districts = new Dictionary<int, DistrictState>(state.Districts);
         foreach (ForceState force in state.Forces.Values.OrderBy(f => f.Id))
@@ -65,7 +64,6 @@ public static class GovernanceActivation
             };
         }
         GameState result = state with { Forces = forces, Districts = districts };
-        StateValidator.Validate(result);
         return CommandResult.Accept(result);
     }
 }

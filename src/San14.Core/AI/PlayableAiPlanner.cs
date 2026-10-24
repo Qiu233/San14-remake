@@ -35,7 +35,6 @@ public sealed class PlayableAiPlanner : ICommandPlanner
         if (state.NativePlayableTerminal is not null) return state;
         if (state.RulesetId != PlayableSkeleton.RulesetId || state.Phase != TurnPhase.Strategy)
             throw new InvalidOperationException("AI orders require a playable strategy phase.");
-        StateValidator.Validate(state);
         var planning = new CommandPlanningContext(state);
         new PlayableAiPlanner(rules, humanForceIds, districtAutonomy).Plan(planning);
         return planning.Current;

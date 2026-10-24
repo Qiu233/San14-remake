@@ -115,6 +115,34 @@ int __cdecl san14_render_next_command_map_v1(void* value,void* output,const San1
         lastError.clear();return 0;
     } catch(...){recordException();return -1;}
 }
+int __cdecl san14_render_next_command_map_v2(void* value,void* output,const San14RenderInput* input,
+        const San14CommandMapInputV2* command,uint32_t outputUse,San14RenderReceipt* receipt) {
+    try {
+        auto& owner=*static_cast<Owner*>(value);
+        if(!command)throw std::runtime_error("Command map V2 request extension is absent");
+        owner.host.commandMap.accept(*command);
+        owner.publish(static_cast<ID3D12Resource*>(output),*input,static_cast<OutputUse>(outputUse),*receipt);
+        lastError.clear();return 0;
+    } catch(...){recordException();return -1;}
+}
+int __cdecl san14_render_next_map_overlays_v1(void* value,void* output,const San14RenderInput* input,
+        const San14CommandMapInputV2* command,const San14RouteOverlayInputV1* route,
+        uint32_t outputUse,San14RenderReceipt* receipt) {
+    try {
+        auto& owner=*static_cast<Owner*>(value);
+        // Prepare both extensions before publishing either. Route resource/VB
+        // failures cannot consume a command revision or resume the coroutine.
+        std::optional<decltype(owner.host.commandMap)> commandCandidate;
+        if(command){commandCandidate.emplace(owner.host.commandMap);commandCandidate->accept(*command);}
+        if(route) {
+            if(!owner.host.replaceRoutes)throw std::runtime_error("Route publication requires an initialized session");
+            owner.host.replaceRoutes(*route);
+        }
+        if(commandCandidate)owner.host.commandMap=std::move(*commandCandidate);
+        owner.publish(static_cast<ID3D12Resource*>(output),*input,static_cast<OutputUse>(outputUse),*receipt);
+        lastError.clear();return 0;
+    } catch(...){recordException();return -1;}
+}
 int __cdecl san14_render_animation_event(void* value,const San14RenderInput* input,uint32_t fpsMode) {
     try {
         auto& owner=*static_cast<Owner*>(value);

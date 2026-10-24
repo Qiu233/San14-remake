@@ -40,12 +40,12 @@ public sealed class MapSpritePalettes
     public static AreaMarkerColor ForceFill(int actualForceColor49)
         => Read(MapUiRules.ForceFillColors[(uint)actualForceColor49 < 60 ? actualForceColor49 : 60]);
 
-    private static AreaMarkerColor Read(MapUiRuleColor color)
+    public static AreaMarkerColor FromAuthored(uint authored)
     {
-        uint authored = color.Packed;
         uint cpu = (authored & 0xFF000000) | Gamma((byte)authored) | (uint)Gamma((byte)(authored >> 8)) << 8 |
             (uint)Gamma((byte)(authored >> 16)) << 16;
         return new(authored, cpu);
     }
+    private static AreaMarkerColor Read(MapUiRuleColor color) => FromAuthored(color.Packed);
     private static byte Gamma(byte value) => (byte)Math.Clamp((int)(MathF.Pow(value / 255f, 2.2f) * 255f), 0, 255);
 }

@@ -17,7 +17,7 @@ public partial class Main
 
     private void OpenMapAreaDetails(MapSceneView owner, int areaId)
     {
-        if (_failed || HasAdministrationPage || HasDeploymentPage || HasCampaignSavePage || HasMapSystemMenu || _detailsView is not null ||
+        if (_failed || HasAdministrationPage || HasMilitaryOrderPage || HasCampaignSavePage || HasMapSystemMenu || HasCommandWorkspace || _detailsView is not null ||
             (_sceneView != owner && _residentMap != owner) || _repository is null ||
             _world is null || _selectedSnapshot is null) return;
         var view = new AreaDetailsView();
@@ -37,6 +37,7 @@ public partial class Main
                 if ((_sceneView == owner || _residentMap == owner) && GodotObject.IsInstanceValid(owner))
                     owner.SetDetailsOpen(false);
             });
+            view.RegisterHeader(_sourceHeaders);
         }
         catch (Exception error)
         {

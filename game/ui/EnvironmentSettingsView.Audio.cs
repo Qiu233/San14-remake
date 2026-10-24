@@ -13,7 +13,7 @@ internal partial class EnvironmentSettingsView
     {
         for (int i = 0; i < pages.Length; i++) pages[i].Visible = i == index;
         for (int i = 0; i < tabs.Count; i++) tabs[i].Selected = i == index;
-        ApplyHelp(defaultHelp);
+        ApplyHelp(CurrentPageHelp);
     }
 
     private void ConfigureAudioPage(GameResourceRepository repository, PreviewText text)

@@ -14,8 +14,8 @@ public sealed record PersonReturnRetargetResult(PersonnelCommandTasks? Owner,
 
 public static partial class PersonReturnCommands
 {
-    /// <summary>Return C0=1E93F0 unchanged or a City Home change whose new
-    /// Home has the Person's Force/District. The old City may now be hostile.
+    /// <summary>Return C0=1E93F0 unchanged or a change to the person's current
+    /// valid Home Base. Its present Force and District are not extra C0 gates.
     /// Native C0 returns0 to continue A0; this is not arrival
     /// or cancellation. The whole operation publishes the current owner/pool.</summary>
     public static PersonReturnRetargetResult RetargetCurrentHome(GameState state,
@@ -49,16 +49,12 @@ public static partial class PersonReturnCommands
                 return new(before, 0, new(receiverIdentity, (ushort)id, target, home, oldPosition.PhysicalSlot,
                     null, null, null, null, null, "source.invalid_new_Home_no_retarget"), null);
             var force = current.ReadPersonForce(person) ?? throw Missing("C0_current_Person_Force");
-            int forcePhysical = Get(current.ReadForcePhysicalSlot(force), "C0_Person_Force_ordinal");
-            int district = Get(current.ReadPersonDistrictSlot(person), "C0_Person_DistrictE0");
-            //These limits describe this owned producer, not additional source
-            //C0 checks. The actual original only tests new Home validity;
-            //its old target remains an ordinary Base pointer after capture.
-            if (target.Kind != BaseKind.City || home.Kind != BaseKind.City ||
-                current.ReadBaseForceSlot(home) != forcePhysical || current.ReadBaseDistrictSlot(home) != district)
-                throw Missing("branch.C0_city_Home_change_other_Force_or_District");
-            if (command.RouteDestinations.Length != 1) throw Missing("return journey has multiple route destinations");
-            var updated = command with { Destination = ToDestination(home), RouteDestinations = [ToDestination(home)],
+            //1E93F0 builds the real City(kind3)/Gate(kind4) reference,
+            //235000 appends it and235480 removes the old front node. Retain
+            //any intermediate destinations rather than replacing the queue.
+            var nextDestination = ToDestination(home);
+            var updated = command with { Destination = nextDestination,
+                RouteDestinations = command.RouteDestinations.Skip(1).Append(nextDestination).ToArray(),
                 StartedOn = currentWorldThirdDate, StartHex = Math.Clamp(Get(oldPosition.PhysicalSlot, "previous journey position"), 0, 48399) };
             temporary = current.CreateTemporaryHexList() ?? throw Missing("C0_retarget_Hex_temporary");
             var start = current.ReadHexTableReference(updated.StartHex)
@@ -72,7 +68,7 @@ public static partial class PersonReturnCommands
             var owner = before with { Returns = new(before.Returns) { [receiverIdentity] = updated } };
             current.SetOwnedPersonCommandManager(owner);
             return new(owner, 0, new(receiverIdentity, (ushort)id, target, home, oldPosition.PhysicalSlot,
-                null, null, currentWorldThirdDate, deadline, days, "source.same_Force_District_City_retarget"), null);
+                null, null, currentWorldThirdDate, deadline, days, "source.current_Home_Base_retarget"), null);
 
             PersonReturnRetargetResult Cancel()
             {

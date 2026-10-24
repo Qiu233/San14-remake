@@ -69,6 +69,14 @@ public sealed class SceneryUnitModel
     }
     public void WriteRawField30(uint? value) => RawField30 = value;
     public void WriteRawField34(uint? value) => RawField34 = value;
+    /// <summary>Reached Scenery slot6 ground writer. This updates the actual
+    /// Unit position later read by the map label, independently of device-ready
+    /// model records. NaN follows the source comparison's445 fallback.</summary>
+    public void PublishGroundHeight(float height)
+    {
+        var p = Position10 ?? throw new InvalidDataException("Current scenery Unit position is unknown.");
+        Position10 = new(p.X, height >= 445f ? height : 445f, p.Z, p.W);
+    }
     public void WriteDescriptorCount68(int? value) => DescriptorCount68 = value;
     public void WriteDescriptorKey6C(int? value) => DescriptorKey6C = value;
     public void WriteDescriptorFlags70(uint? value) => DescriptorFlags70 = value;

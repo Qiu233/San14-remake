@@ -58,6 +58,17 @@ public partial class Main
     public override void _ExitTree()
     {
         _shuttingDown = true;
+        _periodAdvanceCancellation?.Cancel();
+        CloseCommandWorkspace();
+        CloseEnvironmentSettings(resumeParent:false);
+        CloseTitleMenu();
+        CloseNewGameSetup();
+        CloseScenarioSelection();
+        _campaignApplication?.Detach();
+        _campaignApplication = null;
+        foreach (var application in _retiredCampaignApplications) application.Detach();
+        _retiredCampaignApplications.Clear();
+        _mapPresentation?.LeaveResidentMap();
         _type6Host?.Stop(deferRemoval: true);
         _cityDomesticPresenter?.Draft.Dispose();
         DisconnectWindowLifetime();

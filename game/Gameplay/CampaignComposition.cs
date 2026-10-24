@@ -7,11 +7,13 @@ namespace San14.Client.Gameplay;
 /// Composes a campaign from one selected scenario, map and language. Loading and
 /// starting build complete sessions before the caller replaces its live campaign.
 /// </summary>
-public sealed class CampaignComposition
+public sealed partial class CampaignComposition
 {
     private readonly GameResourceRepository _repository;
     private readonly ISaveCodec _saveCodec;
+    private readonly ApplicationGameplayState _applicationGameplay;
     private ArmyCampaignRuleAdapter? _army;
+    private NarrationVoiceSettings? _personnelNarrationVoiceSettings;
     private LoadedArmyFlagPaneNames? _flagNames;
     private GameState? _headerWorld;
     private int _headerForce;
@@ -22,6 +24,7 @@ public sealed class CampaignComposition
     {
         _repository = repository;
         _saveCodec = new ResourceSaveCodec(repository);
+        _applicationGameplay = ApplicationGameplayState.CreateNormalCampaign();
         Scenario = scenario;
         Map = map;
         Overview = new MapOverviewContent(map.Map);
@@ -32,12 +35,14 @@ public sealed class CampaignComposition
     public LoadedMap Map { get; }
     public ScenarioCityPreview Snapshot => Scenario.Snapshot;
     public ArmyCampaignRuleAdapter? Army => _army;
+    public ApplicationGameplayState ApplicationGameplay => _applicationGameplay;
     internal CampaignConstructionCatalog Construction { get; }
     internal MapOverviewContent Overview { get; }
 
     public static CampaignLoadResult Load(GameResourceRepository repository, EffectiveScenario selection,
         NewGameOptions options, GameState? restored = null, int? restoredPlayerForceId = null,
-        CampaignProgressOperation? restoredProgress = null, long lastStorySequence = 0, ManualTacticProgressOperation? restoredManualTactic = null)
+        CampaignProgressOperation? restoredProgress = null, long lastStorySequence = 0, ManualTacticProgressOperation? restoredManualTactic = null,
+        NormalPeriodOperation? restoredNormalPeriod = null)
     {
         LoadedScenario scenario = repository.LoadScenario(selection);
         LoadedMap map = repository.LoadMapForScenario(selection);
@@ -49,7 +54,7 @@ public sealed class CampaignComposition
         if (restoredPlayerForceId.HasValue && restored is null)
             throw new InvalidDataException("Restoring a local player requires the saved campaign world.");
         if (restored is not null) composition.ValidateRestoredContent(restored, initial);
-        if ((restoredProgress is not null || restoredManualTactic is not null) && (!restoredPlayerForceId.HasValue || restored is null))
+        if ((restoredProgress is not null || restoredManualTactic is not null || restoredNormalPeriod is not null) && (!restoredPlayerForceId.HasValue || restored is null))
             throw new InvalidDataException("A pending operation requires its actual restored player session.");
         GameState world = restored ?? initial;
         if (restoredPlayerForceId is int player)
@@ -59,7 +64,8 @@ public sealed class CampaignComposition
                 world = RequireFirstStrategy(army.TryInitializeFirstStrategy(world,
                     new(CampaignEntryKind.RestoreCampaign, null, null, null)));
             GameplaySession session = GameplaySession.Restore(world, player,
-                prepared.Rules, Calendar(prepared.Army), composition._saveCodec, restoredProgress, lastStorySequence, restoredManualTactic);
+                prepared.Rules, Calendar(prepared.Army), composition._saveCodec, restoredProgress, lastStorySequence, restoredManualTactic,
+                restoredNormalPeriod);
             composition._army = prepared.Army;
             return new(composition, territory, session, prepared.Presentation);
         }
@@ -69,7 +75,7 @@ public sealed class CampaignComposition
     }
 
     public CampaignStartResult Start(GameplaySession preview, int playerForceId,
-        CampaignAppRandomState? appRandomSnapshot = null)
+        CampaignAppRandomState? appRandomSnapshot = null, CampaignCrtRandomState? crtRandomSnapshot = null)
     {
         ValidateSelection(preview.World);
         int rulerId = preview.World.Forces[playerForceId].RulerId ??
@@ -77,12 +83,22 @@ public sealed class CampaignComposition
         GameState started = PlayableSkeleton.Start(preview.World);
         ArmyCampaignRuleAdapter army = _army ?? CreateArmy(started);
         GameState world = army.CreateFreshOwnedSimulation(started);
+        world = army.InstallFreshTalentRules(world);
+        world = army.InstallFreshDiplomacyRules(world);
+        world = TransportSetupCurrentInputs.InstallFresh(world);
         // Only an explicitly captured host value is installed. No bootstrap or Load repair.
-        world = world with { CampaignAppRandom32 = appRandomSnapshot };
+        world = world with { CampaignAppRandom32 = appRandomSnapshot, CampaignCrtRandom = crtRandomSnapshot };
         world = army.CreateFreshDuelService(world);
         world = army.ConfirmNewGamePlayerPerson(world, rulerId);
         world = MapSeasonRuntime.CreateForFreshCampaign(_repository, world,
             MapSeasonNativeSource.Load(_repository.SourceDirectory, Snapshot.Locale));
+        if (Snapshot.Locale == "TC")
+        {
+            var merchants = army.InitializeFreshCityMerchants(world);
+            world = merchants.Available ? merchants.Value! : throw new InvalidDataException(
+                "The campaign's merchant initialization is unavailable: " + merchants.UnresolvedInput);
+            world = army.InitializeFreshPersonnelHire(world);
+        }
         // This standalone host has neither the optional selected-user App
         // service nor an external mode. The saved world's user index remains
         // independent; it is not filled from either of these absent services.
@@ -98,6 +114,16 @@ public sealed class CampaignComposition
     }
 
     public ArmyCampaignRuleAdapter PrepareArmyQueries(GameState world) => _army ??= CreateArmy(world);
+
+    /// <summary>The application owns voice switches. Rule preparation borrows
+    /// this explicit snapshot; loading a world does not invent those switches.</summary>
+    public void ConfigurePersonnelNarrationVoice(NarrationVoiceSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        settings.Validate();
+        _personnelNarrationVoiceSettings = settings;
+        _army?.ConfigurePersonnelNarrationVoice(settings);
+    }
 
     private static GameState RequireFirstStrategy(FirstStrategyInitialization result) => result.State ??
         throw new InvalidDataException("The campaign's initial strategy setup is unavailable: " + result.UnresolvedOwner);
@@ -180,8 +206,11 @@ public sealed class CampaignComposition
     {
         ValidateSelection(world);
         string revision = $"owned-campaign-army-v1:{world.ScenarioKey}:{Scenario.ScenarioSource.Sha256}:{world.MapSha256}:{Scenario.FixedDataSource.Sha256}";
-        return ArmyCampaignRuleAdapter.FromOwnedCampaign(_repository,
+        var army = ArmyCampaignRuleAdapter.FromOwnedCampaign(_repository,
             Scenario, Map, Snapshot.Locale, revision);
+        army.ConfigureApplicationGameplay(_applicationGameplay);
+        if (_personnelNarrationVoiceSettings is { } voice) army.ConfigurePersonnelNarrationVoice(voice);
+        return army;
     }
 
     private sealed record PreparedRules(PlayableRuleSet Rules, ArmyCampaignRuleAdapter? Army,
@@ -206,6 +235,9 @@ public sealed class CampaignComposition
         }
         ArmyCampaignRuleAdapter army = existingArmy ?? CreateArmy(world);
         PlayableRuleSet rules = PlayableSkeleton.Bind(travel, income, tacticRules: army.Tactics,
+            diplomacy: army.CreateDiplomacyRules(),
+            talent: army.CreateTalentResolutionRules(),
+            personnelRules: army.CreatePersonnelCommandRules(),
             armyCreationRules: army, nativeArmyPreparationRules: army,
             cityEntryResources: new OwnedArmyCityReturnResourceStage(army),
             cityEntryState: army.CreateCityEntryStateRules(),
@@ -224,7 +256,13 @@ public sealed class CampaignComposition
             ordinaryDeploymentCommitRules: army,
             areaAdministrationRules: army,
             armyConstructionRules: army,
-            cityDomesticRules: army);
+            armyWithdrawalRules: army,
+            armyMovementCommands: army,
+            cityDomesticRules: army,
+            unitBehaviorRules: army,
+            governanceRosterRules: army,
+            cityMerchantRules: army,
+            cityOfficerMovementRules: army);
         return new(rules, army, new(SimulationRuleIdentity.Version, army.Revision, incomePresentation));
     }
 

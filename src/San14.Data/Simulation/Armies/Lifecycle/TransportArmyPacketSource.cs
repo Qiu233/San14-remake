@@ -22,7 +22,21 @@ public sealed class TransportArmyPacket
             0xBD10, 0xBD10, 0xBD10, 0xBD10, 0xBD10, 2, 5, targetPhysical, request.ReturnToSource ? 1 : 0, 1];
         Dwords = Array.AsReadOnly(_words);
     }
-    public TransportArmyCityRequest Request { get; }
+    internal TransportArmyPacket(DispatchTransportArmyOrder order, int commanderPhysical,
+        int forcePhysical, int sourcePhysical, byte action, byte kind, int targetPhysical)
+    {
+        CommandOrder = order; CommanderPhysical = commanderPhysical; ForcePhysical = forcePhysical;
+        SourceCityPhysical = sourcePhysical; DestinationCityPhysical = kind == 5 ? targetPhysical : 0;
+        _words = [order.OfficerId, order.Troops, order.NavalFormationId, order.Gold, order.Supplies,
+            48400, 48400, 48400, 48400, 48400, action, kind, targetPhysical,
+            order.ReturnOfficerToSource ? 1 : 0, order.SourceBehaviorChoice];
+        for (int index = 0; index < order.WaypointHexIds.Count; index++) _words[5 + index] = order.WaypointHexIds[index];
+        Dwords = Array.AsReadOnly(_words);
+    }
+    internal DispatchTransportArmyOrder? CommandOrder { get; }
+    /// <summary>Present only for the compatibility City-only producer. The
+    /// full producer carries its own explicit command, without a fake City.</summary>
+    public TransportArmyCityRequest? Request { get; }
     public int CommanderPhysical { get; }
     public int ForcePhysical { get; }
     public int SourceCityPhysical { get; }
@@ -41,6 +55,58 @@ public sealed record TransportArmyPacketResult(TransportArmyPacket? Packet, stri
 /// packet projection. This does not allocate an Army or execute2009B0.</summary>
 public static class TransportArmyPacketSource
 {
+    /// <summary>Explicit Make selections and the real mode2 target. Kind/ID
+    /// encodings stay in this boundary; no UI default or route vector is used.</summary>
+    internal static TransportArmyPacketResult TryComposeCommand(GameState state,
+        SourceWorldContext current, DispatchTransportArmyOrder order)
+    {
+        if (order.Troops is < 0 or > ushort.MaxValue || order.Gold is < 0 or > 100000 ||
+            order.Supplies is < 0 or > 5000000 || order.Troops == 0 && order.Gold == 0 && order.Supplies == 0 ||
+            order.NavalFormationId is < 0 or > 20 || order.SourceBehaviorChoice is < 0 or > 2 ||
+            order.WaypointHexIds is null || order.WaypointHexIds.Count > 5 ||
+            order.WaypointHexIds.Any(hex => hex is < 0 or >= 48400))
+            return Missing("branch.transport_explicit_selections");
+        var person = current.ReadPersonLookupReference(order.OfficerId);
+        if (person?.PhysicalSlot is not int physical || current.ReadPersonNativeValidity(physical) != true ||
+            current.ReadPersonIdentity(physical) != order.OfficerId)
+            return Missing("current.transport_Person");
+        if (current.ReadPersonStatus(physical) != 4) return Missing("branch.transport_ordinary_status4");
+        if (current.ReadPersonFirstLocation(physical) is not ushort home) return Missing("current.transport_HomeE2");
+        var force = current.ReadPersonForce(physical);
+        if (force?.PhysicalSlot is not int owner || owner is < 1 or > 45 || current.ReadForceNativeValidity(force) != true)
+            return Missing("current.transport_ordinary_Force");
+        try
+        {
+            var source = BaseLookup.Find(home, current);
+            if (source.Kind != BaseKind.City || source.PhysicalSlot != order.SourceCityId ||
+                current.ReadBaseNativeValidity(source) != true || current.ReadBaseForceSlot(source) != owner)
+                return Missing("current.transport_source_City");
+            if (order.Action is { ActionKey: "move", Target: { Kind: DeploymentTargetKind.Hex, Id: >= 0 and < 48400 } hexTarget })
+            {
+                var hex = current.ReadHexTableReference(hexTarget.Id);
+                if (hex?.PhysicalSlot is not int hexPhysical) return Missing("current.transport_target_Hex");
+                return new(new(order, physical, owner, source.PhysicalSlot!.Value, 1, 9, hexPhysical), null);
+            }
+            if (order.Action is not { ActionKey: "enter", Target.Kind: DeploymentTargetKind.Location })
+                return Missing("branch.transport_mode2_action");
+            int selected = order.Action.Target.Id;
+            BaseReference? target = selected is >= 1 and <= 51 ? current.ReadCityTableReference(selected) :
+                selected is >= 52 and <= 61 ? current.ReadGateTableReference(selected - 51) : null;
+            if (target?.PhysicalSlot is not int targetPhysical || current.ReadBaseNativeValidity(target) != true)
+                return Missing("current.transport_target_Base");
+            if (current.ReadBaseForceSlot(target) is not int targetForceSlot ||
+                current.ReadForceTableReference(targetForceSlot) is not { } targetForce ||
+                current.ReadForceNativeValidity(targetForce) != true || targetForce != force)
+                return Missing("current.transport_target_friendly_Force");
+            if (target.Kind == BaseKind.City && targetPhysical == source.PhysicalSlot)
+                return Missing("branch.transport_distinct_actual_Cities");
+            return new(new(order, physical, owner, source.PhysicalSlot!.Value,
+                target.Kind == BaseKind.City ? (byte)2 : (byte)3,
+                target.Kind == BaseKind.City ? (byte)5 : (byte)6, targetPhysical), null);
+        }
+        catch (InvalidDataException error) { return Missing(error.Message); }
+    }
+
     public static TransportArmyPacketResult TryComposeCityEnter(GameState state,
         SourceWorldContext current, TransportArmyCityRequest request)
         => request.ReturnToSource ? Missing("branch.transport_enter_selection_is_return") : TryComposeCity(state, current, request);

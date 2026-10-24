@@ -5,9 +5,20 @@ internal static class CampaignEffectSaveFields
 {
     internal static void Migrate(JsonObject state, int version)
     {
+        if (version < 159 && state["CampaignEffectRequests"]?["PendingBatches"] is JsonArray personnelBatches)
+            foreach (var batch in personnelBatches.OfType<JsonObject>())
+                if (batch["Source"] is JsonValue value && value.TryGetValue<int>(out int source) &&
+                    source >= (int)CampaignEffectSource.PersonnelAdministrationCommands)
+                    throw new InvalidDataException("Legacy campaign batch has a future personnel administration command origin.");
+        if (version < 157 && state["CampaignEffectRequests"]?["PendingBatches"] is JsonArray officeBatches)
+            foreach (var batch in officeBatches.OfType<JsonObject>())
+                if (batch["Source"] is JsonValue value && value.TryGetValue<int>(out int source) &&
+                    source >= (int)CampaignEffectSource.OfficerOfficeCommands)
+                    throw new InvalidDataException("Legacy campaign batch has a future officer office command origin.");
         // Reject a future payload before any older migration can discard its
         // owner. Version113 also checks its reconstructed legacy batches below.
         MigratePersonLifespanNotificationFields(state, version);
+        MigrateForcePolicyLevelUpFields(state, version);
         if (version >= 114)
         {
             if (!state.ContainsKey("CampaignEffectRequests")) throw new InvalidDataException("Saved campaign effects are missing.");
@@ -56,6 +67,30 @@ internal static class CampaignEffectSaveFields
             MigratePersonAppearanceFields(state, version);
         MigratePersonDeathFields(state, version);
         MigratePersonLifespanNotificationFields(state, version);
+        MigrateForcePolicyLevelUpFields(state, version);
+    }
+
+    private static void MigrateForcePolicyLevelUpFields(JsonObject state, int version)
+    {
+        if (state["CampaignEffectRequests"]?["PendingBatches"] is not JsonArray batches) return;
+        foreach (var batch in batches.OfType<JsonObject>())
+        {
+            if (version < 156 && batch["Source"] is JsonValue origin && origin.TryGetValue<int>(out int source) &&
+                source >= (int)CampaignEffectSource.ForcePolicyLevelUp)
+                throw new InvalidDataException("Legacy campaign batch has a future force policy level-up origin.");
+            if (batch["Requests"] is not JsonArray requests) continue;
+            foreach (var request in requests.OfType<JsonObject>())
+            {
+                if (version < 156)
+                {
+                    if (request["ForcePolicyLevelUp"] is not null)
+                        throw new InvalidDataException("Legacy campaign request has a future force policy level-up payload.");
+                    request["ForcePolicyLevelUp"] = null;
+                }
+                else if (!request.ContainsKey("ForcePolicyLevelUp"))
+                    throw new InvalidDataException("Saved force policy level-up knowledge is missing.");
+            }
+        }
     }
 
     private static void MigratePersonLifespanNotificationFields(JsonObject state, int version)
@@ -304,7 +339,10 @@ internal static class CampaignEffectSaveFields
                 var request = Require(entry, "HistoryNotification", "Speech", "Report", "MapObjectPresentation", "ForceAssociationRemovalReport",
                     "FacilityAuraReset", "MilitaryMusicPulse", "FacilityRepairPresentation", "FacilityConstructionPresentation",
                     "ArmyTraitViewRefresh", "ArmyTraitFeedback", "FacilityTrapPresentation", "ArmyTrapPresentation",
-                    "ArmyFacilityDamagePresentation", "FacilityTrapReport", "ArmyMoraleDefeatReport", "FireDamagePresentation", "TerrainDamagePresentation", "OfficerGrowthFeedback", "PersonAppearance", "PersonDeathReport", "PersonLifespanNotification");
+                    "ArmyFacilityDamagePresentation", "FacilityTrapReport", "ArmyMoraleDefeatReport", "FireDamagePresentation", "TerrainDamagePresentation", "OfficerGrowthFeedback", "PersonAppearance", "PersonDeathReport", "PersonLifespanNotification", "ForcePolicyLevelUp");
+                if (request["ForcePolicyLevelUp"] is JsonNode levelUp)
+                    _ = Require(levelUp, "ForceId", "PreviousLevel", "CurrentLevel", "AdditionalPolicySlots", "AdditionalCostLimit",
+                        "AnnouncementTextAtSource", "ConfirmationTextAtSource", "Stage");
                 if (request["PersonLifespanNotification"] is JsonNode lifespan)
                     _ = RequireExact(lifespan, "Operation", "EventKind", "PersonId", "TextAtSource");
                 if (request["PersonDeathReport"] is JsonNode death)
@@ -372,11 +410,23 @@ internal static class CampaignEffectSaveFields
                     var fields = Require(pulse, "FacilityReceiverId", "ArmyId", "HexId");
                     _ = Require(fields["FacilityReceiverId"], "Value");
                 }
+                if (request["FacilityProjectile"] is JsonNode projectile)
+                {
+                    var fields = Require(projectile, "FacilityReceiverId", "TargetReceiverId", "SourceHexOperand", "TargetHexOperand");
+                    _ = Require(fields["FacilityReceiverId"], "Value");
+                    _ = Require(fields["TargetReceiverId"], "Value");
+                }
                 if (request["Speech"] is JsonNode speech)
                 {
                     var fields = Require(speech, "SpeakerKind", "SpeakerId", "OfficerId", "Event", "HexId", "TargetKind", "TargetId",
                         "RelatedOfficerId", "AdmissionForce", "AdmissionColor", "GarrisonChoice", "TrapDefinitionId");
                     if (fields["GarrisonChoice"] is JsonNode choice) _ = Require(choice, "DamageTier", "Troops", "FormationContact");
+                    //Older speech has no such optional field. The new event
+                    //must retain it; deserialization and semantic validation
+                    //then check its type and the supported actual definition.
+                    if (fields["Event"] is JsonValue eventValue && eventValue.TryGetValue<int>(out int eventKind) &&
+                        eventKind == (int)CombatSpeechEvent.ArmyUnderFacilityAttack)
+                        _ = Require(speech, "FacilityDefinitionId");
                 }
                 if (request["Report"] is JsonNode report)
                     _ = Require(report, "Event", "DistrictId", "HexId", "CampaignDay", "OfficerId", "ArmyName", "TargetName",

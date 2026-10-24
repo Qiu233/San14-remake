@@ -7,7 +7,8 @@ public sealed record FacilityEffectStageResult(GameState? State, string? Unresol
 public sealed partial class ArmyCampaignRuleAdapter
 {
     /// <summary>Actual stage14 time gate, then one current Object manager and
-    /// private list-pool capture. Only the sourced kind7 consumer is closed.</summary>
+    /// private list-pool capture. Kind7 morale and kind5 object-origin damage
+    /// retain their own reached handlers and explicit missing inputs.</summary>
     public FacilityEffectStageResult TryAdvanceFacilityEffects(GameState state,
         NativeArmyProgressStageMoment moment)
     {
@@ -21,7 +22,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             var current = CaptureWritableTransportRouteCurrent(state);
             _ = _baseCapacityInputs.BindCurrent(state, current);
             OwnedArmyLifecycleDetachedInputs.BindCurrent(state, current);
-            return new(FacilityEffectMilitaryMusicSource.Apply(state, current, moment), null);
+            return new(FacilityEffectMilitaryMusicSource.Apply(state, current, moment,
+                (image, requests) => new(this, image, current, moment, _repository, _scenario, requests)), null);
         }
         catch (InvalidDataException error) { return new(null, error.Message); }
     }

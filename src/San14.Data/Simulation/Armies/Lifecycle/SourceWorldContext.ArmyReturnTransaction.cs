@@ -51,6 +51,7 @@ public sealed partial class SourceWorldContext
         foreach (var row in _personalityVectors)
             draft._personalityVectors[row.Key] = new() { Values = row.Value.Values.ToList(), Capacity = row.Value.Capacity };
         draft._armyReturnPending70 = _armyReturnPending70; draft.ArmyReturnTransferMode = ArmyReturnTransferMode;
+        draft.SetOwnedPersonCommandManager(ReadOwnedPersonCommandManager());
         CopyOwnedDestructionQueueViewTo(draft);
         draft.TransferService = TransferService; //Only proved no-service-write branch is admitted.
         static void Copy<K,V>(Dictionary<K,V> source, Dictionary<K,V> target) where K : notnull

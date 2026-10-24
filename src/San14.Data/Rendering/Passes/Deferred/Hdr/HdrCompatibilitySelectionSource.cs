@@ -9,6 +9,7 @@ internal sealed class HdrCompatibilitySelectionSource
 {
     private static readonly ConditionalWeakTable<LoadedDeferredTexturePlan,HdrCompatibilitySelectionSource> Sources=new();
     private readonly ConcurrentDictionary<int,LoadedDeferredTexturePlan> texturePlans=new();
+    private readonly Dictionary<int,MapSelectedSourceImageLayout> imageLayouts=new();
     private HdrCompatibilitySelectionSource(LoadedDeferredTexturePlan plan)
     {
         Source=plan;
@@ -19,6 +20,18 @@ internal sealed class HdrCompatibilitySelectionSource
         =>Sources.GetValue(plan,source=>new(source));
     internal LoadedDeferredTexturePlan Source {get;}
     internal HdrProgramBank Bank {get;}
+    internal MapSelectedSourceImageLayout ImageLayout(HdrShaderProgram program)
+    {
+        lock(imageLayouts)
+        {
+            if(imageLayouts.TryGetValue(program.CombinationIndex,out var existing)) return existing;
+            //Publish only a complete import. A failed import leaves no partial
+            //layout, cached exception or current-frame state in this owner.
+            var imported=MapSelectedSourceImagePlan.ImportLayout(TexturePlan(program),program);
+            imageLayouts.Add(program.CombinationIndex,imported);
+            return imported;
+        }
+    }
     internal LoadedDeferredTexturePlan TexturePlan(HdrShaderProgram program)
         =>texturePlans.GetOrAdd(program.CombinationIndex,_=>
         {

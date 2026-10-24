@@ -3,7 +3,11 @@ using San14.Core;
 namespace San14.Data;
 
 public sealed record ArmyDemolitionResult(GameState? State, IReadOnlyList<int> EligibleReceiverSlots,
-    string? UnresolvedOwner);
+    string? UnresolvedOwner)
+{
+    public GameState? ReachedState { get; init; }
+    public IReadOnlyList<int> CompletedUnitIds { get; init; } = [];
+}
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
@@ -16,25 +20,64 @@ public sealed partial class ArmyCampaignRuleAdapter
             moment.PreWriterThirdDate.Hour is < 0 or > 22 || (moment.PreWriterThirdDate.Hour & 1) != 0)
             throw new InvalidDataException("Army demolition requires reached stage12.");
         if (moment.PreWriterThirdDate.Hour / 2 != 5) return new(state, [], null);
+        return ConsumeArmyDemolitions(state, moment.CalendarCycleOrdinal,
+            () => moment.PreWriterThirdDate, reached => StatusCampaignDay(reached, moment), false, null);
+    }
+
+    // The playable driver calls this after its coarse movement. This is the
+    // same actor remover, not a fabricated stage12 moment or a playback ACK.
+    internal ArmyDemolitionResult CompletePlayableArmyDemolitions(GameState state, long revision,
+        Action<GameState>? publishReached = null)
+    {
+        if (!state.Units.Values.Any(unit => unit.Mission?.Kind == UnitMissionKind.DemolishStructure))
+            return new(state, [], null);
+        return ConsumeArmyDemolitions(state, revision,
+            () => (state.NativeMapSeason ?? throw DemolitionMissing("playable_calendar")).ThirdDate,
+            reached => unchecked((reached.NativeArmySimulation?.World.SamplerEpoch
+                ?? throw DemolitionMissing("playable_epoch")).Day450 +
+                (int)(reached.NativeMapSeason ?? throw DemolitionMissing("playable_calendar")).AdvancedDays),
+            true, publishReached);
+    }
+
+    private ArmyDemolitionResult ConsumeArmyDemolitions(GameState state, long revision,
+        Func<NativeMapSeasonDate> readDate, Func<GameState, int> readCampaignDay,
+        bool playableOrdersOnly, Action<GameState>? publishReached)
+    {
+        GameState working = state;
+        var eligible = new List<int>();
+        var completed = new List<int>();
+        var requests = new List<CampaignEffectRequest>();
+        var originalEffects = state.CampaignEffectRequests;
+        var playableReceivers = playableOrdersOnly ? state.Units.Values
+            .Where(unit => unit.Mission?.Kind == UnitMissionKind.DemolishStructure)
+            .Select(unit => unit.NativeArmyOrigin?.NativeSlotIndex).ToHashSet() : null;
+        SourceWorldContext? current = null;
+        void Publish(GameState reached)
+        {
+            working = reached;
+            if (requests.Count != 0)
+                working = working with { CampaignEffectRequests =
+                    (originalEffects ?? throw DemolitionMissing("effect_owner"))
+                    .Append(CampaignEffectSource.ArmyDemolition, revision, requests) };
+            publishReached?.Invoke(working);
+        }
         try
         {
-            var current = CaptureWritableTransportRouteCurrent(state);
+            current = CaptureWritableTransportRouteCurrent(state);
             OwnedArmyLifecycleDetachedInputs.BindCurrent(state, current);
             var queries = new ArmyMapGroupingCurrentQueries(state, current, _scenario, _governorInputs,
                 Seed.Language, SimulationRuleIdentity.Version);
             var order = current.ReadRegistryReferences(RegistryKind.Army) ?? throw DemolitionMissing("complete_army_manager");
-            var eligible = new List<int>();
-            GameState working = state;
-            var requests = new List<CampaignEffectRequest>();
             foreach (var entry in order)
             {
                 int physical = entry is { Kind: RegistryKind.Army, PhysicalSlot: int at } ? at : throw DemolitionMissing("army_pointer");
+                if (playableReceivers is not null && !playableReceivers.Contains(physical)) continue;
                 var army = current.ReadArmyUnitTableReference(physical) ?? throw DemolitionMissing("army_table");
                 if (!DemolitionKnown(current.ReadArmyUnitNativeValidity(army), "army_validity")) continue;
                 if (DemolitionKnown(queries.IsAtHome2C96E0(physical), "at_home")) continue;
                 if (DemolitionKnown(queries.IsExcluded233560(physical), "excluded")) continue;
                 var image = NotificationArmy(working, physical);
-                if (DemolitionKnown(ArmyConfigurationSourceAdapter.ReadAction(state, image), "action") != 10) continue;
+                if (DemolitionKnown(ArmyConfigurationSourceAdapter.ReadAction(working, image), "action") != 10) continue;
                 var runtime = image.NativeTacticRuntime ?? throw DemolitionMissing("army_runtime");
                 if (runtime.Abnormal23 != 0 || runtime.Abnormal25 != 0 || runtime.Abnormal24 != 0 || (runtime.Flags26 & 1) != 0) continue;
                 int ownHex = DemolitionKnown(current.ReadArmyUnitRawHex2A(army), "army_hex");
@@ -58,11 +101,12 @@ public sealed partial class ArmyCampaignRuleAdapter
                 var obj = current.ReadObjectTableReference(target.Identity3A!.Value <= 3000 ? target.Identity3A.Value : 0)
                     ?? throw DemolitionMissing("object_pointer");
                 if (!DemolitionKnown(current.ReadObjectNativeValidity(obj), "object_validity")) continue;
-                var removal = ApplyDemolitionNumbers(working, current, obj, army);
+                var removal = ApplyDemolitionNumbers(working, current, obj, army, Publish);
                 if (removal is not null)
                 {
-                    working = removal.State;
-                    working = AppendDemolitionEffects(working, current, army, image, removal, moment, requests);
+                    Publish(removal.State);
+                    Publish(AppendDemolitionEffects(working, current, army, image, removal,
+                        readDate, readCampaignDay, requests, Publish));
                 }
                 // The caller still revalidates and clears a valid Object
                 // target when its invalid definition made the remover return.
@@ -70,18 +114,34 @@ public sealed partial class ArmyCampaignRuleAdapter
                     DemolitionKnown(current.ReadArmyUnitNativeValidity(army), "tail_army_revalidation"))
                 {
                     byte control = ArmySavedCommandKnowledge.ReadControl(working, image) ?? throw DemolitionMissing("tail_control");
-                    if (control == 0) current.SetArmyLifecycleTargetFields(physical, new(11, 0));
+                    if (control == 0)
+                    {
+                        current.SetArmyLifecycleTargetFields(physical, new(11, 0));
+                        Publish(OwnedArmyLifecycleTargets.PublishCurrent(working, current));
+                        completed.Add(image.Id);
+                    }
                 }
             }
-            working = OwnedArmyLifecycleTargets.PublishCurrent(working, current);
-            working = working.WithArmyLifecycle(working.ReadArmyLifecycle()! with
-                { Indexes = current.ReadOwnedCurrentListPool()!.ExportOwnedState() });
-            if (requests.Count != 0) working = working with
-                { CampaignEffectRequests = (working.CampaignEffectRequests ?? throw DemolitionMissing("effect_owner"))
-                    .Append(CampaignEffectSource.ArmyDemolition, moment.CalendarCycleOrdinal, requests) };
-            return new(working, eligible.AsReadOnly(), null);
+            Publish(OwnedArmyLifecycleTargets.PublishCurrent(working, current));
+            Publish(working.WithArmyLifecycle(working.ReadArmyLifecycle()! with
+                { Indexes = current.ReadOwnedCurrentListPool()!.ExportOwnedState() }));
+            return new(working, eligible.AsReadOnly(), null)
+                { ReachedState = working, CompletedUnitIds = completed.AsReadOnly() };
         }
-        catch (InvalidDataException error) { return new(null, [], error.Message); }
+        catch (InvalidDataException error)
+        {
+            string unresolved = error.Message;
+            // Position/format leaves can advance a temporary cursor before
+            // failing. Publish owned roles without requiring their live local
+            // lists to masquerade as saved registries.
+            if (current?.ReadOwnedCurrentListPool() is { } pool && working.ReadArmyLifecycle() is { } arena)
+            {
+                try { Publish(working.WithArmyLifecycle(arena with { Indexes = pool.ProjectOwnedRoles() })); }
+                catch (InvalidDataException publication) { unresolved += "; reached publication: " + publication.Message; }
+            }
+            return new(null, eligible.AsReadOnly(), unresolved)
+                { ReachedState = working, CompletedUnitIds = completed.AsReadOnly() };
+        }
     }
 
     private static int DemolitionGoal(SourceWorldContext current, byte kind, ushort identity)

@@ -11,6 +11,7 @@ public interface ITacticEffectSubdaySourceContext
     int? ReadAbnormalUpperBound(GameState state, UnitState unit, int nativeIndex);
     bool? ReadSpecialWaitingModeActive(GameState state, UnitState unit);
     int? ReadOrdinaryWaitingRate(GameState state, UnitState unit);
+    int? ReadSelectedCommanderWaitingRate(GameState state, UnitState unit, int nativeIndex) => null;
     int? ReadWaitingUpperBound(GameState state, UnitState unit, int nativeIndex);
 }
 
@@ -73,27 +74,44 @@ public sealed class TacticEffectSourceSubdayRules : IPlayableNativeSubdayRules
         if ((changed.Flags26 & 0x02) != 0)
         {
             bool? special = _context.ReadSpecialWaitingModeActive(staged, current);
-            if (special is null || special.Value) return null;
-            int? rate = _context.ReadOrdinaryWaitingRate(staged, current);
+            if (special is null) return null;
+            int waitingIndex = 0;
+            if (special.Value)
+            {
+                //TC302430 takes the first nonzero byte, in20/21/22 order.
+                //An active selected mode with no waiting has no counter write.
+                if (changed.Waiting20 == 0)
+                    waitingIndex = changed.Waiting21 != 0 ? 1 : changed.Waiting22 != 0 ? 2 : -1;
+                if (waitingIndex < 0) return new(changed, state.RandomState, reports.ToArray());
+            }
+            int? rate = special.Value
+                ? _context.ReadSelectedCommanderWaitingRate(staged, current, waitingIndex)
+                : _context.ReadOrdinaryWaitingRate(staged, current);
             if (rate is null) return null;
             //224110 captures caps2 and1 before selecting cap0, even for
-            //index0. Preserve those current reads before its two cap0 reads.
+            //the selected index. Preserve those reads before its two cap reads.
             if (_context.ReadWaitingUpperBound(staged, current, 2) is null) return null;
             if (_context.ReadWaitingUpperBound(staged, current, 1) is null) return null;
-            int? firstCap = _context.ReadWaitingUpperBound(staged, current, 0);
+            int? firstCap = _context.ReadWaitingUpperBound(staged, current, waitingIndex);
             if (firstCap is null) return null;
-            int? secondCap = _context.ReadWaitingUpperBound(staged, current, 0);
+            int? secondCap = _context.ReadWaitingUpperBound(staged, current, waitingIndex);
             if (secondCap is null) return null;
-            byte next = TacticEffectSourceWaiting.AddCounter(changed.Waiting20,
+            byte formerWaiting = waitingIndex switch { 0 => changed.Waiting20, 1 => changed.Waiting21, _ => changed.Waiting22 };
+            byte next = TacticEffectSourceWaiting.AddCounter(formerWaiting,
                 unchecked(-rate.Value), firstCap.Value, secondCap.Value);
             long? ready = changed.PrimaryWaitingReadyAtUpdateOrdinal;
-            if (changed.Waiting20 > 0 && next == 0)
+            if (formerWaiting > 0 && next == 0)
             {
-                ready = moment.UpdateOrdinal;
-                reports.Add(new("waiting_ready", moment.UpdateOrdinal, unit.Id, unit.ForceId, 0));
+                if (waitingIndex == 0) ready = moment.UpdateOrdinal;
+                reports.Add(new("waiting_ready", moment.UpdateOrdinal, unit.Id, unit.ForceId, waitingIndex));
             }
-            else if (next > 0) ready = null;
-            changed = changed with { Waiting20 = next, PrimaryWaitingReadyAtUpdateOrdinal = ready };
+            else if (waitingIndex == 0 && next > 0) ready = null;
+            changed = waitingIndex switch
+            {
+                0 => changed with { Waiting20 = next, PrimaryWaitingReadyAtUpdateOrdinal = ready },
+                1 => changed with { Waiting21 = next },
+                _ => changed with { Waiting22 = next }
+            };
         }
         return new(changed, state.RandomState, reports.ToArray());
     }

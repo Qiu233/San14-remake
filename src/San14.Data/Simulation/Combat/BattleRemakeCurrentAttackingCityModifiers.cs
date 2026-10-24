@@ -34,9 +34,9 @@ public static class BattleRemakeCurrentAttackingCityModifiers
         if (actualCity.Kind != BaseKind.City || actualCity.PhysicalSlot is not >= 1 or > 51 ||
             !state.Cities.ContainsKey(actualCity.PhysicalSlot.Value) || current.ReadBaseNativeValidity(actualCity) != true ||
             current.ReadBaseObjectLink(actualCity) is not ushort link || link is < 1 or > 51 ||
-            current.ReadBaseForceSlot(actualCity) is not int forceId || forceId is < 1 or > 45 ||
+            current.ReadBaseForceSlot(actualCity) is not int forceId || forceId is < 1 or > 51 ||
             current.ReadForceTableReference(forceId) is not { } force || current.ReadForceNativeValidity(force) != true ||
-            !state.Forces.TryGetValue(forceId, out var ownedForce)) return Missing("current.ordinary_valid_City_Force");
+            !state.Forces.TryGetValue(forceId, out var ownedForce)) return Missing("current.valid_City_Force");
         //Identity is the actual manager owner; the caller captures/imports it
         //once for an operation. This producer never imports the81k arena.
         if (saved.Indexes.Registries.GetValueOrDefault(WorldEntityKind.Officer) is null ||

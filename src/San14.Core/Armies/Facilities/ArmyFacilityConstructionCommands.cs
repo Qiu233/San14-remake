@@ -21,3 +21,12 @@ public interface IPlayableArmyConstructionCommandRules
     CommandResult IssueMovementAfterConstruction(GameState state, UnitState army,
         DeploymentAction action, IReadOnlyList<int> waypointHexIds);
 }
+
+/// <summary>Formal current-object demolition command, shared by player and AI.</summary>
+public interface IPlayableArmyFacilityWorkCommandRules
+{
+    CommandResult IssueFacilityRepair(GameState state, UnitState army,
+        int structureId, int approachHexId, IReadOnlyList<int> waypointHexIds);
+    CommandResult IssueFacilityDemolition(GameState state, UnitState army,
+        int structureId, int approachHexId, IReadOnlyList<int> waypointHexIds);
+}

@@ -13,8 +13,8 @@ public sealed record ArmyMobilityCurrentResolution(ArmyMobilityCurrentReceipt? R
 /// <summary>Ordinary TC2B0660 call as reached by
 ///2695D0(flags1,0,null). Uses current owned formations, Person traits, Force
 ///bank/bitmaps, Tutorial header, Settings and captured Terrain definitions.
-/// Status1 resolves the source-zero command/extra-trait branches; Status2
-/// uses trait94. Other types, active tutorial overrides and active aggregates
+/// Status1 consumes the current saved-command control for trait116; Status2
+/// uses trait94. Other types, active tutorial overrides and command-age effects
 /// remain explicit unclosed branches; no displayed mobility fills them.</summary>
 public sealed class ArmyMobilityCurrentProducer
 {
@@ -48,6 +48,11 @@ public sealed class ArmyMobilityCurrentProducer
         if (definitions is null) return Missing("current.Base_Hex_Person_definition_capture");
         return ResolveCurrent(state, army, definitions);
     }
+
+    /// <summary>Borrows the caller's current operation view; the caller keeps
+    /// its saved owners and current fields synchronized after reached writes.</summary>
+    public ArmyMobilityCurrentResolution Resolve(GameState state, UnitState army, SourceWorldContext current)
+        => ResolveCurrent(state, army, current);
 
     internal ArmyMobilityCurrentResolution ResolveCurrent(GameState state, UnitState army, SourceWorldContext definitions)
     {
@@ -88,11 +93,19 @@ public sealed class ArmyMobilityCurrentProducer
         int trait;
         if (runtime.Status10 == 1)
         {
-            if (traits[116] != 0) return Missing("current.Army_byte140_for_trait116");
+            trait = unchecked(traits[19] + traits[4]);
+            if (traits[116] != 0)
+            {
+                //2B0660 reads the receiver's current saved-command control.
+                //Fresh2269E0 and later replaced-command writers already own
+                //this byte; an absent old-save owner remains unknown.
+                if (ArmySavedCommandKnowledge.ReadControl(state, army) is not byte control)
+                    return Missing("current.Army_byte140_for_trait116");
+                if (control != 0) trait = unchecked(trait + traits[116]);
+            }
             // Every reached2A63B0 return is zero for both source effects31/97
             // zero. This does not invent an age, World mode or flag140 value.
             if (traits[31] != 0 || traits[97] != 0) return Missing("current.command_age229FC0_and_effect2A63B0");
-            trait = unchecked(traits[19] + traits[4]);
         }
         else trait = traits[94];
         int lower = unchecked(-limit);

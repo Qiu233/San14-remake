@@ -10,6 +10,7 @@
 #include <functional>
 #include <d3d11.h>
 #include "../Camera/CameraState.h"
+#include "../Interop/RouteOverlayInput.h"
 #include "../Scene/Terrain/TerritoryOwnership.h"
 #include "../Scene/Terrain/CommandMap.h"
 #include "../Scene/Models/ArmyWorldPublication.h"
@@ -78,6 +79,7 @@ struct RenderHost {
     // Actual paced manager callbacks are separate from Main/Canvas requests.
     std::function<void(unsigned)> animationUpdate;
     std::function<void(const std::filesystem::path&)> replaceAtmosphereResources;
+    std::function<void(const San14RouteOverlayInputV1&)> replaceRoutes;
     AnimationState animationState;
     std::function<std::vector<ArmyLabelUnitPosition>()> armyUnitPositions;
 };
@@ -90,6 +92,7 @@ public:
         host.animationUpdate={};
         host.armyUnitPositions={};
         host.replaceAtmosphereResources={};
+        host.replaceRoutes={};
     }
     RenderCallbackScope(const RenderCallbackScope&)=delete;
     RenderCallbackScope& operator=(const RenderCallbackScope&)=delete;

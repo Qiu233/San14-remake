@@ -149,5 +149,43 @@ internal static class TransportRouteSourceAdapter
                     pair.Key >= route.Waypoints.Count || route.Waypoints[pair.Key] is not null)
                     throw new InvalidDataException("Saved transport residue conflicts with its route owner.");
         }
+        //External decode boundary only. The source target/configuration owner
+        //classifies native transports whose domain destination is not a City.
+        foreach (var unit in state.Units.Values)
+        {
+            if (unit.NativeArmyOrigin is null || unit.NativeTacticRuntime?.Status10 != 2 ||
+                unit.Mission is not { Kind: UnitMissionKind.Transport } mission) continue;
+            //Only the newly admitted shapes require this exact native witness.
+            //Historical City transports may still carry unknown source action
+            //or target words; loading them must preserve that knowledge gap.
+            byte? action = ArmyConfigurationSourceAdapter.ReadAction(state, unit);
+            if (action != 13 && mission.DestinationCityId is not null && unit.Troops != 0) continue;
+            //Native commands preserve the old coarse Arrival/Returning
+            //projection. Their actual action/target and officer return bit
+            //have independent owners, including after a mode3 replacement.
+            var receiver = state.ReadArmyLifecycle()?.Receivers.FindUnit(unit.Id)
+                ?? throw new InvalidDataException("Saved transport receiver is absent.");
+            var slots = state.ReadArmyLifecycle()!.ReceiverSlots();
+            int physical = unit.NativeArmyOrigin.NativeSlotIndex
+                ?? throw new InvalidDataException("Saved transport receiver position is unknown.");
+            if ((uint)physical >= slots.Length || slots[physical].ReceiverId != receiver.ReceiverId ||
+                slots[physical].Commander12 != unit.OfficerId || slots[physical].Status10 != 2)
+                throw new InvalidDataException("Saved transport receiver header disagrees with its unit.");
+            var target = OwnedArmyLifecycleTargets.Read(state, receiver.ReceiverId);
+            bool valid = (action, target?.Kind38, target?.Identity3A) switch
+            {
+                (1, 9, ushort hex) => mission.DestinationCityId is null && hex < 48400 && unit.DestinationHexId == hex,
+                (13, 9, ushort hex) => mission.DestinationCityId is null && hex < 48400 && unit.DestinationHexId == hex &&
+                    ArmyMarchSourceAdapter.ReadCurrentHex(state, unit) == hex &&
+                    unit.TransportRoute?.Waypoints is { Count: 5 } points &&
+                    points.All(point => point is { Kind: ArmyMarchDestinationKind.None, HexId: null }) &&
+                    unit.March?.NextStep == ArmyMarchDestination.None,
+                (2 or 11, 5, ushort city) => mission.DestinationCityId == city && state.Cities.ContainsKey(city),
+                (3 or 12, 6, ushort gate) => mission.DestinationCityId is null && gate is >= 1 and <= 10 &&
+                    state.Gates.TryGetValue(gate + 51, out var destination) && destination.HexId == unit.DestinationHexId,
+                _ => false
+            };
+            if (!valid) throw new InvalidDataException("Saved native transport command and target disagree.");
+        }
     }
 }

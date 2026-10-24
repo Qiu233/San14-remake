@@ -9,22 +9,7 @@ internal sealed class PersonDeathHistorySelection(GameState state, SourceWorldCo
     OwnedArmyGovernorComparatorInputs governorInputs, Func<int, int, int?>? panelReader = null)
 {
     internal DistrictReference PrimaryDistrict(ForceReference retainedForce)
-    {
-        foreach (var entry in current.ReadArmyReturnRegisteredDistricts() ?? throw Missing("District_D0"))
-        {
-            var district = entry ?? throw Missing("District_payload");
-            int physical = K(district.PhysicalSlot, "District_pointer");
-            int force = ForceOrdinal(retainedForce);
-            if (force is < 1 or > 51 || K(current.ReadDistrictForceId(physical), "District10_filter") != force) continue;
-            ushort leader = K(current.ReadDistrictLeader(physical), "District12");
-            int freshForce = ForceOrdinal(retainedForce);
-            ushort ruler = freshForce == 0 ? (ushort)5014 :
-                K(current.ReadForceRecord(K(retainedForce.PhysicalSlot, "Force_pointer"))?.RawRuler10, "Force10");
-            if (leader == ruler) return district;
-            if (K(current.ReadDistrictNumber(physical), "District11") == 1) return district;
-        }
-        return current.ReadDistrictTableReference(0) ?? throw Missing("WorldE0D0");
-    }
+        => ForcePrimaryDistrictSource.Resolve(current, retainedForce);
 
     internal TransferPersonReference Select(DistrictReference retainedDistrict)
     {

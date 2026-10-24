@@ -88,7 +88,7 @@ public sealed record LoadedMessages(MessageDocument Messages, Zp1Document Contai
 /// <summary>
 /// Read-only, on-demand view of an installed game. Decoded game resources stay in memory.
 /// </summary>
-public sealed class GameResourceRepository
+public sealed partial class GameResourceRepository
 {
     public const string DefaultSource =
         @"C:\Program Files (x86)\Steam\steamapps\common\Romance_of_the_Three_Kingdoms_14";
@@ -288,6 +288,12 @@ public sealed class GameResourceRepository
         }
     }
 
+    public IReadOnlyList<MapNeighborInterpolation> LoadMapNeighborInterpolation(string relativePath)
+    {
+        var (bytes,_) = ReadSource(relativePath);
+        return MapNeighborInterpolationReader.Read(S14Reader.Read(bytes,false));
+    }
+
     /// <summary>Owned CE rank rules for the selected language.</summary>
     public LoadedRankPersonCapacities LoadRankPersonCapacities(string locale = "SC")
     {
@@ -384,6 +390,12 @@ public sealed class GameResourceRepository
         {
             throw new InvalidDataException($"Original scenery definitions failed to load: {source.ResourceUri} ({source.PhysicalPath}). {error.Message}",error);
         }
+    }
+
+    public LoadedForeignTechnologies LoadForeignTechnologies(string relativePath)
+    {
+        (byte[] bytes, SourceProvenance source) = ReadSource(relativePath);
+        return new(S14ForeignTechnologyReader.Read(S14Reader.Read(bytes, false)), source);
     }
 
     public LoadedPersonalities LoadPersonalities(string relativePath)
@@ -548,6 +560,7 @@ public sealed class GameResourceRepository
             StartYear = scenario.StartYear,
             StartMonth = scenario.StartMonth,
             StartDay = scenario.StartDay,
+            SelectionMetadata = scenario.SelectionMetadata,
             CharacterNameCount = scenario.LeadingRecordCount - 1,
             CharacterAbilityCount = scenario.LeadingRecordCount - 1,
             CharacterCombatReferenceCount = snapshot.Characters.Count,
@@ -867,7 +880,8 @@ public sealed class GameResourceRepository
                 {
                     StartYear = header.StartYear,
                     StartMonth = header.StartMonth,
-                    StartDay = header.StartDay
+                    StartDay = header.StartDay,
+                    SelectionMetadata = header.SelectionMetadata
                 });
             }
         }

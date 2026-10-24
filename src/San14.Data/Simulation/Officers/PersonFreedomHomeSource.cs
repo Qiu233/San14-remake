@@ -28,11 +28,24 @@ public sealed class PersonFreedomHomeSource
 
     public PersonFreedomHomeResult Resolve(GameState state, SourceWorldContext current,
         int personPhysical, BaseReference oldHome, TacticSourceSamplerWorld sampler)
+        => ResolveCore(state, current, personPhysical, oldHome, null, sampler, null);
+
+    //265250 captured this Area before affiliation callbacks. World450/45C
+    //is needed only when a real permutation has at least one draw.
+    internal PersonFreedomHomeResult ResolveBorrowed(GameState state, SourceWorldContext current,
+        int personPhysical, BaseReference oldHome, AreaReference capturedOldArea,
+        Func<TacticSourceSamplerWorld> readSampler)
+        => ResolveCore(state, current, personPhysical, oldHome, capturedOldArea, null, readSampler);
+
+    private PersonFreedomHomeResult ResolveCore(GameState state, SourceWorldContext current,
+        int personPhysical, BaseReference oldHome, AreaReference? capturedOldArea,
+        TacticSourceSamplerWorld? sampler, Func<TacticSourceSamplerWorld>? readSampler)
     {
+        TacticSourceSamplerWorld Sampler() => sampler ??= readSampler!();
         HexListHandle? cities = null, areas = null;
         try
         {
-            var oldArea = FindBaseArea229FD0(current, oldHome);
+            var oldArea = capturedOldArea ?? FindBaseArea229FD0(current, oldHome);
             byte rawCity = Need(current.ReadAreaCitySlot(oldArea), "current.265250_old_Area35");
             var initial = current.ReadCityTableReference(rawCity < 52 ? rawCity : 0)
                 ?? throw Missing("current.265250_initial_City_pointer");
@@ -44,7 +57,7 @@ public sealed class PersonFreedomHomeSource
             if (candidateCities.Count == 0)
                 return new(0, null, null, new(initialPhysical, [], [], [], [], [], cities.Identity!.Value, null), null);
 
-            Shuffle(current, candidateCities, sampler);
+            if (candidateCities.Count > 1) Shuffle(current, candidateCities, Sampler());
             var shuffled = candidateCities.Select(x => Physical(x.Payload)).ToArray();
             var ordinal = candidateCities.Select((x, i) => (x.Payload, i)).ToDictionary(x => x.Payload, x => x.i);
             //24DB90 moves nodes, whereas1D7220 swaps only their payloads.
@@ -72,9 +85,18 @@ public sealed class PersonFreedomHomeSource
             }
             var candidateAreas = Read(current, areas);
             int[] areaOrder = candidateAreas.Select(x => Physical(x.Payload)).ToArray();
-            Shuffle(current, candidateAreas, sampler);
+            if (candidateAreas.Count > 1) Shuffle(current, candidateAreas, Sampler());
             if (candidateAreas.Count == 0) throw Missing("branch.265250_empty_selected_Area_native_head_dereference");
             var chosenArea = Area(candidateAreas[0].Payload);
+            var receipt = new PersonFreedomHomeReceipt(initialPhysical,
+                cityOrder, shuffled,
+                candidateCities.Select(x => Physical(x.Payload)).ToArray(), areaOrder,
+                candidateAreas.Select(x => Physical(x.Payload)).ToArray(), cities.Identity!.Value, areas.Identity);
+            //The borrowed265250 caller has only reached Area selection.
+            //It must perform Items, own-Army/member cleanup and its E4 write
+            //before reading final Home. City is not produced by this entry.
+            //The existing public Resolve retains its complete Home result.
+            if (capturedOldArea is not null) return new(1, null, chosenArea, receipt, null);
             //265C50 first places E4 at Area. Its final Home uses Area35's
             //City if valid, otherwise Area34, without a second validity gate.
             byte homeSlot = Need(current.ReadAreaCitySlot(chosenArea), "current.selected_Area35");
@@ -86,10 +108,7 @@ public sealed class PersonFreedomHomeSource
                 homeCity = current.ReadCityTableReference(fallback < 52 ? fallback : 0)
                     ?? throw Missing("current.selected_Area34_City_pointer");
             }
-            return new(1, homeCity, chosenArea, new(initialPhysical,
-                cityOrder, shuffled,
-                candidateCities.Select(x => Physical(x.Payload)).ToArray(), areaOrder,
-                candidateAreas.Select(x => Physical(x.Payload)).ToArray(), cities.Identity!.Value, areas.Identity), null);
+            return new(1, homeCity, chosenArea, receipt, null);
         }
         catch (InvalidDataException error) { return new(null, null, null, null, error.Message); }
         finally
@@ -130,13 +149,28 @@ public sealed class PersonFreedomHomeSource
         return false;
     }
 
-    private void FillCities22F430(SourceWorldContext current, BaseReference initial, HexListHandle output)
+    internal void FillCities22F430(SourceWorldContext current, BaseReference initial, HexListHandle output)
     {
         current.ClearTemporaryHexList(output);
         foreach (var city in CandidateReferences(current, initial))
         {
             //Native pointer de-duplication only considers successful appends.
             if (!Read(current, output).Any(x => x.Payload == city)) Append(current, output, city);
+        }
+    }
+
+    //22F720 uses the same actual ten Base58 links, without the recursive
+    //City-only traversal or pointer de-duplication of22F430.
+    internal void FillBases22F720(SourceWorldContext current, BaseReference initial, HexListHandle output)
+    {
+        current.ClearTemporaryHexList(output);
+        foreach (byte link in Links(initial))
+        {
+            if (link == 0) continue;
+            var other = BaseLookup.Find(link, current);
+            if (!Need(current.ReadBaseNativeValidity(other), "current.22F720_Base_validity")) continue;
+            if (link == Need(current.ReadBaseObjectLink(initial), "current.22F720_origin4E")) continue;
+            Append(current, output, Registry(other));
         }
     }
 

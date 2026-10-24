@@ -26,4 +26,19 @@ public sealed partial class ArmyCampaignRuleAdapter
             r.RequestedLoss, r.AppliedLoss, r.AttackerReward, r.TroopDebit, r.Wounded, r.MoraleLoss,
             r.MoraleWrite, r.NativeReturn, r.Revision), result.UnresolvedOwner);
     }
+
+    /// <summary>Borrow the enclosing ordinary operation's current and pool;
+    /// unresolved inputs discard that entire operation, not only this body.</summary>
+    internal NormalGateApplicationResult ApplyBorrowedNormalGate(GameState input,
+        int attackerArmyId, int gateId, int requestedLoss,
+        NativeArmyCombatCycleSampler? operationSampler, SourceWorldContext current)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        var result = TryApplyNativeNormalBaseApplication(input, attackerArmyId, BaseKind.Gate,
+            gateId, requestedLoss, operationSampler, operationCurrent: current);
+        var r = result.Receipt;
+        return new(result.Outcome, result.State, r is null ? null : new(r.LocationId, r.AttackerArmyId,
+            r.RequestedLoss, r.AppliedLoss, r.AttackerReward, r.TroopDebit, r.Wounded, r.MoraleLoss,
+            r.MoraleWrite, r.NativeReturn, r.Revision), result.UnresolvedOwner);
+    }
 }

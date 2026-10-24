@@ -39,6 +39,16 @@ public static class OfficerHealthRules
 
     public static bool SupportsOrdinaryBattleInjury(OfficerHealth health) => health.StateId is 0 or 1;
 
+    /// <summary>The nonlethal battle rule can worsen a known injury to its
+    /// severe level. It does not perform the ordinary battle-death callback.</summary>
+    public static OfficerHealth WorsenNonlethalBattleInjury(OfficerHealth health) => health.StateId switch
+    {
+        0 => new(1),
+        1 => new(2),
+        2 => new(3),
+        _ => throw new InvalidOperationException("This health condition cannot worsen through a nonlethal injury.")
+    };
+
     public static OfficerHealth WorsenOrdinaryBattleInjury(OfficerHealth health) => health.StateId switch
     {
         0 => new(1),

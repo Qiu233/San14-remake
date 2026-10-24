@@ -42,11 +42,20 @@ public sealed partial class ArmyOperationContext
     internal int? ResolveOfficerSource(int officerId) => _officerSources.ResolveOfficer(officerId);
     internal int? ReadOfficerSourceIdentity(int record) => _officerSources.IdentityAt(record);
 
+    //Only the fresh return-field installer consumes the original byte. A
+    //current capture's nullable Domain DistrictId cannot recover known zero.
+    internal byte ReadFreshPersonDistrictSlot(int physical)
+    {
+        if ((uint)physical >= (uint)_source.Snapshot.Characters.Count) throw new ArgumentOutOfRangeException(nameof(physical));
+        return _source.Snapshot.Characters[physical].DistrictSlot;
+    }
+
     public SourceWorldContext? Capture(GameState state)
     {
         if (state.MapWidth != 220 || state.MapHeight != 220 || state.MapSha256 != _map.Source.Sha256 ||
             !Matches(state, _source.ScenarioSource) || !Matches(state, _source.FixedDataSource)) return null;
         SourceWorldContext native = CaptureSourcePrefix();
+        AreaFlagsSourceAdapter.BindCurrent(state, native);
         // Overlay every receiver so an old or absent owner cannot retain the
         // scenario's initial kingdom name. The default receiver has its own owner.
         native.SetForceKingdomNameIndex(0, state.DefaultForceKingdomNameIndex);
@@ -59,8 +68,9 @@ public sealed partial class ArmyOperationContext
         {
             if (district.Id is < 1 or > 51 || district.ForceId is < 1 or > 51 || district.Number is < 0 or > 255) return null;
             native.WriteDistrictAffiliation(district.Id, (byte)district.ForceId, (byte)district.Number);
-            native.SetDistrictRawByte(district.Id, 0x12, district.LeaderId is int leader ? (byte)leader : null);
-            native.SetDistrictRawByte(district.Id, 0x13, district.LeaderId is int high ? (byte)(high >> 8) : null);
+            ushort? leader = ForceUnregisterInputs.ReadDistrictLeader(state, district);
+            native.SetDistrictRawByte(district.Id, 0x12, leader is ushort low ? (byte)low : null);
+            native.SetDistrictRawByte(district.Id, 0x13, leader is ushort high ? (byte)(high >> 8) : null);
         }
         foreach (ForceState force in state.Forces.Values)
         {

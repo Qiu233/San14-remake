@@ -10,8 +10,11 @@ internal sealed class UiSourceGaugeCurve
     private readonly Key[] keys;
     private readonly float defaultValue,minimum,maximum;
     private readonly bool endpointOnly;
-    private UiSourceGaugeCurve(byte[] bytes,float defaultValue,float minimum,float maximum,bool endpointOnly)
+    private readonly bool staticUvEndpoint;
+    private UiSourceGaugeCurve(byte[] bytes,float defaultValue,float minimum,float maximum,bool endpointOnly,
+        bool staticUvEndpoint=false)
     {
+        this.staticUvEndpoint=staticUvEndpoint;
         this.endpointOnly=endpointOnly;
         this.defaultValue=defaultValue;this.minimum=minimum;this.maximum=maximum;
         if(bytes.Length%64!=0||!float.IsFinite(defaultValue)||float.IsNaN(minimum)||float.IsNaN(maximum)||minimum>maximum)
@@ -22,7 +25,7 @@ internal sealed class UiSourceGaugeCurve
             int offset=i*64;
             float Read(int field)=>(float)BinaryPrimitives.ReadDoubleLittleEndian(bytes.AsSpan(offset+field*8,8));
             float[] v=Enumerable.Range(0,7).Select(Read).ToArray();
-            if(v.Any(f=>!float.IsFinite(f))||bytes[offset+56]!=3)
+            if(v.Any(f=>!float.IsFinite(f))||bytes[offset+56]!=3 && !(staticUvEndpoint&&bytes[offset+56]==2))
                 throw new InvalidDataException("Unsupported common gauge curve mode.");
             keys[i]=new(v[0],v[1],v[2],v[3],v[4],v[5],v[6]);
             if(i>0)
@@ -41,7 +44,12 @@ internal sealed class UiSourceGaugeCurve
     internal static UiSourceGaugeCurve ForAlphaNode(LcskDocument document,int node)
         => ReadChannel(document,node,0x0A);
 
-    private static UiSourceGaugeCurve ReadChannel(LcskDocument document,int node,byte property)
+    // The diplomacy gauge seeks its UV translation action to its end once.
+    // Its mode2 first key is admitted only for this static endpoint reader.
+    internal static UiSourceGaugeCurve ForUvOffsetNode(LcskDocument document,int node,bool vertical=false)
+        => ReadChannel(document,node,vertical?(byte)0x2A:(byte)0x29,true);
+
+    private static UiSourceGaugeCurve ReadChannel(LcskDocument document,int node,byte property,bool staticUvEndpoint=false)
     {
         if(document.Signature is not ("LCSK8500" or "LCSK9500"))throw new InvalidDataException("Unsupported gauge animation version.");
         var bindings=document.Blocks.Single(b=>b.Tag==2);
@@ -52,7 +60,7 @@ internal sealed class UiSourceGaugeCurve
         {
             var r=bindings.RecordBytes.AsSpan(i*12,12);
             if(BinaryPrimitives.ReadUInt16LittleEndian(r[4..])!=node)continue;
-            if(r[8]!=0 || r[7] is not (0x2D or 0x0A))
+            if(r[8]!=0 || r[7] is not (0x2D or 0x0A or 0x29 or 0x2A))
                 throw new InvalidDataException("Unsupported gauge UV binding.");
             if(r[7]!=property)continue;
             if(curve.HasValue)throw new InvalidDataException("Duplicate gauge channel binding.");
@@ -67,7 +75,8 @@ internal sealed class UiSourceGaugeCurve
         int entry=BinaryPrimitives.ReadUInt16LittleEndian(record[24..]);
         if(entry>=pool.Entries.Count)throw new InvalidDataException("Gauge key pool reference is missing.");
         return new(pool.Entries[entry].Data,(float)BinaryPrimitives.ReadDoubleLittleEndian(record),
-            (float)BinaryPrimitives.ReadDoubleLittleEndian(record[8..]),(float)BinaryPrimitives.ReadDoubleLittleEndian(record[16..]),property==0x0A);
+            (float)BinaryPrimitives.ReadDoubleLittleEndian(record[8..]),(float)BinaryPrimitives.ReadDoubleLittleEndian(record[16..]),
+            property==0x0A||staticUvEndpoint,staticUvEndpoint);
     }
 
     internal static (int Start,int End,int[] Nodes) ReadAction(LcskDocument document,string name)
@@ -113,6 +122,7 @@ internal sealed class UiSourceGaugeCurve
         time=Math.Clamp(time,0,keys[^1].Time);
         if(time<=keys[0].Time)return Math.Clamp(keys[0].OutValue,minimum,maximum);
         if(time>=keys[^1].Time)return Math.Clamp(keys[^1].InValue,minimum,maximum);
+        if(staticUvEndpoint)throw new InvalidOperationException("This source UV curve consumer only seeks static endpoints.");
         for(int i=1;i<keys.Length;i++)
         {
             var b=keys[i];if(time>b.Time)continue;

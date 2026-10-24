@@ -63,7 +63,6 @@ public sealed partial class TacticRemakeCurrentContext : ITacticEffectSourceCont
         if (caster is null || !Bound(state) || ArmyValid(state, caster) is not true ||
             caster.NativeTacticRuntime is not { } native || EffectiveFormation(state, caster) is not int formation ||
             AvailableTactics(state, caster, formation) is not int[] available ||
-            state.CommanderSelection?.ActiveCount is not 0 ||
             state.NativeArmySimulation!.Forces.GetValueOrDefault(caster.ForceId)?.Flags193 is not byte forceFlags)
             return null;
         bool selectedPrimary = program.Instructions.Any(instruction => instruction.Opcode == 23);
@@ -85,6 +84,9 @@ public sealed partial class TacticRemakeCurrentContext : ITacticEffectSourceCont
             ? true : native.ProvocationOwner is { Kind: DeploymentTargetKind.Unit } owner &&
                 owner.Id == caster.Id ? true : null;
         if (outer is null) return null;
+        bool? selectedGate = ReadSelectedCommanderAutomaticGate(state, caster);
+        if (selectedGate is null) return null;
+        outer = outer.Value && selectedGate.Value;
         TacticRemakeChainResolution? chain = ResolveChain(state, caster, source);
         if (chain is null || chain.RandomState != state.RandomState || chain.ChainCount != 0) return null;
         int? primary = Parameter(state, SimulationParameterKeys.Tactics.PrimaryWaitingCap), second = Parameter(state, SimulationParameterKeys.Tactics.SecondaryWaitingCap), third = Parameter(state, SimulationParameterKeys.Tactics.TertiaryWaitingCap);
@@ -121,12 +123,11 @@ public sealed partial class TacticRemakeCurrentContext : ITacticEffectSourceCont
     {
         if (_manualEmptyChain is { } captured && captured.ActorUnitId == caster.Id && captured.TacticId == source.Slot)
             return new(0, captured.WaitingContribution, state.RandomState);
-        //An abnormal24 caster passes17D5D0 but2AFA40 returns an empty chain.
-        //A complete owned allocation can also prove that every other Army
-        //fails the native force/abnormal filters, independent of chain radius.
-        if (caster.NativeTacticRuntime is { } native &&
-            (native.Abnormal23 > 0 || native.Abnormal24 > 0 || native.Abnormal25 > 0) ||
-            HasCompleteOwnedEmptyChain(state, caster))
+        if (_automaticEmptyChain is { } automatic && automatic.ActorUnitId == caster.Id && automatic.TacticId == source.Slot)
+            return automatic.Chain;
+        //The source's actual local list must be complete and empty. Its own
+        //waiting contribution remains independent of the neighbor count.
+        if (HasEmptyNativeChain(state, caster))
         {
             ushort? contribution = _programs.ReadCurrentWaitingContribution(source);
             return contribution is null ? null : new(0, contribution.Value, state.RandomState);
@@ -134,40 +135,14 @@ public sealed partial class TacticRemakeCurrentContext : ITacticEffectSourceCont
         return _remaining?.ResolveChain(state, caster, source.Slot);
     }
 
-    private bool HasCompleteOwnedEmptyChain(GameState state, UnitState caster)
-    {
-        if (state.Units.GetValueOrDefault(caster.Id) != caster ||
-            ArmyValid(state, caster) != true || caster.HexId is < 0 or >= 48400) return false;
-        //2AFA40 cannot retain a different-force Army or an Army with any
-        //abnormal counter. Prove this over the complete owned allocation, so
-        //the still-unread ring radius and personality threshold cannot change
-        //the empty result. Every identity/position must itself be source-owned.
-        var seenHexes = new HashSet<int>();
-        var seenSlots = new HashSet<int>();
-        foreach (UnitState candidate in state.Units.Values)
-        {
-            if (ArmyValid(state, candidate) != true || candidate.HexId is < 0 or >= 48400 ||
-                !seenHexes.Add(candidate.HexId) || candidate.NativeArmyOrigin?.NativeSlotIndex is not int slot ||
-                !seenSlots.Add(slot)) return false;
-            if (candidate.Id != caster.Id && candidate.ForceId == caster.ForceId &&
-                candidate.NativeTacticRuntime is { Abnormal23: 0, Abnormal24: 0, Abnormal25: 0 }) return false;
-        }
-        //The native chain radius remains unqueried on this empty-candidate
-        //proof. Establish the entire owned Hex allocation, including absence
-        //of aliases outside the effect radius, before skipping that query.
-        for (int hex = 0; hex < 48400; hex++)
-            if (_definitions.ReadHexTableReference(hex)?.PhysicalSlot != hex) return false;
-        return true;
-    }
+    // The real radius query replaces the old all-Units/48,400-Hex proof.
+    private bool HasEmptyNativeChain(GameState state, UnitState caster) =>
+        ArmyValid(state, caster) == true && ArmyChainCurrentCandidates.Read(state, _definitions, caster).Count == 0;
 
-    /// <summary>Common2A8FD0 uses the same2AFA40 count. A complete empty
-    /// allocation, or its native abnormal early return, proves neighbor1.
-    /// The preceding coefficient/settings helpers have no simulation writes;
-    /// their numeric value cannot alter an int32 multiplication by zero.</summary>
-    public float? ReadNativeEmptyNeighborFactor(GameState state, UnitState army) =>
-        ArmyValid(state, army) == true && (army.NativeTacticRuntime is { } native &&
-            (native.Abnormal23 > 0 || native.Abnormal24 > 0 || native.Abnormal25 > 0) ||
-            HasCompleteOwnedEmptyChain(state, army)) ? 1f : null;
+    /// <summary>The actual local neighbor list and current settings/Force
+    /// policy38 feed the shared Common factor reader, independently of waiting.</summary>
+    public float? ReadNativeNeighborFactor(GameState state, UnitState army) =>
+        ArmyValid(state, army) == true ? ArmyNeighborCurrentFactor.Read(state, _definitions, army).Factor : null;
 
     public TacticMoraleIncreaseSourceInput? ResolveArmyMoraleIncrease(GameState state,
         UnitState caster, UnitState target, TacticSourceRow source, S14TacticEffectInstruction instruction)
@@ -352,7 +327,7 @@ public sealed partial class TacticRemakeCurrentContext : ITacticEffectSourceCont
     public bool? ReadExpirationLoggingForceNonzero(GameState state, UnitState unit) => ArmyValid(state, unit) is true ? unit.ForceId != 0 : null;
     public int? ReadAbnormalUpperBound(GameState state, UnitState unit, int nativeIndex) => Parameter(state, SimulationParameterKeys.Tactics.AbnormalCounterUpperBound);
     public bool? ReadSpecialWaitingModeActive(GameState state, UnitState unit) =>
-        Bound(state) && state.CommanderSelection?.ActiveCount == 0 ? false : null;
+        ReadSelectedCommanderWaitingMode(state, unit);
     public int? ReadOrdinaryWaitingRate(GameState state, UnitState unit) => Parameter(state, SimulationParameterKeys.Tactics.OrdinaryWaitingRate);
     public int? ReadWaitingUpperBound(GameState state, UnitState unit, int nativeIndex) =>
         Parameter(state, nativeIndex switch { 0 => SimulationParameterKeys.Tactics.PrimaryWaitingCap, 1 => SimulationParameterKeys.Tactics.SecondaryWaitingCap, 2 => SimulationParameterKeys.Tactics.TertiaryWaitingCap,

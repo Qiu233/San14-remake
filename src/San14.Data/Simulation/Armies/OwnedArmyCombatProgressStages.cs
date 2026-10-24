@@ -30,6 +30,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         private NormalArmyCombatCurrentPhase? currentPhase;
         private readonly ArmyMapGroupingOwner mapGroups = package._mapArmyGrouping.Copy();
         private bool mapGroupsChanged;
+        internal ArmyMapGroupingOwner CopyMapGroupsForTurn() => mapGroups.Copy();
         public NativeArmyProgressStageResolution? AdvanceStage(GameState state, NativeArmyProgressStageMoment moment)
         {
             if (moment.SchedulerStageIndex == (byte)NativeArmyProgressStage.Waiting)
@@ -49,7 +50,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (moment.SchedulerStageIndex == (byte)NativeArmyProgressStage.DuelOpportunity)
                 return moment.PreWriterThirdDate.Hour != 10
                     ? new(state, "army.progress.duel-not-due")
-                    : new(package.AdvanceDuelOpportunity(state), "army.progress.duel-opportunity");
+                    : new(package.AdvanceDuelOpportunity(state, moment), "army.progress.duel-opportunity");
             if (moment.SchedulerStageIndex == (byte)NativeArmyProgressStage.ArmyMoraleFatigue)
             {
                 var fatigue = package.TryAdvanceArmyMoraleFatigue(state, moment);
@@ -58,6 +59,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (moment.SchedulerStageIndex == (byte)NativeArmyProgressStage.PersonnelReturn)
             {
                 var returned = package.TryAdvancePersonReturnCommands(state, moment.PreWriterThirdDate);
+                if (returned.AwaitingDiplomacyTaskId is not null)
+                    throw new InvalidDataException("army.progress.diplomacy_requires_normal_period_host");
                 return returned.State is { } continued
                     ? new(continued, "army.progress.personnel-return") : null;
             }
@@ -74,7 +77,20 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (moment.SchedulerStageIndex == (byte)NativeArmyProgressStage.RestoreArmyCommands)
             {
                 var restored = package.TryAdvanceArmyCommandRestoration(state, moment);
-                return restored.State is { } continued ? new(continued, "army.progress.command-restoration") : null;
+                if (restored.State is not { } continued)
+                {
+                    var failure = new InvalidDataException(restored.UnresolvedOwner ??
+                        "army.progress.command-restoration.current-inputs");
+                    failure.Data["RestorationLowerOwner"] = restored.UnresolvedOwner;
+                    failure.Data["RestorationCalendarCycleOrdinal"] = moment.CalendarCycleOrdinal;
+                    failure.Data["RestorationDate"] = moment.PreWriterThirdDate;
+                    failure.Data["RestorationSchedulerStageIndex"] = moment.SchedulerStageIndex;
+                    failure.Data["RestorationBoundary"] = moment.Boundary;
+                    if (restored.FailureData is { } observed)
+                        foreach (var field in observed) failure.Data[field.Key] = field.Value;
+                    throw failure;
+                }
+                return new(continued, "army.progress.command-restoration");
             }
             if (moment.SchedulerStageIndex == (byte)NativeArmyProgressStage.Appearance)
             {
@@ -85,8 +101,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (moment.SchedulerStageIndex == (byte)NativeArmyProgressStage.Occupation)
             {
                 var occupied = package.TryAdvanceOrdinaryOccupation(state, moment);
-                return occupied.State is { } continued
-                    ? new(continued, "army.progress.ordinary-occupation") : null;
+                if (occupied.State is not { } continued)
+                    throw new InvalidDataException(occupied.UnresolvedOwner ?? "current.Army_occupation.unresolved_owner");
+                return new(continued, "army.progress.ordinary-occupation");
             }
             if (moment.SchedulerStageIndex == (byte)NativeArmyProgressStage.ArmyNotifications)
             {
@@ -124,8 +141,10 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (moment.SchedulerStageIndex == (byte)NativeArmyProgressStage.FacilityEffects)
             {
                 var facilities = package.TryAdvanceFacilityEffects(state, moment);
-                return facilities.State is { } completed
-                    ? new(completed, "army.progress.facility-effects-not-due") : null;
+                if (facilities.State is not { } completed)
+                    throw new InvalidDataException(facilities.UnresolvedOwner ??
+                        "army.progress.facility-effects.current-inputs");
+                return new(completed, "army.progress.facility-effects-not-due");
             }
             if (moment.SchedulerStageIndex == (byte)NativeArmyProgressStage.FacilityRepair)
             {

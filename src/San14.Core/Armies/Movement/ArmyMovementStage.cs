@@ -58,18 +58,44 @@ public static class ArmyMovementStage
                     state.ArmyLifecycle?.Receivers.Find(receiver)?.ActiveUnitId != unit.Id)
                 throw new InvalidDataException("Movement actor changed after preparation.");
         }
+        return AdvanceCurrentQueueOwned(state, moment, queue, rules);
+    }
+
+    /// <summary>Consumes a queue just built by the operation's own current
+    /// stage7. External prepared queues keep the validation entry above.</summary>
+    public static ArmyMovementStageResult AdvanceCurrentQueueOwned(GameState state,
+        NativeArmyProgressStageMoment moment, ArmyMovementQueue queue, IArmyMovementRules rules)
+    {
+        if (moment.SchedulerStageIndex != (byte)NativeArmyProgressStage.Movement ||
+            queue.PreparationMoment != moment with { SchedulerStageIndex = (byte)NativeArmyProgressStage.PrepareMovement })
+            throw new InvalidDataException("Movement queue belongs to another current cycle.");
+        var actors = queue.SelectedActors;
         var working = state;
         var order = new List<int>();
         foreach (var actor in actors)
         {
-            var unit = working.Units[actor.UnitId];
+            if (!working.Units.TryGetValue(actor.UnitId, out var unit) || actor.ReceiverId is { } receiver &&
+                working.ArmyLifecycle?.Receivers.Find(receiver)?.ActiveUnitId != unit.Id)
+                return new(false, state, actor.UnitId, [], 0);
             var resolution = rules.AdvanceArmy(working, unit, moment);
             if (resolution is null) return new(false, state, actor.UnitId, [], 0);
             if (resolution.MovementCredit < 0) throw new InvalidDataException("Army movement credit cannot be negative.");
             working = resolution.UpdatedState ?? working;
-            var updated = working.Units[unit.Id];
-            working = working with { Units = new(working.Units)
-                { [unit.Id] = updated with { March = updated.March! with { MovementCredit = resolution.MovementCredit } } } };
+            if (!working.Units.TryGetValue(unit.Id, out var updated))
+            {
+                //A real friendly-base return admits this actor to pending70.
+                //Its receiver owns the paid movement image until stage26;
+                //do not recreate an active Unit to publish its credit.
+                if (actor.ReceiverId is not { } returned ||
+                    working.ArmyLifecycle?.Receivers.Find(returned) is not
+                        { ActiveUnitId: null, PendingImage: { } pending } || pending.Id != unit.Id)
+                    return new(false, state, actor.UnitId, [], 0);
+                order.Add(unit.Id);
+                continue;
+            }
+            if (updated.March?.MovementCredit != resolution.MovementCredit)
+                working = working with { Units = new(working.Units)
+                    { [unit.Id] = updated with { March = updated.March! with { MovementCredit = resolution.MovementCredit } } } };
             order.Add(unit.Id);
         }
         return new(true, working, null, order.ToArray(), (actors.Count + ActorsPerBatch - 1) / ActorsPerBatch);

@@ -106,7 +106,7 @@ public static class OfficerCommandCapacity
         catch (InvalidDataException error) { return new(null, error.Message); }
     }
 
-    private static int ReadCreditSelectionBonus(GameState state, OfficerState person, int kind)
+    internal static int ReadCreditSelectionBonus(GameState state, OfficerState person, int kind)
     {
         //2AA170's current-user check cannot suppress this call when BC=-1,
         //regardless of the external manager pointer. A different current user

@@ -376,6 +376,7 @@ public partial class MapSceneView : Control
 
     private void ClearModels()
     {
+        ReleaseSceneryMap();
         ReleaseNativeMap();
         ReleaseSourceCamera();
         ReleaseArmyVisuals();
@@ -1055,6 +1056,7 @@ public partial class MapSceneView : Control
     internal void SetDetailsOpen(bool open, bool keepMapVisible = false)
     {
         if (open) ResetSourceCameraInput();
+        if (open) _sceneryMap?.Suspend();
         if (open) { CloseCityCommandMenu(); _d3d11Markers?.ClearPointer(); }
         _detailsOpen = open;
         _dragging = false; _dragDistance = 0;
@@ -1092,6 +1094,7 @@ public partial class MapSceneView : Control
         if (inside && D3D11MapInteractive && _d3d11PresentedInput?.SourceFrame is { } armyFrame &&
             _d3d11Markers?.TryPickArmy(surfacePosition, armyFrame, out var armyHit) == true)
         {
+            if(!sourceCameraShiftHeld&&TrySelectCommandArmy(armyHit.UnitId))return;
             if(PublishCommandTarget(armyHit.HexId))return;
             ShowPickedCell(armyHit.HexId, new(armyHit.Position.X, armyHit.Position.Y, armyHit.Position.Z));
             //Source hit preserves root identity; the existing playable command
@@ -1127,9 +1130,10 @@ public partial class MapSceneView : Control
             return;
         }
         TerrainPick hit;
-        bool picked=_sourceMainCameraFrame is not null?TrySourceCameraPick(surfacePosition,out hit):CurrentTerrainPicker.TryPick(_camera,point,out hit);
-        if (!inside || !picked ||
-            !_projection.TryPick(hit.Position.X, hit.Position.Z, out int hexId))
+        int hexId=-1;
+        bool picked=_sourceMainCameraFrame is not null?TrySourceCameraHexPick(surfacePosition,out hit,out hexId):
+            CurrentTerrainPicker.TryPick(_camera,point,out hit)&&_projection.TryPick(hit.Position.X,hit.Position.Z,out hexId);
+        if (!inside || !picked)
         {
             if(_commandTargetPicked is not null)return;
             ClearPickedCell();
@@ -1267,6 +1271,7 @@ public partial class MapSceneView : Control
     {
         if(_detailsOpen)return;
         if(UseD3D11Map && !D3D11MapInteractive)return;
+        if(_periodMapActive){HandleSourceCameraInput(input);return;}
         if (IsCityCommandMenuOpen && input is InputEventMouseButton { Pressed: true })
         {
             CloseCityCommandMenu();
@@ -1358,6 +1363,8 @@ public partial class MapSceneView : Control
 
     public override void _ExitTree()
     {
+        ReleaseSceneryMap();
+        UnbindSceneryMapPresentation();
         ReleaseSourceNavigationInput();
         _sceneLoadGeneration++;
         ReleaseNativeMap();

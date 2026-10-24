@@ -12,6 +12,10 @@ public sealed record NativeForceUnregisterCurrentState(string Revision,
 {
     //326230's word1656 reset constructs the independent interaction target.
     public byte? OtherForce1657 { get; init; }
+    // The placeholder is not a domain Force row. Preserve only the constructor
+    // fields actually owned here; an older save's missing values stay unknown.
+    public byte? PlaceholderFlags12 { get; init; }
+    public byte? PlaceholderPartner194 { get; init; }
 }
 
 public sealed partial record GameState

@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include "CommandMapInput.h"
+#include "RouteOverlayInput.h"
 #ifdef _WIN32
 #define SAN14_RENDER_API extern "C" __declspec(dllexport)
 #else
@@ -56,6 +57,14 @@ SAN14_RENDER_API int __cdecl san14_render_next(void* owner,void* output,
 SAN14_RENDER_API int __cdecl san14_render_next_command_map_v1(void* owner,void* output,
     const San14RenderInput* input,const San14CommandMapInputV1* command,
     uint32_t outputUse,San14RenderReceipt* receipt);
+SAN14_RENDER_API int __cdecl san14_render_next_command_map_v2(void* owner,void* output,
+    const San14RenderInput* input,const San14CommandMapInputV2* command,
+    uint32_t outputUse,San14RenderReceipt* receipt);
+// Both optional map extensions belong to this same accepted camera request.
+// Null command or route retains that installed owner. Empty route explicitly clears.
+SAN14_RENDER_API int __cdecl san14_render_next_map_overlays_v1(void* owner,void* output,
+    const San14RenderInput* input,const San14CommandMapInputV2* command,
+    const San14RouteOverlayInputV1* route,uint32_t outputUse,San14RenderReceipt* receipt);
 SAN14_RENDER_API int __cdecl san14_render_animation_event(void* owner,
     const San14RenderInput* input,uint32_t fpsMode);
 SAN14_RENDER_API void __cdecl san14_render_animation_state(void* owner,San14AnimationState* result);

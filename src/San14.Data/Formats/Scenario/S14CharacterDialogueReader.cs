@@ -4,7 +4,10 @@ using System.Text;
 namespace San14.Data.Formats;
 
 public sealed record S14CharacterDialogue(byte Style, ushort BirthYear, byte FamilyGeneration,
-    string GivenName, string CourtesyName);
+    string GivenName, string CourtesyName)
+{
+    public byte VoiceType { get; init; }
+}
 
 /// <summary>Verified CE character serializer fields. Format offsets stay at
 /// this import boundary; current narration never rereads the initial scenario.</summary>
@@ -27,7 +30,8 @@ public static class S14CharacterDialogueReader
             int end = courtesy.IndexOf('\0');
             if (end >= 0) courtesy = courtesy[..end];
             result[slot] = new(row[211+delta],BinaryPrimitives.ReadUInt16LittleEndian(row.Slice(219+delta,2)),
-                row[230+delta],table.Names[slot].GivenName,courtesy);
+                row[230+delta],table.Names[slot].GivenName,courtesy)
+                { VoiceType = row[209+delta] };
         }
         return Array.AsReadOnly(result);
     }

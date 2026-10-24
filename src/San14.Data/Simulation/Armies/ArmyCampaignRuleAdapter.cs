@@ -50,6 +50,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
     private readonly BaseCaptureRewardInputs _baseCaptureRewardInputs;
     private readonly CityCaptureTerritoryInputs _cityCaptureTerritoryInputs;
     private readonly TacticRuleAdapter _ticks;
+    private readonly IManualTacticPresentationAdmission? _automaticPresentationAdmission;
     public TacticRemakeParameterSeed Seed { get; }
     public string Revision { get; }
     public TacticRuleAdapter Tactics { get; }
@@ -80,10 +81,11 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         BaseCaptureRewardInputs baseCaptureRewardInputs,
         CityCaptureTerritoryInputs cityCaptureTerritoryInputs,
         LoadedExperienceData experience,
-        string revision)
+        string revision, IManualTacticPresentationAdmission? automaticPresentationAdmission)
     {
         if (string.IsNullOrWhiteSpace(revision)) throw new InvalidDataException("Owned Army package revision is missing.");
         _repository = repository;
+        _automaticPresentationAdmission = automaticPresentationAdmission;
         _campaignEvents = new(() => repository.LoadEvents(CampaignEventCatalog.SourcePath));
         _definitions = definitions; _scenario = scenario; _skills = skills; _catalog = catalog; _map = map; _terrain = terrain;
         var sceneries = repository.LoadSceneries(scenario.FixedDataSource.SourcePath);
@@ -125,8 +127,12 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         _ticks = Context(definitions.CaptureSourcePrefix()).CreateRules(); Tactics = new(this);
     }
 
+    /// <param name="automaticPresentationAdmission">An optional immutable host
+    /// snapshot for the special presentation route. Absence stays unknown;
+    /// ordinary effects do not require camera admission.</param>
     public static ArmyCampaignRuleAdapter FromOwnedCampaign(GameResourceRepository repository,
-        LoadedScenario source, LoadedMap map, string language, string revision)
+        LoadedScenario source, LoadedMap map, string language, string revision,
+        IManualTacticPresentationAdmission? automaticPresentationAdmission = null)
     {
         LoadedTerrainTypes terrain = repository.LoadTerrainTypes($"0010_{language}/fixdataexce.s14");
         LoadedSkillDefinitions skills = repository.LoadSkillDefinitions($"0010_{language}/fixdataexce.s14");
@@ -163,7 +169,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             PersonAssignmentPrecallInputs.Load(repository, source, language),
             BaseCaptureResourceInputs.Load(repository, language),
             BaseCaptureRewardInputs.Load(repository, source),
-            CityCaptureTerritoryInputs.Load(repository, language), experience, revision);
+            CityCaptureTerritoryInputs.Load(repository, language), experience, revision, automaticPresentationAdmission);
     }
 
     /// <summary>Constructs the selected fresh scenario's current map objects
@@ -200,6 +206,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         fresh = ArmyMarchParameterSeed.InstallFresh(fresh);
         fresh = NormalArmyCombatApplicationSourceMath.InstallFresh(fresh, _normalApplicationSeed, Revision);
         fresh = NormalArmyForceResultSource.InstallFresh(fresh, _forceResultSeed, Revision);
+        fresh = StructureAttackParameters.InstallFresh(fresh, Seed.Language);
         fresh = NormalArmyForceFreshAllocation.InstallFresh(fresh, _scenario, _forceResultSeed);
         fresh = _normalAftermathInputs.InstallFresh(fresh, _scenario);
         fresh = _destructionSeed.InstallFresh(fresh);
@@ -212,7 +219,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         fresh = PersonDeathReportInputs.InstallFreshPopularityScale(fresh, _scenario, Seed.Language);
         fresh = AnnualPersonLifespanNotificationSource.InstallFreshParameters(fresh, _scenario, Seed.Language);
         fresh = _rulerCaptureReleaseInputs.InstallFresh(fresh);
-        fresh = CaptureBaseThreatInputs.InstallFresh(fresh);
+        fresh = CaptureBaseThreatInputs.InstallFresh(fresh, _scenario);
         fresh = CommanderSelectionSource.InstallFresh(fresh);
         fresh = _baseCaptureResourceInputs.InstallFresh(fresh);
         fresh = _baseCaptureRewardInputs.InstallFresh(fresh);
@@ -261,6 +268,11 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         var ready = InstallFreshCampaignEventState(InstallFreshLandmarkInvestments(SubdayStatusParameters.InstallFresh(FireCommandParameters.InstallFresh(
             HexFireParameters.InstallFresh(BaseWoundedRecoveryParameters.InstallFresh(initialized)))))) with { RegionOccupationFollowups = new([], []) };
         ready = CityDomesticParameters.InstallFresh(ready, _repository.LoadCityDomesticParameters(Seed.Language), _scenario);
+        ready = PersonnelCommandParameters.InstallFresh(ready);
+        ready = GovernanceRosterParameters.InstallFresh(ready);
+        ready = CityFoodIncomeSource.InstallFreshParameters(ready);
+        ready = ArmyFoodExpenseParameters.InstallFresh(ready);
+        ready = GarrisonFoodShortageParameters.InstallFresh(ready);
         return TerrainDamageParameters.InstallFresh(FireDamageParameters.InstallFresh(TrapParameters.InstallFresh(ArmyTraitMaintenanceParameters.InstallFresh(FacilityRepairParameters.InstallFresh(InstallFreshBaseDamageTiers(RefreshDistrictCommandBudgets(DistrictCommandBudgetParameters.InstallFresh(FalseReportParameters.InstallFresh(ready))))))))) with
             { NormalCombatRefresh = new(0, []), CampaignEffectRequests = CampaignEffectRequests.Empty };
     }
@@ -289,10 +301,15 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
 
     /// <summary>Bind the finite saved World3A store only at normal new-game
     /// confirmation, using its actual selected ruler Person.</summary>
-    public GameState ConfirmNewGamePlayerPerson(GameState state, int confirmedPersonId) =>
-        OwnedCurrentPlayerForce.ConfirmNewGamePlayerPerson(state,
-            CaptureCurrentDefinitions(state) ?? throw new InvalidDataException("Confirmed player lacks current Person/District owners."),
-            confirmedPersonId);
+    public GameState ConfirmNewGamePlayerPerson(GameState state, int confirmedPersonId)
+    {
+        var current = CaptureCurrentDefinitions(state)
+            ?? throw new InvalidDataException("Confirmed player lacks current Person/District owners.");
+        var confirmed = OwnedCurrentPlayerForce.ConfirmNewGamePlayerPerson(state, current, confirmedPersonId);
+        //33CCA0 writes World3A, then2EE410 applies this actual player's Rank
+        //capacity. Restoring or querying a campaign never enters this writer.
+        return ApplyConfirmedPlayerCommanderCapacity(confirmed, current);
+    }
 
     /// <summary>Read-only rehearsal over the ordered pending allocations. This
     /// is a preparation availability check, not an original command formula or
@@ -486,6 +503,164 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             _pendingMerit.TryApplyWithinArmyOperation(state, current, officerId, requested);
     }
 
+    /// <summary>Reached hour10 candidate generation over the caller's live
+    /// operation. Mixed ordering is retained across borrowed ordinary Army and
+    /// City-origin applications. Every unclosed reached branch rejects this
+    /// entire private operation rather than skipping a pair or changing pools.</summary>
+    internal GameState CompleteCurrentArmyCombatCut(GameState state, SourceWorldContext current,
+        NativeMapSeasonDate date, long revision)
+        => CompleteCurrentArmyCombatCut(state, current, date, revision, out _, out _);
+
+    private GameState CompleteCurrentArmyCombatCut(GameState state, SourceWorldContext current,
+        NativeMapSeasonDate date, long revision, out int armyPairCount,
+        out NativeArmyCombatCycleSampler? cycleSampler)
+    {
+        armyPairCount = 0;
+        cycleSampler = null;
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(current);
+        if (date.Hour != 10 || revision < 0)
+            throw new InvalidDataException("ordinary_army_combat_cut.actual_hour10");
+        var pool = current.ReadOwnedCurrentListPool();
+        if (pool is null || !pool.OwnsArmyReturnProfile() ||
+            !ReferenceEquals(pool.ArmyReturnOwner, current))
+            throw new InvalidDataException("ordinary_army_combat_cut.current_pool_owner");
+
+        //Rebind only saved views consumed here. Neither binder imports a pool,
+        //creates a current, advances a clock, or publishes a combat result.
+        OwnedArmyDestructionCurrent.BindOwnedCurrentContext(state, current);
+        CaptureBaseThreatInputs.BindCurrent(state, current);
+        //A fresh capture imports association order, not task payload fields.
+        //Bind the saved task owner once; a borrowed operation can already own
+        //a later manager and must retain its current raw58/member chains.
+        if (current.ReadOwnedPersonCommandManager() is null)
+            PersonReturnCommands.BindCurrent(state, current);
+        //The ordinary campaign owns no tutorial/challenge service. Match the
+        //same explicit absent owner used by normal return and occupation.
+        current.ArmyReturnTransferMode = new(false, null);
+        var queries = new ArmyMapGroupingCurrentQueries(state, current, _scenario, _governorInputs,
+            Seed.Language, SimulationRuleIdentity.ForLocale(Seed.Language));
+        var projection = new NormalCombatMixedProducer(state, current, Context(current), queries).Generate();
+        var season = state.NativeMapSeason ?? throw new InvalidDataException("ordinary_army_combat_cut.calendar");
+        var moment = new NormalArmyCombatPhaseMoment(revision, date, 13, season.SourceScenarioUri,
+            season.SourceScenarioSha256, season.SourceWorldSha256, NormalArmyCombatCalendarRuntime.Revision);
+        var sampler = NativeArmyCombatCycleSampler.Create(new(moment, state, NativeArmyProgressAtomicRuntime.Revision))
+            ?? throw new InvalidDataException("ordinary_army_combat_cut.actual_cycle_sampler");
+        cycleSampler = sampler;
+        armyPairCount = projection.OrderedPairs.Count(pair => pair.Actor.Kind == 27 && pair.Target.Kind == 27);
+        if (projection.OrderedPairs.Length == 0) return state;
+        NormalArmyCombatDescriptor Descriptor(NormalCombatParticipant participant) => new(
+            participant.UnitId ?? throw new InvalidDataException("ordinary_army_combat_cut.Army_identity"),
+            checked((ushort)participant.PhysicalSlot), participant.Morale, participant.Troops,
+            participant.HexId, participant.ForceSlot, participant.AcceptedCount);
+        var descriptors = new Dictionary<int, NormalArmyCombatDescriptor>();
+        foreach (var row in projection.Actors)
+            if (row.Actor.Kind == 27)
+            {
+                var descriptor = Descriptor(row.Actor);
+                descriptors[descriptor.ArmyId] = descriptor;
+            }
+        var pairs = projection.OrderedPairs.Where(pair => pair.Actor.Kind == 27 && pair.Target.Kind == 27)
+            .Select((pair, index) => new NormalArmyCombatPair(index,
+            Descriptor(pair.Actor), Descriptor(pair.Target))).ToArray();
+        foreach (var pair in projection.OrderedPairs)
+            if (pair.Target.Kind == 27)
+            {
+                var descriptor = Descriptor(pair.Target);
+                descriptors.TryAdd(descriptor.ArmyId, descriptor);
+            }
+        var plan = new NormalArmyCombatPlan(moment, pairs, state.RandomState, "ordinary-current-mixed-Army-pairs:" + Revision);
+        var effects = new List<CampaignEffectRequest>();
+        var phase = pairs.Length == 0 ? null : CaptureNormalArmyCombatPhase(state, moment, sampler, current, plan, descriptors, effects)
+            ?? throw new InvalidDataException("ordinary_army_combat_cut.current_phase_inputs");
+        var sourceQueries = new TacticRemakeCurrentBattleQueries(Context(current, sampler), current, Revision,
+            currentPhaseDescriptors: descriptors);
+        var baseCounts = new Dictionary<(int Kind, int Physical), byte>();
+        foreach (var row in projection.Actors)
+            if (row.Actor.Kind is 5 or 6)
+                baseCounts[(row.Actor.Kind, row.Actor.PhysicalSlot)] = row.Actor.AcceptedCount;
+        int armyPairIndex = 0;
+        var working = state;
+        foreach (var pair in projection.OrderedPairs)
+        {
+            if (pair.Actor.Kind == 27 && pair.Target.Kind == 27)
+            {
+                var completed = phase!.TryCompleteOrdinaryPair(working, armyPairIndex++,
+                    new NormalArmyForceResultDefinitions(current));
+                if (completed.Outcome is NormalArmyNonlethalPairOutcome.CurrentInputsUnresolved or
+                    NormalArmyNonlethalPairOutcome.DestructionRequired)
+                {
+                    var failure = new InvalidDataException("ordinary_army_combat_cut." + completed.MissingOwner);
+                    //Failure-only retained receipts. Do not select, sample, capture,
+                    //serialize or scan the world again to explain a rejected pair.
+                    failure.Data["CombatCalendarCycleOrdinal"] = revision;
+                    failure.Data["CombatDate"] = date;
+                    failure.Data["CombatArmyPairIndex"] = armyPairIndex - 1;
+                    failure.Data["CombatMixedGenerationOrdinal"] = pair.GenerationOrdinal;
+                    failure.Data["CombatActorPhysical"] = pair.Actor.PhysicalSlot;
+                    failure.Data["CombatActorUnitId"] = pair.Actor.UnitId;
+                    failure.Data["CombatActorHex"] = pair.Actor.HexId;
+                    failure.Data["CombatTargetPhysical"] = pair.Target.PhysicalSlot;
+                    failure.Data["CombatTargetUnitId"] = pair.Target.UnitId;
+                    failure.Data["CombatTargetHex"] = pair.Target.HexId;
+                    failure.Data["CombatPairOutcome"] = completed.Outcome.ToString();
+                    failure.Data["CombatMissingOwner"] = completed.MissingOwner;
+                    if (completed.Prefix?.Automatic is { } automatic)
+                    {
+                        failure.Data["AutomaticOutcome"] = automatic.Outcome.ToString();
+                        failure.Data["AutomaticMissingOwner"] = automatic.MissingOwner;
+                        if (automatic.Selection is { } reached)
+                        {
+                            failure.Data["AutomaticStage6Gate"] = reached.Stage5.Stage6Gate.ToString();
+                            failure.Data["AutomaticFrameWord20"] = reached.Stage5.Damage.NativeFrameWord20;
+                            failure.Data["AutomaticSnapshotTargetTroops"] = reached.Stage5.Pair.Target.TroopsA;
+                            if (reached.Selection is { } selection)
+                            {
+                                failure.Data["AutomaticSelectionStatus"] = selection.Status.ToString();
+                                failure.Data["AutomaticSelectedTacticSlot"] = selection.SelectedCandidate?.TacticSlot;
+                                if (selection.Candidates is { } candidates)
+                                {
+                                    failure.Data["AutomaticAvailableSlots"] = string.Join(",", candidates.ActualAvailableSlots);
+                                    failure.Data["AutomaticCandidateCount"] = candidates.CandidatesAfterTargetFiltering.Length;
+                                }
+                            }
+                        }
+                    }
+                    throw failure;
+                }
+                working = completed.State;
+            }
+            else if (pair.Actor.Kind is 5 or 6 && pair.Target.Kind == 27)
+            {
+                byte? baseDivisor = baseCounts.TryGetValue((pair.Actor.Kind, pair.Actor.PhysicalSlot), out var count)
+                    ? count : (byte)1;
+                working = CompleteBorrowedBaseArmyPair(working, current, pair,
+                    baseDivisor, sourceQueries, sampler, effects);
+            }
+            else if (pair.Actor.Kind == 27 && pair.Target.Kind is 5 or 6)
+            {
+                byte? baseDivisor = baseCounts.TryGetValue((pair.Target.Kind, pair.Target.PhysicalSlot), out var count)
+                    ? count : (byte)1;
+                working = CompleteBorrowedArmyBasePair(working, current, pair,
+                    baseDivisor, sourceQueries, sampler, date, effects);
+            }
+            else
+            {
+                string application = pair.Actor.Kind != 27 ? "Base_origin_application" : pair.Target.Kind switch
+                {
+                    5 or 6 => "Base_target_application",
+                    11 => "Object_target_application",
+                    _ => "target_kind"
+                };
+                throw new InvalidDataException($"ordinary_army_combat_cut.{application}.actor{pair.Actor.Kind}:{pair.Actor.PhysicalSlot}.target{pair.Target.Kind}:{pair.Target.PhysicalSlot}");
+            }
+        }
+        if (effects.Count != 0)
+            working = working with { CampaignEffectRequests = (working.CampaignEffectRequests ?? CampaignEffectRequests.Empty)
+                .Append(CampaignEffectSource.NormalCombatApplication, revision, effects) };
+        return working.WithArmyLifecycle(working.ReadArmyLifecycle()! with { Indexes = pool.ProjectOwnedRoles() });
+    }
+
     /// <summary>Generate an exact Army-only phase descriptor cache over the
     /// reached stage13 capture. Later pair damage reads fresh current quantities
     /// while retaining this cache; it does not execute the application callbacks.</summary>
@@ -514,9 +689,38 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
     }
 
     private NormalArmyCombatCurrentPhase? CaptureNormalArmyCombatPhase(GameState state,
-        NormalArmyCombatPhaseMoment moment, NativeArmyCombatCycleSampler? sampler) =>
-        NormalArmyCombatCurrentPhase.Capture(state, moment,
-            definitions => Context(definitions, sampler), CaptureCurrentDefinitions, (definitions, descriptors) => {
+        NormalArmyCombatPhaseMoment moment, NativeArmyCombatCycleSampler? sampler,
+        SourceWorldContext? borrowedCurrent = null, NormalArmyCombatPlan? currentPlan = null,
+        IReadOnlyDictionary<int, NormalArmyCombatDescriptor>? currentDescriptors = null,
+        List<CampaignEffectRequest>? currentEffects = null)
+    {
+        GameState latest = state;
+        Func<ForceReference, int, int?> readEffect = (force, effect) =>
+            borrowedCurrent!.ReadForceNativeValidity(force) is bool valid ? !valid ? 0 :
+            force.PhysicalSlot is int id && latest.Forces.TryGetValue(id, out var owner)
+                ? BattleRemakeCurrentForcePolicies.ReadForceEffect(latest, owner, effect) : null : null;
+        Func<ForceReference, int, int?> readModifier = (force, effect) => force.PhysicalSlot is int id
+            ? _baseCapacityInputs.ReadPanelModifier(latest, id, effect) : null;
+        void BindLatestPolicyReaders()
+        {
+            borrowedCurrent!.BaseForcePolicyEffectReader = readEffect;
+            borrowedCurrent.BaseForceModifierReader = readModifier;
+        }
+        SourceWorldContext? ReadLatest(GameState reached)
+        {
+            if (borrowedCurrent is null) return CaptureCurrentDefinitions(reached);
+            latest = reached;
+            BindLatestPolicyReaders();
+            OwnedArmyDestructionCurrent.BindOwnedCurrentContext(reached, borrowedCurrent);
+            return borrowedCurrent;
+        }
+        if (borrowedCurrent is not null)
+        {
+            _baseCapacityInputs.BindCurrent(state, borrowedCurrent);
+            BindLatestPolicyReaders();
+        }
+        return NormalArmyCombatCurrentPhase.Capture(state, moment,
+            definitions => Context(definitions, sampler), ReadLatest, (definitions, descriptors) => {
                 var abilities = new TacticRemakeCurrentAbilities(definitions, _scenario, Seed.Language, SimulationRuleIdentity.ForLocale(Seed.Language));
                 var prefix = new TacticRemakeCurrentContext(definitions, _catalog, _map, _terrain, _usage, Revision, abilities,
                     operationSampler: sampler);
@@ -527,14 +731,16 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                     new BattleRemakeCurrentArmyDamageQueries(attributes, queries, Revision), Revision);
             }, (context, definitions) => new(_regionSeed, context, definitions, Revision),
             Seed.Language, SimulationRuleIdentity.ForLocale(Seed.Language), Revision, sampler is null ? null : this,
-            sampler is null ? null : this);
+            sampler is null ? null : this, borrowedCurrent, currentPlan, currentDescriptors, sampler, currentEffects);
+    }
 
     public PlayableArmyCreationResolution? Create(GameState state, PreparedDeployment deployment, UnitState army) =>
         CreateOrdinaryCore(state, deployment, army, null);
 
     private PlayableArmyCreationResolution? CreateOrdinaryCore(GameState state, PreparedDeployment deployment,
         UnitState army, ArmyCreationConfiguration? normalConfiguration,
-        Func<GameState, PlayableArmyCreationResolution, GameState>? beforeRegistration = null)
+        Func<GameState, PlayableArmyCreationResolution, GameState>? beforeRegistration = null,
+        ArmyTargetSourceFields? normalTarget = null)
     {
         SourceWorldContext? definitions = CaptureCurrentDefinitions(state);
         if (definitions is null) return null;
@@ -559,7 +765,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                 ArmyHomeSequenceSource.ReadNextOrdinary(state, CaptureOwnedArmyReturnWorld(state).Context, army.OfficerId),
             NativeSavedRegionHex152 = selectedBase?.PhysicalSlot is not null
                 ? ArmyCurrentRegionSource.ResolveCreationRegion(selectedBase, definitions) : null };
-        var march = ArmyDeploymentMarchSource.Read(deployment, result.NativeCommandControl140);
+        var march = ArmyDeploymentMarchSource.Read(deployment, result.NativeCommandControl140, normalTarget);
         // Preserve the draft's independent credit/hold. The wrapper's final
         // next is unknown until its actual route branch has completed.
         result = result with { March = march is null ? null : march.March with { NextStep = null },

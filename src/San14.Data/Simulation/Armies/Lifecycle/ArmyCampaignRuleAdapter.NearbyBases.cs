@@ -10,11 +10,17 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// <summary>The second call of source stage26. Reads the actual Base
     /// registry after retirement and overwrites only its nearby-enemy bit.
     /// It does not infer enemies from the asymmetric route hostility query.</summary>
-    public BaseNearbyEnemyRefreshResult TryRefreshBaseNearbyArmies(GameState state)
+    public BaseNearbyEnemyRefreshResult TryRefreshBaseNearbyArmies(GameState state) =>
+        TryRefreshBaseNearbyArmiesCurrent(state, null);
+
+    internal BaseNearbyEnemyRefreshResult RefreshBaseNearbyArmiesCurrent(GameState state, SourceWorldContext current)
+        => TryRefreshBaseNearbyArmiesCurrent(state, current);
+
+    private BaseNearbyEnemyRefreshResult TryRefreshBaseNearbyArmiesCurrent(GameState state, SourceWorldContext? borrowed)
     {
         try
         {
-            var current = CaptureWritableTransportRouteCurrent(state);
+            var current = borrowed ?? CaptureWritableTransportRouteCurrent(state);
             var cities = new Dictionary<int, CityState>(state.Cities);
             var gates = new Dictionary<int, GateState>(state.Gates);
             bool? unassignedCity = state.UnassignedCityHasNearbyEnemyArmy;

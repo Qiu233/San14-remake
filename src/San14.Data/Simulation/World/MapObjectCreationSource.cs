@@ -43,7 +43,7 @@ internal static class MapObjectCreationSource
         if (receiver.Subject?.StructureId is int previous) structures.Remove(previous);
         structures.Add(structure, new(structure, MapObjectSourceDirectory.DefinitionKey(kind), position,
             faction == 0 || !knownFaction ? null : faction, 1, MaxDurability: null));
-        var created = receiver with { Subject = new(MapObjectCategory.Facility,
+        var created = receiver with { Subject = new(OwnedMapObjectLifecycle.Category(Read(current, definition).Category),
                 MapObjectSourceDirectory.DefinitionKey(kind), null, structure),
             Pose = new(MapObjectPoseKind.Hex, position), BaseMapFaction = null };
         source = source.WithConstructedReceiver(at, fields16, faction, knownFaction);

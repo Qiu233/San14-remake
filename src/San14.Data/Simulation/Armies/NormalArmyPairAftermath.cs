@@ -21,6 +21,14 @@ public static class NormalArmyPairAftermath
     public static NormalArmyPairAftermathResult TryApply(GameState input,
         NormalArmyCombatPair pair, SourceWorldContext current,
         TacticRemakeCurrentContext context, NormalArmyAftermathInputs inputs)
+        => TryApplyMixed(input, FromArmy(pair.Attacker), FromArmy(pair.Target), current, context, inputs);
+
+    /// <summary>The same174EC0 tail with real mixed descriptors. Base actors
+    /// have no Army commander gate; Army participants still resolve their live
+    /// receiver. Unknown requires rejecting the enclosing owned operation.</summary>
+    internal static NormalArmyPairAftermathResult TryApplyMixed(GameState input,
+        NormalCombatParticipant actor, NormalCombatParticipant target, SourceWorldContext current,
+        TacticRemakeCurrentContext context, NormalArmyAftermathInputs inputs)
     {
         var working = input;
         var draws = new List<NormalArmyCombatSamplerDraw>();
@@ -28,15 +36,15 @@ public static class NormalArmyPairAftermath
         NormalArmyRelationAftermathReceipt? relations = null;
         try
         {
-            var hex = Pointer(current.ReadHexTableReference(pair.Target.NativeHexC is >= 0 and <= 48399
-                ? pair.Target.NativeHexC : 0), "current.target_Hex14");
+            var hex = Pointer(current.ReadHexTableReference(target.HexId is >= 0 and <= 48399
+                ? target.HexId : 0), "current.target_Hex14");
             int areaId = Need(current.ReadHexAreaSlot(hex), "current.target_Hex_Area12");
             var areaReference = Pointer(current.ReadAreaTableReference(areaId <= 500 ? areaId : 0), "current.target_Area");
             if (Need(current.ReadAreaNativeValidity(areaReference), "current.target_Area_validity")) ApplyArea();
 
-            if (!ForceValid(pair.Attacker.NativeForce10) || !ForceValid(pair.Target.NativeForce10)) return Done();
-            if (!CommanderOrdinary(pair.Attacker) || !CommanderOrdinary(pair.Target)) return Done();
-            int first = pair.Attacker.NativeForce10, second = pair.Target.NativeForce10;
+            if (!ForceValid(actor.ForceSlot) || !ForceValid(target.ForceSlot)) return Done();
+            if (!CommanderOrdinary(actor) || !CommanderOrdinary(target)) return Done();
+            int first = actor.ForceSlot, second = target.ForceSlot;
             if (first == second) return Done(); //Actual2704F0 native no-op.
             if (first is >= 46 and <= 50 || second is >= 46 and <= 50)
                 throw Missing("current.special_Force_27B0F0_relation_tail");
@@ -61,12 +69,12 @@ public static class NormalArmyPairAftermath
                             "current.overseer_effect7D") <= 0;
                 }
                 var developmentWrites = new List<CeAreaDevelopmentWriteResult>();
-                int firstSalt = unchecked((pair.Attacker.NativePoolSlot + 5) * pair.Target.NativeHexC);
-                int secondSalt = unchecked(pair.Attacker.NativeHexC * 2);
+                int firstSalt = unchecked((actor.PhysicalSlot + 5) * target.HexId);
+                int secondSalt = unchecked(actor.HexId * 2);
                 if (progressEnabled)
                 {
-                    int effect = ForceValid(pair.Attacker.NativeForce10)
-                        ? Need(current.ReadBaseForceModifier(new(pair.Attacker.NativeForce10), 0x30),
+                    int effect = ForceValid(actor.ForceSlot)
+                        ? Need(current.ReadBaseForceModifier(new(actor.ForceSlot), 0x30),
                             "current.attacker_Force_panel30") : 0;
                     float percent = Math.Min(100f, (float)effect);
                     if (percent <= 0f || Sample("development-protection", 10000, (int)((percent * 10000f) / 100f)) >=
@@ -119,11 +127,13 @@ public static class NormalArmyPairAftermath
         int P(string key) => Need(inputs.ReadCurrent(working, key), "current.stage8_parameter:" + key);
         bool ForceValid(int id) => Need(current.ReadForceNativeValidity(Pointer(current.ReadForceTableReference(
             id is >= 0 and <= 51 ? id : 0), "current.Force_pointer")), "current.Force_validity");
-        bool CommanderOrdinary(NormalArmyCombatDescriptor descriptor)
+        bool CommanderOrdinary(NormalCombatParticipant descriptor)
         {
+            if (descriptor.Kind is 5 or 6) return true;
+            if (descriptor.Kind != 27) throw Missing("current.stage8_participant_kind");
             //Source reads the current pooled receiver even after an enqueue.
-            if (!working.Units.TryGetValue(descriptor.ArmyId, out var army) ||
-                army.NativeArmyOrigin?.NativeSlotIndex != descriptor.NativePoolSlot) throw Missing("current.stage8_Army_receiver");
+            if (descriptor.UnitId is not int unitId || !working.Units.TryGetValue(unitId, out var army) ||
+                army.NativeArmyOrigin?.NativeSlotIndex != descriptor.PhysicalSlot) throw Missing("current.stage8_Army_receiver");
             if (!Need(context.ArmyValid(working, army), "current.stage8_Army_validity")) return false;
             var person = Pointer(current.ReadPersonLookupReference(army.OfficerId), "current.stage8_commander");
             if (person.PhysicalSlot is not int physical || !Need(current.ReadPersonNativeValidity(physical), "current.commander_validity")) return false;
@@ -147,11 +157,14 @@ public static class NormalArmyPairAftermath
         }
         NormalArmyPairAftermathResult Done()
         {
-            NativeNormalArmyAftermathStateValidation.Validate(working);
             return new(ReferenceEquals(working, input) ? NormalArmyPairAftermathOutcome.ResolvedWithoutWrite :
                 NormalArmyPairAftermathOutcome.Committed, working, areaReceipt, relations, draws.ToArray(), null);
         }
     }
+
+    private static NormalCombatParticipant FromArmy(NormalArmyCombatDescriptor descriptor) => new(27,
+        descriptor.NativePoolSlot, descriptor.ArmyId, descriptor.CappedMorale8, descriptor.TroopsA,
+        descriptor.NativeHexC, descriptor.NativeForce10, descriptor.AcceptedPrimaryCount14);
 
     private sealed class Unknown(string owner) : Exception(owner);
     private static Unknown Missing(string owner) => new(owner);

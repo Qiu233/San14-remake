@@ -31,8 +31,9 @@ public static class PlayableMilitaryStateValidation
                 plan.RestingHexId is int resting && (resting < 0 || resting >= mapSize) ||
                 plan.Action is null || plan.Action.Target is null || plan.Action.Target.Id < 0 ||
                 !Enum.IsDefined(plan.Action.Target.Kind) ||
-                !PlayableWaypointMarch.IsSupportedAction(plan.Action) ||
+                !PlayableWaypointMarch.IsSupportedAction(plan.Action) && !IsNativeFireProjection(state, unit, plan) && !IsNativeFalseReportProjection(unit, plan) ||
                 plan.Action.Target.Kind == DeploymentTargetKind.Hex && plan.Action.Target.Id >= mapSize ||
+                plan.Action.ActionKey == "capture" && plan.Action.FalseReportDestinationHexId >= mapSize ||
                 plan.Action.Target.Kind == DeploymentTargetKind.Unit && plan.Action.Target.Id == unit.Id ||
                 plan.Action.Target.Kind == DeploymentTargetKind.Area && !state.Areas.ContainsKey(plan.Action.Target.Id) ||
                 plan.Action.Target.Kind == DeploymentTargetKind.Location &&
@@ -47,6 +48,21 @@ public static class PlayableMilitaryStateValidation
             // orders. Those are runtime action-termination events, not corrupt saves.
         }
     }
+
+    // This is a saved existing-Army projection. It does not admit Fire to
+    // new deployments or the provisional coarse movement consumer.
+    private static bool IsNativeFireProjection(GameState state, UnitState unit, PlayableMilitaryPlan plan) =>
+        unit.NativeArmyOrigin is { NativeSlotIndex: >= 1 and <= 500 } && unit.NativeTacticRuntime is { Status10: 1 } &&
+        (unit.FieldAttackPolicy?.UsesConfusionGate == plan.Completed ||
+            unit.FieldAttackPolicy?.UsesConfusionGate == true &&
+            ArmySavedCommandKnowledge.RetainsReplacedMilitaryPlan(state, unit, plan, plan.Completed ? 13 : 16)) &&
+        plan.Action is { ActionKey: "fire", Target.Kind: DeploymentTargetKind.Hex, StructureKindId: null };
+
+    private static bool IsNativeFalseReportProjection(UnitState unit, PlayableMilitaryPlan plan) =>
+        unit.NativeArmyOrigin is { NativeSlotIndex: >= 1 and <= 500 } && unit.NativeTacticRuntime is { Status10: 1 } &&
+        unit.FieldAttackPolicy?.UsesConfusionGate == true &&
+        plan.Action is { ActionKey: "capture", Target.Kind: DeploymentTargetKind.Unit, StructureKindId: null,
+            FalseReportDestinationHexId: >= 0 };
 
     private static bool MatchesMission(UnitState unit, PlayableMilitaryPlan plan)
     {

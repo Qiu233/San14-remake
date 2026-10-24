@@ -36,9 +36,11 @@ public static class PlayableUnitAftermath
     public static void RemoveZeroMorale(IReadOnlyDictionary<int, CityState> cities,
         IReadOnlyDictionary<int, GateState> gates,
         Dictionary<int, OfficerState> officers, Dictionary<int, UnitState> units,
-        List<PeriodReportEntry> reports, int mapWidth, Action<UnitState>? onRetired = null)
+        List<PeriodReportEntry> reports, int mapWidth, Action<UnitState>? onRetired = null,
+        bool sourceArmyTimelineCompleted = false)
     {
-        foreach (UnitState unit in units.Values.Where(unit => unit.Morale <= 0)
+        foreach (UnitState unit in units.Values.Where(unit => unit.Morale <= 0 &&
+                     !(sourceArmyTimelineCompleted && unit.NativeArmyOrigin is not null))
                      .OrderBy(unit => unit.Id).ToArray())
             Destroy(unit, cities, gates, officers, units, reports, mapWidth, onRetired);
     }

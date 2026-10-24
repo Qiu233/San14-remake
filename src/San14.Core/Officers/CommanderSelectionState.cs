@@ -41,8 +41,9 @@ public sealed class CommanderSelectionState
     }
 }
 
-/// <summary>The auxiliary channel has no established business meaning. Keep it
-/// independently known or unknown rather than inventing a date or score.</summary>
+/// <summary>The source's signed auxiliary word. The normal selector preserves
+/// it for an existing identity and writes World454 for a newly selected person.
+/// Older saves may retain independent unknown knowledge.</summary>
 public sealed record CommanderSelectionCandidate(int? OfficerId, int? UninterpretedValue)
 {
     public static CommanderSelectionCandidate Cleared { get; } = new(0, 0);

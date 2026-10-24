@@ -113,7 +113,7 @@ inline int updateOne(const Profile& p,Owner& owner,const Current& current) {
         break;
     case 5:
         if(current.selector1==-1)std::fill(output,output+cells,0);
-        else if(current.selector1==4) {
+        else if(current.selector1==2||current.selector1==3||current.selector1==4) {
             if(!current.areaFocusSlots||current.areaFocusSlots->size()!=cells)
                 throw std::runtime_error("Actual area-focus raw Hex12 inputs required");
             for(unsigned cell=0;cell<cells;++cell)output[cell]=current.areaFocus!=0&&

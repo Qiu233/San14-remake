@@ -36,7 +36,13 @@ public sealed partial record GameState
 
 public sealed record PrepareDiplomaticOrder(int ForceId, int SourceCityId,
     int ExecutorOfficerId, int TargetForceId, DiplomaticMissionKind Kind,
-    int AllianceMonths = 12, int? TargetCityId = null) : GameOrder(ForceId);
+    int AllianceMonths = 12, int? TargetCityId = null) : GameOrder(ForceId)
+{
+    public int GiftGold { get; init; }
+    public int GiftSupplies { get; init; }
+    public int? GiftItemId { get; init; }
+    public int? GiftAreaId { get; init; }
+}
 
 public readonly record struct DiplomacyQuote(int CommandBooks, int Gold,
     int TravelPeriods, int TreatyPeriods, int RequestPeriods);

@@ -18,7 +18,7 @@ public sealed record ArmyMarchPenaltyCurrentResolution(ArmyMarchPenaltyCurrentRe
 
 /// <summary>TC2B5C10 as reached by ordinary2695D0 with null Hex override.
 /// Current Army/Person/Force/map owners produce actual neighborhood counts.
-/// Special Army140 and non-Base generic Objects remain explicit source gaps.</summary>
+/// Special Army140 still requires its reached policy and tactic owners.</summary>
 public sealed class ArmyMarchPenaltyCurrentProducer
 {
     public const string Revision = "san14:ce-ordinary-current-march-penalty-20261003";
@@ -44,9 +44,16 @@ public sealed class ArmyMarchPenaltyCurrentProducer
     {
         var definitions = package.CaptureCurrentDefinitions(state);
         if (definitions is null) return Missing("current.Base_Hex_Person_definition_capture");
+        return Resolve(state, army, definitions);
+    }
+
+    /// <summary>Borrows the same operation's current owners instead of
+    /// capturing another initial image for each actor.</summary>
+    public ArmyMarchPenaltyCurrentResolution Resolve(GameState state, UnitState army, SourceWorldContext definitions)
+    {
         var context = new TacticRemakeCurrentContext(definitions, catalog, map, terrain,
             new(source.Language, SimulationRuleIdentity.ForLocale(source.Language)), Revision);
-        if (context.ArmyValid(state, army) != true || army.NativeTacticRuntime?.Status10 != 1)
+        if (context.ArmyValid(state, army) != true || army.NativeTacticRuntime?.Status10 is not (1 or 2))
             return Missing("current.ordinary_Army_validity_Status10");
         if (!state.Officers.ContainsKey(army.OfficerId) ||
             definitions.ResolveOfficerSource(army.OfficerId) is not int commanderPhysical)
@@ -153,11 +160,29 @@ public sealed class ArmyMarchPenaltyCurrentProducer
             if (obj is null || definitions.ReadObjectNativeValidity(obj) is not bool objectValid)
                 return Missing("current.Hex_Object_lookup_and_validity");
             if (!objectValid) continue;
-            if (obj.PhysicalSlot is not int physical || definitions.ReadObjectForceSlot13(obj) is not byte objectForce)
-                return Missing("current.Object_physical_identity_and_Force13");
+            if (obj.PhysicalSlot is not int physical)
+                return Missing("current.Object_physical_identity");
             //2A8080 retains City1..51 and Gate52..61 without its later generic
-            //Object16 bit1/exclusion test;26BDA0 then counts each pointer once.
-            if (physical is < 1 or > 61) return Missing("current.generic_Object16_bit1_and_manager2336B0");
+            //Object16 bit0/exclusion test;26BDA0 then counts each pointer once.
+            if (physical is < 1 or > 61)
+            {
+                if (definitions.ReadMapObjectFields16(obj) is not ushort fields)
+                    return Missing("current.generic_Object16");
+                if ((fields & 1) == 0) continue;
+                var pendingRetirements = definitions.ReadOwnedCurrentListPool()?.PendingObjectRetirements;
+                var directory = definitions.CurrentMapObjectDirectory;
+                if (pendingRetirements is null || directory is null)
+                    return Missing("current.generic_Object_pending_F0_owner");
+                var objectReceiver = directory.ReceiverAtPhysical(physical);
+                bool excluded = false;
+                //2336B0 compares receiver pointers in the actual F0 list.
+                //A null payload is a normal nonmatch, not an unknown object.
+                foreach (var pending in pendingRetirements)
+                    if (pending == objectReceiver) { excluded = true; break; }
+                if (excluded) continue;
+            }
+            if (definitions.ReadObjectForceSlot13(obj) is not byte objectForce)
+                return Missing("current.Object_Force13");
             bool? hostileObject = ArmyLogisticsPreparation.ReadNativeRelationGate(state, objectForce, army.ForceId);
             if (hostileObject is null) return Missing("current.Object_Force_relation2CA650");
             if (hostileObject.Value)

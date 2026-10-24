@@ -6,7 +6,7 @@ using San14.Data;
 /// Canvas screen copies do not preserve the destination alpha channel.</summary>
 internal partial class UiSourceSprite : Control, IUiSourceDrawing
 {
-    internal enum Blend { Ordinary, ClippedButton, ThreeTexturePortrait, TwoTexturePortrait, SourceAlphaDestinationAlpha, GaugeUvMask, Additive, AlphaMask }
+    internal enum Blend { Ordinary, ClippedButton, ThreeTexturePortrait, TwoTexturePortrait, SourceAlphaDestinationAlpha, GaugeUvMask, Additive, AlphaMask, UniqueRulerPortrait, TranslatedAlphaMask }
     private Rid _copy, _draw;
     private ShaderMaterial? _material;
     private Texture2D? _texture;
@@ -45,6 +45,12 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
         }
         _material!.SetShaderParameter("first_image", texture);
         _material.SetShaderParameter("first_uv", new Vector4(uv.Position.X, uv.Position.Y, uv.Size.X, uv.Size.Y));
+    }
+
+    internal void SetMaskUvOffset(Vector2 offset)
+    {
+        _material!.SetShaderParameter("mask_uv_offset",offset);
+        QueueRedraw();
     }
 
     internal void SetSamplingRectangle(Rect2 rectangle)
@@ -171,6 +177,7 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
         uniform vec4 first_uv = vec4(0.0, 0.0, 1.0, 1.0);
         uniform vec4 mask_uv = vec4(0.0, 0.0, 1.0, 1.0);
         uniform vec4 mask_rectangle;
+        uniform vec2 mask_uv_offset = vec2(0.0);
         uniform vec4 second_mask_uv;
         uniform vec4 second_mask_rectangle;
         uniform bool has_second_mask = false;
@@ -212,6 +219,16 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
                 prepared = floor(clamp(prepared, 0.0, 1.0) * 255.0 + 0.5) / 255.0;
                 rgb = src.rgb * prepared + rgb * (1.0 - prepared);
                 alpha = src.a * prepared;
+            } else if (blend_kind == 8 || blend_kind == 9) {
+                // Source mode13 selects PS25. Only mask alpha participates;
+                // zero coverage discards without writing the destination.
+                vec2 point = (local_position - mask_rectangle.xy) / mask_rectangle.zw;
+                if (blend_kind == 9) point = clamp(point + mask_uv_offset, vec2(0.0), vec2(1.0));
+                float coverage = texture(mask_image, mask_uv.xy + point * mask_uv.zw).a;
+                if (coverage == 0.0) discard;
+                float portrait_alpha = sample_color.a * coverage * sprite_tint.a;
+                rgb = src.rgb * portrait_alpha + rgb * (1.0 - portrait_alpha);
+                alpha = portrait_alpha * portrait_alpha + dst.a * (1.0 - portrait_alpha);
             } else if (blend_kind == 2 || blend_kind == 3) {
                 vec2 first_point = (local_position - mask_rectangle.xy) / mask_rectangle.zw;
                 vec4 first_mask = texture(mask_image, mask_uv.xy + first_point * mask_uv.zw);

@@ -79,7 +79,6 @@ public sealed partial class ArmyCampaignRuleAdapter
         var cleaned = ConsumeArmyLifecyclePending(after19);
         if (cleaned is null || !cleaned.Units.TryGetValue(attackerId, out var survivor))
             return Unknown($"current.{scope}_actual26_or_survivor");
-        StateValidator.Validate(cleaned);
         return new(SingleArmyFatalApplicationOutcome.Committed, cleaned,
             new(attackerId, targetId, requestedLoss, receipt, force, destroyed.Receipts.ToArray(),
                 survivor.Troops, revision), null) { Reports = destroyed.Reports };

@@ -266,8 +266,12 @@ public:
                         if(slot>=0)sampledGroupLocals[size_t(slot)]=owner.frame.localPose;
                     }
                 }
-                physical.presented={presented.world,presented.obb};
-                physical.pose=armyModels.poses[index->second];physical.cache=armyModels.poseCaches[index->second];
+                auto& retainedCache=armyModels.poseCaches[index->second];
+                if(retainedCache.pendingPoolSnapshot){
+                    physical.pose=armyModels.poses[index->second];
+                    retainedCache.pendingPoolSnapshot=false;
+                }
+                physical.presented={presented.world,presented.obb};physical.cache=retainedCache;
                 }
             }
             for(auto it=armyPriorVisible.begin();it!=armyPriorVisible.end();)

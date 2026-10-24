@@ -3,13 +3,21 @@ using Godot;
 using San14.Core;
 using San14.Data;
 
-/// <summary>Source-proven ordinary land creation projected from an explicit
-/// playable sortie choice. These bytes are not a current native Army receiver.</summary>
+/// <summary>An active owned type2 receiver's current formation bytes. This is
+/// not an ordinary sortie writer result or a model field in simulation state.</summary>
+public sealed record PlayableTransportArmySource(int NativeSlot, ArmyFormationBytes Bytes,
+    string FormationDecodedSha256);
+
+/// <summary>Ordinary creation selection or explicitly owned current transport
+/// selection, joined to actual terrain, formation definitions and descriptors.</summary>
 public sealed record PlayableArmySelection(int UnitId, int HexId,
-    int ExplicitLandFormationSlot, ArmyFormationWriteResult Creation,
+    int ExplicitLandFormationSlot, ArmyFormationWriteResult? Creation,
     ArmyTerrainSelection Terrain, ArmyFormationSelection Formation,
     ArmyContextIndependentDescriptors Descriptors)
 {
+    public PlayableTransportArmySource? Transport { get; init; }
+    public ArmyFormationBytes CurrentBytes => Transport?.Bytes ?? Creation?.Bytes
+        ?? throw new InvalidDataException("Army visual selection has no formation source.");
     public bool CurrentNativeArmyBytesVerified => false;
     public bool InstancePosesFidelityVerified => false;
     public bool DynamicFlagsFidelityVerified => false;
@@ -22,13 +30,30 @@ public sealed record PlayableArmyVisualFailure(int UnitId, string Reason);
 public delegate IReadOnlyList<ArmyComponentVisualBinding>? PlayableArmyPoseProvider(
     UnitState unit, PlayableArmySelection sourceSelection);
 
-public sealed record PlayableArmyVisualPlan(
-    IReadOnlyDictionary<int, PlayableArmySelection> Selections,
-    IReadOnlyDictionary<int, IReadOnlyList<ArmyComponentVisualBinding>> Bindings,
-    IReadOnlyList<PlayableArmyVisualFailure> Unresolved)
+public sealed class PlayableArmyVisualPlan
 {
-    // A source component may use an explicit marker pose while native instance
-    // layout, world scale and current animation remain unavailable.
+    public IReadOnlyDictionary<int, PlayableArmySelection> Selections { get; }
+    public IReadOnlyDictionary<int, IReadOnlyList<ArmyComponentVisualBinding>> Bindings { get; }
+    public IReadOnlyList<PlayableArmyVisualFailure> Unresolved { get; }
+    internal PlayableArmyVisualAdapter? SourceAdapter { get; }
+    internal GameState? SourceWorld { get; }
+
+    // Detached callers may prepare an explicit subset, but only the adapter
+    // can publish a bound plan for its accepted world/resource lifetime.
+    public PlayableArmyVisualPlan(IReadOnlyDictionary<int, PlayableArmySelection> selections,
+        IReadOnlyDictionary<int, IReadOnlyList<ArmyComponentVisualBinding>> bindings,
+        IReadOnlyList<PlayableArmyVisualFailure> unresolved)
+        : this(selections, bindings, unresolved, null, null) { }
+
+    internal PlayableArmyVisualPlan(IReadOnlyDictionary<int, PlayableArmySelection> selections,
+        IReadOnlyDictionary<int, IReadOnlyList<ArmyComponentVisualBinding>> bindings,
+        IReadOnlyList<PlayableArmyVisualFailure> unresolved,
+        PlayableArmyVisualAdapter? sourceAdapter, GameState? sourceWorld)
+    {
+        (Selections, Bindings, Unresolved, SourceAdapter, SourceWorld) =
+            (selections, bindings, unresolved, sourceAdapter, sourceWorld);
+    }
+
     public bool PreserveUnitMarkers => true;
     public bool CompleteAssemblyFidelityVerified => false;
 }
@@ -83,13 +108,31 @@ public sealed class PlayableArmyVisualAdapter
     {
         ValidateWorld(world);
         var selections = new Dictionary<int, PlayableArmySelection>();
-        var bindings = new Dictionary<int, IReadOnlyList<ArmyComponentVisualBinding>>();
         var unresolved = new List<PlayableArmyVisualFailure>();
-        foreach (UnitState unit in world.Units.Values.OrderBy(item => item.Id))
+        var lifecycle = world.ReadArmyLifecycle();
+        foreach (var (id, unit) in world.Units.OrderBy(item => item.Key))
         {
-            if (unit.Mission?.Kind == UnitMissionKind.Transport)
+            if (unit is null || id != unit.Id || id < 0 ||
+                (uint)unit.HexId >= (uint)_map.Map.Cells.Length)
+                throw new InvalidDataException("Playable Army state has a mismatched unit identity or invalid source Hex.");
+            bool transport = unit.NativeTacticRuntime?.Status10 == 2;
+            int transportSlot = -1;
+            if (transport)
             {
-                unresolved.Add(new(unit.Id, "Transport creation uses a separate native path; the source unit marker remains visible."));
+                if (unit.NativeArmyOrigin?.NativeSlotIndex is not int physical || physical is < 1 or > 500 ||
+                    lifecycle is null || (uint)physical >= (uint)lifecycle.Slots.Count ||
+                    lifecycle.Slots[physical].PhysicalSlot != physical ||
+                    lifecycle.Receivers.Find(lifecycle.Slots[physical].ReceiverId) is not
+                        { Phase: ArmyReceiverPhase.Active, ActiveUnitId: int active } || active != unit.Id)
+                {
+                    unresolved.Add(new(unit.Id, "Transport current active Army receiver is unavailable."));
+                    continue;
+                }
+                transportSlot = physical;
+            }
+            else if (unit.Mission?.Kind == UnitMissionKind.Transport)
+            {
+                unresolved.Add(new(unit.Id, "Transport current type2 receiver is unavailable."));
                 continue;
             }
             if (ArmyConfigurationSourceAdapter.ReadCurrentLand(world, unit) is not byte landByte)
@@ -102,6 +145,11 @@ public sealed class PlayableArmyVisualAdapter
                 throw new InvalidDataException($"Playable Army {unit.Id} formation differs from the selected source table.");
             ArmyTerrainSelection terrain = ArmyNativeFormationQueries.Terrain(
                 _map, _terrainTypes, checked((ushort)unit.HexId));
+            if (transport && !terrain.UsesArmyByte1C)
+            {
+                unresolved.Add(new(unit.Id, "Transport land model context requires the actual persistent tactic-effect manager; modes0/3 remain unresolved."));
+                continue;
+            }
             if (terrain.UsesArmyByte1C && ArmyConfigurationSourceAdapter.ReadNaval(world, unit) is null)
             {
                 unresolved.Add(new(unit.Id, "Water terrain requires the current native naval byte1C; the unit marker remains visible."));
@@ -112,30 +160,64 @@ public sealed class PlayableArmyVisualAdapter
                 unresolved.Add(new(unit.Id, "A naval formation choice does not establish an ordinary land sortie; the unit marker remains visible."));
                 continue;
             }
-            var creation=new ArmyFormationWriteResult(new(landByte,ArmyConfigurationSourceAdapter.ReadNaval(world, unit)),
+            var bytes = new ArmyFormationBytes(landByte, ArmyConfigurationSourceAdapter.ReadNaval(world, unit));
+            //Type2 was created by its separate real creator. Do not manufacture
+            //an ordinary LandWritten/NavalWritten receipt for its current bytes.
+            ArmyFormationWriteResult? creation = transport ? null : new(bytes,
                 true,false,_writer.Source,_writer.DecodedSha256,_writer.CodeSource);
             ArmyFormationSelection selected = ArmyNativeFormationQueries.Formation(
-                terrain, _definitions, creation.Bytes.Byte1B, creation.Bytes.Byte1C);
+                terrain, _definitions, bytes.Byte1B, bytes.Byte1C);
             var descriptors = ArmyModelSelection.DescribeContextIndependent(
-                terrain, creation.Bytes.Byte1B, creation.Bytes.Byte1C);
+                terrain, bytes.Byte1B, bytes.Byte1C);
             var selection = new PlayableArmySelection(unit.Id, unit.HexId, slot, creation,
-                terrain, selected, descriptors);
+                terrain, selected, descriptors)
+                { Transport = transport ? new(transportSlot, bytes, _definitions.Formations.DecodedSha256) : null };
             selections.Add(unit.Id, selection);
-            IReadOnlyList<ArmyComponentVisualBinding>? components = poseProvider?.Invoke(unit, selection);
+        }
+        return BindPosesCore(world, new ReadOnlyDictionary<int, PlayableArmySelection>(selections),
+            unresolved, poseProvider);
+    }
+
+    /// <summary>Bind current poses to the already selected source descriptors.
+    /// Accepted game worlds are replaced by transactions; callers retain this
+    /// plan only for that world and adapter, just like the native frame cache.</summary>
+    public PlayableArmyVisualPlan BindPoses(GameState world, PlayableArmyVisualPlan sourcePlan,
+        PlayableArmyPoseProvider? poseProvider)
+    {
+        RequireCurrentPlan(world, sourcePlan);
+        return BindPosesCore(world, sourcePlan.Selections,
+            sourcePlan.Unresolved.Where(item => !sourcePlan.Selections.ContainsKey(item.UnitId)), poseProvider);
+    }
+
+    private PlayableArmyVisualPlan BindPosesCore(GameState world,
+        IReadOnlyDictionary<int, PlayableArmySelection> selections,
+        IEnumerable<PlayableArmyVisualFailure> sourceFailures, PlayableArmyPoseProvider? poseProvider)
+    {
+        var bindings = new Dictionary<int, IReadOnlyList<ArmyComponentVisualBinding>>();
+        var unresolved = new List<PlayableArmyVisualFailure>(sourceFailures);
+        foreach (var (id, selection) in selections)
+        {
+            IReadOnlyList<ArmyComponentVisualBinding>? components = poseProvider?.Invoke(world.Units[id], selection);
             if (components is null || components.Count == 0)
             {
-                unresolved.Add(new(unit.Id, "Source land descriptors are known; individual world pose and scale are unavailable, so the unit marker remains visible."));
+                unresolved.Add(new(id, "Source land descriptors are known; individual world pose and scale are unavailable, so the unit marker remains visible."));
                 continue;
             }
-            // Snapshot the provider result: later list mutation cannot alter the
-            // validated plan, descriptor identities or resource selection.
             ArmyComponentVisualBinding[] snapshot = components.ToArray();
             ValidateComponents(selection, snapshot);
-            bindings.Add(unit.Id, Array.AsReadOnly(snapshot));
+            bindings.Add(id, Array.AsReadOnly(snapshot));
         }
-        return new(new ReadOnlyDictionary<int, PlayableArmySelection>(selections),
+        return new(selections,
             new ReadOnlyDictionary<int, IReadOnlyList<ArmyComponentVisualBinding>>(bindings),
-            unresolved.AsReadOnly());
+            unresolved.AsReadOnly(), this, world);
+    }
+
+    private void RequireCurrentPlan(GameState world, PlayableArmyVisualPlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        ArgumentNullException.ThrowIfNull(plan);
+        if (!ReferenceEquals(plan.SourceAdapter, this) || !ReferenceEquals(plan.SourceWorld, world))
+            throw new InvalidDataException("Playable Army visual plan belongs to another world or source adapter.");
     }
 
     /// <summary>Explicit opt-in display policy: one source geometry at a caller
@@ -158,39 +240,15 @@ public sealed class PlayableArmyVisualAdapter
         };
     }
 
-    /// <summary>Reconcile the complete source component set through the existing
-    /// owner. Call Resolve again after state changes; a stale plan is rejected
-    /// before any live model is changed.</summary>
+    /// <summary>Apply the prepared components for this adapter's accepted world.
+    /// Resource selection and component validation belong to Resolve/BindPoses;
+    /// applying their immutable publication does not repeat that work.</summary>
     public IReadOnlyList<ArmyVisualStatus> Apply(ArmyVisualLayer layer,
         MapWorldProjection projection, TerrainMeshResult terrain, GameState world,
         PlayableArmyVisualPlan plan)
     {
         ArgumentNullException.ThrowIfNull(layer);
-        ArgumentNullException.ThrowIfNull(plan);
-        ValidateWorld(world);
-        PlayableArmyVisualPlan current = Resolve(world);
-        if (plan.Selections.Count != current.Selections.Count ||
-            plan.Selections.Keys.Any(id => !current.Selections.ContainsKey(id)) ||
-            plan.Bindings.Keys.Any(id => !plan.Selections.ContainsKey(id)))
-            throw new InvalidDataException("Playable Army visual plan references an absent or unresolved unit.");
-        foreach ((int id, PlayableArmySelection selection) in plan.Selections)
-        {
-            UnitState unit = world.Units[id];
-            PlayableArmySelection fresh = current.Selections[id];
-            if (selection.UnitId != id || selection.HexId != unit.HexId ||
-                selection.ExplicitLandFormationSlot != fresh.ExplicitLandFormationSlot ||
-                selection.Creation != fresh.Creation || selection.Terrain != fresh.Terrain ||
-                selection.Formation != fresh.Formation ||
-                !selection.Descriptors.PossibleModes.SequenceEqual(fresh.Descriptors.PossibleModes) ||
-                !selection.Descriptors.Descriptors.SequenceEqual(fresh.Descriptors.Descriptors) ||
-                !ReferenceEquals(selection.Creation.FormationSource, _definitions.Source) ||
-                !ReferenceEquals(selection.Terrain.MapSource, _map.Source) ||
-                !ReferenceEquals(selection.Terrain.TerrainSource, _terrainTypes.Source) ||
-                !ReferenceEquals(selection.Formation.FormationSource, _definitions.Source))
-                throw new InvalidDataException("Playable Army visual plan is stale or belongs to another source adapter.");
-        }
-        foreach ((int id, IReadOnlyList<ArmyComponentVisualBinding> components) in plan.Bindings)
-            ValidateComponents(plan.Selections[id], components);
+        RequireCurrentPlan(world, plan);
         IReadOnlyList<ArmyVisualStatus> statuses = layer.UpdateComponents(projection, terrain, world, plan.Bindings);
         foreach ((int id, IReadOnlyList<ArmyComponentVisualBinding> components) in plan.Bindings)
             foreach (ArmyComponentVisualBinding component in components)
@@ -200,15 +258,19 @@ public sealed class PlayableArmyVisualAdapter
                 PlayableArmySelection selection = plan.Selections[id];
                 ArmyDescriptorRequest request = selection.Descriptors.Descriptors.Single(
                     item => item.DescriptorOffset == component.SourceDescriptorOffset);
-                model.SetMeta("source_ordinary_land_creation_projection", true);
+                model.SetMeta("source_ordinary_land_creation_projection", selection.Transport is null);
+                model.SetMeta("source_owned_transport_current_selection", selection.Transport is not null);
                 model.SetMeta("source_selected_land_slot", selection.ExplicitLandFormationSlot);
-                model.SetMeta("source_created_army_byte1b", (int)selection.Creation.Bytes.Byte1B!.Value);
+                model.SetMeta("source_created_army_byte1b", selection.Transport is null ? (int)selection.CurrentBytes.Byte1B!.Value : -1);
+                model.SetMeta("source_current_army_byte1b", (int)selection.CurrentBytes.Byte1B!.Value);
+                model.SetMeta("source_current_army_byte1c", selection.CurrentBytes.Byte1C is byte currentNaval ? (int)currentNaval : -1);
                 model.SetMeta("source_formation_uri", _definitions.Source.ResourceUri);
                 model.SetMeta("source_formation_sha256", _definitions.Source.Sha256);
-                model.SetMeta("source_formation_decoded_sha256", _writer.DecodedSha256);
+                model.SetMeta("source_formation_decoded_sha256", selection.Transport?.FormationDecodedSha256 ?? _writer.DecodedSha256);
                 model.SetMeta("source_formation_is_override", _definitions.Source.IsOverride);
-                model.SetMeta("source_selection_rule_version", _writer.CodeSource.RuleVersion);
-                model.SetMeta("source_selection_code_language", _writer.CodeSource.Language);
+                model.SetMeta("source_selection_rule_version", selection.Transport is null
+                    ? _writer.CodeSource.RuleVersion : world.Units[id].NativeArmyOrigin!.RuleVersion);
+                model.SetMeta("source_selection_code_language", selection.Transport is null ? _writer.CodeSource.Language : world.Units[id].NativeArmyOrigin!.Language);
                 model.SetMeta("source_hex_surface_byte", (int)selection.Terrain.RawHexTerrainByte10);
                 model.SetMeta("source_descriptor_requested_resource_count", request.RequestedResourceCount);
                 model.SetMeta("source_descriptor_static_flags", (long)request.Flags);
@@ -234,9 +296,6 @@ public sealed class PlayableArmyVisualAdapter
             !world.ContentHashes.TryGetValue(_definitions.Source.ResourceUri, out string? fixedHash) ||
             !SameHash(fixedHash, _definitions.Source.Sha256))
             throw new InvalidDataException("Playable Army selection requires the active playable ruleset and matching map/fixed-data source hashes.");
-        if (world.Units.Any(item => item.Value is null || item.Key != item.Value.Id || item.Key < 0 ||
-            (uint)item.Value.HexId >= (uint)_map.Map.Cells.Length))
-            throw new InvalidDataException("Playable Army state has a mismatched unit identity or invalid source Hex.");
     }
 
     private bool MatchesSourceFormation(FormationDefinition formation, int slot)

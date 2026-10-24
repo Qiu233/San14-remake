@@ -10,8 +10,12 @@ public sealed record SettlementBase(SettlementBaseKind Kind, int Id);
 [JsonDerivedType(typeof(BaseCaptureRequest), "base-capture")]
 [JsonDerivedType(typeof(ExpiredCombatSettlement), "expired")]
 public abstract record CombatSettlementRequest;
+public enum UnitDefeatCause { OrdinaryBattle, DuelDeath, DuelCapture }
 public sealed record UnitDefeatRequest(int VictimUnitId, int? WinnerUnitId,
-    SettlementBase? WinnerBase) : CombatSettlementRequest;
+    SettlementBase? WinnerBase) : CombatSettlementRequest
+{
+    public UnitDefeatCause Cause { get; init; }
+}
 public sealed record BaseCaptureRequest(SettlementBase Target, int? WinnerUnitId)
     : CombatSettlementRequest;
 // Old saves can contain a request whose receiver has already been retired.

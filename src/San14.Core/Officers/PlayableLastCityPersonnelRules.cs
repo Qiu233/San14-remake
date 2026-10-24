@@ -4,6 +4,7 @@ public sealed record PlayableLastCityPersonnelResolution(GameState State,
     int[] ResolvedOfficerIds, PeriodReportEntry[] Reports)
 {
     public string? NativeUnregisterRuleId { get; init; }
+    public int[] ResourceDisposedArmyIds { get; init; } = [];
 }
 
 /// <summary>The source personnel prefix of an ordinary last-City capture.

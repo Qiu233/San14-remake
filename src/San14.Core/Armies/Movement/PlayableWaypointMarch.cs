@@ -14,7 +14,7 @@ public static class PlayableWaypointMarch
     public static bool IsSupportedAction(DeploymentAction action) => action.ActionKey switch
     {
         "move" or "stay" => action.Target.Kind == DeploymentTargetKind.Hex && action.StructureKindId is null,
-        "attack" => action.Target.Kind is DeploymentTargetKind.Unit or DeploymentTargetKind.Location && action.StructureKindId is null,
+        "attack" => action.Target.Kind is DeploymentTargetKind.Unit or DeploymentTargetKind.Location or DeploymentTargetKind.Structure && action.StructureKindId is null,
         "enter" => action.Target.Kind == DeploymentTargetKind.Location && action.StructureKindId is null,
         "occupy" => action.Target.Kind == DeploymentTargetKind.Area && action.StructureKindId is null,
         "build" => action.Target.Kind == DeploymentTargetKind.Hex &&
@@ -48,7 +48,8 @@ public static class PlayableWaypointMarch
         if (destination is not int hex || !routes.CanEnter(hex) ||
             cursor != hex && routes.Route(cursor, hex).Length == 0)
             return new(DeploymentDecisionStatus.Denied, "The terminal action is unavailable or unreachable.");
-        if (action.ActionKey == "build" && (!state.Cities.ContainsKey(source.LocationId) ||
+        if (action.ActionKey == "build" && !FacilityConstructionIntent.IsDefinitionKey(action.StructureKindId) &&
+            (!state.Cities.ContainsKey(source.LocationId) ||
             !PlayableConstructionRules.CanBuildAt(state, routes, source.ForceId, hex, state.Structures ?? [])))
             return new(DeploymentDecisionStatus.Denied, "The selected construction site is unavailable.");
         return new(DeploymentDecisionStatus.Allowed);
@@ -197,11 +198,13 @@ public static class PlayableWaypointMarch
         Action<UnitState>? onRetired = null,
         Func<UnitState, int, PlayableCityEntryResourceQuote?>? cityEntryResources = null,
         Func<UnitState, int, string?>? completeCityEntry = null,
-        Func<UnitState, int, bool>? requiresCurrentCityEntry = null)
+        Func<UnitState, int, bool>? requiresCurrentCityEntry = null,
+        bool sourceArmyTimelineCompleted = false)
     {
         foreach (UnitState starting in units.Values.OrderBy(unit => unit.Id).ToArray())
         {
             if (!units.TryGetValue(starting.Id, out UnitState? unit)) continue;
+            if (sourceArmyTimelineCompleted && unit.NativeArmyOrigin is not null) continue;
             if (unit.MilitaryPlan is not { } plan) continue;
             if (!plan.Completed && plan.Action.ActionKey is "attack" or "enter" &&
                 ResolveDestination(plan.Action, unit.ForceId, unit.HexId, cities, gates, units,
@@ -314,11 +317,16 @@ public static class PlayableWaypointMarch
         int id = action.Target.Id;
         switch (action.ActionKey)
         {
-            case "move": case "stay": case "build": return id;
+            case "move": case "stay": return id;
+            case "build": return FacilityConstructionIntent.IsDefinitionKey(action.StructureKindId)
+                ? FacilityApproach(routes, startHex, id) : id;
             case "enter": return FriendlyBase(id, forceId, cities, gates);
             case "attack" when action.Target.Kind == DeploymentTargetKind.Unit:
                 return units.TryGetValue(id, out UnitState? enemy) && Hostile(forceId, enemy.ForceId, isHostile)
                     ? enemy.HexId : null;
+            case "attack" when action.Target.Kind == DeploymentTargetKind.Structure:
+                return structures.TryGetValue(id, out var facility) && Hostile(forceId, facility.ForceId, isHostile)
+                    ? FacilityApproach(routes, startHex, facility.HexId) : null;
             case "attack":
                 if (cities.TryGetValue(id, out CityState? city))
                     return Hostile(forceId, city.ForceId, isHostile) ? city.HexId : null;
@@ -337,11 +345,21 @@ public static class PlayableWaypointMarch
                     repairTarget.Completed && repairTarget.MaxDurability is null)
                     throw new InvalidDataException("Structure repair destination requires its current durability capacity.");
                 return structures.TryGetValue(id, out StructureState? structure) && structure.ForceId == forceId &&
-                    PlayableConstructionRules.IsSupportedKind(structure.KindId) &&
+                    (PlayableConstructionRules.IsSupportedKind(structure.KindId) || FacilityConstructionIntent.IsDefinitionKey(structure.KindId)) &&
                     (action.ActionKey != "repair" || !validate || structure.Completed &&
-                        structure.MaxDurability > structure.Durability) ? structure.HexId : null;
+                        structure.MaxDurability > structure.Durability)
+                    ? FacilityConstructionIntent.IsDefinitionKey(structure.KindId)
+                        ? FacilityApproach(routes, startHex, structure.HexId) : structure.HexId : null;
             default: return null;
         }
+    }
+
+    internal static int? FacilityApproach(PlayableLandRoutes routes, int startHex, int siteHex)
+    {
+        if (startHex != siteHex && routes.CanEnter(startHex) && routes.WithinRadius(siteHex, startHex, 1))
+            return startHex;
+        int[] route = routes.RouteToNearest(startHex, hex => hex != siteHex && routes.WithinRadius(siteHex, hex, 1));
+        return route.Length == 0 ? null : route[^1];
     }
 
     private static int? FriendlyBase(int id, int forceId,

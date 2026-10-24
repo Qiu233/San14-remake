@@ -3,7 +3,7 @@ namespace San14.Core;
 public enum CampaignEffectSource { NormalCombatRefresh, ArmyFalseReport, ArmyProgressNotifications, ArmyCommandMaintenance,
     ArmyDemolition, MapObjectRetirement, ForceAssociationRemoval, FacilityEffects, ArmyFacilityRepair, ArmyFacilityConstruction,
     ArmyTraitMaintenance, FacilityTraps, ArmyBattleDefeat, FireDamage, TerrainDamage, OfficerGrowthNotifications, PersonAppearance, PersonDeath,
-    LandmarkInvestment, PersonLifespanNotifications }
+    LandmarkInvestment, PersonLifespanNotifications, ForceUnregister, GovernanceRoster, ArmyStructureAttack, ArmyMovement, NormalCombatApplication, CityMerchant, TalentCommands, DiplomacyCommands, ForcePolicyLevelUp, OfficerOfficeCommands, PersonnelAdministrationCommands }
 public enum CampaignReportEvent { FirstContact, FalseReportSucceeded, FalseReportFailed, FalseReportBackfired,
     ArmyAutomaticTargetSelected, PlayerDemolitionVisible, PlayerDemolitionAcknowledged, OtherArmyDemolitionObserved,
     PlayerFacilityConstructionCompleted, PlayerFacilityRepairCompleted,
@@ -19,6 +19,10 @@ public sealed record CampaignReportRequest(int DistrictId, int HexId, int Campai
     public byte? CommandChoiceId { get; init; }
     public string? RulerNameSnapshot { get; init; }
 }
+public enum ArmyFalseReportVisualEvent { TargetResisted, InitiatorFailed }
+/// <summary>Unconsumed source-time65/66 visual intention, not a created effect or playback receipt.
+/// The application owns the Army view transform and resource effect admission.</summary>
+public sealed record ArmyFalseReportVisualRequest(ArmyFalseReportVisualEvent Event, ArmyReceiverId ReceiverId, int HexId);
 public enum MapObjectPresentationEvent { DestructionVisual, DestructionSound, RetirementVisualDetach }
 /// <summary>Unconsumed semantic presentation work. Retirement asks the view
 /// owner to detach any existing model and paired view links; it is not a receipt.</summary>
@@ -34,6 +38,12 @@ public sealed record FacilityAuraResetRequest;
 /// <summary>Source identities and logical selected Hex only. The application still
 /// owns the actual Army view pose, facility attachment and effect playback.</summary>
 public sealed record MilitaryMusicPulseRequest(MapObjectReceiverId FacilityReceiverId, int ArmyId, int HexId);
+/// <summary>An unconsumed kind5 projectile attempt. The original Object/Army
+/// Hex operands are retained even outside the current map:188880 computes X/Z
+/// from them unchanged, while its height query returns0 for operands>=48400.
+/// Geometry, effect admission, created handles and playback belong to App.</summary>
+public sealed record FacilityProjectilePresentationRequest(MapObjectReceiverId FacilityReceiverId,
+    ArmyReceiverId TargetReceiverId, ushort SourceHexOperand, ushort TargetHexOperand);
 public enum FacilityRepairPresentationOperation { EnsureRepairLoop, FinishRepairLoop,
     RefreshFacilityCompletionModel, FacilityCompletionVisual, FacilityCompletionSound, EnsureFacilityAmbientLoop }
 /// <summary>Unconsumed semantic work. Hex identifies the logical source cell;
@@ -154,12 +164,60 @@ public enum PersonLifespanNotificationOperation { ControllerQueueEvent, Narratio
 public sealed record PersonLifespanNotificationRequest(PersonLifespanNotificationOperation Operation,
     int? EventKind, ushort? PersonId, string? TextAtSource);
 
+/// <summary>Formatted response to an ordered governance change. This is pending
+/// application narration, not a history record, playback or acknowledgment.</summary>
+public sealed record GovernanceNarrationRequest(int ForceId, int SpeakerId, int MessageId, string TextAtSource);
+/// <summary>2ECE50 target reaction awaiting the real Army view. The view owns
+/// existence, presentation148 and playback; this request acknowledges none.</summary>
+public sealed record NormalCombatTargetReactionRequest(int ArmyId, int Variant);
+
+/// <summary>Unconsumed source-time wall-damage cutscene intent. Tier2/3 map
+/// to controller events0x12/0x13. Model66 is already committed by simulation;
+/// playback must not repeat its setter or pretend this request is an ACK.</summary>
+public sealed record BaseDamageTierCutsceneRequest(int BaseLocationId, byte DamageTier, int HexId);
+
+/// <summary>Unconsumed source-time capture announcement. Text formatting,
+/// controller admission and sound playback belong to the application.</summary>
+public sealed record DuelCaptureAnnouncementRequest(int OfficerId, string OfficerNameAtSource,
+    int MessageRoot, int SoundId);
+
+public enum TalentCommandPresentationOperation { SoundCue, Announcement, OfficerText, RecruitConversation }
+public enum PersonnelVoiceLanguage { Japanese, Chinese }
+/// <summary>The actual source-time voice selection, never a playback receipt.</summary>
+public sealed record TalentNarrationVoiceRequest(int SpeakerId, byte VoiceType, int VoiceId,
+    PersonnelVoiceLanguage Language, int VariantIndex, uint SoundId);
+/// <summary>Both source-time actors remain attached to each line after recruitment
+/// changes their service and Force. Unknown old portrait knowledge stays null.</summary>
+public sealed record TalentRecruitConversationContext(int ExecutorOfficerId, int TargetOfficerId,
+    string ExecutorNameAtSource, string TargetNameAtSource,
+    ushort? ExecutorPortraitAppearanceIndex, ushort? TargetPortraitAppearanceIndex);
+/// <summary>Original talent presentation calls awaiting application playback.</summary>
+public sealed record TalentCommandPresentationRequest(TalentCommandPresentationOperation Operation,
+    int? SoundId, int? OfficerId, int? TargetOfficerId, bool? RecruitSucceeded, string? TextAtSource)
+{
+    public TalentRecruitConversationContext? RecruitConversation { get; init; }
+    public TalentNarrationVoiceRequest? Voice { get; init; }
+}
+
+public sealed record DiplomacyArrivalAudioRequest(int Variant);
+
 public sealed record CampaignEffectRequest(CombatSpeechRequest? Speech, CampaignReportRequest? Report)
 {
+    public ArmyFalseReportVisualRequest? ArmyFalseReportVisual { get; init; }
+    public DuelCaptureAnnouncementRequest? DuelCaptureAnnouncement { get; init; }
+    public GovernanceNarrationRequest? GovernanceNarration { get; init; }
+    public NormalCombatTargetReactionRequest? NormalCombatTargetReaction { get; init; }
+    public BaseDamageTierCutsceneRequest? BaseDamageTierCutscene { get; init; }
     public PersonLifespanNotificationRequest? PersonLifespanNotification { get; init; }
     public CampaignHistoryNotification? HistoryNotification { get; init; }
     public PersonDeathReportRequest? PersonDeathReport { get; init; }
     public PersonAppearanceRequest? PersonAppearance { get; init; }
+    public TalentCommandPresentationRequest? TalentCommandPresentation { get; init; }
+    public DiplomacyArrivalAudioRequest? DiplomacyArrivalAudio { get; init; }
+    public TalentSceneryDiscoveryRequest? TalentSceneryDiscovery { get; init; }
+    public TalentSceneryRewardRequest? TalentSceneryReward { get; init; }
+    public TalentForceExperiencePresentationRequest? TalentForceExperiencePresentation { get; init; }
+    public ForcePolicyLevelUpRequest? ForcePolicyLevelUp { get; init; }
     public OfficerGrowthFeedbackRequest? OfficerGrowthFeedback { get; init; }
     public TerrainDamagePresentationRequest? TerrainDamagePresentation { get; init; }
     public FireDamagePresentationRequest? FireDamagePresentation { get; init; }
@@ -174,6 +232,7 @@ public sealed record CampaignEffectRequest(CombatSpeechRequest? Speech, Campaign
     public FacilityRepairPresentationRequest? FacilityRepairPresentation { get; init; }
     public FacilityAuraResetRequest? FacilityAuraReset { get; init; }
     public MilitaryMusicPulseRequest? MilitaryMusicPulse { get; init; }
+    public FacilityProjectilePresentationRequest? FacilityProjectile { get; init; }
     public MapObjectPresentationRequest? MapObjectPresentation { get; init; }
     public ForceAssociationRemovalReportRequest? ForceAssociationRemovalReport { get; init; }
 }
@@ -209,9 +268,10 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
             previous = batch.Sequence;
             foreach (var request in batch.Requests)
             {
-                if (request is null || (request.Speech is null ? 0 : 1) + (request.Report is null ? 0 : 1) +
+                if (request is null || (request.ArmyFalseReportVisual is null ? 0 : 1) + (request.Speech is null ? 0 : 1) + (request.Report is null ? 0 : 1) +
                     (request.MapObjectPresentation is null ? 0 : 1) + (request.ForceAssociationRemovalReport is null ? 0 : 1) +
                     (request.FacilityAuraReset is null ? 0 : 1) + (request.MilitaryMusicPulse is null ? 0 : 1) +
+                    (request.FacilityProjectile is null ? 0 : 1) +
                     (request.FacilityRepairPresentation is null ? 0 : 1) +
                     (request.FacilityConstructionPresentation is null ? 0 : 1) +
                     (request.ArmyTraitViewRefresh is null ? 0 : 1) +
@@ -225,20 +285,55 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                     (request.TerrainDamagePresentation is null ? 0 : 1) +
                     (request.OfficerGrowthFeedback is null ? 0 : 1) +
                     (request.PersonAppearance is null ? 0 : 1) +
+                    (request.TalentCommandPresentation is null ? 0 : 1) +
+                    (request.DiplomacyArrivalAudio is null ? 0 : 1) +
+                    (request.TalentSceneryDiscovery is null ? 0 : 1) +
+                    (request.TalentSceneryReward is null ? 0 : 1) +
+                    (request.TalentForceExperiencePresentation is null ? 0 : 1) +
+                    (request.ForcePolicyLevelUp is null ? 0 : 1) +
                     (request.PersonDeathReport is null ? 0 : 1) +
                     (request.HistoryNotification is null ? 0 : 1) +
-                    (request.PersonLifespanNotification is null ? 0 : 1) != 1)
+                    (request.PersonLifespanNotification is null ? 0 : 1) +
+                    (request.GovernanceNarration is null ? 0 : 1) +
+                    (request.NormalCombatTargetReaction is null ? 0 : 1) +
+                    (request.BaseDamageTierCutscene is null ? 0 : 1) +
+                    (request.DuelCaptureAnnouncement is null ? 0 : 1) != 1)
                     throw new InvalidDataException("A campaign effect requires one semantic payload.");
+                if (request.DuelCaptureAnnouncement is { } captured &&
+                    (batch.Source != CampaignEffectSource.ArmyBattleDefeat || captured.OfficerId is < 1 or > 6000 ||
+                     captured.OfficerNameAtSource is null || captured.MessageRoot is not (0x2A8C or 0x34AA) ||
+                     captured.SoundId is not (6 or 8)))
+                    throw new InvalidDataException("Invalid duel capture announcement.");
+                if (request.NormalCombatTargetReaction is { } reaction &&
+                    (batch.Source != CampaignEffectSource.NormalCombatApplication || reaction.ArmyId <= 0 ||
+                     reaction.Variant is not (1 or 2)))
+                    throw new InvalidDataException("Invalid normal combat target reaction.");
+                if (request.BaseDamageTierCutscene is { } tier &&
+                    (batch.Source != CampaignEffectSource.NormalCombatApplication || tier.BaseLocationId is < 1 or > 51 ||
+                     tier.DamageTier is not (2 or 3) || tier.HexId is < 0 or > 48400))
+                    throw new InvalidDataException("Invalid Base damage-tier cutscene request.");
+                if (batch.Source == CampaignEffectSource.NormalCombatApplication &&
+                    request.NormalCombatTargetReaction is null && request.BaseDamageTierCutscene is null &&
+                    request.ArmyTraitViewRefresh is null && request.ArmyTraitFeedback is null &&
+                    request.HistoryNotification is null)
+                    throw new InvalidDataException("Normal combat presentation requires a supported pending payload.");
+                if (request.GovernanceNarration is { } governance &&
+                    (batch.Source != CampaignEffectSource.GovernanceRoster || governance.ForceId is < 1 or > 51 || governance.SpeakerId is < 1 or > 6000 ||
+                     governance.MessageId is not (0x57F4 or 0x57F9) || governance.TextAtSource is null))
+                    throw new InvalidDataException("Invalid governance narration request.");
+                if (batch.Source == CampaignEffectSource.GovernanceRoster && request.GovernanceNarration is null)
+                    throw new InvalidDataException("A governance response requires its own narration payload.");
                 if (request.HistoryNotification is { } notification)
                 {
                     if (batch.Source is not (CampaignEffectSource.NormalCombatRefresh or
                         CampaignEffectSource.ArmyFalseReport or CampaignEffectSource.ArmyProgressNotifications or
-                        CampaignEffectSource.ArmyCommandMaintenance or CampaignEffectSource.ArmyDemolition or
+                        CampaignEffectSource.ArmyCommandMaintenance or CampaignEffectSource.ArmyDemolition or CampaignEffectSource.ArmyStructureAttack or
                         CampaignEffectSource.ForceAssociationRemoval or CampaignEffectSource.ArmyFacilityRepair or
                         CampaignEffectSource.ArmyFacilityConstruction or CampaignEffectSource.FacilityTraps or
                         CampaignEffectSource.ArmyBattleDefeat or CampaignEffectSource.FireDamage or
+                        CampaignEffectSource.NormalCombatApplication or CampaignEffectSource.FacilityEffects or
                         CampaignEffectSource.OfficerGrowthNotifications or CampaignEffectSource.PersonAppearance or
-                        CampaignEffectSource.PersonDeath or CampaignEffectSource.LandmarkInvestment))
+                        CampaignEffectSource.PersonDeath or CampaignEffectSource.LandmarkInvestment or CampaignEffectSource.CityMerchant or CampaignEffectSource.TalentCommands or CampaignEffectSource.DiplomacyCommands or CampaignEffectSource.ForcePolicyLevelUp))
                         throw new InvalidDataException("Invalid campaign history notification origin.");
                     CampaignHistoryValidation.ValidateNotification(notification);
                     continue;
@@ -252,15 +347,83 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                 ValidatePersonAppearance(batch.Source, request);
                 ValidatePersonLifespanNotification(batch.Source, request);
                 ValidatePersonDeath(batch.Source, request);
+                if (request.DiplomacyArrivalAudio is { } audio &&
+                    (batch.Source != CampaignEffectSource.DiplomacyCommands || audio.Variant is < 0 or > 2))
+                    throw new InvalidDataException("Invalid diplomatic arrival audio variant.");
+                if (request.TalentCommandPresentation is { } talent)
+                {
+                    bool valid = talent.Operation switch
+                    {
+                        TalentCommandPresentationOperation.SoundCue =>
+                            (talent.SoundId is 5 or 6 or 8 ||
+                             (batch.Source is CampaignEffectSource.DiplomacyCommands or CampaignEffectSource.PersonnelAdministrationCommands) && talent.SoundId == 4) &&
+                            talent.TextAtSource is null,
+                        TalentCommandPresentationOperation.Announcement => talent.SoundId is null && talent.TextAtSource is not null,
+                        TalentCommandPresentationOperation.OfficerText => talent.OfficerId is > 0 and <= 6000 && talent.TextAtSource is not null,
+                        TalentCommandPresentationOperation.RecruitConversation => talent.OfficerId is > 0 and <= 6000 &&
+                            talent.TargetOfficerId is > 0 and <= 6000 && talent.RecruitSucceeded.HasValue,
+                        _ => false
+                    };
+                    if (batch.Source is not (CampaignEffectSource.TalentCommands or CampaignEffectSource.DiplomacyCommands or CampaignEffectSource.OfficerOfficeCommands or CampaignEffectSource.PersonnelAdministrationCommands) || !valid ||
+                        batch.Source == CampaignEffectSource.OfficerOfficeCommands &&
+                        talent.Operation is not (TalentCommandPresentationOperation.SoundCue or TalentCommandPresentationOperation.Announcement))
+                        throw new InvalidDataException("Invalid talent presentation payload.");
+                    if (talent.RecruitConversation is { } conversation &&
+                        (batch.Source is not (CampaignEffectSource.TalentCommands or CampaignEffectSource.PersonnelAdministrationCommands) ||
+                         talent.Operation != TalentCommandPresentationOperation.OfficerText ||
+                         conversation.ExecutorOfficerId is < 1 or > 6000 || conversation.TargetOfficerId is < 1 or > 6000 ||
+                         talent.OfficerId != conversation.ExecutorOfficerId && talent.OfficerId != conversation.TargetOfficerId ||
+                         talent.TargetOfficerId != conversation.TargetOfficerId ||
+                         batch.Source == CampaignEffectSource.TalentCommands && !talent.RecruitSucceeded.HasValue ||
+                         conversation.ExecutorNameAtSource is null || conversation.TargetNameAtSource is null))
+                        throw new InvalidDataException("Invalid recruitment conversation context.");
+                    if (talent.Voice is { } voice &&
+                        (talent.Operation != TalentCommandPresentationOperation.OfficerText ||
+                         voice.SpeakerId != talent.OfficerId || voice.SpeakerId is < 1 or > 6000 ||
+                         (batch.Source == CampaignEffectSource.PersonnelAdministrationCommands
+                             ? voice.VoiceId is not (34 or 35 or 36) : voice.VoiceId != 40) ||
+                         voice.VoiceType >= 26 || !Enum.IsDefined(voice.Language) ||
+                         voice.VariantIndex is < 0 or > 4 || voice.SoundId == 0 || talent.RecruitConversation is null))
+                        throw new InvalidDataException("Invalid recruitment voice selection.");
+                }
+                if (request.TalentSceneryDiscovery is { } discovery &&
+                    (batch.Source != CampaignEffectSource.TalentCommands || discovery.SceneryId is < 0 or > 100 ||
+                     discovery.ForceId is < 1 or > 51 || discovery.EventId != 0x14F ||
+                     discovery.Date is null || discovery.HexId is < 0 or > 48400))
+                    throw new InvalidDataException("Invalid talent scenery discovery intent.");
+                if (request.TalentSceneryReward is { } reward &&
+                    (batch.Source != CampaignEffectSource.TalentCommands || reward.SceneryId is < 0 or > 100 ||
+                     reward.ExecutorOfficerId is < 1 or > 6000 || reward.RewardKind is < 1 or > 3))
+                    throw new InvalidDataException("Invalid talent scenery reward intent.");
+                if (request.TalentSceneryReward is { Voice: { } sceneryVoice } sceneryReward &&
+                    (sceneryVoice.SpeakerId != sceneryReward.ExecutorOfficerId || sceneryVoice.VoiceId != 42 ||
+                     sceneryVoice.VoiceType >= 26 || !Enum.IsDefined(sceneryVoice.Language) ||
+                     sceneryVoice.VariantIndex is < 0 or > 4 || sceneryVoice.SoundId == 0))
+                    throw new InvalidDataException("Invalid scenery discovery voice selection.");
+                if (request.TalentForceExperiencePresentation is { } forceExperience &&
+                    (batch.Source is not (CampaignEffectSource.TalentCommands or CampaignEffectSource.PersonnelAdministrationCommands) || !Enum.IsDefined(forceExperience.Operation) ||
+                     forceExperience.ForceId is < 1 or > 51 || forceExperience.PreviousLevel is < 0 or > 10))
+                    throw new InvalidDataException("Invalid talent force experience intent.");
+                if (request.ForcePolicyLevelUp is { } policy &&
+                    (batch.Source != CampaignEffectSource.ForcePolicyLevelUp || policy.ForceId is < 1 or > 51 ||
+                     policy.PreviousLevel is < 0 or > 10 || policy.CurrentLevel is < 2 or > 10 ||
+                     !Enum.IsDefined(policy.Stage) || policy.AnnouncementTextAtSource is null || policy.ConfirmationTextAtSource is null))
+                    throw new InvalidDataException("Invalid force policy-level scene.");
+                if (batch.Source == CampaignEffectSource.ForcePolicyLevelUp && request.ForcePolicyLevelUp is null)
+                    throw new InvalidDataException("A force policy-level scene requires its own pending payload.");
                 if (request.ArmyTraitViewRefresh is { } traitRefresh &&
-                    (batch.Source is not (CampaignEffectSource.ArmyTraitMaintenance or CampaignEffectSource.FacilityTraps or CampaignEffectSource.FireDamage or CampaignEffectSource.TerrainDamage) || traitRefresh.ArmyId <= 0))
+                    (batch.Source is not (CampaignEffectSource.ArmyFalseReport or CampaignEffectSource.ArmyTraitMaintenance or CampaignEffectSource.FacilityTraps or CampaignEffectSource.FireDamage or CampaignEffectSource.TerrainDamage or CampaignEffectSource.NormalCombatApplication or CampaignEffectSource.FacilityEffects) || traitRefresh.ArmyId <= 0))
                     throw new InvalidDataException("Invalid Army trait view refresh request.");
+                if (request.ArmyFalseReportVisual is { } falseReportVisual &&
+                    (batch.Source != CampaignEffectSource.ArmyFalseReport || !Enum.IsDefined(falseReportVisual.Event) ||
+                     falseReportVisual.ReceiverId.Value <= 0 || falseReportVisual.HexId is < 0 or > 48400))
+                    throw new InvalidDataException("Invalid false-report visual request.");
                 if (request.ArmyTraitFeedback is { } traitFeedback &&
-                    (batch.Source is not (CampaignEffectSource.ArmyTraitMaintenance or CampaignEffectSource.FacilityTraps or CampaignEffectSource.FireDamage or CampaignEffectSource.TerrainDamage) || traitFeedback.ArmyId <= 0 ||
+                    (batch.Source is not (CampaignEffectSource.ArmyFalseReport or CampaignEffectSource.ArmyTraitMaintenance or CampaignEffectSource.FacilityTraps or CampaignEffectSource.FireDamage or CampaignEffectSource.TerrainDamage or CampaignEffectSource.NormalCombatApplication or CampaignEffectSource.FacilityEffects) || traitFeedback.ArmyId <= 0 ||
                      traitFeedback.OfficerId < 0 || traitFeedback.SpeakerHexId is < 0 or > 48400 ||
                      (ArmyTraitFeedbackRequest.HasContext(traitFeedback.TraitId)
                         ? traitFeedback.ContextHexId is null or < 0 or >= 48400
-                        : traitFeedback.TraitId != 20 || traitFeedback.ContextHexId is not null)))
+                        : traitFeedback.TraitId is not (20 or 25) || traitFeedback.ContextHexId is not null)))
                     throw new InvalidDataException("Invalid Army trait feedback request.");
                 if (request.FacilityConstructionPresentation is { } construction &&
                     (batch.Source != CampaignEffectSource.ArmyFacilityConstruction || !Enum.IsDefined(construction.Operation) ||
@@ -282,12 +445,15 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                      started.TargetKind != CombatParticipantKind.FieldObject || started.TargetId is null or <= 0 ||
                      started.HexId is < 0 or > 48400))
                     throw new InvalidDataException("Invalid facility construction start speech request.");
-                if ((request.FacilityAuraReset is not null || request.MilitaryMusicPulse is not null) &&
+                if ((request.FacilityAuraReset is not null || request.MilitaryMusicPulse is not null || request.FacilityProjectile is not null) &&
                     batch.Source != CampaignEffectSource.FacilityEffects)
                     throw new InvalidDataException("Facility presentation requires the facility effects origin.");
                 if (request.MilitaryMusicPulse is { } pulse &&
                     (pulse.FacilityReceiverId.Value <= 0 || pulse.ArmyId <= 0 || pulse.HexId is < 0 or >= 48400))
                     throw new InvalidDataException("Invalid military music pulse request.");
+                if (request.FacilityProjectile is { } projectile &&
+                    (projectile.FacilityReceiverId.Value <= 0 || projectile.TargetReceiverId.Value <= 0))
+                    throw new InvalidDataException("Invalid facility projectile request.");
                 if (request.FacilityRepairPresentation is { } repair &&
                     (batch.Source != CampaignEffectSource.ArmyFacilityRepair || !Enum.IsDefined(repair.Operation) ||
                      repair.ReceiverId.Value <= 0 || repair.HexId is < 0 or >= 48400 || string.IsNullOrWhiteSpace(repair.DefinitionKey) ||
@@ -312,13 +478,38 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                     speech.TargetKind is { } kind && !Enum.IsDefined(kind) || speech.SpeakerId < 0 || speech.OfficerId < 0 ||
                     (speech.Event == CombatSpeechEvent.UnresolvedGarrisonContact) != (speech.GarrisonChoice is not null)))
                     throw new InvalidDataException("Invalid campaign speech request.");
+                if (request.Speech is { } facilityAttack &&
+                    (facilityAttack.Event == CombatSpeechEvent.ArmyUnderFacilityAttack
+                        ? batch.Source != CampaignEffectSource.FacilityEffects ||
+                          facilityAttack.SpeakerKind != CombatParticipantKind.Army || facilityAttack.SpeakerId <= 0 ||
+                          facilityAttack.TargetKind != CombatParticipantKind.FieldObject || facilityAttack.TargetId is null or <= 0 ||
+                          facilityAttack.HexId is < 0 or > 48400 || facilityAttack.FacilityDefinitionId != 5
+                        : facilityAttack.FacilityDefinitionId is not null))
+                    throw new InvalidDataException("Invalid Army facility-attack speech context.");
+                if (request.Speech is { } arrivalSpeech &&
+                    ((arrivalSpeech.Event == CombatSpeechEvent.ArmyEnteredBase) != (arrivalSpeech.BaseArrival is not null) ||
+                     arrivalSpeech.BaseArrival is { } arrival &&
+                     (batch.Source != CampaignEffectSource.ArmyMovement || arrival.GoalHexId is < 0 or >= 48400 || arrival.LocationId is < 0 or > 61)))
+                    throw new InvalidDataException("Invalid Army Base-arrival speech context.");
                 if (request.Report is { } report && (!Enum.IsDefined(report.Event) || !Enum.IsDefined(report.TargetKind) ||
                     report.ArmyName is null || report.TargetName is null || report.AreaId is < 0))
                     throw new InvalidDataException("Invalid campaign report request.");
+                if (request.Speech is { } areaSpeech &&
+                    (areaSpeech.Event == CombatSpeechEvent.ArmyAreaOccupationCompleted
+                        ? batch.Source != CampaignEffectSource.ArmyCommandMaintenance ||
+                          areaSpeech.SpeakerKind != CombatParticipantKind.Army || areaSpeech.SpeakerId <= 0 ||
+                          areaSpeech.TargetKind != CombatParticipantKind.Area || areaSpeech.TargetId is not (>= 1 and <= 500) ||
+                          areaSpeech.HexId is < 0 or >= 48400 || areaSpeech.AfterActionChoice is null
+                        : areaSpeech.AfterActionChoice is not null))
+                    throw new InvalidDataException("Invalid Army area-completion speech context.");
                 if (request.MapObjectPresentation is { } map && (!Enum.IsDefined(map.Event) || map.ReceiverId.Value <= 0 ||
                     map.HexId is < 0 || map.Event != MapObjectPresentationEvent.RetirementVisualDetach &&
                     (map.HexId is null || string.IsNullOrWhiteSpace(map.DefinitionKey))))
                     throw new InvalidDataException("Invalid map object presentation request.");
+                if (batch.Source == CampaignEffectSource.ForceUnregister &&
+                    request.MapObjectPresentation is not
+                        { Event: MapObjectPresentationEvent.DestructionVisual or MapObjectPresentationEvent.DestructionSound })
+                    throw new InvalidDataException("Force unregistration requires an object destruction presentation intent.");
                 if (request.ForceAssociationRemovalReport is { } association &&
                     (association.OldForceId < 0 || association.OfficerId < 0 || association.AssociationSlot < 0 ||
                      association.TargetForceId < 0 || association.DistrictId < 0 || association.LocationId < 0 ||
@@ -460,6 +651,7 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
     private static void ValidateTrap(CampaignEffectSource source, CampaignEffectRequest request)
     {
         bool trap = source == CampaignEffectSource.FacilityTraps;
+        bool facilityEffects = source == CampaignEffectSource.FacilityEffects;
         if (request.FacilityTrapPresentation is { } visual &&
             (!trap || !Enum.IsDefined(visual.Operation) || visual.ReceiverId.Value <= 0 ||
              visual.DefinitionId is < 0 or > 30 || visual.HexId is < 0 or >= 48400 ||
@@ -467,19 +659,20 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                 ? visual.Range is not float range || !float.IsFinite(range) : visual.Range is not null)))
             throw new InvalidDataException("Invalid trap presentation request.");
         if (request.ArmyTrapPresentation is { } target &&
-            (!trap || !Enum.IsDefined(target.Operation) || target.ArmyId <= 0 || target.ReceiverId.Value <= 0 ||
+            (!(trap || facilityEffects && target.Operation == ArmyTrapPresentationOperation.TargetViewRefresh &&
+                target.DefinitionId == 5) || !Enum.IsDefined(target.Operation) || target.ArmyId <= 0 || target.ReceiverId.Value <= 0 ||
              target.DefinitionId is < 0 or > 30 || target.HexId is < 0 or >= 48400))
             throw new InvalidDataException("Invalid trap target presentation request.");
         if (request.ArmyFacilityDamagePresentation is { } damage &&
-            (!trap || !Enum.IsDefined(damage.Operation) || damage.ArmyId <= 0 || damage.HexId is < 0 or >= 48400 ||
+            (!(trap || facilityEffects) || !Enum.IsDefined(damage.Operation) || damage.ArmyId <= 0 || damage.HexId is < 0 or >= 48400 ||
              (damage.Operation == ArmyFacilityDamagePresentationOperation.ConditionalFloatingNumber
                 ? damage.DisplayModifier is null : damage.DisplayModifier is not null)))
             throw new InvalidDataException("Invalid facility damage presentation request.");
         if (request.ArmyMoraleDefeatReport is { } defeat &&
-            (source is not (CampaignEffectSource.FacilityTraps or CampaignEffectSource.ArmyBattleDefeat or CampaignEffectSource.FireDamage or CampaignEffectSource.TerrainDamage) ||
+            (source is not (CampaignEffectSource.ArmyFalseReport or CampaignEffectSource.FacilityTraps or CampaignEffectSource.ArmyBattleDefeat or CampaignEffectSource.FireDamage or CampaignEffectSource.TerrainDamage or CampaignEffectSource.FacilityEffects) ||
              defeat.ArmyId <= 0 || defeat.ArmyNameSnapshot is null || defeat.CampaignDay < 0))
             throw new InvalidDataException("Invalid Army morale defeat report request.");
-        if (request.Speech is { Event: >= CombatSpeechEvent.TrapPitfall } speech &&
+        if (request.Speech is { Event: >= CombatSpeechEvent.TrapPitfall and <= CombatSpeechEvent.ImmobilizationApplied } speech &&
             (!trap || speech.SpeakerKind != CombatParticipantKind.Army || speech.SpeakerId <= 0 ||
              speech.TargetKind != CombatParticipantKind.FieldObject || speech.TargetId is null or <= 0 ||
              speech.HexId is < 0 or > 48400))

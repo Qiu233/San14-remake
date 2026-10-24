@@ -81,7 +81,7 @@ public static class OwnedArmyLifecycleCurrent
         result = OwnedArmyDestructorFlags.InstallFresh(result);
         result = OwnedArmyLifecycleTargets.InstallFresh(result);
         result = ArmyDestructionQueue.InstallFreshOwned(result);
-        ArmyLifecycleSaveValidation.Validate(result); return result;
+        return result;
     }
 
     /// <summary>The native501 scan chooses the first non-placeholder invalid

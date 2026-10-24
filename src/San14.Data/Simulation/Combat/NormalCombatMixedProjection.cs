@@ -30,8 +30,10 @@ internal sealed class NormalCombatMixedProducer(GameState world, SourceWorldCont
             var native = army.NativeTacticRuntime ?? throw Missing("Army_tactic_runtime");
             if (army.Troops == 0 || native.Abnormal23 != 0) continue;
             byte action = Need(ArmyConfigurationSourceAdapter.ReadAction(world, army), "Army_action");
-            if (action == 16 && native.Abnormal24 == 0 && native.Abnormal25 == 0)
-                throw Missing("action16_2C9070");
+            //170240 omits ordinary attack only when2C9070 actually says
+            //this Fire command is ready; marching/blocked Fire still fights.
+            if (action == 16 && native.Abnormal24 == 0 && native.Abnormal25 == 0 &&
+                FireCommandIsReady(army, physical)) continue;
             int range = Need(tactics.ReadArmyNativePrimaryRange(world, army), "Army_range");
             Add(DescribeArmy(army), range, native.Abnormal25 != 0 ? native.ProvocationOwner
                 ?? throw Missing("Army_provocation") : null, null);
@@ -110,9 +112,38 @@ internal sealed class NormalCombatMixedProducer(GameState world, SourceWorldCont
                 }
                 else
                 {
-                    int force = Need(current.ReadObjectForceSlot13(occupant.CapturedObject ?? throw Missing("Object_pointer")), "Object_force");
+                    var obj = occupant.CapturedObject ?? throw Missing("Object_pointer");
+                    int force = Need(current.ReadObjectForceSlot13(obj), "Object_force");
                     if (!Need(ArmyLogisticsPreparation.ReadNativeRelationGate(world, actor.ForceSlot, force), "Object_relation")) continue;
-                    throw Missing("hostile_Object_candidate");
+                    if (armyForced is null && baseForced is null)
+                    {
+                        var definition = FacilityConstructionLegality.DefinitionOf(current, obj);
+                        if (!Need(current.ReadObjectDefinitionValidity(definition), "Object_definition_validity")) continue;
+                        int category = Need(current.ReadObjectDefinitionRaw2C(definition), "Object_definition_category");
+                        if (category != 2)
+                        {
+                            if (category != 3 || actor.Kind != 27) continue;
+                            var army = Army(actor.PhysicalSlot);
+                            bool explicitTarget = false;
+                            if (Need(ArmyConfigurationSourceAdapter.ReadAction(world, army), "Object_actor_action") == 6)
+                            {
+                                var fields = current.ReadArmyLifecycleTargetFields(actor.PhysicalSlot) ?? throw Missing("Object_actor_target");
+                                explicitTarget = Need(fields.Kind38, "Object_actor_target_kind") == 11 &&
+                                    Need(fields.Identity3A, "Object_actor_target_identity") == occupant.NativePhysicalSlot;
+                            }
+                            if (!explicitTarget)
+                            {
+                                var temporary = ArmyOverrideTargetSourceAdapter.Read(world, army);
+                                explicitTarget = Need(temporary.Kind3C, "Object_actor_override_kind") == 11 &&
+                                    Need(temporary.Identity3E, "Object_actor_override_identity") == occupant.NativePhysicalSlot;
+                            }
+                            if (!explicitTarget) continue;
+                        }
+                    }
+                    //170F31 clears byte8/wordA. These are not Object HP14.
+                    int objectHex = Need(current.ReadObjectHexIndex(obj), "Object_hex");
+                    target = new(11, occupant.NativePhysicalSlot, null, 0, 0,
+                        Math.Min(objectHex, 48400), force, 0);
                 }
                 targets.Add(target);
             }
@@ -120,6 +151,57 @@ internal sealed class NormalCombatMixedProducer(GameState world, SourceWorldCont
             actor = actor with { AcceptedCount = checked((byte)targets.Count) };
             actors.Add(new(actor, targets.ToArray(), formationContact));
             foreach (var target in targets) pairs.Add(new(pairs.Count, actor, target));
+        }
+    }
+
+    private bool FireCommandIsReady(UnitState army, int physical)
+    {
+        //Every admitted initial/existing Fire writer stores16/9/physical.
+        //2B5610 reads that main target, never the first waypoint, override,
+        //displayed destination or cached route endpoint.
+        var fields = current.ReadArmyLifecycleTargetFields(physical) ?? throw Missing("Fire_main_target");
+        if (Need(fields.Kind38, "Fire_main_target_kind") != 9) throw Missing("Fire_main_target_kind_scope");
+        ushort raw = Need(fields.Identity3A, "Fire_main_target_identity");
+        var goal = current.ReadHexTableReference(raw < 48400 ? raw : 0) ?? throw Missing("Fire_Hex_pointer");
+        if (goal.PhysicalSlot is null) return false;
+        var city = CityAt(goal);
+        if (Need(current.ReadBaseNativeValidity(city), "Fire_City_validity"))
+            goal = CurrentGateMapQueries.FindHex(city, current);
+        ushort link = Need(current.ReadHexObjectLink(goal), "Fire_Gate_link");
+        var gate = current.ReadGateTableReference(link is >= 52 and <= 61 ? link - 51 : 0)
+            ?? throw Missing("Fire_Gate_pointer");
+        if (Need(current.ReadBaseNativeValidity(gate), "Fire_Gate_validity"))
+            goal = CurrentGateMapQueries.FindHex(gate, current);
+        int target = goal.PhysicalSlot ?? throw Missing("Fire_target_Hex_identity");
+        if (Need(current.ReadCaptureHexWord16(target), "Fire_target_Hex16") != 0) return false;
+        if (Need(ArmyMarchSourceAdapter.EncodeDestination(army.March?.Target), "Fire_first_waypoint") != 48400) return false;
+        var following = army.March?.FollowingWaypoints ?? throw Missing("Fire_following_waypoints");
+        //Omitted entries of the explicit continuation are known None. Preserve
+        //the native ordered early return without reading unused unknown words.
+        foreach (var point in following.Destinations)
+            if (Need(ArmyMarchSourceAdapter.EncodeDestination(point), "Fire_following_waypoint") != 48400) return false;
+        var obj = FacilityConstructionLegality.ObjectAt(current, goal);
+        if (Need(current.ReadObjectNativeValidity(obj), "Fire_Object_validity"))
+        {
+            var definition = FacilityConstructionLegality.DefinitionOf(current, obj);
+            if (Need(current.ReadObjectDefinitionValidity(definition), "Fire_definition_validity") &&
+                Need(current.ReadObjectDefinitionRaw2C(definition), "Fire_definition_category") != 4 &&
+                !Need(ArmyLogisticsPreparation.ReadNativeRelationGate(world,
+                    current.ReadArmyUnitRawForceSlot(new(physical)),
+                    Need(current.ReadObjectForceSlot13(obj), "Fire_Object_force")), "Fire_Object_relation")) return false;
+        }
+        //22A9E0 is deliberately repeated after both center normalizations.
+        //It is a Base receiver validity test, not Terrain16 or a cached kind.
+        city = CityAt(goal);
+        int required = Need(current.ReadBaseNativeValidity(city), "Fire_distance_City_validity") ? 2 : 1;
+        ushort position = Need(current.ReadArmyUnitRawHex2A(new(physical)), "Fire_Army2A");
+        return Distance(position, target) == required;
+
+        BaseReference CityAt(HexReference hex)
+        {
+            ushort rawLink = Need(current.ReadHexObjectLink(hex), "Fire_City_link");
+            return current.ReadCityTableReference(rawLink <= 51 ? rawLink : 0)
+                ?? throw Missing("Fire_City_pointer");
         }
     }
 

@@ -6,7 +6,14 @@ public sealed partial class ArmyCampaignRuleAdapter
 {
     internal GameState? ApplyOrdinaryMarchDevelopment(GameState state, SourceWorldContext current, UnitState army)
     {
-        bool? valid = Context(current).ArmyValid(state, army);
+        //The same2D99C0 call reaches this tail after29F220. The active
+        //projection may already be pending70, while the real Army header
+        //remains valid until stage26. Do not recreate an active ghost Unit.
+        var receiver = army.NativeArmyOrigin?.NativeSlotIndex is int slot
+            ? state.ReadArmyLifecycle()?.ReceiverSlots()[slot] : null;
+        bool? valid = receiver is { ActiveUnitId: null, PendingImage: { } pending } && pending.Id == army.Id &&
+            army.NativeArmyOrigin?.NativeSlotIndex is int physical
+            ? current.ReadArmyUnitNativeValidity(new(physical)) : Context(current).ArmyValid(state, army);
         if (valid is null) return null;
         return valid.Value ? ArmyMarchDevelopmentSource.TryApply(state, current, army, _normalAftermathInputs) : state;
     }
@@ -69,24 +76,33 @@ internal static class ArmyMarchDevelopmentSource
         if (first.PhysicalSlot is not int a || second.PhysicalSlot is not int b ||
             state.NativeArmySimulation is not { } simulation ||
             simulation.World.SelectedForce1656 is not byte selected) return null;
-        var left = simulation.Forces.GetValueOrDefault(a);
-        var right = simulation.Forces.GetValueOrDefault(b);
         if (selected == a)
         {
-            if (right?.Flags12 is not byte rightFlags) return null;
+            if (ReadField(b, 0x12) is not byte rightFlags) return null;
             if ((rightFlags & 2) != 0) return false;
         }
-        if (left?.Flags12 is not byte leftFlags) return null;
+        if (ReadField(a, 0x12) is not byte leftFlags) return null;
         if ((leftFlags & 2) != 0 && selected == b) return false;
-        if (left.RelationsEA is not { Length: 52 } relation) return null;
+        var relation = a == 0 ? state.NativeForceUnregisterCurrent?.PlaceholderRelationsEA :
+            simulation.Forces.GetValueOrDefault(a)?.RelationsEA;
+        if (relation is not { Length: 52 } || (uint)b >= relation.Length) return null;
         if ((relation[b] & 0x7F) != 0) return true;
         if ((leftFlags & 2) != 0)
         {
-            if (right?.Flags12 is not byte rightFlags) return null;
+            if (ReadField(b, 0x12) is not byte rightFlags) return null;
             if ((rightFlags & 2) != 0) return true;
         }
-        if (left.Flags194 is not byte leftPartner) return null;
+        if (ReadField(a, 0x194) is not byte leftPartner) return null;
         if (leftPartner == b) return true;
-        return right?.Flags194 is byte rightPartner ? rightPartner == a : null;
+        return ReadField(b, 0x194) is byte rightPartner ? rightPartner == a : null;
+
+        byte? ReadField(int physical, int field)
+        {
+            var saved = state.NativeForceUnregisterCurrent;
+            if (saved?.ForceResetImages.TryGetValue(physical, out var reset) == true) return reset[field];
+            if (physical == 0) return field == 0x12 ? saved?.PlaceholderFlags12 : saved?.PlaceholderPartner194;
+            var row = simulation.Forces.GetValueOrDefault(physical);
+            return field == 0x12 ? row?.Flags12 : row?.Flags194;
+        }
     }
 }

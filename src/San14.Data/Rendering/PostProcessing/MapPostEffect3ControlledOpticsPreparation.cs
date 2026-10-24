@@ -33,11 +33,11 @@ public sealed class MapPostEffect3ControlledOpticsPreparation
     public int GhostSpriteCount{get;}
     public int NativeGhostStride=>28;
     public int NativeGhostAllocationByteCount=>448;
-    public ReadOnlyMemory<byte> AllGhostRecords440=>allGhosts.ToArray();
-    public ReadOnlyMemory<byte> SelectedGhostRecords640=>selectedGhosts.ToArray();
+    public ReadOnlyMemory<byte> AllGhostRecords440=>allGhosts;
+    public ReadOnlyMemory<byte> SelectedGhostRecords640=>selectedGhosts;
     /// <summary> prepares and stages16 source rows before current
     /// Camera writes. A later count0 upload does not clear these device bytes.</summary>
-    public ReadOnlyMemory<byte> InitialGhostRecords640=>initialGhosts.ToArray();
+    public ReadOnlyMemory<byte> InitialGhostRecords640=>initialGhosts;
     public int ActualGhostUploadByteCount=>selectedGhosts.Length;
     public float ObjectDistance60{get;}
     public float FocalLength64{get;}

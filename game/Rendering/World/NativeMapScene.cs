@@ -504,7 +504,7 @@ public sealed class NativeMapScene : IAsyncDisposable
         OutputFrame.Source.TextureObjects.Source.ResourceUri+"#native-color-output");
     private static bool SameBatch(NativeTerrainBatch left,NativeTerrainBatch right)
         =>left.Coarse==right.Coarse && left.Patches.Count==right.Patches.Count &&
-            left.Patches.Where((p,i)=>p.GridSize!=right.Patches[i].GridSize || !p.EncodeInstance().SequenceEqual(right.Patches[i].EncodeInstance())).Any()==false;
+            left.Patches.SequenceEqual(right.Patches);
     private async Task RetireFailedDrawsAsync(Exception failure,IEnumerable<IAsyncDisposable> completed)
     {
         _drawRetirement=NativeMapBorrowerRetirementPackage.CreatePending("Scene-failed-draws",completed,

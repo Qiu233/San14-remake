@@ -28,7 +28,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         else if (subject.Category == MapObjectCategory.Gate && subject.LocationId is int gate)
             state = state with { Gates = new(state.Gates) { [gate] = state.Gates[gate] with { Durability = stored } } };
         else if (subject.StructureId is int structure && state.Structures is { } structures)
-            state = state with { Structures = new(structures) { [structure] = structures[structure] with { Durability = stored } } };
+            state = state with { Structures = new(structures) { [structure] = structures[structure] with { Durability = stored, MaxDurability = capacity, Completed = stored == capacity } } };
         else throw RepairMissing("number_canonical_durability_owner");
         // The optional EnsureRepairLoop intent precedes completion intents.
         // Read back the real store and make a second current capacity query.

@@ -24,6 +24,10 @@ public static class TransportArmyNormalCargoSource
         SourceWorldContext current, UnitState attacker, UnitState target, int appliedLoss) =>
         ApplyCore(state, current, attacker, target, appliedLoss, false);
 
+    internal static TransportArmyNormalCargoResult ApplyBorrowed(GameState state,
+        SourceWorldContext current, UnitState attacker, UnitState target, int appliedLoss) =>
+        ApplyCore(state, current, attacker, target, appliedLoss, true);
+
     internal static TransportArmyNormalCargoResult ApplyFieldObject(GameState state,
         SourceWorldContext current, UnitState target, int appliedLoss) =>
         ApplyCore(state, current, null, target, appliedLoss, true);

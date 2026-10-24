@@ -11,20 +11,25 @@ internal partial class DeploymentTargetView : Control
     private MapFont? font;
     private Shader? shader;
     private Control canvas=null!;
+    private UiSourceHeader sourceHeader=null!;
     private DeploymentResourceHeader resourceHeader=null!;
     private DeploymentTargetList selection=null!;
     private UiSourceRoundButton confirm=null!;
+    private UiSourceRoundButton returnTarget=null!;
     private UiSourceBottomButton facility=null!;
+    private Control selectionBlocker=null!;
+    private bool facilityMode,decisionEnabled;
     private Action? decide,back;
     private UiSourceText hintText=null!;
     private string defaultHint="";
+    private UnitWaypointMarkerLayer? sourceRoute;
     internal IReadOnlyList<int> SelectedOfficers=>selection.SelectedOfficers;
     internal void RequestBack()=>back?.Invoke();
 
     internal void Configure(GameResourceRepository repository,PreviewText text,CityState city,long availableTroops,
         long? availableBooks,IReadOnlyList<DeploymentTargetGroup> groups,IEnumerable<int> selectedOfficers,
         int scrollSpeedSetting,Action<IReadOnlyList<int>> selectionChanged,Action chooseFacility,Action requestedBack,
-        Func<int>? currentScrollSpeed=null)
+        Func<int>? currentScrollSpeed=null, bool transportMode=false)
     {
         Name="DeploymentTarget";ZIndex=3;MouseFilter=MouseFilterEnum.Ignore;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);back=requestedBack;
@@ -32,28 +37,31 @@ internal partial class DeploymentTargetView : Control
         canvas=new Control {Name="SourceCanvas",Size=new(1920,1080),MouseFilter=MouseFilterEnum.Ignore};AddChild(canvas);
         var messages=repository.LoadMessages(text.SourceLocale,MessageKind.Data).Messages.Sections[1];
         string Message(int id)=>messages.Records[id].Text??throw new InvalidDataException("Missing target-page message.");
-        var title=new UiSourceLayout(repository,0xDC8AC8AA);
-        title.Art(canvas,1,title.Rectangle(1),assets,shader);
-        title.Text(canvas,2,default,Message(0x0223),font,MapTextPresets.Create()[56]).Name="TargetTitle";
+        sourceHeader=new UiSourceHeader {Name="TargetTitle"};
+        canvas.AddChild(sourceHeader);
+        sourceHeader.Configure(repository,assets,shader,font,Message(transportMode?0x033A:0x0223));
         resourceHeader=new DeploymentResourceHeader {Name="DeploymentResourceHeader",Position=new(487,12)};
         canvas.AddChild(resourceHeader);resourceHeader.Configure(repository,assets,shader,font,text,city,availableTroops,availableBooks);
         var footer=new UiSourceLayout(repository,0xD8913AB2);Vector2 footerMount=new(0,904);
         MenuFooterTop=(int)footer.Rectangle(19,footerMount).Position.Y;
         confirm=Round("ConfirmTarget",5,"000_cmn_txt_decision_kettei",()=>{if(!confirm.Disabled)decide?.Invoke();});
         confirm.Disabled=true;
-        Round("ReturnTarget",4,"000_cmn_txt_decision_modoru",RequestBack);
+        returnTarget=Round("ReturnTarget",4,"000_cmn_txt_decision_modoru",RequestBack);
         facility=new UiSourceBottomButton {Name="ChooseFacilityTarget",Position=footer.Rectangle(14,footerMount).Position};
         canvas.AddChild(facility);facility.Configure(repository,assets,shader,font,Message(0x0262),chooseFacility);
+        facility.Visible=!transportMode;
         selection=new DeploymentTargetList {Name="DeploymentTargets"};canvas.AddChild(selection);
         selection.Configure(repository,assets,shader,font,text,groups,selectedOfficers,scrollSpeedSetting,officers=>
         {facility.Disabled=officers.Count==0;selectionChanged(officers);},currentScrollSpeed);
         facility.Disabled=selection.SelectedOfficers.Count==0;
+        selectionBlocker=new Control {Name="FacilitySelectionInputOwner",MouseFilter=MouseFilterEnum.Stop,Visible=false};
+        selection.AddChild(selectionBlocker);selectionBlocker.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         var hint=new UiSourceLayout(repository,0xAB6ADAA7);Vector2 hintMount=footer.Rectangle(19,footerMount).Position;
         foreach(var node in hint.Nodes.Where(node=>node.Type is 1 or 3))
             hint.Art(canvas,node.Index,hint.Rectangle(node.Index,hintMount),assets,shader);
         // Global Game message5696 maps to section2/0876. It is a static
         // narration literal, not an index into the UTF-16 Data caption table.
-        var narration=repository.LoadMessages(text.SourceLocale,MessageKind.Game).Messages.Sections[2].Records[0x0876];
+        var narration=repository.LoadMessages(text.SourceLocale,MessageKind.Game).Messages.Sections[2].Records[transportMode?0x0879:0x0876];
         defaultHint=narration.Literals.Single().Text;
         hintText=hint.Text(canvas,hint.Nodes.Single(node=>node.Type==2).Index,hintMount,defaultHint,font);hintText.Name="TargetHint";
         // No full-screen blocker, authored blur or fixed pad guide is added.
@@ -69,15 +77,34 @@ internal partial class DeploymentTargetView : Control
         }
     }
 
+    internal void RegisterHeader(UiSourceHeaderStack owner)=>sourceHeader.Publish(owner);
+
     internal void ApplyDraftResources(DeploymentDraftResources resources)=>resourceHeader.Apply(resources);
+    internal void ApplyTransportResources(long? remainingTroops,long? remainingGold,long? remainingSupplies,
+        long? currentBooks,long? remainingBooks,int? spentBooks)
+        =>resourceHeader.ApplyTransport(remainingTroops,remainingGold,remainingSupplies,currentBooks,remainingBooks,spentBooks);
     internal void ApplyProgress(IReadOnlyList<DeploymentTargetProgress> progress)=>selection.ApplyProgress(progress);
     internal void ApplySelection(IEnumerable<int> officers)
-    {selection.ApplySelection(officers);facility.Disabled=selection.SelectedOfficers.Count==0;}
+    {selection.ApplySelection(officers);facility.Disabled=facilityMode||selection.SelectedOfficers.Count==0;}
     internal void ApplyDecision(bool enabled,Action requestedDecision)
-    {decide=requestedDecision;confirm.Disabled=!enabled;}
+    {decide=requestedDecision;decisionEnabled=enabled;confirm.Disabled=facilityMode||!enabled;}
+    internal void SetFacilitySelectionMode(bool active,bool placing=false)
+    {
+        facilityMode=active;confirm.Disabled=active||!decisionEnabled;
+        facility.Disabled=active||selection.SelectedOfficers.Count==0;
+        returnTarget.Disabled=active&&!placing;selectionBlocker.Visible=active;
+        if(sourceRoute is not null)sourceRoute.Visible=!active;
+    }
     internal void ApplyHint(string? value)=>hintText.Text=value??defaultHint;
-    internal void AddMapMenu(DeploymentMoveMenu menu)=>canvas.AddChild(menu);
-    internal void AddPolicyPanel(DeploymentPolicyView panel)=>canvas.AddChild(panel);
+    internal void AddMapMenu(Control menu)=>canvas.AddChild(menu);
+    internal void AddPolicyPanel(Control panel)=>canvas.AddChild(panel);
+    internal void ConfigureSourceRoute(GameResourceRepository repository,Func<int,Vector2?> project)
+    {
+        sourceRoute=new();canvas.AddChild(sourceRoute);canvas.MoveChild(sourceRoute,0);
+        sourceRoute.Configure(repository,assets!,shader!,font!,project);
+    }
+    internal void ApplySourceWaypoints(IReadOnlyList<int> points,int? preview=null)=>sourceRoute?.Apply(points,preview);
+    internal void Abandon(){decide=null;back=null;sourceRoute?.Abandon();Hide();}
     internal int MenuFooterTop {get;private set;}
 
     private void Fit()

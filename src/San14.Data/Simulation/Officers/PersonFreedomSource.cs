@@ -19,7 +19,7 @@ public sealed record PersonFreedomResult(GameState? State, PersonFreedomReceipt?
 /// or directly destroys a deployed commander Army with mode0/cause4, then
 /// publishes the exact free Person fields and a reached current Governor tail.
 /// Captives and District-leader reselection remain independent source paths.</summary>
-public sealed class PersonFreedomSource(ArmyCampaignRuleAdapter package, LoadedScenario source)
+public sealed partial class PersonFreedomSource(ArmyCampaignRuleAdapter package, LoadedScenario source)
 {
     public const string Revision = "ce-265250-ordinary-returning-Person-freedom";
     private readonly PersonFreedomHomeSource homeSource = new(source);
@@ -89,8 +89,7 @@ public sealed class PersonFreedomSource(ArmyCampaignRuleAdapter package, LoadedS
             for (int i = 0; i < 52; i++)
                 if (K(current.ReadBaseForceSlot(current.ReadCityTableReference(i) ?? throw Missing("current.freedom_City_table")), "current.freedom_CityForce") == originalForce) cities++;
             if (cities != 1) throw Missing("branch.2851B0_not_last_old_City");
-            RequireNoItems(current, (ushort)personId);
-            var effects = new List<string> { "2851B0.last_old_City", "2EACB0.empty_owned_Item_iterator" };
+            var effects = new List<string> { "2851B0.last_old_City" };
             //Source233780(Person,3) short-circuits the raw2E comparison.
             //Status4 reaches that comparison, independently of its Core role.
             bool repairGovernor = resident && (status == 3 ||
@@ -153,6 +152,8 @@ public sealed class PersonFreedomSource(ArmyCampaignRuleAdapter package, LoadedS
             if (selected.NativeReturn != 1 || selected.Area?.PhysicalSlot is not int areaPhysical)
                 throw Missing(selected.UnresolvedOwner ?? "branch.265250_no_City_or_Area_candidate");
             effects.Add("2655xx.22F430_shuffle254F70_then_AreaB0_shuffle");
+            input = DropFreedomItems(input, current, physical, areaPhysical);
+            effects.Add("265Bxx.Item_flag3_clear→324580_selected_Area_mode2→deferred_registry_removal");
             ArmyCause4Receipt? armyCleanup = null;
             if (deployedArmy)
             {
@@ -231,12 +232,10 @@ public sealed class PersonFreedomSource(ArmyCampaignRuleAdapter package, LoadedS
                     { NativeReturnRuntime = city.NativeReturnRuntime! with { Governor2E = governorRepair.GovernorWord2EAfter } } } }).WithArmyLifecycle(result.ReadArmyLifecycle()! with { Indexes = world.Pool.ExportOwnedState() });
                 effects.Add("265DBx.old_Base2E_still0_valid→22ACF0→282C10→26D090_actual_Governor");
             }
-            StateValidator.Validate(result);
             if (deployedArmy)
             {
                 result = package.ConsumeArmyLifecyclePending(result) ?? throw Missing("current.freedom_28E6D0_pending_cleanup");
                 effects.Add("owned.cleanup_window.28E6D0_after_complete_free_Person");
-                StateValidator.Validate(result);
             }
             return new(result, new(personId, physical, originalForce, first, destination, areaPhysical,
                 merit, loyalty, detached.Receipt, effects) { ArmyCleanup = armyCleanup, GovernorRepair = governorRepair,
@@ -245,18 +244,6 @@ public sealed class PersonFreedomSource(ArmyCampaignRuleAdapter package, LoadedS
         catch (InvalidDataException unknown) { return new(null, null, unknown.Message); }
     }
 
-    private static void RequireNoItems(SourceWorldContext current, ushort id)
-    {
-        var descriptor = current.ReadRegistryDescriptor(RegistryKind.Item) ?? throw Missing("current.freedom_Item_manager");
-        var node = current.ReadRegistryHead(descriptor) ?? throw Missing("current.freedom_Item_head");
-        while (node.Identity.HasValue)
-        {
-            var item = current.ReadRegistryNodePayload(node) ?? throw Missing("current.freedom_Item_payload");
-            if (item.Kind != RegistryKind.Item || item.PhysicalSlot is not int physical) throw Missing("current.freedom_Item_pointer");
-            if (K(current.ReadCaptureItemOwner4A(physical), "current.freedom_Item4A") == id) throw Missing("branch.265250_owned_Item324580");
-            node = current.ReadRegistryNodeNext(node) ?? throw Missing("current.freedom_Item_Next");
-        }
-    }
     private sealed class Transfer(SourceWorldContext current) : IPersonDistrictTransferState
     {
         public byte? ReadPersonDistrictSlot(int p) => current.ReadPersonDistrictSlot(p);

@@ -64,9 +64,17 @@ public sealed class PersonNormalArmyRewardSource
         TacticRemakeCurrentContext current, ArmyCampaignRuleAdapter package,
         int personId, int kind, int amount) => Apply(input, definitions, current, package, personId, kind, amount, false);
 
+    internal PersonNormalArmyRewardResult TryApplyBorrowedCurrent(GameState input, SourceWorldContext definitions,
+        TacticRemakeCurrentContext current, ArmyCampaignRuleAdapter package, int personId, int kind, int amount,
+        Func<GameState, int, int, int, int, PersonGrowthResult> growth,
+        Func<GameState, int, int, PersonPendingMeritResult> pending)
+        => Apply(input, definitions, current, package, personId, kind, amount, false, growth, pending);
+
     private PersonNormalArmyRewardResult Apply(GameState input, SourceWorldContext definitions,
         TacticRemakeCurrentContext current, ArmyCampaignRuleAdapter package,
-        int personId, int kind, int amount, bool detachCallbacks)
+        int personId, int kind, int amount, bool detachCallbacks,
+        Func<GameState, int, int, int, int, PersonGrowthResult>? growth = null,
+        Func<GameState, int, int, PersonPendingMeritResult>? pending = null)
     {
         if (!Bound(input) || !current.IsBoundCurrentState(input) || !input.Officers.TryGetValue(personId, out var person) ||
             definitions.StaticSource?.ResourceUri != _source.ScenarioSource.ResourceUri ||
@@ -102,8 +110,8 @@ public sealed class PersonNormalArmyRewardSource
         if (kind is < 0 or > 3) return Skip();
         if (ReadRequests(input, kind, amount) is not { } requests) return Unknown("request-parameters");
         return ApplyQualifiedRequests(input, personId, army.Id, requests,
-            package.ApplyPersonGrowthDuringArmyOperation,
-            package.ApplyPendingMeritDuringArmyOperation,
+            growth ?? package.ApplyPersonGrowthDuringArmyOperation,
+            pending ?? package.ApplyPendingMeritDuringArmyOperation,
             $"{ProfileId}:{input.NativeArmySimulation!.Parameters.Revision}", detachCallbacks);
         PersonNormalArmyRewardResult Unknown(string phase) => new(PersonNormalArmyRewardOutcome.CurrentInputsUnresolved, input, null, phase);
         PersonNormalArmyRewardResult Skip() => new(PersonNormalArmyRewardOutcome.NativeSkip, input, null, null);

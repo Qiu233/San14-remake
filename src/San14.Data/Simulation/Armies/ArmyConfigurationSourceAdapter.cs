@@ -151,6 +151,19 @@ public static class ArmyConfigurationSourceAdapter
         {
             var unit = pair.Value;
             var source = (state.ResourceState as CampaignSourceKnowledge)?.ArmyConfigurations.FirstOrDefault(row => row.Owner == pair.Key);
+            // The saved Fire projection requires its actual action owner,
+            // including an archived defeated Force's independent image.
+            if (unit.MilitaryPlan is { Action.ActionKey: "fire" } fire && source?.ActionCode != (fire.Completed ? 13 : 16) &&
+                !(pair.Key.DefeatedForceId is null && source?.ActionCode == 1 &&
+                  ArmySavedCommandKnowledge.RetainsReplacedMilitaryPlan(state, unit, fire, fire.Completed ? 13 : 16)))
+                throw new InvalidDataException(fire.Completed
+                    ? "Saved completed Fire plan has no matching native Army action13."
+                    : "Saved Fire plan has no matching native Army action16.");
+            if (unit.MilitaryPlan is { Action.ActionKey: "capture" } falseReport &&
+                source?.ActionCode != (falseReport.Completed ? 13 : 17) &&
+                !(pair.Key.DefeatedForceId is null && source?.ActionCode == 1 &&
+                  ArmySavedCommandKnowledge.RetainsReplacedMilitaryPlan(state, unit, falseReport, falseReport.Completed ? 13 : 17)))
+                throw new InvalidDataException("Saved false-report projection has no matching native command.");
             if (unit.NativeArmyOrigin is not null && EncodeFormation(unit.Formations?.CurrentLandFormationId, source?.UnmappedLandCode) is byte land && land != unit.FormationId)
                 throw new InvalidDataException("Source-created army formation differs from its deployment selection.");
         }

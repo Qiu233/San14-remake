@@ -22,7 +22,8 @@ public sealed class PlayableUnitOrders(IOrderRules originalCommands, PlayableLan
     IPlayableCityEntryResourceRules? cityEntryResources = null,
     IPlayableCityEntryStateRules? cityEntryState = null,
     IPlayableTransportCreationRules? transportCreation = null,
-    IPlayableArmyConstructionCommandRules? construction = null) : IOrderRules
+    IPlayableArmyConstructionCommandRules? construction = null,
+    IPlayableArmyWithdrawalCommandRules? withdrawalRules = null) : IOrderRules
 {
     public const string ImmediateBaseEntryReportRuleId = "san14:playable-immediate-base-entry-report-v1";
     public const string TransportCityRetargetRuleId = "san14:provisional-transport-city-retarget-v1";
@@ -49,6 +50,18 @@ public sealed class PlayableUnitOrders(IOrderRules originalCommands, PlayableLan
             return denied!;
         if (order is DispatchTransportOrder transport)
             return DispatchTransport(state, force, transport, context);
+        if (order is DispatchTransportArmyOrder transportArmy)
+            return DispatchTransportArmy(state, force, transportArmy, context);
+        if (order is SaveTransportDefaultsOrder transportDefaults)
+        {
+            if (context.DelegatedDistrictId is not null)
+                return CommandResult.Reject("Transport defaults require direct player control.", "transport.defaults_scope");
+            if (transportDefaults.SourceBehaviorChoice is < 0 or > 2)
+                return CommandResult.Reject("Transport behavior default is invalid.", "transport.defaults_behavior");
+            return transportCreation is IPlayableTransportArmyCommandRules defaults
+                ? defaults.SaveTransportDefaults(state, transportDefaults)
+                : CommandResult.RuleUnavailable("rules.transport_defaults", "Current transport preference rules are unavailable.");
+        }
         if (order is RetargetTransportOrder convoy)
         {
             if (!PlayableUnitControl.TryResolve(state, force, convoy.UnitId, context,
@@ -66,6 +79,23 @@ public sealed class PlayableUnitOrders(IOrderRules originalCommands, PlayableLan
             return construction?.IssueFacilityConstruction(state, builder!, build.HexId, build.KindId, []) ??
                 CommandResult.RuleUnavailable("rules.army_construction", "Current facility construction command rules are unavailable.");
         }
+        if ((order is RepairStructureOrder or DemolishStructureOrder) && construction is IPlayableArmyFacilityWorkCommandRules facilityWork)
+        {
+            int selectedUnit = order is RepairStructureOrder repairOrder ? repairOrder.UnitId : ((DemolishStructureOrder)order).UnitId;
+            int selectedStructure = order is RepairStructureOrder repairTarget ? repairTarget.StructureId : ((DemolishStructureOrder)order).StructureId;
+            if (!PlayableUnitControl.TryResolve(state, force, selectedUnit, context,
+                out var demolisher, out var demolitionDenied)) return demolitionDenied!;
+            if (state.Structures is not { } targetStructures ||
+                !targetStructures.TryGetValue(selectedStructure, out var target) || target.ForceId != force.Id)
+                return CommandResult.Reject("The selected facility is unavailable.", "structure.target");
+            int? approach = PlayableWaypointMarch.FacilityApproach(routes, demolisher!.HexId, target.HexId);
+            return approach is int at ? order is RepairStructureOrder
+                ? facilityWork.IssueFacilityRepair(state, demolisher, target.Id, at, [])
+                : facilityWork.IssueFacilityDemolition(state, demolisher, target.Id, at, []) :
+                CommandResult.Reject("The facility is unreachable.", "structure.destination");
+        }
+        if (order is WithdrawUnitOrder nativeWithdrawal)
+            return Withdraw(state, force, nativeWithdrawal);
         if (controlledUnitId is int constructionArmy && order is not RetargetUnitOrder &&
             state.ArmyLifecycle?.Receivers.FindUnit(constructionArmy)?.FacilityConstruction?.DefinitionKey is not null)
             return CommandResult.RuleUnavailable("rules.army_construction_replacement",
@@ -78,8 +108,6 @@ public sealed class PlayableUnitOrders(IOrderRules originalCommands, PlayableLan
                 demolish.StructureId, UnitMissionKind.DemolishStructure);
         if (order is OccupyAreaOrder occupation)
             return OccupyArea(state, force, occupation);
-        if (order is WithdrawUnitOrder withdrawal)
-            return Withdraw(state, force, withdrawal);
         if (order is DisbandUnitOrder disband)
         {
             if (!state.Units.TryGetValue(disband.UnitId, out UnitState? active) || active.ForceId != force.Id)
@@ -286,6 +314,9 @@ public sealed class PlayableUnitOrders(IOrderRules originalCommands, PlayableLan
         if (unit.Mission is null or { Kind: UnitMissionKind.Transport })
             return CommandResult.Reject("Only a known combat mission can withdraw.",
                 "unit.withdraw_mission");
+        if (unit.NativeArmyOrigin is not null)
+            return withdrawalRules?.IssueWithdrawal(state, unit) ?? CommandResult.RuleUnavailable(
+                "rules.army_withdrawal", "Current commander-home withdrawal rules are unavailable.");
         if (PlayableUnitRetreat.Destination(unit, state.Cities, state.Gates,
                 state.Officers, routes, state.MapWidth) is not { } destination)
             return CommandResult.Reject("No reachable friendly base is available for retreat.",
@@ -299,6 +330,58 @@ public sealed class PlayableUnitOrders(IOrderRules originalCommands, PlayableLan
             }
         };
         return CommandResult.Accept(state with { Units = units });
+    }
+
+    private CommandResult DispatchTransportArmy(GameState state, ForceState force,
+        DispatchTransportArmyOrder order, CommandContext context)
+    {
+        if (!state.Cities.TryGetValue(order.SourceCityId, out var source) || source.ForceId != force.Id ||
+            source.HexId is not int sourceHex || source.DistrictId is not int districtId ||
+            !state.Districts.TryGetValue(districtId, out var district))
+            return CommandResult.Reject("Transport source city is unavailable.", "transport.source");
+        if (context.DelegatedDistrictId is int delegated ? delegated != district.Id : district.Number != 1)
+            return CommandResult.Reject("Transport source is outside the authorized district.", "transport.district_scope");
+        if (!state.Officers.TryGetValue(order.OfficerId, out var officer) || officer.ForceId != force.Id ||
+            officer.LocationId != source.Id || officer.Presence != OfficerPresence.Present || officer.Deployed ||
+            PlayableOfficerAvailability.IsSourceBusy(state, officer) ||
+            state.PreparedOfficerMoves?.ContainsKey(officer.Id) == true ||
+            state.PreparedTalentOrders?.ContainsKey(officer.Id) == true ||
+            state.PreparedDeployments.Values.Any(plan => plan.OfficerId == officer.Id))
+            return CommandResult.Reject("Transport officer is unavailable.", "transport.officer");
+        if (order.Troops is < 0 or > ushort.MaxValue || order.Supplies is < 0 or > 5000000 ||
+            order.Gold is < 0 or > 100000 ||
+            order.Troops == 0 && order.Supplies == 0 && order.Gold == 0 ||
+            order.Troops > source.Troops - DeploymentAvailability.ReservedTroops(state, source.Id) ||
+            order.Supplies > source.Supplies || order.Gold > source.Gold)
+            return CommandResult.Reject("Transport cargo exceeds available city resources.", "transport.resources");
+        if (order.NavalFormationId is < 0 or > 20 || order.SourceBehaviorChoice is < 0 or > 2 ||
+            order.Action is not { Target: { } target, StructureKindId: null } || order.WaypointHexIds is null ||
+            order.WaypointHexIds.Count > PlayableWaypointMarch.MaximumWaypoints)
+            return CommandResult.Reject("Transport selections are invalid.", "transport.selection");
+        int targetHex;
+        if (order.Action is { ActionKey: "move", Target.Kind: DeploymentTargetKind.Hex })
+            targetHex = target.Id;
+        else if (order.Action is { ActionKey: "enter", Target.Kind: DeploymentTargetKind.Location })
+        {
+            if (state.Cities.TryGetValue(target.Id, out var city) && city.ForceId == force.Id && city.HexId is int cityHex)
+                targetHex = cityHex;
+            else if (state.Gates.TryGetValue(target.Id, out var gate) && gate.ForceId == force.Id && gate.HexId is int gateHex)
+                targetHex = gateHex;
+            else return CommandResult.Reject("Transport must enter a friendly base.", "transport.destination");
+            if (target.Id == source.Id)
+                return CommandResult.Reject("Transport must select a different destination.", "transport.destination");
+        }
+        else return CommandResult.Reject("Transport supports movement or entry into a friendly base.", "transport.action");
+        int cursor = sourceHex;
+        foreach (int hex in order.WaypointHexIds.Append(targetHex))
+        {
+            if (!routes.CanEnter(hex) || cursor != hex && routes.Route(cursor, hex).Length == 0)
+                return CommandResult.Reject("The transport route is unreachable.", "transport.destination");
+            cursor = hex;
+        }
+        return transportCreation is IPlayableTransportArmyCommandRules commands
+            ? commands.IssueTransportArmy(state, order)
+            : CommandResult.RuleUnavailable("rules.transport_army_command", "Current transport command rules are unavailable.");
     }
 
     private CommandResult DispatchTransport(GameState state, ForceState force,

@@ -48,10 +48,33 @@ public static class OwnedArmyLifecycleAuxiliaries
     {
         var arena = state.ReadArmyLifecycle();
         if (arena is null || arena.ArmyGroups is not { } groups || arena.ArmyCautions is not { } cautions || state.PendingCombatSettlements is null || arena.ReceiverSlots().Length != 501) return null;
+        // The exact saved retirement queue is authoritative. Its known-empty
+        // pass has no reset/unlink/publish work; keep the stage26 caller's
+        // separate nearby-enemy refresh. Null remains unknown.
+        if (arena.Indexes.PendingUnitIds is { Count: 0 }) return state;
         var current = OwnedArmyReturnCurrentFields.CaptureCurrent(state, definitions);
         var pool = WorldIndexContext.ImportOwnedState(current, arena.Indexes, state);
         current.BindArmyMapOccupancy(state);
         RestoreHeaders(current, arena.ReceiverSlots());
+        return ConsumePendingCore(state, current, pool, arena, groups, cautions, committedReset, borrowed: false);
+    }
+
+    /// <summary>The real deferred retirement pass over the caller's live pool.
+    /// It is invoked at the lifecycle stage, never by the return publisher.</summary>
+    internal static GameState? ConsumePendingCurrent(GameState state, SourceWorldContext current,
+        WorldIndexContext pool, Action<int>? committedReset = null)
+    {
+        var arena = state.ReadArmyLifecycle();
+        if (arena is null || arena.ArmyGroups is not { } groups || arena.ArmyCautions is not { } cautions ||
+            state.PendingCombatSettlements is null || arena.ReceiverSlots().Length != 501 ||
+            !ReferenceEquals(pool.ArmyReturnOwner, current) || !pool.OwnsArmyReturnProfile()) return null;
+        return ConsumePendingCore(state, current, pool, arena, groups, cautions, committedReset, borrowed: true);
+    }
+
+    private static GameState? ConsumePendingCore(GameState state, SourceWorldContext current, WorldIndexContext pool,
+        ArmyLifecycleSourceView arena, ArmyGroupsState groups, ArmyCautionsState cautions,
+        Action<int>? committedReset, bool borrowed)
+    {
         var pendingOrder = Chain(current, current.ReadArmyReturnPending70Descriptor());
         if (pendingOrder.Any(x => x.Kind != RegistryKind.Army || x.PhysicalSlot is not (>= 1 and <= 500))) return null;
         if (pendingOrder.Any(x => arena.ReceiverSlots()[x.PhysicalSlot!.Value].ActiveUnitId is not null ||
@@ -96,6 +119,11 @@ public static class OwnedArmyLifecycleAuxiliaries
                 current.ReleaseArmyOccupancyReceiver(army);
                 current.SetArmyUnitCommanderId(army, 0); current.SetArmyUnitStatusFlag10(army, 0);
                 if (armyFlags150 is not null) armyFlags150[army] = 0; //2269E0 byte150 explicit reset.
+                if (borrowed)
+                {
+                    current.SetArmyUnitFlags150(army, 0);
+                    current.SetStartupArmyTroopsSlot58(army, 0);
+                }
                 if (arena.Targets is not null) current.SetArmyLifecycleTargetFields(army, new(0xFF, 0)); //2269E0 target reset.
                 _ = ArmyMovementManagerLifecycle.Remove(receiver, current);
                 pool.RemoveArmyIdentity(army);
@@ -105,7 +133,7 @@ public static class OwnedArmyLifecycleAuxiliaries
                     ?? throw new InvalidDataException("Current group retirement membership is unavailable.");
             }
             current.ClearTemporaryHexList(new(current.ReadArmyReturnPending70Descriptor()!.Identity));
-            var result = (state with { ArmyMapOccupancy = current.ExportArmyMapOccupancy() }).WithArmyLifecycle(arena.WithReceiverSlots(slots) with { Indexes = pool.ExportOwnedState(), ArmyFlags150 = armyFlags150,
+            var result = (state with { ArmyMapOccupancy = current.ExportArmyMapOccupancy() }).WithArmyLifecycle(arena.WithReceiverSlots(slots) with { Indexes = borrowed ? pool.ProjectOwnedRoles() : pool.ExportOwnedState(), ArmyFlags150 = armyFlags150,
                 ArmyGroups = groups, ArmyCautions = cautions });
             var resetRoster = result.ReadArmyLifecycle()!.Receivers;
             foreach (var receiver in pendingOrder)
@@ -128,7 +156,11 @@ public static class OwnedArmyLifecycleAuxiliaries
             foreach (var receiver in pendingOrder) committedReset?.Invoke(receiver.PhysicalSlot!.Value);
             return result;
         }
-        catch (InvalidDataException) { return null; }
+        catch (InvalidDataException)
+        {
+            if (borrowed) throw;
+            return null;
+        }
     }
 
     internal static void RestoreCurrent(SourceWorldContext current, ArmyLifecycleSourceView arena)

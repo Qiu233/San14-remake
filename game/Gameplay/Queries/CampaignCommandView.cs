@@ -42,7 +42,8 @@ internal sealed record CampaignCommandView(bool CanEditNewGameOptions, bool CanS
         var roster = new CampaignCommandRoster(Array.AsReadOnly(bases), defaultBase,
             world.Cities.Keys.ToFrozenSet(), Array.AsReadOnly(units),
             text.Format("play_move_pending", world.PreparedOfficerMoves?.Count ?? 0),
-            text.Format("play_talent_pending", world.PreparedTalentOrders?.Count ?? 0), status);
+            text.Format("play_talent_pending", (world.PreparedTalentOrders?.Count ?? 0) +
+                (world.PersonnelCommands?.Talents?.Values.Count(task => task.ForceId == player && !task.IsRetiring) ?? 0)), status);
         return new(initializing, initializing && selectedForceId is not null, strategy, reporting, roster);
     }
 }

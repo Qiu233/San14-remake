@@ -16,7 +16,7 @@ public sealed record SaveEnvelope(int SchemaVersion, string FormatId, GameState 
 /// <summary>Local save format. A future original-save adapter can implement ISaveCodec.</summary>
 public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
 {
-    public const int CurrentSchemaVersion = 139;
+    public const int CurrentSchemaVersion = 160;
     public string FormatId => "san14-remake-json-gzip";
     private readonly ILegacyOfficerAbilitySource? _legacyAbilitySource;
     private readonly ICampaignResourceStateCodec? _resourceStateCodec;
@@ -37,17 +37,11 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
 
     public byte[] Encode(GameState state)
     {
-        StateValidator.Validate(state, _operationContext);
+        ArgumentNullException.ThrowIfNull(state);
+        _operationContext?.Validate(state);
         state = ArmyIdentityAllocation.Initialize(state);
-        ArmyIdentityAllocation.ValidateSaved(state);
-        ArmyTargetsSaveValidation.Validate(state);
-        MapObjectLifecycleSaveValidation.Validate(state);
-        ArmyOverrideSaveValidation.Validate(state);
-        ArmyMarchSaveValidation.Validate(state);
-        TransportRouteSaveValidation.Validate(state);
-        ArmyTraitRosterSaveValidation.Validate(state);
-        ArmyFormationSaveValidation.Validate(state);
-        ArmyMoraleSaveValidation.Validate(state);
+        // Serialize the owned world directly. Whole-world correctness checks belong
+        // to offline validation; decoding checks data entering the game.
         JsonObject document = JsonSerializer.SerializeToNode(new SaveEnvelope(CurrentSchemaVersion, FormatId, state))!.AsObject();
         if (state.ResourceState is { } resourceState)
             document["ResourceState"] = (_resourceStateCodec ?? throw new InvalidDataException(
@@ -80,6 +74,11 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
             resourceState = (_resourceStateCodec ?? throw new InvalidDataException(
                 "Saved resource compatibility knowledge requires its resource-state codec.")).Decode(resourceDocument);
         }
+        // Schema142 adds typed duel pair history, prepared result and aftermath owner.
+        // Old KnownEmpty history becomes an actual empty list. Unknown stays unknown;
+        // old Active gates do not invent a missing active contest or numeric result.
+        // Schema141 adds current Turn City/Gate gold and food expenditures.
+        // Older saves preserve null until the real Turn reset writes zero.
         // Schema59 replaces EXE proof hashes with the version of our own rules.
         // Migrate identity metadata only; all current field values and owner links remain untouched.
         if (version < 59) MigrateRuleIdentities((JsonObject)document["State"]!);
@@ -151,6 +150,48 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
             resourceState = (_resourceStateCodec ?? throw new InvalidDataException(
                 "Historical army source knowledge requires its resource-state codec.")).MigrateArmyLifecycle(resourceState, armySource);
         JsonObject stateDocument = (JsonObject)document["State"]!;
+        TalentSaveFields.Migrate(stateDocument, version);
+        TalentDiscoverySaveFields.Migrate(stateDocument, version);
+        CampaignExpeditionSaveFields.Migrate(stateDocument, version);
+        ForceCreditReserveSaveFields.Migrate(stateDocument, version);
+        PersonnelHireSaveFields.Migrate(stateDocument, version);
+        CampaignCrtRandomSaveFields.Migrate(stateDocument, version);
+        DiplomacySaveFields.Migrate(stateDocument, version);
+        if (version < 149) stateDocument["NativePeriodContinuation"] = null;
+        else if (!stateDocument.ContainsKey("NativePeriodContinuation"))
+            throw new InvalidDataException("Saved native period continuation knowledge is missing.");
+        if (stateDocument["PersonnelCommands"]?["Returns"] is JsonObject personnelJourneys)
+            foreach (var entry in personnelJourneys)
+            {
+                if (entry.Value is not JsonObject journey) throw new InvalidDataException("Saved personnel journey is incomplete.");
+                if (version < 150) journey["CancellationRequested"] = false;
+                else if (journey["CancellationRequested"] is not JsonValue cancellationValue || !cancellationValue.TryGetValue<bool>(out _))
+                    throw new InvalidDataException("Saved personnel cancellation knowledge is missing.");
+                if (version < 146) journey["IsReassignment"] = false;
+                else if (journey["IsReassignment"] is not JsonValue journeyKindValue || !journeyKindValue.TryGetValue<bool>(out _))
+                    throw new InvalidDataException("Saved personnel journey kind is missing.");
+            }
+        if (stateDocument["Cities"] is JsonObject merchantCities)
+            foreach (var entry in merchantCities)
+            {
+                if (entry.Value is not JsonObject city) throw new InvalidDataException("Saved City is incomplete.");
+                if (version < 145) city["MerchantFoodPerTenGold"] = null;
+                else if (!city.ContainsKey("MerchantFoodPerTenGold") || city["MerchantFoodPerTenGold"] is JsonNode price &&
+                    (price is not JsonValue number || !number.TryGetValue<byte>(out _)))
+                    throw new InvalidDataException("Saved merchant price is incomplete.");
+            }
+        // Before schema144 every unit-defeat request represented ordinary
+        // battle destruction. No historical request is inferred to be a duel.
+        if (stateDocument["PendingCombatSettlements"] is JsonObject settlements &&
+            settlements["Requests"] is JsonArray requests)
+            foreach (var entry in requests)
+            {
+                if (entry is not JsonObject request ||
+                    request["SettlementKind"]?.GetValue<string>() != "unit-defeat") continue;
+                if (version < 144) request["Cause"] = (int)UnitDefeatCause.OrdinaryBattle;
+                else if (!request.ContainsKey("Cause"))
+                    throw new InvalidDataException("Saved unit defeat cause is missing.");
+            }
         if (version < 133) stateDocument["CampaignAppRandom32"] = null;
         else
         {
@@ -177,6 +218,29 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
                 if (duel["History"] is not JsonValue duelHistoryValue || !duelHistoryValue.TryGetValue<int>(out int duelHistoryTag) ||
                     !Enum.IsDefined((CampaignDuelHistoryKnowledge)duelHistoryTag))
                     throw new InvalidDataException("Saved campaign duel service history is invalid.");
+                if (version < 142)
+                {
+                    if (duelHistoryTag == (int)CampaignDuelHistoryKnowledge.KnownEntries)
+                        throw new InvalidDataException("Historical save cannot claim an unavailable duel history list.");
+                    duel["HistoricalPairs"] = duelHistoryTag == (int)CampaignDuelHistoryKnowledge.KnownEmpty ? new JsonArray() : null;
+                    duel["LastSequence"] = 0;
+                    duel["Registered"] = null;
+                    duel["CompletedPresentations"] = new JsonArray();
+                }
+                else if (new[] { "HistoricalPairs", "LastSequence", "Registered", "CompletedPresentations" }
+                    .Any(key => !duel.ContainsKey(key)))
+                    throw new InvalidDataException("Saved duel registration fields are missing.");
+                var presentations = duel["CompletedPresentations"] as JsonArray
+                    ?? throw new InvalidDataException("Saved duel presentation queue is missing.");
+                foreach (var item in presentations.Prepend(duel["Registered"]))
+                {
+                    if (item is null) continue;
+                    if (item is not JsonObject registered)
+                        throw new InvalidDataException("Saved registered duel is invalid.");
+                    if (version < 143) registered["AftermathPresentation"] = null;
+                    else if (!registered.ContainsKey("AftermathPresentation"))
+                        throw new InvalidDataException("Saved duel aftermath presentation knowledge is missing.");
+                }
             }
         }
         if (version <= 130) stateDocument["DuelOpportunityCount"] = null;
@@ -312,6 +376,10 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
                         if (version < 116) person[key] = null;
                         else if (!person.ContainsKey(key)) throw new InvalidDataException("Saved person dialogue fields are missing.");
                     }
+                    if (version < 147) person["VoiceType"] = null;
+                    else if (!person.ContainsKey("VoiceType") || person["VoiceType"] is JsonNode voice &&
+                        (voice is not JsonValue scalar || !scalar.TryGetValue<byte>(out _)))
+                        throw new InvalidDataException("Saved person voice type is missing or invalid.");
                     if (version < 110) person["Lifespan"] = null;
                     else if (!person.ContainsKey("Lifespan") || person["Lifespan"] is JsonObject lifespan &&
                         (!lifespan.ContainsKey("TerminalYear") || !lifespan.ContainsKey("Kind")))
@@ -563,6 +631,7 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
                         : null;
                     area.Remove("OverseerId");
                 }
+        ForceAttackRequestSaveFields.Apply((JsonObject)document["State"]!, version);
         SaveEnvelope envelope;
         try
         {

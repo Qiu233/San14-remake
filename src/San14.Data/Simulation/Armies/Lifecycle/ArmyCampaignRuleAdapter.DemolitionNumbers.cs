@@ -11,7 +11,8 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// The caller must also complete its ordered effect/report suffix before
     /// publishing this returned world.</summary>
     private ArmyDemolitionNumberResult? ApplyDemolitionNumbers(GameState state,
-        SourceWorldContext current, ObjectReference obj, ArmyUnitReference army)
+        SourceWorldContext current, ObjectReference obj, ArmyUnitReference army,
+        Action<GameState>? publishReached = null)
     {
         if (!DemolitionKnown(current.ReadObjectNativeValidity(obj), "remove_object_validity")) return null;
         int physical = obj.PhysicalSlot ?? throw DemolitionMissing("remove_object_pointer");
@@ -28,7 +29,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         var receiver = directory.ReceiverAtPhysical(physical);
         //241900 clears the selected Hex1A even when its current link differs.
         state = OwnedMapObjectLifecycle.WriteHexBinding(state, current, at, 0);
+        publishReached?.Invoke(state);
         state = MapObjectLifecycleRules.EnqueueRetirement(state, receiver);
+        publishReached?.Invoke(state);
         var pool = current.ReadOwnedCurrentListPool() ?? throw DemolitionMissing("remove_pool");
         pool.PendingObjectRetirements = new(state.ReadArmyLifecycle()!.Indexes.PendingObjectRetirements!);
         if (DemolitionKnown(current.ReadArmyUnitNativeValidity(army), "reward_army_validity"))
@@ -57,6 +60,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                                 _baseCapacityInputs.BindCurrent(state, current);
                                 state = BaseCurrencyAdditionSource.Add(state, current, home, amount,
                                     target => BasePostLoad.ReadResourceCapacities(target, current).Gold).State;
+                                publishReached?.Invoke(state);
                             }
                         }
                     }

@@ -21,13 +21,15 @@ public static class ArmyTargetSourceAdapter
     {
         ArmyTargetKind? kind = fields.Kind38 switch
         {
-            null => null, 255 => ArmyTargetKind.None, 5 => ArmyTargetKind.City,
+            null => null, 255 => ArmyTargetKind.None, 5 => ArmyTargetKind.City, 6 => ArmyTargetKind.Gate,
             27 => ArmyTargetKind.ArmyReceiver, 9 => ArmyTargetKind.Hex,
             11 when mapObjects is not null => ArmyTargetKind.MapObjectReceiver, _ => ArmyTargetKind.Unresolved
         };
         ArmyTargetDestination? destination = fields.Identity3A is null ? null :
             kind == ArmyTargetKind.City && fields.Identity3A is >= 1 and <= 51
                 ? new(ArmyTargetDestinationKind.City, fields.Identity3A.Value, null)
+                : kind == ArmyTargetKind.Gate && fields.Identity3A is >= 1 and <= 10
+                    ? new(ArmyTargetDestinationKind.Gate, null, null) { GateId = fields.Identity3A.Value + 51 }
                 : kind == ArmyTargetKind.Hex && fields.Identity3A < 48400
                     ? new(ArmyTargetDestinationKind.Hex, null, null) { HexId = fields.Identity3A.Value }
                 : kind == ArmyTargetKind.ArmyReceiver && receivers.TryResolveReceiverId(fields.Identity3A.Value, out var id)
@@ -51,7 +53,7 @@ public static class ArmyTargetSourceAdapter
     {
         byte? kind = target.Kind switch
         {
-            null => null, ArmyTargetKind.None => 255, ArmyTargetKind.City => 5,
+            null => null, ArmyTargetKind.None => 255, ArmyTargetKind.City => 5, ArmyTargetKind.Gate => 6,
             ArmyTargetKind.ArmyReceiver => 27, ArmyTargetKind.Hex => 9, ArmyTargetKind.Unresolved => residue?.KindCode,
             ArmyTargetKind.MapObjectReceiver => 11,
             _ => throw new InvalidDataException("Unknown army target category.")
@@ -60,6 +62,7 @@ public static class ArmyTargetSourceAdapter
         {
             null => null,
             { Kind: ArmyTargetDestinationKind.City, CityId: int id } when id is >= 1 and <= 51 => (ushort)id,
+            { Kind: ArmyTargetDestinationKind.Gate, GateId: int gate } when gate is >= 52 and <= 61 => (ushort)(gate - 51),
             { Kind: ArmyTargetDestinationKind.Hex, HexId: int hex } when hex is >= 0 and <= ushort.MaxValue => (ushort)hex,
             { Kind: ArmyTargetDestinationKind.ArmyReceiver, ReceiverId: ArmyReceiverId id }
                 when receivers.TryResolveSourceOrdinal(id, out int ordinal) && ordinal <= ushort.MaxValue => (ushort)ordinal,

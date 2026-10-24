@@ -71,10 +71,10 @@ public sealed partial class ArmyCampaignRuleAdapter
 
             var deploy = ReadEnabled(() => Deploy() && Zoom());
             var cancel = ReadEnabled(() => Cancel() && Zoom());
-            var transfer = ReadEnabled(() => UnclosedMovement("transfer"));
-            var summon = ReadEnabled(() => UnclosedMovement("summon"));
+            var transfer = ReadEnabled(() => Movement(OfficerMoveMode.Dispatch));
+            var summon = ReadEnabled(() => Movement(OfficerMoveMode.Summon));
             var transport = ReadEnabled(() => Transport() && Zoom());
-            var merchant = ReadEnabled(UnclosedMerchant);
+            var merchant = ReadEnabled(Merchant);
             var investment = common.Available ? Unknown("investment_external_mode") : common;
             // These are separate source slices. An unavailable command does
             // not turn the whole structural projection into known absence.
@@ -145,21 +145,21 @@ public sealed partial class ArmyCampaignRuleAdapter
             return RegisteredArmies() <= 499;
         }
 
-        private bool UnclosedMovement(string kind)
+        private bool Movement(OfficerMoveMode mode)
         {
-            if (!K(_current.ReadBaseNativeValidity(_city), kind + "_city_validity")) return false;
-            var district = District(kind + "_district_pointer");
-            if (!K(_current.ReadDistrictNativeValidity(district), kind + "_district_validity")) return false;
-            _ = Books(district, kind);
-            throw Missing(kind + "_command_cost");
+            if (!K(_current.ReadBaseNativeValidity(_city), "movement_city_validity")) return false;
+            var district = District("movement_district_pointer");
+            if (!K(_current.ReadDistrictNativeValidity(district), "movement_district_validity")) return false;
+            if (Books(district, "movement") < CityOfficerMovementSource.ReadCost(_state)) return false;
+            return _adapter.CreateCityOfficerMovementSource(_state, _cityId, mode).CanOpen();
         }
 
-        private bool UnclosedMerchant()
+        private bool Merchant()
         {
             var district = District("merchant_district_pointer");
             if (K(_current.ReadBaseObjectLink(_city), "merchant_base_link") > 51) return false;
-            _ = Books(district, "merchant");
-            throw Missing("merchant_command_cost");
+            if (Books(district, "merchant") < CityMerchantSource.CommandCost) return false;
+            return _adapter.CreateCityMerchantSource(_state, _cityId).CanOpen();
         }
 
         private List<int> DeploymentCandidates()

@@ -97,6 +97,10 @@ public static class TacticRemakeCurrentTraits
     public static bool? CommanderHasEffect(SourceWorldContext current,
         int personPhysical, int effectCode)
     {
+        //Both2C5830 and2C3BC0 reject a native-invalid Person before
+        //reading selected personalities or their retained activation mask.
+        if (current.ReadPersonNativeValidity(personPhysical) is not bool personValid) return null;
+        if (!personValid) return false;
         for (int index = 0; index < 9; index++)
         {
             PersonalityReference? reference = CurrentPersonality(current, personPhysical, index);
@@ -115,6 +119,10 @@ public static class TacticRemakeCurrentTraits
     public static bool? CommanderImmune(SourceWorldContext current,
         int personPhysical, int effectCode)
     {
+        //Both2C5830 and2C3BC0 reject a native-invalid Person before
+        //reading selected personalities or their retained activation mask.
+        if (current.ReadPersonNativeValidity(personPhysical) is not bool personValid) return null;
+        if (!personValid) return false;
         for (int index = 0; index < 9; index++)
         {
             PersonalityReference? reference = CurrentPersonality(current, personPhysical, index);
@@ -208,11 +216,21 @@ public static class TacticRemakeCurrentTraits
         ArgumentNullException.ThrowIfNull(current);
         if (index is < 0 or >= 9) throw new ArgumentOutOfRangeException(nameof(index));
         if (current.ReadPersonIdentity(personPhysical) is not ushort identity) return null;
+        return SelectPersonalityLookup(current, identity, index,
+            () => current.ReadPersonTraitSlot150(personPhysical, index));
+    }
+
+    //230730 is used for both the live Person table and the separately loaded
+    //original/custom Person catalog. Preserve its lazy raw-slot read and
+    //custom-person index gate rather than rebinding a fake live receiver.
+    internal static ushort? SelectPersonalityLookup(SourceWorldContext current, ushort identity,
+        int index, Func<ushort?> readSlot)
+    {
         bool custom = unchecked((uint)(identity - 5101)) <= 99;
         // Custom entries5..8 stop before consuming their raw fields. Ordinary
         // entries still execute their current validity/flag filter first.
         if (custom && index >= 5) return 0;
-        if (current.ReadPersonTraitSlot150(personPhysical, index) is not ushort requested) return null;
+        if (readSlot() is not ushort requested) return null;
         if (!custom)
         {
             PersonalityReference? candidate = current.ReadPersonalityTableReference(requested <= 355 ? requested : 0);

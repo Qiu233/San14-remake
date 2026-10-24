@@ -12,8 +12,10 @@ internal partial class DeploymentCombatChart : Control
     private UiSourceRadarMesh current=null!,comparison=null!;
     private int[] maxima=[];
 
-    internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,MapFont font,PreviewText text)
+    internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,MapFont font,PreviewText text,
+        IReadOnlyList<int?>? signedModifiers=null)
     {
+        if(signedModifiers is not null&&signedModifiers.Count!=5)throw new ArgumentException("Five radar modifiers are required.",nameof(signedModifiers));
         var source=new UiSourceLayout(repository,0x8EE99810);
         Size=new(source.Nodes[0].Value44,source.Nodes[0].Value46);MouseFilter=MouseFilterEnum.Ignore;
         var presets=MapTextPresets.Create();var palettes=MapSpritePalettes.Create();
@@ -24,14 +26,22 @@ internal partial class DeploymentCombatChart : Control
         source.Art(this,1,source.Rectangle(1),assets,shader);
         current=Layer(2,"CurrentRadar",profile.LargeCurrentPalette);
         comparison=Layer(3,"ComparisonRadar",profile.LargeComparisonMinimumPalette);
-        foreach(int node in new[]{4,15,16,17,18,19})
-            source.Art(this,node,source.Rectangle(node),assets,shader,node>=15?palettes[10]:null);
+        source.Art(this,4,source.Rectangle(4),assets,shader);
         var messages=repository.LoadMessages(text.SourceLocale,MessageKind.Data).Messages.Sections[1];
         int[] captions=[0x022F,0x022C,0x022D,0x0230,0x022E];
+        int[] decorations=[15,16,17,19,18];
         for(int axis=0;axis<5;axis++)
         {
-            source.Text(this,5+axis*2,default,messages.Records[captions[axis]].Text!,font,presets[13]);
+            int? modifier=signedModifiers?[axis];
+            int decoration=decorations[axis];
+            source.Art(this,decoration,source.Rectangle(decoration),assets,shader,palettes[modifier>0?63:modifier<0?64:10]);
+        }
+        for(int axis=0;axis<5;axis++)
+        {
+            int? modifier=signedModifiers?[axis];
+            source.Text(this,5+axis*2,default,messages.Records[captions[axis]].Text!,font,presets[modifier>0?73:modifier<0?74:13]);
             var label=source.Text(this,6+axis*2,default,"",font,presets[0]);values.Add(label);label.Visible=false;
+            SetMeta($"modifier_known_{axis}",signedModifiers is null||modifier.HasValue);
         }
         SetMeta("source_layout",source.Source.Source.ResourceUri);
         ApplyFigures(null);
@@ -44,24 +54,35 @@ internal partial class DeploymentCombatChart : Control
 
     internal void ApplyFigures(DeploymentDraftFigures? figures)
     {
-        int[]? before=Axes(figures?.WithoutConditionalModifiers),after=Axes(figures?.WithConditionalModifiers);
+        ApplyComparison(Axes(figures?.WithoutConditionalModifiers),Axes(figures?.WithConditionalModifiers),figures is null);
+    }
+
+    internal void ApplyComparison(IReadOnlyList<int?>? before,IReadOnlyList<int?>? after)=>ApplyComparison(before,after,false);
+
+    private void ApplyComparison(IReadOnlyList<int?>? before,IReadOnlyList<int?>? after,bool empty)
+    {
+        if(before is not null&&before.Count!=5||after is not null&&after.Count!=5)
+            throw new ArgumentException("Five radar values are required.");
+        int[]? knownBefore=Complete(before),knownAfter=Complete(after);
         // Empty data collapse to the authored off-centre point; unresolved
         // nonempty data hide the corresponding geometry instead of making zeros.
-        current.ApplyValues(figures is null?[0,0,0,0,0]:after,maxima);
-        comparison.ApplyValues(figures is null?[0,0,0,0,0]:before is not null&&after is not null?
-            before.Select((value,axis)=>Math.Min(value,after[axis])).ToArray():null,maxima);
+        current.ApplyValues(empty?[0,0,0,0,0]:knownAfter,maxima);
+        comparison.ApplyValues(empty?[0,0,0,0,0]:knownBefore is not null&&knownAfter is not null?
+            knownBefore.Select((value,axis)=>Math.Min(value,knownAfter[axis])).ToArray():null,maxima);
         for(int axis=0;axis<values.Count;axis++)
         {
-            var label=values[axis];label.Visible=figures is not null;
-            if(before is null||after is null){label.Text=unknown;continue;}
-            if(before[axis]<=0||before[axis]==after[axis])label.Text=Number(after[axis]);
-            else if(before[axis]<after[axis])label.SetRuns(new(Number(before[axis])),
-                new("+"+Number(unchecked(after[axis]-before[axis])),increaseColour));
-            else label.SetRuns(new(Number(before[axis])),new("-"+Number(unchecked(before[axis]-after[axis])),decreaseColour));
+            var label=values[axis];label.Visible=!empty;
+            if(before?[axis] is not int previous||after?[axis] is not int next){label.Text=unknown;continue;}
+            if(previous<=0||previous==next)label.Text=Number(next);
+            else if(previous<next)label.SetRuns(new(Number(previous)),
+                new("+"+Number(unchecked(next-previous)),increaseColour));
+            else label.SetRuns(new(Number(previous)),new("-"+Number(unchecked(previous-next)),decreaseColour));
         }
     }
 
-    private static int[]? Axes(DeploymentCombatAxes? axes)=>axes is null?null:
+    private static int[]? Complete(IReadOnlyList<int?>? axes)=>axes is null||axes.Any(value=>value is null)?null:
+        axes.Select(value=>value!.Value).ToArray();
+    private static int?[]? Axes(DeploymentCombatAxes? axes)=>axes is null?null:
         [axes.Mobility,axes.FieldAttack,axes.SiegeTroopAttack,axes.WallAttack,axes.Defense];
     private static string Number(int value)=>value.ToString(CultureInfo.InvariantCulture);
 }

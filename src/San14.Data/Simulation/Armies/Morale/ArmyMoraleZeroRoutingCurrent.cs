@@ -5,14 +5,39 @@ namespace San14.Data;
 internal sealed record ArmyMoraleZeroRoutingResult(GameState? State,
     ArmyMoraleAdjustmentReceipt? Receipt, int? NativeReturn, string? UnresolvedOwner);
 
-/// <summary>2709A0 as called by an Object trap: known-null source Hex,
-/// mode1, cause0 and deferred admission. The enclosing operation owns rollback
+/// <summary>2709A0 mode1/cause0 routing for traps, starvation and an explicit
+/// current source Hex. The enclosing operation owns rollback
 /// of the current context, pool and any immediate settlement on Unknown.</summary>
 internal static class ArmyMoraleZeroRoutingCurrent
 {
     internal static ArmyMoraleZeroRoutingResult Apply(GameState state, SourceWorldContext current,
         ArmyUnitReference army, int adjustment, ArmyMobilityCurrentProducer mobility,
+        Func<GameState, UnitDefeatRequest, GameState> immediate, HexReference? sourceHex = null)
+        => ApplyCore(state, current, army, adjustment, mobility, immediate, deferred: true, sourceHex: sourceHex);
+
+    /// <summary>2709A0(null-source,mode1,param5=0), used by Army starvation.
+    /// Its candidate scan is real, but a null source does not become a winner
+    /// argument to the immediate259360 call.</summary>
+    internal static ArmyMoraleZeroRoutingResult ApplyImmediate(GameState state, SourceWorldContext current,
+        ArmyUnitReference army, int adjustment, ArmyMobilityCurrentProducer mobility,
         Func<GameState, UnitDefeatRequest, GameState> immediate)
+        => ApplyCore(state, current, army, adjustment, mobility, immediate, deferred: false, sourceHex: null);
+
+    /// <summary>2709A0(sourceHex,mode1,param5=0). A valid source selects its
+    /// actual Base/Army directly and retains that winner at immediate259360.
+    /// An observed null Hex follows the native scan, then discards its winner.
+    /// No pending queue or temporary list is acquired for a valid source.</summary>
+    internal static ArmyMoraleZeroRoutingResult ApplyImmediateFromHex(GameState state, SourceWorldContext current,
+        ArmyUnitReference army, int adjustment, HexReference sourceHex, ArmyMobilityCurrentProducer mobility,
+        Func<GameState, UnitDefeatRequest, GameState> immediate)
+    {
+        ArgumentNullException.ThrowIfNull(sourceHex);
+        return ApplyCore(state, current, army, adjustment, mobility, immediate, deferred: false, sourceHex: sourceHex);
+    }
+
+    private static ArmyMoraleZeroRoutingResult ApplyCore(GameState state, SourceWorldContext current,
+        ArmyUnitReference army, int adjustment, ArmyMobilityCurrentProducer mobility,
+        Func<GameState, UnitDefeatRequest, GameState> immediate, bool deferred, HexReference? sourceHex)
     {
         ArmyMoraleAdjustmentReceipt? receipt = null;
         try
@@ -36,12 +61,19 @@ internal static class ArmyMoraleZeroRoutingCurrent
             if (scalar.UnresolvedOwner != "branch.2709A0_zero_morale_routing")
                 throw Missing(scalar.UnresolvedOwner ?? "zero_routing_prefix");
 
-            Bind(state, current);
-            var winner = SelectWinner(state, current, army, mobility);
+            bool sourceValid = sourceHex?.PhysicalSlot.HasValue == true;
+            //32FB90 accepts the actual nonnull current Hex receiver. Only its
+            //invalid/null branch reaches nearby search and the queue bindings.
+            if (!sourceValid) Bind(state, current);
+            var winner = sourceValid ? WinnerFromSourceHex(state, current, sourceHex!)
+                : SelectWinner(state, current, army, mobility);
             //The source service conjunct is false for current WorldBC=-1.
             //A missing or active service owner is not a known-null App.
             if (state.CampaignEventWorld?.CurrentUserIndex != -1)
                 throw Missing("service_current_user_statistics");
+            if (!deferred)
+                return new(immediate(state, new(victim, sourceValid ? winner.Army : null,
+                    sourceValid ? winner.Base : null)), receipt, 1, null);
             var request = new UnitDefeatRequest(victim, winner.Army, winner.Base);
             var queue = state.PendingCombatSettlements ?? throw Missing("pending140_queue");
             var admission = CombatSettlementRules.Admit(queue, request,
@@ -188,6 +220,37 @@ internal static class ArmyMoraleZeroRoutingCurrent
             if (!state.Cities.ContainsKey(location)) throw Missing("winner_City_entity_mapping");
             return (null, new(SettlementBaseKind.City, location));
         }
+        return ArmyWinnerAt(state, current, hex);
+    }
+
+    private static (int? Army, SettlementBase? Base) WinnerFromSourceHex(GameState state,
+        SourceWorldContext current, HexReference source)
+    {
+        var obj = ObjectAt(current, source);
+        if (K(current.ReadObjectNativeValidity(obj), "source_Object_validity"))
+        {
+            int identity = K(current.ReadObjectPhysicalSlot(obj), "source_Object_identity");
+            if (identity is >= 1 and <= 61)
+            {
+                //232780/232D00 classify Object storage identity. The original
+                //then calls32C7D0 by location, including its real registry fallback.
+                //Do not replace that lookup with a same-numbered Base table slot.
+                var basis = BaseLookup.Find(identity, current);
+                if (basis.PhysicalSlot is null) return (null, null);
+                int location = K(current.ReadBaseObjectLink(basis), "source_Base_location");
+                bool exists = basis.Kind == BaseKind.City ? state.Cities.ContainsKey(location) : state.Gates.ContainsKey(location);
+                if (!exists) throw Missing("source_Base_entity_mapping");
+                return (null, new(basis.Kind == BaseKind.City ? SettlementBaseKind.City : SettlementBaseKind.Gate, location));
+            }
+        }
+        //A valid generic Object is not a Base. It takes this same Army branch
+        //as an invalid Object, using the source Hex's two distinct1C reads.
+        return ArmyWinnerAt(state, current, source);
+    }
+
+    private static (int? Army, SettlementBase? Base) ArmyWinnerAt(GameState state,
+        SourceWorldContext current, HexReference hex)
+    {
         int key = HexIdentity(current, hex);
         var indexed = current.ReadHexTableReference(key < 48400 ? key : 0) ?? throw Missing("winner_indexed_Hex_pointer");
         if (!indexed.PhysicalSlot.HasValue) return (null, null);

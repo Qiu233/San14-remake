@@ -73,9 +73,15 @@ public static class G1ShaderBindingReader
             throw new InvalidDataException("G1S pass and dimension product differs from its original combination row count.");
 
         uint featureStart = U32(source, 0x78), variantStart = U32(source, 0x90), variantWidth = U32(source, 0x64);
-        if (variantWidth == 0 || variantWidth > int.MaxValue || featureStart > variantStart)
+        bool hasFeatures = dimensions[0] != 0, hasVariants = dimensions[6] != 0;
+        if (variantWidth > int.MaxValue || hasVariants && variantWidth == 0 ||
+            hasFeatures && hasVariants && featureStart > variantStart)
             throw new InvalidDataException("Unsupported original G1S feature/variant order or width.");
-        DxbcRange featureRange = Range(featureStart, dimensions[0], G1ShaderFeatureRowReader.RecordWidth, variantStart);
+        // Direct primitive programs may declare no feature/variant axis. An
+        // absent axis has no records to read; it does not become a fabricated
+        // default record or an exact-match success for a supplied condition.
+        uint featureEnd = hasVariants ? variantStart : (uint)combinations.SourceRange.Offset;
+        DxbcRange featureRange = Range(featureStart, dimensions[0], G1ShaderFeatureRowReader.RecordWidth, featureEnd);
         DxbcRange variantRange = Range(variantStart, dimensions[6], (int)variantWidth, (uint)combinations.SourceRange.Offset);
         var features = new List<G1ShaderFeatureRecord>((int)dimensions[0]);
         for (int i = 0; i < (int)dimensions[0]; i++)
@@ -95,6 +101,7 @@ public static class G1ShaderBindingReader
 
     private static DxbcRange Range(uint start, uint count, int width, uint end)
     {
+        if (start == 0 && count == 0) return new(0, 0);
         long length = (long)count * width;
         if (start < 256 || start > int.MaxValue || length > int.MaxValue || start + length > end)
             throw new InvalidDataException("Original G1S feature/variant source range exceeds its metadata boundary.");

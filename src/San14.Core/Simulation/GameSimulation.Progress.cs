@@ -3,11 +3,12 @@ namespace San14.Core;
 public sealed partial class GameSimulation
 {
     private CampaignPendingOperation? _progress;
+    public bool HasPendingOperation => _progress is not null || _normalPeriod is not null;
     public CampaignProgressOperation? PendingProgress => _progress?.Story?.Copy();
     public ManualTacticProgressOperation? PendingManualTactic => _progress?.ManualTactic?.Copy();
     public long LastStorySequence { get; private set; }
     private void RequireNoProgress()
-    { if (_progress is not null) throw new InvalidOperationException("The campaign is awaiting its current story continuation."); }
+    { if (HasPendingOperation) throw new InvalidOperationException("The campaign is awaiting its current continuation."); }
     public void RestoreProgress(CampaignProgressOperation? progress, long lastSequence, ManualTacticProgressOperation? manualTactic = null)
     {
         RequireNoProgress();
@@ -79,8 +80,6 @@ public sealed partial class GameSimulation
                 (result.Outcome == CampaignProgressOutcome.Unresolved ? !manual.ContinueAfterPresentation || string.IsNullOrWhiteSpace(result.UnresolvedOwner) : manual.ContinueAfterPresentation || result.UnresolvedOwner is not null))
                 throw new InvalidDataException("Manual tactic transition fabricated publication or a reply.");
             manual.Validate(State);
-            StateValidator.Validate(manual.Candidate, manual.Context);
-            foreach (var capture in manual.Captures) StateValidator.Validate(capture.State, capture.Context);
             if (manual.LastStorySequence < LastStorySequence) throw new InvalidDataException("Manual tactic rolled back story sequence.");
             _progress = new(null, manual.Copy()); LastStorySequence = manual.LastStorySequence;
             return result with { ManualTactic = _progress.ManualTactic!.Copy() };
@@ -110,7 +109,6 @@ public sealed partial class GameSimulation
             throw new InvalidDataException("Committed progress lacks its complete world.");
         if (request.NormalPeriod is not null)
             throw new InvalidDataException("normal.period.completion_owner_not_supplied_by_finite_prefix");
-        StateValidator.Validate(world);
         GameEngine.ValidateWorldIdentity(State, world);
         if (world.Date != State.Date || world.PeriodNumber != State.PeriodNumber || world.Phase != State.Phase)
             throw new InvalidDataException("Native block progress performed the separate period finalizer.");

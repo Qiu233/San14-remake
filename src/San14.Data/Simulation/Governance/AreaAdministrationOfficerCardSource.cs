@@ -18,9 +18,15 @@ internal sealed class AreaAdministrationOfficerCardSource(GameState state, Sourc
     internal AreaAdministrationOfficerCard ReadCity(long revision, int physical, bool valid, int traitContext) =>
         ReadCard(null, revision, physical, valid, traitContext);
 
-    private AreaAdministrationOfficerCard ReadCard(int? areaId, long revision, int physical, bool valid, int traitContext)
+    //Transport mounts CUtilPInfo type8, but its actual traitContext is15.
+    //The context15 table plus16F880(personality,3) leaf is not the region12
+    //filter. Preserve that group as Unknown while sharing other real fields.
+    internal AreaAdministrationOfficerCard ReadTransport(long revision, int physical, bool valid) =>
+        ReadCard(null, revision, physical, valid, null);
+
+    private AreaAdministrationOfficerCard ReadCard(int? areaId, long revision, int physical, bool valid, int? traitContext)
     {
-        if (traitContext is not (12 or 13 or 14)) throw new ArgumentOutOfRangeException(nameof(traitContext));
+        if (traitContext.HasValue && traitContext is not (0 or 10 or 12 or 13 or 14)) throw new ArgumentOutOfRangeException(nameof(traitContext));
         int? id = null; OfficerState? owner = null;
         if (valid)
         {
@@ -37,7 +43,9 @@ internal sealed class AreaAdministrationOfficerCardSource(GameState state, Sourc
         }
         return new(areaId, revision, id, owner?.Name ?? string.Empty, abilities.AsReadOnly(),
             Portrait(id, physical, owner),
-            valid ? Traits(physical, traitContext) : AreaAdministrationQuery<IReadOnlyList<AreaAdministrationOfficerTrait>>.Known(Array.Empty<AreaAdministrationOfficerTrait>()),
+            valid ? traitContext is int context ? Traits(physical, context)
+                : AreaAdministrationQuery<IReadOnlyList<AreaAdministrationOfficerTrait>>.Unknown("transport.setup.traits-context15-table-and-kind3")
+                : AreaAdministrationQuery<IReadOnlyList<AreaAdministrationOfficerTrait>>.Known(Array.Empty<AreaAdministrationOfficerTrait>()),
             Flag(valid ? physical : null));
     }
 
@@ -78,6 +86,8 @@ internal sealed class AreaAdministrationOfficerCardSource(GameState state, Sourc
     {
         try
         {
+            if (traitContext == 0 && language != "TC")
+                throw Missing("traits_context0_selected_edition_table");
             var result = new List<AreaAdministrationOfficerTrait>(5);
             for (int slot = 0; slot < 5; slot++)
             {
@@ -108,7 +118,12 @@ internal sealed class AreaAdministrationOfficerCardSource(GameState state, Sourc
     //Immutable CE context12 column, paired in TC/SC. Source addresses stay in
     //offline evidence; the game consumes this finite rule and current effects.
     private static bool Matches(byte effect, int context) => context switch
-    { 12 => Context12(effect), 13 => effect == 17, 14 => effect == 16, _ => false };
+    {
+        //TC89CB70's immutable context0 column admits effects1..126
+        //except106. The selected edition's other contexts are independent.
+        0 => effect is >= 1 and <= 126 && effect != 106,
+        10 => effect == 64, 12 => Context12(effect), 13 => effect == 17, 14 => effect == 16, _ => false
+    };
     private static bool Context12(byte effect) => effect is 15 or >= 33 and <= 42 or 100 or 123 or 125 or 126;
 
     private AreaAdministrationQuery<AreaAdministrationOfficerFlag> Flag(int? physical)

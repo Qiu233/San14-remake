@@ -38,7 +38,6 @@ public sealed partial class NormalArmyCombatCurrentPhase
         //The native report accumulates word20, not the20+22 requested debit
         //or the capped ready troop loss. Keep it in its separate typed channel.
         GameState after = AppendOrdinaryReport(aftermath.State, pair, application.Request.FrameWord20After);
-        NativeSubdayStateValidation.Validate(after);
         return new(NormalArmyNonlethalPairOutcome.Committed, after, prefix, aftermath, null);
 
         NormalArmyNonlethalPairResult Blocked(NormalArmyNonlethalPairOutcome outcome, string? owner) =>

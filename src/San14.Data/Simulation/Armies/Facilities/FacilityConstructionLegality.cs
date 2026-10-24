@@ -6,29 +6,31 @@ namespace San14.Data;
 internal static class FacilityConstructionLegality
 {
     internal static bool CheckCommander(GameState state, SourceWorldContext current, int person,
-        HexReference target, ObjectDefinitionReference reference)
+        HexReference target, ObjectDefinitionReference reference, Action<string>? reject = null)
     {
         var people = current.CreateNearbyTemporary();
         try
         {
             current.AppendConstructionPersonTemporary(people, person);
-            return Check(state, current, people, target, reference);
+            return Check(state, current, people, target, reference, reject);
         }
         finally { current.ClearNearbyTemporary(people, true); }
     }
 
     internal static bool Check(GameState state, SourceWorldContext current, HexListHandle people,
-        HexReference target, ObjectDefinitionReference reference)
+        HexReference target, ObjectDefinitionReference reference, Action<string>? reject = null)
     {
         var entries = current.ReadCurrentListValues(people);
-        if (entries.Count == 0 || target.PhysicalSlot is null) return false;
-        if (SceneBlocks(current, target) || !K(current.ReadObjectDefinitionValidity(reference), "legality_definition_validity")) return false;
+        bool Deny(string reason) { reject?.Invoke(reason); return false; }
+        if (entries.Count == 0 || target.PhysicalSlot is null) return Deny("structure.site.selected_person_or_hex");
+        if (SceneBlocks(current, target)) return Deny("structure.site.scenery");
+        if (!K(current.ReadObjectDefinitionValidity(reference), "legality_definition_validity")) return Deny("structure.definition");
         var definition = Read(current, reference);
         int surface = K(current.ReadHexSurfaceCode(target), "legality_surface");
-        if (surface is < 0 or >= 31 || (definition.TerrainMask & (1u << surface)) == 0) return false;
+        if (surface is < 0 or >= 31 || (definition.TerrainMask & (1u << surface)) == 0) return Deny("structure.site.terrain");
         int first = Person(entries[0]);
         var force = current.ReadPersonForce(first) ?? throw Missing("legality_first_Person_Force");
-        if (!ForceSite(state, current, force, target, definition)) return false;
+        if (!ForceSite(state, current, force, target, definition, reject)) return false;
         bool qualified = false;
         foreach (var entry in entries)
         {
@@ -50,7 +52,7 @@ internal static class FacilityConstructionLegality
             if (definition.RequiredTrait != 0) throw Missing("legality_required_trait_collector");
             qualified = true; break;
         }
-        if (!qualified) return false;
+        if (!qualified) return Deny("structure.site.commander_or_policy");
         if (definition.RequiredTrait != 0)
             return entries.Any(entry => K(TacticRemakeCurrentTraits.CommanderHasEffect(current,
                 Person(entry), definition.RequiredTrait), "legality_selected_trait"));
@@ -66,31 +68,40 @@ internal static class FacilityConstructionLegality
     }
 
     private static bool ForceSite(GameState state, SourceWorldContext current, ForceReference force,
-        HexReference target, FacilityConstructionDefinition definition)
+        HexReference target, FacilityConstructionDefinition definition, Action<string>? reject)
     {
-        if (!K(current.ReadForceNativeValidity(force), "site_Force_validity") || target.PhysicalSlot is null) return false;
+        bool Deny(string reason) { reject?.Invoke(reason); return false; }
+        if (!K(current.ReadForceNativeValidity(force), "site_Force_validity") || target.PhysicalSlot is null) return Deny("structure.site.force");
         //2795E0 repeats scenery/terrain/definition gates before object/land.
-        if (SceneBlocks(current, target)) return false;
+        if (SceneBlocks(current, target)) return Deny("structure.site.scenery");
         int surface = K(current.ReadHexSurfaceCode(target), "site_surface");
-        if (surface is < 0 or >= 31 || (definition.TerrainMask & (1u << surface)) == 0) return false;
+        if (surface is < 0 or >= 31 || (definition.TerrainMask & (1u << surface)) == 0) return Deny("structure.site.terrain");
         int own = K(force.PhysicalSlot, "site_Force_pointer");
         var existing = ObjectAt(current, target);
         if (K(current.ReadObjectNativeValidity(existing), "site_Object_validity"))
         {
             var existingDefinition = DefinitionOf(current, existing);
-            if (K(current.ReadObjectDefinitionRaw2C(existingDefinition), "site_Object_category") != 4) return false;
-            if (!Relation(state, own, K(current.ReadObjectForceSlot13(existing), "site_Object_force"))) return false;
+            if (K(current.ReadObjectDefinitionRaw2C(existingDefinition), "site_Object_category") != 4) return Deny("structure.site.occupied");
+            if (!Relation(state, own, K(current.ReadObjectForceSlot13(existing), "site_Object_force"))) return Deny("structure.site.object_relation");
         }
         int land = K(current.ReadHexForceSlot(target), "site_land_force");
         var landForce = current.ReadForceTableReference(land <= 51 ? land : 0) ?? throw Missing("site_land_Force_pointer");
         int landPhysical = K(landForce.PhysicalSlot, "site_land_Force_identity");
-        if (landPhysical != own && !Relation(state, own, landPhysical)) return false;
+        if (landPhysical != own && !Relation(state, own, landPhysical)) return Deny("structure.site.land_relation");
         int areaRaw = K(current.ReadHexAreaSlot(target), "site_Area_link");
         var area = current.ReadAreaTableReference(areaRaw <= 500 ? areaRaw : 0) ?? throw Missing("site_Area_pointer");
-        if (AreaIsFull(current, area)) return false;
-        if (definition.Category == 4) throw Missing("site_trap_Area_Force");
+        if (AreaIsFull(current, area)) return Deny("structure.site.area_capacity");
+        if (definition.Category == 4 && K(current.ReadAreaNativeValidity(area), "site_trap_Area_validity"))
+        {
+            //2795E0 ->22C950: allegiance of the Area representative Hex,
+            //not this site, its scenario owner or an allied Force.
+            int raw = K(current.ReadAreaCurrentForceSlot(area), "site_trap_Area_Force");
+            var areaForce = current.ReadForceTableReference(raw <= 51 ? raw : 0)
+                ?? throw Missing("site_trap_Area_Force_pointer");
+            if (areaForce != force) return Deny("structure.site.trap_area_force");
+        }
         //Actual caller passes0: no Force-global2C4D60 count gate here.
-        return RadiusAllows(current, target, definition.Category == 2);
+        return RadiusAllows(current, target, definition.Category == 2) || Deny("structure.site.separation");
     }
 
     private static bool AreaIsFull(SourceWorldContext current, AreaReference area)

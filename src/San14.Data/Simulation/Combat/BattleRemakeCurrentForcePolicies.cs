@@ -77,28 +77,24 @@ public static class BattleRemakeCurrentForcePolicies
                 force.RulerId != (row.RulerSlot == 0 ? null : (int?)row.RulerSlot) ||
                 !simulation.Forces.ContainsKey(force.Id) || row.RemainingBytesHex.Length != 327 * 2)
                 throw new InvalidDataException("Current Force identity or CE329 source row differs.");
-            byte[] tail;
-            try { tail = Convert.FromHexString(row.RemainingBytesHex); }
-            catch (FormatException exception) { throw new InvalidDataException("CE Force source bytes are malformed.", exception); }
-            var bytes = new byte[329];
-            BinaryPrimitives.WriteUInt16LittleEndian(bytes, row.RulerSlot);
-            tail.CopyTo(bytes, 2);
+            var personnel = ForcePolicyPersonnelFields.Read(row);
             values.Add(ForceProfileKey(force.Id), Version);
             values.Add(ForceIdentityKey(force.Id), row.Slot);
-            Add(0x10, row.RulerSlot);
-            Add(0x52, Word(59));
-            Add(0x16C, Word(324));
+            Add(0x10, personnel.Ruler);
+            Add(0x52, personnel.Advisor);
+            Add(0x16A, personnel.Field16A);
+            Add(0x16C, personnel.AdvisorPending);
             for (int group = 0; group < 5; group++)
             {
+                var department = personnel.Departments[group];
                 for (int ordinal = 0; ordinal < 7; ordinal++)
                 {
-                    values.Add(DepartmentPersonKey(force.Id, group, ordinal), Word(61 + group * 29 + ordinal * 2));
-                    values.Add(DepartmentFilterKey(force.Id, group, ordinal), Word(75 + group * 29 + ordinal * 2));
+                    values.Add(DepartmentPersonKey(force.Id, group, ordinal), department.Members[ordinal]);
+                    values.Add(DepartmentFilterKey(force.Id, group, ordinal), department.PendingValues[ordinal]);
                 }
-                values.Add(DepartmentTrailerKey(force.Id, group), bytes[89 + group * 29]);
+                values.Add(DepartmentTrailerKey(force.Id, group), department.Expansion);
             }
             void Add(int offset, int value) => values.Add(ForceFieldKey(force.Id, offset), value);
-            ushort Word(int at) => BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(at, 2));
         }
         var identities = new OfficerSourceDirectory();
         identities.ClearLogicalReferences();
@@ -137,8 +133,9 @@ public static class BattleRemakeCurrentForcePolicies
     public static int? ReadForceEffect10(GameState state, ForceState force) => ReadForceEffect(state, force, 10);
 
     /// <summary>SC41DC70/TC41D690's current ordered bank. A no-match does not
-    /// consume its contribution. Matching policies use source-proved kind3
-    /// zero branches; positive-count credit modifiers remain unresolved.
+    /// consume its contribution. Matching ordinary policies reuse the saved
+    /// credit-selection consumer; missing credit or specialized location inputs
+    /// remain unresolved rather than falling back to the personal base.
     /// Source files are checked at loading, never fingerprinted by this query.</summary>
     public static int? ReadForceEffect(GameState state, ForceState force, int nativeEffectIndex) =>
         ReadForceEffectCore(state, force, nativeEffectIndex, null);
@@ -160,7 +157,8 @@ public static class BattleRemakeCurrentForcePolicies
     //29C430's advisor refresh precedes the freedom credit/status writers.
     //Its caller supplies the current published credit state, including any
     //earlier completed Person. No uncommitted credit writer lies between it
-    //and this query; the existing general current overload remains narrower.
+    //and this query. Governance setters also preserve that credit owner; the
+    //existing general current overload remains narrower after credit writers.
     internal static int? ReadForceRawLevelBeforeFreedomCurrent(GameState state, ForceState force,
         int nativeEffectIndex, SourceWorldContext current) =>
         ReadForceRawLevelCore(state, force, nativeEffectIndex, current, true);
@@ -173,13 +171,23 @@ public static class BattleRemakeCurrentForcePolicies
             levels[Math.Min(rawLevel, 10) - 1] is >= 0 and <= ushort.MaxValue ? levels[Math.Min(rawLevel, 10) - 1] : null;
     }
 
+    /// <summary>26AEA0(flag0) evaluates the selected configuration, including
+    /// pending appointments. The selected roster is a read-only argument view;
+    /// it does not copy a parameter bank for every selected effect.</summary>
+    internal static int? ReadGovernanceTargetLevel(GameState state, ForceState force,
+        GovernanceRoster target, int effect, SourceWorldContext current)
+    {
+        return ReadForceRawLevelCore(state, force, effect, current, true, target);
+    }
+
     private static int? ReadForceEffectCore(GameState state, ForceState force, int nativeEffectIndex,
         SourceWorldContext? operationCurrent) =>
         ReadForceRawLevelCore(state, force, nativeEffectIndex, operationCurrent) is int raw
             ? MapEffectAtLevel(state, nativeEffectIndex, raw) : null;
 
     private static int? ReadForceRawLevelCore(GameState state, ForceState force, int nativeEffectIndex,
-        SourceWorldContext? operationCurrent, bool unwrittenFreedomCredit = false)
+        SourceWorldContext? operationCurrent, bool unwrittenFreedomCredit = false,
+        GovernanceRoster? preview = null)
     {
         if (nativeEffectIndex is < 1 or > 100 || state.NativeArmySimulation is not { } simulation || !ProfileMatches(simulation.Parameters) ||
             !state.Forces.TryGetValue(force.Id, out ForceState? current) || current.Id != force.Id ||
@@ -198,14 +206,27 @@ public static class BattleRemakeCurrentForcePolicies
         {
             for (int ordinal = 0; ordinal < 7; ordinal++)
             {
-                if (ReadWordKey(DepartmentPersonKey(force.Id, group, ordinal)) is not ushort person ||
-                    ReadWordKey(DepartmentFilterKey(force.Id, group, ordinal)) is not ushort filter) return null;
+                ushort person, filter;
+                if (preview is not null)
+                {
+                    var selected = preview.Groups.First(row => row.Group == group).OfficerIds;
+                    person = ordinal < selected.Count ? checked((ushort)selected[ordinal]) : (ushort)0;
+                    filter = 0;
+                }
+                else
+                {
+                    if (ReadWordKey(DepartmentPersonKey(force.Id, group, ordinal)) is not ushort savedPerson ||
+                        ReadWordKey(DepartmentFilterKey(force.Id, group, ordinal)) is not ushort savedFilter) return null;
+                    person = savedPerson; filter = savedFilter;
+                }
                 if (filter == 0 && !Consume(person)) return null;
             }
         }
         return level;
 
-        ushort? ReadWord(int offset) => ReadWordKey(ForceFieldKey(force.Id, offset));
+        ushort? ReadWord(int offset) => preview is not null && (offset is 0x52 or 0x16C)
+            ? offset == 0x52 ? checked((ushort)(preview.AdvisorId ?? 0)) : (ushort)0
+            : ReadWordKey(ForceFieldKey(force.Id, offset));
         ushort? ReadWordKey(string key) => values.TryGetValue(key, out int value) && value is >= 0 and <= 65535 ? (ushort)value : null;
         byte? ReadByte(string key) => values.TryGetValue(key, out int value) && value is >= 0 and <= 255 ? (byte)value : null;
         bool Consume(int personId)
@@ -252,12 +273,63 @@ public static class BattleRemakeCurrentForcePolicies
                 : operationCurrent.ReadPersonStatus(personPhysical) == 1 ||
                     operationCurrent.ReadPersonBehavior(personPhysical)?.UsesSpecialPersonRules == true ||
                     unwrittenFreedomCredit && (person.MeritState?.RankStageId == 0 || OfficerMeritRules.HasNoSelections(person.MeritState));
-            if (!zeroKind3 || ReadByte(PersonFieldKey(personId, 0x1BA)) is not byte basic || person.PolicyBaseCost != basic)
+            if (ReadByte(PersonFieldKey(personId, 0x1BA)) is not byte basic || person.PolicyBaseCost != basic)
                 return false;
-            int contribution = Math.Min((int)basic, 10);
+            int bonus = 0;
+            if (!zeroKind3)
+            {
+                try
+                {
+                    if (operationCurrent is not null)
+                    {
+                        // Only callers that have not made an uncommitted credit
+                        // writer may consume the saved selection counts here.
+                        if (!unwrittenFreedomCredit || OfficerCommandCapacity.ResolveCreditKindBonus(
+                            state, operationCurrent, personPhysical, 3).Bonus is not int currentBonus) return false;
+                        bonus = currentBonus;
+                    }
+                    else
+                    {
+                        // Saved-state queries already validated this Person.
+                        // Reuse its actual District byte10 authority, not a
+                        // nullable domain ForceId or a fresh current capture.
+                        if (ReadSavedPersonForce(state, person) is not int actualForce) return false;
+                        if (actualForce is >= 46 and <= 50) bonus = 0;
+                        else
+                        {
+                            // The specialized band-at-Base wrapper remains an
+                            // explicit unknown here; the current overload above
+                            // supports its actual location-dependent branch.
+                            if (BattleRemakeCurrentRegionFactor.IsNativeBandPerson(person.Id)) return false;
+                            bonus = OfficerCommandCapacity.ReadCreditSelectionBonus(state, person, 3);
+                        }
+                    }
+                }
+                catch (InvalidDataException) { return false; }
+            }
+            int contribution = Math.Min(unchecked(basic + bonus), 10);
             for (int i = 0; i < matches; i++) level = Math.Max(unchecked(Math.Min(level, 10) + contribution), 0);
             return true;
         }
+    }
+
+    private static int? ReadSavedPersonForce(GameState state, OfficerState person)
+    {
+        var residue = (state.ResourceState as CampaignSourceKnowledge)?.Find(person.Id);
+        if (OfficerLocationSourceAdapter.EncodeMembership(person.LocationState?.Membership, residue) is not byte membership)
+            return null;
+        int slot = membership <= 51 ? membership : 0;
+        if (slot == 0) return 0; // Actual District0 is invalid before field reads.
+        // Same precedence as the normal capture: explicit native reset zero
+        // overrides a historical domain row; live non-reset ownership wins.
+        if (state.NativeForceUnregisterCurrent?.DistrictWindows10.TryGetValue(slot, out var fields) == true &&
+            fields is { Length: > 0 } && fields[0] == 0) return 0;
+        if (!state.Districts.TryGetValue(slot, out var district) || district.ForceId is < 0 or > 255 ||
+            district.Number is < 0 or > 255) return null;
+        bool? valid = NativeValidity.District(slot, (byte)district.ForceId, (byte)district.Number,
+            ForceUnregisterInputs.ReadDistrictLeader(state, district));
+        if (valid is not bool known) return null;
+        return known && district.ForceId <= 51 ? district.ForceId : 0;
     }
 
     private static bool ProfileMatches(NativeArmyParameterState parameters) =>

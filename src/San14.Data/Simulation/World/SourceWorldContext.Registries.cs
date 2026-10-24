@@ -59,7 +59,10 @@ public sealed partial class SourceWorldContext : IObjectRegistrationState
             RegistryObjectReference reference=>reference,
             BaseReference reference=>new(reference.Kind==BaseKind.City ? RegistryKind.City : RegistryKind.Gate,reference.PhysicalSlot),
             HexReference reference=>new(RegistryKind.Hex,reference.PhysicalSlot),
-            _=>throw new InvalidDataException("Current shared node pointer kind has no defined identity profile.")
+            //271320's caller and Base88 lists store the same physical Person
+            //pointer through the transfer API, not a personnel task identity.
+            TransferPersonReference reference=>new(RegistryKind.Person,reference.PhysicalSlot),
+            _=>throw new InvalidDataException($"Current shared node pointer kind {payload.GetType().Name} has no defined identity profile.")
         };
     }
     public RegistryListNodeReference? AllocateRegistryNode(RegistryListHandle handle)

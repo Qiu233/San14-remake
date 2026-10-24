@@ -8,11 +8,16 @@ namespace San14.Data;
 /// scenario snapshot or guessed from the eventual notification.</summary>
 internal sealed record HistoryMessageOperands(ArmyUnitReference? Army0 = null, ArmyUnitReference? Army1 = null,
     ushort? Base0 = null, string? String0 = null, string? String1 = null, string? String2 = null,
-    int Person0 = 0, int Person1 = 0, int? Force0 = null, int? Area0 = null, int[]? Integers = null);
-internal sealed record HistoryTextResult(GameState State, string Text);
+    int Person0 = 0, int Person1 = 0, int? Force0 = null, int? Area0 = null, int[]? Integers = null,
+    int? Person2 = null, int? Person3 = null, int? Force1 = null, int? Person4 = null);
+internal sealed record HistoryTextResult(GameState State, string Text)
+{
+    public IReadOnlyList<NarrationVoiceRequest> Voices { get; init; } = [];
+}
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
+    private enum ReportMessageOrigin { SavedHistory, AreaWarning, ArmyTargetWarning, BaseNearbyWarning, AllianceExpiryWarning, ForceObjectiveWarning, ArmySupplyWarning, AttackRequestExpiryWarning, GarrisonFoodShortage, Governance, Duel, CaptiveRelease, Talent, Diplomacy, PersonnelAdministration, PersonnelDevelopment }
     internal string ReadHistoryDataText(int section, int id)
     {
         var data = _repository.LoadMessages(Seed.Language, MessageKind.Data).Messages;
@@ -49,15 +54,89 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     internal HistoryTextResult FormatHistoryReport(GameState state, SourceWorldContext current,
         int root, HistoryMessageOperands operands)
+        => FormatReportMessage(state,current,root,operands,ReportMessageOrigin.SavedHistory,null);
+
+    private HistoryTextResult FormatDuelHistoryReport(GameState state, SourceWorldContext current,
+        int root, HistoryMessageOperands operands)
+        => FormatReportMessage(state, current, root, operands, ReportMessageOrigin.Duel, null);
+
+    private HistoryTextResult FormatCaptiveReleaseReport(GameState state, SourceWorldContext current,
+        int root, HistoryMessageOperands operands)
+        => FormatReportMessage(state, current, root, operands, ReportMessageOrigin.CaptiveRelease, null);
+
+    internal HistoryTextResult FormatActionAreaReport(GameState state, SourceWorldContext current,
+        AreaReportFormattingInputs input, Action<GameState> publishReached)
+        => FormatReportMessage(state,current,input.MessageId,
+            new(Person0:input.SpeakerPersonOperand0,Person1:input.RulerPersonOperand1,
+                Base0:input.CityBaseOperand0),ReportMessageOrigin.AreaWarning,publishReached);
+
+    internal HistoryTextResult FormatActionArmyTargetReport(GameState state,SourceWorldContext current,
+        ArmyTargetReportFormattingInputs input,Action<GameState> publishReached)
+        => FormatReportMessage(state,current,0x5024,
+            new(Person0:input.SpeakerPersonOperand0,Person1:input.RulerPersonOperand1,
+                Force0:input.EnemyForceOperand0,Base0:input.TargetBaseOperand0),ReportMessageOrigin.ArmyTargetWarning,publishReached);
+
+    internal HistoryTextResult FormatActionBaseNearbyReport(GameState state,SourceWorldContext current,
+        BaseNearbyEnemyReportFormattingInputs input,Action<GameState> publishReached)
+        => FormatReportMessage(state,current,0x502b,
+            new(Person0:input.SpeakerPersonOperand0,Person1:input.RulerPersonOperand1,
+                Base0:input.FootholdBaseOperand0),ReportMessageOrigin.BaseNearbyWarning,publishReached);
+
+    internal HistoryTextResult FormatActionAllianceExpiryReport(GameState state,SourceWorldContext current,
+        AllianceExpiryReportFormattingInputs input,Action<GameState> publishReached)
+        => FormatReportMessage(state,current,0x5046,
+            new(Person0:input.SpeakerPersonOperand0,Person1:input.RulerPersonOperand1,
+                Force0:input.OtherForceOperand0,Integers:[input.RemainingAllianceCounterInteger0]),
+            ReportMessageOrigin.AllianceExpiryWarning,publishReached);
+
+    internal HistoryTextResult FormatActionForceObjectiveReport(GameState state, SourceWorldContext current,
+        ForceObjectiveReportFormattingInputs input, Action<GameState> publishReached)
+        => FormatReportMessage(state, current, 0x50c1,
+            new(Person0: input.SpeakerPersonOperand0, Person1: input.RulerPersonOperand1,
+                Force0: input.OtherForceOperand0, Base0: input.ObjectiveBaseOperand0),
+            ReportMessageOrigin.ForceObjectiveWarning, publishReached);
+
+    internal HistoryTextResult FormatActionArmySupplyReport(GameState state, SourceWorldContext current,
+        ArmySupplyReportFormattingInputs input, Action<GameState> publishReached)
+        => FormatReportMessage(state, current, input.MessageId,
+            new(Person0: input.SpeakerPersonOperand0, Person1: input.RulerPersonOperand1,
+                Army0: input.ArmyOperand0, Base0: input.HomeBaseOperand0, Integers: [input.ArmyCountInteger0]),
+            ReportMessageOrigin.ArmySupplyWarning, publishReached);
+
+    internal HistoryTextResult FormatActionAttackRequestExpiryReport(GameState state, SourceWorldContext current,
+        ForceAttackRequestExpiryFormattingInputs input, Action<GameState> publishReached)
+        => FormatReportMessage(state, current, 0x50c8,
+            new(Person0: input.SpeakerPersonOperand0, Person1: input.RulerPersonOperand1,
+                Force0: input.RequestingForceOperand0, Integers: [input.RemainingMonthsInteger0]),
+            ReportMessageOrigin.AttackRequestExpiryWarning, publishReached);
+
+    private HistoryTextResult FormatGarrisonFoodShortageReport(GameState state, SourceWorldContext current,
+        int messageId, int speakerPersonOperand0, int rulerPersonOperand1, ushort footholdBaseOperand0,
+        Action<GameState> publishReached)
+        => FormatReportMessage(state, current, messageId,
+            new(Person0: speakerPersonOperand0, Person1: rulerPersonOperand1, Base0: footholdBaseOperand0),
+            ReportMessageOrigin.GarrisonFoodShortage, publishReached);
+
+    private HistoryTextResult FormatGovernanceResponse(GameState state, SourceWorldContext current,
+        int messageId, int speaker, int ruler, string appointment)
+        => FormatReportMessage(state, current, messageId,
+            new(Person0: speaker, Person1: ruler, String0: appointment), ReportMessageOrigin.Governance, null);
+
+    private HistoryTextResult FormatReportMessage(GameState state, SourceWorldContext current,
+        int root, HistoryMessageOperands operands, ReportMessageOrigin origin, Action<GameState>? publishReached,
+        NarrationVoiceSettings? voiceSettings = null)
     {
         var latest = state;
         var abilities = new TacticRemakeCurrentAbilities(current, _scenario, Seed.Language,
             SimulationRuleIdentity.ForLocale(Seed.Language));
+        var voices = voiceSettings is null ? null : new NarrationVoiceRequests(voiceSettings, Draw);
         var people = new DeploymentNarrationCurrentPeople(state, current, abilities,
             operands.Person0, operands.Person1, area: operands.Area0,
             panelReader: (force, effect) => _baseCapacityInputs.ReadPanelModifier(latest, force, effect),
             cityArgument: operands.Base0, appearanceRepository: _repository,
-            appearanceScenario: _scenario, appearanceLanguage: Seed.Language, forceArgument: operands.Force0);
+            appearanceScenario: _scenario, appearanceLanguage: Seed.Language, forceArgument: operands.Force0,
+            personArgument2: operands.Person2, personArgument3: operands.Person3, forceArgument1: operands.Force1,
+            personArgument4: operands.Person4, voiceRequests: voices);
         var context = new ReportCurrent(this, () => latest, current, people, operands);
         int Draw(int bound)
         {
@@ -66,11 +145,30 @@ public sealed partial class ArmyCampaignRuleAdapter
             var random = new SharedSourceRandom32(saved.State);
             int value = random.Next(bound);
             latest = latest with { CampaignAppRandom32 = new(random.State) };
+            publishReached?.Invoke(latest);
             return value;
         }
         var vm = new NarrationResourceMessages(_repository.LoadMessages(Seed.Language, MessageKind.Game).Messages);
-        string text = vm.ResolveHistoryReport(context, Draw, root);
-        return new(latest, text);
+        string text = origin switch
+        {
+            ReportMessageOrigin.AreaWarning=>vm.ResolveActionAreaReport(context,Draw,root),
+            ReportMessageOrigin.ArmyTargetWarning=>vm.ResolveActionArmyTargetReport(context,Draw),
+            ReportMessageOrigin.BaseNearbyWarning=>vm.ResolveActionBaseNearbyReport(context,Draw),
+            ReportMessageOrigin.AllianceExpiryWarning=>vm.ResolveActionAllianceExpiryReport(context,Draw),
+            ReportMessageOrigin.ForceObjectiveWarning=>vm.ResolveActionForceObjectiveReport(context,Draw),
+            ReportMessageOrigin.ArmySupplyWarning=>vm.ResolveActionArmySupplyReport(context,Draw,root),
+            ReportMessageOrigin.AttackRequestExpiryWarning=>vm.ResolveActionAttackRequestExpiryReport(context,Draw),
+            ReportMessageOrigin.GarrisonFoodShortage=>vm.ResolveGarrisonFoodShortageReport(context,Draw,root),
+            ReportMessageOrigin.Governance=>vm.ResolveGovernanceNarration(context,Draw,root),
+            ReportMessageOrigin.Duel=>vm.ResolveDuelHistoryReport(context,Draw,root),
+            ReportMessageOrigin.CaptiveRelease=>vm.ResolveCaptiveReleaseReport(context,Draw,root),
+            ReportMessageOrigin.Talent=>vm.ResolveTalentReport(context,Draw,root),
+            ReportMessageOrigin.PersonnelAdministration=>vm.ResolvePersonnelAdministrationReport(context,Draw,root),
+            ReportMessageOrigin.PersonnelDevelopment=>vm.ResolvePersonnelDevelopmentReport(context,Draw,root),
+            ReportMessageOrigin.Diplomacy=>vm.ResolveDiplomacyReport(context,Draw,root),
+            _=>vm.ResolveHistoryReport(context,Draw,root)
+        };
+        return new(latest, text) { Voices = voices?.Pending ?? [] };
     }
 
     private static string HeadHistory(string text) => text.IndexOf('\0') is int n && n >= 0 ? text[..n] : text;
@@ -82,7 +180,22 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         public int PersonValue(int a, int f) => people.PersonValue(a, f);
         public string PersonText(int a, int f) => people.PersonText(a, f);
-        public int Relationship(int f, int a, int b) => people.Relationship(f, a, b);
+        public int Relationship(int f, int a, int b)
+        {
+            if (f is not ('P' or 'Q')) return people.Relationship(f, a, b);
+            var force = current.ReadForceTableReference(a is >= 0 and < 52 ? a : 0)
+                ?? throw HistoryMissing("Function_Force_lookup");
+            bool valid = HistoryKnown(current.ReadForceNativeValidity(force), "Function_Force_validity");
+            if (f == 'P') return valid ? 1 : 0;
+            if (!valid || b is < 0 or >= 52) return 0;
+            int physical = HistoryKnown(force.PhysicalSlot, "Function_Force_pointer");
+            var state = latest();
+            if (state.NativeForceUnregisterCurrent?.ForceResetImages.TryGetValue(physical, out var reset) == true)
+                return HistoryKnown(reset[0x13 + b], "FunctionQ_Force_reset_relation13");
+            var values = physical == 0 ? state.NativeForceUnregisterCurrent?.PlaceholderRelations13 :
+                state.NativeArmySimulation?.Forces.GetValueOrDefault(physical)?.NormalAftermath?.Relations13;
+            return values is { Length: 52 } ? values[b] : throw HistoryMissing("FunctionQ_Force_relation13");
+        }
         public int Personality(int a, Func<int> key) => people.Personality(a, key);
         public string AreaText(int a, int f)
         {
@@ -95,14 +208,30 @@ public sealed partial class ArmyCampaignRuleAdapter
             var name = latest().Areas.GetValueOrDefault(physical)?.Name ?? throw HistoryMissing("Area_current_name");
             return CityDomesticMessageFormatting.FormatCityNameField(name);
         }
+        //Bare City argument is read without the display-field range gate.
+        public int CityValue(int a, int f)
+        {
+            if (a != 0 || f != 0) throw HistoryMissing("Base_numeric_field");
+            return operands.Base0 ?? throw HistoryMissing("Base_argument");
+        }
+        public int BaseArgumentValidity(int raw) => HistoryKnown(
+            current.ReadBaseNativeValidity(BaseLookup.Find(raw, current)), "Base_argument_validity") ? 1 : 0;
         public string CityText(int a, int f) => people.CityText(a, f);
         public int IntegerValue(int a) => operands.Integers is { } values && (uint)a < (uint)values.Length
             ? values[a] : throw HistoryMissing("Integer_argument");
+        public int ForceValue(int a, int f)
+        {
+            if (a is not (0 or 1) || f != 0) throw HistoryMissing("Force_numeric_field");
+            int raw = (a == 0 ? operands.Force0 : operands.Force1) ?? throw HistoryMissing("Force_numeric_argument");
+            var force = current.ReadForceTableReference(raw is >= 0 and < 52 ? raw : 0)
+                ?? throw HistoryMissing("Force_numeric_pointer");
+            return HistoryKnown(current.ReadForcePhysicalSlot(force), "Force_numeric_ordinal");
+        }
         public string ForceText(int a, int f)
         {
             if (f == '4') return people.ForceText(a, f);
-            if (a != 0 || f != '3') throw HistoryMissing("Force_field");
-            int raw = operands.Force0 ?? throw HistoryMissing("Force_argument");
+            if (a is not (0 or 1) || f != '3') throw HistoryMissing("Force_field");
+            int raw = (a == 0 ? operands.Force0 : operands.Force1) ?? throw HistoryMissing("Force_argument");
             if (raw is < 1 or > 51) return "";
             var value = TrapCounterReportForceNameSource.Capture(latest(), current, checked((byte)raw));
             string name = value.Form switch

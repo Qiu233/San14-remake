@@ -3,8 +3,9 @@ using static San14.Data.TrapParameters;
 
 namespace San14.Data;
 
-/// <summary>One complete stage22 candidate: every trap, callback, temporary
-/// list and ordered semantic intention uses this same writable current.</summary>
+/// <summary>One borrowed facility operation: stage22 traps and stage14 object
+/// damage share numerical callbacks, temporary lists and ordered intentions.
+/// Each entry retains its own candidate collection and publication owner.</summary>
 internal sealed partial class TrapEffectApplication
 {
     private readonly ArmyCampaignRuleAdapter package;
@@ -20,11 +21,13 @@ internal sealed partial class TrapEffectApplication
 
     internal TrapEffectApplication(ArmyCampaignRuleAdapter package, GameState state,
         SourceWorldContext current, NativeArmyProgressStageMoment moment,
-        GameResourceRepository repository, LoadedScenario scenario)
+        GameResourceRepository repository, LoadedScenario scenario,
+        List<CampaignEffectRequest>? requests = null)
     {
         this.package = package; State = state; Current = current; this.moment = moment;
         pool = current.ReadOwnedCurrentListPool() ?? throw Missing("shared_pool");
-        Feedback = new(package, () => State, value => State = value, current, moment, repository, scenario, () => SamplerWorld().Day450);
+        Feedback = new(package, () => State, value => State = value, current, moment, repository, scenario,
+            () => SamplerWorld().Day450, requests);
         actorlessDamage = new(package, current, moment, () => State, value => State = value,
             Feedback.Traits, Feedback.EnsurePersonnel, PublishPeople, person => changedPeople.Add(person),
             Feedback.Requests, SamplerWorld);
@@ -165,7 +168,10 @@ internal sealed partial class TrapEffectApplication
     private BattleRemakeCurrentFieldObjectTargetReceipt TargetStats(UnitState target) => package.TrapTargetStats(State, Current, target);
     private BattleDamageSourceParameters DamageParameters() => package.TrapDamageParameters(State, Current);
     private int Abilities(int person, int dimension) => package.TrapAbility(State, Current, person, dimension);
-    private TacticSourceSamplerWorld SamplerWorld() => package.TrapSampler(State, moment);
+    private TacticSourceSamplerWorld SamplerWorld() =>
+        moment.SchedulerStageIndex == (byte)NativeArmyProgressStage.FacilityEffects
+            ? package.ReadCurrentEnvironmentSampler(State, moment, (byte)NativeArmyProgressStage.FacilityEffects)
+            : package.TrapSampler(State, moment);
     private int SamplerHour() => moment.PreWriterThirdDate.Hour;
     private int ForcePolicy(ForceReference force, int effect)
     {
@@ -262,7 +268,7 @@ internal sealed partial class TrapEffectApplication
         if (Entries(list).Any(entry => entry.Kind == RegistryKind.Force && entry.PhysicalSlot == force.PhysicalSlot)) return;
         Current.AppendTrapRegistryTemporary(list, new(RegistryKind.Force, force.PhysicalSlot));
     }
-    private void ApplyRelations(ObjectReference facility)
+    private void ApplyRelations(ObjectReference facility, int category = 4)
     {
         var copy = Current.CreateNearbyTemporary();
         try
@@ -297,11 +303,15 @@ internal sealed partial class TrapEffectApplication
                 var relation = State.NativeArmySimulation?.Forces.GetValueOrDefault(own)?.NormalAftermath?.Relations13
                     ?? throw Missing("diplomacy_Relations13");
                 int before = other < 52 ? relation[other] : 0;
-                if (before > Read(State, RelationCeiling))
+                //190F40 chooses these coefficients after the actual Force
+                //filters. Empty and ineligible victim lists read neither key.
+                string ceiling = category == 4 ? RelationCeiling : FacilityObjectRelationCeiling;
+                string adjustment = category == 4 ? RelationAdjustment : FacilityObjectRelationAdjustment;
+                if (before > Read(State, ceiling))
                     State = ForceRelationChangeCurrent.Apply(State, Current, own, other,
-                        () => unchecked(Read(State, RelationCeiling) - before), key => Read(State, key));
+                        () => unchecked(Read(State, ceiling) - before), key => Read(State, key));
                 State = ForceRelationChangeCurrent.Apply(State, Current, own, other,
-                    () => Read(State, RelationAdjustment), key => Read(State, key));
+                    () => Read(State, adjustment), key => Read(State, key));
             }
         }
         finally { Current.ClearNearbyTemporary(copy, true); }

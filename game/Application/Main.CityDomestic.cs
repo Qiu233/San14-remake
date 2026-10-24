@@ -39,8 +39,8 @@ public partial class Main
 
     private void OpenCityDomestic(int city)
     {
-        if (HasAdministrationPage || HasDeploymentPage || HasCampaignSavePage || HasMapSystemMenu || _detailsView is not null || _repository is null ||
-            _session is not { } session || session.PendingProgress is not null || session.PendingManualTactic is not null ||
+        if (HasAdministrationPage || HasMilitaryOrderPage || HasCampaignSavePage || HasMapSystemMenu || HasCommandWorkspace || _detailsView is not null || _repository is null ||
+            _session is not { } session || session.HasPendingOperation ||
             _world is not { } world || !ReferenceEquals(session.World, world) || _campaignComposition is not { } composition ||
             _residentMap is not { IsPlayableMapReady: true } map || _playerForceId is not int force) return;
         var admission = map.QueryCityDomesticMenu(city);
@@ -91,7 +91,7 @@ public partial class Main
         var sprites = new LocalizedUiSpriteSource(_repository!);
         var layers = new[] { route.SpriteB, route.SpriteA, route.SpriteC }
             .Select(name => sprites.LoadTexturePackSprite(route.ResourceName, name)).ToArray();
-        var narration = new DeploymentNarrationView(); _cityDomesticNarration = narration; AddChild(narration);
+        var narration = new DeploymentNarrationView { KeyboardInput = HandleGameplayNarrationKeyboard }; _cityDomesticNarration = narration; AddChild(narration);
         try
         {
             presenter.SetBusy(true);
@@ -101,7 +101,8 @@ public partial class Main
                 if (!Current(intent)) { CloseCityDomestic(); return; }
                 _cityDomesticNarration = null; narration.Abandon(); narration.QueueFree();
                 Submit(intent);
-            }));
+            }), () => _preferences.AutomaticMessageAdvance,
+                () => CanAdvanceNarration&&_cityDomesticNarration==narration&&Current(intent));
         }
         catch
         {

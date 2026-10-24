@@ -3,9 +3,8 @@ namespace San14.Core;
 /// <summary>Consumes talent and officer relocation plans in their defined order.</summary>
 internal static class PreparedPersonnelStage
 {
-    // The dictionaries belong to this period transaction. The talent provider
-    // receives the period-entry world with current officers/RNG, as before;
-    // unrelated pending work and original source snapshots are not normalized.
+    // Legacy prepared talent orders start real journeys here. New formal
+    // talent commands already own their journeys at submission.
     internal static PreparedOrderStageResult ExecuteOwned(GameState periodEntry,
         GameState current, IPlayableTalentResolution talent)
     {
@@ -24,35 +23,15 @@ internal static class PreparedPersonnelStage
                     task.CityId, task.ExecutorOfficerId));
                 continue;
             }
-            TalentOrderOutcome outcome = talent.Resolve(periodEntry with
+            TalentOrderOutcome outcome = talent.Resolve(current with
             {
                 Officers = officers, RandomState = randomState
             }, task);
-            randomState = outcome.RandomState;
-            if (outcome.JoinedOfficerId is not int joinedId)
-            {
-                reports.Add(new PeriodReportEntry(task.Kind == TalentOrderKind.Search
-                    ? "talent_search_none" : "talent_recruit_failed", task.ForceId,
-                    task.CityId, task.Kind == TalentOrderKind.Search
-                        ? task.ExecutorOfficerId : task.TargetOfficerId));
-                continue;
-            }
-            if (!officers.TryGetValue(joinedId, out OfficerState? joined) ||
-                joined.ForceId is not null || joined.LocationId != task.CityId ||
-                (task.Kind == TalentOrderKind.Search
-                    ? joined.Presence != OfficerPresence.Undiscovered
-                    : joined.Id != task.TargetOfficerId || joined.Role != OfficerRole.Free ||
-                      joined.Presence != OfficerPresence.Present))
-                throw new InvalidDataException("Talent outcome does not match the pending source officer.");
-            officers[joinedId] = joined with
-            {
-                ForceId = task.ForceId, DistrictId = task.DistrictId,
-                Role = OfficerRole.Officer, Presence = OfficerPresence.Present,
-                Deployed = false
-            };
-            reports.Add(new PeriodReportEntry(task.Kind == TalentOrderKind.Search
-                ? "talent_search_joined" : "talent_recruited", task.ForceId,
-                task.CityId, joinedId));
+            current = outcome.State ?? throw new InvalidDataException("talent.journey_start_state");
+            officers = current.Officers;
+            cities = current.Cities;
+            randomState = current.RandomState;
+            reports.AddRange(outcome.Reports);
         }
 
         foreach (PreparedOfficerMove move in (periodEntry.PreparedOfficerMoves?.Values ??
@@ -69,8 +48,14 @@ internal static class PreparedPersonnelStage
             officers[move.OfficerId] = officers[move.OfficerId] with
             {
                 LocationId = target.Id, DistrictId = target.DistrictId,
-                LocationState = officers[move.OfficerId].LocationState is { } location
-                    ? location with { Position = null } : null
+                // This completed assignment actually placed the officer in the
+                // destination city. Keep both independent source channels in
+                // step with the domain assignment instead of discarding its
+                // position and retaining membership of the previous district.
+                LocationState = new(new(OfficerPositionKind.City, target.Id),
+                    target.DistrictId is int districtId
+                        ? new(OfficerDistrictMembershipKind.District, districtId)
+                        : OfficerDistrictMembership.Unaffiliated)
             };
             reports.Add(new PeriodReportEntry("officer_move", move.ForceId,
                 target.Id, move.OfficerId, 0, cities[move.SourceCityId].HexId, target.HexId));

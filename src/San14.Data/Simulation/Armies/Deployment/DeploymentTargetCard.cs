@@ -13,5 +13,5 @@ public sealed record DeploymentTargetCard(int OfficerId, bool? HasCurrentHex,
     public ArmyMapIconSelection? FormationIcon { get; init; }
     public string? FormationUnresolvedInput { get; init; }
     // The actual new-row constructor sets this before the target is chosen.
-    public bool UsesHomeGrain => true;
+    public bool? UsesHomeGrain { get; init; } = true;
 }

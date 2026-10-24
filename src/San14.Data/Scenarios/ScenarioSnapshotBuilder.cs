@@ -150,7 +150,8 @@ public static class ScenarioSnapshotBuilder
                 definition.RawLimit1, definition.RawLimit2, definition.GroupCode,
                 capitalMatches.Length == 1 ? capitalMatches[0].HexId : null)
             {
-                RawValidityFlag69 = city.RawValidityFlag69
+                RawValidityFlag69 = city.RawValidityFlag69,
+                RawAutomaticTactics48 = city.RawAutomaticTactics48
             });
         }
         var characters = new List<CharacterPreviewRecord>(placements.Count);
@@ -177,6 +178,7 @@ public static class ScenarioSnapshotBuilder
                 GivenNameSortKey = people.Names[placement.Slot].GivenNameSortKey,
                 RawSexCode = sexes[placement.Slot].RawCode,
                 DialogueStyle = dialogue?[placement.Slot].Style,
+                VoiceType = dialogue?[placement.Slot].VoiceType,
                 BirthYear = dialogue?[placement.Slot].BirthYear,
                 FamilyGeneration = dialogue?[placement.Slot].FamilyGeneration,
                 FamilyName = people.Names[placement.Slot].FamilyName,
@@ -215,6 +217,7 @@ public static class ScenarioSnapshotBuilder
                 state.Amount0, state.Amount1, state.Troops, state.RemainingBytesHex)
                 {
                     RawValidityFlag69 = state.RawValidityFlag69,
+                    RawAutomaticTactics48 = state.RawAutomaticTactics48,
                     RawMorale44 = state.RawMorale44,
                     RawField46 = state.RawField46
                 });

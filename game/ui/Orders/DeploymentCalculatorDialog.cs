@@ -18,7 +18,7 @@ internal partial class DeploymentCalculatorDialog : Control
     internal int WorkingValue=>(int)working;
 
     internal void Configure(GameResourceRepository repository,PreviewText text,int value,int minimum,int maximum,
-        Action<int?> closed,Vector2? panelPosition=null)
+        Action<int?> closed,Vector2? panelPosition=null,int? titleMessage=null)
     {
         if(minimum<0||maximum<minimum)throw new ArgumentOutOfRangeException(nameof(minimum));
         this.minimum=(uint)minimum;this.maximum=(uint)maximum;close=closed;
@@ -36,6 +36,12 @@ internal partial class DeploymentCalculatorDialog : Control
         var messages=repository.LoadMessages(text.SourceLocale,MessageKind.Data).Messages.Sections[1];
         string Message(int id)=>messages.Records[id].Text??throw new InvalidDataException("Missing calculator message.");
         var presets=MapTextPresets.Create();
+        if(titleMessage is int caption)
+        {
+            var header=new UiSourceLayout(repository,0xDC8AC8AA);
+            header.Art(canvas,1,header.Rectangle(1),assets,shader);
+            header.Text(canvas,2,default,Message(caption),font,presets[56]);
+        }
         Text(108,Message(0x05E1),false,presets[13]);
         Text(109,Number(this.minimum),true);
         Text(110,Message(0x060B),false);

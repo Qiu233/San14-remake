@@ -24,12 +24,23 @@ public partial class Main
 
     private void ConfigureExtendedCommandLocale()
     {
-        _militaryOrders.Configure(_ui.Get, command => RunPlayAction(() => ApplyPlayableOrder(command)));
+        _militaryOrders.Configure(_ui.Get, command => RunPlayAction(() => RequestMilitaryPanelOrder(command)));
         _tacticOrders.Configure(_ui.Get, _ui.TacticReason, command => RunPlayAction(() => ApplyPlayableOrder(command)),
             (force, unit, tactic, target) => TacticCommandQuery.ForTarget(_world, force, unit, tactic, target,
                 _playRules?.TacticRules ?? UnresolvedTacticRules.Instance, _playRules?.Routes));
-        _diplomacyOrders.Configure(_ui.Get, command => RunPlayAction(() => ApplyPlayableOrder(command)));
-        _personnelOrders.Configure(_ui.Get, command => RunPlayAction(() => ApplyPlayableOrder(command)));
+        _diplomacyOrders.Configure(_ui.Get, command => RunPlayAction(() => ApplyPlayableOrder(command)),
+            officer => RunUiAction(() => OpenCommandOfficerDetails(officer)),
+            force => RunUiAction(() => OpenCommandForceDetails(force)),
+            city => RunUiAction(() => OpenCommandCityDetails(city)),
+            (kind, target, months, targetCity, gold, supplies) =>
+                _world is { } world && _playerForceId is int force && SelectionId(_playCity) is int city &&
+                    _campaignComposition is { } composition && _session?.HasPendingOperation != true
+                    ? composition.PrepareArmyQueries(world).QueryDiplomacyCommand(world, force, city, kind,
+                        target, months, targetCity, gold, supplies)
+                    : new([], [], false, null, null));
+        _personnelOrders.Configure(_ui.Get, command => RunPlayAction(() => RequestPersonnelOrder(command)),
+            inspectOfficer: officer => RunUiAction(() => OpenCommandOfficerDetails(officer)),
+            openItems: () => RunUiAction(OpenPersonnelItems));
         UpdateUiAudioStatus();
         UpdateSceneAudioStatus();
     }

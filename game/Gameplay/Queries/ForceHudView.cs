@@ -15,6 +15,8 @@ internal sealed record ForceHudView(int ForceId, int PeriodNumber, string Date,
     public string OrderCountText { get; init; } = "";
     public string DoctrineLevelText { get; init; } = "";
     public ForceDoctrineProgress? DoctrineProgress { get; init; }
+    public int? ExperienceTotal { get; init; }
+    public ForceExperienceHeaderChange? PendingExperience { get; init; }
     public MapHeaderIdentity Identity { get; init; } = null!;
     public MapHeaderCommandBooks CommandBooks { get; init; } = null!;
     public string UnknownText { get; init; } = "";
@@ -45,6 +47,8 @@ internal sealed record ForceHudView(int ForceId, int PeriodNumber, string Date,
             Identity = identity,
             CommandBooks = header.CommandBooks,
             DoctrineProgress = doctrine?.Progress,
+            ExperienceTotal = OwnedForce164Inputs.ReadCurrent(world, forceId),
+            PendingExperience = ForceExperienceHeaderChange.Create(world, forceId),
             UnknownText = text.Get("detail_unknown"),
             Year = date is null ? unknown : text.Format("map_hud_year", date.Year),
             Month = date is null ? unknown : text.Format("map_hud_month", date.Month),

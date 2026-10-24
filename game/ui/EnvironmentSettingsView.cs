@@ -13,16 +13,23 @@ internal partial class EnvironmentSettingsView : Control
     private string? helpText;
     private readonly List<(UiSourceRadioButton Button, int Row, int Index)> choices = [];
     private readonly List<UiSourceTabButton> tabs = [];
-    private readonly Control[] pages = [new(), new()];
+    private readonly Control[] pages = [new(), new(), new()];
     private Action? returned, accepted, reset;
     private bool abandoned, busy;
     private string defaultHelp = "";
     internal MapCameraNavigationOptions Draft { get; private set; } = new();
     internal ListScrollSpeed ListScrollDraft { get; private set; }
+    internal bool AutomaticSavingDraft { get; private set; }
+    internal VoicePreferences VoiceDraft { get; private set; } = new();
+    internal AutomaticMessageAdvanceMode AutomaticMessageAdvanceDraft { get; private set; }
+    private bool automaticMessageAdvanceSupported;
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
-        MapCameraNavigationOptions initial, AudioVolumeOptions audio, ListScrollSpeed listScroll, Action returned, Action accepted, Action reset,
-        Action<AudioVolumeOptions> previewAudio, Action? previewEffects = null)
+        MapCameraNavigationOptions initial, AudioVolumeOptions audio, ListScrollSpeed listScroll, bool automaticSaving,
+        Action returned, Action accepted, Action reset,
+        Action<AudioVolumeOptions> previewAudio, Action? previewEffects = null, VoicePreferences? voice = null,
+        AutomaticMessageAdvanceMode automaticMessageAdvance = AutomaticMessageAdvanceMode.Manual,
+        IReadOnlyList<int>? keyboardBindings = null)
     {
         this.returned = returned; this.accepted = accepted; this.reset = reset;
         initial.Validate(); Draft = initial;
@@ -30,11 +37,17 @@ internal partial class EnvironmentSettingsView : Control
         this.previewEffects = previewEffects;
         if (!Enum.IsDefined(listScroll)) throw new ArgumentOutOfRangeException(nameof(listScroll));
         ListScrollDraft = listScroll;
+        AutomaticSavingDraft = automaticSaving;
+        VoiceDraft = voice ?? new();
+        _ = VoiceDraft.Capture();
+        if (!Enum.IsDefined(automaticMessageAdvance)) throw new ArgumentOutOfRangeException(nameof(automaticMessageAdvance));
+        AutomaticMessageAdvanceDraft = automaticMessageAdvance;
+        automaticMessageAdvanceSupported = text.SourceLocale == "TC";
         Name = "EnvironmentSettings"; ZIndex = 4; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         chrome = new AdministrationPageChrome { Name = "EnvironmentChrome" }; AddChild(chrome);
         chrome.Configure(repository, text, 0x0031, RequestBack,
-            () => { if (!abandoned && !busy) this.accepted?.Invoke(); }, showFooterHint: false);
+            () => { if (!abandoned && !busy && !KeyboardModal) this.accepted?.Invoke(); }, showFooterHint: false);
         for (int i = 0; i < pages.Length; i++)
         {
             pages[i].Name = "EnvironmentPage" + i; pages[i].Size = new(1920,1080);
@@ -55,10 +68,10 @@ internal partial class EnvironmentSettingsView : Control
             int page = i;
             var box = tabSource.Rectangle(tabNodes[i], tabMount);
             var tab = new UiSourceTabButton { Name = "EnvironmentTab" + i, Position = box.Position,
-                Size = box.Size, Selected = i == 0, Disabled = i == 2 };
+                Size = box.Size, Selected = i == 0 };
             chrome.Canvas.AddChild(tab);
             tab.Configure(repository, chrome.Assets, chrome.SpriteShader, chrome.Font, Data(1, tabCaptions[i]), tabFiles[i]);
-            tab.Pressed += () => { if (!abandoned && !busy && page < pages.Length) ShowPage(page); };
+            tab.Pressed += () => { if (!abandoned && !busy && !KeyboardModal && page < pages.Length) ShowPage(page); };
             tabs.Add(tab);
         }
         var hint = new UiSourceLayout(repository, 0xD6361A53);
@@ -76,9 +89,9 @@ internal partial class EnvironmentSettingsView : Control
         var rowSource = new UiSourceLayout(repository, 0x8D9566B0);
         int[] radioNodes = [4, 7, 10, 13];
         int[] captions = [0x04C9, 0x04CA, 0x06EF, 0x04CC, 0x04CD, 0x04D2, 0x04D3, 0x04D4, 0x06C6];
-        int[] helpMessages = [0x2741,0x2742,0x2759];
+        int[] helpMessages = [0x2741,0x2742,0x2759,0x2744,0x2745,0x274A,0x274B,0x2754,0x274C];
         int[][] values = [[0x58,0x59,0x5A,0x5B],[0x5C,0x5D,0x5E],[0x5C,0x5D,0x5E],
-            [0x62,0x63,0x64,0x65],[0x66,0x67],[0x6A,0x6B],[0x6C,0x6D],[0x81,0x80],[0x82,0x83]];
+            [0x62,0x63,0x64,0x65],[0x66,0x67],[0x6B,0x6A],[0x6D,0x6C],[0x80,0x81],[0x83,0x82]];
         for (int row = 0; row < captions.Length; row++)
         {
             Vector2 mount = source.Rectangle(row + 4).Position;
@@ -89,22 +102,25 @@ internal partial class EnvironmentSettingsView : Control
                 int selectedRow = row, selectedIndex = index;
                 var box = rowSource.Rectangle(radioNodes[index], mount);
                 var button = new UiSourceRadioButton { Name = "EnvironmentOption" + row + "_" + index,
-                    Position = box.Position, Size = box.Size, Disabled = row > 2 };
+                    Position = box.Position, Size = box.Size, Disabled = !EnabledRow(row) };
                 pages[0].AddChild(button);
                 var segment = index == 0 ? UiSourceRadioSegment.Left : index == values[row].Length - 1 ? UiSourceRadioSegment.Right : UiSourceRadioSegment.Centre;
                 button.Configure(repository, chrome.Assets, chrome.SpriteShader, chrome.Font, segment, Data(0, values[row][index]), () =>
                 {
-                    if (abandoned || busy || selectedRow > 2) return;
-                    if (selectedRow == 2) ApplyListScroll((ListScrollSpeed)selectedIndex);
+                    if (abandoned || busy || !EnabledRow(selectedRow)) return;
+                    if (selectedRow == 8) ApplyAutomaticSaving(selectedIndex == 1);
+                    else if (selectedRow == 7) ApplyVoice(VoiceDraft with { Language = (NarrationVoiceLanguage)selectedIndex });
+                    else if (selectedRow == 3) ApplyAutomaticMessageAdvance((AutomaticMessageAdvanceMode)selectedIndex);
+                    else if (selectedRow == 2) ApplyListScroll((ListScrollSpeed)selectedIndex);
                     else ApplyOptions(selectedRow == 0 ? Draft with { Edge = (MapEdgeScrollSpeed)selectedIndex } :
                         Draft with { Keyboard = (MapKeyboardScrollSpeed)selectedIndex });
                     ApplyHelp(narration.Format(helpMessages[selectedRow]));
                 });
-                if (row <= 2)
+                if (EnabledRow(row))
                 {
                     string rowHelp = narration.Format(helpMessages[row]);
                     button.MouseEntered += () => { if (!abandoned && !busy) ApplyHelp(rowHelp); };
-                    button.MouseExited += () => { if (!abandoned && !busy) ApplyHelp(defaultHelp); };
+                    button.MouseExited += () => { if (!abandoned && !busy && !KeyboardModal) ApplyHelp(CurrentPageHelp); };
                 }
                 choices.Add((button, row, index));
             }
@@ -113,23 +129,59 @@ internal partial class EnvironmentSettingsView : Control
         defaults = new UiSourceBottomButton { Name = "EnvironmentDefaults", Position = footer.Rectangle(14, new(0,904)).Position };
         chrome.Canvas.AddChild(defaults);
         defaults.Configure(repository, chrome.Assets, chrome.SpriteShader, chrome.Font, Data(1,0x006B),
-            () => { if (!abandoned && !busy) this.reset?.Invoke(); });
+            () => { if (!abandoned && !busy && !KeyboardModal) this.reset?.Invoke(); });
         defaults.MouseEntered += () => { if (!abandoned && !busy) ApplyHelp(narration.Format(0x275F)); };
-        defaults.MouseExited += () => { if (!abandoned && !busy) ApplyHelp(defaultHelp); };
+        defaults.MouseExited += () => { if (!abandoned && !busy && !KeyboardModal) ApplyHelp(CurrentPageHelp); };
         ConfigureAudioPage(repository, text);
+        ConfigureKeyboardPage(repository, text, keyboardBindings);
         ApplyOptions(initial); SetBusy(false);
         ApplyListScroll(listScroll);
+        ApplyAutomaticSaving(automaticSaving);
         ApplyAudioOptions(audio, false); ShowPage(0);
         SetMeta("source_layout", source.Source.Source.ResourceUri);
     }
 
-    internal void RequestBack() { if (!abandoned && !busy) returned?.Invoke(); }
+    internal void RequestBack()
+    {
+        if (CancelKeyboardModal()) return;
+        if (!abandoned && !busy) returned?.Invoke();
+    }
+    private bool EnabledRow(int row) => row <= 2 || row is 7 or 8 || row == 3 && automaticMessageAdvanceSupported;
     internal void ApplyOptions(MapCameraNavigationOptions options)
     {
         if (abandoned) return;
         options.Validate(); Draft = options;
         foreach (var row in choices)
-            row.Button.Selected = row.Row == 0 ? row.Index == (int)Draft.Edge : row.Row == 1 ? row.Index == (int)Draft.Keyboard : row.Row == 2 && row.Index == (int)ListScrollDraft;
+            row.Button.Selected = row.Row switch
+            {
+                0 => row.Index == (int)Draft.Edge,
+                1 => row.Index == (int)Draft.Keyboard,
+                2 => row.Index == (int)ListScrollDraft,
+                3 => automaticMessageAdvanceSupported && row.Index == (int)AutomaticMessageAdvanceDraft,
+                7 => row.Index == (int)VoiceDraft.Language,
+                8 => row.Index == (AutomaticSavingDraft ? 1 : 0),
+                _ => false
+            };
+    }
+    internal void ApplyAutomaticSaving(bool value)
+    {
+        if (abandoned) return;
+        AutomaticSavingDraft = value;
+        foreach (var row in choices.Where(row => row.Row == 8)) row.Button.Selected = row.Index == (value ? 1 : 0);
+    }
+    internal void ApplyVoice(VoicePreferences value)
+    {
+        if (abandoned) return;
+        _ = value.Capture(); VoiceDraft = value;
+        foreach (var row in choices.Where(row => row.Row == 7)) row.Button.Selected = row.Index == (int)value.Language;
+    }
+    internal void ApplyAutomaticMessageAdvance(AutomaticMessageAdvanceMode value)
+    {
+        if (abandoned) return;
+        if (!Enum.IsDefined(value)) throw new ArgumentOutOfRangeException(nameof(value));
+        AutomaticMessageAdvanceDraft = value;
+        foreach (var row in choices.Where(row => row.Row == 3))
+            row.Button.Selected = automaticMessageAdvanceSupported && row.Index == (int)value;
     }
     internal void ApplyListScroll(ListScrollSpeed value)
     {
@@ -166,16 +218,18 @@ internal partial class EnvironmentSettingsView : Control
     internal void SetBusy(bool value)
     {
         if (abandoned) return;
-        busy = value; chrome.ApplyReturn(!value); chrome.ApplyDecision(!value, true); defaults.Disabled = value;
-        foreach (var row in choices) row.Button.Disabled = value || row.Row > 2;
-        for (int i = 0; i < tabs.Count; i++) tabs[i].Disabled = value || i == 2;
+        busy = value; chrome.ApplyReturn(!value); chrome.ApplyDecision(!value && !KeyboardModal, true); defaults.Disabled = value || KeyboardModal;
+        foreach (var row in choices) row.Button.Disabled = value || !EnabledRow(row.Row);
+        for (int i = 0; i < tabs.Count; i++) tabs[i].Disabled = value || KeyboardModal;
         foreach (var row in audioChoices) row.Button.Disabled = value;
+        RefreshKeyboardAdmission();
     }
     internal void Abandon()
     {
         abandoned = true; returned = null; accepted = null; reset = null;
         previewAudio = null;
         previewEffects = null;
+        AbandonKeyboard();
         foreach (var row in choices) row.Button.Abandon();
         foreach (var row in audioChoices) row.Button.Abandon();
         foreach (var tab in tabs) tab.Disabled = true;

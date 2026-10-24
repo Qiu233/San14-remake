@@ -38,7 +38,7 @@ public static partial class PersonReturnCommands
             // Registration precedes group initialization. The new command has
             // no members yet, so position lookup still finds the old command.
             var task = new PersonnelReturnTask(id, slot, [], [], destination, district, 48400,
-                false, false, false, false, true, new(0, 1, 1, 0), new(0, 1, 1, 0));
+                false, false, false, false, true, date, new(0, 1, 1, 0));
             owner = owner with { NextTaskId = id + 1, AvailableDispatchSlots = owner.AvailableDispatchSlots[1..],
                 Returns = new(owner.Returns) { [id] = task } };
             var handle = current.OwnedIndexes?.AssociatedTaskHandle ?? throw Missing("reschedule association index");

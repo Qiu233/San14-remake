@@ -18,6 +18,7 @@ internal static class PersonCurrentBusySource
         if (linked.Identity is int id)
         {
             if (commands?.Returns.ContainsKey(id) == true) return false; // v98=15.
+            if (commands?.Talents?.ContainsKey(id) == true) return true; // Search3 or Employ2.
             if (commands?.Disappearances?.ContainsKey(id) == true) return true; // v98=16.
         }
         throw missing("associated_virtual98");

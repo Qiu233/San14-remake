@@ -8,6 +8,10 @@ internal sealed record FacilityConstructionDefinition(int Physical, byte Categor
 
 internal static class FacilityConstructionDefinitions
 {
+    // Explicit consumers: arrow tower, military music stand, fire trap and pit.
+    // Other catalog entries keep their existing unresolved consumers.
+    internal static bool IsSupported(int? physical) => physical is 5 or 7 or 11 or 14;
+
     internal static FacilityConstructionDefinition Read(SourceWorldContext current, ObjectDefinitionReference reference) =>
         current.ReadFacilityConstructionDefinition(reference) ?? throw Missing("definition_fields");
     internal static ObjectDefinitionReference Selected(GameState state, SourceWorldContext current, UnitState image)

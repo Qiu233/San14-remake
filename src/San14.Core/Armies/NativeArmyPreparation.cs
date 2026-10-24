@@ -29,11 +29,19 @@ public static class NativeArmyPreparation
 {
     /// <summary>Preflights all source-created Armies, then commits mask02 and
     /// independent native aftermath receipts. Fresh creation never enables02.</summary>
-    public static GameState PrepareAfterDeployment(GameState state, IPlayableNativeArmyPreparationRules? rules)
+    public static GameState PrepareAfterDeployment(GameState state, IPlayableNativeArmyPreparationRules? rules) =>
+        Prepare(state, rules, owned: false);
+
+    /// <summary>Reached Turn36/37 inside GameEngine's private period world.
+    /// No additional whole-world clone or correctness proof is needed here.</summary>
+    internal static GameState PrepareAfterDeploymentOwned(GameState state, IPlayableNativeArmyPreparationRules? rules) =>
+        Prepare(state, rules, owned: true);
+
+    private static GameState Prepare(GameState state, IPlayableNativeArmyPreparationRules? rules, bool owned)
     {
         if (rules is null) return state;
-        NativeSubdayStateValidation.Validate(state);
-        GameState working = GameStateSnapshot.Detach(state);
+        if (!owned) NativeSubdayStateValidation.Validate(state);
+        GameState working = owned ? state : GameStateSnapshot.Detach(state);
         var connected = new Dictionary<int, bool>();
         var traitsPreserved = new Dictionary<int, bool>();
         var morale = new Dictionary<int, int?>();
@@ -60,7 +68,7 @@ public static class NativeArmyPreparation
         //37 first refreshes global Area68/78, then snapshots every Army152.
         //Both consume the completed36 state. Neither may commit a prefix.
         GameState prepared = state with { Units = units, ResourceState = resourceKnowledge };
-        GameState afterLogistics = GameStateSnapshot.Detach(prepared);
+        GameState afterLogistics = owned ? prepared : GameStateSnapshot.Detach(prepared);
         bool globalPrepared = rules.ProvidesGlobalRegionPreparation && state.NativeArmySimulation is not null;
         if (globalPrepared)
         {
@@ -79,7 +87,8 @@ public static class NativeArmyPreparation
         }
         foreach ((int id, ushort? region) in regions)
             units[id] = units[id] with { NativeSavedRegionHex152 = region };
-        return connected.Count == 0 && !globalPrepared ? state : GameStateSnapshot.Detach(prepared with
-            { Units = units, RegionStatistics = afterLogistics.RegionStatistics });
+        if (connected.Count == 0 && !globalPrepared) return state;
+        var completed = prepared with { Units = units, RegionStatistics = afterLogistics.RegionStatistics };
+        return owned ? completed : GameStateSnapshot.Detach(completed);
     }
 }

@@ -51,9 +51,27 @@ public sealed class ArmyMovementEligibilityCurrentProducer
         ValidateMoment(state, moment);
         var definitions = package.CaptureCurrentDefinitions(state);
         if (definitions is null) return Missing("current.Base_Hex_Person_definition_capture");
+        return ResolveCurrent(state, army, moment, definitions);
+    }
+
+    /// <summary>Uses the caller's reached stage7 moment and same current view.</summary>
+    public ArmyMovementEligibilityCurrentResolution Resolve(GameState state, UnitState army,
+        NativeArmyProgressStageMoment moment, SourceWorldContext current)
+    {
+        ValidateMoment(state, moment);
+        return ResolveCurrent(state, army, moment, current);
+    }
+
+    private ArmyMovementEligibilityCurrentResolution ResolveCurrent(GameState state, UnitState army,
+        NativeArmyProgressStageMoment moment, SourceWorldContext definitions)
+    {
         var context = new TacticRemakeCurrentContext(definitions, catalog, map, terrain,
             new(package.Seed.Language, SimulationRuleIdentity.ForLocale(package.Seed.Language)), Revision);
-        bool? valid = context.ArmyValid(state, army);
+        //2C7350 uses the native header validity, including real images which
+        //have left Units but remain registered/pending until cleanup26.
+        ArmyUnitReference? nativeArmy = army.NativeArmyOrigin?.NativeSlotIndex is int physical
+            ? new(physical) : null;
+        bool? valid = nativeArmy is null ? null : definitions.ReadArmyUnitNativeValidity(nativeArmy);
         if (valid is null) return Missing("current.Army_validity");
         if (!valid.Value) return Result(false, null, null, "2C7377.invalid-Army");
         var runtime = army.NativeTacticRuntime!;
@@ -67,7 +85,7 @@ public sealed class ArmyMovementEligibilityCurrentProducer
             if ((flags & 8) != 0) return Result(false, null, null, "2C7393.Status2-flags150-bit3");
         }
         if (runtime.Abnormal24 > 0) return Result(false, null, null, "2C739F.abnormal24");
-        if (army.March is not { } march || ArmyMarchSourceAdapter.EncodeDestination(march.Target) is not ushort targetHex)
+        if (army.March is not { } march || ArmyMarchSourceAdapter.ReadFirstWaypoint(state, army) is not ushort targetHex)
             return Missing("current.march_target");
         if (ArmyMarchSourceAdapter.ReadCurrentHex(state, army) is not ushort currentHex ||
             currentHex != army.HexId || currentHex >= ArmyMarchSourceAdapter.SourceHexCount)
@@ -77,7 +95,9 @@ public sealed class ArmyMovementEligibilityCurrentProducer
         int? currentTarget = ResolveCurrentTarget();
         if (currentTarget is null) return Missing("current.target2B54A0_raw38_3A_3E_or_selected_owner");
         if (currentTarget == 48400) return Result(false, currentTarget, null, "2C73AE.no-current-target");
-        bool? excluded = context.ArmyManagerExcluded(state, army.Id);
+        bool? excluded = state.PendingCombatSettlements is not null
+            ? OwnedArmyDestructionCurrent.ReadArmyExcluded233560(state, definitions, nativeArmy!.PhysicalSlot!.Value)
+            : context.ArmyManagerExcluded(state, army.Id);
         if (excluded is null) return Missing("current.Army_manager233560");
         if (excluded.Value) return Result(false, currentTarget, null, "2C73C6.manager-excluded");
         //2C96E0 checks current affiliation Base, not retained SourceLocationId.
@@ -138,7 +158,10 @@ public sealed class ArmyMovementEligibilityCurrentProducer
                 if (obj is null || definitions.ReadObjectNativeValidity(obj) is not bool objectValid)
                     return Missing("current.goal_Object_validity_for2C7661");
                 if (!objectValid) return Result(false, currentTarget, goal, "2C7668.invalid-target-Object");
-                if (owners?.ReadObjectWord14(state, obj, moment) is not ushort objectWord)
+                //2C766F reads the same current Object's ushort14. The
+                //formal saved-target owner has no separate HP field producer;
+                //do not turn its optional null callback into a missing HP.
+                if (definitions.ReadObjectRawField14(obj) is not ushort objectWord)
                     return Missing("current.goal_Object_word14");
                 return Result(objectWord <= 1, currentTarget, goal, "2C766F.target-Object-word14");
             }
@@ -194,8 +217,10 @@ public sealed class ArmyMovementEligibilityCurrentProducer
             if (type == 9) return value;
             if (type == 27)
             {
-                UnitState[] selected = state.Units.Values.Where(u => u.NativeArmyOrigin?.NativeSlotIndex == (value <= 500 ? value : 0)).ToArray();
-                return selected.Length == 1 && context.ArmyValid(state, selected[0]) is true ? selected[0].HexId : null;
+                //2B5610 reads the actual receiver even after its domain Unit
+                //has retired. Validity belongs only to the2B54A0 getter below.
+                var selected = definitions.ReadArmyUnitTableReference(value <= 500 ? value : 0);
+                return selected is null ? null : definitions.ReadArmyUnitRawHex2A(selected);
             }
             if (type == 11)
             {
@@ -246,9 +271,11 @@ public sealed class ArmyMovementEligibilityCurrentProducer
             }
             if (type == 27)
             {
-                var selected = state.Units.Values.Where(u => u.NativeArmyOrigin?.NativeSlotIndex == (value <= 500 ? value : 0)).ToArray();
-                if (selected.Length != 1 || context.ArmyValid(state, selected[0]) is not bool targetValid) return null;
-                return targetValid ? selected[0].HexId : targetHex;
+                var selected = definitions.ReadArmyUnitTableReference(value <= 500 ? value : 0);
+                if (selected is null || definitions.ReadArmyUnitNativeValidity(selected) is not bool targetValid) return null;
+                //A defeated target is a known-invalid receiver, not missing
+                //definition knowledge. The native getter returns word2C.
+                return targetValid ? definitions.ReadArmyUnitRawHex2A(selected) : targetHex;
             }
             return targetHex;
         }

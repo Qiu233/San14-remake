@@ -13,6 +13,7 @@ internal partial class DeploymentSetupView : Control
     private MapFont? font;
     private Shader? shader;
     private Control canvas = null!;
+    private UiSourceHeader sourceHeader = null!;
     private Action? close;
     private DeploymentResourceHeader resourceHeader=null!;
 
@@ -61,9 +62,9 @@ internal partial class DeploymentSetupView : Control
         var messages = repository.LoadMessages(text.SourceLocale, MessageKind.Data).Messages.Sections[1];
         string Message(int id) => messages.Records[id].Text ?? throw new InvalidDataException($"Missing deployment message {id}.");
         var page = new UiSourceLayout(repository, 0xFC796D9B);
-        var header = new UiSourceLayout(repository, 0xDC8AC8AA);
-        Art(header, 1);
-        header.Text(canvas, 2, default, Message(0x059F), font,textPresets[56]);
+        sourceHeader = new UiSourceHeader { Name = "DeploymentTitle" };
+        canvas.AddChild(sourceHeader);
+        sourceHeader.Configure(repository,assets,shader,font,Message(0x059F));
         resourceHeader=new DeploymentResourceHeader {Name="DeploymentResourceHeader",Position=page.Rectangle(1).Position};
         canvas.AddChild(resourceHeader);
         resourceHeader.Configure(repository,assets,shader,font,text,city,availableTroops,books);
@@ -150,6 +151,8 @@ internal partial class DeploymentSetupView : Control
             };
         }
     }
+
+    internal void RegisterHeader(UiSourceHeaderStack owner) => sourceHeader.Publish(owner);
 
     internal void ApplyDraftResources(DeploymentDraftResources resources)
     {

@@ -23,21 +23,25 @@ internal static class ArmyTargetsSaveValidation
             if (target.Destination is not { } destination) return;
             bool shape = destination.Kind switch
             {
-                ArmyTargetDestinationKind.City => destination.CityId is >= 0 && destination.ReceiverId is null && destination.HexId is null && destination.MapObjectReceiverId is null,
-                ArmyTargetDestinationKind.ArmyReceiver => destination.CityId is null && destination.HexId is null && destination.MapObjectReceiverId is null && destination.ReceiverId is { Value: > 0 } id && receivers.Contains(id),
-                ArmyTargetDestinationKind.Unresolved => destination.CityId is null && destination.ReceiverId is null && destination.HexId is null && destination.MapObjectReceiverId is null,
-                ArmyTargetDestinationKind.Hex => target.Kind == ArmyTargetKind.Hex && destination.CityId is null && destination.ReceiverId is null && destination.MapObjectReceiverId is null &&
+                ArmyTargetDestinationKind.City => destination.GateId is null && destination.CityId is >= 0 && destination.ReceiverId is null && destination.HexId is null && destination.MapObjectReceiverId is null,
+                ArmyTargetDestinationKind.ArmyReceiver => destination.GateId is null && destination.CityId is null && destination.HexId is null && destination.MapObjectReceiverId is null && destination.ReceiverId is { Value: > 0 } id && receivers.Contains(id),
+                ArmyTargetDestinationKind.Unresolved => destination.GateId is null && destination.CityId is null && destination.ReceiverId is null && destination.HexId is null && destination.MapObjectReceiverId is null,
+                ArmyTargetDestinationKind.Hex => destination.GateId is null && target.Kind == ArmyTargetKind.Hex && destination.CityId is null && destination.ReceiverId is null && destination.MapObjectReceiverId is null &&
                     destination.HexId is int hex && hex >= 0 && hex < (long)state.MapWidth * state.MapHeight,
-                ArmyTargetDestinationKind.MapObjectReceiver => target.Kind == ArmyTargetKind.MapObjectReceiver &&
+                ArmyTargetDestinationKind.MapObjectReceiver => destination.GateId is null && target.Kind == ArmyTargetKind.MapObjectReceiver &&
                     destination.CityId is null && destination.ReceiverId is null && destination.HexId is null &&
                     destination.MapObjectReceiverId is { Value: > 0 } mapObject && state.MapObjects?.Find(mapObject) is not null,
+                ArmyTargetDestinationKind.Gate => target.Kind == ArmyTargetKind.Gate &&
+                    destination.CityId is null && destination.ReceiverId is null && destination.HexId is null && destination.MapObjectReceiverId is null &&
+                    destination.GateId is >= 52 and <= 61 && state.Gates.ContainsKey(destination.GateId.Value),
                 _ => false
             };
             if (!shape) throw new InvalidDataException("Saved army target destination is contradictory.");
             if (destination.Kind == ArmyTargetDestinationKind.City && target.Kind == ArmyTargetKind.ArmyReceiver ||
                 destination.Kind == ArmyTargetDestinationKind.ArmyReceiver && target.Kind == ArmyTargetKind.City ||
                 target.Kind == ArmyTargetKind.Hex && destination.Kind is not (ArmyTargetDestinationKind.Hex or ArmyTargetDestinationKind.Unresolved) ||
-                target.Kind == ArmyTargetKind.MapObjectReceiver && destination.Kind is not (ArmyTargetDestinationKind.MapObjectReceiver or ArmyTargetDestinationKind.Unresolved))
+                target.Kind == ArmyTargetKind.MapObjectReceiver && destination.Kind is not (ArmyTargetDestinationKind.MapObjectReceiver or ArmyTargetDestinationKind.Unresolved) ||
+                target.Kind == ArmyTargetKind.Gate && destination.Kind is not (ArmyTargetDestinationKind.Gate or ArmyTargetDestinationKind.Unresolved))
                 throw new InvalidDataException("Saved army target category contradicts its destination.");
         }
     }

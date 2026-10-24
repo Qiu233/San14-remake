@@ -33,12 +33,16 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// <summary>One current capture for ordered candidates and all basic cells.
     /// Cell failures remain independent; no saved world or source is changed.</summary>
     public DeploymentPersonBasicListQuery QueryDeploymentPersonBasicList(GameState state, int locationId, int outside)
+        => QueryPersonBasicList(state, locationId, outside, transport: false);
+
+    private DeploymentPersonBasicListQuery QueryPersonBasicList(GameState state, int locationId, int outside, bool transport)
     {
         ArgumentNullException.ThrowIfNull(state);
         try
         {
             var current = CaptureDeploymentPersonSelectionCurrent(state);
-            var selection = BuildDeploymentPersonSelection(state, current, locationId, outside);
+            var selection = transport ? BuildTransportPersonSelection(state, current, locationId)
+                : BuildDeploymentPersonSelection(state, current, locationId, outside);
             _moraleWaveInputs.BindCurrent(state, current);
             _baseCapacityInputs.BindCurrent(state, current);
             var abilities = new TacticRemakeCurrentAbilities(current, _scenario, Seed.Language,
@@ -86,6 +90,7 @@ public sealed partial class ArmyCampaignRuleAdapter
 
             bool ComesBefore(DeploymentPersonBasicRow left, DeploymentPersonBasicRow right)
             {
+                if (transport) return CompareTransportPersons(current, left.Candidate, right.Candidate) < 0;
                 int a = left.SortCommandCapacity.Capacity ?? throw BasicMissing("sort_command_capacity");
                 int b = right.SortCommandCapacity.Capacity ?? throw BasicMissing("sort_command_capacity");
                 if (a != b) return a > b;

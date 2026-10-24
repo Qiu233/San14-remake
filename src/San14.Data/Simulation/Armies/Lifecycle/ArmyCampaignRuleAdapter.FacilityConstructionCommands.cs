@@ -3,8 +3,77 @@ using static San14.Data.FacilityConstructionDefinitions;
 
 namespace San14.Data;
 
+public sealed record FacilityConstructionChoice(string DefinitionKey, string Name);
+
+public sealed record FacilityConstructionQuote(bool? Allowed, int? GoldCost, int? PayerLocationId,
+    int? CurrentGold, string? Reason, string? UnresolvedInput)
+{
+    public bool Available => UnresolvedInput is null;
+}
+
 public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyConstructionCommandRules
 {
+    public IReadOnlyList<FacilityConstructionChoice> QueryFacilityConstructionChoices()
+    {
+        var definitions = _repository.LoadObjectDefinitions(_scenario.FixedDataSource.SourcePath).Catalog.Definitions;
+        return Array.AsReadOnly(new[] { 5, 7, 11, 14 }.Select(slot => new FacilityConstructionChoice(
+            MapObjectSourceDirectory.DefinitionKey(slot), definitions[slot].Name)).ToArray());
+    }
+
+    public int? QueryFacilityRepairCapacity(GameState state, int structureId)
+    {
+        if (state.Structures?.ContainsKey(structureId) != true || state.MapObjects is not { } objects)
+            return null;
+        var owner = objects.Receivers.FirstOrDefault(row => row.Subject?.StructureId == structureId);
+        if (owner is null) return null;
+        try
+        {
+            var current = CaptureFacilityConstructionCurrent(state);
+            var directory = current.CurrentMapObjectDirectory ?? throw Missing("capacity_Object_directory");
+            var obj = new ObjectReference(directory.PhysicalOf(owner.Id));
+            if (current.ReadObjectNativeValidity(obj) != true) return null;
+            return FacilityRepairCapacity.ReadCapacity(state, current, obj, _baseCapacityInputs);
+        }
+        catch (InvalidDataException) { return null; }
+    }
+
+    /// <summary>One selected target quote; borrows the committed world and
+    /// captures current inputs once. No order, state clone or resource writer.</summary>
+    public FacilityConstructionQuote QueryFacilityConstructionQuote(GameState state, int unitId,
+        int hexId, string definitionKey)
+    {
+        if (!state.Units.TryGetValue(unitId, out var army) || !FacilityConstructionIntent.IsDefinitionKey(definitionKey) ||
+            hexId is < 0 or >= 48400)
+            return new(false, null, null, null, "The current army, definition or site is invalid.", null);
+        try
+        {
+            var current = CaptureFacilityConstructionCurrent(state);
+            int physical = army.NativeArmyOrigin?.NativeSlotIndex ?? throw Missing("quote_Army_receiver");
+            if (!K(current.ReadArmyUnitNativeValidity(new(physical)), "quote_Army_validity") ||
+                army.NativeTacticRuntime is not { Status10: 1 })
+                return new(false, null, null, null, "Only an ordinary field army can construct.", null);
+            if (K(ArmySavedCommandKnowledge.ReadControl(state, army), "quote_control140") != 0)
+                throw Missing("quote_saved_order_replacement");
+            var reference = current.ReadObjectDefinitionReference(MapObjectSourceDirectory.DefinitionSlot(definitionKey))
+                ?? throw Missing("quote_definition_pointer");
+            if (!K(current.ReadObjectDefinitionValidity(reference), "quote_definition_validity"))
+                return new(false, null, null, null, "The definition is unavailable.", null);
+            if (!IsSupported(reference.PhysicalSlot)) throw Missing("quote_definition_consumer_outside_supported_facilities");
+            var site = current.ReadHexTableReference(hexId) ?? throw Missing("quote_Hex_pointer");
+            int person = current.ResolveOfficerSource(army.OfficerId) ?? throw Missing("quote_Person_pointer");
+            string? rejected = null;
+            bool legal = FacilityConstructionLegality.CheckCommander(state, current, person, site, reference, reason => rejected = reason);
+            if (!legal) return new(false, null, null, null, rejected ?? "structure.site.unavailable", null);
+            var home = current.FindArmyUnitCurrentBase(new(physical));
+            int cost = FacilityConstructionCost.Read(state, current, current.ReadArmyUnitForceReference(new(physical)),
+                Read(current, reference), _baseCapacityInputs);
+            int gold = BaseCurrencyAdditionSource.ReadCurrentGold(home, current);
+            int payer = K(BaseCurrencyAdditionSource.CurrencyCity(home, current).PhysicalSlot, "quote_payer_City_identity");
+            return new(true, cost, payer, gold, null, null);
+        }
+        catch (InvalidDataException error) { return new(null, null, null, null, null, error.Message); }
+    }
+
     public CommandResult IssueFacilityConstruction(GameState state, UnitState army, int hexId,
         string definitionKey, IReadOnlyList<int> waypointHexIds)
     {
@@ -27,7 +96,7 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyConstructionC
                 ?? throw Missing("command_definition_pointer");
             if (!K(current.ReadObjectDefinitionValidity(reference), "command_definition_validity"))
                 return CommandResult.Reject("The selected facility definition is unavailable.", "structure.definition");
-            if (reference.PhysicalSlot != 7) throw Missing("command_definition_consumer_outside_kind7");
+            if (!IsSupported(reference.PhysicalSlot)) throw Missing("command_definition_consumer_outside_supported_facilities");
             var target = current.ReadHexTableReference(hexId) ?? throw Missing("command_site_pointer");
             int person = current.ResolveOfficerSource(army.OfficerId) ?? throw Missing("command_commander_pointer");
             if (!FacilityConstructionLegality.CheckCommander(state, current, person, target, reference))
@@ -59,7 +128,8 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyConstructionC
             if (K(ArmySavedCommandKnowledge.ReadControl(state, army), "command_control140") != 0)
                 throw Missing("command_saved_order_replacement");
             var receiver = state.ReadArmyLifecycle()?.Receivers.FindUnit(army.Id) ?? throw Missing("command_Army_owner");
-            if (receiver.FacilityConstruction is not { DefinitionKey: not null } intent)
+            var intent = receiver.FacilityConstruction;
+            if (intent?.DefinitionKey is null && ArmyConfigurationSourceAdapter.ReadAction(state, army) != 6)
                 throw Missing("command_construction_selection");
             _ = current.ReadHexTableReference(action.Target.Id) ?? throw Missing("command_site_pointer");
             return SubmitCurrentConstructionCommand(state, current, army, receiver,
@@ -71,7 +141,8 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyConstructionC
 
     private static CommandResult SubmitCurrentConstructionCommand(GameState state, SourceWorldContext current,
         UnitState army, ArmyReceiverState receiver, byte action, int hexId, IReadOnlyList<int> waypointHexIds,
-        FacilityConstructionIntent intent, UnitMission mission, DeploymentAction projection)
+        FacilityConstructionIntent? intent, UnitMission mission, DeploymentAction? projection,
+        (byte Kind, ushort Identity)? selectedTarget = null)
     {
         byte formerAction = K(ArmyConfigurationSourceAdapter.ReadAction(state, army), "command_previous_action");
         var runtime = army.NativeTacticRuntime ?? throw Missing("command_Army_runtime");
@@ -80,12 +151,13 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyConstructionC
         var changed = army with
         {
             DestinationHexId = hexId, FieldAttackPolicy = ArmyConfigurationSourceAdapter.DecodePolicy(action),
-            Mission = mission, MilitaryPlan = new(waypointHexIds.ToArray(), 0, projection),
+            Mission = mission, MilitaryPlan = projection is null ? null : new(waypointHexIds.ToArray(), 0, projection),
             March = march with { Target = waypoints.FirstOrDefault() ?? ArmyMarchDestination.None,
                 FollowingWaypoints = new(waypoints.Skip(1).Cast<ArmyMarchDestination?>().ToArray()), NextStep = ArmyMarchDestination.None },
             OverrideTarget = runtime.Abnormal25 == 0 ? ArmyOverrideTargetState.Cleared : army.OverrideTarget
         };
-        var working = OwnedArmyLifecycleTargets.Write(state, receiver.ReceiverId, new(9, (ushort)hexId));
+        var target = selectedTarget ?? (Kind: (byte)9, Identity: (ushort)hexId);
+        var working = OwnedArmyLifecycleTargets.Write(state, receiver.ReceiverId, new(target.Kind, target.Identity));
         var lifecycle = working.ReadArmyLifecycle()!;
         receiver = receiver with { FacilityConstruction = intent,
             FalseReportDestination = formerAction == 17 ? ArmyMarchDestination.None : receiver.FalseReportDestination,

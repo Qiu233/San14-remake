@@ -9,7 +9,13 @@ public sealed record TacticEffectGateSourceInput(int SourceAbility, int TargetAb
 /// 3FD130 sampler and leaves the mutable random stream unchanged.</summary>
 public static class TacticEffectSourceGateMath
 {
-    public static float FailurePercent(TacticEffectGateSourceInput input)
+    public static float FailurePercent(TacticEffectGateSourceInput input) => FailurePercent(input, 0.5f);
+
+    /// <summary>TC16F9A0's explicit negative lower-ability coefficient.
+    /// The existing no-locale API retains its previous independent contract.</summary>
+    public static float FailurePercentTc(TacticEffectGateSourceInput input) => FailurePercent(input, -1f);
+
+    private static float FailurePercent(TacticEffectGateSourceInput input, float lowerCoefficient)
     {
         float change;
         if (input.SourceAbility > input.TargetAbility)
@@ -22,7 +28,7 @@ public static class TacticEffectSourceGateMath
             int differenceOfSquares = unchecked(unchecked(input.TargetAbility * input.TargetAbility) -
                 unchecked(input.SourceAbility * input.SourceAbility));
             change = (float)differenceOfSquares;
-            change *= 0.5f;
+            change *= lowerCoefficient;
             change /= (float)input.CurrentLowerDenominator;
         }
         float failure = 100f - (change + (float)input.CurrentBaseline);
@@ -37,8 +43,17 @@ public static class TacticEffectSourceGateMath
 
     public static bool? Allows(TacticEffectGateSourceInput input, int tacticPhysicalSlot,
         int capturedSourceHexPhysicalSlot, int targetHexPhysicalSlot, TacticSourceSamplerWorld? world)
+        => AllowsFailure(FailurePercent(input), tacticPhysicalSlot,
+            capturedSourceHexPhysicalSlot, targetHexPhysicalSlot, world);
+
+    public static bool? AllowsTc(TacticEffectGateSourceInput input, int tacticPhysicalSlot,
+        int sourceHexPhysicalSlot, int targetHexPhysicalSlot, TacticSourceSamplerWorld? world)
+        => AllowsFailure(FailurePercentTc(input), tacticPhysicalSlot,
+            sourceHexPhysicalSlot, targetHexPhysicalSlot, world);
+
+    private static bool? AllowsFailure(float failure, int tacticPhysicalSlot,
+        int capturedSourceHexPhysicalSlot, int targetHexPhysicalSlot, TacticSourceSamplerWorld? world)
     {
-        float failure = FailurePercent(input);
         if (failure <= 0f) return true;
         //The actual game route has a World instance. Null here preserves an
         //unknown current owner rather than silently choosing the no-World ABI.

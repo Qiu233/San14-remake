@@ -5,10 +5,10 @@ namespace San14.Data;
 
 internal sealed partial class TrapEffectApplication
 {
-    /// <summary>TC191920 category4. The source is the actual Object(kind11),
+    /// <summary>TC191920 categories2/4. The source is the actual Object(kind11),
     /// while178EC0 application, callbacks and defeat admission remain with the
     /// shared target-only application owner.</summary>
-    private void ApplyDamage(ObjectReference facility, int kind, int channel, HexListHandle targets)
+    private void ApplyDamage(ObjectReference facility, int kind, int channel, HexListHandle targets, int category = 4)
     {
         var record = Current.ReadPhysicalObject(Need(facility.PhysicalSlot, "damage_Object_pointer"))
             ?? throw Missing("damage_Object_record");
@@ -19,7 +19,8 @@ internal sealed partial class TrapEffectApplication
         //Object12 is a lookup key, not22DDA0's definition identity. Resolve
         //that pointer first so an aliased lookup keeps its actual kind/speech.
         if (kind != Need(reference.PhysicalSlot, "damage_definition_identity") ||
-            channel is < 0 or > 1 || kind is not (11 or 12 or 13 or 14 or 17))
+            channel is < 0 or > 1 ||
+            !(category == 2 && kind == 5 || category == 4 && kind is (11 or 12 or 13 or 14 or 17)))
             throw Missing("damage_definition_kind_channel");
         var definition = Current.ReadFacilityEffectDefinition(reference) ?? throw Missing("damage_definition_effects");
         var effect = definition.Channel(channel);
@@ -84,25 +85,33 @@ internal sealed partial class TrapEffectApplication
             //191C77/1C7F use wrapping i32 IMUL twice, then signed /100.
             //The policy contribution does not pass through float32.
             int policyDamage = unchecked(scaledPolicy * basisDamage) / 100;
-            int[] traits = TacticRemakeCurrentTraits.ArmyContributions(Current, commanderPhysical,
-                ArmyTraitSourceAdapter.Encode(State, image)) ?? throw Missing("damage_target_traits127");
-            if (traits.Length != 127) throw Missing("damage_target_traits127_count");
-            //191D04..1D27 converts all three i32 operands separately and
-            //performs float32 (trait * base) * scale /100 in that order.
-            float reduction = (float)traits[27] * (float)basisDamage;
-            reduction *= (float)Read(State, TraitDamageScale);
-            reduction /= 100f;
-            int traitDamage = reduction > 0f && reduction < 1f ? 1
-                : reduction < 0f && reduction > -1f ? -1 : Truncate(reduction);
-            //For category4 the two category2 terms are source-known zero.
-            //191DBC..1DCE: 0 - trait, + policy, + base, then signed max0.
-            int gross = unchecked(0 - traitDamage);
+            //The category2 panel is read before either target reduction.
+            //Category4 never reaches either category2 query.
+            int panelDamage = category == 2 ? FacilitySourcePanelDamage(facility, basisDamage) : 0;
+            int traitDamage = 0;
+            if (category == 4)
+            {
+                int[] traits = TacticRemakeCurrentTraits.ArmyContributions(Current, commanderPhysical,
+                    ArmyTraitSourceAdapter.Encode(State, image)) ?? throw Missing("damage_target_traits127");
+                if (traits.Length != 127) throw Missing("damage_target_traits127_count");
+                //191D04..1D27: float32 (trait * base) * scale /100.
+                float reduction = (float)traits[27] * (float)basisDamage;
+                reduction *= (float)Read(State, TraitDamageScale);
+                reduction /= 100f;
+                traitDamage = reduction > 0f && reduction < 1f ? 1
+                    : reduction < 0f && reduction > -1f ? -1 : Truncate(reduction);
+            }
+            int personDamage = category == 2 ? FacilityTargetPersonDamage(army, basisDamage) : 0;
+            //191DBC..1DCE preserves each wrapping i32 operation before max0.
+            int gross = unchecked(panelDamage - personDamage);
+            gross = unchecked(gross - traitDamage);
             gross = unchecked(gross + policyDamage);
             gross = Math.Max(0, unchecked(gross + basisDamage));
             ApplyObjectDamage(army, gross, facility);
             //These native speech calls follow178EC0, even if that call has
             //marked or immediately retired the victim. Do not gate on survival.
-            if (kind == 14) Feedback.Speech(army, CombatSpeechEvent.TrapPitfall, facility);
+            if (category == 2) Feedback.Speech(army, CombatSpeechEvent.ArmyUnderFacilityAttack, facility, kind);
+            else if (kind == 14) Feedback.Speech(army, CombatSpeechEvent.TrapPitfall, facility);
             else if (kind == 17) Feedback.Speech(army, CombatSpeechEvent.TrapRockfall, facility);
             if (Need(Current.ReadArmyUnitNativeValidity(army), "damage_Army_post_validity")) RecordGross(army, gross);
             AddVictimForce(Current.ReadArmyUnitForceReference(army));

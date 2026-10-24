@@ -5,6 +5,10 @@ namespace San14.Data;
 public sealed record ArmyCause4Receipt(int PhysicalSlot, int UnitId, int PersonPhysical,
     IReadOnlyList<string> SourceEffectOrder, ArmyDestructionTrackingWrite[] TrackingWrites)
 {
+    /// <summary>The actual resource packet was applied to current and saved
+    /// owners. Pending70 admission alone does not establish this; final receiver
+    /// retirement remains the enclosing operation's responsibility.</summary>
+    public bool ResourceStageCompleted { get; init; }
     public BaseReference? VictimHome { get; init; }
     public PersonNormalArmyRewardReceipt? WinnerReward { get; init; }
     public int? WinnerForce164Gain { get; init; }
@@ -106,7 +110,7 @@ public sealed partial class OwnedArmyDestructionStage
                 current.WritePersonSecondLocation(commander, Math.Min(Known(current.ReadBaseObjectLink(home), "cause4_return_Base4E"), (ushort)1061));
                 effects.Add("25B7CE.232460_then2EA9A0_same_Home_E4");
             }
-            RequireNoCaptives(current, physical);
+            RequireEmptyCause4Captives(current, physical);
             effects.Add("25B89x.230C70_actual_empty_captive_temporary");
             var tracking = ArmyDestructionTrackingTail.ApplyCurrent(state, current, physical);
             state = tracking.State;
@@ -164,8 +168,25 @@ public sealed partial class OwnedArmyDestructionStage
             result = (result with { ArmyMapOccupancy = current.ExportArmyMapOccupancy() }).WithArmyLifecycle(savedArena);
             result = OwnedArmyLifecycleTargets.PublishCurrent(result, current);
             return new(result, new(physical, id, commander, effects, tracking.Writes)
-                { VictimHome = captured.VictimHome, WinnerReward = winnerReward, WinnerForce164Gain = forceGain }, null);
+                { ResourceStageCompleted = true, VictimHome = captured.VictimHome,
+                    WinnerReward = winnerReward, WinnerForce164Gain = forceGain }, null);
         }
         catch (InvalidDataException unknown) { return new(null, null, unknown.Message); }
+    }
+
+    //The existing cause4 wrappers do not yet own the nonempty2E7890 report
+    //and remote-return context. Preserve their original real230C70 slice:
+    //allocation suppression and an actually empty chain can continue;
+    //a reached nonempty chain still requires the genuine release consumer.
+    private static void RequireEmptyCause4Captives(SourceWorldContext current, int army)
+    {
+        var temporary = current.CreateNearbyTemporary();
+        try
+        {
+            CollectCaptivesCurrent(current, army, temporary);
+            if (Known(current.ReadTemporaryHexListCount(temporary), "230C70_count") != 0)
+                throw Missing("branch.cause4_captive_release2E7890");
+        }
+        finally { current.ClearNearbyTemporary(temporary, true); }
     }
 }

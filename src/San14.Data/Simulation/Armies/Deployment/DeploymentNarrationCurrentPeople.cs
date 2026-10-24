@@ -10,9 +10,10 @@ internal sealed class DeploymentNarrationCurrentPeople(GameState state, SourceWo
     ushort? cityArgument = null, Func<string>? readZeroStrengthText = null,
     GameResourceRepository? appearanceRepository = null, LoadedScenario? appearanceScenario = null,
     string? appearanceLanguage = null, int? forceArgument = null,
-    int? personArgument2 = null, int? personArgument3 = null) : INarrationCurrentContext
+    int? personArgument2 = null, int? personArgument3 = null,
+    NarrationVoiceRequests? voiceRequests = null, int? forceArgument1 = null, int? personArgument4 = null) : INarrationCurrentContext
 {
-    private readonly int?[] _arguments = [speaker, ruler, personArgument2, personArgument3];
+    private readonly int?[] _arguments = [speaker, ruler, personArgument2, personArgument3, personArgument4];
     private int Argument(int index) => (uint)index < (uint)_arguments.Length && _arguments[index] is int id
         ? id : throw Missing("person_argument");
     private static T Need<T>(T? value, string input) where T:struct => value ?? throw Missing(input);
@@ -56,6 +57,10 @@ internal sealed class DeploymentNarrationCurrentPeople(GameState state, SourceWo
         return field switch
         {
             '2' => id, 'J' => Style(id), 'Y' => Status(id) == 1 ? 1 : 0,
+            //Person message case60: actual Force getter, then native validity.
+            //The domain Force dictionary and Person status are not substitutes.
+            0x60 => Need(current.ReadForceNativeValidity(current.ReadPersonForce(Physical(id))
+                ?? throw Missing("person60_force_pointer")), "person60_force_validity") ? 1 : 0,
             'Z' => Status(id) == 2 ? 1 : 0, '[' => Status(id) == 3 ? 1 : 0,
             'V' => Person(id).Sex is OfficerSex sex ? sex == OfficerSex.Male ? 1 : 0 : throw Missing("person_sex"),
             'W' => Person(id).Sex is OfficerSex sex ? sex == OfficerSex.Female ? 1 : 0 : throw Missing("person_sex"),
@@ -72,6 +77,7 @@ internal sealed class DeploymentNarrationCurrentPeople(GameState state, SourceWo
             'D' => abilities.ResolveDimension(state, id, 3, panelReader) ?? throw Missing("current_effective_politics"),
             'b' => Need(current.ReadPersonSecondLocation(Physical(id)), "current_second_location") is >= 62 and <= 561 ? 1 : 0,
             'X' => IsAdvisor(id) ? 1 : 0,
+            'Q' => PersonForceDisplayName(id).Value,
             'R' => PersonForceName(id).Value,
             _ => throw Missing("person_value_" + field.ToString("X"))
         };
@@ -114,6 +120,7 @@ internal sealed class DeploymentNarrationCurrentPeople(GameState state, SourceWo
         if (field == 'H') return StatusField(id).Text;
         if (field == 'T') return FirstLocationText(physical);
         if (field == 'o') return OfficeText(id);
+        if (field == 'Q') return PersonForceDisplayName(id).Text;
         if (field == 'R') return PersonForceName(id).Text;
         var person = Person(id);
         string value = field switch
@@ -150,6 +157,18 @@ internal sealed class DeploymentNarrationCurrentPeople(GameState state, SourceWo
 
     private LoadedForceNameDefinitions? appearanceNames;
     private MessageDocument? appearanceData;
+    private (int Value, string Text) PersonForceDisplayName(int id)
+    {
+        // Q keeps the raw District Force value even when its Force is invalid.
+        // Its display goes directly through22EE20; R independently prefers
+        // the current custom kingdom name before this same fallback.
+        int person = Physical(id);
+        var force = current.ReadPersonForce(person) ?? throw Missing("Q_force_pointer");
+        byte raw = Need(current.ReadPersonOldForceSlot(person), "Q_raw_district_Force");
+        if (!Need(current.ReadForceNativeValidity(force), "Q_force_validity")) return (raw, string.Empty);
+        return (raw, CityDomesticMessageFormatting.FormatCityNameField(ForceFallback(force)));
+    }
+
     private (int Value, string Text) PersonForceName(int id)
     {
         //R validates Person in its dispatcher, then its actual Force before
@@ -169,8 +188,8 @@ internal sealed class DeploymentNarrationCurrentPeople(GameState state, SourceWo
 
     public string ForceText(int argument, int field)
     {
-        if (argument != 0 || field != '4') throw Missing("appearance_force_field");
-        int raw = forceArgument ?? throw Missing("appearance_force_argument");
+        if (argument is not (0 or 1) || field != '4') throw Missing("appearance_force_field");
+        int raw = (argument == 0 ? forceArgument : forceArgument1) ?? throw Missing("appearance_force_argument");
         if (raw is < 1 or > 51) return string.Empty;
         //P4 independently relooks up its registered virtual60 argument and
         //retains its custom-first order, unlike Person R above.
@@ -307,6 +326,10 @@ internal sealed class DeploymentNarrationCurrentPeople(GameState state, SourceWo
     }
     public int Relationship(int field, int first, int second)
     {
+        // Function4's second operand is a voice ID, not another Person. Its
+        // current actor was admitted by the owning merchant preparation.
+        if (field == '4') return (voiceRequests ?? throw Missing("voice_request_owner"))
+            .Request(Person(first), second) ? 1 : 0;
         if (field == 'L') return Personality(first, () => second);
         if (field == '<') return Valid(first) ? 1 : 0;
         //The installed dispatcher reserves K but only consumes its operands.
@@ -323,8 +346,20 @@ internal sealed class DeploymentNarrationCurrentPeople(GameState state, SourceWo
             'H' => Field(first, 0xB2) == Field(second, 0xB2),
             'I' => first != second && Birth(first) < Birth(second),
             'J' => first != second && Birth(second) < Birth(first),
+            'M' => RawRelationship(first, second, true),
+            'N' => RawRelationship(first, second, false),
             _ => throw Missing("relationship_" + field.ToString("X"))
         }) ? 1 : 0;
+    }
+    //30F0E0 cases1B/1C call233010/232B30 after both actual validity gates.
+    private bool RawRelationship(int first, int second, bool like)
+    {
+        int person = Physical(first);
+        ushort target = Need(current.ReadPersonIdentity(Physical(second)), "raw_relation_target");
+        for (int index = 0; index < 8; index++)
+            if (Need(like ? OwnedPersonRelationInputs.ReadCurrentLikeIdentity(state, person, index)
+                : OwnedPersonRelationInputs.ReadCurrentDislikeIdentity(state, person, index), "raw_relation_slot") == target) return true;
+        return false;
     }
     private bool Father(int a, int b) => a != b && Field(a, 0xB4) is int value && value != 0 && value == b;
     private bool Mother(int a, int b) => a != b && Field(a, 0xB6) is int value && value != 0 && value == b;

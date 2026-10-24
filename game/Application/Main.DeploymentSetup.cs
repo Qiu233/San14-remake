@@ -14,21 +14,22 @@ public partial class Main
     private DeploymentCityDraft? _deploymentCityDraft;
     private int? _deploymentDraftCityId;
     // One explicit host seed per live Main. Start and Load retain this owner.
-    // The current save format does not persist this separate message stream.
+    // Simulations capture private snapshots and commit back to this same owner.
     private readonly SharedSourceRandom32 _presentationRandom = new(
         BitConverter.ToUInt32(System.Security.Cryptography.RandomNumberGenerator.GetBytes(sizeof(uint))));
-    private bool HasDeploymentPage=>_deploymentSetup is not null||_deploymentTarget is not null||_deploymentNarration is not null;
+    private bool HasMilitaryOrderPage=>_transportSetup is not null||_transportTarget is not null||_transportNarration is not null||_unitOrderTarget is not null||_deploymentSetup is not null||_deploymentTarget is not null||_deploymentNarration is not null||HasCampaignCommandPage;
 
     private bool IsDeploymentCurrent(GameState world,MapSceneView map)=>
         !_failed&&!_shuttingDown&&ReferenceEquals(_world,world)&&_residentMap==map;
 
-    private void OpenDeploymentSetup(int cityId)
+    private void OpenDeploymentSetup(int cityId, bool fromCommandWorkspace=false)
     {
-        if(HasDeploymentPage||HasAdministrationPage||HasCampaignSavePage||HasMapSystemMenu||_detailsView is not null||_repository is null||_world is not { } world||
+        if(HasMilitaryOrderPage||HasAdministrationPage||HasCampaignSavePage||HasMapSystemMenu||HasCommandWorkspace&&!fromCommandWorkspace||_detailsView is not null||_repository is null||_world is not { } world||
             _campaignComposition is not { } composition||_residentMap is not { } map||
             _playerForceId is not int force||!world.Cities.TryGetValue(cityId,out var city))return;
         var availability=DeploymentBatchView.Create(world,force,cityId,_selectedCell?.Id);
         if(!availability.CanCompose)return;
+        if(fromCommandWorkspace)CloseCommandWorkspace();
         // Preserve existing unsent legacy-editor work. New ordinary drafts
         // enter the restored source UI rather than a false empty page.
         if(_deploymentComposition?.HasDraft==true){OpenDeploymentEditor();return;}
@@ -48,7 +49,8 @@ public partial class Main
                     if(!IsDeploymentCurrent(world,map)||_deploymentSetup!=view)return;
                     var targets=_deploymentCityDraft!.AcceptMake(rows);
                     CloseDeploymentMakeView();OpenDeploymentTarget(world,map,cityId,force,targets);
-                }),DeploymentUnavailable,_deploymentCityDraft.AcceptedRows,CurrentListScrollSpeed);
+                }),DeploymentUnavailable,_sourceHeaders,_deploymentCityDraft.AcceptedRows,CurrentListScrollSpeed);
+            view.RegisterHeader(_sourceHeaders);
         }
         catch{CloseDeploymentSetup();throw;}
     }
@@ -59,7 +61,8 @@ public partial class Main
         try
         {
             _deploymentTargetPresenter=new(view,_repository!,_ui,world,_campaignComposition!.PrepareArmyQueries(world),city,force,rows,
-                map.ProjectDeploymentTarget,accepted=>RunPlayAction(()=>PrepareDeploymentNarration(world,map,city,force,view,accepted)),
+                map.ProjectDeploymentTarget,map.ProjectWaypointMarker,
+                accepted=>RunPlayAction(()=>PrepareDeploymentNarration(world,map,city,force,view,accepted)),
                 ()=>
                 {
                     if(!IsDeploymentCurrent(world,map)||_deploymentTarget!=view)return;
@@ -83,11 +86,28 @@ public partial class Main
                         if(saved)HideDeploymentHud();
                     });
                     return saved;
-                },editedPolicyOfficers:_deploymentCityDraft!.EditedPolicyOfficers,scrollSpeed:CurrentListScrollSpeed);
+                },editedPolicyOfficers:_deploymentCityDraft!.EditedPolicyOfficers,scrollSpeed:CurrentListScrollSpeed,
+                tutorialRestrictsFacilities:_campaignApplication?.TutorialRestrictsFacilities,
+                chooseFalseReportDestination:(action,goal,accept)=>
+                {
+                    if(action is not {ActionKey:"capture",Target.Kind:DeploymentTargetKind.Unit}||!Current())return;
+                    if(!OpenFalseReportTarget(world,map,force,action.Target.Id,view,Current,BindTargetPicker,
+                        hex=>accept(action with{FalseReportDestinationHexId=hex})))
+                        DeploymentUnavailable("deployment.false_report_destination");
+                },routePreviewChanged:map.SetDeploymentRoutePreviews);
+            view.RegisterHeader(_sourceHeaders);
             map.SetDetailsOpen(false,keepMapVisible:true);HideDeploymentHud();
-            map.SetCommandTargetPicker(_deploymentTargetPresenter.PickTarget,_deploymentTargetPresenter.AllowPointer);
+            BindTargetPicker();
         }
         catch{CloseDeploymentSetup();throw;}
+
+        bool Current()=>IsDeploymentCurrent(world,map)&&_deploymentTarget==view;
+        void BindTargetPicker()
+        {
+            if(!Current()||_deploymentTargetPresenter is not { } presenter)return;
+            map.SetCommandTargetPicker(hex=>presenter.PickTarget(hex,map.SourceSelectionShiftHeld),
+                presenter.AllowPointer,presenter.HoverTarget,supportsShiftWaypoint:true);
+        }
     }
 
     private void PrepareDeploymentNarration(GameState world,MapSceneView map,int city,int force,
@@ -104,7 +124,7 @@ public partial class Main
         var sprites=new LocalizedUiSpriteSource(_repository!);
         var layers=new[]{route.SpriteB,route.SpriteA,route.SpriteC}
             .Select(name=>sprites.LoadTexturePackSprite(route.ResourceName,name)).ToArray();
-        var narration=new DeploymentNarrationView();_deploymentNarration=narration;AddChild(narration);
+        var narration=new DeploymentNarrationView { KeyboardInput = HandleGameplayNarrationKeyboard };_deploymentNarration=narration;AddChild(narration);
         try
         {
             narration.Configure(_repository!,_ui,preparation.SpeakerName!,preparation.Text!,layers,()=>RunPlayAction(()=>
@@ -116,7 +136,8 @@ public partial class Main
                 // normal permission/rule transaction creates armies/debits stock.
                 if(!ApplyPlayableOrder(new PrepareDeploymentOrder(force,city,requests),CloseDeploymentSetup))
                     ReturnToDeploymentCity(world,map,city);
-            }));
+            }), () => _preferences.AutomaticMessageAdvance,
+                () => CanAdvanceNarration&&_deploymentNarration==narration&&IsDeploymentCurrent(world,map));
             _deploymentCityDraft!.ReturnTarget(rows,_deploymentTargetPresenter!.Draft.EditedPolicyOfficers);
             CloseDeploymentTargetView();map.SetCommandTargetPicker(null);SetDeploymentModal(map,true);
         }
@@ -150,7 +171,7 @@ public partial class Main
     private void SetDeploymentModal(MapSceneView map,bool open)
     {
         if(_residentMap!=map||_deploymentSetupMap!=map)return;
-        map.SetDetailsOpen(open,keepMapVisible:true);if(HasDeploymentPage)HideDeploymentHud();
+        map.SetDetailsOpen(open,keepMapVisible:true);if(HasMilitaryOrderPage)HideDeploymentHud();
     }
 
     private void CloseDeploymentMakeView()
@@ -162,6 +183,7 @@ public partial class Main
     private void CloseDeploymentTargetView()
     {
         var presenter=_deploymentTargetPresenter;var view=_deploymentTarget;
+        CloseFalseReportTarget(view);
         _deploymentTargetPresenter=null;_deploymentTarget=null;presenter?.Dispose();
         if(view is not null){view.Hide();view.QueueFree();}
     }

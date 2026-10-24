@@ -25,7 +25,7 @@ public sealed class TacticRemakeCurrentBattleFactors : ITacticRemakeCurrentBattl
     public bool? ReadAlternateMoraleGlobals(GameState state, UnitState army) =>
         context.ArmyValid(state, army) == true ? BattleRemakeCurrentSettings.ReadAlternateMoraleGlobals(state, army) : null;
     public float? ReadRegionFactor(GameState state, UnitState army) => region.Resolve(state, army);
-    public float? ReadNeighborFactor(GameState state, UnitState army) => context.ReadNativeEmptyNeighborFactor(state, army);
+    public float? ReadNeighborFactor(GameState state, UnitState army) => context.ReadNativeNeighborFactor(state, army);
 }
 
 /// <summary>Production Army facts shared by the current normal-attack pipeline

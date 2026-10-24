@@ -143,7 +143,7 @@ internal static class DeploymentNarrationPlainParagraph
             if (code == '^')
             {
                 if (index + 2 >= value.Length || value[index + 1] != '0' ||
-                    value[index + 2] is not ('0' or '2' or '5') ||
+                    value[index + 2] is not ('0' or '2' or '3' or '5') ||
                     index + 3 < value.Length && value[index + 3] == '~')
                     throw new InvalidOperationException("Narration colour command is unresolved.");
                 index += 2; continue;

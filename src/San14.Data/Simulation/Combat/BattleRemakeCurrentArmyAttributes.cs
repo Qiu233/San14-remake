@@ -11,6 +11,7 @@ public sealed record BattleRemakeCurrentCommonQueries(byte FinalDescriptorDiviso
     byte NativeTerrainCode, float NeighborFactor, string Revision);
 public sealed record BattleRemakeCurrentFormationCoefficient(long NativeContainerByteCount,
     byte StaticField, byte? EncodedQueryResult);
+internal sealed record BattleRemakeCurrentFieldDefenseReceipt(float Common, float Attack, float Defense);
 
 /// <summary>Remaining current source producers. Missing implementations return
 /// null. Numeric source branches are selected by this builder; callers supply
@@ -66,7 +67,21 @@ public sealed partial class BattleRemakeCurrentArmyAttributes
     }
 
     private sealed record Direction(float Common, float Attack, float Defense);
-    private Direction? Directional(GameState state, UnitState army, UnitState opponent)
+    /// <summary>Army attribute slots against a real Base descriptor. The
+    /// caller supplies the already resolved current descriptor/Common inputs;
+    /// no Army opponent or Army-only target scan is manufactured.</summary>
+    internal BattleRemakeCurrentFieldDefenseReceipt? ResolveFieldDefenseForDescriptor(
+        GameState state, UnitState army, BattleRemakeCurrentCommonQueries reached)
+    {
+        //The ordinary no-provocation leaf does not consume an opponent ID.
+        //The positive Base/override comparison needs its separate source port.
+        if (army.NativeTacticRuntime?.Abnormal25 != 0) return null;
+        var result = Directional(state, army, null, reached);
+        return result is null ? null : new(result.Common, result.Attack, result.Defense);
+    }
+
+    private Direction? Directional(GameState state, UnitState army, UnitState? opponent,
+        BattleRemakeCurrentCommonQueries? descriptorCommon = null)
     {
         if (queries.ReadArmyValidity(state, army) != true || ArmyMoraleSourceAdapter.Read(army) is not byte nativeMorale ||
             army.NativeTacticRuntime is not { StatModifiers4A.Length: 6 } native ||
@@ -75,7 +90,8 @@ public sealed partial class BattleRemakeCurrentArmyAttributes
             definitions.ResolveOfficerSource(army.OfficerId) is not int commanderPhysical ||
             abilities.Resolve(state, army.OfficerId) is not { } full ||
             queries.ReadSelectedFormationPhysicalSlot(state, army) is not int formation || formation is < 1 or > 20 ||
-            queries.ReadCommonQueries(state, army, opponent) is not { } reached || string.IsNullOrWhiteSpace(reached.Revision)) return null;
+            (descriptorCommon ?? (opponent is null ? null : queries.ReadCommonQueries(state, army, opponent)))
+                is not { } reached || string.IsNullOrWhiteSpace(reached.Revision)) return null;
         if (army.Troops is < 0 or > ushort.MaxValue || reached.FinalDescriptorDivisor14 == 0 ||
             reached.CappedNativeMorale is < 0 or > byte.MaxValue || reached.CappedNativeMorale > nativeMorale || !float.IsFinite(reached.RegionFactor) ||
             !float.IsFinite(reached.NeighborFactor))
@@ -123,6 +139,7 @@ public sealed partial class BattleRemakeCurrentArmyAttributes
                 true, native.StatModifiers4A[3], false, 0), defenseParameters);
         if (native.Abnormal25 > 0)
         {
+            if (opponent is null) return null;
             ushort? rawTarget = queries.ReadRawProvocationTargetWord3E(state, army);
             if (rawTarget is null) return null;
             //The source compares the raw word only; it does not read ownerkind3C.

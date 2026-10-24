@@ -44,7 +44,10 @@ public sealed class OwnedGateCaptureStage(ArmyCampaignRuleAdapter package)
             if (!K(current.ReadDistrictNativeValidity(district), "winner_District_validity")) throw Missing("branch.invalid_winner_District");
             int newDistrict = K(district.PhysicalSlot, "winner_District_pointer");
             int newForce = K(current.ReadDistrictForceSlot(district), "winner_District10");
-            int unitId = K(input.ReadArmyLifecycle()!.ReceiverSlots()[winnerSlot].ActiveUnitId, "winner_projection");
+            var arena = input.ReadArmyLifecycle() ?? throw Missing("winner_arena");
+            var winnerReceiver = arena.Receivers.Find(arena.Slots[winnerSlot].ReceiverId)
+                ?? throw Missing("winner_receiver");
+            int unitId = K(winnerReceiver.ActiveUnitId, "winner_projection");
             if (oldForce == newForce)
                 return new(input, new(location, oldForce, newForce, unitId, commanderId, null, null, null, [], true), null);
             if (oldForce is < 1 or > 45 || newForce is < 1 or > 45) throw Missing("branch.nonordinary_Force");
@@ -53,11 +56,11 @@ public sealed class OwnedGateCaptureStage(ArmyCampaignRuleAdapter package)
             var initial = BaseCaptureRewardSource.ApplyInitialForceResult(working, current, winningForce, target);
             working = initial.State ?? throw Missing(initial.UnresolvedOwner ?? "257670_Base_result");
             effects.Add("2851B0.257670_Base_kind6");
-            var persons = new BaseCapturePersonPrefix(package).TryApply(working, target, winner, operationThirdDate, sampler);
+            var persons = new BaseCapturePersonPrefix(package).TryApplyCurrent(working, current, target, winner, operationThirdDate, sampler);
             working = persons.State ?? throw Missing(persons.UnresolvedOwner ?? "2851B0_person_prefix");
             current = persons.Current!; var prefix = persons.Receipt!;
             effects.Add("2851B0.current_HomeArmy_and_Person_prefix");
-            var commanderReward = package.ApplyBaseCaptureCommanderReward(working, current, target, winner);
+            var commanderReward = package.ApplyBaseCaptureCommanderRewardCurrent(working, current, target, winner);
             working = commanderReward.State ?? throw Missing(commanderReward.UnresolvedOwner ?? "winner_reward");
             effects.Add("2851B0.2B9290_kind3_and_1695C0");
             var territory = BaseCaptureRewardSource.BeginTerritoryRewards(working, current, winningForce);
@@ -66,11 +69,14 @@ public sealed class OwnedGateCaptureStage(ArmyCampaignRuleAdapter package)
             _ = GateCaptureRoutingSource.RequireEmptyOldForceNearbyArmies(working, current, target);
             effects.Add("2851B0.mode0_current_ring_old_Force_Army_body_empty");
             var assignment = GateCaptureTerritorySource.AssignGateCity(current, target, newDistrict, commander);
-            var queries = package.CreateCaptureGovernorQueries(working);
+            var districtEffects = new List<CampaignEffectRequest>();
+            var queries = package.CreateCaptureDistrictOperationQueries(current, () => working,
+                next => working = next, operationThirdDate, districtEffects);
             Primary(current, assignment.CapturedOldDistrict, queries);
             effects.Add("26D2E0.270880_and_first_old_District_2E9140");
             current.SetObjectForceSlot13(location, (byte)newForce);
             current.CurrentSceneryLayout = new(null);
+            var previousTransferModeReader = current.TransferModeStateReader;
             current.TransferModeStateReader = () => current.ArmyReturnTransferMode;
             _ = GateCaptureTerritorySource.ApplyFootprintBeforeResources(working, current, target, newForce);
             effects.Add("26DA10.Object13_and_footprint185D00_2413D0");
@@ -87,7 +93,7 @@ public sealed class OwnedGateCaptureStage(ArmyCampaignRuleAdapter package)
             effects.Add("26DA10.resource_keep_and_Area36_removal");
             Primary(current, assignment.CapturedOldDistrict, queries); Primary(current, district, queries);
             RequireNoHomeArmies(current, location);
-            var refreshed = PersonAdvisorResetSource.RefreshCurrentForce(working, current, winningForce);
+            var refreshed = PersonAdvisorResetSource.RefreshWithinBaseCapture(working, current, winningForce);
             working = refreshed.State ?? throw Missing(refreshed.UnresolvedOwner ?? "27BE40_new_Force");
             effects.Add("26DA10.two_2E9140_empty_HomeArmy_and_27BE40");
             _ = GateCaptureTerritorySource.ApplyTerritoryAfterResources(working, current, target, newForce,
@@ -97,21 +103,28 @@ public sealed class OwnedGateCaptureStage(ArmyCampaignRuleAdapter package)
             current.SetCaptureBaseThreatFields(target, new(zero, zero, 255, 0));
             _ = GateCaptureRoutingSource.ClearTargetRouting(current, target);
             effects.Add("26DA10.2DF9F0_final_footprint_threat_and_D0_routing");
+            //The territory wrapper is local to26DA10. Winner29F220 uses
+            //the actual ordinary transfer-service fields retained at entry.
+            current.TransferModeStateReader = previousTransferModeReader;
             //Gate capture cannot delete an ordinary Force's final City. Its
             //structural Gate branch has no City-only Emperor/C9/1562 writers.
             var pool = current.ReadOwnedCurrentListPool() ?? throw Missing("capture_primary_pool");
-            working = BaseCapturePublicationSource.Publish(working, current, pool);
-            var returnWorld = package.CaptureOwnedArmyReturnWorld(working);
-            var returnResult = ArmyOrdinaryReturnRuntime.PrepareCurrentResourceOutputs(winner, target, 0,
+            //Personnel and State/Region temporaries still belong to this
+            //same primary pool. Project domain roles without exporting or
+            //replacing the operation before their real source release tail.
+            working = ArmyCampaignRuleAdapter.PublishCaptureDistrictOperationCurrent(working, current, queries, districtEffects);
+            working = BaseCapturePublicationSource.Publish(working, current, pool, projectOwnedRoles: true);
+            var returnWorld = OwnedArmyReturnWorld.Borrow(working, current, pool);
+            var returnResult = package.PrepareOwnedArmyReturnCurrent(working, winner, target, 0,
                 returnWorld.Context, returnWorld.Pool, package.CreateCaptureGovernorQueries(working), new(false, false),
-                new ArmyReturnCaptivesSource(package, working, new(false)));
+                operationDate: operationThirdDate, sampler: sampler);
             var returnPacket = returnResult.Packet ?? throw Missing(returnResult.UnresolvedOwner ?? "winner_29F220");
             working = returnWorld.CommitPrepared(working, returnPacket) ?? throw Missing("winner_29F220_publication");
             current = returnWorld.Context;
             effects.Add("2851B0.winner_29F220_live140_pending70");
-            var tail = BaseCaptureRewardSource.ApplyTail(working, current, target, winningForce, district, winner, counts);
+            var tail = BaseCaptureRewardSource.ApplyTailWithinCapture(working, current, target, winningForce, district, winner, counts);
             working = tail.State ?? throw Missing(tail.UnresolvedOwner ?? "2851B0_reward_tail");
-            working = BaseCapturePersonPrefix.Release(working, current, prefix);
+            working = BaseCapturePersonPrefix.ReleaseWithinCapture(working, current, prefix);
             working = BaseCapturePublicationSource.Publish(working, current, current.ReadOwnedCurrentListPool()!);
             effects.Add("2851B0.Force164_and_release_temporaries");
             return new(working, new(location, oldForce, newForce, unitId, commanderId, prefix, resources, tail.Receipt, effects)
@@ -145,7 +158,32 @@ public sealed class OwnedGateCaptureStage(ArmyCampaignRuleAdapter package)
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
-    internal IArmyReturnGovernorCurrentQueries CreateCaptureGovernorQueries(GameState state) => new CaptureGovernorQueries(state, _governorInputs);
-    private sealed class CaptureGovernorQueries(GameState state, OwnedArmyGovernorComparatorInputs inputs) : IArmyReturnGovernorCurrentQueries
-    { public ArmyReturnGovernorComparatorFields? ReadCurrentComparatorFields(int personPhysical) => inputs.ReadCurrentComparatorFields(state, personPhysical); }
+    internal IArmyReturnGovernorCurrentQueries CreateCaptureGovernorQueries(GameState state) => new CaptureGovernorQueries(() => state, _governorInputs);
+    private sealed class CaptureGovernorQueries(Func<GameState> latest, OwnedArmyGovernorComparatorInputs inputs) : IArmyReturnGovernorCurrentQueries
+    { public ArmyReturnGovernorComparatorFields? ReadCurrentComparatorFields(int personPhysical) => inputs.ReadCurrentComparatorFields(latest(), personPhysical); }
+
+    internal ArmyReturnDistrictOperationQueries CreateCaptureDistrictOperationQueries(SourceWorldContext current,
+        Func<GameState> latest, Action<GameState> publish, NativeMapSeasonDate? date,
+        List<CampaignEffectRequest> effects)
+        => new(new CaptureGovernorQueries(latest, _governorInputs), latest, publish, (person, assignment) =>
+        {
+            if (assignment.NativeReturn is null) throw new InvalidDataException(assignment.UnresolvedOwner ?? "capture.District_assignment");
+            if (assignment.Reports.Count != 0)
+                publish(ApplyPersonAssociationRemovalReports(latest(), current, person, assignment,
+                    () => (ReadArmyDestructionSampler(latest(), current)
+                        ?? throw new InvalidDataException("capture.District_report_World450")).Day450, effects));
+        }, current, [], this, date);
+
+    internal static GameState PublishCaptureDistrictOperationCurrent(GameState state, SourceWorldContext current,
+        ArmyReturnDistrictOperationQueries operation, List<CampaignEffectRequest> effects)
+    {
+        state = PersonReturnDistrictReorganizationSource.PublishCurrent(state, current, operation);
+        state = PersonReturnDistrictTransferSource.PublishAreaAssignments(state, current, [], operation.ChangedGates);
+        return effects.Count == 0 ? state : state with
+        {
+            CampaignEffectRequests = (state.CampaignEffectRequests
+                ?? throw new InvalidDataException("capture.District_effect_owner")).Append(CampaignEffectSource.ForceAssociationRemoval,
+                    state.NativeMapSeason?.AdvancedCalendarSteps ?? throw new InvalidDataException("capture.District_effect_calendar"), effects.ToArray())
+        };
+    }
 }

@@ -66,7 +66,7 @@ internal static class FacilityEffectTargets
             {
                 var effect = definition.Channel(channel);
                 if (effect.Effect == 0) continue;
-                if (effect.Effect is not (1 or 2 or 3 or 15 or 17)) throw Missing("effect_" + effect.Effect);
+                if (effect.Effect is not (1 or 2 or 3 or 15 or 17 or 18)) throw Missing("effect_" + effect.Effect);
                 // The native collector allocates this Base de-dup descriptor
                 // even though type15 never admits a Base to its Hex output.
                 var seenBases = current.CreateNearbyTemporary();

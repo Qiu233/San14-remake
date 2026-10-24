@@ -29,6 +29,7 @@ public partial class SceneAudioSession : Node
         public AudioClip? Clip;
         public MapMusicEntrySelection? MapMusic;
         public long VoiceSequence;
+        public bool StaticNonSpatialEffect;
     }
 
     private readonly Dictionary<string, ChannelState> _channels = new(StringComparer.Ordinal);
@@ -110,7 +111,7 @@ public partial class SceneAudioSession : Node
     private Task<SceneAudioChannel> ChangeSelectionAsync(string channel, AudioCueRequest? request,
         AudioSampleRequest? sampleRequest,
         bool play, float volumeDb, string bus, CancellationToken cancellationToken, AudioVolumeGroup? volumeGroup,
-        MapMusicEntrySelection? mapMusic = null)
+        MapMusicEntrySelection? mapMusic = null, bool staticNonSpatialEffect = false)
     {
         RequireEngineThread();
         if (_service is null || _repository is null || _streams is null || SceneKey is null || _sceneCancellation is null)
@@ -124,7 +125,7 @@ public partial class SceneAudioSession : Node
         var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _sceneCancellation.Token);
         var state = new ChannelState(new SceneAudioChannel(SceneKey, SceneRevision, channel, request, "preparing")
             { SampleRequest = sampleRequest, MusicSelection = mapMusic?.Selection, MusicCommit = mapMusic?.Commit },
-            linked, volumeDb, bus, volumeGroup) { MapMusic = mapMusic };
+            linked, volumeDb, bus, volumeGroup) { MapMusic = mapMusic, StaticNonSpatialEffect = staticNonSpatialEffect };
         _channels.Add(channel, state);
         ChannelChanged?.Invoke(state.Snapshot);
         return LoadAndInstallAsync(state, play, linked.Token);
@@ -138,8 +139,11 @@ public partial class SceneAudioSession : Node
             clip = state.MapMusic is not null
                 ? await MapMusicClips.PrepareAsync(_service!, _repository!, _streams!, state.Snapshot.Request!, token).ConfigureAwait(false)
                 : state.Snapshot.Request is not null
-                ? await CueAudioClips.PrepareSingleSampleAsync(_service!, _repository!, _streams!,
-                    state.Snapshot.Request, token).ConfigureAwait(false)
+                ? state.StaticNonSpatialEffect
+                    ? await CueAudioClips.PrepareStaticNonSpatialEffectAsync(_service!, _repository!, _streams!,
+                        state.Snapshot.Request, token).ConfigureAwait(false)
+                    : await CueAudioClips.PrepareSingleSampleAsync(_service!, _repository!, _streams!,
+                        state.Snapshot.Request, token).ConfigureAwait(false)
                 : await NamedAudioClips.PrepareAsync(_service!, _repository!, _streams!,
                     state.Snapshot.SampleRequest!, token).ConfigureAwait(false);
             token.ThrowIfCancellationRequested();

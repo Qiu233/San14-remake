@@ -39,6 +39,7 @@ public sealed class DeferredF103SelectedSource
     public MapSourceCreatedF103FeaturePacket? OwnedFeatureSource {get;}
     public bool HasVolumetricFogImage=>PixelDefinitions.Bindings.Any(binding=>binding.Name.Text=="sVolumetricFogMap");
     public LoadedDeferredTexturePlan ReadSelectedTexturePlan()=>source.TexturePlan(Selection.Program);
+    internal MapSelectedSourceImageLayout ReadSelectedImageLayout()=>source.ImageLayout(Selection.Program);
 }
 
 public static partial class MapSourceCreatedShaderSelection

@@ -7,18 +7,60 @@ namespace San14.Client.Gameplay;
 internal sealed class LocalCampaignSaves(string directory, ISaveCodec readCodec)
 {
     public const int SlotCount = 50;
+    public const int AutomaticSlotCount = 10;
+    public const int TotalReadableSlots = SlotCount + AutomaticSlotCount;
 
     private string PreviewPath => Path.Combine(directory, "initial-state.sav");
 
     private string CampaignPath(int slot)
     {
-        if (slot < 1 || slot > SlotCount) throw new ArgumentOutOfRangeException(nameof(slot));
-        string file = slot == 1 ? "playable-session.sav" : $"playable-session-{slot:00}.sav";
+        if (slot < 1 || slot > TotalReadableSlots) throw new ArgumentOutOfRangeException(nameof(slot));
+        string file = slot > SlotCount ? $"autosave-session-{slot - SlotCount - 1:00}.sav"
+            : slot == 1 ? "playable-session.sav" : $"playable-session-{slot:00}.sav";
         return Path.Combine(directory, file);
     }
 
     public bool HasCampaign(int slot) => File.Exists(CampaignPath(slot));
-    public void SaveCampaign(GameplaySession session, int slot) => session.Save(CampaignPath(slot), DateTimeOffset.Now);
+    public bool HasAnyCampaign => Enumerable.Range(1, TotalReadableSlots).Any(HasCampaign);
+
+    public void SaveCampaign(GameplaySession session, int slot, CampaignAppRandomState? appRandomSnapshot = null)
+    {
+        if (slot < 1 || slot > SlotCount) throw new ArgumentOutOfRangeException(nameof(slot));
+        session.Save(CampaignPath(slot), DateTimeOffset.Now, appRandomSnapshot);
+    }
+
+    public int SaveAutomatic(GameplaySession session, CampaignAppRandomState? appRandomSnapshot = null)
+    {
+        int recentSlot = SlotCount;
+        DateTime? recentTime = null;
+        // Rotation follows the newest internal save time, then its next slot.
+        // It deliberately does not choose an empty or oldest slot, or use mtime.
+        // Read only framing and timestamps when an actual save is requested.
+        for (int slot = SlotCount + 1; slot <= TotalReadableSlots; slot++)
+        {
+            DateTimeOffset? savedAt;
+            try { savedAt = SessionSaveStore.ReadSavedAt(CampaignPath(slot)); }
+            catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException)
+            { continue; }
+            // A corrupt or older undated automatic file is not an empty slot.
+            // Leave every file intact when its place in the rotation is unknown.
+            DateTime localTime = savedAt?.DateTime ?? throw new InvalidDataException(
+                $"Automatic campaign slot {slot} has no internal save time.");
+            localTime = new DateTime(localTime.Ticks - localTime.Ticks % TimeSpan.TicksPerSecond);
+            // The original SYSTEMTIME-to-tm comparison has second resolution;
+            // equal times retain the first slot encountered in directory order.
+            if (recentTime is null || localTime > recentTime.Value)
+            {
+                recentTime = localTime;
+                recentSlot = slot;
+            }
+        }
+        int nextSlot = recentSlot + 1;
+        if (nextSlot > TotalReadableSlots) nextSlot = SlotCount + 1;
+        session.Save(CampaignPath(nextSlot), DateTimeOffset.Now, appRandomSnapshot);
+        return nextSlot;
+    }
+
     public GameSessionSave LoadCampaign(int slot) => GameplaySession.ReadSave(CampaignPath(slot), readCodec);
 
     public CampaignSaveSlot ReadSlot(int slot, Func<GameSessionSave, CampaignSaveSummary>? summarize = null)
@@ -42,6 +84,8 @@ internal sealed class LocalCampaignSaves(string directory, ISaveCodec readCodec)
 
     public IReadOnlyList<CampaignSaveSlot> ReadSlots(Func<GameSessionSave, CampaignSaveSummary>? summarize = null) =>
         Enumerable.Range(1, SlotCount).Select(slot => ReadSlot(slot, summarize)).ToArray();
+    public IReadOnlyList<CampaignSaveSlot> ReadAutomaticSlots(Func<GameSessionSave, CampaignSaveSummary>? summarize = null) =>
+        Enumerable.Range(SlotCount + 1, AutomaticSlotCount).Select(slot => ReadSlot(slot, summarize)).ToArray();
     public void SavePreview(GameplaySession session) => session.SavePreview(PreviewPath);
     public GameState LoadPreview() => GameplaySession.ReadPreview(PreviewPath, readCodec);
 }

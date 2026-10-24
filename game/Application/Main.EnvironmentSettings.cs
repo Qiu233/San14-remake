@@ -10,39 +10,55 @@ public partial class Main
 
     private void OpenEnvironmentSettings()
     {
-        if (_failed || _shuttingDown || HasEnvironmentSettings || _repository is null ||
-            _mapSystemMenu is not { } parent || _mapSystemMap is not { } map ||
-            _mapSystemSession is not { } session || !ReferenceEquals(_session, session) ||
-            !ReferenceEquals(_mapSystemWorld, session.World) || !ReferenceEquals(_world, session.World) || _residentMap != map) return;
-        var world = session.World;
+        if (_failed || _shuttingDown || HasEnvironmentSettings || _repository is null) return;
+        var title=_titleMenu;
+        bool fromTitle=title is not null&&_playerForceId is null;
+        var parent=_mapSystemMenu;
+        var map=_mapSystemMap;
+        var session=fromTitle?_session:_mapSystemSession;
+        if(!fromTitle&&(parent is null||session is null||!ReferenceEquals(_session,session)||
+            !ReferenceEquals(_mapSystemWorld,session.World)||!ReferenceEquals(_world,session.World)||_residentMap!=map))return;
+        var world = session?.World;
         var entry = _preferences.Navigation;
         var audioEntry = _preferences.Audio;
         var listEntry = _preferences.ListScroll;
+        bool automaticSavingEntry = _preferences.AutomaticSaving;
+        var voiceEntry = _preferences.Voice;
+        var automaticMessageAdvanceEntry = _preferences.AutomaticMessageAdvance;
+        var keyboardEntry = _preferences.KeyboardBindings;
         var view = new EnvironmentSettingsView(); _environmentSettings = view;
-        parent.SetBusy(true); parent.Hide(); AddChild(view);
+        parent?.SetBusy(true); parent?.Hide();
+        if(fromTitle)title!.Hide();
+        AddChild(view);
         try
         {
-            view.Configure(_repository, _ui, entry, audioEntry, listEntry,
+            view.Configure(_repository, _ui, entry, audioEntry, listEntry, automaticSavingEntry,
                 () => RunUiAction(RequestBack), () => RunUiAction(Apply), () => RunUiAction(RequestDefaults),
                 audio => { if (Current()) _uiAudioFeedback?.SetVolumes(audio); },
-                () => { if (Current()) _uiAudioFeedback?.PlayEffectsPreview(); });
+                () => { if (Current()) _uiAudioFeedback?.PlayEffectsPreview(); }, voiceEntry, automaticMessageAdvanceEntry,
+                keyboardEntry);
         }
         catch { CloseEnvironmentSettings(); throw; }
 
-        bool Current() => !_failed && !_shuttingDown && _environmentSettings == view && _mapSystemMenu == parent &&
-            _residentMap == map && ReferenceEquals(_session, session) && ReferenceEquals(session.World, world) &&
-            ReferenceEquals(_world, world);
+        bool Current() => !_failed && !_shuttingDown && _environmentSettings == view &&
+            (fromTitle?_titleMenu==title&&_playerForceId is null:_mapSystemMenu==parent&&_residentMap==map) &&
+            ReferenceEquals(_session, session) && ReferenceEquals(session?.World, world) && ReferenceEquals(_world, world);
 
         void RequestBack()
         {
             if (!Current() || _environmentConfirmation is not null) return;
-            if (view.Draft == entry && view.AudioDraft == audioEntry && view.ListScrollDraft == listEntry) CloseEnvironmentSettings();
+            if (view.Draft == entry && view.AudioDraft == audioEntry && view.ListScrollDraft == listEntry &&
+                view.AutomaticSavingDraft == automaticSavingEntry && view.VoiceDraft == voiceEntry &&
+                view.AutomaticMessageAdvanceDraft == automaticMessageAdvanceEntry &&
+                !view.KeyboardDraft.HasChanges(keyboardEntry)) CloseEnvironmentSettings();
             else Ask(0x275C, () => CloseEnvironmentSettings());
         }
         void RequestDefaults()
         {
             if (Current() && _environmentConfirmation is null)
-                Ask(0x2760, () => { view.ApplyOptions(new()); view.ApplyAudioOptions(new()); view.ApplyListScroll(ListScrollSpeed.Slow); });
+                Ask(0x2760, () => { view.ApplyOptions(new()); view.ApplyAudioOptions(new());
+                    view.ApplyListScroll(ListScrollSpeed.Slow); view.ApplyAutomaticSaving(true); view.ApplyVoice(new());
+                    view.ApplyAutomaticMessageAdvance(AutomaticMessageAdvanceMode.Manual); view.ResetKeyboardBindings(); });
         }
         void Apply()
         {
@@ -50,8 +66,11 @@ public partial class Main
             view.SetBusy(true);
             try
             {
-                _preferences.Save(view.Draft, view.AudioDraft, view.ListScrollDraft);
-                map.SetSourceNavigationOptions(_preferences.Navigation);
+                _preferences.Save(view.Draft, view.AudioDraft, view.ListScrollDraft, view.AutomaticSavingDraft,
+                    view.VoiceDraft, view.AutomaticMessageAdvanceDraft, keyboardBindings: view.KeyboardDraft.Export());
+                _campaignComposition?.ConfigurePersonnelNarrationVoice(_preferences.Voice.Capture());
+                map?.SetSourceNavigationOptions(_preferences.Navigation);
+                map?.SetKeyboardBindings(_preferences.KeyboardBindings);
                 CloseEnvironmentSettings();
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException)
@@ -90,5 +109,6 @@ public partial class Main
         // the committed preferences; every other close restores their entry mix.
         if (view is not null) _uiAudioFeedback?.SetVolumes(_preferences.Audio);
         if (resumeParent && _mapSystemMenu is { } parent && ResumeMapSystemMenu()) parent.SetBusy(false);
+        if(resumeParent)ResumeTitleMenu();
     }
 }

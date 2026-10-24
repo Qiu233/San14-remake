@@ -48,7 +48,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         private readonly Dictionary<int, OfficerAbilities> effective = [];
         private readonly Dictionary<int, uint> masks = [];
         private readonly Dictionary<int, int> capacities = [];
-        internal AutomaticDraftOperation(ArmyCampaignRuleAdapter adapter, GameState state, int locationId)
+        internal AutomaticDraftOperation(ArmyCampaignRuleAdapter adapter, GameState state, int locationId,
+            SourceWorldContext? operationCurrent = null)
         {
             this.adapter = adapter; this.state = state; this.locationId = locationId;
             sourceBase = locationId switch
@@ -59,7 +60,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             };
             if (state.NativeArmySimulation?.Parameters is not { } p || p.Language != adapter.Seed.Language ||
                 p.RuleVersion != SimulationRuleIdentity.ForLocale(adapter.Seed.Language)) throw AutomaticMissing("rule_profile");
-            current = adapter.CaptureDeploymentPersonSelectionCurrent(state);
+            current = operationCurrent ?? adapter.CaptureDeploymentPersonSelectionCurrent(state);
             adapter._moraleWaveInputs.BindCurrent(state, current);
             adapter._baseCapacityInputs.BindCurrent(state, current);
             DeploymentTacticCurrentInputs.BindCurrent(state, current);
@@ -125,7 +126,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             return rows;
         }
 
-        private List<int> Candidates()
+        internal List<int> Candidates()
         {
             ushort link = Need(current.ReadBaseObjectLink(sourceBase), "base_link");
             var result = new List<int>();

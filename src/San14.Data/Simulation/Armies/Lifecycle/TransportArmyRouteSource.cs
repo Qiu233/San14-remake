@@ -6,8 +6,8 @@ public sealed record TransportArmyRouteReceipt(int ArmyPhysical, int? GoalHex,
     int[] PathHexes, ushort? NextHex48Write, ushort? Goal1F8Write, int ExpandedNodes, string SourceBranch);
 public sealed record TransportArmyRouteResult(TransportArmyRouteReceipt? Receipt, string? UnresolvedOwner);
 
-/// <summary>17A620's actual301DD0(Army,1,1,0), ordinary type2 Action2/City
-/// target. This writes no gameplay position or route credit. Caller owns the
+/// <summary>17A620's actual301DD0(Army,1,1,0), type2 transport with a Hex,
+/// City or Gate target. This writes no gameplay position or route credit. Caller owns the
 /// writable current/pool and publishes the returned scalar writes together.
 /// The original diagnostic trace UI is absent from this independent client.</summary>
 public static partial class TransportArmyRouteSource
@@ -27,7 +27,7 @@ public static partial class TransportArmyRouteSource
                 return Done(null, [], null, null, 0, "301DD0.invalid_Army");
             if (K(OwnedArmyDestructionCurrent.ReadArmyExcluded233560(state, current, physical), "233560"))
                 return Done(null, [], null, null, 0, "301DD0.excluded_Army");
-            var (goal, kind, identity) = ReadCityGoal(state, current, army);
+            var (goal, kind, identity) = ReadTransportGoal(state, current, army);
             if (goal == Count) return Done(goal, [], null, null, 0, "301DD0.no_goal");
             if (K(army.NativeRouteHold56, "Army56") != 0) return Done(goal, [], null, null, 0, "301DD0.hold56");
             if (K(OwnedArmyDestructionCurrent.ReadArmyExcluded233560(state, current, physical), "second233560"))
@@ -51,7 +51,7 @@ public static partial class TransportArmyRouteSource
     internal static (int Goal, int[] Path, int Expanded) ReadCreationPath(GameState state,
         SourceWorldContext current, UnitState army)
     {
-        var (goal, kind, identity) = ReadCityGoal(state, current, army);
+        var (goal, kind, identity) = ReadTransportGoal(state, current, army);
         ushort start = K(ArmyMarchSourceAdapter.ReadCurrentHex(state, army), "Army2A");
         if (start >= Count || goal is < 0 or >= Count) throw Missing("route_endpoint");
         int[] path = ArmyRouteSearch.Search(state, current, army, start, goal, kind, identity,
@@ -59,11 +59,12 @@ public static partial class TransportArmyRouteSource
         return (goal, path, expanded);
     }
 
-    private static (int Goal, byte Kind, ushort Identity) ReadCityGoal(GameState state,
+    private static (int Goal, byte Kind, ushort Identity) ReadTransportGoal(GameState state,
         SourceWorldContext current, UnitState army)
     {
-        if (army.NativeTacticRuntime?.Status10 != 2 || ArmyConfigurationSourceAdapter.ReadAction(state, army) != 2)
-            throw Missing("ordinary_type2_Action2_scope");
+        byte? action = ArmyConfigurationSourceAdapter.ReadAction(state, army);
+        if (army.NativeTacticRuntime?.Status10 != 2 || action is not (1 or 2 or 3 or 11 or 12))
+            throw Missing("type2_Action1_2_3_11_12_scope");
         if (army.TransportRoute is null ||
             army.OverrideTarget is not { Kind: ArmyOverrideTargetKind.None }) throw Missing("transport_waypoints_overrideFF");
         int physical = army.NativeArmyOrigin?.NativeSlotIndex ?? throw Missing("Army_physical");
@@ -71,17 +72,25 @@ public static partial class TransportArmyRouteSource
             ? OwnedArmyLifecycleTargets.Read(state, lifecycle.Slots[physical].ReceiverId) ?? throw Missing("Army38_3A")
             : throw Missing("Army38_3A");
         if (target.Kind38 is not byte kind || target.Identity3A is not ushort identity) throw Missing("Army38_3A");
-        if (kind != 5) throw Missing("ordinary_target_City_scope");
+        if (!(action == 1 && kind == 9 || (action is 2 or 11) && kind == 5 || (action is 3 or 12) && kind == 6))
+            throw Missing("ordinary_transport_action_target");
         int goal = TransportRouteSourceAdapter.ReadWaypoint(state, army, 0) ?? throw Missing("transport_first_waypoint");
         if (goal == Count)
         {
-            var city = K(current.ReadCityTableReference(identity <= 51 ? identity : 0), "goal_City_pointer");
-            if (K(current.ReadBaseNativeValidity(city), "goal_City_validity"))
+            if (kind == 9)
+                goal = identity; //301DD0 reads the already captured Hex identity directly.
+            else
             {
-                ushort link = K(current.ReadBaseObjectLink(city), "goal_Base4E");
-                var obj = K(current.ReadObjectTableReference(link <= 3000 ? link : 0), "goal_Object_pointer");
-                if (K(current.ReadObjectNativeValidity(obj), "goal_Object_validity"))
-                    goal = K(current.ReadObjectHexIndex(obj), "goal_Object10");
+                var targetBase = kind == 5
+                    ? K(current.ReadCityTableReference(identity <= 51 ? identity : 0), "goal_City_pointer")
+                    : K(current.ReadGateTableReference(identity <= 10 ? identity : 0), "goal_Gate_pointer");
+                if (K(current.ReadBaseNativeValidity(targetBase), "goal_Base_validity"))
+                {
+                    ushort link = K(current.ReadBaseObjectLink(targetBase), "goal_Base4E");
+                    var obj = K(current.ReadObjectTableReference(link <= 3000 ? link : 0), "goal_Object_pointer");
+                    if (K(current.ReadObjectNativeValidity(obj), "goal_Object_validity"))
+                        goal = K(current.ReadObjectHexIndex(obj), "goal_Object10");
+                }
             }
         }
         return (goal, kind, identity);

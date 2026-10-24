@@ -6,13 +6,16 @@ public sealed partial class ArmyCampaignRuleAdapter
 {
     private GameState AppendDemolitionEffects(GameState state, SourceWorldContext current,
         ArmyUnitReference army, UnitState image, ArmyDemolitionNumberResult removal,
-        NativeArmyProgressStageMoment moment, List<CampaignEffectRequest> requests)
+        Func<NativeMapSeasonDate> readDate, Func<GameState, int> readCampaignDay,
+        List<CampaignEffectRequest> requests, Action<GameState>? publishReached = null)
     {
         string definitionKey = MapObjectSourceDirectory.DefinitionKey(removal.DefinitionSlot);
         requests.Add(new(null, null) { MapObjectPresentation = new(MapObjectPresentationEvent.DestructionVisual,
             removal.Receiver, removal.HexId, definitionKey) });
+        publishReached?.Invoke(state);
         requests.Add(new(null, null) { MapObjectPresentation = new(MapObjectPresentationEvent.DestructionSound,
             removal.Receiver, removal.HexId, definitionKey) });
+        publishReached?.Invoke(state);
         if (DemolitionKnown(current.ReadArmyUnitNativeValidity(army), "speech_army_validity"))
         {
             if (state.PersonnelCommands is null) throw DemolitionMissing("speech_personnel_owner");
@@ -21,23 +24,34 @@ public sealed partial class ArmyCampaignRuleAdapter
             var person = current.ReadPersonLookupReference(commander <= 6000 ? commander : 0)
                 ?? throw DemolitionMissing("speech_person_pointer");
             int personPhysical = person.PhysicalSlot ?? throw DemolitionMissing("speech_person");
-            int position = PersonReturnCommands.ResolvePersonPosition(state, current, personPhysical, moment.PreWriterThirdDate).PhysicalSlot ?? 48400;
-            // The position getter can initialize a journey deadline. Preserve
-            // that real writer without publishing unrelated Person fields.
-            state = state with { PersonnelCommands = current.ReadOwnedPersonCommandManager()
-                ?? throw DemolitionMissing("speech_personnel_publication") };
+            int position;
+            try
+            {
+                position = PersonReturnCommands.ResolvePersonPosition(state, current, personPhysical, readDate()).PhysicalSlot ?? 48400;
+            }
+            finally
+            {
+                // A later position dependency may fail after EnsureArrivalDate.
+                // Preserve only this reached command owner, not other Person fields.
+                state = state with { PersonnelCommands = current.ReadOwnedPersonCommandManager()
+                    ?? throw DemolitionMissing("speech_personnel_publication") };
+                publishReached?.Invoke(state);
+            }
             int officer = DemolitionKnown(current.ReadPersonIdentity(personPhysical), "speech_person_identity");
             requests.Add(new(new(CombatParticipantKind.Army, image.Id, officer, CombatSpeechEvent.ArmyDemolitionCompleted,
                 position, CombatParticipantKind.FieldObject, removal.Receiver.Value, null, null, null), null));
+            publishReached?.Invoke(state);
         }
         // Category4 suppresses only text reporting, after all three prior intents.
-        if (removal.Category != 4) state = AppendDemolitionReport(state, current, army, image, removal, moment, requests);
+        if (removal.Category != 4) state = AppendDemolitionReport(state, current, army, image, removal,
+            readCampaignDay, requests, publishReached);
         return state;
     }
 
     private GameState AppendDemolitionReport(GameState state, SourceWorldContext current,
         ArmyUnitReference army, UnitState image, ArmyDemolitionNumberResult removal,
-        NativeArmyProgressStageMoment moment, List<CampaignEffectRequest> requests)
+        Func<GameState, int> readCampaignDay, List<CampaignEffectRequest> requests,
+        Action<GameState>? publishReached = null)
     {
         byte objectFaction = DemolitionKnown(current.ReadObjectForceSlot13(new(removal.Physical)), "report_object_faction");
         var objectForce = current.ReadForceTableReference(objectFaction <= 51 ? objectFaction : 0)
@@ -67,15 +81,19 @@ public sealed partial class ArmyCampaignRuleAdapter
             payload = 5012;
             root = 0x5F7D;
         }
-        var formatted = FormatHistoryReport(state, current, root,
-            new HistoryMessageOperands(Army0: army, Area0: removal.AreaId, String0: objectName, String1: choiceName));
+        var formatted = FormatReportMessage(state, current, root,
+            new HistoryMessageOperands(Army0: army, Area0: removal.AreaId, String0: objectName, String1: choiceName),
+            ReportMessageOrigin.SavedHistory, publishReached);
         state = formatted.State;
+        publishReached?.Invoke(state);
         //The selected District and payload precede the formatter. Only450
         //and the retained original Hex pointer's22DEF0 are read afterwards.
-        int day = StatusCampaignDay(state, moment);
+        int day = readCampaignDay(state);
         int hex = DemolitionKnown(current.ReadHexPhysicalSlot(new(removal.HexId)), "report_retained_Hex_identity");
-        return WriteHistory(state, current, new ReportCommand(5, district, hex, day, formatted.Text,
+        state = WriteHistory(state, current, new ReportCommand(5, district, hex, day, formatted.Text,
             CampaignHistoryWriter.Supplemental(state), payload, MarkBit4: 1), requests);
+        publishReached?.Invoke(state);
+        return state;
 
         int FirstForceDistrict(ForceReference force)
         {

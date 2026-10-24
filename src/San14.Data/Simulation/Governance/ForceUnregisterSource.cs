@@ -19,17 +19,33 @@ public sealed partial class ForceUnregisterSource(ArmyCampaignRuleAdapter packag
     public const string Revision = "ce-293BD0-ordinary-empty-person-army-unregister";
 
     public ForceUnregisterResult TryApplyCurrent(GameState input, int victim, int captor)
+        => TryApplyCurrent(input, victim, captor, null);
+
+    public ForceUnregisterResult TryApplyCurrent(GameState input, int victim, int captor,
+        Action<GameState>? publishReached)
+        => ApplyCore(input, victim, captor, publishReached, null, null);
+
+    internal ForceUnregisterResult TryApplyBorrowedCurrent(GameState input, int victim, int captor,
+        SourceWorldContext current, WorldIndexContext pool)
+        => ApplyCore(input, victim, captor, null, current, pool);
+
+    private ForceUnregisterResult ApplyCore(GameState input, int victim, int captor,
+        Action<GameState>? publishReached, SourceWorldContext? borrowedCurrent, WorldIndexContext? borrowedPool)
     {
         try
         {
             NativeForceUnregisterCurrentStateValidation.Validate(input);
             var saved = input.NativeForceUnregisterCurrent ?? throw Missing("saved_numeric_owner");
-            var world = package.CaptureOwnedArmyReturnWorld(input); var current = world.Context; var pool = world.Pool;
-            ForceUnregisterInputs.BindCurrent(input, current);
+            var world = borrowedCurrent is null ? package.CaptureOwnedArmyReturnWorld(input)
+                : OwnedArmyReturnWorld.Borrow(input, borrowedCurrent, borrowedPool
+                    ?? throw Missing("borrowed_pool"));
+            var current = world.Context; var pool = world.Pool;
+            if (borrowedCurrent is null) ForceUnregisterInputs.BindCurrent(input, current);
             var victimReference = new ForceReference(victim);
-            if (victim is < 1 or > 45 || captor is < 1 or > 45 || victim == captor ||
+            if (victim is < 1 or > 45 || captor is < 0 or > 45 ||
+                captor == 0 && borrowedCurrent is null || victim == captor ||
                 !Known(current.ReadForceNativeValidity(victimReference), "victim_validity") ||
-                !Known(current.ReadForceNativeValidity(new(captor)), "captor_validity")) throw Missing("branch.ordinary_valid_forces");
+                captor != 0 && !Known(current.ReadForceNativeValidity(new(captor)), "captor_validity")) throw Missing("branch.ordinary_valid_forces");
             int player = current.ReadCurrentPlayerForce()?.PhysicalSlot ?? throw Missing("World3A_player");
             if (victim == player) throw Missing("branch.player_terminal_service");
             var remaining = Enumerable.Range(0, 52).Where(i => i != victim && i is >= 1 and <= 45 &&
@@ -42,19 +58,11 @@ public sealed partial class ForceUnregisterSource(ArmyCampaignRuleAdapter packag
             ushort ruler = Need(current.ReadForceRecord(victim)?.RawRuler10, "victim_ruler10");
             if (ruler is 521 or 35) throw Missing("branch.279EA0_achievement_pair");
             RequireEmptyPeopleAndArmies(input, current, victim);
-            if (input.Structures is not { Count: 0 }) throw Missing("branch.current_dynamic_Object_table");
             foreach (var entry in current.ReadRegisteredBases() ?? throw Missing("manager80"))
                 if (entry is not null && current.ReadBaseForceSlot(entry) == victim)
                     throw Missing("branch.293BD0_remaining_Base_or_Gate");
-            for (int slot = 0; slot < 3001; slot++)
-            {
-                var obj = current.ReadObjectTableReference(slot) ?? throw Missing("Object_table");
-                if (Known(current.ReadObjectNativeValidity(obj), "Object_validity") &&
-                    Need(current.ReadObjectForceSlot13(obj), "Object13") == victim)
-                    throw Missing("branch.294FD0_owned_Object_destroy");
-            }
             var effects = new List<string> { "27A6B0.remaining_ordinary_and_actual_player_nonterminal",
-                "277590_274DD0_279EA0.no_reached_numeric_writer", "293BD0.Gate_Object_destruction_iterators_empty" };
+                "277590_274DD0_279EA0.no_reached_numeric_writer", "293BD0.Gate_destruction_iterator_empty" };
             int originalFlag = input.NativeArmySimulation.Parameters.Int32Values.GetValueOrDefault(
                 BattleRemakeCurrentForcePolicies.ForceFieldKey(victim, 0x15E), -1);
             if (originalFlag < 0 || originalFlag > 255) throw Missing("Force15E");
@@ -62,11 +70,28 @@ public sealed partial class ForceUnregisterSource(ArmyCampaignRuleAdapter packag
                 { [BattleRemakeCurrentForcePolicies.ForceFieldKey(victim, 0x15E)] = originalFlag & 0xFE };
             var working = input with { NativeArmySimulation = input.NativeArmySimulation with
                 { Parameters = input.NativeArmySimulation.Parameters with { Int32Values = values } } };
+            working = RemoveOwnedObjects(working, current, victim, publishReached);
+            effects.Add("293BD0.live_Object_table_category2_4_removal");
             var objectTemporary = Temporary(current);
             var changedHexes = SettleHexes(working, current, victim, objectTemporary);
             effects.Add("293Fxx.Object_temporary→48400_current_Hex_force14_writers→empty_Object13_clear");
-            working = working with { Territory = working.Territory.ToDictionary(x => x.Key,
-                x => x.Value with { ForceId = current.ReadHexForceSlot(new(x.Key)) is byte f ? f == 0 ? null : f : throw Missing("Hex14_publish") }) };
+            var territory = new Dictionary<int, TerritoryState>(working.Territory);
+            foreach (int hex in changedHexes)
+                if (territory.TryGetValue(hex, out var cell))
+                {
+                    byte force = Need(current.ReadHexForceSlot(new(hex)), "Hex14_publish");
+                    territory[hex] = cell with { ForceId = force == 0 ? null : force };
+                }
+            var changed = changedHexes.ToHashSet();
+            var areas = new Dictionary<int, AreaState>(working.Areas);
+            foreach (var area in working.Areas.Values)
+                if (area.HexId is int hex && changed.Contains(hex))
+                {
+                    byte force = Need(current.ReadAreaCurrentForceSlot(new(area.Id)), "Area_Hex14_publish");
+                    areas[area.Id] = area with { ForceId = force == 0 ? null : force };
+                }
+            working = working with { Territory = territory, Areas = areas };
+            publishReached?.Invoke(working);
             foreach (var area in current.ReadRegisteredAreaReferences() ?? throw Missing("managerB0"))
                 if (area is not null && current.ReadAreaCurrentForceSlot(area) == victim)
                     throw Missing("branch.293BD0_remaining_Force_Area");
@@ -110,23 +135,26 @@ public sealed partial class ForceUnregisterSource(ArmyCampaignRuleAdapter packag
             working = ResetForce(working, current, victim, resets);
             var windows = saved.DistrictWindows10.ToDictionary(x => x.Key,
                 x => Enumerable.Range(0x10, 28).Select(o => current.ReadDistrictRawByte(x.Key, o)).ToArray());
-            working = (working with { NativeForceUnregisterCurrent = working.NativeForceUnregisterCurrent! with { DistrictWindows10 = windows } }).WithArmyLifecycle(working.ReadArmyLifecycle()! with { Indexes = pool.ExportOwnedState() });
+            working = (working with { NativeForceUnregisterCurrent = working.NativeForceUnregisterCurrent! with { DistrictWindows10 = windows } }).WithArmyLifecycle(working.ReadArmyLifecycle()! with { Indexes = pool.ProjectOwnedRoles() });
             effects.Add("32B710→3DFB50.all_equal_Force_nodes→2261B0.literal_numeric_reset_and_bidirectional_relations");
             //This finite caller admits no surviving pending header. It still
             //executes the normal28E window using the saved actual empty queue.
             if ((current.ReadArmyReturnPending70Descriptor() is not { } pending) ||
                 current.ReadRegistryHead(pending)?.Identity is not null) throw Missing("branch.28E_nonempty_pending_after_Freedom_window");
-            working = package.ConsumeArmyLifecyclePending(working) ?? throw Missing("28E_current_empty_window");
-            //The current operation's primary pool includes still-live outer
-            //temporaries; the empty28E window has no numeric/pool writer.
-            working = working.WithArmyLifecycle(working.ReadArmyLifecycle()! with { Indexes = pool.ExportOwnedState() });
+            working = (borrowedCurrent is null ? package.ConsumeArmyLifecyclePending(working)
+                : package.ConsumeArmyLifecyclePendingCurrent(working, current, pool))
+                ?? throw Missing("28E_current_empty_window");
+            //Project only permanent domain roles while this caller still owns its
+            //District/Object temporary lists. The empty28E window cannot free them.
+            working = working.WithArmyLifecycle(working.ReadArmyLifecycle()! with { Indexes = pool.ProjectOwnedRoles() });
             effects.Add("28E6D0.actual_empty_pending70_window");
             var ranked = RankCurrent(working, current, pool);
             working = ranked.State; effects.Add("2924B0.actual_two_pointer_temporaries_and_shared_Int32_temporary");
             current.ClearTemporaryHexList(districtTemporary); current.ReleaseTemporaryHexList(districtTemporary);
             current.ClearTemporaryHexList(objectTemporary); current.ReleaseTemporaryHexList(objectTemporary);
             working = PersonAssignmentPrecallInputs.PublishCurrent(working, current);
-            working = working.WithArmyLifecycle(working.ReadArmyLifecycle()! with { Indexes = pool.ExportOwnedState() });
+            working = working.WithArmyLifecycle(working.ReadArmyLifecycle()! with
+                { Indexes = borrowedCurrent is null ? pool.ExportOwnedState() : pool.ProjectOwnedRoles() });
             NativeForceUnregisterCurrentStateValidation.Validate(working);
             return new(working, new(victim, captor, remaining.Length, playerCount, districts, changedHexes,
                 forceNodesRemoved, removedDistrictNodes, governors.ToArray(), ranked.Forces, effects.AsReadOnly()), null);

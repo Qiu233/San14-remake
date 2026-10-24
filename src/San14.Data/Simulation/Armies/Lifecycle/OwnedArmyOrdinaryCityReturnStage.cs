@@ -39,8 +39,8 @@ public sealed class OwnedArmyOrdinaryCityReturnStage(ArmyCampaignRuleAdapter pac
         try
         {
             var world = package.CaptureOwnedArmyReturnWorld(state);
-            var result = ArmyOrdinaryReturnRuntime.PrepareCurrentResourceOutputs(new(physical), new(BaseKind.City, cityId), 0,
-                world.Context, world.Pool, new Queries(state, governorInputs), new(false, false), new(package, state, new(false)),
+            var result = package.PrepareOwnedArmyReturnCurrent(state, new(physical), new(BaseKind.City, cityId), 0,
+                world.Context, world.Pool, new Queries(state, governorInputs), new(false, false),
                 unit.Mission?.Kind == UnitMissionKind.Transport ? unit.NativeTacticRuntime?.Flags26 : null);
             if (result.Packet is not { } packet) return new(null, [], result.UnresolvedOwner);
             var returned = world.CommitPrepared(state, packet);

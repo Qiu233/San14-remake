@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -8,6 +7,14 @@ public sealed record MapSelectedImageConsumer(string Role, short? EncodedParamet
     DxbcRdefBinding Declaration, G1ShaderResourceBinding? ResourceMapping);
 public sealed record MapSelectedSamplerConsumer(DxbcRdefBinding Declaration,
     MapSelectedImageConsumer KeySource, IReadOnlyList<string> SharedImageRoles);
+
+/// <summary>Static imported roles belonging to one loaded texture plan and
+/// selected resource program. It owns no current frame, camera, View or device
+/// binding; the existing HDR resource owner retains it until replacement.</summary>
+internal sealed record MapSelectedSourceImageLayout(LoadedDeferredTexturePlan Textures,
+    IReadOnlyList<MapSelectedImageConsumer> Images,
+    IReadOnlyList<MapSelectedSamplerConsumer> Samplers,
+    IReadOnlyList<DeferredTargetImageSource> GraphTargets);
 
 /// <summary>One accepted F103 selection's canonical resource roles. Register
 /// numbers are read from that selected original program; no PS1 slot is copied.
@@ -23,10 +30,9 @@ public sealed class MapSelectedSourceImagePlan
     public string CurrentProducerProvenance => Selection.Current.CurrentProducerProvenance;
 
     private MapSelectedSourceImagePlan(DeferredF103SelectedSource selection,
-        LoadedDeferredTexturePlan textures, List<MapSelectedImageConsumer> images,
-        List<MapSelectedSamplerConsumer> samplers, List<DeferredTargetImageSource> targets)
+        MapSelectedSourceImageLayout layout)
         => (Selection, TexturePlan, Images, Samplers, GraphTargets) =
-            (selection, textures, images.AsReadOnly(), samplers.AsReadOnly(), targets.AsReadOnly());
+            (selection, layout.Textures, layout.Images, layout.Samplers, layout.GraphTargets);
 
     private static readonly (short Encoded, string Name, string Role, uint Dimension)[] Ordinary =
     [ (32,"sIES","IES",5), (52,"sVolumetricFogMap","VolumetricFog",8),
@@ -50,11 +56,18 @@ public sealed class MapSelectedSourceImagePlan
     public static MapSelectedSourceImagePlan Read(DeferredF103SelectedSource selection)
     {
         ArgumentNullException.ThrowIfNull(selection);
-        var textures = selection.ReadSelectedTexturePlan();
+        //Retain only this call's actual selection; static resource roles are
+        //already imported by its loaded HDR owner, not re-proved each frame.
+        return new(selection, selection.ReadSelectedImageLayout());
+    }
+
+    internal static MapSelectedSourceImageLayout ImportLayout(LoadedDeferredTexturePlan textures,
+        HdrShaderProgram program)
+    {
         ValidateAsset(textures.TextureObjects.Source);
         var shader = textures.Shader;
-        var definitions = shader.ReadResourceDefinitions(selection.PixelProgramIndex);
-        var mappings = shader.ReadG1ResourceBindings(selection.Combination.Index);
+        var definitions = shader.ReadResourceDefinitions(program.PixelProgramIndex);
+        var mappings = shader.ReadG1ResourceBindings(program.CombinationIndex);
         var configurations = shader.ReadConfigurations();
         var images = new List<MapSelectedImageConsumer>();
         foreach (var declaration in definitions.Bindings.Where(b => b.InputType == 2))
@@ -86,7 +99,7 @@ public sealed class MapSelectedSourceImagePlan
             {
                 var config = configurations.Records.Single(r => r.Name == "LocalAmbSpecMaps");
                 var slot = config.Find(0xBAE590DA);
-                var named = G2ShaderMetadataReader.Read(shader.Source.Bytes).Records.Single(r => r.Name?.Text == "sLclAmbSpc");
+                var named = shader.ReadMetadata().Records.Single(r => r.Name?.Text == "sLclAmbSpc");
                 if (slot is null || declaration.BindPoint != checked(slot.RawValue + 16) || declaration.Dimension != 10 ||
                     declaration.ReturnType != 5 || named.RawWords[1] != 42 || named.RawWords[2] != 42)
                     throw Error("LAS cube role differs from its ExtraSampler+16 and named source metadata");
@@ -119,9 +132,10 @@ public sealed class MapSelectedSourceImagePlan
             samplers.Add(new(declaration, keySource, Array.AsReadOnly(shared)));
         }
 
-        var graph = RenderGraphReader.Read(textures.Graph.Source.Bytes);
-        var node = graph.Nodes[selection.SourcePlan.Node.Index];
-        var objects = new LoadedObjects(DokReader.Read(textures.TextureObjects.Source.Bytes), textures.TextureObjects.Source);
+        //These are the documents parsed by the repository at normal load.
+        //The selected texture plan retains their exact loaded owners.
+        var node = textures.Node;
+        var objects = textures.TextureObjects;
         var targets = new List<DeferredTargetImageSource>();
         foreach (var target in new (string Role, string Consumer, uint Hash)[] {
             ("RefractionDepth","RefractionDepth",0xF744A94F), ("TranslucentSpecular","TranslucentSpecular",0x7AA5F8D7),
@@ -138,7 +152,7 @@ public sealed class MapSelectedSourceImagePlan
             targets.Add(new(target.Role, consumer.EncodedParameter.Value, fields[0], consumer.ResourceMapping,
                 consumer.Declaration, texture));
         }
-        return new(selection, textures, images, samplers, targets);
+        return new(textures, images.AsReadOnly(), samplers.AsReadOnly(), targets.AsReadOnly());
     }
 
     public MapSelectedImageConsumer RequireRole(string role) => Images.SingleOrDefault(i => i.Role == role)
@@ -155,8 +169,8 @@ public sealed class MapSelectedSourceImagePlan
     private static void ValidateAsset(LoadedRdbAsset source)
     {
         if (source.OverrideSource is not null || string.IsNullOrWhiteSpace(source.ResourceUri) ||
-            Convert.ToHexString(SHA256.HashData(source.Bytes)) != source.DecodedSha256)
-            throw Error("original image owner source bytes differ from their exact declared identity");
+            string.IsNullOrWhiteSpace(source.DecodedSha256))
+            throw Error("original image owner requires its loaded resource identity");
     }
     private static InvalidDataException Error(string reason) => new("Selected F103 image plan: " + reason + ".");
 }

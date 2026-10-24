@@ -32,19 +32,32 @@ public static class ArmyChangedListsSource
     /// Importing a saved officer registry into an empty facade cannot establish
     /// its logical identities.</summary>
     public static ArmyChangedListsResult Append(GameState state, int armyPhysical, SourceWorldContext current)
+        => AppendCore(state, armyPhysical, current, borrowed: false);
+
+    /// <summary>Appends within the caller's already owned operation. The live
+    /// pool and cursor identities remain installed on the same current view.</summary>
+    internal static ArmyChangedListsResult AppendCurrent(GameState state, int armyPhysical, SourceWorldContext current)
+        => AppendCore(state, armyPhysical, current, borrowed: true);
+
+    private static ArmyChangedListsResult AppendCore(GameState state, int armyPhysical,
+        SourceWorldContext current, bool borrowed)
     {
         if (armyPhysical is < 0 or > 500) return Unknown("current.changed_lists_Army_pointer");
         if (state.ReadArmyLifecycle() is not { } arena || arena.Indexes.ChangedProcessing is null || arena.Indexes.ChangedPendingUnitIds is null)
             return Unknown("current.changed_lists_saved_owner");
         try
         {
-            var pool = WorldIndexContext.ImportOwnedState(current, arena.Indexes, state);
+            var pool = borrowed
+                ? current.ReadOwnedCurrentListPool() ?? throw new Missing("current.changed_lists_operation_pool")
+                : WorldIndexContext.ImportOwnedState(current, arena.Indexes, state);
+            if (borrowed && (!ReferenceEquals(pool.ArmyReturnOwner, current) || !pool.OwnsArmyReturnProfile()))
+                throw new Missing("current.changed_lists_operation_pool_binding");
             var at = current.AllocateRegistryNode(new(pool.ChangedPendingHandle!.Identity))
                 ?? throw new Missing("current.changed_lists_append_node");
             if (at.Identity is null)
                 return Success(state, new("097E10.no_allocated_node", false, false));
             current.WriteRegistryNodePayload(at, new(RegistryKind.Army, armyPhysical));
-            return Success(state.WithArmyLifecycle(arena with { Indexes = pool.ExportOwnedState() }),
+            return Success(state.WithArmyLifecycle(arena with { Indexes = borrowed ? pool.ProjectOwnedRoles() : pool.ExportOwnedState() }),
                 new("097E10.append_tail", false, false, AllocatedNode: at.Identity));
         }
         catch (Missing error) { return Unknown(error.Message); }

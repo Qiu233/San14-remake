@@ -3,13 +3,16 @@ using System.Text.Json.Serialization;
 
 namespace San14.Core;
 
-public enum ArmyTargetKind { None, City, ArmyReceiver, Unresolved, Hex, MapObjectReceiver }
-public enum ArmyTargetDestinationKind { City, ArmyReceiver, Unresolved, Hex, MapObjectReceiver }
+public enum ArmyTargetKind { None, City, ArmyReceiver, Unresolved, Hex, MapObjectReceiver, Gate }
+public enum ArmyTargetDestinationKind { City, ArmyReceiver, Unresolved, Hex, MapObjectReceiver, Gate }
 
 /// <summary>A destination names a campaign entity, not a source-table row.
 /// Unresolved means a selection is known to exist but has no decoded identity.</summary>
 public sealed record ArmyTargetDestination(ArmyTargetDestinationKind Kind, int? CityId, ArmyReceiverId? ReceiverId)
 {
+    /// <summary>Campaign Gate location52..61, matching GameState.Gates.
+    /// Source-table Gate1..10 conversion belongs to the Data boundary.</summary>
+    public int? GateId { get; init; }
     public int? HexId { get; init; }
     public MapObjectReceiverId? MapObjectReceiverId { get; init; }
 }

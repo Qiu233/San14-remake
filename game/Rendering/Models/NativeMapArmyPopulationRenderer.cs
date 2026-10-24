@@ -245,15 +245,14 @@ public sealed partial class NativeMapArmyPopulationRenderer:IAsyncDisposable
         finally{_gate.Release();Complete();}
     }
 
-    // The first plan selects source descriptors. Only the returned actual
-    // ordinary pose provider can resolve their instance bindings; retain the
-    // second plan's failures rather than the first missing-pose placeholders.
+    // Select source descriptors once, then bind the actual prepared poses.
+    // Binding replaces missing-pose placeholders while retaining source failures.
     internal static PlayableArmyVisualPlan PrepareCurrentPosePlan(
         PlayableArmyVisualAdapter adapter,RemakeArmySceneVisuals ordinaryCandidate,GameState world)
     {
         var descriptors=adapter.Resolve(world);
         var poses=ordinaryCandidate.Prepare(world,descriptors);
-        return adapter.Resolve(world,poses);
+        return adapter.BindPoses(world,descriptors,poses);
     }
 
     public Task<NativeMapArmyPopulationAcceptedFrame> PrepareAndDrawAsync(NativeMapFrameContext context)

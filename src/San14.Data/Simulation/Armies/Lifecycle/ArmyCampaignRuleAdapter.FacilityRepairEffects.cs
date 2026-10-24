@@ -8,7 +8,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     // still owns optional View slots, real pose, playback and report admission.
     private GameState AppendFacilityRepairEffects(GameState state, SourceWorldContext current,
         ArmyUnitReference army, UnitState image, FacilityRepairNumberResult numbers, ushort commander,
-        NativeArmyProgressStageMoment moment, List<CampaignEffectRequest> requests)
+        FacilityOperation operation, List<CampaignEffectRequest> requests)
     {
         Presentation(FacilityRepairPresentationOperation.EnsureRepairLoop);
         if (!numbers.ReachedCapacity) return state;
@@ -24,7 +24,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     ?? throw RepairMissing("speech_person_pointer");
                 int physical = RepairNeed(person.PhysicalSlot, "speech_person_identity");
                 int position = PersonReturnCommands.ResolvePersonPosition(state, current, physical,
-                    moment.PreWriterThirdDate).PhysicalSlot ?? 48400;
+                    operation.ReadDate()).PhysicalSlot ?? 48400;
                 state = state with { PersonnelCommands = current.ReadOwnedPersonCommandManager()
                     ?? throw RepairMissing("speech_personnel_publication") };
                 int officer = RepairNeed(current.ReadPersonIdentity(physical), "speech_person_identity");
@@ -41,19 +41,19 @@ public sealed partial class ArmyCampaignRuleAdapter
                 // Army44's independent owner is not reconstructed from a
                 // route, override target, current position or command memory.
                 if (numbers.Category == 3) throw RepairMissing("first_report_army44_owner");
-                state = AppendFacilityRepairReport(state, current, army, image, numbers, commander, moment,
+                state = AppendFacilityRepairReport(state, current, army, image, numbers, commander, operation,
                     CampaignReportEvent.PlayerFacilityConstructionCompleted, requests);
             }
             if (numbers.DefinitionIdentity is 3 or 4)
                 throw RepairMissing("first_completion_ordered_territory_tail");
         }
         else if (IsPlayerRulerLedDistrict(state, current, image))
-            state = AppendFacilityRepairReport(state, current, army, image, numbers, commander, moment,
+            state = AppendFacilityRepairReport(state, current, army, image, numbers, commander, operation,
                 CampaignReportEvent.PlayerFacilityRepairCompleted, requests);
         return state;
 
-        void Presentation(FacilityRepairPresentationOperation operation, int? rawCommander = null) =>
-            requests.Add(new(null, null) { FacilityRepairPresentation = new(operation,
+        void Presentation(FacilityRepairPresentationOperation presentationOperation, int? rawCommander = null) =>
+            requests.Add(new(null, null) { FacilityRepairPresentation = new(presentationOperation,
                 numbers.Receiver, numbers.HexId, MapObjectSourceDirectory.DefinitionKey(numbers.DefinitionIdentity), rawCommander) });
     }
 
@@ -67,7 +67,7 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     private GameState AppendFacilityRepairReport(GameState state, SourceWorldContext current,
         ArmyUnitReference army, UnitState image, FacilityRepairNumberResult numbers, ushort commander,
-        NativeArmyProgressStageMoment moment, CampaignReportEvent reportEvent, List<CampaignEffectRequest> requests)
+        FacilityOperation operation, CampaignReportEvent reportEvent, List<CampaignEffectRequest> requests)
     {
         int root = reportEvent switch
         {
@@ -84,7 +84,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         state = formatted.State;
         //The raw commander was captured by2E8320 before its completion
         //branch. Do not replace it with a fresh post-format Person query.
-        int day = StatusCampaignDay(state, moment);
+        int day = operation.ReadCampaignDay(state);
         int hex = RepairNeed(current.ReadObjectHexIndex(new(numbers.Physical)), "report_current_Object10");
         int district = ReadFacilityHistoryDistrict(current, army);
         return WriteHistory(state, current, new ReportCommand(5, district, hex, day, formatted.Text,
@@ -92,7 +92,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     }
 
     private static GameState AppendFacilityRepairBatch(GameState state,
-        NativeArmyProgressStageMoment moment, List<CampaignEffectRequest> requests) =>
+        FacilityOperation operation, List<CampaignEffectRequest> requests) =>
         state with { CampaignEffectRequests = (state.CampaignEffectRequests ?? throw RepairMissing("effect_owner"))
-            .Append(CampaignEffectSource.ArmyFacilityRepair, moment.CalendarCycleOrdinal, requests) };
+            .Append(CampaignEffectSource.ArmyFacilityRepair, operation.Revision, requests) };
 }

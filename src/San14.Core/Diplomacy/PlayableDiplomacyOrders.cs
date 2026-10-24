@@ -7,6 +7,13 @@ public sealed class PlayableDiplomacyOrders(IOrderRules otherCommands,
     public CommandResult Apply(GameState state, ForceState force, GameOrder order,
         CommandContext context)
     {
+        if (policy is IPlayableDiplomacyCommandRules source)
+        {
+            if (order is PrepareDiplomaticOrder submitted)
+                return source.SubmitDiplomacy(state, force, submitted, context);
+            if (order is ConfirmDiplomaticNegotiationOrder confirmed)
+                return source.ConfirmDiplomacy(state, force, confirmed, context);
+        }
         if (order is not PrepareDiplomaticOrder command)
             return otherCommands.Apply(state, force, order, context);
         if (!Enum.IsDefined(command.Kind))

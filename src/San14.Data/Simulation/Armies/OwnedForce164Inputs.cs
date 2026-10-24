@@ -81,6 +81,21 @@ public sealed class OwnedForce164Inputs
         => state.NativeArmySimulation?.Parameters.Int32Values is { } values && values.GetValueOrDefault(VersionKey) == 1 &&
             values.TryGetValue(ThresholdKey(10), out int value) ? value : null;
 
+    /// <summary>32C2E0's experience-row quantity plus the independently saved
+    /// current base. The loaded table is shared immutable content, not reread
+    /// or hashed for every preview. Row0 is the native invalid record.</summary>
+    internal int? ReadGovernanceCostLimit(GameState state, int forceId)
+    {
+        if (ReadCurrent(state, forceId) is not int experience || ReadLevel(state, experience) is not int level)
+            return null;
+        if (level == 0) return 0;
+        if (level is < 1 or > 10 || state.NativeArmySimulation?.Parameters is not { } parameters ||
+            parameters.Float32Values.ContainsKey(GovernanceRosterParameters.PolicyCostLimitBase) ||
+            !parameters.Int32Values.TryGetValue(GovernanceRosterParameters.PolicyCostLimitBase, out int basis))
+            return null;
+        return unchecked(_experience.Doctrine.Records[level].RawCostLimitAddition + basis);
+    }
+
     /// <summary>The ordered experience-row query used by the map header.
     /// Invalid row0 keeps zero progress; missing inputs never become zero.
     /// The caller uses wrapped Int32 multiplication and signed division.</summary>

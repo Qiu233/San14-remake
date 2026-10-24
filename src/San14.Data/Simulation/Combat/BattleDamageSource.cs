@@ -163,6 +163,28 @@ public static class BattleDamageSource
             !float.IsFinite(input.FinalWallAttack) || input.FinalWallAttack<0 ||
             (input.AttackerPresent && !input.PermitZeroDurability && input.CurrentDurability==0))
             throw new InvalidDataException("Native wall damage needs a live permitted durability target and finite wall attack.");
+        int damage=CalculateWallDamageBeforeCap(parameters,input);
+        int permitted=input.CurrentDurability-(input.AttackerPresent && !input.PermitZeroDurability?1:0);
+        damage=Math.Min(damage,permitted);
+        if(input.ChallengeAdjustedDamage is { } adjusted)
+        {
+            if(adjusted<0 || adjusted>permitted)
+                throw new InvalidDataException("Resolved native challenge damage exceeds the applicable target durability.");
+            damage=adjusted;
+        }
+        if(damage<0) throw new InvalidDataException("Resolved native wall modifiers produced unsupported negative applied damage.");
+        return damage;
+    }
+
+    //29EC80 rewards the actor using this value before reading/capping HP14.
+    //Keep that reached quantity separate from the later applied wall loss.
+    internal static int CalculateWallDamageBeforeCap(BattleDamageSourceParameters parameters,
+        WallDamageSourceInput input)
+    {
+        ArgumentNullException.ThrowIfNull(parameters); ArgumentNullException.ThrowIfNull(input);
+        ValidateCurrentParameters(parameters);
+        if(!float.IsFinite(input.FinalWallAttack) || input.FinalWallAttack<0)
+            throw new InvalidDataException("Native wall attack must be finite and nonnegative.");
         int damage=TruncateNative(input.FinalWallAttack),policy=0;
         if(input.AttackerPresent)
         {
@@ -177,15 +199,6 @@ public static class BattleDamageSource
             }
             else damage=unchecked(damage+policy);
         }
-        int permitted=input.CurrentDurability-(input.AttackerPresent && !input.PermitZeroDurability?1:0);
-        damage=Math.Min(damage,permitted);
-        if(input.ChallengeAdjustedDamage is { } adjusted)
-        {
-            if(adjusted<0 || adjusted>permitted)
-                throw new InvalidDataException("Resolved native challenge damage exceeds the applicable target durability.");
-            damage=adjusted;
-        }
-        if(damage<0) throw new InvalidDataException("Resolved native wall modifiers produced unsupported negative applied damage.");
         return damage;
     }
 

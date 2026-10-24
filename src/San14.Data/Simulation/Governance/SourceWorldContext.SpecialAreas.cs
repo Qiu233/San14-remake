@@ -11,7 +11,16 @@ public sealed partial class SourceWorldContext : ISpecialModeAreaResetState
     public void SetAreaFlags38(int physicalSlot, byte? value)
     { Check(physicalSlot, 501, "area physical slot"); _areaFlags38[physicalSlot] = value; }
     public byte? ReadAreaFlags38(AreaReference area) => _areaFlags38.GetValueOrDefault(MapPhysical(area.PhysicalSlot, 501, "area"));
-    public void WriteAreaFlags38(AreaReference area, byte value) => SetAreaFlags38(MapPhysical(area.PhysicalSlot, 501, "area"), value);
+    // Raw static/component contexts remain current-only. Captured campaign
+    // contexts install an explicit read-only or reached-world preparation.
+    internal Func<int, byte, Action>? AreaFlags38WritePreparation { get; set; }
+    public void WriteAreaFlags38(AreaReference area, byte value)
+    {
+        int physical = MapPhysical(area.PhysicalSlot, 501, "area");
+        Action? publish = AreaFlags38WritePreparation?.Invoke(physical, value);
+        SetAreaFlags38(physical, value);
+        publish?.Invoke();
+    }
     public void SetAreaNeighborSlot(int physicalSlot, int index, ushort? value)
     { Check(physicalSlot, 501, "area physical slot"); Check(index, 8, "area neighbor word index"); _areaNeighborSlots[(physicalSlot,index)] = value; }
     public ushort? ReadAreaNeighborSlot(AreaReference area, int index)

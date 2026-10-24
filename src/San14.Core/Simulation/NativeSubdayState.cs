@@ -119,7 +119,8 @@ public static class NativeSubdayRuntime
         if (clock.UpdatesIntoPeriod == NativeSubdayStateValidation.UpdatesPerPeriod) return state;
         GameState working = GameStateSnapshot.Detach(state);
         if (clock.UpdatesIntoPeriod == 0) working = working with { NativeSubdayReports = [] };
-        return AdvanceOwned(working, rules);
+        return AdvanceOwned(working, rules, working.Units,
+            (working.NativeSubdayReports ?? []).ToList(), working.Units.Keys.Order().ToArray());
     }
 
     /// <summary>Completes the remaining updates once; a saved cursor never repeats completed ticks.</summary>
@@ -138,12 +139,31 @@ public static class NativeSubdayRuntime
         if (rules is null) throw new InvalidDataException("Native subday updater rules are unresolved.");
         GameState working = state;
         if (working.NativeClock!.UpdatesIntoPeriod == 0) working = working with { NativeSubdayReports = [] };
+        // Callbacks borrow this period transaction and cannot add/remove Units
+        // or retain a prior tick. Keep one roster and report builder for all
+        // remaining ticks instead of copying and sorting them forty times.
+        var units = new Dictionary<int, UnitState>(working.Units);
+        var reports = (working.NativeSubdayReports ?? []).ToList();
+        int[] unitOrder = units.Keys.Order().ToArray();
         while (working.NativeClock!.UpdatesIntoPeriod < NativeSubdayStateValidation.UpdatesPerPeriod)
-            working = AdvanceOwned(working, rules);
+            working = AdvanceOwned(working, rules, units, reports, unitOrder);
         return working;
     }
 
-    private static GameState AdvanceOwned(GameState state, IPlayableNativeSubdayRules rules)
+    /// <summary>One waiting tick in the caller's current period transaction.
+    /// The source driver supplies its actual live manager order; movement may
+    /// change that roster between ticks.</summary>
+    public static GameState AdvanceCurrentManagerOwned(GameState state, IPlayableNativeSubdayRules rules,
+        IReadOnlyList<int> managerOrder)
+    {
+        if (state.NativeClock is null || state.NativeClock.UpdatesIntoPeriod >= NativeSubdayStateValidation.UpdatesPerPeriod)
+            throw new InvalidOperationException("No current waiting tick remains.");
+        return AdvanceOwned(state, rules, new(state.Units),
+            (state.NativeClock.UpdatesIntoPeriod == 0 ? [] : state.NativeSubdayReports ?? []).ToList(), managerOrder.ToArray());
+    }
+
+    private static GameState AdvanceOwned(GameState state, IPlayableNativeSubdayRules rules,
+        Dictionary<int, UnitState> units, List<NativeSubdayReport> reports, int[] unitOrder)
     {
         if (state.Units.Values.Any(unit => unit.TacticRuntime?.Pending?.NativeIssuedAtUpdateOrdinal is not null))
             throw new InvalidDataException("Native queued activation must settle at its recorded tick before manager updates.");
@@ -152,11 +172,10 @@ public static class NativeSubdayRuntime
         { UpdateOrdinal = checked(clock.UpdateOrdinal + 1), UpdatesIntoPeriod = clock.UpdatesIntoPeriod + 1 };
         var moment = new NativeSubdayMoment(clock.AnchorDate, nextClock.UpdateOrdinal,
             clock.UpdatesIntoPeriod / 4, Hours[clock.UpdatesIntoPeriod % 4]);
-        var units = new Dictionary<int, UnitState>(state.Units);
-        var reports = (state.NativeSubdayReports ?? []).ToList();
         ulong randomState = state.RandomState;
-        foreach (UnitState unit in state.Units.Values.OrderBy(unit => unit.Id))
+        foreach (int id in unitOrder)
         {
+            UnitState unit = units[id];
             if (unit.NativeTacticRuntime is null) continue;
             GameState current = state with { Units = units, RandomState = randomState, NativeClock = nextClock };
             NativeSubdayUnitResolution result = rules.AdvanceUnit(current, units[unit.Id], moment)
@@ -170,7 +189,11 @@ public static class NativeSubdayRuntime
             randomState = result.RandomState;
             reports.AddRange(result.Reports);
         }
-        GameState next = state with { Units = units, NativeClock = nextClock, RandomState = randomState, NativeSubdayReports = reports.ToArray() };
+        // Every next callback still sees the complete preceding tick. When
+        // no report was appended, retain that already-owned immutable array.
+        NativeSubdayReport[] currentReports = reports.Count == (state.NativeSubdayReports?.Length ?? 0)
+            ? state.NativeSubdayReports ?? [] : reports.ToArray();
+        GameState next = state with { Units = units, NativeClock = nextClock, RandomState = randomState, NativeSubdayReports = currentReports };
         return next;
     }
 }

@@ -18,9 +18,22 @@ public abstract partial class DetailsView : Control
     private Action? _close;
     private MapFont? _sourceFont;
     private Shader? _sourceShader;
+    private UiSourceHeader? _sourceHeader;
     private readonly List<string> _unbound = [];
     private UiAssets Assets => _assets ??
         throw new InvalidOperationException("Detail assets have not been initialized.");
+
+    // Dedicated source pages can compose their own layouts while retaining
+    // the same close and header lifetime as profile-based details.
+    private protected void ConfigureSourcePage(string name, UiSourceHeader? header, Action close)
+    {
+        Name = name;
+        SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        MouseFilter = MouseFilterEnum.Stop;
+        ZIndex = 3;
+        _sourceHeader = header;
+        _close = close;
+    }
 
     private protected void ConfigureLayout(GameResourceRepository repository, string profilePath,
         string viewName, string titleKey, PreviewText text, IReadOnlyDictionary<string, string> values,
@@ -92,9 +105,9 @@ public abstract partial class DetailsView : Control
             DrawSprite(frame.Layout, frameNode, frameRectangle, Vector2.One);
         if (sourceShell)
         {
-            var title = new UiSourceLayout(repository, 0xDC8AC8AA);
-            title.Art(_canvas, 1, title.Rectangle(1), Assets, _sourceShader!);
-            title.Text(_canvas, 2, default, text.Get(titleKey), _sourceFont!, textPresets[56]);
+            _sourceHeader = new UiSourceHeader { Name = "DetailsTitle" };
+            _canvas.AddChild(_sourceHeader);
+            _sourceHeader.Configure(repository, Assets, _sourceShader!, _sourceFont!, text.Get(titleKey));
         }
         else
         {
@@ -478,13 +491,15 @@ public abstract partial class DetailsView : Control
         });
     }
 
-    internal void RequestClose()
+    internal virtual void RequestClose()
     {
         if (_close is not Action close || !IsVisibleInTree() || IsQueuedForDeletion()) return;
         _close = null;
         Hide();
         close();
     }
+
+    internal void RegisterHeader(UiSourceHeaderStack owner) => _sourceHeader?.Publish(owner);
 
     public override void _ExitTree()
     {

@@ -62,21 +62,13 @@ public sealed partial class ArmyCampaignRuleAdapter
         var center = current.ReadHexTableReference(raw < 48400 ? raw : 0) ?? throw OccupationMissing("center_Hex");
         int width = 2;
         var candidates = new List<HexReference>();
-        if (center.PhysicalSlot is int centerId)
+        var formerForces = new List<int>();
+        var seenFormerForces = new HashSet<int>();
+        if (center.PhysicalSlot is not null)
         {
             width = ReadOccupationWidth(state, current, army);
-            candidates.Add(center);
-            if (width < 2)
-            {
-                int direction = OccupationKnown(army.NativeDirection36, "Army_direction");
-                var (left, right) = OccupationSides(centerId, direction);
-                Append(left); Append(right);
-                if (width == 1) { Append(OccupationSides(left, direction).Left); Append(OccupationSides(right, direction).Right); }
-            }
-            candidates = candidates.Where(hex =>
-                OccupationKnown(ArmyLogisticsPreparation.ReadNativeRelationGate(state, force,
-                    OccupationKnown(current.ReadHexForceSlot(hex), "candidate_force")), "candidate_relation") &&
-                GateCaptureTerritorySource.Eligible(state, current, hex, force, hex.PhysicalSlot != centerId)).ToList();
+            candidates = ReadOccupationFootprint(state, current, army, center, force, width,
+                excludeSideArmies: true);
         }
         foreach (var hex in candidates)
         {
@@ -98,8 +90,17 @@ public sealed partial class ArmyCampaignRuleAdapter
             //actual site remains unsupported instead of inventing flags47.
             if (_occupationSceneryHexes.Contains(hex.PhysicalSlot!.Value))
                 throw OccupationMissing("scenery_callbacks");
-            if (OccupationKnown(current.ReadHexForceSlot(hex), "former_force") != 0)
-                throw OccupationMissing("former_Force_callbacks");
+            int formerRaw = OccupationKnown(current.ReadHexForceSlot(hex), "former_force");
+            var former = current.ReadForceTableReference(formerRaw <= 51 ? formerRaw : 0)
+                ?? throw OccupationMissing("former_Force_pointer");
+            if (OccupationKnown(current.ReadForceNativeValidity(former), "former_Force_validity"))
+            {
+                int previous = OccupationKnown(current.ReadForcePhysicalSlot(former), "former_Force_identity");
+                //2FFC30 collects unique actual Force receivers before any
+                //186290/185D00 transfer; special forces never enter this tail.
+                if (previous != 51 && previous is not (>= 46 and <= 50) && seenFormerForces.Add(previous))
+                    formerForces.Add(previous);
+            }
         }
         //Numeric campaign has no native scenery renderer; the special scenery
         //branch above was nevertheless read and qualified from actual resources.
@@ -170,8 +171,36 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         if (regions.Logs.Length != 0)
             working = working with { PendingCommandReports = [.. working.PendingCommandReports, .. regions.Logs] };
+        //The ordinary occupation tail follows the complete transfer, commander
+        //reward and region reports. Each distinct former Force is visited once,
+        //in its first candidate order, with the original changed-only notice.
+        foreach (int previous in formerForces)
+            working = ForceRelationChangeCurrent.Apply(working, current, force, previous,
+                ReadOrdinaryOccupationRelationAdjustment,
+                key => OccupationParameter(working, key));
         return (working, new(army.Id, physical, width, candidates.Select(h => h.PhysicalSlot!.Value).ToArray(),
             transferred.ToArray(), dirty.ToArray(), growth, merit));
+    }
+
+    //188FC0's same center/side ordering serves both actual2FFC30 transfer and
+    //the2B1AF0 patrol score. Only the former excludes occupied side Hexes.
+    private List<HexReference> ReadOccupationFootprint(GameState state, SourceWorldContext current,
+        UnitState army, HexReference center, int force, int width, bool excludeSideArmies, int? directionOverride = null)
+    {
+        int centerId = OccupationKnown(center.PhysicalSlot, "footprint_center");
+        var candidates = new List<HexReference> { center };
+        if (width < 2)
+        {
+            int direction = directionOverride ?? OccupationKnown(army.NativeDirection36, "Army_direction");
+            var (left, right) = OccupationSides(centerId, direction);
+            Append(left); Append(right);
+            if (width == 1) { Append(OccupationSides(left, direction).Left); Append(OccupationSides(right, direction).Right); }
+        }
+        return candidates.Where(hex =>
+            OccupationKnown(ArmyLogisticsPreparation.ReadNativeRelationGate(state, force,
+                OccupationKnown(current.ReadHexForceSlot(hex), "candidate_force")), "candidate_relation") &&
+            GateCaptureTerritorySource.Eligible(state, current, hex, force,
+                excludeSideArmies && hex.PhysicalSlot != centerId)).ToList();
 
         void Append(int index)
         {
@@ -221,6 +250,12 @@ public sealed partial class ArmyCampaignRuleAdapter
             _ => hex
         };
     }
+    //Fixed ordinary occupation diplomacy delta. Offline typed data and its
+    //complete reference ledger identify a read-only signed constant, not a
+    //fresh-session option or a missing saved parameter default.
+    private int ReadOrdinaryOccupationRelationAdjustment() => Seed.Language == "TC"
+        ? -1 : throw OccupationMissing("former_Force_relation_adjustment_" + Seed.Language);
+
     private static int OccupationParameter(GameState state, string key) =>
         state.NativeArmySimulation?.Parameters is { } p && p.Int32Values.TryGetValue(key, out int value) &&
         !p.Float32Values.ContainsKey(key) ? value : throw OccupationMissing(key);

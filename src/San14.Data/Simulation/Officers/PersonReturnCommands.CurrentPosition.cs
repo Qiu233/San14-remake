@@ -11,6 +11,8 @@ public static partial class PersonReturnCommands
         var owner = CurrentCommandOwner(state, current);
         if (owner.Disappearances?.GetValueOrDefault(identity) is { } task)
             return current.ReadHexTableReference(task.StationHex) ?? throw Missing("absence target hex");
+        if (owner.Talents?.GetValueOrDefault(identity) is { } talent)
+            return current.ReadHexTableReference(talent.EndHexId) ?? throw Missing("talent target Hex");
         var command = owner.Returns.GetValueOrDefault(identity) ?? throw Missing("current_Command_receiver");
         if (command.RouteDestinations.Length == 0) return new(null);
         var selected = ToBase(command.RouteDestinations[0]);

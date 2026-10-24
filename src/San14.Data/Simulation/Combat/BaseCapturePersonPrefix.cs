@@ -27,13 +27,28 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
     public BaseCapturePersonPrefixResult TryApply(GameState input, BaseReference target,
         ArmyUnitReference winnerArmy, NativeMapSeasonDate? operationThirdDate = null,
         TacticSourceSamplerWorld? sampler = null, CaptureApplicationOwners? application = null)
+        => Apply(input, target, winnerArmy, operationThirdDate, sampler, application, null);
+
+    internal BaseCapturePersonPrefixResult TryApplyCurrent(GameState input, SourceWorldContext current,
+        BaseReference target, ArmyUnitReference winnerArmy, NativeMapSeasonDate? operationThirdDate,
+        TacticSourceSamplerWorld? sampler)
+        => Apply(input, target, winnerArmy, operationThirdDate, sampler, null, current);
+
+    private BaseCapturePersonPrefixResult Apply(GameState input, BaseReference target,
+        ArmyUnitReference winnerArmy, NativeMapSeasonDate? operationThirdDate,
+        TacticSourceSamplerWorld? sampler, CaptureApplicationOwners? application,
+        SourceWorldContext? operationCurrent)
     {
+        bool borrowed = operationCurrent is not null;
         SourceWorldContext? current = null;
         HexListHandle? captured = null, noncaptured = null, special = null, changedForce = null;
         bool published = false;
         try
         {
-            var world = package.CaptureOwnedArmyReturnWorld(input); current = world.Context;
+            var world = operationCurrent is null ? package.CaptureOwnedArmyReturnWorld(input) :
+                OwnedArmyReturnWorld.Borrow(input, operationCurrent, operationCurrent.ReadOwnedCurrentListPool()
+                    ?? throw Missing("borrowed_current_pool"));
+            current = world.Context;
             int link = K(current.ReadBaseObjectLink(target), "Base4E");
             if (link is < 1 or > 61 || !K(current.ReadBaseNativeValidity(target), "Base validity")) throw Missing("branch.invalid_Base");
             int oldForce = K(current.ReadBaseForceSlot(target), "Base B0");
@@ -67,13 +82,13 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
                 //not removed these manager nodes while this loop runs.
                 if (current.IsArmyUnitMapWriteSkipped(army))
                 {
-                    working = WithPool(working, current);
+                    working = WithPool(working, current, borrowed);
                     var retired = new OwnedArmyDestructionStage(package).ApplyEmployedHomeCommanderCause4Current(
                         working, current, current.ReadOwnedCurrentListPool() ?? throw Missing("HomeArmy current pool"),
                         armySlot, winnerArmy, sourceDate);
                     working = retired.State ?? throw Missing(retired.UnresolvedOwner ?? "HomeArmy_259360_mode0_cause4");
                     homeArmyCause4.Add(retired.Receipt!);
-                    current = package.CaptureOwnedArmyReturnWorld(working).Context;
+                    if (!borrowed) current = package.CaptureOwnedArmyReturnWorld(working).Context;
                 }
             }
 
@@ -134,13 +149,13 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
             //ordinarystatus3/4 scope. Special callbacks stay unknown;
             //capturetrue is never relabeled asnoncaptured.
             var custody = new List<PersonArmyCaptureWholeReceipt>();
-            working = WithPool(working, current);
+            working = WithPool(working, current, borrowed);
             var capturedNodes = ReadPeople(current, captured);
             if (capturedNodes.Count != 0) SortStatusAndIdentity(current, captured, capturedNodes, rulerLast: true);
             foreach (var item in ReadPeople(current, captured))
             {
                 var result = package.ApplyOrdinaryWinnerArmyCapture(working, current,
-                    current.ReadOwnedCurrentListPool() ?? throw Missing("current primary pool"), item.Person, winnerArmy);
+                    current.ReadOwnedCurrentListPool() ?? throw Missing("current primary pool"), item.Person, winnerArmy, operationThirdDate);
                 working = result.State ?? throw Missing(result.UnresolvedOwner ?? "2E0FC0 captured callback");
                 custody.Add(result.Receipt!);
             }
@@ -177,20 +192,23 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
                 int person = current.ReadPersonLookupReference(id)?.PhysicalSlot ?? throw Missing("noncaptured Person pointer");
                 byte status = K(current.ReadPersonStatus(person), "232460 current PersonE6");
                 if (status is < 1 or > 4) continue;
-                working = WithPool(working, current);
-                var result = package.CreateCaptureReturningPersonRules().TryApplyIdleBase(working, link, oldForce, id, sourceDate);
+                working = WithPool(working, current, borrowed);
+                var rules = package.CreateCaptureReturningPersonRules();
+                var result = borrowed
+                    ? rules.TryApplyHomeCurrent(working, current, link, oldForce, id, sourceDate)
+                    : rules.TryApplyIdleBase(working, link, oldForce, id, sourceDate);
                 working = result.State ?? throw Missing(result.UnresolvedOwner ?? "260310 noncaptured Home");
                 homeWrites.Add(result.Receipt!);
                 //The Home operation adopted actual current and includes all
                 //still-live caller temporaries. Continue from that owner.
-                current = package.CaptureOwnedArmyReturnWorld(working).Context;
+                if (!borrowed) current = package.CaptureOwnedArmyReturnWorld(working).Context;
             }
             var receipt = new BaseCapturePersonPrefixReceipt(link, oldForce, newForce, homeArmies.ToArray(), homes.ToArray(),
                 decisions.ToArray(), capturedNodes.Select(x => (int)K(current.ReadPersonIdentity(x.Person), "captured Person10")).ToArray(),
                 ReadPeople(current, special).Select(x => (int)K(current.ReadPersonIdentity(x.Person), "special Person10")).ToArray(),
                 noncapturedOrder, homeWrites.ToArray(), custody.ToArray(), captured, noncaptured, special, changedForce)
                 { HomeArmyCause4 = homeArmyCause4.ToArray() };
-            working = WithPool(working, current);
+            working = WithPool(working, current, borrowed);
             published = true;
             return new(working, receipt, current, null);
         }
@@ -208,11 +226,17 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
     }
 
     public static GameState Release(GameState state, SourceWorldContext current,
-        BaseCapturePersonPrefixReceipt receipt)
+        BaseCapturePersonPrefixReceipt receipt) => ReleaseWithPool(state, current, receipt, false);
+
+    internal static GameState ReleaseWithinCapture(GameState state, SourceWorldContext current,
+        BaseCapturePersonPrefixReceipt receipt) => ReleaseWithPool(state, current, receipt, true);
+
+    private static GameState ReleaseWithPool(GameState state, SourceWorldContext current,
+        BaseCapturePersonPrefixReceipt receipt, bool projectOwnedRoles)
     {
         Release(current, receipt.ChangedForceTemporary); Release(current, receipt.SpecialTemporary);
         Release(current, receipt.NoncapturedTemporary); Release(current, receipt.CapturedTemporary);
-        return WithPool(state, current);
+        return WithPool(state, current, projectOwnedRoles);
     }
 
     private static List<PersonNode> ReadPeople(SourceWorldContext current, HexListHandle list)
@@ -277,7 +301,12 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
         current.CreateTemporaryHexList() ?? throw Missing("Person temporary allocator");
     private static void Release(SourceWorldContext current, HexListHandle list)
     { current.ClearTemporaryHexList(list); current.ReleaseTemporaryHexList(list); }
-    private static GameState WithPool(GameState state, SourceWorldContext current) => state.WithArmyLifecycle(state.ReadArmyLifecycle()! with { Indexes = (current.ReadOwnedCurrentListPool() ?? throw Missing("current primary pool")).ExportOwnedState() });
+    private static GameState WithPool(GameState state, SourceWorldContext current, bool projectOwnedRoles = false)
+    {
+        var pool = current.ReadOwnedCurrentListPool() ?? throw Missing("current primary pool");
+        return state.WithArmyLifecycle(state.ReadArmyLifecycle()! with
+            { Indexes = projectOwnedRoles ? pool.ProjectOwnedRoles() : pool.ExportOwnedState() });
+    }
     private static T K<T>(T? value, string owner) where T : struct => value ?? throw Missing(owner);
     private static InvalidDataException Missing(string owner) => new("current.BaseCapturePersonPrefix: " + owner);
     private sealed record PersonNode(HexListNodeReference Node, int Person);

@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.ObjectModel;
 using System.Numerics;
 using System.Text;
@@ -31,13 +32,16 @@ public sealed class D3D11ArmyReturnedPhases
 /// their root/OBB reach the retained model. Source resources are loaded separately.</summary>
 public sealed class D3D11ArmyPublication
 {
+    private readonly object _generationLock = new();
+    private D3D11ArmyPublication? _generationPublication;
     internal byte[] NativeBytes {get;}
     public ReadOnlyMemory<byte> Packet=>NativeBytes;
     public ulong Revision {get;}
     public ulong ResourceContextGeneration {get;}
     public IReadOnlyList<D3D11ArmyActor> Actors {get;}
     public IReadOnlyList<D3D11ArmyUnavailable> Unavailable {get;}
-    public IReadOnlyList<ArmyFlagMaterialRequest> FlagMaterialRequests {get;}
+    internal ReadOnlyCollection<ArmyFlagMaterialRequest> FlagMaterialRequestOwner {get;}
+    public IReadOnlyList<ArmyFlagMaterialRequest> FlagMaterialRequests=>FlagMaterialRequestOwner;
     public string AnimationScope {get;}
     public IReadOnlyDictionary<int,Vector3> UnitCenters {get;}
     public IReadOnlyDictionary<int,int> UnitGraphicsActions {get;}
@@ -64,11 +68,11 @@ public sealed class D3D11ArmyPublication
         IReadOnlyDictionary<int,int>? unitGraphicsActions,IReadOnlyDictionary<int,float>? unitGroundHeights,
         IReadOnlyDictionary<int,uint>? unitMotionRevisions,IReadOnlyDictionary<int,uint>? unitModelModes,
         IReadOnlyDictionary<int,uint>? unitSelectedFormations,IReadOnlyDictionary<int,uint>? unitNavalFormations,
-        IReadOnlyList<ArmyFlagMaterialRequest>? flagMaterialRequests=null,ulong resourceContextGeneration=0)
+        ReadOnlyCollection<ArmyFlagMaterialRequest>? flagMaterialRequests=null,ulong resourceContextGeneration=0)
     {
         Revision=revision;ResourceContextGeneration=resourceContextGeneration;
         Actors=Array.AsReadOnly(actors);Unavailable=Array.AsReadOnly(unavailable);AnimationScope=animationScope;
-        FlagMaterialRequests=Array.AsReadOnly(flagMaterialRequests?.ToArray()??[]);
+        FlagMaterialRequestOwner=flagMaterialRequests??Array.AsReadOnly(Array.Empty<ArmyFlagMaterialRequest>());
         UnitCenters=unitCenters;
         UnitGraphicsActions=unitGraphicsActions??new ReadOnlyDictionary<int,int>(unitCenters.Keys.ToDictionary(id=>id,_=>0));
         UnitGroundHeights=unitGroundHeights??new ReadOnlyDictionary<int,float>(unitCenters.ToDictionary(p=>p.Key,p=>p.Value.Y));
@@ -92,10 +96,30 @@ public sealed class D3D11ArmyPublication
         void V(Vector4 value){writer.Write(value.X);writer.Write(value.Y);writer.Write(value.Z);writer.Write(value.W);}
     }
 
+    private D3D11ArmyPublication(D3D11ArmyPublication source, ulong generation)
+    {
+        Revision=source.Revision;ResourceContextGeneration=generation;
+        Actors=source.Actors;Unavailable=source.Unavailable;AnimationScope=source.AnimationScope;
+        FlagMaterialRequestOwner=source.FlagMaterialRequestOwner;UnitCenters=source.UnitCenters;
+        UnitGraphicsActions=source.UnitGraphicsActions;UnitGroundHeights=source.UnitGroundHeights;
+        UnitMotionRevisions=source.UnitMotionRevisions;UnitModelModes=source.UnitModelModes;
+        UnitSelectedFormations=source.UnitSelectedFormations;UnitNavalFormations=source.UnitNavalFormations;
+        // The publication is immutable. Only the ARMYWLD7 generation field
+        // changes; keep the already encoded unit/actor payload and its owners.
+        NativeBytes=source.NativeBytes.ToArray();
+        BinaryPrimitives.WriteUInt64LittleEndian(NativeBytes.AsSpan(16,8),generation);
+    }
+
     internal D3D11ArmyPublication WithResourceContextGeneration(ulong generation)
-        => ResourceContextGeneration == generation ? this : new(Revision, Actors.ToArray(), Unavailable.ToArray(),
-            AnimationScope, UnitCenters, UnitGraphicsActions, UnitGroundHeights, UnitMotionRevisions,
-            UnitModelModes, UnitSelectedFormations, UnitNavalFormations, FlagMaterialRequests, generation);
+    {
+        if(ResourceContextGeneration==generation)return this;
+        lock(_generationLock)
+        {
+            if(_generationPublication?.ResourceContextGeneration!=generation)
+                _generationPublication=new(this,generation);
+            return _generationPublication;
+        }
+    }
 }
 
 /// <summary>Loaded source definitions plus existing owned ordinary/flag visual
@@ -178,12 +202,14 @@ public sealed class D3D11ArmyPublisher:IDisposable
         return publication;
     }
 
+    internal D3D11ArmyPublisher ForkPresentation() => new(this);
+
     private D3D11ArmyPublication CapturePrepared(GameState world,D3D11ArmyReturnedPhases? returnedPhases=null)
     {
         bool sameWorld=_current is not null&&ReferenceEquals(world,_lastWorld);
         if(sameWorld&&!_motionChanged&&ReferenceEquals(returnedPhases,_lastAnimation))return _current!;
         D3D11ArmyActor[] actors;D3D11ArmyUnavailable[] unavailable;
-        IReadOnlyList<ArmyFlagMaterialRequest> flagRequests=_current?.FlagMaterialRequests??[];
+        ReadOnlyCollection<ArmyFlagMaterialRequest>? flagRequests=_current?.FlagMaterialRequestOwner;
         if(sameWorld&&!_motionChanged){actors=_current!.Actors.Select(a=>a with{ReturnedPhase=Phase(a.Key,returnedPhases)}).ToArray();unavailable=_current.Unavailable.ToArray();}
         else{
             if(!sameWorld){
@@ -201,7 +227,10 @@ public sealed class D3D11ArmyPublisher:IDisposable
             if(!sameWorld)_flagMaterials=_flags.Frames.Count==0?null:_flagCurrent.Prepare(world,_flags.Frames.Keys);
             var material=_flagMaterials;
             var current=new List<D3D11ArmyActor>();
-            var requests=new Dictionary<(int Category,int Force,int Color,ushort Glyph),ArmyFlagMaterialRequest>();
+            // Motion changes transforms and bounds, while the source world
+            // owns commander, force/name/color and the selected model mode.
+            // Retain this immutable owner until that actual world changes.
+            var requests=sameWorld?null:new Dictionary<(int Category,int Force,int Color,ushort Glyph),ArmyFlagMaterialRequest>();
             foreach(var frame in _ordinary.Frames.Values.OrderBy(f=>f.UnitId)){
                 if(world.Units[frame.UnitId].PositionKnowledge==ArmyPositionKnowledge.Conflicting)
                     throw new InvalidDataException("Army visual position has unresolved compatibility knowledge.");
@@ -220,12 +249,12 @@ public sealed class D3D11ArmyPublisher:IDisposable
                     Add(key,actor.World,flagKey);
                     var binding=material.Bindings[frame.UnitId];
                     var sourceName=actor.Category==2?binding.BannerName:binding.CarriedKind2Name!;
-                    requests.TryAdd((actor.Category,flagKey.ForceVariant,flagKey.SourceColor49,flagKey.SourceGlyph),
+                    requests?.TryAdd((actor.Category,flagKey.ForceVariant,flagKey.SourceColor49,flagKey.SourceGlyph),
                         new(actor.Category,flagKey.ForceVariant,color,sourceName,actor.Category==3));
                 }
             }
             actors=current.ToArray();unavailable=missing.ToArray();
-            flagRequests=requests.Values.ToArray();
+            if(requests is not null)flagRequests=Array.AsReadOnly(requests.Values.ToArray());
             void Add(D3D11ArmyActorKey key,UnitWorldTransformState transform,D3D11ArmyFlagMaterialKey? materialKey){
                 if(!_bounds.TryGetValue(key.Category,out var bounds)){
                     bool body=key.Category<2||key.Category is >=4 and <=9;
@@ -241,17 +270,41 @@ public sealed class D3D11ArmyPublisher:IDisposable
                     _defaultActions.Categories[key.Category].ActionIndex,Phase(key,returnedPhases),materialKey));
             }
         }
+        IReadOnlyDictionary<int,Vector3> centers;
+        IReadOnlyDictionary<int,int> actions;
+        IReadOnlyDictionary<int,float> heights;
+        IReadOnlyDictionary<int,uint> motions,modes,land,naval;
+        if(sameWorld&&!_motionChanged){
+            // Explicit animation phases do not change any unit-level input.
+            centers=_current!.UnitCenters;actions=_current.UnitGraphicsActions;heights=_current.UnitGroundHeights;
+            motions=_current.UnitMotionRevisions;modes=_current.UnitModelModes;
+            land=_current.UnitSelectedFormations;naval=_current.UnitNavalFormations;
+        }
+        else{
+            int count=_ordinary.Frames.Count;
+            var centerValues=new Dictionary<int,Vector3>(count);var actionValues=new Dictionary<int,int>(count);
+            var heightValues=new Dictionary<int,float>(count);var motionValues=new Dictionary<int,uint>(count);
+            var modeValues=new Dictionary<int,uint>(count);
+            var landValues=sameWorld?null:new Dictionary<int,uint>(count);
+            var navalValues=sameWorld?null:new Dictionary<int,uint>(count);
+            foreach(var (id,frame) in _ordinary.Frames){
+                centerValues.Add(id,frame.CurrentUnitPosition);actionValues.Add(id,frame.GraphicsAction60);
+                heightValues.Add(id,frame.CurrentGroundHeight);motionValues.Add(id,frame.MotionRevision);
+                modeValues.Add(id,(uint)frame.Mode);
+                if(!sameWorld){
+                    landValues!.Add(id,(uint)ArmyConfigurationSourceAdapter.ReadCurrentLand(world,world.Units[id])!.Value);
+                    navalValues!.Add(id,(uint)(ArmyConfigurationSourceAdapter.ReadNaval(world,world.Units[id])??0));
+                }
+            }
+            centers=new ReadOnlyDictionary<int,Vector3>(centerValues);actions=new ReadOnlyDictionary<int,int>(actionValues);
+            heights=new ReadOnlyDictionary<int,float>(heightValues);motions=new ReadOnlyDictionary<int,uint>(motionValues);
+            modes=new ReadOnlyDictionary<int,uint>(modeValues);
+            land=sameWorld?_current!.UnitSelectedFormations:new ReadOnlyDictionary<int,uint>(landValues!);
+            naval=sameWorld?_current!.UnitNavalFormations:new ReadOnlyDictionary<int,uint>(navalValues!);
+        }
         var next=new D3D11ArmyPublication(++_revision,actors,unavailable,returnedPhases?.Source??
             "Source current-Hex targets, retained nineteen-record motion and graphics ActionID; paced native manager owns player phase.",
-            new ReadOnlyDictionary<int,Vector3>(_ordinary.Frames.ToDictionary(pair=>pair.Key,pair=>pair.Value.CurrentUnitPosition)),
-            new ReadOnlyDictionary<int,int>(_ordinary.Frames.ToDictionary(pair=>pair.Key,pair=>pair.Value.GraphicsAction60)),
-            new ReadOnlyDictionary<int,float>(_ordinary.Frames.ToDictionary(pair=>pair.Key,pair=>pair.Value.CurrentGroundHeight)),
-            new ReadOnlyDictionary<int,uint>(_ordinary.Frames.ToDictionary(pair=>pair.Key,pair=>pair.Value.MotionRevision)),
-            new ReadOnlyDictionary<int,uint>(_ordinary.Frames.ToDictionary(pair=>pair.Key,pair=>(uint)pair.Value.Mode)),
-            new ReadOnlyDictionary<int,uint>(_ordinary.Frames.ToDictionary(pair=>pair.Key,
-                pair=>(uint)ArmyConfigurationSourceAdapter.ReadCurrentLand(world, world.Units[pair.Key])!.Value)),
-            new ReadOnlyDictionary<int,uint>(_ordinary.Frames.ToDictionary(pair=>pair.Key,
-                pair=>(uint)(ArmyConfigurationSourceAdapter.ReadNaval(world, world.Units[pair.Key])??0))),flagRequests);
+            centers,actions,heights,motions,modes,land,naval,flagRequests);
         _lastWorld=world;_motionChanged=false;_lastAnimation=returnedPhases;return _current=next;
     }
     public D3D11ArmyPublication AdvanceMotion(GameState world,uint fpsMode)

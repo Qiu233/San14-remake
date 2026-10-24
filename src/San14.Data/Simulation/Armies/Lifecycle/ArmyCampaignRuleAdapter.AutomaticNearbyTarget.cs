@@ -76,6 +76,11 @@ public sealed partial class ArmyCampaignRuleAdapter
     //nodes; it neither allocates new payloads nor assumes a transitive comparer.
     private GameState ApplyAutomaticNearbyTarget(GameState state, SourceWorldContext current,
         UnitState image, NativeArmyProgressStageMoment moment, HexListHandle input)
+        => ApplyAutomaticNearbyTarget(state, current, image, (FacilityOperation)moment, input,
+            () => FSampler(state, moment));
+
+    private GameState ApplyAutomaticNearbyTarget(GameState state, SourceWorldContext current,
+        UnitState image, FacilityOperation operation, HexListHandle input, Func<TacticSourceSamplerWorld> readSampler)
     {
         var copy = current.CreateNearbyTemporary();
         try
@@ -88,7 +93,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             for (int i = 1; i < nodes.Count; i++)
             {
                 var item = nodes[i]; int at = i;
-                while (at > 0 && AutomaticTargetBefore(state, current, image, actorPerson, item.Army, nodes[at - 1].Army, moment))
+                while (at > 0 && AutomaticTargetBefore(state, current, image, actorPerson, item.Army, nodes[at - 1].Army, readSampler))
                 { nodes[at] = nodes[at - 1]; at--; }
                 nodes[at] = item;
             }
@@ -112,7 +117,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 //28E910 retains fresh metadata in this order after formatting,
                 //before the original Next48 reset and route continuation.
                 int payload = MaintenanceKnown(current.ReadArmyUnitCommanderId(actor), "nearby_report_Commander12");
-                int day = StatusCampaignDay(working, moment);
+                int day = operation.ReadCampaignDay(working);
                 int hex = MaintenanceKnown(current.ReadArmyUnitRawHex2A(actor), "nearby_report_Army2A");
                 int district = ReadFacilityHistoryDistrict(current, actor);
                 var requests = new List<CampaignEffectRequest>();
@@ -120,7 +125,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     CampaignHistoryWriter.Supplemental(working), payload, MarkBit4: 1), requests);
                 if (requests.Count != 0)
                     working = working with { CampaignEffectRequests = (working.CampaignEffectRequests ?? throw MaintenanceMissing("nearby_effect_owner"))
-                        .Append(CampaignEffectSource.ArmyCommandMaintenance, moment.CalendarCycleOrdinal, requests) };
+                        .Append(CampaignEffectSource.ArmyCommandMaintenance, operation.Revision, requests) };
             }
             var routed = working.Units[image.Id] with { March = working.Units[image.Id].March! with { NextStep = ArmyMarchDestination.None } };
             working = working with { Units = new(working.Units) { [image.Id] = routed } };
@@ -130,7 +135,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     }
 
     private bool AutomaticTargetBefore(GameState state, SourceWorldContext current, UnitState actor,
-        TransferPersonReference actorPerson, ArmyUnitReference left, ArmyUnitReference right, NativeArmyProgressStageMoment moment)
+        TransferPersonReference actorPerson, ArmyUnitReference left, ArmyUnitReference right, Func<TacticSourceSamplerWorld> readSampler)
     {
         int actorAt = MaintenanceKnown(ArmyMarchSourceAdapter.ReadCurrentHex(state, actor), "sort_actor2A");
         var main = OwnedArmyLifecycleTargets.Read(state, state.ReadArmyLifecycle()!.Slots[actor.NativeArmyOrigin!.NativeSlotIndex!.Value].ReceiverId)
@@ -188,7 +193,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 ? values[other] : throw MaintenanceMissing("sort_Force_relations13");
         byte leftRelation = Relation(leftForce), rightRelation = Relation(rightForce);
         if (leftRelation != rightRelation) return leftRelation < rightRelation;
-        return TacticEffectSourceSamplerMath.Sample(2, 1, ArmyPhysical(left), 0, 0, 0, FSampler(state, moment)) == 0;
+        return TacticEffectSourceSamplerMath.Sample(2, 1, ArmyPhysical(left), 0, 0, 0, readSampler()) == 0;
     }
 
     private static int AutomaticCandidateMainHex(GameState state, SourceWorldContext current, ArmyUnitReference army)

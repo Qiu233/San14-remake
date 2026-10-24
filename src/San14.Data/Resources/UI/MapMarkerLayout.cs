@@ -11,6 +11,27 @@ public sealed record MapMarkerLayout(string Name, int CommonRow,
     internal static MapMarkerLayout Load(GameResourceRepository repository,
         string name, uint expectedFile, string expectedSignature)
     {
+        var (row, named, file) = ResolveNamedFile(repository, name);
+        if (file != expectedFile) throw new InvalidDataException($"Original map layout {name} source file differs.");
+        var source = repository.LoadRdbAsset("ScreenLayout", file);
+        string signature = Encoding.ASCII.GetString(source.Bytes, 0, 8);
+        if (signature != expectedSignature) throw new InvalidDataException($"Original map layout {name} source signature differs.");
+        var layout = LcskLayoutReader.Read(source.Bytes);
+        return new(name, row, named, source, signature, layout, LcskNodeReader.Read(layout));
+    }
+
+    // A named consumer without a previously extracted file ID still resolves
+    // through the same Common declaration. The normal layout reader owns its
+    // supported binary format checks; fixed-file callers retain both checks above.
+    internal static LoadedLayout LoadNamed(GameResourceRepository repository, string name)
+    {
+        var (_, _, file) = ResolveNamedFile(repository, name);
+        return repository.LoadLayout("ScreenLayout", file);
+    }
+
+    private static (int Row, uint Named, uint File) ResolveNamedFile(
+        GameResourceRepository repository, string name)
+    {
         var common = repository.LoadObjects("KIDSSystemResource", 0x6D011726);
         var owner = common.Document.Objects.Single(o => o.ObjectId == 0x61AD16CF && o.ClassId == 0xDAC911D7);
         var keys = owner.Properties.Single(p => p.NameHash == 0x10FA95C2).RawValue;
@@ -24,11 +45,6 @@ public sealed record MapMarkerLayout(string Name, int CommonRow,
         var definitions = repository.LoadObjects("KIDSSystemResource", 0x208BE13A);
         var declaration = definitions.Document.Objects.Single(o => o.ObjectId == named);
         uint file = BinaryPrimitives.ReadUInt32LittleEndian(declaration.Properties.Single(p => p.NameHash == 0x15BE61AD).RawValue);
-        if (file != expectedFile) throw new InvalidDataException($"Original map layout {name} source file differs.");
-        var source = repository.LoadRdbAsset("ScreenLayout", file);
-        string signature = Encoding.ASCII.GetString(source.Bytes, 0, 8);
-        if (signature != expectedSignature) throw new InvalidDataException($"Original map layout {name} source signature differs.");
-        var layout = LcskLayoutReader.Read(source.Bytes);
-        return new(name, row, named, source, signature, layout, LcskNodeReader.Read(layout));
+        return (row, named, file);
     }
 }

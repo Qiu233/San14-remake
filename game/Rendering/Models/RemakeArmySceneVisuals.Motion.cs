@@ -27,10 +27,17 @@ public sealed partial class RemakeArmySceneVisuals
             var unit = world.Units[id];
             if (ArmyConfigurationSourceAdapter.ReadCurrentLand(world, unit) is not byte formation||
                 captureInputs(world, unit) is not { } inputs) continue;
-            int mode=ArmyNativeFormationQueries.ModelMode(selection.Terrain,false,formation);
+            int mode;
+            if (selection.Transport is not null)
+            {
+                if (!selection.Terrain.UsesArmyByte1C) continue;
+                mode = 1;
+            }
+            else mode=ArmyNativeFormationQueries.ModelMode(selection.Terrain,false,formation);
             if(mode is not(0 or 1 or 2))continue;
             byte naval=ArmyConfigurationSourceAdapter.ReadNaval(world, unit)??0;
-            EnsureSourceModels();
+            if (selection.Transport is null) EnsureSourceModels();
+            else _catalog ??= CeArmyModels.LoadCatalog(_repository);
             if(mode==2)EnsureIndependentSourceModel(formation-4);
             if(mode==1&&ArmyModelSelection.ChooseKnownDescriptor(1,null,naval).Category is int ship)
                 EnsureIndependentSourceModel(ship);
@@ -38,7 +45,7 @@ public sealed partial class RemakeArmySceneVisuals
             {
                 var position = HexPosition(inputs.CurrentHex2A);
                 var heading = ArmyGraphicsMotionMath.Direction(inputs.Direction36);
-                if (!_states.TryGetValue(id, out var state))
+                if (selection.Transport is null && !_states.ContainsKey(id))
                 {
                     var policy = new RemakeArmyCreationPolicy(new byte[19 * 64],
                         "remake-created ordinary visual; owned cleared record template")
@@ -50,15 +57,17 @@ public sealed partial class RemakeArmySceneVisuals
                         AnimationRouteSource = "source ActionID0 mapped to its declared clip; native retained player",
                         ExplicitContextPredicate16EEC0 = false
                     };
-                    _states.Add(id, state = new(_language, policy));
+                    _states.Add(id, new(_language, policy));
                 }
                 byte[] templates=new byte[19*64];
                 int[] random=Enumerable.Range(0,19).Select(i=>RandomDraw(world,id,i)).ToArray();
                 const string randomSource="explicit remake SHA256-counter results at native random query boundary";
                 var records=ArmyInstancePose.InitializeRecords(position,heading,random,templates,
-                    "remake-created retained land visual; owned cleared record template; "+randomSource,_language);
+                    (selection.Transport is null ? "remake-created retained land visual; " : "owned current transport water visual; ") +
+                    "owned cleared record template; "+randomSource,_language);
                 var initial=new RemakeArmyInitialization(unit,1,new(position.X,position.Y,position.Z),heading,
-                    random,templates,randomSource,records);
+                    random,templates,randomSource,records,
+                    selection.Transport is null ? null : selection.ExplicitLandFormationSlot);
                 owned = new(initial, new ArmyGraphicsMotion(initial.CopyRecords(), position, heading,
                     inputs.CurrentHex2A, inputs.Commander12, clock.UpdateInterval32C510, 48400), inputs)
                     {Revision=1,Mode=mode,SelectedFormation1B=formation,SelectedFormation1C=naval};

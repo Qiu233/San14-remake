@@ -280,6 +280,12 @@ public static class PlayableBaseCaptureAftermath
             { Administration = area.Administration! with { OverseerId = null } };
         foreach (DistrictState district in state.Districts.Values.Where(district =>
                      district.Id != destinationDistrictId && district.LeaderId == officerId).ToArray())
+        {
             state.Districts[district.Id] = district with { LeaderId = null };
+            // This operation actually cleared the appointment. Preserve that
+            // known empty word in its existing saved source owner as well.
+            if (state.NativeForceUnregisterCurrent?.DistrictWindows10.TryGetValue(district.Id, out var fields) == true)
+            { fields[2] = 0; fields[3] = 0; }
+        }
     }
 }

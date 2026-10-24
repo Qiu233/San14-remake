@@ -43,27 +43,10 @@ public sealed partial class ArmyCampaignRuleAdapter
                 byte status = image.NativeTacticRuntime?.Status10 ?? throw FatigueMissing("army_status");
                 if (unchecked((byte)(status - 1)) > 1) continue;
                 ushort hex = FatigueKnown(ArmyMarchSourceAdapter.ReadCurrentHex(working, image), "current_hex");
-                int terrain = ArmyNativeFormationQueries.Terrain(_map, _terrain, hex).Terrain.RawField40;
-                if (FatigueKnown(BattleRemakeCurrentSettings.ReadAdvancedSettings(working), "advanced_settings"))
-                    terrain = unchecked(terrain * FatigueKnown(BattleRemakeCurrentSettings.ReadAdvancedParameter(working, 27), "terrain_percent")) / 100;
-                int? sample = null;int amount = terrain;
-                var force = current.ReadArmyUnitForceReference(army) ?? throw FatigueMissing("force_pointer");
-                if (FatigueKnown(current.ReadForceNativeValidity(force), "force_validity"))
-                {
-                    if (!panelsBound) throw FatigueMissing("current_force_panels");
-                    int policy = FatigueKnown(current.ReadBaseForceModifier(force, 43), "force_panel43");
-                    sampler ??= ReadFireStageSampler(working, moment);
-                    sample = TacticEffectSourceSamplerMath.Sample(100, 1, hex, moment.PreWriterThirdDate.Hour, 0, 0, sampler);
-                    if (sample.Value < policy && ProtectedArea(hex)) amount = 0;
-                }
                 bool connected = (image.NativeTacticRuntime!.Flags26 & 2) != 0;
-                if (!connected)
-                {
-                    var bank = working.NativeArmySimulation?.Parameters ?? throw FatigueMissing("parameter_bank");
-                    string key = SimulationParameterKeys.Morale.FieldFatigueBase;
-                    if (bank.Float32Values.ContainsKey(key) || !bank.Int32Values.TryGetValue(key, out int baseline)) throw FatigueMissing("field_fatigue_base");
-                    amount = unchecked(amount + baseline);
-                }
+                var (terrain, amount, sample) = ReadArmyFieldFatigueAmount(working, current, army, hex,
+                    moment.PreWriterThirdDate.Hour, !connected, panelsBound,
+                    () => sampler ??= ReadFireStageSampler(working, moment));
                 if (!panelsBound) throw FatigueMissing("current_force_caps");
                 var applied = ArmyMoraleNonzeroCurrent.Apply(working, current, army, unchecked(-amount));
                 if (applied.NativeReturn is null || applied.Receipt is not { } receipt) throw FatigueMissing(applied.UnresolvedOwner ?? "morale_callback");
@@ -71,25 +54,53 @@ public sealed partial class ArmyCampaignRuleAdapter
                 receipts.Add(new(id, physical, receipt.Before1A, receipt.After1A, terrain, amount, connected, sample));
             }
             return new(working, receipts.ToArray(), null);
-
-            bool ProtectedArea(int ownHex)
-            {
-                foreach (var entry in current.ReadRegistryReferences(RegistryKind.Scenery) ?? throw FatigueMissing("scenery_registry"))
-                {
-                    if (entry is not { Kind: RegistryKind.Scenery, PhysicalSlot: int slot }) throw FatigueMissing("scenery_pointer");
-                    var scenery = new SceneryReference(slot);
-                    if (!FatigueKnown(current.ReadSceneryNativeValidity(scenery), "scenery_validity") ||
-                        (FatigueKnown(current.ReadSceneryFlags47(scenery), "scenery_flags") & 1) == 0) continue;
-                    int target = FatigueKnown(current.ReadSceneryHexIndex(scenery), "scenery_hex");
-                    var targetHex = current.ReadHexTableReference(target < 48400 ? target : 0) ?? throw FatigueMissing("scenery_hex_pointer");
-                    int area = targetHex.PhysicalSlot.HasValue ? FatigueKnown(current.ReadHexAreaSlot(targetHex), "scenery_area") : 0;
-                    var own = current.ReadHexTableReference(ownHex < 48400 ? ownHex : 0) ?? throw FatigueMissing("own_hex_pointer");
-                    if (area == FatigueKnown(current.ReadHexAreaSlot(own), "own_area")) return true;
-                }
-                return false;
-            }
         }
         catch (InvalidDataException error) { return new(null, [], error.Message); }
+    }
+
+    /// <summary>Shared field-fatigue amount. Its optional baseline is controlled by
+    /// the actual caller's connection argument, not by the protection result.</summary>
+    private (int Terrain, int Amount, int? Sample) ReadArmyFieldFatigueAmount(GameState state,
+        SourceWorldContext current, ArmyUnitReference army, ushort hex, int hour,
+        bool includeBaseline, bool panelsBound, Func<TacticSourceSamplerWorld> readSampler)
+    {
+        int terrain = ArmyNativeFormationQueries.Terrain(_map, _terrain, hex).Terrain.RawField40;
+        if (FatigueKnown(BattleRemakeCurrentSettings.ReadAdvancedSettings(state), "advanced_settings"))
+            terrain = unchecked(terrain * FatigueKnown(BattleRemakeCurrentSettings.ReadAdvancedParameter(state, 27), "terrain_percent")) / 100;
+        int? sample = null; int amount = terrain;
+        var force = current.ReadArmyUnitForceReference(army) ?? throw FatigueMissing("force_pointer");
+        if (FatigueKnown(current.ReadForceNativeValidity(force), "force_validity"))
+        {
+            if (!panelsBound) throw FatigueMissing("current_force_panels");
+            int policy = FatigueKnown(current.ReadBaseForceModifier(force, 43), "force_panel43");
+            sample = TacticEffectSourceSamplerMath.Sample(100, 1, hex, hour, 0, 0, readSampler());
+            if (sample.Value < policy && ProtectedArea(hex)) amount = 0;
+        }
+        if (includeBaseline)
+        {
+            var bank = state.NativeArmySimulation?.Parameters ?? throw FatigueMissing("parameter_bank");
+            string key = SimulationParameterKeys.Morale.FieldFatigueBase;
+            if (bank.Float32Values.ContainsKey(key) || !bank.Int32Values.TryGetValue(key, out int baseline)) throw FatigueMissing("field_fatigue_base");
+            amount = unchecked(amount + baseline);
+        }
+        return (terrain, amount, sample);
+
+        bool ProtectedArea(int ownHex)
+        {
+            foreach (var entry in current.ReadRegistryReferences(RegistryKind.Scenery) ?? throw FatigueMissing("scenery_registry"))
+            {
+                if (entry is not { Kind: RegistryKind.Scenery, PhysicalSlot: int slot }) throw FatigueMissing("scenery_pointer");
+                var scenery = new SceneryReference(slot);
+                if (!FatigueKnown(current.ReadSceneryNativeValidity(scenery), "scenery_validity") ||
+                    (FatigueKnown(current.ReadSceneryFlags47(scenery), "scenery_flags") & 1) == 0) continue;
+                int target = FatigueKnown(current.ReadSceneryHexIndex(scenery), "scenery_hex");
+                var targetHex = current.ReadHexTableReference(target < 48400 ? target : 0) ?? throw FatigueMissing("scenery_hex_pointer");
+                int area = targetHex.PhysicalSlot.HasValue ? FatigueKnown(current.ReadHexAreaSlot(targetHex), "scenery_area") : 0;
+                var own = current.ReadHexTableReference(ownHex < 48400 ? ownHex : 0) ?? throw FatigueMissing("own_hex_pointer");
+                if (area == FatigueKnown(current.ReadHexAreaSlot(own), "own_area")) return true;
+            }
+            return false;
+        }
     }
     private static T FatigueKnown<T>(T? value, string field) where T : struct => value ?? throw FatigueMissing(field);
     private static InvalidDataException FatigueMissing(string field) => new("army.progress.morale-fatigue." + field);

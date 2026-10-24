@@ -5,6 +5,20 @@ namespace San14.Data;
 /// <summary>Decodes area and terrain definitions once, then delegates counting to the simulation core.</summary>
 public static class AreaStatisticsSourceAdapter
 {
+    /// <summary>Bind the saved, scheduled statistics into one operation's
+    /// current view. Capturing a view never refreshes ownership or recounts tiles.</summary>
+    public static void BindCurrent(GameState state, SourceWorldContext current)
+    {
+        if (state.RegionStatistics is not { } statistics) return;
+        foreach (var (physical, area) in statistics.Entries)
+        {
+            current.SetAreaRawField76(physical,
+                AreaMapStatisticsInitialization.CountToNativeWord(area.TerrainCellCount));
+            current.SetAreaRawField68(physical, area.IsOwnedCountCurrent
+                ? AreaMapStatisticsInitialization.CountToNativeWord(area.OwnedCellCount) : null);
+        }
+    }
+
     public static GameState Initialize(GameState state, LoadedScenario scenario, LoadedMap map,
         LoadedTerrainTypes terrain)
     {

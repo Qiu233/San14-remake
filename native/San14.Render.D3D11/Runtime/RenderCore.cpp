@@ -159,8 +159,10 @@ static UINT pixelBytes(DXGI_FORMAT format) {
 #include "../Scene/Models/ArmyRenderWorld.h"
 #include "../Scene/Models/BaseRenderWorld.h"
 #include "SceneFrameCoordinator.h"
+#include "../Scene/Routes/RouteOverlay.h"
 San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host, RenderConfiguration configuration) {
     RenderCallbackScope callbacks{host};
+    NativeRouteOverlay routes;
     const auto& resources=configuration.resources;
     const auto& input=resources.terrain();
     const auto modelSource=resources.directory(ResourceGroup::Models);
@@ -266,7 +268,10 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     };
     auto prepareAcceptedCamera=[&]() {
 
-        territory.setVisible(!host.input.contains(FrameInputFlag::HideTerritory));
+        territory.setVisible((host.input.flags&0x40000u)||!host.input.contains(FrameInputFlag::HideTerritory));
+        // The existing1160-byte input reserves these flags for the actual
+        // map-information selector. Legacy callers retain ownership style0.
+        territory.setStyle((host.input.flags&0x40000u)?((host.input.flags>>16)&3u):0u);
         frameState.acceptRequest(host.input,host.currentSeason?&*host.currentSeason:nullptr);
         territory.publishOwnership(host.territoryOwnership);
         territory.publishCommandMap(host.commandMap);
@@ -301,6 +306,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     auto beginAcceptedMain=[&](float currentClock) {
 
         prepareAcceptedCamera(); // Current Main is available to node1, not only geometry.
+        routes.beginView(); //AFDF30 per-View global color reset, before route primitive tint.
         postProcessing.updateMapExposure(context.Get(),frameState.season(),
             {frameState.environment().camera().exposure,frameState.environment().camera().luminance},frameState.environment().exposureRectangleFlags());
         const auto fogInputs=frameState.fogAccelerationInputs();
@@ -664,7 +670,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                         const auto postCaller=NativeMainTargetScope::retain(context.Get());
                         auto sameOutput=postProcessing.outputTarget();
                         context->OMSetRenderTargets(1,&sameOutput,geometryTargets.depthView()); //194, no clear
-                        ;
+                        routes.draw(context.Get(),sourceDepth,frameState.camera(),sourceHostFlags3E4); //200
 
                         postCaller.restore(context.Get()); //203
                         ComPtr<ID3D11DepthStencilView> tailDepth;context->OMGetRenderTargets(0,nullptr,&tailDepth);
@@ -766,13 +772,16 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         phase.completeOuterApply();
         //194/203 alias the same Final109;206 remains closed with null callerDSV.
         const auto postCaller=NativeMainTargetScope::retain(context.Get());auto sameOutput=postProcessing.outputTarget();
-        context->OMSetRenderTargets(1,&sameOutput,geometryTargets.depthView());postCaller.restore(context.Get());
+        context->OMSetRenderTargets(1,&sameOutput,geometryTargets.depthView());
+        routes.draw(context.Get(),sourceDepth,frameState.camera(),sourceHostFlags3E4); //200
+        postCaller.restore(context.Get());
         ++completedMainRequests;
 
         };
         {
             // All initialized owners remain in this coroutine frame. Godot
             // drives subsequent requests; no native window or polling thread.
+            host.replaceRoutes=[&](const San14RouteOverlayInputV1& input) {routes.accept(device.Get(),input);};
             host.replaceAtmosphereResources=[&](const fs::path& root) {
                 auto cloudImages=clouds.prepareAtmosphereResourceReplacement(device.Get(),root,atmosphere.skyImages());
                 auto shared=cloudImages.textures;

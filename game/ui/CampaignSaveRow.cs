@@ -44,7 +44,9 @@ internal partial class CampaignSaveRow : UiSourceButton
         // Normal uses its settled endpoint: designer node5 is hidden there.
         // Push node11 pulses over frames100..130; that animation is deferred.
         var presets = MapTextPresets.Create();
-        Label(29, (slot.Number - 1).ToString(CultureInfo.InvariantCulture), Disabled ? 6 : 3);
+        int displayIndex = slot.Number > LocalCampaignSaves.SlotCount
+            ? slot.Number - LocalCampaignSaves.SlotCount - 1 : slot.Number - 1;
+        Label(29, displayIndex.ToString(CultureInfo.InvariantCulture), Disabled ? 6 : 3);
         if (slot.Summary is { } summary)
         {
             if (resolvedPortrait is not null)
@@ -86,7 +88,7 @@ internal partial class CampaignSaveRow : UiSourceButton
         Pressed += () => { if (!Disabled) this.released?.Invoke(); };
         SetMeta("source_layout", source.Source.Source.ResourceUri);
         SetMeta("source_button_layout", skin.Source.Source.ResourceUri);
-        SetMeta("file_slot", slot.Number); SetMeta("source_slot_index", slot.Number - 1);
+        SetMeta("file_slot", slot.Number); SetMeta("source_slot_index", displayIndex);
         SetMeta("save_kind", slot.Kind.ToString());
 
         UiSourceText Label(int node, string value, int preset) => source.Text(this, node, default, value, font, presets[preset]);

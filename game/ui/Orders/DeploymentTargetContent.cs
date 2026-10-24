@@ -9,8 +9,17 @@ internal static class DeploymentTargetContent
     internal static DeploymentTargetRowContent Create(GameResourceRepository repository,PreviewText text,GameState world,
         DeploymentDraftRow row,DeploymentTargetCard current,OfficerPortraitRoute? portraitRoute,
         int? estimatedDays,bool hasResolvedTarget)
+        => CreatePacket(repository,text,world,row.Request.OfficerId,row.Request.Troops,current,portraitRoute,estimatedDays,hasResolvedTarget);
+
+    internal static DeploymentTargetRowContent CreateTransport(GameResourceRepository repository,PreviewText text,GameState world,
+        int officer,int troops,DeploymentTargetCard current,OfficerPortraitRoute? portraitRoute,
+        int? estimatedDays,bool hasResolvedTarget)
+        => CreatePacket(repository,text,world,officer,troops,current,portraitRoute,estimatedDays,hasResolvedTarget);
+
+    private static DeploymentTargetRowContent CreatePacket(GameResourceRepository repository,PreviewText text,GameState world,
+        int officer,int troops,DeploymentTargetCard current,OfficerPortraitRoute? portraitRoute,
+        int? estimatedDays,bool hasResolvedTarget)
     {
-        int officer=row.Request.OfficerId;
         if(current.OfficerId!=officer||portraitRoute is not null&&portraitRoute.OfficerId!=officer)
             throw new ArgumentException("A target card must use its own officer publication.",nameof(current));
         string unknown=text.Get("detail_unknown");
@@ -29,7 +38,7 @@ internal static class DeploymentTargetContent
         }
         else if(current.IsPersonValid==true&&portraitRoute is {Kind:OfficerPortraitRouteKind.StockNamed})
             portrait=sprites.LoadTexturePackSprite(portraitRoute.ResourceName!,portraitRoute.SpriteName!);
-        return new(officer,name,row.Request.Troops,current.FormationIcon,current.GrainPalette,
+        return new(officer,name,troops,current.FormationIcon,current.GrainPalette,
             portrait,estimatedDays,hasResolvedTarget)
         {
             RetainInitialFormation=current.HasCurrentHex==true&&current.UsesNavalFormation.HasValue&&

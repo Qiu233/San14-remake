@@ -155,7 +155,13 @@ public:
         for(const auto& [key,index]:state.actorIndices)if(auto* slot=find(key)){
             const auto& actor=population.source.actors.at(index);
             slot->presented={actor.world,actor.obb};
-            slot->pose=population.poses.at(index);slot->cache=population.poseCaches.at(index);
+            auto& cache=population.poseCaches.at(index);
+            if(cache.pendingPoolSnapshot){
+                // Reuse slot vector capacities; a camera cache hit makes no copy.
+                // Keep the source pending until the existing assignment succeeds.
+                slot->pose=population.poses.at(index);
+                cache.pendingPoolSnapshot=false;slot->cache=cache;
+            }
             // H clock belongs to the actual slot throughout the binding.
         }
     }

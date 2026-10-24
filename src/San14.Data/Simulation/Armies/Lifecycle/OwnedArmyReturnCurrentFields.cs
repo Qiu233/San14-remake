@@ -24,9 +24,10 @@ public static class OwnedArmyReturnCurrentFields
         {
             int physical = prefix.ResolveOfficerSource(person.Id)
                 ?? throw new InvalidDataException("Fresh officer has no matching source record.");
-            var location = OfficerLocationSourceAdapter.Decode(prefix.ReadPersonSecondLocation(physical), prefix.ReadPersonDistrictSlot(physical), receivers);
+            byte district = definitions.ReadFreshPersonDistrictSlot(physical);
+            var location = OfficerLocationSourceAdapter.Decode(prefix.ReadPersonSecondLocation(physical), district, receivers);
             residues = residues.With(OfficerLocationSourceAdapter.Residue(person.Id, location,
-                prefix.ReadPersonSecondLocation(physical), prefix.ReadPersonDistrictSlot(physical)));
+                prefix.ReadPersonSecondLocation(physical), district));
             people[person.Id] = person with
             {
                 LocationState = location,
@@ -194,8 +195,9 @@ public sealed partial class SourceWorldContext
             if (state.Districts.TryGetValue(slot, out var district) && district.Id == slot)
             {
                 WriteDistrictAffiliation(slot, (byte)district.ForceId, (byte)district.Number);
-                SetDistrictRawByte(slot, 0x12, district.LeaderId is int leader ? (byte)leader : null);
-                SetDistrictRawByte(slot, 0x13, district.LeaderId is int high ? (byte)(high >> 8) : null);
+                ushort? leader = ForceUnregisterInputs.ReadDistrictLeader(state, district);
+                SetDistrictRawByte(slot, 0x12, leader is ushort low ? (byte)low : null);
+                SetDistrictRawByte(slot, 0x13, leader is ushort high ? (byte)(high >> 8) : null);
             }
             else
             {

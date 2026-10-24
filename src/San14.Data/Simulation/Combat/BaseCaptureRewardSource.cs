@@ -112,12 +112,23 @@ public static partial class BaseCaptureRewardSource
         SourceWorldContext current, BaseReference target, ForceReference winner,
         DistrictReference winnerDistrict, ArmyUnitReference winnerArmy,
         BaseCaptureTerritoryReceipt territory)
+        => ApplyTailWithPool(input, current, target, winner, winnerDistrict, winnerArmy, territory, false);
+
+    internal static BaseCaptureTailResult ApplyTailWithinCapture(GameState input,
+        SourceWorldContext current, BaseReference target, ForceReference winner,
+        DistrictReference winnerDistrict, ArmyUnitReference winnerArmy, BaseCaptureTerritoryReceipt territory)
+        => ApplyTailWithPool(input, current, target, winner, winnerDistrict, winnerArmy, territory, true);
+
+    private static BaseCaptureTailResult ApplyTailWithPool(GameState input,
+        SourceWorldContext current, BaseReference target, ForceReference winner,
+        DistrictReference winnerDistrict, ArmyUnitReference winnerArmy,
+        BaseCaptureTerritoryReceipt territory, bool projectOwnedRoles)
     {
         BaseCaptureTailResult result;
         try { result = ApplyTailBody(input, current, target, winner, winnerDistrict, winnerArmy, territory); }
         finally { Release(current, territory.Regions); Release(current, territory.States); }
         if (result.State is null) return result;
-        try { return result with { State = WithCurrentPool(result.State, current) }; }
+        try { return result with { State = WithCurrentPool(result.State, current, projectOwnedRoles) }; }
         catch (Exception error) when (error is MissingOwner or InvalidDataException)
         { return new(null, null, error.Message); }
     }
@@ -237,7 +248,12 @@ public static partial class BaseCaptureRewardSource
         => current.CreateTemporaryHexList() ?? throw Missing("2851B0 temporary allocator");
     private static void Release(SourceWorldContext current, HexListHandle handle)
     { current.ClearTemporaryHexList(handle); current.ReleaseTemporaryHexList(handle); }
-    private static GameState WithCurrentPool(GameState state, SourceWorldContext current) => state.WithArmyLifecycle(state.ReadArmyLifecycle()! with { Indexes = (current.ReadOwnedCurrentListPool() ?? throw Missing("2851B0 current primary pool")).ExportOwnedState() });
+    private static GameState WithCurrentPool(GameState state, SourceWorldContext current, bool projectOwnedRoles)
+    {
+        var pool = current.ReadOwnedCurrentListPool() ?? throw Missing("2851B0 current primary pool");
+        return state.WithArmyLifecycle(state.ReadArmyLifecycle()! with
+            { Indexes = projectOwnedRoles ? pool.ProjectOwnedRoles() : pool.ExportOwnedState() });
+    }
     private static T K<T>(T? value, string name) where T : struct => value ?? throw Missing(name);
     private static MissingOwner Missing(string name) => new("current.BaseCaptureReward: " + name);
     private sealed class MissingOwner(string message) : Exception(message);

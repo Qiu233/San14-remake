@@ -41,6 +41,19 @@ public static partial class PersonReturnCommands
             current.SetLinkedEntityMemberIds(task.Id, task.MemberIds.Select(id => (uint?)id).ToArray());
             current.SetAssociatedPayloadPostLoadCallback(task.Id, PostLoadCallback.NoOp);
         }
+        foreach (var task in owner.Talents?.Values.AsEnumerable() ?? [])
+        {
+            current.SetLinkedEntityRawState58(task.Id, task.DispatchSlot);
+            current.SetLinkedEntityMemberIds(task.Id, task.MemberIds.Select(id => (uint?)(current.ReadPersonIdentity(
+                current.ResolveOfficerSource(id) ?? throw Missing("talent member source")) ?? throw Missing("talent member identity"))).ToArray());
+            current.SetAssociatedPayloadPostLoadCallback(task.Id, PostLoadCallback.NoOp);
+        }
+        foreach (var task in owner.Diplomacies?.Values.AsEnumerable() ?? [])
+        {
+            current.SetLinkedEntityRawState58(task.Id, task.DispatchSlot);
+            current.SetLinkedEntityMemberIds(task.Id, task.MemberIds.Select(id => (uint?)id).ToArray());
+            current.SetAssociatedPayloadPostLoadCallback(task.Id, PostLoadCallback.NoOp);
+        }
         current.BindOwnedPersonCommandTree(owner.DispatchOrder().ToDictionary(task => task.Slot, task => task.Id));
     }
 
@@ -93,20 +106,39 @@ public static partial class PersonReturnCommands
             var associated = current.OwnedIndexes?.AssociatedTaskHandle ?? throw Missing("personnel association index");
             if (!current.AppendPersonReturnAssociated(new(associated.Identity), id))
                 throw Missing("personnel association registration");
+            //1DE290 registers the new receiver while its member chain is
+            //still empty. An existing association remains earlier in that
+            //ordered chain;1F68B0 does not remove or replace its members.
+            //Publish this actual manager before the per-member22D6C0 query,
+            //including any old journey deadline that query initializes.
+            current.SetOwnedPersonCommandManager(owner);
+            current.SetLinkedEntityRawState58(id, slot.Value);
+            current.SetLinkedEntityMemberIds(id, []);
+            current.SetAssociatedPayloadPostLoadCallback(id, PostLoadCallback.NoOp);
             int startHex = Math.Clamp(Get(packet.Start.PhysicalSlot, "return starting hex"), 0, 48399);
             ushort flags = Get(current.ReadArmyReturnPersonFlags196(packet.PersonPhysical), "person return flags");
             current.WriteArmyReturnPersonFlags196(packet.PersonPhysical, OfficerBehaviorSourceAdapter.MarkReturn(flags));
-            ushort area = Get(current.ReadHexAreaSlot(packet.Start), "return starting area");
+            var memberPosition = ResolvePersonPosition(state, current, packet.PersonPhysical, packet.CurrentDate);
+            owner = CurrentCommandOwner(state, current);
+            task = owner.Returns.GetValueOrDefault(id) ?? throw Missing("registered return receiver");
+            ushort area = Get(current.ReadHexAreaSlot(memberPosition), "return starting area");
             current.WritePersonSecondLocation(packet.PersonPhysical, area is >= 1 and <= 500 ? (ushort)(area + 561) : (ushort)0);
+            //1F68B0 appends the member and Home destination before231670.
+            //Keep the earlier command intact;229ED0 continues to select the
+            //first associated receiver containing this real Person ID.
+            task = task with { MemberIds = [packet.PersonId], RouteDestinations = [destination], StartHex = startHex,
+                StartedOn = packet.CurrentDate };
+            owner = owner with { Returns = new(owner.Returns) { [id] = task } };
+            current.SetOwnedPersonCommandManager(owner);
+            current.SetLinkedEntityMemberIds(id, [(uint?)packet.PersonId]);
             var path = current.CreateNearbyTemporary();
             PersonReturnPathResult route;
             try { route = PersonReturnPathSource.Fill(state, current, packet.Start, packet.End, packet.Force, path); }
             finally { current.ClearNearbyTemporary(path, true); }
             int days = Get(route.Days, route.UnresolvedOwner ?? "personnel travel duration");
-            task = task with { MemberIds = [packet.PersonId], RouteDestinations = [destination], StartHex = startHex,
-                StartedOn = packet.CurrentDate, ArriveOn = DateFromOrdinal(unchecked(DateOrdinal(packet.CurrentDate) + days)),
+            task = task with { ArriveOn = DateFromOrdinal(unchecked(DateOrdinal(packet.CurrentDate) + days)),
                 IsPlayer = packet.IsPlayer };
-            owner.Returns[id] = task;
+            owner = owner with { Returns = new(owner.Returns) { [id] = task } };
             var updated = state with { PersonnelCommands = owner };
             BindCurrent(updated, current);
             return new(updated, 1, slot, id, days, null);
@@ -115,6 +147,12 @@ public static partial class PersonReturnCommands
     }
 
     public static GameState PublishCurrent(GameState state, SourceWorldContext current)
+        => PublishCurrent(state, current, false);
+
+    internal static GameState PublishBorrowedCurrent(GameState state, SourceWorldContext current)
+        => PublishCurrent(state, current, true);
+
+    private static GameState PublishCurrent(GameState state, SourceWorldContext current, bool borrowedCurrent)
     {
         var owner = current.ReadOwnedPersonCommandManager() ?? throw Missing("personnel journey state");
         var people = new Dictionary<int, OfficerState>(state.Officers);
@@ -127,13 +165,24 @@ public static partial class PersonReturnCommands
                 Behavior = current.ReadPersonBehavior(physical)
             };
         }
+        var pool = current.ReadOwnedCurrentListPool() ?? throw Missing("association registry");
         return OfficerLocationSourceAdapter.PublishPositions((state with { Officers = people,
                 PersonnelCommands = owner }).WithArmyLifecycle(state.ReadArmyLifecycle()! with
-            { Indexes = (current.ReadOwnedCurrentListPool() ?? throw Missing("association registry")).ExportOwnedState() }), current);
+            { Indexes = borrowedCurrent ? pool.ProjectOwnedRoles() : pool.ExportOwnedState() }), current);
     }
 
     public static HexReference ResolvePersonPosition(GameState state, SourceWorldContext current,
         int personPhysical, NativeMapSeasonDate date)
+        => ResolvePersonPositionCore(state, current, personPhysical, date, null);
+
+    // Ordinary E4 and disappearance positions do not consume a world date.
+    // The borrowed caller must supply it only for an actual journey query.
+    internal static HexReference ResolvePersonPosition(GameState state, SourceWorldContext current,
+        int personPhysical, Func<NativeMapSeasonDate> readDate)
+        => ResolvePersonPositionCore(state, current, personPhysical, null, readDate);
+
+    private static HexReference ResolvePersonPositionCore(GameState state, SourceWorldContext current,
+        int personPhysical, NativeMapSeasonDate? date, Func<NativeMapSeasonDate>? readDate)
     {
         var linked = current.ReadPersonLinkedEntity(personPhysical) ?? throw Missing("Person_associated_lookup");
         if (linked.Identity is int identity && current.ReadLinkedEntityNativeValidity(linked) == true)
@@ -141,7 +190,12 @@ public static partial class PersonReturnCommands
             var owner = CurrentCommandOwner(state, current);
             if (owner.Disappearances?.GetValueOrDefault(identity) is { } task)
                 return ReadDisappearancePosition(current, task);
-            return ResolveJourneyPosition(state, current, identity, date);
+            if (owner.Talents?.GetValueOrDefault(identity) is { } talent)
+                return TalentTravelSource.ResolvePosition(state, current, talent, date ?? readDate!());
+            if (owner.Diplomacies?.GetValueOrDefault(identity) is { } diplomacy)
+                return TalentTravelSource.ResolvePosition(state, current, diplomacy.StartHexId, diplomacy.EndHexId,
+                    diplomacy.SourceDistrictId, diplomacy.StartDate, diplomacy.DueDate, date ?? readDate!());
+            return ResolveJourneyPosition(state, current, identity, date ?? readDate!());
         }
         ushort second = Get(current.ReadPersonSecondLocation(personPhysical), "PersonE4");
         int hex;

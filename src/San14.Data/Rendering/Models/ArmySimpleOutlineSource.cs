@@ -9,13 +9,24 @@ public sealed record ArmySimpleOutlineSelection(bool UsesOutline,
     ArmySimpleOutlineColorChoice Primary, ArmySimpleOutlineColorChoice Disabled);
 public sealed record ArmySimpleOutlineResult(ArmySimpleOutlineSelection? Selection, string? Missing);
 
-/// <summary>1B7110 on an actual operable MapInfoMode0/filter15=0 Map. Title
-///is outside this entry point. Current raw fields are read in source order;
+/// <summary>Explicit non-Title profiles of1B7110. Each entry supplies the
+/// actual player-District eligibility. Current fields are read in source order;
 ///Force49 is the same immutable source style used by the normal flag fill.</summary>
 public static class ArmySimpleOutlineSource
 {
     public static ArmySimpleOutlineResult ReadOrdinaryMap(GameState world,
         SourceWorldContext current, DistrictReference? district)
+        => ReadNonTitleMap(world, current, district, allowPlayerDistrict: true);
+
+    /// <summary>Scenery's explicit MapInfo mode0/category15=4/non-Title
+    /// profile. Configured category15 disables the player-District branch;
+    /// all later current-field reads retain the ordinary source ordering.</summary>
+    public static ArmySimpleOutlineResult ReadConfiguredSceneryMap(GameState world,
+        SourceWorldContext current, DistrictReference? district)
+        => ReadNonTitleMap(world, current, district, allowPlayerDistrict: false);
+
+    private static ArmySimpleOutlineResult ReadNonTitleMap(GameState world,
+        SourceWorldContext current, DistrictReference? district, bool allowPlayerDistrict)
     {
         if (district is null) return Missing("current.Army_simple_District_pointer");
         //A known null source pointer returns0 without writing either color.
@@ -30,7 +41,7 @@ public static class ArmySimpleOutlineSource
 
         //This branch tests physical identity, not District validity or233A90.
         //2AAD40 alone applies its independent validity/fallback palette.
-        if (player is >= 1 and <= 51 && forcePhysical == player)
+        if (allowPlayerDistrict && player is >= 1 and <= 51 && forcePhysical == player)
         {
             if (current.ReadDistrictNativeValidity(district) is not bool valid)
                 return Missing("current.Army_simple_District_color_validity");

@@ -47,7 +47,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     internal TacticSourceSamplerWorld TrapSampler(GameState state, NativeArmyProgressStageMoment moment) =>
         ReadCurrentEnvironmentSampler(state, moment, (byte)NativeArmyProgressStage.FacilityTraps);
 
-    /// <summary>One current calendar algorithm for the real stage22/23/24
+    /// <summary>One current calendar algorithm for the real stage14/22/23/24
     /// consumers. The caller supplies its actual expected stage; no rewritten
     /// moment or hour10 assumption supplies a different clock identity.</summary>
     internal TacticSourceSamplerWorld ReadCurrentEnvironmentSampler(GameState state,
@@ -56,7 +56,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         var season = state.NativeMapSeason ?? throw Missing("sampler_saved_calendar");
         var clock = state.NativeClock ?? throw Missing("sampler_current_clock");
         var epoch = state.NativeArmySimulation?.World.SamplerEpoch ?? throw Missing("sampler_epoch");
-        if (expectedStage is not (22 or 23 or 24) || moment.SchedulerStageIndex != expectedStage ||
+        if (expectedStage is not (14 or 22 or 23 or 24) || moment.SchedulerStageIndex != expectedStage ||
             moment.Boundary != NativeArmyProgressStageBoundary.StageEntry ||
             moment.CycleWithinAtomicBlock is < 0 or >= NativeArmyProgressAtomicRuntime.CyclesPerSaveBlock ||
             moment.CalendarCycleOrdinal != checked(season.AdvancedCalendarSteps + moment.CycleWithinAtomicBlock) ||
@@ -100,17 +100,30 @@ public sealed partial class ArmyCampaignRuleAdapter
     private GameState RemoveMapObjectWithoutActor(GameState state, SourceWorldContext current,
         ObjectReference facility, List<CampaignEffectRequest> sink)
     {
-        var removal = ApplyDemolitionNumbers(state, current, facility, new ArmyUnitReference(null));
-        if (removal is null) return state;
+        var latest = state;
+        RemoveMapObjectWithoutActor(state, current, facility, value => latest = value, sink.Add);
+        return latest;
+    }
+
+    private void RemoveMapObjectWithoutActor(GameState state, SourceWorldContext current,
+        ObjectReference facility, Action<GameState> publishReached, Action<CampaignEffectRequest> emit)
+    {
+        var removal = ApplyDemolitionNumbers(state, current, facility, new ArmyUnitReference(null), publishReached);
+        if (removal is null) return;
+        publishReached(removal.State);
         string definition = MapObjectSourceDirectory.DefinitionKey(removal.DefinitionSlot);
-        sink.Add(new(null, null) { MapObjectPresentation = new(MapObjectPresentationEvent.DestructionVisual,
+        emit(new(null, null) { MapObjectPresentation = new(MapObjectPresentationEvent.DestructionVisual,
             removal.Receiver, removal.HexId, definition) });
-        sink.Add(new(null, null) { MapObjectPresentation = new(MapObjectPresentationEvent.DestructionSound,
+        emit(new(null, null) { MapObjectPresentation = new(MapObjectPresentationEvent.DestructionSound,
             removal.Receiver, removal.HexId, definition) });
         //294FD0(report1) reaches visibility before its known-null actor gate.
         //Category4 returns before that read, preserving old trap laziness.
         if (removal.Category != 4)
+        {
+            byte faction = DemolitionKnown(current.ReadObjectForceSlot13(facility), "report_object_faction");
+            _ = current.ReadForceTableReference(faction <= 51 ? faction : 0)
+                ?? throw DemolitionMissing("report_object_force_pointer");
             _ = ReadDemolitionAreaVisibility(removal.State, current, removal.AreaId);
-        return removal.State;
+        }
     }
 }

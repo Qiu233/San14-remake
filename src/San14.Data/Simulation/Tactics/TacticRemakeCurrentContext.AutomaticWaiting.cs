@@ -10,15 +10,35 @@ public sealed partial class TacticRemakeCurrentContext
     internal NativeTacticWaitingAssignment? ResolveAutomaticActivationWaiting(GameState state, UnitState caster,
         AutomaticTacticCandidateSource selected)
     {
+        //Preserve the existing Army-only reader order as well as its result.
         if (ArmyValid(state, caster) != true || EffectiveFormation(state, caster) is not int formation ||
             ResolveChain(state, caster, _catalog.Rows[selected.TacticSlot]) is not { ChainCount: 0 } chain ||
             state.NativeArmySimulation!.Forces.GetValueOrDefault(caster.ForceId)?.Flags193 is not byte flags)
             return null;
+        return ResolveAutomaticActivationWaitingKnown(state, caster, selected.TacticSlot, chain, formation, flags);
+    }
+
+    //The borrowed selector captures16DF00 before effects. Waiting is still
+    //read/assigned after their real commander tail; effects cannot rebuild the
+    //former chain membership merely by clearing a neighboring status.
+    internal NativeTacticWaitingAssignment? ResolveAutomaticActivationWaiting(GameState state,
+        UnitState caster, int tacticSlot, TacticRemakeChainResolution chain)
+    {
+        if (chain.ChainCount != 0 || ArmyValid(state, caster) != true ||
+            EffectiveFormation(state, caster) is not int formation ||
+            state.NativeArmySimulation!.Forces.GetValueOrDefault(caster.ForceId)?.Flags193 is not byte flags)
+            return null;
+        return ResolveAutomaticActivationWaitingKnown(state, caster, tacticSlot, chain, formation, flags);
+    }
+
+    private NativeTacticWaitingAssignment? ResolveAutomaticActivationWaitingKnown(GameState state,
+        UnitState caster, int tacticSlot, TacticRemakeChainResolution chain, int formation, byte flags)
+    {
         int? primary = Parameter(state, SimulationParameterKeys.Tactics.PrimaryWaitingCap), second = Parameter(state, SimulationParameterKeys.Tactics.SecondaryWaitingCap), third = Parameter(state, SimulationParameterKeys.Tactics.TertiaryWaitingCap);
         int? adjustment = formation switch { 1 => Parameter(state, SimulationParameterKeys.Tactics.Formation1AutomaticWaitingAdjustment), 2 => Parameter(state, SimulationParameterKeys.Tactics.Formation2AutomaticWaitingAdjustment),
             14 => Parameter(state, SimulationParameterKeys.Tactics.Formation14AutomaticWaitingAdjustment), _ => 0 };
         int? reduction = (flags & 0x40) != 0 ? Parameter(state, SimulationParameterKeys.Tactics.ForceFlagWaitingReduction) : 0;
-        var reference = _definitions.ReadSkillTacticReference(selected.TacticSlot);
+        var reference = _definitions.ReadSkillTacticReference(tacticSlot);
         byte? category = reference is null ? null : _definitions.ReadSkillTacticRawByte(reference, 0x40);
         int? policy = category switch { 5 => Policy(state, caster.ForceId, 0x24),
             6 => Policy(state, caster.ForceId, 0x25), null => null, _ => 0 };

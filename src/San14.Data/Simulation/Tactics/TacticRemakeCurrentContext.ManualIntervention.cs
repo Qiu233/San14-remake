@@ -139,64 +139,8 @@ public sealed partial class TacticRemakeCurrentContext
 
     internal bool HasManualEmptyChain(GameState state, UnitState caster, int tacticId)
     {
-        if (caster.NativeTacticRuntime is not { } native) return false;
-        //2AFA40's abnormal early return precedes the candidate allocation.
-        if (native.Abnormal23 == 0 && native.Abnormal24 == 0 && native.Abnormal25 == 0)
-        {
-            var slots = state.ReadArmyLifecycle()?.ReceiverSlots();
-            if (slots is not { Length: 501 }) return false;
-            for (int physical = 0; physical < slots.Length; physical++)
-            {
-                var slot = slots[physical];
-                if (slot.PhysicalSlot != physical) return false;
-                if (physical == 0) continue;
-                if (slot.Commander12 is not ushort commander) return false;
-                if (commander == 0) continue;
-                if (slot.Status10 is not byte status) return false;
-                if (status == 0) continue;
-                //A native-valid reserved receiver cannot disappear merely
-                //because it has no gameplay Unit in this finite projection.
-                if (slot.ActiveUnitId is not int id || !state.Units.TryGetValue(id, out var unit) ||
-                    unit.NativeArmyOrigin?.NativeSlotIndex != physical) return false;
-            }
-        }
-        if (native.Abnormal23 == 0 && native.Abnormal24 == 0 && native.Abnormal25 == 0)
-        {
-            if (Parameter(state, SimulationParameterKeys.Tactics.ChainSearchRadius) is not int radius ||
-                radius is < 0 or > 255 || state.ReadArmyLifecycle()?.ReceiverSlots() is not { } slots) return false;
-            _definitions.BindArmyMapOccupancy(state);
-            //TC2A78D0 enumerates the ring's Hex1C markers directly; Base
-            //priority is irrelevant here. TC2AFC20 then requires same force
-            //and all three zero abnormalities. A distant same-force Army is
-            //not a candidate, regardless of its still-unread relation score.
-            foreach (int hex in NativeHexOrder(caster.HexId, radius).Skip(1))
-            {
-                var hexReference = _definitions.ReadHexTableReference(hex);
-                if (hexReference?.PhysicalSlot != hex || _definitions.ReadHexRaw1C(hexReference) is not ushort raw) return false;
-                int lookup = unchecked((short)raw);
-                if (lookup is < 1 or > 500) continue;
-                var reference = _definitions.ReadArmyUnitTableReference(lookup);
-                if (reference is null)
-                {
-                    //The complete saved source directory proves this pointer
-                    //allocation, just as FieldHexOccupantSource's lazy join.
-                    _definitions.SetArmyUnitTablePointer(lookup, lookup);
-                    reference = new(lookup);
-                }
-                if (reference.PhysicalSlot is not int physical) continue;
-                if (physical < 0 || physical >= slots.Length) return false;
-                var slot = slots[physical]; _definitions.BindUnspecifiedOwnedArmyQueryHeader(slot);
-                if (_definitions.ReadArmyUnitNativeValidity(reference) is not bool valid) return false;
-                if (!valid) continue;
-                if (slot.ActiveUnitId is not int id || !state.Units.TryGetValue(id, out var candidate) ||
-                    ArmyValid(state, candidate) != true || candidate.NativeTacticRuntime is not { } abnormal) return false;
-                if (candidate.ForceId != caster.ForceId || abnormal.Abnormal23 != 0 ||
-                    abnormal.Abnormal24 != 0 || abnormal.Abnormal25 != 0) continue;
-                //Remaining same-force candidates require the actual personal
-                //relation/chain producer; this finite path cannot erase them.
-                return false;
-            }
-        }
+        if (ArmyValid(state, caster) != true ||
+            ArmyChainCurrentCandidates.Read(state, _definitions, caster).Count != 0) return false;
         if (_programs.ReadCurrentWaitingContribution(_catalog.Rows[tacticId]) is not ushort contribution) return false;
         _manualEmptyChain = new(caster.Id, tacticId, contribution);
         return true;

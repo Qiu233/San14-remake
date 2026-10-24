@@ -2,6 +2,19 @@ namespace San14.Data;
 
 public sealed partial class SourceWorldContext
 {
+    /// <summary>Commit only the extra fields reached by26D2E0/293490. Their
+    /// Person and City stores are committed by the enclosing return transaction.</summary>
+    internal void CommitArmyReturnDistrictOperationFields(SourceWorldContext draft,
+        ArmyReturnDistrictOperationQueries operation)
+    {
+        foreach (int area in operation.ChangedAreas)
+            WriteAreaCitySlot(new(area), draft.ReadAreaCitySlot(new(area))
+                ?? throw new InvalidDataException("return.district.changed_Area35"));
+        foreach (int district in operation.TouchedDistricts)
+            for (int offset = 0x10; offset < 0x2C; offset++)
+                SetDistrictRawByte(district, offset, draft.ReadDistrictRawByte(district, offset));
+    }
+
     private IReadOnlyList<BaseReference?>? _armyReturnRegisteredGates;
     private IReadOnlyList<DistrictReference?>? _armyReturnRegisteredDistricts;
 

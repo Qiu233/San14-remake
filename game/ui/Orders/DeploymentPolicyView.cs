@@ -19,7 +19,7 @@ internal partial class DeploymentPolicyView : Control
     private bool abandoned;
 
     internal void Configure(GameResourceRepository repository,PreviewText text,
-        Action<DeploymentPolicySetting,bool> selected,Action saveRequested)
+        Action<DeploymentPolicySetting,bool> selected,Action saveRequested,bool showSaveDefaults=true)
     {
         Name="DeploymentPolicies";MouseFilter=MouseFilterEnum.Stop;
         choose=selected;saveDefaults=saveRequested;
@@ -49,6 +49,7 @@ internal partial class DeploymentPolicyView : Control
         }
         save=Button("SaveDeploymentDefaults",5,0x60C991A4,Message(0x0367),()=>
         {if(!abandoned)saveDefaults?.Invoke();});
+        save.Visible=showSaveDefaults;
         Apply(false,Enumerable.Repeat(new DeploymentPolicyPair(null,null,null),4).ToArray(),false);
         SetMeta("source_layout",source.Source.Source.ResourceUri);
 

@@ -64,9 +64,18 @@ public sealed partial class RemakeArmySceneVisuals : IDisposable
         foreach ((int id, PlayableArmySelection selection) in sourcePlan.Selections)
         {
             UnitState unit = world.Units[id];
+            if (selection.Transport is not null)
+            {
+                if (PrepareCurrentTransportWater(world, unit, selection) is { } transportFrame)
+                {
+                    frames.Add(id, transportFrame);
+                    bindings.Add(id, CurrentTransportBindings(transportFrame));
+                }
+                continue;
+            }
             // This is the explicitly selected remake ordinary-context prefix.
             // Siege/naval/transport constructors have separate native writers.
-            if (ArmyNativeFormationQueries.ModelMode(selection.Terrain, false, selection.Creation.Bytes.Byte1B) != 0)
+            if (ArmyNativeFormationQueries.ModelMode(selection.Terrain, false, selection.CurrentBytes.Byte1B) != 0)
                 continue;
             EnsureSourceModels();
             ProjectedMapPoint point = _projection.Project(unit.HexId);
@@ -122,10 +131,13 @@ public sealed partial class RemakeArmySceneVisuals : IDisposable
 
     private void EnsureSourceModels()
     {
-        if (_models.Count != 0) return;
+        //A cached ship/siege model does not establish ordinary categories0/1.
+        //Load only missing categories into this same source-owned cache.
+        int[] missing = new[] { 0, 1 }.Where(category => !_models.ContainsKey(category)).ToArray();
+        if (missing.Length == 0) return;
         _catalog ??= CeArmyModels.LoadCatalog(_repository);
-        var actions = new ArmyGraphicsActions(_repository);
-        foreach (int category in new[] { 0, 1 })
+        var actions = new ArmyGraphicsActions(_repository, missing);
+        foreach (int category in missing)
         {
             LoadedArmyModel model = CeArmyModels.LoadKnownCategory(_repository, _catalog, category);
             UnitWorldTransformState constructor = UnitWorldTransform.ConstructDefinition(model.Resources);

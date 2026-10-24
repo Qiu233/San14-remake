@@ -117,6 +117,8 @@ public static class PlayableOfficerArrivalAftermath
                      (other.Id != districtId || other.ForceId != forceId)).ToArray())
         {
             state.Districts[other.Id] = other with { LeaderId = null };
+            if (state.NativeForceUnregisterCurrent?.DistrictWindows10.TryGetValue(other.Id, out var fields) == true)
+            { fields[2] = 0; fields[3] = 0; }
             removed++;
         }
         return removed;

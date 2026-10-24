@@ -16,14 +16,16 @@ public sealed partial class TacticRemakeCurrentContext
             tacticId is < 1 or > 200 || !state.Officers.TryGetValue(caster.OfficerId, out OfficerState? commander) ||
             ReadCurrentProgram(state, _catalog.Rows[tacticId]) is not { } program ||
             program.Instructions.Count != 2 ||
-            program.Instructions.Any(instruction => instruction.Opcode is not (0 or 15 or 19 or 20 or 23)))
+            program.Instructions.Any(instruction => instruction.Opcode > 23 || instruction.Opcode is 1 or 18))
             return null;
         ushort? word12;
         if (state.ReadArmyLifecycle() is { } arena)
         {
-            if (arena.ReceiverSlots() is not { Length: 501 } || arena.ReceiverSlots()[armySlot] is not { } slot ||
-                slot.PhysicalSlot != armySlot || slot.ActiveUnitId != caster.Id) return null;
-            word12 = slot.Commander12;
+            if (armySlot is < 1 or > 500 || arena.Slots.Count != 501) return null;
+            var source = arena.Slots[armySlot];
+            var receiver = arena.Receivers.Find(source.ReceiverId);
+            if (receiver?.ActiveUnitId != caster.Id) return null;
+            word12 = source.Commander12;
         }
         else
         {

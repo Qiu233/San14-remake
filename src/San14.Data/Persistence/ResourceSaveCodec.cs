@@ -22,15 +22,8 @@ public sealed class ResourceSaveCodec : ICampaignOperationSaveCodec
         state = TransportRouteSourceAdapter.PruneReplacedChannels(state);
         state = ArmyOverrideSourceKnowledgeValidation.PruneReplacedChannels(state);
         state = ArmyPositionSourceKnowledge.PruneReplacedChannels(state);
-        ArmyPositionSourceKnowledge.Validate(state);
-        ArmyOverrideSourceKnowledgeValidation.Validate(state);
-        ArmyTargetSourceKnowledgeValidation.Validate(state);
-        ArmyReceiverSourceValidation.Validate(state);
-        TransportRouteSourceAdapter.Validate(state);
-        ArmyTraitSourceAdapter.Validate(state);
-        ArmyConfigurationSourceAdapter.Validate(state);
-        CityDistrictSourceAdapter.Validate(state);
-        OwnedMapObjectLifecycle.Validate(state);
+        // Channel pruning is part of the saved representation. Cross-owner
+        // consistency checks run when decoding external data, not before writing.
         return new JsonGzipSaveCodec(resourceStateCodec: new CampaignResourceStateCodec(), operationContext: context).Encode(state);
     }
     public GameState Decode(ReadOnlySpan<byte> bytes) => DecodeOwned(bytes, null);

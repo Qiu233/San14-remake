@@ -81,6 +81,19 @@ public sealed class MapStaticModelAssetCatalog
             LoadRaw(textures), textures);
     }
 
+    /// <summary>Actual kind2 Scenery definition and its declared dependency.
+    /// Retain the catalog definition for the real ModelWorld constructor;
+    /// loading only a model reference would lose that source state.</summary>
+    public MapStaticModelAsset LoadSceneryCategory(int category)
+    {
+        var rule=SceneryModelResourceRules.All.Single(r=>r.Category==category);
+        string key="scenery-category:"+category;
+        if(_assets.TryGetValue(key,out var cached))return cached;
+        var reference=SceneryModelResourceRules.Resolve(Scene,rule);
+        var resources=ModelTextureResources.LoadForDefinition(_repository,reference.Dictionary,Scene.ModelCatalog,rule.DefinitionId);
+        return Add(key,reference,LoadRaw(resources),resources);
+    }
+
     public MapStaticModelAsset LoadReference(SceneModelReference reference, string categoryIdentity)
     {
         ArgumentNullException.ThrowIfNull(reference); ArgumentException.ThrowIfNullOrWhiteSpace(categoryIdentity);

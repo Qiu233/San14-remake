@@ -40,9 +40,6 @@ public static class BattleRemakeCurrentSettings
                 .Any(key => key.StartsWith(Prefix, StringComparison.Ordinal)))
             throw new InvalidDataException("Fresh current settings require a complete new ordinary CE source owner.");
 
-        int difficulty = options.DifficultyId switch
-        { "beginner" => 0, "intermediate" => 1, "advanced" => 2, "super" => 3, "top" => 4,
-          _ => throw new InvalidDataException("Current ordinary difficulty has no proved native setting identity.") };
         NativeArmySimulationState simulation = state.NativeArmySimulation!;
         var values = new Dictionary<string, int>(simulation.Parameters.Int32Values)
         { [VersionKey] = 1, [FieldCountKey] = S14ScenarioSettingsReader.FieldCount };
@@ -55,9 +52,8 @@ public static class BattleRemakeCurrentSettings
         //from the source block and the primary/secondary copy. Selected options
         //are restored after loading; their source coincidence is not a default.
         values[FieldKey(0xE58)] = 1;
-        values[FieldKey(0x28)] = difficulty;
-        values[FieldKey(0x120)] = options.InitialCreditEnabled ? 0 : 1;
-        values[FieldKey(0x128)] = options.CapturedOfficersEnabled ? 0 : 1;
+        NewGameOrdinarySettingsSource.ApplyOverrides(values, options,
+            source.Snapshot.WorldParameters?.RawModeValue);
         return state with { NativeArmySimulation = simulation with
             { Parameters = simulation.Parameters with { Int32Values = values } } };
     }
@@ -72,6 +68,10 @@ public static class BattleRemakeCurrentSettings
     /// reuses an identical leaf at a different class's address; caller binding
     /// still passes this CEnvironment, not an Army or Base object.</summary>
     public static int? ReadNeighborModeD8(GameState state) => ReadInt32(state, 0xD8);
+
+    /// <summary>Ordinary battle-death radio0..3, owned as signed i32 member30.
+    /// Advanced death eligibility/rate remains a separate caller-owned branch.</summary>
+    public static int? ReadBattleDeathFrequency(GameState state) => ReadInt32(state, 0x30);
 
     /// <summary>TC3EB280 selects current primary80 or advanced164.</summary>
     public static int? ReadWoundedRecoveryMode(GameState state) => ReadSelectorE58(state) is int selector

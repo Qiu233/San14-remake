@@ -1,5 +1,6 @@
 using Godot;
 using San14.Data;
+using San14.Core;
 
 public partial class Main
 {
@@ -7,8 +8,9 @@ public partial class Main
     // permissions and rule queries still decide whether a draft can execute.
     private IReadOnlyDictionary<MapMenuCommand, Action> BuildMapMenuEditors()
     {
-        MapMenuCommand[] available = [MapMenuCommand.Deploy, MapMenuCommand.Policy,
-            MapMenuCommand.Search, MapMenuCommand.Recruit, MapMenuCommand.Items,
+        MapMenuCommand[] available = [MapMenuCommand.Deploy, MapMenuCommand.WithdrawAll, MapMenuCommand.Policy, MapMenuCommand.Office,
+            MapMenuCommand.Search, MapMenuCommand.Recruit, MapMenuCommand.Items, MapMenuCommand.Reward, MapMenuCommand.Expel,
+            MapMenuCommand.Merit, MapMenuCommand.Award, MapMenuCommand.Employ, MapMenuCommand.Learn, MapMenuCommand.Introduce,
             MapMenuCommand.Goodwill, MapMenuCommand.Alliance, MapMenuCommand.CancelAlliance, MapMenuCommand.RequestAttack];
         return available.ToDictionary(command => command,
             command => (Action)(() => RunUiAction(() => OpenMapMenuEditor(command))));
@@ -16,10 +18,42 @@ public partial class Main
 
     private void OpenMapMenuEditor(MapMenuCommand command)
     {
-        if (HasMapSystemMenu || HasCampaignSavePage) return;
-        if (command == MapMenuCommand.Deploy && _playCity.Selected >= 0 && _residentMap is not null)
+        if (HasMapSystemMenu || HasCampaignSavePage || HasCommandWorkspace) return;
+        if (command is MapMenuCommand.Reward or MapMenuCommand.Expel or MapMenuCommand.Merit or MapMenuCommand.Award or
+            MapMenuCommand.Employ or MapMenuCommand.Learn or MapMenuCommand.Introduce)
+        { OpenPersonnelAdministration(command); return; }
+        if (command == MapMenuCommand.Deploy) { OpenCampaignDeployment(); return; }
+        if (command == MapMenuCommand.WithdrawAll) { OpenCampaignRetreat(); return; }
+        if (command == MapMenuCommand.Office)
         {
-            OpenDeploymentSetup(_playCity.GetSelectedId());
+            OpenOfficerOffices();
+            return;
+        }
+        if (command is MapMenuCommand.Goodwill or MapMenuCommand.Alliance or MapMenuCommand.CancelAlliance or MapMenuCommand.RequestAttack &&
+            _world?.NativeArmySimulation is not null)
+        {
+            OpenDiplomacyOrders(command switch
+            {
+                MapMenuCommand.Goodwill => DiplomaticMissionKind.Goodwill,
+                MapMenuCommand.Alliance => DiplomaticMissionKind.Alliance,
+                MapMenuCommand.CancelAlliance => DiplomaticMissionKind.CancelAlliance,
+                _ => DiplomaticMissionKind.RequestAttack
+            });
+            return;
+        }
+        if (command is MapMenuCommand.Search or MapMenuCommand.Recruit && _world?.NativeArmySimulation is not null)
+        {
+            OpenTalentOrders(command == MapMenuCommand.Search ? TalentOrderKind.Search : TalentOrderKind.Recruit);
+            return;
+        }
+        if (command == MapMenuCommand.Items && _world?.NativeArmySimulation is not null)
+        {
+            OpenPersonnelItems();
+            return;
+        }
+        if (command == MapMenuCommand.Policy && _world?.NativeArmySimulation is not null)
+        {
+            OpenGovernanceRoster();
             return;
         }
         PlayableCommandDeck.Page page = command switch
@@ -30,9 +64,8 @@ public partial class Main
             MapMenuCommand.Goodwill or MapMenuCommand.Alliance or MapMenuCommand.CancelAlliance or MapMenuCommand.RequestAttack => PlayableCommandDeck.Page.Diplomacy,
             _ => throw new InvalidOperationException($"Map command has no editor: {command}.")
         };
-        RefreshPlayControls();
-        _playCommandDeck.Select(page);
-        SetMapFocus(false);
+        OpenCommandWorkspace(page);
+        if (!HasCommandWorkspace) return;
         Control? focus = command switch
         {
             MapMenuCommand.Search => _playTalentSearch,
@@ -41,6 +74,6 @@ public partial class Main
             MapMenuCommand.Deploy => _playOfficer,
             _ => null
         };
-        focus?.GrabFocus();
+        if (focus is not null) _commandWorkspace?.FocusCommand(focus);
     }
 }

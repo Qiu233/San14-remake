@@ -8,7 +8,11 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// has already omitted the final point of each segment. This does not
     /// search, remove an endpoint again, group rows, or modify world/selection.</summary>
     public IReadOnlyList<DeploymentDraftMarchRow> QueryDeploymentDraftEta(GameState state,
-        IReadOnlyList<DeploymentDraftRow> rows, IReadOnlyList<int> etaPath)
+        IReadOnlyList<DeploymentDraftRow> rows, IReadOnlyList<int> etaPath) =>
+        ReadDeploymentDraftEta(state, rows, etaPath, () => CaptureDeploymentDraftMarchCurrent(state));
+
+    private IReadOnlyList<DeploymentDraftMarchRow> ReadDeploymentDraftEta(GameState state,
+        IReadOnlyList<DeploymentDraftRow> rows, IReadOnlyList<int> etaPath, Func<SourceWorldContext> readCurrent)
     {
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(rows);
         ArgumentNullException.ThrowIfNull(etaPath);
@@ -20,7 +24,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         try
         {
             if (etaPath.Any(hex => hex is < 0 or >= 48400)) throw DraftMarchMissing("eta_path_identity");
-            current = CaptureDeploymentDraftMarchCurrent(state);
+            current = readCurrent();
         }
         catch (InvalidDataException error)
         { return rows.Select(row => new DeploymentDraftMarchRow(row.Request.OfficerId, null, error.Message)).ToArray(); }

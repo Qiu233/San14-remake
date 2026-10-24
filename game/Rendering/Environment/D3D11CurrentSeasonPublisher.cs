@@ -132,9 +132,12 @@ public sealed class D3D11CurrentSeasonPublisher
 
     public D3D11CurrentSeasonFrame PrepareCurrent(GameState world,
         MainMapCameraFrame currentMain, float elapsedSeconds)
+        => PrepareCurrent(world.NativeMapSeason ?? throw new NotSupportedException(
+            "Current World has no owned third-date season; Core.Date cannot supply it."), currentMain, elapsedSeconds);
+
+    public D3D11CurrentSeasonFrame PrepareCurrent(NativeMapSeasonState season,
+        MainMapCameraFrame currentMain, float elapsedSeconds)
     {
-        var season = world.NativeMapSeason ?? throw new NotSupportedException(
-            "Current World has no owned third-date season; Core.Date cannot supply it.");
         var calendar = MapSeasonRuntime.PrepareFrame(season, currentMain.Camera.FrameNumber);
         if (calendar.Selection != _resources.Selection && _library is not null)
             Install(_library.Resolve(season, currentMain).Resources);

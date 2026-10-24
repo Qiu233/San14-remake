@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Text;
 using Godot;
 using San14.Core;
@@ -143,9 +142,10 @@ public partial class MapSceneView
                 // Source identity changes retire old assets before a replacement
                 // is admitted. Unsupported map/table profiles keep unit signs.
                 _remakeArmyVisuals = new(_repository, language, _projection, TerrainMeshes.Source.HeightField);
+                PlayableArmyVisualPlan descriptors = adapter.Resolve(world);
                 PlayableArmyPoseProvider? poses = _armyPoseOverride ? _armyPoseProvider :
-                    _remakeArmyVisuals.Prepare(world, adapter.Resolve(world));
-                PlayableArmyVisualPlan plan = adapter.Resolve(world, poses);
+                    _remakeArmyVisuals.Prepare(world, descriptors);
+                PlayableArmyVisualPlan plan = adapter.BindPoses(world, descriptors, poses);
                 var layer = new ArmyVisualLayer();
                 layer.Initialize(_repository, _sceneConfig.ModelTextures);
                 _previewWorld.AddChild(layer);
@@ -178,9 +178,10 @@ public partial class MapSceneView
         }
         else
         {
+            PlayableArmyVisualPlan descriptors = _armyVisualAdapter!.Resolve(world);
             PlayableArmyPoseProvider? poses = _armyPoseOverride ? _armyPoseProvider :
-                _remakeArmyVisuals!.Prepare(world, _armyVisualAdapter!.Resolve(world));
-            PlayableArmyVisualPlan plan = _armyVisualAdapter!.Resolve(world, poses);
+                _remakeArmyVisuals!.Prepare(world, descriptors);
+            PlayableArmyVisualPlan plan = _armyVisualAdapter.BindPoses(world, descriptors, poses);
             ArmyStatuses = _armyVisualAdapter.Apply(_armyVisualLayer!, _projection, TerrainMeshes, world, plan);
             ArmyPlan = plan;
         }
@@ -268,11 +269,17 @@ public partial class MapSceneView
                 ["unit_id"] = selection.UnitId,
                 ["hex_id"] = selection.HexId,
                 ["explicit_land_slot"] = selection.ExplicitLandFormationSlot,
-                ["created_byte1b"] = (int)selection.Creation.Bytes.Byte1B!.Value,
-                ["formation_uri"] = selection.Creation.FormationSource.ResourceUri,
-                ["formation_sha256"] = selection.Creation.FormationSource.Sha256,
-                ["formation_decoded_sha256"] = selection.Creation.FormationDecodedSha256,
-                ["source_rule_version"] = selection.Creation.CodeSource.RuleVersion,
+                ["created_byte1b"] = selection.Transport is null ? (int)selection.CurrentBytes.Byte1B!.Value : -1,
+                ["current_byte1b"] = (int)selection.CurrentBytes.Byte1B!.Value,
+                ["current_byte1c"] = selection.CurrentBytes.Byte1C is byte naval ? (int)naval : -1,
+                ["formation_source_kind"] = selection.Transport is null ? "ordinary-creation" : "active-type2-current",
+                ["transport_native_slot"] = selection.Transport?.NativeSlot ?? -1,
+                ["formation_uri"] = selection.Formation.FormationSource.ResourceUri,
+                ["formation_sha256"] = selection.Formation.FormationSource.Sha256,
+                ["formation_decoded_sha256"] = selection.Transport?.FormationDecodedSha256
+                    ?? selection.Creation!.FormationDecodedSha256,
+                ["source_rule_version"] = selection.Transport is null ? selection.Creation!.CodeSource.RuleVersion
+                    : world.Units[selection.UnitId].NativeArmyOrigin!.RuleVersion,
                 ["possible_modes"] = selection.Descriptors.PossibleModes.ToArray(),
                 ["descriptors"] = descriptors,
                 ["current_native_army_bytes_verified"] = false,
@@ -325,14 +332,16 @@ public partial class MapSceneView
                 if(System.IO.File.Exists(scenarioPath))paths.Add(scenarioPath);
             }
         }
-        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        var revision = new StringBuilder();
         foreach (string path in paths.Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase))
         {
-            hash.AppendData(Encoding.UTF8.GetBytes(Path.GetRelativePath(root, path).Replace('\\', '/')));
-            using FileStream file = System.IO.File.OpenRead(path);
-            hash.AppendData(SHA256.HashData(file));
+            // Invalidate on an override file change without reopening and
+            // hashing every model/texture when a campaign view is refreshed.
+            var file = new FileInfo(path);
+            revision.Append(Path.GetRelativePath(root, path).Replace('\\', '/'))
+                .Append(':').Append(file.Length).Append(':').Append(file.LastWriteTimeUtc.Ticks).Append('\n');
         }
-        return Convert.ToHexString(hash.GetHashAndReset());
+        return revision.ToString();
     }
 
     private void ReleaseArmyVisuals()

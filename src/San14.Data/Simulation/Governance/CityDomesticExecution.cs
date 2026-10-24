@@ -95,9 +95,6 @@ public sealed partial class CityDomesticDraft
                 (result.CampaignEffectRequests ?? throw Missing("association_report_pending_owner"))
                     .Append(CampaignEffectSource.ForceAssociationRemoval,
                         result.NativeClock?.UpdateOrdinal ?? throw Missing("association_report_revision"), requests) };
-            // Validate the existing save-bound domain invariants; do not serialize
-            // or hash the world to manufacture a command fingerprint.
-            StateValidator.Validate(result);
             _closed = true;
             return CommandResult.Accept(result);
         }

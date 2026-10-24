@@ -30,6 +30,14 @@ internal partial class DeploymentTargetConfirmation : Control
 
     internal void ConfigureMessage(GameResourceRepository repository,PreviewText text,
         string message,Action<bool> closed)
+        => ConfigureMessageCore(repository,text,message,closed,false);
+
+    internal void ConfigureWrappedMessage(GameResourceRepository repository,PreviewText text,
+        string message,Action<bool> closed)
+        => ConfigureMessageCore(repository,text,message,closed,true);
+
+    private void ConfigureMessageCore(GameResourceRepository repository,PreviewText text,
+        string message,Action<bool> closed,bool wrap)
     {
         Name="DeploymentTargetConfirmation";ZIndex=10;MouseFilter=MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);close=closed;
@@ -44,20 +52,28 @@ internal partial class DeploymentTargetConfirmation : Control
         Rect2 body=source.Rectangle(4,mount);
         var profile=MapFontProfile.FromNode(source.Nodes[4],source.Source.Source.ResourceUri) with
             {WidthFitMode=3,RawCharacterMode=2};
-        string[] lines=message.Split('\n');
-        var metrics=lines.Select(line=>font.Measure(line,profile)).ToArray();
-        if(lines.Any(line=>line.Length==0)||metrics.Any(value=>value.Width>body.Size.X))
-            throw new InvalidDataException("Deployment confirmation requires its source wrapping branch.");
-        int[] extents=metrics.Select(value=>value.Height+profile.VerticalSpace).ToArray();
-        // AD5F20 centres sum(line extents)-trailing space using signed float
-        // truncation. These audited literals use two or three full-height lines.
-        int top=-(int)(-.5f*(body.Size.Y+profile.VerticalSpace-extents.Sum()));
-        var lineProfile=profile with{RawAlign=(byte)(profile.RawAlign&0xF0),VerticalSpace=0};
-        for(int index=0;index<lines.Length;index++)
+        if(wrap)
         {
-            var line=new UiSourceText{Name="MessageLine"+index,Position=body.Position+new Vector2(0,top),
-                Size=new(body.Size.X,metrics[index].Height)};canvas.AddChild(line);
-            line.Configure(font,lineProfile);line.Text=lines[index];top+=extents[index];
+            var paragraph=new UiSourceParagraph{Name="ConfirmationMessage",Position=body.Position,Size=body.Size};
+            canvas.AddChild(paragraph);paragraph.Configure(font,profile);paragraph.Apply(message);
+        }
+        else
+        {
+            string[] lines=message.Split('\n');
+            var metrics=lines.Select(line=>font.Measure(line,profile)).ToArray();
+            if(lines.Any(line=>line.Length==0)||metrics.Any(value=>value.Width>body.Size.X))
+                throw new InvalidDataException("Deployment confirmation requires its source wrapping branch.");
+            int[] extents=metrics.Select(value=>value.Height+profile.VerticalSpace).ToArray();
+            // AD5F20 centres sum(line extents)-trailing space using signed float
+            // truncation. These audited literals use two or three full-height lines.
+            int top=-(int)(-.5f*(body.Size.Y+profile.VerticalSpace-extents.Sum()));
+            var lineProfile=profile with{RawAlign=(byte)(profile.RawAlign&0xF0),VerticalSpace=0};
+            for(int index=0;index<lines.Length;index++)
+            {
+                var line=new UiSourceText{Name="MessageLine"+index,Position=body.Position+new Vector2(0,top),
+                    Size=new(body.Size.X,metrics[index].Height)};canvas.AddChild(line);
+                line.Configure(font,lineProfile);line.Text=lines[index];top+=extents[index];
+            }
         }
         Button("ConfirmYes",5,"000_cmn_txt_decision_yes",()=>Finish(true));
         Button("ConfirmNo",13,"000_cmn_txt_decision_no",RequestCancel,cue:UiAudioCue.Cancel);

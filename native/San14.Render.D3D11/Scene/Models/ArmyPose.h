@@ -84,6 +84,9 @@ struct NativeArmyPoseCache {
     NativeAccessoryPoseRoot root{};
     const NativeAccessoryPoseSource* source{};
     bool sequentialClip{};
+    // A population pose writer marks its real change for the retained slot.
+    // Cache hits preserve this bit until that change has been saved.
+    bool pendingPoolSnapshot{};
 };
 inline const NativeAccessoryPoseFrame& prepareNativeArmyCurrentPose(const NativeAccessoryPoseSource& source,
     NativeAccessoryPoseOwner& owner,NativeArmyPoseCache& cache,float phase,const NativeAccessoryPoseRoot& root,bool hasSample,
@@ -95,7 +98,7 @@ inline const NativeAccessoryPoseFrame& prepareNativeArmyCurrentPose(const Native
     const bool sampleLocal=hasSample&&(!cache.initialized||!cache.hasSample||!samePhase);
     const auto& frame=sequentialClip?sampleNativeAccessoryPose(source,owner,phase,root,sampleLocal):
         sampleNativeArmyPose(source,owner,phase,root,sampleLocal);
-    cache={true,hasSample,phase,root,&source,sequentialClip};return frame;
+    cache={true,hasSample,phase,root,&source,sequentialClip,true};return frame;
 }
 
 // A successful grouped cache hit shares the sampled model's local joints.
@@ -105,5 +108,5 @@ inline void publishNativeArmySharedLocal(const NativeAccessoryPoseSource& source
     const std::vector<NativeAccessoryPoseJoint>& local,float phase,const NativeAccessoryPoseRoot& root){
     owner.frame.localPose=local;
     sampleNativeArmyPose(source,owner,phase,root,false);
-    cache={true,true,phase,root,&source};
+    cache={true,true,phase,root,&source,false,true};
 }

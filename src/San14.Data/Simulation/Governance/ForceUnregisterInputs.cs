@@ -8,6 +8,15 @@ namespace San14.Data;
 public static class ForceUnregisterInputs
 {
     public const string Revision = "ce-force-unregister-current-20261007";
+
+    internal static ushort? ReadDistrictLeader(GameState state, DistrictState district)
+    {
+        if (district.LeaderId is int leader) return (ushort)leader;
+        // A nullable domain appointment alone does not prove a native zero.
+        // Reuse only the explicit empty store preserved by its saved owner.
+        return state.NativeForceUnregisterCurrent?.DistrictWindows10.TryGetValue(district.Id, out var fields) == true &&
+            fields is { Length: >= 4 } && fields[2] == 0 && fields[3] == 0 ? (ushort)0 : null;
+    }
     public static GameState InstallFresh(GameState state, LoadedScenario source)
     {
         if (state.NativeForceUnregisterCurrent is not null || state.Units.Count != 0 ||
@@ -35,7 +44,13 @@ public static class ForceUnregisterInputs
         var placeholder = source.Snapshot.Forces[0];
         var result = state with { NativeForceUnregisterCurrent = new(Revision, districts, ranking, [],
             placeholder.RawIndexedBytes13?.ToArray() ?? throw new InvalidDataException("Force0 current relation13 constructor/source is missing."),
-            placeholder.RawIndexedBytesEA?.ToArray() ?? throw new InvalidDataException("Force0 current relationEA constructor/source is missing.")) { OtherForce1657 = 0 } };
+            placeholder.RawIndexedBytesEA?.ToArray() ?? throw new InvalidDataException("Force0 current relationEA constructor/source is missing."))
+            {
+                OtherForce1657 = 0,
+                //227070 clears both fields before the scenario load. Neither
+                //is a missing-row fallback in later saved captures.
+                PlaceholderFlags12 = 0, PlaceholderPartner194 = 0
+            } };
         var native = result.NativeArmySimulation!;
         var values = new Dictionary<string, int>(native.Parameters.Int32Values);
         foreach (var row in source.Snapshot.Forces.Where(x => x.Slot != 0))
@@ -48,7 +63,6 @@ public static class ForceUnregisterInputs
 
     public static void BindCurrent(GameState state, SourceWorldContext current)
     {
-        NativeForceUnregisterCurrentStateValidation.Validate(state);
         if (state.NativeForceUnregisterCurrent is not { } owner) return;
         foreach (var row in owner.DistrictWindows10)
             for (int index = 0; index < 28; index++)

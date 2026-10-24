@@ -260,8 +260,10 @@ public static class PeriodReportPresenter
     {
         string caster = world.Officers.GetValueOrDefault(entry.OfficerId)?.Name ?? entry.OfficerId.ToString();
         string tactic = world.Tactics.GetValueOrDefault(entry.TacticId)?.Name ?? entry.TacticId.ToString();
-        string target = entry.TargetUnitId is int id && world.Units.TryGetValue(id, out UnitState? unit)
-            ? world.Officers.GetValueOrDefault(unit.OfficerId)?.Name ?? id.ToString() : entry.TargetUnitId?.ToString() ?? text.Get("detail_unknown");
+        string target = entry.TargetBaseLocationId is int location
+            ? world.Cities.GetValueOrDefault(location)?.Name ?? world.Gates.GetValueOrDefault(location)?.Name ?? text.Get("detail_unknown")
+            : entry.TargetUnitId is int id && world.Units.TryGetValue(id, out UnitState? unit)
+                ? world.Officers.GetValueOrDefault(unit.OfficerId)?.Name ?? id.ToString() : entry.TargetUnitId?.ToString() ?? text.Get("detail_unknown");
         string effect = entry.Effect is { } kind ? text.Get("play_tactic_effect_" + kind.ToString().ToLowerInvariant()) : text.Get("detail_unknown");
         return entry.Kind switch
         {

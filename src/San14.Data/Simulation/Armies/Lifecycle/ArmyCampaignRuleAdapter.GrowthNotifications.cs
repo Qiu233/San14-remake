@@ -25,9 +25,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             //32EF60 precedes even an empty notice tree.
             var primary = ReadGrowthPlayerPrimaryDistrict(state, current);
             var clear = new List<OfficerState>();
-            OfficerState? reporting = null;
-            OfficerAbilityGrowthNotice[]? reportingNotices = null;
-            int reportingPhysical = 0;
+            var entries = new List<(OfficerState Person, int Physical, OfficerAbilityGrowthNotice[]? Notices)>();
             long knownCount = 0;
             bool countKnown = true;
             foreach (var person in state.Officers.Values)
@@ -37,62 +35,65 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (notices is { Length: 0 }) continue;
                 int physical = current.ResolveOfficerSource(person.Id)
                     ?? throw GrowthMissing("growth_person_receiver");
+                if ((uint)physical >= 1851) throw GrowthMissing("growth_person_allocation");
+                entries.Add((person, physical, notices));
+            }
+            //258E40 keys the tree by unsigned Person pointer;2D2650 walks it
+            //in order. The ordinary1851-Person allocation is one contiguous
+            //array, and its physical table is filled with successive elements
+            //(TC320000.cpp4740..4776, stride0x1F0). Physical order is therefore
+            //the pointer-key order, independently of IDs or registry dispatch.
+            entries.Sort((first, second) => first.Physical.CompareTo(second.Physical));
+
+            var requests = new List<CampaignEffectRequest>();
+            var working = state;
+            var formatter = new GrowthNoticeFormatter(this, state, current);
+            foreach (var (person, physical, notices) in entries)
+            {
                 byte rawDistrict = GrowthKnown(current.ReadPersonDistrictSlot(physical), "growth_person_district");
                 var district = current.ReadDistrictTableReference(rawDistrict <= 51 ? rawDistrict : 0)
                     ?? throw GrowthMissing("growth_person_district_pointer");
-                bool reports = district == primary; //Includes two observed null pointers.
-                if (reports)
+                if (district == primary) //Includes two observed null pointers.
                 {
                     if (notices is null)
                         throw GrowthMissing(person.Growth is null ? "growth_owner_membership" : "growth_notices_membership");
-                    if (reporting is not null) throw GrowthMissing("officer_growth_global_person_order");
-                    reporting = person;
-                    reportingNotices = notices;
-                    reportingPhysical = physical;
+                    foreach (var notice in notices)
+                    {
+                        //Keep the common caller prefix even for2E69/2E6A,
+                        //whose bodies do not themselves display S0 or integers.
+                        int sender = GrowthIdentity(state, current, physical, person.Id);
+                        string label = formatter.ReadAbilityLabel(notice.AbilityIndex);
+                        int after = notice.AfterAbility, before = notice.BeforeAbility;
+                        if ((uint)after > byte.MaxValue || (uint)before > byte.MaxValue)
+                            throw GrowthMissing("growth_notice_byte_domain");
+                        int[] integers = [after, after - before, 0, 0, 0, 0];
+                        int popupId = notice.UninterpretedCode is 17 or 18
+                            ? notice.UninterpretedState == 0 ? 0x2E6A : 0x2E69 : 0x2E68;
+                        string popup = formatter.Format(popupId, sender, label, integers);
+                        string history = formatter.Format(0x2E6B, sender, label, integers);
+                        if (notice.ReportContext == 0)
+                        {
+                            requests.Add(new(null, null) { OfficerGrowthFeedback = new(
+                                OfficerGrowthFeedbackOperation.SoundCue, null, null) });
+                            requests.Add(new(null, null) { OfficerGrowthFeedback = new(
+                                OfficerGrowthFeedbackOperation.Narration, new(sender, popup), null) });
+                        }
+                        //All context values continue through fresh history inputs.
+                        int officer = GrowthIdentity(state, current, physical, person.Id);
+                        int day = StatusCampaignDay(state, moment);
+                        ushort first = GrowthKnown(current.ReadPersonFirstLocation(physical), "growth_report_first_location");
+                        var target = BaseLookup.Find(first, current);
+                        byte raw = GrowthKnown(current.ReadPersonDistrictSlot(physical), "growth_report_raw_district");
+                        int hex = ReadGrowthReportHex(current, target);
+                        working = WriteHistory(working, current, new(0, raw, hex, day, history,
+                            CampaignHistoryWriter.Supplemental(working), officer, MarkBit4: 1), requests);
+                    }
                 }
                 //Unknown nonprimary notices are explicitly cleared at265E10,
                 //without asking for their count, XP, byte values or names.
                 clear.Add(person);
                 if (notices is null) countKnown = false;
                 else knownCount += notices.Length;
-            }
-
-            var requests = new List<CampaignEffectRequest>();
-            var working = state;
-            if (reporting is not null)
-            {
-                var formatter = new GrowthNoticeFormatter(this, state, current);
-                foreach (var notice in reportingNotices!)
-                {
-                    //Keep the common caller prefix even for2E69/2E6A, whose
-                    //resource bodies do not themselves display S0 or integers.
-                    int sender = GrowthIdentity(state, current, reportingPhysical, reporting.Id);
-                    string label = formatter.ReadAbilityLabel(notice.AbilityIndex);
-                    int after = notice.AfterAbility, before = notice.BeforeAbility;
-                    if ((uint)after > byte.MaxValue || (uint)before > byte.MaxValue)
-                        throw GrowthMissing("growth_notice_byte_domain");
-                    int[] integers = [after, after - before, 0, 0, 0, 0];
-                    int popupId = notice.UninterpretedCode is 17 or 18
-                        ? notice.UninterpretedState == 0 ? 0x2E6A : 0x2E69 : 0x2E68;
-                    string popup = formatter.Format(popupId, sender, label, integers);
-                    string history = formatter.Format(0x2E6B, sender, label, integers);
-                    if (notice.ReportContext == 0)
-                    {
-                        requests.Add(new(null, null) { OfficerGrowthFeedback = new(
-                            OfficerGrowthFeedbackOperation.SoundCue, null, null) });
-                        requests.Add(new(null, null) { OfficerGrowthFeedback = new(
-                            OfficerGrowthFeedbackOperation.Narration, new(sender, popup), null) });
-                    }
-                    //All context values continue through fresh history inputs.
-                    int officer = GrowthIdentity(state, current, reportingPhysical, reporting.Id);
-                    int day = StatusCampaignDay(state, moment);
-                    ushort first = GrowthKnown(current.ReadPersonFirstLocation(reportingPhysical), "growth_report_first_location");
-                    var target = BaseLookup.Find(first, current);
-                    byte district = GrowthKnown(current.ReadPersonDistrictSlot(reportingPhysical), "growth_report_raw_district");
-                    int hex = ReadGrowthReportHex(current, target);
-                    working = WriteHistory(working, current, new(0, district, hex, day, history,
-                        CampaignHistoryWriter.Supplemental(working), officer, MarkBit4: 1), requests);
-                }
             }
 
             //265E10 is a global tail, including skipped nonprimary owners. No

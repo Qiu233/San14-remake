@@ -10,9 +10,8 @@ namespace San14.Data;
 /// an original-process pointer claim.</summary>
 public sealed class MapCommonViewFilterSource
 {
-    private readonly byte[] sourceBytes;
     private MapCommonViewFilterSource(LoadedObjects source,DokObject settings,uint mode,int samples,float dispersion,int depthType,int resolution)
-    {Source=source;Settings=settings;Mode90=mode;SampleCount94=samples;GaussianDispersion9C=dispersion;DepthFilterType98=depthType;TransparencyResolution8C=resolution;sourceBytes=source.Source.Bytes.ToArray();}
+    {Source=source;Settings=settings;Mode90=mode;SampleCount94=samples;GaussianDispersion9C=dispersion;DepthFilterType98=depthType;TransparencyResolution8C=resolution;}
     public LoadedObjects Source { get; }
     public DokObject Settings { get; }
     public uint Mode90 { get; }
@@ -52,9 +51,10 @@ public sealed class MapCommonViewFilterSource
         return new(source,settings,Word(61,0xD5222D67),unchecked((int)Word(62,0xF4BAA840)),scalar,
             unchecked((int)Word(69,0x5692BB6E,4)),unchecked((int)Word(60,0xA29E490D)));
     }
+    /// <summary>Explicit offline source comparison. Normal frame consumers
+    /// use the immutable parsed fields without re-reading resource bytes.</summary>
     public void Validate()
     {
-        if(!Source.Source.Bytes.AsSpan().SequenceEqual(sourceBytes))throw new InvalidDataException("Source Common filter resource changed after selection.");
         var canonical=ReadTemplate(Source,Settings.ObjectId);
         if(canonical.Mode90!=Mode90||canonical.SampleCount94!=SampleCount94||canonical.DepthFilterType98!=DepthFilterType98||canonical.TransparencyResolution8C!=TransparencyResolution8C||
             BitConverter.SingleToUInt32Bits(canonical.GaussianDispersion9C)!=BitConverter.SingleToUInt32Bits(GaussianDispersion9C))
@@ -65,7 +65,6 @@ public sealed class MapCommonViewFilterSource
     public MapCommonViewFilterCurrent PrepareAppliedCurrent(long frameNumber,
         string commonSettingsOwnerIdentity,string currentViewOwnerIdentity)
     {
-        Validate();
         if(frameNumber<1||string.IsNullOrWhiteSpace(commonSettingsOwnerIdentity)||string.IsNullOrWhiteSpace(currentViewOwnerIdentity))
             throw new InvalidDataException("Applied Common filter packet requires its accepted frame and selected Settings/View owners.");
         return new(this,frameNumber,commonSettingsOwnerIdentity,currentViewOwnerIdentity);
@@ -89,7 +88,6 @@ public sealed class MapCommonViewFilterCurrent
     public string SourceProvenance=>Source.SourceProvenance+$";applied-settings={CommonSettingsOwnerIdentity};View={CurrentViewOwnerIdentity};frame={FrameNumber}";
     public void ValidateFrame(long frameNumber,string settingsOwner,string viewOwner)
     {
-        Source.Validate();
         if(frameNumber!=FrameNumber||settingsOwner!=CommonSettingsOwnerIdentity||viewOwner!=CurrentViewOwnerIdentity)
             throw new InvalidDataException("Current Common filter fields belong to another accepted frame or Settings/View owner.");
     }

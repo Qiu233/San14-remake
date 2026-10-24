@@ -32,6 +32,7 @@ internal static class ArmyTargetSourceKnowledgeValidation
             }
             if (residue.IdentityCode is ushort code &&
                 (target.Kind == ArmyTargetKind.City && code is >= 1 and <= 51 ||
+                 target.Kind == ArmyTargetKind.Gate && code is >= 1 and <= 10 ||
                  target.Kind == ArmyTargetKind.ArmyReceiver && receivers?.TryResolveReceiverId(code, out _) == true ||
                  target.Kind == ArmyTargetKind.Hex && code < 48400 ||
                  target.Kind == ArmyTargetKind.MapObjectReceiver && mapObjects?.Lookup(code) is not null))
@@ -43,6 +44,9 @@ internal static class ArmyTargetSourceKnowledgeValidation
             if (row.Target.Kind == ArmyTargetKind.Unresolved && residue?.KindCode is null ||
                 row.Target.Destination?.Kind == ArmyTargetDestinationKind.Unresolved && residue?.IdentityCode is null)
                 throw new InvalidDataException("Saved unresolved army target has lost its source knowledge.");
+            //Historical current saves may retain raw6 as an unresolved
+            //category. Keep that explicit knowledge readable; new Decode
+            //writes the typed Gate owner without that residue.
             if (residue?.KindCode is 5 or 27 or 255)
                 throw new InvalidDataException("Decoded army target category is stored as unresolved knowledge.");
             if (residue?.KindCode == 11 && mapObjects is not null)

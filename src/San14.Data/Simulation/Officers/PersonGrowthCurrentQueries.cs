@@ -133,6 +133,9 @@ public sealed class PersonGrowthCurrentQueries
         ? ReadByte(state, StateAdvantageKey(physical)) : null;
     internal byte? ReadAdvantageRequirement(GameState state, int physical) => physical is >= 0 and < 18 && SavedBank(state)
         ? ReadByte(state, RequirementKey(physical)) : null;
+    internal byte? ReadAdvantageEffect(GameState state, int physical, int index) =>
+        physical is >= 0 and < 18 && index is >= 0 and < 2 && SavedBank(state)
+            ? ReadByte(state, EffectKey(physical, index)) : null;
 
     private bool Bound(GameState state) => state.NativeArmySimulation?.Parameters is { } p &&
         p.Language == _language && p.RuleVersion == _ruleVersion &&

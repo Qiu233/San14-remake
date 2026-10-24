@@ -2,7 +2,11 @@ using San14.Core;
 
 namespace San14.Data;
 
-public sealed record ArmyMovementManagerActor(int UnitId, int NativePoolSlot);
+public sealed record ArmyMovementManagerActor(int UnitId, int NativePoolSlot)
+{
+    //Operation-local borrow of the lifecycle's real image, never a new Unit.
+    public UnitState? PendingImage { get; init; }
+}
 /// <summary>Inputs reached before3014C0, even when the route has no next Hex.
 /// No destination Terrain getter is reached on that exit.</summary>
 public sealed record ArmyMarchPreparationInputs(bool ArmyValid, float Mobility2B0660,
@@ -31,12 +35,18 @@ public interface IArmyMarchCurrentQueries
         NativeArmyProgressStageMoment stage8Moment) => null;
     ArmyMarchPreparationInputs? ReadOrdinaryPreparationInputs(GameState state, UnitState army,
         NativeArmyProgressStageMoment stage8Moment) => null;
-    /// <summary>The reached full-minimum3014C0 leaf for Next=None uses the
-    /// actual fallback Hex0 receiver. Other fallback branches stay unresolved.</summary>
+    /// <summary>The full-minimum3014C0 test for Next=None borrows Hex0.
+    /// True retains None; false is the known type2 hostile fallback requiring
+    /// its actual clear/301DD0 retry. Null is an unresolved receiver/input.</summary>
     bool? ReadOrdinaryNoStepFallback(GameState state, UnitState army,
         NativeArmyProgressStageMoment stage8Moment) => null;
     ArmyMarchCurrentInputs? ReadOrdinaryCurrentInputs(GameState state, UnitState army,
         NativeArmyProgressStageMoment stage8Moment);
+    /// <summary>After a3014C0 route rewrite, reuse the already read2695D0
+    /// receipt and read only the selected destination fields.</summary>
+    ArmyMarchCurrentInputs? ReadOrdinaryDestinationInputs(GameState state, UnitState army,
+        NativeArmyProgressStageMoment stage8Moment, ArmyMarchPreparationInputs preparation) =>
+        ReadOrdinaryCurrentInputs(state, army, stage8Moment);
 }
 
 public static class ArmyMarchSourceMath
@@ -72,39 +82,81 @@ public sealed class ArmyMarchSourceRuntime : IArmyMovementRules
     public const string Revision = "san14:ce-stage8-ordinary-repeated-no-path-20261017";
     private readonly IArmyMarchCurrentQueries queries;
     private readonly ArmyMarchCrossingSource? crossings;
-    public ArmyMarchSourceRuntime(IArmyMarchCurrentQueries currentQueries, ArmyMarchCrossingSource? crossingSource = null)
+    private readonly SourceWorldContext? operationCurrent;
+    public ArmyMarchSourceRuntime(IArmyMarchCurrentQueries currentQueries, ArmyMarchCrossingSource? crossingSource = null,
+        SourceWorldContext? operationCurrent = null)
     {
         queries = currentQueries ?? throw new ArgumentNullException(nameof(currentQueries));
         crossings = crossingSource;
+        this.operationCurrent = operationCurrent;
     }
 
     public ArmyMovementQueue? PrepareStage7(GameState state, NativeArmyProgressStageMoment moment)
+        => PrepareStage7Core(state, moment, true);
+
+    internal ArmyMovementQueue? PrepareCurrentStage7(GameState state, NativeArmyProgressStageMoment moment)
+        => PrepareStage7Core(state, moment, false);
+
+    private ArmyMovementQueue? PrepareStage7Core(GameState state, NativeArmyProgressStageMoment moment, bool externalOrder)
     {
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(moment);
         if (moment.SchedulerStageIndex != (byte)NativeArmyProgressStage.PrepareMovement || moment.Boundary != NativeArmyProgressStageBoundary.StageEntry)
             throw new InvalidDataException("Movement source list must be prepared at its reached stage7.");
         ValidateCurrentMoment(state, moment);
         var chain = queries.ReadCompleteCurrentManager60Chain(state, moment);
-        if (chain is null) return null;
-        var expected = state.Units.Values.Where(u => u.NativeArmyOrigin is not null).Select(u => u.Id).ToArray();
-        if (chain.Any(a => a is null) || chain.Select(a => a.UnitId).Distinct().Count() != expected.Length ||
-            chain.Select(a => a.NativePoolSlot).Distinct().Count() != chain.Count ||
-            chain.Count != expected.Length || !chain.Select(a => a.UnitId).Order().SequenceEqual(expected.Order()))
-            throw new InvalidDataException("Source stage7 requires its complete current manager chain, without ID sorting as an ordering substitute.");
+        if (chain is null)
+        {
+            if (operationCurrent is not null)
+                throw new InvalidDataException("army.march.missing.stage7.current_manager_chain;cycle=" + moment.CalendarCycleOrdinal);
+            return null;
+        }
+        if (externalOrder)
+        {
+            var expected = state.Units.Values.Where(u => u.NativeArmyOrigin is not null).Select(u => u.Id).ToArray();
+            if (chain.Any(a => a is null) || chain.Select(a => a.UnitId).Distinct().Count() != expected.Length ||
+                chain.Select(a => a.NativePoolSlot).Distinct().Count() != chain.Count ||
+                chain.Count != expected.Length || !chain.Select(a => a.UnitId).Order().SequenceEqual(expected.Order()))
+                throw new InvalidDataException("Source stage7 requires its complete current manager chain, without ID sorting as an ordering substitute.");
+        }
         var selected = new List<ArmyMovementQueueActor>();
         foreach (var actor in chain)
         {
-            UnitState army = state.Units[actor.UnitId];
-            if (!HasCurrentRules(army)) return null;
+            UnitState? army = state.Units.GetValueOrDefault(actor.UnitId) ?? actor.PendingImage;
+            if (army is null)
+            {
+                if (operationCurrent is not null)
+                    throw new InvalidDataException($"army.march.missing.stage7.manager_image;cycle={moment.CalendarCycleOrdinal};Army={actor.UnitId};physical={actor.NativePoolSlot}");
+                return null;
+            }
+            if (!HasCurrentRules(army))
+            {
+                if (operationCurrent is not null) throw MissingBranch(state, army, moment, "stage7.rule_identity");
+                return null;
+            }
             if (army.NativeArmyOrigin?.NativeSlotIndex != actor.NativePoolSlot)
                 throw new InvalidDataException("Source stage7 chain names another native Army owner.");
             bool? eligible = queries.ReadSourceMovementEligibility2C7350(state, army, moment);
-            if (eligible is null) return null;
+            if (eligible is null)
+            {
+                if (operationCurrent is not null) throw MissingBranch(state, army, moment, "stage7.eligibility_inputs");
+                return null;
+            }
             if (!eligible.Value) continue;
+            if (!state.Units.ContainsKey(actor.UnitId))
+            {
+                //A pending70 member should have reached the real233560 false
+                //selection. Preserve a genuine missing lifecycle if it did not.
+                if (operationCurrent is not null) throw MissingBranch(state, army, moment, "stage7.pending_receiver_selected");
+                return null;
+            }
             if (army.March is not { MovementCredit: int credit } march ||
-                ArmyMarchSourceAdapter.ReadCurrentHex(state, army) is not ushort hex || hex != army.HexId) return null;
+                ArmyMarchSourceAdapter.ReadCurrentHex(state, army) is not ushort hex || hex != army.HexId)
+            {
+                if (operationCurrent is not null) throw MissingBranch(state, army, moment, "stage7.current_march_Hex_and_credit");
+                return null;
+            }
             ArmyReceiverId? receiver = state.ReadArmyLifecycle() is { } arena
-                ? arena.ReceiverSlots().Single(slot => slot.ActiveUnitId == army.Id).ReceiverId : null;
+                ? arena.ReceiverSlots()[actor.NativePoolSlot].ReceiverId : null;
             selected.Add(new(actor.UnitId, receiver, credit, hex, march));
         }
         // TC24B260 only moves a node when its word14 is strictly greater than
@@ -117,6 +169,7 @@ public sealed class ArmyMarchSourceRuntime : IArmyMovementRules
         if (moment.SchedulerStageIndex != (byte)NativeArmyProgressStage.Movement || moment.Boundary != NativeArmyProgressStageBoundary.StageEntry)
             throw new InvalidDataException("Ordinary source march requires its reached stage8.");
         ValidateCurrentMoment(state, moment);
+        ushort? diagnosticTarget = null;
         //2D99C0 does not call2725E0 before movement. Saved-command-specific
         //movement costs are consumed by2B5C10; command maintenance belongs to
         //its real stage28 manager, after this cycle's movement/combat work.
@@ -129,19 +182,26 @@ public sealed class ArmyMarchSourceRuntime : IArmyMovementRules
             ArmyMarchSourceAdapter.EncodeDestination(march.NextStep) is not ushort next ||
             army.OverrideTarget?.Kind is not (ArmyOverrideTargetKind.None or ArmyOverrideTargetKind.ArmyReceiver) ||
             next > ArmyMarchSourceAdapter.SourceHexCount)
-            return null;
+            return MissingCurrent(state, army, moment, "runtime.entry_fields");
         var working = state;
+        ArmyMarchPreparationInputs? retainedPreparation = null;
+        int? retainedSpeed = null;
+        bool minimumRerouteCompleted = false;
         //2D99C0 consumes a first waypoint already at the current position
         //before reading its effective target or invoking any path preparation.
-        if (ArmyMarchSourceAdapter.EncodeDestination(march.Target) == current)
+        if (ArmyMarchSourceAdapter.ReadFirstWaypoint(state, army) == current)
         {
-            if (ArmyWaypointArrivalSource.Consume(state, army) is not { } advanced) return null;
-            army = army with { March = advanced };
-            working = state with { Units = new(state.Units) { [army.Id] = army } };
+            if (ArmyWaypointArrivalSource.ConsumeCurrent(state, army) is not { } advanced) return Missing("runtime.consume_current_waypoint");
+            working = advanced;
+            army = working.Units[army.Id];
         }
-        if (OrdinaryArmyRouteSource.ReadCurrentTarget(working, army) is not ushort target) return null;
+        if (OrdinaryArmyRouteSource.ReadCurrentTarget(working, army, operationCurrent) is not ushort target) return Missing("runtime.effective_target");
+        diagnosticTarget = target;
         if (target == ArmyMarchSourceAdapter.SourceHexCount) return new(formerCredit, working);
-        if (target > ArmyMarchSourceAdapter.SourceHexCount || target == current) return null;
+        //2D99C0 consumes a current first waypoint before resolving the goal.
+        //Occupation14 (like Fire16) can then have its main goal here. Keep
+        //its actual301DD0/2695D0/3014C0 no-step path, not a target rejection.
+        if (target > ArmyMarchSourceAdapter.SourceHexCount || target == current && action is not (14 or 16)) return Missing("runtime.target_scope");
         if (next == ArmyMarchSourceAdapter.SourceHexCount)
         {
             // Unknown Next was rejected above. Only the actual encoded None
@@ -149,7 +209,7 @@ public sealed class ArmyMarchSourceRuntime : IArmyMovementRules
             var prepared = queries.PrepareOrdinaryNextStep(working, army, moment);
             if (prepared is null || !prepared.Units.TryGetValue(army.Id, out var routed) ||
                 ArmyMarchSourceAdapter.EncodeDestination(routed.March?.NextStep) is not ushort routedNext ||
-                routedNext > ArmyMarchSourceAdapter.SourceHexCount) return null;
+                routedNext > ArmyMarchSourceAdapter.SourceHexCount) return Missing("runtime.initial_route_output");
             working = prepared;
             army = routed;
             next = routedNext;
@@ -160,32 +220,43 @@ public sealed class ArmyMarchSourceRuntime : IArmyMovementRules
                     CachedMinimumTerrainCost1A24010: > 0 and < int.MaxValue } ||
                     string.IsNullOrWhiteSpace(preparation.SourceProvenance) ||
                     ArmyMarchSourceMath.ResolveCycleSpeed(preparation.Mobility2B0660,
-                        preparation.SpeedScale2695D0, preparation.Penalty2B5C10) is not int noStepSpeed) return null;
+                        preparation.SpeedScale2695D0, preparation.Penalty2B5C10) is not int noStepSpeed) return Missing("runtime.no_step_preparation_or_speed");
                 working = preparation.PreparedState ?? working;
-                if (unchecked(formerCredit + noStepSpeed) >= preparation.CachedMinimumTerrainCost1A24010 &&
-                    queries.ReadOrdinaryNoStepFallback(working, working.Units[army.Id], moment) != true) return null;
-                //Both proved3014C0 return1 leaves reach2D99C0's Next=None
-                //exit before destination cost, credit accumulation and29DB90.
-                return new(formerCredit, working);
+                if (unchecked(formerCredit + noStepSpeed) < preparation.CachedMinimumTerrainCost1A24010)
+                    return new(formerCredit, working);
+                bool? retain = queries.ReadOrdinaryNoStepFallback(working, working.Units[army.Id], moment);
+                if (retain is null) return Missing("no_step_fallback_current");
+                if (retain.Value) return new(formerCredit, working);
+                //The known type2 hostile Hex0 branch reaches301DD0 again.
+                //A genuine return0 retains its route/cache/pool writes but
+                //does not accumulate credit or execute29DB90.
+                bool? rerouted = RetryType2Next();
+                if (rerouted is null) return Missing("no_step_301DD0_retry");
+                if (!rerouted.Value) return new(formerCredit, working);
+                minimumRerouteCompleted = true;
+                retainedPreparation = preparation;
+                retainedSpeed = noStepSpeed;
             }
         }
-        var input = queries.ReadOrdinaryCurrentInputs(working, army, moment);
-        if (!UsableInputs(input)) return null;
+        var input = retainedPreparation is null ? queries.ReadOrdinaryCurrentInputs(working, army, moment)
+            : queries.ReadOrdinaryDestinationInputs(working, army, moment, retainedPreparation);
+        if (!UsableInputs(input)) return Missing("runtime.destination_inputs");
         working = input.PreparedState ?? working;
-        int? speed = ArmyMarchSourceMath.ResolveCycleSpeed(input.Mobility2B0660, input.SpeedScale2695D0, input.Penalty2B5C10);
-        if (speed is not int reachedSpeed) return null;
+        int? speed = retainedSpeed ?? ArmyMarchSourceMath.ResolveCycleSpeed(input.Mobility2B0660, input.SpeedScale2695D0, input.Penalty2B5C10);
+        if (speed is not int reachedSpeed) return Missing("runtime.cycle_speed");
         bool reachedMinimum = unchecked(formerCredit + reachedSpeed) >= input.CachedMinimumTerrainCost1A24010;
-        if (next == current)
+        if (working.ArmyMapOccupancy?.HasArmyMarker(next) is not bool occupied) return Missing("runtime.next_occupancy");
+        if (!minimumRerouteCompleted && (next == current || reachedMinimum && occupied))
         {
-            if (army.NativeTacticRuntime?.Status10 != 1 || input.DestinationHexObjectWord1A != 0) return null;
-            if (!reachedMinimum)
+            if (army.NativeTacticRuntime?.Status10 is not (1 or 2) || input.DestinationHexObjectWord1A != 0) return Missing("runtime.occupied_or_current_object_scope");
+            if (next == current && !reachedMinimum)
             {
                 ushort accumulated = ArmyMarchSourceMath.AccumulateCredit(formerCredit, reachedSpeed, input.DestinationTerrainCostBDDD0);
-                //3014C0's early return preserves Next=current.2D99C0 then
+            //3014C0's early return preserves Next=current.2D99C0 then
                 //takes the self-occupied branch, whose mandatory29DB90 tail
                 //must complete even though no spatial step is taken.
                 return crossings?.TryAccumulateAtCurrentHex(working, working.Units[army.Id], accumulated,
-                    input.DestinationTerrainCostBDDD0);
+                    input.DestinationTerrainCostBDDD0, moment, diagnosticTarget) ?? Missing("runtime.current_accumulation_owner");
             }
             var clearedArmy = working.Units[army.Id] with
             { March = working.Units[army.Id].March! with { NextStep = ArmyMarchDestination.None } };
@@ -193,29 +264,104 @@ public sealed class ArmyMarchSourceRuntime : IArmyMovementRules
             var prepared = queries.PrepareOrdinaryNextStep(cleared, clearedArmy, moment);
             if (prepared is null || !prepared.Units.TryGetValue(army.Id, out var routed) ||
                 ArmyMarchSourceAdapter.EncodeDestination(routed.March?.NextStep) is not ushort routedNext ||
-                routedNext > ArmyMarchSourceAdapter.SourceHexCount) return null;
+                routedNext > ArmyMarchSourceAdapter.SourceHexCount) return Missing("runtime.occupied_retry_route_output");
             working = prepared; army = routed; next = routedNext;
             //3014C0 returns0 when the reached rewrite leaves Next=None.
             //That is a completed source branch: keep its clear/cache/pool
             //writes, but do not add credit or execute the blocked-step tail.
             if (next == ArmyMarchSourceAdapter.SourceHexCount) return new(formerCredit, working);
-            if (next == current) return null;
+            if (next == current) return Missing("runtime.occupied_retry_still_current");
+            minimumRerouteCompleted = true;
             input = queries.ReadOrdinaryCurrentInputs(working, army, moment);
-            if (!UsableInputs(input)) return null;
+            if (!UsableInputs(input)) return Missing("runtime.occupied_retry_destination_inputs");
             working = input.PreparedState ?? working;
-            //The original2695D0 speed was captured before3014C0. Only the
-            //destination cost is re-read after a successful route replacement.
+            //3014C0 also clears and routes an occupied destination once the
+            //minimum is reached. Below that minimum it retains Next and the
+            //occupied-Army branch below consumes the source waiting tail.
+            //Keep the original2695D0 speed across this route replacement.
         }
-        if (working.ArmyMapOccupancy?.HasArmyMarker(next) != false || input.DestinationHexObjectWord1A != 0)
-            return null;
+        if (working.ArmyMapOccupancy?.HasArmyMarker(next) is not bool finalOccupied ||
+            input.DestinationHexObjectWord1A != 0 && crossings?.ReadDirectBaseEntryStep(working, army, next) != true)
+            return Missing("runtime.final_occupancy_or_object_entry");
         //3014C0 has a real success branch beyond the minimum-cost early return:
         //an ordinary status1 actor with a distinct, unoccupied, object-free next
         //cell retains its selected step. Other reached route branches need owners.
-        if (reachedMinimum && army.NativeTacticRuntime?.Status10 != 1) return null;
+        if (reachedMinimum && army.NativeTacticRuntime?.Status10 is not (1 or 2)) return Missing("runtime.minimum_type_scope");
+        if (reachedMinimum && army.NativeTacticRuntime?.Status10 == 2)
+        {
+            //3014C0's known hostile territory case clears48 and calls the
+            //same301DD0(0,0,0). It tests only the resulting Next, not a
+            //second territory predicate, before returning to2D99C0.
+            if (!minimumRerouteCompleted)
+            {
+                if (operationCurrent is null || operationCurrent.ReadHexTableReference(next) is not { } nextHex ||
+                    operationCurrent.ReadHexForceSlot(nextHex) is not byte owner ||
+                    army.NativeArmyOrigin?.NativeSlotIndex is not int physical) return Missing("next_territory_current");
+                bool? hostile = ArmyLogisticsPreparation.ReadNativeRelationGate(working,
+                    operationCurrent.ReadArmyUnitRawForceSlot(new(physical)), owner);
+                if (hostile is null) return Missing("next_territory_relation");
+                if (hostile.Value)
+                {
+                    var preparation = new ArmyMarchPreparationInputs(input.ArmyValid, input.Mobility2B0660,
+                        input.SpeedScale2695D0, input.Penalty2B5C10, input.CachedMinimumTerrainCost1A24010,
+                        input.CurrentTerrainPointerAvailable, input.SourceProvenance);
+                    bool? rerouted = RetryType2Next();
+                    if (rerouted is null) return Missing("hostile_next_301DD0_retry");
+                    if (!rerouted.Value) return new(formerCredit, working);
+                    input = queries.ReadOrdinaryDestinationInputs(working, army, moment, preparation);
+                    if (!UsableInputs(input)) return Missing("hostile_retry_destination");
+                    working = input.PreparedState ?? working;
+                    if (working.ArmyMapOccupancy?.HasArmyMarker(next) is not bool occupiedAfterRetry ||
+                        input.DestinationHexObjectWord1A != 0 && crossings?.ReadDirectBaseEntryStep(working, army, next) != true)
+                        return Missing("hostile_retry_2D99C0_destination");
+                    finalOccupied = occupiedAfterRetry;
+                }
+            }
+        }
         ushort credit = ArmyMarchSourceMath.AccumulateCredit(formerCredit, reachedSpeed, input.DestinationTerrainCostBDDD0);
+        if (finalOccupied)
+            return crossings?.TryWaitForOccupiedArmy(working, working.Units[army.Id], credit, input.DestinationTerrainCostBDDD0, moment, diagnosticTarget)
+                ?? Missing("runtime.occupied_wait_owner");
         if (credit >= input.DestinationTerrainCostBDDD0)
-            return crossings?.TryCross(working, working.Units[army.Id], credit, input.DestinationTerrainCostBDDD0, moment);
+            return crossings?.TryCross(working, working.Units[army.Id], credit, input.DestinationTerrainCostBDDD0, moment, diagnosticTarget)
+                ?? Missing("runtime.crossing_owner");
         return new(credit, ReferenceEquals(working, state) ? null : working);
+
+        bool? RetryType2Next()
+        {
+            if (army.NativeTacticRuntime?.Status10 != 2) return null;
+            var cleared = army with { March = army.March! with { NextStep = ArmyMarchDestination.None } };
+            var draft = working with { Units = new(working.Units) { [army.Id] = cleared } };
+            var prepared = queries.PrepareOrdinaryNextStep(draft, cleared, moment);
+            if (prepared is null || !prepared.Units.TryGetValue(army.Id, out var routed) ||
+                ArmyMarchSourceAdapter.EncodeDestination(routed.March?.NextStep) is not ushort rewritten ||
+                rewritten > ArmyMarchSourceAdapter.SourceHexCount) return null;
+            working = prepared; army = routed; next = rewritten;
+            return next != ArmyMarchSourceAdapter.SourceHexCount;
+        }
+        ArmyMovementResolution? Missing(string branch) =>
+            MissingCurrent(working, army, moment, branch, diagnosticTarget);
+    }
+    //Failure-only scalar context. Never captures, serializes or scans a world.
+    internal static InvalidDataException MissingBranch(GameState state, UnitState army,
+        NativeArmyProgressStageMoment? moment, string branch, ushort? effectiveTarget = null,
+        int? attemptedCredit = null, int? destinationCost = null)
+    {
+        byte? action = ArmyConfigurationSourceAdapter.ReadAction(state, army);
+        ushort? at = ArmyMarchSourceAdapter.ReadCurrentHex(state, army);
+        ushort? next = ArmyMarchSourceAdapter.EncodeDestination(army.March?.NextStep);
+        ushort? marchTarget = ArmyMarchSourceAdapter.EncodeDestination(army.March?.Target);
+        return new InvalidDataException($"army.march.missing.{branch};cycle={moment?.CalendarCycleOrdinal};" +
+            $"Army={army.Id};action={action};type={army.NativeTacticRuntime?.Status10};" +
+            $"current={at};next={next};credit={army.March?.MovementCredit};" +
+            $"target={effectiveTarget};marchTarget={marchTarget};destination={army.DestinationHexId};" +
+            $"attemptedCredit={attemptedCredit};destinationCost={destinationCost}");
+    }
+    private ArmyMovementResolution? MissingCurrent(GameState state, UnitState army,
+        NativeArmyProgressStageMoment moment, string branch, ushort? target = null)
+    {
+        if (operationCurrent is not null) throw MissingBranch(state, army, moment, branch, target);
+        return null;
     }
     private static bool UsableInputs([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] ArmyMarchCurrentInputs? input) =>
         input is { ArmyValid: true, CurrentTerrainPointerAvailable: true, DestinationHexValid: true,

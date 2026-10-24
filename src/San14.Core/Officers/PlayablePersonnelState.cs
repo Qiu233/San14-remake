@@ -11,7 +11,11 @@ public sealed record PersonnelChange(PersonnelActionKind Kind, int OfficerId,
 
 /// <summary>Explicit immediate accounting; no original costs or loyalty changes are inferred.</summary>
 public sealed record PersonnelQuote(int? DistrictId, int? GoldCityId, int CommandBooks,
-    int Gold, int LoyaltyDelta, string Revision);
+    int Gold, int LoyaltyDelta, string Revision)
+{
+    // Optional source-backed custody flag write; legacy/custom quotes omit it.
+    public byte? ItemFlagsAfter { get; init; }
+}
 public sealed record PersonnelEvaluation(bool? Allowed, PersonnelQuote? Quote = null,
     string? MissingRuleKey = null, string? Reason = null);
 

@@ -4,13 +4,13 @@ namespace San14.Data;
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
-    internal GameState? PrepareOrdinaryImmediateRoute(GameState state, UnitState army)
+    internal GameState? PrepareOrdinaryImmediateRoute(GameState state, UnitState army, SourceWorldContext? operationCurrent = null)
     {
         if (state.Units.GetValueOrDefault(army.Id) != army ||
             army.March?.NextStep != ArmyMarchDestination.None) return null;
         try
         {
-            var current = CaptureWritableTransportRouteCurrent(state);
+            var current = operationCurrent ?? CaptureWritableTransportRouteCurrent(state);
             // Immediate bank0 and worker bank1 select1845B0's independent
             // buffers/locks only. ArmyRouteSearch owns private nodes per call.
             // Unlike the changed-list worker, this call preserves a live cache.
@@ -25,7 +25,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             };
             var result = state with { Units = new(state.Units) { [army.Id] = changed } };
             var pool = current.ReadOwnedCurrentListPool()!;
-            return result.WithArmyLifecycle(result.ReadArmyLifecycle()! with { Indexes = pool.ExportOwnedState() });
+            return result.WithArmyLifecycle(result.ReadArmyLifecycle()! with
+            { Indexes = operationCurrent is null ? pool.ExportOwnedState() : pool.ProjectOwnedRoles() });
         }
         catch (InvalidDataException) { return null; }
     }
@@ -51,6 +52,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         var arena = state.ReadArmyLifecycle() ?? throw new InvalidDataException("current.transport_route_saved_arena");
         var current = OwnedArmyReturnCurrentFields.CaptureCurrent(state, _definitions);
+        current.CurrentPlayerForce = OwnedCurrentPlayerForce.ReadCurrentReference(state, current);
         _ = WorldIndexContext.ImportOwnedState(current, arena.Indexes, state);
         current.BindArmyMapOccupancy(state);
         current.RestoreOwnedArmyReturnSlots(state, arena);

@@ -16,6 +16,7 @@ public sealed class PlayableDiplomaticOfficerGuard(IOrderRules next) : IOrderRul
             PrepareTalentRecruitOrder recruit => [recruit.ExecutorOfficerId],
             SetCityDutyOrder { OfficerId: int officer } => [officer],
             DispatchTransportOrder transport => [transport.OfficerId],
+            DispatchTransportArmyOrder transportArmy => [transportArmy.OfficerId],
             PrepareDeploymentOrder { Units: not null } deploy => deploy.Units
                 .Where(unit => unit is not null).Select(unit => unit.OfficerId),
             SetAreaAdministrationOrder { Changes: not null } administration => administration.Changes

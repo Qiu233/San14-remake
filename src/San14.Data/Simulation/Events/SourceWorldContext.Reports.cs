@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -93,9 +92,10 @@ public sealed partial class SourceWorldContext : IAssociationReportState
     }
     private static int ReadStaticReportWorldTime(S14ScenarioWorldDocument source)
     {
-        if (source.RawBytes.Length < S14ScenarioWorldReader.WorldBytes ||
-            Convert.ToHexString(SHA256.HashData(source.RawBytes)) != source.WorldSha256)
-            throw new InvalidDataException("Static report world450 requires the complete verified CE world block.");
+        // The resource reader admits this document. Operation captures only
+        // consume its field; they must not rehash the complete static world.
+        if (source.RawBytes.Length < S14ScenarioWorldReader.WorldBytes)
+            throw new InvalidDataException("Static report world450 requires the complete CE world block.");
         return BinaryPrimitives.ReadInt32LittleEndian(source.RawBytes.AsSpan(80, 4));
     }
 }

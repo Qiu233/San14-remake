@@ -17,16 +17,26 @@ public sealed partial class ArmyCampaignRuleAdapter
         IReadOnlyList<DeploymentDraftRow> rows)
     {
         ArgumentNullException.ThrowIfNull(rows);
-        return QueryDeploymentTargetCardsCore(state, rows.Select(row => row.Request.OfficerId).ToArray(), rows);
+        return QueryDeploymentTargetCardsCore(state, rows.Select(row => row.Request.OfficerId).ToArray(),
+            rows.Select(row => (Land: row.Request.FormationId, Naval: row.NavalFormationId)).ToArray());
     }
 
+    /// <summary>Real tag1 packet card: land19 and the selected transport naval
+    /// value. Uses the real Person position/home; never constructs an Army or
+    /// an ordinary DeploymentDraftRow. Troops remain the caller's packet value.</summary>
+    public DeploymentTargetCard QueryTransportTargetCard(GameState state, int sourceCityId,
+        int officerId, int troops, int navalFormationId) =>
+        QueryDeploymentTargetCardsCore(state, [officerId], [(19, navalFormationId)], sourceCityId)[0];
+
     private IReadOnlyList<DeploymentTargetCard> QueryDeploymentTargetCardsCore(GameState state,
-        IReadOnlyList<int> officerIds, IReadOnlyList<DeploymentDraftRow>? rows)
+        IReadOnlyList<int> officerIds, IReadOnlyList<(int Land, int Naval)>? formations, int? transportSource = null,
+        SourceWorldContext? suppliedCurrent = null, IReadOnlyList<bool?>? supplyFlags = null)
     {
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(officerIds);
         if (officerIds.Count == 0) return Array.Empty<DeploymentTargetCard>();
         SourceWorldContext current;
-        try
+        if (suppliedCurrent is { } captured) current = captured;
+        else try
         {
             current = OwnedArmyReturnCurrentFields.CaptureCurrent(state, _definitions);
             OwnedArmyLifecycleDetachedInputs.BindCurrent(state, current);
@@ -41,7 +51,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         {
             return officerIds.Select(id => new DeploymentTargetCard(id, null, null, null, null,
                 error.Message, error.Message, error.Message) { PersonUnresolvedInput = error.Message,
-                    FormationUnresolvedInput = rows is null ? null : error.Message }).ToArray();
+                    FormationUnresolvedInput = formations is null ? null : error.Message }).ToArray();
         }
         return officerIds.Select(ReadCard).ToArray();
 
@@ -79,8 +89,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             try { palette = ReadGrainPalette(); }
             catch (InvalidDataException error) { grainMissing = error.Message; }
             ArmyMapIconSelection? icon = null;
-            string? formationMissing = rows is null ? TargetCardMissing("draft_formations").Message : surfaceMissing;
-            if (rows is not null && naval.HasValue)
+            string? formationMissing = formations is null ? TargetCardMissing("draft_formations").Message : surfaceMissing;
+            if (formations is not null && naval.HasValue)
             {
                 try
                 {
@@ -88,8 +98,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                     if (profile is null || profile.Language != Seed.Language ||
                         profile.RuleVersion != SimulationRuleIdentity.ForLocale(Seed.Language))
                         throw TargetCardMissing("formation_profile");
-                    var row = rows[ordinal];
-                    int requested = naval.Value ? row.NavalFormationId : row.Request.FormationId;
+                    var row = formations[ordinal];
+                    int requested = naval.Value ? row.Naval : row.Land;
                     if (requested < 0) throw TargetCardMissing("negative_formation_index");
                     int physical = requested <= 20 ? requested : 0;
                     // The fixed normal table's physical0 has native validity
@@ -103,7 +113,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                 catch (InvalidDataException error) { formationMissing = error.Message; }
             }
             return new(id, hasHex, hexSlot, naval, palette, positionMissing, surfaceMissing, grainMissing)
-                { IsPersonValid = personValid, PersonUnresolvedInput = personMissing,
+                { UsesHomeGrain = supplyFlags is null ? true : supplyFlags[ordinal],
+                    IsPersonValid = personValid, PersonUnresolvedInput = personMissing,
                     FormationIcon = icon, FormationUnresolvedInput = formationMissing };
 
             int? ReadPerson()
@@ -112,6 +123,13 @@ public sealed partial class ArmyCampaignRuleAdapter
                 var person = current.ReadPersonLookupReference(id <= 6000 ? id : 0)
                     ?? throw TargetCardMissing("person_pointer");
                 if (person.PhysicalSlot is not int physical) return null;
+                if (transportSource is int sourceId)
+                {
+                    var source = TransportSource(state, current, sourceId);
+                    if (TargetCardNeed(current.ReadPersonFirstLocation(physical), "transport_home") !=
+                        TargetCardNeed(current.ReadBaseObjectLink(source), "transport_home_link"))
+                        throw TargetCardMissing("transport_person_home");
+                }
                 return TargetCardNeed(current.ReadPersonNativeValidity(physical), "person_validity") ? physical : null;
             }
             NativeLocation? ReadLocation()
@@ -145,6 +163,11 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
             int ReadGrainPalette()
             {
+                if (supplyFlags is not null)
+                {
+                    bool supplied = supplyFlags[ordinal] ?? throw TargetCardMissing("Army_supply_flag26");
+                    if (!supplied) return 12;
+                }
                 // Only City/Gate can supply the ordinary new row's home grain.
                 // Known invalid receivers keep11 without reaching Area or C9.
                 if (ReadBase(ReadLocation()) is not { } receiver) return 11;

@@ -61,6 +61,8 @@ internal sealed class MapStructureCatalog
             throw new InvalidDataException("Displayed building names and saved fixed-data source differ.");
         var names = loaded.Catalog.Definitions.Where(row => !string.IsNullOrWhiteSpace(row.Name))
             .ToDictionary(row => $"san14:object/{row.Slot}", row => row.Name);
+        foreach (var row in loaded.Catalog.Definitions.Where(row => !string.IsNullOrWhiteSpace(row.Name)))
+            names.Add($"san14-object-definition:{row.Slot}", row.Name);
         return new(names, loaded.Source.ResourceUri, loaded.Source.Sha256);
     }
 }

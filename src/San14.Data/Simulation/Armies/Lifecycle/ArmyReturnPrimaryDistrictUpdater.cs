@@ -11,10 +11,10 @@ public sealed class ArmyReturnPrimaryDistrictPacket
     { District = district; GovernorUpdates = Array.AsReadOnly(updates); }
 }
 
-/// <summary>2E9140(RDX=0,R8=0) ordinary existing-leader District branch.
+/// <summary>2E9140 ordinary District maintenance and actual leader selection.
 /// Its actual City pointer table and manager+A0 Gate chain determine order.
 /// Executes governor/status effects on the caller owned operation context.
-/// District reselection branches remain explicit unresolved results.</summary>
+/// The enclosing operation supplies state ownership for reached reorganization.</summary>
 public static class ArmyReturnPrimaryDistrictUpdater
 {
     internal static ArmyReturnPrimaryDistrictResolution ApplyCurrent(DistrictReference district,
@@ -25,7 +25,7 @@ public static class ArmyReturnPrimaryDistrictUpdater
         {
             int physical = district.PhysicalSlot ?? throw Missing("current.District_pointer");
             if (!Get(context.ReadDistrictNativeValidity(physical), "current.District_validity"))
-                throw Missing("branch.2E9140_invalid_district");
+                return new(new(district, []), null);
             byte forceSlot = Get(context.ReadDistrictForceId(physical), "current.District_force10");
             byte number = Get(context.ReadDistrictNumber(physical), "current.District_number11");
             ushort leaderId = Get(context.ReadDistrictLeader(physical), "current.District_leader12");
@@ -47,7 +47,7 @@ public static class ArmyReturnPrimaryDistrictUpdater
                 int cityDistrict = Get(context.ReadBaseDistrictSlot(city), $"current.City[{slot}].virtual78");
                 if (cityDistrict == physical) cities.Add(city);
             }
-            if (forceCityCount == 0) throw Missing("branch.2E9140_force_no_city_293BD0");
+            if (forceCityCount == 0) return UnregisterForce();
             var persons = context.ReadRegisteredPersonPhysicalSlots()?.ToArray() ?? throw Missing("current.Person_manager100_complete_chain");
             int forcePersonCount = 0, districtPersonCount = 0;
             foreach (int? entry in persons)
@@ -79,34 +79,29 @@ public static class ArmyReturnPrimaryDistrictUpdater
                 if (personForce == forcePhysical) forcePersonCount++;
                 if (personDistrict == physical) districtPersonCount++;
             }
-            if (forcePersonCount == 0) throw Missing("branch.2E9140_force_no_person_293BD0");
+            if (forcePersonCount == 0) return UnregisterForce();
             //22E930 walks registered District manager+D0, not its pointer table.
-            var districts = context.ReadArmyReturnRegisteredDistricts() ?? throw Missing("current.District_managerD0_complete_chain");
-            ushort ruler = Get(context.ReadForceRecord(forcePhysical)?.RawRuler10, "current.Force_ruler10");
-            bool primaryFound = false;
-            foreach (var candidate in districts)
-            {
-                int at = candidate?.PhysicalSlot ?? throw Missing("current.District_managerD0_payload");
-                byte currentForce = Get(context.ReadDistrictForceId(at), "current.registered_District_force10");
-                if (currentForce != forcePhysical) continue;
-                ushort currentLeader = Get(context.ReadDistrictLeader(at), "current.registered_District_leader12");
-                if (currentLeader == ruler) { primaryFound = true; break; }
-                byte currentNumber = Get(context.ReadDistrictNumber(at), "current.registered_District_number11");
-                if (currentNumber == 1) { primaryFound = true; break; }
-            }
-            if (!primaryFound)
-            {
-                var fallback = context.ReadDistrictTableReference(0) ?? throw Missing("current.PrimaryDistrict_fallback_table0");
-            }
+            var primary = ForcePrimaryDistrictSource.Resolve(context, force);
             if (cities.Count == 0 || districtPersonCount == 0)
-                throw Missing("branch.2E9140_district_empty_reselection");
+            {
+                var operation = queries as ArmyReturnDistrictOperationQueries
+                    ?? throw Missing("current.District_reorganization_state_owner");
+                if (leader is int leaderAt && Get(context.ReadPersonNativeValidity(leaderAt), "empty_District_leader_validity") &&
+                    Get(context.ReadPersonStatus(leaderAt), "empty_District_leaderE6") == 1)
+                {
+                    var inherited = PersonReturnDistrictReorganizationSource.InheritPrimaryCurrent(context, district, force, operation);
+                    return new(new(district, inherited.ToArray()), null);
+                }
+                var merged = PersonReturnDistrictReorganizationSource.MergeCurrent(context, district, primary, operation);
+                return new(new(district, merged.ToArray()), null);
+            }
             byte leaderDistrict = Get(context.ReadPersonDistrictSlot(leader.Value), "current.District_leader_districtE0");
             byte leaderStatus = Get(context.ReadPersonStatus(leader.Value), "current.District_leader_statusE6");
             //2E923A..9284: same rawE0 and (number1 OR leader status1/2) reaches
             //9494 directly. An ordinary secondary District with its actual
             //status2 leader does not run the reselection body.
             if (leaderDistrict != physical || number != 1 && leaderStatus is not (1 or 2))
-                throw Missing("branch.2E9140_leader_reselection");
+                PersonReturnDistrictReorganizationSource.ReselectLeader(context, district, queries);
             var gates = context.ReadArmyReturnRegisteredGates() ?? throw Missing("current.Gate_managerA0_complete_chain");
             var updates = new List<ArmyReturnGovernorPacket>();
             foreach (var city in cities)
@@ -124,6 +119,17 @@ public static class ArmyReturnPrimaryDistrictUpdater
                 foreach (var gate in associatedGates) UpdateIfValid(gate);
             }
             return new(new(district, updates.ToArray()), null);
+
+            ArmyReturnPrimaryDistrictResolution UnregisterForce()
+            {
+                var operation = queries as ArmyReturnDistrictOperationQueries
+                    ?? throw Missing("current.Force_unregistration_state_owner");
+                var package = operation.Package ?? throw Missing("current.Force_unregistration_rules");
+                var result = new ForceUnregisterSource(package).TryApplyBorrowedCurrent(operation.Latest(), forcePhysical, 0,
+                    context, context.ReadOwnedCurrentListPool() ?? throw Missing("current.Force_unregistration_pool"));
+                operation.Publish(result.State ?? throw Missing(result.UnresolvedOwner ?? "current.293BD0"));
+                return new(new(district, result.Receipt?.GovernorUpdates ?? []), null);
+            }
 
             void UpdateIfValid(BaseReference target)
             {

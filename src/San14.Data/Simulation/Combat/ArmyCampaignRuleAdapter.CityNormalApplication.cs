@@ -40,6 +40,22 @@ public sealed partial class ArmyCampaignRuleAdapter
             r.MoraleWrite, r.NativeReturn, r.Revision), result.UnresolvedOwner);
     }
 
+    /// <summary>The same body within one caller-owned ordinary operation.
+    /// An unresolved result requires discarding that operation and its mutable
+    /// current; this entry does not detach or replace the owned list pool.</summary>
+    internal NormalCityApplicationResult ApplyBorrowedNormalCity(GameState input,
+        int attackerArmyId, int cityId, int requestedLoss,
+        NativeArmyCombatCycleSampler? operationSampler, SourceWorldContext current)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        var result = TryApplyNativeNormalBaseApplication(input, attackerArmyId, BaseKind.City,
+            cityId, requestedLoss, operationSampler, operationCurrent: current);
+        var r = result.Receipt;
+        return new(result.Outcome, result.State, r is null ? null : new(r.LocationId, r.AttackerArmyId,
+            r.RequestedLoss, r.AppliedLoss, r.AttackerReward, r.TroopDebit, r.Wounded, r.MoraleLoss,
+            r.MoraleWrite, r.NativeReturn, r.Revision), result.UnresolvedOwner);
+    }
+
     private sealed record NormalBaseApplicationReceipt(int LocationId, int AttackerArmyId, int RequestedLoss,
         int AppliedLoss, PersonNormalArmyRewardResult AttackerReward,
         NormalCityCapacityWriteReceipt? TroopDebit, NormalCityWoundedReceipt? Wounded,
@@ -55,7 +71,8 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// actual logical location; source manager80 resolves its native receiver.</summary>
     private NormalBaseApplicationResult TryApplyNativeNormalBaseApplication(GameState input,
         int attackerArmyId, BaseKind kind, int locationId, int requestedLoss,
-        NativeArmyCombatCycleSampler? operationSampler, bool allowFatal = false)
+        NativeArmyCombatCycleSampler? operationSampler, bool allowFatal = false,
+        SourceWorldContext? operationCurrent = null)
     {
         ArgumentNullException.ThrowIfNull(input);
         bool isCity = kind == BaseKind.City;
@@ -64,26 +81,35 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (requestedLoss < 0 || (isCity ? locationId is < 1 or > 51 || !input.Cities.ContainsKey(locationId)
             : physical is < 1 or > 10 || !input.Gates.ContainsKey(locationId)))
             return Unknown($"current.ordinary_{label}_nonnegative_loss");
-        GameState working = GameStateCopy.Copy(input);
+        GameState working = operationCurrent is null ? GameStateCopy.Copy(input) : input;
         try
         {
+            var borrowedWorld = operationCurrent is null ? null : OwnedArmyReturnWorld.Borrow(working,
+                operationCurrent, operationCurrent.ReadOwnedCurrentListPool()
+                    ?? throw Missing("ordinary_Base_current_pool"));
             if (!working.Units.TryGetValue(attackerArmyId, out var attacker) ||
-                CaptureCurrentDefinitions(working) is not { } attackerDefinitions ||
+                (operationCurrent ?? CaptureCurrentDefinitions(working)) is not { } attackerDefinitions ||
                 Context(attackerDefinitions, operationSampler).ArmyValid(working, attacker) != true)
                 return Unknown("current.actual_attacker_Army");
             var reward = requestedLoss > 0
-                ? TryApplyNativeNormalPersonRewardDuringArmyOperation(working, attacker.OfficerId, 0, requestedLoss)
+                ? operationCurrent is not null
+                    ? ApplyBorrowedNormalArmyReward(working, operationCurrent,
+                        Context(operationCurrent, operationSampler), attacker.OfficerId, 0, requestedLoss)
+                    : TryApplyNativeNormalPersonRewardDuringArmyOperation(working, attacker.OfficerId, 0, requestedLoss)
                 : new(PersonNormalArmyRewardOutcome.NativeSkip, working, null, null);
             if (reward.Outcome == PersonNormalArmyRewardOutcome.CurrentInputsUnresolved)
                 return Unknown("current.attacker_reward:" + reward.MissingPhase);
             working = reward.State;
-            var world = CaptureOwnedArmyReturnWorld(working); var current = world.Context;
+            var world = borrowedWorld ?? CaptureOwnedArmyReturnWorld(working); var current = world.Context;
+            GameState PublishRoles(GameState state) => operationCurrent is null ? state :
+                state.WithArmyLifecycle((state.ReadArmyLifecycle()
+                    ?? throw Missing("ordinary_Base_saved_lifecycle")) with { Indexes = world.Pool.ProjectOwnedRoles() });
             var target = BaseLookup.Find(locationId, current);
             if (target.Kind != kind || target.PhysicalSlot != physical)
                 return Unknown($"current.actual_{label}_manager80_pointer");
             bool validCity = Known(current.ReadBaseNativeValidity(target), label + "_validity");
             if (!validCity)
-                return new(NormalCityApplicationOutcome.NativeTargetSkipped, working,
+                return new(NormalCityApplicationOutcome.NativeTargetSkipped, PublishRoles(working),
                     new(locationId, attackerArmyId, requestedLoss, 0, reward, null, null, null, null, false, Revision), null);
             if (current.ReadBaseObjectLink(target) is not ushort link || link != locationId ||
                 current.ReadBaseForceSlot(target) is not int forceSlot || forceSlot is < 1 or > 45 ||
@@ -216,7 +242,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 troopsWritten: true, woundedWritten: channel, moraleWritten: moraleWrite is not null);
             if (admission is not null)
                 working = working with { PendingCombatSettlements = current.OwnedDestructionQueue };
-            StateValidator.Validate(working);
+            working = PublishRoles(working);
             return new(fatal ? NormalCityApplicationOutcome.CommittedFatalApplication : NormalCityApplicationOutcome.CommittedNonfatal, working,
                 new(locationId, attackerArmyId, requestedLoss, applied, reward, debit, wounds, moraleLoss, moraleWrite,
                     fatal, $"native-{label}-178EC0-{(fatal ? "fatal-admission" : "nonfatal")}:{Revision}")

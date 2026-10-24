@@ -38,11 +38,13 @@ public partial class MapSceneView
     private readonly bool[] _sourceCameraRawNow70=new bool[3];
     private readonly bool[] _sourceCameraRawPrior58=new bool[3];
     private readonly uint[] _sourceCameraRawCounters=new uint[3];
-    private bool _sourceCameraRightHeld,_sourceCameraMiddleHeld,_sourceCameraLeftUiPressed;
+    private bool _sourceCameraLeftUiPressed;
+    private MainMapCameraCanonicalPoint? _sourceRightCancelPress;
     private Func<MainMapCameraTerrainPitchInput,MainMapCameraTerrainPitchResult>? SourceCameraTerrainQualifier =>
         _sourceMainCameraTerrain is { } terrain?terrain.QualifyPitch:null;
 
     public MainMapCameraFrame? SourceMainCameraFrame => _sourceMainCameraFrame;
+    internal bool SourcePointerInputActive => _embedded&&!_detailsOpen&&IsVisibleInTree()&&_sourceMainCameraFrame is not null;
     public MainMapCameraAdapter? SourceMainCameraOwner => _sourceMainCamera;
     public MainMapCameraTerrainSource? SourceMainCameraTerrain => _sourceMainCameraTerrain;
 
@@ -113,6 +115,8 @@ public partial class MapSceneView
                 new(MainDataPresent:true,HostGate210Present:_loadedSceneResources is not null,MainCpuPresent:true));
             _sourceMainCameraOptics=null;_sourceMainCameraOpticsSeason=null;_sourceMainCameraFrame=null;
             _sourceMainCameraFrameNumber=0;
+            _sourceMainMode??=MainMapCameraModeOwner.CreateFresh(_text.SourceLocale,"resident-map/primary-Main");
+            InitializeSceneryMap();
             ResetSourceCameraInput();
             PublishSourceCamera();
             SetSourceCameraStatus(_sourceMainCameraTerrain is null?"pending_terrain":"ready");
@@ -129,9 +133,11 @@ public partial class MapSceneView
     {
         _sourceMainCamera=null;_sourceMainCameraFrame=null;_sourceMainCameraTerrain=null;
         _deploymentTargetAnchors=null;_commandTargetPicked=null;_commandTargetPointerAllowed=null;
+        _commandTargetShiftWaypoint=false;
         _sourceMainCameraNorth=null;
         _sourceMainCameraOptics=null;_sourceMainCameraOpticsSeason=null;
         _sourceMainCameraFrameNumber=0;
+        _sourceMainMode=null;
         ResetSourceCameraInput();
         RemoveMeta("source_main_camera_owner");
         RemoveMeta("source_main_camera_ready");
@@ -190,6 +196,7 @@ public partial class MapSceneView
         SetMeta("playable_zoom_level",frame.ZoomSelection.Band1E0);
         RemoveMeta("playable_zoom_factor");
         ScheduleNativeMapFrame();
+        PresentGodotScenery(frame);
         return true;
     }
 
@@ -256,33 +263,35 @@ public partial class MapSceneView
         {
             var cursor=CanonicalSourceCursor(button.Position);
             _sourceCameraCurrentCursor=cursor;_sourceCameraCurrentCursorKnown=true;
+            SetSourceCameraLogicalButton(button.ButtonIndex,button.Pressed);
+            sourceCameraShiftHeld=button.ShiftPressed;sourceCameraControlHeld=button.CtrlPressed;
             if(button.ButtonIndex==MouseButton.Left)
             {
-                if(button.Pressed&&button.DoubleClick&&_commandTargetPicked is null&&_openCityDetails is not null)
+                if(!_periodMapActive&&button.Pressed&&button.DoubleClick&&_commandTargetPicked is null&&_openCityDetails is not null)
                 {
                     ResetSourceCameraInput();PickTerrain(button.Position);
                     if(_mapSelection.Current?.CityDetails?.Id is int cityId)_openCityDetails(cityId);
                     return true;
                 }
-                _sourceCameraRawNow70[0]=button.Pressed;
                 if(button.Pressed)
                 {
                     _sourceCameraLeftUiPressed=true;_pressPosition=button.Position;_dragDistance=0;
-                    _commandTargetPressAllowed=CommandTargetPointerDown(button.Position);
+                    if(!_periodMapActive){_commandTargetPressAllowed=CommandTargetPointerDown(button.Position);
+                    SampleUnitSelectionPointer(cursor,3);}
                 }
                 else
                 {
-                    bool click=_sourceCameraLeftUiPressed&&_dragDistance<=4&&_pressPosition.DistanceTo(button.Position)<=4;
+                    bool selectionConsumed=!_periodMapActive&&SampleUnitSelectionPointer(cursor,1);
+                    bool selectionShift=(_unitSelectionPointer is not null||_commandTargetShiftWaypoint)&&sourceCameraShiftHeld;
+                    var pressed=CanonicalSourceCursor(_pressPosition);
+                    int dx=unchecked(cursor.X34-pressed.X34),dy=unchecked(cursor.Y38-pressed.Y38);
+                    bool click=!selectionConsumed&&_sourceCameraLeftUiPressed&&
+                        (selectionShift?unchecked(dx*dx+dy*dy)<=100:
+                            _dragDistance<=4&&_pressPosition.DistanceTo(button.Position)<=4);
                     _sourceCameraLeftUiPressed=false;
-                    if(click&&(_commandTargetPicked is null||_commandTargetPressAllowed))PickTerrain(button.Position);
+                    if(!_periodMapActive&&click&&(_commandTargetPicked is null||_commandTargetPressAllowed))PickTerrain(button.Position);
                     _commandTargetPressAllowed=false;
                 }
-            }
-            else if(button.ButtonIndex is MouseButton.Right or MouseButton.Middle)
-            {
-                if(button.ButtonIndex==MouseButton.Right)_sourceCameraRightHeld=button.Pressed;
-                else _sourceCameraMiddleHeld=button.Pressed;
-                _sourceCameraRawNow70[1]=_sourceCameraRightHeld||_sourceCameraMiddleHeld;
             }
             else if(button.Pressed&&button.ButtonIndex is MouseButton.WheelUp or MouseButton.WheelDown)
             {
@@ -312,8 +321,8 @@ public partial class MapSceneView
     {
         if(_sourceMainCamera is null||_sourceMainCameraFrame is null||!_sourceCameraCurrentCursorKnown)return;
         // The remake owns these raw buffers: its prior sampled levels are +58,
-        // current sampled levels are +70. Physical bindings are explicit remake
-        // choices (left -> source slot0, right/middle -> slot1), not native labels.
+        // current sampled levels are +70. Source logical right/left/middle
+        // use slots0/1/2; window input and GUI input share this mapping.
         int[] codes=new int[3];int active=-1;
         for(int i=0;i<3;i++)
         {
@@ -336,6 +345,11 @@ public partial class MapSceneView
         _sourceCameraPreviousCursor=cursor;_sourceCameraPreviousCursorKnown=true;
         int wheel=_sourceCameraPendingWheel;_sourceCameraPendingWheel=0;
         Array.Copy(_sourceCameraRawNow70,_sourceCameraRawPrior58,3);
+        bool selectionConsumed=!_periodMapActive&&SampleUnitSelectionPointer(cursor,codes[1]);
+        // A release over chrome may be consumed before Surface.GuiInput.
+        // Retire its surface press even when only WindowInput observed it.
+        if(codes[1]==1)_sourceCameraLeftUiPressed=false;
+        if(selectionConsumed)return;
         if(delta.X44==0&&delta.Y48==0&&wheel==0)return;
         if(active==1&&SourceDragThreshold(cursor))
             _sourceMainCamera.ApplyPanDragFromFrame(_sourceMainCameraFrame,delta.X44,delta.Y48,codes[1]==1,
@@ -354,16 +368,17 @@ public partial class MapSceneView
 
     private bool SourceDragThreshold(MainMapCameraCanonicalPoint current)
     {
-        int x=unchecked(current.X34-_sourceCameraPressedCursor.X34),y=unchecked(current.Y38-_sourceCameraPressedCursor.Y38);
-        return _sourceCameraHeldFrames>15||unchecked(x*x+y*y)>100;
+        return MapHoverSelection.IsFrozen(_sourceCameraActiveButton,_sourceCameraHeldFrames,
+            _sourceCameraPressedCursor.X34,_sourceCameraPressedCursor.Y38,current.X34,current.Y38);
     }
 
     private void ResetSourceCameraInput()
     {
-        sourceCameraHeldCommands=0;sourceCameraControlHeld=false;sourceCameraShiftHeld=false;
+        ResetUnitSelectionPointer();
+        ResetSourceNavigationKeyboard();
         _sourceCameraActiveButton=-1;_sourceCameraHeldFrames=0;
         _sourceCameraPreviousCursorKnown=false;_sourceCameraCurrentCursorKnown=false;_sourceCameraPendingWheel=0;
-        _sourceCameraRightHeld=false;_sourceCameraMiddleHeld=false;_sourceCameraLeftUiPressed=false;
+        _sourceCameraLeftUiPressed=false;_sourceRightCancelPress=null;
         _commandTargetPressAllowed=false;
         Array.Clear(_sourceCameraRawNow70);Array.Clear(_sourceCameraRawPrior58);Array.Clear(_sourceCameraRawCounters);
     }
@@ -375,6 +390,30 @@ public partial class MapSceneView
             unchecked((int)_surface.Size.X),unchecked((int)_surface.Size.Y),viewport.Size.X,viewport.Size.Y);
     }
 
+    private void SetSourceCameraLogicalButton(MouseButton button,bool pressed)
+    {
+        int slot=button switch{MouseButton.Right=>0,MouseButton.Left=>1,MouseButton.Middle=>2,_=>-1};
+        if(slot>=0)_sourceCameraRawNow70[slot]=pressed;
+    }
+
+    // Main owns mode3's cancel action; this map owns its canonical pointer
+    // geometry and clears an armed click with the rest of its input lifecycle.
+    internal bool SourceRightCancelReleased(InputEventMouseButton button)
+    {
+        Vector2 local=_surface.GetGlobalTransformWithCanvas().AffineInverse()*button.Position;
+        var cursor=CanonicalSourceCursor(local);
+        if(button.Pressed){_sourceRightCancelPress=cursor;return false;}
+        var start=_sourceRightCancelPress;_sourceRightCancelPress=null;
+        if(start is not { } pressed)return false;
+        int x=unchecked(cursor.X34-pressed.X34),y=unchecked(cursor.Y38-pressed.Y38);
+        // Source button-up clears the held-frame counter before the cancel
+        // predicate. Only its canonical endpoint distance remains here.
+        return unchecked(x*x+y*y)<=100;
+    }
+
+    internal bool FocusReportHex(int physicalHex) =>
+        (uint)physicalHex < 48400u && FocusSourceCamera(physicalHex);
+
     private bool FocusSourceCamera(int physicalHex)
     {
         if(_sourceMainCamera is null||_sourceMainCameraInputs is not { } input)return false;
@@ -385,12 +424,25 @@ public partial class MapSceneView
         return true;
     }
 
-    private bool TrySourceCameraPick(Vector2 surfacePosition,out TerrainPick hit)
+    private bool TrySourceCameraHexPick(Vector2 surfacePosition,out TerrainPick hit,out int hex)
     {
-        hit=default;
-        if(UseD3D11Map && !D3D11MapInteractive)return false;
-        var camera=_sourceMainCameraFrame;
-        var picker=CurrentTerrainPicker;
+        hit=default;hex=-1;
+        var cursor=CanonicalSourceCursor(surfacePosition);
+        if(ReadSourceCameraRay(cursor,out var camera,out var picker,out var ray)!=MapHoverRayStatus.Ready)return false;
+        var o=ray.Origin;var d=ray.Direction;
+        if(!picker!.TryPick(new(o.X,o.Y,o.Z),new(d.X,d.Y,d.Z),camera!.Camera.Lens.Far,out hit))return false;
+        if(_projection?.Policy.SourceFormulaId==CeHexWorldCoordinates.FormulaId)
+            return CeHexWorldCoordinates.TryPickTerrainHit(new(o.X,o.Y,o.Z),new(d.X,d.Y,d.Z),
+                new(hit.Position.X,hit.Position.Y,hit.Position.Z),out hex);
+        return _projection?.TryPick(hit.Position.X,hit.Position.Z,out hex)==true;
+    }
+
+    private MapHoverRayStatus ReadSourceCameraRay(MainMapCameraCanonicalPoint cursor,
+        out MainMapCameraFrame? camera,out TerrainPicker? picker,out MainMapCameraCursorRay ray)
+    {
+        camera=null;picker=null;ray=default;
+        if(UseD3D11Map&&!D3D11MapInteractive)return MapHoverRayStatus.Unavailable;
+        camera=_sourceMainCameraFrame;picker=CurrentTerrainPicker;
         if(_d3d11PresentedInput is {SourceFrame:{ } nativeCamera,TerrainPicker:{ } nativePicker})
         {camera=nativeCamera;picker=nativePicker;}
         if(_nativeMapOwner is { } native && native.Package.HasAcceptedOutput && native.Package.Surface.Visible)
@@ -398,14 +450,14 @@ public partial class MapSceneView
             // The camera controller and LOD can advance while GPU work is
             // queued. Pick the image that is actually on screen, including
             // after a failed update that retained its prior live output.
-            if(_nativeMapPresentedCapture is not { TerrainPicker: { } displayedPicker } displayed)return false;
+            if(_nativeMapPresentedCapture is not { TerrainPicker: { } displayedPicker } displayed)return MapHoverRayStatus.Unavailable;
             camera=displayed.MainCamera;picker=displayedPicker;
         }
-        if(camera is null||picker is null)return false;
-        var cursor=CanonicalSourceCursor(surfacePosition);var ray=camera.CursorRay(cursor.X34,cursor.Y38);
-        if(!ray.SourceReady)return false;
-        var o=ray.Origin;var d=ray.Direction;
-        return picker.TryPick(new(o.X,o.Y,o.Z),new(d.X,d.Y,d.Z),camera.Camera.Lens.Far,out hit);
+        if(camera is null)return MapHoverRayStatus.NoWrite;
+        if(picker is null)return MapHoverRayStatus.Unavailable;
+        try {ray=camera.CursorRay(cursor.X34,cursor.Y38);}
+        catch(InvalidDataException){return MapHoverRayStatus.Unavailable;}
+        return ray.SourceReady?MapHoverRayStatus.Ready:MapHoverRayStatus.NoWrite;
     }
 
     private void ReadSourceCameraMessages()

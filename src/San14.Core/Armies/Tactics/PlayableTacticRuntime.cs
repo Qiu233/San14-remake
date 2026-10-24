@@ -32,7 +32,6 @@ public static partial class PlayableTacticRuntime
         if (nextPeriod != checked(state.PeriodNumber + 1))
             throw new InvalidDataException("Tactic settlement period does not follow this state.");
         routes.ValidateWorld(state);
-        PlayableTacticStateValidation.Validate(state);
         bool sourceTargeting = profiles is IPlayableTacticTargetSource;
         // Source queries can fail after inspecting mutable current state. Keep
         // the public runtime caller's complete snapshot owned by that caller.

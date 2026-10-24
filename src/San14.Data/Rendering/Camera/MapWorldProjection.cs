@@ -123,13 +123,16 @@ public sealed class MapWorldProjection
     }
 
     /// <summary>
-    /// Picks the nearest center of the infinite fitted grid, then accepts only
-    /// source columns/rows. Ties select the smallest legal ID; no edge clamping.
+    /// Source-formula policies use the original float32 three-candidate picker.
+    /// Fitted policies pick the nearest center of the infinite grid, then accept
+    /// only legal columns/rows. Fitted ties select the smallest legal ID.
     /// Returns false for nonfinite inputs or extreme scales/coordinates that
     /// cannot retain the resolution required by this double-precision adapter.
     /// </summary>
     public bool TryPick(double x, double z, out int hexId)
     {
+        if (Policy.SourceFormulaId == CeHexWorldCoordinates.FormulaId)
+            return CeHexWorldCoordinates.TryPick((float)x, (float)z, out hexId);
         hexId = -1;
         if (!double.IsFinite(x) || !double.IsFinite(z)) return false;
         double scale = Math.Max(Policy.ColumnStep, Policy.RowStep);

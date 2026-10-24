@@ -4,9 +4,12 @@ namespace San14.Data;
 
 /// <summary>A caller-owned shared stream with an explicit initial state.
 /// Creating a campaign, loading a save or preparing a message does not reseed it.</summary>
-public sealed class SharedSourceRandom32(uint initialState)
+public sealed class SharedSourceRandom32(uint initialState) : San14.Core.ICampaignAppRandomBinding
 {
     public uint State { get; private set; } = initialState;
+
+    public uint ReadCurrentState() => State;
+    public void InstallCommittedState(uint state) => State = state;
 
     public int Next(int bound)
     {

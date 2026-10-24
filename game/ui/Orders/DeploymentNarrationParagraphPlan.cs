@@ -4,13 +4,13 @@ using System.Linq;
 using System.Text;
 
 // Body colour provenance, not a G1N palette selector or a full text preset.
-internal enum NarrationBodyColour { OriginalNodeBody, TextPreset38Body, TextPreset39Body }
+internal enum NarrationBodyColour { OriginalNodeBody, TextPreset38Body, TextPreset39Body, TextPreset40Body }
 internal sealed record NarrationColourRun(string Text, NarrationBodyColour Colour);
 internal sealed record NarrationParagraphLine(string VisibleText, IReadOnlyList<NarrationColourRun> Runs);
 internal sealed record NarrationParagraphPage(string SourceText, string WrappedSourceText,
     IReadOnlyList<NarrationParagraphLine> Lines, int MaximumRawWidth);
 
-// Only the source's ^02/^05/^00 body colours and ordinary LF
+// Only the source's ^02/^03/^05/^00 body colours and ordinary LF
 // text are admitted; raw source controls are retained beside visible runs.
 internal static class DeploymentNarrationParagraphPlan
 {
@@ -42,7 +42,7 @@ internal static class DeploymentNarrationParagraphPlan
             {
                 FlushRun();
                 colour = wrapped[index + 2] switch
-                {'2'=>NarrationBodyColour.TextPreset38Body,'5'=>NarrationBodyColour.TextPreset39Body,
+                {'2'=>NarrationBodyColour.TextPreset38Body,'3'=>NarrationBodyColour.TextPreset40Body,'5'=>NarrationBodyColour.TextPreset39Body,
                     _=>NarrationBodyColour.OriginalNodeBody};
                 index += 2; continue;
             }

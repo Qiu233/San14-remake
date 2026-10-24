@@ -16,6 +16,7 @@ internal sealed class DeploymentSetupPresenter : IDisposable
     private readonly Action<IReadOnlyList<DeploymentDraftRow>> accepted;
     private readonly Action<string> unavailable;
     private readonly Func<int>? scrollSpeed;
+    private readonly UiSourceHeaderStack headers;
     private readonly Dictionary<int,LoadedSprite?> portraits=[];
     private DeploymentPersonSelectionView? modal;
     private DeploymentCalculatorDialog? batchCalculator;
@@ -28,12 +29,13 @@ internal sealed class DeploymentSetupPresenter : IDisposable
 
     internal DeploymentSetupPresenter(DeploymentSetupView view,GameResourceRepository repository,PreviewText text,
         GameState world,ScenarioCityPreview scenario,ArmyCampaignRuleAdapter rules,int sourceLocationId,
-        Action<IReadOnlyList<DeploymentDraftRow>> accepted,Action<string> unavailable,
+        Action<IReadOnlyList<DeploymentDraftRow>> accepted,Action<string> unavailable,UiSourceHeaderStack headers,
         IReadOnlyList<DeploymentDraftRow>? acceptedRows=null,Func<int>? scrollSpeed=null)
     {
         this.view=view;this.repository=repository;this.text=text;this.world=world;this.scenario=scenario;this.rules=rules;
         source=sourceLocationId;this.accepted=accepted;this.unavailable=unavailable;
         this.scrollSpeed=scrollSpeed;
+        this.headers=headers;
         Draft=new(world,source,rules);
         if(acceptedRows is not null)Draft.RestoreAcceptedRows(acceptedRows);
         RefreshAll();
@@ -64,6 +66,7 @@ internal sealed class DeploymentSetupPresenter : IDisposable
             id=>world.Tactics.GetValueOrDefault(id)?.Name,
             ids=>rules.QueryDeploymentPersonTraits(world,ids),
             (rows,slot,ascending)=>rules.QueryDeploymentPersonTraitOrder(world,rows,slot,ascending),currentScrollSpeed:scrollSpeed);
+        selection.RegisterHeader(headers);
     }
 
     internal bool TryCancelModal()

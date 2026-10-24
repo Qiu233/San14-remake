@@ -20,6 +20,7 @@ public partial class Main
     {
         if (_sceneAudioBinding is { } binding)
         {
+            if (_musicEditor is not null) { binding.BeginMusicEdit(); UpdateSceneAudioStatus(); return; }
             SceneAudioBindingState state = binding.SetContext(new(_world?.ScenarioKey, _playerForceId, _sceneView is not null));
             SetMeta("scene_audio_scene_key", state.SceneKey ?? "");
             SetMeta("scene_audio_scene_revision", state.SceneRevision!.Value);
@@ -68,7 +69,8 @@ public partial class Main
         SetMeta("scene_audio_selection_resolved", binding?.MapMusicSelection is not null);
         if (binding?.MapMusicSelection is { } entry)
         {
-            SetMeta("map_music_source_month", entry.SourceMonth);
+            if (entry.SourceMonth is int month) SetMeta("map_music_source_month", month);
+            else RemoveMeta("map_music_source_month");
             SetMeta("map_music_source_slot", entry.Selection.SourceSlot);
             SetMeta("map_music_index", entry.Commit.MusicIndex);
             SetMeta("map_music_cue_hash", entry.Commit.CueHash?.ToString("X8") ?? "");

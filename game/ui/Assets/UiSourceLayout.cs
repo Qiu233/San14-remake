@@ -172,12 +172,12 @@ internal sealed class UiSourceLayout
 
     internal Control Art(Control parent, int index, Rect2 rectangle, UiAssets assets, Shader shader,
         MapCornerColors? colors = null, string? commonSpriteOverride = null, bool expansionCommonSprite = false,
-        UiSourceSprite.Blend blend = UiSourceSprite.Blend.Ordinary)
+        UiSourceSprite.Blend blend = UiSourceSprite.Blend.Ordinary, string? commonTexturePack = null)
     {
         var node = Nodes[index];
         var transform=transforms[index];
         bool projected = Math.Abs(transform.X.Y)>0.00001f||Math.Abs(transform.Y.X)>0.00001f;
-        if(Math.Abs(node.HeaderValues[2])>0.00001f || projected && node.Type != 1)
+        if(Math.Abs(node.HeaderValues[2])>0.00001f || projected && node.Type is not (1 or 3))
             throw new InvalidDataException($"UI art requires an unsupported projected transform: {node.Name}.");
         var source = LcskSpriteNodeReader.Read(Source.Layout, node);
         var group = new Control { Name = node.Name, Position = rectangle.Position, Size = rectangle.Size,
@@ -207,11 +207,14 @@ internal sealed class UiSourceLayout
         if (node.Type == 3)
         {
             var m = source.SourceMargins;
-            Vector2 scale = new(Math.Abs(transform.X.X),Math.Abs(transform.Y.Y));
-            if (m.Any(v => v < 0) || (m[2] + m[3])*scale.X > rectangle.Size.X || (m[0] + m[1])*scale.Y > rectangle.Size.Y)
+            // Projected panes are subdivided in their own local plane; their
+            // complete scale/rotation is applied by SourceProjection. Using
+            // the world AABB here would swap margins on a quarter turn.
+            Vector2 scale = projected ? Vector2.One : new(Math.Abs(transform.X.X),Math.Abs(transform.Y.Y));
+            if (m.Any(v => v < 0) || (m[2] + m[3])*scale.X > drawSize.X || (m[0] + m[1])*scale.Y > drawSize.Y)
                 throw new InvalidDataException($"Source UI nine-part margins exceed {node.Name}.");
-            xs = [0, m[2]*scale.X, rectangle.Size.X - m[3]*scale.X, rectangle.Size.X];
-            ys = [0, m[0]*scale.Y, rectangle.Size.Y - m[1]*scale.Y, rectangle.Size.Y];
+            xs = [0, m[2]*scale.X, drawSize.X - m[3]*scale.X, drawSize.X];
+            ys = [0, m[0]*scale.Y, drawSize.Y - m[1]*scale.Y, drawSize.Y];
         }
         foreach (var segment in source.Groups)
         {
@@ -244,7 +247,9 @@ internal sealed class UiSourceLayout
             // it preserves the authored geometry, margins and local UVs.
             Texture2D texture=commonSpriteOverride is null
                 ?assets.SrgbLayoutSpritePart(Source,part.SpriteName,uv)
-                :assets.SrgbCommonSpritePart(commonSpriteOverride,uv,expansionCommonSprite);
+                :commonTexturePack is not null
+                    ?assets.SrgbTexturePackSpritePart(commonTexturePack,commonSpriteOverride,uv)
+                    :assets.SrgbCommonSpritePart(commonSpriteOverride,uv,expansionCommonSprite);
             var image = new UiSourceSprite { Position = new(xs[x], ys[y]), Size = new(xs[x + 1] - xs[x], ys[y + 1] - ys[y]) };
             canvas.AddChild(image);
             image.Configure(shader,texture,blend,colors);

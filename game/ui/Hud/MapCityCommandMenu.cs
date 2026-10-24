@@ -2,7 +2,7 @@ using Godot;
 using San14.Data;
 using San14.Data.Formats;
 
-internal enum MapCityCommand { Deploy, CancelDeployment, Administration, Merchant, Move, Investment, CityInformation, AreaInformation, CityDomestic }
+internal enum MapCityCommand { Deploy, CancelDeployment, Administration, Merchant, Move, Investment, CityInformation, AreaInformation, CityDomestic, Transport, Summon }
 
 /// <summary>The city command tree renders the current query without making
 /// gameplay permission decisions. Leaf editors retain their own acceptance.</summary>
@@ -152,8 +152,12 @@ internal partial class MapCityCommandMenu : Control
     private static MapCityCommand? EditorRoute(CityCommandMenuCommand command) => command switch
     {
         CityCommandMenuCommand.Deploy => MapCityCommand.Deploy,
+        CityCommandMenuCommand.Transport => MapCityCommand.Transport,
         CityCommandMenuCommand.AreaAdministration => MapCityCommand.Administration,
         CityCommandMenuCommand.CityDomestic => MapCityCommand.CityDomestic,
+        CityCommandMenuCommand.Merchant => MapCityCommand.Merchant,
+        CityCommandMenuCommand.Transfer => MapCityCommand.Move,
+        CityCommandMenuCommand.Summon => MapCityCommand.Summon,
         CityCommandMenuCommand.CityInformation => MapCityCommand.CityInformation,
         CityCommandMenuCommand.AreaInformation => MapCityCommand.AreaInformation,
         _ => null

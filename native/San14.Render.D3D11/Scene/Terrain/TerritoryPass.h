@@ -19,6 +19,10 @@ public:
     }
 
     void setVisible(bool visible) { visible_=visible; }
+    void setStyle(unsigned style) {
+        if(style>2)throw std::runtime_error("Map information territory style is unsupported");
+        style_=int(style);
+    }
     void publishCommandMap(const source_command_map::Publication& publication) {
         command_.accept(publication,overlay_.profile,overlay_.cpu,zoneOwner_,zoneCurrent_,controls_);
     }

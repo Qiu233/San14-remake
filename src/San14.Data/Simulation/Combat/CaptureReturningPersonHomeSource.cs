@@ -61,6 +61,40 @@ public sealed partial class CaptureReturningPersonHomeSource(ArmyCampaignRuleAda
         ApplyBeforeTransfer(beforeTransfer, capturedLocationId, previousForceId, officerId,
             idleResident: true, operationThirdDate: operationThirdDate);
 
+    //2851B0 reaches260310 for every noncaptured ordinary Home owner. Read
+    //the actual232370 predicate instead of treating an out-of-Base actor as idle.
+    internal ReturningPersonHomeResult TryApplyHomeCurrent(GameState state, SourceWorldContext current,
+        int capturedLocationId, int previousForceId, int officerId, NativeMapSeasonDate? operationThirdDate)
+    {
+        try
+        {
+            int person = current.ReadPersonLookupReference(officerId)?.PhysicalSlot
+                ?? throw Missing("current.260310_dispatch_Person_pointer");
+            if (current.ReadPersonIdentity(person) != officerId ||
+                !Need(current.ReadPersonNativeValidity(person), "current.260310_dispatch_Person_validity") ||
+                Need(current.ReadPersonStatus(person), "current.260310_dispatch_PersonE6") is < 1 or > 4)
+                throw Missing("branch.260310_dispatch_nonordinary_Person");
+            bool busy = PersonCurrentBusySource.Read(current, person,
+                owner => Missing("current.260310_dispatch_busy." + owner));
+            var army = PersonArmyLocationSource.ReadCommanderArmy(current, person)
+                ?? throw Missing("current.260310_dispatch_22A200_Army");
+            UnitState? activeArmy = null;
+            if (Need(current.ReadArmyUnitNativeValidity(army), "current.260310_dispatch_Army_validity"))
+            {
+                int physical = Need(army.PhysicalSlot, "current.260310_dispatch_Army_physical");
+                var arena = state.ReadArmyLifecycle() ?? throw Missing("current.260310_dispatch_Army_arena");
+                var receiver = arena.Receivers.Find(arena.Slots[physical].ReceiverId)
+                    ?? throw Missing("current.260310_dispatch_Army_receiver");
+                if (receiver.ActiveUnitId is not int unitId || !state.Units.TryGetValue(unitId, out activeArmy) ||
+                    activeArmy.NativeArmyOrigin?.NativeSlotIndex != physical || activeArmy.OfficerId != officerId)
+                    throw Missing("current.260310_dispatch_active_Commander_Army");
+            }
+            return ApplyBeforeTransfer(state, capturedLocationId, previousForceId, officerId, activeArmy,
+                idleResident: !busy, operationThirdDate: operationThirdDate, operationCurrent: current, currentBusy: busy);
+        }
+        catch (InvalidDataException error) { return new(null, null, error.Message); }
+    }
+
     private ReturningPersonHomeResult ApplyWithPreviousOwner(GameState state, int capturedLocationId,
         int previousForceId, int officerId, CityState beforeCaptureCity, UnitState? activeArmy)
     {
@@ -83,7 +117,8 @@ public sealed partial class CaptureReturningPersonHomeSource(ArmyCampaignRuleAda
     }
 
     private ReturningPersonHomeResult ApplyBeforeTransfer(GameState state, int capturedLocationId, int previousForceId,
-        int officerId, UnitState? activeArmy = null, bool idleResident = false, NativeMapSeasonDate? operationThirdDate = null)
+        int officerId, UnitState? activeArmy = null, bool idleResident = false, NativeMapSeasonDate? operationThirdDate = null,
+        SourceWorldContext? operationCurrent = null, bool? currentBusy = null)
     {
         SourceWorldContext? current = null;
         HexListHandle? cities = null;
@@ -92,10 +127,13 @@ public sealed partial class CaptureReturningPersonHomeSource(ArmyCampaignRuleAda
             if (capturedLocationId < 1 || capturedLocationId > (idleResident ? 61 : 51) || previousForceId is < 1 or > 45 ||
                 !state.Officers.TryGetValue(officerId, out var officer) || officer.LocationId != capturedLocationId ||
                 officer.ForceId != previousForceId || (idleResident ? officer.Deployed : activeArmy is null
-                    ? officer.Deployed || !PlayableOfficerAvailability.IsSourceBusy(state, officer)
+                    ? officer.Deployed || (currentBusy is null && !PlayableOfficerAvailability.IsSourceBusy(state, officer))
                     : !officer.Deployed || activeArmy.OfficerId != officerId || !state.Units.ContainsKey(activeArmy.Id)))
                 throw Missing("branch.not_ordinary_returning_captured_Home");
-            var world = package.CaptureOwnedArmyReturnWorld(state); current = world.Context; var pool = world.Pool;
+            var world = operationCurrent is null ? package.CaptureOwnedArmyReturnWorld(state) :
+                OwnedArmyReturnWorld.Borrow(state, operationCurrent, operationCurrent.ReadOwnedCurrentListPool()
+                    ?? throw Missing("borrowed_current_pool"));
+            current = world.Context; var pool = world.Pool;
             int person = current.ReadPersonLookupReference(officerId)?.PhysicalSlot ?? throw Missing("current.Person_pointer");
             byte status = Need(current.ReadPersonStatus(person), "current.PersonE6");
             if (!Need(current.ReadPersonNativeValidity(person), "current.Person_validity") || status is < 1 or > 4)
@@ -106,9 +144,10 @@ public sealed partial class CaptureReturningPersonHomeSource(ArmyCampaignRuleAda
             var secondPosition = PersonPositionRepair.DecodeSecondLocation(second);
             if (first != capturedLocationId || (idleResident
                 ? status is not (3 or 4) || first != second
-                : firstPosition == secondPosition || (activeArmy is null ? secondPosition.Kind == 27 : secondPosition.Kind != 27)))
+                : currentBusy is null && (firstPosition == secondPosition ||
+                    (activeArmy is null ? secondPosition.Kind == 27 : secondPosition.Kind != 27))))
                 throw Missing("branch.260310_not_busy_Return_position");
-            if (idleResident) RequireIdle232370(current, person);
+            if (idleResident && currentBusy is null) RequireIdle232370(current, person);
             //Busy leaves short-circuit232370 on position mismatch. The idle
             //leaf also reads its real associated receiver before busy0.
             var district = current.ReadDistrictTableReference(Need(current.ReadPersonDistrictSlot(person), "current.PersonE0"))
@@ -206,14 +245,14 @@ public sealed partial class CaptureReturningPersonHomeSource(ArmyCampaignRuleAda
                 RequireIdleNoCommanderArmy(current);
                 //The live City candidate descriptor survives Primary and
                 //2EA9A0; release it only after the real Return allocations.
-                working = Publish(working, current, person, governors, writes160, pool, armyHome);
+                working = Publish(working, current, person, governors, writes160, pool, armyHome, projectOwnedRoles: true);
                 returning = ApplyIdleReturn(working, current, person, operationThirdDate);
                 working = returning.State ?? throw Missing(returning.UnresolvedOwner ?? "current.260310_2EA9A0_Return");
             }
             ClearRelease(current, cities); cities = null;
-            var result = Publish(working, current, person, governors, writes160, pool, armyHome);
+            var result = Publish(working, current, person, governors, writes160, pool, armyHome,
+                projectOwnedRoles: operationCurrent is not null);
             if (idleResident) result = PublishIdleReturnFields(result, current, officerId, person);
-            ArmyLifecycleSaveValidation.Validate(result);
             var effects = new List<string> { idleResident ? "260310.232370_busy0" : "260310.232370_busy1", "224300.same_District_fixed_City_table",
                 "2AEDC0.mode8_count_to_City160", gateParent ? "260310.22A940_same_Force_District_Gate_parent_City" : "24C2F0.253F20_DistrictHome_distance160_CityID", "260B44.PersonE2",
                 "260B60.new_District2E9140", "260B6D.original_District2E9140" };
@@ -234,7 +273,7 @@ public sealed partial class CaptureReturningPersonHomeSource(ArmyCampaignRuleAda
 
     private static GameState Publish(GameState state, SourceWorldContext current, int person,
         IReadOnlyList<ArmyReturnGovernorPacket> governors, Dictionary<int, int> distances, WorldIndexContext pool,
-        CapturedArmyHomeWrites? armyHome)
+        CapturedArmyHomeWrites? armyHome, bool projectOwnedRoles = false)
     {
         var people = new Dictionary<int, OfficerState>(state.Officers);
         int id = Need(current.ReadPersonIdentity(person), "current.published_PersonID");
@@ -282,7 +321,7 @@ public sealed partial class CaptureReturningPersonHomeSource(ArmyCampaignRuleAda
                 Cities = cities,
                 Gates = gates,
                 Units = units,
-                NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = values } } }).WithArmyLifecycle(state.ReadArmyLifecycle()! with { Indexes = pool.ExportOwnedState() });
+                NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = values } } }).WithArmyLifecycle(state.ReadArmyLifecycle()! with { Indexes = projectOwnedRoles ? pool.ProjectOwnedRoles() : pool.ExportOwnedState() });
     }
     private static bool Preferred(ReturningPersonHomeCandidate left, ReturningPersonHomeCandidate right) =>
         left.DistrictHome != right.DistrictHome ? left.DistrictHome : left.Distance160 != right.Distance160

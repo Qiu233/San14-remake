@@ -18,6 +18,11 @@ public partial class PersonnelOrdersPanel : VBoxContainer
     private readonly Button _grant = new() { Name = "PersonnelGrantItem" };
     private readonly Button _revoke = new() { Name = "PersonnelRevokeItem" };
     private readonly Button _appoint = new() { Name = "PersonnelSetOffice" };
+    private readonly Button _inspect = new() { Name = "PersonnelOfficerDetails" };
+    private readonly Button _openItems = new() { Name = "OpenPersonnelItems" };
+    private readonly Control _itemRow;
+    private Action<int>? _inspectOfficer;
+    private Action? _showItems;
     private Func<string, string>? _text;
     private Action<GameOrder>? _submit;
     private PersonnelCommandView _view = PersonnelCommandView.Empty;
@@ -28,7 +33,9 @@ public partial class PersonnelOrdersPanel : VBoxContainer
         Name = "PersonnelOrdersPanel";
         SizeFlagsHorizontal = SizeFlags.ExpandFill;
         AddChild(_title);
-        Row(_officerLabel, _officer); Row(_itemLabel, _item); Row(_officeLabel, _office);
+        AddChild(_openItems); _openItems.Pressed += () => _showItems?.Invoke();
+        Row(_officerLabel, _officer, _inspect); _itemRow = Row(_itemLabel, _item); Row(_officeLabel, _office);
+        _inspect.Pressed += () => { if (_officer.Selected >= 0) _inspectOfficer?.Invoke(_officer.GetSelectedId()); };
         var actions = new HFlowContainer();
         actions.AddChild(_grant); actions.AddChild(_revoke); actions.AddChild(_appoint);
         AddChild(actions); AddChild(_status); AddChild(_inventory);
@@ -52,11 +59,14 @@ public partial class PersonnelOrdersPanel : VBoxContainer
         RefreshStatus();
     }
 
-    public void Configure(Func<string, string> text, Action<GameOrder> submit, bool officeCommandsAvailable = false)
+    public void Configure(Func<string, string> text, Action<GameOrder> submit, bool officeCommandsAvailable = false,
+        Action<int>? inspectOfficer = null, Action? openItems = null)
     {
         _text = text ?? throw new ArgumentNullException(nameof(text));
         _submit = submit ?? throw new ArgumentNullException(nameof(submit));
         _officeCommandsAvailable = officeCommandsAvailable;
+        _inspectOfficer = inspectOfficer; _inspect.Text = text("detail_officer_open");
+        _showItems = openItems; _openItems.Text = text("play_personnel_items_open");
         _title.Text = text("play_personnel_title"); _officerLabel.Text = text("play_personnel_officer");
         _itemLabel.Text = text("play_personnel_item"); _officeLabel.Text = text("play_personnel_office");
         _grant.Text = text("play_personnel_grant"); _revoke.Text = text("play_personnel_revoke");
@@ -66,6 +76,9 @@ public partial class PersonnelOrdersPanel : VBoxContainer
 
     public void Refresh(GameState? world, int? playerForceId)
     {
+        bool native = world?.NativeArmySimulation is not null;
+        _openItems.Visible = native; _itemRow.Visible = !native;
+        _grant.Visible = !native; _revoke.Visible = !native; _inventory.Visible = !native;
         _view = PersonnelCommandView.Create(world, playerForceId);
         int officer = Selected(_officer), item = Selected(_item), office = Selected(_office);
         _officer.Clear(); _item.Clear(); _office.Clear();
@@ -81,11 +94,15 @@ public partial class PersonnelOrdersPanel : VBoxContainer
     private void RefreshStatus()
     {
         bool strategy = CanSubmit();
+        _openItems.Disabled = !strategy || _showItems is null;
+        _inspect.Disabled = _inspectOfficer is null || _officer.Selected < 0;
         _officer.Disabled = !strategy || _officer.ItemCount == 0;
         _item.Disabled = !strategy || _item.ItemCount == 0;
         _office.Disabled = !strategy || _office.ItemCount == 0;
-        _grant.Disabled = !strategy || _officer.Selected < 0 || _item.Selected < 0;
-        _revoke.Disabled = !strategy || SelectedItem()?.HolderOfficerId is null;
+        var selected = SelectedItem();
+        _grant.Disabled = !strategy || _officer.Selected < 0 || _view.RulerId is not int ruler ||
+            _officer.GetSelectedId() == ruler || selected?.HolderOfficerId != ruler;
+        _revoke.Disabled = !strategy || _view.RulerId is null || selected?.HolderOfficerId is not int holder || holder == _view.RulerId;
         _appoint.Disabled = !_officeCommandsAvailable || !strategy || _officer.Selected < 0 || _office.Selected < 0;
         if (_text is null) return;
         _appoint.TooltipText = _officeCommandsAvailable ? "" : _text("play_personnel_office_unverified");
@@ -118,8 +135,9 @@ public partial class PersonnelOrdersPanel : VBoxContainer
     {
         if (value.ItemCount > 0) { int index = value.GetItemIndex(id); value.Select(index < 0 ? 0 : index); }
     }
-    private void Row(Control label, Control field)
+    private Control Row(params Control[] controls)
     {
-        var row = new HFlowContainer(); row.AddChild(label); row.AddChild(field); AddChild(row);
+        var row = new HFlowContainer(); foreach (var control in controls) row.AddChild(control); AddChild(row);
+        return row;
     }
 }

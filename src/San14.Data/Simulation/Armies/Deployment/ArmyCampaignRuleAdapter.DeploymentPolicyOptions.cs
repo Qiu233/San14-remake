@@ -19,8 +19,56 @@ public sealed record DeploymentDefaultBehaviorsQuery(
     public bool Available => UnresolvedInput is null;
 }
 
-public sealed partial class ArmyCampaignRuleAdapter
+public sealed partial class ArmyCampaignRuleAdapter : IPlayableUnitBehaviorRules
 {
+    /// <summary>A selected radio pair has the same current trait gate as the
+    /// deployment policy query. The other three saved choices are not reset or
+    /// revalidated against new trait defaults by this single-setting command.</summary>
+    public UnitBehaviorEligibility EvaluateUnitBehaviorSetting(GameState state, IReadOnlyList<UnitState> units,
+        UnitBehaviorSetting setting, bool first)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(units);
+        if (units.Count == 0 || !Enum.IsDefined(setting))
+            return new(false, "Select deployed units and a valid military behavior setting.");
+        try
+        {
+            var traits = ReadDeploymentPolicyTraits(state, units.Select(unit => unit.OfficerId).ToArray(), true);
+            bool allowed = traits.Values.All(trait => setting switch
+            {
+                UnitBehaviorSetting.AttackNearby => first ? !trait.Second : !trait.First,
+                UnitBehaviorSetting.AllowRetreat => first ? !trait.First : !trait.Second,
+                UnitBehaviorSetting.Pursue => first ? !trait.Second : !trait.Third,
+                UnitBehaviorSetting.AfterRetreat => !first || !trait.Third,
+                _ => false
+            });
+            return new(allowed, allowed ? null : "Current commander traits lock this behavior choice.");
+        }
+        catch (InvalidDataException error)
+        {
+            return new(null, "Current commander behavior restrictions are unresolved.", error.Message);
+        }
+    }
+
+    public UnitBehaviorEligibility EvaluateUnitBehaviors(GameState state, IReadOnlyList<UnitState> units, DeploymentBehavior behavior)
+    {
+        if (behavior is null || !Enum.IsDefined(behavior.AfterAction))
+            return new(false, "Military behavior is invalid.");
+        try
+        {
+            var traits = ReadDeploymentPolicyTraits(state, units.Select(unit => unit.OfficerId).ToArray(), true);
+            bool allowed = traits.Values.All(trait =>
+                (!trait.First || behavior.AttackNearbyEnemies && !behavior.AllowRetreat) &&
+                (!trait.Second || !behavior.AttackNearbyEnemies && behavior.AllowRetreat && !behavior.PursueRetreatingEnemies) &&
+                (!trait.Third || behavior.PursueRetreatingEnemies && behavior.AfterAction == DeploymentAfterAction.Stay));
+            return new(allowed, allowed ? null : "Current commander traits lock one or more behavior choices.");
+        }
+        catch (InvalidDataException error)
+        {
+            return new(null, "Current commander behavior restrictions are unresolved.", error.Message);
+        }
+    }
+
     /// <summary>The union of real current trait restrictions across the selected
     /// ordinary officers, independently of display groups and row settings.</summary>
     public DeploymentPolicyOptions QueryDeploymentPolicyOptions(GameState state,

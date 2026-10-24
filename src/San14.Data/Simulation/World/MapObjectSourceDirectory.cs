@@ -46,50 +46,87 @@ public sealed class MapObjectSourceState
                 .Concat(UnplacedFields.Keys).Concat(CurrentFields16.Keys).Any(x => x is < 0 or > 3000))
             throw new InvalidDataException("Map object source directory is outside the inspected resource profile.");
     }
+    // Only these mutation methods can use this constructor. Their source
+    // already owns immutable copies admitted by the public JSON constructor;
+    // newly allocated changed dictionaries transfer ownership to this result.
+    private MapObjectSourceState(MapObjectSourceState source,
+        Dictionary<int, ushort>? coordinates = null, Dictionary<int, byte>? factions = null,
+        Dictionary<int, byte>? kinds = null, Dictionary<int, UnplacedMapObjectSourceFields>? unplaced = null,
+        Dictionary<int, ushort>? fields16 = null, Dictionary<int, ushort>? aliases = null)
+    {
+        PhysicalReceivers = source.PhysicalReceivers;
+        LookupPhysicalSlots = source.LookupPhysicalSlots;
+        UnmappedCoordinates = coordinates is null ? source.UnmappedCoordinates : new ReadOnlyDictionary<int, ushort>(coordinates);
+        UnmappedFactions = factions is null ? source.UnmappedFactions : new ReadOnlyDictionary<int, byte>(factions);
+        UnmappedKinds = kinds is null ? source.UnmappedKinds : new ReadOnlyDictionary<int, byte>(kinds);
+        UnplacedFields = unplaced is null ? source.UnplacedFields : new ReadOnlyDictionary<int, UnplacedMapObjectSourceFields>(unplaced);
+        CurrentFields16 = fields16 is null ? source.CurrentFields16 : new ReadOnlyDictionary<int, ushort>(fields16);
+        HexObjectLookupAliases = aliases is null ? source.HexObjectLookupAliases : new ReadOnlyDictionary<int, ushort>(aliases);
+    }
+
+    private void RequirePhysical(int physical)
+    {
+        if ((uint)physical >= PhysicalReceivers.Count)
+            throw new InvalidDataException("Unknown map object physical receiver.");
+    }
+
+    private static Dictionary<int, T>? Without<T>(IReadOnlyDictionary<int, T> source, int key)
+    {
+        if (!source.ContainsKey(key)) return null;
+        var changed = new Dictionary<int, T>(source);
+        changed.Remove(key);
+        return changed;
+    }
+
     /// <summary>Current compatibility fact only. Missing means unknown;
     /// immutable replacement preserves the independent17 byte and all aliases.</summary>
     internal MapObjectSourceState WithCurrentFields16(int physical, ushort? value)
     {
-        if ((uint)physical >= PhysicalReceivers.Count)
-            throw new InvalidDataException("Unknown object fields16 receiver.");
+        RequirePhysical(physical);
+        if (value is ushort same ? CurrentFields16.TryGetValue(physical, out ushort old) && same == old
+            : !CurrentFields16.ContainsKey(physical)) return this;
         var fields = new Dictionary<int, ushort>(CurrentFields16);
         if (value is ushort known) fields[physical] = known; else fields.Remove(physical);
-        return new(PhysicalReceivers, LookupPhysicalSlots, UnmappedCoordinates, UnmappedFactions,
-            UnmappedKinds, UnplacedFields, fields, HexObjectLookupAliases);
+        return new(this, fields16: fields);
     }
     internal MapObjectSourceState Reset(int physical)
     {
-        var coordinates = new Dictionary<int, ushort>(UnmappedCoordinates); coordinates.Remove(physical);
-        var factions = new Dictionary<int, byte>(UnmappedFactions); factions.Remove(physical);
-        var kinds = new Dictionary<int, byte>(UnmappedKinds); kinds.Remove(physical);
-        var unplaced = new Dictionary<int, UnplacedMapObjectSourceFields>(UnplacedFields); unplaced.Remove(physical);
-        // The16 word's meaning is unproved. Its actual reset is nevertheless
-        // retained at this compatibility boundary rather than dropped.
-        var tails = new Dictionary<int, ushort>(CurrentFields16) { [physical] = 0 };
-        return new(PhysicalReceivers, LookupPhysicalSlots, coordinates, factions, kinds, unplaced, tails, HexObjectLookupAliases);
+        RequirePhysical(physical);
+        // The16 word's actual reset is retained even though its meaning is
+        // unproved. Unaffected maps and immutable identity tables are shared.
+        var tails = CurrentFields16.TryGetValue(physical, out ushort old) && old == 0 ? null :
+            new Dictionary<int, ushort>(CurrentFields16) { [physical] = 0 };
+        return new(this, coordinates: Without(UnmappedCoordinates, physical),
+            factions: Without(UnmappedFactions, physical), kinds: Without(UnmappedKinds, physical),
+            unplaced: Without(UnplacedFields, physical), fields16: tails);
     }
     internal MapObjectSourceState WithConstructedReceiver(int physical, ushort fields16, byte faction, bool knownFaction)
     {
-        var coordinates = new Dictionary<int, ushort>(UnmappedCoordinates); coordinates.Remove(physical);
-        var factions = new Dictionary<int, byte>(UnmappedFactions); factions.Remove(physical);
-        if (!knownFaction) factions[physical] = faction;
-        var kinds = new Dictionary<int, byte>(UnmappedKinds); kinds.Remove(physical);
-        var unplaced = new Dictionary<int, UnplacedMapObjectSourceFields>(UnplacedFields); unplaced.Remove(physical);
-        var tails = new Dictionary<int, ushort>(CurrentFields16) { [physical] = fields16 };
-        return new(PhysicalReceivers, LookupPhysicalSlots, coordinates, factions, kinds, unplaced, tails, HexObjectLookupAliases);
+        RequirePhysical(physical);
+        var factions = knownFaction ? Without(UnmappedFactions, physical) :
+            new Dictionary<int, byte>(UnmappedFactions) { [physical] = faction };
+        var tails = CurrentFields16.TryGetValue(physical, out ushort old) && old == fields16 ? null :
+            new Dictionary<int, ushort>(CurrentFields16) { [physical] = fields16 };
+        return new(this, coordinates: Without(UnmappedCoordinates, physical), factions: factions,
+            kinds: Without(UnmappedKinds, physical), unplaced: Without(UnplacedFields, physical), fields16: tails);
     }
     internal MapObjectSourceState WithHexLookupAlias(int hex, ushort? value)
     {
+        if ((uint)hex >= 48400) throw new InvalidDataException("Map object Hex lookup alias has an invalid cell.");
+        if (value is ushort same ? HexObjectLookupAliases.TryGetValue(hex, out ushort old) && same == old
+            : !HexObjectLookupAliases.ContainsKey(hex)) return this;
         var aliases = new Dictionary<int, ushort>(HexObjectLookupAliases);
         if (value is ushort raw) aliases[hex] = raw; else aliases.Remove(hex);
-        return new(PhysicalReceivers, LookupPhysicalSlots, UnmappedCoordinates, UnmappedFactions,
-            UnmappedKinds, UnplacedFields, CurrentFields16, aliases);
+        return new(this, aliases: aliases);
     }
     internal MapObjectSourceState WithFaction(int physical, byte? value)
     {
+        RequirePhysical(physical);
+        if (value is byte same ? UnmappedFactions.TryGetValue(physical, out byte old) && same == old
+            : !UnmappedFactions.ContainsKey(physical)) return this;
         var factions = new Dictionary<int, byte>(UnmappedFactions);
         if (value is byte raw) factions[physical] = raw; else factions.Remove(physical);
-        return new(PhysicalReceivers, LookupPhysicalSlots, UnmappedCoordinates, factions, UnmappedKinds, UnplacedFields, CurrentFields16, HexObjectLookupAliases);
+        return new(this, factions: factions);
     }
 }
 

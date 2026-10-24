@@ -16,15 +16,16 @@ internal sealed class TrapFeedback
     private readonly LoadedScenario scenario;
     private readonly Func<int> campaignDay;
     private bool personnelBound;
-    internal List<CampaignEffectRequest> Requests { get; } = [];
+    internal List<CampaignEffectRequest> Requests { get; }
     internal ArmyTraitFeedback Traits { get; }
 
     internal TrapFeedback(ArmyCampaignRuleAdapter package, Func<GameState> state, Action<GameState> replace, SourceWorldContext current,
-        NativeArmyProgressStageMoment moment, GameResourceRepository repository, LoadedScenario scenario, Func<int> campaignDay)
+        NativeArmyProgressStageMoment moment, GameResourceRepository repository, LoadedScenario scenario, Func<int> campaignDay, List<CampaignEffectRequest>? requests = null)
     {
         this.package = package; this.state = state; this.replace = replace; this.current = current; this.moment = moment;
         this.repository = repository; this.scenario = scenario;
         this.campaignDay = campaignDay;
+        Requests = requests ?? [];
         Traits = new(state(), current, moment, Requests, state, EnsurePersonnel);
     }
 
@@ -54,7 +55,8 @@ internal sealed class TrapFeedback
         int officer = Need(current.ReadPersonIdentity(person), "speech_Person_identity");
         Requests.Add(new(new(CombatParticipantKind.Army, ArmyId(army), officer, action, position,
             CombatParticipantKind.FieldObject, Receiver(facility).Value, null, null, null)
-            { TrapDefinitionId = definitionId }, null));
+            { TrapDefinitionId = action == CombatSpeechEvent.ArmyUnderFacilityAttack ? null : definitionId,
+                FacilityDefinitionId = action == CombatSpeechEvent.ArmyUnderFacilityAttack ? definitionId : null }, null));
     }
 
     internal int ArmyId(ArmyUnitReference army)
@@ -316,11 +318,17 @@ internal sealed class TrapFeedback
         int hex, int gross, sbyte? modifier = null) => Requests.Add(new(null, null)
         { ArmyFacilityDamagePresentation = new(operation, ArmyId(army), hex, gross, modifier) });
 
-    internal GameState Publish(GameState value)
+    internal GameState PublishCurrentState(GameState value)
     {
         value = Traits.Publish(value);
         if (personnelBound) value = value with { PersonnelCommands = current.ReadOwnedPersonCommandManager()
             ?? throw Missing("feedback_personnel_publication") };
+        return value;
+    }
+
+    internal GameState Publish(GameState value)
+    {
+        value = PublishCurrentState(value);
         return Requests.Count == 0 ? value : value with { CampaignEffectRequests =
             (value.CampaignEffectRequests ?? throw Missing("feedback_pending_owner"))
                 .Append(CampaignEffectSource.FacilityTraps, moment.CalendarCycleOrdinal, Requests) };

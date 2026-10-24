@@ -16,16 +16,25 @@ public sealed class D3D11MapInput
     public bool Paused { get; }
     public bool EligibleAnimationUpdate { get; }
     public bool TerritoryDisplayEnabled { get; init; } = true;
+    // Source 186340: ownership0/frontline1/neither2. Null keeps old callers.
+    internal int? InformationTerritoryStyle { get; init; }
+    internal MapInformationLayerSnapshot? InformationLayers { get; init; }
     public MainMapCameraFrame? SourceFrame { get; private init; }
     public TerrainPicker? TerrainPicker { get; init; }
     public D3D11TerritoryPublication? TerritoryOwnership { get; init; }
     public D3D11CommandMapPublication? CommandMap { get; init; }
+    public D3D11RoutePublication? Routes { get; init; }
     public uint CommandMapFpsMode { get; init; }
     public D3D11ArmyPublication? ArmyWorld { get; init; }
     public ArmyMapGroupingFrame? ArmyGroupingWorld { get; init; }
     public D3D11CityGatePublication? CityGateWorld { get; init; }
     public D3D11AreaCapitalPublication? AreaCapitalWorld { get; init; }
     public GameState? WorldState { get; init; }
+    internal NativeMapSeasonState? PeriodSeason { get; init; }
+    internal D3D11ArmyLabelPublication? PeriodArmyLabels { get; init; }
+    internal SceneryMapPresentation? SceneryPresentation {get;init;}
+    internal SceneryMapCapture? SceneryWorld {get;init;}
+    internal bool? SceneryCameraStable {get;init;}
     public D3D11CurrentSeasonFrame? CurrentSeason { get; private init; }
     internal byte[]? CurrentSeasonBytes { get; private init; }
     internal string? AtmosphereResourceDirectory { get; private init; }
@@ -51,14 +60,20 @@ public sealed class D3D11MapInput
         TerrainPicker = input.TerrainPicker;
         TerritoryOwnership = input.TerritoryOwnership;
         CommandMap = input.CommandMap; CommandMapFpsMode = input.CommandMapFpsMode;
+        Routes = input.Routes;
         ArmyWorld = input.ArmyWorld;
         ArmyGroupingWorld = input.ArmyGroupingWorld;
         CityGateWorld = input.CityGateWorld;
         AreaCapitalWorld = input.AreaCapitalWorld;
         WorldState = input.WorldState;
+        PeriodSeason = input.PeriodSeason; PeriodArmyLabels = input.PeriodArmyLabels;
+        SceneryPresentation=input.SceneryPresentation;SceneryWorld=input.SceneryWorld;
+        SceneryCameraStable=input.SceneryCameraStable;
         CurrentSeason = input.CurrentSeason; CurrentSeasonBytes = input.CurrentSeasonBytes;
         AtmosphereResourceDirectory = input.AtmosphereResourceDirectory;
         TerritoryDisplayEnabled = input.TerritoryDisplayEnabled;
+        InformationTerritoryStyle = input.InformationTerritoryStyle;
+        InformationLayers = input.InformationLayers;
     }
 
     public static D3D11MapInput FromCamera(MainMapCameraFrame frame,
@@ -73,6 +88,8 @@ public sealed class D3D11MapInput
     }
 
     internal D3D11MapInput WithElapsed(double elapsedSeconds) => new(this, elapsedSeconds);
+    internal D3D11MapInput WithRoutes(D3D11RoutePublication? routes) => new(this, ElapsedSeconds) { Routes = routes };
+    internal D3D11MapInput WithSceneryWorld(SceneryMapCapture? frame)=>new(this,ElapsedSeconds){SceneryWorld=frame};
     internal D3D11MapInput WithResourceContextGeneration(ulong generation) => new(this, ElapsedSeconds)
         { ArmyWorld = this.ArmyWorld?.WithResourceContextGeneration(generation) };
     internal D3D11MapInput WithCurrentSeason(D3D11CurrentSeasonFrame frame,
@@ -91,7 +108,8 @@ public sealed class D3D11MapInput
             Camera = _camera, Controller = _controller, Band = Band, Fraction = Fraction,
             DeltaSeconds = (float)ElapsedSeconds,
             Flags = 1u | (Paused ? 2u : 0u) | (EligibleAnimationUpdate ? 4u : 0u) |
-                (TerritoryDisplayEnabled ? 0u : 8u),
+                (TerritoryDisplayEnabled ? 0u : 8u) |
+                (InformationTerritoryStyle is int style ? 0x40000u | (uint)style << 16 : 0u),
             CurrentRawSunPosition = [sun.X, sun.Y, sun.Z, sun.W],
             CurrentCloudGeometry40 = CurrentSeason?.Atmosphere.ControllerGeometry40 ?? 0,
             AtmosphereResourceDirectory = AtmosphereResourceDirectory
@@ -157,6 +175,24 @@ public sealed class D3D11RenderSession : IDisposable
         public IntPtr Membership, RawAreas;
     }
     [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeCommandMapInputV2
+    {
+        public uint Size, Version;
+        public ulong Revision, DataRevision, ProviderGeneration;
+        public D3D11CommandMapDisplayKind DisplayKind;
+        public uint HoverHex, FpsMode, Count;
+        public IntPtr Membership, RawAreas;
+    }
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    internal struct NativeRouteInputV1
+    {
+        public uint Size, Version;
+        public ulong Revision, ResourceGeneration;
+        [MarshalAs(UnmanagedType.LPWStr)] public string? ResourceDirectory;
+        public IntPtr Vertices, Spans, Endpoints;
+        public uint VertexCount, SpanCount, EndpointCount, UpdateKind;
+    }
+    [StructLayout(LayoutKind.Sequential)]
     private struct NativeReceipt
     {
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = 960)] public byte[] Camera;
@@ -173,6 +209,12 @@ public sealed class D3D11RenderSession : IDisposable
     private delegate int CommandMapNextCall(IntPtr owner, ulong output, in NativeInput input,
         in NativeCommandMapInputV1 command, uint outputUse, out NativeReceipt receipt);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int CandidateMapNextCall(IntPtr owner, ulong output, in NativeInput input,
+        in NativeCommandMapInputV2 command, uint outputUse, out NativeReceipt receipt);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
+    private delegate int MapOverlaysNextCall(IntPtr owner, ulong output, in NativeInput input,
+        IntPtr command, in NativeRouteInputV1 routes, uint outputUse, out NativeReceipt receipt);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate int AnimationCall(IntPtr owner,in NativeInput input,uint fpsMode);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void AnimationStateCall(IntPtr owner,out D3D11AnimationState state);
@@ -186,6 +228,8 @@ public sealed class D3D11RenderSession : IDisposable
     private readonly CreateCall _create;
     private readonly NextCall _next;
     private CommandMapNextCall? _commandMapNext;
+    private CandidateMapNextCall? _candidateMapNext;
+    private MapOverlaysNextCall? _mapOverlaysNext;
     private readonly AnimationCall _animation;
     private readonly AnimationStateCall _animationState;
     private readonly ArmyUnitPositionsCall _armyUnitPositions;
@@ -199,6 +243,12 @@ public sealed class D3D11RenderSession : IDisposable
     private D3D11CityGatePublication? _sentCityGate;
     private D3D11AreaCapitalPublication? _sentAreaCapital;
     private D3D11CommandMapData? _sentCommandMapData;
+    private D3D11CommandMapPublication? _sentCommandMap;
+    private uint _sentCommandMapFpsMode;
+    private D3D11RoutePublication? _sentRoutes;
+    private ulong _routeRequestRevision;
+    private ulong _sentRouteResourceGeneration;
+    private string? _sentRouteResourceDirectory;
 
     public D3D11RenderSession(string sourceDirectory, string nativeDLLPath, uint populationMask)
     {
@@ -228,6 +278,7 @@ public sealed class D3D11RenderSession : IDisposable
         // The command page is admitted only after the real map is ready.
         // Keep the established initial-create ABI and its first publication.
         if (input.CommandMap is not null) throw new InvalidOperationException("Command map display requires an initialized map.");
+        if (input.Routes is not null) throw new InvalidOperationException("Route display requires an initialized map.");
         var native = input.ToNative();
         var pin = PinWorld(input, ref native);
         NativeReceipt receipt;
@@ -258,33 +309,81 @@ public sealed class D3D11RenderSession : IDisposable
         NativeReceipt receipt; int result;
         try
         {
-            if (input.CommandMap is { } command)
+            if (input.Routes is { } routes)
             {
-                // A named versioned request extension preserves the1160-byte
-                // base ABI. Missing native capability must never look applied.
-                _commandMapNext ??= Export<CommandMapNextCall>("san14_render_next_command_map_v1");
-                var extension = new NativeCommandMapInputV1 {
-                    Size = (uint)Marshal.SizeOf<NativeCommandMapInputV1>(), Version = 1,
-                    Revision = command.Revision, DataRevision = command.DataRevision,
-                    ProviderGeneration = command.ProviderGeneration,
-                    Present = command.Present ? 1u : 0u, HoverHex = command.HoverHex,
-                    FpsMode = input.CommandMapFpsMode
-                };
+                _mapOverlaysNext ??= Export<MapOverlaysNextCall>("san14_render_next_map_overlays_v1");
+                var routeInput = PinRoutes(routes, ref pin);
+                IntPtr commandPointer = IntPtr.Zero;
+                if (input.CommandMap is { } routeCommand &&
+                    (!ReferenceEquals(routeCommand, _sentCommandMap) || input.CommandMapFpsMode != _sentCommandMapFpsMode))
+                {
+                    var commandInput = PinCommandMap(routeCommand, input.CommandMapFpsMode, ref pin);
+                    pin.RouteCommand = GCHandle.Alloc(new[] { commandInput }, GCHandleType.Pinned);
+                    commandPointer = pin.RouteCommand.AddrOfPinnedObject();
+                }
+                result = _mapOverlaysNext(_owner, output, in native, commandPointer, in routeInput, 1u, out receipt);
+            }
+            else if (input.CommandMap is { } command)
+            {
+                uint count = 0;
+                IntPtr membership = IntPtr.Zero, areas = IntPtr.Zero;
                 if (command.Data is { } data && !ReferenceEquals(data, _sentCommandMapData))
                 {
-                    pin.CommandMembership = GCHandle.Alloc(data.Membership, GCHandleType.Pinned);
-                    pin.CommandAreas = GCHandle.Alloc(data.RawAreas, GCHandleType.Pinned);
-                    extension.Count = D3D11CommandMapData.CellCount;
-                    extension.Membership = pin.CommandMembership.AddrOfPinnedObject();
-                    extension.RawAreas = pin.CommandAreas.AddrOfPinnedObject();
+                    count = D3D11CommandMapData.CellCount;
+                    if(data.HasMembership)
+                    {
+                        pin.CommandMembership = GCHandle.Alloc(data.Membership, GCHandleType.Pinned);
+                        membership = pin.CommandMembership.AddrOfPinnedObject();
+                    }
+                    if (data.HasFocusGroups)
+                    {
+                        pin.CommandAreas = GCHandle.Alloc(data.RawAreas, GCHandleType.Pinned);
+                        areas = pin.CommandAreas.AddrOfPinnedObject();
+                    }
                 }
-                result = _commandMapNext(_owner, output, in native, in extension, 1u, out receipt);
+                // Both extensions remain 64 bytes. Original administration
+                // uses V1 unchanged; candidate entry AND close use explicit V2.
+                if (command.UsesCandidateProtocol)
+                {
+                    _candidateMapNext ??= Export<CandidateMapNextCall>("san14_render_next_command_map_v2");
+                    var extension = new NativeCommandMapInputV2 {
+                        Size = (uint)Marshal.SizeOf<NativeCommandMapInputV2>(), Version = 2,
+                        Revision = command.Revision, DataRevision = command.DataRevision,
+                        ProviderGeneration = command.ProviderGeneration, DisplayKind = command.DisplayKind,
+                        HoverHex = command.HoverHex, FpsMode = input.CommandMapFpsMode,
+                        Count = count, Membership = membership, RawAreas = areas
+                    };
+                    result = _candidateMapNext(_owner, output, in native, in extension, 1u, out receipt);
+                }
+                else
+                {
+                    _commandMapNext ??= Export<CommandMapNextCall>("san14_render_next_command_map_v1");
+                    var extension = new NativeCommandMapInputV1 {
+                        Size = (uint)Marshal.SizeOf<NativeCommandMapInputV1>(), Version = 1,
+                        Revision = command.Revision, DataRevision = command.DataRevision,
+                        ProviderGeneration = command.ProviderGeneration, Present = command.Present ? 1u : 0u,
+                        HoverHex = command.HoverHex, FpsMode = input.CommandMapFpsMode,
+                        Count = count, Membership = membership, RawAreas = areas
+                    };
+                    result = _commandMapNext(_owner, output, in native, in extension, 1u, out receipt);
+                }
             }
             else result = _next(_owner, output, in native, 1u, out receipt);
         }
         finally { pin.Dispose(); }
         if (result != 0) throw NativeFailure();
-        if (input.CommandMap is { } acceptedCommand) _sentCommandMapData = acceptedCommand.Data;
+        if (input.CommandMap is { } acceptedCommand)
+        {
+            _sentCommandMapData = acceptedCommand.Data;
+            _sentCommandMap = acceptedCommand;
+            _sentCommandMapFpsMode = input.CommandMapFpsMode;
+        }
+        _sentRoutes = input.Routes ?? _sentRoutes;
+        if (input.Routes is { IsEmpty: false } acceptedRoutes)
+        {
+            _sentRouteResourceGeneration = acceptedRoutes.ResourceGeneration;
+            _sentRouteResourceDirectory = acceptedRoutes.ResourceDirectory;
+        }
         _sentTerritory = input.TerritoryOwnership ?? _sentTerritory;
         _sentMapColors = input.TerritoryOwnership?.SourceMapColors ?? _sentMapColors;
         _sentArmy = input.ArmyWorld ?? _sentArmy;
@@ -328,6 +427,7 @@ public sealed class D3D11RenderSession : IDisposable
     private struct WorldPins : IDisposable
     {
         internal GCHandle Colors, Palette, Army, Season, CityGate, AreaCapital, CommandMembership, CommandAreas;
+        internal GCHandle RouteVertices, RouteSpans, RouteEndpoints, RouteCommand;
         public void Dispose()
         {
             if (Colors.IsAllocated) Colors.Free();
@@ -338,7 +438,70 @@ public sealed class D3D11RenderSession : IDisposable
             if (AreaCapital.IsAllocated) AreaCapital.Free();
             if (CommandMembership.IsAllocated) CommandMembership.Free();
             if (CommandAreas.IsAllocated) CommandAreas.Free();
+            if (RouteVertices.IsAllocated) RouteVertices.Free();
+            if (RouteSpans.IsAllocated) RouteSpans.Free();
+            if (RouteEndpoints.IsAllocated) RouteEndpoints.Free();
+            if (RouteCommand.IsAllocated) RouteCommand.Free();
         }
+    }
+    private NativeCommandMapInputV2 PinCommandMap(D3D11CommandMapPublication command, uint fpsMode, ref WorldPins pin)
+    {
+        var extension = new NativeCommandMapInputV2 {
+            Size = (uint)Marshal.SizeOf<NativeCommandMapInputV2>(), Version = 2,
+            Revision = command.Revision, DataRevision = command.DataRevision,
+            ProviderGeneration = command.ProviderGeneration, DisplayKind = command.DisplayKind,
+            HoverHex = command.HoverHex, FpsMode = fpsMode
+        };
+        if (command.Data is { } data && !ReferenceEquals(data, _sentCommandMapData))
+        {
+            extension.Count = D3D11CommandMapData.CellCount;
+            if(data.HasMembership)
+            {
+                pin.CommandMembership = GCHandle.Alloc(data.Membership, GCHandleType.Pinned);
+                extension.Membership = pin.CommandMembership.AddrOfPinnedObject();
+            }
+            if (data.HasFocusGroups)
+            {
+                pin.CommandAreas = GCHandle.Alloc(data.RawAreas, GCHandleType.Pinned);
+                extension.RawAreas = pin.CommandAreas.AddrOfPinnedObject();
+            }
+        }
+        return extension;
+    }
+    private NativeRouteInputV1 PinRoutes(D3D11RoutePublication routes, ref WorldPins pin)
+    {
+        var extension = new NativeRouteInputV1 {
+            Size = (uint)Marshal.SizeOf<NativeRouteInputV1>(), Version = 1,
+            ResourceGeneration = routes.ResourceGeneration
+        };
+        if (ReferenceEquals(routes, _sentRoutes)) return extension;
+        // Geometry captures can be merged or prepared after a later page
+        // close. Number actual replacements on this serialized render owner.
+        extension.Revision = ++_routeRequestRevision;
+        extension.UpdateKind = routes.IsEmpty ? 2u : 1u;
+        if (routes.IsEmpty) return extension;
+        if (routes.ResourceGeneration != _sentRouteResourceGeneration ||
+            routes.ResourceDirectory != _sentRouteResourceDirectory)
+            extension.ResourceDirectory = routes.ResourceDirectory;
+        extension.VertexCount = checked((uint)routes.Vertices.Length);
+        extension.SpanCount = checked((uint)routes.Spans.Length);
+        extension.EndpointCount = checked((uint)routes.Endpoints.Length);
+        if (routes.Vertices.Length != 0)
+        {
+            pin.RouteVertices = GCHandle.Alloc(routes.Vertices, GCHandleType.Pinned);
+            extension.Vertices = pin.RouteVertices.AddrOfPinnedObject();
+        }
+        if (routes.Spans.Length != 0)
+        {
+            pin.RouteSpans = GCHandle.Alloc(routes.Spans, GCHandleType.Pinned);
+            extension.Spans = pin.RouteSpans.AddrOfPinnedObject();
+        }
+        if (routes.Endpoints.Length != 0)
+        {
+            pin.RouteEndpoints = GCHandle.Alloc(routes.Endpoints, GCHandleType.Pinned);
+            extension.Endpoints = pin.RouteEndpoints.AddrOfPinnedObject();
+        }
+        return extension;
     }
     private WorldPins PinWorld(D3D11MapInput input, ref NativeInput native)
     {

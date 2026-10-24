@@ -9,6 +9,7 @@ public sealed partial class SourceWorldContext : IHexOwnershipState, IAreaOwners
 
     public SceneryLayoutReference? CurrentSceneryLayout { get; set; }
     public Func<SceneryLayoutReference?>? SceneryLayoutReader { get; set; }
+    public Action<SceneryLayoutReference,int>? SceneryLayoutDirtyWriter { get; set; }
     public void SetHexSurfaceCode(int physicalSlot, byte? value)
     { Check(physicalSlot, 48400, "hex physical slot"); _hexSurfaceCodes[physicalSlot] = value; }
     public byte? ReadHexSurfaceCode(HexReference hex)
@@ -54,6 +55,7 @@ public sealed partial class SourceWorldContext : IHexOwnershipState, IAreaOwners
     {
         int identity = layout.Identity ?? throw new InvalidDataException("Current scenery layout pointer is null.");
         if (identity < 0) throw new InvalidDataException("Scenery layout identity must be nonnegative.");
+        SceneryLayoutDirtyWriter?.Invoke(layout,value);
         _sceneryLayoutDirty[identity] = value;
     }
     public int? ReadSceneryLayoutDirty(int identity) => _sceneryLayoutDirty.GetValueOrDefault(identity);

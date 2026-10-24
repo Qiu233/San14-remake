@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using San14.Data;
 
 /// <summary>Actual complete terrain render-thread submission. CPU counts,
@@ -18,9 +17,7 @@ public sealed class TerrainGeometrySubmittedFrame
             entry.Draw.IndexCount, entry.Draw.InstanceCount, entry.Draw.Program.Combination.Index,
             entry.Draw.Program.Source.Shader.Shader.Source.ResourceUri,
             entry.Draw.Program.Source.Shader.Shader.Source.DecodedSha256,
-            entry.Draw.Program.VertexTranslation.SourceProgramSha256, entry.Draw.Program.PixelTranslation.SourceProgramSha256,
-            Convert.ToHexString(SHA256.HashData(entry.Draw.VertexConstants.Bytes)),
-            Convert.ToHexString(SHA256.HashData(entry.Draw.PixelConstants.Bytes)))).ToArray());
+            entry.Draw.Program.VertexTranslation.SourceProgramSha256, entry.Draw.Program.PixelTranslation.SourceProgramSha256)).ToArray());
     }
     public NativeMapFrameContext Context { get; }
     public RenderTargetFrame Target => Context.TerrainFrame;
@@ -60,4 +57,4 @@ public sealed class TerrainGeometrySubmittedFrame
 public sealed record TerrainGeometrySubmittedBatch(bool Coarse,
     IReadOnlyList<TerrainPatchInput> Patches, int VertexCount, int IndexCount, int InstanceCount,
     int CombinationIndex, string ShaderUri, string ShaderSha256, string VertexProgramSha256,
-    string PixelProgramSha256, string VertexConstantsSha256, string PixelConstantsSha256);
+    string PixelProgramSha256);

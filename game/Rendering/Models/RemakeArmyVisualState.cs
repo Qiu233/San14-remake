@@ -60,9 +60,11 @@ public sealed class RemakeArmyInitialization
     public bool MotionTimingFidelityVerified => false;
 
     internal RemakeArmyInitialization(UnitState unit, int generation, Vector3 center,
-        float heading, int[] random, byte[] template, string randomSource, ArmyInstancePoseSnapshot snapshot)
+        float heading, int[] random, byte[] template, string randomSource, ArmyInstancePoseSnapshot snapshot,
+        int? currentFormationSlot = null)
     {
-        UnitId = unit.Id; HexId = unit.HexId; FormationSlot = unit.FormationId!.Value;
+        UnitId = unit.Id; HexId = unit.HexId; FormationSlot = currentFormationSlot ?? unit.FormationId
+            ?? throw new InvalidDataException("Army visual initialization requires its selected source formation.");
         ResetGeneration = generation; Center = center; Heading = heading;
         RandomResults = Array.AsReadOnly((int[])random.Clone()); RandomSource = randomSource;
         _records = snapshot.Records.SelectMany(record => record.RawBytes).ToArray();
@@ -167,8 +169,9 @@ public sealed class RemakeArmyVisualState
                 throw Error($"resolved category{category} requires its source WorldPQ constructor and explicit ActionID0 route");
             ValidateConstructor(category, transform);
         }
-        string sourceIdentity = sourceSelection.Creation.FormationSource.ResourceUri + "|" +
-            sourceSelection.Creation.FormationSource.Sha256 + "|" + sourceSelection.Creation.FormationDecodedSha256 + "|" +
+        var creation = sourceSelection.Creation ?? throw Error("ordinary selection has no creation receipt");
+        string sourceIdentity = creation.FormationSource.ResourceUri + "|" +
+            creation.FormationSource.Sha256 + "|" + creation.FormationDecodedSha256 + "|" +
             sourceSelection.Terrain.MapSource.ResourceUri + "|" + sourceSelection.Terrain.MapSource.Sha256;
         _units.TryGetValue(unit.Id, out CachedInitialization? prior);
         bool reset = prior is null || prior.Value.HexId != unit.HexId || prior.Value.FormationSlot != unit.FormationId ||

@@ -15,7 +15,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         var results = new Dictionary<int, OfficerPortraitRoute>();
         if (officerIds.Count == 0) return new ReadOnlyDictionary<int, OfficerPortraitRoute>(results);
         SourceWorldContext? current = null; string? captureFailure = null;
-        try { current = OwnedArmyReturnCurrentFields.CaptureCurrent(state, _definitions); }
+        try { current = CapturePersonPresentationCurrent(state); }
         catch (InvalidDataException error) { captureFailure = error.Message; }
         var naming = ArmyMapUiSources.Create();
         foreach (int officerId in officerIds.Distinct())

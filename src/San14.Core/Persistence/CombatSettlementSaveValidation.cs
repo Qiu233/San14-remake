@@ -11,7 +11,9 @@ internal static class CombatSettlementSaveValidation
         {
             switch (request)
             {
-                case UnitDefeatRequest unit when unit.VictimUnitId > 0 && unit.WinnerUnitId is null or > 0:
+                case UnitDefeatRequest unit when unit.VictimUnitId > 0 && unit.WinnerUnitId is null or > 0 &&
+                    Enum.IsDefined(unit.Cause) && (unit.Cause == UnitDefeatCause.OrdinaryBattle ||
+                        unit.WinnerUnitId is > 0 && unit.WinnerBase is null):
                     if (unit.WinnerBase is { } target) ValidateBase(target);
                     break;
                 case BaseCaptureRequest capture when capture.WinnerUnitId is null or > 0:

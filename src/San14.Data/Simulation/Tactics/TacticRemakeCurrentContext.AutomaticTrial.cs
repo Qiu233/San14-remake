@@ -20,8 +20,20 @@ public sealed partial class TacticRemakeCurrentContext
     {
         ArgumentNullException.ThrowIfNull(region);
         if (candidateOrdinal < 5) throw new ArgumentOutOfRangeException(nameof(candidateOrdinal));
-        if (!Bound(state) || ArmyValid(state, caster) != true || ArmyValid(state, target) != true ||
-            tacticSlot is < 0 or > 200 ||
+        if (!Bound(state) || ArmyValid(state, caster) != true || ArmyValid(state, target) != true)
+            return null;
+        return ResolveAutomaticArmyTrialAtTargetHex(state, caster, target.HexId, tacticSlot,
+            candidateOrdinal, region);
+    }
+
+    //Both real receiver overloads enter this same source-Army rate producer.
+    //Target Hex is the live target receiver's physical Hex, not a captured
+    //descriptor center or an artificial Army.
+    private TacticAutomaticActivationCurrentTrial? ResolveAutomaticArmyTrialAtTargetHex(GameState state,
+        UnitState caster, int targetHexPhysicalSlot, int tacticSlot, int candidateOrdinal,
+        BattleRemakeCurrentRegionFactor region)
+    {
+        if (tacticSlot is < 0 or > 200 ||
             !state.NativeArmySimulation!.Parameters.Int32Values.TryGetValue(
                 TacticRemakeCurrentBattleControl.VersionKey, out int version) || version != 1 ||
             !state.NativeArmySimulation.Parameters.Int32Values.TryGetValue(
@@ -51,7 +63,7 @@ public sealed partial class TacticRemakeCurrentContext
         if (Parameter(state, baselineKey) is not int baseline || region.ResolveCurrentHexReceipt(state, caster) is not { } multiplier)
             return null;
         var input = new TacticAutomaticActivationRateInput(formationRate.Value, baseline,
-            terrainRate.Value, multiplier.Factor, caster.HexId, target.HexId, candidateOrdinal);
+            terrainRate.Value, multiplier.Factor, caster.HexId, targetHexPhysicalSlot, candidateOrdinal);
         float percent = TacticAutomaticActivationSourceMath.CalculateRate(input);
         TacticSourceSamplerWorld? world = TacticAutomaticActivationSourceMath.RequiresSample(percent)
             ? ReadCurrentSamplerWorld(state) : null;

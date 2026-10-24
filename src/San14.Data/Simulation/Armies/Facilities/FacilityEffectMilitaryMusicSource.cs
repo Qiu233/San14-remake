@@ -6,12 +6,14 @@ namespace San14.Data;
 internal static class FacilityEffectMilitaryMusicSource
 {
     internal static GameState Apply(GameState state, SourceWorldContext current,
-        NativeArmyProgressStageMoment moment)
+        NativeArmyProgressStageMoment moment,
+        Func<GameState, List<CampaignEffectRequest>, TrapEffectApplication> createDamageOperation)
     {
         var effects = state.CampaignEffectRequests ?? throw Missing("effect_owner");
         var requests = new List<CampaignEffectRequest> { new(null, null) { FacilityAuraReset = new() } };
         var candidates = current.CreateNearbyTemporary();
         var working = state;
+        TrapEffectApplication? damageOperation = null;
         try
         {
             Fill(state, current, candidates);
@@ -21,11 +23,14 @@ internal static class FacilityEffectMilitaryMusicSource
                 var entry = current.ReadRegistryNodePayload(node) ?? throw Missing("candidate_payload");
                 var facility = new ObjectReference(entry.PhysicalSlot);
                 if (K(current.ReadObjectNativeValidity(facility), "consumer_Object_validity"))
-                    working = ApplyFacility(working, current, facility, requests);
+                    working = ApplyFacility(working, current, facility, requests,
+                        createDamageOperation, ref damageOperation);
                 node = current.ReadRegistryNodeNext(node) ?? throw Missing("candidate_next");
             }
+            if (damageOperation is not null) working = damageOperation.CompleteOrdinaryFacilityEffects(working);
         }
         finally { current.ClearNearbyTemporary(candidates, true); }
+        if (damageOperation is not null) working = damageOperation.FinishOrdinaryFacilities(working);
         // Publish only after every candidate and every destructor succeeds.
         var pool = current.ReadOwnedCurrentListPool() ?? throw Missing("publication_pool");
         working = working.WithArmyLifecycle(working.ReadArmyLifecycle()! with { Indexes = pool.ExportOwnedState() });
@@ -34,7 +39,9 @@ internal static class FacilityEffectMilitaryMusicSource
     }
 
     private static GameState ApplyFacility(GameState state, SourceWorldContext current,
-        ObjectReference facility, List<CampaignEffectRequest> requests)
+        ObjectReference facility, List<CampaignEffectRequest> requests,
+        Func<GameState, List<CampaignEffectRequest>, TrapEffectApplication> createDamageOperation,
+        ref TrapEffectApplication? damageOperation)
     {
         var channels = new List<HexListHandle>(2);
         try
@@ -44,10 +51,19 @@ internal static class FacilityEffectMilitaryMusicSource
             int kind = record.RawField12 <= 30 ? record.RawField12 : 0;
             var reference = current.ReadObjectDefinitionReference(kind) ?? throw Missing("consumer_definition_pointer");
             if (!K(current.ReadObjectDefinitionValidity(reference), "consumer_definition_validity")) return state;
-            if (kind != 7) throw Missing("enabled_kind_" + kind);
             var definition = current.ReadFacilityEffectDefinition(reference) ?? throw Missing("definition_effect_fields");
             FacilityEffectTargets.Fill(state, current, facility, definition, kind, channels.ToArray());
             if (channels.All(x => K(current.ReadTemporaryHexListCount(x), "channel_count") == 0)) return state;
+            //190F40 fills both real channels before testing them. Empty lists
+            //return before1902C0 or any numerical handler, for every kind.
+            //A nonempty unsupported facility still needs its real writer.
+            if (kind == 5)
+            {
+                damageOperation ??= createDamageOperation(state, requests);
+                damageOperation.ApplyOrdinaryFacility(state, facility, kind, channels.ToArray());
+                return damageOperation.State;
+            }
+            if (kind != 7) throw Missing("enabled_kind_" + kind);
             // kind7 has no1902C0 persistent aura branch. Its15 handler never
             // adds a Force victim or damage aggregate. Keep real empty lists
             // for the normal Force-list constructor/sort/destructor lifecycle.

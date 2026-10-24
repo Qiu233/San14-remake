@@ -10,10 +10,19 @@ public enum TacticPresentationKind { OrdinaryEffects, UniqueDirection }
 public sealed record TacticEffectPresentation(int Instruction, ArmyReceiverId Target,
     PlayableTacticEffectKind Kind, int Amount, TacticArmyHealingResult? Healing,
     NativeTacticAbnormalAssignment? Abnormal, int? MoraleAfter);
+/// <summary>Result identities refer to allocated receivers, or a canonical City/Gate location.</summary>
+public enum TacticResultTargetKind { ArmyReceiver, BaseLocation, MapObjectReceiver }
+/// <summary>A captured effect marker. Amount retains the source low word, rather than
+/// a report delta or a reconstructed applied loss. HexId is the captured target Hex.</summary>
+public sealed record TacticResultPresentation(TacticResultTargetKind TargetKind,
+    int TargetId, int HexId, ushort Amount);
 public sealed record TacticActorPresentation(ArmyReceiverId Actor, int TacticId,
     ManualTacticTarget? Target, int[][] InstructionArmyReceivers)
 {
     [JsonRequired] public TacticEffectPresentation[] Effects { get; init; } = [];
+    /// <summary>When present, rows 0 and 1 retain all actual results in instruction order,
+    /// including repeated targets. Null retains the legacy Army-only representation.</summary>
+    public TacticResultPresentation[][]? InstructionResults { get; init; }
 }
 public sealed record TacticPresentationRequest(long Sequence, TacticPresentationKind Kind,
     TacticActorPresentation[] Actors);
@@ -29,7 +38,14 @@ public sealed record ManualTacticInterventionState(ManualTacticRequest? Pending,
     public ManualTacticInterventionState Copy() => this with
     { Effects = Effects.Select(CopyRequest).ToArray(), Directions = Directions.Select(CopyRequest).ToArray() };
     public static TacticPresentationRequest CopyRequest(TacticPresentationRequest value) => value with
-    { Actors = value.Actors.Select(a => a with { InstructionArmyReceivers = a.InstructionArmyReceivers.Select(x => x.ToArray()).ToArray(), Effects = a.Effects.ToArray() }).ToArray() };
+    {
+        Actors = value.Actors.Select(a => a with
+        {
+            InstructionArmyReceivers = a.InstructionArmyReceivers.Select(x => x.ToArray()).ToArray(),
+            Effects = a.Effects.ToArray(),
+            InstructionResults = a.InstructionResults?.Select(row => row.ToArray()).ToArray()
+        }).ToArray()
+    };
     public ManualTacticInterventionState Enqueue(TacticPresentationKind kind, TacticActorPresentation[] actors)
     {
         long sequence = checked(LastPresentationSequence + 1);
@@ -76,6 +92,19 @@ public sealed record ManualTacticInterventionState(ManualTacticRequest? Pending,
                         actor.Effects is null || actor.Effects.Any(e => e is null || e.Instruction is < 0 or > 1 || e.Target.Value < 1 || !Enum.IsDefined(e.Kind)))
                         throw new InvalidDataException("Commanded tactic presentation actor is incomplete.");
                     ValidateTarget(actor.Target);
+                    if (actor.InstructionResults is { } results)
+                    {
+                        if (results.Length != 2 || results.Any(row => row is null || row.Any(result =>
+                            result is null || !Enum.IsDefined(result.TargetKind) || result.TargetId < 1 ||
+                            result.HexId is < 0 or >= 48400 ||
+                            result.TargetKind == TacticResultTargetKind.BaseLocation && result.TargetId > 61)))
+                            throw new InvalidDataException("Tactic presentation result markers are invalid.");
+                        for (int instruction = 0; instruction < 2; instruction++)
+                            if (!actor.InstructionArmyReceivers[instruction].SequenceEqual(results[instruction]
+                                .Where(result => result.TargetKind == TacticResultTargetKind.ArmyReceiver)
+                                .Select(result => result.TargetId)))
+                                throw new InvalidDataException("Tactic Army receiver projection does not match its result markers.");
+                    }
                     foreach (var effect in actor.Effects)
                     {
                         if (!actor.InstructionArmyReceivers[effect.Instruction].Contains(effect.Target.Value) ||
@@ -97,8 +126,27 @@ public sealed record ManualTacticInterventionState(ManualTacticRequest? Pending,
         if (value.Pending is { } pending && roster.Find(pending.Actor) is null)
             throw new InvalidDataException("Manual tactic actor is outside the saved campaign roster.");
         foreach (var actor in value.Effects.Concat(value.Directions).SelectMany(x => x.Actors))
+        {
             if (roster.Find(actor.Actor) is null || actor.InstructionArmyReceivers.SelectMany(x => x).Any(id => roster.Find(new(id)) is null))
                 throw new InvalidDataException("Tactic presentation names a foreign campaign receiver.");
+            if (actor.InstructionResults is not { } results) continue;
+            foreach (var result in results.SelectMany(row => row))
+            {
+                // Army identities were checked through the exact ordered projection above.
+                // Retired receivers remain allocated; neither current occupancy nor pose
+                // is required to match a previously captured presentation marker.
+                bool allocated = result.TargetKind switch
+                {
+                    TacticResultTargetKind.ArmyReceiver => true,
+                    TacticResultTargetKind.BaseLocation => result.TargetId <= 51
+                        ? state.Cities.ContainsKey(result.TargetId) : state.Gates.ContainsKey(result.TargetId),
+                    TacticResultTargetKind.MapObjectReceiver => state.MapObjects?.Find(new(result.TargetId)) is not null,
+                    _ => false
+                };
+                if (!allocated)
+                    throw new InvalidDataException("Tactic presentation result names a foreign campaign target.");
+            }
+        }
     }
     private static void ValidateTarget(ManualTacticTarget? target)
     {

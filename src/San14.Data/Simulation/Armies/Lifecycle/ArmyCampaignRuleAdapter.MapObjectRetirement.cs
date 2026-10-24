@@ -14,6 +14,14 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (moment.SchedulerStageIndex != (byte)NativeArmyProgressStage.MapObjectRetirement ||
             moment.Boundary != NativeArmyProgressStageBoundary.StageEntry)
             throw new InvalidDataException("Object retirement requires reached stage27.");
+        return CompletePendingMapObjectRetirements(state, moment.CalendarCycleOrdinal);
+    }
+
+    // The coarse period driver has already completed movement and the stage26
+    // Base refresh. Reuse the real pending queue consumer without inventing a
+    // native sub-update moment or acknowledging its view-detachment requests.
+    internal MapObjectRetirementResult CompletePendingMapObjectRetirements(GameState state, long revision)
+    {
         try
         {
             var arena = state.ReadArmyLifecycle() ?? throw DemolitionMissing("retirement_lifecycle");
@@ -36,7 +44,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 { Indexes = working.ReadArmyLifecycle()!.Indexes with { PendingObjectRetirements = [] } });
             if (requests.Count != 0) working = working with
                 { CampaignEffectRequests = (working.CampaignEffectRequests ?? throw DemolitionMissing("retirement_effect_owner"))
-                    .Append(CampaignEffectSource.MapObjectRetirement, moment.CalendarCycleOrdinal, requests) };
+                    .Append(CampaignEffectSource.MapObjectRetirement, revision, requests) };
             return new(working, retired.AsReadOnly(), null);
         }
         catch (InvalidDataException error) { return new(null, [], error.Message); }

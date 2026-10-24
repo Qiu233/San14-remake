@@ -1,5 +1,7 @@
 using Godot;
 using San14.Data;
+using San14.Data.Formats;
+using San14.Client.Presentation;
 
 /// <summary>
 /// Read-only report presentation. Acknowledgement is delegated to the campaign;
@@ -9,16 +11,26 @@ using San14.Data;
 public partial class PlayablePeriodReportView : Control
 {
     private Control _canvas = null!;
-    private Label _title = null!;
+    private UiSourceHeader _title = null!;
     private Label _status = null!;
-    private Label _returnText = null!;
     private RichTextLabel _body = null!;
-    private TextureButton _acknowledge = null!;
+    private Label _entryTitle = null!;
+    private PeriodReportEntriesView? _entries;
+    private PeriodReportPresentation? _presentation;
+    private GameResourceRepository _repository = null!;
+    private PreviewText _text = null!;
+    private int _scrollSpeed;
+    private Func<int> _currentScrollSpeed = null!;
+    private UiSourceReportFooter _footer = null!;
+    private UiAssets? _assets;
+    private MapFont? _font;
+    private Shader? _shader;
     private Action? _finish;
     private bool _acknowledging;
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
-        string status, string body, int period, Action finish)
+        string status, PeriodReportPresentation report, int period, Action finish, UiSourceHeaderStack headers,
+        int scrollSpeed, Func<int> currentScrollSpeed)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(finish);
@@ -26,6 +38,7 @@ public partial class PlayablePeriodReportView : Control
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Stop;
         _finish = finish;
+        _repository = repository; _text = text; _scrollSpeed = scrollSpeed; _currentScrollSpeed = currentScrollSpeed;
         AddChild(new ColorRect
         {
             Name = "ReportBackdrop", Color = new Color(0.03f, 0.025f, 0.02f, 0.88f),
@@ -40,61 +53,74 @@ public partial class PlayablePeriodReportView : Control
             }
         };
         AddChild(_canvas);
-        var assets = new UiAssets(repository);
-        AddPicture(assets.Sprite("000_cmn_base_title").Texture, new Rect2(0, 0, 540, 88));
-        _title = AddLabel("ReportTitle", new Rect2(115, 23, 380, 48), 32, new Color("#eee3a6"));
-        _status = AddLabel("ReportPeriod", new Rect2(200, 120, 1520, 48), 26, new Color("#efdfb4"));
-        var panel = new Panel
-        {
-            Name = "ReportPanel", Position = new Vector2(190, 188), Size = new Vector2(1540, 704),
-            MouseFilter = MouseFilterEnum.Stop
-        };
-        panel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
-        {
-            BgColor = new Color("#3c3025"), BorderColor = new Color("#98814d"),
-            BorderWidthLeft = 2, BorderWidthTop = 2, BorderWidthRight = 2, BorderWidthBottom = 2
-        });
-        _canvas.AddChild(panel);
+        _assets = new UiAssets(repository);
+        _font = new MapFont(repository, text.SourceLocale);
+        _shader = UiSourceSprite.CreateShader();
+        _title = new UiSourceHeader { Name = "ReportTitle" };
+        _canvas.AddChild(_title);
+        _title.Configure(repository, _assets, _shader, _font, text.Get("play_report_heading"));
+        _title.Publish(headers);
+        _status = AddLabel("ReportPeriod", new Rect2(80, 120, 700, 48), 24, new Color("#efdfb4"));
+        var source = new UiSourceLayout(repository, 0xDBB537B1);
+        source.Blur(_canvas, 3, source.Rectangle(3));
+        source.Art(_canvas, 4, source.Rectangle(4), _assets, _shader);
+        var allBox = source.Rectangle(17);
+        var all = new UiSourceTabButton { Name = "PeriodReportAll", Position = allBox.Position, Size = allBox.Size, Selected = true };
+        _canvas.AddChild(all);
+        all.Configure(repository, _assets, _shader, _font,
+            repository.LoadMessages(text.SourceLocale, MessageKind.Data).Messages.Sections[1].Records[0x5B5].Text
+                ?? throw new InvalidDataException("Missing all-report caption."), 0xD45873AA);
+        _entryTitle = AddLabel("SelectedReportTitle", new Rect2(95, 205, 640, 50), 26, new Color("#efdfb4"));
         _body = new RichTextLabel
         {
-            Name = "ReportEntries", Position = new Vector2(26, 22), Size = new Vector2(1488, 660),
+            Name = "SelectedReportDetail", Position = new Vector2(95, 270), Size = new Vector2(640, 575),
             BbcodeEnabled = false, ScrollActive = true, FitContent = false,
             MouseFilter = MouseFilterEnum.Stop, SelectionEnabled = true
         };
         _body.AddThemeFontSizeOverride("normal_font_size", 26);
         _body.AddThemeColorOverride("default_color", new Color("#efdfb4"));
         _body.AddThemeConstantOverride("line_separation", 9);
-        panel.AddChild(_body);
-        _acknowledge = new TextureButton
-        {
-            Name = "AcknowledgePeriodReport", Position = new Vector2(896, 944), Size = new Vector2(128, 128),
-            TextureNormal = assets.Sprite("000_cmn_btn_decision_0").Texture,
-            TextureHover = assets.Sprite("000_cmn_btn_decision_1").Texture,
-            TexturePressed = assets.Sprite("000_cmn_btn_decision_2").Texture,
-            IgnoreTextureSize = true, StretchMode = TextureButton.StretchModeEnum.Scale
-        };
-        _canvas.AddChild(_acknowledge);
-        _acknowledge.Pressed += RequestAcknowledge;
-        _returnText = AddLabel("ReportReturnText", new Rect2(916, 985, 88, 44), 30, new Color("#35261b"));
-        _returnText.HorizontalAlignment = HorizontalAlignment.Center;
-        Refresh(text, status, body, period);
+        _canvas.AddChild(_body);
+        _footer = new UiSourceReportFooter { Name = "PeriodReportFooter" };
+        _canvas.AddChild(_footer);
+        _footer.Configure(repository, _assets, _shader, text.SourceLocale, false,
+            RequestAcknowledge, () => !_acknowledging && _finish is not null && IsVisibleInTree() && !IsQueuedForDeletion());
+        Refresh(text, status, report, period);
         Resized += FitCanvas;
         FitCanvas();
-        _acknowledge.GrabFocus();
     }
 
-    internal void Refresh(PreviewText text, string status, string body, int period)
+    internal void Refresh(PreviewText text, string status, PeriodReportPresentation report, int period)
     {
-        _title.Text = text.Get("play_report_heading");
+        _text = text;
+        _title.ApplyCaption(text.Get("play_report_heading"));
         _status.Text = status;
-        // Preserve scroll and selected text across unchanged world/UI refreshes.
-        if (_body.Text != body) _body.Text = body;
-        _returnText.Text = text.Get("detail_return");
-        _acknowledge.TooltipText = text.Get("play_finish_report");
+        // A refresh of the same committed report keeps selection and scrolling.
+        if (!ReferenceEquals(_presentation, report))
+        {
+            _presentation = report;
+            if (_entries is { } previous)
+            { previous.Abandon(); _canvas.RemoveChild(previous); previous.QueueFree(); }
+            var source = new UiSourceLayout(_repository, 0xDBB537B1);
+            var box = source.Rectangle(42); var scroll = source.Rectangle(76); scroll.Position -= box.Position;
+            _entries = new PeriodReportEntriesView { Name = "PeriodReportEntries", Position = box.Position, Size = box.Size };
+            _canvas.AddChild(_entries);
+            _entries.Configure(_repository, _assets!, _shader!, _font!, report.Entries, scroll, _scrollSpeed, _currentScrollSpeed, SelectEntry);
+            if (report.Entries.Count == 0)
+            { _entryTitle.Text = ""; _body.Text = text.Get("play_report_empty"); }
+        }
         SetMeta("report_period", period);
         SetMeta("report_locale", text.SourceLocale);
-        SetMeta("report_body", body);
+        SetMeta("report_body", report.Body);
+        SetMeta("report_entry_count", report.Entries.Count);
         SetMeta("report_read_only", true);
+    }
+
+    private void SelectEntry(int index)
+    {
+        _entryTitle.Text = _text.Format("play_report_entry_title", index + 1, _presentation!.Entries.Count);
+        _body.Text = _presentation.Entries[index];
+        SetMeta("report_selected_entry", index);
     }
 
     internal void RequestAcknowledge()
@@ -112,13 +138,6 @@ public partial class PlayablePeriodReportView : Control
         _canvas.Position = (Size - new Vector2(1920, 1080) * factor) / 2;
     }
 
-    private void AddPicture(Texture2D texture, Rect2 rectangle) => _canvas.AddChild(new TextureRect
-    {
-        Texture = texture, Position = rectangle.Position, Size = rectangle.Size,
-        ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
-        StretchMode = TextureRect.StretchModeEnum.Scale, MouseFilter = MouseFilterEnum.Ignore
-    });
-
     private Label AddLabel(string name, Rect2 rectangle, int size, Color color)
     {
         var label = new Label
@@ -132,5 +151,26 @@ public partial class PlayablePeriodReportView : Control
         return label;
     }
 
-    public override void _ExitTree() => _finish = null;
+    internal void Retire()
+    {
+        _finish = null;
+        _entries?.Abandon();
+        Release(_footer);
+        Release(_title);
+        Hide();
+    }
+
+    private static void Release(Control? control)
+    {
+        if (control is null || !GodotObject.IsInstanceValid(control)) return;
+        if (control.GetParent() is Node parent) parent.RemoveChild(control);
+        control.QueueFree();
+    }
+
+    public override void _ExitTree()
+    {
+        _finish = null;
+        _entries?.Abandon();
+        _font?.Dispose(); _assets?.Dispose(); _shader?.Dispose();
+    }
 }

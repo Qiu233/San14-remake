@@ -8,12 +8,29 @@ internal static class ForceRelationChangeCurrent
 {
     internal static GameState Apply(GameState state, SourceWorldContext current,
         int first, int second, Func<int> adjustment, Func<string, int> parameter)
+        => ApplyCore(state, current, first, second, adjustment, parameter, null);
+
+    //271C20 calls2704F0 with param4=0. Share258B60 and category evaluation;
+    //the existing Fire entry still uses its original presentation policy.
+    internal static GameState ApplyWithoutPresentation(GameState state, SourceWorldContext current,
+        int first, int second, int adjustment, Func<string, int> parameter)
+        => ApplyCore(state, current, first, second, () => adjustment, parameter, false);
+
+    private static GameState ApplyCore(GameState state, SourceWorldContext current,
+        int first, int second, Func<int> adjustment, Func<string, int> parameter, bool? requestedShow)
     {
         var own = current.ReadForceTableReference(first <= 51 ? first : 0) ?? throw Missing("fire_relation_attacker");
-        if (!Known(current.ReadForceNativeValidity(own), "fire_relation_attacker_validity") || first == second) return state;
+        if (!Known(current.ReadForceNativeValidity(own), "fire_relation_attacker_validity")) return state;
+        if (requestedShow.HasValue)
+        {
+            var other = current.ReadForceTableReference(second <= 51 ? second : 0) ?? throw Missing("join_relation_original_Force");
+            if (!Known(current.ReadForceNativeValidity(other), "join_relation_original_Force_validity")) return state;
+        }
+        if (first == second) return state;
         if (first is < 1 or > 45 || second is < 1 or > 45) throw Missing("fire_relation_special_force_tail");
         var mode = current.ArmyReturnTransferMode ?? throw Missing("fire_relation_mode");
-        bool show = !mode.Present || Known(mode.Value, "fire_relation_mode_value") == 0;
+        bool modeAllowsPresentation = !mode.Present || Known(mode.Value, "fire_relation_mode_value") == 0;
+        bool show = (requestedShow ?? true) && modeAllowsPresentation;
         var simulation = state.NativeArmySimulation ?? throw Missing("fire_relation_state");
         var forces = new Dictionary<int, NativeArmyForceState>(simulation.Forces);
         byte[] FirstValues() => forces.GetValueOrDefault(first)?.NormalAftermath?.Relations13 is { Length: 52 } values
@@ -32,6 +49,9 @@ internal static class ForceRelationChangeCurrent
             var values = fields.Relations13 is { Length: 52 } relation ? relation.ToArray() : throw Missing("fire_relation_values");
             values[other] = (byte)Math.Clamp(unchecked(values[other] + adjustment()), 0, 200);
             forces[self] = force with { NormalAftermath = fields with { Relations13 = values } };
+            //The same borrowed current may serve the next callback before a
+            //new world capture. Keep its existing relation owner current too.
+            current.SetRulerReleaseRelation13(self, other, values[other]);
         }
         int after = Level(FirstValues()[second]);
         var result = state with { NativeArmySimulation = simulation with { Forces = forces } };

@@ -17,6 +17,37 @@ public sealed class ArmyReturnCaptivesSource(ArmyCampaignRuleAdapter package,
 {
     private GameState _working = input;
 
+    internal GameState CurrentState => _working;
+
+    internal ArmyReturnDistrictOperationQueries BorrowDistrictOperationCurrent(SourceWorldContext current,
+        IArmyReturnGovernorCurrentQueries queries, NativeMapSeasonDate? date, long revision,
+        Func<GameState, int> readDay450)
+    {
+        //The transaction draft retains the live associated list, while its
+        //task metadata comes from this operation's actual saved task owner.
+        PersonReturnCommands.BindCurrent(_working, current);
+        return new(queries, () => _working, reached => _working = reached,
+            (person, assignment) => ApplyAssignmentReports(current, person, assignment, revision, readDay450),
+            current, [], package, date);
+    }
+
+    /// <summary>Real29C430/2783B0 report point, before its caller changes the
+    /// Person's district or locations. Retain history, App draws and notification
+    /// order in the same return operation owner used by subsequent merit.</summary>
+    internal void ApplyAssignmentReports(SourceWorldContext current, int personPhysical,
+        PersonAssignmentPrecallResult assignment, long revision, Func<GameState, int> readDay450)
+    {
+        if (assignment.NativeReturn is null) throw Missing(assignment.UnresolvedOwner ?? "return_assignment");
+        if (assignment.Reports.Count == 0) return;
+        var effects = new List<CampaignEffectRequest>();
+        _working = package.ApplyPersonAssociationRemovalReports(_working, current, personPhysical, assignment,
+            () => readDay450(_working), effects);
+        if (effects.Count != 0)
+            _working = _working with { CampaignEffectRequests = (_working.CampaignEffectRequests
+                ?? throw Missing("return_assignment_effect_owner"))
+                .Append(CampaignEffectSource.ForceAssociationRemoval, revision, effects) };
+    }
+
     internal string? ApplyTransportPersonReturn(SourceWorldContext current, int commanderPhysical)
     {
         var returned = TransportPersonReturnSource.TryApplyCurrent(_working, current, commanderPhysical);
@@ -117,7 +148,8 @@ public sealed class ArmyReturnCaptivesSource(ArmyCampaignRuleAdapter package,
             foreach (int person in people)
                 if (K(current.ReadPersonNativeValidity(person), "2F8F00 final Person validity"))
                     current.WriteArmyReturnPersonFlags196(person, OfficerBehaviorSourceAdapter.FinishCaptiveProcessing(K(current.ReadArmyReturnPersonFlags196(person), "2F8F00 final15E")));
-            return new(working, new(people, 1, merit, requirement, shortage), null);
+            _working = working;
+            return new(_working, new(people, 1, merit, requirement, shortage), null);
         }
         catch (InvalidDataException error) { return new(null, null, error.Message); }
     }

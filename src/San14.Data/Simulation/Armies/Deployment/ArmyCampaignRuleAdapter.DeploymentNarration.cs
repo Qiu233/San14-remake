@@ -9,7 +9,7 @@ public sealed record DeploymentNarrationQuery(int? SpeakerOfficerId, string? Spe
 {
     public DeploymentNarrationPortraitRoute? PortraitRoute { get; init; }
     public bool Available => UnresolvedInput is null;
-    public int RequestedVoiceId => 37;
+    public int RequestedVoiceId { get; init; } = 37;
     public bool VoiceAvailabilityKnown => false;
 }
 
@@ -95,7 +95,8 @@ public sealed partial class ArmyCampaignRuleAdapter
     private static InvalidDataException NarrationMissing(string field) => new("deployment.narration."+field);
 
     internal static DeploymentNarrationPortraitRoute ReadNarrationPortrait(GameState state,
-        SourceWorldContext current, ArmyOperationContext definitions, int id, ushort appearance)
+        SourceWorldContext current, ArmyOperationContext definitions, int id, ushort appearance,
+        bool requireCurrentAppearance = true)
     {
         //The animation dispatch occurs before the common stock eligibility
         //and naming path. These are appearance identities, not officer IDs.
@@ -106,8 +107,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         int physical = current.ReadPersonLookupReference(id)?.PhysicalSlot ?? throw NarrationMissing("current_person_identity");
         if (definitions.ResolveOfficerSource(id) != physical || current.ReadPersonIdentity(physical) != id ||
             current.ReadPersonNativeValidity(physical) != true) throw NarrationMissing("current_person_validity");
-        if (!state.Officers.TryGetValue(id, out var owner) || owner.PortraitAppearanceIndex != appearance ||
-            current.ReadPersonPortraitAppearance(physical) != appearance) throw NarrationMissing("current_appearance_binding");
+        if (requireCurrentAppearance &&
+            (!state.Officers.TryGetValue(id, out var owner) || owner.PortraitAppearanceIndex != appearance ||
+             current.ReadPersonPortraitAppearance(physical) != appearance)) throw NarrationMissing("current_appearance_binding");
         var eligibility = ReadOfficerPortraitAppearance(state, current, definitions, id, appearance, ArmyMapUiSources.Create());
         if (eligibility.Kind != OfficerPortraitRouteKind.StockNamed || eligibility.ResolvedAppearanceIndex is not int resolved)
             throw new InvalidDataException(eligibility.UnresolvedInput ?? "deployment.narration.portrait_route");

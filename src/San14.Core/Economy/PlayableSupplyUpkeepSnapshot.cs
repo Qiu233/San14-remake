@@ -7,6 +7,7 @@ public sealed record PlayableCitySupplyUpkeepBasis(int CityId, int? ForceId, int
 {
     public int? GarrisonFoodCityId { get; init; } = CityId;
     public long GarrisonFoodTroops { get; init; } = Troops;
+    public int? GarrisonExpense { get; init; }
 }
 public sealed record PlayableUnitSupplyUpkeepBasis(int UnitId, int ForceId, int OfficerId,
     int? SourceLocationId, int Troops)
@@ -14,23 +15,42 @@ public sealed record PlayableUnitSupplyUpkeepBasis(int UnitId, int ForceId, int 
     public int? FoodCityId { get; init; } = SourceLocationId;
     public int BillingForceId { get; init; } = ForceId;
 }
-public sealed record PlayableGateSupplyUpkeepBasis(int LocationId, int? FoodCityId, long FoodTroops);
+public sealed record PlayableGateSupplyUpkeepBasis(int LocationId, int? FoodCityId, long FoodTroops)
+{
+    public int? GarrisonExpense { get; init; }
+}
 
 public sealed class PlayableSupplyUpkeepSnapshot
 {
     public IReadOnlyList<PlayableCitySupplyUpkeepBasis> Cities { get; }
-    public IReadOnlyList<PlayableUnitSupplyUpkeepBasis> Units { get; }
+    public IReadOnlyList<PlayableUnitSupplyUpkeepBasis> Units { get; private set; }
     public IReadOnlyList<PlayableGateSupplyUpkeepBasis> Gates { get; }
     public IReadOnlyList<PeriodReportEntry> MappingReports { get; }
+    public bool UsesCurrentGarrisonExpenses { get; }
+    public IReadOnlyDictionary<int, PlayableArmyFoodExpense>? ArmyExpenses { get; private set; }
+    public IReadOnlyList<PlayableArmyFoodExpenseEntry>? ArmyExpenseOrder { get; private set; }
+
+    internal void AttachArmyExpenses(GameState state, IReadOnlyDictionary<int, PlayableArmyFoodExpense>? expenses,
+        IReadOnlyList<PlayableArmyFoodExpenseEntry>? order = null)
+    {
+        ArmyExpenses = expenses;
+        ArmyExpenseOrder = order;
+        if (expenses is null) return;
+        Units = Array.AsReadOnly(Units.Select(unit => expenses.TryGetValue(unit.UnitId, out var quote)
+            ? unit with { FoodCityId = quote.FoodCityId,
+                BillingForceId = quote.FoodCityId is int payer && state.Cities.TryGetValue(payer, out var city)
+                    ? city.ForceId ?? unit.ForceId : unit.ForceId } : unit).ToArray());
+    }
 
     private PlayableSupplyUpkeepSnapshot(PlayableCitySupplyUpkeepBasis[] cities,
         PlayableUnitSupplyUpkeepBasis[] units, PlayableGateSupplyUpkeepBasis[]? gates = null,
-        PeriodReportEntry[]? mappingReports = null)
+        PeriodReportEntry[]? mappingReports = null, bool usesCurrentGarrisonExpenses = false)
     {
         Cities = Array.AsReadOnly(cities);
         Units = Array.AsReadOnly(units);
         Gates = Array.AsReadOnly(gates ?? []);
         MappingReports = Array.AsReadOnly(mappingReports ?? []);
+        UsesCurrentGarrisonExpenses = usesCurrentGarrisonExpenses;
     }
 
     public static PlayableSupplyUpkeepSnapshot Capture(IReadOnlyDictionary<int, CityState> cities,
@@ -61,6 +81,7 @@ public sealed class PlayableSupplyUpkeepSnapshot
         var owners = ownerRules.CaptureFoodOwners(state);
         var reports = new List<PeriodReportEntry>();
         var garrisons = new List<PlayableGateSupplyUpkeepBasis>();
+        bool currentExpenses = owners.Values.Any(owner => owner.GarrisonExpense is not null);
         var cities = legacy.Cities.Select(row =>
         {
             var city = state.Cities[row.CityId]; var owner = Resolve(row.CityId, row.ForceId, null, false);
@@ -70,6 +91,7 @@ public sealed class PlayableSupplyUpkeepSnapshot
                 return row with { GarrisonFoodCityId = null };
             }
             return row with { GarrisonFoodCityId = owner?.GarrisonCityId,
+                GarrisonExpense = Expense(row.CityId, row.ForceId, owner),
                 GarrisonFoodTroops = (long)city.Troops + (city.NativeReturnRuntime?.Wounded40 ?? 0) };
         }).ToArray();
         foreach (var gate in state.Gates.Values.OrderBy(x => x.Id))
@@ -80,7 +102,8 @@ public sealed class PlayableSupplyUpkeepSnapshot
                 if (gate.Troops > 0) Unknown(gate.Id, gate.ForceId, null, "food_upkeep.current_gate40", owner?.RuleId);
                 continue;
             }
-            garrisons.Add(new(gate.Id, owner?.GarrisonCityId, (long)gate.Troops + wounded));
+            garrisons.Add(new(gate.Id, owner?.GarrisonCityId, (long)gate.Troops + wounded)
+                { GarrisonExpense = Expense(gate.Id, gate.ForceId, owner) });
         }
         var units = legacy.Units.Select(row =>
         {
@@ -89,7 +112,16 @@ public sealed class PlayableSupplyUpkeepSnapshot
             return row with { FoodCityId = payer, BillingForceId = payer is int cityId &&
                 state.Cities.TryGetValue(cityId, out var city) ? city.ForceId ?? row.ForceId : row.ForceId };
         }).ToArray();
-        return new(cities, units, garrisons.ToArray(), reports.ToArray());
+        return new(cities, units, garrisons.ToArray(), reports.ToArray(), currentExpenses);
+
+        int? Expense(int location, int? force, PlayableFoodPayerResolution? owner)
+        {
+            if (!currentExpenses) return null;
+            if (owner?.GarrisonExpense is { Amount: int amount }) return amount;
+            Unknown(location, force, null, owner?.GarrisonExpense?.MissingOwner ??
+                "food_upkeep.current_garrison_expense", owner?.RuleId);
+            return null;
+        }
 
         PlayableFoodPayerResolution? Resolve(int location, int? force, int? person, bool army)
         {

@@ -15,11 +15,14 @@ internal static partial class ArmyRouteSearch
     }
 
     internal static int[] Search(Queries query, out int expanded)
+        => Search(query, out expanded, out _);
+
+    internal static int[] Search(Queries query, out int expanded, out int totalCost, bool hasArmyDescriptor = true)
     {
-        expanded = 0;
+        expanded = 0; totalCost = 0;
         if (!query.AdmitGoal()) return [];
         float baseCost = query.TerrainCost(query.Surface(2));
-        float mobility = query.Mobility(query.LandFormation, 2);
+        float mobility = hasArmyDescriptor ? query.Mobility(query.LandFormation, 2) : baseCost;
         float heuristicDenominator = baseCost <= mobility ? baseCost : mobility;
         var nodes = new Node?[Count];
         Node? root = new(query.Goal, 0, null) { Priority = InitialPriority(query.Goal, query.Start), Open = true };
@@ -29,6 +32,7 @@ internal static partial class ArmyRouteSearch
             Node at = Pop(ref root); expanded++;
             if (at.Hex == query.Start)
             {
+                totalCost = at.Cost;
                 var result = new List<int>();
                 for (Node? next = at; next is not null; next = next.Parent) result.Add(next.Hex);
                 return result.ToArray();
@@ -45,7 +49,7 @@ internal static partial class ArmyRouteSearch
                     if (query.ForbidsOccupiedNonTarget && neighbor != query.Goal && query.Occupied(neighbor)) continue;
                     cost = unchecked(cost + query.OccupiedCost(neighbor));
                 }
-                cost = NativeInt((float)cost / query.TerrainMobility(neighbor));
+                cost = query.ScaleEdgeCost(neighbor, cost);
                 cost = unchecked(at.Cost + cost);
                 var next = nodes[neighbor];
                 if (next is not null && (next.Open || next.Closed) && cost >= next.Cost) continue;

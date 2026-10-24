@@ -1,4 +1,5 @@
 using Godot;
+using San14.Data;
 
 internal readonly record struct UiSourceTextRun(string Text,uint? Colour=null);
 
@@ -38,6 +39,23 @@ internal partial class UiSourceText : Control, IUiSourceDrawing
         _text=text;_glyphColours=runs.SelectMany(run=>Enumerable.Repeat(run.Colour,run.Text.Length)).ToArray();
         _firstGlyphColour=null;
         QueueRedraw();
+    }
+
+    /// <summary>The ordinary Fit2 report line removes line breaks, then
+    /// retains the source body-colour controls while fitting the whole line.</summary>
+    internal void SetKnownColourLine(string expanded)
+    {
+        string flattened = expanded.Replace("\r\n", "", StringComparison.Ordinal).Replace("\n", "", StringComparison.Ordinal);
+        DeploymentNarrationPlainParagraph.RequireKnownColours(flattened);
+        var line = DeploymentNarrationParagraphPlan.Runs(flattened).Single();
+        var presets = MapTextPresets.Create();
+        SetRuns(line.Runs.Select(run => new UiSourceTextRun(run.Text, run.Colour switch
+        {
+            NarrationBodyColour.TextPreset38Body => presets[38].LT.CpuPacked,
+            NarrationBodyColour.TextPreset39Body => presets[39].LT.CpuPacked,
+            NarrationBodyColour.TextPreset40Body => presets[40].LT.CpuPacked,
+            _ => (uint?)null
+        })).ToArray());
     }
 
     internal void Configure(MapFont font, MapFontProfile profile)

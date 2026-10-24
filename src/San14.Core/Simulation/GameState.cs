@@ -10,7 +10,7 @@ public enum CitySize { Small, Medium, Large, Giant }
 public enum AreaDevelopmentFocus { Commerce = 0, Agriculture = 1, Barracks = 2, None = 3 }
 
 /// <summary>Explicit player choices, independent of source formats and initialization effects.</summary>
-public sealed record NewGameOptions(string DifficultyId, bool InitialCreditEnabled,
+public sealed partial record NewGameOptions(string DifficultyId, bool InitialCreditEnabled,
     bool CapturedOfficersEnabled);
 
 public readonly record struct PeriodDate(int Year, int Month, int Day)
@@ -266,10 +266,16 @@ public sealed partial record GameState
     public Dictionary<int, PreparedOfficerMove>? PreparedOfficerMoves { get; init; }
     // Talent task timing is independent from officer relocation and deployment plans.
     public Dictionary<int, PreparedTalentOrder>? PreparedTalentOrders { get; init; }
+    public TalentAutoSearchPreferences? TalentAutoSearchPreferences { get; init; }
+    public TalentGemDiscoveryState? TalentGemDiscoveries { get; init; }
+    public GemForceInventoryState? GemForceInventory { get; init; }
     public int NextDeploymentId { get; init; } = 1;
     public Dictionary<int, TerritoryState> Territory { get; init; } = [];
 }
 
+/// <summary>Full-state validation for scenario/save boundaries and offline checks.
+/// Trusted command and simulation results use their local rules, without rescanning
+/// the world after each operation.</summary>
 public static class StateValidator
 {
     public static void Validate(GameState state, CampaignOperationWorldContext? operationContext = null)
@@ -308,6 +314,7 @@ public static class StateValidator
             (string.IsNullOrWhiteSpace(options.DifficultyId) ||
              !string.Equals(options.DifficultyId, state.DifficultyId, StringComparison.Ordinal)))
             throw new InvalidDataException("New-game options conflict with the state's difficulty.");
+        state.NewGameOptions?.ValidateOrdinarySettings();
         if (!Enum.IsDefined(state.Phase)) throw new InvalidDataException("Turn phase is invalid.");
         if (state.DefaultDeploymentBehavior is { } deploymentDefaults && !Enum.IsDefined(deploymentDefaults.AfterAction))
             throw new InvalidDataException("Default deployment behavior is invalid.");
@@ -371,6 +378,19 @@ public static class StateValidator
         bool KnownDistrict(int? id, int? forceId) => id is null ||
             (state.Districts.TryGetValue(id.Value, out DistrictState? district) && district.ForceId == forceId);
 
+        // Home affiliation and physical position are independent. A present
+        // person can lose Home while still occupying a known place.
+        bool HasKnownOfficerPosition(OfficerPosition? position) => position switch
+        {
+            { Kind: OfficerPositionKind.Unplaced, EntityId: null } => true,
+            { Kind: OfficerPositionKind.City, EntityId: int id } => state.Cities.ContainsKey(id),
+            { Kind: OfficerPositionKind.Gate, EntityId: int id } => state.Gates.ContainsKey(id),
+            { Kind: OfficerPositionKind.Area, EntityId: int id } => state.Areas.ContainsKey(id),
+            { Kind: OfficerPositionKind.ArmyReceiver, EntityId: int id } =>
+                state.ArmyLifecycle?.Receivers.Find(new ArmyReceiverId(id)) is not null,
+            _ => false
+        };
+
         if (state.Doctrines is null)
             throw new InvalidDataException("Doctrine definitions are missing.");
         foreach ((int id, DoctrineDefinition doctrine) in state.Doctrines)
@@ -408,6 +428,8 @@ public static class StateValidator
                 (force.RankId is int rankId && !state.ForceRanks.ContainsKey(rankId)) ||
                 (force.DoctrineId is int doctrineId && !state.Doctrines.ContainsKey(doctrineId)) ||
                 force.CombatObjective?.TargetLocationId < 0 || force.CombatObjective?.Progress < 0 ||
+                force.CombatObjective?.RequestingForceId is < 0 or > 255 ||
+                force.CombatObjective?.RemainingMonths is < 0 or > 255 ||
                 force.OrdersRemaining < 0 || force.OrderLimit < force.OrdersRemaining ||
                 force.OrdersRemaining.HasValue != force.OrderLimit.HasValue)
                 throw new InvalidDataException($"Force {id} has invalid orders or ID.");
@@ -470,7 +492,8 @@ public static class StateValidator
                 !KnownDistrict(officer.DistrictId, officer.ForceId) ||
                 (officer.LocationId is int location && !state.Cities.ContainsKey(location) && !state.Gates.ContainsKey(location)) ||
                 ((officer.Presence is null or OfficerPresence.Present) &&
-                    officer.Role != OfficerRole.Unresolved && officer.LocationId is null) ||
+                    officer.Role != OfficerRole.Unresolved && officer.LocationId is null &&
+                    !HasKnownOfficerPosition(officer.LocationState?.Position)) ||
                 !Enum.IsDefined(officer.Role) ||
                 (officer.Sex is OfficerSex sex && !Enum.IsDefined(sex)) ||
                 (officer.Presence is OfficerPresence presence && !Enum.IsDefined(presence)) ||
@@ -500,7 +523,10 @@ public static class StateValidator
                 officer.ForceId != unit.ForceId || !officer.Deployed || !deployedOfficers.Add(unit.OfficerId) ||
                 unit.HexId < 0 || unit.HexId >= state.MapWidth * state.MapHeight ||
                 unit.DestinationHexId < 0 || unit.DestinationHexId >= state.MapWidth * state.MapHeight ||
-                unit.Troops < 1 || unit.Supplies < 0 ||
+                (unit.Troops < 1 && !(unit.Troops == 0 && IsOwnedTransport(state, unit) &&
+                    unit.CarriedStores is { Gold: >= 0, Food: >= 0 } stores &&
+                    (stores.Gold > 0 || stores.Food > 0) && stores.Food == unit.Supplies &&
+                    stores.Gold == unit.Mission!.CargoGold)) || unit.Supplies < 0 ||
                 (PlayableSkeleton.IsPlayableRuleset(state.RulesetId) &&
                  unit.Mission?.Kind != UnitMissionKind.Transport && unit.Supplies != 0) ||
                 (unit.SourceLocationId is int sourceId && !state.Cities.ContainsKey(sourceId) &&
@@ -519,9 +545,10 @@ public static class StateValidator
                      (mission.Kind == UnitMissionKind.Transport &&
                          (mission.TargetAreaId is not null || mission.StructureKindId is not null ||
                           mission.TargetStructureId is not null ||
-                          mission.DestinationCityId is not int destinationCityId ||
-                          !state.Cities.TryGetValue(destinationCityId, out CityState? destinationCity) ||
-                          destinationCity.HexId != unit.DestinationHexId ||
+                          (mission.DestinationCityId is int destinationCityId
+                              ? !state.Cities.TryGetValue(destinationCityId, out CityState? destinationCity) ||
+                                destinationCity.HexId != unit.DestinationHexId
+                              : !IsOwnedTransport(state, unit)) ||
                           (mission.Returning &&
                            (mission.Arrival != TransportArrivalDisposition.ReturnToSource ||
                             mission.CargoGold != 0 || unit.Supplies != 0)))) ||
@@ -615,11 +642,14 @@ public static class StateValidator
                     throw new InvalidDataException($"Prepared officer move {id} is invalid.");
         if (state.Phase == TurnPhase.Reporting && state.PreparedTalentOrders is { Count: > 0 })
             throw new InvalidDataException("Report state still contains pending talent tasks.");
+        if (state.TalentAutoSearchPreferences is { HasSupportedValues: false })
+            throw new InvalidDataException("Saved automatic search preferences are invalid.");
         if (state.PreparedTalentOrders is not null)
             foreach ((int id, PreparedTalentOrder plan) in state.PreparedTalentOrders)
             {
                 if (plan is null || id != plan.ExecutorOfficerId ||
                     !Enum.IsDefined(plan.Kind) ||
+                    (plan.Kind == TalentOrderKind.Search ? plan.RecruitMode != 0 : plan.RecruitMode is not (0 or 10 or 30)) ||
                     !state.Cities.TryGetValue(plan.CityId, out CityState? city) ||
                     city.ForceId != plan.ForceId || city.DistrictId != plan.DistrictId ||
                     !state.Districts.TryGetValue(plan.DistrictId, out DistrictState? district) ||
@@ -678,5 +708,15 @@ public static class StateValidator
             if (id != cell.Id || id < 0 || id >= mapSize || !KnownForce(cell.ForceId) ||
                 (cell.AreaId is int areaId && !state.Areas.ContainsKey(areaId)))
                 throw new InvalidDataException($"Territory cell {id} is invalid.");
+    }
+
+    //Only the real source-created transport receiver may defer target-kind
+    //validation to its resource codec. Legacy convoys still require a City.
+    private static bool IsOwnedTransport(GameState state, UnitState unit)
+    {
+        if (unit.NativeArmyOrigin is null || unit.NativeTacticRuntime?.Status10 != 2 ||
+            unit.Mission?.Kind != UnitMissionKind.Transport || unit.TransportRoute is not { Waypoints.Count: 5 }) return false;
+        var receiver = state.ArmyLifecycle?.Receivers.FindUnit(unit.Id);
+        return receiver is { Phase: ArmyReceiverPhase.Active, ActiveUnitId: int id } && id == unit.Id;
     }
 }

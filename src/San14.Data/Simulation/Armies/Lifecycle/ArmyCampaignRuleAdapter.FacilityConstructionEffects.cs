@@ -24,7 +24,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         var obj = FacilityConstructionLegality.ObjectAt(current, site);
         if (!K(current.ReadObjectNativeValidity(obj), "arrival_Object_validity")) return state;
         var definition = FacilityConstructionLegality.DefinitionOf(current, obj);
-        if (definition.PhysicalSlot != 7) throw Missing("arrival_Object_name_consumer_outside_kind7");
+        if (!IsSupported(definition.PhysicalSlot)) throw Missing("arrival_Object_name_consumer_outside_supported_facilities");
         if (moment is null) throw Missing("arrival_source_moment");
         var requests = new List<CampaignEffectRequest>();
         state = AppendConstructionReport(state, current, image, obj, moment,
@@ -41,12 +41,20 @@ public sealed partial class ArmyCampaignRuleAdapter
         int raw = K(current.ReadObjectForceSlot13(obj), "model_Object_Force");
         var force = current.ReadForceTableReference(raw <= 51 ? raw : 0) ?? throw Missing("model_Force_pointer");
         var player = OwnedCurrentPlayerForce.ReadCurrentReference(state, current) ?? throw Missing("model_player_pointer");
-        _ = K(player.PhysicalSlot, "model_player_identity");
-        _ = K(force.PhysicalSlot, "model_Force_identity");
-        //The actor consumer is kind7, category2.2C4830's category4
-        //diplomacy visibility branch is never substituted with a visible flag.
-        if (fields.RawField12 != 7) throw Missing("model_definition_consumer");
-        return true;
+        int playerId = K(player.PhysicalSlot, "model_player_identity");
+        int forceId = K(force.PhysicalSlot, "model_Force_identity");
+        if (!IsSupported(fields.RawField12)) throw Missing("model_definition_consumer");
+        //2C4830: own traps are visible immediately, without fabricating
+        //completion or a diplomacy value. Non-traps share the ordinary tail.
+        if (forceId == playerId) return true;
+        var definition = FacilityConstructionLegality.DefinitionOf(current, obj);
+        if (!K(current.ReadObjectDefinitionValidity(definition), "model_definition_validity") ||
+            K(current.ReadObjectDefinitionRaw2C(definition), "model_definition_category") != 4) return true;
+        if (!K(current.ReadForceNativeValidity(player), "model_player_validity")) return false;
+        byte[]? relations = playerId == 0 ? state.NativeForceUnregisterCurrent?.PlaceholderRelationsEA
+            : state.NativeArmySimulation?.Forces.GetValueOrDefault(playerId)?.RelationsEA;
+        if (relations is not { Length: 52 } || (uint)forceId >= 52) throw Missing("model_player_relation_EA");
+        return (relations[forceId] & 0x7f) != 0;
     }
 
     private GameState ApplyConstructionSiteOwnership(GameState state, SourceWorldContext current,
@@ -63,7 +71,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (K(current.ReadHexForceSlot(site), "ownership_previous_Force") == force) return state;
         if (force is < 1 or > 45) throw Missing("ownership_special_Force_tail");
         int surface = K(current.ReadHexSurfaceCode(site), "ownership_surface");
-        if (surface is >= 15 and <= 18) throw Missing("ownership_center_tail_outside_kind7_terrain");
+        if (surface is >= 15 and <= 18) throw Missing("ownership_center_tail_outside_supported_facilities_terrain");
         //The same normal numeric application lifetime used by ordinary
         //occupation has no original scenery-view or tutorial-mode receiver.
         //Keep the logical visual/sound requests instead of claiming playback.
@@ -86,7 +94,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     }
 
     private static GameState AppendConstructionStartSpeech(GameState state, SourceWorldContext current,
-        ArmyUnitReference army, UnitState image, ObjectReference obj, NativeArmyProgressStageMoment moment,
+        ArmyUnitReference army, UnitState image, ObjectReference obj, FacilityOperation operation,
         List<CampaignEffectRequest> requests)
     {
         var definition = FacilityConstructionLegality.DefinitionOf(current, obj);
@@ -97,7 +105,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         int commander = K(current.ReadArmyUnitCommanderId(army), "speech_commander");
         int person = K((current.ReadPersonLookupReference(commander <= 6000 ? commander : 0)
             ?? throw Missing("speech_Person_pointer")).PhysicalSlot, "speech_Person_identity");
-        int position = PersonReturnCommands.ResolvePersonPosition(state, current, person, moment.PreWriterThirdDate).PhysicalSlot ?? 48400;
+        int position = PersonReturnCommands.ResolvePersonPosition(state, current, person, operation.ReadDate()).PhysicalSlot ?? 48400;
         state = state with { PersonnelCommands = current.ReadOwnedPersonCommandManager() ?? throw Missing("speech_personnel_publication") };
         int officer = K(current.ReadPersonIdentity(person), "speech_Person_character_identity");
         var receiver = current.CurrentMapObjectDirectory!.ReceiverAtPhysical(K(obj.PhysicalSlot, "speech_Object_identity"));
@@ -108,7 +116,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     }
 
     private GameState AppendConstructionReport(GameState state, SourceWorldContext current, UnitState image,
-        ObjectReference obj, NativeArmyProgressStageMoment moment, CampaignReportEvent reportEvent,
+        ObjectReference obj, FacilityOperation operation, CampaignReportEvent reportEvent,
         List<CampaignEffectRequest> requests, int? retainedGoal = null)
     {
         bool arrival = reportEvent switch
@@ -132,7 +140,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         //Fresh writer metadata follows main formatting. C357 keeps the
         //source's effective goal instead of substituting Object10/Army2A.
         int commander = K(current.ReadArmyUnitCommanderId(army), "report_commander");
-        int day = StatusCampaignDay(state, moment);
+        int day = operation.ReadCampaignDay(state);
         int hex = arrival ? retainedGoal ?? throw Missing("report_retained_goal") :
             K(current.ReadObjectHexIndex(obj), "report_Object_Hex");
         int district = ReadFacilityHistoryDistrict(current, army);
@@ -142,7 +150,7 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     //Complete22EFD0, message-field-source01/TC-22EFD0.cpp. This is
     //the actual Object12 lookup, including Definition0 and its validity gate.
-    private string ReadFacilityArrivalObjectName(GameState state, SourceWorldContext current, ObjectReference obj)
+    internal string ReadFacilityArrivalObjectName(GameState state, SourceWorldContext current, ObjectReference obj)
     {
         var definition = FacilityConstructionLegality.DefinitionOf(current, obj);
         if (!K(current.ReadObjectDefinitionValidity(definition), "report_Object_name_definition_validity"))

@@ -71,6 +71,28 @@ public sealed partial class ArmyCampaignRuleAdapter
             { PendingCleanupState = body.PendingCleanupState };
     }
 
+    /// <summary>The same ordinary numeric prefix inside an already owned
+    /// operation. The callback rebinds latest saved views on this same current;
+    /// an unresolved result requires discarding the entire enclosing operation,
+    /// including its mutable current, rather than adopting this prefix.</summary>
+    internal NormalArmyApplicationPrefixResult TryApplyBorrowedNormalApplicationPrefix(GameState input,
+        NormalArmyCombatPair pair, NormalArmyCombatRequestedLossReceipt request,
+        Func<GameState, TacticRemakeCurrentContext?> captureCurrent, SourceWorldContext ordinaryCurrent)
+    {
+        ArgumentNullException.ThrowIfNull(ordinaryCurrent);
+        var pool = ordinaryCurrent.ReadOwnedCurrentListPool();
+        if (pool is null || !pool.OwnsArmyReturnProfile() ||
+            !ReferenceEquals(pool.ArmyReturnOwner, ordinaryCurrent))
+            throw new InvalidDataException("ordinary_army_combat_cut.application_current_pool_owner");
+        var body = TryApplyNativeDamageTargetBody(input, pair.Attacker.ArmyId, pair.Target.ArmyId,
+            request.RequestedLoss, captureCurrent, ordinaryCurrent: ordinaryCurrent);
+        var r = body.Receipt;
+        return new(body.Outcome, body.State, r is null ? null : new(request, r.AttackerReward,
+            r.TroopDebit, r.WoundedInput, r.WoundedRatio, r.Wounded, r.MoraleLoss,
+            r.MoraleAdjustment, r.ExcludedAfterAdjustment, r.Killed, r.Revision) { TransportCargo = r.TransportCargo }, body.MissingPhase)
+            { PendingCleanupState = body.PendingCleanupState };
+    }
+
     //The phase wrapper retains its actual frame receipt. The normal period
     //wrapper supplies only its external gross request to this same body.
     internal NormalArmyApplicationBodyResult TryApplyNativeNormalApplicationBody(GameState input,
@@ -78,17 +100,28 @@ public sealed partial class ArmyCampaignRuleAdapter
         Func<GameState, TacticRemakeCurrentContext?> captureCurrent)
         => TryApplyNativeDamageTargetBody(input, attackerId, targetId, requestedLoss, captureCurrent);
 
-    //Field-object origin has a proved null Army/Base source. Only that caller
-    //supplies its writable operation current and real zero-morale continuation.
+    /// <summary>178EC0 with a real Base source and Army target. This retains
+    /// ordinary wound/morale mathematics and a separate Base identity; it is
+    /// neither an invented Army actor nor a null environmental source.</summary>
+    internal NormalArmyApplicationBodyResult TryApplyBorrowedBaseArmyNumbers(GameState input,
+        BaseReference attacker, int targetId, int requestedLoss,
+        Func<GameState, TacticRemakeCurrentContext?> captureCurrent, SourceWorldContext current)
+        => TryApplyNativeDamageTargetBody(input, null, targetId, requestedLoss, captureCurrent,
+            ordinaryCurrent: current, baseOrigin: attacker);
+
+    //Field-object and Base origins retain distinct source owners. Only the
+    //field-object path selects environment formulas or its zero continuation.
     private NormalArmyApplicationBodyResult TryApplyNativeDamageTargetBody(GameState input,
         int? attackerId, int targetId, int requestedLoss,
         Func<GameState, TacticRemakeCurrentContext?> captureCurrent,
         SourceWorldContext? fieldObjectCurrent = null,
         Func<GameState, UnitState, int, (GameState State, ArmyMoraleAdjustmentReceipt Receipt)>? objectMorale = null,
-        Func<TacticSourceSamplerWorld>? objectSampler = null)
+        Func<TacticSourceSamplerWorld>? objectSampler = null,
+        SourceWorldContext? ordinaryCurrent = null,
+        BaseReference? baseOrigin = null)
     {
         ArgumentNullException.ThrowIfNull(input);
-        GameState working = fieldObjectCurrent is null ? GameStateCopy.Copy(input) : input;
+        GameState working = fieldObjectCurrent is null && ordinaryCurrent is null ? GameStateCopy.Copy(input) : input;
         UnitState? attacker = null;
         if (attackerId is int actor)
         {
@@ -96,12 +129,30 @@ public sealed partial class ArmyCampaignRuleAdapter
                 captureCurrent(working) is not { } current || current.ArmyValid(working, attacker) != true)
                 return Unknown("attacker");
         }
+        else if (baseOrigin is not null)
+        {
+            var pool = ordinaryCurrent?.ReadOwnedCurrentListPool();
+            if (ordinaryCurrent is null || pool is null || !pool.OwnsArmyReturnProfile() ||
+                !ReferenceEquals(pool.ArmyReturnOwner, ordinaryCurrent) ||
+                ordinaryCurrent.ReadBaseNativeValidity(baseOrigin) != true ||
+                !working.Units.ContainsKey(targetId) || captureCurrent(working) is null)
+                return Unknown("Base-origin-current");
+        }
         else if (fieldObjectCurrent is null || !working.Units.ContainsKey(targetId) || captureCurrent(working) is null)
             return Unknown("known-null-source");
         //178CD5..178D19: amount is the uncapped ordinary int32 request, kind0.
-        PersonNormalArmyRewardResult reward = requestedLoss > 0 && attacker is not null
-            ? TryApplyNativeNormalPersonRewardDuringArmyOperation(working, attacker.OfficerId, 0, requestedLoss)
-            : new(PersonNormalArmyRewardOutcome.NativeSkip, working, null, null);
+        PersonNormalArmyRewardResult reward;
+        if (requestedLoss > 0 && attacker is not null)
+        {
+            if (ordinaryCurrent is not null)
+            {
+                if (captureCurrent(working) is not { } rewardCurrent) return Unknown("attacker-reward-current");
+                reward = ApplyBorrowedNormalArmyReward(working, ordinaryCurrent, rewardCurrent,
+                    attacker.OfficerId, 0, requestedLoss);
+            }
+            else reward = TryApplyNativeNormalPersonRewardDuringArmyOperation(working, attacker.OfficerId, 0, requestedLoss);
+        }
+        else reward = new(PersonNormalArmyRewardOutcome.NativeSkip, working, null, null);
         if (reward.Outcome == PersonNormalArmyRewardOutcome.CurrentInputsUnresolved)
             return Unknown($"attacker-reward:{reward.MissingPhase}");
         working = reward.State;
@@ -122,18 +173,23 @@ public sealed partial class ArmyCampaignRuleAdapter
         TransportArmyNormalCargoReceipt? transportCargo = null;
         if (transport)
         {
-            var cargoCurrent = fieldObjectCurrent ?? CaptureCurrentDefinitions(working);
+            //1790F2 gives cargo to the real source Base. The Army-loot and
+            //known-null environment paths cannot represent that transfer.
+            if (baseOrigin is not null) return Unknown("Base-origin-transport-cargo-owner");
+            var cargoCurrent = fieldObjectCurrent ?? ordinaryCurrent ?? CaptureCurrentDefinitions(working);
             if (cargoCurrent is null) return Unknown("transport-cargo-current");
             var cargo = fieldObjectCurrent is not null
                 ? TransportArmyNormalCargoSource.ApplyFieldObject(working, cargoCurrent, target, debit.AppliedLoss)
-                : TransportArmyNormalCargoSource.Apply(working, cargoCurrent, working.Units[attackerId!.Value], target, debit.AppliedLoss);
+                : ordinaryCurrent is not null
+                    ? TransportArmyNormalCargoSource.ApplyBorrowed(working, cargoCurrent, working.Units[attackerId!.Value], target, debit.AppliedLoss)
+                    : TransportArmyNormalCargoSource.Apply(working, cargoCurrent, working.Units[attackerId!.Value], target, debit.AppliedLoss);
             if (cargo.State is not { } cargoState || cargo.Receipt is not { } cargoReceipt)
                 return Unknown($"transport-cargo:{cargo.UnresolvedOwner}");
             working = cargoState; target = working.Units[targetId]; transportCargo = cargoReceipt;
         }
         target = target with { Troops = debit.Troops16After };
         working = Replace(working, target);
-        SyncObjectNumbers(target);
+        SyncCurrentNumbers(target);
         var parameters = fieldObjectCurrent is null
             ? NormalArmyCombatApplicationSourceMath.ReadCurrent(working, _normalApplicationSeed) : null;
         int? environmentCC = fieldObjectCurrent is null ? null :
@@ -165,8 +221,18 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
             if (captureCurrent(working) is not { } woundedCurrent ||
                 woundedCurrent.ResolveNormalWoundedRatioInput(working, attacker is null ? null : working.Units[attacker.Id], target,
-                    selector, difficulty) is not { } resolved ||
-                (fieldObjectCurrent is null
+                    selector, difficulty) is not { } resolved)
+                return Unknown("wounded-ratio");
+            if (baseOrigin is not null)
+            {
+                int originHex = ordinaryCurrent!.ReadBaseCurrentHexIndex(baseOrigin);
+                if (originHex is < 0 or >= 48400 ||
+                    ordinaryCurrent.ReadBaseObjectLink(baseOrigin) is not ushort originObject)
+                    return Unknown("Base-origin-wounded-adjacency");
+                resolved = resolved with { Adjacent = NormalCombatMixedProducer.Distance(target.HexId, originHex) ==
+                    (originObject <= 51 ? 2 : 1) };
+            }
+            if ((fieldObjectCurrent is null
                     ? NormalArmyCombatApplicationSourceMath.CalculateWoundedRatio(parameters!.CurrentValues, resolved)
                     : NormalArmyCombatApplicationSourceMath.CalculateCurrentWoundedRatio(resolved, ReadEnvironmentParameter)) is not float value)
                 return Unknown("wounded-ratio");
@@ -181,9 +247,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (wounds is null) return Unknown("wounded-writes");
         target = target with { WoundedTroops = wounds.Wounded18After };
         working = Replace(working, target);
-        SyncObjectNumbers(target);
-        if (fieldObjectCurrent is not null)
-            fieldObjectCurrent.WriteArmyReturnWounded(target.NativeArmyOrigin!.NativeSlotIndex!.Value,
+        SyncCurrentNumbers(target);
+        if ((fieldObjectCurrent ?? ordinaryCurrent) is { } numericCurrent)
+            numericCurrent.WriteArmyReturnWounded(target.NativeArmyOrigin!.NativeSlotIndex!.Value,
                 checked((ushort)target.WoundedTroops!.Value));
         NormalArmyCombatMoraleReceipt? moraleLoss = null;
         ArmyMoraleAdjustmentReceipt? moraleWrite = null;
@@ -217,9 +283,13 @@ public sealed partial class ArmyCampaignRuleAdapter
                     }
                     else
                     {
-                        var adjustment = ApplyMoraleDuringArmyOperation(working, target.Id, moraleLoss.NativeAdjustment);
+                        var adjustment = ordinaryCurrent is not null
+                            ? ApplyBorrowedNormalArmyMorale(working, ordinaryCurrent, moraleCurrent, target.Id, moraleLoss.NativeAdjustment)
+                            : ApplyMoraleDuringArmyOperation(working, target.Id, moraleLoss.NativeAdjustment);
                         if (adjustment.Outcome != ArmyMoraleAdjustmentOutcome.Committed)
-                            return Unknown($"morale-callback:{adjustment.Outcome}");
+                            return Unknown(baseOrigin is not null
+                                ? $"Base-origin-morale-callback:{adjustment.Outcome}"
+                                : $"morale-callback:{adjustment.Outcome}");
                         working = adjustment.State; moraleWrite = adjustment.Receipt;
                     }
                 }
@@ -260,13 +330,14 @@ public sealed partial class ArmyCampaignRuleAdapter
             return enabled && (BattleRemakeCurrentSettings.ReadAdvancedParameter(working, 7)
                 ?? throw TrapParameters.Missing("damage_second_advanced7")) > 0;
         }
-        void SyncObjectNumbers(UnitState image)
+        void SyncCurrentNumbers(UnitState image)
         {
-            if (fieldObjectCurrent is null) return;
+            var numberOwner = fieldObjectCurrent ?? ordinaryCurrent;
+            if (numberOwner is null) return;
             int physical = image.NativeArmyOrigin!.NativeSlotIndex!.Value;
-            var fields = fieldObjectCurrent.ReadArmyReturnResourceFields(new(physical))
+            var fields = numberOwner.ReadArmyReturnResourceFields(new(physical))
                 ?? throw TrapParameters.Missing("damage_current_resource_fields");
-            fieldObjectCurrent.BindArmyReturnResourceFields(physical, fields with
+            numberOwner.BindArmyReturnResourceFields(physical, fields with
                 { Ready16 = checked((ushort)image.Troops), Wounded18 = checked((ushort)image.WoundedTroops!.Value) });
         }
 

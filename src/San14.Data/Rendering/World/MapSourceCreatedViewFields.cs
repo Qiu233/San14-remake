@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using System.Runtime.CompilerServices;
 using San14.Data.Formats;
 
@@ -213,24 +212,22 @@ public static class MapSourceCreatedViewFields
 {
     public const string ContractId = "ce-20261002-main-fresh-view-fields";
     public const uint ModelExclusion78PropertyHash = 0xC0C5A5B5;
-    private sealed record CanonicalPrimitiveSource(byte[] ModelBytes, byte[] DictionaryBytes, (int Index, byte[] Bytes)[] Draws);
+    // Imported supported source profile, scoped to the actual scene-owned asset.
+    // Current frame/View/primitive admission remains the caller's work.
+    private sealed class CanonicalPrimitiveSource { }
     private static readonly ConditionalWeakTable<MapStaticModelAsset, CanonicalPrimitiveSource> primitiveSources = new();
-    private sealed record CanonicalExclusionSource(byte[] CatalogBytes, uint Value78);
+    private sealed record CanonicalExclusionSource(uint Value78);
     private static readonly ConditionalWeakTable<MapStaticModelAsset, CanonicalExclusionSource> exclusionSources = new();
-    private sealed record CanonicalPlacementSource(byte[] Bytes, IReadOnlyDictionary<uint, bool> HasExclusionOverride);
+    private sealed record CanonicalPlacementSource(IReadOnlyDictionary<uint, bool> HasExclusionOverride);
     private static readonly ConditionalWeakTable<LoadedObjects, CanonicalPlacementSource> placementSources = new();
 
     internal static void ValidateCanonicalPreparedPrimitiveSource(MapStaticModelAsset asset)
     {
-        var canonical = primitiveSources.GetValue(asset, source =>
+        _ = primitiveSources.GetValue(asset, source =>
         {
-            byte[] bytes = source.RawTransforms.Source.Bytes.ToArray();
-            if (Convert.ToHexString(SHA256.HashData(bytes)) != source.RawTransforms.Source.DecodedSha256)
-                throw new InvalidDataException("Prepared primitive source model bytes differ from their current owned identity.");
-            byte[] dictionary = source.Reference.Dictionary.Source.Bytes.ToArray();
-            if (Convert.ToHexString(SHA256.HashData(dictionary)) != source.Reference.Dictionary.Source.DecodedSha256)
-                throw new InvalidDataException("Prepared primitive Model dictionary differs from its current owned source identity.");
-            var model = DokReader.Read(dictionary).Objects.Single(item => item.ObjectId == source.Reference.ModelObject.ObjectId &&
+            // Repository loading parsed these documents and geometry. The asset
+            // catalog derives Draws from this same Geometry before publishing it.
+            var model = source.Reference.Dictionary.Document.Objects.Single(item => item.ObjectId == source.Reference.ModelObject.ObjectId &&
                 item.Kind == DokObjectKind.Inline && item.ClassId == 0xD40B3C8F);
             var file = model.Properties.Single(property => property.NameHash == 0x8AB68B3F);
             if (file.TypeCode != 5 || file.ElementCount != 1 || file.RawValue.Length != 4 ||
@@ -242,8 +239,8 @@ public static class MapSourceCreatedViewFields
             SourceZero(41, 0x95424354, 1); // KTGLG1iiResourceHash → optional dependency2 → ModelCPU+B0.
             SourceZero(24, 0x07AAF542, 0); // Empty swap array leaves the fixed dependency order unchanged.
             SourceZero(25, 0x0B534ABC, 1); // No common swap dependency precedes the fixed optional input.
-            var geometry = G1ModelGeometryReader.Read(bytes, bytes.LongLength);
-            var actual = G1ModelDrawReader.Read(geometry).Draws;
+            var geometry = source.RawTransforms.Geometry;
+            var actual = source.Draws;
             var part = geometry.Sections.Single(section => section.Id == 0x10009);
             if (part.ItemCount != 1 || part.RawBytes.Length < 48 ||
                 (BinaryPrimitives.ReadUInt32LittleEndian(part.RawBytes.AsSpan(16)) & 0x7FFFFFFF) != 0 ||
@@ -251,7 +248,7 @@ public static class MapSourceCreatedViewFields
                 throw new NotSupportedException("Ordinary ModelCPU.V10 publication requires one source LOD0 part with no second-category groups.");
             if (actual.Any(draw => draw.UnknownValue32 != 1))
                 throw new NotSupportedException("Prepared primitive publication requires the exact one-subdraw source profile.");
-            return new(bytes, dictionary, actual.Select(draw => (draw.Index, draw.RawBytes.ToArray())).ToArray());
+            return new CanonicalPrimitiveSource();
             void SourceZero(int ordinal, uint hash, int count)
             {
                 var property = model.Properties[ordinal];
@@ -261,11 +258,6 @@ public static class MapSourceCreatedViewFields
                     throw new NotSupportedException("The current geometry fallback requires the exact source zero G1ii key and empty swap dependencies.");
             }
         });
-        if (!canonical.ModelBytes.AsSpan().SequenceEqual(asset.RawTransforms.Source.Bytes) ||
-            !canonical.DictionaryBytes.AsSpan().SequenceEqual(asset.Reference.Dictionary.Source.Bytes) || canonical.Draws.Length != asset.Draws.Count ||
-            canonical.Draws.Where((draw, index) => draw.Index != asset.Draws[index].Index ||
-                !draw.Bytes.AsSpan().SequenceEqual(asset.Draws[index].RawBytes)).Any())
-            throw new InvalidDataException("Prepared primitive publication differs from its cached canonical source draw/group binding.");
     }
 
     /// <summary>Read WorldPQ constructor argument9 from the selected canonical
@@ -291,7 +283,6 @@ public static class MapSourceCreatedViewFields
             throw new InvalidDataException("Current exclusion78 overrides must name this frame's actual owned instances and matching current setter identities.");
         var result = new Dictionary<string, uint>(StringComparer.Ordinal);
         var declarations = new Dictionary<MapStaticModelAsset, uint>();
-        var checkedPlacementSources = new HashSet<LoadedObjects>();
         foreach (var instance in visible)
         {
             if (explicitCurrentOverrides.TryGetValue(instance.InstanceKey, out var current))
@@ -311,10 +302,7 @@ public static class MapSourceCreatedViewFields
                 {
                     var source = asset.TextureResources.Catalog ?? throw new InvalidDataException("Fresh exclusion78 source catalog is absent.");
                     var declared = asset.TextureResources.CatalogDefinition ?? throw new InvalidDataException("Fresh exclusion78 WorldPQ identity is absent.");
-                    byte[] bytes = source.Source.Bytes.ToArray();
-                    if (Convert.ToHexString(SHA256.HashData(bytes)) != source.Source.DecodedSha256)
-                        throw new InvalidDataException("Fresh exclusion78 catalog bytes differ from their owned source identity.");
-                    var canonical = DokReader.Read(bytes).Objects.Single(item => item.ObjectId == declared.ObjectId &&
+                    var canonical = source.Document.Objects.Single(item => item.ObjectId == declared.ObjectId &&
                         item.Kind == DokObjectKind.Inline && item.ClassId == ScenePlacementReader.ModelWorldPqClass);
                     var target = canonical.Properties.Single(property => property.NameHash == 0x0B6E1578);
                     if (target.TypeCode != 5 || target.ElementCount != 1 || target.RawValue.Length != 4 ||
@@ -324,10 +312,8 @@ public static class MapSourceCreatedViewFields
                     if (properties.Length != 1 || properties[0].Index != 9 || properties[0].TypeCode != 5 ||
                         properties[0].ElementCount != 1 || properties[0].RawValue.Length != 4)
                         throw new InvalidDataException("Fresh WorldPQ exclusion78 requires the exact native property9/type5 scalar binding.");
-                    return new(bytes, BinaryPrimitives.ReadUInt32LittleEndian(properties[0].RawValue));
+                    return new(BinaryPrimitives.ReadUInt32LittleEndian(properties[0].RawValue));
                 });
-                if (!cached.CatalogBytes.AsSpan().SequenceEqual(instance.Asset.TextureResources.Catalog!.Source.Bytes))
-                    throw new InvalidDataException("Fresh exclusion78 catalog changed after its canonical source publication.");
                 value = cached.Value78;
                 declarations.Add(instance.Asset, value);
             }
@@ -336,14 +322,9 @@ public static class MapSourceCreatedViewFields
                 var source = placement.Source.InstanceDocument;
                 var cached = placementSources.GetValue(source, document =>
                 {
-                    byte[] bytes = document.Source.Bytes.ToArray();
-                    if (Convert.ToHexString(SHA256.HashData(bytes)) != document.Source.DecodedSha256)
-                        throw new InvalidDataException("Fresh exclusion78 scene override bytes differ from their owned source identity.");
-                    return new(bytes, DokReader.Read(bytes).Objects.ToDictionary(item => item.ObjectId,
+                    return new(document.Document.Objects.ToDictionary(item => item.ObjectId,
                         item => item.Properties.Any(property => property.NameHash == ModelExclusion78PropertyHash)));
                 });
-                if (checkedPlacementSources.Add(source) && !cached.Bytes.AsSpan().SequenceEqual(source.Source.Bytes))
-                    throw new InvalidDataException("Fresh exclusion78 scene changed after its canonical source publication.");
                 if (!cached.HasExclusionOverride.TryGetValue(placement.Source.Object.ObjectId, out bool overridden) || overridden)
                     throw new NotSupportedException("A scene WorldPQ exclusion78 override requires its exact current setter publication.");
             }

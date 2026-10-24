@@ -36,12 +36,15 @@ public sealed class DiplomacyCommandView
 
     public DiplomaticForceChoice? FindForce(int id) => Forces.FirstOrDefault(value => value.Id == id);
 
-    public static DiplomacyCommandView Create(GameState? world, int? playerForceId, int? sourceCityId)
+    public static DiplomacyCommandView Create(GameState? world, int? playerForceId, int? sourceCityId,
+        IReadOnlyList<int>? executorOfficerIds = null, IReadOnlyList<int>? targetForceIds = null)
     {
         bool strategy = world?.Phase == TurnPhase.Strategy;
         bool known = world?.Diplomacy is not null;
         int missions = playerForceId is int missionOwner
-            ? world?.Diplomacy?.Missions.Values.Count(value => value.ForceId == missionOwner) ?? 0 : 0;
+            ? (world?.Diplomacy?.Missions.Values.Count(value => value.ForceId == missionOwner) ?? 0) +
+                (world?.PersonnelCommands?.Diplomacies?.Values.Count(value => value.ForceId == missionOwner && !value.IsRetiring) ?? 0)
+            : 0;
         int requests = playerForceId is int requestOwner
             ? world?.Diplomacy?.AttackRequests.Values.Count(value =>
                 value.RequestingForceId == requestOwner || value.RequestedForceId == requestOwner) ?? 0 : 0;
@@ -49,13 +52,11 @@ public sealed class DiplomacyCommandView
             !world.Cities.TryGetValue(city, out CityState? source) || source.ForceId != player)
             return new(playerForceId, sourceCityId, strategy, known, missions, requests, [], [], []);
 
-        // These are selection candidates. Busy tasks, mission rules, fees and
-        // relationship requirements belong to the simulation's command policy.
-        var executors = world.Officers.Values.Where(value => value.ForceId == player && value.LocationId == city &&
-                value.Presence == OfficerPresence.Present && !value.Deployed).OrderBy(value => value.Id)
-            .Select(value => new NamedCommandChoice(value.Id, value.Name)).ToArray();
-        var forces = world.Forces.Values.Where(value => value.Id != player && value.IsActive).OrderBy(value => value.Id)
-            .Select(value =>
+        // Candidate identity and order come from the current command query.
+        // The view supplies names and relationship display, not eligibility.
+        var executors = (executorOfficerIds ?? []).Select(id =>
+            new NamedCommandChoice(id, world.Officers[id].Name)).ToArray();
+        var forces = (targetForceIds ?? []).Select(id => world.Forces[id]).Select(value =>
             {
                 DiplomaticRelation? relation = PlayableDiplomacy.TryGetRelation(world, player, value.Id, out var level) ? level : null;
                 DiplomaticTreaty? treaty = world.Diplomacy?.Treaties.GetValueOrDefault(PlayableDiplomacy.PairKey(player, value.Id));

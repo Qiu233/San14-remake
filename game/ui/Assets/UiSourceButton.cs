@@ -11,11 +11,22 @@ internal partial class UiSourceButton : UiSourceHitButton
 
     internal virtual UiAudioCue PressedCue => UiAudioCue.ButtonSelect;
     internal event Action? FeedbackRequested;
+    internal Func<bool>? InputAdmission { get; set; }
+    internal bool SourceInputAdmitted => CanProcess() && (InputAdmission?.Invoke() ?? true);
+
+    public override bool _HasPoint(Vector2 point) => SourceInputAdmitted && base._HasPoint(point);
 
     // The source requests feedback before publishing the release to its caller.
     // Keep this publisher ahead of callbacks installed by Configure, including
     // when the audio observer detaches and later reattaches this control.
-    public UiSourceButton() => Pressed += () => FeedbackRequested?.Invoke();
+    public UiSourceButton() => Pressed += () => RequestFeedback();
+
+    protected bool RequestFeedback()
+    {
+        if (!SourceInputAdmitted) return false;
+        FeedbackRequested?.Invoke();
+        return true;
+    }
 
     internal virtual bool Selected
     {

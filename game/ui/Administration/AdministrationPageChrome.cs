@@ -10,6 +10,7 @@ internal partial class AdministrationPageChrome : Control
     internal MapFont Font { get; private set; } = null!;
     internal Shader SpriteShader { get; private set; } = null!;
     internal Control Canvas { get; private set; } = null!;
+    internal int MenuFooterTop { get; private set; }
     private UiSourceRoundButton back = null!;
     private UiSourceRoundButton? confirm;
     private UiSourceText narration = null!;
@@ -20,7 +21,8 @@ internal partial class AdministrationPageChrome : Control
     private bool abandoned;
 
     internal void Configure(GameResourceRepository repository, PreviewText text, int titleMessage,
-        Action returned, Action accepted, bool returnOnly = false, bool showFooterHint = true)
+        Action returned, Action accepted, bool returnOnly = false, bool showFooterHint = true, bool compactReturn = false,
+        bool threeButtonFooter = false, int? returnNode = null)
     {
         this.returned = returned; this.accepted = accepted;
         MouseFilter = MouseFilterEnum.Ignore;
@@ -36,10 +38,11 @@ internal partial class AdministrationPageChrome : Control
             throw new InvalidDataException("Missing domestic page title."), Font, MapTextPresets.Create()[56]);
         var footer = new UiSourceLayout(repository, 0xD8913AB2);
         Vector2 mount = new(0, 904);
-        back = Round("ReturnAdministration", returnOnly ? 1 : 4, "000_cmn_txt_decision_modoru", () => this.returned?.Invoke());
+        MenuFooterTop = (int)footer.Rectangle(19, mount).Position.Y;
+        back = Round("ReturnAdministration", returnNode ?? (returnOnly || threeButtonFooter ? 1 : 4), "000_cmn_txt_decision_modoru", () => this.returned?.Invoke());
         if (!returnOnly)
         {
-            confirm = Round("ConfirmAdministration", 5, "000_cmn_txt_decision_kettei", () => this.accepted?.Invoke());
+            confirm = Round("ConfirmAdministration", threeButtonFooter ? 2 : 5, "000_cmn_txt_decision_kettei", () => this.accepted?.Invoke());
             confirm.Disabled = true;
         }
         var hint = new UiSourceLayout(repository, 0xAB6ADAA7);
@@ -56,16 +59,18 @@ internal partial class AdministrationPageChrome : Control
             var button = new UiSourceRoundButton { Name = name, Position = footer.Rectangle(slot, mount).Position,
                 ActionMode = BaseButton.ActionModeEnum.Release };
             Canvas.AddChild(button);
-            button.Configure(repository, Assets, SpriteShader, text.SourceLocale, caption,
-                () => { if (!abandoned && !button.Disabled) action(); },
-                cue: slot is 1 or 4 ? UiAudioCue.Cancel : UiAudioCue.ButtonSelect);
+            Action activate = () => { if (!abandoned && !button.Disabled) action(); };
+            if (compactReturn && slot == 1)
+                button.ConfigureScenarioReturn(repository, Assets, SpriteShader, text.SourceLocale, activate);
+            else button.Configure(repository, Assets, SpriteShader, text.SourceLocale, caption, activate,
+                cue: name == "ReturnAdministration" ? UiAudioCue.Cancel : UiAudioCue.ButtonSelect);
             return button;
         }
     }
 
     internal void ApplyDecision(bool enabled, bool visible)
     { if (abandoned || confirm is null) return; confirm.Disabled = !enabled; confirm.Visible = visible; }
-    internal void ApplyReturn(bool enabled) { if (!abandoned) back.Disabled = !enabled; }
+    internal void ApplyReturn(bool enabled) { if (!abandoned && back is not null) back.Disabled = !enabled; }
     internal void ApplyTitle(string value) { if (!abandoned) title.Text = value; }
     internal void ApplyReturnHint(string value) { if (!abandoned) returnHint = value; }
     internal void ApplyDefaultHint(string text)

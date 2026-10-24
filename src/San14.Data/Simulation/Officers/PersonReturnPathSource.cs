@@ -58,6 +58,36 @@ public static partial class PersonReturnPathSource
         catch (MissingOwner missing) { return new(null, found, null, path, missing.Message); }
     }
 
+    internal static int CalculateTalentTravelDays(GameState state, SourceWorldContext current,
+        int distance, int actorPhysical, ForceReference force)
+    {
+        try
+        {
+        bool validForce = Known(current.ReadForceNativeValidity(force), "2318F0 Force validity");
+        int advantage = validForce ? ReadForceAdvantage(state, current, force, 5).Value
+            ?? throw new MissingOwner("2318F0 state advantage") : 0;
+        int coefficient = Known(PersonReturnPathParameterSeed.ReadCurrent(state,
+            SimulationParameterKeys.PersonReturn.JourneyCoefficient), "2318F0 journey coefficient");
+        float bonus = validForce ? (float)advantage / Known(PersonReturnPathParameterSeed.ReadCurrent(state,
+            SimulationParameterKeys.PersonReturn.LandAdvantageDivisor), "2318F0 advantage divisor") : 0f;
+        float value = (float)coefficient * distance / (bonus + 10f) / 12f;
+        int rounded = NativeFloatToInt(MathF.Ceiling(value));
+        if (Known(current.ReadPersonNativeValidity(actorPhysical), "2318F0 actor validity"))
+        {
+            int effect = Known(TacticRemakeCurrentTraits.CommanderEffectSum(current, actorPhysical, 0x12),
+                "2318F0 actor trait18");
+            if (effect > 0)
+            {
+                int multiplier = Known(PersonReturnPathParameterSeed.ReadCurrent(state,
+                    SimulationParameterKeys.PersonReturn.PersonalityJourneyMultiplier), "2318F0 trait18 multiplier");
+                rounded = NativeFloatToInt(MathF.Ceiling((100f - (float)multiplier * (float)effect) * value * 0.01f));
+            }
+        }
+        return Math.Max(1, rounded);
+        }
+        catch (MissingOwner missing) { throw new InvalidDataException(missing.Message, missing); }
+    }
+
     /// <summary>Source2ADBC0. This is State/Advantage land advantage, not
     /// Force41D690 policy. Reads the existing saved growth State bank and the
     /// actual current City registration chain; candidates use the shared pool.</summary>
@@ -126,7 +156,7 @@ public static partial class PersonReturnPathSource
         int ReadByte(string key) { int value = ReadInt(key); return value is >= 0 and <= 255 ? value : throw new InvalidDataException("Current byte exceeds source width."); }
     }
 
-    private static int[] Search(SourceWorldContext current, int start, int end)
+    internal static int[] Search(SourceWorldContext current, int start, int end)
     {
         if ((uint)start >= HexCount || (uint)end >= HexCount) throw new InvalidDataException("CHex physical endpoint is out of range.");
         var nodes = new SearchNode?[HexCount];

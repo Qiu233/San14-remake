@@ -10,8 +10,9 @@ public sealed class OwnedArmyReturnWorld
     public SourceWorldContext Context { get; }
     public WorldIndexContext Pool { get; }
     private readonly GameState _input;
-    private OwnedArmyReturnWorld(GameState state, SourceWorldContext context, WorldIndexContext pool)
-    { _input = state;
+    private readonly bool _borrowed;
+    private OwnedArmyReturnWorld(GameState state, SourceWorldContext context, WorldIndexContext pool, bool borrowed = false)
+    { _input = state; _borrowed = borrowed;
         Context = context; Pool = pool; }
 
     public static OwnedArmyReturnWorld Capture(GameState state, ArmyOperationContext definitions)
@@ -24,6 +25,17 @@ public sealed class OwnedArmyReturnWorld
         context.RestoreOwnedArmyReturnSlots(state,saved);
         OwnedArmyDestructorFlags.BindCurrent(saved,context);
         return new(state,context,pool);
+    }
+
+    /// <summary>Borrows the private operation's current world and live pool.
+    /// The exact input still owns Prepare/Commit; no state or list is recaptured.</summary>
+    internal static OwnedArmyReturnWorld Borrow(GameState state, SourceWorldContext context, WorldIndexContext pool)
+    {
+        ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(pool);
+        if (!ReferenceEquals(pool.ArmyReturnOwner, context) || !pool.OwnsArmyReturnProfile())
+            throw new InvalidDataException("Borrowed Army return requires the same operation's current pool.");
+        return new(state, context, pool, borrowed: true);
     }
 
     /// <summary>Publishes this world's prepared return. The active unit becomes
@@ -42,8 +54,14 @@ public sealed class OwnedArmyReturnWorld
         if (packet.HasAssignmentCurrentWrites)
             result = PersonAssignmentPrecallInputs.PublishCurrent(result, Context);
         result = ArmyReturnImagePublication.Publish(result, Context, [physical]);
+        //Ruler District reorganization can complete and reschedule real
+        //personnel tasks. Rebind their metadata to this same committed pool,
+        //without rebuilding its live associated/retirement lists.
+        if (packet.DistrictOperation is not null &&
+            !ReferenceEquals(Context.ReadOwnedPersonCommandManager(), result.PersonnelCommands))
+            PersonReturnCommands.BindCurrent(result, Context);
         result = (result with { ArmyMapOccupancy = Context.ExportArmyMapOccupancy() })
-            .WithArmyLifecycle(result.ReadArmyLifecycle()! with { Indexes = Pool.ExportOwnedState() });
+            .WithArmyLifecycle(result.ReadArmyLifecycle()! with { Indexes = _borrowed ? Pool.ProjectOwnedRoles() : Pool.ExportOwnedState() });
         return result;
     }
 }

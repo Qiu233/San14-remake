@@ -13,15 +13,18 @@ public partial class Main
 
     private void OpenCampaignSaves(bool saving)
     {
-        if (_failed || _shuttingDown || HasCampaignSavePage || HasAdministrationPage || HasDeploymentPage ||
-            _detailsView is not null || _repository is null || _session is not { } session ||
-            saving && session.PlayerForceId is null) return;
+        if (_failed || _shuttingDown || HasCampaignSavePage || HasAdministrationPage || HasMilitaryOrderPage || HasCommandWorkspace ||
+            _detailsView is not null || HasActionReport || HasPersonnelConfirmation || _repository is null ||
+            saving && _session?.PlayerForceId is null) return;
+        var session=_session;
+        if(session is null&&(_titleMenu is null||saving))return;
         var presentation = new CampaignSavePresentation(_repository);
-        var entries = CampaignSaves.ReadSlots(presentation.Capture);
+        IReadOnlyList<CampaignSaveSlot> entries = CampaignSaves.ReadSlots(presentation.Capture);
+        if (!saving) entries = entries.Concat(CampaignSaves.ReadAutomaticSlots(presentation.Capture)).ToArray();
         foreach (var entry in entries)
             if (entry.Summary?.PresentationIssue is { } issue)
                 GD.PushWarning($"Save slot {entry.Number} presentation: {issue}");
-        var world = session.World;
+        var world = session?.World;
         var map = _residentMap;
         var view = new CampaignSaveView();
         _campaignSaveView = view; _campaignSaveSession = session; _campaignSaveWorld = world; _campaignSaveMap = map;
@@ -37,7 +40,7 @@ public partial class Main
         catch { CloseCampaignSaves(); throw; }
 
         bool Current() => !_failed && !_shuttingDown && _campaignSaveView == view &&
-            ReferenceEquals(_session, session) && ReferenceEquals(session.World, world) && ReferenceEquals(_world, world);
+            ReferenceEquals(_session, session) && ReferenceEquals(session?.World, world) && ReferenceEquals(_world, world);
 
         void RequestCampaignFileAction(int slot)
         {
@@ -91,11 +94,8 @@ public partial class Main
 
     private string ScenarioSaveTitle(string key)
     {
-        int index = ScenarioBrowserViews.FindScenario(_shownScenarios, key);
-        if (index < 0) return _ui.Get("detail_unknown");
-        string path = _shownScenarios[index].Selection.SourcePath;
-        return _repository!.ScenarioDocuments.Single(entry =>
-            StringComparer.OrdinalIgnoreCase.Equals(entry.SourcePath, path)).Title ?? _ui.Get("detail_unknown");
+        return _repository!.ScenarioDocuments.SingleOrDefault(entry=>
+            San14.Data.GameResourceId.File(entry.SourcePath).ToString()==key)?.Title??_ui.Get("detail_unknown");
     }
 
     private void CloseCampaignSaves()
@@ -111,5 +111,6 @@ public partial class Main
         if (map is not null && GodotObject.IsInstanceValid(map) && _residentMap == map)
             map.SetDetailsOpen(parent, keepMapVisible: parent);
         if (!_failed && !_shuttingDown) SetMapFocus(_mapFocused);
+        ResumeTitleMenu();
     }
 }

@@ -16,7 +16,7 @@ internal sealed class UiAssets(GameResourceRepository repository) : IDisposable
     private readonly List<ImageTexture> _linearTextures = [];
     private LocalizedUiSpriteSource? _declaredSprites;
     private readonly Dictionary<(uint File,string Name),LoadedSprite> _localSprites=[];
-    private readonly Dictionary<(string Name,bool Expansion),LoadedSprite> _commonSprites=[];
+    private readonly Dictionary<(string Name,string? Pack),LoadedSprite> _commonSprites=[];
     private bool _disposed;
 
     public (LoadedSprite Source, AtlasTexture Texture) Sprite(string name, LoadedSprite? declaredSource = null)
@@ -165,12 +165,19 @@ internal sealed class UiAssets(GameResourceRepository repository) : IDisposable
     }
 
     public AtlasTexture SrgbCommonSpritePart(string name,LcskUvQuad uv,bool expansion=false)
+        => DeclaredCommonSpritePart(name,uv,expansion?"texture_pk_common":null);
+
+    public AtlasTexture SrgbTexturePackSpritePart(string texturePack,string name,LcskUvQuad uv)
+        => DeclaredCommonSpritePart(name,uv,texturePack);
+
+    private AtlasTexture DeclaredCommonSpritePart(string name,LcskUvQuad uv,string? texturePack)
     {
-        if(!_commonSprites.TryGetValue((name,expansion),out var declared))
+        if(!_commonSprites.TryGetValue((name,texturePack),out var declared))
         {
             _declaredSprites??=new(repository);
-            declared=_declaredSprites.LoadCommonSprite(name,expansion);
-            _commonSprites.Add((name,expansion),declared);
+            declared=texturePack is null?_declaredSprites.LoadCommonSprite(name):
+                _declaredSprites.LoadTexturePackSprite(texturePack,name);
+            _commonSprites.Add((name,texturePack),declared);
         }
         return SrgbSpritePart(name,uv,declared);
     }

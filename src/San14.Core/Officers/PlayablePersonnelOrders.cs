@@ -5,26 +5,21 @@ public sealed class PlayablePersonnelOrders(IOrderRules next, IPersonnelCommandR
 {
     public CommandResult Apply(GameState state, ForceState force, GameOrder order, CommandContext context)
     {
-        if (order is not GrantItemOrder and not RevokeItemOrder and not SetOfficerOfficeOrder)
+        if (order is HireOfficersOrder or LearnOfficerTacticOrder or MediationOrder)
+            return PersonnelDevelopmentOrders.Apply(state, force, order, context, policy);
+        if (order is RewardOfficersOrder or GrantOfficerMeritOrder or PromoteOfficerCreditOrder or BanishOfficersOrder)
+            return PersonnelAdministrationOrders.Apply(state, force, order, context, policy);
+        if (order is SetCommanderSelectionOrder commanders)
+            return CommanderSelectionOrders.Apply(state, force, commanders, context, policy);
+        if (order is SetOfficerOfficeOrder or SetOfficerOfficesOrder)
+            return OfficerOfficeOrders.Apply(state, force, order, context, policy);
+        if (order is not GrantItemOrder and not RevokeItemOrder)
             return next.Apply(state, force, order, context);
         if (context.DelegatedDistrictId is not null)
             return CommandResult.Reject("Personnel administration requires direct control of the force.", "personnel.scope");
         PersonnelChange change;
         ItemState? item = null;
         int officerId;
-        if (order is SetOfficerOfficeOrder office)
-        {
-            officerId = office.OfficerId;
-            if (!state.OfficerOffices.ContainsKey(office.OfficeId))
-                return CommandResult.Reject("Office definition is missing.", "personnel.office_missing");
-            if (!state.Officers.TryGetValue(officerId, out OfficerState? current))
-                return CommandResult.Reject("Officer is missing.", "personnel.officer_missing");
-            if (current.Id == force.RulerId || current.Role == OfficerRole.Ruler)
-                return CommandResult.Reject("Ruler rank is independent of subordinate offices.", "personnel.ruler_office");
-            change = new(PersonnelActionKind.SetOffice, officerId,
-                PreviousOfficeId: current.OfficeId, NextOfficeId: office.OfficeId);
-        }
-        else
         {
             int itemId = order is GrantItemOrder grant ? grant.ItemId : ((RevokeItemOrder)order).ItemId;
             if (state.Items is null)
@@ -85,8 +80,7 @@ public sealed class PlayablePersonnelOrders(IOrderRules next, IPersonnelCommandR
             (quote.DistrictId is not null && (district is null || district.ForceId != force.Id)) ||
             (quote.GoldCityId is not null && (city is null || city.ForceId != force.Id)))
             throw new InvalidDataException("Personnel quote contains invalid accounting or control references.");
-        bool unchanged = change.Kind == PersonnelActionKind.SetOffice
-            ? change.PreviousOfficeId == change.NextOfficeId : change.PreviousHolderId == change.NextHolderId;
+        bool unchanged = change.PreviousHolderId == change.NextHolderId;
         if (unchanged) return CommandResult.Accept(state);
         if (quote.CommandBooks != 0 && district!.OrdersRemaining is null)
             return CommandResult.RuleUnavailable("rules.command_budget", "Personnel command books are unresolved.");
@@ -96,14 +90,19 @@ public sealed class PlayablePersonnelOrders(IOrderRules next, IPersonnelCommandR
             return CommandResult.Reject("City lacks personnel funds.", "personnel.insufficient_gold");
         if (quote.LoyaltyDelta != 0 && target.Loyalty is null)
             return CommandResult.RuleUnavailable("personnel.loyalty", "Current loyalty is unresolved; effects cannot consume it as zero.");
-        OfficerState changed = change.Kind == PersonnelActionKind.SetOffice
-            ? target with { Appointment = target.Appointment.Assign(change.NextOfficeId) } : target;
+        OfficerState changed = target;
         int actualLoyalty = quote.LoyaltyDelta == 0 ? 0 :
             Math.Clamp(checked(target.Loyalty!.Value + quote.LoyaltyDelta), 0, 100) - target.Loyalty.Value;
         if (quote.LoyaltyDelta != 0) changed = changed with { Loyalty = target.Loyalty!.Value + actualLoyalty };
         Dictionary<int, ItemState>? items = state.Items;
         if (item is not null)
-            items = new(state.Items!) { [item.Id] = item with { Holder = new ItemHolder(change.NextHolderId) } };
+        {
+            var transferred = item with { Holder = new ItemHolder(change.NextHolderId) };
+            if (quote.ItemFlagsAfter is byte flags)
+                transferred = transferred with { Lifecycle = (item.Lifecycle ??
+                    throw new InvalidDataException("Personnel item flag writer has no lifecycle owner.")) with { RetainedFlags = flags } };
+            items = new(state.Items!) { [item.Id] = transferred };
+        }
         var report = new PersonnelReportEntry(change.Kind, state.PeriodNumber, force.Id, target.Id,
             change.ItemId, change.PreviousHolderId, change.NextHolderId, change.PreviousOfficeId,
             change.NextOfficeId, quote.CommandBooks, quote.Gold, actualLoyalty, quote.Revision)

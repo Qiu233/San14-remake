@@ -2,12 +2,18 @@ using Godot;
 using San14.Data;
 using San14.Data.Formats;
 
-/// <summary>The ordinary Face3/Face4/Face5 portrait quad. Its caller supplies the resolved
+/// <summary>The ordinary Face2/Face3/Face4/Face5 portrait quad. Its caller supplies the resolved
 /// current portrait source; this control does not guess stock/DLC/edit routing.</summary>
 internal partial class UiSourcePortrait : Control
 {
+    internal void ConfigureFace1(GameResourceRepository repository,UiAssets assets,Shader shader,LoadedSprite portrait)
+        => ConfigureSource(repository,assets,shader,portrait,new UiSourceLayout(repository,0xA76F2721),1,3);
+
     internal void Configure(GameResourceRepository repository, UiAssets assets, Shader shader, LoadedSprite portrait)
         => ConfigureSource(repository,assets,shader,portrait,new UiSourceLayout(repository,0xACFB207E),1,3);
+
+    internal void ConfigureFace2(GameResourceRepository repository,UiAssets assets,Shader shader,LoadedSprite portrait)
+        => ConfigureSource(repository,assets,shader,portrait,new UiSourceLayout(repository,0xA9487A40),1,3);
 
     internal void ConfigureFace3(GameResourceRepository repository,UiAssets assets,Shader shader,LoadedSprite portrait)
         => ConfigureSource(repository,assets,shader,portrait,new UiSourceLayout(repository,0xB20B608C),3,2);
@@ -17,6 +23,21 @@ internal partial class UiSourcePortrait : Control
 
     internal void ConfigureOfficerCard(GameResourceRepository repository,UiAssets assets,Shader shader,LoadedSprite portrait)
         => ConfigureSource(repository,assets,shader,portrait,new UiSourceLayout(repository,0xCB7DEBFC),9,3);
+
+    internal void ConfigureRankup(GameResourceRepository repository,UiAssets assets,Shader shader,LoadedSprite portrait)
+        => ConfigureSource(repository,assets,shader,portrait,new UiSourceLayout(repository,0xC5EA2F4C),2,2);
+
+    internal void ConfigureMediation(GameResourceRepository repository,UiAssets assets,Shader shader,LoadedSprite portrait,int slot)
+        => ConfigureSource(repository,assets,shader,portrait,new UiSourceLayout(repository,0x1DE0C63E),14+slot*11,2);
+
+    // The scenario caller resolves bank10 directly. Its two-part face mask
+    // differs from both ordinary Face3 and the three-layer chara_B standing art.
+    internal void ConfigureScenarioPreview(GameResourceRepository repository, UiAssets assets, Shader shader, LoadedSprite portrait)
+    {
+        var source = new UiSourceLayout(repository, 0xB1FE7E6D);
+        Size = source.Rectangle(0).Size;
+        ConfigureSource(repository, assets, shader, portrait, source, 1, 2);
+    }
 
     internal void ConfigureMapHeader(GameResourceRepository repository,UiAssets assets,Shader shader,LoadedSprite portrait)
     {

@@ -7,7 +7,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// <summary>One reached annual appearance manager on the enclosing Turn's
     /// private candidate, current definitions and shared list pool. No calendar,
     /// host stream, presentation or committed world is published here.</summary>
-    internal sealed class PersonAppearanceSource
+    internal sealed partial class PersonAppearanceSource
     {
         private readonly ArmyCampaignRuleAdapter package;
         private readonly SourceWorldContext current;
@@ -21,6 +21,14 @@ public sealed partial class ArmyCampaignRuleAdapter
             SourceWorldContext current, WorldIndexContext pool, Action<string, GameState>? observe = null)
         {
             this.package = package; latest = state; this.current = current; this.pool = pool; this.observe = observe;
+        }
+
+        //Shared2EE160 leaf only. No annual iteration, resource binding, list
+        //allocation, calendar processing or outer publication is performed.
+        internal GameState ApplyInitialLoyaltyCurrent(int person, TransferPersonReference ruler)
+        {
+            InitialLoyalty(person, ruler);
+            return latest;
         }
 
         internal GameState Run()
@@ -111,7 +119,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
         }
 
-        private void FillExcluded(HexListHandle output)
+        internal void FillExcluded(HexListHandle output)
         {
             var descriptor = pool.AssociatedTaskHandle ?? throw Missing("associated_task_descriptor");
             var node = current.ReadAssociatedChainHead(new(descriptor.Identity)) ?? throw Missing("associated_task_head");
@@ -331,18 +339,20 @@ public sealed partial class ArmyCampaignRuleAdapter
             int id = Identity(s);
             var abilities = new TacticRemakeCurrentAbilities(current, package._scenario, package.Seed.Language,
                 SimulationRuleIdentity.ForLocale(package.Seed.Language));
-            _ = Known(abilities.ResolveDimension(latest, id, 4,
+            int charm = Known(abilities.ResolveDimension(latest, id, 4,
                 (f, effect) => package._baseCapacityInputs.ReadPanelModifier(latest, f, effect)), "loyalty_current_Charm4");
-            _ = RawHit(person, sovereign, like: false);
+            int dislike = RawHit(person, sovereign, like: false) ? -15 : 0;
             int doctrine = Doctrine(person);
-            _ = Relation(person, 0xB2) == Relation(s, 0xB2);
-            if (doctrine != 0) _ = doctrine == Doctrine(s);
-            _ = Known(RulerCaptureReleaseInputs.ReadCurrentWord(latest, s, 0x17A), "loyalty_sovereign17A");
-            _ = Known(RulerCaptureReleaseInputs.ReadCurrentWord(latest, person, 0x17A), "loyalty_person17A");
-            // This exact signed current threshold has no owned value. It is
-            // reached only after all preceding actual mode0 operand reads.
-            _ = distance;
-            throw Missing("initial_loyalty_current_signed_threshold");
+            int bonus = Relation(person, 0xB2) == Relation(s, 0xB2) ? 5 : 0;
+            if (doctrine != 0 && doctrine == Doctrine(s)) bonus += 3;
+            short rulerValue = unchecked((short)Known(RulerCaptureReleaseInputs.ReadCurrentWord(latest, s, 0x17A), "loyalty_sovereign17A"));
+            short personValue = unchecked((short)Known(RulerCaptureReleaseInputs.ReadCurrentWord(latest, person, 0x17A), "loyalty_person17A"));
+            //268D40 mode0: the separate17C penalty/divisor branch is not read.
+            //The TC threshold is a proved loader-zero immutable rule. Its
+            //formal reader preserves saved overrides, including older saves.
+            int threshold = TalentRecruitParameters.Read(latest, "initial-loyalty-signed-threshold");
+            if (personValue - rulerValue <= threshold) bonus += 3;
+            return (byte)Math.Clamp(unchecked(bonus + (charm / 14 - distance / 2) + 100 + dislike), 0, 100);
         }
 
         private void Sort(HexListHandle list)

@@ -118,10 +118,12 @@ public static class ReportPool
         if (setting != 0) state.WriteReportByte(reference, 0x82, (byte)(current | bit));
     }
     private static void CopyText(ReportReference reference, int offset, int capacity, string text, IReportPoolState state)
+        => CopyTextWindow(text, capacity, (index, value) => state.WriteReportWord(reference, offset + index * 2, value));
+    internal static void CopyTextWindow(string text, int capacity, Action<int, ushort> write)
     {
         int length = FirstNulLength(text), count = Math.Min(length + 1, capacity);
         for (int index = 0; index < count; index++)
-            state.WriteReportWord(reference, offset + index * 2, index < length ? text[index] : (ushort)0);
+            write(index, index < length ? text[index] : (ushort)0);
     }
     private static int FirstNulLength(string text) { int zero = text.IndexOf('\0'); return zero < 0 ? text.Length : zero; }
     private static ForceReference Force(IReportPoolState state, int slot) => state.ReadForceTableReference(slot)

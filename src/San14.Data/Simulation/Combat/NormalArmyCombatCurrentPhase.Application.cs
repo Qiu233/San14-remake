@@ -38,10 +38,13 @@ public sealed partial class NormalArmyCombatCurrentPhase
         var automatic = TryApplyAutomaticTacticPrefix(current, pairIndex);
         if (automatic.Outcome == AutomaticTacticPrefixOutcome.CurrentInputsUnresolved ||
             automatic.Selection is not { } original)
-            return Unknown("automatic-prefix");
+            return new(NormalArmyPairApplicationPrefixOutcome.CurrentInputsUnresolved, current,
+                automatic, null, null, "automatic-prefix");
         ushort frame20 = original.Stage5.Damage.NativeFrameWord20;
         NormalArmyCombatTacticFrame22Receipt frame22;
-        if (automatic.Outcome == AutomaticTacticPrefixOutcome.EffectsTailWaitingCommitted)
+        if (automatic.ActualFrame22 is { } borrowedFrame22)
+            frame22 = borrowedFrame22;
+        else if (automatic.Outcome == AutomaticTacticPrefixOutcome.EffectsTailWaitingCommitted)
         {
             //172C10 clears B8; complete0/15/19/20/23 under the already proved
             //zero-chain neither inserts damage nodes nor moves/removes Armies.
@@ -55,8 +58,11 @@ public sealed partial class NormalArmyCombatCurrentPhase
         }
         else frame22 = new(0, 0, false, 0); //Actual fresh pair and native no-activation path.
         var request = NormalArmyCombatApplicationSourceMath.BuildNormalRequestedLoss(frame20, frame22.Word22After);
-        var applied = currentApplication.TryApplyNativeNormalApplicationPrefix(automatic.State,
-            original.Stage5.Pair, request, state => captureDefinitions(state) is { } definitions ? createContext(definitions) : null);
+        TacticRemakeCurrentContext? ReadCurrent(GameState reached) =>
+            captureDefinitions(reached) is { } definitions ? createContext(definitions) : null;
+        var applied = operationCurrent is null
+            ? currentApplication.TryApplyNativeNormalApplicationPrefix(automatic.State, original.Stage5.Pair, request, ReadCurrent)
+            : currentApplication.TryApplyBorrowedNormalApplicationPrefix(automatic.State, original.Stage5.Pair, request, ReadCurrent, operationCurrent);
         if (applied.Outcome == NormalArmyApplicationPrefixOutcome.CurrentInputsUnresolved)
             return new(NormalArmyPairApplicationPrefixOutcome.CurrentInputsUnresolved, current,
                 null, null, null, applied.MissingPhase);
@@ -68,8 +74,11 @@ public sealed partial class NormalArmyCombatCurrentPhase
             {
                 var attacker = transient.Units[original.Stage5.Pair.Attacker.ArmyId];
                 var target = transient.Units[original.Stage5.Pair.Target.ArmyId];
-                force = currentApplication.ApplyForceResultDuringArmyOperation(transient, attacker.ForceId,
-                    target.ForceId, killedDebit.AppliedLoss, applied.Receipt.Killed!.Value, forceDefinitions);
+                force = operationCurrent is null
+                    ? currentApplication.ApplyForceResultDuringArmyOperation(transient, attacker.ForceId,
+                        target.ForceId, killedDebit.AppliedLoss, applied.Receipt.Killed!.Value, forceDefinitions)
+                    : currentApplication.ApplyBorrowedNormalForceResult(transient, operationCurrent, attacker.ForceId,
+                        target.ForceId, killedDebit.AppliedLoss, applied.Receipt.Killed!.Value, forceDefinitions);
                 if (force.Outcome == NormalArmyForceResultOutcome.CurrentInputsUnresolved)
                     return Unknown("normal-force-callback");
                 transient = force.State;
@@ -85,11 +94,18 @@ public sealed partial class NormalArmyCombatCurrentPhase
             //current15F or reached160 registry result rolls back both prefixes.
             var attacker = applied.State.Units[original.Stage5.Pair.Attacker.ArmyId];
             var target = applied.State.Units[original.Stage5.Pair.Target.ArmyId];
-            var force = currentApplication.ApplyForceResultDuringArmyOperation(applied.State, attacker.ForceId,
-                target.ForceId, debit.AppliedLoss, applied.Receipt.Killed!.Value, forceDefinitions);
+            var force = operationCurrent is null
+                ? currentApplication.ApplyForceResultDuringArmyOperation(applied.State, attacker.ForceId,
+                    target.ForceId, debit.AppliedLoss, applied.Receipt.Killed!.Value, forceDefinitions)
+                : currentApplication.ApplyBorrowedNormalForceResult(applied.State, operationCurrent, attacker.ForceId,
+                    target.ForceId, debit.AppliedLoss, applied.Receipt.Killed!.Value, forceDefinitions);
             if (force.Outcome == NormalArmyForceResultOutcome.CurrentInputsUnresolved)
                 return Unknown("normal-force-callback");
-            var personality = currentApplication.TryApplyNativeNormalPersonalityReaction(force.State, target.Id);
+            var personalityContext = operationCurrent is null ? null : ReadCurrent(force.State);
+            if (operationCurrent is not null && personalityContext is null) return Unknown("normal-personality-current");
+            var personality = operationCurrent is null
+                ? currentApplication.TryApplyNativeNormalPersonalityReaction(force.State, target.Id)
+                : currentApplication.ApplyBorrowedNormalPersonality(force.State, operationCurrent, personalityContext!, target.Id);
             if (personality.Outcome == NormalArmyPersonalityApplicationOutcome.CurrentInputsUnresolved)
                 return Unknown("normal-personality-reaction");
             return new(NormalArmyPairApplicationPrefixOutcome.AwaitingApplicationTail, personality.State,

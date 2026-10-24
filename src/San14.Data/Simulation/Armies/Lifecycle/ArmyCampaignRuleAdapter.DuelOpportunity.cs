@@ -16,24 +16,28 @@ public sealed partial class ArmyCampaignRuleAdapter
             throw DuelMissing("fresh_campaign_boundary");
         //Both constructors establish these gate values. The SC history helper
         //calls are not yet independently owned, so its history stays unknown.
-        GameState fresh = InstallFreshDuelPersonConditions(DuelOpportunityParameters.InstallFresh(state));
+        GameState fresh = InstallFreshDuelPersonConditions(DuelCampaignAftermathParameters.InstallFresh(
+            DuelAftermathPrimitiveParameters.InstallFresh(DuelNumericParameters.InstallFresh(
+                DuelOpportunityParameters.InstallFresh(state), _scenario), _scenario), _scenario));
         return fresh with { DuelOpportunityCount = 0, CampaignDuelService = new(false, false,
             _scenario.Snapshot.Locale == "TC" ? CampaignDuelHistoryKnowledge.KnownEmpty :
-                CampaignDuelHistoryKnowledge.Unknown) };
+                CampaignDuelHistoryKnowledge.Unknown)
+            { HistoricalPairs = _scenario.Snapshot.Locale == "TC" ? [] : null } };
     }
 
     internal void RequireInactiveDuelServiceForProgress(GameState state)
     {
         var service = state.CampaignDuelService ?? throw DuelMissing("service_owner");
         bool active = service.Active ?? throw DuelMissing("active");
-        if (active) throw DuelMissing("active_updater");
+        if (active) throw DuelMissing(state.CampaignDuelService?.Registered is null
+            ? "active_registered_result_owner" : "aftermath_379790_campaign_consumer");
         //The inactive updater has no effects. Busy remains independent and
         //must be read from the current candidate after that updater boundary.
         if (state.CampaignDuelService?.Busy is not false)
             throw DuelMissing("pre_loop_busy");
     }
 
-    internal GameState AdvanceDuelOpportunity(GameState state)
+    internal GameState AdvanceDuelOpportunity(GameState state, NativeArmyProgressStageMoment moment)
     {
         //Preserve the source's BC-before-E58 read order. BC is discarded in
         //advanced mode, so unknown BC does not block its known refusal branch.
@@ -57,13 +61,14 @@ public sealed partial class ArmyCampaignRuleAdapter
                         ?? throw DuelMissing("World48");
                     capped = world is not (0 or 151);
                 }
-                if (!capped) result = AdvanceDuelZeroEligible(state);
+                if (!capped) result = AdvanceDuelEligibleOpportunities(state, moment);
             }
         }
         //Every real manager return reaches the scheduler's fresh Busy read.
         //Active/history are not extra gates inside the due manager.
         if (result.CampaignDuelService?.Busy is not false)
-            throw DuelMissing("post_manager_busy");
+            throw DuelMissing(result.CampaignDuelService?.Registered is null ?
+                "post_manager_busy" : "aftermath_379790_campaign_consumer");
         return result;
     }
 
@@ -93,35 +98,6 @@ public sealed partial class ArmyCampaignRuleAdapter
             people[person.Id] = person with { DuelCondition = new(input.InitialQualificationAdjustment, 100) };
         }
         return state with { Officers = people };
-    }
-
-    private GameState AdvanceDuelZeroEligible(GameState state)
-    {
-        var current = CaptureWritableTransportRouteCurrent(state);
-        _baseCapacityInputs.BindCurrent(state, current);
-        OwnedArmyLifecycleDetachedInputs.BindCurrent(state, current);
-        OwnedArmyDestructionCurrent.BindOwnedCurrentContext(state, current);
-        var pool = current.ReadOwnedCurrentListPool() ?? throw DuelMissing("primary_pool");
-        var temporary = current.CreateNearbyTemporary();
-        int count;
-        try
-        {
-            var registry = current.ReadRegistryReferences(RegistryKind.Army) ?? throw DuelMissing("complete_manager60");
-            var abilities = new TacticRemakeCurrentAbilities(current, _scenario, Seed.Language, SimulationRuleIdentity.ForLocale(Seed.Language));
-            foreach (var entry in registry)
-            {
-                if (entry is not { Kind: RegistryKind.Army, PhysicalSlot: int physical })
-                    throw DuelMissing("registry_Army_receiver");
-                var army = new ArmyUnitReference(physical); //The registry already holds the actual pointer.
-                if (DuelOpportunityEligibility.IsEligible(state, current, army, abilities, _baseCapacityInputs))
-                    current.AppendNearbyArmyTemporary(temporary, army);
-            }
-            count = current.ReadTemporaryHexListCount(temporary) ?? throw DuelMissing("eligible_count");
-        }
-        finally { current.ClearNearbyTemporary(temporary, true); }
-        if (count != 0) throw DuelMissing("qualified_opportunity_weights");
-        var arena = state.ReadArmyLifecycle() ?? throw DuelMissing("saved_arena");
-        return state.WithArmyLifecycle(arena with { Indexes = pool.ExportOwnedState() });
     }
 
     private static InvalidDataException DuelMissing(string field) =>

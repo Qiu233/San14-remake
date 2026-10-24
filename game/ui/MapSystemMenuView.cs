@@ -2,7 +2,7 @@ using Godot;
 using San14.Data;
 using San14.Data.Formats;
 
-internal enum MapSystemCommand { Save, Load, Exit, Environment }
+internal enum MapSystemCommand { Save, Load, Exit, Environment, ReturnToTitle, Manual, ScenarioSettings }
 
 /// <summary>The map Config menu. Only supported commands receive a callback;
 /// the owner retains the parent while an ordinary save window is open.</summary>
@@ -15,7 +15,7 @@ internal partial class MapSystemMenuView : Control
     private bool abandoned, busy;
 
     internal void Configure(GameResourceRepository repository, PreviewText text, int titleMessage,
-        Vector2 mount, Action returned, Action<MapSystemCommand> selected)
+        Vector2 mount, Action returned, Action<MapSystemCommand> selected, bool scenarioSettingsSupported = false)
     {
         this.returned = returned; this.selected = selected;
         Name = "MapSystemMenu"; ZIndex = 3; MouseFilter = MouseFilterEnum.Stop;
@@ -37,7 +37,9 @@ internal partial class MapSystemMenuView : Control
             int node = binding.Item1;
             MapSystemCommand? command = node switch
             { 6 => MapSystemCommand.Save, 10 => MapSystemCommand.Load, 14 => MapSystemCommand.Environment,
-                32 => MapSystemCommand.Exit, _ => null };
+                18 when scenarioSettingsSupported => MapSystemCommand.ScenarioSettings,
+                27 when UiSourceOnlineManual.ForLocale(text.SourceLocale) is not null => MapSystemCommand.Manual,
+                31 => MapSystemCommand.ReturnToTitle, 32 => MapSystemCommand.Exit, _ => null };
             var box = source.Rectangle(node, mount);
             var button = new UiSourceCommandButton { Name = command is { } namedCommand ? "System" + namedCommand : "SystemCommand" + node,
                 Position = box.Position, Size = box.Size, Disabled = command is null };

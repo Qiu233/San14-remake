@@ -149,6 +149,10 @@ internal static class PlayablePeriodEconomySettlement
     {
         Gold = checked(city.Gold - quote.GoldCost + quote.GoldIncome),
         Supplies = checked(city.Supplies - quote.SuppliesCost + quote.SuppliesIncome),
+        PeriodGoldExpenditure = city.PeriodGoldExpenditure is int goldSpent
+            ? unchecked(goldSpent + quote.GoldCost) : null,
+        PeriodFoodExpenditure = city.PeriodFoodExpenditure is int foodSpent
+            ? unchecked(foodSpent + quote.SuppliesCost) : null,
         Troops = checked(city.Troops + quote.TroopsIncome),
         Morale = quote.NextMorale ?? (quote.MoraleIncrease == 0 ? city.Morale :
             city.Morale is int morale ? checked((int)Math.Min(100L, (long)morale + quote.MoraleIncrease)) : null)

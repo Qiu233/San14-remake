@@ -11,7 +11,7 @@ public partial class Main
     private GameState? _administrationWorld;
     private AreaAdministrationQuery<AreaAdministrationHandover>? _administrationHandover;
     private long _administrationHandoverRevision=-1;
-    private bool HasAdministrationPage=>_administrationParent is not null||_administrationNarration is not null||HasCityDomesticPage;
+    private bool HasAdministrationPage=>_administrationParent is not null||_administrationNarration is not null||HasCityDomesticPage||HasCityMerchantPage||HasCityOfficerMovementPage||HasGovernanceRosterPage||HasPersonnelItemPage||HasOfficerOfficePage||HasPersonnelAdministrationPage||HasCommanderSelectionPage||HasTalentOrdersPage||HasTalentAutoSearchPage||HasDiplomacyOrdersPage||_governanceNarration is not null||HasPersonnelPresentation||HasForcePolicyPresentation||HasForceExperienceTransition;
 
     private bool IsAdministrationCurrent(GameState world,MapSceneView map)=>
         !_failed&&!_shuttingDown&&ReferenceEquals(_world,world)&&_residentMap==map&&
@@ -19,10 +19,10 @@ public partial class Main
 
     private void OpenAreaAdministration(int cityId)
     {
-        if(HasAdministrationPage||HasDeploymentPage||HasCampaignSavePage||HasMapSystemMenu||_detailsView is not null||_repository is null||
+        if(HasAdministrationPage||HasMilitaryOrderPage||HasCampaignSavePage||HasMapSystemMenu||HasCommandWorkspace||_detailsView is not null||_repository is null||
             _world is not { } world||_campaignComposition is not { } composition||_residentMap is not { IsPlayableMapReady:true } map||
             _playerForceId is not int force||!world.Cities.ContainsKey(cityId)||
-            !San14.Client.Gameplay.DeploymentBatchView.Create(world,force,cityId,null).CanCompose)return;
+            !San14.Client.Gameplay.DeploymentBatchView.CanComposeAt(world,force,cityId))return;
         var opened=composition.PrepareArmyQueries(world).OpenAreaAdministrationDraft(world,cityId);
         if(!opened.Available){AdministrationUnavailable(opened.UnresolvedInput!);return;}
         _administrationWorld=world;_administrationMap=map;
@@ -83,7 +83,7 @@ public partial class Main
         var sprites=new LocalizedUiSpriteSource(_repository!);
         var layers=new[]{route.SpriteB,route.SpriteA,route.SpriteC}
             .Select(name=>sprites.LoadTexturePackSprite(route.ResourceName,name)).ToArray();
-        var narration=new DeploymentNarrationView();_administrationNarration=narration;AddChild(narration);
+        var narration=new DeploymentNarrationView { KeyboardInput = HandleGameplayNarrationKeyboard };_administrationNarration=narration;AddChild(narration);
         try
         {
             presenter.SetBusy(true);
@@ -94,7 +94,8 @@ public partial class Main
                 {CloseAreaAdministration();return;}
                 _administrationNarration=null;narration.Abandon();narration.QueueFree();
                 Submit();
-            }));
+            }), () => _preferences.AutomaticMessageAdvance,
+                () => CanAdvanceNarration&&_administrationNarration==narration&&IsAdministrationCurrent(world,map)&&_administrationPresenter==presenter&&draft.Revision==handover.DraftRevision);
         }
         catch
         {

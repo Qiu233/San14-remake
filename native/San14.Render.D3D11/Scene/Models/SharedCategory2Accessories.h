@@ -129,6 +129,8 @@ inline void updateNativeSharedAccessoryFamily(ID3D11Device* device,NativeGraphic
                 });
             prepareNativeArmyCurrentPose(bankPose,slot->pose,slot->cache,slot->clock.returnedPhase,
                 slot->presented.world,slot->clock.hasSuccessfulSample,true);
+            // This writer already owns the physical slot, not a population copy.
+            slot->cache.pendingPoolSnapshot=false;
             state.installedMaterial=flag;
         }
         // Capital/City/Gate v30 clears dirty at normal completion, including a

@@ -138,6 +138,7 @@ internal sealed class NormalCombatPresentationCapture(ArmyCampaignRuleAdapter pa
             27 => package.ReadHistoryArmyName(state, current, new(selected.PhysicalSlot)),
             5 => state.Cities.GetValueOrDefault(selected.PhysicalSlot)?.Name ?? throw M("report_City_name"),
             6 => state.Gates.GetValueOrDefault(selected.PhysicalSlot + 51)?.Name ?? throw M("report_Gate_name"),
+            11 => package.ReadFacilityArrivalObjectName(state, current, new(selected.PhysicalSlot)),
             _ => throw M("report_target_kind")
         };
         var actor = new ArmyUnitReference(physical);

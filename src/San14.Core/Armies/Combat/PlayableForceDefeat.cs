@@ -52,7 +52,7 @@ public static class PlayableForceDefeat
     public static PlayableForceDefeatResult AfterCityCapture(GameState state,
         int capturedCityId, int? previousForceId, int capturingForceId, int nextPeriod,
         PlayableForceDefeatObservation? beforeDispositions = null, int[]? resolvedOfficerIds = null,
-        string? nativeUnregisterRuleId = null)
+        string? nativeUnregisterRuleId = null, int[]? resourceDisposedArmyIds = null)
     {
         if (!state.Cities.TryGetValue(capturedCityId, out CityState? city) || city.ForceId != capturingForceId ||
             !state.Forces.ContainsKey(capturingForceId) || nextPeriod != checked(state.PeriodNumber + 1))
@@ -73,9 +73,19 @@ public static class PlayableForceDefeat
         string[] missing = ["force.defeat.native_cleanup", "force.defeat.officer_outcomes", "force.defeat.base_land_disposition",
             "force.defeat.soldier_cargo_disposition"];
         if (nativeUnregisterRuleId is not null)
-            missing = missing.Where(key => key != "force.defeat.native_cleanup").ToArray();
+            // A successful source unregister has finished the actual Base,
+            // Object and Hex ownership passes. A failed/partial pass never
+            // supplies this completion, even if the Force is already inactive.
+            missing = missing.Where(key => key != "force.defeat.native_cleanup" &&
+                key != "force.defeat.base_land_disposition").ToArray();
         if (resolvedOfficerIds is not null && people.Except(resolved).Any() == false)
             missing = missing.Where(key => key != "force.defeat.officer_outcomes").ToArray();
+        // Absence of an Army is not a destruction receipt. For a nonempty
+        // observed roster, every resource stage and final retirement must have
+        // been completed by the source caller before its quantity is resolved.
+        if (beforeDispositions is not null && resourceDisposedArmyIds is not null &&
+            withdrawn.All(unit => resourceDisposedArmyIds.Contains(unit.Id)))
+            missing = missing.Where(key => key != "force.defeat.soldier_cargo_disposition").ToArray();
         current.Forces[forceId] = current.Forces[forceId] with
         { IsActive = false, Governance = current.Forces[forceId].Governance is { } governance ? governance with { Pending = null } : null };
         current.ForceDefeats.Add(forceId, new(forceId, nextPeriod, capturedCityId, capturingForceId,

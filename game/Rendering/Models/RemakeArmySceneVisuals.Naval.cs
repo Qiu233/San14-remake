@@ -7,15 +7,23 @@ public sealed partial class RemakeArmySceneVisuals
 {
     private RemakeArmyVisualFrame PublishNavalMotionFrame(UnitState unit,OwnedMotion owned)
     {
-        var records=owned.Motion.CaptureRecords();var current=owned.Motion.UnitPosition10;
+        return PublishNavalCurrentFrame(unit, owned.SelectedFormation1C, owned.Motion.UnitPosition10,
+            owned.Motion.UnitHeading744, owned.Initialization, owned.Motion.CaptureRecords(), owned.Motion.GraphicsAction60,
+            unit.NativeTacticRuntime?.Status10 == 2 ? owned.SelectedFormation1B : unit.FormationId!.Value);
+    }
+
+    private RemakeArmyVisualFrame PublishNavalCurrentFrame(UnitState unit, byte naval,
+        Vector3 current, float heading, RemakeArmyInitialization initialization,
+        ArmyInstancePoseSnapshot records, int graphicsAction, int formationSlot)
+    {
         var writes=new List<ArmyInstancePoseWrite>();
         var publications=new Dictionary<RemakeArmyComponentKey,RemakeArmyPosePublication>();
-        if(ArmyModelSelection.ChooseKnownDescriptor(1,null,owned.SelectedFormation1C).Category is int category)
+        if(ArmyModelSelection.ChooseKnownDescriptor(1,null,naval).Category is int category)
         {
             // CE1CCA80 writes only the first actual818 member's P/Q. Native
             // v30 owns Unit14 and preserves the bound physical model's S.
             var position=new Vector4(current.X,MathF.Max(445,Ground(current.X,current.Z)),current.Z,1);
-            var rotation=ArmyInstancePose.YawArgument(owned.Motion.UnitHeading744);
+            var rotation=ArmyInstancePose.YawArgument(heading);
             var write=new ArmyInstancePoseWrite(-1,0x818,0,position,rotation);
             writes.Add(write);
             var world=_constructors[category].PublishPosition(new(position.X,position.Y,position.Z))
@@ -25,10 +33,10 @@ public sealed partial class RemakeArmySceneVisuals
                 "source mode1 CE1CCA80; current Unit P/Q; no ocean-height or scale writer"));
         }
         // An unmatched1C clears818. The Unit, motion and common7F0 survive.
-        return new(unit.Id,unit.HexId,unit.FormationId!.Value,owned.Initialization,records,
+        return new(unit.Id,unit.HexId,formationSlot,initialization,records,
             new(writes,[],records.CallerSource,records.CodeSource),
             ArmyInstancePose.WriteFlags(records,1,[],[]),
             new ReadOnlyDictionary<RemakeArmyComponentKey,RemakeArmyPosePublication>(publications))
-            {CurrentUnitPosition=current,GraphicsAction60=owned.Motion.GraphicsAction60};
+            {CurrentUnitPosition=current,GraphicsAction60=graphicsAction};
     }
 }

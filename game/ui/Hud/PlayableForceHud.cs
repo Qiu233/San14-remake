@@ -35,7 +35,7 @@ public partial class PlayableForceHud : Control
 
     internal void Configure(GameResourceRepository repository, PreviewText text, ForceHudView view,
         Action advance, Action openForceDetails, IReadOnlyDictionary<MapMenuCommand, Action>? mapCommands = null,
-        Action? openSystemMenu = null)
+        Action? openSystemMenu = null, Action? openInformationMenu = null)
     {
         Name = "PlayableForceHud";
         ZIndex = 2;
@@ -54,20 +54,26 @@ public partial class PlayableForceHud : Control
         var commandRail = new MapCommandRail();
         commandRail.Configure(repository, text.SourceLocale, mapCommands ?? new Dictionary<MapMenuCommand,Action>());
         AddChild(commandRail);
-        if (openSystemMenu is not null)
+        if (openSystemMenu is not null || openInformationMenu is not null)
         {
             // log_slide_in's settled node83 X is960. Its authored -200 is
             // replaced by the source animation, never added to this endpoint.
             var main = new UiSourceLayout(repository, 0x036BB544,
                 new Dictionary<int, UiSourceNodeGeometry> { [83] = new(Origin: new Vector2(960, 0)) });
             var top = new UiSourceLayout(repository, 0xF28BE325);
-            var button = new UiSourceFunctionButton { Name = "MapSystemButton",
-                Position = main.Rectangle(84).Position + top.Rectangle(24).Position };
-            AddChild(button);
-            button.Configure(repository, _assets, _spriteShader, "000_cmn_icon_opt", openSystemMenu);
-            button.SetMeta("source_mount_layout", main.Source.Source.ResourceUri);
-            button.SetMeta("source_group_layout", top.Source.Source.ResourceUri);
-            button.SetMeta("source_group_node", 24);
+            if (openInformationMenu is not null) Function("MapInformationButton", 30, "000_cmn_icon_info", openInformationMenu);
+            if (openSystemMenu is not null) Function("MapSystemButton", 24, "000_cmn_icon_opt", openSystemMenu);
+
+            void Function(string name, int node, string icon, Action action)
+            {
+                var button = new UiSourceFunctionButton { Name = name,
+                    Position = main.Rectangle(84).Position + top.Rectangle(node).Position };
+                AddChild(button);
+                button.Configure(repository, _assets, _spriteShader, icon, action);
+                button.SetMeta("source_mount_layout", main.Source.Source.ResourceUri);
+                button.SetMeta("source_group_layout", top.Source.Source.ResourceUri);
+                button.SetMeta("source_group_node", node);
+            }
         }
 
         // The original mounts a real Common09 control here. Its three-part
@@ -88,6 +94,7 @@ public partial class PlayableForceHud : Control
         _doctrineGauge = new MapDoctrineGauge();
         _doctrineGauge.Configure(source, _assets, _spriteShader);
         AddChild(_doctrineGauge);
+        ConfigureExperienceHeader(source, nodes, text.SourceLocale, AddText);
 
         LcskNodeRecord flagNode = nodes.Single(n => n.Name == "flag");
         _flag = new Control
@@ -179,8 +186,7 @@ public partial class PlayableForceHud : Control
             SetMeta("command_books_visibility_issue", view.Identity.CommandBooksVisibilityIssue ?? "");
             _ruler.Text = view.RulerName;
             _doctrine.Text = view.DoctrineName;
-            _doctrineLevel.Text = view.DoctrineLevelText;
-            _doctrineGauge.Apply(view.DoctrineProgress?.Percentage);
+            RefreshExperienceHeader(view);
             var flag = view.Identity.Flag;
             _flag.Visible = flag is { ForceValidity: true, CurrentForceColor49: not null };
             if (_flag.Visible)

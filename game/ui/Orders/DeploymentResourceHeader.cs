@@ -57,5 +57,20 @@ internal partial class DeploymentResourceHeader : Control
         // A known invalid District has no writer. Preserve its prior labels.
     }
 
+    internal void ApplyTransport(long? remainingTroops, long? remainingGold, long? remainingSupplies,
+        long? currentBooks, long? remainingBooks, int? spentBooks)
+    {
+        values[6].Text = remainingTroops is long troops ? Number(troops) : unknown;
+        if (remainingGold is not long gold) values[8].Text = unknown;
+        else if (gold < 0) values[8].SetRuns(new UiSourceTextRun(Number(gold), negativeColour));
+        else values[8].Text = Number(gold);
+        values[10].Text = remainingSupplies is long supplies ? Number(supplies) : unknown;
+        values[14].Text = currentBooks is long books ? Number(books) : unknown;
+        if (remainingBooks is not long remaining || spentBooks is not int spent) values[15].Text = unknown;
+        else if (spent > 0) values[15].SetRuns(new(Number(remaining) + "("),
+            new("-" + Number(spent), negativeColour), new(")"));
+        else values[15].Text = Number(remaining) + "(-" + Number(spent) + ")";
+    }
+
     private static string Number(long value)=>value.ToString(CultureInfo.InvariantCulture);
 }

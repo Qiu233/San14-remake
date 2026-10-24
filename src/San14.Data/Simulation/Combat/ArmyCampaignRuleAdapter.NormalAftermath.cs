@@ -30,6 +30,11 @@ public sealed partial class NormalArmyCombatCurrentPhase
             current.NativeMapSeason != season)
             return new(NormalArmyPairAftermathOutcome.CurrentInputsUnresolved, current,
                 null, null, [], "current.stage8_phase_owner");
-        return currentApplication.TryApplyNativeNormalPairAftermath(current, plan.OrderedPairs[pairIndex], createContext);
+        if (operationCurrent is not null && captureDefinitions(current) is null)
+            return new(NormalArmyPairAftermathOutcome.CurrentInputsUnresolved, current,
+                null, null, [], "current.stage8_definitions");
+        return operationCurrent is null
+            ? currentApplication.TryApplyNativeNormalPairAftermath(current, plan.OrderedPairs[pairIndex], createContext)
+            : currentApplication.ApplyBorrowedNormalAftermath(current, operationCurrent, createContext(operationCurrent), plan.OrderedPairs[pairIndex]);
     }
 }

@@ -44,6 +44,11 @@ public sealed record TacticReportEntry(string Kind, int Period, int ForceId,
     int? ExpiresAtPeriod = null, string? Reason = null)
 {
     public long? NativeUpdateOrdinal { get; init; }
+    //A Base is never a Unit identity. Native result vectors retain their own
+    //Hex snapshot; these optional fields do not acknowledge an animation.
+    public int? TargetBaseLocationId { get; init; }
+    public int? TargetHexId { get; init; }
+    public int? InstructionIndex { get; init; }
 }
 
 public sealed partial record UnitState
@@ -90,7 +95,10 @@ public static class PlayableTacticStateValidation
                 entry.Period < 0 || entry.Period > checked(state.PeriodNumber + 1) ||
                 !state.Forces.ContainsKey(entry.ForceId) || entry.UnitId < 0 ||
                 !state.Officers.ContainsKey(entry.OfficerId) || !state.Tactics.ContainsKey(entry.TacticId) ||
-                entry.TargetUnitId < 0 || (entry.Effect is { } kind && !Enum.IsDefined(kind)) ||
+                entry.TargetUnitId < 0 || entry.TargetBaseLocationId is < 1 or > 61 ||
+                entry.TargetUnitId is not null && entry.TargetBaseLocationId is not null ||
+                entry.TargetHexId is < 0 or >= 48400 || entry.InstructionIndex is < 0 or > 1 ||
+                (entry.Effect is { } kind && !Enum.IsDefined(kind)) ||
                 entry.NativeUpdateOrdinal < 0 || entry.NativeUpdateOrdinal is long update &&
                     (state.NativeClock is null || update > state.NativeClock.UpdateOrdinal) ||
                 entry.ExpiresAtPeriod < 1)

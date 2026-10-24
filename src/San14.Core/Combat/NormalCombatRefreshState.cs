@@ -12,9 +12,14 @@ public enum CombatSpeechEvent
     ArmyOccupyingArea, ArmyBuildingFacility, ArmyRemovingFacility,
     ArmyPreparingFire, ArmyMarching, ArmyNearbyAlly, ArmyCuttingSupplyLines,
     ArmyHoldingPosition, ArmyDemolitionCompleted, ArmyFacilityCompleted, ArmyFacilityConstructionStarted,
-    TrapPitfall, TrapRockfall, TrapCountered, ConfusionApplied, ImmobilizationApplied
+    TrapPitfall, TrapRockfall, TrapCountered, ConfusionApplied, ImmobilizationApplied,
+    ArmyDestinationReachedHolding, ArmyEnteredBase, ArmyUnderFacilityAttack,
+    ArmyAreaOccupationCompleted,
+    FalseReportArmyRescued
 }
 public sealed record GarrisonContactChoice(byte? DamageTier, int Troops, bool FormationContact);
+/// <summary>The explicit2E context, independent of the speaker's position.</summary>
+public sealed record ArmyBaseArrivalSpeechContext(int GoalHexId, int LocationId);
 
 /// <summary>Force ownership is captured when the pair is accepted. Later
 /// changes of owner do not rewrite the most recently generated engagement.</summary>
@@ -30,6 +35,13 @@ public sealed record CombatSpeechRequest(CombatParticipantKind SpeakerKind, int 
 {
     public GarrisonContactChoice? GarrisonChoice { get; init; }
     public int? TrapDefinitionId { get; init; }
+    /// <summary>Actual facility definition for ArmyUnderFacilityAttack. This is
+    /// independent of the older trap-countermeasure definition argument.</summary>
+    public int? FacilityDefinitionId { get; init; }
+    public ArmyBaseArrivalSpeechContext? BaseArrival { get; init; }
+    /// <summary>The source25 area-completion speech retains the actual41
+    /// choice separately from its Area target; it is not a playback receipt.</summary>
+    public byte? AfterActionChoice { get; init; }
 }
 
 /// <summary>The actual refresh generation and frozen engagement ownership.

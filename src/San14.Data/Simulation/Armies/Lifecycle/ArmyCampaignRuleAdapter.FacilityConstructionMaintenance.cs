@@ -167,6 +167,10 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     private GameState FinishFacilityConstructionCommand(GameState state, SourceWorldContext current,
         UnitState image, NativeArmyProgressStageMoment moment, bool reportFailure)
+        => FinishFacilityConstructionCommand(state, current, image, (FacilityOperation)moment, reportFailure);
+
+    private GameState FinishFacilityConstructionCommand(GameState state, SourceWorldContext current,
+        UnitState image, FacilityOperation operation, bool reportFailure)
     {
         int physical = image.NativeArmyOrigin?.NativeSlotIndex ?? throw Missing("finish_Army_identity");
         byte action = K(ArmyConfigurationSourceAdapter.ReadAction(state, image), "finish_action");
@@ -177,11 +181,11 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (state.PersonnelCommands is null) throw Missing("finish_personnel_owner");
             PersonReturnCommands.BindCurrent(working, current);
             int person = current.ResolveOfficerSource(image.OfficerId) ?? throw Missing("finish_Person_pointer");
-            int position = PersonReturnCommands.ResolvePersonPosition(working, current, person, moment.PreWriterThirdDate).PhysicalSlot ?? 48400;
+            int position = PersonReturnCommands.ResolvePersonPosition(working, current, person, operation.ReadDate()).PhysicalSlot ?? 48400;
             int identity = K(current.ReadPersonIdentity(person), "finish_Person_identity");
             working = working with { PersonnelCommands = current.ReadOwnedPersonCommandManager() ?? throw Missing("finish_personnel_publication"),
                 CampaignEffectRequests = (working.CampaignEffectRequests ?? throw Missing("finish_effect_owner"))
-                    .Append(CampaignEffectSource.ArmyCommandMaintenance, moment.CalendarCycleOrdinal,
+                    .Append(CampaignEffectSource.ArmyCommandMaintenance, operation.Revision,
                         [new(new(CombatParticipantKind.Army, image.Id, identity, CombatSpeechEvent.ArmyOrderFinished,
                             position, null, null, null, null, null), null)]) };
             if (reportFailure && IsPlayerRulerLedDistrict(working, current, image))
@@ -200,7 +204,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 var report = new PeriodReportEntry(reason, current.ReadArmyUnitRawForceSlot(new(physical)),
                     OfficerId: image.OfficerId, ToHexId: image.HexId)
                 { UnitId = image.Id, DistrictId = district == 0 ? null : district, CommandChoiceId = choice,
-                    CampaignDay = StatusCampaignDay(working, moment), RuleId = "army.progress.command-maintenance.C360" };
+                    CampaignDay = operation.ReadCampaignDay(working), RuleId = "army.progress.command-maintenance.C360" };
                 working = working with { PendingCommandReports = [.. working.PendingCommandReports, report] };
             }
         }
@@ -212,7 +216,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         byte disposition = K(image.NativeCommandChoice41, "finish_Choice41");
         if (disposition == 0) return working;
         if (disposition != 2) throw Missing("finish_return_Choice41");
-        working = HoldArmyPositionAfterCommand(working, current, working.Units[image.Id], moment);
+        working = HoldArmyPositionAfterCommand(working, current, working.Units[image.Id], operation);
         var held = working.Units[image.Id];
         return working with { Units = new(working.Units) { [held.Id] = held with { DestinationHexId = held.HexId,
             Mission = new(UnitMissionKind.Combat), MilitaryPlan = new([], 0, new("stay", new(DeploymentTargetKind.Hex, held.HexId))) } } };

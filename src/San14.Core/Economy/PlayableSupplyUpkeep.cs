@@ -16,7 +16,9 @@ public static class PlayableSupplyUpkeep
         Settle(cities, units, PlayableSupplyUpkeepSnapshot.Capture(cities, periodFoodUnits), reports);
 
     public static void Settle(Dictionary<int, CityState> cities, Dictionary<int, UnitState> units,
-        PlayableSupplyUpkeepSnapshot basis, List<PeriodReportEntry> reports)
+        PlayableSupplyUpkeepSnapshot basis, List<PeriodReportEntry> reports,
+        ICollection<PlayableArmyFoodShortage>? armyShortages = null,
+        Action<PlayableGarrisonFoodShortage>? garrisonShortage = null)
     {
         ArgumentNullException.ThrowIfNull(cities); ArgumentNullException.ThrowIfNull(units);
         ArgumentNullException.ThrowIfNull(basis); ArgumentNullException.ThrowIfNull(reports);
@@ -32,6 +34,51 @@ public static class PlayableSupplyUpkeep
         var cityWrites = new Dictionary<int, CityState>();
         var unitWrites = new Dictionary<int, UnitState>();
         var additions = new List<PeriodReportEntry>(basis.MappingReports);
+        if (basis.ArmyExpenses is { } currentExpenses)
+            foreach (var army in basis.Units)
+                if (!currentExpenses.TryGetValue(army.UnitId, out var expense) || expense.Amount is null)
+                    additions.Add(new("food_source_unresolved", army.ForceId, army.FoodCityId, army.OfficerId)
+                    { RuleId = "CE-current-army-food", MissingRuleKeys = [expense?.MissingOwner ?? "food_upkeep.army_expense"] });
+        if (basis.UsesCurrentGarrisonExpenses)
+        {
+            // Keep the original Base receiver separate from its mapped payer.
+            // Each callback runs before that bill's debit, using the stock left
+            // by earlier bills; City and Gate troop losses are never aggregated.
+            foreach (var row in basis.Cities)
+            {
+                BillGarrison(row.CityId, row.GarrisonFoodCityId, row.GarrisonExpense);
+                foreach (var gate in basis.Gates.Where(gate => gate.FoodCityId == row.CityId))
+                    BillGarrison(gate.LocationId, gate.FoodCityId, gate.GarrisonExpense);
+            }
+        }
+        void BillGarrison(int location, int? payerId, int? amount)
+        {
+            if (payerId is not int payer || amount is not int due || due <= 0 ||
+                !cities.TryGetValue(payer, out var city) || city.ForceId is not int force) return;
+            var owner = basis.Cities.FirstOrDefault(row => row.CityId == payer);
+            if (owner?.ForceId != force)
+            {
+                additions.Add(new(OwnerChangedReportKind, force, payer, Amount: due)
+                { LocationId = location, RuleId = OwnerChangedRuleId,
+                    MissingRuleKeys = ["food_upkeep.owner_change_timing"] });
+                return;
+            }
+            int paid = Math.Min(city.Supplies, due);
+            if (paid < due)
+            {
+                if (garrisonShortage is null)
+                    throw new InvalidDataException("food_upkeep.current_garrison_shortage_consequences");
+                int percent = Math.Max(1, unchecked((due - city.Supplies) * 100) / due);
+                garrisonShortage(new(location, payer, force, due, city.Supplies, percent));
+                // The callback publishes the original Base, which can be this
+                // payer. Refresh it before the food write so 3C/44 survive.
+                city = cities[payer];
+            }
+            paid = Math.Min(city.Supplies, due);
+            cities[payer] = city with { Supplies = city.Supplies - paid };
+            if (paid > 0) additions.Add(new("food_upkeep", force, payer, Amount: paid) { LocationId = location });
+            if (paid < due) additions.Add(new("food_shortage", force, payer, Amount: due - paid) { LocationId = location });
+        }
         foreach (PlayableCitySupplyUpkeepBasis snapshot in basis.Cities)
         {
             if (snapshot.ForceId is not int forceId) continue;
@@ -39,13 +86,24 @@ public static class PlayableSupplyUpkeep
             PlayableUnitSupplyUpkeepBasis[] sourcedUnits = basis.Units.Where(unit => unit.BillingForceId == forceId &&
                 unit.FoodCityId == snapshot.CityId).ToArray();
             long fieldTroops = sourcedUnits.Sum(unit => (long)unit.Troops);
-            // Placeholder divisors; only the qualitative per-period expense is confirmed.
-            long garrisonDue = basis.Cities.Where(row => row.GarrisonFoodCityId == snapshot.CityId)
-                .Sum(row => (row.GarrisonFoodTroops + 29) / 30) +
-                basis.Gates.Where(row => row.FoodCityId == snapshot.CityId).Sum(row => (row.FoodTroops + 29) / 30);
-            long dueLong = garrisonDue + (fieldTroops + 59) / 60;
+            // Production garrisons use individually quoted current Base costs.
+            // An unresolved quote has its own report and cannot fall back to
+            // placeholder math. Legacy/custom providers retain their old rule.
+            long garrisonDue = basis.UsesCurrentGarrisonExpenses ? 0 : basis.Cities.Where(row => row.GarrisonFoodCityId == snapshot.CityId)
+                .Sum(row => basis.UsesCurrentGarrisonExpenses ? row.GarrisonExpense ?? 0L : (row.GarrisonFoodTroops + 29) / 30) +
+                basis.Gates.Where(row => row.FoodCityId == snapshot.CityId)
+                .Sum(row => basis.UsesCurrentGarrisonExpenses ? row.GarrisonExpense ?? 0L : (row.FoodTroops + 29) / 30);
+            // Production profiles supply the logistics route expense. Other
+            // providers retain their separately identified provisional rule.
+            //Current Army bills settle individually below. One final stock
+            //comparison cannot decide which earlier Army was fully supplied.
+            long fieldDue = basis.ArmyExpenses is not null ? 0 : (fieldTroops + 59) / 60;
+            long dueLong = garrisonDue + fieldDue;
             int due = (int)Math.Min(int.MaxValue, dueLong);
-            if (due == 0) continue;
+            if (due == 0)
+            {
+                continue;
+            }
             if (current.ForceId != forceId)
             {
                 //Old-force upkeep cannot debit the new owner. Precise expense
@@ -63,6 +121,15 @@ public static class PlayableSupplyUpkeep
             if (shortage > 0)
             {
                 additions.Add(new PeriodReportEntry("food_shortage", forceId, city.Id, null, shortage));
+                if (basis.UsesCurrentGarrisonExpenses)
+                {
+                    //The garrison loss consumer is independent of the Army
+                    //morale callback. Do not run legacy2/-10 on current units.
+                    additions.Add(new("food_garrison_shortage_unresolved", forceId, city.Id, Amount: shortage)
+                    { MissingRuleKeys = ["food_upkeep.current_garrison_shortage_consequences"] });
+                    cityWrites[city.Id] = city;
+                    continue;
+                }
                 bool legacyRecipients = basis.Cities.All(row => row.GarrisonFoodCityId != city.Id || row.CityId == city.Id) &&
                     basis.Gates.All(row => row.FoodCityId != city.Id || row.FoodTroops == 0) &&
                     sourcedUnits.All(row => row.SourceLocationId == city.Id);
@@ -97,10 +164,49 @@ public static class PlayableSupplyUpkeep
             }
             cityWrites[city.Id] = city;
         }
+        if (basis.ArmyExpenses is { } armyExpenses)
+        {
+            var roster = basis.Units.ToDictionary(unit => unit.UnitId);
+            var order = basis.ArmyExpenseOrder ?? armyExpenses.Select(pair =>
+                new PlayableArmyFoodExpenseEntry(pair.Key, pair.Value)).ToArray();
+            foreach (var entry in order)
+            {
+                var quote = entry.Expense;
+                if (!quote.Admitted || quote.Amount is not int due || quote.FoodCityId is not int payer ||
+                    !roster.TryGetValue(entry.UnitId, out var row) || !cities.TryGetValue(payer, out var original)) continue;
+                var city = cityWrites.GetValueOrDefault(payer) ?? original;
+                if (city.ForceId != row.BillingForceId)
+                {
+                    if (due > 0) additions.Add(new(OwnerChangedReportKind, row.ForceId, payer, row.OfficerId, due)
+                    { RuleId = OwnerChangedRuleId, MissingRuleKeys = ["food_upkeep.owner_change_timing"] });
+                    continue;
+                }
+                int paid = Math.Min(city.Supplies, due);
+                bool supplied = paid == due;
+                if (!supplied && armyShortages is null)
+                    throw new InvalidDataException("food_upkeep.current_army_shortage_consequences");
+                cityWrites[payer] = city with { Supplies = city.Supplies - paid };
+                if (paid > 0) additions.Add(new("food_upkeep", row.ForceId, payer, row.OfficerId, paid));
+                if (!supplied)
+                {
+                    additions.Add(new("food_shortage", row.ForceId, payer, row.OfficerId, due - paid));
+                    armyShortages!.Add(new(row.UnitId, row.ForceId, row.OfficerId, payer, due - paid));
+                }
+                if (units.TryGetValue(row.UnitId, out var current) && current.ForceId == row.ForceId &&
+                    current.OfficerId == row.OfficerId)
+                {
+                    var image = unitWrites.GetValueOrDefault(row.UnitId) ?? current;
+                    if (image.NativeTacticRuntime is { } runtime)
+                        unitWrites[row.UnitId] = image with { NativeTacticRuntime = runtime with
+                        { Flags26 = supplied ? (byte)(runtime.Flags26 | 0x40) : (byte)(runtime.Flags26 & ~0x40) } };
+                }
+            }
+        }
         //Stage the whole ledger before publication; a later invalid input must
         //not commit an earlier city's food payment or any report.
         foreach ((int id, CityState city) in cityWrites) cities[id] = city;
         foreach ((int id, UnitState army) in unitWrites) units[id] = army;
         reports.AddRange(additions);
+
     }
 }

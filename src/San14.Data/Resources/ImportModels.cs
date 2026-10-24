@@ -1,3 +1,5 @@
+using San14.Data.Formats;
+
 namespace San14.Data;
 
 public sealed record SourceFile(string Path, long Bytes, string Sha256)
@@ -22,6 +24,7 @@ public sealed record S14Entry(string SourcePath, string Signature,
     public int? StartYear { get; init; }
     public int? StartMonth { get; init; }
     public int? StartDay { get; init; }
+    public S14ScenarioSelectionMetadata? SelectionMetadata { get; init; }
     public int? CharacterNameCount { get; init; }
     public int? CharacterAbilityCount { get; init; }
     public int? UnresolvedCharacterReferenceCount { get; init; }
@@ -87,6 +90,7 @@ public sealed record CityPreviewRecord(int Slot, string Name, ushort OfficerSlot
     // Legacy property name: this retains City+46, a base capacity input.
     // Current CE durability belongs to the associated Object+14 source field.
     public byte? RawValidityFlag69 { get; init; }
+    public byte? RawAutomaticTactics48 { get; init; }
 }
 
 public sealed record GatePreviewRecord(int Slot, int LocationSlot, string Name,
@@ -95,6 +99,7 @@ public sealed record GatePreviewRecord(int Slot, int LocationSlot, string Name,
     uint Amount0, uint Amount1, uint Troops, string StateRemainingBytesHex)
 {
     public byte? RawValidityFlag69 { get; init; }
+    public byte? RawAutomaticTactics48 { get; init; }
     public byte? RawMorale44 { get; init; }
     public ushort? RawField46 { get; init; }
 }
@@ -124,6 +129,7 @@ public sealed record CharacterPreviewRecord(int Slot, string Name, byte District
     public string? GivenNameSortKey { get; init; }
     public byte? RawSexCode { get; init; }
     public byte? DialogueStyle { get; init; }
+    public byte? VoiceType { get; init; }
     public ushort? BirthYear { get; init; }
     public byte? FamilyGeneration { get; init; }
     public string? FamilyName { get; init; }

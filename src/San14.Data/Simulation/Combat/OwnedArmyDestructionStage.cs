@@ -15,6 +15,7 @@ public sealed record OwnedArmyDestructionReceipt(int PhysicalSlot, int UnitId, i
     public PersonArmyCaptureReceipt? Capture { get; init; }
     public RulerCaptureReleaseReceipt? RulerRelease { get; init; }
     public PersonArmyCaptureWholeReceipt? Custody { get; init; }
+    public ForcedDuelCaptureAnnouncement? ForcedDuelCaptureAnnouncement { get; init; }
     public ArmyDestructionTrackingWrite[] TrackingWrites { get; init; } = [];
     public PeriodReportEntry Report => new("field_destroyed", ForceId, HomeCity, CommanderId, 0, PreviousHex, PreviousHex)
         { RuleId = OwnedArmyDestructionStage.Revision };
@@ -97,10 +98,19 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                 if (ArmyDestructionQueue.ResolveUnitSlot(working, defeat.VictimUnitId) is not int physical) continue;
                 if (current.ReadArmyUnitNativeValidity(new(physical)) is not bool valid) throw Missing("current.victim_validity");
                 if (!valid || ArmyPending70Admission.ContainsCurrentPointer(new(RegistryKind.Army, physical), new Pending(current))) continue;
+                if (defeat.Cause == UnitDefeatCause.DuelDeath)
+                    throw Missing("branch.duel_death_295EE0");
+                bool forcedCapture = defeat.Cause == UnitDefeatCause.DuelCapture;
+                if (!forcedCapture && defeat.Cause != UnitDefeatCause.OrdinaryBattle)
+                    throw Missing("current.destruction_cause");
                 var receipt = DestroyCurrent(working, current, world.Pool, defeat, physical,
-                    sampler ?? package.ReadArmyDestructionSampler(working, current), sourceDate, reportIntents);
+                    sampler ?? package.ReadArmyDestructionSampler(working, current), sourceDate, reportIntents,
+                    forcedDuelCapture: forcedCapture);
                 working = receipt.State;
-                destroyed.Add(physical); receipts.Add(receipt.Receipt); reports.Add(receipt.Receipt.Report);
+                destroyed.Add(physical); receipts.Add(receipt.Receipt);
+                //Cause2 still reaches the real kind14 Army notification after
+                //2E0FC0. Its mode0 suppresses only the optional morale report.
+                reports.Add(receipt.Receipt.Report);
                 queue = current.OwnedDestructionQueue ?? throw Missing("current.operation_settlements");
             }
             queue = CombatSettlementQueue.Create();
@@ -110,7 +120,6 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                 (result.CampaignEffectRequests ?? throw Missing("report_pending_owner"))
                     .Append(CampaignEffectSource.ArmyBattleDefeat,
                         result.NativeClock?.UpdateOrdinal ?? throw Missing("report_source_revision"), reportIntents) };
-            ArmyLifecycleSaveValidation.Validate(result);
             return new(result, receipts, null) { BaseReceipts = captures.ToArray(), CityReceipts = cityCaptures.ToArray(), SourceReports = reports.ToArray() };
         }
         catch (InvalidDataException error) { return new(null, receipts, error.Message); }
@@ -121,7 +130,7 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         UnitDefeatRequest request, int physical, TacticSourceSamplerWorld? sampler,
         NativeMapSeasonDate? sourceDate, List<CampaignEffectRequest> feedback,
         Action<ArmyUnitReference>? refresh = null, Action<int>? personChanged = null,
-        bool projectOwnedRoles = false)
+        bool projectOwnedRoles = false, bool forcedDuelCapture = false)
     {
         if (request.WinnerUnitId == request.VictimUnitId)
             throw Missing("branch.ordinary_null_winner_mode1_cause0");
@@ -184,11 +193,13 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         PersonArmyInjuryReceipt? injuryReceipt = null;
         if (!immune && !protectedNearby)
         {
-            var injury = PersonArmyInjurySource.Apply(state, current, commander, winnerPerson, package.CreateArmyDestructionAbilities(current), sampler);
+            var injury = forcedDuelCapture
+                ? PersonArmyInjurySource.ApplyForcedCapture(state, current, commander, winnerPerson, package.CreateArmyDestructionAbilities(current), sampler)
+                : PersonArmyInjurySource.Apply(state, current, commander, winnerPerson, package.CreateArmyDestructionAbilities(current), sampler);
             if (injury.NativeReturn is null) throw Missing(injury.UnresolvedOwner ?? "current.27D900");
             injuryReceipt = injury.Receipt;
         }
-        effects.Add("259C32.ordinary27D900_healthy_current");
+        effects.Add(forcedDuelCapture ? "259C32.forced_capture27D900_type2_current" : "259C32.ordinary27D900_healthy_current");
         var resource = ArmyDestructionResources.Prepare(state, current, victim, winner, winnerBase, captured);
         if (resource.Packet is null) throw Missing(resource.UnresolvedOwner ?? "current.resources259360");
         ArmyDestructionResources.ApplyContext(resource.Packet);
@@ -198,7 +209,8 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         //have closed. It is not bypassed merely because the Person is ruler.
         state = package.ApplyArmyDestructionLoyalty(state, current, commander, force, projectOwnedRoles);
         effects.Add("25A834.Person_E8_loyalty_writer");
-        state = CaptureMoraleDefeatReport(state, current, victim, winner, checked((ushort)hex), sampler, feedback);
+        if (!forcedDuelCapture)
+            state = CaptureMoraleDefeatReport(state, current, victim, winner, checked((ushort)hex), sampler, feedback);
         var wave = ArmyDestructionMoraleWave.Apply(state, current, victim,
             new(new(commander), force, captured.WinnerForce, false), winner);
         if (wave.EffectCount is null) throw Missing(wave.UnresolvedOwner ?? "current.ruler_morale_wave");
@@ -206,14 +218,29 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         PersonArmyCaptureReceipt? captureReceipt = null;
         RulerCaptureReleaseReceipt? releaseReceipt = null;
         PersonArmyCaptureWholeReceipt? custodyReceipt = null;
+        ForcedDuelCaptureAnnouncement? captureAnnouncement = null;
         bool returnedByCapture = false;
         if (captureImmunity == 0 && winnerValid)
         {
-            var capture = PersonArmyCaptureSource.Evaluate(state, current, commander, winnerPerson,
-                package.CreateArmyDestructionAbilities(current), sourceDate, sampler, new(false));
-            if (capture.Captured is not bool capturedPerson) throw Missing(capture.UnresolvedOwner ?? "current.27E870_capture");
-            captureReceipt = capture.Receipt;
-            effects.Add("25B75x.27E870_capture_predicate");
+            bool capturedPerson;
+            if (forcedDuelCapture)
+            {
+                //259360 cause2 skips27E870 and enters2E0FC0(...,0,1)
+                //directly. Preserve its source-time player announcement as
+                //pending App work before the actual custody callbacks.
+                capturedPerson = true;
+                captureAnnouncement = package.CaptureForcedDuelCaptureAnnouncement(state, current, commander, captured.WinnerForce);
+                effects.Add("25B75x.forced_duel_capture_direct_2E0FC0_flags0_1");
+            }
+            else
+            {
+                var capture = PersonArmyCaptureSource.Evaluate(state, current, commander, winnerPerson,
+                    package.CreateArmyDestructionAbilities(current), sourceDate, sampler, new(false));
+                if (capture.Captured is not bool actualCapture) throw Missing(capture.UnresolvedOwner ?? "current.27E870_capture");
+                capturedPerson = actualCapture;
+                captureReceipt = capture.Receipt;
+                effects.Add("25B75x.27E870_capture_predicate");
+            }
             if (capturedPerson)
             {
                 //2E0FC0's actual employed ruler/Army-position branch calls
@@ -239,7 +266,7 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                 }
                 else
                 {
-                    var custody = package.ApplyOrdinaryWinnerArmyCapture(state, current, pool, commander, winner);
+                    var custody = package.ApplyOrdinaryWinnerArmyCapture(state, current, pool, commander, winner, sourceDate);
                     state = custody.State ?? throw Missing(custody.UnresolvedOwner ?? "current.2E0FC0_ordinary_custody");
                     custodyReceipt = custody.Receipt; returnedByCapture = true;
                     effects.Add("25B75x.2E0FC0_ordinary_capture_callbacks_and_custody");
@@ -265,8 +292,8 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
             effects.Add("25B7CE.2EA9A0_1F24F0_1F68B0_remote_return_command");
         }
         effects.Add("25B850.1B4AB0_report_kind14");
-        RequireNoCaptives(current, physical);
-        effects.Add("25B89x.230C70_captive_temporary_empty");
+        state = ReleaseCaptives(state, current, physical, sourceDate, sampler, feedback);
+        effects.Add("25B89x.230C70_actual_captive_iterator");
         var tracking = ArmyDestructionTrackingTail.ApplyCurrent(state, current, physical);
         state = tracking.State;
         NearbyPersonalityTail(state, current, victim, force, captured.WinnerForce);
@@ -323,11 +350,15 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                 current.ClearArmyTargetToPlaceholder(index);
         }
         effects.Add("25C4xx.current_manager60_target_clear");
+        if (captureAnnouncement is { } announcement)
+            feedback.Add(new(null, null) { DuelCaptureAnnouncement = new(announcement.OfficerId,
+                announcement.OfficerNameAtSource, announcement.MessageRoot, announcement.SoundId) });
         return (state, new(physical, id, commanderId, army.ForceId, hex, home, injuryReceipt, effects)
             { WinnerUnitId = winnerUnitId, WinnerCommanderId = winnerCommander,
                 WinnerBaseLocation = winnerBaseValid ? Known(current.ReadBaseObjectLink(winnerBase), "winner_Base4E") : null,
                 WinnerReward = winnerReward,
                 WinnerForce164Gain = forceGain, Capture = captureReceipt, RulerRelease = releaseReceipt, Custody = custodyReceipt,
+                ForcedDuelCaptureAnnouncement = captureAnnouncement,
                 TrackingWrites = tracking.Writes });
     }
 
@@ -369,29 +400,50 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         finally { current.ClearPersonInjuryTemporary(temporary, true); }
         return immune;
     }
-    private static void RequireNoCaptives(SourceWorldContext current, int army)
+    private GameState ReleaseCaptives(GameState state, SourceWorldContext current, int army,
+        NativeMapSeasonDate? sourceDate, TacticSourceSamplerWorld? sampler,
+        List<CampaignEffectRequest> feedback)
     {
         var temporary = current.CreateNearbyTemporary();
         try
         {
-            current.ClearNearbyTemporary(temporary, false);
-            var descriptor = current.ReadRegistryDescriptor(RegistryKind.Person) ?? throw Missing("current.Person100_descriptor");
-            var node = current.ReadRegistryHead(descriptor) ?? throw Missing("current.Person100_head");
-            while (node.Identity is not null)
+            CollectCaptivesCurrent(current, army, temporary);
+            //230C70's actual allocated chain, not a replacement list of all
+            //matching people. A suppressed node allocation stays suppressed.
+            var captive = current.ReadRegistryHead(new(temporary.Identity)) ?? throw Missing("current.captive_head");
+            while (captive.Identity is not null)
             {
-                var person = current.ReadRegistryNodePayload(node) ?? throw Missing("current.Person100_payload");
-                if (person.Kind != RegistryKind.Person || person.PhysicalSlot is not int physical) throw Missing("current.Person100_typed_pointer");
-                if (Known(current.ReadPersonStatus(physical), "PersonE6") == 6 && Known(current.ReadPersonSecondLocation(physical), "PersonE4") == army + 61)
-                {
-                    var appended = current.AllocateRegistryNode(new(temporary.Identity)) ?? throw Missing("current.230C70_node");
-                    if (appended.Identity is not null) current.WriteRegistryNodePayload(appended, person);
-                }
-                node = current.ReadRegistryNodeNext(node) ?? throw Missing("current.Person100_next");
+                var entry = current.ReadRegistryNodePayload(captive) ?? throw Missing("current.captive_payload");
+                if (entry.Kind != RegistryKind.Person || entry.PhysicalSlot is not int person)
+                    throw Missing("current.captive_Person_pointer");
+                state = package.ApplyCaptiveReleaseCurrent(state, current, person, sourceDate,
+                    () => sampler?.Day450 ?? package.ReadArmyDestructionSampler(state, current)?.Day450
+                        ?? throw Missing("current.captive_report_World450"), feedback, sampler);
+                captive = current.ReadRegistryNodeNext(captive) ?? throw Missing("current.captive_next");
             }
-            if (Known(current.ReadTemporaryHexListCount(temporary), "230C70_count") != 0) throw Missing("branch.captive_release2E7890");
+            return state;
         }
         finally { current.ClearNearbyTemporary(temporary, true); }
     }
+    //230C70 shares only collection, never the callers' distinct consumers.
+    internal static void CollectCaptivesCurrent(SourceWorldContext current, int army, HexListHandle temporary)
+    {
+        current.ClearNearbyTemporary(temporary, false);
+        var descriptor = current.ReadRegistryDescriptor(RegistryKind.Person) ?? throw Missing("current.Person100_descriptor");
+        var node = current.ReadRegistryHead(descriptor) ?? throw Missing("current.Person100_head");
+        while (node.Identity is not null)
+        {
+            var person = current.ReadRegistryNodePayload(node) ?? throw Missing("current.Person100_payload");
+            if (person.Kind != RegistryKind.Person || person.PhysicalSlot is not int physical) throw Missing("current.Person100_typed_pointer");
+            if (Known(current.ReadPersonStatus(physical), "PersonE6") == 6 && Known(current.ReadPersonSecondLocation(physical), "PersonE4") == army + 61)
+            {
+                var appended = current.AllocateRegistryNode(new(temporary.Identity)) ?? throw Missing("current.230C70_node");
+                if (appended.Identity is not null) current.WriteRegistryNodePayload(appended, person);
+            }
+            node = current.ReadRegistryNodeNext(node) ?? throw Missing("current.Person100_next");
+        }
+    }
+
     private static int CachedEffect(SourceWorldContext current, ArmyUnitReference army, byte effect)
     {
         var fields = current.ReadArmyReturnTraitFields(army) ?? throw Missing("current.Army_cached36");

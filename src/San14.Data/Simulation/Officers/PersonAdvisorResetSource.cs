@@ -29,6 +29,9 @@ public static class PersonAdvisorResetSource
     internal static PersonAdvisorResetResult ApplyWithinPersonDeath(GameState state,
         SourceWorldContext current, WorldIndexContext pool, ForceReference force)
         => ApplyRefreshCurrent(state, current, pool, force, advisorRemoved: true, projectOwnedRoles: true);
+    internal static PersonAdvisorResetResult ApplyWithinPersonCapture(GameState state,
+        SourceWorldContext current, WorldIndexContext pool, ForceReference force)
+        => ApplyRefreshCurrent(state, current, pool, force, advisorRemoved: true, projectOwnedRoles: true);
 
     /// <summary>26DA10's changed-Force27BE40 only. Retains the current
     /// advisor52/cache15E and does not reach27AA40 or2FF040.</summary>
@@ -36,21 +39,44 @@ public static class PersonAdvisorResetSource
         SourceWorldContext current, ForceReference force)
         => ApplyRefreshCurrent(state, current, null, force, advisorRemoved: false);
 
+    internal static PersonAdvisorResetResult RefreshWithinBaseCapture(GameState state,
+        SourceWorldContext current, ForceReference force)
+        => ApplyRefreshCurrent(state, current, null, force, advisorRemoved: false, projectOwnedRoles: true);
+
     private static PersonAdvisorResetResult ApplyRefreshCurrent(GameState state,
         SourceWorldContext current, WorldIndexContext? pool, ForceReference force, bool advisorRemoved,
         bool projectOwnedRoles = false)
+        => RefreshCurrent(state, current, pool, force, advisorRemoved,
+            morale: true, policyCache: advisorRemoved, refreshCities: advisorRemoved,
+            projectOwnedRoles: projectOwnedRoles, ordinaryOnly: true);
+
+    /// <summary>Refreshes the selected derived owners after an ordered governance
+    /// setter. The caller supplies the latest saved roster and current fields;
+    /// this does not clear or require a cleared advisor52.</summary>
+    internal static PersonAdvisorResetResult RefreshGovernanceCurrent(GameState state,
+        SourceWorldContext current, WorldIndexContext pool, ForceReference force,
+        bool morale, bool policyCache, bool cities)
+        => RefreshCurrent(state, current, pool, force, advisorRemoved: false,
+            morale: morale, policyCache: policyCache, refreshCities: cities,
+            projectOwnedRoles: true, ordinaryOnly: false);
+
+    private static PersonAdvisorResetResult RefreshCurrent(GameState state,
+        SourceWorldContext current, WorldIndexContext? pool, ForceReference force, bool advisorRemoved,
+        bool morale, bool policyCache, bool refreshCities, bool projectOwnedRoles, bool ordinaryOnly)
     {
         try
         {
             int physical = Need(force.PhysicalSlot, "Force_pointer");
             if (!Need(current.ReadForceNativeValidity(force), "Force_validity"))
                 return new(state, new(physical, advisorRemoved ? 0 : null, advisorRemoved ? (byte)0 : null, [], [], [], []), null);
-            if (physical is < 1 or > 45 || advisorRemoved && Need(current.ReadAssignmentForceAdvisor52(physical), "cleared_Force52") != 0)
+            if (physical < 1 || physical > (ordinaryOnly ? 45 : 51) ||
+                advisorRemoved && Need(current.ReadAssignmentForceAdvisor52(physical), "cleared_Force52") != 0)
                 throw Missing("branch.ordinary_cleared_advisor52");
             pool ??= current.ReadOwnedCurrentListPool() ?? throw Missing("current_owned_primary_pool");
             var simulation = state.NativeArmySimulation ?? throw Missing("saved_parameter_owner");
-            var values = advisorRemoved ? new Dictionary<string, int>(simulation.Parameters.Int32Values)
-                { [BattleRemakeCurrentForcePolicies.ForceFieldKey(physical, 0x52)] = 0 } : simulation.Parameters.Int32Values;
+            var values = advisorRemoved || policyCache || refreshCities
+                ? new Dictionary<string, int>(simulation.Parameters.Int32Values) : simulation.Parameters.Int32Values;
+            if (advisorRemoved) values[BattleRemakeCurrentForcePolicies.ForceFieldKey(physical, 0x52)] = 0;
             var working = state with { NativeArmySimulation = simulation with { Parameters = simulation.Parameters with { Int32Values = values } } };
             var policies = new List<ForcePolicyScratchReceipt>();
             current.BaseForcePolicyEffectReader = (owner, effect) => ReadPolicy(owner, effect, true);
@@ -60,35 +86,38 @@ public static class PersonAdvisorResetSource
 
             //27BE40: the initial cap, then live manager80 Base iterator,
             //then live manager60 Army iterator. Setters take fresh own caps.
-            int cap = BasePostLoad.ReadMoraleUpper(force, current);
-            foreach (var entry in current.ReadRegisteredBases() ?? throw Missing("manager80_Base_chain"))
+            if (morale)
             {
-                var target = entry ?? throw Missing("manager80_Base_payload");
-                if (Need(current.ReadBaseForceSlot(target), "Base_current_Force") != physical) continue;
-                if (!Need(current.ReadBaseNativeValidity(target), "Base_validity")) continue;
-                byte before = Need(current.ReadBaseMorale44(target), "Base44");
-                BasePostLoad.WriteMorale(target, Math.Min((int)before, cap), current);
-                bases.Add(new(target, before, Need(current.ReadBaseMorale44(target), "Base44_after")));
-            }
-            foreach (var entry in ArmyMovementManagerLifecycle.ReadCurrentPointerOrder(current))
-            {
-                int slot = Need(entry.PhysicalSlot, "manager60_Army_pointer");
-                var army = new ArmyUnitReference(slot);
-                if (current.ReadArmyUnitForceReference(army).PhysicalSlot != physical) continue;
-                if (Need(OwnedArmyDestructionCurrent.ReadArmyExcluded233560(working, current, slot), "233560_pending_Army")) continue;
-                if (!Need(current.ReadArmyUnitNativeValidity(army), "Army_validity")) continue;
-                var fields = current.ReadArmyReturnResourceFields(army) ?? throw Missing("Army_resource_fields");
-                byte before = Need(fields.Morale1A, "Army1A");
-                int getter = BasePostLoad.ReadMoraleUpper(current.ReadArmyUnitForceReference(army), current); //22EB30.
-                int requested = Math.Min(Math.Min((int)before, getter), cap);
-                int setter = BasePostLoad.ReadMoraleUpper(current.ReadArmyUnitForceReference(army), current); //241720.
-                byte after = unchecked((byte)(requested < 0 ? 0 : Math.Min(requested, setter)));
-                current.WriteArmyReturnMorale(slot, after);
-                armies.Add(new(slot, before, after));
+                int cap = BasePostLoad.ReadMoraleUpper(force, current);
+                foreach (var entry in current.ReadRegisteredBases() ?? throw Missing("manager80_Base_chain"))
+                {
+                    var target = entry ?? throw Missing("manager80_Base_payload");
+                    if (Need(current.ReadBaseForceSlot(target), "Base_current_Force") != physical) continue;
+                    if (!Need(current.ReadBaseNativeValidity(target), "Base_validity")) continue;
+                    byte before = Need(current.ReadBaseMorale44(target), "Base44");
+                    BasePostLoad.WriteMorale(target, Math.Min((int)before, cap), current);
+                    bases.Add(new(target, before, Need(current.ReadBaseMorale44(target), "Base44_after")));
+                }
+                foreach (var entry in ArmyMovementManagerLifecycle.ReadCurrentPointerOrder(current))
+                {
+                    int slot = Need(entry.PhysicalSlot, "manager60_Army_pointer");
+                    var army = new ArmyUnitReference(slot);
+                    if (current.ReadArmyUnitForceReference(army).PhysicalSlot != physical) continue;
+                    if (Need(OwnedArmyDestructionCurrent.ReadArmyExcluded233560(working, current, slot), "233560_pending_Army")) continue;
+                    if (!Need(current.ReadArmyUnitNativeValidity(army), "Army_validity")) continue;
+                    var fields = current.ReadArmyReturnResourceFields(army) ?? throw Missing("Army_resource_fields");
+                    byte before = Need(fields.Morale1A, "Army1A");
+                    int getter = BasePostLoad.ReadMoraleUpper(current.ReadArmyUnitForceReference(army), current); //22EB30.
+                    int requested = Math.Min(Math.Min((int)before, getter), cap);
+                    int setter = BasePostLoad.ReadMoraleUpper(current.ReadArmyUnitForceReference(army), current); //241720.
+                    byte after = unchecked((byte)(requested < 0 ? 0 : Math.Min(requested, setter)));
+                    current.WriteArmyReturnMorale(slot, after);
+                    armies.Add(new(slot, before, after));
+                }
             }
 
             int? level = null; byte? cache = null;
-            if (advisorRemoved)
+            if (policyCache)
             {
                 //27AA40 uses3130E0's level, not CPolicyEffect's mapped value.
                 level = ReadPolicy(force, 14, false);
@@ -96,7 +125,10 @@ public static class PersonAdvisorResetSource
                 cache = level >= high ? (byte)13 : (byte)(11 +
                     (level >= Need(ArmyDestructionParameterSeed.ReadCurrent(working, SimulationParameterKeys.ArmyDestruction.AdvisorLowThreshold), "Force15E_low_threshold") ? 1 : 0));
                 values[BattleRemakeCurrentForcePolicies.ForceFieldKey(physical, 0x15E)] = cache.Value;
+            }
 
+            if (refreshCities)
+            {
                 //2FF040 uses the City pointer table, not manager90/manager80.
                 for (int slot = 0; slot < 52; slot++)
                 {

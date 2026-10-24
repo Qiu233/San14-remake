@@ -73,6 +73,16 @@ internal partial class D3D11MapMarkers : Control
     private MapMarkerSlices? _namePanel, _numberPanel, _barPanel;
     private int? _selectedHex;
     private int? _hoveredHex, _pressedHex;
+    private bool _baseInformationVisible = true, _armyInformationVisible = true;
+
+    internal void SetInformationVisibility(bool bases, bool armies)
+    {
+        if (_baseInformationVisible == bases && _armyInformationVisible == armies) return;
+        _baseInformationVisible = bases; _armyInformationVisible = armies;
+        if (_armyLabels is not null) _armyLabels.Visible = armies && campaignMarkerHexes is null;
+        if (!bases) ClearPointer();
+        QueueRedraw();
+    }
 
     internal void UpdatePointer(Vector2 point, MainMapCameraFrame frame, bool? pressed = null)
     {
@@ -93,12 +103,13 @@ internal partial class D3D11MapMarkers : Control
     internal bool TryGetCityMenuAnchor(int cityId, out Vector2 anchor)
     {
         anchor = default;
-        if (!_markers.TryGetValue((Kind.City, cityId), out var marker) || !marker.OnScreen) return false;
+        if (!_baseInformationVisible || !_markers.TryGetValue((Kind.City, cityId), out var marker) || !marker.OnScreen) return false;
         anchor = (marker.Screen + new Vector2(19, -44)) * Size / CanonicalSize;
         return true;
     }
 
     internal IReadOnlyList<D3D11MapLocation> Locations => _locations;
+    internal D3D11ArmyLabelPublication? CaptureArmyLabels(GameState world) => _armyLabels?.CaptureWorld(world);
 
     internal void Configure(GameResourceRepository repository, GameState world,
         MapWorldProjection projection, LoadedTerrainResources terrain,
@@ -167,7 +178,7 @@ internal partial class D3D11MapMarkers : Control
         Func<GameState, SourceWorldContext?>? currentQueries,
         MainMapCameraControllerParameters cameraParameters)
     {
-        _armyLabels = new() { Name = "NativeArmyMapLabels" };
+        _armyLabels = new() { Name = "NativeArmyMapLabels", Visible = _armyInformationVisible };
         AddChild(_armyLabels);
         _armyLabels.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         _armyLabels.Configure(repository, scenario, _assets!, _font!, _textPresets!, _areaSources!,
@@ -183,7 +194,7 @@ internal partial class D3D11MapMarkers : Control
         out ArmyMapLabelHit hit)
     {
         hit = default;
-        return _armyLabels?.TryPick(localPoint, displayedFrame, out hit) == true;
+        return campaignMarkerHexes is null && _armyLabels?.TryPick(localPoint, displayedFrame, out hit) == true;
     }
 
     internal void RefreshWorld(GameState world, IReadOnlyDictionary<int, Color>? markerColors,
@@ -343,13 +354,13 @@ internal partial class D3D11MapMarkers : Control
     internal bool TryPickMarker(Vector2 localPoint, MainMapCameraFrame displayedFrame, out int hexId)
     {
         hexId = -1;
-        if (!IsVisibleInTree() || Size.X <= 0 || Size.Y <= 0) return false;
+        if (!_baseInformationVisible && campaignMarkerHexes is null || !IsVisibleInTree() || Size.X <= 0 || Size.Y <= 0) return false;
         Vector2 cursor = localPoint / Size * CanonicalSize;
         // Hit the image currently on screen, even when a newer GPU request is
         // waiting for its Canvas submission. Reverse matches the draw order.
         foreach (var marker in _markers.Values.Reverse())
         {
-            if (!marker.PositionReady) continue;
+            if (!marker.PositionReady || !CampaignMarkerVisible(marker)) continue;
             AreaMapLabelPresentation areaPresentation = default;
             if (marker.Kind == Kind.Area)
             {
@@ -411,9 +422,10 @@ internal partial class D3D11MapMarkers : Control
         var textDraw = _font.BeginDraw(this, Size / CanonicalSize);
         var spritePalettes = _spritePalettes!;
         DrawSetTransform(Vector2.Zero, 0, Size / CanonicalSize);
+        if (!_baseInformationVisible && campaignMarkerHexes is null) { textDraw.End(); return; }
         foreach (Marker marker in _markers.Values)
         {
-            if (!marker.OnScreen) continue;
+            if (!marker.OnScreen || !CampaignMarkerVisible(marker)) continue;
             Vector2 p = marker.Screen;
             if (marker.Kind == Kind.Area)
             {
@@ -430,7 +442,8 @@ internal partial class D3D11MapMarkers : Control
                 continue;
             }
             var city = marker.CityPresentation;
-            int interaction = _hoveredHex == marker.Hex ? (_pressedHex == marker.Hex ? 2 : 1) : 0;
+            int interaction = campaignSelectedHexes?.Contains(marker.Hex)==true ? 2 :
+                _hoveredHex == marker.Hex ? (_pressedHex == marker.Hex ? 2 : 1) : 0;
             bool numbers = city.Display == 1;
             string simpleText = numbers ? marker.Troops : marker.Name;
             var geometry = CityGateMapMarkerSources.SimpleGeometry(simpleText, numbers, marker.Kind == Kind.Gate);

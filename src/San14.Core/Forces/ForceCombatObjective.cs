@@ -4,7 +4,12 @@ namespace San14.Core;
 /// The target is a location whose current owner is queried when the reward is reached.</summary>
 public sealed record ForceCombatObjective(bool? Enabled, int? TargetLocationId, int? Progress)
 {
-    public static ForceCombatObjective Inactive { get; } = new(false, 0, 0);
+    // Null retains unknown old-save knowledge; zero explicitly has no requester.
+    // The byte-format boundary retains values52..255, which resolve to Force0.
+    public int? RequestingForceId { get; init; }
+    public int? RemainingMonths { get; init; }
+    public static ForceCombatObjective Inactive { get; } = new(false, 0, 0)
+        { RequestingForceId = 0, RemainingMonths = 0 };
 }
 
 public sealed partial record ForceState

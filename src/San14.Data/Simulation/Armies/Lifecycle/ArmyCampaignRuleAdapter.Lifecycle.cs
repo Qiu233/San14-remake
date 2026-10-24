@@ -22,29 +22,45 @@ public sealed partial class ArmyCampaignRuleAdapter
     public OwnedArmyReturnWorld CaptureOwnedArmyReturnWorld(GameState state)
     {
         var world = OwnedArmyReturnWorld.Capture(state, _definitions);
-        OwnedArmyLifecycleTargets.BindCurrent(state, world.Context);
-        _personDestructionInputs.BindCurrent(state, world.Context);
-        _personRelationInputs.BindCurrent(state, world.Context);
-        _force164Inputs.BindCurrent(state, world.Context);
-        _moraleWaveInputs.BindCurrent(state, world.Context);
-        PersonArmyCaptureInputs.BindCurrent(state, world.Context);
-        RulerCaptureReleaseSource.BindCurrent(state, world.Context);
-        CaptureBaseThreatInputs.BindCurrent(state, world.Context);
-        _personAssignmentPrecallInputs.BindCurrent(state, world.Context);
-        world.Context.BindOwnedDestructionQueue(state.PendingCombatSettlements, state);
-        world.Context.CurrentPlayerForce = OwnedCurrentPlayerForce.ReadCurrentReference(state, world.Context);
-        _baseCapacityInputs.BindCurrent(state, world.Context);
-        PersonAdvisorResetSource.BindCurrent(state, world.Context);
-        ForceUnregisterInputs.BindCurrent(state, world.Context);
-        BaseCaptureCurrentInputs.BindCurrent(state, world.Context);
-        OwnedArmyReturnServiceInputs.BindCurrent(state, world.Context);
-        OwnedArmyLifecycleDetachedInputs.BindCurrent(state, world.Context);
+        BindOwnedArmyReturnWorld(state, world.Context);
+        return world;
+    }
+
+    internal OwnedArmyReturnWorld BorrowOwnedArmyReturnWorld(GameState state, SourceWorldContext current, WorldIndexContext pool)
+    {
+        var world = OwnedArmyReturnWorld.Borrow(state, current, pool);
+        BindOwnedArmyReturnWorld(state, current);
+        return world;
+    }
+
+    internal GameState? ConsumeArmyLifecyclePendingCurrent(GameState state, SourceWorldContext current, WorldIndexContext pool) =>
+        OwnedArmyLifecycleAuxiliaries.ConsumePendingCurrent(state, current, pool, ResetMapArmyGroupReceiver);
+
+    private void BindOwnedArmyReturnWorld(GameState state, SourceWorldContext current)
+    {
+        OwnedArmyLifecycleTargets.BindCurrent(state, current);
+        AreaStatisticsSourceAdapter.BindCurrent(state, current);
+        _personDestructionInputs.BindCurrent(state, current);
+        _personRelationInputs.BindCurrent(state, current);
+        _force164Inputs.BindCurrent(state, current);
+        _moraleWaveInputs.BindCurrent(state, current);
+        PersonArmyCaptureInputs.BindCurrent(state, current);
+        RulerCaptureReleaseSource.BindCurrent(state, current);
+        CaptureBaseThreatInputs.BindCurrent(state, current);
+        _personAssignmentPrecallInputs.BindCurrent(state, current);
+        current.BindOwnedDestructionQueue(state.PendingCombatSettlements, state);
+        current.CurrentPlayerForce = OwnedCurrentPlayerForce.ReadCurrentReference(state, current);
+        _baseCapacityInputs.BindCurrent(state, current);
+        PersonAdvisorResetSource.BindCurrent(state, current);
+        ForceUnregisterInputs.BindCurrent(state, current);
+        BaseCaptureCurrentInputs.BindCurrent(state, current);
+        OwnedArmyReturnServiceInputs.BindCurrent(state, current);
+        OwnedArmyLifecycleDetachedInputs.BindCurrent(state, current);
         //The independent ordinary campaign has no original tutorial-mode
         //receiver (570850). Its known absent branch continues eligibility.
-        world.Context.ArmyReturnTransferMode = new(false, null);
-        world.Context.TransferService = new();
-        OwnedArmyLifecycleAuxiliaries.RestoreCurrent(world.Context, state.ReadArmyLifecycle()!);
-        PersonReturnCommands.BindCurrent(state, world.Context);
-        return world;
+        current.ArmyReturnTransferMode = new(false, null);
+        current.TransferService = new();
+        OwnedArmyLifecycleAuxiliaries.RestoreCurrent(current, state.ReadArmyLifecycle()!);
+        PersonReturnCommands.BindCurrent(state, current);
     }
 }

@@ -44,15 +44,23 @@ public sealed class DeploymentBatchView
     public string FormationName(int id) => _formations.GetValueOrDefault(id) ?? id.ToString();
     public string TacticName(int id) => _tactics.GetValueOrDefault(id) ?? id.ToString();
 
+    public static bool CanComposeAt(GameState? world, int? forceId, int? sourceId)
+    {
+        if (world is not { RulesetId: PlayableSkeleton.RulesetId, Phase: TurnPhase.Strategy } ||
+            forceId is not int player || !world.Forces.TryGetValue(player, out var owner) || !owner.IsActive ||
+            PlayableOutcome.Evaluate(world, player) != PlayableResult.Ongoing || sourceId is not int source) return false;
+        int? districtId = world.Cities.TryGetValue(source, out var city) && city.ForceId == player
+            ? city.DistrictId
+            : world.Gates.TryGetValue(source, out var gate) && gate.ForceId == player ? gate.DistrictId : null;
+        return districtId is int district && world.Districts.TryGetValue(district, out var commandDistrict) &&
+            commandDistrict.Number == 1;
+    }
+
     public static DeploymentBatchView Create(GameState? world, int? forceId, int? sourceId, int? selectedHex)
     {
         CityState? city = sourceId is int source ? world?.Cities.GetValueOrDefault(source) : null;
         GateState? gate = sourceId is int location ? world?.Gates.GetValueOrDefault(location) : null;
-        bool canCompose = world is { RulesetId: PlayableSkeleton.RulesetId, Phase: TurnPhase.Strategy } &&
-            forceId is int player && world.Forces.TryGetValue(player, out ForceState? owner) && owner.IsActive &&
-            PlayableOutcome.Evaluate(world, player) == PlayableResult.Ongoing && sourceId is not null &&
-            (city is not null ? city.ForceId == player && city.DistrictId is int district && world.Districts[district].Number == 1 :
-                gate is not null && gate.ForceId == player && gate.DistrictId is int gateDistrict && world.Districts[gateDistrict].Number == 1);
+        bool canCompose = CanComposeAt(world, forceId, sourceId);
         int? actionHex = canCompose && selectedHex is int hex && hex >= 0 && hex < checked(world!.MapWidth * world.MapHeight) ? hex : null;
         int? area = actionHex is int cell ? world!.Territory.GetValueOrDefault(cell)?.AreaId : null;
         long? troops = world is not null && sourceId is int baseId && (city is not null || gate is not null)

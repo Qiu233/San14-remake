@@ -1,4 +1,5 @@
 using Godot;
+using San14.Client.Gameplay;
 
 public partial class Main
 {
@@ -7,6 +8,7 @@ public partial class Main
     private Task? _shutdownTask;
     private readonly List<(MapSceneView View, Task Completion)> _mapRetirements = [];
     private readonly List<Node> _retiredInterfaceChildren = [];
+    private readonly List<CampaignApplicationState> _retiredCampaignApplications = [];
 
     private void ConnectWindowLifetime()
     {
@@ -73,6 +75,8 @@ public partial class Main
 
     private void FreeRetiredInterface()
     {
+        foreach (var application in _retiredCampaignApplications) application.Detach();
+        _retiredCampaignApplications.Clear();
         foreach (Node child in _retiredInterfaceChildren)
             if (GodotObject.IsInstanceValid(child)) child.QueueFree();
         _retiredInterfaceChildren.Clear();
@@ -106,10 +110,22 @@ public partial class Main
     private async Task ShutdownAsync()
     {
         _shuttingDown = true;
+        _periodAdvanceCancellation?.Cancel();
+        CloseCommandWorkspace();
+        CloseScenarioSettings(resumeParent:false);
+        CloseEnvironmentSettings(resumeParent:false);
+        CloseTitleMenu();
+        CloseNewGameSetup();
+        CloseScenarioSelection();
         _type6Host?.Stop();
         var tree = GetTree();
         try
         {
+            if (_periodAdvanceTask is { } advance)
+            {
+                try { await advance; }
+                catch (Exception error) { GD.PushWarning($"Period advancement ended with an error during shutdown: {error}"); }
+            }
             RetryMapRetirements();
             CloseResidentMap();
             if (_sceneView is { } scene)

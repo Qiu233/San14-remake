@@ -15,9 +15,15 @@ public sealed partial class ArmyCampaignRuleAdapter
             moment.Boundary != NativeArmyProgressStageBoundary.StageEntry ||
             moment.PreWriterThirdDate.Hour is < 0 or > 22 || (moment.PreWriterThirdDate.Hour & 1) != 0)
             throw new InvalidDataException("Facility construction requires reached stage15 entry.");
+        return ConsumeFacilityConstruction(state, moment);
+    }
+
+    private ArmyFacilityConstructionResult ConsumeFacilityConstruction(GameState state, FacilityOperation operation,
+        SourceWorldContext? operationCurrent = null)
+    {
         try
         {
-            var current = CaptureFacilityConstructionCurrent(state);
+            var current = operationCurrent ?? CaptureFacilityConstructionCurrent(state);
             var order = current.ReadRegistryReferences(RegistryKind.Army) ?? throw Missing("complete_manager60");
             var requests = new List<CampaignEffectRequest>();
             var created = new List<int>();
@@ -71,7 +77,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 {
                 current.AppendConstructionPersonTemporary(people, person);
                 if (!FacilityConstructionLegality.Check(working, current, people, site, selected)) continue;
-                if (selected.PhysicalSlot != 7) throw Missing("actor_definition_consumer_outside_kind7");
+                if (!IsSupported(selected.PhysicalSlot)) throw Missing("actor_definition_consumer_outside_supported_facilities");
                 int rawForce = definition.Category is 2 or 4 ? current.ReadArmyUnitRawForceSlot(army) : 0;
                 var creation = MapObjectCreationSource.CreateFacility(working, current, goal, selected, rawForce);
                 working = creation.State;
@@ -89,26 +95,26 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (current.AssignHexObject(site, objectPhysical, 1))
                     working = OwnedMapObjectLifecycle.WriteHexBinding(working, current,
                         K(site.PhysicalSlot, "created_site_identity"), checked((ushort)objectPhysical));
-                working = AppendConstructionStartSpeech(working, current, army, image, obj, moment, requests);
+                working = AppendConstructionStartSpeech(working, current, army, image, obj, operation, requests);
                 requests.Add(ConstructionPresentation(FacilityConstructionPresentationOperation.NotifyFacilityCreated));
                 home = current.FindArmyUnitCurrentBase(army);
                 working = BaseCurrencyAdditionSource.PayConstruction(working, current, home,
                     () => FacilityConstructionCost.Read(working, current, current.ReadArmyUnitForceReference(army), definition, _baseCapacityInputs),
                     city => BasePostLoad.ReadResourceCapacities(city, current).Gold);
                 if (IsPlayerRulerLedDistrict(working, current, image))
-                    working = AppendConstructionReport(working, current, image, obj, moment,
+                    working = AppendConstructionReport(working, current, image, obj, operation,
                         CampaignReportEvent.PlayerFacilityConstructionStarted, requests);
 
-                CampaignEffectRequest ConstructionPresentation(FacilityConstructionPresentationOperation operation) =>
-                    new(null, null) { FacilityConstructionPresentation = new(operation, receiver, goal, key, null) };
+                CampaignEffectRequest ConstructionPresentation(FacilityConstructionPresentationOperation presentationOperation) =>
+                    new(null, null) { FacilityConstructionPresentation = new(presentationOperation, receiver, goal, key, null) };
                 }
                 finally { current.ClearNearbyTemporary(people, true); }
             }
             working = working.WithArmyLifecycle(working.ReadArmyLifecycle()! with
-                { Indexes = current.ReadOwnedCurrentListPool()!.ExportOwnedState() });
+                { Indexes = current.ReadOwnedCurrentListPool()!.ProjectOwnedRoles() });
             if (requests.Count != 0) working = working with
                 { CampaignEffectRequests = (working.CampaignEffectRequests ?? throw Missing("effect_owner"))
-                    .Append(CampaignEffectSource.ArmyFacilityConstruction, moment.CalendarCycleOrdinal, requests) };
+                    .Append(CampaignEffectSource.ArmyFacilityConstruction, operation.Revision, requests) };
             return new(working, created.AsReadOnly(), null);
         }
         catch (InvalidDataException error) { return new(null, [], error.Message); }

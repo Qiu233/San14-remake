@@ -12,6 +12,8 @@ public sealed record NativeArmyForceState(byte? Flags193)
 {
     public byte? Flags12 { get; init; }
     public byte? Flags194 { get; init; }
+    public ushort? DiplomacyFlags178 { get; init; }
+    public NativeMapSeasonDate? DiplomacyCooldownDate { get; init; }
     public byte[]? RelationsEA { get; init; }
     public NativeNormalArmyForceAftermath? NormalAftermath { get; init; }
 }

@@ -32,28 +32,36 @@ internal static class DeploymentTacticSelectionSource
         Partition(t => InMask(current.ReadTacticEffectOpcode(t, 0), firstMask));
         var effective = readAbilities();
         int preference = effective.Strength > effective.Intelligence + 10 ? 1 : effective.Intelligence > effective.Strength + 10 ? 2 : 0;
-        if (preference != 0) Partition(t => Factor(t) == preference);
+        if (preference != 0) Partition(t => ReadFactor(current, t) == preference);
         Partition(t => Priority(Known(t.PhysicalSlot, "tactic_identity")));
         return list.Select(t => Known(t.PhysicalSlot, "tactic_identity")).ToArray();
 
         bool Valid(TacticReference tactic) => Known(current.ReadSkillTacticValidity(tactic), "tactic_validity");
         void Partition(Func<TacticReference, bool> criterion) => list = list.OrderByDescending(criterion).ToList();
-        byte Factor(TacticReference tactic)
-        {
-            ulong end = Known(current.ReadTacticParameterEnd78(tactic), "tactic_vector_end");
-            var first = current.ReadTacticParameterBegin70(tactic) ?? throw Missing("tactic_vector_begin");
-            if ((unchecked(end - first.ByteAddress) & ~3UL) != 40)
-                return Known(current.ReadSkillTacticRawByte(tactic, 0x6A), "tactic_factor");
-            var begin = current.ReadTacticParameterBegin70(tactic) ?? throw Missing("tactic_vector_begin");
-            var decoder = current.CaptureTacticParameterDecoderTable(tactic) ?? throw Missing("tactic_decoder");
-            byte value = Known(current.ReadTacticParameterEncodedByte(new(begin, 9, unchecked(begin.ByteAddress + 36))), "tactic_factor_encoded");
-            return Known(decoder.Decode(tactic, value, 7, Known(tactic.PhysicalSlot, "tactic_identity")), "tactic_factor_decode");
-        }
+    }
+
+    internal static byte ReadFactor(SourceWorldContext current, TacticReference tactic)
+    {
+        ulong end = Known(current.ReadTacticParameterEnd78(tactic), "tactic_vector_end");
+        var first = current.ReadTacticParameterBegin70(tactic) ?? throw Missing("tactic_vector_begin");
+        if ((unchecked(end - first.ByteAddress) & ~3UL) != 40)
+            return Known(current.ReadSkillTacticRawByte(tactic, 0x6A), "tactic_factor");
+        var begin = current.ReadTacticParameterBegin70(tactic) ?? throw Missing("tactic_vector_begin");
+        var decoder = current.CaptureTacticParameterDecoderTable(tactic) ?? throw Missing("tactic_decoder");
+        byte value = Known(current.ReadTacticParameterEncodedByte(new(begin, 9, unchecked(begin.ByteAddress + 36))), "tactic_factor_encoded");
+        return Known(decoder.Decode(tactic, value, 7, Known(tactic.PhysicalSlot, "tactic_identity")), "tactic_factor_decode");
     }
 
     internal static TacticReference ReadCurrentSlot(SourceWorldContext current, int id, int physical, int index)
     {
-        int requested = Known(current.ReadPersonTacticSlot168(physical, index), "person_tactics");
+        byte requested = Known(current.ReadPersonTacticSlot168(physical, index), "person_tactics");
+        return ReadQualifiedSlot(current, id, requested);
+    }
+
+    //22A4B0 also consumes the independent original/custom-person catalog.
+    //Its qualification is shared; only the owner of the raw slot differs.
+    internal static TacticReference ReadQualifiedSlot(SourceWorldContext current, int id, byte requested)
+    {
         var tactic = current.ReadSkillTacticReference(requested < 201 ? requested : 0) ?? throw Missing("tactic_pointer");
         if (unchecked((uint)(id - 5101)) > 99 && unchecked((uint)(id - 4101)) > 99 &&
             Known(current.ReadSkillTacticValidity(tactic), "tactic_validity") &&

@@ -20,7 +20,7 @@ internal sealed record SceneAudioBindingState(string? SceneKey, long? SceneRevis
 /// <summary>Owns application attachment and subscription for a scene-audio node.
 /// The session remains the sole channel owner. Context changes do not select or
 /// play a cue; the cue graph and its supplied manager inputs remain separate.</summary>
-internal sealed class SceneAudioBinding : IDisposable
+internal sealed partial class SceneAudioBinding : IDisposable
 {
     private readonly SceneAudioSession _session;
     private GameplaySession? _playableSession;
@@ -86,6 +86,13 @@ internal sealed class SceneAudioBinding : IDisposable
         MusicChanged?.Invoke();
     }
 
+    // A completed period replaces the simulation session, while the map and
+    // its playing music keep the same lifetime. Do not restart music per turn.
+    internal void AdoptPlayableSession(GameplaySession previous, GameplaySession current)
+    {
+        if (ReferenceEquals(_playableSession, previous)) _playableSession = current;
+    }
+
     private async Task PlayEntryAsync(MapMusicEntrySelection entry, CancellationTokenSource lifetime)
     {
         try
@@ -104,6 +111,9 @@ internal sealed class SceneAudioBinding : IDisposable
 
     internal void LeavePlayableMap()
     {
+        StopPersonnelPresentationAudio();
+        StopNarrationVoice();
+        _musicEditActive = false; _musicReturnSelection = null; _musicEditTemporaryScene = false;
         _mapEntry?.Cancel(); _mapEntry?.Dispose(); _mapEntry = null;
         _playableSession = null; MapMusicSelection = null; MapMusicError = null;
         if (GodotObject.IsInstanceValid(_session) && _session.IsInsideTree()) _session.StopChannel("map-music");

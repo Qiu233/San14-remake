@@ -54,7 +54,8 @@ public static class PlayableDiplomacy
     }
 
     public static bool IsOfficerOnMission(GameState state, int officerId) =>
-        state.Diplomacy?.Missions.Values.Any(mission => mission.ExecutorOfficerId == officerId) == true;
+        state.Diplomacy?.Missions.Values.Any(mission => mission.ExecutorOfficerId == officerId) == true ||
+        state.PersonnelCommands?.Diplomacies?.Values.Any(task => task.IsAssociated && !task.IsRetiring && task.MemberIds.Contains(officerId)) == true;
 
     public static IReadOnlyList<DiplomaticAttackRequest> GetAttackRequests(GameState state, int forceId) =>
         state.Diplomacy?.AttackRequests.Values
@@ -73,6 +74,8 @@ public static class PlayableDiplomacy
     /// </summary>
     public static GameState Advance(GameState state, int nextPeriodNumber, IDiplomacyPolicy policy)
     {
+        if (policy is IPlayableDiplomacyCommandRules source)
+            return source.AdvanceDiplomacyPeriod(state, nextPeriodNumber);
         if ((long)state.PeriodNumber + 1 != nextPeriodNumber)
             throw new ArgumentOutOfRangeException(nameof(nextPeriodNumber), "Diplomacy must advance exactly one period.");
         if (state.Diplomacy is not { } current) return state;

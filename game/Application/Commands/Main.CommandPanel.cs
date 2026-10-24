@@ -7,6 +7,9 @@ public partial class Main
     {
         CampaignCommandView view = CampaignCommandView.Capture(_world, _playerForceId, _selectedForceId, _ui);
         bool editableOptions = view.CanEditNewGameOptions;
+        _chooseScenario.Disabled = !editableOptions;
+        for (int index = 0; index < _scenarioList.ItemCount; index++)
+            _scenarioList.SetItemDisabled(index, !editableOptions);
         _difficulty.Disabled = !editableOptions;
         _initialCredit.Disabled = !editableOptions;
         _capturedOfficers.Disabled = !editableOptions;
@@ -14,6 +17,8 @@ public partial class Main
         bool reporting = view.IsReporting;
         _saveInitial.Disabled = !editableOptions;
         _playStart.Disabled = !view.CanStart;
+        _playSystemMenu.Disabled = _playerForceId is null||_advancingPeriod||IsReturningToTitle;
+        _playCommands.Disabled = !view.CanIssueOrders || _advancingPeriod || IsReturningToTitle;
         _playSave.Disabled = view.Roster is null;
         RefreshSaveSlots();
         RefreshPlayStructureKinds();
@@ -23,7 +28,7 @@ public partial class Main
         RefreshPlayDeploymentAvailability();
         _playRecruiter.Disabled = !strategy || _playCity.ItemCount == 0;
         _playTrainer.Disabled = !strategy || _playCity.ItemCount == 0;
-        _playRetarget.Disabled = !strategy || _selectedCell is null || _playUnit.ItemCount == 0;
+        RefreshPlayRetargetAvailability();
         RefreshPlayBuildAvailability();
         RefreshPlayOccupationAvailability();
         RefreshPlayWithdrawalAvailability();
@@ -117,13 +122,14 @@ public partial class Main
             int unitIndex = _playUnit.GetItemIndex(oldUnit);
             _playUnit.Select(unitIndex < 0 ? 0 : unitIndex);
         }
-        _playRetarget.Disabled = !strategy || _selectedCell is null || _playUnit.ItemCount == 0;
+        RefreshPlayRetargetAvailability();
         RefreshPlayBuildAvailability();
         RefreshPlayOccupationAvailability();
         RefreshPlayWithdrawalAvailability();
         RefreshPlayDisbandAvailability();
         RefreshExtendedCommands();
         RefreshPlayablePeriodReport();
+        RefreshNativeTalentControls();
     }
 
 }

@@ -33,6 +33,22 @@ public sealed partial class ArmyCampaignRuleAdapter
             r.MoraleLoss, r.MoraleWrite, r.NativeReturn, r.FatalAdmission), result.UnresolvedOwner);
     }
 
+    /// <summary>Run the same reached fatal-admission body using the enclosing
+    /// ordinary operation's current/pool. Unknown requires discarding both.</summary>
+    internal NormalBaseFatalApplicationResult ApplyBorrowedNormalBaseFatalApplication(GameState input,
+        int attackerArmyId, int locationId, int requestedLoss,
+        NativeArmyCombatCycleSampler? operationSampler, SourceWorldContext current)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        BaseKind kind = locationId <= 51 ? BaseKind.City : BaseKind.Gate;
+        var result = TryApplyNativeNormalBaseApplication(input, attackerArmyId, kind, locationId,
+            requestedLoss, operationSampler, allowFatal: true, operationCurrent: current);
+        var r = result.Receipt;
+        return new(result.Outcome, result.State, r is null ? null : new(r.LocationId, kind,
+            r.RequestedLoss, r.AppliedLoss, r.AttackerReward, r.TroopDebit, r.Wounded,
+            r.MoraleLoss, r.MoraleWrite, r.NativeReturn, r.FatalAdmission), result.UnresolvedOwner);
+    }
+
     private static BaseFatalAdmissionReceipt ApplyOrdinaryBaseFatalAdmission(GameState state,
         SourceWorldContext current, UnitState attacker, BaseReference target)
     {

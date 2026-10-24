@@ -45,10 +45,11 @@ internal partial class UiSourcePersonRow : UiSourceButton
     internal override int VisualState => Selected ? 2 : base.VisualState;
 
     internal void Configure(GameResourceRepository repository, UiAssets assets, Shader shader, MapFont font,
-        string checkedGlyph, IReadOnlyList<DeploymentPersonColumn> columns, IReadOnlyList<DeploymentPersonCell> cells)
+        string checkedGlyph, IReadOnlyList<DeploymentPersonColumn> columns, IReadOnlyList<DeploymentPersonCell> cells,
+        float width = 1464)
     {
         if (columns.Count != cells.Count) throw new ArgumentException("Person cells must match their source columns.");
-        Size = new(1464, 48);
+        Size = new(width, 48);
         _checkedGlyph = checkedGlyph;
         var source = new UiSourceLayout(repository, 0xF2C06161);
         var presets = MapTextPresets.Create();
@@ -59,7 +60,7 @@ internal partial class UiSourcePersonRow : UiSourceButton
             var group = new Control { Size = Size, MouseFilter = MouseFilterEnum.Ignore };
             AddChild(group);
             source.Art(group, frontNodes[state], new(Vector2.Zero, new(48, 48)), assets, shader);
-            source.Art(group, bodyNodes[state], new(new(48, 0), new(1416, 48)), assets, shader);
+            source.Art(group, bodyNodes[state], new(new(48, 0), new(width - 48, 48)), assets, shader);
             states[state] = group;
         }
         _check = source.Text(this, 17, default, "", font);

@@ -20,12 +20,14 @@ public sealed class ArmyOrdinaryReturnPacket
     internal SourceWorldContext Owner { get; }
     internal WorldIndexContext Pool { get; }
     internal WorldIndexContext DraftPool { get; }
+    internal ArmyReturnDistrictOperationQueries? DistrictOperation { get; }
     internal ArmyOrdinaryReturnPacket(ArmyUnitReference army, BaseReference target,
         DistrictReference savedCommander, DistrictReference savedTarget, ArmyPending70AdmissionOutcome outcome,
         int[] order, string[] effects, SourceWorldContext owner, WorldIndexContext pool,
         WorldIndexContext draft, PersonAssignmentPrecallResult? homeAssignments = null,
         bool hasDistrictTransferWrites = false, PersonAssignmentPrecallResult[]? rulerTailAssociationUpdates = null,
-        GameState? captivesState = null, ArmyReturnCaptivesReceipt? captives = null)
+        GameState? captivesState = null, ArmyReturnCaptivesReceipt? captives = null,
+        ArmyReturnDistrictOperationQueries? districtOperation = null)
     {
         Army = army; Base = target; SavedCommanderDistrict = savedCommander; SavedTargetDistrict = savedTarget; PendingOutcome = outcome;
         RulerTailPersonOrder = Array.AsReadOnly(order); SourceEffectOrder = Array.AsReadOnly(effects);
@@ -34,6 +36,7 @@ public sealed class ArmyOrdinaryReturnPacket
         HasAssignmentCurrentWrites = homeAssignments is not null || hasDistrictTransferWrites;
         RulerTailAssociationUpdates = Array.AsReadOnly(rulerTailAssociationUpdates ?? []);
         CaptivesState = captivesState; Captives = captives;
+        DistrictOperation = districtOperation;
     }
 }
 
@@ -46,7 +49,9 @@ public static class ArmyOrdinaryReturnRuntime
     internal static ArmyOrdinaryReturnResolution PrepareCurrentResourceOutputs(ArmyUnitReference army, BaseReference target,
         int nativeMode, SourceWorldContext context, WorldIndexContext pool,
         IArmyReturnGovernorCurrentQueries queries, ArmyReturnTraitPresentationOwners presentation,
-        ArmyReturnCaptivesSource? captives = null, byte? transportFlags26 = null)
+        ArmyReturnCaptivesSource? captives = null, byte? transportFlags26 = null,
+        Action<SourceWorldContext, int, PersonAssignmentPrecallResult>? receiveAssignment = null,
+        Func<SourceWorldContext, IArmyReturnGovernorCurrentQueries, ArmyReturnDistrictOperationQueries>? createDistrictOperation = null)
     {
         ArgumentNullException.ThrowIfNull(army); ArgumentNullException.ThrowIfNull(target); ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(pool); ArgumentNullException.ThrowIfNull(queries); ArgumentNullException.ThrowIfNull(presentation);
@@ -67,6 +72,8 @@ public static class ArmyOrdinaryReturnRuntime
             if (transportEnter && transportFlags26 is null) throw Missing("current.transport_Flags26");
             bool personReturn = transportEnter && (transportFlags26!.Value & 0x20) != 0;
             var draft = context.CreateArmyReturnTransactionDraft(); var stagedPool = pool.DetachForArmyReturn(draft);
+            var districtOperation = createDistrictOperation?.Invoke(draft, queries);
+            if (districtOperation is not null) queries = districtOperation;
             int commander = Person(Get(draft.ReadArmyUnitCommanderId(army), "current.Commander_word12"));
             if (!Get(draft.ReadPersonNativeValidity(commander), "current.Commander_validity")) throw Missing("branch.invalid_commander");
             var health = OfficerHealthSourceAdapter.Read(draft, commander) ?? throw Missing("current.Commander_byte161");
@@ -94,7 +101,8 @@ public static class ArmyOrdinaryReturnRuntime
             }
             else
             {
-                var home = ArmyReturnCommanderHomeUpdater.ApplyCurrent(army, target, draft, stagedPool, queries, transportEnter);
+                var home = ArmyReturnCommanderHomeUpdater.ApplyCurrent(army, target, draft, stagedPool, queries, transportEnter,
+                    assignment => receiveAssignment?.Invoke(draft, commander, assignment));
                 if (home.Packet is null) throw Missing(home.UnresolvedOwner ?? "current.CommanderHome");
 
                 homeAssignments = home.Packet.AssignmentPrecall;
@@ -171,7 +179,8 @@ public static class ArmyOrdinaryReturnRuntime
 
                     if (status is < 1 or > 4) continue;
                     byte formerDistrict = Get(draft.ReadPersonDistrictSlot(person), "current.ruler_tail_Person_E0");
-                    PersonDistrictTransfer.Apply(person, savedPhysical, new Transfer(draft, transferAssociations));
+                    PersonDistrictTransfer.Apply(person, savedPhysical, new Transfer(draft, transferAssociations,
+                        receivePrecall: assignment => receiveAssignment?.Invoke(draft, person, assignment)));
                     districtTransferWrites |= formerDistrict != savedPhysical;
                     rulerOrder.Add(person); effects.Add($"29F910.240DB0.Person[{person}]");
                 }
@@ -182,16 +191,33 @@ public static class ArmyOrdinaryReturnRuntime
             {
                 int currentDistrict = Get(draft.ReadBaseDistrictSlot(target), "current.leader_tail_Base_virtual78");
 
-                if (currentDistrict != savedPhysical) throw Missing("branch.leader_tail_different_District240DB0");
-                effects.Add("29F979.same_District_leader_no_transfer");
+                if (currentDistrict != savedPhysical)
+                {
+                    PersonDistrictTransfer.Apply(commander, currentDistrict, new Transfer(draft, transferAssociations,
+                        receivePrecall: assignment => receiveAssignment?.Invoke(draft, commander, assignment)));
+                    draft.WritePersonStatus(commander, 4); //29F99C:241D30(Person,4), after240DB0.
+                    districtTransferWrites = true;
+                    effects.Add("29F979.leader_District240DB0_then_status4");
+                }
+                else effects.Add("29F979.same_District_leader_no_transfer");
             }
             else if (!personReturn && (role is < 3 or > 4)) throw Missing("branch.nonordinary_tail_role");
             _ = ArmyReturnCommanderHomeUpdater.ApplyPrimaryOwned(savedTarget, draft, queries);
             effects.Add("29F9A7.saved_target_District2E9140");
             ClearRelease(draft, associated); effects.Add("29F9F5.associated_descriptor_clear_release");
+            var publication = captives?.CurrentState ?? captiveResult?.State;
+            if (districtOperation is not null)
+            {
+                publication = districtOperation.Latest();
+                publication = PersonReturnDistrictTransferSource.PublishAreaAssignments(publication, draft,
+                    districtOperation.ChangedAreas, districtOperation.ChangedGates);
+                publication = PersonReturnDistrictReorganizationSource.PublishCurrent(publication, draft, districtOperation);
+                publication = publication with { PersonnelCommands = draft.ReadOwnedPersonCommandManager() };
+                districtTransferWrites = true;
+            }
             return new(new(army, target, savedCommander, savedTarget, outcome, rulerOrder.ToArray(), effects.ToArray(), context,
                 pool, stagedPool, homeAssignments,
-                districtTransferWrites, transferAssociations.ToArray(), captiveResult?.State, captiveResult?.Receipt), null);
+                districtTransferWrites, transferAssociations.ToArray(), publication, captiveResult?.Receipt, districtOperation), null);
 
             int Person(ushort id)
             {
@@ -235,6 +261,8 @@ public static class ArmyOrdinaryReturnRuntime
         ArgumentNullException.ThrowIfNull(packet);
         packet.Pool.CommitArmyReturnPool(packet.DraftPool);
         packet.Owner.CommitArmyReturnTransactionFields(packet.DraftPool.ArmyReturnOwner);
+        if (packet.DistrictOperation is { } operation)
+            packet.Owner.CommitArmyReturnDistrictOperationFields(packet.DraftPool.ArmyReturnOwner, operation);
     }
     private static HexListHandle NewTemporary(SourceWorldContext state)
     {

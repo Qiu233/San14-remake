@@ -8,7 +8,7 @@ namespace San14.Data;
 internal static class BaseCapturePublicationSource
 {
     internal static GameState Publish(GameState state, SourceWorldContext current,
-        WorldIndexContext pool)
+        WorldIndexContext pool, bool projectOwnedRoles = false)
     {
         var working = OwnedArmyReturnCurrentFields.PublishCurrent(state, current);
         working = OwnedArmyLifecycleDetachedInputs.PublishCurrent(working, current);
@@ -65,7 +65,7 @@ internal static class BaseCapturePublicationSource
                 ArmyMapOccupancy = current.ExportArmyMapOccupancy(),
                 NativeForceUnregisterCurrent = forceFields,
                 PendingCombatSettlements = current.OwnedDestructionQueue }).WithArmyLifecycle(working.ReadArmyLifecycle()! with
-            { Indexes = pool.ExportOwnedState() }), current);
+            { Indexes = projectOwnedRoles ? pool.ProjectOwnedRoles() : pool.ExportOwnedState() }), current);
     }
     private static T K<T>(T? value, string field) where T : struct => value ?? throw Missing(field);
     private static InvalidDataException Missing(string field) => new("current.Base_capture_publication." + field);

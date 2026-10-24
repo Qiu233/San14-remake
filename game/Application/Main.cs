@@ -67,6 +67,7 @@ public partial class Main : Control
     private OptionButton _officer = null!;
     private Button _openOfficerDetails = null!;
     private DetailsView? _detailsView;
+    private readonly UiSourceHeaderStack _sourceHeaders = new();
     private MapSceneView? _sceneView;
     private Button _openScenePreview = null!;
     private Control _browserContent = null!;
@@ -158,10 +159,55 @@ public partial class Main : Control
 
     public override void _Input(InputEvent input)
     {
+        if (HandleGameplayEarlyKeyboard(input)) { GetViewport().SetInputAsHandled(); return; }
+        if (_advancingPeriod) return;
+        if (IsReturningToTitle) { GetViewport().SetInputAsHandled(); return; }
+        if (_forcePolicyDecision is { } policyQuestion && (input is InputEventKey { Keycode: Key.Escape, Pressed: true, Echo: false }
+            or InputEventMouseButton { ButtonIndex: MouseButton.Right, Pressed: false }))
+        { GetViewport().SetInputAsHandled(); RunUiAction(policyQuestion.RequestCancel); return; }
+        if((HasPersonnelPresentation||HasForcePolicyPresentation||HasForceExperienceTransition)&&!HasEnvironmentSettings&&!HasCampaignSavePage&&!HasMapSystemMenu)return;
+        if (_diplomacyNegotiation is not null) { HandleDiplomaticNegotiationInput(input); return; }
+        if(_consumeBackRelease&&input is InputEventMouseButton { ButtonIndex:MouseButton.Right,Pressed:false })
+        { GetViewport().SetInputAsHandled();_consumeBackRelease=false;return; }
+        if (HasTitleEditMenu && input is InputEventKey { Keycode: Key.Escape } editKey)
+        {
+            GetViewport().SetInputAsHandled();
+            if (editKey.Pressed && !editKey.Echo) RunUiAction(RequestTitleEditBack);
+            return;
+        }
+        if(_titleConfirmation is { } titleQuestion&&input is InputEventKey { Keycode:Key.Escape } titleKey)
+        {
+            GetViewport().SetInputAsHandled();
+            if(titleKey.Pressed&&!titleKey.Echo)titleQuestion.RequestCancel();
+            return;
+        }
+        if (_scenarioSelection is { } scenarioPage)
+        {
+            if (input is InputEventKey { Keycode: Key.Escape } or
+                InputEventMouseButton { ButtonIndex: MouseButton.Right })
+            {
+                GetViewport().SetInputAsHandled();
+                if (input is InputEventKey { Pressed: true, Echo: false } or InputEventMouseButton { Pressed: false })
+                    scenarioPage.ProcessSourceCancel(true);
+            }
+            return;
+        }
+        if(_newGameSetup is { } setupPage&&_detailsView is null&&input is InputEventKey { Keycode:Key.Escape } key)
+        {
+            GetViewport().SetInputAsHandled();
+            if(key.Pressed&&!key.Echo)RunUiAction(setupPage.RequestBack);
+            return;
+        }
         if (HasEnvironmentSettings && input is InputEventKey { Pressed: true, Echo: false, Keycode: Key.Escape })
         {
             GetViewport().SetInputAsHandled();
             if (_environmentConfirmation is { } question) question.RequestCancel(); else _environmentSettings!.RequestBack();
+            return;
+        }
+        if (HasScenarioSettings && input is InputEventKey { Pressed: true, Echo: false, Keycode: Key.Escape })
+        {
+            GetViewport().SetInputAsHandled();
+            _scenarioSettingsView!.RequestBack();
             return;
         }
         if (HasCampaignSavePage && input is InputEventKey { Pressed: true, Echo: false, Keycode: Key.Escape })
@@ -176,13 +222,159 @@ public partial class Main : Control
             if (_mapSystemConfirmation is { } question) question.RequestCancel(); else CloseMapSystemMenu();
             return;
         }
+        if (_personnelConfirmation is { } personnelQuestion && input is InputEventKey { Keycode: Key.Escape } personnelKey)
+        {
+            GetViewport().SetInputAsHandled();
+            if (personnelKey.Pressed && !personnelKey.Echo) personnelQuestion.RequestCancel();
+            return;
+        }
+        if (_commandDetailsView is { } commandDetails && input is InputEventKey { Keycode: Key.Escape } detailKey)
+        {
+            GetViewport().SetInputAsHandled();
+            if (detailKey.Pressed && !detailKey.Echo) commandDetails.RequestClose();
+            return;
+        }
+        if (_reportMapReturn is { } reportMap && input is InputEventKey { Keycode: Key.Escape } mapKey)
+        {
+            GetViewport().SetInputAsHandled();
+            if (mapKey.Pressed && !mapKey.Echo) reportMap.RequestBack();
+            return;
+        }
+        if (_actionReportView is { } actionReport && _detailsView is null && _reportMapReturn is null)
+        {
+            if (input is InputEventKey { Keycode: Key.Escape } reportKey)
+            {
+                GetViewport().SetInputAsHandled();
+                if (reportKey.Pressed && !reportKey.Echo) actionReport.RequestAcknowledge();
+                return;
+            }
+            if (input is InputEventMouseButton { ButtonIndex: MouseButton.Left } advance &&
+                actionReport.ContainsStrategistAdvancePoint(advance.Position))
+            {
+                GetViewport().SetInputAsHandled();
+                if (!advance.Pressed) actionReport.AdvanceAt(advance.Position);
+                return;
+            }
+        }
+        if (HasDiplomacyOrdersPage && input is InputEventKey { Keycode: Key.Escape } diplomacyKey)
+        {
+            GetViewport().SetInputAsHandled();
+            if (diplomacyKey.Pressed && !diplomacyKey.Echo) RunUiAction(RequestDiplomacyOrdersBack);
+            return;
+        }
+        if (HasTalentAutoSearchPage && input is InputEventKey { Keycode: Key.Escape } autoSearchKey)
+        {
+            GetViewport().SetInputAsHandled();
+            if (autoSearchKey.Pressed && !autoSearchKey.Echo) RunUiAction(RequestTalentAutoSearchBack);
+            return;
+        }
+        if (HasTalentOrdersPage && input is InputEventKey { Keycode: Key.Escape } talentKey)
+        {
+            GetViewport().SetInputAsHandled();
+            if (talentKey.Pressed && !talentKey.Echo) RunUiAction(RequestTalentOrdersBack);
+            return;
+        }
+        if (HasCityOfficerMovementPage && input is InputEventKey { Keycode: Key.Escape } movementKey)
+        {
+            GetViewport().SetInputAsHandled();
+            if (movementKey.Pressed && !movementKey.Echo) RunUiAction(RequestCityOfficerMovementBack);
+            return;
+        }
+        if (HasCityMerchantPage && input is InputEventKey { Keycode: Key.Escape } merchantKey)
+        {
+            GetViewport().SetInputAsHandled();
+            if (merchantKey.Pressed && !merchantKey.Echo) RunUiAction(RequestCityMerchantBack);
+            return;
+        }
+        if (HasPersonnelAdministrationPage && input is InputEventKey { Keycode: Key.Escape } personnelAdministrationKey)
+        {
+            GetViewport().SetInputAsHandled();
+            if (personnelAdministrationKey.Pressed && !personnelAdministrationKey.Echo) RunUiAction(RequestPersonnelAdministrationBack);
+            return;
+        }
+        if (HasOfficerOfficePage && input is InputEventKey { Keycode: Key.Escape } officeKey)
+        {
+            GetViewport().SetInputAsHandled();
+            if (officeKey.Pressed && !officeKey.Echo) RunUiAction(RequestOfficerOfficesBack);
+            return;
+        }
+        if (HasCampaignCommandPage && input is InputEventKey { Keycode: Key.Escape } campaignKey)
+        {
+            GetViewport().SetInputAsHandled();
+            if (campaignKey.Pressed && !campaignKey.Echo) RunUiAction(RequestCampaignCommandBack);
+            return;
+        }
+        if (HasCommanderSelectionPage && input is InputEventKey { Keycode: Key.Escape } commanderKey)
+        {
+            GetViewport().SetInputAsHandled();
+            if (commanderKey.Pressed && !commanderKey.Echo) RunUiAction(CloseCommanderSelectionPage);
+            return;
+        }
+        if (HasPersonnelItemPage && input is InputEventKey { Keycode: Key.Escape } itemKey)
+        {
+            GetViewport().SetInputAsHandled();
+            if (itemKey.Pressed && !itemKey.Echo) ClosePersonnelItems();
+            return;
+        }
+        if (HasGovernanceRosterPage && input is InputEventKey { Keycode: Key.Escape } governanceKey)
+        {
+            GetViewport().SetInputAsHandled();
+            if (governanceKey.Pressed && !governanceKey.Echo)
+            { if (_governanceRosterConfirmation is { } question) question.RequestCancel(); else CloseGovernanceRoster(); }
+            return;
+        }
+        if (_falseReportTarget is not null && (input is InputEventKey {Keycode:Key.Escape} or
+            InputEventMouseButton {ButtonIndex:MouseButton.Right}))
+        {
+            GetViewport().SetInputAsHandled();
+            if(input is InputEventKey {Pressed:true,Echo:false} or InputEventMouseButton {Pressed:false})
+                RunUiAction(RequestFalseReportBack);
+            return;
+        }
+        if (_deploymentTarget is { } deploymentTargetPage && deploymentTargetPage.IsVisibleInTree() &&
+            !deploymentTargetPage.IsQueuedForDeletion() && input is InputEventKey { Keycode: Key.Escape } deploymentTargetKey)
+        {
+            GetViewport().SetInputAsHandled();
+            if (deploymentTargetKey.Pressed && !deploymentTargetKey.Echo)
+                RunUiAction(() =>
+                { if (_deploymentTargetPresenter?.TryCancelOverlay() != true) deploymentTargetPage.RequestBack(); });
+            return;
+        }
+        if (_unitOrderTarget is not null && input is InputEventKey { Keycode: Key.Escape } unitOrderKey)
+        {
+            GetViewport().SetInputAsHandled();
+            if (unitOrderKey.Pressed && !unitOrderKey.Echo)
+            CancelUnitTarget();
+            return;
+        }
+        if (HasCommandWorkspace && input is InputEventKey { Keycode: Key.Escape } workspaceKey)
+        {
+            GetViewport().SetInputAsHandled();
+            if (workspaceKey.Pressed && !workspaceKey.Echo) CloseCommandWorkspace();
+            return;
+        }
         // The source Make pulldown consumes both halves of cancel, but closes
         // only on release. Other restored pages keep their own back contract.
         if(_deploymentSetupPresenter?.TryHandleAutomaticCancelInput(input)==true)
         {GetViewport().SetInputAsHandled();return;}
         if(_administrationPresenter?.TryHandleAutomaticCancelInput(input)==true)
         {GetViewport().SetInputAsHandled();return;}
+        if (HandleGameplayKeyboard(input)) { GetViewport().SetInputAsHandled(); return; }
         if (input is not InputEventMouseButton { ButtonIndex: MouseButton.Right } button) return;
+        if (_transportTargetPresenter is not null && _transportNarration is null &&
+            _transportSetupMap is { SourcePointerInputActive: true } transportMap)
+        {
+            if (transportMap.SourceRightCancelReleased(button))
+            { CancelTransportTarget(); GetViewport().SetInputAsHandled(); }
+            return;
+        }
+        if (_unitTargetMenus is not null && _unitOrderConfirmation is null && _unitFacilitySelection is null &&
+            _commandDetailsView is null && _unitOrderMap is { SourcePointerInputActive: true } unitMap)
+        {
+            if(unitMap.SourceRightCancelReleased(button))
+            {CancelUnitTarget();GetViewport().SetInputAsHandled();}
+            return;
+        }
         if (!button.Pressed)
         {
             if (_consumeBackRelease) GetViewport().SetInputAsHandled();
@@ -190,27 +382,57 @@ public partial class Main : Control
             return;
         }
         if (_failed || _shuttingDown) return;
-        if(_deploymentNarration is { } narration&&narration.IsVisibleInTree()&&!narration.IsQueuedForDeletion()||
+        if(_transportNarration is { } transportNarration&&transportNarration.IsVisibleInTree()&&!transportNarration.IsQueuedForDeletion()||
+            _deploymentNarration is { } narration&&narration.IsVisibleInTree()&&!narration.IsQueuedForDeletion()||
             _administrationNarration is { } administrationSpeech&&administrationSpeech.IsVisibleInTree()&&!administrationSpeech.IsQueuedForDeletion()||
-            _cityDomesticNarration is { } citySpeech&&citySpeech.IsVisibleInTree()&&!citySpeech.IsQueuedForDeletion())
+            _cityDomesticNarration is { } citySpeech&&citySpeech.IsVisibleInTree()&&!citySpeech.IsQueuedForDeletion()||
+            _governanceNarration is { } governanceSpeech&&governanceSpeech.IsVisibleInTree()&&!governanceSpeech.IsQueuedForDeletion())
         {GetViewport().SetInputAsHandled();_consumeBackRelease=true;return;}
         Action? back = null;
-        if (_campaignSaveConfirmation is { } saveQuestion) back = saveQuestion.RequestCancel;
+        if (HasTitleEditMenu) back = RequestTitleEditBack;
+        else if (_titleConfirmation is { } titleCancel) back = titleCancel.RequestCancel;
+        else if (_personnelConfirmation is { } personnelCancel) back = personnelCancel.RequestCancel;
+        else if (_campaignSaveConfirmation is { } saveQuestion) back = saveQuestion.RequestCancel;
         else if (_environmentConfirmation is { } environmentQuestion) back = environmentQuestion.RequestCancel;
         else if (_mapSystemConfirmation is { } systemQuestion) back = systemQuestion.RequestCancel;
         else if (HasCampaignSavePage) back = CloseCampaignSaves;
         else if (HasEnvironmentSettings) back = _environmentSettings!.RequestBack;
+        else if (HasScenarioSettings) back = _scenarioSettingsView!.RequestBack;
         else if (HasMapSystemMenu) back = CloseMapSystemMenu;
+        else if (_commandDetailsView is { } commandDetail) back = commandDetail.RequestClose;
+        else if (_reportMapReturn is { } reportMapReturn) back = reportMapReturn.RequestBack;
+        else if (_unitOrderConfirmation is { } unitQuestion) back = unitQuestion.RequestCancel;
+        else if (_falseReportTarget is not null) back = RequestFalseReportBack;
+        else if (_unitOrderTarget is not null) back = CancelUnitTarget;
+        else if (_governanceRosterConfirmation is { } governanceQuestion) back = governanceQuestion.RequestCancel;
+        else if (HasGovernanceRosterPage) back = CloseGovernanceRoster;
+        else if (HasPersonnelAdministrationPage) back = RequestPersonnelAdministrationBack;
+        else if (HasOfficerOfficePage) back = RequestOfficerOfficesBack;
+        else if (HasCampaignCommandPage) back = RequestCampaignCommandBack;
+        else if (HasCommanderSelectionPage) back = CloseCommanderSelectionPage;
+        else if (HasPersonnelItemPage) back = ClosePersonnelItems;
+        else if (HasTalentOrdersPage) back = RequestTalentOrdersBack;
+        else if (HasTalentAutoSearchPage) back = RequestTalentAutoSearchBack;
+        else if (HasDiplomacyOrdersPage) back = RequestDiplomacyOrdersBack;
+        else if (HasCommandWorkspace) back = CloseCommandWorkspace;
+        else if (HasCityOfficerMovementPage) back = RequestCityOfficerMovementBack;
+        else if (HasCityMerchantPage) back = RequestCityMerchantBack;
         else if(_cityDomesticPresenter is { } cityDomestic)
             back=()=>{if(_cityDomesticSelectors?.TryCancel()!=true)cityDomestic.RequestBack();};
         else if(_administrationPresenter is { } administration)
             back=administration.RequestBack;
+        else if (_transportTarget is { Visible: true }) back = CancelTransportTarget;
+        else if (_transportSetup is { Visible: true } transport)
+            back = () => { if (_transportSetupPresenter?.TryCancelModal() != true) transport.RequestBack(); };
         else if (_deploymentSetup is { } deployment && deployment.IsVisibleInTree() && !deployment.IsQueuedForDeletion())
             back = ()=>{if(_deploymentSetupPresenter?.TryCancelModal()!=true)deployment.RequestClose();};
         else if(_deploymentTarget is { } target&&target.IsVisibleInTree()&&!target.IsQueuedForDeletion())
             back=()=>{if(_deploymentTargetPresenter?.TryCancelOverlay()!=true)target.RequestBack();};
         else if (_detailsView is { } details && details.IsVisibleInTree() && !details.IsQueuedForDeletion())
             back = details.RequestClose;
+        else if (_newGameSetup is { } setup) back = setup.RequestBack;
+        else if (_actionReportView is { } nativeReport && nativeReport.IsVisibleInTree() && !nativeReport.IsQueuedForDeletion())
+            back = nativeReport.RequestAcknowledge;
         else if (_periodReportView is { } report && report.IsVisibleInTree() && !report.IsQueuedForDeletion())
             back = report.RequestAcknowledge;
         else if (_residentMap is { IsCityCommandMenuOpen: true } cityMenuMap)
@@ -239,17 +461,19 @@ public partial class Main : Control
             _overrides = new ResourceOverrides(string.IsNullOrWhiteSpace(configured)
                 ? ProjectSettings.GlobalizePath("user://overrides") : configured);
             BuildInterface();
-            _preferences = new ClientPreferences(ProjectSettings.GlobalizePath("user://preferences.json"));
             _repository = new GameResourceRepository(overridesDirectory: _overrides.DirectoryPath);
+            _preferences = new ClientPreferences(ProjectSettings.GlobalizePath("user://preferences.json"),
+                KeyboardBindingCatalog.Load(_repository, _ui.SourceLocale));
             _map = _repository.LoadCeMap().Map;
             _mapOverview = new MapOverviewContent(_map);
             DrawMap();
-            RefreshScenarios();
+            RefreshScenarios(loadPreview:false);
             RefreshStatus();
             GD.Print($"SAN14 source {_repository.SourceDirectory}: " +
                 $"{_repository.EffectiveScenarios.Count} scenarios, map {_map.Width}x{_map.Height}.");
             BeginUiAudio();
             StartUiComposition();
+            OpenTitleMenu();
         }
         catch (Exception error)
         {
@@ -259,7 +483,7 @@ public partial class Main : Control
 
     private void RunUiAction(Action action)
     {
-        if (_failed || _shuttingDown) return;
+        if (_failed || _shuttingDown || _advancingPeriod || IsReturningToTitle) return;
         try { action(); }
         catch (Exception error) { ShowFailure(error, startup: false); }
     }
@@ -268,7 +492,15 @@ public partial class Main : Control
     {
         _failed = true;
         _loadError = error.Message;
+        if (_campaignApplication is { } application)
+        {
+            _campaignApplication = null;
+            _retiredCampaignApplications.Add(application);
+        }
         _session = null;
+        CloseTitleMenu();
+        CloseNewGameSetup();
+        CloseScenarioSelection();
         GD.PushError(error.ToString());
         CloseResidentMap();
         if (_sceneView is { } scene)
@@ -351,6 +583,9 @@ public partial class Main : Control
         sidebar.AddChild(_locale);
         _scenarioLabel = new Label();
         sidebar.AddChild(_scenarioLabel);
+        _chooseScenario = new Button { Name = "ChooseScenario" };
+        _chooseScenario.Pressed += () => RunUiAction(OpenScenarioSelection);
+        sidebar.AddChild(_chooseScenario);
         _scenarioList = new ItemList { SizeFlagsVertical = SizeFlags.ExpandFill };
         _scenarioList.ItemSelected += index => RunUiAction(() => ShowScenario(index));
         sidebar.AddChild(_scenarioList);
@@ -504,6 +739,7 @@ public partial class Main : Control
         _hint.Text = _ui.Hint;
         _languageLabel.Text = _ui.Language;
         _scenarioLabel.Text = _ui.Scenarios;
+        _chooseScenario.Text = _ui.Scenarios;
         _difficultyLabel.Text = _ui.Get("new_game_difficulty");
         for (int index = 0; index < DifficultyIds.Length; index++)
             _difficulty.SetItemText(index, _ui.Get("new_game_difficulty_" + DifficultyIds[index]));
@@ -547,7 +783,7 @@ public partial class Main : Control
         _status.Text = _ui.LoadedStatus(_repository.EffectiveScenarios.Count);
     }
 
-    private void RefreshScenarios()
+    private void RefreshScenarios(int preferredNumber = -1, bool loadPreview = true)
     {
         _scenarioList.Clear();
         _shownScenarios = [];
@@ -559,8 +795,10 @@ public partial class Main : Control
             _scenarioList.AddItem(item.Label);
         if (_shownScenarios.Count > 0)
         {
-            _scenarioList.Select(0);
-            ShowScenario(0);
+            int index=_shownScenarios.ToList().FindIndex(row=>row.Selection.Number==preferredNumber);
+            if(index<0)index=0;
+            _scenarioList.Select(index);
+            if(loadPreview)ShowScenario(index);
         }
     }
 
@@ -623,12 +861,14 @@ public partial class Main : Control
 
     private void ShowScenario(long index, GameState? restored, int? restoredPlayerForceId = null,
         CampaignProgressOperation? restoredProgress = null, long lastStorySequence = 0,
-        ManualTacticProgressOperation? restoredManualTactic = null)
+        ManualTacticProgressOperation? restoredManualTactic = null, NormalPeriodOperation? restoredNormalPeriod = null)
     {
         if (index < 0 || index >= _shownScenarios.Count || _repository is null) return;
         EffectiveScenario selection = _shownScenarios[(int)index].Selection;
         CampaignLoadResult campaign = CampaignComposition.Load(_repository, selection,
-            _newGameOptions, restored, restoredPlayerForceId, restoredProgress, lastStorySequence, restoredManualTactic);
+            _newGameOptions, restored, restoredPlayerForceId, restoredProgress, lastStorySequence, restoredManualTactic,
+            restoredNormalPeriod);
+        campaign.Composition.ConfigurePersonnelNarrationVoice(_preferences.Voice.Capture());
         LoadedScenario loaded = campaign.Composition.Scenario;
         LoadedMap loadedMap = campaign.Composition.Map;
         S14Entry selected = loaded.Metadata;
@@ -644,6 +884,10 @@ public partial class Main : Control
         _loadedMap = loadedMap;
         _mapOverview = campaign.Composition.Overview;
         _session = campaign.Session;
+        SynchronizeApplicationCrtRandom(_session.World);
+        if (_session.World.CampaignAppRandom32 is { } appRandom)
+            _presentationRandom.InstallCommittedState(appRandom.State);
+        AttachCampaignApplication(restoredPlayerForceId.HasValue);
         SyncNewGameOptions(world);
         PublishCampaignPresentation(campaign.Presentation);
         _detailsView?.QueueFree();
@@ -715,6 +959,7 @@ public partial class Main : Control
                 _detailsView = null;
                 _openOfficerDetails.GrabFocus();
             }));
+        view.RegisterHeader(_sourceHeaders);
     }
 
     private void OpenScenePreview()
@@ -748,7 +993,7 @@ public partial class Main : Control
     private void SelectMapTarget(int hexId)
     {
         if (_map is null || (uint)hexId >= (uint)_map.Cells.Length) return;
-        if(!HasDeploymentPage&&_deploymentDraftCityId is int source&&_world?.Cities.GetValueOrDefault(source)?.HexId!=hexId)
+        if(!HasMilitaryOrderPage&&_deploymentDraftCityId is int source&&_world?.Cities.GetValueOrDefault(source)?.HexId!=hexId)
             ClearDeploymentCityDraft();
         _selectedCell = _map.Cells[hexId];
         SetMeta("play_target_hex_id", hexId);
@@ -806,18 +1051,44 @@ public partial class Main : Control
         RefreshPlayWithdrawalAvailability();
         RefreshPlayBuildAvailability();
         RefreshExtendedCommands();
-        SetMapFocus(false);
+        if (unit.Mission is not null && (unit.Mission.Kind != UnitMissionKind.Transport || world.NativeArmySimulation is not null)) OpenUnitRetarget(unitId);
+        else SetMapFocus(false);
     }
 
-    private ForceHudView CurrentForceHudView(GameState world, int player) => ForceHudView.Create(world, player,
-        _campaignComposition!.CurrentMapHeader(world, player, _forceHud?.DisplayState), _ui);
+    private ForceHudView CurrentForceHudView(GameState world, int player)
+    {
+        var owner = HasForcePresentation && _session is { } session ? PersonnelPresentationOwner(session) : world;
+        return ForceHudView.Create(owner, player,
+            _campaignComposition!.CurrentMapHeader(owner, player, _forceHud?.DisplayState), _ui);
+    }
 
     private void CloseResidentMap()
     {
+        _personnelDevelopmentContinuation = null;
+        CloseTalentOrders();
+        CloseTalentAutoSearch();
+        CloseDiplomacyOrders();
+        CloseDiplomaticNegotiation();
+        CloseForcePresentation();
+        ClosePersonnelPresentation();
+        CloseUnitRetarget();
+        CloseTransportSetup();
+        CloseCommandWorkspace();
+        _mapPresentation?.LeaveResidentMap();
         _sceneAudioBinding?.LeavePlayableMap();
         CloseCampaignSaves();
         CloseMapSystemMenu();
         CloseCityDomestic();
+        CloseCityMerchant();
+        CloseCityOfficerMovement();
+        CloseGovernanceRoster(abandon: true);
+        CloseGovernanceNarration();
+        ClosePersonnelItems();
+        ClosePersonnelAdministration();
+        CloseOfficerOffices();
+        CloseCampaignDeployment();
+        CloseCampaignRetreat();
+        CloseCommanderCards();
         CloseAreaAdministration();
         CloseDeploymentSetup();
         if (_forceHud is not null)
@@ -851,9 +1122,10 @@ public partial class Main : Control
         _status.Visible = !_mapFocused;
         _uiAudioStatus.Visible = !_mapFocused;
         _sceneAudioStatus.Visible = !_mapFocused;
-        _mapFocusToggle.Visible = _residentMap is not null&&!HasDeploymentPage&&!HasAdministrationPage&&!HasCampaignSavePage&&!HasMapSystemMenu;
+        _mapFocusToggle.Visible = !_advancingPeriod&&_residentMap is not null&&!HasMilitaryOrderPage&&!HasAdministrationPage&&!HasCampaignSavePage&&!HasMapSystemMenu&&!HasCommandWorkspace&&!HasActionReport;
         _mapFocusToggle.Text = _ui.Get(_mapFocused ? "play_map_show_commands" : "play_map_hide_commands");
-        if (_forceHud is not null) _forceHud.Visible = _mapFocused&&!HasDeploymentPage&&!HasAdministrationPage&&!HasCampaignSavePage&&!HasMapSystemMenu;
+        if (_forceHud is not null) _forceHud.Visible = !_advancingPeriod&&_mapFocused&&!HasMilitaryOrderPage&&(!HasAdministrationPage||HasForceExperienceTransition)&&!HasCampaignSavePage&&!HasMapSystemMenu&&!HasCommandWorkspace&&!HasActionReport;
+        RefreshCommanderCardsVisibility();
         if (_browserContent is MarginContainer margin)
             foreach (string side in new[] { "left", "right", "top", "bottom" })
                 margin.AddThemeConstantOverride($"margin_{side}", _mapFocused ? 0 : side is "left" or "right" ? 20 : 16);
@@ -866,7 +1138,18 @@ public partial class Main : Control
 
     private void UpdateResidentMap()
     {
-        if (_shuttingDown) return;
+        if (_shuttingDown || IsReturningToTitle) return;
+        if (_transportSetup is not null && (!ReferenceEquals(_transportSetupSession, _session) ||
+            !ReferenceEquals(_transportSetupWorld, _world) || _transportSetupMap != _residentMap)) CloseTransportSetup();
+        if (_unitOrderTarget is not null && (!ReferenceEquals(_unitOrderSession, _session) ||
+            !ReferenceEquals(_unitOrderWorld, _world) || _unitOrderMap != _residentMap)) CloseUnitRetarget();
+        if (_personnelConfirmation is not null && (!ReferenceEquals(_personnelConfirmationSession, _session) ||
+            !ReferenceEquals(_personnelConfirmationWorld, _world) || _personnelConfirmationMap != _residentMap))
+            ClosePersonnelConfirmation(resumeParent: false);
+        if (_commandDetailsView is not null && (!ReferenceEquals(_commandDetailsSession, _session) ||
+            !ReferenceEquals(_commandDetailsWorld, _world) || _commandDetailsMap != _residentMap)) CloseCommandDetails();
+        if (HasCommandWorkspace && (!ReferenceEquals(_commandWorkspaceSession, _session) || _commandWorkspaceMap != _residentMap))
+            CloseCommandWorkspace();
         if (_repository is null || _map is null || _world is not GameState world ||
             world.RulesetId != PlayableSkeleton.RulesetId || _playerForceId is not int player)
         {
@@ -874,7 +1157,20 @@ public partial class Main : Control
             return;
         }
         if(_administrationWorld is { } administrationWorld&&!ReferenceEquals(administrationWorld,world))CloseAreaAdministration();
+        if (_cityOfficerMovementWorld is { } movementWorld && (!ReferenceEquals(movementWorld, world) ||
+            !ReferenceEquals(_cityOfficerMovementSession, _session))) CloseCityOfficerMovement();
+        if (_cityMerchantWorld is { } merchantWorld && (!ReferenceEquals(merchantWorld, world) ||
+            !ReferenceEquals(_cityMerchantSession, _session))) CloseCityMerchant();
         if(_cityDomesticWorld is { } cityWorld&&(!ReferenceEquals(cityWorld,world)||!ReferenceEquals(_cityDomesticSession,_session)))CloseCityDomestic();
+        if(HasGovernanceRosterPage&&!IsGovernanceRosterCurrentOwner)CloseGovernanceRoster(abandon: true);
+        if(_governanceNarrationWorld is { } narrationWorld&&(!ReferenceEquals(narrationWorld,world)||!ReferenceEquals(_governanceNarrationSession,_session)||_governanceNarrationMap!=_residentMap))CloseGovernanceNarration();
+        if(HasPersonnelPresentation&&!IsPersonnelPresentationCurrent)ClosePersonnelPresentation();
+        if(HasForcePresentation&&_policyRosterEditor is null&&!IsForcePresentationCurrent)CloseForcePresentation();
+        if(_personnelItemWorld is { } itemWorld&&(!ReferenceEquals(itemWorld,world)||!ReferenceEquals(_personnelItemSession,_session)))ClosePersonnelItems();
+        if(_officerOfficeWorld is { } officeWorld&&(!ReferenceEquals(officeWorld,world)||!ReferenceEquals(_officerOfficeSession,_session)))CloseOfficerOffices();
+        if(_personnelAdministrationWorld is { } personnelWorld&&(!ReferenceEquals(personnelWorld,world)||!ReferenceEquals(_personnelAdministrationSession,_session)))ClosePersonnelAdministration();
+        if(HasCampaignDeploymentPage&&!IsCampaignDeploymentCurrent)CloseCampaignDeployment();
+        if(HasCampaignRetreatPage&&!IsCampaignRetreatCurrent)CloseCampaignRetreat();
         if(_campaignSaveWorld is { } saveWorld&&(!ReferenceEquals(saveWorld,world)||!ReferenceEquals(_campaignSaveSession,_session)))CloseCampaignSaves();
         if(_mapSystemWorld is { } systemWorld&&(!ReferenceEquals(systemWorld,world)||!ReferenceEquals(_mapSystemSession,_session)))CloseMapSystemMenu();
         if (_residentMap is not null)
@@ -887,11 +1183,13 @@ public partial class Main : Control
                 _residentMap.SetNativeWorldMapDependencyFactory(
                     SceneViewNativeMapWorldSourceFactory.Create());
             if (_forceHud is not null) _forceHud.Refresh(CurrentForceHudView(world, player));
+            RefreshCommanderCards();
             return;
         }
         var view = new MapSceneView();
         _mapHost.AddChild(view);
         view.SetSourceNavigationOptions(_preferences.Navigation);
+        view.SetKeyboardBindings(_preferences.KeyboardBindings);
         view.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         // The accepted World graph currently owns the original static map
         // and an empty Army publication. Supply it before Configure captures
@@ -903,18 +1201,32 @@ public partial class Main : Control
                 SceneViewNativeMapWorldSourceFactory.Create());
         var safeText = new PreviewText(_locale.Selected == 1, null);
         var campaignQueries = _campaignComposition!.PrepareArmyQueries(world);
+        var informationComposition = _campaignComposition;
+        view.SetInformationLayerQuery(current => informationComposition.PrepareArmyQueries(current).QueryMapInformationLayers(current, player));
+        _mapPresentation??=new();
+        _mapPresentation.BeginResidentMap();
+        view.SetSceneryMapBinding(_mapPresentation,campaignQueries.CaptureSceneryMapCurrent);
         view.SetD3D11CurrentWorldQueries(campaignQueries.CaptureCurrentDefinitions,
             campaignQueries.CaptureGraphicsMotionInputs, campaignQueries.CaptureMapArmyGroups);
         _residentMap = view;
         view.MapOverlayChanged += open =>
         {
-            if (_forceHud is not null) _forceHud.Visible = _mapFocused && !open&&!HasDeploymentPage&&!HasAdministrationPage&&!HasCampaignSavePage&&!HasMapSystemMenu;
-            _mapFocusToggle.Visible = !open&&!HasDeploymentPage&&!HasAdministrationPage&&!HasCampaignSavePage&&!HasMapSystemMenu;
+            if (_forceHud is not null) _forceHud.Visible = !_advancingPeriod&&_mapFocused && (!open||HasForceExperienceTransition)&&!HasMilitaryOrderPage&&(!HasAdministrationPage||HasForceExperienceTransition)&&!HasCampaignSavePage&&!HasMapSystemMenu&&!HasCommandWorkspace&&!HasActionReport;
+            _mapFocusToggle.Visible = !_advancingPeriod&&!open&&!HasMilitaryOrderPage&&!HasAdministrationPage&&!HasCampaignSavePage&&!HasMapSystemMenu&&!HasCommandWorkspace&&!HasActionReport;
         };
         view.SetCityDomesticMenuQuery((current,city,level)=>QueryCityDomesticMenu(view,current,city,level));
         view.SetCityCommandMenuQuery((current,city,level)=>QueryCityCommandMenu(view,current,city,level));
         view.CityCommand += (cityId, command) => RunUiAction(() =>
         {
+            if (_residentMap != view) return;
+            if (command is MapCityCommand.Move or MapCityCommand.Summon)
+            {
+                SelectMapCommandCity(cityId);
+                OpenCityOfficerMovement(cityId, command == MapCityCommand.Summon ? OfficerMoveMode.Summon : OfficerMoveMode.Dispatch);
+                return;
+            }
+            if (command == MapCityCommand.Merchant)
+            { SelectMapCommandCity(cityId); OpenCityMerchant(cityId); return; }
             if(command==MapCityCommand.CityDomestic)
             {if(_residentMap==view){SelectMapCommandCity(cityId);OpenCityDomestic(cityId);}return;}
             if (command == MapCityCommand.AreaInformation)
@@ -924,6 +1236,12 @@ public partial class Main : Control
                 return;
             }
             SelectMapCommandCity(cityId);
+            if (command == MapCityCommand.Transport)
+            {
+                if (_playCity.Selected < 0 || _playCity.GetSelectedId() != cityId) return;
+                OpenTransportSetup(cityId);
+                return;
+            }
             if (command == MapCityCommand.Deploy)
             {
                 OpenDeploymentSetup(cityId);
@@ -931,7 +1249,8 @@ public partial class Main : Control
             }
             if(command==MapCityCommand.Administration)
             {OpenAreaAdministration(cityId);return;}
-            _playCommandDeck.Select(command switch
+            SetMapFocus(true);
+            OpenCommandWorkspace(command switch
             {
                 MapCityCommand.Deploy or MapCityCommand.CancelDeployment => PlayableCommandDeck.Page.Military,
                 MapCityCommand.Move => PlayableCommandDeck.Page.Personnel,
@@ -953,17 +1272,17 @@ public partial class Main : Control
             CloseResidentMap();
             throw;
         }
-        _ = CompleteResidentMapAsync(view, _session!);
+        _ = CompleteResidentMapAsync(view, _campaignApplication);
     }
 
-    private async Task CompleteResidentMapAsync(MapSceneView view, GameplaySession session)
+    private async Task CompleteResidentMapAsync(MapSceneView view, CampaignApplicationState? application)
     {
         try
         {
             await view.InitialSceneLoad;
             if (!GodotObject.IsInstanceValid(this) || !IsInsideTree() || _residentMap != view ||
                 !GodotObject.IsInstanceValid(view) || !view.IsInsideTree() || view.IsQueuedForDeletion()) return;
-            if (_session != session || _repository is null || _map is null || _world is not GameState world ||
+            if (!ReferenceEquals(_campaignApplication, application) || _repository is null || _map is null || _world is not GameState world ||
                 world.RulesetId != PlayableSkeleton.RulesetId || _playerForceId is not int player)
             {
                 CloseResidentMap();
@@ -979,6 +1298,7 @@ public partial class Main : Control
                 return;
             }
             view.RefreshPlayableWorld(world);
+            if (_advancingPeriod) view.SetDetailsOpen(true, keepMapVisible: true);
             var hud = new PlayableForceHud();
             _mapHost.AddChild(hud);
             try
@@ -986,7 +1306,7 @@ public partial class Main : Control
                 hud.Configure(_repository, _ui, CurrentForceHudView(world, player),
                     () => RunPlayAction(AdvancePlayable),
                     () => RunUiAction(() => OpenForceDetailsFor(player, null)),
-                    BuildMapMenuEditors(), () => RunUiAction(OpenMapSystemMenu));
+                    BuildMapMenuEditors(), () => RunUiAction(OpenMapSystemMenu), () => RunUiAction(OpenInformationBrowser));
                 hud.FitToMap(_mapHost.Size);
                 _forceHud = hud;
             }
@@ -1003,7 +1323,11 @@ public partial class Main : Control
             _previewRow.Hide();
             _mapHost.MoveChild(_mapFocusToggle, _mapHost.GetChildCount() - 1);
             SetMapFocus(true);
+            _mapPresentation!.EnterOrdinaryMap();
+            RefreshCommanderCards();
             RefreshSceneAudioContext();
+            TryOpenGovernanceNarration();
+            TryOpenPersonnelPresentation();
         }
         catch (Exception error)
         {
@@ -1044,7 +1368,7 @@ public partial class Main : Control
 
     private void OpenMapCityDetails(MapSceneView owner, int cityId)
     {
-        if (_failed || HasAdministrationPage || HasDeploymentPage || HasCampaignSavePage || HasMapSystemMenu || _detailsView is not null ||
+        if (_failed || HasAdministrationPage || HasMilitaryOrderPage || HasCampaignSavePage || HasMapSystemMenu || HasCommandWorkspace || _detailsView is not null ||
             (_sceneView != owner && _residentMap != owner) || _repository is null ||
             _world is null || _selectedSnapshot is null) return;
         var view = new CityDetailsView();
@@ -1063,6 +1387,7 @@ public partial class Main : Control
                 if ((_sceneView == owner || _residentMap == owner) && GodotObject.IsInstanceValid(owner))
                     owner.SetDetailsOpen(false);
             }, mapBackdrop: true);
+            view.RegisterHeader(_sourceHeaders);
         }
         catch (Exception error)
         {
@@ -1097,6 +1422,7 @@ public partial class Main : Control
                 _detailsView = null;
                 if (returnFocus?.IsVisibleInTree() == true) returnFocus.GrabFocus();
             }));
+            view.RegisterHeader(_sourceHeaders);
         }
         catch
         {
@@ -1123,6 +1449,7 @@ public partial class Main : Control
             _detailsView = null;
             _openCityDetails.GrabFocus();
         }));
+        view.RegisterHeader(_sourceHeaders);
     }
 
     private void BuildPlayControls(VBoxContainer parent)
@@ -1138,6 +1465,12 @@ public partial class Main : Control
         _playStart = new Button { Name = "StartPlayable" };
         _playStart.Pressed += () => RunPlayAction(StartPlayable);
         actions.AddChild(_playStart);
+        _playSystemMenu=new Button { Name="PlayableSystemMenu",Disabled=true };
+        _playSystemMenu.Pressed+=()=>RunUiAction(OpenMapSystemMenu);
+        actions.AddChild(_playSystemMenu);
+        _playCommands = new Button { Name = "PlayableCommands", Disabled = true };
+        _playCommands.Pressed += () => RunUiAction(() => OpenCommandWorkspace(PlayableCommandDeck.Page.Administration));
+        actions.AddChild(_playCommands);
         _playSaveSlotLabel = new Label();
         actions.AddChild(_playSaveSlotLabel);
         _playSaveSlot = new OptionButton { Name = "PlayableSaveSlot", CustomMinimumSize = new Vector2(135, 0) };
@@ -1159,6 +1492,9 @@ public partial class Main : Control
         VBoxContainer military = _playCommandDeck.Content(PlayableCommandDeck.Page.Military);
         VBoxContainer personnel = _playCommandDeck.Content(PlayableCommandDeck.Page.Personnel);
         VBoxContainer governance = _playCommandDeck.Content(PlayableCommandDeck.Page.Governance);
+        _playGovernanceOpen = new Button { Name = "OpenGovernanceRoster" };
+        _playGovernanceOpen.Pressed += () => RunUiAction(OpenGovernanceRoster);
+        governance.AddChild(_playGovernanceOpen);
         var governanceRow = new HFlowContainer();
         governance.AddChild(governanceRow);
         _playGovernanceLabel = new Label();
@@ -1209,6 +1545,7 @@ public partial class Main : Control
         _playUnit = new OptionButton { Name = "PlayableUnit", CustomMinimumSize = new Vector2(170, 0) };
         _playUnit.ItemSelected += _ =>
         {
+            RefreshPlayRetargetAvailability();
             RefreshPlayDisbandAvailability();
             RefreshPlayOccupationAvailability();
             RefreshPlayWithdrawalAvailability();
@@ -1360,6 +1697,7 @@ public partial class Main : Control
         talent.AddChild(_playTalentExecutorLabel);
         _playTalentExecutor = new OptionButton { Name = "TalentExecutor",
             CustomMinimumSize = new Vector2(125, 0) };
+        _playTalentExecutor.ItemSelected += _ => RunUiAction(RefreshNativeTalentControls);
         talent.AddChild(_playTalentExecutor);
         _playTalentSearch = new Button { Name = "SearchTalent" };
         _playTalentSearch.Pressed += () => RunPlayAction(PrepareTalentSearch);
@@ -1368,6 +1706,7 @@ public partial class Main : Control
         talent.AddChild(_playTalentTargetLabel);
         _playTalentTarget = new OptionButton { Name = "TalentTarget",
             CustomMinimumSize = new Vector2(125, 0) };
+        _playTalentTarget.ItemSelected += _ => RunUiAction(RefreshNativeTalentControls);
         talent.AddChild(_playTalentTarget);
         _playTalentRecruit = new Button { Name = "RecruitTalent" };
         _playTalentRecruit.Pressed += () => RunPlayAction(PrepareTalentRecruit);
@@ -1432,15 +1771,17 @@ public partial class Main : Control
 
     private void RunPlayAction(Action action)
     {
-        if (_failed || _shuttingDown) return;
+        if (_failed || _shuttingDown || _advancingPeriod || IsReturningToTitle) return;
         try { action(); }
-        catch (Exception error)
-        {
-            _playMessage.Text = error is PlayableEventRuleUnavailableException unavailable
-                ? _ui.Format("play_event_rule_unavailable", unavailable.MissingRuleKey)
-                : _ui.Format("play_error", error.Message);
-            GD.PushWarning(error.ToString());
-        }
+        catch (Exception error) { ReportPlayFailure(error); }
+    }
+
+    private void ReportPlayFailure(Exception error)
+    {
+        _playMessage.Text = error is PlayableEventRuleUnavailableException unavailable
+            ? _ui.Format("play_event_rule_unavailable", unavailable.MissingRuleKey)
+            : _ui.Format("play_error", error.Message);
+        GD.PushWarning(error.ToString());
     }
 
     private void UpdatePlayLocale()
@@ -1451,12 +1792,15 @@ public partial class Main : Control
         ConfigureTransportOrders();
         _playTitle.Text = _ui.Get("play_title");
         _playStart.Text = _ui.Get("play_start");
+        _playSystemMenu.Text = _ui.Get("play_system_menu");
+        _playCommands.Text = _ui.Get("play_commands");
         _playSave.Text = _ui.Get("play_save");
         _playContinue.Text = _ui.Get("play_continue");
         _playSaveSlotLabel.Text = _ui.Get("play_save_slot");
         RefreshSaveSlots();
         _playGovernanceLabel.Text = _ui.Get("play_governance");
         _playGovernanceApply.Text = _ui.Get("play_governance_apply");
+        _playGovernanceOpen.Text = _ui.Get("play_governance_roster_open");
         _playCityLabel.Text = _ui.Get("play_source_base");
         _playAreaLabel.Text = _ui.Get("play_area");
         _playAdminOfficerLabel.Text = _ui.Get("play_admin_officer");
@@ -1494,9 +1838,9 @@ public partial class Main : Control
         _playDeployBuild.Text = _ui.Get("play_deploy_build");
         _playRetarget.Text = _ui.Get("play_retarget");
         _playStructureKindLabel.Text = _ui.Get("play_structure_kind");
-        _playBuild.Text = _ui.Get("play_build_formation");
-        _playRepair.Text = _ui.Get("play_repair_structure");
-        _playDemolish.Text = _ui.Get("play_demolish_structure");
+        _playBuild.Text = _ui.Get("play_facility_build");
+        _playRepair.Text = _ui.Get("play_facility_repair");
+        _playDemolish.Text = _ui.Get("play_facility_demolish");
         _playOccupy.Text = _ui.Get("play_occupy_area");
         _playWithdraw.Text = _ui.Get("play_withdraw");
         _playDisband.Text = _ui.Get("play_disband");
@@ -1535,6 +1879,16 @@ public partial class Main : Control
 
     private void RefreshPlayGovernanceChoices()
     {
+        bool native = _world?.NativeArmySimulation is not null;
+        ((Control)_playGovernanceSlot.GetParent()).Visible = !native;
+        _playGovernanceOpen.Visible = native;
+        _playGovernanceOpen.Disabled = _world is not { Phase: TurnPhase.Strategy } ||
+            _session?.Rules.GovernanceRosterRules is null || _residentMap is not { IsPlayableMapReady: true };
+        if (native)
+        {
+            _playGovernanceSlot.Disabled = true; _playGovernanceOfficer.Disabled = true; _playGovernanceApply.Disabled = true;
+            return;
+        }
         int? priorSlot = SelectionId(_playGovernanceSlot);
         _playGovernanceSlot.Clear();
         _playGovernanceOfficer.Clear();
@@ -1573,6 +1927,7 @@ public partial class Main : Control
 
     private void AssignPlayablePolicy()
     {
+        if (_world?.NativeArmySimulation is not null) return;
         if (_world is not GameState world || _playerForceId is not int player ||
             _playGovernanceSlot.Selected < 0 || _playGovernanceOfficer.Selected < 0) return;
         int officerId = _playGovernanceOfficer.GetSelectedId();
@@ -1702,6 +2057,7 @@ public partial class Main : Control
         RefreshPlayWithdrawalAvailability();
         RefreshPlayBuildAvailability();
         RefreshExtendedCommands();
+        RefreshNativeTalentControls();
     }
 
     private void RefreshPlayFormationChoices()
@@ -1758,7 +2114,11 @@ public partial class Main : Control
     {
         DeploymentPreview preview = MilitaryCommandPreview.Deployment(_world, _playerForceId,
             SelectedMilitaryCommand(), _playRules?.Routes);
-        _playDeploy.Disabled = !preview.Deploy;
+        int? source = SelectionId(_playCity);
+        _playDeploy.Disabled = _world is { } world && source is int city && world.Cities.ContainsKey(city)
+            ? _residentMap is null || _campaignComposition is null || _repository is null ||
+                !DeploymentBatchView.CanComposeAt(world, _playerForceId, city)
+            : !preview.Deploy;
         _playDeployOccupy.Disabled = !preview.Occupy;
         _playDeployBuild.Disabled = !preview.Build;
     }
@@ -1774,6 +2134,12 @@ public partial class Main : Control
 
     private void RefreshPlayBuildAvailability()
     {
+        if (_world?.NativeArmySimulation is not null)
+        {
+            bool open = CanOpenUnitFacilities();
+            _playBuild.Disabled = !open; _playRepair.Disabled = !open; _playDemolish.Disabled = !open;
+            return;
+        }
         StructureCommandPreview preview = MilitaryCommandPreview.Structures(_world, _playerForceId,
             SelectedMilitaryCommand());
         _playBuild.Disabled = !preview.Build;
@@ -1785,8 +2151,12 @@ public partial class Main : Control
     {
         if (_world is not GameState world || _selectedForceId is not int forceId ||
             world.Phase != TurnPhase.Initializing) return;
-        CampaignStartResult campaign = _campaignComposition!.Start(_session!, forceId);
+        CampaignStartResult campaign = _campaignComposition!.Start(_session!, forceId, new(_presentationRandom.State), CaptureApplicationCrtRandom());
         _session = campaign.Session;
+        SynchronizeApplicationCrtRandom(_session.World);
+        if (_session.World.CampaignAppRandom32 is { } appRandom)
+            _presentationRandom.InstallCommittedState(appRandom.State);
+        AttachCampaignApplication(playable: true);
         PublishCampaignPresentation(campaign.Presentation);
         RefreshSceneAudioContext();
         _playMessage.Text = _ui.Get("play_started");
@@ -1795,14 +2165,20 @@ public partial class Main : Control
 
     private void PrepareTalentSearch()
     {
-        if (_playerForceId is not int player || _playCity.Selected < 0 ||
+        if (_world?.NativeArmySimulation is not null)
+        { CloseCommandWorkspace(); OpenTalentOrders(TalentOrderKind.Search); return; }
+        if (_world is not { } world || _playerForceId is not int player || _playCity.Selected < 0 ||
             _playTalentExecutor.Selected < 0) return;
+        int city = _playCity.GetSelectedId();
+        if (SelectedTalentSearchHex(world, city) is not int target) return;
         ApplyPlayableOrder(new PrepareTalentSearchOrder(player, _playCity.GetSelectedId(),
-            _playTalentExecutor.GetSelectedId()));
+            _playTalentExecutor.GetSelectedId()) { TargetHexId = target });
     }
 
     private void PrepareTalentRecruit()
     {
+        if (_world?.NativeArmySimulation is not null)
+        { CloseCommandWorkspace(); OpenTalentOrders(TalentOrderKind.Recruit); return; }
         if (_playerForceId is not int player || _playCity.Selected < 0 ||
             _playTalentExecutor.Selected < 0 || _playTalentTarget.Selected < 0) return;
         ApplyPlayableOrder(new PrepareTalentRecruitOrder(player, _playCity.GetSelectedId(),
@@ -1811,7 +2187,10 @@ public partial class Main : Control
 
     private void OrderAdministration()
     {
-        if(_playCity.Selected>=0)OpenAreaAdministration(_playCity.GetSelectedId());
+        if (_playCity.Selected < 0) return;
+        int city = _playCity.GetSelectedId();
+        CloseCommandWorkspace();
+        OpenAreaAdministration(city);
     }
 
     private void AssignCityDuty(CityDutyKind kind)
@@ -1823,7 +2202,13 @@ public partial class Main : Control
             selected < 0 ? null : selected));
     }
 
-    private void OrderDeployment() => PreparePlayableDeployment(false);
+    private void OrderDeployment()
+    {
+        if (_world is not { } world || SelectionId(_playCity) is not int source) return;
+        if (!world.Cities.ContainsKey(source)) { PreparePlayableDeployment(false); return; }
+        if (!DeploymentBatchView.CanComposeAt(world, _playerForceId, source)) return;
+        OpenDeploymentSetup(source, fromCommandWorkspace: true);
+    }
 
     private void OrderOccupationDeployment() => PreparePlayableDeployment(true);
 
@@ -1870,6 +2255,11 @@ public partial class Main : Control
 
     private void DispatchTransport()
     {
+        if (_world?.NativeArmySimulation is not null)
+        {
+            if (_playCity.Selected >= 0) OpenTransportSetup(_playCity.GetSelectedId(), fromCommandWorkspace: true);
+            return;
+        }
         if (_world is null || _playerForceId is not int player ||
             _playCity.Selected < 0 || _playTransportCity.Selected < 0 ||
             _playOfficer.Selected < 0) return;
@@ -1902,12 +2292,17 @@ public partial class Main : Control
     private void RetargetUnit()
     {
         if (_world is null || _playerForceId is not int player ||
-            _playUnit.Selected < 0 || _selectedCell is not MapCell target) return;
-        ApplyPlayableOrder(new RetargetUnitOrder(player, _playUnit.GetSelectedId(), target.Id));
+            _playUnit.Selected < 0) return;
+        int unitId = _playUnit.GetSelectedId();
+        if (_world.NativeArmySimulation is not null || _world.Units.GetValueOrDefault(unitId)?.Mission?.Kind != UnitMissionKind.Transport)
+            OpenUnitRetarget(unitId);
+        else if (_selectedCell is MapCell target)
+            ApplyPlayableOrder(new RetargetUnitOrder(player, unitId, target.Id));
     }
 
     private void BuildStructure()
     {
+        if (OpenSelectedUnitFacilities()) return;
         if (_world is null || _playerForceId is not int player ||
             _playUnit.Selected < 0 || _playStructureKind.Selected < 0 ||
             _selectedCell is not MapCell target) return;
@@ -1917,6 +2312,7 @@ public partial class Main : Control
 
     private void RepairStructure()
     {
+        if (OpenSelectedUnitFacilities()) return;
         if (_world?.Structures is not { } structures || _playerForceId is not int player ||
             _playUnit.Selected < 0 || _selectedCell is not MapCell target) return;
         StructureState? structure = structures.Values.FirstOrDefault(item => item.HexId == target.Id);
@@ -1926,6 +2322,7 @@ public partial class Main : Control
 
     private void DemolishStructure()
     {
+        if (OpenSelectedUnitFacilities()) return;
         if (_world?.Structures is not { } structures || _playerForceId is not int player ||
             _playUnit.Selected < 0 || _selectedCell is not MapCell target) return;
         StructureState? structure = structures.Values.FirstOrDefault(item => item.HexId == target.Id);
@@ -1958,9 +2355,11 @@ public partial class Main : Control
 
     private bool ApplyPlayableOrder(GameOrder order,Action? acceptedBeforeRefresh=null)
     {
-        if (_session?.PlayerForceId is null) return false;
-        if((HasDeploymentPage||HasAdministrationPage||HasCampaignSavePage||HasMapSystemMenu)&&acceptedBeforeRefresh is null)return false;
-        CommandResult result = _session!.Issue(order);
+        if (_session?.PlayerForceId is null || _commandDetailsView is not null || HasActionReport || HasPersonnelConfirmation) return false;
+        if (HasCommandWorkspace && (!ReferenceEquals(_commandWorkspaceSession, _session) || _commandWorkspaceMap != _residentMap))
+        { CloseCommandWorkspace(); return false; }
+        if((HasMilitaryOrderPage||HasAdministrationPage||HasCampaignSavePage||HasMapSystemMenu)&&acceptedBeforeRefresh is null)return false;
+        CommandResult result = _session!.Issue(order, new(_presentationRandom.State));
         if (!result.Accepted)
         {
             _playMessage.Text = _ui.Format("play_order_rejected",
@@ -1968,7 +2367,10 @@ public partial class Main : Control
                 result.ErrorCode is { } code ? _ui.CommandError(code) : result.Error ?? "?");
             return false;
         }
+        if (_session.World.CampaignAppRandom32 is { } appRandom)
+            _presentationRandom.InstallCommittedState(appRandom.State);
         _playMessage.Text = _ui.Get("play_order_accepted");
+        SynchronizeApplicationCrtRandom(_session.World);
         acceptedBeforeRefresh?.Invoke();
         RefreshCurrentPlayWorld();
         return true;
@@ -1976,20 +2378,22 @@ public partial class Main : Control
 
     private void AdvancePlayable()
     {
-        if (HasDeploymentPage||HasAdministrationPage||HasCampaignSavePage||HasMapSystemMenu||_session?.PlayerForceId is null) return;
-        if (!_session!.AdvancePeriod()) return;
-        _playMessage.Text = "";
-        RefreshCurrentPlayWorld();
-        if (_session.World.Phase == TurnPhase.Reporting) SetMapFocus(false);
+        if (_advancingPeriod||HasMilitaryOrderPage||HasAdministrationPage||HasCampaignSavePage||HasMapSystemMenu||HasCommandWorkspace||HasActionReport||HasPersonnelConfirmation||_commandDetailsView is not null||
+            _session is not { PlayerForceId: int player } source||_campaignComposition is not { } composition||
+            source.World.Phase != TurnPhase.Strategy||PlayableOutcome.Evaluate(source.World, player) != PlayableResult.Ongoing) return;
+        string? automaticSaveNotice = SaveAutomaticallyBeforeAdvance(source);
+        _advancingPeriod = true;
+        _periodAdvanceTask = AdvancePlayableAsync(source, composition, automaticSaveNotice);
     }
 
     private void FinishPlayableReport()
     {
-        if(HasAdministrationPage||HasCampaignSavePage||HasMapSystemMenu)return;
+        if(HasAdministrationPage||HasCampaignSavePage||HasMapSystemMenu||HasCommandWorkspace||HasActionReport||HasPersonnelConfirmation||_commandDetailsView is not null)return;
         if (_world is not { Phase: TurnPhase.Reporting } || _playerForceId is null) return;
         _session!.FinishReport();
         _playMessage.Text = "";
         RefreshCurrentPlayWorld();
+        if (_world?.Phase == TurnPhase.Strategy && _residentMap is not null) SetMapFocus(true);
     }
 
     private void RefreshCurrentPlayWorld()
@@ -1999,6 +2403,7 @@ public partial class Main : Control
         RefreshTileInfo();
         RefreshPlayControls();
         UpdateResidentMap();
+        if(!TryOpenPersonnelPresentation())RefreshDiplomaticNegotiation();
     }
 
     private void ShowPortrait(BrowserPortrait? person)

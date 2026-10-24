@@ -45,7 +45,11 @@ public sealed class TransportArmyCreationSource
             if (state.ReadArmyLifecycle() is not { Slots.Count: 501 } arena ||
                 arena.Revision != OwnedArmyLifecycleCurrent.Revision)
                 return Missing("current.transport_owned_reset_arena");
-            var recomposed = TransportArmyPacketSource.TryComposeCity(state, current, packet.Request);
+            var recomposed = packet.CommandOrder is { } command
+                ? TransportArmyPacketSource.TryComposeCommand(state, current, command)
+                : packet.Request is { } cityRequest
+                    ? TransportArmyPacketSource.TryComposeCity(state, current, cityRequest)
+                    : new TransportArmyPacketResult(null, "current.transport_packet_request");
             if (recomposed.Packet is not { } checkedPacket) return Missing(recomposed.UnresolvedOwner!);
             if (!packet.Dwords.SequenceEqual(checkedPacket.Dwords)) return Missing("current.transport_packet_selection_changed");
 
@@ -57,9 +61,9 @@ public sealed class TransportArmyCreationSource
             {
                 var existing = arena.Slots[decoded.Index];
                 if (existing.Commander12 is null) return Missing("current.transport_existing_Army12");
-                if (existing.Commander12 == packet.Request.OfficerId && existing.Status10 is null)
+                if (existing.Commander12 == packet.Dwords[0] && existing.Status10 is null)
                     return Missing("current.transport_existing_Army10");
-                if (existing.Commander12 == packet.Request.OfficerId && existing.Status10 != 0)
+                if (existing.Commander12 == packet.Dwords[0] && existing.Status10 != 0)
                     return Missing("branch.transport_existing_CommanderArmy");
             }
             var associated = current.ReadPersonLinkedEntity(person)
@@ -108,7 +112,7 @@ public sealed class TransportArmyCreationSource
                 else if (sequence <= previous.Value) sequence = previous.Value + 1;
             }
             ushort? sequence28 = sequenceKnown ? (ushort)Math.Clamp(sequence, 0, 500) : null;
-            ushort? currentHex = ArmyConstruction.ResolveCurrentHex2A(current, packet.Request.OfficerId);
+            ushort? currentHex = ArmyConstruction.ResolveCurrentHex2A(current, packet.Dwords[0]);
             if (currentHex is null) return Missing("current.transport_HomeObject_Hex2A");
             int selectedNaval = packet.Dwords[2];
             int naval = (uint)selectedNaval <= 20 && _formations.NativeFields7E[selectedNaval] == 2
@@ -129,7 +133,7 @@ public sealed class TransportArmyCreationSource
                 PersonArmyLocationSource.EncodeArmySecondLocation(nativeSlot), inherited with { })
                 { MapUiByte13C = receiver.MapUiByte13C };
             return new(new(packet, fields, new(packet.SourceCityPhysical, beforeTroops, ready, beforeGold, gold, beforeSupplies, supplies),
-                governor == packet.Request.OfficerId, sequenceKnown ? Array.Empty<string>() : new[] { "current.sameHome_Army_word28" }), null);
+                governor == packet.Dwords[0], sequenceKnown ? Array.Empty<string>() : new[] { "current.sameHome_Army_word28" }), null);
         }
         catch (MissingOwner error) { return Missing(error.Message); }
         catch (InvalidDataException error) { return Missing(error.Message); }

@@ -217,6 +217,7 @@ public static class ScenarioInitializer
                     CurrentSurnameSortKey = person.SurnameSortKey,
                     CurrentGivenNameSortKey = person.GivenNameSortKey,
                     DialogueStyle = person.DialogueStyle,
+                    VoiceType = person.VoiceType,
                     BirthYear = person.BirthYear,
                     FamilyGeneration = person.FamilyGeneration,
                     CurrentSurname = person.FamilyName,
@@ -257,6 +258,12 @@ public static class ScenarioInitializer
             Territory = territory.Cells.ToDictionary(cell => cell.HexId,
                 cell => new TerritoryState(cell.HexId, OptionalId(cell.AreaId), OptionalId(cell.ForceId)))
         };
+        if (loaded.Metadata.FormatMarker == 0x66)
+        {
+            state = AreaFlagsSourceAdapter.InstallFresh(state, loaded);
+            state = CampaignExpeditionFreshSource.InstallFresh(state);
+            state = PersonnelCreditFreshSource.InstallFresh(state);
+        }
         state = ArmyIdentityAllocation.Initialize(state);
         StateValidator.Validate(state);
         return new InitializedScenario(state, loaded.ScenarioSource, loaded.FixedDataSource, map.Source);

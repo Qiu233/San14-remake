@@ -89,25 +89,35 @@ public static class PlayableSkeleton
         IPlayableOrdinaryDeploymentCommitRules? ordinaryDeploymentCommitRules = null,
         IAreaAdministrationExecution? areaAdministrationRules = null,
         IPlayableArmyConstructionCommandRules? armyConstructionRules = null,
-        ICityDomesticExecution? cityDomesticRules = null)
+        ICityDomesticExecution? cityDomesticRules = null,
+        IPlayableUnitBehaviorRules? unitBehaviorRules = null,
+        IGovernanceRosterRules? governanceRosterRules = null,
+        IPlayableArmyWithdrawalCommandRules? armyWithdrawalRules = null,
+        IPlayableArmyMovementCommandRules? armyMovementCommands = null,
+        ICityMerchantExecution? cityMerchantRules = null,
+        ICityOfficerMovementExecution? cityOfficerMovementRules = null)
     {
         var routes = new PlayableLandRoutes(map);
         IDiplomacyPolicy diplomacyPolicy = diplomacy ?? new ProvisionalDiplomacyPolicy();
         IPlayableTacticRules tactics = tacticRules ?? UnresolvedTacticRules.Instance;
         IPlayableEventRules events = eventRules ?? UnresolvedEventRules.Instance;
+        IPersonnelCommandRules personnel = personnelRules ?? UnresolvedPersonnelRules.Instance;
         IOrderRules commands = new OrderRuleDispatcher(
             new AreaAdministrationRules(areaAdministrationRules),
             new DeploymentCommandRules(new DeploymentEligibilityRules(routes), new DeploymentResourceRules(), districtCommandBudgetRules, ordinaryDeploymentCommitRules),
-            new GovernanceCommandRules(new PlayableGovernanceCommandRules()));
-        commands = new PlayableUnitOrders(commands, routes, cityEntryResources, cityEntryState, transportCreationRules, armyConstructionRules);
+            new GovernanceCommandRules(new PlayableGovernanceCommandRules()), governanceRosterRules);
+        commands = new PlayableUnitOrders(commands, routes, cityEntryResources, cityEntryState, transportCreationRules, armyConstructionRules, armyWithdrawalRules);
         commands = new PlayableCityDutyOrders(commands, cityDomesticRules);
-        commands = new PlayableOfficerMoveOrders(commands);
-        commands = new PlayableTalentOrders(commands);
+        commands = new CityMerchantOrders(commands, cityMerchantRules);
+        commands = new PlayableOfficerMoveOrders(commands, cityOfficerMovementRules);
+        commands = new PlayableTalentOrders(commands, talent as IPlayableTalentCommandRules);
+        commands = new CampaignExpeditionOrders(commands, armyCreationRules as ICampaignExpeditionExecution);
         commands = new PlayableFalseReportOrders(commands, falseReportCommandRules);
-        commands = new PlayableWaypointOrders(commands, routes, PlayableDiplomacy.IsHostile, cityEntryResources, cityEntryState, armyConstructionRules);
+        commands = new PlayableWaypointOrders(commands, routes, PlayableDiplomacy.IsHostile, cityEntryResources, cityEntryState,
+            armyConstructionRules, unitBehaviorRules, armyMovementCommands);
         commands = new PlayableDiplomacyOrders(commands, diplomacyPolicy);
         commands = new PlayableTacticOrders(commands, routes, tactics);
-        commands = new PlayablePersonnelOrders(commands, personnelRules ?? UnresolvedPersonnelRules.Instance);
+        commands = new PlayablePersonnelOrders(commands, personnel);
         commands = new PlayableDiplomaticOfficerGuard(commands);
         if (armyCreationRules is IPlayableArmyCreationPreparationRules preparationRules)
             commands = new PlayableArmyCreationPreparationGuard(commands, preparationRules);
@@ -119,9 +129,10 @@ public static class PlayableSkeleton
                 nativeSubdayRules ?? tactics as IPlayableNativeSubdayRules, armyCreationRules, nativeArmyPreparationRules,
                 baseCaptureAftermathRules, cityEntryResources, cityEntryState, siegeSettlementRules, fieldSettlementRules,
                 nativePeriodContinuationRules, captureReturningPersonRules, captureArmyHomeRules, lastCityPersonnelRules, gateEntryState,
-                baseContactPriorityRules, armyContactRules, districtCommandBudgetRules),
+                baseContactPriorityRules, armyContactRules, districtCommandBudgetRules, armyWithdrawalRules),
             new Reporting(districtCommandBudgetRules), routes)
-        { TacticRules = tactics, OrdinaryDeploymentRules = ordinaryDeploymentCommitRules };
+        { TacticRules = tactics, OrdinaryDeploymentRules = ordinaryDeploymentCommitRules, PersonnelRules = personnel,
+            GovernanceRosterRules = governanceRosterRules };
     }
 
     public static GameState Start(GameState initial)
@@ -229,17 +240,19 @@ public static class PlayableSkeleton
         IPlayableGateEntryStateRules? gateEntryState,
         IPlayableBaseContactPriorityRules? baseContactPriorityRules,
         IPlayableArmyContactRules? armyContactRules,
-        IPlayableDistrictCommandBudgetRules? districtCommandBudgetRules) : IAdvancementRules
+        IPlayableDistrictCommandBudgetRules? districtCommandBudgetRules,
+        IPlayableArmyWithdrawalCommandRules? armyWithdrawalRules) : IAdvancementRules
     {
         public GameState AdvanceTenDays(GameState state)
         {
             RequireSkeleton(state);
             if (state.NativePlayableTerminal is not null)
                 throw new InvalidOperationException("The campaign has ended.");
-            routes.ValidateWorld(state);
+            var resumedPeriod = state.NativePeriodContinuation;
+            if (resumedPeriod is null) routes.ValidateWorld(state);
             // A report belongs to this period only. Diplomacy can retain missions
             // across periods, while its completed reports are appended once.
-            PersonnelReportEntry[] personnelReports = (state.PersonnelReports ?? [])
+            PersonnelReportEntry[] personnelReports = resumedPeriod?.Preparation.PersonnelReports ?? (state.PersonnelReports ?? [])
                 .Where(report => report.ReportedInPeriod is null)
                 .Select(report => report with { ReportedInPeriod = checked(state.PeriodNumber + 1) }).ToArray();
             PeriodReportEntry[] personnelSummaries = personnelReports.Select(report =>
@@ -250,7 +263,7 @@ public static class PlayableSkeleton
                     _ => "office_changed"
                 }, report.ForceId, OfficerId: report.OfficerId,
                     Amount: report.ItemId ?? report.NextOfficeId!.Value)).ToArray();
-            state = PlayableDiplomacy.Advance(state with
+            if (resumedPeriod is null) state = PlayableDiplomacy.Advance(state with
             {
                 PeriodReports = state.PendingCommandReports.Concat(personnelSummaries).ToArray(),
                 PendingCommandReports = []
@@ -264,11 +277,11 @@ public static class PlayableSkeleton
             var structures = new Dictionary<int, StructureState>(state.Structures ?? []);
             var areas = new Dictionary<int, AreaState>(state.Areas);
             Dictionary<int, TerritoryState>? territory = null;
-            var reports = state.PeriodReports.ToList();
+            var reports = (resumedPeriod?.Preparation.Reports ?? state.PeriodReports).ToList();
             //Only actual field/pending commanders and completed officer moves
             //can arrive through this transaction. Do not normalize unrelated
             //initial source roles whose appointment projection may be unknown.
-            int[] possibleArrivalOfficers = state.Units.Values.Select(unit => unit.OfficerId)
+            int[] possibleArrivalOfficers = resumedPeriod?.Preparation.PossibleArrivalOfficers ?? state.Units.Values.Select(unit => unit.OfficerId)
                 .Concat(state.PreparedDeployments.Values.Select(plan => plan.OfficerId))
                 .Concat(state.PreparedOfficerMoves?.Keys ?? Enumerable.Empty<int>())
                 .Distinct().ToArray();
@@ -406,8 +419,20 @@ public static class PlayableSkeleton
                 else PlayableUnitRetreat.Complete(actor, locationId, cities, gates, officers, units,
                     reports, onArmyRetired, EntryResources(actor, locationId));
             }
+            (int LocationId, int HexId)? RetreatDestination(UnitState actor)
+            {
+                if (actor.NativeArmyOrigin is not null && armyWithdrawalRules is not null &&
+                    armyWithdrawalRules.ReadWithdrawalDestination(CurrentWorld(), actor) is { UsesCurrentCommand: true } selected)
+                    return selected.LocationId is int location && selected.HexId is int hex ? (location, hex) : null;
+                return PlayableUnitRetreat.Destination(actor, cities, gates, officers, routes, state.MapWidth);
+            }
             var deploymentCancellation = new DeploymentCommandRules(new DeploymentEligibilityRules(routes),
                 new DeploymentResourceRules(), districtCommandBudgetRules);
+            var sourceArmyPeriod = nativePeriodContinuationRules as IPlayableNativeArmyPeriodRules;
+            GameState tacticState;
+            TacticReportEntry[] tacticReports;
+            if (resumedPeriod is null)
+            {
             PreparedOrderStageResult preparedOrders = PeriodOrderPreparation.ExecuteOwned(state,
                 CurrentWorld(), routes, talent, deploymentCancellation, armyCreationRules);
             periodBasis = preparedOrders.State;
@@ -416,26 +441,57 @@ public static class PlayableSkeleton
             randomState = periodBasis.RandomState;
             reports.AddRange(preparedOrders.Reports);
 
-            GameState preparedArmyState = NativeArmyPreparation.PrepareAfterDeployment(CurrentWorld(), nativeArmyPreparationRules);
-            GameState tacticState = PlayableTacticRuntime.SettleBeforeMovement(preparedArmyState,
+            // CTurn36/37 follow Progress. The compatibility provider keeps
+            // its old pre-movement boundary; the source path reaches them once
+            // after its complete calendar, before Turn income and expenses.
+            GameState preparedArmyState = sourceArmyPeriod is null
+                ? NativeArmyPreparation.PrepareAfterDeployment(CurrentWorld(), nativeArmyPreparationRules)
+                : CurrentWorld();
+            tacticState = PlayableTacticRuntime.SettleBeforeMovement(preparedArmyState,
                 checked(state.PeriodNumber + 1), routes, tactics,
-                out TacticReportEntry[] tacticReports, out PeriodReportEntry[] tacticSummaries);
+                out tacticReports, out PeriodReportEntry[] tacticSummaries);
             units = tacticState.Units;
             officers = tacticState.Officers;
             randomState = tacticState.RandomState;
             reports.AddRange(tacticSummaries);
-            GameState nativeState = NativeSubdayRuntime.CompletePeriodOwned(tacticState, nativeSubdayRules);
+            }
+            else
+            {
+                //AI, diplomacy Turn, prepared commands and tactic settlement
+                //already belong to this exact suspended transaction.
+                tacticState = CurrentWorld();
+                tacticReports = resumedPeriod.Preparation.TacticReports;
+            }
+            PlayableSupplyUpkeepSnapshot? frozenPeriodFood = null;
+            GameState nativeState;
+            if (sourceArmyPeriod is not null)
+            {
+                // The source Turn bills current rosters after Progress. A
+                // provisional start quote must not decide later admission.
+                tacticState = tacticState with { NativePeriodContinuation = resumedPeriod ?? new(
+                    new(personnelReports, reports.ToArray(), tacticReports, possibleArrivalOfficers), null) };
+                nativeState = sourceArmyPeriod.CompleteArmyPeriod(tacticState with
+                {
+                    PreparedDeployments = [], PreparedOfficerMoves = [], PreparedTalentOrders = [],
+                    PeriodReports = resumedPeriod is null ? [] : tacticState.PeriodReports
+                }, nativeSubdayRules ?? throw new InvalidDataException("Native Army waiting rules are unavailable."));
+                if (nativeState.NativePeriodContinuation?.Cursor is not null) return nativeState;
+                nativeState = nativeState with { NativePeriodContinuation = null };
+            }
+            else nativeState = NativeSubdayRuntime.CompletePeriodOwned(tacticState, nativeSubdayRules);
             if (nativePeriodContinuationRules is not null)
             {
                 //All prepared orders were consumed above. Calendar/Return
                 //must run before any period-end movement/capture, including a
                 //period with no source combat sink at all.
-                nativeState = nativePeriodContinuationRules.CompleteWaiting(nativeState with
-                {
-                    PreparedDeployments = [], PreparedOfficerMoves = [], PreparedTalentOrders = [],
-                    PeriodReports = []
-                });
+                if (sourceArmyPeriod is null)
+                    nativeState = nativePeriodContinuationRules.CompleteWaiting(nativeState with
+                    {
+                        PreparedDeployments = [], PreparedOfficerMoves = [], PreparedTalentOrders = [],
+                        PeriodReports = []
+                    });
                 reports.AddRange(nativeState.PeriodReports);
+                if (sourceArmyPeriod is not null) reports.AddRange(nativeState.PendingCommandReports);
                 cities = nativeState.Cities; gates = nativeState.Gates; districts = nativeState.Districts;
                 areas = nativeState.Areas; structures = nativeState.Structures!;
                 territory = new(nativeState.Territory);
@@ -445,12 +501,34 @@ public static class PlayableSkeleton
             officers = nativeState.Officers;
             randomState = nativeState.RandomState;
 
-            //Freeze both rosters at one quantity cutoff. Keep delivered/returned
-            //Armies in this period's source bill without also billing those same
-            //troops as a full-period garrison after arrival.
-            PlayableSupplyUpkeepSnapshot periodFood = armyCreationRules is IPlayableFoodOwnerRules foodOwners
-                ? PlayableSupplyUpkeepSnapshot.Capture(CurrentWorld(), foodOwners)
-                : PlayableSupplyUpkeepSnapshot.Capture(cities, units.Values);
+            IReadOnlySet<int>? awaitingAppearance = sourceArmyPeriod is null
+                ? nativePeriodContinuationRules?.CaptureArmiesAwaitingAppearance(nativeState) : null;
+            if (sourceArmyPeriod is null && nativePeriodContinuationRules is not null &&
+                nativeState.NativeArmySimulation is not null && awaitingAppearance is null)
+                throw new InvalidDataException("Native Army appearance qualification is unavailable.");
+
+            //Keep the compatibility path's old start quantity cut. The source
+            //Turn bills only its actual current roster at the reached callback.
+            if (sourceArmyPeriod is null && frozenPeriodFood is null)
+            {
+                var foodCut = FreezePeriodFood(CurrentWorld());
+                frozenPeriodFood = foodCut.Food;
+                periodBasis = foodCut.State;
+            }
+            PlayableSupplyUpkeepSnapshot? periodFood = frozenPeriodFood;
+            (GameState State, PlayableSupplyUpkeepSnapshot Food) FreezePeriodFood(GameState basis)
+            {
+                var food = armyCreationRules is IPlayableFoodOwnerRules foodOwners
+                    ? PlayableSupplyUpkeepSnapshot.Capture(basis, foodOwners)
+                    : PlayableSupplyUpkeepSnapshot.Capture(basis.Cities, basis.Units.Values);
+                if (armyCreationRules is IPlayableArmyFoodExpenseRules armyFood)
+                {
+                    var expenseBatch = armyFood.CaptureArmyFoodExpenses(basis);
+                    basis = expenseBatch.State;
+                    food.AttachArmyExpenses(basis, expenseBatch.Expenses, expenseBatch.OrderedExpenses);
+                }
+                return (basis, food);
+            }
             ILookup<int, int> prefecturesByHex = areas.Values
                 .Where(area => area.HexId is not null)
                 .ToLookup(area => area.HexId!.Value, area => area.Id);
@@ -458,12 +536,19 @@ public static class PlayableSkeleton
             {
                 // An earlier field battle may have damaged or destroyed this unit.
                 if (!units.TryGetValue(startingUnit.Id, out UnitState? unit)) continue;
+                //The real period already moved, fought and returned this
+                //native receiver. Only legacy Armies enter the coarse pass.
+                if (sourceArmyPeriod is not null && unit.NativeArmyOrigin is not null) continue;
                 currentBasePriority = baseContactPriorityRules?.CaptureCurrentBasePriority(CurrentWorld());
                 currentArmyContact = armyContactRules?.CaptureCurrentArmyContact(CurrentWorld());
                 if (unit.Morale <= 0)
                 {
                     PlayableUnitAftermath.Destroy(unit, cities, gates, officers,
                         units, reports, state.MapWidth, onArmyRetired);
+                    continue;
+                }
+                if (awaitingAppearance?.Contains(unit.Id) == true)
+                {
                     continue;
                 }
                 unit = PlayableWaypointMarch.PrepareForMovement(unit, cities, gates,
@@ -490,6 +575,17 @@ public static class PlayableSkeleton
                 }
                 if (unit.Mission is { Kind: UnitMissionKind.Transport } mission)
                 {
+                    //These targets belong to the native command and waypoint
+                    //owners. The City-only coarse mover cannot consume them.
+                    if (unit.NativeArmyOrigin is not null && (mission.DestinationCityId is null ||
+                        unit.TransportRoute?.Waypoints.Any(point => point?.Kind == ArmyMarchDestinationKind.Hex) == true))
+                    {
+                        reports.Add(new("transport_unresolved", unit.ForceId, mission.DestinationCityId, unit.OfficerId,
+                            FromHexId: unit.HexId, ToHexId: unit.DestinationHexId)
+                        { RuleId = mission.DestinationCityId is null ? "rules.transport.native_non_city_progress" :
+                            "rules.transport.native_waypoint_progress" });
+                        continue;
+                    }
                     UnitState transportUnit = unit;
                     CityState destination = cities[mission.DestinationCityId!.Value];
                     bool? CanEnterTransportCity(UnitState current) => PlayableCityEntryStates.IsEntryPositionAllowed(
@@ -643,8 +739,7 @@ public static class PlayableSkeleton
                 }
                 if (unit.Mission is { Kind: UnitMissionKind.Retreat })
                 {
-                    if (PlayableUnitRetreat.Destination(unit, cities, gates, officers,
-                            routes, state.MapWidth) is not { } home)
+                    if (RetreatDestination(unit) is not { } home)
                     {
                         reports.Add(new PeriodReportEntry("retreat_blocked", unit.ForceId,
                             null, unit.OfficerId, 0, unit.HexId, unit.DestinationHexId));
@@ -774,8 +869,7 @@ public static class PlayableSkeleton
                         reports.Add(new PeriodReportEntry("retreat_blocked", unit.ForceId,
                             null, unit.OfficerId, 0, retreatHex, nextHex));
                     else if (retreatHex == unit.DestinationHexId &&
-                             PlayableUnitRetreat.Destination(unit, cities, gates, officers,
-                                 routes, state.MapWidth) is { } arrival)
+                             RetreatDestination(unit) is { } arrival)
                         CompleteRetreat(unit, arrival.LocationId);
                     continue;
                 }
@@ -1251,7 +1345,7 @@ public static class PlayableSkeleton
                 PlayableForceDefeatResult? defeat = hostileCity is not null
                     ? PlayableForceDefeat.AfterCityCapture(aftermath.State, hostileCity.Id,
                         hostileLocationOwner, moved.ForceId, checked(state.PeriodNumber + 1), beforeDispositions,
-                        personnel?.ResolvedOfficerIds, personnel?.NativeUnregisterRuleId) : null;
+                        personnel?.ResolvedOfficerIds, personnel?.NativeUnregisterRuleId, personnel?.ResourceDisposedArmyIds) : null;
                 if (defeat is not null) aftermath = aftermath with { State = defeat.State };
                 periodBasis = aftermath.State;
                 cities = aftermath.State.Cities;
@@ -1282,6 +1376,7 @@ public static class PlayableSkeleton
             // its source city pays and before any durability can be added.
             foreach (UnitState builder in units.Values.OrderBy(unit => unit.Id).ToArray())
             {
+                if (nativePeriodContinuationRules?.UsesSourceFacilityWork == true && builder.NativeArmyOrigin is not null) continue;
                 if (builder.Mission is not { Kind: UnitMissionKind.BuildStructure } mission ||
                     builder.HexId != builder.DestinationHexId ||
                     builder.MilitaryPlan is { } buildingPlan &&
@@ -1356,6 +1451,7 @@ public static class PlayableSkeleton
 
             foreach (UnitState worker in units.Values.OrderBy(unit => unit.Id).ToArray())
             {
+                if (nativePeriodContinuationRules?.UsesSourceFacilityWork == true && worker.NativeArmyOrigin is not null) continue;
                 if (worker.Mission is not { Kind: UnitMissionKind.RepairStructure or
                         UnitMissionKind.DemolishStructure, TargetStructureId: int targetId } task ||
                     worker.HexId != worker.DestinationHexId ||
@@ -1393,12 +1489,17 @@ public static class PlayableSkeleton
 
             PlayableWaypointMarch.AfterMovement(cities, gates, officers, units,
                 territory ?? state.Territory, routes, state.MapWidth, reports,
-                IsHostile, structures, onArmyRetired, EntryResources, EntryState, RequiresEntryState);
+                IsHostile, structures, onArmyRetired, EntryResources, EntryState, RequiresEntryState,
+                sourceArmyTimelineCompleted: sourceArmyPeriod is not null);
 
             territory = PlayableAreaOfficerOccupation.Settle(CurrentWorld(), cities, areas, officers,
                 units, territory, routes, reports);
-            PlayablePeriodEconomySettlement.Settle(CurrentWorld(), cities, areas, officers,
-                periodEconomy, reports);
+            if (sourceArmyPeriod is not null)
+                AdoptFoodSettlement(NativeArmyPreparation.PrepareAfterDeploymentOwned(
+                    CurrentWorld() with { PeriodReports = reports.ToArray() }, nativeArmyPreparationRules));
+            if (sourceArmyPeriod is null)
+                PlayablePeriodEconomySettlement.Settle(CurrentWorld(), cities, areas, officers,
+                    periodEconomy, reports);
             MonthlyIncomeReportEntry[] incomeReports = [];
             if (state.Date.Day == 21)
             {
@@ -1411,10 +1512,46 @@ public static class PlayableSkeleton
                     checked(state.PeriodNumber + 1), quote)).ToArray();
             }
             PlayableSupplyLines.Settle(cities, gates, units, territory ?? state.Territory,
-                routes, reports, (actor, owner) => PlayableDiplomacy.AreAllied(periodBasis, actor, owner));
-            PlayableSupplyUpkeep.Settle(cities, units, periodFood, reports);
+                routes, reports, (actor, owner) => PlayableDiplomacy.AreAllied(periodBasis, actor, owner),
+                sourceArmyTimelineCompleted: sourceArmyPeriod is not null);
+            if (sourceArmyPeriod is not null)
+            {
+                AdoptFoodSettlement(sourceArmyPeriod.CompleteArmyFoodTurn(
+                    CurrentWorld() with { PeriodReports = reports.ToArray() }));
+                PlayablePeriodEconomySettlement.Settle(CurrentWorld(), cities, areas, officers,
+                    periodEconomy, reports);
+            }
+            else
+            {
+                var foodShortages = new List<PlayableArmyFoodShortage>();
+                var garrisonSettlement = (armyCreationRules as IPlayableGarrisonFoodShortageRules)?
+                    .BeginGarrisonFoodShortageSettlement();
+                PlayableSupplyUpkeep.Settle(cities, units, periodFood!, reports,
+                    armyCreationRules is IPlayableArmyFoodShortageRules ? foodShortages : null,
+                    garrisonSettlement is not null
+                        ? shortage => AdoptFoodSettlement(garrisonSettlement(
+                            CurrentWorld() with { PeriodReports = reports.ToArray() }, shortage)) : null);
+                if (foodShortages.Count != 0)
+                {
+                    var settled = ((IPlayableArmyFoodShortageRules)armyCreationRules!).ApplyArmyFoodShortages(
+                        CurrentWorld() with { PeriodReports = reports.ToArray() }, foodShortages);
+                    AdoptFoodSettlement(settled);
+                }
+            }
+            void AdoptFoodSettlement(GameState settled)
+            {
+                CopyInto(cities, settled.Cities); CopyInto(gates, settled.Gates);
+                CopyInto(districts, settled.Districts); CopyInto(officers, settled.Officers);
+                CopyInto(units, settled.Units); CopyInto(structures, settled.Structures
+                    ?? throw new InvalidDataException("Current food settlement lost its Structure owner."));
+                CopyInto(areas, settled.Areas);
+                territory = settled.Territory; randomState = settled.RandomState;
+                reports.Clear(); reports.AddRange(settled.PeriodReports);
+                periodBasis = settled;
+            }
+
             PlayableUnitAftermath.RemoveZeroMorale(cities, gates, officers, units, reports,
-                state.MapWidth, onArmyRetired);
+                state.MapWidth, onArmyRetired, sourceArmyTimelineCompleted: sourceArmyPeriod is not null);
             GameState next = periodBasis with
             {
                 Cities = cities, Gates = gates, Districts = districts, Officers = officers, Units = units,
@@ -1457,6 +1594,17 @@ public static class PlayableSkeleton
                     reports.Add(new PeriodReportEntry("governance_active", forceId,
                         Amount: next.Forces[forceId].Governance!.Active.Assignments.Length));
             }
+            // Stage26's Base-neighbor writer must see the positions and
+            // retirements completed above, not the pre-movement waiting image.
+            if (nativePeriodContinuationRules is not null)
+            {
+                int retainedReports = next.PeriodReports.Length;
+                next = nativePeriodContinuationRules.CompleteMovement(next);
+                // Continuations append source diagnostics to their state. The
+                // period's local report accumulator must retain those entries
+                // before it becomes the final reporting snapshot.
+                reports.AddRange(next.PeriodReports.Skip(retainedReports));
+            }
             if (reports.Count == 0) reports.Add(new PeriodReportEntry("period", 0));
             return PlayableEventRuntime.SettleCompletedPeriod(next with
                 { PeriodReports = reports.ToArray() }, events);
@@ -1493,6 +1641,8 @@ public sealed record PlayableRuleSet(IOrderRules OrderRules, IAdvancementRules A
     /// <summary>The same tactic provider used by command validation and period settlement.</summary>
     public IPlayableTacticRules TacticRules { get; init; } = UnresolvedTacticRules.Instance;
     public IPlayableOrdinaryDeploymentCommitRules? OrdinaryDeploymentRules { get; init; }
+    public IPersonnelCommandRules PersonnelRules { get; init; } = UnresolvedPersonnelRules.Instance;
+    public IGovernanceRosterRules? GovernanceRosterRules { get; init; }
 }
 
 /// <summary>A local player can command only the chosen force, even while browsing others.</summary>

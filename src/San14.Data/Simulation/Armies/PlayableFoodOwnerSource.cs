@@ -15,7 +15,36 @@ public static class PlayableFoodOwnerSource
         ArgumentNullException.ThrowIfNull(state);
         var result = new Dictionary<int, PlayableFoodPayerResolution>();
         for (int location = 1; location <= 61; location++)
-            result.Add(location, Resolve(state, current, location));
+        {
+            var owner = Resolve(state, current, location);
+            PlayableGarrisonFoodExpense expense;
+            try
+            {
+                if (current is null) throw new InvalidDataException("Current garrison food capture is unresolved.");
+                if (owner.GarrisonMissingOwner is not null) throw new InvalidDataException(owner.GarrisonMissingOwner);
+                int amount = 0;
+                if (owner.GarrisonCityId is int collector)
+                {
+                    // City admission uses the input City's Force, while the
+                    // resource receiver can be another mapped City. Gates are
+                    // reached from their collector and add no own Force gate.
+                    var city = BaseLookup.Find(location <= 51 ? location : collector, current);
+                    int raw = current.ReadBaseForceSlot(city) ??
+                        throw new InvalidDataException("Current food collector force is unresolved.");
+                    var force = current.ReadForceTableReference(raw <= 51 ? raw : 0) ??
+                        throw new InvalidDataException("Current food collector force pointer is unresolved.");
+                    bool valid = current.ReadForceNativeValidity(force) ??
+                        throw new InvalidDataException("Current food collector force validity is unresolved.");
+                    if (valid)
+                        amount = CityCaptureFoodWarningSource.ReadGarrisonExpense(state, current, BaseLookup.Find(location, current)).Expense;
+                }
+                // The period debit ledger cannot represent a negative expense
+                // as a capped stock credit. Keep that source result unresolved.
+                expense = amount < 0 ? new(null, "food_upkeep.signed_garrison_credit") : new(amount);
+            }
+            catch (InvalidDataException missing) { expense = new(null, missing.Message); }
+            result.Add(location, owner with { GarrisonExpense = expense });
+        }
         return new ReadOnlyDictionary<int, PlayableFoodPayerResolution>(result);
     }
 
@@ -76,6 +105,6 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableFoodOwnerRules
     public IReadOnlyDictionary<int, PlayableFoodPayerResolution> CaptureFoodOwners(GameState state)
     {
         ArgumentNullException.ThrowIfNull(state);
-        return PlayableFoodOwnerSource.CaptureFoodOwners(state, CaptureCurrentDefinitions(state));
+        return PlayableFoodOwnerSource.CaptureFoodOwners(state, CaptureOwnedArmyReturnWorld(state).Context);
     }
 }
