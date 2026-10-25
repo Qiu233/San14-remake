@@ -94,6 +94,7 @@ public partial class Main
         else if (HasTalentAutoSearchPage) back = RequestTalentAutoSearchBack;
         else if (HasDiplomacyOrdersPage) back = RequestDiplomacyOrdersBack;
         else if (HasCityOfficerMovementPage) back = RequestCityOfficerMovementBack;
+        else if (HasPersonnelGroupsPage) back = RequestPersonnelGroupsBack;
         else if (HasCityMerchantPage) back = RequestCityMerchantBack;
         else if (HasCommandWorkspace) back = CloseCommandWorkspace;
         else if (_cityDomesticPresenter is { } domestic)

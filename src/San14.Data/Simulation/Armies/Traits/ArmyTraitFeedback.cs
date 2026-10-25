@@ -3,7 +3,8 @@ using San14.Core;
 namespace San14.Data;
 
 /// <summary>Ordered semantic application work, staged with the numeric manager.
-/// There is no simulated view, admission decision, application RNG or ACK.</summary>
+/// A supplied source consumer owns real speech admission immediately; other
+/// families retain their intent. There is no simulated view or playback ACK.</summary>
 internal sealed class ArmyTraitFeedback
 {
     private readonly GameState input;
@@ -13,31 +14,36 @@ internal sealed class ArmyTraitFeedback
     private readonly List<CampaignEffectRequest>? orderedSink;
     private readonly Func<GameState>? currentState;
     private readonly Action? bindPersonnel;
+    private readonly Func<ArmyTraitFeedbackRequest, bool>? speechConsumer;
     private readonly List<CampaignEffectRequest> requests;
     private bool personnelBound;
 
     internal ArmyTraitFeedback(GameState input, SourceWorldContext current,
         NativeArmyProgressStageMoment moment, List<CampaignEffectRequest>? orderedSink = null,
-        Func<GameState>? currentState = null, Action? bindPersonnel = null)
+        Func<GameState>? currentState = null, Action? bindPersonnel = null,
+        Func<ArmyTraitFeedbackRequest, bool>? speechConsumer = null)
         : this(input, current, moment.PreWriterThirdDate, moment.CalendarCycleOrdinal,
-            orderedSink, currentState, bindPersonnel) { }
+            orderedSink, currentState, bindPersonnel, speechConsumer) { }
 
     /// <summary>A borrowed operation already owns its ordered publication sink.
     /// Only the real source date is needed for the Person position query; no
     /// synthetic scheduler moment or independent batch revision is created.</summary>
     internal ArmyTraitFeedback(GameState input, SourceWorldContext current,
         NativeMapSeasonDate sourceDate, List<CampaignEffectRequest> orderedSink,
-        Func<GameState>? currentState = null, Action? bindPersonnel = null)
+        Func<GameState>? currentState = null, Action? bindPersonnel = null,
+        Func<ArmyTraitFeedbackRequest, bool>? speechConsumer = null)
         : this(input, current, sourceDate, null,
-            orderedSink ?? throw new ArgumentNullException(nameof(orderedSink)), currentState, bindPersonnel) { }
+            orderedSink ?? throw new ArgumentNullException(nameof(orderedSink)), currentState, bindPersonnel, speechConsumer) { }
 
     private ArmyTraitFeedback(GameState input, SourceWorldContext current,
         NativeMapSeasonDate sourceDate, long? calendarRevision,
-        List<CampaignEffectRequest>? orderedSink, Func<GameState>? currentState, Action? bindPersonnel)
+        List<CampaignEffectRequest>? orderedSink, Func<GameState>? currentState, Action? bindPersonnel,
+        Func<ArmyTraitFeedbackRequest, bool>? speechConsumer)
     {
         this.input = input; this.current = current; this.sourceDate = sourceDate;
         this.calendarRevision = calendarRevision; this.orderedSink = orderedSink;
         this.currentState = currentState; this.bindPersonnel = bindPersonnel;
+        this.speechConsumer = speechConsumer;
         requests = orderedSink ?? [];
     }
 
@@ -99,7 +105,9 @@ internal sealed class ArmyTraitFeedback
         int position = PersonReturnCommands.ResolvePersonPosition(currentState?.Invoke() ?? input,
             current, physical, sourceDate).PhysicalSlot ?? 48400;
         int officer = Need(current.ReadPersonIdentity(physical), "speech_Person_identity");
-        requests.Add(new(null, null) { ArmyTraitFeedback = new(ArmyId(source), officer, position, key, context) });
+        var packet = new ArmyTraitFeedbackRequest(ArmyId(source), officer, position, key, context);
+        if (speechConsumer?.Invoke(packet) != true)
+            requests.Add(new(null, null) { ArmyTraitFeedback = packet });
     }
 
     internal GameState Publish(GameState state)

@@ -56,9 +56,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         BaseCaptureCurrentInputs.BindCurrent(state, current);
         OwnedArmyReturnServiceInputs.BindCurrent(state, current);
         OwnedArmyLifecycleDetachedInputs.BindCurrent(state, current);
-        //The independent ordinary campaign has no original tutorial-mode
-        //receiver (570850). Its known absent branch continues eligibility.
-        current.ArmyReturnTransferMode = new(false, null);
+        //Borrow the actual application's tutorial facts; an unknown host
+        //cannot manufacture an absent controller on a reached terminal path.
+        current.ArmyReturnTransferMode = ReadApplicationTransferModeCurrent();
         current.TransferService = new();
         OwnedArmyLifecycleAuxiliaries.RestoreCurrent(current, state.ReadArmyLifecycle()!);
         PersonReturnCommands.BindCurrent(state, current);

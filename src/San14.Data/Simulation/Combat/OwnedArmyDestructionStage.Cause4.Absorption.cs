@@ -10,6 +10,21 @@ public sealed partial class OwnedArmyDestructionStage
     internal ArmyCause4Result ApplyAbsorptionCommanderCause4Current(GameState state,
         SourceWorldContext current, WorldIndexContext pool, int physical,
         NativeMapSeasonDate operationDate, List<CampaignEffectRequest> feedback)
+        => ApplyEmployedNullWinnerCause4Current(state, current, pool, physical,
+            operationDate, feedback, allowSpecialForce: false);
+
+    /// <summary>2CD1C0's actual259360(Army,null,null,0,4) call, before
+    /// detaching the special Person. Its current Force can be ordinary or46..50.</summary>
+    internal ArmyCause4Result ApplySpecialPersonnelRecallCause4Current(GameState state,
+        SourceWorldContext current, WorldIndexContext pool, int physical,
+        NativeMapSeasonDate operationDate, List<CampaignEffectRequest> feedback)
+        => ApplyEmployedNullWinnerCause4Current(state, current, pool, physical,
+            operationDate, feedback, allowSpecialForce: true);
+
+    private ArmyCause4Result ApplyEmployedNullWinnerCause4Current(GameState state,
+        SourceWorldContext current, WorldIndexContext pool, int physical,
+        NativeMapSeasonDate operationDate, List<CampaignEffectRequest> feedback,
+        bool allowSpecialForce)
     {
         try
         {
@@ -28,9 +43,11 @@ public sealed partial class OwnedArmyDestructionStage
                 current.ReadPersonStatus(commander) is not (>= 1 and <= 4))
                 throw Missing("branch.absorption_cause4_employed_Commander");
             var force = current.ReadArmyUnitForceReference(victim);
-            if (force.PhysicalSlot is not (>= 1 and <= 45) ||
+            if (force.PhysicalSlot is not int forceSlot || forceSlot < 1 ||
+                forceSlot > (allowSpecialForce ? 50 : 45) ||
                 !Known(current.ReadForceNativeValidity(force), "absorption_cause4_Force_validity"))
-                throw Missing("branch.absorption_cause4_ordinary_Force");
+                throw Missing(allowSpecialForce ? "branch.special_recall_cause4_Force" :
+                    "branch.absorption_cause4_ordinary_Force");
             var winner = new ArmyUnitReference(null);
             var winnerBase = new BaseReference(BaseKind.City, null);
             var captured = ArmyDestructionResources.CaptureOwners(current, victim, winner, winnerBase);

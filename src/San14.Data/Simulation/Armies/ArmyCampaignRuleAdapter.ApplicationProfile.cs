@@ -53,13 +53,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     internal void BindApplicationServiceCurrent(GameState state, SourceWorldContext current)
     {
         OwnedArmyReturnServiceInputs.BindCurrent(state, current);
-        current.TransferModeStateReader = () => ReadApplicationGameplay() is { } application
-            ? application.TutorialServicePresent switch
-            {
-                false => new TransferModeState(false, null),
-                true => new TransferModeState(true, application.TutorialActive is bool active ? active ? 1 : 0 : null),
-                _ => null
-            } : null;
+        current.TransferModeStateReader = ReadApplicationTransferModeCurrent;
     }
 
     public CampaignStoryBindings CreateNormalTurnStoryBindings(IS14AudioEventExecutionState audio,

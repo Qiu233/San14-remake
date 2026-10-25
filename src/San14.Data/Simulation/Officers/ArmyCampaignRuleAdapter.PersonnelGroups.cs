@@ -37,6 +37,10 @@ public sealed partial class ArmyCampaignRuleAdapter : IPersonnelGroupEditExecuti
         RequirePersonnelGroupApplicationCurrent();
         var current = CaptureOwnedArmyReturnWorld(state).Context;
         PersonReturnCommands.BindCurrent(state, current);
+        _personRelationInputs.BindCurrent(state, current);
+        _moraleWaveInputs.BindCurrent(state, current);
+        _baseCapacityInputs.BindCurrent(state, current);
+        DeploymentTacticCurrentInputs.BindCurrent(state, current);
         var rules = CapturePersonnelGroupMovementRules(state, current, forceId);
         var cards = new AreaAdministrationOfficerCardSource(state, current, _definitions, _scenario,
             Seed.Language, _baseCapacityInputs, _repository);
@@ -85,11 +89,14 @@ public sealed partial class ArmyCampaignRuleAdapter : IPersonnelGroupEditExecuti
         string Message(int root, int? location = null) => FormatReportMessage(state, current, root,
             new(Base0: location is int at ? checked((ushort)at) : null),
             ReportMessageOrigin.PersonnelAdministration, null).Text;
+        var listReader = new PersonnelGroupListCurrentReader(this, state, current, forceId, rules, locations);
         return new(rules, members, candidates, people, physical, locations, destinations,
             ReadHistoryDataText(1, 0x73a), ReadHistoryDataText(1, 0x73e), ReadHistoryDataText(1, 0x73f),
             Message(0x5c0d), Message(0x5c0f), Message(0x5c0e), ReadHistoryDataText(1, 0x545), Message(0x578c),
             ReadHistoryDataText(1, 0x73d), ReadHistoryDataText(1, 0x551), ReadHistoryDataText(1, 0x353),
-            LocationName, Message, ReadCard, CommandBookAvailability.Reserved(state, rules.DistrictId));
+            LocationName, Message, ReadCard, CommandBookAvailability.Reserved(state, rules.DistrictId))
+        { PersonPageReader = listReader.QueryPeople, DestinationPageReader = listReader.QueryDestinations,
+            PreselectedDestinationReader = listReader.PreselectedDestination };
 
         void AddPerson(int id, int at)
         {
@@ -169,6 +176,19 @@ internal sealed class PersonnelGroupPageSource(
     internal string SelectorGuide => selectorGuide;
     internal string DestinationTitle => destinationTitle;
     internal string DestinationGuide => destinationGuide;
+    internal Func<IReadOnlyList<int>, int, IReadOnlyDictionary<int, int>, AreaAdministrationQuery<PersonnelGroupPersonPage>>? PersonPageReader { get; init; }
+    internal Func<IReadOnlyList<int>, AreaAdministrationQuery<PersonnelGroupDestinationPage>>? DestinationPageReader { get; init; }
+    internal Func<IReadOnlyList<int>, int?>? PreselectedDestinationReader { get; init; }
+    internal AreaAdministrationQuery<PersonnelGroupPersonPage> QueryPersonPage(IReadOnlyList<int> ids, int page,
+        IReadOnlyDictionary<int, int> groups) => PersonPageReader?.Invoke(ids, page, groups)
+            ?? AreaAdministrationQuery<PersonnelGroupPersonPage>.Unknown("personnel.groups.person_page_reader");
+    internal AreaAdministrationQuery<PersonnelGroupDestinationPage> QueryDestinationPage(IReadOnlyList<int> groups)
+        => DestinationPageReader?.Invoke(groups) ?? AreaAdministrationQuery<PersonnelGroupDestinationPage>.Unknown("personnel.groups.destination_page_reader");
+    internal AreaAdministrationQuery<int?> PreselectedDestination(IReadOnlyList<int> groups)
+    {
+        try { return AreaAdministrationQuery<int?>.Known(PreselectedDestinationReader?.Invoke(groups)); }
+        catch (InvalidDataException error) { return AreaAdministrationQuery<int?>.Unknown(error.Message); }
+    }
     internal PersonnelGroupOfficer Officer(int id) => people[id];
     internal int Physical(int id) => physical[id];
     internal AreaAdministrationQuery<AreaAdministrationOfficerCard> QueryOfficerCard(int id) => readCard(id);

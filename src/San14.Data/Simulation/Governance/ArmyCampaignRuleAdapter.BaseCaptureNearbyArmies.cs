@@ -161,7 +161,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (result.IncreasingNotification)
             {
                 feedback ??= new ArmyTraitFeedback(state, current,
-                    operationDate ?? state.NativeMapSeason?.ThirdDate ?? throw CaptureNearbyMissing("speech_date"), effects, () => state);
+                    operationDate ?? state.NativeMapSeason?.ThirdDate ?? throw CaptureNearbyMissing("speech_date"), effects, () => state,
+                    speechConsumer: CreateArmyTraitSpeechConsumer(current, () => state, next => state = next));
                 feedback.AbnormalIncreased(army, 23);
             }
             if (before == 0 && result.UnclampedSum > 0)

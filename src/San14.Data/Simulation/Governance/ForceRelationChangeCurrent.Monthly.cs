@@ -14,7 +14,8 @@ internal static partial class ForceRelationChangeCurrent
         Func<string, int> parameter, Action<int> queue,
         Action<int, ForceReference, ForceReference, bool> narration,
         Func<ForceReference, (bool Found, int Value)> policy,
-        Action<int, ForceReference> addedPerson, ApplicationGameplayContext? application = null)
+        Action<int, ForceReference> addedPerson, ApplicationGameplayContext? application = null,
+        Action<HexListHandle>? removedPeople = null)
     {
         bool Valid(ForceReference f) => Known(current.ReadForceNativeValidity(f), "monthly_force_validity");
         int Id(ForceReference f) => Known(current.ReadForcePhysicalSlot(f), "monthly_force_identity");
@@ -84,9 +85,9 @@ internal static partial class ForceRelationChangeCurrent
         }
         int secondId = Id(second);
         if (secondId is >= 46 and <= 50)
-            ApplyMonthlySpecial(latest, current, first, second, before, after, parameter, addedPerson, application);
+            ApplyMonthlySpecial(latest, current, first, second, before, after, parameter, addedPerson, application, removedPeople: removedPeople);
         else if (Id(first) is >= 46 and <= 50)
-            ApplyMonthlySpecial(latest, current, second, first, before, after, parameter, addedPerson, application);
+            ApplyMonthlySpecial(latest, current, second, first, before, after, parameter, addedPerson, application, removedPeople: removedPeople);
         return after;
     }
 
@@ -95,14 +96,14 @@ internal static partial class ForceRelationChangeCurrent
     internal static void ApplyInitialSpecialPersonnel(Func<GameState> latest, SourceWorldContext current,
         ForceReference ordinary, ForceReference special, int level, Func<string, int> parameter,
         Action<int, ForceReference> addedPerson, ApplicationGameplayContext? application,
-        Action<int> addedNotice)
+        Action<int> addedNotice, Action<HexListHandle>? removedPeople = null)
         => ApplyMonthlySpecial(latest, current, ordinary, special, 3, level, parameter,
-            addedPerson, application, addedNotice);
+            addedPerson, application, addedNotice, removedPeople);
 
     private static void ApplyMonthlySpecial(Func<GameState> latest, SourceWorldContext current,
         ForceReference ordinary, ForceReference special, int before, int after, Func<string, int> parameter,
         Action<int, ForceReference> addedPerson, ApplicationGameplayContext? application,
-        Action<int>? addedNotice = null)
+        Action<int>? addedNotice = null, Action<HexListHandle>? removedPeople = null)
     {
         if (!Known(current.ReadForceNativeValidity(ordinary), "monthly_special_first_validity") ||
             !Known(current.ReadForceNativeValidity(special), "monthly_special_second_validity")) return;
@@ -174,7 +175,10 @@ internal static partial class ForceRelationChangeCurrent
                     }
                 }
                 if (Known(current.ReadTemporaryHexListCount(removals), "monthly_special_remove_count") != 0)
-                    throw Missing("monthly_special_personnel_2CD1C0_flags1_1_0");
+                {
+                    if (removedPeople is null) throw Missing("monthly_special_personnel_2CD1C0_flags1_1_0_consumer");
+                    removedPeople(removals);
+                }
             }
             finally { current.ClearTemporaryHexList(removals); current.ReleaseTemporaryHexList(removals); }
         }

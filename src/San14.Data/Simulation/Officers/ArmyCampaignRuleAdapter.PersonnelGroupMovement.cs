@@ -29,9 +29,9 @@ public sealed partial class ArmyCampaignRuleAdapter : IPersonnelGroupMovementExe
                     return CommandResult.Reject("The personnel group is no longer available.", "personnel.groups.move_group");
                 if (!rules.DestinationLocationIds.Contains(group.DestinationLocationId))
                     return CommandResult.Reject("Destination is not controlled by this force.", "personnel.groups.move_destination");
-                foreach (int id in rules.ReadGroupMembers(group.GroupIndex))
-                    if (rules.PersonForce(id) != force.Id)
-                        return CommandResult.Reject("A group member does not belong to this force.", "personnel.groups.move_person_force");
+                //715420 retains native-valid saved members across allegiance
+                //changes.71BE00 does not impose a per-member Force gate; its
+                //actual15E/232370/Home tests govern each individual movement.
             }
             if (rules.AvailableBooks - CommandBookAvailability.Reserved(state, rules.DistrictId) < rules.BookCost)
                 return CommandResult.Reject("District lacks uncommitted command books.", "personnel.groups.move_books");

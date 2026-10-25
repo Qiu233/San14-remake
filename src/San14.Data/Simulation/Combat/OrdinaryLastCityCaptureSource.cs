@@ -47,9 +47,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         bool bypassOrdinaryEnding = restricted && playerCount == 0;
         if (!bypassOrdinaryEnding)
         {
-            var mode = current.ArmyReturnTransferMode ?? throw LastCityMissing("terminal_570850");
+            var mode = current.ReadTransferModeState() ?? throw LastCityMissing("terminal_570850");
             if (mode.Present && LastCityNeed(mode.Value, "terminal_570850_value") != 0 && playerCount == 0)
-                throw LastCityMissing("terminal_challenge_service_4FAE50");
+                return ApplyTutorialForceDefeatCurrent(state, current, effects);
             if (remaining == 0)
             {
                 state = LastCityAnnouncement(state, current, 0x2B39, new(), effects);

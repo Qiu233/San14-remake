@@ -34,10 +34,33 @@ internal static class ArmyMapSpeechSaveFields
                 !entry.ContainsKey("TextAtSource") || entry["TextAtSource"] is JsonNode text &&
                 (text is not JsonValue textValue || !textValue.TryGetValue<string>(out _)))
                 throw new InvalidDataException("Saved Army map speech entry is invalid.");
+            if (version < 172)
+            {
+                if (entry["ContextBaseLocationId"] is not null || entry["SpatialVoices"] is not null ||
+                    entry["SpatialVoicesAccepted"] is not null)
+                    throw new InvalidDataException("Legacy Army speech contains future presentation context.");
+                entry["ContextBaseLocationId"] = null;
+                entry["SpatialVoices"] = Integer(entry, "ActionCode", 31, 31) ? new JsonArray() : null;
+                entry["SpatialVoicesAccepted"] = false;
+            }
+            else if (!entry.ContainsKey("ContextBaseLocationId") || entry["ContextBaseLocationId"] is not null &&
+                !Integer(entry, "ContextBaseLocationId", 0, 61) || !entry.ContainsKey("SpatialVoices") ||
+                entry["SpatialVoices"] is JsonNode voices && (voices is not JsonArray requests || !requests.All(SpatialVoice)) ||
+                entry["SpatialVoicesAccepted"] is not JsonValue accepted || !accepted.TryGetValue<bool>(out bool hasAccepted) ||
+                hasAccepted && (entry["SpatialVoices"] is not JsonArray { Count: > 0 } || entry["TextAtSource"] is null))
+                throw new InvalidDataException("Saved Army map speech presentation context is missing or invalid.");
             previous = sequence;
         }
     }
 
     private static bool Integer(JsonObject owner, string name, int minimum, int maximum) =>
         owner[name] is JsonValue field && field.TryGetValue<int>(out int value) && value >= minimum && value <= maximum;
+
+    private static bool SpatialVoice(JsonNode? node) => node is JsonObject spatial &&
+        new[] { "SourceX", "SourceY", "SourceZ" }.All(key => spatial[key] is JsonValue value &&
+            value.TryGetValue<float>(out float coordinate) && float.IsFinite(coordinate)) &&
+        spatial["Voice"] is JsonObject voice && Integer(voice, "SpeakerId", 0, 6000) &&
+        Integer(voice, "VoiceType", 0, byte.MaxValue) && Integer(voice, "VoiceId", 0, int.MaxValue) &&
+        Integer(voice, "Language", 0, 1) && Integer(voice, "VariantIndex", 0, int.MaxValue) &&
+        voice["SoundId"] is JsonValue sound && sound.TryGetValue<uint>(out _);
 }

@@ -341,6 +341,12 @@ internal sealed class DeploymentNarrationCurrentPeople(GameState state, SourceWo
         // current actor was admitted by the owning merchant preparation.
         if (field == '4') return (voiceRequests ?? throw Missing("voice_request_owner"))
             .Request(Person(first), second) ? 1 : 0;
+        if (field == '5')
+        {
+            if (!Need(current.ReadPersonNativeValidity(Physical(first)), "person_validity")) return 0;
+            return (voiceRequests ?? throw Missing("spatial_voice_request_owner"))
+                .RequestSpatial(Person(first), second) ? 1 : 0;
+        }
         if (field == 'L') return Personality(first, () => second);
         if (field == '<') return Valid(first) ? 1 : 0;
         //The installed dispatcher reserves K but only consumes its operands.

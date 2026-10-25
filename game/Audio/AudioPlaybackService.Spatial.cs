@@ -2,11 +2,13 @@ using Godot;
 
 public partial class AudioPlaybackService
 {
-    private sealed record SpatialVoice(AudioStreamPlayer3D Player, AudioClip Clip, Func<float> SourceGain, Action? Stopped);
+    private sealed record SpatialVoice(AudioStreamPlayer3D Player, AudioClip Clip, Func<float> SourceGain,
+        Action? Stopped, AudioVolumeGroup Group);
     private readonly Dictionary<string, SpatialVoice> _spatialVoices = new(StringComparer.Ordinal);
 
     internal void PlaySpatial(AudioClip clip, string channel, Node3D world, Vector3 position,
-        float playbackRate, Func<float> sourceGain, Action? stopped = null)
+        float playbackRate, Func<float> sourceGain, Action? stopped = null,
+        AudioVolumeGroup volumeGroup = AudioVolumeGroup.Effects)
     {
         RequireEngineThread();
         if (!GodotObject.IsInstanceValid(world) || !world.IsInsideTree())
@@ -22,7 +24,7 @@ public partial class AudioPlaybackService
             PitchScale = playbackRate,
             Bus = _originalDeviceProfile is null ? "Master" : OriginalOutputs.EffectsBus
         };
-        var voice = new SpatialVoice(player, clip, sourceGain, stopped);
+        var voice = new SpatialVoice(player, clip, sourceGain, stopped, volumeGroup);
         world.AddChild(player);
         player.GlobalPosition = position;
         _spatialVoices.Add(channel, voice);
@@ -35,7 +37,7 @@ public partial class AudioPlaybackService
     private void ApplySpatialVolume(SpatialVoice voice)
     {
         float gain = voice.SourceGain();
-        voice.Player.VolumeDb = Mathf.LinearToDb(MathF.Min(gain * Volumes.Percent(AudioVolumeGroup.Effects) / 100f, 4));
+        voice.Player.VolumeDb = Mathf.LinearToDb(MathF.Min(gain * Volumes.Percent(voice.Group) / 100f, 4));
     }
 
     private void ApplySpatialVolumes()

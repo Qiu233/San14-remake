@@ -12,6 +12,7 @@ public partial class Main
             MapMenuCommand.Search, MapMenuCommand.Recruit, MapMenuCommand.Items, MapMenuCommand.Reward, MapMenuCommand.Expel,
             MapMenuCommand.Merit, MapMenuCommand.Award, MapMenuCommand.Employ, MapMenuCommand.Learn, MapMenuCommand.Introduce,
             MapMenuCommand.CreateDistrict, MapMenuCommand.EditDistrict, MapMenuCommand.Research,
+            MapMenuCommand.EditGroup, MapMenuCommand.MoveGroup,
             MapMenuCommand.ProvokeWar, MapMenuCommand.Incite, MapMenuCommand.Alienate, MapMenuCommand.Poison,
             MapMenuCommand.PlacateArea, MapMenuCommand.Sabotage, MapMenuCommand.Rumor,
             MapMenuCommand.Goodwill, MapMenuCommand.Alliance, MapMenuCommand.CancelAlliance, MapMenuCommand.RequestAttack];
@@ -22,6 +23,8 @@ public partial class Main
     private void OpenMapMenuEditor(MapMenuCommand command)
     {
         if (HasMapSystemMenu || HasCampaignSavePage || HasCommandWorkspace) return;
+        if (command is MapMenuCommand.EditGroup or MapMenuCommand.MoveGroup)
+        { OpenPersonnelGroups(command == MapMenuCommand.EditGroup); return; }
         if (command == MapMenuCommand.Research) { OpenDoctrineResearch(); return; }
         if (command is MapMenuCommand.ProvokeWar or MapMenuCommand.Incite or MapMenuCommand.Alienate or
             MapMenuCommand.Poison or MapMenuCommand.PlacateArea or MapMenuCommand.Sabotage or MapMenuCommand.Rumor)

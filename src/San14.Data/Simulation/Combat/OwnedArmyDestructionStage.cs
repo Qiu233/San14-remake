@@ -225,6 +225,13 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         //have closed. It is not bypassed merely because the Person is ruler.
         state = package.ApplyArmyDestructionLoyalty(state, current, commander, force, projectOwnedRoles);
         effects.Add("25A834.Person_E8_loyalty_writer");
+        //25AA7D: ordinary/cause2 destruction emits the valid winner's10
+        //before morale/capture. The separate cause4 kernel omits this call.
+        if (winnerValid)
+        {
+            state = QueueDestructionArmySpeechCurrent(state, current, winner, 10, sourceDate);
+            effects.Add("25AA7D.1B4AB0_winner_action10_ArmyMapSpeech");
+        }
         if (!forcedDuelCapture)
             state = CaptureMoraleDefeatReport(state, current, victim, winner, checked((ushort)hex), sampler, feedback);
         var wave = ArmyDestructionMoraleWave.Apply(state, current, victim,
@@ -307,7 +314,16 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
             state = returned.State ?? throw Missing(returned.UnresolvedOwner ?? "current.remote_return_create");
             effects.Add("25B7CE.2EA9A0_1F24F0_1F68B0_remote_return_command");
         }
-        effects.Add("25B850.1B4AB0_report_kind14");
+        //25B801..25B869: native-valid, nondead Person and no special
+        //Army-reclaim suppression. This entry supports ordinary Force1..45,
+        //so the source's Force51/special-native bVar35 is always false here.
+        //Ordinary capture does not suppress14; Return/custody has already run.
+        if (Known(current.ReadPersonNativeValidity(commander), "retreat_speech_Person_validity") &&
+            Known(current.ReadPersonStatus(commander), "retreat_speech_PersonE6") != 9)
+        {
+            state = QueueDestructionArmySpeechCurrent(state, current, victim, 14, sourceDate, hex);
+            effects.Add("25B850.1B4AB0_report_kind14_ArmyMapSpeech");
+        }
         state = ReleaseCaptives(state, current, physical, sourceDate, sampler, feedback);
         effects.Add("25B89x.230C70_actual_captive_iterator");
         var tracking = ArmyDestructionTrackingTail.ApplyCurrent(state, current, physical);

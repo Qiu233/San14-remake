@@ -264,6 +264,7 @@ public sealed record CampaignEffectRequest(CombatSpeechRequest? Speech, Campaign
     public MonthlyDisasterConsequenceRequest? MonthlyDisasterConsequence { get; init; }
     public NormalTurnFoodWarningPresentationRequest? NormalTurnFoodWarningPresentation { get; init; }
     public NormalTurnForceResourceNoticeRequest? NormalTurnForceResourceNotice { get; init; }
+    public TutorialForceDefeatPresentationRequest? TutorialForceDefeatPresentation { get; init; }
     public MonthlyMaintenanceRequest? MonthlyMaintenance { get; init; }
     public ArmyFalseReportVisualRequest? ArmyFalseReportVisual { get; init; }
     public DuelCaptureAnnouncementRequest? DuelCaptureAnnouncement { get; init; }
@@ -366,7 +367,8 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                     (request.ForceEmergenceScene is null ? 0 : 1) +
                     (request.MonthlyDisasterConsequence is null ? 0 : 1) +
                     (request.NormalTurnFoodWarningPresentation is null ? 0 : 1) +
-                    (request.NormalTurnForceResourceNotice is null ? 0 : 1) != 1)
+                    (request.NormalTurnForceResourceNotice is null ? 0 : 1) +
+                    (request.TutorialForceDefeatPresentation is null ? 0 : 1) != 1)
                     throw new InvalidDataException("A campaign effect requires one semantic payload.");
                 if (request.DuelCaptureAnnouncement is { } captured &&
                     (batch.Source != CampaignEffectSource.ArmyBattleDefeat || captured.OfficerId is < 1 or > 6000 ||
@@ -501,6 +503,11 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                     (batch.Source != CampaignEffectSource.MonthlyMaintenance || warning.TextAtSource is null ||
                      warning.WarningBaseLocationIds.IsDefault || warning.WarningBaseLocationIds.Any(id => id is < 1 or > 61)))
                     throw new InvalidDataException("Invalid normal Turn food warning intent.");
+                if (request.TutorialForceDefeatPresentation is { } tutorial &&
+                    (batch.Source != CampaignEffectSource.ArmyBattleDefeat || !Enum.IsDefined(tutorial.Operation) ||
+                     (tutorial.Operation == TutorialForceDefeatPresentationOperation.SelectExitParagraph
+                        ? tutorial.ExitParagraphIndex is null or < 0 : tutorial.ExitParagraphIndex is not null)))
+                    throw new InvalidDataException("Invalid tutorial force-defeat presentation.");
                 if (request.NormalTurnForceResourceNotice is { } notice &&
                     (batch.Source != CampaignEffectSource.MonthlyMaintenance || notice.ForceId is < 1 or > 45 ||
                      notice.BaseLocationId is < 1 or > 61 || notice.Amount <= 0 ||
@@ -564,7 +571,7 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                           batch.Source == CampaignEffectSource.StrategicCommands ? voice.VoiceId is not (33 or 42 or 43) :
                           batch.Source == CampaignEffectSource.DoctrineResearchCommands ? voice.VoiceId != 42 :
                           batch.Source == CampaignEffectSource.PersonnelAdministrationCommands
-                             ? voice.VoiceId is not (33 or 34 or 35 or 36) : voice.VoiceId != 40) ||
+                             ? voice.VoiceId is not (33 or 34 or 35 or 36 or 38) : voice.VoiceId != 40) ||
                          voice.VoiceType >= 26 || !Enum.IsDefined(voice.Language) ||
                          voice.VariantIndex is < 0 or > 4 || voice.SoundId == 0 ||
                          batch.Source is not (CampaignEffectSource.DoctrineResearchCommands or CampaignEffectSource.StrategicCommands or CampaignEffectSource.MonthlyMaintenance) && talent.RecruitConversation is null))

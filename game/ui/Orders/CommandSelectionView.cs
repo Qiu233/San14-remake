@@ -2,8 +2,10 @@ using Godot;
 using San14.Data;
 using San14.Data.Formats;
 
-internal sealed record CommandSelectionColumn(string Key, string Caption, int Width, bool Numeric = false);
-internal sealed record CommandSelectionCell(string Text, long? Number = null, string? SortKey = null);
+internal sealed record CommandSelectionColumn(string Key, string Caption, int Width, bool Numeric = false,
+    byte? Align = null, byte? LineArrange = null, bool InitialAscending = true);
+internal sealed record CommandSelectionCell(string Text, long? Number = null, string? SortKey = null,
+    bool Emphasized = false, uint? FirstGlyphColour = null, int? SortGroup = null, bool SortUnavailable = false);
 internal sealed record CommandSelectionRow(int Id, IReadOnlyList<CommandSelectionCell> Cells,
     bool Enabled, string? DisabledReason = null, bool LockedSelected = false);
 
@@ -69,13 +71,14 @@ internal partial class CommandSelectionView : Control
         {
             int columnIndex = index; var column = columns[index];
             var header = new UiSourceColumnButton { Name = "PersonnelColumn" + column.Key,
-                Position = new(x, 0), Size = new(column.Width, 48), InputAdmission = ReadAdmission };
+                Position = new(x, 0), Size = new(column.Width, 48), InputAdmission = ReadAdmission,
+                Disabled = rows.Any(row => row.Cells[columnIndex].SortUnavailable) };
             table.AddChild(header); header.Configure(repository, chrome.Assets, chrome.SpriteShader, chrome.Font, column.Caption, personList: true);
             headers.Add(column.Key, header);
             header.Pressed += () =>
             {
                 if (!ReadAdmission()) return;
-                ascending = sortKey == column.Key ? !ascending : true; sortKey = column.Key;
+                ascending = sortKey == column.Key ? !ascending : column.InitialAscending; sortKey = column.Key;
                 ordered = publication.OrderBy(row => row, Comparer<CommandSelectionRow>.Create((a, b) => Compare(a, b, columnIndex))).ToArray();
                 foreach (var (key, item) in headers) item.ApplySortDirection(key == sortKey ? ascending : null);
                 PositionRows();
@@ -90,7 +93,7 @@ internal partial class CommandSelectionView : Control
             scrollSpeed(), _ => PositionRows(), currentScrollSpeed: scrollSpeed);
         clip.GuiInput += input => { if (ReadAdmission()) scrollbar.HandleWheel(input); };
         var rowColumns = columns.Select((column, index) => new DeploymentPersonColumn(index, column.Width, 0,
-            column.Numeric ? (byte)0x21 : (byte)0x01, 1)).ToArray();
+            column.Align ?? (column.Numeric ? (byte)0x21 : (byte)0x01), column.LineArrange ?? 1)).ToArray();
         for (int index = 0; index < Math.Min(14, rows.Count); index++)
         {
             var button = new UiSourcePersonRow { Name = "PersonnelVisibleRow" + index, InputAdmission = ReadAdmission };
@@ -133,9 +136,12 @@ internal partial class CommandSelectionView : Control
         int Compare(CommandSelectionRow a, CommandSelectionRow b, int index)
         {
             var first = a.Cells[index]; var second = b.Cells[index];
-            if (columns[index].Numeric && first.Number.HasValue != second.Number.HasValue)
+            int groups = (first.SortGroup ?? 0).CompareTo(second.SortGroup ?? 0);
+            if (groups != 0) return groups;
+            bool textKey = first.SortKey is not null || second.SortKey is not null;
+            if (!textKey && columns[index].Numeric && first.Number.HasValue != second.Number.HasValue)
                 return first.Number.HasValue ? -1 : 1;
-            int comparison = first.Number is long left && second.Number is long right ? left.CompareTo(right)
+            int comparison = !textKey && first.Number is long left && second.Number is long right ? left.CompareTo(right)
                 : columns[index].Key == "name" ? PersonNameOrder.Compare(first.SortKey ?? first.Text, second.SortKey ?? second.Text)
                 : StringComparer.Ordinal.Compare(first.SortKey ?? first.Text, second.SortKey ?? second.Text);
             return ascending ? comparison : -comparison;
@@ -151,7 +157,8 @@ internal partial class CommandSelectionView : Control
             var display = pool[slot]; int index = first + slot;
             if (index >= ordered.Count) { display.Entry = null; display.Button.Hide(); continue; }
             var entry = ordered[index];
-            if (!ReferenceEquals(display.Entry, entry)) display.Button.ApplyCells(entry.Cells.Select(cell => new DeploymentPersonCell(cell.Text)).ToArray());
+            if (!ReferenceEquals(display.Entry, entry)) display.Button.ApplyCells(entry.Cells.Select(cell =>
+                new DeploymentPersonCell(cell.Text, cell.Emphasized, cell.FirstGlyphColour)).ToArray());
             display.Entry = entry; display.Button.Position = new(0, index * 48 - scrollbar.Value); display.Button.Show();
         }
         RefreshSelection();
@@ -174,6 +181,17 @@ internal partial class CommandSelectionView : Control
     private int EditableSelectedCount() => selection.Count - lockedSelection.Count;
     private int EditableMaximum() => Math.Min(Math.Max(0, maximum - lockedSelection.Count), eligibleCount);
     internal void RequestCancel() => Finish(null);
+    internal IReadOnlyList<int> SelectedIds => selection.ToArray();
+    internal void ReplaceSelection(IReadOnlyList<int> ids)
+    {
+        if (abandoned) return;
+        selection.Clear(); lockedSelection.Clear();
+        foreach (int id in ids)
+            if (selection.Count < maximum && !selection.Contains(id) && publication.FirstOrDefault(row => row.Id == id) is { } row &&
+                (row.Enabled || row.LockedSelected))
+            { selection.Add(id); if (row.LockedSelected) lockedSelection.Add(id); }
+        RefreshSelection();
+    }
     internal void ApplyNotice(string value) { if (!abandoned) chrome.ApplyDefaultHint(value); }
     private void RequestApply() { if (!requireSelection || selection.Count > 0) Finish(selection.ToArray()); }
     private void Finish(IReadOnlyList<int>? value)

@@ -284,6 +284,12 @@ public partial class Main : Control
             if (movementKey.Pressed && !movementKey.Echo) RunUiAction(RequestCityOfficerMovementBack);
             return;
         }
+        if (HasPersonnelGroupsPage && input is InputEventKey { Keycode: Key.Escape } groupKey)
+        {
+            GetViewport().SetInputAsHandled();
+            if (groupKey.Pressed && !groupKey.Echo) RunUiAction(RequestPersonnelGroupsBack);
+            return;
+        }
         if (HasCityMerchantPage && input is InputEventKey { Keycode: Key.Escape } merchantKey)
         {
             GetViewport().SetInputAsHandled();
@@ -441,6 +447,7 @@ public partial class Main : Control
         else if (HasDiplomacyOrdersPage) back = RequestDiplomacyOrdersBack;
         else if (HasCommandWorkspace) back = CloseCommandWorkspace;
         else if (HasCityOfficerMovementPage) back = RequestCityOfficerMovementBack;
+        else if (HasPersonnelGroupsPage) back = RequestPersonnelGroupsBack;
         else if (HasCityMerchantPage) back = RequestCityMerchantBack;
         else if(_cityDomesticPresenter is { } cityDomestic)
             back=()=>{if(_cityDomesticSelectors?.TryCancel()!=true)cityDomestic.RequestBack();};
@@ -1131,6 +1138,7 @@ public partial class Main : Control
         CloseCampaignDeployment();
         CloseCampaignRetreat();
         CloseCommanderCards();
+        ClosePersonnelGroups();
         CloseAreaAdministration();
         CloseDeploymentSetup();
         if (_forceHud is not null)
@@ -1181,6 +1189,7 @@ public partial class Main : Control
     private void UpdateResidentMap()
     {
         if (_shuttingDown || IsReturningToTitle) return;
+        if (_personnelGroups is { } groupOwner && !IsPersonnelGroupsCurrent(groupOwner)) ClosePersonnelGroups();
         if (_transportSetup is not null && (!ReferenceEquals(_transportSetupSession, _session) ||
             !ReferenceEquals(_transportSetupWorld, _world) || _transportSetupMap != _residentMap)) CloseTransportSetup();
         if (_unitOrderTarget is not null && (!ReferenceEquals(_unitOrderSession, _session) ||
@@ -2408,6 +2417,8 @@ public partial class Main : Control
         CommandResult result = _session!.Issue(order, new(_presentationRandom.State));
         if (!result.Accepted)
         {
+            if (result.MissingRuleKey is { } unresolved)
+                GD.PushWarning($"Command rule unavailable: {unresolved}: {result.Error}");
             _playMessage.Text = _ui.Format("play_order_rejected",
                 result.MissingRuleKey is { } missing ? _ui.CommandError(missing) :
                 result.ErrorCode is { } code ? _ui.CommandError(code) : result.Error ?? "?");

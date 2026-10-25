@@ -16,6 +16,7 @@ internal sealed record HistoryMessageOperands(ArmyUnitReference? Army0 = null, A
 internal sealed record HistoryTextResult(GameState State, string Text)
 {
     public IReadOnlyList<NarrationVoiceRequest> Voices { get; init; } = [];
+    public IReadOnlyList<NarrationSpatialVoiceRequest> SpatialVoices { get; init; } = [];
 }
 
 public sealed partial class ArmyCampaignRuleAdapter
@@ -136,12 +137,15 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     private HistoryTextResult FormatReportMessage(GameState state, SourceWorldContext current,
         int root, HistoryMessageOperands operands, ReportMessageOrigin origin, Action<GameState>? publishReached,
-        NarrationVoiceSettings? voiceSettings = null)
+        NarrationVoiceSettings? voiceSettings = null,
+        Func<int, NarrationSpatialVoicePosition?>? spatialPosition = null,
+        Func<NarrationSpatialVoiceRequest, bool>? spatialAdmission = null)
     {
         var latest = state;
         var abilities = new TacticRemakeCurrentAbilities(current, _scenario, Seed.Language,
             SimulationRuleIdentity.ForLocale(Seed.Language));
-        var voices = voiceSettings is null ? null : new NarrationVoiceRequests(voiceSettings, Draw);
+        var voices = voiceSettings is null ? null : new NarrationVoiceRequests(voiceSettings, Draw,
+            spatialPosition: spatialPosition, spatialAdmission: spatialAdmission);
         var people = new DeploymentNarrationCurrentPeople(state, current, abilities,
             operands.Person0, operands.Person1, area: operands.Area0,
             panelReader: (force, effect) => _baseCapacityInputs.ReadPanelModifier(latest, force, effect),
@@ -180,13 +184,13 @@ public sealed partial class ArmyCampaignRuleAdapter
             ReportMessageOrigin.PersonnelDevelopment=>vm.ResolvePersonnelDevelopmentReport(context,Draw,root),
             ReportMessageOrigin.MonthlyMaintenance=>vm.ResolveMonthlyMaintenance(context,Draw,root),
             ReportMessageOrigin.NormalTurn=>vm.ResolveNormalTurnReport(context,Draw,root),
-            ReportMessageOrigin.ArmyMapSpeech=>vm.ResolveArmyMapSpeech(context,Draw),
+            ReportMessageOrigin.ArmyMapSpeech=>vm.ResolveArmyMapSpeech(context,Draw,root),
             ReportMessageOrigin.DoctrineResearch=>vm.ResolveDoctrineResearch(context,Draw,root),
             ReportMessageOrigin.StrategicCommands=>vm.ResolveStrategicCommandReport(context,Draw,root),
             ReportMessageOrigin.Diplomacy=>vm.ResolveDiplomacyReport(context,Draw,root),
             _=>vm.ResolveHistoryReport(context,Draw,root)
         };
-        return new(latest, text) { Voices = voices?.Pending ?? [] };
+        return new(latest, text) { Voices = voices?.Pending ?? [], SpatialVoices = voices?.PendingSpatial ?? [] };
     }
 
     private static string HeadHistory(string text) => text.IndexOf('\0') is int n && n >= 0 ? text[..n] : text;

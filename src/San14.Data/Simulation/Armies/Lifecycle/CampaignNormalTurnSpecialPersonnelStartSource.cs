@@ -30,7 +30,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                     if (level <= 3) continue;
                     ForceRelationChangeCurrent.ApplyInitialSpecialPersonnel(() => state, current, own, special,
                         level, P, ConsumeSpecialPersonnel, package.ReadApplicationGameplay(),
-                        count => Narration(Format(0x324C, new(Force0: Physical(special), Integers: [count]))));
+                        count => Narration(Format(0x324C, new(Force0: Physical(special), Integers: [count]))),
+                        removedPeople: RecallSpecialPersonnel);
                 }
             }
             return state;

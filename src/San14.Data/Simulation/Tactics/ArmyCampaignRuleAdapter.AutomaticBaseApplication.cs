@@ -265,7 +265,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                             instruction, singleAbnormalPrefix!) : null;
                     if (singleAbnormal?.Receipt.FailureFeedbackKind is int failedKind)
                     {
-                        var feedback = new ArmyTraitFeedback(working, current, operationDate, effects, () => working);
+                        var feedback = new ArmyTraitFeedback(working, current, operationDate, effects, () => working,
+                            speechConsumer: CreateArmyTraitSpeechConsumer(current, () => working, next => working = next));
                         feedback.NoAbnormalApplied(new(receiver.NativePhysicalSlot), failedKind);
                         working = feedback.Publish(working);
                     }
@@ -310,7 +311,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                         var receipt = singleAbnormal.Receipt;
                         if (receipt.IncreasingFeedbackKind is int increasedKind)
                         {
-                            var feedback = new ArmyTraitFeedback(working, current, operationDate, effects, () => working);
+                            var feedback = new ArmyTraitFeedback(working, current, operationDate, effects, () => working,
+                                speechConsumer: CreateArmyTraitSpeechConsumer(current, () => working, next => working = next));
                             feedback.AbnormalIncreased(new(physical), increasedKind);
                             working = feedback.Publish(working);
                         }

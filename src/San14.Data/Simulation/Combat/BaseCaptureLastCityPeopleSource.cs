@@ -55,10 +55,11 @@ public sealed partial class ArmyCampaignRuleAdapter
         return changed is null ? state : state with { Items = changed };
     }
     //287960's two advantage slots can recall foreign auxiliary personnel.
-    //The ordinary empty/mixed-owner branches have no writer. Preserve a
-    //specific boundary only for the actually allocated nonempty2CD1C0 input.
-    internal void RequireNoLastCitySpecialPersonnelReturnCurrent(GameState state,
-        SourceWorldContext current, BaseReference target, int oldForce)
+    //The ordinary empty/mixed-owner branches have no writer. A real
+    //nonempty allocation feeds the shared2CD1C0 recall operation.
+    internal GameState ApplyLastCitySpecialPersonnelReturnCurrent(GameState state,
+        SourceWorldContext current, WorldIndexContext pool, BaseReference target, int oldForce,
+        NativeMapSeasonDate? date, List<CampaignEffectRequest> effects)
     {
         var city = CurrentGateMapQueries.FindCity(target, current); //22A940.
         int cityId = LastCityPersonNeed(city.PhysicalSlot, "special_City_pointer");
@@ -66,12 +67,12 @@ public sealed partial class ArmyCampaignRuleAdapter
         var province = current.ReadStaticTableReference(0xDC80, provinceRaw < 23 ? provinceRaw : 0)
             ?? throw LastCityPersonMissing("special_Province_pointer");
         int provinceId = LastCityPersonNeed(province.PhysicalSlot, "special_Province_identity");
-        if (provinceId == 0) return;
+        if (provinceId == 0) return state;
         int advantageRaw = LastCityPersonNeed(_growthQueries.ReadStateAdvantage(state, provinceId), "special_Province30");
         var advantage = current.ReadStaticTableReference(0x85990, advantageRaw < 18 ? advantageRaw : 0)
             ?? throw LastCityPersonMissing("special_Advantage_pointer");
         int advantageId = LastCityPersonNeed(advantage.PhysicalSlot, "special_Advantage_identity");
-        if (advantageId == 0) return;
+        if (advantageId == 0) return state;
         for (int index = 0; index < 2; index++)
         {
             if (LastCityPersonNeed(_growthQueries.ReadAdvantageEffect(state, advantageId, index), "special_Advantage_effect") != 1) continue;
@@ -113,10 +114,21 @@ public sealed partial class ArmyCampaignRuleAdapter
                     item = current.ReadRegistryNodeNext(item) ?? throw LastCityPersonMissing("special_next");
                 }
                 if (allOldForce && LastCityPersonNeed(current.ReadTemporaryHexListCount(temporary), "special_count") != 0)
-                    throw LastCityPersonMissing("special_nonempty_2CD1C0_flags0_1_captor_City_count");
+                {
+                    //287B24..287B67: suppress final primary maintenance only
+                    //for the captured Base's valid current Force with at most one City.
+                    int rawCaptor = LastCityPersonNeed(current.ReadBaseForceSlot(target), "special_captor_Force");
+                    var captor = current.ReadForceTableReference(rawCaptor < 52 ? rawCaptor : 0)
+                        ?? throw LastCityPersonMissing("special_captor_Force_pointer");
+                    bool suppressPrimary = LastCityPersonNeed(current.ReadForceNativeValidity(captor), "special_captor_validity") &&
+                        LastCityPersonNeed(PersonArmyCaptureSource.ReadOwnedCityCount(current, captor), "special_captor_City_count") <= 1;
+                    state = ApplySpecialPersonnelRecallCurrent(state, current, pool, temporary,
+                        conditional: false, requireValidOriginalForce: true, suppressPrimary, date, effects);
+                }
             }
             finally { current.ClearTemporaryHexList(temporary); current.ReleaseTemporaryHexList(temporary); }
         }
+        return state;
     }
 
     private static T LastCityPersonNeed<T>(T? value, string field) where T : struct => value ?? throw LastCityPersonMissing(field);

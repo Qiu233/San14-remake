@@ -1,6 +1,6 @@
 namespace San14.Core;
 
-public enum CampaignTurnStopReason { OrdinaryForcesResolved, CalendarLimit, ChallengeService }
+public enum CampaignTurnStopReason { OrdinaryForcesResolved, CalendarLimit, ChallengeService, TutorialForceDefeat }
 
 /// <summary>A reached normal Turn stop. Null ending admission retains unknown
 /// application-host state; it is neither false admission nor playback receipt.
@@ -19,7 +19,7 @@ internal static class CampaignTurnStopValidation
     {
         if (state.CampaignTurnStop is not { } stop) return;
         if (!Enum.IsDefined(stop.Reason) || stop.RemainingOrdinaryForceId is < 0 or > 51 ||
-            stop.Reason is (CampaignTurnStopReason.CalendarLimit or CampaignTurnStopReason.ChallengeService) && stop.RemainingOrdinaryForceId is not null)
+            stop.Reason is (CampaignTurnStopReason.CalendarLimit or CampaignTurnStopReason.ChallengeService or CampaignTurnStopReason.TutorialForceDefeat) && stop.RemainingOrdinaryForceId is not null)
             throw new InvalidDataException("Saved normal Turn stop request is invalid.");
     }
 }

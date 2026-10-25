@@ -34,13 +34,15 @@ public sealed partial class GameSimulation
             CampaignEffectSource.ArmyBattleDefeat => request.TalentCommandPresentation is
                 { Operation: TalentCommandPresentationOperation.SoundCue, SoundId: 5 or 6 or 7 or 8 } or
                 { Operation: TalentCommandPresentationOperation.Announcement } or
-                { Operation: TalentCommandPresentationOperation.ConditionalOfficerText, Speaker: not null },
+                { Operation: TalentCommandPresentationOperation.ConditionalOfficerText, Speaker: not null } ||
+                request.MonthlyMaintenance is { Operation: MonthlyMaintenanceOperation.TerritoryOccupation, EventKind: 4 or 5 },
             CampaignEffectSource.OfficerGrowthNotifications => request.OfficerGrowthFeedback is
                 { Operation: OfficerGrowthFeedbackOperation.SoundCue or OfficerGrowthFeedbackOperation.Narration },
             CampaignEffectSource.MonthlyMaintenance => request.MonthlyMaintenance is
                 { Operation: MonthlyMaintenanceOperation.NarrationText or MonthlyMaintenanceOperation.ConditionalSpeakerText or
                     MonthlyMaintenanceOperation.DisasterSceneEnter or MonthlyMaintenanceOperation.DisasterSceneExit } ||
                 request.MonthlyMaintenance is { Operation: MonthlyMaintenanceOperation.ResetPersonnelGroupMoveDestinations } ||
+                request.MonthlyMaintenance is { Operation: MonthlyMaintenanceOperation.TerritoryOccupation, EventKind: 4 or 5 } ||
                 request.MonthlyMaintenance is { Operation: MonthlyMaintenanceOperation.FinalOrderSceneEnter, EventKind: 10 or 26 or 31 } ||
                 request.MonthlyMaintenance is { Operation: MonthlyMaintenanceOperation.FinalOrderSceneExit } ||
                 request.NormalTurnFoodWarningPresentation is not null ||

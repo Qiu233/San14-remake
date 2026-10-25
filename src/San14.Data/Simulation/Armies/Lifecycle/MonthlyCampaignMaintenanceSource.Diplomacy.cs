@@ -351,7 +351,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     string text = Format(root, new(Force0: Physical(a), Force1: Physical(b)));
                     if (queueAfterFormat) Queue(8);
                     Narration(text);
-                }, Policy, ConsumeSpecialPersonnel, package.ReadApplicationGameplay());
+                }, Policy, ConsumeSpecialPersonnel, package.ReadApplicationGameplay(), removedPeople: RecallSpecialPersonnel);
         }
         private void ApplyCrossingConsequences(ForceReference offender, ForceReference opposite)
         {

@@ -60,17 +60,8 @@ public sealed partial class ForceUnregisterSource
         //whose independent2C96E0 gate will reject the destruction traversal.
         VisitGateHomeArmies(current, gate, physical =>
         {
-            var target = new ArmyUnitReference(physical);
-            if (!Known(current.ReadArmyUnitNativeValidity(target), "neutral_feedback_Army_validity")) return;
-            if (current.ReadOwnedPersonCommandManager() is null) PersonReturnCommands.BindCurrent(state, current);
-            int commander = GateCommander(current, target);
-            int position = PersonReturnCommands.ResolvePersonPosition(state, current, commander, date).PhysicalSlot ?? 48400;
-            int id = Need(current.ReadPersonIdentity(commander), "neutral_feedback_Person10");
-            var arena = state.ReadArmyLifecycle() ?? throw Missing("neutral_feedback_lifecycle");
-            var image = arena.Receivers.Find(arena.Slots[physical].ReceiverId) ?? throw Missing("neutral_feedback_receiver");
-            int unit = image.ActiveUnitId ?? image.PendingImage?.Id ?? throw Missing("neutral_feedback_Army_id");
-            //The native packet's independent context operand is Base4E.
-            effects.Add(new(null, null) { ArmyTraitFeedback = new(unit, id, position, 18, location) });
+            state = package.QueueBaseCaptureArmySpeechCurrent(state, current,
+                new(physical), 18, location, date);
         });
         if (current.ReadOwnedPersonCommandManager() is { } commands)
             state = state with { PersonnelCommands = commands };
@@ -122,7 +113,7 @@ public sealed partial class ForceUnregisterSource
                     ?? throw Missing("neutral_City_table")), "neutral_City_B0") == victim)
                 { lastCity = false; break; }
             if (ordered.Length != 0 && lastCity)
-                package.RequireNoLastCitySpecialPersonnelReturnCurrent(state, current, gate, victim);
+                state = package.ApplyLastCitySpecialPersonnelReturnCurrent(state, current, pool, gate, victim, date, effects);
             foreach (var item in GatePeopleNodes(current, noncaptured))
             {
                 if (Need(current.ReadPersonStatus(item.Person), "neutral_current_PersonE6") is < 1 or > 4) continue;

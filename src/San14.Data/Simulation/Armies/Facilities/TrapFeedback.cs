@@ -26,7 +26,8 @@ internal sealed class TrapFeedback
         this.repository = repository; this.scenario = scenario;
         this.campaignDay = campaignDay;
         Requests = requests ?? [];
-        Traits = new(state(), current, moment, Requests, state, EnsurePersonnel);
+        Traits = new(state(), current, moment, Requests, state, EnsurePersonnel,
+            package.CreateArmyTraitSpeechConsumer(current, state, replace));
     }
 
     internal void EnsurePersonnel()

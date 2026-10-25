@@ -66,6 +66,8 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
             var homeArmies = new List<int>(); var homeArmyCause4 = new List<ArmyCause4Receipt>();
             var working = input;
             NativeMapSeasonDate? sourceDate = operationThirdDate ?? input.NativeMapSeason?.ThirdDate;
+            working = package.QueueBaseCaptureInitialArmySpeechesCurrent(working, current,
+                target, winnerArmy, sourceDate);
             foreach (var item in current.ReadRegistryReferences(RegistryKind.Army) ?? throw Missing("manager60"))
             {
                 var entry = item ?? throw Missing("manager60 payload");
@@ -195,9 +197,11 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
                 var ownedCities = ReadOwnedCityLocations(current, oldForce);
                 lastCity = ownedCities.Length == 0 || ownedCities is [var only] && only == link;
             }
-            if (lastCity) package.RequireNoLastCitySpecialPersonnelReturnCurrent(working, current, target, oldForce);
             var homeWrites = new List<ReturningPersonHomeReceipt>();
             var noncapturedFeedback = new List<CampaignEffectRequest>();
+            if (lastCity) working = package.ApplyLastCitySpecialPersonnelReturnCurrent(working, current,
+                current.ReadOwnedCurrentListPool() ?? throw Missing("special_recall_current_pool"),
+                target, oldForce, sourceDate, noncapturedFeedback);
             TacticSourceSamplerWorld ReadSampler() => sampler ?? package.ReadArmyDestructionSampler(working, current)
                 ?? throw Missing("last_City_World450_45C");
             var noncapturedNode = current.ReadRegistryHead(new(noncaptured.Identity)) ?? throw Missing("noncaptured head");

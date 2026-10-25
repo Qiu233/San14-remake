@@ -42,7 +42,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (force.Outcome == NormalArmyForceResultOutcome.CurrentInputsUnresolved)
             throw BaseAutomaticMissing("Army_damage_Force_result");
         working = force.State;
-        var feedback = new ArmyTraitFeedback(working, current, operationDate, effects, () => working);
+        var feedback = new ArmyTraitFeedback(working, current, operationDate, effects, () => working,
+            speechConsumer: CreateArmyTraitSpeechConsumer(current, () => working, next => working = next));
         var targetReference = new ArmyUnitReference(targetPhysical);
         if (!killed)
         {

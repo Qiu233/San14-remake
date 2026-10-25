@@ -13,7 +13,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         backfired = false;
         var working = state;
         var changedPeople = new HashSet<int>();
-        var feedback = new ArmyTraitFeedback(state, current, moment, requests, () => working);
+        var feedback = new ArmyTraitFeedback(state, current, moment, requests, () => working,
+            speechConsumer: CreateArmyTraitSpeechConsumer(current, () => working, next => working = next));
         var actor = new ArmyUnitReference(actorPhysical);
         var target = new ArmyUnitReference(targetPhysical);
         TacticRemakeCurrentAbilities? abilities = null;

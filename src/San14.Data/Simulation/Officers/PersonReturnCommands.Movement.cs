@@ -76,6 +76,14 @@ public static partial class PersonReturnCommands
             var handle = current.OwnedIndexes?.AssociatedTaskHandle ?? throw Missing("movement association index");
             if (!current.AppendPersonReturnAssociated(new(handle.Identity), taskId)) throw Missing("movement association registration");
             current.SetOwnedPersonCommandManager(owner);
+            //1F1360 registers the constructed receiver before querying each
+            //member's position.229ED0 sees that receiver immediately, even
+            //while its member chain is still empty. Bind its actual allocated
+            //dispatch slot and empty constructor chain just as ordinary
+            //Return preparation does, before the first22D6C0 lookup.
+            current.SetLinkedEntityRawState58(taskId, slot);
+            current.SetLinkedEntityMemberIds(taskId, []);
+            current.SetAssociatedPayloadPostLoadCallback(taskId, PostLoadCallback.NoOp);
             foreach (int id in members)
             {
                 int p = Pointer(id);

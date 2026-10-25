@@ -54,6 +54,14 @@ public sealed class PersonnelGroupEditDraft : IDisposable
     }
     public AreaAdministrationQuery<AreaAdministrationOfficerCard> QueryOfficerCard(int officerId)
         => source.QueryOfficerCard(officerId);
+    public AreaAdministrationQuery<PersonnelGroupPersonPage> QueryPersonPage(int groupIndex, int pageIndex)
+    {
+        var candidates = QueryCandidates(groupIndex);
+        if (!candidates.Available) return AreaAdministrationQuery<PersonnelGroupPersonPage>.Unknown(candidates.UnresolvedInput!);
+        var membership = new Dictionary<int, int>();
+        for (int group = 0; group < 10; group++) foreach (int id in groups[group]) membership[id] = group + 1;
+        return source.QueryPersonPage(candidates.Value!.Select(row => row.OfficerId).ToArray(), pageIndex, membership);
+    }
     public AreaAdministrationQuery<SetPersonnelGroupsOrder> BuildOrder()
         => closed ? AreaAdministrationQuery<SetPersonnelGroupsOrder>.Unknown("personnel.groups.closed")
         : AreaAdministrationQuery<SetPersonnelGroupsOrder>.Known(new(ForceId,
@@ -81,6 +89,8 @@ public sealed class PersonnelGroupMoveDraft : IDisposable
     public IReadOnlyList<PersonnelGroupRow> Rows { get; private set; } = [];
     public IReadOnlyList<PersonnelGroupDestination> Destinations => source.Destinations;
     public IReadOnlyList<int> SelectedGroupIndices => selected;
+    public int? PreselectedLocationId => QueryPreselectedLocation().Value;
+    public AreaAdministrationQuery<int?> QueryPreselectedLocation() => source.PreselectedDestination(selected);
     public int BooksBefore => source.Rules.AvailableBooks;
     public int BookCost => source.Rules.BookCost;
     public int BooksAfter => Math.Clamp(BooksBefore - BookCost, 0, 200);
@@ -98,6 +108,9 @@ public sealed class PersonnelGroupMoveDraft : IDisposable
         => source.AvailabilityWarning(selected);
     public AreaAdministrationQuery<string> QueryDestinationConfirmation(int locationId)
         => source.DestinationConfirmation(locationId);
+    public AreaAdministrationQuery<PersonnelGroupDestinationPage> QueryDestinationPage()
+        => closed ? AreaAdministrationQuery<PersonnelGroupDestinationPage>.Unknown("personnel.groups.closed")
+            : source.QueryDestinationPage(selected);
     public AreaAdministrationDraftResult AssignDestination(int locationId)
     {
         if (closed || selected.Length == 0 || !source.Rules.DestinationLocationIds.Contains(locationId))

@@ -694,6 +694,8 @@ public static class StateValidator
         PlayableEventStateValidation.Validate(state);
         PlayablePersonnelStateValidation.Validate(state);
         CampaignTurnStopValidation.Validate(state);
+        if (state.TutorialForceDefeat is { ExitParagraphIndex: < 0 })
+            throw new InvalidDataException("The tutorial failure exit paragraph is invalid.");
         if (state.PendingCampaignServices is null)
             throw new InvalidDataException("Pending campaign-service writes are missing.");
         state.PendingCampaignServices.Validate();

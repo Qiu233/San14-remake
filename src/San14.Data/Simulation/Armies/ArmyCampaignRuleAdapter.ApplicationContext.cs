@@ -15,6 +15,16 @@ public sealed partial class ArmyCampaignRuleAdapter
     //independent of Story skip and the World's saved mode selection.
     internal bool? ReadApplicationReturnToTitlePending() => applicationGameplay?.ReturnToTitlePending;
 
+    //570850 is the configured tutorial controller. Its presence and active
+    //value remain independent knowledge, including during a borrowed return.
+    private TransferModeState? ReadApplicationTransferModeCurrent() => ReadApplicationGameplay() is { } application
+        ? application.TutorialServicePresent switch
+        {
+            false => new(false, null),
+            true => new(true, application.TutorialActive is bool active ? active ? 1 : 0 : null),
+            _ => null
+        } : null;
+
     //9021C0 first tests the independent1D3840 service, then the saved signed
     //BC selection. A missing service short-circuits before that saved field.
     public bool? ReadApplicationInformationRestriction(GameState state)
