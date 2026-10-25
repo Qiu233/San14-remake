@@ -65,31 +65,43 @@ public sealed partial class ArmyCampaignRuleAdapter
         //branches. A Base is not automatically a no-tactic actor.
         if (TacticRemakeCurrentBattleControl.Read(state, 0x48) is not bool blockTactic)
             throw Missing("automatic_control48");
+        var afterAutomatic = state;
+        bool activated = false;
+        ushort word22 = 0;
         if (!blockTactic && damage.Damage.NativeFrameWord20 < pair.Target.Troops)
         {
-            var fields = current.ReadCaptureBaseThreatFields(origin) ?? throw Missing("automatic_Base_fields");
-            if (fields.Byte48 is not byte enabled) throw Missing("automatic_Base48");
-            if (enabled != 0)
-            {
-                ushort governorId = current.ReadArmyReturnBaseGovernor2E(origin) ?? throw Missing("automatic_governor2E");
-                var governor = current.ReadPersonLookupReference(governorId <= 6000 ? governorId : 0)
-                    ?? throw Missing("automatic_governor_lookup");
-                bool governorValid = governor.PhysicalSlot is int governorPhysical
-                    ? current.ReadPersonNativeValidity(governorPhysical) ?? throw Missing("automatic_governor_validity") : false;
-                if (governorValid)
-                {
-                    int person = governor.PhysicalSlot!.Value;
-                    var position = PersonPositionRepair.DecodeSecondLocation(current.ReadPersonSecondLocation(person)
-                        ?? throw Missing("automatic_governor_E4"));
-                    ushort link = current.ReadBaseObjectLink(origin) ?? throw Missing("automatic_Base4E");
-                    bool matchingPosition = link <= 51 ? position == new NativeLocation(5, link)
-                        : link <= 61 ? position == new NativeLocation(6, link - 51) : true;
-                    if (matchingPosition)
-                        throw Missing("automatic_Base_governor161_and_selection");
-                }
-            }
+            var automatic = CompleteBorrowedBaseOriginAutomatic(state, current, origin, pair,
+                sampler, operationDate, effects, operationRevision);
+            afterAutomatic = automatic.State; activated = automatic.Activated; word22 = automatic.Word22;
+            if (automatic.Continuation is { } pending)
+                return new(afterAutomatic, damage.Damage.NativeFrameWord20) { BaseAutomaticExecution = pending };
         }
-        var request = NormalArmyCombatApplicationSourceMath.BuildNormalRequestedLoss(damage.Damage.NativeFrameWord20, 0);
+        return CompleteBorrowedBaseArmyPairAfterAutomatic(afterAutomatic, current, pair, origin,
+            damage.Damage.NativeFrameWord20, word22, activated, sampler, operationDate, operationRevision, effects);
+
+        InvalidDataException Missing(string owner) => new($"ordinary_army_combat_cut.Base_origin.{owner}.source{pair.Actor.Kind}:{pair.Actor.PhysicalSlot}.target27:{pair.Target.PhysicalSlot}");
+    }
+
+    private BorrowedMixedPairApplication ResumeBorrowedBaseArmyPairAfterAutomatic(GameState state,
+        SourceWorldContext current, NormalCombatMixedPair pair, ushort normalWord20,
+        BaseAutomaticTacticExecutionContinuation saved, NativeArmyCombatCycleSampler sampler,
+        NativeMapSeasonDate date, long revision, List<CampaignEffectRequest> effects)
+    {
+        var automatic = ResumeBaseOriginAutomaticExecution(state, current, pair, saved, sampler, date, revision, effects);
+        if (automatic.Continuation is { } pending)
+            return new(automatic.State, normalWord20) { BaseAutomaticExecution = pending };
+        var origin = BaseLookup.Find(saved.CasterBaseLocationId, current);
+        return CompleteBorrowedBaseArmyPairAfterAutomatic(automatic.State, current, pair, origin,
+            normalWord20, automatic.Word22, true, sampler, date, revision, effects);
+    }
+
+    private BorrowedMixedPairApplication CompleteBorrowedBaseArmyPairAfterAutomatic(GameState state,
+        SourceWorldContext current, NormalCombatMixedPair pair, BaseReference origin, ushort normalWord20,
+        ushort word22, bool activated, NativeArmyCombatCycleSampler sampler, NativeMapSeasonDate operationDate,
+        long operationRevision, List<CampaignEffectRequest> effects)
+    {
+        int targetId = pair.Target.UnitId ?? throw Missing("Army_identity");
+        var request = NormalArmyCombatApplicationSourceMath.BuildNormalRequestedLoss(normalWord20, word22);
         var context = Context(current, sampler);
         TacticRemakeCurrentContext ReadLatest(GameState reached)
         {
@@ -129,6 +141,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                 throw Missing("target_personality");
             working = personality.State;
         }
+        if (activated && application.Receipt?.Killed == true)
+            working = MarkBorrowedAutomaticTacticFatalFeedback(working);
         return new(CompleteBorrowedBaseArmyPairTail(working, current, pair,
             request.FrameWord20After, sampler, effects));
 

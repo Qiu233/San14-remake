@@ -204,9 +204,15 @@ public static class ArmyDestructionResources
             }
             void AddBaseResource(BaseReference target, ArmyDestructionResourceWriteKind kind, int amount)
             {
-                int firstCap = Cap(target, kind), old = BaseNumber(target, kind);
+                //The Base's virtual currency methods route a Gate through its
+                //current mapped City. Keep the repeated capacity/read/set
+                //queries and stage the write on that real saved receiver;
+                //Gate34/38 are not independent combat loot balances.
+                int firstCap = Cap(BaseCurrencyAdditionSource.CurrencyCity(target, current), kind);
+                int old = BaseNumber(BaseCurrencyAdditionSource.CurrencyCity(target, current), kind);
                 int first = Bound(unchecked(old + amount), firstCap);
-                WriteBase(target, kind, Bound(first, Cap(target, kind)));
+                var setter = BaseCurrencyAdditionSource.CurrencyCity(target, current);
+                WriteBase(setter, kind, Bound(first, Cap(setter, kind)));
             }
             void AddLoot(BaseReference target)
             {
@@ -251,8 +257,8 @@ public static class ArmyDestructionResources
     }
 
     /// <summary>Resource-only saved publication. No retirement, pending70 or
-    /// Person lifecycle is implied. Gate numeric saved owners remain outside
-    /// the current owned City resource projection.</summary>
+    /// Person lifecycle is implied. Virtual Gate currency writes have already
+    /// resolved their actual City receiver during preparation.</summary>
     public static GameState PublishResources(GameState state, ArmyDestructionResourcePacket packet)
     {
         var cities = new Dictionary<int, CityState>(state.Cities);

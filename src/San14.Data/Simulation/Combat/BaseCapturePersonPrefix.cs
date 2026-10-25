@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using San14.Core;
 
 namespace San14.Data;
@@ -12,6 +13,7 @@ public sealed record BaseCapturePersonPrefixReceipt(int Location4E, int OldForce
     HexListHandle SpecialTemporary, HexListHandle ChangedForceTemporary)
 {
     public ArmyCause4Receipt[] HomeArmyCause4 { get; init; } = [];
+    public bool HasCompleteDiagnosticHistory { get; init; } = true;
 }
 public sealed record BaseCapturePersonPrefixResult(GameState? State,
     BaseCapturePersonPrefixReceipt? Receipt, SourceWorldContext? Current, string? UnresolvedOwner);
@@ -27,17 +29,19 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
     public BaseCapturePersonPrefixResult TryApply(GameState input, BaseReference target,
         ArmyUnitReference winnerArmy, NativeMapSeasonDate? operationThirdDate = null,
         TacticSourceSamplerWorld? sampler = null, CaptureApplicationOwners? application = null)
-        => Apply(input, target, winnerArmy, operationThirdDate, sampler, application, null);
+        => Apply(input, target, winnerArmy, operationThirdDate, sampler, application, null, null);
 
     internal BaseCapturePersonPrefixResult TryApplyCurrent(GameState input, SourceWorldContext current,
         BaseReference target, ArmyUnitReference winnerArmy, NativeMapSeasonDate? operationThirdDate,
-        TacticSourceSamplerWorld? sampler)
-        => Apply(input, target, winnerArmy, operationThirdDate, sampler, null, current);
+        TacticSourceSamplerWorld? sampler, BaseCaptureOperationContext? continuationContext = null,
+        DistrictReference? winnerDistrict = null)
+        => Apply(input, target, winnerArmy, operationThirdDate, sampler, null, current, continuationContext, winnerDistrict);
 
     private BaseCapturePersonPrefixResult Apply(GameState input, BaseReference target,
         ArmyUnitReference winnerArmy, NativeMapSeasonDate? operationThirdDate,
         TacticSourceSamplerWorld? sampler, CaptureApplicationOwners? application,
-        SourceWorldContext? operationCurrent)
+        SourceWorldContext? operationCurrent, BaseCaptureOperationContext? continuationContext,
+        DistrictReference? winnerDistrict = null)
     {
         bool borrowed = operationCurrent is not null;
         SourceWorldContext? current = null;
@@ -49,131 +53,203 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
                 OwnedArmyReturnWorld.Borrow(input, operationCurrent, operationCurrent.ReadOwnedCurrentListPool()
                     ?? throw Missing("borrowed_current_pool"));
             current = world.Context;
+            var restored = input.BaseCaptureContinuation;
+            if (restored is { PendingCapturedRulerTreatment: not null } || input.PersonDeathContinuation is not null)
+                throw Missing("Base_capture_player_decision_pending");
+            continuationContext = restored?.Operation ?? continuationContext;
+            if (restored is not null && continuationContext is null) throw Missing("Base_capture_resume_context");
             int link = K(current.ReadBaseObjectLink(target), "Base4E");
             if (link is < 1 or > 61 || !K(current.ReadBaseNativeValidity(target), "Base validity")) throw Missing("branch.invalid_Base");
-            int oldForce = K(current.ReadBaseForceSlot(target), "Base B0");
+            int oldForce = restored?.Operation.PreviousForceId ?? K(current.ReadBaseForceSlot(target), "Base B0");
             if (oldForce is < 1 or > 45) throw Missing("branch.nonordinary_old_Force");
             var oldForceReference = current.ReadForceTableReference(oldForce) ?? throw Missing("old Force pointer");
-            if (!K(current.ReadForceNativeValidity(oldForceReference), "old Force validity")) throw Missing("branch.invalid_old_Force");
-            if (!K(current.ReadArmyUnitNativeValidity(winnerArmy), "winner Army validity")) throw Missing("branch.invalid_winner_Army");
-            var winningForce = current.ReadArmyUnitForceReference(winnerArmy);
+            if (restored is null && !K(current.ReadForceNativeValidity(oldForceReference), "old Force validity")) throw Missing("branch.invalid_old_Force");
+            bool winnerArmyValid = K(current.ReadArmyUnitNativeValidity(winnerArmy), "winner Army validity");
+            if (!winnerArmyValid && winnerDistrict is null) throw Missing("branch.invalid_winner_Army");
+            var targetDistrict = winnerDistrict ?? current.ReadDistrictTableReference(K(current.ReadPersonDistrictSlot(
+                Commander(current, winnerArmy)), "winner_DistrictE0")) ?? throw Missing("winner_District_pointer");
+            var winningForce = winnerArmyValid ? current.ReadArmyUnitForceReference(winnerArmy)
+                : current.ReadForceTableReference(K(current.ReadDistrictForceSlot(targetDistrict), "winner_District10"))
+                    ?? throw Missing("winner_District_Force_pointer");
             int newForce = K(current.ReadForcePhysicalSlot(winningForce), "winner Force physical");
             if (newForce is < 1 or > 45 || newForce == oldForce || !K(current.ReadForceNativeValidity(winningForce), "winner Force validity"))
                 throw Missing("branch.nonordinary_winner_Force");
-            int winnerPerson = Commander(current, winnerArmy);
-            if (!K(current.ReadPersonNativeValidity(winnerPerson), "winner Commander validity")) throw Missing("branch.invalid_winner_Commander");
+            int winnerPerson = winnerArmyValid ? Commander(current, winnerArmy)
+                : K(current.ReadPersonLookupReference(0)?.PhysicalSlot, "winner_Person0_pointer");
+            if (winnerArmyValid && !K(current.ReadPersonNativeValidity(winnerPerson), "winner Commander validity")) throw Missing("branch.invalid_winner_Commander");
 
-            var homeArmies = new List<int>(); var homeArmyCause4 = new List<ArmyCause4Receipt>();
+            var homeArmies = restored?.People.HomeArmySlots.ToList() ?? [];
+            var homeArmyCause4 = new List<ArmyCause4Receipt>();
+            var homes = restored?.People.HomeOfficerIds.ToList() ?? [];
+            var decisions = new List<BaseCapturePersonDecision>();
             var working = input;
             NativeMapSeasonDate? sourceDate = operationThirdDate ?? input.NativeMapSeason?.ThirdDate;
-            var targetDistrict = current.ReadDistrictTableReference(K(current.ReadPersonDistrictSlot(winnerPerson),
-                "presentation_winner_District")) ?? throw Missing("presentation_target_District_pointer");
-            var capturePresentation = new List<CampaignEffectRequest>();
-            package.AppendBaseCapturePresentationCurrent(working, current, target, targetDistrict, capturePresentation);
-            working = working with { CampaignEffectRequests = (working.CampaignEffectRequests
-                ?? throw Missing("capture_presentation_owner")).Append(CampaignEffectSource.ArmyBattleDefeat,
-                    working.NativeClock?.UpdateOrdinal ?? throw Missing("capture_presentation_clock"), capturePresentation) };
-            working = package.QueueBaseCaptureInitialArmySpeechesCurrent(working, current,
-                target, winnerArmy, sourceDate);
-            foreach (var item in current.ReadRegistryReferences(RegistryKind.Army) ?? throw Missing("manager60"))
+            var sourceSampler = continuationContext is { SampleDay: int day, SampleSalt: int salt }
+                ? new TacticSourceSamplerWorld(day, salt) : sampler;
+            if (restored is null)
             {
-                var entry = item ?? throw Missing("manager60 payload");
-                if (entry.Kind != RegistryKind.Army || entry.PhysicalSlot is not int armySlot) throw Missing("manager60 Army pointer");
-                if (K(current.ReadOwnedArmyExclusion233560(entry), "233560 HomeArmy exclusion")) continue;
-                var army = new ArmyUnitReference(armySlot);
-                int commander = Commander(current, army);
-                ushort home = K(current.ReadPersonNativeValidity(commander), "22A7A0 Commander validity")
-                    ? K(current.ReadPersonFirstLocation(commander), "22A7A0 CommanderE2") : (ushort)0;
-                if (home != link) continue;
-                homeArmies.Add(armySlot);
-                //222F20/334660 uses manager60's current chain, with no
-                //temporary allocation. Cause4 only appends pending70;26 has
-                //not removed these manager nodes while this loop runs.
-                if (current.IsArmyUnitMapWriteSkipped(army))
-                {
-                    working = WithPool(working, current, borrowed);
-                    var retired = new OwnedArmyDestructionStage(package).ApplyEmployedHomeCommanderCause4Current(
-                        working, current, current.ReadOwnedCurrentListPool() ?? throw Missing("HomeArmy current pool"),
-                        armySlot, winnerArmy, sourceDate);
-                    working = retired.State ?? throw Missing(retired.UnresolvedOwner ?? "HomeArmy_259360_mode0_cause4");
-                    homeArmyCause4.Add(retired.Receipt!);
-                    if (!borrowed) current = package.CaptureOwnedArmyReturnWorld(working).Context;
-                }
-            }
-
-            //This descriptor starts as230DD0's status6/E4 Base list, is
-            //cleared (not destroyed) and reused for ordinarycaptured people.
-            captured = Temporary(current); current.ClearTemporaryHexList(captured);
-            foreach (int person in RegisteredPeople(current))
-            {
-                if (K(current.ReadPersonStatus(person), "230DD0 PersonE6") != 6) continue;
-                if (K(current.ReadPersonSecondLocation(person), "230DD0 PersonE4") != link) continue;
-                _ = current.AppendPersonReturnTemporary(captured, person);
-            }
-            var existingCaptiveEffects = new List<CampaignEffectRequest>();
-            foreach (var item in ReadPeople(current, captured))
-                working = package.ApplyBaseCaptureExistingCaptiveCurrent(working, current,
-                    current.ReadOwnedCurrentListPool() ?? throw Missing("existing_captive_current_pool"),
-                    target, item.Person, sourceDate, existingCaptiveEffects, winningForce: winningForce,
-                    winningDistrict: current.ReadDistrictTableReference(K(current.ReadPersonDistrictSlot(winnerPerson),
-                        "existing_captive_winner_District")));
-            if (existingCaptiveEffects.Count != 0)
+                var capturePresentation = new List<CampaignEffectRequest>();
+                package.AppendBaseCapturePresentationCurrent(working, current, target, targetDistrict, capturePresentation);
                 working = working with { CampaignEffectRequests = (working.CampaignEffectRequests
-                    ?? throw Missing("existing_captive_effect_owner")).Append(CampaignEffectSource.ArmyBattleDefeat,
-                        working.NativeClock?.UpdateOrdinal ?? throw Missing("existing_captive_effect_clock"), existingCaptiveEffects) };
-            current.ClearTemporaryHexList(captured);
-            noncaptured = Temporary(current); special = Temporary(current);
-            var decisions = new List<BaseCapturePersonDecision>();
-            var homes = new List<int>();
-            var sourceSampler = sampler ?? package.ReadArmyDestructionSampler(working, current);
-            foreach (int person in RegisteredPeople(current))
+                    ?? throw Missing("capture_presentation_owner")).Append(CampaignEffectSource.ArmyBattleDefeat,
+                        working.NativeClock?.UpdateOrdinal ?? throw Missing("capture_presentation_clock"), capturePresentation) };
+                working = package.QueueBaseCaptureInitialArmySpeechesCurrent(working, current,
+                    target, winnerArmy, sourceDate);
+                foreach (var item in current.ReadRegistryReferences(RegistryKind.Army) ?? throw Missing("manager60"))
+                {
+                    var entry = item ?? throw Missing("manager60 payload");
+                    if (entry.Kind != RegistryKind.Army || entry.PhysicalSlot is not int armySlot) throw Missing("manager60 Army pointer");
+                    if (K(current.ReadOwnedArmyExclusion233560(entry), "233560 HomeArmy exclusion")) continue;
+                    var army = new ArmyUnitReference(armySlot);
+                    int commander = Commander(current, army);
+                    ushort home = K(current.ReadPersonNativeValidity(commander), "22A7A0 Commander validity")
+                        ? K(current.ReadPersonFirstLocation(commander), "22A7A0 CommanderE2") : (ushort)0;
+                    if (home != link) continue;
+                    homeArmies.Add(armySlot);
+                    //222F20/334660 uses manager60's current chain, with no
+                    //temporary allocation. Cause4 only appends pending70;26 has
+                    //not removed these manager nodes while this loop runs.
+                    if (current.IsArmyUnitMapWriteSkipped(army))
+                    {
+                        working = WithPool(working, current, borrowed);
+                        var homeFeedback = new List<CampaignEffectRequest>();
+                        var destruction = new OwnedArmyDestructionStage(package);
+                        var homePool = current.ReadOwnedCurrentListPool() ?? throw Missing("HomeArmy current pool");
+                        var retired = winnerArmyValid
+                            ? destruction.ApplyEmployedHomeCommanderCause4Current(working, current, homePool,
+                                armySlot, winnerArmy, sourceDate)
+                            : destruction.ApplyAbsorptionCommanderCause4Current(working, current, homePool,
+                                armySlot, sourceDate ?? throw Missing("HomeArmy_null_winner_date"), homeFeedback);
+                        working = retired.State ?? throw Missing(retired.UnresolvedOwner ?? "HomeArmy_259360_mode0_cause4");
+                        AppendFeedback(homeFeedback);
+                        homeArmyCause4.Add(retired.Receipt!);
+                        if (!borrowed) current = package.CaptureOwnedArmyReturnWorld(working).Context;
+                    }
+                }
+
+                //This descriptor starts as230DD0's status6/E4 Base list, is
+                //cleared (not destroyed) and reused for ordinarycaptured people.
+                captured = Temporary(current); current.ClearTemporaryHexList(captured);
+                foreach (int person in RegisteredPeople(current))
+                {
+                    if (K(current.ReadPersonStatus(person), "230DD0 PersonE6") != 6) continue;
+                    if (K(current.ReadPersonSecondLocation(person), "230DD0 PersonE4") != link) continue;
+                    _ = current.AppendPersonReturnTemporary(captured, person);
+                }
+                var existingCaptiveEffects = new List<CampaignEffectRequest>();
+                foreach (var item in ReadPeople(current, captured))
+                    working = package.ApplyBaseCaptureExistingCaptiveCurrent(working, current,
+                        current.ReadOwnedCurrentListPool() ?? throw Missing("existing_captive_current_pool"),
+                        target, item.Person, sourceDate, existingCaptiveEffects, winningForce: winningForce,
+                        winningDistrict: targetDistrict);
+                if (existingCaptiveEffects.Count != 0)
+                    working = working with { CampaignEffectRequests = (working.CampaignEffectRequests
+                        ?? throw Missing("existing_captive_effect_owner")).Append(CampaignEffectSource.ArmyBattleDefeat,
+                            working.NativeClock?.UpdateOrdinal ?? throw Missing("existing_captive_effect_clock"), existingCaptiveEffects) };
+                current.ClearTemporaryHexList(captured);
+                noncaptured = Temporary(current); special = Temporary(current);
+                sourceSampler ??= package.ReadArmyDestructionSampler(working, current);
+                foreach (int person in RegisteredPeople(current))
+                {
+                    //3346B0 first testsE2 equality, then232F10(mode0).
+                    if (K(current.ReadPersonFirstLocation(person), "3346B0 PersonE2") != link) continue;
+                    byte status = K(current.ReadPersonStatus(person), "3346B0 PersonE6");
+                    if (status is < 1 or > 4) continue;
+                    homes.Add(K(current.ReadPersonIdentity(person), "Home Person10"));
+                    var personForce = current.ReadPersonForce(person) ?? throw Missing("22CF60 Person Force");
+                    if (K(current.ReadForcePhysicalSlot(personForce), "22CF60 Person Force physical") == newForce) continue;
+                    bool reached = K(current.ReadPersonSecondLocation(person), "Home PersonE4") == link;
+                    PersonArmyCaptureReceipt? captureReceipt = null;
+                    bool wasCaptured = false;
+                    if (reached)
+                    {
+                        var captureResult = PersonArmyCaptureSource.Evaluate(working, current, person, new(winnerPerson),
+                            package.CreateArmyDestructionAbilities(current), sourceDate, sourceSampler, application ?? new(false));
+                        wasCaptured = captureResult.Captured ?? throw Missing(captureResult.UnresolvedOwner ?? "27E870 capture predicate");
+                        captureReceipt = captureResult.Receipt;
+                    }
+                    string group;
+                    if (wasCaptured)
+                    {
+                        bool ordinaryPerson = K(OfficerBehaviorRules.UsesOrdinaryPersonRules(current.ReadPersonBehavior(person)), "captured Person15E");
+                        //233780(Person,5) is a status equality, not a callback.
+                        bool ordinary = ordinaryPerson || status == 5;
+                        group = ordinary ? "captured" : "special-captured";
+                        _ = current.AppendPersonReturnTemporary(ordinary ? captured : special, person);
+                    }
+                    else
+                    {
+                        group = "noncaptured";
+                        _ = current.AppendPersonReturnTemporary(noncaptured, person);
+                        _ = status == 1; //The reached233780(Person,1) has no writer.
+                    }
+                    decisions.Add(new(person, K(current.ReadPersonIdentity(person), "decision Person10"), status, reached, captureReceipt, group));
+                }
+
+            }
+            else
             {
-                //3346B0 first testsE2 equality, then232F10(mode0).
-                if (K(current.ReadPersonFirstLocation(person), "3346B0 PersonE2") != link) continue;
-                byte status = K(current.ReadPersonStatus(person), "3346B0 PersonE6");
-                if (status is < 1 or > 4) continue;
-                homes.Add(K(current.ReadPersonIdentity(person), "Home Person10"));
-                var personForce = current.ReadPersonForce(person) ?? throw Missing("22CF60 Person Force");
-                if (K(current.ReadForcePhysicalSlot(personForce), "22CF60 Person Force physical") == newForce) continue;
-                bool reached = K(current.ReadPersonSecondLocation(person), "Home PersonE4") == link;
-                PersonArmyCaptureReceipt? captureReceipt = null;
-                bool wasCaptured = false;
-                if (reached)
-                {
-                    var captureResult = PersonArmyCaptureSource.Evaluate(working, current, person, new(winnerPerson),
-                        package.CreateArmyDestructionAbilities(current), sourceDate, sourceSampler, application ?? new(false));
-                    wasCaptured = captureResult.Captured ?? throw Missing(captureResult.UnresolvedOwner ?? "27E870 capture predicate");
-                    captureReceipt = captureResult.Receipt;
-                }
-                string group;
-                if (wasCaptured)
-                {
-                    bool ordinaryPerson = K(OfficerBehaviorRules.UsesOrdinaryPersonRules(current.ReadPersonBehavior(person)), "captured Person15E");
-                    //233780(Person,5) is a status equality, not a callback.
-                    bool ordinary = ordinaryPerson || status == 5;
-                    group = ordinary ? "captured" : "special-captured";
-                    _ = current.AppendPersonReturnTemporary(ordinary ? captured : special, person);
-                }
-                else
-                {
-                    group = "noncaptured";
-                    _ = current.AppendPersonReturnTemporary(noncaptured, person);
-                    _ = status == 1; //The reached233780(Person,1) has no writer.
-                }
-                decisions.Add(new(person, K(current.ReadPersonIdentity(person), "decision Person10"), status, reached, captureReceipt, group));
+                captured = RestorePeople(restored.People.CapturedOfficerIds);
+                special = RestorePeople(restored.People.SpecialCapturedOfficerIds);
+                noncaptured = RestorePeople(restored.People.NoncapturedOfficerIds);
+                //The selected node has settled through the formal decision or
+                //death continuation. Neither classification nor its call reruns.
+                working = working with { BaseCaptureContinuation = null };
             }
 
-            //The existing whole2E0FC0 source is genuinely reusable for its
-            //ordinarystatus3/4 scope. Special callbacks stay unknown;
-            //capturetrue is never relabeled asnoncaptured.
+            //The source list is sorted once, before the first captured call.
             var custody = new List<PersonArmyCaptureWholeReceipt>();
             working = WithPool(working, current, borrowed);
             var capturedNodes = ReadPeople(current, captured);
-            if (capturedNodes.Count != 0) SortStatusAndIdentity(current, captured, capturedNodes, rulerLast: true);
-            foreach (var item in ReadPeople(current, captured))
+            if (restored is null && capturedNodes.Count != 0)
+                SortStatusAndIdentity(current, captured!, capturedNodes, rulerLast: true);
+            var capturedOrder = ReadPeople(current, captured!).Select(item =>
+                (int)K(current.ReadPersonIdentity(item.Person), "captured Person10")).ToArray();
+            var specialOrder = ReadPeople(current, special!).Select(item =>
+                (int)K(current.ReadPersonIdentity(item.Person), "special Person10")).ToArray();
+            var pendingNoncapturedOrder = ReadPeople(current, noncaptured!).Select(item =>
+                (int)K(current.ReadPersonIdentity(item.Person), "noncaptured Person10")).ToArray();
+            int firstCaptured = restored is null ? 0 : restored.People.CapturedIndex + 1;
+            var orderedCaptured = ReadPeople(current, captured!);
+            for (int index = firstCaptured; index < orderedCaptured.Count; index++)
             {
+                var item = orderedCaptured[index];
+                var branch = package.ReadRulerCaptureBranchCurrent(working, current, item.Person,
+                    winningForce, sourceSampler);
+                if (branch.Branch == RulerCaptureBranch.DispositionRequired)
+                {
+                    var decision = branch.Decision ?? throw Missing("ruler_decision_owner");
+                    if (decision.Decision is null) throw Missing(decision.UnresolvedOwner ?? "ruler_decision");
+                    var effects = new List<CampaignEffectRequest>();
+                    if (decision.Decision == RulerCaptureDecision.PlayerDecisionRequired)
+                    {
+                        var prompt = package.PrepareCapturedRulerTreatmentCurrent(working, current,
+                            decision.Receipt ?? throw Missing("ruler_decision_receipt"));
+                        working = prompt.State;
+                        return Pause(index, prompt.Request, null);
+                    }
+                    CapturedRulerDisposition chosen;
+                    if (decision.Decision == RulerCaptureDecision.Release)
+                    {
+                        var released = package.ApplyRulerCaptureReleaseCurrent(working, current, world.Pool,
+                            decision, sourceDate ?? throw Missing("ruler_release_date"), effects);
+                        working = released.State ?? throw Missing(released.UnresolvedOwner ?? "ruler_release");
+                        chosen = CapturedRulerDisposition.Release;
+                    }
+                    else
+                    {
+                        working = package.ApplyRulerCaptureExecutionCurrent(working, current, world.Pool,
+                            decision, sourceDate ?? throw Missing("ruler_execution_date"), effects);
+                        chosen = CapturedRulerDisposition.Execute;
+                    }
+                    AppendFeedback(effects);
+                    if (working.PersonDeathContinuation is not null) return Pause(index, null, chosen);
+                    continue;
+                }
                 var result = package.ApplyOrdinaryWinnerArmyCapture(working, current,
-                    current.ReadOwnedCurrentListPool() ?? throw Missing("current primary pool"), item.Person, winnerArmy, operationThirdDate);
+                    current.ReadOwnedCurrentListPool() ?? throw Missing("current primary pool"),
+                    item.Person, winnerArmy, operationThirdDate,
+                    allowLastCityRuler: branch.Branch == RulerCaptureBranch.LastCityRuler);
                 working = result.State ?? throw Missing(result.UnresolvedOwner ?? "2E0FC0 captured callback");
                 custody.Add(result.Receipt!);
             }
@@ -209,7 +285,7 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
             if (lastCity) working = package.ApplyLastCitySpecialPersonnelReturnCurrent(working, current,
                 current.ReadOwnedCurrentListPool() ?? throw Missing("special_recall_current_pool"),
                 target, oldForce, sourceDate, noncapturedFeedback);
-            TacticSourceSamplerWorld ReadSampler() => sampler ?? package.ReadArmyDestructionSampler(working, current)
+            TacticSourceSamplerWorld ReadSampler() => sourceSampler ?? package.ReadArmyDestructionSampler(working, current)
                 ?? throw Missing("last_City_World450_45C");
             var noncapturedNode = current.ReadRegistryHead(new(noncaptured.Identity)) ?? throw Missing("noncaptured head");
             while (noncapturedNode.Identity.HasValue)
@@ -247,13 +323,56 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
                     ?? throw Missing("last_City_feedback_owner")).Append(CampaignEffectSource.ArmyBattleDefeat,
                         working.NativeClock?.UpdateOrdinal ?? throw Missing("last_City_feedback_clock"), noncapturedFeedback) };
             var receipt = new BaseCapturePersonPrefixReceipt(link, oldForce, newForce, homeArmies.ToArray(), homes.ToArray(),
-                decisions.ToArray(), capturedNodes.Select(x => (int)K(current.ReadPersonIdentity(x.Person), "captured Person10")).ToArray(),
-                ReadPeople(current, special).Select(x => (int)K(current.ReadPersonIdentity(x.Person), "special Person10")).ToArray(),
+                decisions.ToArray(), capturedOrder, specialOrder,
                 noncapturedOrder, homeWrites.ToArray(), custody.ToArray(), captured, noncaptured, special, changedForce)
-                { HomeArmyCause4 = homeArmyCause4.ToArray() };
+                { HomeArmyCause4 = homeArmyCause4.ToArray(), HasCompleteDiagnosticHistory = restored is null };
             working = WithPool(working, current, borrowed);
             published = true;
             return new(working, receipt, current, null);
+
+            HexListHandle RestorePeople(ImmutableArray<int> identities)
+            {
+                var list = Temporary(current);
+                try
+                {
+                    foreach (int id in identities)
+                    {
+                        int person = K(current.ReadPersonLookupReference(id)?.PhysicalSlot, "resume_Person_lookup");
+                        if (!current.AppendPersonReturnTemporary(list, person))
+                            throw Missing("resume_Person_node_allocation");
+                    }
+                    return list;
+                }
+                catch { Release(current, list); throw; }
+            }
+            void AppendFeedback(List<CampaignEffectRequest> feedback)
+            {
+                if (feedback.Count == 0) return;
+                working = working with { CampaignEffectRequests = (working.CampaignEffectRequests
+                    ?? throw Missing("ruler_feedback_owner")).Append(CampaignEffectSource.ArmyBattleDefeat,
+                        working.NativeClock?.UpdateOrdinal ?? throw Missing("ruler_feedback_clock"), feedback) };
+            }
+            BaseCapturePersonPrefixResult Pause(int index, CapturedRulerTreatmentRequest? pending,
+                CapturedRulerDisposition? chosen)
+            {
+                var context = continuationContext ?? throw Missing("ruler_pause_operation_context");
+                if (sourceSampler is { } sample)
+                    context = context with { SampleDay = sample.Day450, SampleSalt = sample.Salt45C };
+                //No temporary handle crosses a save boundary. The ordered
+                //identities retain source list payloads, including aliases.
+                var people = new BaseCapturePeopleContinuation(homeArmies.ToImmutableArray(), homes.ToImmutableArray(),
+                    capturedOrder.ToImmutableArray(), specialOrder.ToImmutableArray(),
+                    pendingNoncapturedOrder.ToImmutableArray(), index);
+                working = working with { BaseCaptureContinuation = new(-1, context, people)
+                    { PendingCapturedRulerTreatment = pending, ChosenDisposition = chosen } };
+                if (changedForce is not null) { Release(current, changedForce); changedForce = null; }
+                if (special is not null) { Release(current, special); special = null; }
+                if (noncaptured is not null) { Release(current, noncaptured); noncaptured = null; }
+                if (captured is not null) { Release(current, captured); captured = null; }
+                working = WithPool(working, current, borrowed);
+                published = true;
+                return new(working, null, current, null);
+            }
         }
         catch (InvalidDataException error) { return new(null, null, null, error.Message); }
         finally

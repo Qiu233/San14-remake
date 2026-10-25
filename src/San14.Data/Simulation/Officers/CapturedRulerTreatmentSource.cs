@@ -17,7 +17,10 @@ public sealed partial class ArmyCampaignRuleAdapter
     internal CommandResult ConfirmCapturedRulerTreatment(GameState state,
         ConfirmCapturedRulerTreatmentOrder order, CommandContext context)
     {
-        if (state.ArmyDefeatContinuation is not { PendingCapturedRulerTreatment: { } request } continuation ||
+        var continuation = state.ArmyDefeatContinuation;
+        var occupation = state.BaseCaptureContinuation;
+        var request = continuation?.PendingCapturedRulerTreatment ?? occupation?.PendingCapturedRulerTreatment;
+        if (request is null ||
             request.OfficerId != order.OfficerId || request.CapturingForceId != order.ForceId ||
             !Enum.IsDefined(order.Disposition) || order.Disposition == CapturedRulerDisposition.Execute && !request.CanExecute ||
             state.PersonDeathContinuation is not null)
@@ -25,8 +28,20 @@ public sealed partial class ArmyCampaignRuleAdapter
         try
         {
             var lifecycle = state.ReadArmyLifecycle() ?? throw RulerTreatmentMissing("lifecycle");
-            if (lifecycle.Slots[continuation.ArmyPhysicalSlot].ReceiverId != continuation.ReceiverId)
-                return CommandResult.Reject("This defeated army receiver has changed.", "ruler.treatment_receiver");
+            if (continuation is not null)
+            {
+                if (lifecycle.Slots[continuation.ArmyPhysicalSlot].ReceiverId != continuation.ReceiverId)
+                    return CommandResult.Reject("This defeated army receiver has changed.", "ruler.treatment_receiver");
+            }
+            else if (occupation is not null)
+            {
+                var operation = occupation.Operation;
+                var receiver = lifecycle.Receivers.Find(lifecycle.Slots[operation.WinnerArmyPhysicalSlot].ReceiverId);
+                if (lifecycle.Slots[operation.WinnerArmyPhysicalSlot].ReceiverId != operation.WinnerReceiverId ||
+                    receiver?.ActiveUnitId != operation.Request.WinnerUnitId)
+                    return CommandResult.Reject("This occupying army receiver has changed.", "ruler.treatment_receiver");
+            }
+            else throw RulerTreatmentMissing("decision_operation");
             var world = CaptureOwnedArmyReturnWorld(state);
             var current = world.Context;
             int player = OwnedCurrentPlayerForce.ReadCurrentReference(state, current)?.PhysicalSlot
@@ -43,15 +58,22 @@ public sealed partial class ArmyCampaignRuleAdapter
                 return CommandResult.Reject("This ruler cannot be executed.", "ruler.treatment_execute_forbidden");
             int rulerPhysical = current.ReadPersonLookupReference(request.CapturingRulerId)?.PhysicalSlot
                 ?? throw RulerTreatmentMissing("capturing_ruler_pointer");
+            //An occupying Base can contain a ruler of another Force. The
+            //person's actual pre-decision Force owns release/execution effects.
+            int priorForce = continuation?.VictimForceId ?? current.ReadPersonForce(person)?.PhysicalSlot
+                ?? throw RulerTreatmentMissing("captured_ruler_original_Force");
             var decision = new RulerCaptureDecisionResult(order.Disposition == CapturedRulerDisposition.Execute
                 ? RulerCaptureDecision.ExecuteRequired : RulerCaptureDecision.Release,
-                new(person, (ushort)request.OfficerId, request.CapturingForceId, continuation.VictimForceId,
+                new(person, (ushort)request.OfficerId, request.CapturingForceId, priorForce,
                     rulerPhysical, (ushort)request.CapturingRulerId, null, null, null, 0, "player_806D00"), null);
             var date = state.NativePeriodContinuation?.Cursor?.Date
                 ?? throw RulerTreatmentMissing("stage25_source_date");
             var effects = new List<CampaignEffectRequest>();
-            var working = state with { ArmyDefeatContinuation = continuation with
-                { PendingCapturedRulerTreatment = null, ChosenDisposition = order.Disposition } };
+            var working = continuation is not null
+                ? state with { ArmyDefeatContinuation = continuation with
+                    { PendingCapturedRulerTreatment = null, ChosenDisposition = order.Disposition } }
+                : state with { BaseCaptureContinuation = occupation! with
+                    { PendingCapturedRulerTreatment = null, ChosenDisposition = order.Disposition } };
             if (order.Disposition == CapturedRulerDisposition.Execute)
                 working = ApplyRulerCaptureExecutionCurrent(working, current, world.Pool, decision, date, effects);
             else

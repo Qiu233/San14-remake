@@ -90,6 +90,21 @@ public sealed partial class TacticRemakeCurrentContext
         var source = _definitions.ReadArmyUnitTableReference(sourceSlot);
         if (source is null) return null;
         int sourceForce = _definitions.ReadArmyUnitRawForceSlot(source);
+        return ResolveAutomaticInstructionHexTargets(state, sourceForce, row, instruction,
+            sourceDescriptorHex, primaryDescriptorHex);
+    }
+
+    //16BF20 receives real source/primary Hexes. Its receiver filtering uses
+    //the source Force, independent of whether the actor is an Army or Base.
+    internal TacticInstructionHexTargetsSource? ResolveAutomaticInstructionHexTargets(
+        GameState state, int sourceForce, TacticSourceRow row,
+        S14TacticEffectInstruction instruction, int sourceDescriptorHex, int primaryDescriptorHex)
+    {
+        if (!Bound(state) || instruction.Opcode > 23) return null;
+        int opcode = instruction.Opcode;
+        if (opcode == 0) return new(instruction.Index, []);
+        bool primaryCentered = opcode is 1 or 2 or 3 or 4 or 10 or 11 or 12 or 13 or 14 or 16 or 17 or 18 or 22 or 23;
+        if (sourceDescriptorHex is < 0 or >= 48400 || primaryDescriptorHex is < 0 or >= 48400) return null;
         if (opcode == 17)
         {
             var primaryHex = _definitions.ReadHexTableReference(primaryDescriptorHex);

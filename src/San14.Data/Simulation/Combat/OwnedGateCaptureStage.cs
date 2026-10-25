@@ -38,38 +38,56 @@ public sealed class OwnedGateCaptureStage(ArmyCampaignRuleAdapter package)
         {
             if (request.Target.Kind != SettlementBaseKind.Gate || request.WinnerUnitId is not int winnerId)
                 throw Missing("branch.ordinary_Gate_settlement");
+            var resumed = input.BaseCaptureContinuation;
+            if (resumed is not null && resumed.Operation.Request != request)
+                throw Missing("resume_capture_request");
+            var saved = resumed?.Operation;
+            if (saved is { SampleDay: int sampleDay, SampleSalt: int sampleSalt })
+                sampler = new(sampleDay, sampleSalt);
             var current = borrowedCurrent ?? package.CaptureOwnedArmyReturnWorld(input).Context;
             groups ??= package.CreateCaptureMapGroupingOwner();
             var target = ArmyDestructionQueue.ResolveBaseReference(input, current, request.Target);
-            int winnerSlot = ArmyDestructionQueue.ResolveUnitSlot(input, winnerId) ?? throw Missing("winner_entity_mapping");
+            int winnerSlot = saved?.WinnerArmyPhysicalSlot ?? ArmyDestructionQueue.ResolveUnitSlot(input, winnerId)
+                ?? throw Missing("winner_entity_mapping");
             var winner = new ArmyUnitReference(winnerSlot);
-            if (!K(current.ReadBaseNativeValidity(target), "Gate_validity") || !K(current.ReadArmyUnitNativeValidity(winner), "winner_validity"))
+            if (saved is null && !K(current.ReadBaseNativeValidity(target), "Gate_validity") ||
+                !K(current.ReadArmyUnitNativeValidity(winner), "winner_validity"))
                 throw Missing("branch.invalid_Gate_or_winner");
             int location = K(current.ReadBaseObjectLink(target), "Gate4E");
-            int oldForce = K(current.ReadBaseForceSlot(target), "Gate_B0");
-            int commanderId = K(current.ReadArmyUnitCommanderId(winner), "winner12");
+            int oldForce = saved?.PreviousForceId ?? K(current.ReadBaseForceSlot(target), "Gate_B0");
+            int commanderId = saved?.CommanderOfficerId ?? K(current.ReadArmyUnitCommanderId(winner), "winner12");
             int commander = K(current.ReadPersonLookupReference(commanderId <= 6000 ? commanderId : 0)?.PhysicalSlot, "Commander_pointer");
             if (!K(current.ReadPersonNativeValidity(commander), "Commander_validity")) throw Missing("branch.invalid_Commander");
             byte rawDistrict = K(current.ReadPersonDistrictSlot(commander), "Commander118");
-            var district = current.ReadDistrictTableReference(rawDistrict <= 51 ? rawDistrict : 0) ?? throw Missing("current_22BB10_District");
+            var district = current.ReadDistrictTableReference(saved?.WinnerDistrictId ?? (rawDistrict <= 51 ? rawDistrict : 0)) ?? throw Missing("current_22BB10_District");
             if (!K(current.ReadDistrictNativeValidity(district), "winner_District_validity")) throw Missing("branch.invalid_winner_District");
             int newDistrict = K(district.PhysicalSlot, "winner_District_pointer");
-            int newForce = K(current.ReadDistrictForceSlot(district), "winner_District10");
+            int newForce = saved?.WinnerForceId ?? K(current.ReadDistrictForceSlot(district), "winner_District10");
             var arena = input.ReadArmyLifecycle() ?? throw Missing("winner_arena");
             var winnerReceiver = arena.Receivers.Find(arena.Slots[winnerSlot].ReceiverId)
                 ?? throw Missing("winner_receiver");
             int unitId = K(winnerReceiver.ActiveUnitId, "winner_projection");
-            if (oldForce == newForce)
+            if (saved is not null && (saved.WinnerReceiverId != arena.Slots[winnerSlot].ReceiverId || unitId != winnerId))
+                throw Missing("resume_winner_receiver");
+            if (saved is null && oldForce == newForce)
                 return new(input, new(location, oldForce, newForce, unitId, commanderId, null, null, null, [], true), null);
             if (oldForce is < 1 or > 45 || newForce is < 1 or > 45) throw Missing("branch.nonordinary_Force");
             var winningForce = current.ReadForceTableReference(newForce) ?? throw Missing("winner_Force_pointer");
             var effects = new List<string>(); var working = input;
-            var initial = BaseCaptureRewardSource.ApplyInitialForceResult(working, current, winningForce, target);
-            working = initial.State ?? throw Missing(initial.UnresolvedOwner ?? "257670_Base_result");
-            effects.Add("2851B0.257670_Base_kind6");
-            var persons = new BaseCapturePersonPrefix(package).TryApplyCurrent(working, current, target, winner, operationThirdDate, sampler);
+            if (saved is null)
+            {
+                var initial = BaseCaptureRewardSource.ApplyInitialForceResult(working, current, winningForce, target);
+                working = initial.State ?? throw Missing(initial.UnresolvedOwner ?? "257670_Base_result");
+                effects.Add("2851B0.257670_Base_kind6");
+            }
+            var captureContext = saved ?? new BaseCaptureOperationContext(request, oldForce, newForce,
+                newDistrict, commanderId, winnerSlot, arena.Slots[winnerSlot].ReceiverId,
+                input.Units[unitId].Troops, sampler?.Day450, sampler?.Salt45C);
+            var persons = new BaseCapturePersonPrefix(package).TryApplyCurrent(working, current, target, winner, operationThirdDate, sampler, captureContext);
             working = persons.State ?? throw Missing(persons.UnresolvedOwner ?? "2851B0_person_prefix");
-            current = persons.Current!; var prefix = persons.Receipt!;
+            current = persons.Current!;
+            if (working.BaseCaptureContinuation is not null) return new(working, null, null);
+            var prefix = persons.Receipt ?? throw Missing("completed_person_prefix");
             effects.Add("2851B0.current_HomeArmy_and_Person_prefix");
             var commanderReward = package.ApplyBaseCaptureCommanderRewardCurrent(working, current, target, winner);
             working = commanderReward.State ?? throw Missing(commanderReward.UnresolvedOwner ?? "winner_reward");
@@ -143,7 +161,7 @@ public sealed class OwnedGateCaptureStage(ArmyCampaignRuleAdapter package)
             working = BaseCapturePublicationSource.Publish(working, current, current.ReadOwnedCurrentListPool()!);
             effects.Add("2851B0.Force164_and_release_temporaries");
             return new(working, new(location, oldForce, newForce, unitId, commanderId, prefix, resources, tail.Receipt, effects)
-                { ReturnedTroops = input.Units[unitId].Troops }, null);
+                { ReturnedTroops = captureContext.ReturnedTroops }, null);
         }
         catch (InvalidDataException error) { return new(null, null, error.Message); }
     }

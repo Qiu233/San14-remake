@@ -63,7 +63,8 @@ public sealed class RulerDecisionOrders(IOrderRules next, INormalPeriodCapturedR
         }
         if (order is not ConfirmCapturedRulerTreatmentOrder treatment) return next.Apply(state, force, order, context);
         if (context.DelegatedDistrictId is not null || state.PersonDeathContinuation is not null ||
-            state.ArmyDefeatContinuation?.PendingCapturedRulerTreatment is not { } captured ||
+            (state.ArmyDefeatContinuation?.PendingCapturedRulerTreatment ??
+                state.BaseCaptureContinuation?.PendingCapturedRulerTreatment) is not { } captured ||
             captured.CapturingForceId != force.Id || captured.OfficerId != treatment.OfficerId ||
             !Enum.IsDefined(treatment.Disposition) || treatment.Disposition == CapturedRulerDisposition.Execute && !captured.CanExecute)
             return CommandResult.Reject("This captive ruler is not awaiting this decision.", "ruler.treatment_pending");
@@ -84,6 +85,7 @@ internal static class RulerDecisionContinuationValidation
     {
         NormalCombatImmediateContinuationValidation.Validate(state);
         DuelAftermathContinuationValidation.Validate(state);
+        BaseCaptureContinuationValidation.Validate(state);
         if (state.ArmyDefeatContinuation is { } defeat)
         {
             bool immediate = state.NativePeriodContinuation?.Cursor is { StageIndex: 13 } &&

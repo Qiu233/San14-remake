@@ -288,6 +288,7 @@ public sealed record CampaignEffectRequest(CombatSpeechRequest? Speech, Campaign
     public PersonLifespanNotificationRequest? PersonLifespanNotification { get; init; }
     public CampaignHistoryNotification? HistoryNotification { get; init; }
     public MapMusicIntent? MapMusicIntent { get; init; }
+    public BaseAbnormalFeedbackRequest? BaseAbnormalFeedback { get; init; }
     public ApplicationExitRequest? ApplicationExit { get; init; }
     public PersonDeathReportRequest? PersonDeathReport { get; init; }
     public PersonAppearanceRequest? PersonAppearance { get; init; }
@@ -372,6 +373,7 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                     (request.ForcePolicyLevelUp is null ? 0 : 1) +
                     (request.PersonDeathReport is null ? 0 : 1) +
                     (request.MapMusicIntent is null ? 0 : 1) +
+                    (request.BaseAbnormalFeedback is null ? 0 : 1) +
                     (request.ApplicationExit is null ? 0 : 1) +
                     (request.HistoryNotification is null ? 0 : 1) +
                     (request.PersonLifespanNotification is null ? 0 : 1) +
@@ -487,6 +489,11 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                      !Enum.IsDefined(exit.Operation)))
                     throw new InvalidDataException("Invalid reached application exit operation.");
                 ValidatePersonDeath(batch.Source, request);
+                if (request.BaseAbnormalFeedback is { } baseAbnormal &&
+                    (batch.Source != CampaignEffectSource.NormalCombatApplication ||
+                     baseAbnormal.BaseLocationId is < 1 or > 61 || baseAbnormal.OfficerId is < 0 or > 6000 ||
+                     baseAbnormal.HexId is < 0 or > 48400 || baseAbnormal.Action is not (15 or 16)))
+                    throw new InvalidDataException("Invalid unconsumed Base abnormal feedback.");
                 if (request.ForceCoalitionVisual is { } coalitionVisual &&
                     (batch.Source is not (CampaignEffectSource.MonthlyMaintenance or CampaignEffectSource.StrategicCommands or CampaignEffectSource.ArmyBattleDefeat) || !Enum.IsDefined(coalitionVisual.Operation) ||
                      batch.Source == CampaignEffectSource.ArmyBattleDefeat &&

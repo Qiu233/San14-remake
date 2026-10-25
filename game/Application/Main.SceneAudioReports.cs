@@ -21,6 +21,11 @@ public partial class Main
     {
         if (_sceneAudioBinding is { } binding)
         {
+            if (_collectionCatalog?.HasPoemEvent == true)
+            {
+                binding.BeginPoemEvent(_ui.SourceLocale, _preferences.MusicSelection);
+                UpdateSceneAudioStatus(); return;
+            }
             if (_collectionMusic is not null)
             {
                 binding.BeginCollectionMusic(_ui.SourceLocale, _preferences.MusicSelection);

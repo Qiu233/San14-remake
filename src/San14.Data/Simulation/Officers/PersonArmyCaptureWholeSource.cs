@@ -13,7 +13,7 @@ public sealed record PersonArmyCaptureWholeResult(GameState? State,
     PersonArmyCaptureWholeReceipt? Receipt, string? UnresolvedOwner);
 
 /// <summary>2E0FC0's ordinary employed status2/3/4 capture into a valid winner
-/// Army. Runs the actual job/department/primary-District callbacks before
+/// Army, or the explicitly admitted single-City ruler. Runs the actual callbacks before
 /// status6 and custody writes. The caller owns this private current world;
 /// unknown discards the entire enclosing Army operation.</summary>
 public static class PersonArmyCaptureWholeSource
@@ -22,24 +22,36 @@ public static class PersonArmyCaptureWholeSource
         SourceWorldContext current, WorldIndexContext pool,
         OwnedArmyGovernorComparatorInputs governorInputs, int personPhysical,
         ArmyUnitReference winnerArmy, CaptureApplicationOwners presentation,
-        ArmyCampaignRuleAdapter? package = null, NativeMapSeasonDate? operationDate = null)
+        ArmyCampaignRuleAdapter? package = null, NativeMapSeasonDate? operationDate = null,
+        bool allowLastCityRuler = false)
     {
         try
         {
             if (Known(presentation.TaskScenePresent, "current.capture_original_TaskScene"))
                 throw Missing("branch.original_TaskScene_capture_presentation");
-            if (!Known(current.ReadPersonNativeValidity(personPhysical), "current.capture_Person_validity") ||
-                Known(current.ReadPersonStatus(personPhysical), "current.capture_PersonE6") is not (2 or 3 or 4) ||
+            if (!Known(current.ReadPersonNativeValidity(personPhysical), "current.capture_Person_validity"))
+                throw Missing("branch.invalid_capture_Person");
+            byte status = Known(current.ReadPersonStatus(personPhysical), "current.capture_PersonE6");
+            if (status is not (1 or 2 or 3 or 4) ||
                 !Known(OfficerBehaviorRules.UsesOrdinaryPersonRules(current.ReadPersonBehavior(personPhysical)), "current.capture_Person15E"))
                 throw Missing("branch.ordinary_status2_or3_or4_capture_prefix");
             if (!Known(current.ReadArmyUnitNativeValidity(winnerArmy), "current.capture_winner_Army_validity"))
                 throw Missing("branch.capture_nonvalid_winner_Army");
+            bool lastCityRuler = status == 1;
+            if (lastCityRuler && (!allowLastCityRuler ||
+                !PersonRulerCaptureBranchSource.IsLastCityRulerCurrent(current, personPhysical)))
+                throw Missing("branch.ruler_requires_2F86F0_disposition");
             ushort id = Known(current.ReadPersonIdentity(personPhysical), "current.capture_Person10");
             var originalForce = current.ReadPersonForce(personPhysical) ?? throw Missing("current.capture_saved_Force");
             byte rawDistrict = Known(current.ReadPersonDistrictSlot(personPhysical), "current.capture_saved_DistrictE0");
             var originalDistrict = current.ReadDistrictTableReference(rawDistrict < 52 ? rawDistrict : 0)
                 ?? throw Missing("current.capture_saved_District_pointer");
             var effects = new List<string>();
+            if (lastCityRuler)
+            {
+                state = PersonRulerCaptureBranchSource.WriteLastCityRulerTargetCurrent(state, current, personPhysical);
+                effects.Add("2E1543.last_City_ruler_Person162_self_identity");
+            }
             var associationEffects = new List<CampaignEffectRequest>();
             var changedGates = new HashSet<int>();
             var districtQueries = new ArmyReturnDistrictOperationQueries(new GovernorQueries(() => state, governorInputs),
@@ -124,7 +136,7 @@ public static class PersonArmyCaptureWholeSource
             effects.Add("2E15A5.2E9140_saved_original_District");
             state = OwnedArmyReturnCurrentFields.PublishCurrent(state, current);
 
-            var begin = PersonArmyCaptureCustodySource.BeginContext(state, current, personPhysical);
+            var begin = PersonArmyCaptureCustodySource.BeginContext(state, current, personPhysical, allowLastCityRuler: lastCityRuler);
             state = begin.State ?? throw Missing(begin.UnresolvedOwner ?? "current.capture_status6");
             if (begin.Receipt!.RequiresDistrictLeaderRepair)
             {
@@ -169,6 +181,6 @@ public sealed partial class ArmyCampaignRuleAdapter
 {
     internal PersonArmyCaptureWholeResult ApplyOrdinaryWinnerArmyCapture(GameState state,
         SourceWorldContext current, WorldIndexContext pool, int personPhysical,
-        ArmyUnitReference winnerArmy, NativeMapSeasonDate? operationDate = null) => PersonArmyCaptureWholeSource.ApplyOrdinaryWinnerArmy(
-            state, current, pool, _governorInputs, personPhysical, winnerArmy, new(false), this, operationDate);
+        ArmyUnitReference winnerArmy, NativeMapSeasonDate? operationDate = null, bool allowLastCityRuler = false) => PersonArmyCaptureWholeSource.ApplyOrdinaryWinnerArmy(
+            state, current, pool, _governorInputs, personPhysical, winnerArmy, new(false), this, operationDate, allowLastCityRuler);
 }

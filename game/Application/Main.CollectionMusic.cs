@@ -7,7 +7,7 @@ public partial class Main
 
     private void OpenCollectionMusic()
     {
-        if (_repository is null || _collectionMenu is not { } parent || _collectionMusic is not null) return;
+        if (_repository is null || _collectionMenu is not { } parent || HasCollectionChild) return;
         var catalog = MusicEditCatalog.Load(_repository, _ui.SourceLocale);
         var view = new MusicSelectionView(); _collectionMusic = view; AddChild(view); parent.Hide();
         try

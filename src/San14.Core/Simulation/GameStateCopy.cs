@@ -41,6 +41,7 @@ public static class GameStateCopy
         PersonnelHire = value.PersonnelHire,
         // Decision continuations contain immutable operands and immutable candidate lists.
         ArmyDefeatContinuation = value.ArmyDefeatContinuation,
+        BaseCaptureContinuation = value.BaseCaptureContinuation,
         //All descriptors and both ordered collections are immutable snapshots.
         // Retained combat descriptors, automatic instruction vectors and all
         // accumulated report/presentation leaves are immutable and shared.

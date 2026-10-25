@@ -1,7 +1,7 @@
 using Godot;
 using San14.Data;
 
-internal sealed record MapInformationListColumn(string Key, string Caption, int Width);
+internal sealed record MapInformationListColumn(string Key, string Caption, int Width, bool CanSort = true);
 internal sealed record MapInformationListRow(int SourceIndex, IReadOnlyList<string> Cells, bool CanInspect);
 
 /// <summary>A retained publication with fourteen reusable visible rows.
@@ -28,13 +28,18 @@ internal partial class MapInformationListView : Control
     private UiSourceHeader header = null!;
     private bool abandoned;
     private int? selectedIndex;
+    internal Control SourceCanvas => canvas;
+    internal UiAssets SourceAssets => assets;
+    internal MapFont SourceFont => font;
+    internal Shader SourceShader => shader;
 
     internal void Configure(GameResourceRepository repository, PreviewText text, string title,
         IReadOnlyList<MapInformationListColumn> columns, IReadOnlyList<MapInformationListRow> publication,
         Func<bool> admitted, Action returned, Action<int> inspect, Func<int> scrollSpeed,
         Func<string, bool, IReadOnlyList<MapInformationListRow>>? sort = null, string? notice = null,
         IReadOnlyList<string>? tabCaptions = null, int selectedTab = 0, Action<int>? selectTab = null,
-        bool includeHeader = true)
+        bool includeHeader = true, bool completeColumnProfile = false, bool normalColumnLayout = false,
+        bool narrowTable = false, int returnNode = 1)
     {
         this.admitted = admitted; this.returned = returned; this.inspect = inspect; orderedRows = publication;
         Name = "InformationList"; MouseFilter = MouseFilterEnum.Stop;
@@ -60,7 +65,7 @@ internal partial class MapInformationListView : Control
                     Position = tabPosition, Size = new(width, 64), InputAdmission = ReadAdmission };
                 canvas.AddChild(tab);
                 tab.Configure(repository, assets, shader, font, tabCaptions[index],
-                    index == 0 ? 0x172EDC24u : 0xD45873AAu);
+                    tabCaptions.Count == 1 ? 0x9AFB27B7u : index == 0 ? 0x172EDC24u : 0xD45873AAu);
                 tab.Selected = index == selectedTab;
                 tab.Pressed += () => { if (ReadAdmission()) selectTab?.Invoke(tabIndex); };
                 tabPosition.X += width - 6;
@@ -79,6 +84,7 @@ internal partial class MapInformationListView : Control
             viewport.Position = source.Rectangle(14, new(191, 147)).Position;
             viewport.Size = new(1464, 648);
         }
+        if (narrowTable) viewport.Size = new(totalWidth, viewport.Size.Y);
         canvas.AddChild(viewport);
         var table = new Control { Name = "InformationTable", CustomMinimumSize = new(totalWidth, 668),
             MouseFilter = MouseFilterEnum.Pass };
@@ -87,13 +93,14 @@ internal partial class MapInformationListView : Control
         foreach (var column in columns)
         {
             var heading = new UiSourceColumnButton { Position = new(left, 0), Size = new(column.Width, 48),
-                InputAdmission = ReadAdmission, Disabled = sort is null };
+                InputAdmission = ReadAdmission, Disabled = sort is null || !column.CanSort };
             table.AddChild(heading);
-            heading.Configure(repository, assets, shader, font, column.Caption, personList: true);
+            heading.Configure(repository, assets, shader, font, column.Caption, personList: true,
+                normalLayout: normalColumnLayout);
             columnButtons.Add((column.Key, heading));
             heading.Pressed += () =>
             {
-                if (!ReadAdmission() || sort is null) return;
+                if (!ReadAdmission() || sort is null || !column.CanSort) return;
                 ascending = sortedColumn == column.Key ? !ascending : true; sortedColumn = column.Key;
                 orderedRows = sort(column.Key, ascending); PositionRows();
                 foreach (var entry in columnButtons)
@@ -115,6 +122,7 @@ internal partial class MapInformationListView : Control
             Rect2 box = source.Rectangle(32, new(191, 147));
             scrollbar.Position = box.Position; scrollbar.Size = box.Size;
         }
+        if (narrowTable) scrollbar.Position = new(191 + totalWidth + 26, scrollbar.Position.Y);
         canvas.AddChild(scrollbar);
         scrollbar.Configure(repository, assets, shader, Math.Max(0, publication.Count * 48 - (int)rows.Size.Y),
             scrollSpeed(), _ => PositionRows(), currentScrollSpeed: scrollSpeed);
@@ -143,7 +151,7 @@ internal partial class MapInformationListView : Control
         }
         var footer = new UiSourceLayout(repository, 0xD8913AB2);
         var back = new UiSourceRoundButton { Name = "InformationListReturn",
-            Position = footer.Rectangle(1, new(0, 904)).Position, InputAdmission = ReadAdmission };
+            Position = footer.Rectangle(returnNode, new(0, 904)).Position, InputAdmission = ReadAdmission };
         canvas.AddChild(back);
         back.Configure(repository, assets, shader, text.SourceLocale, "000_cmn_txt_decision_modoru", RequestBack, UiAudioCue.Cancel);
         if (notice is not null)
@@ -153,11 +161,25 @@ internal partial class MapInformationListView : Control
                 help.Art(canvas, node.Index, help.Rectangle(node.Index, mount), assets, shader);
             help.Text(canvas, textNode.Index, mount, notice, font);
         }
-        SetMeta("original_complete_column_profile", false);
+        SetMeta("original_complete_column_profile", completeColumnProfile);
         Resized += Fit; Fit(); PositionRows();
     }
 
     internal void RegisterHeader(UiSourceHeaderStack stack) => header?.Publish(stack);
+    internal void SelectSourceIndex(int index)
+    {
+        selectedIndex = index;
+        for (int row = 0; row < orderedRows.Count; row++)
+        {
+            if (orderedRows[row].SourceIndex != index) continue;
+            int top = row * 48;
+            if (top < scrollbar.Value) scrollbar.SetValue(top);
+            else if (top + 48 > scrollbar.Value + rows.Size.Y)
+                scrollbar.SetValue(top + 48 - (int)rows.Size.Y);
+            break;
+        }
+        PositionRows();
+    }
     private bool ReadAdmission() => !abandoned && IsVisibleInTree() && (admitted?.Invoke() ?? false);
     internal void RequestBack() { if (ReadAdmission()) returned?.Invoke(); }
     private void PositionRows()

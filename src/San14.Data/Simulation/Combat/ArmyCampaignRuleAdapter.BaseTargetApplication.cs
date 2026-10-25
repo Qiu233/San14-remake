@@ -12,7 +12,8 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// complete transaction rollback.</summary>
     internal BaseTargetApplicationResult ApplyFireDamageBaseTarget(GameState state, SourceWorldContext current,
         BaseKind targetKind, int nativeTargetIdentity, int requestedLoss,
-        Func<TacticSourceSamplerWorld> currentSampler)
+        Func<TacticSourceSamplerWorld> currentSampler,
+        Func<GameState, BaseReference, GameState>? applyFatal = null, bool sourcePresent = false)
     {
         int lookup = targetKind switch
         {
@@ -119,9 +120,12 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         int finalForce = Known(current.ReadBaseForceSlot(target), "fire_Base_fresh_virtualB0");
         int finalTroops = Known(current.ReadBaseResource(target, BaseResourceKind.Troops), "fire_Base_final3C");
-        if (finalTroops <= 0 && finalForce != 0) throw Missing("base_null_actor_fatal1745B0");
-        return new(PublishCurrentBaseCombatQuantities(state, current, target,
-            troopsWritten, woundedWritten, moraleWritten), target, false);
+        bool fatal = finalTroops <= 0 && (finalForce != 0 || sourcePresent);
+        var working = PublishCurrentBaseCombatQuantities(state, current, target,
+            troopsWritten, woundedWritten, moraleWritten);
+        if (fatal)
+            return new((applyFatal ?? throw Missing("base_null_actor_fatal1745B0"))(working, target), target, true);
+        return new(working, target, false);
 
         int Parameter(string key) => NormalArmyCombatApplicationSourceMath.ReadCurrentParameter(state, _normalApplicationSeed, key);
         bool WoundedGate()

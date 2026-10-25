@@ -6,7 +6,7 @@ using San14.Data;
 /// Canvas screen copies do not preserve the destination alpha channel.</summary>
 internal partial class UiSourceSprite : Control, IUiSourceDrawing
 {
-    internal enum Blend { Ordinary, ClippedButton, ThreeTexturePortrait, TwoTexturePortrait, SourceAlphaDestinationAlpha, GaugeUvMask, Additive, AlphaMask, UniqueRulerPortrait, TranslatedAlphaMask }
+    internal enum Blend { Ordinary, ClippedButton, ThreeTexturePortrait, TwoTexturePortrait, SourceAlphaDestinationAlpha, GaugeUvMask, Additive, AlphaMask, UniqueRulerPortrait, TranslatedAlphaMask, PoemScroll }
     private Rid _copy, _draw;
     private ShaderMaterial? _material;
     private Texture2D? _texture;
@@ -51,6 +51,20 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
     {
         _material!.SetShaderParameter("mask_uv_offset",offset);
         QueueRedraw();
+    }
+
+    internal void SetMaskAlphas(float glyph, float clip)
+    {
+        _material!.SetShaderParameter("mask_alpha", glyph);
+        _material.SetShaderParameter("second_mask_alpha", clip);
+    }
+
+    internal void SetMaskRectangles(Rect2 glyph, Rect2 clip)
+    {
+        _material!.SetShaderParameter("mask_rectangle", new Vector4(glyph.Position.X,
+            glyph.Position.Y, glyph.Size.X, glyph.Size.Y));
+        _material.SetShaderParameter("second_mask_rectangle", new Vector4(clip.Position.X,
+            clip.Position.Y, clip.Size.X, clip.Size.Y));
     }
 
     internal void SetSamplingRectangle(Rect2 rectangle)
@@ -178,6 +192,8 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
         uniform vec4 mask_uv = vec4(0.0, 0.0, 1.0, 1.0);
         uniform vec4 mask_rectangle;
         uniform vec2 mask_uv_offset = vec2(0.0);
+        uniform float mask_alpha = 1.0;
+        uniform float second_mask_alpha = 1.0;
         uniform vec4 second_mask_uv;
         uniform vec4 second_mask_rectangle;
         uniform bool has_second_mask = false;
@@ -202,7 +218,19 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
             vec4 dst = texture(screen_texture, SCREEN_UV);
             vec3 rgb = decode_srgb(dst.rgb);
             float alpha;
-            if (blend_kind == 7) {
+            if (blend_kind == 10) {
+                // The poem scroll's 00011000 / 00018000 / 00098800
+                // sequence, contracted locally because screen copies do not
+                // retain the two intervening destination-alpha writes.
+                vec2 cp = (local_position - second_mask_rectangle.xy) / second_mask_rectangle.zw;
+                vec2 gp = (local_position - mask_rectangle.xy) / mask_rectangle.zw;
+                float clip = texture(second_mask_image, second_mask_uv.xy + cp * second_mask_uv.zw).a * second_mask_alpha;
+                clip = floor(clamp(clip, 0.0, 1.0) * 255.0 + 0.5) / 255.0;
+                float prepared = texture(mask_image, mask_uv.xy + gp * mask_uv.zw).a * mask_alpha * clip;
+                prepared = floor(clamp(prepared, 0.0, 1.0) * 255.0 + 0.5) / 255.0;
+                rgb = src.rgb * prepared + rgb * (1.0 - prepared);
+                alpha = src.a * prepared;
+            } else if (blend_kind == 7) {
                 // Source nine-slice 00011000: RGB ZERO/ONE, A ONE/ZERO.
                 alpha = src.a;
             } else if (blend_kind == 1) {

@@ -17,7 +17,10 @@ public sealed record UnitDefeatRequest(int VictimUnitId, int? WinnerUnitId,
     public UnitDefeatCause Cause { get; init; }
 }
 public sealed record BaseCaptureRequest(SettlementBase Target, int? WinnerUnitId)
-    : CombatSettlementRequest;
+    : CombatSettlementRequest
+{
+    public int? WinnerDistrictId { get; init; }
+}
 // Old saves can contain a request whose receiver has already been retired.
 // Keep its place until settlement, without attaching it to a reused entity.
 public sealed record ExpiredCombatSettlement : CombatSettlementRequest;

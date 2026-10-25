@@ -33,7 +33,7 @@ public static class PersonArmyCaptureCustodySource
     /// byte168=0. Only the caller's operation-local context is changed; the
     /// returned state is an intermediate publication image for that operation.</summary>
     public static PersonArmyCaptureStatusResult BeginContext(GameState state,
-        SourceWorldContext current, int personPhysical)
+        SourceWorldContext current, int personPhysical, bool allowLastCityRuler = false)
     {
         try
         {
@@ -43,8 +43,8 @@ public static class PersonArmyCaptureCustodySource
             bool ordinaryPerson = Known(OfficerBehaviorRules.UsesOrdinaryPersonRules(current.ReadPersonBehavior(personPhysical)), "current.Person_flags15E");
             if (!ordinaryPerson) throw Missing("branch.appendix_265250_or_status5_prefix");
             byte status = Known(current.ReadPersonStatus(personPhysical), "current.Person_E6_after_prefix_callbacks");
-            if (status == 1) throw Missing("branch.ruler_2F86F0_or_single_city_at_home_prefix");
-            if (status is not (2 or 3 or 4)) throw Missing("branch.capture_prefix_requires_current_status2_or3_or4");
+            if (status == 1 && !allowLastCityRuler) throw Missing("branch.ruler_2F86F0_or_single_city_at_home_prefix");
+            if (status is not (1 or 2 or 3 or 4)) throw Missing("branch.capture_prefix_requires_current_status2_or3_or4");
             var auxiliaries = current.ReadOfficerAftermath(personPhysical)
                 ?? throw Missing("current.Person_destruction_auxiliary_owner");
             if (!state.OfficerOffices.ContainsKey(73)) throw Missing("current.Office73_projection");

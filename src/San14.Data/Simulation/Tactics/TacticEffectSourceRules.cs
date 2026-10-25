@@ -278,6 +278,52 @@ public sealed class TacticEffectSourceRules : ITacticRuleSource, IPlayableTactic
         TacticEffectQueryResult<TacticAbnormalStrengthSourceInput>? qualifiedAbnormalStrength = null) =>
         ResolveInstruction(state, caster, target, source, instruction, qualifiedAbnormalStrength);
 
+    //1782F0 reads/writes only its actual Army recipient. The source actor is
+    //not an operand; Base actors supply the same target-only marker callback.
+    internal TacticTargetResolution? ResolveCapturedArmyClearTarget(GameState state, UnitState target,
+        Func<GameState, UnitState, ulong?> finish, Func<IReadOnlyList<int>?>? readLegacyBounds = null)
+    {
+        UnitState current = target;
+        GameState staged = state;
+        NativeTacticAbnormalAssignment? clear = null;
+        if (current.NativeTacticRuntime is { } native)
+        {
+            //1780CF resets the former positive25 owner before its three
+            //fresh cap reads, then writes each counter before the next read.
+            ArmyOverrideTargetState? ownerWrite = native.Abnormal25 > 0 ? ArmyOverrideTargetState.Cleared : null;
+            native = native with { ProvocationOwner = native.Abnormal25 > 0 ? null : native.ProvocationOwner };
+            current = ArmyOverrideTargetWrites.Apply(current with { NativeTacticRuntime = native }, ownerWrite);
+            staged = Stage(staged, current);
+            for (int index = 0; index < 3; index++)
+            {
+                int? bound = _context.ReadCurrentArmyAbnormalUpperBound(staged, current, index);
+                if (bound is null) return null;
+                byte value = bound < 0 ? unchecked((byte)bound.Value) : (byte)0;
+                native = index switch { 0 => native with { Abnormal23 = value },
+                    1 => native with { Abnormal24 = value }, _ => native with { Abnormal25 = value } };
+                current = current with { NativeTacticRuntime = native };
+                staged = Stage(staged, current);
+            }
+            clear = new(native.Abnormal23, native.Abnormal24, native.Abnormal25, native.ProvocationOwner)
+                { OverrideTarget = ownerWrite };
+        }
+        else
+        {
+            IReadOnlyList<int>? bounds = readLegacyBounds?.Invoke();
+            if (bounds is not { Count: 3 } || bounds.Any(bound => bound < 0)) return null;
+        }
+        var effect = new PlayableTacticEffect(PlayableTacticEffectKind.ClearAbnormalStatuses, 0)
+            { NativeAbnormalAfter = clear };
+        current = ApplyReceipt(current, effect);
+        staged = Stage(staged, current);
+        //The native walker rereads this target-list node's Hex identity
+        //and appends its result marker at179F20. An omitted current marker
+        //receipt remains unknown; the pure native append has no RNG draw.
+        ulong? random = finish(staged, current);
+        return random is null ? null : new([effect], random.Value)
+            { ResourceStateAfter = ArmyOverrideTargetSourceAdapter.ReconcileOwner(staged, current).ResourceState };
+    }
+
     private TacticTargetResolution? ResolveInstruction(GameState state, UnitState caster, UnitState target,
         TacticSourceRow source, S14TacticEffectInstruction instruction,
         TacticEffectQueryResult<TacticAbnormalStrengthSourceInput>? qualifiedAbnormalStrength = null)
@@ -304,47 +350,9 @@ public sealed class TacticEffectSourceRules : ITacticRuleSource, IPlayableTactic
             return new([new(PlayableTacticEffectKind.MoraleChange, checked(after - target.Morale))], state.RandomState);
         }
         if (instruction.Opcode == 19)
-        {
-            UnitState current = target;
-            GameState staged = state;
-            NativeTacticAbnormalAssignment? clear = null;
-            if (current.NativeTacticRuntime is { } native)
-            {
-                //1780CF resets the former positive25 owner before its three
-                //fresh cap reads, then writes each counter before the next read.
-                ArmyOverrideTargetState? ownerWrite = native.Abnormal25 > 0 ? ArmyOverrideTargetState.Cleared : null;
-                native = native with { ProvocationOwner = native.Abnormal25 > 0 ? null : native.ProvocationOwner };
-                current = ArmyOverrideTargetWrites.Apply(current with { NativeTacticRuntime = native }, ownerWrite);
-                staged = Stage(staged, current);
-                for (int index = 0; index < 3; index++)
-                {
-                    int? bound = _context.ReadCurrentArmyAbnormalUpperBound(staged, current, index);
-                    if (bound is null) return null;
-                    byte value = bound < 0 ? unchecked((byte)bound.Value) : (byte)0;
-                    native = index switch { 0 => native with { Abnormal23 = value },
-                        1 => native with { Abnormal24 = value }, _ => native with { Abnormal25 = value } };
-                    current = current with { NativeTacticRuntime = native };
-                    staged = Stage(staged, current);
-                }
-                clear = new(native.Abnormal23, native.Abnormal24, native.Abnormal25, native.ProvocationOwner)
-                    { OverrideTarget = ownerWrite };
-            }
-            else
-            {
-                IReadOnlyList<int>? bounds = _context.ReadCurrentAbnormalUpperBounds(state, caster, target);
-                if (bounds is not { Count: 3 } || bounds.Any(bound => bound < 0)) return null;
-            }
-            var effect = new PlayableTacticEffect(PlayableTacticEffectKind.ClearAbnormalStatuses, 0)
-                { NativeAbnormalAfter = clear };
-            current = ApplyReceipt(current, effect);
-            staged = Stage(staged, current);
-            //The native walker rereads this target-list node's Hex identity
-            //and appends its result marker at179F20. An omitted current marker
-            //receipt remains unknown; the pure native append has no RNG draw.
-            ulong? random = _context.FinishArmyAbnormalClear(staged, caster, current, source, instruction);
-            return random is null ? null : new([effect], random.Value)
-                { ResourceStateAfter = ArmyOverrideTargetSourceAdapter.ReconcileOwner(staged, current).ResourceState };
-        }
+            return ResolveCapturedArmyClearTarget(state, target,
+                (staged, current) => _context.FinishArmyAbnormalClear(staged, caster, current, source, instruction),
+                () => _context.ReadCurrentAbnormalUpperBounds(state, caster, target));
         if (instruction.Opcode == 20)
         {
             if (target.WoundedTroops is null) return null;

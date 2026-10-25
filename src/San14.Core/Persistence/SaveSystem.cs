@@ -16,7 +16,7 @@ public sealed record SaveEnvelope(int SchemaVersion, string FormatId, GameState 
 /// <summary>Local save format. A future original-save adapter can implement ISaveCodec.</summary>
 public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
 {
-    public const int CurrentSchemaVersion = 179;
+    public const int CurrentSchemaVersion = 180;
     public string FormatId => "san14-remake-json-gzip";
     private readonly ILegacyOfficerAbilitySource? _legacyAbilitySource;
     private readonly ICampaignResourceStateCodec? _resourceStateCodec;
@@ -86,6 +86,9 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
         RulerDecisionSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         NormalCombatImmediateSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         DuelAftermathSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        BaseCaptureContinuationSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        BaseTacticPresentationSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        BaseCombatSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         CoalitionCameraPresentationSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         ICampaignResourceState? resourceState = null;
         if (document.ContainsKey("ResourceState"))
@@ -206,8 +209,11 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
         ArmyTraitFeedbackSaveFields.Migrate(stateDocument, version);
         PersonDeathPresentationSaveFields.Migrate(stateDocument, version);
         RulerDecisionSaveFields.Migrate(stateDocument, version);
+        BaseCombatSaveFields.Migrate(stateDocument, version);
         NormalCombatImmediateSaveFields.Migrate(stateDocument, version);
         DuelAftermathSaveFields.Migrate(stateDocument, version);
+        BaseCaptureContinuationSaveFields.Migrate(stateDocument, version);
+        BaseTacticPresentationSaveFields.Migrate(stateDocument, version);
         CoalitionCameraPresentationSaveFields.Migrate(stateDocument, version);
         AreaCitySaveFields.Migrate(stateDocument, version);
         DiplomacySaveFields.Migrate(stateDocument, version);

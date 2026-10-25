@@ -2,30 +2,36 @@ using San14.Core;
 
 namespace San14.Data;
 
-public enum PersonArmyInjuryOutcome { NativeSkip, NotInjured, Injured, CurrentInputsUnresolved }
+public enum PersonArmyInjuryOutcome { NativeSkip, NotInjured, Injured, CurrentInputsUnresolved, DeathRequired }
+public sealed record PersonArmyInjuryDeathRequest(int PersonPhysical, TransferPersonReference Killer, int Cause);
 public sealed record PersonArmyInjuryReceipt(int PersonId, int BeforeHealthStateId, int AfterHealthStateId,
     int? Sample, int? Probability, int WinnerEffect52, int OwnEffect2F, int TemporaryPersonalityCount,
     int? TemporaryDescriptor, bool PlayerDistrictNotice, int? ArmyNoticeKind, int? ArmyNoticePhysical);
 public sealed record PersonArmyInjuryResult(PersonArmyInjuryOutcome Outcome,
     PersonArmyInjuryReceipt? Receipt, string? UnresolvedOwner)
 {
-    //27D900's healthy injury branch returns null even when its health byte changes.
-    public int? NativeReturn => Outcome == PersonArmyInjuryOutcome.CurrentInputsUnresolved ? null : 0;
+    public PersonArmyInjuryDeathRequest? Death { get; init; }
+    //The nonlethal source returns0. A reached295EE0 must execute outside
+    //this numeric leaf before its actual return value becomes known.
+    public int? NativeReturn => Outcome is PersonArmyInjuryOutcome.CurrentInputsUnresolved
+        or PersonArmyInjuryOutcome.DeathRequired ? null : 0;
 }
 
 /// <summary>Ordinary type1 TC27D900 over the actual writable current context.
 /// It borrows the shared arena; the enclosing259360 publishes that arena once.
-/// Types2/3 share this operation and have no battle-death prefix. Unknown/death
-/// paths require the caller to discard its operation-local world.
-/// This is not a captivity or death callback and does not use a process.</summary>
+/// Types2/3 share its nonlethal branch. Ordinary severe injury returns a
+/// typed death request after releasing its temporary; the enclosing operation
+/// executes the shared death/continuation writer, retaining its native result.</summary>
 public static class PersonArmyInjurySource
 {
     private enum InjuryMode { OrdinaryBattle, ForcedCapture, Duel }
 
     public static PersonArmyInjuryResult Apply(GameState state, SourceWorldContext current,
         int personPhysical, TransferPersonReference winnerPerson, IEffectiveOfficerAbilities abilities,
-        TacticSourceSamplerWorld? samplerWorld)
-        => ApplyCore(state, current, personPhysical, winnerPerson, abilities, samplerWorld, InjuryMode.OrdinaryBattle);
+        TacticSourceSamplerWorld? samplerWorld, NativeMapSeasonDate? sourceDate = null,
+        bool suppressDeath = false)
+        => ApplyCore(state, current, personPhysical, winnerPerson, abilities, samplerWorld,
+            InjuryMode.OrdinaryBattle, sourceDate, suppressDeath);
 
     /// <summary>Actual27D900 type3. Its battle-death prefix is inapplicable;
     /// health2 can worsen to3, and an Army injury notice has kind13.</summary>
@@ -45,7 +51,8 @@ public static class PersonArmyInjurySource
 
     private static PersonArmyInjuryResult ApplyCore(GameState state, SourceWorldContext current,
         int personPhysical, TransferPersonReference winnerPerson, IEffectiveOfficerAbilities abilities,
-        TacticSourceSamplerWorld? samplerWorld, InjuryMode mode)
+        TacticSourceSamplerWorld? samplerWorld, InjuryMode mode,
+        NativeMapSeasonDate? sourceDate = null, bool suppressDeath = false)
     {
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(current);
         ArgumentNullException.ThrowIfNull(winnerPerson); ArgumentNullException.ThrowIfNull(abilities);
@@ -119,22 +126,93 @@ public static class PersonArmyInjurySource
                     return Unknown("current.Army_cached36_effect35");
                 if (immune) return Skip(id, health);
             }
-            //The original middle section can invoke the full295EE0 death and
-            //succession callback for severe injuries. This module owns no such
-            //callback; it must not report those receivers as a successful skip.
-            if (mode != InjuryMode.OrdinaryBattle)
+            if (health.StateId > 3) return Unknown("current.injury_health_identity");
+            if (SpecialInjuryCategory(current, personPhysical) is not bool special)
+                return Unknown("current.Person_232A50_or233240_special_category");
+            if (mode == InjuryMode.OrdinaryBattle && health.StateId is 2 or 3)
             {
-                //Only type1 enters the earlier death branch. Types2/3 really
-                //return unchanged at health3 AFTER the same trait temporary.
-                if (health.StateId == 3) return Skip(id, health);
-                if (health.StateId > 3) return Unknown(mode == InjuryMode.Duel
-                    ? "current.type3_health_identity" : "current.type2_health_identity");
+                //27DB27: normal frequency3 disables death. E58==0 instead
+                //uses the actual advanced death percent, independently of it.
+                bool advanced = selector == 0;
+                int? setting = advanced ? BattleRemakeCurrentSettings.ReadAdvancedParameter(state, 1) :
+                    BattleRemakeCurrentSettings.ReadBattleDeathFrequency(state);
+                if (setting is null) return Unknown("current.battle_death_setting");
+                bool deathEnabled = advanced ? setting.Value > 0 : setting.Value != 3;
+                if (deathEnabled && !special)
+                {
+                    if (current.ReadOwnedReturnPersonFlags(personPhysical) is not ushort flags)
+                        return Unknown("current.death_Person15E");
+                    if ((flags & 0x400) == 0)
+                    {
+                        bool lethal = health.StateId == 3;
+                        int? deathSample = null, deathProbability = null;
+                        int winningEffect = 0;
+                        if (!lethal)
+                        {
+                            if (samplerWorld is null || sourceDate is null)
+                                return Unknown("current.severe_death_World450_45C_and_operation_World38");
+                            deathSample = TacticEffectSourceSamplerMath.Sample(100, 1, id,
+                                sourceDate.Hour, 0, 0, samplerWorld);
+                            if (ArmyDestructionParameterSeed.ReadCurrent(state, SimulationParameterKeys.ArmyDestruction.BattleDeathBaseProbability) is not int basis ||
+                                ArmyDestructionParameterSeed.ReadCurrent(state, SimulationParameterKeys.ArmyDestruction.BattleDeathModeTwoPercent) is not int twice ||
+                                ArmyDestructionParameterSeed.ReadCurrent(state, SimulationParameterKeys.ArmyDestruction.BattleDeathModeZeroPercent) is not int low ||
+                                BattleRemakeCurrentSettings.ReadBattleDeathFrequency(state) is not int frequency ||
+                                current.ReadPersonStatus(personPhysical) is not byte status)
+                                return Unknown("current.severe_death_parameters_frequency_status");
+                            int percent = advanced ? 100 : frequency == 2 ? twice : frequency == 0 ? low : 100;
+                            int lethalChance = Math.Clamp(unchecked(percent * basis) / 100 / (status == 1 ? 2 : 1), 0, 100);
+                            if (winnerPerson.PhysicalSlot is int killerPhysical)
+                            {
+                                if (current.ReadPersonNativeValidity(killerPhysical) is not bool killerValid)
+                                    return Unknown("current.severe_death_killer_validity");
+                                if (killerValid)
+                                {
+                                    var winningArmy = PersonArmy(current, killerPhysical);
+                                    if (winningArmy is null || current.ReadArmyUnitNativeValidity(winningArmy) is not bool armyValid)
+                                        return Unknown("current.severe_death_killer_Army");
+                                    if (armyValid)
+                                    {
+                                        if (ArmyEffect(current, winningArmy, 0x52) is not int contribution)
+                                            return Unknown("current.severe_death_killer_effect52");
+                                        float effect = contribution;
+                                        winningEffect = effect > 0f ? unchecked((int)MathF.Max(1f, effect)) : 0;
+                                        lethalChance = unchecked(lethalChance + winningEffect);
+                                    }
+                                }
+                            }
+                            //No clamp follows effect52 or the advanced scale.
+                            if (advanced)
+                            {
+                                if (BattleRemakeCurrentSettings.ReadAdvancedParameter(state, 1) is not int scale)
+                                    return Unknown("current.severe_death_advanced_percent");
+                                lethalChance = unchecked(scale * lethalChance) / 100;
+                            }
+                            deathProbability = lethalChance;
+                            lethal = deathSample.Value < lethalChance;
+                        }
+                        //27DD37 tests argument4 only after the probability
+                        //draw. Morale-zero destruction sets this flag upstream.
+                        if (lethal && !suppressDeath)
+                        {
+                            bool killerValid = false;
+                            if (winnerPerson.PhysicalSlot is int killer)
+                            {
+                                if (current.ReadPersonNativeValidity(killer) is not bool validKiller)
+                                    return Unknown("current.death_killer_native_validity");
+                                killerValid = validKiller;
+                            }
+                            return new(PersonArmyInjuryOutcome.DeathRequired,
+                                new(id, health.StateId, health.StateId, deathSample, deathProbability,
+                                    winningEffect, 0, count, descriptor, false, null, null), null)
+                            { Death = new(personPhysical, winnerPerson, killerValid ? 1 : 0) };
+                        }
+                    }
+                }
             }
-            else if (!OfficerHealthRules.SupportsOrdinaryBattleInjury(health))
-                return Unknown("branch.health2_or3_death_and_severe_injury");
+            //Health3 has no further injury write, even if death was disabled,
+            //immune, failed or suppressed by the caller's real fourth argument.
+            if (health.StateId == 3) return Skip(id, health);
             if (samplerWorld is null) return Unknown("current.operation_World450_45C");
-            if (SpecialForce(current, personPhysical) is not bool special)
-                return Unknown("current.Person_232A50_special_force");
             bool healthy = !OfficerHealthRules.IsInjured(health);
             string baselineKey = special
                 ? healthy ? SimulationParameterKeys.ArmyDestruction.SpecialForceHealthyInjuryBase
@@ -157,9 +235,22 @@ public static class PersonArmyInjurySource
                 { [id] = person with { Health = health } } };
             if (ArmyDestructionParameterSeed.ReadCurrent(state, baselineKey) is not int baseline ||
                 ArmyDestructionParameterSeed.ReadCurrent(state, divisorKey) is not int divisor ||
-                divisor == 0 || abilities.Resolve(abilityState, id) is not { } effective)
-                return Unknown("current.healthy_injury_parameters_and_22FE40_abilities");
-            int probability = unchecked(baseline - Math.Max(effective.Intelligence, effective.Strength) / divisor);
+                divisor == 0)
+                return Unknown("current.injury_parameters");
+            int? intelligence, strength;
+            if (abilities is TacticRemakeCurrentAbilities actual)
+            {
+                intelligence = actual.ResolveDimension(abilityState, id, 2);
+                strength = actual.ResolveDimension(abilityState, id, 1);
+            }
+            else
+            {
+                var effective = abilities.Resolve(abilityState, id);
+                intelligence = effective?.Intelligence; strength = effective?.Strength;
+            }
+            if (intelligence is null || strength is null)
+                return Unknown("current.injury_22FE40_Intelligence_Strength");
+            int probability = unchecked(baseline - Math.Max(intelligence.Value, strength.Value) / divisor);
             if (BattleRemakeCurrentSettings.ReadSelectorE58(state) is not int difficultySelector ||
                 BattleRemakeCurrentSettings.ReadInt32(state, difficultySelector == 0 ? 0x134 : 0x28) is not int difficulty)
                 return Unknown("current.Environment_difficulty_3EB240");
@@ -208,9 +299,7 @@ public static class PersonArmyInjurySource
             probability = unchecked(probability - ownEffect + unchecked(winnerEffect * 3));
             int sample = TacticEffectSourceSamplerMath.Sample(100, 1, id, 0, 0, 0, samplerWorld);
             bool hit = sample < probability; //3FCA30: no clamp in the healthy branch.
-            OfficerHealth after = hit ? mode != InjuryMode.OrdinaryBattle
-                ? OfficerHealthRules.WorsenNonlethalBattleInjury(health)
-                : OfficerHealthRules.WorsenOrdinaryBattleInjury(health) : health;
+            OfficerHealth after = hit ? OfficerHealthRules.WorsenNonlethalBattleInjury(health) : health;
             bool playerNotice = false;
             if (hit)
             {
@@ -240,6 +329,17 @@ public static class PersonArmyInjurySource
         if (army is null || current.ReadArmyUnitCommanderId(army) is not ushort commander) return null;
         return commander == id ? army : current.ReadArmyUnitTableReference(0);
     }
+    private static bool? SpecialInjuryCategory(SourceWorldContext current, int physical)
+    {
+        bool? specialForce = SpecialForce(current, physical);
+        if (specialForce is null || specialForce == true) return specialForce;
+        if (current.ReadPersonIdentity(physical) is not ushort id) return null;
+        if (!BattleRemakeCurrentRegionFactor.IsNativeBandPerson(id)) return false;
+        if (current.ReadPersonFirstLocation(physical) is not ushort home) return null;
+        if (home is < 1 or > 61) return false;
+        return current.ReadPersonForce(physical)?.PhysicalSlot is int force ? force is not (>= 46 and <= 50) : null;
+    }
+
     private static bool? SpecialForce(SourceWorldContext current, int physical)
     {
         if (current.ReadPersonFirstLocation(physical) is not ushort home) return null;

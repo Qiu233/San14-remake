@@ -23,6 +23,7 @@ public sealed record NormalCombatImmediateContinuation(
     int PairIndex, ushort ReportWord20, int SampleDay, int SampleSalt)
 {
     public AutomaticTacticExecutionContinuation? AutomaticExecution { get; init; }
+    public BaseAutomaticTacticExecutionContinuation? BaseAutomaticExecution { get; init; }
 }
 
 public sealed partial record GameState
@@ -47,6 +48,26 @@ internal static class NormalCombatImmediateContinuationValidation
             value.Actors.IsDefault || value.OrderedPairs.IsDefaultOrEmpty || value.ArmyDescriptors is null ||
             value.PairIndex < 0 || value.PairIndex >= value.OrderedPairs.Length)
             throw new InvalidDataException("The immediate combat continuation has no matching phase or current pair.");
+        if (value.AutomaticExecution is not null && value.BaseAutomaticExecution is not null)
+            throw new InvalidDataException("A combat instruction cannot have both an Army and a Base caster.");
+        if (value.BaseAutomaticExecution is { } baseAutomatic)
+        {
+            if (value.OrderedPairs[value.PairIndex].Actor.Kind is not (5 or 6) ||
+                baseAutomatic.CasterBaseLocationId is < 1 or > 61 || baseAutomatic.GovernorOfficerId is < 0 or > 6000 ||
+                baseAutomatic.SourceForceId is < 0 or > 51 || baseAutomatic.SourceHexId is < 0 or > 48400 ||
+                baseAutomatic.TacticId is < 0 or > 200 || baseAutomatic.Instructions.IsDefault ||
+                baseAutomatic.InstructionIndex < 0 || baseAutomatic.InstructionIndex >= baseAutomatic.Instructions.Length ||
+                baseAutomatic.Instructions[baseAutomatic.InstructionIndex] is not { } instruction ||
+                instruction.Index != baseAutomatic.InstructionIndex || instruction.OrderedHexIds.IsDefault ||
+                baseAutomatic.TargetIndex < 0 || baseAutomatic.TargetIndex >= instruction.OrderedHexIds.Length ||
+                baseAutomatic.TargetUnitId <= 0 || baseAutomatic.TargetArmyPhysicalSlot < 0 ||
+                baseAutomatic.TargetReceiverId.Value <= 0 || baseAutomatic.TargetHexId is < 0 or > 48400 ||
+                instruction.Opcode is not (1 or 16) || (instruction.Opcode == 1) != (baseAutomatic.TroopPrefix is not null) ||
+                baseAutomatic.DamageContributions.IsDefault || baseAutomatic.Details.IsDefault ||
+                baseAutomatic.FirstInstructionResults.IsDefault || baseAutomatic.SecondInstructionResults.IsDefault ||
+                baseAutomatic.ArmyPresentationEffects.IsDefault)
+                throw new InvalidDataException("The Base automatic tactic has no matching instruction or target cursor.");
+        }
         if (value.AutomaticExecution is { } automatic)
         {
             if (automatic.CasterUnitId <= 0 || automatic.TacticId is < 0 or > 200 ||

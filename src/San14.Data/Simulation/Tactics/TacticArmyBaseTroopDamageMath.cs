@@ -30,6 +30,10 @@ internal static class TacticArmyBaseTroopDamageMath
 
     internal static int BeforeSettings(AutomaticArmyBaseTroopDamageMathInput input,
         float targetProvocationFactor)
+        => BeforeSettings(input, targetProvocationFactor, 1f);
+
+    internal static int BeforeSettings(AutomaticArmyBaseTroopDamageMathInput input,
+        float targetProvocationFactor, float sourceAdditive)
     {
         int ability = Math.Max(70, unchecked(input.SourceAbility + input.AbilityBaseline));
         double root = Math.Sqrt((double)(input.SourceTroops / input.TroopDivisor));
@@ -44,7 +48,7 @@ internal static class TacticArmyBaseTroopDamageMath
         value *= (float)input.ForcePercent;
         value /= 100f;
         value *= input.PanelFactor;
-        value += 1f;
+        value += sourceAdditive;
         return Truncate(value);
     }
     internal static int Advanced(int amount, int percent) => unchecked(amount * percent) / 100;

@@ -43,6 +43,7 @@ public sealed record TacticReportEntry(string Kind, int Period, int ForceId,
     PlayableTacticEffectKind? Effect = null, int Amount = 0,
     int? ExpiresAtPeriod = null, string? Reason = null)
 {
+    public int? SourceBaseLocationId { get; init; }
     public long? NativeUpdateOrdinal { get; init; }
     //A Base is never a Unit identity. Native result vectors retain their own
     //Hex snapshot; these optional fields do not acknowledge an animation.
@@ -95,6 +96,9 @@ public static class PlayableTacticStateValidation
                 entry.Period < 0 || entry.Period > checked(state.PeriodNumber + 1) ||
                 !state.Forces.ContainsKey(entry.ForceId) || entry.UnitId < 0 ||
                 !state.Officers.ContainsKey(entry.OfficerId) || !state.Tactics.ContainsKey(entry.TacticId) ||
+                entry.SourceBaseLocationId is < 1 or > 61 ||
+                entry.SourceBaseLocationId is int sourceBase &&
+                    (entry.UnitId != 0 || (sourceBase <= 51 ? !state.Cities.ContainsKey(sourceBase) : !state.Gates.ContainsKey(sourceBase))) ||
                 entry.TargetUnitId < 0 || entry.TargetBaseLocationId is < 1 or > 61 ||
                 entry.TargetUnitId is not null && entry.TargetBaseLocationId is not null ||
                 entry.TargetHexId is < 0 or >= 48400 || entry.InstructionIndex is < 0 or > 1 ||

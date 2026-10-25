@@ -19,6 +19,7 @@ public sealed record TacticResultPresentation(TacticResultTargetKind TargetKind,
 public sealed record TacticActorPresentation(ArmyReceiverId Actor, int TacticId,
     ManualTacticTarget? Target, int[][] InstructionArmyReceivers)
 {
+    public int? BaseCasterLocationId { get; init; }
     [JsonRequired] public TacticEffectPresentation[] Effects { get; init; } = [];
     /// <summary>When present, rows 0 and 1 retain all actual results in instruction order,
     /// including repeated targets. Null retains the legacy Army-only representation.</summary>
@@ -87,7 +88,9 @@ public sealed record ManualTacticInterventionState(ManualTacticRequest? Pending,
                 previous = request.Sequence;
                 foreach (var actor in request.Actors)
                 {
-                    if (actor is null || actor.Actor.Value < 1 || actor.TacticId is < 1 or > 200 ||
+                    if (actor is null || (actor.BaseCasterLocationId is int sourceBase
+                            ? sourceBase is < 1 or > 61 || actor.Actor.Value != 0 : actor.Actor.Value < 1) ||
+                        actor.TacticId is < 1 or > 200 ||
                         actor.InstructionArmyReceivers is not { Length: 2 } || actor.InstructionArmyReceivers.Any(x => x is null || x.Any(id => id < 1)) ||
                         actor.Effects is null || actor.Effects.Any(e => e is null || e.Instruction is < 0 or > 1 || e.Target.Value < 1 || !Enum.IsDefined(e.Kind)))
                         throw new InvalidDataException("Commanded tactic presentation actor is incomplete.");
@@ -127,7 +130,10 @@ public sealed record ManualTacticInterventionState(ManualTacticRequest? Pending,
             throw new InvalidDataException("Manual tactic actor is outside the saved campaign roster.");
         foreach (var actor in value.Effects.Concat(value.Directions).SelectMany(x => x.Actors))
         {
-            if (roster.Find(actor.Actor) is null || actor.InstructionArmyReceivers.SelectMany(x => x).Any(id => roster.Find(new(id)) is null))
+            if ((actor.BaseCasterLocationId is int sourceBase
+                    ? sourceBase <= 51 ? !state.Cities.ContainsKey(sourceBase) : !state.Gates.ContainsKey(sourceBase)
+                    : roster.Find(actor.Actor) is null) ||
+                actor.InstructionArmyReceivers.SelectMany(x => x).Any(id => roster.Find(new(id)) is null))
                 throw new InvalidDataException("Tactic presentation names a foreign campaign receiver.");
             if (actor.InstructionResults is not { } results) continue;
             foreach (var result in results.SelectMany(row => row))

@@ -174,12 +174,13 @@ internal sealed class UiSourceLayout
         return new(x * .5f, y * .5f);
     }
 
-    internal Control Art(Control parent, int index, Rect2 rectangle, UiAssets assets, Shader shader,
+    internal Control Art(CanvasItem parent, int index, Rect2 rectangle, UiAssets assets, Shader shader,
         MapCornerColors? colors = null, string? commonSpriteOverride = null, bool expansionCommonSprite = false,
-        UiSourceSprite.Blend blend = UiSourceSprite.Blend.Ordinary, string? commonTexturePack = null)
+        UiSourceSprite.Blend blend = UiSourceSprite.Blend.Ordinary, string? commonTexturePack = null,
+        bool localCoordinates = false)
     {
         var node = Nodes[index];
-        var transform=transforms[index];
+        var transform=localCoordinates ? Transform2D.Identity : transforms[index];
         bool projected = Math.Abs(transform.X.Y)>0.00001f||Math.Abs(transform.Y.X)>0.00001f;
         if(Math.Abs(node.HeaderValues[2])>0.00001f || projected && node.Type is not (1 or 3))
             throw new InvalidDataException($"UI art requires an unsupported projected transform: {node.Name}.");

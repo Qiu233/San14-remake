@@ -180,7 +180,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                             var reports = defeated.Receipts.Select(receipt => new NativeSubdayReport("field_destroyed",
                                 working.NativeClock!.UpdateOrdinal, receipt.UnitId, receipt.ForceId, receipt.PhysicalSlot));
                             working = working with { NativeSubdayReports = [.. working.NativeSubdayReports ?? [], .. reports] };
-                            if (working.ArmyDefeatContinuation is not null)
+                            if (working.ArmyDefeatContinuation is not null || working.BaseCaptureContinuation is not null)
                             {
                                 var suspendedPeriod = working.NativePeriodContinuation ?? throw PeriodMissing("stage25_preparation");
                                 var cursor = new NativePeriodCursor(cycle, stage, date, -1, -1,

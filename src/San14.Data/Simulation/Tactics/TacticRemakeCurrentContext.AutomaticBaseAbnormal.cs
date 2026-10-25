@@ -32,17 +32,30 @@ public sealed partial class TacticRemakeCurrentContext
         UnitState caster, BaseReference target, TacticSourceRow source,
         S14TacticEffectInstruction instruction, int stageOrdinal, int sourceHexAtInstructionStart,
         TacticSourceSamplerWorld? sampler)
+        => ApplyAutomaticBaseAbnormalCore(state, caster, null, target, source, instruction,
+            stageOrdinal, sourceHexAtInstructionStart, sampler);
+
+    //2EF210's target writer is shared; a real Base source contributes no
+    //Army trait98/99 or source-Army District. Its governor remains16D840's
+    //ability receiver and16F9A0's effect98 early-pass receiver.
+    private BaseTacticAbnormalApplication ApplyAutomaticBaseAbnormalCore(GameState state,
+        UnitState? caster, BaseReference? baseCaster, BaseReference target, TacticSourceRow source,
+        S14TacticEffectInstruction instruction, int stageOrdinal, int sourceHexAtInstructionStart,
+        TacticSourceSamplerWorld? sampler)
     {
         if (instruction.Opcode is not (2 or 3 or 4 or 23)) throw BaseAbnormalMissing("opcode");
         if (!Need(_definitions.ReadBaseNativeValidity(target), "Base_validity"))
             return Result(state, false, false, null, false, null, [], null, null);
-        if (!Bound(state) || ArmyValid(state, caster) != true ||
-            caster.NativeArmyOrigin?.NativeSlotIndex is not int casterSlot)
+        if (!Bound(state) || (baseCaster is null
+            ? caster is null || ArmyValid(state, caster) != true || caster.NativeArmyOrigin?.NativeSlotIndex is null
+            : !Need(_definitions.ReadBaseNativeValidity(baseCaster), "source_Base_validity")))
             throw BaseAbnormalMissing("current_caster");
         if (state.NativeArmySimulation!.Parameters.Language != "TC")
             throw BaseAbnormalMissing("SC_Base_gate_source_not_qualified");
-        var army = _definitions.ReadArmyUnitTableReference(casterSlot) ?? throw BaseAbnormalMissing("caster_pointer");
-        int commander = CommanderPhysical(state, caster) ?? throw BaseAbnormalMissing("caster_Commander");
+        var army = baseCaster is null ? _definitions.ReadArmyUnitTableReference(caster!.NativeArmyOrigin!.NativeSlotIndex!.Value)
+            ?? throw BaseAbnormalMissing("caster_pointer") : null;
+        int commander = baseCaster is null ? CommanderPhysical(state, caster!) ?? throw BaseAbnormalMissing("caster_Commander")
+            : OriginGovernor(baseCaster);
         bool early = Need(TacticRemakeCurrentTraits.CommanderHasEffect(_definitions, commander, 98), "caster_effect98");
         if (!early)
         {
@@ -53,13 +66,14 @@ public sealed partial class TacticRemakeCurrentContext
             //reads only the reached higher coefficient or lower denominator.
             int higherCoefficient = higher ? P(SimulationParameterKeys.Tactics.AbnormalGateHigherAbilityScale) : 0;
             int lowerDenominator = higher ? 1 : P(SimulationParameterKeys.Tactics.AbnormalGateLowerAbilityScale);
-            var traits = CasterTraits();
             var gate = new TacticEffectGateSourceInput(gateAbilities.Source, gateAbilities.Target,
                 baseline, higherCoefficient,
-                lowerDenominator, traits[99], P(SimulationParameterKeys.Tactics.AbnormalGateTraitRate));
+                lowerDenominator, baseCaster is null ? CasterTrait(99) : 0,
+                baseCaster is null ? P(SimulationParameterKeys.Tactics.AbnormalGateTraitRate) : 0);
             var tactic = _definitions.ReadSkillTacticReference(source.Slot) ?? throw BaseAbnormalMissing("current_Tactic_pointer");
             int tacticPhysical = Need(_definitions.ReadSkillTacticPhysicalSlot(tactic), "current_Tactic_physical");
-            int liveSource = HexPhysical(Need(_definitions.ReadArmyUnitRawHex2A(army), "caster_2A"));
+            int liveSource = baseCaster is null ? HexPhysical(Need(_definitions.ReadArmyUnitRawHex2A(army!), "caster_2A"))
+                : HexPhysical(_definitions.ReadBaseCurrentHexIndex(baseCaster));
             int targetHex = BaseHex();
             bool allowed = TacticEffectSourceGateMath.AllowsTc(gate, tacticPhysical, liveSource, targetHex, sampler)
                 ?? throw BaseAbnormalMissing("gate_sampler_World450_45C");
@@ -74,15 +88,21 @@ public sealed partial class TacticRemakeCurrentContext
         float factor = (float)unchecked(factorAbilities.Source - factorAbilities.Target) / (float)divisor;
         factor += 1f;
         factor = MathF.Max(factor, (float)P(SimulationParameterKeys.Tactics.EffectFactorFloorPercent) / 100f);
-        var runtime = caster.NativeTacticRuntime ?? throw BaseAbnormalMissing("caster_runtime");
-        int shared = runtime.Waiting21 != 0 ? 100 : P(runtime.Waiting22 == 0
-            ? SimulationParameterKeys.Tactics.Waiting0SharedFactorPercent : SimulationParameterKeys.Tactics.Waiting1SharedFactorPercent);
+        int shared = 100;
+        if (baseCaster is null)
+        {
+            var runtime = caster!.NativeTacticRuntime ?? throw BaseAbnormalMissing("caster_runtime");
+            shared = runtime.Waiting21 != 0 ? 100 : P(runtime.Waiting22 == 0
+                ? SimulationParameterKeys.Tactics.Waiting0SharedFactorPercent : SimulationParameterKeys.Tactics.Waiting1SharedFactorPercent);
+        }
         var scale = new TacticEffectScaleSourceInput(instruction.EffectValue, factor, stageOrdinal,
             P(SimulationParameterKeys.Tactics.EffectStageScale), (float)shared / 100f);
         int requested;
         if (instruction.Opcode == 23)
         {
-            int force = Need(_definitions.ReadForcePhysicalSlot(_definitions.ReadArmyUnitForceReference(army)), "caster_Force");
+            int force = baseCaster is null
+                ? Need(_definitions.ReadForcePhysicalSlot(_definitions.ReadArmyUnitForceReference(army!)), "caster_Force")
+                : Need(_definitions.ReadBaseForceSlot(baseCaster), "caster_Base_Force");
             byte flags = state.NativeArmySimulation.Forces.GetValueOrDefault(force)?.Flags193
                 ?? throw BaseAbnormalMissing("caster_Force193");
             int special = (flags & 4) != 0 ? P(SimulationParameterKeys.Tactics.SpecialForceEffectPercent) : 100;
@@ -135,7 +155,8 @@ public sealed partial class TacticRemakeCurrentContext
                 int generalPart = unchecked(general * P(SimulationParameterKeys.Tactics.AbnormalGeneralResistanceRate));
                 int specificPart = index == 1 ? 0 : unchecked(specific * P(index == 0
                     ? SimulationParameterKeys.Tactics.AbnormalType0ResistanceRate : SimulationParameterKeys.Tactics.AbnormalType2ResistanceRate));
-                int sourcePart = unchecked(CasterTraits()[98] * P(SimulationParameterKeys.Tactics.AbnormalSourceTraitRate));
+                int sourcePart = baseCaster is null
+                    ? unchecked(CasterTrait(98) * P(SimulationParameterKeys.Tactics.AbnormalSourceTraitRate)) : 0;
                 float change = (float)unchecked(unchecked(unchecked(generalPart + specificPart) + sourcePart) * requested);
                 change /= 100f;
                 traitAdjustment = MathF.Abs(change) >= TacticEffectSourceAbnormal.AdjustmentEpsilon;
@@ -189,7 +210,7 @@ public sealed partial class TacticRemakeCurrentContext
         {
             byte selector = FactorSelector(source) ?? throw BaseAbnormalMissing("current_factor_selector");
             int dimension = selector == 1 ? 1 : 2;
-            int sourceAbility = Ability(caster.OfficerId, dimension);
+            int sourceAbility = baseCaster is null ? Ability(caster!.OfficerId, dimension) : OriginAbility(state, baseCaster, dimension);
             var governor = Governor();
             //16E820's real invalid-governor result is literal50, with no ability query.
             int targetAbility = governor.Valid
@@ -206,8 +227,8 @@ public sealed partial class TacticRemakeCurrentContext
             var value = _abilities?.Resolve(state, id) ?? throw BaseAbnormalMissing("ability_provider");
             return consumedDimension == 1 ? value.Strength : value.Intelligence;
         }
-        int[] CasterTraits() => TacticRemakeCurrentTraits.ArmyContributions(_definitions, commander,
-            ArmyTraitSourceAdapter.Encode(state, caster)) ?? throw BaseAbnormalMissing("caster_traits");
+        int CasterTrait(int effect) => (TacticRemakeCurrentTraits.ArmyContributions(_definitions, commander,
+            ArmyTraitSourceAdapter.Encode(state, caster!)) ?? throw BaseAbnormalMissing("caster_traits"))[effect];
         (int Physical, bool Valid) Governor()
         {
             ushort raw = Need(_definitions.ReadArmyReturnBaseGovernor2E(target), "Base_governor2E");
@@ -239,6 +260,7 @@ public sealed partial class TacticRemakeCurrentContext
             var district = _definitions.ReadBaseDistrictReference(target) ?? throw BaseAbnormalMissing("target_notification_District");
             if (BaseCaptureRewardSource.ReadPlayerRulerDistrict(_definitions, district, BaseAbnormalMissing))
                 return Need(district.PhysicalSlot, "target_notification_District_identity");
+            if (baseCaster is not null) return null; //2EF210 param2 is actual null.
             byte raw = Need(_definitions.ReadPersonNativeValidity(commander), "source_notification_Person_validity")
                 ? Need(_definitions.ReadPersonDistrictSlot(commander), "source_notification_PersonE0") : (byte)0;
             district = _definitions.ReadDistrictTableReference(raw <= 51 ? raw : 0) ?? throw BaseAbnormalMissing("source_notification_District");

@@ -83,7 +83,7 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
             var destroyed = new HashSet<int>();
             // Read the current queue after every callback. A callback can append
             // another request which must settle in this same phase.
-            for (int cursor = working.ArmyDefeatContinuation?.SettlementIndex ?? 0; cursor < queue.Requests.Count; cursor++)
+            for (int cursor = working.ArmyDefeatContinuation?.SettlementIndex ?? working.BaseCaptureContinuation?.SettlementIndex ?? 0; cursor < queue.Requests.Count; cursor++)
             {
                 current.BindOwnedDestructionQueue(queue, working);
                 var request = queue.Requests[cursor];
@@ -91,19 +91,62 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                 if (request is BaseCaptureRequest capture)
                 {
                     var target = ArmyDestructionQueue.ResolveBaseReference(working, current, capture.Target);
-                    if (!Known(current.ReadBaseNativeValidity(target), "request_Base_validity")) continue;
+                    if (working.BaseCaptureContinuation is { } occupation)
+                    {
+                        if (occupation.SettlementIndex != cursor || occupation.Operation.Request != capture)
+                            throw Missing("Base_capture_settlement_cursor");
+                    }
+                    else if (!Known(current.ReadBaseNativeValidity(target), "request_Base_validity")) continue;
                     working = PublishCurrent(working, current, world.Pool, destroyed, queue);
+                    if (capture.WinnerUnitId is null && capture.WinnerDistrictId is not null)
+                    {
+                        //1745B0 also admits a genuine Base source's District.
+                        //Its2851B0 operation has no Army-return receipt.
+                        working = package.ApplyBaseWinnerCaptureCurrent(working, current, capture,
+                            sourceDate ?? throw Missing("Base_source_capture_date"),
+                            sampler ?? package.ReadArmyDestructionSampler(working, current)
+                                ?? throw Missing("Base_source_capture_sampler"), reportIntents,
+                            groups ?? package.CreateCaptureMapGroupingOwner());
+                        world = borrowedCurrent is null ? package.CaptureOwnedArmyReturnWorld(working)
+                            : package.BorrowOwnedArmyReturnWorld(working, borrowedCurrent, borrowedPool!);
+                        current = world.Context;
+                        destroyed.Clear();
+                        queue = current.OwnedDestructionQueue ?? throw Missing("current.Base_postcallback_settlements");
+                        continue;
+                    }
                     if (target.Kind == BaseKind.Gate)
                     {
                         var captured = new OwnedGateCaptureStage(package).TryApplyCurrent(working, current, capture, sourceDate, sampler, groups);
                         working = captured.State ?? throw Missing(captured.UnresolvedOwner ?? "Gate2851B0");
-                        captures.Add(captured.Receipt!); reports.AddRange(captured.Receipt!.Reports);
+                        if (working.BaseCaptureContinuation is null)
+                        {
+                            var completedCapture = captured.Receipt ?? throw Missing("Gate_capture_completed_receipt");
+                            captures.Add(completedCapture); reports.AddRange(completedCapture.Reports);
+                        }
                     }
                     else
                     {
                         var captured = new OwnedCityCaptureStage(package).TryApplyCurrent(working, current, capture, sourceDate, sampler, groups);
                         working = captured.State ?? throw Missing(captured.UnresolvedOwner ?? "City2851B0");
-                        cityCaptures.Add(captured.Receipt!); reports.AddRange(captured.Receipt!.Reports);
+                        if (working.BaseCaptureContinuation is null)
+                        {
+                            var completedCapture = captured.Receipt ?? throw Missing("City_capture_completed_receipt");
+                            cityCaptures.Add(completedCapture); reports.AddRange(completedCapture.Reports);
+                        }
+                    }
+                    if (working.BaseCaptureContinuation is { } pendingOccupation)
+                    {
+                        //The person prefix has released its temporary lists.
+                        //Publish its real current writes and this queue position,
+                        //without claiming the not-yet-executed territory tail.
+                        working = working with { BaseCaptureContinuation = pendingOccupation with { SettlementIndex = cursor } };
+                        working = BaseCapturePublicationSource.Publish(working, current, world.Pool, projectOwnedRoles: true);
+                        if (reportIntents.Count != 0)
+                            working = working with { CampaignEffectRequests = (working.CampaignEffectRequests
+                                ?? throw Missing("report_pending_owner")).Append(CampaignEffectSource.ArmyBattleDefeat,
+                                    working.NativeClock?.UpdateOrdinal ?? throw Missing("report_source_revision"), reportIntents) };
+                        return new(working, receipts, null) { BaseReceipts = captures.ToArray(), CityReceipts = cityCaptures.ToArray(),
+                            SourceReports = reports.ToArray() };
                     }
                     world = borrowedCurrent is null ? package.CaptureOwnedArmyReturnWorld(working)
                         : package.BorrowOwnedArmyReturnWorld(working, borrowedCurrent, borrowedPool!); current = world.Context;
@@ -255,12 +298,26 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
             {
                 var injury = forcedDuelCapture
                     ? PersonArmyInjurySource.ApplyForcedCapture(state, current, commander, winnerPerson, package.CreateArmyDestructionAbilities(current), sampler)
-                    : PersonArmyInjurySource.Apply(state, current, commander, winnerPerson, package.CreateArmyDestructionAbilities(current), sampler);
-                if (injury.NativeReturn is null) throw Missing(injury.UnresolvedOwner ?? "current.27D900");
+                    : PersonArmyInjurySource.Apply(state, current, commander, winnerPerson, package.CreateArmyDestructionAbilities(current), sampler,
+                        sourceDate, suppressDeath: Math.Min(Known(current.ReadArmyReturnResourceFields(victim)?.Morale1A,
+                            "injury_current_Army1A"), BasePostLoad.ReadMoraleUpper(current.ReadArmyUnitForceReference(victim), current)) == 0);
+                if (injury.Death is { } injuryDeath)
+                {
+                    var death = package.ApplyBattleInjuryDeathCurrent(state, current, pool, injuryDeath);
+                    state = death.State;
+                    if (death.NativeReturn is null)
+                    {
+                        if (!allowPlayerRulerPause) throw Missing("battle_injury_successor_immediate_stage_owner");
+                        return (state with { ArmyDefeatContinuation = Checkpoint(ArmyDefeatResumePoint.AfterPersonDeath) }, null);
+                    }
+                    if (death.NativeReturn != 0) return (state, null);
+                    effects.Add("259C32.battle_injury_death295EE0");
+                }
+                else if (injury.NativeReturn is null) throw Missing(injury.UnresolvedOwner ?? "current.27D900");
                 injuryReceipt = injury.Receipt;
             }
             if (!duelDeath)
-                effects.Add(forcedDuelCapture ? "259C32.forced_capture27D900_type2_current" : "259C32.ordinary27D900_healthy_current");
+                effects.Add(forcedDuelCapture ? "259C32.forced_capture27D900_type2_current" : "259C32.ordinary27D900_current");
         }
         var resource = ArmyDestructionResources.Prepare(state, current, victim, winner, winnerBase, captured);
         if (resource.Packet is null) throw Missing(resource.UnresolvedOwner ?? "current.resources259360");
@@ -281,7 +338,7 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         if (!forcedDuelCapture)
             state = CaptureMoraleDefeatReport(state, current, victim, winner, checked((ushort)hex), sampler, feedback);
         var wave = ArmyDestructionMoraleWave.Apply(state, current, victim,
-            new(new(commander), force, captured.WinnerForce, false), winner);
+            new(new(commander), force, captured.WinnerForce, false), winner, winnerBase);
         if (wave.EffectCount is null) throw Missing(wave.UnresolvedOwner ?? "current.ruler_morale_wave");
         effects.Add("25B1xx.current_rank_office_morale_wave");
         PersonArmyCaptureReceipt? captureReceipt = null;

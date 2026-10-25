@@ -25,7 +25,7 @@ internal partial class UiSourceParagraph : Control, IUiSourceDrawing
         // These are the ordinary 30D290 cells. Ruby, font switches and other
         // alignment modes need their own source consumers.
         if (profile.RawAlign is not (0 or 1) ||
-            profile.RawLineArrange != 1 || profile.WidthFitMode != 3 || profile.RawCharacterMode != 2)
+            profile.RawLineArrange != 1 || profile.WidthFitMode is not (0 or 3) || profile.RawCharacterMode != 2)
             throw new InvalidDataException("Unsupported ordinary source paragraph profile.");
         font = sourceFont; original = profile; fitted = profile;
         MouseFilter = MouseFilterEnum.Ignore; SetNotifyTransform(true);

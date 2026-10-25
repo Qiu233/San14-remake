@@ -68,6 +68,17 @@ internal partial class UiSourceRoundButton : UiSourceButton
         SetMeta("source_style",10);
     }
 
+    internal void ConfigureCollectionAppreciation(GameResourceRepository repository, UiAssets assets, Shader shader,
+        string locale, Action pressed)
+    {
+        string language = locale switch { "TC" => "tw", "SC" => "ch",
+            _ => throw new NotSupportedException($"UI artwork locale {locale} is not supported.") };
+        var declared = new LocalizedUiSpriteSource(repository).LoadTexturePackSprite(
+            $"texture_ce_lang_{language}", $"{language}_000_cmn_txt_kansho");
+        ConfigureSource(repository, assets, shader, 0xAD4A3EFA, declared, pressed, UiAudioCue.ButtonSelect);
+        SetMeta("source_caption", 15);
+    }
+
     internal void ConfigureDiplomaticReply(GameResourceRepository repository, UiAssets assets, Shader shader,
         string locale, bool accepted, Action pressed)
     {

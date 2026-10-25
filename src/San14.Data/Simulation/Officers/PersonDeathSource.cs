@@ -39,14 +39,14 @@ public sealed partial class ArmyCampaignRuleAdapter
         internal (GameState State, int? NativeReturn) ApplyAnnualOrdinary(int person)
             => ApplyOrdinary(person);
 
-        /// <summary>295EE0's cause1/2 caller, with its actual second Person
+        /// <summary>295EE0's ordinary battle, duel or execution caller, with its actual second Person
         /// receiver. The duel caller already owns Army destruction (argument4=0).
         /// Execution has argument4=1 and retains the ordinary associated-Army gate.</summary>
         internal (GameState State, int? NativeReturn) ApplyCombatDeath(int person,
             TransferPersonReference killingPerson, int cause, bool destroyAssociatedArmy,
             bool report = true, bool history = true, bool suppressReports = false)
         {
-            if (cause is not (1 or 2)) throw new ArgumentOutOfRangeException(nameof(cause));
+            if (cause is not (0 or 1 or 2)) throw new ArgumentOutOfRangeException(nameof(cause));
             deathCause = cause;
             killer = killingPerson;
             retireAssociatedArmy = destroyAssociatedArmy;

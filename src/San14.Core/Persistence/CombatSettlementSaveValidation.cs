@@ -16,7 +16,9 @@ internal static class CombatSettlementSaveValidation
                         unit.WinnerUnitId is > 0 && unit.WinnerBase is null):
                     if (unit.WinnerBase is { } target) ValidateBase(target);
                     break;
-                case BaseCaptureRequest capture when capture.WinnerUnitId is null or > 0:
+                case BaseCaptureRequest capture when (capture.WinnerUnitId is null or > 0) &&
+                    (capture.WinnerDistrictId is null or >= 0 and <= 51) &&
+                    !(capture.WinnerUnitId is not null && capture.WinnerDistrictId is not null):
                     ValidateBase(capture.Target);
                     break;
                 case ExpiredCombatSettlement:

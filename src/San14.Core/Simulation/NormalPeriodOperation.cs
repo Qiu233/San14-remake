@@ -13,7 +13,7 @@ public sealed record NormalPeriodOperation(GameState Candidate)
             is not { AwaitingNegotiation: true, NativeKind: not 6 };
 
     public CapturedRulerTreatmentRequest? PendingCapturedRulerTreatment =>
-        Candidate.ArmyDefeatContinuation?.PendingCapturedRulerTreatment;
+        Candidate.ArmyDefeatContinuation?.PendingCapturedRulerTreatment ?? Candidate.BaseCaptureContinuation?.PendingCapturedRulerTreatment;
 
     public RulerSuccessionRequest? PendingRulerSuccession =>
         Candidate.PersonDeathContinuation?.PendingSuccession;
@@ -21,6 +21,11 @@ public sealed record NormalPeriodOperation(GameState Candidate)
     public bool RequiresAutomaticArmyDefeatContinuation =>
         Candidate.NativePeriodContinuation?.Cursor is { StageIndex: 5 or 13 or 25 } &&
         Candidate.ArmyDefeatContinuation is not null &&
+        PendingCapturedRulerTreatment is null && PendingRulerSuccession is null;
+
+    public bool RequiresAutomaticBaseCaptureContinuation =>
+        Candidate.NativePeriodContinuation?.Cursor is { StageIndex: 25 } &&
+        Candidate.BaseCaptureContinuation is not null &&
         PendingCapturedRulerTreatment is null && PendingRulerSuccession is null;
 
     public SelfRecommendationRequest? PendingSelfRecommendation =>
@@ -80,7 +85,7 @@ public sealed record NormalPeriodOperation(GameState Candidate)
         if (Candidate.NativePeriodContinuation.Cursor is not { } cursor ||
             cursor.StageIndex is not (0 or 5 or 13 or 25) || cursor.CycleIndex is < 0 or > 2 ||
             cursor.StageIndex == 0 && (cursor.Date.Hour != 8 || cursor.PersonnelAfterSlot < 0 || cursor.AwaitingDiplomacyTaskId < 0) ||
-            cursor.StageIndex == 25 && Candidate.ArmyDefeatContinuation is null ||
+            cursor.StageIndex == 25 && Candidate.ArmyDefeatContinuation is null && Candidate.BaseCaptureContinuation is null ||
             cursor.StageIndex == 5 && (Candidate.DuelAftermathContinuation is null || Candidate.ArmyDefeatContinuation is null) ||
             cursor.StageIndex == 13 && (Candidate.NormalCombatImmediateContinuation is null || Candidate.ArmyDefeatContinuation is null) ||
             Candidate.NativeMapSeason is not { } season ||

@@ -8,6 +8,7 @@ internal static class NormalCombatImmediateSaveFields
 
     internal static void RejectLegacyFields(JsonObject state, int version)
     {
+        BaseAutomaticTacticExecutionSaveFields.RejectLegacyFields(state, version);
         AutomaticTacticExecutionSaveFields.RejectLegacyFields(state, version);
         //Earlier snapshots already retained Base descriptors elsewhere in the
         //mixed list. Only their current paused pair was restricted to Army/Army.
@@ -48,6 +49,7 @@ internal static class NormalCombatImmediateSaveFields
             !Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 13, 13) ||
             !Integer(state["ArmyDefeatContinuation"]?["SettlementIndex"], -1, -1)) Invalid();
         AutomaticTacticExecutionSaveFields.Migrate((JsonObject)node, version);
+        BaseAutomaticTacticExecutionSaveFields.Migrate((JsonObject)node, version);
     }
 
     private static bool Participant(JsonNode? node) => node is JsonObject value &&

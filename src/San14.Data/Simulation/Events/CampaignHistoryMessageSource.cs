@@ -12,7 +12,7 @@ internal sealed record HistoryMessageOperands(ArmyUnitReference? Army0 = null, A
     int? Person2 = null, int? Person3 = null, int? Force1 = null, int? Person4 = null, int? District0 = null,
     int? Force2 = null, int? Force3 = null, int? Force4 = null,
     int? ObjectDefinition0 = null, int? ObjectDefinition1 = null,
-    ushort? Base1 = null, ushort? Base2 = null, ushort? Base3 = null, ushort? Base4 = null);
+    ushort? Base1 = null, ushort? Base2 = null, ushort? Base3 = null, ushort? Base4 = null, string? String3 = null);
 internal sealed record HistoryTextResult(GameState State, string Text)
 {
     public IReadOnlyList<NarrationVoiceRequest> Voices { get; init; } = [];
@@ -382,7 +382,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             return CityDomesticMessageFormatting.FormatPersonNameField(package.ReadHistoryArmyName(latest(), current, looked));
         }
         private string String(int a) => (a switch { 0 => operands.String0, 1 => operands.String1, 2 => operands.String2,
-            _ => null }) ?? throw HistoryMissing("String_argument");
+            3 => operands.String3, _ => null }) ?? throw HistoryMissing("String_argument");
         public string StringText(int a, int f)
         {
             string value = HeadHistory(String(a));

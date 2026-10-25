@@ -3,7 +3,10 @@ using San14.Core;
 namespace San14.Data;
 
 internal sealed record BorrowedMixedPairApplication(GameState State, ushort? SuspendedWord20 = null,
-    AutomaticTacticExecutionContinuation? AutomaticExecution = null);
+    AutomaticTacticExecutionContinuation? AutomaticExecution = null)
+{
+    internal BaseAutomaticTacticExecutionContinuation? BaseAutomaticExecution { get; init; }
+}
 
 public sealed partial class ArmyCampaignRuleAdapter
 {

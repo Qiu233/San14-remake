@@ -11,7 +11,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     internal GameState ApplyAutomaticArmyAbnormalReport(GameState state, SourceWorldContext current,
         UnitState? caster, UnitState target, int districtSlot, int nativeIndex, int causeCode,
         string actualTacticName, Func<int> readWorldTime450, List<CampaignEffectRequest> effects,
-        bool baseCaptureMode = false)
+        bool baseCaptureMode = false, bool suppressAppliedNotice = false, bool combinedAttribution = false)
     {
         ArgumentNullException.ThrowIfNull(actualTacticName);
         ArgumentNullException.ThrowIfNull(readWorldTime450);
@@ -37,9 +37,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         //The source Army tactic's actual name pointer is supplied even if
         //its text is empty; do not replace it with an Object/facility name.
-        if (baseCaptureMode)
+        if (baseCaptureMode && !suppressAppliedNotice)
             Add(0x5F5E, 5, new(Army0: targetArmy));
-        else
+        else if (!suppressAppliedNotice)
             Add(0x3225, 5, new(Army0: targetArmy, String0: actualTacticName, String1: Phrase(nativeIndex)));
         if (causeCode is not (9 or 10 or 11 or 12 or 98)) return working;
         PersonalityReference? selectedTrait = null;
@@ -98,8 +98,11 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         string statusPhrase = Phrase(causeCode is 9 or 98 ? nativeIndex : causeCode - 10);
         string sign = ReadHistoryDataText(1, selectedValue > 0 ? 0x4BA : 0x4B9);
-        Add(0x322D, 0, new(Army0: targetArmy,
-            String0: current.ReadPersonalityName(selectedTrait), String1: statusPhrase, String2: sign));
+        if (combinedAttribution && causeCode is 9 or 98)
+            Add(0x322C, 0, new(Army0: targetArmy, String0: current.ReadPersonalityName(selectedTrait), String1: sign));
+        else
+            Add(0x322D, 0, new(Army0: targetArmy,
+                String0: current.ReadPersonalityName(selectedTrait), String1: statusPhrase, String2: sign));
         return working;
 
         void Add(int root, int category, HistoryMessageOperands operands)

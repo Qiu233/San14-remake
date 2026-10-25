@@ -628,6 +628,15 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                     return RetainSuspendedMixedPair(nextPairIndex, word20, resumedPair.AutomaticExecution);
             }
             else if (interrupted.Actor.Kind is 5 or 6 && interrupted.Target.Kind == 27 &&
+                retainedCombat.BaseAutomaticExecution is { } sourceBaseAutomatic)
+            {
+                var resumedPair = ResumeBorrowedBaseArmyPairAfterAutomatic(working, current, interrupted,
+                    retainedCombat.ReportWord20, sourceBaseAutomatic, sampler, date, revision, effects);
+                working = resumedPair.State;
+                if (resumedPair.SuspendedWord20 is ushort word20)
+                    return RetainSuspendedMixedPair(nextPairIndex, word20, null, resumedPair.BaseAutomaticExecution);
+            }
+            else if (interrupted.Actor.Kind is 5 or 6 && interrupted.Target.Kind == 27 &&
                 retainedCombat.AutomaticExecution is null)
                 working = CompleteBorrowedBaseArmyPairTail(working, current, interrupted,
                     retainedCombat.ReportWord20, sampler, effects);
@@ -697,7 +706,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                     baseDivisor, sourceQueries, sampler, date, revision, effects);
                 working = appliedBase.State;
                 if (appliedBase.SuspendedWord20 is ushort word20)
-                    return RetainSuspendedMixedPair(mixedPairIndex, word20, appliedBase.AutomaticExecution);
+                    return RetainSuspendedMixedPair(mixedPairIndex, word20, appliedBase.AutomaticExecution, appliedBase.BaseAutomaticExecution);
             }
             else if (pair.Actor.Kind == 27 && pair.Target.Kind is 5 or 6)
             {
@@ -707,7 +716,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                     baseDivisor, sourceQueries, sampler, date, revision, effects);
                 working = appliedBase.State;
                 if (appliedBase.SuspendedWord20 is ushort word20)
-                    return RetainSuspendedMixedPair(mixedPairIndex, word20, appliedBase.AutomaticExecution);
+                    return RetainSuspendedMixedPair(mixedPairIndex, word20, appliedBase.AutomaticExecution, appliedBase.BaseAutomaticExecution);
             }
             else
             {
@@ -733,7 +742,8 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         }
 
         GameState RetainSuspendedMixedPair(int mixedPairIndex, ushort word20,
-            AutomaticTacticExecutionContinuation? automaticExecution)
+            AutomaticTacticExecutionContinuation? automaticExecution,
+            BaseAutomaticTacticExecutionContinuation? baseAutomaticExecution = null)
         {
             var retained = retainedCombat is null
                 ? CaptureImmediateCombatContinuation(state, projection, descriptors, mixedPairIndex, word20,
@@ -741,7 +751,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                 : ContinueImmediateCombatSnapshot(retainedCombat, mixedPairIndex, word20);
             working = FlushNormalCombatEffects(working, revision, effects);
             return working with { NormalCombatImmediateContinuation = retained with
-                { AutomaticExecution = automaticExecution } };
+                { AutomaticExecution = automaticExecution, BaseAutomaticExecution = baseAutomaticExecution } };
         }
     }
 

@@ -4,7 +4,9 @@ public partial class Main
 {
     private CollectionMenuView? _collectionMenu;
     private MusicSelectionView? _collectionMusic;
+    private CollectionCatalogView? _collectionCatalog;
     private bool HasCollectionMenu => _collectionMenu is not null;
+    private bool HasCollectionChild => _collectionMusic is not null || _collectionCatalog is not null;
 
     private void OpenCollectionMenu()
     {
@@ -13,13 +15,15 @@ public partial class Main
         var view = new CollectionMenuView(); _collectionMenu = view; AddChild(view); title.Hide();
         try
         {
-            view.Configure(_repository, _ui, [true, false, false, false, false, false, false],
-                () => !_failed && !_shuttingDown && _collectionMenu == view && _collectionMusic is null,
+            view.Configure(_repository, _ui, [true, false, false, false, false, true, true],
+                () => !_failed && !_shuttingDown && _collectionMenu == view && !HasCollectionChild,
                 () => RunUiAction(() => CloseCollectionMenu()),
                 command => RunUiAction(() =>
                 {
-                    if (_collectionMenu != view || _collectionMusic is not null) return;
+                    if (_collectionMenu != view || HasCollectionChild) return;
                     if (command == CollectionMenuCommand.Music) OpenCollectionMusic();
+                    else if (command == CollectionMenuCommand.Poems) OpenCollectionCatalog(CollectionCatalogKind.Poems);
+                    else if (command == CollectionMenuCommand.Scenery) OpenCollectionCatalog(CollectionCatalogKind.Scenery);
                 }));
         }
         catch { CloseCollectionMenu(); throw; }
@@ -28,6 +32,7 @@ public partial class Main
     private void CloseCollectionMenu(bool resumeTitle = true)
     {
         CloseCollectionMusic(restore: resumeTitle);
+        CloseCollectionCatalog(restoreMenu: false);
         var view = _collectionMenu; _collectionMenu = null;
         if (view is not null) { view.Abandon(); view.QueueFree(); }
         if (resumeTitle) ResumeTitleMenu();
@@ -35,7 +40,8 @@ public partial class Main
 
     private void RequestCollectionBack()
     {
-        if (_collectionMusic is { } music) music.RequestBack();
+        if (_collectionCatalog is { } catalog) catalog.RequestBack();
+        else if (_collectionMusic is { } music) music.RequestBack();
         else _collectionMenu?.RequestBack();
     }
 }

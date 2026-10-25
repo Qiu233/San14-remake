@@ -84,7 +84,8 @@ public partial class Main
         }
         if (pending.PendingStory is not null)
             return TryOpenStoryPresentation(session, pending, composition, map);
-        if (!pending.RequiresAutomaticNormalTurnContinuation && !pending.RequiresAutomaticArmyDefeatContinuation) return false;
+        if (!pending.RequiresAutomaticNormalTurnContinuation && !pending.RequiresAutomaticArmyDefeatContinuation &&
+            !pending.RequiresAutomaticBaseCaptureContinuation) return false;
         // A failed worker must not immediately retry the same immutable
         // operation through the refresh path. The normal Advance remains
         // available for an explicit retry after its cause has been resolved.

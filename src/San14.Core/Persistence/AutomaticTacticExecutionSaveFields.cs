@@ -38,13 +38,13 @@ internal static class AutomaticTacticExecutionSaveFields
             (opcode == 16) != (value["MoralePrefix"] is not null)) throw Invalid();
     }
 
-    private static bool Instruction(JsonNode? node, int index) => node is JsonObject value &&
+    internal static bool Instruction(JsonNode? node, int index) => node is JsonObject value &&
         I(value, "Index", index, index) && I(value, "Opcode", 0, byte.MaxValue) &&
         I(value, "Raw64", 0, byte.MaxValue) && I(value, "EffectValue", 0, byte.MaxValue) &&
         I(value, "Raw68", 0, byte.MaxValue) && value["OrderedHexIds"] is JsonArray hexes &&
         hexes.All(hex => Integer(hex, 0, 48400));
 
-    private static bool Damage(JsonNode? node) => node is JsonObject value &&
+    internal static bool Damage(JsonNode? node) => node is JsonObject value &&
         (I(value, "Kind", 5, 6) || I(value, "Kind", 27, 27)) &&
         I(value, "PhysicalSlot", 0) && I(value, "RequestedLoss");
 
@@ -56,7 +56,7 @@ internal static class AutomaticTacticExecutionSaveFields
         I(value, "SourceArmyPhysicalSlot", 0) && I(value, "SourceHexId", 0, 48400) &&
         Float(value, "StageFactor") && Float(value, "WaitingFactor");
 
-    private static bool Detail(JsonNode? node) => node is JsonObject value && Text(value, "Kind") &&
+    internal static bool Detail(JsonNode? node) => node is JsonObject value && Text(value, "Kind") &&
         I(value, "Period") && I(value, "ForceId") && I(value, "UnitId") && I(value, "OfficerId") &&
         I(value, "TacticId") && NI(value, "TargetUnitId") && NI(value, "ExpiresAtPeriod") &&
         Nullable(value, "Effect", EnumValue<PlayableTacticEffectKind>) && I(value, "Amount") &&
@@ -64,11 +64,11 @@ internal static class AutomaticTacticExecutionSaveFields
         Nullable(value, "NativeUpdateOrdinal", node => node is JsonValue ordinal && ordinal.TryGetValue<long>(out _)) &&
         NI(value, "TargetBaseLocationId") && NI(value, "TargetHexId") && NI(value, "InstructionIndex");
 
-    private static bool Result(JsonNode? node) => node is JsonObject value &&
+    internal static bool Result(JsonNode? node) => node is JsonObject value &&
         EnumValue<TacticResultTargetKind>(value["TargetKind"]) && I(value, "TargetId", 1) &&
         I(value, "HexId", 0, 48400) && I(value, "Amount", 0, ushort.MaxValue);
 
-    private static bool Effect(JsonNode? node) => node is JsonObject value &&
+    internal static bool Effect(JsonNode? node) => node is JsonObject value &&
         I(value, "Instruction", 0, 1) && Receiver(value["Target"]) &&
         EnumValue<PlayableTacticEffectKind>(value["Kind"]) && I(value, "Amount") &&
         Nullable(value, "Healing", node => node is JsonObject healing &&
@@ -96,7 +96,7 @@ internal static class AutomaticTacticExecutionSaveFields
     private static bool I(JsonObject value, string key, int min = int.MinValue, int max = int.MaxValue) => Integer(value[key], min, max);
     private static bool Integer(JsonNode? node, int min, int max) => node is JsonValue scalar &&
         scalar.TryGetValue<int>(out int number) && number >= min && number <= max;
-    private static bool Receiver(JsonNode? node) => node is JsonObject value && I(value, "Value", 1);
+    internal static bool Receiver(JsonNode? node) => node is JsonObject value && I(value, "Value", 1);
     private static bool Text(JsonObject value, string key) => value[key] is JsonValue scalar && scalar.TryGetValue<string>(out _);
     private static bool Float(JsonObject value, string key) => value[key] is JsonValue scalar &&
         scalar.TryGetValue<float>(out float number) && float.IsFinite(number);
